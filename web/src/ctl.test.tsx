@@ -88,3 +88,15 @@ test("tone sets the bad or go class", async () => {
     assert.equal(button.classList.contains("bad"), false);
   });
 });
+
+test("expanded sets aria-expanded for a control that opens something", async () => {
+  await withCtl({ label: "More", icon: "more", only: true, expanded: true }, async (button) => {
+    assert.equal(button.getAttribute("aria-expanded"), "true");
+  });
+  await withCtl({ label: "More", icon: "more", only: true, expanded: false }, async (button) => {
+    assert.equal(button.getAttribute("aria-expanded"), "false");
+  });
+  await withCtl({ label: "Resume" }, async (button) => {
+    assert.equal(button.hasAttribute("aria-expanded"), false);
+  });
+});

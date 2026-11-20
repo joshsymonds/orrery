@@ -84,7 +84,10 @@ export function rowFacts(row: Row, conversation: Conversation | null, interrupti
   };
 }
 
-export function stepFacts(step: StepItem, conversation: Conversation | null): DockFacts {
+export function stepFacts(
+  step: Pick<StepItem, "label" | "held" | "started">,
+  conversation: Conversation | null,
+): DockFacts {
   return {
     kind: "step",
     name: step.label,

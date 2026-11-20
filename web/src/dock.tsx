@@ -14,9 +14,9 @@ import {
 } from "./dockwords";
 import { useFlash } from "./flash";
 import type { ConversationItem, PendingEvent, QueuedMessage, WaitingMessage } from "./gen/orrery/v1/orrery_pb";
+import { outcomeOf } from "./refusal";
 import { sendNow } from "./sendnow";
 import { type Sending, type SentText, promptHeld, sameText, withoutTexts } from "./sending";
-import { outcomeOf } from "./stepbox";
 import { ReplyText } from "./text";
 
 // deskQuery holds at a desk width. Narrower than it, the dock says its short queue prompt.
@@ -81,6 +81,10 @@ export interface DockHandle {
 // outcome is unknown keeps the draft and shows its note. Up in an empty box pulls the newest queued text back. In an
 // empty box with no modifier held, Page Up and Page Down go to onPage, and / goes to onFind.
 //
+// With stepCalls the dock is a step's box: its send nudges the step, its Interrupt holds it, and More opens the
+// question Stop {label}? before Stop calls the step's stop. A nudge keeps its draft when it fails, and its outcome
+// shows on the line under the box as the step's own words.
+//
 // The tray draws under the state line, under one head that counts its rows, oldest first: the conversation's waiting
 // messages, then the session's queued messages, then the messages this dock sent while the conversation was working,
 // except those the session queue carries under their prompt id, then the session's discarded messages. A row's words
@@ -112,6 +116,7 @@ export function Dock(props: {
   pending?: PendingEvent[]; // the session's pending events, for the waits line
   about?: string; // what the message is about; no about line when absent
   onClearAbout?: () => void; // Not about this: the about line is cleared, and this is called
+  stepCalls?: { hold: () => Promise<void>; stop: () => Promise<void> }; // a step's hold and stop; its send nudges it
 }): JSX.Element {
   const {
     facts,
@@ -135,6 +140,7 @@ export function Dock(props: {
     pending = noEvents,
     about,
     onClearAbout,
+    stepCalls,
   } = props;
   const { state } = facts;
   const line = stateLine(facts, now);
@@ -156,6 +162,10 @@ export function Dock(props: {
   // The about text Not about this cleared. The about line is drawn again only for a different about.
   const [aboutCleared, setAboutCleared] = useState<string | null>(null);
   const [focused, setFocused] = useState(false);
+  // Whether a step's Stop question is open: its More pressed, and not yet confirmed or kept.
+  const [stopOpen, setStopOpen] = useState(false);
+  // The text of a step's nudge whose outcome is not known. Enter does not send it again until the text changes.
+  const unknownText = useRef<string | null>(null);
   const inFlight = useRef(false);
   const failed = useRef<FailedSend | null>(null);
   const [flashing, flash] = useFlash();
@@ -213,7 +223,69 @@ export function Dock(props: {
     }
   }
 
+  // clearLines drops the outcome lines a new call draws over.
+  function clearLines(): void {
+    setError("");
+    setNote("");
+  }
+
+  // stepFailed shows a step call's failure: a refusal with its message, and any other failure as its unknown line.
+  function stepFailed(failure: unknown, refused: string, unknownLine: string): void {
+    const outcome = outcomeOf(failure);
+    setError(outcome.outcome === "refused" ? `${refused}: ${outcome.message}` : unknownLine);
+  }
+
+  // nudgeStep sends a step's text as a nudge, once. A refused nudge keeps the draft. A nudge whose outcome is unknown
+  // keeps it too, and Enter sends that text no more until it changes.
+  async function nudgeStep(): Promise<void> {
+    if (inFlight.current || text.trim() === "" || text === unknownText.current) {
+      return;
+    }
+    const sent = text;
+    inFlight.current = true;
+    clearLines();
+    try {
+      await send(sent, newPromptId());
+      unknownText.current = null;
+      // Text typed while the nudge was in flight stays in the box.
+      setText((current) => (current === sent ? "" : current));
+      setNote("nudge landed");
+    } catch (failure) {
+      unknownText.current = outcomeOf(failure).outcome === "unknown" ? sent : null;
+      stepFailed(failure, "nudge refused", "nudge not known: it may have landed; nothing was resent");
+    } finally {
+      inFlight.current = false;
+    }
+  }
+
+  // holdStep holds a step and shows its landed line, or its failure.
+  async function holdStep(hold: () => Promise<void>): Promise<void> {
+    clearLines();
+    try {
+      await hold();
+      setNote("interrupt landed");
+    } catch (failure) {
+      stepFailed(failure, "interrupt refused", "interrupt not known");
+    }
+  }
+
+  // stopStep closes the Stop question and stops a step, showing its stopped line, or its failure.
+  async function stopStep(stop: () => Promise<void>): Promise<void> {
+    setStopOpen(false);
+    clearLines();
+    try {
+      await stop();
+      setNote("stopped");
+    } catch (failure) {
+      stepFailed(failure, "stop refused", "stop not known");
+    }
+  }
+
   async function submit(): Promise<void> {
+    if (stepCalls !== undefined) {
+      await nudgeStep();
+      return;
+    }
     if (inFlight.current || text.trim() === "") {
       return;
     }
@@ -414,12 +486,34 @@ export function Dock(props: {
           )}
           {line.clock !== "" && <span class="clock">{line.clock}</span>}
           <span class="end">
-            {line.control === "interrupt" && onInterrupt !== undefined && (
-              <Ctl label="Interrupt" icon="stop" tone="bad" kbd="esc" onClick={onInterrupt} />
+            {line.control === "interrupt" && (stepCalls !== undefined || onInterrupt !== undefined) && (
+              <Ctl
+                label="Interrupt"
+                icon="stop"
+                tone="bad"
+                kbd={stepCalls === undefined ? "esc" : undefined}
+                onClick={stepCalls === undefined ? onInterrupt : () => void holdStep(stepCalls.hold)}
+              />
             )}
             {line.control === "interrupting" && <Ctl label="Interrupting…" disabled />}
             {line.control === "resume" && resume !== undefined && (
               <Ctl label="Resume" icon="play" tone="go" onClick={() => void resumeRow(resume)} />
+            )}
+            {stepCalls !== undefined && stopOpen && (
+              <span class="confirm">
+                <span>{`Stop ${facts.name}?`}</span>
+                <Ctl label={`Stop ${facts.name}`} tone="bad" onClick={() => void stopStep(stepCalls.stop)} />
+                <Ctl label="Keep it running" onClick={() => setStopOpen(false)} />
+              </span>
+            )}
+            {stepCalls !== undefined && (
+              <Ctl
+                only
+                label="Stop this step…"
+                icon="more"
+                expanded={stopOpen}
+                onClick={() => setStopOpen((open) => !open)}
+              />
             )}
           </span>
         </div>
@@ -510,7 +604,11 @@ export function Dock(props: {
           {error}
         </p>
       )}
-      {note !== "" && <p class="inote">{note}</p>}
+      {note !== "" && (
+        <p class="inote" role="status">
+          {note}
+        </p>
+      )}
     </div>
   );
 }

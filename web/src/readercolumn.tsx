@@ -6,7 +6,7 @@ import type { Clients } from "./actions";
 import type { EpicCalls } from "./card";
 import { type Conversation, shownConversation } from "./conversation";
 import { Dock, type DockHandle } from "./dock";
-import { rowFacts } from "./dockfacts";
+import { rowFacts, stepFacts } from "./dockfacts";
 import type { StepItem } from "./epics";
 import { FindBar, type Match } from "./find";
 import type { Pane } from "./gen/orrery/v1/orrery_pb";
@@ -14,7 +14,6 @@ import { readerQuestion } from "./inboxrow";
 import { ConversationHead, Reader, type ReaderHandle } from "./reader";
 import type { Row } from "./rows";
 import type { Sending, SentText } from "./sending";
-import { StepBox } from "./stepbox";
 import { type InboxMark, TitleRow } from "./titlerow";
 import { Pill, rowPill, stepPill } from "./workline";
 
@@ -243,12 +242,13 @@ export function ReaderColumn({
           const calls = stepCalls(clients, entry.id);
           return (
             <div key={entry.id} class={names.reply} hidden={entry.key !== stepKey}>
-              <StepBox
-                label={entry.label}
-                held={entry.held}
-                nudge={calls.nudge}
-                hold={calls.hold}
-                stop={calls.stop}
+              <Dock
+                facts={stepFacts(entry, entry.key === stepKey ? shown : null)}
+                now={now}
+                send={calls.nudge}
+                pull={null}
+                newPromptId={actions.newPromptId}
+                stepCalls={{ hold: calls.hold, stop: calls.stop }}
                 inputRef={(element) => {
                   if (element === null) {
                     stepInputs?.current.delete(entry.key);

@@ -18,6 +18,7 @@ import {
   type QueuedMessage,
   type WaitingMessage,
 } from "./gen/orrery/v1/orrery_pb";
+import { outcomeOf } from "./refusal";
 import type { SentText } from "./sending";
 import { clock } from "./reader";
 import { mockTimers } from "./testclock";
@@ -1619,5 +1620,688 @@ test("DockSend: the box carries focused while its textarea has focus", async () 
       box.dispatchEvent(new Event("blur"));
     });
     assert.equal(boxOf(container).classList.contains("focused"), false, "the box drops focused on blur");
+  });
+});
+
+// StepInit is a step's test setup: its label, whether it is held, and its calls. A call the test leaves out lands at once.
+interface StepInit {
+  label?: string;
+  held?: boolean;
+  nudge?: (text: string) => Promise<void>;
+  hold?: () => Promise<void>;
+  stop?: () => Promise<void>;
+}
+
+const landed = (): Promise<void> => Promise.resolve();
+const notKnownNudge = "nudge not known: it may have landed; nothing was resent";
+
+// stepRefusals are the codes the server refuses a step's call with; each carries its raw message.
+const stepRefusals: [string, unknown][] = [
+  ["failed_precondition", new ConnectError("step is done", Code.FailedPrecondition)],
+  ["not_found", new ConnectError("no such step", Code.NotFound)],
+  ["invalid_argument", new ConnectError("bad text", Code.InvalidArgument)],
+];
+
+// stepUnknowns are the failures that leave a step's call outcome unknown.
+const stepUnknowns: [string, unknown][] = [
+  ["unavailable", new ConnectError("try later", Code.Unavailable)],
+  ["deadline_exceeded", new ConnectError("too slow", Code.DeadlineExceeded)],
+  ["a plain Error", new Error(serverText)],
+];
+
+// withStep mounts a step's dock: a step named label, held or running, whose send is its nudge and whose stepCalls are its
+// hold and stop.
+async function withStep(
+  init: StepInit,
+  check: (box: HTMLTextAreaElement, container: HTMLElement) => Promise<void>,
+): Promise<void> {
+  const nudge = init.nudge ?? landed;
+  await withDock(
+    {
+      facts: dockFacts({
+        kind: "step",
+        name: init.label ?? "api",
+        state: "working",
+        step: { label: init.label ?? "api", held: init.held ?? false },
+      }),
+      send: (text) => nudge(text),
+      stepCalls: { hold: init.hold ?? landed, stop: init.stop ?? landed },
+    },
+    check,
+  );
+}
+
+test("DockState: a running step's line reads running with its tool and clock, with Interrupt and More", async () => {
+  await withDock(
+    {
+      facts: dockFacts({
+        kind: "step",
+        name: "api",
+        state: "working",
+        turnSince: now - 85,
+        tool: { name: "Bash", arg: "just check", start: now - 20 },
+        step: { label: "api", held: false },
+      }),
+      stepCalls: { hold: landed, stop: landed },
+    },
+    async (_box, container) => {
+      assert.equal(container.querySelector(".statebar .word")?.textContent, "running");
+      assert.equal(container.querySelector(".statebar .clock")?.textContent, "1:25");
+      assert.equal(container.querySelector(".statebar .what .name")?.textContent, "Bash");
+      assert.ok(controlNamed(container, "Interrupt") !== null, "a running step draws Interrupt");
+      assert.ok(container.querySelector('button[aria-label="Stop this step…"]') !== null, "a running step draws More");
+    },
+  );
+});
+
+test("DockState: a held step's line reads held, with More and no Interrupt", async () => {
+  await withStep({ held: true }, async (_box, container) => {
+    assert.equal(container.querySelector(".statebar .word")?.textContent, "held");
+    assert.equal(controlNamed(container, "Interrupt"), null, "a held step draws no Interrupt");
+    assert.ok(container.querySelector('button[aria-label="Stop this step…"]') !== null, "a held step still draws More");
+  });
+});
+
+// stepNotice is the outcome line under a step's box, or null when none is drawn.
+function stepNotice(container: HTMLElement): Element | null {
+  return container.querySelector(".inote");
+}
+
+function assertStepNotice(container: HTMLElement, text: string, role: "status" | "alert"): void {
+  const line = stepNotice(container);
+  assert.ok(line, "the outcome line is shown");
+  assert.equal(line.textContent, text);
+  assert.equal(line.getAttribute("role"), role);
+}
+
+function assertNoStepNotice(container: HTMLElement): void {
+  assert.equal(stepNotice(container) === null, true, "no outcome line is shown");
+}
+
+// stepMore is the step's More control, which opens the question Stop {label}?.
+function stepMore(container: HTMLElement): HTMLButtonElement {
+  const found = container.querySelector<HTMLButtonElement>('button[aria-label="Stop this step…"]');
+  assert.ok(found, "the step draws More");
+  return found;
+}
+
+// stepQuestion is the Stop {label}? question, or null while it is shut.
+function stepQuestion(container: HTMLElement): Element | null {
+  return container.querySelector(".confirm");
+}
+
+// askStop presses More, which opens the question with Stop {label} and Keep it running.
+async function askStop(container: HTMLElement): Promise<void> {
+  await clickControl(stepMore(container));
+}
+
+// confirmStop presses Stop {label} in the open question.
+async function confirmStop(container: HTMLElement): Promise<void> {
+  await clickControl(controlNamed(container, "Stop api"));
+}
+
+test("DockState: a step's Enter sends the nudge text once, shows landed, and clears the draft", async () => {
+  const sent: string[] = [];
+  await withStep(
+    {
+      nudge: async (text) => {
+        sent.push(text);
+      },
+    },
+    async (box, container) => {
+      assert.equal(box.placeholder, "Nudge api. It interrupts the turn, then gives it your words");
+      await type(box, "check the migration");
+      await press(box, "Enter");
+      await settle();
+      assert.deepEqual(sent, ["check the migration"]);
+      assert.equal(box.value, "");
+      assertStepNotice(container, "nudge landed", "status");
+    },
+  );
+});
+
+test("DockState: a step's blank box sends nothing on Enter", async () => {
+  let calls = 0;
+  await withStep({ nudge: async () => void calls++ }, async (box, container) => {
+    await type(box, "   ");
+    await press(box, "Enter");
+    await settle();
+    assert.equal(calls, 0);
+    assert.equal(box.value, "   ");
+    assertNoStepNotice(container);
+  });
+});
+
+test("DockState: a step's Shift+Enter in a box holding text leaves a line break at the cursor and sends nothing", async () => {
+  let nudges = 0;
+  await withStep({ nudge: async () => void nudges++ }, async (box, container) => {
+    await type(box, "first second");
+    box.setSelectionRange(5, 5);
+    const prevented = await press(box, "Enter", { shiftKey: true });
+    await settle();
+    assert.equal(prevented, true, "the box cancels the browser's own Enter");
+    assert.equal(box.value, "first\n second");
+    assert.equal(box.selectionStart, 6, "the caret is just after the break");
+    assert.equal(box.selectionEnd, 6, "the caret is just after the break");
+    assert.equal(nudges, 0);
+    assertNoStepNotice(container);
+  });
+});
+
+test("DockState: a step's Alt+Enter in a box holding text leaves a line break at the cursor and sends nothing", async () => {
+  let nudges = 0;
+  await withStep({ nudge: async () => void nudges++ }, async (box, container) => {
+    await type(box, "first second");
+    box.setSelectionRange(5, 5);
+    const prevented = await press(box, "Enter", { altKey: true });
+    await settle();
+    assert.equal(prevented, true, "the box cancels the browser's own Enter");
+    assert.equal(box.value, "first\n second");
+    assert.equal(box.selectionStart, 6, "the caret is just after the break");
+    assert.equal(box.selectionEnd, 6, "the caret is just after the break");
+    assert.equal(nudges, 0);
+    assertNoStepNotice(container);
+  });
+});
+
+test("DockState: a step's Shift+Enter over a selection replaces the selected text with the line break", async () => {
+  let nudges = 0;
+  await withStep({ nudge: async () => void nudges++ }, async (box) => {
+    await type(box, "one two three");
+    box.setSelectionRange(4, 7);
+    await press(box, "Enter", { shiftKey: true });
+    await settle();
+    assert.equal(box.value, "one \n three");
+    assert.equal(box.selectionStart, 5);
+    assert.equal(box.selectionEnd, 5);
+    assert.equal(nudges, 0);
+  });
+});
+
+test("DockState: a step's line typed, then Shift+Enter, then a second line and Enter nudges both lines as one nudge", async () => {
+  const sent: string[] = [];
+  await withStep(
+    {
+      nudge: async (text) => {
+        sent.push(text);
+      },
+    },
+    async (box, container) => {
+      await type(box, "line one");
+      await press(box, "Enter", { shiftKey: true });
+      assert.deepEqual(sent, [], "Shift+Enter sends nothing");
+      await type(box, `${box.value}line two`);
+      await press(box, "Enter");
+      await settle();
+      assert.deepEqual(sent, ["line one\nline two"]);
+      assert.equal(box.value, "");
+      assertStepNotice(container, "nudge landed", "status");
+    },
+  );
+});
+
+test("DockState: a step's Enter while a nudge is in flight sends nothing more", async () => {
+  const sent: string[] = [];
+  let finish: () => void = () => {};
+  await withStep(
+    {
+      nudge: (text) => {
+        sent.push(text);
+        return new Promise<void>((resolve) => {
+          finish = resolve;
+        });
+      },
+    },
+    async (box, container) => {
+      await type(box, "only once");
+      await press(box, "Enter");
+      await press(box, "Enter");
+      await press(box, "Enter");
+      assert.deepEqual(sent, ["only once"]);
+      finish();
+      await settle();
+      assert.equal(box.value, "");
+      assertStepNotice(container, "nudge landed", "status");
+    },
+  );
+});
+
+test("DockState: a step's text typed while a nudge is in flight stays in the box when it lands", async () => {
+  let finish: () => void = () => {};
+  await withStep(
+    {
+      nudge: () =>
+        new Promise<void>((resolve) => {
+          finish = resolve;
+        }),
+    },
+    async (box) => {
+      await type(box, "first message");
+      await press(box, "Enter");
+      await type(box, "second draft");
+      await act(() => {
+        finish();
+      });
+      await settle();
+      assert.equal(box.value, "second draft");
+    },
+  );
+});
+
+test("DockState: a step's nudge that failed is never resent by the box itself", async () => {
+  let calls = 0;
+  await withStep(
+    {
+      nudge: async () => {
+        calls++;
+        throw new ConnectError("try later", Code.Unavailable);
+      },
+    },
+    async (box) => {
+      await type(box, "once");
+      await press(box, "Enter");
+      await settle();
+      await settle();
+      assert.equal(calls, 1);
+    },
+  );
+});
+
+test("DockState: each Enter after a step's refused nudge sends one nudge", async () => {
+  let calls = 0;
+  await withStep(
+    {
+      nudge: async () => {
+        calls++;
+        throw new ConnectError("step is done", Code.FailedPrecondition);
+      },
+    },
+    async (box) => {
+      await type(box, "again");
+      await press(box, "Enter");
+      await settle();
+      await press(box, "Enter");
+      await settle();
+      assert.equal(calls, 2);
+    },
+  );
+});
+
+test("DockState: Enter after a step's not-known nudge sends nothing while the text is unchanged", async () => {
+  let calls = 0;
+  await withStep(
+    {
+      nudge: async () => {
+        calls++;
+        throw new ConnectError("try later", Code.Unavailable);
+      },
+    },
+    async (box, container) => {
+      await type(box, "maybe landed");
+      await press(box, "Enter");
+      await settle();
+      await press(box, "Enter");
+      await settle();
+      assert.equal(calls, 1, "the unknown text is not sent again");
+      assert.equal(box.value, "maybe landed");
+      assertStepNotice(container, notKnownNudge, "alert");
+    },
+  );
+});
+
+test("DockState: editing a step's text after a not-known nudge lets Enter send it", async () => {
+  const sent: string[] = [];
+  let attempts = 0;
+  await withStep(
+    {
+      nudge: async (text) => {
+        sent.push(text);
+        attempts++;
+        if (attempts === 1) {
+          throw new ConnectError("try later", Code.Unavailable);
+        }
+      },
+    },
+    async (box, container) => {
+      await type(box, "maybe landed");
+      await press(box, "Enter");
+      await settle();
+      await type(box, "maybe landed, retyped");
+      await press(box, "Enter");
+      await settle();
+      assert.deepEqual(sent, ["maybe landed", "maybe landed, retyped"]);
+      assertStepNotice(container, "nudge landed", "status");
+    },
+  );
+});
+
+for (const [name, error] of stepRefusals) {
+  test(`DockState: a step's nudge refused as ${name} keeps the draft and shows the refusal's message`, async () => {
+    await withStep(
+      {
+        nudge: async () => {
+          throw error;
+        },
+      },
+      async (box, container) => {
+        await type(box, "keep me");
+        await press(box, "Enter");
+        await settle();
+        assert.equal(box.value, "keep me");
+        assertStepNotice(container, `nudge refused: ${(error as ConnectError).rawMessage}`, "alert");
+      },
+    );
+  });
+
+  test(`DockState: a step's Interrupt refused as ${name} shows the refusal's message`, async () => {
+    let holds = 0;
+    await withStep(
+      {
+        hold: async () => {
+          holds++;
+          throw error;
+        },
+      },
+      async (_box, container) => {
+        await clickControl(controlNamed(container, "Interrupt"));
+        await settle();
+        assert.equal(holds, 1);
+        assertStepNotice(container, `interrupt refused: ${(error as ConnectError).rawMessage}`, "alert");
+      },
+    );
+  });
+
+  test(`DockState: a step's stop refused as ${name} shows the refusal's message`, async () => {
+    let stops = 0;
+    await withStep(
+      {
+        stop: async () => {
+          stops++;
+          throw error;
+        },
+      },
+      async (_box, container) => {
+        await askStop(container);
+        await confirmStop(container);
+        await settle();
+        assert.equal(stops, 1);
+        assertStepNotice(container, `stop refused: ${(error as ConnectError).rawMessage}`, "alert");
+      },
+    );
+  });
+}
+
+for (const [name, error] of stepUnknowns) {
+  test(`DockState: a step's nudge that fails as ${name} keeps the draft and says it is not known`, async () => {
+    await withStep(
+      {
+        nudge: async () => {
+          throw error;
+        },
+      },
+      async (box, container) => {
+        await type(box, "keep me");
+        await press(box, "Enter");
+        await settle();
+        assert.equal(box.value, "keep me");
+        assertStepNotice(container, notKnownNudge, "alert");
+        assert.equal(container.textContent?.includes("secret-session-7"), false, "server text is never shown");
+      },
+    );
+  });
+
+  test(`DockState: a step's Interrupt that fails as ${name} says it is not known`, async () => {
+    await withStep(
+      {
+        hold: async () => {
+          throw error;
+        },
+      },
+      async (_box, container) => {
+        await clickControl(controlNamed(container, "Interrupt"));
+        await settle();
+        assertStepNotice(container, "interrupt not known", "alert");
+        assert.equal(container.textContent?.includes("secret-session-7"), false, "server text is never shown");
+      },
+    );
+  });
+
+  test(`DockState: a step's stop that fails as ${name} says it is not known`, async () => {
+    await withStep(
+      {
+        stop: async () => {
+          throw error;
+        },
+      },
+      async (_box, container) => {
+        await askStop(container);
+        await confirmStop(container);
+        await settle();
+        assertStepNotice(container, "stop not known", "alert");
+        assert.equal(container.textContent?.includes("secret-session-7"), false, "server text is never shown");
+      },
+    );
+  });
+}
+
+test("DockState: a step's Interrupt calls hold once and shows landed, sending nothing else", async () => {
+  let holds = 0;
+  let nudges = 0;
+  let stops = 0;
+  await withStep(
+    {
+      hold: async () => {
+        holds++;
+      },
+      nudge: async () => {
+        nudges++;
+      },
+      stop: async () => {
+        stops++;
+      },
+    },
+    async (_box, container) => {
+      await clickControl(controlNamed(container, "Interrupt"));
+      await settle();
+      assert.equal(holds, 1);
+      assert.equal(nudges, 0);
+      assert.equal(stops, 0);
+      assertStepNotice(container, "interrupt landed", "status");
+    },
+  );
+});
+
+test("DockState: a running step's box carries the working tone and says a nudge interrupts the turn", async () => {
+  await withStep({ held: false }, async (box, container) => {
+    assert.equal(toneOf(container), "working", "the box carries the working tone");
+    assert.equal(box.placeholder, "Nudge api. It interrupts the turn, then gives it your words");
+  });
+});
+
+test("DockState: a held step's box carries the held tone and says a nudge resumes the step", async () => {
+  await withStep({ held: true }, async (box, container) => {
+    assert.equal(toneOf(container), "held", "the box carries the held tone");
+    assert.equal(box.placeholder, "Nudge api. It resumes with your words");
+  });
+});
+
+test("DockState: a step's foot has no nudge sentence, then Interrupt first on the state line, the input, and More", async () => {
+  await withStep({}, async (box, container) => {
+    assert.equal(container.querySelector(".how") === null, true, "no nudge sentence is drawn");
+    assert.equal(container.textContent?.includes("A message here is a nudge"), false, "no nudge sentence is drawn");
+    assert.equal(container.querySelector(".statebar .end button")?.textContent, "Interrupt");
+    const more = container.querySelector(".statebar .end button:last-child");
+    assert.equal(more?.getAttribute("aria-label"), "Stop this step…");
+    assert.equal(container.querySelector(".dock-input > textarea") === box, true, "the input is below the state line");
+  });
+});
+
+test("DockState: a step draws no Stop until More is pressed, and More reports whether the question is open", async () => {
+  await withStep({}, async (_box, container) => {
+    assertNone(controlNamed(container, "Stop api"), "Stop is not shown before More is pressed");
+    assert.equal(stepMore(container).getAttribute("aria-expanded"), "false");
+    await askStop(container);
+    assert.ok(controlNamed(container, "Stop api"), "Stop is shown once More is pressed");
+    assert.equal(stepMore(container).getAttribute("aria-expanded"), "true");
+  });
+});
+
+test("DockState: a second More press on a step closes the question and calls nothing", async () => {
+  let stops = 0;
+  await withStep(
+    {
+      stop: async () => {
+        stops++;
+      },
+    },
+    async (_box, container) => {
+      await askStop(container);
+      await askStop(container);
+      await settle();
+      assert.equal(stepQuestion(container), null, "the question closed");
+      assert.equal(stepMore(container).getAttribute("aria-expanded"), "false");
+      assert.equal(stops, 0);
+    },
+  );
+});
+
+test("DockState: a step's send button sends the typed text once, as Enter does, and clears the draft", async () => {
+  const sent: string[] = [];
+  await withStep(
+    {
+      nudge: async (text) => {
+        sent.push(text);
+      },
+    },
+    async (box, container) => {
+      await type(box, "check the migration");
+      await clickSend(container);
+      await settle();
+      assert.deepEqual(sent, ["check the migration"]);
+      assert.equal(box.value, "");
+      assertStepNotice(container, "nudge landed", "status");
+    },
+  );
+});
+
+test("DockState: a step's send button sends nothing for a blank box", async () => {
+  let calls = 0;
+  await withStep({ nudge: async () => void calls++ }, async (box, container) => {
+    await type(box, "   ");
+    await clickSend(container);
+    await settle();
+    assert.equal(calls, 0);
+    assert.equal(box.value, "   ");
+    assertNoStepNotice(container);
+  });
+});
+
+test("DockState: More alone on a step calls nothing and asks Stop api? with Stop api and Keep it running", async () => {
+  let stops = 0;
+  let holds = 0;
+  let nudges = 0;
+  await withStep(
+    {
+      stop: async () => {
+        stops++;
+      },
+      hold: async () => {
+        holds++;
+      },
+      nudge: async () => {
+        nudges++;
+      },
+    },
+    async (_box, container) => {
+      await askStop(container);
+      await settle();
+      assert.equal(stepQuestion(container)?.querySelector("span")?.textContent, "Stop api?");
+      assert.ok(controlNamed(container, "Stop api"), "Stop api is shown");
+      assert.ok(controlNamed(container, "Keep it running"), "Keep it running is shown");
+      assert.equal(stops, 0);
+      assert.equal(holds, 0);
+      assert.equal(nudges, 0);
+      assertNoStepNotice(container);
+    },
+  );
+});
+
+test("DockState: Keep it running closes a step's question and calls nothing", async () => {
+  let stops = 0;
+  await withStep(
+    {
+      stop: async () => {
+        stops++;
+      },
+    },
+    async (_box, container) => {
+      await askStop(container);
+      await clickControl(controlNamed(container, "Keep it running"));
+      await settle();
+      assert.equal(stepQuestion(container), null, "the question closed");
+      assert.equal(controlNamed(container, "Stop api"), null, "Stop api is not shown");
+      assert.equal(stepMore(container).getAttribute("aria-expanded"), "false");
+      assert.equal(stops, 0);
+      assertNoStepNotice(container);
+    },
+  );
+});
+
+test("DockState: Stop api calls a step's stop once and shows stopped", async () => {
+  let stops = 0;
+  await withStep(
+    {
+      stop: async () => {
+        stops++;
+      },
+    },
+    async (_box, container) => {
+      await askStop(container);
+      await confirmStop(container);
+      await settle();
+      assert.equal(stops, 1);
+      assert.equal(stepQuestion(container), null, "the question closed");
+      assertStepNotice(container, "stopped", "status");
+    },
+  );
+});
+
+test("DockState: a step's message with markup is drawn as text, not as elements", async () => {
+  const markup = '<img src="x" onerror="alert(1)"><b>bold</b>';
+  await withStep(
+    {
+      nudge: async () => {
+        throw new ConnectError(markup, Code.FailedPrecondition);
+      },
+    },
+    async (box, container) => {
+      await type(box, "x");
+      await press(box, "Enter");
+      await settle();
+      assertStepNotice(container, `nudge refused: ${markup}`, "alert");
+      assertNone(container.querySelector("img"));
+      assertNone(container.querySelector("b"));
+    },
+  );
+});
+
+test("DockState: outcomeOf refuses failed_precondition, not_found and invalid_argument with the raw message", () => {
+  for (const [, error] of stepRefusals) {
+    const refused = error as ConnectError;
+    assert.deepEqual(outcomeOf(refused), { outcome: "refused", message: refused.rawMessage });
+  }
+});
+
+test("DockState: outcomeOf calls unavailable, deadline_exceeded and a plain Error not known", () => {
+  for (const [, error] of stepUnknowns) {
+    assert.deepEqual(outcomeOf(error), { outcome: "unknown" });
+  }
+});
+
+test("DockState: a step's Interrupt draws no Escape key hint", async () => {
+  await withStep({}, async (_box, container) => {
+    const interrupt = controlNamed(container, "Interrupt");
+    assert.ok(interrupt, "the running step draws Interrupt");
+    assert.equal(interrupt.querySelector("kbd"), null, "the step's Interrupt draws no key hint");
   });
 });

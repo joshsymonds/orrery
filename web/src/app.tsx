@@ -1354,6 +1354,7 @@ export function App({
       return (
         <WorkerSessionPage
           conversation={sessionStream !== null && sessionStream.key === page.step ? sessionShown : null}
+          now={now}
           step={step}
           epic={detail.epic?.slug ?? ""}
           task={page.task}

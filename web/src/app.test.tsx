@@ -438,15 +438,6 @@ function composerSendButton(container: HTMLElement): HTMLButtonElement {
   return button;
 }
 
-// stepEdgeNames are the edge classes a step box carries.
-const stepEdgeNames = ["edge-working", "edge-held"];
-
-// edgesOf names the edge classes the step box around a reply box carries, in the order of stepEdgeNames.
-function edgesOf(box: HTMLTextAreaElement): string[] {
-  const root = box.closest(".composer");
-  return stepEdgeNames.filter((edge) => root?.classList.contains(edge) === true);
-}
-
 // toneOf is the state line's tone the dock around a reply box carries as data-state.
 function toneOf(box: HTMLTextAreaElement): string {
   return box.closest(".dock-box")?.getAttribute("data-state") ?? "";
@@ -1116,13 +1107,13 @@ test("each step box takes its own step's held flag, and a box the cursor left ke
   );
   return withApp(t.signal, { epics }, async (container, fake) => {
     await onStepOne(t.signal, container, fake);
-    assert.deepEqual(edgesOf(cursorStepInput(container)), ["edge-held"]);
-    assert.equal(cursorStepInput(container).placeholder, "Nudge s1: it resumes the step with your text");
+    assert.equal(toneOf(composer(container)), "held");
+    assert.equal(composer(container).placeholder, "Nudge s1. It resumes with your words");
     await press("j");
     assert.equal(cursorKey(container), "step:s2");
-    assert.deepEqual(edgesOf(cursorStepInput(container)), ["edge-working"]);
-    assert.equal(cursorStepInput(container).placeholder, "Nudge s2: it interrupts the turn, then prompts");
-    assert.deepEqual(edgesOf(stepInputNamed(container, "s1")), ["edge-held"], "s1's hidden box keeps its held edge");
+    assert.equal(toneOf(composer(container)), "working");
+    assert.equal(composer(container).placeholder, "Nudge s2. It interrupts the turn, then gives it your words");
+    assert.equal(toneOf(stepInputNamed(container, "s1")), "held", "s1's hidden box keeps its held tone");
   });
 });
 
@@ -4236,10 +4227,10 @@ test("a nudge in the session calls Steps.Nudge with the step's id and the text",
     await openCheckingPhase(container);
     await clickButton(container, phaseBody, "Open the session ›");
     await until(t.signal, () => fake.callsTo(sessionWatchPath).length === 1, "the session stream");
-    const box = container.querySelector<HTMLTextAreaElement>('section.page[aria-label="epic"] .stepbox textarea');
+    const box = container.querySelector<HTMLTextAreaElement>('section.page[aria-label="epic"] .dock-box textarea');
     assert.ok(box, "the session's step box has an input");
     await typeInto(box, "try the other route");
-    await clickFirst(container, 'section.page[aria-label="epic"] .stepbox button[aria-label="send"]');
+    await clickFirst(container, 'section.page[aria-label="epic"] .dock-box button[aria-label="send"]');
     await until(t.signal, () => fake.callsTo(nudgePath).length === 1, "the nudge");
     assert.deepEqual(fake.callsTo(nudgePath).map((call) => [call.body.id, call.body.text]), [
       ["run1", "try the other route"],
@@ -4467,44 +4458,38 @@ async function onStepOne(
   await wait(signal, () => fake.callsTo(sessionWatchPath).length === 1, "the step stream");
 }
 
-// stepButton is the button of the cursor's step box with the given label: Interrupt and ⋯ on the line, and Stop,
-// Confirm stop or Cancel in the menu ⋯ opens.
+// stepButtons are the buttons of the cursor's step dock: Interrupt on the state line, More, and, once More is pressed, the
+// Stop question's Stop {label} and Keep it running.
+function stepButtons(container: HTMLElement): HTMLButtonElement[] {
+  return [...container.querySelectorAll<HTMLButtonElement>(".reply:not([hidden]) .dock-box button")];
+}
+
+// stepButton is the cursor's step dock button named label: its text, or its accessible name for the icon-only More.
 function stepButton(container: HTMLElement, label: string): HTMLButtonElement {
-  const button = [...container.querySelectorAll<HTMLButtonElement>(".reply:not([hidden]) .stepbox button")].find(
-    (element) => element.textContent === label,
+  const button = stepButtons(container).find(
+    (element) => element.textContent === label || element.getAttribute("aria-label") === label,
   );
-  assert.ok(button, `the step box has a ${label} button`);
+  assert.ok(button, `the step dock has a ${label} button`);
   return button;
 }
 
-// cursorStepInput is the textarea of the cursor's step box.
-function cursorStepInput(container: HTMLElement): HTMLTextAreaElement {
-  const box = container.querySelector<HTMLTextAreaElement>(".reply:not([hidden]) .stepbox textarea");
-  assert.ok(box, "the cursor's step box has an input");
-  return box;
+// stepQuestion is the Stop question the cursor's step dock draws once More is pressed, and "" while it is closed.
+function stepQuestion(container: HTMLElement): string {
+  return container.querySelector(".reply:not([hidden]) .dock-box .confirm > span")?.textContent ?? "";
 }
 
-// stepInputNamed is the textarea of the step box for the step with the given label, shown or hidden.
+// stepInputNamed is the textarea of the step dock for the step with the given label, shown or hidden.
 function stepInputNamed(container: HTMLElement, label: string): HTMLTextAreaElement {
-  const box = [...container.querySelectorAll<HTMLTextAreaElement>('[aria-label="reader"] .stepbox textarea')].find(
-    (element) => element.placeholder.startsWith(`Nudge ${label}:`),
+  const box = [...container.querySelectorAll<HTMLTextAreaElement>(".reply textarea")].find((element) =>
+    element.placeholder.startsWith(`Nudge ${label}.`),
   );
-  assert.ok(box, `the step box for ${label} has an input`);
+  assert.ok(box, `the step dock for ${label} has an input`);
   return box;
 }
 
-// sendButton is the send button of the cursor's step box.
-function sendButton(container: HTMLElement): HTMLButtonElement {
-  const button = container.querySelector<HTMLButtonElement>('.reply:not([hidden]) .stepbox button[aria-label="send"]');
-  assert.ok(button, "the step box has a send button");
-  return button;
-}
-
-// stepButtonAbsent reports that the cursor's step box has no button with the given label.
+// stepButtonAbsent reports that the cursor's step dock has no button with the given text.
 function stepButtonAbsent(container: HTMLElement, label: string): boolean {
-  return [...container.querySelectorAll<HTMLButtonElement>(".reply:not([hidden]) .stepbox button")].every(
-    (element) => element.textContent !== label,
-  );
+  return stepButtons(container).every((element) => element.textContent !== label);
 }
 
 async function clickIn(element: Element): Promise<void> {
@@ -4571,11 +4556,11 @@ test("the send button calls Steps.Nudge once with the step's id and text, and a 
     await onStepOne(t.signal, container, fake);
     await press("i");
     await typeInto(composer(container), "   ");
-    await clickIn(sendButton(container));
+    await clickIn(composerSendButton(container));
     await settle();
     assert.equal(fake.callsTo(nudgePath).length, 0, "a blank box sends nothing");
     await typeInto(composer(container), "try the other route");
-    await clickIn(sendButton(container));
+    await clickIn(composerSendButton(container));
     await until(t.signal, () => fake.callsTo(nudgePath).length === 1, "the nudge");
     assert.deepEqual(fake.callsTo(nudgePath)[0].body, { id: "s1", text: "try the other route" });
     await until(t.signal, () => composer(container).value === "", "the landed draft cleared");
@@ -4595,7 +4580,7 @@ test("a nudge on the cursor's step calls Steps.Nudge with that step's id, not th
     assert.deepEqual(fake.callsTo(nudgePath)[0].body, { id: "s2", text: "on two" });
     await until(t.signal, () => composer(container).value === "", "the landed draft cleared");
     await typeInto(composer(container), "again on two");
-    await clickIn(sendButton(container));
+    await clickIn(composerSendButton(container));
     await until(t.signal, () => fake.callsTo(nudgePath).length === 2, "the nudge on s2 by the send button");
     assert.deepEqual(fake.callsTo(nudgePath)[1].body, { id: "s2", text: "again on two" });
     await until(t.signal, () => composer(container).value === "", "the second landed draft cleared");
@@ -4642,20 +4627,19 @@ test("Interrupt calls Steps.Hold with the step's id", (t) =>
     assert.deepEqual(fake.callsTo(holdPath)[0].body, { id: "s1" });
   }));
 
-test("Stop sits behind ⋯; Cancel sends nothing, and Confirm stop calls Steps.Stop with the step's id", (t) =>
+test("Stop this step… asks first: Keep it running sends nothing, and Stop s1 calls Steps.Stop with the step's id", (t) =>
   withApp(t.signal, { epics: oneEpic() }, async (container, fake) => {
     await onStepOne(t.signal, container, fake);
-    assert.equal(stepButtonAbsent(container, "Stop"), true, "no Stop until ⋯ is pressed");
-    await clickIn(stepButton(container, "⋯"));
-    await clickIn(stepButton(container, "Stop"));
-    assert.equal(fake.callsTo(stopStepPath).length, 0, "Stop alone sends nothing");
-    await clickIn(stepButton(container, "Cancel"));
+    assert.equal(stepButtonAbsent(container, "Stop s1"), true, "no Stop until More is pressed");
+    await clickIn(stepButton(container, "Stop this step…"));
+    assert.equal(stepQuestion(container), "Stop s1?", "More asks Stop s1?");
+    assert.equal(fake.callsTo(stopStepPath).length, 0, "More alone sends nothing");
+    await clickIn(stepButton(container, "Keep it running"));
     await settle();
-    assert.equal(fake.callsTo(stopStepPath).length, 0, "Cancel sends nothing");
-    assert.equal(stepButtonAbsent(container, "Stop"), true, "Cancel closes the menu");
-    await clickIn(stepButton(container, "⋯"));
-    await clickIn(stepButton(container, "Stop"));
-    await clickIn(stepButton(container, "Confirm stop"));
+    assert.equal(fake.callsTo(stopStepPath).length, 0, "Keep it running sends nothing");
+    assert.equal(stepQuestion(container), "", "Keep it running closes the question");
+    await clickIn(stepButton(container, "Stop this step…"));
+    await clickIn(stepButton(container, "Stop s1"));
     await until(t.signal, () => fake.callsTo(stopStepPath).length === 1, "the stop");
     assert.deepEqual(fake.callsTo(stopStepPath)[0].body, { id: "s1" });
   }));
@@ -4726,9 +4710,8 @@ test("no Control or Panes call names a step, and no call starts a step", (t) =>
     await until(t.signal, () => fake.callsTo(nudgePath).length === 1, "the nudge");
     await clickIn(stepButton(container, "Interrupt"));
     await until(t.signal, () => fake.callsTo(holdPath).length === 1, "the hold");
-    await clickIn(stepButton(container, "⋯"));
-    await clickIn(stepButton(container, "Stop"));
-    await clickIn(stepButton(container, "Confirm stop"));
+    await clickIn(stepButton(container, "Stop this step…"));
+    await clickIn(stepButton(container, "Stop s1"));
     await until(t.signal, () => fake.callsTo(stopStepPath).length === 1, "the stop");
     for (const call of fake.calls) {
       assert.equal(call.path.includes("StartStep"), false, `${call.path} is not a start`);

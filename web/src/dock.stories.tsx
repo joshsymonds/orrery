@@ -1,6 +1,6 @@
 // The stories of Dock: the box under a reader, with its state line, its waits line, its tray and its about line. Each state
 // draws the facts it names, the tray or the lines its props name. Its waiting messages are the fixture pane's, and its
-// session messages are built as a stream holds them.
+// session messages are built as a stream holds them. A step's box is the Dock with a step's facts and calls.
 
 import { create } from "@bufbuild/protobuf";
 import { Code, ConnectError } from "@connectrpc/connect";
@@ -54,6 +54,26 @@ const base = {
   pull: null,
   newPromptId: () => "prompt-story",
 };
+
+// stepFacts is a running or held step named label, which its turn started at now minus 83 seconds.
+const stepFacts = (label: string, held: boolean): DockFacts =>
+  facts({ kind: "step", name: label, state: "working", turnSince: now - 83, step: { label, held } });
+
+// stepCalls are a step's calls in the stories, which resolve at once: the fixture's Steps absorbs them.
+const stepCalls = { hold: () => Promise.resolve(), stop: () => Promise.resolve() };
+
+// StepConfirm is a running step whose More is pressed as it draws, so the story draws the question Stop {label}?.
+function StepConfirm() {
+  const root = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    root.current?.querySelector<HTMLButtonElement>('button[aria-label="Stop this step…"]')?.click();
+  }, []);
+  return (
+    <div ref={root}>
+      <dock.Dock {...base} facts={stepFacts("T2", false)} stepCalls={stepCalls} />
+    </div>
+  );
+}
 
 // refusedSend is the server's refusal of a send, as a session that is busy gives it.
 const refusedSend = () => Promise.reject(new ConnectError("session is busy", Code.FailedPrecondition));
@@ -141,4 +161,7 @@ export const Dock: Stories = {
   "send-error": () => <SendRefused />,
   focused: () => <dock.Dock {...base} facts={facts({ state: "done" })} inputRef={(element) => element?.focus()} />,
   shell: () => <dock.Dock {...base} facts={facts({ kind: "shell", name: "tidepool", state: "idle" })} />,
+  "step-running": () => <dock.Dock {...base} facts={stepFacts("T2", false)} stepCalls={stepCalls} />,
+  "step-held": () => <dock.Dock {...base} facts={stepFacts("T1", true)} stepCalls={stepCalls} />,
+  "step-confirm": () => <StepConfirm />,
 };

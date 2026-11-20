@@ -202,7 +202,7 @@ test("AppSplit: the pinned column draws the pinned reader section, with its repl
   });
 });
 
-test("AppSplit: a step in the cursor column draws its title-row crumbs and its step box", async () => {
+test("AppSplit: a step in the cursor column draws its title-row crumbs and its step dock", async () => {
   const cursorStep = step();
   const props = columnProps({
     column: "cursor",
@@ -219,7 +219,10 @@ test("AppSplit: a step in the cursor column draws its title-row crumbs and its s
     assert.deepEqual(crumbs, ["orrery-web › builder · step · round 2", "builder · T4"]);
 
     const box = section.querySelector(".send > .reply textarea");
-    assert.ok(box, "the step box is drawn under the reply class");
-    assert.equal(box.getAttribute("placeholder"), "Nudge builder · T4: it interrupts the turn, then prompts");
+    assert.ok(box, "the step dock is drawn under the reply class");
+    assert.equal(
+      box.getAttribute("placeholder"),
+      "Nudge builder · T4. It interrupts the turn, then gives it your words",
+    );
   });
 });

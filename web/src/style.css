@@ -595,56 +595,6 @@ h3, h4, h5, h6 { font: var(--o-type-body); font-weight: var(--o-font-weight-bold
 .reader mark { padding: 0 var(--o-space-2); border-radius: var(--o-radius-1); background: var(--o-role-mark-line); color: inherit; }
 .reader mark.current { background: var(--o-role-mark); color: var(--o-ink-on-accent); }
 
-.composer {
-  position: relative; display: flex; flex: 1 1 auto; align-items: center; gap: var(--o-space-8); min-width: 0; padding: var(--o-space-8) var(--o-space-8) var(--o-space-8) var(--o-space-12);
-  border-radius: var(--o-radius-3); overflow: hidden;
-  background: var(--o-surface-well); box-shadow: inset 0 0 0 var(--o-size-hairline) var(--o-line-firm);
-}
-/* The composer's left edge names its conversation's state: live while working, attention when waiting or held, and no edge
-   when idle. The focus ring stays in the focus role, and a focused composer keeps its edge under the ring. */
-.composer.edge-working { box-shadow: inset var(--o-size-rail) 0 0 var(--o-role-live), inset 0 0 0 var(--o-size-hairline) var(--o-line-firm); }
-.composer.edge-waiting, .composer.edge-held { box-shadow: inset var(--o-size-rail) 0 0 var(--o-role-attention), inset 0 0 0 var(--o-size-hairline) var(--o-line-firm); }
-.composer:focus-within { box-shadow: inset 0 0 0 var(--o-size-hairline) var(--o-role-focus); }
-.composer.edge-working:focus-within { box-shadow: inset var(--o-size-rail) 0 0 var(--o-role-live), inset 0 0 0 var(--o-size-hairline) var(--o-role-focus); }
-.composer.edge-waiting:focus-within, .composer.edge-held:focus-within { box-shadow: inset var(--o-size-rail) 0 0 var(--o-role-attention), inset 0 0 0 var(--o-size-hairline) var(--o-role-focus); }
-.composer textarea {
-  flex: 1 1 auto; min-width: 0; padding: 0; resize: vertical;
-  background: none; border: 0; outline: 0; font: var(--o-type-body);
-  field-sizing: content; max-height: calc(8 * var(--o-type-body-line)); overflow-y: auto;
-}
-.composer textarea::placeholder { color: var(--o-ink-4); }
-.composer .go {
-  flex: none; width: var(--o-size-control-desk); height: var(--o-size-control-desk); padding: 0; border: 0; border-radius: var(--o-radius-2); cursor: pointer;
-  background: var(--o-role-primary); color: var(--o-ink-on-accent); font: var(--o-type-small); font-weight: var(--o-font-weight-bold); text-align: center;
-  appearance: none; -webkit-appearance: none;
-}
-
-/* The step foot under a step's reader: Interrupt, the nudge input beside it, and the more button. The more button opens
-   the menu, where Stop asks first, and the outcome line sits under both. */
-.stepbox .line { display: flex; gap: var(--o-space-8); }
-.stepbox .interrupt {
-  flex: none; display: inline-flex; align-items: center; gap: var(--o-space-8); padding: 0 var(--o-space-12); border: 0; border-radius: var(--o-radius-2); cursor: pointer;
-  background: var(--o-surface-raised); box-shadow: inset 0 0 0 var(--o-size-hairline) var(--o-line-firm);
-  font: var(--o-type-small); font-weight: var(--o-font-weight-bold); color: var(--o-ink-2);
-  appearance: none; -webkit-appearance: none;
-}
-.stepbox .interrupt::before { content: ""; width: var(--o-size-dot); height: var(--o-size-dot); border-radius: var(--o-radius-1); background: var(--o-ink-2); }
-.stepbox .more {
-  flex: none; width: calc(var(--o-space-32) + var(--o-space-4)); padding: 0; border: 0; border-radius: var(--o-radius-2); cursor: pointer; text-align: center;
-  background: var(--o-surface-raised); box-shadow: inset 0 0 0 var(--o-size-hairline) var(--o-line-firm);
-  font: var(--o-type-small); color: var(--o-ink-3);
-  appearance: none; -webkit-appearance: none;
-}
-.stepbox-menu { display: flex; flex-wrap: wrap; gap: var(--o-space-8); margin: var(--o-space-8) 0 0; }
-.stepbox-menu button {
-  padding: var(--o-space-4) var(--o-space-12); border: 0; border-radius: var(--o-radius-2); cursor: pointer;
-  background: var(--o-surface-raised); color: var(--o-ink-1); font: var(--o-type-small);
-  appearance: none; -webkit-appearance: none;
-}
-.stepbox-menu button.stop-confirm { background: var(--o-surface-raised); color: var(--o-ink-1); }
-.stepbox-notice { margin: var(--o-space-8) 0 0; padding: var(--o-space-4) var(--o-space-8); border-radius: var(--o-radius-2); color: var(--o-ink-2); overflow-wrap: anywhere; }
-.stepbox-notice.err { color: var(--o-role-bad); }
-
 /* The dock: one box at the foot of a conversation, after round 6. The state's rail is its left edge. Top to bottom, each part
    only when it has rows: the state bar, the waits line, the trays, the quote and the input. The notes sit under the box. */
 .dock { flex: none; padding: 0 var(--o-layout-page-pad-desk) var(--o-space-16); }
@@ -680,6 +630,8 @@ h3, h4, h5, h6 { font: var(--o-type-body); font-weight: var(--o-font-weight-bold
 .ctl.go .icon { color: var(--o-role-ok); }
 .ctl:disabled { color: var(--o-ink-4); }
 .ctl.only { padding: 0 var(--o-space-4); }
+/* The Stop question under a step's dock: its words, then Stop {label} and Keep it running, in round 6's confirm. */
+.dock .confirm { display: inline-flex; align-items: center; gap: var(--o-space-8); font: var(--o-type-small); color: var(--o-ink-2); }
 
 /* The icon: stroked in the current colour unless a part is filled. */
 .icon { width: var(--o-size-icon); height: var(--o-size-icon); fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }

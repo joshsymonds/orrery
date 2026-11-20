@@ -28,9 +28,10 @@ export function Ctl(props: {
   only?: boolean; // icon only: no visible text; aria-label and title are the label
   disabled?: boolean;
   tip?: string; // title; defaults to the label when only
+  expanded?: boolean; // aria-expanded, for a control that opens something (More)
   onClick?: () => void;
 }): JSX.Element {
-  const { label, icon, tone, kbd, only, disabled, tip, onClick } = props;
+  const { label, icon, tone, kbd, only, disabled, tip, expanded, onClick } = props;
   const classes = ["ctl", tone, only && "only"].filter(Boolean).join(" ");
   return (
     <button
@@ -39,6 +40,7 @@ export function Ctl(props: {
       aria-label={only ? label : undefined}
       title={tip ?? (only ? label : undefined)}
       disabled={disabled}
+      aria-expanded={expanded}
       onClick={onClick}
     >
       {icon && (

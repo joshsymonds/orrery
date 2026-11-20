@@ -29,7 +29,6 @@ export const storyRenames: Renames = {
   "evidence.tsx": { EvidenceRuns: "EvidenceRun" },
   "happenings.tsx": { JustHappened: "HappeningList" },
   "notices.tsx": { NoticeBanner: "Notice" },
-  "stepbox.tsx": { StepBox: "Dock" },
   "strip.tsx": { PaneStrip: "MeterStrip" },
   "talkdock.tsx": { TalkDock: "Dock" },
 };

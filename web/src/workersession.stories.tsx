@@ -6,6 +6,7 @@ import type { JSX } from "preact";
 
 import type { Stories } from "./catalog/story";
 import { applyDelta, type Conversation } from "./conversation";
+import { liveEpoch } from "./fixtures/clock";
 import { gets } from "./fixtures/epics";
 import { sessionStreams } from "./fixtures/sessions";
 import { createFixtureTransport } from "./fixtures/transport";
@@ -17,6 +18,8 @@ const rotaEpic = "lighthouse/rota-export";
 const workerStep = "st-rota-t2-impl";
 
 const noop = () => {};
+
+const now = Date.parse(liveEpoch) / 1000;
 
 // rota is the Get answer of the rota-export epic, which the fixture holds.
 function rota(): EpicsGetResponse {
@@ -52,6 +55,7 @@ function sessionPage(conversation: Conversation | null, step: EpicStep): JSX.Ele
   return (
     <Page
       conversation={conversation}
+      now={now}
       step={step}
       epic="rota-export"
       task="T2"
