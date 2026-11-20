@@ -134,8 +134,12 @@ test("EpicWords: the Now section, not the track's now stage, takes the now grid"
   assert.equal(declaredValue(rules, ".epic-page section.now", "display"), "grid");
 });
 
-test("EpicWords: the question form's option cards take the Now styles under .epic-page .now", () => {
-  assert.equal(declaredValue(rules, ".epic-page .now .answer .opt", "display"), "grid");
+test("EpicWords: the question's Ask in Now takes the Ask's own option grid, which no Now rule overrides", () => {
+  assert.equal(declaredValue(rules, ".ask .opt", "display"), "grid");
+  const overriding = rules
+    .flatMap((rule) => rule.selectors)
+    .filter((selector) => /\.now(?![\w-])|section\.now/.test(selector) && /\.opt(?![\w-])/.test(selector));
+  assert.deepEqual(overriding, []);
 });
 
 test("EpicWords: a log's label is grey", () => {

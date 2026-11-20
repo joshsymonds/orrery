@@ -5,6 +5,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.hasClickAction
 import androidx.compose.ui.test.onAllNodesWithTag
@@ -102,7 +103,8 @@ class EpicAskTest {
             MaterialTheme {
                 NowAsk(
                     detail = detail(questions = listOf(question)),
-                    onAnswer = { _, _ -> "" },
+                    now = BASE,
+                    onAnswer = { _, _, _ -> },
                     onRetry = {},
                     onStop = {},
                     onResume = {},
@@ -111,10 +113,10 @@ class EpicAskTest {
         }
 
         composeRule.onNodeWithTag("now-sentence").assertTextEquals("It waits on your answer.")
-        composeRule.onNodeWithTag("blocker-question").assertTextEquals("Which branch should it build on?")
-        composeRule.onNodeWithTag("blocker-answer-send").assertIsDisplayed()
+        composeRule.onNodeWithTag("ask-question").assertTextEquals("Which branch should it build on?")
+        composeRule.onNodeWithTag("ask-confirm").assertIsDisplayed()
         val sentence = composeRule.onNodeWithTag("now-sentence").fetchSemanticsNode().boundsInRoot
-        val ask = composeRule.onNodeWithTag("blocker-question").fetchSemanticsNode().boundsInRoot
+        val ask = composeRule.onNodeWithTag("ask").fetchSemanticsNode().boundsInRoot
         assertTrue(sentence.bottom <= ask.top)
     }
 
@@ -127,7 +129,8 @@ class EpicAskTest {
             MaterialTheme {
                 NowAsk(
                     detail = current.value,
-                    onAnswer = { _, _ -> "" },
+                    now = BASE,
+                    onAnswer = { _, _, _ -> },
                     onRetry = {},
                     onStop = {},
                     onResume = {},
@@ -135,24 +138,27 @@ class EpicAskTest {
             }
         }
 
-        composeRule.onNodeWithTag("blocker-answer").performTextReplacement("Use main")
+        composeRule.onNodeWithTag("ask-other").performClick()
+        composeRule.onNodeWithTag("ask-other-text").performTextReplacement("Use main")
         composeRule.runOnIdle { current.value = detail(questions = listOf(later)) }
         composeRule.waitForIdle()
 
-        composeRule.onNodeWithTag("blocker-question").assertTextEquals("Which lane should it use?")
-        val typed = composeRule.onNodeWithTag("blocker-answer").fetchSemanticsNode().config[SemanticsProperties.EditableText]
+        composeRule.onNodeWithTag("ask-question").assertTextEquals("Which lane should it use?")
+        composeRule.onNodeWithTag("ask-other").performClick()
+        val typed = composeRule.onNodeWithTag("ask-other-text").fetchSemanticsNode().config[SemanticsProperties.EditableText]
         assertEquals("", typed.text)
     }
 
     @Test
-    fun anOwnersParkGivesItsReasonAndExactlyRetryAndStop() {
+    fun anOwnersParkGivesItsReasonAsTheAskWithExactlyRetryAndStop() {
         var retries = 0
         var stops = 0
         composeRule.setContent {
             MaterialTheme {
                 NowAsk(
                     detail = detail(parked = "budget exhausted"),
-                    onAnswer = { _, _ -> "" },
+                    now = BASE,
+                    onAnswer = { _, _, _ -> },
                     onRetry = { retries++ },
                     onStop = { stops++ },
                     onResume = {},
@@ -161,14 +167,22 @@ class EpicAskTest {
         }
 
         composeRule.onNodeWithTag("now-sentence").assertTextEquals("Parked. Nothing runs until you answer.")
-        composeRule.onNodeWithText("It asks you what to do").assertIsDisplayed()
-        composeRule.onNodeWithTag("epic-park-reason").assertTextEquals("Budget exhausted.")
-        composeRule.onAllNodes(hasClickAction()).assertCountEquals(2)
+        composeRule.onNodeWithTag("ask-label", useUnmergedTree = true).assertTextEquals("ASKS YOU")
+        composeRule.onNodeWithTag("ask-question").assertTextEquals("Budget exhausted.")
+        composeRule.onNodeWithTag("ask-option:1").assertTextContains("Retry")
+        // The park's one answer, its confirm, and Stop…: nothing else in Now is pressable.
+        composeRule.onAllNodes(hasClickAction()).assertCountEquals(3)
+        composeRule.onAllNodesWithTag("ask-option:2").assertCountEquals(0)
+        composeRule.onAllNodesWithTag("ask-other").assertCountEquals(0)
         val sentence = composeRule.onNodeWithTag("now-sentence").fetchSemanticsNode().boundsInRoot
         val park = composeRule.onNodeWithTag("epic-park").fetchSemanticsNode().boundsInRoot
         assertTrue(sentence.bottom <= park.top)
 
-        composeRule.onNodeWithTag("epic-park-retry").performClick()
+        composeRule.onNodeWithTag("ask-option:1").performClick()
+        composeRule.waitForIdle()
+        assertEquals(0, retries)
+        composeRule.onNodeWithTag("ask-confirm").performClick()
+        composeRule.waitForIdle()
         assertEquals(1, retries)
         assertEquals(0, stops)
 
@@ -183,7 +197,8 @@ class EpicAskTest {
             MaterialTheme {
                 NowAsk(
                     detail = detail(parked = "budget exhausted", plannerParked = true),
-                    onAnswer = { _, _ -> "" },
+                    now = BASE,
+                    onAnswer = { _, _, _ -> },
                     onRetry = {},
                     onStop = {},
                     onResume = {},
@@ -208,7 +223,8 @@ class EpicAskTest {
             MaterialTheme {
                 NowAsk(
                     detail = detail(steps = listOf(step(limited = true, limitKind = "weekly", limitResets = BASE))),
-                    onAnswer = { _, _ -> "" },
+                    now = BASE,
+                    onAnswer = { _, _, _ -> },
                     onRetry = {},
                     onStop = {},
                     onResume = { resumes++ },
@@ -232,7 +248,8 @@ class EpicAskTest {
             MaterialTheme {
                 NowAsk(
                     detail = detail(steps = listOf(step())),
-                    onAnswer = { _, _ -> "" },
+                    now = BASE,
+                    onAnswer = { _, _, _ -> },
                     onRetry = {},
                     onStop = {},
                     onResume = {},
@@ -242,7 +259,7 @@ class EpicAskTest {
 
         composeRule.onNodeWithTag("now-sentence").assertTextEquals("One task is being worked on.")
         composeRule.onAllNodes(hasClickAction()).assertCountEquals(0)
-        composeRule.onAllNodesWithTag("blocker-question").assertCountEquals(0)
+        composeRule.onAllNodesWithTag("ask").assertCountEquals(0)
         composeRule.onAllNodesWithTag("epic-park").assertCountEquals(0)
     }
 }

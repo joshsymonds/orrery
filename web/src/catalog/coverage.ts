@@ -27,8 +27,9 @@ export const storyExemptions: Readonly<Record<string, string>> = {
 // KeyList, SteerMenu, EndedBar, ProjectPage, PhaseOutputPage and WorkerSessionPage, so their entries name app.stories.tsx's
 // Page.
 export const storyRenames: Renames = {
+  "ask.tsx": { AskLine: "Ask" },
   "backgroundrow.tsx": { BackgroundRow: "TaskLine" },
-  "blocker.tsx": { QuestionCard: "Ask", AskFirst: "ConfirmButton" },
+  "blocker.tsx": { AskFirst: "ConfirmButton" },
   "contract.tsx": { ContractBody: { module: "app.stories.tsx", story: "Page" } },
   "contractrecord.tsx": { ContractRecord: { module: "app.stories.tsx", story: "Page" } },
   "endedbar.tsx": { EndedBar: { module: "app.stories.tsx", story: "Page" } },

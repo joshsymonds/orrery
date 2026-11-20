@@ -1,3 +1,6 @@
+import { ConnectError } from "@connectrpc/connect";
+
+import { conversationAsk, type AskTarget } from "./askmodel";
 import type { createClients } from "./client";
 import type { Conversation } from "./conversation";
 import type { PickerRow } from "./gen/orrery/v1/orrery_pb";
@@ -8,6 +11,9 @@ export type Clients = ReturnType<typeof createClients>;
 // The state a pane row shows while its Claude Code waits on a question, as rows.ts names it.
 const stateWaiting = "waiting";
 
+// The digits that answer a question: 1 to 9, one key each.
+const lastKeyedOption = 9;
+
 // markSeen records that the user has seen the row: Panes.MarkSeen for a pane, Control.Seen for a session.
 export async function markSeen(clients: Clients, row: Row): Promise<void> {
   if (row.kind === "pane") {
@@ -17,17 +23,24 @@ export async function markSeen(clients: Clients, row: Row): Promise<void> {
   }
 }
 
-// answer sends the choice (1-3) to the row's open question and resolves true. A pane answers by its question hash, so
-// the keys land only while the pane still shows that question. A session answers the open request by its id, with the
-// option at the choice's position. It resolves false, sending nothing, when the row has no answerable question.
+// answer sends the choice (a digit from 1 to 9) to the row's open question and resolves true. A pane answers by its
+// question hash, so the keys land only while the pane still shows that question. A session answers the open request by
+// its id, with the option at the choice's position. It resolves false, sending nothing, when the choice is not a digit
+// from 1 to 9, when a pane's question offers no option of that number, or when the row has no answerable question.
 export async function answer(
   clients: Clients,
   row: Row,
   conversation: Conversation | null,
-  choice: 1 | 2 | 3,
+  choice: number,
 ): Promise<boolean> {
+  if (!Number.isInteger(choice) || choice < 1 || choice > lastKeyedOption) {
+    return false;
+  }
   if (row.kind === "pane") {
-    if (row.state !== stateWaiting || row.questionHash === "") {
+    // A pane's digit lands only on one of its question's own answerable options: a digit past the last sends nothing.
+    const ask = conversationAsk(row, conversation);
+    const offered = ask?.options.some((option) => option.n === choice && option.answerable) ?? false;
+    if (row.state !== stateWaiting || row.questionHash === "" || !offered) {
       return false;
     }
     await clients.panes.sendKeys({ pane: row.id, keys: [String(choice)], expectQuestion: row.questionHash });
@@ -40,6 +53,52 @@ export async function answer(
   }
   await clients.control.answer({ id: row.id, requestId: request.id, answer: option });
   return true;
+}
+
+// reasonOf runs call and resolves "" when the server took it, or the server's reason when it refused the call or the call
+// failed.
+async function reasonOf(call: () => Promise<unknown>): Promise<string> {
+  try {
+    await call();
+    return "";
+  } catch (error) {
+    return ConnectError.from(error).rawMessage;
+  }
+}
+
+// notNow takes the target's open question off the owner's list through Control.NotNow. A pane names its question by its
+// id, question hash and changed time; a headless session by its id and request id.
+export function notNow(clients: Clients, target: AskTarget): Promise<string> {
+  return reasonOf(() =>
+    clients.control.notNow(
+      target.kind === "pane"
+        ? { kind: "pane", id: target.id, questionHash: target.questionHash, changed: BigInt(target.changed) }
+        : { kind: "headless", id: target.id, requestId: target.requestId },
+    ),
+  );
+}
+
+// bringBack puts the target's question back on the owner's list through Control.BringBack, named as notNow names it.
+export function bringBack(clients: Clients, target: AskTarget): Promise<string> {
+  return reasonOf(() =>
+    clients.control.bringBack(
+      target.kind === "pane"
+        ? { kind: "pane", id: target.id, questionHash: target.questionHash, changed: BigInt(target.changed) }
+        : { kind: "headless", id: target.id, requestId: target.requestId },
+    ),
+  );
+}
+
+// decline denies the target's open question and ends its turn through Control.Decline, named as notNow names it but
+// without the changed time.
+export function decline(clients: Clients, target: AskTarget): Promise<string> {
+  return reasonOf(() =>
+    clients.control.decline(
+      target.kind === "pane"
+        ? { kind: "pane", id: target.id, questionHash: target.questionHash }
+        : { kind: "headless", id: target.id, requestId: target.requestId },
+    ),
+  );
 }
 
 // send sends text to the row's Claude Code: SendText for a pane, Say for a session with the given prompt id.

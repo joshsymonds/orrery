@@ -96,11 +96,26 @@ function askSession(root: HTMLElement): boolean {
   return inboxState(root) === "rail" && (root.textContent ?? "").includes(beaconPrompt);
 }
 
-// epicQuestion is Page/epic-question: Q1 is drawn in the Now section, with no steer menu drawn, and the epic panel beside
-// the conversation rather than over it, which is epic-talk's layout.
+// askOf is the Ask the page draws, or null when none is drawn. The answered and settled lines are not Asks.
+function askOf(root: HTMLElement): HTMLElement | null {
+  return root.querySelector<HTMLElement>("section.ask");
+}
+
+// askText is the text of the element of the Ask that selector names, or null when the Ask or that element is not drawn.
+function askText(root: HTMLElement, selector: string): string | null {
+  return askOf(root)?.querySelector(selector)?.textContent ?? null;
+}
+
+// optionNames is the name of each option the Ask draws, in order.
+function optionNames(root: HTMLElement): string[] {
+  return [...(askOf(root)?.querySelectorAll(".opts .opt .nm") ?? [])].map((name) => name.textContent ?? "");
+}
+
+// epicQuestion is Page/epic-question: Q1 is drawn in the Now section's Ask, with no steer menu drawn, and the epic panel
+// beside the conversation rather than over it, which is epic-talk's layout.
 function epicQuestion(root: HTMLElement): boolean {
   return (
-    root.querySelector(".epic-page section.now .answer .question")?.textContent.includes(rotaQuestion) === true &&
+    root.querySelector(".epic-page section.now .ask .q")?.textContent.includes(rotaQuestion) === true &&
     root.querySelector(".steer-menu") === null &&
     root.querySelector(".panes.overlay") === null
   );
@@ -660,6 +675,179 @@ test("FixtureTransport: page/inbox-home, page/convo-working and page/ask-session
       }
     });
   }
+});
+
+test("FixtureTransport: page/ask-permission draws the Bash permission's command, with its three answers", (t) => {
+  mockTimers(t, ["setTimeout"]);
+  return withStory(
+    t,
+    Page["ask-permission"],
+    (root) => askText(root, ".q") === "Run this command?",
+    (root) => {
+      assertNoFailure(root);
+      assert.equal(askText(root, "figure.cmd code"), "git push origin epic/rota-export --force-with-lease", "the command is drawn");
+      assert.deepEqual(optionNames(root), ["Yes", "Yes, and don’t ask again", "No"], "the three permission answers are drawn");
+    },
+  );
+});
+
+test("FixtureTransport: page/ask-many draws five options, each with its key, and says the question is 1 of 2", (t) => {
+  mockTimers(t, ["setTimeout"]);
+  return withStory(
+    t,
+    Page["ask-many"],
+    (root) => askText(root, ".head .cut")?.endsWith("question 1 of 2") === true,
+    (root) => {
+      assertNoFailure(root);
+      assert.equal(optionNames(root).length, 5, "all five options are drawn");
+      assert.equal(askOf(root)?.querySelectorAll(".opts .opt kbd").length, 5, "each option has its key cap");
+    },
+  );
+});
+
+test("FixtureTransport: page/ask-sending holds the picked option, and its foot says sending", (t) => {
+  mockTimers(t, ["setTimeout"]);
+  return withStory(
+    t,
+    Page["ask-sending"],
+    (root) => askText(root, ".foot .inote") === "sending…",
+    (root) => {
+      assertNoFailure(root);
+      assert.equal(
+        askOf(root)?.querySelector(".opt.picked .nm")?.textContent,
+        "One query per week",
+        "option 1 is held",
+      );
+      assert.equal(askText(root, ".opt.picked .chip"), null, "the held option is not marked recommended");
+    },
+  );
+});
+
+test("FixtureTransport: page/ask-error keeps the Ask open with the refused-answer note, and holds no option", (t) => {
+  mockTimers(t, ["setTimeout"]);
+  return withStory(
+    t,
+    Page["ask-error"],
+    (root) =>
+      askText(root, ".inote.error")?.includes("Not answered: the question changed before your answer arrived.") === true,
+    (root) => {
+      assertNoFailure(root);
+      assert.equal(askOf(root)?.querySelector(".opt.picked"), null, "no option is held once the answer is refused");
+      assert.equal(askText(root, ".foot .inote"), null, "no sending foot is drawn");
+    },
+  );
+});
+
+test("FixtureTransport: page/ask-answered folds the Ask to its answered line once the stream drops the question", (t) => {
+  mockTimers(t, ["setTimeout"]);
+  return withStory(
+    t,
+    Page["ask-answered"],
+    (root) => root.querySelector(".ask.folded") !== null,
+    (root) => {
+      assertNoFailure(root);
+      const line = root.querySelector(".ask.folded");
+      assert.deepEqual(
+        [...(line?.children ?? [])].map((part) => part.textContent),
+        ["You answered", "1", "One query per week", "· Which fix should I make?"],
+        "the line says what was answered, by which key, and the question",
+      );
+      assert.equal(askOf(root), null, "no Ask is drawn open");
+    },
+  );
+});
+
+test("FixtureTransport: page/ask-answered draws the reply, the answered line, then the Edit line", (t) => {
+  mockTimers(t, ["setTimeout"]);
+  return withStory(
+    t,
+    Page["ask-answered"],
+    (root) => root.querySelector(".ask.folded") !== null,
+    (root) => {
+      assertNoFailure(root);
+      const drawn = [...(root.querySelector(".reader")?.children ?? [])];
+      const line = drawn.findIndex((element) => element.matches(".ask.folded"));
+      assert.ok(line > 0, "the answered line is drawn after the items");
+      assert.ok(
+        drawn[line - 1]?.textContent.includes("Each shift row loads its keeper"),
+        "the reply that was newest at the press is drawn right before the answered line",
+      );
+      const edit = drawn.findIndex(
+        (element) => element.textContent.includes("Edit") && element.textContent.includes("internal/roster/query.go"),
+      );
+      assert.ok(edit > line, "the Edit line the stream added is drawn after the answered line");
+    },
+  );
+});
+
+test("FixtureTransport: page/ask-stale says the question has waited five days, and draws Archive this session", (t) => {
+  mockTimers(t, ["setTimeout"]);
+  return withStory(
+    t,
+    Page["ask-stale"],
+    (root) => askText(root, ".foot .inote") === "Asked 5 days ago and still waiting.",
+    (root) => {
+      assertNoFailure(root);
+      assert.equal(
+        askOf(root)?.querySelector(".foot .btn.quiet")?.textContent.includes("Archive this session"),
+        true,
+        "the archive button is drawn",
+      );
+      assert.equal(askText(root, ".opts .opt:first-child .chip"), null, "the first option is not marked recommended");
+      assert.equal(askOf(root)?.querySelector(".opts .opt:first-child .nm")?.textContent, "Raise the budget line by $100");
+    },
+  );
+});
+
+test("FixtureTransport: page/ask-later draws round 6's whole question under Put off, with Bring it back and its age five days", (t) => {
+  mockTimers(t, ["setTimeout"]);
+  const question =
+    "The AWS fleet won’t launch: the budget pace check puts November spend ahead of today’s line, so it refuses every gate box. How should the gates run?";
+  return withStory(
+    t,
+    Page["ask-later"],
+    (root) => askText(root, ".lbl") === "Put off",
+    (root) => {
+      assertNoFailure(root);
+      assert.equal(askText(root, ".q"), question, "the question is round 6's whole question");
+      assert.equal(askText(root, ".age"), "· 5d ago", "the age is five days");
+      assert.equal(
+        askOf(root)?.querySelector(".end")?.textContent.includes("Bring it back"),
+        true,
+        "Bring it back is drawn",
+      );
+    },
+  );
+});
+
+test("FixtureTransport: page/ask-decline opens More, and its menu holds Decline and end the turn", (t) => {
+  mockTimers(t, ["setTimeout"]);
+  return withStory(
+    t,
+    Page["ask-decline"],
+    (root) => askOf(root)?.querySelector(".menu-item.danger")?.textContent.includes("Decline and end the turn") === true,
+    (root) => {
+      assertNoFailure(root);
+      assert.equal(
+        askOf(root)?.querySelector('button[aria-label="More for this question"]')?.getAttribute("aria-expanded"),
+        "true",
+        "More is open",
+      );
+    },
+  );
+});
+
+test("FixtureTransport: page/ask-unanswerable draws the note that the question cannot be answered here, and no option", (t) => {
+  mockTimers(t, ["setTimeout"]);
+  return withStory(
+    t,
+    Page["ask-unanswerable"],
+    (root) => askText(root, "p.inote") === "This question cannot be answered from here. Reply in words below.",
+    (root) => {
+      assertNoFailure(root);
+      assert.equal(askOf(root)?.querySelector(".opts"), null, "no option is drawn");
+    },
+  );
 });
 
 test("FixtureTransport: page/epic-question draws the open decision on the epic page", (t) => {
@@ -1258,9 +1446,14 @@ function epicNoteOf(root: HTMLElement): string {
   return root.querySelector('section[aria-label="epic"] > p.side-note')?.textContent ?? "";
 }
 
-// The Ask's submit button, or null when no Ask is drawn.
+// nowAsk is the Ask the epic page's Now section draws, or null when it draws none.
+function nowAsk(root: HTMLElement): HTMLElement | null {
+  return root.querySelector<HTMLElement>(".epic-page section.now .ask");
+}
+
+// The Ask's confirm button, or null when no Ask is drawn.
 function askSubmit(root: HTMLElement): HTMLButtonElement | null {
-  return root.querySelector<HTMLButtonElement>('.epic-page section.now form.answer button[type="submit"]');
+  return nowAsk(root)?.querySelector<HTMLButtonElement>(".btn.primary") ?? null;
 }
 
 // The text a page's commands are typed under, which the epic-question-other story types into its answer.
@@ -1274,7 +1467,7 @@ test("FixtureTransport: page/epic-building draws rota-export building, with two 
     (root) => nowSays(root, "2 tasks are being worked on."),
     (root) => {
       assertNoFailure(root);
-      assert.equal(root.querySelector(".epic-page section.now form.answer"), null, "no Ask is drawn");
+      assert.equal(nowAsk(root), null, "no Ask is drawn");
     },
   );
 });
@@ -1300,13 +1493,21 @@ test("FixtureTransport: page/epic-parked draws notices-usable on the owner's par
   return withStory(
     t,
     Page["epic-parked"],
-    (root) => root.querySelector(".epic-page section.now .ask.park") !== null,
+    (root) => nowAsk(root) !== null,
     (root) => {
       assertNoFailure(root);
       assert.ok(pageTitleText(root).includes("parked"), "the title row says parked");
-      const park = root.querySelector(".epic-page section.now .ask.park");
-      assert.deepEqual([...(park?.querySelectorAll("button") ?? [])].map((button) => button.textContent), ["Retry", "Stop…"]);
-      assert.equal(root.querySelector(".epic-page section.now form.answer"), null, "no question is drawn");
+      const park = nowAsk(root);
+      assert.deepEqual(
+        [...(park?.querySelectorAll(".opts > .opt .nm") ?? [])].map((name) => name.textContent),
+        ["Retry"],
+        "the park's Ask answers with Retry alone, and no Something else",
+      );
+      assert.equal(park?.querySelector("textarea"), null, "no question's answer box is drawn");
+      assert.deepEqual(
+        [...root.querySelectorAll(".epic-page section.now .doors button")].map((button) => button.textContent),
+        ["Stop…"],
+      );
     },
   );
 });
@@ -1320,7 +1521,7 @@ test("FixtureTransport: page/epic-planner-parked draws the planner's park as one
     (root) => {
       assertNoFailure(root);
       assert.ok(nowSays(root, "The planner holds this park: workflow node gate failed."), "the quiet line names the park");
-      assert.equal(root.querySelector(".epic-page section.now form.answer"), null, "no Ask is drawn");
+      assert.equal(nowAsk(root), null, "no Ask is drawn");
     },
   );
 });
@@ -1364,7 +1565,7 @@ test("FixtureTransport: page/epic-planning draws buoy-feeds with its summary, ro
     (root) => {
       assertNoFailure(root);
       assert.equal(root.querySelector(".epic-page section.tasks"), null, "no Tasks section is drawn");
-      assert.equal(root.querySelector(".epic-page section.now form.answer"), null, "no Ask is drawn");
+      assert.equal(nowAsk(root), null, "no Ask is drawn");
       assert.deepEqual(
         [...root.querySelectorAll(".epic-page .happen.just .what")].map((what) => what.textContent),
         ["planner turn 1 · running", "The epic was created from the accepted contract"],
@@ -1604,10 +1805,18 @@ test("FixtureTransport: page/epic-unavailable draws the could-not-read line with
   );
 });
 
-test("FixtureTransport: page's keys are exactly the 84 catalog names of its scenario states", () => {
+test("FixtureTransport: page's keys are exactly the 92 catalog names of its scenario states", () => {
   assert.deepEqual(Object.keys(Page).map((state) => storyName("Page", state)).sort(), [
+    "page/ask-answered",
+    "page/ask-decline",
+    "page/ask-error",
     "page/ask-later",
+    "page/ask-many",
+    "page/ask-permission",
+    "page/ask-sending",
     "page/ask-session",
+    "page/ask-stale",
+    "page/ask-unanswerable",
     "page/contract-accepted",
     "page/contract-ready",
     "page/contract-set-aside",

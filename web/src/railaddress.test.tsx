@@ -94,6 +94,7 @@ async function fakeFetch(probe: Probe, input: RequestInfo | URL, init?: RequestI
 
 function row(init: Partial<Row> & Pick<Row, "key">): Row {
   return {
+    putOff: false,
     tool: "",
     id: init.key,
     kind: "pane",

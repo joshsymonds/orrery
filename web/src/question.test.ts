@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { parseQuestion } from "./question";
+import { parseQuestion, readQuestion } from "./question";
 
 const permissionOptions = [
   { label: "1 Yes", description: "" },
@@ -79,4 +79,35 @@ test("malformed JSON gives itself as the title with the three permission options
   const stored = '{"tool": "Bash", "input": {';
 
   assert.deepEqual(parseQuestion(stored), { title: stored, options: permissionOptions });
+});
+
+test("Ask: readQuestion reads an AskUserQuestion as its question count", () => {
+  const stored = JSON.stringify({
+    questions: [
+      { question: "First?", options: [{ label: "A", description: "" }] },
+      { question: "Second?", options: [] },
+    ],
+  });
+
+  assert.deepEqual(readQuestion(stored), { kind: "askUser", tool: "", detail: "", count: 2 });
+});
+
+test("Ask: readQuestion reads a permission as its tool and detail, with no detail when there is none", () => {
+  assert.deepEqual(readQuestion(JSON.stringify({ tool: "Bash", input: { command: "make test" } })), {
+    kind: "permission",
+    tool: "Bash",
+    detail: "make test",
+    count: 1,
+  });
+  assert.deepEqual(readQuestion(JSON.stringify({ tool: "Grep", input: { pattern: "todo" } })), {
+    kind: "permission",
+    tool: "Grep",
+    detail: "",
+    count: 1,
+  });
+});
+
+test("Ask: readQuestion reads plain text and malformed JSON as text", () => {
+  assert.deepEqual(readQuestion("Proceed with the rename?"), { kind: "text", tool: "", detail: "", count: 1 });
+  assert.deepEqual(readQuestion('{"tool": "Bash", "input": {'), { kind: "text", tool: "", detail: "", count: 1 });
 });

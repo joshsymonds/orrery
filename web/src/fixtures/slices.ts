@@ -94,6 +94,9 @@ export interface Slices {
   // steps is how the fixture answers the step calls: hold refuses Steps.Hold as a step that has ended does, and nudge fails
   // Steps.Nudge as a call with no answer does. Unset, each call is absorbed.
   readonly steps?: { readonly hold?: "refused"; readonly nudge?: "unanswered" };
+  // keysThen is the next frame each open conversation stream of a pane sends once Panes.SendKeys is called for that pane,
+  // by pane id, after which the stream stays open until its call aborts. Unset, the keys are absorbed and no frame comes.
+  readonly keysThen?: ReadonlyMap<string, WatchConversationResponse>;
   readonly asks: ReadonlyMap<string, AskAnswer>;
   // heldGets names the epics whose Epics.Get stays open until its call aborts.
   readonly heldGets: ReadonlySet<string>;

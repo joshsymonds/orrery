@@ -8,6 +8,7 @@ import { act } from "preact/test-utils";
 import type { EpicCalls } from "./card";
 import type { Conversation } from "./conversation";
 import { type EpicsView, epicsView, noEpics } from "./epics";
+import { liveEpoch } from "./fixtures/clock";
 import { type EpicsGetResponse, EpicSchema, EpicsGetResponseSchema } from "./gen/orrery/v1/epics_pb";
 import { type ConversationItem, ConversationItemSchema, ConversationStateSchema } from "./gen/orrery/v1/orrery_pb";
 import { Reader } from "./reader";
@@ -107,6 +108,7 @@ class FakeEpics {
       },
       openStep: () => {},
       stepResult: () => Promise.resolve(""),
+      now: Date.parse(liveEpoch) / 1000,
       epics,
     };
   }

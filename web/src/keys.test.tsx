@@ -6,12 +6,12 @@ import { create } from "@bufbuild/protobuf";
 import { type JSX, render } from "preact";
 import { act } from "preact/test-utils";
 
-import { QuestionCard } from "./blocker";
 import { Dock } from "./dock";
 import type { DockFacts } from "./dockwords";
-import { EpicQuestionSchema } from "./gen/orrery/v1/epics_pb";
+import { EpicQuestionSchema, EpicSchema, EpicsGetResponseSchema } from "./gen/orrery/v1/epics_pb";
 import { type Chord, keyGroups, type Where } from "./keys";
 import { type EscapeTarget, handleKey, type KeyContext } from "./keymap";
+import { NowSection } from "./nowsection";
 import type { Row } from "./rows";
 import { mockTimers } from "./testclock";
 import { assertSame, installTestDom, removeTestDom } from "./testdom";
@@ -145,6 +145,7 @@ async function withDom(check: () => Promise<void>): Promise<void> {
 // row is a pane row with the key, as the list holds it.
 function row(key: string): Row {
   return {
+    putOff: false,
     tool: "",
     key,
     id: key,
@@ -306,24 +307,30 @@ const eightChoices = Array.from({ length: 8 }, (_, index) => ({
   does: `Does thing ${index + 1}.`,
 }));
 
-// pickedCard is the index of the option card that is selected, or -1 when none is.
+// pickedCard is the index of the option that holds the pick, or -1 when none does.
 function pickedCard(container: HTMLElement): number {
-  return [...container.querySelectorAll(".opts > button")].findIndex(
-    (card) => card.getAttribute("aria-pressed") === "true",
-  );
+  return [...container.querySelectorAll(".ask .opts > .opt")].findIndex((card) => card.classList.contains("picked"));
 }
 
-// questionPress presses in a fresh epic question card, whose digit keys listen on the document.
+// questionPress presses in a fresh epic page's question, whose digit keys listen on the document.
 async function questionPress(key: string, modifier: Modifier | null): Promise<Outcome> {
   const container = document.createElement("div");
   document.body.append(container);
   try {
     await act(() => {
       render(
-        <QuestionCard
-          question={create(EpicQuestionSchema, { id: "Q1", text: "Which lane should it use?", choices: eightChoices })}
+        <NowSection
+          detail={create(EpicsGetResponseSchema, {
+            epic: create(EpicSchema, { id: "orrery/lanes", slug: "lanes", repository: "orrery", live: true }),
+            questions: [create(EpicQuestionSchema, { id: "Q1", text: "Which lane should it use?", choices: eightChoices })],
+          })}
+          now={0}
+          narrow={false}
           numberKeys
           onAnswer={() => Promise.resolve("")}
+          onRetry={() => {}}
+          onStop={() => {}}
+          onResume={() => {}}
         />,
         container,
       );

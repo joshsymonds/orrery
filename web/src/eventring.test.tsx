@@ -8,11 +8,14 @@ import { act } from "preact/test-utils";
 import type { EpicCalls } from "./card";
 import { type EpicsView, epicsView, noEpics } from "./epics";
 import { type EpicEvent, EventRing, epicEventOf } from "./eventring";
+import { liveEpoch } from "./fixtures/clock";
 import { EpicQuestionSchema, EpicSchema, type EpicsGetResponse, EpicsGetResponseSchema } from "./gen/orrery/v1/epics_pb";
 import { assertNone, installTestDom, removeTestDom } from "./testdom";
 import { turn, until } from "./testwait";
 
 const ringEpic = "orrery-1a2b3c4/planner-runner";
+// ringNow is the instant the ring's epic calls hold, in unix seconds: the fixtures' instant.
+const ringNow = Date.parse(liveEpoch) / 1000;
 const title = `Epic ${ringEpic} (Plan the runner)`;
 // threeChoices are the choices of the open question: the recommended one is composite, the first.
 const threeChoices = [
@@ -92,6 +95,7 @@ class FakeEpics {
       },
       openStep: () => {},
       stepResult: () => Promise.resolve(""),
+      now: ringNow,
       epics,
     };
   }
@@ -136,8 +140,14 @@ function settle(t: TestContext, check: () => boolean, what: string): Promise<voi
   return until(t.signal, check, what, { step: () => act(turn) });
 }
 
-function cards(root: ParentNode): HTMLButtonElement[] {
-  return [...root.querySelectorAll<HTMLButtonElement>("form.answer .opts > .opt")];
+// options are the options of the question's Ask in order: each choice, then Something else.
+function options(root: ParentNode): HTMLElement[] {
+  return [...root.querySelectorAll<HTMLElement>(".ask .opts > .opt")];
+}
+
+// pickedName is the name of the option that holds the pick, or undefined when none does.
+function pickedName(root: ParentNode): string | undefined {
+  return root.querySelector(".ask .opts > .opt.picked .nm")?.textContent ?? undefined;
 }
 
 // click clicks a control inside act, so the render its click causes has run before the next check.
@@ -235,7 +245,7 @@ test("EventRing: a question event whose epic the poll does not hold reads it on 
 test("EventRing: a question event whose epic the poll holds draws the poll's question and reads nothing", async (t) => {
   const fake = new FakeEpics(epicReading([openQuestion]));
   await withRing(questionEvent, fake.calls(polledView(epicReading([openQuestion]))), async (container) => {
-    await settle(t, () => container.querySelector("form.answer") !== null, "the open question's form is drawn");
+    await settle(t, () => container.querySelector(".ask") !== null, "the open question's Ask is drawn");
     await act(() => {
       render(<EventRing event={questionEvent} calls={fake.calls(polledView(epicReading([])))} />, container);
     });
@@ -244,12 +254,21 @@ test("EventRing: a question event whose epic the poll holds draws the poll's que
   });
 });
 
+test("EventRing: an open epic question's Ask ages from the calls' now, not the clock", async (t) => {
+  const fake = new FakeEpics(epicReading([]));
+  const asked = { ...openQuestion, asked: BigInt(ringNow - 300) };
+  await withRing(questionEvent, fake.calls(polledView(epicReading([asked]))), async (container) => {
+    await settle(t, () => container.querySelector(".ask .age") !== null, "the open question's Ask is aged");
+    assert.equal(container.querySelector(".ask .age")?.textContent, "· 5m ago", "the Ask ages from ringNow");
+  });
+});
+
 test("EventRing: an answer that lands reads the epic once more, and the settled question draws its line", async (t) => {
   const fake = new FakeEpics(epicReading([openQuestion]));
   await withRing(questionEvent, fake.calls(polledView(epicReading([openQuestion]))), async (container) => {
-    await settle(t, () => container.querySelector("form.answer") !== null, "the open question's form is drawn");
+    await settle(t, () => container.querySelector(".ask") !== null, "the open question's Ask is drawn");
     fake.reading = epicReading([]);
-    const confirm = container.querySelector<HTMLButtonElement>("form.answer .act.primary");
+    const confirm = container.querySelector<HTMLButtonElement>(".ask .btn.primary");
     assert.ok(confirm !== null, "the confirm button is drawn");
     await click(confirm);
     await settle(t, () => container.querySelector(".settled") !== null, "the reread settles the question");
@@ -258,26 +277,25 @@ test("EventRing: an answer that lands reads the epic once more, and the settled 
   });
 });
 
-test("EventRing: an open question draws its form, the recommended option is chosen by click, and a digit key chooses nothing", async (t) => {
+test("AskAnswer: an epic question's Ask in a transcript draws no key caps and a digit picks nothing", async (t) => {
   const fake = new FakeEpics(epicReading([openQuestion]));
   await withRing(questionEvent, fake.calls(), async (container) => {
-    await settle(t, () => container.querySelector("form.answer") !== null, "the open question's form is drawn");
-    assert.equal(container.querySelector("form.answer p.question")?.textContent, "Which index should it add?");
-    assert.equal(cards(container).length, 4, "three choices and Something else");
-    assert.equal(container.querySelector(".opt em")?.textContent, "recommended", "the recommended option is marked");
-    assert.equal(container.querySelector(".opt.sel b")?.textContent, "composite", "the recommended option starts chosen");
+    await settle(t, () => container.querySelector(".ask") !== null, "the open question's Ask is drawn");
+    assert.equal(container.querySelector(".ask .q")?.textContent, "Which index should it add?");
+    assert.equal(options(container).length, 4, "three choices and Something else");
+    assert.equal(container.querySelector("kbd"), null, "the transcript draws a key cap");
+    assert.equal(pickedName(container), "composite", "the recommended option starts picked");
 
     await act(() => {
-      document.dispatchEvent(new KeyboardEvent("keydown", { key: "2", cancelable: true }));
+      document.dispatchEvent(new KeyboardEvent("keydown", { key: "4", cancelable: true }));
     });
-    assert.equal(container.querySelector(".opt.sel b")?.textContent, "composite", "a digit key chooses nothing");
+    assert.equal(pickedName(container), "composite", "a digit key picked an option in a transcript");
 
-    const [recommended, , none] = cards(container);
-    await click(none);
-    assert.equal(container.querySelector(".opt.sel b")?.textContent, "none", "a click chooses the card it lands on");
-    await click(recommended);
-    assert.equal(container.querySelector(".opt.sel b")?.textContent, "composite", "a click chooses the recommended card");
-    const confirm = container.querySelector<HTMLButtonElement>("form.answer .act.primary");
+    await click(options(container)[3]);
+    assert.equal(pickedName(container), "Something else", "a click picks the option it lands on");
+    await click(options(container)[0]);
+    assert.equal(pickedName(container), "composite", "a click picks the recommended option");
+    const confirm = container.querySelector<HTMLButtonElement>(".ask .btn.primary");
     assert.ok(confirm !== null, "the confirm button is drawn");
     assert.equal(confirm.textContent, "Answer with composite");
     await click(confirm);
@@ -288,22 +306,25 @@ test("EventRing: an open question draws its form, the recommended option is chos
   });
 });
 
-test("EventRing: a question event whose question is no longer open draws the settled line and no form", async (t) => {
+test("AskAnswer: a settled question draws the settled line, with its project and slug, and no Ask", async (t) => {
   const fake = new FakeEpics(epicReading([]));
   await withRing(questionEvent, fake.calls(), async (container) => {
-    await settle(t, () => container.querySelector(".settled") !== null, "the settled line is drawn");
-    assert.equal(container.querySelector(".settled")?.textContent, "This question is settled.");
-    assertNone(container.querySelector("form.answer"), "a settled question draws no form");
+    await settle(t, () => container.querySelector(".ask.folded.settled") !== null, "the settled line is drawn");
+    assert.deepEqual(
+      [...container.querySelectorAll(".ask.folded.settled span")].map((span) => span.textContent),
+      ["Settled", "This question is settled.", "· orrery-1a2b3c4 · planner-runner"],
+    );
+    assertNone(container.querySelector(".ask:not(.folded)"), "a settled question draws an open Ask");
     assert.equal(container.querySelectorAll(".ring-line").length, 1, "the ring line stays");
   });
 });
 
-test("EventRing: a question event whose epic cannot be read draws neither the form nor the settled line", async (t) => {
+test("EventRing: a question event whose epic cannot be read draws neither the Ask nor the settled line", async (t) => {
   const fake = new FakeEpics(new Error("the epic is gone"));
   await withRing(questionEvent, fake.calls(), async (container) => {
     await settle(t, () => fake.reads.length === 1, "the ring reads its epic");
     await act(turn);
-    assertNone(container.querySelector("form.answer"), "an unreadable epic draws no form");
+    assertNone(container.querySelector(".ask"), "an unreadable epic draws no Ask");
     assertNone(container.querySelector(".settled"), "an unreadable epic draws no settled line");
     assert.equal(container.querySelectorAll(".ring-line").length, 1, "the ring line stays");
   });
@@ -379,12 +400,12 @@ test("EventRing: the planner's bounded question, park, release and end bodies ea
       assert.equal(container.querySelector(".ring-icon")?.classList.contains(planned.kind), true, `${planned.kind} draws its icon`);
       assert.equal(container.querySelector(".ring-slug")?.textContent, "planner-runner", `${planned.kind} draws the epic's slug`);
       if (planned.kind === "question") {
-        await settle(t, () => container.querySelector("form.answer") !== null, "the question's form is drawn");
-        const drawn = cards(container).map((card) => card.querySelector("b")?.textContent);
+        await settle(t, () => container.querySelector(".ask") !== null, "the question's Ask is drawn");
+        const drawn = options(container).map((option) => option.querySelector(".nm")?.textContent);
         assert.deepEqual(
           drawn,
           [...collapsedChoices.map((choice) => choice.id), "Something else"],
-          "the form draws all 30 choices from the epic reading, then Something else",
+          "the Ask draws all 30 choices from the epic reading, then Something else",
         );
       }
     });

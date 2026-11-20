@@ -11,9 +11,10 @@ import { at } from "./fixtures/clock";
 import { gets } from "./fixtures/epics";
 import { paneStreams, panes } from "./fixtures/panes";
 import { headless, sessions, sessionStreams } from "./fixtures/sessions";
+import { Ask } from "./ask";
+import { conversationAsk } from "./askmodel";
 import { findMatches } from "./find";
 import { type EpicStepCheck, EpicStepCheckSchema } from "./gen/orrery/v1/epics_pb";
-import { readerQuestion } from "./inboxrow";
 import * as reader from "./reader";
 import { type Row, rowsFrom } from "./rows";
 import { sendingEntry } from "./sending";
@@ -40,6 +41,8 @@ const lamp = rowOf("pane:halyard:%11");
 const lampConversation = paneConversation("%11");
 const beacon = rowOf("pane:halyard:%12");
 const beaconConversation = paneConversation("%12");
+const beaconAsk = must(conversationAsk(beacon, beaconConversation) ?? undefined, "beacon's question");
+const beaconNow = Number(at("@14:41"));
 const workerConversation = sessionConversation("st-rota-t2-impl");
 const workerStep = must(
   must(gets.get("lighthouse/rota-export"), "rota epic").steps.find((step) => step.id === "st-rota-t2-impl"),
@@ -58,8 +61,20 @@ export const Reader: Stories = {
       conversation={beaconConversation}
       seenAt={beacon.seen}
       open={false}
-      question={readerQuestion(beacon, beaconConversation)}
-      onAnswer={noop}
+      asking
+      ask={
+        <Ask
+          model={beaconAsk}
+          now={beaconNow}
+          phase="open"
+          picked={null}
+          note=""
+          keyCaps
+          narrow={false}
+          numberKeys={false}
+          onAnswer={noop}
+        />
+      }
     />
   ),
   find: () => (

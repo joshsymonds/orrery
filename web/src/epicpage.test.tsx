@@ -235,6 +235,33 @@ test("EpicRecord: a planning epic draws its summary, track, Now and requirements
   );
 });
 
+test("AskAnswer: the blocker's question is the page's Ask, aged from the page's now, which a digit picks and confirm answers", async () => {
+  const { calls, commands } = recorder();
+  const question = {
+    id: "Q1",
+    text: "Which branch?",
+    asked: 9_880n,
+    choices: [
+      { id: "main", does: "Use main." },
+      { id: "dev", does: "Use dev." },
+    ],
+  };
+  await withPage(
+    detail({ ...build, questions: [question] }),
+    async (container) => {
+      assert.equal(textOf(container, "section.now .ask .q"), "Which branch?");
+      assert.equal(textOf(container, "section.now .ask .age"), "· 2m ago");
+      await act(() => {
+        document.dispatchEvent(new KeyboardEvent("keydown", { key: "2", cancelable: true }));
+      });
+      assert.deepEqual(calls, [], "a digit answered the question");
+      await pressButton(container, "section.now .ask", "Answer with dev");
+      assert.deepEqual(calls, ["answer Q1 dev Use dev."]);
+    },
+    { commands },
+  );
+});
+
 test("EpicRecord: a record epic draws only its Now and its Tasks", async () => {
   await withPage(
     detail({
@@ -371,6 +398,7 @@ test("EpicRecord: Just happened draws the newest three entries, and +n earlier s
 
 // steererRow is the listed row of session s2, whose archive id is its own id: the row the Steered from door titles from.
 const steererRow: Row = {
+  putOff: false,
   key: "session:s2",
   id: "s2",
   archiveId: "s2",
@@ -465,6 +493,7 @@ test("EpicWords: a page whose runs and history carry 40-character revisions show
 // row is a listed row with the fields the tests do not set at their defaults.
 function row(init: Partial<Row> & Pick<Row, "key">): Row {
   return {
+    putOff: false,
     tool: "",
     id: init.key,
     kind: "session",
@@ -530,41 +559,44 @@ test("EpicRecord: a running step's task draws one running cell in each stage: tu
   }
 });
 
-test("EpicAsk: an open question draws its answer card in Now, under the sentence", async () => {
+test("EpicAsk: an open question draws its Ask in Now, under the sentence", async () => {
   await withPage(
     detail({ ...build, questions: [{ id: "Q1", text: "Which branch?", asked: 9_880n }] }),
     (container) => {
-      assert.deepEqual(labelsOf(container, ".now"), ["h3", "now-sentence", "answer", "tbl steps"]);
-      assert.equal(textOf(container, ".now .answer .question"), "Which branch?");
+      assert.deepEqual(labelsOf(container, ".now"), ["h3", "now-sentence", "ask", "tbl steps"]);
+      assert.equal(textOf(container, ".now .ask .q"), "Which branch?");
       assert.equal(textOf(container, ".now-sentence"), "One task is being worked on, and one waits on you.");
     },
   );
 });
 
-test("EpicAsk: an owner's park shows its reason, Retry, and Stop… that asks first and sends one stop on confirm", async () => {
+test("EpicAsk: an owner's park shows its Ask with its reason and Retry, and Stop… that asks first and sends one stop on confirm", async () => {
   const { calls, commands } = recorder();
   await withPage(
     detail({ ...build, parked: "usage limit" }),
     async (container) => {
-      assert.equal(textOf(container, ".ask.epic.park .ask-head"), "It asks you what to do");
-      assert.equal(textOf(container, ".ask.epic.park .reason"), "Usage limit.");
-      assert.deepEqual(textsOf(container, ".ask.epic.park button"), ["Retry", "Stop…"]);
-      await pressButton(container, ".ask.epic.park", "Stop…");
-      assert.equal(textOf(container, ".ask.epic.park .sure"), "Stop demo-epic?");
+      assert.equal(textOf(container, ".now .ask .head .lbl"), "Asks you");
+      assert.equal(textOf(container, ".now .ask .q"), "Usage limit.");
+      assert.deepEqual(textsOf(container, ".now .ask .opts > .opt .nm"), ["Retry"]);
+      assert.deepEqual(textsOf(container, ".now .doors button"), ["Stop…"]);
+      await pressButton(container, ".now .doors", "Stop…");
+      assert.equal(textOf(container, ".now .doors .sure"), "Stop demo-epic?");
       assert.deepEqual(calls, []);
-      await pressButton(container, ".ask.epic.park", "Stop demo-epic");
+      await pressButton(container, ".now .doors", "Stop demo-epic");
       assert.deepEqual(calls, ["stop"]);
     },
     { commands },
   );
 });
 
-test("EpicAsk: an owner's park's Retry sends one retry", async () => {
+test("EpicAsk: an owner's park's Retry, picked then confirmed, sends one retry", async () => {
   const { calls, commands } = recorder();
   await withPage(
     detail({ ...build, parked: "usage limit" }),
     async (container) => {
-      await pressButton(container, ".ask.epic.park", "Retry");
+      await press(container, ".now .ask .opts > .opt");
+      assert.deepEqual(calls, [], "the pick sends nothing");
+      await pressButton(container, ".now .ask", "Answer with Retry");
       assert.deepEqual(calls, ["retry"]);
     },
     { commands },

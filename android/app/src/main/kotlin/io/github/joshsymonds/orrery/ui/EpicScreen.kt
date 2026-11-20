@@ -131,9 +131,8 @@ fun EpicScreen(
     val resume = { send("Resume") { client.resumeEpic(epicId) } }
     val stop = { send("Stop") { client.stopEpic(epicId) } }
     val retry = { send("Retry") { client.retryEpic(epicId) } }
-    val onAnswer: (String, String) -> String = { questionId, text ->
-        send("Answer", answer = text) { client.answerEpic(epicId, questionId, text) }
-        ""
+    val onAnswer: (String, String, String) -> Unit = { questionId, choice, text ->
+        send("Answer", answer = text) { client.answerEpic(epicId, questionId, text, choice) }
     }
 
     val current = load
@@ -301,9 +300,12 @@ private suspend fun markSeen(client: OrreryClient, epicId: String) {
 internal fun stateLineOf(state: String, phaseAt: Long, now: Long): String =
     if (state.isNotEmpty() && phaseAt > 0L) "$state · ${durationText((now - phaseAt).coerceAtLeast(0L))}" else state
 
-/** The actions the Now section makes: an answer to its question, Retry, Resume now, and Stop once its confirm is given. */
+/**
+ * The actions the Now section makes: an answer to its question (the chosen choice's id or "other", and the text sent
+ * with it), Retry, Resume now, and Stop once its confirm is given.
+ */
 private class NowActions(
-    val answer: (questionId: String, text: String) -> String,
+    val answer: (questionId: String, choice: String, text: String) -> Unit,
     val retry: () -> Unit,
     val resume: () -> Unit,
     val stop: () -> Unit,
@@ -419,6 +421,7 @@ private fun NowSection(detail: EpicDetail, now: Long, actions: NowActions) {
     var stopAsking by remember { mutableStateOf(false) }
     NowAsk(
         detail = detail,
+        now = now,
         onAnswer = actions.answer,
         onRetry = actions.retry,
         onStop = { stopAsking = true },

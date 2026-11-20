@@ -2,14 +2,20 @@ import assert from "node:assert/strict";
 import { test, type TestContext } from "node:test";
 
 import { create, type MessageInitShape } from "@bufbuild/protobuf";
-import { options, render } from "preact";
+import { type ComponentChildren, options, render } from "preact";
 import { act } from "preact/test-utils";
 
 import type { EpicCalls } from "./card";
 import { noEpics } from "./epics";
 import { tideAccepted, tideProposed } from "./fixtures/contractrecords";
 import type { Contract, ContractsGetResponse } from "./gen/orrery/v1/contracts_pb";
-import { EpicSchema, EpicsGetResponseSchema, EpicStepSchema, type EpicStep } from "./gen/orrery/v1/epics_pb";
+import {
+  EpicQuestionSchema,
+  EpicSchema,
+  EpicsGetResponseSchema,
+  EpicStepSchema,
+  type EpicStep,
+} from "./gen/orrery/v1/epics_pb";
 import {
   ConversationItemSchema,
   ConversationStateSchema,
@@ -21,8 +27,7 @@ import {
 import type { Conversation } from "./conversation";
 import { findMatches, type Match } from "./find";
 import { flashMillis } from "./flash";
-import type { ParsedQuestion } from "./question";
-import { clock, type ContractCalls, Reader, ReaderHead, type ReaderHandle } from "./reader";
+import { clock, type ContractCalls, newestItemKey, Reader, ReaderHead, type ReaderHandle } from "./reader";
 import type { Sending } from "./sending";
 import { mockTimers } from "./testclock";
 import { TitleParts } from "./titleparts";
@@ -66,9 +71,8 @@ interface Props {
   conversation: Conversation | null;
   seenAt: number;
   open: boolean;
-  question?: ParsedQuestion | null;
+  asking?: boolean;
   step?: EpicStep;
-  onAnswer?: (choice: 1 | 2 | 3) => void;
   onToggleOpen?: () => void;
   onOlder?: () => void;
   onNewest?: (atNewest: boolean) => void;
@@ -76,6 +80,7 @@ interface Props {
   sending?: Sending[];
   find?: { query: string; matches: Match[]; current: number };
   contractCalls?: ContractCalls;
+  answered?: { after: string | null; line: ComponentChildren };
 }
 
 async function withReader(props: Props, check: (container: HTMLElement) => void | Promise<void>): Promise<void> {
@@ -768,11 +773,15 @@ function eventText(kind: string, tail: string): string {
   return `<orrery-event kind="${kind}" id="epic:${ringEpic}:${tail}">\nEpic ${ringEpic} (Plan the runner) is done.\n</orrery-event>`;
 }
 
-// ringCalls are the epic calls an event ring reads through. The epic reads as one with no open question, so a question
-// event draws its settled line.
-function ringCalls(): EpicCalls {
+// ringNow is the instant the ring's epic calls hold, in unix seconds.
+const ringNow = 1_800_000_000;
+
+// ringCalls are the epic calls an event ring reads through, at ringNow. The epic reads with the questions given open;
+// with none it reads as one with no open question, so a question event draws its settled line.
+function ringCalls(questions: MessageInitShape<typeof EpicQuestionSchema>[] = []): EpicCalls {
   const reading = create(EpicsGetResponseSchema, {
     epic: create(EpicSchema, { id: ringEpic, slug: "planner-runner" }),
+    questions: questions.map((question) => create(EpicQuestionSchema, question)),
   });
   return {
     get: async () => reading,
@@ -782,19 +791,29 @@ function ringCalls(): EpicCalls {
     openEpic: () => {},
     openStep: () => {},
     stepResult: () => Promise.resolve(""),
+    now: ringNow,
     epics: noEpics,
   };
 }
 
-// withEventReader draws the reader over items with the ring's epic calls, lets the ring's read settle inside act, runs
-// check on the container, then removes the DOM.
-async function withEventReader(items: ConversationItem[], check: (container: HTMLElement) => void): Promise<void> {
+// withEventReader draws the reader over items with the ring's epic calls, with the questions given open, lets the ring's
+// read settle inside act, runs check on the container, then removes the DOM.
+async function withEventReader(
+  items: ConversationItem[],
+  check: (container: HTMLElement) => void,
+  questions: MessageInitShape<typeof EpicQuestionSchema>[] = [],
+): Promise<void> {
   const window = installTestDom();
   const container = document.createElement("div");
   try {
     await act(() => {
       render(
-        <Reader conversation={conversation({ items })} seenAt={10_000} open={false} epicCalls={ringCalls()} />,
+        <Reader
+          conversation={conversation({ items })}
+          seenAt={10_000}
+          open={false}
+          epicCalls={ringCalls(questions)}
+        />,
         container,
       );
     });
@@ -994,71 +1013,6 @@ test("a null conversation draws a loading line", () =>
     assert.ok(container.textContent?.includes("loading"));
   }));
 
-const askQuestion: ParsedQuestion = {
-  title: "Which beacon schedule?",
-  options: [
-    { label: "1 Hourly", description: "Synthetic hourly option" },
-    { label: "2 Daily", description: "Synthetic daily option" },
-    { label: "3 Weekly", description: "Synthetic weekly option" },
-    { label: "4 Never", description: "Synthetic fourth option" },
-  ],
-};
-
-test("a question draws its title and labels as text, one button per first three options", async () => {
-  const answers: number[] = [];
-  await withReader(
-    {
-      conversation: conversation(),
-      seenAt: 0,
-      open: false,
-      question: askQuestion,
-      onAnswer: (choice) => answers.push(choice),
-    },
-    (container) => {
-      const card = container.querySelector(".question-card");
-      assert.ok(card?.textContent?.includes("Which beacon schedule?"));
-      assert.ok(card?.textContent?.includes("1 Hourly"));
-      assert.ok(card?.textContent?.includes("Synthetic fourth option"));
-
-      const buttons = [...container.querySelectorAll<HTMLButtonElement>("button")];
-      assert.equal(buttons.length, 3);
-      assert.ok(buttons[1].textContent?.includes("2 Daily"));
-      assert.ok(buttons[1].textContent?.includes("Synthetic daily option"));
-      assert.equal(
-        buttons.some((button) => button.textContent?.includes("4 Never")),
-        false,
-      );
-      assert.ok(container.textContent?.includes("4 Never"));
-
-      buttons[1].click();
-      assert.deepEqual(answers, [2]);
-    },
-  );
-});
-
-test("a question holding markup draws its title and labels as text with no element", () =>
-  withReader(
-    {
-      conversation: conversation(),
-      seenAt: 0,
-      open: false,
-      question: {
-        title: "<b>bold</b> <img src=x onerror=alert(1)>",
-        options: [{ label: "<script>alert(1)</script>", description: "<a href=x>link</a>" }],
-      },
-      onAnswer: () => {},
-    },
-    (container) => {
-      assert.equal(container.querySelector("b") === null, true);
-      assert.equal(container.querySelector("img") === null, true);
-      assert.equal(container.querySelector("script") === null, true);
-      assert.equal(container.querySelector("a") === null, true);
-      assert.ok(container.textContent?.includes("<b>bold</b> <img src=x onerror=alert(1)>"));
-      assert.ok(container.textContent?.includes("<script>alert(1)</script>"));
-      assert.ok(container.textContent?.includes("<a href=x>link</a>"));
-    },
-  ));
-
 test("the compaction rule is a button that calls onToggleOpen, and a plain rule without it", async () => {
   const compaction = item({ kind: "compaction", time: 100n, text: "Synthetic summary text.", trigger: "auto" });
   let toggles = 0;
@@ -1083,49 +1037,6 @@ test("the compaction rule is a button that calls onToggleOpen, and a plain rule 
       assert.ok(rule.textContent?.includes("compacted"));
       rule.click();
       assert.equal(toggles, 1);
-    },
-  );
-});
-
-test("an option flashes for 300 ms after a click, restarts on a second click, and still answers", async (t) => {
-  mockTimers(t, ["setTimeout"]);
-  const answers: number[] = [];
-  await withReader(
-    {
-      conversation: conversation(),
-      seenAt: 0,
-      open: false,
-      question: askQuestion,
-      onAnswer: (choice) => answers.push(choice),
-    },
-    async (container) => {
-      const buttons = [...container.querySelectorAll<HTMLButtonElement>("button")];
-      assert.equal(flashing(buttons[1]), false, "not flashing before any click");
-
-      await clickControl(buttons[1]);
-      assert.deepEqual(answers, [2]);
-      assert.equal(flashing(buttons[1]), true, "flashing at once after the click");
-      assert.equal(flashing(buttons[0]), false, "the option before it does not flash");
-      assert.equal(flashing(buttons[2]), false, "the option after it does not flash");
-      await advance(t, flashMillis - 1);
-      assert.equal(flashing(buttons[1]), true, "still flashing 1 ms before the window ends");
-      await advance(t, 1);
-      assert.equal(flashing(buttons[1]), false, "cleared 300 ms after the click");
-
-      await clickControl(buttons[1]);
-      await advance(t, 200);
-      await clickControl(buttons[1]);
-      await advance(t, 200);
-      assert.equal(
-        flashing(buttons[1]),
-        true,
-        "still flashing 200 ms after the second click, inside the restarted window",
-      );
-      await advance(t, 99);
-      assert.equal(flashing(buttons[1]), true, "still flashing 1 ms before the restarted window ends");
-      await advance(t, 1);
-      assert.equal(flashing(buttons[1]), false, "cleared 300 ms after the second click");
-      assert.deepEqual(answers, [2, 2, 2]);
     },
   );
 });
@@ -1994,7 +1905,7 @@ test("ToolTrail: the same items drawn with a question carry no running class or 
       }),
       seenAt: 100,
       open: false,
-      question: { title: "Run the make?", options: [] },
+      asking: true,
     },
     (container) => {
       const fold = foldOf(container);
@@ -2004,6 +1915,49 @@ test("ToolTrail: the same items drawn with a question carry no running class or 
       assertNone(container.querySelector(".running-mark"));
     },
   ));
+
+// answeredProps is the props of a reader that holds items, with an answered line that follows the item after names.
+function answeredProps(items: ConversationItem[], after: string | null): Props {
+  return { ...readerProps(items), answered: { after, line: <p class="answered-line">answered</p> } };
+}
+
+// answeredIndex is the place of the answered line among the reader's children, or -1 when it is not drawn.
+function answeredIndex(container: HTMLElement): number {
+  return [...readerOf(container).children].findIndex((element) => element.classList.contains("answered-line"));
+}
+
+test("AskAnswer: an answered line draws after the item its answer named as newest", () => {
+  const first = item({ kind: "reply", time: 101n, text: "held-1" });
+  const second = item({ kind: "reply", time: 102n, text: "held-2" });
+  const after = newestItemKey(conversation({ items: [first] }));
+  return withReader(answeredProps([first, second], after), (container) => {
+    assert.equal(answeredIndex(container), 1, "the line draws between the two replies");
+  });
+});
+
+test("AskAnswer: an answered line draws after every item once the item it follows is no longer drawn", () => {
+  const first = item({ kind: "reply", time: 101n, text: "held-1" });
+  const second = item({ kind: "reply", time: 102n, text: "held-2" });
+  return withReader(answeredProps([first, second], "item-no-longer-drawn"), (container) => {
+    assert.equal(answeredIndex(container), 2, "the line draws after both replies");
+  });
+});
+
+test("AskAnswer: an answered line draws first when no item was drawn at its press", () => {
+  const first = item({ kind: "reply", time: 101n, text: "held-1" });
+  return withReader(answeredProps([first], null), (container) => {
+    assert.equal(answeredIndex(container), 0, "the line draws before the reply");
+  });
+});
+
+test("AskAnswer: a run of tool calls ends where the answered line falls", () => {
+  const calls = [toolItem("Read", "r1", "a.txt"), toolItem("Read", "r2", "b.txt"), toolItem("Read", "r3", "c.txt"), toolItem("Read", "r4", "d.txt")];
+  const after = newestItemKey(conversation({ items: [calls[0], resultItem("r1", "alpha"), calls[1]] }));
+  const items = calls.flatMap((call) => [call, resultItem(call.id, "done")]);
+  return withReader(answeredProps(items, after), (container) => {
+    assert.equal(answeredIndex(container), 2, "the line draws after the second call, and the calls around it stay unfolded");
+  });
+});
 
 test("a reply between tool calls leaves no run fold", () =>
   withReader(
@@ -2276,7 +2230,7 @@ test("TurnRhythm: a reply is drawn with no rail or surface class on its row, its
       assert.ok(row !== null, "the reply is a row of the reader");
       assert.equal(row.className, "t", "the row carries no owner-turn or surface class");
       assert.equal(row.querySelector(".body")?.className, "body", "the body carries no rail or surface class");
-      assertNone(row.querySelector(".you, .card, .question-card, .fold, .summary"), "no surface inside");
+      assertNone(row.querySelector(".you, .card, .fold, .summary"), "no surface inside");
       assert.ok(row.querySelector(".reply") !== null, "the text draws as a reply");
     },
   ));
@@ -2617,7 +2571,7 @@ function itemsRendered(counter: RenderCounter): unknown[] {
   return counter.rendersOf("ItemRow").map((props) => props.item);
 }
 
-test("RenderOnce: re-rendering the reader with the same conversation, including a run of three or more tool calls, and with fresh onToggleOpen, onOlder and onAnswer and a new but equal step, renders no ItemRow or ToolRun again", () => {
+test("RenderOnce: re-rendering the reader with the same conversation, including a run of three or more tool calls, and with fresh onToggleOpen and onOlder and a new but equal step, renders no ItemRow or ToolRun again", () => {
   const conv = conversation({
     items: [
       item({ kind: "reply", time: 100n, text: "before the run" }),
@@ -2640,7 +2594,6 @@ test("RenderOnce: re-rendering the reader with the same conversation, including 
       step: stepWith(checks),
       onToggleOpen: () => {},
       onOlder: () => {},
-      onAnswer: () => {},
     },
     async (container, rerender, counter) => {
       const calls: string[] = [];
@@ -2652,7 +2605,6 @@ test("RenderOnce: re-rendering the reader with the same conversation, including 
         step: stepWith(checks),
         onToggleOpen: () => calls.push("toggle"),
         onOlder: () => calls.push("older"),
-        onAnswer: () => calls.push("answer"),
       });
       assert.equal(container.querySelectorAll(".fold.calls").length, 1, "the three-call run is drawn");
       assert.equal(counter.rendersOf("ItemRow").length, 0, "no item row renders again");

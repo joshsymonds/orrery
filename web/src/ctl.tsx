@@ -1,6 +1,6 @@
 import type { JSX } from "preact";
 
-export type CtlIcon = "stop" | "play" | "send" | "more" | "edit" | "close";
+export type CtlIcon = "stop" | "play" | "send" | "more" | "edit" | "close" | "clock" | "retry";
 
 // icons are the drawings of Ctl's icons, copied from the round-6 wireframe's icons.js. Each part is stroked in
 // currentColor unless it is filled.
@@ -16,6 +16,8 @@ const icons: Record<CtlIcon, readonly { d: string; filled?: boolean }[]> = {
   ],
   edit: [{ d: "M3 13l.5-2.5L11 3l2 2-7.5 7.5z" }],
   close: [{ d: "M4 4l8 8M12 4l-8 8" }],
+  clock: [{ d: "M8 2.5a5.5 5.5 0 1 0 0 11 5.5 5.5 0 0 0 0-11zM8 5v3l2 1.5" }],
+  retry: [{ d: "M3.2 8a4.8 4.8 0 1 0 1.5-3.5M3 3v3.2h3.2" }],
 };
 
 // Ctl is a control inside a line: a small button with an optional icon, a bad or go tone, a key hint drawn at the desk,

@@ -134,6 +134,7 @@ function envelope(flag: number, message: object): Uint8Array {
 // row is a synthetic row over the given fields. Its changed and seen times are equal, so it reads as seen.
 function row(init: Partial<Row> & Pick<Row, "key">): Row {
   return {
+    putOff: false,
     tool: "",
     id: init.key,
     kind: "pane",

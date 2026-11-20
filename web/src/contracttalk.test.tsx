@@ -75,6 +75,7 @@ async function fakeFetch(
 
 function row(init: Partial<Row> & Pick<Row, "key">): Row {
   return {
+    putOff: false,
     id: init.key,
     kind: "session",
     label: init.key,

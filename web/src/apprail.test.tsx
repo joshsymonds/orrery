@@ -42,6 +42,7 @@ function row(init: Partial<Row> & Pick<Row, "key">): Row {
     seen: 0,
     unseen: false,
     archived: false,
+    putOff: false,
     archiveKind: "none",
     archiveId: "",
     ...init,

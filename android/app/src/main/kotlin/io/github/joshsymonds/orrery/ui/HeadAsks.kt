@@ -5,8 +5,7 @@ import io.github.joshsymonds.orrery.api.EpicDetail
 import io.github.joshsymonds.orrery.api.EpicRow
 import io.github.joshsymonds.orrery.api.Pane
 
-// The state of a pane that waits on its owner, and the status of a background task still going.
-private const val WAITING = "waiting"
+// The status of a background task still going.
 private const val RUNNING = "running"
 
 /** The live epics that the conversation [conversationId] steers, in listing order. An empty id steers nothing. */
@@ -39,8 +38,8 @@ private fun withoutSlug(text: String, slug: String): String = when {
     else -> text.removePrefix("$slug ")
 }
 
-/** True when the pane asks its owner: it waits, and its owner has not put the question off. */
-fun ownAsks(pane: Pane?): Boolean = pane != null && pane.state == WAITING && !pane.putOff
+/** True when the pane asks its owner: it waits on you, per [waitsOnYou]. */
+fun ownAsks(pane: Pane?): Boolean = pane != null && waitsOnYou(pane)
 
 /**
  * The words of the folded line: nothing for no ask, the name for one (the conversation's own name, else the epic's
