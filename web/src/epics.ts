@@ -188,7 +188,7 @@ export function endedWords(item: EpicItem, now: number): string {
   return item.phaseAt > 0 ? `${item.outcome} · ${durationText(Math.max(0, now - item.phaseAt))} ago` : item.outcome;
 }
 
-function blockOf(epic: Epic, detail: EpicsGetResponse | undefined): EpicBlock {
+export function blockOf(epic: Epic, detail: EpicsGetResponse | undefined): EpicBlock {
   const slices = detail?.slices ?? [];
   const item = itemOf(epic, detail);
   const full = epic.runningSteps.length > 0;
