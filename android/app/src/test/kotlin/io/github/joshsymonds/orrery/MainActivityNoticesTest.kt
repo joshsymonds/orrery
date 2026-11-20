@@ -343,13 +343,13 @@ class MainActivityNoticesTest {
         awaitNode(hasText(EPIC_SLUG))
 
         composeRule.onNodeWithText(EPIC_SLUG).performClick()
-        awaitShown("blocker-answer")
+        awaitShown("ask-question")
         awaitNone(hasTestTag(NOTICES_BACK))
 
         controller.get().onBackPressedDispatcher.onBackPressed()
 
         awaitNode(hasTestTag(NOTICES_BACK))
-        assertAbsent(hasTestTag("blocker-answer"))
+        assertAbsent(hasTestTag("ask-question"))
     }
 
     @Test
