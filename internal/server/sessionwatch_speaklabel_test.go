@@ -130,7 +130,7 @@ func TestSpeakLabelOwnerSayEndsWaitsSpeak(t *testing.T) {
 		store.StepEnd{ID: speakStep, End: "done", Status: "passed", Reason: "gate green"},
 	)
 	reader := store.NewReader(path)
-	client := sessionsWatchClient(t, sessionsHandler(t, reader, nil, 0))
+	client := sessionsWatchClient(t, sessionsHandler(t, reader, s, nil, 0))
 	stream := openSessionStream(t, client, sessionReq(speakSession, 0, 0))
 	wantPendingEvents(t, stream.next(t), speakPending(cardFree))
 

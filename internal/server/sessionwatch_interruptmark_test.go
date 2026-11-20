@@ -37,7 +37,7 @@ func TestSessionWatchInterruptMarkServesWhileTurnRuns(t *testing.T) {
 		interruptMarkSetState("working"),
 		store.EngineInterrupt{ID: eventEngine, Turning: true},
 	)
-	client := sessionsWatchClient(t, sessionsHandler(t, store.NewReader(path), nil, 0))
+	client := sessionsWatchClient(t, sessionsHandler(t, store.NewReader(path), nil, nil, 0))
 
 	stream := openSessionStream(t, client, sessionReq(eventEngine, 0, 0))
 	wantStreamMessage(t, stream.next(t), &orreryv1.SessionsWatchConversationResponse{
@@ -59,7 +59,7 @@ func TestSessionWatchInterruptMarkClearsAtTurnEnd(t *testing.T) {
 		interruptMarkSetState("working"),
 		store.EngineInterrupt{ID: eventEngine, Turning: true},
 	)
-	client := sessionsWatchClient(t, sessionsHandler(t, store.NewReader(path), nil, 0))
+	client := sessionsWatchClient(t, sessionsHandler(t, store.NewReader(path), s, nil, 0))
 	stream := openSessionStream(t, client, sessionReq(eventEngine, 0, 0))
 	stream.next(t)
 
@@ -82,7 +82,7 @@ func TestSessionWatchInterruptMarkClearsWhenStateLeavesWorking(t *testing.T) {
 		interruptMarkSetState("working"),
 		store.EngineInterrupt{ID: eventEngine, Turning: true},
 	)
-	client := sessionsWatchClient(t, sessionsHandler(t, store.NewReader(path), nil, 0))
+	client := sessionsWatchClient(t, sessionsHandler(t, store.NewReader(path), s, nil, 0))
 	stream := openSessionStream(t, client, sessionReq(eventEngine, 0, 0))
 	stream.next(t)
 
@@ -105,7 +105,7 @@ func TestSessionWatchInterruptMarkTurningFalseMarksNothing(t *testing.T) {
 		interruptMarkSetState("working"),
 		store.EngineInterrupt{ID: eventEngine, Turning: false},
 	)
-	client := sessionsWatchClient(t, sessionsHandler(t, store.NewReader(path), nil, 0))
+	client := sessionsWatchClient(t, sessionsHandler(t, store.NewReader(path), nil, nil, 0))
 
 	stream := openSessionStream(t, client, sessionReq(eventEngine, 0, 0))
 	wantStreamMessage(t, stream.next(t), &orreryv1.SessionsWatchConversationResponse{
@@ -124,7 +124,7 @@ func TestSessionWatchInterruptMarkOwnerTurnEndServesInterruptedItem(t *testing.T
 	s := openEventStore(t, path)
 	addEngine(t, s)
 	applyEngineOps(t, s, interruptMarkTurnEnd(true))
-	client := sessionsWatchClient(t, sessionsHandler(t, store.NewReader(path), nil, 0))
+	client := sessionsWatchClient(t, sessionsHandler(t, store.NewReader(path), nil, nil, 0))
 
 	stream := openSessionStream(t, client, sessionReq(eventEngine, 0, 0))
 	wantStreamMessage(t, stream.next(t), &orreryv1.SessionsWatchConversationResponse{
@@ -147,7 +147,7 @@ func TestSessionWatchInterruptMarkOtherTurnEndServesNoItem(t *testing.T) {
 	applyEngineOps(t, s, store.EngineTurnEnded{
 		ID: eventEngine, Subtype: "error_max_turns", IsError: true, TerminalReason: "max_turns", Origin: "user",
 	})
-	client := sessionsWatchClient(t, sessionsHandler(t, store.NewReader(path), nil, 0))
+	client := sessionsWatchClient(t, sessionsHandler(t, store.NewReader(path), nil, nil, 0))
 
 	stream := openSessionStream(t, client, sessionReq(eventEngine, 0, 0))
 	wantStreamMessage(t, stream.next(t), &orreryv1.SessionsWatchConversationResponse{
@@ -171,7 +171,7 @@ func TestSessionWatchInterruptMarkStaysClearedAfterLeavingWorking(t *testing.T) 
 		interruptMarkSetState("stopped"),
 		interruptMarkSetState("working"),
 	)
-	client := sessionsWatchClient(t, sessionsHandler(t, store.NewReader(path), nil, 0))
+	client := sessionsWatchClient(t, sessionsHandler(t, store.NewReader(path), nil, nil, 0))
 
 	stream := openSessionStream(t, client, sessionReq(eventEngine, 0, 0))
 	wantStreamMessage(t, stream.next(t), &orreryv1.SessionsWatchConversationResponse{
@@ -197,7 +197,7 @@ func TestSessionWatchInterruptMarkReturnsOnNewInterrupt(t *testing.T) {
 		interruptMarkSetState("working"),
 		store.EngineInterrupt{ID: eventEngine, Turning: true},
 	)
-	client := sessionsWatchClient(t, sessionsHandler(t, store.NewReader(path), nil, 0))
+	client := sessionsWatchClient(t, sessionsHandler(t, store.NewReader(path), nil, nil, 0))
 
 	stream := openSessionStream(t, client, sessionReq(eventEngine, 0, 0))
 	wantStreamMessage(t, stream.next(t), &orreryv1.SessionsWatchConversationResponse{

@@ -53,7 +53,6 @@ func convEndHandler(
 		Tmux:                  tmux,
 		Push:                  newPushStore(t),
 		Changes:               changes,
-		ConversationPoll:      convPoll,
 		ConversationKeepalive: convKeepalive,
 		EventSendTimeout:      sendTimeout,
 		Shutdown:              shutdown,

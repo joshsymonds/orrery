@@ -105,7 +105,7 @@ func (r waitsRun) addStepEnd(t *testing.T) {
 // openStream opens the session stream of speakSession on the store of r.
 func (r waitsRun) openStream(t *testing.T) *sessionStream {
 	t.Helper()
-	client := sessionsWatchClient(t, sessionsHandler(t, store.NewReader(r.path), nil, 0))
+	client := sessionsWatchClient(t, sessionsHandler(t, store.NewReader(r.path), r.s, nil, 0))
 	return openSessionStream(t, client, sessionReq(speakSession, 0, 0))
 }
 

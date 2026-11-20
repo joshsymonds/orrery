@@ -25,16 +25,17 @@ const (
 )
 
 // notNowHandler builds the guarded handler that admits allowedLogin, routes to tmux, and reads the store through
-// reader. Its clock is eventAt, so the headless retention window covers the rows the tests write.
-func notNowHandler(t *testing.T, tmux *tmuxctl.Client, reader *store.Reader) http.Handler {
+// reader. Its change feed is the feed of s when s is not nil (see storeFeed). Its clock is eventAt, so the headless
+// retention window covers the rows the tests write.
+func notNowHandler(t *testing.T, tmux *tmuxctl.Client, reader *store.Reader, s *store.Store) http.Handler {
 	t.Helper()
 	handler, err := server.New(server.Config{
 		Logins:                []string{allowedLogin},
 		Tmux:                  tmux,
 		Push:                  newPushStore(t),
 		Sessions:              reader,
+		Changes:               storeFeed(t, s),
 		Now:                   func() time.Time { return time.Unix(eventAt, 0) },
-		ConversationPoll:      convPoll,
 		ConversationKeepalive: convKeepalive,
 	})
 	if err != nil {
@@ -153,7 +154,7 @@ func TestNotNowHeadlessRowReadsPutOffUntilBringBack(t *testing.T) {
 	s := openEventStore(t, path)
 	seedWaitingRequest(t, s)
 	notNowPut(t, s, store.PutOffHeadless, eventEngine, "req-1")
-	client := sessionsWatchClient(t, notNowHandler(t, newTmuxClient(t), store.NewReader(path)))
+	client := sessionsWatchClient(t, notNowHandler(t, newTmuxClient(t), store.NewReader(path), nil))
 
 	if !listedPutOff(t, client) {
 		t.Fatalf("ListHeadless: the marked request reads put_off false, want true")
@@ -172,7 +173,7 @@ func TestNotNowNewHeadlessRequestIsNotPutOff(t *testing.T) {
 	s := openEventStore(t, path)
 	seedWaitingRequest(t, s)
 	notNowPut(t, s, store.PutOffHeadless, eventEngine, "req-1")
-	client := sessionsWatchClient(t, notNowHandler(t, newTmuxClient(t), store.NewReader(path)))
+	client := sessionsWatchClient(t, notNowHandler(t, newTmuxClient(t), store.NewReader(path), nil))
 	if !listedPutOff(t, client) {
 		t.Fatalf("ListHeadless: the marked request reads put_off false, want true before req-2 asks")
 	}
@@ -192,7 +193,7 @@ func TestNotNowConversationRequestReadsPutOff(t *testing.T) {
 	s := openEventStore(t, path)
 	seedWaitingRequest(t, s)
 	notNowPut(t, s, store.PutOffHeadless, eventEngine, "req-1")
-	client := sessionsWatchClient(t, notNowHandler(t, newTmuxClient(t), store.NewReader(path)))
+	client := sessionsWatchClient(t, notNowHandler(t, newTmuxClient(t), store.NewReader(path), s))
 
 	stream := openSessionStream(t, client, sessionReq(eventEngine, 0, 0))
 	wantStreamMessage(t, stream.next(t), &orreryv1.SessionsWatchConversationResponse{
@@ -221,7 +222,7 @@ func TestNotNowPaneRowReadsPutOffUntilBringBack(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "orrery.db")
 	s := openEventStore(t, path)
 	notNowPut(t, s, store.PutOffPane, pane, paneNotNowKey())
-	client := panesClient(t, notNowHandler(t, tmux, store.NewReader(path)))
+	client := panesClient(t, notNowHandler(t, tmux, store.NewReader(path), nil))
 
 	if !listedPanePutOff(t, client, pane) {
 		t.Fatalf("Panes.List: the marked question reads put_off false, want true")
@@ -243,7 +244,7 @@ func TestNotNowPaneAskingAgainIsNotPutOff(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "orrery.db")
 	s := openEventStore(t, path)
 	notNowPut(t, s, store.PutOffPane, pane, paneNotNowKey())
-	client := panesClient(t, notNowHandler(t, tmux, store.NewReader(path)))
+	client := panesClient(t, notNowHandler(t, tmux, store.NewReader(path), nil))
 	if !listedPanePutOff(t, client, pane) {
 		t.Fatalf("Panes.List: the marked question reads put_off false, want true before the pane asks again")
 	}
@@ -267,7 +268,7 @@ func TestNotNowMarkOnClosedQuestionIsInert(t *testing.T) {
 	seedWaitingRequest(t, s)
 	notNowPut(t, s, store.PutOffHeadless, eventEngine, "req-1")
 	notNowPut(t, s, store.PutOffPane, pane, paneNotNowKey())
-	handler := notNowHandler(t, tmux, store.NewReader(path))
+	handler := notNowHandler(t, tmux, store.NewReader(path), nil)
 	sessions := sessionsWatchClient(t, handler)
 	panes := panesClient(t, handler)
 	if !listedPutOff(t, sessions) || !listedPanePutOff(t, panes, pane) {

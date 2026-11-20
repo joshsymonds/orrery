@@ -105,7 +105,7 @@ func TestSessionWatchStepEventCardCarriesStepEndAndEpicEvent(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "orrery.db")
 	s := openEventStore(t, path)
 	addCardEvents(t, s)
-	client := sessionsWatchClient(t, sessionsHandler(t, store.NewReader(path), nil, 0))
+	client := sessionsWatchClient(t, sessionsHandler(t, store.NewReader(path), nil, nil, 0))
 
 	stream := openSessionStream(t, client, sessionReq(eventEngine, 0, 0))
 	wantPendingEvents(t, stream.next(t), cardPending(cardFree)...)
@@ -118,7 +118,7 @@ func TestSessionWatchStepEventCardWaitsSpeakAfterOwnerInterrupt(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "orrery.db")
 	s := openEventStore(t, path)
 	addCardEvents(t, s)
-	client := sessionsWatchClient(t, sessionsHandler(t, store.NewReader(path), nil, 0))
+	client := sessionsWatchClient(t, sessionsHandler(t, store.NewReader(path), s, nil, 0))
 	stream := openSessionStream(t, client, sessionReq(eventEngine, 0, 0))
 	wantPendingEvents(t, stream.next(t), cardPending(cardFree)...)
 
@@ -138,7 +138,7 @@ func TestSessionWatchStepEventCardDeliveredEventsLeaveThePending(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "orrery.db")
 	s := openEventStore(t, path)
 	addCardEvents(t, s)
-	client := sessionsWatchClient(t, sessionsHandler(t, store.NewReader(path), nil, 0))
+	client := sessionsWatchClient(t, sessionsHandler(t, store.NewReader(path), s, nil, 0))
 	stream := openSessionStream(t, client, sessionReq(eventEngine, 0, 0))
 	wantPendingEvents(t, stream.next(t), cardPending(cardFree)...)
 
@@ -162,7 +162,7 @@ func TestStepEventBriefPendingStateCarriesBrief(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "orrery.db")
 	s := openEventStore(t, path)
 	addCardEvents(t, s)
-	client := sessionsWatchClient(t, sessionsHandler(t, store.NewReader(path), nil, 0))
+	client := sessionsWatchClient(t, sessionsHandler(t, store.NewReader(path), nil, nil, 0))
 	stream := openSessionStream(t, client, sessionReq(eventEngine, 0, 0))
 	msg := stream.next(t)
 

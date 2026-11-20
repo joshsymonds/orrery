@@ -15,10 +15,10 @@ import (
 // feedRetry is how long the hub waits before it reopens a Changes call that ended or failed while subscribers remain.
 const feedRetry = time.Second
 
-// changeHub holds the one Changes.Watch call that wakes the streams of a handler: the Events.Watch streams, and the
-// pane streams that follow a session. It opens the call when its first subscriber arrives and cancels it when the last
-// one leaves. A message wakes each subscriber it concerns, and the opened message concerns every subscriber. A nil
-// changes wakes none.
+// changeHub holds the one Changes.Watch call that wakes the streams of a handler: the Events.Watch streams, the
+// Panes.WatchConversation streams and the Sessions.WatchConversation streams that follow a session. It opens the call
+// when its first subscriber arrives and cancels it when the last one leaves. A message wakes each subscriber it
+// concerns, and the opened message concerns every subscriber. A nil changes wakes none.
 type changeHub struct {
 	changes  enginev1connect.ChangesClient
 	newTimer func(time.Duration) (<-chan time.Time, func() bool)

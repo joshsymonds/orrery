@@ -3558,8 +3558,8 @@ Each message has these fields:
 
 Timing:
 
-- The stream checks the session every 500 ms. A delta is sent when a read finds a main-thread item, when `state` changed, when `unfinished` changed, or when `queued` changed. A read that moves `seq` without any of these sends no delta.
-- After 5 seconds without a message, the stream sends a keepalive: a message with `transcript`, `seq`, `unfinished` and `queued` set, and no items or state. While nothing changes, it sends one about every 5 seconds, on the 500 ms ticks.
+- The stream reads the session at open, whenever orreryd's change feed names the session, once whenever the feed reopens, and when an ended background task's window opens or closes. A delta is sent when a read finds a main-thread item, when `state` changed, when `unfinished` changed, or when `queued` changed. A read that moves `seq` without any of these sends no delta.
+- After 5 seconds without a message, the stream sends a keepalive: a message with `transcript`, `seq`, `unfinished` and `queued` set, and no items or state. Each message restarts the 5 seconds.
 
 The stream ends in one of these ways:
 

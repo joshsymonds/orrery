@@ -24,8 +24,6 @@ import (
 )
 
 const (
-	// convPoll is the WatchConversation poll interval the tests inject.
-	convPoll = 10 * time.Millisecond
 	// convKeepalive is the WatchConversation keepalive interval the tests inject.
 	convKeepalive = 100 * time.Millisecond
 	// convContextWindow is the context window every conversation state reports.
@@ -46,7 +44,6 @@ func convHandler(t *testing.T, tmux *tmuxctl.Client, changes enginev1connect.Cha
 		Tmux:                  tmux,
 		Push:                  newPushStore(t),
 		Changes:               changes,
-		ConversationPoll:      convPoll,
 		ConversationKeepalive: convKeepalive,
 	})
 	if err != nil {
@@ -621,7 +618,6 @@ func TestNewRejectsNegativeConversationTimings(t *testing.T) {
 	t.Parallel()
 
 	cases := map[string]server.Config{
-		"poll":      {ConversationPoll: -time.Millisecond},
 		"keepalive": {ConversationKeepalive: -time.Millisecond},
 	}
 	for name, cfg := range cases {
