@@ -378,6 +378,28 @@ echo out >"$root/box/gate/$sub/build/out"
 gate "$root/out" "$root/err" bash -c '[ ! -e untracked.txt ] && [ -e build/out ]'
 expect_status 0 "sync removes deleted files and keeps the box's ignored output"
 
+# A box short of room after the stale-checkout prune trims Go build cache entries unused for an hour and keeps the
+# ones a run used since.
+mkdir -p "$root/box/.cache/orrery/build/ab"
+echo old >"$root/box/.cache/orrery/build/ab/old-a"
+echo new >"$root/box/.cache/orrery/build/ab/new-a"
+touch -d '3 hours ago' "$root/box/.cache/orrery/build/ab/old-a"
+printf '#!/usr/bin/env bash\nprintf "Avail\\n0\\n"\n' >"$root/boxbin/df"
+chmod +x "$root/boxbin/df"
+gate "$root/out" "$root/err" true
+rm -f "$root/boxbin/df"
+expect_status 0 "a box short of room still runs the command"
+expect "a box short of room trims a Go cache entry unused for an hour" test ! -e "$root/box/.cache/orrery/build/ab/old-a"
+expect "a box short of room keeps a Go cache entry used within the hour" test -e "$root/box/.cache/orrery/build/ab/new-a"
+expect_line "$root/err" 'trimming the Go build cache on .*under 30 GiB free' "a cache trim says so"
+
+# A box with room leaves the Go build cache alone.
+touch -d '3 hours ago' "$root/box/.cache/orrery/build/ab/new-a"
+gate "$root/out" "$root/err" true
+expect_status 0 "a box with room runs the command"
+expect "a box with room keeps an old Go cache entry" test -e "$root/box/.cache/orrery/build/ab/new-a"
+expect_no_line "$root/err" 'trimming the Go build cache' "a box with room trims nothing"
+
 # A remote command that exits 255 itself is the command's result, not a lost box.
 gate "$root/out" "$root/err" bash -c 'exit 255'
 expect_status 255 "a command's own 255 comes back as 255"

@@ -115,7 +115,7 @@ func ladderFailTaskClimbs(t *testing.T, from TaskBuild, reason, cause string) {
 	}
 }
 
-// ladderFailTaskGap checks that a fail_task on task 1 at attempt 6 ends the task as a gap: rung 6 ends failed, rung 7
+// ladderFailTaskGap checks that a fail_task on task 1 at attempt 5 ends the task as a gap: rung 5 ends failed, rung 6
 // is a gap rung moved by fail_task that ends gapped, the status is gap, the gap trigger T1-gap is pending with the
 // reason, and no T1-failed trigger exists.
 func ladderFailTaskGap(t *testing.T) {

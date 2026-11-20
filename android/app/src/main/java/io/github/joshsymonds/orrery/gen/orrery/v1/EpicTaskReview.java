@@ -23,6 +23,7 @@ public  final class EpicTaskReview extends
     step_ = "";
     verdict_ = "";
     findings_ = emptyProtobufList();
+    reason_ = "";
   }
   public static final int ATTEMPT_FIELD_NUMBER = 1;
   private long attempt_;
@@ -200,7 +201,7 @@ public  final class EpicTaskReview extends
   private java.lang.String verdict_;
   /**
    * <pre>
-   * The review's verdict: holds or fails.
+   * The review's verdict: holds, fails, or undetermined when the reviewer gave neither twice.
    * </pre>
    *
    * <code>string verdict = 4 [json_name = "verdict"];</code>
@@ -212,7 +213,7 @@ public  final class EpicTaskReview extends
   }
   /**
    * <pre>
-   * The review's verdict: holds or fails.
+   * The review's verdict: holds, fails, or undetermined when the reviewer gave neither twice.
    * </pre>
    *
    * <code>string verdict = 4 [json_name = "verdict"];</code>
@@ -225,7 +226,7 @@ public  final class EpicTaskReview extends
   }
   /**
    * <pre>
-   * The review's verdict: holds or fails.
+   * The review's verdict: holds, fails, or undetermined when the reviewer gave neither twice.
    * </pre>
    *
    * <code>string verdict = 4 [json_name = "verdict"];</code>
@@ -239,7 +240,7 @@ public  final class EpicTaskReview extends
   }
   /**
    * <pre>
-   * The review's verdict: holds or fails.
+   * The review's verdict: holds, fails, or undetermined when the reviewer gave neither twice.
    * </pre>
    *
    * <code>string verdict = 4 [json_name = "verdict"];</code>
@@ -250,7 +251,7 @@ public  final class EpicTaskReview extends
   }
   /**
    * <pre>
-   * The review's verdict: holds or fails.
+   * The review's verdict: holds, fails, or undetermined when the reviewer gave neither twice.
    * </pre>
    *
    * <code>string verdict = 4 [json_name = "verdict"];</code>
@@ -399,6 +400,73 @@ public  final class EpicTaskReview extends
   private void removeFindings(int index) {
     ensureFindingsIsMutable();
     findings_.remove(index);
+  }
+
+  public static final int REASON_FIELD_NUMBER = 6;
+  private java.lang.String reason_;
+  /**
+   * <pre>
+   * Why the review is undetermined: how its step ended. Empty for holds and fails.
+   * </pre>
+   *
+   * <code>string reason = 6 [json_name = "reason"];</code>
+   * @return The reason.
+   */
+  @java.lang.Override
+  public java.lang.String getReason() {
+    return reason_;
+  }
+  /**
+   * <pre>
+   * Why the review is undetermined: how its step ended. Empty for holds and fails.
+   * </pre>
+   *
+   * <code>string reason = 6 [json_name = "reason"];</code>
+   * @return The bytes for reason.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString
+      getReasonBytes() {
+    return com.google.protobuf.ByteString.copyFromUtf8(reason_);
+  }
+  /**
+   * <pre>
+   * Why the review is undetermined: how its step ended. Empty for holds and fails.
+   * </pre>
+   *
+   * <code>string reason = 6 [json_name = "reason"];</code>
+   * @param value The reason to set.
+   */
+  private void setReason(
+      java.lang.String value) {
+    java.util.Objects.requireNonNull(value);
+
+    reason_ = value;
+  }
+  /**
+   * <pre>
+   * Why the review is undetermined: how its step ended. Empty for holds and fails.
+   * </pre>
+   *
+   * <code>string reason = 6 [json_name = "reason"];</code>
+   */
+  private void clearReason() {
+
+    reason_ = getDefaultInstance().getReason();
+  }
+  /**
+   * <pre>
+   * Why the review is undetermined: how its step ended. Empty for holds and fails.
+   * </pre>
+   *
+   * <code>string reason = 6 [json_name = "reason"];</code>
+   * @param value The bytes for reason to set.
+   */
+  private void setReasonBytes(
+      com.google.protobuf.ByteString value) {
+    checkByteStringIsUtf8(value);
+    reason_ = value.toStringUtf8();
+
   }
 
   public static io.github.joshsymonds.orrery.gen.orrery.v1.EpicTaskReview parseFrom(
@@ -682,7 +750,7 @@ public  final class EpicTaskReview extends
 
     /**
      * <pre>
-     * The review's verdict: holds or fails.
+     * The review's verdict: holds, fails, or undetermined when the reviewer gave neither twice.
      * </pre>
      *
      * <code>string verdict = 4 [json_name = "verdict"];</code>
@@ -694,7 +762,7 @@ public  final class EpicTaskReview extends
     }
     /**
      * <pre>
-     * The review's verdict: holds or fails.
+     * The review's verdict: holds, fails, or undetermined when the reviewer gave neither twice.
      * </pre>
      *
      * <code>string verdict = 4 [json_name = "verdict"];</code>
@@ -707,7 +775,7 @@ public  final class EpicTaskReview extends
     }
     /**
      * <pre>
-     * The review's verdict: holds or fails.
+     * The review's verdict: holds, fails, or undetermined when the reviewer gave neither twice.
      * </pre>
      *
      * <code>string verdict = 4 [json_name = "verdict"];</code>
@@ -722,7 +790,7 @@ public  final class EpicTaskReview extends
     }
     /**
      * <pre>
-     * The review's verdict: holds or fails.
+     * The review's verdict: holds, fails, or undetermined when the reviewer gave neither twice.
      * </pre>
      *
      * <code>string verdict = 4 [json_name = "verdict"];</code>
@@ -735,7 +803,7 @@ public  final class EpicTaskReview extends
     }
     /**
      * <pre>
-     * The review's verdict: holds or fails.
+     * The review's verdict: holds, fails, or undetermined when the reviewer gave neither twice.
      * </pre>
      *
      * <code>string verdict = 4 [json_name = "verdict"];</code>
@@ -899,6 +967,75 @@ public  final class EpicTaskReview extends
       return this;
     }
 
+    /**
+     * <pre>
+     * Why the review is undetermined: how its step ended. Empty for holds and fails.
+     * </pre>
+     *
+     * <code>string reason = 6 [json_name = "reason"];</code>
+     * @return The reason.
+     */
+    @java.lang.Override
+    public java.lang.String getReason() {
+      return instance.getReason();
+    }
+    /**
+     * <pre>
+     * Why the review is undetermined: how its step ended. Empty for holds and fails.
+     * </pre>
+     *
+     * <code>string reason = 6 [json_name = "reason"];</code>
+     * @return The bytes for reason.
+     */
+    @java.lang.Override
+    public com.google.protobuf.ByteString
+        getReasonBytes() {
+      return instance.getReasonBytes();
+    }
+    /**
+     * <pre>
+     * Why the review is undetermined: how its step ended. Empty for holds and fails.
+     * </pre>
+     *
+     * <code>string reason = 6 [json_name = "reason"];</code>
+     * @param value The reason to set.
+     * @return This builder for chaining.
+     */
+    public Builder setReason(
+        java.lang.String value) {
+      copyOnWrite();
+      instance.setReason(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * Why the review is undetermined: how its step ended. Empty for holds and fails.
+     * </pre>
+     *
+     * <code>string reason = 6 [json_name = "reason"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearReason() {
+      copyOnWrite();
+      instance.clearReason();
+      return this;
+    }
+    /**
+     * <pre>
+     * Why the review is undetermined: how its step ended. Empty for holds and fails.
+     * </pre>
+     *
+     * <code>string reason = 6 [json_name = "reason"];</code>
+     * @param value The bytes for reason to set.
+     * @return This builder for chaining.
+     */
+    public Builder setReasonBytes(
+        com.google.protobuf.ByteString value) {
+      copyOnWrite();
+      instance.setReasonBytes(value);
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:orrery.v1.EpicTaskReview)
   }
   @java.lang.Override
@@ -921,10 +1058,11 @@ public  final class EpicTaskReview extends
             "verdict_",
             "findings_",
             io.github.joshsymonds.orrery.gen.orrery.v1.EpicTaskFinding.class,
+            "reason_",
           };
           java.lang.String info =
-              "\u0000\u0005\u0000\u0000\u0001\u0005\u0005\u0000\u0001\u0000\u0001\u0002\u0002\u0208" +
-              "\u0003\u0208\u0004\u0208\u0005\u001b";
+              "\u0000\u0006\u0000\u0000\u0001\u0006\u0006\u0000\u0001\u0000\u0001\u0002\u0002\u0208" +
+              "\u0003\u0208\u0004\u0208\u0005\u001b\u0006\u0208";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

@@ -118,6 +118,46 @@ func Compare(before, after string) ([]RefMove, error) {
 	return moves, nil
 }
 
+// ScopeMoves returns the moves of those Compare found that a step is blamed for, in their order. A move that parks is
+// kept, and so is one of the epic's own refs: its epic branch or a ref under refs/orrery/<epic slug>/. Any other move with
+// a new target is kept only when that target holds one of the commits the implementer made between base and head. Those
+// commits are read only when a move needs them. A check node makes no commits, so it passes "" for base and head.
+func ScopeMoves(ctx context.Context, repo, epic string, moves []RefMove, base, head string) ([]RefMove, error) {
+	var steps []string
+	if head != "" && slices.ContainsFunc(moves, func(move RefMove) bool { return judgedByCommits(move, epic) }) {
+		var err error
+		if steps, err = stepCommits(ctx, repo, base, head); err != nil {
+			return nil, fmt.Errorf("read implementer commits: %w", err)
+		}
+	}
+	var kept []RefMove
+	for _, move := range moves {
+		keep := move.Parks || isEpicRef(move.Ref, epic)
+		if judgedByCommits(move, epic) {
+			holds, err := containsAny(ctx, repo, move.To, steps)
+			if err != nil {
+				return nil, fmt.Errorf("check ref %s against implementer commits: %w", move.Ref, err)
+			}
+			keep = holds
+		}
+		if keep {
+			kept = append(kept, move)
+		}
+	}
+	return kept, nil
+}
+
+// judgedByCommits reports whether ScopeMoves keeps move by the commits its new target holds: a move that neither parks
+// nor is the epic's own, and that has a new target. A move that removes its ref has no target to hold a commit.
+func judgedByCommits(move RefMove, epic string) bool {
+	return !move.Parks && move.To != "" && !isEpicRef(move.Ref, epic)
+}
+
+// isEpicRef reports whether ref is the branch of epic or one of its refs under refs/orrery/<epic slug>/.
+func isEpicRef(ref, epic string) bool {
+	return ref == BranchRef(epic) || strings.HasPrefix(ref, refsOrreryPrefix+Slug(epic)+"/")
+}
+
 // originTells returns moves with each parking move that is a fast-forward onto origin's main unparked. Such a move is a
 // move of refs/heads/main, or of HEAD within one branch, to a commit that origin reaches and that contains none of the
 // step's commits. Every other move keeps its Parks.

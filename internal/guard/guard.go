@@ -1,5 +1,5 @@
-// Package guard refuses a task commit that weakens the tests the epic's
-// requirements and other tasks rely on.
+// Package guard judges a task commit against the tests the epic's requirements and other tasks rely on. It refuses a
+// commit that changes a capture file or adds a DOM-node assert, and reports each other weakening of a test as a fact.
 package guard
 
 import (
@@ -35,10 +35,36 @@ type Change struct {
 	AtHead bool
 }
 
-// Refusal is one rule a commit broke: the file, the test (empty when the rule is
-// about the file), and the rule.
+// Refusal is one rule a commit's changes broke: the file, the test (empty when the rule is about the file), the rule,
+// and whether the rule is a fact. A refusal refuses the commit. A fact refuses nothing: the task's floor reviewer judges
+// it.
 type Refusal struct {
 	File, Test, Rule string
+	Fact             bool
+}
+
+// Refusals returns the rules among judgments that refuse the commit, in order: a changed capture file and an added
+// DOM-node assert.
+func Refusals(judgments []Refusal) []Refusal {
+	var refusals []Refusal
+	for _, judgment := range judgments {
+		if !judgment.Fact {
+			refusals = append(refusals, judgment)
+		}
+	}
+	return refusals
+}
+
+// FactLines returns the facts among judgments as lines, in order, each rendered as Refusal.String renders it. The
+// task's floor reviewer judges them.
+func FactLines(judgments []Refusal) []string {
+	var lines []string
+	for _, judgment := range judgments {
+		if judgment.Fact {
+			lines = append(lines, judgment.String())
+		}
+	}
+	return lines
 }
 
 // String renders the refusal as `<file>: <test>: <rule>`, or `<file>: <rule>` when
@@ -64,9 +90,10 @@ type judgment struct {
 	guarded, captures, own, owned map[string]bool
 }
 
-// Judge returns the refusals the changes break under the set, in change order, or nil
-// when nothing is refused. Every node test file the changes hold is also judged by the DOM assert rule, whatever
-// set it is in (see domAssertsAdded).
+// Judge returns the rules the changes break under the set, in change order, or nil when
+// nothing is broken. Only a changed capture file and an added DOM-node assert refuse the commit; every other rule is a
+// fact (see Refusals and FactLines). Every node test file the changes hold is also judged by the DOM assert rule,
+// whatever set it is in (see domAssertsAdded).
 func Judge(set Set, changes []Change) []Refusal {
 	judged := judgment{
 		guarded:  members(set.Guarded),
@@ -74,15 +101,15 @@ func Judge(set Set, changes []Change) []Refusal {
 		own:      members(set.Own),
 		owned:    members(set.Owned),
 	}
-	refusals := make([]Refusal, 0, len(changes))
+	judgments := make([]Refusal, 0, len(changes))
 	for _, change := range changes {
-		refusals = append(refusals, judged.change(change)...)
-		refusals = append(refusals, domAssertsAdded(change)...)
+		judgments = append(judgments, judged.change(change)...)
+		judgments = append(judgments, domAssertsAdded(change)...)
 	}
-	if len(refusals) == 0 {
+	if len(judgments) == 0 {
 		return nil
 	}
-	return refusals
+	return judgments
 }
 
 // judged reports whether the rules judge a change: a capture file, or a guarded file
@@ -99,7 +126,7 @@ func (j judgment) judged(change Change) bool {
 	return j.guarded[path] && (change.AtBase || j.own[path])
 }
 
-// change returns the refusals one changed path breaks.
+// change returns the judgments one changed path breaks.
 func (j judgment) change(change Change) []Refusal {
 	path := change.Path
 	if !j.judged(change) {
@@ -111,7 +138,7 @@ func (j judgment) change(change Change) []Refusal {
 	// An owned test file that is also the task's own is judged by the skip rule only.
 	ownedOwn := j.owned[path] && j.own[path]
 	if change.AtBase && !change.AtHead && !ownedOwn {
-		return []Refusal{{File: path, Rule: ruleDeleted}}
+		return []Refusal{{File: path, Rule: ruleDeleted, Fact: true}}
 	}
 	parse := parserFor(path)
 	if parse == nil {
@@ -119,61 +146,60 @@ func (j judgment) change(change Change) []Refusal {
 	}
 	baseTests, err := readTests(parse, change.AtBase, change.Base)
 	if err != nil {
-		return []Refusal{{File: path, Rule: ruleUnreadable + err.Error()}}
+		return []Refusal{{File: path, Rule: ruleUnreadable + err.Error(), Fact: true}}
 	}
 	headTests, err := readTests(parse, change.AtHead, change.Head)
 	if err != nil {
-		return []Refusal{{File: path, Rule: ruleUnreadable + err.Error()}}
+		return []Refusal{{File: path, Rule: ruleUnreadable + err.Error(), Fact: true}}
 	}
-	var refusals []Refusal
+	var judgments []Refusal
 	if change.AtBase && !ownedOwn {
-		refusals = append(refusals, removedAndLowered(path, baseTests, headTests)...)
+		judgments = append(judgments, removedAndLowered(path, baseTests, headTests)...)
 	}
 	if change.AtBase || j.own[path] {
-		refusals = append(refusals, skipsAdded(path, baseTests, headTests)...)
+		judgments = append(judgments, skipsAdded(path, baseTests, headTests)...)
 	}
-	return refusals
+	return judgments
 }
 
-// noRules returns the refusal of a changed file no rules read. Only a file present at the base that the task does not
-// own is refused: creating a test is never refused, and an owned file's skip rule has nothing to read.
+// noRules returns the fact of a changed file no rules read. Only a file present at the base that the task does not
+// own is a fact: creating a test is never judged, and an owned file's skip rule has nothing to read.
 func noRules(change Change, ownedOwn bool) []Refusal {
 	if !change.AtBase || ownedOwn {
 		return nil
 	}
-	return []Refusal{{File: change.Path, Rule: ruleNoRules}}
+	return []Refusal{{File: change.Path, Rule: ruleNoRules, Fact: true}}
 }
 
-// removedAndLowered returns the refusals for tests the commit removed or whose
-// assertions it lowered.
+// removedAndLowered returns the facts of the tests the commit removed or whose assertions it lowered.
 func removedAndLowered(path string, baseTests, headTests []Test) []Refusal {
 	baseNames, baseCounts := tally(baseTests)
 	_, headCounts := tally(headTests)
-	var refusals []Refusal
+	var facts []Refusal
 	for _, name := range baseNames {
 		head, present := headCounts[name]
 		base := baseCounts[name]
 		if !present {
-			refusals = append(refusals, Refusal{File: path, Test: name, Rule: ruleRemoved})
+			facts = append(facts, Refusal{File: path, Test: name, Rule: ruleRemoved, Fact: true})
 		} else if head.Asserts < base.Asserts {
-			refusals = append(refusals, Refusal{File: path, Test: name,
+			facts = append(facts, Refusal{File: path, Test: name, Fact: true,
 				Rule: fmt.Sprintf("assertions lowered from %d to %d", base.Asserts, head.Asserts)})
 		}
 	}
-	return refusals
+	return facts
 }
 
-// skipsAdded returns the refusals for tests whose skips the commit raised.
+// skipsAdded returns the facts of the tests whose skips the commit raised.
 func skipsAdded(path string, baseTests, headTests []Test) []Refusal {
 	headNames, headCounts := tally(headTests)
 	_, baseCounts := tally(baseTests)
-	var refusals []Refusal
+	var facts []Refusal
 	for _, name := range headNames {
 		if headCounts[name].Skips > baseCounts[name].Skips {
-			refusals = append(refusals, Refusal{File: path, Test: name, Rule: ruleSkip})
+			facts = append(facts, Refusal{File: path, Test: name, Rule: ruleSkip, Fact: true})
 		}
 	}
-	return refusals
+	return facts
 }
 
 // parserFor returns the reader of a path's test declarations, or nil when no rules

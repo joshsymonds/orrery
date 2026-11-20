@@ -350,7 +350,7 @@ func TestEpicCreateStoresMergedReviewers(t *testing.T) {
 	if err != nil {
 		t.Fatalf("store Epic: %v", err)
 	}
-	wantReview := []string{"floor", "test_parsimony", "synthetic_check"}
+	wantReview := []string{"floor", "synthetic_check"}
 	if !slices.Equal(row.ReviewGates, wantReview) {
 		t.Fatalf("review list = %v, want the enabled task-stage reviewers %v", row.ReviewGates, wantReview)
 	}

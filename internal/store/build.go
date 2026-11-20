@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
+	"strings"
 	"time"
 
 	"github.com/joshsymonds/orrery/internal/store/sqlcgen"
@@ -23,7 +25,8 @@ var ErrTaskMoved = errors.New("task moved")
 // task's build, empty when it refused nothing. Decisions counts the orchestrator decisions carried out on the task.
 // After is the seqs of the tasks the build waits for an integrate batch to take, joined with commas, while it is held
 // waiting, and the tasks it last waited for once that hold ends; it is empty for a build that never waited. Question
-// is the seq of the owner question the build waits on, 0 while it waits on none.
+// is the seq of the owner question the build waits on, 0 while it waits on none. ReBriefs holds the first line of each
+// failure an orchestrator's re-brief answered on the task, each followed by a newline, which a climb keeps.
 type TaskBuild struct {
 	Stage, Base                            string
 	Attempt, Rerun, NoVerdict              int64
@@ -34,6 +37,27 @@ type TaskBuild struct {
 	Decisions                              int64
 	After                                  string
 	Question                               int64
+	ReBriefs                               string
+}
+
+// ReBriefed reports whether the task's build has answered a re-brief on a failure whose first line is line.
+func (b TaskBuild) ReBriefed(line string) bool {
+	return slices.Contains(rebriefLines(b), line)
+}
+
+// WithReBrief returns b with line added to the first lines its re-briefs answered. line is the first line of a failure,
+// so it holds no newline.
+func (b TaskBuild) WithReBrief(line string) TaskBuild {
+	b.ReBriefs += line + "\n"
+	return b
+}
+
+// rebriefLines returns the first lines b's re-briefs answered, in the order they were added, or none.
+func rebriefLines(b TaskBuild) []string {
+	if b.ReBriefs == "" {
+		return nil
+	}
+	return strings.Split(strings.TrimSuffix(b.ReBriefs, "\n"), "\n")
 }
 
 // GateChange is one gate-needed change a task's implementer declared: a file it changed beyond what the Deliverable
@@ -55,10 +79,12 @@ type TaskFinding struct {
 }
 
 // TaskReview is one review of a task: its attempt, its position among the review gates, the gate it ran, its step,
-// its verdict, and the findings it raised in position order.
+// its verdict, the reason it gave no holds or fails verdict when its verdict is undetermined, and the findings it raised
+// in position order.
 type TaskReview struct {
 	Attempt, Position   int64
 	Gate, Step, Verdict string
+	Reason              string
 	Findings            []TaskFinding
 }
 
@@ -86,7 +112,7 @@ func buildOf(stored sqlcgen.EpicTask) TaskBuild {
 		NoVerdict: stored.NoVerdict, Held: stored.Held, Step: stored.Step, RedRun: stored.RedRun,
 		GreenRun: stored.GreenRun, Revision: stored.Revision, Failure: stored.Failure, Review: stored.Review,
 		Refs: stored.Refs, GatePos: stored.GatePos, FindingPos: stored.FindingPos, Guard: stored.Guard,
-		Decisions: stored.Decisions, After: stored.AfterTasks, Question: stored.Question,
+		Decisions: stored.Decisions, After: stored.AfterTasks, Question: stored.Question, ReBriefs: stored.Rebriefs,
 	}
 }
 
@@ -111,6 +137,7 @@ func taskReviewsOf(reviews []sqlcgen.EpicTaskReview, findings []sqlcgen.EpicTask
 	for _, r := range reviews {
 		out[r.Task] = append(out[r.Task], TaskReview{
 			Attempt: r.Attempt, Position: r.Position, Gate: r.Gate, Step: r.Step, Verdict: r.Verdict,
+			Reason:   r.Reason,
 			Findings: findingsOf[findingsKey{task: r.Task, attempt: r.Attempt, review: r.Position}],
 		})
 	}
@@ -125,13 +152,14 @@ func setEpicTaskBuildParams(epic string, seq int64, from, to TaskBuild) sqlcgen.
 		ToNoVerdict: to.NoVerdict, ToHeld: to.Held, ToStep: to.Step, ToRedRun: to.RedRun,
 		ToGreenRun: to.GreenRun, ToRevision: to.Revision, ToFailure: to.Failure, ToReview: to.Review,
 		ToRefs: to.Refs, ToGatePos: to.GatePos, ToFindingPos: to.FindingPos, ToGuard: to.Guard,
-		ToDecisions: to.Decisions, ToAfterTasks: to.After, ToQuestion: to.Question,
+		ToDecisions: to.Decisions, ToAfterTasks: to.After, ToQuestion: to.Question, ToRebriefs: to.ReBriefs,
 		Epic: epic, Seq: seq,
 		FromStage: from.Stage, FromBase: from.Base, FromAttempt: from.Attempt, FromRerun: from.Rerun,
 		FromNoVerdict: from.NoVerdict, FromHeld: from.Held, FromStep: from.Step, FromRedRun: from.RedRun,
 		FromGreenRun: from.GreenRun, FromRevision: from.Revision, FromFailure: from.Failure,
 		FromReview: from.Review, FromRefs: from.Refs, FromGatePos: from.GatePos, FromFindingPos: from.FindingPos,
 		FromGuard: from.Guard, FromDecisions: from.Decisions, FromAfterTasks: from.After, FromQuestion: from.Question,
+		FromRebriefs: from.ReBriefs,
 	}
 }
 
@@ -171,6 +199,29 @@ func (s *Store) SetTaskBuildGateChanges(
 			return fmt.Errorf("set gate changes of task %d of epic %s: %w", seq, epic, setErr)
 		}
 		return nil
+	})
+}
+
+// SetTaskBuildNotes stores to as the build of task seq of epic, notes as its whole list of notes and each of tells as a
+// tell of epic, in one write, when the stored build is from. A task that is not open, or whose build differs from from,
+// is ErrTaskMoved and writes nothing.
+func (s *Store) SetTaskBuildNotes(
+	ctx context.Context, epic string, seq int64, from, to TaskBuild, notes, tells []string, at time.Time,
+) error {
+	encoded, err := encodeList(notes)
+	if err != nil {
+		return fmt.Errorf("encode notes of task %d of epic %s: %w", seq, epic, err)
+	}
+	return s.write(ctx, func(queries *sqlcgen.Queries) error {
+		if moveErr := moveTask(ctx, queries, epic, seq, from, to); moveErr != nil {
+			return moveErr
+		}
+		if setErr := queries.SetEpicTaskNotes(ctx, sqlcgen.SetEpicTaskNotesParams{
+			Notes: encoded, Epic: epic, Seq: seq,
+		}); setErr != nil {
+			return fmt.Errorf("set notes of task %d of epic %s: %w", seq, epic, setErr)
+		}
+		return insertTells(ctx, queries, epic, tells, at)
 	})
 }
 
