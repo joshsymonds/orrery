@@ -72,7 +72,7 @@ func TestTaskVersionBriefRendersTheCurrentVersion(t *testing.T) {
 func TestTaskVersionReviewPromptRendersTheCurrentVersion(t *testing.T) {
 	t.Parallel()
 	task := versionedTask()
-	prompt := ReviewPrompt(briefEpic(), task, "floor", "b3se", "r3ev", store.StepCheck{})
+	prompt := ReviewPrompt(briefEpic(), task, "floor", "b3se", "r3ev", store.StepCheck{}, nil)
 	assertVersionLinesBeforeDeliverable(t, prompt, task)
 }
 

@@ -42,44 +42,68 @@ EOF
 
 run within $'internal/store 170.2\ninternal/server 110\ncmd/orreryd 25.4\n'
 check "a run within every budget exits 0" "$rc" 0
-check "a run within every budget reports only the count" "$out" "test-budget: 3 packages checked, none over twice its baseline"
+check "a run within every budget reports only the count" "$out" "test-budget: cost cmd/orreryd 25.4
+test-budget: cost internal/server 110.0
+test-budget: cost internal/store 170.2
+test-budget: 3 packages checked, none over twice its baseline"
 
 run over $'internal/store 212.3\ninternal/server 99\n'
 check "a package over budget does not fail the check" "$rc" 0
-check "a package over budget gets one line, baseline and growth rounded" "$out" "test-budget: internal/store 212 cpu-s > 160 (+33%)
+check "a package over budget gets one line, baseline and growth rounded" "$out" "test-budget: cost internal/server 99.0
+test-budget: cost internal/store 212.3
+test-budget: internal/store 212 cpu-s > 160 (+33%)
 test-budget: 2 packages checked, none over twice its baseline"
 
 run percent $'internal/server 114.9\ninternal/small 14.9\n'
 check "within 15% of a large baseline, or 5 cpu-s of a small one, is within budget" "$out" \
-    "test-budget: 2 packages checked, none over twice its baseline"
+    "test-budget: cost internal/server 114.9
+test-budget: cost internal/small 14.9
+test-budget: 2 packages checked, none over twice its baseline"
 
 run edges $'internal/server 115.1\ninternal/small 15.1\n'
-check "past 15% of a large baseline and past 5 cpu-s of a small one is over budget" "$out" "test-budget: internal/server 115 cpu-s > 100 (+15%)
+check "past 15% of a large baseline and past 5 cpu-s of a small one is over budget" "$out" "test-budget: cost internal/server 115.1
+test-budget: cost internal/small 15.1
+test-budget: internal/server 115 cpu-s > 100 (+15%)
 test-budget: internal/small 15 cpu-s > 10 (+51%)
 test-budget: 2 packages checked, none over twice its baseline"
 
 run tiny $'internal/tiny 5.9\n'
 check "over twice a tiny baseline but within its 5 cpu-s passes unreported" "$rc:$out" \
-    "0:test-budget: 1 packages checked, none over twice its baseline"
+    "0:test-budget: cost internal/tiny 5.9
+test-budget: 1 packages checked, none over twice its baseline"
 
 run double $'internal/store 330\ninternal/server 120\ninternal/zero 6\n'
 check "a package over twice its baseline does not fail the check" "$rc" 0
-check "each package over twice its baseline is named so" "$out" "test-budget: internal/server 120 cpu-s > 100 (+20%)
+check "each package over twice its baseline is named so" "$out" "test-budget: cost internal/server 120.0
+test-budget: cost internal/store 330.0
+test-budget: cost internal/zero 6.0
+test-budget: internal/server 120 cpu-s > 100 (+20%)
 test-budget: internal/store 330 cpu-s > 160 (+106%), over twice its baseline
 test-budget: internal/zero 6 cpu-s > 0 (from 0), over twice its baseline
 test-budget: 2 of 3 packages over twice their baseline"
 
 run exactly $'internal/store 320\n'
-check "exactly twice the baseline does not fail" "$rc:$out" "0:test-budget: internal/store 320 cpu-s > 160 (+100%)
+check "exactly twice the baseline does not fail" "$rc:$out" "0:test-budget: cost internal/store 320.0
+test-budget: internal/store 320 cpu-s > 160 (+100%)
 test-budget: 1 packages checked, none over twice its baseline"
 
 run new $'internal/new 12.4\ninternal/store 150\n'
-check "a package with no baseline is reported and does not fail" "$rc:$out" "0:test-budget: internal/new 12 cpu-s, no baseline
+check "a package with no baseline is reported and does not fail" "$rc:$out" "0:test-budget: cost internal/new 12.4
+test-budget: cost internal/store 150.0
+test-budget: internal/new 12 cpu-s, no baseline
 test-budget: 2 packages checked, none over twice its baseline"
 
 run summed $'internal/store 100\ninternal/store 100\n'
-check "a package's lines in one run add up" "$out" "test-budget: internal/store 200 cpu-s > 160 (+25%)
+check "a package's lines in one run add up" "$out" "test-budget: cost internal/store 200.0
+test-budget: internal/store 200 cpu-s > 160 (+25%)
 test-budget: 1 packages checked, none over twice its baseline"
+
+run cost $'internal/store 100.2\ninternal/kinds 3.2\ninternal/store 90.1\n'
+check "cost lines" "$out" "test-budget: cost internal/kinds 3.2
+test-budget: cost internal/store 190.3
+test-budget: internal/kinds 3 cpu-s, no baseline
+test-budget: internal/store 190 cpu-s > 160 (+19%)
+test-budget: 2 packages checked, none over twice its baseline"
 
 run malformed $'internal/store 100\ninternal/server\ninternal/x 1e3\n'
 check "a malformed record exits 1, naming each bad line" "$rc:$out" "1:test-budget: $root/malformed.record:2: not \"<package> <cpu seconds>\": internal/server
@@ -112,14 +136,17 @@ lines() {
 }
 
 lines lines-pass $'internal/store 212.3\ninternal/new 3\n'
-check "--lines prints what check prints and exits 0" "$rc:$out" "0:test-budget: internal/new 3 cpu-s, no baseline
+check "--lines prints what check prints and exits 0" "$rc:$out" "0:test-budget: cost internal/new 3.0
+test-budget: cost internal/store 212.3
+test-budget: internal/new 3 cpu-s, no baseline
 test-budget: internal/store 212 cpu-s > 160 (+33%)
 test-budget: 2 packages checked, none over twice its baseline"
 check "--lines writes the lines printed, replacing the file" "$written" "$out"
 
 lines lines-fail $'internal/store 330\n'
 check "--lines exits 0 for a package over twice its baseline" "$rc" 0
-check "--lines writes the lines of a failing check" "$written" "test-budget: internal/store 330 cpu-s > 160 (+106%), over twice its baseline
+check "--lines writes the lines of a failing check" "$written" "test-budget: cost internal/store 330.0
+test-budget: internal/store 330 cpu-s > 160 (+106%), over twice its baseline
 test-budget: 1 of 1 packages over twice their baseline"
 
 lines lines-malformed $'internal/store\n'
@@ -139,7 +166,8 @@ printf 'internal/store 141\n' >"$root/roundtrip.record"
 rc=0
 out=$("$budget" check "$root/roundtrip.record" "$root/updated.json" 2>&1) || rc=$?
 check "the baseline update writes is one check reads" "$rc:$out" \
-    "0:test-budget: 1 packages checked, none over twice its baseline"
+    "0:test-budget: cost internal/store 141.0
+test-budget: 1 packages checked, none over twice its baseline"
 printf 'internal/store 1\n' >"$root/run4"
 "$budget" update "$root/one.json" "$root/run4" >/dev/null
 check "a baseline of one package is valid JSON" "$(jq -c 'map_values(. + 0)' "$root/one.json" 2>&1)" '{"internal/store":1}'

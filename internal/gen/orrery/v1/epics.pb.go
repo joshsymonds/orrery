@@ -3661,10 +3661,12 @@ type EpicTaskReview struct {
 	Gate string `protobuf:"bytes,2,opt,name=gate,proto3" json:"gate,omitempty"`
 	// The step that ran the review.
 	Step string `protobuf:"bytes,3,opt,name=step,proto3" json:"step,omitempty"`
-	// The review's verdict: holds or fails.
+	// The review's verdict: holds, fails, or undetermined when the reviewer gave neither twice.
 	Verdict string `protobuf:"bytes,4,opt,name=verdict,proto3" json:"verdict,omitempty"`
 	// The findings the review raised, in position order.
-	Findings      []*EpicTaskFinding `protobuf:"bytes,5,rep,name=findings,proto3" json:"findings,omitempty"`
+	Findings []*EpicTaskFinding `protobuf:"bytes,5,rep,name=findings,proto3" json:"findings,omitempty"`
+	// Why the review is undetermined: how its step ended. Empty for holds and fails.
+	Reason        string `protobuf:"bytes,6,opt,name=reason,proto3" json:"reason,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -3732,6 +3734,13 @@ func (x *EpicTaskReview) GetFindings() []*EpicTaskFinding {
 		return x.Findings
 	}
 	return nil
+}
+
+func (x *EpicTaskReview) GetReason() string {
+	if x != nil {
+		return x.Reason
+	}
+	return ""
 }
 
 // EpicTaskFinding is one finding a review raised, with its verification.
@@ -4472,8 +4481,7 @@ type EpicStep struct {
 	Agent string `protobuf:"bytes,3,opt,name=agent,proto3" json:"agent,omitempty"`
 	// How the step ended, one of done, returned, goal_unmet, checks_failed, gate_failed, failed, stopped,
 	// engine_restarted, overtime, tool_stuck, silent, looping or wedged; empty while it runs. gate_failed is an agent
-	// gate step's checked return that did not pass: its assertions did not all hold, its status was not done, or an
-	// earlier return of the step held a fails result.
+	// gate step's checked return that did not pass: a result was fails or undetermined, or its status was not done.
 	End string `protobuf:"bytes,4,opt,name=end,proto3" json:"end,omitempty"`
 	// The step's status.
 	Status string `protobuf:"bytes,5,opt,name=status,proto3" json:"status,omitempty"`
@@ -6353,13 +6361,14 @@ const file_orrery_v1_epics_proto_rawDesc = "" +
 	"\frequirements\x18\x05 \x03(\tR\frequirements\x12(\n" +
 	"\x03red\x18\x06 \x01(\v2\x16.orrery.v1.EvidenceRunR\x03red\x12,\n" +
 	"\x05green\x18\a \x01(\v2\x16.orrery.v1.EvidenceRunR\x05green\x123\n" +
-	"\areviews\x18\b \x03(\v2\x19.orrery.v1.EpicTaskReviewR\areviews\"\xa4\x01\n" +
+	"\areviews\x18\b \x03(\v2\x19.orrery.v1.EpicTaskReviewR\areviews\"\xbc\x01\n" +
 	"\x0eEpicTaskReview\x12\x18\n" +
 	"\aattempt\x18\x01 \x01(\x03R\aattempt\x12\x12\n" +
 	"\x04gate\x18\x02 \x01(\tR\x04gate\x12\x12\n" +
 	"\x04step\x18\x03 \x01(\tR\x04step\x12\x18\n" +
 	"\averdict\x18\x04 \x01(\tR\averdict\x126\n" +
-	"\bfindings\x18\x05 \x03(\v2\x1a.orrery.v1.EpicTaskFindingR\bfindings\"\x97\x01\n" +
+	"\bfindings\x18\x05 \x03(\v2\x1a.orrery.v1.EpicTaskFindingR\bfindings\x12\x16\n" +
+	"\x06reason\x18\x06 \x01(\tR\x06reason\"\x97\x01\n" +
 	"\x0fEpicTaskFinding\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x14\n" +
 	"\x05claim\x18\x02 \x01(\tR\x05claim\x12\x1a\n" +

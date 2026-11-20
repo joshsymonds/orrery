@@ -40,12 +40,12 @@ func (EpicReviewers) Epic(epic store.EpicRow) []kinds.Reviewer {
 // Start returns the read-only step of the enabled reviewer name, run at revision of epic's repository over the change from
 // base. An epic-stage reviewer's step carries the reviewer's agent gate and its inline agents, and its prompt is the epic
 // review prompt, headed by the reviewer's own prompt when it is an agent reviewer that sets one. The test_parsimony
-// reviewer's prompt ends with the Test cost section of doneGates, the checks of the Done gates that ran at revision. A
-// release-stage reviewer's step is the same, with the release review prompt, which names the promise and the steps of the
-// release. A reviewer enabled at both stages is started as an epic-stage reviewer. A name that is not an enabled reviewer
-// of either stage is an error.
+// reviewer's prompt ends with the Test cost section of doneGates, the checks of the Done gates that ran at revision,
+// compared with baseCost, the epic's cost checks at its base. A release-stage reviewer's step is the same, with the
+// release review prompt, which names the promise and the steps of the release. A reviewer enabled at both stages is
+// started as an epic-stage reviewer. A name that is not an enabled reviewer of either stage is an error.
 func (EpicReviewers) Start(
-	_ context.Context, epic store.EpicRow, name, base, revision string, doneGates []store.NodeCheck,
+	_ context.Context, epic store.EpicRow, name, base, revision string, doneGates, baseCost []store.NodeCheck,
 ) (enginehost.StepStart, error) {
 	var (
 		rev    reviewers.Reviewer
@@ -67,7 +67,8 @@ func (EpicReviewers) Start(
 	}
 	gate := rev.Gate()
 	if name == reviewers.TestParsimony {
-		prompt += "\n" + strings.Join(reviewers.TestCost(checkOutputs(doneGates)...), "\n")
+		costs := reviewers.Costs(checkOutputs(baseCost)...)
+		prompt += "\n" + strings.Join(reviewers.TestCost(costs, checkOutputs(doneGates)...), "\n")
 	}
 	if rev.Agent != "" && rev.Prompt != "" {
 		prompt = rev.Prompt + "\n\n" + prompt

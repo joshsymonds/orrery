@@ -42,6 +42,18 @@ const (
 // ParkLabel is the label of the questions orrery asks when it parks an epic. A planner question never takes it.
 const ParkLabel = "park"
 
+// GapsLabel is the label of the question orrery asks when an epic ends with gaps it cannot resolve. It is the label of
+// the question EndEpicWithGaps opens.
+const GapsLabel = "gaps"
+
+// The choices a gaps question declares beside other: release the epic with its gaps, give the planner the owner's text
+// as a correction, or close the epic as abandoned.
+const (
+	ChoiceRelease = "release"
+	ChoiceCorrect = "correct"
+	ChoiceClose   = "close"
+)
+
 // The advice a park question that is not final gives its retry choice: what retry does, why orrery recommends it, and
 // how confident that recommendation is.
 const (

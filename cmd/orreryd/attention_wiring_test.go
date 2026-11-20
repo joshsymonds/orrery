@@ -19,12 +19,11 @@ import (
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
-// Synthetic values only. The epic, its repository and its texts are invented. No role file exists, so the planner's
-// agent cannot be read and the epic parks.
+// Synthetic values only. The epic and its texts are invented, and its repository is a scratch one at base, which the
+// built-in epic's cost run measures. No role file exists, so the planner's agent cannot be read and the epic parks.
 const (
 	attentionWiringEpic   = "orrery-4d5e6f7/attention-wiring"
 	attentionWiringTitle  = "Wire the attention loop"
-	attentionWiringRepo   = "/work/synthetic-repo"
 	attentionWiringHost   = "synthetic-host"
 	attentionWiringBody   = "parked: synthetic reason"
 	attentionWiringStamp  = int64(1_700_000_000)
@@ -87,9 +86,11 @@ func parkedNoticeRouted(t *testing.T, routed *recordRoute) bool {
 func createAttentionEpic(t *testing.T, st *store.Store, steerer string) {
 	t.Helper()
 	created := time.Unix(attentionWiringStamp, 0)
+	repo, base := buildWiringRepo(t)
 	if err := st.CreateEpic(t.Context(), store.EpicRow{
 		ID:          attentionWiringEpic,
-		Repository:  attentionWiringRepo,
+		Repository:  repo,
+		Base:        base,
 		Title:       attentionWiringTitle,
 		Approved:    "approved text",
 		Intent:      "plan the next tasks",

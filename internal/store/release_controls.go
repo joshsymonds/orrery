@@ -26,10 +26,11 @@ func isUndoNone(undo string) bool {
 	return strings.EqualFold(strings.TrimSpace(undo), releaseUndoNone)
 }
 
-// ReleaseEpic releases epic in one write, and returns an error matching ErrNoEpic for an id no epic has. When epic ended
-// with gaps it records the owner decision that releases it and moves it to clean, so its release run takes the release
-// slot of its repository and no tell is added; it is a RefusalError when undoNone is not empty, as such an epic has no
-// release run to name a step of. Otherwise it resumes the stopped release of epic at its first unfinished release step.
+// ReleaseEpic releases epic in one write, and returns an error matching ErrNoEpic for an id no epic has. When epic
+// ended with gaps it records the owner decision that releases it, answers its open gaps question with release, and
+// moves it to clean, so its release run takes the release slot of its repository and no tell is added; it is a
+// RefusalError when undoNone is not empty, as such an epic has no release run to name a step of. Otherwise it resumes
+// the stopped release of epic at its first unfinished release step.
 // That is a RefusalError when epic is not stopped, when epic has no parked release node run, when another epic holds the
 // release slot of its repository, when a position in undoNone is not an undo-none release step, and when the first
 // unfinished step is undo-none, has failed and is not in undoNone. Otherwise it takes the release slot when it is free,
@@ -131,9 +132,9 @@ func resumeStoppedRelease(
 	return insertTell(ctx, queries, epic, resumedReleaseText(resume.steps, resume.unfinished), at)
 }
 
-// releaseEndedWithGaps releases epic, which ended with gaps, in the caller's write: it records the owner's decision and
-// moves epic to clean, so its release run takes the release slot of its repository. It is a RefusalError when undoNone
-// names any position, since epic has not started a release.
+// releaseEndedWithGaps releases epic, which ended with gaps, in the caller's write: it records the owner's decision,
+// answers each open gaps question of epic with release, and moves epic to clean, so its release run takes the release
+// slot of its repository. It is a RefusalError when undoNone names any position, since epic has not started a release.
 func releaseEndedWithGaps(
 	ctx context.Context, queries *sqlcgen.Queries, epic string, undoNone []int64, maker Maker, at time.Time,
 ) error {
@@ -142,6 +143,9 @@ func releaseEndedWithGaps(
 	}
 	text := fmt.Sprintf("owner released epic %s, which ended with gaps", epic)
 	if _, err := appendDecision(ctx, queries, epic, releaseEndedWithGapsID, text, 0, maker, "", at); err != nil {
+		return err
+	}
+	if err := answerOpenGapsQuestions(ctx, queries, epic, ChoiceRelease); err != nil {
 		return err
 	}
 	return setEpicPhase(ctx, queries, epic, PhaseClean, at)

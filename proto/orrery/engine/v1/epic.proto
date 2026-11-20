@@ -593,7 +593,8 @@ message EpicTaskVersion {
   // The version's number on its task, from 2.
   int64 version = 1;
 
-  // The source that wrote the version: orchestrator, grant, rescue, approach or carry.
+  // The source that wrote the version: orchestrator, grant, approach, carry or send_back, or rescue for a version stored
+  // before the rescue rung was removed.
   string source = 2;
 
   // The id of the epic decision that wrote the version; empty for orreryd's rule grant.
@@ -642,13 +643,15 @@ message EpicTaskVersion {
 // EpicTaskRung is one rung of a task's ladder: the task build's attempt it stands for, what moved the task onto it, and
 // how it ended.
 message EpicTaskRung {
-  // The task build's attempt number, from 1; 7 is the gap.
+  // The task build's attempt number, from 1; 6 is the gap.
   int64 rung = 1;
 
-  // The rung's kind: attempt, rescue, orchestrator, approach or gap.
+  // The rung's kind: attempt, orchestrator, approach or gap, or rescue for a rung stored before the rescue rung was
+  // removed.
   string kind = 2;
 
-  // What moved the task onto the rung: unit, finding, fail_decision, cannot_meet or fail_task; empty for rung 1.
+  // What moved the task onto the rung: unit, finding, fail_decision, cannot_meet, fail_task or send_back; empty for
+  // rung 1.
   string moved_by = 3;
 
   // The failure's text that moved the task onto the rung; empty for rung 1.
@@ -687,11 +690,14 @@ message EpicTaskReview {
   // The step that ran the review.
   string step = 3;
 
-  // The review's verdict: holds or fails.
+  // The review's verdict: holds, fails, or undetermined when the reviewer gave neither twice.
   string verdict = 4;
 
   // The findings the review raised, in position order.
   repeated EpicTaskFinding findings = 5;
+
+  // Why the review is undetermined: how its step ended. Empty for holds and fails.
+  string reason = 6;
 }
 
 // EpicTaskFinding is one finding a review raised, with its verification.

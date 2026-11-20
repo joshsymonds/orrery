@@ -96,10 +96,7 @@ const (
 	readWindow = 30 * time.Second
 	// silentBackground is why a done notice goes nowhere when its Stop left a subagent or workflow running.
 	silentBackground = "background work"
-	// brokerTick is how often the grants broker ticks. Each tick ends the grants of gone clients and polls each member.
-	brokerTick = 60 * time.Second
-	// limitTick is how often the limit notices check the limited steps for a change, and how often the due pass, the
-	// epic summaries, the session titles, the session headlines and the epic reports run.
+	// limitTick is how often the due pass runs.
 	limitTick = 5 * time.Second
 	// storeOpenRetry is how long openStore waits before it tries a busy store open again.
 	storeOpenRetry = 2 * time.Second
@@ -181,9 +178,6 @@ type options struct {
 	// attentionTicks is a test seam: when set, the attention loop passes at each value it delivers in place of every
 	// five seconds, and production leaves it nil.
 	attentionTicks <-chan time.Time
-	// limitTicks is a test seam: when set, the limit notices check at each value it delivers in place of every
-	// limitTick, and production leaves it nil.
-	limitTicks <-chan time.Time
 	// storeRetryAfter is a test seam: openStore waits on the channel it returns for a busy store open to be tried again,
 	// in place of time.After. Production leaves it nil.
 	storeRetryAfter func(time.Duration) <-chan time.Time
@@ -808,7 +802,7 @@ func shutdownServe(
 // so a grant that a blocked Acquire holds stays stored for the next orreryd. pools is the broker when its restore
 // succeeded, and nil otherwise, so no Pools are served. evidence is the evidence runner over the store, the steps and
 // the pools, and nil without a store. checks is the node checks runner over the store and the pools, and nil without a
-// store. brokerRun is closed when the broker's tick loop returns, and is nil when no loop runs.
+// store.
 type sessionHost struct {
 	manager    *enginehost.Manager
 	steps      *enginehost.Steps
@@ -819,7 +813,6 @@ type sessionHost struct {
 	pools      enginehost.PoolCommands
 	evidence   *enginehost.Evidence
 	checks     *enginehost.NodeChecks
-	brokerRun  chan struct{}
 	stopWriter context.CancelFunc
 	writerDone chan struct{}
 	stopIdle   context.CancelFunc
@@ -851,6 +844,9 @@ type sessionHost struct {
 	callerEvents     *enginehost.CallerEvents
 	stopCallerEvents context.CancelFunc
 	callerEventsDone chan struct{}
+	// limits tells the usage limits. Its Wake is part of the Steps engine's stored wake (see storedWake). stopLimits
+	// cancels its Run, which closes limitsDone when it returns.
+	limits *enginehost.LimitNotices
 	// logger logs each phase of the shutdown.
 	logger *slog.Logger
 }
@@ -889,18 +885,18 @@ func newSessionHost(logger *slog.Logger) *sessionHost {
 // startSessions listens on sessions.sock beside the daemon socket and serves the Engine, Steps, Pools and Evidence
 // services on it until stop. With an open store it also starts the writer, a manager capped at opts.sessionCap that
 // notifies through router, the grants broker for hostName, which restores the grants a previous run stored and then
-// ticks every brokerTick until stop, and the step engine capped at opts.stepCap whose worktrees go under step-worktrees
+// runs no loop until stop, and the step engine capped at opts.stepCap whose worktrees go under step-worktrees
 // beside the store file. The steps re-adopt the open step rows a previous run left, the manager reconciles the session
 // rows and the steps reconcile the rest before the service serves. The evidence runner is then built over the store,
 // the steps and the pools, and takes up the open evidence runs, so no judge starts beside a step already re-adopted.
 // The node checks are built over the store and the pools the same way, and take up the open checks before the flow
 // starts. The flow then runs over the store until stop, with the planner and the build runner as its planner and
 // builder, and its attention loop routes its epic notices through router when router is not nil. The limit notices tell
-// router which steps a usage limit holds, every limitTick until stop; the due pass resumes each due row whose reset has
-// passed, every limitTick until stop; the epic summaries write each stored epic's missing summary through haiku, every
-// limitTick until stop; the session titles write each headless session's missing title through haiku, every limitTick
-// until stop; the session headlines refresh each headless session's headline once its turns have ended, through haiku,
-// every limitTick until stop; the manager stops idle sessions, until stop; and the caller-event delivery tells each
+// router which steps a usage limit holds, at start and on each stored hold or resume until stop; the due pass resumes
+// each due row whose reset has passed, every limitTick until stop; the session titles write each headless session's
+// missing title through haiku, at start and on each first prompt the store stores, until stop; the session headlines
+// refresh each headless session's headline once its turns have ended, through haiku, at start and on each turn end the
+// store stores, until stop; the manager stops idle sessions, until stop; and the caller-event delivery tells each
 // step's caller when the step ends, and each epic's steerer of its events, on its start, on each wake, and once more
 // after a failed round, until stop (startCallerEvents);
 // and the cron scheduler fires each cron job of a headless session when it is due, through the manager's DeliverCron,
@@ -930,7 +926,7 @@ func startSessions(
 		}
 		host.newWriter(opts, st, logger)
 		host.newCron(opts, st, logger)
-		host.newCallerEvents(st, opts, logger)
+		host.newWakes(st, opts, router, logger)
 		host.manager = enginehost.NewManager(enginehost.Config{
 			Shell:             opts.sessionShell,
 			Claude:            opts.claude,
@@ -967,7 +963,7 @@ func startSessions(
 			GateScopeMemory: opts.scopeMemory,
 			ReadoptCheck:    readoptCheck(st, resolve),
 			ReadoptGate:     readoptGate(st),
-			Stored:          host.callerEvents.Wake,
+			Stored:          host.storedWake,
 		})
 		if err != nil {
 			host.stopBroker()
@@ -987,7 +983,7 @@ func startSessions(
 		evidence = host.evidence
 		host.startNodeChecks(ctx, st, stateDir, opts, childEnviron, logger)
 		host.startFlow(ctx, st, router, opts.attentionTicks, opts.flowTicks, getenv, resolve, stateDir, logger)
-		host.startLimits(ctx, st, router, opts.limitTicks, logger)
+		host.startLimits(ctx)
 		host.startSummaries(ctx, st, haiku, logger)
 		host.startTitles(ctx, st, haiku, logger)
 		host.startHeadlines(ctx, st, haiku, logger)
@@ -1111,10 +1107,10 @@ func (h *sessionHost) reconcile(
 }
 
 // startBroker builds the grants broker for hostName over st and restores the grants a previous run stored. A restore
-// that succeeds makes the broker the host's pools and starts its tick loop. A restore that fails is logged and leaves
-// the pools nil, so no Pools are served; the broker is still closed at shutdown, since its restore may have started
-// member commands. The broker closes as soon as ctx ends: the signal that ends ctx also starts Serve's shutdown, whose
-// Close after shutdownWait cancels each held Acquire, and an Acquire canceled while the broker is open ends its grant.
+// that succeeds makes the broker the host's pools. A restore that fails is logged and leaves the pools nil, so no Pools
+// are served; the broker is still closed at shutdown, since its restore may have started member commands. The broker
+// closes as soon as ctx ends: the signal that ends ctx also starts Serve's shutdown, whose Close after shutdownWait
+// cancels each held Acquire, and an Acquire canceled while the broker is open ends its grant.
 func (h *sessionHost) startBroker(ctx context.Context, hostName string, st *store.Store, logger *slog.Logger) {
 	h.broker = grants.NewBroker(grants.Config{
 		Host:        hostName,
@@ -1129,8 +1125,6 @@ func (h *sessionHost) startBroker(ctx context.Context, hostName string, st *stor
 		return
 	}
 	h.pools = h.broker
-	h.brokerRun = make(chan struct{})
-	go h.runBroker(context.WithoutCancel(ctx))
 }
 
 // holderLives reports whether the holder that serves the holder directory dir is running. A gate's grant names the
@@ -1150,26 +1144,14 @@ func holderLives(dir string) bool {
 	return errors.Is(err, syscall.EWOULDBLOCK)
 }
 
-// runBroker ticks the broker every brokerTick until the broker closes. Each tick ends the grants of clients that are
-// gone and polls each member's status. It closes brokerRun when it returns.
-func (h *sessionHost) runBroker(ctx context.Context) {
-	defer close(h.brokerRun)
-	ticker := time.NewTicker(brokerTick)
-	defer ticker.Stop()
-	h.broker.Run(ctx, ticker.C)
-}
-
-// stopBroker closes the broker and waits for its tick loop to return, and for its member commands to end. Each Acquire
-// the broker is blocking returns without ending its grant, so the grant stays stored for the next orreryd. Without a
-// broker it does nothing, and so does a second call.
+// stopBroker closes the broker, which waits for its member commands to end. Each Acquire the broker is blocking returns
+// without ending its grant, so the grant stays stored for the next orreryd. Without a broker it does nothing, and so
+// does a second call.
 func (h *sessionHost) stopBroker() {
 	if h.broker == nil {
 		return
 	}
 	h.broker.Close()
-	if h.brokerRun != nil {
-		<-h.brokerRun
-	}
 }
 
 // stop stops the broker, then serving the session socket, and then shuts the sessions down. Serve's shutdown closes the
@@ -1375,36 +1357,41 @@ func appendPassLine(ctx context.Context, logger *slog.Logger, path string) {
 	}
 }
 
-// startLimits tells router which epics a usage limit holds, checking st every limitTick until stop, or at each value
-// ticks delivers when ticks is not nil. The marks st holds say which limits a previous orreryd told, and those are not
-// told again.
-func (h *sessionHost) startLimits(
-	ctx context.Context,
-	st *store.Store,
-	router enginehost.Router,
-	ticks <-chan time.Time,
-	logger *slog.Logger,
-) {
-	stopTicker := func() {}
-	if ticks == nil {
-		ticker := time.NewTicker(limitTick)
-		ticks, stopTicker = ticker.C, ticker.Stop
-	}
-	limits := enginehost.NewLimitNotices(enginehost.LimitNoticesConfig{
+// newWakes builds the caller-event delivery and the limit notices over st, the two loops the Steps engine's stored wake
+// calls (see storedWake). They are built before the Steps engine, so the wake reaches both from the first stored hold.
+func (h *sessionHost) newWakes(st *store.Store, opts options, router enginehost.Router, logger *slog.Logger) {
+	h.newCallerEvents(st, opts, logger)
+	h.newLimitNotices(st, router, logger)
+}
+
+// newLimitNotices builds the limit notices over st as h.limits, routing their notices through router. The marks st
+// holds say which limits a previous orreryd told, and those are not told again.
+func (h *sessionHost) newLimitNotices(st *store.Store, router enginehost.Router, logger *slog.Logger) {
+	h.limits = enginehost.NewLimitNotices(enginehost.LimitNoticesConfig{
 		Steps:  st,
 		Epics:  st,
 		Told:   st,
 		Route:  router,
 		Now:    time.Now,
-		Tick:   ticks,
 		Logger: logger,
 	})
+}
+
+// storedWake is the Steps engine's stored wake. A hold or resume that the Steps engine stores calls it, so the caller
+// events and the limit notices each check at once. Both Wake calls return without blocking.
+func (h *sessionHost) storedWake() {
+	h.callerEvents.Wake()
+	h.limits.Wake()
+}
+
+// startLimits runs h.limits until shutdown, on one goroutine. Its Run checks at start, then once on each wake (see
+// storedWake) and once when a retry fires (see enginehost.LimitNotices).
+func (h *sessionHost) startLimits(ctx context.Context) {
 	var limitsCtx context.Context
 	limitsCtx, h.stopLimits = context.WithCancel(ctx)
 	go func() {
 		defer close(h.limitsDone)
-		defer stopTicker()
-		limits.Run(limitsCtx)
+		h.limits.Run(limitsCtx)
 	}()
 }
 
@@ -1578,101 +1565,94 @@ func (h *sessionHost) startDue(ctx context.Context, st *store.Store, now func() 
 	}()
 }
 
-// startSummaries writes the summary of each stored epic that has none, through haiku, checking st every limitTick until
-// stop. The first check runs at start.
+// startSummaries writes the summary of each stored epic that has none, through haiku. It checks every epic at start,
+// then each epic the store stores, on the store's OnEpicStored hook, until stop.
 func (h *sessionHost) startSummaries(
 	ctx context.Context,
 	st *store.Store,
 	haiku *enginehost.Haiku,
 	logger *slog.Logger,
 ) {
-	ticker := time.NewTicker(limitTick)
 	summaries := enginehost.NewEpicSummaries(enginehost.EpicSummariesConfig{
 		Store:  st,
 		Haiku:  haiku,
-		Tick:   ticker.C,
 		Logger: logger,
 	})
+	st.OnEpicStored(summaries.Wake)
 	var summariesCtx context.Context
 	summariesCtx, h.stopSummaries = context.WithCancel(ctx)
 	go func() {
 		defer close(h.summariesDone)
-		defer ticker.Stop()
 		summaries.Run(summariesCtx)
 	}()
 }
 
-// startTitles writes the title of each headless session that has none, from its first prompt through haiku, checking st
-// every limitTick until stop. The first check runs at start.
+// startTitles writes the title of each headless session that has none, from its first prompt through haiku. It checks
+// every untitled session at start, then each session whose first prompt the store stores, on the store's OnFirstPrompt
+// hook, until stop.
 func (h *sessionHost) startTitles(
 	ctx context.Context,
 	st *store.Store,
 	haiku *enginehost.Haiku,
 	logger *slog.Logger,
 ) {
-	ticker := time.NewTicker(limitTick)
 	titles := enginehost.NewSessionTitles(enginehost.SessionTitlesConfig{
 		Store:  st,
 		Haiku:  haiku,
-		Tick:   ticker.C,
 		Logger: logger,
 	})
+	st.OnFirstPrompt(titles.Wake)
 	var titlesCtx context.Context
 	titlesCtx, h.stopTitles = context.WithCancel(ctx)
 	h.titlesDone = make(chan struct{})
 	go func() {
 		defer close(h.titlesDone)
-		defer ticker.Stop()
 		titles.Run(titlesCtx)
 	}()
 }
 
 // startHeadlines refreshes the headline of each headless session whose turns have ended since its last headline, from
-// its first prompt and recent turns through haiku, checking st every limitTick until stop. The first check runs at
-// start.
+// its first prompt and recent turns through haiku. It checks every due session at start, then each session whose turn
+// end the store stores, on the store's OnTurnEnded hook, until stop.
 func (h *sessionHost) startHeadlines(
 	ctx context.Context,
 	st *store.Store,
 	haiku *enginehost.Haiku,
 	logger *slog.Logger,
 ) {
-	ticker := time.NewTicker(limitTick)
 	headlines := enginehost.NewSessionHeadlines(enginehost.SessionHeadlinesConfig{
 		Store:  st,
 		Haiku:  haiku,
-		Tick:   ticker.C,
 		Logger: logger,
 	})
+	st.OnTurnEnded(headlines.Wake)
 	var headlinesCtx context.Context
 	headlinesCtx, h.stopHeadlines = context.WithCancel(ctx)
 	h.headlinesDone = make(chan struct{})
 	go func() {
 		defer close(h.headlinesDone)
-		defer ticker.Stop()
 		headlines.Run(headlinesCtx)
 	}()
 }
 
-// startReports writes the report of each ended epic that has none, through haiku, checking st every limitTick until
-// stop. The first check runs at start.
+// startReports writes the report of each ended epic that has none, through haiku. It checks every ended epic at start,
+// then each epic the store ends, on the store's OnEpicEnded hook, until stop.
 func (h *sessionHost) startReports(
 	ctx context.Context,
 	st *store.Store,
 	haiku *enginehost.Haiku,
 	logger *slog.Logger,
 ) {
-	ticker := time.NewTicker(limitTick)
 	reports := enginehost.NewEpicReports(enginehost.EpicReportsConfig{
 		Store:  st,
 		Haiku:  haiku,
-		Tick:   ticker.C,
 		Logger: logger,
 	})
+	st.OnEpicEnded(reports.Wake)
 	var reportsCtx context.Context
 	reportsCtx, h.stopReports = context.WithCancel(ctx)
 	go func() {
 		defer close(h.reportsDone)
-		defer ticker.Stop()
 		reports.Run(reportsCtx)
 	}()
 }
@@ -1873,7 +1853,17 @@ type relay struct {
 	mirror      *daemon.Mirror   // syncs the pane each summary is written to; nil skips the sync
 	webhook     *alerts.Webhook  // the POST /alerts intake that routes to router; nil without --metrics-listen
 	summarizers map[tmuxctl.Server]*summary.Summarizer
-	views       *doneViews // each done's viewing check, handed from observe to the autoseen observer
+	views       *doneViews       // each done's viewing check, handed from observe to the autoseen observer
+	now         func() time.Time // the clock the viewing checks read; nil reads time.Now
+}
+
+// clock returns the time the relay's viewing checks compare the tmux clients' input with: r.now's, or time.Now's when
+// r.now is nil.
+func (r *relay) clock() time.Time {
+	if r.now == nil {
+		return time.Now()
+	}
+	return r.now()
 }
 
 // viewTimeout bounds the viewing check of one done transition, which runs on the hook path.
@@ -1944,7 +1934,7 @@ func (r *relay) viewDone(ctx context.Context, transition daemon.Transition) done
 	}
 	ctx, cancel := context.WithTimeout(ctx, viewTimeout)
 	defer cancel()
-	viewing, err := autoseen.Viewing(ctx, client, transition.PaneID, time.Now())
+	viewing, err := autoseen.Viewing(ctx, client, transition.PaneID, r.clock())
 	if err != nil {
 		return doneView{err: fmt.Errorf("pane viewing: %w", err)}
 	}
@@ -2217,7 +2207,7 @@ func (r *relay) judgeDone(
 // watching reports whether the transition's pane is watched: a read report named it within readWindow, or a client of
 // its tmux server shows it with recent input.
 func (r *relay) watching(ctx context.Context, transition daemon.Transition) (bool, error) {
-	now := time.Now()
+	now := r.clock()
 	if r.reads.recent(transition.PaneID, now) {
 		return true, nil
 	}

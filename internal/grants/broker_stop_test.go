@@ -32,7 +32,8 @@ func queuedCommands(b *Broker) [][]string {
 // and a reclaim by its grant id and pid queues at the request's place, ahead of a request that queued behind it. The
 // reclaim is granted a new grant once the member is freed, and the request behind it is not granted meanwhile.
 func TestHoldStopsTheHoldersGrantUntilItsCallEnds(t *testing.T) {
-	b, s := newBroker(t)
+	s := openStore(t)
+	b := brokerWatched(t, s, nil, nil, newExitFakes())
 	p := awakePool(t, "p", 1, "m1")
 	ctx, cancel := context.WithCancel(t.Context())
 	holder := start(ctx, b, request("a", p, 1))
@@ -104,7 +105,7 @@ func TestHoldStopsTheHoldersGrantUntilItsCallEnds(t *testing.T) {
 // stream is still open. The reclaim does not fail with no such grant: it waits for that stream to end, then gets its
 // place in the queue.
 func TestReclaimRacingTheStoppedStreamWaitsThenQueues(t *testing.T) {
-	b, _ := newBroker(t)
+	b := brokerWatched(t, openStore(t), nil, nil, newExitFakes())
 	p := awakePool(t, "p", 1, "m1")
 	ctx, cancel := context.WithCancel(t.Context())
 	holder := start(ctx, b, request("a", p, 1))
@@ -141,7 +142,7 @@ func TestReclaimRacingTheStoppedStreamWaitsThenQueues(t *testing.T) {
 // request stays queued at its place for the client's next reclaim, so a stream that breaks while the request waits does
 // not drop it.
 func TestReclaimThatEndsWhileQueuedKeepsItsPlace(t *testing.T) {
-	b, _ := newBroker(t)
+	b := brokerWatched(t, openStore(t), nil, nil, newExitFakes())
 	p := awakePool(t, "p", 1, "m1")
 	ctx, cancel := context.WithCancel(t.Context())
 	holder := start(ctx, b, request("a", p, 1))
@@ -181,7 +182,7 @@ func TestReclaimThatEndsWhileQueuedKeepsItsPlace(t *testing.T) {
 func TestRequeuedRequestIsNotPassedByLaterRequests(t *testing.T) {
 	s := openStore(t)
 	p := awakePool(t, "p", 3, "m1", "m2", "m3")
-	b := brokerOn(t, s, nil)
+	b := brokerWatched(t, s, nil, nil, newExitFakes())
 	// take has a request of project hold one member until its end is called, and returns once the member is granted.
 	take := func(project string) (*call, context.CancelFunc) {
 		ctx, end := context.WithCancel(t.Context())
@@ -326,13 +327,15 @@ func TestRestoredGrantWhoseMemberWasHeldGetsStopAtReattach(t *testing.T) {
 	}
 }
 
-// TestRequeuedRequestOfDeadClientEndsOnTick checks a requeued request whose client dies before it reclaims. The next
-// tick ends it, so the requests behind it are not held back, and a reclaim by its grant id finds nothing.
+// TestRequeuedRequestOfDeadClientEndsOnTick checks a requeued request whose client dies before it reclaims. The
+// client's watch signaling ends it, so the requests behind it are not held back, and a reclaim by its grant id finds
+// nothing.
 func TestRequeuedRequestOfDeadClientEndsOnTick(t *testing.T) {
 	s := openStore(t)
 	p := awakePool(t, "p", 1, "m1")
 	clients := &pidSet{live: map[int]bool{livePID: true}}
-	b := brokerOn(t, s, clients.alive)
+	exits := newExitFakes()
+	b := brokerWatched(t, s, clients.alive, nil, exits)
 	ctx, cancel := context.WithCancel(t.Context())
 	req := request("a", p, 1)
 	req.ClientPID = livePID
@@ -355,15 +358,14 @@ func TestRequeuedRequestOfDeadClientEndsOnTick(t *testing.T) {
 	}
 
 	clients.setAlive(livePID, false)
-	tick := runTicks(t, b)
-	tick.send(t)
-	tick.drain(t)
+	exits.signal(t, clientKey(livePID))
+	exits.awaitCheck()
 	if got := queuedProjects(b); len(got) != 0 {
-		t.Fatalf("queued = %v after the tick, want the dead client's request ended", got)
+		t.Fatalf("queued = %v after the client's exit, want the dead client's request ended", got)
 	}
 	reclaim := start(t.Context(), b, Request{Project: "a", ClientPID: livePID, GrantID: grant.ID})
 	if err := reclaim.finish(t); !errors.Is(err, ErrNoGrant) {
-		t.Fatalf("reclaim after the tick = %v, want ErrNoGrant", err)
+		t.Fatalf("reclaim after the client's exit = %v, want ErrNoGrant", err)
 	}
 	if rows := storedGrants(t, s); len(rows) != 0 {
 		t.Fatalf("stored grants = %+v, want none", rows)

@@ -1,6 +1,7 @@
 package build
 
 import (
+	"reflect"
 	"slices"
 	"testing"
 	"time"
@@ -98,21 +99,29 @@ func ladderPathsReturned(t *testing.T, status, result, reason string, wantNeeds 
 	}
 }
 
-// TestTaskLadderFailurePathsRedHoldsAtBase: a red run whose conclusion holds at the base climbs a task at red one rung,
-// and while the task has a checking version it settles that version refused instead.
+// TestTaskLadderFailurePathsRedHoldsAtBase: a red run whose conclusion holds at the base is a note, and the build moves on
+// to implement. A checking version applies anyway, once its note is kept.
 func TestTaskLadderFailurePathsRedHoldsAtBase(t *testing.T) {
 	t.Parallel()
-	t.Run("climbs one rung", func(t *testing.T) {
+	t.Run("is a note and the build moves on to implement", func(t *testing.T) {
 		t.Parallel()
 		f := newPassFixture(t)
 		f.setBuild(store.TaskBuild{Stage: StageRed, Base: f.base, Attempt: 1, Revision: f.base})
-		ladderClimbBefore(f, 1)
-		action := Decide(View{Epic: passEpic, Run: ladderPathsHoldingRun(), Task: f.task()})
-		ladderPathsWantFail(t, action, "red: the conclusion holds at the base")
-		ladderClimbExecute(f, action)
-		ladderClimbCheck(f, 1, store.MovedByUnit)
+		view := View{Epic: passEpic, Run: ladderPathsHoldingRun(), Task: f.task()}
+		note := taskLabel(view.Task.Seq) + " red: the conclusion holds at the base (exit 0)"
+		want := Action{
+			Kind: ActMove,
+			Next: store.TaskBuild{
+				Stage: StageImplement, Base: f.base, Attempt: 1, Revision: f.base, RedRun: passRunID(StageRed, 1),
+			},
+			Notes: []string{note},
+			Tells: []string{note},
+		}
+		if got := Decide(view); !reflect.DeepEqual(got, want) {
+			t.Errorf("decision = %+v, want %+v", got, want)
+		}
 	})
-	t.Run("a checking version is settled refused and climbs nothing", func(t *testing.T) {
+	t.Run("a checking version applies anyway once its note is kept", func(t *testing.T) {
 		t.Parallel()
 		f := newPassFixture(t)
 		f.setBuild(store.TaskBuild{Stage: StageRed, Base: f.base, Attempt: 1, Revision: f.base})
@@ -122,19 +131,32 @@ func TestTaskLadderFailurePathsRedHoldsAtBase(t *testing.T) {
 		if !ok {
 			t.Fatal("task has no checking version after its evidence changed")
 		}
-		action := Decide(View{Epic: passEpic, Run: ladderPathsHoldingRun(), Task: f.task()})
-		want := store.TaskVersionSettle{
-			Version: version.Version, State: store.VersionRefused, RedRun: passRunID(StageRed, 1),
-			Refusal: "red: the conclusion holds at the base",
+		note := taskLabel(f.task().Seq) + " red: the conclusion holds at the base (exit 0)"
+		first := Decide(View{Epic: passEpic, Run: ladderPathsHoldingRun(), Task: f.task()})
+		if first.Kind != ActMove || !reflect.DeepEqual(first.Notes, []string{note}) {
+			t.Fatalf("decision before the note is kept = %v %+v, want the note %q", first.Kind, first.Notes, note)
 		}
+		ladderClimbExecute(f, first)
+		f.addRun(passRunID(StageRed, 1), evidence.PhaseRed, f.base, 0, evidence.VerdictHolds)
+		want := store.TaskVersionSettle{
+			Version: version.Version,
+			State:   store.VersionApplied,
+			RedRun:  passRunID(StageRed, 1),
+		}
+		action := Decide(View{Epic: passEpic, Run: ladderPathsHoldingRun(), Task: f.task()})
 		if action.Kind != ActSettleVersion || action.Settle == nil || *action.Settle != want {
-			t.Fatalf("decision = %v %+v, want settling %+v refused", action.Kind, action.Settle, want)
+			t.Fatalf("decision = %v %+v, want settling %+v applied", action.Kind, action.Settle, want)
 		}
 		ladderClimbExecute(f, action)
 		task := f.task()
-		if task.Build.Attempt != 1 || task.Status != taskOpen || len(task.Rungs) != 0 {
-			t.Errorf("task status %q attempt %d rungs %+v, want open at attempt 1 with no rungs",
-				task.Status, task.Build.Attempt, task.Rungs)
+		if task.Build.Attempt != 1 || task.Status != taskOpen || len(task.Rungs) != 0 || task.Build.Failure != "" {
+			t.Errorf(
+				"task status %q attempt %d rungs %+v failure %q, want open at attempt 1 with no rungs and no failure",
+				task.Status,
+				task.Build.Attempt,
+				task.Rungs,
+				task.Build.Failure,
+			)
 		}
 		if _, ok := task.Checking(); ok {
 			t.Errorf("task still has a checking version after the red run settled it")

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"slices"
 	"strings"
 	"time"
 
@@ -45,7 +46,8 @@ const (
 	ReviewReviewed   = "reviewed"
 )
 
-// noVerdictLimit is the count of units in a row that gave no verdict at which the task parks.
+// noVerdictLimit is the count of units in a row that gave no verdict at which the unit decides what that means. The
+// first no verdict reruns the unit; no unit parks on one.
 const noVerdictLimit = 2
 
 // View is what Decide reads of one open task: the epic and whether it is paused or parked, its review gates, whether
@@ -89,7 +91,7 @@ type ActionKind string
 // or hold it. ActReview stores a review and ActFinding a finding's verification. ActGrant grants an implementer the
 // files it asked for. ActDecide carries out an
 // orchestrator's rerun or grant, and ActAsk its question to the owner. ActResume moves a waiting build's worktree onto
-// Revision, the new base, before Next is stored. ActSettleVersion settles the checking version a red run judged, with
+// Revision, the new base, before Next is stored. ActSettleVersion applies the checking version a red run judged, with
 // Settle, and moves the build to implement as Next.
 const (
 	ActNone          ActionKind = "none"
@@ -124,9 +126,10 @@ const (
 // ownership of a granted file does not refuse it. Version is the task spec version a decided rerun or grant stores with
 // its decision: the files it adds to the task and the fields it changes. Question is the owner question an ask opens,
 // with Reason as the tell that carries it. Fallback is what a decided grant does instead when the store refuses one of
-// its files. Settle is how an ActSettleVersion settles the task's checking version: applied or refused, with the red
-// run that judged it and the refusal it was refused for. GateChanges is the whole list of gate-needed changes an
-// ActGuard stores with its build when the guard passes the commit, nil when the return declares nothing new.
+// its files. Settle is how an ActSettleVersion settles the task's checking version, applied, with the red run that
+// judged it. GateChanges is the whole list of gate-needed changes an ActGuard stores with its build when the guard
+// passes the commit, nil when the return declares nothing new. Notes is the whole list of notes the task holds after a
+// move that records one, nil when the move records none; Tells is the text of each note the move adds.
 type Action struct {
 	Kind        ActionKind
 	Next        store.TaskBuild
@@ -147,6 +150,7 @@ type Action struct {
 	Settle      *store.TaskVersionSettle
 	Move        store.RungMove
 	GateChanges []store.GateChange
+	Notes       []string
 }
 
 // spend returns the action for a unit of the build that failed with failure. On every rung the failure climbs the task
@@ -156,27 +160,30 @@ func spend(_ View, failure string) Action {
 	return Action{Kind: ActFail, Reason: failure}
 }
 
-// noVerdict returns the action for unit, a judge, review or verifier that gave no verdict for reason. Its first no
-// verdict reruns the unit. Its second parks the task held parked, with the reason the owner is told.
-func noVerdict(view View, unit, reason string) Action {
+// silentRerun returns the action that reruns a unit whose judge, review, verifier or implementer gave no verdict, when
+// that is its first no verdict in a row, and reports false when it is the second. The unit then decides what a second
+// no verdict does: no unit parks on one.
+func silentRerun(view View) (Action, bool) {
 	next := view.Task.Build
 	next.NoVerdict++
-	if next.NoVerdict < noVerdictLimit {
-		next.Rerun++
-		return Action{Kind: ActMove, Next: next}
+	if next.NoVerdict >= noVerdictLimit {
+		return Action{}, false
 	}
-	next.Held = HeldParked
-	return Action{
-		Kind:   ActPark,
-		Next:   next,
-		Reason: fmt.Sprintf("%s %s gave no verdict twice: %s", taskLabel(view.Task.Seq), unit, reason),
-	}
+	next.Rerun++
+	return Action{Kind: ActMove, Next: next}, true
+}
+
+// noted returns the action that moves the build to next and adds note to the task's notes, which the owner is told of
+// too, in one write. The notes it stores are the task's notes as the view reads them, with note last.
+func noted(view View, next store.TaskBuild, note string) Action {
+	notes := append(slices.Clone(view.Task.Notes), note)
+	return Action{Kind: ActMove, Next: next, Notes: notes, Tells: []string{note}}
 }
 
 // environmentRerun returns the action for a run of unit, a red capture, a green capture or a reproduction, that exited
 // store.EnvironmentExit without timing out. A run that is the first or second of its environment exits in a row reruns
-// the unit under its next rerun. The third parks the task held parked, as noVerdict does, with a reason that names the
-// task's capture and says the exit was an environment result.
+// the unit under its next rerun. The third parks the task held parked, with a reason that names the task's capture and
+// says the exit was an environment result.
 func environmentRerun(view View, unit string) Action {
 	next := view.Task.Build
 	if view.EnvironmentBefore < store.EnvironmentReruns {
@@ -202,12 +209,16 @@ type Store interface {
 	Epics(ctx context.Context) ([]store.EpicRow, error)
 	EvidenceRun(ctx context.Context, id string) (store.EvidenceRun, error)
 	NodeCheck(ctx context.Context, id string) (store.NodeCheck, error)
+	BaseCost(ctx context.Context, epic string) ([]store.NodeCheck, error)
 	SetTaskBuild(ctx context.Context, epic string, seq int64, from, to store.TaskBuild) error
 	SetTaskBuildGateChanges(
 		ctx context.Context, epic string, seq int64, from, to store.TaskBuild, changes []store.GateChange,
 	) error
 	SetTaskBuildTelling(
 		ctx context.Context, epic string, seq int64, from, to store.TaskBuild, tells []string, at time.Time,
+	) error
+	SetTaskBuildNotes(
+		ctx context.Context, epic string, seq int64, from, to store.TaskBuild, notes, tells []string, at time.Time,
 	) error
 	ClimbTask(
 		ctx context.Context, epic string, seq int64, from, to store.TaskBuild, move store.RungMove,

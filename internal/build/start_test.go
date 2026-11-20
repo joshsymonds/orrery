@@ -187,7 +187,7 @@ func TestStartImplementerWorktreeIsDetachedAtBaseUnderTaskDir(t *testing.T) {
 	); err != nil {
 		t.Fatalf("startStep(implement) = %v, want nil", err)
 	}
-	want := ImplementWorktree(setup.stateDir, setup.epic.ID, task.Seq)
+	want := ImplementWorktree(setup.stateDir, setup.epic.ID, store.EpicTask{Seq: task.Seq})
 	start := onlyStart(t, steps)
 	if start.Workspace != want {
 		t.Fatalf("start Workspace = %s, want %s", start.Workspace, want)
@@ -453,7 +453,8 @@ func TestStartReviewIsReadOnlyAtRevisionWithReviewAgentGate(t *testing.T) {
 	if start.Agents != "" {
 		t.Errorf("review start Agents = %s, want none for an agent reviewer", start.Agents)
 	}
-	if want := ReviewPrompt(setup.epic, task, "review", setup.base, revision, store.StepCheck{}); start.Prompt != want {
+	want := ReviewPrompt(setup.epic, task, "review", setup.base, revision, store.StepCheck{}, nil)
+	if start.Prompt != want {
 		t.Errorf("review start Prompt = %q, want %q", start.Prompt, want)
 	}
 	if start.Epic != setup.epic.ID || start.Task != "T3" {
@@ -670,7 +671,7 @@ func TestStartImplementerLaterAttemptKeepsTheEarlierWork(t *testing.T) {
 		Action{Kind: ActStartStep, Unit: StageImplement, ID: first}); err != nil {
 		t.Fatalf("startStep(first attempt) = %v, want nil", err)
 	}
-	worktree := ImplementWorktree(setup.stateDir, setup.epic.ID, task.Seq)
+	worktree := ImplementWorktree(setup.stateDir, setup.epic.ID, store.EpicTask{Seq: task.Seq})
 	earlier := buildCommit(t, worktree)
 	task.Build.Attempt = 2
 	second := StepID(setup.epic.ID, task.Seq, StageImplement, task.Build.Attempt, task.Build.Rerun, 0, 0)

@@ -88,6 +88,31 @@ func TestSessionHeadlineDueListsOnlySessionsWithATurnEndNewerThanTheHeadline(t *
 	}
 }
 
+func TestSessionHeadlineDueSessionReadsOneDueSession(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s, _ := headlineStore(t)
+	t0 := engineNowAt().Unix()
+
+	got, ok, err := s.HeadlineDueSession(ctx, "e-resumed")
+	if err != nil {
+		t.Fatalf("HeadlineDueSession e-resumed: %v", err)
+	}
+	want := HeadlineDueSession{
+		ID: "e-resumed", Dir: "/work/resumed", FirstPrompt: "first prompt", TurnAt: t0 - 100, HeadlineAt: t0 - 200,
+	}
+	if !ok || got != want {
+		t.Fatalf("HeadlineDueSession e-resumed = %+v, %t; want %+v, true", got, ok, want)
+	}
+	// e-headlined was headlined after its last turn end, e-idle has no turn end, step-a is a step session, orrery-1 is a
+	// pane, and no-such-session is unknown: none of them is due.
+	for _, id := range []string{"e-headlined", "e-idle", "step-a", "orrery-1", "no-such-session"} {
+		if _, ok, err := s.HeadlineDueSession(ctx, id); err != nil || ok {
+			t.Fatalf("HeadlineDueSession %s = %t, %v; want false and no error", id, ok, err)
+		}
+	}
+}
+
 func TestSessionHeadlineRecentTurnsReturnPromptsAndMainTextOldestFirst(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()

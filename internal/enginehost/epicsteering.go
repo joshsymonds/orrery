@@ -53,7 +53,9 @@ func SteeringPrompt(id string, lines []string) string {
 // Start starts the steering session of the epic row in the row's repository and returns its id. The first prompt is
 // SteeringPrompt of the row's id and the lines Render returns for the row. A Render error is returned and starts
 // nothing. A start refused by the session cap returns an error that names the cap and wraps ErrCapReached. A session
-// whose spawn fails returns an error that names the session and the reason it failed, and no id.
+// whose spawn fails returns an error that names the session and the reason it failed, and no id. A started session
+// whose row cannot be read is stopped, even when ctx has ended, since no caller gets its id to stop it, and the read
+// error is returned with no id.
 func (s *EpicSteering) Start(ctx context.Context, row store.EpicRow) (string, error) {
 	lines, err := s.render(row)
 	if err != nil {
@@ -70,7 +72,11 @@ func (s *EpicSteering) Start(ctx context.Context, row store.EpicRow) (string, er
 	}
 	started, err := s.sessions.EngineSession(ctx, id)
 	if err != nil {
-		return "", fmt.Errorf("read steering session %s: %w", id, err)
+		readErr := fmt.Errorf("read steering session %s: %w", id, err)
+		if stopErr := s.manager.Stop(context.WithoutCancel(ctx), id); stopErr != nil {
+			return "", errors.Join(readErr, fmt.Errorf("stop steering session %s: %w", id, stopErr))
+		}
+		return "", readErr
 	}
 	if started.State == stateFailed {
 		return "", fmt.Errorf("steering session %s failed: %s", id, started.Reason)

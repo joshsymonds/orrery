@@ -40,7 +40,7 @@ func (r *Runner) orchestratorPrompt(ctx context.Context, epic store.EpicRow, vie
 		return "", err
 	}
 	planner.WriteSection(&out, "Task", taskSection)
-	path := ImplementWorktree(r.stateDir, epic.ID, task.Seq)
+	path := ImplementWorktree(r.stateDir, epic.ID, task)
 	if view.Returned != nil && view.Returned.Workspace != "" {
 		path = view.Returned.Workspace
 	}

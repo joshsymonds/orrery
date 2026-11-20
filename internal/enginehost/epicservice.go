@@ -1179,6 +1179,7 @@ const (
 	kindPlan     = "plan"
 	kindBuild    = "build"
 	kindGate     = "gate"
+	kindCost     = "cost"
 	kindCommand  = "command"
 	kindEvidence = "evidence"
 	kindAgent    = "agent"
@@ -1250,7 +1251,7 @@ func epicNodeMessage(flow store.EpicFlow, run store.NodeRun) (*v1.EpicNode, erro
 		message.Tasks = []int64{run.Task}
 	case kindEvidence:
 		message.Runs = evidenceRunIDs(flow, run)
-	case kindGate, kindCommand:
+	case kindGate, kindCost, kindCommand:
 		check, found := storedCheckOf(flow, run)
 		if !found {
 			break
@@ -1517,8 +1518,8 @@ func taskRungMessage(rung store.TaskRung) *v1.EpicTaskRung {
 	}
 }
 
-// taskReviewMessage returns the EpicTaskReview message of review: its attempt, gate, step, verdict and findings in
-// order.
+// taskReviewMessage returns the EpicTaskReview message of review: its attempt, gate, step, verdict, findings in order,
+// and the reason an undetermined review gave.
 func taskReviewMessage(review store.TaskReview) *v1.EpicTaskReview {
 	return &v1.EpicTaskReview{
 		Attempt:  review.Attempt,
@@ -1526,6 +1527,7 @@ func taskReviewMessage(review store.TaskReview) *v1.EpicTaskReview {
 		Step:     review.Step,
 		Verdict:  review.Verdict,
 		Findings: epicMap(review.Findings, taskFindingMessage),
+		Reason:   review.Reason,
 	}
 }
 
