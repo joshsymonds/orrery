@@ -1011,20 +1011,10 @@ func startSessions(
 	return host, nil
 }
 
-// steeringLines returns the lines a steering session's first prompt carries for row: the lines of its contract, the line
-// Log:, then the lines of its decisions.
-func steeringLines(row store.EpicRow) ([]string, error) {
-	lines, err := planner.ContractLines(row)
-	if err != nil {
-		return nil, fmt.Errorf("contract lines of epic %s: %w", row.ID, err)
-	}
-	return append(append(lines, "Log:"), planner.DecisionLines(row, 0)...), nil
-}
-
 // epicSteering returns the steering sessions of the epics st serves, which manager starts.
 func epicSteering(manager *enginehost.Manager, st *store.Store) *enginehost.EpicSteering {
 	return enginehost.NewEpicSteering(enginehost.EpicSteeringConfig{
-		Manager: manager, Sessions: st, Render: steeringLines, PaneDir: paneDir,
+		Manager: manager, Sessions: st, Render: planner.SteeringLines, PaneDir: paneDir,
 	})
 }
 
