@@ -30,8 +30,6 @@ import io.github.joshsymonds.orrery.gen.orrery.v1.EpicContract as EpicContractPr
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicDecision as EpicDecisionProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicFailure as EpicFailureProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicHistoryEntry as EpicHistoryEntryProto
-import io.github.joshsymonds.orrery.gen.orrery.v1.EpicNode as EpicNodeProto
-import io.github.joshsymonds.orrery.gen.orrery.v1.EpicNodeCheck as EpicNodeCheckProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicPremise as EpicPremiseProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicQuestion as EpicQuestionProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicReleaseStep as EpicReleaseStepProto
@@ -567,44 +565,6 @@ data class EpicSliceRow(
 )
 
 /**
- * One workflow node run of a stored epic. [path] is the run's path, unique on the epic. [round] is the innermost
- * enclosing loop's round, 0 outside a loop, and [loopRound] is a loop's current round from 1, 0 for any other kind.
- * [turns] are a plan's turn seqs and [tasks] its task seqs, or a build's task seq. [runs] are an evidence node's runs
- * for its attempt. [check] is a gate or command node's check, null until it is stored. [step] is an agent node's step
- * id, empty until it is stored.
- */
-data class EpicNodeRow(
-    val path: String,
-    val node: String,
-    val kind: String,
-    val state: String,
-    val outcome: String,
-    val round: Long,
-    val loopRound: Long,
-    val attempt: Long,
-    val output: String,
-    val revision: String,
-    val turns: List<Long>,
-    val tasks: List<Long>,
-    val runs: List<EvidenceRunRow>,
-    val check: EpicNodeCheckRow?,
-    val step: String,
-)
-
-/**
- * A gate or command node's check: [state] is running until it ends, [exit] and [timedOut] say how it ended, [notRun]
- * says why it did not run, and [stdout] and [stderr] are the newest bytes of each.
- */
-data class EpicNodeCheckRow(
-    val state: String,
-    val exit: Int,
-    val timedOut: Boolean,
-    val notRun: String,
-    val stdout: String,
-    val stderr: String,
-)
-
-/**
  * One task of an orreryd epic's plan, with its build: [stage] is the stage the build is on, empty before its first
  * unit. [red] and [green] are the evidence runs the build names, null until it names one. [requirements] are the
  * requirement ids the task covers, in order. [reviews] are the build's reviews, in attempt then position order.
@@ -690,16 +650,15 @@ data class EpicContractRow(
 
 /**
  * One epic with its tasks, its [slices] in serve's order, and every step labelled with it, oldest step first.
- * [requirements] are an orreryd epic's requirements in contract order, empty for a record epic. [nodes] are its
- * workflow node runs in the order the server lists them. [buildTasks] are an orreryd epic's planned tasks in the order
- * they were planned, empty for a record epic. [summary] is the epic's summary paragraph, empty until it is written.
- * [contract] is the accepted contract, null for a record epic. [questions] are the open questions in the order they
- * were asked. [paused] is whether the epic's planner starts no turn, and [parked] is why the epic is parked, empty
- * when it is not. [plannerParked] is whether the planner holds that park. [sessions] are the sessions that work on the
- * epic, each with its newest epic call, in the order the server lists them. [repository] is the absolute path of the
- * git repository the epic belongs to, empty when none is named. [handover] is the epic's handover rows, empty for a
- * record epic. [releaseProof] is the contract's release steps with the state their release runs gave them, in contract
- * order, empty for a record epic. [report] is the epic's report, null until the epic ends and for a record epic.
+ * [requirements] are an orreryd epic's requirements in contract order, empty for a record epic. [buildTasks] are an
+ * orreryd epic's planned tasks in the order they were planned, empty for a record epic. [summary] is the epic's summary
+ * paragraph, empty until it is written. [contract] is the accepted contract, null for a record epic. [questions] are
+ * the open questions in the order they were asked. [paused] is whether the epic's planner starts no turn, and [parked]
+ * is why the epic is parked, empty when it is not. [plannerParked] is whether the planner holds that park. [sessions]
+ * are the sessions that work on the epic, each with its newest epic call, in the order the server lists them.
+ * [repository] is the absolute path of the git repository the epic belongs to, empty when none is named.
+ * [releaseProof] is the contract's release steps with the state their release runs gave them, in contract order,
+ * empty for a record epic.
  */
 data class EpicDetail(
     val epic: EpicRow,
@@ -707,7 +666,6 @@ data class EpicDetail(
     val slices: List<EpicSliceRow>,
     val steps: List<StepRow>,
     val requirements: List<EpicRequirementRow> = emptyList(),
-    val nodes: List<EpicNodeRow> = emptyList(),
     val buildTasks: List<EpicBuildTaskRow> = emptyList(),
     val summary: String = "",
     val contract: EpicContractRow? = null,
@@ -715,11 +673,9 @@ data class EpicDetail(
     val paused: Boolean = false,
     val parked: String = "",
     val plannerParked: Boolean = false,
-    val handover: EpicHandoverRow = EpicHandoverRow(),
     val sessions: List<EpicSessionRow> = emptyList(),
     val repository: String = "",
     val releaseProof: List<EpicReleaseProofRow> = emptyList(),
-    val report: EpicReportRow? = null,
 )
 
 /**
@@ -1016,7 +972,6 @@ class OrreryClient(
             slices = response.slicesList.map { it.toEpicSliceRow() },
             steps = response.stepsList.map { it.toStepRow() },
             requirements = response.requirementsList.map { it.toEpicRequirementRow() },
-            nodes = response.nodesList.map { it.toEpicNodeRow() },
             buildTasks = response.buildTasksList.map { it.toEpicBuildTaskRow() },
             summary = response.summary,
             contract = if (response.hasContract()) response.contract.toEpicContractRow() else null,
@@ -1024,11 +979,9 @@ class OrreryClient(
             paused = response.paused,
             parked = response.parked,
             plannerParked = response.plannerParked,
-            handover = response.toEpicHandoverRow(),
             sessions = response.sessionsList.map { it.toEpicSessionRow() },
             repository = response.repository,
             releaseProof = response.releaseStepsList.map { it.toEpicReleaseProofRow() },
-            report = if (response.hasReport()) response.report.toEpicReportRow() else null,
         )
     }
 
@@ -1388,35 +1341,6 @@ class OrreryClient(
             kind = kind,
             conclusion = conclusion,
             runs = runsList.map { it.toEvidenceRunRow() },
-        )
-
-    private fun EpicNodeProto.toEpicNodeRow(): EpicNodeRow =
-        EpicNodeRow(
-            path = path,
-            node = node,
-            kind = kind,
-            state = state,
-            outcome = outcome,
-            round = round,
-            loopRound = loopRound,
-            attempt = attempt,
-            output = output,
-            revision = revision,
-            turns = turnsList.toList(),
-            tasks = tasksList.toList(),
-            runs = runsList.map { it.toEvidenceRunRow() },
-            check = if (hasCheck()) check.toEpicNodeCheckRow() else null,
-            step = step,
-        )
-
-    private fun EpicNodeCheckProto.toEpicNodeCheckRow(): EpicNodeCheckRow =
-        EpicNodeCheckRow(
-            state = state,
-            exit = exit,
-            timedOut = timedOut,
-            notRun = notRun,
-            stdout = stdout,
-            stderr = stderr,
         )
 
     private fun EvidenceRunProto.toEvidenceRunRow(): EvidenceRunRow =
