@@ -1,5 +1,6 @@
-// The stories of TaskLine, the export of BackgroundRow's rows: an agent task that runs, which is a link to its Agent
-// call; an agent task that has ended; an agent task that names no sub-agent type; and a shell task, which is not a link.
+// The stories of TaskLine: the lines BackgroundRow draws for a background task, which round 6 names TaskLine (catalog/
+// coverage.ts storyRenames): an agent task that runs, which is a link to its Agent call; an agent task that has ended; an
+// agent task that failed; a shell task that runs, which is not a link; and a shell task that was stopped.
 
 import { create, type MessageInitShape } from "@bufbuild/protobuf";
 
@@ -70,6 +71,20 @@ export const TaskLine: Stories = {
         type: "shell",
         status: "running",
         started: at("@14:30"),
+      })}
+      onOpen={ignore}
+    />
+  ),
+  stopped: () => (
+    <backgroundrow.BackgroundRow
+      task={taskOf({
+        id: "bg-5",
+        toolUseId: "",
+        description: "pnpm dev --port 5173",
+        type: "shell",
+        status: "stopped",
+        started: at("@14:12"),
+        ended: at("@14:30"),
       })}
       onOpen={ignore}
     />

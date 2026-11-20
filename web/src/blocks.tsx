@@ -1,5 +1,8 @@
 import type { ComponentChildren, JSX } from "preact";
 
+import { useState } from "preact/hooks";
+
+import type { EpicStepCheck } from "./gen/orrery/v1/epics_pb";
 import { Icon, type IconName } from "./glyphs";
 import { Markdown } from "./markdown";
 import { clock } from "./reader";
@@ -80,6 +83,65 @@ export function YouBlock({
       pending={sending}
     >
       <Markdown text={text} query={query} current={current} />
+    </Block>
+  );
+}
+
+// CheckBlock draws a send-back round: CHECKS, the round it is and from the engine, and its time. Each check of that round
+// is a chip, with the check icon when it passed and the cross when it failed. Its tone is bad when one failed and ok when
+// they all passed; with no check of the round it draws no chips and the engine's tone. The text's first line is the note,
+// and with more lines a chevron in the end opens the rest under it. open is whether the rest starts open.
+export function CheckBlock({
+  text,
+  round,
+  checks,
+  time,
+  open = false,
+}: {
+  text: string;
+  round: number;
+  checks: EpicStepCheck[];
+  time?: bigint;
+  open?: boolean;
+}): JSX.Element {
+  const [shown, setShown] = useState(open);
+  const roundChecks = checks.filter((check) => check.round === round);
+  const tone: Tone = roundChecks.length === 0 ? "engine" : roundChecks.some((check) => !check.ok) ? "bad" : "ok";
+  const [note, ...rest] = text.split("\n");
+  const opens = rest.length > 0;
+  const chips = roundChecks.map((check, index) => (
+    <span key={index} class={check.ok ? "chip" : "chip bad"}>
+      <Icon name={check.ok ? "check" : "cross"} />
+      {check.name}
+    </span>
+  ));
+  const end =
+    chips.length > 0 || opens ? (
+      <>
+        {chips}
+        {opens && (
+          <button type="button" aria-expanded={shown} onClick={() => setShown((value) => !value)}>
+            <Icon name={shown ? "chevronDown" : "chevronRight"} />
+          </button>
+        )}
+      </>
+    ) : undefined;
+  return (
+    <Block
+      tone={tone}
+      kind="checks"
+      icon={tone === "ok" ? "check" : tone === "bad" ? "cross" : "gear"}
+      label="CHECKS"
+      words={`round ${round} from the engine`}
+      time={time === undefined ? undefined : clock(time)}
+      end={end}
+    >
+      <Markdown text={note} />
+      {opens && shown && (
+        <div class="opened">
+          <Markdown text={rest.join("\n")} />
+        </div>
+      )}
     </Block>
   );
 }

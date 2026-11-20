@@ -6,6 +6,7 @@ import { render } from "preact";
 import { useEffect, useState } from "preact/hooks";
 import { act } from "preact/test-utils";
 
+import { agentFinishedTask, TaskLine } from "./backgroundrow";
 import { createClients, createTransport } from "./client";
 import type { Conversation } from "./conversation";
 import { findMatches } from "./find";
@@ -17,6 +18,7 @@ import {
   ConversationItemSchema,
   ConversationStateSchema,
 } from "./gen/orrery/v1/orrery_pb";
+import { Icon, type IconName } from "./glyphs";
 import { Reader } from "./reader";
 import { assertSame, installTestDom, removeTestDom } from "./testdom";
 import { turn, until } from "./testwait";
@@ -169,17 +171,28 @@ interface RowFields {
   status: string;
 }
 
+// rowsOf are the lines a background task draws: a TaskLine, which the reader draws for each task the state holds.
 function rowsOf(root: ParentNode): HTMLElement[] {
-  return [...root.querySelectorAll<HTMLElement>(".background-row")];
+  return [...root.querySelectorAll<HTMLElement>('[data-shape="line"].task')];
 }
 
 function fieldsOf(row: HTMLElement): RowFields {
   return {
-    label: textOf(row, "b"),
-    description: textOf(row, ".bg-description"),
-    activity: textOf(row, ".bg-activity"),
-    status: textOf(row, ".bg-status"),
+    label: textOf(row, ".name"),
+    description: textOf(row, ".arg"),
+    activity: textOf(row, ".more"),
+    status: textOf(row, ".end"),
   };
+}
+
+// iconMarkup is the markup Icon draws for a name, so a test can compare the icon a line draws with it. The test DOM is
+// installed by the caller.
+function iconMarkup(name: IconName): string {
+  const probe = document.createElement("div");
+  render(<Icon name={name} />, probe);
+  const markup = probe.innerHTML;
+  render(null, probe);
+  return markup;
 }
 
 function textOf(root: ParentNode, selector: string): string {
@@ -219,7 +232,7 @@ async function click(control: HTMLElement): Promise<void> {
   });
 }
 
-test("BackgroundTaskRow: a running agent task and a running shell task each draw a live row with their type label, description and latest activity", async (t) => {
+test("BackgroundTaskRow: a running agent task and a running shell task each draw a running line with their type label, description and latest activity", async (t) => {
   await withPage(t, async ({ container, fake }) => {
     const background = [
       task({
@@ -256,8 +269,9 @@ test("BackgroundTaskRow: a running agent task and a running shell task each draw
       activity: "compiled 12 files",
       status: "",
     });
-    assert.equal(countOf(container, ".t.live-row .background-row"), 2, "each running task draws a live row");
-    assert.equal(countOf(container, "button.background-row"), 1, "the agent row is a link, and the shell row is not");
+    assert.equal(countOf(container, ".line.task.running"), 2, "each running task draws a running line");
+    assert.equal(countOf(container, ".running-mark"), 2, "each running line carries the running mark");
+    assert.equal(countOf(container, "button.line.task"), 1, "the agent row is a link, and the shell row is not");
   });
 });
 
@@ -293,9 +307,9 @@ test("BackgroundTaskRow: a later delta with new activity updates a running row i
       }),
     ];
     fake.emit(delta([], { seq: 2, reset: true, background: running("Read the readme") }));
-    await settle(t, () => textOf(container, ".bg-activity") === "Read the readme", "the first activity is drawn");
+    await settle(t, () => textOf(container, ".more") === "Read the readme", "the first activity is drawn");
     fake.emit(delta([], { seq: 3, background: running("Ran the tests") }));
-    await settle(t, () => textOf(container, ".bg-activity") === "Ran the tests", "the later activity is drawn");
+    await settle(t, () => textOf(container, ".more") === "Ran the tests", "the later activity is drawn");
     assert.equal(rowsOf(container).length, 1, "the row is updated, not drawn again");
   });
 });
@@ -313,10 +327,11 @@ test("BackgroundTaskRow: a later delta that ends a task draws its status, and no
         ended,
       });
     fake.emit(delta([], { seq: 2, reset: true, background: [shell("running", 0n)] }));
-    await settle(t, () => countOf(container, ".t.live-row .background-row") === 1, "the running row is live");
+    await settle(t, () => countOf(container, ".line.task.running") === 1, "the running row is running");
     fake.emit(delta([], { seq: 3, background: [shell("done", 120n)] }));
-    await settle(t, () => textOf(container, ".bg-status") === "done", "the ended row draws its status");
-    assert.equal(countOf(container, ".live-row .background-row"), 0, "an ended task draws no live mark");
+    await settle(t, () => textOf(container, ".end") === "done", "the ended row draws its status");
+    assert.equal(countOf(container, ".line.task.running"), 0, "an ended task draws no running line");
+    assert.equal(countOf(container, ".running-mark"), 0, "an ended task draws no running mark");
     assert.equal(rowsOf(container).length, 1, "the ended task is the same row");
   });
 });
@@ -411,4 +426,61 @@ test("BackgroundTaskRow: an agent_finished item draws the agent-finished line, w
     ]);
     assert.deepEqual(findMatches(items, "Map the repo"), [], "find does not search the line");
   });
+});
+
+test("Shapes: a background task draws one TaskLine: the agent icon, its type, its description and its end word", async (t) => {
+  await withPage(t, async ({ container, fake }) => {
+    const background = [
+      task({
+        id: "a1",
+        toolUseId: "toolu_1",
+        description: "Map the repo",
+        type: "agent",
+        subagentType: "Explore",
+        status: "done",
+        started: 100n,
+        ended: 120n,
+      }),
+    ];
+    fake.emit(delta([], { seq: 2, reset: true, background }));
+    await settle(t, () => rowsOf(container).length === 1, "the row is drawn");
+    assert.equal(countOf(container, '[data-shape="line"]'), 1, "the task draws more or fewer than one line");
+    const line = rowsOf(container)[0];
+    assert.equal(line.classList.contains("line"), true, "the line is not of class line");
+    assert.equal(line.innerHTML.includes(iconMarkup("agent")), true, "the agent icon does not lead the line");
+    assert.equal(textOf(line, ".name"), "Explore");
+    assert.equal(textOf(line, ".arg"), "Map the repo");
+    assert.equal(textOf(line, ".end"), "done");
+  });
+});
+
+test("Shapes: an agent_finished item draws one TaskLine: the agent icon, its subagent type, its description and its end word", async () => {
+  const window = installTestDom();
+  const container = document.createElement("div");
+  try {
+    const done = item({ kind: "agent_finished", time: 100n, text: "Map the repo", id: "toolu_1", tool: "Explore", notice: "done" });
+    const failed = item({
+      kind: "agent_finished",
+      time: 101n,
+      text: "Run the suite",
+      id: "toolu_2",
+      tool: "general-purpose",
+      notice: "failed",
+    });
+    render(<TaskLine {...agentFinishedTask(done)} />, container);
+    const lines = container.querySelectorAll<HTMLElement>('[data-shape="line"]');
+    assert.equal(lines.length, 1, "the item draws more or fewer than one line");
+    assert.equal(lines[0].classList.contains("task"), true, "the line is not of class task");
+    assert.equal(lines[0].innerHTML.includes(iconMarkup("agent")), true, "the agent icon does not lead the line");
+    assert.equal(textOf(lines[0], ".name"), "Explore");
+    assert.equal(textOf(lines[0], ".arg"), "Map the repo");
+    assert.equal(textOf(lines[0], ".end"), "finished", "a done agent's end word is finished");
+
+    render(<TaskLine {...agentFinishedTask(failed)} />, container);
+    assert.equal(textOf(container, ".name"), "general-purpose");
+    assert.equal(textOf(container, ".end"), "failed", "a failed agent's end word is its notice");
+  } finally {
+    render(null, container);
+    await removeTestDom(window);
+  }
 });

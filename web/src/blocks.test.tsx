@@ -1,21 +1,24 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
+import { create } from "@bufbuild/protobuf";
 import { type JSX, render } from "preact";
+import { act } from "preact/test-utils";
 
 import { at } from "./fixtures/clock";
-import { Block, EventBlock, YouBlock } from "./blocks";
-import { Icon } from "./glyphs";
+import { Block, CheckBlock, EventBlock, YouBlock } from "./blocks";
+import { EpicStepCheckSchema, type EpicStepCheck } from "./gen/orrery/v1/epics_pb";
+import { Icon, type IconName } from "./glyphs";
 import { clock } from "./reader";
 import { installTestDom, removeTestDom } from "./testdom";
 
 // withBlock renders the element into a fresh test DOM, runs the check on its container, and removes the DOM.
-async function withBlock(element: JSX.Element, check: (container: HTMLElement) => void): Promise<void> {
+async function withBlock(element: JSX.Element, check: (container: HTMLElement) => void | Promise<void>): Promise<void> {
   const window = installTestDom();
   const container = document.createElement("div");
   try {
     render(element, container);
-    check(container);
+    await check(container);
   } finally {
     render(null, container);
     await removeTestDom(window);
@@ -26,8 +29,13 @@ function textOf(root: ParentNode, selector: string): string | null {
   return root.querySelector(selector)?.textContent ?? null;
 }
 
+// checkOf is a check a step holds, of the round it ran in.
+function checkOf(round: number, name: string, ok: boolean): EpicStepCheck {
+  return create(EpicStepCheckSchema, { round, name, ok });
+}
+
 // iconMarkup is the markup Icon draws for a name, so a test can compare the icon a block draws with it.
-async function iconMarkup(name: "person" | "gear" | "clock"): Promise<string> {
+async function iconMarkup(name: IconName): Promise<string> {
   let markup = "";
   await withBlock(<Icon name={name} />, (container) => {
     markup = container.innerHTML;
@@ -120,6 +128,131 @@ test("Shapes: a Block draws exactly one block root holding its head and its chil
       assert.equal(root.querySelector(".head")?.innerHTML.includes(personIcon), true, "the head does not draw the icon");
       assert.equal(root.querySelector(".child")?.textContent, "body");
       assert.equal(root.querySelector(".head .child"), null, "the body is drawn outside the head");
+    },
+  );
+});
+
+test("Shapes: a CheckBlock draws one block of kind checks: CHECKS, round N from the engine, and its time", async () => {
+  await withBlock(
+    <CheckBlock round={2} checks={[checkOf(2, "tests", true)]} text="All checks pass." time={at("@14:14")} />,
+    (container) => {
+      const roots = container.querySelectorAll<HTMLElement>('[data-shape="block"]');
+      assert.equal(roots.length, 1, "a CheckBlock draws more or fewer than one block root");
+      assert.equal(roots[0].classList.contains("checks"), true, "the block is not of kind checks");
+      assert.equal(textOf(roots[0], ".label"), "CHECKS");
+      assert.equal(textOf(roots[0], ".words"), "round 2 from the engine");
+      assert.equal(textOf(roots[0], ".at"), clock(at("@14:14")));
+    },
+  );
+});
+
+test("Shapes: a CheckBlock draws a chip per check of its round, with the check icon when it passed and the cross when it failed, and tone bad when one failed", async () => {
+  const checkIcon = await iconMarkup("check");
+  const crossIcon = await iconMarkup("cross");
+  await withBlock(
+    <CheckBlock
+      round={2}
+      checks={[checkOf(1, "lint", false), checkOf(2, "tests", true), checkOf(2, "owned files", false)]}
+      text="owned files: the change touches go.mod."
+      time={at("@14:14")}
+    />,
+    (container) => {
+      const root = container.querySelector<HTMLElement>('[data-shape="block"]');
+      assert.ok(root, "the CheckBlock has no block root");
+      assert.equal(root.dataset.tone, "bad");
+      const chips = [...root.querySelectorAll<HTMLElement>(".chip")];
+      assert.deepEqual(
+        chips.map((chip) => chip.textContent),
+        ["tests", "owned files"],
+        "a chip per check of round 2, and none of round 1",
+      );
+      assert.deepEqual(
+        chips.map((chip) => chip.classList.contains("bad")),
+        [false, true],
+        "only the failed check's chip is bad",
+      );
+      assert.equal(chips[0].innerHTML.includes(checkIcon), true, "the passed check does not draw the check icon");
+      assert.equal(chips[1].innerHTML.includes(crossIcon), true, "the failed check does not draw the cross icon");
+    },
+  );
+});
+
+test("Shapes: a CheckBlock whose checks of its round all passed is tone ok", async () => {
+  await withBlock(
+    <CheckBlock
+      round={3}
+      checks={[checkOf(3, "tests", true), checkOf(3, "lint", true)]}
+      text="All checks pass."
+      time={at("@14:19")}
+    />,
+    (container) => {
+      const root = container.querySelector<HTMLElement>('[data-shape="block"]');
+      assert.ok(root, "the CheckBlock has no block root");
+      assert.equal(root.dataset.tone, "ok");
+      assert.equal(root.querySelectorAll(".chip").length, 2, "a chip per check of round 3");
+      assert.equal(root.querySelector(".chip.bad"), null, "no check failed, so no chip is bad");
+    },
+  );
+});
+
+test("Shapes: a CheckBlock given no check of its round draws no chips and the engine tone", async () => {
+  await withBlock(<CheckBlock round={2} checks={[]} text="The checks did not run." time={at("@14:14")} />, (container) => {
+    const root = container.querySelector<HTMLElement>('[data-shape="block"]');
+    assert.ok(root, "the CheckBlock has no block root");
+    assert.equal(root.dataset.tone, "engine");
+    assert.equal(root.querySelectorAll(".chip").length, 0, "a CheckBlock with no checks draws chips");
+  });
+  await withBlock(
+    <CheckBlock round={2} checks={[checkOf(1, "tests", false)]} text="The checks did not run." time={at("@14:14")} />,
+    (container) => {
+      const root = container.querySelector<HTMLElement>('[data-shape="block"]');
+      assert.ok(root, "the CheckBlock has no block root");
+      assert.equal(root.dataset.tone, "engine", "a failed check of another round sets the tone");
+      assert.equal(root.querySelectorAll(".chip").length, 0, "a check of another round draws a chip");
+    },
+  );
+});
+
+test("Shapes: a CheckBlock's note is its text's first line, and a chevron in its end opens the rest under it, and folds it again", async () => {
+  const text = "owned files: the change touches go.mod.\nRevert go.mod, or ask the planner to widen the task.";
+  await withBlock(
+    <CheckBlock round={2} checks={[checkOf(2, "owned files", false)]} text={text} time={at("@14:14")} />,
+    async (container) => {
+      const root = container.querySelector<HTMLElement>('[data-shape="block"]');
+      assert.ok(root, "the CheckBlock has no block root");
+      assert.equal(root.querySelector(".opened"), null, "the rest is open before the chevron is clicked");
+      assert.equal(root.textContent.includes("owned files"), true, "the note is not drawn");
+      assert.equal(root.textContent.includes("Revert go.mod"), false, "the rest is drawn before it is opened");
+      const chevron = root.querySelector<HTMLElement>(".end button");
+      assert.ok(chevron, "the chevron is not in the end");
+      await act(() => {
+        chevron.click();
+      });
+      assert.equal(
+        root.querySelector(".opened")?.textContent?.includes("Revert go.mod"),
+        true,
+        "the rest does not open under the note",
+      );
+      await act(() => {
+        chevron.click();
+      });
+      assert.equal(root.querySelector(".opened"), null, "the rest does not fold again");
+    },
+  );
+});
+
+test("Shapes: a CheckBlock given open draws the rest under its note from the start", async () => {
+  const text = "owned files: the change touches go.mod.\nRevert go.mod, or ask the planner to widen the task.";
+  await withBlock(
+    <CheckBlock round={2} checks={[checkOf(2, "owned files", false)]} text={text} time={at("@14:14")} open />,
+    (container) => {
+      const root = container.querySelector<HTMLElement>('[data-shape="block"]');
+      assert.ok(root, "the CheckBlock has no block root");
+      assert.equal(
+        root.querySelector(".opened")?.textContent?.includes("Revert go.mod"),
+        true,
+        "the rest is not drawn under the note",
+      );
     },
   );
 });

@@ -1,12 +1,61 @@
 import type { JSX } from "preact";
 
-import type { BackgroundTask } from "./gen/orrery/v1/orrery_pb";
+import type { BackgroundTask, ConversationItem } from "./gen/orrery/v1/orrery_pb";
+import { Icon } from "./glyphs";
 
-// BackgroundRow draws one background task a headless session reported, as a row of the conversation. Its label is its
-// type: the sub-agent type an agent task runs, or agent when it names none, and shell for a shell task. Its description
-// follows, then its latest activity, and then its status once it has ended. A task that runs draws a live row. An agent
-// task with a tool use id is a link: a click calls onOpen with that id, and the reader brings the Agent call with it
-// into view and opens it.
+// TaskLineProps is what a TaskLine draws: its icon's type, agent or shell; its name, the sub-agent type or shell; its
+// description; its latest activity; its end word once it has ended; whether it runs; and onOpen, when a click opens
+// something.
+interface TaskLineProps {
+  type: "agent" | "shell";
+  name: string;
+  description: string;
+  activity?: string;
+  end?: string;
+  running?: boolean;
+  onOpen?: () => void;
+}
+
+// TaskLine draws a task as a Line: its icon, its name, its description, its latest activity, its end word, and the
+// running mark while it runs. A line that opens something is a button.
+export function TaskLine({
+  type,
+  name,
+  description,
+  activity = "",
+  end = "",
+  running = false,
+  onOpen,
+}: TaskLineProps): JSX.Element {
+  const className = running ? "line task running" : "line task";
+  const line = (
+    <>
+      <Icon name={type} />
+      <span class="name">{name}</span>
+      <span class="arg strong">{description}</span>
+      {activity !== "" && <span class="more">{activity}</span>}
+      {running && <span class="running-mark">running</span>}
+      {end !== "" && <span class="end">{end}</span>}
+    </>
+  );
+  if (onOpen === undefined) {
+    return (
+      <div class={className} data-shape="line">
+        {line}
+      </div>
+    );
+  }
+  return (
+    <button type="button" class={className} data-shape="line" onClick={onOpen}>
+      {line}
+    </button>
+  );
+}
+
+// BackgroundRow draws one background task a headless session reported, as a TaskLine: the agent icon and the sub-agent
+// type an agent task runs (agent when it names none), or the shell icon and shell for a shell task; then its description,
+// its latest activity, its status once it has ended, and the running mark while it runs. An agent task with a tool use id
+// is a link: a click calls onOpen with that id, and the reader brings the Agent call with it into view and opens it.
 export function BackgroundRow({
   task,
   onOpen,
@@ -15,28 +64,28 @@ export function BackgroundRow({
   onOpen: (toolUseId: string) => void;
 }): JSX.Element {
   const running = task.status === "running";
-  const line = (
-    <>
-      <b>{backgroundLabel(task)}</b>
-      <span class="bg-description">{task.description}</span>
-      {task.activity !== "" && <span class="bg-activity">{task.activity}</span>}
-      {!running && <span class={`bg-status ${task.status}`}>{task.status}</span>}
-    </>
-  );
   return (
-    <div class={running ? "t live-row" : "t"}>
-      <span class={running ? "gut live" : "gut"}>{running && "live"}</span>
-      <div class="body">
-        {isLink(task) ? (
-          <button type="button" class="background-row" onClick={() => onOpen(task.toolUseId)}>
-            {line}
-          </button>
-        ) : (
-          <div class="background-row">{line}</div>
-        )}
-      </div>
-    </div>
+    <TaskLine
+      type={task.type === "agent" ? "agent" : "shell"}
+      name={backgroundLabel(task)}
+      description={task.description}
+      activity={task.activity}
+      end={running ? "" : task.status}
+      running={running}
+      onOpen={isLink(task) ? () => onOpen(task.toolUseId) : undefined}
+    />
   );
+}
+
+// agentFinishedTask is the TaskLine an agent_finished item draws: the agent icon, the item's sub-agent type, its
+// description, and its end word: finished when the agent is done, else the item's notice, failed or stopped.
+export function agentFinishedTask(item: ConversationItem): TaskLineProps {
+  return {
+    type: "agent",
+    name: item.tool,
+    description: item.text,
+    end: item.notice === "done" ? "finished" : item.notice,
+  };
 }
 
 // backgroundLabel is a task's label: its sub-agent type, or agent when it names none, for an agent task, and shell for
