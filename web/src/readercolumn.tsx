@@ -3,6 +3,9 @@ import { useEffect, useMemo, useState } from "preact/hooks";
 
 import * as actions from "./actions";
 import type { Clients } from "./actions";
+import { Ask, AskLine } from "./ask";
+import { type AskModel, conversationAsk } from "./askmodel";
+import { type AskState, answeredOf, askKey, askView } from "./askstate";
 import type { EpicCalls } from "./card";
 import { type Conversation, shownConversation } from "./conversation";
 import { Dock, type DockHandle } from "./dock";
@@ -11,7 +14,6 @@ import type { StepItem } from "./epics";
 import { FindBar, type Match } from "./find";
 import { Head, type HeadProps } from "./head";
 import { foldOf } from "./headfold";
-import { readerQuestion } from "./inboxrow";
 import { Reader, type ReaderHandle } from "./reader";
 import type { Row } from "./rows";
 import type { Sending, SentText } from "./sending";
@@ -40,6 +42,25 @@ const columnNames = {
 
 // A step keeps no seen mark. Infinity makes no item newer than it, so the step's reader draws no since-you-looked rule.
 const stepSeenAt = Number.POSITIVE_INFINITY;
+
+// AskNote is the note an Ask's own call left: the question it names by its key, and the server's reason, "" for none.
+// It shows only while the question it names is the one the column shows.
+export interface AskNote {
+  key: string;
+  text: string;
+}
+
+// AskCalls are the cursor column's Ask: the answer's life and the note the App holds for its conversation's question,
+// and the calls its controls make. A pinned column draws no Ask.
+export interface AskCalls {
+  state: AskState;
+  note: AskNote;
+  onAnswer: (n: number) => void;
+  onNotNow: () => void;
+  onBringBack: () => void;
+  onDecline: () => void;
+  onArchive: () => void;
+}
 
 // ReaderColumnProps are the state and callbacks a reader column draws from. App keeps all of it; the column only draws.
 export interface ReaderColumnProps {
@@ -87,7 +108,9 @@ export interface ReaderColumnProps {
   // open is the cursor's open toggle; the pinned column passes false and no toggle or answer.
   open: boolean;
   onToggleOpen?: () => void;
-  onAnswer?: (choice: 1 | 2 | 3) => void;
+  // ask is the cursor column's Ask: drawn for the row's own question, and answered in place of it once it has been
+  // answered.
+  ask?: AskCalls;
   // onInterrupt is a dock's state line Interrupt on a row: the row's Escape path. No Interrupt control is drawn without it.
   onInterrupt?: (row: Row) => void;
   // interrupt is a session row's Send now interrupt, which resolves the texts the interrupt cancelled. No Send now is
@@ -137,7 +160,7 @@ export function ReaderColumn({
   retractSending,
   open,
   onToggleOpen,
-  onAnswer,
+  ask,
   onInterrupt,
   interrupt,
   step = null,
@@ -157,6 +180,13 @@ export function ReaderColumn({
     setTapped(false);
   }, [rowKey]);
   const fold = foldOf(narrow, hidden, atNewest, tapped);
+  // The row's own question is drawn as its Ask, and once answered as the Ask's one line. The Ask's key names the
+  // question its answer and note belong to.
+  const model: AskModel | null = ask === undefined || row === null ? null : conversationAsk(row, conversation);
+  const key = model === null || row === null ? null : askKey(row, model);
+  const answered = ask === undefined || model !== null ? null : answeredOf(ask.state);
+  const askNode =
+    ask === undefined || model === null || key === null ? null : askFor(ask, model, key, now, narrow);
   return (
     <section class={names.section} aria-label={names.label} hidden={row === null && step === null}>
       {row !== null && (
@@ -205,8 +235,13 @@ export function ReaderColumn({
           conversation={shown}
           seenAt={row.seen}
           open={open}
-          question={column === "cursor" ? readerQuestion(row, conversation) : null}
-          onAnswer={onAnswer}
+          asking={askNode !== null}
+          ask={
+            askNode ??
+            (answered === null ? null : (
+              <AskLine state="answered" n={answered.n} name={answered.name} question={answered.question} keyCaps />
+            ))
+          }
           onToggleOpen={onToggleOpen}
           onOlder={() => older.current()}
           onNewest={(value) => {
@@ -300,6 +335,30 @@ export function ReaderColumn({
         })}
       </div>
     </section>
+  );
+}
+
+// askFor is the Ask of a conversation's question the cursor column draws: the App's answer life and note for key, and
+// its calls. The note the call left shows over the refused-answer words, and only for this question.
+function askFor(ask: AskCalls, model: AskModel, key: string, now: number, narrow: boolean): JSX.Element {
+  const view = askView(ask.state, key);
+  const note = ask.note.key === key && ask.note.text !== "" ? ask.note.text : view.note;
+  return (
+    <Ask
+      model={model}
+      now={now}
+      phase={view.phase}
+      picked={view.picked}
+      note={note}
+      keyCaps
+      narrow={narrow}
+      numberKeys={false}
+      onAnswer={ask.onAnswer}
+      onNotNow={ask.onNotNow}
+      onBringBack={ask.onBringBack}
+      onDecline={ask.onDecline}
+      onArchive={ask.onArchive}
+    />
   );
 }
 

@@ -20,7 +20,7 @@ const now = Date.parse(liveEpoch) / 1000;
 const noop = () => {};
 const quiet: InboxMark = { needs: 0, enter: noop, leave: noop, pin: noop };
 const { clients } = createFixtureTransport();
-const epicCalls = epicCallsOf(clients, noop, noop, noEpics);
+const epicCalls = epicCallsOf(clients, noop, noop, now, noEpics);
 
 // must returns value, or throws naming what the fixtures do not hold.
 function must<T>(value: T | undefined, what: string): T {
@@ -106,10 +106,22 @@ function columnOf(
   };
 }
 
+// idleAsk is the cursor column's Ask with no answer in flight and no note: the question draws open, and its calls do
+// nothing.
+const idleAsk: readercolumn.AskCalls = {
+  state: { phase: "idle" },
+  note: { key: "", text: "" },
+  onAnswer: noop,
+  onNotNow: noop,
+  onBringBack: noop,
+  onDecline: noop,
+  onArchive: noop,
+};
+
 export const ReaderColumn: Stories = {
   "cursor-pane": () => <readercolumn.ReaderColumn {...columnOf("cursor", lamp, lampConversation)} />,
   "cursor-question": () => (
-    <readercolumn.ReaderColumn {...columnOf("cursor", beacon, beaconConversation)} onAnswer={noop} />
+    <readercolumn.ReaderColumn {...columnOf("cursor", beacon, beaconConversation)} ask={idleAsk} />
   ),
   "pinned-pane": () => <readercolumn.ReaderColumn {...columnOf("pinned", planning, planningConversation)} />,
   find: () => (

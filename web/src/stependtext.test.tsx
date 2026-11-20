@@ -8,6 +8,7 @@ import { act } from "preact/test-utils";
 import type { EpicCalls } from "./card";
 import { noEpics } from "./epics";
 import { StepCard, stepEventOf } from "./eventring";
+import { liveEpoch } from "./fixtures/clock";
 import { installTestDom, removeTestDom } from "./testdom";
 import { turn, until } from "./testwait";
 
@@ -48,6 +49,7 @@ function callsReturning(result: string): EpicCalls {
     openEpic: () => {},
     openStep: () => {},
     stepResult: async () => result,
+    now: Date.parse(liveEpoch) / 1000,
     epics: noEpics,
   };
 }

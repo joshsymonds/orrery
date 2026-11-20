@@ -5,15 +5,18 @@
 import type { Stories } from "./catalog/story";
 import { EpicWidget as Card, epicCallsOf } from "./card";
 import { noEpics } from "./epics";
+import { liveEpoch } from "./fixtures/clock";
 import { createFixtureTransport } from "./fixtures/transport";
 
 const clients = createFixtureTransport().clients;
 
 const noop = () => {};
+// The fixtures' instant, in unix seconds, is the clock the card's ask ages from.
+const fixtureNow = Date.parse(liveEpoch) / 1000;
 
 // calls are the epic calls the card makes over the clients, with no-op openers and none of the poll's epics, so each
 // card reads its epic through the fixture.
-const calls = epicCallsOf(clients, noop, noop, noEpics);
+const calls = epicCallsOf(clients, noop, noop, fixtureNow, noEpics);
 
 export const WorkCard: Stories = {
   // epic-building is an epic that is building, with its steps running.

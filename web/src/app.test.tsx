@@ -46,7 +46,8 @@ const unarchivePath = "/orrery.v1.Epics/Unarchive";
 const seenFailedText = "could not mark seen";
 const sendKeysPath = "/orrery.v1.Panes/SendKeys";
 const answerPath = "/orrery.v1.Control/Answer";
-const answerFailedText = "no answer was sent";
+// askRefusedText is the Ask's note for an answer the server refused or failed.
+const askRefusedText = "Not answered: the question changed before your answer arrived. This is what it asks now.";
 const nudgePath = "/orrery.v1.Steps/Nudge";
 const holdPath = "/orrery.v1.Steps/Hold";
 const stopStepPath = "/orrery.v1.Steps/Stop";
@@ -609,6 +610,11 @@ function rowKeys(container: HTMLElement): string[] {
 
 function cursorKey(container: HTMLElement): string | null {
   return container.querySelector(".row.cur")?.getAttribute("data-key") ?? null;
+}
+
+// askNote is the Ask's error note, or "" when the Ask draws none.
+function askNote(container: HTMLElement): string {
+  return container.querySelector(".ask p.inote.error")?.textContent ?? "";
 }
 
 function alertTexts(container: HTMLElement): string[] {
@@ -2040,24 +2046,27 @@ test("a stream held for another row never answers the cursor's row", (t) =>
     await press("j");
     assert.equal(cursorKey(container), "s2");
     await press("1");
-    await until(t.signal, () => alertTexts(container).includes(answerFailedText), "the fixed line");
+    await settle();
     assert.equal(fake.callsTo(answerPath).length, 0, "the other row's request was not answered");
+    assert.deepEqual(alertTexts(container), [], "a digit with no question of its own shows no line");
   }));
 
-test("3 on a row with no answerable question sends nothing and shows the fixed line", (t) =>
+test("3 on a row with no answerable question sends nothing and shows no line", (t) =>
   withApp(t.signal, {}, async (container, fake) => {
     await press("3");
-    await until(t.signal, () => alertTexts(container).includes(answerFailedText), "the fixed line");
     await settle();
     assert.equal(fake.callsTo(sendKeysPath).length, 0);
     assert.equal(fake.callsTo(answerPath).length, 0);
+    assert.deepEqual(alertTexts(container), [], "no line names the digit");
   }));
 
-test("a rejected answer shows the fixed line, never the server's text, and is not retried", (t) =>
+test("a rejected answer shows the Ask's refusal words, never the server's text, and is not retried", (t) =>
   withApp(t.signal, { rows: [answerableRow] }, async (container, fake) => {
+    await until(t.signal, () => fake.callsTo(paneWatchPath).length === 1, "the pane stream");
+    fake.emit(fake.callsTo(paneWatchPath)[0], { transcript: "t1", seq: "1", reset: true, items: [] });
     fake.failNext.add(sendKeysPath);
     await press("2");
-    await until(t.signal, () => alertTexts(container).includes(answerFailedText), "the fixed line");
+    await until(t.signal, () => askNote(container) === askRefusedText, "the Ask's refusal");
     await settle();
     assert.equal(fake.callsTo(sendKeysPath).length, 1, "the answer was not retried");
     assert.equal(container.textContent?.includes("queue unreachable"), false, "the server's text is not shown");
@@ -2175,11 +2184,11 @@ const permissionStream = {
 };
 
 // openPermissionRequest waits for the cursor's session stream, then sends the permission request and waits for the
-// reader to draw its question card.
+// reader to draw its Ask.
 async function openPermissionRequest(signal: AbortSignal, container: HTMLElement, fake: FakeServer): Promise<void> {
   await until(signal, () => fake.callsTo(sessionWatchPath).length === 1, "the session stream");
   fake.emit(fake.callsTo(sessionWatchPath)[0], permissionStream);
-  await until(signal, () => container.querySelector(".question-card") !== null, "the question card");
+  await until(signal, () => container.querySelector(".ask") !== null, "the Ask");
 }
 
 test("a waiting pane row draws no option chips, and 2 still sends keys [\"2\"] to its question", (t) =>
@@ -2204,11 +2213,13 @@ test("a landed pane answer leaves no line on its row, since the conversation hol
     assert.deepEqual(chipTexts(container, "f"), [], "the row draws no chips");
   }));
 
-test("a failed answer shows the fixed line and leaves the row with no chips or line", (t) =>
+test("a failed answer shows the Ask's refusal words and leaves the row with no chips or line", (t) =>
   withApp(t.signal, { rows: [fourOptionRow] }, async (container, fake) => {
+    await until(t.signal, () => fake.callsTo(paneWatchPath).length === 1, "the pane stream");
+    fake.emit(fake.callsTo(paneWatchPath)[0], { transcript: "t1", seq: "1", reset: true, items: [] });
     fake.failNext.add(sendKeysPath);
     await press("2");
-    await until(t.signal, () => alertTexts(container).includes(answerFailedText), "the fixed line");
+    await until(t.signal, () => askNote(container) === askRefusedText, "the Ask's refusal");
     await settle();
     assert.equal(answerLine(container, "f"), null, "no line for an answer that did not land");
     assert.deepEqual(chipTexts(container, "f"), [], "the row draws no chips");
@@ -2576,14 +2587,14 @@ test("a waiting pane row shows its question's text, never its raw JSON, and a bu
     await until(t.signal, () => fake.callsTo(paneWatchPath).length === 1, "the pane stream");
     fake.emit(fake.callsTo(paneWatchPath)[0], { transcript: "t1", seq: "1", reset: true, items: [] });
     assert.equal(rowElement(container, "a").querySelector(".l2")?.textContent, "Which fruit?");
-    await until(t.signal, () => container.querySelector(".question-card") !== null, "the question card");
+    await until(t.signal, () => container.querySelector(".ask") !== null, "the Ask");
     const reader = container.querySelector(".reader")?.textContent ?? "";
     assert.ok(reader.includes("Which fruit?"));
     for (const text of [container.querySelector(".l2")?.textContent ?? "", reader]) {
       assert.equal(text.includes("{"), false, "no raw JSON");
       assert.equal(text.includes('"questions"'), false, "no raw JSON key");
     }
-    const options = container.querySelectorAll<HTMLButtonElement>(".question-card button.option");
+    const options = container.querySelectorAll<HTMLButtonElement>(".ask .opts button.opt");
     assert.equal(options.length, 2);
     assert.ok(options[1].textContent?.includes("Pear"));
     await act(() => {
@@ -2603,9 +2614,9 @@ test("a session row's reader draws the question its stream holds, and a button c
       items: [],
       state: { request: { id: "req-7", kind: "question", question: "Pick one", options: ["Yes", "No"] } },
     });
-    await until(t.signal, () => container.querySelector(".question-card") !== null, "the question card");
+    await until(t.signal, () => container.querySelector(".ask") !== null, "the Ask");
     assert.ok(readerText(container).includes("Pick one"));
-    const options = container.querySelectorAll<HTMLButtonElement>(".question-card button.option");
+    const options = container.querySelectorAll<HTMLButtonElement>(".ask .opts button.opt");
     assert.equal(options.length, 2);
     await act(() => {
       options[0].click();
@@ -4406,8 +4417,7 @@ test("a step entry streams Sessions.WatchConversation by its id, and the reader 
     });
     await until(t.signal, () => readerText(container).includes("the step reply"), "the step reply");
     assert.equal(readerHidden(container), false, "the reader shows on a step");
-    assert.equal(container.querySelector(".question-card") === null, true, "a step draws no question");
-    assert.equal(container.querySelector(".reader .option") === null, true, "a step draws no answer");
+    assert.equal(container.querySelector(".ask") === null, true, "a step draws no question");
   }));
 
 test("a step's reader at its top asks Sessions.Older for the page before its oldest item, and draws the page above", (t) =>

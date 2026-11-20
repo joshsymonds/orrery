@@ -6,6 +6,7 @@ import { act } from "preact/test-utils";
 
 import type { EpicCalls } from "./card";
 import { type EpicEvent, EventRing, epicEventOf } from "./eventring";
+import { liveEpoch } from "./fixtures/clock";
 import { noEpics } from "./epics";
 import { installTestDom, removeTestDom } from "./testdom";
 
@@ -51,6 +52,7 @@ function movedCalls(titles: Record<string, string | undefined>, opened: string[]
     openStep: () => {},
     stepResult: refused,
     sessionTitle: (session) => titles[session],
+    now: Date.parse(liveEpoch) / 1000,
     epics: noEpics,
   };
 }

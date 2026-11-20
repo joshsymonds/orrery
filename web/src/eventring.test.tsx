@@ -8,11 +8,14 @@ import { act } from "preact/test-utils";
 import type { EpicCalls } from "./card";
 import { type EpicsView, epicsView, noEpics } from "./epics";
 import { type EpicEvent, EventRing, epicEventOf } from "./eventring";
+import { liveEpoch } from "./fixtures/clock";
 import { EpicQuestionSchema, EpicSchema, type EpicsGetResponse, EpicsGetResponseSchema } from "./gen/orrery/v1/epics_pb";
 import { assertNone, installTestDom, removeTestDom } from "./testdom";
 import { turn, until } from "./testwait";
 
 const ringEpic = "orrery-1a2b3c4/planner-runner";
+// ringNow is the instant the ring's epic calls hold, in unix seconds: the fixtures' instant.
+const ringNow = Date.parse(liveEpoch) / 1000;
 const title = `Epic ${ringEpic} (Plan the runner)`;
 // threeChoices are the choices of the open question: the recommended one is composite, the first.
 const threeChoices = [
@@ -92,6 +95,7 @@ class FakeEpics {
       },
       openStep: () => {},
       stepResult: () => Promise.resolve(""),
+      now: ringNow,
       epics,
     };
   }
@@ -247,6 +251,15 @@ test("EventRing: a question event whose epic the poll holds draws the poll's que
     });
     await settle(t, () => container.querySelector(".settled") !== null, "the poll's next detail settles the question");
     assert.deepEqual(fake.reads, [], "a ring over a polled epic read it");
+  });
+});
+
+test("EventRing: an open epic question's Ask ages from the calls' now, not the clock", async (t) => {
+  const fake = new FakeEpics(epicReading([]));
+  const asked = { ...openQuestion, asked: BigInt(ringNow - 300) };
+  await withRing(questionEvent, fake.calls(polledView(epicReading([asked]))), async (container) => {
+    await settle(t, () => container.querySelector(".ask .age") !== null, "the open question's Ask is aged");
+    assert.equal(container.querySelector(".ask .age")?.textContent, "· 5m ago", "the Ask ages from ringNow");
   });
 });
 

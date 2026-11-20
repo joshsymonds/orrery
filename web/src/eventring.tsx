@@ -311,7 +311,7 @@ function QuestionReading({ epic, question, calls }: { epic: string; question: st
       <Ask
         key={question}
         model={epicAsk(owner, open)}
-        now={Math.floor(Date.now() / 1000)}
+        now={calls.now}
         phase="open"
         picked={null}
         note=""

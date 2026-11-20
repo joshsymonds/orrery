@@ -10,13 +10,11 @@ import { useFlash } from "./flash";
 import type { EpicStep, EpicStepCheck } from "./gen/orrery/v1/epics_pb";
 import type { ConversationItem, EngineText } from "./gen/orrery/v1/orrery_pb";
 import { Markdown } from "./markdown";
-import type { ParsedQuestion } from "./question";
 import type { Sending } from "./sending";
 import { MarkedText, ReplyText } from "./text";
 
 const tokensPerThousand = 1000;
 const secondsToMillis = 1000;
-const answerChoices = [1, 2, 3] as const;
 const nearBottomPixels = 4;
 const nearTopPixels = 4;
 const toolRunMinimum = 3;
@@ -41,7 +39,7 @@ interface CallReveal {
 }
 
 // Reader draws one conversation: its items, the "since you looked" rule before the first row newer than seenAt, the
-// pane's question with a button per answer, and the session's unfinished text and thinking. A result is never a row:
+// the question's Ask after them, and the session's unfinished text and thinking. A result is never a row:
 // it folds under the call it answers, and a result whose call is not held is hidden. Three or more tool calls in a row
 // fold into one run line that opens to a line per call. A call still running, with nothing but calls and results after
 // it and no question drawn, carries the running rail and mark, and so does a run that holds one. A call that creates an
@@ -65,7 +63,7 @@ interface CallReveal {
 // screen at a time through the handle register gets.
 // With find, every case-insensitive occurrence of its query is a mark in what the reader draws of a reply, a prompt, a
 // call's input and result, and a notice. Compaction, check cards, epic cards, event rings, step cards,
-// background rows, live text, thinking, the question card, sending rows, event lines, cron rows and agent-finished
+// background rows, live text, thinking, the Ask, sending rows, event lines, cron rows and agent-finished
 // lines are not searched. The current match, find.current's index in find.matches, is the mark with class current: it
 // is scrolled into view as it arrives, and the fold, call or run that holds it opens. A fold opens when the current
 // match moves into it, and the owner can close it; it opens again only when the current match moves into it once more.
@@ -78,9 +76,9 @@ export function Reader({
   conversation,
   seenAt,
   open,
-  question = null,
+  asking = false,
+  ask = null,
   step,
-  onAnswer,
   onToggleOpen,
   onOlder,
   onNewest,
@@ -92,9 +90,9 @@ export function Reader({
   conversation: Conversation | null;
   seenAt: number;
   open: boolean;
-  question?: ParsedQuestion | null;
+  asking?: boolean; // whether an open question is drawn after the items, which ends the calls still running
+  ask?: ComponentChildren; // the question's Ask, drawn after the items
   step?: EpicStep;
-  onAnswer?: (choice: 1 | 2 | 3) => void;
   onToggleOpen?: () => void;
   onOlder?: () => void;
   onNewest?: (atNewest: boolean) => void; // told each time the owner's scroll or a page changes whether the reader is pinned
@@ -277,8 +275,8 @@ export function Reader({
   }
   const items = conversation.items;
   const liveBlocks = conversation.unfinished.filter((block) => block.kind === "text" || block.kind === "thinking");
-  // A question or live text drawn after the items ends the calls, so none of them is running.
-  const running = runningCalls(items, results, question !== null || liveBlocks.length > 0);
+  // An open question's Ask or live text drawn after the items ends the calls, so none of them is running.
+  const running = runningCalls(items, results, asking || liveBlocks.length > 0);
   const rows: JSX.Element[] = [];
   groups.forEach((group) => {
     const [first] = group;
@@ -314,7 +312,6 @@ export function Reader({
       />,
     );
   });
-  const questionCard = question === null ? null : <QuestionCard question={question} onAnswer={onAnswer} />;
   const live = liveBlocks.map((block) => <LiveRow key={`${block.messageId}/${block.index}`} block={block} />);
   const background = (conversation.state?.background ?? []).map((task) => (
     <BackgroundRow key={task.id} task={task} onOpen={openCall} />
@@ -322,7 +319,7 @@ export function Reader({
   return (
     <div class="reader" ref={root} onScroll={followScroll}>
       {rows}
-      {questionCard}
+      {ask}
       {live}
       {background}
       {sendingRows}
@@ -358,67 +355,6 @@ function NewRule() {
         <div class="rule new">since you looked</div>
       </div>
     </div>
-  );
-}
-
-function QuestionCard({
-  question,
-  onAnswer,
-}: {
-  question: ParsedQuestion;
-  onAnswer?: (choice: 1 | 2 | 3) => void;
-}) {
-  return (
-    <div class="t">
-      <span class="gut" />
-      <div class="body question-card">
-        <div class="question">
-          <ReplyText text={question.title} />
-        </div>
-        {question.options.map((option, index) => {
-          const label = (
-            <>
-              <span class="option-label">{option.label}</span>
-              {option.description !== "" && <span class="option-description">{option.description}</span>}
-            </>
-          );
-          const choice = answerChoices[index];
-          if (choice === undefined) {
-            return (
-              <div class="option" key={index}>
-                {label}
-              </div>
-            );
-          }
-          return <OptionButton key={index} choice={choice} label={label} onAnswer={onAnswer} />;
-        })}
-      </div>
-    </div>
-  );
-}
-
-// OptionButton answers its choice on click and flashes for flashMillis, so each option flashes on its own.
-function OptionButton({
-  choice,
-  label,
-  onAnswer,
-}: {
-  choice: 1 | 2 | 3;
-  label: JSX.Element;
-  onAnswer?: (choice: 1 | 2 | 3) => void;
-}) {
-  const [flashing, flash] = useFlash();
-  return (
-    <button
-      type="button"
-      class={flashing ? "option flash" : "option"}
-      onClick={() => {
-        flash();
-        onAnswer?.(choice);
-      }}
-    >
-      {label}
-    </button>
   );
 }
 
@@ -533,6 +469,9 @@ function callsAt(latest: { current: EpicCalls | undefined }, made: EpicCalls): E
     openStep: (epic, step) => current().openStep(epic, step),
     stepResult: (id) => current().stepResult(id),
     sessionTitle: (session) => current().sessionTitle?.(session),
+    get now() {
+      return current().now;
+    },
     epics: made.epics,
   };
 }

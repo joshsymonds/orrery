@@ -1,10 +1,9 @@
 import type { JSX } from "preact";
 import { useLayoutEffect, useRef } from "preact/hooks";
 
-import type { Conversation } from "./conversation";
 import { Icon, StateGlyph } from "./glyphs";
 import { Menu, type MenuEntry } from "./menu";
-import { type ParsedQuestion, parseQuestion } from "./question";
+import { parseQuestion } from "./question";
 import type { Row } from "./rows";
 import { ReplyText } from "./text";
 
@@ -80,19 +79,6 @@ export function InboxRow({
       </div>
     </div>
   );
-}
-
-// readerQuestion is the question the cursor's reader draws: a waiting pane row's stored question, or a session's open
-// request as its stream holds it. A row with no question draws none.
-export function readerQuestion(row: Row, conversation: Conversation | null): ParsedQuestion | null {
-  if (row.kind === "pane") {
-    return row.state === stateWaiting && row.question !== "" ? parseQuestion(row.question) : null;
-  }
-  const request = conversation?.state?.request;
-  if (request === undefined) {
-    return null;
-  }
-  return { title: request.question, options: request.options.map((label) => ({ label, description: "" })) };
 }
 
 // rowClass is a row's class: the row, cur for the cursor, open while its page is open, menu-open while its More menu is
