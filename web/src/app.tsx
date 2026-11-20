@@ -268,7 +268,7 @@ export function App({
   const [answerError, setAnswerError] = useState("");
   // The fixed line an Escape leaves when taking queued messages back or interrupting a row fails.
   const [escapeError, setEscapeError] = useState("");
-  // The headless session rows the owner has interrupted, by row key. A marked row reads interrupting in its head's pill
+  // The headless session rows the owner has interrupted, by row key. A marked row reads interrupting on its dock's line
   // while the list still says it is working, and the mark clears once that state leaves working.
   const [interrupts, setInterrupts] = useState<Set<string>>(() => new Set());
   const [archiveError, setArchiveError] = useState("");
@@ -1241,10 +1241,10 @@ export function App({
   // state at the press. A step's box, the talk dock's box and any other box are none.
   const replyBoxTarget = (box: HTMLElement): EscapeTarget | null => {
     if (cursorRow !== null && composerInputs.current.get(cursorRow.key) === box) {
-      return { row: cursorRow, column: "cursor", state: headState(cursorRow, cursorConversation?.state?.pane) };
+      return { row: cursorRow, column: "cursor", state: headState(cursorRow, cursorConversation) };
     }
     if (pinned !== null && pinnedInputs.current.get(pinned.key) === box) {
-      return { row: pinned, column: "pinned", state: headState(pinned, pinnedConversation?.state?.pane) };
+      return { row: pinned, column: "pinned", state: headState(pinned, pinnedConversation) };
     }
     return null;
   };
@@ -1263,7 +1263,7 @@ export function App({
     cursorRowKey,
     cursorStep,
     cursorStepKey,
-    cursorPane: cursorConversation?.state?.pane,
+    cursorConversation,
     pinned,
     inputRef,
     composerInputs,
@@ -1604,7 +1604,7 @@ export function App({
           onToggleOpen={toggleOpen}
           onAnswer={answerCursor}
           onInterrupt={(row) =>
-            void escapeRow({ row, column: "cursor", state: headState(row, cursorConversation?.state?.pane) }, null)
+            void escapeRow({ row, column: "cursor", state: headState(row, cursorConversation) }, null)
           }
           interrupt={interruptRow}
           step={cursorStep}
@@ -1637,7 +1637,7 @@ export function App({
           open={false}
           interrupt={interruptRow}
           onInterrupt={(row) =>
-            void escapeRow({ row, column: "pinned", state: headState(row, pinnedConversation?.state?.pane) }, null)
+            void escapeRow({ row, column: "pinned", state: headState(row, pinnedConversation) }, null)
           }
         />
         <section

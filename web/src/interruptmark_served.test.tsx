@@ -11,7 +11,7 @@ import { installTestDom, removeTestDom, teardownOnce } from "./testdom";
 import { turn, until as waitUntil } from "./testwait";
 
 // The served interrupting mark over the fake transport: a working session whose served ConversationState carries
-// interrupting reads interrupting in its pill with no Escape pressed, and the pill reads the served state again once a
+// interrupting reads interrupting on its dock's line with no Escape pressed, and the line reads the served state again once a
 // delta clears the mark. Each test's name carries the token InterruptMark.
 
 const now = 1000;
@@ -158,17 +158,17 @@ function until(signal: AbortSignal, check: () => boolean, what: string): Promise
   return waitUntil(signal, check, what, { step: () => act(turn) });
 }
 
-// headPill is the pill the reader's head draws for the cursor's row.
-function headPill(container: HTMLElement): Element | null {
-  return container.querySelector('[aria-label="reader"] .pill');
+// dockBox is the box of the dock the cursor's reader shows, whose state line reads the cursor's row.
+function dockBox(container: HTMLElement): Element | null {
+  return container.querySelector('[aria-label="reader"] .send > div:not([hidden]) .dock-box');
 }
 
-function pillWord(container: HTMLElement): string {
-  return headPill(container)?.querySelector(".word")?.textContent ?? "";
+function dockWord(container: HTMLElement): string {
+  return dockBox(container)?.querySelector(".statebar .word")?.textContent ?? "";
 }
 
-function pillIsInterrupting(container: HTMLElement): boolean {
-  return headPill(container)?.classList.contains("tone-interrupting") ?? false;
+function dockIsInterrupting(container: HTMLElement): boolean {
+  return dockBox(container)?.getAttribute("data-state") === "interrupting";
 }
 
 // sessionReset is the session stream's first message: a reset that holds the given served state and one reply, which
@@ -185,22 +185,22 @@ test("InterruptMark: a working session whose served state carries interrupting r
   withPage(t.signal, [sessionRow], async ({ container, fake }) => {
     await until(t.signal, () => fake.callsTo(sessionWatchPath).length === 1, "the session stream");
     const stream = fake.callsTo(sessionWatchPath)[0];
-    assert.equal(pillWord(container), "working", "the pill reads the list's state before the served mark arrives");
+    assert.equal(dockWord(container), "working", "the dock's line reads the list's state before the served mark arrives");
     fake.emit(stream, sessionReset({ interrupting: true }));
-    await until(t.signal, () => pillWord(container) === "interrupting", "the served mark on the pill");
-    assert.equal(pillIsInterrupting(container), true);
+    await until(t.signal, () => dockWord(container) === "interrupting…", "the served mark on the dock's line");
+    assert.equal(dockIsInterrupting(container), true);
     assert.equal(fake.callsTo(interruptPath).length, 0, "no Interrupt was sent: the mark came from the served state");
   }));
 
-test("InterruptMark: the pill reads the served state again once a delta clears the served mark", (t) =>
+test("InterruptMark: the dock's line reads the served state again once a delta clears the served mark", (t) =>
   withPage(t.signal, [sessionRow], async ({ container, fake }) => {
     await until(t.signal, () => fake.callsTo(sessionWatchPath).length === 1, "the session stream");
     const stream = fake.callsTo(sessionWatchPath)[0];
     fake.emit(stream, sessionReset({ interrupting: true }));
-    await until(t.signal, () => pillWord(container) === "interrupting", "the served mark on the pill");
+    await until(t.signal, () => dockWord(container) === "interrupting…", "the served mark on the dock's line");
     fake.emit(stream, { transcript: "s1.jsonl", seq: "3", reset: false, items: [replyItem("more", "1700000002")] });
     await until(t.signal, () => container.textContent?.includes("more") === true, "the delta with no state");
-    assert.equal(pillIsInterrupting(container), true, "a delta that leaves the state unset keeps the mark");
+    assert.equal(dockIsInterrupting(container), true, "a delta that leaves the state unset keeps the mark");
     fake.emit(stream, {
       transcript: "s1.jsonl",
       seq: "4",
@@ -208,15 +208,15 @@ test("InterruptMark: the pill reads the served state again once a delta clears t
       items: [replyItem("done", "1700000003")],
       state: { interrupting: false },
     });
-    await until(t.signal, () => pillWord(container) === "working", "the served state once the mark clears");
-    assert.equal(pillIsInterrupting(container), false);
+    await until(t.signal, () => dockWord(container) === "working", "the served state once the mark clears");
+    assert.equal(dockIsInterrupting(container), false);
   }));
 
-test("InterruptMark: a served mark on a row that is not working leaves the pill at the row's state", (t) =>
+test("InterruptMark: a served mark on a row that is not working leaves the dock's line at the row's state", (t) =>
   withPage(t.signal, [{ ...sessionRow, state: "waiting" }], async ({ container, fake }) => {
     await until(t.signal, () => fake.callsTo(sessionWatchPath).length === 1, "the session stream");
     fake.emit(fake.callsTo(sessionWatchPath)[0], sessionReset({ interrupting: true }));
     await until(t.signal, () => container.textContent?.includes("still going") === true, "the reply");
-    assert.equal(pillWord(container), "waiting", "the pill reads the row's state");
-    assert.equal(pillIsInterrupting(container), false, "only a working row reads interrupting");
+    assert.equal(dockWord(container), "waiting on you", "the dock's line reads the row's state");
+    assert.equal(dockIsInterrupting(container), false, "only a working row reads interrupting");
   }));

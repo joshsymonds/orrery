@@ -3,7 +3,7 @@
 
 import type { Stories } from "./catalog/story";
 import { applyDelta, type Conversation } from "./conversation";
-import { at, liveEpoch } from "./fixtures/clock";
+import { at } from "./fixtures/clock";
 import { gets } from "./fixtures/epics";
 import { host } from "./fixtures/host";
 import { paneStreams, panes } from "./fixtures/panes";
@@ -16,9 +16,7 @@ import { sendingEntry } from "./sending";
 import { PaneStrip } from "./strip";
 import { TitleParts } from "./titleparts";
 import type { InboxMark } from "./titlerow";
-import { Pill, rowPill, stepPill } from "./workline";
 
-const now = Date.parse(liveEpoch) / 1000;
 const noop = () => {};
 const quiet: InboxMark = { needs: 0, enter: noop, leave: noop, pin: noop };
 
@@ -41,7 +39,6 @@ const lamp = rowOf("pane:halyard:%11");
 const lampConversation = paneConversation("%11");
 const beacon = rowOf("pane:halyard:%12");
 const beaconConversation = paneConversation("%12");
-const headlessRow = rowOf("session:4be0c6d2-8f3a-4c71-9e25-ephemeris001");
 const workerConversation = sessionConversation("st-rota-t2-impl");
 const workerStep = must(
   must(gets.get("lighthouse/rota-export"), "rota epic").steps.find((step) => step.id === "st-rota-t2-impl"),
@@ -100,54 +97,24 @@ export const ReaderHead: Stories = {
       where=""
     />
   ),
-  "where-and-pill": () => (
-    <reader.ReaderHead label="rota-export" where="lighthouse › T2 · implementing">
-      <Pill model={stepPill(false, Number(at("@14:07")))} now={now} />
-    </reader.ReaderHead>
-  ),
+  where: () => <reader.ReaderHead label="rota-export" where="lighthouse › T2 · implementing" />,
 };
 
 export const ConversationHead: Stories = {
-  "pane-working": () => (
-    <reader.ConversationHead dir={lamp.project} line={lamp.label} state={lamp.state} onBack={noop}>
-      <Pill model={rowPill(lamp.state, lampConversation.state?.pane)} now={now} />
-    </reader.ConversationHead>
-  ),
-  "pane-waiting": () => (
-    <reader.ConversationHead dir={beacon.project} line={beacon.label} state={beacon.state} onBack={noop}>
-      <Pill model={rowPill(beacon.state, beaconConversation.state?.pane)} now={now} />
-    </reader.ConversationHead>
-  ),
-  "session-interrupted": () => (
-    <reader.ConversationHead
-      dir={headlessRow.project}
-      line={headlessRow.label}
-      state={headlessRow.state}
-      onBack={noop}
-    >
-      <Pill model={rowPill(headlessRow.state)} now={now} />
-    </reader.ConversationHead>
-  ),
   "with-strip": () => (
     <reader.ConversationHead
       dir={lamp.project}
       line={lamp.label}
-      state={lamp.state}
       onBack={noop}
       strip={<PaneStrip host={host} context={lampConversation.state?.context} />}
-    >
-      <Pill model={rowPill(lamp.state, lampConversation.state?.pane)} now={now} />
-    </reader.ConversationHead>
+    />
   ),
   "needs-count": () => (
     <reader.ConversationHead
       dir={lamp.project}
       line={lamp.label}
-      state={lamp.state}
       onBack={noop}
       mark={{ ...quiet, needs: 3 }}
-    >
-      <Pill model={rowPill(lamp.state, lampConversation.state?.pane)} now={now} />
-    </reader.ConversationHead>
+    />
   ),
 };

@@ -1,4 +1,4 @@
-// The stories of Dock, drawn by TalkDock: the dock beside an epic page that follows the conversation Talk opened. Each
+// The stories of TalkDock: the dock beside an epic page that follows the conversation Talk opened. Each
 // state names the target it follows; the fixture stream answers that target, and a state whose stream is quiet draws its
 // loading line.
 
@@ -54,7 +54,7 @@ const dock: Omit<DockProps, "target"> = {
   epics: noEpics,
 };
 
-export const Dock: Stories = {
+export const TalkDock: Stories = {
   pane: () => (
     <talkdock.TalkDock
       {...dock}

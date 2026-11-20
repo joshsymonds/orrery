@@ -1994,17 +1994,15 @@ test("a child passed to the head draws after the where line as the head's last c
     },
   ));
 
-test("a session's conversation head draws the title row: a back button, the session's title as the page crumb, and its state, and back calls its handler", () => {
+test("DockState: a session's conversation head draws the title row: a back button and the session's title as the page crumb, and no state, and back calls its handler", () => {
   let backs = 0;
   return withConversationHead(
     {
       dir: "/work/synthetic-app",
       line: "Synthetic session",
-      state: "waiting",
       onBack: () => {
         backs += 1;
       },
-      children: <span class="pill">synthetic pill</span>,
     },
     async (container) => {
       const row = container.querySelector<HTMLElement>("header.title-row");
@@ -2018,8 +2016,8 @@ test("a session's conversation head draws the title row: a back button, the sess
         "the crumb reads the session's directory and title",
       );
       assert.equal(crumbs[0]?.getAttribute("aria-current"), "page", "the title is the page itself");
-      assert.equal(row.querySelector(".state")?.textContent, "waiting", "the state sits in the state slot");
-      assert.equal(row.querySelector(".acts > .pill")?.textContent, "synthetic pill", "the pill is the row's child");
+      assert.equal(row.querySelector(".state"), null, "the head draws no state: the dock draws it");
+      assert.equal(row.querySelector(".pill"), null, "the head draws no pill");
       back?.click();
       assert.equal(backs, 1, "back calls its handler once");
     },
@@ -2028,7 +2026,7 @@ test("a session's conversation head draws the title row: a back button, the sess
 
 test("TitleParts: the title row's last crumb draws the directory's last element, then the line, and no id or hash", () =>
   withConversationHead(
-    { dir: "/work/synthetic/app", line: "Synthetic summary", state: "working", onBack: () => {} },
+    { dir: "/work/synthetic/app", line: "Synthetic summary", onBack: () => {} },
     (container) => {
       const crumb = container.querySelector<HTMLElement>(".crumbs .crumb.here");
       assert.equal(crumb?.querySelector(".title-dir")?.textContent, "app", "the directory's last element");
@@ -2039,7 +2037,7 @@ test("TitleParts: the title row's last crumb draws the directory's last element,
 
 test("TitleParts: a title with an empty line draws its directory alone, with no line element", () =>
   withConversationHead(
-    { dir: "/work/synthetic-app", line: "", state: "idle", onBack: () => {} },
+    { dir: "/work/synthetic-app", line: "", onBack: () => {} },
     (container) => {
       const crumb = container.querySelector<HTMLElement>(".crumbs .crumb.here");
       assert.equal(crumb?.textContent, "synthetic-app");
@@ -2049,7 +2047,7 @@ test("TitleParts: a title with an empty line draws its directory alone, with no 
 
 test("TitleParts: markup in a line draws as text, with no element", () =>
   withConversationHead(
-    { dir: "/work/synthetic-app", line: "<b>bold</b> <img src=x onerror=alert(1)>", state: "idle", onBack: () => {} },
+    { dir: "/work/synthetic-app", line: "<b>bold</b> <img src=x onerror=alert(1)>", onBack: () => {} },
     (container) => {
       const crumb = container.querySelector<HTMLElement>(".crumbs .crumb.here");
       assert.equal(crumb?.querySelector("b") === null, true);

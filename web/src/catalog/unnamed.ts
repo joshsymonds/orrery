@@ -52,9 +52,9 @@ export const unnamed: Readonly<Record<string, UnnamedEntry>> = {
   reader: { replacement: "convo-shell", epic: "F3" },
   // ReaderColumn draws a row's column: its head, reader and send box, or the cursor's step, a held step, a loading session.
   "reader-column": { replacement: "convo-shell", epic: "F3" },
-  // ReaderHead draws a conversation's head, titled, or with where and the pill.
+  // ReaderHead draws a conversation's head, titled, or with where.
   "reader-head": { replacement: "TitleRow", epic: "F3" },
-  // ConversationHead draws the head over a conversation: a working or waiting pane, an interrupted session, a strip, a count.
+  // ConversationHead draws the head over a conversation, with a strip, or with a count.
   "conversation-head": { replacement: "TitleRow", epic: "F3" },
   // Talk draws the epic's Talk command, shut and open, with and without sessions or a repository.
   talk: { replacement: "epic-talk", epic: "F4" },
@@ -81,10 +81,8 @@ export const unnamed: Readonly<Record<string, UnnamedEntry>> = {
   // WorkCard draws an epic's card on a project's page when the epic has released, and when the fixtures hold no detail for it.
   "work-card/released": { replacement: "WorkCard", epic: "F2" },
   "work-card/unavailable": { replacement: "WorkCard", epic: "F2" },
-  // Dock draws the talk dock following a pane, the talk dock following a worker session, and one loading.
-  "dock/pane": { replacement: "Dock", epic: "F3" },
-  "dock/session-worker": { replacement: "Dock", epic: "F3" },
-  "dock/session-loading": { replacement: "Dock", epic: "F3" },
+  // TalkDock draws the talk dock following a pane, following a worker session, cut off, and following a session loading.
+  "talk-dock": { replacement: "epic-talk", epic: "F4" },
   // EpicRow draws an epic's line: the cursor on it, its ⋯ menu shut, and an epic with no detail, so no orrery.
   "epic-row/current": { replacement: "EpicRow", epic: "F2" },
   "epic-row/with-menu": { replacement: "EpicRow", epic: "F2" },
@@ -109,12 +107,6 @@ export const unnamed: Readonly<Record<string, UnnamedEntry>> = {
   "notice/over-the-limit": { replacement: "Notice", epic: "F5" },
   // Orrery draws the rota export with its phase cells open to a click.
   "orrery/opens-phase": { replacement: "Orrery", epic: "F4" },
-  // Pill draws a working row's pill with no tool, with a tool and its clock, an interrupting row, a failed session, and a held step.
-  "pill/working-tool": { replacement: "Pill", epic: "F3" },
-  "pill/working-no-tool": { replacement: "Pill", epic: "F3" },
-  "pill/interrupting": { replacement: "Pill", epic: "F3" },
-  "pill/failed": { replacement: "Pill", epic: "F3" },
-  "pill/step-held": { replacement: "Pill", epic: "F3" },
   // MeterStrip draws a context alone, green and red, with no host.
   "meter-strip/context-green": { replacement: "MeterStrip", epic: "F3" },
   "meter-strip/context-red": { replacement: "MeterStrip", epic: "F3" },

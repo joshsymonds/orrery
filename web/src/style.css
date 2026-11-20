@@ -362,22 +362,14 @@ h3, h4, h5, h6 { font: var(--o-type-body); font-weight: var(--o-font-weight-bold
 /* A row's conversation opens on the shared title row in the head's place: its back, crumbs and state are mono throughout,
    and its padding comes from the wide block with the head's. */
 .read > .title-row { font: var(--o-type-small); }
-/* The pill names the reader's state. Its tone sets the text, the tint and the outline; idle is ink.3 on surface.raised. */
+/* The epic card's status pill: its tone sets the text, the tint and the outline; idle is ink.3 on surface.raised. */
 .pill {
   display: inline-flex; flex: none; align-items: center; gap: var(--o-space-8); padding: var(--o-space-2) var(--o-space-8); border-radius: var(--o-radius-round);
   font: var(--o-type-small); color: var(--tone);
   background: var(--tone-fill); box-shadow: 0 0 0 var(--o-size-hairline) var(--tone-line);
 }
-.pill .g { flex: none; width: var(--o-size-glyph); height: var(--o-size-glyph); margin: 0; border-radius: var(--o-radius-round); }
-.pill .tool { color: var(--o-role-ref); }
-.pill .g-working { animation: rot var(--o-loop-spin) linear infinite; }
 .pill.tone-working { --tone: var(--o-role-live); --tone-fill: var(--o-role-live-fill); --tone-line: var(--o-role-live-line); }
-.pill.tone-waiting, .pill.tone-held { --tone: var(--o-role-attention); --tone-fill: var(--o-role-attention-fill); --tone-line: var(--o-role-attention-line); }
-.pill.tone-done { --tone: var(--o-role-ok); --tone-fill: var(--o-role-ok-fill); --tone-line: var(--o-role-ok-line); }
-.pill.tone-interrupted { --tone: var(--o-role-halt); --tone-fill: var(--o-role-halt-fill); --tone-line: var(--o-role-halt-line); }
-.pill.tone-interrupting { --tone: var(--o-role-halt); --tone-fill: var(--o-role-halt-fill); --tone-line: var(--o-role-halt-line); }
-.pill.tone-ended { --tone: var(--o-role-bad); --tone-fill: var(--o-role-bad-fill); --tone-line: var(--o-role-bad-line); }
-.pill.tone-stopped { color: var(--o-ink-3); background: var(--o-surface-raised); box-shadow: 0 0 0 var(--o-size-hairline) var(--o-line-firm); }
+.pill.tone-waiting { --tone: var(--o-role-attention); --tone-fill: var(--o-role-attention-fill); --tone-line: var(--o-role-attention-line); }
 .pill.tone-idle { color: var(--o-ink-3); background: var(--o-surface-raised); box-shadow: 0 0 0 var(--o-size-hairline) var(--o-line-firm); }
 .reader { min-width: 0; padding: var(--o-space-4) 0 var(--o-space-8); }
 .reader-loading { margin: 0; color: var(--o-ink-3); }
@@ -957,6 +949,6 @@ button.act:active, .back:active, .crumb:active { transform: scale(.97); backgrou
 @media (prefers-reduced-motion: reduce) {
   section.page.drill { animation: move-fade var(--o-move-drill); }
   section.page.leave { animation: move-fade var(--o-move-leave); }
-  .pill .g-working, .b-row .g-working, .strip i.k-now::before, .pips i.k-now::before { animation: none; }
+  .b-row .g-working, .strip i.k-now::before, .pips i.k-now::before { animation: none; }
   .orrery .glow { animation: none; }
 }

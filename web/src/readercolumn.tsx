@@ -9,13 +9,11 @@ import { Dock, type DockHandle } from "./dock";
 import { rowFacts, stepFacts } from "./dockfacts";
 import type { StepItem } from "./epics";
 import { FindBar, type Match } from "./find";
-import type { Pane } from "./gen/orrery/v1/orrery_pb";
 import { readerQuestion } from "./inboxrow";
 import { ConversationHead, Reader, type ReaderHandle } from "./reader";
 import type { Row } from "./rows";
 import type { Sending, SentText } from "./sending";
 import { type InboxMark, TitleRow } from "./titlerow";
-import { Pill, rowPill, stepPill } from "./workline";
 
 // FindState is a column's find bar, open on the row it was opened on: the query typed in it, and the match it shows, an
 // index into the matches the query finds in that row's conversation. A bar whose row leaves its column is closed.
@@ -82,8 +80,8 @@ export interface ReaderColumnProps {
   stepInputs?: { current: Map<string, HTMLTextAreaElement> };
 }
 
-// ReaderColumn draws one reader column: the cursor's, or the pinned row's beside the list. It draws the row's head with
-// its pill, the find bar while one is open, the reader of the row, and the send box, with a dock for each kept row
+// ReaderColumn draws one reader column: the cursor's, or the pinned row's beside the list. It draws the row's head, the
+// find bar while one is open, the reader of the row, and the send box, with a dock for each kept row
 // and only the shown row's dock visible. The cursor column also draws its step, when one is given: the step's title
 // row, its reader, and a step box for each kept step. The column keeps no state; App passes it all in.
 export function ReaderColumn({
@@ -129,20 +127,10 @@ export function ReaderColumn({
         <ConversationHead
           dir={row.project}
           line={row.label}
-          state={headState(row, conversation?.state?.pane)}
           onBack={onBack}
           mark={mark}
           strip={pageStrip(row, conversation)}
-        >
-          <Pill
-            model={rowPill(
-              row.state,
-              conversation?.state?.pane,
-              interrupts.has(row.key) || conversation?.state?.interrupting === true,
-            )}
-            now={now}
-          />
-        </ConversationHead>
+        />
       )}
       {finding !== null && (
         <FindBar
@@ -164,9 +152,7 @@ export function ReaderColumn({
           onBack={onBack}
           mark={mark}
           strip={pageStrip(null, null)}
-        >
-          <Pill model={stepPill(step.held, step.started)} now={now} />
-        </TitleRow>
+        />
       )}
       {row !== null && (
         <Reader
@@ -265,10 +251,10 @@ export function ReaderColumn({
   );
 }
 
-// headState is the state a column's head pill reads: a pane given speaks for the row, and a row with no pane reads its
-// own state.
-export function headState(row: Row, pane: Pane | undefined): string {
-  return pane?.state ?? row.state;
+// headState is the state a row's keys read: the state its dock's line draws, so a stream that reads working counts as
+// working where the list still says otherwise.
+export function headState(row: Row, conversation: Conversation | null): string {
+  return rowFacts(row, conversation, false).state;
 }
 
 // stepCalls are the owner's calls on one step, each naming the step by its id: Steps.Nudge with the text, Steps.Hold,

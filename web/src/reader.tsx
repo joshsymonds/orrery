@@ -328,37 +328,23 @@ export function ReaderHead({
   );
 }
 
-// ConversationHead heads a row's conversation with the shared title row: the back button, the mark, the row's title,
-// which TitleParts draws from its directory and line, as the page, and the row's state in the state slot. The children,
-// the pill the app passes in, draw after the state. The strip, when given, draws under the row.
+// ConversationHead heads a row's conversation with the shared title row: the back button, the mark, and the row's title,
+// which TitleParts draws from its directory and line, as the page. The conversation's state is not drawn here: the dock
+// draws it, once. The strip, when given, draws under the row.
 export function ConversationHead({
   dir,
   line,
-  state,
   onBack,
   mark,
   strip,
-  children,
 }: {
   dir: string;
   line: string;
-  state: string;
   onBack: () => void;
   mark?: InboxMark;
   strip?: ComponentChildren;
-  children?: ComponentChildren;
 }): JSX.Element {
-  return (
-    <TitleRow
-      crumbs={[{ label: <TitleParts dir={dir} line={line} /> }]}
-      onBack={onBack}
-      state={state}
-      mark={mark}
-      strip={strip}
-    >
-      {children}
-    </TitleRow>
-  );
+  return <TitleRow crumbs={[{ label: <TitleParts dir={dir} line={line} /> }]} onBack={onBack} mark={mark} strip={strip} />;
 }
 
 function NewRule() {

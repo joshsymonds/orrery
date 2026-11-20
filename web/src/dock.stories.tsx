@@ -129,6 +129,13 @@ export const Dock: Stories = {
     <dock.Dock {...base} facts={facts({ state: "failed", reason: "upstream returned 500", changed: now - 120 })} />
   ),
   stopped: () => <dock.Dock {...base} facts={facts({ state: "stopped", changed: now - 7_200 })} />,
+  "cut-off": () => (
+    <dock.Dock
+      {...base}
+      facts={facts({ state: "interrupted", reason: "tool timeout", changed: now - 180 })}
+      resume={() => Promise.resolve()}
+    />
+  ),
   "with-queued": () => (
     <dock.Dock
       {...base}
