@@ -107,6 +107,7 @@ fun EpicScreen(
     var notice by remember(client, epicId) { mutableStateOf("") }
     val scope = rememberCoroutineScope()
     val releaseCall = remember(client, epicId) { OwnerCall() }
+    val gapsCall = remember(client, epicId) { OwnerCall() }
     // Set once the epic's first load has drawn the list, so the Report is brought into view on that load only.
     val reportOpened = remember(client, epicId) { mutableStateOf(false) }
     val loadArtifact: ArtifactLoader = remember(client) {
@@ -136,6 +137,18 @@ fun EpicScreen(
         }
     }
 
+    // sendGaps sends one owner call of an epic that ended with gaps, once, and never retries it: the answer is handed to
+    // the gaps call, which reads the epic again.
+    fun sendGaps(call: () -> StepCallResult) {
+        scope.launch {
+            val outcome = withContext(Dispatchers.IO) { outcomeOf(call) }
+            gapsCall.answered(outcome) {
+                generation++
+                generation
+            }
+        }
+    }
+
     LaunchedEffect(client, epicId, generation) {
         val readAt = generation
         // A reload after a command keeps the epic on screen; only a first load or a retry shows the loading line.
@@ -146,7 +159,10 @@ fun EpicScreen(
             EpicLoad.Failed
         }
         load = loaded
-        if (loaded !is EpicLoad.Failed) releaseCall.loaded(readAt)
+        if (loaded !is EpicLoad.Failed) {
+            releaseCall.loaded(readAt)
+            gapsCall.loaded(readAt)
+        }
     }
 
     val pause = { send("Pause") { client.pauseEpic(epicId) } }
@@ -234,6 +250,10 @@ fun EpicScreen(
                 actions = NowActions(answer = onAnswer, retry = retry, resume = resume, stop = stop),
                 releaseCall = releaseCall,
                 onRelease = release,
+                client = client,
+                gapsCall = gapsCall,
+                onReleaseAnyway = { sendGaps { client.releaseEpic(epicId, emptyList()) } },
+                onClose = { kind, by -> sendGaps { client.closeEpic(epicId, kind, by) } },
                 reportOpened = reportOpened,
                 modifier = Modifier.weight(1f),
             )
@@ -350,6 +370,10 @@ private fun EpicBody(
     actions: NowActions,
     releaseCall: OwnerCall,
     onRelease: (Long) -> Unit,
+    client: OrreryClient,
+    gapsCall: OwnerCall,
+    onReleaseAnyway: () -> Unit,
+    onClose: (kind: String, by: String) -> Unit,
     reportOpened: MutableState<Boolean>,
     modifier: Modifier,
 ) {
@@ -456,7 +480,18 @@ private fun EpicBody(
             }
         }
         if (report != null) {
-            section("report") { EpicReportSection(view = report) }
+            section("report") {
+                EpicReportSection(view = report)
+                if (report.gaps) {
+                    EpicGapsControls(
+                        client = client,
+                        detail = detail,
+                        call = gapsCall,
+                        onRelease = onReleaseAnyway,
+                        onClose = onClose,
+                    )
+                }
+            }
         }
     }
 }
