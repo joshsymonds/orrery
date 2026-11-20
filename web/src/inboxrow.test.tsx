@@ -4,26 +4,36 @@ import { test } from "node:test";
 import { type JSX, render } from "preact";
 import { act } from "preact/test-utils";
 
-import type { ArchiveControl } from "./epicline";
-import { InboxRow } from "./inboxrow";
+import { InboxRow, type RowMore } from "./inboxrow";
+import type { MenuEntry } from "./menu";
 import type { Row } from "./rows";
 import { installTestDom, removeTestDom } from "./testdom";
 
-// Each test's name carries the token AppSplit: the inbox row renders on its own, outside App.
+// Each test's name carries the words InboxTree: the inbox row renders on its own, outside App.
 
 const now = 1000;
 
-const idleArchive: ArchiveControl = { archived: false, open: false, run: () => {}, toggle: () => {}, close: () => {} };
+// rowMore is the More of a row whose menu is shut, holding the items a row holds: Open in a new window, Mark seen when
+// the row is unseen, and Archive.
+function rowMore(open: boolean, unseen: boolean): RowMore {
+  const items: MenuEntry[] = [
+    { label: "Open in a new window", icon: "open", onSelect: () => {} },
+    ...(unseen ? [{ label: "Mark seen", icon: "check", kbd: "x", onSelect: () => {} } satisfies MenuEntry] : []),
+    "sep",
+    { label: "Archive", icon: "archive", kbd: "A", onSelect: () => {} },
+  ];
+  return { open, items, toggle: () => {}, close: () => {} };
+}
 
-// A waiting pane row whose stored question offers two options, numbered 1 and 2 in their labels.
+// A waiting pane row whose stored question asks which way, with two options.
 const waitingQuestion = JSON.stringify({
   questions: [{ question: "Which way?", options: [{ label: "1 Left" }, { label: "2 Right" }] }],
 });
 
-function waitingRow(): Row {
+function paneRow(init: Partial<Row>): Row {
   return {
     tool: "",
-    key: "pane:%3",
+    key: "pane:box:%3",
     id: "%3",
     archiveId: "",
     kind: "pane",
@@ -39,8 +49,45 @@ function waitingRow(): Row {
     unseen: true,
     archived: false,
     archiveKind: "none",
+    ...init,
   };
 }
+
+function waitingRow(): Row {
+  return paneRow({});
+}
+
+// A working pane whose tool, Bash, runs a test command, and started seventy-five seconds before now.
+function workingRow(): Row {
+  const tool = JSON.stringify({ id: "toolu_1", name: "Bash", input: "go test ./...", start: now - 75 });
+  return paneRow({ key: "pane:box:%11", id: "%11", state: "working", question: "", questionHash: "", tool, unseen: false });
+}
+
+function sessionRow(): Row {
+  return paneRow({
+    key: "session:s1",
+    id: "s1",
+    archiveId: "s1",
+    kind: "session",
+    label: "notes",
+    project: "",
+    host: "",
+    state: "done",
+    summary: "wrote the guide",
+    question: "",
+    questionHash: "",
+    archiveKind: "session",
+    unseen: false,
+  });
+}
+
+function terminalRow(): Row {
+  return paneRow({ key: "pane:box:%23", id: "%23", state: "", label: "zsh", question: "", questionHash: "", unseen: false });
+}
+
+const idleLine = (row: Row, cursor = false, more: RowMore = rowMore(false, row.unseen)) => (
+  <InboxRow row={row} now={now} cursor={cursor} more={more} onOpen={() => {}} onSeen={() => {}} />
+);
 
 async function withRow(element: JSX.Element, check: (container: HTMLElement) => void | Promise<void>): Promise<void> {
   const window = installTestDom();
@@ -54,61 +101,144 @@ async function withRow(element: JSX.Element, check: (container: HTMLElement) => 
   }
 }
 
-test("AppSplit: a waiting row draws the QUESTION type and its option chips outside App", () =>
-  withRow(
-    <InboxRow
-      row={waitingRow()}
-      now={now}
-      cursor={false}
-      archive={idleArchive}
-      conversation={null}
-      onOpen={() => {}}
-      onSeen={() => {}}
-    />,
-    (container) => {
-      assert.equal(container.querySelector(".ty")?.textContent, "QUESTION");
-      // Each chip reads its key cap, then its label with the number its key cap already shows removed.
-      assert.deepEqual(
-        [...container.querySelectorAll(".opt")].map((chip) => chip.textContent),
-        ["1Left", "2Right"],
-      );
-    },
-  ));
+test("InboxTree: a waiting row leads its question with a question mark, and draws no option chips", () =>
+  withRow(idleLine(waitingRow()), (container) => {
+    const line = container.querySelector(".l2");
+    assert.equal(line?.textContent, "Which way?", "the question is the second line");
+    assert.equal(line?.classList.contains("asks"), true, "the line is marked as a question");
+    assert.ok(line?.querySelector("svg.icon"), "the line leads with the question mark");
+    assert.equal(container.querySelector(".opts"), null, "the row draws no option chips");
+    assert.equal(container.querySelector(".opt"), null, "the row draws no option chip");
+  }));
 
-test("AppSplit: the cursor's row draws b-row cur, and a row the cursor is not on draws b-row alone", async () => {
+test("InboxTree: a waiting row with no question says it waits on you, with no question mark", () =>
+  withRow(idleLine(paneRow({ question: "", questionHash: "" })), (container) => {
+    const line = container.querySelector(".l2");
+    assert.equal(line?.textContent, "waits on you");
+    assert.equal(line?.classList.contains("asks"), false);
+    assert.equal(line?.querySelector("svg"), null);
+  }));
+
+test("InboxTree: a working pane draws its tool, its argument and a clock from the tool's start", () =>
+  withRow(idleLine(workingRow()), (container) => {
+    const line = container.querySelector(".l2");
+    assert.equal(line?.querySelector(".name")?.textContent, "Bash", "the tool is named");
+    assert.equal(line?.textContent, "Bash go test ./... · 1:15", "the argument and the clock from seventy-five seconds before now");
+  }));
+
+test("InboxTree: a terminal pane with no state draws the idle glyph and says it has no conversation", () =>
+  withRow(idleLine(terminalRow()), (container) => {
+    assert.equal(container.querySelector("svg.glyph")?.getAttribute("data-state"), "idle");
+    assert.equal(container.querySelector(".l2")?.textContent, "a terminal with no conversation");
+  }));
+
+test("InboxTree: a session row's title is its label alone, and its second line is its summary", () =>
+  withRow(idleLine(sessionRow()), (container) => {
+    assert.equal(container.querySelector(".title")?.textContent, "notes");
+    assert.equal(container.querySelector(".title-dir"), null, "the row draws no directory");
+    assert.equal(container.querySelector(".l2")?.textContent, "wrote the guide");
+  }));
+
+test("InboxTree: an unseen row carries data-unseen and the new dot's tip, and a seen row carries neither", async () => {
+  await withRow(idleLine(waitingRow()), (container) => {
+    assert.ok(container.querySelector(".b-row")?.hasAttribute("data-unseen"), "the unseen row carries data-unseen");
+    assert.equal(container.querySelector(".dot")?.getAttribute("title"), "new since you looked");
+  });
+  await withRow(idleLine(sessionRow()), (container) => {
+    assert.equal(container.querySelector(".b-row")?.hasAttribute("data-unseen"), false, "the seen row carries no data-unseen");
+    assert.equal(container.querySelector(".dot")?.getAttribute("title"), null);
+  });
+});
+
+test("InboxTree: the cursor's row draws b-row row cur, and a row the cursor is not on draws b-row row alone", async () => {
+  await withRow(idleLine(waitingRow(), true), (container) => {
+    assert.equal(container.querySelector(".b-row")?.getAttribute("class"), "b-row row cur");
+    assert.equal(container.querySelector(".b-row")?.getAttribute("aria-current"), "true");
+  });
+  await withRow(idleLine(waitingRow(), false), (container) => {
+    assert.equal(container.querySelector(".b-row")?.getAttribute("class"), "b-row row");
+    assert.equal(container.querySelector(".b-row")?.hasAttribute("aria-current"), false);
+  });
+});
+
+test("InboxTree: an open row carries the open class and aria-current page, and a hovered row carries the hover class", async () => {
   await withRow(
-    <InboxRow
-      row={waitingRow()}
-      now={now}
-      cursor={true}
-      archive={idleArchive}
-      conversation={null}
-      onOpen={() => {}}
-      onSeen={() => {}}
-    />,
+    <InboxRow row={waitingRow()} now={now} cursor={true} open={true} more={rowMore(false, true)} onOpen={() => {}} onSeen={() => {}} />,
     (container) => {
-      assert.equal(container.querySelector(".b-row")?.getAttribute("class"), "b-row cur");
-      assert.equal(container.querySelector(".b-row")?.getAttribute("aria-current"), "true");
+      assert.equal(container.querySelector(".b-row")?.getAttribute("class"), "b-row row cur open");
+      assert.equal(container.querySelector(".b-row")?.getAttribute("aria-current"), "page");
     },
   );
   await withRow(
-    <InboxRow
-      row={waitingRow()}
-      now={now}
-      cursor={false}
-      archive={idleArchive}
-      conversation={null}
-      onOpen={() => {}}
-      onSeen={() => {}}
-    />,
+    <InboxRow row={waitingRow()} now={now} cursor={false} hover={true} more={rowMore(false, true)} onOpen={() => {}} onSeen={() => {}} />,
     (container) => {
-      assert.equal(container.querySelector(".b-row")?.getAttribute("class"), "b-row");
-      assert.equal(container.querySelector(".b-row")?.hasAttribute("aria-current"), false);
+      assert.equal(container.querySelector(".b-row")?.getAttribute("class"), "b-row row hover");
     },
   );
 });
 
-test("AppSplit: a click calls onOpen, a double-click calls onSeen, and each calls only its own", () => {
+test("InboxTree: More's tip names what the menu holds, and the menu is drawn only while More is open", async () => {
+  await withRow(idleLine(waitingRow()), (container) => {
+    const more = container.querySelector<HTMLButtonElement>("button.more");
+    assert.equal(more?.getAttribute("title"), "Open in a new window, Mark seen, Archive", "the tip names the items");
+    assert.equal(more?.getAttribute("aria-expanded"), "false");
+    assert.equal(container.querySelector('[role="menu"]'), null, "the menu is shut");
+  });
+  await withRow(idleLine(sessionRow(), false, rowMore(true, false)), (container) => {
+    assert.equal(container.querySelector("button.more")?.getAttribute("aria-expanded"), "true");
+    const items = [...container.querySelectorAll('[role="menuitem"]')].map((item) => item.querySelector("span")?.textContent);
+    assert.deepEqual(items, ["Open in a new window", "Archive"], "a seen row holds no Mark seen");
+  });
+});
+
+test("InboxTree: choosing a menu item calls its own onSelect and then closes the menu", async () => {
+  const chosen: string[] = [];
+  const closed: string[] = [];
+  const more: RowMore = {
+    open: true,
+    items: [
+      { label: "Open in a new window", icon: "open", onSelect: () => chosen.push("open") },
+      { label: "Archive", icon: "archive", kbd: "A", onSelect: () => chosen.push("archive") },
+    ],
+    toggle: () => {},
+    close: () => closed.push("close"),
+  };
+  await withRow(idleLine(sessionRow(), false, more), async (container) => {
+    const archive = [...container.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find(
+      (item) => item.querySelector("span")?.textContent === "Archive",
+    );
+    assert.ok(archive, "the Archive item is drawn");
+    await act(() => {
+      archive.dispatchEvent(new Event("click", { bubbles: true, cancelable: true }));
+    });
+    assert.deepEqual(chosen, ["archive"], "only the chosen item acts");
+    assert.deepEqual(closed, ["close"], "the menu closes once it is chosen");
+  });
+});
+
+test("InboxTree: a press on More does not open the row, and a click on the row opens it", async () => {
+  const opened: string[] = [];
+  let toggles = 0;
+  const more: RowMore = { ...rowMore(false, true), toggle: () => (toggles += 1) };
+  await withRow(
+    <InboxRow row={waitingRow()} now={now} cursor={false} more={more} onOpen={() => opened.push("open")} onSeen={() => {}} />,
+    async (container) => {
+      const button = container.querySelector<HTMLElement>("button.more");
+      assert.ok(button, "More is drawn");
+      await act(() => {
+        button.dispatchEvent(new Event("click", { bubbles: true, cancelable: true }));
+      });
+      assert.equal(toggles, 1, "More toggles its menu");
+      assert.deepEqual(opened, [], "a press on More opens nothing");
+      await act(() => {
+        container.querySelector<HTMLElement>(".b-row")?.dispatchEvent(new Event("click"));
+      });
+      assert.deepEqual(opened, ["open"], "a click on the row opens it");
+    },
+  );
+});
+
+test("InboxTree: a double-click calls onSeen and a click calls onOpen, each only its own", () => {
   const opened: string[] = [];
   const seen: string[] = [];
   return withRow(
@@ -116,8 +246,7 @@ test("AppSplit: a click calls onOpen, a double-click calls onSeen, and each call
       row={waitingRow()}
       now={now}
       cursor={false}
-      archive={idleArchive}
-      conversation={null}
+      more={rowMore(false, true)}
       onOpen={() => opened.push("open")}
       onSeen={() => seen.push("seen")}
     />,

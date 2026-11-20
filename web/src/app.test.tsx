@@ -636,16 +636,9 @@ function outsideList(container: HTMLElement, selector: string): string[] {
     .map((element) => element.getAttribute("class") ?? "");
 }
 
-// chipTexts is the text of each option chip the row draws, in order. A row with no chips names none.
+// chipTexts is the text of each option chip the row draws, in order. Round 6's row draws none, so this is empty.
 function chipTexts(container: HTMLElement, key: string): string[] {
   return [...rowElement(container, key).querySelectorAll(".opts > .opt")].map((chip) => chip.textContent ?? "");
-}
-
-// keyCaps is the key cap of each chip the row draws, in order, or null for a chip with none.
-function keyCaps(container: HTMLElement, key: string): (string | null)[] {
-  return [...rowElement(container, key).querySelectorAll(".opts > .opt")].map(
-    (chip) => chip.querySelector("kbd")?.textContent ?? null,
-  );
 }
 
 // answerLine is the green line a landed answer leaves on the row, or null when the row shows none.
@@ -865,15 +858,15 @@ test("only unseen rows carry the unseen mark", (t) =>
     assert.equal(rowElement(container, "d").hasAttribute("data-unseen"), false);
   }));
 
-test("a row shows its tag, its directory's last element and line, age, and reply text", (t) =>
+test("a row shows its label as its title, its age, and its reply text led by a question mark, and no directory", (t) =>
   withApp(t.signal, {}, (container) => {
     const element = rowElement(container, "a");
-    assert.equal(element.querySelector(".title-dir")?.textContent, "api");
-    assert.equal(element.querySelector(".title-line")?.textContent, "build green");
+    assert.equal(element.querySelector(".title")?.textContent, "build green");
+    assertNone(element.querySelector(".title-dir"), "the row draws no directory");
     assert.equal(element.querySelector(".label") === null && element.querySelector(".proj") === null, true, "no label or project span");
     assert.equal(element.querySelector(".age")?.textContent, "11m");
-    assert.equal(element.querySelector(".ty")?.textContent, "QUESTION");
-    assert.equal(element.querySelector(".l2")?.textContent, "asks: Ship it?", "the need's sentence is the second line");
+    assert.equal(element.querySelector(".l2")?.textContent, "Ship it?", "the question is the second line");
+    assert.ok(element.querySelector(".l2.asks svg"), "the question is led by a question mark");
   }));
 
 // stateRows has a row in each state a row can carry, one waiting with a question, one without, and two seen.
@@ -887,18 +880,15 @@ function stateRows(): Row[] {
   ];
 }
 
-test("a waiting row leads its first line with a QUESTION or WAITING tag, and no other row has a tag", (t) =>
+test("a waiting row with a question leads its second line with a question mark, and no row draws a type tag", (t) =>
   withApp(t.signal, { rows: stateRows() }, (container) => {
-    const tagOf = (key: string) => rowElement(container, key).querySelector(".l1 .ty")?.textContent ?? null;
-    assert.equal(tagOf("q"), "QUESTION", "a waiting row with a question");
-    assert.equal(tagOf("w"), "WAITING", "a waiting row without one");
-    assert.equal(tagOf("k"), null, "a working row");
-    assert.equal(tagOf("d"), null, "a done row");
-    assert.equal(tagOf("i"), null, "an interrupted row");
-    assert.equal(rowElement(container, "q").querySelector(".l1")?.firstElementChild?.classList.contains("ty"), true);
+    const leadsWithMark = (key: string) => rowElement(container, key).querySelector(".l2.asks svg") !== null;
+    assert.equal(leadsWithMark("q"), true, "a waiting row with a question");
+    assert.equal(leadsWithMark("w"), false, "a waiting row without one");
+    assert.equal(container.querySelector(".ty"), null, "no row draws a type tag");
   }));
 
-test("no row draws a state element, and no row's first line holds its state word", (t) =>
+test("no row draws a state element, and no row's title holds its state word", (t) =>
   withApp(t.signal, { rows: stateRows() }, (container) => {
     const rows = [...container.querySelectorAll("[data-row]")];
     assert.equal(
@@ -911,24 +901,33 @@ test("no row draws a state element, and no row's first line holds its state word
       ["d", "done"],
       ["i", "interrupted"],
     ]) {
-      assert.equal(rowElement(container, key).querySelector(".l1")?.textContent?.includes(word), false, `row ${key} has no ${word}`);
+      assert.equal(rowElement(container, key).querySelector(".title")?.textContent?.includes(word), false, `row ${key} has no ${word}`);
     }
   }));
 
-test("each row's glyph carries its state class", (t) =>
+test("each row's glyph carries its state", (t) =>
   withApp(t.signal, { rows: stateRows() }, (container) => {
-    const glyphOf = (key: string) => rowElement(container, key).querySelector(".g")?.getAttribute("class") ?? null;
-    assert.equal(glyphOf("q"), "g g-waiting");
-    assert.equal(glyphOf("k"), "g g-working");
-    assert.equal(glyphOf("d"), "g g-done");
-    assert.equal(glyphOf("i"), "g g-interrupted");
+    const glyphOf = (key: string) => rowElement(container, key).querySelector("svg.glyph")?.getAttribute("data-state") ?? null;
+    assert.equal(glyphOf("q"), "waiting");
+    assert.equal(glyphOf("k"), "working");
+    assert.equal(glyphOf("d"), "done");
+    assert.equal(glyphOf("i"), "interrupted");
   }));
 
 test("an unseen row's reply text runs two lines, and a seen row's runs one", (t) =>
-  withApp(t.signal, {}, (container) => {
-    assert.equal(rowElement(container, "a").querySelector(".l2")?.getAttribute("class"), "l2", "a is unseen");
-    assert.equal(rowElement(container, "b").querySelector(".l2")?.getAttribute("class"), "l2 one", "b is seen");
-  }));
+  withApp(
+    t.signal,
+    {
+      rows: [
+        row({ key: "u", kind: "session", label: "u", state: "done", summary: "unseen summary", changed: 20, seen: 10, unseen: true }),
+        row({ key: "v", kind: "session", label: "v", state: "done", summary: "seen summary", changed: 5, seen: 5 }),
+      ],
+    },
+    (container) => {
+      assert.equal(rowElement(container, "u").querySelector(".l2")?.getAttribute("class"), "l2", "u is unseen");
+      assert.equal(rowElement(container, "v").querySelector(".l2")?.getAttribute("class"), "l2 one", "v is seen");
+    },
+  ));
 
 test("a section head shows its title and its row count, and Needs you and New since you looked carry their marks", (t) =>
   withApp(t.signal, 
@@ -2173,75 +2172,71 @@ const permissionStream = {
   state: { request: { id: "req-7", kind: "question", question: "Allow the command?", options: ["allow", "deny"] } },
 };
 
-// openPermissionRequest waits for the cursor's session stream, sends the permission request, and waits for its chips.
+// openPermissionRequest waits for the cursor's session stream, then sends the permission request and waits for the
+// reader to draw its question card.
 async function openPermissionRequest(signal: AbortSignal, container: HTMLElement, fake: FakeServer): Promise<void> {
   await until(signal, () => fake.callsTo(sessionWatchPath).length === 1, "the session stream");
   fake.emit(fake.callsTo(sessionWatchPath)[0], permissionStream);
-  await until(signal, () => chipTexts(container, "s1").length === 2, "the chips");
+  await until(signal, () => container.querySelector(".question-card") !== null, "the question card");
 }
 
-test("a waiting pane row's options are numbered chips, the fourth unnumbered, and 2 sends keys [\"2\"]", (t) =>
+test("a waiting pane row draws no option chips, and 2 still sends keys [\"2\"] to its question", (t) =>
   withApp(t.signal, { rows: [fourOptionRow] }, async (container, fake) => {
-    assert.deepEqual(chipTexts(container, "f"), ["1Alpha", "2Beta", "3Gamma", "Delta"]);
-    assert.deepEqual(keyCaps(container, "f"), ["1", "2", "3", null]);
-    const chipIsButton = rowElement(container, "f").querySelector(".opts button") !== null;
-    assert.equal(chipIsButton, false, "chips are labels, not buttons");
+    assert.deepEqual(chipTexts(container, "f"), [], "the row draws no option chips");
     await press("2");
     await until(t.signal, () => fake.callsTo(sendKeysPath).length === 1, "the answer");
     assert.deepEqual(fake.callsTo(sendKeysPath)[0].body, { pane: "f", keys: ["2"], expectQuestion: "qh-f" });
   }));
 
-test("a pane permission question's chips read 1Yes, 2Yes, don't ask again, and 3No", (t) =>
+test("a pane permission question draws no option chips on its row", (t) =>
   withApp(t.signal, { rows: [permissionRow] }, (container) => {
-    assert.deepEqual(chipTexts(container, "p"), ["1Yes", "2Yes, don't ask again", "3No"]);
-    assert.deepEqual(keyCaps(container, "p"), ["1", "2", "3"]);
+    assert.deepEqual(chipTexts(container, "p"), []);
   }));
 
-test("a landed pane answer leaves one line naming its choice in place of the chips", (t) =>
-  withApp(t.signal, { rows: [fourOptionRow] }, async (container) => {
+test("a landed pane answer leaves no line on its row, since the conversation holds the answer", (t) =>
+  withApp(t.signal, { rows: [fourOptionRow] }, async (container, fake) => {
     await press("2");
-    await until(t.signal, () => answerLine(container, "f") !== null, "the answer line");
-    assert.equal(answerLine(container, "f"), "You answered 2 · Beta");
-    assert.deepEqual(chipTexts(container, "f"), [], "the chips give way to the line");
+    await until(t.signal, () => fake.callsTo(sendKeysPath).length === 1, "the answer");
+    await settle();
+    assert.equal(answerLine(container, "f"), null, "no line names the choice");
+    assert.deepEqual(chipTexts(container, "f"), [], "the row draws no chips");
   }));
 
-test("a failed answer leaves no line, and the chips stay", (t) =>
+test("a failed answer shows the fixed line and leaves the row with no chips or line", (t) =>
   withApp(t.signal, { rows: [fourOptionRow] }, async (container, fake) => {
     fake.failNext.add(sendKeysPath);
     await press("2");
     await until(t.signal, () => alertTexts(container).includes(answerFailedText), "the fixed line");
     await settle();
     assert.equal(answerLine(container, "f"), null, "no line for an answer that did not land");
-    assert.equal(chipTexts(container, "f").length, 4, "the chips stay");
+    assert.deepEqual(chipTexts(container, "f"), [], "the row draws no chips");
   }));
 
-test("a waiting session row's held permission request is its chips, and 2 answers deny by its request id", (t) =>
+test("a waiting session row's held permission request answers deny by its request id, and its row draws no chips", (t) =>
   withApp(t.signal, { rows: [waitingSession] }, async (container, fake) => {
     await openPermissionRequest(t.signal, container, fake);
-    assert.deepEqual(chipTexts(container, "s1"), ["1allow", "2deny"]);
-    assert.deepEqual(keyCaps(container, "s1"), ["1", "2"]);
     await press("2");
     await until(t.signal, () => fake.callsTo(answerPath).length === 1, "the answer");
     assert.deepEqual(fake.callsTo(answerPath)[0].body, { id: "s1", requestId: "req-7", answer: "deny" });
-    await until(t.signal, () => answerLine(container, "s1") !== null, "the answer line");
-    assert.equal(answerLine(container, "s1"), "You answered 2 · deny");
-    assert.deepEqual(chipTexts(container, "s1"), [], "no chips once answered");
+    await settle();
+    assert.deepEqual(chipTexts(container, "s1"), [], "the row draws no chips");
+    assert.equal(answerLine(container, "s1"), null, "the row draws no answer line");
   }));
 
-test("a landed session answer's line goes when its row turns working", (t) =>
+test("a session row that turns working after an answer draws no chips and no answer line", (t) =>
   withApp(t.signal, { rows: [waitingSession] }, async (container, fake) => {
     await openPermissionRequest(t.signal, container, fake);
     await press("2");
-    await until(t.signal, () => answerLine(container, "s1") !== null, "the answer line");
+    await until(t.signal, () => fake.callsTo(answerPath).length === 1, "the answer");
     await mount(container, { rows: [workingSession], error: "", now, clients: fake.clients, seen: fake.seen });
-    assert.equal(answerLine(container, "s1"), null, "the line goes with the waiting");
+    assert.equal(answerLine(container, "s1"), null, "no answer line");
     assert.deepEqual(chipTexts(container, "s1"), [], "a working row shows no chips");
   }));
 
-test("a landed answer's line goes when its row waits on another question, and the new question's chips show", (t) =>
+test("a row that waits on another question after an answer draws no chips for it and no answer line", (t) =>
   withApp(t.signal, { rows: [fourOptionRow] }, async (container, fake) => {
     await press("2");
-    await until(t.signal, () => answerLine(container, "f") !== null, "the answer line");
+    await until(t.signal, () => fake.callsTo(sendKeysPath).length === 1, "the answer");
     const nextQuestion = JSON.stringify({
       questions: [{ question: "Next?", options: [{ label: "Yes", description: "" }] }],
     });
@@ -2252,8 +2247,8 @@ test("a landed answer's line goes when its row waits on another question, and th
       clients: fake.clients,
       seen: fake.seen,
     });
-    assert.equal(answerLine(container, "f"), null, "the line does not follow the row to its next question");
-    assert.deepEqual(chipTexts(container, "f"), ["1Yes"]);
+    assert.equal(answerLine(container, "f"), null, "no line follows the row to its next question");
+    assert.deepEqual(chipTexts(container, "f"), [], "the next question's options are the conversation's, not the row's");
   }));
 
 test("a waiting session row with no held request shows no chips", (t) =>
@@ -2271,10 +2266,10 @@ test("a working session row shows no chips, though its held stream carries a req
     assert.deepEqual(chipTexts(container, "s1"), []);
   }));
 
-test("only the waiting row of the fixture draws chips", (t) =>
+test("no row of the fixture draws option chips, the waiting one included", (t) =>
   withApp(t.signal, {}, (container) => {
     const drawsChips = ["a", "b", "c", "d"].map((key) => chipTexts(container, key).length > 0);
-    assert.deepEqual(drawsChips, [true, false, false, false]);
+    assert.deepEqual(drawsChips, [false, false, false, false]);
   }));
 
 // pinnedColumn is the second reader column that | pins beside the list, or null when no row is pinned. The column
@@ -2579,7 +2574,7 @@ test("a waiting pane row shows its question's text, never its raw JSON, and a bu
   withApp(t.signal, { rows: [askRow] }, async (container, fake) => {
     await until(t.signal, () => fake.callsTo(paneWatchPath).length === 1, "the pane stream");
     fake.emit(fake.callsTo(paneWatchPath)[0], { transcript: "t1", seq: "1", reset: true, items: [] });
-    assert.equal(rowElement(container, "a").querySelector(".l2")?.textContent, "asks: Which fruit?");
+    assert.equal(rowElement(container, "a").querySelector(".l2")?.textContent, "Which fruit?");
     await until(t.signal, () => container.querySelector(".question-card") !== null, "the question card");
     const reader = container.querySelector(".reader")?.textContent ?? "";
     assert.ok(reader.includes("Which fruit?"));
@@ -2868,7 +2863,7 @@ test("Needs you reads each need as a sentence: a waiting row's, an open question
     ]),
   );
   return withApp(t.signal, { epics }, (container) => {
-    assert.equal(rowElement(container, "a").querySelector(".l2")?.textContent, "asks: Ship it?");
+    assert.equal(rowElement(container, "a").querySelector(".l2")?.textContent, "Ship it?");
     assert.deepEqual(needSentences(container), ["first asks: Which way?", "second is parked: a lock is held"]);
     assert.deepEqual(needButtons(container), ["Open the epic ›", "Retry"]);
     assert.equal(
@@ -2967,7 +2962,7 @@ test("a click on the seventh quiet epic's need moves the cursor to it, which dra
   });
 });
 
-test("TitleParts: a waiting pane with no question says in its second line that it waits on you, and draws its directory and its summary once each", (t) =>
+test("TitleParts: a waiting pane with no question says in its second line that it waits on you, and draws its label once and no directory", (t) =>
   withApp(
     t.signal,
     {
@@ -2987,12 +2982,12 @@ test("TitleParts: a waiting pane with no question says in its second line that i
       const element = rowElement(container, "w");
       assert.equal(element.querySelector(".l2")?.textContent, "waits on you");
       assertNone(element.querySelector(".why"), "no second summary line");
-      assert.equal(element.querySelectorAll(".title-dir").length, 1, "the directory is drawn once");
-      assert.equal(element.textContent?.split("build green").length, 2, "the summary is drawn once");
+      assertNone(element.querySelector(".title-dir"), "the row draws no directory");
+      assert.equal(element.textContent?.split("build green").length, 2, "the label is drawn once");
     },
   ));
 
-test("TitleParts: an inbox row draws its directory and its line, and no session id, pane id or hash", (t) =>
+test("TitleParts: an inbox row draws its label as its title, and no directory, session id, pane id or hash", (t) =>
   withApp(
     t.signal,
     {
@@ -3021,11 +3016,11 @@ test("TitleParts: an inbox row draws its directory and its line, and no session 
     },
     (container) => {
       const pane = rowElement(container, "p");
-      assert.equal(pane.querySelector(".title-dir")?.textContent, "api");
-      assert.equal(pane.querySelector(".title-line")?.textContent, "tidying imports");
+      assert.equal(pane.querySelector(".title")?.textContent, "tidying imports");
+      assertNone(pane.querySelector(".title-dir"), "the pane draws no directory");
       const session = rowElement(container, "s");
-      assert.equal(session.querySelector(".title-dir")?.textContent, "app");
-      assert.equal(session.querySelector(".title-line")?.textContent, "Billing rounding plan");
+      assert.equal(session.querySelector(".title")?.textContent, "Billing rounding plan");
+      assertNone(session.querySelector(".title-dir"), "the session draws no directory");
       assert.equal(session.querySelector(".l2")?.textContent, "reconciling invoices", "a session keeps its summary as its second line");
       for (const [element, hidden] of [
         [pane, ["%3", "hash-of-question"]],
@@ -3038,7 +3033,7 @@ test("TitleParts: an inbox row draws its directory and its line, and no session 
     },
   ));
 
-test("TitleParts: a pane with no summary and a session with an empty headline each show their directory alone", (t) =>
+test("TitleParts: a pane with no label and a session with an empty headline draw no title and no directory", (t) =>
   withApp(
     t.signal,
     {
@@ -3048,24 +3043,26 @@ test("TitleParts: a pane with no summary and a session with an empty headline ea
       ],
     },
     (container) => {
-      assert.equal(rowElement(container, "p").querySelector(".title-dir")?.textContent, "api");
-      assert.equal(rowElement(container, "s").querySelector(".title-dir")?.textContent, "app");
+      assertNone(rowElement(container, "p").querySelector(".title-dir"), "the pane draws no directory");
+      assertNone(rowElement(container, "s").querySelector(".title-dir"), "the session draws no directory");
+      assert.equal(rowElement(container, "p").querySelector(".title")?.textContent, "");
+      assert.equal(rowElement(container, "s").querySelector(".title")?.textContent, "");
       assertNone(container.querySelector(".title-line"), "no row draws a line");
     },
   ));
 
-test("TitleParts: a Sessions.List row with no label shows the word session as its line, with no directory", (t) =>
+test("TitleParts: a Sessions.List row with no label shows the word session as its title, with no directory", (t) =>
   withApp(
     t.signal,
     { rows: [row({ key: "n", kind: "session", project: "", label: "session", state: "done" })] },
     (container) => {
       const element = rowElement(container, "n");
-      assert.equal(element.querySelector(".title-line")?.textContent, "session");
+      assert.equal(element.querySelector(".title")?.textContent, "session");
       assertNone(element.querySelector(".title-dir"), "a Sessions.List row has no directory");
     },
   ));
 
-test("TitleParts: in the inbox a session row and a pane row still draw their directory, and no display: none rule in style.css hides .title-dir", (t) =>
+test("TitleParts: in the inbox no row draws a directory, and no display: none rule in style.css hides .title-dir", (t) =>
   withApp(
     t.signal,
     {
@@ -3076,8 +3073,8 @@ test("TitleParts: in the inbox a session row and a pane row still draw their dir
     },
     async (container) => {
       assert.equal(container.querySelector(".rows")?.getAttribute("data-list"), "inbox");
-      assert.equal(rowElement(container, "p").querySelector(".title-dir")?.textContent, "api");
-      assert.equal(rowElement(container, "s").querySelector(".title-dir")?.textContent, "app");
+      assertNone(rowElement(container, "p").querySelector(".title-dir"), "the pane draws no directory");
+      assertNone(rowElement(container, "s").querySelector(".title-dir"), "the session draws no directory");
       const css = readFileSync(new URL("../src/style.css", import.meta.url), "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
       const hiding = [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)]
         .filter(([, selectors, declarations]) => /display\s*:\s*none/.test(declarations) && selectors.includes("title-dir"))

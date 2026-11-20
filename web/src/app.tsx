@@ -28,7 +28,7 @@ import type { InAppNotice, NoticeKey } from "./gen/orrery/v1/notice_pb";
 import type { HostStatusResponse } from "./gen/orrery/v1/orrery_pb";
 import { Handover } from "./handover";
 import { KeyList } from "./helppanel";
-import { type Answer, InboxRow, isLinkClick, optionText, readerQuestion, stateWaiting } from "./inboxrow";
+import { InboxRow, isLinkClick, type RowMore, stateWaiting } from "./inboxrow";
 import {
   type BoxOpen,
   type EscapeTarget,
@@ -308,9 +308,6 @@ export function App({
     (run: string, name: string, stderr: boolean) => clients.evidence.artifact({ run, name, stderr }),
     [clients],
   );
-  // The answers that landed from the list, by row key. Each shows in place of its row's chips while the row
-  // waits on the question it answered.
-  const [answered, setAnswered] = useState<Map<string, Answer>>(() => new Map());
   // The messages each row's composer sent that the row's stored conversation does not hold yet, by row key. Each shows
   // as sending in its row's reader until its stored prompt arrives.
   const [sendingByRow, setSendingByRow] = useState<Map<string, Sending[]>>(() => new Map());
@@ -515,15 +512,6 @@ export function App({
     setPinnedRows((previous) => keepEntries(previous, rows, pinned));
   }, [rows, pinned]);
 
-  // An answer's line goes when its row stops waiting or waits on another question. A row missing from the list keeps
-  // it, as a failed poll leaves a pane out of the list.
-  useEffect(() => {
-    setAnswered((previous) => {
-      const kept = new Map([...previous].filter(([key, answer]) => keepsAnswer(rows, key, answer)));
-      return kept.size === previous.size ? previous : kept;
-    });
-  }, [rows]);
-
   // A new list answer carries serve's archived field, so the archive marks held until now give way to it.
   useEffect(() => {
     setRowMarks((previous) => (previous.size === 0 ? previous : new Map()));
@@ -720,24 +708,18 @@ export function App({
   });
 
   // answerCursor sends the choice to the cursor's row's waiting question through actions.answer, with the conversation
-  // the reader holds for that row only. A false result or a rejection shows a fixed line; nothing is retried. A landed
-  // answer names its choice on the row, when the question offers that choice.
+  // the reader holds for that row only. A false result or a rejection shows a fixed line; nothing is retried.
   const answerCursor = (choice: 1 | 2 | 3) => {
     if (cursorRow === null) {
       return;
     }
     const row = cursorRow;
     const conversation = stream !== null && stream.key === row.key ? stream.conversation : null;
-    const option = readerQuestion(row, conversation)?.options[choice - 1];
     void actions
       .answer(clients, row, conversation, choice)
       .catch(() => false)
       .then((sent) => {
         setAnswerError(sent ? "" : answerFailedText);
-        if (sent && option !== undefined) {
-          const answer: Answer = { question: row.question, choice, label: optionText(option.label, choice) };
-          setAnswered((previous) => new Map(previous).set(row.key, answer));
-        }
       });
   };
 
@@ -781,9 +763,37 @@ export function App({
   // The conversation the pinned reader holds, only when its stream belongs to the pinned row.
   const pinnedConversation =
     pinStream !== null && pinned !== null && pinStream.key === pinned.key ? pinStream.conversation : null;
-  // The conversation a list row's options come from: the stream the page holds for that row, the cursor's or the pin's.
-  const heldConversation = (key: string) =>
-    key === cursorRowKey ? cursorConversation : key === pinnedKey ? pinnedConversation : null;
+  // The More menu of a list row: its items, each acting on that row alone. Mark seen is drawn while the row is unseen, and
+  // Archive, or Unarchive in the Archived view, while the row can be archived. Open in a new window opens the row's
+  // address in a new window, in the view the page shows.
+  const rowMore = (row: Row): RowMore => ({
+    open: openMenu === row.key,
+    toggle: () => setMenuKey((current) => (current === row.key ? null : row.key)),
+    close: () => setMenuKey(null),
+    items: [
+      {
+        label: "Open in a new window",
+        icon: "open",
+        onSelect: () => {
+          window.open(formatAddress({ view, entry: shownEntry(row, openEpicPage) }), "_blank");
+        },
+      },
+      ...(row.unseen
+        ? [{ label: "Mark seen", icon: "check" as const, kbd: "x", onSelect: () => void writeSeen(row) }]
+        : []),
+      ...(row.archiveKind === "none"
+        ? []
+        : [
+            "sep" as const,
+            {
+              label: view === "archived" ? "Unarchive" : "Archive",
+              icon: "archive" as const,
+              kbd: "A",
+              onSelect: () => setArchive(row, view !== "archived"),
+            },
+          ]),
+    ],
+  });
   // The conversations the readers draw, each without the prompts its queue still holds or has discarded, and the worker
   // session's, shown the same way.
   const cursorShown = useMemo(() => shownConversation(cursorConversation), [cursorConversation]);
@@ -1526,9 +1536,7 @@ export function App({
                     row={item}
                     now={now}
                     cursor={item.key === cursorRowKey}
-                    archive={archiveControl(item)}
-                    conversation={heldConversation(item.key)}
-                    answer={answered.get(item.key)}
+                    more={rowMore(item)}
                     onOpen={() => {
                       selectItem(item);
                       setRowOpened(true);
@@ -1665,13 +1673,6 @@ export function App({
       {helpOpen && <KeyList onClose={() => setHelpOpen(false)} />}
     </main>
   );
-}
-
-// keepsAnswer reports whether a landed answer stays on its row: the row is missing from the list, or it still waits on
-// the question the answer named.
-function keepsAnswer(rows: Row[], key: string, answer: Answer): boolean {
-  const row = rows.find((candidate) => candidate.key === key);
-  return row === undefined || (row.state === stateWaiting && row.question === answer.question);
 }
 
 // matchesFilter keeps a row whose label, project, host, state or summary holds every typed word.

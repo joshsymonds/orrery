@@ -1,57 +1,58 @@
+import type { JSX } from "preact";
+import { useLayoutEffect, useRef } from "preact/hooks";
+
 import type { Conversation } from "./conversation";
-import { type ArchiveControl, RowMenu } from "./epicline";
-import { rowNeed } from "./needs";
+import { Icon, StateGlyph } from "./glyphs";
+import { Menu, type MenuEntry } from "./menu";
 import { type ParsedQuestion, parseQuestion } from "./question";
 import type { Row } from "./rows";
 import { ReplyText } from "./text";
-import { TitleParts } from "./titleparts";
 
 export const stateWaiting = "waiting";
-
-// The keys 1-3 answer the first three options of a question, and no others.
-const keyedOptions = 3;
 
 const secondsPerMinute = 60;
 const minutesPerHour = 60;
 const hoursPerDay = 24;
 
-// A landed answer from the list: the choice and its label, kept for the row and the question it answered.
-export interface Answer {
-  question: string;
-  choice: number;
-  label: string;
+// RowMore is the ⋯ menu a row's More button opens: open is whether it is the row's open menu, toggle opens or shuts it,
+// close shuts it, and items is what it holds, in order. The App passes the items, and each acts on the row alone.
+export interface RowMore {
+  open: boolean;
+  items: readonly MenuEntry[];
+  toggle: () => void;
+  close: () => void;
 }
 
-// InboxRow draws one row of the inbox list: its dot and glyph, its line with type, title, age and ⋯ menu, and its
-// second line with the reply text and, for a waiting row, the answer or the options. A click calls onOpen and a
-// double-click calls onSeen, each unless the press landed on a link. cursor is whether the row is the cursor's.
+// InboxRow draws one row of the inbox list as round 6 draws it: its dot and state glyph, its title and age, its second
+// line, and its More. A click calls onOpen and a double-click calls onSeen, each unless the press landed on a link. cursor
+// is whether the row is the cursor's; open is whether its page is open, and hover whether it is drawn hovered.
 export function InboxRow({
   row,
   now,
   cursor,
-  archive,
-  conversation,
-  answer,
+  open = false,
+  hover = false,
+  more,
   onOpen,
   onSeen,
 }: {
   row: Row;
   now: number;
   cursor: boolean;
-  archive: ArchiveControl;
-  conversation: Conversation | null;
-  answer?: Answer;
+  open?: boolean;
+  hover?: boolean;
+  more: RowMore;
   onOpen: () => void;
   onSeen: () => void;
 }) {
   return (
     <div
-      class={cursor ? "b-row cur" : "b-row"}
+      class={rowClass(cursor, open, hover, more.open)}
       tabIndex={-1}
       data-row=""
       data-key={row.key}
       data-unseen={row.unseen ? "" : undefined}
-      aria-current={cursor ? "true" : undefined}
+      aria-current={open ? "page" : cursor ? "true" : undefined}
       onClick={(event) => {
         if (!isLinkClick(event)) {
           onOpen();
@@ -63,19 +64,17 @@ export function InboxRow({
         }
       }}
     >
-      <span class="dot" />
-      <span class={`g g-${row.state}`} aria-hidden="true" />
+      <span class="dot" title={row.unseen ? "new since you looked" : undefined} />
+      <StateGlyph state={row.state} />
       <div class="main">
         <div class="l1">
-          {row.state === stateWaiting && <span class="ty">{row.question !== "" ? "QUESTION" : "WAITING"}</span>}
-          <TitleParts dir={row.project} line={row.label} />
+          <span class="title">
+            <ReplyText text={row.label} />
+          </span>
           <span class="age">{ageText(row.changed, now)}</span>
-          {row.archiveKind !== "none" && <RowMenu control={archive} />}
+          <More more={more} />
         </div>
-        <div class={row.unseen ? "l2" : "l2 one"}>
-          <ReplyText text={replyText(row)} />
-        </div>
-        <RowOptions row={row} conversation={conversation} answer={answer} />
+        <SecondLine row={row} now={now} />
       </div>
     </div>
   );
@@ -94,53 +93,138 @@ export function readerQuestion(row: Row, conversation: Conversation | null): Par
   return { title: request.question, options: request.options.map((label) => ({ label, description: "" })) };
 }
 
-// RowOptions draws a waiting row's line under its text: the answer a landed answer left, or else the options its keys
-// answer as chips. Chips are labels, not buttons. A row that is not waiting draws neither.
-function RowOptions({ row, conversation, answer }: { row: Row; conversation: Conversation | null; answer?: Answer }) {
-  if (row.state !== stateWaiting) {
-    return null;
+// rowClass is a row's class: the row, cur for the cursor, open while its page is open, menu-open while its More menu is
+// open, and hover while it is drawn hovered.
+function rowClass(cursor: boolean, open: boolean, hover: boolean, menuOpen: boolean): string {
+  return ["b-row", "row", cursor && "cur", open && "open", menuOpen && "menu-open", hover && "hover"].filter(Boolean).join(" ");
+}
+
+// SecondLine draws a row's second line. A waiting row says what it asks, led by a question mark when it holds a question.
+// A working pane's line is its tool, its argument, and its clock from the tool's start. A terminal with no state says it
+// has no conversation. A session's line is its summary. Any other pane has no second line.
+function SecondLine({ row, now }: { row: Row; now: number }): JSX.Element | null {
+  const line = row.unseen ? "l2" : "l2 one";
+  if (row.state === stateWaiting) {
+    return (
+      <div class={row.question !== "" ? `${line} asks` : line}>
+        {row.question !== "" && <Icon name="question" />}
+        <ReplyText text={waitingText(row)} />
+      </div>
+    );
   }
-  if (answer !== undefined && answer.question === row.question) {
-    return <div class="ans">{`You answered ${answer.choice} · ${answer.label}`}</div>;
+  const tool = row.kind === "pane" && row.state === "working" ? parseTool(row.tool) : null;
+  if (tool !== null) {
+    return (
+      <div class={line}>
+        <span class="name">{shortName(tool.name)}</span>
+        {tool.input !== "" && ` ${tool.input}`}
+        {tool.start > 0 && ` · ${clockText(now - tool.start)}`}
+      </div>
+    );
   }
-  const options = readerQuestion(row, conversation)?.options ?? [];
-  if (options.length === 0) {
-    return null;
+  if (row.kind === "pane" && row.state === "") {
+    return <div class={line}>a terminal with no conversation</div>;
   }
+  if (row.kind === "session" && row.summary !== "") {
+    return (
+      <div class={line}>
+        <ReplyText text={row.summary} />
+      </div>
+    );
+  }
+  return null;
+}
+
+// waitingText is what a waiting row asks: its question's title, else a session's last words, else that it waits on you.
+// A pane's summary is its title, so a pane never repeats it here.
+function waitingText(row: Row): string {
+  if (row.question !== "") {
+    return parseQuestion(row.question).title;
+  }
+  return row.kind === "session" && row.summary !== "" ? row.summary : "waits on you";
+}
+
+// shortName reads a tool name by the part after its last "__", so mcp__orrery__step_start reads as step_start.
+function shortName(name: string): string {
+  const at = name.lastIndexOf("__");
+  return at < 0 ? name : name.slice(at + 2);
+}
+
+// More draws a row's More button and the menu it opens. The button's tip names what the menu holds. A press on More or
+// on the menu stops there, so it opens no row, moves no cursor and marks nothing seen. An item calls its own action and
+// then shuts the menu, and an open menu scrolls into view within the list.
+function More({ more }: { more: RowMore }): JSX.Element {
+  const menuRef = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    if (more.open) {
+      menuRef.current?.scrollIntoView({ block: "nearest" });
+    }
+  }, [more.open]);
+  const stop = (event: Event) => event.stopPropagation();
+  const tip = more.items.flatMap((item) => (item === "sep" ? [] : [item.label])).join(", ");
+  const items = more.items.map((item) =>
+    item === "sep"
+      ? item
+      : {
+          ...item,
+          onSelect: () => {
+            item.onSelect();
+            more.close();
+          },
+        },
+  );
   return (
-    <div class="opts">
-      {options.map((option, index) => {
-        const keyed = index < keyedOptions;
-        return (
-          <span class="opt" key={index}>
-            {keyed && <kbd>{index + 1}</kbd>}
-            {keyed ? optionText(option.label, index + 1) : option.label}
-          </span>
-        );
-      })}
+    <div class="row-menu" onClick={stop} onDblClick={stop} onPointerDown={stop}>
+      <button type="button" class="more" aria-label="more" title={tip} aria-expanded={more.open} onClick={more.toggle}>
+        <Icon name="more" />
+      </button>
+      {more.open && (
+        <div class="row-menu-list" ref={menuRef}>
+          <Menu items={items} />
+        </div>
+      )}
     </div>
   );
 }
 
-// optionText is an option's label without the number of its own key cap, when the label starts with that number. A
-// label without it is named as it is.
-export function optionText(label: string, choice: number): string {
-  const numbered = `${choice} `;
-  return label.startsWith(numbered) ? label.slice(numbered.length) : label;
+// RowTool is a pane's running tool as its row reads it: its name, its argument, and the unix seconds it started.
+interface RowTool {
+  name: string;
+  input: string;
+  start: number;
 }
 
-// replyText is a row's second line: the sentence of a waiting row, else a session's summary. A pane's summary is its
-// title's line, so a pane that is not waiting has no second line.
-function replyText(row: Row): string {
-  if (row.state === stateWaiting) {
-    return rowNeed(row).text;
+// parseTool reads a row's tool JSON. An empty or unparsable value, or one that is not a JSON object, has no tool.
+function parseTool(value: string): RowTool | null {
+  if (value === "") {
+    return null;
   }
-  return row.kind === "session" ? row.summary : "";
+  let json: unknown;
+  try {
+    json = JSON.parse(value);
+  } catch {
+    return null;
+  }
+  if (typeof json !== "object" || json === null || Array.isArray(json)) {
+    return null;
+  }
+  const fields = json as Record<string, unknown>;
+  return {
+    name: typeof fields.name === "string" ? fields.name : "",
+    input: typeof fields.input === "string" ? fields.input : "",
+    start: typeof fields.start === "number" ? fields.start : 0,
+  };
 }
 
 // isLinkClick reports whether a click or double click landed on a link, which opens it and moves nothing else.
 export function isLinkClick(event: Event): boolean {
   return event.target instanceof Element && event.target.closest("a") !== null;
+}
+
+// clockText is an elapsed time as m:ss, its minutes unbounded. It never reads negative.
+function clockText(seconds: number): string {
+  const total = Math.max(0, Math.floor(seconds));
+  return `${Math.floor(total / secondsPerMinute)}:${String(total % secondsPerMinute).padStart(2, "0")}`;
 }
 
 function ageText(changed: number, now: number): string {

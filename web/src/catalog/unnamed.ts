@@ -100,8 +100,6 @@ export const unnamed: Readonly<Record<string, UnnamedEntry>> = {
   // HappeningList draws the history of the holder epic, and an empty history.
   "happening-list/holder": { replacement: "HappeningList", epic: "F4" },
   "happening-list/empty": { replacement: "HappeningList", epic: "F4" },
-  // InboxRow draws a line that answered a question with the choice it was given, on the waiting session's row.
-  "inbox-row/answered": { replacement: "InboxRow", epic: "F2" },
   // Notice draws a stack of three notices, and of more than three with its "+n more" line.
   "notice/three-notices": { replacement: "Notice", epic: "F5" },
   "notice/over-the-limit": { replacement: "Notice", epic: "F5" },

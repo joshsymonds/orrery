@@ -10,6 +10,7 @@ import { createClients, createTransport } from "./client";
 import { type EpicsView, epicsView } from "./epics";
 import { type Epic, EpicSchema, EpicsGetResponseSchema } from "./gen/orrery/v1/epics_pb";
 import { PaneSchema, SessionSchema } from "./gen/orrery/v1/orrery_pb";
+import { formatAddress } from "./router";
 import { rowsFrom, type Row } from "./rows";
 import { assertNone, installTestDom, removeTestDom, teardownOnce } from "./testdom";
 import { turn, until as waitUntil } from "./testwait";
@@ -19,6 +20,8 @@ const archivePath = "/orrery.v1.Epics/Archive";
 const unarchivePath = "/orrery.v1.Epics/Unarchive";
 const withdrawPath = "/orrery.v1.Control/Withdraw";
 const interruptPath = "/orrery.v1.Control/Interrupt";
+const markPanePath = "/orrery.v1.Panes/MarkSeen";
+const markSessionPath = "/orrery.v1.Control/Seen";
 const archiveFailedText = "could not change archive";
 // The turns a test lets a write it started run to its end before it reads that nothing was sent.
 const flushRounds = 10;
@@ -223,11 +226,23 @@ function moreButtonOf(container: HTMLElement, key: string): HTMLButtonElement {
   return button;
 }
 
-// openMenu presses a line's ⋯ and returns the one item its menu holds.
-async function openMenu(container: HTMLElement, key: string): Promise<HTMLButtonElement> {
+// openMenu presses a line's ⋯ or More, which opens the line's menu.
+async function openMenu(container: HTMLElement, key: string): Promise<void> {
   await tap(moreButtonOf(container, key));
-  const item = lineOf(container, key)?.querySelector<HTMLButtonElement>(".row-menu-list button");
-  assert.ok(item, `line ${key}'s menu holds its item`);
+  assert.ok(lineOf(container, key)?.querySelector(".row-menu-list"), `line ${key}'s menu is open`);
+}
+
+// itemLabel is the label of a menu item: its span when it has one, as a row's More menu draws it, else its text.
+function itemLabel(item: Element): string | null {
+  return item.querySelector("span")?.textContent ?? item.textContent;
+}
+
+// menuItem finds the item of a line's open menu whose label is label.
+function menuItem(container: HTMLElement, key: string, label: string): HTMLButtonElement {
+  const item = [...(lineOf(container, key)?.querySelectorAll<HTMLButtonElement>(".row-menu-list button") ?? [])].find(
+    (candidate) => itemLabel(candidate) === label,
+  );
+  assert.ok(item, `line ${key}'s menu holds ${label}`);
   return item;
 }
 
@@ -268,7 +283,8 @@ test("ArchiveView: Archive on a session row sends Epics.Archive with its kind an
     t.signal,
     { rows: [row({ key: "p", label: "pane" }), session({ key: "s1", id: "s1", label: "notes" })] },
     async (container, fake) => {
-      await click(await openMenu(container, "s1"));
+      await openMenu(container, "s1");
+      await click(menuItem(container, "s1", "Archive"));
       await until(t.signal, () => fake.callsTo(archivePath).length === 1, "the archive call");
       assert.deepEqual(fake.callsTo(archivePath)[0].body, { kind: "session", id: "s1" });
       await until(t.signal, () => lineOf(container, "s1") === null, "the row leaving the list");
@@ -281,7 +297,8 @@ test("ArchiveView: Archive on an epic line sends Epics.Archive with kind epic an
     t.signal,
     { epics: epicsView([epic({ id: "w/first", slug: "first", repository: "w" })], new Map()) },
     async (container, fake) => {
-      await click(await openMenu(container, "epic:w/first"));
+      await openMenu(container, "epic:w/first");
+      await click(menuItem(container, "epic:w/first", "Archive"));
       await until(t.signal, () => fake.callsTo(archivePath).length === 1, "the archive call");
       assert.deepEqual(fake.callsTo(archivePath)[0].body, { kind: "epic", id: "w/first" });
       await until(t.signal, () => lineOf(container, "epic:w/first") === null, "the line leaving the list");
@@ -330,8 +347,10 @@ test("ArchiveView: the Archived view lists the archived row and epic with Unarch
       await press("v");
       assert.equal(dataList(container), "archived");
       assert.deepEqual(rowKeys(container), ["epic:w/old", "ha"]);
-      assert.equal((await openMenu(container, "ha")).textContent, "Unarchive");
-      assert.equal((await openMenu(container, "epic:w/old")).textContent, "Unarchive");
+      await openMenu(container, "ha");
+      assert.ok(menuItem(container, "ha", "Unarchive"), "the headless row's menu holds Unarchive");
+      await openMenu(container, "epic:w/old");
+      assert.ok(menuItem(container, "epic:w/old", "Unarchive"), "the epic's menu holds Unarchive");
       await back(container);
       assert.equal(dataList(container), "inbox");
       assert.deepEqual(rowKeys(container), ["p"]);
@@ -344,9 +363,8 @@ test("RowMenu: the Archived view's menu holds Unarchive and sends Epics.Unarchiv
     { rows: [row({ key: "p", label: "pane" }), headless({ key: "ha", id: "ha", label: "old docs", archived: true })] },
     async (container, fake) => {
       await press("v");
-      const item = await openMenu(container, "ha");
-      assert.equal(item.textContent, "Unarchive");
-      await click(item);
+      await openMenu(container, "ha");
+      await click(menuItem(container, "ha", "Unarchive"));
       await until(t.signal, () => fake.callsTo(unarchivePath).length === 1, "the unarchive call");
       assert.deepEqual(fake.callsTo(unarchivePath)[0].body, { kind: "headless", id: "ha" });
       await until(t.signal, () => lineOf(container, "ha") === null, "the row leaving the Archived view");
@@ -360,7 +378,8 @@ test("ArchiveView: Unarchive on an archived live epic returns its line to the in
   const epics = epicsView([live], new Map([[live.id, create(EpicsGetResponseSchema, { epic: live })]]));
   return withArchive(t.signal, { epics }, async (container, fake) => {
     await press("v");
-    await click(await openMenu(container, "epic:w/live"));
+    await openMenu(container, "epic:w/live");
+    await click(menuItem(container, "epic:w/live", "Unarchive"));
     await until(t.signal, () => fake.callsTo(unarchivePath).length === 1, "the unarchive call");
     assert.deepEqual(fake.callsTo(unarchivePath)[0].body, { kind: "epic", id: "w/live" });
     await until(t.signal, () => lineOf(container, "epic:w/live") === null, "the line leaving the Archived view");
@@ -382,9 +401,10 @@ test("ArchiveView: an archived live epic's needs leave Needs you", (t) => {
   });
 });
 
-test("ArchivePaneRow: a pane with no orrery_id draws no archive control, and A on it sends nothing", (t) =>
+test("ArchivePaneRow: a pane with no orrery_id opens a More menu with no Archive item, and A on it sends nothing", (t) =>
   withArchive(t.signal, { rows: [row({ key: "p", label: "pane", archiveId: "" })] }, async (container, fake) => {
-    assertNone(lineOf(container, "p")?.querySelector("button"), "the pane row draws no button");
+    await openMenu(container, "p");
+    assert.deepEqual(menuLabels(container, "p"), ["Open in a new window"], "the pane's menu holds no Archive");
     await press("A");
     await flush();
     assert.deepEqual(archiveCalls(fake), []);
@@ -396,9 +416,8 @@ test("ArchivePaneRow: a pane row with an orrery_id draws a ⋯ menu whose Archiv
     t.signal,
     { rows: [row({ key: "p1", id: "%3", archiveId: "sess-7", archiveKind: "session", label: "api" })] },
     async (container, fake) => {
-      const item = await openMenu(container, "p1");
-      assert.equal(item.textContent, "Archive");
-      await click(item);
+      await openMenu(container, "p1");
+      await click(menuItem(container, "p1", "Archive"));
       await until(t.signal, () => fake.callsTo(archivePath).length === 1, "the archive call");
       assert.deepEqual(fake.callsTo(archivePath)[0].body, { kind: "session", id: "sess-7" });
       await until(t.signal, () => lineOf(container, "p1") === null, "the row leaving the list");
@@ -437,9 +456,8 @@ test("ArchivePaneRow: a pane whose Session is archived leaves the inbox, and sho
     await press("v");
     assert.equal(dataList(container), "archived");
     assert.deepEqual(rowKeys(container), ["pane:box:%3"]);
-    const item = await openMenu(container, "pane:box:%3");
-    assert.equal(item.textContent, "Unarchive");
-    await click(item);
+    await openMenu(container, "pane:box:%3");
+    await click(menuItem(container, "pane:box:%3", "Unarchive"));
     await until(t.signal, () => fake.callsTo(unarchivePath).length === 1, "the unarchive call");
     assert.deepEqual(fake.callsTo(unarchivePath)[0].body, { kind: "session", id: "sess-7" });
     await until(t.signal, () => lineOf(container, "pane:box:%3") === null, "the row leaving the Archived view");
@@ -451,13 +469,14 @@ test("ArchivePaneRow: a pane whose Session is archived leaves the inbox, and sho
 test("ArchiveView: a failed archive leaves the row where it was and shows the error line", (t) =>
   withArchive(t.signal, { rows: [session({ key: "s1", id: "s1", label: "notes" })] }, async (container, fake) => {
     fake.failNext.add(archivePath);
-    await click(await openMenu(container, "s1"));
+    await openMenu(container, "s1");
+    await click(menuItem(container, "s1", "Archive"));
     await until(t.signal, () => container.querySelector('[role="alert"]') !== null, "the error line");
     assert.equal(container.querySelector('[role="alert"]')?.textContent, archiveFailedText);
     assert.deepEqual(rowKeys(container), ["s1"]);
   }));
 
-test("RowMenu: a session row and an epic line draw a ⋯ button and no Archive text", (t) =>
+test("RowMenu: a session row and an epic line draw a More or ⋯ button and no Archive text", (t) =>
   withArchive(
     t.signal,
     {
@@ -465,8 +484,8 @@ test("RowMenu: a session row and an epic line draw a ⋯ button and no Archive t
       epics: epicsView([epic({ id: "w/first", slug: "first", repository: "w" })], new Map()),
     },
     (container) => {
+      assert.equal(moreButtonOf(container, "epic:w/first").textContent, "⋯", "the epic line draws ⋯");
       for (const key of ["s1", "epic:w/first"]) {
-        assert.equal(moreButtonOf(container, key).textContent, "⋯", `line ${key} draws ⋯`);
         assert.equal(moreButtonOf(container, key).getAttribute("aria-expanded"), "false", `line ${key} has no menu open`);
         assert.doesNotMatch(lineOf(container, key)?.textContent ?? "", /Archive/, `line ${key} draws no Archive text`);
       }
@@ -475,8 +494,8 @@ test("RowMenu: a session row and an epic line draw a ⋯ button and no Archive t
 
 test("RowMenu: pressing ⋯ opens a menu with Archive, and choosing it sends Epics.Archive with the row's kind and id", (t) =>
   withArchive(t.signal, { rows: [session({ key: "s1", id: "s1", label: "notes" })] }, async (container, fake) => {
-    const item = await openMenu(container, "s1");
-    assert.equal(item.textContent, "Archive");
+    await openMenu(container, "s1");
+    const item = menuItem(container, "s1", "Archive");
     assert.equal(moreButtonOf(container, "s1").getAttribute("aria-expanded"), "true");
     await pointerDown(item);
     assert.ok(container.querySelector(".row-menu-list"), "a press on the item leaves the menu open until it is chosen");
@@ -649,5 +668,100 @@ test("RowMenu: the A key archives the cursor row and leaves another row's open m
       assert.deepEqual(fake.callsTo(archivePath)[0].body, { kind: "headless", id: "h1" });
       await until(t.signal, () => lineOf(container, "h1") === null, "the row leaving the list");
       assert.equal(menuOpen(lineOf(container, "h2")), true, "h2's menu is still open");
+    },
+  ));
+
+// menuLabels is the label of each item a line's open menu holds, in order.
+function menuLabels(container: HTMLElement, key: string): (string | null)[] {
+  return [...(lineOf(container, key)?.querySelectorAll(".row-menu-list button") ?? [])].map(itemLabel);
+}
+
+// waitingFirst is a waiting row the cursor starts on, so the rows after it are not under the cursor and keep their unseen mark.
+function waitingFirst(): Row {
+  return row({ key: "w", state: "waiting", question: "Ship it?", changed: 500, seen: 500 });
+}
+
+test("InboxTree: More's menu holds Open in a new window, Mark seen and Archive for an unseen row, and no Mark seen once it is seen", (t) =>
+  withArchive(
+    t.signal,
+    { rows: [waitingFirst(), session({ key: "s1", id: "s1", label: "notes", unseen: true }), session({ key: "s2", id: "s2", label: "plans" })] },
+    async (container) => {
+      await openMenu(container, "s1");
+      assert.deepEqual(menuLabels(container, "s1"), ["Open in a new window", "Mark seen", "Archive"]);
+      await openMenu(container, "s2");
+      assert.deepEqual(menuLabels(container, "s2"), ["Open in a new window", "Archive"]);
+    },
+  ));
+
+test("InboxTree: Mark seen from More on a pane row sends Panes.MarkSeen with that pane's id and no other call", (t) =>
+  withArchive(
+    t.signal,
+    {
+      rows: [
+        waitingFirst(),
+        row({ key: "p1", id: "%1", host: "box", label: "build", state: "done", changed: 30, seen: 10, unseen: true }),
+      ],
+    },
+    async (container, fake) => {
+      await openMenu(container, "p1");
+      await click(menuItem(container, "p1", "Mark seen"));
+      await until(t.signal, () => fake.callsTo(markPanePath).length === 1, "the mark-seen call");
+      assert.deepEqual(fake.callsTo(markPanePath)[0].body, { pane: "%1" });
+      assert.deepEqual(fake.callsTo(markSessionPath), []);
+      assert.deepEqual(archiveCalls(fake), []);
+    },
+  ));
+
+test("InboxTree: Mark seen from More on a session row sends Control.Seen with that session's id and no other call", (t) =>
+  withArchive(
+    t.signal,
+    { rows: [waitingFirst(), session({ key: "s1", id: "s1", label: "notes", unseen: true }), session({ key: "s2", id: "s2", label: "plans" })] },
+    async (container, fake) => {
+      await openMenu(container, "s1");
+      await click(menuItem(container, "s1", "Mark seen"));
+      await until(t.signal, () => fake.callsTo(markSessionPath).length === 1, "the mark-seen call");
+      assert.deepEqual(fake.callsTo(markSessionPath)[0].body, { id: "s1" });
+      assert.deepEqual(fake.callsTo(markPanePath), []);
+    },
+  ));
+
+test("InboxTree: Archive from More sends Epics.Archive with that row's kind and id, and leaves the other row drawn", (t) =>
+  withArchive(
+    t.signal,
+    { rows: [session({ key: "s1", id: "s1", label: "notes" }), session({ key: "s2", id: "s2", label: "plans" })] },
+    async (container, fake) => {
+      await openMenu(container, "s2");
+      await click(menuItem(container, "s2", "Archive"));
+      await until(t.signal, () => fake.callsTo(archivePath).length === 1, "the archive call");
+      assert.deepEqual(fake.callsTo(archivePath)[0].body, { kind: "session", id: "s2" });
+      await until(t.signal, () => lineOf(container, "s2") === null, "the row leaving the list");
+      assert.deepEqual(rowKeys(container), ["s1"]);
+    },
+  ));
+
+test("InboxTree: Open in a new window from More opens the row's own address in a new window", (t) =>
+  withArchive(
+    t.signal,
+    {
+      rows: [
+        waitingFirst(),
+        row({ key: "p1", id: "%1", host: "box", label: "build", state: "done", changed: 30, seen: 30 }),
+        session({ key: "s1", id: "s1", label: "notes" }),
+      ],
+    },
+    async (container) => {
+      const opened: [string, string | undefined][] = [];
+      window.open = (url, target) => {
+        opened.push([String(url), target]);
+        return null;
+      };
+      await openMenu(container, "p1");
+      await click(menuItem(container, "p1", "Open in a new window"));
+      await openMenu(container, "s1");
+      await click(menuItem(container, "s1", "Open in a new window"));
+      assert.deepEqual(opened, [
+        [formatAddress({ view: "inbox", entry: { kind: "pane", host: "box", pane: "%1" } }), "_blank"],
+        [formatAddress({ view: "inbox", entry: { kind: "session", id: "s1" } }), "_blank"],
+      ]);
     },
   ));

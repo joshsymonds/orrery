@@ -38,7 +38,7 @@ function paneOf(id: string, dir: string) {
     session: "work",
     cwd: `/work/${dir}`,
     state: "waiting",
-    summary: "building",
+    summary: dir,
     question: "",
     changed: "40",
     seen: "10",
@@ -64,13 +64,13 @@ const sessionBody = {
   ],
 };
 
-// headlessSession is one headless session as Sessions.ListHeadless answers it, under a synthetic directory, with no
-// headline yet, so its row reads its directory alone.
+// headlessSession is one headless session as Sessions.ListHeadless answers it, under a synthetic directory, whose headline
+// is base, so its row is titled base.
 function headlessSession(id: string, base: string) {
   return {
     id,
     dir: `/work/${base}`,
-    headline: "",
+    headline: base,
     state: "working",
     changed: "50",
     seen: "0",
@@ -321,15 +321,10 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-// nameOf names a session or pane row by its directory's last element, or by its line when it has no directory. An epic
-// or step row, which draws no title, is named by its label.
+// nameOf names a session or pane row by its title, which is its label. An epic or step row, which draws no title, is
+// named by its label.
 function nameOf(row: Element): string {
-  return (
-    row.querySelector(".title-dir")?.textContent ??
-    row.querySelector(".title-line")?.textContent ??
-    row.querySelector(".label")?.textContent ??
-    ""
-  );
+  return row.querySelector(".title")?.textContent ?? row.querySelector(".label")?.textContent ?? "";
 }
 
 // labels names each row that is drawn, in the order drawn.
