@@ -285,7 +285,9 @@ internal fun inboxTree(
         } else {
             pane.orreryId.isNotEmpty() && pane.orreryId in archivedIds
         }
-        Conversation(pane, archived, placeOfConversation(pane, host))
+        // The convo's pane carries the archived flag a tmux pane takes from Sessions.List, so readers of the tree need no
+        // archivedIds of their own.
+        Conversation(pane.copy(archived = archived), archived, placeOfConversation(pane, host))
     }
     val index = Index(host, details, epics, contracts, conversations)
     val slots = Slots()
