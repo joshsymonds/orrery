@@ -3,6 +3,7 @@ package stepmcp
 import (
 	"encoding/json"
 	"errors"
+	"os"
 	"slices"
 	"testing"
 
@@ -78,26 +79,26 @@ func TestSteerMoveRefusesASessionKeyBeforeAnyCall(t *testing.T) {
 	}
 }
 
-// TestSteerMoveIsListedWithTheIDSchema checks that tools/list names epic_steer with an input schema of the id alone.
-func TestSteerMoveIsListedWithTheIDSchema(t *testing.T) {
+// TestSteerMoveFixtureListsEpicSteerWithTheIDSchema checks that the tools list fixture, which
+// TestToolsListMatchesTheBaseFixture holds the live tools/list to, names epic_steer with an input schema of the id alone.
+func TestSteerMoveFixtureListsEpicSteerWithTheIDSchema(t *testing.T) {
 	t.Parallel()
-	p := newPeer(t, nil, &fakeEpics{})
-
-	reply := p.call("tools/list", map[string]any{})
-	var listed struct {
-		Tools []listedTool `json:"tools"`
+	raw, err := os.ReadFile(toolsListFixture)
+	if err != nil {
+		t.Fatalf("read fixture: %v", err)
 	}
-	if err := json.Unmarshal(reply.Result, &listed); err != nil {
-		t.Fatalf("decode tools/list: %v", err)
+	var fixture []listedTool
+	if err := json.Unmarshal(raw, &fixture); err != nil {
+		t.Fatalf("decode fixture: %v", err)
 	}
 	var schema map[string]any
-	for _, tool := range listed.Tools {
+	for _, tool := range fixture {
 		if tool.Name == "epic_steer" {
 			schema = tool.InputSchema
 		}
 	}
 	if schema == nil {
-		t.Fatal("tools/list does not name epic_steer")
+		t.Fatalf("fixture %s does not name epic_steer", toolsListFixture)
 	}
 	properties, _ := schema["properties"].(map[string]any)
 	if _, ok := properties["id"]; !ok || len(properties) != 1 {

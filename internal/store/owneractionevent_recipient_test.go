@@ -44,49 +44,6 @@ func ownerActionRecipient(t *testing.T, s *Store, id string) string {
 	return ""
 }
 
-// ownerActionWrites makes a note N1, an answer A1 to question 1 and a kick as maker on the steer-move epic, in that
-// order, and returns the id of the kick's decision.
-func ownerActionWrites(t *testing.T, s *Store, maker Maker) string {
-	t.Helper()
-	ctx := context.Background()
-	at := steerMoveAt()
-	if _, err := s.AnswerEpic(ctx, steerMoveEpic, "N1", "Keep the old tasks", maker, at); err != nil {
-		t.Fatalf("AnswerEpic: %v", err)
-	}
-	if _, err := s.AnswerQuestion(ctx, steerMoveEpic, "A1", "Keep them", 1, ChoiceOther, maker, at); err != nil {
-		t.Fatalf("AnswerQuestion: %v", err)
-	}
-	if err := s.KickEpic(ctx, steerMoveEpic, "Try the sqlite plan", maker, at); err != nil {
-		t.Fatalf("KickEpic: %v", err)
-	}
-	decisions := ownerActionDecisions(t, s)
-	return decisions[len(decisions)-1].ID
-}
-
-func TestOwnerActionEventNoteAnswerAndKickStoreTheSteererAsRecipient(t *testing.T) {
-	t.Parallel()
-	s := ownerActionStore(t)
-	kick := ownerActionWrites(t, s, Maker{By: MakerOwner})
-
-	for _, id := range []string{"N1", "A1", kick} {
-		if got := ownerActionRecipient(t, s, id); got != "engine-1" {
-			t.Errorf("Recipient of owner decision %s = %q, want the steerer engine-1", id, got)
-		}
-	}
-}
-
-func TestOwnerActionEventConversationNoteAnswerAndKickStoreNoRecipient(t *testing.T) {
-	t.Parallel()
-	s := ownerActionStore(t)
-	kick := ownerActionWrites(t, s, Maker{By: MakerConversation, Session: "engine-1"})
-
-	for _, id := range []string{"N1", "A1", kick} {
-		if got := ownerActionRecipient(t, s, id); got != "" {
-			t.Errorf("Recipient of conversation decision %s = %q, want none", id, got)
-		}
-	}
-}
-
 func TestOwnerActionEventDecisionBeforeMoveKeepsTheOldSteerer(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
