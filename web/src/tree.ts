@@ -2,7 +2,7 @@ import type { Contract } from "./gen/orrery/v1/contracts_pb";
 import type { Epic, EpicsGetResponse } from "./gen/orrery/v1/epics_pb";
 import { blockOf, type EpicBlock, repositoryName } from "./epics";
 import { epicNeeds } from "./needs";
-import type { Row } from "./rows";
+import { type Row, waitsOnYou } from "./rows";
 
 // EpicNode is a listed epic hung under its conversation with its running steps (block.steps, at most four, block.more
 // for the rest, block.tail) and, when Contracts.List holds a contract of the same id, that contract.
@@ -50,7 +50,8 @@ const worktreeSuffixes = [".worktrees", "-worktrees"];
 const noDirectoryKey = "nodir";
 const noDirectoryName = "No directory";
 
-// Rank of a conversation, smallest first: waiting (its row, or a hung thing that waits), unseen, working, then the rest.
+// Rank of a conversation, smallest first: waiting (its row waits on you, or a hung thing that waits), unseen, working, then
+// the rest.
 const rankWaiting = 0;
 const rankUnseen = 1;
 const rankWorking = 2;
@@ -289,9 +290,9 @@ export function waits(hung: Hung): boolean {
   );
 }
 
-// convoWaits says whether a conversation waits on you: its row is waiting, or a thing hung under it waits.
+// convoWaits says whether a conversation waits on you: its row waits on you, or a thing hung under it waits.
 export function convoWaits(convo: Convo): boolean {
-  return convo.row?.state === "waiting" || convo.hung.some((hung) => waits(hung));
+  return (convo.row !== null && waitsOnYou(convo.row)) || convo.hung.some((hung) => waits(hung));
 }
 
 function rankOf(convo: Convo): number {

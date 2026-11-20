@@ -8,7 +8,7 @@ import { type ParsedQuestion, parseQuestion } from "./question";
 import type { Row } from "./rows";
 import { ReplyText } from "./text";
 
-export const stateWaiting = "waiting";
+const stateWaiting = "waiting";
 
 const secondsPerMinute = 60;
 const minutesPerHour = 60;
@@ -67,7 +67,7 @@ export function InboxRow({
       }}
     >
       <span class="dot" title={row.unseen ? "new since you looked" : undefined} />
-      <StateGlyph state={row.state} />
+      <StateGlyph state={quietRow(row) ? "idle" : row.state} />
       <div class="main">
         <div class="l1">
           <span class="title">
@@ -101,6 +101,12 @@ function rowClass(cursor: boolean, open: boolean, hover: boolean, menuOpen: bool
   return ["b-row", "row", cursor && "cur", open && "open", menuOpen && "menu-open", hover && "hover"].filter(Boolean).join(" ");
 }
 
+// quietRow is whether a row reads quiet: a waiting row its owner put off, not archived. It draws the idle glyph and its
+// second line without the asks style, and its words stay as they are.
+function quietRow(row: Row): boolean {
+  return row.state === stateWaiting && row.putOff && !row.archived;
+}
+
 // SecondLine draws a row's second line. A waiting row says what it asks, led by a question mark when it holds a question.
 // A working pane's line is its tool, its argument, and its clock from the tool's start. A terminal with no state says it
 // has no conversation. A session's line is its summary. Any other pane has no second line.
@@ -108,7 +114,7 @@ function SecondLine({ row, now }: { row: Row; now: number }): JSX.Element | null
   const line = row.unseen ? "l2" : "l2 one";
   if (row.state === stateWaiting) {
     return (
-      <div class={row.question !== "" ? `${line} asks` : line}>
+      <div class={row.question !== "" && !quietRow(row) ? `${line} asks` : line}>
         {row.question !== "" && <Icon name="question" />}
         <ReplyText text={waitingText(row)} />
       </div>

@@ -23,7 +23,7 @@ import { Handover } from "./handover";
 import { type HeadStore, memoryHeadStore } from "./headfold";
 import { KeyList } from "./helppanel";
 import { Inbox } from "./inbox";
-import { ageText, InboxRow, type RowMore, stateWaiting } from "./inboxrow";
+import { ageText, InboxRow, type RowMore } from "./inboxrow";
 import {
   type BoxOpen,
   type EscapeTarget,
@@ -43,7 +43,7 @@ import { NewPanel } from "./picker";
 import { type Viewing, viewingOf } from "./presence";
 import type { ReaderHandle } from "./reader";
 import { type Address, type Entry, formatAddress, type ListPanelKind, type PageView, type View } from "./router";
-import { type Row, splitArchived } from "./rows";
+import { type Row, splitArchived, waitsOnYou } from "./rows";
 import { realClock, type SeenClock, type SeenWindow, watchSeen } from "./seen";
 import { type SendKind, type Sending, type SentText, sendingEntry, unsentEntries, withoutTexts } from "./sending";
 import { type ColumnHead, type FindState, headState, ReaderColumn, stepCalls } from "./readercolumn";
@@ -473,10 +473,10 @@ export function App({
   const detailEpics = [...epics.details.values()].flatMap((detail) =>
     detail.epic === undefined || archivedIds.has(detail.epic.id) ? [] : [detail.epic],
   );
-  // The mark's count: the loaded rows that need you and are not archived, and the live epics' needs. It reads the same
+  // The mark's count: the loaded rows that wait on you and are not archived, and the live epics' needs. It reads the same
   // in every view and under any filter, as the list reads every loaded row after seen writes.
   const markNeeds =
-    splitArchived(shownRows).rows.filter((row) => row.state === stateWaiting).length +
+    splitArchived(shownRows).rows.filter((row) => waitsOnYou(row)).length +
     epicNeeds(detailEpics, epics.details).length;
   // Under 760px the inbox is docked, whatever the row, the pin and the pop-out hold.
   const inboxState: InboxState = !wide
