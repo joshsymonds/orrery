@@ -152,6 +152,14 @@ test("HeadTitle: the place crumb names its host for the phone layout, and the ti
   });
 });
 
+test("PhoneHead: folded, the title row keeps the bare context beside More", async () => {
+  const props = headProps({ conversation: conversationOf("", 30000n, 200000n), showStrip: true, fold: "reading", narrow: true });
+  await withHead(<Head {...props} />, (container) => {
+    assert.notEqual(container.querySelector(".compact"), null, "the head is folded");
+    assert.equal(container.querySelector(".title-row .phone-ctx .ctx")?.getAttribute("data-level") ?? null, "ok");
+  });
+});
+
 test("HeadTitle: with no host the place crumb names none, and with the strip hidden the title row holds no context", async () => {
   const props = headProps({ conversation: conversationOf("", 174000n, 200000n), showStrip: false });
   await withHead(<Head {...props} />, (container) => {

@@ -790,6 +790,7 @@ section.page.leave { animation: move-leave var(--o-move-leave); }
 .title-row .mark-crumb .needs { font: var(--o-type-small); font-weight: var(--o-font-weight-bold); color: var(--o-ink-1); }
 /* The strip is the title row's own line under its controls: the host's name, each meter, then the context. A meter is its
    name, a bar at its percent and its value, in its series colour; at warn and crit all three take the level's colour. */
+.pane-strip { display: flex; flex-wrap: wrap; align-items: center; gap: var(--o-space-4) var(--o-space-16); min-width: 0; font: var(--o-type-small); color: var(--o-ink-3); }
 .title-row .pane-strip { flex: 0 0 100%; display: flex; flex-wrap: wrap; align-items: center; gap: var(--o-space-4) var(--o-space-16); min-width: 0; font: var(--o-type-small); color: var(--o-ink-3); }
 .pane-strip-host { flex: none; font-weight: var(--o-font-weight-bold); color: var(--o-ink-2); }
 .pane-strip .other { color: var(--o-ink-4); }
@@ -834,10 +835,10 @@ button.subj:hover { background: var(--o-surface-raised); }
 .fold-head { display: grid; place-items: center; flex: none; align-self: center; width: var(--o-size-control-touch); height: var(--o-size-control-touch); margin-left: auto; padding: 0; border: 0; border-radius: var(--o-radius-2); background: none; color: var(--o-ink-3); font: var(--o-type-body); cursor: pointer; appearance: none; -webkit-appearance: none; }
 .fold-head:hover { background: var(--o-surface-well); color: var(--o-ink-1); }
 /* The header folded to one line: what asks, then the badges. Peach when something asks you. */
-.compact { display: flex; align-items: center; gap: var(--o-space-12); flex: none; width: 100%; min-height: var(--o-size-control-touch); margin: 0; padding: 0 var(--o-layout-page-pad-phone); border: 0; border-bottom: var(--o-size-hairline) solid var(--o-line-soft); border-left: var(--o-size-rail) solid transparent; border-radius: 0; background: var(--o-surface-side); color: var(--o-ink-2); font: var(--o-type-small); text-align: left; cursor: pointer; appearance: none; -webkit-appearance: none; }
+.compact { display: flex; align-items: center; gap: var(--o-space-8); overflow: hidden; flex: none; width: 100%; min-height: var(--o-size-control-touch); margin: 0; padding: 0 var(--o-layout-page-pad-phone); border: 0; border-bottom: var(--o-size-hairline) solid var(--o-line-soft); border-left: var(--o-size-rail) solid transparent; border-radius: 0; background: var(--o-surface-side); color: var(--o-ink-2); font: var(--o-type-small); text-align: left; cursor: pointer; appearance: none; -webkit-appearance: none; }
 .compact.attention { border-left-color: var(--o-role-attention); }
-.compact .cask { color: var(--o-role-attention); font-weight: var(--o-font-weight-bold); }
-.compact .cb { display: inline-flex; align-items: center; gap: var(--o-space-4); }
+.compact .cask { flex: none; white-space: nowrap; color: var(--o-role-attention); font-weight: var(--o-font-weight-bold); }
+.compact .cb { display: inline-flex; flex: none; align-items: center; gap: var(--o-space-4); white-space: nowrap; }
 .compact .cb.attention { color: var(--o-role-attention); font-weight: var(--o-font-weight-bold); }
 .compact .end { display: inline-flex; align-items: center; gap: var(--o-space-8); margin-left: auto; color: var(--o-ink-3); }
 @media (width < 760px) {

@@ -89,9 +89,10 @@ export function Head({
   ];
   const strip = showStrip && fold === "open" ? <PaneStrip host={host} context={conversation?.state?.context} /> : undefined;
   const dirName = lastPathElement(row.project);
-  // The phone layout draws the context bare in the title row, beside More, and leaves it out of the strip.
+  // The phone layout draws the context bare in the title row, beside More, open or folded, and leaves it out of the
+  // strip.
   const context = conversation?.state?.context;
-  const phoneContext = showStrip && fold === "open" && context !== undefined ? <ContextMeter context={context} bare /> : null;
+  const phoneContext = showStrip && context !== undefined ? <ContextMeter context={context} bare /> : null;
   return (
     <div class="convo-head" data-fold={fold}>
       <TitleRow
