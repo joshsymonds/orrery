@@ -81,6 +81,18 @@ func parkedNoticeRouted(t *testing.T, routed *recordRoute) bool {
 	return false
 }
 
+// newEpicWritesSeam returns the signal a test waits on and the epics-written seam that signals it. The seam's send never
+// blocks: one buffered signal stands for any number of writes that land before the test rechecks.
+func newEpicWritesSeam() (<-chan struct{}, func(epics []string)) {
+	written := make(chan struct{}, 1)
+	return written, func([]string) {
+		select {
+		case written <- struct{}{}:
+		default:
+		}
+	}
+}
+
 // createAttentionEpic stores the synthetic epic with a pending trigger, which the planner parks without a role file.
 // Its steerer is steerer, and "" leaves it unsteered.
 func createAttentionEpic(t *testing.T, st *store.Store, steerer string) {
@@ -128,11 +140,13 @@ func TestSessionsHostRoutesParkedEpicNotice(t *testing.T) {
 	createAttentionEpic(t, st, "")
 
 	ticks := make(chan time.Time)
+	written, epicWrites := newEpicWritesSeam()
 	opts := options{
 		socket:         filepath.Join(t.TempDir(), "orreryd.sock"),
 		sessionCap:     defaultSessionCap,
 		stepCap:        defaultStepCap,
 		attentionTicks: ticks,
+		epicWrites:     epicWrites,
 	}
 	routed := &recordRoute{}
 	logger := slog.New(slog.DiscardHandler)
@@ -142,7 +156,8 @@ func TestSessionsHostRoutesParkedEpicNotice(t *testing.T) {
 	}
 
 	// The runner parks the epic on its first pass. Once the park is stored, two ticks to the attention loop make a
-	// whole pass that began after it: the loop takes the second tick only when the first tick's pass is done.
+	// whole pass that began after it: the loop takes the second tick only when the first tick's pass is done. Each
+	// write that moves the epic signals written after it commits, so the check reruns after every such write.
 	for {
 		epic, err := st.Epic(ctx, attentionWiringEpic)
 		if err != nil {
@@ -151,7 +166,7 @@ func TestSessionsHostRoutesParkedEpicNotice(t *testing.T) {
 		if epic.Parked != "" {
 			break
 		}
-		time.Sleep(plannerWiringPoll)
+		<-written
 	}
 	ticks <- time.Time{}
 	ticks <- time.Time{}
