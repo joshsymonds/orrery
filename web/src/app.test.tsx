@@ -4764,23 +4764,6 @@ function talkItems(container: HTMLElement): string[] {
   return [...container.querySelectorAll<HTMLButtonElement>(".talk button")].map((button) => button.textContent ?? "");
 }
 
-// dockShown is whether the epic section holds the docked conversation as a child of its own.
-function dockShown(container: HTMLElement): boolean {
-  return container.querySelector('section.page[aria-label="epic"] > aside.dock[aria-label="talk"]') !== null;
-}
-
-// dockLabel is the name the docked conversation's head shows, or "" when no conversation is docked.
-function dockLabel(container: HTMLElement): string {
-  return (
-    container.querySelector('section.page[aria-label="epic"] > aside.dock[aria-label="talk"] h1')?.textContent ?? ""
-  );
-}
-
-// pageDocked is whether the epic section carries the class docked, which lays the dock beside the epic page.
-function pageDocked(container: HTMLElement): boolean {
-  return container.querySelector('section.page[aria-label="epic"].docked') !== null;
-}
-
 // chooseTalkLine clicks the line Talk's list shows for the session with the label. A line reads as its label, its call
 // and its clock.
 async function chooseTalkLine(container: HTMLElement, label: string): Promise<void> {
@@ -4793,63 +4776,65 @@ async function chooseTalkLine(container: HTMLElement, label: string): Promise<vo
   });
 }
 
-// closeDock clicks the × of the docked conversation.
-async function closeDock(container: HTMLElement): Promise<void> {
-  const close = container.querySelector<HTMLButtonElement>('aside.dock[aria-label="talk"] button[aria-label="close"]');
-  assert.ok(close, "the dock has its × button");
-  await act(() => {
-    close.dispatchEvent(new Event("click"));
-  });
-}
-
 test("Talk is the first command in the epic page's title row", (t) =>
   withApp(t.signal, { epics: pageEpic({ repository: talkRepository }) }, async (container) => {
     await press("j");
     assert.equal(titleCommands(container)[0], "Talk", "Talk leads the title row's commands");
   }));
 
-test("choosing a session in Talk docks its conversation beside the epic page, and × closes it", (t) =>
-  withApp(t.signal, { epics: pageEpic({ repository: talkRepository, sessions: [talkSession] }) }, async (container, fake) => {
-    await press("j");
-    assert.equal(dockShown(container), false, "no conversation is docked before a choice");
-    await clickButton(container, ".epic-page .title-row .acts", "Talk");
-    await chooseTalkLine(container, "auth work");
-    assert.equal(dockShown(container), true, "the session's conversation docks beside the epic page");
-    assert.equal(dockLabel(container), "auth work", "the dock is named for the session");
-    assert.equal(pageDocked(container), true, "the epic section is docked");
-    await until(t.signal, 
-      () => fake.callsTo(sessionWatchPath).some((call) => call.body.id === "sess-1"),
-      "the docked session's stream",
-    );
-    await closeDock(container);
-    assert.equal(dockShown(container), false, "× removes the dock");
-    assert.equal(pageDocked(container), false, "× removes the docked class");
-    assert.equal(fake.callsTo(sessionWatchPath)[0].signal.aborted, true, "× stops the session's stream");
-  }));
+// talkDockDrawn is whether a conversation is docked beside an epic: the dock is drawn, or the epic page is laid
+// beside it.
+function talkDockDrawn(container: HTMLElement): boolean {
+  return container.querySelector('aside.dock[aria-label="talk"], section.page[aria-label="epic"].docked') !== null;
+}
 
-test("TitleParts: a session chosen in Talk docks with a head drawn from its listed row", (t) =>
+// talkSessionRow is the listed row of the session Talk lists as talkSession.
+const talkSessionRow = row({
+  key: "session:sess-1",
+  id: "sess-1",
+  archiveId: "sess-1",
+  kind: "session",
+  archiveKind: "session",
+  label: "auth refresh",
+  project: "/work/api",
+  state: "done",
+  changed: 10,
+  seen: 10,
+});
+
+test("RailAddress: choosing a session in Talk moves the cursor to its row, and its conversation opens in the middle", (t) =>
   withApp(
     t.signal,
-    {
-      epics: pageEpic({ repository: talkRepository, sessions: [talkSession] }),
-      rows: [...fixture(), row({ key: "sess-1", kind: "session", label: "auth refresh", project: "/work/api" })],
-    },
-    async (container) => {
+    { rows: [...fixture(), talkSessionRow], epics: pageEpic({ repository: talkRepository, sessions: [talkSession] }) },
+    async (container, fake) => {
       await press("j");
       await clickButton(container, ".epic-page .title-row .acts", "Talk");
       await chooseTalkLine(container, "api auth refresh");
-      assert.equal(dockShown(container), true, "the session's conversation docks beside the epic page");
-      assert.equal(
-        container.querySelector('aside.dock[aria-label="talk"] h1 .title-dir')?.textContent,
-        "api",
-        "the head draws the listed row's directory",
+      assert.equal(cursorKey(container), "session:sess-1", "the cursor moves to the session's row");
+      assert.equal(epicPageShown(container), false, "the epic page gives way to the session");
+      assert.equal(talkDockDrawn(container), false, "no conversation is docked beside the epic page");
+      await until(
+        t.signal,
+        () => fake.callsTo(sessionWatchPath).some((call) => call.body.id === "sess-1"),
+        "the session's stream",
       );
-      assert.equal(dockLabel(container), "api auth refresh", "the head reads the listed row's directory and line");
     },
   ));
 
-test("New session in the repository starts a session there with the first prompt, and docks it", (t) =>
-  withApp(t.signal, { epics: pageEpic({ repository: talkRepository }) }, async (container, fake) => {
+test("RailAddress: a session Talk starts opens in the middle once its row is listed", (t) => {
+  const epics = pageEpic({ repository: talkRepository });
+  const startedRow = row({
+    key: "session:sess-new",
+    id: "sess-new",
+    archiveId: "sess-new",
+    kind: "session",
+    archiveKind: "session",
+    label: "widgets",
+    state: "working",
+    changed: 500,
+    seen: 500,
+  });
+  return withApp(t.signal, { epics }, async (container, fake) => {
     fake.replies.set(startSessionPath, [{ id: "sess-new" }]);
     await press("j");
     await clickButton(container, ".epic-page .title-row .acts", "Talk");
@@ -4858,13 +4843,24 @@ test("New session in the repository starts a session there with the first prompt
     const body = fake.callsTo(startSessionPath)[0].body;
     assert.equal(body.dir, talkRepository, "the session starts in the epic's repository");
     assert.equal(body.prompt, talkFirstPrompt, "the session's first prompt names the epic");
-    await until(t.signal, () => dockShown(container), "the docked session");
-    assert.equal(dockLabel(container), "widgets", "the dock is named for the repository");
-    await until(t.signal, 
+    assert.equal(epicPageShown(container), true, "the epic page stays until the started session's row is listed");
+    await mount(container, {
+      rows: [...fixture(), startedRow],
+      epics,
+      error: "",
+      now,
+      clients: fake.clients,
+      seen: fake.seen,
+    });
+    assert.equal(cursorKey(container), "session:sess-new", "the cursor moves to the started session's row");
+    assert.equal(talkDockDrawn(container), false, "no conversation is docked beside the epic page");
+    await until(
+      t.signal,
       () => fake.callsTo(sessionWatchPath).some((call) => call.body.id === "sess-new"),
       "the new session's stream",
     );
-  }));
+  });
+});
 
 test("an epic with no repository lists its sessions in Talk and offers no new session", (t) =>
   withApp(t.signal, { epics: pageEpic({ sessions: [talkSession] }) }, async (container) => {
@@ -4881,36 +4877,6 @@ test("an epic with no repository lists its sessions in Talk and offers no new se
       "no new session is offered",
     );
   }));
-
-test("showing another epic closes the docked conversation, and the first epic's dock does not come back", (t) => {
-  const first = makeEpic(widgetsRepo, "first");
-  const second = makeEpic(gadgetsRepo, "second");
-  const epics = epicsView(
-    [first, second],
-    new Map([
-      [
-        first.id,
-        create(EpicsGetResponseSchema, { epic: first, repository: talkRepository, sessions: [talkSession] }),
-      ],
-      [second.id, detailOf(second, [])],
-    ]),
-  );
-  return withApp(t.signal, { rows: [], epics }, async (container) => {
-    await press("g");
-    await press("g");
-    assert.equal(cursorKey(container), epicKey(first), "the cursor rests on the first epic");
-    await clickButton(container, ".epic-page .title-row .acts", "Talk");
-    await chooseTalkLine(container, "auth work");
-    assert.equal(dockShown(container), true, "the conversation docks on the first epic");
-    await press("G");
-    assert.equal(cursorKey(container), epicKey(second), "the cursor rests on the second epic");
-    assert.equal(dockShown(container), false, "showing the second epic closes the dock");
-    await press("g");
-    await press("g");
-    assert.equal(cursorKey(container), epicKey(first), "the cursor returns to the first epic");
-    assert.equal(dockShown(container), false, "the first epic's dock stays closed");
-  });
-});
 
 test("App reports the cursor's pane, epic, step and session to onViewing as the cursor moves", (t) => {
   const reported: Viewing[] = [];

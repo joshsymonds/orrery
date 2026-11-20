@@ -2,6 +2,8 @@
 // over the fixture slices. Page holds the states of the live scenarios: the address that names a state draws it, and
 // where none does, an after step clicks the way there.
 
+import { options } from "preact";
+
 import { PageStory } from "./catalog/pagestory";
 import type { Stories } from "./catalog/story";
 import type { Address, PageView } from "./router";
@@ -19,8 +21,17 @@ function epicAt(id: string, page: PageView): Address {
   return { order: "attention", entry: { kind: "epic", id, page } };
 }
 
+// frame waits for Preact's next after-paint flush, the one that runs the effects a render holds. A test sets
+// options.requestAnimationFrame to its own flush; in a browser the flush comes a frame later, so the wait does too.
+function frame(): Promise<void> {
+  return new Promise((resolve) => {
+    const schedule = options.requestAnimationFrame ?? ((callback: () => void) => setTimeout(callback, 16));
+    schedule(() => resolve());
+  });
+}
+
 // clickWhen clicks the first element of root that matches selector and, with text, includes it. The page draws a click's
-// result in a microtask, so each round lets one run before it looks again. A page that never draws the element fails the
+// result after a flush, so each round waits one before it looks again. A page that never draws the element fails the
 // story.
 async function clickWhen(root: HTMLElement, selector: string, text = ""): Promise<void> {
   for (let round = 0; round < 50; round++) {
@@ -31,7 +42,7 @@ async function clickWhen(root: HTMLElement, selector: string, text = ""): Promis
       element.click();
       return;
     }
-    await Promise.resolve();
+    await frame();
   }
   throw new Error(`the page never drew ${selector} to click`);
 }

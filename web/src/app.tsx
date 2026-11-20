@@ -58,7 +58,6 @@ import { type SendKind, type Sending, type SentText, sendingEntry, unsentEntries
 import { type FindState, headState, ReaderColumn, stepCalls } from "./readercolumn";
 import { PaneStrip, type StripHost } from "./strip";
 import { Talk, type TalkTarget } from "./talk";
-import { TalkDock } from "./talkdock";
 import { ReplyText } from "./text";
 import { type InboxMark, TitleRow } from "./titlerow";
 import { WorkerSessionPage } from "./workersession";
@@ -107,12 +106,6 @@ const closedEpicPage: EpicPageState = { page: epicPageView, below: [], move: "",
 interface EpicHistory {
   id: string;
   entries: EpicHistoryEntry[];
-}
-
-// The conversation Talk docked beside the epic page, and the epic it opened on: showing another epic closes it.
-interface TalkDockState {
-  epic: string;
-  target: TalkTarget;
 }
 
 // A step a card opened: the epic that holds it and the step's id. The page opens on the step once the epic's detail holds
@@ -299,8 +292,6 @@ export function App({
   const [opened, setOpened] = useState<OpenedEpic | null>(null);
   // The worker session the page shows, held under the step it belongs to.
   const [sessionStream, setSessionStream] = useState<Stream | null>(null);
-  // The conversation Talk docked beside the epic page, with the epic it opened on.
-  const [talkDock, setTalkDock] = useState<TalkDockState | null>(null);
   // The epic page section, and the scroll place a back restores once the page it returns to is drawn.
   const pageRef = useRef<HTMLElement>(null);
   const restorePageScroll = useRef<number | null>(null);
@@ -457,9 +448,6 @@ export function App({
   // the epic's detail holds, so a step the detail lacks opens no stream.
   const openStep = !epicPage.closed && epicPage.page.kind === "session" ? epicPage.page.step : "";
   const shownSession = epicDetail?.steps.some((step) => step.id === openStep) === true ? openStep : "";
-  // The dock shows only on the epic it opened on.
-  const docked = talkDock !== null && epicEntry !== null && talkDock.epic === epicEntry.id ? talkDock : null;
-  const epicId = epicEntry?.id ?? "";
   // The epic entry the cursor rests on, when the poll did not load its detail, is asked for once with Epics.Get. A
   // failed answer leaves the page at its unavailable line.
   const askedId = epicEntry?.id ?? "";
@@ -623,13 +611,6 @@ export function App({
   useEffect(() => {
     onViewing?.(viewingOf(cursorItem));
   }, [cursorItem?.kind, cursorItem?.id]);
-
-  // Showing another epic closes the dock. A row or step shows no epic, so the dock is kept across it.
-  useLayoutEffect(() => {
-    if (epicId !== "") {
-      setTalkDock((previous) => (previous?.epic === epicId ? previous : null));
-    }
-  }, [epicId]);
 
   // A back restores the scroll place of the page it returns to before that page is painted.
   useLayoutEffect(() => {
@@ -1227,7 +1208,7 @@ export function App({
   };
 
   // replyBoxTarget is the row whose reply box is focused, when it is the cursor's or the pinned row's, with the row's
-  // state at the press. A step's box, the talk dock's box and any other box are none.
+  // state at the press. A step's box and any other box are none.
   const replyBoxTarget = (box: HTMLElement): EscapeTarget | null => {
     if (cursorRow !== null && composerInputs.current.get(cursorRow.key) === box) {
       return { row: cursorRow, column: "cursor", state: headState(cursorRow, cursorConversation?.state?.pane) };
@@ -1358,7 +1339,7 @@ export function App({
         />
       );
     }
-    const openTalk = (target: TalkTarget) => setTalkDock({ epic: entry.id, target });
+    const openTalk = (target: TalkTarget) => setPending({ kind: target.kind, id: target.id });
     return (
       <EpicPage
         detail={detail}
@@ -1621,7 +1602,7 @@ export function App({
           open={false}
         />
         <section
-          class={pageClasses(epicPage.move, docked !== null)}
+          class={pageClasses(epicPage.move)}
           aria-label="epic"
           hidden={epicEntry === null || epicPage.closed}
           ref={pageRef}
@@ -1632,17 +1613,6 @@ export function App({
             ) : (
               pageNode(epicEntry, epicDetail)
             ))}
-          {docked !== null && (
-            <TalkDock
-              clients={clients}
-              rows={rows}
-              target={docked.target}
-              onClose={() => setTalkDock(null)}
-              openEpic={openEpic}
-              openStep={openEpicStep}
-              epics={epics}
-            />
-          )}
         </section>
       </div>
       {pickerOpen && (
@@ -2060,7 +2030,7 @@ function sectionClass(title: string): string {
   return "b-sec";
 }
 
-// pageClasses are the classes of the epic page section: its move, and docked while a conversation docks beside it.
-function pageClasses(move: EpicPageState["move"], docked: boolean): string {
-  return ["page", move, docked ? "docked" : ""].filter((name) => name !== "").join(" ");
+// pageClasses are the classes of the epic page section: its move.
+function pageClasses(move: EpicPageState["move"]): string {
+  return ["page", move].filter((name) => name !== "").join(" ");
 }

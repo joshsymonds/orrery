@@ -53,11 +53,10 @@ function inboxState(root: HTMLElement): string | null {
 const beaconPrompt = "Why is the roster page slow for weeks with more than forty shifts?";
 const lampFragment = "Full jitter is in";
 
-// The open decision of the rota-export epic, and the planning conversation the talk dock draws beside the epic page.
-// The Talk menu and the dock are drawn on the epic page only in the talk states, so the epic's own state checks neither.
+// The open decision of the rota-export epic, and the planning conversation Talk's first line opens in the reader. The
+// Talk menu is drawn on the epic page only in the talk states, so the epic's own state checks neither.
 const rotaQuestion = "Bump the embedded tz database?";
 const rotaPrompt = "Plan the rota export as an epic.";
-const talkDock = 'aside.dock[aria-label="talk"]';
 
 // inboxHome is Page/inbox-home: the attention rows, with the inbox docked beside the cursor's reader on pane %12.
 function inboxHome(root: HTMLElement): boolean {
@@ -74,23 +73,22 @@ function askSession(root: HTMLElement): boolean {
   return inboxState(root) === "hidden" && (root.textContent ?? "").includes(beaconPrompt);
 }
 
-// epicQuestion is Page/epic-question: Q1 is drawn in the now block, with no Talk menu and no talk dock drawn.
+// epicQuestion is Page/epic-question: Q1 is drawn in the now block, with no Talk menu drawn.
 function epicQuestion(root: HTMLElement): boolean {
   return (
     root.querySelector(".now-block .answer .question")?.textContent.includes(rotaQuestion) === true &&
-    root.querySelector("ul.talk") === null &&
-    root.querySelector(talkDock) === null
+    root.querySelector("ul.talk") === null
   );
 }
 
-// epicHandover is Page/epic-handover: the Talk menu is drawn open, with no talk dock beside the epic page.
+// epicHandover is Page/epic-handover: the Talk menu is drawn open.
 function epicHandover(root: HTMLElement): boolean {
-  return root.querySelector("ul.talk") !== null && root.querySelector(talkDock) === null;
+  return root.querySelector("ul.talk") !== null;
 }
 
-// epicTalk is Page/epic-talk: the talk dock is drawn with the planning conversation in it.
+// epicTalk is Page/epic-talk: the cursor's reader holds the planning conversation that Talk's first line opened.
 function epicTalk(root: HTMLElement): boolean {
-  return root.querySelector(talkDock)?.textContent.includes(rotaPrompt) === true;
+  return root.querySelector('section[aria-label="reader"]')?.textContent.includes(rotaPrompt) === true;
 }
 
 // assertNoFailure fails unless the story drew no failure element, so no call it made was refused.
@@ -361,7 +359,7 @@ test("FixtureTransport: page/epic-question draws the open decision on the epic p
     epicQuestion,
     (root) => {
       assertNoFailure(root);
-      assert.ok(epicQuestion(root), "Q1 is drawn, with no Talk menu or talk dock");
+      assert.ok(epicQuestion(root), "Q1 is drawn, with no Talk menu");
     },
   );
 });
@@ -431,7 +429,7 @@ test("FixtureTransport: page/worker-running draws the worker session", (t) => {
   );
 });
 
-test("FixtureTransport: page/epic-talk draws the planning conversation docked beside the epic page", (t) => {
+test("FixtureTransport: page/epic-talk draws the planning conversation in the cursor's reader", (t) => {
   mockTimers(t, ["setTimeout"]);
   return withStory(
     t,
@@ -439,7 +437,7 @@ test("FixtureTransport: page/epic-talk draws the planning conversation docked be
     epicTalk,
     (root) => {
       assertNoFailure(root);
-      assert.ok(epicTalk(root), "the planning conversation is docked");
+      assert.ok(epicTalk(root), "the planning conversation is in the reader");
     },
   );
 });
@@ -452,7 +450,7 @@ test("FixtureTransport: page/epic-handover draws the Talk menu", (t) => {
     epicHandover,
     (root) => {
       assertNoFailure(root);
-      assert.ok(epicHandover(root), "the Talk menu is open, with no talk dock");
+      assert.ok(epicHandover(root), "the Talk menu is open");
     },
   );
 });
