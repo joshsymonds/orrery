@@ -46,6 +46,11 @@ const lists = {
   },
 } as const;
 
+// listHead is the name a list's panel goes by: "Sub-agents" or "Left running".
+export function listHead(kind: "agents" | "running"): string {
+  return lists[kind].head;
+}
+
 // ListPanel draws a conversation's running sub-agents, or its shells left running, as one row per task it is given: its
 // description, its activity, and its clock from when it started. An agent row leads its activity with its sub-agent type.
 export function ListPanel({ kind, tasks, now }: { kind: "agents" | "running"; tasks: BackgroundTask[]; now: number }) {

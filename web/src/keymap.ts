@@ -78,6 +78,8 @@ export interface KeyContext {
   closePin: () => void;
   togglePin: () => void;
   toggleStrips: () => void;
+  // Shuts the open panel, or with none open reopens the thing it held last.
+  togglePanel: () => void;
   setPickerOpen: Dispatch<StateUpdater<boolean>>;
   setMenuKey: Dispatch<StateUpdater<string | null>>;
   setFilter: Dispatch<StateUpdater<string>>;
@@ -125,6 +127,7 @@ export function handleKey(event: KeyboardEvent, context: KeyContext): void {
     closePin,
     togglePin,
     toggleStrips,
+    togglePanel,
     setPickerOpen,
     setMenuKey,
     setFilter,
@@ -326,6 +329,9 @@ export function handleKey(event: KeyboardEvent, context: KeyContext): void {
       break;
     case "m":
       toggleStrips();
+      break;
+    case "]":
+      togglePanel();
       break;
     case "?":
       setHelpOpen((open) => !open);

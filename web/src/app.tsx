@@ -51,17 +51,17 @@ import type { Phase } from "./phases";
 import { PickerPalette } from "./picker";
 import { type Viewing, viewingOf } from "./presence";
 import type { ReaderHandle } from "./reader";
-import { type Address, type Entry, formatAddress, type PageView } from "./router";
+import { type Address, type Entry, formatAddress, type ListPanelKind, type PageView } from "./router";
 import { byAttention, byProject, type Row, type Section, splitArchived } from "./rows";
 import { type SeenClock, type SeenWindow, watchSeen } from "./seen";
 import { type SendKind, type Sending, type SentText, sendingEntry, unsentEntries, withoutTexts } from "./sending";
 import { type FindState, headState, ReaderColumn, stepCalls } from "./readercolumn";
-import { SidePanel } from "./sidepanel";
+import { ListPanel, listHead, SidePanel } from "./sidepanel";
 import { PaneStrip, type StripHost } from "./strip";
 import { Talk, type TalkTarget } from "./talk";
 import { ReplyText } from "./text";
 import { type InboxMark, TitleRow } from "./titlerow";
-import { type Thing, type WorkConversation, workOf } from "./work";
+import { type ListThing, type Thing, type WorkConversation, workOf } from "./work";
 import { WorkerSessionPage } from "./workersession";
 import { WorkRail } from "./workrail";
 
@@ -130,6 +130,15 @@ interface PendingOpen {
   order: View;
   entry: Entry;
 }
+
+// A list panel open beside a session: the key of the session's row it is open on, and the list it shows.
+interface ListOpen {
+  key: string;
+  panel: ListPanelKind;
+}
+
+// What a panel held, which ] reopens once no panel is open: an epic by its id, or a session's list by its open state.
+type Held = { kind: "epic"; id: string } | { kind: "list"; open: ListOpen };
 
 // The row the palette answered: the pane Picker.Run answered, or the session Control.Start started, by its kind and id.
 interface PendingTarget {
@@ -309,6 +318,9 @@ export function App({
   const [opened, setOpened] = useState<OpenedEpic | null>(null);
   // The worker session the page shows, held under the step it belongs to.
   const [sessionStream, setSessionStream] = useState<Stream | null>(null);
+  // The list panel open beside a session, and the thing a panel held last, which ] reopens.
+  const [listPanel, setListPanel] = useState<ListOpen | null>(null);
+  const [held, setHeld] = useState<Held | null>(null);
   // The epic page section, and the scroll place a back restores once the page it returns to is drawn.
   const pageRef = useRef<HTMLElement>(null);
   const restorePageScroll = useRef<number | null>(null);
@@ -477,7 +489,9 @@ export function App({
   // cursor. So a render that moves the cursor reads the open page, and the page the cursor left is shown only once that
   // reset has run.
   const shownPage = pageCursor.current === cursorKey ? epicPage : openEpicPage;
-  const shownAddress: Address = { order: view, entry: shownEntry(cursorItem, shownPage) };
+  // The list panel the cursor's session row shows: a list is open only while the cursor rests on the row it is open on.
+  const listShown: ListPanelKind | null = listPanel !== null && listPanel.key === cursorRowKey ? listPanel.panel : null;
+  const shownAddress: Address = { order: view, entry: shownEntry(cursorItem, shownPage, listShown) };
   const shownForm = formatAddress(shownAddress);
 
   // The held cursor follows the entry shown, so a first render or a clamp does not leave it on a stale key.
@@ -625,6 +639,11 @@ export function App({
   useLayoutEffect(() => {
     pageCursor.current = cursorKey;
     setEpicPage(openEpicPage);
+  }, [cursorKey]);
+
+  // A move of the cursor shuts a list panel, unless the cursor moved onto the row the panel is open on.
+  useLayoutEffect(() => {
+    setListPanel((previous) => (previous?.key === cursorKey ? previous : null));
   }, [cursorKey]);
 
   // onViewing reports the viewing key of the cursor's entry each time that entry's kind or id changes, so the page's
@@ -1126,6 +1145,9 @@ export function App({
       const item = flat.find((candidate) => candidate.key === addressKey(entry));
       if (item !== undefined) {
         selectItem(item);
+        setListPanel(
+          entry.kind === "session" && entry.panel !== undefined ? { key: item.key, panel: entry.panel } : null,
+        );
         setRowOpened(true);
         adopt();
         return;
@@ -1241,6 +1263,123 @@ export function App({
     return null;
   };
 
+  // The rail's conversation is the middle row, with its session, whether it is a pane, and the background tasks its stream
+  // holds. Its groups are what it steers, from the epics the list shows.
+  const railConversation: WorkConversation | null =
+    middleRow === null
+      ? null
+      : {
+          session: middleRow.archiveKind === "none" ? "" : middleRow.archiveId,
+          pane: middleRow.kind === "pane",
+          background: cursorConversation?.state?.background ?? [],
+        };
+  const railGroups = workOf(railConversation, kept, now);
+  // The epic panel is open while the cursor rests on an epic entry and its page is not closed. Its tile is the rail's tile
+  // of that epic, which is lit while the panel is open, and whose tone the card takes. An epic no conversation steers has
+  // no tile, so no tile is lit and the card takes the quiet tone.
+  const panelOpen = epicEntry !== null && !epicPage.closed;
+  const panelThing =
+    epicEntry === null
+      ? undefined
+      : railGroups.flatMap((group) => group.things).find((thing) => thing.key === epicEntry.key);
+  const lit = panelOpen && panelThing !== undefined ? panelThing.key : (listShown ?? "");
+  const panelTone = panelThing?.tone ?? "quiet";
+  // The one panel open beside the conversation is an epic's or a list's. A list's card takes its tile's tone, and its
+  // rows are the tile's tasks, which are empty once the tile is gone.
+  const panelShown = panelOpen || listShown !== null;
+  const listThing = railGroups
+    .flatMap((group) => group.things)
+    .find((thing): thing is ListThing => thing.kind !== "epic" && thing.key === listShown);
+  const listTone = listThing?.tone ?? "quiet";
+  const listTasks = listThing?.tasks ?? [];
+  // What the panel holds while it is open: ] reopens it once it shuts. An epic is held while its panel is open, and a
+  // list while its panel is open on its row.
+  const openHeld: Held | null =
+    panelOpen && epicEntry !== null
+      ? { kind: "epic", id: epicEntry.id }
+      : listShown === null
+        ? null
+        : { kind: "list", open: { key: cursorRowKey, panel: listShown } };
+  const heldKey =
+    openHeld === null
+      ? ""
+      : openHeld.kind === "epic"
+        ? `epic:${openHeld.id}`
+        : `list:${openHeld.open.key}:${openHeld.open.panel}`;
+  useEffect(() => {
+    if (openHeld !== null) {
+      setHeld(openHeld);
+    }
+  }, [heldKey]);
+  // closePanel shuts the epic panel, from its lit tile or its Close. It moves the cursor to the steerer's row, as an open,
+  // when the list shows that row; with no such row in the list, it closes the epic page instead.
+  const closePanel = navigated(() => {
+    const target = flat.findIndex((item) => item.key === middleKey);
+    if (middleRow !== null && target >= 0) {
+      moveTo(target);
+    } else {
+      setEpicPage(closedEpicPage);
+    }
+  });
+  // openList opens a list panel on the session row it names, moving the cursor onto that row, which holds the panel
+  // open. A row the list does not show opens nothing.
+  const openList = (key: string, panel: ListPanelKind) => {
+    const target = flat.findIndex((item) => item.key === key);
+    if (target < 0) {
+      return;
+    }
+    moveTo(target);
+    setListPanel({ key, panel });
+  };
+  // closeList shuts the list panel, from its lit tile or its Close. The cursor stays on the session's row, so the
+  // address is the session's own.
+  const closeList = navigated(() => setListPanel(null));
+  // openThing is a press on a rail tile. The lit tile shuts its panel, whether it is an epic's or a list's. Another
+  // epic's tile opens that epic as an open, and a list's tile opens the list on the session row the rail reads.
+  const openThing = (thing: Thing) => {
+    if (thing.key === lit) {
+      if (thing.kind === "epic") {
+        closePanel();
+      } else {
+        closeList();
+      }
+      return;
+    }
+    if (thing.kind === "epic") {
+      navigated(openEpic)(thing.id);
+      return;
+    }
+    navigated(openList)(middleKey, thing.kind);
+  };
+  // togglePanel is ]: it shuts the open panel, or with none open reopens the thing the panel held last, as long as the
+  // list still holds it.
+  const togglePanel = () => {
+    if (panelOpen) {
+      closePanel();
+      return;
+    }
+    if (listShown !== null) {
+      closeList();
+      return;
+    }
+    if (held === null) {
+      return;
+    }
+    if (held.kind === "epic") {
+      if (!listsEpic(kept, held.id)) {
+        return;
+      }
+      // An epic shut with no conversation to go to keeps the cursor, so its page is opened again where it is.
+      if (cursorKey === `epic:${held.id}`) {
+        navigated(() => setEpicPage(openEpicPage))();
+      } else {
+        navigated(openEpic)(held.id);
+      }
+      return;
+    }
+    navigated(openList)(held.open.key, held.open.panel);
+  };
+
   // The keys read this render's state and call this render's actions, so the document listener runs the latest context.
   const keyContext: KeyContext = {
     pickerOpen,
@@ -1274,6 +1413,7 @@ export function App({
     closePin,
     togglePin,
     toggleStrips,
+    togglePanel,
     setPickerOpen,
     setMenuKey,
     setFilter,
@@ -1292,50 +1432,6 @@ export function App({
     document.addEventListener("keydown", listener);
     return () => document.removeEventListener("keydown", listener);
   }, []);
-
-  // The rail's conversation is the middle row, with its session, whether it is a pane, and the background tasks its stream
-  // holds. Its groups are what it steers, from the epics the list shows.
-  const railConversation: WorkConversation | null =
-    middleRow === null
-      ? null
-      : {
-          session: middleRow.archiveKind === "none" ? "" : middleRow.archiveId,
-          pane: middleRow.kind === "pane",
-          background: cursorConversation?.state?.background ?? [],
-        };
-  const railGroups = workOf(railConversation, kept, now);
-  // The epic panel is open while the cursor rests on an epic entry and its page is not closed. Its tile is the rail's tile
-  // of that epic, which is lit while the panel is open, and whose tone the card takes. An epic no conversation steers has
-  // no tile, so no tile is lit and the card takes the quiet tone.
-  const panelOpen = epicEntry !== null && !epicPage.closed;
-  const panelThing =
-    epicEntry === null
-      ? undefined
-      : railGroups.flatMap((group) => group.things).find((thing) => thing.key === epicEntry.key);
-  const lit = panelOpen && panelThing !== undefined ? panelThing.key : "";
-  const panelTone = panelThing?.tone ?? "quiet";
-  // closePanel shuts the epic panel, from its lit tile or its Close. It moves the cursor to the steerer's row, as an open,
-  // when the list shows that row; with no such row in the list, it closes the epic page instead.
-  const closePanel = navigated(() => {
-    const target = flat.findIndex((item) => item.key === middleKey);
-    if (middleRow !== null && target >= 0) {
-      moveTo(target);
-    } else {
-      setEpicPage(closedEpicPage);
-    }
-  });
-  // openThing is a press on a rail tile. The lit epic's tile closes the panel, and another epic's tile opens that epic as
-  // an open. A list's tile is wired by the list tasks, so it does nothing here.
-  const openThing = (thing: Thing) => {
-    if (thing.kind !== "epic") {
-      return;
-    }
-    if (thing.key === lit) {
-      closePanel();
-      return;
-    }
-    navigated(openEpic)(thing.id);
-  };
 
   // The epic calls the readers of the cursor and the pin make: an epic a call created draws its card, which shows the
   // poll's detail of its epic, or reads an epic the poll holds no detail of when its listed message changes, and opens
@@ -1443,7 +1539,7 @@ export function App({
       <div
         class={`panes${pinned !== null ? " split" : ""}${overlay ? " overlay" : ""}`}
         data-inbox={inboxState}
-        data-side={panelOpen ? "panel" : "rail"}
+        data-side={panelShown ? "panel" : "rail"}
       >
         {notices.length > 0 && <NoticeBanner notices={notices} onOpen={openNotice} onDismiss={markNoticeSeen} />}
         <div class="list" ref={listRef} onMouseLeave={() => setPopout("none")}>
@@ -1685,6 +1781,11 @@ export function App({
                 pageNode(epicEntry, epicDetail)
               )}
             </section>
+          </SidePanel>
+        )}
+        {listShown !== null && (
+          <SidePanel label={listHead(listShown)} tone={listTone} href={shownForm} onClose={closeList}>
+            <ListPanel kind={listShown} tasks={listTasks} now={now} />
           </SidePanel>
         )}
         {wide && <WorkRail groups={railGroups} lit={lit} layout="rail" onOpen={openThing} />}
@@ -1955,15 +2056,16 @@ function noticeEntry(items: Item[], key: NoticeKey | undefined): Item | undefine
   });
 }
 
-// shownEntry is the entry App's address names for the cursor's entry: a row or step by its id, and an epic by its id
-// and its open sub-page. An epic whose page is closed has no entry, and neither has a cursor on nothing.
-function shownEntry(item: Item | null, epicPage: EpicPageState): Entry | null {
+// shownEntry is the entry App's address names for the cursor's entry: a row or step by its id, a session by its id and
+// the list panel open on it, and an epic by its id and its open sub-page. An epic whose page is closed has no entry,
+// and neither has a cursor on nothing.
+function shownEntry(item: Item | null, epicPage: EpicPageState, list: ListPanelKind | null): Entry | null {
   if (item === null) {
     return null;
   }
   switch (item.kind) {
     case "session":
-      return { kind: "session", id: item.id };
+      return list === null ? { kind: "session", id: item.id } : { kind: "session", id: item.id, panel: list };
     case "pane":
       return { kind: "pane", host: item.host, pane: item.id };
     case "step":
