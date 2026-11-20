@@ -3,7 +3,18 @@ import { test } from "node:test";
 
 import { create } from "@bufbuild/protobuf";
 
-import { answer, interrupt, markSeen, newPromptId, pullQueued, send, withdraw } from "./actions";
+import {
+  answer,
+  bringBack,
+  decline,
+  interrupt,
+  markSeen,
+  newPromptId,
+  notNow,
+  pullQueued,
+  send,
+  withdraw,
+} from "./actions";
 import { createClients, createTransport } from "./client";
 import type { Conversation } from "./conversation";
 import { ConversationStateSchema, OpenRequestSchema } from "./gen/orrery/v1/orrery_pb";
@@ -265,4 +276,151 @@ test("newPromptId returns a fresh UUID each time", () => {
   assert.match(first, uuid);
   assert.match(second, uuid);
   assert.notEqual(first, second);
+});
+
+// nineOptions is a headless session's open request with nine options, each named for its position.
+const nineOptions: Conversation = {
+  ...openConversation,
+  state: create(ConversationStateSchema, {
+    request: create(OpenRequestSchema, {
+      id: "req-7",
+      kind: "question",
+      question: "Proceed?",
+      options: ["one", "two", "three", "four", "five", "six", "seven", "eight", "nine"],
+    }),
+  }),
+};
+
+const paneTarget = { kind: "pane" as const, id: "%3", questionHash: "qh-1", changed: 40 };
+const headlessTarget = { kind: "headless" as const, id: "s1", requestId: "req-7", options: ["Yes", "No", "Maybe"] };
+
+// refusal is the reply of a call the server refuses with failed_precondition and message.
+function refusal(message: string): Response {
+  return new Response(JSON.stringify({ code: "failed_precondition", message }), {
+    status: 400,
+    headers: { "content-type": "application/json" },
+  });
+}
+
+// ninePane is a waiting pane whose AskUserQuestion offers nine options.
+const ninePane: Row = {
+  ...paneRow,
+  question: JSON.stringify({
+    questions: [{ question: "Which?", options: ["one", "two", "three", "four", "five", "six", "seven", "eight", "nine"].map((label) => ({ label })) }],
+  }),
+};
+
+test("AskAnswer: each digit 1-9 on a waiting pane sends its own key with the row's question hash", async () => {
+  const { clients, calls } = fakeClients();
+  const digits = [1, 2, 3, 4, 5, 6, 7, 8, 9];
+  for (const digit of digits) {
+    assert.equal(await answer(clients, ninePane, null, digit), true, `digit ${digit} is sent`);
+  }
+  assert.deepEqual(
+    calls.map((call) => call.body),
+    digits.map((digit) => ({ pane: "%3", keys: [String(digit)], expectQuestion: "qh-1" })),
+  );
+});
+
+test("AskAnswer: each digit 1-9 on a headless session sends the option at its position with the request id", async () => {
+  const { clients, calls } = fakeClients();
+  const digits = [1, 2, 3, 4, 5, 6, 7, 8, 9];
+  for (const digit of digits) {
+    assert.equal(await answer(clients, sessionRow, nineOptions, digit), true, `digit ${digit} is sent`);
+  }
+  assert.deepEqual(
+    calls.map((call) => call.body),
+    ["one", "two", "three", "four", "five", "six", "seven", "eight", "nine"].map((option) => ({
+      id: "s1",
+      requestId: "req-7",
+      answer: option,
+    })),
+  );
+});
+
+test("AskAnswer: a digit past nine sends nothing to a waiting pane and resolves false", async () => {
+  const { clients, calls } = fakeClients();
+  assert.equal(await answer(clients, paneRow, null, 10), false);
+  assert.equal(calls.length, 0);
+});
+
+test("AskAnswer: a digit past a pane's last option sends nothing and resolves false", async () => {
+  const { clients, calls } = fakeClients();
+  assert.equal(await answer(clients, paneRow, null, 4), false, "Proceed? offers three answers");
+  assert.equal(calls.length, 0);
+});
+
+test("AskAnswer: a digit past a session's last option sends nothing and resolves false", async () => {
+  const { clients, calls } = fakeClients();
+  assert.equal(await answer(clients, sessionRow, openConversation, 9), false);
+  assert.equal(calls.length, 0);
+});
+
+test("AskAnswer: a digit past nine sends nothing to a headless session and resolves false", async () => {
+  const { clients, calls } = fakeClients();
+  assert.equal(await answer(clients, sessionRow, nineOptions, 10), false);
+  assert.equal(calls.length, 0);
+});
+
+test("NotNow: notNow on a pane sends Control.NotNow with its kind, id, question hash and changed, and resolves empty", async () => {
+  const { clients, calls } = fakeClients();
+  assert.equal(await notNow(clients, paneTarget), "");
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].path, "/orrery.v1.Control/NotNow");
+  assert.deepEqual(calls[0].body, { kind: "pane", id: "%3", questionHash: "qh-1", changed: "40" });
+});
+
+test("NotNow: notNow on a headless session sends Control.NotNow with its kind, id and request id, and no hash or changed", async () => {
+  const { clients, calls } = fakeClients();
+  assert.equal(await notNow(clients, headlessTarget), "");
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].path, "/orrery.v1.Control/NotNow");
+  assert.deepEqual(calls[0].body, { kind: "headless", id: "s1", requestId: "req-7" });
+});
+
+test("NotNow: bringBack on a pane sends Control.BringBack with its kind, id, question hash and changed, and resolves empty", async () => {
+  const { clients, calls } = fakeClients();
+  assert.equal(await bringBack(clients, paneTarget), "");
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].path, "/orrery.v1.Control/BringBack");
+  assert.deepEqual(calls[0].body, { kind: "pane", id: "%3", questionHash: "qh-1", changed: "40" });
+});
+
+test("NotNow: bringBack on a headless session sends Control.BringBack with its kind, id and request id, and resolves empty", async () => {
+  const { clients, calls } = fakeClients();
+  assert.equal(await bringBack(clients, headlessTarget), "");
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].path, "/orrery.v1.Control/BringBack");
+  assert.deepEqual(calls[0].body, { kind: "headless", id: "s1", requestId: "req-7" });
+});
+
+test("NotNow: a refused notNow resolves the server's reason", async () => {
+  const { clients } = fakeClients(() => refusal("question is closed"));
+  assert.equal(await notNow(clients, paneTarget), "question is closed");
+});
+
+test("NotNow: a refused bringBack resolves the server's reason", async () => {
+  const { clients } = fakeClients(() => refusal("question is not put off"));
+  assert.equal(await bringBack(clients, headlessTarget), "question is not put off");
+});
+
+test("Decline: decline on a pane sends Control.Decline with its kind, id and question hash, and no request id", async () => {
+  const { clients, calls } = fakeClients();
+  assert.equal(await decline(clients, paneTarget), "");
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].path, "/orrery.v1.Control/Decline");
+  assert.deepEqual(calls[0].body, { id: "%3", kind: "pane", questionHash: "qh-1" });
+});
+
+test("Decline: decline on a headless session sends Control.Decline with its kind, id and request id", async () => {
+  const { clients, calls } = fakeClients();
+  assert.equal(await decline(clients, headlessTarget), "");
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].path, "/orrery.v1.Control/Decline");
+  assert.deepEqual(calls[0].body, { id: "s1", requestId: "req-7", kind: "headless" });
+});
+
+test("Decline: a refused decline resolves the server's reason", async () => {
+  const { clients } = fakeClients(() => refusal("request is not open"));
+  assert.equal(await decline(clients, headlessTarget), "request is not open");
 });
