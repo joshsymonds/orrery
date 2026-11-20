@@ -280,7 +280,7 @@ class OrreryClientContractTest {
 
     @Test
     fun contractsAbsentOnAnOldServerIsEmpty() {
-        for (code in listOf(Code.UNAVAILABLE, Code.UNIMPLEMENTED, Code.NOT_FOUND)) {
+        for (code in listOf(Code.UNIMPLEMENTED, Code.NOT_FOUND)) {
             FakeOrreryServer().use { server ->
                 server.fail(CONTRACTS_LIST, code)
 
@@ -291,10 +291,12 @@ class OrreryClientContractTest {
 
     @Test
     fun contractsThrowAnyOtherError() {
-        FakeOrreryServer().use { server ->
-            server.fail(CONTRACTS_LIST, Code.INTERNAL_ERROR)
+        for (code in listOf(Code.UNAVAILABLE, Code.INTERNAL_ERROR)) {
+            FakeOrreryServer().use { server ->
+                server.fail(CONTRACTS_LIST, code)
 
-            assertThrows(OrreryCallException::class.java) { OrreryClient(server.baseUrl).contracts() }
+                assertThrows(OrreryCallException::class.java) { OrreryClient(server.baseUrl).contracts() }
+            }
         }
     }
 

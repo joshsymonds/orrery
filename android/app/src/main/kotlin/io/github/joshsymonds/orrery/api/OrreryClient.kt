@@ -138,8 +138,14 @@ private val CLIENT_HEADERS: Map<String, List<String>> = mapOf("X-Orrery-Client" 
 /** The choice an answer to a question names when the owner types the answer rather than picking a declared option. */
 private const val CHOICE_OTHER = "other"
 
-/** The answers to a list call (ListHeadless, Sessions.List, Contracts.List) that mean the server has no such rows to list. */
+/** The answers to a list call (ListHeadless, Sessions.List) that mean the server has no such rows to list. */
 private val LIST_ABSENT = setOf(Code.UNAVAILABLE, Code.UNIMPLEMENTED, Code.NOT_FOUND)
+
+/**
+ * The answers to Contracts.List that mean the server has no contracts to list. Unavailable is not among them: a
+ * failed call keeps what the caller showed, so it throws.
+ */
+private val CONTRACTS_ABSENT = setOf(Code.UNIMPLEMENTED, Code.NOT_FOUND)
 
 /** The answers to a move or a continue that mean no answer came back, so the write may or may not have landed. */
 private val STEER_NO_ANSWER = setOf(Code.UNAVAILABLE, Code.DEADLINE_EXCEEDED, Code.UNKNOWN)
@@ -934,10 +940,10 @@ class OrreryClient(
 
     /**
      * Every contract, created ascending, with its current version. A server with no contracts to list gives an empty
-     * list.
+     * list; an unavailable answer throws, as a failed call.
      */
     fun contracts(): List<ContractRow> =
-        listedOrEmpty {
+        listedOrEmpty(CONTRACTS_ABSENT) {
             call(write = false) { standard.contracts.list(ContractsListRequest.getDefaultInstance(), CLIENT_HEADERS) }
                 .contractsList.map { it.toContractRow() }
         }
@@ -1936,12 +1942,12 @@ class OrreryClient(
             if (e.code in STEER_NO_ANSWER) throw e else SteerResult.Refused(e.message.orEmpty())
         }
 
-    /** The rows a list call [read] gives, or an empty list when the server answered with one of [LIST_ABSENT]'s codes. */
-    private inline fun <T> listedOrEmpty(read: () -> List<T>): List<T> =
+    /** The rows a list call [read] gives, or an empty list when the server answered with one of [absent]'s codes. */
+    private inline fun <T> listedOrEmpty(absent: Set<Code> = LIST_ABSENT, read: () -> List<T>): List<T> =
         try {
             read()
         } catch (e: OrreryCallException) {
-            if (e.code in LIST_ABSENT) emptyList() else throw e
+            if (e.code in absent) emptyList() else throw e
         }
 
     /** The answer, or null when the server answered not_found. */
