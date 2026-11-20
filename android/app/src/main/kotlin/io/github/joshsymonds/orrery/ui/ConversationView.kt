@@ -239,7 +239,10 @@ fun ConversationView(
                 ) {
                     when (val entry = entries[index]) {
                         is ConvoEntry.Time -> TimeLabel(entry.seconds, now)
-                        is ConvoEntry.Prompt -> PromptBlock(entry.text)
+                        is ConvoEntry.Prompt -> {
+                            val move = moveLineOf(entry.text)
+                            if (move != null) MoveLine(move) else PromptBlock(entry.text)
+                        }
                         is ConvoEntry.Reply -> ReplyText(entry.text, markdownCache)
                         is ConvoEntry.Tool -> ToolRow(entry.call, expanded, toggle)
                         is ConvoEntry.Group -> GroupRow(entry.calls, expanded, toggle)
