@@ -43,6 +43,7 @@ export const storyRenames: Renames = {
   "notices.tsx": { NoticeBanner: "Notice" },
   "nowsection.tsx": { NowSection: { module: "app.stories.tsx", story: "Page" } },
   "picker.tsx": { NewPanel: { module: "app.stories.tsx", story: "Page" } },
+  "report.tsx": { EpicReport: { module: "app.stories.tsx", story: "Page" } },
   "sidepanel.tsx": { SidePanel: "ListPanel" },
   "steermenu.tsx": { SteerMenu: { module: "app.stories.tsx", story: "Page" } },
   "strip.tsx": { PaneStrip: "MeterStrip" },
