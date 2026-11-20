@@ -348,20 +348,22 @@ export function EpicPage(props: {
       {narrow && stopAsking && (
         <Sheet title={`Stop ${slug}?`} onClose={() => setStopOpen(false)}>
           <p>Its running steps are stopped. Nothing is released.</p>
-          <button
-            type="button"
-            class="act primary"
-            onClick={() => {
-              commands.stop();
-              setStopOpen(false);
-              setMoreOpen(false);
-            }}
-          >
-            {`Stop ${slug}`}
-          </button>
-          <button type="button" class="act" onClick={() => setStopOpen(false)}>
-            Keep it running
-          </button>
+          <div class="foot">
+            <button type="button" class="act" onClick={() => setStopOpen(false)}>
+              Keep it running
+            </button>
+            <button
+              type="button"
+              class="act danger"
+              onClick={() => {
+                commands.stop();
+                setStopOpen(false);
+                setMoreOpen(false);
+              }}
+            >
+              {`Stop ${slug}`}
+            </button>
+          </div>
         </Sheet>
       )}
     </div>

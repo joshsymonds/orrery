@@ -1100,16 +1100,23 @@ test("FixtureTransport: page/epic-paused draws harbour-map paused, with Resume a
   );
 });
 
-test("FixtureTransport: page/epic-planning draws buoy-feeds with its summary and no task table", (t) => {
+test("FixtureTransport: page/epic-planning draws buoy-feeds with its summary, round 6's history and no task table", (t) => {
   mockTimers(t, ["setTimeout"]);
   return withStory(
     t,
     Page["epic-planning"],
-    (root) => nowSays(root, "The planner is reading the contract and outlining tasks."),
+    (root) =>
+      nowSays(root, "The planner is reading the contract and outlining tasks.") &&
+      root.querySelector(".epic-page .happen.just") !== null,
     (root) => {
       assertNoFailure(root);
       assert.equal(root.querySelector(".epic-page section.tasks"), null, "no Tasks section is drawn");
       assert.equal(root.querySelector(".epic-page section.now form.answer"), null, "no Ask is drawn");
+      assert.deepEqual(
+        [...root.querySelectorAll(".epic-page .happen.just .what")].map((what) => what.textContent),
+        ["planner turn 1 · running", "The epic was created from the accepted contract"],
+        "Just happened holds round 6's two entries, newest first",
+      );
     },
   );
 });
@@ -1119,9 +1126,12 @@ test("FixtureTransport: page/epic-dense draws 120 tasks, 96 done, the table fold
   return withStory(
     t,
     Page["epic-dense"],
-    (root) => root.querySelector(".epic-page section.tasks")?.textContent.includes("96 of 120 done") === true,
+    (root) =>
+      root.querySelector(".epic-page section.tasks")?.textContent.includes("96 of 120 done") === true &&
+      root.querySelector(".epic-page .happen.just") !== null,
     (root) => {
       assertNoFailure(root);
+      assert.ok(root.querySelectorAll(".epic-page .happen.just li").length > 0, "Just happened draws building's history");
       assert.ok(root.querySelector(".epic-page section.tasks .fold-line")?.textContent.includes("108 more tasks"), "the rest fold");
       assert.ok(root.querySelector('.epic-page section.tasks path.cell[data-task="U102"].c-bad'), "U102 is drawn failed");
       assert.ok(root.querySelector('.epic-page section.tasks path.cell[data-task="U107"].c-mine'), "U107 is drawn held");

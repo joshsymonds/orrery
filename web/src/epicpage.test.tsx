@@ -844,7 +844,8 @@ test("EpicCommands: Stop… in More opens the confirm with its words, Keep it ru
       await pressButton(container, '[aria-label="demo-epic"]', "Stop…");
       assert.deepEqual(dialogTitles(container), ["Stop demo-epic?"]);
       assert.equal(textOf(container, '[aria-label="Stop demo-epic?"] p'), "Its running steps are stopped. Nothing is released.");
-      assert.deepEqual(textsOf(container, '[aria-label="Stop demo-epic?"] button'), ["Stop demo-epic", "Keep it running"]);
+      assert.deepEqual(textsOf(container, '[aria-label="Stop demo-epic?"] .foot button'), ["Keep it running", "Stop demo-epic"]);
+      assert.equal(container.querySelector('[aria-label="Stop demo-epic?"] .foot button.danger')?.textContent ?? null, "Stop demo-epic");
       await pressButton(container, '[aria-label="Stop demo-epic?"]', "Keep it running");
       assert.deepEqual(stopping.calls, []);
       assert.deepEqual(dialogTitles(container), []);

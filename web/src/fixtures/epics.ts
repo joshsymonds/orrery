@@ -1164,6 +1164,17 @@ const rotaLimitedSteps: StepInit[] = [rotaT5Try1, rotaT4Impl, rotaT5Try2, rotaT2
 // The history of the building states: the shipped entries, without the question tz-fixtures asked and the step it held.
 const rotaBuildingHistory = rotaHistory.filter((entry) => entry.cursor !== "c8" && entry.cursor !== "c11");
 
+// buoyPlanningHistory is round 6's planning history for buoy-feeds: the epic created from its contract, then the planner's
+// first turn running. denseHistory is the building history the dense epic carries, as round 6's dense state inherits it.
+export const buoyPlanningHistory = create(EpicsHistoryResponseSchema, {
+  entries: tellHistory([
+    [at("@14:38"), "The epic was created from the accepted contract"],
+    [at("@14:38") + 1n, "planner turn 1 · running"],
+  ]),
+  next: "",
+});
+export const denseHistory = create(EpicsHistoryResponseSchema, { entries: rotaBuildingHistory, next: "" });
+
 // rotaPlannerHistory is the building history with the planner's taking of the park, as the newest entry.
 const rotaPlannerHistory: HistoryInit[] = [
   ...rotaBuildingHistory,

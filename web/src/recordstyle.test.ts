@@ -206,3 +206,14 @@ test("EpicWords: at the desk Just happened sets its clock in a right-aligned gut
 test("EpicWords: Resume now sits at its own width under Now's sentence, not across the section", () => {
   assert.equal(declaredValue(rules, ".epic-page section.now > .act", "justify-self"), "start");
 });
+
+test("EpicCommands: a confirm sheet's Stop is drawn in the bad role, apart from Keep it running", () => {
+  assert.equal(declaredValue(rules, ".sheet .foot .act.danger", "color"), "var(--o-role-bad)");
+});
+
+test("EpicRecord: at the desk the epic page's title row stays pinned while its body scrolls", () => {
+  const desk = rulesUnder(css, "(min-width: 760px)");
+  assert.equal(declaredValue(desk, ".epic-page > .title-row", "position"), "sticky");
+  assert.equal(declaredValue(desk, ".epic-page > .title-row", "top"), "0");
+  assert.equal(declaredValue(desk, ".epic-page > .title-row", "background"), "var(--o-surface-side)");
+});

@@ -25,8 +25,10 @@ import {
 import { contracts } from "./contracts";
 import {
   buoyPlanning,
+  buoyPlanningHistory,
   denseEpic,
   denseGet,
+  denseHistory,
   denseSteering,
   epicsListWith,
   evidenceArtifacts,
@@ -163,12 +165,17 @@ export const epicScenarios: Record<EpicScenario, Slices> = {
     ...withRota(rotaBuilding),
     gets: new Map<string, EpicsGetResponse>([...gets].filter(([id]) => id !== rotaId)),
   },
-  planning: { ...shippedSlices, gets: new Map<string, EpicsGetResponse>([...gets, [buoyId, buoyPlanning]]) },
+  planning: {
+    ...shippedSlices,
+    gets: new Map<string, EpicsGetResponse>([...gets, [buoyId, buoyPlanning]]),
+    histories: new Map<string, EpicsHistoryResponse>([...histories, [buoyId, buoyPlanningHistory]]),
+  },
   dense: {
     ...shippedSlices,
     panes: denseSteererPanes,
     epics: epicsListWith((row) => row, [denseEpic]),
     gets: new Map<string, EpicsGetResponse>([...gets, [denseId, denseGet]]),
+    histories: new Map<string, EpicsHistoryResponse>([...histories, [denseId, denseHistory]]),
   },
   parked: { ...shippedSlices, gets: new Map<string, EpicsGetResponse>([...gets, [noticesId, noticesParked]]) },
   loading: {
