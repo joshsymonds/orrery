@@ -9,6 +9,7 @@ import { act } from "preact/test-utils";
 import { App, Page } from "../app.stories";
 import { PageStory } from "../catalog/pagestory";
 import { storyName } from "../catalog/story";
+import { endedLead } from "../endedbar";
 import type { Address } from "../router";
 import { EpicsGetResponseSchema, EpicsListResponseSchema, EpicsPauseResponseSchema } from "../gen/orrery/v1/epics_pb";
 import {
@@ -752,6 +753,94 @@ test("SteerMenu: at 412 wide page/epic-handover opens the menu from the title ro
   );
 });
 
+// The lines the rota-export stories draw: the log line of the owner's move, the line the conversation it left ends with,
+// and the line the conversation that took it over ends with.
+const movedLog = "moved to “Retry backoff and jitter for the telemetry uploader” from “Planned the rota export, and steers its epic”, by you";
+const leftLine = "rota-export moved to “Retry backoff and jitter for the telemetry uploader”, by you. Its questions go there now.";
+const tookOverLine = "Took over rota-export. Its questions and its ending come here now.";
+
+// logTexts are the texts of the epic page's log lines, in order.
+function logTexts(root: HTMLElement): string[] {
+  return [...root.querySelectorAll<HTMLElement>(".epic-page .what")].map((line) => line.textContent ?? "");
+}
+
+// lastLine is the text of the last event line in the middle conversation, or null when it has none.
+function lastLine(root: HTMLElement): string | null {
+  const lines = root.querySelectorAll<HTMLElement>('section[aria-label="reader"] .ring-sentence');
+  return lines.length === 0 ? null : lines[lines.length - 1].textContent;
+}
+
+// railNames are the names the right rail's tiles carry, from their labels: an epic's tile is labelled with its slug.
+function railNames(root: HTMLElement): string[] {
+  return [...root.querySelectorAll<HTMLElement>(".rail .tile-w")].map((tile) => tile.getAttribute("aria-label") ?? "");
+}
+
+test("FixtureTransport: page/epic-moved draws pane %11's conversation in the middle, the epic page in the panel, and the moved line in its log", (t) => {
+  mockTimers(t, ["setTimeout"]);
+  return withStory(
+    t,
+    Page["epic-moved"],
+    (root) => logTexts(root).includes(movedLog),
+    (root) => {
+      assertNoFailure(root);
+      assert.equal(root.querySelector('section[aria-label="reader"]')?.textContent.includes(lampFragment), true, "pane %11's conversation is in the middle");
+      assert.ok(root.querySelector("aside.rpanel .epic-page") !== null, "the epic page is in the panel");
+      assert.ok(logTexts(root).includes(movedLog), "the log holds the owner's move");
+    },
+  );
+});
+
+test("FixtureTransport: page/epic-convo-ended draws the stopped steerer's conversation with the ended bar where its dock was, and no dock input", (t) => {
+  mockTimers(t, ["setTimeout"]);
+  return withStory(
+    t,
+    Page["epic-convo-ended"],
+    (root) => root.querySelector(".ended-bar") !== null,
+    (root) => {
+      assertNoFailure(root);
+      assert.equal(
+        root.querySelector('section[aria-label="reader"]')?.textContent.includes("Planned the rota export, and steers its epic"),
+        true,
+        "the stopped steerer's conversation is in the middle",
+      );
+      assert.equal(root.querySelector(".dock-box.ended")?.getAttribute("data-state"), "stopped", "the steerer is stopped");
+      assert.equal(root.querySelector(".ended-bar .ended-lead")?.textContent, endedLead("rota-export"), "the bar's lead says the conversation ended");
+      assertNone(root.querySelector('section.read .send > div:not([hidden]) textarea'), "no dock input is drawn");
+    },
+  );
+});
+
+test("FixtureTransport: page/convo-took-over ends with the took-over line, and its rail holds rota-export", (t) => {
+  mockTimers(t, ["setTimeout"]);
+  return withStory(
+    t,
+    Page["convo-took-over"],
+    (root) => lastLine(root) === tookOverLine,
+    (root) => {
+      assertNoFailure(root);
+      assert.equal(lastLine(root), tookOverLine, "the taker's line ends the conversation");
+      assert.ok(railNames(root).some((name) => name.includes("rota-export")), "the rail holds rota-export");
+    },
+    wideWidth,
+  );
+});
+
+test("FixtureTransport: page/convo-handed-over ends with the left line naming where rota-export went, and its rail holds no rota-export tile", (t) => {
+  mockTimers(t, ["setTimeout"]);
+  return withStory(
+    t,
+    Page["convo-handed-over"],
+    (root) => lastLine(root) === leftLine,
+    (root) => {
+      assertNoFailure(root);
+      assert.equal(lastLine(root), leftLine, "the left line ends the conversation");
+      assert.ok(root.querySelector("aside.rail") !== null, "the rail is drawn");
+      assert.ok(railNames(root).every((name) => !name.includes("rota-export")), "the rail holds no rota-export tile");
+    },
+    wideWidth,
+  );
+});
+
 test("FixtureTransport: page/epic-question, page/epic-handover and page/epic-talk each draw their own state, and fail the other two predicates", async (t) => {
   mockTimers(t, ["setTimeout"]);
   // Each state is drawn at the width round 6 draws it at: epic-talk over the conversation, the others beside it.
@@ -776,12 +865,14 @@ test("FixtureTransport: page/epic-question, page/epic-handover and page/epic-tal
   }
 });
 
-test("FixtureTransport: page's keys are exactly the 38 catalog names of its scenario states", () => {
+test("FixtureTransport: page's keys are exactly the 42 catalog names of its scenario states", () => {
   assert.deepEqual(Object.keys(Page).map((state) => storyName("Page", state)).sort(), [
     "page/ask-later",
     "page/ask-session",
     "page/contract-accepted",
     "page/contract-to-accept",
+    "page/convo-handed-over",
+    "page/convo-took-over",
     "page/convo-working",
     "page/dock-background",
     "page/dock-cancelled",
@@ -799,7 +890,9 @@ test("FixtureTransport: page's keys are exactly the 38 catalog names of its scen
     "page/dock-send-unknown",
     "page/dock-stopped",
     "page/dock-waiting",
+    "page/epic-convo-ended",
     "page/epic-handover",
+    "page/epic-moved",
     "page/epic-question",
     "page/epic-shipped",
     "page/epic-talk",

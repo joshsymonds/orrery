@@ -1563,8 +1563,12 @@ export function App({
 
   // The epic calls the readers of the cursor and the pin make: an epic a call created draws its card, which shows the
   // poll's detail of its epic, or reads an epic the poll holds no detail of when its listed message changes, and opens
-  // the epic through openEpic; a step card opens its step through openEpicStep.
-  const epicCalls = epicCallsOf(clients, navigated(openEpic), navigated(openEpicStep), epics);
+  // the epic through openEpic; a step card opens its step through openEpicStep. A move's line names a session by its
+  // listed conversation's title.
+  const epicCalls = {
+    ...epicCallsOf(clients, navigated(openEpic), navigated(openEpicStep), epics),
+    sessionTitle: (session: string) => steererRowOf(rows, session)?.label,
+  };
 
   // epicPageSection draws the epic section over the epic's detail, or the line that the detail did not load.
   const epicPageSection = (entry: EpicItem, detail: EpicsGetResponse | undefined) => (

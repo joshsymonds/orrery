@@ -8,7 +8,7 @@ import { PageStory } from "./catalog/pagestory";
 import type { Stories } from "./catalog/story";
 import { dockSlices, gatesSession, warmupSession } from "./fixtures/dock";
 import { type AskAnswer, type PickerRowInit, type Slices, shippedSlices } from "./fixtures/slices";
-import { handoverSlices } from "./fixtures/steer";
+import { endedSlices, handoverSlices, movedSlices } from "./fixtures/steer";
 import { createFixtureTransport, type FixtureTransport } from "./fixtures/transport";
 import type { Address, ListPanelKind, PageView } from "./router";
 
@@ -269,6 +269,14 @@ export const Page: Stories = {
       after={openSteer}
     />
   ),
+  "epic-moved": () => (
+    <PageStory address={epicAt(rota, { kind: "epic" })} fixture={createFixtureTransport(movedSlices)} />
+  ),
+  "epic-convo-ended": () => (
+    <PageStory address={epicAt(rota, { kind: "epic" })} fixture={createFixtureTransport(endedSlices)} />
+  ),
+  "convo-took-over": () => <PageStory address={paneAt("%11")} fixture={createFixtureTransport(movedSlices)} />,
+  "convo-handed-over": () => <PageStory address={paneAt("%14")} fixture={createFixtureTransport(movedSlices)} />,
   "convo-working": () => <PageStory address={convoWorkingAt} />,
   "ask-session": () => (
     <PageStory
