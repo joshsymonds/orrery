@@ -180,7 +180,7 @@ function permissionQuestion(tool: string, detail: string): string {
 }
 
 // epicProject is the project an epic's Ask names: its repository's directory, or its repository id when it has no path.
-function epicProject(epic: Epic): string {
+export function epicProject(epic: Epic): string {
   const directory = lastPathElement(epic.path);
   return directory === "" ? epic.repository : directory;
 }

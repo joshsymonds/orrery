@@ -196,6 +196,8 @@ export function EpicPage(props: {
         sentence={nowSentence(wedges)}
         blocker={blocker}
         slug={slug}
+        epic={epic}
+        now={now}
         numberKeys={numberKeys}
         onAnswer={commands.answer}
         onRetry={() => commands.retry()}

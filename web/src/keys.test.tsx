@@ -6,10 +6,10 @@ import { create } from "@bufbuild/protobuf";
 import { type JSX, render } from "preact";
 import { act } from "preact/test-utils";
 
-import { QuestionCard } from "./blocker";
+import { NowBlock } from "./blocker";
 import { Dock } from "./dock";
 import type { DockFacts } from "./dockwords";
-import { EpicQuestionSchema } from "./gen/orrery/v1/epics_pb";
+import { EpicQuestionSchema, EpicSchema } from "./gen/orrery/v1/epics_pb";
 import { type Chord, keyGroups, type Where } from "./keys";
 import { type EscapeTarget, handleKey, type KeyContext } from "./keymap";
 import type { Row } from "./rows";
@@ -307,24 +307,33 @@ const eightChoices = Array.from({ length: 8 }, (_, index) => ({
   does: `Does thing ${index + 1}.`,
 }));
 
-// pickedCard is the index of the option card that is selected, or -1 when none is.
+// pickedCard is the index of the option that holds the pick, or -1 when none does.
 function pickedCard(container: HTMLElement): number {
-  return [...container.querySelectorAll(".opts > button")].findIndex(
-    (card) => card.getAttribute("aria-pressed") === "true",
-  );
+  return [...container.querySelectorAll(".ask .opts > .opt")].findIndex((card) => card.classList.contains("picked"));
 }
 
-// questionPress presses in a fresh epic question card, whose digit keys listen on the document.
+// questionPress presses in a fresh epic page's question, whose digit keys listen on the document.
 async function questionPress(key: string, modifier: Modifier | null): Promise<Outcome> {
   const container = document.createElement("div");
   document.body.append(container);
   try {
     await act(() => {
       render(
-        <QuestionCard
-          question={create(EpicQuestionSchema, { id: "Q1", text: "Which lane should it use?", choices: eightChoices })}
+        <NowBlock
+          sentence=""
+          blocker={{
+            kind: "question",
+            text: "waits on your answer",
+            since: 0,
+            question: create(EpicQuestionSchema, { id: "Q1", text: "Which lane should it use?", choices: eightChoices }),
+          }}
+          slug="lanes"
+          epic={create(EpicSchema, { id: "orrery/lanes", slug: "lanes", repository: "orrery", live: true })}
+          now={0}
           numberKeys
           onAnswer={() => Promise.resolve("")}
+          onRetry={() => {}}
+          onStop={() => {}}
         />,
         container,
       );

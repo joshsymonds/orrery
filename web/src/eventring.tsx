@@ -1,7 +1,8 @@
 import type { JSX } from "preact";
 import { useRef, useState } from "preact/hooks";
 
-import { QuestionCard } from "./blocker";
+import { Ask, AskLine } from "./ask";
+import { epicAsk, epicProject } from "./askmodel";
 import { type EpicCalls, useEpicReading } from "./card";
 
 // The kinds an epic's event names, as its orrery-event block gives them.
@@ -290,27 +291,35 @@ export function StepCard({ event, calls }: { event: StepEvent; calls?: EpicCalls
 }
 
 // QuestionReading draws the question's epic as useEpicReading reads it. While the epic is unread or cannot be read it
-// draws nothing. While the question is open it draws the answer form the epic page draws, with no number keys, and an
-// answer goes to epic answer for the epic and question; an answer that lands reads the epic once more. Once the question
-// is no longer open it draws a line saying so.
+// draws nothing. While the question is open it draws the epic's Ask, which takes no number keys and draws no key caps,
+// and an answer goes to epic answer for the epic and question; an answer that lands reads the epic once more. Once the
+// question is no longer open it draws the settled line, with the epic's project and slug.
 function QuestionReading({ epic, question, calls }: { epic: string; question: string; calls: EpicCalls }) {
   const { reading, reread } = useEpicReading(epic, calls);
 
-  if (reading === null || reading === "failed") {
+  if (reading === null || reading === "failed" || reading.detail.epic === undefined) {
     return null;
   }
+  const owner = reading.detail.epic;
   const open = reading.detail.questions.find((candidate) => candidate.id === question);
   if (open === undefined) {
-    return <p class="settled">This question is settled.</p>;
+    return <AskLine state="settled" who={`${epicProject(owner)} · ${owner.slug}`} />;
   }
-  // The form takes the epic page's now-block styles, since its answer rules are scoped to that block.
+  // The Ask takes the epic page's now-block styles, as it does on the page.
   return (
     <div class="now-block">
-      <QuestionCard
-        question={open}
+      <Ask
+        key={question}
+        model={epicAsk(owner, open)}
+        now={Math.floor(Date.now() / 1000)}
+        phase="open"
+        picked={null}
+        note=""
+        keyCaps={false}
+        narrow={false}
         numberKeys={false}
-        onAnswer={(questionId, choice, text) =>
-          calls.answer(epic, questionId, choice, text).then((failure) => {
+        onConfirm={(choice, text) =>
+          calls.answer(epic, question, choice, text).then((failure) => {
             if (failure === "") {
               reread();
             }

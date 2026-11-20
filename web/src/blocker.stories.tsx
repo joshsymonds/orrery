@@ -1,5 +1,5 @@
-// The stories of the blocker pieces: AskFirst, QuestionCard and NowBlock. They draw the rota export epic, whose open
-// question Q1 has no choices, whose held step is T1, and a question with choices, which no fixture holds.
+// The stories of the blocker pieces: AskFirst and NowBlock. They draw the rota export epic, whose open question Q1 has
+// no choices, whose held step is T1, and a question with choices, which no fixture holds.
 
 import { create } from "@bufbuild/protobuf";
 
@@ -27,6 +27,7 @@ function fixtureOf<Value>(entries: ReadonlyMap<string, Value>, id: string): Valu
 
 const rota: EpicsGetResponse = fixtureOf(gets, "lighthouse/rota-export");
 const sentence = blocker.nowSentence(wedgesOf(rota));
+const now = Number(at("@14:41"));
 
 // heldDetail and parkedDetail are the rota export with its question answered, so that its blocker is its held step, or
 // its park.
@@ -59,19 +60,27 @@ export const ConfirmButton: Stories = {
   ),
 };
 
-// QuestionCard draws an epic's open question as option cards: the rota export's question, which has no choices, and a
-// question with choices. Ask draws both states now, and QuestionCard is still drawn where Ask is not yet wired.
-export const QuestionCard: Stories = {
-  "open-question": () => <blocker.QuestionCard question={rota.questions[0]} numberKeys onAnswer={answer} />,
-  epic: () => <blocker.QuestionCard question={recommended} numberKeys onAnswer={answer} />,
-};
-
 export const NowBlock: Stories = {
   question: () => (
     <blocker.NowBlock
       sentence={sentence}
       blocker={blockerOf(rota)}
       slug="rota-export"
+      epic={rota.epic}
+      now={now}
+      numberKeys
+      onAnswer={answer}
+      onRetry={noop}
+      onStop={noop}
+    />
+  ),
+  "question-with-choices": () => (
+    <blocker.NowBlock
+      sentence={sentence}
+      blocker={{ kind: "question", text: "waits on your answer", since: Number(recommended.asked), question: recommended }}
+      slug="rota-export"
+      epic={rota.epic}
+      now={now}
       numberKeys
       onAnswer={answer}
       onRetry={noop}
@@ -83,6 +92,8 @@ export const NowBlock: Stories = {
       sentence={sentence}
       blocker={blockerOf(heldDetail)}
       slug="rota-export"
+      epic={rota.epic}
+      now={now}
       numberKeys
       onAnswer={answer}
       onRetry={noop}
@@ -94,6 +105,8 @@ export const NowBlock: Stories = {
       sentence={sentence}
       blocker={blockerOf(parkedDetail)}
       slug="rota-export"
+      epic={rota.epic}
+      now={now}
       numberKeys
       onAnswer={answer}
       onRetry={noop}
@@ -105,6 +118,8 @@ export const NowBlock: Stories = {
       sentence={sentence}
       blocker={null}
       slug="rota-export"
+      epic={rota.epic}
+      now={now}
       numberKeys
       onAnswer={answer}
       onRetry={noop}

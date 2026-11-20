@@ -3747,15 +3747,6 @@ async function clickButton(container: HTMLElement, scope: string, label: string)
   });
 }
 
-// submitIn submits the form the selector finds, and lets Preact draw what the submit changed.
-async function submitIn(container: HTMLElement, selector: string): Promise<void> {
-  const form = container.querySelector(selector);
-  assert.ok(form, `no form matches ${selector}`);
-  await act(() => {
-    form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
-  });
-}
-
 test("an epic entry shows the epic page beside the list, and no epic column remains", (t) =>
   withApp(t.signal, { epics: pageEpic() }, async (container) => {
     await press("j");
@@ -4000,12 +3991,12 @@ async function clickFirst(container: HTMLElement, selector: string): Promise<voi
 
 // optionCards are the option cards the epic page's question draws, in order, Something else last.
 function optionCards(container: HTMLElement): HTMLElement[] {
-  return [...container.querySelectorAll<HTMLElement>(".now-block form.answer .opts > .opt")];
+  return [...container.querySelectorAll<HTMLElement>(".now-block .ask .opts > .opt")];
 }
 
-// selectedCard is the position of the option card that is selected, or -1 when none is.
+// selectedCard is the position of the option card that holds the pick, or -1 when none does.
 function selectedCard(container: HTMLElement): number {
-  return optionCards(container).findIndex((card) => card.classList.contains("sel"));
+  return optionCards(container).findIndex((card) => card.classList.contains("picked"));
 }
 
 // clickCard clicks the option card at index, as the owner's pointer does.
@@ -4015,6 +4006,11 @@ async function clickCard(container: HTMLElement, index: number): Promise<void> {
   await act(() => {
     card.dispatchEvent(new Event("click"));
   });
+}
+
+// clickConfirm presses the Ask's foot button, which sends the pick.
+async function clickConfirm(container: HTMLElement): Promise<void> {
+  await clickFirst(container, ".now-block .ask .foot .btn.primary");
 }
 
 // clickPhaseHead clicks the head of the phase row the phase output names.
@@ -4178,7 +4174,8 @@ test("Stop asks first: Keep it running sends nothing, and the confirm sends Epic
 test("Retry on a parked epic sends Epics.Retry with the epic's id", (t) =>
   withApp(t.signal, { epics: pageEpic({ parked: "rate limit" }) }, async (container, fake) => {
     await press("j");
-    await clickButton(container, ".now-block", "Retry");
+    await clickCard(container, 0);
+    await clickConfirm(container);
     await until(t.signal, () => fake.callsTo(retryEpicPath).length === 1, "the Retry call");
     assert.equal(fake.callsTo(retryEpicPath)[0].body.id, widgetsFirst);
   }));
@@ -4187,7 +4184,7 @@ test("Confirm sends Epics.Answer with the epic, a fresh decision id, the questio
   withApp(t.signal, { epics: pageEpic(optionsQuestion) }, async (container, fake) => {
     await press("j");
     await clickCard(container, 0);
-    await submitIn(container, ".now-block form.answer");
+    await clickConfirm(container);
     await until(t.signal, () => fake.callsTo(answerEpicPath).length === 1, "the Answer call");
     const body = fake.callsTo(answerEpicPath)[0].body;
     assert.equal(body.epicId, widgetsFirst);
@@ -4205,7 +4202,7 @@ test("Something else sends Epics.Answer with the choice other and the typed text
     const box = container.querySelector<HTMLTextAreaElement>('.now-block textarea[aria-label="answer"]');
     assert.ok(box, "Something else shows its text box");
     await typeInto(box, "  use a file  ");
-    await submitIn(container, ".now-block form.answer");
+    await clickConfirm(container);
     await until(t.signal, () => fake.callsTo(answerEpicPath).length === 1, "the Answer call");
     const body = fake.callsTo(answerEpicPath)[0].body;
     assert.equal(body.question, "Q1");
@@ -4219,7 +4216,7 @@ test("a number key on the epic page selects its card, and confirm sends that cho
     assert.equal(selectedCard(container), 1, "the recommended card starts selected");
     await press("1");
     assert.equal(selectedCard(container), 0);
-    await submitIn(container, ".now-block form.answer");
+    await clickConfirm(container);
     await until(t.signal, () => fake.callsTo(answerEpicPath).length === 1, "the Answer call");
     assert.equal(fake.callsTo(answerEpicPath)[0].body.choice, "postgres");
     assert.equal(fake.callsTo(answerEpicPath)[0].body.text, "Use PostgreSQL for the store.");
@@ -4229,7 +4226,7 @@ test("a refused answer shows the server's message under the question's cards", (
   withApp(t.signal, { epics: pageEpic(optionsQuestion) }, async (container, fake) => {
     fake.refuseNext.set(answerEpicPath, "question is closed");
     await press("j");
-    await submitIn(container, ".now-block form.answer");
+    await clickConfirm(container);
     await until(t.signal,
       () => alertTexts(container).some((text) => text.includes("question is closed")),
       "the refusal line",

@@ -303,6 +303,33 @@ test("the blocker's Stop asks first too, and only its confirm stops the epic", a
   );
 });
 
+test("AskAnswer: the blocker's question is the page's Ask, aged from the page's now, which a digit picks and confirm answers", async () => {
+  const { calls, commands } = recorder();
+  const question = {
+    id: "Q1",
+    text: "Which branch?",
+    asked: 9_880n,
+    choices: [
+      { id: "main", does: "Use main." },
+      { id: "dev", does: "Use dev." },
+    ],
+  };
+  await withPage(
+    detail({ ...build, questions: [question] }),
+    async (container) => {
+      assert.equal(textOf(container, ".now-block .ask .q"), "Which branch?");
+      assert.equal(textOf(container, ".now-block .ask .age"), "· 2m ago");
+      await act(() => {
+        document.dispatchEvent(new KeyboardEvent("keydown", { key: "2", cancelable: true }));
+      });
+      assert.deepEqual(calls, [], "a digit answered the question");
+      await pressButton(container, ".now-block .ask", "Answer with dev");
+      assert.deepEqual(calls, ["answer Q1 dev Use dev."]);
+    },
+    { commands },
+  );
+});
+
 test("the title row's blocker reads its text, and its time once it has begun", async () => {
   await withPage(detail({ ...build, questions: [{ id: "Q1", text: "Which branch?", asked: 9_880n }] }), (container) => {
     assert.equal(textOf(container, ".title-row .blocker"), "waits on your answer · 2 min");

@@ -87,7 +87,7 @@ function askSession(root: HTMLElement): boolean {
 // the conversation rather than over it, which is epic-talk's layout.
 function epicQuestion(root: HTMLElement): boolean {
   return (
-    root.querySelector(".now-block .answer .question")?.textContent.includes(rotaQuestion) === true &&
+    root.querySelector(".now-block .ask .q")?.textContent.includes(rotaQuestion) === true &&
     root.querySelector(".steer-menu") === null &&
     root.querySelector(".panes.overlay") === null
   );
