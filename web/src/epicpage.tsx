@@ -8,7 +8,7 @@ import { NowSection } from "./nowsection";
 import { Orrery } from "./orrery";
 import { durationText, type Phase, provenOf, wedgesOf } from "./phases";
 import { recordTasksOf } from "./record";
-import { blockerPillOf, contractDoorOf, reachedOf, statePillOf, trackOf } from "./recordwords";
+import { blockerPillOf, contractDoorOf, ownerParked, reachedOf, statePillOf, trackOf } from "./recordwords";
 import { RequirementTable } from "./reqtable";
 import type { Row } from "./rows";
 import { Sheet } from "./sheet";
@@ -119,7 +119,6 @@ export function EpicPage(props: {
   onOpenSession: (target: SessionTarget) => void;
   onBack: () => void;
   onOpenPhase?: (task: string, phase: Phase) => void;
-  actions?: ComponentChildren;
   landing?: Landing;
   mark?: InboxMark;
   strip?: ComponentChildren;
@@ -141,7 +140,6 @@ export function EpicPage(props: {
     onOpenSession,
     onBack,
     onOpenPhase,
-    actions,
     landing,
     mark,
     strip,
@@ -173,6 +171,8 @@ export function EpicPage(props: {
   const [stopOpen, setStopOpen] = useState(false);
   // stopAsking is whether Stop's confirm is open: it is only while the epic can be stopped.
   const stopAsking = stopOpen && controls.stop;
+  // pausing is whether Pause is offered: an owner's park holds the epic until its owner answers, so nothing runs.
+  const pausing = controls.pause && !ownerParked(detail);
   const [steerOpen, setSteerOpen] = useState(false);
   const steerSheet: SteerSheet = { open: steerOpen, onClose: () => setSteerOpen(false) };
   // titleOf names a session by its listed row's label, for the move lines of the epic's log.
@@ -197,11 +197,10 @@ export function EpicPage(props: {
         blocker={blocker?.word}
         blockerTone={blocker?.tone}
         mark={mark}
-        strip={strip}
+        strip={narrow ? undefined : strip}
         note={commandError}
       >
-        {actions}
-        {!narrow && steer?.(steerSheet)}
+        {!narrow && !stopAsking && steer?.(steerSheet)}
         {!narrow && stopAsking && (
           <>
             <span class="sure">{`Stop ${slug}?`}</span>
@@ -225,7 +224,7 @@ export function EpicPage(props: {
             Resume
           </button>
         )}
-        {!narrow && !stopAsking && controls.pause && (
+        {!narrow && !stopAsking && pausing && (
           <button type="button" class="act" onClick={() => commands.pause()}>
             Pause
           </button>
@@ -307,7 +306,7 @@ export function EpicPage(props: {
               Resume
             </button>
           )}
-          {controls.pause && (
+          {pausing && (
             <button
               type="button"
               class="act"

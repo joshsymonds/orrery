@@ -746,16 +746,6 @@ test("EpicCommands: an epic that is not live, or has an outcome, offers no comma
   }
 });
 
-test("EpicCommands: the title row's actions render first, before Pause and Stop", async () => {
-  await withPage(
-    detail({ ...build }),
-    (container) => {
-      assert.deepEqual(textsOf(container, ".title-row .acts > *"), ["Talk", "Pause", "Stop…"]);
-    },
-    { actions: <button type="button">Talk</button> },
-  );
-});
-
 // dialogTitles lists the titles of the sheets drawn, in the order they stack.
 function dialogTitles(root: ParentNode): string[] {
   return [...root.querySelectorAll('section[role="dialog"]')].map((dialog) => dialog.getAttribute("aria-label") ?? "");
@@ -928,5 +918,68 @@ test("EpicCommands: narrow draws the foot it is given right above the foot bar, 
       assert.deepEqual(textsOf(container, '[aria-label="demo-epic"] button'), ["Pause", "Stop…"]);
     },
     { narrow: true, foot: <p class="foot-probe" /> },
+  );
+});
+
+test("EpicCommands: an open Stop confirm leaves only its question and two buttons in the title row, with the steer not drawn beside it", async () => {
+  const probe = steerProbe();
+  await withPage(
+    detail({ ...build }),
+    async (container) => {
+      assert.ok(has(container, ".title-row .steer-probe"), "the steer is in the title row before Stop asks");
+      await pressButton(container, ".title-row .acts", "Stop…");
+      assert.deepEqual(textsOf(container, ".title-row .acts > *"), [
+        "Stop demo-epic?",
+        "Stop demo-epic",
+        "Keep it running",
+      ]);
+      assert.equal(has(container, ".title-row .steer-probe"), false, "the steer is not in the title row while Stop asks");
+    },
+    { steer: probe.steer },
+  );
+});
+
+test("EpicCommands: an owner-parked epic offers Stop… and no Pause, at the desk and in More", async () => {
+  await withPage(detail({ ...build, parked: "usage limit" }), async (container) => {
+    assert.deepEqual(textsOf(container, ".title-row .acts > *"), ["Stop…"]);
+  });
+  await withPage(
+    detail({ ...build, parked: "usage limit" }),
+    async (container) => {
+      await pressButton(container, ".cmdbar", "More");
+      assert.deepEqual(textsOf(container, '[aria-label="demo-epic"] button'), ["Stop…"]);
+    },
+    { narrow: true },
+  );
+});
+
+test("EpicCommands: a planner-parked epic still offers Pause and Stop…, at the desk and in More", async () => {
+  await withPage(detail({ ...build, parked: "stuck release", plannerParked: true }), async (container) => {
+    assert.deepEqual(textsOf(container, ".title-row .acts > *"), ["Pause", "Stop…"]);
+  });
+  await withPage(
+    detail({ ...build, parked: "stuck release", plannerParked: true }),
+    async (container) => {
+      await pressButton(container, ".cmdbar", "More");
+      assert.deepEqual(textsOf(container, '[aria-label="demo-epic"] button'), ["Pause", "Stop…"]);
+    },
+    { narrow: true },
+  );
+});
+
+test("EpicCommands: narrow draws no host strip in the title row, and wide draws it", async () => {
+  await withPage(
+    detail({ ...build }),
+    (container) => {
+      assert.equal(has(container, ".title-row .strip-probe"), true, "wide draws the strip");
+    },
+    { strip: <span class="strip-probe" /> },
+  );
+  await withPage(
+    detail({ ...build }),
+    (container) => {
+      assert.equal(has(container, ".title-row .strip-probe"), false, "narrow draws no strip");
+    },
+    { narrow: true, strip: <span class="strip-probe" /> },
   );
 });
