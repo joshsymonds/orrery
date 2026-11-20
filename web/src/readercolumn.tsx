@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "preact/hooks";
 import * as actions from "./actions";
 import type { Clients } from "./actions";
 import type { EpicCalls } from "./card";
-import { aboutMessage, type RowAbout } from "./contracts";
+import type { RowAbout } from "./contracts";
 import { type Conversation, shownConversation } from "./conversation";
 import { Dock, type DockHandle } from "./dock";
 import { rowFacts, stepFacts } from "./dockfacts";
@@ -181,11 +181,11 @@ export function ReaderColumn({
     setTapped(false);
   }, [rowKey]);
   const fold = foldOf(narrow, hidden, atNewest, tapped);
-  // sendRow sends a dock's text to its row. The shown row's About, when one is set, leads the message, and is cleared
-  // once the message is sent.
+  // sendRow sends a dock's message to its row; the Dock leads it with the shown row's About, which is cleared once the
+  // message is sent.
   const sendRow = async (entry: Row, text: string, promptId: string): Promise<void> => {
     const aboutOf = entry.key === rowKey ? about : null;
-    await actions.send(clients, entry, aboutOf === null ? text : aboutMessage(aboutOf, text), promptId);
+    await actions.send(clients, entry, text, promptId);
     if (aboutOf !== null) {
       onClearAbout?.();
     }

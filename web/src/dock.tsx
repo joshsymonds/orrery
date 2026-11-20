@@ -1,3 +1,4 @@
+import { aboutMessage } from "./contracts";
 import type { JSX, Ref } from "preact";
 import { useLayoutEffect, useRef, useState } from "preact/hooks";
 
@@ -311,17 +312,20 @@ export function Dock(props: {
     }
     flash();
     const sent = text;
+    // The message sent: the draft, led by the About while one is shown, so what is recorded as sending, what is drawn
+    // above the box and what is sent are the same text.
+    const message = shownAbout !== null && aboutId !== undefined ? aboutMessage({ id: aboutId, text: shownAbout }, sent) : sent;
     const pendingSend = failed.current;
     const promptId = pendingSend !== null && pendingSend.text === sent ? pendingSend.promptId : newPromptId();
     inFlight.current = true;
     setError("");
     setNote("");
-    onSending?.({ text: sent, promptId });
+    onSending?.({ text: message, promptId });
     if (state === "working") {
-      setLocal((current) => [...current, { promptId, text: sent, after: items.at(-1), wasQueued: false }]);
+      setLocal((current) => [...current, { promptId, text: message, after: items.at(-1), wasQueued: false }]);
     }
     try {
-      await send(sent, promptId);
+      await send(message, promptId);
       failed.current = null;
       setWaitsCleared(pendingKey(pending));
       // Text typed while the send was in flight stays in the box.

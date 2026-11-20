@@ -27,9 +27,11 @@ const firstRowText = "The office was alerted about a table that had not changed.
 
 const contractAddress: Address = { view: "inbox", entry: { kind: "contract", id: contractId } };
 
-// Probe records the texts the owner sent, in order.
+// Probe records the texts the owner sent, in order, by Say or SendText, and holds the controller of the open
+// conversation stream, so a test can send it items the way the stream does.
 interface Probe {
   said: string[];
+  stream: ReadableStreamDefaultController<Uint8Array> | null;
 }
 
 // envelope frames one message of a streamed answer: a flag byte, a 4-byte length, and the JSON payload.
@@ -41,9 +43,9 @@ function envelope(message: object): Uint8Array {
   return bytes;
 }
 
-// fakeFetch answers Contracts.Get with the tide-alerts record, records each Say, and answers every other unary call
-// with an empty message. WatchConversation holds its stream open, and sends the items as one reset delta when a test
-// gives them.
+// fakeFetch answers Contracts.Get with the tide-alerts record, records each Say and SendText, and answers every other
+// unary call with an empty message. WatchConversation holds its stream open, keeps its controller in the probe, and
+// sends the items as one reset delta when a test gives them.
 async function fakeFetch(
   probe: Probe,
   items: object[],
@@ -55,6 +57,7 @@ async function fakeFetch(
   if (path.endsWith("/WatchConversation")) {
     const body = new ReadableStream<Uint8Array>({
       start(controller) {
+        probe.stream = controller;
         if (items.length > 0) {
           controller.enqueue(envelope({ transcript: "t1", seq: "1", reset: true, items, state: {} }));
         }
@@ -62,7 +65,7 @@ async function fakeFetch(
     });
     return new Response(body, { status: 200, headers: { "content-type": "application/connect+json" } });
   }
-  if (path === "/orrery.v1.Control/Say") {
+  if (path === "/orrery.v1.Control/Say" || path === "/orrery.v1.Panes/SendText") {
     const body = JSON.parse(await request.text()) as { text?: string };
     probe.said.push(body.text ?? "");
   }
@@ -103,6 +106,19 @@ function conversationRow(): Row {
   });
 }
 
+// paneRow is the pane row of the conversation that proposed the contract: a pane row's archive id is its orrery id.
+function paneRow(): Row {
+  return row({
+    key: "pane:local:tide-16",
+    id: "tide-16",
+    kind: "pane",
+    host: "local",
+    label: "tide work",
+    archiveId: conversation,
+    archiveKind: "session",
+  });
+}
+
 // contractItems are the tool call that wrote the contract, and its result, as the transcript holds them.
 const contractItems = [
   { kind: "tool", time: "100", tool: "contract_propose", input: contractId, id: "c1", contract: contractId },
@@ -130,7 +146,7 @@ async function withApp(
   window.innerWidth = width;
   const container = document.createElement("div");
   document.body.append(container);
-  const probe: Probe = { said: [] };
+  const probe: Probe = { said: [], stream: null };
   const items = setup.items ?? [];
   const contracts = setup.contracts ?? contractList.contracts;
   const clients = createClients(
@@ -204,6 +220,19 @@ function buttonNamed(scope: ParentNode, label: string): HTMLButtonElement | null
 // aboutLine is the text of the dock's About line on the shown row, or null when no About is drawn.
 function aboutLine(container: HTMLElement): string | null {
   return container.querySelector(`section[aria-label="reader"] .reply:not([hidden]) .quote`)?.textContent ?? null;
+}
+
+// sendingRowCount is how many sending rows the reader draws.
+function sendingRowCount(container: HTMLElement): number {
+  return container.querySelectorAll(".sending-row").length;
+}
+
+// deliver sends items on the open conversation stream as a delta, the way the stream sends what the pane has taken.
+function deliver(probe: Probe, items: object[]): void {
+  if (probe.stream === null) {
+    throw new Error("no conversation stream is open");
+  }
+  probe.stream.enqueue(envelope({ transcript: "t1", seq: "2", reset: false, items, state: {} }));
 }
 
 // shownBox is the shown row's send box in the middle column, or null when none is drawn.
@@ -320,6 +349,24 @@ test("ContractMine: Not about this clears the About, and the next send is the dr
     await typeAndSend(container, "Plain");
     await settle(t.signal, () => probe.said.length === 1, "the message is sent");
     assert.equal(probe.said[0], "Plain", "the sent text is the draft alone");
+  }));
+
+test("ContractMine: a send with an About on a pane conversation clears its sending row once the pane holds the prompt", (t) =>
+  withApp(t.signal, 1600, { rows: [paneRow()], address: contractAddress }, async ({ container, probe }) => {
+    await settle(t.signal, () => titledRecord(container, "tide-alerts contract"), "the record is drawn in the panel");
+    const control = talkControls(panelOf(container, "tide-alerts contract") ?? container)[0];
+    assert.ok(control !== undefined, "the record draws a row's control");
+    await click(control);
+    await settle(t.signal, () => aboutLine(container) !== null, "the dock draws its About");
+
+    await typeAndSend(container, "Why?");
+    await settle(t.signal, () => probe.said.length === 1, "the message is sent");
+    assert.equal(probe.said[0], `About ${firstRow}: ${firstRowText}\n\nWhy?`, "the sent text leads with the About");
+    await settle(t.signal, () => sendingRowCount(container) === 1, "the send's row is drawn as sending");
+
+    await settle(t.signal, () => probe.stream !== null, "the pane's conversation stream is open");
+    deliver(probe, [{ kind: "prompt", time: "200", text: probe.said[0] }]);
+    await settle(t.signal, () => sendingRowCount(container) === 0, "the pane's prompt clears the sending row");
   }));
 
 test("ContractMine: with no live conversation the record draws no row control", (t) =>
