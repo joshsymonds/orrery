@@ -1,15 +1,10 @@
 import type { ComponentChildren, JSX, Ref } from "preact";
 
 import { CommitMark } from "./commitmark";
+import { type RowAbout, ratingTone } from "./contracts";
 import type { ContractDecision } from "./gen/orrery/v1/contracts_pb";
 import type { EpicContract, EpicRequirement } from "./gen/orrery/v1/epics_pb";
 import { clock } from "./reader";
-
-// RowAbout is the row a control talks about: its id, and the text the row shows.
-export interface RowAbout {
-  id: string;
-  text: string;
-}
 
 // DocMarks are the marks the newest version of a contract wears on its document: the rows that open decisions concern,
 // whether the irreversible section is still unread, the rows and sections the version changed, and the version.
@@ -300,18 +295,6 @@ export function ContractBody(props: ContractBodyProps): JSX.Element {
       </Section>
     </article>
   );
-}
-
-// ratingTone is the tone of a rating: limited is quiet, serious live, and severe bad.
-function ratingTone(rating: string): "" | "live" | "bad" {
-  switch (rating) {
-    case "serious":
-      return "live";
-    case "severe":
-      return "bad";
-    default:
-      return "";
-  }
 }
 
 // RatingChip draws a rating as a chip in its tone.

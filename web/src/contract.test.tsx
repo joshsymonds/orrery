@@ -4,7 +4,8 @@ import { test } from "node:test";
 import { create, type MessageInitShape } from "@bufbuild/protobuf";
 import { render } from "preact";
 
-import { type DocMarks, ContractBody, type RowAbout } from "./contract";
+import { type DocMarks, ContractBody } from "./contract";
+import type { RowAbout } from "./contracts";
 import type { ContractVersion, ContractsGetResponse } from "./gen/orrery/v1/contracts_pb";
 import { type EpicContract, EpicContractSchema, type EpicRequirement, EpicRequirementSchema } from "./gen/orrery/v1/epics_pb";
 import { tideAccepted, tideProposed, tideReady } from "./fixtures/contractrecords";

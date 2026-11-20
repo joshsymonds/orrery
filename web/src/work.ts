@@ -1,6 +1,7 @@
 import type { Contract } from "./gen/orrery/v1/contracts_pb";
 import type { Epic } from "./gen/orrery/v1/epics_pb";
 import type { BackgroundTask } from "./gen/orrery/v1/orrery_pb";
+import { contractSlug } from "./contracts";
 import { type EpicItem, type EpicsView, endedWords, epicLine, repositoryName } from "./epics";
 import { type Need, epicNeeds } from "./needs";
 
@@ -104,7 +105,7 @@ export function contractThingsOf(session: string, contracts: readonly Contract[]
   return contracts
     .filter((contract) => contract.state === "proposed" && contract.conversation === session)
     .map((contract) => {
-      const slug = contract.id.slice(contract.id.lastIndexOf("/") + 1);
+      const slug = contractSlug(contract.id);
       return {
         kind: "contract",
         key: `contract:${contract.id}`,
