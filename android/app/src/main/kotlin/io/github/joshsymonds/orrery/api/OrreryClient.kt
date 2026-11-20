@@ -76,9 +76,12 @@ import io.github.joshsymonds.orrery.gen.orrery.v1.HostStatusRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.InterruptRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.ListHeadlessRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.ListRequest
+import io.github.joshsymonds.orrery.gen.orrery.v1.ListedNotice as ListedNoticeProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.MarkSeenRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.NoticeKey
 import io.github.joshsymonds.orrery.gen.orrery.v1.NoticesClient
+import io.github.joshsymonds.orrery.gen.orrery.v1.NoticesListRequest
+import io.github.joshsymonds.orrery.gen.orrery.v1.NoticesReadAllRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.NoticesSeenRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.Pane as PaneProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.PanesClient
@@ -445,6 +448,26 @@ data class EpicRow(
     val pauseSource: String = "",
     val parked: String = "",
     val openQuestions: Int = 0,
+)
+
+/**
+ * One notice in the notice history, from List. [pane], [session], [epic], [limit] and [alert] are the notice's key: exactly
+ * one is set. [blockKind] and [blockRef] name the block of the epic's page the notice opens on, empty when it opens the
+ * epic view. [time] is when the router delivered the notice, in unix seconds; [read] is whether the owner has read it.
+ */
+data class NoticeRow(
+    val pane: String,
+    val session: String,
+    val epic: String,
+    val limit: String,
+    val alert: String,
+    val state: String,
+    val title: String,
+    val body: String,
+    val blockKind: String,
+    val blockRef: String,
+    val time: Long,
+    val read: Boolean,
 )
 
 /**
@@ -1258,6 +1281,30 @@ class OrreryClient(
         call(write = true) { standard.notices.seen(request, CLIENT_HEADERS) }
     }
 
+    /** The notice history, newest first, as the server answers: every notice timed within the last 14 days. */
+    fun notices(): List<NoticeRow> {
+        val response = call(write = false) { standard.notices.list(NoticesListRequest.getDefaultInstance(), CLIENT_HEADERS) }
+        return response.noticesList.map { it.toNoticeRow() }
+    }
+
+    /** Records that the owner opened the notice [row] in the notice history, so every client marks it seen. */
+    fun noticeRowSeen(row: NoticeRow) {
+        noticeSeen(
+            NoticeKey.newBuilder()
+                .setPane(row.pane)
+                .setSession(row.session)
+                .setEpic(row.epic)
+                .setLimit(row.limit)
+                .setAlert(row.alert)
+                .build(),
+        )
+    }
+
+    /** Marks every notice in the notice history read. */
+    fun readAllNotices() {
+        call(write = true) { standard.notices.readAll(NoticesReadAllRequest.getDefaultInstance(), CLIENT_HEADERS) }
+    }
+
     /** Holds the labelled step [id]. A refused hold answers [StepCallResult.Refused] with the server's reason. */
     fun holdStep(id: String): StepCallResult {
         val request = StepsHoldRequest.newBuilder().setId(id).build()
@@ -1387,6 +1434,22 @@ class OrreryClient(
 
     private fun textRequest(paneId: String, text: String): SendTextRequest =
         SendTextRequest.newBuilder().setPane(paneId).setText(text).build()
+
+    private fun ListedNoticeProto.toNoticeRow(): NoticeRow =
+        NoticeRow(
+            pane = key.pane,
+            session = key.session,
+            epic = key.epic,
+            limit = key.limit,
+            alert = key.alert,
+            state = state,
+            title = title,
+            body = body,
+            blockKind = block.kind,
+            blockRef = block.ref,
+            time = time,
+            read = read,
+        )
 
     private fun EpicProto.toEpicRow(): EpicRow =
         EpicRow(
