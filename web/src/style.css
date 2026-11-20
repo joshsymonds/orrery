@@ -1320,6 +1320,7 @@ button.block:hover { --ground: var(--o-surface-raised); }
   .contract .tbl { grid-template-columns: minmax(0, 1fr); }
   .contract .tr { grid-template-columns: var(--cols-touch, minmax(0, 1fr) auto); column-gap: var(--o-space-12); row-gap: var(--o-space-2); padding: var(--o-space-12) 0; }
   .contract .tr.head { display: none; }
+  .contract .tr.attention { padding-left: var(--o-space-12); }
   .contract .tr .wide { grid-column: 1 / -1; }
   .contract .tr .say { visibility: visible; }
   .btn { height: var(--o-size-control-touch); padding: 0 var(--o-space-16); }
