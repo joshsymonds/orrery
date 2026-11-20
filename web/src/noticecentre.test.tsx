@@ -9,6 +9,7 @@ import { type ListedNotice, ListedNoticeSchema, type NoticeKey, NoticeKeySchema 
 import { NoticeCentre, type NoticeCentreProps } from "./noticecentre";
 import type { NoticeHead } from "./noticewords";
 import { installTestDom, removeTestDom } from "./testdom";
+import { styleDeclaration } from "./teststyle";
 
 // now is Monday 16 November 2026 at 14:41 UTC, so Today, Yesterday and the weekday heads are fixed.
 const nowIso = "2026-11-16T14:41:00Z";
@@ -161,6 +162,17 @@ test("NoticeCentre: an unread row is marked unread, and a read row is not", asyn
     const buttons = rowButtons(container);
     assert.ok(buttons[0].classList.contains("unread"), "the unread row is not marked");
     assert.ok(!buttons[1].classList.contains("unread"), "the read row is marked");
+  });
+});
+
+test("NoticeCentre: an unread row has the new role's dot and a bold title, and a read row has neither", async () => {
+  assert.equal(styleDeclaration(".notice.flat .t", "font-weight"), "var(--o-font-weight-regular)");
+  assert.equal(styleDeclaration(".notice.flat.unread .t", "font-weight"), "var(--o-font-weight-bold)");
+  assert.equal(styleDeclaration(".notice.flat.unread .t::after", "background"), "var(--o-role-new)");
+  await withCentre({}, (container) => {
+    const buttons = rowButtons(container);
+    assert.ok(buttons[0].classList.contains("unread"), "the unread row is not marked, so no style reaches it");
+    assert.ok(!buttons[1].classList.contains("unread"), "the read row is marked, so the dot and bold reach it");
   });
 });
 

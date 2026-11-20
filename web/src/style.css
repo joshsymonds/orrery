@@ -60,6 +60,9 @@ h3, h4, h5, h6 { font: var(--o-type-body); font-weight: var(--o-font-weight-bold
   position: absolute; top: 0; margin-top: var(--o-space-8); right: var(--o-space-16); z-index: var(--o-z-notices);
   display: grid; gap: var(--o-space-4); width: min(52ch, calc(100% - var(--o-space-32)));
 }
+/* The stack's "N more in Notices" link, at the stack's right edge, small and quiet as round 6 draws it. It is a button.link,
+   whose own rule has the higher specificity, so this rule names the link to take the colour and the font. */
+button.link.notices-more { justify-self: end; padding: 0 var(--o-space-12); color: var(--o-ink-3); font: var(--o-type-small); }
 /* A stack row is a notice in two lines: its lead, its directory and words, and its age; then its body's first line and its
    controls. The rules name the stack row's role and the centre's flat row's class, since other markup takes the class
    notice too. */

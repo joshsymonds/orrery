@@ -21,6 +21,7 @@ import { applyNotice, Notice, NoticeStack, noticeLifetimeMillis, watchNotices } 
 import type { NoticeAct, NoticeHead } from "./noticewords";
 import { mockTimers } from "./testclock";
 import { installTestDom, removeTestDom } from "./testdom";
+import { styleDeclaration } from "./teststyle";
 import { settledFlag, until } from "./testwait";
 
 const watchPath = "/orrery.v1.Notices/Watch";
@@ -54,7 +55,7 @@ function titles(list: InAppNotice[]): string[] {
   return list.map((item) => item.title);
 }
 
-test("a shown notice joins the end of the list, in the order it was first shown", (t) => {
+test("NoticeStack: a shown notice joins the end of the list, in the order it was first shown", (t) => {
   const first = applyNotice([], shown(notice("%1", "one")));
   const second = applyNotice(first, shown(notice("%2", "two")));
   assert.deepEqual(titles(second), ["one", "two"]);
@@ -774,6 +775,15 @@ test("NoticeStack: the directory is drawn in its own element, and the words foll
     assert.equal(title?.querySelector(".dirn")?.textContent, "tidepool", "the directory is not in the place element");
     assert.equal(title?.textContent, "tidepool waiting on you", "the words do not follow the directory");
   });
+});
+
+test("NoticeStack: the directory is drawn in the place colour, as style.css's .notice .t .dirn rule sets it", () => {
+  assert.equal(styleDeclaration(".notice .t .dirn", "color"), "var(--o-role-place)");
+});
+
+test("NoticeStack: the stack sits at the right of the reading area, so style.css's .notices rule sets right and no left", () => {
+  assert.notEqual(styleDeclaration(".notices", "right"), undefined, "the stack's rule sets no right");
+  assert.equal(styleDeclaration(".notices", "left"), undefined, "the stack's rule sets a left");
 });
 
 test("NoticeStack: a head with no directory draws its words alone", async () => {
