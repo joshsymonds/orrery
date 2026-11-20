@@ -1,11 +1,12 @@
 package io.github.joshsymonds.orrery.ui
 
 import io.github.joshsymonds.orrery.api.BackgroundTask
+import io.github.joshsymonds.orrery.api.ContractRow
 import io.github.joshsymonds.orrery.api.EpicDetail
 import io.github.joshsymonds.orrery.api.EpicRow
 
-/** The groups of a conversation's right rail: the epics it steers, its running sub-agents, its running shells. */
-enum class GroupKind { EPIC, AGENTS, RUNNING }
+/** The groups of a conversation's right rail: its contracts, the epics it steers, its running agents and shells. */
+enum class GroupKind { CONTRACT, EPIC, AGENTS, RUNNING }
 
 /** How a thing reads: ATTENTION when it asks the user, LIVE while it runs, QUIET otherwise. */
 enum class ThingTone { ATTENTION, LIVE, QUIET }
@@ -32,6 +33,18 @@ data class EpicThing(
     override val key: String get() = id
 }
 
+/** A contract the conversation proposed. [short] is its name in the strip and [title] its description words. */
+data class ContractThing(
+    val id: String,
+    val slug: String,
+    val short: String,
+    val asks: Boolean,
+    val title: String,
+) : RailThing {
+    override val key: String get() = id
+    override val tone: ThingTone get() = ThingTone.ATTENTION
+}
+
 /** The running tasks of one list, [kind] being AGENTS or RUNNING. Its [count] is its number of tasks. */
 data class ListThing(
     val kind: GroupKind,
@@ -53,17 +66,22 @@ data class RailGroup(
 // A group with more than this many things is marked many.
 private const val MANY_THINGS = 3
 
-// The conversation's right-rail groups, in order: the epics it steers, its running sub-agents and its running shells.
-// An epic is steered when its record names the session, and an empty session steers none. A pane has no lists. A group
-// with no thing is left out.
+// The conversation's right-rail groups, in order: its proposed contracts, the epics it steers, its running sub-agents
+// and its running shells. An epic is steered when its record names the session, and an empty session steers none. A
+// pane has no lists. A group with no thing is left out.
 fun workGroupsOf(
     session: String,
     pane: Boolean,
     epics: List<EpicRow>,
     details: Map<String, EpicDetail>,
     background: List<BackgroundTask>,
+    contracts: List<ContractRow> = emptyList(),
 ): List<RailGroup> {
     val groups = mutableListOf<RailGroup>()
+    val contractThings = contractThingsOf(session, contracts)
+    if (contractThings.isNotEmpty()) {
+        groups += groupOf(GroupKind.CONTRACT, "contract", contractThings)
+    }
     val epicThings = epicThingsOf(session, epics, details)
     if (epicThings.isNotEmpty()) {
         groups += groupOf(GroupKind.EPIC, if (epicThings.size == 1) "epic" else "epics", epicThings)
@@ -79,6 +97,27 @@ fun workGroupsOf(
         }
     }
     return groups
+}
+
+// The contracts the session proposed, in List's order: the proposed ones whose conversation is the session. An empty
+// session has none. A contract asks while a decision is open.
+private fun contractThingsOf(session: String, contracts: List<ContractRow>): List<ContractThing> {
+    if (session.isEmpty()) return emptyList()
+    return contracts
+        .filter { it.state == "proposed" && it.conversation == session }
+        .map { contractThingOf(it) }
+}
+
+// A contract's slug is its id past its last slash. Its short name is the epic cap's rule over its repository.
+private fun contractThingOf(contract: ContractRow): ContractThing {
+    val slug = contract.id.substringAfterLast("/")
+    return ContractThing(
+        id = contract.id,
+        slug = slug,
+        short = shortNameOf(slug, contract.repository),
+        asks = contract.openDecisions > 0L,
+        title = "$slug: a contract waits for you",
+    )
 }
 
 // The epics the session steers: the live ones in list order, then the ended unseen ones, newest ending first. An
@@ -107,7 +146,7 @@ private fun epicThingOf(epic: EpicRow, details: Map<String, EpicDetail>): EpicTh
     return EpicThing(
         id = epic.id,
         slug = epic.slug,
-        short = shortNameOf(epic),
+        short = shortNameOf(epic.slug, epic.repository),
         asks = asks,
         tone = tone,
         state = stateOf(epic, detail, needs),
@@ -116,9 +155,9 @@ private fun epicThingOf(epic: EpicRow, details: Map<String, EpicDetail>): EpicTh
 }
 
 // The slug past its repository's name and the dash after it, up to the first dash after that.
-private fun shortNameOf(epic: EpicRow): String {
-    val prefix = "${repositoryNameOf(epic.repository)}-"
-    val rest = if (epic.slug.startsWith(prefix)) epic.slug.removePrefix(prefix) else epic.slug
+private fun shortNameOf(slug: String, repository: String): String {
+    val prefix = "${repositoryNameOf(repository)}-"
+    val rest = if (slug.startsWith(prefix)) slug.removePrefix(prefix) else slug
     return rest.substringBefore("-")
 }
 

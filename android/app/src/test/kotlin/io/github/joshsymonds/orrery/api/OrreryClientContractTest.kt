@@ -9,6 +9,7 @@ import io.github.joshsymonds.orrery.gen.orrery.v1.ContractsAcceptRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.ContractsAcceptResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.ContractsGetRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.ContractsGetResponse
+import io.github.joshsymonds.orrery.gen.orrery.v1.ContractsListResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.ContractsReopenRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.ContractsReopenResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.ContractsSetAsideRequest
@@ -235,6 +236,69 @@ class OrreryClientContractTest {
         .build()
 
     @Test
+    fun contractsMapEveryFieldInListOrder() {
+        FakeOrreryServer().use { server ->
+            server.respond(
+                CONTRACTS_LIST,
+                ContractsListResponse.newBuilder()
+                    .addContracts(
+                        Contract.newBuilder()
+                            .setId("example-contract")
+                            .setRepository("example-repo")
+                            .setTitle("Example contract title")
+                            .setCare("serious")
+                            .setState("proposed")
+                            .setVersion(3L)
+                            .setOpenDecisions(2L)
+                            .setConversation("example-session")
+                            .setCreated(4102444600L)
+                            .setChanged(4102444700L),
+                    )
+                    .build(),
+            )
+
+            assertEquals(
+                listOf(
+                    ContractRow(
+                        id = "example-contract",
+                        repository = "example-repo",
+                        title = "Example contract title",
+                        care = "serious",
+                        state = "proposed",
+                        version = 3L,
+                        openDecisions = 2L,
+                        conversation = "example-session",
+                        created = 4102444600L,
+                        changed = 4102444700L,
+                    ),
+                ),
+                OrreryClient(server.baseUrl).contracts(),
+            )
+            assertConnectRequest(CONTRACTS_LIST, server.requests.single())
+        }
+    }
+
+    @Test
+    fun contractsAbsentOnAnOldServerIsEmpty() {
+        for (code in listOf(Code.UNAVAILABLE, Code.UNIMPLEMENTED, Code.NOT_FOUND)) {
+            FakeOrreryServer().use { server ->
+                server.fail(CONTRACTS_LIST, code)
+
+                assertEquals(emptyList<ContractRow>(), OrreryClient(server.baseUrl).contracts())
+            }
+        }
+    }
+
+    @Test
+    fun contractsThrowAnyOtherError() {
+        FakeOrreryServer().use { server ->
+            server.fail(CONTRACTS_LIST, Code.INTERNAL_ERROR)
+
+            assertThrows(OrreryCallException::class.java) { OrreryClient(server.baseUrl).contracts() }
+        }
+    }
+
+    @Test
     fun contractMapsTheRecordItsVersionsAndItsStatesAsSent() {
         FakeOrreryServer().use { server ->
             server.respond(CONTRACTS_GET, recordProto)
@@ -405,6 +469,7 @@ class OrreryClientContractTest {
 
     private companion object {
         const val CONTRACTS_GET = "/orrery.v1.Contracts/Get"
+        const val CONTRACTS_LIST = "/orrery.v1.Contracts/List"
         const val CONTRACTS_ACCEPT = "/orrery.v1.Contracts/Accept"
         const val CONTRACTS_SET_ASIDE = "/orrery.v1.Contracts/SetAside"
         const val CONTRACTS_REOPEN = "/orrery.v1.Contracts/Reopen"

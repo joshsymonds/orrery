@@ -20,6 +20,7 @@ import io.github.joshsymonds.orrery.gen.orrery.v1.ContractVersion as ContractVer
 import io.github.joshsymonds.orrery.gen.orrery.v1.ContractsAcceptRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.ContractsClient
 import io.github.joshsymonds.orrery.gen.orrery.v1.ContractsGetRequest
+import io.github.joshsymonds.orrery.gen.orrery.v1.ContractsListRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.ContractsReopenRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.ContractsSetAsideRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.ControlClient
@@ -135,8 +136,8 @@ private val CLIENT_HEADERS: Map<String, List<String>> = mapOf("X-Orrery-Client" 
 /** The choice an answer to a question names when the owner types the answer rather than picking a declared option. */
 private const val CHOICE_OTHER = "other"
 
-/** The answers to ListHeadless that mean the server has no headless sessions to list. */
-private val HEADLESS_ABSENT = setOf(Code.UNAVAILABLE, Code.UNIMPLEMENTED, Code.NOT_FOUND)
+/** The answers to the list calls of sessions and contracts that mean the server has no such rows to list. */
+private val ABSENT_LIST = setOf(Code.UNAVAILABLE, Code.UNIMPLEMENTED, Code.NOT_FOUND)
 
 /** The answers to an accept, set aside or reopen that mean the server refused it, with its reason. */
 private val CONTRACT_REFUSED = setOf(
@@ -910,13 +911,23 @@ class OrreryClient(
      * unavailable, unimplemented or not_found has none to list, so it gives an empty list.
      */
     fun headless(): List<Pane> {
-        val response = try {
+        val sessions = absentAsEmpty {
             call(write = false) { standard.sessions.listHeadless(ListHeadlessRequest.getDefaultInstance(), CLIENT_HEADERS) }
-        } catch (e: OrreryCallException) {
-            if (e.code in HEADLESS_ABSENT) return emptyList()
-            throw e
+                .sessionsList
         }
-        return response.sessionsList.map { it.toHeadlessPane() }
+        return sessions.map { it.toHeadlessPane() }
+    }
+
+    /**
+     * Every contract, created ascending, with its current version. A server with no contracts to list gives an empty
+     * list.
+     */
+    fun contracts(): List<ContractRow> {
+        val contracts = absentAsEmpty {
+            call(write = false) { standard.contracts.list(ContractsListRequest.getDefaultInstance(), CLIENT_HEADERS) }
+                .contractsList
+        }
+        return contracts.map { it.toContractRow() }
     }
 
     fun conversation(paneId: String): Conversation? {
@@ -1887,5 +1898,13 @@ class OrreryClient(
             read()
         } catch (e: OrreryCallException) {
             if (e.code == Code.NOT_FOUND) null else throw e
+        }
+
+    /** The rows of a list call, or none when the server answered one of [ABSENT_LIST]: it has no such rows to list. */
+    private inline fun <T> absentAsEmpty(read: () -> List<T>): List<T> =
+        try {
+            read()
+        } catch (e: OrreryCallException) {
+            if (e.code in ABSENT_LIST) emptyList() else throw e
         }
 }
