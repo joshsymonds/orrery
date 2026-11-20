@@ -88,6 +88,7 @@ interface Setup {
   read?: string[];
   onRead?: (key: string) => void;
   onAbout?: (about: RowAbout) => void;
+  aboutId?: string;
   onChanged?: () => void;
   onTalk?: () => void;
 }
@@ -118,6 +119,7 @@ async function withRecord(t: TestContext, setup: Setup, check: (rig: Rig) => Pro
     onRead: setup.onRead ?? (() => undefined),
     live: setup.live ?? true,
     onAbout: setup.onAbout,
+    aboutId: setup.aboutId,
     onChanged: setup.onChanged,
     onTalk: setup.onTalk,
   };
@@ -184,7 +186,7 @@ function alertText(root: ParentNode): string {
 
 // versionRow returns the row of the versions list whose chip reads chip.
 function versionRow(root: ParentNode, chip: string): HTMLElement {
-  const found = all(root, ".tbl.versions .tr").find((row) => row.querySelector(".chip")?.textContent.trim() === chip);
+  const found = all(root, ".tbl.versions button.tr").find((row) => row.querySelector(".chip")?.textContent.trim() === chip);
   assert.ok(found !== undefined, `no version row reads ${chip}`);
   return found;
 }
@@ -573,11 +575,23 @@ test("ContractActions: an accepted contract with no epic offers Set aside, and o
   });
 });
 
+test("ContractVersions: the versions table names its columns: the version, when, by and what changed", async (t) => {
+  await withRecord(t, { script: { get: () => tideProposed } }, async (rig) => {
+    await drawn(rig);
+    await press(button(rig.container, "2 versions"));
+    const head = rig.container.querySelector(".tbl.versions .tr.head");
+    assert.deepEqual(
+      [...(head?.querySelectorAll("span") ?? [])].map((cell) => cell.textContent),
+      ["", "when", "by", "what changed"],
+    );
+  });
+});
+
 test("ContractVersions: the versions list shows the newest first, each with its time, writer and what changed", async (t) => {
   await withRecord(t, { script: { get: () => tideProposed } }, async (rig) => {
     await drawn(rig);
     await press(button(rig.container, "2 versions"));
-    const rows = all(rig.container, ".tbl.versions .tr");
+    const rows = all(rig.container, ".tbl.versions button.tr");
     assert.deepEqual(
       rows.map((row) => textOf(row, ".chip")),
       ["v2", "v1"],
@@ -630,7 +644,7 @@ test("ContractVersions: a contract with one version reads 1 version and lists on
   await withRecord(t, { script: { get: () => single } }, async (rig) => {
     await drawn(rig);
     await press(button(rig.container, "1 version"));
-    assert.equal(all(rig.container, ".tbl.versions .tr").length, 1);
+    assert.equal(all(rig.container, ".tbl.versions button.tr").length, 1);
   });
 });
 
@@ -686,5 +700,39 @@ test("ContractMine: a proposed contract whose conversation has ended says so, an
     await drawn(rig);
     assert.equal(hasText(rig.container, noLive), false);
     assert.ok(findButton(rig.container, "Reopen") !== null);
+  });
+});
+
+test("ContractMine: a set-aside contract with a decision open draws no attention and says Decisions needed: none", async (t) => {
+  await withRecord(t, { script: { get: () => tideSetAside } }, async (rig) => {
+    await drawn(rig);
+    assert.equal(rig.container.querySelectorAll(".attention").length, 0);
+    assert.equal(rig.container.querySelectorAll(".unread").length, 0);
+    assert.equal(textOf(rig.container, ".dline .facts > span:nth-child(2)"), "Decisions needed: none");
+  });
+});
+
+test("ContractMine: an older version of a proposed contract draws no attention and says Decisions needed: none", async (t) => {
+  const withOpen = create(ContractsGetResponseSchema, {
+    contract: tideProposed.contract,
+    versions: [{ ...tideProposed.versions[0], decisions: tideProposed.versions[1].decisions }, tideProposed.versions[1]],
+    states: tideProposed.states,
+  });
+  await withRecord(t, { script: { get: () => withOpen } }, async (rig) => {
+    await drawn(rig);
+    await press(button(rig.container, "2 versions"));
+    await press(versionRow(rig.container, "v1"));
+    assert.equal(rig.container.querySelectorAll(".attention").length, 0);
+    assert.equal(textOf(rig.container, ".dline .facts > span:nth-child(2)"), "Decisions needed: none");
+  });
+});
+
+test("ContractMine: the row control of the About is lit in the record, and no other", async (t) => {
+  await withRecord(t, { script: { get: () => tideProposed }, onAbout: () => undefined, aboutId: "F2" }, async (rig) => {
+    await drawn(rig);
+    assert.deepEqual(
+      all(rig.container, ".say.on").map((say) => say.closest(".tr")?.getAttribute("data-row")),
+      ["F2"],
+    );
   });
 });

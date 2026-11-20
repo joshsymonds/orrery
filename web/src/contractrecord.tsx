@@ -31,6 +31,8 @@ export interface ContractRecordProps {
   onRead: (key: string) => void;
   live: boolean;
   onAbout?: (about: RowAbout) => void;
+  // aboutId is the id of the row the dock's About names, whose control the record draws lit.
+  aboutId?: string;
   onChanged?: () => void;
   onTalk?: () => void;
 }
@@ -50,6 +52,9 @@ interface View {
 
 // newerNote is what the record says when Accept finds a newer version than the one drawn.
 const newerNote = "A newer version came in. Read it before you accept.";
+
+// versionsHead names the versions table's columns, round 6's: the version, when, by whom, and what changed.
+const versionsHead = ["", "when", "by", "what changed"];
 
 // noLive is the line the record draws when the conversation that wrote the contract has ended.
 const noLive = "Its conversation has ended: you can accept it or set it aside, but not change it.";
@@ -80,7 +85,7 @@ function leftOfView(view: View, read: ReadonlySet<string>): Left {
 // the viewer picks an older one, which is read-only. Accept, Set aside and Reopen each send one call, and a refusal's
 // reason is shown in place of nothing looking done. The irreversible section is marked read once it is on screen.
 export function ContractRecord(props: ContractRecordProps): JSX.Element {
-  const { id, clients, writer, hasEpic, read, onRead, live, onAbout, onChanged, onTalk } = props;
+  const { id, clients, writer, hasEpic, read, onRead, live, onAbout, aboutId, onChanged, onTalk } = props;
   const [loaded, setLoaded] = useState<View | undefined>(undefined);
   const [loadError, setLoadError] = useState("");
   const [sending, setSending] = useState(false);
@@ -226,6 +231,11 @@ export function ContractRecord(props: ContractRecordProps): JSX.Element {
       </div>
       {versionsOpen && (
         <div class="tbl versions">
+          <div class="tr head">
+            {versionsHead.map((name) => (
+              <span>{name}</span>
+            ))}
+          </div>
           {versions
             .slice()
             .reverse()
@@ -251,7 +261,7 @@ export function ContractRecord(props: ContractRecordProps): JSX.Element {
 
   const marks: DocMarks = {
     concerned: concernedRows(drawn.decisions),
-    unread: proposed && left.unread,
+    unread: left.unread,
     changedRows: new Set(drawn.changedRows),
     changedSections: new Set(drawn.changedSections),
     version: Number(drawn.version),
@@ -274,6 +284,8 @@ export function ContractRecord(props: ContractRecordProps): JSX.Element {
         record={recordLine(get)}
         facts={facts}
         marks={marks}
+        attending={proposed && isNewest}
+        aboutId={aboutId}
         onAbout={talking}
         irreversibleRef={irreversibleRef}
       />

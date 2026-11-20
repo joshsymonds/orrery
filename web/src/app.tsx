@@ -9,7 +9,7 @@ import { epicCallsOf } from "./card";
 import type { DockHandle } from "./dock";
 import { ContractBody } from "./contract";
 import { ContractRecord } from "./contractrecord";
-import { bandText, contractSlug, leftOf, type RowAbout, readKey } from "./contracts";
+import { bandText, contractSlug, leftOf, type RowAbout, readKey, statePill } from "./contracts";
 import { endedLead, EndedBar, unsteeredLead } from "./endedbar";
 import { type Conversation, shownConversation } from "./conversation";
 import { type ArchiveControl, EpicLine } from "./epicline";
@@ -1709,6 +1709,7 @@ export function App({
       <div>
         <TitleRow
           crumbs={[{ label: contractSlug(contract.id) }, { label: "contract" }]}
+          state={statePill(contract.state)}
           onBack={closeContract}
           mark={inboxMark}
           strip={pageStrip(null, null)}
@@ -1723,6 +1724,7 @@ export function App({
           onRead={readContract}
           live={contractLiveRow !== null}
           onAbout={talkAbout}
+          aboutId={about?.id}
           onTalk={
             wide || contractLiveRow === null || contract.state !== "proposed" ? undefined : () => setTalking(true)
           }

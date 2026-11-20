@@ -270,6 +270,35 @@ test("ContractMine: opening another contract clears the About the first one set"
   });
 });
 
+test("ContractMine: the row the dock's About names draws its control lit, and no other row does", (t) =>
+  withApp(t.signal, 1600, { rows: [conversationRow()], address: contractAddress }, async ({ container }) => {
+    await settle(t.signal, () => titledRecord(container, "tide-alerts contract"), "the record is drawn in the panel");
+    const panel = panelOf(container, "tide-alerts contract") ?? container;
+    assert.equal(panel.querySelectorAll(".say.on").length, 0, "no row's control is lit before an About is set");
+    const control = talkControls(panel)[0];
+    assert.ok(control !== undefined, "the record draws a row's control");
+    await click(control);
+    await settle(t.signal, () => aboutLine(container) !== null, "the dock draws its About");
+    const lit = [...panel.querySelectorAll(".say.on")];
+    assert.equal(lit.length, 1, "one row's control is lit");
+    assert.equal(lit[0].closest("[data-row]")?.getAttribute("data-row"), firstRow, "the lit control is the About's row");
+  }));
+
+test("ContractDoc: the contract page's title row carries the contract's state pill", async (t) => {
+  for (const [state, pill] of [
+    ["proposed", "proposed · waits for you"],
+    ["accepted", "accepted"],
+    ["set_aside", "set aside"],
+  ] as const) {
+    const shown: Contract[] = listed.map((entry) => ({ ...entry, state }));
+    await withApp(t.signal, 1600, { rows: [conversationRow()], address: contractAddress, contracts: shown }, async ({ container }) => {
+      await settle(t.signal, () => recordDrawn(container, "tide-alerts contract"), "the record is drawn in the panel");
+      const title = panelOf(container, "tide-alerts contract")?.querySelector(".state");
+      assert.equal(title?.textContent, pill, `a ${state} contract's title row says its state`);
+    });
+  }
+});
+
 test("ContractMine: Not about this clears the About, and the next send is the draft alone", (t) =>
   withApp(t.signal, 1600, { rows: [conversationRow()], address: contractAddress }, async ({ container, probe }) => {
     await settle(t.signal, () => titledRecord(container, "tide-alerts contract"), "the record is drawn in the panel");

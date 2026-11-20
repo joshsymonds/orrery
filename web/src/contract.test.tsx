@@ -8,7 +8,7 @@ import { type DocMarks, ContractBody } from "./contract";
 import type { RowAbout } from "./contracts";
 import type { ContractVersion, ContractsGetResponse } from "./gen/orrery/v1/contracts_pb";
 import { type EpicContract, EpicContractSchema, type EpicRequirement, EpicRequirementSchema } from "./gen/orrery/v1/epics_pb";
-import { tideAccepted, tideProposed, tideReady } from "./fixtures/contractrecords";
+import { tideAccepted, tideProposed, tideReady, tideSetAside } from "./fixtures/contractrecords";
 import { clock } from "./reader";
 import { installTestDom, removeTestDom } from "./testdom";
 
@@ -411,4 +411,26 @@ test("ContractVersions: an open decision the version changed carries its changed
 test("ContractVersions: with no marks nothing is marked changed", () =>
   withDoc(propsOf(tideProposed), (container) => {
     assert.equal(container.querySelectorAll(".chip.new").length, 0);
+  }));
+
+test("ContractMine: a section holding a row an open decision concerns is marked attention, as its row is", () =>
+  withDoc(propsOf(tideProposed, { marks: marksOf(tideProposed, false) }), (container) => {
+    assert.ok(one(sectionOf(container, sectionNames[3]), ".sec").classList.contains("attention"));
+    assert.equal(one(sectionOf(container, sectionNames[1]), ".sec").classList.contains("attention"), false);
+  }));
+
+test("ContractMine: a body that is not attending draws no attention and says Decisions needed none, with a decision open", () =>
+  withDoc(propsOf(tideSetAside, { attending: false, marks: marksOf(tideSetAside, true) }), (container) => {
+    assert.equal(container.querySelectorAll(".attention").length, 0);
+    assert.equal(container.querySelectorAll(".unread").length, 0);
+    assert.equal(textsOf(container, ".dline .facts > span")[1], "Decisions needed: none");
+    assert.equal(sectionOf(container, sectionNames[8]).querySelectorAll(".sec .n").length, 0);
+  }));
+
+test("ContractMine: the row control of the About is lit, and no other", () =>
+  withDoc(propsOf(tideProposed, { onAbout: () => undefined, aboutId: "R2" }), (container) => {
+    assert.deepEqual(
+      all(container, ".say.on").map((say) => say.closest(".tr")?.getAttribute("data-row")),
+      ["R2"],
+    );
   }));
