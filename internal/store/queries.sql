@@ -1240,6 +1240,13 @@ UPDATE epic_questions SET state = 'answered', choice = ? WHERE epic = ? AND seq 
 -- name: SetEpicQuestionReplaced :execrows
 UPDATE epic_questions SET state = 'replaced', replaced_by = ? WHERE epic = ? AND seq = ? AND state = 'open';
 
+-- name: EscalateEpicQuestion :execrows
+UPDATE epic_questions SET escalated = ?, escalation_reason = ?, escalation_maker = ?, escalation_session = ?
+WHERE epic = ? AND seq = ? AND state = 'open' AND escalated = 0;
+
+-- name: SetEpicQuestionEscalationTold :execrows
+UPDATE epic_questions SET escalation_told = 1 WHERE epic = ? AND seq = ?;
+
 -- name: ListOpenEpicParkQuestions :many
 SELECT * FROM epic_questions WHERE epic = ? AND state = 'open' AND turn = 0 AND label = 'park' ORDER BY seq;
 

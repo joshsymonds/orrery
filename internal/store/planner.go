@@ -95,20 +95,25 @@ type EpicTask struct {
 // EpicQuestion is one question a planner turn asked, with its state. Turn is the seq of the turn that asked it. Label,
 // Choices, Recommended, Why, Confidence and Replaces are the question's shape as the turn stored it. ReplacedBy is the
 // seq of the question that replaced it, and Choice is the choice that answered it: ChoiceOther for words, "" while it
-// is open or replaced.
+// is open or replaced. Escalated is when the question was escalated, zero while it is not; EscalationReason and
+// EscalationMaker are what that escalation names, and EscalationTold is set once the owner has been told of it.
 type EpicQuestion struct {
-	Seq         int64
-	Turn        int64
-	Text        string
-	State       string
-	Label       string
-	Choices     []EpicChoice
-	Recommended string
-	Why         string
-	Confidence  string
-	Replaces    int64
-	ReplacedBy  int64
-	Choice      string
+	Seq              int64
+	Turn             int64
+	Text             string
+	State            string
+	Label            string
+	Choices          []EpicChoice
+	Recommended      string
+	Why              string
+	Confidence       string
+	Replaces         int64
+	ReplacedBy       int64
+	Choice           string
+	Escalated        time.Time
+	EscalationReason string
+	EscalationMaker  Maker
+	EscalationTold   bool
 }
 
 // EpicTrigger is one trigger of an epic: its cause, its state, the turn that claimed it (0 while pending) and when it
@@ -413,11 +418,18 @@ func questionOf(question sqlcgen.EpicQuestion) (EpicQuestion, error) {
 	if err != nil {
 		return EpicQuestion{}, fmt.Errorf("choices of question %d: %w", question.Seq, err)
 	}
+	var escalated time.Time
+	if question.Escalated != 0 {
+		escalated = time.Unix(question.Escalated, 0)
+	}
 	return EpicQuestion{
 		Seq: question.Seq, Turn: question.Turn, Text: question.Text, State: question.State,
 		Label: question.Label, Choices: choices, Recommended: question.Recommended, Why: question.Why,
 		Confidence: question.Confidence, Replaces: question.Replaces, ReplacedBy: question.ReplacedBy,
-		Choice: question.Choice,
+		Choice:    question.Choice,
+		Escalated: escalated, EscalationReason: question.EscalationReason,
+		EscalationMaker: Maker{By: question.EscalationMaker, Session: question.EscalationSession},
+		EscalationTold:  question.EscalationTold != 0,
 	}, nil
 }
 

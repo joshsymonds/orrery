@@ -18,8 +18,8 @@ import (
 // epicTableColumns returns, keyed by table, the columns in declaration order of every table migrations 00014, 00016,
 // 00019, 00028, 00030, 00035, 00036, 00037, 00038, 00040, 00041, 00043, 00044, 00049, 00051, 00052, 00079 and 00081
 // create, and of the columns those migrations and 00020, 00021, 00022, 00025, 00029, 00033, 00034, 00035, 00039, 00040,
-// 00042, 00044, 00045, 00048, 00050, 00051, 00052, 00053, 00054, 00057, 00065, 00070, 00078, 00079, 00080, 00081 and
-// 00083 add to epic tables.
+// 00042, 00044, 00045, 00048, 00050, 00051, 00052, 00053, 00054, 00057, 00065, 00070, 00078, 00079, 00080, 00081,
+// 00083 and 00084 add to epic tables.
 func epicTableColumns() map[string][]string {
 	return map[string][]string{
 		"epics": {
@@ -121,6 +121,8 @@ func epicTableColumns() map[string][]string {
 		"epic_questions": {
 			"epic", "seq", "turn", "text", "state", "label", "choices", "recommended", "why", "confidence", "replaces",
 			"replaced_by", "choice",
+			// The escalation of a question, from 00084_question_escalation.sql.
+			"escalated", "escalation_reason", "escalation_maker", "escalation_session", "escalation_told",
 		},
 		"epic_reviews":         {"epic", "frozen", "clean"},
 		"epic_review_verdicts": {"epic", "position", "reviewer", "step", "verdict", "reason"},
@@ -568,8 +570,9 @@ func TestEpicMigrationKeepsExistingRows(t *testing.T) {
 		`SELECT COALESCE(MAX(version_id), 0) FROM goose_db_version WHERE is_applied = 1`).Scan(&version); err != nil {
 		t.Fatalf("read store version: %v", err)
 	}
-	// Open applies 00014_epics.sql and every migration after it: 00083_release_slot_outside.sql is the newest. The newest
-	// was 00082_contract_record.sql before the release slot migration added 00083, 00081_epic_actions.sql before the
+	// Open applies 00014_epics.sql and every migration after it: 00084_question_escalation.sql is the newest. The newest
+	// was 00083_release_slot_outside.sql before the question escalation migration added 00084,
+	// 00082_contract_record.sql before the release slot migration added 00083, 00081_epic_actions.sql before the
 	// contract record migration added 00082, 00080_epic_steerer.sql before the
 	// epic actions migration added 00081, 00079_gap_reconcile.sql before the steerer migration added 00080,
 	// 00078_task_review_undetermined.sql before the gap reconciliation added 00079, 00077_gambit_ladder.sql before the
@@ -584,8 +587,8 @@ func TestEpicMigrationKeepsExistingRows(t *testing.T) {
 	// added 00065, 00063_task_versions.sql before the step indexes added 00064, 00062_drop_engine_held.sql before the
 	// task versions added 00063, 00061_prompt_states.sql before the drop of engine_held added 00062, and
 	// 00060_cron_jobs.sql before the prompt states added 00061.
-	if version != 83 {
-		t.Fatalf("store version after Open = %d, want 83", version)
+	if version != 84 {
+		t.Fatalf("store version after Open = %d, want 84", version)
 	}
 
 	// A later migration may add columns at the end of an existing table, as 00015_step_readopt.sql adds to steps and

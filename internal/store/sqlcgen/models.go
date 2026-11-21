@@ -343,19 +343,24 @@ type EpicPremise struct {
 }
 
 type EpicQuestion struct {
-	Epic        string
-	Seq         int64
-	Turn        int64
-	Text        string
-	State       string
-	Label       string
-	Choices     string
-	Recommended string
-	Why         string
-	Confidence  string
-	Replaces    int64
-	ReplacedBy  int64
-	Choice      string
+	Epic              string
+	Seq               int64
+	Turn              int64
+	Text              string
+	State             string
+	Label             string
+	Choices           string
+	Recommended       string
+	Why               string
+	Confidence        string
+	Replaces          int64
+	ReplacedBy        int64
+	Choice            string
+	Escalated         int64
+	EscalationReason  string
+	EscalationMaker   string
+	EscalationSession string
+	EscalationTold    int64
 }
 
 type EpicReleaseRun struct {

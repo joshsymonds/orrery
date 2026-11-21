@@ -1092,6 +1092,35 @@ func (q *Queries) EndRunningEpicNodeRuns(ctx context.Context, arg EndRunningEpic
 	return err
 }
 
+const escalateEpicQuestion = `-- name: EscalateEpicQuestion :execrows
+UPDATE epic_questions SET escalated = ?, escalation_reason = ?, escalation_maker = ?, escalation_session = ?
+WHERE epic = ? AND seq = ? AND state = 'open' AND escalated = 0
+`
+
+type EscalateEpicQuestionParams struct {
+	Escalated         int64
+	EscalationReason  string
+	EscalationMaker   string
+	EscalationSession string
+	Epic              string
+	Seq               int64
+}
+
+func (q *Queries) EscalateEpicQuestion(ctx context.Context, arg EscalateEpicQuestionParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, escalateEpicQuestion,
+		arg.Escalated,
+		arg.EscalationReason,
+		arg.EscalationMaker,
+		arg.EscalationSession,
+		arg.Epic,
+		arg.Seq,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const eventPageAfter = `-- name: EventPageAfter :many
 SELECT seq, session_id, kind, at, payload, write_id, answered FROM events WHERE seq > ? ORDER BY seq LIMIT ?
 `
@@ -1660,7 +1689,7 @@ func (q *Queries) GetEpicParkQuestionRun(ctx context.Context, arg GetEpicParkQue
 }
 
 const getEpicQuestion = `-- name: GetEpicQuestion :one
-SELECT epic, seq, turn, text, state, label, choices, recommended, why, confidence, replaces, replaced_by, choice FROM epic_questions WHERE epic = ? AND seq = ?
+SELECT epic, seq, turn, text, state, label, choices, recommended, why, confidence, replaces, replaced_by, choice, escalated, escalation_reason, escalation_maker, escalation_session, escalation_told FROM epic_questions WHERE epic = ? AND seq = ?
 `
 
 type GetEpicQuestionParams struct {
@@ -1685,6 +1714,11 @@ func (q *Queries) GetEpicQuestion(ctx context.Context, arg GetEpicQuestionParams
 		&i.Replaces,
 		&i.ReplacedBy,
 		&i.Choice,
+		&i.Escalated,
+		&i.EscalationReason,
+		&i.EscalationMaker,
+		&i.EscalationSession,
+		&i.EscalationTold,
 	)
 	return i, err
 }
@@ -6032,7 +6066,7 @@ func (q *Queries) ListEpicQuestionFollows(ctx context.Context) ([]ListEpicQuesti
 }
 
 const listEpicQuestions = `-- name: ListEpicQuestions :many
-SELECT epic, seq, turn, text, state, label, choices, recommended, why, confidence, replaces, replaced_by, choice FROM epic_questions WHERE epic = ? ORDER BY seq
+SELECT epic, seq, turn, text, state, label, choices, recommended, why, confidence, replaces, replaced_by, choice, escalated, escalation_reason, escalation_maker, escalation_session, escalation_told FROM epic_questions WHERE epic = ? ORDER BY seq
 `
 
 func (q *Queries) ListEpicQuestions(ctx context.Context, epic string) ([]EpicQuestion, error) {
@@ -6058,6 +6092,11 @@ func (q *Queries) ListEpicQuestions(ctx context.Context, epic string) ([]EpicQue
 			&i.Replaces,
 			&i.ReplacedBy,
 			&i.Choice,
+			&i.Escalated,
+			&i.EscalationReason,
+			&i.EscalationMaker,
+			&i.EscalationSession,
+			&i.EscalationTold,
 		); err != nil {
 			return nil, err
 		}
@@ -8409,7 +8448,7 @@ func (q *Queries) ListOpenEpicNodeRunStates(ctx context.Context) ([]ListOpenEpic
 }
 
 const listOpenEpicParkQuestions = `-- name: ListOpenEpicParkQuestions :many
-SELECT epic, seq, turn, text, state, label, choices, recommended, why, confidence, replaces, replaced_by, choice FROM epic_questions WHERE epic = ? AND state = 'open' AND turn = 0 AND label = 'park' ORDER BY seq
+SELECT epic, seq, turn, text, state, label, choices, recommended, why, confidence, replaces, replaced_by, choice, escalated, escalation_reason, escalation_maker, escalation_session, escalation_told FROM epic_questions WHERE epic = ? AND state = 'open' AND turn = 0 AND label = 'park' ORDER BY seq
 `
 
 func (q *Queries) ListOpenEpicParkQuestions(ctx context.Context, epic string) ([]EpicQuestion, error) {
@@ -8435,6 +8474,11 @@ func (q *Queries) ListOpenEpicParkQuestions(ctx context.Context, epic string) ([
 			&i.Replaces,
 			&i.ReplacedBy,
 			&i.Choice,
+			&i.Escalated,
+			&i.EscalationReason,
+			&i.EscalationMaker,
+			&i.EscalationSession,
+			&i.EscalationTold,
 		); err != nil {
 			return nil, err
 		}
@@ -8450,7 +8494,7 @@ func (q *Queries) ListOpenEpicParkQuestions(ctx context.Context, epic string) ([
 }
 
 const listOpenEpicQuestions = `-- name: ListOpenEpicQuestions :many
-SELECT epic, seq, turn, text, state, label, choices, recommended, why, confidence, replaces, replaced_by, choice FROM epic_questions WHERE epic = ? AND state = 'open' ORDER BY seq
+SELECT epic, seq, turn, text, state, label, choices, recommended, why, confidence, replaces, replaced_by, choice, escalated, escalation_reason, escalation_maker, escalation_session, escalation_told FROM epic_questions WHERE epic = ? AND state = 'open' ORDER BY seq
 `
 
 func (q *Queries) ListOpenEpicQuestions(ctx context.Context, epic string) ([]EpicQuestion, error) {
@@ -8476,6 +8520,11 @@ func (q *Queries) ListOpenEpicQuestions(ctx context.Context, epic string) ([]Epi
 			&i.Replaces,
 			&i.ReplacedBy,
 			&i.Choice,
+			&i.Escalated,
+			&i.EscalationReason,
+			&i.EscalationMaker,
+			&i.EscalationSession,
+			&i.EscalationTold,
 		); err != nil {
 			return nil, err
 		}
@@ -11145,6 +11194,23 @@ type SetEpicQuestionAnsweredParams struct {
 func (q *Queries) SetEpicQuestionAnswered(ctx context.Context, arg SetEpicQuestionAnsweredParams) error {
 	_, err := q.db.ExecContext(ctx, setEpicQuestionAnswered, arg.Choice, arg.Epic, arg.Seq)
 	return err
+}
+
+const setEpicQuestionEscalationTold = `-- name: SetEpicQuestionEscalationTold :execrows
+UPDATE epic_questions SET escalation_told = 1 WHERE epic = ? AND seq = ?
+`
+
+type SetEpicQuestionEscalationToldParams struct {
+	Epic string
+	Seq  int64
+}
+
+func (q *Queries) SetEpicQuestionEscalationTold(ctx context.Context, arg SetEpicQuestionEscalationToldParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, setEpicQuestionEscalationTold, arg.Epic, arg.Seq)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const setEpicQuestionReplaced = `-- name: SetEpicQuestionReplaced :execrows
