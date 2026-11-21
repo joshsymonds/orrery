@@ -1,18 +1,18 @@
 import { Component, createElement, Fragment, type ComponentChildren, type JSX } from "preact";
 import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "preact/hooks";
 
-import { BackgroundRow } from "./backgroundrow";
+import { agentFinishedTask, BackgroundRow, TaskLine } from "./backgroundrow";
+import { CheckBlock, EventBlock, YouBlock } from "./blocks";
 import { type EpicCalls, EpicWidget } from "./card";
 import { ContractBlock } from "./contractblock";
 import { type Conversation, shownConversation } from "./conversation";
 import type { Match } from "./find";
 import { EventRing, epicEventOf, StepCard, stepEventOf } from "./eventring";
-import { useFlash } from "./flash";
 import type { Contract } from "./gen/orrery/v1/contracts_pb";
-import type { EpicStep, EpicStepCheck } from "./gen/orrery/v1/epics_pb";
+import type { EpicStep } from "./gen/orrery/v1/epics_pb";
 import type { ConversationItem, EngineText } from "./gen/orrery/v1/orrery_pb";
 import { type CallReveal, EngineFold, NoticeLine, sameCalls, ThinkingLine, ToolLine, ToolRun } from "./lines";
-import { Markdown } from "./markdown";
+import { Reply } from "./reply";
 import { Rule } from "./rules";
 import type { Sending } from "./sending";
 import { ReplyText } from "./text";
@@ -45,22 +45,20 @@ export interface ContractCalls {
 // Reader draws one conversation: its items, the new rule before the first row newer than seenAt, a day rule before
 // the first row when its local day is not the day of now (unix seconds; a reader given no now draws no leading day
 // rule) and between two rows of different local days, the question's Ask after them, and the session's unfinished text
-// and thinking. A result is never a row:
-// it folds under the call it answers, and a result whose call is not held is hidden. Three or more tool calls in a row
-// fold into one run line that opens to a line per call. A call still running, with nothing but calls and results after
-// it and no question drawn, carries the running rail and mark, and so does a run that holds one. A call that creates an
-// epic is never in a run: once its result is not an error, and the reader is given epic calls, the epic's card draws in
-// its place. A background row's link reveals the Agent call it names: the call's row opens, with its result, and comes
-// into view, and a run that holds the call opens first.
-// A reply, a prompt and live text draw through Markdown, which builds only its fixed elements. Every other text is drawn
-// as text: through ReplyText, or as a plain child of an element, so no markup becomes an element and no link sits inside
-// a button. A prompt whose text is an epic's event block draws as the event's ring when the reader holds epic calls. An
-// event prompt whose text is a step's end block draws as its step card, and never as an EVENT row; each such prompt draws
-// its own card. Any other prompt an event sent draws as an EVENT row, with or without a step, and never as YOU or a step
-// prompt. A prompt a cron sent draws as a CRON row the same way, and never as YOU, with or without a step.
-// A brief, and an engine prompt of round 0, draws as an EngineFold line with or without a step. With a step, a send-back
-// of round 1 or more draws as a card of its round's checks, and any other prompt the owner did not send as an engine fold.
-// An owner's prompt, and every other prompt without a step, is YOU.
+// and thinking. A result is never a row: it folds under the call it answers, and a result whose call is not held is
+// hidden. Three or more tool calls in a row fold into one run line that opens to a line per call. A call still running,
+// with nothing but calls and results after it and no question drawn, carries the running rail and mark, and so does a
+// run that holds one. A call that creates an epic is never in a run: once its result is not an error, and the reader is
+// given epic calls, the epic's card draws in its place. A background row's link reveals the Agent call it names: the
+// call's row opens, with its result, and comes into view, and a run that holds the call opens first.
+// A prompt draws by its sender, with or without a step (DL-G3). An owner's prompt, and one with no sender, is YOU: a
+// YouBlock with its time. An event prompt is an EventBlock from the engine; an event whose text is an epic's event
+// block draws as the event's ring when the reader holds epic calls, and one whose text is a step's end draws as its
+// step card, with the step's facts and time. A cron prompt is an EventBlock labelled CRON. A brief, and an engine prompt
+// of round 0, is an EngineFold line. An engine prompt of round 1 or more is a CheckBlock of its round's checks, which
+// are the step's when the reader has a step. A prompt of any other sender draws no row.
+// A reply is a Reply, and unfinished text a live Reply with its caret; an unfinished thinking block is a ThinkingLine.
+// An agent_finished item is a TaskLine. A kind the reader does not know draws no row.
 // The reader is its own scroll container: a conversation that replaces a null one opens at its bottom, pinned there. A
 // reader pinned to its bottom, within nearBottomPixels of it as the owner last scrolled, stays there: after a render
 // that draws items or live text, and whenever its own box or a row's box changes size, as the composer area above or
@@ -71,17 +69,17 @@ export interface ContractCalls {
 // With answered, its line draws after the item its answer named as newest, or after every item when that item is no
 // longer drawn, and a run of tool calls ends where the line falls. Items that arrive later draw after the line.
 // With find, every case-insensitive occurrence of its query is a mark in what the reader draws of a reply, a prompt, a
-// call's input and result, and a notice. Compaction, check cards, epic cards, event rings, step cards,
-// background rows, contract lines, live text, thinking, the Ask, sending rows, event lines, cron rows and
-// agent-finished lines are not searched. The current match, find.current's index in find.matches, is the mark with
-// class current: it is scrolled into view as it arrives, and the fold, call or run that holds it opens. A fold opens
-// when the current match moves into it, and the owner can close it; it opens again only when the current match moves
-// into it once more.
+// call's input and result, and a notice. Check blocks, epic cards, event rings, step cards, background rows, contract
+// lines, live text, thinking, the Ask, sending rows, event blocks, cron blocks and agent-finished lines are not searched.
+// The current match, find.current's index in find.matches, is the mark with class current: it is scrolled into view as
+// it arrives, and the fold, call or run that holds it opens. A fold opens when the current match moves into it, and the
+// owner can close it; it opens again only when the current match moves into it once more.
 // After the items and live text, the reader draws a row for each background task the conversation's state holds, in the
 // state's order. A caller event the conversation holds pending is not drawn: it draws as its card once its prompt
-// arrives. The sending entries draw after them, each as a dimmed prompt
-// row marked sending. They are not items: they keep no key and no place in the scroll place, and a reader
-// at its bottom keeps it as a new row arrives.
+// arrives. The sending entries draw after them, each as a YOU block marked sending in a row of its own. They are not
+// items: they keep no key and no place in the scroll place, and a reader at its bottom keeps it as a new row arrives.
+// A reader with nothing to draw says that nothing has been said yet, and then asks for something below, or says its
+// hint in place of that, in place of its rows.
 export function Reader({
   conversation,
   seenAt,
@@ -99,6 +97,7 @@ export function Reader({
   epicCalls,
   contractCalls,
   now,
+  hint = "Say something below to begin.",
 }: {
   conversation: Conversation | null;
   seenAt: number;
@@ -116,6 +115,7 @@ export function Reader({
   find?: { query: string; matches: Match[]; current: number };
   epicCalls?: EpicCalls;
   contractCalls?: ContractCalls;
+  hint?: string; // what an empty reader says in place of asking for something below
 }): JSX.Element {
   const root = useRef<HTMLDivElement>(null);
   const drewConversation = useRef(false);
@@ -287,11 +287,18 @@ export function Reader({
     window.addEventListener("scroll", followWindow);
     return () => window.removeEventListener("scroll", followWindow);
   }, [onNewest]);
-  const sendingRows = sending.map((entry) => <SendingRow key={entry.promptId} text={entry.text} />);
+  const sendingRows = sending.map((entry) => (
+    <div key={entry.promptId} class="t owner-turn sending-row">
+      <span class="gut" />
+      <div class="body">
+        <YouBlock text={entry.text} sending />
+      </div>
+    </div>
+  ));
   if (conversation === null) {
     return (
       <div class="reader" ref={root}>
-        <p class="reader-loading">loading…</p>
+        <p class="reader-loading">loading the conversation…</p>
         {sendingRows}
       </div>
     );
@@ -352,8 +359,21 @@ export function Reader({
   const background = (conversation.state?.background ?? []).map((task) => (
     <BackgroundRow key={task.id} task={task} onOpen={openCall} />
   ));
+  const nothingYet =
+    items.length === 0 &&
+    liveBlocks.length === 0 &&
+    background.length === 0 &&
+    sending.length === 0 &&
+    !asking &&
+    answered === undefined;
   return (
     <div class="reader" ref={root} onScroll={followScroll}>
+      {nothingYet && (
+        <div class="blank">
+          <span class="t-body">Nothing has been said yet.</span>
+          <span>{hint}</span>
+        </div>
+      )}
       {rows}
       {ask}
       {live}
@@ -411,22 +431,6 @@ function RuleRow({ children }: { children: ComponentChildren }) {
   );
 }
 
-// SendingRow draws a message the page sent that the stored conversation does not hold yet: a prompt row, dimmed, with
-// a mark reading sending. Its text draws through Markdown, as a prompt's does.
-function SendingRow({ text }: { text: string }) {
-  return (
-    <div class="t owner-turn sending-row">
-      <span class="gut sending">sending</span>
-      <div class="body">
-        <div class="you">
-          <small>YOU</small>
-          <ReplyMarkdown text={text} />
-        </div>
-      </div>
-    </div>
-  );
-}
-
 // ItemRowProps are an item's row's props. query is the find's query, and current is the offset in the item's searched
 // text where the current match starts, or -1 when the current match is not in this item.
 interface ItemRowProps {
@@ -456,26 +460,29 @@ function ItemRow({
   contractCalls,
   reveal,
 }: ItemRowProps) {
+  // An item whose body draws nothing draws no row at all: no gutter time, and no owner's-turn gap.
+  const body = itemBody({
+    item,
+    result,
+    running,
+    open,
+    step,
+    onToggleOpen,
+    query,
+    current,
+    epicCalls,
+    contractCalls,
+    reveal,
+  });
+  if (body === null) {
+    return null;
+  }
   // Its row carries the owner-turn class, which sets the gap above it, unless the row is an epic's event ring.
   const ringed = item.kind === "prompt" && epicCalls !== undefined && epicEventOf(item.text) !== null;
   return (
-    <div class={ownersTurn(item, step) && !ringed ? "t owner-turn" : "t"}>
+    <div class={ownersTurn(item) && !ringed ? "t owner-turn" : "t"}>
       <span class="gut">{item.kind === "interrupted" ? "" : clock(item.time)}</span>
-      <div class="body">
-        <ItemBody
-          item={item}
-          result={result}
-          running={running}
-          open={open}
-          step={step}
-          onToggleOpen={onToggleOpen}
-          query={query}
-          current={current}
-          epicCalls={epicCalls}
-          contractCalls={contractCalls}
-          reveal={reveal}
-        />
-      </div>
+      <div class="body">{body}</div>
     </div>
   );
 }
@@ -560,7 +567,10 @@ function sameStep(previous: EpicStep | undefined, next: EpicStep | undefined): b
 
 // memo draws a component again only when same finds its props changed, as preact/compat's memo does. It is written here
 // because importing preact/compat installs its option hooks on every vnode of the app.
-function memo<P extends object>(component: (props: P) => JSX.Element, same: (previous: P, next: P) => boolean) {
+function memo<P extends object>(
+  component: (props: P) => JSX.Element | null,
+  same: (previous: P, next: P) => boolean,
+) {
   return class Memoed extends Component<P> {
     shouldComponentUpdate(next: Readonly<P>): boolean {
       return !same(this.props, next);
@@ -572,7 +582,8 @@ function memo<P extends object>(component: (props: P) => JSX.Element, same: (pre
   };
 }
 
-function ItemBody({
+// itemBody is the body an item draws, or null when it draws nothing: ItemRow draws no row for null.
+function itemBody({
   item,
   result,
   running,
@@ -596,22 +607,17 @@ function ItemBody({
   epicCalls?: EpicCalls;
   contractCalls?: ContractCalls;
   reveal?: CallReveal;
-}) {
+}): JSX.Element | null {
   switch (item.kind) {
     case "prompt": {
       if (item.sender === "event") {
         const stepEnd = stepEventOf(item.text);
         if (stepEnd !== null) {
-          return <StepCard event={stepEnd} calls={epicCalls} />;
+          return <StepCard event={stepEnd} facts={item.stepFacts} time={item.time} calls={epicCalls} />;
         }
       }
       if (item.sender === "cron") {
-        return (
-          <div class="cron">
-            <small>CRON</small>
-            <ReplyMarkdown text={item.text} />
-          </div>
-        );
+        return <EventBlock text={item.text} time={item.time} cron />;
       }
       if (epicCalls !== undefined) {
         const event = epicEventOf(item.text);
@@ -620,28 +626,19 @@ function ItemBody({
         }
       }
       if (item.sender === "event") {
-        return (
-          <div class="event">
-            <small>EVENT</small>
-            <ReplyMarkdown text={item.text} />
-          </div>
-        );
+        return <EventBlock text={item.text} time={item.time} />;
       }
       if (foldsAsEngine(item)) {
         return <EngineFold item={item} query={query} current={current} />;
       }
-      if (step !== undefined && !ownersTurn(item, step)) {
-        if (item.sender === "engine" && item.round >= 1) {
-          return <CheckCard text={item.text} round={item.round} checks={step.checks} />;
-        }
-        return <EngineFold item={item} query={query} current={current} />;
+      if (item.sender === "engine") {
+        // A send-back of round 1 or more draws its round's checks: the step's, when the reader has a step, else none.
+        return <CheckBlock text={item.text} round={item.round} checks={step?.checks ?? []} time={item.time} />;
       }
-      return (
-        <div class="you">
-          <small>YOU</small>
-          <ReplyMarkdown text={item.text} query={query} current={current} />
-        </div>
-      );
+      if (ownersTurn(item)) {
+        return <YouBlock text={item.text} time={item.time} query={query} current={current} />;
+      }
+      return null;
     }
     case "tool":
     case "question": {
@@ -671,10 +668,12 @@ function ItemBody({
       return <Compaction item={item} open={open} onToggleOpen={onToggleOpen} />;
     case "interrupted":
       return <Rule kind="interrupted" label="Interrupted by you" detail={clock(item.time)} />;
+    case "reply":
+      return <Reply text={item.text} query={query} current={current} />;
     case "agent_finished":
-      return <div class="rule agent-finished">{agentFinishedLine(item)}</div>;
+      return <TaskLine {...agentFinishedTask(item)} />;
     default:
-      return <ReplyMarkdown text={item.text} query={query} current={current} />;
+      return null;
   }
 }
 
@@ -684,23 +683,10 @@ function revealOf(item: ConversationItem, reveal: CallReveal | undefined): CallR
   return reveal !== undefined && item.kind === "tool" && item.id === reveal.id ? reveal : undefined;
 }
 
-// agentFinishedLine is the line an agent_finished item draws: its description after Agent finished, with failed or
-// stopped added when the agent did not finish. An agent that is done names no status.
-function agentFinishedLine(item: ConversationItem): string {
-  const ending = item.notice === "failed" || item.notice === "stopped" ? ` (${item.notice})` : "";
-  return `Agent finished: ${item.text}${ending}`;
-}
-
-// ownersTurn is whether an item is the owner's turn, YOU: a prompt the owner sent, or any prompt without a step that
-// neither an event nor a cron sent. Its row carries the owner-turn class, and its body draws as YOU.
-function ownersTurn(item: ConversationItem, step?: EpicStep): boolean {
-  return (
-    item.kind === "prompt" &&
-    item.sender !== "event" &&
-    item.sender !== "cron" &&
-    !foldsAsEngine(item) &&
-    (step === undefined || item.sender === "owner")
-  );
+// ownersTurn is whether an item is the owner's turn, YOU: a prompt the owner sent, or one stored with no sender. Its row
+// carries the owner-turn class, and its body draws as a YouBlock.
+function ownersTurn(item: ConversationItem): boolean {
+  return item.kind === "prompt" && (item.sender === "owner" || item.sender === "");
 }
 
 // foldsAsEngine is whether a prompt draws as an EngineFold line, with or without a step: a brief, or an engine prompt of
@@ -709,100 +695,20 @@ function foldsAsEngine(item: ConversationItem): boolean {
   return item.kind === "prompt" && (item.sender === "brief" || (item.sender === "engine" && item.round === 0));
 }
 
-// ReplyMarkdown draws a reply's text as Markdown inside its .reply element, the element the reader's Markdown styles
-// hang from. Its query and current are the item's, as ItemRow's are, and its text is all of the item's searched text.
-function ReplyMarkdown({ text, query = "", current = -1 }: { text: string; query?: string; current?: number }) {
-  return (
-    <div class="reply">
-      <Markdown text={text} query={query} current={current} />
-    </div>
-  );
-}
-
-// CheckCard draws a send-back of a check round: its checks of that round as chips, in the step's order, under a cap
-// naming the round. Its edge is bad when one of those checks failed. The text's first line is the note; a text of more
-// lines folds the rest under a button that shows it.
-function CheckCard({ text, round, checks }: { text: string; round: number; checks: EpicStepCheck[] }) {
-  const roundChecks = checks.filter((check) => check.round === round);
-  const failed = roundChecks.some((check) => !check.ok);
-  const [first, ...rest] = text.split("\n");
-  return (
-    <div class={failed ? "card bad" : "card ok"}>
-      <div class="cap">
-        Checks · round {round}
-        <span>from the engine</span>
-      </div>
-      <div class="chips">
-        {roundChecks.map((check, index) => (
-          <span key={index} class={check.ok ? "chip" : "chip bad"}>
-            {`${check.name} ${check.ok ? "✓" : "✗"}`}
-          </span>
-        ))}
-      </div>
-      {rest.length === 0 ? (
-        <p class="note">
-          <ReplyText text={first} />
-        </p>
-      ) : (
-        <Disclosure className="note" label={first}>
-          <div class="rest">
-            <ReplyText text={rest.join("\n")} />
-          </div>
-        </Disclosure>
-      )}
-    </div>
-  );
-}
-
-// Disclosure is a button that flashes on each use and shows its children under it: a click shows them, and a second
-// click folds them again. Its label is drawn as text, so a link never sits inside it.
-function Disclosure({
-  className,
-  label,
-  children,
-}: {
-  className: string;
-  label: ComponentChildren;
-  children: ComponentChildren;
-}) {
-  const [shown, setShown] = useState(false);
-  const [flashing, flash] = useFlash();
-  return (
-    <>
-      <button
-        type="button"
-        class={flashing ? `${className} flash` : className}
-        onClick={() => {
-          flash();
-          setShown((value) => !value);
-        }}
-      >
-        {label}
-      </button>
-      {shown && children}
-    </>
-  );
-}
 // MemoToolRun draws a ToolRun again only when its find query or its calls change: sameCalls compares them by content.
 const MemoToolRun = memo(
   ToolRun,
   (previous, next) => previous.query === next.query && sameCalls(previous.calls, next.calls),
 );
 
-// LiveRow draws one unfinished block: a text block as it streams, a thinking block as a ThinkingLine.
+// LiveRow draws one unfinished block: a text block as a live Reply, which ends in its caret while it streams, and a
+// thinking block as a ThinkingLine.
 function LiveRow({ block }: { block: EngineText }) {
   return (
     <div class="t live-row">
       <span class="gut live">live</span>
       <div class="body">
-        {block.kind === "thinking" ? (
-          <ThinkingLine text={block.text} />
-        ) : (
-          <>
-            <ReplyMarkdown text={block.text} />
-            <span class="caret soft" />
-          </>
-        )}
+        {block.kind === "thinking" ? <ThinkingLine text={block.text} /> : <Reply text={block.text} live />}
       </div>
     </div>
   );

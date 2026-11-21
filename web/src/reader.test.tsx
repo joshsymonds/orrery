@@ -20,6 +20,7 @@ import {
   ConversationItemSchema,
   ConversationStateSchema,
   EngineTextSchema,
+  StepFactsSchema,
   WaitingMessageSchema,
   type ConversationItem,
   type EngineText,
@@ -82,6 +83,7 @@ interface Props {
   find?: { query: string; matches: Match[]; current: number };
   contractCalls?: ContractCalls;
   answered?: { after: string | null; line: ComponentChildren };
+  hint?: string;
 }
 
 async function withReader(props: Props, check: (container: HTMLElement) => void | Promise<void>): Promise<void> {
@@ -475,7 +477,7 @@ test("a reply of 3000 nested emphasis markers around a word draws without throwi
   );
 });
 
-test("a prompt draws its markdown as elements inside .reply", () =>
+test("a prompt draws its markdown as elements inside its YOU block", () =>
   withReader(
     {
       conversation: conversation({ items: [item({ kind: "prompt", time: 100n, text: "**ask** `how`" })] }),
@@ -483,8 +485,8 @@ test("a prompt draws its markdown as elements inside .reply", () =>
       open: false,
     },
     (container) => {
-      assert.equal(container.querySelector(".you > .reply > p > strong")?.textContent, "ask");
-      assert.equal(container.querySelector(".you > .reply > p > code")?.textContent, "how");
+      assert.equal(container.querySelector(".you > p > strong")?.textContent, "ask");
+      assert.equal(container.querySelector(".you > p > code")?.textContent, "how");
     },
   ));
 
@@ -567,7 +569,7 @@ test("a window starting after the brief draws its watchdog prompt as one Engine 
     },
   ));
 
-test("a prompt with no sender, and one with round 0, each draw as an Engine fold line", () =>
+test("a prompt with no sender draws as YOU, and one with round 0 draws as an Engine fold line", () =>
   withReader(
     {
       conversation: conversation({
@@ -582,13 +584,14 @@ test("a prompt with no sender, and one with round 0, each draw as an Engine fold
     },
     (container) => {
       const folds = [...container.querySelectorAll("button.fold.engine .names")].map((names) => names.textContent);
-      assert.deepEqual(folds, ["unmarked prompt", "round zero prompt"]);
-      assert.equal(container.querySelector(".you") === null, true);
-      assert.equal(container.querySelector(".card") === null, true);
+      assert.deepEqual(folds, ["round zero prompt"]);
+      assert.equal(container.querySelectorAll(".you").length, 1, "the unmarked prompt is one YOU block");
+      assert.equal(container.querySelector(".you")?.textContent?.includes("unmarked prompt"), true);
+      assert.equal(container.querySelector(".checks") === null, true, "no prompt is a CHECKS block");
     },
   ));
 
-test("each send-back draws a card of its own round's checks, with its first line and its rest folded", () =>
+test("each send-back draws a CHECKS block of its own round's checks, with its first line as the note and its rest folded", () =>
   withReader(
     {
       conversation: conversation({
@@ -619,38 +622,32 @@ test("each send-back draws a card of its own round's checks, with its first line
       ]),
     },
     async (container) => {
-      const cards = [...container.querySelectorAll<HTMLElement>("div.card")];
-      assert.equal(cards.length, 2, "one card per send-back");
-      const [first, second] = cards;
-      assert.ok(first !== undefined && second !== undefined, "both rounds draw a card");
+      const blocks = [...container.querySelectorAll<HTMLElement>('[data-shape="block"].checks')];
+      assert.equal(blocks.length, 2, "one block per send-back");
+      const [first, second] = blocks;
+      assert.ok(first !== undefined && second !== undefined, "both rounds draw a block");
 
-      assert.equal(first.classList.contains("bad"), true, "round 1 has a failed check: the edge is bad");
-      assert.equal(first.classList.contains("ok"), false);
-      assert.equal(second.classList.contains("ok"), true, "round 2 passed: the edge is ok");
-      assert.equal(second.classList.contains("bad"), false);
-      assert.equal(first.querySelector(".cap")?.textContent?.includes("Checks · round 1"), true);
-      assert.equal(second.querySelector(".cap")?.textContent?.includes("Checks · round 2"), true);
-      assert.equal(first.querySelector(".cap span")?.textContent, "from the engine");
+      assert.equal(first.dataset.tone, "bad", "round 1 has a failed check: its tone is bad");
+      assert.equal(second.dataset.tone, "ok", "round 2 passed: its tone is ok");
+      assert.equal(first.querySelector(".label")?.textContent, "CHECKS");
+      assert.equal(first.querySelector(".words")?.textContent, "round 1 from the engine");
+      assert.equal(second.querySelector(".words")?.textContent, "round 2 from the engine");
 
-      assert.deepEqual(chipTexts(first), ["schema ✓", "gate ✗"], "round 1 shows only its own checks");
-      assert.deepEqual(badChipTexts(first), ["gate ✗"]);
-      assert.deepEqual(chipTexts(second), ["schema ✓", "gate ✓"], "round 2 shows only its own checks");
+      assert.deepEqual(chipTexts(first), ["schema", "gate"], "round 1 shows only its own checks");
+      assert.deepEqual(badChipTexts(first), ["gate"]);
+      assert.deepEqual(chipTexts(second), ["schema", "gate"], "round 2 shows only its own checks");
       assert.deepEqual(badChipTexts(second), []);
 
-      assert.equal(first.querySelector("p.note") === null, true, "a multi-line send-back has no p.note");
-      const edge = first.querySelector<HTMLElement>("button.note");
-      assert.ok(edge !== null, "the first line is a button");
-      assert.equal(edge.textContent, "gate failed: exit 1");
-      assert.equal(first.querySelector(".rest") === null, true, "the rest is folded until clicked");
+      assert.equal(first.querySelector("p")?.textContent, "gate failed: exit 1", "the first line is the note");
+      assert.equal(first.querySelector(".opened"), null, "the rest is folded until opened");
+      const toggle = first.querySelector<HTMLButtonElement>(".end button");
+      assert.ok(toggle !== null, "a multi-line send-back has a chevron that opens its rest");
+      await clickControl(toggle);
+      assert.equal(first.querySelector(".opened")?.textContent?.includes("line three"), true, "the rest is shown after a click");
+      assert.equal(first.querySelector(".opened")?.textContent?.includes("gate failed"), false, "the rest leaves out the first line");
 
-      await clickControl(edge);
-      const rest = first.querySelector(".rest");
-      assert.equal(rest?.textContent?.includes("line three"), true, "the rest is shown after a click");
-      assert.equal(rest?.textContent?.includes("gate failed"), false, "the rest leaves out the first line");
-
-      assert.equal(second.querySelector("button.note") === null, true, "a one-line send-back has no button");
-      assert.equal(second.querySelector("p.note")?.textContent, "all checks passed on round two");
-      assert.equal(second.querySelector(".rest") === null, true);
+      assert.equal(second.querySelector(".end button"), null, "a one-line send-back has no chevron");
+      assert.equal(second.querySelector("p")?.textContent, "all checks passed on round two");
     },
   ));
 
@@ -665,14 +662,14 @@ test("an owner prompt is YOU in a step, so a nudge is not drawn as the engine's"
       step: stepWith([{ round: 1, name: "gate", ok: false }]),
     },
     (container) => {
-      assert.equal(container.querySelector(".you > small")?.textContent, "YOU");
-      assert.equal(container.querySelector(".you > .reply > p > strong")?.textContent, "nudge");
+      assert.equal(container.querySelector(".you .label")?.textContent, "YOU");
+      assert.equal(container.querySelector(".you > p > strong")?.textContent, "nudge");
       assert.equal(container.querySelector("button.fold") === null, true, "the nudge is not a fold");
-      assert.equal(container.querySelector(".card") === null, true, "the nudge is not a card");
+      assert.equal(container.querySelector(".checks") === null, true, "the nudge is not a CHECKS block");
     },
   ));
 
-test("without a step a prompt of round 1 or more draws as YOU, and a brief draws as the Brief fold", () =>
+test("without a step a send-back of round 1 draws a CHECKS block with no chips, and a brief the Brief fold", () =>
   withReader(
     {
       conversation: conversation({
@@ -685,9 +682,12 @@ test("without a step a prompt of round 1 or more draws as YOU, and a brief draws
       open: false,
     },
     (container) => {
-      assert.equal(container.querySelectorAll(".you").length, 1, "the round-1 engine prompt is YOU");
+      const checks = container.querySelectorAll<HTMLElement>('[data-shape="block"].checks');
+      assert.equal(checks.length, 1, "the round-1 engine prompt is a CHECKS block");
+      assert.equal(checks[0].dataset.tone, "engine", "with no step its tone is the engine's");
+      assert.equal(checks[0].querySelectorAll(".chip").length, 0, "with no step it has no chips");
+      assert.equal(container.querySelector(".you") === null, true, "no prompt is YOU");
       assert.equal(container.querySelectorAll("button.fold.brief").length, 1, "the brief is the Brief fold");
-      assert.equal(container.querySelector(".card") === null, true);
     },
   ));
 
@@ -702,9 +702,9 @@ test("a CallerEvent prompt in a session draws as an EVENT row with its text, and
     },
     (container) => {
       const event = container.querySelector<HTMLElement>(".t > .body > .event");
-      assert.ok(event !== null, "the event is an event row");
-      assert.equal(event.querySelector("small")?.textContent, "EVENT");
-      assert.equal(event.querySelector(".reply > p > strong")?.textContent, "orrery", "the text draws as Markdown");
+      assert.ok(event !== null, "the event is an event block");
+      assert.equal(event.querySelector(".label")?.textContent, "EVENT");
+      assert.equal(event.querySelector("p > strong")?.textContent, "orrery", "the text draws as Markdown");
       assert.equal(event.textContent?.includes("step finished"), true, "the whole text is shown");
       assert.equal(container.querySelector(".you") === null, true, "the event is not YOU");
     },
@@ -722,12 +722,12 @@ test("a CallerEvent prompt in a step draws as an EVENT row, not as a step prompt
     },
     (container) => {
       const event = container.querySelector<HTMLElement>(".t > .body > .event");
-      assert.ok(event !== null, "the event is an event row");
-      assert.equal(event.querySelector("small")?.textContent, "EVENT");
+      assert.ok(event !== null, "the event is an event block");
+      assert.equal(event.querySelector(".label")?.textContent, "EVENT");
       assert.equal(event.textContent?.includes("step finished: gate passed"), true, "the whole text is shown");
       assert.equal(container.querySelector(".you") === null, true, "the event is not YOU");
       assert.equal(container.querySelector("button.fold") === null, true, "the event is not an engine fold");
-      assert.equal(container.querySelector(".card") === null, true, "the event is not a send-back card");
+      assert.equal(container.querySelector(".checks") === null, true, "the event is not a CHECKS block");
     },
   ));
 
@@ -741,10 +741,11 @@ test("CronDeliver: a sender cron prompt draws as a labelled CRON row", () =>
       open: false,
     },
     (container) => {
-      const cron = container.querySelector<HTMLElement>(".t > .body > .cron");
-      assert.ok(cron !== null, "the cron prompt is a cron row");
-      assert.equal(cron.querySelector("small")?.textContent, "CRON");
-      assert.equal(cron.querySelector(".reply > p > strong")?.textContent, "orrery", "the text draws as Markdown");
+      const cron = container.querySelector<HTMLElement>(".t > .body > .event");
+      assert.ok(cron !== null, "the cron prompt is an event block");
+      assert.equal(cron.querySelector(".label")?.textContent, "CRON");
+      assert.equal(cron.querySelector(".words"), null, "a cron names no words");
+      assert.equal(cron.querySelector("p > strong")?.textContent, "orrery", "the text draws as Markdown");
       assert.equal(cron.textContent?.includes("check the build"), true, "the whole text is shown");
       assertNone(container.querySelector(".you"), "the cron prompt is not YOU");
     },
@@ -762,7 +763,7 @@ test("CronDeliver: a sender cron prompt is not drawn as the owner's turn", async
       assert.equal(cron.className, "t", "the cron row carries no owner-turn class");
       assertNone(cron.querySelector(".you"), "the cron row is not YOU");
       assert.equal(owner.classList.contains("owner-turn"), true, "the owner's row carries owner-turn");
-      assert.equal(owner.querySelector(".you > small")?.textContent, "YOU", "the owner's prompt still draws as YOU");
+      assert.equal(owner.querySelector(".you .label")?.textContent, "YOU", "the owner's prompt still draws as YOU");
     });
   }
 });
@@ -867,16 +868,17 @@ test("EventRing: an orrery-event prompt draws its EVENT row when the reader hold
     },
     (container) => {
       assertNone(container.querySelector(".ring-line"), "without epic calls the event draws no ring");
-      assert.equal(container.querySelector(".t > .body > .event > small")?.textContent, "EVENT");
+      assert.equal(container.querySelector(".t > .body > .event .label")?.textContent, "EVENT");
     },
   ));
 
-test("live text draws its markdown as elements inside .reply, before its caret", () =>
+test("live text draws its markdown as elements inside .reply, with its caret after them", () =>
   withReader(
     { conversation: conversation({ unfinished: [unfinished("- streamed\n- item")] }), seenAt: 0, open: false },
     (container) => {
-      assert.equal(container.querySelectorAll(".live-row > .body > .reply > ul > li").length, 2);
-      assert.equal(container.querySelector(".live-row > .body > .reply + .caret") !== null, true);
+      const reply = container.querySelector(".live-row > .body > .reply");
+      assert.equal(reply?.querySelectorAll("ul > li").length, 2);
+      assert.equal(reply?.lastElementChild?.classList.contains("caret"), true, "the caret is the reply's last element");
     },
   ));
 
@@ -2185,7 +2187,7 @@ async function withRerenderableReader(
   }
 }
 
-test("a sending entry draws a dimmed row marked sending after the items, and the stored prompt makes it an ordinary row", async () => {
+test("a sending entry draws a sending row after the items, and the stored prompt makes it an ordinary row", async () => {
   const items = [
     item({ kind: "prompt", time: 100n, text: "earlier", promptId: "p0" }),
     item({ kind: "reply", time: 101n, text: "Done." }),
@@ -2197,9 +2199,8 @@ test("a sending entry draws a dimmed row marked sending after the items, and the
       const rows = container.querySelectorAll<HTMLElement>(".reader > .t");
       assert.equal(rows.length, 3, "the two items, then the sending row");
       const last = rows[2];
-      assert.equal(last.classList.contains("sending-row"), true, "the sending row is dimmed");
-      assert.equal(last.querySelector(".gut")?.textContent, "sending", "the row is marked sending");
-      assert.equal(last.querySelector(".you")?.textContent, "YOUfix the build");
+      assert.equal(last.querySelector(".block.pending .label")?.textContent, "SENDING", "the row is marked sending");
+      assert.equal(last.querySelector(".you")?.textContent?.includes("fix the build"), true, "the row holds the text");
 
       await rerender({
         conversation: conversation({
@@ -2211,9 +2212,10 @@ test("a sending entry draws a dimmed row marked sending after the items, and the
       });
       const after = container.querySelectorAll<HTMLElement>(".reader > .t");
       assert.equal(after.length, 3, "the stored prompt takes the sending row's place");
-      assert.equal(after[2].classList.contains("sending-row"), false, "the row is no longer dimmed");
-      assert.equal(after[2].querySelector(".you")?.textContent, "YOUfix the build");
-      assertNone(container.querySelector(".gut.sending"), "nothing is marked sending");
+      assert.equal(after[2].querySelector(".block.pending"), null, "the row is no longer sending");
+      assert.equal(after[2].querySelector(".label")?.textContent, "YOU");
+      assert.equal(after[2].querySelector(".you")?.textContent?.includes("fix the build"), true);
+      assertNone(container.querySelector(".pending"), "nothing is marked sending");
     },
   );
 });
@@ -2699,10 +2701,10 @@ test("RenderOnce: toggling open re-renders the compaction row alone, and that ro
   });
 });
 
-// readerCard returns the send-back card the reader draws.
+// readerCard returns the send-back block the reader draws.
 function readerCard(container: HTMLElement): HTMLElement {
-  const card = container.querySelector<HTMLElement>("div.card");
-  assert.ok(card !== null, "a send-back card is drawn");
+  const card = container.querySelector<HTMLElement>('[data-shape="block"].checks');
+  assert.ok(card !== null, "a send-back block is drawn");
   return card;
 }
 
@@ -2712,7 +2714,8 @@ test("RenderOnce: a step whose checks change re-renders its send-back card with 
   return withRowRenders(
     { conversation: conv, seenAt: 10_000, open: false, step: stepWith([{ round: 1, name: "gate", ok: true }]) },
     async (container, rerender, counter) => {
-      assert.deepEqual(chipTexts(readerCard(container)), ["gate ✓"]);
+      assert.deepEqual(chipTexts(readerCard(container)), ["gate"]);
+      assert.deepEqual(badChipTexts(readerCard(container)), [], "the check passed");
 
       counter.clear();
       await rerender({
@@ -2725,9 +2728,9 @@ test("RenderOnce: a step whose checks change re-renders its send-back card with 
       assert.equal(rendered.length, 1, "one row renders again");
       assert.equal(rendered[0], sendBack, "the row is the send-back");
       const card = readerCard(container);
-      assert.deepEqual(chipTexts(card), ["gate ✗"], "the chip shows the check as failed");
-      assert.deepEqual(badChipTexts(card), ["gate ✗"]);
-      assert.equal(card.classList.contains("bad"), true, "the card's edge is bad");
+      assert.deepEqual(chipTexts(card), ["gate"], "the chip is the check");
+      assert.deepEqual(badChipTexts(card), ["gate"], "the chip shows the check as failed");
+      assert.equal(card.classList.contains("bad"), true, "the block's rail is bad");
     },
   );
 });
@@ -3259,4 +3262,259 @@ test("Shapes: a notice draws one NoticeLine with its label and text, and an erro
       assert.equal(notices[1]?.classList.contains("err"), true, "the error notice carries the error class");
     },
   );
+});
+
+// stepEndText is the block a step's end carries, as the engine writes it: its agent, end and status, its brief, and the
+// line that points to the full return.
+const stepEndText =
+  '<orrery-event kind="step_end" id="step:s1" agent="builder" end="done" status="done">\nShip the export.\nMore: step_status gives the full result.\n</orrery-event>';
+
+// checksBlock returns the CHECKS block the reader draws, which the test expects to be one.
+function checksBlock(container: HTMLElement): HTMLElement {
+  const block = container.querySelector<HTMLElement>('[data-shape="block"].checks');
+  assert.ok(block !== null, "a CHECKS block is drawn");
+  return block;
+}
+
+test("Shapes: an owner's prompt and a prompt with no sender each draw one YouBlock with its time, with and without a step", async () => {
+  const owner = item({ kind: "prompt", time: localAt(20, 9, 0), sender: "owner", text: "fix the build" });
+  const unsent = item({ kind: "prompt", time: localAt(20, 9, 5), sender: "", text: "rerun it" });
+  for (const step of [undefined, stepWith([{ round: 1, name: "gate", ok: false }])]) {
+    await withReader(
+      { conversation: conversation({ items: [owner, unsent] }), seenAt: lookedAt, now: today, open: false, step },
+      (container) => {
+        const blocks = [...container.querySelectorAll<HTMLElement>('[data-shape="block"].you')];
+        assert.equal(blocks.length, 2, "each prompt is one YouBlock");
+        assert.deepEqual(
+          blocks.map((block) => block.querySelector(".label")?.textContent),
+          ["YOU", "YOU"],
+          "each block is labelled YOU",
+        );
+        assert.deepEqual(
+          blocks.map((block) => block.querySelector(".at")?.textContent),
+          ["09:00", "09:05"],
+          "each block carries its time",
+        );
+        assert.equal(blocks[0].dataset.tone, "you", "the block's tone is you");
+      },
+    );
+  }
+});
+
+test("Shapes: an event prompt draws one EventBlock from the engine, and a cron prompt one CRON EventBlock, with and without a step", async () => {
+  const event = item({ kind: "prompt", time: localAt(20, 9, 0), sender: "event", text: "build passed" });
+  const cron = item({ kind: "prompt", time: localAt(20, 9, 5), sender: "cron", text: "check the build" });
+  for (const step of [undefined, stepWith([{ round: 1, name: "gate", ok: false }])]) {
+    await withReader(
+      { conversation: conversation({ items: [event, cron] }), seenAt: lookedAt, now: today, open: false, step },
+      (container) => {
+        const blocks = [...container.querySelectorAll<HTMLElement>('[data-shape="block"].event')];
+        assert.equal(blocks.length, 2, "each prompt is one EventBlock");
+        assert.deepEqual(
+          blocks.map((block) => block.querySelector(".label")?.textContent),
+          ["EVENT", "CRON"],
+          "the event is labelled EVENT and the cron CRON",
+        );
+        assert.equal(blocks[0].querySelector(".words")?.textContent, "from the engine", "an event says from the engine");
+        assert.equal(blocks[1].querySelector(".words"), null, "a cron says no words");
+        assert.equal(blocks[0].dataset.tone, "engine");
+        assert.equal(container.querySelector(".you"), null, "neither prompt is YOU");
+      },
+    );
+  }
+});
+
+test("Shapes: an engine send-back draws one CheckBlock of its round's checks with its step, and with no checks without one", async () => {
+  const sendBack = item({ kind: "prompt", time: localAt(20, 9, 0), sender: "engine", round: 2, text: "gate failed: exit 1" });
+  const withStep = stepWith([
+    { round: 1, name: "tests", ok: true },
+    { round: 2, name: "tests", ok: true },
+    { round: 2, name: "gate", ok: false },
+  ]);
+  await withReader(
+    { conversation: conversation({ items: [sendBack] }), seenAt: lookedAt, now: today, open: false, step: withStep },
+    (container) => {
+      const block = checksBlock(container);
+      assert.equal(block.dataset.tone, "bad", "a failed check of its round makes the block bad");
+      assert.deepEqual(chipTexts(block), ["tests", "gate"], "its chips are its round's checks, in the step's order");
+      assert.deepEqual(badChipTexts(block), ["gate"]);
+      assert.equal(block.querySelector(".words")?.textContent, "round 2 from the engine");
+    },
+  );
+  await withReader(
+    { conversation: conversation({ items: [sendBack] }), seenAt: lookedAt, now: today, open: false },
+    (container) => {
+      const block = checksBlock(container);
+      assert.equal(block.dataset.tone, "engine", "with no step the block draws the engine's tone");
+      assert.equal(block.querySelectorAll(".chip").length, 0, "with no step it has no chips");
+    },
+  );
+});
+
+test("Shapes: a reply draws one Reply, and unfinished text draws one live Reply with its caret", () =>
+  withReader(
+    {
+      conversation: conversation({
+        items: [item({ kind: "reply", time: localAt(20, 9, 0), text: "Done." })],
+        unfinished: [unfinished("still writing")],
+      }),
+      seenAt: lookedAt,
+      now: today,
+      open: false,
+    },
+    (container) => {
+      const replies = [...container.querySelectorAll<HTMLElement>('[data-shape="reply"]')];
+      assert.equal(replies.length, 2, "the reply and the live text are each one Reply");
+      assert.equal(replies[0].querySelector(".caret"), null, "a finished reply has no caret");
+      assert.equal(replies[1].lastElementChild?.classList.contains("caret"), true, "the live reply ends in its caret");
+    },
+  ));
+
+test("Shapes: an agent_finished item draws one TaskLine ending finished, failed or stopped by its notice", () =>
+  withReader(
+    {
+      conversation: conversation({
+        items: [
+          item({ kind: "agent_finished", time: 100n, text: "Map the repo", id: "toolu_1", tool: "Explore", notice: "done" }),
+          item({
+            kind: "agent_finished",
+            time: 101n,
+            text: "Run the suite",
+            id: "toolu_2",
+            tool: "general-purpose",
+            notice: "failed",
+          }),
+        ],
+      }),
+      seenAt: 10_000,
+      open: false,
+    },
+    (container) => {
+      const lines = [...container.querySelectorAll<HTMLElement>('[data-shape="line"].task')];
+      assert.equal(lines.length, 2, "each finished agent is one TaskLine");
+      assert.deepEqual(lines.map((line) => line.querySelector(".name")?.textContent), ["Explore", "general-purpose"]);
+      assert.deepEqual(lines.map((line) => line.querySelector(".arg")?.textContent), ["Map the repo", "Run the suite"]);
+      assert.deepEqual(lines.map((line) => line.querySelector(".end")?.textContent), ["finished", "failed"]);
+      assert.equal(container.querySelector(".agent-finished"), null, "no agent_finished rule is drawn");
+    },
+  ));
+
+test("Shapes: an item of a kind the client does not know draws no row, and no time", () =>
+  withReader(
+    {
+      conversation: conversation({ items: [item({ kind: "mystery", time: 100n, text: "**unknown** text" })] }),
+      seenAt: 10_000,
+      open: false,
+    },
+    (container) => {
+      assertNone(container.querySelector(".t"), "no row is drawn for it");
+      assertNone(container.querySelector(".gut"), "no time is drawn in its gutter");
+      assert.equal(container.textContent?.includes("unknown"), false, "its text is not drawn");
+    },
+  ));
+
+test("Shapes: a prompt of a sender the client does not know draws no row, and no time", () =>
+  withReader(
+    {
+      conversation: conversation({
+        items: [item({ kind: "prompt", sender: "mystery", time: 100n, text: "**unknown** text" })],
+      }),
+      seenAt: 10_000,
+      open: false,
+    },
+    (container) => {
+      assertNone(container.querySelector(".t"), "no row is drawn for it");
+      assertNone(container.querySelector(".gut"), "no time is drawn in its gutter");
+      assert.equal(container.textContent?.includes("unknown"), false, "its text is not drawn");
+    },
+  ));
+
+test("Shapes: an empty reader says nothing has been said yet, and asks for something below", () =>
+  withReader({ conversation: conversation({}), seenAt: 0, open: false }, (container) => {
+    const words = [...container.querySelectorAll(".blank > span")].map((span) => span.textContent);
+    assert.deepEqual(words, ["Nothing has been said yet.", "Say something below to begin."]);
+  }));
+
+test("Shapes: an empty reader given a hint says it in place of asking for something below", () =>
+  withReader(
+    {
+      conversation: conversation({}),
+      seenAt: 0,
+      open: false,
+      hint: "This is a terminal pane with no Claude session in it.",
+    },
+    (container) => {
+      const words = [...container.querySelectorAll(".blank > span")].map((span) => span.textContent);
+      assert.deepEqual(words, [
+        "Nothing has been said yet.",
+        "This is a terminal pane with no Claude session in it.",
+      ]);
+    },
+  ));
+
+test("Shapes: a null conversation's reader says it is loading the conversation", () =>
+  withReader({ conversation: null, seenAt: 0, open: false }, (container) => {
+    assert.equal(container.querySelector(".reader-loading")?.textContent, "loading the conversation…");
+  }));
+
+test("Shapes: a sending entry draws one YouBlock marked SENDING, with no time", () =>
+  withReader(
+    {
+      conversation: conversation({}),
+      seenAt: 0,
+      open: false,
+      sending: [{ promptId: "p1", text: "keep the pin", after: undefined }],
+    },
+    (container) => {
+      const block = container.querySelector<HTMLElement>('[data-shape="block"].you');
+      assert.ok(block !== null, "the sending entry draws a YouBlock");
+      assert.equal(block.classList.contains("pending"), true, "the block is pending");
+      assert.equal(block.querySelector(".label")?.textContent, "SENDING");
+      assert.equal(block.querySelector(".at"), null, "a sending block has no time");
+      assert.equal(block.textContent?.includes("keep the pin"), true, "the block holds the text");
+    },
+  ));
+
+test("StepEndFacts: a step end draws the files, lines, rounds and time of its item's step facts, and the item's time", () => {
+  const facts = create(StepFactsSchema, { rounds: 1, seconds: 480n, counted: true, files: 2n, added: 96n, removed: 4n });
+  const step = item({
+    kind: "prompt",
+    time: localAt(20, 14, 2),
+    sender: "event",
+    text: stepEndText,
+    stepFacts: facts,
+  });
+  return withReader(
+    { conversation: conversation({ items: [step] }), seenAt: lookedAt, now: today, open: false },
+    (container) => {
+      const block = container.querySelector<HTMLElement>('[data-shape="block"].stepend');
+      assert.ok(block !== null, "the step end draws its card");
+      assert.equal(block.querySelector(".at")?.textContent, "14:02", "the card carries the item's time");
+      assert.deepEqual(
+        [...block.querySelectorAll(".facts span")].map((span) => span.textContent),
+        ["2 files", "+96", "−4", "1 round", "8m"],
+      );
+    },
+  );
+});
+
+test("StepEndFacts: a step end with no facts draws no facts line, and uncounted facts draw only rounds and time", async () => {
+  const bare = item({ kind: "prompt", time: 100n, sender: "event", text: stepEndText });
+  await withReader({ conversation: conversation({ items: [bare] }), seenAt: 10_000, open: false }, (container) => {
+    assert.equal(container.querySelector(".facts"), null, "no facts were given, so no facts line is drawn");
+  });
+  const uncounted = item({
+    kind: "prompt",
+    time: 100n,
+    sender: "event",
+    text: stepEndText,
+    stepFacts: create(StepFactsSchema, { rounds: 3, seconds: 45n, counted: false }),
+  });
+  await withReader({ conversation: conversation({ items: [uncounted] }), seenAt: 10_000, open: false }, (container) => {
+    assert.deepEqual(
+      [...container.querySelectorAll(".facts span")].map((span) => span.textContent),
+      ["3 rounds", "45s"],
+      "no file or line count is drawn when they were not counted",
+    );
+  });
 });

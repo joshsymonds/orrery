@@ -62,6 +62,9 @@ const columnNames = {
 // A step keeps no seen mark. Infinity makes no item newer than it, so the step's reader draws no since-you-looked rule.
 const stepSeenAt = Number.POSITIVE_INFINITY;
 
+// shellHint is what the reader of a terminal pane with no Claude session says in place of asking for something below.
+const shellHint = "This is a terminal pane with no Claude session in it.";
+
 // AskNote is the note an Ask's own call left: the question it names by its key, and the server's reason, "" for none.
 // It shows only while the question it names is the one the column shows.
 export interface AskNote {
@@ -213,6 +216,9 @@ export function ReaderColumn({
   };
   // The conversation the readers and the shown dock draw, without the prompts its queue still holds or has discarded.
   const shown = useMemo(() => shownConversation(conversation), [conversation]);
+  // A terminal pane with no Claude session has no transcript to say anything in, so its reader says so. The dock decides
+  // the same way, from the pane's state.
+  const shellPane = row !== null && rowFacts(row, conversation, false).kind === "shell";
   const [atNewest, setAtNewest] = useState(true);
   const [tapped, setTapped] = useState(false);
   // A tap on the folded line holds for its row alone, so another row's head starts folded again.
@@ -309,6 +315,7 @@ export function ReaderColumn({
           find={finding === null ? undefined : { query: finding.query, matches, current }}
           epicCalls={epicCalls}
           contractCalls={contractCalls}
+          hint={shellPane ? shellHint : undefined}
         />
       )}
       {step !== null && (

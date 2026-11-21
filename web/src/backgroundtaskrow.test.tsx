@@ -329,7 +329,7 @@ test("BackgroundTaskRow: a later delta that ends a task draws its status, and no
     fake.emit(delta([], { seq: 2, reset: true, background: [shell("running", 0n)] }));
     await settle(t, () => countOf(container, ".line.task.running") === 1, "the running row is running");
     fake.emit(delta([], { seq: 3, background: [shell("done", 120n)] }));
-    await settle(t, () => textOf(container, ".end") === "done", "the ended row draws its status");
+    await settle(t, () => textOf(container, ".end") === "finished", "the ended row draws its end word");
     assert.equal(countOf(container, ".line.task.running"), 0, "an ended task draws no running line");
     assert.equal(countOf(container, ".running-mark"), 0, "an ended task draws no running mark");
     assert.equal(rowsOf(container).length, 1, "the ended task is the same row");
@@ -410,7 +410,7 @@ test("BackgroundTaskRow: a click on an agent row whose call is folded in a run o
   });
 });
 
-test("BackgroundTaskRow: an agent_finished item draws the agent-finished line, with failed or stopped added when its agent did not finish, and find does not search it", async (t) => {
+test("BackgroundTaskRow: an agent_finished item draws a TaskLine ending finished, failed or stopped, and find does not search it", async (t) => {
   await withPage(t, async ({ container, fake }) => {
     const items = [
       item({ kind: "agent_finished", time: 100n, text: "Map the repo", id: "toolu_1", tool: "Explore", notice: "done" }),
@@ -418,12 +418,15 @@ test("BackgroundTaskRow: an agent_finished item draws the agent-finished line, w
       item({ kind: "agent_finished", time: 102n, text: "Watch the build", id: "toolu_3", notice: "stopped" }),
     ];
     fake.emit(delta(items, { seq: 2, reset: true }));
-    await settle(t, () => countOf(container, ".rule.agent-finished") === 3, "the three lines are drawn");
-    assert.deepEqual(textsOf(container, ".rule.agent-finished"), [
-      "Agent finished: Map the repo",
-      "Agent finished: Run the suite (failed)",
-      "Agent finished: Watch the build (stopped)",
-    ]);
+    await settle(t, () => rowsOf(container).length === 3, "the three lines are drawn");
+    assert.deepEqual(
+      rowsOf(container).map((row) => textOf(row, ".arg")),
+      ["Map the repo", "Run the suite", "Watch the build"],
+    );
+    assert.deepEqual(
+      rowsOf(container).map((row) => textOf(row, ".end")),
+      ["finished", "failed", "stopped"],
+    );
     assert.deepEqual(findMatches(items, "Map the repo"), [], "find does not search the line");
   });
 });
@@ -450,7 +453,7 @@ test("Shapes: a background task draws one TaskLine: the agent icon, its type, it
     assert.equal(line.innerHTML.includes(iconMarkup("agent")), true, "the agent icon does not lead the line");
     assert.equal(textOf(line, ".name"), "Explore");
     assert.equal(textOf(line, ".arg"), "Map the repo");
-    assert.equal(textOf(line, ".end"), "done");
+    assert.equal(textOf(line, ".end"), "finished", "a done task ends with the word finished");
   });
 });
 

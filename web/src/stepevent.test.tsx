@@ -218,6 +218,6 @@ test("StepEventBrief web: an old-form step_end prompt draws as a plain prompt, n
     async (container) => {
       assert.equal(container.querySelectorAll(".step-card").length, 0, "no step card is drawn");
       assert.equal(container.querySelectorAll(".ring-line").length, 0, "no ring is drawn");
-      assert.equal(textOf(container, ".event > small"), "EVENT", "the prompt draws as an EVENT row");
+      assert.equal(textOf(container, ".block.event .label"), "EVENT", "the prompt draws as an EventBlock");
     },
   ));

@@ -162,7 +162,7 @@ test("the reader at its top asks for the older page while older items remain, an
 
 test("a null conversation shows the reader's loading line", async () => {
   await withPage([], { conversation: null }, async (container) => {
-    assert.equal(textOf(container, ".reader-loading"), "loading…");
+    assert.equal(textOf(container, ".reader-loading"), "loading the conversation…");
   });
 });
 

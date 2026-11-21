@@ -70,7 +70,7 @@ export function BackgroundRow({
       name={backgroundLabel(task)}
       description={task.description}
       activity={task.activity}
-      end={running ? "" : task.status}
+      end={running ? "" : taskEndWord(task.status)}
       running={running}
       onOpen={isLink(task) ? () => onOpen(task.toolUseId) : undefined}
     />
@@ -84,8 +84,14 @@ export function agentFinishedTask(item: ConversationItem): TaskLineProps {
     type: "agent",
     name: item.tool,
     description: item.text,
-    end: item.notice === "done" ? "finished" : item.notice,
+    end: taskEndWord(item.notice),
   };
+}
+
+// taskEndWord is the word a task's line ends with once it has ended, round 6's: a done task reads finished, and any
+// other end reads as its status or notice does.
+function taskEndWord(status: string): string {
+  return status === "done" ? "finished" : status;
 }
 
 // backgroundLabel is a task's label: its sub-agent type, or agent when it names none, for an agent task, and shell for
