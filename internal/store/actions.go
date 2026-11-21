@@ -220,9 +220,10 @@ func takeAction(ctx context.Context, queries *sqlcgen.Queries, action PlannerAct
 // failure (sentBackBuild). Its batch claim is cleared, so the next batch claims it once it is done again. The epic's
 // candidate is cleared too, unless the task's claiming batch passed with the task in it: then the stored base holds the
 // task's commit, and the candidate holds no commit of the task that the base lacks. Otherwise the candidate may hold the
-// task's commit, and a batch composes the work that remains from the stored base. The task's
-// ladder restarts at rung 1 moved by send_back (restartLadder), and a version of source send_back records the reopen
-// (insertSendBackVersion). It returns the ids of the task's steps with no end, as failPlannedTask does, so the runner
+// task's commit, and a batch composes the work that remains from the stored base. The task moves to its next reopen
+// generation and its ladder restarts at that generation's rung 1, moved by send_back (restartLadder), and a version of
+// source send_back records the reopen (insertSendBackVersion). Nothing of the task's history is deleted: its earlier
+// reviews, findings, rungs and rung outcomes stay stored under their generation. It returns the ids of the task's steps with no end, as failPlannedTask does, so the runner
 // stops a unit still running on the task.
 func sendBack(ctx context.Context, queries *sqlcgen.Queries, action PlannerAction, at time.Time) ([]string, error) {
 	task, err := queries.GetEpicTask(ctx, sqlcgen.GetEpicTaskParams{Epic: action.Epic, Seq: action.Task})

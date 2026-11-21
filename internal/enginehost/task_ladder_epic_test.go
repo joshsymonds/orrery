@@ -20,11 +20,12 @@ const (
 	insertVersionSQL = `INSERT INTO epic_task_versions
 		(epic, task, version, source, step, reason, deliverable, files, state, refusal, created, settled)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-	insertReviewSQL = `INSERT INTO epic_task_reviews (epic, task, attempt, position, gate, step, verdict)
-		VALUES (?, ?, ?, ?, ?, ?, ?)`
+	insertReviewSQL = `INSERT INTO epic_task_reviews (epic, task, generation, attempt, position, gate, step, verdict)
+		VALUES (?, ?, 0, ?, ?, ?, ?, ?)`
 	insertFindingSQL = `INSERT INTO epic_task_findings
-		(epic, task, attempt, review, position, id, claim, citation, location, evidence, verify_by, step, result, reason)
-		VALUES (?, ?, ?, ?, ?, ?, ?, '', '', '', '', ?, ?, ?)`
+		(epic, task, generation, attempt, review, position, id, claim, citation, location, evidence, verify_by, step,
+		result, reason)
+		VALUES (?, ?, 0, ?, ?, ?, ?, ?, '', '', '', '', ?, ?, ?)`
 )
 
 // TestTaskLadderGetEpicListsVersionsAndFindings checks that GetEpic lists each task's stored versions in version order,

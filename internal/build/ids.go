@@ -24,26 +24,14 @@ const (
 )
 
 // unitScope returns the scope the derived ids of task's units are made under, given the task's epic. A task never sent
-// back is scoped by its epic alone, so its ids are those of its epic. A task sent back n times is scoped by its epic and
-// "/reopen-n", so a reopened task restarts at attempt 1 under new ids and never adopts the steps or runs an earlier
-// attempt of the task used.
+// back, at generation 0, is scoped by its epic alone, so its ids are those of its epic. A task sent back n times, at
+// generation n, is scoped by its epic and "/reopen-n", so a reopened task restarts at attempt 1 under new ids and never
+// adopts the steps or runs an earlier attempt of the task used.
 func unitScope(epic string, task store.EpicTask) string {
-	n := reopens(task)
-	if n == 0 {
+	if task.Generation == 0 {
 		return epic
 	}
-	return epic + "/reopen-" + decimal(n)
-}
-
-// reopens returns how many times task was sent back: the count of its versions of source send_back.
-func reopens(task store.EpicTask) int64 {
-	var count int64
-	for _, version := range task.Versions {
-		if version.Source == store.SourceSendBack {
-			count++
-		}
-	}
-	return count
+	return epic + "/reopen-" + decimal(task.Generation)
 }
 
 // StepID returns the id of the step of unit for attempt and rerun of task seq, in scope, at gatePos and findingPos. The
@@ -76,8 +64,8 @@ func TaskDir(stateDir, epic string, seq int64) string {
 // whole.
 func ImplementWorktree(stateDir, epic string, task store.EpicTask) string {
 	name := "implement"
-	if n := reopens(task); n > 0 {
-		name += "-reopen-" + decimal(n)
+	if task.Generation > 0 {
+		name += "-reopen-" + decimal(task.Generation)
 	}
 	return filepath.Join(TaskDir(stateDir, epic, task.Seq), name)
 }

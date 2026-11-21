@@ -1063,12 +1063,23 @@ UPDATE epic_tasks SET batch = sqlc.arg(batch)
 WHERE epic = sqlc.arg(epic) AND seq = sqlc.arg(seq) AND status = 'done' AND (batch = '' OR batch = sqlc.arg(batch));
 
 -- name: InsertEpicTaskReview :exec
-INSERT INTO epic_task_reviews (epic, task, attempt, position, gate, step, verdict) VALUES (?, ?, ?, ?, ?, ?, ?);
+INSERT INTO epic_task_reviews (epic, task, generation, attempt, position, gate, step, verdict)
+VALUES (
+    sqlc.arg(epic), sqlc.arg(task),
+    (SELECT tasks.generation FROM epic_tasks AS tasks WHERE tasks.epic = sqlc.arg(epic) AND tasks.seq = sqlc.arg(task)),
+    sqlc.arg(attempt), sqlc.arg(position), sqlc.arg(gate), sqlc.arg(step), sqlc.arg(verdict)
+);
 
 -- name: InsertEpicTaskFinding :exec
-INSERT INTO epic_task_findings (epic, task, attempt, review, position, id, claim, citation, location, evidence, verify_by,
-                                step, result, reason, unverified)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+INSERT INTO epic_task_findings (epic, task, generation, attempt, review, position, id, claim, citation, location,
+                                evidence, verify_by, step, result, reason, unverified)
+VALUES (
+    sqlc.arg(epic), sqlc.arg(task),
+    (SELECT tasks.generation FROM epic_tasks AS tasks WHERE tasks.epic = sqlc.arg(epic) AND tasks.seq = sqlc.arg(task)),
+    sqlc.arg(attempt), sqlc.arg(review), sqlc.arg(position), sqlc.arg(id), sqlc.arg(claim), sqlc.arg(citation),
+    sqlc.arg(location), sqlc.arg(evidence), sqlc.arg(verify_by), sqlc.arg(step), sqlc.arg(result), sqlc.arg(reason),
+    sqlc.arg(unverified)
+);
 
 -- name: InsertEpicReviewer :exec
 INSERT INTO epic_reviewers (epic, position, name, enabled, stage, must, must_not, prompt, agent, model, tools, effort,
@@ -1081,8 +1092,13 @@ SELECT * FROM epic_reviewers WHERE epic = ? ORDER BY position;
 -- name: SetEpicTaskFindingResult :execrows
 UPDATE epic_task_findings
 SET step = sqlc.arg(step), result = sqlc.arg(result), reason = sqlc.arg(reason)
-WHERE epic = sqlc.arg(epic) AND task = sqlc.arg(task) AND attempt = sqlc.arg(attempt)
-  AND review = sqlc.arg(review) AND position = sqlc.arg(position) AND result = '';
+WHERE epic_task_findings.epic = sqlc.arg(epic) AND epic_task_findings.task = sqlc.arg(task)
+  AND epic_task_findings.attempt = sqlc.arg(attempt) AND epic_task_findings.review = sqlc.arg(review)
+  AND epic_task_findings.position = sqlc.arg(position) AND epic_task_findings.result = ''
+  AND epic_task_findings.generation = (
+      SELECT tasks.generation FROM epic_tasks AS tasks
+      WHERE tasks.epic = epic_task_findings.epic AND tasks.seq = epic_task_findings.task
+  );
 
 -- name: MaxEpicQuestionSeq :one
 SELECT CAST(COALESCE(MAX(seq), 0) AS INTEGER) FROM epic_questions WHERE epic = ?;
@@ -1153,10 +1169,18 @@ SELECT * FROM epic_task_contributes WHERE epic = ? ORDER BY task, position;
 SELECT * FROM epic_task_test_changes WHERE epic = ? ORDER BY task, position;
 
 -- name: ListEpicTaskReviews :many
-SELECT * FROM epic_task_reviews WHERE epic = ? ORDER BY task, attempt, position;
+SELECT * FROM epic_task_reviews AS reviews
+WHERE reviews.epic = ? AND reviews.generation = (
+    SELECT tasks.generation FROM epic_tasks AS tasks WHERE tasks.epic = reviews.epic AND tasks.seq = reviews.task
+)
+ORDER BY reviews.task, reviews.attempt, reviews.position;
 
 -- name: ListEpicTaskFindings :many
-SELECT * FROM epic_task_findings WHERE epic = ? ORDER BY task, attempt, review, position;
+SELECT * FROM epic_task_findings AS findings
+WHERE findings.epic = ? AND findings.generation = (
+    SELECT tasks.generation FROM epic_tasks AS tasks WHERE tasks.epic = findings.epic AND tasks.seq = findings.task
+)
+ORDER BY findings.task, findings.attempt, findings.review, findings.position;
 
 -- name: InsertEpicTaskVersion :exec
 INSERT INTO epic_task_versions (
@@ -1175,22 +1199,34 @@ SELECT * FROM epic_task_versions WHERE epic = ? ORDER BY task, version;
 SELECT CAST(COALESCE(MAX(version), 1) AS INTEGER) FROM epic_task_versions WHERE epic = ? AND task = ?;
 
 -- name: InsertEpicTaskRung :execrows
-INSERT INTO epic_task_rungs (epic, task, rung, kind, moved_by, cause, gate, assertion, step, created)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-ON CONFLICT (epic, task, rung) DO NOTHING;
+INSERT INTO epic_task_rungs (epic, task, generation, rung, kind, moved_by, cause, gate, assertion, step, created)
+VALUES (
+    sqlc.arg(epic), sqlc.arg(task),
+    (SELECT tasks.generation FROM epic_tasks AS tasks WHERE tasks.epic = sqlc.arg(epic) AND tasks.seq = sqlc.arg(task)),
+    sqlc.arg(rung), sqlc.arg(kind), sqlc.arg(moved_by), sqlc.arg(cause), sqlc.arg(gate), sqlc.arg(assertion),
+    sqlc.arg(step), sqlc.arg(created)
+)
+ON CONFLICT (epic, task, generation, rung) DO NOTHING;
 
 -- name: InsertEpicTaskRungOutcome :execrows
-INSERT INTO epic_task_rung_outcomes (epic, task, rung, outcome, reason, ended)
-VALUES (?, ?, ?, ?, ?, ?)
-ON CONFLICT (epic, task, rung) DO NOTHING;
+INSERT INTO epic_task_rung_outcomes (epic, task, generation, rung, outcome, reason, ended)
+VALUES (
+    sqlc.arg(epic), sqlc.arg(task),
+    (SELECT tasks.generation FROM epic_tasks AS tasks WHERE tasks.epic = sqlc.arg(epic) AND tasks.seq = sqlc.arg(task)),
+    sqlc.arg(rung), sqlc.arg(outcome), sqlc.arg(reason), sqlc.arg(ended)
+)
+ON CONFLICT (epic, task, generation, rung) DO NOTHING;
 
 -- name: ListEpicTaskRungs :many
 SELECT rungs.epic, rungs.task, rungs.rung, rungs.kind, rungs.moved_by, rungs.cause, rungs.gate, rungs.assertion,
        rungs.step, rungs.created, outcomes.outcome, outcomes.reason, outcomes.ended
 FROM epic_task_rungs AS rungs
 LEFT JOIN epic_task_rung_outcomes AS outcomes
-    ON outcomes.epic = rungs.epic AND outcomes.task = rungs.task AND outcomes.rung = rungs.rung
-WHERE rungs.epic = ?
+    ON outcomes.epic = rungs.epic AND outcomes.task = rungs.task AND outcomes.generation = rungs.generation
+        AND outcomes.rung = rungs.rung
+WHERE rungs.epic = ? AND rungs.generation = (
+    SELECT tasks.generation FROM epic_tasks AS tasks WHERE tasks.epic = rungs.epic AND tasks.seq = rungs.task
+)
 ORDER BY rungs.task, rungs.rung;
 
 -- name: InsertEpicTaskRefused :exec
@@ -1848,16 +1884,18 @@ UPDATE epic_tasks SET notes = sqlc.arg(notes) WHERE epic = sqlc.arg(epic) AND se
 
 -- name: SetEpicTaskReviewReason :exec
 UPDATE epic_task_reviews SET reason = sqlc.arg(reason)
-WHERE epic = sqlc.arg(epic) AND task = sqlc.arg(task) AND attempt = sqlc.arg(attempt) AND position = sqlc.arg(position);
+WHERE epic_task_reviews.epic = sqlc.arg(epic) AND epic_task_reviews.task = sqlc.arg(task)
+  AND epic_task_reviews.attempt = sqlc.arg(attempt) AND epic_task_reviews.position = sqlc.arg(position)
+  AND epic_task_reviews.generation = (
+      SELECT tasks.generation FROM epic_tasks AS tasks
+      WHERE tasks.epic = epic_task_reviews.epic AND tasks.seq = epic_task_reviews.task
+  );
 
 -- name: ClearEpicTaskBatch :exec
 UPDATE epic_tasks SET batch = '' WHERE epic = sqlc.arg(epic) AND seq = sqlc.arg(seq);
 
--- name: DeleteEpicTaskRungOutcomes :exec
-DELETE FROM epic_task_rung_outcomes WHERE epic = sqlc.arg(epic) AND task = sqlc.arg(task);
-
--- name: DeleteEpicTaskRungs :exec
-DELETE FROM epic_task_rungs WHERE epic = sqlc.arg(epic) AND task = sqlc.arg(task);
+-- name: NextEpicTaskGeneration :exec
+UPDATE epic_tasks SET generation = generation + 1 WHERE epic = sqlc.arg(epic) AND seq = sqlc.arg(seq);
 
 -- name: CountContract :one
 SELECT CAST(COUNT(*) AS INTEGER) FROM contracts WHERE id = ?;

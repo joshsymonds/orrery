@@ -18,10 +18,11 @@ const (
 
 // The statements that write a task's rung and the outcome of a rung into the store file.
 const (
-	insertRungSQL = `INSERT INTO epic_task_rungs (epic, task, rung, kind, moved_by, cause, gate, assertion, step, created)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-	insertOutcomeSQL = `INSERT INTO epic_task_rung_outcomes (epic, task, rung, outcome, reason, ended)
-		VALUES (?, ?, ?, ?, ?, ?)`
+	insertRungSQL = `INSERT INTO epic_task_rungs
+		(epic, task, generation, rung, kind, moved_by, cause, gate, assertion, step, created)
+		VALUES (?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?)`
+	insertOutcomeSQL = `INSERT INTO epic_task_rung_outcomes (epic, task, generation, rung, outcome, reason, ended)
+		VALUES (?, ?, 0, ?, ?, ?, ?)`
 )
 
 // TestTaskLadderGetEpicListsRungs checks that GetEpic lists each task's ladder rungs in rung order, with every field: a

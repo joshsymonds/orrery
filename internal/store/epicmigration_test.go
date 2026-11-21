@@ -76,6 +76,8 @@ func epicTableColumns() map[string][]string {
 			"rebriefs",
 			// The notes a task's build holds, a JSON list, from 00078_task_review_undetermined.sql.
 			"notes",
+			// The task's reopen generation, from 00087_task_generation.sql.
+			"generation",
 		},
 		"epic_task_files":        {"epic", "task", "position", "path"},
 		"epic_task_requirements": {"epic", "task", "position", "requirement"},
@@ -86,17 +88,20 @@ func epicTableColumns() map[string][]string {
 			"epic", "task", "version", "source", "decision", "step", "reason", "deliverable", "files", "test_changes",
 			"gate", "evidence", "state", "red_run", "refusal", "created", "settled",
 		},
-		// The reason a review gate with no holds or fails verdict ended so, from 00078_task_review_undetermined.sql.
-		"epic_task_reviews": {"epic", "task", "attempt", "position", "gate", "step", "verdict", "reason"},
+		// The reason a review gate with no holds or fails verdict ended so, from 00078_task_review_undetermined.sql. The
+		// generation each review, finding, rung and outcome was written under is from 00087_task_generation.sql.
+		"epic_task_reviews": {
+			"epic", "task", "generation", "attempt", "position", "gate", "step", "verdict", "reason",
+		},
 		"epic_task_findings": {
-			"epic", "task", "attempt", "review", "position", "id", "claim", "citation", "location", "evidence",
-			"verify_by", "step", "result", "reason", "unverified",
+			"epic", "task", "generation", "attempt", "review", "position", "id", "claim", "citation", "location",
+			"evidence", "verify_by", "step", "result", "reason", "unverified",
 		},
 		// The task ladder's rungs and their outcomes, from 00070_task_ladder.sql.
 		"epic_task_rungs": {
-			"epic", "task", "rung", "kind", "moved_by", "cause", "gate", "assertion", "step", "created",
+			"epic", "task", "generation", "rung", "kind", "moved_by", "cause", "gate", "assertion", "step", "created",
 		},
-		"epic_task_rung_outcomes": {"epic", "task", "rung", "outcome", "reason", "ended"},
+		"epic_task_rung_outcomes": {"epic", "task", "generation", "rung", "outcome", "reason", "ended"},
 		// The files orchestrator decisions refused per task, from 00074_task_repairs.sql.
 		"epic_task_refused": {"epic", "task", "path", "decision", "created"},
 		"epic_reviewers": {
@@ -570,8 +575,9 @@ func TestEpicMigrationKeepsExistingRows(t *testing.T) {
 		`SELECT COALESCE(MAX(version_id), 0) FROM goose_db_version WHERE is_applied = 1`).Scan(&version); err != nil {
 		t.Fatalf("read store version: %v", err)
 	}
-	// Open applies 00014_epics.sql and every migration after it: 00086_amender_makers.sql is the newest. The newest
-	// was 00085_question_escalation.sql before the amender makers migration added 00086, 00084_contract_base.sql before
+	// Open applies 00014_epics.sql and every migration after it: 00087_task_generation.sql is the newest. The newest
+	// was 00086_amender_makers.sql before the task generation migration added 00087,
+	// 00085_question_escalation.sql before the amender makers migration added 00086, 00084_contract_base.sql before
 	// the question escalation migration added 00085, 00083_release_slot_outside.sql before the contract base migration
 	// added 00084, 00082_contract_record.sql before the release slot migration added 00083, 00081_epic_actions.sql
 	// before the contract record migration added 00082, 00080_epic_steerer.sql before the
@@ -588,8 +594,8 @@ func TestEpicMigrationKeepsExistingRows(t *testing.T) {
 	// added 00065, 00063_task_versions.sql before the step indexes added 00064, 00062_drop_engine_held.sql before the
 	// task versions added 00063, 00061_prompt_states.sql before the drop of engine_held added 00062, and
 	// 00060_cron_jobs.sql before the prompt states added 00061.
-	if version != 86 {
-		t.Fatalf("store version after Open = %d, want 86", version)
+	if version != 87 {
+		t.Fatalf("store version after Open = %d, want 87", version)
 	}
 
 	// A later migration may add columns at the end of an existing table, as 00015_step_readopt.sql adds to steps and

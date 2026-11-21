@@ -8,6 +8,31 @@ import (
 	"github.com/joshsymonds/orrery/internal/store/sqlcgen"
 )
 
+// insertLadderAt70 stores each rung and each outcome in the tables as 00070_task_ladder.sql made them, in the order
+// given, and fails the test when a statement writes no row. The sqlcgen queries write the generation column
+// 00087_task_generation.sql added, which the tables at version 70 do not hold.
+func insertLadderAt70(t *testing.T, s *Store, rungs []sqlcgen.InsertEpicTaskRungParams,
+	outcomes []sqlcgen.InsertEpicTaskRungOutcomeParams,
+) {
+	t.Helper()
+	ctx := context.Background()
+	for _, rung := range rungs {
+		if _, err := s.fixtureExec(ctx, `INSERT INTO epic_task_rungs
+			(epic, task, rung, kind, moved_by, cause, gate, assertion, step, created)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, rung.Epic, rung.Task, rung.Rung, rung.Kind, rung.MovedBy, rung.Cause,
+			rung.Gate, rung.Assertion, rung.Step, rung.Created); err != nil {
+			t.Fatalf("insert rung %d of task %d: %v", rung.Rung, rung.Task, err)
+		}
+	}
+	for _, outcome := range outcomes {
+		if _, err := s.fixtureExec(ctx, `INSERT INTO epic_task_rung_outcomes (epic, task, rung, outcome, reason, ended)
+			VALUES (?, ?, ?, ?, ?, ?)`, outcome.Epic, outcome.Task, outcome.Rung, outcome.Outcome, outcome.Reason,
+			outcome.Ended); err != nil {
+			t.Fatalf("insert outcome of rung %d of task %d: %v", outcome.Rung, outcome.Task, err)
+		}
+	}
+}
+
 // TestTaskLadderMigrationStepsDownAndUp checks the migration that adds the task ladder's tables and the planner_actions
 // deliverable column. Its Down drops both tables and the column and leaves the epic's task rows, files and versions,
 // and the planner action, as they were, and its Up restores both tables empty and the column empty with those rows
@@ -58,7 +83,7 @@ func TestTaskLadderMigrationStepsDownAndUp(t *testing.T) {
 	if got := readDeliverable(); got != "" {
 		t.Errorf("deliverable of planner action after Up = %q, want empty", got)
 	}
-	insertLadder(t, s, []sqlcgen.InsertEpicTaskRungParams{
+	insertLadderAt70(t, s, []sqlcgen.InsertEpicTaskRungParams{
 		{Epic: seededEpic, Task: 1, Rung: 1, Kind: RungAttempt, Created: 1700000100},
 		{Epic: seededEpic, Task: 1, Rung: 2, Kind: RungAttempt, MovedBy: MovedByUnit, Cause: "the build exited 1",
 			Step: "step-7", Created: 1700000200},

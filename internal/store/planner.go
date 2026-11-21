@@ -55,7 +55,7 @@ type EpicTurn struct {
 // EpicTask is one task an epic's planner turn planned: its title, its deliverable, the files it touches, the
 // Requirements it covers, the Requirements it contributes to, the test files it changes in the order the planner
 // gave them, its gate, its evidence item and its status. Turn is the seq of the turn that planned it.
-// Build is its build state, Reviews its reviews in attempt then position order, and Red and Green the evidence runs
+// Build is its build state, Reviews its current generation's reviews in attempt then position order, and Red and Green the evidence runs
 // its build names, nil when it names none or when the run is not current with Evidence. Batch is the path of the
 // integrate run that claimed the task, "" while none has. NeedsFiles are the paths beyond its owned Files that its
 // implementer named when it failed, in the order it named them. GateChanges are the gate-needed changes its
@@ -90,6 +90,9 @@ type EpicTask struct {
 	Versions []TaskVersion
 	// Rungs are the task's ladder rows in rung order, nil for a task that never climbed.
 	Rungs []TaskRung
+	// Generation is the task's reopen generation: 0 until its first send_back, and one more for each send_back after.
+	// Reviews and Rungs are the current generation's alone; the rows of earlier generations stay stored under theirs.
+	Generation int64
 }
 
 // EpicQuestion is one question a planner turn asked, with its state. Turn is the seq of the turn that asked it. Label,
@@ -355,7 +358,7 @@ func taskOf(
 		Gate: stored.Gate, Evidence: item,
 		Status: stored.Status, Build: buildOf(stored), Reviews: reviews, Batch: stored.Batch,
 		NeedsFiles: needsFiles, GateChanges: gateChanges, Notes: notes,
-		Refused: refused, Version: 1, Versions: versions,
+		Refused: refused, Version: 1, Versions: versions, Generation: stored.Generation,
 	}
 	overlayVersions(&task)
 	if task.Build.RedRun != "" {

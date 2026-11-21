@@ -150,10 +150,10 @@ func sendBackEnd(t *testing.T, s *Store, outcome, candidate, over string) {
 	}
 }
 
-// sendBackRungs returns the rungs of task 1 that a send_back moved onto rung 1 with reason at sendBackAt.
-func sendBackRungs(reason string) []TaskRung {
+// sendBackRungs returns the rungs of task 1 that a send_back moved onto rung 1 with sendBackReason at sendBackAt.
+func sendBackRungs() []TaskRung {
 	return []TaskRung{{
-		Rung: 1, Kind: RungAttempt, MovedBy: MovedBySendBack, Cause: reason, Created: sendBackAt(),
+		Rung: 1, Kind: RungAttempt, MovedBy: MovedBySendBack, Cause: sendBackReason, Created: sendBackAt(),
 	}}
 }
 
@@ -173,8 +173,8 @@ func sendBackRequireReopened(t *testing.T, s *Store, base string) {
 	if task.Batch != "" {
 		t.Errorf("batch = %q, want none", task.Batch)
 	}
-	if !reflect.DeepEqual(task.Rungs, sendBackRungs(reason)) {
-		t.Errorf("rungs:\n got %+v\nwant %+v", task.Rungs, sendBackRungs(reason))
+	if !reflect.DeepEqual(task.Rungs, sendBackRungs()) {
+		t.Errorf("rungs:\n got %+v\nwant %+v", task.Rungs, sendBackRungs())
 	}
 	if len(task.Versions) == 0 {
 		t.Errorf("versions = none, want a send_back version")
