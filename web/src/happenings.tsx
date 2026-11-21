@@ -22,7 +22,7 @@ function nameOf(session: string, titleOf: ((session: string) => string | undefin
 }
 
 // makerOf names who made a move or a decision: you for the owner, orreryd for orreryd, else the conversation's name.
-function makerOf(by: string, session: string, titleOf: ((session: string) => string | undefined) | undefined): string {
+export function makerOf(by: string, session: string, titleOf: ((session: string) => string | undefined) | undefined): string {
   if (by === "owner") {
     return "you";
   }

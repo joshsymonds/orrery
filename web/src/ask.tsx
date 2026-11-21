@@ -155,6 +155,7 @@ export function Ask(props: AskProps): JSX.Element {
         {age !== "" && <span class="age">· {age} ago</span>}
         <span class="end">
           {model.kind === "permission" && <span class="chip attention">permission</span>}
+          {model.escalation !== undefined && <span class="chip attention">escalated</span>}
           {!epic &&
             !sending &&
             (putOff
@@ -169,6 +170,7 @@ export function Ask(props: AskProps): JSX.Element {
       <p class="q">
         <ReplyText text={model.question} />
       </p>
+      {model.escalation !== undefined && <p class="inote">{model.escalation}</p>}
       {model.command !== null && (
         <figure class="cmd">
           <figcaption class="t-label">{model.command.tool}</figcaption>
