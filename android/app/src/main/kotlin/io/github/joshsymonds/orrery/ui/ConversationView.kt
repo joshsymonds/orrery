@@ -326,7 +326,7 @@ private fun EntryView(
     checks: List<StepCheckRow>,
 ) {
     when (entry) {
-        is ConvoEntry.Prompt -> YouBlock(entry.text, timeOf(entry.time), marks = marks)
+        is ConvoEntry.Prompt -> YouBlock(entry.text, timeOf(entry.time), marks = marks, phone = entry.phone)
         is ConvoEntry.Sending -> YouBlock(entry.text, sending = true)
         is ConvoEntry.Event -> EventBlock(entry.text, timeOf(entry.time), marks = marks)
         is ConvoEntry.Cron -> EventBlock(entry.text, timeOf(entry.time), cron = true, marks = marks)

@@ -18,6 +18,8 @@ data class ToolCall(
     val error: Boolean,
     val time: Long = 0L,
     val contract: String = "",
+    val added: Long = 0L,
+    val removed: Long = 0L,
 )
 
 /**
@@ -25,8 +27,8 @@ data class ToolCall(
  * between. [promptId] is the client-chosen id of the prompt an entry came from, and [time] is unix seconds (0 for none).
  */
 sealed interface ConvoEntry {
-    /** The owner's message, drawn as YOU. */
-    data class Prompt(val text: String, val time: Long = 0L, val promptId: String = "") : ConvoEntry
+    /** The owner's message, drawn as YOU; with the phone mark when [phone] is set, as a prompt sent from the phone app. */
+    data class Prompt(val text: String, val time: Long = 0L, val promptId: String = "", val phone: Boolean = false) : ConvoEntry
 
     /** A session event the engine sent, drawn as EVENT from the engine. */
     data class Event(val text: String, val time: Long = 0L, val promptId: String = "") : ConvoEntry
@@ -127,6 +129,7 @@ private const val MORE_PREFIX = "More: "
 private val EPIC_KINDS = setOf("question", "park", "release", "end")
 private const val THINKING_BLOCK = "thinking"
 private const val TEXT_BLOCK = "text"
+private const val PHONE_CLIENT = "orrery-android"
 
 // The item kinds that draw an entry, and so can open a local day.
 private val DAY_KINDS = setOf("prompt", "reply", "tool", "question", "notice", "compaction", "interrupted", "agent_finished")
@@ -254,7 +257,7 @@ private fun entryOf(item: ConversationItem): ConvoEntry? = when (item.kind) {
 // promptEntry is a prompt's entry by its sender: the owner's or one with no sender, the engine's, the brief, a check or
 // round-zero fold, a cron, or an event, which is read by its block. A prompt of any other sender is no entry.
 private fun promptEntry(item: ConversationItem): ConvoEntry? = when (item.sender) {
-    "owner", "" -> ConvoEntry.Prompt(item.text, item.time, item.promptId)
+    "owner", "" -> ConvoEntry.Prompt(item.text, item.time, item.promptId, phone = item.client == PHONE_CLIENT)
     "brief" -> ConvoEntry.Brief(item.text, item.time, item.promptId)
     "engine" ->
         if (item.round >= 1) {
@@ -469,13 +472,13 @@ private fun outcomesByCallIndex(items: List<ConversationItem>): Map<Int, Outcome
     items.forEachIndexed { index, item ->
         when (item.kind) {
             "tool", "question" -> callIndexById[item.id] = index
-            "result" -> callIndexById[item.id]?.let { outcomes[it] = Outcome(item.text, item.error) }
+            "result" -> callIndexById[item.id]?.let { outcomes[it] = Outcome(item.text, item.error, item.added, item.removed) }
         }
     }
     return outcomes
 }
 
-private class Outcome(val text: String, val error: Boolean)
+private class Outcome(val text: String, val error: Boolean, val added: Long, val removed: Long)
 
 private fun toolCall(item: ConversationItem, outcome: Outcome?): ToolCall {
     val input = if (item.kind == "question") item.text else item.input
@@ -487,6 +490,8 @@ private fun toolCall(item: ConversationItem, outcome: Outcome?): ToolCall {
         error = outcome?.error ?: false,
         time = item.time,
         contract = item.contract,
+        added = outcome?.added ?: 0L,
+        removed = outcome?.removed ?: 0L,
     )
 }
 

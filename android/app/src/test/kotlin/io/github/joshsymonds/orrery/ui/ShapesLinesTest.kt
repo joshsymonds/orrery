@@ -77,6 +77,30 @@ class ShapesLinesTest {
     }
 
     @Test
+    fun toolLineWithCountsDrawsItsAddedAndRemovedLinesInTheOkAndBadTones() {
+        val edit = READ.copy(id = "call-5", name = "Edit", input = "internal/roster/query.go", added = 12, removed = 3)
+        setLine { expanded, onToggle -> ToolLine(edit, expanded = expanded, onToggle = onToggle) }
+
+        composeRule.onNodeWithTag("line:tool")
+            .assertTextContains("internal/roster/query.go")
+            .assertTextContains("+12")
+            .assertTextContains("−3")
+        composeRule.onNodeWithText("+12", useUnmergedTree = true).assertIsDisplayed()
+        composeRule.onNodeWithText("−3", useUnmergedTree = true).assertIsDisplayed()
+        assertEquals(OrreryTokens.Role.ok, textColourOf("+12"))
+        assertEquals(OrreryTokens.Role.bad, textColourOf("−3"))
+    }
+
+    @Test
+    fun toolLineWithoutCountsDrawsNeitherPlusNorMinus() {
+        setLine { expanded, onToggle -> ToolLine(READ, expanded = expanded, onToggle = onToggle) }
+
+        composeRule.onNodeWithTag("line:tool").assertTextContains("internal/roster/handler.go")
+        composeRule.onAllNodesWithText("+", substring = true, useUnmergedTree = true).assertCountEquals(0)
+        composeRule.onAllNodesWithText("−", substring = true, useUnmergedTree = true).assertCountEquals(0)
+    }
+
+    @Test
     fun toolRunOfThreeCallsIsOneLineThatOpensToItsCalls() {
         val calls = listOf(READ, READ_TWO, FAILED)
         setLine { expanded, onToggle -> ToolRun(calls, expanded = expanded, onToggle = onToggle) }

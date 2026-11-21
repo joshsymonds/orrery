@@ -136,9 +136,10 @@ private fun glyphSymbolOf(kind: String): String = when (kind) {
 }
 
 /**
- * A tool call as one line: its tool's glyph, its name and its input, then a done or failed mark, or the word running
- * while [running], whose thread is drawn in the live tone. A call with a result opens it under the line on a tap, and
- * a second tap folds it again; a failed result is drawn in the bad tone.
+ * A tool call as one line: its tool's glyph, its name and its input, the lines it added and removed when either is above
+ * 0 (in the ok and bad tones), then a done or failed mark, or the word running while [running], whose thread is drawn in
+ * the live tone. A call with a result opens it under the line on a tap, and a second tap folds it again; a failed result
+ * is drawn in the bad tone.
  */
 @Composable
 internal fun ToolLine(
@@ -183,6 +184,10 @@ internal fun ToolLine(
             maxLines = if (holdsMatch(marks, base, call.input.length)) Int.MAX_VALUE else 1,
             overflow = TextOverflow.Ellipsis,
         )
+        if (call.added > 0 || call.removed > 0) {
+            Text(text = "+${call.added}", color = OrreryTokens.Role.ok, style = OrreryTokens.Type.small, maxLines = 1)
+            Text(text = "−${call.removed}", color = OrreryTokens.Role.bad, style = OrreryTokens.Type.small, maxLines = 1)
+        }
         when {
             running -> LineMark("running", OrreryTokens.Role.live)
             call.error -> LineMark("✗", OrreryTokens.Role.bad)
