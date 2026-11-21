@@ -32,9 +32,9 @@ import androidx.compose.ui.layout.SubcomposeLayout
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.Constraints
 import io.github.joshsymonds.orrery.R
 import io.github.joshsymonds.orrery.ui.theme.OrreryTokens
@@ -58,7 +58,13 @@ private enum class InboxFold(val folds: Int, val icons: Int, val newWords: Boole
     NEW_BARE(folds = 3, icons = 2, newWords = false),
 }
 
-private enum class InboxSlot { LEAD, NEW_MEASURE, END }
+private enum class InboxSlot { LEAD, END }
+
+/** New's word, the type it is set in, its padding either side and the gap between the plus and the word. */
+private const val NEW_WORD = "New"
+private val NEW_STYLE = OrreryTokens.Type.small
+private val NEW_PAD = OrreryTokens.Space.sixteen
+private val NEW_GAP = OrreryTokens.Space.eight
 
 /**
  * The inbox head, after round 6's phone head: the Orrery mark and the name, then Search, the Notices bell with its
@@ -82,6 +88,7 @@ internal fun InboxHead(
         InboxAction("Pools", Glyph.POOLS, "open-pools", onPools),
         InboxAction("Settings", Glyph.GEAR, "open-settings", onSettings),
     )
+    val measurer = rememberTextMeasurer()
     SubcomposeLayout(
         modifier = modifier
             .fillMaxWidth()
@@ -95,11 +102,10 @@ internal fun InboxHead(
     ) { constraints ->
         val loose = Constraints(maxWidth = constraints.maxWidth)
         val lead = subcompose(InboxSlot.LEAD) { InboxLead() }.single().measure(loose)
-        // New with its word, measured to choose the fold and never placed; its copy says nothing to the reader.
-        val newWords = subcompose(InboxSlot.NEW_MEASURE) {
-            Box(Modifier.clearAndSetSemantics {}) { NewButton(words = true, onClick = {}) }
-        }.single().measure(loose).width
         val icon = OrreryTokens.Size.controlTouch.roundToPx()
+        // New with its word: its padding, the plus, the gap and the word as the text measures it.
+        val word = measurer.measure(NEW_WORD, NEW_STYLE, maxLines = 1, softWrap = false, density = this).size.width
+        val newWords = (NEW_PAD * 2 + OrreryTokens.Size.icon + NEW_GAP).roundToPx() + word
         val gap = OrreryTokens.Space.four.roundToPx()
         val room = constraints.maxWidth - lead.width - OrreryTokens.Space.eight.roundToPx()
         val fold = InboxFold.entries.firstOrNull { step ->
@@ -213,16 +219,16 @@ private fun NewButton(words: Boolean, onClick: () -> Unit) {
             .clickable(role = Role.Button, onClick = onClick)
             .then(
                 if (words) {
-                    Modifier.padding(horizontal = OrreryTokens.Space.sixteen)
+                    Modifier.padding(horizontal = NEW_PAD)
                 } else {
-                    Modifier.width(OrreryTokens.Size.controlTouch).semantics { contentDescription = "New" }
+                    Modifier.width(OrreryTokens.Size.controlTouch).semantics { contentDescription = NEW_WORD }
                 },
             ),
-        horizontalArrangement = Arrangement.spacedBy(OrreryTokens.Space.eight, Alignment.CenterHorizontally),
+        horizontalArrangement = Arrangement.spacedBy(NEW_GAP, Alignment.CenterHorizontally),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         GlyphIcon(Glyph.PLUS, OrreryTokens.Ink.one)
-        if (words) Text("New", color = OrreryTokens.Ink.one, style = OrreryTokens.Type.small, maxLines = 1)
+        if (words) Text(NEW_WORD, color = OrreryTokens.Ink.one, style = NEW_STYLE, maxLines = 1, softWrap = false)
     }
 }
 
