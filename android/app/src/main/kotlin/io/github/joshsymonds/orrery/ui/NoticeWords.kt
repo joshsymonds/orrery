@@ -58,7 +58,7 @@ private fun conversationNoticeWords(row: NoticeRow, tree: TreeData?): NoticeWord
     val pane = tree?.panes?.firstOrNull { it.id == key }
     val directory = pane?.cwd.orEmpty()
     val name = directory.trimEnd('/').substringAfterLast('/').ifEmpty { row.title.substringBefore(TITLE_SEPARATOR) }
-    val quiet = if (tree != null && pane != null) quietWordsOf(pane, tree.archived) else null
+    val quiet = if (tree != null && pane != null && row.state == STATE_WAITING) quietWordsOf(pane, tree.archived) else null
     return if (quiet != null) {
         NoticeWords(NoticeLead.State(STATE_IDLE), name, quiet)
     } else {

@@ -9,6 +9,7 @@ import java.time.ZoneId
 import java.time.ZoneOffset
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class NoticesWordsTest {
@@ -213,12 +214,26 @@ class NoticesWordsTest {
     }
 
     @Test
+    fun aDoneNoticeWhosePaneIsWaitingAndPutOffKeepsItsStateAndWords() {
+        val tree = treeOf(panes = listOf(pane("%7", "/home/user/beta", state = "waiting", headless = false, putOff = true)))
+
+        val words = noticeWordsOf(row(pane = "%7", state = "done", title = "beta · %7"), tree, NOW)
+
+        assertEquals(NoticeLead.State("done"), words.lead)
+        assertEquals("done", words.words)
+    }
+
+    @Test
     fun aPaneBothArchivedAndPutOffReadsPutOff() {
+        val orreryId = "a1b2c3d4e5f60718293a4b5c6d7e8f90"
         val tree = treeOf(
             panes = listOf(
-                pane("%7", "/home/user/beta", state = "waiting", headless = false, archived = true, putOff = true),
+                pane("%7", "/home/user/beta", state = "waiting", headless = false, orreryId = orreryId, archived = true, putOff = true),
             ),
+            archived = setOf(orreryId),
         )
+        val listed = tree.panes.single()
+        assertTrue(archivedOf(listed, tree.archived))
 
         val words = noticeWordsOf(row(pane = "%7", state = "waiting", title = "beta · %7"), tree, NOW)
 
