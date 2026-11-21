@@ -1,5 +1,6 @@
-// The stories of TitleRow: a breadcrumb with a state, a blocker, a conversation's title with the inbox at rest (round 6
-// draws no mark or count in the row for it), a title too long for its line, the commands a page holds.
+// The stories of TitleRow: a breadcrumb with a state, a blocker, the commands a page holds, and a conversation's title
+// row, drawn in its head: its project's name as the inbox draws it, then its title one step down the type scale, with no
+// Orrery icon or count (the inbox at rest shows the icon), a title too long for its line, and an error note.
 
 import type { Stories } from "./catalog/story";
 import * as titlerow from "./titlerow";
@@ -37,15 +38,17 @@ export const TitleRow: Stories = {
     />
   ),
   "inbox-hidden": () => (
-    <titlerow.TitleRow
-      crumbs={[
-        { label: "commonframe", place: true },
-        { label: "Merging main into a story-out client branch, resolving four conflicts in the dock and the reader" },
-      ]}
-      onBack={ignore}
-    >
-      <ConvoCommands />
-    </titlerow.TitleRow>
+    <div class="convo-head">
+      <titlerow.TitleRow
+        crumbs={[
+          { label: "commonframe", place: true },
+          { label: "Merging main into a story-out client branch, resolving four conflicts in the dock and the reader" },
+        ]}
+        onBack={ignore}
+      >
+        <ConvoCommands />
+      </titlerow.TitleRow>
+    </div>
   ),
   "with-commands": () => (
     <titlerow.TitleRow crumbs={[{ label: "rota-export" }]} onBack={ignore} state="building">
@@ -58,20 +61,24 @@ export const TitleRow: Stories = {
     </titlerow.TitleRow>
   ),
   conversation: () => (
-    <titlerow.TitleRow
-      crumbs={[{ label: "tidepool", place: true }, { label: "Tide table cache warm-up" }]}
-      onBack={ignore}
-    >
-      <ConvoCommands />
-    </titlerow.TitleRow>
+    <div class="convo-head">
+      <titlerow.TitleRow
+        crumbs={[{ label: "tidepool", place: true }, { label: "Tide table cache warm-up" }]}
+        onBack={ignore}
+      >
+        <ConvoCommands />
+      </titlerow.TitleRow>
+    </div>
   ),
   "with-error": () => (
-    <titlerow.TitleRow
-      crumbs={[{ label: "tidepool", place: true }, { label: "Tide table cache warm-up" }]}
-      onBack={ignore}
-      note="Could not archive this session: the server did not answer. Nothing changed."
-    >
-      <ConvoCommands />
-    </titlerow.TitleRow>
+    <div class="convo-head">
+      <titlerow.TitleRow
+        crumbs={[{ label: "tidepool", place: true }, { label: "Tide table cache warm-up" }]}
+        onBack={ignore}
+        note="Could not archive this session: the server did not answer. Nothing changed."
+      >
+        <ConvoCommands />
+      </titlerow.TitleRow>
+    </div>
   ),
 };

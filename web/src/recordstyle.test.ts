@@ -333,3 +333,35 @@ test("TitleRow: at phone width a conversation's title wraps to two lines and is 
 test("TitleRow: no rule is left for the mark and count the title row no longer draws", () => {
   assert.equal(css.includes("mark-crumb"), false);
 });
+
+test("TitleRow: a project's name, in the inbox and in a title row, takes one class: bold body type in the place colour", () => {
+  assert.equal(declaredValue(rules, ".project-name", "color"), "var(--o-role-place)");
+  assert.equal(declaredValue(rules, ".project-name", "font"), "var(--o-type-body)");
+  assert.equal(declaredValue(rules, ".project-name", "font-weight"), "var(--o-font-weight-bold)");
+  assert.equal(css.includes(".dir-head .nm"), false, "the inbox's name has no rule of its own");
+});
+
+// outsidePhone is the stylesheet with its phone blocks cut out, so a desk value is never read from a phone rule.
+function outsidePhone(sheet: string): string {
+  const opener = "@media (width < 760px) {";
+  let rest = sheet;
+  let from = rest.indexOf(opener);
+  while (from !== -1) {
+    let depth = 1;
+    let end = from + opener.length;
+    while (depth > 0) {
+      depth += rest[end] === "{" ? 1 : rest[end] === "}" ? -1 : 0;
+      end += 1;
+    }
+    rest = rest.slice(0, from) + rest.slice(end);
+    from = rest.indexOf(opener);
+  }
+  return rest;
+}
+
+test("TitleRow: at the desk a conversation's title is one step down the type scale from the title type: bold body", () => {
+  const desk = rulesOf(outsidePhone(css));
+  const here = ".convo-head > .title-row .crumb.here";
+  assert.equal(declaredValue(desk, here, "font"), "var(--o-type-body)");
+  assert.equal(declaredValue(desk, here, "font-weight"), "var(--o-font-weight-bold)");
+});

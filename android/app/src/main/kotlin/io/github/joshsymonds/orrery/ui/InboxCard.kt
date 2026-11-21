@@ -30,6 +30,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
@@ -67,6 +68,12 @@ internal fun ProjectCard(
         }
     }
 }
+
+/**
+ * A project's name as the inbox's project head draws it, in the place colour; a conversation's title row draws its
+ * project in it too.
+ */
+val ProjectNameStyle: TextStyle = OrreryTokens.Type.body.copy(fontWeight = OrreryTokens.Font.Weight.bold)
 
 @Composable
 private fun ProjectHead(
@@ -112,7 +119,7 @@ private fun ProjectHead(
                 Text(
                     project.name,
                     color = OrreryTokens.Role.place,
-                    style = OrreryTokens.Type.body.copy(fontWeight = OrreryTokens.Font.Weight.bold),
+                    style = ProjectNameStyle,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )

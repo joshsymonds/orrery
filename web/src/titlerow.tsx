@@ -11,9 +11,10 @@ export interface Crumb {
   host?: string;
 }
 
-// crumbClass is the class of a crumb: "crumb", plus "here" for the page and "place" for the directory.
+// crumbClass is the class of a crumb: "crumb", plus "here" for the page, and "place" and the inbox's "project-name" for
+// the project, so its name reads as the inbox's project head draws it.
 function crumbClass(here: string, place: boolean | undefined): string {
-  return ["crumb", here, place ? "place" : ""].filter(Boolean).join(" ");
+  return ["crumb", here, place ? "place project-name" : ""].filter(Boolean).join(" ");
 }
 
 // pillClass is the class of a title row's pill: "state" or "blocker", plus "t-<tone>" when the pill has a tone.
@@ -23,9 +24,10 @@ function pillClass(base: string, tone: WordTone | undefined): string {
 
 // TitleRow is the title row every page shares, as round 6 draws it: one line holding the back button, the breadcrumb, the
 // state, the blocker, and the commands the children are, pushed to its end. The line never wraps: the page's crumb is
-// cut short to keep the commands in view, and carries its whole text as its title when it is text. A / stands between
+// cut short to keep the commands in view, and carries its whole text as its title when it is text. A › stands between
 // crumbs. Back and every crumb but the last call their handlers; a crumb with no handler is a plain label, and the last
-// crumb is the page itself, a span marked as the current page. A place crumb draws in the place colour. Every text is a
+// crumb is the page itself, a span marked as the current page. A place crumb, a project, draws as the inbox draws a
+// project's name. Every text is a
 // child text node, so markup in a label shows as text. The strip, when given, takes a line of its own under the first.
 // A non-empty note draws under the row as an alert. The state and blocker pills take a word tone each, when given.
 export function TitleRow({
@@ -63,7 +65,7 @@ export function TitleRow({
                 {index > 0 && (
                   <>
                     {" "}
-                    <span class="sep">/</span>{" "}
+                    <span class="sep">›</span>{" "}
                   </>
                 )}
                 {index === last ? (

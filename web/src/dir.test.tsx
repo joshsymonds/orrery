@@ -77,7 +77,7 @@ function textOf(container: HTMLElement, selector: string): string {
 
 test("InboxTree Dir: the head names the project and its path", () =>
   withDir({ project: makeProject() }, (container) => {
-    assert.equal(textOf(container, ".dir-head .nm"), "lighthouse");
+    assert.equal(textOf(container, ".dir-head .project-name"), "lighthouse");
     assert.equal(textOf(container, ".dir-head .path"), "~/code/lighthouse");
   }));
 
@@ -214,7 +214,7 @@ test("ProjectPage Dir: with onOpen, the head's name is one button that calls onO
     (container) => {
       const button = container.querySelector<HTMLButtonElement>(".dir-head button.proj");
       assert.ok(button !== null, "the head draws no project button");
-      assert.equal(button.querySelector(".nm")?.textContent, "lighthouse");
+      assert.equal(button.querySelector(".project-name")?.textContent, "lighthouse");
       button.click();
       assert.deepEqual(opened, ["|/home/owner/code/lighthouse"], "the project button does not open the project once");
       assert.equal(folds, 0, "the project button folds the card");
@@ -261,7 +261,7 @@ test("ProjectPage Dir: the project button's title names the path, or the name wh
 test("ProjectPage Dir: without onOpen, the head draws no project button and reads as before", () =>
   withDir({ project: makeProject() }, (container) => {
     assert.equal(container.querySelector("button.proj"), null, "a card without onOpen draws a project button");
-    assert.equal(textOf(container, ".dir-head .proj > .nm"), "lighthouse");
+    assert.equal(textOf(container, ".dir-head .proj > .project-name"), "lighthouse");
     assert.equal(textOf(container, ".dir-head .proj > .path"), "~/code/lighthouse");
     assert.equal(container.querySelector(".dir-head .proj")?.getAttribute("title"), null);
   }));

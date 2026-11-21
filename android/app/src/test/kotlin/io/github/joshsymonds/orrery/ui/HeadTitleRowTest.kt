@@ -107,6 +107,22 @@ class HeadTitleRowTest {
     }
 
     @Test
+    fun theRowDrawsNoOrreryIconOrCountAndOpensOnTheProjectNameInTheInboxsProjectNameStyle() {
+        setRow()
+
+        val inRow = hasAnyAncestor(hasTestTag("head-title"))
+        composeRule.onAllNodes(inRow and (hasTestTag("title-mark") or hasTestTag("orrery")), useUnmergedTree = true)
+            .assertCountEquals(0)
+        val texts = composeRule.onAllNodes(inRow, useUnmergedTree = true).fetchSemanticsNodes()
+            .flatMap { node -> node.config.getOrElse(SemanticsProperties.Text) { emptyList() }.map { it.text } }
+        assertTrue("no count in the row: $texts", texts.none { text -> text.isNotEmpty() && text.all(Char::isDigit) })
+        val dir = textLayout("head-dir").layoutInput.style
+        assertEquals(ProjectNameStyle.fontSize, dir.fontSize)
+        assertEquals(ProjectNameStyle.fontWeight, dir.fontWeight)
+        assertSpanColours("head-dir", listOf(OrreryTokens.Role.place))
+    }
+
+    @Test
     fun anUnknownHostDrawsTheDirAlone() {
         setRow(host = "")
 

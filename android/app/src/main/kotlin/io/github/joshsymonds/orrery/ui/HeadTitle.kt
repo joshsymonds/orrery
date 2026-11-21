@@ -27,9 +27,9 @@ import io.github.joshsymonds.orrery.api.HostStat
 import io.github.joshsymonds.orrery.ui.theme.OrreryTokens
 
 /**
- * A conversation's title row, as round 6's touch title row draws it: back, then the directory and host in the place
- * colour over the title in bold body type, cut short at its second line, the bare context meter when there is a figure,
- * and More. More opens a menu holding Find and Hide the header. A
+ * A conversation's title row, after round 6's touch title row: back, then the project's name and host as the inbox
+ * draws a project's name, over the title in bold body type, one step down from the title type, cut short at its second
+ * line, then the bare context meter when there is a figure, and More. It draws no Orrery icon and no count. More opens a menu holding Find and Hide the header. A
  * non-empty [note] draws under the row, in the crit colour.
  */
 @Composable
@@ -72,7 +72,7 @@ fun HeadTitleRow(
                         withStyle(SpanStyle(color = OrreryTokens.Role.place)) { append(if (host.isEmpty()) dir else "$dir · on $host") }
                     },
                     modifier = Modifier.testTag("head-dir"),
-                    style = OrreryTokens.Type.small,
+                    style = ProjectNameStyle,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )

@@ -96,16 +96,16 @@ test("a crumb with no handler is a plain label, and a crumb with one is a button
   });
 });
 
-test("the crumbs read as one line, a / between each, as round 6 draws them", async () => {
+test("the crumbs read as one line, a › between each", async () => {
   const crumbs: Crumb[] = [
     { label: "orrery", onGo: () => {} },
     { label: "rota-export", onGo: () => {} },
     { label: "contract" },
   ];
   await withRow(<TitleRow crumbs={crumbs} onBack={() => {}} />, (container) => {
-    assert.equal(textOf(container, ".crumbs")?.replace(/\s+/g, " ").trim(), "orrery / rota-export / contract");
+    assert.equal(textOf(container, ".crumbs")?.replace(/\s+/g, " ").trim(), "orrery › rota-export › contract");
     assert.equal(countOf(container, ".crumbs .sep"), 2);
-    assert.equal(textOf(container, ".crumbs .sep"), "/");
+    assert.equal(textOf(container, ".crumbs .sep"), "›");
   });
 });
 
@@ -202,10 +202,12 @@ test("markup in a label, state, or blocker shows as text, not as elements", asyn
   );
 });
 
-test("HeadTitle: a place crumb draws with class crumb place, and the page crumb does not", async () => {
+test("HeadTitle: a place crumb draws with class crumb place and the inbox's project-name class, and the page crumb does not", async () => {
   const crumbs: Crumb[] = [{ label: "tidepool", place: true }, { label: "Tide table cache warm-up" }];
   await withRow(<TitleRow crumbs={crumbs} onBack={() => {}} />, (container) => {
     assert.equal(countOf(container, ".crumbs .crumb.place"), 1);
+    assert.equal(countOf(container, ".crumbs .crumb.place.project-name"), 1);
+    assert.equal(container.querySelector(".crumbs .here")?.classList.contains("project-name") ?? null, false);
     assert.equal(textOf(container, ".crumbs .crumb.place"), "tidepool");
     assert.equal(container.querySelector(".crumbs .here")?.classList.contains("place") ?? null, false);
   });

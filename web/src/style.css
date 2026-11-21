@@ -294,7 +294,8 @@ button.link.notices-more { justify-self: end; padding: 0 var(--o-space-12); colo
 /* The head's project is a button: it takes no border or raised fill of the global button, and keeps the look above. */
 .dir-head button.proj { border: 0; background: none; min-height: 0; }
 .dir-head .proj > .icon { grid-row: 1 / span 2; color: var(--o-role-place); }
-.dir-head .nm { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--o-role-place); font: var(--o-type-body); font-weight: var(--o-font-weight-bold); }
+/* A project's name, as the inbox's project head draws it and a title row's project crumb draws it too. */
+.project-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--o-role-place); font: var(--o-type-body); font-weight: var(--o-font-weight-bold); }
 .dir-head .path { grid-column: 2; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--o-ink-3); }
 .dir-head .end { display: inline-flex; align-items: center; gap: var(--o-space-8); margin-left: auto; flex: none; color: var(--o-ink-3); }
 .dir-head .end .is-attention { color: var(--o-role-attention); font-weight: var(--o-font-weight-bold); }
@@ -923,7 +924,7 @@ section.page.leave { animation: move-leave var(--o-move-leave); }
 .epic-page ul, .epic-page ol, .phase-output ul, .phase-output ol { margin: 0; padding: 0; list-style: none; }
 .epic-page h3 { margin: 0; font: var(--o-type-label); letter-spacing: var(--o-type-label-tracking); text-transform: uppercase; color: var(--o-ink-3); }
 .epic-page .sure { font: var(--o-type-small); color: var(--o-ink-2); }
-/* The title row, as round 6 draws it: a first line holding back, the crumbs, the state and blocker, and the commands pushed
+/* The title row, after round 6's: a first line holding back, the crumbs, the state and blocker, and the commands pushed
    to its end, then the strip on a line of its own. The first line never wraps: the page's crumb ellipsizes to keep the
    commands in view, and the crumbs before it hold their width. */
 .title-row { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--o-space-4); min-width: 0; padding-bottom: var(--o-space-8); border-bottom: var(--o-size-hairline) solid var(--o-line-soft); white-space: nowrap; }
@@ -931,8 +932,9 @@ section.page.leave { animation: move-leave var(--o-move-leave); }
 .title-row .crumbs { display: flex; align-items: baseline; gap: var(--o-space-8); flex: 0 1 auto; min-width: 0; overflow: hidden; font: var(--o-type-small); color: var(--o-ink-3); }
 .title-row .crumb { flex: none; }
 .title-row .sep { flex: none; color: var(--o-ink-4); }
-.title-row .crumb.place { color: var(--o-role-place); }
 .title-row .crumb.here { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; font: var(--o-type-title); color: var(--o-ink-1); }
+/* A conversation's title opens on its project's name and sits one step down the type scale, in bold body type. */
+.convo-head > .title-row .crumb.here { font: var(--o-type-body); font-weight: var(--o-font-weight-bold); }
 .title-row .state { flex: none; font: var(--o-type-small); font-weight: var(--o-font-weight-bold); color: var(--o-ink-2); transition: color var(--o-move-state); }
 .title-row .blocker { min-width: 0; overflow: hidden; text-overflow: ellipsis; font: var(--o-type-small); color: var(--o-role-attention); transition: color var(--o-move-state); }
 .epic-page .title-row .state, .epic-page .title-row .blocker {
@@ -1025,7 +1027,7 @@ button.subj:hover { background: var(--o-surface-raised); }
   .convo-head > .title-row .crumbs { display: grid; flex: 1 1 0; grid-template-columns: minmax(0, 1fr); gap: 0; }
   .convo-head > .title-row .sep { display: none; }
   .convo-head > .title-row .crumb.place { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .convo-head > .title-row .crumb.here { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; min-width: 0; overflow: hidden; white-space: normal; font: var(--o-type-body); font-weight: var(--o-font-weight-bold); }
+  .convo-head > .title-row .crumb.here { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; min-width: 0; overflow: hidden; white-space: normal; }
   .convo-head .pane-strip { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--o-space-8) var(--o-space-12); }
   /* Each meter stacks as round 6's touch meter does: its name, its value, then its bar across the cell. */
   .convo-head .pane-strip .meter { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--o-space-2); white-space: nowrap; }
