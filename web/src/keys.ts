@@ -1,8 +1,9 @@
-// Where is a context a key acts in: the list's page (the list, the inbox at rest, and the help panel), or one of the
-// other places a key reaches.
+// Where is a context a key acts in: the list's page (the list, the collapsed inbox, a collapsed inbox's flyout, and the
+// help panel), or one of the other places a key reaches.
 export type Where =
   | "list"
-  | "inbox-at-rest"
+  | "collapsed"
+  | "flyout"
   | "help"
   | "notices"
   | "palette"
@@ -34,12 +35,15 @@ export interface KeyGroup {
   lines: KeyLine[];
 }
 
-// page is the list's page: the list, the inbox at rest, the help panel, and the notice centre, which covers the list and
-// keeps its keys, except the answer keys and Escape's interrupt.
-const page: Where[] = ["list", "inbox-at-rest", "help", "notices"];
+// page is the list's page: the list, the collapsed inbox and its flyout, the help panel, and the notice centre, which
+// covers the list and keeps its keys, except the answer keys and Escape's interrupt.
+const page: Where[] = ["list", "collapsed", "flyout", "help", "notices"];
+// listed is the list's page where the list is drawn: the page without the collapsed inbox, where the list's keys expand
+// it, and its flyout, where some move the flyout.
+const listed: Where[] = ["list", "help", "notices"];
 // answerable is the list's page where 1-9 answer the cursor's question: the page without the notice centre, which
 // covers the reader while it is open.
-const answerable: Where[] = ["list", "inbox-at-rest", "help"];
+const answerable: Where[] = ["list", "collapsed", "flyout", "help"];
 // boxes is the send and new-line keys of the boxes that send: the empty reply box, the typed one and the step box.
 const boxes: Where[] = ["reply-empty", "reply-typed", "step-box"];
 
@@ -51,12 +55,12 @@ export const keyGroups: readonly KeyGroup[] = [
       {
         caps: ["j", "k", "↓", "↑"],
         text: "down and up the inbox",
-        acts: [{ chords: [{ key: "j" }, { key: "k" }, { key: "ArrowDown" }, { key: "ArrowUp" }], in: page }],
+        acts: [{ chords: [{ key: "j" }, { key: "k" }, { key: "ArrowDown" }, { key: "ArrowUp" }], in: listed }],
       },
       {
         caps: ["g g", "G"],
         text: "first and last row",
-        acts: [{ chords: [{ key: "g" }, { key: "G" }], in: page }],
+        acts: [{ chords: [{ key: "g" }, { key: "G" }], in: listed }],
       },
       { caps: ["w"], text: "next thing that waits on you", acts: [{ chords: [{ key: "w" }], in: page }] },
       { caps: ["n"], text: "next new row", acts: [{ chords: [{ key: "n" }], in: page }] },
@@ -68,7 +72,7 @@ export const keyGroups: readonly KeyGroup[] = [
       {
         caps: ["⏎"],
         text: "open the row and go to its reply box",
-        acts: [{ chords: [{ key: "Enter" }], in: page }],
+        acts: [{ chords: [{ key: "Enter" }], in: ["list", "collapsed", "help", "notices"] }],
       },
       {
         caps: ["⇧ ⇥"],
@@ -80,18 +84,49 @@ export const keyGroups: readonly KeyGroup[] = [
   {
     title: "The inbox",
     lines: [
+      { caps: ["b"], text: "collapse or expand the inbox", acts: [{ chords: [{ key: "b" }], in: page }] },
       {
-        caps: ["b"],
-        text: "bring the inbox out over the page; again to tuck it back",
-        acts: [{ chords: [{ key: "b" }], in: page }],
+        caps: ["j", "k", "↓", "↑", "g", "G", "/", "v"],
+        text: "collapsed: expand the inbox, and nothing else",
+        acts: [
+          {
+            chords: [
+              { key: "j" },
+              { key: "k" },
+              { key: "ArrowDown" },
+              { key: "ArrowUp" },
+              { key: "g" },
+              { key: "G" },
+              { key: "/" },
+              { key: "v" },
+            ],
+            in: ["collapsed"],
+          },
+          { chords: [{ key: "g" }, { key: "G" }, { key: "/" }, { key: "v" }], in: ["flyout"] },
+        ],
       },
-      { caps: ["B"], text: "pin the inbox beside the page", acts: [{ chords: [{ key: "B" }], in: page }] },
+      {
+        caps: ["p"],
+        text: "collapsed: open the flyout on your project's tile",
+        acts: [{ chords: [{ key: "p" }], in: ["collapsed", "flyout"] }],
+      },
+      {
+        caps: ["↑", "↓", "j", "k"],
+        text: "in a flyout: the project above or below",
+        acts: [{ chords: [{ key: "ArrowUp" }, { key: "ArrowDown" }, { key: "j" }, { key: "k" }], in: ["flyout"] }],
+      },
+      {
+        caps: ["⏎"],
+        text: "in a flyout: go to its first row, as a click on its tile does",
+        acts: [{ chords: [{ key: "Enter" }], in: ["flyout"] }],
+      },
+      { caps: ["esc"], text: "close the flyout", acts: [{ chords: [{ key: "Escape" }], in: ["flyout"] }] },
       {
         caps: ["/"],
         text: "filter the inbox: ⏎ leaves it, esc clears it",
-        acts: [{ chords: [{ key: "/" }], in: page }],
+        acts: [{ chords: [{ key: "/" }], in: listed }],
       },
-      { caps: ["v"], text: "archived", acts: [{ chords: [{ key: "v" }], in: page }] },
+      { caps: ["v"], text: "archived", acts: [{ chords: [{ key: "v" }], in: listed }] },
       { caps: ["A"], text: "archive the row", acts: [{ chords: [{ key: "A" }], in: page }] },
       { caps: ["x"], text: "mark it seen", acts: [{ chords: [{ key: "x" }], in: page }] },
       {
@@ -174,7 +209,7 @@ export const keyGroups: readonly KeyGroup[] = [
       {
         caps: ["esc"],
         text: "take queued messages back, then interrupt a working turn",
-        acts: [{ chords: [{ key: "Escape" }], in: ["list", "inbox-at-rest", "reply-box"] }],
+        acts: [{ chords: [{ key: "Escape" }], in: ["list", "collapsed", "reply-box"] }],
       },
     ],
   },

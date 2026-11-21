@@ -95,8 +95,8 @@ export function quietRow(row: Row): boolean {
 
 // SecondLine draws a row's second line. A waiting row says what it asks, led by a question mark when it holds a question.
 // A working pane's line is its tool, its argument, and its clock from the tool's start. A terminal with no state says it
-// has no conversation. A session's line is its summary. Any other pane has no second line.
-function SecondLine({ row, now }: { row: Row; now: number }): JSX.Element | null {
+// has no conversation. A session's line is its summary. Any other pane has no second line. A tile's flyout draws it too.
+export function SecondLine({ row, now }: { row: Row; now: number }): JSX.Element | null {
   const line = row.unseen ? "l2" : "l2 one";
   if (row.state === stateWaiting) {
     return (

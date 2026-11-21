@@ -38,8 +38,8 @@ export interface InboxProps {
   onKeys?: () => void;
   // onOpenProject is the press on a project's head, which opens the project's page.
   onOpenProject?: (key: string) => void;
-  // pin is the foot's control that pins the inbox beside the page or unpins it. The foot draws it only when given.
-  pin?: { pinned: boolean; onPin: () => void };
+  // onCollapse is the foot's control that collapses the inbox to its rail. The foot draws it only when given.
+  onCollapse?: () => void;
   notes?: ComponentChildren;
 }
 
@@ -72,7 +72,7 @@ export function Inbox({
   onNotices,
   onKeys,
   onOpenProject,
-  pin,
+  onCollapse,
   notes,
 }: InboxProps): JSX.Element {
   // The chips count the drawn tree, so they draw only while it is drawn: not while loading or after a failed read, as on
@@ -195,13 +195,13 @@ export function Inbox({
             <Icon name="keys" />
           </button>
         )}
-        {pin !== undefined && (
+        {onCollapse !== undefined && (
           <button
             type="button"
             class="btn quiet icon-only"
-            aria-label={pin.pinned ? "Unpin the inbox" : "Pin the inbox beside the page"}
-            title={pin.pinned ? "Unpin the inbox  B" : "Pin the inbox  B"}
-            onClick={() => pin.onPin()}
+            aria-label="Collapse the inbox"
+            title="Collapse the inbox  b"
+            onClick={() => onCollapse()}
           >
             <Icon name="sidebar" />
           </button>

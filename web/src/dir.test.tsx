@@ -8,6 +8,7 @@ import { Dir } from "./dir";
 import { shippedSlices } from "./fixtures/slices";
 import { rowsFrom, type Row } from "./rows";
 import { installTestDom, removeTestDom } from "./testdom";
+import { styleDeclaration } from "./teststyle";
 import type { Convo, Project } from "./tree";
 
 // rows are the fixture rows, read as load.ts reads them.
@@ -265,3 +266,7 @@ test("ProjectPage Dir: without onOpen, the head draws no project button and read
     assert.equal(textOf(container, ".dir-head .proj > .path"), "~/code/lighthouse");
     assert.equal(container.querySelector(".dir-head .proj")?.getAttribute("title"), null);
   }));
+
+test("InboxTree Dir: the head's project button sets its name and path from the start of its line, as the inbox draws a project", () => {
+  assert.equal(styleDeclaration(".dir-head button.proj", "text-align"), "start");
+});

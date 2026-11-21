@@ -7,10 +7,6 @@ import { headState } from "./readercolumn";
 import type { Row } from "./rows";
 import type { View } from "./router";
 
-// How a hidden inbox came out over the page: by the pointer on the mark, or by a key. Only a key pop-out is tucked by
-// Escape.
-export type Popout = "none" | "hover" | "key";
-
 // An entry the tree shows and the cursor can rest on: a conversation row, an epic or step it steers, or a contract.
 export type Item = Row | EpicItem | StepItem | ContractItem;
 
@@ -27,7 +23,8 @@ export interface BoxOpen {
   key: string;
 }
 
-// The keys that act on the list. While the inbox is hidden, one of them pops it out by key and does nothing else.
+// The keys that act on the list. While the inbox is collapsed, one of them expands it and does nothing else, so the
+// cursor never moves unseen. With a flyout open, j, k and the arrows move the flyout before this is read.
 const inboxListKeys = new Set(["j", "k", "ArrowDown", "ArrowUp", "g", "G", "/", "v"]);
 
 // isRow tells a row from an epic or step entry by its kind.
@@ -42,9 +39,9 @@ export interface KeyContext {
   pickerOpen: boolean;
   openMenu: string | null;
   helpOpen: boolean;
-  // Whether the inbox is hidden, and whether a key popped it out.
-  inboxHidden: boolean;
-  keyPopped: boolean;
+  // Whether the inbox is collapsed to its rail, at 760px and wider, and whether a project's flyout is open beside it.
+  collapsed: boolean;
+  flyoutOpen: boolean;
   // Whether a page covers the cursor row: a project page or the notice centre is shown and the inbox list, where the
   // row is drawn, is not on screen beside or over it. A, x and e do not act on a covered row.
   rowCovered: boolean;
@@ -93,7 +90,16 @@ export interface KeyContext {
   answerCursor: (choice: number) => void;
   toggleOpen: () => void;
   closePin: () => void;
-  togglePin: () => void;
+  // toggleInbox collapses the inbox or expands it, closing any flyout; expandInbox expands it.
+  toggleInbox: () => void;
+  expandInbox: () => void;
+  // openFlyout opens the flyout on the tile of the project the open page is in, else on the first tile. moveFlyout moves
+  // it a tile down (1) or up (-1), held at the ends. openFlyoutRow opens the flyout's cursor row, as a click on its tile
+  // does, and closeFlyout closes it.
+  openFlyout: () => void;
+  moveFlyout: (step: 1 | -1) => void;
+  openFlyoutRow: () => void;
+  closeFlyout: () => void;
   toggleStrips: () => void;
   // Shuts the open panel, or with none open reopens the thing it held last.
   togglePanel: () => void;
@@ -101,7 +107,6 @@ export interface KeyContext {
   setMenuKey: Dispatch<StateUpdater<string | null>>;
   // setFilter sets the search text, which opens the search field; null shuts it.
   setFilter: (text: string | null) => void;
-  setPopout: Dispatch<StateUpdater<Popout>>;
   setRowOpened: Dispatch<StateUpdater<boolean>>;
   setBoxOpened: Dispatch<StateUpdater<BoxOpen | null>>;
   setView: Dispatch<StateUpdater<View>>;
@@ -117,8 +122,8 @@ export function handleKey(event: KeyboardEvent, context: KeyContext): void {
     pickerOpen,
     openMenu,
     helpOpen,
-    inboxHidden,
-    keyPopped,
+    collapsed,
+    flyoutOpen,
     rowCovered,
     projectShown,
     noticesOpen,
@@ -151,13 +156,17 @@ export function handleKey(event: KeyboardEvent, context: KeyContext): void {
     answerCursor,
     toggleOpen,
     closePin,
-    togglePin,
+    toggleInbox,
+    expandInbox,
+    openFlyout,
+    moveFlyout,
+    openFlyoutRow,
+    closeFlyout,
     toggleStrips,
     togglePanel,
     setPickerOpen,
     setMenuKey,
     setFilter,
-    setPopout,
     setRowOpened,
     setBoxOpened,
     setView,
@@ -225,6 +234,16 @@ export function handleKey(event: KeyboardEvent, context: KeyContext): void {
     }
     return;
   }
+  // A flyout's keys act on it: the arrows, j and k move it a tile, Enter opens its cursor row, even while a tile or
+  // another button holds the focus, and Escape closes it.
+  if (flyoutOpen) {
+    const action = flyoutKeys(event.key, moveFlyout, openFlyoutRow, closeFlyout);
+    if (action !== null) {
+      action();
+      event.preventDefault();
+      return;
+    }
+  }
   // A focused button keeps its own Enter, so New or Keys opens its panel and Enter writes no seen.
   if (event.key === "Enter" && focused instanceof HTMLElement && focused.tagName === "BUTTON") {
     return;
@@ -234,9 +253,9 @@ export function handleKey(event: KeyboardEvent, context: KeyContext): void {
   pendingG.current = false;
   // A project page or the notice centre covers the reader: 1-9 and Escape's interrupt do nothing while either is shown.
   const readerCovered = projectShown || noticesOpen;
-  // While the inbox is hidden, a list key pops it out by key and does nothing else, so the cursor never moves unseen.
-  if (inboxHidden && inboxListKeys.has(event.key)) {
-    setPopout("key");
+  // While the inbox is collapsed, a list key expands it and does nothing else, so the cursor never moves unseen.
+  if (collapsed && inboxListKeys.has(event.key)) {
+    expandInbox();
     event.preventDefault();
     return;
   }
@@ -295,7 +314,6 @@ export function handleKey(event: KeyboardEvent, context: KeyContext): void {
     case "Enter":
       if (cursorRow !== null) {
         setRowOpened(true);
-        setPopout("none");
         void writeSeen(cursorRow);
         // Enter opens the row into its reply box, as a click on the row does; x only marks it seen.
         setBoxOpened({ column: "cursor", key: cursorRow.key });
@@ -305,15 +323,14 @@ export function handleKey(event: KeyboardEvent, context: KeyContext): void {
       }
       break;
     case "b":
-      // b pops a hidden inbox out by key, and tucks a key-popped one back.
-      if (keyPopped) {
-        setPopout("none");
-      } else if (inboxHidden) {
-        setPopout("key");
-      }
+      toggleInbox();
       break;
-    case "B":
-      togglePin();
+    case "p":
+      // p opens a collapsed inbox's flyout; with the inbox expanded it does nothing.
+      if (!collapsed) {
+        return;
+      }
+      openFlyout();
       break;
     case "h":
     case "ArrowLeft":
@@ -382,12 +399,6 @@ export function handleKey(event: KeyboardEvent, context: KeyContext): void {
       setHelpOpen((open) => !open);
       break;
     case "Escape":
-      // A key-popped inbox is tucked back, and nothing is interrupted; an open help panel closes too.
-      if (keyPopped) {
-        setPopout("none");
-        setHelpOpen(false);
-        return;
-      }
       if (!helpOpen && !readerCovered && cursorRow !== null) {
         void escapeRow({ row: cursorRow, column: "cursor", state: headState(cursorRow, cursorConversation) }, null);
       }
@@ -397,4 +408,27 @@ export function handleKey(event: KeyboardEvent, context: KeyContext): void {
       return;
   }
   event.preventDefault();
+}
+
+// flyoutKeys is the action a key takes on an open flyout, or null for a key the flyout leaves to the page.
+function flyoutKeys(
+  key: string,
+  moveFlyout: (step: 1 | -1) => void,
+  openFlyoutRow: () => void,
+  closeFlyout: () => void,
+): (() => void) | null {
+  switch (key) {
+    case "ArrowUp":
+    case "k":
+      return () => moveFlyout(-1);
+    case "ArrowDown":
+    case "j":
+      return () => moveFlyout(1);
+    case "Enter":
+      return openFlyoutRow;
+    case "Escape":
+      return closeFlyout;
+    default:
+      return null;
+  }
 }

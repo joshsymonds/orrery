@@ -196,7 +196,7 @@ function projectPage(container: HTMLElement): HTMLElement | null {
   return container.querySelector<HTMLElement>('section[aria-label="project"]:not([hidden])');
 }
 
-// paneState is the inbox state the app draws on the panes: docked, pinned, rail or flyout.
+// paneState is the inbox state the app draws on the panes: expanded or collapsed.
 function paneState(container: HTMLElement): string | null {
   return container.querySelector(".panes")?.getAttribute("data-inbox") ?? null;
 }
@@ -211,14 +211,14 @@ function cursorKey(container: HTMLElement): string | null {
   return container.querySelector(".row.cur")?.getAttribute("data-key") ?? null;
 }
 
-test("ProjectPage: a project's head opens its page beside the inbox, which takes the state of an opened page", (t) =>
+test("ProjectPage: a project's head opens its page beside the inbox, which stays expanded", (t) =>
   withApp(t.signal, undefined, async ({ container }) => {
     await press(headOf(container, "api"));
     const page = projectPage(container);
     assert.ok(page !== null, "the project's page is drawn");
     assert.equal(page.querySelectorAll(".pc-row").length, 2, "the page lists the project's two conversations");
     assert.equal(listHidden(container), false, "at the desk the list stays drawn beside the page");
-    assert.equal(paneState(container), "rail", "the inbox rests as it does with any page opened");
+    assert.equal(paneState(container), "expanded", "the inbox stays as it was, as with any page opened");
   }));
 
 test("ProjectPage: its address is the project's, written while the page is open", (t) =>
@@ -372,7 +372,6 @@ test("ProjectPage: Escape sends no interrupt or take-back while the page covers 
     // A cursor move shuts the page, so the cursor reaches the working row before the page opens.
     await pressKey("j");
     await press(headOf(container, "api"));
-    await pressKey("B");
     assert.equal(cursorKey(container), "b", "the cursor rests on the working row");
     assert.ok(projectPage(container) !== null, "the page is drawn over the working row");
     const sentBefore = calls.length;
@@ -381,21 +380,25 @@ test("ProjectPage: Escape sends no interrupt or take-back while the page covers 
     assert.ok(projectPage(container) !== null, "the page stays open");
   }));
 
-test("ProjectPage: Escape tucks a key-popped inbox over the page and sends nothing", (t) =>
+test("ProjectPage: Escape closes a flyout beside the page and sends nothing", (t) =>
   withApp(t.signal, undefined, async ({ container, calls }) => {
     await press(headOf(container, "api"));
     await pressKey("b");
-    assert.equal(paneState(container), "flyout", "the inbox is out over the page");
+    await pressKey("p");
+    assert.ok(container.querySelector(".pfly") !== null, "a flyout is open beside the page");
     const sentBefore = calls.length;
     await pressKey("Escape");
-    assert.equal(paneState(container), "rail", "Escape tucks the inbox back");
+    assert.equal(container.querySelector(".pfly"), null, "Escape closes the flyout");
+    assert.equal(paneState(container), "collapsed", "and leaves the inbox collapsed");
+    assert.ok(projectPage(container) !== null, "the page stays open");
     assert.deepEqual(writesOf(calls.slice(sentBefore)), [], "no interrupt or take-back is sent");
   }));
 
-test("ProjectPage: A, x and e send nothing while the page covers the cursor row over the rail", (t) =>
+test("ProjectPage: A, x and e send nothing while the page covers the cursor row beside the collapsed inbox", (t) =>
   withApp(t.signal, undefined, async ({ container, calls }) => {
     await press(headOf(container, "api"));
-    assert.equal(paneState(container), "rail", "the inbox rests as the rail");
+    await pressKey("b");
+    assert.equal(paneState(container), "collapsed", "the inbox is collapsed to its rail");
     assert.equal(cursorKey(container), "a", "the cursor rests on the waiting row");
     const sentBefore = calls.length;
     await pressKey("A");
@@ -404,24 +407,24 @@ test("ProjectPage: A, x and e send nothing while the page covers the cursor row 
     assert.deepEqual(writesOf(calls.slice(sentBefore)), [], "no archive or mark-seen is sent");
   }));
 
-test("ProjectPage: with a conversation's own page open and the inbox at rest, A still acts on that row", (t) =>
+test("ProjectPage: with a conversation's own page open and the inbox collapsed, A still acts on that row", (t) =>
   withApp(t.signal, undefined, async ({ container, calls }) => {
     await press(one(container, '.row[data-key="a"]'));
-    assert.equal(paneState(container), "rail", "the inbox rests as the rail beside the conversation");
     // The click puts the focus in the row's reply box, where A is typed; the key goes to the page once it is left.
     await act(() => {
       (document.activeElement as HTMLElement | null)?.blur();
     });
+    await pressKey("b");
+    assert.equal(paneState(container), "collapsed", "the inbox is collapsed beside the conversation");
     const sentBefore = calls.length;
     await pressKey("A");
     assert.ok(writesOf(calls.slice(sentBefore)).length > 0, "A sends the archive of the row on screen");
   }));
 
-test("ProjectPage: with the inbox brought out over the page by b, x and A act on the cursor row", (t) =>
+test("ProjectPage: with the inbox expanded beside the page, x and A act on the cursor row", (t) =>
   withApp(t.signal, undefined, async ({ container, calls }) => {
     await press(headOf(container, "api"));
-    await pressKey("b");
-    assert.equal(paneState(container), "flyout", "the inbox is out over the page");
+    assert.equal(paneState(container), "expanded", "the inbox is expanded beside the page");
     const sentBefore = calls.length;
     await pressKey("x");
     assert.ok(writesOf(calls.slice(sentBefore)).length > 0, "x sends the mark-seen");
@@ -430,11 +433,12 @@ test("ProjectPage: with the inbox brought out over the page by b, x and A act on
     assert.ok(writesOf(calls.slice(afterX)).length > 0, "A sends the archive");
   }));
 
-test("ProjectPage: with the inbox pinned beside the page by B, x and A act on the cursor row", (t) =>
+test("ProjectPage: with the inbox collapsed and expanded again by b beside the page, x and A act on the cursor row", (t) =>
   withApp(t.signal, undefined, async ({ container, calls }) => {
     await press(headOf(container, "api"));
-    await pressKey("B");
-    assert.equal(paneState(container), "pinned", "the inbox is pinned beside the page");
+    await pressKey("b");
+    await pressKey("b");
+    assert.equal(paneState(container), "expanded", "the inbox is expanded again beside the page");
     const sentBefore = calls.length;
     await pressKey("x");
     assert.ok(writesOf(calls.slice(sentBefore)).length > 0, "x sends the mark-seen");

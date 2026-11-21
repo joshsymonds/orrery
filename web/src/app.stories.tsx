@@ -347,12 +347,16 @@ const staleAt: Address = paneAt("%21");
 // halyard, the host that is left out of a key.
 const lighthouseAt: Address = { view: "inbox", entry: { kind: "project", key: "|/home/owner/code/lighthouse" } };
 
-// pressAtRest waits for the opened page's inbox to rest as its rail, then presses key on the document and lets the page
-// draw what the press changed.
-async function pressAtRest(root: HTMLElement, key: string): Promise<void> {
-  await drawnWhen(root, '.panes[data-inbox="rail"] > .rail.start');
-  press(document, key);
-  await nextRound();
+// collapse waits for the page's expanded inbox and its collapse control, presses b on the document, and waits for the
+// collapsed inbox's rail. Then each of keys is pressed in turn, the page drawing what each press changed.
+async function collapse(root: HTMLElement, ...keys: string[]): Promise<void> {
+  await drawnWhen(root, '.panes[data-inbox="expanded"] .inbox-foot button[aria-label="Collapse the inbox"]');
+  press(document, "b");
+  await drawnWhen(root, '.panes[data-inbox="collapsed"] > .rail.start');
+  for (const key of keys) {
+    press(document, key);
+    await nextRound();
+  }
 }
 
 export const Page: Stories = {
@@ -651,9 +655,9 @@ export const Page: Stories = {
   "convo-shell": () => <PageStory address={paneAt("%23")} />,
   "convo-loading": () => <PageStory address={paneAt("%28")} fixture={createFixtureTransport(convoLoading)} />,
   "convo-empty": () => <PageStory address={paneAt("%27")} fixture={createFixtureTransport(convoSlices)} />,
-  "inbox-rail": () => <PageStory address={convoWorkingAt} />,
-  "inbox-flyout": () => <PageStory address={convoWorkingAt} after={(root) => pressAtRest(root, "b")} />,
-  "inbox-narrow": () => <PageStory address={convoWorkingAt} after={(root) => pressAtRest(root, "B")} />,
+  "inbox-rail": () => <PageStory address={convoWorkingAt} after={(root) => collapse(root)} />,
+  "inbox-flyout": () => <PageStory address={convoWorkingAt} after={(root) => collapse(root, "p")} />,
+  "inbox-narrow": () => <PageStory address={convoWorkingAt} />,
   project: () => <PageStory address={lighthouseAt} />,
   "ask-session": () => (
     <PageStory
@@ -754,13 +758,13 @@ export const Page: Stories = {
   "ask-later": fixtureStory(gatesAt, askSlices["ask-later"]),
   "convo-notices": () => <PageStory address={convoWorkingAt} fixture={createFixtureTransport(noticeStackSlices)} />,
   "notices-centre": () => (
-    <PageStory address={convoWorkingAt} after={(root) => clickWhen(root, 'nav.rail button[aria-label="Notices"]')} />
+    <PageStory address={convoWorkingAt} after={(root) => clickWhen(root, '.inbox-head .end button[aria-label="Notices"]')} />
   ),
   "notices-none": () => (
     <PageStory
       address={convoWorkingAt}
       fixture={createFixtureTransport(noNoticeSlices)}
-      after={(root) => clickWhen(root, 'nav.rail button[aria-label="Notices"]')}
+      after={(root) => clickWhen(root, '.inbox-head .end button[aria-label="Notices"]')}
     />
   ),
   "notices-page": () => (

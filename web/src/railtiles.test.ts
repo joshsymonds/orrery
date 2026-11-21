@@ -5,7 +5,7 @@ import { create, type MessageInitShape } from "@bufbuild/protobuf";
 
 import { type Epic, EpicSchema, EpicsGetResponseSchema, EpicStepSchema, type EpicsGetResponse } from "./gen/orrery/v1/epics_pb";
 import { type Row } from "./rows";
-import { railTiles, type RailTileModel } from "./railtiles";
+import { flyoutOf, type FlyoutRow, railTiles, type RailTileModel } from "./railtiles";
 import { buildTree, type Project, type TreeInput } from "./tree";
 
 const serving = "halyard";
@@ -71,7 +71,7 @@ test("InboxRail keeps the tree's project order, one tile per project", () => {
   );
 });
 
-test("InboxRail gives each tile its name's first two letters, or first and last when another name shares them", () => {
+test("InboxRail gives each tile its project's whole name, even where two names share their first letters", () => {
   const rows = [
     makeRow({ key: "a", label: "a", project: "/srv/lighthouse" }),
     makeRow({ key: "b", label: "b", project: "/srv/lilac" }),
@@ -79,9 +79,23 @@ test("InboxRail gives each tile its name's first two letters, or first and last 
   ];
   const tiles = railTiles(buildTree(inputOf(rows)), "");
   assert.deepEqual(
-    tiles.map((tile) => tile.text),
-    ["le", "lc", "ti"],
+    tiles.map((tile) => tile.name),
+    ["lighthouse", "lilac", "tide"],
   );
+});
+
+test("InboxRail makes a tile quiet when nothing in its project waits on you and nothing is new, and only then", () => {
+  const rows = [
+    makeRow({ key: "w", label: "w", project: "/srv/waiting", state: "waiting" }),
+    makeRow({ key: "u", label: "u", project: "/srv/new", state: "done", unseen: true }),
+    makeRow({ key: "r", label: "r", project: "/srv/rest", state: "working" }),
+    makeRow({ key: "e", label: "e", project: "/srv/ended", state: "stopped", archiveKind: "headless", unseen: true }),
+  ];
+  const tiles = railTiles(buildTree(inputOf(rows)), "");
+  assert.equal(tileOf(tiles, "|/srv/waiting").quiet, false, "a project with a row that waits is not quiet");
+  assert.equal(tileOf(tiles, "|/srv/new").quiet, false, "a project with an unseen row is not quiet");
+  assert.equal(tileOf(tiles, "|/srv/rest").quiet, true, "a working project with nothing waiting or new is quiet");
+  assert.equal(tileOf(tiles, "|/srv/ended").quiet, false, "an unseen row behind the ended line is new");
 });
 
 test("InboxRail counts a project's waiting things as the tree does, including an epic under a stand-in", () => {
@@ -170,4 +184,96 @@ test("InboxRail titles a tile with its name, and with its waiting count when one
   assert.equal(tileOf(tiles, "|/srv/app").title, "app: 2 wait on you");
   assert.equal(tileOf(tiles, "|/srv/lone").title, "lone: 1 waits on you");
   assert.equal(tileOf(tiles, "|/srv/rest").title, "rest");
+});
+
+// flyoutProject is one project of each kind of row a flyout draws, at /srv/app on the serving host:
+// - w-old and w-new wait on you, changed at 100 and 300, and w-new is also unseen;
+// - the epic alpha, steered by the seen done row d, is parked, so it waits on you, changed at 200;
+// - u is a done row, unseen; e is an unseen headless row that stopped, so it is behind the ended line;
+// - s is a seen done row, and ended-seen is a seen stopped headless row behind the ended line.
+function flyoutProject(): Project {
+  const rows = [
+    makeRow({ key: "w-old", label: "old ask", archiveId: "sess-wo", state: "waiting", changed: 100 }),
+    makeRow({ key: "w-new", label: "new ask", archiveId: "sess-wn", state: "waiting", changed: 300, unseen: true }),
+    makeRow({ key: "d", label: "steers alpha", archiveId: "sess-d", state: "done", changed: 50 }),
+    makeRow({ key: "u", label: "fresh", archiveId: "sess-u", state: "done", changed: 400, unseen: true }),
+    makeRow({ key: "s", label: "seen", archiveId: "sess-s", state: "done", changed: 20 }),
+    makeRow({ key: "e", label: "ended fresh", archiveId: "sess-e", state: "stopped", archiveKind: "headless", changed: 10, unseen: true }),
+    makeRow({ key: "ended-seen", label: "ended seen", archiveId: "sess-x", state: "stopped", archiveKind: "headless", changed: 5 }),
+  ];
+  const projects = buildTree(
+    inputOf(rows, {
+      epics: [makeEpic({ id: "repo-a/alpha", slug: "alpha", steering: "sess-d", changed: 200n, parked: "workflow node red" })],
+      details: new Map([["repo-a/alpha", makeDetail({ parked: "workflow node red" })]]),
+    }),
+  );
+  assert.equal(projects.length, 1, "the rows are one project");
+  return projects[0];
+}
+
+// keysOf is each flyout row's item key, in order.
+function keysOf(rows: readonly FlyoutRow[]): string[] {
+  return rows.map((row) => row.key);
+}
+
+test("ProjectFlyout names the project and its path, and counts what waits and what is new in words", () => {
+  const model = flyoutOf(flyoutProject(), 1000);
+  assert.equal(model.key, "|/srv/app");
+  assert.equal(model.name, "app");
+  assert.equal(model.path, "/srv/app");
+  assert.equal(model.waits, "3 wait", "the two waiting rows and the parked epic wait");
+  assert.equal(model.fresh, "3 new", "w-new, u and the ended e are unseen");
+});
+
+test("ProjectFlyout says waits for one, and draws no count for nothing", () => {
+  const one = buildTree(inputOf([makeRow({ key: "w", label: "w", state: "waiting" })]))[0];
+  assert.equal(flyoutOf(one, 1000).waits, "1 waits");
+  assert.equal(flyoutOf(one, 1000).fresh, "", "nothing is new");
+  const none = buildTree(inputOf([makeRow({ key: "s", label: "s", state: "done" })]))[0];
+  assert.equal(flyoutOf(none, 1000).waits, "", "nothing waits");
+});
+
+test("ProjectFlyout lists what waits on you oldest first, as w scoped to the project does, then the new rows not already listed", () => {
+  const model = flyoutOf(flyoutProject(), 1000);
+  assert.deepEqual(keysOf(model.rows), ["w-old", "epic:repo-a/alpha", "w-new", "u", "e"]);
+});
+
+test("ProjectFlyout draws a waiting epic by its slug, with its blocker as the ask and its change as its time", () => {
+  const model = flyoutOf(flyoutProject(), 1000);
+  const epic = model.rows.find((row) => row.key === "epic:repo-a/alpha");
+  assert.deepEqual(epic, { kind: "hung", key: "epic:repo-a/alpha", name: "alpha", ask: "workflow node red", changed: 200 });
+});
+
+test("ProjectFlyout carries a conversation's row, so the flyout draws its title, age and second line from it", () => {
+  const model = flyoutOf(flyoutProject(), 1000);
+  const row = model.rows.find((candidate) => candidate.key === "w-old");
+  assert.ok(row !== undefined && row.kind === "row", "w-old is a conversation's row");
+  assert.equal(row.row.label, "old ask");
+});
+
+test("ProjectFlyout counts the rest: the tree's other entries, none waiting, and the conversations behind the ended line", () => {
+  // The tree holds w-old, w-new, d, u, s and the epic: four are listed, so d and s are the two more. Behind the ended
+  // line are e and ended-seen.
+  assert.equal(flyoutOf(flyoutProject(), 1000).rest, "and 2 more, none waiting · 2 ended");
+});
+
+test("ProjectFlyout's rest line drops a zero part, and is empty when there is no rest", () => {
+  const tree = buildTree(inputOf([makeRow({ key: "w", label: "w", state: "waiting" }), makeRow({ key: "s", label: "s" })]))[0];
+  assert.equal(flyoutOf(tree, 1000).rest, "and 1 more, none waiting");
+  const ended = buildTree(
+    inputOf([
+      makeRow({ key: "w", label: "w", state: "waiting" }),
+      makeRow({ key: "e", label: "e", state: "stopped", archiveKind: "headless" }),
+    ]),
+  )[0];
+  assert.equal(flyoutOf(ended, 1000).rest, "1 ended");
+  const alone = buildTree(inputOf([makeRow({ key: "w", label: "w", state: "waiting" })]))[0];
+  assert.equal(flyoutOf(alone, 1000).rest, "");
+});
+
+test("ProjectFlyout of a quiet project lists no rows, so a click on its tile opens the project's page", () => {
+  const quiet = buildTree(inputOf([makeRow({ key: "s", label: "s" })]))[0];
+  const model = flyoutOf(quiet, 1000);
+  assert.deepEqual(model.rows, []);
+  assert.equal(model.rest, "and 1 more, none waiting");
 });

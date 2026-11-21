@@ -472,7 +472,7 @@ for (const digit of digits) {
     }));
 }
 
-test("AskAnswer: with the inbox out over a project page, 1 to 9 send no answer for the session's question, and 5 answers once the page is gone", (t) =>
+test("AskAnswer: with the inbox collapsed beside a project page, 1 to 9 send no answer for the session's question, and 5 answers once the page is gone", (t) =>
   withApp(t.signal, [headless({ key: "s1", id: "s1", label: "notes" })], async (container, fake) => {
     await until(t.signal, () => fake.callsTo(sessionWatchPath).length === 1, "the session stream");
     fake.emit(fake.callsTo(sessionWatchPath)[0], nineOptionStream);
@@ -482,7 +482,7 @@ test("AskAnswer: with the inbox out over a project page, 1 to 9 send no answer f
     await press("b");
     await flush();
     assert.ok(projectPage(container) !== null, "the project page covers the reader");
-    assert.equal(container.querySelector(".panes")?.getAttribute("data-inbox"), "flyout", "the inbox is out over the page");
+    assert.equal(container.querySelector(".panes")?.getAttribute("data-inbox"), "collapsed", "b collapsed the inbox");
     for (const digit of digits) {
       await press(String(digit));
     }
