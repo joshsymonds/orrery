@@ -149,7 +149,7 @@ class ShapesBlocksTest {
         composeRule.onNodeWithText("tests").assertIsDisplayed()
         composeRule.onNodeWithText("lint").assertIsDisplayed()
         composeRule.onNodeWithText("owned files").assertIsDisplayed()
-        composeRule.onNodeWithTag("icon:cross").assertIsDisplayed()
+        composeRule.onAllNodesWithTag("icon:cross").assertCountEquals(2)
         assertRailTone("block:checks", "bad")
     }
 
@@ -163,7 +163,7 @@ class ShapesBlocksTest {
             )
         }
 
-        composeRule.onNodeWithTag("icon:check").assertIsDisplayed()
+        composeRule.onAllNodesWithTag("icon:check").assertCountEquals(3)
         assertRailTone("block:checks", "ok")
     }
 

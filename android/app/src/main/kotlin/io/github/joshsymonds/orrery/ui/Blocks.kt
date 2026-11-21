@@ -7,6 +7,7 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -338,10 +339,24 @@ private fun DrawScope.drawRail(ink: Color, pending: Boolean) {
     )
 }
 
+// Each check is its mark (the check when it passed, the cross when it failed) beside its chip; the chips wrap onto more lines.
 @Composable
 private fun ChecksRow(checks: List<CheckResult>) {
-    Row(horizontalArrangement = Arrangement.spacedBy(OrreryTokens.Space.eight)) {
-        checks.forEach { check -> Chip(check.name, if (check.ok) ChipTone.Ok else ChipTone.Bad) }
+    FlowRow(
+        horizontalArrangement = Arrangement.spacedBy(OrreryTokens.Space.eight),
+        verticalArrangement = Arrangement.spacedBy(OrreryTokens.Space.four),
+    ) {
+        checks.forEach { check ->
+            val tone = if (check.ok) BlockTone.Ok else BlockTone.Bad
+            Row(
+                modifier = Modifier.testTag("check:${check.name}"),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(OrreryTokens.Space.four),
+            ) {
+                BlockGlyph(if (check.ok) BlockIcon.Check else BlockIcon.Cross, inkOf(tone))
+                Chip(check.name, chipToneOf(tone))
+            }
+        }
     }
 }
 

@@ -1,5 +1,8 @@
 package io.github.joshsymonds.orrery.ui
 
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.width
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertCountEquals
@@ -10,9 +13,11 @@ import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.unit.dp
 import io.github.joshsymonds.orrery.api.StepCheckRow
 import io.github.joshsymonds.orrery.mainThreadComposeRule
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -110,5 +115,29 @@ class CheckBlockTest {
 
         composeRule.onNodeWithText("error: missing symbol", substring = true).assertIsDisplayed()
         composeRule.onNodeWithText("see log", substring = true).assertIsDisplayed()
+    }
+
+    @Test
+    fun sixChecksWrapOntoMoreLinesAndEveryChipStaysInsideANarrowBlock() {
+        val six = listOf("lint", "tests", "build", "types", "owned files", "gate")
+            .map { StepCheckRow(round = 2, name = it, ok = true, stdout = "", stderr = "") }
+        composeRule.setContent {
+            Box(modifier = Modifier.width(240.dp)) { CheckBlock(2, "All six pass.", checks = roundChecks(six, 2)) }
+        }
+
+        val block = composeRule.onNodeWithTag("block:checks").fetchSemanticsNode().boundsInRoot
+        val chips = composeRule.onAllNodes(SemanticsMatcher.keyIsDefined(ChipToneKey)).fetchSemanticsNodes()
+            .map { it.boundsInRoot }
+        assertEquals(6, chips.size)
+        chips.forEach { assertTrue(it.right <= block.right) }
+        assertTrue(chips.map { it.top }.distinct().size > 1)
+    }
+
+    @Test
+    fun aPassedCheckChipCarriesTheCheckMarkAndAFailedOneTheCross() {
+        setBlock(round = 2, text = "Build failed")
+
+        composeRule.onNodeWithTag("check:test").assert(hasAnyDescendant(hasTestTag("icon:check")))
+        composeRule.onNodeWithTag("check:build").assert(hasAnyDescendant(hasTestTag("icon:cross")))
     }
 }
