@@ -412,7 +412,9 @@ func Waiting(task store.EpicTask) bool {
 }
 
 // waitsOn reports whether the task with seq among peers waits now, directly or through the tasks it waits for, on
-// target.
+// target. A task waits for the tasks its after names while it waits, and an open task depends on the tasks its
+// depends_on names whether or not it waits; both count, so a task that depends on target through depends_on is waited
+// on as one that waits through after_tasks is.
 func waitsOn(peers []Peer, seq, target int64) bool {
 	seen := map[int64]bool{}
 	queue := []int64{seq}
@@ -424,14 +426,21 @@ func waitsOn(peers []Peer, seq, target int64) bool {
 		}
 		seen[current] = true
 		peer, ok := peerOf(peers, current)
-		if !ok || !Waiting(peer.Task) {
+		if !ok {
 			continue
 		}
-		for _, next := range AfterSeqs(peer.Task.Build.After) {
-			if next == target {
+		var next []int64
+		if Waiting(peer.Task) {
+			next = AfterSeqs(peer.Task.Build.After)
+		}
+		if peer.Task.Status == taskOpen {
+			next = append(next, peer.Task.DependsOn...)
+		}
+		for _, n := range next {
+			if n == target {
 				return true
 			}
-			queue = append(queue, next)
+			queue = append(queue, n)
 		}
 	}
 	return false
@@ -678,8 +687,8 @@ func emptyFields(decision string, fields ...field) []string {
 }
 
 // stateRefusals returns the refusals of a rerun, grant or re_brief against the epic's tasks: an after_tasks entry that is
-// this task, no task of the epic, a task that is neither open nor accepted and pending, a task that waits on this one, or
-// a task named twice; a file of version.files that planner.FileRefusal refuses, that is already the task's, that is named
+// this task, no task of the epic, a task that is neither open nor accepted and pending, a task that waits on this one
+// (after_tasks and depends_on both count, directly or through another task), or a task named twice; a file of version.files that planner.FileRefusal refuses, that is already the task's, that is named
 // twice, or that an open task owns or an accepted pending task changed when after_tasks does not name that task; a file
 // of version.remove that is not one of the task's; and a test change that is none of the files the task has once the
 // version removes and adds its files. Any other decision has none. With integrated set, an after_tasks entry a batch has
