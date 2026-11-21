@@ -25,6 +25,7 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.semantics.SemanticsPropertyKey
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.TextMeasurer
@@ -86,7 +87,8 @@ fun Orrery(
     modifier: Modifier = Modifier,
     onOpenPhase: ((task: String, phase: Phase) -> Unit)? = null,
 ) {
-    val glow = glowAlpha()
+    val glow = glowOf()
+    val cells = remember(wedges) { cellsOf(wedges) }
     val measurer = rememberTextMeasurer()
     val readout = "${wedges.count { it.place == WedgePlace.INTEGRATED }} of ${wedges.size}"
     val description = descriptionOf(readout, wedges, arcs)
@@ -111,13 +113,15 @@ fun Orrery(
             .semantics {
                 this[SemanticsProperties.ContentDescription] = description
                 stateDescription = glowText
+                set(OrreryCellsKey, cells)
+                set(OrreryGlowBreathesKey, glow.breathes)
             },
     ) {
         val unit = min(size.width, size.height) / BOX
         drawRect(OrreryTokens.Surface.page)
         translate(left = size.width / 2 - CENTRE.x * unit, top = size.height / 2 - CENTRE.y * unit) {
-            drawCells(wedges, unit)
-            drawGlow(glowPath(wedges, unit), unit, glow.value)
+            drawCells(cells, wedges.size, unit)
+            drawGlow(glowPath(wedges, unit), unit, glow.alpha.value)
             drawArcStrokes(arcs, wedges.size, unit)
             drawArcIds(measurer, arcs, wedges.size, unit)
             drawRingNames(measurer, unit)
@@ -168,10 +172,11 @@ private fun toneWord(tone: WedgeTone): String = when (tone) {
  */
 @Composable
 fun MiniOrrery(wedges: List<Wedge>, arcs: List<RequirementArc>, modifier: Modifier = Modifier) {
+    val cells = remember(wedges) { cellsOf(wedges) }
     Canvas(modifier = modifier) {
         val unit = min(size.width, size.height) / BOX
         translate(left = size.width / 2 - CENTRE.x * unit, top = size.height / 2 - CENTRE.y * unit) {
-            drawCells(wedges, unit)
+            drawCells(cells, wedges.size, unit)
             drawArcStrokes(arcs, wedges.size, unit)
         }
     }
@@ -208,15 +213,26 @@ private fun cellAt(relative: Offset, wedges: List<Wedge>): Pair<String, Phase>? 
 // The ring a phase's cells lie on: one inward from the rim.
 private fun ringOf(phase: Phase): Int = phase.ordinal + 1
 
+/** One cell the chart fills: its wedge's [task] and [index], its [ring] (the rim is 0), and the [colour] it takes. */
+data class OrreryCell(val task: String, val index: Int, val ring: Int, val colour: Color)
+
+/** Semantics key: every cell the chart fills, in the order it fills them, on the chart's node. */
+val OrreryCellsKey = SemanticsPropertyKey<List<OrreryCell>>("OrreryCells")
+
+/** Semantics key: whether the glow breathes (animations run) or holds at full (they don't), on the chart's node. */
+val OrreryGlowBreathesKey = SemanticsPropertyKey<Boolean>("OrreryGlowBreathes")
+
 // Each wedge's rim cell, then its four phase cells. The rim is track while its wedge is planned and passed once placed.
-private fun DrawScope.drawCells(wedges: List<Wedge>, unit: Float) {
-    wedges.forEachIndexed { index, wedge ->
-        val rim = if (wedge.place == WedgePlace.PLANNED) TRACK else OrreryTokens.Role.ok
-        drawPath(cellPath(wedges.size, index, RIM, unit), rim)
-        wedge.slices.forEach { slice ->
-            drawPath(cellPath(wedges.size, index, ringOf(slice.phase), unit), sliceColour(slice.state, wedge.tone))
-        }
+private fun cellsOf(wedges: List<Wedge>): List<OrreryCell> = wedges.flatMapIndexed { index, wedge ->
+    val rim = if (wedge.place == WedgePlace.PLANNED) TRACK else OrreryTokens.Role.ok
+    listOf(OrreryCell(wedge.task, index, RIM, rim)) + wedge.slices.map { slice ->
+        OrreryCell(wedge.task, index, ringOf(slice.phase), sliceColour(slice.state, wedge.tone))
     }
+}
+
+// The cells of a chart of [count] wedges, each filled in its colour.
+private fun DrawScope.drawCells(cells: List<OrreryCell>, count: Int, unit: Float) {
+    cells.forEach { cell -> drawPath(cellPath(count, cell.index, cell.ring, unit), cell.colour) }
 }
 
 private fun sliceColour(state: SliceState, tone: WedgeTone): Color = when (state) {
@@ -293,16 +309,24 @@ private fun DrawScope.drawRingNames(measurer: TextMeasurer, unit: Float) {
     }
 }
 
+// The glow: whether it [breathes], and its opacity, [alpha].
+private class Glow(val breathes: Boolean, val alpha: State<Float>)
+
 // The glow's opacity. It breathes from the pulse's full to its quarter while animations run, and holds at full when
 // they don't.
 @Composable
-private fun glowAlpha(): State<Float> {
-    if (!animationsOn()) return remember { mutableStateOf(OrreryTokens.Motion.Loop.pulseFrom) }
-    return rememberInfiniteTransition(label = "glow").animateFloat(
-        initialValue = OrreryTokens.Motion.Loop.pulseFrom,
-        targetValue = OrreryTokens.Motion.Loop.pulseTo,
-        animationSpec = pulseSpec(),
-        label = "glow",
+private fun glowOf(): Glow {
+    if (!animationsOn()) {
+        return Glow(breathes = false, alpha = remember { mutableStateOf(OrreryTokens.Motion.Loop.pulseFrom) })
+    }
+    return Glow(
+        breathes = true,
+        alpha = rememberInfiniteTransition(label = "glow").animateFloat(
+            initialValue = OrreryTokens.Motion.Loop.pulseFrom,
+            targetValue = OrreryTokens.Motion.Loop.pulseTo,
+            animationSpec = pulseSpec(),
+            label = "glow",
+        ),
     )
 }
 
