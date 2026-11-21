@@ -1,8 +1,9 @@
 import type { JSX } from "preact";
 import { useEffect, useRef } from "preact/hooks";
 
+import { checkLines } from "./blocks";
 import type { ConversationItem, EngineText } from "./gen/orrery/v1/orrery_pb";
-import { epicEventOf } from "./eventring";
+import { epicEventOf, stepEventOf } from "./eventring";
 import { Icon } from "./glyphs";
 import { drawnText } from "./markdown";
 import { occurrences } from "./text";
@@ -17,13 +18,11 @@ export interface Match {
 }
 
 // findMatches returns the case-insensitive occurrences of query in the drawn text of items, in item order, then those
-// of the unfinished text blocks, in their order. Replies, prompts and step folds are searched as Markdown draws them;
-// a call is searched by its input or question and by the text of the result that answers it, a notice by its kind and
-// text, and a live reply as Markdown draws it. Unfinished thinking is not searched. Compaction, an event line (a prompt
-// an event sent, drawn as EVENT), a prompt a cron job's fire sent, drawn as CRON, a prompt holding an epic's event block (it draws as the event's ring), a send-back of a check
-// round (it draws as a card), a call that creates an epic and whose result is not an error (it draws as the epic's
-// card), an interrupted item (it draws the line "Interrupted by you"), an agent-finished item (it draws the line
-// "Agent finished: ..."), and a result that answers no call are not searched. An empty query matches nothing.
+// of the unfinished text blocks, in their order. A prompt is searched as its row draws it (promptText), a call by its
+// input or question and by the text of the result that answers it, a notice by its kind and text, a compaction by its
+// summary, an agent-finished item by its name and description, and a live reply as Markdown draws it. Unfinished
+// thinking is not searched. An interrupted item, a result that answers no call, and a call that creates an epic and
+// whose result is not an error (it draws as the epic's card) are not searched. An empty query matches nothing.
 export function findMatches(items: ConversationItem[], query: string, unfinished: EngineText[] = []): Match[] {
   const answers = resultsByCall(items);
   const matches: Match[] = [];
@@ -48,13 +47,7 @@ export function findMatches(items: ConversationItem[], query: string, unfinished
 function searchedText(item: ConversationItem, result: ConversationItem | undefined): string {
   switch (item.kind) {
     case "prompt":
-      if (item.sender === "event" || item.sender === "cron" || epicEventOf(item.text) !== null) {
-        return "";
-      }
-      if (item.sender === "engine" && item.round >= 1) {
-        return "";
-      }
-      return drawnText(item.text);
+      return promptText(item);
     case "tool":
     case "question":
       if (item.epic !== "" && result !== undefined && !result.error) {
@@ -64,13 +57,40 @@ function searchedText(item: ConversationItem, result: ConversationItem | undefin
     case "notice":
       return joinParts([item.notice, item.text]);
     case "compaction":
-    case "interrupted":
+      return item.text;
     case "agent_finished":
+      return joinParts([item.tool, item.text]);
+    case "interrupted":
     case "result":
       return "";
     default:
       return drawnText(item.text);
   }
+}
+
+// promptText is the text a prompt's row searches, as the reader draws the row: a step's end its brief's lines, each as
+// Markdown; a cron block and an event block its Markdown; an epic's event its sentence, the rest of its body being
+// undrawn; a check round its note and the rest under it, each as Markdown; any other prompt its Markdown. A moved event
+// has no sentence, so it is not searched.
+function promptText(item: ConversationItem): string {
+  if (item.sender === "event") {
+    const step = stepEventOf(item.text);
+    if (step !== null) {
+      return step.brief.map((line) => drawnText(line)).join("\n");
+    }
+  }
+  if (item.sender === "cron") {
+    return drawnText(item.text);
+  }
+  const epic = epicEventOf(item.text);
+  if (epic !== null) {
+    return epic.sentence;
+  }
+  if (item.sender === "engine" && item.round >= 1) {
+    const { note, rest } = checkLines(item.text);
+    return joinParts([drawnText(note), drawnText(rest.join("\n"))]);
+  }
+  return drawnText(item.text);
 }
 
 function joinParts(parts: (string | undefined)[]): string {

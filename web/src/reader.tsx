@@ -11,7 +11,7 @@ import { EventRing, epicEventOf, StepCard, stepEventOf } from "./eventring";
 import type { Contract } from "./gen/orrery/v1/contracts_pb";
 import type { EpicStep } from "./gen/orrery/v1/epics_pb";
 import type { ConversationItem, EngineText } from "./gen/orrery/v1/orrery_pb";
-import { type CallReveal, EngineFold, NoticeLine, sameCalls, ThinkingLine, ToolLine, ToolRun } from "./lines";
+import { type CallReveal, EngineFold, NoticeLine, sameCalls, ThinkingLine, ToolLine, ToolRun, useReveal } from "./lines";
 import { Reply } from "./reply";
 import { Rule } from "./rules";
 import type { Sending } from "./sending";
@@ -69,11 +69,12 @@ export interface ContractCalls {
 // With answered, its line draws after the item its answer named as newest, or after every item when that item is no
 // longer drawn, and a run of tool calls ends where the line falls. Items that arrive later draw after the line.
 // With find, every case-insensitive occurrence of its query is a mark in what the reader draws of a reply, a prompt, a
-// call's input and result, a notice, and live text. Check blocks, epic cards, event rings, step cards, background rows,
-// contract lines, thinking, the Ask, sending rows, event blocks, cron blocks and agent-finished lines are not searched.
-// The current match, find.current's index in find.matches, is the mark with class current: it is scrolled into view as
-// it arrives, and the fold, call or run that holds it opens. A fold opens when the current match moves into it, and the
-// owner can close it; it opens again only when the current match moves into it once more.
+// call's input and result, a notice, a compaction's summary, an agent-finished line, a step's brief, an epic's event
+// sentence, and live text. Background rows, contract lines, thinking, the Ask, sending rows, a move's line, the card of
+// an epic that was created, and the interrupted line are not searched. The current match, find.current's index in
+// find.matches, is the mark with class current: it is scrolled into view as it arrives, and the fold, call or run that
+// holds it opens. A fold opens when the current match moves into it, and the owner can close it; it opens again only
+// when the current match moves into it once more.
 // After the items and live text, the reader draws a row for each background task the conversation's state holds, in the
 // state's order. A caller event the conversation holds pending is not drawn: it draws as its card once its prompt
 // arrives. The sending entries draw after them, each as a YOU block marked sending in a row of its own. They are not
@@ -620,27 +621,45 @@ function itemBody({
       if (item.sender === "event") {
         const stepEnd = stepEventOf(item.text);
         if (stepEnd !== null) {
-          return <StepCard event={stepEnd} facts={item.stepFacts} time={item.time} calls={epicCalls} />;
+            return (
+            <StepCard
+              event={stepEnd}
+              facts={item.stepFacts}
+              time={item.time}
+              calls={epicCalls}
+              query={query}
+              current={current}
+            />
+          );
         }
       }
       if (item.sender === "cron") {
-        return <EventBlock text={item.text} time={item.time} cron />;
+        return <EventBlock text={item.text} time={item.time} cron query={query} current={current} />;
       }
       if (epicCalls !== undefined) {
         const event = epicEventOf(item.text);
         if (event !== null) {
-          return <EventRing event={event} calls={epicCalls} />;
+          return <EventRing event={event} calls={epicCalls} query={query} current={current} />;
         }
       }
       if (item.sender === "event") {
-        return <EventBlock text={item.text} time={item.time} />;
+        return <EventBlock text={item.text} time={item.time} query={query} current={current} />;
       }
       if (foldsAsEngine(item)) {
         return <EngineFold item={item} query={query} current={current} />;
       }
       if (item.sender === "engine") {
         // A send-back of round 1 or more draws its round's checks: the step's, when the reader has a step, else none.
-        return <CheckBlock text={item.text} round={item.round} checks={step?.checks ?? []} time={item.time} />;
+        return (
+          <CheckBlock
+            text={item.text}
+            round={item.round}
+            checks={step?.checks ?? []}
+            time={item.time}
+            query={query}
+            current={current}
+          />
+        );
       }
       if (ownersTurn(item)) {
         return <YouBlock text={item.text} time={item.time} query={query} current={current} />;
@@ -672,13 +691,13 @@ function itemBody({
     case "notice":
       return <NoticeLine item={item} query={query} current={current} />;
     case "compaction":
-      return <Compaction item={item} open={open} onToggleOpen={onToggleOpen} />;
+      return <Compaction item={item} open={open} onToggleOpen={onToggleOpen} query={query} current={current} />;
     case "interrupted":
       return <Rule kind="interrupted" label="Interrupted by you" detail={clock(item.time)} />;
     case "reply":
       return <Reply text={item.text} query={query} current={current} />;
     case "agent_finished":
-      return <TaskLine {...agentFinishedTask(item)} />;
+      return <TaskLine {...agentFinishedTask(item)} query={query} current={current} />;
     default:
       return null;
   }
@@ -727,16 +746,27 @@ function LiveRow({ block, query, current }: { block: EngineText; query: string; 
 }
 
 // Compaction draws a compaction as a Rule, labelled Compacted with its trigger and tokens as detail, and under it the
-// summary once the rule is open.
+// summary once the rule is open. The summary is marked with the find's query. When the current match moves into the
+// summary, the rule is opened through onToggleOpen unless it is open, as a fold opens (useReveal), so the owner can close
+// it again and it opens once more only when the current match moves into it again.
 function Compaction({
   item,
   open,
   onToggleOpen,
+  query,
+  current,
 }: {
   item: ConversationItem;
   open: boolean;
   onToggleOpen?: () => void;
+  query: string;
+  current: number;
 }) {
+  useReveal(current >= 0, (shown) => {
+    if (shown && !open) {
+      onToggleOpen?.();
+    }
+  });
   const parts: string[] = [];
   if (item.trigger !== "") {
     parts.push(item.trigger);
@@ -749,7 +779,7 @@ function Compaction({
       <Rule kind="compaction" label="Compacted" detail={parts.join(" · ")} onToggle={onToggleOpen} open={open} />
       {open && (
         <div class="summary">
-          <ReplyText text={item.text} />
+          <ReplyText text={item.text} query={query} current={current} />
         </div>
       )}
     </div>

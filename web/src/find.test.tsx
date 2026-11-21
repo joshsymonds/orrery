@@ -55,29 +55,87 @@ test("Find: a match inside a call's result is counted under the call, and a resu
   assert.deepEqual(itemsOf(items, "needle"), [1]);
 });
 
-test("Find: compaction and check-card items are not searched", () => {
+test("Find: a compaction's summary is searched as written, and a round 0 prompt is searched as before", () => {
   const items = [
-    item({ kind: "compaction", text: "lint summary", trigger: "auto", tokens: 9000n }),
-    item({ kind: "prompt", sender: "engine", round: 1, text: "lint failed" }),
+    item({ kind: "compaction", text: "Lint summary.", trigger: "auto", tokens: 9000n }),
     item({ kind: "prompt", sender: "engine", round: 0, text: "lint the brief" }),
   ];
-  assert.deepEqual(itemsOf(items, "lint"), [2]);
+  assert.deepEqual(findMatches(items, "lint"), [
+    { item: 0, start: 0 },
+    { item: 1, start: 0 },
+  ]);
 });
 
-test("Find: a prompt an event sent draws as an EVENT line and is not searched, while an owner's prompt with the same text matches", () => {
+test("Find: a check round's note and the rest under it are searched, the rest at its place after the note", () => {
+  const items = [item({ kind: "prompt", sender: "engine", round: 1, text: "lint failed\nthe rest lint" })];
+  assert.deepEqual(findMatches(items, "lint"), [
+    { item: 0, start: 0 },
+    { item: 0, start: 21 },
+  ]);
+});
+
+test("Find: a prompt an event sent is searched as its EVENT block draws it, like an owner's prompt with the same text", () => {
   const items = [
     item({ kind: "prompt", sender: "event", text: "build finished" }),
     item({ kind: "prompt", sender: "owner", text: "build finished" }),
   ];
-  assert.deepEqual(findMatches(items, "build"), [{ item: 1, start: 0 }]);
+  assert.deepEqual(findMatches(items, "build"), [
+    { item: 0, start: 0 },
+    { item: 1, start: 0 },
+  ]);
 });
 
-test("Find: a prompt a cron job sent draws as a CRON row and is not searched, while an owner's prompt with the same text matches", () => {
+test("Find: a prompt a cron job sent is searched as its CRON block draws it, like an owner's prompt with the same text", () => {
   const items = [
     item({ kind: "prompt", sender: "cron", text: "build finished" }),
     item({ kind: "prompt", sender: "owner", text: "build finished" }),
   ];
-  assert.deepEqual(findMatches(items, "build"), [{ item: 1, start: 0 }]);
+  assert.deepEqual(findMatches(items, "build"), [
+    { item: 0, start: 0 },
+    { item: 1, start: 0 },
+  ]);
+});
+
+test("Find: a step end's summary and reason lines are searched, and its More line and its agent are not", () => {
+  const items = [
+    item({
+      kind: "prompt",
+      sender: "event",
+      text: '<orrery-event kind="step_end" id="step:s1" agent="builder" end="done" status="done">\nShip the export.\nMore: step_status gives the full result.\n</orrery-event>',
+    }),
+  ];
+  assert.deepEqual(findMatches(items, "export"), [{ item: 0, start: 9 }]);
+  assert.deepEqual(findMatches(items, "step_status"), []);
+  assert.deepEqual(findMatches(items, "builder"), []);
+});
+
+test("Find: an epic event's sentence is searched, and the rest of its body is not", () => {
+  const items = [
+    item({
+      kind: "prompt",
+      sender: "event",
+      text: '<orrery-event kind="park" id="epic:o/s:ph2">\nThe epic is parked. Build the rest later.\n</orrery-event>',
+    }),
+  ];
+  assert.deepEqual(findMatches(items, "parked"), [{ item: 0, start: 12 }]);
+  assert.deepEqual(findMatches(items, "later"), []);
+});
+
+test("Find: an agent-finished item's name and description are searched, and its end word is not", () => {
+  const items = [item({ kind: "agent_finished", tool: "reviewer", text: "check the diff", notice: "done" })];
+  assert.deepEqual(findMatches(items, "reviewer"), [{ item: 0, start: 0 }]);
+  assert.deepEqual(findMatches(items, "diff"), [{ item: 0, start: 19 }]);
+  assert.deepEqual(findMatches(items, "done"), []);
+});
+
+test("Find: an interrupted item and a call that created an epic are not searched, while a compaction is", () => {
+  const items = [
+    item({ kind: "interrupted", text: "lint" }),
+    item({ kind: "tool", tool: "epic_create", input: "lint", id: "e1", epic: "o/s" }),
+    item({ kind: "result", id: "e1", text: "lint", error: false }),
+    item({ kind: "compaction", text: "lint", trigger: "manual", tokens: 9000n }),
+  ];
+  assert.deepEqual(findMatches(items, "lint"), [{ item: 3, start: 0 }]);
 });
 
 test("Find: an empty query matches nothing", () => {

@@ -2434,7 +2434,7 @@ test("TranscriptSearch: a current match in a call inside a folded tool run opens
   });
 });
 
-test("TranscriptSearch: a compaction's summary is not marked, though the query occurs in it", () => {
+test("Find: a compaction's open summary is marked, and the current mark is the summary's when it is current", () => {
   const items = [
     item({ kind: "compaction", time: 100n, text: "Synthetic summary text.", trigger: "auto", tokens: 611000n }),
     item({ kind: "reply", time: 200n, text: "a summary of the work" }),
@@ -2444,9 +2444,8 @@ test("TranscriptSearch: a compaction's summary is not marked, though the query o
     (container) => {
       const summary = container.querySelector(".summary")?.textContent;
       assert.ok(summary?.includes("Synthetic summary text."), "the summary is drawn");
-      assert.equal(container.querySelector(".summary mark"), null, "the summary has no mark");
-      assert.equal(container.querySelectorAll("mark").length, 1, "only the reply's occurrence is marked");
-      assert.equal(container.querySelector(".reply mark.current")?.textContent, "summary");
+      assert.equal(container.querySelector(".summary mark.current")?.textContent, "summary", "the summary's match is current");
+      assert.equal(container.querySelectorAll("mark").length, 2, "the summary's and the reply's occurrences are marked");
     },
   );
 });
@@ -2483,7 +2482,7 @@ test("TranscriptSearch: a match that Markdown splits across elements is marked o
   );
 });
 
-test("TranscriptSearch: an EVENT line draws no mark under a find query its text contains, while a reply in the same transcript is marked", () => {
+test("Find: an EVENT block's text is marked under a find query it contains, as the reply in the same transcript is", () => {
   const items = [
     item({ kind: "prompt", time: 100n, sender: "event", text: "**orrery** build passed" }),
     item({ kind: "reply", time: 200n, text: "the build is green" }),
@@ -2492,13 +2491,106 @@ test("TranscriptSearch: an EVENT line draws no mark under a find query its text 
     { conversation: conversation({ items }), seenAt: 1000, open: false, find: findProps(items, "build", 0) },
     (container) => {
       const event = container.querySelector<HTMLElement>(".event");
-      assert.ok(event !== null, "the event is an EVENT line");
-      assert.equal(event.textContent?.includes("build passed"), true, "the line draws its text");
-      assert.equal(event.querySelector("mark"), null, "the EVENT line holds no mark");
-      assert.equal(container.querySelectorAll("mark").length, 1, "only the reply's occurrence is marked");
-      assert.equal(container.querySelector("mark.current")?.textContent, "build", "the reply's match is current");
+      assert.ok(event !== null, "the event is an EVENT block");
+      assert.equal(event.querySelector("mark.current")?.textContent, "build", "the event's match is marked and current");
+      assert.equal(container.querySelectorAll("mark").length, 2, "the event's and the reply's occurrences are marked");
     },
   );
+});
+
+test("Find: a cron block's text is marked under a find query it contains", () => {
+  const items = [item({ kind: "prompt", time: 100n, sender: "cron", text: "run the build nightly" })];
+  return withReader(
+    { conversation: conversation({ items }), seenAt: 1000, open: false, find: findProps(items, "build", 0) },
+    (container) => {
+      assert.equal(container.querySelector(".event mark.current")?.textContent, "build", "the cron block's match is marked");
+    },
+  );
+});
+
+test("Find: a check round's rest is marked, opens when its match is current, and stays closed while its match is not", async () => {
+  const items = [item({ kind: "prompt", time: 100n, sender: "engine", round: 1, text: "lint failed\nthe rest lint" })];
+  const props: Props = { conversation: conversation({ items }), seenAt: 1000, open: false };
+  await withScrollingReader({ ...props, find: findProps(items, "lint", 0) }, async (container, rerender) => {
+    assert.equal(container.querySelector(".checks mark.current")?.textContent, "lint", "the note's match is current");
+    assert.ok(container.querySelector(".opened") === null, "the rest stays closed while its match is not current");
+    assert.equal(container.querySelectorAll("mark").length, 1, "the rest's match has no mark while the rest is closed");
+
+    await rerender({ ...props, find: findProps(items, "lint", 1) });
+    assert.equal(container.querySelector(".opened mark.current")?.textContent, "lint", "the rest opens and marks its match");
+    assert.ok(container.querySelector(".checks > p mark.current") === null, "the note's match is no longer current");
+  });
+});
+
+test("Find: a step end's summary line is marked, and the lines the step's end does not draw are not", () => {
+  const items = [item({ kind: "prompt", time: 100n, sender: "event", text: stepEndText })];
+  return withReader(
+    { conversation: conversation({ items }), seenAt: 10_000, open: false, find: findProps(items, "ship", 0) },
+    (container) => {
+      assert.equal(container.querySelector(".step-summary mark.current")?.textContent, "Ship", "the summary's match is current");
+      assert.equal(container.querySelectorAll("mark").length, 1);
+    },
+  );
+});
+
+test("Find: an agent-finished line's name and description are marked, and its end word is not", () => {
+  const items = [item({ kind: "agent_finished", time: 100n, tool: "reviewer", text: "check the diff", notice: "done" })];
+  return withReader(
+    { conversation: conversation({ items }), seenAt: 1000, open: false, find: findProps(items, "diff", 0) },
+    (container) => {
+      assert.equal(container.querySelector(".line.task .arg mark.current")?.textContent, "diff", "the description is marked");
+      assert.ok(container.querySelector(".line.task .name mark") === null, "the name holds no match");
+      assert.ok(container.querySelector(".line.task .end mark") === null, "the end word is not searched");
+    },
+  );
+});
+
+test("Find: an epic event's sentence is marked on its ring", async () => {
+  const items = [item({ kind: "prompt", time: 100n, sender: "event", text: eventText("park", "ph2") })];
+  const window = installTestDom();
+  const container = document.createElement("div");
+  try {
+    await act(() => {
+      render(
+        <Reader
+          conversation={conversation({ items })}
+          seenAt={10_000}
+          open={false}
+          epicCalls={ringCalls()}
+          find={findProps(items, "planner", 0)}
+        />,
+        container,
+      );
+    });
+    await act(turn);
+    assert.equal(container.querySelector(".ring-sentence mark.current")?.textContent, "planner", "the sentence's match is marked");
+  } finally {
+    await act(() => {
+      render(null, container);
+    });
+    await removeTestDom(window);
+  }
+});
+
+test("Find: a compaction's summary opens when the current match moves into it, and the page's open state is toggled to show it", async () => {
+  const items = [item({ kind: "compaction", time: 100n, text: "Lint summary.", trigger: "auto", tokens: 611000n })];
+  let toggles = 0;
+  const props: Props = {
+    conversation: conversation({ items }),
+    seenAt: 1000,
+    open: false,
+    onToggleOpen: () => {
+      toggles += 1;
+    },
+  };
+  await withScrollingReader({ ...props, find: findProps(items, "lint", -1) }, async (container, rerender) => {
+    assert.equal(toggles, 0, "no match is current, so nothing opens");
+    await rerender({ ...props, find: findProps(items, "lint", 0) });
+    assert.equal(toggles, 1, "the current match moving into the summary toggles it open");
+    await rerender({ ...props, open: true, find: findProps(items, "lint", 0) });
+    assert.equal(container.querySelector(".summary mark.current")?.textContent, "Lint", "the summary draws its match as current");
+    assert.equal(toggles, 1, "the match still current does not toggle it again");
+  });
 });
 
 test("TranscriptSearch: a reader drawn without a find, or with an empty query, has no mark", async () => {

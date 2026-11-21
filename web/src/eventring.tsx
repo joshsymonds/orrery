@@ -7,8 +7,10 @@ import { Block } from "./blocks";
 import { type EpicCalls, useEpicReading } from "./card";
 import type { StepFacts } from "./gen/orrery/v1/orrery_pb";
 import { Icon, type IconName } from "./glyphs";
-import { Markdown } from "./markdown";
+import { partCurrent } from "./lines";
+import { Markdown, drawnText } from "./markdown";
 import { clock } from "./reader";
+import { MarkedText } from "./text";
 
 // The kinds an epic's event names, as its orrery-event block gives them.
 const eventKinds = ["question", "park", "release", "end", "moved"] as const;
@@ -159,6 +161,17 @@ function briefOf(body: string): string[] {
   return body === "" ? [] : dropMore(body.split("\n"));
 }
 
+// briefStarts is where each line of a brief starts in the text a find searches the brief in: its lines drawn one to a line,
+// as findMatches joins them.
+function briefStarts(lines: string[]): number[] {
+  let next = 0;
+  return lines.map((line) => {
+    const start = next;
+    next += drawnText(line).length + 1;
+    return start;
+  });
+}
+
 // dropMore returns lines without a last line that starts with More:, the line that points to the full return.
 function dropMore(lines: string[]): string[] {
   return lines.at(-1)?.startsWith(morePrefix) === true ? lines.slice(0, -1) : lines;
@@ -187,8 +200,19 @@ function firstSentence(body: string): string {
 
 // EventRing draws an epic's event: a move as its ringed line, an icon and the sentence with the epic's slug, and any other
 // event as an EpicEventBlock. A click on the ring or the block's link opens the epic. A question event also draws its
-// question inside the block, through QuestionReading.
-export function EventRing({ event, calls }: { event: EpicEvent; calls: EpicCalls }): JSX.Element {
+// question inside the block, through QuestionReading. The sentence of an event that is not a move is marked with the
+// find's query, and current is the offset where its current match starts.
+export function EventRing({
+  event,
+  calls,
+  query = "",
+  current = -1,
+}: {
+  event: EpicEvent;
+  calls: EpicCalls;
+  query?: string;
+  current?: number;
+}): JSX.Element {
   if (event.kind === "moved") {
     return (
       <div class="event-ring">
@@ -217,7 +241,9 @@ export function EventRing({ event, calls }: { event: EpicEvent; calls: EpicCalls
           </button>
         }
       >
-        <p class="ring-sentence">{event.sentence}</p>
+        <p class="ring-sentence">
+          <MarkedText text={event.sentence} query={query} current={current} />
+        </p>
         {event.kind === "question" && <QuestionReading epic={event.epic} question={event.tail} calls={calls} />}
       </Block>
     </div>
@@ -326,22 +352,29 @@ function FactsLine({ facts }: { facts: StepFacts }): JSX.Element {
 
 // StepCard draws a step's end as a StepEndBlock: its tone and icon are its verdict, its label says the step ended, and
 // it names the task the step ran, else the step's id, with the agent beside it when the block names one. Its end is a
-// chip. Its body is each line of the brief as Markdown, its summary and its reason, then, with epic calls, a return fold closed until it is
-// opened, then the facts line when the event carries facts, and the time when one is given. The first time the fold is
-// opened, the step's full return is read through calls.stepResult. It draws pretty-printed when it is JSON, and a read
-// that fails draws a fixed line. The chip is a button that opens the step's page through calls.openStep when the event
-// names its epic and the reader holds epic calls.
+// chip. Its body is each line of the brief as Markdown, its summary and its reason, each marked with the find's query,
+// then, with epic calls, a return fold closed until it is opened, then the facts line when the event carries facts, and
+// the time when one is given. The first time the fold is opened, the step's full return is read through
+// calls.stepResult. It draws pretty-printed when it is JSON, and a read that fails draws a fixed line. The chip is a
+// button that opens the step's page through calls.openStep when the event names its epic and the reader holds epic
+// calls. current is the offset in the brief's searched text, its lines drawn one to a line, where the current match
+// starts.
 export function StepCard({
   event,
   facts,
   time,
   calls,
+  query = "",
+  current = -1,
 }: {
   event: StepEvent;
   facts?: StepFacts;
   time?: bigint;
   calls?: EpicCalls;
+  query?: string;
+  current?: number;
 }): JSX.Element {
+  const starts = briefStarts(event.brief);
   const [loaded, setLoaded] = useState<ReturnLoad>(null);
   const asked = useRef(false);
   const onClick = () => {
@@ -385,7 +418,7 @@ export function StepCard({
       >
         {event.brief.map((line, index) => (
           <div key={index} class="step-summary">
-            <Markdown text={line} />
+            <Markdown text={line} query={query} current={partCurrent(current, starts[index], drawnText(line).length)} />
           </div>
         ))}
         {calls !== undefined && (

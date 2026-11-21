@@ -4,7 +4,8 @@ import { useState } from "preact/hooks";
 
 import type { EpicStepCheck } from "./gen/orrery/v1/epics_pb";
 import { Icon, type IconName } from "./glyphs";
-import { Markdown } from "./markdown";
+import { partCurrent, useReveal } from "./lines";
+import { Markdown, drawnText } from "./markdown";
 import { clock } from "./reader";
 
 // Tone is the tone a block draws in, its rail's and its label's: the owner's words, the engine's, a verdict that passed or
@@ -91,28 +92,44 @@ export function YouBlock({
   );
 }
 
+// checkLines splits a check round's text into its note, its first line, and the rest under it, which opens under the note.
+export function checkLines(text: string): { note: string; rest: string[] } {
+  const [note, ...rest] = text.split("\n");
+  return { note, rest };
+}
+
 // CheckBlock draws a send-back round: CHECKS, the round it is and from the engine, and its time. Each check of that round
 // is a chip, with the check icon when it passed and the cross when it failed. Its tone is bad when one failed and ok when
 // they all passed; with no check of the round it draws no chips and the engine's tone. The text's first line is the note,
-// and with more lines a chevron in the end opens the rest under it. open is whether the rest starts open.
+// and with more lines a chevron in the end opens the rest under it. open is whether the rest starts open. The note and the
+// rest are marked with the find's query, and the rest opens when the current match moves into it. query and current are
+// as YouBlock's are, current being an offset in drawnText of the whole text, the note and the rest one to a line.
 export function CheckBlock({
   text,
   round,
   checks,
   time,
   open = false,
+  query = "",
+  current = -1,
 }: {
   text: string;
   round: number;
   checks: EpicStepCheck[];
   time?: bigint;
   open?: boolean;
+  query?: string;
+  current?: number;
 }): JSX.Element {
   const [shown, setShown] = useState(open);
   const roundChecks = checks.filter((check) => check.round === round);
   const tone: Tone = roundChecks.length === 0 ? "engine" : roundChecks.some((check) => !check.ok) ? "bad" : "ok";
-  const [note, ...rest] = text.split("\n");
+  const { note, rest } = checkLines(text);
   const opens = rest.length > 0;
+  const noteDrawn = drawnText(note);
+  const restDrawn = drawnText(rest.join("\n"));
+  const restCurrent = partCurrent(current, noteDrawn.length + 1, restDrawn.length);
+  useReveal(restCurrent >= 0, setShown);
   const chips = roundChecks.map((check, index) => (
     <span key={index} class={check.ok ? "chip ok" : "chip bad"}>
       <Icon name={check.ok ? "check" : "cross"} />
@@ -145,10 +162,10 @@ export function CheckBlock({
       time={time === undefined ? undefined : clock(time)}
       end={end}
     >
-      <Markdown text={note} />
+      <Markdown text={note} query={query} current={partCurrent(current, 0, noteDrawn.length)} />
       {opens && shown && (
         <div class="opened">
-          <Markdown text={rest.join("\n")} />
+          <Markdown text={rest.join("\n")} query={query} current={restCurrent} />
         </div>
       )}
     </Block>
@@ -156,8 +173,20 @@ export function CheckBlock({
 }
 
 // EventBlock draws what the engine sent: the gear icon and EVENT from the engine, or for a cron prompt the clock icon and
-// CRON, and its time. Its text is Markdown.
-export function EventBlock({ text, time, cron = false }: { text: string; time?: bigint; cron?: boolean }): JSX.Element {
+// CRON, and its time. Its text is Markdown, marked with the find's query as YouBlock's is.
+export function EventBlock({
+  text,
+  time,
+  cron = false,
+  query = "",
+  current = -1,
+}: {
+  text: string;
+  time?: bigint;
+  cron?: boolean;
+  query?: string;
+  current?: number;
+}): JSX.Element {
   return (
     <Block
       tone="engine"
@@ -167,7 +196,7 @@ export function EventBlock({ text, time, cron = false }: { text: string; time?: 
       words={cron ? undefined : "from the engine"}
       time={time === undefined ? undefined : clock(time)}
     >
-      <Markdown text={text} />
+      <Markdown text={text} query={query} current={current} />
     </Block>
   );
 }

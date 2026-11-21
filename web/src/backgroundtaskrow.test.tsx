@@ -410,7 +410,7 @@ test("BackgroundTaskRow: a click on an agent row whose call is folded in a run o
   });
 });
 
-test("BackgroundTaskRow: an agent_finished item draws a TaskLine ending finished, failed or stopped, and find does not search it", async (t) => {
+test("BackgroundTaskRow: an agent_finished item draws a TaskLine ending finished, failed or stopped, and find searches its name and description", async (t) => {
   await withPage(t, async ({ container, fake }) => {
     const items = [
       item({ kind: "agent_finished", time: 100n, text: "Map the repo", id: "toolu_1", tool: "Explore", notice: "done" }),
@@ -427,7 +427,7 @@ test("BackgroundTaskRow: an agent_finished item draws a TaskLine ending finished
       rowsOf(container).map((row) => textOf(row, ".end")),
       ["finished", "failed", "stopped"],
     );
-    assert.deepEqual(findMatches(items, "Map the repo"), [], "find does not search the line");
+    assert.deepEqual(findMatches(items, "Map the repo"), [{ item: 0, start: 8 }], "find searches the line's description after its name");
   });
 });
 

@@ -2,10 +2,13 @@ import type { JSX } from "preact";
 
 import type { BackgroundTask, ConversationItem } from "./gen/orrery/v1/orrery_pb";
 import { Icon } from "./glyphs";
+import { partCurrent } from "./lines";
+import { MarkedText } from "./text";
 
 // TaskLineProps is what a TaskLine draws: its icon's type, agent or shell; its name, the sub-agent type or shell; its
-// description; its latest activity; its end word once it has ended; whether it runs; and onOpen, when a click opens
-// something.
+// description; its latest activity; its end word once it has ended; whether it runs; onOpen, when a click opens
+// something; and the find's query with current, the offset in the searched text where the current match starts, the
+// name and the description being the searched text one to a line.
 interface TaskLineProps {
   type: "agent" | "shell";
   name: string;
@@ -14,10 +17,13 @@ interface TaskLineProps {
   end?: string;
   running?: boolean;
   onOpen?: () => void;
+  query?: string;
+  current?: number;
 }
 
 // TaskLine draws a task as a Line: its icon, its name, its description, its latest activity, its end word, and the
-// running mark while it runs. A line that opens something is a button.
+// running mark while it runs. A line that opens something is a button. The name and the description are marked with the
+// find's query.
 export function TaskLine({
   type,
   name,
@@ -26,13 +32,19 @@ export function TaskLine({
   end = "",
   running = false,
   onOpen,
+  query = "",
+  current = -1,
 }: TaskLineProps): JSX.Element {
   const className = running ? "line task running" : "line task";
   const line = (
     <>
       <Icon name={type} />
-      <span class="name">{name}</span>
-      <span class="arg strong">{description}</span>
+      <span class="name">
+        <MarkedText text={name} query={query} current={partCurrent(current, 0, name.length)} />
+      </span>
+      <span class="arg strong">
+        <MarkedText text={description} query={query} current={partCurrent(current, name.length + 1, description.length)} />
+      </span>
       {activity !== "" && <span class="more">{activity}</span>}
       {running && <span class="running-mark">running</span>}
       {end !== "" && <span class="end">{end}</span>}
