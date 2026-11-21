@@ -207,8 +207,8 @@ func TestWatchConversationGrowingTranscript(t *testing.T) {
 	tmux := newTmuxServer(t)
 	path := writeConversation(t, 2)
 	pane := conversationPane(t, tmux, liveOptions(path))
-	feed, changes := startChanges(t, nil)
-	client := panesClient(t, convHandler(t, tmux, changes))
+	// No change feed runs: the stream reads the growing transcript through its inotify watch.
+	client := panesClient(t, convHandler(t, tmux, nil))
 	stream := openConversation(t, client, &orreryv1.WatchConversationRequest{Pane: pane, Limit: 2})
 	id := filepath.Base(path)
 
@@ -229,7 +229,6 @@ func TestWatchConversationGrowingTranscript(t *testing.T) {
 	stream.settle(t)
 
 	appendTranscript(t, path, replyLine(3))
-	feed.Publish(0, []string{convChangedSession})
 	delta := stream.nextDelta(t)
 	if delta.GetReset_() || delta.GetTranscript() != id || delta.GetState() != nil {
 		t.Fatalf("appended delta reset=%v transcript=%q state=%v, want a plain delta of %q",
@@ -242,7 +241,6 @@ func TestWatchConversationGrowingTranscript(t *testing.T) {
 	}
 
 	appendTranscript(t, path, replyLine(4)+replyLine(5))
-	feed.Publish(0, []string{convChangedSession})
 	var texts []string
 	for len(texts) < 2 {
 		delta = stream.nextDelta(t)
@@ -262,7 +260,6 @@ func TestWatchConversationGrowingTranscript(t *testing.T) {
 	partial := replyLine(6)
 	cut := len(partial) - 1
 	appendTranscript(t, path, partial[:cut])
-	feed.Publish(0, []string{convChangedSession})
 	quiet := stream.next(t)
 	if quiet.GetSeq() != seq || len(quiet.GetItems()) != 0 || quiet.GetState() != nil || quiet.GetReset_() {
 		t.Fatalf("partial line moved the stream: seq=%d items=%d state=%v reset=%v, want seq %d and no change",
@@ -270,7 +267,6 @@ func TestWatchConversationGrowingTranscript(t *testing.T) {
 	}
 
 	appendTranscript(t, path, partial[cut:])
-	feed.Publish(0, []string{convChangedSession})
 	delta = stream.nextDelta(t)
 	assertTexts(t, delta.GetItems(), "synthetic reply 6")
 	if delta.GetSeq() != fileSize(t, path) {
@@ -370,7 +366,6 @@ func TestWatchConversationSwitchedTranscript(t *testing.T) {
 	}
 
 	appendTranscript(t, renamed, replyLine(4))
-	feed.Publish(0, []string{convChangedSession})
 	grown := stream.nextDelta(t)
 	if grown.GetReset_() || grown.GetTranscript() != "second.jsonl" {
 		t.Fatalf("growth after the switch reset=%v transcript=%q, want a plain delta of second.jsonl",
@@ -385,8 +380,8 @@ func TestWatchConversationContextFigure(t *testing.T) {
 	tmux := newTmuxServer(t)
 	path := writeConversation(t, 1)
 	pane := conversationPane(t, tmux, liveOptions(path))
-	feed, changes := startChanges(t, nil)
-	client := panesClient(t, convHandler(t, tmux, changes))
+	// No change feed runs: the stream reads the growing transcript through its inotify watch.
+	client := panesClient(t, convHandler(t, tmux, nil))
 	stream := openConversation(t, client, &orreryv1.WatchConversationRequest{Pane: pane})
 	stream.next(t)
 	stream.settle(t)
@@ -394,7 +389,6 @@ func TestWatchConversationContextFigure(t *testing.T) {
 	line := `{"type":"assistant","message":{"usage":{"input_tokens":1234},` +
 		`"content":[{"type":"text","text":"synthetic reply 2"}]}}` + "\n"
 	appendTranscript(t, path, line)
-	feed.Publish(0, []string{convChangedSession})
 	delta := stream.nextDelta(t)
 	assertTexts(t, delta.GetItems(), "synthetic reply 2")
 	figure := delta.GetState().GetContext()
@@ -417,7 +411,6 @@ func TestWatchConversationStateChanges(t *testing.T) {
 	stream.settle(t)
 
 	appendTranscript(t, path, goalRecord(convGoal, false))
-	feed.Publish(0, []string{convChangedSession})
 	goal := stream.nextDelta(t)
 	if goal.GetReset_() || goal.GetState().GetGoal() != convGoal || len(goal.GetItems()) != 0 {
 		t.Fatalf("goal delta reset=%v goal=%q items=%d, want state with goal %q and no items",
@@ -428,7 +421,6 @@ func TestWatchConversationStateChanges(t *testing.T) {
 	}
 
 	appendTranscript(t, path, queueLine("enqueue", synthQueued, "2026-11-11T00:00:00Z", "")+turnEndLine)
-	feed.Publish(0, []string{convChangedSession})
 	queued := stream.nextDelta(t)
 	if waiting := queued.GetState().GetWaiting(); len(waiting) != 1 || waiting[0].GetText() != synthQueued {
 		t.Fatalf("queue delta waiting = %v, want one message %q", waiting, synthQueued)

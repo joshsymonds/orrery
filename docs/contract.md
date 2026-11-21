@@ -3922,8 +3922,11 @@ Reset and resume:
 
 Timing:
 
-- The stream reads the pane when it opens, whenever orreryd's change feed names the pane's `@orrery_id` (or, before the pane has one, any session), and once whenever the feed reopens. A delta is sent when the transcript has gained complete lines or the state has changed.
-- After 5 seconds without a message, the stream sends a keepalive: a message with only `transcript` and `seq` set, and it reports the pane read, without reading the pane. Each message restarts the 5 seconds, so a quiet stream sends one about every 5 seconds.
+- The stream's content comes from the transcript file, not from hooks. While the stream is open, serve holds one inotify instance for it, closed when the stream ends. It watches the transcript file the pane's `@orrery_transcript` names for `IN_MODIFY`, and the file's directory for `IN_CREATE` and `IN_MOVED_TO`. The stream reads the pane and its transcript when it opens and each time the file is written. An entry with the transcript's name created or moved into the directory, the file's removal or rename, and `IN_Q_OVERFLOW` make the stream re-read the transcript from its end, as a reset (`server.transcriptWatch`).
+- orreryd's change feed carries the hooks' changes to the pane, which the state's `pane` shows. When the feed names the pane's `@orrery_id` (or, before the pane has one, any session), and once whenever the feed reopens, the stream reads the pane only. It reads the transcript too only when the pane differs from the one it last sent, or names another transcript. A pane that names another transcript re-arms the watch on that file and its directory before the read, and that read is a reset.
+- A delta is sent when the transcript has gained complete lines or the state has changed. A line is complete once its newline is written, so a line written in parts is sent when its last part lands.
+- When the kernel refuses the stream its inotify instance or a watch, the stream reads the pane and its transcript on every feed wake, and before each keepalive. A transcript that grows with no hook to tell of it is then read within 5 seconds.
+- After 5 seconds without a message, the stream sends a keepalive: a message with only `transcript` and `seq` set, and it reports the pane read. While its inotify watch holds, a keepalive does not read the pane. Each message restarts the 5 seconds, so a quiet stream sends one about every 5 seconds.
 
 The stream ends in one of these ways:
 

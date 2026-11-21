@@ -15,6 +15,7 @@ import (
 	"github.com/joshsymonds/orrery/internal/conversation"
 	v1 "github.com/joshsymonds/orrery/internal/gen/orrery/v1"
 	orreryv1connect "github.com/joshsymonds/orrery/internal/gen/orrery/v1/orreryv1connect"
+	"github.com/joshsymonds/orrery/internal/inotify"
 	"github.com/joshsymonds/orrery/internal/store"
 	"github.com/joshsymonds/orrery/internal/tmuxctl"
 )
@@ -38,6 +39,9 @@ type panesServer struct {
 	conversationKeepalive time.Duration
 	sendTimeout           time.Duration
 	shutdown              <-chan struct{}
+	// openInotify opens the inotify instance of each WatchConversation stream. It is inotify.New when nil, and a test
+	// sets it to see the instances or to refuse them.
+	openInotify func() (*inotify.Inotify, error)
 	// stepped, when set, is called with the pane of each WatchConversation step before the step reads the pane. A test
 	// sets it to count the reads of its streams. It is nil in production.
 	stepped func(pane string)
@@ -45,8 +49,8 @@ type panesServer struct {
 
 // newPanesHandler returns the path and handler that serve Panes over the tmux client, the store reader of turn ends,
 // conversation state, locks, seen and read reporters, and clock it is given. Screen, Conversation and
-// WatchConversation report each read to readReport, dated by now. WatchConversation steps when changes wakes it, and
-// sends a keepalive after conversationKeepalive without a message. Its keepalive timers are armed through newTimer, or
+// WatchConversation report each read to readReport, dated by now. WatchConversation steps when its transcript's inotify
+// watch wakes it, and when changes wakes it and the pane has changed, and sends a keepalive after conversationKeepalive without a message. Its keepalive timers are armed through newTimer, or
 // through time.NewTimer when newTimer is nil. Its sends are bounded by sendTimeout, and its streams end when shutdown
 // closes. The handler runs under withResponseWriter, so the stream reaches its connection.
 func newPanesHandler(
@@ -84,6 +88,7 @@ func newPanesHandler(
 		conversationKeepalive: conversationKeepalive,
 		sendTimeout:           sendTimeout,
 		shutdown:              shutdown,
+		openInotify:           inotify.New,
 	}, opts...)
 	return path, withResponseWriter(handler)
 }
