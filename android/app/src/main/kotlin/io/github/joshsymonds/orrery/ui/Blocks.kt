@@ -73,8 +73,8 @@ data class StepFact(val text: String, val kind: FactKind)
 /** The tone a Block draws in: its rail's and its label's. */
 private enum class BlockTone { You, Engine, Ok, Bad, Attention, Quiet }
 
-/** The icon a Block's label line leads with. */
-private enum class BlockIcon { Person, Gear, Clock, Check, Cross, Stop, Question, Pause, Open, Gauge }
+/** The icon a Block's label line leads with, and the host icon the machine band's label leads with. */
+internal enum class BlockIcon { Person, Gear, Clock, Check, Cross, Stop, Question, Pause, Open, Gauge, Host }
 
 /** The kinds of epic event an EpicEventBlock draws: a question, a park, a release, an end, and the epic a create made. */
 enum class EpicEventKind { Question, Park, Release, End, Created }
@@ -465,7 +465,7 @@ private fun Prose(text: String, color: Color, marks: EntryMarks? = null, base: I
 }
 
 @Composable
-private fun BlockGlyph(icon: BlockIcon, ink: Color) {
+internal fun BlockGlyph(icon: BlockIcon, ink: Color) {
     Canvas(modifier = Modifier.size(OrreryTokens.Size.icon).testTag("icon:${icon.name.lowercase()}")) {
         drawBlockIcon(icon, ink)
     }
@@ -546,6 +546,13 @@ private fun DrawScope.drawBlockIcon(icon: BlockIcon, ink: Color) {
                 style = stroke,
             )
             line(8f, 9f, 11f, 6.5f)
+        }
+        BlockIcon.Host -> {
+            // Two stacked units, each with its light: the web's host glyph.
+            drawRect(ink, point(3f, 3f), Size(10f * unit, 4f * unit), style = stroke)
+            drawRect(ink, point(3f, 9f), Size(10f * unit, 4f * unit), style = stroke)
+            line(5.5f, 5f, 6f, 5f)
+            line(5.5f, 11f, 6f, 11f)
         }
     }
 }

@@ -1,12 +1,13 @@
 package io.github.joshsymonds.orrery.ui
 
-import android.graphics.Bitmap
-import android.graphics.Canvas
 import androidx.activity.ComponentActivity
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.test.SemanticsMatcher
+import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.hasTestTag
+import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -14,7 +15,6 @@ import io.github.joshsymonds.orrery.api.HostStat
 import io.github.joshsymonds.orrery.mainThreadAndroidComposeRule
 import io.github.joshsymonds.orrery.ui.theme.OrreryTokens
 import kotlin.math.abs
-import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -74,7 +74,7 @@ class HostMetersTest {
     }
 
     @Test
-    fun fillColourFollowsSeriesThenLevel() {
+    fun eachPartTakesItsSeriesAtOkAndItsLevelAtWarnOrCrit() {
         composeRule.setContent {
             HostMeters(
                 listOf(
@@ -84,35 +84,20 @@ class HostMetersTest {
                 ),
             )
         }
-        composeRule.waitForIdle()
 
-        val decor = composeRule.activity.window.decorView
-        val bitmap = Bitmap.createBitmap(decor.width, decor.height, Bitmap.Config.ARGB_8888)
-        decor.draw(Canvas(bitmap))
-
-        assertFillColour(bitmap, "cpu", OrreryTokens.Series.one)
-        assertFillColour(bitmap, "disk", OrreryTokens.Level.warn)
-        assertFillColour(bitmap, "temp", OrreryTokens.Level.crit)
-        assertValueColour(bitmap, "50%", OrreryTokens.Ink.one)
-        assertValueColour(bitmap, "60%", OrreryTokens.Level.warn)
-        assertValueColour(bitmap, "70%", OrreryTokens.Level.crit)
+        assertColour(hasTestTag("meter-fill:cpu"), OrreryTokens.Series.one)
+        assertColour(hasTestTag("meter-fill:disk"), OrreryTokens.Level.warn)
+        assertColour(hasTestTag("meter-fill:temp"), OrreryTokens.Level.crit)
+        assertColour(hasText("CPU"), OrreryTokens.Series.one)
+        assertColour(hasText("DISK"), OrreryTokens.Level.warn)
+        assertColour(hasText("TEMP"), OrreryTokens.Level.crit)
+        assertColour(hasText("50%"), OrreryTokens.Ink.one)
+        assertColour(hasText("60%"), OrreryTokens.Level.warn)
+        assertColour(hasText("70%"), OrreryTokens.Level.crit)
     }
 
-    private fun assertFillColour(bitmap: Bitmap, label: String, expected: Color) {
-        val bounds = composeRule.onNodeWithTag("meter-fill:$label").fetchSemanticsNode().boundsInWindow
-        val x = ((bounds.left + bounds.right) / 2f).toInt()
-        val y = ((bounds.top + bounds.bottom) / 2f).toInt()
-        assertEquals("fill colour for $label", expected.toArgb(), bitmap.getPixel(x, y))
-    }
-
-    // Opaque text in a token colour leaves fully covered pixels of exactly that colour inside its bounds.
-    private fun assertValueColour(bitmap: Bitmap, value: String, expected: Color) {
-        val bounds = composeRule.onNodeWithText(value).fetchSemanticsNode().boundsInWindow
-        val drawn = (bounds.top.toInt() until bounds.bottom.toInt()).any { y ->
-            (bounds.left.toInt() until bounds.right.toInt()).any { x ->
-                bitmap.getPixel(x, y) == expected.toArgb()
-            }
-        }
-        assertTrue("value $value must be drawn in $expected", drawn)
+    // The colour the meters drew the part [matcher] names in, as the part's node carries it.
+    private fun assertColour(matcher: SemanticsMatcher, expected: Color) {
+        composeRule.onNode(matcher, useUnmergedTree = true).assert(SemanticsMatcher.expectValue(MeterColourKey, expected))
     }
 }

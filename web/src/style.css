@@ -489,7 +489,14 @@ button.link.notices-more { justify-self: end; padding: 0 var(--o-space-12); colo
 /* A row's conversation opens on the shared title row in the head's place: its back, crumbs and state are mono throughout,
    and its padding comes from the wide block with the head's. */
 .convo-head > .title-row { font: var(--o-type-small); }
-.convo-head .phone-ctx { display: none; }
+/* The head is a container, so its title row's context answers to the head's own width. The context is the
+   conversation's, so it sits in the title row before Find and More, a line's gap from Find; under breakpointHeadNarrow
+   its name drops to its tooltip. */
+.convo-head { container: head / inline-size; }
+.convo-head > .title-row .acts > .ctx { margin-right: var(--o-space-4); }
+@container head (width < 900px) {
+  .convo-head > .title-row .ctx .name { display: none; }
+}
 /* The epic card's status pill: its tone sets the text, the tint and the outline; idle is ink.3 on surface.raised. */
 .pill {
   display: inline-flex; flex: none; align-items: center; gap: var(--o-space-8); padding: var(--o-space-2) var(--o-space-8); border-radius: var(--o-radius-round);
@@ -972,6 +979,11 @@ section.page.leave { animation: move-leave var(--o-move-leave); }
 .pane-strip { display: flex; flex-wrap: wrap; align-items: center; gap: var(--o-space-4) var(--o-space-16); min-width: 0; font: var(--o-type-small); color: var(--o-ink-3); }
 .pane-strip-host { flex: none; font-weight: var(--o-font-weight-bold); color: var(--o-ink-2); }
 .pane-strip .other { color: var(--o-ink-4); }
+/* A conversation head's machine band: the strip as a full-width row of its own under the title row, on surface.side, the
+   inbox column's ground, one step deeper than the goal's well, with an edge under it. The host is marked with its icon. */
+.machine-band { min-height: var(--o-size-control-desk); padding: var(--o-space-4) var(--o-layout-page-pad-desk); border-bottom: var(--o-size-hairline) solid var(--o-line-soft); background: var(--o-surface-side); }
+.machine-band .pane-strip-host { display: inline-flex; align-items: center; gap: var(--o-space-4); }
+.machine-band .pane-strip-host .icon { color: var(--o-ink-4); }
 .meter { --hue: var(--o-series-1); display: inline-flex; align-items: center; gap: var(--o-space-8); flex: none; font: var(--o-type-small); white-space: nowrap; }
 .meter.series-2 { --hue: var(--o-series-2); }
 .meter.series-3 { --hue: var(--o-series-3); }
@@ -1038,11 +1050,12 @@ button.subj:hover { background: var(--o-surface-raised); }
   .convo-head .pane-strip .meter .value { order: 2; }
   .convo-head .pane-strip .meter .bar { order: 3; width: 100%; }
   /* As round 6's touch title row: the host follows the directory ("tidepool · on halyard"), the context sits bare in
-     the title row beside More, find is in More, and the strip holds only the meters (or the other host's words). */
+     the title row beside More, find is in More, and the band holds only the meters (or the other host's words). */
   .convo-head > .title-row .crumb.place[data-host]::after { content: " · on " attr(data-host); }
   .convo-head > .title-row .icon.find { display: none; }
-  .convo-head .phone-ctx { display: inline-flex; flex: none; align-items: center; }
-  .convo-head .pane-strip-host, .convo-head .pane-strip .ctx { display: none; }
+  .convo-head > .title-row .ctx .name, .convo-head > .title-row .ctx .used { display: none; }
+  .convo-head .machine-band { padding: var(--o-space-8) var(--o-layout-page-pad-phone); }
+  .convo-head .pane-strip-host { display: none; }
   .convo-head .pane-strip .other { grid-column: 1 / -1; }
   /* The worker session's title row reads as the conversation head's: the crumbs that lead to it share one line, each
      ellipsized, and the page's crumb takes the line under them, whole. */

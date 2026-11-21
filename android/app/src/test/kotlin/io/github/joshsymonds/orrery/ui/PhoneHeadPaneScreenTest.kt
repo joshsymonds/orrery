@@ -12,6 +12,7 @@ import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertTextEquals
+import androidx.compose.ui.test.hasAnyAncestor
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.onAllNodesWithTag
@@ -72,6 +73,8 @@ private const val COMPACT_BADGE_TAG = "compact-badge:example-repo/rota-export"
 private const val BAND_LINE_TAG = "band-line:example-repo/rota-export"
 private const val METERS_TAG = "head-meters"
 private const val OTHER_HOST_TAG = "head-other-host"
+private const val MACHINE_BAND_TAG = "machine-band"
+private const val MACHINE_HOST_TAG = "machine-host"
 private const val SYNTHETIC_GOAL = "synthetic goal text"
 private const val OTHER_HOST = "other-host"
 
@@ -376,6 +379,10 @@ class PhoneHeadPaneScreenTest {
 
             composeRule.awaitExactlyOne(hasTestTag(METERS_TAG))
             composeRule.onAllNodesWithTag(OTHER_HOST_TAG).assertCountEquals(0)
+            // The pane screen draws its meters in the shared machine band, led by the host's label.
+            composeRule.onNode(hasTestTag(MACHINE_HOST_TAG) and hasAnyAncestor(hasTestTag(MACHINE_BAND_TAG)))
+                .assertTextEquals(PANE_HOST)
+            composeRule.onNode(hasTestTag("meter:cpu") and hasAnyAncestor(hasTestTag(MACHINE_BAND_TAG))).assertIsDisplayed()
         }
     }
 }

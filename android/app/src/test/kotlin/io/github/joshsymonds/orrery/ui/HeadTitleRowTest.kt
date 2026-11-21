@@ -44,13 +44,11 @@ class HeadTitleRowTest {
     private fun setRow(
         context: ConversationContext? = null,
         note: String = "",
-        host: String = "halyard",
         title: String = "Tide table cache warm-up",
     ) {
         composeRule.setContent {
             HeadTitleRow(
                 dir = "tidepool",
-                host = host,
                 title = title,
                 context = context,
                 note = note,
@@ -64,10 +62,10 @@ class HeadTitleRowTest {
     }
 
     @Test
-    fun drawsDirWithHostAndTheTitle() {
+    fun drawsTheDirAloneAndTheTitleSinceTheMachineBandNamesTheHost() {
         setRow()
 
-        composeRule.onNodeWithTag("head-dir").assertTextEquals("tidepool · on halyard")
+        composeRule.onNodeWithTag("head-dir").assertTextEquals("tidepool")
         composeRule.onNodeWithTag("head-text").assertTextEquals("Tide table cache warm-up")
     }
 
@@ -78,7 +76,7 @@ class HeadTitleRowTest {
         val texts = composeRule.onAllNodes(hasAnyAncestor(hasTestTag("head-title")), useUnmergedTree = true)
             .fetchSemanticsNodes()
             .flatMap { node -> node.config.getOrElse(SemanticsProperties.Text) { emptyList() }.map { it.text } }
-        assertEquals(setOf("‹", "tidepool · on halyard", "Tide table cache warm-up", "⋯"), texts.toSet())
+        assertEquals(setOf("‹", "tidepool", "Tide table cache warm-up", "⋯"), texts.toSet())
     }
 
     @Test
@@ -120,13 +118,6 @@ class HeadTitleRowTest {
         assertEquals(ProjectNameStyle.fontSize, dir.fontSize)
         assertEquals(ProjectNameStyle.fontWeight, dir.fontWeight)
         assertSpanColours("head-dir", listOf(OrreryTokens.Role.place))
-    }
-
-    @Test
-    fun anUnknownHostDrawsTheDirAlone() {
-        setRow(host = "")
-
-        composeRule.onNodeWithTag("head-dir").assertTextEquals("tidepool")
     }
 
     @Test

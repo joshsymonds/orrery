@@ -197,6 +197,7 @@
   /* layout */
   --o-layout-breakpoint-phone: 760px;
   --o-layout-breakpoint-narrow: 1250px;
+  --o-layout-breakpoint-head-narrow: 900px;
   --o-layout-inbox-width: 340px;
   --o-layout-inbox-width-narrow: 316px;
   --o-layout-rail-width: 64px;
