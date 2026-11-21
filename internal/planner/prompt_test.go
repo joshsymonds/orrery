@@ -84,6 +84,17 @@ func syntheticTriggers() []store.EpicTrigger {
 	}
 }
 
+// triggersNamingT1 are syntheticTriggers and the trigger T1-approach, which names the open task T1: a change of
+// approach climbs a task onto rung 4 and leaves it open, so the turn is told of T1 in full.
+func triggersNamingT1() []store.EpicTrigger {
+	return append(syntheticTriggers(), store.EpicTrigger{
+		ID:    "T1-approach",
+		Cause: "task T1 needs a change of approach: the unit check failed",
+		State: "claimed",
+		Turn:  2,
+	})
+}
+
 // promptOf returns the prompt of turn of epic, and fails the test when it cannot be rendered.
 func promptOf(t *testing.T, epic store.EpicRow, turn int64, triggers []store.EpicTrigger) string {
 	t.Helper()
@@ -109,7 +120,7 @@ func inOrder(t *testing.T, got string, wants ...string) {
 
 func TestPromptOpensWithRoleThenEverySectionInOrder(t *testing.T) {
 	t.Parallel()
-	prompt := promptOf(t, syntheticEpic(), 2, syntheticTriggers())
+	prompt := promptOf(t, syntheticEpic(), 2, triggersNamingT1())
 	if !strings.HasPrefix(prompt, strings.TrimRight(role, "\n")) {
 		t.Fatalf("prompt does not open with the role text")
 	}
@@ -191,7 +202,7 @@ func TestPromptRendersEmptyContributesWhenTaskContributesNothing(t *testing.T) {
 	t.Parallel()
 	epic := syntheticEpic()
 	epic.Tasks[0].Contributes = nil
-	prompt := promptOf(t, epic, 2, syntheticTriggers())
+	prompt := promptOf(t, epic, 2, triggersNamingT1())
 	inOrder(t, prompt,
 		"  requirements: R1\n  contributes: \n  test_changes: \n  gate: check\n",
 	)
@@ -202,7 +213,7 @@ func TestPromptRendersTestChangesAndTheGuardsLastRefusal(t *testing.T) {
 	epic := syntheticEpic()
 	epic.Tasks[0].TestChanges = []string{"store_test.go"}
 	epic.Tasks[0].Build.Guard = "store_test.go: TestOld: test present at the base removed"
-	prompt := promptOf(t, epic, 2, syntheticTriggers())
+	prompt := promptOf(t, epic, 2, triggersNamingT1())
 	inOrder(t, prompt,
 		"  contributes: ",
 		"  test_changes: store_test.go\n  gate: check\n",
@@ -217,7 +228,7 @@ func TestPromptRendersTheGateChangesATaskDeclared(t *testing.T) {
 		{Path: "internal/enginehost/record.go", Reason: "check_changed fails on a -race report"},
 		{Path: "web/src/app.test.tsx", Reason: "the History read races the assertion"},
 	}
-	prompt := promptOf(t, epic, 2, syntheticTriggers())
+	prompt := promptOf(t, epic, 2, triggersNamingT1())
 	inOrder(t, prompt,
 		"  evidence: ",
 		"  gate-needed changes declared: internal/enginehost/record.go (check_changed fails on a -race report); "+

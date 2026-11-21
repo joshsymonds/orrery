@@ -27,7 +27,10 @@ func TestFailedTaskContextShowsTheFailureReasonUnderItsLine(t *testing.T) {
 	t.Parallel()
 	failure := "checks_failed: owned: changed paths outside owned: internal/other/x.go, internal/other/y.go"
 	epic := failedTaskEpic(failure, nil)
-	prompt := promptOf(t, epic, 2, syntheticTriggers())
+	triggers := append(syntheticTriggers(), store.EpicTrigger{
+		ID: "T2-failed", Cause: "task T2 failed: " + failure, State: "claimed", Turn: 2,
+	})
+	prompt := promptOf(t, epic, 2, triggers)
 	inOrder(t, prompt,
 		"- T2 [failed] a failed task\n",
 		"  evidence: ",
