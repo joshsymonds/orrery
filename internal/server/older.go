@@ -147,6 +147,10 @@ func (s panesServer) Older(
 	case err != nil:
 		return nil, connectError(transcriptError(err))
 	}
+	sends := s.echoSends(ctx, req.Msg.GetPane())
+	if markErr := markPaneEchoes(page.Items, page.Oldest, sends, earlierIn(path)); markErr != nil {
+		return nil, connectError(markErr)
+	}
 	resp := &v1.OlderResponse{Items: conversationItems(page.Items), More: page.More}
 	resp.Oldest = page.Oldest
 	return connect.NewResponse(resp), nil
