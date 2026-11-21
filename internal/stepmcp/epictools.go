@@ -48,7 +48,7 @@ type epicGetArgs struct {
 type epicAnswerArgs struct {
 	EpicID   string `json:"epicId"`
 	ID       string `json:"id"`
-	Text     string `json:"text,omitempty"     jsonschema:"the owner's words: required with choice other, optional with a declared choice"`
+	Text     string `json:"text,omitempty"     jsonschema:"the caller's words: required with choice other, optional with a declared choice"`
 	Question string `json:"question,omitempty" jsonschema:"the Q<n> the answer names; omit for a note"`
 	Choice   string `json:"choice,omitempty"   jsonschema:"the choice the answer gives the question: a declared choice's id, or other; omit for a note"`
 }
@@ -63,11 +63,11 @@ type epicRetryArgs struct {
 	Node string `json:"node,omitempty" jsonschema:"the workflow node id whose parked run reruns under its next attempt; omit to end the epic's park"`
 }
 
-// epicKickArgs is the arguments of epic_kick, described for its input schema. Text is the owner's words, which the
+// epicKickArgs is the arguments of epic_kick, described for its input schema. Text is the caller's words, which the
 // planner reads at the epic's next plan run.
 type epicKickArgs struct {
 	ID   string `json:"id"`
-	Text string `json:"text" jsonschema:"the owner's words, which the planner reads at the epic's next plan run"`
+	Text string `json:"text" jsonschema:"the caller's words, which the planner reads at the epic's next plan run"`
 }
 
 // epicReleaseArgs is the arguments of epic_release, described for its input schema. UndoNone names the 1-based positions
@@ -94,9 +94,17 @@ type epicAmendArgs struct {
 	Reason      string          `json:"reason,omitempty" jsonschema:"why the item is amended, recorded with the amendment"`
 }
 
+// epicEscalateArgs is the arguments of epic_escalate, described for its input schema as epicCreateArgs is. Question is
+// the Q<n> to escalate, and Reason says why no one before the owner can answer it.
+type epicEscalateArgs struct {
+	ID       string `json:"id"       jsonschema:"the id of the stored epic"`
+	Question string `json:"question" jsonschema:"the Q<n> of the epic's open question to escalate, such as Q2"`
+	Reason   string `json:"reason"   jsonschema:"why no one before the owner can answer the question"`
+}
+
 // epicInputs holds the input schema of each epic tool, by the arguments it takes.
 type epicInputs struct {
-	create, id, get, list, answer, follow, retry, kick, release, close, amend json.RawMessage
+	create, id, get, list, answer, follow, retry, kick, release, close, amend, escalate json.RawMessage
 }
 
 // epicToolInputs returns the input schemas of the epic tools.
@@ -134,6 +142,9 @@ func epicToolInputs() (epicInputs, error) {
 		return epicInputs{}, err
 	}
 	if in.amend, err = argumentSchema[epicAmendArgs](nil); err != nil {
+		return epicInputs{}, err
+	}
+	if in.escalate, err = argumentSchema[epicEscalateArgs](nil); err != nil {
 		return epicInputs{}, err
 	}
 	return in, nil
@@ -250,7 +261,7 @@ func epicControlTools(epics enginev1connect.EpicsClient, in epicInputs) []Tool {
 		},
 		{
 			Name: "epic_kick",
-			Description: "Kick an epic by id: record text as the owner's decision and wake the epic's planner with it " +
+			Description: "Kick an epic by id: record text as a decision made by the caller and wake the epic's planner with it " +
 				"at the epic's next plan run. Refused for a paused epic, for a parked epic (epic_retry ends the park " +
 				"first), and for an epic in an ended phase, which takes no kick. Returns a short acknowledgement, " +
 				"not the stored epic: the epic id, its phase and one line naming what changed.",
@@ -260,7 +271,7 @@ func epicControlTools(epics enginev1connect.EpicsClient, in epicInputs) []Tool {
 		{
 			Name: "epic_release",
 			Description: "Release an epic by id. A stopped release resumes at its first unfinished step, and undoNone names the 1-based positions of undo-none release steps to run again. " +
-				"An epic that ended with gaps is released on the owner's word, logged as the owner's decision, so undoNone must be empty for it. " +
+				"An epic that ended with gaps is released on the caller's word, logged as a decision made by the caller, so undoNone must be empty for it. " +
 				"Returns a short acknowledgement, not the stored epic: the epic id, its phase and one line naming " +
 				"what changed. Refused unless the release is stopped or the epic ended with gaps, and each position is undo-none.",
 			InputSchema: in.release,
@@ -286,6 +297,16 @@ func epicControlTools(epics enginev1connect.EpicsClient, in epicInputs) []Tool {
 				"id, its phase and one line naming what changed.",
 			InputSchema: in.amend,
 			Handler:     epicAmendHandler(epics),
+		},
+		{
+			Name: "epic_escalate",
+			Description: "Escalate an open question of an epic by id to the owner, with reason, so the owner is " +
+				"notified. Only the conversation that steers the epic, or the owner, may escalate; a step of the " +
+				"epic is refused, as are an answered, replaced or already escalated question and an empty reason. " +
+				"Returns a short acknowledgement, not the stored epic: the epic id, its phase and one line naming " +
+				"what changed.",
+			InputSchema: in.escalate,
+			Handler:     epicEscalateHandler(epics),
 		},
 		{
 			Name: "epic_steer",
@@ -519,6 +540,23 @@ func epicAmendHandler(epics enginev1connect.EpicsClient) ToolHandler {
 		}
 		change := amendChange(amended.Msg.GetAmendment())
 		return epicAck(amended.Msg.GetEpic(), req.GetId(), change), nil
+	}
+}
+
+// epicEscalateHandler answers epic_escalate. The escalation's reply is not read: the change names the question and the
+// reason the caller gave, and the phase is read after the escalation, as epic_answer reads it.
+func epicEscalateHandler(epics enginev1connect.EpicsClient) ToolHandler {
+	return func(ctx context.Context, call Call) (ToolResult, error) {
+		var req v1.EscalateEpicRequest
+		if err := decodeProto(call.Arguments, &req); err != nil {
+			return ToolResult{}, err
+		}
+		if _, err := epics.EscalateEpic(ctx, connect.NewRequest(&req)); err != nil {
+			return toolFailure(err), nil
+		}
+		status := answerPhase(epics.GetEpic(ctx, connect.NewRequest(&v1.GetEpicRequest{Id: req.GetId()})))
+		change := fmt.Sprintf("question %s escalated to the owner: %s", req.GetQuestion(), req.GetReason())
+		return ackResult(ackText(ackHead(req.GetId(), status), change)), nil
 	}
 }
 

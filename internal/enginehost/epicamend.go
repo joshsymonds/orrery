@@ -16,9 +16,10 @@ import (
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
-// AmendEvidence stores the owner's amendment of the evidence item of the Requirement its request names, checking, and
-// returns the stored amendment and the epic read back. An empty id or requirement, a missing item, and an item
-// evidence.Check refuses are InvalidArgument, the last with one `item.<field>: <reason>` line per refusal joined with `; `.
+// AmendEvidence stores the caller's amendment of the evidence item of the Requirement its request names, checking, and
+// returns the stored amendment and the epic read back. Its amender is the maker controlMaker gives the call. An empty id or
+// requirement, a missing item, and an item evidence.Check refuses are InvalidArgument, the last with one
+// `item.<field>: <reason>` line per refusal joined with `; `.
 // An unknown epic is NotFound. A call from a step of the epic, the planner's turn included, is FailedPrecondition and
 // stores nothing (see ownerCaller): the planner amends through its amend_evidence action, which counts toward its park's
 // bound and may not change the conclusion. An amendment the store refuses is FailedPrecondition with its text (see

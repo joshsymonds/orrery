@@ -290,7 +290,7 @@
         },
         "text": {
           "type": "string",
-          "description": "the owner's words: required with choice other, optional with a declared choice"
+          "description": "the caller's words: required with choice other, optional with a declared choice"
         },
         "question": {
           "type": "string",
@@ -388,7 +388,7 @@
   },
   {
     "name": "epic_kick",
-    "description": "Kick an epic by id: record text as the owner's decision and wake the epic's planner with it at the epic's next plan run. Refused for a paused epic, for a parked epic (epic_retry ends the park first), and for an epic in an ended phase, which takes no kick. Returns a short acknowledgement, not the stored epic: the epic id, its phase and one line naming what changed.",
+    "description": "Kick an epic by id: record text as a decision made by the caller and wake the epic's planner with it at the epic's next plan run. Refused for a paused epic, for a parked epic (epic_retry ends the park first), and for an epic in an ended phase, which takes no kick. Returns a short acknowledgement, not the stored epic: the epic id, its phase and one line naming what changed.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -397,7 +397,7 @@
         },
         "text": {
           "type": "string",
-          "description": "the owner's words, which the planner reads at the epic's next plan run"
+          "description": "the caller's words, which the planner reads at the epic's next plan run"
         }
       },
       "required": [
@@ -409,7 +409,7 @@
   },
   {
     "name": "epic_release",
-    "description": "Release an epic by id. A stopped release resumes at its first unfinished step, and undoNone names the 1-based positions of undo-none release steps to run again. An epic that ended with gaps is released on the owner's word, logged as the owner's decision, so undoNone must be empty for it. Returns a short acknowledgement, not the stored epic: the epic id, its phase and one line naming what changed. Refused unless the release is stopped or the epic ended with gaps, and each position is undo-none.",
+    "description": "Release an epic by id. A stopped release resumes at its first unfinished step, and undoNone names the 1-based positions of undo-none release steps to run again. An epic that ended with gaps is released on the caller's word, logged as a decision made by the caller, so undoNone must be empty for it. Returns a short acknowledgement, not the stored epic: the epic id, its phase and one line naming what changed. Refused unless the release is stopped or the epic ended with gaps, and each position is undo-none.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -481,6 +481,33 @@
         "id",
         "requirement",
         "item"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "epic_escalate",
+    "description": "Escalate an open question of an epic by id to the owner, with reason, so the owner is notified. Only the conversation that steers the epic, or the owner, may escalate; a step of the epic is refused, as are an answered, replaced or already escalated question and an empty reason. Returns a short acknowledgement, not the stored epic: the epic id, its phase and one line naming what changed.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "the id of the stored epic"
+        },
+        "question": {
+          "type": "string",
+          "description": "the Q<n> of the epic's open question to escalate, such as Q2"
+        },
+        "reason": {
+          "type": "string",
+          "description": "why no one before the owner can answer the question"
+        }
+      },
+      "required": [
+        "id",
+        "question",
+        "reason"
       ],
       "additionalProperties": false
     }

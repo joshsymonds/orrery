@@ -4600,7 +4600,7 @@ test("Just happened shows the epic's history, read from its first entry", (t) =>
       { entries: [{ cursor: "c1", decision: { id: "d1", text: "use postgres" } }], next: "" },
     ]);
     await press("j");
-    await until(t.signal, () => historyText(container).includes("decision · use postgres"), "the history entry");
+    await until(t.signal, () => historyText(container).includes("decision by unknown · use postgres"), "the history entry");
     const [call] = fake.callsTo(historyPath);
     assert.equal(call.body.id, widgetsFirst);
     assert.equal(call.body.after, undefined, "the first page reads from the start");

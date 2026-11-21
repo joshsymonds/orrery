@@ -7,12 +7,14 @@ import (
 	"github.com/joshsymonds/orrery/internal/store/sqlcgen"
 )
 
-// ToldMark names the turn or tell of an epic that a write of a notice row marks told, in the same transaction. Seq is
-// the turn's seq, or the tell's seq when Tell is set.
+// ToldMark names the turn, tell or escalation of an epic that a write of a notice row marks told, in the same
+// transaction. Seq is the turn's seq, the tell's seq when Tell is set, or the question's seq when Escalation is set.
+// Tell and Escalation are not both set.
 type ToldMark struct {
-	Epic string
-	Seq  int64
-	Tell bool
+	Epic       string
+	Seq        int64
+	Tell       bool
+	Escalation bool
 }
 
 // NoticeRow is one pending notice. Exactly one of Pane, Session and Epic names what it is about. Limit names the
@@ -60,9 +62,22 @@ func (s *Store) PutNotice(ctx context.Context, row NoticeRow) error {
 	})
 }
 
-// markToldIn sets the told marker of the turn or tell told names, inside the write queries belongs to. A turn or tell
-// that does not exist is an error matching ErrNoTurn or ErrNoTell, which fails that write.
+// markToldIn sets the told marker of the turn, tell or escalation told names, inside the write queries belongs to. A
+// turn, tell or question that does not exist is an error matching ErrNoTurn, ErrNoTell or ErrNoQuestion, which fails
+// that write.
 func markToldIn(ctx context.Context, queries *sqlcgen.Queries, told ToldMark) error {
+	if told.Escalation {
+		rows, err := queries.SetEpicQuestionEscalationTold(ctx, sqlcgen.SetEpicQuestionEscalationToldParams{
+			Epic: told.Epic, Seq: told.Seq,
+		})
+		if err != nil {
+			return fmt.Errorf("mark escalation of question %d of epic %s told: %w", told.Seq, told.Epic, err)
+		}
+		if rows == 0 {
+			return fmt.Errorf("question %d of epic %s: %w", told.Seq, told.Epic, ErrNoQuestion)
+		}
+		return nil
+	}
 	if told.Tell {
 		rows, err := queries.MarkEpicTellTold(ctx, sqlcgen.MarkEpicTellToldParams{Epic: told.Epic, Seq: told.Seq})
 		if err != nil {

@@ -175,7 +175,7 @@ func answerGapsQuestion(
 	case ChoiceRelease:
 		return releaseEndedWithGaps(ctx, queries, epic, nil, maker, at)
 	case ChoiceCorrect:
-		return correctGaps(ctx, queries, epic, id, text, at)
+		return correctGaps(ctx, queries, epic, id, text, maker, at)
 	case ChoiceClose:
 		_, err := closeEpicIn(ctx, queries, epic, kindAbandoned, "", CloserOwner, at)
 		return err
@@ -184,11 +184,18 @@ func answerGapsQuestion(
 	}
 }
 
-// correctGaps gives text, the owner's correction recorded as decision id, to the planner in the caller's write: a
-// pending trigger gapsTriggerPrefix+id whose cause holds the text is added, and epic moves to correcting.
-func correctGaps(ctx context.Context, queries *sqlcgen.Queries, epic, id, text string, at time.Time) error {
+// correctGaps gives text, the correction recorded as decision id by maker, to the planner in the caller's write: a
+// pending trigger gapsTriggerPrefix+id whose cause holds the text is added, and epic moves to correcting. An owner's
+// cause is gapsCausePrefix followed by the text; any other maker's is `correction of the gaps by <maker>: ` and the text.
+func correctGaps(
+	ctx context.Context, queries *sqlcgen.Queries, epic, id, text string, maker Maker, at time.Time,
+) error {
+	cause := gapsCausePrefix + text
+	if maker.By != MakerOwner {
+		cause = "correction of the gaps by " + maker.Phrase() + ": " + text
+	}
 	if err := queries.InsertEpicTrigger(ctx, sqlcgen.InsertEpicTriggerParams{
-		Epic: epic, ID: gapsTriggerPrefix + id, Cause: gapsCausePrefix + text, State: triggerPending, Turn: 0,
+		Epic: epic, ID: gapsTriggerPrefix + id, Cause: cause, State: triggerPending, Turn: 0,
 		Created: at.Unix(),
 	}); err != nil {
 		return fmt.Errorf("insert trigger of correction %s on epic %s: %w", id, epic, err)

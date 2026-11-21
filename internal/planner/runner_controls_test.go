@@ -242,7 +242,7 @@ func TestRunnerAnswerOtherWithWordsToParkQuestionHoldsWordsInNextPrompt(t *testi
 		"a planner step to start after the answer",
 		func() bool { return len(steps.started()) == 1 },
 	)
-	want := "- answer-1 (answers Q1 with other): " + words
+	want := "- answer-1 (answers Q1 with other, by unknown): " + words
 	if prompt := steps.started()[0].Prompt; !strings.Contains(prompt, want) {
 		t.Errorf("prompt of turn 2 lacks %q; prompt is:\n%s", want, prompt)
 	}

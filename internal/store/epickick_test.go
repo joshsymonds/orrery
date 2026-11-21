@@ -28,7 +28,7 @@ func TestEpicKickStoresTheDecisionAndOnePendingTriggerCarryingTheText(t *testing
 	s := openEpicStore(t)
 	createEpic(t, s, fullEpic(claimEpic))
 
-	if err := s.KickEpic(ctx, claimEpic, "Try the sqlite plan", Maker{}, claimedAt()); err != nil {
+	if err := s.KickEpic(ctx, claimEpic, "Try the sqlite plan", Maker{By: MakerOwner}, claimedAt()); err != nil {
 		t.Fatalf("KickEpic: %v", err)
 	}
 	epic, err := s.Epic(ctx, claimEpic)

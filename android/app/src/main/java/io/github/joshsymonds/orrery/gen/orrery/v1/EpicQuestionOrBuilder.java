@@ -134,4 +134,74 @@ public interface EpicQuestionOrBuilder extends
    * @return The recommendation.
    */
   io.github.joshsymonds.orrery.gen.orrery.v1.EpicRecommendation getRecommendation();
+
+  /**
+   * <pre>
+   * When the question was escalated, in unix seconds; 0 while it is not escalated.
+   * </pre>
+   *
+   * <code>int64 escalated = 8 [json_name = "escalated"];</code>
+   * @return The escalated.
+   */
+  long getEscalated();
+
+  /**
+   * <pre>
+   * Why the question was escalated. Empty while it is not escalated.
+   * </pre>
+   *
+   * <code>string escalation_reason = 9 [json_name = "escalationReason"];</code>
+   * @return The escalationReason.
+   */
+  java.lang.String getEscalationReason();
+  /**
+   * <pre>
+   * Why the question was escalated. Empty while it is not escalated.
+   * </pre>
+   *
+   * <code>string escalation_reason = 9 [json_name = "escalationReason"];</code>
+   * @return The bytes for escalationReason.
+   */
+  com.google.protobuf.ByteString
+      getEscalationReasonBytes();
+
+  /**
+   * <pre>
+   * Who escalated the question: owner, conversation or orreryd. Empty while it is not escalated.
+   * </pre>
+   *
+   * <code>string escalation_by = 10 [json_name = "escalationBy"];</code>
+   * @return The escalationBy.
+   */
+  java.lang.String getEscalationBy();
+  /**
+   * <pre>
+   * Who escalated the question: owner, conversation or orreryd. Empty while it is not escalated.
+   * </pre>
+   *
+   * <code>string escalation_by = 10 [json_name = "escalationBy"];</code>
+   * @return The bytes for escalationBy.
+   */
+  com.google.protobuf.ByteString
+      getEscalationByBytes();
+
+  /**
+   * <pre>
+   * The session that escalated the question when a conversation did. Empty otherwise.
+   * </pre>
+   *
+   * <code>string escalation_session = 11 [json_name = "escalationSession"];</code>
+   * @return The escalationSession.
+   */
+  java.lang.String getEscalationSession();
+  /**
+   * <pre>
+   * The session that escalated the question when a conversation did. Empty otherwise.
+   * </pre>
+   *
+   * <code>string escalation_session = 11 [json_name = "escalationSession"];</code>
+   * @return The bytes for escalationSession.
+   */
+  com.google.protobuf.ByteString
+      getEscalationSessionBytes();
 }

@@ -75,6 +75,9 @@ type EpicCommands interface {
 		maker store.Maker,
 		at time.Time,
 	) (store.EvidenceAmendment, error)
+	EscalateQuestion(
+		ctx context.Context, epic string, question int64, reason string, maker store.Maker, at time.Time,
+	) (store.EpicQuestion, error)
 	SeeEpic(ctx context.Context, epic string, at time.Time) error
 	ArchiveRow(ctx context.Context, kind, id string, at time.Time) error
 	UnarchiveRow(ctx context.Context, kind, id string, at time.Time) error
@@ -1681,19 +1684,24 @@ func epicGateMessage(gate store.EpicGate) *v1.EpicGate {
 }
 
 // questionMessage returns the EpicQuestion message of question: its id Q<seq>, its label, its declared choices, its
-// recommendation, which is unset when it recommends none, the questions it replaces and replaced, and its answer.
+// recommendation, which is unset when it recommends none, the questions it replaces and replaced, its answer, and its
+// escalation, which is zero and empty while it is not escalated.
 func questionMessage(question store.EpicQuestion) *v1.EpicQuestion {
 	return &v1.EpicQuestion{
-		Id:             questionID(question.Seq),
-		Turn:           question.Turn,
-		Text:           question.Text,
-		State:          question.State,
-		Label:          question.Label,
-		Choices:        epicMap(question.Choices, choiceMessage),
-		Recommendation: recommendationMessage(question),
-		Replaces:       questionRef(question.Replaces),
-		ReplacedBy:     questionRef(question.ReplacedBy),
-		Choice:         question.Choice,
+		Id:                questionID(question.Seq),
+		Turn:              question.Turn,
+		Text:              question.Text,
+		State:             question.State,
+		Label:             question.Label,
+		Choices:           epicMap(question.Choices, choiceMessage),
+		Recommendation:    recommendationMessage(question),
+		Replaces:          questionRef(question.Replaces),
+		ReplacedBy:        questionRef(question.ReplacedBy),
+		Choice:            question.Choice,
+		Escalated:         unixOrZero(question.Escalated),
+		EscalationReason:  question.EscalationReason,
+		EscalationBy:      question.EscalationMaker.By,
+		EscalationSession: question.EscalationMaker.Session,
 	}
 }
 

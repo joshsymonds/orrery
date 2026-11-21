@@ -33,6 +33,7 @@ type fakeEpics struct {
 	stops        []*v1.StopEpicRequest
 	retries      []*v1.RetryEpicRequest
 	kicks        []*v1.KickEpicRequest
+	escalations  []*v1.EscalateEpicRequest
 	releases     []*v1.ReleaseEpicRequest
 	closes       []*v1.CloseEpicRequest
 	amends       []*v1.AmendEvidenceRequest
@@ -191,6 +192,21 @@ func (f *fakeEpics) AmendEvidence(
 	return connect.NewResponse(f.amendReply), nil
 }
 
+func (f *fakeEpics) EscalateEpic(
+	_ context.Context,
+	req *connect.Request[v1.EscalateEpicRequest],
+) (*connect.Response[v1.EscalateEpicResponse], error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.escalations = append(f.escalations, req.Msg)
+	if f.err != nil {
+		return nil, f.err
+	}
+	return connect.NewResponse(&v1.EscalateEpicResponse{
+		Question: &v1.EpicQuestion{Id: req.Msg.GetQuestion()},
+	}), nil
+}
+
 func (f *fakeEpics) RetryEpic(
 	_ context.Context,
 	req *connect.Request[v1.RetryEpicRequest],
@@ -266,45 +282,47 @@ func (f *fakeEpics) UnarchiveRow(
 
 // epicCalls is a copy of the requests the fake received.
 type epicCalls struct {
-	creates  []*v1.CreateEpicRequest
-	gets     []*v1.GetEpicRequest
-	lists    []*v1.ListEpicsRequest
-	answers  []*v1.AnswerEpicRequest
-	pauses   []*v1.PauseEpicRequest
-	moves    []*v1.MoveEpicRequest
-	resumes  []*v1.ResumeEpicRequest
-	stops    []*v1.StopEpicRequest
-	retries  []*v1.RetryEpicRequest
-	kicks    []*v1.KickEpicRequest
-	releases []*v1.ReleaseEpicRequest
-	closes   []*v1.CloseEpicRequest
-	follows  []*v1.FollowEpicsRequest
+	creates     []*v1.CreateEpicRequest
+	gets        []*v1.GetEpicRequest
+	lists       []*v1.ListEpicsRequest
+	answers     []*v1.AnswerEpicRequest
+	pauses      []*v1.PauseEpicRequest
+	moves       []*v1.MoveEpicRequest
+	resumes     []*v1.ResumeEpicRequest
+	stops       []*v1.StopEpicRequest
+	retries     []*v1.RetryEpicRequest
+	kicks       []*v1.KickEpicRequest
+	escalations []*v1.EscalateEpicRequest
+	releases    []*v1.ReleaseEpicRequest
+	closes      []*v1.CloseEpicRequest
+	follows     []*v1.FollowEpicsRequest
 }
 
 func (f *fakeEpics) calls() epicCalls {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return epicCalls{
-		creates:  slices.Clone(f.creates),
-		gets:     slices.Clone(f.gets),
-		lists:    slices.Clone(f.lists),
-		answers:  slices.Clone(f.answers),
-		pauses:   slices.Clone(f.pauses),
-		moves:    slices.Clone(f.moves),
-		resumes:  slices.Clone(f.resumes),
-		stops:    slices.Clone(f.stops),
-		retries:  slices.Clone(f.retries),
-		kicks:    slices.Clone(f.kicks),
-		releases: slices.Clone(f.releases),
-		closes:   slices.Clone(f.closes),
-		follows:  slices.Clone(f.follows),
+		creates:     slices.Clone(f.creates),
+		gets:        slices.Clone(f.gets),
+		lists:       slices.Clone(f.lists),
+		answers:     slices.Clone(f.answers),
+		pauses:      slices.Clone(f.pauses),
+		moves:       slices.Clone(f.moves),
+		resumes:     slices.Clone(f.resumes),
+		stops:       slices.Clone(f.stops),
+		retries:     slices.Clone(f.retries),
+		kicks:       slices.Clone(f.kicks),
+		escalations: slices.Clone(f.escalations),
+		releases:    slices.Clone(f.releases),
+		closes:      slices.Clone(f.closes),
+		follows:     slices.Clone(f.follows),
 	}
 }
 
 func (c epicCalls) total() int {
 	return len(c.creates) + len(c.gets) + len(c.lists) + len(c.answers) +
 		len(c.pauses) + len(c.moves) + len(c.resumes) + len(c.stops) + len(c.retries) + len(c.kicks) + len(c.releases) +
-		len(c.follows) + len(c.closes)
+		len(c.follows) + len(c.closes) + len(c.escalations)
 }
 
 // fullContract is an epic contract with every field set, each to a value distinct from the others.

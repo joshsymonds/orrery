@@ -139,7 +139,7 @@ class EpicHappeningsTest {
 
         composeRule.onNodeWithText("JUST HAPPENED").assertIsDisplayed()
         composeRule.onNodeWithTag("happened:0").assertTextEquals("22:17", "build one is in")
-        composeRule.onNodeWithTag("happened:1").assertTextEquals("22:16", "decision · use the table")
+        composeRule.onNodeWithTag("happened:1").assertTextEquals("22:16", "decision by unknown · use the table")
         composeRule.onNodeWithTag("happened:2").assertTextEquals("22:15", "b1 · done")
         assertTrue(composeRule.onAllNodesWithTag("happened:3").fetchSemanticsNodes().isEmpty())
         composeRule.onNodeWithTag("happened-more").assertTextEquals("+2 earlier")
@@ -230,7 +230,7 @@ class EpicHappeningsTest {
         composeRule.onNodeWithTag("happened-more").performClick()
 
         composeRule.onNodeWithTag("happened:0").assertTextEquals("22:22", "build one is in")
-        composeRule.onNodeWithTag("happened:1").assertTextEquals("22:21", "decision · use the table")
+        composeRule.onNodeWithTag("happened:1").assertTextEquals("22:21", "decision by unknown · use the table")
         composeRule.onNodeWithTag("happened:2").assertTextEquals("22:20", "R2 green run · failed")
         composeRule.onNodeWithTag("happened:3").assertTextEquals("22:19", "R1 green run · passed")
         composeRule.onNodeWithTag("happened:4").assertTextEquals("22:18", "R1 red run · running")

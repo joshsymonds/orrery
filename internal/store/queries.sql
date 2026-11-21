@@ -880,6 +880,11 @@ UPDATE epic_node_runs SET state = 'running', attempt = attempt + 1, outcome = ''
     refs = '', refs_checked = 0, result = '', ended = 0
 WHERE epic = ? AND path = ? AND kind <> 'loop' AND state = 'parked';
 
+-- name: RebuildEpicTaskRun :execrows
+UPDATE epic_node_runs SET state = 'running', attempt = attempt + 1, outcome = '', output = '', revision = '',
+    refs = '', refs_checked = 0, result = '', ended = 0
+WHERE epic = ? AND path = ? AND attempt = ? AND kind = 'build' AND state = 'ended';
+
 -- name: NextEpicNodeRunAttempt :execrows
 UPDATE epic_node_runs SET attempt = attempt + 1, outcome = '', output = '', revision = '', refs = '', refs_checked = 0,
     result = '', ended = 0
@@ -1239,6 +1244,13 @@ UPDATE epic_questions SET state = 'answered', choice = ? WHERE epic = ? AND seq 
 
 -- name: SetEpicQuestionReplaced :execrows
 UPDATE epic_questions SET state = 'replaced', replaced_by = ? WHERE epic = ? AND seq = ? AND state = 'open';
+
+-- name: EscalateEpicQuestion :execrows
+UPDATE epic_questions SET escalated = ?, escalation_reason = ?, escalation_maker = ?, escalation_session = ?
+WHERE epic = ? AND seq = ? AND state = 'open' AND escalated = 0;
+
+-- name: SetEpicQuestionEscalationTold :execrows
+UPDATE epic_questions SET escalation_told = 1 WHERE epic = ? AND seq = ?;
 
 -- name: ListOpenEpicParkQuestions :many
 SELECT * FROM epic_questions WHERE epic = ? AND state = 'open' AND turn = 0 AND label = 'park' ORDER BY seq;

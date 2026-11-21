@@ -265,6 +265,7 @@ func TestMCPServesStepToolsOverDaemon(t *testing.T) {
 		"epic_answer",
 		"epic_close",
 		"epic_create",
+		"epic_escalate",
 		"epic_follow",
 		"epic_get",
 		"epic_kick",

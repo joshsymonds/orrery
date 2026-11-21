@@ -55,7 +55,7 @@ test("Just happened shows the newest three, and +n earlier opens the rest in pla
     assert.deepEqual(textsOf(container, "section.happen.just .at"), [clock(500n), clock(400n), clock(300n)]);
     assert.deepEqual(textsOf(container, "section.happen.just .what"), [
       "build one is in",
-      "decision · use the table",
+      "decision by unknown · use the table",
       "b1 · done",
     ]);
     assert.equal(textOf(container, "section.happen.just button.more"), "+2 earlier");
@@ -111,7 +111,7 @@ test("each kind of entry reads its own text, and a history of three or fewer has
     });
     assert.deepEqual(textsOf(container, "section.happen.just .what"), [
       "build one is in",
-      "decision · use the table",
+      "decision by unknown · use the table",
       "R2 green run · failed",
       "R1 green run · passed",
       "R1 red run · running",

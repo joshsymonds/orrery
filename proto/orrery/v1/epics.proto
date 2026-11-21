@@ -211,6 +211,18 @@ message EpicQuestion {
 
   // The choice the question recommends, with why and how sure the planner is. Unset when it recommends none.
   EpicRecommendation recommendation = 7;
+
+  // When the question was escalated, in unix seconds; 0 while it is not escalated.
+  int64 escalated = 8;
+
+  // Why the question was escalated. Empty while it is not escalated.
+  string escalation_reason = 9;
+
+  // Who escalated the question: owner, conversation or orreryd. Empty while it is not escalated.
+  string escalation_by = 10;
+
+  // The session that escalated the question when a conversation did. Empty otherwise.
+  string escalation_session = 11;
 }
 
 // EpicQuestionChoice is one choice a planner question declares.

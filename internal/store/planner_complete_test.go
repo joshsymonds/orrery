@@ -119,7 +119,7 @@ func TestCompleteTurnStoresEveryRowAndConsumesItsTriggers(t *testing.T) {
 		},
 		"epic_questions": {
 			{id, int64(1), int64(1), "Keep the old tasks?", "open", "keep-old-tasks", keepChoicesJSON, "keep",
-				"The open tasks match the contract.", "high", int64(0), int64(0), ""},
+				"The open tasks match the contract.", "high", int64(0), int64(0), "", int64(0), "", "", "", int64(0)},
 		},
 		"epic_turns": {
 			{id, int64(1), "", "succeeded", "", int64(len(seededDecisions())), "Store, then read", "work",
@@ -212,9 +212,9 @@ func TestSecondCompleteTurnContinuesTaskAndQuestionSeqs(t *testing.T) {
 		},
 		"epic_questions": {
 			{id, int64(1), int64(1), "Keep the old tasks?", "open", "keep-old-tasks", keepChoicesJSON, "keep",
-				"The open tasks match the contract.", "high", int64(0), int64(0), ""},
+				"The open tasks match the contract.", "high", int64(0), int64(0), "", int64(0), "", "", "", int64(0)},
 			{id, int64(2), int64(2), "Is the second turn right?", "open", "is-second-turn-right", syntheticChoicesJSON,
-				"first", "Synthetic reason.", "medium", int64(0), int64(0), ""},
+				"first", "Synthetic reason.", "medium", int64(0), int64(0), "", int64(0), "", "", "", int64(0)},
 		},
 		"epic_turns": {
 			{id, int64(1), "", "succeeded", "", int64(len(seededDecisions())), "Store, then read", "work",

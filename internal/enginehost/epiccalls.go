@@ -105,6 +105,8 @@ func epicNamedBy(msg any) string {
 		return req.GetId()
 	case *v1.AmendEvidenceRequest:
 		return req.GetId()
+	case *v1.EscalateEpicRequest:
+		return req.GetId()
 	}
 	return ""
 }

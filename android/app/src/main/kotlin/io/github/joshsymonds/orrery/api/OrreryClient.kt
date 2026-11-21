@@ -653,8 +653,20 @@ data class EpicTurnRow(
  */
 data class EpicTriggerRow(val id: String, val cause: String, val state: String, val turn: Long, val created: Long)
 
-/** A decision recorded on an epic. [question] is the Q<n> it answers, empty for a note. */
-data class EpicDecisionRow(val seq: Long, val id: String, val text: String, val time: Long, val question: String)
+/**
+ * A decision recorded on an epic. [question] is the Q<n> it answers, empty for a note. [by] is who recorded it,
+ * 'owner', 'conversation' or 'orreryd', and empty for a decision stored before makers were recorded. [session] is the
+ * conversation's session id when [by] is 'conversation', empty otherwise.
+ */
+data class EpicDecisionRow(
+    val seq: Long,
+    val id: String,
+    val text: String,
+    val time: Long,
+    val question: String,
+    val by: String = "",
+    val session: String = "",
+)
 
 /** Something an epic told its owner. [told] is whether the owner has been told it. */
 data class EpicTellRow(val seq: Long, val text: String, val at: Long, val told: Boolean)
@@ -746,7 +758,9 @@ data class EpicQuestionChoiceRow(val id: String, val does: String)
 /**
  * One open question an orreryd epic's planner asked, in the order they were asked. [choices] are the choices the
  * question declares, in order. [recommendedChoice] is the choice the planner recommends, "" when it recommends none,
- * and [recommendedWhy] is why.
+ * and [recommendedWhy] is why. [escalated] is when the question was escalated, in unix seconds, 0 while it is not.
+ * [escalationReason] is why it was escalated, [escalationBy] who escalated it (owner, conversation or orreryd) and
+ * [escalationSession] the session that did when a conversation did. Those three are "" while it is not escalated.
  */
 data class EpicQuestionRow(
     val id: String,
@@ -756,6 +770,10 @@ data class EpicQuestionRow(
     val choices: List<EpicQuestionChoiceRow> = emptyList(),
     val recommendedChoice: String = "",
     val recommendedWhy: String = "",
+    val escalated: Long = 0L,
+    val escalationReason: String = "",
+    val escalationBy: String = "",
+    val escalationSession: String = "",
 )
 
 /** One failure an orreryd epic's contract guards against, with its [rating] and what the epic does about it. */
@@ -1737,7 +1755,15 @@ class OrreryClient(
         EpicTriggerRow(id = id, cause = cause, state = state, turn = turn, created = created)
 
     private fun EpicDecisionProto.toEpicDecisionRow(): EpicDecisionRow =
-        EpicDecisionRow(seq = seq, id = id, text = text, time = time, question = question)
+        EpicDecisionRow(
+            seq = seq,
+            id = id,
+            text = text,
+            time = time,
+            question = question,
+            by = by,
+            session = session,
+        )
 
     private fun EpicTellProto.toEpicTellRow(): EpicTellRow =
         EpicTellRow(seq = seq, text = text, at = at, told = told)
@@ -1832,6 +1858,10 @@ class OrreryClient(
             choices = choicesList.map { EpicQuestionChoiceRow(id = it.id, does = it.does) },
             recommendedChoice = recommendation.choice,
             recommendedWhy = recommendation.why,
+            escalated = escalated,
+            escalationReason = escalationReason,
+            escalationBy = escalationBy,
+            escalationSession = escalationSession,
         )
 
     private fun EpicContractProto.toEpicContractRow(): EpicContractRow =

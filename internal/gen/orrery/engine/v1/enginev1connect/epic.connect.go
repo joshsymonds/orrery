@@ -61,6 +61,8 @@ const (
 	EpicsCloseEpicProcedure = "/orrery.engine.v1.Epics/CloseEpic"
 	// EpicsAmendEvidenceProcedure is the fully-qualified name of the Epics's AmendEvidence RPC.
 	EpicsAmendEvidenceProcedure = "/orrery.engine.v1.Epics/AmendEvidence"
+	// EpicsEscalateEpicProcedure is the fully-qualified name of the Epics's EscalateEpic RPC.
+	EpicsEscalateEpicProcedure = "/orrery.engine.v1.Epics/EscalateEpic"
 	// EpicsSeeEpicProcedure is the fully-qualified name of the Epics's SeeEpic RPC.
 	EpicsSeeEpicProcedure = "/orrery.engine.v1.Epics/SeeEpic"
 	// EpicsArchiveRowProcedure is the fully-qualified name of the Epics's ArchiveRow RPC.
@@ -117,6 +119,10 @@ type EpicsClient interface {
 	// amendment and the stored epic. A call from the step of the epic's running turn amends as the planner, which may not
 	// change the conclusion; any other call amends as the owner, who may.
 	AmendEvidence(context.Context, *connect.Request[v1.AmendEvidenceRequest]) (*connect.Response[v1.AmendEvidenceResponse], error)
+	// EscalateEpic marks question Q<n> of a stored epic escalated, with its reason, and returns the question read back. The
+	// steering conversation or the owner may escalate it; a call from a step of the epic is refused. An escalated question
+	// stays open until the owner answers it.
+	EscalateEpic(context.Context, *connect.Request[v1.EscalateEpicRequest]) (*connect.Response[v1.EscalateEpicResponse], error)
 	// SeeEpic records that the owner saw the stored epic, so its seen mark is the time of this call.
 	SeeEpic(context.Context, *connect.Request[v1.SeeEpicRequest]) (*connect.Response[v1.SeeEpicResponse], error)
 	// ArchiveRow marks the list row of kind and id archived, at the time of the call, and answers an empty reply. kind is
@@ -222,6 +228,12 @@ func NewEpicsClient(httpClient connect.HTTPClient, baseURL string, opts ...conne
 			connect.WithSchema(epicsMethods.ByName("AmendEvidence")),
 			connect.WithClientOptions(opts...),
 		),
+		escalateEpic: connect.NewClient[v1.EscalateEpicRequest, v1.EscalateEpicResponse](
+			httpClient,
+			baseURL+EpicsEscalateEpicProcedure,
+			connect.WithSchema(epicsMethods.ByName("EscalateEpic")),
+			connect.WithClientOptions(opts...),
+		),
 		seeEpic: connect.NewClient[v1.SeeEpicRequest, v1.SeeEpicResponse](
 			httpClient,
 			baseURL+EpicsSeeEpicProcedure,
@@ -270,6 +282,7 @@ type epicsClient struct {
 	releaseEpic   *connect.Client[v1.ReleaseEpicRequest, v1.ReleaseEpicResponse]
 	closeEpic     *connect.Client[v1.CloseEpicRequest, v1.CloseEpicResponse]
 	amendEvidence *connect.Client[v1.AmendEvidenceRequest, v1.AmendEvidenceResponse]
+	escalateEpic  *connect.Client[v1.EscalateEpicRequest, v1.EscalateEpicResponse]
 	seeEpic       *connect.Client[v1.SeeEpicRequest, v1.SeeEpicResponse]
 	archiveRow    *connect.Client[v1.ArchiveRowRequest, v1.ArchiveRowResponse]
 	unarchiveRow  *connect.Client[v1.UnarchiveRowRequest, v1.UnarchiveRowResponse]
@@ -342,6 +355,11 @@ func (c *epicsClient) AmendEvidence(ctx context.Context, req *connect.Request[v1
 	return c.amendEvidence.CallUnary(ctx, req)
 }
 
+// EscalateEpic calls orrery.engine.v1.Epics.EscalateEpic.
+func (c *epicsClient) EscalateEpic(ctx context.Context, req *connect.Request[v1.EscalateEpicRequest]) (*connect.Response[v1.EscalateEpicResponse], error) {
+	return c.escalateEpic.CallUnary(ctx, req)
+}
+
 // SeeEpic calls orrery.engine.v1.Epics.SeeEpic.
 func (c *epicsClient) SeeEpic(ctx context.Context, req *connect.Request[v1.SeeEpicRequest]) (*connect.Response[v1.SeeEpicResponse], error) {
 	return c.seeEpic.CallUnary(ctx, req)
@@ -404,6 +422,10 @@ type EpicsHandler interface {
 	// amendment and the stored epic. A call from the step of the epic's running turn amends as the planner, which may not
 	// change the conclusion; any other call amends as the owner, who may.
 	AmendEvidence(context.Context, *connect.Request[v1.AmendEvidenceRequest]) (*connect.Response[v1.AmendEvidenceResponse], error)
+	// EscalateEpic marks question Q<n> of a stored epic escalated, with its reason, and returns the question read back. The
+	// steering conversation or the owner may escalate it; a call from a step of the epic is refused. An escalated question
+	// stays open until the owner answers it.
+	EscalateEpic(context.Context, *connect.Request[v1.EscalateEpicRequest]) (*connect.Response[v1.EscalateEpicResponse], error)
 	// SeeEpic records that the owner saw the stored epic, so its seen mark is the time of this call.
 	SeeEpic(context.Context, *connect.Request[v1.SeeEpicRequest]) (*connect.Response[v1.SeeEpicResponse], error)
 	// ArchiveRow marks the list row of kind and id archived, at the time of the call, and answers an empty reply. kind is
@@ -505,6 +527,12 @@ func NewEpicsHandler(svc EpicsHandler, opts ...connect.HandlerOption) (string, h
 		connect.WithSchema(epicsMethods.ByName("AmendEvidence")),
 		connect.WithHandlerOptions(opts...),
 	)
+	epicsEscalateEpicHandler := connect.NewUnaryHandler(
+		EpicsEscalateEpicProcedure,
+		svc.EscalateEpic,
+		connect.WithSchema(epicsMethods.ByName("EscalateEpic")),
+		connect.WithHandlerOptions(opts...),
+	)
 	epicsSeeEpicHandler := connect.NewUnaryHandler(
 		EpicsSeeEpicProcedure,
 		svc.SeeEpic,
@@ -563,6 +591,8 @@ func NewEpicsHandler(svc EpicsHandler, opts ...connect.HandlerOption) (string, h
 			epicsCloseEpicHandler.ServeHTTP(w, r)
 		case EpicsAmendEvidenceProcedure:
 			epicsAmendEvidenceHandler.ServeHTTP(w, r)
+		case EpicsEscalateEpicProcedure:
+			epicsEscalateEpicHandler.ServeHTTP(w, r)
 		case EpicsSeeEpicProcedure:
 			epicsSeeEpicHandler.ServeHTTP(w, r)
 		case EpicsArchiveRowProcedure:
@@ -632,6 +662,10 @@ func (UnimplementedEpicsHandler) CloseEpic(context.Context, *connect.Request[v1.
 
 func (UnimplementedEpicsHandler) AmendEvidence(context.Context, *connect.Request[v1.AmendEvidenceRequest]) (*connect.Response[v1.AmendEvidenceResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orrery.engine.v1.Epics.AmendEvidence is not implemented"))
+}
+
+func (UnimplementedEpicsHandler) EscalateEpic(context.Context, *connect.Request[v1.EscalateEpicRequest]) (*connect.Response[v1.EscalateEpicResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orrery.engine.v1.Epics.EscalateEpic is not implemented"))
 }
 
 func (UnimplementedEpicsHandler) SeeEpic(context.Context, *connect.Request[v1.SeeEpicRequest]) (*connect.Response[v1.SeeEpicResponse], error) {

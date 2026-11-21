@@ -384,3 +384,18 @@ func capNodeOutput(output string) string {
 	}
 	return output[:cut]
 }
+
+// RebuildTask turns the build run at path of epic, which ended at attempt, running at its next attempt with its outcome,
+// output, revision, refs, refs checked, result and end cleared, in one write, so its task builds again. A send_back that
+// reopens a done task leaves its build run ended, and a plan starts no second run at a stored path. A run at another
+// attempt, a run that is not ended and a run of another kind change nothing, so a repeat is a no-op.
+func (s *Store) RebuildTask(ctx context.Context, epic, path string, attempt int64) error {
+	return s.write(ctx, func(queries *sqlcgen.Queries) error {
+		if _, err := queries.RebuildEpicTaskRun(ctx, sqlcgen.RebuildEpicTaskRunParams{
+			Epic: epic, Path: path, Attempt: attempt,
+		}); err != nil {
+			return fmt.Errorf("rebuild node run %s of epic %s: %w", path, epic, err)
+		}
+		return nil
+	})
+}
