@@ -461,6 +461,8 @@ class MainActivityNoticesTest {
         awaitNode(hasTestTag("head-back"))
         controller.get().onBackPressedDispatcher.onBackPressed()
         awaitNode(hasTestTag(NOTICES_BACK))
+        // The page comes back with a fresh list whose read lands after its head draws, and Mark all read waits for it.
+        awaitNode(hasText("Mark all read"))
 
         composeRule.onNodeWithText("Mark all read").performClick()
         composeRule.awaitUntil("ReadAll is sent") { server.requests.any { it.rawPath == NOTICES_READ_ALL_PATH } }
