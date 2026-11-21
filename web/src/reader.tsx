@@ -69,8 +69,8 @@ export interface ContractCalls {
 // With answered, its line draws after the item its answer named as newest, or after every item when that item is no
 // longer drawn, and a run of tool calls ends where the line falls. Items that arrive later draw after the line.
 // With find, every case-insensitive occurrence of its query is a mark in what the reader draws of a reply, a prompt, a
-// call's input and result, and a notice. Check blocks, epic cards, event rings, step cards, background rows, contract
-// lines, live text, thinking, the Ask, sending rows, event blocks, cron blocks and agent-finished lines are not searched.
+// call's input and result, a notice, and live text. Check blocks, epic cards, event rings, step cards, background rows,
+// contract lines, thinking, the Ask, sending rows, event blocks, cron blocks and agent-finished lines are not searched.
 // The current match, find.current's index in find.matches, is the mark with class current: it is scrolled into view as
 // it arrives, and the fold, call or run that holds it opens. A fold opens when the current match moves into it, and the
 // owner can close it; it opens again only when the current match moves into it once more.
@@ -355,7 +355,14 @@ export function Reader({
   if (answered !== undefined && !answeredDrawn) {
     rows.push(<Fragment key="answered">{answered.line}</Fragment>);
   }
-  const live = liveBlocks.map((block) => <LiveRow key={`${block.messageId}/${block.index}`} block={block} />);
+  const live = liveBlocks.map((block) => (
+    <LiveRow
+      key={`${block.messageId}/${block.index}`}
+      block={block}
+      query={query}
+      current={currentAt(items.length + conversation.unfinished.indexOf(block))}
+    />
+  ));
   const background = (conversation.state?.background ?? []).map((task) => (
     <BackgroundRow key={task.id} task={task} onOpen={openCall} />
   ));
@@ -701,14 +708,19 @@ const MemoToolRun = memo(
   (previous, next) => previous.query === next.query && sameCalls(previous.calls, next.calls),
 );
 
-// LiveRow draws one unfinished block: a text block as a live Reply, which ends in its caret while it streams, and a
-// thinking block as a ThinkingLine.
-function LiveRow({ block }: { block: EngineText }) {
+// LiveRow draws one unfinished block: a text block as a live Reply, which ends in its caret while it streams and marks
+// the find's matches as a reply does, and a thinking block as a ThinkingLine. current is the offset where the current
+// match starts in the block's text, or -1 when the current match is not in it.
+function LiveRow({ block, query, current }: { block: EngineText; query: string; current: number }) {
   return (
     <div class="t live-row">
       <span class="gut live">live</span>
       <div class="body">
-        {block.kind === "thinking" ? <ThinkingLine text={block.text} /> : <Reply text={block.text} live />}
+        {block.kind === "thinking" ? (
+          <ThinkingLine text={block.text} />
+        ) : (
+          <Reply text={block.text} live query={query} current={current} />
+        )}
       </div>
     </div>
   );

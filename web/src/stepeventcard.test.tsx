@@ -320,6 +320,27 @@ test("StepEventCard: a step_end prompt draws a card with its agent, end and brie
   });
 });
 
+test("StepEventCard: a step end's summary and reason draw their backticked text as inline code", async (t) => {
+  await withPage(t, async ({ container, fake }) => {
+    const body = stepBlock({
+      ...doneStep,
+      end: "stopped",
+      status: "stopped",
+      epic: undefined,
+      brief: ["Stopped at the gate.", "Reason: `just check` failed in `web/`."],
+    });
+    fake.emit(delta([eventPrompt("s1", body, 100)], { seq: 2, reset: true }));
+    await settle(t, () => cardsOf(container).length === 1, "the step card is drawn");
+    const [card] = cardsOf(container);
+    assert.deepEqual(textsOf(card, ".step-summary code"), ["just check", "web/"], "each backticked span is code");
+    assert.deepEqual(
+      textsOf(card, ".step-summary"),
+      ["Stopped at the gate.", "Reason: just check failed in web/."],
+      "the summary and reason draw their text without the backticks",
+    );
+  });
+});
+
 test("StepEventCard: a step_end block with no agent attribute draws its card with no agent", async (t) => {
   await withPage(t, async ({ container, fake }) => {
     const body = stepBlock({ ...doneStep, agent: undefined, epic: undefined });

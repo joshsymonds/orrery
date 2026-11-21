@@ -1,7 +1,7 @@
 import type { JSX } from "preact";
 import { useEffect, useRef } from "preact/hooks";
 
-import type { ConversationItem } from "./gen/orrery/v1/orrery_pb";
+import type { ConversationItem, EngineText } from "./gen/orrery/v1/orrery_pb";
 import { epicEventOf } from "./eventring";
 import { Icon } from "./glyphs";
 import { drawnText } from "./markdown";
@@ -9,25 +9,35 @@ import { occurrences } from "./text";
 
 // Match is one occurrence of a query in a conversation's drawn text: item is the index of the item it is drawn in, and
 // start is its offset in that item's searched text. A call's result is searched as part of its call, so a match in the
-// result has the call's index.
+// result has the call's index. A live reply is not an item: its match's item is the item count plus the live block's
+// index among the unfinished blocks, so the matches of the items and of the live replies are told apart by their item.
 export interface Match {
   item: number;
   start: number;
 }
 
-// findMatches returns the case-insensitive occurrences of query in the drawn text of items, in item order. Replies,
-// prompts and step folds are searched as Markdown draws them; a call is searched by its input or question and by the
-// text of the result that answers it, and a notice by its kind and text. Compaction, an event line (a prompt an event
-// sent, drawn as EVENT), a prompt a cron job's fire sent, drawn as CRON, a prompt holding an epic's event block (it draws as the event's ring), a send-back of a check
+// findMatches returns the case-insensitive occurrences of query in the drawn text of items, in item order, then those
+// of the unfinished text blocks, in their order. Replies, prompts and step folds are searched as Markdown draws them;
+// a call is searched by its input or question and by the text of the result that answers it, a notice by its kind and
+// text, and a live reply as Markdown draws it. Unfinished thinking is not searched. Compaction, an event line (a prompt
+// an event sent, drawn as EVENT), a prompt a cron job's fire sent, drawn as CRON, a prompt holding an epic's event block (it draws as the event's ring), a send-back of a check
 // round (it draws as a card), a call that creates an epic and whose result is not an error (it draws as the epic's
 // card), an interrupted item (it draws the line "Interrupted by you"), an agent-finished item (it draws the line
 // "Agent finished: ..."), and a result that answers no call are not searched. An empty query matches nothing.
-export function findMatches(items: ConversationItem[], query: string): Match[] {
+export function findMatches(items: ConversationItem[], query: string, unfinished: EngineText[] = []): Match[] {
   const answers = resultsByCall(items);
   const matches: Match[] = [];
   items.forEach((item, index) => {
     for (const [start] of occurrences(searchedText(item, answers.get(index)), query)) {
       matches.push({ item: index, start });
+    }
+  });
+  unfinished.forEach((block, index) => {
+    if (block.kind !== "text") {
+      return;
+    }
+    for (const [start] of occurrences(drawnText(block.text), query)) {
+      matches.push({ item: items.length + index, start });
     }
   });
   return matches;

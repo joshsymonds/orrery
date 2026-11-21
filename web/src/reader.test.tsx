@@ -3475,7 +3475,7 @@ test("Shapes: a sending entry draws one YouBlock marked SENDING, with no time", 
     },
   ));
 
-test("StepEndFacts: a step end draws the files, lines, rounds and time of its item's step facts, and the item's time", () => {
+test("StepEndFacts: a step end draws the rounds, time, files and lines of its item's step facts, and the item's time", () => {
   const facts = create(StepFactsSchema, { rounds: 1, seconds: 480n, counted: true, files: 2n, added: 96n, removed: 4n });
   const step = item({
     kind: "prompt",
@@ -3492,7 +3492,7 @@ test("StepEndFacts: a step end draws the files, lines, rounds and time of its it
       assert.equal(block.querySelector(".at")?.textContent, "14:02", "the card carries the item's time");
       assert.deepEqual(
         [...block.querySelectorAll(".facts span")].map((span) => span.textContent),
-        ["2 files", "+96", "−4", "1 round", "8m"],
+        ["1 round", "8m", "2 files", "+96", "−4"],
       );
     },
   );

@@ -1155,13 +1155,13 @@ export function App({
   // conversation, and its current match is clamped to them where it is read.
   const cursorFinding = cursorFind !== null && cursorFind.key === middleKey ? cursorFind : null;
   const cursorMatches = useMemo(
-    () => findMatches(cursorShown?.items ?? [], cursorFinding?.query ?? ""),
+    () => findMatches(cursorShown?.items ?? [], cursorFinding?.query ?? "", cursorShown?.unfinished ?? []),
     [cursorShown, cursorFinding?.query],
   );
   const cursorCurrent = cursorFinding === null ? -1 : findCurrent(cursorFinding.current, cursorMatches.length);
   const pinnedFinding = pinnedFind !== null && pinnedFind.key === pinnedKey ? pinnedFind : null;
   const pinnedMatches = useMemo(
-    () => findMatches(pinnedShown?.items ?? [], pinnedFinding?.query ?? ""),
+    () => findMatches(pinnedShown?.items ?? [], pinnedFinding?.query ?? "", pinnedShown?.unfinished ?? []),
     [pinnedShown, pinnedFinding?.query],
   );
   const pinnedCurrent = pinnedFinding === null ? -1 : findCurrent(pinnedFinding.current, pinnedMatches.length);

@@ -7,6 +7,7 @@ import { Block } from "./blocks";
 import { type EpicCalls, useEpicReading } from "./card";
 import type { StepFacts } from "./gen/orrery/v1/orrery_pb";
 import { Icon, type IconName } from "./glyphs";
+import { Markdown } from "./markdown";
 import { clock } from "./reader";
 
 // The kinds an epic's event names, as its orrery-event block gives them.
@@ -305,11 +306,13 @@ function plural(count: number, word: string): string {
   return count === 1 ? `1 ${word}` : `${count} ${word}s`;
 }
 
-// FactsLine draws a step end's facts: its files and line counts when they were counted, its rounds when above 0, and
-// how long it ran.
+// FactsLine draws a step end's facts in round 6's order: its rounds when above 0, how long it ran, then its files and
+// line counts when they were counted.
 function FactsLine({ facts }: { facts: StepFacts }): JSX.Element {
   return (
     <div class="facts">
+      {facts.rounds > 0 && <span>{plural(facts.rounds, "round")}</span>}
+      <span>{durationOf(Number(facts.seconds))}</span>
       {facts.counted && (
         <>
           <span>{plural(Number(facts.files), "file")}</span>
@@ -317,15 +320,13 @@ function FactsLine({ facts }: { facts: StepFacts }): JSX.Element {
           <span class="minus">{`−${facts.removed}`}</span>
         </>
       )}
-      {facts.rounds > 0 && <span>{plural(facts.rounds, "round")}</span>}
-      <span>{durationOf(Number(facts.seconds))}</span>
     </div>
   );
 }
 
 // StepCard draws a step's end as a StepEndBlock: its tone and icon are its verdict, its label says the step ended, and
 // it names the task the step ran, else the step's id, with the agent beside it when the block names one. Its end is a
-// chip. Its body is each line of the brief as a line of text, then, with epic calls, a return fold closed until it is
+// chip. Its body is each line of the brief as Markdown, its summary and its reason, then, with epic calls, a return fold closed until it is
 // opened, then the facts line when the event carries facts, and the time when one is given. The first time the fold is
 // opened, the step's full return is read through calls.stepResult. It draws pretty-printed when it is JSON, and a read
 // that fails draws a fixed line. The chip is a button that opens the step's page through calls.openStep when the event
@@ -383,9 +384,9 @@ export function StepCard({
         }
       >
         {event.brief.map((line, index) => (
-          <p key={index} class="step-summary">
-            {line}
-          </p>
+          <div key={index} class="step-summary">
+            <Markdown text={line} />
+          </div>
         ))}
         {calls !== undefined && (
           <details class="step-return" onToggle={(toggled) => openReturn(toggled.currentTarget)}>

@@ -8,7 +8,7 @@ import { act } from "preact/test-utils";
 import { App } from "./app";
 import { createClients, createTransport } from "./client";
 import { FindBar, findMatches } from "./find";
-import { ConversationItemSchema, type ConversationItem } from "./gen/orrery/v1/orrery_pb";
+import { ConversationItemSchema, type ConversationItem, EngineTextSchema, type EngineText } from "./gen/orrery/v1/orrery_pb";
 import type { Row } from "./rows";
 import { installTestDom, removeTestDom, teardownOnce } from "./testdom";
 import { turn, until as waitUntil } from "./testwait";
@@ -82,6 +82,20 @@ test("Find: a prompt a cron job sent draws as a CRON row and is not searched, wh
 
 test("Find: an empty query matches nothing", () => {
   assert.deepEqual(findMatches([item({ kind: "reply", text: "anything" })], ""), []);
+});
+
+// unfinishedText is a block of unfinished text, a live one as the session stream sends it.
+function unfinishedText(text: string, kind = "text"): EngineText {
+  return create(EngineTextSchema, { messageId: "m2", index: 0, kind, text });
+}
+
+test("Find: a live reply's matches follow the items, and its index is the item count plus its place among the unfinished blocks, while thinking is not searched", () => {
+  const items = [item({ kind: "reply", text: "The build passed." })];
+  const unfinished = [unfinishedText("build is still running, build again", "thinking"), unfinishedText("so far a build")];
+  assert.deepEqual(findMatches(items, "build", unfinished), [
+    { item: 0, start: 4 },
+    { item: 2, start: 9 },
+  ]);
 });
 
 interface BarProps {
@@ -447,6 +461,37 @@ async function openFind(container: HTMLElement): Promise<HTMLInputElement> {
   await press(composer(container), "/");
   return findInput(container);
 }
+
+test("Find: a query counts a match in the live reply with the stored ones, and stepping to it makes the live mark current", (t) =>
+  withApp(t.signal, [sessionRow], async (container, fake) => {
+    await openTranscript(t.signal, container, fake);
+    fake.emit(fake.callsTo(sessionWatchPath)[0], {
+      transcript: "s1.jsonl",
+      seq: "2",
+      unfinished: [{ messageId: "m2", index: 0, kind: "text", text: "all done so far" }],
+    });
+    await until(
+      t.signal,
+      () => container.querySelector('[aria-label="reader"] .live-row')?.textContent?.includes("all done so far") === true,
+      "the live reply",
+    );
+    const input = await openFind(container);
+    await typeInto(input, "all done");
+    assert.equal(countText(container), "1 of 2", "the stored reply and the live reply are both counted");
+    assert.deepEqual(markTexts(container), ["all done", "all done"], "the live reply's match is marked");
+    assert.equal(
+      container.querySelectorAll('[aria-label="reader"] .live-row mark.current').length,
+      0,
+      "the stored match is current first",
+    );
+    await press(input, "Enter");
+    assert.equal(countText(container), "2 of 2", "Enter goes to the live reply's match");
+    assert.equal(
+      container.querySelector('[aria-label="reader"] .live-row mark.current')?.textContent,
+      "all done",
+      "the live reply's mark is current",
+    );
+  }));
 
 test("Find: after a click on a session row, / in its focused empty reply box opens the find bar, the bar's input takes focus, and the box stays empty", (t) =>
   withApp(t.signal, [paneRow, sessionRow], async (container) => {

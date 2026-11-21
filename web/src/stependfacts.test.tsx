@@ -68,7 +68,7 @@ function textsOf(container: HTMLElement, selector: string): string[] {
 test("StepEndFacts: a counted step draws its files and each line count in their own elements", async () => {
   const facts = factsOf({ rounds: 1, seconds: 480n, counted: true, files: 2n, added: 96n, removed: 4n });
   await withCard(facts, (container) => {
-    assert.deepEqual(textsOf(container, "span"), ["2 files", "+96", "−4", "1 round", "8m"]);
+    assert.deepEqual(textsOf(container, "span"), ["1 round", "8m", "2 files", "+96", "−4"], "rounds, time, then files");
     assert.deepEqual(textsOf(container, ".plus"), ["+96"], "the added lines draw in their own element");
     assert.deepEqual(textsOf(container, ".minus"), ["−4"], "the removed lines draw in their own element");
   });
