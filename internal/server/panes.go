@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -13,6 +14,8 @@ import (
 
 	"github.com/joshsymonds/orrery/internal/cli"
 	"github.com/joshsymonds/orrery/internal/conversation"
+	enginev1 "github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1"
+	enginev1connect "github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1/enginev1connect"
 	v1 "github.com/joshsymonds/orrery/internal/gen/orrery/v1"
 	orreryv1connect "github.com/joshsymonds/orrery/internal/gen/orrery/v1/orreryv1connect"
 	"github.com/joshsymonds/orrery/internal/store"
@@ -21,7 +24,8 @@ import (
 
 // panesServer answers orrery.v1.Panes with the tmux client, conversation state, locks, seen and read reporters, and
 // clock it holds, the store reader its turn ends come from, and the change feed and keepalive timers its
-// WatchConversation streams run on.
+// WatchConversation streams run on. It also holds the PaneSends client each SendText records its send through, and the
+// writer its failed records are written to.
 type panesServer struct {
 	tmux                  *tmuxctl.Client
 	reader                *store.Reader
@@ -32,6 +36,8 @@ type panesServer struct {
 	seenLocks             *paneLocks
 	report                cli.SeenReporter
 	readReport            ReadReporter
+	paneSends             enginev1connect.PaneSendsClient
+	paneSendErrs          io.Writer
 	now                   func() time.Time
 	changes               *changeHub
 	newTimer              func(time.Duration) (<-chan time.Time, func() bool)
@@ -45,10 +51,11 @@ type panesServer struct {
 
 // newPanesHandler returns the path and handler that serve Panes over the tmux client, the store reader of turn ends,
 // conversation state, locks, seen and read reporters, and clock it is given. Screen, Conversation and
-// WatchConversation report each read to readReport, dated by now. WatchConversation steps when changes wakes it, and
-// sends a keepalive after conversationKeepalive without a message. Its keepalive timers are armed through newTimer, or
-// through time.NewTimer when newTimer is nil. Its sends are bounded by sendTimeout, and its streams end when shutdown
-// closes. The handler runs under withResponseWriter, so the stream reaches its connection.
+// WatchConversation report each read to readReport, dated by now. SendText records each send through paneSends, and
+// writes a failed record to paneSendErrs. WatchConversation steps when changes wakes it, and sends a keepalive after
+// conversationKeepalive without a message. Its keepalive timers are armed through newTimer, or through time.NewTimer
+// when newTimer is nil. Its sends are bounded by sendTimeout, and its streams end when shutdown closes. The handler
+// runs under withResponseWriter, so the stream reaches its connection.
 func newPanesHandler(
 	tmux *tmuxctl.Client,
 	reader *store.Reader,
@@ -58,6 +65,8 @@ func newPanesHandler(
 	textLocks, seenLocks *paneLocks,
 	report cli.SeenReporter,
 	readReport ReadReporter,
+	paneSends enginev1connect.PaneSendsClient,
+	paneSendErrs io.Writer,
 	now func() time.Time,
 	changes *changeHub,
 	newTimer func(time.Duration) (<-chan time.Time, func() bool),
@@ -78,6 +87,8 @@ func newPanesHandler(
 		seenLocks:             seenLocks,
 		report:                report,
 		readReport:            readReport,
+		paneSends:             paneSends,
+		paneSendErrs:          paneSendErrs,
 		now:                   now,
 		changes:               changes,
 		newTimer:              newTimer,
@@ -189,8 +200,8 @@ func (s panesServer) reportRead(pane string) {
 	}
 }
 
-// SendText answers Panes.SendText. The pane is checked first, and the text is sent by sendText under the pane's text
-// lock.
+// SendText answers Panes.SendText. The pane is checked first, then the send is recorded, and the text is sent by
+// sendText under the pane's text lock.
 func (s panesServer) SendText(
 	ctx context.Context,
 	req *connect.Request[v1.SendTextRequest],
@@ -198,10 +209,26 @@ func (s panesServer) SendText(
 	if _, err := checkPane(ctx, s.tmux, req.Msg.GetPane()); err != nil {
 		return nil, connectError(paneRouteError(err))
 	}
+	s.recordSend(ctx, req.Msg.GetPane(), req.Msg.GetText(), req.Header().Get(HeaderClient))
 	if err := sendText(ctx, s.tmux, s.textLocks, req.Msg.GetPane(), req.Msg.GetText()); err != nil {
 		return nil, connectError(err)
 	}
 	return connect.NewResponse(&v1.SendTextResponse{}), nil
+}
+
+// recordSend records the text client sent pane through the PaneSends client, before the text is typed, so the echo's
+// transcript time is never before the send's. With no client it records nothing. A failed record is written to
+// paneSendErrs as one line, and never stops the send.
+func (s panesServer) recordSend(ctx context.Context, pane, text, client string) {
+	if s.paneSends == nil {
+		return
+	}
+	_, err := s.paneSends.Record(ctx, connect.NewRequest(&enginev1.PaneSendsRecordRequest{
+		Pane: pane, Text: text, Client: client,
+	}))
+	if err != nil {
+		fmt.Fprintf(s.paneSendErrs, "orrery serve: record pane send: %v\n", err)
+	}
 }
 
 // SendKeys answers Panes.SendKeys. The pane is checked first, and the keys are sent by sendKeys, which carries the

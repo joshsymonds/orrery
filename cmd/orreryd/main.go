@@ -883,6 +883,9 @@ type sessionHost struct {
 	releaseSlots     *enginehost.ReleaseSlots
 	stopReleaseSlots context.CancelFunc
 	releaseSlotsDone chan struct{}
+	// paneSends records the texts sent to panes, nil without a store. The PaneSends service on the session socket
+	// serves it.
+	paneSends enginehost.PaneSendRecorder
 	// logger logs each phase of the shutdown.
 	logger *slog.Logger
 }
@@ -1012,6 +1015,7 @@ func startSessions(
 		host.wireStore(st)
 		commands, stepCommands = host.manager, host.steps
 		host.epics, host.steering, host.contracts = st, epicSteering(host.manager, st), contractsOf(st)
+		host.paneSends = st
 		crons = enginehost.NewCronAnswers(enginehost.CronAnswersConfig{
 			Store: st, Now: opts.cronNow, Changed: host.cron.Changed})
 		host.newReleaseSlots(opts, st, logger)
@@ -1069,6 +1073,7 @@ func (h *sessionHost) serveConfig(
 		Crons:     crons,
 		Changes:   h.changes,
 		Contracts: h.contracts,
+		PaneSends: h.paneSends,
 		Options:   handlerOpts,
 	}
 	if h.releaseSlots != nil {
