@@ -34,6 +34,7 @@ internal data class AskCommand(val tool: String, val text: String)
  * An Ask as the phone draws it and sends it. [markdown] is true when the question is the assistant's markdown, drawn with
  * its markup. [asked] is the unix time the question began waiting. [archive] is the Epics.Archive kind and id, null when
  * the conversation has no orrery id. [epicId] and [questionId] are "" outside an epic's Ask; a park has no [questionId].
+ * [escalation] is the line naming who escalated an epic's question and why, "" while it is not escalated.
  */
 internal data class AskModel(
     val kind: AskKind,
@@ -48,6 +49,7 @@ internal data class AskModel(
     val target: AskTarget?,
     val epicId: String,
     val questionId: String,
+    val escalation: String = "",
 )
 
 private const val LAST_KEYED_OPTION = 9
@@ -154,6 +156,11 @@ internal fun epicAsk(epic: EpicRow, question: EpicQuestionRow): AskModel = AskMo
     target = null,
     epicId = epic.id,
     questionId = question.id,
+    escalation = if (question.escalated > 0L) {
+        "escalated by ${makerWord(question.escalationBy, question.escalationSession)}: ${question.escalationReason}"
+    } else {
+        ""
+    },
 )
 
 /** An epic's park as its Ask: the parked reason, with the one answer that runs the parked work again. */
