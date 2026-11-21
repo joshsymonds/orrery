@@ -27,8 +27,6 @@ const clients: Clients = createClients(createTransport({ baseUrl: "https://orrer
 // The epic calls and the title row's inbox mark are fakes that do nothing: a column draws without calling them.
 const epicCalls: EpicCalls = {
   get: () => new Promise(() => {}),
-  pause: () => new Promise(() => {}),
-  resume: () => new Promise(() => {}),
   answer: () => new Promise(() => {}),
   openEpic: () => {},
   openStep: () => {},

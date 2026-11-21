@@ -104,8 +104,6 @@ function openersOf(): Openers {
     returned,
     calls: {
       get: unused,
-      pause: unused,
-      resume: unused,
       answer: unused,
       openEpic: (id) => {
         epics.push(id);

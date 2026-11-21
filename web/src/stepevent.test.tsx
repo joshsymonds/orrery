@@ -62,8 +62,6 @@ function readerCalls(stepResult: (id: string) => Promise<string>): EpicCalls {
   const unsettled = (): Promise<never> => new Promise(() => {});
   return {
     get: unsettled,
-    pause: unsettled,
-    resume: unsettled,
     answer: unsettled,
     openEpic: () => {},
     openStep: () => {},
@@ -134,19 +132,20 @@ test("StepEventBrief web: a delivered step card draws its head from the tag's ag
 // questionBody is the body of an open question's block: its epic line, then the question's own line.
 const questionBody = `Epic ${ringEpic} (Plan the runner) asks a question.\nQ1 which-store: which store?`;
 
-test("StepEventBrief web: an epic ring drawn from a new-form question block shows its first sentence, its icon and its slug", () =>
+test("StepEventBrief web: an epic block drawn from a new-form question block shows its first sentence, its icon and its slug", () =>
   withReader(
     conversation([eventItem(eventBlock("question", "Q1", questionBody))]),
     readerCalls(() => new Promise(() => {})),
     async (container) => {
-      assert.equal(container.querySelectorAll(".ring-line").length, 1, "one ringed line is drawn");
-      assert.equal(container.querySelector(".ring-icon")?.classList.contains("question"), true, "the icon draws");
+      assert.equal(container.querySelectorAll(".block.epicevent").length, 1, "one EpicEventBlock is drawn");
+      assert.equal(container.querySelector(".block.epicevent")?.getAttribute("data-tone"), "attention", "its rail asks");
+      assert.notEqual(container.querySelector(".block.epicevent .head svg"), null, "the icon draws");
       assert.equal(textOf(container, ".ring-sentence"), `Epic ${ringEpic} (Plan the runner) asks a question.`);
       assert.equal(textOf(container, ".ring-slug"), "planner-runner");
     },
   ));
 
-test("StepEventBrief web: an epic ring drawn from a new-form release block draws its escaped body's &amp; &lt; &quot; unescaped, and &amp;lt; once", () =>
+test("StepEventBrief web: an epic block drawn from a new-form release block draws its escaped body's &amp; &lt; &quot; unescaped, and &amp;lt; once", () =>
   withReader(
     conversation([
       eventItem(
@@ -164,7 +163,8 @@ test("StepEventBrief web: an epic ring drawn from a new-form release block draws
         `Epic ${ringEpic} (Plan & test <fast> "one" &lt;raw&gt;) is released.`,
         "the sentence draws each escape as its character, and &amp;lt; as &lt;",
       );
-      assert.equal(container.querySelector(".ring-icon")?.classList.contains("release"), true, "the icon draws");
+      assert.equal(container.querySelector(".block.epicevent")?.getAttribute("data-tone"), "ok", "its rail reports ok");
+      assert.notEqual(container.querySelector(".block.epicevent .head svg"), null, "the icon draws");
     },
   ));
 

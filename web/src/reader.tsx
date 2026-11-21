@@ -531,8 +531,6 @@ function callsAt(latest: { current: EpicCalls | undefined }, made: EpicCalls): E
   const current = (): EpicCalls => latest.current ?? made;
   return {
     get: (id) => current().get(id),
-    pause: (id) => current().pause(id),
-    resume: (id) => current().resume(id),
     answer: (id, question, choice, text) => current().answer(id, question, choice, text),
     openEpic: (id) => current().openEpic(id),
     openStep: (epic, step) => current().openStep(epic, step),

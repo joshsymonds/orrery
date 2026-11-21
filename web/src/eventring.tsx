@@ -54,13 +54,15 @@ const stepPrefix = "step:";
 const morePrefix = "More: ";
 // leftPattern matches the first line of the body a move gives the conversation the epic left.
 const leftPattern = /^Epic [^\n]* moved to session (\S+), by (the owner|orreryd|session \S+)\.(?=\n|$)/;
-const glyphs: Record<EventKind, string> = { question: "?", park: "‖", release: "↗", end: "■", moved: "⇄" };
-const labels: Record<EventKind, string> = {
-  question: "question",
-  park: "parked",
-  release: "released",
-  end: "ended",
-  moved: "moved",
+// movedGlyph is the icon a move's line draws.
+const movedGlyph = "⇄";
+// eventLooks is each epic event's rail tone and icon as round 6 draws its block: a question and a park ask for attention,
+// a release reports ok, and an end is quiet.
+const eventLooks: Record<Exclude<EventKind, "moved">, { tone: "attention" | "ok" | "quiet"; icon: IconName }> = {
+  question: { tone: "attention", icon: "question" },
+  park: { tone: "attention", icon: "pause" },
+  release: { tone: "ok", icon: "open" },
+  end: { tone: "quiet", icon: "stop" },
 };
 
 // Block is an event block as its text holds it: its kind and id, its attributes after them, and its body, with every
@@ -182,15 +184,41 @@ function firstSentence(body: string): string {
   return match === null ? "" : match[0].trim();
 }
 
-// EventRing draws an epic's event as one ringed line: an icon for its kind, the event's sentence and the epic's slug. A
-// click opens the epic. A question event also draws its question under the line, through QuestionReading.
+// EventRing draws an epic's event: a move as its ringed line, an icon and the sentence with the epic's slug, and any other
+// event as an EpicEventBlock. A click on the ring or the block's link opens the epic. A question event also draws its
+// question inside the block, through QuestionReading.
 export function EventRing({ event, calls }: { event: EpicEvent; calls: EpicCalls }): JSX.Element {
+  if (event.kind === "moved") {
+    return (
+      <div class="event-ring">
+        <button type="button" class="ring-line" onClick={() => calls.openEpic(event.epic)}>
+          <span class="ring-icon moved" role="img" aria-label="moved">
+            {movedGlyph}
+          </span>
+          <span class="ring-sentence">{sentenceOf(event, calls)}</span>
+          <span class="ring-slug">{slugOf(event.epic)}</span>
+        </button>
+      </div>
+    );
+  }
+  const look = eventLooks[event.kind];
   return (
     <div class="event-ring">
-      <button type="button" class="ring-line" onClick={() => calls.openEpic(event.epic)}>
-        <RingParts kind={event.kind} sentence={sentenceOf(event, calls)} epic={event.epic} />
-      </button>
-      {event.kind === "question" && <QuestionReading epic={event.epic} question={event.tail} calls={calls} />}
+      <Block
+        tone={look.tone}
+        kind="epicevent"
+        icon={look.icon}
+        label="EPIC"
+        end={
+          <button type="button" class="epic-link" onClick={() => calls.openEpic(event.epic)}>
+            <span class="ring-slug">{slugOf(event.epic)}</span>
+            <Icon name="chevronRight" />
+          </button>
+        }
+      >
+        <p class="ring-sentence">{event.sentence}</p>
+        {event.kind === "question" && <QuestionReading epic={event.epic} question={event.tail} calls={calls} />}
+      </Block>
     </div>
   );
 }
@@ -226,19 +254,6 @@ function moverNameOf(by: string, calls: EpicCalls): string {
 function sessionNameOf(session: string, calls: EpicCalls): string {
   const title = calls.sessionTitle?.(session);
   return title === undefined ? `session ${session}` : `“${title}”`;
-}
-
-// RingParts draws the parts of an epic's event line: its kind's icon, the sentence, and the epic's slug.
-function RingParts({ kind, sentence, epic }: { kind: EventKind; sentence: string; epic: string }): JSX.Element {
-  return (
-    <>
-      <span class={`ring-icon ${kind}`} role="img" aria-label={labels[kind]}>
-        {glyphs[kind]}
-      </span>
-      <span class="ring-sentence">{sentence}</span>
-      <span class="ring-slug">{slugOf(epic)}</span>
-    </>
-  );
 }
 
 // ReturnLoad is a step's full return as its fold holds it: the return once it loads, failed when it did not load, and
@@ -388,7 +403,8 @@ export function StepCard({
 // QuestionReading draws the question's epic as useEpicReading reads it. While the epic is unread or cannot be read it
 // draws nothing. While the question is open it draws the epic's Ask, which takes no number keys and draws no key caps,
 // and an answer goes to epic answer for the epic and question; an answer that lands reads the epic once more. Once the
-// question is no longer open it draws the settled line, with the epic's project and slug.
+// question is no longer open it draws the settled line, with the epic's project and slug. It draws inside the event's
+// block.
 function QuestionReading({ epic, question, calls }: { epic: string; question: string; calls: EpicCalls }) {
   const { reading, reread } = useEpicReading(epic, calls);
 
@@ -400,7 +416,6 @@ function QuestionReading({ epic, question, calls }: { epic: string; question: st
   if (open === undefined) {
     return <AskLine state="settled" who={`${epicProject(owner)} · ${owner.slug}`} />;
   }
-  // The Ask is drawn in the now-block column.
   return (
     <div class="now-block">
       <Ask

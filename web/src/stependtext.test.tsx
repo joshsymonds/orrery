@@ -44,8 +44,6 @@ function callsReturning(result: string): EpicCalls {
   };
   return {
     get: unused,
-    pause: unused,
-    resume: unused,
     answer: unused,
     openEpic: () => {},
     openStep: () => {},

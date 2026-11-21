@@ -5,7 +5,7 @@
 import { create } from "@bufbuild/protobuf";
 
 import type { Stories } from "./catalog/story";
-import { type EpicCalls, epicCallsOf } from "./card";
+import { type EpicCalls, EpicWidget, epicCallsOf } from "./card";
 import { noEpics } from "./epics";
 import * as eventring from "./eventring";
 import type { EpicEvent, StepEvent } from "./eventring";
@@ -119,6 +119,7 @@ export const EpicEventBlock: Stories = {
   parked: () => <eventring.EventRing event={parkEvent} calls={calls} />,
   released: () => <eventring.EventRing event={releaseEvent} calls={calls} />,
   ended: () => <eventring.EventRing event={endEvent} calls={calls} />,
+  created: () => <EpicWidget epic={rota} calls={calls} />,
 };
 
 export const StepEndBlock: Stories = {

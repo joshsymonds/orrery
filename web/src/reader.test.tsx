@@ -787,8 +787,6 @@ function ringCalls(questions: MessageInitShape<typeof EpicQuestionSchema>[] = []
   });
   return {
     get: async () => reading,
-    pause: () => Promise.resolve(),
-    resume: () => Promise.resolve(),
     answer: async () => "",
     openEpic: () => {},
     openStep: () => {},
@@ -829,7 +827,7 @@ async function withEventReader(
   }
 }
 
-test("EventRing: an orrery-event prompt of each kind draws one ringed line and no EVENT block", async () => {
+test("EventRing: an orrery-event prompt of each kind draws one EpicEventBlock and no EVENT block", async () => {
   for (const [kind, tail] of [
     ["question", "Q1"],
     ["park", "Q1"],
@@ -839,7 +837,7 @@ test("EventRing: an orrery-event prompt of each kind draws one ringed line and n
     await withEventReader(
       [item({ kind: "prompt", time: 100n, sender: "event", text: eventText(kind, tail) })],
       (container) => {
-        assert.equal(container.querySelectorAll(".ring-line").length, 1, `a ${kind} event draws one ringed line`);
+        assert.equal(container.querySelectorAll(".block.epicevent").length, 1, `a ${kind} event draws one EpicEventBlock`);
         assertNone(container.querySelector(".event"), `a ${kind} event is not an EVENT row`);
         const labels = [...container.querySelectorAll("small")].map((small) => small.textContent);
         assert.equal(labels.includes("EVENT"), false, `a ${kind} event shows no EVENT label`);
@@ -848,11 +846,11 @@ test("EventRing: an orrery-event prompt of each kind draws one ringed line and n
   }
 });
 
-test("EventRing: a pane prompt with the same text draws the ring too, and its row takes no owner's-turn gap", () =>
+test("EventRing: a pane prompt with the same text draws its EpicEventBlock too, and its row takes no owner's-turn gap", () =>
   withEventReader(
     [item({ kind: "prompt", time: 100n, text: eventText("release", "released") })],
     (container) => {
-      assert.equal(container.querySelectorAll(".ring-line").length, 1, "the pane prompt draws its ring");
+      assert.equal(container.querySelectorAll(".block.epicevent").length, 1, "the pane prompt draws its EpicEventBlock");
       assertNone(container.querySelector(".you"), "the pane prompt is not YOU");
       assertNone(container.querySelector(".t.owner-turn"), "the ring's row is not the owner's turn");
     },
