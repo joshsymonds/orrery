@@ -1,6 +1,7 @@
 package io.github.joshsymonds.orrery.ui
 
 import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Modifier
@@ -19,20 +20,26 @@ import com.connectrpc.Code
 import io.github.joshsymonds.orrery.api.FakeOrreryServer
 import io.github.joshsymonds.orrery.api.OrreryClient
 import io.github.joshsymonds.orrery.api.Reply
+import io.github.joshsymonds.orrery.api.StreamEnd
 import io.github.joshsymonds.orrery.awaitUntil
+import io.github.joshsymonds.orrery.gen.orrery.v1.ConversationResponse
+import io.github.joshsymonds.orrery.gen.orrery.v1.ConversationState
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsArchiveRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsArchiveResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsListResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsUnarchiveRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsUnarchiveResponse
+import io.github.joshsymonds.orrery.gen.orrery.v1.HeadlessSession
 import io.github.joshsymonds.orrery.gen.orrery.v1.HostStatusResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.ListHeadlessResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.ListResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.MarkSeenResponse
+import io.github.joshsymonds.orrery.gen.orrery.v1.OpenRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.Pane as PaneProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.PanesListResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.SeenResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.Session as SessionProto
+import io.github.joshsymonds.orrery.gen.orrery.v1.SessionsWatchConversationResponse
 import io.github.joshsymonds.orrery.mainThreadComposeRule
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -66,6 +73,14 @@ class ArchiveToastTest {
         const val UNDO_NO_ANSWER = "Could not bring it back: the server did not answer."
         const val UNDO_REFUSED = "Could not bring it back: the server refused it."
         const val ONE_DAY_MILLIS = 24L * 60 * 60 * 1000
+        const val TWO_DAYS_SECONDS = 2L * 24 * 60 * 60
+        const val CONVERSATION_PATH = "/orrery.v1.Panes/Conversation"
+        const val WATCH_PATH = "/orrery.v1.Sessions/WatchConversation"
+        const val BASH_QUESTION = """{"tool":"Bash","input":{"command":"echo synthetic"}}"""
+        const val PAGE_TITLE = "label-%1"
+        const val HEADLESS = "0123456789abcdef0123456789abcdef"
+        const val SESSION_TITLE = "synthetic session"
+        const val SESSION_REQUEST = "synthetic-request"
     }
 
     @get:Rule
@@ -189,6 +204,105 @@ class ArchiveToastTest {
 
     private fun undo() {
         composeRule.onNodeWithTag("archive-toast-undo").performClick()
+    }
+
+    private fun archivesSent(server: FakeOrreryServer): List<Pair<String, String>> =
+        server.requests.filter { it.rawPath == EPICS_ARCHIVE }
+            .map { EpicsArchiveRequest.parseFrom(it.body) }
+            .map { it.kind to it.id }
+
+    /** The conversation page's stale Ask: a question left waiting two days, which offers Archive this session. */
+    private fun stalePane(): PaneProto = pane(TMUX_PANE, TMUX_SESSION).toBuilder()
+        .setState("waiting")
+        .setLabel(PAGE_TITLE)
+        .setChanged(NOW - TWO_DAYS_SECONDS)
+        .setQuestion(BASH_QUESTION)
+        .setQuestionHash("abc123")
+        .build()
+
+    /** Serves the pane [pane] to the conversation page, with an empty conversation and archive calls that land. */
+    private fun servePage(server: FakeOrreryServer, pane: PaneProto) {
+        serveDefaults(server)
+        server.respond(PANES_LIST, PanesListResponse.newBuilder().addPanes(pane).build())
+        server.respond(CONVERSATION_PATH, ConversationResponse.newBuilder().setOrigin("synthetic origin").build())
+        server.respond(EPICS_ARCHIVE, EpicsArchiveResponse.getDefaultInstance())
+        server.respond(EPICS_UNARCHIVE, EpicsUnarchiveResponse.getDefaultInstance())
+    }
+
+    /** One watch answer for the headless session [HEADLESS]: stale since two days ago, with a question open. */
+    private fun sessionDelta(): SessionsWatchConversationResponse = SessionsWatchConversationResponse.newBuilder()
+        .setTranscript(HEADLESS)
+        .setSeq(1L)
+        .setState(
+            ConversationState.newBuilder()
+                .setOrigin("synthetic origin")
+                .setSession(
+                    HeadlessSession.newBuilder()
+                        .setId(HEADLESS)
+                        .setDir(ALPHA)
+                        .setLabel(SESSION_TITLE)
+                        .setState("waiting")
+                        .setChanged(NOW - TWO_DAYS_SECONDS)
+                        .setSeen(NOW - TWO_DAYS_SECONDS),
+                )
+                .setRequest(
+                    OpenRequest.newBuilder()
+                        .setId(SESSION_REQUEST)
+                        .setKind("question")
+                        .setQuestion("Pick a synthetic option?")
+                        .addAllOptions(listOf("Synthetic one", "Synthetic two")),
+                ),
+        )
+        .build()
+
+    /** Serves the headless session to the session page; every watch answers the same state, so a reconnect adds nothing. */
+    private fun serveSession(server: FakeOrreryServer) {
+        serveDefaults(server)
+        server.route(WATCH_PATH) { Reply.Stream(listOf(sessionDelta()), StreamEnd.Open) }
+        server.respond(EPICS_ARCHIVE, EpicsArchiveResponse.getDefaultInstance())
+        server.respond(EPICS_UNARCHIVE, EpicsUnarchiveResponse.getDefaultInstance())
+    }
+
+    /**
+     * Mounts a page through [page]; [showing] false swaps it out, which is leaving the page. The client is made once,
+     * outside the composition, so a recomposition does not hand the page a client it has not read with.
+     */
+    private fun mountPage(
+        server: FakeOrreryServer,
+        showing: MutableState<Boolean>,
+        page: @Composable (OrreryClient) -> Unit,
+    ) {
+        val client = OrreryClient(server.baseUrl)
+        composeRule.setContent {
+            if (showing.value) {
+                page(client)
+            } else {
+                Text("elsewhere", modifier = Modifier.testTag("elsewhere"))
+            }
+        }
+    }
+
+    private fun mountPane(server: FakeOrreryServer, showing: MutableState<Boolean> = mutableStateOf(true)) {
+        mountPage(server, showing) { client -> PaneScreen(TMUX_PANE, client, clock = { NOW }) }
+    }
+
+    private fun mountSession(server: FakeOrreryServer, showing: MutableState<Boolean> = mutableStateOf(true)) {
+        mountPage(server, showing) { client -> SessionScreen(HEADLESS, client, clock = { NOW }) }
+    }
+
+    /** Archives this session from the stale Ask's foot. */
+    private fun archiveFromAsk() {
+        awaitTag("ask-archive")
+        composeRule.onNodeWithTag("ask-archive").performClick()
+    }
+
+    /** The toast sits in the lower half of the page and ends above the dock, so it never covers the dock's input. */
+    private fun assertToastAboveDock() {
+        val toast = composeRule.onNodeWithTag("archive-toast").fetchSemanticsNode().boundsInRoot
+        val dock = composeRule.onNodeWithTag("dock").fetchSemanticsNode().boundsInRoot
+        val root = composeRule.onRoot().fetchSemanticsNode().boundsInRoot
+        assertTrue("the toast sits in the lower half of the page", toast.top > root.bottom / 2f)
+        assertTrue("the toast ends above the dock", toast.bottom <= dock.top + 1f)
     }
 
     @Test
@@ -373,6 +487,212 @@ class ArchiveToastTest {
 
             composeRule.awaitUntil { requestsTo(server, PANES_LIST) == 2 }
             assertEquals(0, countNodes("archive-toast"))
+        }
+    }
+
+    @Test
+    fun archivingFromAStaleAskOnAPaneShowsTheToastAtTheFootWithTheHeadTitle() {
+        FakeOrreryServer().use { server ->
+            servePage(server, stalePane())
+            mountPane(server)
+
+            archiveFromAsk()
+
+            awaitTag("archive-toast")
+            composeRule.onNodeWithTag("head-text").assertTextEquals(PAGE_TITLE)
+            composeRule.onNodeWithTag("archive-toast-line").assertTextEquals("Archived “$PAGE_TITLE”.")
+            assertEquals(1, countNodes("archive-toast-undo"))
+            assertEquals(listOf("session" to TMUX_SESSION), archivesSent(server))
+            assertToastAboveDock()
+        }
+    }
+
+    @Test
+    fun undoOnAPaneSendsUnarchiveForItsRowAndEndsTheToast() {
+        FakeOrreryServer().use { server ->
+            servePage(server, stalePane())
+            mountPane(server)
+            archiveFromAsk()
+            awaitTag("archive-toast")
+
+            undo()
+
+            composeRule.awaitUntil { countNodes("archive-toast") == 0 }
+            assertEquals(listOf("session" to TMUX_SESSION), unarchivesSent(server))
+        }
+    }
+
+    @Test
+    fun aFailedUndoOnAPaneSaysWhyAndKeepsTheToastAndItsUndo() {
+        FakeOrreryServer().use { server ->
+            servePage(server, stalePane())
+            server.drop(EPICS_UNARCHIVE)
+            mountPane(server)
+            archiveFromAsk()
+            awaitTag("archive-toast")
+
+            undo()
+
+            awaitTag("archive-toast-failed")
+            composeRule.onNodeWithTag("archive-toast-failed").assertTextEquals(UNDO_NO_ANSWER)
+            assertEquals(1, countNodes("archive-toast"))
+            assertEquals(1, countNodes("archive-toast-undo"))
+            assertEquals(listOf("session" to TMUX_SESSION), unarchivesSent(server))
+        }
+    }
+
+    @Test
+    fun leavingAPaneEndsTheToast() {
+        FakeOrreryServer().use { server ->
+            val showing = mutableStateOf(true)
+            servePage(server, stalePane())
+            mountPane(server, showing)
+            archiveFromAsk()
+            awaitTag("archive-toast")
+
+            composeRule.runOnIdle { showing.value = false }
+            composeRule.awaitUntil { countNodes("elsewhere") > 0 }
+            composeRule.runOnIdle { showing.value = true }
+            awaitTag("ask-archive")
+
+            assertEquals(0, countNodes("archive-toast"))
+        }
+    }
+
+    @Test
+    fun openingAnotherPaneInPlaceEndsTheToast() {
+        FakeOrreryServer().use { server ->
+            val paneId = mutableStateOf(TMUX_PANE)
+            servePage(server, stalePane())
+            mountPage(server, mutableStateOf(true)) { client -> PaneScreen(paneId.value, client, clock = { NOW }) }
+            archiveFromAsk()
+            awaitTag("archive-toast")
+
+            composeRule.runOnIdle { paneId.value = OTHER_PANE }
+            composeRule.waitForIdle()
+
+            assertEquals(0, countNodes("archive-toast"))
+        }
+    }
+
+    @Test
+    fun theToastOnAPaneStaysPastAnyTimer() {
+        FakeOrreryServer().use { server ->
+            servePage(server, stalePane())
+            mountPane(server)
+            archiveFromAsk()
+            awaitTag("archive-toast")
+
+            composeRule.mainClock.autoAdvance = false
+            composeRule.mainClock.advanceTimeBy(ONE_DAY_MILLIS, ignoreFrameDuration = true)
+            composeRule.waitForIdle()
+
+            assertEquals(1, countNodes("archive-toast"))
+            assertEquals(1, countText("archive-toast-line", "Archived “$PAGE_TITLE”."))
+            assertEquals(1, countNodes("archive-toast-undo"))
+        }
+    }
+
+    @Test
+    fun archivingFromAStaleAskOnASessionShowsTheToastAtTheFootWithTheHeadTitle() {
+        FakeOrreryServer().use { server ->
+            serveSession(server)
+            mountSession(server)
+
+            archiveFromAsk()
+
+            awaitTag("archive-toast")
+            composeRule.onNodeWithTag("head-text").assertTextEquals(SESSION_TITLE)
+            composeRule.onNodeWithTag("archive-toast-line").assertTextEquals("Archived “$SESSION_TITLE”.")
+            assertEquals(1, countNodes("archive-toast-undo"))
+            assertEquals(listOf("headless" to HEADLESS), archivesSent(server))
+            assertToastAboveDock()
+        }
+    }
+
+    @Test
+    fun undoOnASessionSendsUnarchiveForItsSessionAndEndsTheToast() {
+        FakeOrreryServer().use { server ->
+            serveSession(server)
+            mountSession(server)
+            archiveFromAsk()
+            awaitTag("archive-toast")
+
+            undo()
+
+            composeRule.awaitUntil { countNodes("archive-toast") == 0 }
+            assertEquals(listOf("headless" to HEADLESS), unarchivesSent(server))
+        }
+    }
+
+    @Test
+    fun aFailedUndoOnASessionSaysWhyAndKeepsTheToastAndItsUndo() {
+        FakeOrreryServer().use { server ->
+            serveSession(server)
+            server.drop(EPICS_UNARCHIVE)
+            mountSession(server)
+            archiveFromAsk()
+            awaitTag("archive-toast")
+
+            undo()
+
+            awaitTag("archive-toast-failed")
+            composeRule.onNodeWithTag("archive-toast-failed").assertTextEquals(UNDO_NO_ANSWER)
+            assertEquals(1, countNodes("archive-toast"))
+            assertEquals(1, countNodes("archive-toast-undo"))
+            assertEquals(listOf("headless" to HEADLESS), unarchivesSent(server))
+        }
+    }
+
+    @Test
+    fun leavingASessionEndsTheToast() {
+        FakeOrreryServer().use { server ->
+            val showing = mutableStateOf(true)
+            serveSession(server)
+            mountSession(server, showing)
+            archiveFromAsk()
+            awaitTag("archive-toast")
+
+            composeRule.runOnIdle { showing.value = false }
+            composeRule.awaitUntil { countNodes("elsewhere") > 0 }
+            composeRule.runOnIdle { showing.value = true }
+            awaitTag("ask-archive")
+
+            assertEquals(0, countNodes("archive-toast"))
+        }
+    }
+
+    @Test
+    fun openingAnotherSessionInPlaceEndsTheToast() {
+        FakeOrreryServer().use { server ->
+            val sessionId = mutableStateOf(HEADLESS)
+            serveSession(server)
+            mountPage(server, mutableStateOf(true)) { client -> SessionScreen(sessionId.value, client, clock = { NOW }) }
+            archiveFromAsk()
+            awaitTag("archive-toast")
+
+            composeRule.runOnIdle { sessionId.value = OTHER_SESSION }
+            composeRule.waitForIdle()
+
+            assertEquals(0, countNodes("archive-toast"))
+        }
+    }
+
+    @Test
+    fun theToastOnASessionStaysPastAnyTimer() {
+        FakeOrreryServer().use { server ->
+            serveSession(server)
+            mountSession(server)
+            archiveFromAsk()
+            awaitTag("archive-toast")
+
+            composeRule.mainClock.autoAdvance = false
+            composeRule.mainClock.advanceTimeBy(ONE_DAY_MILLIS, ignoreFrameDuration = true)
+            composeRule.waitForIdle()
+
+            assertEquals(1, countNodes("archive-toast"))
+            assertEquals(1, countText("archive-toast-line", "Archived “$SESSION_TITLE”."))
+            assertEquals(1, countNodes("archive-toast-undo"))
         }
     }
 }

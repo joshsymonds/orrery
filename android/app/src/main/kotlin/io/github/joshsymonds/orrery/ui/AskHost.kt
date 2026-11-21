@@ -118,7 +118,9 @@ internal fun rememberAskLife(key: Any): AskLife {
  * The Ask for [model], with the life of its answer: a tap sends its option once, taps send nothing while an answer is in
  * flight, a refusal leaves the Ask open with its words, and the answered line folds in once the model is gone. Not now,
  * Bring it back, Decline and Archive this session make their calls and show a refusal's reason. [onRefresh] runs after
- * each call the server took. An epic's or park's Ask is drawn without a call: the epic screen sends those answers.
+ * each call the server took. An archive the server took also calls [onArchived] with the kind and id Epics.Unarchive
+ * names the row by, before [onRefresh]. An epic's or park's Ask is drawn without a call: the epic screen sends those
+ * answers.
  */
 @Composable
 internal fun AskHost(
@@ -127,6 +129,7 @@ internal fun AskHost(
     now: Long,
     onRefresh: () -> Unit,
     modifier: Modifier = Modifier,
+    onArchived: (kind: String, id: String) -> Unit = { _, _ -> },
     life: AskLife = rememberAskLife(Unit),
 ) {
     val key = model?.target?.let { keyOf(it) }
@@ -149,7 +152,12 @@ internal fun AskHost(
         val onArchive: (() -> Unit)? = if (target == null || archive == null) {
             null
         } else {
-            ({ life.step(keyOf(target), onRefresh) { client.archive(archive.first, archive.second) } })
+            ({
+                life.step(keyOf(target), {
+                    onArchived(archive.first, archive.second)
+                    onRefresh()
+                }) { client.archive(archive.first, archive.second) }
+            })
         }
         Ask(
             model = model,

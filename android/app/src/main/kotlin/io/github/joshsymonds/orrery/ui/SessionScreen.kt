@@ -26,6 +26,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.platform.LocalDensity
@@ -264,6 +265,11 @@ fun SessionScreen(
     // The stream redraws the session once its answer lands, so the Ask needs no refresh of its own.
     // The Ask's answer lives per session, outside the footer item that draws the Ask, so scrolling that item away keeps it.
     val askLife = rememberAskLife(sessionId)
+    // The archive toast a stale Ask's Archive this session shows; it leaves with this page's composition.
+    val toast = remember(sessionId) { ArchiveToastState() }
+    val onArchived: (kind: String, id: String) -> Unit = { kind, id ->
+        pane?.let { toast.show(it.label.ifEmpty { it.command }, kind, id) }
+    }
     // A step's footer is its end once it has ended; a session's is its Ask.
     val footer: (@Composable () -> Unit)? = if (step != null) {
         stepRow?.takeIf { it.end.isNotEmpty() }?.let { ended ->
@@ -274,7 +280,14 @@ fun SessionScreen(
         }
     } else {
         val content: @Composable () -> Unit = {
-            AskHost(model = ask, client = client, now = nowSeconds, onRefresh = {}, life = askLife)
+            AskHost(
+                model = ask,
+                client = client,
+                now = nowSeconds,
+                onRefresh = {},
+                onArchived = onArchived,
+                life = askLife,
+            )
         }
         content
     }
@@ -409,6 +422,13 @@ fun SessionScreen(
                     },
                 )
             }
+            // At the foot of the body, above the dock, so it never covers the dock's input.
+            ArchiveToast(
+                state = toast,
+                client = client,
+                onUndone = {},
+                modifier = Modifier.align(Alignment.BottomCenter),
+            )
         }
         finding?.let { session ->
             FindBar(

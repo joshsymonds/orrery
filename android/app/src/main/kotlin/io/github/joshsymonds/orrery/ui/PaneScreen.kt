@@ -297,6 +297,11 @@ fun PaneScreen(
     val listState = remember(paneId) { LazyListState() }
     // The Ask's answer lives per pane, outside the footer item that draws the Ask, so scrolling that item away keeps it.
     val askLife = rememberAskLife(paneId)
+    // The archive toast a stale Ask's Archive this session shows; it leaves with this page's composition.
+    val toast = remember(paneId) { ArchiveToastState() }
+    val onArchived: (kind: String, id: String) -> Unit = { kind, id ->
+        current?.let { toast.show(it.label.ifEmpty { it.command }, kind, id) }
+    }
     var endRequests by remember(paneId) { mutableIntStateOf(0) }
     var headHeightPx by remember { mutableIntStateOf(0) }
     var headMeasured by remember { mutableStateOf(false) }
@@ -343,7 +348,14 @@ fun PaneScreen(
             // the conversation while the reader is at the newest end.
             if (bodyReady && showingConversation) {
                 val footer: @Composable () -> Unit = {
-                    AskHost(model = ask, client = client, now = nowSeconds, onRefresh = refresh, life = askLife)
+                    AskHost(
+                        model = ask,
+                        client = client,
+                        now = nowSeconds,
+                        onRefresh = refresh,
+                        onArchived = onArchived,
+                        life = askLife,
+                    )
                 }
                 ConversationView(
                     entries,
@@ -384,7 +396,14 @@ fun PaneScreen(
                                 top = bodyTop,
                             ),
                     )
-                    AskHost(model = ask, client = client, now = nowSeconds, onRefresh = refresh, life = askLife)
+                    AskHost(
+                        model = ask,
+                        client = client,
+                        now = nowSeconds,
+                        onRefresh = refresh,
+                        onArchived = onArchived,
+                        life = askLife,
+                    )
                 }
             }
             current?.let { shown ->
@@ -448,6 +467,13 @@ fun PaneScreen(
                     }
                 }
             }
+            // At the foot of the body, above the dock, so it never covers the dock's input.
+            ArchiveToast(
+                state = toast,
+                client = client,
+                onUndone = refresh,
+                modifier = Modifier.align(Alignment.BottomCenter),
+            )
         }
         finding?.let { session ->
             FindBar(
