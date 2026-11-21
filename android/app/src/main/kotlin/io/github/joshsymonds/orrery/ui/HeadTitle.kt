@@ -1,6 +1,5 @@
 package io.github.joshsymonds.orrery.ui
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -15,8 +14,6 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
@@ -26,7 +23,6 @@ import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import io.github.joshsymonds.orrery.api.ConversationContext
-import io.github.joshsymonds.orrery.api.HostStat
 import io.github.joshsymonds.orrery.ui.theme.OrreryTokens
 
 /**
@@ -155,49 +151,6 @@ fun MoreMenu(
                 modifier = Modifier.testTag("head-menu-find"),
             )
             items()
-        }
-    }
-}
-
-/**
- * The machine band: the host's stats as meters, from [HostMeters], in a full-width band of their own under the title
- * row. The band is on surface.side, the inbox's ground, one step deeper than the goal's well, with an edge above and
- * below it. A host other than the serving one draws its [otherHost] name and says it has no meters, and draws no stats.
- * Null [stats] with no other host draws nothing, not even the band.
- */
-@Composable
-fun HeadMeters(stats: List<HostStat>?, otherHost: String?) {
-    if (otherHost == null && stats.isNullOrEmpty()) return
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .testTag("head-machine-band")
-            .background(OrreryTokens.Surface.side)
-            .drawBehind {
-                val edge = OrreryTokens.Size.hairline.toPx()
-                drawLine(OrreryTokens.Line.soft, Offset(0f, edge / 2), Offset(size.width, edge / 2), edge)
-                drawLine(
-                    OrreryTokens.Line.soft,
-                    Offset(0f, size.height - edge / 2),
-                    Offset(size.width, size.height - edge / 2),
-                    edge,
-                )
-            }
-            .padding(horizontal = OrreryTokens.Layout.pagePadPhone, vertical = OrreryTokens.Space.eight),
-    ) {
-        if (otherHost != null) {
-            Column(modifier = Modifier.fillMaxWidth().testTag("head-other-host")) {
-                Text(text = otherHost, color = OrreryTokens.Ink.one, style = OrreryTokens.Type.small)
-                Text(
-                    text = "on another host: no meters",
-                    color = OrreryTokens.Ink.three,
-                    style = OrreryTokens.Type.small,
-                )
-            }
-        } else if (stats != null) {
-            Box(modifier = Modifier.fillMaxWidth().testTag("head-meters")) {
-                HostMeters(stats)
-            }
         }
     }
 }

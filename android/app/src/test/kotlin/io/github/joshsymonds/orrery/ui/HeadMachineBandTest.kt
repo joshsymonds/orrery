@@ -25,7 +25,7 @@ import org.robolectric.annotation.GraphicsMode
 
 private const val TITLE_TAG = "head-title"
 private const val CONTEXT_TAG = "head-context"
-private const val MACHINE_BAND_TAG = "head-machine-band"
+private const val MACHINE_BAND_TAG = "machine-band"
 private const val BAND_TAG = "band"
 
 /**

@@ -12,6 +12,7 @@ import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertTextEquals
+import androidx.compose.ui.test.hasAnyAncestor
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.onAllNodesWithTag
@@ -33,6 +34,8 @@ import io.github.joshsymonds.orrery.gen.orrery.v1.EpicQuestion as EpicQuestionPr
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsGetResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsListResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.HeadlessSession
+import io.github.joshsymonds.orrery.gen.orrery.v1.HostStat as HostStatProto
+import io.github.joshsymonds.orrery.gen.orrery.v1.HostStatusResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.SessionsWatchConversationResponse
 import io.github.joshsymonds.orrery.mainThreadAndroidComposeRule
 import io.github.joshsymonds.orrery.ui.theme.OrreryTokens
@@ -65,6 +68,8 @@ private const val COMPACT_ASKING_TAG = "compact-asking"
 private const val COMPACT_BADGE_TAG = "compact-badge:example-repo/rota-export"
 private const val BAND_LINE_TAG = "band-line:example-repo/rota-export"
 private const val COMPOSER_TAG = "composer"
+private const val HOST_PATH = "/orrery.v1.Host/Status"
+private const val SERVING_HOST = "example-host"
 
 @OptIn(ExperimentalTestApi::class)
 @RunWith(RobolectricTestRunner::class)
@@ -170,6 +175,27 @@ class PhoneHeadSessionScreenTest {
     private fun scrollToNewest() {
         composeRule.onNodeWithTag(CONVERSATION_LIST_TAG).performScrollToIndex(REPLY_COUNT - 1)
         composeRule.waitForIdle()
+    }
+
+    @Test
+    fun theServingHostsMetersDrawInTheSharedMachineBand() {
+        FakeOrreryServer().use { server ->
+            serveStreams(server, streamOf(fullDelta()))
+            server.respond(
+                HOST_PATH,
+                HostStatusResponse.newBuilder()
+                    .setHost(SERVING_HOST)
+                    .addStats(HostStatProto.newBuilder().setLabel("cpu").setValue("12%").setPercent(12.0).setLevel("ok"))
+                    .build(),
+            )
+            setScreen(server)
+            awaitNewestReply()
+
+            composeRule.awaitExactlyOne(hasTestTag("machine-band"))
+            composeRule.onNode(hasTestTag("machine-host") and hasAnyAncestor(hasTestTag("machine-band")))
+                .assertTextEquals(SERVING_HOST)
+            composeRule.onNode(hasTestTag("meter:cpu") and hasAnyAncestor(hasTestTag("machine-band"))).assertIsDisplayed()
+        }
     }
 
     @Test
