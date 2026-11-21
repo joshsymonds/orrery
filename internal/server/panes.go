@@ -3,10 +3,12 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 	"time"
 
@@ -18,6 +20,7 @@ import (
 	enginev1connect "github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1/enginev1connect"
 	v1 "github.com/joshsymonds/orrery/internal/gen/orrery/v1"
 	orreryv1connect "github.com/joshsymonds/orrery/internal/gen/orrery/v1/orreryv1connect"
+	"github.com/joshsymonds/orrery/internal/protocol"
 	"github.com/joshsymonds/orrery/internal/store"
 	"github.com/joshsymonds/orrery/internal/tmuxctl"
 )
@@ -188,6 +191,11 @@ func (s panesServer) Conversation(
 	if err != nil {
 		return nil, connectError(err)
 	}
+	pane := req.Msg.GetPane()
+	sends, earlier := s.echoSends(ctx, pane), s.echoEarlier(ctx, pane)
+	if markErr := markPaneEchoes(conv.Items, conv.Oldest, sends, earlier); markErr != nil {
+		return nil, connectError(markErr)
+	}
 	s.reportRead(req.Msg.GetPane())
 	return connect.NewResponse(conversationMessage(conv)), nil
 }
@@ -292,6 +300,7 @@ func conversationItems(items []conversation.Item) []*v1.ConversationItem {
 			Contract: item.Contract,
 			Added:    item.Added,
 			Removed:  item.Removed,
+			Client:   item.Client,
 		})
 	}
 	return out
@@ -378,5 +387,102 @@ func paneField(fields map[string]json.RawMessage, key string, dst any) error {
 	if err := json.Unmarshal(fields[key], dst); err != nil {
 		return fmt.Errorf("server: decode pane %s: %w", key, err)
 	}
+	return nil
+}
+
+// sendsFunc reads the sends to a pane between the unix seconds from and to, oldest first (see markPaneEchoes).
+type sendsFunc func(from, to int64) ([]conversation.Send, error)
+
+// earlierFunc reads the prompt items of a transcript before a line start, back to the unix second since (see
+// markPaneEchoes).
+type earlierFunc func(before, since int64) ([]conversation.Item, error)
+
+// echoSends returns the sends reader of the echo marking of pane. It reads the store reader's sends to pane through
+// ctx, or is nil when the server has no store reader.
+func (s panesServer) echoSends(ctx context.Context, pane string) sendsFunc {
+	if s.reader == nil {
+		return nil
+	}
+	return func(from, to int64) ([]conversation.Send, error) {
+		rows, err := s.reader.PaneSends(ctx, pane, from, to)
+		if err != nil {
+			return nil, fmt.Errorf("read pane sends: %w", err)
+		}
+		sends := make([]conversation.Send, 0, len(rows))
+		for _, row := range rows {
+			sends = append(sends, conversation.Send{Text: row.Text, Client: row.Client, At: row.At})
+		}
+		return sends, nil
+	}
+}
+
+// echoEarlier returns the earlier reader of the echo marking of pane. It reads the prompts of the pane's live
+// transcript before a line start, resolving the transcript through ctx only when it reads.
+func (s panesServer) echoEarlier(ctx context.Context, pane string) earlierFunc {
+	return func(before, since int64) ([]conversation.Item, error) {
+		path, err := s.paneTranscript(ctx, pane)
+		if err != nil {
+			return nil, err
+		}
+		return earlierIn(path)(before, since)
+	}
+}
+
+// noTranscriptMessage is the message of the 404 a pane with no transcript is answered with.
+const noTranscriptMessage = "no transcript"
+
+// paneTranscript returns the transcript path in the @orrery_transcript option of pane, as conversationAnswer reads it.
+// It fails as conversationAnswer does when the option cannot be read or names no transcript.
+func (s panesServer) paneTranscript(ctx context.Context, pane string) (string, error) {
+	path, ok, err := s.tmux.PaneOption(ctx, pane, protocol.OptionTranscript)
+	if err != nil {
+		return "", internalError()
+	}
+	if !ok || path == "" {
+		return "", routeError{status: http.StatusNotFound, message: noTranscriptMessage}
+	}
+	return path, nil
+}
+
+// earlierIn returns the earlier reader of the transcript at path: its prompt items before a line start, back to the
+// unix second since (see conversation.EarlierPrompts).
+func earlierIn(path string) earlierFunc {
+	return func(before, since int64) ([]conversation.Item, error) {
+		prompts, err := conversation.EarlierPrompts(path, before, since)
+		if err != nil {
+			return nil, transcriptError(err)
+		}
+		return prompts, nil
+	}
+}
+
+// markPaneEchoes sets the client of each prompt of items that a pane send echoes, as conversation.MarkEchoes sets it.
+// items are a read's items, oldest first, and start is the line start in their transcript that they begin at. The sends
+// are read for the times from the oldest item less conversation.EchoBound to the newest item. When the earliest of them
+// is before the oldest item, the prompts before start are read back to its time through earlier, so an echo before the
+// read takes its send. A read with no prompt reads nothing, and so does a nil sends or a store read that is
+// unavailable: those mark nothing and are no error.
+func markPaneEchoes(items []conversation.Item, start int64, sends sendsFunc, earlier earlierFunc) error {
+	hasPrompt := slices.ContainsFunc(items, func(item conversation.Item) bool { return item.Kind == promptKind })
+	if sends == nil || !hasPrompt {
+		return nil
+	}
+	oldest, newest := items[0].Time, items[len(items)-1].Time
+	found, err := sends(oldest-conversation.EchoBound, newest)
+	switch {
+	case errors.Is(err, store.ErrUnavailable):
+		return nil
+	case err != nil:
+		return internalError()
+	case len(found) == 0:
+		return nil
+	}
+	var prompts []conversation.Item
+	if found[0].At < oldest {
+		if prompts, err = earlier(start, found[0].At); err != nil {
+			return err
+		}
+	}
+	conversation.MarkEchoes(items, prompts, found)
 	return nil
 }

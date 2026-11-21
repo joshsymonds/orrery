@@ -51,6 +51,7 @@ func (s panesServer) WatchConversation(
 		limit: limit,
 		held:  req.Msg.GetTranscript(),
 		after: req.Msg.GetAfter(),
+		sends: s.echoSends(ctx, req.Msg.GetPane()),
 	}
 	return endWithin(ctx, s.runWatch(ctx, watch, stream), s.sendTimeout, s.shutdown)
 }
@@ -176,6 +177,9 @@ type conversationWatch struct {
 	figure conversation.Context
 	// sent is the state the stream last sent, or nil before its first delta.
 	sent *v1.ConversationState
+	// sends reads the pane's sends for the echo marking of each delta's prompts, or is nil when there is no store reader
+	// (see markPaneEchoes).
+	sends sendsFunc
 	// betweenReads, when set, runs in each step after the transcript's goal and waiting messages are read and before
 	// its delta is. A test sets it to append to the transcript there. It is nil in production.
 	betweenReads func()
@@ -284,9 +288,13 @@ func (w *conversationWatch) since() ([]conversation.Item, bool, error) {
 	if err != nil {
 		return nil, false, transcriptError(err)
 	}
+	start := w.seq
 	w.seq = follow.End
 	if follow.HasTokens {
 		w.figure.Tokens = follow.Tokens
+	}
+	if markErr := markPaneEchoes(follow.Items, start, w.sends, earlierIn(w.path)); markErr != nil {
+		return nil, false, markErr
 	}
 	return follow.Items, true, nil
 }
@@ -299,6 +307,9 @@ func (w *conversationWatch) reset(path string) ([]conversation.Item, int64, erro
 		return nil, 0, transcriptError(err)
 	}
 	w.path, w.seq, w.origin, w.figure = path, end, conv.Origin, conv.Context
+	if markErr := markPaneEchoes(conv.Items, conv.Oldest, w.sends, earlierIn(path)); markErr != nil {
+		return nil, 0, markErr
+	}
 	return conv.Items, conv.Oldest, nil
 }
 
