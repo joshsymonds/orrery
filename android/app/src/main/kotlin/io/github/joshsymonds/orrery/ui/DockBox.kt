@@ -21,6 +21,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
@@ -33,15 +34,21 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.res.ResourcesCompat
 import androidx.core.view.OneShotPreDrawListener
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import io.github.joshsymonds.orrery.R
 import io.github.joshsymonds.orrery.api.NoAnswerException
 import io.github.joshsymonds.orrery.api.OrreryClient
+import io.github.joshsymonds.orrery.push.KeptReplies
+import io.github.joshsymonds.orrery.push.KeptReply
 import io.github.joshsymonds.orrery.ui.theme.OrreryTokens
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -56,6 +63,9 @@ private const val COMPOSE_INPUT_TYPE =
 
 /** The blank line that sets one appended text off from the draft before it. */
 private const val DRAFT_BREAK = "\n\n"
+
+/** The line break that sets a kept shade reply on its own line after the draft text before it. */
+private const val KEPT_BREAK = "\n"
 
 /** The field grows with its draft up to this many lines, then scrolls inside itself. */
 const val COMPOSE_MAX_LINES = 5
@@ -87,14 +97,20 @@ fun composeEdgeOf(state: String): ComposeEdge = when (state) {
 
 /**
  * The text a dock box edits and sends. The dock holds one per conversation and adds texts to it with
- * [append]; the box clears what a successful send took.
+ * [append]; the box clears what a successful send took. It also takes the conversation's kept shade replies
+ * with [joinKept], and holds each one until a send that takes it lands or the draft is cleared.
  */
 class DockDraft {
     var text: String by mutableStateOf("")
         private set
 
+    // The kept replies this draft holds, and the store and conversation they are kept for.
+    private val held = mutableListOf<KeptReply>()
+    private var keptFor: KeptFor? = null
+
     internal fun change(text: String) {
         this.text = text
+        if (text.isEmpty()) letGo(held.toList())
     }
 
     /** Puts [texts] after the draft, joined by blank lines. No texts leave the draft as it is. */
@@ -103,11 +119,67 @@ class DockDraft {
         val added = texts.joinToString(DRAFT_BREAK)
         text = if (text.isEmpty()) added else "$text$DRAFT_BREAK$added"
     }
+
+    /** Joins the replies this draft does not hold yet, each on a new line after the draft, and holds them. */
+    internal fun joinKept(from: KeptFor, replies: List<KeptReply>) {
+        val fresh = replies.filter { reply -> held.none { it.id == reply.id } }
+        if (fresh.isEmpty()) return
+        keptFor = from
+        held += fresh
+        val added = fresh.joinToString(KEPT_BREAK) { it.text }
+        text = if (text.isEmpty()) added else "$text$KEPT_BREAK$added"
+    }
+
+    /** The kept replies the draft holds now, which a send of the draft as it is now takes. */
+    internal fun heldNow(): List<KeptReply> = held.toList()
+
+    /** A send that landed took [sent] from the draft, and the kept replies [sentHeld] it held: they are let go. */
+    internal fun landed(sent: String, sentHeld: List<KeptReply>) {
+        letGo(sentHeld)
+        change(text.removePrefix(sent).removePrefix(DRAFT_BREAK))
+    }
+
+    private fun letGo(replies: List<KeptReply>) {
+        val from = keptFor ?: return
+        if (replies.isEmpty()) return
+        held.removeAll { reply -> replies.any { it.id == reply.id } }
+        from.store.release(from.host, from.kind, from.id, replies.mapTo(HashSet()) { it.id })
+    }
 }
+
+/** The store that keeps a conversation's shade replies, and the host, kind and id the replies are kept for. */
+internal class KeptFor(val store: KeptReplies, val host: String, val kind: String, val id: String)
 
 /** The draft for [key]; it starts empty again when [key] changes. */
 @Composable
 fun rememberDockDraft(key: Any): DockDraft = remember(key) { DockDraft() }
+
+/**
+ * Joins the shade replies kept for one conversation into [draft]: when the page opens, and each time the app returns to
+ * it (ON_START), also while the page is already on screen. Nothing is joined until [host] is known. A reply joins once,
+ * and stays kept until the draft that holds it is sent or cleared.
+ */
+@Composable
+fun JoinKeptReplies(draft: DockDraft, host: String, kind: String, id: String) {
+    val context = LocalContext.current
+    val store = remember(context) { KeptReplies(context) }
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
+    val scope = rememberCoroutineScope()
+    DisposableEffect(draft, store, host, kind, id, lifecycle) {
+        if (host.isEmpty()) return@DisposableEffect onDispose {}
+        val from = KeptFor(store, host, kind, id)
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_START) {
+                scope.launch {
+                    val replies = withContext(Dispatchers.IO) { store.kept(host, kind, id) }
+                    draft.joinKept(from, replies)
+                }
+            }
+        }
+        lifecycle.addObserver(observer)
+        onDispose { lifecycle.removeObserver(observer) }
+    }
+}
 
 /**
  * The composer for one pane, laid out like a text message: the draft field takes the row and
@@ -126,7 +198,8 @@ fun rememberDockDraft(key: Any): DockDraft = remember(key) { DockDraft() }
  * line. [hint] shows in the empty field. [onDraftPresent] hears whether the draft has any text,
  * each time that changes. [onSend] hears each tap on Send, before the request goes out. [send]
  * takes the whole draft off the main thread; it defaults to posting the draft to [paneId]. A
- * throw of [IOException] keeps the draft and shows the failure label, as a failed post does.
+ * throw of [IOException] keeps the draft and shows the failure label, as a failed post does. A landed send also lets go
+ * of the kept shade replies the draft held when Send was tapped.
  */
 @Composable
 fun DockBox(
@@ -265,6 +338,7 @@ private fun DockField(
                 ),
                 onClick = {
                     val text = draft.text
+                    val sentHeld = draft.heldNow()
                     onSend()
                     sending = true
                     failure = null
@@ -281,7 +355,7 @@ private fun DockField(
                         }
                         sending = false
                         if (outcome == null) {
-                            draft.change(draft.text.removePrefix(text).removePrefix(DRAFT_BREAK))
+                            draft.landed(text, sentHeld)
                         } else {
                             failure = outcome
                         }

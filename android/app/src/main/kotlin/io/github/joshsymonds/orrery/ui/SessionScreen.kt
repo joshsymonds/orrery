@@ -279,6 +279,7 @@ fun SessionScreen(
         content
     }
     val draft = rememberDockDraft(sessionId)
+    JoinKeptReplies(draft = draft, host = pane?.host.orEmpty().ifEmpty { servingHost }, kind = "session", id = sessionId)
 
     val headHidden = rememberHeadHidden()
     val density = LocalDensity.current

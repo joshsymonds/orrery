@@ -462,6 +462,7 @@ fun PaneScreen(
             )
         }
         val draft = rememberDockDraft(paneId)
+        JoinKeptReplies(draft = draft, host = current?.host.orEmpty().ifEmpty { servingHost }, kind = "pane", id = paneId)
         Dock(
             facts = dockFactsOf(
                 kind = if (current?.state.orEmpty().isEmpty()) DockKind.SHELL else DockKind.PANE,

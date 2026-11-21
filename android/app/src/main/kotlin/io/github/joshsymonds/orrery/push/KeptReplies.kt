@@ -22,6 +22,17 @@ class KeptReplies(context: Context) {
         preferences.edit().putString(keyOf(host, kind, id), entries.toString()).commit()
     }
 
+    /** Lets go of the conversation's entries with [entryIds], and returns whether the phone stored the change. */
+    fun release(host: String, kind: String, id: String, entryIds: Set<String>): Boolean = synchronized(LOCK) {
+        val entries = entries(host, kind, id)
+        val kept = JSONArray()
+        for (index in 0 until entries.length()) {
+            val entry = entries.getJSONObject(index)
+            if (entry.getString(ENTRY_ID) !in entryIds) kept.put(entry)
+        }
+        preferences.edit().putString(keyOf(host, kind, id), kept.toString()).commit()
+    }
+
     /** The replies kept for the conversation, in the order kept. */
     fun kept(host: String, kind: String, id: String): List<KeptReply> {
         val entries = entries(host, kind, id)
