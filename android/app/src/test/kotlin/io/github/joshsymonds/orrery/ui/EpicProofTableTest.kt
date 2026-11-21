@@ -71,7 +71,10 @@ class EpicProofTableTest {
     @Test
     fun rowShowsItsIdAndTextWithNoRunCellsOpen() {
         composeRule.setContent {
-            MaterialTheme { RequirementTable(listOf(requirement("R1")), noArtifact) }
+            MaterialTheme {
+                val requirements = listOf(requirement("R1"))
+                RequirementTable(requirements, provenIdsOf(requirements, emptyList()), noArtifact)
+            }
         }
 
         assertInRow("R1", "R1")
@@ -84,7 +87,10 @@ class EpicProofTableTest {
     @Test
     fun reviewRequirementWithNoRunReadsByReviewInBothCells() {
         composeRule.setContent {
-            MaterialTheme { RequirementTable(listOf(requirement("R1", kind = "review")), noArtifact) }
+            MaterialTheme {
+                val requirements = listOf(requirement("R1", kind = "review"))
+                RequirementTable(requirements, provenIdsOf(requirements, emptyList()), noArtifact)
+            }
         }
 
         assertCell("req-red:R1", "by review", OrreryTokens.Ink.four)
@@ -96,13 +102,11 @@ class EpicProofTableTest {
     fun runningNewestRunReadsRunningInLive() {
         composeRule.setContent {
             MaterialTheme {
-                RequirementTable(
-                    listOf(
-                        requirement("R1", runs = listOf(evidence("red", passed = false, created = 1L, state = "running"))),
-                        requirement("R2", runs = listOf(evidence("green", passed = false, created = 1L, state = "running"))),
-                    ),
-                    noArtifact,
+                val requirements = listOf(
+                    requirement("R1", runs = listOf(evidence("red", passed = false, created = 1L, state = "running"))),
+                    requirement("R2", runs = listOf(evidence("green", passed = false, created = 1L, state = "running"))),
                 )
+                RequirementTable(requirements, provenIdsOf(requirements, emptyList()), noArtifact)
             }
         }
 
@@ -117,13 +121,11 @@ class EpicProofTableTest {
     fun redRunPassedReadsFailsAtBaseAndNotPassedReadsPassesAtBase() {
         composeRule.setContent {
             MaterialTheme {
-                RequirementTable(
-                    listOf(
-                        requirement("R1", runs = listOf(evidence("red", passed = true, created = 1L))),
-                        requirement("R2", runs = listOf(evidence("red", passed = false, created = 1L))),
-                    ),
-                    noArtifact,
+                val requirements = listOf(
+                    requirement("R1", runs = listOf(evidence("red", passed = true, created = 1L))),
+                    requirement("R2", runs = listOf(evidence("red", passed = false, created = 1L))),
                 )
+                RequirementTable(requirements, provenIdsOf(requirements, emptyList()), noArtifact)
             }
         }
 
@@ -135,13 +137,11 @@ class EpicProofTableTest {
     fun greenRunPassedReadsPassesAndNotPassedReadsFails() {
         composeRule.setContent {
             MaterialTheme {
-                RequirementTable(
-                    listOf(
-                        requirement("R1", runs = listOf(evidence("green", passed = true, created = 1L))),
-                        requirement("R2", runs = listOf(evidence("green", passed = false, created = 1L))),
-                    ),
-                    noArtifact,
+                val requirements = listOf(
+                    requirement("R1", runs = listOf(evidence("green", passed = true, created = 1L))),
+                    requirement("R2", runs = listOf(evidence("green", passed = false, created = 1L))),
                 )
+                RequirementTable(requirements, provenIdsOf(requirements, emptyList()), noArtifact)
             }
         }
 
@@ -153,20 +153,18 @@ class EpicProofTableTest {
     fun newestRunOfEachPhaseDecidesItsCell() {
         composeRule.setContent {
             MaterialTheme {
-                RequirementTable(
-                    listOf(
-                        requirement(
-                            "R1",
-                            runs = listOf(
-                                evidence("red", passed = false, created = 2L),
-                                evidence("red", passed = true, created = 1L),
-                                evidence("green", passed = false, created = 1L),
-                                evidence("green", passed = true, created = 3L),
-                            ),
+                val requirements = listOf(
+                    requirement(
+                        "R1",
+                        runs = listOf(
+                            evidence("red", passed = false, created = 2L),
+                            evidence("red", passed = true, created = 1L),
+                            evidence("green", passed = false, created = 1L),
+                            evidence("green", passed = true, created = 3L),
                         ),
                     ),
-                    noArtifact,
                 )
+                RequirementTable(requirements, provenIdsOf(requirements, emptyList()), noArtifact)
             }
         }
 
@@ -178,14 +176,12 @@ class EpicProofTableTest {
     fun rowIsProvenOnlyWhenAGreenRunPassed() {
         composeRule.setContent {
             MaterialTheme {
-                RequirementTable(
-                    listOf(
-                        requirement("R1", runs = listOf(evidence("green", passed = true, created = 1L))),
-                        requirement("R2", runs = listOf(evidence("red", passed = true, created = 1L))),
-                        requirement("R3", runs = listOf(evidence("green", passed = false, created = 1L))),
-                    ),
-                    noArtifact,
+                val requirements = listOf(
+                    requirement("R1", runs = listOf(evidence("green", passed = true, created = 1L))),
+                    requirement("R2", runs = listOf(evidence("red", passed = true, created = 1L))),
+                    requirement("R3", runs = listOf(evidence("green", passed = false, created = 1L))),
                 )
+                RequirementTable(requirements, provenIdsOf(requirements, emptyList()), noArtifact)
             }
         }
 
@@ -195,22 +191,36 @@ class EpicProofTableTest {
     }
 
     @Test
+    fun rowTagFollowsProvenSetMembershipNotItsRuns() {
+        composeRule.setContent {
+            MaterialTheme {
+                val requirements = listOf(
+                    requirement("R1", runs = listOf(evidence("green", passed = true, created = 1L))),
+                    requirement("R2"),
+                )
+                RequirementTable(requirements, setOf("R2"), noArtifact)
+            }
+        }
+
+        composeRule.onNodeWithTag("req-proven:R1", useUnmergedTree = true).assertTextEquals("open")
+        composeRule.onNodeWithTag("req-proven:R2", useUnmergedTree = true).assertTextEquals("proven")
+    }
+
+    @Test
     fun tapOpensRunsRedFirstThenGreenAndSecondTapCloses() {
         composeRule.setContent {
             MaterialTheme {
-                RequirementTable(
-                    listOf(
-                        requirement(
-                            "R1",
-                            runs = listOf(
-                                evidence("green", passed = true, created = 5L),
-                                evidence("red", passed = false, created = 3L),
-                                evidence("red", passed = true, created = 1L),
-                            ),
+                val requirements = listOf(
+                    requirement(
+                        "R1",
+                        runs = listOf(
+                            evidence("green", passed = true, created = 5L),
+                            evidence("red", passed = false, created = 3L),
+                            evidence("red", passed = true, created = 1L),
                         ),
                     ),
-                    noArtifact,
                 )
+                RequirementTable(requirements, provenIdsOf(requirements, emptyList()), noArtifact)
             }
         }
 

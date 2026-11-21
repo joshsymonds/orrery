@@ -3203,7 +3203,7 @@ test("TitleParts: in the inbox no row draws a directory, and no display: none ru
       assert.equal(container.querySelector(".inbox-rows")?.getAttribute("data-list"), "inbox");
       assertNone(rowElement(container, "p").querySelector(".title-dir"), "the pane draws no directory");
       assertNone(rowElement(container, "s").querySelector(".title-dir"), "the session draws no directory");
-      const css = readFileSync(new URL("../src/style.css", import.meta.url), "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
+      const css = readFileSync("web/src/style.css", "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
       const hiding = [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)]
         .filter(([, selectors, declarations]) => /display\s*:\s*none/.test(declarations) && selectors.includes("title-dir"))
         .map(([, selectors]) => selectors.trim());
@@ -4317,6 +4317,50 @@ test("TaskBand: the record pages back through the brief step's conversation unti
     assert.deepEqual(fake.callsTo(sessionOlderPath)[0].body, { id: "run1", before: "100" }, "the page before the oldest item is asked");
     await until(t.signal, () => container.querySelector(".brief p") !== null, "the planner's brief");
     assert.equal(container.querySelector(".brief p")?.textContent, "Parse the lines of the rota.");
+    assert.equal(fake.callsTo(sessionOlderPath).length, 1, "no older page is asked once the brief is held");
+  }));
+
+test("TaskBand: the record pages back through three pages of the brief step's conversation, asks each once in order, and draws the brief from the third", (t) =>
+  withApp(t.signal, { epics: phaseEpic() }, async (container, fake) => {
+    await openCheckingPhase(container);
+    await untilTurn(t.signal, () => fake.callsTo(sessionWatchPath).length === 1, "the brief step's stream");
+    const [stream] = fake.callsTo(sessionWatchPath);
+    fake.replies.set(sessionOlderPath, [
+      { items: [{ kind: "assistant", text: "older reply 1" }], oldest: "80", more: true },
+      { items: [{ kind: "assistant", text: "older reply 2" }], oldest: "60", more: true },
+      { items: [{ kind: "prompt", sender: "brief", text: "Parse the lines of the rota." }], oldest: "40", more: true },
+    ]);
+    fake.emit(stream, { transcript: "t1", seq: "50", reset: true, oldest: "100", items: [{ kind: "assistant", text: "reply 0" }] });
+    await untilTurn(t.signal, () => fake.callsTo(sessionOlderPath).length === 1, "the first older request");
+    assert.deepEqual(fake.callsTo(sessionOlderPath)[0].body, { id: "run1", before: "100" }, "the first page is asked before the reset's oldest item");
+    assertNone(container.querySelector(".brief"), "no brief once the reset is drawn");
+    await untilTurn(t.signal, () => fake.callsTo(sessionOlderPath).length === 2, "the second older request");
+    assert.deepEqual(fake.callsTo(sessionOlderPath)[1].body, { id: "run1", before: "80" }, "the second page is asked before the first page's oldest item");
+    assertNone(container.querySelector(".brief"), "no brief once the first page is drawn");
+    await untilTurn(t.signal, () => fake.callsTo(sessionOlderPath).length === 3, "the third older request");
+    assert.deepEqual(fake.callsTo(sessionOlderPath)[2].body, { id: "run1", before: "60" }, "the third page is asked before the second page's oldest item");
+    await untilTurn(t.signal, () => container.querySelector(".brief p") !== null, "the planner's brief");
+    assert.equal(container.querySelector(".brief p")?.textContent, "Parse the lines of the rota.");
+    assert.equal(fake.callsTo(sessionOlderPath).length, 3, "no fourth page is asked once the brief is held");
+  }));
+
+test("TaskBand: a failed older page draws no brief, and a later delta on the same watch that carries the brief is drawn with no new stream", (t) =>
+  withApp(t.signal, { epics: phaseEpic() }, async (container, fake) => {
+    await openCheckingPhase(container);
+    await untilTurn(t.signal, () => fake.callsTo(sessionWatchPath).length === 1, "the brief step's stream");
+    const [stream] = fake.callsTo(sessionWatchPath);
+    fake.failNext.add(sessionOlderPath);
+    fake.emit(stream, { transcript: "t1", seq: "50", reset: true, oldest: "100", items: [{ kind: "assistant", text: "reply 0" }] });
+    await untilTurn(t.signal, () => fake.callsTo(sessionOlderPath).length === 1, "the older request");
+    assert.deepEqual(fake.callsTo(sessionOlderPath)[0].body, { id: "run1", before: "100" }, "the page before the reset's oldest item is asked");
+    // One more turn lets the refused page's error reach follow, which keeps the page's more and asks nothing again.
+    await act(turn);
+    assertNone(container.querySelector(".brief"), "the failed page draws no brief");
+    assert.equal(fake.callsTo(sessionOlderPath).length, 1, "the failed page is not asked again");
+    fake.emit(stream, { transcript: "t1", seq: "51", items: [{ kind: "prompt", sender: "brief", text: "Parse the lines of the rota." }] });
+    await untilTurn(t.signal, () => container.querySelector(".brief p") !== null, "the planner's brief");
+    assert.equal(container.querySelector(".brief p")?.textContent, "Parse the lines of the rota.");
+    assert.equal(fake.callsTo(sessionWatchPath).length, 1, "no new stream is opened");
     assert.equal(fake.callsTo(sessionOlderPath).length, 1, "no older page is asked once the brief is held");
   }));
 

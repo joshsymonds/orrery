@@ -25,6 +25,7 @@ data class DockFacts(
     val reason: String = "",
     val interruptedAt: Long = 0L,
     val putOff: Boolean = false,
+    val archived: Boolean = false,
     val step: DockStep? = null,
 )
 
@@ -72,6 +73,7 @@ fun stateLine(facts: DockFacts, nowSeconds: Long, zone: ZoneId): StateLine {
         facts.state == "waiting" && facts.putOff -> StateLine(
             "idle", PUT_OFF_WORDS, "", "", "", DockControl.NONE,
         )
+        facts.state == "waiting" && facts.archived -> StateLine("idle", "idle", "", "", "", DockControl.NONE)
         facts.state == "waiting" -> StateLine("waiting", "waiting on you", "", "", "", DockControl.NONE)
         facts.state == "done" && facts.interruptedAt > 0 -> StateLine(
             "interrupted",
@@ -117,7 +119,7 @@ fun dockPlaceholder(facts: DockFacts): String {
         step != null -> "Nudge ${step.label}. It interrupts the turn, then gives it your words"
         facts.interrupting && facts.state == "working" -> "Stopping $name…"
         facts.state == "working" -> "Queue for $name"
-        facts.state == "waiting" && facts.putOff -> "Message $name"
+        facts.state == "waiting" && (facts.putOff || facts.archived) -> "Message $name"
         facts.state == "waiting" -> "Answer $name"
         facts.state == "done" && facts.interruptedAt > 0 -> "$name stopped where it was. Say what to do next"
         facts.state == "interrupted" -> "$name was cut off. Resume it, or say what to do next"

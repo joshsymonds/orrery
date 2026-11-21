@@ -37,7 +37,7 @@ private data class ProofCell(val word: String, val tone: ProofTone)
  * order; a second tap closes it.
  */
 @Composable
-fun RequirementTable(requirements: List<EpicRequirementRow>, loadArtifact: ArtifactLoader) {
+fun RequirementTable(requirements: List<EpicRequirementRow>, proven: Set<String>, loadArtifact: ArtifactLoader) {
     var opened by remember { mutableStateOf(emptySet<String>()) }
     Column(modifier = Modifier.fillMaxWidth()) {
         requirements.forEachIndexed { index, requirement ->
@@ -60,7 +60,7 @@ fun RequirementTable(requirements: List<EpicRequirementRow>, loadArtifact: Artif
                         ProofCellText(tag = "req-red:${requirement.id}", cell = redCellOf(requirement))
                         ProofCellText(tag = "req-green:${requirement.id}", cell = greenCellOf(requirement))
                         Text(
-                            if (isProven(requirement)) "proven" else "open",
+                            if (requirement.id in proven) "proven" else "open",
                             style = OrreryTokens.Type.small,
                             modifier = Modifier.testTag("req-proven:${requirement.id}"),
                         )
@@ -123,10 +123,6 @@ private fun greenCellOf(requirement: EpicRequirementRow): ProofCell {
         else -> ProofCell("fails", ProofTone.BAD)
     }
 }
-
-// isProven is whether a green run of the requirement passed.
-private fun isProven(requirement: EpicRequirementRow): Boolean =
-    requirement.runs.any { it.phase == GREEN && it.passed }
 
 private fun newestOf(requirement: EpicRequirementRow, phase: String) =
     requirement.runs.filter { it.phase == phase }.maxByOrNull { it.created }

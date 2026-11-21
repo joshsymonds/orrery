@@ -122,13 +122,13 @@ fun EpicOrrery(tasks: List<RecordTask>, proven: Set<String>, modifier: Modifier 
 // A wedge's five cells, outside in, then its requirement rim.
 private fun DrawScope.drawWedge(count: Int, index: Int, task: RecordTask, proven: Set<String>, unit: Float) {
     task.cells.forEachIndexed { ring, cell -> drawPath(cellPath(count, index, ring, unit), cellColourOf(cell)) }
-    val rim = if (task.requirements.isNotEmpty() && task.requirements.all { it in proven }) {
-        OrreryTokens.Role.ok
-    } else {
-        OrreryTokens.Line.firm
-    }
+    val rim = if (rimProven(task, proven)) OrreryTokens.Role.ok else OrreryTokens.Line.firm
     drawRim(count, index, rim, unit)
 }
+
+// rimProven is whether a wedge's rim reads proven: it names requirements and every one of them is in [proven].
+internal fun rimProven(task: RecordTask, proven: Set<String>): Boolean =
+    task.requirements.isNotEmpty() && task.requirements.all { it in proven }
 
 // The rim arc of wedge [index], inset from its neighbours by half the channel between cells.
 private fun DrawScope.drawRim(count: Int, index: Int, colour: Color, unit: Float) {

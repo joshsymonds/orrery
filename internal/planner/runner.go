@@ -305,12 +305,17 @@ func (r *Runner) startStep(ctx context.Context, epic string, turn store.EpicTurn
 	if err != nil {
 		return "", fmt.Errorf("render prompt of turn %d of epic %s: %w", turn.Seq, epic, err)
 	}
+	revision := row.Candidate
+	if revision == "" {
+		revision = row.StoredBase
+	}
 	id, err := r.steps.Start(ctx, enginehost.StepStart{
 		ID:          turnStepID(epic, turn.Seq),
 		Agent:       agent,
 		Prompt:      prompt,
 		Schema:      Schema,
 		Workspace:   row.Repository,
+		Revision:    revision,
 		ReadOnly:    true,
 		Epic:        row.ID,
 		ReturnCheck: returnCheck(ctx, row, review, r.resolve, priorGapTurns(gapTurns, triggers)),

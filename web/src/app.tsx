@@ -2531,9 +2531,14 @@ export function App({
               setNoticesOpen(false);
               openNotice(notice);
             }}
-            onBringBack={(row) => {
-              void actions.bringBack(clients, { kind: "pane", id: row.id, questionHash: row.questionHash, changed: row.changed });
-            }}
+            onBringBack={(row) =>
+              actions.bringBack(clients, {
+                kind: "pane",
+                id: row.id,
+                questionHash: row.questionHash,
+                changed: row.changed,
+              })
+            }
             onRead={markNoticeSeen}
             onMore={() => setNoticesOpen(true)}
           />

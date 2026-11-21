@@ -32,10 +32,11 @@ const ContractAccepted = "accepted"
 const ContractSetAside = "set_aside"
 
 // ContractChange is a change of a contract's state. Session is the sessions row id of the session that makes it, and
-// "" for the owner. Words are what the session said.
+// "" for the owner. Words are what the session said. Base is the commit an accept stores as the contract's base; the
+// changes that store no base leave it "".
 type ContractChange struct {
-	Session, Words string
-	At             int64
+	Session, Words, Base string
+	At                   int64
 }
 
 // ReviseContract appends revision as the next version of the contract id. It returns an error that matches ErrNoContract
@@ -196,7 +197,7 @@ func insertContractVersion(ctx context.Context, queries *sqlcgen.Queries, id str
 }
 
 // appendContractState records state as the next state of the contract id, entered at version by the session of change
-// with its words at its time.
+// with its words and base at its time.
 func appendContractState(
 	ctx context.Context, queries *sqlcgen.Queries, id, state string, version int64, change ContractChange,
 ) error {
@@ -212,6 +213,7 @@ func appendContractState(
 		Session:  change.Session,
 		Words:    change.Words,
 		At:       change.At,
+		Base:     change.Base,
 	}); err != nil {
 		return fmt.Errorf("insert state %s of contract %s: %w", state, id, err)
 	}

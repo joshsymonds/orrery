@@ -60,6 +60,8 @@ const (
 	sectionPools = "pools"
 	// sectionReviewers is the top-level array of tables of a project file that internal/reviewers reads.
 	sectionReviewers = "reviewers"
+	// sectionRelease is the top-level table of a project file that internal/enginehost reads.
+	sectionRelease = "release"
 	// keyAgent is the gate key that names the agent an agent gate runs.
 	keyAgent = "agent"
 	// keyNeeds is the gate key that names the pool members a gate takes.
@@ -103,7 +105,8 @@ func ParseFile(path string, data []byte) ([]Gate, error) {
 }
 
 // ParseProject reads a project file. path names the file in errors; data is its contents. The [gates] table may be
-// absent. The pools table and every key under it are left to internal/pools. The gates come back sorted by name.
+// absent. The pools table and every key under it are left to internal/pools, and the release table and every key under
+// it to internal/enginehost, which reads it. The gates come back sorted by name.
 func ParseProject(path string, data []byte) ([]Gate, error) {
 	md, doc, err := decode(path, data, true)
 	if err != nil {
@@ -112,8 +115,8 @@ func ParseProject(path string, data []byte) ([]Gate, error) {
 	return toGates(path, md, doc)
 }
 
-// decode reads the file and refuses any key it does not define. project admits the pools and reviewers tables of a
-// project file.
+// decode reads the file and refuses any key it does not define. project admits the pools, reviewers and release tables
+// of a project file.
 func decode(path string, data []byte, project bool) (toml.MetaData, gateDocument, error) {
 	var doc gateDocument
 	md, err := toml.Decode(string(data), &doc)
@@ -127,7 +130,9 @@ func decode(path string, data []byte, project bool) (toml.MetaData, gateDocument
 }
 
 // checkKeys refuses any key the format does not define. Keys match exactly, so ARGV is refused rather than read as
-// argv. The keys of a needs table are pool names, checked with the needs.
+// argv. The keys of a needs table are pool names, checked with the needs. In project mode the pools, reviewers and
+// release tables and every key under them pass here, since internal/pools, internal/reviewers and internal/enginehost
+// read them; a gates file refuses them.
 func checkKeys(md toml.MetaData, project bool) error {
 	for _, key := range md.Keys() {
 		switch {
@@ -138,7 +143,7 @@ func checkKeys(md toml.MetaData, project bool) error {
 			}
 		case len(key) == 3 && key[0] == sectionGates && slices.Contains(definedKeys(), key[2]):
 		case len(key) == 4 && key[0] == sectionGates && key[2] == keyNeeds:
-		case project && slices.Contains([]string{sectionPools, sectionReviewers}, key[0]):
+		case project && slices.Contains([]string{sectionPools, sectionReviewers, sectionRelease}, key[0]):
 		default:
 			return fmt.Errorf("unknown key %s", key)
 		}

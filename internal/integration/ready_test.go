@@ -242,6 +242,11 @@ func TestOrrerydReadyFailedSessionsStartSendsNothing(t *testing.T) {
 	}
 }
 
+// The race: the wrapper ran `env > child.env` for every claude orreryd started, one-shot runs included, so each run
+// truncated and rewrote child.env, and the read below could see it empty or partial and find no HOME. The wrapper now
+// writes its environment to a temporary file beside child.env and mv's it onto child.env, so the read sees one whole
+// environment of some claude run and cannot lose the race by construction.
+
 // TestOrrerydReadyKeepsNotifySocketFromChildren proves that a session's claude does not inherit NOTIFY_SOCKET, though
 // orreryd was started with it set.
 func TestOrrerydReadyKeepsNotifySocketFromChildren(t *testing.T) {
@@ -251,7 +256,11 @@ func TestOrrerydReadyKeepsNotifySocketFromChildren(t *testing.T) {
 	dir := f.sessionDir(t, "wrapped")
 	recorded := filepath.Join(dir, "child.env")
 	wrapper := filepath.Join(f.root, "claude-wrapper.sh")
-	writeFile(t, wrapper, "#!/bin/sh\nenv > '"+recorded+"'\nexec '"+f.fakeClaude+"' \"$@\"\n", 0o700)
+	script := "#!/bin/sh\n" +
+		"tmp='" + recorded + "'.$$\n" +
+		"env > \"$tmp\" && mv \"$tmp\" '" + recorded + "'\n" +
+		"exec '" + f.fakeClaude + "' \"$@\"\n"
+	writeFile(t, wrapper, script, 0o700)
 	daemon := f.startReady(t, f.notifyEnv(notify.path), wrapper, true)
 	daemon.waitForStoreOpen(t)
 	daemon.waitForListener(t, f.sessions)
