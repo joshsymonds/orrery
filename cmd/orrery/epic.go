@@ -34,8 +34,13 @@ const epicAmendForm = "amend ID R<n> --item JSON [--reason TEXT]"
 // epicLineageForm names the form of `orrery epic lineage`.
 const epicLineageForm = "lineage [--epic ID] [--escalated]"
 
+// epicGetForm names the form of `orrery epic get`.
+const epicGetForm = "get ID [--part PART] [--task T<n>] [--question Q<n>] [--decision ID] " +
+	"[--turn N] [--offset N] [--limit N]"
+
 // epicForms names every form of `orrery epic`, for the usage error of a missing or unknown verb.
-const epicForms = "create FILE|-, get ID, list, follow, answer EPIC --id ID [--question QN] [--choice C] [TEXT], " +
+const epicForms = "create FILE|-, " + epicGetForm + ", list, follow, " +
+	"answer EPIC --id ID [--question QN] [--choice C] [TEXT], " +
 	"pause ID, resume ID, stop ID, steer ID, " + epicKickForm + ", " + epicRetryForm + ", " + epicReleaseForm + ", " +
 	epicCloseForm + ", " + epicAmendForm + ", " + epicLineageForm
 
@@ -48,6 +53,19 @@ const epicListVerb = "list"
 // epicIDArgs is the arguments of an epic tool that takes one id.
 type epicIDArgs struct {
 	ID string `json:"id"`
+}
+
+// epicGetArgs is the arguments of epic_get. Each string is omitted when its flag is not given, and Offset and Limit are
+// omitted when theirs is not, so `get ID` alone sends only the id.
+type epicGetArgs struct {
+	ID       string `json:"id"`
+	Part     string `json:"part,omitempty"`
+	Task     string `json:"task,omitempty"`
+	Question string `json:"question,omitempty"`
+	Decision string `json:"decision,omitempty"`
+	Turn     string `json:"turn,omitempty"`
+	Offset   *int   `json:"offset,omitempty"`
+	Limit    *int   `json:"limit,omitempty"`
 }
 
 // epicRetryArgs is the arguments of epic_retry. Node is omitted when the form names none, which ends the epic's park.
@@ -115,7 +133,9 @@ func epicCommand(
 		return epicNoArgs(ctx, epics, verb, "epic_list", map[string]string{}, rest, stdout)
 	case "follow":
 		return epicNoArgs(ctx, epics, verb, "epic_follow", struct{}{}, rest, stdout)
-	case "get", "pause", "resume", "stop", "steer":
+	case "get":
+		return epicGet(ctx, epics, rest, stdout)
+	case "pause", "resume", "stop", "steer":
 		if len(rest) != 1 {
 			return epicForm(verb + " ID")
 		}
@@ -147,6 +167,39 @@ func epicNoArgs(
 		return epicForm(verb)
 	}
 	return epicInvoke(ctx, epics, tool, value, stdout)
+}
+
+// epicGet implements `get ID [--part PART] [--task T<n>] [--question Q<n>] [--decision ID] [--turn N] [--offset N]
+// [--limit N]`. Without flags it prints the epic's one-screen summary. The flags given are sent as the arguments of
+// epic_get, which reads the part, item or page they name. A form without an ID, with an ID that starts with '-', with a
+// positional argument left after the flags, or with an --offset or --limit that is not an integer is a usage error, and
+// calls nothing. Any other refusal is epic_get's to give.
+func epicGet(ctx context.Context, epics enginev1connect.EpicsClient, rest []string, stdout io.Writer) error {
+	if len(rest) == 0 || strings.HasPrefix(rest[0], "-") {
+		return epicForm(epicGetForm)
+	}
+	flags := flag.NewFlagSet("epic get", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	part := flags.String("part", "", "the part to read, such as tasks, or one item such as task")
+	task := flags.String("task", "", "the task to read, such as T3, with --part task")
+	question := flags.String("question", "", "the question to read, such as Q2, with --part question")
+	decision := flags.String("decision", "", "the decision to read, such as DL3, with --part decision")
+	turn := flags.String("turn", "", "the turn to read, such as 3, with --part turn")
+	offset := flags.Int("offset", 0, "the first item, or rune of a text part, to read")
+	limit := flags.Int("limit", 0, "the most items, or runes of a text part, to read")
+	if err := flags.Parse(rest[1:]); err != nil || flags.NArg() != 0 {
+		return epicForm(epicGetForm)
+	}
+	given := make(map[string]bool)
+	flags.Visit(func(f *flag.Flag) { given[f.Name] = true })
+	args := epicGetArgs{ID: rest[0], Part: *part, Task: *task, Question: *question, Decision: *decision, Turn: *turn}
+	if given["offset"] {
+		args.Offset = offset
+	}
+	if given["limit"] {
+		args.Limit = limit
+	}
+	return epicInvoke(ctx, epics, "epic_get", args, stdout)
 }
 
 // epicKick implements `kick ID TEXT`. TEXT is the owner's words, which the planner reads at the epic's next plan run.

@@ -113,7 +113,8 @@ subcommands:
   mcp                                           serve the step tools over MCP on stdio until stdin closes
   epic create FILE|-                            create an epic from the JSON in FILE, or on stdin for -: the accepted
                                                 contract's id, with base, decisions and workflow
-  epic get ID                                   print a stored epic's one-screen summary
+  epic get ID [--part PART] [--task T<n>] [--question Q<n>] [--decision ID] [--turn N] [--offset N] [--limit N]
+                                                print the summary, or the part --part names, paged by --offset/--limit
   epic list                                     print the stored epics as summaries
   epic follow                                   print how often the owner took each label's advice, across epics
   epic answer EPIC --id ID [--question QN] [--choice C] [TEXT]
