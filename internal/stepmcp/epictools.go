@@ -94,9 +94,17 @@ type epicAmendArgs struct {
 	Reason      string          `json:"reason,omitempty" jsonschema:"why the item is amended, recorded with the amendment"`
 }
 
+// epicEscalateArgs is the arguments of epic_escalate, described for its input schema as epicCreateArgs is. Question is
+// the Q<n> to escalate, and Reason says why no one before the owner can answer it.
+type epicEscalateArgs struct {
+	ID       string `json:"id"       jsonschema:"the id of the stored epic"`
+	Question string `json:"question" jsonschema:"the Q<n> of the epic's open question to escalate, such as Q2"`
+	Reason   string `json:"reason"   jsonschema:"why no one before the owner can answer the question"`
+}
+
 // epicInputs holds the input schema of each epic tool, by the arguments it takes.
 type epicInputs struct {
-	create, id, get, list, answer, follow, retry, kick, release, close, amend json.RawMessage
+	create, id, get, list, answer, follow, retry, kick, release, close, amend, escalate json.RawMessage
 }
 
 // epicToolInputs returns the input schemas of the epic tools.
@@ -134,6 +142,9 @@ func epicToolInputs() (epicInputs, error) {
 		return epicInputs{}, err
 	}
 	if in.amend, err = argumentSchema[epicAmendArgs](nil); err != nil {
+		return epicInputs{}, err
+	}
+	if in.escalate, err = argumentSchema[epicEscalateArgs](nil); err != nil {
 		return epicInputs{}, err
 	}
 	return in, nil
@@ -284,6 +295,16 @@ func epicControlTools(epics enginev1connect.EpicsClient, in epicInputs) []Tool {
 				"id, its phase and one line naming what changed.",
 			InputSchema: in.amend,
 			Handler:     epicAmendHandler(epics),
+		},
+		{
+			Name: "epic_escalate",
+			Description: "Escalate an open question of an epic by id to the owner, with reason, so the owner is " +
+				"notified. Only the conversation that steers the epic, or the owner, may escalate; a step of the " +
+				"epic is refused, as are an answered, replaced or already escalated question and an empty reason. " +
+				"Returns a short acknowledgement, not the stored epic: the epic id, its phase and one line naming " +
+				"what changed.",
+			InputSchema: in.escalate,
+			Handler:     epicEscalateHandler(epics),
 		},
 		{
 			Name: "epic_steer",
@@ -517,6 +538,23 @@ func epicAmendHandler(epics enginev1connect.EpicsClient) ToolHandler {
 		}
 		change := amendChange(amended.Msg.GetAmendment())
 		return epicAck(amended.Msg.GetEpic(), req.GetId(), change), nil
+	}
+}
+
+// epicEscalateHandler answers epic_escalate. The escalation's reply is not read: the change names the question and the
+// reason the caller gave, and the phase is read after the escalation, as epic_answer reads it.
+func epicEscalateHandler(epics enginev1connect.EpicsClient) ToolHandler {
+	return func(ctx context.Context, call Call) (ToolResult, error) {
+		var req v1.EscalateEpicRequest
+		if err := decodeProto(call.Arguments, &req); err != nil {
+			return ToolResult{}, err
+		}
+		if _, err := epics.EscalateEpic(ctx, connect.NewRequest(&req)); err != nil {
+			return toolFailure(err), nil
+		}
+		status := answerPhase(epics.GetEpic(ctx, connect.NewRequest(&v1.GetEpicRequest{Id: req.GetId()})))
+		change := fmt.Sprintf("question %s escalated to the owner: %s", req.GetQuestion(), req.GetReason())
+		return ackResult(ackText(ackHead(req.GetId(), status), change)), nil
 	}
 }
 
