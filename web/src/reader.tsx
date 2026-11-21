@@ -662,7 +662,15 @@ function itemBody({
         );
       }
       if (ownersTurn(item)) {
-        return <YouBlock text={item.text} time={item.time} query={query} current={current} />;
+        return (
+          <YouBlock
+            text={item.text}
+            time={item.time}
+            phone={item.client === "orrery-android"}
+            query={query}
+            current={current}
+          />
+        );
       }
       return null;
     }

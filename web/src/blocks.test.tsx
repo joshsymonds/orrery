@@ -60,6 +60,30 @@ test("Shapes: an owner prompt draws a YouBlock: the you tone, the person icon, Y
   });
 });
 
+test("Shapes: a prompt sent from the phone draws a YouBlock with the phone icon in place of the person icon, and the words · from your phone", async () => {
+  const phoneIcon = await iconMarkup("phone");
+  const personIcon = await iconMarkup("person");
+  await withBlock(<YouBlock text="Pin the Lisbon case." time={sentAt} phone />, (container) => {
+    const root = container.querySelector<HTMLElement>('[data-shape="block"]');
+    assert.ok(root, "the phone YouBlock has no block root");
+    assert.equal(root.querySelector(".head")?.innerHTML.includes(phoneIcon), true, "the head does not draw the phone icon");
+    assert.equal(root.querySelector(".head")?.innerHTML.includes(personIcon), false, "the head draws the person icon too");
+    assert.equal(textOf(root, ".head .words"), "· from your phone");
+  });
+});
+
+test("Shapes: a desk prompt's YouBlock keeps the person icon and draws no phone icon and no phone words", async () => {
+  const phoneIcon = await iconMarkup("phone");
+  const personIcon = await iconMarkup("person");
+  await withBlock(<YouBlock text="Pin the Lisbon case." time={sentAt} />, (container) => {
+    const root = container.querySelector<HTMLElement>('[data-shape="block"]');
+    assert.ok(root, "the desk YouBlock has no block root");
+    assert.equal(root.querySelector(".head")?.innerHTML.includes(personIcon), true, "the head does not draw the person icon");
+    assert.equal(root.querySelector(".head")?.innerHTML.includes(phoneIcon), false, "the head draws the phone icon");
+    assert.equal(root.querySelector(".head .words"), null, "the desk prompt draws words after its label");
+  });
+});
+
 test("Shapes: a YouBlock's find query marks each occurrence in its Markdown text, and the current one carries class current", async () => {
   await withBlock(
     // The second "tide" starts at offset 32 of the text as drawn, so current is that offset.

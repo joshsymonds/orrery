@@ -609,6 +609,9 @@ button.link.notices-more { justify-self: end; padding: 0 var(--o-space-12); colo
 .reader .line > .arg.strong { color: var(--o-ink-2); }
 .reader .line > .more { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--o-ink-4); }
 .reader .line > .end { flex: none; margin-left: auto; color: var(--o-ink-3); }
+/* A tool line's counts: the lines its call added and removed, +N in the ok tone and −N in the bad tone, as the facts draw them. */
+.reader .line > .more .plus { color: var(--o-role-ok); }
+.reader .line > .more .minus { color: var(--o-role-bad); }
 .reader button.line {
   width: 100%; min-height: var(--o-space-24); margin: 0; border-top: 0; border-right: 0; border-bottom: 0;
   background: none; text-align: left; cursor: pointer; appearance: none; -webkit-appearance: none;
