@@ -130,6 +130,25 @@ func strandedTasks(
 	return stranded, nil
 }
 
+// startStranded returns, in seq order, the done tasks of epic whose work a failed batch composed and the base a fresh
+// task starts on does not hold (strandedTasks). That base is the epic's candidate when it has one, and otherwise the
+// branch tip, as decideFresh starts a task. No run is skipped. An epic with no branch returns none, since no task starts
+// without one.
+func startStranded(ctx context.Context, epic store.EpicRow, runs []store.NodeRun) ([]int64, error) {
+	tip, ok, err := build.BranchTip(ctx, epic.Repository, epic.ID)
+	if err != nil {
+		return nil, fmt.Errorf("read branch of epic %s: %w", epic.ID, err)
+	}
+	if !ok {
+		return nil, nil
+	}
+	base := epic.Candidate
+	if base == "" {
+		base = tip
+	}
+	return strandedTasks(ctx, epic, runs, "", base)
+}
+
 // batches is what strandedTasks reads of an epic's integrate runs: each run by its path, the commits the runs composed
 // each task into with the start of the run that composed it, and the tasks a run that has not ended composed.
 type batches struct {
