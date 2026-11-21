@@ -66,7 +66,8 @@ func afterKinds(batch kinds.Kind) map[string]kinds.Kind {
 
 // TestDecidePlanEndsOnlyWithItsBodyAtRest: a plan whose kind would end it waits while the planner action its last turn
 // returned beside complete is pending, and while a run of an older settle walk runs, so no run under it is left to run
-// once it has ended.
+// once it has ended. A done task no batch claims starts its late walk while the planner action is pending, and the plan
+// still waits.
 func TestDecidePlanEndsOnlyWithItsBodyAtRest(t *testing.T) {
 	t.Parallel()
 	complete := []store.EpicTurn{turnAt(1, "work"), turnAt(2, "complete")}
@@ -80,7 +81,10 @@ func TestDecidePlanEndsOnlyWithItsBodyAtRest(t *testing.T) {
 			flow: planWithChecks(batchNode()),
 			rows: pendingAction,
 			reg:  integrateKinds(scripted{}),
-			want: []Action{{Kind: ActRun, Path: "plan", NodeKind: "plan"}},
+			want: []Action{
+				{Kind: ActRun, Path: "plan", NodeKind: "plan"},
+				{Kind: ActStart, Runs: []store.NodeRun{startOf("plan/L2/integrate", "integrate", "integrate", 0)}},
+			},
 		},
 		{
 			name: "a complete plan waits while a check of an older settle walk runs",

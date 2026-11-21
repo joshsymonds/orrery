@@ -179,27 +179,30 @@ func TestDecideBatchActions(t *testing.T) {
 	})
 }
 
+// TestDecideBatchHoldsFanOut checks that an open task starts while an integrate run under the plan runs or is parked:
+// the batch has claimed the tasks it integrates, and the fan-out does not wait for it. The name predates the rule that
+// lets the fan-out start under a batch.
 func TestDecideBatchHoldsFanOut(t *testing.T) {
 	t.Parallel()
 	turns := []store.EpicTurn{turnAt(1, "work"), turnAt(2, "work")}
-	tasks := []store.EpicTask{doneTask(1, 1), doneTask(2, 1), openTask(3, 2)}
+	tasks := []store.EpicTask{claimed(1, batchPath), claimed(2, batchPath), openTask(3, 2)}
 	batch := batchNode()
 	plan := Action{Kind: ActRun, Path: "plan", NodeKind: "plan"}
 	started := Action{Kind: ActStart, Runs: []store.NodeRun{childOf("plan/build/T3", 0, 3, 2, 1)}}
 	decideCases(t, []decideCase{
 		{
-			name: "running integrate run holds the start of an open task",
+			name: "running integrate run does not hold the start of an open task",
 			flow: planWithChecks(batch),
 			rows: rowsOf(turns, tasks, runningPlan(0), batchRun("c1")),
 			reg:  integrateKinds(scripted{}),
-			want: []Action{plan},
+			want: []Action{plan, started},
 		},
 		{
-			name: "parked integrate run holds the start of an open task",
+			name: "parked integrate run does not hold the start of an open task",
 			flow: planWithChecks(batch),
 			rows: rowsOf(turns, tasks, runningPlan(0), parked(batchRun("c1"))),
 			reg:  integrateKinds(scripted{}),
-			want: []Action{plan},
+			want: []Action{plan, started},
 		},
 		{
 			name: "open task starts once the integrate run has ended",
@@ -215,6 +218,10 @@ func TestDecideBatchPlanEnds(t *testing.T) {
 	t.Parallel()
 	turns := []store.EpicTurn{turnAt(1, "work"), turnAt(2, "complete")}
 	tasks := []store.EpicTask{doneTask(1, 1), doneTask(2, 2)}
+	// batched holds the tasks the batch at batchPath claimed, as its prepare did: T2 is in it, and the batch passed.
+	integrated := doneTask(2, 2)
+	integrated.Batch = batchPath
+	batched := []store.EpicTask{doneTask(1, 1), integrated}
 	flow := append([]workflow.Node{baseEvidence("red")}, planWithChecks(batchNode())...)
 	red := ended(startOf("red", "red", "evidence", 0), "passed")
 	reg := integrateKinds(scripted{})
@@ -225,7 +232,7 @@ func TestDecideBatchPlanEnds(t *testing.T) {
 	complete := func(
 		requirements []store.EpicRequirement, evidenceRuns []store.EvidenceRun, runs ...store.NodeRun,
 	) kinds.Rows {
-		rows := rowsOf(turns, tasks, append([]store.NodeRun{runningPlan(1), red}, runs...)...)
+		rows := rowsOf(turns, batched, append([]store.NodeRun{runningPlan(1), red}, runs...)...)
 		rows.Epic.StoredBase = "s1"
 		return withEvidence(rows, requirements, evidenceRuns...)
 	}
@@ -244,7 +251,7 @@ func TestDecideBatchPlanEnds(t *testing.T) {
 			name: "complete plan holding integrate parks the epic with the Requirement that is not green",
 			flow: flow,
 			rows: complete(one, []store.EvidenceRun{redRun(red, "R1", evidence.VerdictFails, true)},
-				ended(batchRun(""), "passed"),
+				ended(batchRun("s1"), "passed"),
 			),
 			reg: reg,
 			want: []Action{{
@@ -255,7 +262,7 @@ func TestDecideBatchPlanEnds(t *testing.T) {
 			name: "unbuilt Requirements are joined in contract order",
 			flow: flow,
 			rows: complete([]store.EpicRequirement{itemRequirement("R1"), {ID: "R2"}}, nil,
-				ended(batchRun(""), "passed"),
+				ended(batchRun("s1"), "passed"),
 			),
 			reg: reg,
 			want: []Action{{

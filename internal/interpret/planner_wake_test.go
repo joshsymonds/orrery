@@ -32,11 +32,12 @@ func wakeRows(tasks []store.EpicTask, runs ...store.NodeRun) kinds.Rows {
 }
 
 // TestPlannerWakePassedBatchLeavingOpenTask: a passed batch that leaves a task open ends with no trigger, so it starts
-// no planner turn.
+// no planner turn. The open task starts its build while the batch runs, as no batch holds the fan-out.
 func TestPlannerWakePassedBatchLeavingOpenTask(t *testing.T) {
 	t.Parallel()
 	batch := batchNode()
 	plan := Action{Kind: ActRun, Path: "plan", NodeKind: "plan"}
+	started := Action{Kind: ActStart, Runs: []store.NodeRun{childOf("plan/build/T2", 0, 2, 1, 2)}}
 	decideCases(t, []decideCase{
 		{
 			name: "passed batch with an open task ends with its output and no trigger",
@@ -46,7 +47,7 @@ func TestPlannerWakePassedBatchLeavingOpenTask(t *testing.T) {
 			want: []Action{plan, {
 				Kind: ActBatch, Path: batchPath, Attempt: 1, Outcome: "passed", Output: "R1 green",
 				Run: composedRun(1),
-			}},
+			}, started},
 		},
 	})
 }
@@ -113,11 +114,12 @@ func TestPlannerWakePassedBatchLeavingNone(t *testing.T) {
 }
 
 // TestPlannerWakeAdvanceLeavingOpenTask: an integrate advance that leaves a task open carries no trigger, so it starts
-// no planner turn.
+// no planner turn. The open task starts its build while the advance runs.
 func TestPlannerWakeAdvanceLeavingOpenTask(t *testing.T) {
 	t.Parallel()
 	batch := batchNode()
 	plan := Action{Kind: ActRun, Path: "plan", NodeKind: "plan"}
+	started := Action{Kind: ActStart, Runs: []store.NodeRun{childOf("plan/build/T2", 0, 2, 1, 2)}}
 	decideCases(t, []decideCase{
 		{
 			name: "advance with an open task gives work that moves the epic, with no trigger",
@@ -127,17 +129,18 @@ func TestPlannerWakeAdvanceLeavingOpenTask(t *testing.T) {
 			want: []Action{plan, {
 				Kind: ActWork, Work: kinds.ActAdvance, Output: "R1 green",
 				Path: batchPath, NodeKind: "integrate", Def: batch, Run: composedRun(1),
-			}},
+			}, started},
 		},
 	})
 }
 
 // TestPlannerWakeFailedBatch: a failed batch ends with its trigger whatever work it leaves, so it starts a planner turn
-// even while a task is open.
+// even while a task is open. The open task starts its build while the failed batch ends.
 func TestPlannerWakeFailedBatch(t *testing.T) {
 	t.Parallel()
 	batch := batchNode()
 	plan := Action{Kind: ActRun, Path: "plan", NodeKind: "plan"}
+	started := Action{Kind: ActStart, Runs: []store.NodeRun{childOf("plan/build/T2", 0, 2, 1, 2)}}
 	decideCases(t, []decideCase{
 		{
 			name: "failed batch with an open task ends with its trigger",
@@ -147,7 +150,7 @@ func TestPlannerWakeFailedBatch(t *testing.T) {
 			want: []Action{plan, {
 				Kind: ActBatch, Path: batchPath, Attempt: 1, Outcome: "failed", Output: "Done gate lint failed",
 				Trigger: batchTrigger("failed", "Done gate lint failed"), Run: composedRun(1),
-			}},
+			}, started},
 		},
 	})
 }

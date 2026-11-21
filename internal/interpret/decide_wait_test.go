@@ -50,27 +50,30 @@ func endsPlan(acts []Action) bool {
 	})
 }
 
+// TestDecideSettleWalkDoesNotWaitForAWaitingTask: T1 is done and no batch claims it, so its walk starts at its settle
+// point whatever T2 is doing, whether T2 waits on T1, builds, or waits on the owner.
 func TestDecideSettleWalkDoesNotWaitForAWaitingTask(t *testing.T) {
 	t.Parallel()
+	const settleOfT1 = "plan/S1/integrate"
 	flow := workflow.Workflow{Name: "decide", Nodes: planWithChecks(batchNode())}
 	turns := []store.EpicTurn{turnAt(1, "work")}
 	child := running(childOf("plan/build/T2", 0, 2, 1, 2))
 	reg := integrateKinds(scripted{})
 	waitingRows := rowsOf(turns, []store.EpicTask{doneTask(1, 1), waitingTask(2, "1")}, runningPlan(0), child)
-	if acts := Decide(flow, waitingRows, reg); !startsAt(acts, batchPath) {
-		t.Errorf("with T2 waiting on T1, Decide = %+v, want the integrate walk at %s started", acts, batchPath)
+	if acts := Decide(flow, waitingRows, reg); !startsAt(acts, settleOfT1) {
+		t.Errorf("with T2 waiting on T1, Decide = %+v, want the integrate walk at %s started", acts, settleOfT1)
 	}
 	building := openTask(2, 1)
 	building.Build = store.TaskBuild{Stage: build.StageImplement, After: "1"}
 	buildingRows := rowsOf(turns, []store.EpicTask{doneTask(1, 1), building}, runningPlan(0), child)
-	if acts := Decide(flow, buildingRows, reg); startsAt(acts, batchPath) {
-		t.Errorf("with T2 building, Decide = %+v, want no integrate walk", acts)
+	if acts := Decide(flow, buildingRows, reg); !startsAt(acts, settleOfT1) {
+		t.Errorf("with T2 building, Decide = %+v, want the integrate walk at %s started", acts, settleOfT1)
 	}
 	asked := openTask(2, 1)
 	asked.Build = store.TaskBuild{Stage: build.StageOrchestrate, Held: build.HeldAsked, Question: 4}
 	askedRows := rowsOf(turns, []store.EpicTask{doneTask(1, 1), asked}, runningPlan(0), child)
-	if acts := Decide(flow, askedRows, reg); startsAt(acts, batchPath) {
-		t.Errorf("with T2 waiting on the owner, Decide = %+v, want no integrate walk", acts)
+	if acts := Decide(flow, askedRows, reg); !startsAt(acts, settleOfT1) {
+		t.Errorf("with T2 waiting on the owner, Decide = %+v, want the integrate walk at %s started", acts, settleOfT1)
 	}
 }
 
@@ -83,25 +86,26 @@ func TestDecideLateWalkIntegratesATaskAcceptedAfterTheLatestWalk(t *testing.T) {
 	reg := integrateKinds(scripted{0: {Kind: kinds.ActPrepare, Tasks: []int64{2}}})
 	checked := planWithChecks(kindNode("check", "gate"), batchNode())
 	cases := []struct {
-		name      string
-		nodes     []workflow.Node
-		rows      kinds.Rows
-		lateStart bool
-		planEnds  bool
+		name     string
+		nodes    []workflow.Node
+		rows     kinds.Rows
+		start    string
+		planEnds bool
 	}{
 		{
 			name: "a waited task accepted after the latest walk's batch starts a late walk",
 			rows: rowsOf(completeTurns, []store.EpicTask{claimed(1, batchPath), waited("1")},
 				runningPlan(0), integrated),
-			lateStart: true,
+			start: latePath,
 		},
 		{
-			name: "a late walk waits while another task builds",
+			name: "a late walk does not wait while another task builds",
 			rows: rowsOf(completeTurns, []store.EpicTask{claimed(1, batchPath), waited("1"), openTask(3, 1)},
 				runningPlan(0), integrated, running(childOf("plan/build/T3", 0, 3, 1, 3))),
+			start: latePath,
 		},
 		{
-			name: "a late walk does not wait for a task that itself waits",
+			name: "a walk does not wait for a task that itself waits, and runs at the settle point of its task",
 			rows: rowsOf(
 				completeTurns,
 				[]store.EpicTask{waitingTask(1, "2"), waited("3"), claimed(3, "plan/S3/integrate")},
@@ -109,20 +113,20 @@ func TestDecideLateWalkIntegratesATaskAcceptedAfterTheLatestWalk(t *testing.T) {
 				ended(startOf("plan/S3/integrate", "integrate", "integrate", 0), "passed"),
 				running(childOf("plan/build/T1", 0, 1, 1, 1)),
 			),
-			lateStart: true,
+			start: "plan/S2/integrate",
 		},
 		{
-			name: "a done task that never waited starts no late walk, and the plan ends",
+			name: "a done task no batch claims starts a late walk, whether or not it waited, and the plan waits",
 			rows: rowsOf(completeTurns, []store.EpicTask{claimed(1, batchPath), doneTask(2, 1)},
 				runningPlan(0), integrated),
-			planEnds: true,
+			start: latePath,
 		},
 		{
-			name:  "no late walk starts when the latest walk's integrate node never ran",
+			name:  "a failed walk leaves its unclaimed task to a late walk, though its integrate node never ran",
 			nodes: checked,
 			rows: rowsOf(completeTurns, []store.EpicTask{doneTask(1, 1), waited("1")}, runningPlan(0),
 				ended(startOf("plan/S2/check", "check", "gate", 0), "failed")),
-			planEnds: true,
+			start: "plan/L2/check",
 		},
 		{
 			name: "a running late walk keeps the plan from ending",
@@ -139,12 +143,11 @@ func TestDecideLateWalkIntegratesATaskAcceptedAfterTheLatestWalk(t *testing.T) {
 			planEnds: true,
 		},
 		{
-			name:  "an ended late walk that did not claim its task starts no other",
+			name:  "an ended late walk that did not claim its task starts no other, and the plan waits for the planner",
 			nodes: checked,
 			rows: rowsOf(completeTurns, []store.EpicTask{claimed(1, batchPath), waited("1")},
 				runningPlan(0), ended(startOf("plan/S2/check", "check", "gate", 0), "passed"), integrated,
 				ended(startOf("plan/L2/check", "check", "gate", 0), "failed")),
-			planEnds: true,
 		},
 	}
 	for _, tc := range cases {
@@ -153,8 +156,12 @@ func TestDecideLateWalkIntegratesATaskAcceptedAfterTheLatestWalk(t *testing.T) {
 			nodes = flow.Nodes
 		}
 		acts := Decide(workflow.Workflow{Name: flow.Name, Nodes: nodes}, tc.rows, reg)
-		if got := startsAt(acts, latePath); got != tc.lateStart {
-			t.Errorf("%s: late walk started %v, want %v; actions %+v", tc.name, got, tc.lateStart, acts)
+		if tc.start == "" {
+			if slices.ContainsFunc(acts, func(act Action) bool { return act.Kind == ActStart }) {
+				t.Errorf("%s: a walk started; actions %+v", tc.name, acts)
+			}
+		} else if !startsAt(acts, tc.start) {
+			t.Errorf("%s: %s not started; actions %+v", tc.name, tc.start, acts)
 		}
 		if got := endsPlan(acts); got != tc.planEnds {
 			t.Errorf("%s: plan ended %v, want %v; actions %+v", tc.name, got, tc.planEnds, acts)

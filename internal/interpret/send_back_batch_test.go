@@ -10,11 +10,12 @@ import (
 	"github.com/joshsymonds/orrery/internal/workflow"
 )
 
-// The paths of the send_back batch cases: the settle walk of turn 1's tasks T1 to T3, whose integrate ended failed,
-// and the late walk of T1 at the reopen generation its send_back moved it to.
+// The paths of the send_back batch cases: the settle walk of turn 1's tasks T1 to T3, whose integrate ended failed, and
+// the first batch once T1 is done again after its send_back. No run is under T1's settle point, so that batch's walk
+// runs there.
 const (
 	sendBackSettleBatch = "plan/S3/integrate"
-	sendBackFirstBatch  = "plan/L1g1/integrate"
+	sendBackFirstBatch  = "plan/S1/integrate"
 )
 
 // sendBackBatchFlow is the flow of the send_back batch cases: a plan whose body builds each task and then integrates.
@@ -60,9 +61,8 @@ func startsIntegrate(acts []Action) bool {
 }
 
 // TestSendBackBatchIntegratesTheReopenedTaskOnceItIsDoneAgain reproduces task-branches: the settle walk's integrate
-// ended failed, a send_back reopened T1 and cleared its claim, and T1 is done again. The settle walk at S3 has runs, so
-// no settle walk starts, yet a late walk of T1's reopen generation starts on its own, with no planner turn, and its
-// integrate run prepares the batch of T1.
+// ended failed, a send_back reopened T1 and cleared its claim, and T1 is done again. A walk starts for T1 on its own,
+// with no planner turn, at T1's settle point, and its integrate run prepares the batch of T1.
 func TestSendBackBatchIntegratesTheReopenedTaskOnceItIsDoneAgain(t *testing.T) {
 	t.Parallel()
 	reg := integrateKinds(kinds.Integrate{})
@@ -110,9 +110,10 @@ func TestSendBackBatchStartsNothingWhileTheReopenedTaskIsOpen(t *testing.T) {
 	}
 }
 
-// TestSendBackBatchWalksEachReopenGenerationOnce checks that a reopen generation's late walk starts once: a walk of T1's
-// first generation that ended at a failed check without claiming T1 starts no other until a second send_back moves T1
-// to its next generation, whose walk then starts once T1 is done again.
+// TestSendBackBatchWalksEachReopenGenerationOnce checks that a reopen generation's late walk starts once: T1's settle
+// walk ended at a failed check, and the walk of T1's first generation that followed it ended at a failed check too,
+// without claiming T1. Neither starts another until a second send_back moves T1 to its next generation, whose walk then
+// starts once T1 is done again.
 func TestSendBackBatchWalksEachReopenGenerationOnce(t *testing.T) {
 	t.Parallel()
 	nodes := planWithChecks(kindNode("check", "gate"), batchNode())
@@ -122,14 +123,15 @@ func TestSendBackBatchWalksEachReopenGenerationOnce(t *testing.T) {
 	}
 	rebuilt := ended(childOf("plan/build/T1", 0, 1, 1, 1), outcomePassed)
 	checked := ended(startOf("plan/S3/check", "check", "gate", 0), outcomePassed)
+	settled := ended(startOf("plan/S1/check", "check", "gate", 0), outcomeFailed)
 	walked := ended(startOf("plan/L1g1/check", "check", "gate", 0), outcomeFailed)
 
-	acts := Decide(flow, sendBackRows(reopened(taskDone, 1), rebuilt, checked, walked), reg)
+	acts := Decide(flow, sendBackRows(reopened(taskDone, 1), rebuilt, checked, settled, walked), reg)
 	if slices.ContainsFunc(acts, func(act Action) bool { return act.Kind == ActStart }) {
 		t.Errorf("with generation 1's walk ended, Decide = %+v, want no walk started", acts)
 	}
 
-	acts = Decide(flow, sendBackRows(reopened(taskDone, 2), rebuilt, checked, walked), reg)
+	acts = Decide(flow, sendBackRows(reopened(taskDone, 2), rebuilt, checked, settled, walked), reg)
 	if !startsAt(acts, "plan/L1g2/check") {
 		t.Errorf("with T1 done again at generation 2, Decide = %+v, want the late walk under %s started", acts,
 			"plan/L1g2/")
@@ -138,9 +140,9 @@ func TestSendBackBatchWalksEachReopenGenerationOnce(t *testing.T) {
 
 // TestSendBackBatchIntegratesEveryTaskOfTheFailedBatch runs the task-branches shape against the store and a
 // repository: T1 and T2 are accepted and their settle walk's batch at S2 fails its Done gate. The planner sends T1 back,
-// which clears its claim and the candidate, and T1 is accepted again with its correction. The next pass starts the late
-// walk of T1's reopen generation, whose batch composes T1 and T2, the task the failed batch stranded, on the stored
-// base and claims both. Once green it advances the branch with both tasks' work.
+// which clears its claim and the candidate, and T1 is accepted again with its correction. The next pass starts the walk
+// of T1's settle point, whose batch composes T1 and T2, the task the failed batch stranded, on the stored base and
+// claims both. Once green it advances the branch with both tasks' work.
 func TestSendBackBatchIntegratesEveryTaskOfTheFailedBatch(t *testing.T) {
 	t.Parallel()
 	w := newIntegrateWorld(t)
