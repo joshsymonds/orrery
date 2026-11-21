@@ -160,6 +160,8 @@ type EngineBlock struct {
 	Input           string
 	Content         string
 	IsError         bool
+	Added           int64
+	Removed         int64
 }
 
 // EngineRequest appends engine_request for a permission or control request.
@@ -266,6 +268,8 @@ type engineBlockPayload struct {
 	Content         string `json:"content"`
 	IsError         bool   `json:"isError"`
 	Truncated       bool   `json:"truncated,omitempty"`
+	Added           int64  `json:"added,omitempty"`
+	Removed         int64  `json:"removed,omitempty"`
 }
 
 type engineRequestPayload struct {
@@ -516,7 +520,7 @@ func (op EngineBlock) applyEngine(ctx context.Context, queries *sqlcgen.Queries,
 	return appendEnginePayload(ctx, queries, op.ID, EventEngineBlock, engineBlockPayload{
 		Kind: op.Kind, Role: op.Role, MessageID: op.MessageID, ParentToolUseID: op.ParentToolUseID,
 		Text: text, ToolUseID: op.ToolUseID, Name: op.Name, Input: input, Content: content,
-		IsError: op.IsError, Truncated: cutText || cutInput || cutContent,
+		IsError: op.IsError, Truncated: cutText || cutInput || cutContent, Added: op.Added, Removed: op.Removed,
 	}, now)
 }
 

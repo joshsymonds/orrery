@@ -78,8 +78,9 @@ const (
 )
 
 // Block is one finished content block. Role is the side that wrote it, "assistant" or "user". A tool
-// call carries its ToolUseID, Name and Input; a tool result carries its ToolUseID, Content and IsError.
-// A thinking block carries its text and never its signature.
+// call carries its ToolUseID, Name and Input; a tool result carries its ToolUseID, Content and IsError,
+// and the lines it added and removed when it is the only result of a successful file edit. A thinking
+// block carries its text and never its signature.
 type Block struct {
 	Kind            BlockKind
 	Role            string
@@ -91,6 +92,8 @@ type Block struct {
 	Input           json.RawMessage
 	Content         json.RawMessage
 	IsError         bool
+	Added           int64
+	Removed         int64
 }
 
 func (Block) isEvent() {}

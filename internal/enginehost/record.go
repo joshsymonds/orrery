@@ -295,7 +295,7 @@ func (r *recorder) block(ev session.Block) []store.EngineOp {
 	ops := []store.EngineOp{store.EngineBlock{
 		ID: r.id, Kind: string(ev.Kind), Role: ev.Role, MessageID: ev.MessageID, ParentToolUseID: ev.ParentToolUseID,
 		Text: ev.Text, ToolUseID: ev.ToolUseID, Name: ev.Name, Input: string(ev.Input), Content: string(ev.Content),
-		IsError: ev.IsError,
+		IsError: ev.IsError, Added: ev.Added, Removed: ev.Removed,
 	}}
 	if key, ok := r.closeText(ev); ok {
 		ops = append(ops, store.EngineTextDone{ID: r.id, MessageID: key.messageID, Index: key.index,

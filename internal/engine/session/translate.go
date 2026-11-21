@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/joshsymonds/orrery/internal/engine/wire"
+	"github.com/joshsymonds/orrery/internal/protocol"
 )
 
 // Wire spellings of the message roles, content blocks, stream events and deltas the translator reads.
@@ -358,7 +359,18 @@ func userEvents(message wire.SDKUserMessage) ([]Event, error) {
 		}}, nil
 	}
 	base := Block{Role: roleUser, ParentToolUseID: parent}
+	base.Added, base.Removed = toolResultCounts(message)
 	return blockEvents(message.Message.Content.Blocks, base, userBlock)
+}
+
+// toolResultCounts returns the lines a user message's tool result added and removed. Only a message whose
+// content is exactly one tool_result block that is not an error counts; any other message gives 0, 0.
+func toolResultCounts(message wire.SDKUserMessage) (added, removed int64) {
+	blocks := message.Message.Content.Blocks
+	if len(blocks) != 1 || blocks[0].Type != contentToolResult || (blocks[0].IsError != nil && *blocks[0].IsError) {
+		return 0, 0
+	}
+	return protocol.PatchLineCounts(message.ToolUseResult)
 }
 
 // blockEvents returns one Block per content block, in order. Each block starts from base and takes its
