@@ -36,6 +36,7 @@ func sessionItem(event store.EngineEvent) (*orreryv1.ConversationItem, bool, err
 			Sender:   body.Sender,
 			Round:    body.Round,
 			PromptId: body.PromptId,
+			Client:   body.Client,
 		}, true, nil
 	case store.EventEngineTurnEnded:
 		body := &orreryv1.EngineTurnEnded{}

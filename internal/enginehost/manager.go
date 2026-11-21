@@ -397,11 +397,13 @@ func NewManager(cfg Config) *Manager {
 
 // StartRequest is what Start needs: the directory the session runs in, its first prompt, and the model alias it runs.
 // An empty Model runs claude's default. An empty ID mints a session id; a non-empty ID is the id the session takes.
+// Client is the X-Orrery-Client of the request, stored with the first prompt; empty when none was sent.
 type StartRequest struct {
 	Dir    string
 	Prompt string
 	Model  string
 	ID     string
+	Client string
 }
 
 // Start starts a session as req describes and returns its id. An empty req.ID mints one. A non-empty req.ID must be 32
@@ -526,7 +528,8 @@ func (m *Manager) start(ctx context.Context, id string, req StartRequest) (strin
 		return id, m.abandon(ctx, live, err)
 	}
 	live.sess.ExpectPrompt(writeID)
-	if err = m.writer.Commit(ctx, id, store.EnginePrompt{ID: id, Text: req.Prompt, WriteID: writeID}); err != nil {
+	prompt := store.EnginePrompt{ID: id, Text: req.Prompt, WriteID: writeID, Client: req.Client}
+	if err = m.writer.Commit(ctx, id, prompt); err != nil {
 		live.sess.DropPrompt(writeID)
 		return id, m.abandon(ctx, live, err)
 	}
@@ -626,11 +629,13 @@ func (m *Manager) Seen(ctx context.Context, id string) error {
 }
 
 // SayRequest is what Say needs: the session ID, the text of the prompt, and the client-chosen PromptID. An empty
-// PromptID is replaced by a minted one, so the message is stored under a prompt id like every other.
+// PromptID is replaced by a minted one, so the message is stored under a prompt id like every other. Client is the
+// X-Orrery-Client of the request, stored with the prompt; empty when none was sent.
 type SayRequest struct {
 	ID       string
 	Text     string
 	PromptID string
+	Client   string
 }
 
 // Say sends req.Text to the session req.ID as its next prompt. A session that is not live is resumed first, from its
@@ -749,7 +754,9 @@ func (m *Manager) decide(ctx context.Context, live *liveSession, req SayRequest)
 	if !m.isLive(live) {
 		return nil, errSessionEnded
 	}
-	message := store.EnginePrompt{ID: live.id, Text: req.Text, PromptID: req.PromptID, Sender: store.PromptSenderOwner}
+	message := store.EnginePrompt{
+		ID: live.id, Text: req.Text, PromptID: req.PromptID, Sender: store.PromptSenderOwner, Client: req.Client,
+	}
 	if err := m.declineLocked(ctx, live); err != nil {
 		return nil, err
 	}

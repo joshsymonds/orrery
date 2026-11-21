@@ -106,7 +106,7 @@ func stepSessionCalls(id string) []controlCall {
 					Id: id, Text: "synthetic text", PromptId: "synthetic-prompt",
 				})))
 			},
-			engine: &enginev1.SayRequest{Id: id, Text: "synthetic text", PromptId: "synthetic-prompt"},
+			engine: &enginev1.SayRequest{Id: id, Text: "synthetic text", PromptId: "synthetic-prompt", Client: client},
 			reply:  &orreryv1.SayResponse{},
 		},
 		{
