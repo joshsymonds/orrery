@@ -13,7 +13,11 @@ func TestEpicPartReadsOneDecisionWhole(t *testing.T) {
 	// The decision's text runs to a second line past the item text cap, so an item line would cut it to the first line's
 	// first 120 runes. Its question and its id are its own, so the read is of DL3 and not of the decision before it.
 	decision := &v1.EpicDecision{
-		Seq: 2, Id: "DL3", Text: strings.Repeat("d", 290) + "\nThe second line answers it.", Question: "Q2", By: "owner",
+		Seq:      2,
+		Id:       "DL3",
+		Text:     strings.Repeat("d", 290) + "\nThe second line answers it.",
+		Question: "Q2",
+		By:       "owner",
 	}
 	p := newPeer(t, nil, &fakeEpics{getReply: &v1.GetEpicResponse{Epic: &v1.StoredEpic{
 		Decisions: []*v1.EpicDecision{{Seq: 1, Id: "DL1", Text: "Build passkey login."}, decision},

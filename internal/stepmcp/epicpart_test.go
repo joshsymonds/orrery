@@ -479,8 +479,9 @@ func TestEpicByPartToolsListAdvertisesTheArguments(t *testing.T) {
 	if !found {
 		t.Fatal("tools/list does not name epic_get")
 	}
-	if want := []string{"decision", "id", "limit", "offset", "part", "question", "task", "turn"}; !slices.Equal(properties, want) {
-		t.Fatalf("epic_get properties = %v, want %v", properties, want)
+	wantProperties := []string{"decision", "id", "limit", "offset", "part", "question", "task", "turn"}
+	if !slices.Equal(properties, wantProperties) {
+		t.Fatalf("epic_get properties = %v, want %v", properties, wantProperties)
 	}
 	if !slices.Equal(required, []string{"id"}) {
 		t.Fatalf("epic_get required = %v, want [id]", required)

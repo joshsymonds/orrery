@@ -72,17 +72,8 @@ func checkEpicGetArgs(args epicGetArgs) error {
 // checkItemArgs refuses a task, question, decision or turn given with a part other than its own, the task, question,
 // decision or turn part that lacks its item, and a turn that is not a positive integer.
 func checkItemArgs(args epicGetArgs) error {
-	if args.Task != "" && args.Part != partTask {
-		return needsPart("task", partTask, args.Part)
-	}
-	if args.Question != "" && args.Part != partQuestion {
-		return needsPart("question", partQuestion, args.Part)
-	}
-	if args.Decision != "" && args.Part != partDecision {
-		return needsPart("decision", partDecision, args.Part)
-	}
-	if args.Turn != "" && args.Part != partTurn {
-		return needsPart("turn", partTurn, args.Part)
+	if err := checkItemKeys(args); err != nil {
+		return err
 	}
 	switch {
 	case args.Part == partTask && args.Task == "":
@@ -109,6 +100,23 @@ func turnSeq(turn string) (int64, error) {
 		return 0, fmt.Errorf("turn %q is not a positive integer", turn)
 	}
 	return seq, nil
+}
+
+// checkItemKeys refuses a task, question, decision or turn given with a part other than its own.
+func checkItemKeys(args epicGetArgs) error {
+	if args.Task != "" && args.Part != partTask {
+		return needsPart("task", partTask, args.Part)
+	}
+	if args.Question != "" && args.Part != partQuestion {
+		return needsPart("question", partQuestion, args.Part)
+	}
+	if args.Decision != "" && args.Part != partDecision {
+		return needsPart("decision", partDecision, args.Part)
+	}
+	if args.Turn != "" && args.Part != partTurn {
+		return needsPart("turn", partTurn, args.Part)
+	}
+	return nil
 }
 
 // needsPart is the refusal of key, a task, question, decision or turn, given with a call whose part is part rather than
@@ -168,6 +176,15 @@ func epicPartText(args epicGetArgs, epic *v1.StoredEpic) (string, error) {
 			return "", err
 		}
 		return pageText(partReport, text, args), nil
+	default: // The part is task, question, decision or turn: checkEpicGetArgs accepts no other part here.
+		return itemPartText(args, epic)
+	}
+}
+
+// itemPartText returns the text of the one item args names, which is a task, decision or turn, or else a question. An
+// item the epic lacks is an error.
+func itemPartText(args epicGetArgs, epic *v1.StoredEpic) (string, error) {
+	switch args.Part {
 	case partTask:
 		task, ok := itemNamed(epic.GetTasks(), args.Task)
 		if !ok {
