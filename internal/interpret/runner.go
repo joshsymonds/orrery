@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"slices"
 	"sync"
 	"time"
 
@@ -429,19 +430,34 @@ func (r *Runner) passFlow(ctx context.Context, epic store.EpicRow, flow workflow
 
 // decide reads the rows of epic in one read. It returns the epic as read, which the actions are carried out for, and
 // the actions flow asks for on the rows, decided at the runner's clock. The read also records the wakes it leaves for
-// epic (noteRead).
+// epic (noteRead). The stranded tasks of the epic are read only when one of its tasks waits on dependencies, since only
+// a build that waits on a dependency reads them (awaitsDependencies).
 func (r *Runner) decide(ctx context.Context, epic string, flow workflow.Workflow) (store.EpicRow, []Action, error) {
 	read, err := r.store.EpicFlow(ctx, epic)
 	if err != nil {
 		return store.EpicRow{}, nil, fmt.Errorf("read epic %s: %w", epic, err)
 	}
 	rows := flowRows(read)
+	if awaitsDependencies(read.Epic.Tasks) {
+		rows.Stranded, err = startStranded(ctx, read.Epic, read.Runs)
+		if err != nil {
+			return store.EpicRow{}, nil, fmt.Errorf("read stranded tasks of epic %s: %w", epic, err)
+		}
+	}
 	rows.Now = r.now()
 	if r.reviewers != nil {
 		rows.Reviewers = r.reviewers.Epic(read.Epic)
 	}
 	r.noteRead(epic, read, rows.Now)
 	return read.Epic, Decide(flow, rows, r.kinds), nil
+}
+
+// awaitsDependencies reports whether one of tasks is open, has not started and depends on other tasks: a build of such a
+// task waits on its dependencies, and reads the stranded tasks of its epic (kinds.Rows.Stranded).
+func awaitsDependencies(tasks []store.EpicTask) bool {
+	return slices.ContainsFunc(tasks, func(task store.EpicTask) bool {
+		return task.Status == taskOpen && task.Build.Stage == "" && len(task.DependsOn) > 0
+	})
 }
 
 // flowRows returns the rows a kind reads of the epic read holds, with no reviewers and no clock.

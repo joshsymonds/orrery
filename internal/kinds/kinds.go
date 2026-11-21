@@ -47,6 +47,9 @@ type Rows struct {
 	Releases     []store.ReleaseRun
 	Slot         string
 	Now          time.Time
+	// Stranded holds, in seq order, the done tasks whose work a failed batch composed and the base a fresh task starts
+	// on does not hold, as interpret reads them. nil reads as none.
+	Stranded []int64
 }
 
 // Reviewer is an enabled epic-stage reviewer: its name and whether its findings are verified.
@@ -222,8 +225,9 @@ func anyTaskOpen(tasks []store.EpicTask) bool {
 
 // Decide returns end with no outcome when the run's task is not open on the epic. An open task that has not started
 // and depends on tasks returns gap when one of them is lost, naming the first lost one in DependsOn order, and none
-// while one is pending. Otherwise it returns run when the epic has a base and its phase is not ended, and none when it
-// does not.
+// while one is pending. A dependency that its batch composed is lost too when Rows.Stranded holds it: a failed batch
+// composed it, and the base a fresh task starts on does not hold its work. Otherwise it returns run when the epic has a
+// base and its phase is not ended, and none when it does not.
 func (Build) Decide(node Node, rows Rows) Action {
 	task, open := openTask(rows.Epic.Tasks, node.Run.Task)
 	if !open {
@@ -252,7 +256,8 @@ func openTask(tasks []store.EpicTask, seq int64) (store.EpicTask, bool) {
 
 // awaitDependencies decides a build of a task that has not started and depends on the tasks deps names. It returns the
 // gap action naming the first lost dependency in deps order, and waiting true. It returns none with waiting true while
-// a dependency is pending, and waiting false when every dependency is integrated.
+// a dependency is pending, and waiting false when every dependency is integrated. A dependency a failed batch composed
+// that the base does not hold (Rows.Stranded) is lost, as dependencyState reads it.
 func awaitDependencies(deps []int64, rows Rows) (Action, bool) {
 	pending := false
 	for _, seq := range deps {
@@ -269,8 +274,10 @@ func awaitDependencies(deps []int64, rows Rows) (Action, bool) {
 }
 
 // dependencyState reports how the task with seq stands for a build that waits on it. lost is the reason it is lost, and
-// empty when it is not: it failed, it ended as a gap, its batch's ended integrate run left it out, or that run's result
-// does not decode. integrated reports whether an ended integrate run composed it. Neither means it is pending.
+// empty when it is not: it failed, it ended as a gap, its batch's ended integrate run left it out, that run's result
+// does not decode, or a failed batch composed it and the base a fresh task starts on does not hold its work, as
+// Rows.Stranded records. integrated reports whether an ended integrate run composed it and no failed batch left it
+// stranded. Neither means it is pending.
 func dependencyState(seq int64, rows Rows) (lost string, integrated bool) {
 	i := slices.IndexFunc(rows.Epic.Tasks, func(task store.EpicTask) bool { return task.Seq == seq })
 	if i < 0 {
@@ -295,6 +302,10 @@ func dependencyState(seq int64, rows Rows) (lost string, integrated bool) {
 		return fmt.Sprintf("dependency T%d was claimed by a batch whose result does not decode", seq), false
 	case !slices.Contains(composed, seq):
 		return fmt.Sprintf("dependency T%d was left out of its batch", seq), false
+	case slices.Contains(rows.Stranded, seq):
+		return fmt.Sprintf(
+			"dependency T%d was composed by a failed batch whose work the base does not hold", seq,
+		), false
 	}
 	return "", true
 }
