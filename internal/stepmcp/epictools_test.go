@@ -191,6 +191,13 @@ func (f *fakeEpics) AmendEvidence(
 	return connect.NewResponse(f.amendReply), nil
 }
 
+func (f *fakeEpics) EscalateEpic(
+	_ context.Context,
+	_ *connect.Request[v1.EscalateEpicRequest],
+) (*connect.Response[v1.EscalateEpicResponse], error) {
+	return connect.NewResponse(&v1.EscalateEpicResponse{}), nil
+}
+
 func (f *fakeEpics) RetryEpic(
 	_ context.Context,
 	req *connect.Request[v1.RetryEpicRequest],
