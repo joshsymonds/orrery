@@ -318,7 +318,11 @@ private fun DockField(
                     }
                 },
                 update = { view ->
-                    view.isEnabled = !sending
+                    // The enabled change is posted, not made here: update runs inside Compose's apply, and enabling a
+                    // focused field restarts the keyboard's input, whose focus search measures the list above the dock
+                    // mid-apply and crashes ("pending composition has not been applied").
+                    val enabled = !sending
+                    if (view.isEnabled != enabled) view.post { view.isEnabled = enabled }
                     if (view.hint?.toString().orEmpty() != hint) view.hint = hint
                     if (view.text.toString() != draft.text) {
                         view.setText(draft.text)
