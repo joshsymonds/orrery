@@ -44,7 +44,7 @@ func Prompt(
 	WriteSection(&out, "New notes", newNoteLines(epic.Decisions, last, found))
 	WriteSection(&out, "Open questions", questionLines(epic.Questions))
 	WriteSection(&out, "Advice followed", followLines(follows))
-	tasks, err := taskLines(epic.Tasks)
+	tasks, err := summaryTaskLines(epic.Tasks, triggers)
 	if err != nil {
 		return "", fmt.Errorf("tasks section: %w", err)
 	}
@@ -371,6 +371,9 @@ func followLines(follows []store.LabelFollow) []string {
 // it as it counts a task that is not failed, and it is followed by failedLines as a failed task is.
 const taskGap = "gap"
 
+// taskDone is the status of a task that is accepted.
+const taskDone = "done"
+
 // taskLines returns each task as `- Tseq [status] title`, then the lines taskspec.Lines gives for its spec version,
 // each indented two spaces, when the task's current version is past version 1, then one rungLine for each rung of its
 // ladder in rung order, then its deliverable, files, requirements, contributes, test_changes, gate, and its evidence
@@ -410,6 +413,60 @@ func taskLines(tasks []store.EpicTask) ([]string, error) {
 		}
 	}
 	return lines, nil
+}
+
+// summaryTaskLines returns the Tasks section of a turn that claimed triggers, each task as a summary of its state. A
+// task a trigger names renders in full, as taskLines renders it: a trigger names task n when its id, split on ':' and
+// '-', has the token Tn. A done task no trigger names is one line, `- Tn [done] title`. Any other task no trigger names
+// renders its head line, its rungs, its files, requirements and contributes, and when it failed or gapped, its
+// failure's first line and the files its implementer named as needed, as failedLines gives them. It renders no
+// deliverable, evidence, version lines, test changes, guard refusal or gate-needed changes unless a trigger names it.
+// It returns an error when a task a trigger names cannot be encoded.
+func summaryTaskLines(tasks []store.EpicTask, triggers []store.EpicTrigger) ([]string, error) {
+	tokens := triggerTokens(triggers)
+	lines := make([]string, 0, 8*len(tasks))
+	for _, task := range tasks {
+		if tokens[fmt.Sprintf("T%d", task.Seq)] {
+			full, err := taskLines([]store.EpicTask{task})
+			if err != nil {
+				return nil, err
+			}
+			lines = append(lines, full...)
+			continue
+		}
+		if task.Status == taskDone {
+			lines = append(lines, fmt.Sprintf("- T%d [done] %s", task.Seq, task.Title))
+			continue
+		}
+		lines = append(lines, fmt.Sprintf("- T%d [%s] %s", task.Seq, task.Status, task.Title))
+		for _, rung := range task.Rungs {
+			lines = append(lines, rungLine(rung))
+		}
+		lines = append(lines,
+			"  files: "+strings.Join(task.Files, ", "),
+			"  requirements: "+strings.Join(task.Requirements, ", "),
+			"  contributes: "+strings.Join(task.Contributes, ", "),
+		)
+		if task.Status == taskFailed || task.Status == taskGap {
+			failure, _, _ := strings.Cut(task.Build.Failure, "\n")
+			lines = append(lines,
+				"  failure: "+failure,
+				"  files the next task may need: "+nameList(task.NeedsFiles),
+			)
+		}
+	}
+	return lines, nil
+}
+
+// triggerTokens returns each token of the ids of triggers: each id split on ':' and '-'.
+func triggerTokens(triggers []store.EpicTrigger) map[string]bool {
+	tokens := make(map[string]bool)
+	for _, trigger := range triggers {
+		for _, token := range strings.FieldsFunc(trigger.ID, func(r rune) bool { return r == ':' || r == '-' }) {
+			tokens[token] = true
+		}
+	}
+	return tokens
 }
 
 // rungLine returns rung as `  rung n kind`, then ` moved by moved_by: cause` when a failure moved the task onto it,
