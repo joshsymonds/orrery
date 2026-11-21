@@ -9,6 +9,10 @@ import (
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
+// sendBackLateBatch is the path of the late walk's integrate run that batches T3 and T4 once the failed batch sent them
+// back and each is rebuilt: the walk of T3's first reopen generation.
+const sendBackLateBatch = "plan/L3g1/integrate"
+
 // laterBy sets the runner's clock to by after runClock, so the runner's reads and writes from then on are stamped
 // then.
 func (w *integrateWorld) laterBy(by time.Duration) {
@@ -17,13 +21,30 @@ func (w *integrateWorld) laterBy(by time.Duration) {
 	w.runner.now = func() time.Time { return at }
 }
 
-// syncPastAFailedBatchThatComposedNothingLeavesNoCandidate: a batch whose tasks were all left out composes nothing
-// and fails at the stored base, with no candidate. Its tasks were built on the epic's base, an ancestor of the stored
-// base, and change the files the first batch changed since, so each conflicts with the candidate and neither composes.
-// A sync then moves the stored base past it. The owner's retry of that failed batch ends it failed again at once, at
-// the old base, and sets no candidate: one would hold the epic behind its stored base, where no sync starts while it
-// stands and the next batch composes on it. So the next turn's batch, built on the sync's merge, composes on the stored
-// base and advances the branch without a park, and a later move of origin's main is synced again.
+// rebuilt stores the rebuild of task seq, sent back by a failed batch, as built on base at revision, and accepts it.
+// The build it replaces is the send-back's, which the rebuild moves from.
+func (w *integrateWorld) rebuilt(seq int64, base, revision string) {
+	w.t.Helper()
+	ctx := context.Background()
+	from := mergeTask(w.t, w.s, seq).Build
+	built := store.TaskBuild{Stage: "green", Base: base, Revision: revision}
+	if err := w.s.SetTaskBuild(ctx, runEpic, seq, from, built); err != nil {
+		w.t.Fatalf("SetTaskBuild %d: %v", seq, err)
+	}
+	if err := w.s.AcceptTask(ctx, runEpic, seq, built, "reviewed"); err != nil {
+		w.t.Fatalf("AcceptTask %d: %v", seq, err)
+	}
+}
+
+// syncPastAFailedBatchThatComposedNothingLeavesNoCandidate: a batch whose tasks were all left out composes nothing and
+// fails at the stored base, with no candidate. Its tasks were built on the epic's base, an ancestor of the stored base,
+// and change the files the first batch changed since, so each conflicts with the candidate and neither composes. The
+// batch sends both back to implement on the stored base. The owner's retry of that failed batch ends it failed again at
+// once, at the old base, and sets no candidate: one would hold the epic behind its stored base, where no sync starts
+// while it stands and the next batch composes on it. The sync waits while the sent-back tasks are open, so each is
+// rebuilt on the stored base, and a late walk integrates both and moves the stored base past the failed batch. The sync
+// then merges origin's main into it. So the next turn's batch, built on the sync's merge, composes on the stored base
+// and advances the branch without a park, and a later move of origin's main is synced again.
 func syncPastAFailedBatchThatComposedNothingLeavesNoCandidate(images *worldImages) func(t *testing.T) {
 	return func(t *testing.T) {
 		t.Parallel()
@@ -48,17 +69,8 @@ func syncPastAFailedBatchThatComposedNothingLeavesNoCandidate(images *worldImage
 		if epic := epicOf(t, w.s); epic.Candidate != "" {
 			t.Fatalf("candidate = %q after a batch that composed nothing, want none", epic.Candidate)
 		}
-
-		originHead := w.originCommit("origin.txt")
-		w.laterBy(syncInterval)
-		w.pass()
-		merge := runAt(t, w.s, syncSecond).Revision
-		w.endGate(syncSecond, 0, "")
-		w.pass()
-		w.endCapture(syncSecond)
-		w.pass()
-		w.requireSyncEnded(syncSecond, outcomePassed, fmt.Sprintf(
-			"merged origin's commit %s into the stored base %s as %s\nR1 green", originHead, candidate, merge))
+		w.requireSentBack(3, "T3 conflicts with the candidate at internal/a/x.go")
+		w.requireSentBack(4, "T4 conflicts with the candidate at b.go")
 
 		if err := w.s.RetryNode(
 			ctx,
@@ -75,10 +87,33 @@ func syncPastAFailedBatchThatComposedNothingLeavesNoCandidate(images *worldImage
 			t.Fatalf("batch after the retry = %+v, want its rerun at attempt 1 failed again at %s", batch, candidate)
 		}
 		epic := epicOf(t, w.s)
-		if epic.Candidate != "" || epic.StoredBase != merge || epic.Parked != "" {
-			t.Fatalf("candidate %q, stored base %q, parked %q after the retry, want none, the merge %s and not parked",
-				epic.Candidate, epic.StoredBase, epic.Parked, merge)
+		if epic.Candidate != "" || epic.StoredBase != candidate || epic.Parked != "" {
+			t.Fatalf("candidate %q, stored base %q, parked %q after the retry, want none, %s and not parked",
+				epic.Candidate, epic.StoredBase, epic.Parked, candidate)
 		}
+
+		w.rebuilt(3, candidate, w.commit(candidate, "internal/a/x.go", "three again\n"))
+		w.rebuilt(4, candidate, w.commit(candidate, "b.go", "four again\n"))
+		w.pass()
+		late := w.candidate(sendBackLateBatch)
+		w.endGate(sendBackLateBatch, 0, "")
+		w.pass()
+		w.endCapture(sendBackLateBatch)
+		w.pass()
+		if got := epicOf(t, w.s).StoredBase; got != late {
+			t.Fatalf("stored base = %s after the late batch, want its candidate %s", got, late)
+		}
+
+		originHead := w.originCommit("origin.txt")
+		w.laterBy(syncInterval)
+		w.pass()
+		merge := runAt(t, w.s, syncSecond).Revision
+		w.endGate(syncSecond, 0, "")
+		w.pass()
+		w.endCapture(syncSecond)
+		w.pass()
+		w.requireSyncEnded(syncSecond, outcomePassed, fmt.Sprintf(
+			"merged origin's commit %s into the stored base %s as %s\nR1 green", originHead, late, merge))
 
 		w.nextTurn(merge, 5, 6, thirdBatch)
 		later := w.originCommit("later.txt")

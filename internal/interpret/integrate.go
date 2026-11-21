@@ -28,10 +28,12 @@ type batchCommit struct {
 	Commit string `json:"commit"`
 }
 
-// batchLeftOut is a task that did not compose, and why.
+// batchLeftOut is a task that did not compose, and why. Conflicts are the paths its merge conflicted at, which a task
+// left out for a conflict is sent back for; a result claimed before they were stored has none.
 type batchLeftOut struct {
-	Task   int64  `json:"task"`
-	Reason string `json:"reason"`
+	Task      int64    `json:"task"`
+	Reason    string   `json:"reason"`
+	Conflicts []string `json:"conflicts,omitempty"`
 }
 
 // prepareBatch composes the batch of an integrate run and pins the candidate under the run. The batch composes on the
@@ -256,7 +258,7 @@ func encodeBatch(result compose.Result) (string, error) {
 		out.Composed = append(out.Composed, batchCommit{Task: composed.Seq, Commit: composed.Commit})
 	}
 	for _, left := range result.LeftOut {
-		out.LeftOut = append(out.LeftOut, batchLeftOut{Task: left.Seq, Reason: left.Reason})
+		out.LeftOut = append(out.LeftOut, batchLeftOut{Task: left.Seq, Reason: left.Reason, Conflicts: left.Conflicts})
 	}
 	data, err := json.Marshal(out)
 	if err != nil {
@@ -272,6 +274,23 @@ func composedAny(result string) bool {
 	return json.Unmarshal([]byte(result), &batch) == nil && len(batch.Composed) > 0
 }
 
+// sendBacks returns the tasks result, the result an integrate run claimed its batch with, left out for a merge
+// conflict, each with the reason it was left out, so the batch's end sends each back to its implementer. A task left
+// out for any other reason is not sent back, and a result that is not a batch result sends none.
+func sendBacks(result string) []store.BatchSendBack {
+	var batch batchResult
+	if json.Unmarshal([]byte(result), &batch) != nil {
+		return nil
+	}
+	var sends []store.BatchSendBack
+	for _, left := range batch.LeftOut {
+		if len(left.Conflicts) > 0 {
+			sends = append(sends, store.BatchSendBack{Seq: left.Task, Reason: left.Reason})
+		}
+	}
+	return sends
+}
+
 // endBatch ends the integrate run of act, which ended without an advance, with its outcome, and keeps the epic's
 // candidate on its stored base. A failed run that composed a task leaves as the candidate its revision joined with the
 // stored base (compose.Join): the revision itself when it builds on the stored base, and otherwise the merge of the
@@ -281,6 +300,7 @@ func composedAny(result string) bool {
 func (r *Runner) endBatch(ctx context.Context, epic store.EpicRow, act Action, at time.Time) error {
 	end := store.BatchEnd{
 		Path: act.Path, Attempt: act.Attempt, Outcome: act.Outcome, Output: act.Output, Over: epic.StoredBase,
+		SendBacks: sendBacks(act.Run.Result),
 	}
 	if act.Outcome == outcomeFailed && composedAny(act.Run.Result) {
 		joined, ok, err := compose.Join(ctx, epic.Repository, epic.StoredBase, act.Run.Revision, joinPrefix(epic))
@@ -336,6 +356,7 @@ func (r *Runner) advance(ctx context.Context, epic store.EpicRow, act Action, at
 	}
 	end := store.BatchEnd{
 		Path: act.Path, Attempt: act.Run.Attempt, Outcome: outcomePassed, Output: act.Output, Over: act.Run.Revision,
+		SendBacks: sendBacks(act.Run.Result),
 	}
 	if epic.Candidate != "" {
 		joined, joins, joinErr := compose.Join(
