@@ -198,6 +198,11 @@ test("DockState: putOff comes from the stream's pane", () => {
   assert.equal(facts.putOff, true);
 });
 
+test("DockState: archived is the row's archived flag", () => {
+  assert.equal(rowFacts(row({ archived: true }), null, false).archived, true);
+  assert.equal(rowFacts(row({ archived: false }), null, false).archived, false);
+});
+
 test("DockState: reason is the row's summary for a session and empty for a pane", () => {
   const session = rowFacts(row({ kind: "session", summary: "tests fail" }), null, false);
   const paneFacts = rowFacts(row({ kind: "pane", summary: "tests fail" }), null, false);
