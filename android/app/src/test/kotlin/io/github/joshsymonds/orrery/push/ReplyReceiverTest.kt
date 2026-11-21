@@ -53,16 +53,32 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35])
 class ReplyReceiverTest {
+    private companion object {
+        const val PANE = "pane"
+        const val SESSION = "session"
+    }
+
     private val context = ApplicationProvider.getApplicationContext<Context>()
     private val manager = context.getSystemService(NotificationManager::class.java)
     private val server = FakeOrreryServer()
 
     private val dir = "orrery-demo"
+    private val host = "devbox"
     private val pane = "%3"
     private val session = "sess-1"
     private val requestId = "req-1"
-    private val id = notificationId("devbox", pane)
+    private val id = notificationId(host, pane)
     private val questionHash = "h"
+    private val paneEvent = PushEvent(
+        pane = pane,
+        host = host,
+        project = dir,
+        state = "waiting",
+        summary = "Build finished",
+        label = "build",
+        question = "Run tests?",
+        questionHash = questionHash,
+    )
     private val keysPath = "/orrery.v1.Panes/SendKeys"
     private val textPath = "/orrery.v1.Panes/SendText"
     private val answerPath = "/orrery.v1.Control/Answer"
@@ -71,27 +87,18 @@ class ReplyReceiverTest {
 
     private val promptChangedText = "The question changed before your answer arrived. Open it to see what it asks now."
     private val refusedAnswerText = "The server refused it. Open it to see why."
-    private val refusedReplyText = "The server refused your reply."
+    private val refusedReplyText = "The server refused your reply. It is kept in the app."
     private val noAnswerText = "The server did not answer in time; it may have landed. Open it to see."
+    private val replyNoAnswerText = "The server did not answer in time; it may have landed. Open it to see. It is kept in the app."
     private val answerNotReachedText = "Your answer did not reach the server."
-    private val replyNotReachedText = "Your reply did not reach the server."
+    private val replyNotReachedText = "Your reply did not reach the server. It is kept in the app."
+    private val unkeptReplyNotReachedText = "Your reply did not reach the server."
 
     @Before
     fun setUp() {
         ServerSettings(context).saveServerUrl(server.baseUrl)
         shadowOf(RuntimeEnvironment.getApplication()).grantPermissions(android.Manifest.permission.POST_NOTIFICATIONS)
-        PushNotifier(context).show(
-            PushEvent(
-                pane = pane,
-                host = "devbox",
-                project = dir,
-                state = "waiting",
-                summary = "Build finished",
-                label = "build",
-                question = "Run tests?",
-                questionHash = questionHash,
-            ),
-        )
+        PushNotifier(context).show(paneEvent)
     }
 
     @After
@@ -198,6 +205,7 @@ class ReplyReceiverTest {
             NoticesSeenRequest.parseFrom(requestTo(seenPath).body),
         )
         assertFalse(isShowing())
+        assertEquals(emptyList<String>(), keptTexts(PANE, pane))
     }
 
     @Test
@@ -209,27 +217,54 @@ class ReplyReceiverTest {
 
         assertEquals(listOf(textPath), paths())
         assertEquals(refusedReplyText, shownText())
+        assertEquals(listOf("synthetic reply"), keptTexts(PANE, pane))
         assertOpensThisNotice()
     }
 
     @Test
-    fun replyThatNeverReachedTheServerShowsNotSent() {
+    fun replyWithNoAnswerShowsNotConfirmedAndKeepsReply() {
+        server.drop(textPath)
+
+        deliverPaneReply("synthetic reply")
+        awaitDelivered { shownTitle() == "$dir: not confirmed" }
+
+        assertEquals(listOf(textPath), paths())
+        assertEquals(replyNoAnswerText, shownText())
+        assertEquals(listOf("synthetic reply"), keptTexts(PANE, pane))
+        assertOpensThisNotice()
+    }
+
+    @Test
+    fun replyThatNeverReachedTheServerShowsNotSentAndKeepsReply() {
         pointAtClosedPort()
 
         deliverPaneReply("synthetic reply")
         awaitDelivered { shownTitle() == "$dir: not sent" }
 
         assertEquals(replyNotReachedText, shownText())
+        assertEquals(listOf("synthetic reply"), keptTexts(PANE, pane))
         assertOpensThisNotice()
     }
 
     @Test
-    fun blankReplySendsNothingAndShowsNotSent() {
+    fun blankReplySendsNothingKeepsNothingAndShowsNotSent() {
         deliverPaneReply("   ")
         awaitDelivered { shownTitle() == "$dir: not sent" }
 
         assertTrue(server.requests.isEmpty())
-        assertEquals(replyNotReachedText, shownText())
+        assertEquals(unkeptReplyNotReachedText, shownText())
+        assertEquals(emptyList<String>(), keptTexts(PANE, pane))
+    }
+
+    @Test
+    fun replyNamingNoConversationSendsNothingKeepsNothingAndShowsNotSent() {
+        deliverReply("synthetic reply", Intent(ACTION_REPLY))
+        awaitDelivered { shownTitle() == "$dir: not sent" }
+
+        assertTrue(server.requests.isEmpty())
+        assertEquals(unkeptReplyNotReachedText, shownText())
+        assertEquals(emptyList<String>(), keptTexts(PANE, pane))
+        assertEquals(emptyList<String>(), keptTexts(SESSION, session))
     }
 
     @Test
@@ -303,8 +338,10 @@ class ReplyReceiverTest {
         server.respond(sayPath, SayResponse.getDefaultInstance())
         server.respond(seenPath, NoticesSeenResponse.getDefaultInstance())
 
-        deliverSessionReply("synthetic reply")
-        awaitDelivered { paths().contains(seenPath) && !isShowing() }
+        val notice = postSessionNotice()
+
+        deliverSessionReply("synthetic reply", notice)
+        awaitDelivered { paths().contains(seenPath) && !isShowing(notice) }
 
         assertEquals(listOf(sayPath, seenPath), paths())
         val say = SayRequest.parseFrom(requestTo(sayPath).body)
@@ -317,7 +354,23 @@ class ReplyReceiverTest {
             NoticesSeenRequest.newBuilder().setKey(NoticeKey.newBuilder().setSession(session)).build(),
             NoticesSeenRequest.parseFrom(requestTo(seenPath).body),
         )
-        assertFalse(isShowing())
+        assertFalse(isShowing(notice))
+        assertEquals(emptyList<String>(), keptTexts(SESSION, session))
+    }
+
+    @Test
+    fun sessionReplyRefusedShowsNotSentAndKeepsReply() {
+        server.fail(sayPath, Code.INTERNAL_ERROR, "boom")
+        val notice = postSessionNotice()
+
+        deliverSessionReply("synthetic reply", notice)
+        awaitDelivered { shownTitle(notice) == "$dir: not sent" }
+
+        assertEquals(listOf(sayPath), paths())
+        assertEquals(refusedReplyText, shownText(notice))
+        assertEquals(listOf("synthetic reply"), keptTexts(SESSION, session))
+        assertEquals(emptyList<String>(), keptTexts(PANE, pane))
+        assertOpensThisNotice(notice)
     }
 
     @Test
@@ -345,20 +398,33 @@ class ReplyReceiverTest {
             .putExtra(EXTRA_ANSWER, label),
     )
 
-    private fun deliverPaneReply(text: String) = deliverReply(text, Intent(ACTION_REPLY).putExtra(EXTRA_PANE, pane))
+    private fun deliverPaneReply(text: String) = deliverReply(text, postedReplyIntent(id))
 
-    private fun deliverSessionReply(text: String) = deliverReply(text, Intent(ACTION_REPLY).putExtra(EXTRA_SESSION, session))
+    private fun deliverSessionReply(text: String, notice: Int) = deliverReply(text, postedReplyIntent(notice), notice)
 
-    private fun deliverReply(text: String, intent: Intent) {
+    /** Delivers a typed reply through the Reply action of a posted notice, so the reply's host is PushNotifier's. */
+    private fun deliverReply(text: String, intent: Intent, notice: Int = id) {
         val results = Bundle().apply { putCharSequence(REMOTE_INPUT_KEY, text) }
         RemoteInput.addResultsToIntent(arrayOf(RemoteInput.Builder(REMOTE_INPUT_KEY).build()), intent, results)
-        send(intent)
+        send(intent, notice)
     }
 
-    private fun send(intent: Intent) {
+    /** The intent of the Reply action the notice with [notice] id shows. */
+    private fun postedReplyIntent(notice: Int): Intent {
+        val reply = checkNotNull(shown(notice)).actions.orEmpty().single { it.remoteInputs.orEmpty().isNotEmpty() }
+        return shadowOf(reply.actionIntent).savedIntent
+    }
+
+    /** Posts the session's notice, whose Reply action names the session, and returns its id. */
+    private fun postSessionNotice(): Int {
+        PushNotifier(context).show(paneEvent.copy(session = session))
+        return notificationId(host, session)
+    }
+
+    private fun send(intent: Intent, notice: Int = id) {
         context.sendBroadcast(
             intent.setPackage(context.packageName)
-                .putExtra(EXTRA_NOTIFICATION_ID, id)
+                .putExtra(EXTRA_NOTIFICATION_ID, notice)
                 .putExtra(EXTRA_DIR, dir),
         )
     }
@@ -369,25 +435,31 @@ class ReplyReceiverTest {
         ServerSettings(context).saveServerUrl("http://127.0.0.1:$port")
     }
 
+    private fun keptTexts(kind: String, conversation: String): List<String> =
+        KeptReplies(context).kept(host, kind, conversation).map { it.text }
+
     private fun paths(): List<String> = server.requests.map { it.rawPath }
 
     private fun requestTo(path: String) = server.requests.single { it.rawPath == path }
 
-    private fun isShowing(): Boolean = manager.activeNotifications.any { it.id == id }
+    private fun isShowing(notice: Int = id): Boolean = manager.activeNotifications.any { it.id == notice }
 
-    private fun shown(): Notification? = manager.activeNotifications.firstOrNull { it.id == id }?.notification
+    private fun shown(notice: Int = id): Notification? =
+        manager.activeNotifications.firstOrNull { it.id == notice }?.notification
 
-    private fun shownTitle(): String? = shown()?.extras?.getCharSequence(Notification.EXTRA_TITLE)?.toString()
+    private fun shownTitle(notice: Int = id): String? =
+        shown(notice)?.extras?.getCharSequence(Notification.EXTRA_TITLE)?.toString()
 
-    private fun shownText(): String? = shown()?.extras?.getCharSequence(Notification.EXTRA_TEXT)?.toString()
+    private fun shownText(notice: Int = id): String? =
+        shown(notice)?.extras?.getCharSequence(Notification.EXTRA_TEXT)?.toString()
 
     /** The shown result keeps the notice's Open action, which opens the notice's own activity. */
-    private fun assertOpensThisNotice() {
-        val actions = checkNotNull(shown()).actions.orEmpty()
+    private fun assertOpensThisNotice(notice: Int = id) {
+        val actions = checkNotNull(shown(notice)).actions.orEmpty()
         assertEquals(listOf("Open"), actions.map { it.title.toString() })
         val opened = shadowOf(actions.single().actionIntent).savedIntent
         assertEquals(MainActivity::class.java.name, opened.component?.className)
-        assertEquals(id, opened.getIntExtra(EXTRA_NOTIFICATION_ID, -1))
+        assertEquals(notice, opened.getIntExtra(EXTRA_NOTIFICATION_ID, -1))
     }
 
     /**
