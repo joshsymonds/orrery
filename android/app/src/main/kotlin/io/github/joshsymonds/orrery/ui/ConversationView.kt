@@ -328,9 +328,17 @@ private fun EntryView(
     when (entry) {
         is ConvoEntry.Prompt -> YouBlock(entry.text, timeOf(entry.time), marks = marks)
         is ConvoEntry.Sending -> YouBlock(entry.text, sending = true)
-        is ConvoEntry.Event -> EventBlock(entry.text, timeOf(entry.time))
-        is ConvoEntry.Cron -> EventBlock(entry.text, timeOf(entry.time), cron = true)
-        is ConvoEntry.StepEnd -> StepEndBlock(entry.agent, entry.end, entry.summary, entry.facts, timeOf(entry.time))
+        is ConvoEntry.Event -> EventBlock(entry.text, timeOf(entry.time), marks = marks)
+        is ConvoEntry.Cron -> EventBlock(entry.text, timeOf(entry.time), cron = true, marks = marks)
+        is ConvoEntry.StepEnd -> StepEndBlock(
+            who = entry.who,
+            agent = entry.agent,
+            end = entry.end,
+            summary = entry.summary,
+            facts = entry.facts,
+            time = timeOf(entry.time),
+            marks = marks,
+        )
         is ConvoEntry.EpicEvent -> EpicEventBlock(
             kind = epicEventKindOf(entry.kind),
             slug = entry.epic.substringAfter('/'),
@@ -338,6 +346,7 @@ private fun EntryView(
             time = timeOf(entry.time),
             onOpen = { onOpenEpic(entry.epic) },
             under = { if (entry.kind == "question") epicQuestion(entry.epic, entry.tail) },
+            marks = marks,
         )
         is ConvoEntry.Created -> EpicEventBlock(
             kind = EpicEventKind.Created,
@@ -356,9 +365,10 @@ private fun EntryView(
             entry.text,
             checks = roundChecks(checks, entry.round),
             time = timeOf(entry.time),
+            marks = marks,
         )
         is ConvoEntry.Reply -> ReplyText(entry.text, cache, marks = marks)
-        is ConvoEntry.LiveReply -> ReplyText(entry.text, cache, live = true)
+        is ConvoEntry.LiveReply -> ReplyText(entry.text, cache, live = true, marks = marks)
         is ConvoEntry.Thinking -> ThinkingLine(entry.text, key, expanded, onToggle)
         is ConvoEntry.Tool -> ToolLine(entry.call, expanded = expanded, onToggle = onToggle, marks = marks)
         is ConvoEntry.Group -> ToolRun(entry.calls, expanded = expanded, onToggle = onToggle, marks = marks)
@@ -368,10 +378,10 @@ private fun EntryView(
             tokens = entry.tokens,
             expanded = key in expanded,
             onToggle = { onToggle(key) },
-            summary = { ReplyText(entry.text, cache) },
+            summary = { ReplyText(entry.text, cache, marks = marks) },
         )
         is ConvoEntry.Notice -> NoticeLine(entry, marks = marks)
-        is ConvoEntry.Task -> TaskLine(entry.type, entry.subagentType, entry.description, entry.status)
+        is ConvoEntry.Task -> TaskLine(entry.type, entry.subagentType, entry.description, entry.status, marks = marks)
         is ConvoEntry.Interrupted -> InterruptedRule(entry.time)
         is ConvoEntry.Day -> DayRule(entry.seconds)
     }
@@ -701,23 +711,36 @@ fun transcriptMatches(entries: List<ConvoEntry>, query: String, cache: MarkdownC
     findMatches(entries.map { entry -> findParts(entry, cache).joinToString("\n") }, query)
 
 /**
- * The parts of [entry] that find searches, in the order they draw, as the web's searchedText takes them: the drawn text of
- * a prompt, a reply or a notice, an engine or brief fold's text, and each call's input and result. The parts of an entry
- * join with a line break, so a match never runs across two of them.
+ * The parts of [entry] that find searches, in the order they draw: the drawn text of a prompt, an event, a cron prompt, a
+ * send-back's note and rest, a step's summary, an epic event's sentence, a reply, a live reply and a compaction's summary,
+ * each as Markdown draws it; an engine or brief fold's text; a notice's label and text; a task's name and description;
+ * and each call's input and result. The parts of an entry join with a line break, so a match never runs across two of them.
  */
 internal fun findParts(entry: ConvoEntry, cache: MarkdownCache): List<String> = when (entry) {
     is ConvoEntry.Prompt -> markdownLeaves(cache.blocks(entry.text))
+    is ConvoEntry.Event -> markdownLeaves(cache.blocks(entry.text))
+    is ConvoEntry.Cron -> markdownLeaves(cache.blocks(entry.text))
+    is ConvoEntry.Check ->
+        markdownLeaves(cache.blocks(checkNote(entry.text))) + markdownLeaves(cache.blocks(checkRest(entry.text)))
+    is ConvoEntry.StepEnd -> markdownLeaves(cache.blocks(entry.summary))
+    is ConvoEntry.EpicEvent -> markdownLeaves(cache.blocks(entry.sentence))
     is ConvoEntry.Reply -> markdownLeaves(cache.blocks(entry.text))
+    is ConvoEntry.LiveReply -> markdownLeaves(cache.blocks(entry.text))
+    is ConvoEntry.Compaction -> markdownLeaves(cache.blocks(entry.text))
     is ConvoEntry.Engine -> listOf(entry.text)
     is ConvoEntry.Brief -> listOf(entry.text)
     is ConvoEntry.Notice -> listOf(noticeLabel(entry.sort).inLabelCase(), entry.text)
+    is ConvoEntry.Task -> listOf(taskNameOf(entry.type, entry.subagentType), entry.description)
     is ConvoEntry.Tool -> listOfNotNull(entry.call.input, entry.call.result)
     is ConvoEntry.Group -> entry.calls.flatMap { call -> listOfNotNull(call.input, call.result) }
     else -> emptyList()
 }
 
+/** The characters the texts a Markdown reader draws take in a searched text, each followed by a line break. */
+internal fun searchedSpan(text: String): Int = markdownLeaves(parseMarkdown(text)).sumOf { it.length + 1 }
+
 /** The texts a Markdown reader draws, in draw order. */
-private fun markdownLeaves(blocks: List<MdBlock>): List<String> {
+internal fun markdownLeaves(blocks: List<MdBlock>): List<String> {
     val leaves = mutableListOf<String>()
     mapLeaves(blocks) { leaf ->
         leaves.add(leaf.text)
@@ -739,12 +762,15 @@ private fun mapLeaves(blocks: List<MdBlock>, leaf: (AnnotatedString) -> Annotate
     }
 }
 
-/** [blocks] with the find's marks drawn into each text, the texts counted in the order [markdownLeaves] reads them. */
-internal fun markedBlocks(blocks: List<MdBlock>, marks: EntryMarks?): List<MdBlock> {
+/**
+ * [blocks] with the find's marks drawn into each text, the texts counted in the order [markdownLeaves] reads them, the
+ * first from [base] in the entry's searched text.
+ */
+internal fun markedBlocks(blocks: List<MdBlock>, marks: EntryMarks?, base: Int = 0): List<MdBlock> {
     if (marks == null) return blocks
-    var base = 0
+    var at = base
     return mapLeaves(blocks) { leaf ->
-        markedText(leaf, base, marks).also { base += leaf.length + 1 }
+        markedText(leaf, at, marks).also { at += leaf.length + 1 }
     }
 }
 
@@ -845,11 +871,12 @@ internal fun callBases(calls: List<ToolCall>): List<Int> {
 }
 
 /**
- * The keys of the folds that open for the match at [at] in [entry]'s searched text: an engine or brief fold by its [key],
- * a call by its id, and a run by its first call's id with each call that holds the match.
+ * The keys of the folds that open for the match at [at] in [entry]'s searched text: an engine, brief or compaction fold by
+ * its [key], a call by its id, and a run by its first call's id with each call that holds the match. A send-back's rest
+ * opens on its own, from its drawing, when the match is in it.
  */
 private fun foldKeysHolding(entry: ConvoEntry, key: String, at: Int): Set<String> = when (entry) {
-    is ConvoEntry.Engine, is ConvoEntry.Brief -> setOf(key)
+    is ConvoEntry.Engine, is ConvoEntry.Brief, is ConvoEntry.Compaction -> setOf(key)
     is ConvoEntry.Tool -> setOf(entry.call.id)
     is ConvoEntry.Group -> {
         val bases = callBases(entry.calls)

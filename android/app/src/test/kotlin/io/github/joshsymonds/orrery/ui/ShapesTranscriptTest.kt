@@ -108,6 +108,11 @@ class ShapesTranscriptTest {
     }
 
     @Test
+    fun promptFromAnUnknownSenderFoldsToNothing() {
+        assertEquals(emptyList<ConvoEntry>(), fold(prompt("synthetic-sender")))
+    }
+
+    @Test
     fun stepEndEventFoldsToAStepEndWithItsFacts() {
         val facts = StepFacts(rounds = 1, seconds = 480, counted = true, files = 2, added = 96, removed = 4)
         val text = block(
@@ -118,8 +123,23 @@ class ShapesTranscriptTest {
         )
 
         assertEquals(
-            listOf(ConvoEntry.StepEnd("csv-writer", "done", "Wrote the CSV writer.", facts, T1, "p-2")),
+            listOf(ConvoEntry.StepEnd("s-1", "csv-writer", "done", "Wrote the CSV writer.", facts, T1, "p-2")),
             fold(item("prompt", text = text, sender = "event", promptId = "p-2", stepFacts = facts)),
+        )
+    }
+
+    @Test
+    fun stepEndWhoIsItsTaskWhenTheBlockNamesOne() {
+        val text = block(
+            "step_end",
+            "step:s-1",
+            "Wrote the CSV writer.",
+            " end=\"done\" status=\"done\" agent=\"csv-writer\" task=\"rota-export\"",
+        )
+
+        assertEquals(
+            listOf(ConvoEntry.StepEnd("rota-export", "csv-writer", "done", "Wrote the CSV writer.", null, T1, "p-2")),
+            fold(item("prompt", text = text, sender = "event", promptId = "p-2")),
         )
     }
 
@@ -336,7 +356,7 @@ class ShapesTranscriptTest {
     @Test
     fun stepEndDrawsAStepEndBlockWithItsVerdictRailAndFacts() {
         val facts = StepFacts(rounds = 1, seconds = 480, counted = true, files = 2, added = 96, removed = 4)
-        setEntries(ConvoEntry.StepEnd("csv-writer", "done", "Wrote the CSV writer.", facts, T1, "p-3"))
+        setEntries(ConvoEntry.StepEnd("rota-export", "csv-writer", "done", "Wrote the CSV writer.", facts, T1, "p-3"))
 
         composeRule.onNodeWithTag("block:stepend").assertIsDisplayed()
         composeRule.onNodeWithText("STEP ENDED").assertIsDisplayed()

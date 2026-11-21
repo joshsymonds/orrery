@@ -339,32 +339,38 @@ internal fun EngineFold(
  * `shell`), its description, and its end word. The thread is drawn in the live tone while the task [status] is running.
  */
 @Composable
-internal fun TaskLine(type: String, subagentType: String, description: String, status: String) {
-    val name = if (type == "shell") "shell" else subagentType.ifEmpty { "agent" }
+internal fun TaskLine(type: String, subagentType: String, description: String, status: String, marks: EntryMarks? = null) {
+    val name = taskNameOf(type, subagentType)
     val endColour = when (status) {
         "failed" -> OrreryTokens.Role.bad
         "running" -> OrreryTokens.Role.live
         else -> OrreryTokens.Ink.three
     }
+    val descriptionBase = name.length + 1
     LineFrame(kind = "task", live = status == "running") {
         ToolGlyph(if (type == "shell") "shell" else "agent")
-        Text(
-            text = name,
+        FindText(
+            text = markedText(AnnotatedString(name), 0, marks),
             color = OrreryTokens.Ink.two,
             style = OrreryTokens.Type.small.copy(fontWeight = OrreryTokens.Font.Weight.bold),
             maxLines = 1,
         )
-        Text(
-            text = description,
+        // A description that holds a match draws whole, so the match is on the line rather than past its ellipsis.
+        FindText(
+            text = markedText(AnnotatedString(description), descriptionBase, marks),
             modifier = Modifier.weight(1f),
             color = OrreryTokens.Ink.three,
             style = OrreryTokens.Type.small,
-            maxLines = 1,
+            maxLines = if (holdsMatch(marks, descriptionBase, description.length)) Int.MAX_VALUE else 1,
             overflow = TextOverflow.Ellipsis,
         )
         Text(text = taskEndWordOf(status), color = endColour, style = OrreryTokens.Type.small, maxLines = 1)
     }
 }
+
+/** The name a task line draws: `shell` for a shell, else the subagent's type, or `agent` when it has none. */
+internal fun taskNameOf(type: String, subagentType: String): String =
+    if (type == "shell") "shell" else subagentType.ifEmpty { "agent" }
 
 /** The word a task's line ends with: a finished task reads `finished`, and every other status reads as it is. */
 private fun taskEndWordOf(status: String): String = if (status == "done") "finished" else status

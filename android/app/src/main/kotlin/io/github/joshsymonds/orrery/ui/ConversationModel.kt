@@ -34,8 +34,12 @@ sealed interface ConvoEntry {
     /** A cron prompt, drawn as CRON. */
     data class Cron(val text: String, val time: Long = 0L, val promptId: String = "") : ConvoEntry
 
-    /** A step's end: its [agent], how it [end]ed, its [summary] and its [facts] when it carries them. */
+    /**
+     * A step's end: its [who], the task the step ran or else its step id, its [agent], how it [end]ed, its [summary] and its
+     * [facts] when it carries them.
+     */
     data class StepEnd(
+        val who: String,
         val agent: String,
         val end: String,
         val summary: String,
@@ -153,15 +157,17 @@ private fun blockOf(text: String): ParsedBlock? {
 
 private fun unescape(text: String): String = entityPattern.replace(text) { entities.getValue(it.groupValues[1]) }
 
-/** A step's end as its block gives it: the agent that ran it, how it ended, and its brief. */
-private class ParsedStep(val agent: String, val end: String, val summary: String)
+/** A step's end as its block gives it: who it is named by, the agent that ran it, how it ended, and its brief. */
+private class ParsedStep(val who: String, val agent: String, val end: String, val summary: String)
 
-// stepEndOf reads a block as a step's end: a step_end block whose id is step:<id>, with end and status attributes.
+// stepEndOf reads a block as a step's end: a step_end block whose id is step:<id>, with end and status attributes. It is
+// named by its task when the block names one, else by its step id.
 private fun stepEndOf(block: ParsedBlock): ParsedStep? {
     if (block.kind != STEP_KIND || !block.id.startsWith(STEP_PREFIX)) return null
     val end = block.attributes["end"] ?: return null
     if (!block.attributes.containsKey("status")) return null
-    return ParsedStep(block.attributes["agent"].orEmpty(), end, briefOf(block.body))
+    val who = block.attributes["task"].orEmpty().ifEmpty { block.id.removePrefix(STEP_PREFIX) }
+    return ParsedStep(who, block.attributes["agent"].orEmpty(), end, briefOf(block.body))
 }
 
 // briefOf is a step's brief from its body: the body's lines, without a last line that starts with More:, which points to
@@ -185,7 +191,8 @@ private fun firstSentence(body: String): String =
  * own order. A call that writes a contract and has a result that did not fail is its own contract line, and so is an
  * epic_create call with a result that did not fail, its created line; each ends the run before it, so it never joins a
  * group. A day rule is drawn before an item whose local day, in [zone], differs from the item before it, and before the
- * first item when its day is not the day of [now] (unix seconds, the caller's clock). Any kind not named draws nothing.
+ * first item when its day is not the day of [now] (unix seconds, the caller's clock). Any kind not named draws nothing,
+ * and so does a prompt from a sender not named.
  */
 fun foldConversation(
     items: List<ConversationItem>,
@@ -244,9 +251,10 @@ private fun entryOf(item: ConversationItem): ConvoEntry? = when (item.kind) {
     else -> null
 }
 
-// promptEntry is a prompt's entry by its sender: the owner's, the engine's, the brief, a check or round-zero fold, a cron,
-// or an event, which is read by its block.
-private fun promptEntry(item: ConversationItem): ConvoEntry = when (item.sender) {
+// promptEntry is a prompt's entry by its sender: the owner's or one with no sender, the engine's, the brief, a check or
+// round-zero fold, a cron, or an event, which is read by its block. A prompt of any other sender is no entry.
+private fun promptEntry(item: ConversationItem): ConvoEntry? = when (item.sender) {
+    "owner", "" -> ConvoEntry.Prompt(item.text, item.time, item.promptId)
     "brief" -> ConvoEntry.Brief(item.text, item.time, item.promptId)
     "engine" ->
         if (item.round >= 1) {
@@ -256,7 +264,7 @@ private fun promptEntry(item: ConversationItem): ConvoEntry = when (item.sender)
         }
     "cron" -> ConvoEntry.Cron(item.text, item.time, item.promptId)
     "event" -> eventEntry(item)
-    else -> ConvoEntry.Prompt(item.text, item.time, item.promptId)
+    else -> null
 }
 
 // eventEntry is an event prompt's entry: a step's end, a move, an epic's question, park, release or end, or else the
@@ -265,7 +273,7 @@ private fun eventEntry(item: ConversationItem): ConvoEntry {
     val block = blockOf(item.text)
     if (block != null) {
         stepEndOf(block)?.let {
-            return ConvoEntry.StepEnd(it.agent, it.end, it.summary, item.stepFacts, item.time, item.promptId)
+            return ConvoEntry.StepEnd(it.who, it.agent, it.end, it.summary, item.stepFacts, item.time, item.promptId)
         }
     }
     moveLineOf(item.text)?.let { return ConvoEntry.Move(it, item.time, item.promptId) }

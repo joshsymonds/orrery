@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -54,6 +55,12 @@ data class CheckResult(val name: String, val ok: Boolean)
 fun roundChecks(checks: List<StepCheckRow>, round: Int): List<CheckResult> =
     checks.filter { it.round == round }.map { CheckResult(it.name, it.ok) }
 
+/** A send-back's note: the text's first line. */
+internal fun checkNote(text: String): String = text.lines().first()
+
+/** A send-back's rest: the lines after its note, which open under it. */
+internal fun checkRest(text: String): String = text.lines().drop(1).joinToString("\n")
+
 /** How a step's fact is drawn: plain ink, added lines green, removed lines red. */
 enum class FactKind { Plain, Added, Removed }
 
@@ -69,24 +76,29 @@ private enum class BlockIcon { Person, Gear, Clock, Check, Cross, Stop, Question
 /** The kinds of epic event an EpicEventBlock draws: a question, a park, a release, an end, and the epic a create made. */
 enum class EpicEventKind { Question, Park, Release, End, Created }
 
-/** A step end's words and the tone its rail takes. */
-private class EndWord(val word: String, val tone: BlockTone)
-
-private val END_WORDS: Map<String, EndWord> = mapOf(
-    "done" to EndWord("done", BlockTone.Ok),
-    "returned" to EndWord("returned", BlockTone.Ok),
-    "failed" to EndWord("failed", BlockTone.Bad),
-    "goal_unmet" to EndWord("goal not met", BlockTone.Bad),
-    "checks_failed" to EndWord("checks failed", BlockTone.Bad),
-    "gate_failed" to EndWord("gate failed", BlockTone.Bad),
-    "stopped" to EndWord("stopped", BlockTone.Quiet),
-    "engine_restarted" to EndWord("engine restarted", BlockTone.Quiet),
-    "overtime" to EndWord("ran over time", BlockTone.Bad),
-    "tool_stuck" to EndWord("a tool stuck", BlockTone.Bad),
-    "silent" to EndWord("went silent", BlockTone.Bad),
-    "looping" to EndWord("looping", BlockTone.Bad),
-    "wedged" to EndWord("wedged", BlockTone.Bad),
+/** A step end's chip words, in round 6's words. An end not named here is drawn as it is written. */
+private val END_WORDS: Map<String, String> = mapOf(
+    "done" to "done",
+    "returned" to "returned",
+    "failed" to "failed",
+    "goal_unmet" to "goal not met",
+    "checks_failed" to "checks failed",
+    "gate_failed" to "gate failed",
+    "stopped" to "stopped",
+    "engine_restarted" to "engine restarted",
+    "overtime" to "ran over time",
+    "tool_stuck" to "a tool stuck",
+    "silent" to "went silent",
+    "looping" to "looping",
+    "wedged" to "wedged",
 )
+
+// endToneOf is a step end's tone: done and returned pass, stopped is quiet, and every other end failed.
+private fun endToneOf(end: String): BlockTone = when (end) {
+    "done", "returned" -> BlockTone.Ok
+    "stopped" -> BlockTone.Quiet
+    else -> BlockTone.Bad
+}
 
 /** The facts of a step's end as they are drawn, in order; empty when the item carries no facts. */
 fun stepFactsOf(facts: StepFacts?): List<StepFact> {
@@ -127,7 +139,7 @@ fun YouBlock(text: String, time: String? = null, sending: Boolean = false, marks
 
 /** What the engine sent; a cron prompt is drawn as CRON with the clock. */
 @Composable
-fun EventBlock(text: String, time: String? = null, cron: Boolean = false) {
+fun EventBlock(text: String, time: String? = null, cron: Boolean = false, marks: EntryMarks? = null) {
     Block(
         kind = "event",
         tone = BlockTone.Engine,
@@ -135,28 +147,40 @@ fun EventBlock(text: String, time: String? = null, cron: Boolean = false) {
         label = if (cron) "CRON" else "EVENT",
         words = if (cron) null else "from the engine",
         time = time,
-        body = { Prose(text, OrreryTokens.Ink.one) },
+        body = { Prose(text, OrreryTokens.Ink.one, marks) },
     )
 }
 
-/** A step that ended: its rail is its verdict, its end chip says how, and its facts line sits under its summary. */
+/**
+ * A step that ended: its rail is its verdict, its end chip says how, and its facts line sits under its summary. It is
+ * named by [who], the task the step ran or else its step id, with its [agent] beside it as words when it names one.
+ */
 @Composable
-fun StepEndBlock(agent: String, end: String, summary: String, facts: StepFacts?, time: String? = null) {
-    val verdict = END_WORDS[end] ?: EndWord(end, BlockTone.Quiet)
+fun StepEndBlock(
+    who: String? = null,
+    agent: String,
+    end: String,
+    summary: String,
+    facts: StepFacts?,
+    time: String? = null,
+    marks: EntryMarks? = null,
+) {
+    val tone = endToneOf(end)
     Block(
         kind = "stepend",
-        tone = verdict.tone,
-        icon = when (verdict.tone) {
+        tone = tone,
+        icon = when (tone) {
             BlockTone.Ok -> BlockIcon.Check
             BlockTone.Bad -> BlockIcon.Cross
             else -> BlockIcon.Stop
         },
         label = "STEP ENDED",
-        who = agent,
+        who = who,
+        words = agent.takeIf { it.isNotEmpty() },
         time = time,
-        end = { Chip(verdict.word, chipToneOf(verdict.tone)) },
+        end = { Chip(END_WORDS[end] ?: end, chipToneOf(tone)) },
         body = {
-            Prose(summary, OrreryTokens.Ink.one)
+            Prose(summary, OrreryTokens.Ink.one, marks)
             FactsLine(stepFactsOf(facts))
         },
     )
@@ -174,6 +198,7 @@ fun EpicEventBlock(
     time: String? = null,
     onOpen: (() -> Unit)? = null,
     under: @Composable () -> Unit = {},
+    marks: EntryMarks? = null,
 ) {
     val tone = when (kind) {
         EpicEventKind.Question, EpicEventKind.Park -> BlockTone.Attention
@@ -210,7 +235,7 @@ fun EpicEventBlock(
             }
         },
         body = {
-            Prose(sentence, OrreryTokens.Ink.one)
+            Prose(sentence, OrreryTokens.Ink.one, marks)
             under()
         },
     )
@@ -218,18 +243,31 @@ fun EpicEventBlock(
 
 /**
  * A send-back round: its chips are the round's checks, its rail is ok when they all passed and bad when one failed,
- * and with no checks it is the engine's. The text's first line is the note; the rest opens under it.
+ * and with no checks it is the engine's. The text's first line is the note; the rest opens under it, and opens for
+ * the find's current match when that match is in the rest.
  */
 @Composable
-fun CheckBlock(round: Int, text: String, checks: List<CheckResult> = emptyList(), time: String? = null) {
+fun CheckBlock(
+    round: Int,
+    text: String,
+    checks: List<CheckResult> = emptyList(),
+    time: String? = null,
+    marks: EntryMarks? = null,
+) {
     val tone = when {
         checks.isEmpty() -> BlockTone.Engine
         checks.all { it.ok } -> BlockTone.Ok
         else -> BlockTone.Bad
     }
-    val lines = text.lines()
-    val rest = lines.drop(1).joinToString("\n")
+    val note = checkNote(text)
+    val rest = checkRest(text)
+    // The rest's searched text starts after the note's, so a current match from there on is in the rest.
+    val restBase = remember(note) { searchedSpan(note) }
+    val current = marks?.let { found -> found.current?.takeIf { it in found.matches } }
     var open by remember { mutableStateOf(false) }
+    LaunchedEffect(current, restBase) {
+        if (current != null && current.range.first >= restBase) open = true
+    }
     Block(
         kind = "checks",
         tone = tone,
@@ -244,8 +282,8 @@ fun CheckBlock(round: Int, text: String, checks: List<CheckResult> = emptyList()
         onTap = if (rest.isEmpty()) null else { { open = !open } },
         body = {
             if (checks.isNotEmpty()) ChecksRow(checks)
-            Prose(lines.first(), OrreryTokens.Ink.one)
-            if (open) Prose(rest, OrreryTokens.Ink.one)
+            Prose(note, OrreryTokens.Ink.one, marks)
+            if (open) Prose(rest, OrreryTokens.Ink.one, marks, base = restBase)
         },
     )
 }
@@ -373,9 +411,10 @@ private fun FactsLine(facts: List<StepFact>) {
     }
 }
 
+/** A text as Markdown, with the find's marks drawn from [base] in its entry's searched text. */
 @Composable
-private fun Prose(text: String, color: Color, marks: EntryMarks? = null) {
-    MarkdownBody(blocks = remember(text, marks) { markedBlocks(parseMarkdown(text), marks) }, color = color)
+private fun Prose(text: String, color: Color, marks: EntryMarks? = null, base: Int = 0) {
+    MarkdownBody(blocks = remember(text, marks, base) { markedBlocks(parseMarkdown(text), marks, base) }, color = color)
 }
 
 @Composable

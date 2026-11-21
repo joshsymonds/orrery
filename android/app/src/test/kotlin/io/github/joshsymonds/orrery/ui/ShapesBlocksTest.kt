@@ -92,11 +92,11 @@ class ShapesBlocksTest {
 
     @Test
     fun doneStepEndDrawsItsLabelWhoOkChipAndOkRail() {
-        setBlock { StepEndBlock(agent = "csv-writer", end = "done", summary = "Wrote the CSV writer.", facts = null) }
+        setBlock { StepEndBlock(who = "rota-export", agent = "", end = "done", summary = "Wrote the CSV writer.", facts = null) }
 
         composeRule.onNodeWithTag("block:stepend").assertIsDisplayed()
         composeRule.onNodeWithText("STEP ENDED").assertIsDisplayed()
-        composeRule.onNodeWithText("csv-writer").assertIsDisplayed()
+        composeRule.onNodeWithText("rota-export").assertIsDisplayed()
         composeRule.onNodeWithText("done").assertIsDisplayed()
         composeRule.onNodeWithText("Wrote the CSV writer.").assertIsDisplayed()
         composeRule.onNodeWithTag("icon:check").assertIsDisplayed()
@@ -104,10 +104,38 @@ class ShapesBlocksTest {
     }
 
     @Test
+    fun stepEndNamesItsTaskAsWhoAndItsAgentAsWords() {
+        setBlock {
+            StepEndBlock(who = "rota-export", agent = "csv-writer", end = "done", summary = "Wrote the CSV writer.", facts = null)
+        }
+
+        composeRule.onNodeWithText("rota-export").assertIsDisplayed()
+        composeRule.onNodeWithText("csv-writer").assertIsDisplayed()
+    }
+
+    @Test
     fun failedStepEndDrawsItsWordsAndBadRail() {
         setBlock { StepEndBlock(agent = "shift-store", end = "checks_failed", summary = "Stored shifts.", facts = null) }
 
         composeRule.onNodeWithText("checks failed").assertIsDisplayed()
+        composeRule.onNodeWithTag("icon:cross").assertIsDisplayed()
+        assertRailTone("block:stepend", "bad")
+    }
+
+    @Test
+    fun engineRestartedStepEndDrawsItsWordsAndBadCross() {
+        setBlock { StepEndBlock(agent = "csv-writer", end = "engine_restarted", summary = "Cut off.", facts = null) }
+
+        composeRule.onNodeWithText("engine restarted").assertIsDisplayed()
+        composeRule.onNodeWithTag("icon:cross").assertIsDisplayed()
+        assertRailTone("block:stepend", "bad")
+    }
+
+    @Test
+    fun stepEndWithAnEndTheBlocksDoNotNameDrawsItsWordAsWrittenWithBadCross() {
+        setBlock { StepEndBlock(agent = "csv-writer", end = "paused_for_review", summary = "Waiting.", facts = null) }
+
+        composeRule.onNodeWithText("paused_for_review").assertIsDisplayed()
         composeRule.onNodeWithTag("icon:cross").assertIsDisplayed()
         assertRailTone("block:stepend", "bad")
     }

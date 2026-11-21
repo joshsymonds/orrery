@@ -13,6 +13,7 @@ import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollToIndex
 import androidx.compose.ui.test.performTextInput
@@ -378,5 +379,88 @@ class FindScreenTest {
             composeRule.onNodeWithTag(FIND_COUNT_TAG).assertTextEquals("1 of 1")
             composeRule.onNodeWithTag("entry-row:4").assertIsDisplayed()
         }
+    }
+
+    @Test
+    fun findCountsTheDrawnTextOfEachKindOfEntry() {
+        val entries = listOf(
+            ConvoEntry.Event("synthetic build event"),
+            ConvoEntry.Cron("synthetic build cron"),
+            ConvoEntry.Check(2, "synthetic build note\nsynthetic build rest"),
+            ConvoEntry.StepEnd("synthetic-step", "csv-writer", "done", "synthetic build summary", null),
+            ConvoEntry.EpicEvent("question", "synthetic/rota", "Q1", "synthetic build sentence"),
+            ConvoEntry.Task("agent", "Explore", "synthetic build description", "done"),
+            ConvoEntry.Compaction("auto", 0L, "synthetic build summary"),
+            ConvoEntry.LiveReply("live-1", "synthetic build live"),
+        )
+
+        assertEquals(listOf(0, 1, 2, 2, 3, 4, 5, 6, 7), transcriptMatches(entries, QUERY, MarkdownCache()).map { it.entry })
+    }
+
+    @Test
+    fun findMarksAnEngineEventSolidWhenItIsCurrent() {
+        setTranscript(ConvoEntry.Event("synthetic build event"))
+
+        assertEquals(1, countOf("synthetic build event", OrreryTokens.Role.mark))
+    }
+
+    @Test
+    fun findMarksACronSolidWhenItIsCurrent() {
+        setTranscript(ConvoEntry.Cron("synthetic build cron"))
+
+        assertEquals(1, countOf("synthetic build cron", OrreryTokens.Role.mark))
+    }
+
+    @Test
+    fun findMarksACheckRoundsNoteSolidAndOpensItsRestWhenTheRestHoldsTheCurrentMatch() {
+        setTranscript(ConvoEntry.Check(2, "synthetic build note\nsynthetic build rest"), current = 1)
+
+        composeRule.onNodeWithText("synthetic build rest").assertIsDisplayed()
+        assertEquals(1, countOf("synthetic build rest", OrreryTokens.Role.mark))
+    }
+
+    @Test
+    fun findMarksAStepEndsSummarySolidWhenItIsCurrent() {
+        setTranscript(ConvoEntry.StepEnd("synthetic-step", "csv-writer", "done", "synthetic build summary", null))
+
+        assertEquals(1, countOf("synthetic build summary", OrreryTokens.Role.mark))
+    }
+
+    @Test
+    fun findMarksAnEpicEventsSentenceSolidWhenItIsCurrent() {
+        setTranscript(ConvoEntry.EpicEvent("question", "synthetic/rota", "Q1", "synthetic build sentence"))
+
+        assertEquals(1, countOf("synthetic build sentence", OrreryTokens.Role.mark))
+    }
+
+    @Test
+    fun findMarksATasksDescriptionSolidWhenItIsCurrent() {
+        setTranscript(ConvoEntry.Task("agent", "Explore", "synthetic build description", "done"))
+
+        assertEquals(1, countOf("synthetic build description", OrreryTokens.Role.mark))
+    }
+
+    @Test
+    fun findOpensACompactionsSummaryWhenItIsCurrentAndMarksIt() {
+        setTranscript(ConvoEntry.Compaction("auto", 0L, "synthetic build summary"))
+
+        assertEquals(1, countOf("synthetic build summary", OrreryTokens.Role.mark))
+    }
+
+    @Test
+    fun findMarksALiveReplySolidWhenItIsCurrent() {
+        setTranscript(ConvoEntry.LiveReply("live-1", "synthetic build live"))
+
+        assertEquals(1, countOf("synthetic build live", OrreryTokens.Role.mark))
+    }
+
+    private fun setTranscript(vararg entries: ConvoEntry, current: Int = 0) {
+        val found = transcriptMatches(entries.toList(), QUERY, MarkdownCache())
+        composeRule.setContent {
+            MaterialTheme {
+                ConversationView(entries = entries.toList(), find = TranscriptFind(found, current = current, step = 1))
+            }
+        }
+        composeRule.waitForIdle()
     }
 }
