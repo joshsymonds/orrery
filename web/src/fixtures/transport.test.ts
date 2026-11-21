@@ -1574,7 +1574,7 @@ test("FixtureTransport: page/epic-unavailable draws the could-not-read line with
   );
 });
 
-test("FixtureTransport: page's keys are exactly the 83 catalog names of its scenario states", () => {
+test("FixtureTransport: page's keys are exactly the 90 catalog names of its scenario states", () => {
   assert.deepEqual(Object.keys(Page).map((state) => storyName("Page", state)).sort(), [
     "page/ask-answered",
     "page/ask-decline",
@@ -1592,8 +1592,15 @@ test("FixtureTransport: page's keys are exactly the 83 catalog names of its scen
     "page/contract-talk",
     "page/contract-to-accept",
     "page/contract-versions",
+    "page/convo-blocks",
     "page/convo-contract",
+    "page/convo-empty",
+    "page/convo-find",
     "page/convo-handed-over",
+    "page/convo-lines",
+    "page/convo-loading",
+    "page/convo-markdown",
+    "page/convo-shell",
     "page/convo-took-over",
     "page/convo-working",
     "page/dock-background",

@@ -8,6 +8,7 @@ import type { VNode } from "preact";
 import { PageStory } from "./catalog/pagestory";
 import type { Stories } from "./catalog/story";
 import { askSlices } from "./fixtures/ask";
+import { convoLoading, convoSlices } from "./fixtures/convo";
 import { dockSlices, gatesSession, warmupSession } from "./fixtures/dock";
 import {
   type AskAnswer,
@@ -514,6 +515,23 @@ export const Page: Stories = {
   "epic-loading": () => epicScenario(epicAt(tideCache, { kind: "epic" }), "loading"),
   "epic-unavailable": () => epicScenario(epicAt(rota, { kind: "epic" }), "unavailable"),
   "convo-working": () => <PageStory address={convoWorkingAt} />,
+  "convo-blocks": () => <PageStory address={paneAt("%25")} fixture={createFixtureTransport(convoSlices)} />,
+  "convo-lines": () => <PageStory address={paneAt("%26")} fixture={createFixtureTransport(convoSlices)} />,
+  "convo-markdown": () => <PageStory address={paneAt("%13")} />,
+  "convo-find": () => (
+    <PageStory
+      address={paneAt("%11")}
+      after={async (root) => {
+        // The find bar opens once the transcript is drawn, and its query is typed after that.
+        await drawnWhen(root, "section.read", "Cap the total retry window");
+        await clickWhen(root, 'button[aria-label="Find in this conversation"]');
+        await typeInto(root, 'input[placeholder="Find in this conversation"]', "jitter");
+      }}
+    />
+  ),
+  "convo-shell": () => <PageStory address={paneAt("%23")} />,
+  "convo-loading": () => <PageStory address={paneAt("%28")} fixture={createFixtureTransport(convoLoading)} />,
+  "convo-empty": () => <PageStory address={paneAt("%27")} fixture={createFixtureTransport(convoSlices)} />,
   "inbox-rail": () => <PageStory address={convoWorkingAt} />,
   "inbox-flyout": () => <PageStory address={convoWorkingAt} after={(root) => pressAtRest(root, "b")} />,
   "inbox-narrow": () => <PageStory address={convoWorkingAt} after={(root) => pressAtRest(root, "B")} />,
