@@ -115,12 +115,12 @@ func TestDecideBatchActions(t *testing.T) {
 			}},
 		},
 		{
-			name: "advance gives work that moves the epic, carrying the trigger its passed end writes",
+			name: "advance that leaves its tasks unclaimed gives work that moves the epic, with no trigger",
 			flow: planWithChecks(batch),
 			rows: rowsOf(oneTurn, tasks, runningPlan(0), batchRun("c1")),
 			reg:  integrateKinds(scripted{0: {Kind: kinds.ActAdvance, Output: "R1 green"}}),
 			want: []Action{plan, {
-				Kind: ActWork, Work: kinds.ActAdvance, Output: "R1 green", Trigger: batchTrigger("passed", "R1 green"),
+				Kind: ActWork, Work: kinds.ActAdvance, Output: "R1 green",
 				Path: batchPath, NodeKind: "integrate", Def: batch, Run: batchRun("c1"),
 			}},
 		},
@@ -138,13 +138,13 @@ func TestDecideBatchActions(t *testing.T) {
 			}},
 		},
 		{
-			name: "passed batch ends with its output and the trigger that wakes the planner",
+			name: "passed batch that leaves its tasks unclaimed ends with its output and no trigger",
 			flow: planWithChecks(batch),
 			rows: rowsOf(oneTurn, tasks, runningPlan(0), batchRun("c1")),
 			reg:  integrateKinds(scripted{0: {Kind: kinds.ActEnd, Outcome: "passed", Output: "R1 green"}}),
 			want: []Action{plan, {
 				Kind: ActBatch, Path: batchPath, Attempt: 1, Outcome: "passed", Output: "R1 green",
-				Trigger: batchTrigger("passed", "R1 green"), Run: batchRun("c1"),
+				Run: batchRun("c1"),
 			}},
 		},
 		{

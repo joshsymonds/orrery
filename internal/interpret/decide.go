@@ -3,6 +3,7 @@
 package interpret
 
 import (
+	"encoding/json"
 	"fmt"
 	"slices"
 	"strings"
@@ -811,15 +812,53 @@ func (p pass) metAtBase(def workflow.Node, run store.NodeRun) []string {
 }
 
 // batch decides the end of an integrate run. An empty batch ends with no revision, since it claimed no batch, and it
-// writes no trigger. Any other batch ends with a trigger that wakes the planner.
+// writes no trigger. A failed batch ends with a trigger that wakes the planner. A passed batch ends with one only when
+// it leaves no work behind (leavesWork), so the planner is not woken while a task of the epic is open or unintegrated.
 func (p pass) batch(run store.NodeRun, act kinds.Action) Action {
 	out := Action{
 		Kind: ActBatch, Path: run.Path, Attempt: run.Attempt, Outcome: act.Outcome, Output: act.Output, Run: run,
 	}
-	if run.Revision != "" {
+	if run.Revision != "" && (act.Outcome != outcomePassed || !p.leavesWork(run)) {
 		out.Trigger = p.batchTrigger(run, act.Outcome, act.Output)
 	}
 	return out
+}
+
+// leavesWork reports whether a passed integrate run at run's path leaves work behind: a task of the epic is open, or
+// unintegrated (see unintegrated). A task that ended as a gap or failed leaves nothing behind.
+func (p pass) leavesWork(run store.NodeRun) bool {
+	return slices.ContainsFunc(p.rows.Epic.Tasks, func(task store.EpicTask) bool {
+		return task.Status == taskOpen || unintegrated(task, run)
+	})
+}
+
+// unintegrated reports whether task is done and not integrated once the integrate run at run's path passes: no batch
+// claims it, or run claims it and run's result does not compose it.
+func unintegrated(task store.EpicTask, run store.NodeRun) bool {
+	if task.Status != taskDone {
+		return false
+	}
+	return task.Batch == "" || (task.Batch == run.Path && !composedBy(run, task.Seq))
+}
+
+// composition is the part of an integrate run's result composedBy reads: the tasks its batch composed into commits.
+type composition struct {
+	Composed []composedSeq `json:"composed"`
+}
+
+// composedSeq is one task a batch composed, by its seq.
+type composedSeq struct {
+	Task int64 `json:"task"`
+}
+
+// composedBy reports whether the result of run composed task seq into a commit, as the integrate kind and the store
+// read it. A result that is not a batch result composed none.
+func composedBy(run store.NodeRun, seq int64) bool {
+	var result composition
+	if json.Unmarshal([]byte(run.Result), &result) != nil {
+		return false
+	}
+	return slices.ContainsFunc(result.Composed, func(composed composedSeq) bool { return composed.Task == seq })
 }
 
 // batchTrigger returns the trigger an integrate run writes when it ends with outcome and output. Its id is derived from
@@ -833,8 +872,9 @@ func (p pass) batchTrigger(run store.NodeRun, outcome, output string) *store.Nod
 }
 
 // work returns the work action of a check, sync or release node run: the kind's action, and the ids, items, tasks,
-// units, output, outcome and reason the work is for. An integrate run's advance also carries the trigger its passed batch
-// writes. An action that names a revision runs at it: the run it carries holds that revision in place of its own.
+// units, output, outcome and reason the work is for. An integrate run's advance also carries the trigger its passed
+// batch writes, only when the batch leaves no work behind (leavesWork). An action that names a revision runs at it: the
+// run it carries holds that revision in place of its own.
 func (p pass) work(def workflow.Node, run store.NodeRun, act kinds.Action) Action {
 	if act.Revision != "" {
 		run.Revision = act.Revision
@@ -844,7 +884,7 @@ func (p pass) work(def workflow.Node, run store.NodeRun, act kinds.Action) Actio
 		Items: act.Items, Tasks: act.Tasks, Units: act.Units, Outcome: act.Outcome, Output: act.Output,
 		Reason: act.Reason,
 	}
-	if act.Kind == kinds.ActAdvance && def.Kind == kindIntegrate {
+	if act.Kind == kinds.ActAdvance && def.Kind == kindIntegrate && !p.leavesWork(run) {
 		out.Trigger = p.batchTrigger(run, outcomePassed, act.Output)
 	}
 	return out

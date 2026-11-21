@@ -121,12 +121,12 @@ func TestDecideOrphanedRuns(t *testing.T) {
 			}},
 		},
 		{
-			name: "the rerun's advance carries the trigger its passed batch writes",
+			name: "the rerun's advance that leaves its tasks unclaimed carries no trigger",
 			flow: []workflow.Node{fixLoop()},
 			rows: fixLoopRows(orphanBatch()),
 			reg:  integrateKinds(scripted{1: {Kind: kinds.ActAdvance, Output: "R1 green"}}),
 			want: []Action{{
-				Kind: ActWork, Work: kinds.ActAdvance, Output: "R1 green", Trigger: orphanTrigger("passed", "R1 green"),
+				Kind: ActWork, Work: kinds.ActAdvance, Output: "R1 green",
 				Path: fixLoopPath, NodeKind: "integrate", Def: batch, Run: orphanBatch(),
 			}},
 		},

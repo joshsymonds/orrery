@@ -447,10 +447,10 @@ func integrateCutAdvanceEndsPassedOnce(images *worldImages) func(t *testing.T) {
 	}
 }
 
-// TestIntegrateConflictLeavesTaskOutAndTellsThePlanner: two accepted tasks that change the same line of b.go compose to
-// one merge. The later task's merge conflicts, so it is left out, and the conflict line is the batch's output and the
-// cause of the trigger that wakes the planner.
-func TestIntegrateConflictLeavesTaskOutAndTellsThePlanner(t *testing.T) {
+// TestIntegrateConflictLeavesTaskOutAndNoTrigger: two accepted tasks that change the same line of b.go compose to one
+// merge. The later task's merge conflicts, so it is left out and sent back open, and the conflict line is the batch's
+// output. The passed batch leaves that open task behind, so it writes no trigger and wakes no planner.
+func TestIntegrateConflictLeavesTaskOutAndNoTrigger(t *testing.T) {
 	t.Parallel()
 	w := newIntegrateWorld(t)
 	first := w.commit(w.base, "b.go", "one\n")
@@ -479,8 +479,9 @@ func TestIntegrateConflictLeavesTaskOutAndTellsThePlanner(t *testing.T) {
 		t.Fatalf("TurnTriggers: %v", err)
 	}
 	wantCause := fmt.Sprintf("workflow node %s passed: R1 green\n%s", integrateBatch, conflict)
-	if !slices.ContainsFunc(triggers, func(trigger store.EpicTrigger) bool { return trigger.Cause == wantCause }) {
-		t.Errorf("pending triggers = %+v, want one with cause %q", triggers, wantCause)
+	if slices.ContainsFunc(triggers, func(trigger store.EpicTrigger) bool { return trigger.Cause == wantCause }) {
+		t.Errorf("pending triggers = %+v, want none with cause %q: the sent-back task is open after the batch",
+			triggers, wantCause)
 	}
 }
 
