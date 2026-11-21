@@ -58,7 +58,8 @@ function toolIcon(tool: string): IconName {
 // result is a button: a click shows the result under the line, as an opened element, and a second click folds it again.
 // A failed result marks the line with a cross. A running call's line carries the running class and the running mark. The
 // result opens when the current match moves into it, and then its match is marked. A reveal the reader gives opens the
-// result too, and brings the line into view. query and current are as ItemRow's are.
+// result too, and brings the line into view. A result that counts lines it added or removed draws +N and −M after the
+// input. query and current are as ItemRow's are.
 export function ToolLine({
   item,
   result,
@@ -98,6 +99,11 @@ export function ToolLine({
       <span class="in">
         <MarkedText text={called} query={query} current={partCurrent(current, 0, called.length)} />
       </span>
+      {result !== undefined && (result.added > 0n || result.removed > 0n) && (
+        <span class="more">
+          <span class="plus">{`+${result.added}`}</span> <span class="minus">{`−${result.removed}`}</span>
+        </span>
+      )}
       {result?.error && <span class="fail">✗</span>}
       {running && <span class="running-mark">running</span>}
     </>

@@ -9,7 +9,7 @@ import { ConversationItemSchema, type ConversationItem } from "./gen/orrery/v1/o
 import { Icon, type IconName } from "./glyphs";
 import { EngineFold, NoticeLine, ThinkingLine, ToolLine, ToolRun, type RunCall } from "./lines";
 import { mockTimers } from "./testclock";
-import { installTestDom, removeTestDom } from "./testdom";
+import { assertNone, installTestDom, removeTestDom } from "./testdom";
 
 // withDom renders the element into a fresh test DOM, runs the check on its container, and removes the DOM.
 async function withDom(
@@ -124,6 +124,33 @@ test("Shapes: a failed result marks its tool line with a cross, and a succeeded 
     <ToolLine item={call("Bash", "make")} result={resultOf("c1", "built")} running={false} query="" current={-1} />,
     (container) => {
       assert.equal(container.querySelector(".fail"), null, "the succeeded line draws no cross");
+    },
+  );
+});
+
+// editResult is the result of the call under id, which counts the lines its file edit added and removed.
+function editResult(id: string, added: bigint, removed: bigint): ConversationItem {
+  return item({ kind: "result", time: 100n, id, text: "ok", added, removed });
+}
+
+test("Shapes: a tool line whose result counts its lines draws its +N and −M, and one with no counts draws neither", async () => {
+  await withDom(
+    <ToolLine item={call("Edit", "backoff.go")} result={editResult("c1", 14n, 3n)} running={false} query="" current={-1} />,
+    (container) => {
+      assert.equal(container.querySelector(".more .plus")?.textContent, "+14", "the line draws the lines added");
+      assert.equal(container.querySelector(".more .minus")?.textContent, "−3", "the line draws the lines removed");
+    },
+  );
+  await withDom(
+    <ToolLine item={call("Edit", "query.go")} result={editResult("c1", 0n, 0n)} running={false} query="" current={-1} />,
+    (container) => {
+      assertNone(container.querySelector(".more"), "a result with no counts draws no counts");
+    },
+  );
+  await withDom(
+    <ToolLine item={call("Edit", "query.go")} result={undefined} running={false} query="" current={-1} />,
+    (container) => {
+      assertNone(container.querySelector(".more"), "a call with no result draws no counts");
     },
   );
 });

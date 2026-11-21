@@ -1,6 +1,6 @@
-// The stories of the blocks: round 6's YouBlock states, Default and Sending, its EventBlock, and its CheckBlock states, Bad,
-// Ok and NoteOpen. Block's stories are the YouBlock's, which Block draws (catalog/coverage.ts storyRenames). Every state
-// draws inside the reader's element, where the reader's CSS applies.
+// The stories of the blocks: round 6's YouBlock states, Default, FromPhone and Sending, its EventBlock, and its CheckBlock
+// states, Bad, Ok and NoteOpen. Block's stories are the YouBlock's, which Block draws (catalog/coverage.ts storyRenames).
+// Every state draws inside the reader's element, where the reader's CSS applies.
 
 import { create } from "@bufbuild/protobuf";
 
@@ -18,6 +18,7 @@ const ownedFiles = "owned files: the change touches go.mod, which this task does
 
 export const YouBlock: Stories = inReader({
   default: () => <YouBlockShape text="The uploader loses readings whenever the collector is unreachable. Make it retry." time={at("@14:02")} />,
+  "from-phone": () => <YouBlockShape text="Pin the Lisbon case first, then the rest." time={at("@14:05")} phone />,
   sending: () => <YouBlockShape text="Keep the pin and skip the Lisbon case." sending />,
 });
 

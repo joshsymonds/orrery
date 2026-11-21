@@ -64,17 +64,20 @@ export function Block({
 }
 
 // YouBlock draws your words: the person icon, YOU and the time, then the text as Markdown with the find query's marks. A
-// message the page sent and has not stored yet is SENDING: pending, and drawn with no time.
+// message the page sent and has not stored yet is SENDING: pending, and drawn with no time. A prompt sent from the phone
+// draws the phone icon in place of the person icon, and the words from your phone after the label.
 export function YouBlock({
   text,
   time,
   sending = false,
+  phone = false,
   query = "",
   current = -1,
 }: {
   text: string;
   time?: bigint;
   sending?: boolean;
+  phone?: boolean;
   query?: string;
   current?: number;
 }): JSX.Element {
@@ -82,8 +85,9 @@ export function YouBlock({
     <Block
       tone="you"
       kind="you"
-      icon="person"
+      icon={phone ? "phone" : "person"}
       label={sending ? "SENDING" : "YOU"}
+      words={phone ? "· from your phone" : undefined}
       time={sending || time === undefined ? undefined : clock(time)}
       pending={sending}
     >
