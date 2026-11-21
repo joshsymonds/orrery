@@ -589,15 +589,14 @@ func (p pass) complete(def workflow.Node, run store.NodeRun, act kinds.Action) [
 
 // settle decides the settle walks of a running plan run, and reports whether its latest settle walk, and every late
 // walk, has ended. A settle point is the highest seq among the plan's tasks: those of turns above its mark, and those of
-// earlier turns that a send_back reopened and the plan builds (planTask). Its walk runs the plan body's nodes that are
+// earlier turns that a send_back reopened and the plan builds (kinds.PlanTask). Its walk runs the plan body's nodes that are
 // not build nodes, under <plan path>/S<seq>/. Every walk already started, settle or late, is decided on each pass, so
 // an older walk finishes while a newer settle point waits for its tasks. The latest walk starts only when no task of
 // the epic is building, open and not waiting on other tasks (anyTaskBuilding), and no late walk runs, so a late walk's
 // batch never races a newer one onto the branch. Once the latest walk has ended, the next late walk may start
 // (nextLateWalk).
 func (p pass) settle(def workflow.Node, run store.NodeRun) ([]Action, bool) {
-	built := buildPrefix(def, run)
-	latest, ok := p.settlePoint(run, built)
+	latest, ok := p.settlePoint(run)
 	if !ok {
 		return nil, true
 	}
@@ -607,13 +606,13 @@ func (p pass) settle(def workflow.Node, run store.NodeRun) ([]Action, bool) {
 	var acts []Action
 	for _, task := range p.rows.Epic.Tasks {
 		prefix := settlePrefix(run.Path, task.Seq)
-		if !p.planTask(task, run, built) || task.Seq == latest || !p.hasRunUnder(prefix) {
+		if !kinds.PlanTask(task, run, p.rows.Runs) || task.Seq == latest || !p.hasRunUnder(prefix) {
 			continue
 		}
 		walked, _ := p.walk(nodes, scope{prefix: prefix, round: run.Round, where: planBody})
 		acts = append(acts, walked...)
 	}
-	late, lateEnded := p.lateWalks(nodes, run, built)
+	late, lateEnded := p.lateWalks(nodes, run)
 	acts = append(acts, late...)
 	prefix := settlePrefix(run.Path, latest)
 	if !p.hasRunUnder(prefix) && (p.anyTaskBuilding() || !lateEnded) {
@@ -624,7 +623,7 @@ func (p pass) settle(def workflow.Node, run store.NodeRun) ([]Action, bool) {
 	if !done || !lateEnded {
 		return acts, false
 	}
-	next, settled := p.nextLateWalk(nodes, run, prefix, built)
+	next, settled := p.nextLateWalk(nodes, run, prefix)
 	return append(acts, next...), settled
 }
 
@@ -632,11 +631,11 @@ func (p pass) settle(def workflow.Node, run store.NodeRun) ([]Action, bool) {
 // walk integrates a task that was accepted after the latest settle walk's integrate run claimed its batch: a task that
 // was waiting on other tasks when that walk started, or one a send_back reopened and that is done again. It runs the
 // nodes under the task's late prefix at each of its reopen generations (latePrefix).
-func (p pass) lateWalks(nodes []workflow.Node, run store.NodeRun, built string) ([]Action, bool) {
+func (p pass) lateWalks(nodes []workflow.Node, run store.NodeRun) ([]Action, bool) {
 	var acts []Action
 	ended := true
 	for _, task := range p.rows.Epic.Tasks {
-		if !p.planTask(task, run, built) {
+		if !kinds.PlanTask(task, run, p.rows.Runs) {
 			continue
 		}
 		for generation := int64(0); generation <= task.Generation; generation++ {
@@ -659,7 +658,7 @@ func (p pass) lateWalks(nodes []workflow.Node, run store.NodeRun, built string) 
 // building. A late walk that ended without its task claimed starts no other, so its trigger brings the planner first;
 // a send_back of that task moves it to its next generation, whose walk is a new one. A plan body with no integrate node
 // has no late walk.
-func (p pass) nextLateWalk(nodes []workflow.Node, run store.NodeRun, latest, built string) ([]Action, bool) {
+func (p pass) nextLateWalk(nodes []workflow.Node, run store.NodeRun, latest string) ([]Action, bool) {
 	i := slices.IndexFunc(nodes, func(node workflow.Node) bool { return node.Kind == kindIntegrate })
 	if i < 0 {
 		return nil, true
@@ -667,7 +666,7 @@ func (p pass) nextLateWalk(nodes []workflow.Node, run store.NodeRun, latest, bui
 	if _, ran := p.byPath[latest+nodes[i].ID]; !ran {
 		return nil, true
 	}
-	task, found := p.lateTask(run, built)
+	task, found := p.lateTask(run)
 	prefix := latePrefix(run.Path, task.Seq, task.Generation)
 	if !found || p.hasRunUnder(prefix) {
 		return nil, true
@@ -678,14 +677,13 @@ func (p pass) nextLateWalk(nodes []workflow.Node, run store.NodeRun, latest, bui
 	return p.walk(nodes, scope{prefix: prefix, round: run.Round, where: planBody})
 }
 
-// lateTask returns the task of lowest seq among the tasks of the plan run (planTask), whose build children run under
-// built, that waited on other tasks or that a send_back reopened, are done and are claimed by no batch, and whether
-// there is one. Every other done task of the plan was done before the latest settle walk's integrate run claimed its
-// batch, which claimed it. A reopened task's claim was cleared by its send_back, so it is accepted after that claim, as
-// a waited task is.
-func (p pass) lateTask(run store.NodeRun, built string) (store.EpicTask, bool) {
+// lateTask returns the task of lowest seq among the tasks of the plan run (kinds.PlanTask) that waited on other tasks
+// or that a send_back reopened, are done and are claimed by no batch, and whether there is one. Every other done task
+// of the plan was done before the latest settle walk's integrate run claimed its batch, which claimed it. A reopened
+// task's claim was cleared by its send_back, so it is accepted after that claim, as a waited task is.
+func (p pass) lateTask(run store.NodeRun) (store.EpicTask, bool) {
 	for _, task := range p.rows.Epic.Tasks {
-		if p.planTask(task, run, built) && task.Status == taskDone && task.Batch == "" &&
+		if kinds.PlanTask(task, run, p.rows.Runs) && task.Status == taskDone && task.Batch == "" &&
 			(task.Build.After != "" || task.Generation > 0) {
 			return task, true
 		}
@@ -703,42 +701,16 @@ func latePrefix(path string, seq, generation int64) string {
 	return fmt.Sprintf("%s/L%dg%d/", path, seq, generation)
 }
 
-// settlePoint returns the highest seq among the tasks of the plan run (planTask), whose build children run under
-// built, and whether there is one.
-func (p pass) settlePoint(run store.NodeRun, built string) (int64, bool) {
+// settlePoint returns the highest seq among the tasks of the plan run (kinds.PlanTask), and whether there is one.
+func (p pass) settlePoint(run store.NodeRun) (int64, bool) {
 	var highest int64
 	found := false
 	for _, task := range p.rows.Epic.Tasks {
-		if p.planTask(task, run, built) && (!found || task.Seq > highest) {
+		if kinds.PlanTask(task, run, p.rows.Runs) && (!found || task.Seq > highest) {
 			highest, found = task.Seq, true
 		}
 	}
 	return highest, found
-}
-
-// planTask reports whether task is a task of the plan run whose build children run under built: a task of a turn above
-// the run's mark, or a task of a turn at or below it that a send_back reopened and that the run builds, so its build
-// child runs under built (startTasks). The plan settles and integrates its tasks alone. A plan body with no build node
-// has built "" and builds no task of an earlier turn.
-func (p pass) planTask(task store.EpicTask, run store.NodeRun, built string) bool {
-	if task.Turn > run.Mark {
-		return true
-	}
-	if task.Generation == 0 || built == "" {
-		return false
-	}
-	_, ok := p.byPath[fmt.Sprintf("%sT%d", built, task.Seq)]
-	return ok
-}
-
-// buildPrefix returns the prefix the build children of the plan run of def run under: the path of its first build node
-// followed by a slash, or "" when its body has no build node.
-func buildPrefix(def workflow.Node, run store.NodeRun) string {
-	build, ok := firstBuild(def.Body)
-	if !ok {
-		return ""
-	}
-	return run.Path + "/" + build.ID + "/"
 }
 
 // settlePrefix returns the prefix of the settle walk at seq of the plan at path.
@@ -909,15 +881,18 @@ func (p pass) loop(def workflow.Node, run store.NodeRun) []Action {
 	return []Action{{Kind: ActPark, Path: run.Path, Round: run.LoopRound, Reason: reason}}
 }
 
-// planned reports whether a plan node of a loop body planned a task in the round at prefix: its run holds a task of a
-// turn above the mark it started at. A plan node with no run in the round planned none.
+// planned reports whether a plan node of a loop body planned a task in the round at prefix: its run holds a task of its
+// own (kinds.PlanTask), one of a turn above the mark it started at or a reopened task of an earlier turn it rebuilt. A
+// plan node with no run in the round planned none.
 func (p pass) planned(prefix string, body []workflow.Node) bool {
 	for _, node := range body {
 		run, ran := p.byPath[prefix+node.ID]
 		if node.Kind != kindPlan || !ran {
 			continue
 		}
-		if slices.ContainsFunc(p.rows.Epic.Tasks, func(task store.EpicTask) bool { return task.Turn > run.Mark }) {
+		if slices.ContainsFunc(p.rows.Epic.Tasks, func(task store.EpicTask) bool {
+			return kinds.PlanTask(task, run, p.rows.Runs)
+		}) {
 			return true
 		}
 	}
@@ -949,7 +924,7 @@ func (p pass) fanOut(plan workflow.Node, run store.NodeRun) []Action {
 	if !ok {
 		return nil
 	}
-	prefix := buildPrefix(plan, run)
+	prefix := run.Path + "/" + build.ID + "/"
 	var acts []Action
 	if !p.batchOpen(run.Path) {
 		acts = p.startTasks(run, build, prefix)

@@ -1335,9 +1335,9 @@ func workflowPositions(pin store.EpicWorkflow) (map[string]int, error) {
 	return positions, nil
 }
 
-// epicNodeMessage returns the EpicNode message of run. The rows beneath it are read from flow: a plan's turns and tasks
-// above its mark, a build's task, an evidence node's runs of its attempt, a gate's or command's check and an agent's
-// step, each only when the store holds it.
+// epicNodeMessage returns the EpicNode message of run. The rows beneath it are read from flow: a plan's turns above its
+// mark and its tasks (planRows), a build's task, an evidence node's runs of its attempt, a gate's or command's check
+// and an agent's step, each only when the store holds it.
 func epicNodeMessage(flow store.EpicFlow, run store.NodeRun) (*v1.EpicNode, error) {
 	message := &v1.EpicNode{
 		Path: run.Path, Node: run.Node, Kind: run.Kind, State: run.State, Outcome: run.Outcome,
@@ -1345,7 +1345,7 @@ func epicNodeMessage(flow store.EpicFlow, run store.NodeRun) (*v1.EpicNode, erro
 	}
 	switch run.Kind {
 	case kindPlan:
-		message.Turns, message.Tasks = planRows(flow.Epic, run.Mark)
+		message.Turns, message.Tasks = planRows(flow, run)
 	case kindBuild:
 		message.Tasks = []int64{run.Task}
 	case kindEvidence:
@@ -1369,17 +1369,18 @@ func epicNodeMessage(flow store.EpicFlow, run store.NodeRun) (*v1.EpicNode, erro
 	return message, nil
 }
 
-// planRows returns the turn seqs above mark and the task seqs of those turns, each in order. A task belongs to the turn
-// it was planned under.
-func planRows(epic store.EpicRow, mark int64) ([]int64, []int64) {
+// planRows returns the turn seqs above the mark of the plan run plan and the task seqs of the plan (kinds.PlanTask),
+// each in order: the tasks of those turns, and each reopened task of an earlier turn the plan rebuilds. A task belongs
+// to the turn it was planned under.
+func planRows(flow store.EpicFlow, plan store.NodeRun) ([]int64, []int64) {
 	var turns, tasks []int64
-	for _, turn := range epic.Turns {
-		if turn.Seq > mark {
+	for _, turn := range flow.Epic.Turns {
+		if turn.Seq > plan.Mark {
 			turns = append(turns, turn.Seq)
 		}
 	}
-	for _, task := range epic.Tasks {
-		if task.Turn > mark {
+	for _, task := range flow.Epic.Tasks {
+		if kinds.PlanTask(task, plan, flow.Runs) {
 			tasks = append(tasks, task.Seq)
 		}
 	}

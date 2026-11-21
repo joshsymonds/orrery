@@ -181,3 +181,21 @@ func TestSendBackEarlierTurnTaskIsRebuiltAndIntegratedByTheFixPlan(t *testing.T)
 		t.Errorf("T1's first build child = %+v, want it kept ended", run)
 	}
 }
+
+// TestSendBackEarlierTurnLoopRoundWithAReopenedTaskMovesOn checks that a round of the built-in correct loop, which
+// names no max, whose fix plan planned no task of its own turn but rebuilt a reopened task of an earlier turn, counts
+// as a round that planned a task: with its closure not passed, the loop moves on to its next round.
+func TestSendBackEarlierTurnLoopRoundWithAReopenedTaskMovesOn(t *testing.T) {
+	t.Parallel()
+	turns := []store.EpicTurn{turnAt(1, "complete"), turnAt(2, "work")}
+	rebuilt := ended(childOf("correct@2/fix/rebuild/T1", 2, 1, 1, 1), "")
+	decideCases(t, []decideCase{
+		{
+			name: "round 2 whose fix plan rebuilt a reopened task of turn 1 moves on to round 3",
+			flow: []workflow.Node{builtInCorrect(t)},
+			rows: rowsOf(turns, []store.EpicTask{reopened(taskDone, 1)},
+				correctLoop(2), correctFix(2), rebuilt, correctClosure(2)),
+			want: []Action{{Kind: ActRound, Path: "correct", Round: 2}},
+		},
+	})
+}
