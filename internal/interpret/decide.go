@@ -627,29 +627,36 @@ func (p pass) settle(def workflow.Node, run store.NodeRun) ([]Action, bool) {
 }
 
 // lateWalks decides each late walk of a plan run that has started, and reports whether all of them have ended. A late
-// walk integrates a task that was waiting on other tasks when the latest settle walk started, and so was accepted after
-// that walk's integrate run claimed its batch. It runs the nodes under <plan path>/L<seq>/, where <seq> is the seq of
-// that task.
+// walk integrates a task that was accepted after the latest settle walk's integrate run claimed its batch: a task that
+// was waiting on other tasks when that walk started, or one a send_back reopened and that is done again. It runs the
+// nodes under the task's late prefix at each of its reopen generations (latePrefix).
 func (p pass) lateWalks(nodes []workflow.Node, run store.NodeRun) ([]Action, bool) {
 	var acts []Action
 	ended := true
 	for _, task := range p.rows.Epic.Tasks {
-		prefix := latePrefix(run.Path, task.Seq)
-		if task.Turn <= run.Mark || !p.hasRunUnder(prefix) {
+		if task.Turn <= run.Mark {
 			continue
 		}
-		walked, done := p.walk(nodes, scope{prefix: prefix, round: run.Round, where: planBody})
-		acts = append(acts, walked...)
-		ended = ended && done
+		for generation := int64(0); generation <= task.Generation; generation++ {
+			prefix := latePrefix(run.Path, task.Seq, generation)
+			if !p.hasRunUnder(prefix) {
+				continue
+			}
+			walked, done := p.walk(nodes, scope{prefix: prefix, round: run.Round, where: planBody})
+			acts = append(acts, walked...)
+			ended = ended && done
+		}
 	}
 	return acts, ended
 }
 
 // nextLateWalk starts the next late walk of a plan run whose latest settle walk, under latest, and every late walk have
 // ended, and reports whether none is left to run. The next late walk is that of the lowest seq among the tasks of turns
-// above the plan's mark that waited, are done and are claimed by no batch (lateTask). It starts once the latest walk's
-// integrate node has run, when no task of the epic is building. A late walk that ended without its task claimed starts no
-// other, so its trigger brings the planner first. A plan body with no integrate node has no late walk.
+// above the plan's mark that waited or that a send_back reopened, are done and are claimed by no batch (lateTask), at
+// that task's reopen generation. It starts once the latest walk's integrate node has run, when no task of the epic is
+// building. A late walk that ended without its task claimed starts no other, so its trigger brings the planner first;
+// a send_back of that task moves it to its next generation, whose walk is a new one. A plan body with no integrate node
+// has no late walk.
 func (p pass) nextLateWalk(nodes []workflow.Node, run store.NodeRun, latest string) ([]Action, bool) {
 	i := slices.IndexFunc(nodes, func(node workflow.Node) bool { return node.Kind == kindIntegrate })
 	if i < 0 {
@@ -658,8 +665,8 @@ func (p pass) nextLateWalk(nodes []workflow.Node, run store.NodeRun, latest stri
 	if _, ran := p.byPath[latest+nodes[i].ID]; !ran {
 		return nil, true
 	}
-	seq, found := p.lateTask(run.Mark)
-	prefix := latePrefix(run.Path, seq)
+	task, found := p.lateTask(run.Mark)
+	prefix := latePrefix(run.Path, task.Seq, task.Generation)
 	if !found || p.hasRunUnder(prefix) {
 		return nil, true
 	}
@@ -669,20 +676,28 @@ func (p pass) nextLateWalk(nodes []workflow.Node, run store.NodeRun, latest stri
 	return p.walk(nodes, scope{prefix: prefix, round: run.Round, where: planBody})
 }
 
-// lateTask returns the lowest seq among the tasks of turns above mark that waited on other tasks, are done and are
-// claimed by no batch, and whether there is one.
-func (p pass) lateTask(mark int64) (int64, bool) {
+// lateTask returns the task of lowest seq among the tasks of turns above mark that waited on other tasks or that a
+// send_back reopened, are done and are claimed by no batch, and whether there is one. Every other done task of those
+// turns was done before the latest settle walk's integrate run claimed its batch, which claimed it. A reopened task's
+// claim was cleared by its send_back, so it is accepted after that claim, as a waited task is.
+func (p pass) lateTask(mark int64) (store.EpicTask, bool) {
 	for _, task := range p.rows.Epic.Tasks {
-		if task.Turn > mark && task.Status == taskDone && task.Batch == "" && task.Build.After != "" {
-			return task.Seq, true
+		if task.Turn > mark && task.Status == taskDone && task.Batch == "" &&
+			(task.Build.After != "" || task.Generation > 0) {
+			return task, true
 		}
 	}
-	return 0, false
+	return store.EpicTask{}, false
 }
 
-// latePrefix returns the prefix of the late walk at seq of the plan at path.
-func latePrefix(path string, seq int64) string {
-	return fmt.Sprintf("%s/L%d/", path, seq)
+// latePrefix returns the prefix of the late walk of task seq at reopen generation generation of the plan at path:
+// <plan path>/L<seq>/ at generation 0, and <plan path>/L<seq>g<generation>/ after a send_back, so each reopen of the
+// task walks under its own prefix and never behind a walk an earlier generation ran.
+func latePrefix(path string, seq, generation int64) string {
+	if generation == 0 {
+		return fmt.Sprintf("%s/L%d/", path, seq)
+	}
+	return fmt.Sprintf("%s/L%dg%d/", path, seq, generation)
 }
 
 // settlePoint returns the highest seq among the tasks of turns above mark, and whether there is one.

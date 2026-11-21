@@ -41,8 +41,9 @@ func (s *Store) ClaimBatch(
 	})
 }
 
-// claimBatchTasks claims each of tasks that is done and has no batch or the batch path for the batch at path, in the
-// caller's write.
+// claimBatchTasks claims each of tasks that is done and has no batch, the batch path, or a batch whose integrate run
+// ended failed, for the batch at path, in the caller's write. A failed batch's claim moves, so a task it stranded is
+// claimed by the batch that composes it again. A claim by a batch that passed, or that has not ended, stays.
 func claimBatchTasks(ctx context.Context, queries *sqlcgen.Queries, epic, path string, tasks []int64) error {
 	for _, seq := range tasks {
 		if err := queries.ClaimEpicTaskBatch(ctx, sqlcgen.ClaimEpicTaskBatchParams{

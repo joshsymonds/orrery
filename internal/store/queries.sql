@@ -1060,7 +1060,12 @@ UPDATE epic_tasks SET gate_changes = sqlc.arg(gate_changes) WHERE epic = sqlc.ar
 
 -- name: ClaimEpicTaskBatch :exec
 UPDATE epic_tasks SET batch = sqlc.arg(batch)
-WHERE epic = sqlc.arg(epic) AND seq = sqlc.arg(seq) AND status = 'done' AND (batch = '' OR batch = sqlc.arg(batch));
+WHERE epic_tasks.epic = sqlc.arg(epic) AND epic_tasks.seq = sqlc.arg(seq) AND epic_tasks.status = 'done' AND (
+    epic_tasks.batch = '' OR epic_tasks.batch = sqlc.arg(batch) OR epic_tasks.batch IN (
+        SELECT runs.path FROM epic_node_runs AS runs
+        WHERE runs.epic = sqlc.arg(epic) AND runs.kind = 'integrate' AND runs.state = 'ended' AND runs.outcome = 'failed'
+    )
+);
 
 -- name: InsertEpicTaskReview :exec
 INSERT INTO epic_task_reviews (epic, task, generation, attempt, position, gate, step, verdict)

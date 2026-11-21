@@ -324,8 +324,9 @@ func emptyPassedBatch(run NodeRun) bool {
 	return run.State == NodeEnded && run.Outcome == nodePassedOutcome && run.Revision == ""
 }
 
-// settleSeq returns the seq of the settle walk or late walk that holds the node run at path: the N of the S<N> or L<N>
-// segment just above the run's own node. It returns false when path sits in no such walk.
+// settleSeq returns the seq of the settle walk or late walk that holds the node run at path: the N of the S<N>, L<N> or
+// L<N>g<G> segment just above the run's own node, the last the late walk of a task at reopen generation G. It returns
+// false when path sits in no such walk.
 func settleSeq(path string) (uint64, bool) {
 	i := strings.LastIndex(path, "/")
 	if i < 0 {
@@ -336,6 +337,12 @@ func settleSeq(path string) (uint64, bool) {
 	walk, found := strings.CutPrefix(segment, "S")
 	if !found {
 		walk, found = strings.CutPrefix(segment, "L")
+		if late, generation, reopened := strings.Cut(walk, "g"); found && reopened {
+			if _, err := strconv.ParseUint(generation, 10, 64); err != nil {
+				return 0, false
+			}
+			walk = late
+		}
 	}
 	if !found {
 		return 0, false

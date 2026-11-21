@@ -111,7 +111,12 @@ func (q *Queries) ClaimEpicNodeRunWork(ctx context.Context, arg ClaimEpicNodeRun
 
 const claimEpicTaskBatch = `-- name: ClaimEpicTaskBatch :exec
 UPDATE epic_tasks SET batch = ?1
-WHERE epic = ?2 AND seq = ?3 AND status = 'done' AND (batch = '' OR batch = ?1)
+WHERE epic_tasks.epic = ?2 AND epic_tasks.seq = ?3 AND epic_tasks.status = 'done' AND (
+    epic_tasks.batch = '' OR epic_tasks.batch = ?1 OR epic_tasks.batch IN (
+        SELECT runs.path FROM epic_node_runs AS runs
+        WHERE runs.epic = ?2 AND runs.kind = 'integrate' AND runs.state = 'ended' AND runs.outcome = 'failed'
+    )
+)
 `
 
 type ClaimEpicTaskBatchParams struct {
