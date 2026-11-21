@@ -487,13 +487,12 @@ fun PaneScreen(
             onDraftPresent = { draftPresent = it },
             onSend = { endRequests++ },
         )
-        AnimatedVisibility(
-            visible = !draftPresent,
-            enter = expandVertically(Move.LAYOUT.spec(animated = true)) + fadeIn(Move.LAYOUT.spec(animated = true)),
-            exit = shrinkVertically(Move.LAYOUT.spec(animated = true)) + fadeOut(Move.LAYOUT.spec(animated = true)),
-            label = "quick-keys",
-        ) {
-            QuickKeys(paneId, client, state = current?.state.orEmpty(), changed = current?.changed ?: 0L)
-        }
+        QuickKeys(
+            paneId,
+            client,
+            state = current?.state.orEmpty(),
+            changed = current?.changed ?: 0L,
+            draftPresent = draftPresent,
+        )
     }
 }

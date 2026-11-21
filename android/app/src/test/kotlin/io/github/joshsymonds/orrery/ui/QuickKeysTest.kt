@@ -14,17 +14,19 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.ExperimentalTestApi
-import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.hasClickAction
 import androidx.compose.ui.test.hasText
-import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
+import com.connectrpc.Code
 import io.github.joshsymonds.orrery.api.FakeOrreryServer
 import io.github.joshsymonds.orrery.api.OrreryClient
-import com.connectrpc.Code
+import io.github.joshsymonds.orrery.api.Quiescence
+import io.github.joshsymonds.orrery.api.Reply
 import io.github.joshsymonds.orrery.awaitExactlyOne
+import io.github.joshsymonds.orrery.awaitNone
 import io.github.joshsymonds.orrery.awaitUntil
 import io.github.joshsymonds.orrery.awaitUntilAfterIdle
 import io.github.joshsymonds.orrery.gen.orrery.v1.Pane as PaneProto
@@ -32,6 +34,7 @@ import io.github.joshsymonds.orrery.gen.orrery.v1.PanesListResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.SendKeysRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.SendKeysResponse
 import io.github.joshsymonds.orrery.mainThreadComposeRule
+import java.util.concurrent.CountDownLatch
 import java.util.concurrent.atomic.AtomicInteger
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -47,18 +50,15 @@ import org.robolectric.annotation.Config
 private const val PANE_ID = "%3"
 private const val KEYS_PATH = "/orrery.v1.Panes/SendKeys"
 private const val PANES_PATH = "/orrery.v1.Panes/List"
-private const val NOT_SENT = "key not sent"
-private const val NOTHING_CHANGED = "nothing changed"
 private const val FLASH_MILLIS = 300L
 private const val WINDOW_MILLIS = 5_000L
 private const val CHANGED_AT = 1_000L
 private const val LATER = 2_000L
 /** The screen's read-window state class, named because it is private to QuickKeys.kt. */
 private const val READ_WINDOW_CLASS = "ReadWindow"
-private const val READ_SETTLE_MILLIS = 1_000L
-
-/** The results a window can show, none of them the send's "key not sent". */
-private val RESULTS = listOf(NOTHING_CHANGED, "now done", "now working", "now waiting for you", "now ended")
+private const val NOTHING_CHANGED = "Nothing changed."
+private const val NOT_ANSWERED = "the server did not answer."
+private const val REFUSED = "the server refused it."
 
 @OptIn(ExperimentalTestApi::class)
 @RunWith(RobolectricTestRunner::class)
@@ -141,26 +141,95 @@ class QuickKeysTest {
     }
 
     @Test
-    fun showsKeyNotSentWhenServerFails() {
+    fun refusedKeyShowsItsNoteInErrorToneWithNoOkNote() {
         FakeOrreryServer().use { server ->
             server.fail(KEYS_PATH, Code.INTERNAL_ERROR, "boom")
             setQuickKeys(server)
 
             composeRule.onNodeWithText("Enter").performScrollTo().performClick()
-            composeRule.awaitUntil { notSentShown() }
-            composeRule.onNodeWithText(NOT_SENT).assertIsDisplayed()
+            awaitNote(NoteTone.Error, notSentNote("Enter", REFUSED))
+            assertNoOkNote("a key not sent")
         }
     }
 
     @Test
-    fun showsKeyNotSentWhenPromptChanged() {
+    fun promptChangedShowsItsKeyRefusedNote() {
         FakeOrreryServer().use { server ->
             server.fail(KEYS_PATH, Code.ABORTED, "question refused")
             setQuickKeys(server)
 
             composeRule.onNodeWithText("Esc").performClick()
-            composeRule.awaitUntil { notSentShown() }
-            composeRule.onNodeWithText(NOT_SENT).assertIsDisplayed()
+            awaitNote(NoteTone.Error, notSentNote("Esc", REFUSED))
+        }
+    }
+
+    @Test
+    fun unansweredKeyShowsDidNotAnswerNote() {
+        FakeOrreryServer().use { server ->
+            server.drop(KEYS_PATH)
+            setQuickKeys(server)
+
+            composeRule.onNodeWithText("Ctrl-C").performClick()
+            awaitNote(NoteTone.Error, notSentNote("Ctrl-C", NOT_ANSWERED))
+            assertNoOkNote("a key not sent")
+        }
+    }
+
+    @Test
+    fun unavailableAnswerSaysDidNotAnswer() {
+        FakeOrreryServer().use { server ->
+            server.fail(KEYS_PATH, Code.UNAVAILABLE, "orreryd is not taking keys")
+            setQuickKeys(server)
+
+            composeRule.onNodeWithText("Ctrl-C").performClick()
+            awaitNote(NoteTone.Error, notSentNote("Ctrl-C", NOT_ANSWERED))
+        }
+    }
+
+    @Test
+    fun laterRefusedSendReplacesTheErrorNote() {
+        FakeOrreryServer().use { server ->
+            server.fail(KEYS_PATH, Code.INTERNAL_ERROR, "boom")
+            setQuickKeys(server)
+
+            composeRule.onNodeWithText("Esc").performClick()
+            awaitNote(NoteTone.Error, notSentNote("Esc", REFUSED))
+            composeRule.onNodeWithText("Ctrl-C").performClick()
+            awaitNote(NoteTone.Error, notSentNote("Ctrl-C", REFUSED))
+        }
+    }
+
+    @Test
+    fun errorNoteStaysAcrossALaterSendInFlightAndLeavesWhenAKeyLands() {
+        FakeOrreryServer().use { server ->
+            // The Enter send is held until the test releases it, so the note is judged while that send is in flight.
+            val release = CountDownLatch(1)
+            server.route(KEYS_PATH) { request ->
+                if (SendKeysRequest.parseFrom(request.body).keysList == listOf("Escape")) {
+                    Reply.Failure(Code.INTERNAL_ERROR, "boom", 0L)
+                } else {
+                    release.await()
+                    Reply.Message(SendKeysResponse.getDefaultInstance(), 0L)
+                }
+            }
+            try {
+                setQuickKeys(server)
+                composeRule.onNodeWithText("Esc").performClick()
+                awaitNote(NoteTone.Error, notSentNote("Esc", REFUSED))
+
+                composeRule.onNodeWithText("Enter").performScrollTo().performClick()
+                composeRule.awaitUntil("the Enter send to reach the server") { keyRequests(server) == 2 }
+                composeRule.waitForIdle()
+                assertEquals(listOf(notSentNote("Esc", REFUSED)), shownNotes(NoteTone.Error))
+
+                release.countDown()
+                composeRule.awaitUntil("the Esc note to leave once Enter lands") {
+                    shownNotes(NoteTone.Error).isEmpty()
+                }
+                assertNoOkNote("the Enter that landed")
+            } finally {
+                release.countDown()
+            }
         }
     }
 
@@ -247,13 +316,13 @@ class QuickKeysTest {
             assertTrue("Enter flashes although the send failed", flashing("Enter"))
 
             composeRule.mainClock.autoAdvance = true
-            composeRule.awaitUntil { notSentShown() }
+            awaitNote(NoteTone.Error, notSentNote("Enter", REFUSED))
             assertEquals(listOf(HapticFeedbackType.LongPress), haptic.performed)
         }
     }
 
     @Test
-    fun escSentThenStateMovingToDoneReadsNowDone() {
+    fun escSentThenStateMovingToDoneReadsSentAndThePaneNow() {
         FakeOrreryServer().use { server ->
             server.respond(KEYS_PATH, SendKeysResponse.getDefaultInstance())
             servePane(server, state = "working", changed = CHANGED_AT)
@@ -265,13 +334,13 @@ class QuickKeysTest {
             composeRule.awaitUntil { keyRequests(server) == 1 }
 
             composeRule.runOnIdle { shown.state = "done" }
-            composeRule.awaitExactlyOne(hasText("now done"))
+            awaitNote(NoteTone.Ok, sentNote("Esc", "The pane is now done."))
             assertEquals("the change shows the result without a read", 0, panesRequests(server))
         }
     }
 
     @Test
-    fun aChangedTimeInsideTheWindowReadsNowWorking() {
+    fun aChangedTimeInsideTheWindowReadsThePaneWorking() {
         FakeOrreryServer().use { server ->
             server.respond(KEYS_PATH, SendKeysResponse.getDefaultInstance())
             servePane(server, state = "working", changed = CHANGED_AT)
@@ -283,12 +352,12 @@ class QuickKeysTest {
             composeRule.awaitUntil { keyRequests(server) == 1 }
 
             composeRule.runOnIdle { shown.changed = LATER }
-            composeRule.awaitExactlyOne(hasText("now working"))
+            awaitNote(NoteTone.Ok, sentNote("Esc", "The pane is now working."))
         }
     }
 
     @Test
-    fun emptyStateInsideTheWindowReadsNowEnded() {
+    fun emptyStateInsideTheWindowReadsThePaneEnded() {
         FakeOrreryServer().use { server ->
             server.respond(KEYS_PATH, SendKeysResponse.getDefaultInstance())
             servePane(server, state = "working", changed = CHANGED_AT)
@@ -300,12 +369,12 @@ class QuickKeysTest {
             composeRule.awaitUntil { keyRequests(server) == 1 }
 
             composeRule.runOnIdle { shown.state = "" }
-            composeRule.awaitExactlyOne(hasText("now ended"))
+            awaitNote(NoteTone.Ok, sentNote("Ctrl-C", "The pane is now ended."))
         }
     }
 
     @Test
-    fun failedSendShowsKeyNotSentAndNoWindow() {
+    fun refusedSendShowsItsNoteAndOpensNoWindow() {
         FakeOrreryServer().use { server ->
             server.fail(KEYS_PATH, Code.INTERNAL_ERROR, "boom")
             servePane(server, state = "working", changed = CHANGED_AT)
@@ -314,15 +383,15 @@ class QuickKeysTest {
 
             composeRule.onNodeWithText("Esc").performClick()
             composeRule.waitForIdle()
-            composeRule.awaitUntil { notSentShown() }
+            awaitNote(NoteTone.Error, notSentNote("Esc", REFUSED))
 
             composeRule.mainClock.autoAdvance = false
             composeRule.runOnIdle { shown.state = "done" }
             composeRule.mainClock.advanceTimeBy(WINDOW_MILLIS, ignoreFrameDuration = true)
             composeRule.waitForIdle()
-            assertEquals("a failed send opens no window, so no read", 0, panesRequests(server))
-            assertNoResultShown("a failed send")
-            assertTrue("the failure stays shown", notSentShown())
+            assertEquals("a refused send opens no window, so no read", 0, panesRequests(server))
+            assertNoOkNote("a refused send")
+            assertEquals("the failure stays shown", listOf(notSentNote("Esc", REFUSED)), shownNotes(NoteTone.Error))
         }
     }
 
@@ -341,11 +410,11 @@ class QuickKeysTest {
             composeRule.mainClock.advanceTimeBy(WINDOW_MILLIS - 1, ignoreFrameDuration = true)
             settleReads()
             assertEquals("no read before 5 s", 0, panesRequests(server))
-            assertFalse("no result before 5 s", resultShown(NOTHING_CHANGED))
+            assertTrue("no result before 5 s", shownNotes(NoteTone.Ok).isEmpty())
 
             composeRule.mainClock.advanceTimeBy(1, ignoreFrameDuration = true)
             composeRule.mainClock.autoAdvance = true
-            composeRule.awaitExactlyOne(hasText(NOTHING_CHANGED))
+            awaitNote(NoteTone.Ok, sentNote("Ctrl-C", NOTHING_CHANGED))
             assertEquals("one read at 5 s", 1, panesRequests(server))
         }
     }
@@ -364,7 +433,7 @@ class QuickKeysTest {
 
             composeRule.mainClock.advanceTimeBy(WINDOW_MILLIS, ignoreFrameDuration = true)
             composeRule.mainClock.autoAdvance = true
-            composeRule.awaitExactlyOne(hasText(NOTHING_CHANGED))
+            awaitNote(NoteTone.Ok, sentNote("Esc", NOTHING_CHANGED))
         }
     }
 
@@ -383,7 +452,7 @@ class QuickKeysTest {
             // The shown pane is still "working"; the read finds the pane "done".
             composeRule.mainClock.advanceTimeBy(WINDOW_MILLIS, ignoreFrameDuration = true)
             composeRule.mainClock.autoAdvance = true
-            composeRule.awaitExactlyOne(hasText("now done"))
+            awaitNote(NoteTone.Ok, sentNote("Esc", "The pane is now done."))
         }
     }
 
@@ -403,8 +472,8 @@ class QuickKeysTest {
             composeRule.mainClock.autoAdvance = true
             composeRule.awaitUntil { panesRequests(server) == 1 }
             settleReads()
-            assertNoResultShown("a failed read")
-            assertFalse("a failed read is not a send failure", notSentShown())
+            assertNoOkNote("a failed read")
+            assertTrue("a failed read is not a send failure", shownNotes(NoteTone.Error).isEmpty())
         }
     }
 
@@ -430,10 +499,10 @@ class QuickKeysTest {
             composeRule.mainClock.advanceTimeByFrame()
             settleReads()
             assertEquals("the first window is gone at 5 s", 0, panesRequests(server))
-            assertFalse("no result at 5 s", resultShown(NOTHING_CHANGED))
+            assertTrue("no result at 5 s", shownNotes(NoteTone.Ok).isEmpty())
 
             composeRule.mainClock.autoAdvance = true
-            composeRule.awaitExactlyOne(hasText(NOTHING_CHANGED))
+            awaitNote(NoteTone.Ok, sentNote("Esc", NOTHING_CHANGED))
             assertEquals("one read, at 8 s", 1, panesRequests(server))
         }
     }
@@ -451,11 +520,11 @@ class QuickKeysTest {
             awaitWindowOpened(1)
             composeRule.mainClock.advanceTimeBy(WINDOW_MILLIS, ignoreFrameDuration = true)
             composeRule.mainClock.autoAdvance = true
-            composeRule.awaitExactlyOne(hasText(NOTHING_CHANGED))
+            awaitNote(NoteTone.Ok, sentNote("Esc", NOTHING_CHANGED))
 
             composeRule.onNodeWithText("Enter").performScrollTo().performClick()
             composeRule.awaitUntil { keyRequests(server) == 2 }
-            assertFalse("the tap clears the result", resultShown(NOTHING_CHANGED))
+            assertNoOkNote("the tap")
         }
     }
 
@@ -480,7 +549,7 @@ class QuickKeysTest {
             composeRule.mainClock.advanceTimeBy(WINDOW_MILLIS, ignoreFrameDuration = true)
             settleReads()
             assertEquals("the cancelled window never reads", 0, panesRequests(server))
-            assertNoResultShown("a cancelled window")
+            assertNoOkNote("a cancelled window")
         }
     }
 
@@ -503,7 +572,24 @@ class QuickKeysTest {
             composeRule.waitForIdle()
 
             assertEquals("no key opens a window", 0, panesRequests(server))
-            assertNoResultShown("the other keys")
+            assertNoOkNote("the other keys")
+            assertTrue("the other keys show no error note", shownNotes(NoteTone.Error).isEmpty())
+        }
+    }
+
+    @Test
+    fun keysFoldAwayWhileTheDraftHasTextAndReturnWhenItClears() {
+        FakeOrreryServer().use { server ->
+            val shown = ShownPane().apply { draftPresent = true }
+            setQuickKeys(server, shown)
+            composeRule.waitForIdle()
+            assertTrue("no key shows while the draft has text", keyLabelsShown().isEmpty())
+
+            composeRule.runOnIdle { shown.draftPresent = false }
+            composeRule.awaitExactlyOne(hasText("Esc"))
+
+            composeRule.runOnIdle { shown.draftPresent = true }
+            composeRule.awaitNone(hasText("Esc"))
         }
     }
 
@@ -523,26 +609,34 @@ class QuickKeysTest {
         server.requests.count { it.method == "POST" && it.rawPath == PANES_PATH }
 
     /**
-     * Lets a read the stopped clock started reach the server and its answer reach the screen, so a negative
-     * check on reads or on what shows does not pass before the read has run.
+     * Waits until the reads and answers in flight have finished, so a negative check on reads or on what shows does
+     * not pass before they have run. Only work already started on another thread is waited on; with the clock
+     * stopped, a read the clock has not reached is not started, and the check stands.
      */
     private fun settleReads() {
         composeRule.waitForIdle()
-        Thread.sleep(READ_SETTLE_MILLIS)
+        composeRule.awaitUntil("the reads in flight to finish") { Quiescence.inFlight() == null }
         composeRule.waitForIdle()
     }
 
-    private fun notSentShown(): Boolean =
-        composeRule.onAllNodesWithText(NOT_SENT).fetchSemanticsNodes().isNotEmpty()
-
-    private fun resultShown(text: String): Boolean =
-        composeRule.onAllNodesWithText(text).fetchSemanticsNodes().isNotEmpty()
-
-    private fun assertNoResultShown(context: String) {
-        RESULTS.forEach { result ->
-            assertFalse("$context shows no \"$result\"", resultShown(result))
+    /** The text of each shown note of [tone], in order. Each note is an InlineNote, so its tone is on its text node. */
+    private fun shownNotes(tone: NoteTone): List<String> =
+        composeRule.onAllNodes(SemanticsMatcher.expectValue(NoteToneKey, tone)).fetchSemanticsNodes().map { node ->
+            node.config[SemanticsProperties.Text].joinToString("") { it.text }
         }
+
+    /** Waits until exactly one note of [tone] shows, reading [text]. */
+    private fun awaitNote(tone: NoteTone, text: String) {
+        composeRule.awaitUntil("the $tone note \"$text\"") { shownNotes(tone) == listOf(text) }
     }
+
+    private fun assertNoOkNote(context: String) {
+        assertTrue("$context shows no ok note", shownNotes(NoteTone.Ok).isEmpty())
+    }
+
+    /** The labels of the quick keys on screen. */
+    private fun keyLabelsShown(): List<String> =
+        labelToKey.map { it.first }.filter { label -> composeRule.onAllNodes(hasText(label)).fetchSemanticsNodes().isNotEmpty() }
 
     private fun flashing(label: String): Boolean =
         composeRule.onNode(hasText(label) and hasClickAction()).fetchSemanticsNode()
@@ -552,15 +646,22 @@ class QuickKeysTest {
         val client = OrreryClient(server.baseUrl)
         composeRule.setContent {
             CompositionLocalProvider(LocalHapticFeedback provides haptic) {
-                QuickKeys(paneId = PANE_ID, client = client, state = shown.state, changed = shown.changed)
+                QuickKeys(
+                    paneId = PANE_ID,
+                    client = client,
+                    state = shown.state,
+                    changed = shown.changed,
+                    draftPresent = shown.draftPresent,
+                )
             }
         }
     }
 
-    /** The pane's state and changed time as the screen shows them; a test moves them. */
+    /** The pane's state and changed time, and whether the draft has text, as the screen shows them; a test moves them. */
     private class ShownPane {
         var state by mutableStateOf("working")
         var changed by mutableLongStateOf(CHANGED_AT)
+        var draftPresent by mutableStateOf(false)
     }
 
     private class RecordingHaptic : HapticFeedback {
@@ -571,3 +672,9 @@ class QuickKeysTest {
         }
     }
 }
+
+/** The note a sent Esc or Ctrl-C shows: its label, then what the pane did. */
+private fun sentNote(label: String, words: String): String = "$label sent. $words"
+
+/** The note a key the server did not land shows: its label, then why. */
+private fun notSentNote(label: String, why: String): String = "$label was not sent: $why"
