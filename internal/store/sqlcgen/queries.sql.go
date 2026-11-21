@@ -2415,7 +2415,7 @@ func (q *Queries) InsertContract(ctx context.Context, arg InsertContractParams) 
 }
 
 const insertContractState = `-- name: InsertContractState :exec
-INSERT INTO contract_states (contract, seq, state, version, session, words, at) VALUES (?, ?, ?, ?, ?, ?, ?)
+INSERT INTO contract_states (contract, seq, state, version, session, words, at, base) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 `
 
 type InsertContractStateParams struct {
@@ -2426,6 +2426,7 @@ type InsertContractStateParams struct {
 	Session  string
 	Words    string
 	At       int64
+	Base     string
 }
 
 func (q *Queries) InsertContractState(ctx context.Context, arg InsertContractStateParams) error {
@@ -2437,6 +2438,7 @@ func (q *Queries) InsertContractState(ctx context.Context, arg InsertContractSta
 		arg.Session,
 		arg.Words,
 		arg.At,
+		arg.Base,
 	)
 	return err
 }
@@ -4890,7 +4892,7 @@ func (q *Queries) ListContractListings(ctx context.Context) ([]ListContractListi
 }
 
 const listContractStates = `-- name: ListContractStates :many
-SELECT contract, seq, state, version, session, words, at FROM contract_states WHERE contract = ? ORDER BY seq
+SELECT contract, seq, state, version, session, words, at, base FROM contract_states WHERE contract = ? ORDER BY seq
 `
 
 func (q *Queries) ListContractStates(ctx context.Context, contract string) ([]ContractState, error) {
@@ -4910,6 +4912,7 @@ func (q *Queries) ListContractStates(ctx context.Context, contract string) ([]Co
 			&i.Session,
 			&i.Words,
 			&i.At,
+			&i.Base,
 		); err != nil {
 			return nil, err
 		}

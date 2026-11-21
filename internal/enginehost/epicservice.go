@@ -149,12 +149,13 @@ func (s *epicService) controlMaker(ctx context.Context, epic string, header http
 }
 
 // CreateEpic makes the epic of the accepted contract the request names by its id. The epic takes that id, and the body
-// of the contract's accepted version with the request's base in place of the body's. It checks that contract with
-// checkEpic, collects the lint's warnings, merges its reviewers, resolves its base to the full commit the base names,
-// pins the workflow the request names at that commit, then stores it accepted, with its seed decisions, and returns the
-// stored epic read back with the warnings. Its review list is the enabled task-stage reviewers, in merged order. A
-// contract no one holds, one that is not accepted, a reviewer no layer can hold, and a workflow that does not load at
-// the base are refused, and nothing is stored.
+// of the contract's accepted version with the request's base in place of the body's. A blank base takes the base the
+// contract stored when it was accepted. It checks that contract with checkEpic, collects the lint's warnings, merges its
+// reviewers, resolves its base to the full commit the base names, pins the workflow the request names at that commit,
+// then stores it accepted, with its seed decisions and, when the base differs from the stored one, one more decision
+// that names both, and returns the stored epic read back with the warnings. Its review list is the enabled task-stage
+// reviewers, in merged order. A contract no one holds, one that is not accepted, a reviewer no layer can hold, and a
+// workflow that does not load at the base are refused, and nothing is stored.
 //
 // The seed decisions are made by the caller. The steerer of the epic is the contract's conversation, the writer of its
 // first version, whichever caller makes the create, when that conversation's sessions row is stored. Otherwise the id
@@ -171,7 +172,7 @@ func (s *epicService) CreateEpic(
 	if getenv == nil {
 		getenv = os.Getenv
 	}
-	contract, conversation, version, err := s.acceptedContract(ctx, req.Msg.GetId(), req.Msg.GetBase())
+	contract, conversation, version, stored, err := s.acceptedContract(ctx, req.Msg.GetId(), req.Msg.GetBase())
 	if err != nil {
 		return nil, err
 	}
@@ -201,6 +202,9 @@ func (s *epicService) CreateEpic(
 	row := epicRowOf(contract, req.Msg.GetDecisions(), base, workflow, time.Now())
 	row.Reviewers = merged
 	row.ReviewGates = taskReviewNames(merged)
+	if decision, ok := contractBaseDecision(req.Msg.GetDecisions(), base, stored); ok {
+		row.Decisions = append(row.Decisions, decision)
+	}
 	for i := range row.Decisions {
 		row.Decisions[i].Maker = maker
 	}
@@ -220,38 +224,69 @@ func (s *epicService) CreateEpic(
 }
 
 // acceptedContract returns the body of the accepted version of the contract id, with its base set to base, the
-// contract's conversation, the writer of its version 1, and the accepted version's number. An id no contract holds is
-// refused as not found, and a contract whose newest state is not accepted is refused as a failed precondition that
-// names the state.
-func (s *epicService) acceptedContract(ctx context.Context, id, base string) (*v1.EpicContract, string, int64, error) {
+// contract's conversation, the writer of its version 1, the accepted version's number, and the base the accept stored.
+// A blank base is replaced by the stored base first. An id no contract holds is refused as not found, and a contract
+// whose newest state is not accepted is refused as a failed precondition that names the state.
+func (s *epicService) acceptedContract(
+	ctx context.Context, id, base string,
+) (*v1.EpicContract, string, int64, string, error) {
 	record, err := s.epics.Contract(ctx, id)
 	switch {
 	case errors.Is(err, store.ErrNoContract):
-		return nil, "", 0, contractNotFound(id)
+		return nil, "", 0, "", contractNotFound(id)
 	case err != nil:
-		return nil, "", 0, epicStoreError(err)
+		return nil, "", 0, "", epicStoreError(err)
 	case record.State != store.ContractAccepted:
-		return nil, "", 0, refuseEpic(
+		return nil, "", 0, "", refuseEpic(
 			connect.CodeFailedPrecondition,
 			fmt.Sprintf("state: %s, not accepted", record.State),
 		)
 	}
 	newest := record.States[len(record.States)-1]
+	if isBlank(base) {
+		base = newest.Base
+	}
 	for _, version := range record.Versions {
 		if version.Version != newest.Version {
 			continue
 		}
 		message, convertErr := contractVersionMessage(version)
 		if convertErr != nil {
-			return nil, "", 0, epicStoreError(
+			return nil, "", 0, "", epicStoreError(
 				fmt.Errorf("read version %d of contract %s: %w", version.Version, id, convertErr),
 			)
 		}
 		contract := message.GetContract()
 		contract.Base = base
-		return contract, record.Conversation, version.Version, nil
+		return contract, record.Conversation, version.Version, newest.Base, nil
 	}
-	return nil, "", 0, epicStoreError(fmt.Errorf("contract %s has no version %d", id, newest.Version))
+	return nil, "", 0, "", epicStoreError(fmt.Errorf("contract %s has no version %d", id, newest.Version))
+}
+
+// contractBaseDecision returns the decision a create records after its seeds when base, the commit the create starts the
+// epic at, differs from stored, the base the contract stored when it was accepted. The decision names both commits. Its
+// maker is set by the create, as the seeds' are. Seed decision ids are the caller's, unique and otherwise unchecked, so
+// the id is epic-base, or epic-base-n for the first n from 2 that no seed holds. It returns false when the contract
+// stored no base or when base is the stored one.
+func contractBaseDecision(seeds []*v1.EpicDecisionInput, base, stored string) (store.EpicDecision, bool) {
+	if stored == "" || base == stored {
+		return store.EpicDecision{}, false
+	}
+	taken := make(map[string]bool, len(seeds))
+	for _, seed := range seeds {
+		taken[seed.GetId()] = true
+	}
+	id := "epic-base"
+	for n := 2; taken[id]; n++ {
+		id = fmt.Sprintf("epic-base-%d", n)
+	}
+	return store.EpicDecision{
+		ID: id,
+		Text: fmt.Sprintf(
+			"base %s named at create replaces the base %s the contract stored when it was accepted",
+			base, stored,
+		),
+	}, true
 }
 
 // storedRefusal returns the refusal of a create whose id, id, is already stored.

@@ -211,7 +211,9 @@ func TestContractRecordReviseAppendsVersion(t *testing.T) {
 	st := epicTestStore(t)
 	seedContractSessions(t, st)
 	clock := newContractClock()
-	server := startContractServer(t, st, &Contracts{Store: st, Now: clock.now, Getenv: epicTestGetenv})
+	server := startContractServer(t, st, &Contracts{
+		Store: st, Now: clock.now, Getenv: epicTestGetenv, OriginMain: contractTestOriginMain,
+	})
 	proposed, err := proposeContract(t, server.contracts, headlessCaller, contractTestBody(server.repo),
 		contractTestDecisions())
 	if err != nil {
@@ -275,7 +277,9 @@ func TestContractRecordStateChangesReadBackInOrder(t *testing.T) {
 	st := epicTestStore(t)
 	seedContractSessions(t, st)
 	clock := newContractClock()
-	server := startContractServer(t, st, &Contracts{Store: st, Now: clock.now, Getenv: epicTestGetenv})
+	server := startContractServer(t, st, &Contracts{
+		Store: st, Now: clock.now, Getenv: epicTestGetenv, OriginMain: contractTestOriginMain,
+	})
 	ctx := t.Context()
 	proposed, err := proposeContract(t, server.contracts, headlessCaller, contractTestBody(server.repo),
 		contractTestDecisions())

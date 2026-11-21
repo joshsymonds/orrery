@@ -73,9 +73,19 @@ func startContractServer(t *testing.T, st *store.Store, contracts *Contracts) co
 	}
 }
 
-// contractTestContracts returns the Contracts of the tests: the store st, the fake clock and the test environment.
+// contractTestMainCommit is the commit contractTestOriginMain names for every repository.
+const contractTestMainCommit = "9a8b7c6d5e4f30211f0e9d8c7b6a5f4e3d2c1b0a"
+
+// contractTestOriginMain is the OriginMain of the Contracts tests. It names contractTestMainCommit and reads no
+// repository, so an accept needs no origin.
+func contractTestOriginMain(context.Context, string) (string, error) {
+	return contractTestMainCommit, nil
+}
+
+// contractTestContracts returns the Contracts of the tests: the store st, the fake clock, the test environment and the
+// fake origin.
 func contractTestContracts(st *store.Store) *Contracts {
-	return &Contracts{Store: st, Now: contractTestAt, Getenv: epicTestGetenv}
+	return &Contracts{Store: st, Now: contractTestAt, Getenv: epicTestGetenv, OriginMain: contractTestOriginMain}
 }
 
 // contractTestBody returns a valid contract body with epicServiceID, based in repo.
