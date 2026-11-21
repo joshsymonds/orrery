@@ -304,7 +304,7 @@ func dependencyState(seq int64, rows Rows) (lost string, integrated bool) {
 func composedSeqs(result string) ([]int64, error) {
 	var decoded integrateResult
 	if err := json.Unmarshal([]byte(result), &decoded); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("integrate result does not decode: %w", err)
 	}
 	seqs := make([]int64, 0, len(decoded.Composed))
 	for _, entry := range decoded.Composed {
@@ -312,7 +312,7 @@ func composedSeqs(result string) ([]int64, error) {
 			Task int64 `json:"task"`
 		}
 		if err := json.Unmarshal(entry, &composed); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("composed entry does not decode: %w", err)
 		}
 		seqs = append(seqs, composed.Task)
 	}
