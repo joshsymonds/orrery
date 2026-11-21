@@ -36,6 +36,7 @@ import {
   denseGet,
   denseHistory,
   denseSteering,
+  type EpicRow,
   epicsListWith,
   evidenceArtifacts,
   type EvidenceArtifactBytes,
@@ -44,11 +45,18 @@ import {
   gets,
   histories,
   noticesParked,
+  offlineStopped,
+  offlineStoppedHistory,
+  orbitReleasing,
   rotaBuilding,
   rotaEvidence,
   rotaLimited,
   rotaPlanner,
   rotaProblem,
+  rotaReviewing,
+  tidecacheGaps,
+  tidecacheGapsRow,
+  tidecacheGapsHistory,
 } from "./epics";
 import { host } from "./host";
 import { noticeHistory, noticeStack } from "./notices";
@@ -153,22 +161,39 @@ export type EpicScenario =
   | "dense"
   | "loading"
   | "parked"
-  | "evidence";
+  | "evidence"
+  | "reviewing"
+  | "releasing"
+  | "releaseFailed"
+  | "endedGaps";
 
 const rotaId = "lighthouse/rota-export";
 const buoyId = "tidepool/buoy-feeds";
 const tideCacheId = "tidepool/tide-cache";
 const denseId = "commonframe/deck-pipeline";
 const noticesId = "orrery/notices-usable";
+const orbitId = "orrery/orbit-labels";
+const offlineId = "tidepool/offline-tables";
 
-// withRota is the shipped slices with rota-export in one of its states: its list row, its Epics.Get answer and its
-// history replaced.
-function withRota(state: typeof rotaBuilding): Slices {
+// EpicState is an epic in one state the page scenarios draw: its Epics.Get answer, its list row when the state changes it,
+// and its history when the state has one.
+interface EpicState {
+  readonly get: EpicsGetResponse;
+  readonly row?: EpicRow;
+  readonly history?: EpicsHistoryResponse;
+}
+
+// withEpic is the shipped slices with one epic in a state: its list row replaced when the state has one, its Epics.Get
+// answer replaced, and its history replaced when the state has one.
+function withEpic(id: string, state: EpicState): Slices {
   return {
     ...shippedSlices,
-    epics: epicsListWith((row) => (row.id === rotaId ? state.row : row)),
-    gets: new Map<string, EpicsGetResponse>([...gets, [rotaId, state.get]]),
-    histories: new Map<string, EpicsHistoryResponse>([...histories, [rotaId, state.history]]),
+    epics: epicsListWith((row) => (row.id === id && state.row !== undefined ? state.row : row)),
+    gets: new Map<string, EpicsGetResponse>([...gets, [id, state.get]]),
+    histories:
+      state.history === undefined
+        ? histories
+        : new Map<string, EpicsHistoryResponse>([...histories, [id, state.history]]),
   };
 }
 
@@ -182,17 +207,21 @@ const denseSteererPanes = {
 // epicScenarios holds the slices each epic page scenario draws over. A scenario's slices change only what it names, and
 // the shipped slices serve every other story and test.
 export const epicScenarios: Record<EpicScenario, Slices> = {
-  building: withRota(rotaBuilding),
-  evidence: withRota(rotaEvidence),
-  limited: withRota(rotaLimited),
-  plannerParked: withRota(rotaPlanner),
+  building: withEpic(rotaId, rotaBuilding),
+  reviewing: withEpic(rotaId, rotaReviewing),
+  releasing: withEpic(orbitId, { get: orbitReleasing }),
+  releaseFailed: withEpic(offlineId, { get: offlineStopped, history: offlineStoppedHistory }),
+  endedGaps: withEpic(tideCacheId, { get: tidecacheGaps, row: tidecacheGapsRow, history: tidecacheGapsHistory }),
+  evidence: withEpic(rotaId, rotaEvidence),
+  limited: withEpic(rotaId, rotaLimited),
+  plannerParked: withEpic(rotaId, rotaPlanner),
   commandError: {
-    ...withRota(rotaBuilding),
+    ...withEpic(rotaId, rotaBuilding),
     failingEpicCommands: new Map<"pause" | "resume" | "stop" | "retry", string>([["pause", "the server did not answer"]]),
   },
-  problem: withRota(rotaProblem),
+  problem: withEpic(rotaId, rotaProblem),
   unavailable: {
-    ...withRota(rotaBuilding),
+    ...withEpic(rotaId, rotaBuilding),
     gets: new Map<string, EpicsGetResponse>([...gets].filter(([id]) => id !== rotaId)),
   },
   planning: {

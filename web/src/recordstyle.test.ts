@@ -253,3 +253,49 @@ test("EpicRecord: a door's line takes the rest of its row and ellipsizes on one 
 test("EpicCommands: an epic the server could not read says so in the bad role, apart from the quiet loading line", () => {
   assert.equal(declaredValue(rules, ".side-note.unread", "color"), "var(--o-role-bad)");
 });
+
+test("ReleaseTable: the release table takes four desk columns: the position, the step, its undo and its state", () => {
+  assert.equal(declaredValue(rules, ".tbl.release", "--cols"), "auto minmax(0, 1fr) auto auto");
+});
+
+test("ReleaseTable: at phone width the release table takes round 6's touch columns", () => {
+  assert.equal(declaredValue(phone, ".tbl.release", "--cols-touch"), "auto minmax(0, 1fr) auto");
+});
+
+test("ReleaseTable: at phone width a step's undo spans the two columns before its state, so a long undo never runs into it", () => {
+  assert.equal(declaredValue(phone, ".tbl.release .undo", "grid-column"), "1 / 3");
+});
+
+test("ReleaseTable: a failed step's state takes the bad role and a passed step's the ok role", () => {
+  assert.equal(declaredValue(rules, ".tr .cell.bad", "--tone"), "var(--o-role-bad)");
+  assert.equal(declaredValue(rules, ".tr .cell.ok", "--tone"), "var(--o-role-ok)");
+});
+
+test("EpicReview: the reviewer and findings tables take their columns at the desk: the name or id, the wide text, the chip", () => {
+  assert.equal(declaredValue(rules, ".tbl.reviews", "--cols"), "auto minmax(0, 1fr) auto");
+  assert.equal(declaredValue(rules, ".tbl.findings", "--cols"), "auto minmax(0, 1fr) auto");
+});
+
+test("EpicReview: at phone width the reviewer and findings tables take round 6's touch columns", () => {
+  assert.equal(declaredValue(phone, ".tbl.reviews", "--cols-touch"), "minmax(0, 1fr) auto");
+  assert.equal(declaredValue(phone, ".tbl.findings", "--cols-touch"), "minmax(0, 1fr) auto");
+});
+
+test("EpicReview: the ok chip takes the ok role", () => {
+  assert.equal(declaredValue(rules, ".chip.ok", "color"), "var(--o-role-ok)");
+  assert.equal(declaredValue(rules, ".chip.ok", "background"), "var(--o-role-ok-fill)");
+});
+
+test("EpicReview: the attention chip takes the attention role", () => {
+  assert.equal(declaredValue(rules, ".chip.attention", "color"), "var(--o-role-attention)");
+  assert.equal(declaredValue(rules, ".chip.attention", "background"), "var(--o-role-attention-fill)");
+});
+
+test("EpicClose: a refused call line takes the bad role", () => {
+  assert.equal(declaredValue(rules, ".inote.error", "color"), "var(--o-role-bad)");
+});
+
+test("EpicClose: the gap controls wrap", () => {
+  assert.equal(declaredValue(rules, ".gaps-acts", "display"), "flex");
+  assert.equal(declaredValue(rules, ".gaps-acts", "flex-wrap"), "wrap");
+});

@@ -5,6 +5,7 @@ import type { Stories } from "./catalog/story";
 import type { LoadArtifact } from "./evidence";
 import { gets } from "./fixtures/epics";
 import { createFixtureTransport } from "./fixtures/transport";
+import { provenOf, wedgesOf } from "./phases";
 import * as reqtable from "./reqtable";
 
 const clients = createFixtureTransport().clients;
@@ -12,20 +13,32 @@ const clients = createFixtureTransport().clients;
 // loadArtifact reads a run's log or artifact over the fixture clients, as the app's page does.
 const loadArtifact: LoadArtifact = (run, name, stderr) => clients.evidence.artifact({ run, name, stderr });
 
-// requirementsOf is the requirements of an epic the fixtures hold a detail for.
-function requirementsOf(id: string) {
+// detailOf is the fixture's detail under id. The stories name only held ids, so a missing one is a broken story.
+function detailOf(id: string) {
   const detail = gets.get(id);
   if (detail === undefined) {
     throw new Error(`the fixtures hold no detail for ${id}`);
   }
-  return detail.requirements;
+  return detail;
 }
 
-const rotaRequirements = requirementsOf("lighthouse/rota-export");
+const rota = detailOf("lighthouse/rota-export");
+const rotaRequirements = rota.requirements;
+// rotaProven is the rota epic's proven requirement ids, as the epic page gives its table.
+const rotaProven: ReadonlySet<string> = new Set(
+  rotaRequirements.map((requirement) => requirement.id).filter((id) => provenOf(id, wedgesOf(rota), rotaRequirements)),
+);
 
 export const RequirementTable: Stories = {
-  default: () => <reqtable.RequirementTable requirements={rotaRequirements} loadArtifact={loadArtifact} />,
+  default: () => (
+    <reqtable.RequirementTable requirements={rotaRequirements} loadArtifact={loadArtifact} proven={rotaProven} />
+  ),
   "with-runs": () => (
-    <reqtable.RequirementTable requirements={rotaRequirements} loadArtifact={loadArtifact} initiallyOpen="R4" />
+    <reqtable.RequirementTable
+      requirements={rotaRequirements}
+      loadArtifact={loadArtifact}
+      proven={rotaProven}
+      initiallyOpen="R4"
+    />
   ),
 };

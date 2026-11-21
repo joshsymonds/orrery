@@ -43,6 +43,7 @@ import { NoticeCentre } from "./noticecentre";
 import { useNoticeLog } from "./noticelog";
 import { NoticeStack } from "./notices";
 import { bringBackRowOf, type NoticeFields, noticeAct, noticeAge, noticeHead, noticeKey } from "./noticewords";
+import { sendOnce } from "./ownercall";
 import { briefOf, briefStepOf, PhaseOutputPage } from "./phaseoutput";
 import type { Phase } from "./phases";
 import { NewPanel } from "./picker";
@@ -615,7 +616,7 @@ export function App({
     epicEntry !== null && unseenEnding(epicEntry, epics.listed.get(epicEntry.id), seenEpics) ? epicEntry : null;
   const stepEntries = flat.filter((item): item is StepItem => item.kind === "step");
   const epicDetail =
-    epicEntry === null ? undefined : (epics.details.get(epicEntry.id) ?? askedDetails.get(epicEntry.id));
+    epicEntry === null ? undefined : newerDetail(epics.details.get(epicEntry.id), askedDetails.get(epicEntry.id));
   // The history is read for the epic entry the cursor rests on, once its detail is held. It is read again when the
   // epic's last write moves.
   const historyId = epicEntry !== null && epicDetail !== undefined ? epicEntry.id : "";
@@ -812,6 +813,16 @@ export function App({
       () => setFailedEpicReads((previous) => new Set(previous).add(id)),
     );
   };
+  // rereadEpic reads an epic again after an owner call. Its answer is kept as the detail the page draws, and the read
+  // resolves true; a failed read resolves false.
+  const rereadEpic = (id: string): Promise<boolean> =>
+    clients.epics.get({ id }).then(
+      (answer) => {
+        setAskedDetails((previous) => new Map(previous).set(id, answer));
+        return true;
+      },
+      () => false,
+    );
   // retryEpicRead reads an epic whose read failed once more. The page shows it as loading until that read answers.
   const retryEpicRead = (id: string): void => {
     setFailedEpicReads((previous) => new Set([...previous].filter((failed) => failed !== id)));
@@ -2351,7 +2362,7 @@ export function App({
         history={epicHistory.id === entry.id ? epicHistory.entries : []}
         now={now}
         loadArtifact={loadArtifact}
-        commands={epicCommands(clients, entry.id, setEpicCommandLine)}
+        commands={epicCommands(clients, entry.id, setEpicCommandLine, () => rereadEpic(entry.id))}
         numberKeys={!epicPage.closed}
         commandError={epicCommandLine}
         onOpenContract={openContract}
@@ -2361,6 +2372,7 @@ export function App({
         mark={inboxMark}
         strip={pageStrip(null, null)}
         rows={rows}
+        listed={[...epics.listed.values()]}
         narrow={!wide}
         onTalk={steererRow === null ? undefined : closePanel}
         foot={steererRow === null ? unsteeredBar(detail) : null}
@@ -3044,10 +3056,31 @@ async function readHistory(clients: Clients, id: string): Promise<EpicHistoryEnt
   return entries;
 }
 
+// newerDetail is the epic's detail the page draws: the one whose epic has the higher revision. It is the polled detail on
+// a tie, and when either detail has no epic to compare, and the one held when the other is missing.
+export function newerDetail(
+  polled: EpicsGetResponse | undefined,
+  asked: EpicsGetResponse | undefined,
+): EpicsGetResponse | undefined {
+  if (polled === undefined || asked === undefined) {
+    return polled ?? asked;
+  }
+  if (polled.epic === undefined || asked.epic === undefined) {
+    return polled;
+  }
+  return asked.epic.revision > polled.epic.revision ? asked : polled;
+}
+
 // epicCommands binds an epic's commands to its id. A command that fails reports its did-not-land line through report,
 // the command's name and the error's message as the reason; one that lands reports "". answer resolves "" when the
-// answer lands, else the error's message.
-function epicCommands(clients: Clients, epicId: string, report: (line: string) => void): EpicCommands {
+// answer lands, else the error's message. release and close are owner calls: each is sent once, never retried, and
+// resolves its outcome rather than reporting through report. reread is the read the page makes after one.
+export function epicCommands(
+  clients: Clients,
+  epicId: string,
+  report: (line: string) => void,
+  reread: () => Promise<boolean>,
+): EpicCommands {
   const send = (name: string, sent: Promise<unknown>): void => {
     void sent.then(
       () => report(""),
@@ -3065,6 +3098,9 @@ function epicCommands(clients: Clients, epicId: string, report: (line: string) =
         () => "",
         (error: unknown) => (error instanceof Error && error.message !== "" ? error.message : answerFailedText),
       ),
+    release: (undoNone) => sendOnce(() => clients.epics.release({ id: epicId, undoNone })),
+    close: (kind, by) => sendOnce(() => clients.epics.close({ id: epicId, kind, by })),
+    reread,
   };
 }
 

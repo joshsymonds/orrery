@@ -33,6 +33,8 @@ const notices = "orrery/notices-usable";
 const harbour = "orrery/harbour-map";
 const buoy = "tidepool/buoy-feeds";
 const tideCache = "tidepool/tide-cache";
+const orbit = "orrery/orbit-labels";
+const offline = "tidepool/offline-tables";
 const deck = "commonframe/deck-pipeline";
 const headlessSession = "4be0c6d2-8f3a-4c71-9e25-ephemeris001";
 // The headless session that steers tidepool/buoy-feeds, which runs two sub-agents and one shell.
@@ -180,9 +182,14 @@ async function pressEpicCommand(root: HTMLElement, label: string): Promise<void>
   await clickWhen(root, "section.page .title-row .acts button.act", label);
 }
 
-// epicScenario draws the epic at address over the slices of the scenario named.
-const epicScenario = (address: Address, scenario: EpicScenario): VNode => (
-  <PageStory address={address} fixture={createFixtureTransport(epicScenarios[scenario])} />
+// epicScenario draws the epic at address over the slices of the scenario named. With shown, the section it names is
+// brought into view once the page is drawn.
+const epicScenario = (address: Address, scenario: EpicScenario, shown?: string): VNode => (
+  <PageStory
+    address={address}
+    fixture={createFixtureTransport(epicScenarios[scenario])}
+    after={shown === undefined ? undefined : async (root) => (await drawnWhen(root, shown)).scrollIntoView({ block: "start" })}
+  />
 );
 
 // The inbox's search button and its field, which the search states open and type into.
@@ -380,6 +387,13 @@ export const Page: Stories = {
   ),
   "epic-question": () => <PageStory address={epicAt(rota, { kind: "epic" })} />,
   "epic-shipped": () => <PageStory address={epicAt(holder, { kind: "epic" })} />,
+  // The review, release and stopped-release scenarios are about one section below the fold of the desk's panel, which
+  // scrolls inside itself, so each story brings that section into view, as round 6 frames the scenario's subject.
+  "epic-reviewing": () => epicScenario(epicAt(rota, { kind: "epic" }), "reviewing", 'section[aria-label="Review"]'),
+  "epic-releasing": () => epicScenario(epicAt(orbit, { kind: "epic" }), "releasing", 'section[aria-label="Release"]'),
+  "epic-release-failed": () =>
+    epicScenario(epicAt(offline, { kind: "epic" }), "releaseFailed", 'section[aria-label="Release"]'),
+  "epic-ended-gaps": () => epicScenario(epicAt(tideCache, { kind: "epic" }), "endedGaps"),
   "convo-contract": () => (
     <PageStory address={paneAt("%16")} fixture={createFixtureTransport(contractStories.toAccept)} />
   ),

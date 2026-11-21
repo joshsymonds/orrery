@@ -962,6 +962,98 @@ test("FixtureTransport: page/epic-shipped draws the released epic at Report, its
   );
 });
 
+test("EpicReview: page/epic-reviewing draws Review with both reviewers and the finding", (t) => {
+  mockTimers(t, ["setTimeout"]);
+  return withStory(
+    t,
+    Page["epic-reviewing"],
+    (root) => root.querySelector('.epic-page section.review [data-finding="security-1"]') !== null,
+    (root) => {
+      assertNoFailure(root);
+      const reviewers = [...root.querySelectorAll(".epic-page section.review .tbl.reviews [data-reviewer]")].map((row) =>
+        row.getAttribute("data-reviewer"),
+      );
+      assert.deepEqual(reviewers, ["contract", "security"], "both reviewers are drawn, in order");
+      const finding = root.querySelector('.epic-page section.review [data-finding="security-1"]');
+      assert.ok(finding?.textContent.includes("export.go:41"), "the finding is drawn at its location");
+      assert.ok(finding?.textContent.includes("confirmed"), "the finding is drawn confirmed");
+      assert.equal(
+        root.querySelector(".epic-page section.review .closure")?.textContent,
+        "round 1 · open · a fix plan will close it",
+        "its open closure is drawn under it",
+      );
+      assert.equal(root.querySelector(".epic-page section.release"), null, "no Release is drawn before the release");
+    },
+  );
+});
+
+test("ReleaseTable: page/epic-releasing draws Release with step 2 running and the Then line", (t) => {
+  mockTimers(t, ["setTimeout"]);
+  return withStory(
+    t,
+    Page["epic-releasing"],
+    (root) => root.querySelector('.epic-page section.release [data-step="2"] .cell.live') !== null,
+    (root) => {
+      assertNoFailure(root);
+      assert.equal(root.querySelector(".epic-page section.release > header > span")?.textContent, "step 2 of 3");
+      assert.equal(root.querySelector('.epic-page section.release [data-step="2"] .cell')?.textContent, "running");
+      assert.ok(root.querySelector('.epic-page section.release [data-step="1"] .cell')?.textContent.includes("passed"));
+      assert.equal(
+        root.querySelector(".epic-page section.release p.then")?.textContent,
+        "Then: the judge reads the tag and the notes, and the epic ends released.",
+        "the Then line is drawn under the table",
+      );
+      assert.equal(root.querySelector(".epic-page section.release .call-line"), null, "no release call is made");
+    },
+  );
+});
+
+test("ReleaseFrom: page/epic-release-failed draws step 2 failed and Release from step 2 offered, no call made", (t) => {
+  mockTimers(t, ["setTimeout"]);
+  return withStory(
+    t,
+    Page["epic-release-failed"],
+    (root) => root.querySelector('.epic-page section.release [data-step="2"] .cell.bad') !== null,
+    (root) => {
+      assertNoFailure(root);
+      assert.ok(root.querySelector('.epic-page section.release [data-step="2"] .cell')?.textContent.includes("failed"));
+      assert.ok(
+        root.querySelector(".epic-page section.release .tr-detail .inote.error")?.textContent.includes("CI is red on the tag"),
+        "step 2's reason is drawn",
+      );
+      const offered = [...root.querySelectorAll(".epic-page section.release button")].filter(
+        (button) => button.textContent === "Release from step 2",
+      );
+      assert.equal(offered.length, 1, "Release from step 2 is offered once");
+      assert.equal(root.querySelector(".epic-page section.release .sure"), null, "no confirm is open");
+      assert.equal(root.querySelector(".epic-page section.release .call-line"), null, "no release call is made");
+    },
+  );
+});
+
+test("EpicClose: page/epic-ended-gaps draws Report with Release it anyway and Close as…, no call made", (t) => {
+  mockTimers(t, ["setTimeout"]);
+  return withStory(
+    t,
+    Page["epic-ended-gaps"],
+    (root) => root.querySelector('.epic-page section.report .gaps-acts button[type="button"]') !== null,
+    (root) => {
+      assertNoFailure(root);
+      assert.equal(root.querySelector(".epic-page section.report .now-sentence")?.textContent, "Ended with gaps. It did not release.");
+      assert.equal(root.querySelector(".epic-page section.report .door.shipped")?.textContent, "shipped none");
+      assert.equal(root.querySelector(".epic-page section.report .door.not-shipped")?.textContent, "not shipped R1, R2, R3");
+      assert.ok(
+        root.querySelector(".epic-page section.report .report-why")?.textContent.includes("R3 (a stale table is never served past midnight)"),
+        "the why names R3 and what it says",
+      );
+      const owner = [...root.querySelectorAll(".epic-page section.report .gaps-acts button")].map((button) => button.textContent);
+      assert.deepEqual(owner, ["Release it anyway", "Close as…"], "the two owner calls are drawn");
+      assert.equal(root.querySelector(".epic-page section.report .sure"), null, "no confirm is open");
+      assert.equal(root.querySelector(".epic-page section.report .call-line"), null, "no close call is made");
+    },
+  );
+});
+
 test("FixtureTransport: page/contract-to-accept draws the tide-alerts contract", (t) => {
   mockTimers(t, ["setTimeout"]);
   return withStory(
@@ -1993,6 +2085,7 @@ test("FixtureTransport: page's keys are exactly the 96 catalog names of its scen
     "page/epic-command-error",
     "page/epic-convo-ended",
     "page/epic-dense",
+    "page/epic-ended-gaps",
     "page/epic-evidence",
     "page/epic-handover",
     "page/epic-limited",
@@ -2005,6 +2098,9 @@ test("FixtureTransport: page's keys are exactly the 96 catalog names of its scen
     "page/epic-problem",
     "page/epic-question",
     "page/epic-question-other",
+    "page/epic-release-failed",
+    "page/epic-releasing",
+    "page/epic-reviewing",
     "page/epic-shipped",
     "page/epic-stop-confirm",
     "page/epic-talk",

@@ -24,14 +24,15 @@ function fail(word: string): Proof {
 }
 
 // RequirementTable draws an epic's requirements as one table: each row its id, what will be true when done, its red and
-// green proof, and proven or open. A row is a button: pressed, it opens to its evidence runs, and pressed again it
-// closes. initiallyOpen names the row drawn open.
+// green proof, and proven or open, which reads proven exactly when proven holds the row's id. A row is a button: pressed,
+// it opens to its evidence runs, and pressed again it closes. initiallyOpen names the row drawn open.
 export function RequirementTable(props: {
   requirements: EpicRequirement[];
   loadArtifact: LoadArtifact;
+  proven: ReadonlySet<string>;
   initiallyOpen?: string;
 }): JSX.Element {
-  const { requirements, loadArtifact, initiallyOpen } = props;
+  const { requirements, loadArtifact, proven, initiallyOpen } = props;
   return (
     <div class="tbl reqs">
       <div class="th">
@@ -46,6 +47,7 @@ export function RequirementTable(props: {
           key={requirement.id}
           requirement={requirement}
           loadArtifact={loadArtifact}
+          proven={proven.has(requirement.id)}
           initiallyOpen={requirement.id === initiallyOpen}
         />
       ))}
@@ -57,11 +59,11 @@ export function RequirementTable(props: {
 function RequirementRow(props: {
   requirement: EpicRequirement;
   loadArtifact: LoadArtifact;
+  proven: boolean;
   initiallyOpen: boolean;
 }): JSX.Element {
-  const { requirement, loadArtifact, initiallyOpen } = props;
+  const { requirement, loadArtifact, proven, initiallyOpen } = props;
   const [open, setOpen] = useState(initiallyOpen);
-  const proven = requirement.runs.some((run) => run.phase === "green" && run.passed);
   return (
     <>
       <button type="button" class="tr" aria-expanded={open} onClick={() => setOpen((isOpen) => !isOpen)}>

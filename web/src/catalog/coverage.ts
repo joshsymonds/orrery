@@ -47,6 +47,8 @@ export const storyRenames: Renames = {
   "phaseoutput.tsx": { PhaseOutputPage: { module: "app.stories.tsx", story: "Page" } },
   "picker.tsx": { NewPanel: { module: "app.stories.tsx", story: "Page" } },
   "projectpage.tsx": { ProjectPage: { module: "app.stories.tsx", story: "Page" } },
+  "report.tsx": { EpicReport: { module: "app.stories.tsx", story: "Page" } },
+  "review.tsx": { EpicReview: { module: "app.stories.tsx", story: "Page" } },
   "sidepanel.tsx": { SidePanel: "ListPanel" },
   "steermenu.tsx": { SteerMenu: { module: "app.stories.tsx", story: "Page" } },
   "strip.tsx": { PaneStrip: "MeterStrip" },
