@@ -779,12 +779,11 @@ func questionInputOf(question Question) store.EpicQuestionInput {
 // returnCheck returns the check a planner step's return runs for epic. A return that does not parse is one line.
 // Any other return gets the refusals of Check, against the epic's Requirement ids and its tasks, whose open tasks own
 // files and whose tasks a depends_on entry may name, and the gates and judges that resolve answers for epic, then those
-// of checkAmendKeeps against the epic's Requirements, then
-// those of checkClosureTasks against the epic's phase, then those of checkCloses against the epic's phase and the
-// findings of review that the next closure round checks, then those of checkSpentGaps against gapTurns, the planner
-// turns each gap of the epic was given before the checked turn, for the rerun_review actions that name a reviewer whose
-// gap has spent its turns. Coverage and the spent lines are not refusals: the prompt names them. When epic holds a
-// planner-class park, a return with no action and no question gets one more line from checkPark, which names the park
+// of checkAmendKeeps against the epic's Requirements, then those of checkClosureTasks against the epic's phase, then
+// those of checkCloses against the epic's phase and the findings of review that the next closure round checks, then
+// those of checkSpentGaps against gapTurns, the planner turns each gap of the epic was given before the checked turn,
+// for the rerun_review actions that name a reviewer whose gap has spent its turns. Coverage and the spent lines are not
+// refusals: the prompt names them. When epic holds a planner-class park, a return with no action and no question gets one more line from checkPark, which names the park
 // reason. An owner park is not checked, since the owner answers it. The gate resolves under ctx without its
 // cancellation, so the turn that started the step ending does not refuse its return.
 func returnCheck(

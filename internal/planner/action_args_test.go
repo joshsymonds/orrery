@@ -86,8 +86,9 @@ func TestActionArgsThatDoNotReadAreRefusedByCheck(t *testing.T) {
 // grammar is too large ... Simplify your tool schemas"), and Claude Code's structured output is such a tool, so an
 // over-large schema fails every planner turn before the model runs. The grammar's size does not follow a simple count of
 // properties: on 2026-11-17 a schema whose actions held seven fields was refused with and without its enums, while this
-// one, whose actions hold kind, args and reason, was accepted by haiku and opus. Grow the return through string fields the
-// engine parses, as args does. To change the schema, first measure it:
+// one, whose actions hold kind, args and reason, was accepted by haiku and opus. On 2026-11-21, with evidence as a
+// string, haiku and opus accepted this schema too: claude -p with each model reported is_error false. Grow the return
+// through string fields the engine parses, as args and evidence do. To change the schema, first measure it:
 // claude -p --model haiku --output-format json --json-schema "$(cat schema.json)" 'Return a minimal valid object.'
 // must not report is_error with that 400; then update the testdata file.
 func TestPlannerSchemaIsTheOneTheAPIAccepted(t *testing.T) {

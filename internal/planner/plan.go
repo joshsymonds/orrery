@@ -260,7 +260,7 @@ func (task *Task) UnmarshalJSON(raw []byte) error {
 		EvidenceValue json.RawMessage `json:"evidence"`
 	}
 	if err := json.Unmarshal(raw, &shadow); err != nil {
-		return err
+		return fmt.Errorf("task: %w", err)
 	}
 	*task = Task(shadow.plain)
 	if len(shadow.EvidenceValue) == 0 {
@@ -271,7 +271,10 @@ func (task *Task) UnmarshalJSON(raw []byte) error {
 		task.Evidence, task.EvidenceError = decodeEvidence(text)
 		return nil
 	}
-	return json.Unmarshal(shadow.EvidenceValue, &task.Evidence)
+	if err := json.Unmarshal(shadow.EvidenceValue, &task.Evidence); err != nil {
+		return fmt.Errorf("task evidence: %w", err)
+	}
+	return nil
 }
 
 // decodeEvidence reads text as one evidence object whose keys are the item's, as readArgs reads an action's item, so
@@ -320,16 +323,8 @@ func Parse(raw json.RawMessage) (Return, error) {
 			return Return{}, fmt.Errorf("planner return: tasks[%d] test_changes: %w", i, err)
 		}
 	}
-	for i, task := range keyed.Tasks {
-		value, ok := task["depends_on"]
-		if !ok {
-			continue
-		}
-		var text string
-		if err := json.Unmarshal(value, &text); err != nil {
-			return Return{}, fmt.Errorf("planner return: tasks[%d] depends_on: %w", i, err)
-		}
-		readDependsOn(&ret.Tasks[i], text)
+	if err := readDependsOnKeys(&ret, keyed.Tasks); err != nil {
+		return Return{}, err
 	}
 	for i, action := range keyed.Actions {
 		var args string
@@ -363,6 +358,23 @@ func readUnresolvable(ret *Return, text string) {
 		return
 	}
 	ret.Unresolvable = entries
+}
+
+// readDependsOnKeys reads the depends_on key of each task of ret, whose keys are tasks, as readDependsOn reads its string.
+// A key that is not a string is an error of the whole return.
+func readDependsOnKeys(ret *Return, tasks []map[string]json.RawMessage) error {
+	for i, task := range tasks {
+		value, ok := task["depends_on"]
+		if !ok {
+			continue
+		}
+		var text string
+		if err := json.Unmarshal(value, &text); err != nil {
+			return fmt.Errorf("planner return: tasks[%d] depends_on: %w", i, err)
+		}
+		readDependsOn(&ret.Tasks[i], text)
+	}
+	return nil
 }
 
 // readDependsOn fills task's DependsOn from text, the depends_on string of a task: a JSON array of strings. Blank text
