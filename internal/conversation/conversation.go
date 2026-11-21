@@ -109,7 +109,8 @@ type Context struct {
 // takes its trigger and tokens from the compact_boundary line before it, and both stay empty when that line is
 // not read. A tool call that creates an epic or writes a contract takes its id from its full input (see CreatedEpic
 // and WrittenContract). A successful tool result takes the lines it added and removed from its line's toolUseResult
-// (see protocol.PatchLineCounts), and both stay 0 otherwise.
+// (see protocol.PatchLineCounts), and both stay 0 otherwise. A prompt that a pane send echoes takes the send's client
+// (see MarkEchoes), and stays empty otherwise.
 type Item struct {
 	Kind     string `json:"kind"`
 	Time     int64  `json:"time"`
@@ -125,6 +126,7 @@ type Item struct {
 	Contract string `json:"contract"`
 	Added    int64  `json:"added"`
 	Removed  int64  `json:"removed"`
+	Client   string `json:"client"`
 }
 
 // transcriptLine holds the fields of one transcript line that the reader uses.
