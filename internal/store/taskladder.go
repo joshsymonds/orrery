@@ -26,6 +26,7 @@ const (
 	MovedByCannotMeet   = "cannot_meet"
 	MovedByFailTask     = "fail_task"
 	MovedBySendBack     = "send_back"
+	MovedByDependency   = "dependency"
 )
 
 // The outcomes a rung can end with. RungGapped is the outcome 'gap', the same word as the kind RungGap.
@@ -269,7 +270,7 @@ func checkClimb(epic string, seq int64, from, to TaskBuild, move RungMove) error
 // not among them: sentBackBuild and restartLadder move a task onto rung 1 without a climb.
 func knownMovedBy(movedBy string) bool {
 	switch movedBy {
-	case MovedByUnit, MovedByFinding, MovedByFailDecision, MovedByCannotMeet, MovedByFailTask:
+	case MovedByUnit, MovedByFinding, MovedByFailDecision, MovedByCannotMeet, MovedByFailTask, MovedByDependency:
 		return true
 	default:
 		return false

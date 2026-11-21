@@ -512,6 +512,7 @@ type EpicTask struct {
 	Rebriefs    string
 	Notes       string
 	Generation  int64
+	DependsOn   string
 }
 
 type EpicTaskContribute struct {
