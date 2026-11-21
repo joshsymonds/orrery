@@ -265,6 +265,66 @@ func TestParseLeavesReviewersTablesToReviewers(t *testing.T) {
 	}
 }
 
+// releaseProject is an invented project file with a pool, a gate, a reviewer and a release: a [release] table with
+// then and two steps.
+const releaseProject = `[pools.alpha]
+host = "box-a"
+cap = 2
+members = ["m1", "m2"]
+wake = ["wake-m1", "--flag"]
+wake_limit = 5
+status = ["status-m1"]
+status_limit = 3
+admit = ["admit-m1"]
+admit_limit = 4
+
+[gates.alpha]
+argv = ["/opt/tools/run", "-c", "check"]
+limit = 1800
+needs = { gate = 1, builds = 2 }
+
+[[reviewers]]
+name = "alpha"
+stage = ["task"]
+must = ["the diff holds"]
+agent = "code-reviewer"
+
+[release]
+then = "the build ships"
+
+[[release.steps]]
+step = "Tag the build."
+target = "origin"
+undo = "Delete the tag."
+
+[[release.steps]]
+step = "Publish the build."
+target = "origin"
+undo = "Unpublish the build."
+`
+
+func TestProjectRelease_ParseReadsPoolBesideRelease(t *testing.T) {
+	got, err := Parse(testPath, []byte(releaseProject))
+	if err != nil {
+		t.Fatalf("Parse of a project file with [release]: %v", err)
+	}
+	want := []Pool{{
+		Name:        "alpha",
+		Host:        "box-a",
+		Cap:         2,
+		Members:     []string{"m1", "m2"},
+		Wake:        []string{"wake-m1", "--flag"},
+		WakeLimit:   5 * time.Second,
+		Status:      []string{"status-m1"},
+		StatusLimit: 3 * time.Second,
+		Admit:       []string{"admit-m1"},
+		AdmitLimit:  4 * time.Second,
+	}}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("Parse = %+v, want %+v", got, want)
+	}
+}
+
 func TestParseReadsGatesOnlyFileAsNoPools(t *testing.T) {
 	gate := table("gates.unit", `argv = ["/bin/true"]`, `limit = 5`, `needs = { alpha = 1 }`)
 	for _, text := range []string{gateTables(), gate} {
