@@ -361,8 +361,40 @@ test("KeyList: the list's keys act exactly as the table says", async () => {
   await withDom(() => expectTable("list", handlerPress(() => listFake())));
 });
 
-test("KeyList: the inbox at rest's keys act exactly as the table says", async () => {
-  await withDom(() => expectTable("inbox-at-rest", handlerPress(() => listFake({ inboxHidden: true }))));
+test("KeyList: the collapsed inbox's keys act exactly as the table says", async () => {
+  await withDom(() => expectTable("collapsed", handlerPress(() => listFake({ collapsed: true }))));
+});
+
+test("KeyList: the flyout's keys act exactly as the table says", async () => {
+  await withDom(() => expectTable("flyout", handlerPress(() => listFake({ collapsed: true, flyoutOpen: true }))));
+});
+
+test("KeyList: no chord is bound by two lines of the table in the same context", () => {
+  // bound is each context's chords, each with the text of the first line that binds it there.
+  const bound = new Map<string, string>();
+  const twice: string[] = [];
+  for (const group of keyGroups) {
+    for (const line of group.lines) {
+      // A line that names a chord twice in one context binds it once.
+      const own = new Set<string>();
+      for (const act of line.acts) {
+        for (const where of act.in) {
+          for (const chord of act.chords) {
+            own.add(`${where} ${chordName(chord)}`);
+          }
+        }
+      }
+      for (const slot of own) {
+        const first = bound.get(slot);
+        if (first === undefined) {
+          bound.set(slot, line.text);
+        } else {
+          twice.push(`${slot}: "${first}" and "${line.text}"`);
+        }
+      }
+    }
+  }
+  assert.deepEqual(twice, [], "a chord bound twice in one context");
 });
 
 test("KeyList: the help panel's keys act exactly as the table says", async () => {

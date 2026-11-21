@@ -1,6 +1,7 @@
 // The stories of TitleRow: a breadcrumb with a state, a blocker, the commands a page holds, and a conversation's title
 // row, drawn in its head: its project's name as the inbox draws it, then its title one step down the type scale, with no
-// Orrery icon or count (the inbox at rest shows the icon), a title too long for its line, and an error note.
+// Orrery icon or count (the inbox shows the icon, in its head or on its rail), a title too long for its line, and an error
+// note.
 
 import { create } from "@bufbuild/protobuf";
 

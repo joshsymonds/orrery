@@ -38,7 +38,7 @@ import { epicScenarios, noNoticeSlices, noticeStackSlices, shippedSlices } from 
 import { createFixtureTransport } from "./transport";
 
 // wideWidth is the window width the stories draw at unless one names its own. It is past the 760px the wide layout starts
-// at, so the inbox is docked or hidden as its state has it, not stacked under the page.
+// at, so the inbox is expanded or collapsed as its state has it, not stacked under the page.
 const wideWidth = 1280;
 
 // overlayWidth is the width the epic panel lies over the conversation at: the 1000px round 6 draws epic-talk at, which
@@ -70,8 +70,8 @@ function inboxState(root: HTMLElement): string | null {
   return root.querySelector(".panes")?.getAttribute("data-inbox") ?? null;
 }
 
-// The opening prompt of pane %12 and a fragment of pane %11's unfinished reply. Pane %12's prompt is drawn at home too,
-// since the cursor rests on %12, and %11's fragment is drawn only when %11's conversation is.
+// The opening prompt of pane %12 and a fragment of pane %11's unfinished reply. %11's fragment is drawn only when %11's
+// conversation is.
 const beaconPrompt = "Why is the roster page slow for weeks with more than forty shifts?";
 const lampFragment = "Full jitter is in";
 
@@ -82,19 +82,31 @@ const rotaPrompt = "Plan the rota export as an epic.";
 // tideTitle is the title of tide-alerts' contract body, which the contract record's heading draws.
 const tideTitle = "Alert the harbour office within a minute when a published tide table changes.";
 
-// inboxHome is Page/inbox-home: the inbox rows, with the inbox docked beside the cursor's reader on pane %12.
+// replyFocused is whether a reply box holds the focus, as an opening by a click leaves it.
+function replyFocused(root: HTMLElement): boolean {
+  return root.ownerDocument.activeElement?.closest(".reply") != null;
+}
+
+// inboxHome is Page/inbox-home: the inbox rows, with the inbox expanded beside the cursor's reader, which is not pane
+// %11's, and no reply box focused, since no row was opened by a click.
 function inboxHome(root: HTMLElement): boolean {
-  return listView(root) === "inbox" && inboxState(root) === "docked";
+  return (
+    listView(root) === "inbox" &&
+    inboxState(root) === "expanded" &&
+    !(root.textContent ?? "").includes(lampFragment) &&
+    !replyFocused(root)
+  );
 }
 
-// convoWorking is Page/convo-working: the inbox at rest as its rail beside the reader of pane %11.
+// convoWorking is Page/convo-working: the inbox expanded beside the reader of pane %11, as its address opens it.
 function convoWorking(root: HTMLElement): boolean {
-  return inboxState(root) === "rail" && (root.textContent ?? "").includes(lampFragment);
+  return inboxState(root) === "expanded" && (root.textContent ?? "").includes(lampFragment);
 }
 
-// askSession is Page/ask-session: the inbox at rest as its rail beside the reader of pane %12.
+// askSession is Page/ask-session: the inbox expanded beside the reader of pane %12, which a click on its row opened into
+// its reply box.
 function askSession(root: HTMLElement): boolean {
-  return inboxState(root) === "rail" && (root.textContent ?? "").includes(beaconPrompt);
+  return inboxState(root) === "expanded" && (root.textContent ?? "").includes(beaconPrompt) && replyFocused(root);
 }
 
 // askOf is the Ask the page draws, or null when none is drawn. The answered and settled lines are not Asks.
@@ -1995,6 +2007,49 @@ test("FixtureTransport: page/convo-notices draws the first three notices Watch s
       assertNoFailure(root);
       const drawn = [...root.querySelectorAll(".notices .notice .b")].map((line) => line.textContent);
       assert.deepEqual(drawn, bodies, "the stack draws the first three notices in the order Watch shows them");
+    },
+  );
+});
+
+test("FixtureTransport: page/inbox-rail draws the inbox collapsed to its rail beside pane %11's reader, with no flyout", (t) => {
+  mockTimers(t, ["setTimeout"]);
+  return withStory(
+    t,
+    Page["inbox-rail"],
+    (root) => inboxState(root) === "collapsed" && (root.textContent ?? "").includes(lampFragment),
+    (root) => {
+      assertNoFailure(root);
+      assert.ok(root.querySelectorAll("nav.rail.start .rail-tiles .vtile").length > 0, "the rail draws a tile per project");
+      assert.equal(root.querySelector(".pfly"), null, "no flyout is open");
+    },
+  );
+});
+
+test("FixtureTransport: page/inbox-flyout draws the flyout of the current project's tile beside the collapsed rail", (t) => {
+  mockTimers(t, ["setTimeout"]);
+  return withStory(
+    t,
+    Page["inbox-flyout"],
+    (root) => root.querySelector("nav.rail.start > .pfly") !== null,
+    (root) => {
+      assertNoFailure(root);
+      assert.equal(inboxState(root), "collapsed");
+      const current = root.querySelector("nav.rail.start .vtile.cur");
+      assert.ok(current !== null, "a tile is current");
+      assert.equal(current.classList.contains("open"), true, "the current tile's flyout is the one open");
+    },
+  );
+});
+
+test("FixtureTransport: page/inbox-narrow draws the expanded inbox beside pane %11's reader", (t) => {
+  mockTimers(t, ["setTimeout"]);
+  return withStory(
+    t,
+    Page["inbox-narrow"],
+    (root) => convoWorking(root),
+    (root) => {
+      assertNoFailure(root);
+      assert.equal(root.querySelector("nav.rail.start"), null, "no rail is drawn");
     },
   );
 });

@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 
-import { handleKey } from "./keymap";
+import { type Where, keyGroups } from "./keys";
+import { handleKey, type KeyContext } from "./keymap";
 import type { Row } from "./rows";
 import { assertSame, installTestDom, removeTestDom } from "./testdom";
 import { fakeContext } from "./testkeys";
@@ -105,12 +106,156 @@ test("AppSplit: ⌘K opens the palette and prevents the default", () => {
   assert.equal(event.defaultPrevented, true);
 });
 
-test("AppSplit: a list key with the inbox hidden pops it out by key and moves nothing", () => {
-  const fake = fakeContext({ inboxHidden: true, index: 0, flat: three });
-  const event = key("j");
-  handleKey(event, fake.context);
-  assert.deepEqual(fake.calls, [["setPopout", "key"]]);
-  assert.equal(event.defaultPrevented, true);
+test("AppSplit: a list key with the inbox collapsed expands it and moves nothing", () => {
+  for (const name of ["j", "k", "ArrowDown", "ArrowUp", "g", "G", "/", "v"]) {
+    const fake = fakeContext({ collapsed: true, index: 0, flat: three });
+    const event = key(name);
+    handleKey(event, fake.context);
+    assert.deepEqual(fake.calls, [["expandInbox"]], `the ${name} key`);
+    assert.equal(event.defaultPrevented, true, `the ${name} key`);
+  }
+});
+
+test("AppSplit: b collapses or expands the inbox in the list, collapsed and with a flyout open, and B does nothing", () => {
+  const contexts: Partial<KeyContext>[] = [{}, { collapsed: true }, { collapsed: true, flyoutOpen: true }];
+  for (const init of contexts) {
+    const fake = fakeContext({ index: 0, flat: three, ...init });
+    const event = key("b");
+    handleKey(event, fake.context);
+    assert.deepEqual(fake.calls, [["toggleInbox"]], `b in ${JSON.stringify(init)}`);
+    assert.equal(event.defaultPrevented, true);
+    const shifted = fakeContext({ index: 0, flat: three, ...init });
+    const upper = key("B");
+    handleKey(upper, shifted.context);
+    assert.deepEqual(shifted.calls, [], `B in ${JSON.stringify(init)}`);
+    assert.equal(upper.defaultPrevented, false);
+  }
+});
+
+test("AppSplit: p opens the flyout while the inbox is collapsed, and does nothing in the list", () => {
+  const list = fakeContext({ index: 0, flat: three });
+  const listed = key("p");
+  handleKey(listed, list.context);
+  assert.deepEqual(list.calls, []);
+  assert.equal(listed.defaultPrevented, false);
+  for (const init of [{ collapsed: true }, { collapsed: true, flyoutOpen: true }]) {
+    const fake = fakeContext({ index: 0, flat: three, ...init });
+    const event = key("p");
+    handleKey(event, fake.context);
+    assert.deepEqual(fake.calls, [["openFlyout"]]);
+    assert.equal(event.defaultPrevented, true);
+  }
+});
+
+test("AppSplit: with a flyout open, ↑ and k move it up a tile, ↓ and j down, ⏎ opens its row and Escape closes it", () => {
+  const cursor = row("a");
+  const cases: [name: string, calls: unknown[][]][] = [
+    ["ArrowUp", [["moveFlyout", -1]]],
+    ["k", [["moveFlyout", -1]]],
+    ["ArrowDown", [["moveFlyout", 1]]],
+    ["j", [["moveFlyout", 1]]],
+    ["Enter", [["openFlyoutRow"]]],
+    ["Escape", [["closeFlyout"]]],
+  ];
+  for (const [name, calls] of cases) {
+    const fake = fakeContext({
+      collapsed: true,
+      flyoutOpen: true,
+      index: 0,
+      flat: [cursor],
+      cursorItem: cursor,
+      cursorRow: cursor,
+      cursorRowKey: cursor.key,
+    });
+    const event = key(name);
+    handleKey(event, fake.context);
+    assert.deepEqual(fake.calls, calls, `the ${name} key`);
+    assert.equal(event.defaultPrevented, true, `the ${name} key`);
+  }
+});
+
+test("AppSplit: with a flyout open, ⏎ opens its row even while a button holds the focus", () => {
+  const button = document.createElement("button");
+  document.body.append(button);
+  try {
+    button.focus();
+    assertSame(document.activeElement, button, "expected the button to hold focus");
+    const fake = fakeContext({ collapsed: true, flyoutOpen: true });
+    const event = key("Enter");
+    handleKey(event, fake.context);
+    assert.deepEqual(fake.calls, [["openFlyoutRow"]]);
+    const without = fakeContext({ collapsed: true });
+    const passed = key("Enter");
+    handleKey(passed, without.context);
+    assert.deepEqual(without.calls, [], "with no flyout, a focused button keeps its own Enter");
+    assert.equal(passed.defaultPrevented, false);
+  } finally {
+    button.remove();
+  }
+});
+
+test("AppSplit: with a flyout open, the flyout's keys typed in a text box are text", () => {
+  const box = document.createElement("textarea");
+  document.body.append(box);
+  try {
+    box.focus();
+    const fake = fakeContext({ collapsed: true, flyoutOpen: true });
+    for (const name of ["j", "k", "ArrowUp", "ArrowDown", "Enter", "p", "b"]) {
+      const event = key(name);
+      handleKey(event, fake.context);
+      assert.equal(event.defaultPrevented, false, `${name} should not be prevented`);
+    }
+    assert.deepEqual(fake.calls, []);
+  } finally {
+    box.remove();
+  }
+});
+
+test("AppSplit: collapsed with no flyout, ⏎ opens the cursor row and Escape takes back from it, as in the list", () => {
+  const cursor = row("a");
+  const init = { collapsed: true, index: 0, flat: [cursor], cursorItem: cursor, cursorRow: cursor, cursorRowKey: cursor.key };
+  const enter = fakeContext(init);
+  handleKey(key("Enter"), enter.context);
+  assert.deepEqual(enter.calls.map(([name]) => name), ["setRowOpened", "writeSeen", "setBoxOpened"]);
+  const escape = fakeContext(init);
+  handleKey(key("Escape"), escape.context);
+  assert.deepEqual(escape.calls.map(([name]) => name), ["escapeRow", "setHelpOpen"]);
+});
+
+// actsIn is the contexts among list, collapsed and flyout where the table binds the chord with no modifier.
+function actsIn(name: string): Where[] {
+  const contexts: Where[] = ["list", "collapsed", "flyout"];
+  return contexts.filter((where) =>
+    keyGroups.some((group) =>
+      group.lines.some((line) =>
+        line.acts.some(
+          (act) =>
+            act.in.includes(where) &&
+            act.chords.some((chord) => chord.key === name && Object.keys(chord).length === 1),
+        ),
+      ),
+    ),
+  );
+}
+
+test("AppSplit: p and the flyout's keys act in exactly the contexts the table binds them in", () => {
+  const contexts: [Where, Partial<KeyContext>][] = [
+    ["list", {}],
+    ["collapsed", { collapsed: true }],
+    ["flyout", { collapsed: true, flyoutOpen: true }],
+  ];
+  for (const name of ["p", "j", "k", "ArrowUp", "ArrowDown", "Enter", "Escape"]) {
+    const acting = contexts
+      .filter(([, init]) => {
+        const cursor = row("b");
+        const fake = fakeContext({ index: 1, flat: three, cursorItem: cursor, cursorRow: cursor, cursorRowKey: "b", ...init });
+        const event = key(name);
+        handleKey(event, fake.context);
+        return event.defaultPrevented || fake.calls.length > 0;
+      })
+      .map(([where]) => where);
+    assert.deepEqual(acting, actsIn(name), `the ${name} key acts where the table binds it`);
+  }
 });
 
 test("AppSplit: Enter on the cursor row opens it, marks it seen and focuses its reply box", () => {
@@ -126,7 +271,6 @@ test("AppSplit: Enter on the cursor row opens it, marks it seen and focuses its 
   handleKey(event, fake.context);
   assert.deepEqual(fake.calls, [
     ["setRowOpened", true],
-    ["setPopout", "none"],
     ["writeSeen", cursor],
     ["setBoxOpened", { column: "cursor", key: "a" }],
   ]);

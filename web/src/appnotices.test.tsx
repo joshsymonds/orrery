@@ -334,6 +334,11 @@ function listHidden(container: HTMLElement): boolean {
   return one(container, ".list").hasAttribute("hidden");
 }
 
+// collapseInbox collapses the inbox to its rail with the inbox foot's control.
+async function collapseInbox(container: HTMLElement): Promise<void> {
+  await press(one(container, '.inbox-foot button[aria-label="Collapse the inbox"]'));
+}
+
 // openCentre opens the centre from the inbox head's bell.
 async function openCentre(container: HTMLElement): Promise<void> {
   await press(headBell(container));
@@ -400,9 +405,9 @@ test("NoticeBell: the inbox head draws the bell between search and New, labelled
     assert.deepEqual(controls, ["Search sessions and epics", "Notices", "New"]);
   }));
 
-test("NoticeBell: the rail's Notices tile sits between Search and Keys, with a page open", (t) =>
+test("NoticeBell: the rail's Notices tile sits between Search and Keys, with the inbox collapsed", (t) =>
   withDesk(t.signal, { width: wideWidth }, async (container) => {
-    await press(one(container, `[data-key="b"]`));
+    await collapseInbox(container);
     assert.deepEqual(
       Array.from(rail(container).children).map(labelOf).slice(-4),
       ["New session", "Search", "Notices", "Keys"],
@@ -422,7 +427,7 @@ test("NoticeBell: with unread notices the head bell and the rail tile tip Notice
       () => headBell(container).getAttribute("title") === "Notices · 2 unread",
       "the head bell's tip",
     );
-    await press(one(container, `[data-key="b"]`));
+    await collapseInbox(container);
     assert.equal(railBell(container).getAttribute("data-tip"), "Notices · 2 unread");
   }));
 
@@ -432,7 +437,7 @@ test("NoticeBell: with no unread notices the head bell and the rail tile tip Not
     await until(t.signal, () => centreRows(container).length === 1, "the log's one row");
     await press(one(container, 'section.ncentre button[aria-label="Close"]'));
     assert.equal(headBell(container).getAttribute("title"), "Notices");
-    await press(one(container, `[data-key="b"]`));
+    await collapseInbox(container);
     assert.equal(railBell(container).getAttribute("data-tip"), "Notices");
   }));
 
@@ -440,7 +445,7 @@ test("NoticeBell: the unread count is drawn in the new role on the head bell and
   withDesk(t.signal, { width: wideWidth }, async (container) => {
     await until(t.signal, () => headBell(container).querySelector(".n.new") !== null, "the head bell's count");
     assert.equal(headBell(container).querySelector(".n.new")?.textContent, "2");
-    await press(one(container, `[data-key="b"]`));
+    await collapseInbox(container);
     assert.equal(railBell(container).querySelector(".n.new")?.textContent, "2");
   }));
 
@@ -450,7 +455,7 @@ test("NoticeBell: no count is drawn on either bell when no notice is unread", (t
     await until(t.signal, () => centreRows(container).length === 1, "the log's one row");
     await press(one(container, 'section.ncentre button[aria-label="Close"]'));
     assert.equal(headBell(container).querySelector(".n"), null);
-    await press(one(container, `[data-key="b"]`));
+    await collapseInbox(container);
     assert.equal(railBell(container).querySelector(".n"), null);
   }));
 
@@ -462,7 +467,7 @@ test("NoticeBell: a click on the head bell opens the notice centre", (t) =>
 
 test("NoticeBell: a click on the rail's Notices tile opens the notice centre", (t) =>
   withDesk(t.signal, { width: wideWidth }, async (container) => {
-    await press(one(container, `[data-key="b"]`));
+    await collapseInbox(container);
     assert.equal(centreDrawn(container), false);
     await press(railBell(container));
     assert.ok(centre(container) !== null, "the centre is drawn once the rail's Notices tile is pressed");
@@ -734,8 +739,7 @@ test("NoticeCentre: with the list on screen beside the centre, x, e and A act on
   withDesk(t.signal, { width: wideWidth }, async (container, server) => {
     await pressRow(container, "a");
     await until(t.signal, () => cursored(container) === "a", "the cursor on the waiting row");
-    await keyPress("B");
-    await until(t.signal, () => listHidden(container) === false, "the pinned inbox draws beside the page");
+    await until(t.signal, () => listHidden(container) === false, "the expanded inbox draws beside the page");
     await openCentre(container);
     const seenBefore = callsTo(server, markSeenSuffix);
     await keyPress("x");

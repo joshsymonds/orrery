@@ -476,18 +476,19 @@ test("SidePanel: a digit with an epic's question open in the panel answers nothi
 // address is pending until the rows and epics hold its epic, and then opens it.
 const arrived: Setup = { rows: [steererRow()], epics: view([alpha]), address: epicAddress("alpha") };
 
-test("RailAddress: an epic's address hides the inbox at 1600, as a row's address does", (t) =>
+test("RailAddress: an epic's address leaves the inbox expanded at 1600, as a row's address does", (t) =>
   withRail(t.signal, 1600, { address: epicAddress("alpha") }, async (mount) => {
     await mount.rerender(arrived);
-    assert.ok(mount.container.querySelector('.panes[data-inbox="rail"]') !== null, "the inbox is on the rail");
+    assert.ok(mount.container.querySelector('.panes[data-inbox="expanded"]') !== null, "the inbox is expanded");
+    assert.equal(mount.container.querySelector("nav.rail.start"), null, "no rail is drawn");
   }));
 
-test("RailAddress: an epic's address hides the inbox at 1000, where the panel overlays the page", (t) =>
+test("RailAddress: an epic's address leaves the inbox expanded at 1000, where the panel overlays the page", (t) =>
   withRail(t.signal, 1000, { address: epicAddress("alpha") }, async (mount) => {
     await mount.rerender(arrived);
     await followed(mount.probe, "s1");
     assert.ok(mount.container.querySelector(".panes.overlay") !== null, "the layout is overlaid");
-    assert.ok(mount.container.querySelector('.panes[data-inbox="rail"]') !== null, "the inbox is on the rail");
+    assert.ok(mount.container.querySelector('.panes[data-inbox="expanded"]') !== null, "the inbox is expanded");
   }));
 
 test("RailAddress: at 1000 the overlaid panel starts one rail width past the inbox's track, leaving the reader beside it", (t) =>
