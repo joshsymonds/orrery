@@ -85,6 +85,8 @@ button.link.notices-more { justify-self: end; padding: 0 var(--o-space-12); colo
 .notice.flat.unread .t::after { content: ""; display: inline-block; width: var(--o-size-dot); height: var(--o-size-dot); margin-left: var(--o-space-8); border-radius: var(--o-radius-round); background: var(--o-role-new); vertical-align: middle; }
 .notice .t .dirn { color: var(--o-role-place); font-weight: var(--o-font-weight-regular); }
 .notice .b { grid-column: 2; min-width: 0; overflow-wrap: anywhere; }
+/* A refused Bring it back's reason, a line under the body in the error role, which shows whole. */
+.notice .refusal { grid-column: 2; min-width: 0; overflow-wrap: anywhere; color: var(--o-role-bad); }
 .notice .when { color: var(--o-ink-3); white-space: nowrap; }
 .notice .acts { grid-column: 2; display: flex; align-items: center; gap: var(--o-space-8); margin-top: var(--o-space-8); }
 /* NoticeCentre: where notices collect. Opened by the bell, which counts the unread, as an overlay under the title row. */
