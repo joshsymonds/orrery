@@ -25,17 +25,19 @@ const (
 	turnFree     = "free"
 )
 
-// Prompt renders the prompt of the planner turn turn of epic: the role text, then the contract, the decisions, the
-// new notes, the open questions, the advice followed, the tasks, the Requirements no live task claims, the evidence
-// amendments, the triggers, the spent lines and the failed turns that ran before turn. epic is read after the turn is
-// claimed, so its Turns include turn, and triggers are the triggers turn claimed. follows are the store's follow counts
-// per label, and spent are the spent lines of failed tasks (spentLines). It returns an error when a gate, a
-// Requirement's evidence item, a task's evidence item or an amendment's item cannot be encoded.
+// Prompt renders the prompt of the planner turn turn of epic: the role text, then the reading section that names the
+// read command of epic, then the contract, the decisions, the new notes, the open questions, the advice followed, the
+// tasks, the Requirements no live task claims, the evidence amendments, the triggers, the spent lines and the failed
+// turns that ran before turn. epic is read after the turn is claimed, so its Turns include turn, and triggers are the
+// triggers turn claimed. follows are the store's follow counts per label, and spent are the spent lines of failed tasks
+// (spentLines). It returns an error when a gate, a Requirement's evidence item, a task's evidence item or an
+// amendment's item cannot be encoded.
 func Prompt(
 	epic store.EpicRow, turn int64, triggers []store.EpicTrigger, follows []store.LabelFollow, spent []SpentLine,
 ) (string, error) {
 	var out strings.Builder
 	fmt.Fprintln(&out, strings.TrimRight(role, "\n"))
+	WriteSection(&out, "Reading the epic", readingLines(epic.ID))
 	last, found := lastTurn(epic.Turns, turn)
 	contract, err := ContractLines(epic)
 	if err != nil {
@@ -65,6 +67,20 @@ func Prompt(
 	WriteSection(&out, "Spent lines", spentText)
 	WriteSection(&out, "Failed turns", failureLines(epic.Turns, turn))
 	return out.String(), nil
+}
+
+// readingLines returns the Reading the epic section of the epic with id: that the prompt is a summary of the epic, the
+// read command with the epic's id and what it reads, the parts it names, the item each item part reads, and the paging
+// flags.
+func readingLines(id string) []string {
+	return []string{
+		"This prompt is a summary of the epic. The planner may run `orrery epic get " + id + " --part <part>` to read",
+		"any part of it in full; the read changes nothing.",
+		"Parts: tasks, turns, decisions, questions and history are lists; contract, workflow and report are text.",
+		"Read one item with `--part task --task T<n>`, `--part question --question Q<n>`, " +
+			"`--part decision --decision <id>` or `--part turn --turn <n>`.",
+		"Page a part with `--offset` and `--limit`: a list part counts items, and a text part counts runes.",
+	}
 }
 
 // requirementIDs returns the ids of requirements in their order.
