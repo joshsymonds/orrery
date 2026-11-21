@@ -5,6 +5,7 @@ import android.view.ViewGroup
 import android.widget.EditText
 import androidx.activity.ComponentActivity
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assert
@@ -13,12 +14,14 @@ import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.hasAnyAncestor
 import androidx.compose.ui.test.hasAnyDescendant
+import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performTextInput
 import com.google.protobuf.MessageLite
 import io.github.joshsymonds.orrery.api.FakeOrreryServer
 import io.github.joshsymonds.orrery.api.OrreryClient
@@ -71,6 +74,11 @@ private const val EPICS_GET_PATH = "/orrery.v1.Epics/Get"
 private const val WATCH_PATH = "/orrery.v1.Sessions/WatchConversation"
 private const val NUDGE_PATH = "/orrery.v1.Steps/Nudge"
 private const val STEPS_STOP_PATH = "/orrery.v1.Steps/Stop"
+private const val TITLE_MORE_TAG = "head-more"
+private const val TITLE_MENU_FIND_TAG = "head-menu-find"
+private const val FIND_QUERY = "synthetic match"
+private const val FIRST_MATCH = "The first synthetic match."
+private const val SECOND_MATCH = "The second synthetic match."
 
 // A worker's session screen in step mode, driven over a fake server that serves the epic's Get and the session's stream.
 @OptIn(ExperimentalTestApi::class)
@@ -232,6 +240,43 @@ class WorkerSessionTest {
             composeRule.onNodeWithText("Send").performClick()
             composeRule.awaitUntil("the changed draft is nudged") { nudgedTexts(server).lastOrNull() == "$DRAFT, changed" }
             assertEquals(listOf(DRAFT, "$DRAFT, changed"), nudgedTexts(server))
+        }
+    }
+
+    @Test
+    fun stepSessionFindShowsMoreInTheTitleRowWithFindInItsMenu() {
+        FakeOrreryServer().use { server ->
+            serveStream(server, state = "working")
+            showSession(server, detail(step()))
+            composeRule.awaitExactlyOne(hasTestTag("epic-pin"))
+
+            // More is the title row's: on the crumbs' line, above the band that ties the step to its epic.
+            composeRule.onNodeWithTag(TITLE_MORE_TAG)
+                .assert(SemanticsMatcher.expectValue(SemanticsProperties.ContentDescription, listOf("More")))
+            assertTrue(nodeTop(TITLE_MORE_TAG) < nodeTop("epic-pin"))
+
+            composeRule.onNodeWithTag(TITLE_MORE_TAG).performClick()
+
+            composeRule.onNodeWithTag(TITLE_MENU_FIND_TAG).assertTextEquals("Find")
+        }
+    }
+
+    @Test
+    fun stepSessionFindOpensFindOnTheStepsTranscriptAndStepsThroughItsMatches() {
+        FakeOrreryServer().use { server ->
+            serveStream(server, state = "working", items = listOf(reply(FIRST_MATCH), reply(SECOND_MATCH)))
+            showSession(server, detail(step()))
+            composeRule.awaitExactlyOne(hasText(SECOND_MATCH))
+
+            composeRule.onNodeWithTag(TITLE_MORE_TAG).performClick()
+            composeRule.onNodeWithTag(TITLE_MENU_FIND_TAG).performClick()
+            composeRule.onNode(hasSetTextAction() and hasAnyAncestor(hasTestTag("find-bar"))).performTextInput(FIND_QUERY)
+
+            composeRule.onNodeWithTag("find-count").assertTextEquals("1 of 2")
+            composeRule.onNodeWithTag("find-next").performClick()
+            composeRule.onNodeWithTag("find-count").assertTextEquals("2 of 2")
+            composeRule.onNodeWithTag("find-next").performClick()
+            composeRule.onNodeWithTag("find-count").assertTextEquals("1 of 2")
         }
     }
 

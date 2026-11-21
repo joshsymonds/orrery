@@ -333,6 +333,7 @@ fun SessionScreen(
                     add(Crumb(label = "Worker session"))
                 },
                 onBack = onBack,
+                onFind = { finding = FindSession(query = "") },
             )
             detail?.let { shown ->
                 ContextBand(

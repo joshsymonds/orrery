@@ -4,6 +4,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -91,38 +92,15 @@ fun HeadTitleRow(
                     maxLines = 1,
                 )
             }
-            Box {
-                Text(
-                    text = "⋯",
-                    modifier = Modifier
-                        .testTag("head-more")
-                        .semantics { contentDescription = "More" }
-                        .clickable(onClick = onMore),
-                    color = OrreryTokens.Ink.two,
-                    style = OrreryTokens.Type.title,
+            MoreMenu(open = moreOpen, onMore = onMore, onDismiss = onDismissMore, onFind = onFind) {
+                DropdownMenuItem(
+                    text = { Text("Hide the header") },
+                    onClick = {
+                        onDismissMore()
+                        onHideHeader()
+                    },
+                    modifier = Modifier.testTag("head-menu-hide"),
                 )
-                DropdownMenu(
-                    expanded = moreOpen,
-                    onDismissRequest = onDismissMore,
-                    modifier = Modifier.testTag("head-menu"),
-                ) {
-                    DropdownMenuItem(
-                        text = { Text("Find") },
-                        onClick = {
-                            onDismissMore()
-                            onFind()
-                        },
-                        modifier = Modifier.testTag("head-menu-find"),
-                    )
-                    DropdownMenuItem(
-                        text = { Text("Hide the header") },
-                        onClick = {
-                            onDismissMore()
-                            onHideHeader()
-                        },
-                        modifier = Modifier.testTag("head-menu-hide"),
-                    )
-                }
             }
         }
         if (note.isNotEmpty()) {
@@ -132,6 +110,46 @@ fun HeadTitleRow(
                 color = OrreryTokens.Role.bad,
                 style = OrreryTokens.Type.small,
             )
+        }
+    }
+}
+
+/**
+ * A title row's More: the ⋯ glyph, which opens a menu holding Find and then [items]. Find closes the menu, then calls
+ * [onFind]; each of [items] closes it the same way through [onDismiss].
+ */
+@Composable
+fun MoreMenu(
+    open: Boolean,
+    onMore: () -> Unit,
+    onDismiss: () -> Unit,
+    onFind: () -> Unit,
+    items: @Composable ColumnScope.() -> Unit = {},
+) {
+    Box {
+        Text(
+            text = "⋯",
+            modifier = Modifier
+                .testTag("head-more")
+                .semantics { contentDescription = "More" }
+                .clickable(onClick = onMore),
+            color = OrreryTokens.Ink.two,
+            style = OrreryTokens.Type.title,
+        )
+        DropdownMenu(
+            expanded = open,
+            onDismissRequest = onDismiss,
+            modifier = Modifier.testTag("head-menu"),
+        ) {
+            DropdownMenuItem(
+                text = { Text("Find") },
+                onClick = {
+                    onDismiss()
+                    onFind()
+                },
+                modifier = Modifier.testTag("head-menu-find"),
+            )
+            items()
         }
     }
 }
