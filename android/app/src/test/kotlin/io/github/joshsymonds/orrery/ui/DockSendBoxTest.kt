@@ -5,12 +5,17 @@ import android.text.InputType
 import android.view.View
 import android.view.ViewGroup
 import android.view.inputmethod.EditorInfo
+import android.view.inputmethod.InputMethodManager
 import android.widget.EditText
 import androidx.activity.ComponentActivity
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
@@ -70,6 +75,7 @@ private const val HANG_GUARD_SECONDS = 10L
 private const val COMPOSE_TIMEOUT_MS = 200
 private const val SLOW_ANSWER_MS = 2_000L
 private val CAPPED_FIELD_HEIGHT = 60.dp
+private const val LIST_ROWS = 40
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35])
@@ -214,6 +220,47 @@ class DockSendBoxTest {
 
         assertEquals(2, server.requests.size)
         assertNoOutcomeLabel()
+    }
+
+    // The field's enabled change is posted out of Compose's apply (DockBox's update), because on a phone a focused
+    // field's change restarts the keyboard's input mid-apply and crashes. Robolectric's keyboard never runs that
+    // restart, so this pins what the post must keep: a focused field under a list is disabled while its send is out
+    // and enabled once it lands.
+    @Test
+    fun focusedFieldUnderAListIsDisabledWhileItsSendIsOut() {
+        server.route(TEXT_PATH) {
+            heldSendReply.await()
+            Reply.Message(SendTextResponse.getDefaultInstance(), 0L)
+        }
+        val client = slowClient()
+        composeRule.setContent {
+            val box = rememberDockDraft(PANE_ID)
+            boxDraft = box
+            Column(Modifier.fillMaxSize()) {
+                LazyColumn(Modifier.weight(1f)) {
+                    items(LIST_ROWS) { row -> Text("row $row") }
+                }
+                DockBox(draft = box, paneId = PANE_ID, client = client, edge = ComposeEdge.IDLE, hint = HINT)
+            }
+        }
+        composeRule.waitForIdle()
+        setDraft(DRAFT)
+        composeRule.runOnUiThread {
+            val field = editField()
+            assertTrue(field.requestFocus())
+            val keyboard = field.context.getSystemService(InputMethodManager::class.java)
+            keyboard.showSoftInput(field, 0)
+            keyboard.restartInput(field)
+        }
+        composeRule.waitForIdle()
+
+        composeRule.onNodeWithText("Send").performClick()
+        composeRule.waitForIdle()
+
+        composeRule.runOnIdle { assertTrue(!editField().isEnabled) }
+        heldSendReply.countDown()
+        composeRule.awaitUntil { editField().text.isEmpty() }
+        composeRule.runOnIdle { assertTrue(editField().isEnabled) }
     }
 
     @Test
