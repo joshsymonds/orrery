@@ -5,7 +5,7 @@ import { create } from "@bufbuild/protobuf";
 import { render } from "preact";
 import { act } from "preact/test-utils";
 
-import { CheckBlock } from "./reader";
+import { CheckBlock } from "./blocks";
 import { type EpicStepCheck, EpicStepCheckSchema } from "./gen/orrery/v1/epics_pb";
 import { installTestDom, removeTestDom } from "./testdom";
 
@@ -41,14 +41,26 @@ function chipTexts(block: HTMLElement): string[] {
   return [...block.querySelectorAll(".chip")].map((chip) => chip.textContent ?? "");
 }
 
-test("CheckBlock: the cap names the round and says the checks come from the engine", () =>
+// noteOf is the text of the note: the paragraph the block's body draws after its head.
+function noteOf(root: HTMLElement): string | undefined {
+  return [...root.children].find((child) => child.tagName === "P")?.textContent ?? undefined;
+}
+
+// blockOf is the block root the CheckBlock draws.
+function blockOf(container: HTMLElement): HTMLElement {
+  const root = container.querySelector<HTMLElement>('[data-shape="block"]');
+  assert.ok(root, "the CheckBlock draws no block root");
+  return root;
+}
+
+test("CheckBlock: the head names the round and says the checks come from the engine", () =>
   withBlock({ text: "gate failed", round: 2, checks: [checkOf(2, "gate", false)] }, (container) => {
-    const cap = container.querySelector(".cap");
-    assert.equal(cap?.textContent?.includes("Checks · round 2"), true, "the cap names the round");
-    assert.equal(cap?.querySelector("span")?.textContent, "from the engine");
+    const head = blockOf(container).querySelector(".head");
+    assert.equal(head?.querySelector(".label")?.textContent, "CHECKS");
+    assert.equal(head?.querySelector(".words")?.textContent, "round 2 from the engine", "the head names the round");
   }));
 
-test("CheckBlock: one chip per check of its round only, marked ✓ or ✗", () =>
+test("CheckBlock: one chip per check of its round only, the failed one bad", () =>
   withBlock(
     {
       text: "gate failed",
@@ -60,12 +72,12 @@ test("CheckBlock: one chip per check of its round only, marked ✓ or ✗", () =
       ],
     },
     (container) => {
-      assert.deepEqual(chipTexts(container), ["schema ✓", "gate ✗"], "round 2's check is not drawn");
+      assert.deepEqual(chipTexts(container), ["schema", "gate"], "round 2's check is not drawn");
       assert.equal(container.querySelectorAll(".chip.bad").length, 1, "only the failed check is bad");
     },
   ));
 
-test("CheckBlock: the edge is bad when one of its round's checks failed, and ok when none did", async () => {
+test("CheckBlock: the tone is bad when one of its round's checks failed, and ok when none did", async () => {
   await withBlock(
     {
       text: "gate failed",
@@ -73,9 +85,7 @@ test("CheckBlock: the edge is bad when one of its round's checks failed, and ok 
       checks: [checkOf(1, "gate", false), checkOf(2, "lint", true)],
     },
     (container) => {
-      const card = container.querySelector("div.card");
-      assert.equal(card?.classList.contains("bad"), true, "a failed check of the round makes the edge bad");
-      assert.equal(card?.classList.contains("ok"), false);
+      assert.equal(blockOf(container).dataset.tone, "bad", "a failed check of the round makes the tone bad");
     },
   );
   await withBlock(
@@ -85,32 +95,31 @@ test("CheckBlock: the edge is bad when one of its round's checks failed, and ok 
       checks: [checkOf(1, "gate", true), checkOf(2, "lint", false)],
     },
     (container) => {
-      const card = container.querySelector("div.card");
-      assert.equal(card?.classList.contains("ok"), true, "a failure of another round leaves this edge ok");
-      assert.equal(card?.classList.contains("bad"), false);
+      assert.equal(blockOf(container).dataset.tone, "ok", "a failure of another round leaves this tone ok");
     },
   );
 });
 
 test("CheckBlock: a one-line note draws as the note with no fold", () =>
   withBlock({ text: "all checks passed", round: 1, checks: [checkOf(1, "gate", true)] }, (container) => {
-    assert.equal(container.querySelector("p.note")?.textContent, "all checks passed");
-    assert.equal(container.querySelector("button.note"), null, "a one-line note has no fold button");
-    assert.equal(container.querySelector(".rest"), null);
+    const root = blockOf(container);
+    assert.equal(noteOf(root), "all checks passed");
+    assert.equal(root.querySelector(".end button"), null, "a one-line note has no fold button");
+    assert.equal(root.querySelector(".opened"), null);
   }));
 
 test("CheckBlock: a multi-line note folds its rest under the first line until clicked", () =>
   withBlock(
     { text: "gate failed: exit 1\nthe gate's output\nline three", round: 1, checks: [checkOf(1, "gate", false)] },
     async (container) => {
-      assert.equal(container.querySelector("p.note"), null, "a multi-line note has no p.note");
-      const edge = container.querySelector<HTMLElement>("button.note");
-      assert.equal(edge?.textContent, "gate failed: exit 1", "the first line is the fold's button");
-      assert.equal(container.querySelector(".rest"), null, "the rest is folded until clicked");
+      const root = blockOf(container);
+      assert.equal(noteOf(root), "gate failed: exit 1", "the first line is the note");
+      const edge = root.querySelector<HTMLElement>(".end button");
+      assert.ok(edge, "a multi-line note has a fold button in the end");
+      assert.equal(root.querySelector(".opened"), null, "the rest is folded until clicked");
 
-      assert.ok(edge !== null && edge !== undefined);
       await clickControl(edge);
-      const rest = container.querySelector(".rest");
+      const rest = root.querySelector(".opened");
       assert.equal(rest?.textContent?.includes("line three"), true, "the rest is shown after a click");
       assert.equal(rest?.textContent?.includes("gate failed"), false, "the rest leaves out the first line");
     },

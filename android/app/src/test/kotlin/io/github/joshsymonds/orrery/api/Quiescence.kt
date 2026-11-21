@@ -27,7 +27,10 @@ import okhttp3.Response
 object Quiescence {
     private val sockets: MutableSet<CountingSocket> = Collections.newSetFromMap(ConcurrentHashMap())
 
-    /** Calls started and not yet answered with headers, failed or canceled: queued for a thread or connecting. */
+    /**
+     * Calls started and not yet answered, failed or canceled: queued for a thread, connecting, or a unary answer whose
+     * headers came but whose body is not read yet.
+     */
     private val pendingCalls: MutableSet<Call> = Collections.newSetFromMap(ConcurrentHashMap())
 
     /**
@@ -147,7 +150,7 @@ object Quiescence {
     /** What is in flight other than BackgroundWork itself, or null. */
     private fun inFlightBesidesWork(): String? {
         FakeOrreryServer.busyHandlers().takeIf { it > 0 }?.let { return "$it fake-server handler(s) still answering" }
-        pendingCalls.size.takeIf { it > 0 }?.let { return "$it call(s) not yet answered with headers" }
+        pendingCalls.size.takeIf { it > 0 }?.let { return "$it call(s) not yet answered" }
         coroutineTasks()?.let { return it }
         sockets.removeAll { it.isClosed }
         sockets.firstOrNull { it.awaitingAnswer.get() }?.let { return "a request on port ${it.localPort} has no answer yet" }
@@ -277,8 +280,15 @@ object Quiescence {
         }
     }
 
-    /** Counts each call from its start until its answer's headers arrive, it fails, or it is canceled. */
+    /**
+     * Counts each call from its start until its answer is in, it fails, or it is canceled. A stream's answer is in with
+     * its headers, since its body stays open as long as the stream does. A unary answer's body is still to come after
+     * its headers, and while it comes the call's socket is quiet and its thread waits for it, so the call counts until
+     * the body is read and the call ends.
+     */
     private object CallCounter : EventListener(), EventListener.Factory {
+        private const val STREAM_TYPE_PREFIX = "application/connect+"
+
         override fun create(call: Call): EventListener = this
 
         override fun callStart(call: Call) {
@@ -286,7 +296,7 @@ object Quiescence {
         }
 
         override fun responseHeadersEnd(call: Call, response: Response) {
-            pendingCalls -= call
+            if (response.header("Content-Type")?.startsWith(STREAM_TYPE_PREFIX) == true) pendingCalls -= call
         }
 
         override fun callFailed(call: Call, ioe: IOException) {

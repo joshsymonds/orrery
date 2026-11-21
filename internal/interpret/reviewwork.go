@@ -24,10 +24,10 @@ const (
 	closePart          = "close "
 )
 
-// prepareReview freezes the review of epic at its stored base, which gives the review run at act's path that revision and
-// sets the epic reviewing.
+// prepareReview freezes the review of epic at its candidate, or at its stored base when it has none, which gives the review
+// run at act's path that revision and sets the epic reviewing.
 func (r *Runner) prepareReview(ctx context.Context, epic store.EpicRow, act Action, at time.Time) error {
-	base, err := storedBaseOf(epic)
+	base, err := reviewRevisionOf(epic)
 	if err != nil {
 		return err
 	}
@@ -51,8 +51,17 @@ func (r *Runner) prepareClosure(ctx context.Context, epic store.EpicRow, act Act
 	return nil
 }
 
-// storedBaseOf returns the stored base of epic, the revision its review freezes at and its closure runs at. An epic with no
-// stored base has no revision to run at, so it is an error.
+// reviewRevisionOf returns the revision the review of epic freezes at: its candidate when it has one, since the candidate
+// holds the epic's composed work over its stored base, and otherwise its stored base (storedBaseOf).
+func reviewRevisionOf(epic store.EpicRow) (string, error) {
+	if epic.Candidate != "" {
+		return epic.Candidate, nil
+	}
+	return storedBaseOf(epic)
+}
+
+// storedBaseOf returns the stored base of epic, the revision its closure runs at and the one its review freezes at when it
+// has no candidate. An epic with no stored base has no revision to run at, so it is an error.
 func storedBaseOf(epic store.EpicRow) (string, error) {
 	if epic.StoredBase == "" {
 		return "", fmt.Errorf("epic %s has no stored base to run at", epic.ID)

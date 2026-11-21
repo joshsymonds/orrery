@@ -11,6 +11,7 @@ import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import com.connectrpc.Code
 import io.github.joshsymonds.orrery.api.EpicBuildTaskRow
 import io.github.joshsymonds.orrery.api.EpicDetail
 import io.github.joshsymonds.orrery.api.EpicRequirementRow
@@ -168,6 +169,50 @@ class TaskBandRecordTest {
         }
     }
 
+    @Test
+    fun theBriefIsPagedBackThreePagesWhenTheResetWindowHoldsNoneOfIt() {
+        FakeOrreryServer().use { server ->
+            // Each older page is keyed by the cursor it is asked with: the reset's oldest, then each page's oldest.
+            val pages = mapOf(
+                OLDEST_SEQ to olderPageWithoutBrief(oldest = 80L),
+                80L to olderPageWithoutBrief(oldest = 60L),
+                60L to olderPageWithBrief(),
+            )
+            server.respond(EPICS_GET, briefEpic())
+            server.route(SESSION_WATCH_CONVERSATION) { Reply.Stream(listOf(resetWithoutBrief()), StreamEnd.Clean) }
+            server.route(SESSION_OLDER) { request ->
+                Reply.Message(pages.getValue(SessionsOlderRequest.parseFrom(request.body).before), 0L)
+            }
+            setScreen(server)
+
+            composeRule.awaitExactlyOne(hasTestTag("task-brief"))
+
+            composeRule.onNodeWithTag("task-brief").assertTextContains(BRIEF, substring = true)
+            val asked = server.requests.filter { it.rawPath == SESSION_OLDER }.map { request ->
+                val older = SessionsOlderRequest.parseFrom(request.body)
+                older.id to older.before
+            }
+            assertEquals(listOf(SESSION_ID to OLDEST_SEQ, SESSION_ID to 80L, SESSION_ID to 60L), asked)
+        }
+    }
+
+    @Test
+    fun aFailedOlderPageDrawsNoBriefAndTheWatchDrawsALaterOne() {
+        FakeOrreryServer().use { server ->
+            server.respond(EPICS_GET, briefEpic())
+            server.route(SESSION_WATCH_CONVERSATION) {
+                Reply.Stream(listOf(resetWithoutBrief(), laterDeltaWithBrief()), StreamEnd.Clean)
+            }
+            server.fail(SESSION_OLDER, Code.UNAVAILABLE, "Synthetic older page failure.")
+            setScreen(server)
+
+            composeRule.awaitExactlyOne(hasTestTag("task-brief"))
+
+            composeRule.onNodeWithTag("task-brief").assertTextContains(BRIEF, substring = true)
+            assertEquals(1, server.requests.count { it.rawPath == SESSION_OLDER })
+        }
+    }
+
     private fun setScreen(server: FakeOrreryServer) {
         val client = OrreryClient(server.baseUrl)
         composeRule.setContent {
@@ -215,6 +260,31 @@ class TaskBandRecordTest {
         }
         return reset.build()
     }
+
+    // A watch delta after the reset, carrying the brief prompt as a later item of the session.
+    private fun laterDeltaWithBrief(): SessionsWatchConversationResponse = SessionsWatchConversationResponse.newBuilder()
+        .setTranscript(SESSION_ID)
+        .setSeq(OLDEST_SEQ + RESET_ITEMS + 1)
+        .addItems(
+            ConversationItemProto.newBuilder()
+                .setKind("prompt")
+                .setTime(NOW + RESET_ITEMS)
+                .setText(BRIEF)
+                .setSender("brief"),
+        )
+        .build()
+
+    // An older page with no brief in it, whose oldest item is at [oldest] and which has more older items.
+    private fun olderPageWithoutBrief(oldest: Long): SessionsOlderResponse = SessionsOlderResponse.newBuilder()
+        .addItems(
+            ConversationItemProto.newBuilder()
+                .setKind("reply")
+                .setTime(NOW - 900)
+                .setText("Synthetic older reply."),
+        )
+        .setOldest(oldest)
+        .setMore(true)
+        .build()
 
     private fun olderPageWithBrief(): SessionsOlderResponse = SessionsOlderResponse.newBuilder()
         .addItems(

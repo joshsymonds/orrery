@@ -210,7 +210,7 @@ test("WorkerSession: the reader at its top asks for the older page while older i
 
 test("WorkerSession: a null conversation shows the reader's loading line", async () => {
   await withPage([], { conversation: null }, async (container) => {
-    assert.equal(textOf(container, ".reader-loading"), "loading…");
+    assert.equal(textOf(container, ".reader-loading"), "loading the conversation…");
   });
 });
 
@@ -258,7 +258,7 @@ test("WorkerSession: ‹ calls onBack", async () => {
   });
 });
 
-test("WorkerSession: the brief draws folded, and each check round draws as a CheckBlock of its checks", async () => {
+test("WorkerSession: the brief draws as a folded line, and each check round draws as a CheckBlock of its checks", async () => {
   const items = [
     item({ kind: "prompt", sender: "brief", time: 100n, text: "Build the endpoint." }),
     item({ kind: "prompt", sender: "engine", round: 1, time: 110n, text: "lint failed\nsee the log" }),
@@ -268,12 +268,17 @@ test("WorkerSession: the brief draws folded, and each check round draws as a Che
     { round: 1, name: "test", ok: true },
   ];
   await withStep([], { step: step({ checks }), conversation: conversation(items) }, async (container) => {
-    assert.equal(find(container, ".fold.brief").querySelector(".fold-text"), null, "the brief is folded");
-    const card = find(container, ".card.bad");
-    assert.equal(textOf(card, ".cap")?.startsWith("Checks · round 1"), true, "the card names its round");
+    const brief = find(container, '[data-shape="line"].fold.brief');
+    assert.equal(brief.nextElementSibling?.classList.contains("opened") ?? false, false, "the brief is folded");
+    const block = find(container, '[data-shape="block"].checks');
+    assert.equal(block.dataset.tone, "bad", "a failed check of the round makes the block bad");
+    assert.equal(textOf(block, ".head .words"), "round 1 from the engine", "the block names its round");
     assert.deepEqual(
-      [...card.querySelectorAll(".chip")].map((chip) => chip.textContent),
-      ["lint ✗", "test ✓"],
+      [...block.querySelectorAll(".chip")].map((chip) => [chip.textContent, chip.classList.contains("bad")]),
+      [
+        ["lint", true],
+        ["test", false],
+      ],
     );
   });
 });
@@ -343,10 +348,11 @@ test("WorkerSession: an ended step shows no dock, and its end is the last block"
     assert.equal(container.querySelector("textarea"), null, "no compose box is drawn");
     const last = find(container, ".worker-session").lastElementChild;
     assert.equal(last?.classList.contains("step-end-row"), true, "the step's end is the last block");
-    assert.equal(last?.querySelector(".t > .step-card") !== null, true, "the end sits in the conversation's column");
+    assert.equal(last?.querySelector(".t > .body > .step-card") !== null, true, "the end sits in the conversation's column");
     assert.equal(textOf(last ?? container, ".t > .gut"), clock(150n), "the end's time is in the gutter");
-    assert.equal(textOf(last ?? container, ".step-agent"), "builder");
-    assert.equal(textOf(last ?? container, ".step-end"), "end done");
+    assert.equal(textOf(last ?? container, '[data-shape="block"].stepend .head .label'), "STEP ENDED");
+    assert.equal(textOf(last ?? container, '[data-shape="block"].stepend .head .words'), "builder");
+    assert.equal(textOf(last ?? container, '[data-shape="block"].stepend .head .end .chip'), "done");
     assert.deepEqual(
       [...find(container, ".step-card").querySelectorAll(".step-summary")].map((line) => line.textContent),
       ["the endpoint answers", "its tests pass"],

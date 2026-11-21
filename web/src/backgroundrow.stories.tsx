@@ -1,10 +1,10 @@
-// The stories of TaskLine, the export of BackgroundRow's rows: an agent task that runs, which is a link to its Agent
-// call; an agent task that has ended; an agent task that names no sub-agent type; and a shell task, which is not a link.
+// The stories of TaskLine: the lines BackgroundRow draws for a background task, which round 6 names TaskLine (catalog/
+// coverage.ts storyRenames): an agent task that has ended; an agent task that failed; and a shell task that was stopped.
 
 import { create, type MessageInitShape } from "@bufbuild/protobuf";
 
 import * as backgroundrow from "./backgroundrow";
-import type { Stories } from "./catalog/story";
+import { type Stories, inReader } from "./catalog/story";
 import { at } from "./fixtures/clock";
 import { type BackgroundTask, BackgroundTaskSchema } from "./gen/orrery/v1/orrery_pb";
 
@@ -15,22 +15,7 @@ function taskOf(init: MessageInitShape<typeof BackgroundTaskSchema>): Background
   return create(BackgroundTaskSchema, init);
 }
 
-export const TaskLine: Stories = {
-  "agent-running": () => (
-    <backgroundrow.BackgroundRow
-      task={taskOf({
-        id: "bg-1",
-        toolUseId: "toolu_7",
-        description: "map the rota package",
-        type: "agent",
-        subagentType: "Explore",
-        status: "running",
-        activity: "Grep rota.*Export",
-        started: at("@14:40"),
-      })}
-      onOpen={ignore}
-    />
-  ),
+export const TaskLine: Stories = inReader({
   finished: () => (
     <backgroundrow.BackgroundRow
       task={taskOf({
@@ -61,17 +46,18 @@ export const TaskLine: Stories = {
       onOpen={ignore}
     />
   ),
-  "shell-running": () => (
+  stopped: () => (
     <backgroundrow.BackgroundRow
       task={taskOf({
-        id: "bg-4",
+        id: "bg-5",
         toolUseId: "",
-        description: "go test ./cli/...",
+        description: "pnpm dev --port 5173",
         type: "shell",
-        status: "running",
-        started: at("@14:30"),
+        status: "stopped",
+        started: at("@14:12"),
+        ended: at("@14:30"),
       })}
       onOpen={ignore}
     />
   ),
-};
+});

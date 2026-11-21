@@ -41,6 +41,7 @@ fun Head(
     contracts: List<ContractBandLine> = emptyList(),
     hereContract: String = "",
     onOpenContract: (String) -> Unit = {},
+    onFind: () -> Unit = {},
 ) {
     var moreOpen by remember { mutableStateOf(false) }
     Column(
@@ -58,6 +59,7 @@ fun Head(
             onMore = { moreOpen = true },
             moreOpen = moreOpen,
             onDismissMore = { moreOpen = false },
+            onFind = onFind,
             onHideHeader = onHide,
         )
         if (fold == HeadFold.OPEN) {

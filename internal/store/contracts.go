@@ -52,12 +52,14 @@ type ContractListing struct {
 }
 
 // ContractStateChange is one state a contract entered. Session is the sessions row id of the session that made the
-// change, and "" for the owner.
+// change, and "" for the owner. Base is the commit an accepted state stores as the contract's base, and "" on any other
+// state.
 type ContractStateChange struct {
 	State   string
 	Version int64
 	Session string
 	Words   string
+	Base    string
 	At      int64
 }
 
@@ -177,7 +179,7 @@ func readContract(ctx context.Context, queries *sqlcgen.Queries, id string) (Con
 	}
 	for _, row := range states {
 		record.States = append(record.States, ContractStateChange{
-			State: row.State, Version: row.Version, Session: row.Session, Words: row.Words, At: row.At,
+			State: row.State, Version: row.Version, Session: row.Session, Words: row.Words, Base: row.Base, At: row.At,
 		})
 	}
 	return record, nil

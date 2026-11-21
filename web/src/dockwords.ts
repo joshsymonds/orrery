@@ -23,6 +23,7 @@ export interface DockFacts {
   reason: string;
   interruptedAt: number; // unix seconds of the newest item when it is the interrupted rule, else 0
   putOff: boolean;
+  archived: boolean; // whether the row is archived; an archived waiting row reads idle, as the inbox's does
   // doing is what the step is doing, or why it is held (DL-G24).
   step: { label: string; held: boolean; doing: string } | null;
 }
@@ -144,7 +145,13 @@ export function stateLine(facts: DockFacts, now: number): StateLine {
     return running("working", facts, since(started, now));
   }
   if (facts.state === "waiting") {
-    return facts.putOff ? plain("idle", putOffWords) : plain("waiting", "waiting on you");
+    if (facts.putOff) {
+      return plain("idle", putOffWords);
+    }
+    if (facts.archived) {
+      return plain("idle", "idle");
+    }
+    return plain("waiting", "waiting on you");
   }
   if (facts.state === "done" && facts.interruptedAt > 0) {
     return plain("interrupted", "interrupted by you", [clock(BigInt(facts.interruptedAt))]);
@@ -188,7 +195,7 @@ export function placeholder(facts: DockFacts, narrow: boolean): string {
       : `Queue a message for ${n}. Claude takes it at its next tool result`;
   }
   if (facts.state === "waiting") {
-    return facts.putOff ? `Message ${n}` : `Answer ${n}`;
+    return facts.putOff || facts.archived ? `Message ${n}` : `Answer ${n}`;
   }
   if (facts.state === "done" && facts.interruptedAt > 0) {
     return `${n} stopped where it was. Say what to do next`;

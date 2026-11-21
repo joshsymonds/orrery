@@ -29,6 +29,7 @@ export const storyExemptions: Readonly<Record<string, string>> = {
 export const storyRenames: Renames = {
   "ask.tsx": { AskLine: "Ask" },
   "backgroundrow.tsx": { BackgroundRow: "TaskLine" },
+  "blocks.tsx": { Block: "YouBlock" },
   "blocker.tsx": { AskFirst: "ConfirmButton" },
   "contract.tsx": { ContractBody: { module: "app.stories.tsx", story: "Page" } },
   "contractrecord.tsx": { ContractRecord: { module: "app.stories.tsx", story: "Page" } },
@@ -42,16 +43,23 @@ export const storyRenames: Renames = {
   "happenings.tsx": { JustHappened: "HappeningList" },
   "inbox.tsx": { Inbox: { module: "app.stories.tsx", story: "Page" } },
   "helppanel.tsx": { KeyList: { module: "app.stories.tsx", story: "Page" } },
+  "markdown.tsx": { Markdown: { module: "reply.stories.tsx", story: "Reply" } },
   "notices.tsx": { NoticeStack: "Notice" },
   "nowsection.tsx": { NowSection: { module: "app.stories.tsx", story: "Page" } },
   "phaseoutput.tsx": { PhaseOutputPage: { module: "app.stories.tsx", story: "Page" } },
   "picker.tsx": { NewPanel: { module: "app.stories.tsx", story: "Page" } },
   "projectpage.tsx": { ProjectPage: { module: "app.stories.tsx", story: "Page" } },
+  "reader.tsx": { Reader: { module: "app.stories.tsx", story: "Page" } },
+  "readercolumn.tsx": { ReaderColumn: { module: "app.stories.tsx", story: "Page" } },
   "report.tsx": { EpicReport: { module: "app.stories.tsx", story: "Page" } },
   "review.tsx": { EpicReview: { module: "app.stories.tsx", story: "Page" } },
   "sidepanel.tsx": { SidePanel: "ListPanel" },
   "steermenu.tsx": { SteerMenu: { module: "app.stories.tsx", story: "Page" } },
   "strip.tsx": { PaneStrip: "MeterStrip" },
+  "text.tsx": {
+    MarkedText: { module: "app.stories.tsx", story: "Page" },
+    ReplyText: { module: "app.stories.tsx", story: "Page" },
+  },
   "workersession.tsx": { WorkerSessionPage: { module: "app.stories.tsx", story: "Page" } },
 };
 

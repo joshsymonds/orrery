@@ -3,7 +3,14 @@ import { useRef, useState } from "preact/hooks";
 
 import { Ask, AskLine } from "./ask";
 import { epicAsk, epicProject } from "./askmodel";
+import { Block } from "./blocks";
 import { type EpicCalls, useEpicReading } from "./card";
+import type { StepFacts } from "./gen/orrery/v1/orrery_pb";
+import { Icon, type IconName } from "./glyphs";
+import { partCurrent } from "./lines";
+import { Markdown, drawnText } from "./markdown";
+import { clock } from "./reader";
+import { MarkedText } from "./text";
 
 // The kinds an epic's event names, as its orrery-event block gives them.
 const eventKinds = ["question", "park", "release", "end", "moved"] as const;
@@ -24,14 +31,13 @@ export interface EpicEvent {
   moved?: { side: "left"; to: string; by: string } | { side: "took" };
 }
 
-// StepEvent is a step's end: the step's id, the agent that ran it (empty when the block names none), how it ended and
-// its status, the epic that holds it and the task it ran (each empty when the block names none), and the brief the
-// block gives, one string a line.
+// StepEvent is a step's end: the step's id, the agent that ran it (empty when the block names none), how it ended, the
+// epic that holds it and the task it ran (each empty when the block names none), and the brief the block gives, one
+// string a line.
 export interface StepEvent {
   step: string;
   agent: string;
   end: string;
-  status: string;
   epic: string;
   task: string;
   brief: string[];
@@ -51,13 +57,15 @@ const stepPrefix = "step:";
 const morePrefix = "More: ";
 // leftPattern matches the first line of the body a move gives the conversation the epic left.
 const leftPattern = /^Epic [^\n]* moved to session (\S+), by (the owner|orreryd|session \S+)\.(?=\n|$)/;
-const glyphs: Record<EventKind, string> = { question: "?", park: "‖", release: "↗", end: "■", moved: "⇄" };
-const labels: Record<EventKind, string> = {
-  question: "question",
-  park: "parked",
-  release: "released",
-  end: "ended",
-  moved: "moved",
+// movedGlyph is the icon a move's line draws.
+const movedGlyph = "⇄";
+// eventLooks is each epic event's rail tone and icon as round 6 draws its block: a question and a park ask for attention,
+// a release reports ok, and an end is quiet.
+const eventLooks: Record<Exclude<EventKind, "moved">, { tone: "attention" | "ok" | "quiet"; icon: IconName }> = {
+  question: { tone: "attention", icon: "question" },
+  park: { tone: "attention", icon: "pause" },
+  release: { tone: "ok", icon: "open" },
+  end: { tone: "quiet", icon: "stop" },
 };
 
 // Block is an event block as its text holds it: its kind and id, its attributes after them, and its body, with every
@@ -134,15 +142,13 @@ export function stepEventOf(text: string): StepEvent | null {
   }
   const { attributes } = block;
   const end = attributes.get("end");
-  const status = attributes.get("status");
-  if (end === undefined || status === undefined) {
+  if (end === undefined || !attributes.has("status")) {
     return null;
   }
   return {
     step: block.id.slice(stepPrefix.length),
     agent: attributes.get("agent") ?? "",
     end,
-    status,
     epic: attributes.get("epic") ?? "",
     task: attributes.get("task") ?? "",
     brief: briefOf(block.body),
@@ -153,6 +159,17 @@ export function stepEventOf(text: string): StepEvent | null {
 // has no lines.
 function briefOf(body: string): string[] {
   return body === "" ? [] : dropMore(body.split("\n"));
+}
+
+// briefStarts is where each line of a brief starts in the text a find searches the brief in: its lines drawn one to a line,
+// as findMatches joins them.
+function briefStarts(lines: string[]): number[] {
+  let next = 0;
+  return lines.map((line) => {
+    const start = next;
+    next += drawnText(line).length + 1;
+    return start;
+  });
 }
 
 // dropMore returns lines without a last line that starts with More:, the line that points to the full return.
@@ -181,15 +198,54 @@ function firstSentence(body: string): string {
   return match === null ? "" : match[0].trim();
 }
 
-// EventRing draws an epic's event as one ringed line: an icon for its kind, the event's sentence and the epic's slug. A
-// click opens the epic. A question event also draws its question under the line, through QuestionReading.
-export function EventRing({ event, calls }: { event: EpicEvent; calls: EpicCalls }): JSX.Element {
+// EventRing draws an epic's event: a move as its ringed line, an icon and the sentence with the epic's slug, and any other
+// event as an EpicEventBlock. A click on the ring or the block's link opens the epic. A question event also draws its
+// question inside the block, through QuestionReading. The sentence of an event that is not a move is marked with the
+// find's query, and current is the offset where its current match starts.
+export function EventRing({
+  event,
+  calls,
+  query = "",
+  current = -1,
+}: {
+  event: EpicEvent;
+  calls: EpicCalls;
+  query?: string;
+  current?: number;
+}): JSX.Element {
+  if (event.kind === "moved") {
+    return (
+      <div class="event-ring">
+        <button type="button" class="ring-line" onClick={() => calls.openEpic(event.epic)}>
+          <span class="ring-icon moved" role="img" aria-label="moved">
+            {movedGlyph}
+          </span>
+          <span class="ring-sentence">{sentenceOf(event, calls)}</span>
+          <span class="ring-slug">{slugOf(event.epic)}</span>
+        </button>
+      </div>
+    );
+  }
+  const look = eventLooks[event.kind];
   return (
     <div class="event-ring">
-      <button type="button" class="ring-line" onClick={() => calls.openEpic(event.epic)}>
-        <RingParts kind={event.kind} sentence={sentenceOf(event, calls)} epic={event.epic} />
-      </button>
-      {event.kind === "question" && <QuestionReading epic={event.epic} question={event.tail} calls={calls} />}
+      <Block
+        tone={look.tone}
+        kind="epicevent"
+        icon={look.icon}
+        label="EPIC"
+        end={
+          <button type="button" class="epic-link" onClick={() => calls.openEpic(event.epic)}>
+            <span class="ring-slug">{slugOf(event.epic)}</span>
+            <Icon name="chevronRight" />
+          </button>
+        }
+      >
+        <p class="ring-sentence">
+          <MarkedText text={event.sentence} query={query} current={current} />
+        </p>
+        {event.kind === "question" && <QuestionReading epic={event.epic} question={event.tail} calls={calls} />}
+      </Block>
     </div>
   );
 }
@@ -227,29 +283,98 @@ function sessionNameOf(session: string, calls: EpicCalls): string {
   return title === undefined ? `session ${session}` : `“${title}”`;
 }
 
-// RingParts draws the parts of an epic's event line: its kind's icon, the sentence, and the epic's slug.
-function RingParts({ kind, sentence, epic }: { kind: EventKind; sentence: string; epic: string }): JSX.Element {
-  return (
-    <>
-      <span class={`ring-icon ${kind}`} role="img" aria-label={labels[kind]}>
-        {glyphs[kind]}
-      </span>
-      <span class="ring-sentence">{sentence}</span>
-      <span class="ring-slug">{slugOf(epic)}</span>
-    </>
-  );
-}
-
 // ReturnLoad is a step's full return as its fold holds it: the return once it loads, failed when it did not load, and
 // null until the fold is first opened.
 type ReturnLoad = { result: string } | "failed" | null;
 
-// StepCard draws a step's end as a card: its head with the agent when the event names one, then the end and the
-// status, then each line of the brief as a line of text. With epic calls it holds a return fold under the brief, closed
-// until it is opened. The first time the fold is opened, the step's full return is read through calls.stepResult. It
-// draws pretty-printed when it is JSON, and a read that fails draws a fixed line. A click on the head opens the step's
-// page through calls.openStep when the event names its epic and the reader holds epic calls.
-export function StepCard({ event, calls }: { event: StepEvent; calls?: EpicCalls }): JSX.Element {
+// endWords is each step end's chip, in round 6's words. An end it does not name draws as it is written.
+const endWords = new Map<string, string>([
+  ["done", "done"],
+  ["returned", "returned"],
+  ["failed", "failed"],
+  ["goal_unmet", "goal not met"],
+  ["checks_failed", "checks failed"],
+  ["gate_failed", "gate failed"],
+  ["stopped", "stopped"],
+  ["engine_restarted", "engine restarted"],
+  ["overtime", "ran over time"],
+  ["tool_stuck", "a tool stuck"],
+  ["silent", "went silent"],
+  ["looping", "looping"],
+  ["wedged", "wedged"],
+]);
+
+// endVerdictOf is a step end's tone and icon: done and returned pass, stopped is quiet, and every other end failed.
+function endVerdictOf(end: string): { tone: "ok" | "quiet" | "bad"; icon: IconName } {
+  if (end === "done" || end === "returned") {
+    return { tone: "ok", icon: "check" };
+  }
+  if (end === "stopped") {
+    return { tone: "quiet", icon: "stop" };
+  }
+  return { tone: "bad", icon: "cross" };
+}
+
+// durationOf is a run's length: seconds under a minute, minutes under an hour, then hours and minutes.
+function durationOf(seconds: number): string {
+  if (seconds < 60) {
+    return `${seconds}s`;
+  }
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) {
+    return `${minutes}m`;
+  }
+  return `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
+}
+
+// plural is a count and its word, in the singular for one and the plural otherwise.
+function plural(count: number, word: string): string {
+  return count === 1 ? `1 ${word}` : `${count} ${word}s`;
+}
+
+// FactsLine draws a step end's facts in round 6's order: its rounds when above 0, how long it ran, then its files and
+// line counts when they were counted.
+function FactsLine({ facts }: { facts: StepFacts }): JSX.Element {
+  return (
+    <div class="facts">
+      {facts.rounds > 0 && <span>{plural(facts.rounds, "round")}</span>}
+      <span>{durationOf(Number(facts.seconds))}</span>
+      {facts.counted && (
+        <>
+          <span>{plural(Number(facts.files), "file")}</span>
+          <span class="plus">{`+${facts.added}`}</span>
+          <span class="minus">{`−${facts.removed}`}</span>
+        </>
+      )}
+    </div>
+  );
+}
+
+// StepCard draws a step's end as a StepEndBlock: its tone and icon are its verdict, its label says the step ended, and
+// it names the task the step ran, else the step's id, with the agent beside it when the block names one. Its end is a
+// chip. Its body is each line of the brief as Markdown, its summary and its reason, each marked with the find's query,
+// then, with epic calls, a return fold closed until it is opened, then the facts line when the event carries facts, and
+// the time when one is given. The first time the fold is opened, the step's full return is read through
+// calls.stepResult. It draws pretty-printed when it is JSON, and a read that fails draws a fixed line. The chip is a
+// button that opens the step's page through calls.openStep when the event names its epic and the reader holds epic
+// calls. current is the offset in the brief's searched text, its lines drawn one to a line, where the current match
+// starts.
+export function StepCard({
+  event,
+  facts,
+  time,
+  calls,
+  query = "",
+  current = -1,
+}: {
+  event: StepEvent;
+  facts?: StepFacts;
+  time?: bigint;
+  calls?: EpicCalls;
+  query?: string;
+  current?: number;
+}): JSX.Element {
+  const starts = briefStarts(event.brief);
   const [loaded, setLoaded] = useState<ReturnLoad>(null);
   const asked = useRef(false);
   const onClick = () => {
@@ -267,25 +392,44 @@ export function StepCard({ event, calls }: { event: StepEvent; calls?: EpicCalls
       () => setLoaded("failed"),
     );
   };
+  const verdict = endVerdictOf(event.end);
+  const chip = <span class={`chip ${verdict.tone}`}>{endWords.get(event.end) ?? event.end}</span>;
+  const opens = calls !== undefined && event.epic !== "";
   return (
     <div class="step-card">
-      <button type="button" class="step-head" onClick={onClick}>
-        {event.agent !== "" && <b class="step-agent">{event.agent}</b>}
-        <span class="step-end">end {event.end}</span>
-        <span class="step-status">status {event.status}</span>
-      </button>
-      {event.brief.map((line, index) => (
-        <p key={index} class="step-summary">
-          {line}
-        </p>
-      ))}
-      {calls !== undefined && (
-        <details class="step-return" onToggle={(toggled) => openReturn(toggled.currentTarget)}>
-          <summary>return</summary>
-          {loaded === "failed" && <p class="error">return could not be loaded</p>}
-          {loaded !== null && loaded !== "failed" && <pre>{returnBody(loaded.result)}</pre>}
-        </details>
-      )}
+      <Block
+        tone={verdict.tone}
+        kind="stepend"
+        icon={verdict.icon}
+        label="STEP ENDED"
+        who={event.task !== "" ? event.task : event.step}
+        words={event.agent !== "" ? event.agent : undefined}
+        time={time === undefined ? undefined : clock(time)}
+        end={
+          opens ? (
+            <button type="button" class="step-head" onClick={onClick}>
+              {chip}
+              <Icon name="chevronRight" />
+            </button>
+          ) : (
+            chip
+          )
+        }
+      >
+        {event.brief.map((line, index) => (
+          <div key={index} class="step-summary">
+            <Markdown text={line} query={query} current={partCurrent(current, starts[index], drawnText(line).length)} />
+          </div>
+        ))}
+        {calls !== undefined && (
+          <details class="step-return" onToggle={(toggled) => openReturn(toggled.currentTarget)}>
+            <summary>return</summary>
+            {loaded === "failed" && <p class="error">return could not be loaded</p>}
+            {loaded !== null && loaded !== "failed" && <pre>{returnBody(loaded.result)}</pre>}
+          </details>
+        )}
+        {facts !== undefined && <FactsLine facts={facts} />}
+      </Block>
     </div>
   );
 }
@@ -293,7 +437,8 @@ export function StepCard({ event, calls }: { event: StepEvent; calls?: EpicCalls
 // QuestionReading draws the question's epic as useEpicReading reads it. While the epic is unread or cannot be read it
 // draws nothing. While the question is open it draws the epic's Ask, which takes no number keys and draws no key caps,
 // and an answer goes to epic answer for the epic and question; an answer that lands reads the epic once more. Once the
-// question is no longer open it draws the settled line, with the epic's project and slug.
+// question is no longer open it draws the settled line, with the epic's project and slug. It draws inside the event's
+// block.
 function QuestionReading({ epic, question, calls }: { epic: string; question: string; calls: EpicCalls }) {
   const { reading, reread } = useEpicReading(epic, calls);
 
@@ -305,7 +450,6 @@ function QuestionReading({ epic, question, calls }: { epic: string; question: st
   if (open === undefined) {
     return <AskLine state="settled" who={`${epicProject(owner)} · ${owner.slug}`} />;
   }
-  // The Ask is drawn in the now-block column.
   return (
     <div class="now-block">
       <Ask

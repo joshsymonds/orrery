@@ -1,15 +1,25 @@
 package enginehost
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"os/exec"
+	"strings"
+	"syscall"
+	"time"
 
 	"connectrpc.com/connect"
 
 	v1 "github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1"
 	"github.com/joshsymonds/orrery/internal/store"
 )
+
+// originFetchGrace is how long a fetch that its context ended waits for the processes it left running, as a remote read
+// of interpret waits for its own.
+const originFetchGrace = 2 * time.Second
 
 // ReviseContract stores the body and decisions as the contract's next version, in the state it is in, by the sessions
 // row the caller resolves to. The version carries the rows and sections that differ from the newest version.
@@ -81,7 +91,9 @@ func reviseRefusal(id string, err error) error {
 }
 
 // AcceptContract accepts the contract at its newest version, by the sessions row the caller resolves to or by the owner
-// when it resolves to none. Every decision of that version must have an answer.
+// when it resolves to none. Every decision of that version must have an answer. The accept stores the commit origin's
+// main names in the contract's repository as the contract's base. When that commit cannot be read, the accept is refused
+// and stores nothing.
 func (s *contractService) AcceptContract(
 	ctx context.Context,
 	req *connect.Request[v1.AcceptContractRequest],
@@ -94,7 +106,20 @@ func (s *contractService) AcceptContract(
 	if err != nil {
 		return nil, err
 	}
-	err = s.contracts.Store.AcceptContract(ctx, id, s.contractChange(session, req.Msg.GetWords()))
+	record, err := s.contracts.Store.Contract(ctx, id)
+	if errors.Is(err, store.ErrNoContract) {
+		return nil, contractNotFound(id)
+	}
+	if err != nil {
+		return nil, epicStoreError(err)
+	}
+	base, err := s.originMain(ctx, record.Repository)
+	if err != nil {
+		return nil, refuseEpic(connect.CodeFailedPrecondition, "base: fetch origin main: "+err.Error())
+	}
+	change := s.contractChange(session, req.Msg.GetWords())
+	change.Base = base
+	err = s.contracts.Store.AcceptContract(ctx, id, change)
 	if err != nil {
 		return nil, acceptRefusal(id, err)
 	}
@@ -201,4 +226,32 @@ func reopenRefusal(id string, err error) error {
 // contractChange returns the change of a contract's state that session makes with words, at the clock's time.
 func (s *contractService) contractChange(session, words string) store.ContractChange {
 	return store.ContractChange{Session: session, Words: words, At: s.contracts.Now().Unix()}
+}
+
+// originMain returns the commit origin's main names in repository: what OriginMain returns when the Contracts sets it,
+// and otherwise the commit fetchOriginMain fetches.
+func (s *contractService) originMain(ctx context.Context, repository string) (string, error) {
+	if s.contracts.OriginMain != nil {
+		return s.contracts.OriginMain(ctx, repository)
+	}
+	return fetchOriginMain(ctx, repository)
+}
+
+// fetchOriginMain fetches origin's main into refs/remotes/origin/main of repository, and returns the full commit that ref
+// names. git never prompts for a login (GIT_TERMINAL_PROMPT=0), so a fetch that needs one fails. The fetch runs in a
+// process group of its own, which ctx's end kills whole, so a transport it started does not outlive the accept.
+func fetchOriginMain(ctx context.Context, repository string) (string, error) {
+	cmd := exec.CommandContext(ctx, "git")
+	cmd.Args = append(cmd.Args,
+		"-C", repository, "fetch", "--no-tags", "origin", "+refs/heads/main:refs/remotes/origin/main")
+	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
+	cmd.WaitDelay = originFetchGrace
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		return "", fmt.Errorf("git fetch origin: %w: %s", err, strings.TrimSpace(stderr.String()))
+	}
+	return stepGitResolve(ctx, repository, "refs/remotes/origin/main")
 }

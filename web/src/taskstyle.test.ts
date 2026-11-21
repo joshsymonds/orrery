@@ -168,23 +168,19 @@ test("TaskStyle: a task chip's label does not wrap", () => {
   assert.equal(declaredValue(desk, ".tchip", "white-space"), "nowrap");
 });
 
-test("TaskStyle: a check round's card takes its rail and ground outside the reader", () => {
-  assert.equal(declaredValue(desk, ".card", "background"), "var(--o-surface-well)");
-  assert.ok(declaredValue(desk, ".card", "box-shadow")?.includes("var(--o-size-rail)"));
-});
-
-test("TaskStyle: no rule scopes a check round's card or chips to the reader", () => {
-  const scoped = rules.flatMap((rule) => rule.selectors).filter((selector) => /^\.reader \.(card|chip|chips)(?![\w-])/.test(selector));
-  assert.deepEqual(scoped, []);
+test("TaskStyle: an attempt's check rounds sit in a reader of their own, one under the other, so each takes the block's rail", () => {
+  assert.equal(declaredValue(desk, ".phase-output .phase-body .reader.check-rounds", "display"), "grid");
+  assert.equal(declaredValue(desk, ".phase-output .phase-body .reader.check-rounds", "gap"), "var(--o-space-8)");
+  assert.ok(declaredValue(desk, '.reader [data-shape="block"]', "border-left")?.includes("var(--o-size-rail)"));
 });
 
 test("TaskStyle: a check round's chip labels do not wrap", () => {
-  assert.equal(declaredValue(desk, ".card .chip", "white-space"), "nowrap");
+  assert.equal(declaredValue(desk, ".chip", "white-space"), "nowrap");
 });
 
 test("TaskStyle: a check round's chips take the ok role, and a failed chip the bad role", () => {
-  assert.equal(declaredValue(desk, ".card .chip", "color"), "var(--o-role-ok)");
-  assert.equal(declaredValue(desk, ".card .chip.bad", "color"), "var(--o-role-bad)");
+  assert.equal(declaredValue(desk, ".chip.ok", "color"), "var(--o-role-ok)");
+  assert.equal(declaredValue(desk, ".chip.bad", "color"), "var(--o-role-bad)");
 });
 
 test("TaskStyle: an attempt's chip takes the ok, attention and accepted roles", () => {

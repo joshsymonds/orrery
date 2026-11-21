@@ -73,13 +73,11 @@ function orreryd(
   return detail;
 }
 
-// FakeEpics answers the card's reads with its detail, or refuses them when given an error, and records each call the
-// card makes. A test may change the answer between reads. calls makes the epic calls over it, with the poll's epics,
-// which hold none by default.
+// FakeEpics answers the card's reads with its detail, or refuses them when given an error, and records each read the
+// card makes and each epic it opens. A test may change the answer between reads. calls makes the epic calls over it, with
+// the poll's epics, which hold none by default.
 class FakeEpics {
   readonly reads: string[] = [];
-  readonly pauses: string[] = [];
-  readonly resumes: string[] = [];
   readonly opened: string[] = [];
   answer: EpicsGetResponse | Error;
 
@@ -95,12 +93,6 @@ class FakeEpics {
           throw this.answer;
         }
         return this.answer;
-      },
-      pause: async (id) => {
-        this.pauses.push(id);
-      },
-      resume: async (id) => {
-        this.resumes.push(id);
       },
       answer: async () => "",
       openEpic: (id) => {
@@ -133,15 +125,20 @@ function listedView(listed: EpicsGetResponse): EpicsView {
   return epicsView([epic], new Map());
 }
 
-// settle waits until check holds, each round running inside act, so the renders a read or a command causes are applied
-// before the next check. It ends with the test's own signal, so a wait that never holds fails the test by name.
+// settle waits until check holds, each round running inside act, so the renders a read causes are applied before the next
+// check. It ends with the test's own signal, so a wait that never holds fails the test by name.
 function settle(t: TestContext, check: () => boolean, what: string): Promise<void> {
   return until(t.signal, check, what, { step: () => act(turn) });
 }
 
-// drawn waits until the card has read its epic: its track is drawn, or its unavailable line is.
+// drawn waits until the card's Created block is drawn.
 function drawn(t: TestContext, container: HTMLElement): Promise<void> {
-  return settle(t, () => container.querySelector(".track, .unavailable") !== null, "the card reads its epic");
+  return settle(t, () => container.querySelector(".block.epicevent") !== null, "the card draws its block");
+}
+
+// gaugeLabel is the label of the card's gauge, which says how many of the epic's tasks are done.
+function gaugeLabel(container: ParentNode): string | null | undefined {
+  return container.querySelector(".gauge")?.getAttribute("aria-label");
 }
 
 // withReader draws the reader over items with the epic calls, runs the check on its container, then removes the DOM.
@@ -167,253 +164,6 @@ async function withReader(
     await removeTestDom(window);
   }
 }
-
-function textOf(root: ParentNode, selector: string): string | null {
-  return root.querySelector(selector)?.textContent ?? null;
-}
-
-// trackStates returns the state of each part of the track in order: done, now or ahead.
-function trackStates(container: HTMLElement): string[] {
-  return [...container.querySelectorAll(".track .part")].map(
-    (part) => ["done", "now", "ahead"].find((state) => part.classList.contains(state)) ?? "",
-  );
-}
-
-function hasButton(container: HTMLElement, label: string): boolean {
-  return [...container.querySelectorAll("button")].some((button) => button.textContent === label);
-}
-
-function buttonNamed(container: HTMLElement, label: string): HTMLElement {
-  const buttons = [...container.querySelectorAll<HTMLElement>("button")];
-  const button = buttons.find((candidate) => candidate.textContent === label);
-  if (button === undefined) {
-    throw new Error(`a ${label} button is drawn`);
-  }
-  return button;
-}
-
-async function click(control: HTMLElement): Promise<void> {
-  await act(() => {
-    control.click();
-  });
-}
-
-// trackCases are the phases the track draws: the pill word the card shows, which is also the part the track marks now,
-// and the state of each of the five parts in order.
-const trackCases = [
-  {
-    name: "an accepted epic with no task",
-    detail: orreryd("accepted"),
-    pill: "planning",
-    states: ["done", "now", "ahead", "ahead", "ahead"],
-  },
-  {
-    name: "an accepted epic with a task",
-    detail: orreryd("accepted", {
-      buildTasks: [{ id: "t1", title: "Login", status: "dispatched", requirements: ["R1"] }],
-    }),
-    pill: "building",
-    states: ["done", "done", "now", "ahead", "ahead"],
-  },
-  {
-    name: "a built epic",
-    detail: orreryd("built"),
-    pill: "building",
-    states: ["done", "done", "now", "ahead", "ahead"],
-  },
-  {
-    name: "a reviewing epic",
-    detail: orreryd("reviewing"),
-    pill: "building",
-    states: ["done", "done", "now", "ahead", "ahead"],
-  },
-  {
-    name: "a releasing epic",
-    detail: orreryd("releasing"),
-    pill: "releasing",
-    states: ["done", "done", "done", "now", "ahead"],
-  },
-  {
-    name: "a stopped epic",
-    detail: orreryd("stopped"),
-    pill: "releasing",
-    states: ["done", "done", "done", "now", "ahead"],
-  },
-  {
-    name: "a released epic",
-    detail: orreryd("released", {}, false),
-    pill: "report",
-    states: ["done", "done", "done", "done", "now"],
-  },
-];
-
-for (const trackCase of trackCases) {
-  test(`EpicWidget: ${trackCase.name} draws the track at ${trackCase.pill}`, async (t) => {
-    const fake = new FakeEpics(trackCase.detail);
-    await withReader([createCall(), resultItem(createId, "created")], fake.calls(), async (container) => {
-      await drawn(t, container);
-      assert.deepEqual(fake.reads, [epicId]);
-      assert.deepEqual(trackStates(container), trackCase.states);
-      assert.equal(textOf(container, ".track .part.now"), trackCase.pill);
-      assert.equal(textOf(container, ".pill"), trackCase.pill);
-    });
-  });
-}
-
-test("EpicWidget: the pill reads paused, and a parked epic's pill reads parked", async (t) => {
-  const paused = new FakeEpics(orreryd("accepted", { paused: true }));
-  await withReader([createCall(), resultItem(createId, "created")], paused.calls(), async (container) => {
-    await drawn(t, container);
-    assert.equal(textOf(container, ".pill"), "paused");
-  });
-  const parked = new FakeEpics(orreryd("built", { parked: "waiting on the owner" }));
-  await withReader([createCall(), resultItem(createId, "created")], parked.calls(), async (container) => {
-    await drawn(t, container);
-    assert.equal(textOf(container, ".pill"), "parked");
-  });
-});
-
-test("EpicWidget: the now sentence is the record's Now sentence for a running task", async (t) => {
-  const fake = new FakeEpics(
-    orreryd("accepted", {
-      buildTasks: [{ id: "t1", title: "Login", status: "dispatched", requirements: ["R1"] }],
-      steps: [
-        {
-          id: "s1",
-          task: "t1",
-          agent: "builder",
-          stage: "implement",
-          started: 9_000n,
-          stageStarted: 9_500n,
-          doing: "writing the login",
-        },
-      ],
-    }),
-  );
-  await withReader([createCall(), resultItem(createId, "created")], fake.calls(), async (container) => {
-    await drawn(t, container);
-    assert.equal(textOf(container, ".now-sentence"), "One task is being worked on.");
-  });
-});
-
-test("EpicWidget: a requirement row is green when proven, red when its red test fails, grey otherwise", async (t) => {
-  const fake = new FakeEpics(
-    orreryd("built", {
-      requirements: [
-        { id: "R1", text: "A user signs in", runs: [{ phase: "green", passed: true, verdict: "holds" }] },
-        { id: "R2", text: "A user signs out", runs: [{ phase: "red", passed: true, verdict: "fails" }] },
-        { id: "R3", text: "A user resets a password", runs: [] },
-        { id: "R4", text: "A user deletes an account", runs: [{ phase: "red", passed: false, verdict: "holds" }] },
-      ],
-    }),
-  );
-  await withReader([createCall(), resultItem(createId, "created")], fake.calls(), async (container) => {
-    await drawn(t, container);
-    const rows = [...container.querySelectorAll(".reqs li")].map((row) => row.className);
-    assert.deepEqual(rows, ["green", "red", "grey", "grey"]);
-    assert.equal(textOf(container, ".count"), "1 of 4 proven");
-  });
-});
-
-test("EpicWidget: the open question's title draws under the requirements", async (t) => {
-  const fake = new FakeEpics(
-    orreryd("accepted", { questions: [{ id: "Q1", text: "Which cache should it use?", turn: 2n, asked: 9_000n }] }),
-  );
-  await withReader([createCall(), resultItem(createId, "created")], fake.calls(), async (container) => {
-    await drawn(t, container);
-    assert.equal(textOf(container, ".question"), "Which cache should it use?");
-  });
-});
-
-test("EpicWidget: Pause calls pause on an accepted epic, Resume calls resume on a paused one", async (t) => {
-  const accepted = new FakeEpics(orreryd("accepted"));
-  await withReader([createCall(), resultItem(createId, "created")], accepted.calls(), async (container) => {
-    await drawn(t, container);
-    assert.equal(hasButton(container, "Resume"), false);
-    await click(buttonNamed(container, "Pause"));
-    assert.deepEqual(accepted.pauses, [epicId]);
-  });
-  const paused = new FakeEpics(orreryd("accepted", { paused: true }));
-  await withReader([createCall(), resultItem(createId, "created")], paused.calls(), async (container) => {
-    await drawn(t, container);
-    assert.equal(hasButton(container, "Pause"), false);
-    await click(buttonNamed(container, "Resume"));
-    assert.deepEqual(paused.resumes, [epicId]);
-  });
-});
-
-test("EpicWidget: a pause the epic refuses shows the command's fixed line", async (t) => {
-  const fake = new FakeEpics(orreryd("accepted"));
-  const calls: EpicCalls = {
-    ...fake.calls(),
-    pause: async () => {
-      throw new Error("the epic refused the pause");
-    },
-  };
-  await withReader([createCall(), resultItem(createId, "created")], calls, async (container) => {
-    await drawn(t, container);
-    await click(buttonNamed(container, "Pause"));
-    await settle(t, () => container.querySelector(".error") !== null, "the refused pause draws its line");
-    assert.equal(textOf(container, ".error"), "epic command failed");
-  });
-});
-
-test("EpicWidget: the open-the-epic control in the head opens the epic by its id", async (t) => {
-  const fake = new FakeEpics(orreryd("built"));
-  await withReader([createCall(), resultItem(createId, "created")], fake.calls(), async (container) => {
-    await drawn(t, container);
-    await click(buttonNamed(container, "open the epic ›"));
-    assert.deepEqual(fake.opened, [epicId]);
-  });
-});
-
-test("EpicWidget: an epic that cannot be read shows its slug and not available", async (t) => {
-  const fake = new FakeEpics(new Error("no such epic"));
-  await withReader([createCall(), resultItem(createId, "created")], fake.calls(), async (container) => {
-    await drawn(t, container);
-    assert.equal(textOf(container, ".slug"), "demo-epic");
-    assert.equal(textOf(container, ".unavailable"), "not available");
-    assertNone(container.querySelector(".track"));
-  });
-});
-
-test("EpicWidget: a refused create and a create with no result yet keep their tool rows", async () => {
-  const fake = new FakeEpics(orreryd("accepted"));
-  await withReader([createCall(), resultItem(createId, "refused", true)], fake.calls(), (container) => {
-    assertNone(container.querySelector(".epic-card"));
-    assert.equal(textOf(container, ".call b"), "epic_create");
-    assert.equal(textOf(container, ".call .fail"), "✗");
-  });
-  await withReader([createCall()], fake.calls(), (container) => {
-    assertNone(container.querySelector(".epic-card"));
-    assert.equal(textOf(container, ".call b"), "epic_create");
-  });
-  assert.deepEqual(fake.reads, []);
-});
-
-test("EpicWidget: an epic_create call between other tool calls draws its card outside any fold", async (t) => {
-  const items = [
-    toolCall("b1"),
-    toolCall("b2"),
-    toolCall("b3"),
-    createCall(),
-    resultItem(createId, "created"),
-    toolCall("b4"),
-    toolCall("b5"),
-    toolCall("b6"),
-  ];
-  const fake = new FakeEpics(orreryd("accepted"));
-  await withReader(items, fake.calls(), async (container) => {
-    await drawn(t, container);
-    const rows = [...container.querySelectorAll(".reader > .t")];
-    assert.equal(rows.length, 3, "the calls before and after the card fold apart, and the card is a row of its own");
-    assert.equal(textOf(rows[0], ".fold.calls b"), "3 tool calls");
-    const card = rows[1].querySelector(".epic-card");
-    assert.notEqual(card, null, "the card is the middle row");
-    assert.equal(card?.closest(".fold, .calls") ?? null, null, "the card sits in no fold");
-    assert.equal(textOf(rows[2], ".fold.calls b"), "3 tool calls");
-  });
-});
 
 // withRedraws draws the reader over the create call and its result, and gives check the function that draws it again
 // with other epic calls, as each render of the page's reader does.
@@ -442,15 +192,62 @@ async function withRedraws(
   }
 }
 
+test("EpicWidget: an epic that cannot be read draws its Created block with no gauge", async (t) => {
+  const fake = new FakeEpics(new Error("no such epic"));
+  await withReader([createCall(), resultItem(createId, "created")], fake.calls(), async (container) => {
+    await drawn(t, container);
+    await settle(t, () => fake.reads.length === 1, "the card reads its epic");
+    await act(turn);
+    assert.equal(container.querySelector(".block.epicevent .ring-sentence")?.textContent, "Created the epic from the accepted contract.");
+    assertNone(container.querySelector(".gauge"), "an unreadable epic draws no gauge");
+  });
+});
+
+test("EpicWidget: a refused create and a create with no result yet keep their tool rows", async () => {
+  const fake = new FakeEpics(orreryd("accepted"));
+  await withReader([createCall(), resultItem(createId, "refused", true)], fake.calls(), (container) => {
+    assertNone(container.querySelector(".epic-card"));
+    assert.equal(container.querySelector(".call b")?.textContent, "epic_create");
+    assert.equal(container.querySelector(".call .fail")?.textContent, "✗");
+  });
+  await withReader([createCall()], fake.calls(), (container) => {
+    assertNone(container.querySelector(".epic-card"));
+    assert.equal(container.querySelector(".call b")?.textContent, "epic_create");
+  });
+  assert.deepEqual(fake.reads, []);
+});
+
+test("EpicWidget: an epic_create call between other tool calls draws its card outside any fold", async (t) => {
+  const items = [
+    toolCall("b1"),
+    toolCall("b2"),
+    toolCall("b3"),
+    createCall(),
+    resultItem(createId, "created"),
+    toolCall("b4"),
+    toolCall("b5"),
+    toolCall("b6"),
+  ];
+  const fake = new FakeEpics(orreryd("accepted"));
+  await withReader(items, fake.calls(), async (container) => {
+    await drawn(t, container);
+    const rows = [...container.querySelectorAll(".reader > .t")];
+    assert.equal(rows.length, 3, "the calls before and after the card fold apart, and the card is a row of its own");
+    assert.equal(rows[0].querySelector(".fold.calls b")?.textContent, "3 tool calls");
+    const card = rows[1].querySelector(".epic-card");
+    assert.notEqual(card, null, "the card is the middle row");
+    assert.equal(card?.closest(".fold, .calls") ?? null, null, "the card sits in no fold");
+    assert.equal(rows[2].querySelector(".fold.calls b")?.textContent, "3 tool calls");
+  });
+});
+
 test("EpicWidget: a card whose epic the poll holds draws the poll's detail, reads nothing, and draws the poll's next detail", async (t) => {
   const fake = new FakeEpics(orreryd("accepted"));
   await withRedraws(fake.calls(polledView(orreryd("accepted"))), async (container, redraw) => {
     await drawn(t, container);
-    assert.equal(textOf(container, ".pill"), "planning");
-    await redraw(fake.calls(polledView(orreryd("accepted"))));
-    await act(turn);
-    await redraw(fake.calls(polledView(orreryd("releasing"))));
-    await settle(t, () => textOf(container, ".pill") === "releasing", "the poll's next detail draws");
+    assert.equal(gaugeLabel(container), "no tasks yet");
+    await redraw(fake.calls(polledView(orreryd("accepted", { tasks: [{ slug: "t1", status: "" }] }))));
+    await settle(t, () => gaugeLabel(container) === "0 of 1 tasks done", "the poll's next detail draws");
     await act(turn);
     assert.deepEqual(fake.reads, [], "a card over a polled epic read it");
   });
@@ -461,7 +258,7 @@ test("EpicWidget: a card whose epic the poll does not hold reads it on mount, an
   const fake = new FakeEpics(ended);
   await withRedraws(fake.calls(listedView(ended)), async (container, redraw) => {
     await drawn(t, container);
-    assert.deepEqual(fake.reads, [epicId]);
+    await settle(t, () => fake.reads.length === 1, "the card reads its epic on mount");
     // A later poll lists the same message in a new view, as each epics load does.
     await redraw(fake.calls(listedView(orreryd("released", {}, false))));
     await act(turn);
@@ -482,6 +279,7 @@ test("EpicWidget: a card whose epic is not listed at all reads it once on mount"
   const fake = new FakeEpics(orreryd("accepted"));
   await withRedraws(fake.calls(), async (container, redraw) => {
     await drawn(t, container);
+    await settle(t, () => fake.reads.length === 1, "the card reads its epic on mount");
     await redraw(fake.calls());
     await act(turn);
     await act(turn);
@@ -489,39 +287,13 @@ test("EpicWidget: a card whose epic is not listed at all reads it once on mount"
   });
 });
 
-test("EpicWidget: a Pause that lands reads the epic once more, and its reading draws until the poll's detail changes", async (t) => {
-  const fake = new FakeEpics(orreryd("accepted", { paused: true }));
-  const polled = polledView(orreryd("accepted"));
-  await withRedraws(fake.calls(polled), async (container, redraw) => {
+test("EpicWidget: the link in the Created block opens the epic by its id", async (t) => {
+  const fake = new FakeEpics(orreryd("built"));
+  await withReader([createCall(), resultItem(createId, "created")], fake.calls(), async (container) => {
     await drawn(t, container);
-    assert.equal(textOf(container, ".pill"), "planning");
-    await click(buttonNamed(container, "Pause"));
-    await settle(t, () => textOf(container, ".pill") === "paused", "the reread draws the paused epic");
-    assert.deepEqual(fake.pauses, [epicId]);
-    assert.deepEqual(fake.reads, [epicId], "the landed pause did not read the epic once");
-    // The same poll detail drawn again keeps the reread's answer.
-    await redraw(fake.calls(polled));
-    await act(turn);
-    assert.equal(textOf(container, ".pill"), "paused", "the poll's unchanged detail replaced the reread");
-    await redraw(fake.calls(polledView(orreryd("releasing"))));
-    await settle(t, () => textOf(container, ".pill") === "releasing", "the poll's next detail draws");
-    assert.deepEqual(fake.reads, [epicId]);
-  });
-});
-
-test("EpicWidget: a refused pause reads nothing more", async (t) => {
-  const fake = new FakeEpics(orreryd("accepted"));
-  const calls: EpicCalls = {
-    ...fake.calls(polledView(orreryd("accepted"))),
-    pause: async () => {
-      throw new Error("the epic refused the pause");
-    },
-  };
-  await withRedraws(calls, async (container) => {
-    await drawn(t, container);
-    await click(buttonNamed(container, "Pause"));
-    await settle(t, () => container.querySelector(".error") !== null, "the refused pause draws its line");
-    await act(turn);
-    assert.deepEqual(fake.reads, []);
+    await act(() => {
+      container.querySelector<HTMLButtonElement>(".block.epicevent .end button")?.click();
+    });
+    assert.deepEqual(fake.opened, [epicId]);
   });
 });

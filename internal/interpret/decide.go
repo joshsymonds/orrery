@@ -17,12 +17,13 @@ import (
 // ActionKind names what the interpreter does for an epic's workflow.
 type ActionKind string
 
-// The actions Decide returns. ActStart, ActEnd, ActRound, ActPark, ActParkNode, ActBatch, ActSync and ActParkEpic
-// change the node runs or the epic in the store, and so do ActHold, ActReview, ActClosure and ActConclude for the
+// The actions Decide returns. ActStart, ActEnd, ActRound, ActPark, ActParkNode, ActBatch, ActSync, ActParkEpic and
+// ActRebuild change the node runs or the epic in the store, and so do ActHold, ActReview, ActClosure and ActConclude for the
 // review. ActWork hands a check, sync or release node run's work to the interpreter, and ActRun hands a node run to its
 // kind. ActReadOrigin reads origin's main for a sync and records the read on the epic. ActGapRound starts the gap round
 // of a conclusion run, which gives each live gap a planner turn. ActRerun ends a rerun of a conclusion run's review, the
-// run that runs a reviewer again, with the verdict and findings it settled.
+// run that runs a reviewer again, with the verdict and findings it settled. ActRebuild starts the ended build run of an
+// open task again, as a send_back that reopens a done task needs.
 const (
 	ActStart      ActionKind = "start"
 	ActEnd        ActionKind = "end"
@@ -41,6 +42,7 @@ const (
 	ActRerun      ActionKind = "rerun"
 	ActWork       ActionKind = "work"
 	ActRun        ActionKind = "run"
+	ActRebuild    ActionKind = "rebuild"
 )
 
 // Action is one thing Decide asks for. Start carries the Runs to start and, for a later plan, its Trigger. End carries
@@ -63,7 +65,7 @@ const (
 // origin's main for the epic it was decided for. GapRound starts the gap round of the conclusion run at Path: the plan
 // run in Runs, a trigger per live gap in Triggers, and a gap turn per live gap in GapTurns. Rerun ends the rerun run at
 // Path, whose Attempt ended passed with Output, Verdicts and Ledger: the one verdict and the findings its reviewer's
-// walk settled.
+// walk settled. Rebuild turns the build run at Path of Task, which ended at Attempt, running at its next attempt.
 type Action struct {
 	Kind        ActionKind
 	Runs        []store.NodeRun
@@ -896,8 +898,8 @@ func within(child, path string) bool {
 }
 
 // fanOut returns the fan-out of a running plan run under its first build node. It starts each open task above the
-// plan's mark that has no child run, unless a batch holds the fan-out, then decides the running children: a run for
-// each that runs and one end for those that end.
+// plan's mark that has no child run and rebuilds each whose child run ended, unless a batch holds the fan-out, then
+// decides the running children: a run for each that runs and one end for those that end.
 func (p pass) fanOut(plan workflow.Node, run store.NodeRun) []Action {
 	build, ok := firstBuild(plan.Body)
 	if !ok {
@@ -931,7 +933,8 @@ func firstBuild(body []workflow.Node) (workflow.Node, bool) {
 }
 
 // startTasks returns a start, with its child run, for each open task of a turn above the plan run's mark that has no
-// child run under prefix.
+// child run under prefix, and a rebuild for each such task whose child run ended. A send_back that reopens a done task
+// leaves its child run ended, and the run's path is stored, so the task builds again only once its run is rebuilt.
 func (p pass) startTasks(run store.NodeRun, build workflow.Node, prefix string) []Action {
 	var acts []Action
 	for _, task := range p.rows.Epic.Tasks {
@@ -939,7 +942,10 @@ func (p pass) startTasks(run store.NodeRun, build workflow.Node, prefix string) 
 			continue
 		}
 		path := fmt.Sprintf("%sT%d", prefix, task.Seq)
-		if _, has := p.byPath[path]; has {
+		if stored, has := p.byPath[path]; has {
+			if stored.Kind == kindBuild && stored.State == store.NodeEnded {
+				acts = append(acts, Action{Kind: ActRebuild, Path: path, Task: task.Seq, Attempt: stored.Attempt})
+			}
 			continue
 		}
 		child := store.NodeRun{

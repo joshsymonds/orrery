@@ -84,8 +84,6 @@ class FakeEpics {
         }
         return this.reading;
       },
-      pause: () => Promise.resolve(),
-      resume: () => Promise.resolve(),
       answer: async (id, question, choice, text) => {
         this.answers.push([id, question, choice, text]);
         return "";
@@ -174,61 +172,6 @@ test("EventRing: epicEventOf reads a block's kind, epic, event tail and first se
   assert.equal(epicEventOf("Plain prompt text"), null, "a prompt that is no block is not an epic's event");
 });
 
-// kindCases are the four kinds an epic's event takes, each with its block's body and the sentence the line shows.
-const kindCases = [
-  {
-    kind: "question",
-    tail: "Q1",
-    body: `${title} asks a question.\nQ1 which-store: which store?`,
-    sentence: `${title} asks a question.`,
-    label: "question",
-  },
-  {
-    kind: "park",
-    tail: "Q1",
-    body: `${title} is parked.\nQ1 park:\n  retry: end the park`,
-    sentence: `${title} is parked.`,
-    label: "parked",
-  },
-  {
-    kind: "release",
-    tail: "released",
-    body: `${title} is released. epic_get gives its report.`,
-    sentence: `${title} is released.`,
-    label: "released",
-  },
-  {
-    kind: "end",
-    tail: "done",
-    body: `${title} is done. epic_get gives its report.`,
-    sentence: `${title} is done.`,
-    label: "ended",
-  },
-];
-
-test("EventRing: each kind draws one ringed line with its icon, first sentence and slug, and a click opens the epic", async (t) => {
-  for (const kindCase of kindCases) {
-    const event = eventOf(eventBlock(kindCase.kind, kindCase.tail, kindCase.body));
-    const fake = new FakeEpics(epicReading([]));
-    await withRing(event, fake.calls(), async (container) => {
-      const lines = container.querySelectorAll<HTMLButtonElement>(".ring-line");
-      assert.equal(lines.length, 1, `${kindCase.kind} draws one ringed line`);
-      const icon = container.querySelector(".ring-icon");
-      assert.equal(icon?.classList.contains(kindCase.kind), true, `${kindCase.kind} draws its kind's icon`);
-      assert.equal(icon?.getAttribute("aria-label"), kindCase.label);
-      assert.equal(container.querySelector(".ring-sentence")?.textContent, kindCase.sentence);
-      assert.equal(container.querySelector(".ring-slug")?.textContent, "planner-runner");
-      await click(lines[0]);
-      assert.deepEqual(fake.opened, [ringEpic], `${kindCase.kind} opens the epic on click`);
-      if (kindCase.kind === "question") {
-        await settle(t, () => fake.reads.length === 1, "the question's epic is read");
-      } else {
-        assert.deepEqual(fake.reads, [], `${kindCase.kind} reads no epic`);
-      }
-    });
-  }
-});
-
 test("EventRing: a question event whose epic the poll does not hold reads it on mount, and not again on a later render", async (t) => {
   const fake = new FakeEpics(epicReading([openQuestion]));
   await withRing(questionEvent, fake.calls(), async (container) => {
@@ -315,7 +258,7 @@ test("AskAnswer: a settled question draws the settled line, with its project and
       ["Settled", "This question is settled.", "· orrery-1a2b3c4 · planner-runner"],
     );
     assertNone(container.querySelector(".ask:not(.folded)"), "a settled question draws an open Ask");
-    assert.equal(container.querySelectorAll(".ring-line").length, 1, "the ring line stays");
+    assert.equal(container.querySelectorAll(".block.epicevent").length, 1, "the epic block stays");
   });
 });
 
@@ -326,7 +269,7 @@ test("EventRing: a question event whose epic cannot be read draws neither the As
     await act(turn);
     assertNone(container.querySelector(".ask"), "an unreadable epic draws no Ask");
     assertNone(container.querySelector(".settled"), "an unreadable epic draws no settled line");
-    assert.equal(container.querySelectorAll(".ring-line").length, 1, "the ring line stays");
+    assert.equal(container.querySelectorAll(".block.epicevent").length, 1, "the epic block stays");
   });
 });
 
@@ -395,10 +338,9 @@ test("EventRing: the planner's bounded question, park, release and end bodies ea
     );
     const fake = new FakeEpics(epicReading([collapsedQuestion]));
     await withRing(event, fake.calls(), async (container) => {
-      assert.equal(container.querySelectorAll(".ring-line").length, 1, `${planned.kind} draws one ringed line`);
+      assert.equal(container.querySelectorAll(".block.epicevent").length, 1, `${planned.kind} draws one EpicEventBlock`);
       assert.equal(container.querySelector(".ring-sentence")?.textContent, planned.sentence, `${planned.kind} draws its epic line`);
-      assert.equal(container.querySelector(".ring-icon")?.classList.contains(planned.kind), true, `${planned.kind} draws its icon`);
-      assert.equal(container.querySelector(".ring-slug")?.textContent, "planner-runner", `${planned.kind} draws the epic's slug`);
+      assert.equal(container.querySelector(".end button")?.textContent, "planner-runner", `${planned.kind} links the epic's slug`);
       if (planned.kind === "question") {
         await settle(t, () => container.querySelector(".ask") !== null, "the question's Ask is drawn");
         const drawn = options(container).map((option) => option.querySelector(".nm")?.textContent);

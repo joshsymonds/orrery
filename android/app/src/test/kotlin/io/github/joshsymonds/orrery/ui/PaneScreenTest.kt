@@ -15,6 +15,7 @@ import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertTextEquals
+import androidx.compose.ui.test.hasAnyDescendant
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.onAllNodesWithTag
@@ -38,6 +39,8 @@ import io.github.joshsymonds.orrery.awaitUntilAfterIdle
 import io.github.joshsymonds.orrery.gen.orrery.v1.ConversationContext as ConversationContextProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.ConversationItem as ConversationItemProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.ConversationResponse
+import io.github.joshsymonds.orrery.gen.orrery.v1.Epic
+import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsGetResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.HostStat as HostStatProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.HostStatusResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.MarkSeenRequest
@@ -68,6 +71,8 @@ private const val SEND_PATH = "/orrery.v1.Panes/SendText"
 private const val CONVERSATION_PATH = "/orrery.v1.Panes/Conversation"
 private const val HOST_PATH = "/orrery.v1.Host/Status"
 private const val STREAM_PATH = "/orrery.v1.Panes/WatchConversation"
+private const val EPICS_GET_PATH = "/orrery.v1.Epics/Get"
+private const val EPIC_ID = "example-repo/rota-export"
 private const val FIXED_NOW_SECONDS = 1_800_000_000L
 private const val FIXTURE_SEEN = 4102444900L
 // Made-up unix seconds for the seen-at-open tests: the pane's seen time sits between the two replies.
@@ -269,8 +274,8 @@ class PaneScreenTest {
 
     /** The divider sits between the bottom of entry row [below] - 1 and the top of entry row [below]. */
     private fun assertDividerBeforeRow(below: Int) {
-        composeRule.onAllNodesWithTag("new-divider").assertCountEquals(1)
-        val divider = composeRule.onNodeWithTag("new-divider").fetchSemanticsNode().boundsInRoot
+        composeRule.onAllNodesWithTag("rule:new").assertCountEquals(1)
+        val divider = composeRule.onNodeWithTag("rule:new").fetchSemanticsNode().boundsInRoot
         val row = composeRule.onNodeWithTag("entry-row:$below").fetchSemanticsNode().boundsInRoot
         assertTrue("the divider ends above entry row $below", divider.bottom <= row.top + 1f)
         val previous = composeRule.onNodeWithTag("entry-row:${below - 1}").fetchSemanticsNode().boundsInRoot
@@ -283,7 +288,7 @@ class PaneScreenTest {
             servePane(server, seen = SEEN_BETWEEN_REPLIES, conversation = twoReplies())
             setScreen(server)
 
-            composeRule.awaitExactlyOne(hasTestTag("new-divider"))
+            composeRule.awaitExactlyOne(hasTestTag("rule:new"))
             assertDividerBeforeRow(below = 2)
             composeRule.onNodeWithTag("entry-row:2")
                 .assert(SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, "new"))
@@ -297,7 +302,7 @@ class PaneScreenTest {
         FakeOrreryServer().use { server ->
             servePane(server, seen = SEEN_BETWEEN_REPLIES, conversation = twoReplies())
             setScreen(server)
-            composeRule.awaitExactlyOne(hasTestTag("new-divider"))
+            composeRule.awaitExactlyOne(hasTestTag("rule:new"))
             assertDividerBeforeRow(below = 2)
 
             // The later poll also turns the pane to working. Its composer edge is drawn from the same
@@ -317,7 +322,7 @@ class PaneScreenTest {
             setScreen(server)
 
             composeRule.awaitExactlyOne(hasText("synthetic newer reply"))
-            composeRule.onAllNodesWithTag("new-divider").assertCountEquals(0)
+            composeRule.onAllNodesWithTag("rule:new").assertCountEquals(0)
         }
     }
 
@@ -937,19 +942,17 @@ class PaneScreenTest {
             setScreen(server)
 
             composeRule.awaitExactlyOne(hasText("3 tool calls"))
-            composeRule.onNodeWithTag("notice:task").assertIsDisplayed()
-            composeRule.onNodeWithText("synthetic task notice").assertIsDisplayed()
-            composeRule.onAllNodesWithTag("tool-row:synthetic-tool-1").assertCountEquals(0)
-            composeRule.onAllNodesWithTag("tool-row:synthetic-tool-2").assertCountEquals(0)
-            composeRule.onAllNodesWithTag("tool-row:synthetic-tool-3").assertCountEquals(0)
-            val group = composeRule.onNodeWithTag("group-row:synthetic-tool-1").fetchSemanticsNode().boundsInRoot
-            val notice = composeRule.onNodeWithTag("notice:task").fetchSemanticsNode().boundsInRoot
+            composeRule.onNodeWithTag("line:notice").assertIsDisplayed()
+            composeRule.onNodeWithText("synthetic task notice", useUnmergedTree = true).assertIsDisplayed()
+            composeRule.onAllNodesWithTag("line:tool", useUnmergedTree = true).assertCountEquals(0)
+            val group = composeRule.onNodeWithTag("line:run").fetchSemanticsNode().boundsInRoot
+            val notice = composeRule.onNodeWithTag("line:notice").fetchSemanticsNode().boundsInRoot
             assertTrue(notice.top >= group.bottom - EDGE_TOLERANCE_PX)
 
-            composeRule.onNodeWithTag("group-row:synthetic-tool-1").performClick()
-            composeRule.onNodeWithTag("tool-row:synthetic-tool-1").performScrollTo().assertIsDisplayed()
-            composeRule.onNodeWithTag("tool-row:synthetic-tool-2").performScrollTo().assertIsDisplayed()
-            composeRule.onNodeWithTag("tool-row:synthetic-tool-3").performScrollTo().assertIsDisplayed()
+            composeRule.onNodeWithTag("line:run").performClick()
+            composeRule.onAllNodesWithTag("line:tool")[0].performScrollTo().assertIsDisplayed()
+            composeRule.onAllNodesWithTag("line:tool")[1].performScrollTo().assertIsDisplayed()
+            composeRule.onAllNodesWithTag("line:tool")[2].performScrollTo().assertIsDisplayed()
         }
     }
 
@@ -998,6 +1001,88 @@ class PaneScreenTest {
             server.respond(CONVERSATION_PATH, numberedReplies(REPLY_COUNT + 1))
             composeRule.mainClock.advanceTimeBy(1_000)
             composeRule.awaitUntil { replyInView("synthetic reply ${REPLY_COUNT + 1}") }
+        }
+    }
+
+    @Config(sdk = [35], qualifiers = "w400dp-h1000dp")
+    @Test
+    fun aMessageSentFromTheComposerDrawsASendingBlockUntilItsPromptIsStored() {
+        FakeOrreryServer().use { server ->
+            servePane(server, conversation = conversationBody(conversationItem("reply", "synthetic reply 1")))
+            server.respond(SEND_PATH, SendTextResponse.getDefaultInstance())
+            setScreen(server)
+            composeRule.awaitExactlyOne(hasText("synthetic reply 1"))
+
+            setDraft(SYNTHETIC_DRAFT)
+            composeRule.onNodeWithText("Send").performClick()
+            composeRule.awaitExactlyOne(hasText("SENDING"))
+
+            server.respond(
+                CONVERSATION_PATH,
+                conversationBody(
+                    conversationItem("reply", "synthetic reply 1"),
+                    conversationItem("prompt", SYNTHETIC_DRAFT),
+                ),
+            )
+            composeRule.mainClock.advanceTimeBy(1_000)
+            composeRule.awaitExactlyOne(hasText("YOU"))
+            composeRule.onAllNodesWithText("SENDING").assertCountEquals(0)
+        }
+    }
+
+    @Config(sdk = [35], qualifiers = "w400dp-h1000dp")
+    @Test
+    fun aSentMessageIsForgottenOnceItsPromptHasLeftTheWindow() {
+        FakeOrreryServer().use { server ->
+            servePane(server, conversation = conversationBody(conversationItem("reply", "synthetic reply 1")))
+            server.respond(SEND_PATH, SendTextResponse.getDefaultInstance())
+            setScreen(server)
+            composeRule.awaitExactlyOne(hasText("synthetic reply 1"))
+
+            setDraft(SYNTHETIC_DRAFT)
+            composeRule.onNodeWithText("Send").performClick()
+            composeRule.awaitExactlyOne(hasText("SENDING"))
+
+            server.respond(
+                CONVERSATION_PATH,
+                conversationBody(
+                    conversationItem("reply", "synthetic reply 1"),
+                    conversationItem("prompt", SYNTHETIC_DRAFT),
+                ),
+            )
+            composeRule.mainClock.advanceTimeBy(1_000)
+            composeRule.awaitExactlyOne(hasText("YOU"))
+
+            // The window moves on past the prompt, which no longer holds it.
+            server.respond(CONVERSATION_PATH, numberedReplies(REPLY_COUNT + 1))
+            composeRule.mainClock.advanceTimeBy(1_000)
+            composeRule.awaitExactlyOne(hasText("synthetic reply ${REPLY_COUNT + 1}"))
+            composeRule.onAllNodesWithText("SENDING").assertCountEquals(0)
+        }
+    }
+
+    @Config(sdk = [35], qualifiers = "w400dp-h1000dp")
+    @Test
+    fun aSettledQuestionOfAnEpicThePaneDoesNotSteerDrawsTheSettledLine() {
+        FakeOrreryServer().use { server ->
+            val question = ConversationItemProto.newBuilder()
+                .setKind("prompt")
+                .setSender("event")
+                .setText("<orrery-event kind=\"question\" id=\"epic:$EPIC_ID:Q1\">\nBump the embedded tz database? More.\n</orrery-event>")
+                .build()
+            servePane(server, conversation = conversationBody(question))
+            val epic = Epic.newBuilder()
+                .setId(EPIC_ID)
+                .setRepository("example-repo")
+                .setSlug("rota-export")
+                .setLive(false)
+                .build()
+            server.respond(EPICS_GET_PATH, EpicsGetResponse.newBuilder().setEpic(epic).build())
+            setScreen(server)
+
+            composeRule.awaitExactlyOne(
+                hasTestTag("block:epicevent") and hasAnyDescendant(hasTestTag("ask-settled")),
+            )
         }
     }
 }

@@ -330,7 +330,7 @@ test("QueueLifecycle: a canceled entry draws no row and its prompt item stays hi
         [{ promptId: "p1", text: messageText, state: "canceled" }],
         [
           { kind: "prompt", text: messageText, promptId: "p1" },
-          { kind: "assistant", text: "reply before the drop" },
+          { kind: "reply", text: "reply before the drop" },
         ],
       ),
     );
@@ -342,7 +342,7 @@ test("QueueLifecycle: a canceled entry draws no row and its prompt item stays hi
     fake.emit(fake.callsTo(sessionWatchPath)[0], {
       transcript: "s1.jsonl",
       seq: "2",
-      items: [{ kind: "assistant", text: "reply after the drop" }],
+      items: [{ kind: "reply", text: "reply after the drop" }],
       queued: [],
     });
     await until(t.signal, () => readerText(container).includes("reply after the drop"), "the later reply");

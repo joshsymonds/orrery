@@ -117,6 +117,7 @@ import io.github.joshsymonds.orrery.gen.orrery.v1.SessionsWatchConversationReque
 import io.github.joshsymonds.orrery.gen.orrery.v1.SessionsWatchConversationResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.SendTextRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.StartRequest
+import io.github.joshsymonds.orrery.gen.orrery.v1.StepFacts as StepFactsProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.StepsClient
 import io.github.joshsymonds.orrery.gen.orrery.v1.StepsHoldRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.StepsNudgeRequest
@@ -233,10 +234,27 @@ data class ConversationItem(
     val promptId: String = "",
     /** The id of the contract a `tool` item's call writes; "" when the item names none, on other kinds, or from an older server. */
     val contract: String = "",
-    /** A `prompt` item's sender: `brief`, `engine`, `owner` or `event`; "" when the prompt was stored without one, on other kinds, or from an older server. */
+    /** Who sent a `prompt` item's prompt (`brief`, `engine`, `owner` or `event`); "" on other kinds or when the prompt was stored without a sender. */
     val sender: String = "",
-    /** A `prompt` item's check round when it is a send-back; 0 otherwise. */
+    /** The check round a send-back returns on a `prompt` item; 0 on other kinds or when the item is not a send-back. */
     val round: Int = 0,
+    /** The id of the epic a `tool` item's epic_create call creates; "" when the item names none, on other kinds, or from an older server. */
+    val epic: String = "",
+    /** The facts of a step's end; null when the item carries none, on other kinds, or from an older server. */
+    val stepFacts: StepFacts? = null,
+)
+
+/**
+ * The facts of a step's end: its loop [rounds] (0 when the step never returned), the [seconds] it ran, and whether its
+ * changed lines were [counted]. [files], [added] and [removed] are set only when [counted].
+ */
+data class StepFacts(
+    val rounds: Int,
+    val seconds: Long,
+    val counted: Boolean,
+    val files: Long,
+    val added: Long,
+    val removed: Long,
 )
 
 /** A message Claude Code's queue holds for the pane. [canceled] is true when Claude Code cleared it on cancel. */
@@ -1978,6 +1996,18 @@ class OrreryClient(
             contract = contract,
             sender = sender,
             round = round,
+            epic = epic,
+            stepFacts = if (hasStepFacts()) stepFacts.toStepFacts() else null,
+        )
+
+    private fun StepFactsProto.toStepFacts(): StepFacts =
+        StepFacts(
+            rounds = rounds,
+            seconds = seconds,
+            counted = counted,
+            files = files,
+            added = added,
+            removed = removed,
         )
 
     private fun WaitingMessage.toWaitingItem(): WaitingItem =

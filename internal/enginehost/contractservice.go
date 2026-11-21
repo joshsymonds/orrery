@@ -38,11 +38,14 @@ type ContractStore interface {
 }
 
 // Contracts is what orreryd's Contracts service answers with. Now is the clock every stored time is read from. Getenv
-// is the environment a contract's checks resolve in; nil reads the process environment.
+// is the environment a contract's checks resolve in; nil reads the process environment. OriginMain returns the commit
+// origin's main names in a contract's repository, which an accept stores as the contract's base; nil fetches origin's
+// main with git.
 type Contracts struct {
-	Store  ContractStore
-	Now    func() time.Time
-	Getenv func(string) string
+	Store      ContractStore
+	Now        func() time.Time
+	Getenv     func(string) string
+	OriginMain func(ctx context.Context, repository string) (string, error)
 }
 
 // contractService implements the Contracts RPCs over contracts. A nil contracts answers the RPCs it serves as

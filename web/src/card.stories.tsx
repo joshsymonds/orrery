@@ -21,7 +21,7 @@ const calls = epicCallsOf(clients, noop, noop, fixtureNow, noEpics);
 export const EpicWidget: Stories = {
   // epic-building is an epic that is building, with its steps running.
   "epic-building": () => <Card epic="orrery/orrery-followups" calls={calls} />,
-  // epic-asks is an epic with an open question, which the card draws under its track.
+  // epic-asks is an epic with an open question; the card still draws only its Created block.
   "epic-asks": () => <Card epic="lighthouse/rota-export" calls={calls} />,
   // released is an epic that has ended with its outcome released.
   released: () => <Card epic="orrery/holder-scopes" calls={calls} />,

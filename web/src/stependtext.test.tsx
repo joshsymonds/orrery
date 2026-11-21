@@ -7,8 +7,9 @@ import { act } from "preact/test-utils";
 
 import type { EpicCalls } from "./card";
 import { noEpics } from "./epics";
-import { StepCard, stepEventOf } from "./eventring";
+import { StepCard, type StepEvent, stepEventOf } from "./eventring";
 import { liveEpoch } from "./fixtures/clock";
+import { clock } from "./reader";
 import { installTestDom, removeTestDom } from "./testdom";
 import { turn, until } from "./testwait";
 
@@ -43,8 +44,6 @@ function callsReturning(result: string): EpicCalls {
   };
   return {
     get: unused,
-    pause: unused,
-    resume: unused,
     answer: unused,
     openEpic: () => {},
     openStep: () => {},
@@ -117,26 +116,32 @@ function textsOf(root: ParentNode, selector: string): string[] {
   return [...root.querySelectorAll(selector)].map((element) => element.textContent ?? "");
 }
 
-// outsideFold is the text of the card's children other than its fold.
+// outsideFold is the text of the card's block's children other than its fold.
 function outsideFold(card: HTMLElement): string {
-  return [...card.children]
+  const block = card.querySelector<HTMLElement>('[data-shape="block"]');
+  if (block === null) {
+    throw new Error("the card draws its block");
+  }
+  return [...block.children]
     .filter((child) => !child.matches("details"))
     .map((child) => child.textContent)
     .join("\n");
 }
 
-// assertHead checks the head of a step's card: its agent, end and status, and its brief lines.
+// assertHead checks the head of a step's card: its label, the step's id as its who since the block names no task, its
+// agent as its words, its end as a chip, and its brief lines.
 function assertHead(card: HTMLElement, brief: string[], what: string): void {
-  assert.equal(textOf(card, ".step-agent"), "builder", `${what} names its agent`);
-  assert.equal(textOf(card, ".step-end"), "end done", `${what} draws its end`);
-  assert.equal(textOf(card, ".step-status"), "status done", `${what} draws its status`);
+  assert.equal(textOf(card, ".label"), "STEP ENDED", `${what} is labelled`);
+  assert.equal(textOf(card, ".who"), "s1", `${what} names its step`);
+  assert.equal(textOf(card, ".words"), "builder", `${what} names its agent`);
+  assert.equal(textOf(card, ".end .chip"), "done", `${what} draws its end as a chip`);
   assert.deepEqual(textsOf(card, ".step-summary"), brief, `${what} draws each brief line`);
 }
 
 // briefCases are the briefs a delivered step_end draws, one line each. A line that starts like an object is text.
 const briefCases = [["Shipped the index.", "Ran the suite."], ['{"answer": "Shipped the index."']];
 
-test("StepEndText: a delivered step_end card draws its agent, end and status, and its brief lines", async () => {
+test("StepEndText: a delivered step_end card draws its label, step, agent, end chip and brief lines", async () => {
   for (const brief of briefCases) {
     await withCard(deliveredCard(brief), async (container) => {
       assertHead(cardOf(container), brief, "a delivered step_end");
@@ -196,4 +201,53 @@ test("StepEndText: a return that is plain text draws whole in the fold, as it is
       assert.equal(textOf(container, "details pre"), result, "a delivered step_end's fold holds the whole text");
     });
   }
+});
+
+// endCases are the step ends a card draws: each end's verdict tone, and its chip in round 6's words.
+const endCases: [string, string, string][] = [
+  ["done", "ok", "done"],
+  ["returned", "ok", "returned"],
+  ["checks_failed", "bad", "checks failed"],
+  ["failed", "bad", "failed"],
+  ["stopped", "quiet", "stopped"],
+];
+
+test("Shapes: a step end is one StepEndBlock in its verdict's tone, with its end as a chip in round 6's words", async () => {
+  for (const [end, tone, word] of endCases) {
+    const event: StepEvent = {
+      step: "s1",
+      agent: "builder",
+      end,
+      epic: "",
+      task: "",
+      brief: ["Shipped the index."],
+    };
+    await withCard(<StepCard event={event} />, async (container) => {
+      const blocks = container.querySelectorAll<HTMLElement>('[data-shape="block"]');
+      assert.equal(blocks.length, 1, `a step that ended ${end} is one block`);
+      assert.equal(blocks[0].classList.contains("stepend"), true, `a step that ended ${end} is a step end`);
+      assert.equal(blocks[0].getAttribute("data-tone"), tone, `a step that ended ${end} draws in ${tone}`);
+      assert.equal(textOf(blocks[0], ".end .chip"), word, `a step that ended ${end} draws its end as ${word}`);
+    });
+  }
+});
+
+test("Shapes: a step end's who is its task, else its step id, and its time is drawn only when given", async () => {
+  const event: StepEvent = {
+    step: "s1",
+    agent: "",
+    end: "done",
+    epic: "",
+    task: "Store the shifts",
+    brief: [],
+  };
+  const time = 1_700_000_000n;
+  await withCard(<StepCard event={event} time={time} />, async (container) => {
+    assert.equal(textOf(container, ".who"), "Store the shifts", "the block names the task");
+    assert.equal(textOf(container, ".at"), clock(time), "the block draws its time");
+  });
+  await withCard(<StepCard event={{ ...event, task: "" }} />, async (container) => {
+    assert.equal(textOf(container, ".who"), "s1", "the block names the step when it names no task");
+    assert.equal(container.querySelector(".at"), null, "no time is drawn when none is given");
+  });
 });

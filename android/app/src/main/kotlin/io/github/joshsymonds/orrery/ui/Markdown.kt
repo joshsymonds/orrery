@@ -24,7 +24,13 @@ sealed interface MdBlock {
     /** [marker] is the bullet glyph or number, padded on the left to its list's widest marker. */
     data class Item(val marker: String, val text: AnnotatedString, override val lead: Int = 0) : MdBlock
 
-    data class Code(val language: String, val code: String, override val lead: Int = 0) : MdBlock
+    /** [drawn] is [code] as the screen draws it, with any find marks in it. */
+    data class Code(
+        val language: String,
+        val code: String,
+        override val lead: Int = 0,
+        val drawn: AnnotatedString = AnnotatedString(code),
+    ) : MdBlock
 
     /** [rows] starts with the header row; every row has one cell per alignment. */
     data class Table(

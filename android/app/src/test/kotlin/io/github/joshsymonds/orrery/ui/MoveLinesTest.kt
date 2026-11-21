@@ -106,7 +106,7 @@ class MoveLinesTest {
     private fun setList(text: String) {
         composeRule.setContent {
             MaterialTheme {
-                ConversationView(entries = listOf(ConvoEntry.Prompt(text)))
+                ConversationView(entries = listOf(ConvoEntry.Move(checkNotNull(moveLineOf(text)))))
             }
         }
     }

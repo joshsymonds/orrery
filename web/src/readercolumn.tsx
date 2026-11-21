@@ -1,5 +1,5 @@
 import type { ComponentChildren, JSX } from "preact";
-import { useEffect, useMemo, useState } from "preact/hooks";
+import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 
 import * as actions from "./actions";
 import type { Clients } from "./actions";
@@ -28,6 +28,13 @@ export interface FindState {
   current: number;
 }
 
+// Reading is where the window and the reader's own scroll sat, so closing a find bar returns them there.
+interface Reading {
+  x: number;
+  y: number;
+  reader: number;
+}
+
 // ColumnHead is what App gives a column's head for its row and conversation: the strip, the asks, the note, the More
 // menu, under 760px the middle column's tiles, and the epic open in the panel beside the middle column. The column adds the fold, which it reads from its own reader.
 export type ColumnHead = Pick<
@@ -54,6 +61,9 @@ const columnNames = {
 
 // A step keeps no seen mark. Infinity makes no item newer than it, so the step's reader draws no since-you-looked rule.
 const stepSeenAt = Number.POSITIVE_INFINITY;
+
+// shellHint is what the reader of a terminal pane with no Claude session says in place of asking for something below.
+const shellHint = "This is a terminal pane with no Claude session in it.";
 
 // AskNote is the note an Ask's own call left: the question it names by its key, and the server's reason, "" for none.
 // It shows only while the question it names is the one the column shows.
@@ -195,8 +205,20 @@ export function ReaderColumn({
   const names = columnNames[column];
   const rowKey = row?.key ?? "";
   const stepKey = step?.key ?? "";
+  // section is the column's root, and reading is where the page sat when the find bar it draws last opened.
+  const section = useRef<HTMLElement>(null);
+  const reading = useRef<Reading | null>(null);
+  const openFind = (next: FindState) => {
+    if (finding === null) {
+      reading.current = readingNow(section.current);
+    }
+    onFind(next);
+  };
   // The conversation the readers and the shown dock draw, without the prompts its queue still holds or has discarded.
   const shown = useMemo(() => shownConversation(conversation), [conversation]);
+  // A terminal pane with no Claude session has no transcript to say anything in, so its reader says so. The dock decides
+  // the same way, from the pane's state.
+  const shellPane = row !== null && rowFacts(row, conversation, false).kind === "shell";
   const [atNewest, setAtNewest] = useState(true);
   const [tapped, setTapped] = useState(false);
   // A tap on the folded line holds for its row alone, so another row's head starts folded again.
@@ -221,7 +243,7 @@ export function ReaderColumn({
     }
   };
   return (
-    <section class={names.section} aria-label={names.label} hidden={row === null && step === null}>
+    <section ref={section} class={names.section} aria-label={names.label} hidden={row === null && step === null}>
       {row !== null && !bare && (
         <Head
           {...head(row, conversation)}
@@ -232,7 +254,7 @@ export function ReaderColumn({
           narrow={narrow}
           mark={mark}
           onBack={onBack}
-          onFind={() => onFind({ key: row.key, query: "", current: 0 })}
+          onFind={() => openFind({ key: row.key, query: "", current: 0 })}
           onHide={onHide}
           onShow={() => {
             setTapped(true);
@@ -252,6 +274,7 @@ export function ReaderColumn({
           onClose={() => {
             onFind(null);
             inputs.current.get(finding.key)?.focus();
+            returnTo(section.current, reading.current);
           }}
         />
       )}
@@ -267,6 +290,7 @@ export function ReaderColumn({
         <Reader
           conversation={shown}
           seenAt={row.seen}
+          now={now}
           open={open}
           asking={askNode !== null}
           ask={askNode}
@@ -291,12 +315,14 @@ export function ReaderColumn({
           find={finding === null ? undefined : { query: finding.query, matches, current }}
           epicCalls={epicCalls}
           contractCalls={contractCalls}
+          hint={shellPane ? shellHint : undefined}
         />
       )}
       {step !== null && (
         <Reader
           conversation={shown}
           seenAt={stepSeenAt}
+          now={now}
           open={open}
           step={step.step}
           onToggleOpen={onToggleOpen}
@@ -318,7 +344,7 @@ export function ReaderColumn({
                 newPromptId={actions.newPromptId}
                 register={(handle) => registerHandle(handles, entry.key, handle)}
                 onPage={(direction) => reader.current?.page(direction) ?? false}
-                onFind={() => onFind({ key: entry.key, query: "", current: 0 })}
+                onFind={() => openFind({ key: entry.key, query: "", current: 0 })}
                 onInterrupt={onInterrupt === undefined ? undefined : () => onInterrupt(entry)}
                 interrupt={interrupt === undefined || entry.kind !== "session" ? undefined : () => interrupt(entry)}
                 resume={
@@ -445,6 +471,29 @@ function dockRows<T extends { key: string }>(kept: T[], shown: T | null): T[] {
 // stepCurrent moves the current match by step, wrapping past either end. With no matches there is no match to move to.
 function stepCurrent(current: number, matches: number, step: number): number {
   return matches === 0 ? -1 : (((current + step) % matches) + matches) % matches;
+}
+
+// readingNow is the window's scroll and the reader's own, in the section a column draws.
+function readingNow(section: HTMLElement | null): Reading {
+  return { x: window.scrollX, y: window.scrollY, reader: readerOf(section)?.scrollTop ?? 0 };
+}
+
+// returnTo puts the window and the reader back where reading was taken. It runs after the bar's focus moves, since a
+// focus scrolls the box it lands in.
+function returnTo(section: HTMLElement | null, reading: Reading | null): void {
+  if (reading === null) {
+    return;
+  }
+  const reader = readerOf(section);
+  if (reader !== null) {
+    reader.scrollTop = reading.reader;
+  }
+  window.scrollTo(reading.x, reading.y);
+}
+
+// readerOf is the reader a column draws for its row, if it draws one.
+function readerOf(section: HTMLElement | null): HTMLElement | null {
+  return section?.querySelector<HTMLElement>(".reader") ?? null;
 }
 
 // stepWhere is a step's where line: its epic, its agent, and its round.

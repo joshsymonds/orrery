@@ -27,7 +27,7 @@ import io.github.joshsymonds.orrery.ui.theme.OrreryTokens
 
 /**
  * A conversation's title row: back, then the directory and host in the place colour over the title in the largest
- * type, the bare context meter when there is a figure, and More. More opens a menu holding Hide the header. A
+ * type, the bare context meter when there is a figure, and More. More opens a menu holding Find and Hide the header. A
  * non-empty [note] draws under the row, in the crit colour.
  */
 @Composable
@@ -42,6 +42,7 @@ fun HeadTitleRow(
     moreOpen: Boolean,
     onDismissMore: () -> Unit,
     onHideHeader: () -> Unit,
+    onFind: () -> Unit = {},
 ) {
     Column(
         modifier = Modifier
@@ -105,6 +106,14 @@ fun HeadTitleRow(
                     onDismissRequest = onDismissMore,
                     modifier = Modifier.testTag("head-menu"),
                 ) {
+                    DropdownMenuItem(
+                        text = { Text("Find") },
+                        onClick = {
+                            onDismissMore()
+                            onFind()
+                        },
+                        modifier = Modifier.testTag("head-menu-find"),
+                    )
                     DropdownMenuItem(
                         text = { Text("Hide the header") },
                         onClick = {

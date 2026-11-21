@@ -7,10 +7,12 @@ import androidx.activity.ComponentActivity
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.SemanticsMatcher
+import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.hasAnyAncestor
+import androidx.compose.ui.test.hasAnyDescendant
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.onAllNodesWithTag
@@ -124,9 +126,13 @@ class WorkerSessionTest {
             showSession(server, detail(step(checks = listOf(check(round = 1, ok = false)))))
 
             // The block draws from the stream before the epic's Get hands it the step's checks, so the chip is awaited.
-            composeRule.awaitExactlyOne(hasTestTag("check-chip:$CHECK_NAME"))
-            composeRule.onNodeWithTag("check-block:1").assertExists()
-            composeRule.onNodeWithTag("check-note").assertTextEquals(CHECK_NOTE)
+            composeRule.awaitExactlyOne(hasText(CHECK_NAME) and hasAnyAncestor(hasTestTag("block:checks")))
+            composeRule.onNodeWithText("round 1 from the engine").assertExists()
+            composeRule.onNode(hasText(CHECK_NOTE) and hasAnyAncestor(hasTestTag("block:checks")), useUnmergedTree = true)
+                .assertExists()
+            composeRule.onNodeWithTag("block:checks").assert(
+                hasAnyDescendant(hasTestTag("rail") and SemanticsMatcher.expectValue(ShapeToneKey, "bad")),
+            )
         }
     }
 
@@ -187,14 +193,21 @@ class WorkerSessionTest {
             serveStream(server, state = "done", items = listOf(reply(REPLY_TEXT)))
             showSession(server, detail(step(end = "done", summary = SUMMARY)))
 
-            composeRule.awaitExactlyOne(hasTestTag("step-end"))
+            composeRule.awaitExactlyOne(hasTestTag("block:stepend"))
             composeRule.onAllNodesWithTag("composer").assertCountEquals(0)
             composeRule.onAllNodesWithTag("dock").assertCountEquals(0)
-            composeRule.onNode(hasText("$AGENT · done") and hasAnyAncestor(hasTestTag("step-end")), useUnmergedTree = true)
+            composeRule.onNode(hasText("STEP ENDED") and hasAnyAncestor(hasTestTag("block:stepend")), useUnmergedTree = true)
                 .assertExists()
-            composeRule.onNode(hasText(SUMMARY) and hasAnyAncestor(hasTestTag("step-end")), useUnmergedTree = true)
+            composeRule.onNode(hasText(AGENT) and hasAnyAncestor(hasTestTag("block:stepend")), useUnmergedTree = true)
                 .assertExists()
-            assertTrue(nodeTop("step-end") > topOf(hasText(REPLY_TEXT)))
+            composeRule.onNode(hasText("done") and hasAnyAncestor(hasTestTag("block:stepend")), useUnmergedTree = true)
+                .assertExists()
+            composeRule.onNode(hasText(SUMMARY) and hasAnyAncestor(hasTestTag("block:stepend")), useUnmergedTree = true)
+                .assertExists()
+            composeRule.onNodeWithTag("block:stepend").assert(
+                hasAnyDescendant(hasTestTag("rail") and SemanticsMatcher.expectValue(ShapeToneKey, "ok")),
+            )
+            assertTrue(nodeTop("block:stepend") > topOf(hasText(REPLY_TEXT)))
         }
     }
 
