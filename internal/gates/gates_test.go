@@ -193,6 +193,67 @@ func TestParseProjectSkipsReviewersTables(t *testing.T) {
 	}
 }
 
+// releaseProject is an invented project file with a pool, a gate, a reviewer and a release: a [release] table with
+// then and two steps.
+const releaseProject = `[pools.alpha]
+host = "box-a"
+cap = 2
+members = ["m1", "m2"]
+wake = ["wake-m1", "--flag"]
+wake_limit = 5
+status = ["status-m1"]
+status_limit = 3
+admit = ["admit-m1"]
+admit_limit = 4
+
+[gates.alpha]
+argv = ["/opt/tools/run", "-c", "check"]
+limit = 1800
+needs = { gate = 1, builds = 2 }
+
+[[reviewers]]
+name = "alpha"
+stage = ["task"]
+must = ["the diff holds"]
+agent = "code-reviewer"
+
+[release]
+then = "the build ships"
+
+[[release.steps]]
+step = "Tag the build."
+target = "origin"
+undo = "Delete the tag."
+
+[[release.steps]]
+step = "Publish the build."
+target = "origin"
+undo = "Unpublish the build."
+`
+
+func TestProjectRelease_ParseProjectReadsGateBesideRelease(t *testing.T) {
+	got, err := ParseProject(testPath, []byte(releaseProject))
+	if err != nil {
+		t.Fatalf("ParseProject of a project file with [release]: %v", err)
+	}
+	if want := []Gate{alphaGate()}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("ParseProject = %+v, want %+v", got, want)
+	}
+}
+
+func TestProjectRelease_ParseFileRefusesReleaseTable(t *testing.T) {
+	text := file(table("gates.alpha", gateKeys()...)) + table("release", `then = "the build ships"`)
+	_, err := ParseFile(testPath, []byte(text))
+	if err == nil {
+		t.Fatal("ParseFile accepted a gates file with [release], want an error naming release")
+	}
+	for _, want := range []string{testPath, "release"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error %q does not contain %q", err, want)
+		}
+	}
+}
+
 func TestParseAcceptsEmptyGatesTable(t *testing.T) {
 	for _, p := range parsers() {
 		got, err := p.parse(testPath, []byte("[gates]\n"))
