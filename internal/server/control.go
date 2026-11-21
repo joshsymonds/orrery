@@ -63,6 +63,7 @@ func (c controlServer) Start(
 			Prompt: req.Msg.GetPrompt(),
 			Model:  req.Msg.GetModel(),
 			Id:     req.Msg.GetId(),
+			Client: req.Header().Get(HeaderClient),
 		}))
 		if err != nil {
 			return wrapEngine("start", err)
@@ -89,6 +90,7 @@ func (c controlServer) Say(
 			Id:       req.Msg.GetId(),
 			Text:     req.Msg.GetText(),
 			PromptId: req.Msg.GetPromptId(),
+			Client:   req.Header().Get(HeaderClient),
 		}))
 		return wrapEngine("say", err)
 	})

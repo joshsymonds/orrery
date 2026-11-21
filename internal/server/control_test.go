@@ -291,7 +291,7 @@ func controlCalls(dir, resolved string) []controlCall {
 				})))
 			},
 			engine: &enginev1.StartRequest{
-				Dir: resolved, Prompt: "synthetic prompt", Model: "haiku", Id: synthSessionID,
+				Dir: resolved, Prompt: "synthetic prompt", Model: "haiku", Id: synthSessionID, Client: client,
 			},
 			reply: &orreryv1.StartResponse{Id: fakeStartedID},
 		},
@@ -302,8 +302,10 @@ func controlCalls(dir, resolved string) []controlCall {
 					Id: synthSessionID, Text: "synthetic text", PromptId: "synthetic-prompt",
 				})))
 			},
-			engine: &enginev1.SayRequest{Id: synthSessionID, Text: "synthetic text", PromptId: "synthetic-prompt"},
-			reply:  &orreryv1.SayResponse{},
+			engine: &enginev1.SayRequest{
+				Id: synthSessionID, Text: "synthetic text", PromptId: "synthetic-prompt", Client: client,
+			},
+			reply: &orreryv1.SayResponse{},
 		},
 		{
 			name: "Answer",
@@ -638,7 +640,7 @@ func assertStartForwarded(t *testing.T, home, dir, resolved string) {
 	if got := resp.Msg.GetId(); got != fakeStartedID {
 		t.Fatalf("Start %s id = %q, want %q", dir, got, fakeStartedID)
 	}
-	want := &enginev1.StartRequest{Dir: resolved, Prompt: "synthetic prompt", Id: synthSessionID}
+	want := &enginev1.StartRequest{Dir: resolved, Prompt: "synthetic prompt", Id: synthSessionID, Client: client}
 	calls := fake.recorded()
 	if len(calls) != 1 || !proto.Equal(calls[0], want) {
 		t.Fatalf("Start %s forwarded %v, want one request %v", dir, calls, want)

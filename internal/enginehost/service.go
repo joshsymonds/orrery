@@ -217,6 +217,7 @@ func (s *service) Start(
 		Prompt: req.Msg.GetPrompt(),
 		Model:  req.Msg.GetModel(),
 		ID:     req.Msg.GetId(),
+		Client: req.Msg.GetClient(),
 	})
 	if err != nil {
 		return nil, commandError(err)
@@ -238,6 +239,7 @@ func (s *service) Say(
 		ID:       req.Msg.GetId(),
 		Text:     req.Msg.GetText(),
 		PromptID: req.Msg.GetPromptId(),
+		Client:   req.Msg.GetClient(),
 	}); err != nil {
 		return nil, commandError(err)
 	}
