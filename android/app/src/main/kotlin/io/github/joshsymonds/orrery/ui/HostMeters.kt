@@ -38,12 +38,13 @@ private val seriesColours = listOf(
  * The machine band, the one strip a screen draws the host's machine in: a full-width band of its own under the title
  * row, on surface.side, the inbox's ground, one step deeper than the goal's well, with an edge above and below it. It
  * leads with the host's label, the host icon and its name, then the host's stats as [HostMeters], as web's A4 band
- * draws them. A host other than the serving one is labelled with its [otherHost] name and says it has no meters. Null
- * [stats] with no other host draws nothing, not even the band.
+ * draws them. A host other than the serving one is labelled with its [otherHost] name and says it has no meters. A
+ * host read with no stats draws its label alone. Null [stats], a host not read, with no other host draws nothing, not
+ * even the band.
  */
 @Composable
 fun MachineBand(host: String, stats: List<HostStat>?, otherHost: String?) {
-    if (otherHost == null && stats.isNullOrEmpty()) return
+    if (otherHost == null && stats == null) return
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -71,7 +72,7 @@ fun MachineBand(host: String, stats: List<HostStat>?, otherHost: String?) {
                 color = OrreryTokens.Ink.four,
                 style = OrreryTokens.Type.small,
             )
-        } else if (stats != null) {
+        } else if (!stats.isNullOrEmpty()) {
             Box(modifier = Modifier.weight(1f).testTag("head-meters")) {
                 HostMeters(stats)
             }

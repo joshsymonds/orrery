@@ -93,6 +93,14 @@ class MachineBandTest {
     }
 
     @Test
+    fun aHostWithNoStatsDrawsItsLabelAlone() {
+        composeRule.setContent { MachineBand(host = "halyard", stats = emptyList(), otherHost = null) }
+
+        composeRule.onNodeWithTag("machine-host").assertTextEquals("halyard")
+        composeRule.onAllNodesWithTag("head-meters").assertCountEquals(0)
+    }
+
+    @Test
     fun anotherHostIsLabelledAsTheBandsHost() {
         composeRule.setContent { MachineBand(host = "den", stats = null, otherHost = "halyard") }
 

@@ -51,7 +51,6 @@ fun Head(
     ) {
         HeadTitleRow(
             dir = dir,
-            host = host,
             title = title,
             context = context,
             note = note,

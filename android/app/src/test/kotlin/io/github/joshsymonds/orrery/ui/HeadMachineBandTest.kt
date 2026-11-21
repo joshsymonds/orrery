@@ -7,11 +7,13 @@ import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.getUnclippedBoundsInRoot
 import androidx.compose.ui.test.hasAnyAncestor
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onNodeWithText
 import io.github.joshsymonds.orrery.api.ConversationContext
 import io.github.joshsymonds.orrery.api.HostStat
 import io.github.joshsymonds.orrery.mainThreadAndroidComposeRule
@@ -124,6 +126,23 @@ class HeadMachineBandTest {
         val words = listOf("context: 86k of a 1M window")
         composeRule.onNodeWithTag(CONTEXT_TAG)
             .assert(SemanticsMatcher.expectValue(SemanticsProperties.ContentDescription, words))
+    }
+
+    @Test
+    fun theProjectLineNamesNoHostAndTheBandDoes() {
+        setHead()
+
+        composeRule.onNodeWithTag("head-dir").assertTextEquals("commonframe")
+        composeRule.onNodeWithTag("machine-host").assertTextEquals("vermission")
+    }
+
+    @Test
+    fun anotherHostIsNamedInTheBandAndNotInTheProjectLine() {
+        setHead(otherHost = "halyard")
+
+        composeRule.onNodeWithTag("head-dir").assertTextEquals("commonframe")
+        composeRule.onNodeWithTag("machine-host").assertTextEquals("halyard")
+        composeRule.onNodeWithText("on another host: no meters").assertIsDisplayed()
     }
 
     @Test

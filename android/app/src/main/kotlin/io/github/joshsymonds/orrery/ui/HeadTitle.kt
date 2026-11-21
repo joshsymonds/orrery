@@ -26,8 +26,8 @@ import io.github.joshsymonds.orrery.api.ConversationContext
 import io.github.joshsymonds.orrery.ui.theme.OrreryTokens
 
 /**
- * A conversation's title row, after round 6's touch title row: back, then the project's name and host as the inbox
- * draws a project's name, over the title in bold body type, one step down from the title type, cut short at its second
+ * A conversation's title row, after round 6's touch title row: back, then the project's name as the inbox draws a
+ * project's name (the machine band under the row names the host), over the title in bold body type, one step down from the title type, cut short at its second
  * line, then the bare context meter when there is a figure, and More. The bare meter names the context and its tokens
  * of the window to the reader, as the web's tooltip does. It draws no Orrery icon and no count. More opens a menu
  * holding Find and Hide the header. A non-empty [note] draws under the row, in the crit colour.
@@ -35,7 +35,6 @@ import io.github.joshsymonds.orrery.ui.theme.OrreryTokens
 @Composable
 fun HeadTitleRow(
     dir: String,
-    host: String,
     title: String,
     context: ConversationContext?,
     note: String,
@@ -68,9 +67,7 @@ fun HeadTitleRow(
             )
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = buildAnnotatedString {
-                        withStyle(SpanStyle(color = OrreryTokens.Role.place)) { append(if (host.isEmpty()) dir else "$dir · on $host") }
-                    },
+                    text = buildAnnotatedString { withStyle(SpanStyle(color = OrreryTokens.Role.place)) { append(dir) } },
                     modifier = Modifier.testTag("head-dir"),
                     style = ProjectNameStyle,
                     maxLines = 1,
