@@ -23,7 +23,9 @@ class ConversationModelTest {
         notice: String = "",
         trigger: String = "",
         tokens: Long = 0L,
-    ) = ConversationItem(kind, time, text, tool, input, id, error, notice, trigger, tokens)
+        sender: String = "",
+        round: Int = 0,
+    ) = ConversationItem(kind, time, text, tool, input, id, error, notice, trigger, tokens, sender = sender, round = round)
 
     private fun notice(sort: String, text: String = "", error: Boolean = false, time: Long = 0L) =
         item("notice", time = time, text = text, error = error, notice = sort)
@@ -241,6 +243,33 @@ class ConversationModelTest {
             ),
             entries,
         )
+    }
+
+    @Test
+    fun briefAndCheckRoundPromptsBecomeOwnEntriesAndAnOwnerPromptStaysAPrompt() {
+        val entries = fold(
+            listOf(
+                item("prompt", time = 100L, text = "synthetic owner prompt", sender = "owner"),
+                item("prompt", time = 200L, text = "synthetic brief", sender = "brief"),
+                item("prompt", time = 300L, text = "synthetic send-back", sender = "engine", round = 2),
+            ),
+        )
+
+        assertEquals(
+            listOf(
+                ConvoEntry.Prompt("synthetic owner prompt", 100L),
+                ConvoEntry.Brief("synthetic brief", 200L),
+                ConvoEntry.Check(2, "synthetic send-back", 300L),
+            ),
+            entries,
+        )
+    }
+
+    @Test
+    fun anEngineSendWithNoCheckRoundFoldsAsAnEngineLine() {
+        val entries = fold(listOf(item("prompt", text = "synthetic engine prompt", sender = "engine")))
+
+        assertEquals(listOf(ConvoEntry.Engine("synthetic engine prompt")), entries)
     }
 
     @Test

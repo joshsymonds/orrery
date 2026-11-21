@@ -1,15 +1,20 @@
 import type { ComponentChildren, JSX } from "preact";
 import { useLayoutEffect, useRef, useState } from "preact/hooks";
 
+import { releaseOf, replacementsOf, reportOf, reviewOf } from "./ending";
 import type { LoadArtifact } from "./evidence";
-import type { EpicHistoryEntry, EpicsGetResponse } from "./gen/orrery/v1/epics_pb";
+import type { Epic, EpicHistoryEntry, EpicsGetResponse } from "./gen/orrery/v1/epics_pb";
 import { JustHappened } from "./happenings";
 import { NowSection } from "./nowsection";
+import type { CallOutcome } from "./ownercall";
 import { Orrery } from "./orrery";
 import { durationText, type Phase, provenOf, wedgesOf } from "./phases";
 import { recordTasksOf } from "./record";
 import { blockerPillOf, contractDoorOf, ownerParked, reachedOf, statePillOf, trackOf } from "./recordwords";
+import { ReleaseTable } from "./release";
+import { EpicReport } from "./report";
 import { RequirementTable } from "./reqtable";
+import { EpicReview } from "./review";
 import type { Row } from "./rows";
 import { Sheet } from "./sheet";
 import { type Blocker, controlsOf, stateOf } from "./status";
@@ -20,13 +25,19 @@ import { type InboxMark, TitleRow } from "./titlerow";
 import { Track } from "./track";
 
 // EpicCommands are the epic's commands: pause, resume, stop and retry, and the answer to one open question: the choice
-// the owner picked, which is a declared choice's id or other, and its text.
+// the owner picked, which is a declared choice's id or other, and its text. release runs the epic's release, with the
+// undo-none steps named by their positions run again; close closes the epic as chosen, superseded by the epic named.
+// Each of release and close is sent once and resolves its outcome. reread reads the epic again and resolves true when
+// the read answers.
 export interface EpicCommands {
   pause: () => void;
   resume: () => void;
   stop: () => void;
   retry: () => void;
   answer: (questionId: string, choice: string, text: string) => Promise<string>;
+  release: (undoNone: number[]) => Promise<CallOutcome>;
+  close: (kind: "superseded" | "shipped" | "abandoned", by: string) => Promise<CallOutcome>;
+  reread: () => Promise<boolean>;
 }
 
 // SessionTarget is what a session opens: a pane, or a session by its id, with the served label that names it when no
@@ -66,7 +77,7 @@ export interface Landing {
 }
 
 // landingTargets names the part of the epic page each block kind brings into view. A kind it does not name, the empty
-// one included, brings the page's top into view.
+// one included, brings the Report into view when the page draws one, and else the page's top.
 const landingTargets: Partial<Record<string, string>> = {
   question: "section.now",
   release_step: "section.now",
@@ -100,8 +111,10 @@ function SteeredFrom({
 // orreryd epic: its problem, its summary with the Contract door and the Steered from door, its track, Now, Just
 // happened, the tasks with their chart and table, and the requirements. A record epic draws only Now and its tasks. A
 // section the epic has not reached is not drawn. The commands are the ones controlsOf shows for the epic. Each phase
-// click reaches onOpenPhase. Just happened names a session a move names by its listed row's label. A landing brings its
-// part of the page into view once the page is drawn. numberKeys is whether a digit key picks an option of the open
+// click reaches onOpenPhase. After the requirements, the Review, Release and Report sections draw when their views are
+// non-null, in that order. Just happened names a session a move names by its listed row's label. A landing brings its
+// part of the page into view once the page is drawn, and a page that draws its Report brings the Report into view once
+// when no landing names another block. numberKeys is whether a digit key picks an option of the open
 // question. steer draws the steering control: in the title row at the desk, and under narrow the sheet that More's Steer
 // item opens. narrow moves the commands off the title row into a foot bar: its Talk button, given only when a steerer is
 // known, calls onTalk, and its More button opens a sheet of the commands, with the Steer item when steer is given. foot,
@@ -127,6 +140,7 @@ export function EpicPage(props: {
   onTalk?: () => void;
   steer?: (sheet: SteerSheet) => ComponentChildren;
   foot?: ComponentChildren;
+  listed?: Epic[];
 }): JSX.Element {
   const {
     detail,
@@ -148,6 +162,7 @@ export function EpicPage(props: {
     onTalk,
     steer,
     foot,
+    listed = [],
   } = props;
   const { epic, contract, requirements, steps } = detail;
   const reached = reachedOf(detail, history);
@@ -167,6 +182,9 @@ export function EpicPage(props: {
   const summary = detail.summary !== "" ? detail.summary : (contract?.title ?? "");
   const steering = epic?.steering ?? "";
   const provenCount = requirements.filter((requirement) => provenIds.has(requirement.id)).length;
+  const reviewView = reviewOf(detail);
+  const releaseView = releaseOf(detail);
+  const reportView = reportOf(detail);
   const [moreOpen, setMoreOpen] = useState(false);
   const [stopOpen, setStopOpen] = useState(false);
   // stopAsking is whether Stop's confirm is open: it is only while the epic can be stopped.
@@ -178,14 +196,24 @@ export function EpicPage(props: {
   // titleOf names a session by its listed row's label, for the move lines of the epic's log.
   const titleOf = (session: string) => steererRowOf(rows, session)?.label;
   const pageRef = useRef<HTMLDivElement>(null);
+  // The page brings one block into view when it is first drawn and when its landing changes, never on a later read: the
+  // block the landing's kind names, else the Report when the page draws one, else the page's top for a landing.
   useLayoutEffect(() => {
     const page = pageRef.current;
-    if (landing === undefined || page === null) {
+    if (page === null) {
       return;
     }
-    const target = landingTargets[landing.kind];
-    const element = target === undefined ? page : page.querySelector<HTMLElement>(target);
-    element?.scrollIntoView();
+    const target = landing === undefined ? undefined : landingTargets[landing.kind];
+    if (target !== undefined) {
+      page.querySelector<HTMLElement>(target)?.scrollIntoView();
+      return;
+    }
+    const report = page.querySelector<HTMLElement>('section[aria-label="Report"]');
+    if (report !== null) {
+      report.scrollIntoView();
+    } else if (landing !== undefined) {
+      page.scrollIntoView();
+    }
   }, [landing]);
   return (
     <div class="epic-page" ref={pageRef}>
@@ -277,8 +305,34 @@ export function EpicPage(props: {
             <h3>Requirements</h3>
             <span>{`${provenCount} of ${requirements.length} proven`}</span>
           </header>
-          <RequirementTable requirements={requirements} loadArtifact={loadArtifact} />
+          <RequirementTable requirements={requirements} loadArtifact={loadArtifact} proven={provenIds} />
         </section>
+      )}
+      {reviewView !== null && <EpicReview view={reviewView} />}
+      {releaseView !== null && (
+        <section class="release" aria-label="Release">
+          <header class="sec-head">
+            <h3>Release</h3>
+            <span>{releaseView.words}</span>
+          </header>
+          <ReleaseTable
+            view={releaseView}
+            narrow={narrow}
+            onRelease={commands.release}
+            reread={commands.reread}
+          />
+        </section>
+      )}
+      {reportView !== null && (
+        <EpicReport
+          view={reportView}
+          slug={slug}
+          narrow={narrow}
+          replacements={replacementsOf(detail, listed)}
+          onRelease={commands.release}
+          onClose={commands.close}
+          reread={commands.reread}
+        />
       )}
       {narrow && foot}
       {narrow && (

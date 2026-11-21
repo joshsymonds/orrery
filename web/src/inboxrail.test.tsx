@@ -57,20 +57,22 @@ const tiles: RailTileModel[] = [
   { key: "almanac", text: "al", n: 0, live: false, fresh: true, cur: false, title: "almanac" },
 ];
 
-// handlersOf gives the rail its props, each recording its call into calls.
+// handlersOf gives the rail its props, each press recording its call into calls, with no unread notice.
 function handlersOf(calls: string[]) {
   return {
     onMark: () => calls.push("mark"),
     onTile: (key: string) => calls.push(`tile:${key}`),
     onNew: () => calls.push("new"),
     onSearch: () => calls.push("search"),
+    onNotices: () => calls.push("notices"),
     onKeys: () => calls.push("keys"),
     onEnter: () => calls.push("enter"),
     onLeave: () => calls.push("leave"),
+    unread: 0,
   };
 }
 
-test("InboxRail is a nav labelled inbox, at rest, drawing the mark, a separator, a tile per project, the spring, then New, Search and Keys", async () => {
+test("InboxRail is a nav labelled inbox, at rest, drawing the mark, a separator, a tile per project, the spring, then New, Search, Notices and Keys", async () => {
   await withDom((container) => {
     draw(container, <InboxRail tiles={tiles} {...handlersOf([])} />);
     const nav = one(container, "nav");
@@ -86,17 +88,30 @@ test("InboxRail is a nav labelled inbox, at rest, drawing the mark, a separator,
         "spring",
         "New session",
         "Search",
+        "Notices",
         "Keys",
       ],
     );
   });
 });
 
-test("InboxRail draws no bell or Notices tile", async () => {
+test("InboxRail Notices tile is bare, labelled Notices, and tips Notices with no unread notice and draws no count", async () => {
   await withDom((container) => {
     draw(container, <InboxRail tiles={tiles} {...handlersOf([])} />);
-    assert.equal(container.querySelector(".bell"), null);
-    assert.equal(container.querySelector('[aria-label="Notices"]'), null);
+    const bell = tileOf(container, "Notices");
+    assert.equal(bell.classList.contains("bare"), true);
+    assert.equal(bell.getAttribute("data-tip"), "Notices");
+    assert.equal(bell.getAttribute("title"), null);
+    assert.equal(bell.querySelector(".n"), null);
+  });
+});
+
+test("InboxRail Notices tile draws its unread count in the new role, and tips Notices · N unread", async () => {
+  await withDom((container) => {
+    draw(container, <InboxRail tiles={tiles} {...handlersOf([])} unread={3} />);
+    const bell = tileOf(container, "Notices");
+    assert.equal(bell.querySelector(".n.new")?.textContent, "3");
+    assert.equal(bell.getAttribute("data-tip"), "Notices · 3 unread");
   });
 });
 
@@ -136,7 +151,7 @@ test("InboxRail mark tile reads Open the inbox with tip Inbox  b", async () => {
   });
 });
 
-test("InboxRail tiles call their props: the mark onMark, a project onTile with its key, then onNew, onSearch and onKeys", async () => {
+test("InboxRail tiles call their props: the mark onMark, a project onTile with its key, then onNew, onSearch, onNotices and onKeys", async () => {
   await withDom((container) => {
     const calls: string[] = [];
     draw(container, <InboxRail tiles={tiles} {...handlersOf(calls)} />);
@@ -144,8 +159,9 @@ test("InboxRail tiles call their props: the mark onMark, a project onTile with i
     tileOf(container, "tidepool: 3 waits on you").click();
     tileOf(container, "New session").click();
     tileOf(container, "Search").click();
+    tileOf(container, "Notices").click();
     tileOf(container, "Keys").click();
-    assert.deepEqual(calls, ["mark", "tile:tidepool", "new", "search", "keys"]);
+    assert.deepEqual(calls, ["mark", "tile:tidepool", "new", "search", "notices", "keys"]);
   });
 });
 

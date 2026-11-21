@@ -26,6 +26,9 @@ async function withRender(node: JSX.Element, check: (container: HTMLElement) => 
 // noLoad answers a log read that no test here opens; a read that happens fails the test.
 const noLoad: LoadArtifact = () => Promise.reject(new Error("no log is read in these tests"));
 
+// unproven is the proven set of a table with no requirement proven.
+const unproven: ReadonlySet<string> = new Set();
+
 // run is one evidence run of a phase, created at the given time, ended or still going, passed or not, with its exit.
 function run(
   phase: string,
@@ -88,6 +91,7 @@ test("EpicProof: each row draws its id, its text and two proof cells", () =>
     <RequirementTable
       requirements={[requirement("R1", "check", []), requirement("R2", "review", [])]}
       loadArtifact={noLoad}
+      proven={unproven}
     />,
     (container) => {
       const rows = rowsOf(container);
@@ -106,6 +110,7 @@ test("EpicProof: a check with no run reads no test yet and not yet, a review wit
     <RequirementTable
       requirements={[requirement("R1", "check", []), requirement("R2", "review", [])]}
       loadArtifact={noLoad}
+      proven={unproven}
     />,
     (container) => {
       const [check, review] = rowsOf(container) as [HTMLElement, HTMLElement];
@@ -128,6 +133,7 @@ test("EpicProof: a run not yet ended reads running in its phase's cell, live wit
         ]),
       ]}
       loadArtifact={noLoad}
+      proven={unproven}
     />,
     (container) => {
       const [red, green] = cellsOf(rowsOf(container)[0] as HTMLElement);
@@ -144,6 +150,7 @@ test("EpicProof: an ended red run reads fails at base when it passed and passes 
         requirement("R2", "check", [run("red", 1n, false)]),
       ]}
       loadArtifact={noLoad}
+      proven={unproven}
     />,
     (container) => {
       const [passed, notPassed] = rowsOf(container);
@@ -160,6 +167,7 @@ test("EpicProof: an ended green run reads passes when it passed and fails when i
         requirement("R2", "check", [run("green", 1n, false)]),
       ]}
       loadArtifact={noLoad}
+      proven={unproven}
     />,
     (container) => {
       const [passed, notPassed] = rowsOf(container);
@@ -180,6 +188,7 @@ test("EpicProof: the newest run of a phase decides its cell, whatever order the 
         ]),
       ]}
       loadArtifact={noLoad}
+      proven={unproven}
     />,
     (container) => {
       const [red, green] = cellsOf(rowsOf(container)[0] as HTMLElement);
@@ -188,19 +197,20 @@ test("EpicProof: the newest run of a phase decides its cell, whatever order the 
     },
   ));
 
-test("EpicProof: a row is proven when a green run passed, and open when only a red run passed", () =>
+test("EpicProof: a row reads proven when the proven set holds its id and open when it does not, whatever its runs say", () =>
   withRender(
     <RequirementTable
       requirements={[
         requirement("R1", "check", [run("green", 1n, true)]),
-        requirement("R2", "check", [run("red", 1n, true)]),
+        requirement("R2", "check", []),
       ]}
       loadArtifact={noLoad}
+      proven={new Set(["R2"])}
     />,
     (container) => {
-      const [proven, open] = rowsOf(container);
-      assert.equal(endOf(proven as HTMLElement), "proven");
-      assert.equal(endOf(open as HTMLElement), "open");
+      const [greenPassed, proofless] = rowsOf(container) as [HTMLElement, HTMLElement];
+      assert.equal(endOf(greenPassed), "open", "a passed green run does not prove a row the set leaves out");
+      assert.equal(endOf(proofless), "proven", "the set proves a row with no run");
     },
   ));
 
@@ -216,6 +226,7 @@ test("EpicProof: a row opens its runs red first then green, each phase in create
         ]),
       ]}
       loadArtifact={noLoad}
+      proven={unproven}
     />,
     (container) => {
       const row = rowsOf(container)[0] as HTMLElement;
@@ -259,6 +270,7 @@ test("EpicProof: initiallyOpen draws the named row open and no other", () =>
         requirement("R2", "check", [run("red", 1n, true)]),
       ]}
       loadArtifact={noLoad}
+      proven={unproven}
       initiallyOpen="R2"
     />,
     (container) => {

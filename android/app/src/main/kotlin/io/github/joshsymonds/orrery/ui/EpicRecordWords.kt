@@ -96,13 +96,19 @@ fun statePillOf(detail: EpicDetail, now: Long): Pill {
     return Pill(stateLineOf(state.word, detail.epic.phaseAt, now), state.tone)
 }
 
-/** The blocker pill, when something asks: an open question, the owner's park, or a step the owner held. */
+/**
+ * The blocker pill, when something asks: an open question, the owner's park, a step the owner held, a stopped release
+ * whose failed step has no undo, or an ended-with-gaps epic.
+ */
 fun blockerPillOf(detail: EpicDetail, now: Long): Pill? {
     val question = detail.questions.firstOrNull()
+    val held = runningOf(detail).firstOrNull { it.held }
     return when {
         question != null -> Pill(stateLineOf("asks you a question", question.asked, now), WordTone.ATTENTION)
         ownerParked(detail) -> Pill("asks you what to do", WordTone.ATTENTION)
-        else -> runningOf(detail).firstOrNull { it.held }?.let { Pill("${labelOf(it)} held", WordTone.ATTENTION) }
+        held != null -> Pill("${labelOf(held)} held", WordTone.ATTENTION)
+        isOrreryd(detail) -> endingPillOf(detail)
+        else -> null
     }
 }
 
@@ -135,6 +141,8 @@ fun nowSentenceOf(detail: EpicDetail): String {
         detail.plannerParked -> "The planner holds a park and is deciding what to do. Nothing is asked of you."
         allLimited(detail) -> limitedSentenceOf(steps)
         detail.questions.isNotEmpty() -> questionSentenceOf(steps)
+        isOrreryd(detail) && detail.epic.outcome == "releasing" -> releasingSentenceOf(detail)
+        isOrreryd(detail) && detail.epic.outcome == "stopped" -> stoppedSentenceOf(detail)
         isOrreryd(detail) && stageNowOf(detail.epic.outcome) == REPORT -> "It ended: ${stateWordOf(detail).word}."
         isOrreryd(detail) && wedgesOf(detail).isEmpty() ->
             "The planner is reading the contract and outlining tasks. No task has started."
@@ -286,6 +294,40 @@ private fun limitedSentenceOf(steps: List<StepRow>): String {
     } else {
         "${steps.size} steps wait on $kind$reset. They resume on their own."
     }
+}
+
+// releasingSentenceOf is the Now sentence of a releasing epic: the release step that runs, of how many, else only that
+// it releases.
+private fun releasingSentenceOf(detail: EpicDetail): String {
+    val steps = detail.releaseProof
+    val running = steps.firstOrNull { it.state == "running" } ?: return "Releasing."
+    return "Releasing: step ${running.position} of ${steps.size} is running."
+}
+
+// stoppedSentenceOf is the Now sentence of a stopped release: the step Release from step N is offered for, else the
+// first step that did not pass, else only that the release stopped.
+private fun stoppedSentenceOf(detail: EpicDetail): String {
+    val offer = releaseOf(detail)?.offer ?: 0L
+    if (offer > 0L) {
+        return "The release stopped at step $offer, and that step has no undo. It waits on you."
+    }
+    val steps = detail.releaseProof
+    if (steps.isEmpty()) {
+        return "The release stopped."
+    }
+    val at = steps.firstOrNull { it.state != "passed" }?.position ?: steps.size.toLong()
+    return "The release stopped at step $at."
+}
+
+// endingPillOf is the blocker pill of an orreryd epic that waits on the owner's release or close: a stopped release
+// whose failed step has no undo, or an ended-with-gaps epic.
+private fun endingPillOf(detail: EpicDetail): Pill? = when (detail.epic.outcome) {
+    "stopped" -> {
+        val offer = releaseOf(detail)?.offer ?: 0L
+        if (offer > 0L) Pill("step $offer failed and cannot be undone", WordTone.ATTENTION) else null
+    }
+    "ended_with_gaps" -> Pill("release it anyway, or close it", WordTone.ATTENTION)
+    else -> null
 }
 
 private fun questionSentenceOf(steps: List<StepRow>): String = when (val tasks = runningTasksOf(steps)) {

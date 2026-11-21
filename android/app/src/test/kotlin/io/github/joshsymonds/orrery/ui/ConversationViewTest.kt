@@ -36,6 +36,7 @@ import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import io.github.joshsymonds.orrery.api.StepCheckRow
 import io.github.joshsymonds.orrery.api.WaitingItem
 import io.github.joshsymonds.orrery.mainThreadComposeRule
 import kotlinx.coroutines.CoroutineScope
@@ -1285,5 +1286,45 @@ class ConversationViewTest {
         assertEquals(900L, reads.lastOrNull())
         assertTrue("reads only grow", reads.zipWithNext().all { (earlier, later) -> later > earlier })
         assertFalse("a row with no time is never reported", 0L in reads)
+    }
+
+    @Test
+    fun briefShowsAsOneFoldedLineAndItsTextOnATapAndClosesOnTheNextTap() {
+        val entry = ConvoEntry.Brief("synthetic brief text", NOV_14_2213_UTC)
+        setList(listOf(entry))
+
+        composeRule.onNodeWithText("Brief").assertIsDisplayed()
+        composeRule.onNodeWithText("from the engine").assertIsDisplayed()
+        composeRule.onAllNodesWithText("synthetic brief text").assertCountEquals(0)
+        composeRule.onNodeWithTag("line:fold").performClick()
+        composeRule.onNodeWithText("synthetic brief text").assertIsDisplayed()
+        composeRule.onNodeWithTag("line:fold").performClick()
+        composeRule.onAllNodesWithText("synthetic brief text").assertCountEquals(0)
+    }
+
+    @Test
+    fun checkRoundDrawsAsAChecksBlockWithTheChipsOfItsRoundFromTheHandedChecks() {
+        val checks = listOf(
+            StepCheckRow(round = 1, name = "synthetic lint", ok = false, stdout = "", stderr = ""),
+            StepCheckRow(round = 2, name = "synthetic test", ok = true, stdout = "", stderr = ""),
+        )
+        composeRule.setContent {
+            MaterialTheme {
+                ConversationView(
+                    entries = listOf(ConvoEntry.Check(2, "synthetic send-back")),
+                    checks = checks,
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag("block:checks").assertIsDisplayed()
+        composeRule.onNodeWithText("round 2 from the engine").assertIsDisplayed()
+        composeRule.onNodeWithText("synthetic test").assertIsDisplayed()
+        composeRule.onAllNodesWithText("synthetic lint").assertCountEquals(0)
+        composeRule.onNodeWithText("synthetic send-back").assertIsDisplayed()
+        composeRule.onNodeWithTag("block:checks").assert(
+            hasAnyDescendant(hasTestTag("rail") and SemanticsMatcher.expectValue(ShapeToneKey, "ok")),
+        )
+        composeRule.onAllNodesWithText("YOU").assertCountEquals(0)
     }
 }

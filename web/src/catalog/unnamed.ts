@@ -13,14 +13,10 @@ export const unnamed: Readonly<Record<string, UnnamedEntry>> = {
   app: { replacement: "inbox-home", epic: "F2" },
   // Mark draws the Orrery mark, the symbol the rail and the title row open on.
   mark: { replacement: "Tile", epic: "F2" },
-  // PhaseOutputPage draws a task's phase output at each phase of the rota export.
-  "phase-output-page": { replacement: "phase-implement", epic: "F4" },
   // ReaderHead draws a conversation's head, titled, or with where.
   "reader-head": { replacement: "TitleRow", epic: "F3" },
   // TitleParts draws a title's directory and line, with either alone, and a line that holds a link.
   "title-parts": { replacement: "TitleRow", epic: "F3" },
-  // WorkerSessionPage draws a step's worker session while it runs, is held, has ended, or loads.
-  "worker-session-page": { replacement: "worker-running", epic: "F4" },
   // OutputTails draws a command's output tails: both, stdout only, stderr only.
   "output-tails": { replacement: "epic-evidence", epic: "F4" },
   // EpicWidget draws the reader's tool-call card: the live card of an epic a tool call created, under the conversation's tool call.
@@ -31,9 +27,6 @@ export const unnamed: Readonly<Record<string, UnnamedEntry>> = {
   // HappeningList draws the history of the holder epic, and an empty history.
   "happening-list/holder": { replacement: "HappeningList", epic: "F4" },
   "happening-list/empty": { replacement: "HappeningList", epic: "F4" },
-  // Notice draws a stack of three notices, and of more than three with its "+n more" line.
-  "notice/three-notices": { replacement: "Notice", epic: "F5" },
-  "notice/over-the-limit": { replacement: "Notice", epic: "F5" },
   // TitleRow draws a crumb and a state, a blocker, and a page's commands.
   "title-row/crumbs-and-state": { replacement: "TitleRow", epic: "F3" },
   "title-row/blocker": { replacement: "TitleRow", epic: "F3" },

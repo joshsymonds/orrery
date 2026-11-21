@@ -19,7 +19,7 @@ import { type EpicItem, type EpicsView, epicsView, noEpics, type StepItem } from
 import { findMatches } from "./find";
 import { type Followed, follow } from "./follow";
 import type { Contract } from "./gen/orrery/v1/contracts_pb";
-import type { Epic, EpicHistoryEntry, EpicsGetResponse, EpicStep } from "./gen/orrery/v1/epics_pb";
+import type { Epic, EpicHistoryEntry, EpicsGetResponse } from "./gen/orrery/v1/epics_pb";
 import type { InAppNotice, NoticeKey } from "./gen/orrery/v1/notice_pb";
 import type { HostStatusResponse } from "./gen/orrery/v1/orrery_pb";
 import { stateWord } from "./glyphs";
@@ -39,9 +39,12 @@ import {
 } from "./keymap";
 import { listHolds, listsEpic } from "./listholds";
 import { epicNeeds } from "./needs";
-import { NoticeBanner } from "./notices";
-import { PhaseOutputPage } from "./phaseoutput";
-import { phaseOutputOf } from "./phaserows";
+import { NoticeCentre } from "./noticecentre";
+import { useNoticeLog } from "./noticelog";
+import { NoticeStack } from "./notices";
+import { bringBackRowOf, type NoticeFields, noticeAct, noticeAge, noticeHead, noticeKey } from "./noticewords";
+import { sendOnce } from "./ownercall";
+import { briefOf, briefStepOf, PhaseOutputPage } from "./phaseoutput";
 import type { Phase } from "./phases";
 import { NewPanel } from "./picker";
 import { type Viewing, viewingOf } from "./presence";
@@ -217,6 +220,8 @@ const wideQuery = "(min-width: 760px)";
 const overlayQuery = "(max-width: 1250px)";
 // The contracts an App holds when none are given.
 const noContracts: readonly Contract[] = [];
+// The notices an App shows when none are given.
+const noNotices: InAppNotice[] = [];
 
 export function App({
   rows,
@@ -229,7 +234,7 @@ export function App({
   seenWindow,
   epics = noEpics,
   contracts = noContracts,
-  notices = [],
+  notices = noNotices,
   host = null,
   onViewing,
   address,
@@ -265,6 +270,8 @@ export function App({
   // The focus the search field takes once the render that draws it has run.
   const focusSearch = useRef(false);
   const [helpOpen, setHelpOpen] = useState(false);
+  // Whether the notice centre is open. Its opener sets it; the centre is drawn from it.
+  const [noticesOpen, setNoticesOpen] = useState(false);
   const [open, setOpen] = useState(false);
   // Whether the strips under the title rows are drawn. m hides and shows every one of them.
   const [stripsShown, setStripsShown] = useState(true);
@@ -609,16 +616,22 @@ export function App({
     epicEntry !== null && unseenEnding(epicEntry, epics.listed.get(epicEntry.id), seenEpics) ? epicEntry : null;
   const stepEntries = flat.filter((item): item is StepItem => item.kind === "step");
   const epicDetail =
-    epicEntry === null ? undefined : (epics.details.get(epicEntry.id) ?? askedDetails.get(epicEntry.id));
+    epicEntry === null ? undefined : newerDetail(epics.details.get(epicEntry.id), askedDetails.get(epicEntry.id));
   // The history is read for the epic entry the cursor rests on, once its detail is held. It is read again when the
   // epic's last write moves.
   const historyId = epicEntry !== null && epicDetail !== undefined ? epicEntry.id : "";
   const epicChanged = epicDetail?.epic?.changed ?? 0n;
   const shownIndex = Math.max(index, 0);
-  // The step whose worker session the open page shows. Its session is followed only while the page is open on a step
-  // the epic's detail holds, so a step the detail lacks opens no stream.
+  // The step whose worker session the open page shows: the session page's step, or on the phase page the brief step of
+  // its task, whose conversation the record reads its brief from. Its session is followed only while the epic's detail
+  // holds the step, so a step the detail lacks opens no stream.
   const openStep = !epicPage.closed && epicPage.page.kind === "session" ? epicPage.page.step : "";
-  const shownSession = epicDetail?.steps.some((step) => step.id === openStep) === true ? openStep : "";
+  const briefed =
+    !epicPage.closed && epicPage.page.kind === "phase" && epicDetail !== undefined
+      ? (briefStepOf(epicDetail, epicPage.page.task)?.id ?? "")
+      : "";
+  const sessionStep = openStep !== "" ? openStep : briefed;
+  const shownSession = epicDetail?.steps.some((step) => step.id === sessionStep) === true ? sessionStep : "";
   // The epic entry the cursor rests on, when the poll did not load its detail, is asked for once with Epics.Get. A
   // failed answer leaves the page at its could-not-read line.
   const askedId = epicEntry?.id ?? "";
@@ -694,6 +707,18 @@ export function App({
     sessionOlder.current = followed.older;
     return followed.stop;
   }, [shownSession, clients]);
+
+  // The record's brief step is paged back while its conversation holds no brief and has older items: each page is asked
+  // for once the last one is drawn, until the brief is held or no older item is left.
+  useEffect(() => {
+    if (briefed === "" || sessionStream === null || sessionStream.key !== briefed) {
+      return;
+    }
+    const { conversation } = sessionStream;
+    if (briefOf(conversation) === undefined && conversation.more) {
+      sessionOlder.current();
+    }
+  }, [sessionStream, briefed]);
 
   useEffect(() => {
     setVisited((previous) => keepEntries(previous, rows, middleRow));
@@ -788,6 +813,16 @@ export function App({
       () => setFailedEpicReads((previous) => new Set(previous).add(id)),
     );
   };
+  // rereadEpic reads an epic again after an owner call. Its answer is kept as the detail the page draws, and the read
+  // resolves true; a failed read resolves false.
+  const rereadEpic = (id: string): Promise<boolean> =>
+    clients.epics.get({ id }).then(
+      (answer) => {
+        setAskedDetails((previous) => new Map(previous).set(id, answer));
+        return true;
+      },
+      () => false,
+    );
   // retryEpicRead reads an epic whose read failed once more. The page shows it as loading until that read answers.
   const retryEpicRead = (id: string): void => {
     setFailedEpicReads((previous) => new Set([...previous].filter((failed) => failed !== id)));
@@ -1287,7 +1322,7 @@ export function App({
       setPopout("key");
     }
   };
-  // openPhase opens a task's phase output over the epic page. On the phase output, a head opens its phase in place.
+  // openPhase opens a task's record over the epic page. On a record, a task's chip opens that task's record in place.
   const openPhase = navigated((task: string, phase: Phase) => {
     if (epicPage.page.kind === "phase") {
       setEpicPage((previous) => ({ ...previous, page: { kind: "phase", task, phase } }));
@@ -1333,7 +1368,7 @@ export function App({
     }
     setSteppedTo(null);
     setEpicPage({
-      page: { kind: "session", task: step.task, phase: phaseOfStep(detail, step), step: step.id },
+      page: { kind: "session", task: step.task, phase: step.readOnly ? "reviewing" : "implementing", step: step.id },
       below: [{ page: epicPageView, scroll: 0 }],
       move: "drill",
       closed: false,
@@ -1377,8 +1412,10 @@ export function App({
   // App reports its address after each render, once, when the form it shows differs from the one it last reported or
   // applied. An address still pending, or an epic sub-page still landing, reports nothing and leaves its cause to the
   // render that settles it. This effect comes before the effects that set a cause or apply an address, so a cause they
-  // set reaches the next render's report, and an address they apply does not reach this one.
-  useEffect(() => {
+  // set reaches the next render's report, and an address they apply does not reach this one. It is a layout effect, so
+  // it reports in the commit of the render it reports: a passive effect could run after a key press has set a cause,
+  // and consume that cause against the render before it.
+  useLayoutEffect(() => {
     if (pendingOpen.current !== null || opened !== null) {
       return;
     }
@@ -1642,15 +1679,32 @@ export function App({
     renderAddress();
   }, [addressForm, flat, marked, answered, contracts]);
 
-  // markNoticeSeen sends the notice's key as seen. A failed report is dropped; the notice stays until it ends.
-  const markNoticeSeen = (notice: InAppNotice) => {
-    void clients.notices.seen({ key: notice.key }).catch(() => undefined);
+  // The notice log: the page's history of notices, read again when the page shows, after each change of the notices
+  // showing, and after each Seen.
+  const noticeLog = useNoticeLog(clients, seenWindow ?? window, seenClock ?? realClock, notices);
+
+  // markNoticeSeen sends the notice's key as seen, then lists the log again, so its unread count follows the report. A
+  // failed report is dropped; the notice stays in the stack until it ends.
+  const markNoticeSeen = (notice: NoticeFields) => {
+    void clients.notices.seen({ key: notice.key }).catch(() => undefined).then(noticeLog.relist);
+  };
+
+  // markAllNoticesRead sends ReadAll, then lists the log again, so the centre's rows and the unread count follow it. A
+  // failed report is dropped.
+  const markAllNoticesRead = () => {
+    void clients.notices.readAll({}).catch(() => undefined).then(noticeLog.relist);
+  };
+
+  // noticeAgeOf is a notice's age from the log's newest row under its key, or "" when the log holds none.
+  const noticeAgeOf = (notice: InAppNotice) => {
+    const row = noticeLog.rows.find((listed) => noticeKey(listed.key) === noticeKey(notice.key));
+    return row === undefined ? "" : noticeAge(row.time, now);
   };
 
   // openNotice counts a notice seen, then lands on what it names. An epic moves the cursor to its entry, wherever the
   // list holds it, and lands its page on the block the notice names. A pane or a session moves the cursor to its row or
-  // step, when the list shows it. A failed report is dropped; the notice stays in the banner until it ends.
-  const openNotice = navigated((notice: InAppNotice) => {
+  // step, when the list shows it. A failed report is dropped; the notice stays in the stack until it ends.
+  const openNotice = navigated((notice: NoticeFields) => {
     markNoticeSeen(notice);
     const epic = notice.key?.epic ?? "";
     if (epic !== "") {
@@ -1830,8 +1884,19 @@ export function App({
   // has no tile, so no tile is lit and the card takes the quiet tone.
   const panelOpen = pageDrawn && epicEntry !== null && !epicPage.closed && !contractShown && shownProject === null;
   // Under 760px an open epic is the page in the conversation's place: the conversation is not drawn, and the page's
-  // foot bar opens the steering conversation. At the desk the epic panel lies beside the conversation.
+  // foot bar opens the steering conversation. At the desk the epic panel lies beside the conversation, but not a worker
+  // session, which takes the conversation's place (sessionAtDesk).
   const epicPageShown = !wide && panelOpen;
+  // At the desk an open worker session is the middle conversation: it draws in the middle column, and no epic panel lies
+  // beside it. Its back returns to the record in the panel. A session whose step the epic's detail lacks stays in the
+  // panel, where its line says so beside the panel's close.
+  const sessionAtDesk =
+    wide &&
+    panelOpen &&
+    epicEntry !== null &&
+    openStep !== "" &&
+    epicDetail?.steps.some((step) => step.id === openStep) === true;
+  const epicBeside = panelOpen && !sessionAtDesk;
   // Under 760px an open contract is the page in the conversation's place too, and the reader is not drawn.
   const contractPageShown = !wide && contractShown;
   const panelThing =
@@ -1845,7 +1910,7 @@ export function App({
   const panelTone = panelThing?.tone ?? "quiet";
   // The one panel open beside the conversation is an epic's, a contract's or a list's. A list's card takes its tile's
   // tone, and its rows are the tile's tasks, which are empty once the tile is gone.
-  const panelShown = panelOpen || contractShown || listShown !== null;
+  const panelShown = epicBeside || contractShown || listShown !== null;
   const listThing = railGroups
     .flatMap((group) => group.things)
     .find(
@@ -1957,18 +2022,23 @@ export function App({
     navigated(openList)(held.open.key, held.open.panel);
   };
 
-  // The list hides under 760px while the opened row's, step's, epic's, contract's or project's page draws alone.
+  // Under 760px the notice centre is a page of its own, which draws alone: the list, the reader and the pages under it
+  // hide while it is open, and Back shows them as they were.
+  const noticesPage = !wide && noticesOpen;
+  // The list hides under 760px while the opened row's, step's, epic's, contract's or project's page draws alone, and
+  // while the notice centre does.
   const listHides =
     !wide &&
-    (shownProject !== null ||
+    (noticesPage ||
+      shownProject !== null ||
       (rowOpened && (cursorRow !== null || cursorStep !== null)) ||
       panelOpen ||
       contractPageShown);
   // The list is on screen where it is drawn: beside or over the page at the desk unless it rests as the rail, and under
-  // 760px unless a page draws alone over it. A project page covers the cursor row unless the list is on screen, and A,
-  // x and e do not act on a covered row.
+  // 760px unless a page draws alone over it. A project page or the notice centre covers the cursor row unless the list
+  // is on screen, and A, x and e do not act on a covered row.
   const listOnScreen = wide ? inboxState !== "rail" : !listHides;
-  const rowCovered = shownProject !== null && !listOnScreen;
+  const rowCovered = (shownProject !== null || noticesOpen) && !listOnScreen;
 
   // The keys read this render's state and call this render's actions, so the document listener runs the latest context.
   const keyContext: KeyContext = {
@@ -1979,6 +2049,8 @@ export function App({
     keyPopped,
     rowCovered,
     projectShown: shownProject !== null,
+    noticesOpen,
+    closeNotices: () => setNoticesOpen(false),
     index,
     flat,
     waitKeys,
@@ -2232,17 +2304,19 @@ export function App({
       }
     }
     if (page.kind === "phase") {
+      const briefStep = briefStepOf(detail, page.task);
       return (
         <PhaseOutputPage
           key={page.task}
           detail={detail}
-          epic={detail.epic?.slug ?? ""}
           task={page.task}
-          phase={page.phase}
           now={now}
+          narrow={!wide}
+          conversation={sessionStream !== null && sessionStream.key === briefStep?.id ? sessionShown : null}
           loadArtifact={loadArtifact}
           onBack={back}
-          onOpenPhase={openPhase}
+          onOpenEpic={toEpicPage}
+          onOpenTask={openPhase}
           onOpenSession={navigated((step: string) =>
             drill({ kind: "session", task: page.task, phase: page.phase, step }),
           )}
@@ -2263,11 +2337,12 @@ export function App({
         <WorkerSessionPage
           conversation={sessionStream !== null && sessionStream.key === page.step ? sessionShown : null}
           now={now}
+          detail={detail}
           step={step}
-          epic={detail.epic?.slug ?? ""}
           task={page.task}
           phase={page.phase}
-          onGoEpic={toEpicPage}
+          onOpenEpic={toEpicPage}
+          onOpenTask={openPhase}
           onBack={back}
           onOlder={() => sessionOlder.current()}
           nudge={calls.nudge}
@@ -2287,7 +2362,7 @@ export function App({
         history={epicHistory.id === entry.id ? epicHistory.entries : []}
         now={now}
         loadArtifact={loadArtifact}
-        commands={epicCommands(clients, entry.id, setEpicCommandLine)}
+        commands={epicCommands(clients, entry.id, setEpicCommandLine, () => rereadEpic(entry.id))}
         numberKeys={!epicPage.closed}
         commandError={epicCommandLine}
         onOpenContract={openContract}
@@ -2297,6 +2372,7 @@ export function App({
         mark={inboxMark}
         strip={pageStrip(null, null)}
         rows={rows}
+        listed={[...epics.listed.values()]}
         narrow={!wide}
         onTalk={steererRow === null ? undefined : closePanel}
         foot={steererRow === null ? unsteeredBar(detail) : null}
@@ -2365,8 +2441,10 @@ export function App({
   // conversation over the contract. A shown project page takes the page area, so no reader draws. At 760px and wider the
   // list, the conversation and the panel or rail sit abreast.
   const readerRow =
-    pageDrawn && !epicPageShown && !(contractPageShown && !sheeted) && shownProject === null ? middleRow : null;
-  const readerStep = pageDrawn && shownProject === null ? cursorStep : null;
+    pageDrawn && !noticesPage && !epicPageShown && !(contractPageShown && !sheeted) && shownProject === null
+      ? middleRow
+      : null;
+  const readerStep = pageDrawn && !noticesPage && shownProject === null ? cursorStep : null;
   // contractCalls are the middle reader's contract calls: its contract lines draw the contracts the list holds, and
   // open them.
   const contractCalls: ContractCalls = { contracts, onOpen: navigated(openContractPanel) };
@@ -2435,12 +2513,46 @@ export function App({
               openSearchField("");
               setPopout("key");
             }}
+            unread={noticeLog.unread}
+            onNotices={() => setNoticesOpen(true)}
             onKeys={() => setHelpOpen(true)}
             onEnter={inboxEnter}
             onLeave={inboxLeave}
           />
         )}
-        {notices.length > 0 && <NoticeBanner notices={notices} onOpen={openNotice} onDismiss={markNoticeSeen} />}
+        {notices.length > 0 && (
+          <NoticeStack
+            notices={notices}
+            head={(notice) => noticeHead(notice, tree, shownRows, now)}
+            age={noticeAgeOf}
+            act={(notice) => noticeAct(notice, shownRows)}
+            bringBackRow={(notice) => bringBackRowOf(notice, shownRows)}
+            onOpen={(notice) => {
+              setNoticesOpen(false);
+              openNotice(notice);
+            }}
+            onBringBack={(row) => {
+              void actions.bringBack(clients, { kind: "pane", id: row.id, questionHash: row.questionHash, changed: row.changed });
+            }}
+            onRead={markNoticeSeen}
+            onMore={() => setNoticesOpen(true)}
+          />
+        )}
+        {noticesOpen && (
+          <NoticeCentre
+            rows={noticeLog.rows}
+            failed={noticeLog.failed}
+            head={(row) => noticeHead(row, tree, shownRows, now)}
+            now={now}
+            narrow={!wide}
+            onOpen={(row) => {
+              setNoticesOpen(false);
+              openNotice(row);
+            }}
+            onReadAll={markAllNoticesRead}
+            onClose={() => setNoticesOpen(false)}
+          />
+        )}
         <div
           class="list"
           ref={listRef}
@@ -2467,22 +2579,32 @@ export function App({
             onView={openView}
             onRetry={onRetry}
             onNew={() => setPickerOpen(true)}
+            unread={noticeLog.unread}
+            onNotices={() => setNoticesOpen(true)}
             onKeys={() => setHelpOpen(true)}
             onOpenProject={openProject}
             pin={wide ? { pinned: inboxPinned, onPin: togglePin } : undefined}
             notes={notes}
           />
         </div>
-        {shownProject !== null && projectSection(shownProject)}
+        {shownProject !== null && !noticesPage && projectSection(shownProject)}
         <Sheet open={sheeted} title={contractLiveRow?.label ?? ""} onClose={() => setTalking(false)}>
-          {middleColumn}
+          {sessionAtDesk ? (
+            <section class={`read ${pageClasses(epicPage.move)}`} aria-label="session" ref={pageRef}>
+              {pageNode(epicEntry, epicDetail)}
+            </section>
+          ) : (
+            middleColumn
+          )}
         </Sheet>
         {pageDrawn &&
+          !noticesPage &&
           shownProject === null &&
           epicEntry !== null &&
           !contractShown &&
           steererRow === null &&
-          !epicPageShown && (
+          !epicPageShown &&
+          !sessionAtDesk && (
             <section class="read" aria-label="no conversation">
               {noSteererMiddle(epicDetail)}
             </section>
@@ -2525,12 +2647,12 @@ export function App({
             void escapeRow({ row, column: "pinned", state: headState(row, pinnedConversation) }, null)
           }
         />
-        {epicEntry !== null && panelOpen && wide && (
+        {epicEntry !== null && epicBeside && wide && (
           <SidePanel label="epic" tone={panelTone} href={shownForm} onClose={closePanel}>
             {epicPageSection(epicEntry, epicDetail)}
           </SidePanel>
         )}
-        {epicEntry !== null && panelOpen && !wide && (
+        {epicEntry !== null && panelOpen && !wide && !noticesPage && (
           <div class="epic-read">{epicPageSection(epicEntry, epicDetail)}</div>
         )}
         {contract !== undefined && wide && (
@@ -2543,7 +2665,7 @@ export function App({
             {contractPage}
           </SidePanel>
         )}
-        {contract !== undefined && !wide && <div class="epic-read">{contractPage}</div>}
+        {contract !== undefined && !wide && !noticesPage && <div class="epic-read">{contractPage}</div>}
         {listShown !== null && wide && (
           <SidePanel label={listHead(listShown)} tone={listTone} href={shownForm} onClose={closeList}>
             <ListPanel kind={listShown} tasks={listTasks} now={now} />
@@ -2796,13 +2918,6 @@ function withoutSent(previous: Map<string, Sending[]>, key: string, texts: strin
   return next;
 }
 
-// phaseOfStep is the phase a step's session page names: the phase whose row opens the step, as the epic page's phase rows
-// open it, or else reviewing for a read-only step and implementing for any other step.
-function phaseOfStep(detail: EpicsGetResponse, step: EpicStep): Phase {
-  const row = phaseOutputOf(detail, step.task)?.rows.find((candidate) => candidate.session === step.id);
-  return row?.phase ?? (step.readOnly ? "reviewing" : "implementing");
-}
-
 // EpicSteer is the steering command of an epic page. At the desk it is an icon in the title row that opens the steering
 // menu under it. Under 760px it is the sheet that the More sheet's Steer item opens, which the page holds as sheet. It
 // holds the desk menu's open state and the one steering handle the menu and its choices share, and a choice that steers
@@ -2941,10 +3056,31 @@ async function readHistory(clients: Clients, id: string): Promise<EpicHistoryEnt
   return entries;
 }
 
+// newerDetail is the epic's detail the page draws: the one whose epic has the higher revision. It is the polled detail on
+// a tie, and when either detail has no epic to compare, and the one held when the other is missing.
+export function newerDetail(
+  polled: EpicsGetResponse | undefined,
+  asked: EpicsGetResponse | undefined,
+): EpicsGetResponse | undefined {
+  if (polled === undefined || asked === undefined) {
+    return polled ?? asked;
+  }
+  if (polled.epic === undefined || asked.epic === undefined) {
+    return polled;
+  }
+  return asked.epic.revision > polled.epic.revision ? asked : polled;
+}
+
 // epicCommands binds an epic's commands to its id. A command that fails reports its did-not-land line through report,
 // the command's name and the error's message as the reason; one that lands reports "". answer resolves "" when the
-// answer lands, else the error's message.
-function epicCommands(clients: Clients, epicId: string, report: (line: string) => void): EpicCommands {
+// answer lands, else the error's message. release and close are owner calls: each is sent once, never retried, and
+// resolves its outcome rather than reporting through report. reread is the read the page makes after one.
+export function epicCommands(
+  clients: Clients,
+  epicId: string,
+  report: (line: string) => void,
+  reread: () => Promise<boolean>,
+): EpicCommands {
   const send = (name: string, sent: Promise<unknown>): void => {
     void sent.then(
       () => report(""),
@@ -2962,6 +3098,9 @@ function epicCommands(clients: Clients, epicId: string, report: (line: string) =
         () => "",
         (error: unknown) => (error instanceof Error && error.message !== "" ? error.message : answerFailedText),
       ),
+    release: (undoNone) => sendOnce(() => clients.epics.release({ id: epicId, undoNone })),
+    close: (kind, by) => sendOnce(() => clients.epics.close({ id: epicId, kind, by })),
+    reread,
   };
 }
 

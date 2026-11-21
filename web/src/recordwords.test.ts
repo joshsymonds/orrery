@@ -8,10 +8,12 @@ import {
   EpicContractSchema,
   EpicHistoryEntrySchema,
   EpicQuestionSchema,
+  EpicReleaseProofSchema,
   EpicRequirementSchema,
   EpicsGetResponseSchema,
   EpicSchema,
   EpicStepSchema,
+  type EpicReleaseProof,
   type EpicsGetResponse,
   type EpicStep,
 } from "./gen/orrery/v1/epics_pb";
@@ -417,4 +419,72 @@ test("EpicWords: a record epic's state pill is the state word of status.ts state
   const d = detail({ epic: { ...record, outcome: "released" } });
   assert.equal(stateOf(d), "released");
   assert.deepEqual(statePillOf(d, now), { word: stateOf(d), tone: "quiet" });
+});
+
+// A release step at its position, in the given state, with the undo it was given.
+function releaseStep(position: number, state: string, undo = "rollback"): EpicReleaseProof {
+  return create(EpicReleaseProofSchema, { position: BigInt(position), step: `Step ${position}`, state, undo, target: "" });
+}
+
+test("EpicWords: a releasing epic's now sentence names its running release step, or says releasing when none runs", () => {
+  const steps = [releaseStep(1, "passed"), releaseStep(2, "running"), releaseStep(3, "waiting")];
+  assert.equal(nowSentenceOf(orrerydIn("releasing", { releaseSteps: steps })), "Releasing: step 2 of 3 is running.");
+  const none = [releaseStep(1, "passed"), releaseStep(2, "waiting")];
+  assert.equal(nowSentenceOf(orrerydIn("releasing", { releaseSteps: none })), "Releasing.");
+  assert.equal(nowSentenceOf(orrerydIn("releasing")), "Releasing.");
+});
+
+test("EpicWords: a stopped release's now sentence names the step with no undo that waits on you, else the first unpassed step, else none", () => {
+  const offered = [releaseStep(1, "passed"), releaseStep(2, "failed", "none"), releaseStep(3, "waiting")];
+  assert.equal(
+    nowSentenceOf(orrerydIn("stopped", { releaseSteps: offered })),
+    "The release stopped at step 2, and that step has no undo. It waits on you.",
+  );
+  const undone = [releaseStep(1, "passed"), releaseStep(2, "waiting"), releaseStep(3, "failed", "rollback")];
+  assert.equal(nowSentenceOf(orrerydIn("stopped", { releaseSteps: undone })), "The release stopped at step 2.");
+  assert.equal(nowSentenceOf(orrerydIn("stopped")), "The release stopped.");
+});
+
+test("EpicWords: an owner's park or an open question still wins over the release sentences", () => {
+  const running = [releaseStep(1, "running")];
+  const asked = create(EpicQuestionSchema, { id: "Q1", text: "Which?", asked: 9_400n });
+  assert.equal(
+    nowSentenceOf(orrerydIn("releasing", { releaseSteps: running, parked: "budget" })),
+    "Parked. Nothing runs until you answer.",
+  );
+  assert.equal(
+    nowSentenceOf(orrerydIn("stopped", { releaseSteps: [releaseStep(1, "failed", "none")], questions: [asked] })),
+    "It waits on your answer.",
+  );
+});
+
+test("EpicWords: a stopped release with an undo-none failed step gives the blocker pill its words, and nothing else gives a release pill", () => {
+  const offered = [releaseStep(1, "passed"), releaseStep(2, "failed", " None ")];
+  assert.deepEqual(blockerPillOf(orrerydIn("stopped", { releaseSteps: offered }), now), {
+    word: "step 2 failed and cannot be undone",
+    tone: "attention",
+  });
+  const undone = [releaseStep(1, "passed"), releaseStep(2, "failed", "rollback")];
+  assert.equal(blockerPillOf(orrerydIn("stopped", { releaseSteps: undone }), now), null);
+  assert.equal(blockerPillOf(orrerydIn("releasing", { releaseSteps: [releaseStep(1, "running")] }), now), null);
+});
+
+test("EpicWords: an ended-with-gaps epic's blocker pill names its two ways on", () => {
+  assert.deepEqual(blockerPillOf(orrerydIn("ended_with_gaps"), now), {
+    word: "release it anyway, or close it",
+    tone: "attention",
+  });
+});
+
+test("EpicWords: an owner's park or an open question still wins over the release and ended-with-gaps pills", () => {
+  const offered = [releaseStep(1, "failed", "none")];
+  const asked = create(EpicQuestionSchema, { id: "Q1", text: "Which?", asked: 9_400n });
+  assert.deepEqual(blockerPillOf(orrerydIn("stopped", { releaseSteps: offered, parked: "budget" }), now), {
+    word: "asks you what to do",
+    tone: "attention",
+  });
+  assert.deepEqual(blockerPillOf(orrerydIn("ended_with_gaps", { questions: [asked] }), now), {
+    word: "asks you a question · 10 min",
+    tone: "attention",
+  });
 });

@@ -12,6 +12,8 @@ import io.github.joshsymonds.orrery.gen.orrery.v1.PendingEvent
 import io.github.joshsymonds.orrery.gen.orrery.v1.PullQueuedRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.PullQueuedResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.QueuedMessage
+import io.github.joshsymonds.orrery.gen.orrery.v1.SessionsOlderRequest
+import io.github.joshsymonds.orrery.gen.orrery.v1.SessionsOlderResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.SessionsWatchConversationRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.SessionsWatchConversationResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.WaitingMessage
@@ -248,6 +250,67 @@ class OrreryClientSessionStreamTest {
         ),
     )
 
+    private val promptProto = SessionsWatchConversationResponse.newBuilder()
+        .setTranscript(SESSION_ID)
+        .setSeq(14L)
+        .addItems(
+            ConversationItemProto.newBuilder()
+                .setKind("prompt")
+                .setTime(1700000500L)
+                .setText("Example brief.")
+                .setSender("brief"),
+        )
+        .addItems(
+            ConversationItemProto.newBuilder()
+                .setKind("prompt")
+                .setTime(1700000600L)
+                .setText("Example send-back.")
+                .setSender("engine")
+                .setRound(2),
+        )
+        .addItems(ConversationItemProto.newBuilder().setKind("prompt").setTime(1700000700L).setText("Example owner prompt."))
+        .build()
+
+    private val expectedPromptDelta = ConversationDelta(
+        transcript = SESSION_ID,
+        seq = 14L,
+        reset = false,
+        items = listOf(
+            ConversationItem(
+                kind = "prompt",
+                time = 1700000500L,
+                text = "Example brief.",
+                tool = "",
+                input = "",
+                id = "",
+                error = false,
+                sender = "brief",
+                round = 0,
+            ),
+            ConversationItem(
+                kind = "prompt",
+                time = 1700000600L,
+                text = "Example send-back.",
+                tool = "",
+                input = "",
+                id = "",
+                error = false,
+                sender = "engine",
+                round = 2,
+            ),
+            ConversationItem(
+                kind = "prompt",
+                time = 1700000700L,
+                text = "Example owner prompt.",
+                tool = "",
+                input = "",
+                id = "",
+                error = false,
+            ),
+        ),
+        state = null,
+    )
+
     private val thirdDeltaProto = SessionsWatchConversationResponse.newBuilder()
         .setTranscript(SESSION_ID)
         .setSeq(12L)
@@ -320,6 +383,20 @@ class OrreryClientSessionStreamTest {
                 listOf(expectedFirstDelta, expectedSecondDelta, expectedThirdDelta, expectedKeepalive),
                 received,
             )
+        }
+    }
+
+    @Test
+    fun watchSessionKeepsEachPromptItemsSenderAndRound() {
+        FakeOrreryServer().use { server ->
+            server.route(SESSION_WATCH_CONVERSATION) { Reply.Stream(listOf(promptProto), StreamEnd.Clean) }
+            val received = mutableListOf<ConversationDelta>()
+
+            runBlocking {
+                OrreryClient(server.baseUrl).watchSession(SESSION_ID, 0L) { received.add(it) }
+            }
+
+            assertEquals(listOf(expectedPromptDelta), received)
         }
     }
 
@@ -409,6 +486,75 @@ class OrreryClientSessionStreamTest {
     }
 
     @Test
+    fun watchSessionKeepsTheOldestSeqOfAResetDelta() {
+        FakeOrreryServer().use { server ->
+            val reset = SessionsWatchConversationResponse.newBuilder()
+                .setTranscript(SESSION_ID)
+                .setSeq(20L)
+                .setReset(true)
+                .setOldest(7L)
+                .addItems(ConversationItemProto.newBuilder().setKind("reply").setTime(1700000100L).setText("Example reply."))
+                .build()
+            server.route(SESSION_WATCH_CONVERSATION) { Reply.Stream(listOf(reset), StreamEnd.Clean) }
+            val received = mutableListOf<ConversationDelta>()
+
+            runBlocking {
+                OrreryClient(server.baseUrl).watchSession(SESSION_ID, 0L) { received.add(it) }
+            }
+
+            assertEquals(7L, received.single().oldest)
+        }
+    }
+
+    @Test
+    fun sessionOlderSendsTheIdAndBeforeAndReturnsThePage() {
+        FakeOrreryServer().use { server ->
+            server.respond(
+                SESSION_OLDER,
+                SessionsOlderResponse.newBuilder()
+                    .addItems(
+                        ConversationItemProto.newBuilder()
+                            .setKind("prompt")
+                            .setTime(1700000500L)
+                            .setText("Example brief.")
+                            .setSender("brief"),
+                    )
+                    .addItems(ConversationItemProto.newBuilder().setKind("reply").setTime(1700000600L).setText("Example reply."))
+                    .setOldest(7L)
+                    .setMore(true)
+                    .build(),
+            )
+
+            val page = OrreryClient(server.baseUrl).sessionOlder(SESSION_ID, 9L)
+
+            val sent = SessionsOlderRequest.parseFrom(server.requests.single().body)
+            assertEquals(SESSION_ID, sent.id)
+            assertEquals(9L, sent.before)
+            assertEquals(
+                SessionOlderPage(
+                    items = listOf(
+                        ConversationItem(
+                            kind = "prompt",
+                            time = 1700000500L,
+                            text = "Example brief.",
+                            tool = "",
+                            input = "",
+                            id = "",
+                            error = false,
+                            sender = "brief",
+                            round = 0,
+                        ),
+                        ConversationItem(kind = "reply", time = 1700000600L, text = "Example reply.", tool = "", input = "", id = "", error = false),
+                    ),
+                    oldest = 7L,
+                    more = true,
+                ),
+                page,
+            )
+        }
+    }
+
+    @Test
     fun interruptReturnsTheTextsTheServerAnswersInSendOrder() {
         FakeOrreryServer().use { server ->
             server.respond(
@@ -459,6 +605,7 @@ class OrreryClientSessionStreamTest {
     private companion object {
         const val SESSION_ID = "0123456789abcdef0123456789abcdef"
         const val SESSION_WATCH_CONVERSATION = "/orrery.v1.Sessions/WatchConversation"
+        const val SESSION_OLDER = "/orrery.v1.Sessions/Older"
         const val CONTROL_INTERRUPT = "/orrery.v1.Control/Interrupt"
         const val CONTROL_WITHDRAW = "/orrery.v1.Control/Withdraw"
         const val PANES_PULL_QUEUED = "/orrery.v1.Panes/PullQueued"

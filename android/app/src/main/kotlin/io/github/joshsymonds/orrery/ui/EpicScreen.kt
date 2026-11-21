@@ -18,6 +18,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -75,7 +76,8 @@ class EpicOpening(val section: String)
 /**
  * One epic as the record draws it: one scrolling list whose sections are drawn only when the epic reaches them. A
  * problem is one red line at the top. The summary carries the contract and steered doors; the track, Now (its sentence,
- * what asks, and its running steps), what just happened, the tasks (chart then table) and the requirements follow. The
+ * what asks, and its running steps), what just happened, the tasks (chart then table), the requirements, the review, the
+ * release and the report follow. The
  * title shows the state and the blocker pills, with no commands. A command is in the foot's More sheet, and Stop asks
  * first; the sheet also steers a live orreryd epic from another conversation, and the foot is the ended bar while its
  * steering has ended. A command that did not land shows one line under the title until a command lands. [onTalk] is
@@ -104,6 +106,10 @@ fun EpicScreen(
     var generation by remember(client, epicId) { mutableIntStateOf(0) }
     var notice by remember(client, epicId) { mutableStateOf("") }
     val scope = rememberCoroutineScope()
+    val releaseCall = remember(client, epicId) { OwnerCall() }
+    val gapsCall = remember(client, epicId) { OwnerCall() }
+    // Set once the epic's first load has drawn the list, so the Report is brought into view on that load only.
+    val reportOpened = remember(client, epicId) { mutableStateOf(false) }
     val loadArtifact: ArtifactLoader = remember(client) {
         { run: String, name: String, stderr: Boolean -> client.artifact(run, name, stderr) }
     }
@@ -117,13 +123,46 @@ fun EpicScreen(
         }
     }
 
+    // release sends the Release from step N the owner confirmed, once, and never retries it: the answer is handed to the
+    // release call, which reads the epic again.
+    val release: (Long) -> Unit = { position ->
+        scope.launch {
+            val outcome = withContext(Dispatchers.IO) {
+                outcomeOf { client.releaseEpic(epicId, listOf(position.toInt())) }
+            }
+            releaseCall.answered(outcome) {
+                generation++
+                generation
+            }
+        }
+    }
+
+    // sendGaps sends one owner call of an epic that ended with gaps, once, and never retries it: the answer is handed to
+    // the gaps call, which reads the epic again.
+    fun sendGaps(call: () -> StepCallResult) {
+        scope.launch {
+            val outcome = withContext(Dispatchers.IO) { outcomeOf(call) }
+            gapsCall.answered(outcome) {
+                generation++
+                generation
+            }
+        }
+    }
+
     LaunchedEffect(client, epicId, generation) {
+        val readAt = generation
         // A reload after a command keeps the epic on screen; only a first load or a retry shows the loading line.
         if (load !is EpicLoad.Loaded) load = EpicLoad.Loading
-        load = try {
+        val loaded = try {
             withContext(Dispatchers.IO) { loadEpic(client, epicId) }
         } catch (error: IOException) {
             EpicLoad.Failed
+        }
+        load = loaded
+        if (loaded !is EpicLoad.Failed) {
+            releaseCall.loaded(readAt)
+            gapsCall.loaded(readAt)
+            keepUnoffered(loaded, releaseCall, gapsCall)
         }
     }
 
@@ -209,6 +248,13 @@ fun EpicScreen(
                 onTalk = onTalk,
                 listedSteerer = listedSteerer,
                 actions = NowActions(answer = onAnswer, retry = retry, resume = resume, stop = stop),
+                releaseCall = releaseCall,
+                onRelease = release,
+                client = client,
+                gapsCall = gapsCall,
+                onReleaseAnyway = { sendGaps { client.releaseEpic(epicId, emptyList()) } },
+                onClose = { kind, by -> sendGaps { client.closeEpic(epicId, kind, by) } },
+                reportOpened = reportOpened,
                 modifier = Modifier.weight(1f),
             )
         }
@@ -228,6 +274,16 @@ fun EpicScreen(
             )
         }
     }
+}
+
+// keepUnoffered closes a confirm whose control the read no longer offers, sending nothing: the Release from step N confirm
+// unless the read offers the step it asks for, and the ended-with-gaps confirm unless the epic is still ended with gaps.
+// A control the read offers again is at rest.
+private fun keepUnoffered(load: EpicLoad, releaseCall: OwnerCall, gapsCall: OwnerCall) {
+    val detail = (load as? EpicLoad.Loaded)?.detail
+    val offered = detail?.let { releaseOf(it)?.offer }
+    if (offered == null || releaseCall.asking != releaseAsk(offered)) releaseCall.keep()
+    if (detail?.let { reportOf(it)?.gaps } != true) gapsCall.keep()
 }
 
 // loadEpic reads the epic, then every page of its history, oldest first. Null when no epic has the id.
@@ -325,6 +381,13 @@ private fun EpicBody(
     onTalk: (steering: String) -> Unit,
     listedSteerer: (steering: String) -> Pane?,
     actions: NowActions,
+    releaseCall: OwnerCall,
+    onRelease: (Long) -> Unit,
+    client: OrreryClient,
+    gapsCall: OwnerCall,
+    onReleaseAnyway: () -> Unit,
+    onClose: (kind: String, by: String) -> Unit,
+    reportOpened: MutableState<Boolean>,
     modifier: Modifier,
 ) {
     val detail = loaded.detail
@@ -334,6 +397,9 @@ private fun EpicBody(
         val wedges = wedgesOf(detail)
         detail.requirements.filter { provenOf(it.id, wedges, detail.requirements) }.map { it.id }.toSet()
     }
+    val review = remember(detail) { reviewOf(detail) }
+    val release = remember(detail) { releaseOf(detail) }
+    val report = remember(detail) { reportOf(detail) }
     val drawn = listOfNotNull(
         "problem".takeIf { detail.epic.problem.isNotEmpty() },
         "summary".takeIf { reached.summary },
@@ -342,10 +408,17 @@ private fun EpicBody(
         "happened".takeIf { reached.history },
         "tasks".takeIf { reached.tasks },
         "requirements".takeIf { reached.requirements },
+        "review".takeIf { review != null },
+        "release".takeIf { release != null },
+        "report".takeIf { report != null },
     )
+    // The list opens at openAt's section. With none, an epic whose Report is drawn opens at it, on the first load only.
     LaunchedEffect(openAt) {
-        openAt?.let { opening ->
-            drawn.indexOf(opening.section).takeIf { it >= 0 }?.let { listState.scrollToItem(it) }
+        val firstLoad = !reportOpened.value
+        reportOpened.value = true
+        val section = openAt?.section ?: "report".takeIf { firstLoad }
+        section?.let { name ->
+            drawn.indexOf(name).takeIf { it >= 0 }?.let { listState.scrollToItem(it) }
         }
     }
     LazyColumn(modifier = modifier.fillMaxWidth(), state = listState) {
@@ -409,6 +482,28 @@ private fun EpicBody(
                     )
                 }
                 RequirementTable(requirements = detail.requirements, loadArtifact = loadArtifact)
+            }
+        }
+        if (review != null) {
+            section("review") { EpicReviewSection(view = review) }
+        }
+        if (release != null) {
+            section("release") {
+                EpicReleaseSection(view = release, call = releaseCall, onRelease = onRelease)
+            }
+        }
+        if (report != null) {
+            section("report") {
+                EpicReportSection(view = report)
+                if (report.gaps) {
+                    EpicGapsControls(
+                        client = client,
+                        detail = detail,
+                        call = gapsCall,
+                        onRelease = onReleaseAnyway,
+                        onClose = onClose,
+                    )
+                }
             }
         }
     }
@@ -531,7 +626,7 @@ private fun Door(label: String, line: String, tag: String, onTap: () -> Unit) {
 }
 
 @Composable
-private fun SectionHeading(title: String) {
+internal fun SectionHeading(title: String) {
     Text(
         title.inLabelCase(),
         style = OrreryTokens.Type.label,

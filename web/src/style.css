@@ -53,33 +53,55 @@ h3, h4, h5, h6 { font: var(--o-type-body); font-weight: var(--o-font-weight-bold
 .side-note.unread { color: var(--o-role-bad); }
 .reply { min-width: 0; }
 .pin-reply { min-width: 0; }
-/* The in-app notice stack sits at the top right of .panes, the reading area, over the list and the reader. Each row is
-   one line: its title and body are cut with an ellipsis, and its × stays at the row's end. */
+/* The notice stack sits at the right of .panes, the reading area, directly under the page's title row, strip included,
+   and never over it. NoticeStack measures that row and sets the top; this top is the fallback when no row is measured.
+   margin-top is the gap below the row. */
 .notices {
-  position: absolute; top: var(--o-space-12); right: var(--o-space-12); z-index: var(--o-z-notices); width: min(calc(var(--o-space-48) * 9 + var(--o-space-8)), calc(100% - var(--o-space-24)));
-  display: flex; flex-direction: column; gap: var(--o-space-4);
+  position: absolute; top: 0; margin-top: var(--o-space-8); right: var(--o-space-16); z-index: var(--o-z-notices);
+  display: grid; gap: var(--o-space-4); width: min(52ch, calc(100% - var(--o-space-32)));
 }
-.notices .notice-row {
-  display: flex; align-items: center; gap: var(--o-space-4); min-width: 0; white-space: nowrap;
-  background: var(--o-surface-overlay); border: var(--o-size-hairline) solid var(--o-line-firm); border-radius: var(--o-radius-3); padding: 0 var(--o-space-4) 0 var(--o-space-8);
-  font: var(--o-type-small);
+/* The stack's "N more in Notices" link, at the stack's right edge, small and quiet as round 6 draws it. It is a button.link,
+   whose own rule has the higher specificity, so this rule names the link to take the colour and the font. */
+button.link.notices-more { justify-self: end; padding: 0 var(--o-space-12); color: var(--o-ink-3); font: var(--o-type-small); }
+/* A stack row is a notice in two lines: its lead, its directory and words, and its age; then its body's first line and its
+   controls. The rules name the stack row's role and the centre's flat row's class, since other markup takes the class
+   notice too. */
+.notice[role="status"] {
+  display: grid; grid-template-columns: auto minmax(0, 1fr) auto; column-gap: var(--o-space-12); align-items: start; min-width: 0;
+  padding: var(--o-space-12); border-left: var(--o-size-rail) solid var(--o-line-firm); border-radius: 0 var(--o-radius-3) var(--o-radius-3) 0;
+  background: var(--o-surface-overlay); box-shadow: inset 0 0 0 var(--o-size-hairline) var(--o-line-firm), var(--o-elevation-overlay);
+  color: var(--o-ink-2); font: var(--o-type-small);
 }
-.notices .notice {
-  flex: 1 1 auto; display: block; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
-  margin: 0; padding: 0; border: 0; background: none; color: var(--o-ink-2); text-align: left; cursor: pointer;
-  font: inherit;
+/* A flat row of the centre is one button, with the same two lines and no box. Unread, its title is bold and a dot follows it. */
+.notice.flat {
+  display: grid; grid-template-columns: auto minmax(0, 1fr) auto; column-gap: var(--o-space-12); align-items: start; width: 100%; min-width: 0;
+  margin: 0; padding: var(--o-space-12); border: 0; border-radius: 0; background: none; box-shadow: none;
+  color: var(--o-ink-2); font: var(--o-type-small); text-align: left; cursor: pointer;
 }
-.notices .notice-title { color: var(--o-ink-1); font-weight: var(--o-font-weight-bold); }
-.notices .notice-separator { color: var(--o-ink-4); }
-.notices .notice-body { color: var(--o-ink-2); }
-.notices .notice-dismiss {
-  flex: none; width: var(--o-space-24); height: var(--o-space-24); min-height: var(--o-space-24); margin: 0; padding: 0; border: 0; border-radius: var(--o-radius-2); background: none;
-  color: var(--o-ink-3); cursor: pointer; font: var(--o-type-small);
-}
-.notices .notice-dismiss:hover { color: var(--o-ink-1); background: var(--o-surface-raised); }
-.notices .notices-more {
-  margin: 0; padding: 0 var(--o-space-8); text-align: right; color: var(--o-ink-3); font: var(--o-type-small);
-}
+.notice > .icon, .notice > .gauge, .notice > .glyph { margin-top: var(--o-space-4); }
+.notice .t { min-width: 0; overflow-wrap: anywhere; color: var(--o-ink-1); font: var(--o-type-body); font-weight: var(--o-font-weight-bold); }
+.notice.flat .t { font-weight: var(--o-font-weight-regular); }
+.notice.flat.unread .t { font-weight: var(--o-font-weight-bold); }
+.notice.flat.unread .t::after { content: ""; display: inline-block; width: var(--o-size-dot); height: var(--o-size-dot); margin-left: var(--o-space-8); border-radius: var(--o-radius-round); background: var(--o-role-new); vertical-align: middle; }
+.notice .t .dirn { color: var(--o-role-place); font-weight: var(--o-font-weight-regular); }
+.notice .b { grid-column: 2; min-width: 0; overflow-wrap: anywhere; }
+.notice .when { color: var(--o-ink-3); white-space: nowrap; }
+.notice .acts { grid-column: 2; display: flex; align-items: center; gap: var(--o-space-8); margin-top: var(--o-space-8); }
+/* NoticeCentre: where notices collect. Opened by the bell, which counts the unread, as an overlay under the title row. */
+/* The wide centre sits under the title row as the notice stack does, so margin-top is the same gap below the row. */
+.ncentre { position: absolute; top: var(--o-space-8); margin-top: var(--o-space-8); right: var(--o-space-16); z-index: var(--o-z-panel); display: grid; grid-template-columns: minmax(0, 1fr); width: min(56ch, calc(100% - var(--o-space-32))); max-height: calc(100% - var(--o-space-32)); overflow-y: auto; border-radius: var(--o-radius-3); background: var(--o-surface-overlay); box-shadow: inset 0 0 0 var(--o-size-hairline) var(--o-line-firm), var(--o-elevation-overlay); }
+.ncentre > .head { display: flex; align-items: center; gap: var(--o-space-8); padding: var(--o-space-12) var(--o-space-8) var(--o-space-8) var(--o-space-16); }
+.ncentre > .head .t-title { flex: 1 1 auto; }
+.ncentre .day { padding: var(--o-space-8) var(--o-space-16) var(--o-space-4); color: var(--o-ink-3); font: var(--o-type-label); letter-spacing: var(--o-type-label-tracking); text-transform: uppercase; }
+.ncentre .notice + .notice { border-top: var(--o-size-hairline) solid var(--o-line-soft); }
+/* The centre as the page under 760px: it lies in the flow, with no overlay box. */
+.ncentre.flat { position: static; margin-top: 0; width: auto; max-height: none; box-shadow: inset 0 0 0 var(--o-size-hairline) var(--o-line-firm); }
+.nlist { display: grid; grid-template-columns: minmax(0, 1fr); }
+/* Badged: a control that counts something, with the count on its corner. The bell's unread count is the new role. */
+.badged { position: relative; display: inline-flex; }
+.badged .n { position: absolute; top: 0; right: 0; display: grid; place-items: center; min-width: var(--o-space-16); height: var(--o-space-16); padding: 0 var(--o-space-4); border-radius: var(--o-radius-round); background: var(--o-role-attention); color: var(--o-ink-on-accent); font: var(--o-type-label); pointer-events: none; }
+.badged .n.new { background: var(--o-role-new); }
+
 @media (min-width: 760px) {
   /* The page is the window and does not scroll as a whole. The list's rows, the conversation's scroll box (.read > .reader,
      which the pinned reader shares) and the epic page each scroll on their own. The rows keep room for the current-row
@@ -139,6 +161,8 @@ h3, h4, h5, h6 { font: var(--o-type-body); font-weight: var(--o-font-weight-bold
   .read { display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr) auto; gap: 0; }
   .read.pinned { border-left: var(--o-size-hairline) solid var(--o-line-soft); }
   .read > .reader { min-height: 0; overflow-y: auto; padding: var(--o-space-16) var(--o-space-24) var(--o-space-8); }
+  /* A worker's session drawn in the middle fills the reader's three rows, and its own column scrolls its conversation. */
+  .read > .worker-session { grid-row: 1 / -1; min-height: 0; padding: var(--o-space-12) var(--o-space-24); }
   .head, .convo-head > .title-row { padding: var(--o-space-12) var(--o-space-24) var(--o-space-12); }
   .send { min-width: 0; padding: 0 var(--o-space-24) var(--o-space-12); }
   .rcard > section.page { min-height: 0; flex: 1 1 auto; overflow-y: auto; padding: var(--o-space-16) var(--o-space-24) var(--o-space-8); }
@@ -705,6 +729,7 @@ h3, h4, h5, h6 { font: var(--o-type-body); font-weight: var(--o-font-weight-bold
    (the base .chip.bad) for the rest. */
 .reader .chip.ok { color: var(--o-role-ok); background: var(--o-role-ok-fill); }
 .reader .chip.quiet { color: var(--o-ink-3); }
+/* An Ask draws its own chips, inside the reader too. */
 .ask .chip { display: inline-flex; align-items: center; gap: var(--o-space-4); flex: none; padding: 0 var(--o-space-8); border-radius: var(--o-radius-1); background: var(--o-surface-raised); color: var(--o-ink-2); font: var(--o-type-small); white-space: nowrap; }
 .ask .chip.attention { background: var(--o-role-attention-fill); color: var(--o-role-attention); }
 /* The epic card a conversation draws in place of its epic_create call: one Block, its slug a link that opens the epic. */
@@ -729,7 +754,8 @@ h3, h4, h5, h6 { font: var(--o-type-body); font-weight: var(--o-font-weight-bold
 }
 .reader .event-ring .ring-line .ring-sentence { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--o-ink-1); }
 .reader .event-ring .ring-slug { flex: none; color: var(--o-role-ref); }
-/* A step's end: its Block, the brief under it, its return in a fold, and its facts. A click on its head opens the step. */
+/* A step's end: its Block, the brief under it, its return in a fold, and its facts. A click on its head opens the step.
+   The worker session draws the same block, in a reader's column of its own. */
 .reader .step-card { min-width: 0; }
 .reader .step-card button.step-head {
   display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--o-space-2) var(--o-space-12); width: 100%; min-height: var(--o-space-24); margin: 0; padding: 0; border: 0;
@@ -859,6 +885,10 @@ h3, h4, h5, h6 { font: var(--o-type-body); font-weight: var(--o-font-weight-bold
   .dock { padding: 0 var(--o-space-8) var(--o-space-8); }
   .dock-input textarea { min-height: var(--o-size-control-touch); padding: var(--o-space-12) 0; }
   .ctl kbd { display: none; }
+  /* The worker session's state line wraps, so the Stop confirm wraps under the word instead of clipping at the dock's edge. */
+  .worker-session .statebar { flex-wrap: wrap; }
+  .worker-session .statebar .end { flex: 1 1 auto; }
+  .worker-session .dock .confirm { flex-wrap: wrap; }
 }
 @media (prefers-reduced-motion: reduce) {
   .statebar .g-working { animation: none; }
@@ -877,7 +907,7 @@ h3, h4, h5, h6 { font: var(--o-type-body); font-weight: var(--o-font-weight-bold
 section.page.drill { animation: move-drill var(--o-move-drill); }
 section.page.leave { animation: move-leave var(--o-move-leave); }
 .epic-page p { margin: 0; }
-.epic-page ul, .epic-page ol { margin: 0; padding: 0; list-style: none; }
+.epic-page ul, .epic-page ol, .phase-output ul, .phase-output ol { margin: 0; padding: 0; list-style: none; }
 .epic-page h3 { margin: 0; font: var(--o-type-label); letter-spacing: var(--o-type-label-tracking); text-transform: uppercase; color: var(--o-ink-3); }
 .epic-page .sure { font: var(--o-type-small); color: var(--o-ink-2); }
 /* The title row: back, the crumbs, the state and blocker, and the commands pushed to its right. */
@@ -975,6 +1005,7 @@ button.subj:hover { background: var(--o-surface-raised); }
   .subj { flex-wrap: wrap; min-height: var(--o-size-control-touch); }
   .subj .st { white-space: normal; }
   .page-note { padding: var(--o-space-4) 0; }
+  .notices { right: var(--o-space-8); width: calc(100% - var(--o-space-16)); }
   /* The head sticks to the top of its column while the page scrolls under it, so the folded line stays in view. */
   .convo-head { position: sticky; top: 0; z-index: var(--o-z-sticky); background: var(--o-surface-page); }
   .convo-head > .title-row .crumbs { display: grid; flex: 1 1 0; grid-template-columns: minmax(0, 1fr); }
@@ -994,6 +1025,12 @@ button.subj:hover { background: var(--o-surface-raised); }
   .convo-head .phone-ctx { display: inline-flex; flex: none; align-items: center; }
   .convo-head .pane-strip-host, .convo-head .pane-strip .ctx { display: none; }
   .convo-head .pane-strip .other { grid-column: 1 / -1; }
+  /* The worker session's title row reads as the conversation head's: the crumbs that lead to it share one line, each
+     ellipsized, and the page's crumb takes the line under them, whole. The mark and the separator after it go. */
+  .worker-session > .title-row .crumbs { display: flex; flex: 1 1 0; flex-wrap: wrap; align-items: baseline; column-gap: var(--o-space-4); }
+  .worker-session > .title-row .mark-crumb, .worker-session > .title-row .mark-crumb + .sep { display: none; }
+  .worker-session > .title-row .crumb { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .worker-session > .title-row .crumb.here { flex: 0 0 100%; white-space: normal; overflow-wrap: normal; font: var(--o-type-body); font-weight: var(--o-font-weight-bold); }
 }
 /* The buttons press in the press move: a pressed button shrinks a little and darkens to surface1. */
 button.act, .back, .crumb { transition: transform var(--o-move-press), background-color var(--o-move-press); }
@@ -1029,6 +1066,8 @@ button.act:active, .back:active, .crumb:active { transform: scale(.97); backgrou
 .epic-page .door > span:first-child { color: var(--o-ink-3); flex: none; white-space: nowrap; }
 .epic-page .door > span:not(:first-child) { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .epic-page .door:hover { text-decoration: underline; }
+.epic-page .door.shipped > span:first-child { color: var(--o-role-ok); }
+.epic-page .door.not-shipped > span:first-child { color: var(--o-role-attention); }
 /* The track: five stages in the epic's order, each a rail in its state's colour, its name in the label face and its words under it. */
 .epic-page .track { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: var(--o-space-4); min-width: 0; margin: 0; padding: 0; list-style: none; }
 .epic-page .stage {
@@ -1139,78 +1178,82 @@ button.act:active, .back:active, .crumb:active { transform: scale(.97); backgrou
 .contract .checks { white-space: pre-wrap; }
 .contract > h2 { font: var(--o-type-display); }
 
-/* ============ the phase output and the worker session: a task's four phases as rows, the open row's output, a step's session ============ */
-/* A row's head is its phase's name, its summary and its time. A passed row's name is ok green, a now row's live yellow, and an ahead
-   row dims; its colours move over the state move. The open row's body fades in over the layout move. */
+/* ============ the task record: its band with the epic's pin and the task's chips, its five phase rows, the open row's stage bodies,
+   and the worker's session. Round 6's ContextBand, EpicPin, PhaseRow and Chip, in tokens. A row's rail is its state and tone; an
+   ahead row is greyed; a row's head is one line whose summary is cut with an ellipsis. */
+.band { display: grid; grid-template-columns: minmax(0, 1fr); flex: none; border-bottom: var(--o-size-hairline) solid var(--o-line-soft); background: var(--o-surface-well); }
+.epic-pin { display: flex; align-items: center; gap: var(--o-space-8); flex: none; width: 100%; min-width: 0; min-height: 0; margin: 0; padding: var(--o-space-4) var(--o-layout-page-pad-desk); border: 0; border-radius: 0; background: none; color: var(--o-ink-2); font: var(--o-type-small); text-align: left; cursor: pointer; appearance: none; -webkit-appearance: none; }
+.epic-pin:hover { background: var(--o-surface-well); }
+.epic-pin .slug { flex: none; color: var(--o-ink-1); font-weight: var(--o-font-weight-bold); }
+.epic-pin .words { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.epic-pin .blocker { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--o-role-attention); }
+.epic-pin .end { display: inline-flex; align-items: center; gap: var(--o-space-4); flex: none; margin-left: auto; color: var(--o-ink-3); }
+.tstrip { display: flex; gap: var(--o-space-4); min-width: 0; padding: 0 var(--o-layout-page-pad-desk) var(--o-space-8); overflow-x: auto; }
+.tchip { display: inline-grid; gap: var(--o-space-2); flex: none; min-width: 0; min-height: 0; margin: 0; padding: var(--o-space-4) var(--o-space-8); border: 0; border-radius: var(--o-radius-2); background: none; color: var(--o-ink-3); font: var(--o-type-small); text-align: left; white-space: nowrap; cursor: pointer; appearance: none; -webkit-appearance: none; }
+.tchip:hover { background: var(--o-surface-raised); color: var(--o-ink-1); }
+.tchip.cur { background: var(--o-surface-raised); box-shadow: inset 0 0 0 var(--o-size-hairline) var(--o-role-focus); color: var(--o-ink-1); font-weight: var(--o-font-weight-bold); cursor: default; }
+
 .phase-output { display: flex; flex-direction: column; gap: var(--o-space-12); min-width: 0; }
 .phase-output p { margin: 0; }
-.phase-output .phase-task { display: flex; flex-direction: column; gap: var(--o-space-4); min-width: 0; }
-.phase-output .task-title { margin: 0; font: var(--o-type-title); color: var(--o-ink-1); overflow-wrap: anywhere; }
-.phase-output .requirements { font: var(--o-type-small); color: var(--o-ink-3); overflow-wrap: anywhere; }
-.phase-output .notice { padding: var(--o-space-4) var(--o-space-8); border-radius: var(--o-radius-2); color: var(--o-role-bad); overflow-wrap: anywhere; }
-.phase-output ol.phases { display: flex; flex-direction: column; gap: var(--o-space-4); margin: 0; padding: 0; list-style: none; }
-.phase-output .phase-row {
-  min-width: 0; border-radius: var(--o-radius-2); background: var(--o-surface-well); box-shadow: inset 0 0 0 var(--o-size-hairline) var(--o-line-soft);
-  transition: color var(--o-move-state), background-color var(--o-move-state), box-shadow var(--o-move-state);
-}
-.phase-output .phase-row.open { box-shadow: inset 0 0 0 var(--o-size-hairline) var(--o-line-firm); }
-.phase-output .phase-row.passed { color: var(--o-role-ok); }
-.phase-output .phase-row.now { color: var(--o-role-live); }
-.phase-output .phase-row.ahead { color: var(--o-ink-3); }
-.phase-output .phase-head {
-  display: grid; grid-template-columns: minmax(0, auto) minmax(0, 1fr) auto; column-gap: var(--o-space-8); align-items: baseline;
-  width: 100%; min-height: var(--o-space-24); padding: var(--o-space-4) var(--o-space-8); border: 0; background: none; color: inherit; text-align: left; cursor: pointer;
-  font: var(--o-type-small); appearance: none; -webkit-appearance: none;
-}
+/* The requirement line and the planner's brief, above the stages. */
+.phase-output .now-sentence { color: var(--o-ink-1); font: var(--o-type-title); overflow-wrap: anywhere; }
+.phase-output .now-sentence .id { color: var(--o-ink-3); font: var(--o-type-small); white-space: nowrap; }
+.phase-output .brief { display: grid; gap: var(--o-space-4); min-width: 0; padding: var(--o-space-8) var(--o-space-12); border-left: var(--o-size-rail) solid var(--o-role-engine); border-radius: 0 var(--o-radius-2) var(--o-radius-2) 0; background: linear-gradient(var(--o-role-engine-fill), var(--o-role-engine-fill)), var(--o-surface-well); color: var(--o-ink-1); }
+.phase-output .brief .lbl { color: var(--o-role-engine); font: var(--o-type-label); letter-spacing: var(--o-type-label-tracking); text-transform: uppercase; }
+.phase-output .brief p { font: var(--o-type-body); overflow-wrap: anywhere; }
+/* A phase row: its rail is its state's colour, or its tone's when it is now. */
+.phase-output .phase { display: grid; grid-template-columns: minmax(0, 1fr); min-width: 0; border-left: var(--o-size-rail) solid var(--o-line-soft); }
+.phase-output .phase.passed { border-left-color: var(--o-role-ok); }
+.phase-output .phase.now { border-left-color: var(--o-role-live); }
+.phase-output .phase.now.mine { border-left-color: var(--o-role-attention); }
+.phase-output .phase.now.bad { border-left-color: var(--o-role-bad); }
+.phase-output .phase.now.acc { border-left-color: var(--o-role-engine); }
+.phase-output .phase.now.ok { border-left-color: var(--o-role-ok); }
+.phase-output .phase.now.limited { border-left-color: var(--o-ink-3); }
+.phase-output .phase.now.plan { border-left-color: var(--o-tone-plan); }
+.phase-output .phase-head { display: flex; align-items: baseline; gap: var(--o-space-12); width: 100%; min-width: 0; min-height: 0; margin: 0; padding: var(--o-space-8) var(--o-space-12); border: 0; border-radius: 0; background: none; color: var(--o-ink-2); font: var(--o-type-small); text-align: left; cursor: pointer; appearance: none; -webkit-appearance: none; }
+.phase-output .phase-head:hover:not(:disabled) { background: var(--o-surface-well); }
 .phase-output .phase-head:disabled { cursor: default; }
-.phase-output .phase-name { font: var(--o-type-title); white-space: nowrap; }
-.phase-output .phase-summary { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--o-ink-2); }
-.phase-output .phase-time { white-space: nowrap; color: var(--o-ink-3); }
-.phase-output .phase-row.ahead .phase-summary, .phase-output .phase-row.ahead .phase-time { color: var(--o-ink-3); }
-.phase-output .phase-body {
-  display: flex; flex-direction: column; gap: var(--o-space-8); min-width: 0; padding: var(--o-space-4) var(--o-space-8) var(--o-space-8);
-  font: var(--o-type-small); color: var(--o-ink-2); animation: move-fade var(--o-move-layout);
+.phase-output .phase-head .nm { flex: none; color: var(--o-ink-1); font: var(--o-type-body); font-weight: var(--o-font-weight-bold); white-space: nowrap; }
+.phase-output .phase-head .sum { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.phase-output .phase-head .end { flex: none; color: var(--o-ink-3); white-space: nowrap; }
+.phase-output .phase.ahead .phase-head, .phase-output .phase.ahead .phase-head .nm { color: var(--o-ink-4); font-weight: var(--o-font-weight-regular); }
+.phase-output .phase-body { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--o-space-12); min-width: 0; padding: var(--o-space-4) var(--o-space-12) var(--o-space-16); color: var(--o-ink-2); font: var(--o-type-small); animation: move-fade var(--o-move-layout); }
+.phase-output .phase-body .sub { color: var(--o-ink-3); font: var(--o-type-label); letter-spacing: var(--o-type-label-tracking); text-transform: uppercase; }
+/* An attempt's check rounds are the conversation's CheckBlocks, so they sit in a reader of their own, as a worker's step end
+   does, and take the reader's block look; one round under the other. */
+.phase-output .phase-body .reader.check-rounds { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--o-space-8); padding: 0; }
+.phase-output .attempts { display: grid; gap: var(--o-space-8); margin: 0; padding: 0; list-style: none; }
+.phase-output .attempt { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; column-gap: var(--o-space-8); align-items: baseline; min-width: 0; }
+.phase-output .attempt .n { color: var(--o-ink-3); white-space: nowrap; }
+.phase-output .attempt .words { min-width: 0; color: var(--o-ink-2); overflow-wrap: anywhere; }
+/* The review table: a review's gate, its finding, where, and what happened with the reason. */
+.phase-output .tbl { --cols: auto minmax(0, 1.4fr) auto minmax(0, 1fr); }
+.phase-output .tr .gate { color: var(--o-ink-1); white-space: nowrap; }
+.phase-output .tr .what, .phase-output .tr .res { min-width: 0; overflow-wrap: anywhere; }
+/* The session door: the step's conversation, a link line. */
+.phase-output .door { display: inline-flex; align-items: center; gap: var(--o-space-8); justify-self: start; min-width: 0; min-height: 0; margin: 0; padding: var(--o-space-4) 0; border: 0; border-radius: 0; background: none; color: var(--o-ink-3); font: var(--o-type-small); cursor: pointer; appearance: none; -webkit-appearance: none; }
+.phase-output .door > span:first-child { color: var(--o-role-ref); }
+.phase-output .door:hover > span:first-child { text-decoration: underline; }
+.phase-output .door .chev { color: var(--o-ink-4); }
+/* The phone's foot bar: the state word takes the room it has and cuts its end; the controls keep their own width. */
+.phase-output .cmdbar .state { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: var(--o-type-small); font-weight: var(--o-font-weight-bold); color: var(--tone, var(--o-ink-2)); }
+
+/* On a phone the pin, the chips and the phase heads take the touch heights, and the pin's open-the-epic line goes. */
+@media (width < 760px) {
+  .epic-pin { min-height: var(--o-size-control-touch); padding: var(--o-space-4) var(--o-layout-page-pad-phone); }
+  .epic-pin .open, .epic-pin .words { display: none; }
+  .tstrip { padding: 0 var(--o-layout-page-pad-phone) var(--o-space-8); }
+  .phase-output .phase-head { min-height: var(--o-size-control-touch); align-items: center; }
+  .phase-output .door { min-height: var(--o-size-control-touch); }
+  /* As round 6's touch table: each row stacks in the one column, its finding and what-happened cells spanning the row. */
+  .phase-output .tbl { --cols-touch: auto minmax(0, 1fr); }
 }
-.phase-output ol.attempts, .phase-output ol.rounds, .phase-output ul.checks, .phase-output ol.reviews,
-.phase-output ul.findings, .phase-output ul.reviewers { display: flex; flex-direction: column; gap: var(--o-space-8); margin: 0; padding: 0; list-style: none; }
-.phase-output .attempt { display: flex; flex-direction: column; gap: var(--o-space-2); min-width: 0; }
-.phase-output .attempt-doing { color: var(--o-role-live); overflow-wrap: anywhere; }
-.phase-output .attempt-end { font-weight: var(--o-font-weight-bold); color: var(--o-ink-2); }
-.phase-output .attempt-text { color: var(--o-ink-3); overflow-wrap: anywhere; }
-/* A check round is a card: its head, its checks, its gate's tails and its judge's verdict. */
-.phase-output .round { display: flex; flex-direction: column; gap: var(--o-space-4); min-width: 0; padding: var(--o-space-8); border-radius: var(--o-radius-2); background: var(--o-surface-well); }
-.phase-output .round-head { color: var(--o-ink-3); }
-.phase-output .round-no { font-weight: var(--o-font-weight-bold); color: var(--o-ink-2); }
-.phase-output .check { display: flex; flex-wrap: wrap; column-gap: var(--o-space-8); min-width: 0; }
-.phase-output .check-name { color: var(--o-ink-2); overflow-wrap: anywhere; }
-.phase-output .check-detail { flex: 1 1 100%; color: var(--o-role-bad); overflow-wrap: anywhere; }
-.phase-output .gate { display: flex; flex-direction: column; gap: var(--o-space-4); min-width: 0; }
-.phase-output .gate-name { font-weight: var(--o-font-weight-bold); color: var(--o-ink-2); }
-.phase-output .gate-result { color: var(--o-ink-3); }
-.phase-output .gate-detail { color: var(--o-ink-3); overflow-wrap: anywhere; }
-.phase-output .gate-stdout, .phase-output .gate-stderr {
-  margin: 0; max-height: calc(var(--o-space-48) * 5); overflow: auto; padding: var(--o-space-4) var(--o-space-8); border-radius: var(--o-radius-2); background: var(--o-surface-side);
-  font: var(--o-type-small); color: var(--o-ink-2); white-space: pre-wrap; overflow-wrap: anywhere;
-}
-.phase-output .gate-stderr { color: var(--o-role-halt); }
-.phase-output .judge { color: var(--o-ink-2); overflow-wrap: anywhere; }
-.phase-output .judge-verdict { font-weight: var(--o-font-weight-bold); color: var(--o-ink-1); }
-/* The reviews: each review's head, its findings as a column of claims, locations, results and reasons, then the reviewers. */
-.phase-output .review { display: flex; flex-direction: column; gap: var(--o-space-4); min-width: 0; }
-.phase-output .review-head { color: var(--o-ink-3); }
-.phase-output .review-verdict { font-weight: var(--o-font-weight-bold); color: var(--o-ink-2); }
-.phase-output .finding { display: flex; flex-direction: column; gap: var(--o-space-2); min-width: 0; padding: var(--o-space-4) var(--o-space-8); border-radius: var(--o-radius-2); box-shadow: inset var(--o-size-rail) 0 0 var(--o-line-firm); }
-.phase-output .claim { color: var(--o-ink-1); overflow-wrap: anywhere; }
-.phase-output .location { color: var(--o-ink-3); overflow-wrap: anywhere; }
-.phase-output .result { color: var(--o-ink-2); }
-.phase-output .reason { color: var(--o-ink-3); overflow-wrap: anywhere; }
-.phase-output .reviewer { color: var(--o-ink-3); overflow-wrap: anywhere; }
-.phase-output .integration { color: var(--o-ink-2); }
 /* The worker session is a column that fills its track: its title row, its reader, which alone scrolls, and its step box. */
 .worker-session { display: flex; flex-direction: column; height: 100%; min-width: 0; min-height: 0; }
 .worker-session > .reader { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
 
-/* On a phone, a button, input or select takes the touch height. Controls inside a line keep their own 24 (.back, .notice-dismiss, the crumbs, the folds and the other in-line buttons): their class selectors outrank this element rule. */
+/* On a phone, a button, input or select takes the touch height. Controls inside a line keep their own 24 (.back, the crumbs, the folds and the other in-line buttons): their class selectors outrank this element rule. */
 @media (width < 760px) {
   button, input, select { min-height: var(--o-size-control-touch); }
 }
@@ -1255,6 +1298,7 @@ button.act:active, .back:active, .crumb:active { transform: scale(.97); backgrou
 .tile.quiet { color: var(--o-ink-3); }
 .tile .n { position: absolute; top: 0; right: 0; display: grid; place-items: center; min-width: var(--o-space-16); height: var(--o-space-16); padding: 0 var(--o-space-4); border-radius: var(--o-radius-round); background: var(--o-role-attention); color: var(--o-ink-on-accent); font: var(--o-type-label); }
 .tile .n.live { background: var(--o-role-live); }
+.tile .n.new { background: var(--o-role-new); }
 .tile .n.quiet { background: var(--o-surface-pressed); color: var(--o-ink-1); }
 .tile-w { position: relative; display: grid; justify-items: center; gap: var(--o-space-2); flex: none; width: calc(var(--o-layout-rail-width) - var(--o-space-8)); min-height: 0; padding: 0; border: 0; background: none; color: var(--o-ink-3); cursor: pointer; }
 .tile-w:hover .tile { background: var(--o-surface-raised); }
@@ -1299,6 +1343,8 @@ button.act:active, .back:active, .crumb:active { transform: scale(.97); backgrou
 .tbl.tasks { --cols: minmax(0, 1.4fr) auto auto minmax(0, 1fr) auto; }
 .tbl.reqs { --cols: auto minmax(0, 1fr) auto auto auto; }
 .tbl.steps { --cols: var(--o-size-glyph) minmax(0, 1fr) auto minmax(0, 2fr) auto; }
+.tbl.reviews, .tbl.findings { --cols: auto minmax(0, 1fr) auto; }
+.tbl.release { --cols: auto minmax(0, 1fr) auto auto; }
 .tr, .tbl > .th {
   display: grid; grid-column: 1 / -1; grid-template-columns: subgrid; align-items: center; min-width: 0; margin: 0; padding: var(--o-space-8);
   border: 0; border-top: var(--o-size-hairline) solid var(--o-line-soft); border-radius: 0; background: none; color: var(--o-ink-2); font: var(--o-type-small); text-align: left;
@@ -1316,7 +1362,15 @@ button.tr:hover { background: var(--o-surface-well); }
 .tr .cell.bad { --tone: var(--o-role-bad); }
 .tr .cell.live { --tone: var(--o-role-live); }
 .tr .end { justify-self: end; color: var(--o-ink-3); white-space: nowrap; }
+.tr .undo { color: var(--o-ink-3); overflow-wrap: anywhere; }
+.tr .to, .tr .where { color: var(--o-ink-3); }
+.tbl.release .wide, .tbl.reviews .wide, .tbl.findings .wide { overflow-wrap: anywhere; }
 .tr-detail { display: grid; grid-column: 1 / -1; gap: var(--o-space-8); min-width: 0; padding: 0 var(--o-space-8) var(--o-space-12) var(--o-space-32); }
+.tr-detail .reason, .closure { margin: 0; font: var(--o-type-small); overflow-wrap: anywhere; }
+.tr-detail .reason { color: var(--o-ink-2); }
+.closure { color: var(--o-ink-3); }
+.closure.ok { color: var(--o-role-ok); }
+.closure.attention { color: var(--o-role-attention); }
 .tbl > .fold-line {
   grid-column: 1 / -1; display: flex; align-items: center; gap: var(--o-space-8); width: 100%; min-height: var(--o-space-24); margin: 0; padding: var(--o-space-4) var(--o-space-8);
   border: 0; border-radius: var(--o-radius-2); background: none; color: var(--o-ink-3); font: var(--o-type-small); text-align: left; cursor: pointer; appearance: none; -webkit-appearance: none;
@@ -1346,6 +1400,10 @@ button.tr:hover { background: var(--o-surface-well); }
   .tbl.tasks { --cols-touch: minmax(0, 1fr) auto auto; }
   .tbl.reqs { --cols-touch: auto auto minmax(0, 1fr); }
   .tbl.steps { --cols-touch: auto minmax(0, 1fr) auto; }
+  .tbl.reviews, .tbl.findings { --cols-touch: minmax(0, 1fr) auto; }
+  .tbl.release { --cols-touch: auto minmax(0, 1fr) auto; }
+  /* On the phone a step's undo shares its row with the state, taking the first two columns so a long undo wraps beside it. */
+  .tbl.release .undo { grid-column: 1 / 3; }
   .tr { grid-template-columns: var(--cols-touch, minmax(0, 1fr) auto); column-gap: var(--o-space-12); row-gap: var(--o-space-2); padding: var(--o-space-12) 0; }
   .tr .wide { grid-column: 1 / -1; }
   .tr.head, .tbl > .th { display: none; }
@@ -1490,12 +1548,30 @@ button.subj:hover { background: var(--o-surface-raised); }
 .chip { display: inline-flex; align-items: center; gap: var(--o-space-4); flex: none; padding: 0 var(--o-space-8); border-radius: var(--o-radius-1); background: var(--o-surface-raised); color: var(--o-ink-2); font: var(--o-type-small); white-space: nowrap; }
 .chip.live { background: var(--o-role-live-fill); color: var(--o-role-live); }
 .chip.bad { background: var(--o-role-bad-fill); color: var(--o-role-bad); }
+.chip.ok { background: var(--o-role-ok-fill); color: var(--o-role-ok); }
+.chip.attention { background: var(--o-role-attention-fill); color: var(--o-role-attention); }
 .chip.new { background: var(--o-role-new-fill); color: var(--o-role-new); }
+.chip.ok { background: var(--o-role-ok-fill); color: var(--o-role-ok); }
+.chip.attention { background: var(--o-role-attention-fill); color: var(--o-role-attention); }
+.chip.accepted { background: var(--o-role-engine-fill); color: var(--o-role-engine); }
 
 /* A note under a control: what happened, a settled decision, or a refusal in the error role. An error shows whole, not cut to a line. */
 .inote.ok { color: var(--o-role-ok); }
+/* A stage's line on the task's record takes its tone: a failure in the bad role, an accepted task in the accepted (teal) role. */
+.phase-output .inote.bad { color: var(--o-role-bad); }
+.phase-output .inote.accepted { color: var(--o-role-engine); }
 .inote.error { margin: 0; padding: 0; border-radius: 0; background: none; color: var(--o-role-bad); overflow: visible; text-overflow: clip; white-space: normal; }
 .inote.banner { padding: var(--o-space-8) var(--o-space-12); border-radius: var(--o-radius-2); background: var(--o-surface-well); color: var(--o-ink-2); }
+.inote.then { margin-top: var(--o-space-8); color: var(--o-ink-2); }
+
+/* The gap controls: the release and close calls wrap in a row, the call's line takes a row of its own under them, and Close
+   as…'s choices wrap in their row. The Report's why and its replaced line read as text. */
+.gaps-acts { display: flex; flex-wrap: wrap; align-items: center; gap: var(--o-space-8); min-width: 0; }
+.gaps-acts .call-line { flex: 1 1 100%; }
+.choices { display: flex; flex-wrap: wrap; align-items: center; gap: var(--o-space-4) var(--o-space-16); min-width: 0; color: var(--o-ink-2); font: var(--o-type-small); }
+.choices label { display: inline-flex; align-items: center; gap: var(--o-space-4); }
+.report-why { margin: 0; color: var(--o-ink-2); font: var(--o-type-body); overflow-wrap: anywhere; }
+.replaced { margin: 0; color: var(--o-ink-3); font: var(--o-type-small); overflow-wrap: anywhere; }
 
 /* A table: rows of facts in real columns, a head row of column names, and a hairline between rows. */
 .tbl { display: grid; grid-template-columns: var(--cols, minmax(0, 1fr)); column-gap: var(--o-space-16); min-width: 0; }

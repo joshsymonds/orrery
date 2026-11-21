@@ -5,6 +5,9 @@ import java.time.ZoneId
 
 enum class DockKind { SESSION, PANE, SHELL, STEP }
 
+/** The words of a waiting session or pane whose question its owner put off. */
+internal const val PUT_OFF_WORDS = "waiting on a question you put off"
+
 data class DockTool(val name: String, val arg: String, val start: Long)
 
 /** A step's dock facts: [doing] is what the step is doing, which a held step's state line says. */
@@ -67,7 +70,7 @@ fun stateLine(facts: DockFacts, nowSeconds: Long, zone: ZoneId): StateLine {
             DockControl.INTERRUPT,
         )
         facts.state == "waiting" && facts.putOff -> StateLine(
-            "idle", "waiting on a question you put off", "", "", "", DockControl.NONE,
+            "idle", PUT_OFF_WORDS, "", "", "", DockControl.NONE,
         )
         facts.state == "waiting" -> StateLine("waiting", "waiting on you", "", "", "", DockControl.NONE)
         facts.state == "done" && facts.interruptedAt > 0 -> StateLine(

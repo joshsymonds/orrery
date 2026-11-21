@@ -148,11 +148,12 @@ test("Shapes: lines in a run touch: a line's row has no bottom padding before th
   assert.equal(declaredValue(rules, ".reader .t:has(> .body > .line):has(+ .t > .body > .line) > .body", "padding-bottom"), "0");
 });
 
+// The transcript's rules are the reader's, so a rule outside it, such as the notice stack's row, is no line or rule here.
 test("Shapes: no .line or .rule rule sets a 3 px border or shadow, only a Block's rail is 3 px", () => {
   const lineOrRule = /\.(line|rule|call|fold|thinking|notice|task|compaction)(?![\w-])/;
   const railed = rules.filter(
     (rule) =>
-      rule.selectors.some((selector) => lineOrRule.test(selector)) &&
+      rule.selectors.some((selector) => selector.startsWith(".reader") && lineOrRule.test(selector)) &&
       ["border", "border-left", "box-shadow"].some((property) =>
         (rule.declarations.get(property) ?? "").includes("--o-size-rail"),
       ),

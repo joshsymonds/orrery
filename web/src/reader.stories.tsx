@@ -1,5 +1,9 @@
 // The stories of the reader's head: ReaderHead draws the head over a conversation, titled, or with where.
 
+import { create } from "@bufbuild/protobuf";
+import type { ComponentChildren } from "preact";
+import { useEffect, useRef } from "preact/hooks";
+
 import type { Stories } from "./catalog/story";
 import * as reader from "./reader";
 import { TitleParts } from "./titleparts";

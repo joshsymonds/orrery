@@ -4,6 +4,7 @@ export type Where =
   | "list"
   | "inbox-at-rest"
   | "help"
+  | "notices"
   | "palette"
   | "reply-box"
   | "epic-page"
@@ -33,8 +34,12 @@ export interface KeyGroup {
   lines: KeyLine[];
 }
 
-// page is the list's page: the list, the inbox at rest, and the help panel, which show the same keys.
-const page: Where[] = ["list", "inbox-at-rest", "help"];
+// page is the list's page: the list, the inbox at rest, the help panel, and the notice centre, which covers the list and
+// keeps its keys, except the answer keys and Escape's interrupt.
+const page: Where[] = ["list", "inbox-at-rest", "help", "notices"];
+// answerable is the list's page where 1-9 answer the cursor's question: the page without the notice centre, which
+// covers the reader while it is open.
+const answerable: Where[] = ["list", "inbox-at-rest", "help"];
 // boxes is the send and new-line keys of the boxes that send: the empty reply box, the typed one and the step box.
 const boxes: Where[] = ["reply-empty", "reply-typed", "step-box"];
 
@@ -148,7 +153,7 @@ export const keyGroups: readonly KeyGroup[] = [
       {
         caps: ["1", "…", "9"],
         text: "answer the cursor's question with that option",
-        acts: [{ chords: Array.from({ length: 9 }, (_, index) => ({ key: String(index + 1) })), in: page }],
+        acts: [{ chords: Array.from({ length: 9 }, (_, index) => ({ key: String(index + 1) })), in: answerable }],
       },
       {
         caps: ["1", "…", "9"],
@@ -179,8 +184,8 @@ export const keyGroups: readonly KeyGroup[] = [
       { caps: ["?"], text: "this list", acts: [{ chords: [{ key: "?" }], in: page }] },
       {
         caps: ["esc"],
-        text: "close a menu, a panel, or this list",
-        acts: [{ chords: [{ key: "Escape" }], in: ["help", "palette"] }],
+        text: "close a menu, a panel, the notices, or this list",
+        acts: [{ chords: [{ key: "Escape" }], in: ["help", "palette", "notices"] }],
       },
     ],
   },

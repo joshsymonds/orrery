@@ -24,6 +24,7 @@ import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import io.github.joshsymonds.orrery.api.ContractRow
+import io.github.joshsymonds.orrery.api.EpicDetail
 import io.github.joshsymonds.orrery.api.HostStat
 import io.github.joshsymonds.orrery.api.OrreryClient
 import io.github.joshsymonds.orrery.api.Pane
@@ -63,9 +64,17 @@ internal fun conversationLive(pane: Pane?): Boolean = pane != null && pane.state
 /**
  * A labelled step's session on the step screen: its owner's calls are Hold and Stop, and a message to it
  * is a nudge. [held] is the step's held state, so a held step shows no Hold. [label] names the step in the dock,
- * and [doing] says what the step is doing there.
+ * and [doing] says what the step is doing there. [epic] is the id of the epic the step belongs to and [task] the id of
+ * its task: the screen reads the epic, and the step's title, state and end come from its record once it is read.
+ * Until then [label], [held] and [doing] stand.
  */
-data class StepMode(val held: Boolean, val label: String, val doing: String = "")
+data class StepMode(
+    val held: Boolean,
+    val label: String,
+    val doing: String = "",
+    val epic: String = "",
+    val task: String = "",
+)
 
 /**
  * A headless session's screen: its conversation, streamed while the screen is started. Each delta is
@@ -80,9 +89,11 @@ data class StepMode(val held: Boolean, val label: String, val doing: String = ""
  * conversation says the session's state from the stream, with its controls and its queue; Send posts the
  * draft as a prompt through [SessionSender]. Reading the conversation marks the session seen.
  *
- * With [step] set the screen is a step's: the dock's Hold and Stop post to the step, the open request's Ask
- * is not drawn, and Send posts the draft as a nudge through [StepCalls]. [reason] is the listed row's summary,
- * which the dock shows when the session failed.
+ * With [step] set the screen is a step's: under its title row, the crumbs of its epic, its task and its own session, the
+ * band of its epic draws over the conversation, and the dock's Hold and Stop post to the step, the open request's Ask
+ * is not drawn, and Send posts the draft as a nudge through [StepCalls]. A step that has ended has no dock, and its
+ * end is the conversation's last block. [onOpenTask] is a task crumb's or chip's tap, with the phase the task is in.
+ * [reason] is the listed row's summary, which the dock shows when the session failed.
  *
  * A contract the conversation shows (its tile, its band line, its transcript line) calls [onOpenContract] with its id
  * and whether it opens live. [about] is the row's About the dock shows; a send posts it as [aboutMessage] and then
@@ -98,6 +109,7 @@ fun SessionScreen(
     client: OrreryClient,
     onBack: () -> Unit = {},
     onOpenEpic: (String) -> Unit = {},
+    onOpenTask: (task: String, phase: Phase) -> Unit = { _, _ -> },
     step: StepMode? = null,
     reason: String = "",
     about: RowAbout? = null,
@@ -120,6 +132,11 @@ fun SessionScreen(
     var finding by remember(sessionId) { mutableStateOf<FindSession?>(null) }
     val searchCache = remember { MarkdownCache() }
     var headEpics by remember(sessionId) { mutableStateOf(HeadEpics(emptyList(), emptyMap())) }
+    // A step's epic, read while the screen is started and again when the step's session changes state. [stepRead] is
+    // whether the first read has finished, failed or not: the step's dock waits for it, so its label and state are the
+    // epic's.
+    var stepDetail by remember(sessionId) { mutableStateOf<EpicDetail?>(null) }
+    var stepRead by remember(sessionId) { mutableStateOf(false) }
     var contracts by remember(sessionId) { mutableStateOf<List<ContractRow>>(emptyList()) }
     var servingHost by remember(sessionId) { mutableStateOf("") }
     var stats by remember(sessionId) { mutableStateOf<List<HostStat>?>(null) }
@@ -203,6 +220,23 @@ fun SessionScreen(
     val held = streamed
     val conversation = held?.conversation
     val pane = held?.pane
+    val stepEpic = step?.epic.orEmpty()
+    LaunchedEffect(stepEpic, pane?.state) {
+        if (stepEpic.isNotEmpty()) {
+            try {
+                withContext(Dispatchers.IO) { client.epic(stepEpic) }?.let { stepDetail = it }
+            } catch (e: IOException) {
+                Log.w(TAG, "could not read epic $stepEpic", e)
+            }
+        }
+        stepRead = true
+    }
+    val stepRecord = step?.let { s -> stepDetail?.let { detail -> recordTasksOf(detail).find { it.task == s.task } } }
+    val stepRow = if (step != null) stepDetail?.steps?.find { it.id == sessionId } else null
+    val stepEnded = stepRow?.end?.isNotEmpty() == true
+    val stepTitle = stepRecord?.title ?: step?.label.orEmpty()
+    val stepPhase = stepRecord?.let { phaseOfPlace(it.place, it.integrated) } ?: Phase.IMPLEMENTING
+    val stepDock = step?.let { DockStep(stepTitle, stepRow?.held ?: it.held, stepRow?.doing ?: it.doing) }
     val unsent = held?.let { unsentTexts(sentTexts, it.conversation.items, it.queued) }.orEmpty()
     val entries = remember(held, unsent) {
         held?.let {
@@ -219,8 +253,19 @@ fun SessionScreen(
     // The stream redraws the session once its answer lands, so the Ask needs no refresh of its own.
     // The Ask's answer lives per session, outside the footer item that draws the Ask, so scrolling that item away keeps it.
     val askLife = rememberAskLife(sessionId)
-    val footer: @Composable () -> Unit = {
-        AskHost(model = ask, client = client, now = nowSeconds, onRefresh = {}, life = askLife)
+    // A step's footer is its end once it has ended; a session's is its Ask.
+    val footer: (@Composable () -> Unit)? = if (step != null) {
+        stepRow?.takeIf { it.end.isNotEmpty() }?.let { ended ->
+            val content: @Composable () -> Unit = {
+                StepEndBlock(agent = ended.agent, end = ended.end, summary = ended.summary, facts = null)
+            }
+            content
+        }
+    } else {
+        val content: @Composable () -> Unit = {
+            AskHost(model = ask, client = client, now = nowSeconds, onRefresh = {}, life = askLife)
+        }
+        content
     }
     val draft = rememberDockDraft(sessionId)
 
@@ -249,7 +294,30 @@ fun SessionScreen(
         if (refreshFailed && pane == null) {
             Text(REFRESH_FAILED, modifier = Modifier.padding(horizontal = OrreryTokens.Space.twelve + OrreryTokens.Space.two))
         }
-        pane?.let { shown ->
+        if (step != null) {
+            val detail = stepDetail
+            TitleRow(
+                crumbs = buildList {
+                    if (detail != null) {
+                        add(Crumb(label = detail.epic.slug, onGo = { onOpenEpic(step.epic) }))
+                        add(Crumb(label = stepTitle, onGo = { onOpenTask(step.task, stepPhase) }))
+                    }
+                    add(Crumb(label = "Worker session"))
+                },
+                onBack = onBack,
+            )
+            detail?.let { shown ->
+                ContextBand(
+                    detail = shown,
+                    currentTask = step.task,
+                    now = nowSeconds,
+                    onOpenEpic = { onOpenEpic(step.epic) },
+                    onOpenTask = onOpenTask,
+                    modifier = Modifier.fillMaxWidth().background(OrreryTokens.Surface.page),
+                )
+            }
+        }
+        pane?.takeIf { step == null }?.let { shown ->
             Head(
                 bandHides = !stripTiles,
                 dir = lastPathElement(shown.cwd),
@@ -297,6 +365,7 @@ fun SessionScreen(
                     listState = listState,
                     onFollowing = { atNewest = it },
                     footer = footer,
+                    checks = stepRow?.checks.orEmpty(),
                     seen = seenAtOpen,
                     contracts = contracts,
                     onOpenContract = openTranscriptContract,
@@ -345,7 +414,7 @@ fun SessionScreen(
                 // The head drops the epic once it moves, and the bar with it, so its calls run in the screen's scope.
                 scope = scope,
             )
-        } else {
+        } else if (!stepEnded && (step == null || stepRead)) {
             Dock(
                 facts = dockFactsOf(
                     kind = if (step != null) DockKind.STEP else DockKind.SESSION,
@@ -353,7 +422,7 @@ fun SessionScreen(
                     pane = pane,
                     streamed = held,
                     reason = reason,
-                    step = step?.let { DockStep(it.label, it.held, it.doing) },
+                    step = stepDock,
                 ),
                 nowSeconds = nowSeconds,
                 client = client,

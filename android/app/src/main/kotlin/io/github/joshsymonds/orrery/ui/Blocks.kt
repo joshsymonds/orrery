@@ -36,6 +36,7 @@ import androidx.compose.ui.semantics.SemanticsPropertyKey
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.semantics
+import io.github.joshsymonds.orrery.api.StepCheckRow
 import io.github.joshsymonds.orrery.api.StepFacts
 import io.github.joshsymonds.orrery.ui.theme.OrreryTokens
 import io.github.joshsymonds.orrery.ui.theme.inLabelCase
@@ -47,6 +48,10 @@ val ShapeToneKey = SemanticsPropertyKey<String>("ShapeTone")
 
 /** A check a send-back round ran, and whether it passed. */
 data class CheckResult(val name: String, val ok: Boolean)
+
+/** The checks of a step that [round] ran, in the step's order, as a CheckBlock draws them. */
+fun roundChecks(checks: List<StepCheckRow>, round: Int): List<CheckResult> =
+    checks.filter { it.round == round }.map { CheckResult(it.name, it.ok) }
 
 /** How a step's fact is drawn: plain ink, added lines green, removed lines red. */
 enum class FactKind { Plain, Added, Removed }

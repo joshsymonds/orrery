@@ -79,6 +79,8 @@ function inboxProps(init: Partial<InboxProps> = {}): InboxProps {
     onView: noop,
     onRetry: noop,
     onNew: noop,
+    unread: 0,
+    onNotices: noop,
     ...init,
   };
 }

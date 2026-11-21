@@ -274,7 +274,7 @@ private fun glyphColorOf(state: String): Color = when (state) {
     else -> OrreryTokens.State.idle
 }
 
-private fun glyphWordOf(state: String): String = when (state) {
+internal fun glyphWordOf(state: String): String = when (state) {
     "working" -> "working"
     "waiting" -> "waiting on you"
     "held" -> "held"

@@ -24,7 +24,8 @@ export const storyExemptions: Readonly<Record<string, string>> = {
 // storyRenames names each component export whose stories are not in its file's own stories module under its own name, by
 // its component file and export: a round-6 name for the story export in the file's stories module, or the stories module
 // and story export of another file that draws the export, as { module, story }. A page draws EpicPage, Inbox, NewPanel,
-// KeyList, SteerMenu, EndedBar and ProjectPage, so their entries name app.stories.tsx's Page.
+// KeyList, SteerMenu, EndedBar, ProjectPage, PhaseOutputPage and WorkerSessionPage, so their entries name app.stories.tsx's
+// Page.
 export const storyRenames: Renames = {
   "ask.tsx": { AskLine: "Ask" },
   "backgroundrow.tsx": { BackgroundRow: "TaskLine" },
@@ -43,12 +44,15 @@ export const storyRenames: Renames = {
   "inbox.tsx": { Inbox: { module: "app.stories.tsx", story: "Page" } },
   "helppanel.tsx": { KeyList: { module: "app.stories.tsx", story: "Page" } },
   "markdown.tsx": { Markdown: { module: "reply.stories.tsx", story: "Reply" } },
-  "notices.tsx": { NoticeBanner: "Notice" },
+  "notices.tsx": { NoticeStack: "Notice" },
   "nowsection.tsx": { NowSection: { module: "app.stories.tsx", story: "Page" } },
+  "phaseoutput.tsx": { PhaseOutputPage: { module: "app.stories.tsx", story: "Page" } },
   "picker.tsx": { NewPanel: { module: "app.stories.tsx", story: "Page" } },
   "projectpage.tsx": { ProjectPage: { module: "app.stories.tsx", story: "Page" } },
   "reader.tsx": { Reader: { module: "app.stories.tsx", story: "Page" } },
   "readercolumn.tsx": { ReaderColumn: { module: "app.stories.tsx", story: "Page" } },
+  "report.tsx": { EpicReport: { module: "app.stories.tsx", story: "Page" } },
+  "review.tsx": { EpicReview: { module: "app.stories.tsx", story: "Page" } },
   "sidepanel.tsx": { SidePanel: "ListPanel" },
   "steermenu.tsx": { SteerMenu: { module: "app.stories.tsx", story: "Page" } },
   "strip.tsx": { PaneStrip: "MeterStrip" },
@@ -56,6 +60,7 @@ export const storyRenames: Renames = {
     MarkedText: { module: "app.stories.tsx", story: "Page" },
     ReplyText: { module: "app.stories.tsx", story: "Page" },
   },
+  "workersession.tsx": { WorkerSessionPage: { module: "app.stories.tsx", story: "Page" } },
 };
 
 // isComponent reports whether an export is a component: a function whose name starts with an uppercase letter.

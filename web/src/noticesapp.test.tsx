@@ -24,15 +24,16 @@ const epicsGetPath = "/orrery.v1.Epics/Get";
 const panesWatchPath = "/orrery.v1.Panes/WatchConversation";
 const noticesWatchPath = "/orrery.v1.Notices/Watch";
 const noticesSeenPath = "/orrery.v1.Notices/Seen";
+const noticesListPath = "/orrery.v1.Notices/List";
 const apiRow = "pane:box:%1";
 const webRow = "pane:box:%2";
 const limitKey = "five-hour@1800000000";
+// clockSeconds is the page's instant in unix seconds, which the age test sets on the mocked clock.
+const clockSeconds = 1_800_000_000;
 // A poll interval far longer than any test waits, so the rows load once, when the page starts.
 const longPollMs = 60_000;
 // The pause before a stream that failed unavailable reopens, short so the tests' waits stay well inside their deadline.
 const retryMs = 5;
-// How long a test waits for a failed report's answer to reach the page before it looks for an error line.
-const settleMs = 20;
 
 // Synthetic panes, both waiting and both read. The api pane changed last, so the list shows it first.
 const panesBody = {
@@ -68,22 +69,26 @@ const panesBody = {
 interface Fixtures {
   epics?: Epic[];
   details?: EpicsGetResponse[];
+  // The notice history Notices.List answers with, as the JSON rows the server sends.
+  listed?: object[];
 }
 
 // FakeServer answers the page's lists from the fixtures above and holds the Notices.Watch stream open for a test to
-// send changes into. It records the key of each Notices.Seen the page sent, as the JSON body named it, and counts the
-// pane streams the page opened.
+// send changes into. It records the key of each Notices.Seen the page sent, as the JSON body named it, counts the
+// Notices.List calls and the pane streams the page opened.
 interface FakeServer {
   fetch: typeof globalThis.fetch;
   // The controller of the open Notices.Watch stream, or null before the page opens it and after it is aborted.
   notices: ReadableStreamDefaultController<Uint8Array> | null;
   seen: Record<string, string>[];
+  lists: number;
+  listed: object[];
   paneStreams: number;
   // While set, Notices.Seen answers with a server error.
   seenFails: boolean;
 }
 
-function fakeServer({ epics = [], details = [] }: Fixtures = {}): FakeServer {
+function fakeServer({ epics = [], details = [], listed = [] }: Fixtures = {}): FakeServer {
   const server: FakeServer = {
     fetch: async (input, init) => {
       const request = new Request(input, init);
@@ -124,6 +129,10 @@ function fakeServer({ epics = [], details = [] }: Fixtures = {}): FakeServer {
         );
         return new Response(stream, { status: 200, headers: { "content-type": "application/connect+json" } });
       }
+      if (path === noticesListPath) {
+        server.lists++;
+        return json({ notices: server.listed });
+      }
       if (path === noticesSeenPath) {
         const body = (await request.json()) as { key?: Record<string, string> };
         server.seen.push(body.key ?? {});
@@ -142,6 +151,8 @@ function fakeServer({ epics = [], details = [] }: Fixtures = {}): FakeServer {
     },
     notices: null,
     seen: [],
+    lists: 0,
+    listed,
     paneStreams: 0,
     seenFails: false,
   };
@@ -154,6 +165,11 @@ function json(body: unknown): Response {
 
 function clientsFor(server: FakeServer): ReturnType<typeof createClients> {
   return createClients(createTransport({ baseUrl: "https://orrery.test", fetch: server.fetch }));
+}
+
+// listedMessage is a row of the notice log under key, timed at time in unix seconds.
+function listedMessage(key: Record<string, string>, title: string, time: number): object {
+  return { key, state: "done", title, body: `${title} body`, time: String(time), read: false };
 }
 
 // shownMessage is the Notices.Watch change that shows a notice under key, opening the block it names when one is given.
@@ -184,17 +200,23 @@ function envelope(flag: number, message: object): Uint8Array {
   return bytes;
 }
 
-// bannerTitles reads the titles of the banner's notices, in the order the banner shows them.
-function bannerTitles(root: HTMLElement): string[] {
-  return [...root.querySelectorAll(".notice-title")].map((element) => element.textContent ?? "");
+// stackRows reads the rows the stack draws, in order.
+function stackRows(root: HTMLElement): HTMLElement[] {
+  return [...root.querySelectorAll<HTMLElement>(".notices > .notice")];
 }
 
-// clickBanner clicks the banner button of the notice titled title. It reports whether such a button was drawn.
-function clickBanner(root: HTMLElement, title: string): boolean {
-  const button = [...root.querySelectorAll(".notice")].find(
-    (element) => element.querySelector(".notice-title")?.textContent === title,
-  );
-  if (button === undefined) {
+// rowOf finds the stack's row for the notice titled title. The fixtures give each notice the body "<title> body", which
+// its row draws, so the body names the row.
+function rowOf(root: HTMLElement, title: string): HTMLElement | undefined {
+  return stackRows(root).find((row) => row.querySelector(".b")?.textContent === `${title} body`);
+}
+
+// clickRowControl clicks the control of the stack's row titled title: its Answer or Open, or its Mark read when quiet is
+// set. It reports whether such a row and control were drawn.
+function clickRowControl(root: HTMLElement, title: string, quiet = false): boolean {
+  const selector = quiet ? ".acts > button.quiet" : ".acts > button:not(.quiet)";
+  const button = rowOf(root, title)?.querySelector<HTMLElement>(selector);
+  if (!button) {
     return false;
   }
   button.dispatchEvent(new Event("click", { bubbles: true }));
@@ -209,16 +231,6 @@ function clickRow(root: HTMLElement, key: string): boolean {
   }
   row.dispatchEvent(new Event("click", { bubbles: true }));
   return true;
-}
-
-// dismissRow clicks the × of the banner's row titled title. The row must be drawn.
-function dismissRow(root: HTMLElement, title: string): void {
-  const row = [...root.querySelectorAll(".notice-row")].find(
-    (element) => element.querySelector(".notice-title")?.textContent === title,
-  );
-  const dismiss = row?.querySelector(".notice-dismiss");
-  assert.ok(dismiss, `no × on the banner row titled ${title}`);
-  dismiss.dispatchEvent(new Event("click", { bubbles: true }));
 }
 
 // settle is the wait between checks in a test whose timers are mocked. It awaits act, which applies the renders the page
@@ -250,10 +262,6 @@ function isCursored(root: HTMLElement, key: string): boolean {
 // errorTexts reads the page's error lines.
 function errorTexts(root: HTMLElement): string[] {
   return [...root.querySelectorAll(".error")].map((element) => element.textContent ?? "");
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 // lineDrawn reports whether the list draws the line under key.
@@ -317,64 +325,111 @@ async function withPage(
   }
 }
 
-test("a notice from the stream shows in the page's banner", (t) =>
+test("NoticeStack: a notice from the stream shows in the page's stack", (t) =>
   withPage(t.signal, async (root, server) => {
-    assert.deepEqual(bannerTitles(root), []);
+    assert.deepEqual(stackRows(root), []);
     sendNotice(server, shownMessage({ pane: "%2" }, "web needs you"));
-    await until(t.signal, () => bannerTitles(root).includes("web needs you"), "the notice in the banner");
+    await until(t.signal, () => rowOf(root, "web needs you") !== undefined, "the notice in the stack");
   }));
 
-test("an ended notice leaves the banner", (t) =>
+test("NoticeStack: an ended notice leaves the stack", (t) =>
   withPage(t.signal, async (root, server) => {
     sendNotice(server, shownMessage({ pane: "%2" }, "web needs you"));
-    await until(t.signal, () => bannerTitles(root).includes("web needs you"), "the notice in the banner");
+    await until(t.signal, () => rowOf(root, "web needs you") !== undefined, "the notice in the stack");
     sendNotice(server, endedMessage({ pane: "%2" }));
-    await until(t.signal, () => bannerTitles(root).length === 0, "the banner to empty");
+    await until(t.signal, () => stackRows(root).length === 0, "the stack to empty");
   }));
 
-test("a click on a pane notice sends Seen with its key and moves the cursor to that pane's row", (t) =>
+test("NoticeStack: Open on a pane notice sends Seen with its key and moves the cursor to that pane's row", (t) =>
   withPage(t.signal, async (root, server) => {
     sendNotice(server, shownMessage({ pane: "%2" }, "web needs you"));
-    await until(t.signal, () => bannerTitles(root).includes("web needs you"), "the notice in the banner");
-    assert.equal(clickBanner(root, "web needs you"), true, "no banner button for the notice");
+    await until(t.signal, () => rowOf(root, "web needs you") !== undefined, "the notice in the stack");
+    assert.equal(clickRowControl(root, "web needs you"), true, "no Open control for the notice");
     await until(t.signal, () => server.seen.length === 1, "the Seen report");
     assert.equal(server.seen[0].pane, "%2");
     await until(t.signal, () => isCursored(root, webRow), "the cursor on the web row");
     assert.equal(isCursored(root, apiRow), false, "the cursor is still on the api row");
   }));
 
-test("a click on a limit notice sends Seen and moves nothing", (t) =>
+test("NoticeStack: Answer on a waiting pane notice sends Seen with its key and moves the cursor to that pane's row", (t) =>
+  withPage(t.signal, async (root, server) => {
+    sendNotice(server, {
+      shown: { key: { pane: "%2" }, state: "waiting", title: "web needs you", body: "web needs you body" },
+    });
+    await until(t.signal, () => rowOf(root, "web needs you") !== undefined, "the notice in the stack");
+    assert.equal(
+      rowOf(root, "web needs you")?.querySelector(".acts > button:not(.quiet)")?.textContent,
+      "Answer",
+      "the waiting pane notice has no Answer",
+    );
+    assert.equal(clickRowControl(root, "web needs you"), true, "no Answer control for the notice");
+    await until(t.signal, () => server.seen.length === 1, "the Seen report");
+    assert.equal(server.seen[0].pane, "%2");
+    await until(t.signal, () => isCursored(root, webRow), "the cursor on the web row");
+    assert.equal(isCursored(root, apiRow), false, "the cursor is still on the api row");
+  }));
+
+test("NoticeStack: a limit notice has no open control, and its Mark read sends Seen and moves nothing", (t) =>
   withPage(t.signal, async (root, server) => {
     assert.equal(clickRow(root, webRow), true, "no row for the web pane");
     await until(t.signal, () => isCursored(root, webRow), "the cursor on the web row");
     sendNotice(server, shownMessage({ limit: limitKey }, "limit reached"));
-    await until(t.signal, () => bannerTitles(root).includes("limit reached"), "the limit notice in the banner");
-    assert.equal(clickBanner(root, "limit reached"), true, "no banner button for the notice");
+    await until(t.signal, () => rowOf(root, "limit reached") !== undefined, "the limit notice in the stack");
+    assert.deepEqual(
+      [...(rowOf(root, "limit reached")?.querySelectorAll("button") ?? [])].map((button) => button.textContent),
+      ["Mark read"],
+      "the limit notice has an open control",
+    );
+    assert.equal(clickRowControl(root, "limit reached", true), true, "no Mark read for the notice");
     await until(t.signal, () => server.seen.length === 1, "the Seen report");
     assert.equal(server.seen[0].limit, limitKey);
     assert.equal(isCursored(root, webRow), true, "the cursor left the web row");
     assert.equal(isCursored(root, apiRow), false, "the cursor moved to the api row");
   }));
 
-test("a failed Seen is dropped without a page error, and the click still moves the cursor", (t) =>
+test("NoticeStack: a failed Seen is dropped without a page error, and the click still moves the cursor", (t) =>
   withPage(t.signal, async (root, server) => {
     server.seenFails = true;
     sendNotice(server, shownMessage({ pane: "%2" }, "web needs you"));
-    await until(t.signal, () => bannerTitles(root).includes("web needs you"), "the notice in the banner");
-    assert.equal(clickBanner(root, "web needs you"), true, "no banner button for the notice");
+    await until(t.signal, () => rowOf(root, "web needs you") !== undefined, "the notice in the stack");
+    // The load-time List and the one the shown notice starts land before the click, so the list after it is the failed
+    // report's alone.
+    await until(t.signal, () => server.lists >= 2, "the notice log listed for the shown notice");
+    const listsBefore = server.lists;
+    assert.equal(clickRowControl(root, "web needs you"), true, "no Open control for the notice");
     await until(t.signal, () => server.seen.length === 1, "the Seen report");
     await until(t.signal, () => isCursored(root, webRow), "the cursor on the web row");
-    await sleep(settleMs);
+    // The failed report's handling relists the log, so a list after the click means the failure was handled.
+    await until(t.signal, () => server.lists > listsBefore, "the notice log listed after the failed report");
     assert.deepEqual(errorTexts(root), []);
   }));
 
-test("the notice stack is drawn inside .panes, the reading area it sits over", (t) => {
+test("NoticeBell: a notice from the Watch stream lists the log again", (t) =>
+  withPage(t.signal, async (root, server) => {
+    await until(t.signal, () => server.lists >= 1, "the load-time List");
+    const listsBefore = server.lists;
+    sendNotice(server, shownMessage({ pane: "%2" }, "web needs you"));
+    await until(t.signal, () => server.lists > listsBefore, "the notice log listed again");
+  }));
+
+test("NoticeBell: an ended notice from the Watch stream lists the log again", (t) =>
+  withPage(t.signal, async (root, server) => {
+    sendNotice(server, shownMessage({ pane: "%2" }, "web needs you"));
+    await until(t.signal, () => rowOf(root, "web needs you") !== undefined, "the notice in the stack");
+    // The load-time List and the one the shown notice starts are the two lists before the end.
+    await until(t.signal, () => server.lists >= 2, "the notice log listed for the shown notice");
+    const listsBefore = server.lists;
+    sendNotice(server, endedMessage({ pane: "%2" }));
+    await until(t.signal, () => server.lists > listsBefore, "the notice log listed again");
+  }));
+
+test("NoticeStack: the stack is drawn inside .panes, the reading area it sits over", (t) => {
   mockTimers(t, ["setTimeout"]);
   return withPage(
     t.signal,
     async (root, server) => {
       sendNotice(server, shownMessage({ pane: "%2" }, "web needs you"));
-      await until(t.signal, () => bannerTitles(root).includes("web needs you"), "the notice in the banner", {
+      await until(t.signal, () => rowOf(root, "web needs you") !== undefined, "the notice in the stack", {
         step: settle,
       });
       const panes = root.querySelector(".panes");
@@ -386,40 +441,86 @@ test("the notice stack is drawn inside .panes, the reading area it sits over", (
   );
 });
 
-test("a × removes its row at once, sends Seen for its key, and the other notices stay", (t) => {
+test("NoticeStack: Mark read takes its row off at once, sends Seen for its key, and the other notices stay", (t) => {
   mockTimers(t, ["setTimeout"]);
   return withPage(
     t.signal,
     async (root, server) => {
       sendNotice(server, shownMessage({ pane: "%2" }, "web needs you"));
       sendNotice(server, shownMessage({ limit: limitKey }, "limit reached"));
-      await until(t.signal, () => bannerTitles(root).length === 2, "both notices in the banner", { step: settle });
+      await until(t.signal, () => stackRows(root).length === 2, "both notices in the stack", { step: settle });
       await act(() => {
-        dismissRow(root, "web needs you");
+        clickRowControl(root, "web needs you", true);
       });
-      assert.deepEqual(bannerTitles(root), ["limit reached"], "the row stayed after its ×");
+      assert.equal(rowOf(root, "web needs you"), undefined, "the row stayed after its Mark read");
+      assert.notEqual(rowOf(root, "limit reached"), undefined, "the other notice left the stack");
       await until(t.signal, () => server.seen.length === 1, "the Seen report", { step: settle });
       assert.equal(server.seen[0].pane, "%2", "the Seen report names another notice");
-      assert.deepEqual(bannerTitles(root), ["limit reached"], "the other notice left the banner");
     },
     {},
     settle,
   );
 });
 
-test("a notice leaves the stack at 8 seconds after it appears, and no Seen is sent for it", (t) => {
+test("NoticeStack: Mark read lists the notice log again once its Seen lands", (t) =>
+  withPage(t.signal, async (root, server) => {
+    sendNotice(server, shownMessage({ pane: "%2" }, "web needs you"));
+    await until(t.signal, () => rowOf(root, "web needs you") !== undefined, "the notice in the stack");
+    const listsBefore = server.lists;
+    await act(() => {
+      clickRowControl(root, "web needs you", true);
+    });
+    await until(t.signal, () => server.seen.length === 1, "the Seen report");
+    await until(t.signal, () => server.lists > listsBefore, "the notice log listed again");
+  }));
+
+test("NoticeStack: a row's age is the age of the log's newest row under its key", (t) => {
+  mockTimers(t, ["setTimeout", "Date"]);
+  t.mock.timers.setTime(clockSeconds * 1000);
+  return withPage(
+    t.signal,
+    async (root, server) => {
+      sendNotice(server, shownMessage({ pane: "%2" }, "web needs you"));
+      sendNotice(server, shownMessage({ pane: "%1" }, "api needs you"));
+      await until(
+        t.signal,
+        () => rowOf(root, "web needs you") !== undefined && rowOf(root, "api needs you") !== undefined,
+        "both notices in the stack",
+        { step: settle },
+      );
+      await settleTurns();
+      assert.equal(rowOf(root, "web needs you")?.querySelector(".when")?.textContent, "3h", "the age from the log's newest row");
+      assert.equal(rowOf(root, "api needs you")?.querySelector(".when")?.textContent, "", "a notice with no log row has an age");
+    },
+    {
+      // Notices.List answers newest first, so the 3h row leads the older 10h row under the same key.
+      listed: [
+        listedMessage({ pane: "%2" }, "web needs you", clockSeconds - 3 * 3600),
+        listedMessage({ pane: "%2" }, "web needs you", clockSeconds - 10 * 3600),
+      ],
+    },
+    settle,
+  );
+});
+
+test("NoticeStack: a notice leaves the stack at 8 seconds after it appears, and no Seen is sent for it", (t) => {
   mockTimers(t, ["setTimeout"]);
   return withPage(
     t.signal,
     async (root, server) => {
       sendNotice(server, shownMessage({ pane: "%2" }, "web needs you"));
-      await until(t.signal, () => bannerTitles(root).includes("web needs you"), "the notice in the banner", {
+      await until(t.signal, () => rowOf(root, "web needs you") !== undefined, "the notice in the stack", {
         step: settle,
       });
       await advance(t, 7999);
-      assert.deepEqual(bannerTitles(root), ["web needs you"], "the notice left the stack before 8000 ms");
+      assert.notEqual(rowOf(root, "web needs you"), undefined, "the notice left the stack before 8000 ms");
       await advance(t, 1);
-      assert.deepEqual(bannerTitles(root), [], "the notice was still on the stack at 8000 ms");
+      assert.equal(rowOf(root, "web needs you"), undefined, "the notice was still on the stack at 8000 ms");
+      // A focus lists the log, a request sent after the timeout, so a Seen the timeout sent would have reached the
+      // server before it. The list's arrival is the signal the wait ends on.
+      const listsBefore = server.lists;
+      window.dispatchEvent(new Event("focus"));
+      await until(t.signal, () => server.lists > listsBefore, "the notice log listed after the timeout", { step: settle });
       await settleTurns();
       assert.deepEqual(server.seen, [], "a Seen was sent for the timed-out notice");
     },
@@ -492,12 +593,12 @@ async function clickEpicNotice(
   await until(signal, () => lineDrawn(root, epicKeyOf(asking)), "the epics the list holds");
   const title = `${epic.slug} needs you`;
   sendNotice(server, shownMessage({ epic: epic.id }, title, block));
-  await until(signal, () => bannerTitles(root).includes(title), "the notice in the banner");
-  assert.equal(clickBanner(root, title), true, "no banner button for the notice");
+  await until(signal, () => rowOf(root, title) !== undefined, "the notice in the stack");
+  assert.equal(clickRowControl(root, title), true, "no control for the notice");
   await until(signal, () => server.seen.length === 1, "the Seen report");
 }
 
-test("a question notice opens its epic at its Now section, with the question's Ask in the page", (t) =>
+test("NoticeStack: a question notice opens its epic at its Now section, with the question's Ask in the page", (t) =>
   withPage(
     t.signal,
     async (root, server, scrolled) => {
@@ -516,7 +617,7 @@ test("a question notice opens its epic at its Now section, with the question's A
     landingFixtures,
   ));
 
-test("a release-step notice opens its epic at its Now section, where Retry and Stop… are", (t) =>
+test("NoticeStack: a release-step notice opens its epic at its Now section, where Retry and Stop… are", (t) =>
   withPage(
     t.signal,
     async (root, server, scrolled) => {
@@ -534,27 +635,27 @@ test("a release-step notice opens its epic at its Now section, where Retry and S
     landingFixtures,
   ));
 
-test("a report notice for an epic under ended earlier opens the line and brings the page's top into view", (t) =>
+test("EpicReport: NoticeStack: a report notice for an epic under ended earlier opens the line and brings its Report into view", (t) =>
   withPage(
     t.signal,
     async (root, server, scrolled) => {
       await clickEpicNotice(t.signal, root, server, shipped, { kind: "report", ref: "" });
       await until(t.signal, () => scrolled.length === 1, "the scroll into view");
-      assert.deepEqual(scrolled, ["epic-page"]);
+      assert.deepEqual(scrolled, ["report"]);
       assert.equal(pageCrumb(root), shipped.slug);
       assert.equal(isCursored(root, epicKeyOf(shipped)), true, "the cursor is not on the epic");
     },
     landingFixtures,
   ));
 
-test("a contract notice opens the contract page of its epic, without a scroll into view", (t) =>
+test("NoticeStack: a contract notice opens the contract page of its epic, without a scroll into view", (t) =>
   withPage(t.signal, async (root, server, scrolled) => {
     await clickEpicNotice(t.signal, root, server, asking, { kind: "contract", ref: "" });
     await until(t.signal, () => pageCrumb(root) === "contract", "the contract page");
     assert.deepEqual(scrolled, []);
   }, landingFixtures));
 
-test("a notice with no block opens its ended earlier epic at the top of the epic view", (t) =>
+test("NoticeStack: a notice with no block opens its ended earlier epic at the top of the epic view", (t) =>
   withPage(
     t.signal,
     async (root, server, scrolled) => {
@@ -567,7 +668,7 @@ test("a notice with no block opens its ended earlier epic at the top of the epic
     landingFixtures,
   ));
 
-test("a notice for an epic the list does not hold moves the cursor and the page nowhere", (t) =>
+test("NoticeStack: a notice for an epic the list does not hold moves the cursor and the page nowhere", (t) =>
   withPage(
     t.signal,
     async (root, server, scrolled) => {
@@ -576,11 +677,11 @@ test("a notice for an epic the list does not hold moves the cursor and the page 
       await until(t.signal, () => isCursored(root, epicKeyOf(asking)), "the cursor on the epic");
       const title = "gone needs you";
       sendNotice(server, shownMessage({ epic: `${widgetsRepo}/gone` }, title, { kind: "question", ref: "Q1" }));
-      await until(t.signal, () => bannerTitles(root).includes(title), "the notice in the banner");
-      assert.equal(clickBanner(root, title), true, "no banner button for the notice");
+      await until(t.signal, () => rowOf(root, title) !== undefined, "the notice in the stack");
+      assert.equal(clickRowControl(root, title), true, "no control for the notice");
       await until(t.signal, () => server.seen.length === 1, "the Seen report");
       sendNotice(server, shownMessage({ limit: limitKey }, "limit reached"));
-      await until(t.signal, () => bannerTitles(root).includes("limit reached"), "a later notice, drawn after the click");
+      await until(t.signal, () => rowOf(root, "limit reached") !== undefined, "a later notice, drawn after the click");
       assert.equal(isCursored(root, epicKeyOf(asking)), true, "the cursor left the epic");
       assert.deepEqual(scrolled, []);
     },

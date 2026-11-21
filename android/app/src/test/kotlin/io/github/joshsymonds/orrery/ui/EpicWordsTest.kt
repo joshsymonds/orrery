@@ -5,6 +5,7 @@ import io.github.joshsymonds.orrery.api.EpicContractRow
 import io.github.joshsymonds.orrery.api.EpicDetail
 import io.github.joshsymonds.orrery.api.EpicHistoryRow
 import io.github.joshsymonds.orrery.api.EpicQuestionRow
+import io.github.joshsymonds.orrery.api.EpicReleaseProofRow
 import io.github.joshsymonds.orrery.api.EpicRequirementRow
 import io.github.joshsymonds.orrery.api.EpicRow
 import io.github.joshsymonds.orrery.api.EpicTaskRow
@@ -480,8 +481,111 @@ class EpicWordsTest {
         )
     }
 
+    @Test
+    fun aReleasingEpicsNowNamesItsRunningStepOfHowManyAndElseOnlyThatItReleases() {
+        val cases = listOf(
+            detail(
+                epic = epic(outcome = "releasing"),
+                releaseProof = listOf(
+                    releaseStep(1L, "passed"),
+                    releaseStep(2L, "running"),
+                    releaseStep(3L, "waiting"),
+                ),
+            ) to "Releasing: step 2 of 3 is running.",
+            detail(
+                epic = epic(outcome = "releasing"),
+                releaseProof = listOf(releaseStep(1L, "passed"), releaseStep(2L, "waiting")),
+            ) to "Releasing.",
+            detail(epic = epic(outcome = "releasing")) to "Releasing.",
+        )
+
+        assertEquals(cases.map { it.second }, cases.map { nowSentenceOf(it.first) })
+    }
+
+    @Test
+    fun aStoppedReleaseNowNamesItsStepAndSaysWhetherItWaitsOnTheOwner() {
+        val cases = listOf(
+            detail(
+                epic = epic(outcome = "stopped"),
+                releaseProof = listOf(releaseStep(1L, "passed"), releaseStep(2L, "failed", undo = "none")),
+            ) to "The release stopped at step 2, and that step has no undo. It waits on you.",
+            detail(
+                epic = epic(outcome = "stopped"),
+                releaseProof = listOf(releaseStep(1L, "passed"), releaseStep(2L, "failed", undo = "git revert")),
+            ) to "The release stopped at step 2.",
+            detail(
+                epic = epic(outcome = "stopped"),
+                releaseProof = listOf(
+                    releaseStep(1L, "passed"),
+                    releaseStep(2L, "waiting"),
+                    releaseStep(3L, "failed", undo = "none"),
+                ),
+            ) to "The release stopped at step 2.",
+            detail(epic = epic(outcome = "stopped")) to "The release stopped.",
+        )
+
+        assertEquals(cases.map { it.second }, cases.map { nowSentenceOf(it.first) })
+    }
+
+    @Test
+    fun theBlockerPillNamesAStoppedStepWithNoUndoAndAnEndedWithGapsEpicsTwoWaysOn() {
+        val cases = listOf(
+            detail(
+                epic = epic(outcome = "stopped"),
+                releaseProof = listOf(releaseStep(1L, "passed"), releaseStep(2L, "failed", undo = "none")),
+            ) to Pill("step 2 failed and cannot be undone", WordTone.ATTENTION),
+            detail(
+                epic = epic(outcome = "stopped"),
+                releaseProof = listOf(releaseStep(1L, "passed"), releaseStep(2L, "failed", undo = "git revert")),
+            ) to null,
+            detail(epic = epic(outcome = "ended_with_gaps")) to
+                Pill("release it anyway, or close it", WordTone.ATTENTION),
+        )
+
+        assertEquals(cases.map { it.second }, cases.map { blockerPillOf(it.first, NOW) })
+    }
+
+    @Test
+    fun anOpenQuestionOrAnOwnersParkStillWinsOverTheReleaseWords() {
+        val releaseFailed = listOf(releaseStep(1L, "failed", undo = "none"))
+        val questioned = detail(
+            epic = epic(outcome = "stopped"),
+            releaseProof = releaseFailed,
+            questions = listOf(question(asked = NOW - 120)),
+        )
+        val parked = detail(epic = epic(outcome = "ended_with_gaps"), parked = "budget")
+
+        assertEquals("It waits on your answer.", nowSentenceOf(questioned))
+        assertEquals(Pill("asks you a question · 2 min", WordTone.ATTENTION), blockerPillOf(questioned, NOW))
+        assertEquals("Parked. Nothing runs until you answer.", nowSentenceOf(parked))
+        assertEquals(Pill("asks you what to do", WordTone.ATTENTION), blockerPillOf(parked, NOW))
+        assertEquals(
+            Pill("example-task held", WordTone.ATTENTION),
+            blockerPillOf(
+                detail(
+                    epic = epic(outcome = "stopped"),
+                    releaseProof = releaseFailed,
+                    steps = listOf(step(held = true)),
+                ),
+                NOW,
+            ),
+        )
+    }
+
     private fun clock(time: Long): String =
         CLOCK_TIME.format(Instant.ofEpochSecond(time).atZone(ZoneId.systemDefault()))
+
+    private fun releaseStep(position: Long, state: String, undo: String = "") = EpicReleaseProofRow(
+        position = position,
+        step = "example-release-step",
+        target = "",
+        undo = undo,
+        state = state,
+        evidence = "",
+        reason = "",
+        attempt = 0L,
+        at = 0L,
+    )
 
     private fun ahead(name: String) = Stage(name, StageState.AHEAD, WordTone.QUIET, "not reached")
 
@@ -575,6 +679,7 @@ class EpicWordsTest {
         paused: Boolean = false,
         parked: String = "",
         plannerParked: Boolean = false,
+        releaseProof: List<EpicReleaseProofRow> = emptyList(),
     ) = EpicDetail(
         epic = epic,
         tasks = tasks,
@@ -588,6 +693,7 @@ class EpicWordsTest {
         paused = paused,
         parked = parked,
         plannerParked = plannerParked,
+        releaseProof = releaseProof,
     )
 
     private companion object {

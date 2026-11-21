@@ -4083,7 +4083,7 @@ test("back closes the epic page until the cursor moves", (t) =>
 // phaseEpic is a live epic whose task T1, Parser, runs its gate step run1, which puts T1 in checking, and whose task
 // T2, Logout, is planned. T1 names requirement R1, so R1's proof card opens T1.
 function phaseEpic(): EpicsView {
-  const run = makeStep("run1", { task: "T1", stage: "gate", doing: "checking the parser" });
+  const run = makeStep("run1", { task: "T1", stage: "gate", doing: "checking the parser", role: "implementer" });
   const epic = makeEpic(widgetsRepo, "first", { runningSteps: [run] });
   const detail = create(EpicsGetResponseSchema, {
     epic,
@@ -4101,9 +4101,9 @@ const pageTitleRow = 'section.page[aria-label="epic"] .title-row';
 const phaseBody = 'section.page[aria-label="epic"] .phase-body';
 const checkingCell = 'section.page[aria-label="epic"] path[data-task="T1"][data-phase="checking"]';
 
-// phaseOpenName is the name of the phase the phase output has open, or null when the page holds no phase output.
+// phaseOpenName is the name of the stage the task's record has open, or null when the page holds no record.
 function phaseOpenName(container: HTMLElement): string | null {
-  return container.querySelector('section.page[aria-label="epic"] .phase-row.open .phase-name')?.textContent ?? null;
+  return container.querySelector('section.page[aria-label="epic"] .phase-head[aria-expanded="true"] .nm')?.textContent ?? null;
 }
 
 // phaseOutputShown is whether the page section holds a task's phase output.
@@ -4111,14 +4111,27 @@ function phaseOutputShown(container: HTMLElement): boolean {
   return container.querySelector('section.page[aria-label="epic"] .phase-output') !== null;
 }
 
-// sessionPageShown is whether the page section holds a step's worker session.
+// deskSession is the middle column's section that draws a worker session at the desk.
+const deskSession = 'section[aria-label="session"]';
+
+// sessionPageShown is whether a step's worker session is drawn: in the middle column at the desk, the epic page under 760px.
 function sessionPageShown(container: HTMLElement): boolean {
-  return container.querySelector('section.page[aria-label="epic"] .worker-session') !== null;
+  return container.querySelector(".worker-session") !== null;
 }
 
-// pageReaderText is the text of the reader the page section holds.
-function pageReaderText(container: HTMLElement): string {
-  return container.querySelector('section.page[aria-label="epic"] .reader')?.textContent ?? "";
+// sessionReaderText is the text of the session's reader at the desk.
+function sessionReaderText(container: HTMLElement): string {
+  return container.querySelector(`${deskSession} .reader`)?.textContent ?? "";
+}
+
+// sessionCrumb is the crumb the session's title row marks as the current page, or null when no session is drawn there.
+function sessionCrumb(container: HTMLElement): string | null {
+  return container.querySelector(`${deskSession} .title-row .crumb.here`)?.textContent ?? null;
+}
+
+// sessionClass is the class of the session's section at the desk, which names the move the page made last.
+function sessionClass(container: HTMLElement): string | null {
+  return container.querySelector(deskSession)?.getAttribute("class") ?? null;
 }
 
 // clickFirst clicks the first element the selector finds in the container, and lets Preact draw what the click changed.
@@ -4152,12 +4165,12 @@ async function clickConfirm(container: HTMLElement): Promise<void> {
   await clickFirst(container, ".epic-page section.now .ask .foot .btn.primary");
 }
 
-// clickPhaseHead clicks the head of the phase row the phase output names.
+// clickPhaseHead clicks the head of the stage row the task's record draws under its name.
 async function clickPhaseHead(container: HTMLElement, name: string): Promise<void> {
   const head = [...container.querySelectorAll<HTMLButtonElement>('section.page[aria-label="epic"] .phase-head')].find(
-    (button) => button.querySelector(".phase-name")?.textContent === name,
+    (button) => button.querySelector(".nm")?.textContent === name,
   );
-  assert.ok(head, `no ${name} phase head is drawn`);
+  assert.ok(head, `no ${name} stage head is drawn`);
   await clickIn(head);
 }
 
@@ -4167,32 +4180,32 @@ async function openCheckingPhase(container: HTMLElement): Promise<void> {
   await clickFirst(container, checkingCell);
 }
 
-test("a click on an orrery cell opens its task's phase output with that phase open, and the page moves deeper", (t) =>
+test("a click on an orrery cell opens its task's record with the stage the task is in open, and the page moves deeper", (t) =>
   withApp(t.signal, { epics: phaseEpic() }, async (container) => {
     await openCheckingPhase(container);
-    assert.equal(phaseOutputShown(container), true, "the task's phase output is drawn");
-    assert.equal(phaseOpenName(container), "checking", "the phase the cell names is open");
-    assert.equal(pageSlug(container), "T1 · checking");
+    assert.equal(phaseOutputShown(container), true, "the task's record is drawn");
+    assert.equal(phaseOpenName(container), "green", "the stage the task is in is open");
+    assert.equal(pageSlug(container), "Parser");
     assert.equal(pageClass(container), "page drill", "opening the phase output moves the page deeper");
   }));
 
-test("a click on a task row opens the task at the phase its row names", (t) =>
+test("a click on a task row opens the task's record at the stage the task is in", (t) =>
   withApp(t.signal, { epics: phaseEpic() }, async (container) => {
     await press("j");
     await clickFirst(container, 'section.page[aria-label="epic"] .tasks button.tr');
-    assert.equal(phaseOutputShown(container), true, "the row opens the phase output");
-    assert.equal(phaseOpenName(container), "checking", "the row opens the phase its task is in");
-    assert.equal(pageSlug(container), "T1 · checking");
+    assert.equal(phaseOutputShown(container), true, "the row opens the task's record");
+    assert.equal(phaseOpenName(container), "green", "the row opens the stage its task is in");
+    assert.equal(pageSlug(container), "Parser");
     assert.equal(pageClass(container), "page drill");
   }));
 
-test("a phase head opens its phase in place, and no page moves", (t) =>
+test("a stage head opens its stage in place, and no page moves", (t) =>
   withApp(t.signal, { epics: phaseEpic() }, async (container) => {
     await openCheckingPhase(container);
     assert.equal(pageClass(container), "page drill");
-    await clickPhaseHead(container, "implementing");
-    assert.equal(phaseOpenName(container), "implementing", "the head's phase is open");
-    assert.equal(pageSlug(container), "T1 · implementing", "the page is still the task's phase output");
+    await clickPhaseHead(container, "implement");
+    assert.equal(phaseOpenName(container), "implement", "the head's stage is open");
+    assert.equal(pageSlug(container), "Parser", "the page is still the task's record");
     assert.equal(pageClass(container), "page drill", "no page moves for a head");
     await clickButton(container, pageTitleRow, "‹");
     assert.equal(epicPageDrawn(container), true, "‹ goes straight to the epic page: the head pushed no page");
@@ -4201,10 +4214,11 @@ test("a phase head opens its phase in place, and no page moves", (t) =>
 test("Open the session streams the step's worker session as text, and moves the page deeper", (t) =>
   withApp(t.signal, { epics: phaseEpic() }, async (container, fake) => {
     await openCheckingPhase(container);
-    await clickButton(container, phaseBody, "Open the session ›");
+    await clickPhaseHead(container, "implement");
+    await clickButton(container, phaseBody, "Open the session›");
     assert.equal(sessionPageShown(container), true, "the worker session is drawn");
-    assert.equal(pageSlug(container), "session");
-    assert.equal(pageClass(container), "page drill", "opening the session moves the page deeper");
+    assert.equal(sessionCrumb(container), "Worker session");
+    assert.equal(sessionClass(container), "read page drill", "opening the session moves its page deeper");
     await until(t.signal, () => fake.callsTo(sessionWatchPath).length === 1, "the session stream");
     assert.deepEqual(
       fake.callsTo(sessionWatchPath).map((call) => call.body.id),
@@ -4217,7 +4231,93 @@ test("Open the session streams the step's worker session as text, and moves the 
       reset: true,
       items: [{ kind: "reply", text: "the checking reply" }],
     });
-    await until(t.signal, () => pageReaderText(container).includes("the checking reply"), "the session reply");
+    await until(t.signal, () => sessionReaderText(container).includes("the checking reply"), "the session reply");
+  }));
+
+// openSessionFromRecord opens the implement stage's session from the checking task's record.
+async function openSessionFromRecord(container: HTMLElement): Promise<void> {
+  await openCheckingPhase(container);
+  await clickPhaseHead(container, "implement");
+  await clickButton(container, phaseBody, "Open the session›");
+}
+
+test("WorkerSession: at the desk, opening a step's session draws it in the middle column, and no epic panel beside it", (t) =>
+  withApp(t.signal, { epics: phaseEpic() }, async (container) => {
+    await openSessionFromRecord(container);
+    assert.ok(container.querySelector(`${deskSession} .worker-session`), "the session is drawn in the middle column");
+    assert.equal(container.querySelector(".rpanel"), null, "no epic panel is drawn");
+    assert.equal(container.querySelector(".panes")?.getAttribute("data-side"), "rail", "the layout has no panel beside it");
+  }, 1600));
+
+test("WorkerSession: at the desk, the session's back returns to the task's record in the panel", (t) =>
+  withApp(t.signal, { epics: phaseEpic() }, async (container) => {
+    await openSessionFromRecord(container);
+    await clickButton(container, `${deskSession} .title-row`, "‹");
+    assert.equal(container.querySelector(deskSession), null, "the session is no longer drawn in the middle column");
+    assert.ok(container.querySelector(".rpanel"), "the epic panel is drawn again");
+    assert.equal(phaseOutputShown(container), true, "the task's record is drawn in the panel");
+    assert.equal(pageSlug(container), "Parser");
+  }, 1600));
+
+test("WorkerSession: at the desk, the session's task crumb returns to the task's record in the panel", (t) =>
+  withApp(t.signal, { epics: phaseEpic() }, async (container) => {
+    await openSessionFromRecord(container);
+    const crumb = [...container.querySelectorAll<HTMLElement>(`${deskSession} .title-row .crumb`)].find(
+      (element) => element.textContent === "Parser",
+    );
+    assert.ok(crumb, "the session's task crumb is drawn");
+    await clickIn(crumb);
+    assert.equal(container.querySelector(deskSession), null, "the session is no longer drawn in the middle column");
+    assert.ok(container.querySelector(".rpanel"), "the epic panel is drawn");
+    assert.equal(phaseOutputShown(container), true, "the task's record is drawn in the panel");
+  }, 1600));
+
+test("WorkerSession: under 760px the session is the page, and no session is drawn in the middle column", (t) =>
+  withApp(t.signal, { epics: phaseEpic() }, async (container) => {
+    await clickRow(container, `epic:${widgetsFirst}`);
+    await clickFirst(container, checkingCell);
+    await clickPhaseHead(container, "implement");
+    await clickButton(container, phaseBody, "Open the session›");
+    assert.equal(container.querySelector(deskSession), null, "no session is drawn in the middle column");
+    assert.equal(container.querySelector(".rpanel"), null, "no epic panel is drawn");
+    assert.equal(sessionPageShown(container), true, "the session is the epic page");
+  }, 400));
+
+test("the record follows its brief step's session, and draws the planner's brief once that conversation holds it", (t) =>
+  withApp(t.signal, { epics: phaseEpic() }, async (container, fake) => {
+    await openCheckingPhase(container);
+    await until(t.signal, () => fake.callsTo(sessionWatchPath).length === 1, "the brief step's stream");
+    assert.deepEqual(
+      fake.callsTo(sessionWatchPath).map((call) => call.body.id),
+      ["run1"],
+      "the record follows the task's first implementer step",
+    );
+    assert.equal(container.querySelector(".brief"), null, "no brief before the conversation holds it");
+    fake.emit(fake.callsTo(sessionWatchPath)[0], {
+      transcript: "t1",
+      seq: "1",
+      reset: true,
+      items: [{ kind: "prompt", sender: "brief", text: "Parse the lines of the rota." }],
+    });
+    await until(t.signal, () => container.querySelector(".brief p") !== null, "the planner's brief");
+    assert.equal(container.querySelector(".brief p")?.textContent, "Parse the lines of the rota.");
+  }));
+
+test("TaskBand: the record pages back through the brief step's conversation until it holds the planner's brief", (t) =>
+  withApp(t.signal, { epics: phaseEpic() }, async (container, fake) => {
+    await openCheckingPhase(container);
+    await until(t.signal, () => fake.callsTo(sessionWatchPath).length === 1, "the brief step's stream");
+    const [stream] = fake.callsTo(sessionWatchPath);
+    const later = Array.from({ length: 40 }, (_, index) => ({ kind: "assistant", text: `reply ${index}` }));
+    fake.replies.set(sessionOlderPath, [
+      { items: [{ kind: "prompt", sender: "brief", text: "Parse the lines of the rota." }], oldest: "0", more: false },
+    ]);
+    fake.emit(stream, { transcript: "t1", seq: "50", reset: true, oldest: "100", items: later });
+    await until(t.signal, () => fake.callsTo(sessionOlderPath).length === 1, "the older request");
+    assert.deepEqual(fake.callsTo(sessionOlderPath)[0].body, { id: "run1", before: "100" }, "the page before the oldest item is asked");
+    await until(t.signal, () => container.querySelector(".brief p") !== null, "the planner's brief");
+    assert.equal(container.querySelector(".brief p")?.textContent, "Parse the lines of the rota.");
+    assert.equal(fake.callsTo(sessionOlderPath).length, 1, "no older page is asked once the brief is held");
   }));
 
 test("‹ on the session returns to the phase output, and ‹ again to the epic page at its scroll place", (t) =>
@@ -4225,17 +4325,20 @@ test("‹ on the session returns to the phase output, and ‹ again to the epic 
     await press("j");
     moveScroll(container, 120);
     await clickFirst(container, checkingCell);
-    await clickButton(container, phaseBody, "Open the session ›");
+    await clickPhaseHead(container, "implement");
+    await clickButton(container, phaseBody, "Open the session›");
     await until(t.signal, () => fake.callsTo(sessionWatchPath).length === 1, "the session stream");
-    await clickButton(container, pageTitleRow, "‹");
+    await clickButton(container, `${deskSession} .title-row`, "‹");
     assert.equal(phaseOutputShown(container), true, "‹ returns to the phase output");
     assert.equal(sessionPageShown(container), false, "the session is no longer drawn");
     assert.equal(pageClass(container), "page leave", "the phase output comes back with leave");
-    assert.equal(fake.callsTo(sessionWatchPath)[0].signal.aborted, true, "leaving the session stops its stream");
+    assert.equal(fake.callsTo(sessionWatchPath).length, 1, "the record reads its brief from the same step: no new stream");
+    assert.equal(fake.callsTo(sessionWatchPath)[0].signal.aborted, false, "the brief step's stream stays under the record");
     await clickButton(container, pageTitleRow, "‹");
     assert.equal(epicPageDrawn(container), true, "‹ again returns to the epic page");
     assert.equal(pageClass(container), "page leave", "the epic page comes back with leave");
     assert.equal(String(pageScroll(container)), "120", "the epic page's scroll place is restored");
+    assert.equal(fake.callsTo(sessionWatchPath)[0].signal.aborted, true, "leaving the record stops its stream");
   }));
 
 test("the epic crumb on the phase output returns to the epic page at its scroll place", (t) =>
@@ -4249,10 +4352,10 @@ test("the epic crumb on the phase output returns to the epic page at its scroll 
     assert.equal(String(pageScroll(container)), "120", "the epic page's scroll place is restored");
   }));
 
-test("Hold on the phase output calls Steps.Hold with the running step's id", (t) =>
+test("Interrupt on the record calls Steps.Hold with the running step's id", (t) =>
   withApp(t.signal, { epics: phaseEpic() }, async (container, fake) => {
     await openCheckingPhase(container);
-    await clickButton(container, `${pageTitleRow} .acts`, "Hold");
+    await clickButton(container, `${pageTitleRow} .acts`, "Interrupt");
     await until(t.signal, () => fake.callsTo(holdPath).length === 1, "the Hold call");
     assert.deepEqual(fake.callsTo(holdPath).map((call) => call.body.id), ["run1"]);
   }));
@@ -4260,12 +4363,13 @@ test("Hold on the phase output calls Steps.Hold with the running step's id", (t)
 test("a nudge in the session calls Steps.Nudge with the step's id and the text", (t) =>
   withApp(t.signal, { epics: phaseEpic() }, async (container, fake) => {
     await openCheckingPhase(container);
-    await clickButton(container, phaseBody, "Open the session ›");
+    await clickPhaseHead(container, "implement");
+    await clickButton(container, phaseBody, "Open the session›");
     await until(t.signal, () => fake.callsTo(sessionWatchPath).length === 1, "the session stream");
-    const box = container.querySelector<HTMLTextAreaElement>('section.page[aria-label="epic"] .dock-box textarea');
+    const box = container.querySelector<HTMLTextAreaElement>(`${deskSession} .dock-box textarea`);
     assert.ok(box, "the session's step box has an input");
     await typeInto(box, "try the other route");
-    await clickFirst(container, 'section.page[aria-label="epic"] .dock-box button[aria-label="send"]');
+    await clickFirst(container, `${deskSession} .dock-box button[aria-label="send"]`);
     await until(t.signal, () => fake.callsTo(nudgePath).length === 1, "the nudge");
     assert.deepEqual(fake.callsTo(nudgePath).map((call) => [call.body.id, call.body.text]), [
       ["run1", "try the other route"],

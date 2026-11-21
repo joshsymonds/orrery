@@ -80,7 +80,7 @@ function sinceText(since: number, now: number, live: boolean): string {
 
 // epicWords reads an epic's row: its count from its line, its state word with the time since its phase began, its
 // blocker and its gauge. An epic with no state word, such as one with no detail, reads no words.
-function epicWords(node: EpicNode, now: number): EpicRowWords {
+export function epicWords(node: EpicNode, now: number): EpicRowWords {
   const item = node.block.epic;
   const listed = node.listed;
   const state = stateWordOf(node);

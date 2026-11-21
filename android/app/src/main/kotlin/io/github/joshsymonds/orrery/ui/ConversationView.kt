@@ -62,6 +62,7 @@ import io.github.joshsymonds.orrery.api.ContractRow
 import io.github.joshsymonds.orrery.api.EpicDetail
 import io.github.joshsymonds.orrery.api.OrreryClient
 import io.github.joshsymonds.orrery.api.StepCallResult
+import io.github.joshsymonds.orrery.api.StepCheckRow
 import io.github.joshsymonds.orrery.api.WaitingItem
 import io.github.joshsymonds.orrery.ui.theme.OrreryTokens
 import io.github.joshsymonds.orrery.ui.theme.inLabelCase
@@ -110,7 +111,8 @@ private const val READ_DWELL_MS = 1_000L
  * With [find] set, every match of the find's query is marked in the text it draws, the current one solid. The entry
  * that holds the current match opens its fold or call, the list scrolls to that entry, and the text that holds the
  * match brings its run into view. Closing the find (a null
- * [find]) returns the list to the place it was at when the find opened.
+ * [find]) returns the list to the place it was at when the find opened. A check round the engine sent draws its round's
+ * chips from the step's [checks].
  */
 @Composable
 fun ConversationView(
@@ -129,6 +131,7 @@ fun ConversationView(
     onOpenEpic: (String) -> Unit = {},
     epicQuestion: @Composable (epic: String, question: String) -> Unit = { _, _ -> },
     find: TranscriptFind? = null,
+    checks: List<StepCheckRow> = emptyList(),
 ) {
     var expanded by remember { mutableStateOf(emptySet<String>()) }
     val toggle: (String) -> Unit = { id ->
@@ -287,6 +290,7 @@ fun ConversationView(
                             onOpenEpic,
                             epicQuestion,
                             marks[index],
+                            checks,
                         )
                     }
                 }
@@ -319,6 +323,7 @@ private fun EntryView(
     onOpenEpic: (String) -> Unit,
     epicQuestion: @Composable (epic: String, question: String) -> Unit,
     marks: EntryMarks?,
+    checks: List<StepCheckRow>,
 ) {
     when (entry) {
         is ConvoEntry.Prompt -> YouBlock(entry.text, timeOf(entry.time), marks = marks)
@@ -346,7 +351,12 @@ private fun EntryView(
             EngineFold(brief = true, text = entry.text, key = key, expanded = expanded, onToggle = onToggle, marks = marks)
         is ConvoEntry.Engine ->
             EngineFold(brief = false, text = entry.text, key = key, expanded = expanded, onToggle = onToggle, marks = marks)
-        is ConvoEntry.Check -> CheckBlock(entry.round, entry.text, time = timeOf(entry.time))
+        is ConvoEntry.Check -> CheckBlock(
+            entry.round,
+            entry.text,
+            checks = roundChecks(checks, entry.round),
+            time = timeOf(entry.time),
+        )
         is ConvoEntry.Reply -> ReplyText(entry.text, cache, marks = marks)
         is ConvoEntry.LiveReply -> ReplyText(entry.text, cache, live = true)
         is ConvoEntry.Thinking -> ThinkingLine(entry.text, key, expanded, onToggle)

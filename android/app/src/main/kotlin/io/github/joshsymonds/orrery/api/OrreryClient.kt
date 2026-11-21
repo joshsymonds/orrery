@@ -56,12 +56,14 @@ import io.github.joshsymonds.orrery.gen.orrery.v1.EpicTurn as EpicTurnProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsAnswerRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsArchiveRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsClient
+import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsCloseRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsContinueRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsGetRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsHistoryRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsListRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsMoveRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsPauseRequest
+import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsReleaseRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsResumeRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsRetryRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsSeenRequest
@@ -78,9 +80,12 @@ import io.github.joshsymonds.orrery.gen.orrery.v1.HostStatusRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.InterruptRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.ListHeadlessRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.ListRequest
+import io.github.joshsymonds.orrery.gen.orrery.v1.ListedNotice as ListedNoticeProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.MarkSeenRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.NoticeKey
 import io.github.joshsymonds.orrery.gen.orrery.v1.NoticesClient
+import io.github.joshsymonds.orrery.gen.orrery.v1.NoticesListRequest
+import io.github.joshsymonds.orrery.gen.orrery.v1.NoticesReadAllRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.NoticesSeenRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.NotNowRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.Pane as PaneProto
@@ -107,6 +112,7 @@ import io.github.joshsymonds.orrery.gen.orrery.v1.SayRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.SeenRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.SendKeysRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.SessionsClient
+import io.github.joshsymonds.orrery.gen.orrery.v1.SessionsOlderRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.SessionsWatchConversationRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.SessionsWatchConversationResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.SendTextRequest
@@ -343,8 +349,10 @@ data class UnfinishedText(
 
 /**
  * One step of a WatchConversation stream: the [items] after [seq] in [transcript]. A [reset] delta replaces what the
- * client holds. [unfinished] is the text so far of each unfinished block of a headless session, and empty on a pane
- * stream. [queued] is the whole queue of owner messages a headless session holds, and empty on a pane stream.
+ * client holds. [oldest] is the seq of the oldest item a reset carries, which the older pages are asked back from; it is
+ * 0 on a delta that is not a reset, and on a reset with no items. [unfinished] is the text so far of each unfinished
+ * block of a headless session, and empty on a pane stream. [queued] is the whole queue of owner messages a headless
+ * session holds, and empty on a pane stream.
  */
 data class ConversationDelta(
     val transcript: String,
@@ -354,7 +362,14 @@ data class ConversationDelta(
     val state: ConversationState?,
     val unfinished: List<UnfinishedText> = emptyList(),
     val queued: List<QueuedItem> = emptyList(),
+    val oldest: Long = 0L,
 )
+
+/**
+ * One page of a headless session's main-thread items, older than the seq a request gave, oldest first. [oldest] is the
+ * seq of the page's oldest item, 0 when it holds none; [more] is whether items older than the page remain.
+ */
+data class SessionOlderPage(val items: List<ConversationItem>, val oldest: Long, val more: Boolean)
 
 data class HostStat(val label: String, val value: String, val percent: Double?, val level: String)
 
@@ -470,6 +485,26 @@ data class EpicRow(
     val pauseSource: String = "",
     val parked: String = "",
     val openQuestions: Int = 0,
+)
+
+/**
+ * One notice in the notice history, from List. [pane], [session], [epic], [limit] and [alert] are the notice's key: exactly
+ * one is set. [blockKind] and [blockRef] name the block of the epic's page the notice opens on, empty when it opens the
+ * epic view. [time] is when the router delivered the notice, in unix seconds; [read] is whether the owner has read it.
+ */
+data class NoticeRow(
+    val pane: String,
+    val session: String,
+    val epic: String,
+    val limit: String,
+    val alert: String,
+    val state: String,
+    val title: String,
+    val body: String,
+    val blockKind: String,
+    val blockRef: String,
+    val time: Long,
+    val read: Boolean,
 )
 
 /**
@@ -689,6 +724,7 @@ data class TaskReviewRow(
     val step: String,
     val verdict: String,
     val findings: List<TaskFindingRow>,
+    val reason: String = "",
 )
 
 /**
@@ -771,7 +807,11 @@ data class EpicContractRow(
  * is why the epic is parked, empty when it is not. [plannerParked] is whether the planner holds that park.
  * [repository] is the absolute path of the git repository the epic belongs to, empty when none is named.
  * [releaseProof] is the contract's release steps with the state their release runs gave them, in contract order,
- * empty for a record epic.
+ * empty for a record epic. [reviews] are the verdicts of the epic-stage reviewers by position, empty before its review.
+ * [ledger] is the end-of-epic review ledger in ledger order, with each finding's closures, empty before its review
+ * freezes. [releases] are the release runs in the order orreryd reads them, empty before its release. [report] is
+ * what the epic shipped, null until the epic ends and writes it. [supersededBy] is the epic a close named as its
+ * replacement, empty when its close named none or it is not closed.
  */
 data class EpicDetail(
     val epic: EpicRow,
@@ -788,6 +828,11 @@ data class EpicDetail(
     val plannerParked: Boolean = false,
     val repository: String = "",
     val releaseProof: List<EpicReleaseProofRow> = emptyList(),
+    val reviews: List<EpicReviewVerdictRow> = emptyList(),
+    val ledger: List<EpicLedgerFindingRow> = emptyList(),
+    val releases: List<EpicReleaseRunRow> = emptyList(),
+    val report: EpicReportRow? = null,
+    val supersededBy: String = "",
 )
 
 /** What a hold, nudge, stop or epic call came to: it landed, or orreryd refused it with its reason. */
@@ -1019,6 +1064,24 @@ class OrreryClient(
         )
     }
 
+    /**
+     * One page of headless session [sessionId]'s main-thread items older than the seq [before], the newest page first.
+     * [SessionOlderPage.oldest] is the cursor to pass as before for the next page.
+     */
+    fun sessionOlder(sessionId: String, before: Long): SessionOlderPage {
+        val request = SessionsOlderRequest.newBuilder()
+            .setId(sessionId)
+            .setBefore(before)
+            .setLimit(50)
+            .build()
+        val response = call(write = false) { standard.sessions.older(request, CLIENT_HEADERS) }
+        return SessionOlderPage(
+            items = response.itemsList.map { it.toConversationItem() },
+            oldest = response.oldest,
+            more = response.more,
+        )
+    }
+
     /** Sends [request] on [stream], then hands each message of the answer to [onDelta] as a delta. */
     internal suspend fun <Req : Any, Resp : Any> streamDeltas(
         stream: ServerOnlyStreamInterface<Req, Resp>,
@@ -1085,6 +1148,11 @@ class OrreryClient(
             plannerParked = response.plannerParked,
             repository = response.repository,
             releaseProof = response.releaseStepsList.map { it.toEpicReleaseProofRow() },
+            reviews = response.reviewsList.map { it.toEpicReviewVerdictRow() },
+            ledger = response.ledgerList.map { it.toEpicLedgerFindingRow() },
+            releases = response.releasesList.map { it.toEpicReleaseRunRow() },
+            report = if (response.hasReport()) response.report.toEpicReportRow() else null,
+            supersededBy = response.supersededBy,
         )
     }
 
@@ -1343,6 +1411,30 @@ class OrreryClient(
         call(write = true) { standard.notices.seen(request, CLIENT_HEADERS) }
     }
 
+    /** The notice history, newest first, as the server answers: every notice timed within the last 14 days. */
+    fun notices(): List<NoticeRow> {
+        val response = call(write = false) { standard.notices.list(NoticesListRequest.getDefaultInstance(), CLIENT_HEADERS) }
+        return response.noticesList.map { it.toNoticeRow() }
+    }
+
+    /** Records that the owner opened the notice [row] in the notice history, so every client marks it seen. */
+    fun noticeRowSeen(row: NoticeRow) {
+        noticeSeen(
+            NoticeKey.newBuilder()
+                .setPane(row.pane)
+                .setSession(row.session)
+                .setEpic(row.epic)
+                .setLimit(row.limit)
+                .setAlert(row.alert)
+                .build(),
+        )
+    }
+
+    /** Marks every notice in the notice history read. */
+    fun readAllNotices() {
+        call(write = true) { standard.notices.readAll(NoticesReadAllRequest.getDefaultInstance(), CLIENT_HEADERS) }
+    }
+
     /** Holds the labelled step [id]. A refused hold answers [StepCallResult.Refused] with the server's reason. */
     fun holdStep(id: String): StepCallResult {
         val request = StepsHoldRequest.newBuilder().setId(id).build()
@@ -1382,6 +1474,26 @@ class OrreryClient(
     fun stopEpic(id: String): StepCallResult {
         val request = EpicsStopRequest.newBuilder().setId(id).build()
         return stepCall { call(write = true) { standard.epics.stop(request, CLIENT_HEADERS) } }
+    }
+
+    /**
+     * Releases the orreryd epic [id], running its release steps. [undoNone] names the positions, from 1, of its
+     * undo-none release steps to run again; empty names none. A refused release answers [StepCallResult.Refused], and
+     * any other failure throws.
+     */
+    fun releaseEpic(id: String, undoNone: List<Int>): StepCallResult {
+        val request = EpicsReleaseRequest.newBuilder().setId(id).addAllUndoNone(undoNone).build()
+        return stepCall { call(write = true) { standard.epics.release(request, CLIENT_HEADERS) } }
+    }
+
+    /**
+     * Closes the orreryd epic [id] as [kind], which is superseded, shipped or abandoned, and [by], the epic that
+     * replaces it, which a superseded close requires. A refused close answers [StepCallResult.Refused], and any other
+     * failure throws.
+     */
+    fun closeEpic(id: String, kind: String, by: String): StepCallResult {
+        val request = EpicsCloseRequest.newBuilder().setId(id).setKind(kind).setBy(by).build()
+        return stepCall { call(write = true) { standard.epics.close(request, CLIENT_HEADERS) } }
     }
 
     /**
@@ -1472,6 +1584,22 @@ class OrreryClient(
 
     private fun textRequest(paneId: String, text: String): SendTextRequest =
         SendTextRequest.newBuilder().setPane(paneId).setText(text).build()
+
+    private fun ListedNoticeProto.toNoticeRow(): NoticeRow =
+        NoticeRow(
+            pane = key.pane,
+            session = key.session,
+            epic = key.epic,
+            limit = key.limit,
+            alert = key.alert,
+            state = state,
+            title = title,
+            body = body,
+            blockKind = block.kind,
+            blockRef = block.ref,
+            time = time,
+            read = read,
+        )
 
     private fun EpicProto.toEpicRow(): EpicRow =
         EpicRow(
@@ -1673,6 +1801,7 @@ class OrreryClient(
             step = step,
             verdict = verdict,
             findings = findingsList.map { it.toTaskFindingRow() },
+            reason = reason,
         )
 
     private fun EpicTaskFindingProto.toTaskFindingRow(): TaskFindingRow =
@@ -1897,6 +2026,7 @@ class OrreryClient(
             seq = seq,
             reset = reset,
             items = itemsList.map { it.toConversationItem() },
+            oldest = oldest,
             state = if (hasState()) {
                 state.toConversationState(
                     pane = if (state.hasPane()) state.pane.toPane() else null,
@@ -1913,6 +2043,7 @@ class OrreryClient(
             seq = seq,
             reset = reset,
             items = itemsList.map { it.toConversationItem() },
+            oldest = oldest,
             state = if (hasState()) {
                 state.toConversationState(
                     pane = if (state.hasSession()) state.session.toHeadlessPane() else null,

@@ -20,6 +20,7 @@ import {
   EpicsRetryResponseSchema,
   EpicsStopResponseSchema,
 } from "../gen/orrery/v1/epics_pb";
+import { NoticesReadAllResponseSchema, NoticesSeenResponseSchema, NoticesWatchResponseSchema } from "../gen/orrery/v1/notice_pb";
 import {
   AskResponseSchema,
   HostStatusResponseSchema,
@@ -33,7 +34,7 @@ import { assertNone, installTestDom, removeTestDom, teardownOnce } from "../test
 import { loadRows } from "../load";
 import { turn, until } from "../testwait";
 import { at } from "./clock";
-import { epicScenarios, shippedSlices } from "./slices";
+import { epicScenarios, noNoticeSlices, noticeStackSlices, shippedSlices } from "./slices";
 import { createFixtureTransport } from "./transport";
 
 // wideWidth is the window width the stories draw at unless one names its own. It is past the 760px the wide layout starts
@@ -525,6 +526,90 @@ test("FixtureTransport: an open session stream sends the interrupt's then frame 
   assert.equal(await after.then(() => "ended", () => "aborted"), "aborted", "the abort ends the wait");
 });
 
+test("FixtureTransport answers Notices.List with the shipped history, newest first, each row with its fields set", async () => {
+  const fixture = createFixtureTransport();
+  const list = await fixture.clients.notices.list({});
+  const rows = list.notices.map((notice) => [
+    notice.key?.session || notice.key?.epic || notice.key?.limit,
+    notice.title,
+    notice.state,
+    notice.time,
+    notice.read,
+  ]);
+  assert.deepEqual(rows, [
+    ["sess-beacon-12", "tidepool · session sess-bea", "waiting", at("@14:41"), false],
+    ["lighthouse/rota-export", "lighthouse/rota-export", "waiting", at("@14:39"), false],
+    ["orrery/holder-scopes", "orrery/holder-scopes", "waiting", at("@09:52"), true],
+    ["tidepool/offline-tables", "tidepool/offline-tables", "waiting", at("@09:31"), true],
+    [`weekly@${at("@15:10")}`, "usage limit", "limited", at("@08:47"), true],
+    ["8b0e5d21-6c4a-4f19-a7e3-2d9c1b5f0a47", "orchard · session 8b0e5d21", "done", at("@-1d 18:20"), true],
+    ["c41f9a07-2e8b-4d63-9a15-7f0b3e6c2d98", "kelp · session c41f9a07", "failed", at("@-1d 16:02"), true],
+  ]);
+  assert.ok(
+    list.notices.every((notice) => notice.body !== ""),
+    "every notice has its body",
+  );
+  const [, rota, holder, offline] = list.notices;
+  assert.deepEqual([rota.block?.kind, rota.block?.ref], ["question", "Q1"], "rota-export opens on its question Q1");
+  assert.deepEqual([holder.block?.kind, holder.block?.ref], ["report", ""], "holder-scopes opens on its report");
+  assert.deepEqual([offline.block?.kind, offline.block?.ref], ["release_step", "2"], "offline-tables opens on release step 2");
+  assert.deepEqual([...fixture.unserved], [], "the list is not recorded as unserved");
+});
+
+test("FixtureTransport sends no Notices.Watch change on the shipped slices, and the stream stays open until its call aborts", async () => {
+  const fixture = createFixtureTransport();
+  const stream = new AbortController();
+  const changes = fixture.clients.notices.watch({}, { signal: stream.signal })[Symbol.asyncIterator]();
+  const first = changes.next();
+  assert.equal(await Promise.race([first.then(() => "sent"), turn().then(() => "held")]), "held", "the stream sends no change");
+  stream.abort();
+  assert.equal(await first.then(() => "ended", () => "aborted"), "aborted", "the abort ends the wait");
+  assert.deepEqual([...fixture.unserved], [], "the watch is not recorded as unserved");
+});
+
+test("FixtureTransport sends the five shown Notices.Watch changes of noticeStackSlices in order, then holds open", async () => {
+  const fixture = createFixtureTransport(noticeStackSlices);
+  const stream = new AbortController();
+  const changes = fixture.clients.notices.watch({}, { signal: stream.signal })[Symbol.asyncIterator]();
+  const titles: string[] = [];
+  for (let index = 0; index < 5; index++) {
+    const next = await changes.next();
+    assert.ok(!next.done, `change ${index + 1} is sent`);
+    const change = next.value.change;
+    assert.equal(change.case, "shown", `change ${index + 1} shows a notice`);
+    const shown = noticeStackSlices.noticesShowing[index];
+    assert.ok(
+      equals(NoticesWatchResponseSchema, next.value, create(NoticesWatchResponseSchema, { change: { case: "shown", value: shown } })),
+      `change ${index + 1} is the stack's notice ${index + 1}`,
+    );
+    titles.push(change.case === "shown" ? change.value.title : "");
+  }
+  assert.deepEqual(
+    titles,
+    ["tidepool · session sess-bea", "lighthouse/rota-export", "orrery/holder-scopes", "tidepool/offline-tables", "usage limit"],
+    "the five notices are in the order the stack draws them",
+  );
+  const sixth = changes.next();
+  assert.equal(await Promise.race([sixth.then(() => "sent"), turn().then(() => "held")]), "held", "the stream sends no sixth change");
+  stream.abort();
+  assert.equal(await sixth.then(() => "ended", () => "aborted"), "aborted", "the abort ends the wait");
+});
+
+test("FixtureTransport answers Notices.List on noNoticeSlices with no notice", async () => {
+  const fixture = createFixtureTransport(noNoticeSlices);
+  const list = await fixture.clients.notices.list({});
+  assert.deepEqual(list.notices, [], "the history is empty");
+});
+
+test("FixtureTransport absorbs Notices.Seen and Notices.ReadAll: each answers an empty message, and records no call", async () => {
+  const fixture = createFixtureTransport();
+  const seen = await fixture.clients.notices.seen({ key: { session: "sess-beacon-12" } });
+  assert.deepEqual(toJson(NoticesSeenResponseSchema, seen), {}, "Seen answers an empty message");
+  const readAll = await fixture.clients.notices.readAll({});
+  assert.deepEqual(toJson(NoticesReadAllResponseSchema, readAll), {}, "ReadAll answers an empty message");
+  assert.deepEqual([...fixture.unserved], [], "the writes are not recorded as unserved");
+});
+
 test("FixtureTransport: app/inbox draws the inbox rows, with the fixture's proposed contract on its epic", (t) => {
   mockTimers(t, ["setTimeout"]);
   return withStory(
@@ -636,10 +721,13 @@ test("FixtureTransport: app/phase draws the phase output", (t) => {
   return withStory(
     t,
     App.phase,
-    (root) => root.querySelector(".phase-output .phase-row.open") !== null,
+    (root) => root.querySelector(".phase-output .phase-head[aria-expanded=\"true\"]") !== null,
     (root) => {
       assertNoFailure(root);
-      assert.ok(root.querySelector(".phase-output .phase-row.open") !== null, "the phase output's open row is drawn");
+      assert.ok(
+        root.querySelector(".phase-output .phase-head[aria-expanded=\"true\"]") !== null,
+        "the record's open stage is drawn",
+      );
     },
   );
 });
@@ -874,6 +962,98 @@ test("FixtureTransport: page/epic-shipped draws the released epic at Report, its
   );
 });
 
+test("EpicReview: page/epic-reviewing draws Review with both reviewers and the finding", (t) => {
+  mockTimers(t, ["setTimeout"]);
+  return withStory(
+    t,
+    Page["epic-reviewing"],
+    (root) => root.querySelector('.epic-page section.review [data-finding="security-1"]') !== null,
+    (root) => {
+      assertNoFailure(root);
+      const reviewers = [...root.querySelectorAll(".epic-page section.review .tbl.reviews [data-reviewer]")].map((row) =>
+        row.getAttribute("data-reviewer"),
+      );
+      assert.deepEqual(reviewers, ["contract", "security"], "both reviewers are drawn, in order");
+      const finding = root.querySelector('.epic-page section.review [data-finding="security-1"]');
+      assert.ok(finding?.textContent.includes("export.go:41"), "the finding is drawn at its location");
+      assert.ok(finding?.textContent.includes("confirmed"), "the finding is drawn confirmed");
+      assert.equal(
+        root.querySelector(".epic-page section.review .closure")?.textContent,
+        "round 1 · open · a fix plan will close it",
+        "its open closure is drawn under it",
+      );
+      assert.equal(root.querySelector(".epic-page section.release"), null, "no Release is drawn before the release");
+    },
+  );
+});
+
+test("ReleaseTable: page/epic-releasing draws Release with step 2 running and the Then line", (t) => {
+  mockTimers(t, ["setTimeout"]);
+  return withStory(
+    t,
+    Page["epic-releasing"],
+    (root) => root.querySelector('.epic-page section.release [data-step="2"] .cell.live') !== null,
+    (root) => {
+      assertNoFailure(root);
+      assert.equal(root.querySelector(".epic-page section.release > header > span")?.textContent, "step 2 of 3");
+      assert.equal(root.querySelector('.epic-page section.release [data-step="2"] .cell')?.textContent, "running");
+      assert.ok(root.querySelector('.epic-page section.release [data-step="1"] .cell')?.textContent.includes("passed"));
+      assert.equal(
+        root.querySelector(".epic-page section.release p.then")?.textContent,
+        "Then: the judge reads the tag and the notes, and the epic ends released.",
+        "the Then line is drawn under the table",
+      );
+      assert.equal(root.querySelector(".epic-page section.release .call-line"), null, "no release call is made");
+    },
+  );
+});
+
+test("ReleaseFrom: page/epic-release-failed draws step 2 failed and Release from step 2 offered, no call made", (t) => {
+  mockTimers(t, ["setTimeout"]);
+  return withStory(
+    t,
+    Page["epic-release-failed"],
+    (root) => root.querySelector('.epic-page section.release [data-step="2"] .cell.bad') !== null,
+    (root) => {
+      assertNoFailure(root);
+      assert.ok(root.querySelector('.epic-page section.release [data-step="2"] .cell')?.textContent.includes("failed"));
+      assert.ok(
+        root.querySelector(".epic-page section.release .tr-detail .inote.error")?.textContent.includes("CI is red on the tag"),
+        "step 2's reason is drawn",
+      );
+      const offered = [...root.querySelectorAll(".epic-page section.release button")].filter(
+        (button) => button.textContent === "Release from step 2",
+      );
+      assert.equal(offered.length, 1, "Release from step 2 is offered once");
+      assert.equal(root.querySelector(".epic-page section.release .sure"), null, "no confirm is open");
+      assert.equal(root.querySelector(".epic-page section.release .call-line"), null, "no release call is made");
+    },
+  );
+});
+
+test("EpicClose: page/epic-ended-gaps draws Report with Release it anyway and Close as…, no call made", (t) => {
+  mockTimers(t, ["setTimeout"]);
+  return withStory(
+    t,
+    Page["epic-ended-gaps"],
+    (root) => root.querySelector('.epic-page section.report .gaps-acts button[type="button"]') !== null,
+    (root) => {
+      assertNoFailure(root);
+      assert.equal(root.querySelector(".epic-page section.report .now-sentence")?.textContent, "Ended with gaps. It did not release.");
+      assert.equal(root.querySelector(".epic-page section.report .door.shipped")?.textContent, "shipped none");
+      assert.equal(root.querySelector(".epic-page section.report .door.not-shipped")?.textContent, "not shipped R1, R2, R3");
+      assert.ok(
+        root.querySelector(".epic-page section.report .report-why")?.textContent.includes("R3 (a stale table is never served past midnight)"),
+        "the why names R3 and what it says",
+      );
+      const owner = [...root.querySelectorAll(".epic-page section.report .gaps-acts button")].map((button) => button.textContent);
+      assert.deepEqual(owner, ["Release it anyway", "Close as…"], "the two owner calls are drawn");
+      assert.equal(root.querySelector(".epic-page section.report .sure"), null, "no confirm is open");
+      assert.equal(root.querySelector(".epic-page section.report .call-line"), null, "no close call is made");
+    },
+  );
+});
+
 test("FixtureTransport: page/contract-to-accept draws the tide-alerts contract", (t) => {
   mockTimers(t, ["setTimeout"]);
   return withStory(
@@ -900,28 +1080,256 @@ test("FixtureTransport: page/contract-accepted draws the tide-alerts contract", 
   );
 });
 
-test("FixtureTransport: page/phase-implement draws the checking phase's output", (t) => {
+// openStage is the name of the stage row the task's record has open, or null when none is open.
+function openStage(root: HTMLElement): string | null {
+  return root.querySelector(".phase-output .phase-head[aria-expanded=\"true\"] .nm")?.textContent ?? null;
+}
+
+// stageRow is the stage row of the task's record that is named name, or null when the record draws none.
+function stageRow(root: HTMLElement, name: string): HTMLElement | null {
+  return (
+    [...root.querySelectorAll<HTMLElement>(".phase-output .phase")].find(
+      (row) => row.querySelector(".phase-head .nm")?.textContent === name,
+    ) ?? null
+  );
+}
+
+// bodyLines is the text of each quiet, ok, bad or accepted line the open stage draws.
+function bodyLines(root: HTMLElement): string[] {
+  return [...root.querySelectorAll<HTMLElement>(".phase-body .inote")].map((line) => line.textContent ?? "");
+}
+
+// workerDock is the step's dock under the worker session, or null when the page draws none.
+function workerDock(root: HTMLElement): HTMLElement | null {
+  return root.querySelector<HTMLElement>(".worker-session .dock");
+}
+
+// endedSessionDrawn holds once an ended worker session draws its step's end and its conversation has arrived: the reader's
+// loading line is gone once the session's stream has answered.
+function endedSessionDrawn(root: HTMLElement): boolean {
+  return root.querySelector(".worker-session .step-card") !== null && root.querySelector(".worker-session .reader-loading") === null;
+}
+
+test("FixtureTransport: page/phase-implement draws the implement stage open and live, its judge still to read the change", (t) => {
   mockTimers(t, ["setTimeout"]);
   return withStory(
     t,
     Page["phase-implement"],
-    (root) => root.querySelector(".phase-output .phase-row.open .phase-name")?.textContent === "checking",
+    (root) => openStage(root) !== null,
     (root) => {
       assertNoFailure(root);
-      assert.equal(root.querySelector(".phase-output .phase-row.open .phase-name")?.textContent, "checking");
+      assert.equal(openStage(root), "implement");
+      const row = stageRow(root, "implement");
+      assert.ok(row?.classList.contains("now") && row.classList.contains("run"), "implement is the now row, in the live tone");
+      assert.ok(
+        bodyLines(root).includes("The judge reads the change once the gate passes."),
+        "the implement body says the judge has not read the change",
+      );
     },
   );
 });
 
-test("FixtureTransport: page/worker-running draws the worker session", (t) => {
+test("FixtureTransport: page/phase-red opens the red stage, and implement stays the now row", (t) => {
+  mockTimers(t, ["setTimeout"]);
+  return withStory(
+    t,
+    Page["phase-red"],
+    (root) => openStage(root) === "red",
+    (root) => {
+      assertNoFailure(root);
+      assert.equal(openStage(root), "red");
+      assert.ok(stageRow(root, "implement")?.classList.contains("now"), "implement is still the now row");
+      const verdict = root.querySelector(".phase-output .phase-body .run .chip")?.textContent ?? "";
+      assert.ok(verdict.endsWith("fails"), "the red run's verdict is drawn");
+    },
+  );
+});
+
+test("FixtureTransport: page/phase-green draws the green stage now in the live tone, its judge reading the green run", (t) => {
+  mockTimers(t, ["setTimeout"]);
+  return withStory(
+    t,
+    Page["phase-green"],
+    (root) => openStage(root) === "green",
+    (root) => {
+      assertNoFailure(root);
+      const row = stageRow(root, "green");
+      assert.ok(row?.classList.contains("now") && row.classList.contains("run"), "green is the now row, in the live tone");
+      assert.equal(row?.querySelector(".sum")?.textContent, "a judge is reading the green run");
+      assert.ok(
+        bodyLines(root).includes("The red test is running on the change."),
+        "the reproduction says the red test is still running on the change",
+      );
+    },
+  );
+});
+
+test("FixtureTransport: page/phase-review draws the review stage now, a verifier checking the one open finding", (t) => {
+  mockTimers(t, ["setTimeout"]);
+  return withStory(
+    t,
+    Page["phase-review"],
+    (root) => openStage(root) === "review",
+    (root) => {
+      assertNoFailure(root);
+      const row = stageRow(root, "review");
+      assert.ok(row?.classList.contains("now") && row.classList.contains("run"), "review is the now row, in the live tone");
+      assert.equal(row?.querySelector(".sum")?.textContent, "a verifier is checking 1 finding");
+      assert.equal(root.querySelector(".phase-output .phase-body .tr .chip.live")?.textContent, "verifying");
+    },
+  );
+});
+
+test("FixtureTransport: page/phase-integrate draws the integrate stage now in the accepted tone, waiting for its merge", (t) => {
+  mockTimers(t, ["setTimeout"]);
+  return withStory(
+    t,
+    Page["phase-integrate"],
+    (root) => openStage(root) === "integrate",
+    (root) => {
+      assertNoFailure(root);
+      const row = stageRow(root, "integrate");
+      assert.ok(row?.classList.contains("now") && row.classList.contains("acc"), "integrate is the now row, in the accepted tone");
+      assert.ok(
+        bodyLines(root).includes("Every gate took it. It waits for its merge."),
+        "the integrate body says every gate took the task",
+      );
+      assert.ok(
+        root.querySelector(".phase-output .title-row")?.textContent.includes("accepted · waits to integrate"),
+        "the state pill says so",
+      );
+    },
+  );
+});
+
+test("FixtureTransport: page/phase-refused draws Interrupt's refusal under the title row once Interrupt is pressed", (t) => {
+  mockTimers(t, ["setTimeout"]);
+  return withStory(
+    t,
+    Page["phase-refused"],
+    (root) => root.querySelector(".page-note")?.textContent === "Interrupt was refused: the step ended a moment ago.",
+    (root) => {
+      assertNoFailure(root);
+      assert.equal(root.querySelector(".page-note")?.textContent, "Interrupt was refused: the step ended a moment ago.");
+      assert.ok(root.querySelector(".title-row + .page-note"), "the refusal is drawn under the title row");
+    },
+  );
+});
+
+test("FixtureTransport: page/phase-refused at 412 wide draws the same refusal under the title row, Interrupt having been pressed in the foot bar", (t) => {
+  mockTimers(t, ["setTimeout"]);
+  return withStory(
+    t,
+    Page["phase-refused"],
+    (root) => root.querySelector(".page-note")?.textContent === "Interrupt was refused: the step ended a moment ago.",
+    (root) => {
+      assertNoFailure(root);
+      assert.ok(root.querySelector(".cmdbar"), "the foot bar is drawn at phone width");
+      assert.ok(root.querySelector(".title-row + .page-note"), "the refusal is drawn under the title row");
+      assert.equal(root.querySelector(".page-note")?.textContent, "Interrupt was refused: the step ended a moment ago.");
+    },
+    phoneWidth,
+  );
+});
+
+test("FixtureTransport: page/worker-running draws the worker session with a live dock that interrupts the turn on a nudge", (t) => {
   mockTimers(t, ["setTimeout"]);
   return withStory(
     t,
     Page["worker-running"],
-    (root) => root.querySelector(".worker-session") !== null,
+    (root) => workerDock(root) !== null,
     (root) => {
       assertNoFailure(root);
-      assert.ok(root.querySelector(".worker-session") !== null, "the worker session is drawn");
+      const dock = workerDock(root);
+      assert.equal(dock?.querySelector(".dock-box")?.getAttribute("data-state"), "working");
+      assert.equal(
+        dock?.querySelector("textarea")?.getAttribute("placeholder"),
+        "Nudge export-cli. It interrupts the turn, then gives it your words",
+      );
+      assert.equal(root.querySelector(".worker-session .step-card"), null, "no step end is drawn while the step runs");
+    },
+  );
+});
+
+test("FixtureTransport: page/worker-held draws the held dock in peach, its nudge resuming the step", (t) => {
+  mockTimers(t, ["setTimeout"]);
+  return withStory(
+    t,
+    Page["worker-held"],
+    (root) => workerDock(root)?.querySelector(".dock-box")?.getAttribute("data-state") === "held",
+    (root) => {
+      assertNoFailure(root);
+      assert.equal(
+        workerDock(root)?.querySelector("textarea")?.getAttribute("placeholder"),
+        "Nudge tz-fixtures. It resumes with your words",
+      );
+    },
+  );
+});
+
+test("FixtureTransport: page/worker-stop-confirm opens Stop's question, behind More, when More is pressed", (t) => {
+  mockTimers(t, ["setTimeout"]);
+  return withStory(
+    t,
+    Page["worker-stop-confirm"],
+    (root) => workerDock(root)?.querySelector(".confirm")?.textContent.includes("Stop export-cli?") === true,
+    (root) => {
+      assertNoFailure(root);
+      const buttons = [...(workerDock(root)?.querySelectorAll(".confirm button") ?? [])];
+      assert.deepEqual(
+        buttons.map((button) => button.textContent),
+        ["Stop export-cli", "Keep it running"],
+      );
+    },
+  );
+});
+
+test("FixtureTransport: page/worker-ended draws the ended step's end as the last block, with no dock", (t) => {
+  mockTimers(t, ["setTimeout"]);
+  return withStory(
+    t,
+    Page["worker-ended"],
+    endedSessionDrawn,
+    (root) => {
+      assertNoFailure(root);
+      assert.equal(workerDock(root), null, "an ended step has no dock");
+      assert.equal(root.querySelector('.worker-session .step-card [data-shape="block"].stepend .end .chip')?.textContent, "done");
+      assert.equal(root.querySelectorAll(".worker-session .live-row").length, 0, "the ended conversation draws no live row");
+      assert.equal(root.querySelectorAll(".worker-session .caret").length, 0, "the ended conversation draws no live caret");
+      assert.equal(root.querySelectorAll(".worker-session .running-mark").length, 0, "the ended conversation runs no call");
+    },
+  );
+});
+
+test("FixtureTransport: page/worker-ended at 412 wide draws the ended step's end with no live label or caret", (t) => {
+  mockTimers(t, ["setTimeout"]);
+  return withStory(
+    t,
+    Page["worker-ended"],
+    endedSessionDrawn,
+    (root) => {
+      assertNoFailure(root);
+      assert.equal(workerDock(root), null, "an ended step has no dock");
+      assert.equal(root.querySelector('.worker-session .step-card [data-shape="block"].stepend .end .chip')?.textContent, "done");
+      assert.equal(root.querySelectorAll(".worker-session .gut.live").length, 0, "no live label is drawn");
+      assert.equal(root.querySelectorAll(".worker-session .caret").length, 0, "no live caret is drawn");
+    },
+    phoneWidth,
+  );
+});
+
+test("FixtureTransport: page/worker-note draws the nudge that got no answer, its text kept in the dock", (t) => {
+  mockTimers(t, ["setTimeout"]);
+  return withStory(
+    t,
+    Page["worker-note"],
+    (root) => (workerDock(root)?.querySelector(".inote.error") ?? null) !== null,
+    (root) => {
+      assertNoFailure(root);
+      assert.equal(
+        workerDock(root)?.querySelector(".inote.error")?.textContent,
+        "nudge not known: it may have landed; nothing was resent",
+      );
     },
   );
 });
@@ -1574,7 +1982,67 @@ test("FixtureTransport: page/epic-unavailable draws the could-not-read line with
   );
 });
 
-test("FixtureTransport: page's keys are exactly the 90 catalog names of its scenario states", () => {
+test("FixtureTransport: page/convo-notices draws the first three notices Watch shows, and 2 more in Notices, with no refusal", (t) => {
+  mockTimers(t, ["setTimeout"]);
+  const bodies = noticeStackSlices.noticesShowing.slice(0, 3).map((notice) => notice.body.split("\n")[0]);
+  return withStory(
+    t,
+    Page["convo-notices"],
+    (root) =>
+      root.querySelectorAll(".notices .notice").length === 3 &&
+      root.querySelector(".notices-more")?.textContent === "2 more in Notices",
+    (root) => {
+      assertNoFailure(root);
+      const drawn = [...root.querySelectorAll(".notices .notice .b")].map((line) => line.textContent);
+      assert.deepEqual(drawn, bodies, "the stack draws the first three notices in the order Watch shows them");
+    },
+  );
+});
+
+test("FixtureTransport: page/notices-centre draws the centre open over the page, with a row for each notice of the log", (t) => {
+  mockTimers(t, ["setTimeout"]);
+  return withStory(
+    t,
+    Page["notices-centre"],
+    (root) => root.querySelectorAll(".ncentre .notice").length === shippedSlices.noticeLog.length,
+    (root) => {
+      assertNoFailure(root);
+      assert.equal(root.querySelector(".ncentre")?.getAttribute("role"), "dialog", "the centre is the wide overlay");
+    },
+  );
+});
+
+test("FixtureTransport: page/notices-none draws the open centre with no rows, and the sentences that say what collects there", (t) => {
+  mockTimers(t, ["setTimeout"]);
+  return withStory(
+    t,
+    Page["notices-none"],
+    (root) => root.querySelector(".ncentre .blank") !== null,
+    (root) => {
+      assertNoFailure(root);
+      assert.equal(root.querySelectorAll(".ncentre .notice").length, 0, "no row is drawn");
+      assert.ok(
+        (root.querySelector(".ncentre .blank")?.textContent ?? "").includes("No notices."),
+        "the centre says there are no notices",
+      );
+    },
+  );
+});
+
+test("FixtureTransport: page/notices-page at 412 wide draws the Notices page, with a row for each notice of the log", (t) => {
+  mockTimers(t, ["setTimeout"]);
+  return withStory(
+    t,
+    Page["notices-page"],
+    (root) => root.querySelectorAll('section[aria-label="notices"].flat .notice').length === shippedSlices.noticeLog.length,
+    (root) => {
+      assertNoFailure(root);
+    },
+    phoneWidth,
+  );
+});
+
+test("FixtureTransport: page's keys are exactly the 107 catalog names of its scenario states", () => {
   assert.deepEqual(Object.keys(Page).map((state) => storyName("Page", state)).sort(), [
     "page/ask-answered",
     "page/ask-decline",
@@ -1600,6 +2068,7 @@ test("FixtureTransport: page's keys are exactly the 90 catalog names of its scen
     "page/convo-lines",
     "page/convo-loading",
     "page/convo-markdown",
+    "page/convo-notices",
     "page/convo-shell",
     "page/convo-took-over",
     "page/convo-working",
@@ -1623,6 +2092,7 @@ test("FixtureTransport: page's keys are exactly the 90 catalog names of its scen
     "page/epic-command-error",
     "page/epic-convo-ended",
     "page/epic-dense",
+    "page/epic-ended-gaps",
     "page/epic-evidence",
     "page/epic-handover",
     "page/epic-limited",
@@ -1635,6 +2105,9 @@ test("FixtureTransport: page's keys are exactly the 90 catalog names of its scen
     "page/epic-problem",
     "page/epic-question",
     "page/epic-question-other",
+    "page/epic-release-failed",
+    "page/epic-releasing",
+    "page/epic-reviewing",
     "page/epic-shipped",
     "page/epic-stop-confirm",
     "page/epic-talk",
@@ -1660,12 +2133,24 @@ test("FixtureTransport: page's keys are exactly the 90 catalog names of its scen
     "page/new-none",
     "page/new-results",
     "page/new-working",
+    "page/notices-centre",
+    "page/notices-none",
+    "page/notices-page",
+    "page/phase-green",
     "page/phase-implement",
+    "page/phase-integrate",
+    "page/phase-red",
+    "page/phase-refused",
+    "page/phase-review",
     "page/project",
     "page/work-empty",
     "page/work-rail",
     "page/work-rail-group",
+    "page/worker-ended",
+    "page/worker-held",
+    "page/worker-note",
     "page/worker-running",
+    "page/worker-stop-confirm",
   ]);
 });
 
