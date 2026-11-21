@@ -74,6 +74,7 @@ func sessionItem(event store.EngineEvent) (*orreryv1.ConversationItem, bool, err
 		case "tool_result":
 			return &orreryv1.ConversationItem{
 				Kind: "result", Time: event.At, Id: body.ToolUseId, Text: body.Content, Error: body.IsError,
+				Added: body.Added, Removed: body.Removed,
 			}, true, nil
 		default:
 			return nil, false, nil
