@@ -471,8 +471,8 @@ h3, h4, h5, h6 { font: var(--o-type-body); font-weight: var(--o-font-weight-bold
 .reader { min-width: 0; padding: var(--o-space-4) 0 var(--o-space-8); }
 .reader-loading { margin: 0; color: var(--o-ink-3); }
 /* Each row is one 88ch column, centred in the reader, with its time in the 5ch gutter on its left. The row takes the
-   reading size, so its ch is the width of the reading text's characters. The owner's turn starts 30px below the row
-   before it; the first row has no row before it, so no gap above it. */
+   reading size, so its ch is the width of the reading text's characters. The owner's turn starts 32px below the row
+   before it; the first row has no row before it, so no gap above it. A row whose body is a line touches the line after it. */
 .reader .t {
   display: grid; grid-template-columns: 5ch minmax(0, 1fr); column-gap: var(--o-space-16); font: var(--o-type-body);
   width: 88ch; max-width: 100%; margin-inline: auto;
@@ -480,69 +480,151 @@ h3, h4, h5, h6 { font: var(--o-type-body); font-weight: var(--o-font-weight-bold
 .reader .t.owner-turn { margin-top: var(--o-layout-turn-gap); }
 .reader .t.owner-turn:first-child { margin-top: 0; }
 .reader .t > .gut { font: var(--o-type-small); color: var(--o-ink-4); text-align: right; white-space: nowrap; }
-.reader .t > .gut.new { color: var(--o-role-new); font-weight: var(--o-font-weight-bold); }
 .reader .t > .gut.live { color: var(--o-role-live); }
-.reader .t > .gut.sending { color: var(--o-ink-3); }
 /* A message the page sent that its stored conversation does not hold yet draws in a lower ink until its prompt arrives. */
 .reader .t.sending-row { --o-ink-1: var(--o-ink-3); }
 .reader .t > .body { min-width: 0; padding-bottom: var(--o-space-12); font: var(--o-type-body); color: var(--o-ink-1); }
+.reader .t:has(> .body > .line):has(+ .t > .body > .line) > .body { padding-bottom: 0; }
+/* A rule spans its row, a compaction's included: the row's gutter is not drawn, so the rule takes the whole column and no time. */
+.reader .t:has(> .body > .rule), .reader .t:has(> .body > .compaction > .rule) { grid-template-columns: minmax(0, 1fr); }
+.reader .t:has(> .body > .rule) > .gut, .reader .t:has(> .body > .compaction > .rule) > .gut { display: none; }
 .reader .body p { margin: 0 0 var(--o-space-8); }
 .reader .body > :last-child { margin-bottom: 0; }
 .reader .body a { color: var(--o-role-ref); }
-/* A reply, a prompt and a live text draw Markdown in .reply: its elements sit in the reader column at the body's size. Code
-   takes the mono family too, which the browser would otherwise give it. A code block and a table scroll sideways inside
-   themselves, so a wide one never widens the column. */
+
+/* A Block: someone said something. A 3 px rail on its left in its tone's colour, its ground tinted in the same tone over
+   the well, and a head of icon, label and words. Its time is in the gutter at the desk and in its head at phone width.
+   Every rule names the reader's Block element by its data-shape, so ContractBlock's .block look is left as it is. */
+.reader [data-shape="block"] {
+  --rail: var(--o-line-firm); --tint: transparent; --ground: var(--o-surface-well);
+  display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--o-space-4); min-width: 0;
+  padding: var(--o-space-8) var(--o-space-12); border-left: var(--o-size-rail) solid var(--rail);
+  border-radius: 0 var(--o-radius-2) var(--o-radius-2) 0;
+  background: linear-gradient(var(--tint), var(--tint)), var(--ground);
+  color: var(--o-ink-1); overflow-wrap: anywhere;
+}
+.reader [data-shape="block"].you { --rail: var(--o-role-you); --tint: var(--o-role-you-fill); --ground: var(--o-surface-raised); }
+.reader [data-shape="block"].engine { --rail: var(--o-role-engine); --tint: var(--o-role-engine-fill); }
+.reader [data-shape="block"].ok { --rail: var(--o-role-ok); --tint: var(--o-role-ok-fill); }
+.reader [data-shape="block"].bad { --rail: var(--o-role-bad); --tint: var(--o-role-bad-fill); }
+.reader [data-shape="block"].attention { --rail: var(--o-role-attention); --tint: var(--o-role-attention-fill); }
+.reader [data-shape="block"].quiet { --rail: var(--o-ink-3); }
+/* A block that is still being sent has a dashed rail: it has not happened yet. */
+.reader [data-shape="block"].pending { border-left-style: dashed; }
+.reader [data-shape="block"] > :last-child { margin-bottom: 0; }
+.reader [data-shape="block"] > .head {
+  display: flex; flex-wrap: wrap; align-items: center; gap: var(--o-space-4) var(--o-space-8); min-width: 0;
+  border-bottom: 0; color: var(--o-ink-3); font: var(--o-type-small); white-space: normal; overflow-wrap: normal;
+}
+.reader [data-shape="block"] > .head > .icon, .reader [data-shape="block"] > .head > .gauge { flex: none; color: var(--rail); }
+.reader [data-shape="block"] > .head .label {
+  flex: none; color: var(--rail); font: var(--o-type-label); letter-spacing: var(--o-type-label-tracking);
+  text-transform: uppercase; white-space: nowrap;
+}
+.reader [data-shape="block"] > .head .who { color: var(--o-ink-1); font-weight: var(--o-font-weight-bold); }
+.reader [data-shape="block"] > .head .end { display: inline-flex; align-items: center; gap: var(--o-space-8); flex: none; margin-left: auto; }
+.reader [data-shape="block"] > .head .at { flex: none; color: var(--o-ink-3); white-space: nowrap; }
+
+/* Markdown draws in a reply and in a Block's body alike, so each rule names both. Code takes the mono family too. A code
+   block and a table scroll sideways inside themselves, so a wide one never widens the column. */
 .reader .reply { overflow-wrap: anywhere; }
 .reader .reply > :first-child { margin-top: 0; }
 .reader .reply > :last-child { margin-bottom: 0; }
-.reader .reply p, .reader .reply ul, .reader .reply ol, .reader .reply blockquote, .reader .reply pre, .reader .reply table { margin: 0 0 var(--o-space-8); }
-.reader .reply ul, .reader .reply ol { padding-left: var(--o-space-24); }
-.reader .reply li + li { margin-top: var(--o-space-2); }
-.reader .reply h1, .reader .reply h2, .reader .reply h3, .reader .reply h4, .reader .reply h5, .reader .reply h6 { margin: var(--o-space-4) 0 var(--o-space-4); font-weight: var(--o-font-weight-bold); color: var(--o-prose-heading); }
-.reader .reply h1 { font: var(--o-type-title); }
-.reader .reply h2 { font: var(--o-type-title); }
-.reader .reply h3 { font: var(--o-type-body); font-weight: var(--o-font-weight-bold); }
-.reader .reply h4, .reader .reply h5, .reader .reply h6 { font: var(--o-type-body); font-weight: var(--o-font-weight-bold); }
-.reader .reply code, .reader .reply pre { font: var(--o-type-small); }
-.reader .reply code { padding: 0 var(--o-space-4); border-radius: var(--o-radius-1); background: var(--o-surface-well); color: var(--o-prose-code); }
-.reader .reply pre { overflow-x: auto; padding: var(--o-space-8); border-radius: var(--o-radius-2); background: var(--o-surface-well); }
-.reader .reply pre code { padding: 0; background: none; color: var(--o-ink-1); }
-.reader .reply blockquote { padding-left: var(--o-space-12); border-left: var(--o-size-rail) solid var(--o-prose-marker); color: var(--o-ink-2); }
+.reader .reply p, .reader .reply ul, .reader .reply ol, .reader .reply blockquote, .reader .reply pre, .reader .reply table,
+.reader [data-shape="block"] p, .reader [data-shape="block"] ul, .reader [data-shape="block"] ol,
+.reader [data-shape="block"] blockquote, .reader [data-shape="block"] pre, .reader [data-shape="block"] table { margin: 0 0 var(--o-space-8); }
+.reader .reply ul, .reader .reply ol, .reader [data-shape="block"] ul, .reader [data-shape="block"] ol { padding-left: var(--o-space-24); }
+.reader .reply li + li, .reader [data-shape="block"] li + li { margin-top: var(--o-space-2); }
+.reader .reply h1, .reader .reply h2, .reader [data-shape="block"] h1, .reader [data-shape="block"] h2 {
+  margin: var(--o-space-4) 0; color: var(--o-prose-heading); font: var(--o-type-title);
+}
+.reader .reply h3, .reader .reply h4, .reader .reply h5, .reader .reply h6,
+.reader [data-shape="block"] h3, .reader [data-shape="block"] h4, .reader [data-shape="block"] h5, .reader [data-shape="block"] h6 {
+  margin: var(--o-space-4) 0; color: var(--o-prose-heading); font: var(--o-type-body); font-weight: var(--o-font-weight-bold);
+}
+.reader .reply code, .reader .reply pre, .reader [data-shape="block"] code, .reader [data-shape="block"] pre { font: var(--o-type-small); }
+.reader .reply code, .reader [data-shape="block"] code {
+  padding: 0 var(--o-space-4); border-radius: var(--o-radius-1); background: var(--o-surface-well); color: var(--o-prose-code);
+}
+.reader .reply pre, .reader [data-shape="block"] pre {
+  overflow-x: auto; padding: var(--o-space-8); border-radius: var(--o-radius-2); background: var(--o-surface-well);
+}
+.reader .reply pre code, .reader [data-shape="block"] pre code { padding: 0; background: none; color: var(--o-ink-1); }
+.reader .reply blockquote, .reader [data-shape="block"] blockquote {
+  padding-left: var(--o-space-12); border-left: var(--o-size-rail) solid var(--o-prose-marker); color: var(--o-ink-2);
+}
 .reader .reply hr { margin: var(--o-space-12) 0; border: 0; border-top: var(--o-size-hairline) solid var(--o-line-soft); }
-.reader .reply table { display: block; overflow-x: auto; border-collapse: collapse; }
-.reader .reply th, .reader .reply td { padding: var(--o-space-2) var(--o-space-12) var(--o-space-2) 0; text-align: left; vertical-align: top; white-space: nowrap; border-bottom: var(--o-size-hairline) solid var(--o-line-soft); }
-.reader .reply th { font-weight: var(--o-font-weight-bold); color: var(--o-ink-1); }
-.reader .you { padding: var(--o-space-8) var(--o-space-12) var(--o-space-8); border-radius: 0 var(--o-radius-2) var(--o-radius-2) 0; background: var(--o-surface-raised); box-shadow: inset var(--o-size-rail) 0 0 var(--o-role-you); }
-.reader .you small { display: block; font: var(--o-type-label); letter-spacing: var(--o-type-label-tracking); text-transform: uppercase; color: var(--o-role-you); }
-/* A prompt an event sent to the caller: engine teal, not the owner's mauve, so an event never reads as the owner's message. */
-.reader .event { padding: var(--o-space-8) var(--o-space-12) var(--o-space-8); border-radius: 0 var(--o-radius-2) var(--o-radius-2) 0; background: var(--o-surface-well); box-shadow: inset var(--o-size-rail) 0 0 var(--o-role-engine); }
-.reader .event small { display: block; font: var(--o-type-label); letter-spacing: var(--o-type-label-tracking); text-transform: uppercase; color: var(--o-role-engine); }
-/* A prompt the session's cron sent: drawn as an event is, in the engine's colour, so an automatic prompt never reads as the owner's. */
-.reader .cron { padding: var(--o-space-8) var(--o-space-12) var(--o-space-8); border-radius: 0 var(--o-radius-2) var(--o-radius-2) 0; background: var(--o-surface-well); box-shadow: inset var(--o-size-rail) 0 0 var(--o-role-engine); }
-.reader .cron small { display: block; font: var(--o-type-label); letter-spacing: var(--o-type-label-tracking); text-transform: uppercase; color: var(--o-role-engine); }
-.reader .rule { display: flex; align-items: center; gap: var(--o-space-8); font: var(--o-type-small); color: var(--o-ink-3); white-space: nowrap; }
-.reader .rule::after { content: ""; flex: 1; height: var(--o-size-hairline); background: var(--o-line-soft); }
-.reader .compaction button.rule { width: 100%; min-height: var(--o-space-24); margin: 0; padding: 0; border: 0; background: none; text-align: left; cursor: pointer; appearance: none; -webkit-appearance: none; }
-.reader .rule.new { color: var(--o-role-new); font-weight: var(--o-font-weight-bold); }
-.reader .rule.new::after { background: var(--o-role-new-line); }
-.reader .rule.interrupted { color: var(--o-role-halt); }
-.reader .rule.interrupted::after { background: var(--o-role-halt-line); }
-/* The line the agent finished draws, with its description, and failed or stopped when it did not finish. Its text may wrap. */
-.reader .rule.agent-finished { color: var(--o-ink-2); white-space: normal; overflow-wrap: anywhere; }
-.reader .compaction .summary { margin-top: var(--o-space-4); padding: var(--o-space-8) var(--o-space-12); border-radius: var(--o-radius-2); background: var(--o-surface-well); color: var(--o-ink-2); font: var(--o-type-body); white-space: pre-wrap; overflow-wrap: anywhere; }
-/* A call line is 12px grey text on a hairline, and its tool's name is the only colour. The lines of an opened run touch. */
-.reader .call { display: flex; gap: var(--o-space-8); margin: 0; padding: var(--o-space-2) var(--o-space-8); box-shadow: inset 0 calc(-1 * var(--o-size-hairline)) 0 var(--o-line-soft); font: var(--o-type-small); color: var(--o-ink-3); min-width: 0; }
+.reader .reply table, .reader [data-shape="block"] table { display: block; overflow-x: auto; border-collapse: collapse; }
+.reader .reply th, .reader .reply td, .reader [data-shape="block"] th, .reader [data-shape="block"] td {
+  padding: var(--o-space-2) var(--o-space-12) var(--o-space-2) 0; text-align: left; vertical-align: top; white-space: nowrap;
+  border-bottom: var(--o-size-hairline) solid var(--o-line-soft);
+}
+.reader .reply th, .reader [data-shape="block"] th { font-weight: var(--o-font-weight-bold); color: var(--o-ink-1); }
+
+/* A Line: machinery, hung on a 1 px thread at the spine. It is one line of small text, a name you can open, and a status at
+   the far right when it is not plain success. A running line's thread is the live tone; a line never takes a rail. */
+.reader .line {
+  display: flex; align-items: baseline; gap: var(--o-space-8); min-width: 0;
+  padding: var(--o-space-2) var(--o-space-12); border-left: var(--o-size-hairline) solid var(--o-line-firm);
+  color: var(--o-ink-3); font: var(--o-type-small);
+}
+.reader .line.running { border-left: var(--o-size-hairline) solid var(--o-role-live); }
+/* A run is one line: its thread runs down the run, and the lines it opens hang from that thread, so they draw none of
+   their own. A run with a call running has the live thread. */
+.reader .line.run { display: block; padding: 0; }
+.reader .line.run:has(> .fold.running) { border-left: var(--o-size-hairline) solid var(--o-role-live); }
+.reader .line.run .line { padding-left: var(--o-space-12); border-left: 0; }
+.reader .line > .name { flex: none; color: var(--o-role-ref); }
+.reader .line > .arg { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.reader .line > .arg.strong { color: var(--o-ink-2); }
+.reader .line > .more { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--o-ink-4); }
+.reader .line > .end { flex: none; margin-left: auto; color: var(--o-ink-3); }
+.reader button.line {
+  width: 100%; min-height: var(--o-space-24); margin: 0; border-top: 0; border-right: 0; border-bottom: 0;
+  background: none; text-align: left; cursor: pointer; appearance: none; -webkit-appearance: none;
+}
+.reader button.line:hover { background: var(--o-surface-well); color: var(--o-ink-2); }
 .reader .call b { flex: none; color: var(--o-role-ref); font-weight: var(--o-font-weight-regular); }
 .reader .call .in { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .reader .call .fail { flex: none; color: var(--o-role-bad); }
-.reader div.calls { display: flex; flex-direction: column; gap: 0; }
-/* A call still running draws a live rail at its left edge, and the running mark names it. */
-.reader .call.running { box-shadow: inset var(--o-size-rail) 0 0 var(--o-role-live), inset 0 calc(-1 * var(--o-size-hairline)) 0 var(--o-line-soft); }
 .reader .running-mark { flex: none; color: var(--o-ink-3); }
-.reader .question { padding: var(--o-space-2) var(--o-space-8); font: var(--o-type-small); color: var(--o-role-attention); white-space: pre-wrap; overflow-wrap: anywhere; }
-/* A call with a result, and a live thinking row, are buttons: the browser's button chrome is reset to the line. */
-.reader button.call, .reader button.thinking { width: 100%; min-height: var(--o-space-24); margin: 0; border: 0; background: none; text-align: left; cursor: pointer; appearance: none; -webkit-appearance: none; }
-.reader button.thinking { padding: var(--o-space-2) var(--o-space-8); font: var(--o-type-small); color: var(--o-ink-3); }
+/* What a line opens: a tool's result, a thought, a brief. It hangs under its line, set in from the thread. Markdown in it
+   keeps its own line breaks; a result keeps every character. */
+.reader .opened {
+  margin: var(--o-space-4) 0 var(--o-space-8) var(--o-space-12); padding: var(--o-space-8) var(--o-space-12);
+  border-radius: var(--o-radius-2); background: var(--o-surface-well); color: var(--o-ink-2); font: var(--o-type-small);
+  white-space: pre-wrap; overflow-wrap: anywhere;
+}
+.reader .opened:has(> .reply), .reader [data-shape="block"] > .opened { white-space: normal; }
+.reader .opened.calls { display: flex; flex-direction: column; margin: 0; padding: 0; border-radius: 0; background: none; }
+
+/* A Rule: what happened between. It spans the column: a hairline, its label in upper case, its detail, and a hairline. */
+.reader .rule {
+  display: flex; align-items: center; gap: var(--o-space-12); min-width: 0; color: var(--o-ink-3);
+  font: var(--o-type-small); white-space: nowrap;
+}
+.reader .rule::before { content: ""; flex: none; width: var(--o-space-16); height: var(--o-size-hairline); background: currentColor; }
+.reader .rule::after { content: ""; flex: 1 1 auto; height: var(--o-size-hairline); background: currentColor; }
+.reader .rule .label { flex: none; font: var(--o-type-label); letter-spacing: var(--o-type-label-tracking); text-transform: uppercase; }
+.reader .rule .detail { min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--o-ink-3); }
+.reader .rule .icon { flex: none; color: var(--o-ink-3); }
+.reader .rule.new { color: var(--o-role-new); }
+.reader .rule.interrupted { color: var(--o-role-halt); }
+/* A compaction's and a change of day's hairlines are the soft line, as round 6's plain rule draws them. */
+.reader .rule.compaction::before, .reader .rule.compaction::after, .reader .rule.day::before, .reader .rule.day::after { background: var(--o-line-soft); }
+/* A compaction is a rule that opens: its button is reset to the rule, and its summary opens under it. */
+.reader .compaction button.rule { width: 100%; min-height: var(--o-space-24); margin: 0; padding: 0; border: 0; background: none; text-align: left; cursor: pointer; appearance: none; -webkit-appearance: none; }
+.reader .compaction .summary { margin-top: var(--o-space-4); padding: var(--o-space-8) var(--o-space-12); border-radius: var(--o-radius-2); background: var(--o-surface-well); color: var(--o-ink-2); font: var(--o-type-body); white-space: pre-wrap; overflow-wrap: anywhere; }
+
+/* At the desk a Block's time is in the gutter; at phone width the gutter is gone and the time is in the Block's head. */
+@media (min-width: 760px) {
+  .reader [data-shape="block"] > .head .at { display: none; }
+}
+@media (width < 760px) {
+  .reader .t { grid-template-columns: minmax(0, 1fr); }
+  .reader .t > .gut { display: none; }
+  .reader [data-shape="block"] > .head .at { display: inline; }
+}
 /* The Ask: it waits on you, as round 6 draws it. The attention rail and ground, square on the rail's side. The question is
    body text at regular weight; the options are numbered rows. Under 760px options and buttons take the touch height and
    key caps are not drawn. */
@@ -594,19 +676,23 @@ h3, h4, h5, h6 { font: var(--o-type-body); font-weight: var(--o-font-weight-bold
   .ask .opt .field.area { grid-column: 1 / -1; }
   .ask kbd { display: none; }
 }
-.reader .result, .reader .thinking-text { padding: var(--o-space-8) var(--o-space-12); background: var(--o-surface-well); border-radius: var(--o-radius-2); font: var(--o-type-small); color: var(--o-ink-3); white-space: pre-wrap; overflow-wrap: anywhere; }
 .reader .result.err { color: var(--o-role-bad); }
 .reader .notice { font: var(--o-type-small); color: var(--o-ink-3); white-space: pre-wrap; overflow-wrap: anywhere; }
 .reader .notice-kind { margin-right: var(--o-space-8); font: var(--o-type-label); letter-spacing: var(--o-type-label-tracking); text-transform: uppercase; color: var(--o-ink-3); }
 .reader .notice.err .notice-kind { color: var(--o-role-bad); }
 .reader .t.live-row > .body { color: var(--o-ink-1); }
-/* A step's prompt folds to one line, a button reset to the line, with the browser's chrome gone; a click shows its text
-   under it. A send-back's card takes its edge from the round's checks: red when one failed, green when all passed. */
-.reader .fold { display: flex; align-items: center; gap: var(--o-space-8); width: 100%; min-height: var(--o-space-24); margin: 0; padding: var(--o-space-4) var(--o-space-8); border: 0; border-radius: var(--o-radius-2); background: var(--o-surface-raised); font: var(--o-type-small); color: var(--o-ink-2); text-align: left; white-space: nowrap; overflow: hidden; cursor: pointer; appearance: none; -webkit-appearance: none; }
-.reader .fold::before { content: "▸"; flex: none; color: var(--o-ink-3); }
+/* A fold is a line that opens: a run's head, or a brief's or an engine's prompt. Its button chrome is reset to the line, and
+   a click shows what it holds under it. */
+.reader .fold {
+  display: flex; align-items: center; gap: var(--o-space-8); width: 100%; min-height: var(--o-space-24); margin: 0;
+  padding: var(--o-space-2) var(--o-space-12); border: 0; background: none;
+  font: var(--o-type-small); color: var(--o-ink-2); text-align: left; white-space: nowrap; overflow: hidden; cursor: pointer;
+  appearance: none; -webkit-appearance: none;
+}
+.reader .fold:hover { background: var(--o-surface-well); }
+.reader .fold.calls::before { content: "▸"; flex: none; color: var(--o-ink-3); }
 .reader .fold b { flex: none; color: var(--o-ink-2); }
 .reader .fold .names { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-.reader .fold.running { box-shadow: inset var(--o-size-rail) 0 0 var(--o-role-live); }
 /* A run's trail is one dot per call in call order, pushed to the right: green for a call that succeeded, red for one that
    failed, yellow for one still running, grey for one with no result that is not running. */
 .reader .fold .trail { display: inline-flex; flex: none; align-items: center; gap: var(--o-space-4); margin-left: auto; }
@@ -615,60 +701,25 @@ h3, h4, h5, h6 { font: var(--o-type-body); font-weight: var(--o-font-weight-bold
 .reader .fold .dot.failed { background: var(--o-role-bad); }
 .reader .fold .dot.running { background: var(--o-role-live); }
 .reader .fold .dot.none { background: var(--o-ink-3); }
-.reader .fold-text { margin-top: var(--o-space-4); padding: var(--o-space-8) var(--o-space-12); border-radius: var(--o-radius-2); background: var(--o-surface-well); color: var(--o-ink-2); overflow-wrap: anywhere; }
-.reader .card { padding: var(--o-space-8) var(--o-space-12); border-radius: 0 var(--o-radius-2) var(--o-radius-2) 0; background: var(--o-surface-well); box-shadow: inset var(--o-size-rail) 0 0 var(--ink, var(--o-line-glyph)); }
-.reader .card.bad { --ink: var(--o-role-bad); }
-.reader .card.ok { --ink: var(--o-role-ok); }
-.reader .card .cap { display: flex; gap: var(--o-space-8); font: var(--o-type-label); letter-spacing: var(--o-type-label-tracking); text-transform: uppercase; color: var(--ink, var(--o-ink-3)); }
-.reader .card .cap span { margin-left: auto; font: var(--o-type-small); letter-spacing: 0; text-transform: none; color: var(--o-ink-3); }
-.reader .card p { margin: var(--o-space-2) 0 0; font: var(--o-type-body); }
-.reader .card .note { color: var(--o-ink-3); font: var(--o-type-small); }
-.reader .card button.note { display: block; width: 100%; min-height: var(--o-space-24); margin: var(--o-space-2) 0 0; padding: 0; border: 0; background: none; text-align: left; cursor: pointer; appearance: none; -webkit-appearance: none; overflow-wrap: anywhere; }
-.reader .card .rest { margin-top: var(--o-space-2); font: var(--o-type-small); color: var(--o-ink-3); white-space: pre-wrap; overflow-wrap: anywhere; }
-.reader .chips { display: flex; flex-wrap: wrap; gap: var(--o-space-4); margin-top: var(--o-space-8); }
-.reader .chip { padding: 0 var(--o-space-8); border-radius: var(--o-radius-1); font: var(--o-type-small); color: var(--o-role-ok); background: var(--o-role-ok-fill); }
-.reader .chip.bad { color: var(--o-role-bad); background: var(--o-role-bad-fill); }
-/* An Ask draws its own chips inside the reader too. These come after .reader .chip, so they win at equal specificity. */
+/* A step end's chip is the chip's neutral base with its tone: ok for a done or returned end, quiet for a stopped one, bad
+   (the base .chip.bad) for the rest. */
+.reader .chip.ok { color: var(--o-role-ok); background: var(--o-role-ok-fill); }
+.reader .chip.quiet { color: var(--o-ink-3); }
 .ask .chip { display: inline-flex; align-items: center; gap: var(--o-space-4); flex: none; padding: 0 var(--o-space-8); border-radius: var(--o-radius-1); background: var(--o-surface-raised); color: var(--o-ink-2); font: var(--o-type-small); white-space: nowrap; }
 .ask .chip.attention { background: var(--o-role-attention-fill); color: var(--o-role-attention); }
-/* The epic card a conversation draws in place of its epic_create call: its head with the slug, the status pill and the open
-   control, its five parts as a track, the now sentence, each requirement as a row with the count proven, the open question,
-   and the command its controls show. */
-.reader .epic-card {
-  display: flex; flex-direction: column; gap: var(--o-space-8); padding: var(--o-space-8) var(--o-space-12) var(--o-space-12); border-radius: 0 var(--o-radius-2) var(--o-radius-2) 0;
-  background: var(--o-surface-well); box-shadow: inset var(--o-size-rail) 0 0 var(--o-role-engine); font: var(--o-type-small); color: var(--o-ink-2);
-}
-.reader .epic-card .card-head { display: flex; align-items: center; gap: var(--o-space-8); min-width: 0; }
+/* The epic card a conversation draws in place of its epic_create call: one Block, its slug a link that opens the epic. */
+.reader .epic-card { min-width: 0; }
 .reader .epic-card .slug { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: var(--o-font-weight-bold); color: var(--o-ink-1); }
-.reader .epic-card button.open-epic {
-  flex: none; min-height: var(--o-space-24); margin-left: auto; padding: 0; border: 0; background: none; cursor: pointer;
-  font: var(--o-type-small); color: var(--o-role-ref); appearance: none; -webkit-appearance: none;
+.reader .epic-link {
+  flex: none; display: inline-flex; align-items: center; gap: var(--o-space-4); min-height: var(--o-space-24); padding: 0;
+  border: 0; background: none; font: var(--o-type-small); color: var(--o-role-ref); cursor: pointer; appearance: none; -webkit-appearance: none;
 }
-.reader .epic-card .unavailable { margin: 0; color: var(--o-ink-3); }
-.reader .epic-card .track { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: var(--o-space-4); margin: 0; padding: 0; list-style: none; }
-.reader .epic-card .part {
-  min-width: 0; padding-top: var(--o-space-4); border-top: var(--o-size-rail) solid var(--o-surface-raised); overflow: hidden; text-overflow: ellipsis;
-  white-space: nowrap; color: var(--o-ink-3);
-}
-.reader .epic-card .part.done { border-top-color: var(--o-role-ok); color: var(--o-ink-2); }
-.reader .epic-card .part.now { border-top-color: var(--o-role-live); color: var(--o-role-live); font-weight: var(--o-font-weight-bold); }
-.reader .epic-card .now-sentence { margin: 0; color: var(--o-ink-1); overflow-wrap: anywhere; }
-.reader .epic-card .reqs { display: flex; flex-direction: column; gap: var(--o-space-2); margin: 0; padding: 0; list-style: none; }
-.reader .epic-card .reqs li { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: var(--o-space-8); }
-.reader .epic-card .reqs .rid { font-weight: var(--o-font-weight-bold); }
-.reader .epic-card .reqs .text { min-width: 0; overflow-wrap: anywhere; }
-.reader .epic-card .reqs .green { color: var(--o-role-ok); }
-.reader .epic-card .reqs .red { color: var(--o-role-bad); }
-.reader .epic-card .reqs .grey { color: var(--o-ink-3); }
-.reader .epic-card .count { margin: 0; color: var(--o-ink-3); }
-.reader .epic-card .question { margin: 0; color: var(--o-role-attention); overflow-wrap: anywhere; }
-.reader .epic-card .card-controls { display: flex; gap: var(--o-space-4); }
-/* An epic's event in a conversation: a ringed line with its kind's icon, the event's first sentence and the epic's slug.
-   Under it, while the event's question is open, the answer form the epic page draws; once the question is settled, a line
-   saying so. */
+.reader .ring-sentence { margin: 0; color: var(--o-ink-1); overflow-wrap: anywhere; }
+/* An epic's event: a move is one ringed line with its icon, its sentence and the epic's slug. Every other event is a Block. */
 .reader .event-ring { display: flex; flex-direction: column; gap: var(--o-space-8); min-width: 0; }
 .reader .event-ring .ring-line {
-  display: flex; align-items: center; gap: var(--o-space-8); width: 100%; min-width: 0; min-height: var(--o-space-24); margin: 0; padding: var(--o-space-2) var(--o-space-12) var(--o-space-4) var(--o-space-4);
+  display: flex; align-items: center; gap: var(--o-space-8); width: 100%; min-width: 0; min-height: var(--o-space-24); margin: 0;
+  padding: var(--o-space-2) var(--o-space-12) var(--o-space-4) var(--o-space-4);
   border: var(--o-size-hairline) solid var(--o-role-engine); border-radius: var(--o-radius-2); background: var(--o-surface-well); color: var(--o-ink-2);
   font: var(--o-type-small); text-align: left; cursor: pointer; appearance: none; -webkit-appearance: none;
 }
@@ -676,27 +727,14 @@ h3, h4, h5, h6 { font: var(--o-type-body); font-weight: var(--o-font-weight-bold
   flex: none; width: var(--o-size-icon); height: var(--o-size-icon); border-radius: var(--o-radius-round); background: var(--o-surface-raised); color: var(--o-role-engine);
   font: var(--o-type-small); font-weight: var(--o-font-weight-bold); text-align: center;
 }
-.reader .event-ring .ring-icon.question { color: var(--o-role-attention); }
-.reader .event-ring .ring-icon.park { color: var(--o-ink-3); }
-.reader .event-ring .ring-icon.release { color: var(--o-role-ok); }
-.reader .event-ring .ring-icon.end { color: var(--o-ink-3); }
-.reader .event-ring .ring-sentence {
-  min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--o-ink-1);
-}
+.reader .event-ring .ring-line .ring-sentence { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--o-ink-1); }
 .reader .event-ring .ring-slug { flex: none; color: var(--o-role-ref); }
-.reader .event-ring .settled { margin: 0; color: var(--o-ink-3); }
-/* A step's end an event sent its caller: its agent, end, status and reason on the head, the headline under it, and the
-   full return in a fold under that. A click opens the step's page. */
-.reader .step-card {
-  display: flex; flex-direction: column; gap: var(--o-space-4); padding: var(--o-space-8) var(--o-space-12); border-radius: 0 var(--o-radius-2) var(--o-radius-2) 0;
-  background: var(--o-surface-well); box-shadow: inset var(--o-size-rail) 0 0 var(--o-role-engine); font: var(--o-type-small); color: var(--o-ink-2);
-}
+/* A step's end: its Block, the brief under it, its return in a fold, and its facts. A click on its head opens the step. */
+.reader .step-card { min-width: 0; }
 .reader .step-card button.step-head {
   display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--o-space-2) var(--o-space-12); width: 100%; min-height: var(--o-space-24); margin: 0; padding: 0; border: 0;
   background: none; color: inherit; text-align: left; cursor: pointer; appearance: none; -webkit-appearance: none;
 }
-.reader .step-card .step-agent { color: var(--o-ink-1); }
-.reader .step-card .step-reason { min-width: 0; overflow-wrap: anywhere; color: var(--o-ink-3); }
 .reader .step-card .step-summary { margin: 0; color: var(--o-ink-1); overflow-wrap: anywhere; white-space: pre-wrap; }
 .reader .step-card .step-return { min-width: 0; }
 .reader .step-card .step-return > summary { color: var(--o-ink-3); cursor: pointer; }
@@ -704,16 +742,12 @@ h3, h4, h5, h6 { font: var(--o-type-body); font-weight: var(--o-font-weight-bold
   margin: var(--o-space-4) 0 0; padding: var(--o-space-8); border-radius: var(--o-radius-2); background: var(--o-surface-well); color: var(--o-ink-2);
   font: var(--o-type-small); white-space: pre-wrap; overflow-wrap: anywhere;
 }
-/* A background task's row: its type, its description and latest activity on the line, and its status once it has ended,
-   red when it failed. The type is blue only on an agent task's row, which is a button reset to the line and opens its Agent call. */
-.reader .background-row { display: flex; gap: var(--o-space-8); min-width: 0; padding: var(--o-space-2) var(--o-space-8); font: var(--o-type-small); color: var(--o-ink-3); }
-.reader .background-row b { flex: none; color: var(--o-ink-2); font-weight: var(--o-font-weight-regular); }
-.reader button.background-row b { color: var(--o-role-ref); }
-.reader .background-row .bg-description { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--o-ink-1); }
-.reader .background-row .bg-activity { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.reader .background-row .bg-status { flex: none; color: var(--o-ink-3); }
-.reader .background-row .bg-status.failed { color: var(--o-role-bad); }
-.reader button.background-row { width: 100%; min-height: var(--o-space-24); margin: 0; border: 0; background: none; text-align: left; cursor: pointer; appearance: none; -webkit-appearance: none; }
+
+/* A step end's facts: files and lines, rounds and time, in round 6's meta row. +N is the ok tone and −N the bad tone. */
+.reader .facts { display: flex; flex-wrap: wrap; align-items: center; gap: var(--o-space-4) var(--o-space-16); min-width: 0; color: var(--o-ink-3); font: var(--o-type-small); }
+.reader .facts > span { display: inline-flex; align-items: center; gap: var(--o-space-4); }
+.reader .facts .plus { color: var(--o-role-ok); }
+.reader .facts .minus { color: var(--o-role-bad); }
 
 /* The find bar is a well field over the transcript, its query in mono and its count in ink.3 at the right. It takes
    the focus ring while it has focus, as the composer does. */

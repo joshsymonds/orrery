@@ -171,6 +171,11 @@ test("Shapes: a CheckBlock draws a chip per check of its round, with the check i
         [false, true],
         "only the failed check's chip is bad",
       );
+      assert.deepEqual(
+        chips.map((chip) => chip.classList.contains("ok")),
+        [true, false],
+        "the passed check's chip is ok, so it draws in the ok tone",
+      );
       assert.equal(chips[0].innerHTML.includes(checkIcon), true, "the passed check does not draw the check icon");
       assert.equal(chips[1].innerHTML.includes(crossIcon), true, "the failed check does not draw the cross icon");
     },

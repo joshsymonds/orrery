@@ -114,7 +114,7 @@ export function CheckBlock({
   const [note, ...rest] = text.split("\n");
   const opens = rest.length > 0;
   const chips = roundChecks.map((check, index) => (
-    <span key={index} class={check.ok ? "chip" : "chip bad"}>
+    <span key={index} class={check.ok ? "chip ok" : "chip bad"}>
       <Icon name={check.ok ? "check" : "cross"} />
       {check.name}
     </span>
