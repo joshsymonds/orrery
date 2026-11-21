@@ -287,6 +287,17 @@ test("NoticeStack: a waiting row both archived and put off reads put off, and is
   assert.equal(noticeAct(fields, rows), "Open");
 });
 
+test("NoticeStack: a done notice keeps its done glyph and word when its listed pane is waiting and put off, and is opened", () => {
+  const rows = [row({ kind: "pane", id: "%3", project: "/home/owner/code/orrery", state: "waiting", putOff: true })];
+  const fields = notice({ key: noticeKeyOf({ pane: "%3" }), state: "done", title: "orrery · fix the build" });
+  assert.deepEqual(noticeHead(fields, [], rows, now), {
+    lead: { kind: "glyph", state: "done" },
+    dir: "orrery",
+    what: "done",
+  });
+  assert.equal(noticeAct(fields, rows), "Open");
+});
+
 test("NoticeStack: a waiting row that waits on you keeps waiting on you and is answered", () => {
   const rows = [row({ kind: "pane", id: "%3", project: "/home/owner/code/orrery", state: "waiting" })];
   const fields = notice({ key: noticeKeyOf({ pane: "%3" }), state: "waiting", title: "orrery · fix the build" });
@@ -310,6 +321,17 @@ test("NoticeStack: Bring it back is drawn for a put-off waiting pane only, and n
   const headlessNotice = notice({ key: noticeKeyOf({ session: "sess-9c" }), state: "waiting" });
   assert.equal(bringBackRowOf(headlessNotice, [headless]), undefined, "a headless session has no open request id");
   assert.equal(bringBackRowOf(notice({ key: noticeKeyOf({ pane: "%9" }), state: "waiting" }), [putOff]), undefined);
+});
+
+test("NoticeStack: Bring it back is drawn for a waiting pane that is both archived and put off, and names that pane's row", () => {
+  const both = row({ kind: "pane", id: "%3", state: "waiting", archived: true, putOff: true });
+  assert.equal(bringBackRowOf(notice({ key: noticeKeyOf({ pane: "%3" }), state: "waiting" }), [both]), both);
+  const headless = row({ kind: "session", id: "sess-9c", state: "waiting", archived: true, putOff: true });
+  assert.equal(
+    bringBackRowOf(notice({ key: noticeKeyOf({ session: "sess-9c" }), state: "waiting" }), [headless]),
+    undefined,
+    "a headless session has no open request id",
+  );
 });
 
 test("NoticeStack: a notice's age is now under a minute, then whole minutes, hours and days", () => {

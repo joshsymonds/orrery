@@ -69,6 +69,14 @@ function listedRowOf(rows: readonly Row[], key: NoticeKey | undefined): Row | un
   return rows.find((row) => (row.kind === "pane" ? pane !== "" && row.id === pane : session !== "" && row.id === session));
 }
 
+// quietRowOf is the listed row a notice reads quiet from: a notice that says waiting whose listed row is quiet (quietRow).
+// A notice of another state keeps its own state, whatever its row is now. The head and noticeAct both read this one rule,
+// so a notice and the inbox never disagree about whether something waits on the owner.
+function quietRowOf(notice: NoticeFields, rows: readonly Row[]): Row | undefined {
+  const listed = listedRowOf(rows, notice.key);
+  return notice.state === stateWaiting && listed !== undefined && quietRow(listed) ? listed : undefined;
+}
+
 // quietWordsOf is what a listed row that does not wait on the owner says: its put-off words when its owner put it off, else
 // the idle state's word. An archived row that is also put off reads put off.
 function quietWordsOf(row: Row): string {
@@ -104,14 +112,14 @@ export function noticeHead(
     }
     case "row": {
       const listed = listedRowOf(rows, key);
-      const quiet = listed !== undefined && quietRow(listed);
+      const quiet = quietRowOf(notice, rows);
       const separator = notice.title.indexOf(" · ");
       const titled = separator === -1 ? notice.title : notice.title.slice(0, separator);
       const dir = listed === undefined ? "" : lastPathElement(listed.project);
       return {
-        lead: { kind: "glyph", state: quiet ? "idle" : notice.state },
+        lead: { kind: "glyph", state: quiet !== undefined ? "idle" : notice.state },
         dir: dir !== "" ? dir : titled,
-        what: quiet ? quietWordsOf(listed) : stateWord(notice.state),
+        what: quiet !== undefined ? quietWordsOf(quiet) : stateWord(notice.state),
       };
     }
     case "limit":
@@ -131,11 +139,8 @@ export function noticeAct(notice: NoticeFields, rows: readonly Row[]): NoticeAct
   switch (subjectOf(notice.key)) {
     case "epic":
       return notice.block?.kind === "question" ? "Answer" : "Open";
-    case "row": {
-      const listed = listedRowOf(rows, notice.key);
-      const quiet = listed !== undefined && quietRow(listed);
-      return notice.state === "waiting" && !quiet ? "Answer" : "Open";
-    }
+    case "row":
+      return notice.state === stateWaiting && quietRowOf(notice, rows) === undefined ? "Answer" : "Open";
     case "limit":
     case "alert":
       return null;
