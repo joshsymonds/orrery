@@ -193,6 +193,12 @@ type Config struct {
 	Pools enginev1connect.PoolsClient
 	// Notices forwards the Notices API to orreryd's engine Notices service, or is nil, which answers unavailable.
 	Notices enginev1connect.NoticesClient
+	// PaneSends is orreryd's PaneSends client, which records each text a Panes.SendText sends a pane before the text is
+	// typed, or is nil, which records nothing.
+	PaneSends enginev1connect.PaneSendsClient
+	// PaneSendErrs receives the line each failed record of a pane send writes, or is nil for os.Stderr. A failed record
+	// never stops the send.
+	PaneSendErrs io.Writer
 	// ControlTimeout bounds each forward to Engine, Pools and Notices, or is zero for the default.
 	ControlTimeout time.Duration
 	// Steps is orreryd's Steps client, which Control asks before it forwards a session command, or is nil, which
@@ -283,9 +289,14 @@ func New(cfg Config) (http.Handler, error) {
 	poolsPath, pools := newPoolsHandler(cfg.Pools, cfg.ControlTimeout, cfg.HandlerOptions...)
 	mux.Handle(poolsPath, pools)
 	noticesPath := registerNotices(mux, cfg, sendTimeout)
+	paneSendErrs := cfg.PaneSendErrs
+	if paneSendErrs == nil {
+		paneSendErrs = os.Stderr
+	}
 	panesPath, panesService := newPanesHandler(
-		cfg.Tmux, cfg.Sessions, newest, goals, queues, textLocks, seenLocks, cfg.ReportSeen, cfg.ReportRead, now,
-		changes, cfg.NewTimer, conversationKeepalive, sendTimeout, cfg.Shutdown, cfg.HandlerOptions...,
+		cfg.Tmux, cfg.Sessions, newest, goals, queues, textLocks, seenLocks, cfg.ReportSeen, cfg.ReportRead,
+		cfg.PaneSends, paneSendErrs, now, changes, cfg.NewTimer, conversationKeepalive, sendTimeout, cfg.Shutdown,
+		cfg.HandlerOptions...,
 	)
 	mux.Handle(panesPath, panesService)
 	hostPath, hostService := newHostHandler(cfg.HostStatus, cfg.Web, cfg.HandlerOptions...)

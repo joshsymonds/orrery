@@ -883,6 +883,9 @@ type sessionHost struct {
 	releaseSlots     *enginehost.ReleaseSlots
 	stopReleaseSlots context.CancelFunc
 	releaseSlotsDone chan struct{}
+	// paneSends records the texts sent to panes, nil without a store. The PaneSends service on the session socket
+	// serves it.
+	paneSends enginehost.PaneSendRecorder
 	// logger logs each phase of the shutdown.
 	logger *slog.Logger
 }
@@ -1069,6 +1072,7 @@ func (h *sessionHost) serveConfig(
 		Crons:     crons,
 		Changes:   h.changes,
 		Contracts: h.contracts,
+		PaneSends: h.paneSends,
 		Options:   handlerOpts,
 	}
 	if h.releaseSlots != nil {
@@ -1470,6 +1474,7 @@ func (h *sessionHost) wireStore(st *store.Store) {
 	st.SetEngineLive(h.manager.Live)
 	h.changes = enginehost.NewChangeFeed()
 	st.OnSessionEvents(h.changes.Publish)
+	h.paneSends = st
 }
 
 // subscribeFlowWake makes wake the flow's wake: the relay the steps and the manager hand epics to, and the store's

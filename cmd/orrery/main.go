@@ -669,9 +669,10 @@ func runServe(ctx context.Context, opts globals, args []string, getenv func(stri
 }
 
 // serveSessionConfig returns a server.Config holding only the clients of orreryd's services on the session socket
-// beside the daemon socket opts names: Engine, Steps, Pools, Notices, Changes, the Epics client as both EpicStore and
-// EpicCommands, Evidence and ContractCommands. None carries a caller header, so a command serve forwards is the
-// owner's. A daemon socket that does not resolve leaves them all nil, and each service they back answers unavailable.
+// beside the daemon socket opts names: Engine, Steps, Pools, Notices, Changes, PaneSends, the Epics client as both
+// EpicStore and EpicCommands, Evidence and ContractCommands. None carries a caller header, so a command serve forwards
+// is the owner's. A daemon socket that does not resolve leaves them all nil, and each service they back answers
+// unavailable.
 func serveSessionConfig(opts globals, getenv func(string) string) server.Config {
 	daemonSocket, err := protocol.SocketPath(opts.daemonSocket, getenv)
 	if err != nil {
@@ -685,6 +686,7 @@ func serveSessionConfig(opts globals, getenv func(string) string) server.Config 
 		Pools:            enginev1connect.NewPoolsClient(sessionClient, cli.SessionBaseURL),
 		Notices:          enginev1connect.NewNoticesClient(sessionClient, cli.SessionBaseURL),
 		Changes:          enginev1connect.NewChangesClient(sessionClient, cli.SessionBaseURL),
+		PaneSends:        enginev1connect.NewPaneSendsClient(sessionClient, cli.SessionBaseURL),
 		EpicStore:        epics,
 		EpicCommands:     epics,
 		Evidence:         enginev1connect.NewEvidenceClient(sessionClient, cli.SessionBaseURL),
