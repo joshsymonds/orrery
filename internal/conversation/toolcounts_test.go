@@ -28,8 +28,10 @@ const (
 		`{"oldStart":1,"oldLines":1,"newStart":1,"newLines":1,"lines":["-was","+now"]}]}}`
 )
 
-// countsControlItem is the result item of the control edit.
-var countsControlItem = Item{Kind: kindResult, Text: "edited", ID: "toolu_ok", Added: 1, Removed: 1}
+// countsControlItem returns the result item of the control edit.
+func countsControlItem() Item {
+	return Item{Kind: kindResult, Text: "edited", ID: "toolu_ok", Added: 1, Removed: 1}
+}
 
 // writeCountsTranscript writes lines followed by the control edit to a new transcript and returns its path.
 func writeCountsTranscript(t *testing.T, lines ...string) string {
@@ -101,7 +103,7 @@ func TestReadToolLineCountsPatchResults(t *testing.T) {
 			)
 			want := []Item{
 				{Kind: kindResult, Text: "done", ID: "toolu_1", Added: tc.added, Removed: tc.removed},
-				countsControlItem,
+				countsControlItem(),
 			}
 			if got := resultItems(t, path); !reflect.DeepEqual(got, want) {
 				t.Fatalf("result items = %+v, want %+v", got, want)
@@ -118,7 +120,7 @@ func TestReadToolLineCountsFailedEditCarriesNone(t *testing.T) {
 	)
 	want := []Item{
 		{Kind: kindResult, Text: "old_string not found", ID: "toolu_f", Error: true},
-		countsControlItem,
+		countsControlItem(),
 	}
 	if got := resultItems(t, path); !reflect.DeepEqual(got, want) {
 		t.Fatalf("result items = %+v, want %+v", got, want)
@@ -130,13 +132,16 @@ func TestReadToolLineCountsBashAndReadCarryNone(t *testing.T) {
 		countsCallLine("toolu_b", "Bash", `{"command":"ls"}`),
 		countsResultLine("toolu_b", "a.go", `{"stdout":"a.go","stderr":"","interrupted":false}`),
 		countsCallLine("toolu_r", "Read", `{"file_path":"/x/a.go"}`),
-		countsResultLine("toolu_r", "package a",
-			`{"type":"text","file":{"filePath":"/x/a.go","content":"package a\n","numLines":1,"startLine":1,"totalLines":1}}`),
+		countsResultLine(
+			"toolu_r",
+			"package a",
+			`{"type":"text","file":{"filePath":"/x/a.go","content":"package a\n","numLines":1,"startLine":1,"totalLines":1}}`,
+		),
 	)
 	want := []Item{
 		{Kind: kindResult, Text: "a.go", ID: "toolu_b"},
 		{Kind: kindResult, Text: "package a", ID: "toolu_r"},
-		countsControlItem,
+		countsControlItem(),
 	}
 	if got := resultItems(t, path); !reflect.DeepEqual(got, want) {
 		t.Fatalf("result items = %+v, want %+v", got, want)
@@ -156,7 +161,7 @@ func TestReadToolLineCountsSeveralResultsCarryNone(t *testing.T) {
 	want := []Item{
 		{Kind: kindResult, Text: "first", ID: "toolu_a"},
 		{Kind: kindResult, Text: "second", ID: "toolu_c"},
-		countsControlItem,
+		countsControlItem(),
 	}
 	if got := resultItems(t, path); !reflect.DeepEqual(got, want) {
 		t.Fatalf("result items = %+v, want %+v", got, want)
@@ -167,7 +172,7 @@ func TestReadToolLineCountsNoResultLineGivesNoResultItem(t *testing.T) {
 	path := writeCountsTranscript(t,
 		countsCallLine("toolu_n", "Edit", `{"file_path":"/x/n.go"}`),
 	)
-	want := []Item{countsControlItem}
+	want := []Item{countsControlItem()}
 	if got := resultItems(t, path); !reflect.DeepEqual(got, want) {
 		t.Fatalf("result items = %+v, want %+v", got, want)
 	}
