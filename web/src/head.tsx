@@ -68,9 +68,10 @@ interface MenuItem {
   run: () => void;
 }
 
-// Head is a conversation's header: its title row with the find control and the More menu, then either the strip and the
-// band of what it is for and what waits on it, or, when folded, the one folded line. The strip is drawn with the open
-// header only. The hide control on the band and the Hide the header item are drawn only in the narrow layout.
+// Head is a conversation's header: its title row with the context, the find control and the More menu, then either the
+// machine band and the band of what it is for and what waits on it, or, when folded, the one folded line. The machine
+// band is drawn with the open header only. The hide control on the band and the Hide the header item are drawn only in
+// the narrow layout.
 export function Head({
   row,
   conversation,
@@ -109,24 +110,24 @@ export function Head({
     { label: "Keys", shortcut: "?", run: menu.keys },
     ...(narrow ? [{ label: "Hide the header", run: onHide }] : []),
   ];
-  const strip = showStrip && fold === "open" ? <PaneStrip host={host} context={conversation?.state?.context} /> : undefined;
+  // The machine band is the strip's host and its meters, a row of its own under the title row, drawn with the open
+  // header only.
+  const band = showStrip && fold === "open" && host !== null ? <PaneStrip host={host} band /> : null;
   const dirName = lastPathElement(row.project);
   // tiles is whether the band has the strip of tiles under it, which then carries the control that hides the header.
   const tiles = work !== undefined && work.groups.length > 0;
-  // The phone layout draws the context bare in the title row, beside More, open or folded, and leaves it out of the
-  // strip.
+  // The context is the conversation's, so it sits in the title row before Find and More, open or folded. The phone
+  // layout draws it bare.
   const context = conversation?.state?.context;
   const figure = showStrip && context !== undefined ? contextFigure(context) : null;
-  const phoneContext = context !== undefined && figure !== null ? <ContextMeter context={context} bare figure={figure} /> : null;
   return (
     <div class="convo-head" data-fold={fold}>
       <TitleRow
         crumbs={[...(dirName === "" ? [] : [{ label: dirName, place: true, host: host?.host }]), { label: title }]}
         onBack={onBack}
         note={note}
-        strip={strip}
       >
-        {phoneContext !== null && <span class="phone-ctx">{phoneContext}</span>}
+        {context !== undefined && figure !== null && <ContextMeter context={context} figure={figure} />}
         <button type="button" class="icon find" aria-label="Find in this conversation" title="Find  /" onClick={() => onFind()}>
           <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 3a4 4 0 1 0 0 8 4 4 0 0 0 0-8zM10 10l3.5 3.5" /></svg>
         </button>
@@ -151,6 +152,7 @@ export function Head({
           </div>
         )}
       </TitleRow>
+      {band}
       {fold === "open" ? (
         <>
           <SubjectBand

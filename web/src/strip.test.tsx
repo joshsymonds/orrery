@@ -20,6 +20,8 @@ import { turn, until as waitUntil } from "./testwait";
 
 const now = 1000;
 const cursorStrip = 'section[aria-label="reader"] .pane-strip';
+// cursorContext is the reader's context, which its head draws in the title row.
+const cursorContext = 'section[aria-label="reader"] .title-row .ctx';
 
 // The serving host's status: its name and three stats. The second is at warn and the third at crit, and each of the
 // three has a percent.
@@ -219,7 +221,7 @@ test("PaneStrip: a pane page's strip names the serving host, and draws each stat
     ]);
     assert.deepEqual(widthsOf(container, `${cursorStrip} .meter .bar i`), ["12%", "65%", "88%"]);
     assert.equal(
-      container.querySelector(`${cursorStrip} .ctx`) === null,
+      container.querySelector(cursorContext) === null,
       true,
       "no context before the stream reports one",
     );
@@ -233,20 +235,20 @@ test("PaneStrip: a pane conversation's context draws five blocks, filled by its 
       emit(stream, { transcript: "t", seq: "1", items: [], state: { context: { tokens, window: "200000" } } });
       await untilTurn(
         t.signal,
-        () => textOf(container, `${cursorStrip} .ctx .pct`) === percent,
+        () => textOf(container, `${cursorContext} .pct`) === percent,
         `the ${percent} context`,
       );
       assert.equal(
-        container.querySelectorAll(`${cursorStrip} .ctx .blocks i`).length,
+        container.querySelectorAll(`${cursorContext} .blocks i`).length,
         5,
         `${percent} draws five blocks`,
       );
       assert.equal(
-        container.querySelectorAll(`${cursorStrip} .ctx .blocks i.on`).length,
+        container.querySelectorAll(`${cursorContext} .blocks i.on`).length,
         filled,
         `${percent} fills ${filled} blocks`,
       );
-      assert.equal(levelOf(container, `${cursorStrip} .ctx`), band, `${percent} reads the ${band} band`);
+      assert.equal(levelOf(container, cursorContext), band, `${percent} reads the ${band} band`);
     }
   }));
 
@@ -255,10 +257,10 @@ test("PaneStrip: a context whose window is zero draws no context part", (t) =>
     await untilTurn(t.signal, () => transport.streams.length === 1, "the pane stream");
     const [stream] = transport.streams;
     emit(stream, { transcript: "t", seq: "1", items: [], state: { context: { tokens: "60000", window: "200000" } } });
-    await untilTurn(t.signal, () => textOf(container, `${cursorStrip} .ctx .pct`) === "30%", "the 30% context");
+    await untilTurn(t.signal, () => textOf(container, `${cursorContext} .pct`) === "30%", "the 30% context");
     emit(stream, { transcript: "t", seq: "2", items: [], state: { context: { tokens: "60000", window: "0" } } });
-    await untilTurn(t.signal, () => textOf(container, `${cursorStrip} .ctx .pct`) !== "30%", "the zero-window state");
-    assert.equal(container.querySelector(`${cursorStrip} .ctx`) === null, true);
+    await untilTurn(t.signal, () => textOf(container, `${cursorContext} .pct`) !== "30%", "the zero-window state");
+    assert.equal(container.querySelector(cursorContext) === null, true);
     assert.equal(textOf(container, `${cursorStrip} .pane-strip-host`), "den", "the host part still draws");
   }));
 

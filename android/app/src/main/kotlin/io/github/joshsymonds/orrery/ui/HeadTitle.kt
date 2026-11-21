@@ -1,5 +1,6 @@
 package io.github.joshsymonds.orrery.ui
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -14,6 +15,8 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
@@ -29,8 +32,9 @@ import io.github.joshsymonds.orrery.ui.theme.OrreryTokens
 /**
  * A conversation's title row, after round 6's touch title row: back, then the project's name and host as the inbox
  * draws a project's name, over the title in bold body type, one step down from the title type, cut short at its second
- * line, then the bare context meter when there is a figure, and More. It draws no Orrery icon and no count. More opens a menu holding Find and Hide the header. A
- * non-empty [note] draws under the row, in the crit colour.
+ * line, then the bare context meter when there is a figure, and More. The bare meter names the context and its tokens
+ * of the window to the reader, as the web's tooltip does. It draws no Orrery icon and no count. More opens a menu
+ * holding Find and Hide the header. A non-empty [note] draws under the row, in the crit colour.
  */
 @Composable
 fun HeadTitleRow(
@@ -88,7 +92,7 @@ fun HeadTitleRow(
             bareContext(context)?.let { meter ->
                 Text(
                     text = buildAnnotatedString { withStyle(SpanStyle(color = meter.color)) { append(meter.text) } },
-                    modifier = Modifier.testTag("head-context"),
+                    modifier = Modifier.testTag("head-context").semantics { contentDescription = meter.words },
                     style = OrreryTokens.Type.small,
                     maxLines = 1,
                 )
@@ -156,25 +160,53 @@ fun MoreMenu(
 }
 
 /**
- * The host's stats as meters, from [HostMeters]. A host other than the serving one draws its [otherHost] name and
- * says it has no meters, and draws no stats. Null [stats] with no other host draws nothing.
+ * The machine band: the host's stats as meters, from [HostMeters], in a full-width band of their own under the title
+ * row. The band is on surface.side, the inbox's ground, one step deeper than the goal's well, with an edge above and
+ * below it. A host other than the serving one draws its [otherHost] name and says it has no meters, and draws no stats.
+ * Null [stats] with no other host draws nothing, not even the band.
  */
 @Composable
 fun HeadMeters(stats: List<HostStat>?, otherHost: String?) {
-    if (otherHost != null) {
-        Column(modifier = Modifier.fillMaxWidth().testTag("head-other-host")) {
-            Text(text = otherHost, color = OrreryTokens.Ink.one, style = OrreryTokens.Type.small)
-            Text(text = "on another host: no meters", color = OrreryTokens.Ink.three, style = OrreryTokens.Type.small)
-        }
-    } else if (!stats.isNullOrEmpty()) {
-        Box(modifier = Modifier.fillMaxWidth().testTag("head-meters")) {
-            HostMeters(stats, Modifier.padding(horizontal = OrreryTokens.Space.two))
+    if (otherHost == null && stats.isNullOrEmpty()) return
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("head-machine-band")
+            .background(OrreryTokens.Surface.side)
+            .drawBehind {
+                val edge = OrreryTokens.Size.hairline.toPx()
+                drawLine(OrreryTokens.Line.soft, Offset(0f, edge / 2), Offset(size.width, edge / 2), edge)
+                drawLine(
+                    OrreryTokens.Line.soft,
+                    Offset(0f, size.height - edge / 2),
+                    Offset(size.width, size.height - edge / 2),
+                    edge,
+                )
+            }
+            .padding(horizontal = OrreryTokens.Layout.pagePadPhone, vertical = OrreryTokens.Space.eight),
+    ) {
+        if (otherHost != null) {
+            Column(modifier = Modifier.fillMaxWidth().testTag("head-other-host")) {
+                Text(text = otherHost, color = OrreryTokens.Ink.one, style = OrreryTokens.Type.small)
+                Text(
+                    text = "on another host: no meters",
+                    color = OrreryTokens.Ink.three,
+                    style = OrreryTokens.Type.small,
+                )
+            }
+        } else if (stats != null) {
+            Box(modifier = Modifier.fillMaxWidth().testTag("head-meters")) {
+                HostMeters(stats)
+            }
         }
     }
 }
 
-/** A bare context meter: its block bar and percent as [text], and the level [color] the percent falls in. */
-private class HeadContext(val text: String, val color: Color)
+/**
+ * A bare context meter: its block bar and percent as [text], the level [color] the percent falls in, and the [words]
+ * that name it and its tokens of the window, as "context: 86k of a 1M window".
+ */
+private class HeadContext(val text: String, val color: Color, val words: String)
 
 /**
  * The context meter for [context] without its label or token counts: the percent of the window in use, clamped to
@@ -196,5 +228,15 @@ private fun bareContext(context: ConversationContext?): HeadContext? {
         else -> OrreryTokens.Level.crit
     }
     val bar = "▰".repeat(filled) + "▱".repeat(count - filled)
-    return HeadContext("$bar $percent%", color)
+    val words = "context: ${tokensText(context.tokens)} of a ${tokensText(context.window)} window"
+    return HeadContext("$bar $percent%", color, words)
+}
+
+/**
+ * A token count as the context meter says it: thousands under a million, as 152k, and millions from there, as 1M, in
+ * whole numbers, as the web client writes it.
+ */
+private fun tokensText(tokens: Long): String {
+    val thousands = Math.round(tokens / 1_000.0)
+    return if (thousands < 1_000) "${thousands}k" else "${Math.round(tokens / 1_000_000.0)}M"
 }

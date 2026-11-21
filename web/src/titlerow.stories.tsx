@@ -2,15 +2,23 @@
 // row, drawn in its head: its project's name as the inbox draws it, then its title one step down the type scale, with no
 // Orrery icon or count (the inbox at rest shows the icon), a title too long for its line, and an error note.
 
+import { create } from "@bufbuild/protobuf";
+
 import type { Stories } from "./catalog/story";
+import { ConversationContextSchema } from "./gen/orrery/v1/orrery_pb";
+import { ContextMeter } from "./strip";
 import * as titlerow from "./titlerow";
 
 const ignore = () => {};
 
-// ConvoCommands are the commands a conversation's title row holds: find, and More.
+// convoContext is the context a conversation's title row draws: 86k of a 1M window.
+const convoContext = create(ConversationContextSchema, { tokens: 86000n, window: 1000000n });
+
+// ConvoCommands are what a conversation's title row holds at its end: its context, find, and More.
 function ConvoCommands() {
   return (
     <>
+      <ContextMeter context={convoContext} />
       <button type="button" class="icon find" aria-label="Find in this conversation" title="Find  /">
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 3a4 4 0 1 0 0 8 4 4 0 0 0 0-8zM10 10l3.5 3.5" /></svg>
       </button>

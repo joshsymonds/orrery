@@ -178,7 +178,8 @@ is one 100 ms step and loops hold still. No component uses a raw duration.
   or 316 under 1250, when out), its head the Orrery mark. The right is what the conversation steers, in groups each named
   once (contract, epics, agents, running); a tile opens its own panel between the conversation and the rail, one at a time and
   at one width, and is lit while it is open. Under 1250 a panel lies over the conversation. A page is a title row, a scrolling area and a foot. Reading text is one column 88 characters wide with a 6-character time gutter. Other pages keep to
-  1120.
+  1120. A conversation's head is its title row, with the context before Find and More, then the machine band on
+  surface.side, then the goal; under a 900 head (breakpointHeadNarrow) the context's name drops to its tooltip.
 - **Phone** (under 760, and Android): one page at a time. A conversation's header (title, meters, goal, ask lines,
   tiles) folds to one line of badges while you read back, stays folded when you hide it, and is gone while you type;
   folded, it turns peach when something asks. No gutter: a turn's time is in its block's label line.

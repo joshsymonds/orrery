@@ -240,6 +240,7 @@ object OrreryTokens {
     object Layout {
         val breakpointPhone: Dp = 760.dp
         val breakpointNarrow: Dp = 1250.dp
+        val breakpointHeadNarrow: Dp = 900.dp
         val inboxWidth: Dp = 340.dp
         val inboxWidthNarrow: Dp = 316.dp
         val railWidth: Dp = 64.dp
