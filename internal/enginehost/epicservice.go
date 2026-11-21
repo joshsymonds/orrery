@@ -150,12 +150,13 @@ func (s *epicService) controlMaker(ctx context.Context, epic string, header http
 
 // CreateEpic makes the epic of the accepted contract the request names by its id. The epic takes that id, and the body
 // of the contract's accepted version with the request's base in place of the body's. A blank base takes the base the
-// contract stored when it was accepted. It checks that contract with checkEpic, collects the lint's warnings, merges its
-// reviewers, resolves its base to the full commit the base names, pins the workflow the request names at that commit,
-// then stores it accepted, with its seed decisions and, when the base differs from the stored one, one more decision
-// that names both, and returns the stored epic read back with the warnings. Its review list is the enabled task-stage
-// reviewers, in merged order. A contract no one holds, one that is not accepted, a reviewer no layer can hold, and a
-// workflow that does not load at the base are refused, and nothing is stored.
+// contract stored when it was accepted. It checks that contract with checkEpic, takes the project's release, read at
+// the base, when the contract names no step, collects the lint's warnings, merges its reviewers, resolves its base to
+// the full commit the base names, pins the workflow the request names at that commit, then stores it accepted, with
+// its seed decisions and, when the base differs from the stored one, one more decision that names both, and returns
+// the stored epic read back with the warnings. Its review list is the enabled task-stage reviewers, in merged order. A
+// contract no one holds, one that is not accepted, a reviewer no layer can hold, a project release at the base that
+// does not parse, and a workflow that does not load at the base are refused, and nothing is stored.
 //
 // The seed decisions are made by the caller. The steerer of the epic is the contract's conversation, the writer of its
 // first version, whichever caller makes the create, when that conversation's sessions row is stored. Otherwise the id
@@ -178,6 +179,9 @@ func (s *epicService) CreateEpic(
 	}
 	if err = checkEpic(ctx, contract, req.Msg.GetDecisions(), getenv); err != nil {
 		return nil, refuseEpic(connect.CodeInvalidArgument, err.Error())
+	}
+	if err = applyProjectRelease(ctx, contract); err != nil {
+		return nil, refuseEpic(connect.CodeInvalidArgument, ".orrery/project.toml: "+err.Error())
 	}
 	warnings, err := contractLintWarnings(ctx, contract)
 	if err != nil {
@@ -202,9 +206,7 @@ func (s *epicService) CreateEpic(
 	row := epicRowOf(contract, req.Msg.GetDecisions(), base, workflow, time.Now())
 	row.Reviewers = merged
 	row.ReviewGates = taskReviewNames(merged)
-	if decision, ok := contractBaseDecision(req.Msg.GetDecisions(), base, stored); ok {
-		row.Decisions = append(row.Decisions, decision)
-	}
+	row.Decisions = appendContractBaseDecision(row.Decisions, req.Msg.GetDecisions(), base, stored)
 	for i := range row.Decisions {
 		row.Decisions[i].Maker = maker
 	}
@@ -263,14 +265,16 @@ func (s *epicService) acceptedContract(
 	return nil, "", 0, "", epicStoreError(fmt.Errorf("contract %s has no version %d", id, newest.Version))
 }
 
-// contractBaseDecision returns the decision a create records after its seeds when base, the commit the create starts the
-// epic at, differs from stored, the base the contract stored when it was accepted. The decision names both commits. Its
-// maker is set by the create, as the seeds' are. Seed decision ids are the caller's, unique and otherwise unchecked, so
-// the id is epic-base, or epic-base-n for the first n from 2 that no seed holds. It returns false when the contract
-// stored no base or when base is the stored one.
-func contractBaseDecision(seeds []*v1.EpicDecisionInput, base, stored string) (store.EpicDecision, bool) {
+// appendContractBaseDecision returns decisions with the decision a create records after its seeds appended when base,
+// the commit the create starts the epic at, differs from stored, the base the contract stored when it was accepted. The
+// decision names both commits. Its maker is set by the create, as the seeds' are. Seed decision ids are the caller's,
+// unique and otherwise unchecked, so the id is epic-base, or epic-base-n for the first n from 2 that no seed holds. It
+// returns decisions unchanged when the contract stored no base or when base is the stored one.
+func appendContractBaseDecision(
+	decisions []store.EpicDecision, seeds []*v1.EpicDecisionInput, base, stored string,
+) []store.EpicDecision {
 	if stored == "" || base == stored {
-		return store.EpicDecision{}, false
+		return decisions
 	}
 	taken := make(map[string]bool, len(seeds))
 	for _, seed := range seeds {
@@ -280,13 +284,13 @@ func contractBaseDecision(seeds []*v1.EpicDecisionInput, base, stored string) (s
 	for n := 2; taken[id]; n++ {
 		id = fmt.Sprintf("epic-base-%d", n)
 	}
-	return store.EpicDecision{
+	return append(decisions, store.EpicDecision{
 		ID: id,
 		Text: fmt.Sprintf(
 			"base %s named at create replaces the base %s the contract stored when it was accepted",
 			base, stored,
 		),
-	}, true
+	})
 }
 
 // storedRefusal returns the refusal of a create whose id, id, is already stored.
