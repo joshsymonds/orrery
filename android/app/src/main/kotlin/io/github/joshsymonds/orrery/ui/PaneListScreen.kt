@@ -1,27 +1,17 @@
 package io.github.joshsymonds.orrery.ui
 
 import androidx.activity.compose.BackHandler
-import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.aspectRatio
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.Text
@@ -35,22 +25,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.scale
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.StrokeJoin
-import androidx.compose.ui.graphics.drawscope.DrawScope
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
-import io.github.joshsymonds.orrery.R
 import io.github.joshsymonds.orrery.api.ContractRow
 import io.github.joshsymonds.orrery.api.EpicDetail
 import io.github.joshsymonds.orrery.api.EpicRow
@@ -67,13 +47,6 @@ import java.io.IOException
 
 /** The fixed delay the inbox waits before it reads again after a read that did not answer. */
 internal const val RETRY_DELAY_MILLIS = 5_000L
-
-/** The view box the bell is drawn in, and its stroke, in those units. */
-private const val BELL_VIEW = 16f
-private const val BELL_STROKE = 1.5f
-
-/** The bell's accessible label: the head has no room for the word, so the bell is labelled by it, not shown with it. */
-private const val NOTICES_WORDS = "Notices"
 
 /**
  * The inbox's state: the chip on, the search words (null while the search is closed), the folded projects, the projects
@@ -112,8 +85,8 @@ internal class TreeData(
 )
 
 /**
- * The inbox: the head with the Orrery mark, Search, New, Pools, the Notices bell and Settings; then, while search is
- * open, its field; then the two chips and each project as a card, its conversations hanging under it with what steers
+ * The inbox: the [InboxHead], round 6's phone head of the Orrery mark, Search, the Notices bell, Pools, Settings and
+ * New; then, while search is open, its field; then the two chips and each project as a card, its conversations hanging under it with what steers
  * them, and its ended line. The chips narrow the tree, search narrows what the chips left, and a folded card says what
  * waits in it. The foot opens the archived tree and returns from it. A tap on a conversation calls [onOpenPane] with
  * its pane, a tap on an epic or one of its steps calls [onOpenEpic], a tap on a contract's row calls [onOpenContract]
@@ -170,44 +143,14 @@ fun PaneListScreen(
 
     Box(modifier = modifier.fillMaxSize()) {
         Column(modifier = Modifier.fillMaxSize()) {
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = OrreryTokens.Space.sixteen, vertical = OrreryTokens.Space.eight),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Row(
-                    modifier = Modifier.height(IntrinsicSize.Min),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    TitleMark(modifier = Modifier.fillMaxHeight())
-                    Spacer(modifier = Modifier.width(OrreryTokens.Space.eight))
-                    Text("orrery", style = OrreryTokens.Type.title)
-                }
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    TextButton(
-                        onClick = { state.search = state.search ?: "" },
-                        modifier = Modifier.testTag("open-search"),
-                    ) {
-                        Text("Search")
-                    }
-                    TextButton(
-                        onClick = { picking = true },
-                        modifier = Modifier.testTag("picker-new"),
-                    ) {
-                        Text("New")
-                    }
-                    TextButton(
-                        onClick = onOpenPools,
-                        modifier = Modifier.testTag("open-pools"),
-                    ) {
-                        Text("Pools")
-                    }
-                    NoticesBell(unread = notices.unread, onClick = onOpenNotices)
-                    TextButton(onClick = onOpenSettings) {
-                        Text("Settings")
-                    }
-                }
-            }
+            InboxHead(
+                unread = notices.unread,
+                onSearch = { state.search = state.search ?: "" },
+                onNotices = onOpenNotices,
+                onPools = onOpenPools,
+                onSettings = onOpenSettings,
+                onNew = { picking = true },
+            )
             state.search?.let { words ->
                 SearchField(
                     words = words,
@@ -443,8 +386,6 @@ private fun NothingRunning(onNew: () -> Unit) {
     }
 }
 
-private const val SEARCH_LABEL = "Search sessions and epics"
-
 /**
  * The search field under the head: the words typed, a placeholder that names what search finds, and Clear, which empties
  * the field and closes it. The field takes focus when it opens.
@@ -519,70 +460,5 @@ private fun DidNotAnswer(onTryNow: () -> Unit) {
         TextButton(onClick = onTryNow, modifier = Modifier.testTag("try-now")) {
             Text("Try now")
         }
-    }
-}
-
-/**
- * The bell that opens the notices: its unread count in the new role when there is one, and nothing beside it at zero.
- */
-@Composable
-private fun NoticesBell(unread: Int, onClick: () -> Unit) {
-    TextButton(onClick = onClick, modifier = Modifier.testTag("open-notices")) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            BellGlyph()
-            if (unread > 0) {
-                Text(
-                    unread.toString(),
-                    modifier = Modifier.padding(start = OrreryTokens.Space.four).testTag("notices-unread"),
-                    style = OrreryTokens.Type.small,
-                    color = OrreryTokens.Role.new,
-                )
-            }
-        }
-    }
-}
-
-// A bell: a dome on a rim, with its clapper, drawn as the Notices screen draws its own.
-@Composable
-private fun BellGlyph() {
-    Canvas(modifier = Modifier.size(OrreryTokens.Size.glyph).semantics { contentDescription = NOTICES_WORDS }) {
-        val stroke = Stroke(width = bellPx(BELL_STROKE), cap = StrokeCap.Round, join = StrokeJoin.Round)
-        drawPath(
-            Path().apply {
-                moveTo(bellPx(3.5f), bellPx(11.5f))
-                lineTo(bellPx(3.5f), bellPx(7.5f))
-                cubicTo(bellPx(3.5f), bellPx(4.5f), bellPx(12.5f), bellPx(4.5f), bellPx(12.5f), bellPx(7.5f))
-                lineTo(bellPx(12.5f), bellPx(11.5f))
-                lineTo(bellPx(13.5f), bellPx(12.5f))
-                lineTo(bellPx(2.5f), bellPx(12.5f))
-                close()
-            },
-            OrreryTokens.Ink.two,
-            style = stroke,
-        )
-        drawCircle(OrreryTokens.Ink.two, bellPx(1f), Offset(bellPx(8f), bellPx(14f)))
-    }
-}
-
-private fun DrawScope.bellPx(view: Float): Float = view * size.width / BELL_VIEW
-
-/**
- * The app's colour icon as a disc: the launcher's background and foreground layers, clipped to a
- * circle. The 72-unit centre of the 108 canvas fills the circle, so each layer is scaled by 1.5
- * about the disc's centre. Decorative, so it has no content description.
- */
-@Composable
-private fun TitleMark(modifier: Modifier) {
-    Box(modifier = modifier.aspectRatio(1f).clip(CircleShape).testTag("title-mark")) {
-        Image(
-            painter = painterResource(R.drawable.ic_launcher_background),
-            contentDescription = null,
-            modifier = Modifier.matchParentSize().scale(1.5f),
-        )
-        Image(
-            painter = painterResource(R.drawable.ic_launcher_foreground),
-            contentDescription = null,
-            modifier = Modifier.matchParentSize().scale(1.5f),
-        )
     }
 }

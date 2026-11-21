@@ -109,7 +109,7 @@ class MainActivityPoolsTest {
 
     private fun openPools() {
         awaitNode(hasTestTag("convo:pane:example-host:%1"))
-        composeRule.onNodeWithTag("open-pools").performClick()
+        composeRule.tapInboxAction("open-pools")
         awaitNode(hasTestTag("pool:$POOL"))
     }
 

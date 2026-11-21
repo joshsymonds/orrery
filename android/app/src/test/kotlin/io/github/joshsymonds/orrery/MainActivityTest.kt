@@ -510,7 +510,7 @@ class MainActivityTest {
     fun settingsBackReturnsToTheListWithoutSaving() {
         val controller = launch()
         awaitNode(hasTestTag("convo:pane:example-host:%1"))
-        composeRule.onNodeWithText("Settings").performClick()
+        composeRule.tapInboxAction("open-settings")
         awaitNode(hasTestTag("server-address"))
 
         controller.get().onBackPressedDispatcher.onBackPressed()
@@ -522,7 +522,7 @@ class MainActivityTest {
     fun settingsTitleBackReturnsToTheListWithoutSaving() {
         launch()
         awaitNode(hasTestTag("convo:pane:example-host:%1"))
-        composeRule.onNodeWithText("Settings").performClick()
+        composeRule.tapInboxAction("open-settings")
         awaitNode(hasTestTag("server-address"))
 
         composeRule.onNodeWithTag("title-back").performClick()
@@ -534,7 +534,7 @@ class MainActivityTest {
     fun settingsFontLicenceBackReturnsToSettingsNotTheList() {
         val controller = launch()
         awaitNode(hasTestTag("convo:pane:example-host:%1"))
-        composeRule.onNodeWithText("Settings").performClick()
+        composeRule.tapInboxAction("open-settings")
         awaitNode(hasTestTag("server-address"))
         composeRule.onNodeWithText("Font licence").performClick()
         awaitNode(hasText("Copyright (c) 2022, subframe7536", substring = true))
@@ -554,7 +554,7 @@ class MainActivityTest {
             launch()
             awaitNode(hasTestTag("convo:pane:example-host:%1"))
 
-            composeRule.onNodeWithText("Settings").performClick()
+            composeRule.tapInboxAction("open-settings")
             awaitNode(hasTestTag("server-address"))
             composeRule.onNodeWithTag("server-address").performTextReplacement(second.baseUrl)
             composeRule.onNodeWithText("Save").performClick()

@@ -659,7 +659,7 @@ class InboxTreeScreenTest {
     }
 
     @Test
-    fun headIsTheOrreryMarkPoolsSettingsAndNewWithNoFilter() {
+    fun headIsTheOrreryMarkSearchTheBellPoolsSettingsAndNewWithNoFilter() {
         FakeOrreryServer().use { server ->
             serveDefaults(server)
             server.respond(PANES_LIST, panesOf(pane("%1", ALPHA, "working", NOW - 30, NOW - 10, NOW - 30)))
@@ -668,10 +668,13 @@ class InboxTreeScreenTest {
 
             assertEquals(1, countNodes(hasTestTag("title-mark")))
             assertEquals(1, countNodes(hasText("orrery")))
-            assertEquals(1, countNodes(hasText("Search") and hasAnyAncestor(hasTestTag("open-search"))))
-            assertEquals(1, countNodes(hasTestTag("open-pools")))
-            assertEquals(1, countNodes(hasText("Settings")))
+            assertEquals(1, countNodes(hasContentDescription(SEARCH_LABEL) and hasTestTag("open-search")))
+            assertEquals(1, countNodes(hasContentDescription("Notices") and hasTestTag("open-notices")))
             assertEquals(1, countNodes(hasText("New") and hasAnyAncestor(hasTestTag("picker-new"))))
+            // Pools and Settings are in the bar, or in More when the bar folded them.
+            if (countNodes(hasTestTag("inbox-more")) == 1) composeRule.onNodeWithTag("inbox-more").performClick()
+            assertEquals(1, countNodes(hasTestTag("open-pools")))
+            assertEquals(1, countNodes(hasTestTag("open-settings")))
             for (tag in listOf("filter-all", "filter-new", "filter-waiting")) {
                 assertEquals("$tag is gone", 0, countNodes(hasTestTag(tag)))
             }

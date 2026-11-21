@@ -104,8 +104,6 @@ class PaneListNoticesTest {
 
     private fun boundsOfTag(tag: String) = composeRule.onNodeWithTag(tag, useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
 
-    private fun boundsOfText(text: String) = composeRule.onNodeWithText(text).fetchSemanticsNode().boundsInRoot
-
     /** Waits until the bell's count reads [text] and nothing else. */
     private fun awaitUnread(text: String) {
         composeRule.awaitUntil("the bell reads $text") { countNodes(hasTestTag(UNREAD) and hasText(text)) == 1 }
@@ -119,7 +117,8 @@ class PaneListNoticesTest {
     }
 
     @Test
-    fun theBellSitsBetweenPoolsAndSettingsAndCarriesTheUnreadCount() {
+    @Config(qualifiers = "w412dp-h1200dp")
+    fun theBellSitsBetweenSearchAndPoolsAndCarriesTheUnreadCount() {
         FakeOrreryServer().use { server ->
             serve(server, noticesOf(false, true, false))
             setScreen(server)
@@ -128,9 +127,9 @@ class PaneListNoticesTest {
             composeRule.onNodeWithTag(UNREAD, useUnmergedTree = true).assertTextEquals("2")
             composeRule.onNodeWithText("New").assertExists()
             val bell = boundsOfTag(BELL)
-            assertTrue("the bell sits after Pools", boundsOfText("Pools").right <= bell.left)
-            assertTrue("the bell sits before Settings", bell.right <= boundsOfText("Settings").left)
-            assertEquals(boundsOfText("Settings").center.y, bell.center.y, 1f)
+            assertTrue("the bell sits after Search", boundsOfTag("open-search").right <= bell.left)
+            assertTrue("the bell sits before Pools", bell.right <= boundsOfTag("open-pools").left)
+            assertEquals(boundsOfTag("open-pools").center.y, bell.center.y, 1f)
         }
     }
 

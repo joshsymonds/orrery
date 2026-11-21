@@ -5,12 +5,15 @@ import androidx.activity.ComponentActivity
 import androidx.compose.runtime.snapshots.Snapshot
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.SemanticsMatcher
+import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.junit4.AndroidComposeTestRule
 import androidx.compose.ui.test.junit4.ComposeContentTestRule
 import androidx.compose.ui.test.junit4.ComposeTestRule
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.junit4.createEmptyComposeRule
+import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.performClick
 import androidx.test.espresso.IdlingRegistry
 import androidx.test.espresso.IdlingResource
 import androidx.test.ext.junit.rules.ActivityScenarioRule
@@ -260,4 +263,13 @@ fun ComposeTestRule.awaitUntilAfterIdle(description: String = "the awaited condi
         waitForIdle()
         condition()
     }
+}
+
+/**
+ * Taps the inbox head's action tagged [tag]: in the bar when it fits there, or in the menu More opens when the head
+ * folded it, as it does when the bar is too narrow for it.
+ */
+fun ComposeTestRule.tapInboxAction(tag: String) {
+    if (onAllNodes(hasTestTag(tag)).fetchSemanticsNodes().isEmpty()) onNodeWithTag("inbox-more").performClick()
+    onNodeWithTag(tag).performClick()
 }

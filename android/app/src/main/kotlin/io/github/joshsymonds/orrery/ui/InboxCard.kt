@@ -259,7 +259,10 @@ internal fun InboxChips(
     }
 }
 
-/** A round chip: its count in bold, then its label, in the tone's colour; pressed, it takes the on look. */
+/**
+ * Round 6's FilterChip: a round chip a desk control high on both clients, its count in bold, then its label, in the
+ * tone's colour, centred top to bottom; pressed, it takes the on look.
+ */
 @Composable
 private fun FilterChip(
     count: Int,
@@ -277,19 +280,19 @@ private fun FilterChip(
         append(" ")
         append(label)
     }
-    Text(
-        text = text,
+    Box(
         modifier = Modifier
             .testTag(testTag)
-            .height(OrreryTokens.Size.controlTouch)
+            .height(OrreryTokens.Size.controlDesk)
             .clip(shape)
             .border(OrreryTokens.Size.hairline, if (on) tone else OrreryTokens.Line.firm, shape)
             .then(if (on) Modifier.background(OrreryTokens.Surface.raised) else Modifier)
             .selectable(selected = on, role = Role.Button, onClick = onPress)
             .padding(horizontal = OrreryTokens.Space.twelve),
-        color = tone,
-        style = OrreryTokens.Type.small,
-    )
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(text = text, color = tone, style = OrreryTokens.Type.small, maxLines = 1)
+    }
 }
 
 /** The fold control's chevron: pointing down when open, right when folded or ended-closed. */

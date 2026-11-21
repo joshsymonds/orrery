@@ -19,6 +19,7 @@ import io.github.joshsymonds.orrery.api.OrreryClient
 import io.github.joshsymonds.orrery.api.Pane
 import io.github.joshsymonds.orrery.api.Reply
 import io.github.joshsymonds.orrery.awaitUntil
+import io.github.joshsymonds.orrery.tapInboxAction
 import io.github.joshsymonds.orrery.gen.orrery.v1.AskResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsListResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.HeadlessSession
@@ -302,7 +303,7 @@ class PaneListScreenTest {
             setScreen(server)
             awaitRow("%1")
 
-            composeRule.onNodeWithText("Settings").performClick()
+            composeRule.tapInboxAction("open-settings")
 
             assertEquals(1, settingsOpened)
         }
