@@ -8,7 +8,7 @@ import type { VNode } from "preact";
 import { PageStory } from "./catalog/pagestory";
 import type { Stories } from "./catalog/story";
 import { askSlices } from "./fixtures/ask";
-import { convoLoading, convoSlices } from "./fixtures/convo";
+import { convoLoading, convoSendingSlices, convoSentWords, convoSlices, convoWorkingSlices } from "./fixtures/convo";
 import { dockSlices, gatesSession, warmupSession } from "./fixtures/dock";
 import {
   type AskAnswer,
@@ -607,9 +607,35 @@ export const Page: Stories = {
   "epic-problem": () => epicScenario(epicAt(rota, { kind: "epic" }), "problem"),
   "epic-loading": () => epicScenario(epicAt(tideCache, { kind: "epic" }), "loading"),
   "epic-unavailable": () => epicScenario(epicAt(rota, { kind: "epic" }), "unavailable"),
-  "convo-working": () => <PageStory address={convoWorkingAt} />,
-  "convo-blocks": () => <PageStory address={paneAt("%25")} fixture={createFixtureTransport(convoSlices)} />,
-  "convo-lines": () => <PageStory address={paneAt("%26")} fixture={createFixtureTransport(convoSlices)} />,
+  "convo-working": () => <PageStory address={convoWorkingAt} fixture={createFixtureTransport(convoWorkingSlices)} />,
+  "convo-blocks": () => (
+    <PageStory
+      address={paneAt("%25")}
+      fixture={createFixtureTransport(convoSendingSlices)}
+      after={async (root) => {
+        // The transcript is drawn, then the reply box takes the words round 6 ends with and sends them. Control.Say is held,
+        // so the message stays sending.
+        await drawnWhen(root, "section.read", "bump the embedded tz database");
+        press(await typeInto(root, shownDockBox, convoSentWords), "Enter");
+        await drawnWhen(root, ".block.pending", convoSentWords);
+      }}
+    />
+  ),
+  "convo-lines": () => (
+    <PageStory
+      address={paneAt("%26")}
+      fixture={createFixtureTransport(convoSlices)}
+      after={async (root) => {
+        // Round 6 opens five items: the thought, the tool run, its failed call, the compaction and the brief. The failed call is
+        // one of the run's calls, so the run opens first.
+        await clickWhen(root, "button.line.thinking");
+        await clickWhen(root, "button.fold.calls");
+        await clickWhen(root, "button.call", "go test ./internal/roster -run Slow");
+        await clickWhen(root, "button.rule.compaction");
+        await clickWhen(root, "button.line.fold.brief");
+      }}
+    />
+  ),
   "convo-markdown": () => <PageStory address={paneAt("%13")} />,
   "convo-find": () => (
     <PageStory

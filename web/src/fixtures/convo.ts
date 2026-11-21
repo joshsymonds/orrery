@@ -2,7 +2,7 @@
 // server sends for it, with the item kinds and senders the server sends. convoSlices is the shipped slices with the panes
 // and streams these scenarios add, and the shipped panes and streams are never written to.
 
-import { create, type MessageInitShape } from "@bufbuild/protobuf";
+import { clone, create, type MessageInitShape } from "@bufbuild/protobuf";
 
 import {
   ConversationItemSchema,
@@ -135,3 +135,41 @@ export const convoSlices: Slices = {
 
 // convoLoading is convoSlices with the conversation call held, so a page that opens pane %28 waits for its first answer.
 export const convoLoading: Slices = { ...convoSlices, hold: new Set([conversationCall]) };
+
+// convoWorkingSlices is convoSlices' shipped slices with pane %11 last seen at 14:31:30, so the reader draws the since-you-looked
+// rule after the 14:31 prompt and before the tool calls that follow it. The pane's list row and its stream's state both hold it.
+const workingSeen = at("@14:31:30");
+
+// withSeen is a copy of pane that was last seen at seen.
+function withSeen(pane: Pane, seen: bigint): Pane {
+  const copy = clone(PaneSchema, pane);
+  copy.seen = seen;
+  return copy;
+}
+
+// workingStream is pane %11's shipped stream with its state's pane last seen at workingSeen.
+function workingStream(): WatchConversationResponse {
+  const stream = shippedSlices.paneStreams.get("%11");
+  const state = stream?.state;
+  if (stream === undefined || state?.pane === undefined) {
+    throw new Error("fixtures: pane %11's stream holds no pane");
+  }
+  return create(WatchConversationResponseSchema, {
+    ...stream,
+    state: { ...state, pane: withSeen(state.pane, workingSeen) },
+  });
+}
+
+export const convoWorkingSlices: Slices = {
+  ...shippedSlices,
+  panes: create(PanesListResponseSchema, {
+    panes: shippedSlices.panes.panes.map((pane) => (pane.id === "%11" ? withSeen(pane, workingSeen) : pane)),
+  }),
+  paneStreams: new Map(shippedSlices.paneStreams).set("%11", workingStream()),
+};
+
+// convoSentWords are the words convo-blocks types into its reply box and sends. The say call is held, so they stay sending.
+export const convoSentWords = "Keep the pin and skip the Lisbon case.";
+
+// convoSendingSlices is convoSlices with Control.Say held unanswered, so a message the reply box sends stays sending.
+export const convoSendingSlices: Slices = { ...convoSlices, hold: new Set(["orrery.v1.Control/Say"]) };
