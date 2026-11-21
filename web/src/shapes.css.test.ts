@@ -132,6 +132,11 @@ test("Shapes: at phone width the head time follows the words, and only the head'
   assert.equal(declaredValue(rules, `${block} > .head .end`, "margin-left"), "auto");
 });
 
+test("Shapes: a Block's head end wraps its chips and fold control onto more lines, and may shrink to the head's width", () => {
+  assert.equal(declaredValue(rules, `${block} > .head .end`, "flex-wrap"), "wrap");
+  assert.equal(declaredValue(rules, `${block} > .head .end`, "flex"), "0 1 auto");
+});
+
 test("Shapes: every Line hangs on a 1 px hairline thread in the firm line colour, with no rail", () => {
   assert.equal(declaredValue(rules, ".reader .line", "border-left"), "var(--o-size-hairline) solid var(--o-line-firm)");
 });

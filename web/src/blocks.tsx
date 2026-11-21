@@ -124,7 +124,12 @@ export function CheckBlock({
       <>
         {chips}
         {opens && (
-          <button type="button" aria-expanded={shown} onClick={() => setShown((value) => !value)}>
+          <button
+            type="button"
+            aria-label={shown ? "Hide the rest" : "Show the rest"}
+            aria-expanded={shown}
+            onClick={() => setShown((value) => !value)}
+          >
             <Icon name={shown ? "chevronDown" : "chevronRight"} />
           </button>
         )}

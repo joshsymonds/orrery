@@ -177,7 +177,9 @@ test("Shapes: a CheckBlock draws a chip per check of its round, with the check i
         "the passed check's chip is ok, so it draws in the ok tone",
       );
       assert.equal(chips[0].innerHTML.includes(checkIcon), true, "the passed check does not draw the check icon");
+      assert.equal(chips[0].innerHTML.includes(crossIcon), false, "the passed check draws the cross icon");
       assert.equal(chips[1].innerHTML.includes(crossIcon), true, "the failed check does not draw the cross icon");
+      assert.equal(chips[1].innerHTML.includes(checkIcon), false, "the failed check draws the check icon");
     },
   );
 });
@@ -258,6 +260,24 @@ test("Shapes: a CheckBlock given open draws the rest under its note from the sta
         true,
         "the rest is not drawn under the note",
       );
+    },
+  );
+});
+
+test("Shapes: a CheckBlock's fold control is named Show the rest while the rest is folded and Hide the rest while it is open", async () => {
+  const text = "owned files: the change touches go.mod.\nRevert go.mod, or ask the planner to widen the task.";
+  await withBlock(
+    <CheckBlock round={2} checks={[checkOf(2, "owned files", false)]} text={text} time={at("@14:14")} />,
+    async (container) => {
+      const root = container.querySelector<HTMLElement>('[data-shape="block"]');
+      assert.ok(root, "the CheckBlock has no block root");
+      const fold = root.querySelector<HTMLElement>(".end button");
+      assert.ok(fold, "the fold control is not in the end");
+      assert.equal(fold.getAttribute("aria-label"), "Show the rest", "the folded control has no name for showing the rest");
+      await act(() => {
+        fold.click();
+      });
+      assert.equal(fold.getAttribute("aria-label"), "Hide the rest", "the open control has no name for hiding the rest");
     },
   );
 });

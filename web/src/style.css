@@ -546,7 +546,7 @@ button.link.notices-more { justify-self: end; padding: 0 var(--o-space-12); colo
   text-transform: uppercase; white-space: nowrap;
 }
 .reader [data-shape="block"] > .head .who { color: var(--o-ink-1); font-weight: var(--o-font-weight-bold); }
-.reader [data-shape="block"] > .head .end { display: inline-flex; align-items: center; gap: var(--o-space-8); flex: none; margin-left: auto; }
+.reader [data-shape="block"] > .head .end { display: inline-flex; align-items: center; gap: var(--o-space-8); flex: 0 1 auto; flex-wrap: wrap; margin-left: auto; }
 .reader [data-shape="block"] > .head .at { flex: none; color: var(--o-ink-3); white-space: nowrap; }
 
 /* Markdown draws in a reply and in a Block's body alike, so each rule names both. Code takes the mono family too. A code
