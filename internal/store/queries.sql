@@ -1859,7 +1859,7 @@ INSERT INTO contract_versions (contract, version, repository, title, care, body,
 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 
 -- name: InsertContractState :exec
-INSERT INTO contract_states (contract, seq, state, version, session, words, at) VALUES (?, ?, ?, ?, ?, ?, ?);
+INSERT INTO contract_states (contract, seq, state, version, session, words, at, base) VALUES (?, ?, ?, ?, ?, ?, ?, ?);
 
 -- name: ListContractListings :many
 SELECT contracts.id, contracts.created,

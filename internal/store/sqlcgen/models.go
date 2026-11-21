@@ -34,6 +34,7 @@ type ContractState struct {
 	Session  string
 	Words    string
 	At       int64
+	Base     string
 }
 
 type ContractVersion struct {

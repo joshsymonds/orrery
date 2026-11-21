@@ -568,8 +568,9 @@ func TestEpicMigrationKeepsExistingRows(t *testing.T) {
 		`SELECT COALESCE(MAX(version_id), 0) FROM goose_db_version WHERE is_applied = 1`).Scan(&version); err != nil {
 		t.Fatalf("read store version: %v", err)
 	}
-	// Open applies 00014_epics.sql and every migration after it: 00083_release_slot_outside.sql is the newest. The newest
-	// was 00082_contract_record.sql before the release slot migration added 00083, 00081_epic_actions.sql before the
+	// Open applies 00014_epics.sql and every migration after it: 00084_contract_base.sql is the newest. The newest was
+	// 00083_release_slot_outside.sql before the contract base migration added 00084, 00082_contract_record.sql before the
+	// release slot migration added 00083, 00081_epic_actions.sql before the
 	// contract record migration added 00082, 00080_epic_steerer.sql before the
 	// epic actions migration added 00081, 00079_gap_reconcile.sql before the steerer migration added 00080,
 	// 00078_task_review_undetermined.sql before the gap reconciliation added 00079, 00077_gambit_ladder.sql before the
@@ -584,8 +585,8 @@ func TestEpicMigrationKeepsExistingRows(t *testing.T) {
 	// added 00065, 00063_task_versions.sql before the step indexes added 00064, 00062_drop_engine_held.sql before the
 	// task versions added 00063, 00061_prompt_states.sql before the drop of engine_held added 00062, and
 	// 00060_cron_jobs.sql before the prompt states added 00061.
-	if version != 83 {
-		t.Fatalf("store version after Open = %d, want 83", version)
+	if version != 84 {
+		t.Fatalf("store version after Open = %d, want 84", version)
 	}
 
 	// A later migration may add columns at the end of an existing table, as 00015_step_readopt.sql adds to steps and
