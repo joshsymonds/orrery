@@ -93,6 +93,20 @@ const (
 // sessions row when By is MakerConversation, and "" otherwise.
 type Maker struct{ By, Session string }
 
+// Phrase names the maker in the text of an epic call: the owner, conversation with its session id, or orreryd. A maker
+// with no By is unknown.
+func (m Maker) Phrase() string {
+	switch m.By {
+	case MakerOwner:
+		return "the owner"
+	case MakerConversation:
+		return "conversation " + m.Session
+	case MakerOrreryd:
+		return "orreryd"
+	}
+	return "unknown"
+}
+
 // CallerMaker returns who made an epic call as caller names it. A zero caller has no session, server or pane, so it is
 // the owner and no read is made. Any other caller names a sessions row as resolveEpicCaller does. The caller is the
 // owner when no row matches; an orreryd step when its row is of KindStep; and a conversation when its row is of

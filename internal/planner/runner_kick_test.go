@@ -55,7 +55,7 @@ func TestEpicKickIsClaimedByTheNextPlannerPassAndItsTextShownInThePrompt(t *test
 		t.Fatalf("turn 1 state = %q, want succeeded", got)
 	}
 
-	if err := s.KickEpic(ctx, runnerEpicID, kickedText, store.Maker{}, claimedAt()); err != nil {
+	if err := s.KickEpic(ctx, runnerEpicID, kickedText, store.Maker{By: store.MakerOwner}, claimedAt()); err != nil {
 		t.Fatalf("KickEpic: %v", err)
 	}
 	runner.Pass(ctx)

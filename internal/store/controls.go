@@ -299,11 +299,13 @@ func endedPhase(phase string) bool {
 	return IsClosedPhase(phase)
 }
 
-// KickEpic records text on epic as the owner's decision and adds a pending trigger whose cause carries text, in one
-// write. The decision's id is `owner-kick:<seq>` for the decision's seq, which the store assigns, and the trigger has
-// the same id, so the planner claims it at the epic's next plan run and its turn prompt shows text. An unknown epic is
-// ErrNoEpic. An epic in an ended phase, a paused epic and a parked epic are refused and write nothing; the refusal for
-// a parked epic names orrery epic retry, which ends the park. The decision records maker as who made it.
+// KickEpic records text on epic as a decision and adds a pending trigger whose cause carries text, in one write. For
+// an owner maker the decision's id is `owner-kick:<seq>` and the trigger's cause is `owner kick: <text>`; for any other
+// maker they are `kick:<seq>` and `kick by <maker.Phrase()>: <text>`. The seq is the decision's, which the store
+// assigns, and the trigger has the decision's id, so the planner claims it at the epic's next plan run and its turn
+// prompt shows text. An unknown epic is ErrNoEpic. An epic in an ended phase, a paused epic and a parked epic are
+// refused and write nothing; the refusal for a parked epic names orrery epic retry, which ends the park. The decision
+// records maker as who made it.
 func (s *Store) KickEpic(ctx context.Context, epic, text string, maker Maker, at time.Time) error {
 	return s.write(ctx, func(queries *sqlcgen.Queries) error {
 		head, err := epicHead(ctx, queries, epic)
@@ -324,7 +326,10 @@ func (s *Store) KickEpic(ctx context.Context, epic, text string, maker Maker, at
 		if err != nil {
 			return fmt.Errorf("read decision count of epic %s: %w", epic, err)
 		}
-		id := fmt.Sprintf("owner-kick:%d", next+1)
+		id, cause := fmt.Sprintf("owner-kick:%d", next+1), "owner kick: "+text
+		if maker.By != MakerOwner {
+			id, cause = fmt.Sprintf("kick:%d", next+1), "kick by "+maker.Phrase()+": "+text
+		}
 		owed, err := ownerRecipient(ctx, queries, epic, maker)
 		if err != nil {
 			return err
@@ -333,7 +338,7 @@ func (s *Store) KickEpic(ctx context.Context, epic, text string, maker Maker, at
 			return err
 		}
 		if err = queries.InsertEpicTrigger(ctx, sqlcgen.InsertEpicTriggerParams{
-			Epic: epic, ID: id, Cause: "owner kick: " + text, State: triggerPending, Turn: 0, Created: at.Unix(),
+			Epic: epic, ID: id, Cause: cause, State: triggerPending, Turn: 0, Created: at.Unix(),
 		}); err != nil {
 			return fmt.Errorf("insert trigger of kick %s on epic %s: %w", id, epic, err)
 		}

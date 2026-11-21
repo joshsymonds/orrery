@@ -132,9 +132,9 @@ func resumeStoppedRelease(
 	return insertTell(ctx, queries, epic, resumedReleaseText(resume.steps, resume.unfinished), at)
 }
 
-// releaseEndedWithGaps releases epic, which ended with gaps, in the caller's write: it records the owner's decision,
-// answers each open gaps question of epic with release, and moves epic to clean, so its release run takes the release
-// slot of its repository. It is a RefusalError when undoNone names any position, since epic has not started a release.
+// releaseEndedWithGaps releases epic, which ended with gaps, in the caller's write: it records maker's decision, answers
+// each open gaps question of epic with release, and moves epic to clean, so its release run takes the release slot of
+// its repository. It is a RefusalError when undoNone names any position, since epic has not started a release.
 func releaseEndedWithGaps(
 	ctx context.Context, queries *sqlcgen.Queries, epic string, undoNone []int64, maker Maker, at time.Time,
 ) error {
@@ -142,6 +142,9 @@ func releaseEndedWithGaps(
 		return RefusalError(fmt.Sprintf("epic %s has not started a release; name no undo-none step", epic))
 	}
 	text := fmt.Sprintf("owner released epic %s, which ended with gaps", epic)
+	if maker.By != MakerOwner {
+		text = fmt.Sprintf("%s released epic %s, which ended with gaps", maker.Phrase(), epic)
+	}
 	if _, err := appendDecision(ctx, queries, epic, releaseEndedWithGapsID, text, 0, maker, "", at); err != nil {
 		return err
 	}
