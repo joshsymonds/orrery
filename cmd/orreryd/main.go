@@ -1015,7 +1015,6 @@ func startSessions(
 		host.wireStore(st)
 		commands, stepCommands = host.manager, host.steps
 		host.epics, host.steering, host.contracts = st, epicSteering(host.manager, st), contractsOf(st)
-		host.paneSends = st
 		crons = enginehost.NewCronAnswers(enginehost.CronAnswersConfig{
 			Store: st, Now: opts.cronNow, Changed: host.cron.Changed})
 		host.newReleaseSlots(opts, st, logger)
@@ -1475,6 +1474,7 @@ func (h *sessionHost) wireStore(st *store.Store) {
 	st.SetEngineLive(h.manager.Live)
 	h.changes = enginehost.NewChangeFeed()
 	st.OnSessionEvents(h.changes.Publish)
+	h.paneSends = st
 }
 
 // subscribeFlowWake makes wake the flow's wake: the relay the steps and the manager hand epics to, and the store's
