@@ -108,7 +108,8 @@ type Context struct {
 // Item is one reply, tool call, question, prompt, tool result, notice or compaction of a transcript. A compaction
 // takes its trigger and tokens from the compact_boundary line before it, and both stay empty when that line is
 // not read. A tool call that creates an epic or writes a contract takes its id from its full input (see CreatedEpic
-// and WrittenContract).
+// and WrittenContract). A successful tool result takes the lines it added and removed from its line's toolUseResult
+// (see protocol.PatchLineCounts), and both stay 0 otherwise.
 type Item struct {
 	Kind     string `json:"kind"`
 	Time     int64  `json:"time"`
@@ -122,6 +123,8 @@ type Item struct {
 	Tokens   int64  `json:"tokens"`
 	Epic     string `json:"epic"`
 	Contract string `json:"contract"`
+	Added    int64  `json:"added"`
+	Removed  int64  `json:"removed"`
 }
 
 // transcriptLine holds the fields of one transcript line that the reader uses.
@@ -141,7 +144,9 @@ type transcriptLine struct {
 		Usage contentBlock `json:"usage"`
 	} `json:"message"`
 	Attachment json.RawMessage `json:"attachment"`
-	Subtype    string          `json:"subtype"`
+	// ToolUseResult is set on a user line that answers a tool call. Its file change gives a result item its counts.
+	ToolUseResult json.RawMessage `json:"toolUseResult"`
+	Subtype       string          `json:"subtype"`
 	// CompactMetadata is set on a compact_boundary line.
 	CompactMetadata struct {
 		Trigger    string `json:"trigger"`
@@ -394,6 +399,9 @@ func userItems(entry transcriptLine, ts int64) []Item {
 		if stringField(block, "type") == "tool_result" {
 			items = append(items, resultItem(block, ts))
 		}
+	}
+	if len(items) == 1 && !items[0].Error {
+		items[0].Added, items[0].Removed = protocol.PatchLineCounts(entry.ToolUseResult)
 	}
 	if len(items) > 0 {
 		return items
