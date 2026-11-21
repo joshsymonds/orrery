@@ -8,9 +8,11 @@ import (
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
-// dependencyGapBuild is the stored build of the open task that waits on a lost dependency. Guard makes it non-zero,
-// so a test sees the build the action carries.
-var dependencyGapBuild = store.TaskBuild{Guard: "refused before it started"}
+// dependencyGapBuild returns the stored build of the open task that waits on a lost dependency. Guard makes it
+// non-zero, so a test sees the build the action carries.
+func dependencyGapBuild() store.TaskBuild {
+	return store.TaskBuild{Guard: "refused before it started"}
+}
 
 // lostTask returns task seq of turn 1 with status, which a dependency that is lost has.
 func lostTask(seq int64, status string) store.EpicTask {
@@ -33,7 +35,7 @@ func TestRollingIntegrateDependencyGapDecided(t *testing.T) {
 	for _, tc := range cases {
 		dependent := openTask(2, 1)
 		dependent.DependsOn = []int64{1}
-		dependent.Build = dependencyGapBuild
+		dependent.Build = dependencyGapBuild()
 		tasks := []store.EpicTask{lostTask(1, tc.status), dependent, openTask(3, 1)}
 		runs := []store.NodeRun{
 			runningPlan(0),
@@ -53,7 +55,7 @@ func TestRollingIntegrateDependencyGapDecided(t *testing.T) {
 			}
 		}
 		want := Action{
-			Kind: ActGapTask, Path: "plan/build/T2", Task: 2, Build: dependencyGapBuild, Reason: tc.reason,
+			Kind: ActGapTask, Path: "plan/build/T2", Task: 2, Build: dependencyGapBuild(), Reason: tc.reason,
 		}
 		if !reflect.DeepEqual(gaps, []Action{want}) {
 			t.Errorf("%s: gap tasks = %+v, want %+v", tc.name, gaps, want)
