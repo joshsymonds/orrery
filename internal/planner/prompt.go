@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/joshsymonds/orrery/internal/store"
 	"github.com/joshsymonds/orrery/internal/taskspec"
@@ -40,7 +42,7 @@ func Prompt(
 		return "", fmt.Errorf("contract section: %w", err)
 	}
 	WriteSection(&out, "Contract", contract)
-	WriteSection(&out, "Decisions", DecisionLines(epic, turn))
+	WriteSection(&out, "Decisions", summaryDecisionLines(epic, turn))
 	WriteSection(&out, "New notes", newNoteLines(epic.Decisions, last, found))
 	WriteSection(&out, "Open questions", questionLines(epic.Questions))
 	WriteSection(&out, "Advice followed", followLines(follows))
@@ -267,6 +269,66 @@ func DecisionLines(epic store.EpicRow, turn int64) []string {
 		}
 	}
 	return lines
+}
+
+// summaryDecisionLines returns the Decisions section of the planner prompt of turn: every epic decision as decisionLine
+// renders it, then the decisions of the latest turn before turn that recorded any as `- turn n: text`, then the
+// decisions of each older turn before turn as `- turn n: ` and their firstSentence. Turns at or after turn render
+// nothing.
+func summaryDecisionLines(epic store.EpicRow, turn int64) []string {
+	choices := make(map[int64]string, len(epic.Questions))
+	for _, q := range epic.Questions {
+		choices[q.Seq] = q.Choice
+	}
+	lines := make([]string, 0, len(epic.Decisions))
+	for _, d := range epic.Decisions {
+		lines = append(lines, decisionLine(d, choices[d.Question]))
+	}
+	latest, found := latestDecidingTurn(epic.Turns, turn)
+	for _, t := range epic.Turns {
+		if t.Seq >= turn {
+			continue
+		}
+		for _, text := range t.Decisions {
+			if found && t.Seq == latest {
+				lines = append(lines, fmt.Sprintf("- turn %d: %s", t.Seq, text))
+			} else {
+				lines = append(lines, fmt.Sprintf("- turn %d: %s", t.Seq, firstSentence(text)))
+			}
+		}
+	}
+	return lines
+}
+
+// latestDecidingTurn returns the seq of the turn before turn with the greatest seq that recorded any decisions, and
+// whether there is one.
+func latestDecidingTurn(turns []store.EpicTurn, turn int64) (int64, bool) {
+	var latest int64
+	found := false
+	for _, t := range turns {
+		if t.Seq < turn && len(t.Decisions) > 0 && (!found || t.Seq > latest) {
+			latest, found = t.Seq, true
+		}
+	}
+	return latest, found
+}
+
+// firstSentence returns the text up to and including the first '.' that is followed by whitespace or by the end of
+// the text, never past the first newline. Without such a period it is the whole first line.
+func firstSentence(text string) string {
+	line, _, _ := strings.Cut(text, "\n")
+	for i, r := range line {
+		if r != '.' {
+			continue
+		}
+		if i+1 == len(line) {
+			return line[:i+1]
+		}
+		if next, _ := utf8.DecodeRuneInString(line[i+1:]); unicode.IsSpace(next) {
+			return line[:i+1]
+		}
+	}
+	return line
 }
 
 // decisionLine returns one epic decision as `- id (by maker): text`, where maker is makerWord of its maker. A decision
