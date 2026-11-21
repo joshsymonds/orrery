@@ -479,21 +479,21 @@ func TestEpicByPartToolsListAdvertisesTheArguments(t *testing.T) {
 	if !found {
 		t.Fatal("tools/list does not name epic_get")
 	}
-	if want := []string{"id", "limit", "offset", "part", "question", "task"}; !slices.Equal(properties, want) {
+	if want := []string{"decision", "id", "limit", "offset", "part", "question", "task", "turn"}; !slices.Equal(properties, want) {
 		t.Fatalf("epic_get properties = %v, want %v", properties, want)
 	}
 	if !slices.Equal(required, []string{"id"}) {
 		t.Fatalf("epic_get required = %v, want [id]", required)
 	}
 	// The description says what each part returns: the summary without a part, every part by name, one line per item
-	// for the list parts, the whole item for task and question, and the runes of text for the rest.
+	// for the list parts, the whole item for task, question, decision and turn, and the runes of text for the rest.
 	says := []string{
 		"Without part, it returns the one-screen text summary",
 		"With part, it returns that part, one of tasks, turns, decisions, questions, history, contract, workflow, " +
-			"report, task and question.",
+			"report, task, question, decision and turn.",
 		"tasks, turns, decisions, questions and history give one line per item, 50 from offset by default",
 		"return that item whole as protobuf JSON",
-		"contract, workflow, report, task and question return limit runes from offset, 8000 by default",
+		"contract, workflow, report, task, question, decision and turn return limit runes from offset, 8000 by default",
 		"name the offset that continues",
 	}
 	for _, phrase := range says {
