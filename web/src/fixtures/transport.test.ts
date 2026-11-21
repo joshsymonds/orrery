@@ -1293,7 +1293,7 @@ test("FixtureTransport: page/worker-ended draws the ended step's end as the last
     (root) => {
       assertNoFailure(root);
       assert.equal(workerDock(root), null, "an ended step has no dock");
-      assert.equal(root.querySelector(".worker-session .step-card .step-end")?.textContent, "end done");
+      assert.equal(root.querySelector('.worker-session .step-card [data-shape="block"].stepend .end .chip')?.textContent, "done");
       assert.equal(root.querySelectorAll(".worker-session .live-row").length, 0, "the ended conversation draws no live row");
       assert.equal(root.querySelectorAll(".worker-session .caret").length, 0, "the ended conversation draws no live caret");
       assert.equal(root.querySelectorAll(".worker-session .running-mark").length, 0, "the ended conversation runs no call");
@@ -1310,7 +1310,7 @@ test("FixtureTransport: page/worker-ended at 412 wide draws the ended step's end
     (root) => {
       assertNoFailure(root);
       assert.equal(workerDock(root), null, "an ended step has no dock");
-      assert.equal(root.querySelector(".worker-session .step-card .step-end")?.textContent, "end done");
+      assert.equal(root.querySelector('.worker-session .step-card [data-shape="block"].stepend .end .chip')?.textContent, "done");
       assert.equal(root.querySelectorAll(".worker-session .gut.live").length, 0, "no live label is drawn");
       assert.equal(root.querySelectorAll(".worker-session .caret").length, 0, "no live caret is drawn");
     },
@@ -2042,7 +2042,7 @@ test("FixtureTransport: page/notices-page at 412 wide draws the Notices page, wi
   );
 });
 
-test("FixtureTransport: page's keys are exactly the 96 catalog names of its scenario states", () => {
+test("FixtureTransport: page's keys are exactly the 107 catalog names of its scenario states", () => {
   assert.deepEqual(Object.keys(Page).map((state) => storyName("Page", state)).sort(), [
     "page/ask-answered",
     "page/ask-decline",
@@ -2060,9 +2060,16 @@ test("FixtureTransport: page's keys are exactly the 96 catalog names of its scen
     "page/contract-talk",
     "page/contract-to-accept",
     "page/contract-versions",
+    "page/convo-blocks",
     "page/convo-contract",
+    "page/convo-empty",
+    "page/convo-find",
     "page/convo-handed-over",
+    "page/convo-lines",
+    "page/convo-loading",
+    "page/convo-markdown",
     "page/convo-notices",
+    "page/convo-shell",
     "page/convo-took-over",
     "page/convo-working",
     "page/dock-background",

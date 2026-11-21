@@ -19,6 +19,7 @@ import {
 } from "./gen/orrery/v1/notice_pb";
 import { applyNotice, Notice, NoticeStack, noticeLifetimeMillis, watchNotices } from "./notices";
 import { type NoticeAct, type NoticeHead, noticeAct } from "./noticewords";
+import type { Row } from "./rows";
 import { mockTimers } from "./testclock";
 import { installTestDom, removeTestDom } from "./testdom";
 import { installResizeObserver, placeRect } from "./testlayout";
@@ -323,6 +324,8 @@ interface StackHandlers {
   onOpen?: (notice: InAppNotice) => void;
   onRead?: (notice: InAppNotice) => void;
   onMore?: () => void;
+  bringBackRow?: (notice: InAppNotice) => Row | undefined;
+  onBringBack?: (row: Row) => Promise<string>;
 }
 
 // stackOf is a NoticeStack of notices. Each notice's lead is a bell and its words are its title, and every age is "2m".
@@ -333,9 +336,9 @@ function stackOf(notices: InAppNotice[], handlers: StackHandlers = {}): JSX.Elem
       head={(item) => ({ lead: { kind: "icon", icon: "bell" }, dir: "", what: item.title })}
       age={() => "2m"}
       act={(item) => noticeAct(item, [])}
-      bringBackRow={() => undefined}
+      bringBackRow={handlers.bringBackRow ?? (() => undefined)}
       onOpen={handlers.onOpen ?? (() => undefined)}
-      onBringBack={() => undefined}
+      onBringBack={handlers.onBringBack ?? (() => Promise.resolve(""))}
       onRead={handlers.onRead ?? (() => undefined)}
       onMore={handlers.onMore ?? (() => undefined)}
     />
@@ -560,6 +563,122 @@ test("NoticeStack: unmounting clears the pending lifetime timer of each row", as
       cleared.mock.calls.some((call) => call.arguments[0] === lifetime.result),
       "unmounting does not clear the lifetime timer, so the row's timer outlives the stack",
     );
+  });
+});
+
+// putOffRow is the listed row of the pane id, put off and waiting, which a notice's Bring it back takes.
+function putOffRow(id: string): Row {
+  return {
+    key: id,
+    id,
+    archiveId: "",
+    kind: "pane",
+    label: id,
+    project: "",
+    host: "",
+    state: "waiting",
+    summary: "",
+    question: "",
+    questionHash: "",
+    tool: "",
+    changed: 0,
+    seen: 0,
+    unseen: false,
+    archived: false,
+    putOff: true,
+    archiveKind: "none",
+  };
+}
+
+// bringBackAt clicks the Bring it back control of the row at index, and lets the reply to the call settle. The row must
+// be drawn with that control.
+async function bringBackAt(container: HTMLElement, index: number): Promise<void> {
+  const row = rowsOf(container)[index];
+  assert.ok(row, `no row at index ${index}`);
+  const button = [...row.querySelectorAll("button")].find((item) => item.textContent === "Bring it back");
+  assert.ok(button, `no Bring it back control on row ${index}`);
+  await act(async () => {
+    button.dispatchEvent(new Event("click", { bubbles: true }));
+    await turn();
+  });
+}
+
+// refusalOf reads the reason drawn on the row at index, or null when that row draws none.
+function refusalOf(container: HTMLElement, index: number): string | null {
+  const row = rowsOf(container)[index];
+  assert.ok(row, `no row at index ${index}`);
+  return row.querySelector(".refusal")?.textContent ?? null;
+}
+
+test("NoticeStack: a row whose Bring it back is refused shows the server's reason on that row, and not on another row", async (t) => {
+  mockTimers(t, ["setTimeout"]);
+  await withContainer(async (container) => {
+    const handlers: StackHandlers = {
+      bringBackRow: (item) => putOffRow(item.title),
+      onBringBack: (row) => Promise.resolve(row.id === "one" ? "the question was already answered" : ""),
+    };
+    await act(() => {
+      drawStack(container, [notice("%1", "one"), notice("%2", "two")], handlers);
+    });
+    await bringBackAt(container, 0);
+    assert.equal(refusalOf(container, 0), "the question was already answered", "the refused row draws no reason");
+    assert.equal(refusalOf(container, 1), null, "the other row draws the refused row's reason");
+  });
+});
+
+test("NoticeStack: a row whose Bring it back is taken shows no refused reason, and leaves another row's reason as it is", async (t) => {
+  mockTimers(t, ["setTimeout"]);
+  await withContainer(async (container) => {
+    const handlers: StackHandlers = {
+      bringBackRow: (item) => putOffRow(item.title),
+      onBringBack: (row) => Promise.resolve(row.id === "one" ? "the question was already answered" : ""),
+    };
+    await act(() => {
+      drawStack(container, [notice("%1", "one"), notice("%2", "two")], handlers);
+    });
+    await bringBackAt(container, 0);
+    await bringBackAt(container, 1);
+    assert.equal(refusalOf(container, 0), "the question was already answered", "a taken Bring it back cleared a reason");
+    assert.equal(refusalOf(container, 1), null, "a row whose Bring it back is taken draws a reason");
+  });
+});
+
+test("NoticeStack: a later Bring it back the server takes clears the reason a refused one drew on its row", async (t) => {
+  mockTimers(t, ["setTimeout"]);
+  await withContainer(async (container) => {
+    const replies = ["the question was already answered", ""];
+    await act(() => {
+      drawStack(container, [notice("%1", "one")], {
+        bringBackRow: (item) => putOffRow(item.title),
+        onBringBack: () => Promise.resolve(replies.shift() ?? ""),
+      });
+    });
+    await bringBackAt(container, 0);
+    assert.equal(refusalOf(container, 0), "the question was already answered", "the refusal drew no reason");
+    await bringBackAt(container, 0);
+    assert.equal(refusalOf(container, 0), null, "the taken Bring it back left the refused reason on its row");
+  });
+});
+
+test("NoticeStack: a refused row's reason is forgotten when the row leaves the stack", async (t) => {
+  mockTimers(t, ["setTimeout"]);
+  await withContainer(async (container) => {
+    const handlers: StackHandlers = {
+      bringBackRow: (item) => putOffRow(item.title),
+      onBringBack: () => Promise.resolve("the question was already answered"),
+    };
+    await act(() => {
+      drawStack(container, [notice("%1", "one")], handlers);
+    });
+    await bringBackAt(container, 0);
+    assert.equal(refusalOf(container, 0), "the question was already answered", "the refusal drew no reason");
+    await act(() => {
+      drawStack(container, [], handlers);
+    });
+    await act(() => {
+      drawStack(container, [notice("%1", "one")], handlers);
+    });
+    assert.equal(refusalOf(container, 0), null, "the row drew a reason it had when it left the stack");
   });
 });
 

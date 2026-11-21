@@ -3,7 +3,7 @@ import type { JSX } from "preact";
 import { blockerLine } from "./epicpage";
 import type { Contract } from "./gen/orrery/v1/contracts_pb";
 import type { Epic, EpicsGetResponse } from "./gen/orrery/v1/epics_pb";
-import { type EpicBlock, type EpicItem, epicLine, type StepItem } from "./epics";
+import { type EpicBlock, type EpicItem, blockOf, epicLine, type StepItem } from "./epics";
 import { Gauge, type GaugeInner, Icon, StateGlyph } from "./glyphs";
 import { epicNeeds } from "./needs";
 import type { CellKind } from "./orbitcells";
@@ -153,6 +153,16 @@ function gaugeOf(item: EpicItem, state: string, blocker: string, live: boolean, 
     return { done, total, tone: "" };
   }
   return { done, total, tone: state === "releasing" ? "engine" : "live" };
+}
+
+// epicGaugeOf draws an epic's gauge as the epic list draws its row's, from the epic's listed message, its detail and now.
+// It is null when there is no listed message to draw from.
+export function epicGaugeOf(listed: Epic | undefined, detail: EpicsGetResponse, now: number): GaugeShare | null {
+  if (listed === undefined) {
+    return null;
+  }
+  const node: EpicNode = { kind: "epic", key: `epic:${listed.id}`, block: blockOf(listed, detail), listed, contract: null };
+  return epicWords(node, now).gauge;
 }
 
 // stepState is the glyph state of a running step: limited, held, or working.

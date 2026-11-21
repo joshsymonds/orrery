@@ -19,6 +19,7 @@ import io.github.joshsymonds.orrery.api.OrreryClient
 import io.github.joshsymonds.orrery.api.Quiescence
 import io.github.joshsymonds.orrery.api.Reply
 import io.github.joshsymonds.orrery.api.StreamEnd
+import io.github.joshsymonds.orrery.api.eventListenerFactory
 import io.github.joshsymonds.orrery.gen.orrery.v1.Pane as PaneProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.PanesListResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.RegisterResponse
@@ -34,6 +35,10 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
+import okhttp3.OkHttpClient
+import okhttp3.Protocol
+import okhttp3.Request
+import okhttp3.Response
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
@@ -304,6 +309,47 @@ class QuiescentWaitTest {
         } finally {
             sent.set(wasSent)
         }
+    }
+
+    @Test
+    fun aRaceBetweenAnAnswersHeadersAndItsBodyStillCountsAsInFlight() {
+        // The gap PaneScreenTest.paneRefreshesEverySecondWhileVisible fell into: a unary answer's headers are in and its
+        // body is not, so the socket is quiet and the thread waits for the body. Held open here on purpose, as OkHttp
+        // reports it: the headers, then no body until the call ends.
+        Quiescence.install()
+        val request = Request.Builder().url("http://localhost$PANES_PATH").build()
+        val call = OkHttpClient().newCall(request)
+        val listener = eventListenerFactory.create(call)
+        val answer = Response.Builder()
+            .request(request)
+            .protocol(Protocol.HTTP_1_1)
+            .code(404)
+            .message("Not Found")
+            .header("Content-Type", "application/json")
+            .build()
+        listener.callStart(call)
+        listener.responseHeadersEnd(call, answer)
+        try {
+            var steps = 0
+            var bodyRead = false
+            // The wait takes two steps with the gap open, so it yields rather than failing; the body is read at the third.
+            val bodyReadAtStep = 3
+            Quiescence.awaitUntil("the answer's body to be read", step = {
+                if (++steps == bodyReadAtStep) {
+                    bodyRead = true
+                    listener.callEnd(call)
+                }
+            }) { bodyRead }
+        } finally {
+            // Leaves no call counted for the tests after this one, if the wait failed first.
+            listener.callEnd(call)
+        }
+
+        // With the body read nothing is in flight, so a condition that cannot hold fails at once.
+        val failure = assertThrows(AssertionError::class.java) {
+            Quiescence.awaitUntil("a condition that never holds") { false }
+        }
+        assertTrue(failure.message, failure.message!!.contains("nothing is in flight"))
     }
 
     private fun showFirstPaneLabel(server: FakeOrreryServer) {

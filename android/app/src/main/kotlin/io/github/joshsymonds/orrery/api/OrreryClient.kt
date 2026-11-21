@@ -117,6 +117,7 @@ import io.github.joshsymonds.orrery.gen.orrery.v1.SessionsWatchConversationReque
 import io.github.joshsymonds.orrery.gen.orrery.v1.SessionsWatchConversationResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.SendTextRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.StartRequest
+import io.github.joshsymonds.orrery.gen.orrery.v1.StepFacts as StepFactsProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.StepsClient
 import io.github.joshsymonds.orrery.gen.orrery.v1.StepsHoldRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.StepsNudgeRequest
@@ -233,10 +234,27 @@ data class ConversationItem(
     val promptId: String = "",
     /** The id of the contract a `tool` item's call writes; "" when the item names none, on other kinds, or from an older server. */
     val contract: String = "",
-    /** A `prompt` item's sender: `brief`, `engine`, `owner` or `event`; "" when the prompt was stored without one, on other kinds, or from an older server. */
+    /** Who sent a `prompt` item's prompt (`brief`, `engine`, `owner` or `event`); "" on other kinds or when the prompt was stored without a sender. */
     val sender: String = "",
-    /** A `prompt` item's check round when it is a send-back; 0 otherwise. */
+    /** The check round a send-back returns on a `prompt` item; 0 on other kinds or when the item is not a send-back. */
     val round: Int = 0,
+    /** The id of the epic a `tool` item's epic_create call creates; "" when the item names none, on other kinds, or from an older server. */
+    val epic: String = "",
+    /** The facts of a step's end; null when the item carries none, on other kinds, or from an older server. */
+    val stepFacts: StepFacts? = null,
+)
+
+/**
+ * The facts of a step's end: its loop [rounds] (0 when the step never returned), the [seconds] it ran, and whether its
+ * changed lines were [counted]. [files], [added] and [removed] are set only when [counted].
+ */
+data class StepFacts(
+    val rounds: Int,
+    val seconds: Long,
+    val counted: Boolean,
+    val files: Long,
+    val added: Long,
+    val removed: Long,
 )
 
 /** A message Claude Code's queue holds for the pane. [canceled] is true when Claude Code cleared it on cancel. */
@@ -635,8 +653,20 @@ data class EpicTurnRow(
  */
 data class EpicTriggerRow(val id: String, val cause: String, val state: String, val turn: Long, val created: Long)
 
-/** A decision recorded on an epic. [question] is the Q<n> it answers, empty for a note. */
-data class EpicDecisionRow(val seq: Long, val id: String, val text: String, val time: Long, val question: String)
+/**
+ * A decision recorded on an epic. [question] is the Q<n> it answers, empty for a note. [by] is who recorded it,
+ * 'owner', 'conversation' or 'orreryd', and empty for a decision stored before makers were recorded. [session] is the
+ * conversation's session id when [by] is 'conversation', empty otherwise.
+ */
+data class EpicDecisionRow(
+    val seq: Long,
+    val id: String,
+    val text: String,
+    val time: Long,
+    val question: String,
+    val by: String = "",
+    val session: String = "",
+)
 
 /** Something an epic told its owner. [told] is whether the owner has been told it. */
 data class EpicTellRow(val seq: Long, val text: String, val at: Long, val told: Boolean)
@@ -728,7 +758,9 @@ data class EpicQuestionChoiceRow(val id: String, val does: String)
 /**
  * One open question an orreryd epic's planner asked, in the order they were asked. [choices] are the choices the
  * question declares, in order. [recommendedChoice] is the choice the planner recommends, "" when it recommends none,
- * and [recommendedWhy] is why.
+ * and [recommendedWhy] is why. [escalated] is when the question was escalated, in unix seconds, 0 while it is not.
+ * [escalationReason] is why it was escalated, [escalationBy] who escalated it (owner, conversation or orreryd) and
+ * [escalationSession] the session that did when a conversation did. Those three are "" while it is not escalated.
  */
 data class EpicQuestionRow(
     val id: String,
@@ -738,6 +770,10 @@ data class EpicQuestionRow(
     val choices: List<EpicQuestionChoiceRow> = emptyList(),
     val recommendedChoice: String = "",
     val recommendedWhy: String = "",
+    val escalated: Long = 0L,
+    val escalationReason: String = "",
+    val escalationBy: String = "",
+    val escalationSession: String = "",
 )
 
 /** One failure an orreryd epic's contract guards against, with its [rating] and what the epic does about it. */
@@ -1719,7 +1755,15 @@ class OrreryClient(
         EpicTriggerRow(id = id, cause = cause, state = state, turn = turn, created = created)
 
     private fun EpicDecisionProto.toEpicDecisionRow(): EpicDecisionRow =
-        EpicDecisionRow(seq = seq, id = id, text = text, time = time, question = question)
+        EpicDecisionRow(
+            seq = seq,
+            id = id,
+            text = text,
+            time = time,
+            question = question,
+            by = by,
+            session = session,
+        )
 
     private fun EpicTellProto.toEpicTellRow(): EpicTellRow =
         EpicTellRow(seq = seq, text = text, at = at, told = told)
@@ -1814,6 +1858,10 @@ class OrreryClient(
             choices = choicesList.map { EpicQuestionChoiceRow(id = it.id, does = it.does) },
             recommendedChoice = recommendation.choice,
             recommendedWhy = recommendation.why,
+            escalated = escalated,
+            escalationReason = escalationReason,
+            escalationBy = escalationBy,
+            escalationSession = escalationSession,
         )
 
     private fun EpicContractProto.toEpicContractRow(): EpicContractRow =
@@ -1948,6 +1996,18 @@ class OrreryClient(
             contract = contract,
             sender = sender,
             round = round,
+            epic = epic,
+            stepFacts = if (hasStepFacts()) stepFacts.toStepFacts() else null,
+        )
+
+    private fun StepFactsProto.toStepFacts(): StepFacts =
+        StepFacts(
+            rounds = rounds,
+            seconds = seconds,
+            counted = counted,
+            files = files,
+            added = added,
+            removed = removed,
         )
 
     private fun WaitingMessage.toWaitingItem(): WaitingItem =

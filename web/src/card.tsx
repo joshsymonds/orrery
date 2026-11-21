@@ -3,15 +3,15 @@ import type { JSX } from "preact";
 import { useCallback, useEffect, useRef, useState } from "preact/hooks";
 
 import type { Clients } from "./actions";
+import { Block } from "./blocks";
+import { epicGaugeOf } from "./epicrow";
 import type { EpicsView } from "./epics";
-import { type EpicRequirement, EpicSchema, type EpicsGetResponse } from "./gen/orrery/v1/epics_pb";
-import { provenOf, type Wedge, wedgesOf } from "./phases";
-import { nowSentenceOf } from "./recordwords";
-import { controlsOf, trackPart, trackParts } from "./status";
+import { EpicSchema, type EpicsGetResponse } from "./gen/orrery/v1/epics_pb";
+import { Gauge, Icon } from "./glyphs";
 
-// EpicCalls are the epic calls the reader's epic card makes. get reads an epic, pause and resume command it, and answer
-// sends the owner's choice to its open question, resolving to "" once it lands. openEpic opens the epic's page, and
-// openStep opens the page of a step the epic holds, on the step's worker session. epics is what the page's poll has
+// EpicCalls are the epic calls the reader's epic card makes. get reads an epic, and answer sends the owner's choice to its
+// open question, resolving to "" once it lands. openEpic opens the epic's page, and openStep opens the page of a step the
+// epic holds, on the step's worker session. epics is what the page's poll has
 // loaded: a card shows the poll's detail of its epic when the poll holds one, and otherwise reads its epic itself, on
 // mount and each time the epic's listed message changes. stepResult reads a step's full return, which a step card draws
 // in its return fold. sessionTitle names a session by its listed conversation's title, for the lines that name one, and is
@@ -19,8 +19,6 @@ import { controlsOf, trackPart, trackParts } from "./status";
 // ages its question by.
 export interface EpicCalls {
   get: (id: string) => Promise<EpicsGetResponse>;
-  pause: (id: string) => Promise<unknown>;
-  resume: (id: string) => Promise<unknown>;
   answer: (id: string, question: string, choice: string, text: string) => Promise<string>;
   openEpic: (id: string) => void;
   openStep: (epic: string, step: string) => void;
@@ -30,9 +28,10 @@ export interface EpicCalls {
   epics: EpicsView;
 }
 
-// The fixed lines the card and its calls leave when a command or an answer fails. They never carry server text.
-const commandFailedText = "epic command failed";
+// The fixed line the card's calls leave when an answer fails. It never carries server text.
 const answerFailedText = "no answer was sent";
+// createdSentence is the sentence an epic's Created block draws.
+const createdSentence = "Created the epic from the accepted contract.";
 
 // epicCallsOf makes the epic calls over the clients, with the app's openers, its clock and the epics its poll has loaded.
 export function epicCallsOf(
@@ -44,8 +43,6 @@ export function epicCallsOf(
 ): EpicCalls {
   return {
     get: (id) => clients.epics.get({ id }),
-    pause: (id) => clients.epics.pause({ id }),
-    resume: (id) => clients.epics.resume({ id }),
     answer: (id, question, choice, text) =>
       clients.epics.answer({ epicId: id, id: crypto.randomUUID(), text, question, choice }).then(
         () => "",
@@ -131,164 +128,34 @@ function shownReading(own: OwnReading | null, polled: EpicsGetResponse | undefin
   return { detail: polled };
 }
 
-// EpicWidget draws the live card of the epic a tool call created: its head with the slug, the status pill and the open
-// control, its five-part track, the now sentence, each requirement as a row, the open question's title when there is
-// one, and the command controlsOf shows. It draws the epic as useEpicReading reads it, and a pause or resume that lands
-// reads the epic once more. An epic that cannot be read shows its slug and not available.
+// EpicWidget draws the epic a tool call created as an EpicEventBlock Created: the engine tone, led by the epic's gauge as the
+// epic list draws it, the sentence the epic was created with, and the epic's slug as a link that opens it. It reads the
+// epic as useEpicReading reads it; an epic that cannot be read draws the block with no gauge.
 export function EpicWidget({ epic, calls }: { epic: string; calls: EpicCalls }): JSX.Element {
-  const { reading, reread } = useEpicReading(epic, calls);
-  const [commandError, setCommandError] = useState("");
-
-  // command sends a pause or a resume: a landed one clears the line and reads the epic again, and a failed one shows its
-  // fixed line.
-  const command = (sent: Promise<unknown>): void => {
-    void sent.then(
-      () => {
-        setCommandError("");
-        reread();
-      },
-      () => setCommandError(commandFailedText),
-    );
-  };
-
-  const detail = reading !== null && reading !== "failed" ? reading.detail : null;
+  const { reading } = useEpicReading(epic, calls);
+  const gauge =
+    reading !== null && reading !== "failed"
+      ? epicGaugeOf(calls.epics.listed.get(epic) ?? reading.detail.epic, reading.detail, calls.now)
+      : null;
   return (
     <div class="epic-card">
-      <header class="card-head">
-        <b class="slug">{slugOf(epic)}</b>
-        {detail !== null && <StatusPill detail={detail} />}
-        <button type="button" class="open-epic" onClick={() => calls.openEpic(epic)}>
-          open the epic ›
-        </button>
-      </header>
-      {reading === "failed" && <p class="unavailable">not available</p>}
-      {detail !== null && (
-        <EpicBody detail={detail} epic={epic} calls={calls} command={command} commandError={commandError} />
-      )}
+      <Block
+        tone="engine"
+        kind="epicevent"
+        icon="plus"
+        label="EPIC"
+        gauge={gauge === null ? undefined : <Gauge {...gauge} />}
+        end={
+          <button type="button" class="epic-link" onClick={() => calls.openEpic(epic)}>
+            <span class="slug">{slugOf(epic)}</span>
+            <Icon name="chevronRight" />
+          </button>
+        }
+      >
+        <p class="ring-sentence">{createdSentence}</p>
+      </Block>
     </div>
   );
-}
-
-// StatusPill draws the card's status pill: paused, then parked, then the track part's name, or the phase as written off
-// the track. Paused reads idle, parked waiting, and every other word working.
-function StatusPill({ detail }: { detail: EpicsGetResponse }): JSX.Element {
-  const tone = detail.paused ? "idle" : detail.parked !== "" ? "waiting" : "working";
-  return <span class={`pill tone-${tone}`}>{pillWord(detail)}</span>;
-}
-
-// pillWord is the status pill's word: paused, then parked, then the track part's name, or the phase as written when its
-// phase is off the track.
-function pillWord(detail: EpicsGetResponse): string {
-  if (detail.paused) {
-    return "paused";
-  }
-  if (detail.parked !== "") {
-    return "parked";
-  }
-  return trackPart(detail) ?? detail.epic?.outcome ?? "";
-}
-
-// EpicBody draws the card under its head: the track, the now sentence, the requirements with their count, the open
-// question's title, and the Pause or Resume command with its fixed line when it fails.
-function EpicBody({
-  detail,
-  epic,
-  calls,
-  command,
-  commandError,
-}: {
-  detail: EpicsGetResponse;
-  epic: string;
-  calls: EpicCalls;
-  command: (sent: Promise<unknown>) => void;
-  commandError: string;
-}): JSX.Element {
-  const wedges = wedgesOf(detail);
-  const sentence = nowSentenceOf(detail);
-  const controls = controlsOf(detail);
-  const [question] = detail.questions;
-  return (
-    <>
-      <Track detail={detail} />
-      <p class="now-sentence">{sentence}</p>
-      <Requirements requirements={detail.requirements} wedges={wedges} />
-      {question !== undefined && <p class="question">{question.text}</p>}
-      <div class="card-controls">
-        {controls.resume && (
-          <button type="button" class="act" onClick={() => command(calls.resume(epic))}>
-            Resume
-          </button>
-        )}
-        {controls.pause && (
-          <button type="button" class="act" onClick={() => command(calls.pause(epic))}>
-            Pause
-          </button>
-        )}
-      </div>
-      {commandError !== "" && <p class="error">{commandError}</p>}
-    </>
-  );
-}
-
-// Track draws the five parts of the epic's track in order. Contract is always done; a part before the epic's part is
-// done, the part itself is now, and the parts after it are ahead. An epic whose phase the track does not name has no
-// now part.
-function Track({ detail }: { detail: EpicsGetResponse }): JSX.Element {
-  const current = trackPart(detail);
-  const index = current === undefined ? -1 : trackParts.indexOf(current);
-  return (
-    <ol class="track">
-      {trackParts.map((part, position) => {
-        const state = part === "contract" || position < index ? "done" : position === index ? "now" : "ahead";
-        return (
-          <li key={part} class={`part ${state}`} aria-current={state === "now" ? "step" : undefined}>
-            {part}
-          </li>
-        );
-      })}
-    </ol>
-  );
-}
-
-// Requirements draws each requirement as a row, then the count of proven ones out of all of them. Nothing draws when
-// the epic has no requirement.
-function Requirements({
-  requirements,
-  wedges,
-}: {
-  requirements: EpicRequirement[];
-  wedges: Wedge[];
-}): JSX.Element | null {
-  if (requirements.length === 0) {
-    return null;
-  }
-  const rows = requirements.map((requirement) => ({
-    requirement,
-    proven: provenOf(requirement.id, wedges, requirements),
-  }));
-  const provenCount = rows.filter((row) => row.proven).length;
-  return (
-    <>
-      <ul class="reqs">
-        {rows.map(({ requirement, proven }) => (
-          <li key={requirement.id} class={requirementTone(requirement, proven)}>
-            <span class="rid">{requirement.id}</span>
-            <span class="text">{requirement.text}</span>
-          </li>
-        ))}
-      </ul>
-      <p class="count">{`${provenCount} of ${requirements.length} proven`}</p>
-    </>
-  );
-}
-
-// requirementTone is a requirement row's colour: green when proven, red when a red run of it passed, which is its red
-// test written and failing, and grey otherwise.
-function requirementTone(requirement: EpicRequirement, proven: boolean): "green" | "red" | "grey" {
-  if (proven) {
-    return "green";
-  }
-  return requirement.runs.some((run) => run.phase === "red" && run.passed) ? "red" : "grey";
 }
 
 // slugOf is an epic's slug: the part of its id after the slash, which is the whole id when it has no slash.

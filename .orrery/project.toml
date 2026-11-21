@@ -1,0 +1,24 @@
+# orrery's own project file. An epic whose contract names no release steps releases by these, read at its base.
+
+[release]
+then = "origin main and the new tag name the released commit, nix-config pins the tag, and orreryd and orrery-serve run it."
+
+[[release.steps]]
+step = "1 Fast-forward main to the epic's release candidate and push main to origin, so main holds the change; do not wait for CI."
+target = "github.com/joshsymonds/orrery, branch main"
+undo = "Push a revert of the change to main."
+
+[[release.steps]]
+step = "2 Create a signed annotated tag at that main commit, named the next patch version above the newest v* tag on origin when this step runs, its message one sentence naming the change, and push it."
+target = "github.com/joshsymonds/orrery, the new tag"
+undo = "git push --delete origin <tag> and delete the local tag."
+
+[[release.steps]]
+step = "3 In ~/nix-config set flake.nix's orrery input url to the new tag, run `nix flake update orrery`, and commit only flake.nix and flake.lock with a message naming the tag."
+target = "~/nix-config"
+undo = "Commit flake.nix and flake.lock back to the previous tag."
+
+[[release.steps]]
+step = "4 Run `update` in ~/nix-config and confirm orreryd and orrery-serve run the new store path and the store is at the tag's newest migration."
+target = "vermissian user services and the orrery store"
+undo = "Undo step 3, then run `update`; when the tag added a store migration, fix forward with a new release instead, since an older orreryd refuses the migrated store."

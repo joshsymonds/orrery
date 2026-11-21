@@ -216,7 +216,7 @@ func TestReviewsAndFindingsReadBackInAttemptAndPositionOrder(t *testing.T) {
 	}
 	for _, r := range reviews {
 		if _, err := s.fixtureExec(ctx, `INSERT INTO epic_task_reviews
-			(epic, task, attempt, position, gate, step, verdict) VALUES (?, 1, ?, ?, ?, ?, ?)`,
+			(epic, task, generation, attempt, position, gate, step, verdict) VALUES (?, 1, 0, ?, ?, ?, ?, ?)`,
 			buildEpic, r.attempt, r.position, r.gate, r.step, r.verdict); err != nil {
 			t.Fatalf("insert review %d of attempt %d: %v", r.position, r.attempt, err)
 		}
@@ -231,8 +231,9 @@ func TestReviewsAndFindingsReadBackInAttemptAndPositionOrder(t *testing.T) {
 	}
 	for _, f := range []TaskFinding{findingB, findingA} {
 		if _, err := s.fixtureExec(ctx, `INSERT INTO epic_task_findings
-			(epic, task, attempt, review, position, id, claim, citation, location, evidence, verify_by, step, result, reason)
-			VALUES (?, 1, 1, 2, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			(epic, task, generation, attempt, review, position, id, claim, citation, location, evidence, verify_by, step,
+			result, reason)
+			VALUES (?, 1, 0, 1, 2, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			buildEpic, f.Position, f.ID, f.Claim, f.Citation, f.Location, f.Evidence, f.VerifyBy, f.Step, f.Result,
 			f.Reason); err != nil {
 			t.Fatalf("insert finding %s: %v", f.ID, err)
@@ -301,15 +302,16 @@ func TestBuildColumnsRefuseValuesOutsideTheirSets(t *testing.T) {
 		{"epic branch", `UPDATE epics SET branch = 'bogus' WHERE id = ?`, []any{buildEpic}},
 		{
 			"review verdict",
-			`INSERT INTO epic_task_reviews (epic, task, attempt, position, gate, step, verdict)
-			VALUES (?, 1, 1, 1, 'check', 'review-1-1', 'maybe')`,
+			`INSERT INTO epic_task_reviews (epic, task, generation, attempt, position, gate, step, verdict)
+			VALUES (?, 1, 0, 1, 1, 'check', 'review-1-1', 'maybe')`,
 			[]any{buildEpic},
 		},
 		{
 			"finding result",
 			`INSERT INTO epic_task_findings
-			(epic, task, attempt, review, position, id, claim, citation, location, evidence, verify_by, result)
-			VALUES (?, 1, 1, 1, 1, 'F-1', 'claim', 'a.go:1', 'a.go', 'log', 'read a.go', 'pending')`,
+			(epic, task, generation, attempt, review, position, id, claim, citation, location, evidence, verify_by,
+			result)
+			VALUES (?, 1, 0, 1, 1, 1, 'F-1', 'claim', 'a.go:1', 'a.go', 'log', 'read a.go', 'pending')`,
 			[]any{buildEpic},
 		},
 	}

@@ -20,12 +20,25 @@ import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.test.core.app.ApplicationProvider
 import io.github.joshsymonds.orrery.api.FakeOrreryServer
+import io.github.joshsymonds.orrery.api.Reply
+import io.github.joshsymonds.orrery.api.StreamEnd
 import io.github.joshsymonds.orrery.gen.orrery.v1.ConversationItem
 import io.github.joshsymonds.orrery.gen.orrery.v1.ConversationResponse
+import io.github.joshsymonds.orrery.gen.orrery.v1.ConversationState
+import io.github.joshsymonds.orrery.gen.orrery.v1.Epic
+import io.github.joshsymonds.orrery.gen.orrery.v1.EpicQuestion as EpicQuestionProto
+import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsGetResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsListResponse
+import io.github.joshsymonds.orrery.gen.orrery.v1.HeadlessSession
+import io.github.joshsymonds.orrery.gen.orrery.v1.HostStat as HostStatProto
+import io.github.joshsymonds.orrery.gen.orrery.v1.HostStatusResponse
+import io.github.joshsymonds.orrery.gen.orrery.v1.ListHeadlessResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.MarkSeenResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.Pane as PaneProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.PanesListResponse
+import io.github.joshsymonds.orrery.gen.orrery.v1.QueuedMessage
+import io.github.joshsymonds.orrery.gen.orrery.v1.SessionsWatchConversationResponse
+import io.github.joshsymonds.orrery.gen.orrery.v1.WaitingMessage
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -42,15 +55,56 @@ private const val NOW = 1_700_000_000L
 private const val PANES_PATH = "/orrery.v1.Panes/List"
 private const val EPICS_LIST_PATH = "/orrery.v1.Epics/List"
 private const val PANE_ROW_TAG = "convo:pane:example-host:%1"
+private const val HEAD_TAG = "head"
+private const val HEAD_TITLE_TAG = "head-title"
 private const val HEAD_TEXT_TAG = "head-text"
+private const val BAND_GOAL_TAG = "band-goal"
+private const val BAND_HIDE_TAG = "band-hide"
+private const val HEAD_METERS_TAG = "head-meters"
+private const val TILE_STRIP_TAG = "tile-strip"
+private const val COMPACT_HEAD_TAG = "compact-head"
+private const val HOST_PATH = "/orrery.v1.Host/Status"
+private const val EPICS_GET_PATH = "/orrery.v1.Epics/Get"
+private const val PANE_ORRERY_ID = "synthetic-orrery-id"
+private const val EPIC_ID = "example-repo/rota-export"
+private const val EPIC_LINE_TAG = "band-line:$EPIC_ID"
 private const val STATUS_LINE_TAG = "dock-state"
 private const val DOCK_TAG = "dock"
+private const val DOCK_TRAY_TAG = "dock-tray"
+private const val COMPOSER_TAG = "composer"
 private const val CONVERSATION_PATH = "/orrery.v1.Panes/Conversation"
 private const val SEEN_PATH = "/orrery.v1.Panes/MarkSeen"
+private const val HEADLESS_LIST_PATH = "/orrery.v1.Sessions/ListHeadless"
+private const val WATCH_PATH = "/orrery.v1.Sessions/WatchConversation"
+private const val SESSION_ID = "session-synthetic"
+private const val SESSION_ROW_TAG = "convo:session:$SESSION_ID"
+private const val SESSION_LABEL = "synthetic session"
+private const val SESSION_GOAL = "synthetic goal"
 private const val REPLY_TEXT = "synthetic reply"
+private const val WAITING_TEXT = "synthetic waiting message"
+private const val QUEUED_TEXT = "synthetic queued prompt"
+/** The open header's parts: the title row, the meters, the goal, an ask line and the tiles. Each draws with the keyboard down. */
+private val OPEN_HEADER = listOf(
+    HEAD_TAG,
+    HEAD_TITLE_TAG,
+    HEAD_TEXT_TAG,
+    HEAD_METERS_TAG,
+    BAND_GOAL_TAG,
+    EPIC_LINE_TAG,
+    TILE_STRIP_TAG,
+)
+/** The header folded to its line: the title row and the folded line. Each draws with the keyboard down. */
+private val FOLDED_HEADER = listOf(HEAD_TAG, HEAD_TITLE_TAG, HEAD_TEXT_TAG, COMPACT_HEAD_TAG)
+private const val PANE_GOAL = "synthetic pane goal"
 private val CONVERSATION_RESPONSE: ConversationResponse = ConversationResponse.newBuilder()
     .setOrigin("synthetic origin")
+    .setGoal(PANE_GOAL)
     .addItems(ConversationItem.newBuilder().setKind("reply").setTime(0).setText(REPLY_TEXT))
+    .addWaiting(WaitingMessage.newBuilder().setText(WAITING_TEXT).setTime(0L).setCanceled(false))
+    .build()
+private val HOST_BODY: HostStatusResponse = HostStatusResponse.newBuilder()
+    .setHost("example-host")
+    .addStats(HostStatProto.newBuilder().setLabel("cpu").setValue("12%").setPercent(12.0).setLevel("ok"))
     .build()
 private const val ONE_LINE_DRAFT = "synthetic one-line draft"
 private const val THREE_LINE_DRAFT = "synthetic line one\nsynthetic line two\nsynthetic line three"
@@ -100,6 +154,7 @@ class MainActivityInsetsTest {
                     .setCommand("claude")
                     .setState("working")
                     .setSummary("Synthetic summary.")
+                    .setOrreryId(PANE_ORRERY_ID)
                     .setLabel(label)
                     .setChanged(NOW - 30)
                     .setSeen(NOW - 10)
@@ -147,24 +202,152 @@ class MainActivityInsetsTest {
         return root to content
     }
 
-    /** Launches the activity and opens the Claude pane %1, returning once its conversation shows. */
-    private fun openClaudePane(): ActivityController<MainActivity> {
-        server.respond(CONVERSATION_PATH, CONVERSATION_RESPONSE)
-        server.respond(SEEN_PATH, MarkSeenResponse.getDefaultInstance())
+    /** Launches the activity, opens the row [rowTag] and returns once its conversation shows its reply. */
+    private fun openRow(rowTag: String): ActivityController<MainActivity> {
         val controller = Robolectric.buildActivity(
             MainActivity::class.java,
             Intent(context, MainActivity::class.java),
         ).setup().also { launched += it }
         composeRule.awaitUntil {
-            composeRule.onAllNodes(hasTestTag(PANE_ROW_TAG), useUnmergedTree = true)
+            composeRule.onAllNodes(hasTestTag(rowTag), useUnmergedTree = true)
                 .fetchSemanticsNodes().isNotEmpty()
         }
-        composeRule.onNodeWithTag(PANE_ROW_TAG, useUnmergedTree = true).performClick()
+        composeRule.onNodeWithTag(rowTag, useUnmergedTree = true).performClick()
         composeRule.awaitUntil {
             composeRule.onAllNodes(hasText(REPLY_TEXT), useUnmergedTree = true)
                 .fetchSemanticsNodes().isNotEmpty()
         }
         return controller
+    }
+
+    /** Launches the activity and opens the Claude pane %1, returning once its conversation shows. */
+    private fun openClaudePane(): ActivityController<MainActivity> {
+        server.respond(CONVERSATION_PATH, CONVERSATION_RESPONSE)
+        server.respond(SEEN_PATH, MarkSeenResponse.getDefaultInstance())
+        serveHost()
+        serveAskingEpic(PANE_ORRERY_ID)
+        return openRow(PANE_ROW_TAG)
+    }
+
+    /** Launches the activity and opens the headless session [SESSION_ID], returning once its conversation shows. */
+    private fun openHeadlessSession(): ActivityController<MainActivity> {
+        server.respond(
+            HEADLESS_LIST_PATH,
+            ListHeadlessResponse.newBuilder().addSessions(headlessSession()).build(),
+        )
+        server.route(WATCH_PATH) { Reply.Stream(listOf(sessionDelta()), StreamEnd.Open) }
+        serveHost()
+        serveAskingEpic(SESSION_ID)
+        return openRow(SESSION_ROW_TAG)
+    }
+
+    /** This machine's host status: the header's meters draw, and the pane or session is on this host. */
+    private fun serveHost() {
+        server.respond(HOST_PATH, HOST_BODY)
+    }
+
+    /** One live epic, [EPIC_ID], steered by [steering] with an open question: its band line asks and its tile draws. */
+    private fun serveAskingEpic(steering: String) {
+        val epic = Epic.newBuilder()
+            .setId(EPIC_ID)
+            .setRepository("example-repo")
+            .setSlug("rota-export")
+            .setLive(true)
+            .setSteering(steering)
+            .build()
+        server.respond(EPICS_LIST_PATH, EpicsListResponse.newBuilder().addEpics(epic).build())
+        server.respond(
+            EPICS_GET_PATH,
+            EpicsGetResponse.newBuilder()
+                .setEpic(epic)
+                .addQuestions(EpicQuestionProto.newBuilder().setId("Q1").setText("Bump the embedded tz database?"))
+                .build(),
+        )
+    }
+
+    private fun headlessSession(): HeadlessSession = HeadlessSession.newBuilder()
+        .setId(SESSION_ID)
+        .setDir("/home/user/alpha")
+        .setLabel(SESSION_LABEL)
+        .setState("working")
+        .setChanged(NOW - 30)
+        .setSeen(NOW - 10)
+        .build()
+
+    /** The session's stream: its reply, its goal and one queued message, as its first delta. */
+    private fun sessionDelta(): SessionsWatchConversationResponse = SessionsWatchConversationResponse.newBuilder()
+        .setTranscript(SESSION_ID)
+        .setSeq(1L)
+        .setReset(true)
+        .addItems(ConversationItem.newBuilder().setKind("reply").setTime(0).setText(REPLY_TEXT))
+        .setState(
+            ConversationState.newBuilder()
+                .setOrigin("synthetic origin")
+                .setGoal(SESSION_GOAL)
+                .setSession(headlessSession()),
+        )
+        .addQueued(
+            QueuedMessage.newBuilder()
+                .setPromptId("prompt-1")
+                .setText(QUEUED_TEXT)
+                .setState("queued")
+                .setWaits("turn"),
+        )
+        .build()
+
+    /** Each of [tags] is drawn and displayed, once the reads that draw it have landed. */
+    private fun assertDrawn(tags: List<String>) {
+        tags.forEach { tag ->
+            composeRule.awaitUntil {
+                composeRule.onAllNodes(hasTestTag(tag), useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty()
+            }
+            composeRule.onNodeWithTag(tag, useUnmergedTree = true).assertIsDisplayed()
+        }
+    }
+
+    /** None of [tags] is drawn. */
+    private fun assertAbsent(tags: List<String>) {
+        tags.forEach { tag ->
+            composeRule.onAllNodes(hasTestTag(tag), useUnmergedTree = true).assertCountEquals(0)
+        }
+    }
+
+    /** Folds the open header with the hide control at the end of its strip, once the strip has drawn its tiles. */
+    private fun foldHeader() {
+        assertDrawn(listOf(TILE_STRIP_TAG))
+        composeRule.onNodeWithTag(BAND_HIDE_TAG, useUnmergedTree = true).performClick()
+        composeRule.waitForIdle()
+    }
+
+    /** The dock's state line, its queue tray and its composer are drawn, and each sits above the keyboard. */
+    private fun assertDockAboveKeyboard(controller: ActivityController<MainActivity>) {
+        assertStatusAboveDraft(controller)
+        val keyboardTop = composeRule.onNodeWithTag(ROOT_CONTENT_TAG, useUnmergedTree = true)
+            .fetchSemanticsNode().boundsInRoot.bottom
+        listOf(DOCK_TRAY_TAG, COMPOSER_TAG).forEach { tag ->
+            assertDrawn(listOf(tag))
+            val bounds = composeRule.onNodeWithTag(tag, useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
+            assertTrue(
+                "$tag bottom ${bounds.bottom} should be above the keyboard top $keyboardTop",
+                bounds.bottom <= keyboardTop,
+            )
+        }
+    }
+
+    /**
+     * Typing folds the header and keeps the dock above the keyboard: with the keyboard down each of [drawn] draws, with it
+     * up none of them draws and the dock stays, and with it down again they draw.
+     */
+    private fun assertKeyboardFoldsHeader(controller: ActivityController<MainActivity>, drawn: List<String>) {
+        dispatchInsets(controller, keyboardShown = false)
+        assertDrawn(drawn)
+
+        dispatchInsets(controller, keyboardShown = true)
+        assertAbsent(drawn)
+        assertDockAboveKeyboard(controller)
+
+        dispatchInsets(controller, keyboardShown = false)
+        assertDrawn(drawn)
     }
 
     private fun dispatchInsets(controller: ActivityController<MainActivity>, keyboardShown: Boolean) {
@@ -215,14 +398,26 @@ class MainActivityInsetsTest {
 
     @Test
     fun keyboardUpFoldsHeaderAndKeepsStatusAboveDraft() {
+        assertKeyboardFoldsHeader(openClaudePane(), OPEN_HEADER)
+    }
+
+    @Test
+    fun headlessKeyboardUpFoldsHeaderAndKeepsDockAboveKeyboard() {
+        assertKeyboardFoldsHeader(openHeadlessSession(), OPEN_HEADER)
+    }
+
+    @Test
+    fun keyboardUpFoldsTheFoldedLineAndKeepsStatusAboveDraft() {
         val controller = openClaudePane()
+        foldHeader()
+        assertKeyboardFoldsHeader(controller, FOLDED_HEADER)
+    }
 
-        dispatchInsets(controller, keyboardShown = false)
-        composeRule.onNodeWithTag(HEAD_TEXT_TAG, useUnmergedTree = true).assertIsDisplayed()
-
-        dispatchInsets(controller, keyboardShown = true)
-        composeRule.onAllNodes(hasTestTag(HEAD_TEXT_TAG), useUnmergedTree = true).assertCountEquals(0)
-        assertStatusAboveDraft(controller)
+    @Test
+    fun headlessKeyboardUpFoldsTheFoldedLineAndKeepsDockAboveKeyboard() {
+        val controller = openHeadlessSession()
+        foldHeader()
+        assertKeyboardFoldsHeader(controller, FOLDED_HEADER)
     }
 
     @Test

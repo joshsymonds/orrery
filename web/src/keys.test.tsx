@@ -242,6 +242,7 @@ function dockFacts(step: DockFacts["step"]): DockFacts {
     reason: "",
     interruptedAt: 0,
     putOff: false,
+    archived: false,
     step,
   };
 }

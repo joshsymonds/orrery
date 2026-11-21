@@ -1,6 +1,7 @@
 import type { ComponentChildren, JSX } from "preact";
 import { useState } from "preact/hooks";
 
+import { CheckBlock } from "./blocks";
 import type { Conversation } from "./conversation";
 import { Ctl } from "./ctl";
 import { elapsed } from "./dockwords";
@@ -9,7 +10,6 @@ import type { EpicsGetResponse, EpicStep, EpicStepCheck } from "./gen/orrery/v1/
 import type { Phase, Tone } from "./phases";
 import { type RecordTask, type RingPlace, recordTasksOf } from "./record";
 import type { Pill, WordTone } from "./recordwords";
-import { CheckBlock } from "./reader";
 import { outcomeOf } from "./refusal";
 import { Sheet } from "./sheet";
 import {
@@ -351,9 +351,11 @@ function ImplementView({
       {latest !== null && (
         <>
           <span class="sub">{`Attempt ${latest.attempt} · check rounds`}</span>
-          {latest.rounds.map((round) => (
-            <CheckBlock key={round.round} text={round.text} round={round.round} checks={checks} />
-          ))}
+          <div class="reader check-rounds">
+            {latest.rounds.map((round) => (
+              <CheckBlock key={round.round} text={round.text} round={round.round} checks={checks} />
+            ))}
+          </div>
           {latest.gate !== null && (
             <>
               <span class="sub">{`Gate · ${latest.gate.name}`}</span>

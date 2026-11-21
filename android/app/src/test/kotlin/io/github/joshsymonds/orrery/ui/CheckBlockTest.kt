@@ -1,24 +1,31 @@
 package io.github.joshsymonds.orrery.ui
 
-import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.width
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
-import androidx.compose.ui.test.assertTextEquals
-import androidx.compose.ui.test.onAllNodesWithTag
+import androidx.compose.ui.test.hasAnyDescendant
+import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.unit.dp
 import io.github.joshsymonds.orrery.api.StepCheckRow
 import io.github.joshsymonds.orrery.mainThreadComposeRule
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 
+// A step's check rounds, as the conversation and the task's record both draw them: one CheckBlock per round, of the
+// round's checks only.
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35])
 class CheckBlockTest {
@@ -32,52 +39,62 @@ class CheckBlockTest {
     )
 
     private fun setBlock(round: Int, text: String, checks: List<StepCheckRow> = this.checks) {
-        composeRule.setContent { CheckBlock(text = text, round = round, checks = checks) }
+        composeRule.setContent { CheckBlock(round, text, checks = roundChecks(checks, round)) }
+    }
+
+    private fun assertRailTone(tone: String) {
+        composeRule.onNodeWithTag("block:checks").assert(
+            hasAnyDescendant(hasTestTag("rail") and SemanticsMatcher.expectValue(ShapeToneKey, tone)),
+        )
     }
 
     @Test
-    fun capNamesTheRoundAndTheEngine() {
+    fun roundChecksKeepsTheChecksOfThatRoundOnlyInTheStepsOrder() {
+        assertEquals(listOf(CheckResult("test", true), CheckResult("build", false)), roundChecks(checks, 2))
+        assertEquals(emptyList<CheckResult>(), roundChecks(checks, 3))
+    }
+
+    @Test
+    fun theHeadNamesTheRoundAndTheEngine() {
         setBlock(round = 2, text = "Build failed")
 
-        composeRule.onNodeWithText("Checks · round 2", substring = true, ignoreCase = true).assertIsDisplayed()
-        composeRule.onNodeWithText("from the engine").assertIsDisplayed()
+        composeRule.onNodeWithText("CHECKS").assertIsDisplayed()
+        composeRule.onNodeWithText("round 2 from the engine").assertIsDisplayed()
     }
 
     @Test
-    fun oneChipPerCheckOfThatRoundOnlyWithItsOutcomeMark() {
+    fun oneChipPerCheckOfThatRoundOnly() {
         setBlock(round = 2, text = "Build failed")
 
-        composeRule.onNodeWithTag("check-chip:test").assertTextEquals("test ✓")
-        composeRule.onNodeWithTag("check-chip:build").assertTextEquals("build ✗")
-        composeRule.onAllNodesWithTag("check-chip:lint").assertCountEquals(0)
+        composeRule.onNodeWithText("test").assertIsDisplayed()
+        composeRule.onNodeWithText("build").assertIsDisplayed()
+        composeRule.onAllNodesWithText("lint").assertCountEquals(0)
     }
 
     @Test
-    fun aFailedCheckChipIsBadToneAndAPassedOneIsNeutral() {
+    fun aFailedCheckChipIsBadToneAndAPassedOneIsOk() {
         setBlock(round = 2, text = "Build failed")
 
-        composeRule.onNodeWithTag("check-chip:build").assert(SemanticsMatcher.expectValue(ChipToneKey, ChipTone.Bad))
-        composeRule.onNodeWithTag("check-chip:test").assert(SemanticsMatcher.expectValue(ChipToneKey, ChipTone.Neutral))
+        composeRule.onNodeWithText("build").assert(SemanticsMatcher.expectValue(ChipToneKey, ChipTone.Bad))
+        composeRule.onNodeWithText("test").assert(SemanticsMatcher.expectValue(ChipToneKey, ChipTone.Ok))
     }
 
     @Test
-    fun theEdgeIsBadWhenACheckOfTheRoundFailed() {
+    fun theRailIsBadWhenACheckOfTheRoundFailed() {
         setBlock(round = 2, text = "Build failed")
 
-        composeRule.onNodeWithTag("check-block:2")
-            .assert(SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, "bad"))
+        assertRailTone("bad")
     }
 
     @Test
-    fun theEdgeIsOkWhenEveryCheckOfTheRoundPassedEvenWhenAnotherRoundFailed() {
+    fun theRailIsOkWhenEveryCheckOfTheRoundPassedEvenWhenAnotherRoundFailed() {
         val passing = listOf(
             StepCheckRow(round = 1, name = "lint", ok = false, stdout = "", stderr = ""),
             StepCheckRow(round = 2, name = "test", ok = true, stdout = "", stderr = ""),
         )
         setBlock(round = 2, text = "Tests passed", checks = passing)
 
-        composeRule.onNodeWithTag("check-block:2")
-            .assert(SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, "ok"))
+        assertRailTone("ok")
     }
 
     @Test
@@ -94,9 +111,33 @@ class CheckBlockTest {
         composeRule.onNodeWithText("Build failed").assertIsDisplayed()
         composeRule.onAllNodesWithText("error: missing symbol", substring = true).assertCountEquals(0)
 
-        composeRule.onNodeWithTag("check-note").performClick()
+        composeRule.onNodeWithText("Build failed").performClick()
 
         composeRule.onNodeWithText("error: missing symbol", substring = true).assertIsDisplayed()
         composeRule.onNodeWithText("see log", substring = true).assertIsDisplayed()
+    }
+
+    @Test
+    fun sixChecksWrapOntoMoreLinesAndEveryChipStaysInsideANarrowBlock() {
+        val six = listOf("lint", "tests", "build", "types", "owned files", "gate")
+            .map { StepCheckRow(round = 2, name = it, ok = true, stdout = "", stderr = "") }
+        composeRule.setContent {
+            Box(modifier = Modifier.width(240.dp)) { CheckBlock(2, "All six pass.", checks = roundChecks(six, 2)) }
+        }
+
+        val block = composeRule.onNodeWithTag("block:checks").fetchSemanticsNode().boundsInRoot
+        val chips = composeRule.onAllNodes(SemanticsMatcher.keyIsDefined(ChipToneKey)).fetchSemanticsNodes()
+            .map { it.boundsInRoot }
+        assertEquals(6, chips.size)
+        chips.forEach { assertTrue(it.right <= block.right) }
+        assertTrue(chips.map { it.top }.distinct().size > 1)
+    }
+
+    @Test
+    fun aPassedCheckChipCarriesTheCheckMarkAndAFailedOneTheCross() {
+        setBlock(round = 2, text = "Build failed")
+
+        composeRule.onNodeWithTag("check:test").assert(hasAnyDescendant(hasTestTag("icon:check")))
+        composeRule.onNodeWithTag("check:build").assert(hasAnyDescendant(hasTestTag("icon:cross")))
     }
 }

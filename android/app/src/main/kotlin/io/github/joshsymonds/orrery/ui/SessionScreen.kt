@@ -1,28 +1,36 @@
 package io.github.joshsymonds.orrery.ui
 
 import android.util.Log
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLifecycleOwner
-import androidx.compose.ui.platform.testTag
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import io.github.joshsymonds.orrery.api.ContractRow
@@ -30,8 +38,9 @@ import io.github.joshsymonds.orrery.api.EpicDetail
 import io.github.joshsymonds.orrery.api.HostStat
 import io.github.joshsymonds.orrery.api.OrreryClient
 import io.github.joshsymonds.orrery.api.Pane
-import io.github.joshsymonds.orrery.api.StepRow
+import io.github.joshsymonds.orrery.ui.theme.Move
 import io.github.joshsymonds.orrery.ui.theme.OrreryTokens
+import io.github.joshsymonds.orrery.ui.theme.spec
 import java.io.IOException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -43,7 +52,6 @@ private const val TAG = "SessionScreen"
 private const val RECONNECT_DELAY_MILLIS = 1_000L
 private const val HEAD_POLL_MILLIS = 1_000L
 private const val CLOCK_TICK_MILLIS = 1_000L
-private const val TEXT_KIND = "text"
 private val ENDED_STATES = setOf(STEER_STOPPED, STEER_FAILED)
 
 /** The states a conversation has ended in: a contract it proposed opens read-only from it. */
@@ -64,12 +72,6 @@ internal fun contractBandLines(contracts: List<ContractRow>, conversation: Strin
 
 /** Whether a contract the conversation shows opens live: the conversation is shown and has not stopped or failed. */
 internal fun conversationLive(pane: Pane?): Boolean = pane != null && pane.state !in ENDED_CONVERSATION_STATES
-
-/** The unfinished main-thread text blocks that have text so far, each as a reply after the items. */
-private fun unfinishedReplies(held: StreamedConversation): List<ConvoEntry> =
-    held.unfinished
-        .filter { it.parentToolUseId.isEmpty() && it.kind == TEXT_KIND && it.text.isNotEmpty() }
-        .map { ConvoEntry.Reply(it.text) }
 
 /**
  * A labelled step's session on the step screen: its owner's calls are Hold and Stop, and a message to it
@@ -92,8 +94,9 @@ data class StepMode(
  * conversation resumes where it stopped. A stream that ends without error reconnects the same way.
  *
  * The screen shows the session's head, under it while it is open the rail strip of the epics the session steers and
- * its running tasks (a tile of an epic calls [onOpenEpic] with its id), its conversation with each unfinished main-thread text block
- * as a reply after the items, and the open request's Ask after the last item. The head's epics and
+ * its running tasks (a tile of an epic calls [onOpenEpic] with its id), its conversation with each unfinished main-thread
+ * block after the items (a thinking block as a line, a text block as a live reply), its background tasks, and each message
+ * it sent that the conversation does not hold yet as a sending block, then the open request's Ask after the last item. The head's epics and
  * host are read while the screen is started, and the head folds as the pane screen's does. The dock under the
  * conversation says the session's state from the stream, with its controls and its queue; Send posts the
  * draft as a prompt through [SessionSender]. Reading the conversation marks the session seen.
@@ -133,8 +136,13 @@ fun SessionScreen(
     // session has ended (P4), so one that steers a live epic draws the ended bar.
     var unlisted by remember(sessionId) { mutableStateOf(false) }
     var seenAtOpen by remember(sessionId) { mutableStateOf<Long?>(null) }
+    // The messages the screen sent, until the conversation holds each one.
+    var sentTexts by remember(sessionId) { mutableStateOf<List<SentText>>(emptyList()) }
     // Whether the strip under the band has tiles: then it, not the band, carries the control that hides the header.
     var stripTiles by remember(sessionId) { mutableStateOf(false) }
+    // The find bar while it is open: its query, and the current match of the matches the transcript holds.
+    var finding by remember(sessionId) { mutableStateOf<FindSession?>(null) }
+    val searchCache = remember { MarkdownCache() }
     var headEpics by remember(sessionId) { mutableStateOf(HeadEpics(emptyList(), emptyMap())) }
     // A step's epic, read while the screen is started and again when the step's session changes state. [stepRead] is
     // whether the first read has finished, failed or not: the step's dock waits for it, so its label and state are the
@@ -177,6 +185,8 @@ fun SessionScreen(
                                 client.watchSession(sessionId, after = streamed?.seq ?: 0L) { delta ->
                                     val next = streamed.applyDelta(delta)
                                     streamed = next
+                                    // Forgotten here, in the write that holds the delta, so a prompt the stream trims later cannot bring it back.
+                                    sentTexts = unsentTexts(sentTexts, next.conversation.items, next.queued)
                                     seenAtOpen = seenAtOpen ?: next.pane?.seen
                                     refreshFailed = false
                                 }
@@ -239,28 +249,55 @@ fun SessionScreen(
     val stepTitle = stepRecord?.title ?: step?.label.orEmpty()
     val stepPhase = stepRecord?.let { phaseOfPlace(it.place, it.integrated) } ?: Phase.IMPLEMENTING
     val stepDock = step?.let { DockStep(stepTitle, stepRow?.held ?: it.held, stepRow?.doing ?: it.doing) }
-    val entries = remember(held) {
-        held?.let { foldConversation(it.shownItems()) + unfinishedReplies(it) }.orEmpty()
+    val unsent = held?.let { unsentTexts(sentTexts, it.conversation.items, it.queued) }.orEmpty()
+    val entries = remember(held, unsent) {
+        held?.let {
+            foldConversation(it.shownItems(), now = nowSeconds) +
+                unfinishedEntries(it.unfinished) +
+                backgroundEntries(it.conversation.background) +
+                unsent.map { message -> ConvoEntry.Sending(message.text) }
+        }.orEmpty()
     }
+    val epicDetails = questionEpicDetails(entries, headEpics.details, client)
+    val found = remember(entries, finding?.query) { transcriptMatches(entries, finding?.query.orEmpty(), searchCache) }
+    val foundCurrent = finding?.let { if (found.isEmpty()) -1 else it.current.coerceIn(0, found.lastIndex) } ?: -1
     val ask = if (step == null) held?.request?.let { open -> pane?.let { sessionAsk(it, open) } } else null
     // The stream redraws the session once its answer lands, so the Ask needs no refresh of its own.
     // The Ask's answer lives per session, outside the footer item that draws the Ask, so scrolling that item away keeps it.
     val askLife = rememberAskLife(sessionId)
+    // The archive toast a stale Ask's Archive this session shows; it leaves with this page's composition.
+    val toast = remember(sessionId) { ArchiveToastState() }
+    val onArchived: (kind: String, id: String) -> Unit = { kind, id ->
+        pane?.let { toast.show(it.label.ifEmpty { it.command }, kind, id) }
+    }
     // A step's footer is its end once it has ended; a session's is its Ask.
     val footer: (@Composable () -> Unit)? = if (step != null) {
         stepRow?.takeIf { it.end.isNotEmpty() }?.let { ended ->
-            val content: @Composable () -> Unit = { StepEndBlock(ended) }
+            val content: @Composable () -> Unit = {
+                StepEndBlock(agent = ended.agent, end = ended.end, summary = ended.summary, facts = null)
+            }
             content
         }
     } else {
         val content: @Composable () -> Unit = {
-            AskHost(model = ask, client = client, now = nowSeconds, onRefresh = {}, life = askLife)
+            AskHost(
+                model = ask,
+                client = client,
+                now = nowSeconds,
+                onRefresh = {},
+                onArchived = onArchived,
+                life = askLife,
+            )
         }
         content
     }
     val draft = rememberDockDraft(sessionId)
+    JoinKeptReplies(draft = draft, host = pane?.host.orEmpty().ifEmpty { servingHost }, kind = "session", id = sessionId)
 
     val headHidden = rememberHeadHidden()
+    val density = LocalDensity.current
+    val ime = WindowInsets.ime
+    val keyboardUp by remember(ime, density) { derivedStateOf { ime.getBottom(density) > 0 } }
     val listState = rememberLazyListState()
     var tapped by remember(sessionId) { mutableStateOf(false) }
     // Whether the reader is at the newest line, as the conversation view follows it.
@@ -309,43 +346,53 @@ fun SessionScreen(
             }
         }
         pane?.takeIf { step == null }?.let { shown ->
-            Head(
-                bandHides = !stripTiles,
-                dir = lastPathElement(shown.cwd),
-                host = shown.host.ifEmpty { servingHost },
-                title = shown.label.ifEmpty { shown.command },
-                context = conversation?.context,
-                note = if (refreshFailed) REFRESH_FAILED else "",
-                stats = if (otherHost == null) stats else null,
-                otherHost = otherHost,
-                goal = conversation?.goal.orEmpty(),
-                lines = lines,
-                asking = asking,
-                badges = headBadges(steered, lines, conversation?.background.orEmpty()),
-                fold = fold,
-                onBack = onBack,
-                onOpenEpic = onOpenEpic,
-                contracts = bandLines,
-                onOpenContract = openContract,
-                onHide = { headHidden.value = true },
-                onShow = {
-                    headHidden.value = false
-                    tapped = true
-                },
-                modifier = Modifier.fillMaxWidth().background(OrreryTokens.Surface.page),
-            )
-            if (fold == HeadFold.OPEN) {
-                ConversationStrip(
-                    conversation = sessionId,
-                    pane = false,
-                    background = conversation?.background.orEmpty(),
-                    now = nowSeconds,
-                    client = client,
-                    onOpenEpic = onOpenEpic,
-                    onOpenContract = openContract,
-                    onTiles = { stripTiles = it },
-                    end = { HideHeader { headHidden.value = true } },
-                )
+            AnimatedVisibility(
+                visible = !keyboardUp,
+                enter = expandVertically(Move.LAYOUT.spec(animated = true)) + fadeIn(Move.LAYOUT.spec(animated = true)),
+                exit = shrinkVertically(Move.LAYOUT.spec(animated = true)) + fadeOut(Move.LAYOUT.spec(animated = true)),
+                label = "head",
+            ) {
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    Head(
+                        bandHides = !stripTiles,
+                        dir = lastPathElement(shown.cwd),
+                        host = shown.host.ifEmpty { servingHost },
+                        title = shown.label.ifEmpty { shown.command },
+                        context = conversation?.context,
+                        note = if (refreshFailed) REFRESH_FAILED else "",
+                        stats = if (otherHost == null) stats else null,
+                        otherHost = otherHost,
+                        goal = conversation?.goal.orEmpty(),
+                        lines = lines,
+                        asking = asking,
+                        badges = headBadges(steered, lines, conversation?.background.orEmpty()),
+                        fold = fold,
+                        onBack = onBack,
+                        onOpenEpic = onOpenEpic,
+                        contracts = bandLines,
+                        onOpenContract = openContract,
+                        onHide = { headHidden.value = true },
+                        onShow = {
+                            headHidden.value = false
+                            tapped = true
+                        },
+                        onFind = { finding = FindSession(query = "") },
+                        modifier = Modifier.fillMaxWidth().background(OrreryTokens.Surface.page),
+                    )
+                    if (fold == HeadFold.OPEN) {
+                        ConversationStrip(
+                            conversation = sessionId,
+                            pane = false,
+                            background = conversation?.background.orEmpty(),
+                            now = nowSeconds,
+                            client = client,
+                            onOpenEpic = onOpenEpic,
+                            onOpenContract = openContract,
+                            onTiles = { stripTiles = it },
+                            end = { HideHeader { headHidden.value = true } },
+                        )
+                    }
+                }
             }
         }
         Box(modifier = Modifier.weight(1f).fillMaxWidth().clipToBounds()) {
@@ -357,9 +404,13 @@ fun SessionScreen(
                     footer = footer,
                     checks = stepRow?.checks.orEmpty(),
                     seen = seenAtOpen,
-                    now = nowSeconds,
                     contracts = contracts,
                     onOpenContract = openTranscriptContract,
+                    onOpenEpic = onOpenEpic,
+                    epicQuestion = { epic, question ->
+                        EpicQuestion(epicDetails[epic], question, nowSeconds, client)
+                    },
+                    find = finding?.let { TranscriptFind(found, foundCurrent, it.step) },
                     onRead = { _ ->
                         scope.launch(Dispatchers.IO) {
                             try {
@@ -371,6 +422,25 @@ fun SessionScreen(
                     },
                 )
             }
+            // At the foot of the body, above the dock, so it never covers the dock's input.
+            ArchiveToast(
+                state = toast,
+                client = client,
+                onUndone = {},
+                modifier = Modifier.align(Alignment.BottomCenter),
+            )
+        }
+        finding?.let { session ->
+            FindBar(
+                query = session.query,
+                count = found.size,
+                current = foundCurrent,
+                onQuery = { finding = FindSession(query = it, step = session.step + 1) },
+                onNext = { finding = session.copy(current = stepFind(foundCurrent, found.size, 1), step = session.step + 1) },
+                onPrevious = { finding = session.copy(current = stepFind(foundCurrent, found.size, -1), step = session.step + 1) },
+                onClose = { finding = null },
+                modifier = Modifier.padding(horizontal = OrreryTokens.Space.twelve, vertical = OrreryTokens.Space.four),
+            )
         }
         val ended = pane?.state.orEmpty() in ENDED_STATES || (pane == null && unlisted)
         val endedEpic = if (step == null && ended) {
@@ -403,7 +473,14 @@ fun SessionScreen(
                 draft = draft,
                 send = { text ->
                     val sent = about?.let { aboutMessage(it.id, it.text, text) } ?: text
-                    if (step != null) stepCalls.nudge(sent) else sender.send(sent)
+                    val after = held?.conversation?.items?.lastOrNull()
+                    val promptId = if (step != null) {
+                        stepCalls.nudge(sent)
+                        ""
+                    } else {
+                        sender.send(sent)
+                    }
+                    scope.launch { sentTexts = sentTexts + SentText(sent, after, promptId) }
                     if (about != null) onClearAbout()
                 },
                 sessionId = sessionId,
@@ -414,20 +491,5 @@ fun SessionScreen(
                 onClearAbout = onClearAbout,
             )
         }
-    }
-}
-
-// A step's end, the conversation's last block: its agent and its end, then its summary when it has one.
-@Composable
-private fun StepEndBlock(step: StepRow) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .testTag("step-end")
-            .padding(horizontal = OrreryTokens.Space.sixteen, vertical = OrreryTokens.Space.eight),
-        verticalArrangement = Arrangement.spacedBy(OrreryTokens.Space.four),
-    ) {
-        Text("${step.agent} · ${step.end}", style = OrreryTokens.Type.small, color = OrreryTokens.Ink.three)
-        if (step.summary.isNotEmpty()) Text(step.summary, style = OrreryTokens.Type.body)
     }
 }

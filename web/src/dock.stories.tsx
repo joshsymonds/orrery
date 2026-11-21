@@ -44,6 +44,7 @@ const facts = (init: Partial<DockFacts>): DockFacts => ({
   reason: "",
   interruptedAt: 0,
   putOff: false,
+  archived: false,
   step: null,
   ...init,
 });

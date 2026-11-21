@@ -69,13 +69,15 @@ private fun archiveItemOf(archived: Boolean): SheetItem = if (archived) SheetIte
 /**
  * The sheet a long press on the inbox opens: [row]'s title, a line under it when a call did not go through, and the
  * items [sheetItemsOf] offers. An item makes its call with the row's own kind and id, then runs [onLanded], which reads
- * the tree again. A call that does not land keeps the sheet open with its line. [onClose] dismisses the sheet.
+ * the tree again. A landed archive first runs [onArchived] with the row's title and the kind and id it was archived by.
+ * A call that does not land keeps the sheet open with its line. [onClose] dismisses the sheet.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun InboxSheet(
     row: SheetRow,
     client: OrreryClient,
+    onArchived: (title: String, kind: String, id: String) -> Unit,
     onLanded: () -> Unit,
     onClose: () -> Unit,
 ) {
@@ -97,7 +99,15 @@ internal fun InboxSheet(
                     onClick = {
                         scope.launch {
                             val failed = withContext(Dispatchers.IO) { sendOf(client, row, item) }
-                            if (failed == null) onLanded() else failure = failed
+                            if (failed == null) {
+                                if (item == SheetItem.ARCHIVE) {
+                                    val (kind, id) = archiveTargetOf(row)
+                                    onArchived(row.title, kind, id)
+                                }
+                                onLanded()
+                            } else {
+                                failure = failed
+                            }
                         }
                     },
                     modifier = Modifier.fillMaxWidth().testTag("sheet:${item.name}"),

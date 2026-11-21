@@ -261,6 +261,8 @@ func serveContractEngine(t *testing.T, st *store.Store) enginev1connect.Contract
 	contracts := &enginehost.Contracts{
 		Store: st,
 		Now:   func() time.Time { return time.Unix(contractTimeEngine, 0) },
+		// The contracts of this test name a repository that is not on disk, so the accept reads a fixed origin main.
+		OriginMain: func(context.Context, string) (string, error) { return "9a8b7c6d5e4f30211f0e9d8c7b6a5f4e3d2c1b0a", nil },
 	}
 	ctx, cancel := context.WithCancel(t.Context())
 	done := make(chan error, 1)

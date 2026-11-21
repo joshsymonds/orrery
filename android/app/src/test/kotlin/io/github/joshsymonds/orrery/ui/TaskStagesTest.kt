@@ -145,7 +145,7 @@ class TaskStagesTest {
         composeRule.onNodeWithText("Attempts", useUnmergedTree = true).assertExists()
         composeRule.onNodeWithText("spent", useUnmergedTree = true).assertExists()
         composeRule.onNodeWithText("Attempt 1 · check rounds", useUnmergedTree = true).assertExists()
-        composeRule.onNodeWithTag("check-block:1", useUnmergedTree = true).assertExists()
+        composeRule.onNodeWithTag("block:checks", useUnmergedTree = true).assertExists()
         composeRule.onNodeWithText("fmt: synthetic fmt detail", useUnmergedTree = true).assertExists()
     }
 

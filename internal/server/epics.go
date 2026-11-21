@@ -480,7 +480,9 @@ func epicRequirementMessages(
 const epicQuestionOpen = "open"
 
 // epicQuestionMessages converts each open question to its EpicQuestion, in order, and leaves out the answered ones. A
-// question's asked is the end of the turn whose seq is the question's turn; a turn that no seq matches gives zero.
+// question's asked is the end of the turn whose seq is the question's turn; a turn that no seq matches gives zero. A
+// question's escalation (escalated, escalation reason, by and session) is copied as stored, and is zero or empty while
+// it is not escalated.
 func epicQuestionMessages(questions []*enginev1.EpicQuestion, turns []*enginev1.EpicTurn) []*orreryv1.EpicQuestion {
 	endedBySeq := make(map[int64]int64, len(turns))
 	for _, turn := range turns {
@@ -492,13 +494,17 @@ func epicQuestionMessages(questions []*enginev1.EpicQuestion, turns []*enginev1.
 			continue
 		}
 		out = append(out, &orreryv1.EpicQuestion{
-			Id:             question.GetId(),
-			Text:           question.GetText(),
-			Turn:           question.GetTurn(),
-			Asked:          endedBySeq[question.GetTurn()],
-			Label:          question.GetLabel(),
-			Choices:        epicQuestionChoiceMessages(question.GetChoices()),
-			Recommendation: epicRecommendationMessage(question.GetRecommendation()),
+			Id:                question.GetId(),
+			Text:              question.GetText(),
+			Turn:              question.GetTurn(),
+			Asked:             endedBySeq[question.GetTurn()],
+			Label:             question.GetLabel(),
+			Choices:           epicQuestionChoiceMessages(question.GetChoices()),
+			Recommendation:    epicRecommendationMessage(question.GetRecommendation()),
+			Escalated:         question.GetEscalated(),
+			EscalationReason:  question.GetEscalationReason(),
+			EscalationBy:      question.GetEscalationBy(),
+			EscalationSession: question.GetEscalationSession(),
 		})
 	}
 	return out

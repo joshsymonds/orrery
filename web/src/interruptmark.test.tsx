@@ -232,9 +232,11 @@ function alertTexts(container: HTMLElement): string[] {
   return [...container.querySelectorAll('[role="alert"]')].map((element) => element.textContent ?? "");
 }
 
-// readerRules is the text of each rule the reader draws.
+// readerRules is the label of each rule the reader draws, without its detail.
 function readerRules(container: HTMLElement): string[] {
-  return [...container.querySelectorAll('[aria-label="reader"] .rule')].map((element) => element.textContent ?? "");
+  return [...container.querySelectorAll('[aria-label="reader"] .rule .label')].map(
+    (element) => element.textContent ?? "",
+  );
 }
 
 // readerNoticeKinds is the kind of each notice the reader draws.

@@ -21,6 +21,7 @@ class DockStateWordsTest {
         reason: String = "",
         interruptedAt: Long = 0L,
         putOff: Boolean = false,
+        archived: Boolean = false,
         step: DockStep? = null,
     ) = DockFacts(
         kind = kind,
@@ -34,6 +35,7 @@ class DockStateWordsTest {
         reason = reason,
         interruptedAt = interruptedAt,
         putOff = putOff,
+        archived = archived,
         step = step,
     )
 
@@ -169,6 +171,22 @@ class DockStateWordsTest {
     }
 
     @Test
+    fun archivedWaitingSessionReadsIdle() {
+        assertEquals(
+            StateLine("idle", "idle", "", "", "", DockControl.NONE),
+            line(facts(state = "waiting", archived = true)),
+        )
+    }
+
+    @Test
+    fun archivedAndPutOffWaitingSessionStillReadsThePutOffWords() {
+        assertEquals(
+            StateLine("idle", "waiting on a question you put off", "", "", "", DockControl.NONE),
+            line(facts(state = "waiting", archived = true, putOff = true)),
+        )
+    }
+
+    @Test
     fun rule7InterruptedByYouShowsTimeOfDayInTheGivenZone() {
         val interruptedAt = Instant.parse("2026-11-19T09:30:00Z").epochSecond
         val f = facts(state = "done", interruptedAt = interruptedAt)
@@ -268,6 +286,11 @@ class DockStateWordsTest {
     fun placeholderWhileWaitingIsAnswerAndOnAQuestionPutOffIsMessage() {
         assertEquals("Answer the auth work", dockPlaceholder(facts(state = "waiting")))
         assertEquals("Message the auth work", dockPlaceholder(facts(state = "waiting", putOff = true)))
+    }
+
+    @Test
+    fun archivedWaitingSessionPlaceholderIsMessage() {
+        assertEquals("Message the auth work", dockPlaceholder(facts(state = "waiting", archived = true)))
     }
 
     @Test

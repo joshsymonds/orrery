@@ -530,9 +530,9 @@ function ordinaryPromptRows(container: HTMLElement, column = "reader"): Element[
   return Array.from(container.querySelectorAll(`[aria-label="${column}"] .reader > .t:not(.sending-row) .you`));
 }
 
-// sendingMark is the mark a sending row draws, or null when the element holds none.
+// sendingMark is the label of the sending block a sending row draws, or null when the element holds none.
 function sendingMark(row: Element): string | null {
-  return row.querySelector(".gut.sending")?.textContent ?? null;
+  return row.querySelector(".block.pending .label")?.textContent ?? null;
 }
 
 // workingPane is the pane a stream sends while it runs a tool. The tool started at 940, a minute before the test's
@@ -1038,7 +1038,7 @@ test("the cursor's pane row opens its conversation, and the reader shows the str
       transcript: "t1",
       seq: "1",
       reset: true,
-      items: [{ kind: "assistant", text: "the streamed reply" }],
+      items: [{ kind: "reply", text: "the streamed reply" }],
     });
     await until(t.signal, () => readerText(container).includes("the streamed reply"), "the streamed reply");
   }));
@@ -1218,7 +1218,7 @@ test("a step's reader is its title row, its conversation and its foot, and nothi
     ]);
   }));
 
-test("a step's reader draws its brief as a fold, its round's checks as a card, and the owner's nudge as YOU", (t) =>
+test("a step's reader draws its brief as a fold, its round's checks as a CHECKS block, and the owner's nudge as YOU", (t) =>
   withApp(t.signal, { epics: checkedEpic() }, async (container, fake) => {
     await onStepOne(t.signal, container, fake);
     const [stream] = fake.callsTo(sessionWatchPath);
@@ -1236,13 +1236,13 @@ test("a step's reader draws its brief as a fold, its round's checks as a card, a
     await until(t.signal, () => container.querySelector(`${reader} .you`) !== null, "the owner's nudge");
     assert.equal(container.querySelectorAll(`${reader} button.fold.brief`).length, 1, "one brief fold");
     assert.equal(container.querySelector(`${reader} button.fold.brief b`)?.textContent, "Brief");
-    assert.equal(container.querySelectorAll(`${reader} .card`).length, 1, "one round card");
-    assert.equal(container.querySelectorAll(`${reader} .card.bad`).length, 1, "a bad edge");
-    const cap = container.querySelector(`${reader} .card .cap`)?.textContent ?? "";
-    assert.equal(cap.startsWith("Checks · round 1"), true, "the card names round 1");
-    const chips = [...container.querySelectorAll(`${reader} .card .chips .chip`)].map((chip) => chip.textContent);
-    assert.deepEqual(chips, ["lint ✗", "unit ✓"], "round 1's checks only, in the step's order");
-    assert.equal(container.querySelector(`${reader} .card .note`)?.textContent, "lint failed");
+    assert.equal(container.querySelectorAll(`${reader} [data-shape="block"].checks`).length, 1, "one round block");
+    assert.equal(container.querySelectorAll(`${reader} [data-shape="block"].checks.bad`).length, 1, "a bad edge");
+    const words = container.querySelector(`${reader} .checks .words`)?.textContent ?? "";
+    assert.equal(words, "round 1 from the engine", "the block names round 1");
+    const chips = [...container.querySelectorAll(`${reader} .checks .chip`)].map((chip) => chip.textContent);
+    assert.deepEqual(chips, ["lint", "unit"], "round 1's checks only, in the step's order");
+    assert.equal(container.querySelector(`${reader} .checks > p`)?.textContent, "lint failed");
     assert.equal(container.querySelectorAll(`${reader} .you`).length, 1, "one YOU bubble");
     const you = container.querySelector(`${reader} .you`)?.textContent ?? "";
     assert.equal(you.includes("please hurry"), true, "the YOU bubble holds the nudge");
@@ -1250,7 +1250,7 @@ test("a step's reader draws its brief as a fold, its round's checks as a card, a
     assert.equal(you.includes("the brief"), false, "the YOU bubble holds no brief");
   }));
 
-test("a pane row's reader draws its prompts as YOU, whatever their sender and round", (t) =>
+test("a pane row's reader draws an engine send-back as a CHECKS block, with no fold and no YOU", (t) =>
   withApp(t.signal, {}, async (container, fake) => {
     await until(t.signal, () => fake.callsTo(paneWatchPath).length === 1, "the pane stream");
     const [stream] = fake.callsTo(paneWatchPath);
@@ -1261,11 +1261,10 @@ test("a pane row's reader draws its prompts as YOU, whatever their sender and ro
       items: [{ kind: "prompt", text: "lint failed", sender: "engine", round: 1 }],
     });
     const reader = '[aria-label="reader"] > .reader';
-    await until(t.signal, () => container.querySelector(`${reader} .you`) !== null, "the prompt");
-    assert.equal(container.querySelectorAll(`${reader} .card`).length, 0, "no round card");
+    await until(t.signal, () => container.querySelector(`${reader} .checks`) !== null, "the send-back block");
     assert.equal(container.querySelectorAll(`${reader} .fold`).length, 0, "no fold");
-    const you = container.querySelector(`${reader} .you`)?.textContent ?? "";
-    assert.equal(you.includes("lint failed"), true, "the YOU bubble holds the prompt");
+    assert.equal(container.querySelectorAll(`${reader} .you`).length, 0, "no YOU block");
+    assert.equal(container.querySelector(`${reader} .checks > p`)?.textContent, "lint failed", "the block holds the prompt");
   }));
 
 test("the pinned reader is its head, its conversation and its foot, and nothing else", (t) =>
@@ -1288,7 +1287,7 @@ test("the cursor's queued messages dock in its foot, oldest first, and draw nowh
       transcript: "t1",
       seq: "1",
       reset: true,
-      items: [{ kind: "assistant", text: "a reply" }],
+      items: [{ kind: "reply", text: "a reply" }],
       state: {
         waiting: [
           { text: "first waiting", canceled: false },
@@ -1366,7 +1365,7 @@ test("a message sent to a headless session draws at once as a sending row, and i
     const [say] = fake.callsTo(sayPath);
     assert.equal(sendingRows(container).length, 1, "the row draws while the say is pending");
     assert.equal(sendingRows(container)[0].textContent?.includes("keep going"), true, "the row holds the text");
-    assert.equal(sendingMark(sendingRows(container)[0]), "sending", "the row is marked sending");
+    assert.equal(sendingMark(sendingRows(container)[0]), "SENDING", "the row is marked sending");
 
     releaseSay();
     await untilTurn(t.signal, () => composer(container).value === "", "the say was answered");
@@ -1382,7 +1381,7 @@ test("a message sent to a headless session draws at once as a sending row, and i
     assert.equal(ordinaryPromptRows(container).length, 1, "the stored prompt is the one ordinary prompt row");
     assert.equal(ordinaryPromptRows(container)[0].textContent?.includes("keep going"), true);
 
-    fake.emit(stream, { transcript: "t1", seq: "3", reset: true, items: [{ kind: "assistant", text: "a later reply" }] });
+    fake.emit(stream, { transcript: "t1", seq: "3", reset: true, items: [{ kind: "reply", text: "a later reply" }] });
     await untilTurn(t.signal, () => readerText(container).includes("a later reply"), "the reset that drops the prompt");
     assert.equal(sendingRows(container).length, 0, "a sent message that left never draws again");
   }));
@@ -1398,13 +1397,13 @@ test("a message sent to a pane draws as a sending row until the pane's stream de
     await untilTurn(t.signal, () => fake.callsTo(sendTextPath).length === 1, "the send");
     await untilTurn(t.signal, () => composer(container).value === "", "the sent draft cleared");
     assert.equal(sendingRows(container).length, 1, "the row draws while the stream has not shown the prompt");
-    assert.equal(sendingMark(sendingRows(container)[0]), "sending");
+    assert.equal(sendingMark(sendingRows(container)[0]), "SENDING");
 
     fake.emit(stream, { transcript: "t1", seq: "2", items: [{ kind: "prompt", text: "keep going" }] });
     await untilTurn(t.signal, () => sendingRows(container).length === 0, "the sending row leaves");
     assert.equal(ordinaryPromptRows(container).length, 1, "the stored prompt is the one ordinary prompt row");
 
-    fake.emit(stream, { transcript: "t1", seq: "3", reset: true, items: [{ kind: "assistant", text: "a later reply" }] });
+    fake.emit(stream, { transcript: "t1", seq: "3", reset: true, items: [{ kind: "reply", text: "a later reply" }] });
     await untilTurn(t.signal, () => readerText(container).includes("a later reply"), "the reset that drops the prompt");
     assert.equal(sendingRows(container).length, 0, "a sent message that left never draws again");
   }));
@@ -2022,7 +2021,7 @@ test("1 on a session row answers the request its stream holds with the first opt
       transcript: "t1",
       seq: "1",
       reset: true,
-      items: [{ kind: "assistant", text: "the streamed question" }],
+      items: [{ kind: "reply", text: "the streamed question" }],
       state: { request: { id: "req-7", kind: "question", question: "Pick one", options: ["Yes", "No"] } },
     });
     await until(t.signal, () => readerText(container).includes("the streamed question"), "the streamed question");
@@ -2038,7 +2037,7 @@ test("a stream held for another row never answers the cursor's row", (t) =>
       transcript: "t1",
       seq: "1",
       reset: true,
-      items: [{ kind: "assistant", text: "the streamed question" }],
+      items: [{ kind: "reply", text: "the streamed question" }],
       state: { request: { id: "req-7", kind: "question", question: "Pick one", options: ["Yes", "No"] } },
     });
     await until(t.signal, () => readerText(container).includes("the streamed question"), "the streamed question");
@@ -2098,7 +2097,7 @@ test("1 on the list answers the cursor's session row and selects no epic option"
       transcript: "t1",
       seq: "1",
       reset: true,
-      items: [{ kind: "assistant", text: "the streamed question" }],
+      items: [{ kind: "reply", text: "the streamed question" }],
       state: { request: { id: "req-7", kind: "question", question: "Pick one", options: ["Yes", "No"] } },
     });
     await until(t.signal, () => readerText(container).includes("the streamed question"), "the streamed question");
@@ -2178,7 +2177,7 @@ const permissionStream = {
   transcript: "t1",
   seq: "1",
   reset: true,
-  items: [{ kind: "assistant", text: "the streamed question" }],
+  items: [{ kind: "reply", text: "the streamed question" }],
   state: { request: { id: "req-7", kind: "question", question: "Allow the command?", options: ["allow", "deny"] } },
 };
 
@@ -2439,7 +2438,7 @@ test("| pins the cursor's row in a second column that streams it while the curso
       transcript: "t1",
       seq: "1",
       reset: true,
-      items: [{ kind: "assistant", text: "pinned reply" }],
+      items: [{ kind: "reply", text: "pinned reply" }],
     });
     await until(t.signal, () => pinnedColumn(container)?.textContent?.includes("pinned reply") === true, "the pinned reply");
 
@@ -2720,7 +2719,7 @@ test("a click on a link in the reader opens the link and moves the cursor nowher
       transcript: "t1",
       seq: "1",
       reset: true,
-      items: [{ kind: "assistant", text: "read https://example.com/doc" }],
+      items: [{ kind: "reply", text: "read https://example.com/doc" }],
     });
     await until(t.signal, () => container.querySelector(".reader a") !== null, "the reader's link");
     const link = container.querySelector(".reader a");
@@ -3204,7 +3203,7 @@ test("TitleParts: in the inbox no row draws a directory, and no display: none ru
       assert.equal(container.querySelector(".inbox-rows")?.getAttribute("data-list"), "inbox");
       assertNone(rowElement(container, "p").querySelector(".title-dir"), "the pane draws no directory");
       assertNone(rowElement(container, "s").querySelector(".title-dir"), "the session draws no directory");
-      const css = readFileSync(new URL("../src/style.css", import.meta.url), "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
+      const css = readFileSync("web/src/style.css", "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
       const hiding = [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)]
         .filter(([, selectors, declarations]) => /display\s*:\s*none/.test(declarations) && selectors.includes("title-dir"))
         .map(([, selectors]) => selectors.trim());
@@ -4230,7 +4229,7 @@ test("Open the session streams the step's worker session as text, and moves the 
       transcript: "t1",
       seq: "1",
       reset: true,
-      items: [{ kind: "assistant", text: "the checking reply" }],
+      items: [{ kind: "reply", text: "the checking reply" }],
     });
     await until(t.signal, () => sessionReaderText(container).includes("the checking reply"), "the session reply");
   }));
@@ -4318,6 +4317,50 @@ test("TaskBand: the record pages back through the brief step's conversation unti
     assert.deepEqual(fake.callsTo(sessionOlderPath)[0].body, { id: "run1", before: "100" }, "the page before the oldest item is asked");
     await until(t.signal, () => container.querySelector(".brief p") !== null, "the planner's brief");
     assert.equal(container.querySelector(".brief p")?.textContent, "Parse the lines of the rota.");
+    assert.equal(fake.callsTo(sessionOlderPath).length, 1, "no older page is asked once the brief is held");
+  }));
+
+test("TaskBand: the record pages back through three pages of the brief step's conversation, asks each once in order, and draws the brief from the third", (t) =>
+  withApp(t.signal, { epics: phaseEpic() }, async (container, fake) => {
+    await openCheckingPhase(container);
+    await untilTurn(t.signal, () => fake.callsTo(sessionWatchPath).length === 1, "the brief step's stream");
+    const [stream] = fake.callsTo(sessionWatchPath);
+    fake.replies.set(sessionOlderPath, [
+      { items: [{ kind: "assistant", text: "older reply 1" }], oldest: "80", more: true },
+      { items: [{ kind: "assistant", text: "older reply 2" }], oldest: "60", more: true },
+      { items: [{ kind: "prompt", sender: "brief", text: "Parse the lines of the rota." }], oldest: "40", more: true },
+    ]);
+    fake.emit(stream, { transcript: "t1", seq: "50", reset: true, oldest: "100", items: [{ kind: "assistant", text: "reply 0" }] });
+    await untilTurn(t.signal, () => fake.callsTo(sessionOlderPath).length === 1, "the first older request");
+    assert.deepEqual(fake.callsTo(sessionOlderPath)[0].body, { id: "run1", before: "100" }, "the first page is asked before the reset's oldest item");
+    assertNone(container.querySelector(".brief"), "no brief once the reset is drawn");
+    await untilTurn(t.signal, () => fake.callsTo(sessionOlderPath).length === 2, "the second older request");
+    assert.deepEqual(fake.callsTo(sessionOlderPath)[1].body, { id: "run1", before: "80" }, "the second page is asked before the first page's oldest item");
+    assertNone(container.querySelector(".brief"), "no brief once the first page is drawn");
+    await untilTurn(t.signal, () => fake.callsTo(sessionOlderPath).length === 3, "the third older request");
+    assert.deepEqual(fake.callsTo(sessionOlderPath)[2].body, { id: "run1", before: "60" }, "the third page is asked before the second page's oldest item");
+    await untilTurn(t.signal, () => container.querySelector(".brief p") !== null, "the planner's brief");
+    assert.equal(container.querySelector(".brief p")?.textContent, "Parse the lines of the rota.");
+    assert.equal(fake.callsTo(sessionOlderPath).length, 3, "no fourth page is asked once the brief is held");
+  }));
+
+test("TaskBand: a failed older page draws no brief, and a later delta on the same watch that carries the brief is drawn with no new stream", (t) =>
+  withApp(t.signal, { epics: phaseEpic() }, async (container, fake) => {
+    await openCheckingPhase(container);
+    await untilTurn(t.signal, () => fake.callsTo(sessionWatchPath).length === 1, "the brief step's stream");
+    const [stream] = fake.callsTo(sessionWatchPath);
+    fake.failNext.add(sessionOlderPath);
+    fake.emit(stream, { transcript: "t1", seq: "50", reset: true, oldest: "100", items: [{ kind: "assistant", text: "reply 0" }] });
+    await untilTurn(t.signal, () => fake.callsTo(sessionOlderPath).length === 1, "the older request");
+    assert.deepEqual(fake.callsTo(sessionOlderPath)[0].body, { id: "run1", before: "100" }, "the page before the reset's oldest item is asked");
+    // One more turn lets the refused page's error reach follow, which keeps the page's more and asks nothing again.
+    await act(turn);
+    assertNone(container.querySelector(".brief"), "the failed page draws no brief");
+    assert.equal(fake.callsTo(sessionOlderPath).length, 1, "the failed page is not asked again");
+    fake.emit(stream, { transcript: "t1", seq: "51", items: [{ kind: "prompt", sender: "brief", text: "Parse the lines of the rota." }] });
+    await untilTurn(t.signal, () => container.querySelector(".brief p") !== null, "the planner's brief");
+    assert.equal(container.querySelector(".brief p")?.textContent, "Parse the lines of the rota.");
+    assert.equal(fake.callsTo(sessionWatchPath).length, 1, "no new stream is opened");
     assert.equal(fake.callsTo(sessionOlderPath).length, 1, "no older page is asked once the brief is held");
   }));
 
@@ -4557,7 +4600,7 @@ test("Just happened shows the epic's history, read from its first entry", (t) =>
       { entries: [{ cursor: "c1", decision: { id: "d1", text: "use postgres" } }], next: "" },
     ]);
     await press("j");
-    await until(t.signal, () => historyText(container).includes("decision · use postgres"), "the history entry");
+    await until(t.signal, () => historyText(container).includes("decision by unknown · use postgres"), "the history entry");
     const [call] = fake.callsTo(historyPath);
     assert.equal(call.body.id, widgetsFirst);
     assert.equal(call.body.after, undefined, "the first page reads from the start");
@@ -4673,7 +4716,7 @@ test("a step entry streams Sessions.WatchConversation by its id, and the reader 
       transcript: "t1",
       seq: "1",
       reset: true,
-      items: [{ kind: "assistant", text: "the step reply" }],
+      items: [{ kind: "reply", text: "the step reply" }],
     });
     await until(t.signal, () => readerText(container).includes("the step reply"), "the step reply");
     assert.equal(readerHidden(container), false, "the reader shows on a step");
@@ -4685,14 +4728,14 @@ test("a step's reader at its top asks Sessions.Older for the page before its old
     await onStepOne(t.signal, container, fake, untilTurn);
     const [stream] = fake.callsTo(sessionWatchPath);
     fake.replies.set(sessionOlderPath, [
-      { items: [{ kind: "assistant", text: "the step's earlier reply" }], oldest: "4", more: false },
+      { items: [{ kind: "reply", text: "the step's earlier reply" }], oldest: "4", more: false },
     ]);
     fake.emit(stream, {
       transcript: "t1",
       seq: "9",
       reset: true,
       oldest: "9",
-      items: [{ kind: "assistant", text: "the step reply" }],
+      items: [{ kind: "reply", text: "the step reply" }],
     });
     await untilTurn(t.signal, () => fake.callsTo(sessionOlderPath).length === 1, "the older request");
     assert.deepEqual(fake.callsTo(sessionOlderPath)[0].body, { id: "s1", before: "9" });

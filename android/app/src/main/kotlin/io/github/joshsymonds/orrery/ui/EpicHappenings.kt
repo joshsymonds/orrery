@@ -123,9 +123,18 @@ private fun whatOf(entry: EpicHistoryRow): String = when (entry.kind) {
     "trigger" -> entry.trigger?.let { "trigger · ${it.cause}" }.orEmpty()
     "step" -> entry.step?.let(::stepText).orEmpty()
     "evidence" -> entry.evidence?.let(::evidenceText).orEmpty()
-    "decision" -> entry.decision?.let { "decision · ${it.text}" }.orEmpty()
+    "decision" -> entry.decision?.let { "decision by ${makerWord(it.by, it.session)} · ${it.text}" }.orEmpty()
     "tell" -> entry.tell?.text.orEmpty()
     else -> ""
+}
+
+// makerWord names who made a decision or escalated a question: you, orreryd, or the session of the conversation that
+// did. A maker with none on record reads unknown.
+internal fun makerWord(by: String, session: String): String = when (by) {
+    "owner" -> "you"
+    "orreryd" -> "orreryd"
+    "conversation" -> "session $session"
+    else -> "unknown"
 }
 
 private fun turnText(turn: EpicTurnRow): String {

@@ -21,21 +21,21 @@ function nameOf(session: string, titleOf: ((session: string) => string | undefin
   return title === undefined ? `session ${session}` : `“${title}”`;
 }
 
-// moverOf names who made a move: you for the owner, orreryd for orreryd, and the conversation's name otherwise.
-function moverOf(action: EpicAction, titleOf: ((session: string) => string | undefined) | undefined): string {
-  if (action.by === "owner") {
+// makerOf names who made a move or a decision: you for the owner, orreryd for orreryd, else the conversation's name.
+export function makerOf(by: string, session: string, titleOf: ((session: string) => string | undefined) | undefined): string {
+  if (by === "owner") {
     return "you";
   }
-  if (action.by === "orreryd") {
+  if (by === "orreryd") {
     return "orreryd";
   }
-  return nameOf(action.session, titleOf);
+  return nameOf(session, titleOf);
 }
 
 // moveOf is a move's log line: where the epic went, where it came from when it had a steerer, and who moved it.
 function moveOf(action: EpicAction, titleOf: ((session: string) => string | undefined) | undefined): string {
   const from = action.from === "" ? "" : ` from ${nameOf(action.from, titleOf)}`;
-  return `moved to ${nameOf(action.to, titleOf)}${from}, by ${moverOf(action, titleOf)}`;
+  return `moved to ${nameOf(action.to, titleOf)}${from}, by ${makerOf(action.by, action.session, titleOf)}`;
 }
 
 // whatOf is an entry's text: its kind's label and its detail.
@@ -55,8 +55,11 @@ function whatOf(entry: EpicHistoryEntry, titleOf: ((session: string) => string |
     }
     case "evidence":
       return `${item.value.item} ${item.value.phase} run · ${runResultOf(item.value)}`;
-    case "decision":
-      return `decision · ${item.value.text}`;
+    case "decision": {
+      const { by, session, text } = item.value;
+      const maker = by === "" ? "unknown" : makerOf(by, session, titleOf);
+      return `decision by ${maker} · ${text}`;
+    }
     case "action":
       return item.value.kind === "move" ? moveOf(item.value, titleOf) : "";
     case "tell":

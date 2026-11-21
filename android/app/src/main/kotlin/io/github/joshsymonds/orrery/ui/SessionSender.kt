@@ -7,7 +7,7 @@ import java.util.UUID
 /**
  * Sends composed text to one headless session. A retry of the text whose send failed reuses that
  * send's prompt id, so the session records the prompt once; any other send takes a fresh id.
- * A failed send is rethrown unchanged, so the composer keeps its draft.
+ * A failed send is rethrown unchanged, so the composer keeps its draft. A send returns the prompt id it was sent under.
  */
 class SessionSender(
     private val client: OrreryClient,
@@ -16,7 +16,7 @@ class SessionSender(
 ) {
     private var failed: FailedSend? = null
 
-    fun send(text: String) {
+    fun send(text: String): String {
         val pending = failed
         val promptId = if (pending != null && pending.text == text) pending.promptId else newPromptId()
         try {
@@ -26,6 +26,7 @@ class SessionSender(
             throw error
         }
         failed = null
+        return promptId
     }
 
     private class FailedSend(val text: String, val promptId: String)

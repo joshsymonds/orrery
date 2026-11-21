@@ -34,6 +34,7 @@ type Store interface {
 		ctx context.Context, epic string, ends []store.NodeEnd, trigger store.NodeTrigger, at time.Time,
 	) error
 	NextRound(ctx context.Context, epic, path string, from int64) error
+	RebuildTask(ctx context.Context, epic, path string, attempt int64) error
 	ParkLoop(ctx context.Context, epic, path string, round int64, reason string, at time.Time) error
 	ParkEpic(ctx context.Context, epic string, class store.ParkClass, reason string, at time.Time) error
 	ParkNode(
@@ -477,14 +478,8 @@ func (r *Runner) carry(ctx context.Context, epic store.EpicRow, act Action) erro
 		default:
 			err = r.store.EndNodes(ctx, epic.ID, act.Ends, at)
 		}
-	case ActRound:
-		err = r.store.NextRound(ctx, epic.ID, act.Path, act.Round)
-	case ActPark:
-		err = r.store.ParkLoop(ctx, epic.ID, act.Path, act.Round, act.Reason, at)
-	case ActParkNode:
-		err = r.store.ParkNode(
-			ctx, epic.ID, act.Path, act.Attempt, act.Outcome, act.Output, store.ParkClassNode, act.Reason, at,
-		)
+	case ActRound, ActPark, ActParkNode, ActRebuild:
+		err = r.moveRun(ctx, epic.ID, act, at)
 	case ActParkEpic:
 		err = r.store.ParkEpicWaking(ctx, epic.ID, act.Reason, *act.Trigger, at)
 	case ActBatch:
@@ -500,6 +495,30 @@ func (r *Runner) carry(ctx context.Context, epic store.EpicRow, act Action) erro
 	}
 	if err != nil {
 		return fmt.Errorf("%s of epic %s: %w", act.Kind, epic.ID, err)
+	}
+	return nil
+}
+
+// moveRun writes one action of epic that moves a single node run at act's path, at at: the next round of a loop, the park
+// of a loop or of a node run, or the rebuild of a build run whose task is open again.
+func (r *Runner) moveRun(ctx context.Context, epic string, act Action, at time.Time) error {
+	var err error
+	switch act.Kind {
+	case ActRound:
+		err = r.store.NextRound(ctx, epic, act.Path, act.Round)
+	case ActPark:
+		err = r.store.ParkLoop(ctx, epic, act.Path, act.Round, act.Reason, at)
+	case ActParkNode:
+		err = r.store.ParkNode(
+			ctx, epic, act.Path, act.Attempt, act.Outcome, act.Output, store.ParkClassNode, act.Reason, at,
+		)
+	case ActRebuild:
+		err = r.store.RebuildTask(ctx, epic, act.Path, act.Attempt)
+	default:
+		return fmt.Errorf("action %s moves no node run", act.Kind)
+	}
+	if err != nil {
+		return fmt.Errorf("move node run %s: %w", act.Path, err)
 	}
 	return nil
 }

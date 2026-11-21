@@ -7,6 +7,7 @@ import io.github.joshsymonds.orrery.gen.orrery.v1.WaitingMessage
 import io.github.joshsymonds.orrery.ui.ConvoEntry
 import io.github.joshsymonds.orrery.ui.ToolCall
 import io.github.joshsymonds.orrery.ui.foldConversation
+import java.time.ZoneId
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -90,15 +91,13 @@ class ConversationContractTest {
 
         assertEquals(
             listOf(
-                ConvoEntry.Time(1700000000L),
                 ConvoEntry.Prompt("Example opening prompt.", 1700000000L),
                 ConvoEntry.Compaction("auto", 611000L, "Example summary.", 1700000050L),
-                ConvoEntry.Time(1700000100L),
                 ConvoEntry.Reply("Example reply.", 1700000100L),
                 ConvoEntry.Tool(ToolCall("example-tool-use", "Bash", "example command", "Example output.", false, 1700000200L)),
                 ConvoEntry.Notice("task", "Example task finished.", false, 1700000300L),
             ),
-            foldConversation(items),
+            foldConversation(items, now = 1700000000L, zone = ZoneId.of("UTC")),
         )
     }
 

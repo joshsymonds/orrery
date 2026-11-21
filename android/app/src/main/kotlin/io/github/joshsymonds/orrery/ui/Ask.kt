@@ -209,6 +209,9 @@ internal fun Ask(
             } else {
                 Text(model.question, style = OrreryTokens.Type.body, modifier = Modifier.testTag("ask-question"))
             }
+            if (model.escalation.isNotEmpty()) {
+                Text(model.escalation, style = OrreryTokens.Type.small, color = OrreryTokens.Role.bad, modifier = Modifier.testTag("ask-escalation"))
+            }
 
             model.command?.let { command ->
                 Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(OrreryTokens.Space.two)) {

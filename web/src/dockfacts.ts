@@ -80,6 +80,7 @@ export function rowFacts(row: Row, conversation: Conversation | null, interrupti
     reason: isPane ? "" : row.summary,
     interruptedAt: interruptedAt(items),
     putOff: (streamState?.request?.putOff ?? false) || (streamPane?.putOff ?? false),
+    archived: row.archived,
     step: null,
   };
 }
@@ -100,6 +101,7 @@ export function stepFacts(
     reason: "",
     interruptedAt: 0,
     putOff: false,
+    archived: false,
     step: { label: step.label, held: step.held, doing: step.doing },
   };
 }

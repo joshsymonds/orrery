@@ -43,8 +43,6 @@ function movedCalls(titles: Record<string, string | undefined>, opened: string[]
   const refused = () => Promise.reject(new Error("a moved line reads no more than its session titles"));
   return {
     get: refused,
-    pause: refused,
-    resume: refused,
     answer: refused,
     openEpic: (id) => {
       opened.push(id);

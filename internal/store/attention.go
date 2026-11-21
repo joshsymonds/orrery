@@ -15,6 +15,9 @@ import (
 // ErrNoTell reports that the epic has no tell with the seq asked for.
 var ErrNoTell = errors.New("no tell")
 
+// stateStopped is the state internal/enginehost/record.go:18 records for a stopped session.
+const stateStopped = "stopped"
+
 // refMoveText matches the text of a tell that reports a ref move: an implementer's, which build writes as `T<n>
 // implementer moved …`, or a workflow node's, which interpret writes as `workflow node <path> moved …`.
 var refMoveText = regexp.MustCompile(`^(T[0-9]+ implementer|workflow node \S+) moved `)
@@ -26,10 +29,12 @@ func SilentMoveTell(text string, hasQuestion bool) bool {
 	return !hasQuestion && refMoveText.MatchString(text)
 }
 
-// EpicAttention is what an epic needs from its owner: its phase, its owner park reason, whether it is paused, the lowest
-// release step its release runs failed (0 when none did), its open questions in seq order, its untold tells in seq
-// order, the time of its newest tell that is not silent (see SilentMoveTell), and its latest ended turn with the number
-// of questions that turn asked.
+// EpicAttention is what an epic needs from its owner: its phase, its owner park reason, whether it is paused, the
+// lowest release step its release runs failed (0 when none did), its open questions in seq order, its untold tells in
+// seq order, the time of its newest tell that is not silent (see SilentMoveTell), its latest ended turn with the number
+// of questions that turn asked, and whether its steerer hears it. Heard is true when the epic has a steerer whose
+// sessions row exists and is not stopped. It is false when the epic has no steerer, when the steerer's row is gone,
+// and when the row is stopped.
 type EpicAttention struct {
 	Epic        string
 	Title       string
@@ -42,6 +47,7 @@ type EpicAttention struct {
 	LatestTell  time.Time
 	Latest      EpicTurn
 	LatestAsked int
+	Heard       bool
 }
 
 // Attention returns one entry per epic with at least one turn or at least one untold tell, ordered by epic id. An epic
@@ -71,10 +77,10 @@ func (s *Store) attention(ctx context.Context, afterLatest func(epic string)) ([
 }
 
 // attentionOf returns the attention of epic: its head, the lowest release step its release runs failed, its open
-// questions in seq order, its untold tells in seq order with the time of its newest tell that is not silent, and its
-// latest ended turn with the questions that turn asked. The latest ended turn is read first, so every write that lands
-// between the reads either leaves the turn as the latest or adds the questions it asked to Open; a turn that ends after
-// the read is reported on a later pass.
+// questions in seq order, its untold tells in seq order with the time of its newest tell that is not silent, its
+// latest ended turn with the questions that turn asked, and whether its steerer hears it. The latest ended turn is
+// read first, so every write that lands between the reads either leaves the turn as the latest or adds the questions
+// it asked to Open; a turn that ends after the read is reported on a later pass.
 func attentionOf(
 	ctx context.Context,
 	queries *sqlcgen.Queries,
@@ -111,10 +117,14 @@ func attentionOf(
 	if err != nil {
 		return EpicAttention{}, fmt.Errorf("release runs: %w", err)
 	}
+	heard, err := steererHeard(ctx, queries, id)
+	if err != nil {
+		return EpicAttention{}, fmt.Errorf("steerer: %w", err)
+	}
 	entry := EpicAttention{
 		Epic: head.ID, Title: head.Title, Phase: head.Phase,
 		Parked: ownedPark(head.Parked, head.ParkClass), Paused: head.Paused != 0,
-		FailedStep: failedReleaseStep(releases), Open: questions, Tells: untold,
+		FailedStep: failedReleaseStep(releases), Open: questions, Tells: untold, Heard: heard,
 	}
 	for _, tell := range slices.Backward(tells) {
 		if !SilentMoveTell(tell.Text, tell.Question != 0) {
@@ -138,6 +148,19 @@ func attentionOf(
 	entry.Latest = latest
 	entry.LatestAsked = int(asked)
 	return entry, nil
+}
+
+// steererHeard reports whether epic has a steerer whose sessions row exists and is not stopped. It reads the steerer
+// through the query Store.EpicSteerer reads it with, so a missing steerer and a gone row both read as not heard.
+func steererHeard(ctx context.Context, queries *sqlcgen.Queries, epic string) (bool, error) {
+	steerer, err := queries.GetEpicSteerer(ctx, epic)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("read steerer of epic %s: %w", epic, err)
+	}
+	return steerer.State != stateStopped, nil
 }
 
 // untoldTellsOf returns the tells of epic not yet told, in the seq order the rows come in. A tell that belongs to a

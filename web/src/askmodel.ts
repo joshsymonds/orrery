@@ -1,5 +1,6 @@
 import type { Conversation } from "./conversation";
 import type { Epic, EpicQuestion } from "./gen/orrery/v1/epics_pb";
+import { makerOf } from "./happenings";
 import { parseQuestion, readQuestion } from "./question";
 import type { Row } from "./rows";
 import { lastPathElement } from "./titleparts";
@@ -37,6 +38,9 @@ export interface AskModel {
   archive: { kind: "session" | "headless"; id: string } | null;
   target: AskTarget | null;
   epic: { id: string; questionId: string } | null;
+  // escalation is the line that names who escalated an epic's question and why. It is absent while the question is not
+  // escalated.
+  escalation?: string;
 }
 
 // Only the first nine options can be picked by a key.
@@ -128,7 +132,7 @@ export function conversationAsk(row: Row, conversation: Conversation | null): As
 // The owner's own answer, Something else, is not an option; the drawing adds it.
 export function epicAsk(epic: Epic, question: EpicQuestion): AskModel {
   const recommendation = question.recommendation;
-  return {
+  const model: AskModel = {
     kind: "epic",
     who: joinWords([epicProject(epic), epic.slug]),
     asked: Number(question.asked),
@@ -143,6 +147,12 @@ export function epicAsk(epic: Epic, question: EpicQuestion): AskModel {
     target: null,
     epic: { id: epic.id, questionId: question.id },
   };
+  if (question.escalated > 0n) {
+    const maker =
+      question.escalationBy === "" ? "unknown" : makerOf(question.escalationBy, question.escalationSession, undefined);
+    model.escalation = `escalated by ${maker}: ${question.escalationReason}`;
+  }
+  return model;
 }
 
 // parkAsk is an epic's park: its parked reason, with the one answer that runs the parked work again.

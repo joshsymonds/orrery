@@ -393,13 +393,13 @@ func TestReleaseEpicReleasesAnEndedWithGapsEpic(t *testing.T) {
 	ctx := context.Background()
 	s, raw := openReleaseStore(t, resumeEpicIn(resumeEpic, "ended_with_gaps"))
 	tells := tellsOf(t, raw, resumeEpic)
-	if err := s.ReleaseEpic(ctx, resumeEpic, nil, store.Maker{}, resumeAt()); err != nil {
+	if err := s.ReleaseEpic(ctx, resumeEpic, nil, store.Maker{By: store.MakerOwner}, resumeAt()); err != nil {
 		t.Fatalf("ReleaseEpic of an ended_with_gaps epic: %v", err)
 	}
 	requirePhase(t, s, resumeEpic, store.PhaseClean)
 	requireDecisions(t, s, resumeEpic, []store.EpicDecision{{
 		Seq: 1, ID: "release-ended-with-gaps", Text: "owner released epic " + resumeEpic + ", which ended with gaps",
-		Time: resumeAt(),
+		Time: resumeAt(), Maker: store.Maker{By: store.MakerOwner},
 	}})
 	if got := tellsOf(t, raw, resumeEpic); !reflect.DeepEqual(got, tells) {
 		t.Errorf("tells of epic %s after ReleaseEpic = %q, want %q", resumeEpic, got, tells)

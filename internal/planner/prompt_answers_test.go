@@ -9,7 +9,7 @@ import (
 
 // TestPromptTiesAnswerToItsQuestionAndListsOnlyNotesAsNewNotes gives an epic a note and an answer to Q1, both recorded
 // after turn 1 saw decision 1. The answer renders under Decisions tied to Q1 and is absent from New notes, which lists
-// only the note; the note renders as `- id: text`.
+// only the note; the note renders as `- id (by maker): text`.
 func TestPromptTiesAnswerToItsQuestionAndListsOnlyNotesAsNewNotes(t *testing.T) {
 	t.Parallel()
 	epic := store.EpicRow{
@@ -28,12 +28,12 @@ func TestPromptTiesAnswerToItsQuestionAndListsOnlyNotesAsNewNotes(t *testing.T) 
 	prompt := promptOf(t, epic, 2, nil)
 	inOrder(t, prompt,
 		"## Decisions",
-		"- D1: seed one",
-		"- note-2: keep the old schema",
-		"- ans-3 (answers Q1): use the sqlite store",
+		"- D1 (by unknown): seed one",
+		"- note-2 (by unknown): keep the old schema",
+		"- ans-3 (answers Q1, by unknown): use the sqlite store",
 		"## New notes",
 	)
-	want := "## New notes\n- note-2: keep the old schema\n\n## Open questions\nNone.\n"
+	want := "## New notes\n- note-2 (by unknown): keep the old schema\n\n## Open questions\nNone.\n"
 	if !strings.Contains(prompt, want) {
 		t.Fatalf("prompt lacks %q: New notes must list only notes, not answers; prompt is:\n%s", want, prompt)
 	}

@@ -324,8 +324,9 @@ func emptyPassedBatch(run NodeRun) bool {
 	return run.State == NodeEnded && run.Outcome == nodePassedOutcome && run.Revision == ""
 }
 
-// settleSeq returns the seq of the settle walk or late walk that holds the node run at path: the N of the S<N> or L<N>
-// segment just above the run's own node. It returns false when path sits in no such walk.
+// settleSeq returns the seq of the settle walk or late walk that holds the node run at path: the N of the S<N>, L<N> or
+// L<N>g<G> segment just above the run's own node, the last the late walk of a task at reopen generation G. It returns
+// false when path sits in no such walk.
 func settleSeq(path string) (uint64, bool) {
 	i := strings.LastIndex(path, "/")
 	if i < 0 {
@@ -336,6 +337,12 @@ func settleSeq(path string) (uint64, bool) {
 	walk, found := strings.CutPrefix(segment, "S")
 	if !found {
 		walk, found = strings.CutPrefix(segment, "L")
+		if late, generation, reopened := strings.Cut(walk, "g"); found && reopened {
+			if _, err := strconv.ParseUint(generation, 10, 64); err != nil {
+				return 0, false
+			}
+			walk = late
+		}
 	}
 	if !found {
 		return 0, false
@@ -383,4 +390,19 @@ func capNodeOutput(output string) string {
 		cut--
 	}
 	return output[:cut]
+}
+
+// RebuildTask turns the build run at path of epic, which ended at attempt, running at its next attempt with its outcome,
+// output, revision, refs, refs checked, result and end cleared, in one write, so its task builds again. A send_back that
+// reopens a done task leaves its build run ended, and a plan starts no second run at a stored path. A run at another
+// attempt, a run that is not ended and a run of another kind change nothing, so a repeat is a no-op.
+func (s *Store) RebuildTask(ctx context.Context, epic, path string, attempt int64) error {
+	return s.write(ctx, func(queries *sqlcgen.Queries) error {
+		if _, err := queries.RebuildEpicTaskRun(ctx, sqlcgen.RebuildEpicTaskRunParams{
+			Epic: epic, Path: path, Attempt: attempt,
+		}); err != nil {
+			return fmt.Errorf("rebuild node run %s of epic %s: %w", path, epic, err)
+		}
+		return nil
+	})
 }

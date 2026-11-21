@@ -34,6 +34,7 @@ type ContractState struct {
 	Session  string
 	Words    string
 	At       int64
+	Base     string
 }
 
 type ContractVersion struct {
@@ -343,19 +344,24 @@ type EpicPremise struct {
 }
 
 type EpicQuestion struct {
-	Epic        string
-	Seq         int64
-	Turn        int64
-	Text        string
-	State       string
-	Label       string
-	Choices     string
-	Recommended string
-	Why         string
-	Confidence  string
-	Replaces    int64
-	ReplacedBy  int64
-	Choice      string
+	Epic              string
+	Seq               int64
+	Turn              int64
+	Text              string
+	State             string
+	Label             string
+	Choices           string
+	Recommended       string
+	Why               string
+	Confidence        string
+	Replaces          int64
+	ReplacedBy        int64
+	Choice            string
+	Escalated         int64
+	EscalationReason  string
+	EscalationMaker   string
+	EscalationSession string
+	EscalationTold    int64
 }
 
 type EpicReleaseRun struct {
@@ -505,6 +511,7 @@ type EpicTask struct {
 	GateChanges string
 	Rebriefs    string
 	Notes       string
+	Generation  int64
 }
 
 type EpicTaskContribute struct {
@@ -524,6 +531,7 @@ type EpicTaskFile struct {
 type EpicTaskFinding struct {
 	Epic       string
 	Task       int64
+	Generation int64
 	Attempt    int64
 	Review     int64
 	Position   int64
@@ -555,36 +563,39 @@ type EpicTaskRequirement struct {
 }
 
 type EpicTaskReview struct {
-	Epic     string
-	Task     int64
-	Attempt  int64
-	Position int64
-	Gate     string
-	Step     string
-	Verdict  string
-	Reason   string
+	Epic       string
+	Task       int64
+	Generation int64
+	Attempt    int64
+	Position   int64
+	Gate       string
+	Step       string
+	Verdict    string
+	Reason     string
 }
 
 type EpicTaskRung struct {
-	Epic      string
-	Task      int64
-	Rung      int64
-	Kind      string
-	MovedBy   string
-	Cause     string
-	Gate      string
-	Assertion string
-	Step      string
-	Created   int64
+	Epic       string
+	Task       int64
+	Generation int64
+	Rung       int64
+	Kind       string
+	MovedBy    string
+	Cause      string
+	Gate       string
+	Assertion  string
+	Step       string
+	Created    int64
 }
 
 type EpicTaskRungOutcome struct {
-	Epic    string
-	Task    int64
-	Rung    int64
-	Outcome string
-	Reason  string
-	Ended   int64
+	Epic       string
+	Task       int64
+	Generation int64
+	Rung       int64
+	Outcome    string
+	Reason     string
+	Ended      int64
 }
 
 type EpicTaskTestChange struct {

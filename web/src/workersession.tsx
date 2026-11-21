@@ -85,7 +85,9 @@ export function WorkerSessionPage({
         <div class="reader step-end-row">
           <div class="t">
             <span class="gut">{clock(step.ended)}</span>
-            <StepCard event={stepEndOf(step, detail)} />
+            <div class="body">
+              <StepCard event={stepEndOf(step, detail)} time={step.ended} />
+            </div>
           </div>
         </div>
       )}
@@ -93,14 +95,13 @@ export function WorkerSessionPage({
   );
 }
 
-// stepEndOf is a step's end as the conversation's step-end block holds it: its id, agent, end, status, epic and task, and
+// stepEndOf is a step's end as the conversation's step-end block holds it: its id, agent, end, epic and task, and
 // its summary as the brief, one line each.
 function stepEndOf(step: EpicStep, detail: EpicsGetResponse): StepEvent {
   return {
     step: step.id,
     agent: step.agent,
     end: step.end,
-    status: step.status,
     epic: detail.epic?.id ?? "",
     task: step.task,
     brief: step.summary === "" ? [] : step.summary.split("\n"),

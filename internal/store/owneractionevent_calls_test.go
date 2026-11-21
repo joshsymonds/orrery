@@ -65,7 +65,7 @@ func ownerCallCases() []ownerCallCase {
 			name: "amend", epic: amendEpic, setup: createAmendEpic, action: ActionAmend,
 			call: func(s *Store, maker Maker) error {
 				_, err := s.AmendEvidence(ctx, amendEpic, Amendment{
-					Requirement: "R1", Item: newAmendItem(), Reason: "the conclusion is sharpened",
+					Requirement: "R1", Item: captureAmendItem(), Reason: "the test moved to cmd/orreryd",
 				}, maker, actionLogAt())
 				return err
 			},

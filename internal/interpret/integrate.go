@@ -38,7 +38,8 @@ type batchLeftOut struct {
 // epic's batch base (batchBase), and holds, with the tasks act names, each task whose work a failed batch composed and
 // the batch base does not hold (strandedTasks), so that work is composed again or left out with its reason, never
 // lost. The tasks compose in seq order. It claims the batch with the candidate, the refs as they are now and the result
-// compose made, and claims only the tasks act names.
+// compose made, and claims every task of the batch: the tasks act names, and each stranded task, whose claim on its
+// failed batch the claim moves to this one, so a failed batch never holds a task that a later batch composed.
 func (r *Runner) prepareBatch(ctx context.Context, epic store.EpicRow, act Action) error {
 	base, err := batchBase(ctx, epic)
 	if err != nil {
@@ -54,7 +55,8 @@ func (r *Runner) prepareBatch(ctx context.Context, epic store.EpicRow, act Actio
 	}
 	seqs := slices.Concat(stranded, act.Tasks)
 	slices.Sort(seqs)
-	tasks, err := batchTasks(epic, slices.Compact(seqs))
+	seqs = slices.Compact(seqs)
+	tasks, err := batchTasks(epic, seqs)
 	if err != nil {
 		return err
 	}
@@ -71,7 +73,7 @@ func (r *Runner) prepareBatch(ctx context.Context, epic store.EpicRow, act Actio
 		return err
 	}
 	if err = r.store.ClaimBatch(
-		ctx, epic.ID, act.Path, act.Run.Attempt, result.Candidate, refs, encoded, act.Tasks,
+		ctx, epic.ID, act.Path, act.Run.Attempt, result.Candidate, refs, encoded, seqs,
 	); err != nil {
 		return fmt.Errorf("claim batch of node %s: %w", act.Path, err)
 	}

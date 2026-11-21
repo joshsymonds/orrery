@@ -168,7 +168,8 @@ func TestCorrectAnswerReturnsToCorrectingGapQuestion(t *testing.T) {
 	}
 
 	at := claimedAt().Add(time.Minute)
-	_, err = s.AnswerQuestion(ctx, claimEpic, "owner-correct", "Keep the old tasks", 1, ChoiceCorrect, Maker{}, at)
+	_, err = s.AnswerQuestion(ctx, claimEpic, "owner-correct", "Keep the old tasks", 1, ChoiceCorrect,
+		Maker{By: MakerOwner}, at)
 	if err != nil {
 		t.Fatalf("AnswerQuestion correct: %v", err)
 	}

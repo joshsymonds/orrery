@@ -55,7 +55,7 @@
   "internal/shell": 0.7,
   "internal/stamp": 0.6,
   "internal/state": 3.3,
-  "internal/stepmcp": 4.1,
+  "internal/stepmcp": 13.3,
   "internal/store": 189.9,
   "internal/storetest": 2.7,
   "internal/summary": 1.7,

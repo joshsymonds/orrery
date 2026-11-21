@@ -14,11 +14,13 @@ import (
 	"github.com/joshsymonds/orrery/internal/store/sqlcgen"
 )
 
-// The amenders of an evidence amendment: the owner, through AmendEvidence, which Epics.AmendEvidence calls, or the
-// planner, through an amend_evidence action.
+// The amenders of an evidence amendment: the maker of an AmendEvidence call, which is the owner, the conversation that
+// steers the epic, or orreryd for a step's call that is not the epic's, or the planner, through an amend_evidence action.
 const (
-	AmenderOwner   = "owner"
-	AmenderPlanner = "planner"
+	AmenderOwner        = "owner"
+	AmenderConversation = "conversation"
+	AmenderOrreryd      = "orreryd"
+	AmenderPlanner      = "planner"
 )
 
 // The states of an evidence amendment. An amendment is checking while the red run of its new item at the epic's base is
@@ -105,12 +107,14 @@ func AmendmentWorkID(epic string, seq int64, part string, attempt int64) string 
 	return nodeHash(amendmentNamespace, epic, strconv.FormatInt(seq, 10), part, strconv.FormatInt(attempt, 10))
 }
 
-// AmendEvidence stores, in one write, the owner's amendment of the evidence item of a Requirement of epic, and returns
-// it. An amend_evidence action makes the same write by the planner (see CarryOutAction). An amendment that keeps the
-// Requirement's conclusion and kind, changing only how it is shown, applies in that write (see applyUnchanged). Any other
-// amendment starts checking: the item does not change until the red run of the new item at the epic's base is judged not
-// to hold (see SettleAmendment). The write appends one amend action made by maker at at. An unknown epic is ErrNoEpic.
-// An amendment the store refuses is a RefusalError and writes nothing; startAmendment gives the refusals.
+// AmendEvidence stores, in one write, the amendment of the evidence item of a Requirement of epic that maker makes, and
+// returns it. Its amender is maker's, the owner, a conversation or orreryd (see makerAmender); a maker with any other By,
+// or none, is a RefusalError and writes nothing. An amend_evidence action makes the same write by the planner (see
+// CarryOutAction). An amendment that keeps the Requirement's conclusion and kind, changing only how it is shown, applies
+// in that write (see applyUnchanged). Any other amendment starts checking: the item does not change until the red run of
+// the new item at the epic's base is judged not to hold (see SettleAmendment). The write appends one amend action made by
+// maker at at. An unknown epic is ErrNoEpic. An amendment the store refuses is a RefusalError and writes nothing;
+// startAmendment gives the refusals.
 func (s *Store) AmendEvidence(
 	ctx context.Context,
 	epic string,
@@ -118,9 +122,13 @@ func (s *Store) AmendEvidence(
 	maker Maker,
 	at time.Time,
 ) (EvidenceAmendment, error) {
+	amender, makerErr := makerAmender(maker)
+	if makerErr != nil {
+		return EvidenceAmendment{}, makerErr
+	}
 	var stored EvidenceAmendment
 	err := s.write(ctx, func(queries *sqlcgen.Queries) error {
-		started, err := startAmendment(ctx, queries, epic, amendStart{amender: AmenderOwner, Amendment: amend}, at)
+		started, err := startAmendment(ctx, queries, epic, amendStart{amender: amender, Amendment: amend}, at)
 		if err != nil {
 			return err
 		}
@@ -135,6 +143,22 @@ func (s *Store) AmendEvidence(
 		return EvidenceAmendment{}, err
 	}
 	return stored, nil
+}
+
+// makerAmender returns the amender an AmendEvidence call by maker stores: the owner, a conversation or orreryd, as
+// MakerOwner, MakerConversation and MakerOrreryd name them. A maker with any other By, or none, is a RefusalError that
+// names it.
+func makerAmender(maker Maker) (string, error) {
+	switch maker.By {
+	case MakerOwner:
+		return AmenderOwner, nil
+	case MakerConversation:
+		return AmenderConversation, nil
+	case MakerOrreryd:
+		return AmenderOrreryd, nil
+	}
+	return "", RefusalError(fmt.Sprintf(
+		"the amendment's maker %q is not the owner, a conversation or orreryd", maker.By))
 }
 
 // startAmendment stores start as the next amendment of epic in the caller's write, checking, with the item the
@@ -207,11 +231,12 @@ func epicRequirement(ctx context.Context, queries *sqlcgen.Queries, epic, id str
 
 // amendmentRefusal returns why start may not amend requirement of epic, or "" when it may: a Requirement dropped as
 // already met at the base, an item evidence.Check refuses, with each of its lines, an item the Requirement already holds,
-// whatever empty lists it gives as null or [], a planner amendment that changes the conclusion or the kind, which only the
-// owner may change, a Requirement with an amendment that is checking or capturing, and an amendment that keeps the
-// conclusion and kind while evidence work of the epic is under way. A planner that changed the kind could drop what the
-// kind checks, such as the reproduction of a test item. An amendment that keeps them applies in the write that stores it,
-// so it is refused rather than deferred while that work runs: its new item would leave the stored runs of the work stale.
+// whatever empty lists it gives as null or [], an amendment by anyone but the owner that changes the conclusion or the
+// kind, which only the owner may change, a Requirement with an amendment that is checking or capturing, and an amendment
+// that keeps the conclusion and kind while evidence work of the epic is under way. A non-owner that changed the kind could
+// drop what the kind checks, such as the reproduction of a test item. An amendment that keeps them applies in the write
+// that stores it, so it is refused rather than deferred while that work runs: its new item would leave the stored runs of
+// the work stale.
 func amendmentRefusal(
 	ctx context.Context, queries *sqlcgen.Queries, epic string, requirement EpicRequirement, start amendStart,
 ) (string, error) {
@@ -226,14 +251,14 @@ func amendmentRefusal(
 	if evidence.Current(listsAsNull(requirement.Item), listsAsNull(start.Item)) {
 		return fmt.Sprintf("%s already holds this item", id), nil
 	}
-	if start.amender == AmenderPlanner && start.Item.Conclusion != requirement.Item.Conclusion {
+	if start.amender != AmenderOwner && start.Item.Conclusion != requirement.Item.Conclusion {
 		return fmt.Sprintf(
-			"the planner may not change the conclusion of %s; only the owner amends a conclusion",
-			id,
+			"the %s may not change the conclusion of %s; only the owner amends a conclusion",
+			start.amender, id,
 		), nil
 	}
-	if start.amender == AmenderPlanner && start.Item.Kind != requirement.Item.Kind {
-		return fmt.Sprintf("the planner may not change the kind of %s; only the owner amends a kind", id), nil
+	if start.amender != AmenderOwner && start.Item.Kind != requirement.Item.Kind {
+		return fmt.Sprintf("the %s may not change the kind of %s; only the owner amends a kind", start.amender, id), nil
 	}
 	open, err := queries.CountOpenRequirementAmendments(ctx, sqlcgen.CountOpenRequirementAmendmentsParams{
 		Epic: epic, Requirement: id,
@@ -726,8 +751,8 @@ func greenOutcome(amendment EvidenceAmendment, green EvidenceRun, repro NodeChec
 }
 
 // finishAmendment ends an amendment that is now applied, in the caller's write. It adds a pending trigger with the id
-// amend-<seq> whose cause names the amendment and outcome, so the planner plans on the new item, and the owner's amendment
-// also adds a tell with the same text.
+// amend-<seq> whose cause names the amendment and outcome, so the planner plans on the new item. An amendment by the owner
+// or by a conversation also adds a tell with the same text, which tells the owner of it.
 func finishAmendment(
 	ctx context.Context, queries *sqlcgen.Queries, amendment EvidenceAmendment, outcome string, at time.Time,
 ) error {
@@ -743,7 +768,7 @@ func finishAmendment(
 	); err != nil {
 		return err
 	}
-	if amendment.Amender != AmenderOwner {
+	if amendment.Amender != AmenderOwner && amendment.Amender != AmenderConversation {
 		return nil
 	}
 	return insertTell(ctx, queries, amendment.Epic, capitalized(cause), at)

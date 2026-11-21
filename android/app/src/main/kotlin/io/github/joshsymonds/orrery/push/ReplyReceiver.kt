@@ -15,6 +15,7 @@ import io.github.joshsymonds.orrery.api.OrreryClient
 import io.github.joshsymonds.orrery.push.PushNotifier.Companion.ACTION_REPLY
 import io.github.joshsymonds.orrery.push.PushNotifier.Companion.EXTRA_ANSWER
 import io.github.joshsymonds.orrery.push.PushNotifier.Companion.EXTRA_DIR
+import io.github.joshsymonds.orrery.push.PushNotifier.Companion.EXTRA_HOST
 import io.github.joshsymonds.orrery.push.PushNotifier.Companion.EXTRA_KEY
 import io.github.joshsymonds.orrery.push.PushNotifier.Companion.EXTRA_NOTIFICATION_ID
 import io.github.joshsymonds.orrery.push.PushNotifier.Companion.EXTRA_PANE
@@ -34,9 +35,15 @@ private const val REFUSED_REPLY = "The server refused your reply."
 private const val NO_ANSWER = "The server did not answer in time; it may have landed. Open it to see."
 private const val ANSWER_NOT_REACHED = "Your answer did not reach the server."
 private const val REPLY_NOT_REACHED = "Your reply did not reach the server."
+private const val KEPT_IN_APP = "It is kept in the app."
+private const val PANE_KIND = "pane"
+private const val SESSION_KIND = "session"
 
 /** What the shade shows for an action that did not land: its title, after the directory, and its text. */
 private class Shown(val title: String, val text: String)
+
+/** A typed reply, with the host and the conversation it names. */
+private class TypedReply(val host: String, val kind: String, val conversation: String, val text: String)
 
 /**
  * Handles one notification action per broadcast. The work runs on a plain
@@ -63,13 +70,13 @@ class ReplyReceiver : BroadcastReceiver() {
         val client = OrreryClient(ServerSettings(context).serverUrl)
         val reply = intent.action == ACTION_REPLY
         val shown = try {
-            if (reply) sendReply(client, intent) else sendAnswer(client, intent)
+            if (reply) sendReply(context, client, intent) else sendAnswer(client, intent)
         } catch (error: NoAnswerException) {
             Shown(NOT_CONFIRMED, NO_ANSWER)
         } catch (error: OrreryCallException) {
-            if (reply) Shown(NOT_SENT, REFUSED_REPLY) else Shown(NOT_ANSWERED, REFUSED_ANSWER)
+            Shown(NOT_ANSWERED, REFUSED_ANSWER)
         } catch (error: IOException) {
-            Shown(NOT_SENT, if (reply) REPLY_NOT_REACHED else ANSWER_NOT_REACHED)
+            Shown(NOT_SENT, ANSWER_NOT_REACHED)
         }
         if (shown != null) {
             notifier.showResult(id, "$dir: ${shown.title}", shown.text)
@@ -105,20 +112,42 @@ class ReplyReceiver : BroadcastReceiver() {
         }
     }
 
-    /** Sends the typed reply to the session or pane the action names, and returns null when it was sent. */
-    private fun sendReply(client: OrreryClient, intent: Intent): Shown? {
+    /**
+     * Sends the typed reply to the session or pane the action names, and returns null when it landed. A reply that did
+     * not land is kept on this phone, and its result says so.
+     */
+    private fun sendReply(context: Context, client: OrreryClient, intent: Intent): Shown? {
         val text = RemoteInput.getResultsFromIntent(intent)?.getCharSequence(REMOTE_INPUT_KEY)?.toString()
         if (text.isNullOrBlank()) return Shown(NOT_SENT, REPLY_NOT_REACHED)
         val session = intent.getStringExtra(EXTRA_SESSION)
-        val pane = intent.getStringExtra(EXTRA_PANE)
-        if (!session.isNullOrEmpty()) {
-            client.say(session, text, UUID.randomUUID().toString())
-        } else if (!pane.isNullOrEmpty()) {
-            client.sendText(pane, text)
-        } else {
-            return Shown(NOT_SENT, REPLY_NOT_REACHED)
+        val kind = if (!session.isNullOrEmpty()) SESSION_KIND else PANE_KIND
+        val conversation = if (kind == SESSION_KIND) session else intent.getStringExtra(EXTRA_PANE)
+        if (conversation.isNullOrEmpty()) return Shown(NOT_SENT, REPLY_NOT_REACHED)
+        val reply = TypedReply(intent.getStringExtra(EXTRA_HOST).orEmpty(), kind, conversation, text)
+        return try {
+            if (kind == SESSION_KIND) {
+                client.say(conversation, text, UUID.randomUUID().toString())
+            } else {
+                client.sendText(conversation, text)
+            }
+            null
+        } catch (error: NoAnswerException) {
+            unlanded(context, reply, NOT_CONFIRMED, NO_ANSWER)
+        } catch (error: OrreryCallException) {
+            unlanded(context, reply, NOT_SENT, REFUSED_REPLY)
+        } catch (error: IOException) {
+            unlanded(context, reply, NOT_SENT, REPLY_NOT_REACHED)
         }
-        return null
+    }
+
+    /**
+     * Keeps a reply the receiver did not see land, and returns the result that says it is kept. A reply that names no
+     * host keeps nothing: no dock reads a reply kept under an empty host.
+     */
+    private fun unlanded(context: Context, reply: TypedReply, title: String, reason: String): Shown {
+        if (reply.host.isEmpty()) return Shown(title, reason)
+        val kept = KeptReplies(context).keep(reply.host, reply.kind, reply.conversation, reply.text)
+        return Shown(title, if (kept) "$reason $KEPT_IN_APP" else reason)
     }
 
     /**

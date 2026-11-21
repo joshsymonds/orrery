@@ -111,7 +111,12 @@ func (q *Queries) ClaimEpicNodeRunWork(ctx context.Context, arg ClaimEpicNodeRun
 
 const claimEpicTaskBatch = `-- name: ClaimEpicTaskBatch :exec
 UPDATE epic_tasks SET batch = ?1
-WHERE epic = ?2 AND seq = ?3 AND status = 'done' AND (batch = '' OR batch = ?1)
+WHERE epic_tasks.epic = ?2 AND epic_tasks.seq = ?3 AND epic_tasks.status = 'done' AND (
+    epic_tasks.batch = '' OR epic_tasks.batch = ?1 OR epic_tasks.batch IN (
+        SELECT runs.path FROM epic_node_runs AS runs
+        WHERE runs.epic = ?2 AND runs.kind = 'integrate' AND runs.state = 'ended' AND runs.outcome = 'failed'
+    )
+)
 `
 
 type ClaimEpicTaskBatchParams struct {
@@ -732,34 +737,6 @@ func (q *Queries) DeleteEpicTaskRefused(ctx context.Context, arg DeleteEpicTaskR
 	return err
 }
 
-const deleteEpicTaskRungOutcomes = `-- name: DeleteEpicTaskRungOutcomes :exec
-DELETE FROM epic_task_rung_outcomes WHERE epic = ?1 AND task = ?2
-`
-
-type DeleteEpicTaskRungOutcomesParams struct {
-	Epic string
-	Task int64
-}
-
-func (q *Queries) DeleteEpicTaskRungOutcomes(ctx context.Context, arg DeleteEpicTaskRungOutcomesParams) error {
-	_, err := q.db.ExecContext(ctx, deleteEpicTaskRungOutcomes, arg.Epic, arg.Task)
-	return err
-}
-
-const deleteEpicTaskRungs = `-- name: DeleteEpicTaskRungs :exec
-DELETE FROM epic_task_rungs WHERE epic = ?1 AND task = ?2
-`
-
-type DeleteEpicTaskRungsParams struct {
-	Epic string
-	Task int64
-}
-
-func (q *Queries) DeleteEpicTaskRungs(ctx context.Context, arg DeleteEpicTaskRungsParams) error {
-	_, err := q.db.ExecContext(ctx, deleteEpicTaskRungs, arg.Epic, arg.Task)
-	return err
-}
-
 const deleteGrant = `-- name: DeleteGrant :exec
 DELETE FROM grants WHERE id = ?
 `
@@ -1090,6 +1067,35 @@ type EndRunningEpicNodeRunsParams struct {
 func (q *Queries) EndRunningEpicNodeRuns(ctx context.Context, arg EndRunningEpicNodeRunsParams) error {
 	_, err := q.db.ExecContext(ctx, endRunningEpicNodeRuns, arg.Ended, arg.Epic)
 	return err
+}
+
+const escalateEpicQuestion = `-- name: EscalateEpicQuestion :execrows
+UPDATE epic_questions SET escalated = ?, escalation_reason = ?, escalation_maker = ?, escalation_session = ?
+WHERE epic = ? AND seq = ? AND state = 'open' AND escalated = 0
+`
+
+type EscalateEpicQuestionParams struct {
+	Escalated         int64
+	EscalationReason  string
+	EscalationMaker   string
+	EscalationSession string
+	Epic              string
+	Seq               int64
+}
+
+func (q *Queries) EscalateEpicQuestion(ctx context.Context, arg EscalateEpicQuestionParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, escalateEpicQuestion,
+		arg.Escalated,
+		arg.EscalationReason,
+		arg.EscalationMaker,
+		arg.EscalationSession,
+		arg.Epic,
+		arg.Seq,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const eventPageAfter = `-- name: EventPageAfter :many
@@ -1660,7 +1666,7 @@ func (q *Queries) GetEpicParkQuestionRun(ctx context.Context, arg GetEpicParkQue
 }
 
 const getEpicQuestion = `-- name: GetEpicQuestion :one
-SELECT epic, seq, turn, text, state, label, choices, recommended, why, confidence, replaces, replaced_by, choice FROM epic_questions WHERE epic = ? AND seq = ?
+SELECT epic, seq, turn, text, state, label, choices, recommended, why, confidence, replaces, replaced_by, choice, escalated, escalation_reason, escalation_maker, escalation_session, escalation_told FROM epic_questions WHERE epic = ? AND seq = ?
 `
 
 type GetEpicQuestionParams struct {
@@ -1685,6 +1691,11 @@ func (q *Queries) GetEpicQuestion(ctx context.Context, arg GetEpicQuestionParams
 		&i.Replaces,
 		&i.ReplacedBy,
 		&i.Choice,
+		&i.Escalated,
+		&i.EscalationReason,
+		&i.EscalationMaker,
+		&i.EscalationSession,
+		&i.EscalationTold,
 	)
 	return i, err
 }
@@ -1765,7 +1776,7 @@ func (q *Queries) GetEpicSteerer(ctx context.Context, id string) (GetEpicSteerer
 }
 
 const getEpicTask = `-- name: GetEpicTask :one
-SELECT epic, seq, turn, title, deliverable, status, gate, evidence, stage, base, attempt, rerun, no_verdict, held, step, red_run, green_run, revision, failure, review, refs, gate_pos, finding_pos, batch, guard, needs_files, decisions, after_tasks, question, gate_changes, rebriefs, notes FROM epic_tasks WHERE epic = ? AND seq = ?
+SELECT epic, seq, turn, title, deliverable, status, gate, evidence, stage, base, attempt, rerun, no_verdict, held, step, red_run, green_run, revision, failure, review, refs, gate_pos, finding_pos, batch, guard, needs_files, decisions, after_tasks, question, gate_changes, rebriefs, notes, generation FROM epic_tasks WHERE epic = ? AND seq = ?
 `
 
 type GetEpicTaskParams struct {
@@ -1809,6 +1820,7 @@ func (q *Queries) GetEpicTask(ctx context.Context, arg GetEpicTaskParams) (EpicT
 		&i.GateChanges,
 		&i.Rebriefs,
 		&i.Notes,
+		&i.Generation,
 	)
 	return i, err
 }
@@ -2415,7 +2427,7 @@ func (q *Queries) InsertContract(ctx context.Context, arg InsertContractParams) 
 }
 
 const insertContractState = `-- name: InsertContractState :exec
-INSERT INTO contract_states (contract, seq, state, version, session, words, at) VALUES (?, ?, ?, ?, ?, ?, ?)
+INSERT INTO contract_states (contract, seq, state, version, session, words, at, base) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 `
 
 type InsertContractStateParams struct {
@@ -2426,6 +2438,7 @@ type InsertContractStateParams struct {
 	Session  string
 	Words    string
 	At       int64
+	Base     string
 }
 
 func (q *Queries) InsertContractState(ctx context.Context, arg InsertContractStateParams) error {
@@ -2437,6 +2450,7 @@ func (q *Queries) InsertContractState(ctx context.Context, arg InsertContractSta
 		arg.Session,
 		arg.Words,
 		arg.At,
+		arg.Base,
 	)
 	return err
 }
@@ -3568,9 +3582,15 @@ func (q *Queries) InsertEpicTaskFile(ctx context.Context, arg InsertEpicTaskFile
 }
 
 const insertEpicTaskFinding = `-- name: InsertEpicTaskFinding :exec
-INSERT INTO epic_task_findings (epic, task, attempt, review, position, id, claim, citation, location, evidence, verify_by,
-                                step, result, reason, unverified)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+INSERT INTO epic_task_findings (epic, task, generation, attempt, review, position, id, claim, citation, location,
+                                evidence, verify_by, step, result, reason, unverified)
+VALUES (
+    ?1, ?2,
+    (SELECT tasks.generation FROM epic_tasks AS tasks WHERE tasks.epic = ?1 AND tasks.seq = ?2),
+    ?3, ?4, ?5, ?6, ?7, ?8,
+    ?9, ?10, ?11, ?12, ?13, ?14,
+    ?15
+)
 `
 
 type InsertEpicTaskFindingParams struct {
@@ -3658,7 +3678,12 @@ func (q *Queries) InsertEpicTaskRequirement(ctx context.Context, arg InsertEpicT
 }
 
 const insertEpicTaskReview = `-- name: InsertEpicTaskReview :exec
-INSERT INTO epic_task_reviews (epic, task, attempt, position, gate, step, verdict) VALUES (?, ?, ?, ?, ?, ?, ?)
+INSERT INTO epic_task_reviews (epic, task, generation, attempt, position, gate, step, verdict)
+VALUES (
+    ?1, ?2,
+    (SELECT tasks.generation FROM epic_tasks AS tasks WHERE tasks.epic = ?1 AND tasks.seq = ?2),
+    ?3, ?4, ?5, ?6, ?7
+)
 `
 
 type InsertEpicTaskReviewParams struct {
@@ -3685,9 +3710,14 @@ func (q *Queries) InsertEpicTaskReview(ctx context.Context, arg InsertEpicTaskRe
 }
 
 const insertEpicTaskRung = `-- name: InsertEpicTaskRung :execrows
-INSERT INTO epic_task_rungs (epic, task, rung, kind, moved_by, cause, gate, assertion, step, created)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-ON CONFLICT (epic, task, rung) DO NOTHING
+INSERT INTO epic_task_rungs (epic, task, generation, rung, kind, moved_by, cause, gate, assertion, step, created)
+VALUES (
+    ?1, ?2,
+    (SELECT tasks.generation FROM epic_tasks AS tasks WHERE tasks.epic = ?1 AND tasks.seq = ?2),
+    ?3, ?4, ?5, ?6, ?7, ?8,
+    ?9, ?10
+)
+ON CONFLICT (epic, task, generation, rung) DO NOTHING
 `
 
 type InsertEpicTaskRungParams struct {
@@ -3723,9 +3753,13 @@ func (q *Queries) InsertEpicTaskRung(ctx context.Context, arg InsertEpicTaskRung
 }
 
 const insertEpicTaskRungOutcome = `-- name: InsertEpicTaskRungOutcome :execrows
-INSERT INTO epic_task_rung_outcomes (epic, task, rung, outcome, reason, ended)
-VALUES (?, ?, ?, ?, ?, ?)
-ON CONFLICT (epic, task, rung) DO NOTHING
+INSERT INTO epic_task_rung_outcomes (epic, task, generation, rung, outcome, reason, ended)
+VALUES (
+    ?1, ?2,
+    (SELECT tasks.generation FROM epic_tasks AS tasks WHERE tasks.epic = ?1 AND tasks.seq = ?2),
+    ?3, ?4, ?5, ?6
+)
+ON CONFLICT (epic, task, generation, rung) DO NOTHING
 `
 
 type InsertEpicTaskRungOutcomeParams struct {
@@ -4890,7 +4924,7 @@ func (q *Queries) ListContractListings(ctx context.Context) ([]ListContractListi
 }
 
 const listContractStates = `-- name: ListContractStates :many
-SELECT contract, seq, state, version, session, words, at FROM contract_states WHERE contract = ? ORDER BY seq
+SELECT contract, seq, state, version, session, words, at, base FROM contract_states WHERE contract = ? ORDER BY seq
 `
 
 func (q *Queries) ListContractStates(ctx context.Context, contract string) ([]ContractState, error) {
@@ -4910,6 +4944,7 @@ func (q *Queries) ListContractStates(ctx context.Context, contract string) ([]Co
 			&i.Session,
 			&i.Words,
 			&i.At,
+			&i.Base,
 		); err != nil {
 			return nil, err
 		}
@@ -6032,7 +6067,7 @@ func (q *Queries) ListEpicQuestionFollows(ctx context.Context) ([]ListEpicQuesti
 }
 
 const listEpicQuestions = `-- name: ListEpicQuestions :many
-SELECT epic, seq, turn, text, state, label, choices, recommended, why, confidence, replaces, replaced_by, choice FROM epic_questions WHERE epic = ? ORDER BY seq
+SELECT epic, seq, turn, text, state, label, choices, recommended, why, confidence, replaces, replaced_by, choice, escalated, escalation_reason, escalation_maker, escalation_session, escalation_told FROM epic_questions WHERE epic = ? ORDER BY seq
 `
 
 func (q *Queries) ListEpicQuestions(ctx context.Context, epic string) ([]EpicQuestion, error) {
@@ -6058,6 +6093,11 @@ func (q *Queries) ListEpicQuestions(ctx context.Context, epic string) ([]EpicQue
 			&i.Replaces,
 			&i.ReplacedBy,
 			&i.Choice,
+			&i.Escalated,
+			&i.EscalationReason,
+			&i.EscalationMaker,
+			&i.EscalationSession,
+			&i.EscalationTold,
 		); err != nil {
 			return nil, err
 		}
@@ -6674,7 +6714,11 @@ func (q *Queries) ListEpicTaskFiles(ctx context.Context, epic string) ([]EpicTas
 }
 
 const listEpicTaskFindings = `-- name: ListEpicTaskFindings :many
-SELECT epic, task, attempt, review, position, id, claim, citation, location, evidence, verify_by, step, result, reason, unverified FROM epic_task_findings WHERE epic = ? ORDER BY task, attempt, review, position
+SELECT epic, task, generation, attempt, review, position, id, claim, citation, location, evidence, verify_by, step, result, reason, unverified FROM epic_task_findings AS findings
+WHERE findings.epic = ? AND findings.generation = (
+    SELECT tasks.generation FROM epic_tasks AS tasks WHERE tasks.epic = findings.epic AND tasks.seq = findings.task
+)
+ORDER BY findings.task, findings.attempt, findings.review, findings.position
 `
 
 func (q *Queries) ListEpicTaskFindings(ctx context.Context, epic string) ([]EpicTaskFinding, error) {
@@ -6689,6 +6733,7 @@ func (q *Queries) ListEpicTaskFindings(ctx context.Context, epic string) ([]Epic
 		if err := rows.Scan(
 			&i.Epic,
 			&i.Task,
+			&i.Generation,
 			&i.Attempt,
 			&i.Review,
 			&i.Position,
@@ -6782,7 +6827,11 @@ func (q *Queries) ListEpicTaskRequirements(ctx context.Context, epic string) ([]
 }
 
 const listEpicTaskReviews = `-- name: ListEpicTaskReviews :many
-SELECT epic, task, attempt, position, gate, step, verdict, reason FROM epic_task_reviews WHERE epic = ? ORDER BY task, attempt, position
+SELECT epic, task, generation, attempt, position, gate, step, verdict, reason FROM epic_task_reviews AS reviews
+WHERE reviews.epic = ? AND reviews.generation = (
+    SELECT tasks.generation FROM epic_tasks AS tasks WHERE tasks.epic = reviews.epic AND tasks.seq = reviews.task
+)
+ORDER BY reviews.task, reviews.attempt, reviews.position
 `
 
 func (q *Queries) ListEpicTaskReviews(ctx context.Context, epic string) ([]EpicTaskReview, error) {
@@ -6797,6 +6846,7 @@ func (q *Queries) ListEpicTaskReviews(ctx context.Context, epic string) ([]EpicT
 		if err := rows.Scan(
 			&i.Epic,
 			&i.Task,
+			&i.Generation,
 			&i.Attempt,
 			&i.Position,
 			&i.Gate,
@@ -6822,8 +6872,11 @@ SELECT rungs.epic, rungs.task, rungs.rung, rungs.kind, rungs.moved_by, rungs.cau
        rungs.step, rungs.created, outcomes.outcome, outcomes.reason, outcomes.ended
 FROM epic_task_rungs AS rungs
 LEFT JOIN epic_task_rung_outcomes AS outcomes
-    ON outcomes.epic = rungs.epic AND outcomes.task = rungs.task AND outcomes.rung = rungs.rung
-WHERE rungs.epic = ?
+    ON outcomes.epic = rungs.epic AND outcomes.task = rungs.task AND outcomes.generation = rungs.generation
+        AND outcomes.rung = rungs.rung
+WHERE rungs.epic = ? AND rungs.generation = (
+    SELECT tasks.generation FROM epic_tasks AS tasks WHERE tasks.epic = rungs.epic AND tasks.seq = rungs.task
+)
 ORDER BY rungs.task, rungs.rung
 `
 
@@ -7115,7 +7168,7 @@ func (q *Queries) ListEpicTaskVersions(ctx context.Context, epic string) ([]Epic
 }
 
 const listEpicTasks = `-- name: ListEpicTasks :many
-SELECT epic, seq, turn, title, deliverable, status, gate, evidence, stage, base, attempt, rerun, no_verdict, held, step, red_run, green_run, revision, failure, review, refs, gate_pos, finding_pos, batch, guard, needs_files, decisions, after_tasks, question, gate_changes, rebriefs, notes FROM epic_tasks WHERE epic = ? ORDER BY seq
+SELECT epic, seq, turn, title, deliverable, status, gate, evidence, stage, base, attempt, rerun, no_verdict, held, step, red_run, green_run, revision, failure, review, refs, gate_pos, finding_pos, batch, guard, needs_files, decisions, after_tasks, question, gate_changes, rebriefs, notes, generation FROM epic_tasks WHERE epic = ? ORDER BY seq
 `
 
 func (q *Queries) ListEpicTasks(ctx context.Context, epic string) ([]EpicTask, error) {
@@ -7160,6 +7213,7 @@ func (q *Queries) ListEpicTasks(ctx context.Context, epic string) ([]EpicTask, e
 			&i.GateChanges,
 			&i.Rebriefs,
 			&i.Notes,
+			&i.Generation,
 		); err != nil {
 			return nil, err
 		}
@@ -8409,7 +8463,7 @@ func (q *Queries) ListOpenEpicNodeRunStates(ctx context.Context) ([]ListOpenEpic
 }
 
 const listOpenEpicParkQuestions = `-- name: ListOpenEpicParkQuestions :many
-SELECT epic, seq, turn, text, state, label, choices, recommended, why, confidence, replaces, replaced_by, choice FROM epic_questions WHERE epic = ? AND state = 'open' AND turn = 0 AND label = 'park' ORDER BY seq
+SELECT epic, seq, turn, text, state, label, choices, recommended, why, confidence, replaces, replaced_by, choice, escalated, escalation_reason, escalation_maker, escalation_session, escalation_told FROM epic_questions WHERE epic = ? AND state = 'open' AND turn = 0 AND label = 'park' ORDER BY seq
 `
 
 func (q *Queries) ListOpenEpicParkQuestions(ctx context.Context, epic string) ([]EpicQuestion, error) {
@@ -8435,6 +8489,11 @@ func (q *Queries) ListOpenEpicParkQuestions(ctx context.Context, epic string) ([
 			&i.Replaces,
 			&i.ReplacedBy,
 			&i.Choice,
+			&i.Escalated,
+			&i.EscalationReason,
+			&i.EscalationMaker,
+			&i.EscalationSession,
+			&i.EscalationTold,
 		); err != nil {
 			return nil, err
 		}
@@ -8450,7 +8509,7 @@ func (q *Queries) ListOpenEpicParkQuestions(ctx context.Context, epic string) ([
 }
 
 const listOpenEpicQuestions = `-- name: ListOpenEpicQuestions :many
-SELECT epic, seq, turn, text, state, label, choices, recommended, why, confidence, replaces, replaced_by, choice FROM epic_questions WHERE epic = ? AND state = 'open' ORDER BY seq
+SELECT epic, seq, turn, text, state, label, choices, recommended, why, confidence, replaces, replaced_by, choice, escalated, escalation_reason, escalation_maker, escalation_session, escalation_told FROM epic_questions WHERE epic = ? AND state = 'open' ORDER BY seq
 `
 
 func (q *Queries) ListOpenEpicQuestions(ctx context.Context, epic string) ([]EpicQuestion, error) {
@@ -8476,6 +8535,11 @@ func (q *Queries) ListOpenEpicQuestions(ctx context.Context, epic string) ([]Epi
 			&i.Replaces,
 			&i.ReplacedBy,
 			&i.Choice,
+			&i.Escalated,
+			&i.EscalationReason,
+			&i.EscalationMaker,
+			&i.EscalationSession,
+			&i.EscalationTold,
 		); err != nil {
 			return nil, err
 		}
@@ -10423,6 +10487,20 @@ func (q *Queries) NextEpicNodeRunAttempt(ctx context.Context, arg NextEpicNodeRu
 	return result.RowsAffected()
 }
 
+const nextEpicTaskGeneration = `-- name: NextEpicTaskGeneration :exec
+UPDATE epic_tasks SET generation = generation + 1 WHERE epic = ?1 AND seq = ?2
+`
+
+type NextEpicTaskGenerationParams struct {
+	Epic string
+	Seq  int64
+}
+
+func (q *Queries) NextEpicTaskGeneration(ctx context.Context, arg NextEpicTaskGenerationParams) error {
+	_, err := q.db.ExecContext(ctx, nextEpicTaskGeneration, arg.Epic, arg.Seq)
+	return err
+}
+
 const nextOutsideReleaseSlotDeadline = `-- name: NextOutsideReleaseSlotDeadline :one
 SELECT deadline FROM epic_release_slots WHERE holder_kind = 'outside' ORDER BY deadline LIMIT 1
 `
@@ -10567,6 +10645,26 @@ UPDATE pending_notice_ids SET high = MAX(high, ?1) WHERE id = 1
 func (q *Queries) RaiseNoticeIDFloor(ctx context.Context, id interface{}) error {
 	_, err := q.db.ExecContext(ctx, raiseNoticeIDFloor, id)
 	return err
+}
+
+const rebuildEpicTaskRun = `-- name: RebuildEpicTaskRun :execrows
+UPDATE epic_node_runs SET state = 'running', attempt = attempt + 1, outcome = '', output = '', revision = '',
+    refs = '', refs_checked = 0, result = '', ended = 0
+WHERE epic = ? AND path = ? AND attempt = ? AND kind = 'build' AND state = 'ended'
+`
+
+type RebuildEpicTaskRunParams struct {
+	Epic    string
+	Path    string
+	Attempt int64
+}
+
+func (q *Queries) RebuildEpicTaskRun(ctx context.Context, arg RebuildEpicTaskRunParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, rebuildEpicTaskRun, arg.Epic, arg.Path, arg.Attempt)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const recordEpicNodeResult = `-- name: RecordEpicNodeResult :exec
@@ -11147,6 +11245,23 @@ func (q *Queries) SetEpicQuestionAnswered(ctx context.Context, arg SetEpicQuesti
 	return err
 }
 
+const setEpicQuestionEscalationTold = `-- name: SetEpicQuestionEscalationTold :execrows
+UPDATE epic_questions SET escalation_told = 1 WHERE epic = ? AND seq = ?
+`
+
+type SetEpicQuestionEscalationToldParams struct {
+	Epic string
+	Seq  int64
+}
+
+func (q *Queries) SetEpicQuestionEscalationTold(ctx context.Context, arg SetEpicQuestionEscalationToldParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, setEpicQuestionEscalationTold, arg.Epic, arg.Seq)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const setEpicQuestionReplaced = `-- name: SetEpicQuestionReplaced :execrows
 UPDATE epic_questions SET state = 'replaced', replaced_by = ? WHERE epic = ? AND seq = ? AND state = 'open'
 `
@@ -11370,8 +11485,13 @@ func (q *Queries) SetEpicTaskBuild(ctx context.Context, arg SetEpicTaskBuildPara
 const setEpicTaskFindingResult = `-- name: SetEpicTaskFindingResult :execrows
 UPDATE epic_task_findings
 SET step = ?1, result = ?2, reason = ?3
-WHERE epic = ?4 AND task = ?5 AND attempt = ?6
-  AND review = ?7 AND position = ?8 AND result = ''
+WHERE epic_task_findings.epic = ?4 AND epic_task_findings.task = ?5
+  AND epic_task_findings.attempt = ?6 AND epic_task_findings.review = ?7
+  AND epic_task_findings.position = ?8 AND epic_task_findings.result = ''
+  AND epic_task_findings.generation = (
+      SELECT tasks.generation FROM epic_tasks AS tasks
+      WHERE tasks.epic = epic_task_findings.epic AND tasks.seq = epic_task_findings.task
+  )
 `
 
 type SetEpicTaskFindingResultParams struct {
@@ -11449,7 +11569,12 @@ func (q *Queries) SetEpicTaskNotes(ctx context.Context, arg SetEpicTaskNotesPara
 
 const setEpicTaskReviewReason = `-- name: SetEpicTaskReviewReason :exec
 UPDATE epic_task_reviews SET reason = ?1
-WHERE epic = ?2 AND task = ?3 AND attempt = ?4 AND position = ?5
+WHERE epic_task_reviews.epic = ?2 AND epic_task_reviews.task = ?3
+  AND epic_task_reviews.attempt = ?4 AND epic_task_reviews.position = ?5
+  AND epic_task_reviews.generation = (
+      SELECT tasks.generation FROM epic_tasks AS tasks
+      WHERE tasks.epic = epic_task_reviews.epic AND tasks.seq = epic_task_reviews.task
+  )
 `
 
 type SetEpicTaskReviewReasonParams struct {

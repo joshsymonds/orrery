@@ -32,6 +32,7 @@ function facts(over: Partial<DockFacts> = {}): DockFacts {
     reason: "",
     interruptedAt: 0,
     putOff: false,
+    archived: false,
     step: null,
     ...over,
   };
@@ -163,6 +164,23 @@ test("DockState: waiting on a question you put off says so, with no clock or con
   });
 });
 
+test("DockState: an archived waiting session says idle, with the word idle and no clock or control", () => {
+  const line = stateLine(facts({ state: "waiting", archived: true }), now);
+  assert.deepEqual(line, { tone: "idle", word: "idle", tool: "", what: "", clock: "", control: "none" });
+});
+
+test("DockState: an archived and put-off waiting row still reads the put-off words", () => {
+  const line = stateLine(facts({ state: "waiting", archived: true, putOff: true }), now);
+  assert.deepEqual(line, {
+    tone: "idle",
+    word: "waiting on a question you put off",
+    tool: "",
+    what: "",
+    clock: "",
+    control: "none",
+  });
+});
+
 test("DockState: waiting says waiting on you, with no clock or control", () => {
   const line = stateLine(facts({ state: "waiting" }), now);
   assert.deepEqual(line, { tone: "waiting", word: "waiting on you", tool: "", what: "", clock: "", control: "none" });
@@ -283,6 +301,10 @@ test("DockState: placeholder while working and narrow is the short queue prompt,
 test("DockState: placeholder while waiting says answer, and on a question you put off says message", () => {
   assert.equal(placeholder(facts({ state: "waiting" }), false), "Answer widgets");
   assert.equal(placeholder(facts({ state: "waiting", putOff: true }), false), "Message widgets");
+});
+
+test("DockState: placeholder for an archived waiting session says message, not answer", () => {
+  assert.equal(placeholder(facts({ state: "waiting", archived: true }), false), "Message widgets");
 });
 
 test("DockState: placeholder after your interrupt says it stopped where it was", () => {

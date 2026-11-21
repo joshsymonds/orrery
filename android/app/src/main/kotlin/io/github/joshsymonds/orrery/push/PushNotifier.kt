@@ -249,6 +249,7 @@ class PushNotifier(private val context: Context) {
             .setPackage(context.packageName)
             .putExtra(EXTRA_NOTIFICATION_ID, id)
             .putExtra(EXTRA_DIR, event.project)
+            .putExtra(EXTRA_HOST, event.host)
         if (event.session.isNotEmpty()) {
             intent.putExtra(EXTRA_SESSION, event.session)
         } else {
@@ -288,6 +289,7 @@ class PushNotifier(private val context: Context) {
         const val EXTRA_NOTIFICATION_ID = "io.github.joshsymonds.orrery.extra.NOTIFICATION_ID"
         const val EXTRA_TIME = "io.github.joshsymonds.orrery.extra.TIME"
         const val EXTRA_DIR = "io.github.joshsymonds.orrery.extra.DIR"
+        const val EXTRA_HOST = "io.github.joshsymonds.orrery.extra.HOST"
         const val EXTRA_REQUEST = "io.github.joshsymonds.orrery.extra.REQUEST"
         const val EXTRA_ANSWER = "io.github.joshsymonds.orrery.extra.ANSWER"
         const val REMOTE_INPUT_KEY = "reply"

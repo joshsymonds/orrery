@@ -11,7 +11,12 @@ import { createClients, createTransport } from "./client";
 import type { Conversation } from "./conversation";
 import { noEpics, type StepItem } from "./epics";
 import { EpicStepSchema } from "./gen/orrery/v1/epics_pb";
-import { ConversationItemSchema, ConversationStateSchema, type ConversationItem } from "./gen/orrery/v1/orrery_pb";
+import {
+  ConversationItemSchema,
+  ConversationStateSchema,
+  PaneSchema,
+  type ConversationItem,
+} from "./gen/orrery/v1/orrery_pb";
 import { type ColumnHead, ReaderColumn, type ReaderColumnProps } from "./readercolumn";
 import type { Row } from "./rows";
 import { assertNone, installTestDom, removeTestDom } from "./testdom";
@@ -27,8 +32,6 @@ const clients: Clients = createClients(createTransport({ baseUrl: "https://orrer
 // The epic calls and the title row's inbox mark are fakes that do nothing: a column draws without calling them.
 const epicCalls: EpicCalls = {
   get: () => new Promise(() => {}),
-  pause: () => new Promise(() => {}),
-  resume: () => new Promise(() => {}),
   answer: () => new Promise(() => {}),
   openEpic: () => {},
   openStep: () => {},
@@ -172,6 +175,36 @@ async function withColumn(
 function rowTexts(section: HTMLElement): string[] {
   return [...section.querySelectorAll(".reader > .t")].map((element) => element.textContent ?? "");
 }
+
+// blankWords are the words an empty reader's blank draws, in order.
+function blankWords(section: HTMLElement): (string | null)[] {
+  return [...section.querySelectorAll(".blank > span")].map((span) => span.textContent);
+}
+
+test("Shapes: a terminal pane with no Claude session says so in its empty reader", async () => {
+  const shellRow = row({ key: "%5", label: "zsh", project: "/work/orrery" });
+  const shellState = create(ConversationStateSchema, { pane: create(PaneSchema, { claudeSession: "" }) });
+  await withColumn(
+    columnProps({ column: "cursor", row: shellRow, conversation: conversation({ state: shellState }), rows: [shellRow] }),
+    (section) => {
+      assert.deepEqual(blankWords(section), [
+        "Nothing has been said yet.",
+        "This is a terminal pane with no Claude session in it.",
+      ]);
+    },
+  );
+});
+
+test("Shapes: a pane with a Claude session asks for something below in its empty reader", async () => {
+  const paneRow = row({ key: "%6", label: "claude", project: "/work/orrery" });
+  const paneState = create(ConversationStateSchema, { pane: create(PaneSchema, { claudeSession: "session-1" }) });
+  await withColumn(
+    columnProps({ column: "cursor", row: paneRow, conversation: conversation({ state: paneState }), rows: [paneRow] }),
+    (section) => {
+      assert.deepEqual(blankWords(section), ["Nothing has been said yet.", "Say something below to begin."]);
+    },
+  );
+});
 
 test("AppSplit: the cursor column draws its row's reader, head, item and reply box", async () => {
   // seen is at the item's time, so the item is read and draws no since-you-looked rule.

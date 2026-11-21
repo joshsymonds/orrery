@@ -283,9 +283,11 @@ func sentBackBuild(from TaskBuild, base, cause string) TaskBuild {
 	return TaskBuild{Stage: "implement", Base: base, Attempt: 1, Failure: cause, Decisions: from.Decisions}
 }
 
-// restartLadder replaces the ladder of task seq of epic with its rung 1, moved by send_back for cause, in the caller's
-// write. The task's rung rows and their outcomes are deleted first, since a rung row is kept once it is stored, so a
-// later climb writes the ladder again from rung 1. The decisions and versions that recorded the earlier climbs are kept.
+// restartLadder moves task seq of epic to its next reopen generation and writes that generation's rung 1, moved by
+// send_back for cause, in the caller's write. Nothing is deleted: the task's earlier rungs and their outcomes, with its
+// earlier reviews and findings, stay stored under the generation they were written in, and every read and write of
+// the build reads the task's current generation, so a later climb writes the new ladder from rung 1 and the reopened
+// build's reviews store at attempt 1 again. The decisions and versions that recorded the earlier climbs are kept.
 func restartLadder(
 	ctx context.Context,
 	queries *sqlcgen.Queries,
@@ -294,15 +296,11 @@ func restartLadder(
 	cause string,
 	at time.Time,
 ) error {
-	if err := queries.DeleteEpicTaskRungOutcomes(ctx, sqlcgen.DeleteEpicTaskRungOutcomesParams{
-		Epic: epic, Task: seq,
-	}); err != nil {
-		return fmt.Errorf("delete outcomes of rungs of task %d of epic %s: %w", seq, epic, err)
+	err := queries.NextEpicTaskGeneration(ctx, sqlcgen.NextEpicTaskGenerationParams{Epic: epic, Seq: seq})
+	if err != nil {
+		return fmt.Errorf("move task %d of epic %s to its next generation: %w", seq, epic, err)
 	}
-	if err := queries.DeleteEpicTaskRungs(ctx, sqlcgen.DeleteEpicTaskRungsParams{Epic: epic, Task: seq}); err != nil {
-		return fmt.Errorf("delete rungs of task %d of epic %s: %w", seq, epic, err)
-	}
-	if _, err := queries.InsertEpicTaskRung(ctx, sqlcgen.InsertEpicTaskRungParams{
+	if _, err = queries.InsertEpicTaskRung(ctx, sqlcgen.InsertEpicTaskRungParams{
 		Epic: epic, Task: seq, Rung: 1, Kind: RungKind(1), MovedBy: MovedBySendBack, Cause: cause, Created: at.Unix(),
 	}); err != nil {
 		return fmt.Errorf("insert rung 1 of task %d of epic %s: %w", seq, epic, err)

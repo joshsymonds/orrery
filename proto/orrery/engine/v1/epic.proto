@@ -52,6 +52,11 @@ service Epics {
   // change the conclusion; any other call amends as the owner, who may.
   rpc AmendEvidence(AmendEvidenceRequest) returns (AmendEvidenceResponse);
 
+  // EscalateEpic marks question Q<n> of a stored epic escalated, with its reason, and returns the question read back. The
+  // steering conversation or the owner may escalate it; a call from a step of the epic is refused. An escalated question
+  // stays open until the owner answers it.
+  rpc EscalateEpic(EscalateEpicRequest) returns (EscalateEpicResponse);
+
   // SeeEpic records that the owner saw the stored epic, so its seen mark is the time of this call.
   rpc SeeEpic(SeeEpicRequest) returns (SeeEpicResponse);
 
@@ -757,6 +762,18 @@ message EpicQuestion {
   // The choice that answered the question: a declared choice's id, or other for the owner's words. Empty while the
   // question is open or replaced.
   string choice = 10;
+
+  // When the question was escalated, in unix seconds; 0 while it is not escalated.
+  int64 escalated = 11;
+
+  // Why the question was escalated. Empty while it is not escalated.
+  string escalation_reason = 12;
+
+  // Who escalated the question: owner, conversation or orreryd. Empty while it is not escalated.
+  string escalation_by = 13;
+
+  // The session that escalated the question when a conversation did. Empty otherwise.
+  string escalation_session = 14;
 }
 
 // EpicQuestionChoice is one choice a planner question declares.
@@ -1523,6 +1540,24 @@ message AmendEvidenceResponse {
 
   // The stored epic.
   StoredEpic epic = 2;
+}
+
+// EscalateEpicRequest names the question to escalate and why.
+message EscalateEpicRequest {
+  // The epic's id.
+  string id = 1;
+
+  // The question to escalate, Q<n>.
+  string question = 2;
+
+  // Why the question is escalated, recorded with it.
+  string reason = 3;
+}
+
+// EscalateEpicResponse carries the escalated question read back.
+message EscalateEpicResponse {
+  // The question as stored, with its escalation.
+  EpicQuestion question = 1;
 }
 
 // EpicAmendment is one amendment of a Requirement's evidence item.

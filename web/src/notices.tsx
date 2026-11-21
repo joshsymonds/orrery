@@ -137,17 +137,20 @@ interface NoticeStackProps {
   // bringBackRow is the listed row a notice's Bring it back takes, or undefined when the notice has no such control.
   bringBackRow: (notice: InAppNotice) => Row | undefined;
   onOpen: (notice: InAppNotice) => void;
-  onBringBack: (row: Row) => void;
+  // onBringBack takes the row a Bring it back takes, and resolves "" when the server takes the call or the server's
+  // reason when it refuses it.
+  onBringBack: (row: Row) => Promise<string>;
   onRead: (notice: InAppNotice) => void;
   onMore: () => void;
 }
 
 // NoticeStack shows the notices as a stack of two-line rows under the page's title row: the first three that are still on
 // it, then an "N more in Notices" link for the rest, which calls onMore. A row's Answer or Open calls onOpen with its
-// notice, and a row's Bring it back calls onBringBack with the row it takes, leaving the notice on the stack. Its Mark read
-// calls onRead and drops the row at once. A row also leaves the stack noticeLifetimeMillis after it first shows, and
-// nothing is told of that. Each row's clock starts when it is drawn, and a row that leaves the stack is forgotten, so a
-// notice that is shown again under its key shows again. The stack makes no sound.
+// notice, and a row's Bring it back calls onBringBack with the row it takes, leaving the notice on the stack. A refused
+// Bring it back shows the reason it resolves on that row. Its Mark read calls onRead and drops the row at once. A row
+// also leaves the stack noticeLifetimeMillis after it first shows, and nothing is told of that. Each row's clock starts
+// when it is drawn, and a row that leaves the stack is forgotten, so a notice that is shown again under its key shows
+// again. The stack makes no sound.
 export function NoticeStack({
   notices,
   head,
@@ -161,12 +164,20 @@ export function NoticeStack({
 }: NoticeStackProps): JSX.Element {
   // gone holds the keys of the notices this page has taken off the stack, by a Mark read or by the lifetime.
   const [gone, setGone] = useState<ReadonlySet<string>>(() => new Set());
+  // refusals holds the reason of each row's latest refused Bring it back, by key. A row whose Bring it back is taken
+  // has none.
+  const [refusals, setRefusals] = useState<ReadonlyMap<string, string>>(() => new Map());
   // lives holds the timer of each drawn row, by key, from the render that first draws it until the row leaves.
   const lives = useRef(new Map<string, ReturnType<typeof setTimeout>>());
+  // calls numbers each Bring it back in the order it is made, and latest holds the number of each row's latest one, so
+  // a reply to an earlier call than a row's latest, or to a row that has left, is not kept.
+  const calls = useRef(0);
+  const latest = useRef(new Map<string, number>());
   const stack = useRef<HTMLDivElement>(null);
 
   const keys = new Set(notices.map((notice) => noticeKey(notice.key)));
   const shown = notices.filter((notice) => !gone.has(noticeKey(notice.key)));
+  const shownKeys = new Set(shown.map((notice) => noticeKey(notice.key)));
   const rows = shown.slice(0, noticeRowLimit);
 
   // The timers run in the commit itself, not in an effect that waits for a paint, so a row's clock starts when it
@@ -193,6 +204,14 @@ export function NoticeStack({
     if ([...gone].some((key) => !keys.has(key))) {
       setGone((before) => new Set([...before].filter((key) => keys.has(key))));
     }
+    for (const key of latest.current.keys()) {
+      if (!shownKeys.has(key)) {
+        latest.current.delete(key);
+      }
+    }
+    if ([...refusals.keys()].some((key) => !shownKeys.has(key))) {
+      setRefusals((before) => new Map([...before].filter(([key]) => shownKeys.has(key))));
+    }
   });
 
   useLayoutEffect(
@@ -215,20 +234,45 @@ export function NoticeStack({
     onRead(notice);
   };
 
+  // bringBackOf makes the row's Bring it back. The reply keeps the server's reason on the row when it refuses, and
+  // clears the row's reason when the server takes the call.
+  const bringBackOf = (notice: InAppNotice, row: Row) => {
+    const key = noticeKey(notice.key);
+    calls.current += 1;
+    const call = calls.current;
+    latest.current.set(key, call);
+    void onBringBack(row).then((reason) => {
+      if (latest.current.get(key) !== call) {
+        return;
+      }
+      setRefusals((before) => {
+        const next = new Map(before);
+        if (reason === "") {
+          next.delete(key);
+        } else {
+          next.set(key, reason);
+        }
+        return next;
+      });
+    });
+  };
+
   const more = shown.length - rows.length;
   return (
     <div class="notices" ref={stack}>
       {rows.map((notice) => {
+        const key = noticeKey(notice.key);
         const bringBack = bringBackRow(notice);
         return (
           <Notice
-            key={noticeKey(notice.key)}
+            key={key}
             head={head(notice)}
             when={age(notice)}
             body={notice.body}
             act={act(notice)}
             onAct={() => onOpen(notice)}
-            onBringBack={bringBack === undefined ? undefined : () => onBringBack(bringBack)}
+            onBringBack={bringBack === undefined ? undefined : () => bringBackOf(notice, bringBack)}
+            refusal={refusals.get(key)}
             onRead={() => readNotice(notice)}
           />
         );
@@ -261,6 +305,8 @@ interface NoticeProps {
   act?: NoticeAct;
   onAct?: () => void;
   onBringBack?: () => void;
+  // refusal is the reason a Bring it back was refused, drawn as a line under the body, or undefined when none was.
+  refusal?: string;
   onRead?: () => void;
   flat?: boolean;
   unread?: boolean;
@@ -270,7 +316,8 @@ interface NoticeProps {
 // Notice draws one notice in two lines, as round 6 draws it. The first line is its lead, its directory in the place
 // colour and its words, then its age. The second is the body's first line, since a body may hold several lines. A stack
 // row is a status block with its primary control, Answer or Open when it has one, a quiet Bring it back when it has
-// onBringBack, and a quiet Mark read. A flat row is one button, marked unread while it is unread, and holds no control.
+// onBringBack, and a quiet Mark read; a refusal of that Bring it back is drawn as a line under the body. A flat row is
+// one button, marked unread while it is unread, and holds no control.
 export function Notice({
   head,
   when,
@@ -278,6 +325,7 @@ export function Notice({
   act = null,
   onAct,
   onBringBack,
+  refusal,
   onRead,
   flat = false,
   unread = false,
@@ -308,6 +356,7 @@ export function Notice({
   return (
     <div class="notice" role="status">
       {words}
+      {refusal !== undefined && <span class="refusal">{refusal}</span>}
       <span class="acts">
         {act !== null && (
           <button type="button" class={act === "Answer" ? "btn primary" : "btn"} onClick={onAct}>

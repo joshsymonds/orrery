@@ -339,6 +339,13 @@ func (s crashStore) NextRound(ctx context.Context, epic, path string, from int64
 	})
 }
 
+// RebuildTask is one write of the world, labeled with the build run and the attempt it ended at.
+func (s crashStore) RebuildTask(ctx context.Context, epic, path string, attempt int64) error {
+	return s.w.act(fmt.Sprintf("rebuild %s from %d", path, attempt), func() error {
+		return crashWrap("rebuild task", s.Store.RebuildTask(ctx, epic, path, attempt))
+	})
+}
+
 // ParkLoop is one write of the world, labeled with the loop and the round it parks in.
 func (s crashStore) ParkLoop(ctx context.Context, epic, path string, round int64, reason string, at time.Time) error {
 	return s.w.act(fmt.Sprintf("park %s at round %d", path, round), func() error {

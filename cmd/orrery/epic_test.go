@@ -144,6 +144,13 @@ func (f *recordingEpics) AmendEvidence(
 	})
 }
 
+func (f *recordingEpics) EscalateEpic(
+	_ context.Context,
+	req *connect.Request[v1.EscalateEpicRequest],
+) (*connect.Response[v1.EscalateEpicResponse], error) {
+	return respond(f, req.Msg, &v1.EscalateEpicResponse{})
+}
+
 func (f *recordingEpics) ReleaseEpic(
 	_ context.Context,
 	req *connect.Request[v1.ReleaseEpicRequest],

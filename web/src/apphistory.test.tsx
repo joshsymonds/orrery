@@ -369,12 +369,12 @@ test("HashRoute: a notice pushes the address of its row, and the first cursor ke
     },
   ));
 
-test("HashRoute: a card's open control pushes the address of its epic, and the first cursor key after it pushes", (t) =>
+test("HashRoute: a card's epic link pushes the address of its epic, and the first cursor key after it pushes", (t) =>
   withApp(t, { rows: historyRows(), epics: firstEpic(), items: cardItems(widgetsFirst) }, async ({ container, reports }) => {
-    await until(t.signal, () => container.querySelector(".open-epic") !== null, "the card", {
+    await until(t.signal, () => container.querySelector(".epic-card .epic-link") !== null, "the card", {
       step: () => act(turn),
     });
-    await click(container, ".open-epic");
+    await click(container, ".epic-card .epic-link");
     assert.deepEqual(reports, [[firstAddress, "push"]]);
     assert.equal(cursorKey(container), widgetsFirstKey);
     assert.deepEqual(await cursorModes(reports), cursorKeyModes);

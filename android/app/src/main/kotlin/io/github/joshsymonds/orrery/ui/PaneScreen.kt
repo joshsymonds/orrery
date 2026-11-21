@@ -167,6 +167,8 @@ fun PaneScreen(
     var stripTiles by remember(paneId) { mutableStateOf(false) }
     var refreshFailed by remember(paneId) { mutableStateOf(false) }
     var seenAtOpen by remember(paneId) { mutableStateOf<Long?>(null) }
+    // The messages the screen sent, until the conversation holds each one.
+    var sentTexts by remember(paneId) { mutableStateOf<List<SentText>>(emptyList()) }
     // What the stream holds, kept across starts so the next start resumes from its transcript and seq.
     var held by remember(paneId) { mutableStateOf<StreamedConversation?>(null) }
     val refreshRequests = remember(paneId) { Channel<Unit>(Channel.CONFLATED) }
@@ -197,6 +199,8 @@ fun PaneScreen(
                                                     nowSeconds = clock()
                                                     val next = held.applyDelta(delta)
                                                     held = next
+                                                    // Forgotten here, in the write that holds the delta, so a prompt the stream trims later cannot bring it back.
+                                                    sentTexts = unsentTexts(sentTexts, next.conversation.items, queued = emptyList())
                                                     pane = next.pane
                                                     seenAtOpen = seenAtOpen ?: next.pane?.seen
                                                     conversation = next.conversation.takeIf { next.pane?.state?.isNotEmpty() == true }
@@ -241,6 +245,7 @@ fun PaneScreen(
                                             // seen time does not move the divider.
                                             seenAtOpen = seenAtOpen ?: snapshot.pane?.seen
                                             conversation = snapshot.conversation
+                                            snapshot.conversation?.let { sentTexts = unsentTexts(sentTexts, it.items, queued = emptyList()) }
                                             refreshFailed = false
                                         }
                                     }
@@ -273,7 +278,18 @@ fun PaneScreen(
     val current = pane
     val ask = current?.let(::paneAsk)
     val refresh: () -> Unit = { refreshRequests.trySend(Unit) }
-    val entries = remember(conversation) { foldConversation(conversation?.items.orEmpty()) }
+    val unsent = unsentTexts(sentTexts, conversation?.items.orEmpty(), queued = emptyList())
+    val entries = remember(conversation, unsent) {
+        foldConversation(conversation?.items.orEmpty(), now = nowSeconds) +
+            backgroundEntries(conversation?.background.orEmpty()) +
+            unsent.map { message -> ConvoEntry.Sending(message.text) }
+    }
+    val epicDetails = questionEpicDetails(entries, headEpics.details, client)
+    // The find bar while it is open: its query, and the current match of the matches the transcript holds.
+    var finding by remember(paneId) { mutableStateOf<FindSession?>(null) }
+    val searchCache = remember { MarkdownCache() }
+    val found = remember(entries, finding?.query) { transcriptMatches(entries, finding?.query.orEmpty(), searchCache) }
+    val foundCurrent = finding?.let { if (found.isEmpty()) -1 else it.current.coerceIn(0, found.lastIndex) } ?: -1
 
     val density = LocalDensity.current
     val showingConversation = conversation != null
@@ -281,6 +297,11 @@ fun PaneScreen(
     val listState = remember(paneId) { LazyListState() }
     // The Ask's answer lives per pane, outside the footer item that draws the Ask, so scrolling that item away keeps it.
     val askLife = rememberAskLife(paneId)
+    // The archive toast a stale Ask's Archive this session shows; it leaves with this page's composition.
+    val toast = remember(paneId) { ArchiveToastState() }
+    val onArchived: (kind: String, id: String) -> Unit = { kind, id ->
+        current?.let { toast.show(it.label.ifEmpty { it.command }, kind, id) }
+    }
     var endRequests by remember(paneId) { mutableIntStateOf(0) }
     var headHeightPx by remember { mutableIntStateOf(0) }
     var headMeasured by remember { mutableStateOf(false) }
@@ -327,7 +348,14 @@ fun PaneScreen(
             // the conversation while the reader is at the newest end.
             if (bodyReady && showingConversation) {
                 val footer: @Composable () -> Unit = {
-                    AskHost(model = ask, client = client, now = nowSeconds, onRefresh = refresh, life = askLife)
+                    AskHost(
+                        model = ask,
+                        client = client,
+                        now = nowSeconds,
+                        onRefresh = refresh,
+                        onArchived = onArchived,
+                        life = askLife,
+                    )
                 }
                 ConversationView(
                     entries,
@@ -337,9 +365,13 @@ fun PaneScreen(
                     footer = footer,
                     endRequests = endRequests,
                     seen = seenAtOpen,
-                    now = nowSeconds,
                     contracts = contracts,
                     onOpenContract = openTranscriptContract,
+                    onOpenEpic = onOpenEpic,
+                    epicQuestion = { epic, question ->
+                        EpicQuestion(epicDetails[epic], question, nowSeconds, client)
+                    },
+                    find = finding?.let { TranscriptFind(found, foundCurrent, it.step) },
                     onRead = { readUpTo ->
                         scope.launch(Dispatchers.IO) {
                             try {
@@ -364,7 +396,14 @@ fun PaneScreen(
                                 top = bodyTop,
                             ),
                     )
-                    AskHost(model = ask, client = client, now = nowSeconds, onRefresh = refresh, life = askLife)
+                    AskHost(
+                        model = ask,
+                        client = client,
+                        now = nowSeconds,
+                        onRefresh = refresh,
+                        onArchived = onArchived,
+                        life = askLife,
+                    )
                 }
             }
             current?.let { shown ->
@@ -407,6 +446,7 @@ fun PaneScreen(
                                 headHidden.value = false
                                 tapped = true
                             },
+                            onFind = { finding = FindSession(query = "") },
                             modifier = Modifier.fillMaxWidth().background(OrreryTokens.Surface.page),
                         )
                         if (fold == HeadFold.OPEN) {
@@ -427,8 +467,28 @@ fun PaneScreen(
                     }
                 }
             }
+            // At the foot of the body, above the dock, so it never covers the dock's input.
+            ArchiveToast(
+                state = toast,
+                client = client,
+                onUndone = refresh,
+                modifier = Modifier.align(Alignment.BottomCenter),
+            )
+        }
+        finding?.let { session ->
+            FindBar(
+                query = session.query,
+                count = found.size,
+                current = foundCurrent,
+                onQuery = { finding = FindSession(query = it, step = session.step + 1) },
+                onNext = { finding = session.copy(current = stepFind(foundCurrent, found.size, 1), step = session.step + 1) },
+                onPrevious = { finding = session.copy(current = stepFind(foundCurrent, found.size, -1), step = session.step + 1) },
+                onClose = { finding = null },
+                modifier = Modifier.padding(horizontal = OrreryTokens.Space.twelve, vertical = OrreryTokens.Space.four),
+            )
         }
         val draft = rememberDockDraft(paneId)
+        JoinKeptReplies(draft = draft, host = current?.host.orEmpty().ifEmpty { servingHost }, kind = "pane", id = paneId)
         Dock(
             facts = dockFactsOf(
                 kind = if (current?.state.orEmpty().isEmpty()) DockKind.SHELL else DockKind.PANE,
@@ -441,7 +501,9 @@ fun PaneScreen(
             draft = draft,
             send = { text ->
                 val sent = about?.let { aboutMessage(it.id, it.text, text) } ?: text
+                val after = conversation?.items?.lastOrNull()
                 client.sendComposed(paneId, sent)
+                scope.launch { sentTexts = sentTexts + SentText(sent, after) }
                 if (about != null) onClearAbout()
             },
             paneId = paneId,
@@ -452,13 +514,12 @@ fun PaneScreen(
             onDraftPresent = { draftPresent = it },
             onSend = { endRequests++ },
         )
-        AnimatedVisibility(
-            visible = !draftPresent,
-            enter = expandVertically(Move.LAYOUT.spec(animated = true)) + fadeIn(Move.LAYOUT.spec(animated = true)),
-            exit = shrinkVertically(Move.LAYOUT.spec(animated = true)) + fadeOut(Move.LAYOUT.spec(animated = true)),
-            label = "quick-keys",
-        ) {
-            QuickKeys(paneId, client, state = current?.state.orEmpty(), changed = current?.changed ?: 0L)
-        }
+        QuickKeys(
+            paneId,
+            client,
+            state = current?.state.orEmpty(),
+            changed = current?.changed ?: 0L,
+            draftPresent = draftPresent,
+        )
     }
 }

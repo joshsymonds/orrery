@@ -32,6 +32,7 @@ fun dockFactsOf(
         reason = reason,
         interruptedAt = items.lastOrNull()?.takeIf { it.kind == "interrupted" }?.time ?: 0L,
         putOff = (streamed?.request?.putOff ?: false) || (pane?.putOff ?: false),
+        archived = pane?.archived == true,
         step = step,
     )
 }

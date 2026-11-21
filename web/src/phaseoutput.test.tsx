@@ -451,8 +451,9 @@ test("TaskStages: the implement body lists the attempts, the latest attempt's ro
     );
     assert.equal(textsOf(container, ".phase-body .attempt .words").join("|"), "alpha wrote the parser|alpha checks ran|alpha fixed the lint");
     assert.equal(textsOf(container, ".phase-body .attempt .chip").join(","), "done,spent,done");
-    assert.equal(textsOf(container, ".phase-body .card .chip").join(","), "fmt ✓,lint ✗,gate ✓");
-    assert.equal(elementOf(container, ".phase-body .card .note").textContent, "lint: alpha lint again");
+    assert.equal(textsOf(container, '.phase-body .reader.check-rounds [data-shape="block"].checks .chip').join(","), "fmt,lint,gate");
+    assert.equal(textsOf(container, '.phase-body .reader.check-rounds [data-shape="block"].checks .chip.bad').join(","), "lint");
+    assert.equal(elementOf(container, '.phase-body .reader.check-rounds [data-shape="block"].checks > p').textContent, "lint: alpha lint again");
     assert.equal(elementOf(container, ".phase-body .log").textContent, "round two out");
     assert.equal(elementOf(container, ".phase-body .inote").textContent, "Judged: the goal is met.");
   });
