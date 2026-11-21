@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -35,6 +36,10 @@ type Store interface {
 	) error
 	NextRound(ctx context.Context, epic, path string, from int64) error
 	RebuildTask(ctx context.Context, epic, path string, attempt int64) error
+	ClimbTask(
+		ctx context.Context, epic string, seq int64, from, to store.TaskBuild, move store.RungMove,
+		version *store.TaskVersionInput, decision *store.TaskDecision, at time.Time,
+	) error
 	ParkLoop(ctx context.Context, epic, path string, round int64, reason string, at time.Time) error
 	ParkEpic(ctx context.Context, epic string, class store.ParkClass, reason string, at time.Time) error
 	ParkNode(
@@ -480,6 +485,15 @@ func (r *Runner) carry(ctx context.Context, epic store.EpicRow, act Action) erro
 		}
 	case ActRound, ActPark, ActParkNode, ActRebuild:
 		err = r.moveRun(ctx, epic.ID, act, at)
+	case ActGapTask:
+		cause := store.ClimbCause(act.Reason, false)
+		move := store.RungMove{MovedBy: store.MovedByDependency, Cause: cause, To: store.GapRung}
+		err = r.store.ClimbTask(
+			ctx, epic.ID, act.Task, act.Build, store.ClimbedBuild(act.Build, store.GapRung, cause), move, nil, nil, at,
+		)
+		if errors.Is(err, store.ErrTaskMoved) {
+			err = nil
+		}
 	case ActParkEpic:
 		err = r.store.ParkEpicWaking(ctx, epic.ID, act.Reason, *act.Trigger, at)
 	case ActBatch:

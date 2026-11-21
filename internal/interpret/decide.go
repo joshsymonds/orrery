@@ -23,7 +23,8 @@ type ActionKind string
 // kind. ActReadOrigin reads origin's main for a sync and records the read on the epic. ActGapRound starts the gap round
 // of a conclusion run, which gives each live gap a planner turn. ActRerun ends a rerun of a conclusion run's review, the
 // run that runs a reviewer again, with the verdict and findings it settled. ActRebuild starts the ended build run of an
-// open task again, as a send_back that reopens a done task needs.
+// open task again, as a send_back that reopens a done task needs. ActGapTask ends an open task as a gap, as its build
+// kind does when a dependency of the task is lost, so the task never starts.
 const (
 	ActStart      ActionKind = "start"
 	ActEnd        ActionKind = "end"
@@ -43,6 +44,7 @@ const (
 	ActWork       ActionKind = "work"
 	ActRun        ActionKind = "run"
 	ActRebuild    ActionKind = "rebuild"
+	ActGapTask    ActionKind = "gap_task"
 )
 
 // Action is one thing Decide asks for. Start carries the Runs to start and, for a later plan, its Trigger. End carries
@@ -66,6 +68,7 @@ const (
 // run in Runs, a trigger per live gap in Triggers, and a gap turn per live gap in GapTurns. Rerun ends the rerun run at
 // Path, whose Attempt ended passed with Output, Verdicts and Ledger: the one verdict and the findings its reviewer's
 // walk settled. Rebuild turns the build run at Path of Task, which ended at Attempt, running at its next attempt.
+// GapTask ends the task Task, whose stored build is Build, as a gap for Reason.
 type Action struct {
 	Kind        ActionKind
 	Runs        []store.NodeRun
@@ -77,6 +80,7 @@ type Action struct {
 	Reason      string
 	NodeKind    string
 	Task        int64
+	Build       store.TaskBuild
 	Attempt     int64
 	Outcome     string
 	Output      string
@@ -969,7 +973,8 @@ func (p pass) causeOf(task store.EpicTask) string {
 }
 
 // decideChildren decides each running child run under prefix with the build kind. A child that runs gives a run for
-// it, and the children that end give one end with no outcome. A child whose kind is not registered waits.
+// it, a child whose task its kind gives a gap for gives a gap task of that task, and the children that end give one end
+// with no outcome. A child whose kind is not registered waits.
 func (p pass) decideChildren(build workflow.Node, prefix string) []Action {
 	kind, ok := p.reg[build.Kind]
 	if !ok {
@@ -985,6 +990,11 @@ func (p pass) decideChildren(build workflow.Node, prefix string) []Action {
 		if act.Kind == kinds.ActRun {
 			acts = append(acts, Action{Kind: ActRun, Path: child.Path, NodeKind: build.Kind, Task: child.Task})
 		}
+		if act.Kind == kinds.ActGap {
+			acts = append(acts, Action{
+				Kind: ActGapTask, Path: child.Path, Task: child.Task, Build: p.buildOf(child.Task), Reason: act.Reason,
+			})
+		}
 		if act.Kind == kinds.ActEnd {
 			ends = append(ends, store.NodeEnd{Path: child.Path})
 		}
@@ -993,4 +1003,13 @@ func (p pass) decideChildren(build workflow.Node, prefix string) []Action {
 		acts = append(acts, Action{Kind: ActEnd, Ends: ends})
 	}
 	return acts
+}
+
+// buildOf returns the stored build of the task with seq among the epic's tasks, and the empty build when there is none.
+func (p pass) buildOf(seq int64) store.TaskBuild {
+	i := slices.IndexFunc(p.rows.Epic.Tasks, func(task store.EpicTask) bool { return task.Seq == seq })
+	if i < 0 {
+		return store.TaskBuild{}
+	}
+	return p.rows.Epic.Tasks[i].Build
 }
