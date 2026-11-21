@@ -4,6 +4,8 @@
 package kinds
 
 import (
+	"encoding/json"
+	"fmt"
 	"slices"
 	"time"
 
@@ -66,7 +68,7 @@ type ActionKind string
 // run's work runs at, ActStart starts work and ActRefs checks the refs the run was prepared with. ActCapture starts
 // Requirement captures, and ActRepro starts the reproductions of Requirements, with IDs and Items as for ActCapture.
 // ActAdvance moves the epic's branch to the run's candidate, and ActPark parks the run. ActHold pauses the epic once
-// for a review step its owner stopped.
+// for a review step its owner stopped. ActGap gives a build that waits for a lost dependency, whose Reason names it.
 const (
 	ActNone    ActionKind = "none"
 	ActRun     ActionKind = "run"
@@ -79,6 +81,7 @@ const (
 	ActAdvance ActionKind = "advance"
 	ActPark    ActionKind = "park"
 	ActHold    ActionKind = "hold"
+	ActGap     ActionKind = "gap"
 )
 
 // Action is a kind's decision for its node run. Outcome is the outcome an end reports and empty when it reports none,
@@ -133,7 +136,9 @@ var _ Idler = Release{}
 type Plan struct{}
 
 // Build is the build kind. Its run is one planned task: it runs while the task is open on an epic with a base whose phase
-// is not ended, and ends once the task is no longer open.
+// is not ended, and ends once the task is no longer open. A task that has not started, one whose build has no stage yet,
+// waits for the tasks it depends on: it gives none while one is pending, and gives a gap naming the first lost one, so
+// it runs only once each of them has been integrated into a batch.
 type Build struct{}
 
 // The states, statuses, outcomes and phases a kind reads, as the store and the epic write them.
@@ -153,6 +158,8 @@ const (
 	phaseReleased      = "released"
 	phaseDone          = "done"
 	phaseStopped       = "stopped"
+	// taskFailed is the status of a task that failed, which a build waiting on it reads as lost.
+	taskFailed = "failed"
 	// taskGap is the status of a task that ended its ladder as a gap and still holds the Requirements it claims.
 	taskGap = "gap"
 )
@@ -213,11 +220,19 @@ func anyTaskOpen(tasks []store.EpicTask) bool {
 	return false
 }
 
-// Decide returns end with no outcome when the run's task is not open on the epic. Otherwise it returns run when the
-// epic has a base and its phase is not ended, and none when it does not.
+// Decide returns end with no outcome when the run's task is not open on the epic. An open task that has not started
+// and depends on tasks returns gap when one of them is lost, naming the first lost one in DependsOn order, and none
+// while one is pending. Otherwise it returns run when the epic has a base and its phase is not ended, and none when it
+// does not.
 func (Build) Decide(node Node, rows Rows) Action {
-	if !isOpenTask(rows.Epic.Tasks, node.Run.Task) {
+	task, open := openTask(rows.Epic.Tasks, node.Run.Task)
+	if !open {
 		return Action{Kind: ActEnd}
+	}
+	if task.Build.Stage == "" {
+		if action, waiting := awaitDependencies(task.DependsOn, rows); waiting {
+			return action
+		}
 	}
 	if rows.Epic.Base != "" && !Ended(rows.Epic.Phase) {
 		return Action{Kind: ActRun}
@@ -225,14 +240,83 @@ func (Build) Decide(node Node, rows Rows) Action {
 	return Action{Kind: ActNone}
 }
 
-// isOpenTask reports whether the task with seq among tasks is open.
-func isOpenTask(tasks []store.EpicTask, seq int64) bool {
+// openTask returns the task with seq among tasks, and whether it is open.
+func openTask(tasks []store.EpicTask, seq int64) (store.EpicTask, bool) {
 	for i := range tasks {
 		if tasks[i].Seq == seq && tasks[i].Status == taskOpen {
-			return true
+			return tasks[i], true
 		}
 	}
-	return false
+	return store.EpicTask{}, false
+}
+
+// awaitDependencies decides a build of a task that has not started and depends on the tasks deps names. It returns the
+// gap action naming the first lost dependency in deps order, and waiting true. It returns none with waiting true while
+// a dependency is pending, and waiting false when every dependency is integrated.
+func awaitDependencies(deps []int64, rows Rows) (Action, bool) {
+	pending := false
+	for _, seq := range deps {
+		lost, integrated := dependencyState(seq, rows)
+		if lost != "" {
+			return Action{Kind: ActGap, Reason: lost}, true
+		}
+		pending = pending || !integrated
+	}
+	if pending {
+		return Action{Kind: ActNone}, true
+	}
+	return Action{}, false
+}
+
+// dependencyState reports how the task with seq stands for a build that waits on it. lost is the reason it is lost, and
+// empty when it is not: it failed, it ended as a gap, its batch's ended integrate run left it out, or that run's result
+// does not decode. integrated reports whether an ended integrate run composed it. Neither means it is pending.
+func dependencyState(seq int64, rows Rows) (lost string, integrated bool) {
+	i := slices.IndexFunc(rows.Epic.Tasks, func(task store.EpicTask) bool { return task.Seq == seq })
+	if i < 0 {
+		return "", false
+	}
+	dep := rows.Epic.Tasks[i]
+	switch dep.Status {
+	case taskFailed:
+		return fmt.Sprintf("dependency T%d failed", seq), false
+	case taskGap:
+		return fmt.Sprintf("dependency T%d ended as a gap", seq), false
+	}
+	j := slices.IndexFunc(rows.Runs, func(run store.NodeRun) bool {
+		return run.Kind == kindIntegrate && run.Path == dep.Batch
+	})
+	if dep.Batch == "" || j < 0 || rows.Runs[j].State != runEnded {
+		return "", false
+	}
+	composed, err := composedSeqs(rows.Runs[j].Result)
+	switch {
+	case err != nil:
+		return fmt.Sprintf("dependency T%d was claimed by a batch whose result does not decode", seq), false
+	case !slices.Contains(composed, seq):
+		return fmt.Sprintf("dependency T%d was left out of its batch", seq), false
+	}
+	return "", true
+}
+
+// composedSeqs returns the seqs of the tasks an integrate run's result composed, in the order it composed them. It
+// returns an error when the result, or one of its composed entries, does not decode.
+func composedSeqs(result string) ([]int64, error) {
+	var decoded integrateResult
+	if err := json.Unmarshal([]byte(result), &decoded); err != nil {
+		return nil, err
+	}
+	seqs := make([]int64, 0, len(decoded.Composed))
+	for _, entry := range decoded.Composed {
+		var composed struct {
+			Task int64 `json:"task"`
+		}
+		if err := json.Unmarshal(entry, &composed); err != nil {
+			return nil, err
+		}
+		seqs = append(seqs, composed.Task)
+	}
+	return seqs, nil
 }
 
 // Ended reports whether phase is a phase an epic ends in: the ended phases, and the closed phases a close ends an epic
