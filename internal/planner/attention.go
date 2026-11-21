@@ -68,12 +68,13 @@ const parkedPrefix = "parked: "
 const defaultTick = 5 * time.Second
 
 // AttentionStore is the store an Attention reads what each epic needs through, the notice rows it has stored, and
-// marks its turns and tells told in. *store.Store satisfies it.
+// marks its turns, tells and escalations told in. *store.Store satisfies it.
 type AttentionStore interface {
 	Attention(ctx context.Context) ([]store.EpicAttention, error)
 	Notices(ctx context.Context) ([]store.NoticeRow, error)
 	MarkTold(ctx context.Context, epic string, seq int64) error
 	MarkTellTold(ctx context.Context, epic string, seq int64) error
+	MarkEscalationTold(ctx context.Context, epic string, question int64) error
 }
 
 // Router routes notices to the owner. *route.Router satisfies it.
@@ -186,11 +187,13 @@ func (a *Attention) storedIDs(ctx context.Context) (map[string]bool, error) {
 }
 
 // attend passes over one epic. An epic that needs nothing has its notice cleared. Each untold tell is then routed as
-// the epic's notice, unless it is a silent move tell (see store.SilentMoveTell), and marked told. Last, the latest
-// turn, when it has ended and is not told, tells the owner once, if the need is one the owner must answer, and is
-// marked told. Each notice routed here carries the mark of its turn or tell, which its row's write applies. stored
-// holds the ids of the epic notices stored at the start of the pass, and a notice whose id is there is not routed
-// again.
+// the epic's notice, unless it is a silent move tell (see store.SilentMoveTell) or a question tell that a heard epic
+// keeps to itself (see heardQuestionTell), and marked told. Each open question that is escalated and not yet told is
+// routed as its escalation notice and marked told (see escalate), whether or not the epic is heard. Last, the latest
+// turn, when it has ended and is not told, tells the owner once, if the need is one the owner must answer (see
+// tellsOwner), and is marked told. Each notice routed here carries the mark of its turn, tell or escalation, which its
+// row's write applies. stored holds the ids of the epic notices stored at the start of the pass, and a notice whose id
+// is there is not routed again.
 func (a *Attention) attend(ctx context.Context, entry store.EpicAttention, now time.Time, stored map[string]bool) {
 	need := needOf(entry)
 	if need == needNone {
@@ -198,6 +201,12 @@ func (a *Attention) attend(ctx context.Context, entry store.EpicAttention, now t
 	}
 	for _, tell := range entry.Tells {
 		a.tell(ctx, entry, tell, stored)
+	}
+	for _, question := range entry.Open {
+		if question.Escalated.IsZero() || question.EscalationTold {
+			continue
+		}
+		a.escalate(ctx, entry, question, stored)
 	}
 	if entry.Latest.Seq == 0 || entry.Latest.Told {
 		return
@@ -218,12 +227,13 @@ func (a *Attention) attend(ctx context.Context, entry store.EpicAttention, now t
 
 // tell routes tell of entry as the epic's notice, with the tell's text, unless a stored notice carries its id, and
 // marks it told. A ref move that carries no park question is routed to no surface, so it is only marked told and stays
-// in the epic's tells (see store.SilentMoveTell). The notice's row marks the tell told in the write that stores it, so
-// a restart after the route finds the tell told whether or not the row is still stored. The mark after the route covers
-// a tell whose row write failed, and a tell whose mark fails is routed again on the next pass only when its notice is
-// not stored.
+// in the epic's tells (see store.SilentMoveTell). A question tell that a heard epic keeps to itself is routed to no
+// surface either, and is marked told (see heardQuestionTell). The notice's row marks the tell told in the write that
+// stores it, so a restart after the route finds the tell told whether or not the row is still stored. The mark after
+// the route covers a tell whose row write failed, and a tell whose mark fails is routed again on the next pass only
+// when its notice is not stored.
 func (a *Attention) tell(ctx context.Context, entry store.EpicAttention, tell store.EpicTell, stored map[string]bool) {
-	if !store.SilentMoveTell(tell.Text, tell.Question != nil) {
+	if !store.SilentMoveTell(tell.Text, tell.Question != nil) && !heardQuestionTell(entry, tell) {
 		id := tellNoticeID(entry.Epic, tell.Seq)
 		if !stored[id] {
 			a.notify(
@@ -237,6 +247,25 @@ func (a *Attention) tell(ctx context.Context, entry store.EpicAttention, tell st
 	}
 }
 
+// escalate routes the escalation of question, an open question of entry that is escalated and not yet told, as the
+// epic's notice, unless a stored notice carries its id, and marks the escalation told. The notice opens on the
+// question's block. Its row marks the escalation told in the write that stores it, and the mark after the route covers
+// an escalation whose row write failed, as tell does for a tell.
+func (a *Attention) escalate(
+	ctx context.Context, entry store.EpicAttention, question store.EpicQuestion, stored map[string]bool,
+) {
+	id := escalationNoticeID(entry.Epic, question.Seq)
+	if !stored[id] {
+		a.notify(
+			ctx, entry, id, escalationBody(question), questionBlock(question.Seq), false,
+			store.ToldMark{Epic: entry.Epic, Seq: question.Seq, Escalation: true},
+		)
+	}
+	if err := a.store.MarkEscalationTold(ctx, entry.Epic, question.Seq); err != nil {
+		a.logger.ErrorContext(ctx, "mark escalation told", "epic", entry.Epic, "question", question.Seq, "err", err)
+	}
+}
+
 // turnNoticeID is the id of the notice that need of epic's turn seq routes. It names the turn and the need, so a later
 // turn, or a different need of the same turn, has its own notice.
 func turnNoticeID(epic string, seq int64, need attentionNeed) string {
@@ -246,6 +275,11 @@ func turnNoticeID(epic string, seq int64, need attentionNeed) string {
 // tellNoticeID is the id of the notice of epic's tell seq.
 func tellNoticeID(epic string, seq int64) string {
 	return fmt.Sprintf("%s:tell:%d", epic, seq)
+}
+
+// escalationNoticeID is the id of the notice of the escalation of epic's question seq.
+func escalationNoticeID(epic string, seq int64) string {
+	return fmt.Sprintf("%s:escalation:%d", epic, seq)
 }
 
 // notify routes a notice of body for entry that opens on block, keyed by its epic, with id in its source data. park says
@@ -322,13 +356,14 @@ func needOf(entry store.EpicAttention) attentionNeed {
 }
 
 // tellsOwner reports whether the latest turn of entry, whose need is need, gets a notice. A park and a limit always
-// do. Open questions do when the turn succeeded and asked some.
+// do. Open questions do when the turn succeeded, asked some, and its epic is not heard: a heard epic's steerer hears
+// its questions, so the turn gets no notice for them.
 func tellsOwner(need attentionNeed, entry store.EpicAttention) bool {
 	switch need {
 	case needPark, needLimit:
 		return true
 	case needQuestions:
-		return entry.Latest.State == turnSucceeded && entry.LatestAsked > 0
+		return !entry.Heard && entry.Latest.State == turnSucceeded && entry.LatestAsked > 0
 	default:
 		return false
 	}
@@ -373,6 +408,24 @@ func parkBody(reason string, question *store.EpicQuestion) string {
 // parkTell reports whether tell belongs to a park question, as a park writes its reason as a tell with that question.
 func parkTell(tell store.EpicTell) bool {
 	return tell.Question != nil && tell.Question.Label == store.ParkLabel
+}
+
+// heardQuestionTell reports whether tell is a question tell that entry, being heard, keeps to itself: a tell of a
+// question that is not a park question and is not escalated. Its steerer hears of the question, so the owner is not
+// notified of it. An escalated question's tell is notified as its escalation is.
+func heardQuestionTell(entry store.EpicAttention, tell store.EpicTell) bool {
+	return entry.Heard && tell.Question != nil && !parkTell(tell) && tell.Question.Escalated.IsZero()
+}
+
+// escalationBody returns the body of the notice of the escalation of question: the maker's phrase and the escalation's
+// reason, then the question's head and advice lines.
+func escalationBody(question store.EpicQuestion) string {
+	lines := make([]string, 0, 2+len(question.Choices)+2)
+	lines = append(lines,
+		fmt.Sprintf("escalated by %s: %s", question.EscalationMaker.Phrase(), question.EscalationReason),
+		noticeHead(question),
+	)
+	return strings.Join(append(lines, adviceLines(question)...), "\n")
 }
 
 // openParkQuestion returns the open park question of entry, or nil when it has none.
