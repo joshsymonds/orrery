@@ -263,6 +263,8 @@ func conversationItems(items []conversation.Item) []*v1.ConversationItem {
 			Tokens:   item.Tokens,
 			Epic:     item.Epic,
 			Contract: item.Contract,
+			Added:    item.Added,
+			Removed:  item.Removed,
 		})
 	}
 	return out
