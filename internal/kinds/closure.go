@@ -174,31 +174,32 @@ func closureIsVerdict(step store.StepRow) bool {
 	return ok
 }
 
-// closureTasks returns the seqs of the tasks a correction round ran, in seq order: those of the turns above the mark of
-// the fix plan that shares the prefix of the closure run at path. A round with no fix plan ran no tasks.
+// closureTasks returns the seqs of the tasks a correction round ran, in seq order: the tasks of the fix plan that
+// shares the prefix of the closure run at path (PlanTask), those of the turns above its mark and each reopened task of
+// an earlier turn it rebuilt. A round with no fix plan ran no tasks.
 func closureTasks(rows Rows, path string) []int64 {
-	mark, ok := closureMark(rows.Runs, path)
+	plan, ok := closurePlan(rows.Runs, path)
 	if !ok {
 		return nil
 	}
 	var seqs []int64
 	for _, task := range rows.Epic.Tasks {
-		if task.Turn > mark {
+		if PlanTask(task, plan, rows.Runs) {
 			seqs = append(seqs, task.Seq)
 		}
 	}
 	return seqs
 }
 
-// closureMark returns the mark of the plan run whose path begins with the prefix of the closure run at path, which is the
-// path up to its last slash. It reports false when no plan run does.
-func closureMark(runs []store.NodeRun, path string) (int64, bool) {
+// closurePlan returns the plan run whose path begins with the prefix of the closure run at path, which is the path up
+// to its last slash. It reports false when no plan run does.
+func closurePlan(runs []store.NodeRun, path string) (store.NodeRun, bool) {
 	prefix := path[:strings.LastIndex(path, "/")+1]
 	i := slices.IndexFunc(runs, func(run store.NodeRun) bool {
 		return run.Kind == kindPlan && strings.HasPrefix(run.Path, prefix)
 	})
 	if i < 0 {
-		return 0, false
+		return store.NodeRun{}, false
 	}
-	return runs[i].Mark, true
+	return runs[i], true
 }
