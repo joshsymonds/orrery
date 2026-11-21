@@ -1,6 +1,7 @@
 package enginehost
 
 import (
+	"context"
 	"fmt"
 	"maps"
 	"slices"
@@ -12,6 +13,9 @@ import (
 
 // projectReleaseKey is the top-level key of a project file's release table.
 const projectReleaseKey = "release"
+
+// projectFileRel is the path of the project file in a repository, relative to its root.
+const projectFileRel = ".orrery/project.toml"
 
 // parseProjectRelease reads the [release] table of a project file: an optional then, and the steps of the release in
 // file order. The other top-level keys belong to their own readers and are ignored. found reports whether the file
@@ -101,4 +105,38 @@ func parseReleaseStep(i int, table map[string]any) (*v1.EpicReleaseStep, error) 
 		return nil, &epicFieldError{field: path + ".undo", reason: epicReasonEmpty}
 	}
 	return step, nil
+}
+
+// applyProjectRelease gives a contract that names no release step the project's release at the contract's base. It
+// reads the project file at the commit the base names, never the working tree. A base that holds no project file, or a
+// file with no release table, leaves the contract unchanged. Otherwise the release is parsed, and a malformed one is
+// returned as its parse error, even when the contract names its own steps. A contract that names one or more steps
+// keeps its steps and its then as written. A contract that names none takes the file's steps in file order and the
+// file's then, so its steps and its then come from one source.
+func applyProjectRelease(ctx context.Context, contract *v1.EpicContract) error {
+	base, err := stepGitResolve(ctx, contract.GetRepository(), contract.GetBase())
+	if err != nil {
+		return fmt.Errorf("resolve base: %w", err)
+	}
+	data, found, err := baseReader(ctx, contract.GetRepository(), base)(projectFileRel)
+	if err != nil {
+		return err
+	}
+	if !found {
+		return nil
+	}
+	steps, then, hasRelease, err := parseProjectRelease(data)
+	if err != nil {
+		return err
+	}
+	if !hasRelease || len(contract.GetReleaseSteps()) > 0 {
+		return nil
+	}
+	stepsErr := checkEpicReleaseSteps(steps)
+	if stepsErr != nil {
+		return stepsErr
+	}
+	contract.ReleaseSteps = steps
+	contract.ReleaseThen = then
+	return nil
 }
