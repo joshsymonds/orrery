@@ -1,6 +1,7 @@
 package io.github.joshsymonds.orrery.ui
 
 import io.github.joshsymonds.orrery.api.NoticeRow
+import io.github.joshsymonds.orrery.api.Pane
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
@@ -27,6 +28,8 @@ private const val BLOCK_QUESTION = "question"
 private const val BLOCK_RELEASE_STEP = "release_step"
 private const val BLOCK_REPORT = "report"
 private const val BLOCK_CONTRACT = "contract"
+private const val STATE_WAITING = "waiting"
+private const val STATE_IDLE = "idle"
 private val DAY_HEAD: DateTimeFormatter = DateTimeFormatter.ofPattern("EEEE d MMMM", Locale.ENGLISH)
 
 /** What a notice row says at [now], in unix seconds, against the [tree] read, null when no tree was read. */
@@ -49,12 +52,30 @@ private fun epicNoticeWords(row: NoticeRow, tree: TreeData?, now: Long): NoticeW
 }
 
 // A session or a pane leads with its state's glyph, then its listed directory's last element, else the title before the
-// separator, then its state's words. Its id is never named.
+// separator, then its state's words. Its id is never named. A listed pane that is quiet leads with the idle glyph instead.
 private fun conversationNoticeWords(row: NoticeRow, tree: TreeData?): NoticeWords {
     val key = row.pane.ifEmpty { row.session }
-    val directory = tree?.panes?.firstOrNull { it.id == key }?.cwd.orEmpty()
+    val pane = tree?.panes?.firstOrNull { it.id == key }
+    val directory = pane?.cwd.orEmpty()
     val name = directory.trimEnd('/').substringAfterLast('/').ifEmpty { row.title.substringBefore(TITLE_SEPARATOR) }
-    return NoticeWords(NoticeLead.State(row.state), name, stateWordsOf(row.state))
+    val quiet = if (tree != null && pane != null) quietWordsOf(pane, tree.archived) else null
+    return if (quiet != null) {
+        NoticeWords(NoticeLead.State(STATE_IDLE), name, quiet)
+    } else {
+        NoticeWords(NoticeLead.State(row.state), name, stateWordsOf(row.state))
+    }
+}
+
+// A waiting pane that does not wait on you, by the inbox's waitsOnYou on the pane as the inbox reads it, is quiet: its words
+// are the put-off words, or the idle word when it is archived. A put-off and archived pane reads put off. Null when it is not
+// quiet.
+private fun quietWordsOf(pane: Pane, archivedIds: Set<String>): String? {
+    val read = pane.copy(archived = archivedOf(pane, archivedIds))
+    return when {
+        pane.state != STATE_WAITING || waitsOnYou(read) -> null
+        pane.putOff -> PUT_OFF_WORDS
+        else -> glyphWordOf(STATE_IDLE)
+    }
 }
 
 // The words of an epic's block, as the web's notice says them; a notice with no block waits on you.

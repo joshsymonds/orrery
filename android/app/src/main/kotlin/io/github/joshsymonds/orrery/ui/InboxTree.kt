@@ -283,11 +283,7 @@ internal fun inboxTree(
     view: TreeView,
 ): List<Project> {
     val conversations = panes.filterNot { it.session.startsWith(SHELL_SESSION_PREFIX) }.map { pane ->
-        val archived = if (pane.headless) {
-            pane.archived
-        } else {
-            pane.orreryId.isNotEmpty() && pane.orreryId in archivedIds
-        }
+        val archived = archivedOf(pane, archivedIds)
         // The convo's pane carries the archived flag a tmux pane takes from Sessions.List, so readers of the tree need no
         // archivedIds of their own.
         Conversation(pane.copy(archived = archived), archived, placeOfConversation(pane, host))
@@ -309,6 +305,10 @@ internal fun waits(hung: Hung): Boolean = when (hung) {
     }
     is ContractNode -> hung.contract.state == CONTRACT_PROPOSED
 }
+
+/** Whether a pane is archived: a headless session by its own flag, a tmux pane by its orrery_id's place in [archivedIds]. */
+internal fun archivedOf(pane: Pane, archivedIds: Set<String>): Boolean =
+    if (pane.headless) pane.archived else pane.orreryId.isNotEmpty() && pane.orreryId in archivedIds
 
 /** Whether a pane waits on you: it is waiting, not archived, and its owner has not put its question off. */
 internal fun waitsOnYou(pane: Pane): Boolean = pane.state == STATE_WAITING && !pane.archived && !pane.putOff

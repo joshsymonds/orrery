@@ -53,7 +53,15 @@ class NoticesWordsTest {
         problem = "",
     )
 
-    private fun pane(id: String, cwd: String, state: String, headless: Boolean): Pane = Pane(
+    private fun pane(
+        id: String,
+        cwd: String,
+        state: String,
+        headless: Boolean,
+        orreryId: String = "",
+        archived: Boolean = false,
+        putOff: Boolean = false,
+    ): Pane = Pane(
         id = id,
         host = "example-host",
         session = "example-session",
@@ -69,10 +77,16 @@ class NoticesWordsTest {
         question = "",
         questionHash = "",
         headless = headless,
+        orreryId = orreryId,
+        archived = archived,
+        putOff = putOff,
     )
 
-    private fun treeOf(vararg epics: EpicRow, panes: List<Pane> = emptyList()): TreeData =
-        TreeData(panes, emptySet(), epics.toList(), emptyMap(), emptyList(), "")
+    private fun treeOf(
+        vararg epics: EpicRow,
+        panes: List<Pane> = emptyList(),
+        archived: Set<String> = emptySet(),
+    ): TreeData = TreeData(panes, archived, epics.toList(), emptyMap(), emptyList(), "")
 
     @Test
     fun aShippedEpicLeadsWithItsCheckGaugeSlugAndBlockWords() {
@@ -143,6 +157,73 @@ class NoticesWordsTest {
         assertEquals(NoticeLead.State("done"), words.lead)
         assertEquals("beta", words.name)
         assertEquals("done", words.words)
+    }
+
+    @Test
+    fun aWaitingPaneThatWaitsOnYouKeepsItsStateAndItsWords() {
+        val tree = treeOf(panes = listOf(pane("%7", "/home/user/beta", state = "waiting", headless = false)))
+
+        val words = noticeWordsOf(row(pane = "%7", state = "waiting", title = "beta · %7"), tree, NOW)
+
+        assertEquals(NoticeLead.State("waiting"), words.lead)
+        assertEquals("waiting on you", words.words)
+    }
+
+    @Test
+    fun aWaitingPaneNotListedKeepsTheNoticesOwnStateAndWords() {
+        val words = noticeWordsOf(row(pane = "%9", state = "waiting", title = "beta · %9"), treeOf(), NOW)
+
+        assertEquals(NoticeLead.State("waiting"), words.lead)
+        assertEquals("waiting on you", words.words)
+    }
+
+    @Test
+    fun aPutOffWaitingPaneLeadsWithTheIdleStateAndSaysItWaitsOnAQuestionPutOff() {
+        val tree = treeOf(panes = listOf(pane("%7", "/home/user/beta", state = "waiting", headless = false, putOff = true)))
+
+        val words = noticeWordsOf(row(pane = "%7", state = "waiting", title = "beta · %7"), tree, NOW)
+
+        assertEquals(NoticeLead.State("idle"), words.lead)
+        assertEquals("beta", words.name)
+        assertEquals("waiting on a question you put off", words.words)
+    }
+
+    @Test
+    fun anArchivedWaitingHeadlessSessionLeadsWithTheIdleStateAndItsWord() {
+        val tree = treeOf(panes = listOf(pane(SESSION_ID, "/home/user/alpha", state = "waiting", headless = true, archived = true)))
+
+        val words = noticeWordsOf(row(session = SESSION_ID, state = "waiting", title = "/home/user/alpha · $SESSION_ID"), tree, NOW)
+
+        assertEquals(NoticeLead.State("idle"), words.lead)
+        assertEquals("idle", words.words)
+    }
+
+    @Test
+    fun anArchivedWaitingTmuxPaneLeadsWithTheIdleStateAndItsWord() {
+        val orreryId = "a1b2c3d4e5f60718293a4b5c6d7e8f90"
+        val tree = treeOf(
+            panes = listOf(pane("%7", "/home/user/beta", state = "waiting", headless = false, orreryId = orreryId)),
+            archived = setOf(orreryId),
+        )
+
+        val words = noticeWordsOf(row(pane = "%7", state = "waiting", title = "beta · %7"), tree, NOW)
+
+        assertEquals(NoticeLead.State("idle"), words.lead)
+        assertEquals("idle", words.words)
+    }
+
+    @Test
+    fun aPaneBothArchivedAndPutOffReadsPutOff() {
+        val tree = treeOf(
+            panes = listOf(
+                pane("%7", "/home/user/beta", state = "waiting", headless = false, archived = true, putOff = true),
+            ),
+        )
+
+        val words = noticeWordsOf(row(pane = "%7", state = "waiting", title = "beta · %7"), tree, NOW)
+
+        assertEquals(NoticeLead.State("idle"), words.lead)
+        assertEquals("waiting on a question you put off", words.words)
     }
 
     @Test
