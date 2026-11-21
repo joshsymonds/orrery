@@ -332,3 +332,12 @@ test("Shapes: a prompt's YOU leads the first line of its words, beside the time,
   assert.equal(declaredValue(rules, `${block}.you > .head:has(+ p)`, "float"), "left");
   assert.equal(declaredValue(phone, `${block} > .head .at`, "display"), "inline", "at phone width the time is in the head beside YOU");
 });
+
+test("Shapes: a Block's head has no padding of its own, so the desk's reader-head padding never pushes its YOU off its words' line", () => {
+  assert.equal(declaredValue(rules, `${block} > .head`, "padding"), "0");
+});
+
+test("Shapes: a Block row's gutter time drops by the Block's top padding, so it reads on the Block's first line", () => {
+  assert.equal(declaredValue(rules, `.reader .t:has(> .body > [data-shape="block"]) > .gut`, "padding-top"), "var(--o-space-8)");
+  assert.equal(declaredValue(rules, block, "padding"), "var(--o-space-8) var(--o-space-12)", "the Block's top padding is the same token");
+});

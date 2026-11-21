@@ -511,6 +511,8 @@ button.link.notices-more { justify-self: end; padding: 0 var(--o-space-12); colo
 .reader .t.owner-turn:first-child { margin-top: 0; }
 .reader .t > .gut { font: var(--o-type-small); color: var(--o-ink-4); text-align: right; white-space: nowrap; }
 .reader .t > .gut.live { color: var(--o-role-live); }
+/* A Block's words start below its top padding, so the time beside a Block drops by that padding onto its first line. */
+.reader .t:has(> .body > [data-shape="block"]) > .gut { padding-top: var(--o-space-8); }
 /* A message the page sent that its stored conversation does not hold yet draws in a lower ink until its prompt arrives. */
 .reader .t.sending-row { --o-ink-1: var(--o-ink-3); }
 .reader .t > .body { min-width: 0; padding-bottom: var(--o-space-12); font: var(--o-type-body); color: var(--o-ink-1); }
@@ -542,8 +544,9 @@ button.link.notices-more { justify-self: end; padding: 0 var(--o-space-12); colo
 /* A block that is still being sent has a dashed rail: it has not happened yet. */
 .reader [data-shape="block"].pending { border-left-style: dashed; }
 .reader [data-shape="block"] > :last-child { margin-bottom: 0; }
+/* A Block's head takes no padding: the desk's reader-head padding is not its. */
 .reader [data-shape="block"] > .head {
-  display: flex; flex-wrap: wrap; align-items: center; gap: var(--o-space-4) var(--o-space-8); min-width: 0;
+  display: flex; flex-wrap: wrap; align-items: center; gap: var(--o-space-4) var(--o-space-8); min-width: 0; padding: 0;
   border-bottom: 0; color: var(--o-ink-3); font: var(--o-type-small); white-space: normal; overflow-wrap: normal;
 }
 .reader [data-shape="block"] > .head > .icon, .reader [data-shape="block"] > .head > .gauge { flex: none; color: var(--rail); }
@@ -1060,7 +1063,8 @@ button.act.primary { background: var(--o-role-primary); color: var(--o-ink-on-ac
   background: none; color: var(--o-ink-2); font: var(--o-type-small);
   appearance: none; -webkit-appearance: none;
 }
-.crumb {
+/* A crumb's plain look weighs nothing, so a crumb's own class (a project's name) draws over it wherever it is written. */
+:where(.crumb) {
   min-height: var(--o-space-24); padding: 0; border: 0; background: none; cursor: pointer; color: var(--o-ink-2); font: inherit;
   appearance: none; -webkit-appearance: none;
 }

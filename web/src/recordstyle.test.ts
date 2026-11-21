@@ -365,3 +365,10 @@ test("TitleRow: at the desk a conversation's title is one step down the type sca
   assert.equal(declaredValue(desk, here, "font"), "var(--o-type-body)");
   assert.equal(declaredValue(desk, here, "font-weight"), "var(--o-font-weight-bold)");
 });
+
+test("TitleRow: the plain crumb rule yields to a crumb's own class, so a project crumb keeps the inbox's project-name look", () => {
+  assert.equal(declaredValue(rules, ".crumb", "color"), undefined, "a bare .crumb rule would outrank .project-name by coming later");
+  assert.equal(declaredValue(rules, ".crumb", "font"), undefined);
+  assert.equal(declaredValue(rules, ":where(.crumb)", "color"), "var(--o-ink-2)");
+  assert.equal(declaredValue(rules, ":where(.crumb)", "font"), "inherit");
+});
