@@ -246,9 +246,9 @@ func releaseStepItems(steps []store.EpicReleaseStep) []string {
 	return items
 }
 
-// DecisionLines returns every epic decision as `- id: text`, as `- id (answers Qn): text` when it answers question n,
-// or as `- id (answers Qn with choice): text` when the question was answered with a choice, then the decisions of each
-// turn before turn as `- turn n: text`.
+// DecisionLines returns every epic decision as `- id (by maker): text`, as `- id (answers Qn, by maker): text` when it
+// answers question n, or as `- id (answers Qn with choice, by maker): text` when the question was answered with a
+// choice, then the decisions of each turn before turn as `- turn n: text`. Each maker is named as makerWord names it.
 func DecisionLines(epic store.EpicRow, turn int64) []string {
 	choices := make(map[int64]string, len(epic.Questions))
 	for _, q := range epic.Questions {
@@ -269,19 +269,34 @@ func DecisionLines(epic store.EpicRow, turn int64) []string {
 	return lines
 }
 
-// decisionLine returns one epic decision as `- id: text`. A decision that answers question n is `- id (answers Qn):
-// text`. When choice is the choice it answered with, it is `- id (answers Qn with choice): text`, which has no `: text`
-// when its text is empty.
+// decisionLine returns one epic decision as `- id (by maker): text`, where maker is makerWord of its maker. A decision
+// that answers question n is `- id (answers Qn, by maker): text`. When choice is the choice it answered with, it is
+// `- id (answers Qn with choice, by maker): text`, which has no `: text` when its text is empty.
 func decisionLine(decision store.EpicDecision, choice string) string {
+	maker := makerWord(decision.Maker)
 	switch {
 	case decision.Question == 0:
-		return fmt.Sprintf("- %s: %s", decision.ID, decision.Text)
+		return fmt.Sprintf("- %s (by %s): %s", decision.ID, maker, decision.Text)
 	case choice == "":
-		return fmt.Sprintf("- %s (answers Q%d): %s", decision.ID, decision.Question, decision.Text)
+		return fmt.Sprintf("- %s (answers Q%d, by %s): %s", decision.ID, decision.Question, maker, decision.Text)
 	case decision.Text == "":
-		return fmt.Sprintf("- %s (answers Q%d with %s)", decision.ID, decision.Question, choice)
+		return fmt.Sprintf("- %s (answers Q%d with %s, by %s)", decision.ID, decision.Question, choice, maker)
 	default:
-		return fmt.Sprintf("- %s (answers Q%d with %s): %s", decision.ID, decision.Question, choice, decision.Text)
+		return fmt.Sprintf("- %s (answers Q%d with %s, by %s): %s",
+			decision.ID, decision.Question, choice, maker, decision.Text)
+	}
+}
+
+// makerWord returns who made a decision as the prompt names them: owner, orreryd, `conversation` with its session
+// after a space when it has one, or unknown when By is empty, which a decision stored before makers were kept has.
+func makerWord(maker store.Maker) string {
+	switch {
+	case maker.By == "":
+		return "unknown"
+	case maker.By == store.MakerConversation && maker.Session != "":
+		return store.MakerConversation + " " + maker.Session
+	default:
+		return maker.By
 	}
 }
 

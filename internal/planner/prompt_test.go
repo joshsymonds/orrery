@@ -159,12 +159,12 @@ func TestPromptOpensWithRoleThenEverySectionInOrder(t *testing.T) {
 		"Release then: release it",
 		"Checks: just check",
 		"## Decisions",
-		"- D1: seed one",
-		"- D2: seed two",
-		"- answer-3: a note after turn one",
+		"- D1 (by unknown): seed one",
+		"- D2 (by unknown): seed two",
+		"- answer-3 (by unknown): a note after turn one",
 		"- turn 1: turn one decision",
 		"## New notes",
-		"- answer-3: a note after turn one",
+		"- answer-3 (by unknown): a note after turn one",
 		"## Open questions",
 		"- Q1 (turn 1): which store?",
 		"## Advice followed",
@@ -233,9 +233,9 @@ func TestPromptFirstTurnHasNoNewNotesOrFailureButListsEveryDecision(t *testing.T
 	prompt := promptOf(t, epic, 1, syntheticTriggers())
 	inOrder(t, prompt,
 		"## Decisions",
-		"- D1: seed one",
-		"- D2: seed two",
-		"- answer-3: a note after turn one",
+		"- D1 (by unknown): seed one",
+		"- D2 (by unknown): seed two",
+		"- answer-3 (by unknown): a note after turn one",
 		"## New notes\nNone.\n",
 		"## Open questions",
 	)
@@ -260,7 +260,7 @@ func TestPromptSkipsFreeTurnWhenFindingLastTurn(t *testing.T) {
 		},
 	}
 	prompt := promptOf(t, epic, 3, nil)
-	want := "## New notes\n- n2: note two\n- n3: note three\n\n## Open questions\nNone.\n"
+	want := "## New notes\n- n2 (by unknown): note two\n- n3 (by unknown): note three\n\n## Open questions\nNone.\n"
 	if !strings.Contains(prompt, want) {
 		t.Fatalf("prompt lacks %q: a free turn must not set the new notes", want)
 	}
@@ -346,8 +346,8 @@ func TestPromptShowsQuestionAdviceAnswerChoicesAndFollowCounts(t *testing.T) {
 	}
 	inOrder(t, prompt,
 		"## Decisions",
-		"- ans-4 (answers Q3 with short): keep it short\n",
-		"- ans-5 (answers Q5 with long)\n",
+		"- ans-4 (answers Q3 with short, by unknown): keep it short\n",
+		"- ans-5 (answers Q5 with long, by unknown)\n",
 		"## New notes",
 	)
 }
