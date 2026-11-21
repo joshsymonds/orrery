@@ -12,8 +12,8 @@ import (
 	v1 "github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1"
 )
 
-// The parts epic_get reads. The list parts give one line per item; contract, workflow and report give their text; task
-// and question give one item each.
+// The parts epic_get reads. The list parts give one line per item; contract, workflow and report give their text; task,
+// question, decision and turn give one item each.
 const (
 	partTasks     = "tasks"
 	partTurns     = "turns"
@@ -25,10 +25,12 @@ const (
 	partReport    = "report"
 	partTask      = "task"
 	partQuestion  = "question"
+	partDecision  = "decision"
+	partTurn      = "turn"
 )
 
 // epicPartNames names the parts epic_get accepts, in the order its refusal of an unknown part lists them.
-const epicPartNames = "tasks, turns, decisions, questions, history, contract, workflow, report, task, question"
+const epicPartNames = "tasks, turns, decisions, questions, history, contract, workflow, report, task, question, decision, turn"
 
 // The limits of epic_get. A list part's limit counts items, and a text part's or an item's limit counts runes; an absent
 // or zero limit is the default of the part's kind. itemTextCap is the rune cap of an item line's text.
@@ -39,8 +41,9 @@ const (
 )
 
 // checkEpicGetArgs refuses the arguments of epic_get that no read can answer: a part that is not one of epicPartNames, a
-// task or question given with a part other than its own, a task or question part without its item, offset or limit with
-// no part, and a negative offset or limit. It runs before the epic is read.
+// task, question, decision or turn given with a part other than its own, a task, question, decision or turn part without
+// its item, a turn that is not a positive integer, offset or limit with no part, and a negative offset or limit. It runs
+// before the epic is read.
 func checkEpicGetArgs(args epicGetArgs) error {
 	if args.Part != "" && !isEpicPart(args.Part) {
 		return fmt.Errorf("part: unknown part %q, want one of %s", args.Part, epicPartNames)
@@ -66,26 +69,58 @@ func checkEpicGetArgs(args epicGetArgs) error {
 	return nil
 }
 
-// checkItemArgs refuses a task given with a part other than task, a question given with a part other than question, and
-// the task or question part that lacks its item.
+// checkItemArgs refuses a task, question, decision or turn given with a part other than its own, the task, question,
+// decision or turn part that lacks its item, and a turn that is not a positive integer.
 func checkItemArgs(args epicGetArgs) error {
-	if args.Task != "" && args.Part != partTask {
-		return needsPart("task", partTask, args.Part)
-	}
-	if args.Question != "" && args.Part != partQuestion {
-		return needsPart("question", partQuestion, args.Part)
+	if err := checkItemKeys(args); err != nil {
+		return err
 	}
 	switch {
 	case args.Part == partTask && args.Task == "":
 		return errors.New("part task needs task, such as T3")
 	case args.Part == partQuestion && args.Question == "":
 		return errors.New("part question needs question, such as Q2")
+	case args.Part == partDecision && args.Decision == "":
+		return errors.New("part decision needs decision, such as DL3")
+	case args.Part == partTurn && args.Turn == "":
+		return errors.New("part turn needs turn, such as 3")
+	}
+	if args.Part == partTurn {
+		if _, err := turnSeq(args.Turn); err != nil {
+			return err
+		}
 	}
 	return nil
 }
 
-// needsPart is the refusal of key, a task or question, given with a call whose part is part rather than want. An empty
-// part means the call names no part.
+// turnSeq returns the number turn names, which is a positive integer, and an error naming turn when it is not one.
+func turnSeq(turn string) (int64, error) {
+	seq, err := strconv.ParseInt(turn, 10, 64)
+	if err != nil || seq < 1 {
+		return 0, fmt.Errorf("turn %q is not a positive integer", turn)
+	}
+	return seq, nil
+}
+
+// checkItemKeys refuses a task, question, decision or turn given with a part other than its own.
+func checkItemKeys(args epicGetArgs) error {
+	if args.Task != "" && args.Part != partTask {
+		return needsPart("task", partTask, args.Part)
+	}
+	if args.Question != "" && args.Part != partQuestion {
+		return needsPart("question", partQuestion, args.Part)
+	}
+	if args.Decision != "" && args.Part != partDecision {
+		return needsPart("decision", partDecision, args.Part)
+	}
+	if args.Turn != "" && args.Part != partTurn {
+		return needsPart("turn", partTurn, args.Part)
+	}
+	return nil
+}
+
+// needsPart is the refusal of key, a task, question, decision or turn, given with a call whose part is part rather than
+// want. An empty part means the call names no part.
 func needsPart(key, want, part string) error {
 	if part == "" {
 		return fmt.Errorf("%s needs part %s", key, want)
@@ -97,7 +132,7 @@ func needsPart(key, want, part string) error {
 func isEpicPart(part string) bool {
 	switch part {
 	case partTasks, partTurns, partDecisions, partQuestions, partHistory, partContract, partWorkflow, partReport,
-		partTask, partQuestion:
+		partTask, partQuestion, partDecision, partTurn:
 		return true
 	}
 	return false
@@ -112,8 +147,8 @@ func epicGetText(args epicGetArgs, epic *v1.StoredEpic) (string, error) {
 	return epicPartText(args, epic)
 }
 
-// epicPartText returns the text of the part args names, paged as its kind pages. A task or question the epic lacks is an
-// error.
+// epicPartText returns the text of the part args names, paged as its kind pages. A task, question, decision or turn the
+// epic lacks is an error.
 func epicPartText(args epicGetArgs, epic *v1.StoredEpic) (string, error) {
 	switch args.Part {
 	case partTasks:
@@ -141,12 +176,37 @@ func epicPartText(args epicGetArgs, epic *v1.StoredEpic) (string, error) {
 			return "", err
 		}
 		return pageText(partReport, text, args), nil
+	default: // The part is task, question, decision or turn: checkEpicGetArgs accepts no other part here.
+		return itemPartText(args, epic)
+	}
+}
+
+// itemPartText returns the text of the one item args names, which is a task, decision or turn, or else a question. An
+// item the epic lacks is an error.
+func itemPartText(args epicGetArgs, epic *v1.StoredEpic) (string, error) {
+	switch args.Part {
 	case partTask:
 		task, ok := itemNamed(epic.GetTasks(), args.Task)
 		if !ok {
 			return "", fmt.Errorf("task: no task %s in epic %s", args.Task, args.ID)
 		}
 		return pageItem(partTask, task, args)
+	case partDecision:
+		decision, ok := itemNamed(epic.GetDecisions(), args.Decision)
+		if !ok {
+			return "", fmt.Errorf("decision: no decision %s in epic %s", args.Decision, args.ID)
+		}
+		return pageItem(partDecision, decision, args)
+	case partTurn:
+		seq, err := turnSeq(args.Turn)
+		if err != nil {
+			return "", err
+		}
+		turn, ok := turnNamed(epic.GetTurns(), seq)
+		if !ok {
+			return "", fmt.Errorf("turn: no turn %d in epic %s", seq, args.ID)
+		}
+		return pageItem(partTurn, turn, args)
 	default: // The part is question: checkEpicGetArgs accepts no other part here.
 		question, ok := itemNamed(epic.GetQuestions(), args.Question)
 		if !ok {
@@ -165,6 +225,15 @@ func itemNamed[Item interface{ GetId() string }](items []Item, id string) (Item,
 	}
 	var none Item
 	return none, false
+}
+
+// turnNamed returns the turn of turns whose seq is seq, and whether there is one.
+func turnNamed(turns []*v1.EpicTurn, seq int64) (*v1.EpicTurn, bool) {
+	i := slices.IndexFunc(turns, func(turn *v1.EpicTurn) bool { return turn.GetSeq() == seq })
+	if i < 0 {
+		return nil, false
+	}
+	return turns[i], true
 }
 
 // pageItem returns the protobuf JSON of item, paged as the text of part is.

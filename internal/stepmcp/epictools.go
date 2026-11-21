@@ -32,14 +32,16 @@ type epicDecisionArgs struct {
 type epicListArgs struct{}
 
 // epicGetArgs is the arguments of epic_get, described for its input schema. Without part, the call returns the epic's
-// one-screen summary. part names the part to read; task and question name the one item a single-item part reads. offset
-// and limit page the part, counting items for a list part and runes for a text part or an item. They are pointers, so
-// that a key given with a zero value is told from a key left out.
+// one-screen summary. part names the part to read; task, question, decision and turn name the one item a single-item part
+// reads. offset and limit page the part, counting items for a list part and runes for a text part or an item. They are
+// pointers, so that a key given with a zero value is told from a key left out.
 type epicGetArgs struct {
 	ID       string `json:"id"                 jsonschema:"the id of the stored epic"`
-	Part     string `json:"part,omitempty"     jsonschema:"the part of the epic to read: tasks, turns, decisions, questions or history, one line per item; contract, workflow or report, its text; or task or question, one item. Omit it for the one-screen summary"`
+	Part     string `json:"part,omitempty"     jsonschema:"the part of the epic to read: tasks, turns, decisions, questions or history, one line per item; contract, workflow or report, its text; or task, question, decision or turn, one item. Omit it for the one-screen summary"`
 	Task     string `json:"task,omitempty"     jsonschema:"the id of the task to read, such as T3: required with part task, and refused with any other part"`
 	Question string `json:"question,omitempty" jsonschema:"the id of the question to read, such as Q2: required with part question, and refused with any other part"`
+	Decision string `json:"decision,omitempty" jsonschema:"the id of the decision to read, such as DL3: required with part decision, and refused with any other part"`
+	Turn     string `json:"turn,omitempty"     jsonschema:"the number of the turn to read, a positive integer such as 3: required with part turn, and refused with any other part"`
 	Offset   *int   `json:"offset,omitempty"   jsonschema:"the first item of a list part, or the first rune of a text part or an item, to read: 0 when omitted; needs a part"`
 	Limit    *int   `json:"limit,omitempty"    jsonschema:"the most items of a list part, or runes of a text part or an item, to read: 50 items or 8000 runes when omitted or 0; needs a part"`
 }
@@ -181,12 +183,13 @@ func epicRecordTools(epics enginev1connect.EpicsClient, in epicInputs) []Tool {
 			Description: "Return a stored epic by id. Without part, it returns the one-screen text summary: its id, " +
 				"title and phase, whether it is paused or why it is parked, its open questions, its task counts by " +
 				"status, and each part with its item count and byte size. With part, it returns that part, one of " +
-				"tasks, turns, decisions, questions, history, contract, workflow, report, task and question. " +
-				"tasks, turns, decisions, questions and history give one line per item, 50 from offset by default, " +
-				"and an offset <n> continues line when items remain past them. task, with task such as T3, and " +
-				"question, with question such as Q2, return that item whole as protobuf JSON. contract, workflow, " +
-				"report, task and question return limit runes from offset, 8000 by default, and name the offset " +
-				"that continues when text remains past them.",
+				"tasks, turns, decisions, questions, history, contract, workflow, report, task, question, decision " +
+				"and turn. tasks, turns, decisions, questions and history give one line per item, 50 from offset by " +
+				"default, and an offset <n> continues line when items remain past them. task (with task such as T3), " +
+				"question (with question such as Q2), decision (with decision such as DL3) and turn (with turn such " +
+				"as 3) return that item whole as protobuf JSON. contract, workflow, report, task, question, decision " +
+				"and turn return limit runes from offset, 8000 by default, and name the offset that continues when " +
+				"text remains past them.",
 			InputSchema: in.get,
 			Handler:     epicGetHandler(epics),
 		},
