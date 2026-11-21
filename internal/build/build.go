@@ -274,14 +274,14 @@ type Checks interface {
 	Run(ctx context.Context, check store.NodeCheck) (store.NodeCheck, error)
 }
 
-// Git makes the writes a Runner makes to a repository: the epic's branch create, a pin of a ref, a task worktree add,
-// the move of a task's worktree onto a new base, the keep of a task's work on a ref when that move is refused, and the
-// removal of a task's worktrees.
+// Git makes the writes a Runner makes to a repository: the epic's branch create, a pin of a ref, a task worktree add
+// on a new task branch, the move of a task's worktree onto a new base as a task branch that merges its work, the keep
+// of a task's work on a ref when that move is refused, and the removal of a task's worktrees.
 type Git interface {
 	CreateBranch(ctx context.Context, repo, epic, base string) error
 	Pin(ctx context.Context, repo, ref, commit string) error
-	AddWorktree(ctx context.Context, repo, path, base string) error
-	MoveWorktree(ctx context.Context, path, wip, to string) error
+	AddTaskWorktree(ctx context.Context, repo, epic string, seq int64, path, base string) error
+	MoveTaskWorktree(ctx context.Context, path, wip, epic string, seq int64, to string) error
 	KeepWork(ctx context.Context, path, wip, ref string) (string, error)
 	RemoveWorktrees(ctx context.Context, repo, dir string) error
 }
@@ -297,12 +297,12 @@ func (packageGit) Pin(ctx context.Context, repo, ref, commit string) error {
 	return Pin(ctx, repo, ref, commit)
 }
 
-func (packageGit) AddWorktree(ctx context.Context, repo, path, base string) error {
-	return AddWorktree(ctx, repo, path, base)
+func (packageGit) AddTaskWorktree(ctx context.Context, repo, epic string, seq int64, path, base string) error {
+	return AddTaskWorktree(ctx, repo, epic, seq, path, base)
 }
 
-func (packageGit) MoveWorktree(ctx context.Context, path, wip, to string) error {
-	return MoveWorktree(ctx, path, wip, to)
+func (packageGit) MoveTaskWorktree(ctx context.Context, path, wip, epic string, seq int64, to string) error {
+	return MoveTaskWorktree(ctx, path, wip, epic, seq, to)
 }
 
 func (packageGit) KeepWork(ctx context.Context, path, wip, ref string) (string, error) {

@@ -464,7 +464,7 @@ func writeFile(t *testing.T, path, content string) {
 	}
 }
 
-// identify gives repo the committer identity the engine's rebase uses.
+// identify gives repo the committer identity the engine's commits use.
 func identify(t *testing.T, repo string) {
 	t.Helper()
 	buildRun(t, repo, "config", "user.name", "Test")
@@ -473,8 +473,8 @@ func identify(t *testing.T, repo string) {
 }
 
 // TestOrchestratePassWaitingTaskMovesOntoTheNewBaseOnceItsTaskIsIntegrated: a build waiting on T2 waits while T2 is
-// open, and once a batch integrates T2 its worktree moves onto the stored base with the uncommitted work kept, its base
-// moves with it, and its implementer starts there.
+// open, and once a batch integrates T2 its worktree moves onto the stored base, on the task's next branch, with the
+// uncommitted work kept, its base moves with it, and its implementer starts there.
 func TestOrchestratePassWaitingTaskMovesOntoTheNewBaseOnceItsTaskIsIntegrated(t *testing.T) {
 	t.Parallel()
 	const file = waitFile
@@ -499,8 +499,8 @@ func TestOrchestratePassWaitingTaskMovesOntoTheNewBaseOnceItsTaskIsIntegrated(t 
 		t.Fatalf("build held %q base %s after %q, want resumed at %s keeping After", build.Held, build.Base,
 			build.After, newBase)
 	}
-	if head := buildHead(t, worktree); head != newBase {
-		t.Errorf("worktree HEAD %s, want %s", head, newBase)
+	if parent := buildRun(t, worktree, "rev-parse", "HEAD^1"); parent != newBase {
+		t.Errorf("worktree HEAD^1 %s, want the new base %s", parent, newBase)
 	}
 	if data, err := os.ReadFile(
 		filepath.Join(worktree, "thing.go"),

@@ -182,10 +182,11 @@ func (r *Runner) fail(ctx context.Context, epic store.EpicRow, view View, action
 
 // carry carries the kept work of the task of view onto the base the climb to next lands on: the epic's candidate, or
 // its stored base when it has none, as readRequest reads a waiting build's base. A base that is empty or is the task's
-// own base carries nothing. When git moves the implement worktree onto that base, next's base is that base. When git
-// refuses the move, the work is kept on CarryRef, and the climb keeps its base with a carry version whose deliverable
-// and reason name the ref. The version is returned with next and true. A keep that fails is reported, and carry returns
-// false, so nothing is written and the next pass tries again.
+// own base carries nothing. When git merges the implement worktree's work onto that base and cuts the task's next
+// branch there (MoveTaskWorktree), next's base is that base. When git refuses the merge, the work is kept on CarryRef,
+// and the climb keeps its base with a carry version whose deliverable and reason name the ref. The version is returned
+// with next and true. A keep that fails is reported, and carry returns false, so nothing is written and the next pass
+// tries again.
 func (r *Runner) carry(
 	ctx context.Context, epic store.EpicRow, view View, next store.TaskBuild,
 ) (store.TaskBuild, *store.TaskVersionInput, bool) {
@@ -198,7 +199,7 @@ func (r *Runner) carry(
 		return next, nil, true
 	}
 	path, wip := ImplementWorktree(r.stateDir, epic.ID, view.Task), WipRef(epic.ID, seq)
-	moveErr := r.git.MoveWorktree(ctx, path, wip, newBase)
+	moveErr := r.git.MoveTaskWorktree(ctx, path, wip, epic.ID, seq, newBase)
 	if moveErr == nil {
 		next.Base = newBase
 		return next, nil, true
@@ -272,14 +273,14 @@ func (r *Runner) ask(ctx context.Context, epic store.EpicRow, view View, action 
 	return r.written(ctx, epic.ID, seq, "ask owner", err)
 }
 
-// resume moves a waiting build's implement worktree onto action's revision, keeping its work, with the task's own ref
-// holding its uncommitted work while the move runs (MoveWorktree, WipRef), then stores action's build. A move git
+// resume moves a waiting build's implement worktree onto action's revision, keeping its work, as a new task branch
+// that holds the work merged into the revision (MoveTaskWorktree, WipRef), then stores action's build. A merge git
 // refuses climbs the task through fail, with `T<seq> could not move onto the new base <base>: <error>` as its failure.
 // fail then tries the carry onto that base, and when git refuses it again, keeps the work with a carry version.
 func (r *Runner) resume(ctx context.Context, epic store.EpicRow, view View, action Action) bool {
 	seq, from := view.Task.Seq, view.Task.Build
 	path := ImplementWorktree(r.stateDir, epic.ID, view.Task)
-	if err := r.git.MoveWorktree(ctx, path, WipRef(epic.ID, seq), action.Revision); err != nil {
+	if err := r.git.MoveTaskWorktree(ctx, path, WipRef(epic.ID, seq), epic.ID, seq, action.Revision); err != nil {
 		reason := fmt.Sprintf("%s could not move onto the new base %s: %v", taskLabel(seq), action.Revision, err)
 		return r.fail(ctx, epic, view, Action{Kind: ActFail, Reason: reason})
 	}

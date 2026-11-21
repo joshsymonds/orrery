@@ -195,8 +195,9 @@ func TestStartImplementerWorktreeIsDetachedAtBaseUnderTaskDir(t *testing.T) {
 	if got := buildRun(t, want, "rev-parse", "HEAD"); got != setup.base {
 		t.Errorf("worktree HEAD = %s, want the base %s", got, setup.base)
 	}
-	if got := buildRun(t, want, "rev-parse", "--symbolic-full-name", "HEAD"); got != "HEAD" {
-		t.Errorf("worktree HEAD is attached to %s, want detached", got)
+	branch := "refs/heads/orrery/" + Slug(setup.epic.ID) + "/T3.1"
+	if got := buildRun(t, want, "rev-parse", "--symbolic-full-name", "HEAD"); got != branch {
+		t.Errorf("worktree HEAD is attached to %s, want the first task branch %s", got, branch)
 	}
 	if !buildListsWorktree(t, setup.epic.Repository, want) {
 		t.Errorf("git worktree list does not name %s", want)

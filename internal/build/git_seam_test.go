@@ -17,9 +17,13 @@ func (refusingGit) CreateBranch(context.Context, string, string, string) error {
 
 func (refusingGit) Pin(context.Context, string, string, string) error { return errGitRefused }
 
-func (refusingGit) AddWorktree(context.Context, string, string, string) error { return errGitRefused }
+func (refusingGit) AddTaskWorktree(context.Context, string, string, int64, string, string) error {
+	return errGitRefused
+}
 
-func (refusingGit) MoveWorktree(context.Context, string, string, string) error { return errGitRefused }
+func (refusingGit) MoveTaskWorktree(context.Context, string, string, string, int64, string) error {
+	return errGitRefused
+}
 
 func (refusingGit) KeepWork(context.Context, string, string, string) (string, error) {
 	return "", errGitRefused

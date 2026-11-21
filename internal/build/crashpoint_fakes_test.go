@@ -502,15 +502,15 @@ func (g crashGit) Pin(ctx context.Context, repo, ref, commit string) error {
 	})
 }
 
-func (g crashGit) AddWorktree(ctx context.Context, repo, path, base string) error {
+func (g crashGit) AddTaskWorktree(ctx context.Context, repo, epic string, seq int64, path, base string) error {
 	return g.w.act("git worktree add", func() error {
-		return wrapErr("add worktree", AddWorktree(ctx, repo, path, base))
+		return wrapErr("add worktree", AddTaskWorktree(ctx, repo, epic, seq, path, base))
 	})
 }
 
-func (g crashGit) MoveWorktree(ctx context.Context, path, wip, to string) error {
+func (g crashGit) MoveTaskWorktree(ctx context.Context, path, wip, epic string, seq int64, to string) error {
 	return g.w.act("git worktree move", func() error {
-		return wrapErr("move worktree", MoveWorktree(ctx, path, wip, to))
+		return wrapErr("move worktree", MoveTaskWorktree(ctx, path, wip, epic, seq, to))
 	})
 }
 

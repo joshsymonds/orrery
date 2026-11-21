@@ -12,14 +12,39 @@ import (
 )
 
 // ladderCarryFixture returns a pass fixture whose task 1 is at stage on attempt, at its base, and the path of its
-// implement worktree, added at the base. The repository has an identity, so a carry's replayed commits are made.
+// implement worktree, added on task branch T1.1 at the base. The repository has an identity, so a carry's merge
+// commits are made.
 func ladderCarryFixture(t *testing.T, stage string, attempt int64) (*passFixture, string) {
 	t.Helper()
 	f := newPassFixture(t)
 	identify(t, f.repo)
 	f.setBuild(store.TaskBuild{Stage: stage, Base: f.base, Attempt: attempt, Revision: f.base})
-	worktree := f.addTaskWorktree("implement")
+	worktree := ImplementWorktree(f.stateDir, passEpic, f.task())
+	if err := AddTaskWorktree(f.ctx, f.repo, passEpic, 1, worktree, f.base); err != nil {
+		f.t.Fatalf("AddTaskWorktree: %v", err)
+	}
 	return f, worktree
+}
+
+// ladderCarryMerged fails the test unless the worktree at path is on task 1's branch at attempt k, whose commit merges
+// the work into onto: its first parent is onto, and its second parent is the work, which holds the worktree's commit
+// of mine.go. The files hold the work, and nothing is uncommitted.
+func ladderCarryMerged(t *testing.T, path string, k int64, onto string) {
+	t.Helper()
+	branch := TaskBranchRef(passEpic, 1, k)
+	if got := buildRun(t, path, "rev-parse", "--symbolic-full-name", "HEAD"); got != branch {
+		t.Errorf("worktree HEAD is attached to %s, want %s", got, branch)
+	}
+	if parent := buildRun(t, path, "rev-parse", "HEAD^1"); parent != onto {
+		t.Errorf("HEAD^1 %s, want %s", parent, onto)
+	}
+	if subject := buildRun(t, path, "log", "-1", "--format=%s", "HEAD^2^"); subject != "mine" {
+		t.Errorf("HEAD^2^ subject %q, want mine", subject)
+	}
+	ladderCarryFiles(t, path, map[string]string{"mine.go": "package mine\n", "draft.go": "package draft\n"})
+	if status := buildRun(t, path, "status", "--porcelain"); status != "" {
+		t.Errorf("status %q, want the work committed", status)
+	}
 }
 
 // ladderCarryWork leaves worktree with a commit of file, written as content, and an uncommitted draft.go: the work a
@@ -101,9 +126,9 @@ type ladderCarryGit struct {
 	moves []string
 }
 
-func (g *ladderCarryGit) MoveWorktree(ctx context.Context, path, wip, to string) error {
+func (g *ladderCarryGit) MoveTaskWorktree(ctx context.Context, path, wip, epic string, seq int64, to string) error {
 	g.moves = append(g.moves, to)
-	return g.packageGit.MoveWorktree(ctx, path, wip, to)
+	return g.packageGit.MoveTaskWorktree(ctx, path, wip, epic, seq, to)
 }
 
 // TestTaskLadderCarryKeepWork: KeepWork keeps a worktree's commit and its uncommitted file on the ref, leaves the
@@ -142,8 +167,8 @@ func TestTaskLadderCarryKeepWork(t *testing.T) {
 	}
 }
 
-// TestTaskLadderCarryMovesWorkOntoBranch: a climb whose epic's base is ahead of the task's base moves the task's
-// worktree onto that base, with its work, and stores no carry version. The base is the candidate, or the stored base
+// TestTaskLadderCarryMovesWorkOntoBranch: a climb whose epic's base is ahead of the task's base merges the task's work
+// onto that base on the task's next branch, and stores no carry version. The base is the candidate, or the stored base
 // when the epic has no candidate.
 func TestTaskLadderCarryMovesWorkOntoBranch(t *testing.T) {
 	t.Parallel()
@@ -171,13 +196,7 @@ func ladderCarryMovesOnto(t *testing.T, setBase func(*passFixture, string)) {
 	if task.Build.Attempt != 2 || task.Build.Base != ahead {
 		t.Errorf("build attempt %d base %s, want rung 2 on %s", task.Build.Attempt, task.Build.Base, ahead)
 	}
-	if parent := buildRun(t, worktree, "rev-parse", "HEAD^"); parent != ahead {
-		t.Errorf("HEAD^ %s, want %s", parent, ahead)
-	}
-	if subject := buildRun(t, worktree, "log", "-1", "--format=%s"); subject != "mine" {
-		t.Errorf("HEAD subject %q, want mine", subject)
-	}
-	ladderCarryFiles(t, worktree, map[string]string{"mine.go": "package mine\n", "draft.go": "package draft\n"})
+	ladderCarryMerged(t, worktree, 2, ahead)
 	if n := len(task.Versions); n != 0 {
 		t.Errorf("task has %d versions, want no carry version", n)
 	}

@@ -13,11 +13,13 @@ import (
 )
 
 // mainRef always parks a move, headRef names the move of the primary checkout's HEAD, and refs under refsOrreryPrefix
-// belong to the orchestrator and never appear in a snapshot.
+// belong to the orchestrator and never appear in a snapshot. Neither do refs under taskBranchesPrefix, the task
+// branches the implementers commit to: those commits are the implementers' work, not ref moves.
 const (
-	mainRef          = "refs/heads/main"
-	headRef          = "HEAD"
-	refsOrreryPrefix = "refs/orrery/"
+	mainRef            = "refs/heads/main"
+	headRef            = "HEAD"
+	refsOrreryPrefix   = "refs/orrery/"
+	taskBranchesPrefix = "refs/heads/orrery/"
 	// symbolicRefDetached is the exit status of `git symbolic-ref -q HEAD` when HEAD is detached.
 	symbolicRefDetached = 1
 )
@@ -43,8 +45,8 @@ type snapshot struct {
 }
 
 // Snapshot returns the JSON of repo's refs and of its primary checkout's HEAD, which is the parent of repo's common
-// git directory. It leaves out refs under refs/orrery/ and each ref named in exclude. It writes nothing to the
-// repository.
+// git directory. It leaves out refs under refs/orrery/, refs under refs/heads/orrery/ (the task branches), and each ref
+// named in exclude. It writes nothing to the repository.
 func Snapshot(ctx context.Context, repo string, exclude []string) (string, error) {
 	common, err := runGit(ctx, repo, "rev-parse", "--path-format=absolute", "--git-common-dir")
 	if err != nil {
@@ -76,7 +78,8 @@ func Snapshot(ctx context.Context, repo string, exclude []string) (string, error
 		if !found {
 			return "", fmt.Errorf("unexpected for-each-ref line %q", line)
 		}
-		if strings.HasPrefix(name, refsOrreryPrefix) || slices.Contains(exclude, name) {
+		if strings.HasPrefix(name, refsOrreryPrefix) || strings.HasPrefix(name, taskBranchesPrefix) ||
+			slices.Contains(exclude, name) {
 			continue
 		}
 		refs[name] = sha

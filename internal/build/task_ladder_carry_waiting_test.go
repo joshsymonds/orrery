@@ -9,8 +9,8 @@ import (
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
-// ladderWaitMove is one MoveWorktree call: the worktree it moved, the wip ref it kept the work on, and the base it moved
-// the worktree to.
+// ladderWaitMove is one MoveTaskWorktree call: the worktree it moved, the wip ref it kept the work on, and the base it
+// moved the worktree to.
 type ladderWaitMove struct {
 	path, wip, to string
 }
@@ -22,9 +22,9 @@ type ladderWaitGit struct {
 	moves []ladderWaitMove
 }
 
-func (g *ladderWaitGit) MoveWorktree(ctx context.Context, path, wip, to string) error {
+func (g *ladderWaitGit) MoveTaskWorktree(ctx context.Context, path, wip, epic string, seq int64, to string) error {
 	g.moves = append(g.moves, ladderWaitMove{path: path, wip: wip, to: to})
-	return g.packageGit.MoveWorktree(ctx, path, wip, to)
+	return g.packageGit.MoveTaskWorktree(ctx, path, wip, epic, seq, to)
 }
 
 // ladderWaitCase is a task whose worktree was moved onto base, with the fixture it is in, the worktree, and the Git that
@@ -85,8 +85,8 @@ func ladderWaitClimbed(t *testing.T, setBase func(*passFixture, string)) ladderW
 }
 
 // ladderWaitCheck fails the test unless c's task 1 moved its worktree once, onto c's base with the task's wip ref, and
-// its build stands on attempt on that base with no hold. The worktree keeps the task's commit on the base with its
-// uncommitted file, and the task has no version.
+// its build stands on attempt on that base with no hold. The worktree is on the task's next branch, which merges the
+// task's work onto that base, and the task has no version.
 func ladderWaitCheck(t *testing.T, c ladderWaitCase, attempt int64) {
 	t.Helper()
 	wip := WipRef(passEpic, 1)
@@ -101,13 +101,7 @@ func ladderWaitCheck(t *testing.T, c ladderWaitCase, attempt int64) {
 		t.Errorf("build attempt %d held %q base %s, want attempt %d with no hold on %s",
 			task.Build.Attempt, task.Build.Held, task.Build.Base, attempt, c.base)
 	}
-	if parent := buildRun(t, c.worktree, "rev-parse", "HEAD^"); parent != c.base {
-		t.Errorf("HEAD^ %s, want %s", parent, c.base)
-	}
-	if subject := buildRun(t, c.worktree, "log", "-1", "--format=%s"); subject != "mine" {
-		t.Errorf("HEAD subject %q, want mine", subject)
-	}
-	ladderCarryFiles(t, c.worktree, map[string]string{"mine.go": "package mine\n", "draft.go": "package draft\n"})
+	ladderCarryMerged(t, c.worktree, 2, c.base)
 	if n := len(task.Versions); n != 0 {
 		t.Errorf("task has %d versions, want none", n)
 	}

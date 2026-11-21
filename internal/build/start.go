@@ -67,12 +67,12 @@ func (r *Runner) startStep(ctx context.Context, epic store.EpicRow, view View, a
 }
 
 // implementerStart returns the start of the implementer step id for task of epic. The step runs the roles file's
-// implementer agent in the task's implement worktree (ImplementWorktree), added detached at the task's base when it does
-// not exist and kept as it is when it does, so a later attempt or rerun continues from the earlier work. The step is
-// checked from the task's base, with the brief, the task's files, and the command gate the epic names for the task. A
-// gate that is an agent gate is an error. Rung 3 (store.OrchestratorRung) is the orchestrator's own writing attempt under
-// the task's files, gate and reviews, so it runs the orchestrator's agent, or the planner's when the role file has no
-// orchestrator key; no other rung changes the agent.
+// implementer agent in the task's implement worktree (ImplementWorktree), added on a new task branch (TaskBranchRef) at
+// the task's base when it does not exist and kept as it is when it does, so a later attempt or rerun continues from the
+// earlier work on its branch. The step is checked from the task's base, with the brief, the task's files, and the
+// command gate the epic names for the task. A gate that is an agent gate is an error. Rung 3 (store.OrchestratorRung)
+// is the orchestrator's own writing attempt under the task's files, gate and reviews, so it runs the orchestrator's
+// agent, or the planner's when the role file has no orchestrator key; no other rung changes the agent.
 func (r *Runner) implementerStart(
 	ctx context.Context, epic store.EpicRow, task store.EpicTask, id string,
 ) (enginehost.StepStart, error) {
@@ -96,7 +96,7 @@ func (r *Runner) implementerStart(
 		return enginehost.StepStart{}, fmt.Errorf("gate %s is an agent gate, not a command gate", task.Gate)
 	}
 	path := ImplementWorktree(r.stateDir, epic.ID, task)
-	err = r.git.AddWorktree(ctx, epic.Repository, path, task.Build.Base)
+	err = r.git.AddTaskWorktree(ctx, epic.Repository, epic.ID, task.Seq, path, task.Build.Base)
 	if err != nil {
 		return enginehost.StepStart{}, fmt.Errorf("prepare worktree: %w", err)
 	}
