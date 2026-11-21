@@ -20,10 +20,14 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.SemanticsPropertyKey
 import androidx.compose.ui.semantics.semantics
 import io.github.joshsymonds.orrery.api.HostStat
 import io.github.joshsymonds.orrery.ui.theme.OrreryTokens
 import io.github.joshsymonds.orrery.ui.theme.inLabelCase
+
+/** Semantics key: the colour a meter's name, fill or value is drawn in, on that part's node. */
+val MeterColourKey = SemanticsPropertyKey<Color>("MeterColour")
 
 // A stat's series colour, taken in order: the first stat is series one, and the sixth is series one again.
 private val seriesColours = listOf(
@@ -118,7 +122,13 @@ fun HostMeters(stats: List<HostStat>, modifier: Modifier = Modifier) {
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(OrreryTokens.Space.eight),
             ) {
-                Text(text = stat.label.inLabelCase(), style = OrreryTokens.Type.label, color = hue, maxLines = 1)
+                Text(
+                    text = stat.label.inLabelCase(),
+                    modifier = Modifier.semantics { set(MeterColourKey, hue) },
+                    style = OrreryTokens.Type.label,
+                    color = hue,
+                    maxLines = 1,
+                )
                 stat.percent?.let { percent ->
                     Box(
                         modifier = Modifier
@@ -134,18 +144,21 @@ fun HostMeters(stats: List<HostStat>, modifier: Modifier = Modifier) {
                                 .fillMaxHeight()
                                 .clip(RoundedCornerShape(OrreryTokens.Radius.round))
                                 .background(hue)
-                                .testTag("meter-fill:${stat.label}"),
+                                .testTag("meter-fill:${stat.label}")
+                                .semantics { set(MeterColourKey, hue) },
                         )
                     }
                 }
+                val ink = valueColour(stat.level)
                 Text(
                     text = stat.value,
+                    modifier = Modifier.semantics { set(MeterColourKey, ink) },
                     style = if (stat.level == "crit") {
                         OrreryTokens.Type.small.copy(fontWeight = OrreryTokens.Font.Weight.bold)
                     } else {
                         OrreryTokens.Type.small
                     },
-                    color = valueColour(stat.level),
+                    color = ink,
                     maxLines = 1,
                 )
             }
