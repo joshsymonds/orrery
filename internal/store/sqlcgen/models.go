@@ -761,6 +761,14 @@ type NoticeHistory struct {
 	Read     bool
 }
 
+type PaneSend struct {
+	ID     int64
+	Pane   string
+	Text   string
+	Client string
+	At     int64
+}
+
 type PendingNotice struct {
 	ID          int64
 	Pane        string
