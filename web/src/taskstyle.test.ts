@@ -212,11 +212,6 @@ test("TaskStyle: at phone width the worker session's leading crumbs share one li
   assert.equal(declaredValue(phone, ".worker-session > .title-row .crumb.here", "flex"), "0 0 100%");
 });
 
-test("TaskStyle: at phone width the worker session's mark and the separator after it leave its title row", () => {
-  assert.equal(declaredValue(phone, ".worker-session > .title-row .mark-crumb", "display"), "none");
-  assert.equal(declaredValue(phone, ".worker-session > .title-row .mark-crumb + .sep", "display"), "none");
-});
-
 test("TaskStyle: at phone width a worker session's leading crumb ellipsizes on one line, and its page crumb wraps whole", () => {
   assert.equal(declaredValue(phone, ".worker-session > .title-row .crumb", "white-space"), "nowrap");
   assert.equal(declaredValue(phone, ".worker-session > .title-row .crumb", "text-overflow"), "ellipsis");

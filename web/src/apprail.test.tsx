@@ -7,6 +7,7 @@ import { act } from "preact/test-utils";
 import { App } from "./app";
 import { createClients, createTransport } from "./client";
 import type { Row } from "./rows";
+import type { SeenClock } from "./seen";
 import { installTestDom, removeTestDom, teardownOnce } from "./testdom";
 
 const now = 1000;
@@ -25,6 +26,13 @@ async function quietFetch(input: RequestInfo | URL, init?: RequestInit): Promise
   }
   return new Response("{}", { status: 200, headers: { "content-type": "application/json" } });
 }
+
+// stillClock is a seen clock whose timers never fire, so an unseen row under the cursor is never marked seen.
+const stillClock: SeenClock = {
+  now: () => now * 1000,
+  setTimeout: () => 0,
+  clearTimeout: () => {},
+};
 
 function row(init: Partial<Row> & Pick<Row, "key">): Row {
   return {
@@ -49,12 +57,16 @@ function row(init: Partial<Row> & Pick<Row, "key">): Row {
   };
 }
 
-// rows are two conversations in the api directory, one waiting, and one in docs, all seen, so no dwell timer runs.
+// rows are three projects: api, where a and the older a-old wait on you and b works; docs, whose c is new and d is seen;
+// and ops, whose q is seen and done, so ops is quiet.
 function rows(): Row[] {
   return [
     row({ key: "a", label: "api one", state: "waiting", question: "Ship it?", changed: 300, seen: 300 }),
+    row({ key: "a-old", label: "api old", state: "waiting", question: "Merge it?", changed: 100, seen: 100 }),
     row({ key: "b", label: "api two", changed: 200, seen: 200 }),
-    row({ key: "c", label: "docs", project: "/work/docs", state: "done", changed: 150, seen: 150 }),
+    row({ key: "c", label: "docs new", project: "/work/docs", state: "done", changed: 150, unseen: true }),
+    row({ key: "d", label: "docs seen", project: "/work/docs", state: "done", changed: 140, seen: 140 }),
+    row({ key: "q", label: "ops quiet", project: "/work/ops", state: "done", changed: 130, seen: 130 }),
   ];
 }
 
@@ -79,7 +91,7 @@ async function withDesk(
   });
   try {
     await act(() => {
-      render(<App rows={rows()} now={now} clients={clients} />, container);
+      render(<App rows={rows()} now={now} clients={clients} seenClock={stillClock} />, container);
     });
     await check(container);
   } finally {
@@ -110,14 +122,24 @@ function tileOf(container: HTMLElement, title: string): HTMLElement {
   return one(rail(container), `button[aria-label^="${title}"]`);
 }
 
-// paneState is the inbox state the app draws on the panes: docked, pinned, rail or flyout.
-function paneState(container: HTMLElement): string | null {
+// inboxState is the inbox state the app draws on the panes: expanded or collapsed.
+function inboxState(container: HTMLElement): string | null {
   return container.querySelector(".panes")?.getAttribute("data-inbox") ?? null;
+}
+
+// flyoutName is the project the open flyout names, or null with none open.
+function flyoutName(container: HTMLElement): string | null {
+  return container.querySelector(".pfly")?.getAttribute("aria-label") ?? null;
 }
 
 // projectPage is the project page section, when it is drawn.
 function projectPage(container: HTMLElement): HTMLElement | null {
   return container.querySelector<HTMLElement>('section[aria-label="project"]:not([hidden])');
+}
+
+// cursorKey is the key of the row the cursor rests on, or null when no row does.
+function cursorKey(container: HTMLElement): string | null {
+  return container.querySelector(".row.cur")?.getAttribute("data-key") ?? null;
 }
 
 // press dispatches a click on the element, and lets Preact draw what the click changed.
@@ -128,15 +150,15 @@ async function press(element: Element | null): Promise<void> {
   });
 }
 
-// clickRow clicks the list's row for key, which opens it.
-async function clickRow(container: HTMLElement, key: string): Promise<void> {
-  await press(container.querySelector(`[data-key="${key}"]`));
-}
-
 // openRow clicks the list's row for key, then takes the focus off the reply box it opens, so the keys that follow reach
 // the page as they do once a press lands on the page.
 async function openRow(container: HTMLElement, key: string): Promise<void> {
-  await clickRow(container, key);
+  await press(container.querySelector(`.list [data-key="${key}"]`));
+  await blur();
+}
+
+// blur takes the focus off whatever holds it.
+async function blur(): Promise<void> {
   await act(() => {
     if (document.activeElement instanceof HTMLElement) {
       document.activeElement.blur();
@@ -144,49 +166,56 @@ async function openRow(container: HTMLElement, key: string): Promise<void> {
   });
 }
 
-// pointer dispatches a pointer or mouse event of the type on the element, with to as the element the pointer moved to.
-async function pointer(element: Element, type: string, to: EventTarget | null = null): Promise<void> {
-  const event = new Event(type, { bubbles: true });
-  Object.defineProperty(event, "relatedTarget", { value: to });
+// pointer dispatches a pointer event of the type on the element: pointerover bubbles, pointerleave does not.
+async function pointer(element: Element, type: "pointerover" | "pointerleave"): Promise<void> {
   await act(() => {
-    element.dispatchEvent(event);
+    element.dispatchEvent(new Event(type, { bubbles: type === "pointerover" }));
   });
 }
 
-// press is a key press on the document, as the keys reach App.
-async function key(name: string): Promise<void> {
+// key is a key press on the document, as the keys reach App, with Shift held when shift is set.
+async function key(name: string, shift = false): Promise<void> {
   await act(() => {
-    document.dispatchEvent(new KeyboardEvent("keydown", { key: name, cancelable: true }));
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: name, shiftKey: shift, cancelable: true }));
   });
 }
 
-// replyBox is the cursor's visible reply box, which must be drawn.
-function replyBox(container: HTMLElement): HTMLTextAreaElement {
-  return one(container, ".reply:not([hidden]) textarea") as HTMLTextAreaElement;
+// footCollapse is the inbox foot's collapse control, when it is drawn.
+function footCollapse(container: HTMLElement): HTMLElement | null {
+  return container.querySelector<HTMLElement>('.inbox-foot button[aria-label="Collapse the inbox"]');
 }
 
-// footPin is the inbox foot's pin control, under either of its names, when it is drawn.
-function footPin(container: HTMLElement): HTMLElement | null {
-  const pin = container.querySelector<HTMLElement>(
-    '.inbox-foot button[aria-label="Pin the inbox beside the page"], .inbox-foot button[aria-label="Unpin the inbox"]',
-  );
-  return pin;
+// collapse collapses the inbox with the foot's control.
+async function collapse(container: HTMLElement): Promise<void> {
+  await press(footCollapse(container));
+  assert.equal(inboxState(container), "collapsed", "the foot's control collapses the inbox");
 }
 
-// labelsOf are the labels of the children of the rail, in order.
+// railLabels are the labels of the children of the rail, in order, with the tiles' scroll area's children in its place.
 function railLabels(container: HTMLElement): string[] {
-  return Array.from(rail(container).children).map(labelOf);
+  return Array.from(rail(container).children).flatMap((child) =>
+    child.classList.contains("rail-tiles") ? Array.from(child.children).map(labelOf) : [labelOf(child)],
+  );
 }
 
-test("InboxRail: with a page open at 760px and wider the inbox rests as a rail, drawing the mark, a tile per project in the tree's order, New, Search, Notices and Keys", (t) =>
+test("InboxRail: at 760px and wider the inbox is expanded, draws no rail, and its foot draws the collapse control after Keys", (t) =>
+  withDesk(t.signal, wideWidth, (container) => {
+    assert.equal(inboxState(container), "expanded");
+    assert.equal(container.querySelector("nav.rail.start"), null);
+    const foot = Array.from(container.querySelectorAll(".inbox-foot > *")).map(labelOf);
+    assert.deepEqual(foot.slice(-2), ["Keys", "Collapse the inbox"]);
+    assert.equal(footCollapse(container)?.getAttribute("title"), "Collapse the inbox  b");
+  }));
+
+test("InboxRail: collapsed, the rail draws the mark, a tile per project in the tree's order, New, Search, Notices and Keys, and the mark expands it", (t) =>
   withDesk(t.signal, wideWidth, async (container) => {
-    await openRow(container, "b");
-    assert.equal(paneState(container), "rail");
+    await collapse(container);
     assert.deepEqual(railLabels(container), [
-      "Open the inbox",
+      "Expand the inbox",
       "rail-sep",
-      "api: 1 waits on you",
+      "api: 2 wait on you",
       "docs",
+      "ops",
       "spring",
       "New session",
       "Search",
@@ -194,172 +223,274 @@ test("InboxRail: with a page open at 760px and wider the inbox rests as a rail, 
       "Keys",
     ]);
     const listed = Array.from(container.querySelectorAll("section.dir")).map((section) => section.getAttribute("aria-label"));
-    assert.deepEqual(listed, ["api", "docs"], "the list draws the projects in the order the rail's tiles follow");
-    assert.equal(tileOf(container, "api").querySelector(".n")?.textContent, "1", "the api tile counts its one waiting row");
-  }));
-
-test("InboxRail: with no page open the inbox is docked and no rail is drawn", (t) =>
-  withDesk(t.signal, wideWidth, (container) => {
-    assert.equal(paneState(container), "docked");
+    assert.deepEqual(listed, ["api", "docs", "ops"], "the list draws the projects in the order the rail's tiles follow");
+    assert.equal(one(tileOf(container, "api"), ".vn").textContent, "api");
+    assert.equal(one(tileOf(container, "api"), ".n").textContent, "2", "the api tile counts its two waiting rows");
+    assert.equal(tileOf(container, "ops").classList.contains("quiet"), true, "ops has nothing waiting or new");
+    assert.equal(tileOf(container, "docs").classList.contains("quiet"), false, "docs has a new row");
+    await press(tileOf(container, "Expand the inbox"));
+    assert.equal(inboxState(container), "expanded", "the mark expands the inbox");
     assert.equal(container.querySelector("nav.rail.start"), null);
   }));
 
-test("InboxRail: under 760px no rail is drawn, even with a row open", (t) =>
-  withDesk(t.signal, narrowWidth, async (container) => {
+test("InboxRail: b collapses the inbox and b again expands it, and B does neither", (t) =>
+  withDesk(t.signal, wideWidth, async (container) => {
+    await key("B");
+    assert.equal(inboxState(container), "expanded", "B does not collapse the inbox");
+    await key("b");
+    assert.equal(inboxState(container), "collapsed", "b collapses the inbox");
+    await key("B");
+    assert.equal(inboxState(container), "collapsed", "B does not expand the inbox");
+    await key("b");
+    assert.equal(inboxState(container), "expanded", "b expands the inbox");
+  }));
+
+test("InboxRail: opening a row leaves the inbox as it was, expanded or collapsed", (t) =>
+  withDesk(t.signal, wideWidth, async (container) => {
     await openRow(container, "b");
-    assert.equal(paneState(container), "docked");
+    assert.equal(inboxState(container), "expanded", "a click on a row leaves the inbox expanded");
+    await key("j");
+    await key("Enter");
+    await blur();
+    assert.equal(inboxState(container), "expanded", "Enter on a row leaves the inbox expanded");
+    await collapse(container);
+    await press(tileOf(container, "docs"));
+    assert.equal(cursorKey(container), "c", "the docs tile opened its new row");
+    assert.equal(inboxState(container), "collapsed", "an opening from the rail leaves the inbox collapsed");
+    await press(tileOf(container, "ops"));
+    assert.ok(projectPage(container) !== null, "the ops tile opened its project's page");
+    assert.equal(inboxState(container), "collapsed", "a project's page leaves the inbox collapsed");
+  }));
+
+test("InboxRail: under 760px the inbox is drawn as the stacked layout draws it, with no rail and no collapse control, and b does nothing", (t) =>
+  withDesk(t.signal, narrowWidth, async (container) => {
+    assert.equal(inboxState(container), "expanded");
+    assert.equal(footCollapse(container), null, "the foot draws no collapse control");
+    await key("b");
+    assert.equal(inboxState(container), "expanded", "b does not collapse the stacked inbox");
     assert.equal(container.querySelector("nav.rail.start"), null);
   }));
 
 test("InboxRail: the tile of the project holding the open page is current, whether a conversation or the project's page is open", (t) =>
   withDesk(t.signal, wideWidth, async (container) => {
     await openRow(container, "b");
+    await collapse(container);
     assert.ok(tileOf(container, "api").classList.contains("cur"), "the conversation's project is current");
     assert.ok(!tileOf(container, "docs").classList.contains("cur"), "the other project is not");
-    await press(one(container, 'section.dir[aria-label="docs"] button.proj'));
-    assert.ok(tileOf(container, "docs").classList.contains("cur"), "the project page's project is current");
+    await press(tileOf(container, "ops"));
+    assert.ok(tileOf(container, "ops").classList.contains("cur"), "the project page's project is current");
     assert.ok(!tileOf(container, "api").classList.contains("cur"), "the project the page left is not");
   }));
 
-test("InboxRail: a tile opens its project's page beside the rail", (t) =>
+test("InboxRail: a click on a tile goes to the project's oldest waiting row, else its first new row, else its page", (t) =>
   withDesk(t.signal, wideWidth, async (container) => {
-    await openRow(container, "b");
+    await collapse(container);
+    await press(tileOf(container, "api"));
+    assert.equal(cursorKey(container), "a-old", "api's oldest waiting row is opened");
+    assert.equal(document.activeElement, container.querySelector(".reply:not([hidden]) textarea"), "into its reply box");
+    await blur();
     await press(tileOf(container, "docs"));
+    assert.equal(cursorKey(container), "c", "docs waits on nothing, so its new row is opened");
+    await blur();
+    await press(tileOf(container, "ops"));
     const page = projectPage(container);
-    assert.ok(page !== null, "the project's page is drawn");
-    assert.equal(page.querySelectorAll(".pc-row").length, 1, "the page is docs', which holds one conversation");
-    assert.equal(paneState(container), "rail", "the inbox keeps resting as a rail beside the page");
+    assert.ok(page !== null, "ops has nothing waiting or new, so its page is opened");
+    assert.equal(page.querySelectorAll(".pc-row").length, 1, "the page is ops', which holds one conversation");
+    assert.equal(inboxState(container), "collapsed");
   }));
 
-test("InboxRail: the pointer on the rail brings the inbox out over the page, keeping the reply box's focus, its text and the page's reader", (t) =>
+test("InboxRail: the pointer on a tile opens its project's flyout, a tile under it moves the flyout, and leaving the rail closes it", (t) =>
+  withDesk(t.signal, wideWidth, async (container) => {
+    await collapse(container);
+    assert.equal(flyoutName(container), null, "no flyout is open at first");
+    await pointer(one(tileOf(container, "api"), ".vn"), "pointerover");
+    assert.equal(flyoutName(container), "api", "the pointer on api's tile opens its flyout");
+    await pointer(one(container, ".pfly .pf-head"), "pointerover");
+    assert.equal(flyoutName(container), "api", "the pointer in the flyout keeps it");
+    await pointer(tileOf(container, "docs"), "pointerover");
+    assert.equal(flyoutName(container), "docs", "the pointer on docs' tile moves the flyout to docs");
+    await pointer(tileOf(container, "Keys"), "pointerover");
+    assert.equal(flyoutName(container), null, "the pointer on the rail's other tiles closes it");
+    await pointer(tileOf(container, "ops"), "pointerover");
+    await pointer(rail(container), "pointerleave");
+    assert.equal(flyoutName(container), null, "the pointer leaving the rail closes it");
+  }));
+
+test("InboxRail: the flyout lists the project's rows that wait, then its new rows, with its counts, its rest and its page", (t) =>
+  withDesk(t.signal, wideWidth, async (container) => {
+    await collapse(container);
+    await pointer(tileOf(container, "api"), "pointerover");
+    const fly = one(container, ".pfly");
+    assert.equal(one(fly, ".pf-nm").textContent, "api");
+    assert.equal(one(fly, ".pf-path").textContent, "/work/api");
+    assert.equal(one(fly, ".pf-n .is-attention").textContent, "2 wait");
+    assert.deepEqual(
+      Array.from(fly.querySelectorAll(".pf-row")).map((item) => item.getAttribute("data-key")),
+      ["a-old", "a"],
+    );
+    assert.equal(one(fly, '.pf-row[data-key="a-old"] .asks').textContent, "Merge it?");
+    assert.equal(one(fly, ".pf-more").textContent, "and 1 more, none waiting");
+    assert.equal(one(fly, "button.pf-open").textContent, "Open api’s page");
+    await press(one(fly, "button.pf-open"));
+    assert.ok(projectPage(container) !== null, "the foot opens api's page");
+    assert.equal(flyoutName(container), null, "an opening closes the flyout");
+    assert.equal(inboxState(container), "collapsed");
+  }));
+
+test("InboxRail: a click on a flyout's row opens that row", (t) =>
+  withDesk(t.signal, wideWidth, async (container) => {
+    await collapse(container);
+    await pointer(tileOf(container, "api"), "pointerover");
+    await press(one(container, '.pfly .pf-row[data-key="a"]'));
+    assert.equal(cursorKey(container), "a", "the row pressed is opened");
+    assert.equal(flyoutName(container), null);
+  }));
+
+test("InboxRail: p opens the flyout on the current project's tile, and ↓ j ↑ k move it a tile at a time, held at the ends", (t) =>
+  withDesk(t.signal, wideWidth, async (container) => {
+    await openRow(container, "c");
+    await collapse(container);
+    await key("p");
+    assert.equal(flyoutName(container), "docs", "p opens the flyout on docs, which holds the open row");
+    await key("ArrowDown");
+    assert.equal(flyoutName(container), "ops", "↓ moves it to the tile below");
+    await key("j");
+    assert.equal(flyoutName(container), "ops", "j at the last tile stays there");
+    await key("k");
+    assert.equal(flyoutName(container), "docs", "k moves it to the tile above");
+    await key("ArrowUp");
+    await key("ArrowUp");
+    assert.equal(flyoutName(container), "api", "↑ at the first tile stays there");
+    assert.equal(cursorKey(container), "c", "moving the flyout moves no cursor");
+    assert.equal(inboxState(container), "collapsed");
+  }));
+
+test("InboxRail: p with no project's page open opens the flyout on the first tile", (t) =>
+  withDesk(t.signal, wideWidth, async (container) => {
+    await key("v");
+    assert.equal(container.querySelector(".inbox-rows")?.getAttribute("data-list"), "archived");
+    await collapse(container);
+    assert.equal(rail(container).querySelector(".vtile.cur"), null, "no tile is current in an empty Archived view");
+    await key("p");
+    assert.equal(flyoutName(container), "api");
+  }));
+
+test("InboxRail: ⏎ in the flyout opens its first row, as a click on its tile does, even with a tile focused", (t) =>
+  withDesk(t.signal, wideWidth, async (container) => {
+    await collapse(container);
+    await key("p");
+    assert.equal(flyoutName(container), "api");
+    assert.ok(one(container, '.pfly .pf-row[data-key="a-old"]').classList.contains("cur"), "the first row is the cursor");
+    await act(() => {
+      tileOf(container, "ops").focus();
+    });
+    await key("Enter");
+    assert.equal(cursorKey(container), "a-old", "⏎ opens api's oldest waiting row, not the focused tile");
+    assert.equal(flyoutName(container), null, "the opening closes the flyout");
+    assert.equal(projectPage(container), null, "the focused ops tile was not pressed");
+    assert.equal(inboxState(container), "collapsed");
+  }));
+
+test("InboxRail: Escape closes a flyout and nothing else, and b closes it and expands the inbox", (t) =>
+  withDesk(t.signal, wideWidth, async (container) => {
+    await collapse(container);
+    await key("p");
+    await key("Escape");
+    assert.equal(flyoutName(container), null, "Escape closes the flyout");
+    assert.equal(inboxState(container), "collapsed", "and leaves the inbox collapsed");
+    await key("p");
+    await key("b");
+    assert.equal(inboxState(container), "expanded", "b expands the inbox");
+    await key("b");
+    assert.equal(flyoutName(container), null, "and the flyout it closed stays closed");
+  }));
+
+test("InboxRail: a flyout p opened stays when the pointer leaves the rail, and the pointer on a tile takes it over", (t) =>
+  withDesk(t.signal, wideWidth, async (container) => {
+    await collapse(container);
+    await key("p");
+    await pointer(rail(container), "pointerleave");
+    assert.equal(flyoutName(container), "api", "the pointer leaving keeps a flyout a key opened");
+    await pointer(tileOf(container, "docs"), "pointerover");
+    assert.equal(flyoutName(container), "docs", "the pointer on docs' tile takes it over");
+    await pointer(rail(container), "pointerleave");
+    assert.equal(flyoutName(container), null, "and once the pointer took it, the pointer leaving closes it");
+  }));
+
+for (const name of ["j", "k", "ArrowDown", "ArrowUp", "g", "G", "/", "v"]) {
+  test(`InboxRail: collapsed with no flyout, ${name} expands the inbox and does nothing else`, (t) =>
+    withDesk(t.signal, wideWidth, async (container) => {
+      await openRow(container, "b");
+      await collapse(container);
+      await key(name);
+      assert.equal(inboxState(container), "expanded", `${name} expands the inbox`);
+      assert.equal(cursorKey(container), "b", "the cursor row is unchanged");
+      assert.equal(container.querySelector(".inbox-rows")?.getAttribute("data-list"), "inbox", "the view is unchanged");
+      assert.equal(container.querySelector(".inbox-search input"), null, "no search field opened");
+    }));
+}
+
+test("InboxRail: h at a row's first crumb leaves a collapsed inbox collapsed", (t) =>
   withDesk(t.signal, wideWidth, async (container) => {
     await openRow(container, "b");
-    const reader = one(container, 'section[aria-label="reader"]');
-    const box = replyBox(container);
+    await collapse(container);
+    await key("h");
+    await key("ArrowLeft");
+    assert.equal(inboxState(container), "collapsed");
+  }));
+
+test("InboxRail: Shift+Tab from a reply box expands a collapsed inbox and focuses the cursor row", (t) =>
+  withDesk(t.signal, wideWidth, async (container) => {
+    await openRow(container, "b");
+    await collapse(container);
+    const box = one(container, ".reply:not([hidden]) textarea");
     await act(() => {
       box.focus();
-      box.value = "a draft";
-      box.dispatchEvent(new Event("input", { bubbles: true }));
     });
-    // happy-dom lays nothing out, so the reader's box is given a height and a content height, and is scrolled the way
-    // the owner scrolls it, as headapp.test.tsx's scrollReader does.
-    const scroller = one(reader, ".reader");
-    Object.defineProperty(scroller, "scrollHeight", { value: 2000, configurable: true });
-    Object.defineProperty(scroller, "clientHeight", { value: 400, configurable: true });
+    const tab = new KeyboardEvent("keydown", { key: "Tab", shiftKey: true, bubbles: true, cancelable: true });
     await act(() => {
-      scroller.scrollTop = 120;
-      scroller.dispatchEvent(new Event("scroll"));
+      box.dispatchEvent(tab);
     });
-    const panes = one(container, ".panes");
-    const columns = [...panes.children].filter((child) => !child.classList.contains("rail")).map((child) => child.className);
-    await pointer(rail(container), "pointerenter");
-    assert.equal(paneState(container), "flyout", "the pointer on the rail brings the inbox out");
-    assert.equal(document.activeElement, box, "the reply box keeps the focus");
-    assert.equal(box.value, "a draft", "the reply box keeps its text");
-    assert.equal(container.querySelector('section[aria-label="reader"]'), reader, "the page's reader is the same node");
-    assert.equal(scroller.scrollTop, 120, "the page keeps its scroll");
-    assert.deepEqual(
-      [...panes.children].filter((child) => !child.classList.contains("rail")).map((child) => child.className),
-      columns,
-      "the page's columns keep their order and classes",
-    );
+    assert.equal(tab.defaultPrevented, true);
+    assert.equal(inboxState(container), "expanded", "Shift+Tab expands the inbox");
+    assert.equal(document.activeElement, container.querySelector(".row.cur"), "the focus is on the cursor row");
+    assert.equal(cursorKey(container), "b");
   }));
 
-test("InboxRail: the pointer on the rail brings the inbox out, and the pointer leaving the rail tucks it back", (t) =>
+test("InboxRail: the rail's Search tile expands the inbox and opens its search field", (t) =>
   withDesk(t.signal, wideWidth, async (container) => {
-    await openRow(container, "b");
-    assert.equal(paneState(container), "rail");
-    await pointer(rail(container), "pointerenter");
-    assert.equal(paneState(container), "flyout", "the pointer on the rail brings the inbox out");
-    await pointer(rail(container), "pointerleave", null);
-    assert.equal(paneState(container), "rail", "the pointer leaving the rail tucks it back");
+    await collapse(container);
+    await press(tileOf(container, "Search"));
+    assert.equal(inboxState(container), "expanded");
+    assert.ok(container.querySelector(".inbox-search input") !== null, "the search field is open");
   }));
 
 test("InboxRail: in the Archived view the tiles are the inbox's, so a project keeps its tile and count, and switching back draws the same", (t) =>
   withDesk(t.signal, wideWidth, async (container) => {
-    await openRow(container, "b");
+    await collapse(container);
     const inbox = railLabels(container);
-    assert.equal(tileOf(container, "api").querySelector(".n")?.textContent, "1", "the inbox's api tile counts its one waiting row");
-    await press(tileOf(container, "Open the inbox"));
+    await press(tileOf(container, "Expand the inbox"));
     await key("v");
+    await collapse(container);
     assert.equal(container.querySelector(".inbox-rows")?.getAttribute("data-list"), "archived", "v shows the Archived view");
-    assert.equal(tileOf(container, "api").querySelector(".n")?.textContent, "1", "the api tile keeps its count in the Archived view");
+    assert.equal(one(tileOf(container, "api"), ".n").textContent, "2", "the api tile keeps its count in the Archived view");
     assert.deepEqual(railLabels(container), inbox, "the Archived view's rail draws the inbox's tiles and counts");
+    await press(tileOf(container, "Expand the inbox"));
     const back = [...container.querySelectorAll<HTMLElement>(".inbox-foot button")].find(
       (button) => button.textContent === "Back to the inbox",
     );
     await press(back ?? null);
+    await collapse(container);
     assert.equal(container.querySelector(".inbox-rows")?.getAttribute("data-list"), "inbox", "Back returns to the inbox view");
     assert.deepEqual(railLabels(container), inbox, "the inbox view draws the same tiles and counts");
   }));
 
-test("InboxRail: the pointer moving between the rail and the inbox keeps it out, and leaving both tucks it", (t) =>
+test("InboxRail: in the Archived view a click on a tile brings the inbox view back and opens the project's waiting row", (t) =>
   withDesk(t.signal, wideWidth, async (container) => {
-    await openRow(container, "b");
-    const list = one(container, ".list");
-    await pointer(rail(container), "pointerenter");
-    await pointer(rail(container), "pointerleave", list);
-    assert.equal(paneState(container), "flyout", "a pointer moving from the rail into the inbox keeps it out");
-    await pointer(list, "mouseleave", rail(container));
-    assert.equal(paneState(container), "flyout", "a pointer moving from the inbox into the rail keeps it out");
-    await pointer(list, "mouseleave", null);
-    assert.equal(paneState(container), "rail", "the pointer leaving the inbox tucks it back");
-  }));
-
-test("InboxRail: the mark tile brings the inbox out by key, and Escape tucks it back", (t) =>
-  withDesk(t.signal, wideWidth, async (container) => {
-    await openRow(container, "b");
-    await press(tileOf(container, "Open the inbox"));
-    assert.equal(paneState(container), "flyout", "the mark tile brings the inbox out");
-    await key("Escape");
-    assert.equal(paneState(container), "rail", "Escape tucks it back");
-  }));
-
-test("InboxRail: the search tile opens the search field with the inbox out, and Escape tucks the inbox back once the field is shut", (t) =>
-  withDesk(t.signal, wideWidth, async (container) => {
-    await openRow(container, "b");
-    await press(tileOf(container, "Search"));
-    assert.equal(paneState(container), "flyout", "the search tile brings the inbox out");
-    assert.ok(container.querySelector(".inbox-search input") !== null, "the search field is open");
-    await key("Escape");
-    await key("Escape");
-    assert.equal(paneState(container), "rail", "Escape shuts the field, then tucks the inbox back");
-  }));
-
-for (const name of ["j", "k", "g", "G", "/"]) {
-  test(`InboxRail: ${name} brings the rail's inbox out by key, and leaves the cursor row where it was`, (t) =>
-    withDesk(t.signal, wideWidth, async (container) => {
-      await openRow(container, "b");
-      assert.equal(paneState(container), "rail", "the inbox rests as the rail before the key");
-      const cursor = container.querySelector(".row.cur")?.getAttribute("data-key");
-      await key(name);
-      assert.ok(rail(container), "the rail stays drawn beside the page");
-      assert.equal(paneState(container), "flyout", `${name} pops the rail's inbox out`);
-      assert.equal(container.querySelector(".row.cur")?.getAttribute("data-key"), cursor, "the cursor row is unchanged");
-    }));
-}
-
-test("InboxRail: the inbox's pin control and B pin and unpin the inbox, and the rail returns when it is unpinned", (t) =>
-  withDesk(t.signal, wideWidth, async (container) => {
-    await openRow(container, "b");
-    await key("B");
-    assert.equal(paneState(container), "pinned", "B pins the inbox beside the page");
-    assert.equal(container.querySelector("nav.rail.start"), null, "a pinned inbox draws no rail");
-    await press(footPin(container));
-    assert.equal(paneState(container), "rail", "the foot control unpins it, back to the rail");
-    await press(footPin(container));
-    assert.equal(paneState(container), "pinned", "the foot control pins it again");
-    await key("B");
-    assert.equal(paneState(container), "rail", "B unpins it");
-  }));
-
-test("InboxRail: the foot draws the pin control after Keys at 760px and wider, and under 760px draws none", (t) =>
-  withDesk(t.signal, wideWidth, (container) => {
-    const labels = Array.from(container.querySelectorAll(".inbox-foot > *")).map(labelOf);
-    assert.deepEqual(labels.slice(-2), ["Keys", "Pin the inbox beside the page"]);
-  }));
-
-test("InboxRail: under 760px the foot draws no pin control", (t) =>
-  withDesk(t.signal, narrowWidth, (container) => {
-    assert.equal(footPin(container), null);
+    await key("v");
+    await collapse(container);
+    await press(tileOf(container, "api"));
+    assert.equal(container.querySelector(".inbox-rows")?.getAttribute("data-list"), "inbox", "the inbox view is back");
+    assert.equal(cursorKey(container), "a-old", "api's oldest waiting row is opened");
+    assert.equal(inboxState(container), "collapsed");
   }));

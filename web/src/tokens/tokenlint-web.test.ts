@@ -212,6 +212,21 @@ test("TokenLint: @media on 1251 and on 900 fails, each named by its line", () =>
   assert.match(reasonsAt(problems, 3), /900px is not a breakpoint token/);
 });
 
+test("TokenLint: @container on 900 passes, as the head's breakpointHeadNarrow token", () => {
+  const problems = lintCss("fixture.css", "@container head (width < 900px) { .a { display: none; } }\n");
+  assert.deepEqual(problems, []);
+});
+
+test("TokenLint: @container on 760 and on 899 fails, since a container answers only to a container breakpoint token", () => {
+  const problems = lintCss(
+    "fixture.css",
+    "@container head (width < 760px) { .a { display: none; } }\n@container head (width < 899px) { .a { display: none; } }\n",
+  );
+  assert.deepEqual(located(problems), ["fixture.css:1", "fixture.css:2"]);
+  assert.match(reasonsAt(problems, 1), /760px is not a container breakpoint token/);
+  assert.match(reasonsAt(problems, 2), /899px is not a container breakpoint token/);
+});
+
 test("TokenLint: @font-face lines are exempt, so a face's raw weight passes", () => {
   const problems = lintCss(
     "fixture.css",

@@ -41,8 +41,6 @@ async function click(element: Element): Promise<void> {
 
 const noop = () => {};
 
-const noMark = { needs: 0, enter: noop, leave: noop, pin: noop };
-
 function makeRow(init: Partial<Row>): Row {
   return {
     putOff: false,
@@ -95,7 +93,6 @@ function headProps(init: Partial<HeadProps> = {}): HeadProps {
     title: "Tide table cache warm-up",
     host: null,
     showStrip: false,
-    mark: noMark,
     onBack: noop,
     note: "",
     lines: [],
@@ -137,7 +134,7 @@ test("HeadTitle: the place crumb is the row's directory, the page crumb is the t
   });
 });
 
-test("HeadTitle: the place crumb names its host for the phone layout, and the title row holds the bare context", async () => {
+test("HeadTitle: the place crumb names its host for the phone layout", async () => {
   const props = headProps({
     row: makeRow({ project: "/home/owner/code/tidepool" }),
     conversation: conversationOf("", 174000n, 200000n),
@@ -148,32 +145,106 @@ test("HeadTitle: the place crumb names its host for the phone layout, and the ti
     const place = container.querySelector(".crumb.place");
     assert.equal(place?.getAttribute("data-host") ?? null, "halyard");
     assert.equal(place?.textContent ?? null, "tidepool", "the host is drawn by the phone layout's style, not as text");
-    const bare = container.querySelector(".title-row .phone-ctx .ctx");
-    assert.equal(bare?.getAttribute("data-level") ?? null, "crit");
-    assert.equal(bare?.querySelector(".name"), null, "the title row's context is bare");
   });
 });
 
-test("PhoneHead: a context with no tokens draws no context holder in the title row", async () => {
+// loadedHost is a host with a stat of each kind the machine band draws.
+const loadedHost = create(HostStatusResponseSchema, {
+  host: "vermission",
+  stats: [
+    { label: "net", value: "↓551K ↑72K", level: "ok" },
+    { label: "cpu", value: "93% 25/32", percent: 93, level: "warn" },
+    { label: "ram", value: "19G", percent: 30, level: "ok" },
+    { label: "disk io", value: "↓6K ↑2M", level: "ok" },
+    { label: "disk", value: "50%", percent: 50, level: "ok" },
+  ],
+});
+
+test("HeadBand: the context sits in the title row's line, named with its tokens, before Find and More", async () => {
+  const props = headProps({ conversation: conversationOf("", 86000n, 1000000n), host: loadedHost, showStrip: true });
+  await withHead(<Head {...props} />, (container) => {
+    const context = container.querySelector(".convo-head > .title-row .line1 .ctx");
+    assert.notEqual(context, null, "the context is in the title row's line");
+    assert.equal(context?.querySelector(".name")?.textContent ?? null, "context");
+    assert.equal(context?.querySelector(".pct")?.textContent ?? null, "9%");
+    assert.equal(context?.querySelector(".used")?.textContent ?? null, "86k of 1M");
+    const find = container.querySelector(".title-row .icon.find") as Node;
+    const more = container.querySelector(".title-row .icon.more") as Node;
+    assert.ok((context as Node).compareDocumentPosition(find) & Node.DOCUMENT_POSITION_FOLLOWING, "Find follows the context");
+    assert.ok((context as Node).compareDocumentPosition(more) & Node.DOCUMENT_POSITION_FOLLOWING, "More follows the context");
+    assert.equal(container.querySelectorAll(".ctx").length, 1, "the context is drawn once");
+  });
+});
+
+test("HeadBand: the machine row is its own band after the title row, holding the host and every meter", async () => {
+  const props = headProps({ conversation: conversationOf("Ship it.", 86000n, 1000000n), host: loadedHost, showStrip: true });
+  await withHead(<Head {...props} />, (container) => {
+    const titleRow = container.querySelector(".convo-head > .title-row");
+    const band = container.querySelector(".convo-head > .machine-band");
+    assert.notEqual(band, null, "the machine band is a child of the head");
+    assert.equal(titleRow?.querySelector(".pane-strip"), null, "the title row holds no machine row");
+    assert.equal(titleRow?.nextElementSibling, band, "the band follows the title row");
+    assert.equal(band?.nextElementSibling?.classList.contains("subject") ?? false, true, "the goal follows the band");
+    assert.equal(band?.querySelector(".pane-strip-host")?.textContent ?? null, "vermission");
+    assert.notEqual(band?.querySelector(".pane-strip-host svg.icon"), null, "the host is marked with the host icon");
+    assert.deepEqual(
+      Array.from(band?.querySelectorAll(".meter .name") ?? [], (name) => name.textContent),
+      ["net", "cpu", "ram", "disk io", "disk"],
+    );
+    assert.deepEqual(
+      Array.from(band?.querySelectorAll(".meter .value") ?? [], (value) => value.textContent),
+      ["↓551K ↑72K", "93% 25/32", "19G", "↓6K ↑2M", "50%"],
+    );
+    assert.equal(band?.querySelectorAll(".meter .bar").length, 3, "cpu, ram and disk keep their bars");
+    assert.equal(band?.querySelector(".ctx"), null, "the context is not in the band");
+  });
+});
+
+test("HeadBand: the context carries its name and tokens as its tooltip, for the widths that drop the word", async () => {
+  const props = headProps({ conversation: conversationOf("", 86000n, 1000000n), host: loadedHost, showStrip: true });
+  await withHead(<Head {...props} />, (container) => {
+    assert.equal(container.querySelector(".title-row .ctx")?.getAttribute("title") ?? null, "context: 86k of a 1M window");
+  });
+});
+
+test("HeadBand: with no host the head draws no machine band, and with the meters hidden it draws neither band nor context", async () => {
+  const conversation = conversationOf("", 86000n, 1000000n);
+  await withHead(<Head {...headProps({ conversation, host: null, showStrip: true })} />, (container) => {
+    assert.equal(container.querySelector(".machine-band"), null);
+    assert.notEqual(container.querySelector(".title-row .ctx"), null, "the context still draws");
+  });
+  await withHead(<Head {...headProps({ conversation, host: loadedHost, showStrip: false })} />, (container) => {
+    assert.equal(container.querySelector(".machine-band"), null);
+    assert.equal(container.querySelector(".ctx"), null);
+  });
+});
+
+test("PhoneHead: a context with no tokens draws no context in the title row", async () => {
   const props = headProps({ conversation: conversationOf("", 0n, 200000n), showStrip: true, narrow: true });
   await withHead(<Head {...props} />, (container) => {
-    assert.equal(container.querySelector(".title-row .phone-ctx"), null, "no empty holder beside More");
+    assert.equal(container.querySelector(".title-row .ctx"), null, "no empty context beside More");
   });
 });
 
-test("PhoneHead: folded, the title row keeps the bare context beside More", async () => {
-  const props = headProps({ conversation: conversationOf("", 30000n, 200000n), showStrip: true, fold: "reading", narrow: true });
+test("PhoneHead: folded, the title row keeps the context beside More, and the machine band is not drawn", async () => {
+  const props = headProps({
+    conversation: conversationOf("", 30000n, 200000n),
+    host: loadedHost,
+    showStrip: true,
+    fold: "reading",
+    narrow: true,
+  });
   await withHead(<Head {...props} />, (container) => {
     assert.notEqual(container.querySelector(".compact"), null, "the head is folded");
-    assert.equal(container.querySelector(".title-row .phone-ctx .ctx")?.getAttribute("data-level") ?? null, "ok");
+    assert.equal(container.querySelector(".title-row .ctx")?.getAttribute("data-level") ?? null, "ok");
+    assert.equal(container.querySelector(".machine-band"), null);
   });
 });
 
-test("HeadTitle: with no host the place crumb names none, and with the strip hidden the title row holds no context", async () => {
+test("HeadTitle: with no host the place crumb names none", async () => {
   const props = headProps({ conversation: conversationOf("", 174000n, 200000n), showStrip: false });
   await withHead(<Head {...props} />, (container) => {
     assert.equal(container.querySelector(".crumb.place")?.hasAttribute("data-host") ?? null, false);
-    assert.equal(container.querySelector(".phone-ctx"), null);
   });
 });
 
@@ -343,7 +414,7 @@ test("PhoneHead: a folded head draws the title row and CompactHead, never the st
   });
   const props = headProps({ conversation, host, showStrip: true, lines: [rotaLine], narrow: true, askingWords: "rota-export asks" });
   await withHead(<Head {...props} fold="open" />, (container) => {
-    assert.notEqual(container.querySelector(".pane-strip"), null, "open draws the strip");
+    assert.notEqual(container.querySelector(".machine-band"), null, "open draws the machine band");
     assert.notEqual(container.querySelector(".subject"), null, "open draws the band");
   });
   await withHead(<Head {...props} fold="reading" />, (container) => {
@@ -358,7 +429,7 @@ test("PhoneHead: a folded head draws the title row and CompactHead, never the st
 function assertFolded(container: HTMLElement): void {
   assert.notEqual(container.querySelector(".title-row"), null, "the title row is drawn");
   assert.notEqual(container.querySelector(".compact"), null, "the folded line is drawn");
-  assert.equal(container.querySelector(".pane-strip"), null, "the strip is not drawn");
+  assert.equal(container.querySelector(".machine-band"), null, "the machine band is not drawn");
   assert.equal(container.querySelector(".subject"), null, "the band is not drawn");
 }
 

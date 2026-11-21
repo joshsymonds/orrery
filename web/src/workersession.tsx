@@ -11,7 +11,7 @@ import type { Phase } from "./phases";
 import { recordTasksOf } from "./record";
 import { clock, Reader } from "./reader";
 import { ContextBand } from "./taskband";
-import { type Crumb, type InboxMark, TitleRow } from "./titlerow";
+import { type Crumb, TitleRow } from "./titlerow";
 
 // A step keeps no seen mark. Infinity makes no item newer than it, so the step's reader draws no since-you-looked rule.
 const stepSeenAt = Number.POSITIVE_INFINITY;
@@ -34,7 +34,6 @@ export function WorkerSessionPage({
   nudge,
   hold,
   stop,
-  mark,
   strip,
 }: {
   conversation: Conversation | null;
@@ -50,7 +49,6 @@ export function WorkerSessionPage({
   nudge: (text: string) => Promise<void>;
   hold: () => Promise<void>;
   stop: () => Promise<void>;
-  mark?: InboxMark;
   strip?: ComponentChildren;
 }): JSX.Element {
   const [open, setOpen] = useState(false);
@@ -62,7 +60,7 @@ export function WorkerSessionPage({
   ];
   return (
     <div class="worker-session">
-      <TitleRow crumbs={crumbs} onBack={onBack} mark={mark} strip={strip} />
+      <TitleRow crumbs={crumbs} onBack={onBack} strip={strip} />
       <ContextBand detail={detail} now={now} current={task} onOpenEpic={onOpenEpic} onOpenTask={onOpenTask} />
       <Reader
         conversation={conversation}

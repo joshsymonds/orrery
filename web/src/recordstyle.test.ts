@@ -299,3 +299,76 @@ test("EpicClose: the gap controls wrap", () => {
   assert.equal(declaredValue(rules, ".gaps-acts", "display"), "flex");
   assert.equal(declaredValue(rules, ".gaps-acts", "flex-wrap"), "wrap");
 });
+
+test("TitleRow: as round 6 draws it, the row's first line never wraps: back, crumbs, state and commands share it", () => {
+  assert.equal(declaredValue(rules, ".title-row", "display"), "grid");
+  assert.equal(declaredValue(rules, ".title-row", "flex-wrap"), undefined, "the row does not wrap its parts onto lines of their own");
+  assert.equal(declaredValue(rules, ".title-row .line1", "display"), "flex");
+  assert.equal(declaredValue(rules, ".title-row .line1", "flex-wrap"), undefined);
+  assert.equal(declaredValue(rules, ".title-row .line1", "min-width"), "0");
+});
+
+test("TitleRow: the page crumb ellipsizes on its line at the desk, so the commands at the row's end stay in view", () => {
+  assert.equal(declaredValue(rules, ".title-row .crumbs", "display"), "flex");
+  assert.equal(declaredValue(rules, ".title-row .crumbs", "min-width"), "0");
+  assert.equal(declaredValue(rules, ".title-row .crumbs", "overflow"), "hidden");
+  assert.equal(declaredValue(rules, ".title-row .crumb", "flex"), "none");
+  const here = ".title-row .crumb.here";
+  assert.equal(declaredValue(rules, here, "flex"), "0 1 auto");
+  assert.equal(declaredValue(rules, here, "min-width"), "0");
+  assert.equal(declaredValue(rules, here, "overflow"), "hidden");
+  assert.equal(declaredValue(rules, here, "text-overflow"), "ellipsis");
+  assert.equal(declaredValue(rules, ".title-row .acts", "flex"), "none");
+  assert.equal(declaredValue(rules, ".title-row .acts", "margin-left"), "auto");
+});
+
+test("TitleRow: at phone width a conversation's title wraps to two lines and is cut there, as round 6's touch title row draws it", () => {
+  const here = ".convo-head > .title-row .crumb.here";
+  assert.equal(declaredValue(phone, here, "-webkit-line-clamp"), "2");
+  assert.equal(declaredValue(phone, here, "white-space"), "normal");
+  assert.equal(declaredValue(phone, here, "overflow"), "hidden");
+  assert.equal(declaredValue(phone, here, "min-width"), "0");
+});
+
+test("TitleRow: no rule is left for the mark and count the title row no longer draws", () => {
+  assert.equal(css.includes("mark-crumb"), false);
+});
+
+test("TitleRow: a project's name, in the inbox and in a title row, takes one class: bold body type in the place colour", () => {
+  assert.equal(declaredValue(rules, ".project-name", "color"), "var(--o-role-place)");
+  assert.equal(declaredValue(rules, ".project-name", "font"), "var(--o-type-body)");
+  assert.equal(declaredValue(rules, ".project-name", "font-weight"), "var(--o-font-weight-bold)");
+  assert.equal(css.includes(".dir-head .nm"), false, "the inbox's name has no rule of its own");
+});
+
+// outsidePhone is the stylesheet with its phone blocks cut out, so a desk value is never read from a phone rule.
+function outsidePhone(sheet: string): string {
+  const opener = "@media (width < 760px) {";
+  let rest = sheet;
+  let from = rest.indexOf(opener);
+  while (from !== -1) {
+    let depth = 1;
+    let end = from + opener.length;
+    while (depth > 0) {
+      depth += rest[end] === "{" ? 1 : rest[end] === "}" ? -1 : 0;
+      end += 1;
+    }
+    rest = rest.slice(0, from) + rest.slice(end);
+    from = rest.indexOf(opener);
+  }
+  return rest;
+}
+
+test("TitleRow: at the desk a conversation's title is one step down the type scale from the title type: bold body", () => {
+  const desk = rulesOf(outsidePhone(css));
+  const here = ".convo-head > .title-row .crumb.here";
+  assert.equal(declaredValue(desk, here, "font"), "var(--o-type-body)");
+  assert.equal(declaredValue(desk, here, "font-weight"), "var(--o-font-weight-bold)");
+});
+
+test("TitleRow: the plain crumb rule yields to a crumb's own class, so a project crumb keeps the inbox's project-name look", () => {
+  assert.equal(declaredValue(rules, ".crumb", "color"), undefined, "a bare .crumb rule would outrank .project-name by coming later");
+  assert.equal(declaredValue(rules, ".crumb", "font"), undefined);
+  assert.equal(declaredValue(rules, ":where(.crumb)", "color"), "var(--o-ink-2)");
+  assert.equal(declaredValue(rules, ":where(.crumb)", "font"), "inherit");
+});

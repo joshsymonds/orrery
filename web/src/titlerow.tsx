@@ -1,6 +1,5 @@
 import { type ComponentChildren, Fragment, type JSX } from "preact";
 
-import { Mark } from "./mark";
 import type { WordTone } from "./recordwords";
 
 // A crumb's label is text, or the title a row's conversation head draws (TitleParts).
@@ -12,18 +11,10 @@ export interface Crumb {
   host?: string;
 }
 
-// InboxMark is the inbox's hold on the mark every title row draws first: the count of what needs you, the hover that
-// pops the inbox out, the leave that tucks it away unless the pointer moved into the inbox, and the click that pins it.
-export interface InboxMark {
-  needs: number;
-  enter: () => void;
-  leave: (to: EventTarget | null) => void;
-  pin: () => void;
-}
-
-// crumbClass is the class of a crumb: "crumb", plus "here" for the page and "place" for the directory.
+// crumbClass is the class of a crumb: "crumb", plus "here" for the page, and "place" and the inbox's "project-name" for
+// the project, so its name reads as the inbox's project head draws it.
 function crumbClass(here: string, place: boolean | undefined): string {
-  return ["crumb", here, place ? "place" : ""].filter(Boolean).join(" ");
+  return ["crumb", here, place ? "place project-name" : ""].filter(Boolean).join(" ");
 }
 
 // pillClass is the class of a title row's pill: "state" or "blocker", plus "t-<tone>" when the pill has a tone.
@@ -31,16 +22,14 @@ function pillClass(base: string, tone: WordTone | undefined): string {
   return tone ? `${base} t-${tone}` : base;
 }
 
-// noInbox is the mark of a title row no inbox answers for: no count, and no action.
-const noInbox: InboxMark = { needs: 0, enter: () => {}, leave: () => {}, pin: () => {} };
-
-// TitleRow is the title row every epic page shares: the back button, the breadcrumb, the state, the blocker, and the
-// commands the children are. The breadcrumb opens on the Orrery mark, which carries the count and drives the inbox.
-// Back and every crumb but the last call their handlers; a crumb with no handler is a plain label, and the last crumb
-// is the page itself, a span marked as the current page. A place crumb draws in the place colour. Every text is a child
-// text node, so markup in a label shows as text. The strip, when given, takes a line of its own under the row's
-// controls. A non-empty note draws under the row as an alert. The state and blocker pills take a word tone each, when
-// given.
+// TitleRow is the title row every page shares, as round 6 draws it: one line holding the back button, the breadcrumb, the
+// state, the blocker, and the commands the children are, pushed to its end. The line never wraps: the page's crumb is
+// cut short to keep the commands in view, and carries its whole text as its title when it is text. A › stands between
+// crumbs. Back and every crumb but the last call their handlers; a crumb with no handler is a plain label, and the last
+// crumb is the page itself, a span marked as the current page. A place crumb, a project, draws as the inbox draws a
+// project's name. Every text is a
+// child text node, so markup in a label shows as text. The strip, when given, takes a line of its own under the first.
+// A non-empty note draws under the row as an alert. The state and blocker pills take a word tone each, when given.
 export function TitleRow({
   crumbs,
   onBack,
@@ -48,7 +37,6 @@ export function TitleRow({
   stateTone,
   blocker,
   blockerTone,
-  mark = noInbox,
   strip,
   note,
   children,
@@ -59,7 +47,6 @@ export function TitleRow({
   stateTone?: WordTone;
   blocker?: string;
   blockerTone?: WordTone;
-  mark?: InboxMark;
   strip?: ComponentChildren;
   note?: string;
   children?: ComponentChildren;
@@ -68,44 +55,44 @@ export function TitleRow({
   return (
     <>
       <header class="title-row">
-        <button type="button" class="back" aria-label="back" onClick={() => onBack()}>
-          ‹
-        </button>
-        <nav class="crumbs" aria-label="where">
-          <button
-            type="button"
-            class="mark-crumb"
-            aria-label="inbox"
-            onClick={() => mark.pin()}
-            onMouseEnter={() => mark.enter()}
-            onMouseLeave={(event) => mark.leave(event.relatedTarget)}
-          >
-            <Mark />
-            {mark.needs > 0 && <span class="needs">{mark.needs}</span>}
+        <div class="line1">
+          <button type="button" class="back" aria-label="back" onClick={() => onBack()}>
+            ‹
           </button>
-          {crumbs.map((crumb, index) => (
-            <Fragment key={index}>
-              {" "}
-              <span class="sep">›</span>{" "}
-              {index === last ? (
-                <span class={crumbClass("here", crumb.place)} data-host={crumb.host} aria-current="page">
-                  {crumb.label}
-                </span>
-              ) : crumb.onGo === undefined ? (
-                <span class={crumbClass("", crumb.place)} data-host={crumb.host}>
-                  {crumb.label}
-                </span>
-              ) : (
-                <button type="button" class={crumbClass("", crumb.place)} data-host={crumb.host} onClick={() => crumb.onGo?.()}>
-                  {crumb.label}
-                </button>
-              )}
-            </Fragment>
-          ))}
-        </nav>
-        {state ? <span class={pillClass("state", stateTone)}>{state}</span> : null}
-        {blocker ? <span class={pillClass("blocker", blockerTone)}>{blocker}</span> : null}
-        <div class="acts">{children}</div>
+          <nav class="crumbs" aria-label="where">
+            {crumbs.map((crumb, index) => (
+              <Fragment key={index}>
+                {index > 0 && (
+                  <>
+                    {" "}
+                    <span class="sep">›</span>{" "}
+                  </>
+                )}
+                {index === last ? (
+                  <span
+                    class={crumbClass("here", crumb.place)}
+                    data-host={crumb.host}
+                    title={typeof crumb.label === "string" ? crumb.label : undefined}
+                    aria-current="page"
+                  >
+                    {crumb.label}
+                  </span>
+                ) : crumb.onGo === undefined ? (
+                  <span class={crumbClass("", crumb.place)} data-host={crumb.host}>
+                    {crumb.label}
+                  </span>
+                ) : (
+                  <button type="button" class={crumbClass("", crumb.place)} data-host={crumb.host} onClick={() => crumb.onGo?.()}>
+                    {crumb.label}
+                  </button>
+                )}
+              </Fragment>
+            ))}
+          </nav>
+          {state ? <span class={pillClass("state", stateTone)}>{state}</span> : null}
+          {blocker ? <span class={pillClass("blocker", blockerTone)}>{blocker}</span> : null}
+          <div class="acts">{children}</div>
+        </div>
         {strip}
       </header>
       {note ? (

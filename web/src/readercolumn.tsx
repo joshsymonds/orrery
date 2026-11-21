@@ -18,7 +18,7 @@ import { foldOf } from "./headfold";
 import { type ContractCalls, Reader, type ReaderHandle } from "./reader";
 import type { Row } from "./rows";
 import type { Sending, SentText } from "./sending";
-import { type InboxMark, TitleRow } from "./titlerow";
+import { TitleRow } from "./titlerow";
 
 // FindState is a column's find bar, open on the row it was opened on: the query typed in it, and the match it shows, an
 // index into the matches the query finds in that row's conversation. A bar whose row leaves its column is closed.
@@ -99,7 +99,6 @@ export interface ReaderColumnProps {
   rows: Row[];
   // The rows whose interrupt mark holds, by row key: the column reads only whether a row is marked.
   interrupts: Pick<ReadonlyMap<string, number>, "has">;
-  mark: InboxMark;
   // pageStrip draws the strip under a step's title row, or under no row.
   pageStrip: (row: Row | null, conversation: Conversation | null) => ComponentChildren;
   // head is what the column's head draws for its row and conversation.
@@ -168,7 +167,6 @@ export function ReaderColumn({
   conversation,
   rows,
   interrupts,
-  mark,
   pageStrip,
   head,
   narrow,
@@ -252,7 +250,6 @@ export function ReaderColumn({
           title={row.label}
           fold={fold}
           narrow={narrow}
-          mark={mark}
           onBack={onBack}
           onFind={() => openFind({ key: row.key, query: "", current: 0 })}
           onHide={onHide}
@@ -282,7 +279,6 @@ export function ReaderColumn({
         <TitleRow
           crumbs={[{ label: stepWhere(step) }, { label: step.label }]}
           onBack={onBack}
-          mark={mark}
           strip={pageStrip(null, null)}
         />
       )}

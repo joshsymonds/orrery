@@ -49,6 +49,12 @@ function contractOf(hung: Hung): Contract | null {
   return hung.contract?.state === proposedState ? hung.contract : null;
 }
 
+// hungName is the name a hung thing's row draws: a contract's id past its repository, or an epic's slug.
+export function hungName(hung: Hung): string {
+  const contract = contractOf(hung);
+  return contract !== null ? contract.id.slice(contract.id.indexOf("/") + 1) : hung.kind === "epic" ? hung.listed.slug : "";
+}
+
 // epicRowWords reads what a row says at now, in unix seconds. A contract reads its version, its state with its age,
 // and, while it is proposed, the ask it waits on. An epic reads its count, its state word with the time since its phase
 // began, its blocker, and its gauge.
@@ -195,7 +201,7 @@ export function EpicRow({
   const contract = contractOf(hung);
   const epic = hung.kind === "epic" && contract === null ? hung : null;
   const ended = hung.kind === "epic" && !hung.listed.live;
-  const name = contract !== null ? contract.id.slice(contract.id.indexOf("/") + 1) : hung.kind === "epic" ? hung.listed.slug : "";
+  const name = hungName(hung);
   const classes = ["row", "epic"];
   if (contract !== null) classes.push("contract");
   if (ended) classes.push("ended");

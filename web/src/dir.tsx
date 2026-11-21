@@ -38,7 +38,7 @@ export function Dir({
   const label = (
     <>
       <Icon name="folder" />
-      <span class="nm">{project.name}</span>
+      <span class="project-name">{project.name}</span>
       <span class="path">{project.path}</span>
     </>
   );

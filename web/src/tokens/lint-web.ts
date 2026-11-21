@@ -29,18 +29,21 @@ const read = (rel: string): string => readFileSync(join(repo, rel), "utf8");
 interface TokenSet {
   defined: ReadonlySet<string>;
   breakpoints: ReadonlySet<number>;
+  containerBreakpoints: ReadonlySet<number>;
 }
 
 let tokenSet: TokenSet | undefined;
-// The --o- names tokens.css defines, and the two breakpoints tokens.json's layout names.
+// The --o- names tokens.css defines, the two page breakpoints tokens.json's layout names, and the container breakpoint
+// it names for the conversation head's own width.
 function tokens(): TokenSet {
   if (tokenSet === undefined) {
     const { layout } = JSON.parse(read("web/visual/system/tokens.json")) as {
-      layout: { breakpointPhone: number; breakpointNarrow: number };
+      layout: { breakpointPhone: number; breakpointNarrow: number; breakpointHeadNarrow: number };
     };
     tokenSet = {
       defined: new Set([...read("web/src/tokens.css").matchAll(/(--o-[a-z0-9-]+)\s*:/g)].map((m) => m[1])),
       breakpoints: new Set([layout.breakpointPhone, layout.breakpointNarrow]),
+      containerBreakpoints: new Set([layout.breakpointHeadNarrow]),
     };
   }
   return tokenSet;
@@ -69,7 +72,7 @@ const NAMED = /:[^;{}]*(?<![\w.#-])(white|black|red|green|blue|yellow|orange|pur
 const blankComments = (css: string): string => css.replace(/\/\*[\s\S]*?\*\//g, (c) => c.replace(/[^\n]/g, " "));
 
 export function lintCss(file: string, css: string): Problem[] {
-  const { defined, breakpoints } = tokens();
+  const { defined, breakpoints, containerBreakpoints } = tokens();
   const sheet = blankComments(css);
   const problems: Problem[] = [];
   const fail = (line: number, reason: string): void => {
@@ -86,6 +89,14 @@ export function lintCss(file: string, css: string): Problem[] {
         const px = Number(digits);
         if (breakpoints.has(px) || breakpoints.has(px + 1) || LEGACY_BREAKPOINTS.some((b) => b.px === px)) continue;
         fail(line, `${digits}px is not a breakpoint token: use breakpointPhone or breakpointNarrow, or one less`);
+      }
+      return;
+    }
+    // A container query cannot read a variable either, so each number it names is a container breakpoint token.
+    if (/^\s*@container/.test(text)) {
+      for (const [, digits] of text.matchAll(/(\d+)px/g)) {
+        if (containerBreakpoints.has(Number(digits))) continue;
+        fail(line, `${digits}px is not a container breakpoint token: use breakpointHeadNarrow`);
       }
       return;
     }

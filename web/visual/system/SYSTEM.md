@@ -174,11 +174,14 @@ is one 100 ms step and loops hold still. No component uses a raw duration.
 
 ## 7. Layout
 
-- **Desk** (760 and wider): a rail, the conversation, a rail. Each rail is 64 wide. The left is the inbox at rest (340,
-  or 316 under 1250, when out), its head the Orrery mark. The right is what the conversation steers, in groups each named
+- **Desk** (760 and wider): the inbox, the conversation, a rail. The inbox is expanded (340, or 316 under 1250) or
+  collapsed to a rail 64 wide, as you leave it, and nothing of it lies over the page; its head is the Orrery mark.
+  Collapsed, each project is a tile with its name set sideways, and a tile opens its project's flyout beside the rail. The
+  right rail, 64 wide, is what the conversation steers, in groups each named
   once (contract, epics, agents, running); a tile opens its own panel between the conversation and the rail, one at a time and
   at one width, and is lit while it is open. Under 1250 a panel lies over the conversation. A page is a title row, a scrolling area and a foot. Reading text is one column 88 characters wide with a 6-character time gutter. Other pages keep to
-  1120.
+  1120. A conversation's head is its title row, with the context before Find and More, then the machine band on
+  surface.side, then the goal; under a 900 head (breakpointHeadNarrow) the context's name drops to its tooltip.
 - **Phone** (under 760, and Android): one page at a time. A conversation's header (title, meters, goal, ask lines,
   tiles) folds to one line of badges while you read back, stays folded when you hide it, and is gone while you type;
   folded, it turns peach when something asks. No gutter: a turn's time is in its block's label line.
@@ -222,11 +225,11 @@ Names are story names: `Component/State`. The catalogue draws each component in 
 
 | component | states |
 |---|---|
-| Inbox | Rail, Flyout, Docked, Pinned; FilterWaiting, FilterNew, Search, Archived; Loading, Empty, Error, NoMatch |
+| Inbox | Expanded, Collapsed, Flyout; FilterWaiting, FilterNew, Search, Archived; Loading, Empty, Error, NoMatch |
 | Dir | a project: Open, Folded, FoldedWaiting, OtherHost. A card: its head is the project's name and path and opens its page; its conversations hang from a line under it. |
 | ConvoRow | Plain, SteersEpic, WroteContract, SteersSeveral, FromShell. A conversation's row, with the epics it steers and the contract it wrote hanging from a line under it. An epic belongs to exactly one conversation. |
 | Project | the page behind a Dir's head: its conversations with what each last said, each with its epics as WorkCards under it |
-| Rail | InboxRail (a tile per project), WorkRail (named groups of what the conversation steers) |
+| Rail | InboxRail (a tile per project, and a project's flyout beside it), WorkRail (named groups of what the conversation steers) |
 | Tile | Mark, Lit, Project, ProjectWaiting, ProjectNew, Current, EpicAsks, SubAgents, LeftRunning, New |
 | InboxRow | Working, WaitingQuestion, Done, CutOff, Failed, Stopped, Idle; Unseen, Open, Cursor, Hover, MenuOpen |
 | EpicRow | Building, Asking, ContractProposed, ReleaseFailed, Releasing, Parked, Paused, Planning, Shipped, EndedShort |

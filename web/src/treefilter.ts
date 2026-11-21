@@ -97,12 +97,13 @@ function countsHung(convo: Convo, hung: Hung): boolean {
   return proposed && (convo.row === null || !waitsOnYou(convo.row));
 }
 
-function changedOf(hung: Hung): number {
+// changedOf is when a hung thing last changed: its epic's listed change, or its contract's.
+export function changedOf(hung: Hung): number {
   return Number(hung.kind === "epic" ? hung.listed.changed : hung.contract.changed);
 }
 
 // freshConvos is each conversation of a project whose row is unseen, once: in the tree, then behind the ended line.
-function freshConvos(project: Project): Convo[] {
+export function freshConvos(project: Project): Convo[] {
   const seen = new Set<string>();
   return [...project.convos, ...project.ended].filter((convo) => {
     if (convo.row === null || !convo.row.unseen || convo.row.archived || seen.has(convo.key)) {

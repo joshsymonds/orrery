@@ -22,7 +22,7 @@ import {
 } from "./stagebodies";
 import { ContextBand } from "./taskband";
 import { type StageRow, stagesOf } from "./taskstages";
-import { type Crumb, type InboxMark, TitleRow } from "./titlerow";
+import { type Crumb, TitleRow } from "./titlerow";
 
 // PhaseOutputPage is one task's record: its title row with Interrupt and Stop… at the desk, the epic's band, the task's
 // requirement lines and the planner's brief, then its five stage rows, the one open row drawing its body. Under narrow
@@ -42,7 +42,6 @@ export function PhaseOutputPage(props: {
   onOpenSession: (step: string) => void;
   hold: (step: string) => Promise<void>;
   stop: (step: string) => Promise<void>;
-  mark?: InboxMark;
   strip?: ComponentChildren;
 }): JSX.Element {
   const {
@@ -58,7 +57,6 @@ export function PhaseOutputPage(props: {
     onOpenSession,
     hold,
     stop,
-    mark,
     strip,
   } = props;
   const record = recordTasksOf(detail).find((candidate) => candidate.task === task);
@@ -95,7 +93,6 @@ export function PhaseOutputPage(props: {
         onBack={onBack}
         state={narrow ? undefined : pill.word}
         stateTone={pill.tone}
-        mark={mark}
         strip={strip}
         note={notice}
       >

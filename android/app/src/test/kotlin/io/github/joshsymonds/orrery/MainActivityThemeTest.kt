@@ -2,9 +2,9 @@ package io.github.joshsymonds.orrery
 
 import android.content.Context
 import android.content.Intent
-import android.graphics.Bitmap
-import android.graphics.Canvas
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.test.hasTestTag
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.core.view.WindowCompat
 import androidx.test.core.app.ApplicationProvider
 import io.github.joshsymonds.orrery.api.FakeOrreryServer
@@ -121,16 +121,16 @@ class MainActivityThemeTest {
     }
 
     @Test
-    fun composedBackgroundIsMochaBase() {
+    fun theRootSurfaceIsMochaBaseToTheWindowsFarCorner() {
         val activity = launch().visible().get()
         composeRule.awaitUntil {
             composeRule.onAllNodes(hasTestTag("convo:pane:example-host:%1")).fetchSemanticsNodes().isNotEmpty()
         }
 
+        val root = composeRule.onNodeWithTag(ROOT_SURFACE_TAG).fetchSemanticsNode()
+        assertEquals(MOCHA_BASE_ARGB, root.config[RootColourKey].toArgb())
         val decor = activity.window.decorView
-        val bitmap = Bitmap.createBitmap(decor.width, decor.height, Bitmap.Config.ARGB_8888)
-        decor.draw(Canvas(bitmap))
-
-        assertEquals(MOCHA_BASE_ARGB, bitmap.getPixel(bitmap.width - 5, bitmap.height - 5))
+        assertEquals("the surface reaches the window's right edge", decor.width.toFloat(), root.boundsInWindow.right, 1f)
+        assertEquals("the surface reaches the window's bottom edge", decor.height.toFloat(), root.boundsInWindow.bottom, 1f)
     }
 }

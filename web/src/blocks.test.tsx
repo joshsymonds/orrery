@@ -84,6 +84,16 @@ test("Shapes: a desk prompt's YouBlock keeps the person icon and draws no phone 
   });
 });
 
+test("Shapes: a YouBlock's YOU shares one row with its time, and its words' first paragraph follows that row directly", async () => {
+  await withBlock(<YouBlock text={"The tide table is late.\n\nMake it retry."} time={sentAt} />, (container) => {
+    const head = container.querySelector('[data-shape="block"].you > .head');
+    assert.ok(head, "the YouBlock draws its head");
+    assert.equal(head.querySelector(".label")?.parentElement, head, "YOU is in the head's row");
+    assert.equal(head.querySelector(".at")?.parentElement, head, "the time is in the same row as YOU");
+    assert.equal(head.nextElementSibling?.tagName, "P", "the first paragraph comes straight after the head, so the head leads its first line");
+  });
+});
+
 test("Shapes: a YouBlock's find query marks each occurrence in its Markdown text, and the current one carries class current", async () => {
   await withBlock(
     // The second "tide" starts at offset 32 of the text as drawn, so current is that offset.

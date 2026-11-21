@@ -23,18 +23,18 @@ import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import io.github.joshsymonds.orrery.api.ConversationContext
-import io.github.joshsymonds.orrery.api.HostStat
 import io.github.joshsymonds.orrery.ui.theme.OrreryTokens
 
 /**
- * A conversation's title row: back, then the directory and host in the place colour over the title in the largest
- * type, the bare context meter when there is a figure, and More. More opens a menu holding Find and Hide the header. A
- * non-empty [note] draws under the row, in the crit colour.
+ * A conversation's title row, after round 6's touch title row: back, then the project's name as the inbox draws a
+ * project's name (the machine band under the row names the host), over the title in bold body type, one step down from the title type, cut short at its second
+ * line, then the bare context meter when there is a figure, and More. The bare meter names the context and its tokens
+ * of the window to the reader, as the web's tooltip does. It draws no Orrery icon and no count. More opens a menu
+ * holding Find and Hide the header. A non-empty [note] draws under the row, in the crit colour.
  */
 @Composable
 fun HeadTitleRow(
     dir: String,
-    host: String,
     title: String,
     context: ConversationContext?,
     note: String,
@@ -67,11 +67,9 @@ fun HeadTitleRow(
             )
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = buildAnnotatedString {
-                        withStyle(SpanStyle(color = OrreryTokens.Role.place)) { append(if (host.isEmpty()) dir else "$dir · on $host") }
-                    },
+                    text = buildAnnotatedString { withStyle(SpanStyle(color = OrreryTokens.Role.place)) { append(dir) } },
                     modifier = Modifier.testTag("head-dir"),
-                    style = OrreryTokens.Type.small,
+                    style = ProjectNameStyle,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
@@ -79,7 +77,7 @@ fun HeadTitleRow(
                     text = title,
                     modifier = Modifier.testTag("head-text"),
                     color = OrreryTokens.Ink.one,
-                    style = OrreryTokens.Type.title,
+                    style = OrreryTokens.Type.body.copy(fontWeight = OrreryTokens.Font.Weight.bold),
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )
@@ -87,7 +85,7 @@ fun HeadTitleRow(
             bareContext(context)?.let { meter ->
                 Text(
                     text = buildAnnotatedString { withStyle(SpanStyle(color = meter.color)) { append(meter.text) } },
-                    modifier = Modifier.testTag("head-context"),
+                    modifier = Modifier.testTag("head-context").semantics { contentDescription = meter.words },
                     style = OrreryTokens.Type.small,
                     maxLines = 1,
                 )
@@ -155,25 +153,10 @@ fun MoreMenu(
 }
 
 /**
- * The host's stats as meters, from [HostMeters]. A host other than the serving one draws its [otherHost] name and
- * says it has no meters, and draws no stats. Null [stats] with no other host draws nothing.
+ * A bare context meter: its block bar and percent as [text], the level [color] the percent falls in, and the [words]
+ * that name it and its tokens of the window, as "context: 86k of a 1M window".
  */
-@Composable
-fun HeadMeters(stats: List<HostStat>?, otherHost: String?) {
-    if (otherHost != null) {
-        Column(modifier = Modifier.fillMaxWidth().testTag("head-other-host")) {
-            Text(text = otherHost, color = OrreryTokens.Ink.one, style = OrreryTokens.Type.small)
-            Text(text = "on another host: no meters", color = OrreryTokens.Ink.three, style = OrreryTokens.Type.small)
-        }
-    } else if (!stats.isNullOrEmpty()) {
-        Box(modifier = Modifier.fillMaxWidth().testTag("head-meters")) {
-            HostMeters(stats, Modifier.padding(horizontal = OrreryTokens.Space.two))
-        }
-    }
-}
-
-/** A bare context meter: its block bar and percent as [text], and the level [color] the percent falls in. */
-private class HeadContext(val text: String, val color: Color)
+private class HeadContext(val text: String, val color: Color, val words: String)
 
 /**
  * The context meter for [context] without its label or token counts: the percent of the window in use, clamped to
@@ -195,5 +178,15 @@ private fun bareContext(context: ConversationContext?): HeadContext? {
         else -> OrreryTokens.Level.crit
     }
     val bar = "▰".repeat(filled) + "▱".repeat(count - filled)
-    return HeadContext("$bar $percent%", color)
+    val words = "context: ${tokensText(context.tokens)} of a ${tokensText(context.window)} window"
+    return HeadContext("$bar $percent%", color, words)
+}
+
+/**
+ * A token count as the context meter says it: thousands under a million, as 152k, and millions from there, as 1M, in
+ * whole numbers, as the web client writes it.
+ */
+private fun tokensText(tokens: Long): String {
+    val thousands = Math.round(tokens / 1_000.0)
+    return if (thousands < 1_000) "${thousands}k" else "${Math.round(tokens / 1_000_000.0)}M"
 }

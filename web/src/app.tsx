@@ -35,10 +35,8 @@ import {
   isRow,
   type Item,
   type KeyContext,
-  type Popout,
 } from "./keymap";
 import { listHolds, listsEpic } from "./listholds";
-import { epicNeeds } from "./needs";
 import { NoticeCentre } from "./noticecentre";
 import { useNoticeLog } from "./noticelog";
 import { NoticeStack } from "./notices";
@@ -50,9 +48,9 @@ import { NewPanel } from "./picker";
 import { type Viewing, viewingOf } from "./presence";
 import { ProjectPage } from "./projectpage";
 import { type ContractCalls, newestItemKey, type ReaderHandle } from "./reader";
-import { railTiles } from "./railtiles";
+import { flyoutOf, type FlyoutRow, railTiles } from "./railtiles";
 import { type Address, type Entry, formatAddress, type ListPanelKind, type PageView, type View } from "./router";
-import { type Row, splitArchived, waitsOnYou } from "./rows";
+import type { Row } from "./rows";
 import { realClock, type SeenClock, type SeenWindow, watchSeen } from "./seen";
 import { type SendKind, type Sending, type SentText, sendingEntry, unsentEntries, withoutTexts } from "./sending";
 import {
@@ -71,7 +69,7 @@ import { conversationEnded, steerCallsOf, steererRowOf, steersLive } from "./ste
 import { SteerMenu, useSteer } from "./steermenu";
 import { PaneStrip, type StripHost } from "./strip";
 import { lastPathElement } from "./titleparts";
-import { type InboxMark, TitleRow } from "./titlerow";
+import { TitleRow } from "./titlerow";
 import { Toast } from "./toast";
 import { buildTree, type Convo, type Project } from "./tree";
 import { countsOf, type Narrow, narrow as narrowTree, projectWaiting, search as searchTree, waitOrder } from "./treefilter";
@@ -79,10 +77,12 @@ import { type ListThing, type Thing, type WorkConversation, workOf } from "./wor
 import { WorkerSessionPage } from "./workersession";
 import { WorkRail } from "./workrail";
 
-// The inbox's state: pinned beside the page, docked beside it while no row has been opened, resting as the rail beside
-// the page once one has, or popped out over the page from the rail while the pointer is on the rail or a key has popped
-// it out.
-type InboxState = "docked" | "pinned" | "rail" | "flyout";
+// A project's flyout beside the collapsed inbox's rail: the project's key, and whether the pointer or a key opened it. The
+// pointer leaving the rail closes only a flyout the pointer opened.
+interface Flyout {
+  key: string;
+  by: "hover" | "key";
+}
 
 // The conversation the reader holds, with the row key it belongs to, so a row never shows another row's transcript.
 interface Stream {
@@ -211,8 +211,8 @@ const toastMs = 5000;
 // The most entries one page of an epic's history asks for.
 const historyPageSize = 200;
 
-// The query of the wide layout, the same one style.css's wide block uses. Only that layout hides, pops out or pins the
-// inbox: a narrower window always shows it docked, as the stacked layout does.
+// The query of the wide layout, the same one style.css's wide block uses. Only that layout collapses the inbox to its
+// rail: a narrower window always draws it as the stacked layout does.
 const wideQuery = "(min-width: 760px)";
 
 // The query of the layout at 1250px and under, where the epic panel lies over the conversation from the right, beside the
@@ -275,21 +275,23 @@ export function App({
   const [open, setOpen] = useState(false);
   // Whether the strips under the title rows are drawn. m hides and shows every one of them.
   const [stripsShown, setStripsShown] = useState(true);
-  // Whether an entry, a row, a step or an epic, has been opened by a click or Enter, which hides the inbox. The mark's
-  // click or B pins the inbox beside the page. A railed inbox is popped out over the page by the pointer on the rail or
-  // the mark, or by a key, and popout records which.
+  // Whether an entry, a row, a step or an epic, has been opened by a click or Enter. Under 760px an opened entry's page
+  // draws alone, in the list's place; at 760px and wider it changes nothing about the inbox.
   const [rowOpened, setRowOpened] = useState(false);
-  const [inboxPinned, setInboxPinned] = useState(false);
-  const [popout, setPopout] = useState<Popout>("none");
+  // Whether the inbox is collapsed to its rail, which the inbox foot's control, the rail's mark and b set. It holds
+  // through openings, views and a narrowing below 760px, where the stacked layout draws the inbox whatever it holds.
+  const [inboxCollapsed, setInboxCollapsed] = useState(false);
+  // The flyout open beside a collapsed inbox's rail, if any.
+  const [flyout, setFlyout] = useState<Flyout | null>(null);
   // Whether the window is wide, read at mount and followed on the query's change event. A window narrowed below 760px
-  // drops any pop-out, and keeps rowOpened and the pin, so widening it again shows the inbox as it was.
+  // closes any flyout, and keeps rowOpened and the collapse, so widening it again shows the inbox as it was.
   const [wide, setWide] = useState(() => window.matchMedia(wideQuery).matches);
   useEffect(() => {
     const query = window.matchMedia(wideQuery);
     const follow = () => {
       setWide(query.matches);
       if (!query.matches) {
-        setPopout("none");
+        setFlyout(null);
       }
     };
     query.addEventListener("change", follow);
@@ -307,7 +309,6 @@ export function App({
       query.removeEventListener("change", sync);
     };
   }, []);
-  const listRef = useRef<HTMLDivElement>(null);
   // Whether the picker palette is open.
   const [pickerOpen, setPickerOpen] = useState(false);
   // The directory the palette opens in: the project's, when New session here opened it, and none for N, ⌘K and the
@@ -466,12 +467,14 @@ export function App({
     engaged.current = true;
   };
   // navigated wraps an open or a crumb return: the address change it makes pushes, and it arms the next cursor key.
+  // An opening closes any flyout, and leaves the inbox as it was.
   const navigated =
     <A extends unknown[]>(action: (...args: A) => void) =>
     (...args: A) => {
       cause.current = "push";
       arm();
       renderAddress();
+      setFlyout(null);
       action(...args);
     };
   // keyMoved wraps a cursor key's move: the first cursor key after an arm pushes and disarms, and the later ones
@@ -483,6 +486,7 @@ export function App({
       armed.current = false;
       engaged.current = true;
       renderAddress();
+      setFlyout(null);
       action(...args);
     };
   // adopt records an applied address. It reports nothing, and arms the next cursor key. Its render is the one whose
@@ -532,31 +536,9 @@ export function App({
       setNarrowBy("");
     }
   }, [narrowBy, counts.waiting, counts.fresh]);
-  // The needs of the live epics, in list order: a live epic's Get answer carries its Epic, and the details hold exactly
-  // the live epics. An archived epic's needs are left out.
-  const archivedIds = new Set(marked.archived.map((item) => item.id));
-  const detailEpics = [...epics.details.values()].flatMap((detail) =>
-    detail.epic === undefined || archivedIds.has(detail.epic.id) ? [] : [detail.epic],
-  );
-  // The mark's count: the loaded rows that wait on you and are not archived, and the live epics' needs. It reads the same
-  // in every view and under any filter, as the list reads every loaded row after seen writes.
-  const markNeeds =
-    splitArchived(shownRows).rows.filter((row) => waitsOnYou(row)).length +
-    epicNeeds(detailEpics, epics.details).length;
-  // Under 760px the inbox is docked, whatever the row, the pin and the pop-out hold.
-  const inboxState: InboxState = !wide
-    ? "docked"
-    : inboxPinned
-      ? "pinned"
-      : !rowOpened
-        ? "docked"
-        : popout !== "none"
-          ? "flyout"
-          : "rail";
-  // The inbox rests as the rail once a row has been opened, unless it is pinned or popped out. A key pop-out is the flyout
-  // that Escape and b tuck back.
-  const inboxHidden = inboxState === "rail";
-  const keyPopped = inboxState === "flyout" && popout === "key";
+  // The inbox is collapsed to its rail only at 760px and wider: under 760px the stacked layout draws it, whatever the
+  // collapse holds.
+  const collapsed = wide && inboxCollapsed;
   // The Archived head's count: the archived conversations and the archived epics.
   const archivedCount = shownRows.filter((row) => row.archived).length + marked.archived.length;
   const flat = treeEntries(projects, folded, endedOpen);
@@ -583,6 +565,11 @@ export function App({
   // The project whose page is open, while a page is drawn. The project page takes the page area, so the cursor's panels
   // and rail do not draw while it is shown, and neither does a contract's.
   const shownProject = pageDrawn ? projectKey : null;
+  // The collapsed inbox's rail draws a tile per project of the inbox, whatever the view, and the tile of the project that
+  // holds the open page is current. The flyout is drawn only while the inbox is collapsed, on a project the rail draws.
+  const tiles = railTiles(railTree, shownProject ?? cursorKey);
+  const flyoutProject = collapsed && flyout !== null ? railTree.find((project) => project.key === flyout.key) : undefined;
+  const flyoutModel = flyoutProject === undefined ? null : flyoutOf(flyoutProject, now);
   // The contract the address opened is open while the cursor rests on the entry it opened over and no project page is
   // shown. Its conversation is the row whose session is the contract's conversation: the middle while that row is live,
   // which an archived row, or one stopped or failed, is not.
@@ -1306,7 +1293,7 @@ export function App({
   const toEpicPage = navigated(() => leaveTo(0));
   // backOneCrumb is h and the left arrow. On a contract, phase output or worker session page it does that page's back.
   // Under 760px, on an opened page at its first crumb, it is Back: the epic page or the row's or step's page closes to
-  // the inbox. At 760px and wider, on the epic page, a row's page or a step's page, it pops a hidden inbox out by key.
+  // the inbox. At 760px and wider, at a page's first crumb, it does nothing.
   const backOneCrumb = () => {
     if (epicEntry !== null && epicPage.page.kind !== "epic") {
       back();
@@ -1318,8 +1305,6 @@ export function App({
           backToInbox();
         }
       }
-    } else if (inboxHidden) {
-      setPopout("key");
     }
   };
   // openPhase opens a task's record over the epic page. On a record, a task's chip opens that task's record in place.
@@ -1490,9 +1475,8 @@ export function App({
     setEpicPage((previous) => (previous.closed ? openEpicPage : previous));
   };
 
-  // openProject opens a project's page from its head or its address: the address names the project, the page draws
-  // in the page area, and the inbox rests as with any page opened. An open contract's panel shuts, since the page takes
-  // its place. It is a navigation.
+  // openProject opens a project's page from its head or its address: the address names the project, and the page draws
+  // in the page area. An open contract's panel shuts, since the page takes its place. It is a navigation.
   const openProject = navigated((key: string) => {
     setOpenedContract(null);
     setProjectKey(key);
@@ -1737,34 +1721,76 @@ export function App({
     setPinStream(null);
   };
 
-  // togglePin pins the inbox beside the page, or unpins it: the mark's click and B both do this.
-  const togglePin = () => setInboxPinned((value) => !value);
-  // inboxEnter is the pointer's entry to the mark or the rail, which pops the inbox out over the page. A hover does not
-  // change a pop-out a key already made, and a narrow window takes no hover at all.
-  const inboxEnter = () => {
+  // toggleInbox collapses the inbox to its rail or expands it, closing any flyout: the inbox foot's control, the rail's
+  // mark and b do this. Under 760px, where the stacked layout draws the inbox, it does nothing.
+  const toggleInbox = () => {
     if (wide) {
-      setPopout((current) => (current === "none" ? "hover" : current));
+      setInboxCollapsed((value) => !value);
+      setFlyout(null);
     }
   };
-  // inboxLeave is the pointer's leave from the mark, the rail or the list. A leave into the inbox's list or its rail keeps
-  // the inbox out; any other leave tucks it away.
-  const inboxLeave = (to: EventTarget | null) => {
-    const within =
-      (to instanceof Node && listRef.current?.contains(to) === true) ||
-      (to instanceof Element && to.closest(".rail.start") !== null);
-    if (!within) {
-      setPopout("none");
+  // expandInbox expands a collapsed inbox, closing any flyout.
+  const expandInbox = () => {
+    setInboxCollapsed(false);
+    setFlyout(null);
+  };
+  // hoverTile opens the flyout of the project whose tile is under the pointer, taking over a flyout a key opened.
+  // hoverOff closes a flyout the pointer opened, and leaves one a key opened.
+  const hoverTile = (key: string) =>
+    setFlyout((previous) => (previous?.key === key && previous.by === "hover" ? previous : { key, by: "hover" }));
+  const hoverOff = () => setFlyout((previous) => (previous?.by === "hover" ? null : previous));
+  // openFlyout opens the flyout by key on the tile of the project that holds the open page, else on the first tile.
+  const openFlyout = () => {
+    const tile = tiles.find((candidate) => candidate.cur) ?? tiles[0];
+    if (tile !== undefined) {
+      setFlyout({ key: tile.key, by: "key" });
     }
   };
-  // inboxMark is the mark every title row draws: its count, the hover that pops the inbox out, and the click that pins
-  // it. The inbox's own rules for the pointer apply to it as to the rail.
-  const inboxMark: InboxMark = {
-    needs: markNeeds,
-    enter: inboxEnter,
-    leave: inboxLeave,
-    pin: togglePin,
+  // moveFlyout moves the open flyout by key to the tile step below or above its own, held at the first and the last.
+  const moveFlyout = (step: 1 | -1) => {
+    const at = tiles.findIndex((tile) => tile.key === flyoutModel?.key);
+    if (at >= 0) {
+      setFlyout({ key: tiles[Math.max(0, Math.min(tiles.length - 1, at + step))].key, by: "key" });
+    }
   };
-
+  // openFlyoutItem opens a flyout's row as the tree's press on its item does, and a conversation's row into its reply
+  // box, as a click on the row does. The inbox stays collapsed. The rail's flyouts are always the inbox's, so in the
+  // Archived view the inbox view comes back first, and the row opens once it has drawn. That open is a passive effect
+  // declared after the held cursor's effect, as the address's pending open is, so its cursor move wins in its commit.
+  const pendingFlyoutItem = useRef<FlyoutRow | null>(null);
+  const openFlyoutItem = (item: FlyoutRow) => {
+    setFlyout(null);
+    if (view !== "inbox") {
+      pendingFlyoutItem.current = item;
+      openView("inbox");
+      return;
+    }
+    openProjectItem(item.key);
+    if (item.kind === "row") {
+      setBoxOpened({ column: "cursor", key: item.key });
+    }
+  };
+  useEffect(() => {
+    const item = pendingFlyoutItem.current;
+    if (item !== null && view === "inbox") {
+      pendingFlyoutItem.current = null;
+      openFlyoutItem(item);
+    }
+  }, [view]);
+  // goToProject is a click on a project's tile, and ⏎ in its flyout: it opens the flyout's cursor row, which is the
+  // project's oldest row that waits on you, else its first new row, and with neither it opens the project's page.
+  const goToProject = (key: string) => {
+    const project = railTree.find((candidate) => candidate.key === key);
+    if (project === undefined) {
+      return;
+    }
+    const first = flyoutOf(project, now).rows[0];
+    if (first === undefined) {
+      openProject(key);
+    } else {
+      openFlyoutItem(first);
+    }
+  };
   // pageStrip is the strip a page draws under its title row: the host part stripHost names for the row the page shows,
   // and the context of a pane row's conversation, which the stream holds. A page with no row names the serving host. m
   // hides every strip, and then a page draws none.
@@ -1833,9 +1859,9 @@ export function App({
     setHeadNote((previous) => (previous.key === cursorRowKey || previous.key === pinnedKey ? previous : noHeadNote));
   }, [cursorRowKey, pinnedKey]);
 
-  // focusCursorRow moves focus to the list's current row, the row the cursor rests on. A hidden inbox holds that row in
-  // the list the page hides, so it is popped out by key first, and the focus waits for the layout effect after the
-  // render that draws it, as a browser takes no focus on a row it does not display.
+  // focusCursorRow moves focus to the list's current row, the row the cursor rests on. A collapsed inbox holds that row in
+  // the list it does not draw, so it is expanded first, and the focus waits for the layout effect after the render that
+  // draws it, as a browser takes no focus on a row it does not display.
   const focusPending = useRef(false);
   useLayoutEffect(() => {
     if (focusPending.current) {
@@ -1844,9 +1870,9 @@ export function App({
     }
   });
   const focusCursorRow = () => {
-    if (inboxHidden) {
+    if (collapsed) {
       focusPending.current = true;
-      setPopout("key");
+      expandInbox();
       return;
     }
     document.querySelector<HTMLElement>(".row.cur")?.focus();
@@ -2034,10 +2060,10 @@ export function App({
       (rowOpened && (cursorRow !== null || cursorStep !== null)) ||
       panelOpen ||
       contractPageShown);
-  // The list is on screen where it is drawn: beside or over the page at the desk unless it rests as the rail, and under
-  // 760px unless a page draws alone over it. A project page or the notice centre covers the cursor row unless the list
-  // is on screen, and A, x and e do not act on a covered row.
-  const listOnScreen = wide ? inboxState !== "rail" : !listHides;
+  // The list is on screen where it is drawn: beside the page at the desk unless the inbox is collapsed, and under 760px
+  // unless a page draws alone over it. A project page or the notice centre covers the cursor row unless the list is on
+  // screen, and A, x and e do not act on a covered row.
+  const listOnScreen = wide ? !collapsed : !listHides;
   const rowCovered = (shownProject !== null || noticesOpen) && !listOnScreen;
 
   // The keys read this render's state and call this render's actions, so the document listener runs the latest context.
@@ -2045,8 +2071,8 @@ export function App({
     pickerOpen,
     openMenu,
     helpOpen,
-    inboxHidden,
-    keyPopped,
+    collapsed,
+    flyoutOpen: flyoutModel !== null,
     rowCovered,
     projectShown: shownProject !== null,
     noticesOpen,
@@ -2089,13 +2115,21 @@ export function App({
     answerCursor,
     toggleOpen,
     closePin,
-    togglePin,
+    toggleInbox,
+    expandInbox,
+    openFlyout,
+    moveFlyout,
+    openFlyoutRow: () => {
+      if (flyoutModel !== null) {
+        goToProject(flyoutModel.key);
+      }
+    },
+    closeFlyout: () => setFlyout(null),
     toggleStrips,
     togglePanel,
     setPickerOpen,
     setMenuKey,
     setFilter: openSearchField,
-    setPopout,
     setRowOpened: navigated((opened: boolean | ((previous: boolean) => boolean)) => {
       if (opened === true) {
         setProjectKey(null);
@@ -2133,7 +2167,7 @@ export function App({
       return (
         <section class="read" aria-label="project">
           <div class="head">
-            <TitleRow crumbs={[{ label: "Project" }]} onBack={navigated(backToInbox)} mark={inboxMark} />
+            <TitleRow crumbs={[{ label: "Project" }]} onBack={navigated(backToInbox)} />
           </div>
           <p class="side-note">{noProjectText}</p>
         </section>
@@ -2144,7 +2178,6 @@ export function App({
         project={project}
         now={now}
         narrow={!wide}
-        mark={inboxMark}
         onOpen={openProjectItem}
         onNewHere={openPickerIn}
         onBack={navigated(backToInbox)}
@@ -2163,7 +2196,6 @@ export function App({
           <TitleRow
             crumbs={[{ label: entry.slug }]}
             onBack={closeEpicPage}
-            mark={inboxMark}
             strip={wide ? pageStrip(null, null) : undefined}
           />
           {failedEpicReads.has(entry.id) ? (
@@ -2200,7 +2232,6 @@ export function App({
           crumbs={[{ label: contractSlug(contract.id) }, { label: "contract" }]}
           state={statePill(contract.state)}
           onBack={closeContract}
-          mark={inboxMark}
           strip={pageStrip(null, null)}
         />
         <ContractRecord
@@ -2280,7 +2311,7 @@ export function App({
       if (listed !== undefined) {
         return (
           <div>
-            <TitleRow crumbs={crumbs} onBack={back} mark={inboxMark} strip={pageStrip(null, null)} />
+            <TitleRow crumbs={crumbs} onBack={back} strip={pageStrip(null, null)} />
             <ContractRecord
               key={listed.id}
               id={listed.id}
@@ -2297,7 +2328,7 @@ export function App({
       if (detail.contract !== undefined) {
         return (
           <div>
-            <TitleRow crumbs={crumbs} onBack={back} mark={inboxMark} strip={pageStrip(null, null)} />
+            <TitleRow crumbs={crumbs} onBack={back} strip={pageStrip(null, null)} />
             <ContractBody contract={detail.contract} requirements={detail.requirements} />
           </div>
         );
@@ -2322,7 +2353,6 @@ export function App({
           )}
           hold={(step) => stepCalls(clients, step).hold()}
           stop={(step) => stepCalls(clients, step).stop()}
-          mark={inboxMark}
           strip={pageStrip(null, null)}
         />
       );
@@ -2348,7 +2378,6 @@ export function App({
           nudge={calls.nudge}
           hold={calls.hold}
           stop={calls.stop}
-          mark={inboxMark}
           strip={pageStrip(null, null)}
         />
       );
@@ -2369,7 +2398,6 @@ export function App({
         onOpenSession={openSession}
         onOpenPhase={openPhase}
         onBack={closeEpicPage}
-        mark={inboxMark}
         strip={pageStrip(null, null)}
         rows={rows}
         listed={[...epics.listed.values()]}
@@ -2458,7 +2486,6 @@ export function App({
       conversation={cursorConversation}
       rows={visited}
       interrupts={interrupts}
-      mark={inboxMark}
       pageStrip={pageStrip}
       head={(row, conversation) => headOf(row, conversation, true)}
       narrow={!wide}
@@ -2500,24 +2527,28 @@ export function App({
     <main class="app">
       <div
         class={`panes${pinned !== null ? " split" : ""}${overlay ? " overlay" : ""}`}
-        data-inbox={inboxState}
+        data-inbox={collapsed ? "collapsed" : "expanded"}
         data-side={panelShown ? "panel" : "rail"}
       >
-        {(inboxState === "rail" || inboxState === "flyout") && (
+        {collapsed && (
           <InboxRail
-            tiles={railTiles(railTree, shownProject ?? cursorKey)}
-            onMark={() => setPopout("key")}
-            onTile={openProject}
+            tiles={tiles}
+            flyout={flyoutModel}
+            now={now}
+            onMark={expandInbox}
+            onTile={goToProject}
+            onHover={hoverTile}
+            onHoverOff={hoverOff}
+            onFlyoutRow={openFlyoutItem}
+            onFlyoutPage={openProject}
             onNew={() => setPickerOpen(true)}
             onSearch={() => {
+              expandInbox();
               openSearchField("");
-              setPopout("key");
             }}
             unread={noticeLog.unread}
             onNotices={() => setNoticesOpen(true)}
             onKeys={() => setHelpOpen(true)}
-            onEnter={inboxEnter}
-            onLeave={inboxLeave}
           />
         )}
         {notices.length > 0 && (
@@ -2558,12 +2589,7 @@ export function App({
             onClose={() => setNoticesOpen(false)}
           />
         )}
-        <div
-          class="list"
-          ref={listRef}
-          onMouseLeave={(event) => inboxLeave(event.relatedTarget)}
-          hidden={listHides}
-        >
+        <div class="list" hidden={listHides}>
           <Inbox
             view={view}
             state={!answered ? "loading" : listFailed ? "error" : "ready"}
@@ -2588,7 +2614,7 @@ export function App({
             onNotices={() => setNoticesOpen(true)}
             onKeys={() => setHelpOpen(true)}
             onOpenProject={openProject}
-            pin={wide ? { pinned: inboxPinned, onPin: togglePin } : undefined}
+            onCollapse={wide ? toggleInbox : undefined}
             notes={notes}
           />
         </div>
@@ -2625,7 +2651,6 @@ export function App({
           conversation={pinnedConversation}
           rows={pinnedRows}
           interrupts={interrupts}
-          mark={inboxMark}
           pageStrip={pageStrip}
           head={headOf}
           narrow={!wide}

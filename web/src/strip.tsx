@@ -1,6 +1,7 @@
 import type { JSX } from "preact";
 
 import type { ConversationContext, HostStatusResponse } from "./gen/orrery/v1/orrery_pb";
+import { Icon } from "./glyphs";
 import { context } from "./tokens/rules";
 
 // StripHost is the host a strip names: its name and the stats it draws. other marks a host this server cannot read: the
@@ -29,13 +30,16 @@ export interface ContextFigure {
 
 // PaneStrip is a page's strip, drawn under its title row: the host's name with each of its stats, and a pane
 // conversation's context. With no host it draws no host part, and a context with no tokens or no window draws no context
-// part. A strip with neither draws nothing.
+// part. A strip with neither draws nothing. As a band, it is a conversation head's machine band, its own row under the
+// title row, and the host's name is marked with the host icon.
 export function PaneStrip({
   host,
   context,
+  band = false,
 }: {
   host: StripHost | null;
   context?: ConversationContext;
+  band?: boolean;
 }): JSX.Element | null {
   const figure = context === undefined ? null : contextFigure(context);
   if (host === null && figure === null) {
@@ -43,8 +47,13 @@ export function PaneStrip({
   }
   const stats: readonly HostStat[] = host === null || host.other === true ? [] : host.stats;
   return (
-    <div class="pane-strip">
-      {host !== null && <span class="pane-strip-host">{host.host}</span>}
+    <div class={band ? "pane-strip machine-band" : "pane-strip"}>
+      {host !== null && (
+        <span class="pane-strip-host">
+          {band && <Icon name="host" />}
+          {host.host}
+        </span>
+      )}
       {host?.other === true && <span class="other">on another host: no meters</span>}
       {stats.map((stat, index) => (
         <Meter key={index} stat={stat} series={(index % seriesCount) + 1} />
@@ -71,8 +80,9 @@ function Meter({ stat, series }: { stat: HostStat; series: number }): JSX.Elemen
 }
 
 // ContextMeter draws a conversation's context: five blocks, the filled ones on, and its percent, at its band. Unless bare,
-// it also names the context and says its tokens of the window. A context with no tokens or no window draws nothing. A
-// caller that has already read the context's figure passes it, so it is read once.
+// it also names the context and says its tokens of the window. Its tooltip names it and says its tokens of the window
+// either way, for a layout that leaves either out. A context with no tokens or no window draws nothing. A caller that has
+// already read the context's figure passes it, so it is read once.
 export function ContextMeter({
   context,
   bare = false,
@@ -85,8 +95,10 @@ export function ContextMeter({
   if (figure === null) {
     return null;
   }
+  const used = tokensText(context.tokens);
+  const size = tokensText(context.window);
   return (
-    <span class="ctx" data-level={figure.band}>
+    <span class="ctx" data-level={figure.band} title={`context: ${used} of a ${size} window`}>
       {!bare && <span class="name">context</span>}
       <span class="blocks">
         {contextBlocks.map((block) => (
@@ -94,7 +106,7 @@ export function ContextMeter({
         ))}
       </span>
       <span class="pct">{`${Math.round(figure.percent)}%`}</span>
-      {!bare && <span class="used">{`${tokensText(context.tokens)} of ${tokensText(context.window)}`}</span>}
+      {!bare && <span class="used">{`${used} of ${size}`}</span>}
     </span>
   );
 }

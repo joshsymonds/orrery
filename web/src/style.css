@@ -144,15 +144,11 @@ button.link.notices-more { justify-self: end; padding: 0 var(--o-space-12); colo
     grid-column: 1 / -1; position: absolute; top: 0; bottom: 0; left: calc(var(--inbox-track) + var(--o-layout-rail-width)); right: var(--o-layout-rail-width);
     z-index: var(--o-z-flyout); box-shadow: var(--o-elevation-side-end);
   }
-  /* At rest the inbox is the left rail, and popped out it is the flyout over the page beside the rail. Both keep the rail's
-     track, so the page never moves; the flyout lies over the page, out of the grid, at the rail's edge. */
-  .panes[data-inbox="rail"], .panes[data-inbox="flyout"] { --inbox-track: var(--o-layout-rail-width); }
-  .panes[data-inbox="rail"] > .list { display: none; }
-  .panes[data-inbox="flyout"] > .list {
-    display: grid; position: absolute; top: 0; bottom: 0; left: var(--o-layout-rail-width); width: var(--o-layout-inbox-width); z-index: var(--o-z-flyout);
-    box-shadow: var(--o-elevation-side);
-  }
-  .panes[data-inbox="rail"] > .rail.start, .panes[data-inbox="flyout"] > .rail.start { display: flex; }
+  /* Collapsed, the inbox is the left rail in the inbox's track, 64 wide, and its list is not drawn. Expanded, the list takes
+     the track, 340 wide or 316 at 1250px and under, and nothing of the inbox lies over the page. */
+  .panes[data-inbox="collapsed"] { --inbox-track: var(--o-layout-rail-width); }
+  .panes[data-inbox="collapsed"] > .list { display: none; }
+  .panes[data-inbox="collapsed"] > .rail.start { display: flex; }
   .list, .read, .rpanel { min-height: 0; }
   .list {
     display: grid; grid-template-rows: auto minmax(0, 1fr); background: var(--o-surface-side);
@@ -172,11 +168,6 @@ button.link.notices-more { justify-self: end; padding: 0 var(--o-space-12); colo
   .head, .convo-head > .title-row { padding: var(--o-space-12) var(--o-space-24) var(--o-space-12); }
   .send { min-width: 0; padding: 0 var(--o-space-24) var(--o-space-12); }
   .rcard > section.page { min-height: 0; flex: 1 1 auto; overflow-y: auto; padding: var(--o-space-16) var(--o-space-24) var(--o-space-8); }
-}
-
-/* The flyout over the page is the narrow list at 1250px and under. */
-@media (min-width: 760px) and (max-width: 1250px) {
-  .panes[data-inbox="flyout"] > .list { width: var(--o-layout-inbox-width-narrow); }
 }
 
 .rows { min-width: 0; }
@@ -291,10 +282,12 @@ button.link.notices-more { justify-self: end; padding: 0 var(--o-space-12); colo
 .dir-head .fold:hover { background: var(--o-surface-raised); color: var(--o-ink-1); }
 .dir-head .proj { display: grid; grid-template-columns: auto minmax(0, 1fr); column-gap: var(--o-space-8); align-items: center; flex: 1 1 auto; min-width: 0; padding: var(--o-space-4) var(--o-space-8); border-radius: var(--o-radius-2); }
 .dir-head .proj:hover { background: var(--o-surface-raised); }
-/* The head's project is a button: it takes no border or raised fill of the global button, and keeps the look above. */
-.dir-head button.proj { border: 0; background: none; min-height: 0; }
+/* The head's project is a button: it takes no border or raised fill of the global button, and keeps the look above, its
+   name and path set from the start of the line as in any other text, not centred as a button's label is. */
+.dir-head button.proj { border: 0; background: none; min-height: 0; text-align: start; }
 .dir-head .proj > .icon { grid-row: 1 / span 2; color: var(--o-role-place); }
-.dir-head .nm { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--o-role-place); font: var(--o-type-body); font-weight: var(--o-font-weight-bold); }
+/* A project's name, as the inbox's project head draws it and a title row's project crumb draws it too. */
+.project-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--o-role-place); font: var(--o-type-body); font-weight: var(--o-font-weight-bold); }
 .dir-head .path { grid-column: 2; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--o-ink-3); }
 .dir-head .end { display: inline-flex; align-items: center; gap: var(--o-space-8); margin-left: auto; flex: none; color: var(--o-ink-3); }
 .dir-head .end .is-attention { color: var(--o-role-attention); font-weight: var(--o-font-weight-bold); }
@@ -488,7 +481,14 @@ button.link.notices-more { justify-self: end; padding: 0 var(--o-space-12); colo
 /* A row's conversation opens on the shared title row in the head's place: its back, crumbs and state are mono throughout,
    and its padding comes from the wide block with the head's. */
 .convo-head > .title-row { font: var(--o-type-small); }
-.convo-head .phone-ctx { display: none; }
+/* The head is a container, so its title row's context answers to the head's own width. The context is the
+   conversation's, so it sits in the title row before Find and More, a line's gap from Find; under breakpointHeadNarrow
+   its name drops to its tooltip. */
+.convo-head { container: head / inline-size; }
+.convo-head > .title-row .acts > .ctx { margin-right: var(--o-space-4); }
+@container head (width < 900px) {
+  .convo-head > .title-row .ctx .name { display: none; }
+}
 /* The epic card's status pill: its tone sets the text, the tint and the outline; idle is ink.3 on surface.raised. */
 .pill {
   display: inline-flex; flex: none; align-items: center; gap: var(--o-space-8); padding: var(--o-space-2) var(--o-space-8); border-radius: var(--o-radius-round);
@@ -500,17 +500,18 @@ button.link.notices-more { justify-self: end; padding: 0 var(--o-space-12); colo
 .pill.tone-idle { color: var(--o-ink-3); background: var(--o-surface-raised); box-shadow: 0 0 0 var(--o-size-hairline) var(--o-line-firm); }
 .reader { min-width: 0; padding: var(--o-space-4) 0 var(--o-space-8); }
 .reader-loading { margin: 0; color: var(--o-ink-3); }
-/* Each row is one 88ch column, centred in the reader, with its time in the 5ch gutter on its left. The row takes the
-   reading size, so its ch is the width of the reading text's characters. The owner's turn starts 32px below the row
+/* Each row fills the reader between its gutters, with its time in the 5ch gutter on its left. The row takes the reading
+   size, so its ch is the width of the reading text's characters. The owner's turn starts 32px below the row
    before it; the first row has no row before it, so no gap above it. A row whose body is a line touches the line after it. */
 .reader .t {
   display: grid; grid-template-columns: 5ch minmax(0, 1fr); column-gap: var(--o-space-16); font: var(--o-type-body);
-  width: 88ch; max-width: 100%; margin-inline: auto;
 }
 .reader .t.owner-turn { margin-top: var(--o-layout-turn-gap); }
 .reader .t.owner-turn:first-child { margin-top: 0; }
 .reader .t > .gut { font: var(--o-type-small); color: var(--o-ink-4); text-align: right; white-space: nowrap; }
 .reader .t > .gut.live { color: var(--o-role-live); }
+/* A Block's words start below its top padding, so the time beside a Block drops by that padding onto its first line. */
+.reader .t:has(> .body > [data-shape="block"]) > .gut { padding-top: var(--o-space-8); }
 /* A message the page sent that its stored conversation does not hold yet draws in a lower ink until its prompt arrives. */
 .reader .t.sending-row { --o-ink-1: var(--o-ink-3); }
 .reader .t > .body { min-width: 0; padding-bottom: var(--o-space-12); font: var(--o-type-body); color: var(--o-ink-1); }
@@ -542,8 +543,9 @@ button.link.notices-more { justify-self: end; padding: 0 var(--o-space-12); colo
 /* A block that is still being sent has a dashed rail: it has not happened yet. */
 .reader [data-shape="block"].pending { border-left-style: dashed; }
 .reader [data-shape="block"] > :last-child { margin-bottom: 0; }
+/* A Block's head takes no padding: the desk's reader-head padding is not its. */
 .reader [data-shape="block"] > .head {
-  display: flex; flex-wrap: wrap; align-items: center; gap: var(--o-space-4) var(--o-space-8); min-width: 0;
+  display: flex; flex-wrap: wrap; align-items: center; gap: var(--o-space-4) var(--o-space-8); min-width: 0; padding: 0;
   border-bottom: 0; color: var(--o-ink-3); font: var(--o-type-small); white-space: normal; overflow-wrap: normal;
 }
 .reader [data-shape="block"] > .head > .icon, .reader [data-shape="block"] > .head > .gauge { flex: none; color: var(--rail); }
@@ -554,6 +556,14 @@ button.link.notices-more { justify-self: end; padding: 0 var(--o-space-12); colo
 .reader [data-shape="block"] > .head .who { color: var(--o-ink-1); font-weight: var(--o-font-weight-bold); }
 .reader [data-shape="block"] > .head .end { display: inline-flex; align-items: center; gap: var(--o-space-8); flex: 0 1 auto; flex-wrap: wrap; margin-left: auto; }
 .reader [data-shape="block"] > .head .at { flex: none; color: var(--o-ink-3); white-space: nowrap; }
+/* A prompt's head leads the first line of its words: its YOU sits beside the time (the gutter's at the desk, the head's own
+   at phone width) and the words run on after it, so the prompt takes no line for its head. The block flows its children
+   and keeps the Block's gap between them as margin. A prompt that opens on anything but a paragraph keeps its head on a
+   line of its own. */
+.reader [data-shape="block"].you { display: flow-root; }
+.reader [data-shape="block"].you > .head { margin-bottom: var(--o-space-4); }
+.reader [data-shape="block"].you > .head:has(+ p) { float: left; min-height: var(--o-space-24); margin: 0 var(--o-space-8) 0 0; }
+.reader [data-shape="block"].you > :not(.head):not(:last-child) { margin-bottom: calc(var(--o-space-8) + var(--o-space-4)); }
 
 /* Markdown draws in a reply and in a Block's body alike, so each rule names both. Code takes the mono family too. A code
    block and a table scroll sideways inside themselves, so a wide one never widens the column. */
@@ -919,20 +929,27 @@ section.page.leave { animation: move-leave var(--o-move-leave); }
 .epic-page ul, .epic-page ol, .phase-output ul, .phase-output ol { margin: 0; padding: 0; list-style: none; }
 .epic-page h3 { margin: 0; font: var(--o-type-label); letter-spacing: var(--o-type-label-tracking); text-transform: uppercase; color: var(--o-ink-3); }
 .epic-page .sure { font: var(--o-type-small); color: var(--o-ink-2); }
-/* The title row: back, the crumbs, the state and blocker, and the commands pushed to its right. */
-.title-row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--o-space-8); min-width: 0; padding-bottom: var(--o-space-8); border-bottom: var(--o-size-hairline) solid var(--o-line-soft); white-space: nowrap; }
-.title-row .crumbs { min-width: 0; overflow: hidden; text-overflow: ellipsis; font: var(--o-type-small); color: var(--o-ink-3); }
-.title-row .sep { color: var(--o-ink-4); }
-.title-row .crumb.place { color: var(--o-role-place); }
-.title-row .crumb.here { font: var(--o-type-title); color: var(--o-ink-1); }
+/* The title row, after round 6's: a first line holding back, the crumbs, the state and blocker, and the commands pushed
+   to its end, then the strip on a line of its own. The first line never wraps: the page's crumb ellipsizes to keep the
+   commands in view, and the crumbs before it hold their width. */
+.title-row { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--o-space-4); min-width: 0; padding-bottom: var(--o-space-8); border-bottom: var(--o-size-hairline) solid var(--o-line-soft); white-space: nowrap; }
+.title-row .line1 { display: flex; align-items: center; gap: var(--o-space-8); min-width: 0; min-height: var(--o-size-control-desk); }
+.title-row .crumbs { display: flex; align-items: baseline; gap: var(--o-space-8); flex: 0 1 auto; min-width: 0; overflow: hidden; font: var(--o-type-small); color: var(--o-ink-3); }
+.title-row .crumb { flex: none; }
+.title-row .sep { flex: none; color: var(--o-ink-4); }
+.title-row .crumb.here { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; font: var(--o-type-title); color: var(--o-ink-1); }
+/* A conversation's title opens on its project's name and sits one step down the type scale, in bold body type. */
+.convo-head > .title-row .crumb.here { font: var(--o-type-body); font-weight: var(--o-font-weight-bold); }
 .title-row .state { flex: none; font: var(--o-type-small); font-weight: var(--o-font-weight-bold); color: var(--o-ink-2); transition: color var(--o-move-state); }
 .title-row .blocker { min-width: 0; overflow: hidden; text-overflow: ellipsis; font: var(--o-type-small); color: var(--o-role-attention); transition: color var(--o-move-state); }
 .epic-page .title-row .state, .epic-page .title-row .blocker {
-  flex: none; display: inline-flex; align-items: center; min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; padding: var(--o-space-2) var(--o-space-8);
+  flex: 0 1 auto; display: inline-flex; align-items: center; min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; padding: var(--o-space-2) var(--o-space-8);
   border-radius: var(--o-radius-round); font: var(--o-type-small); color: var(--o-ink-2); background: var(--o-surface-raised); box-shadow: inset 0 0 0 var(--o-size-hairline) var(--o-line-firm);
   transition: color var(--o-move-state), background-color var(--o-move-state), box-shadow var(--o-move-state);
 }
 .epic-page .title-row .state { font-weight: var(--o-font-weight-bold); }
+/* Short of room, the blocker gives way before the state, as round 6's second pill does. */
+.epic-page .title-row .blocker { flex: 0 100 auto; }
 /* On the epic page the state and the blocker are pills. A pill's tone sets its word, its tint and its outline. Quiet is grey on the raised ground. */
 .epic-page .title-row .t-live { color: var(--o-role-live); background: var(--o-role-live-fill); box-shadow: inset 0 0 0 var(--o-size-hairline) var(--o-role-live-line); }
 .epic-page .title-row .t-attention { color: var(--o-role-attention); background: var(--o-role-attention-fill); box-shadow: inset 0 0 0 var(--o-size-hairline) var(--o-role-attention-line); }
@@ -952,16 +969,16 @@ section.page.leave { animation: move-leave var(--o-move-leave); }
 .title-row .head-menu kbd { margin-left: auto; }
 /* A command's error under the title row: an alert in the bad role's tint. */
 .page-note { margin: 0; padding: var(--o-space-4) var(--o-space-24); border-bottom: var(--o-size-hairline) solid var(--o-line-soft); background: var(--o-role-bad-fill); color: var(--o-role-bad); font: var(--o-type-small); overflow-wrap: anywhere; }
-/* The mark is the title row's first crumb: the orrery drawing, with the count of what needs you beside it when any does. */
-.title-row .mark-crumb { flex: none; display: inline-flex; align-items: center; gap: var(--o-space-4); min-height: var(--o-space-24); padding: 0; border: 0; background: none; cursor: pointer; appearance: none; -webkit-appearance: none; }
-.title-row .mark-crumb .mark { flex: none; width: calc(var(--o-space-16) + var(--o-space-2)); height: calc(var(--o-space-16) + var(--o-space-2)); }
-.title-row .mark-crumb .needs { font: var(--o-type-small); font-weight: var(--o-font-weight-bold); color: var(--o-ink-1); }
 /* The strip is the title row's own line under its controls: the host's name, each meter, then the context. A meter is its
    name, a bar at its percent and its value, in its series colour; at warn and crit all three take the level's colour. */
 .pane-strip { display: flex; flex-wrap: wrap; align-items: center; gap: var(--o-space-4) var(--o-space-16); min-width: 0; font: var(--o-type-small); color: var(--o-ink-3); }
-.title-row .pane-strip { flex: 0 0 100%; }
 .pane-strip-host { flex: none; font-weight: var(--o-font-weight-bold); color: var(--o-ink-2); }
 .pane-strip .other { color: var(--o-ink-4); }
+/* A conversation head's machine band: the strip as a full-width row of its own under the title row, on surface.side, the
+   inbox column's ground, one step deeper than the goal's well, with an edge under it. The host is marked with its icon. */
+.machine-band { min-height: var(--o-size-control-desk); padding: var(--o-space-4) var(--o-layout-page-pad-desk); border-bottom: var(--o-size-hairline) solid var(--o-line-soft); background: var(--o-surface-side); }
+.machine-band .pane-strip-host { display: inline-flex; align-items: center; gap: var(--o-space-4); }
+.machine-band .pane-strip-host .icon { color: var(--o-ink-4); }
 .meter { --hue: var(--o-series-1); display: inline-flex; align-items: center; gap: var(--o-space-8); flex: none; font: var(--o-type-small); white-space: nowrap; }
 .meter.series-2 { --hue: var(--o-series-2); }
 .meter.series-3 { --hue: var(--o-series-3); }
@@ -1017,10 +1034,10 @@ button.subj:hover { background: var(--o-surface-raised); }
   .notices { right: var(--o-space-8); width: calc(100% - var(--o-space-16)); }
   /* The head sticks to the top of its column while the page scrolls under it, so the folded line stays in view. */
   .convo-head { position: sticky; top: 0; z-index: var(--o-z-sticky); background: var(--o-surface-page); }
-  .convo-head > .title-row .crumbs { display: grid; flex: 1 1 0; grid-template-columns: minmax(0, 1fr); }
-  .convo-head > .title-row .mark-crumb, .convo-head > .title-row .sep { display: none; }
+  .convo-head > .title-row .crumbs { display: grid; flex: 1 1 0; grid-template-columns: minmax(0, 1fr); gap: 0; }
+  .convo-head > .title-row .sep { display: none; }
   .convo-head > .title-row .crumb.place { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .convo-head > .title-row .crumb.here { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; min-width: 0; overflow: hidden; white-space: normal; font: var(--o-type-body); font-weight: var(--o-font-weight-bold); }
+  .convo-head > .title-row .crumb.here { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; min-width: 0; overflow: hidden; white-space: normal; }
   .convo-head .pane-strip { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--o-space-8) var(--o-space-12); }
   /* Each meter stacks as round 6's touch meter does: its name, its value, then its bar across the cell. */
   .convo-head .pane-strip .meter { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--o-space-2); white-space: nowrap; }
@@ -1028,16 +1045,16 @@ button.subj:hover { background: var(--o-surface-raised); }
   .convo-head .pane-strip .meter .value { order: 2; }
   .convo-head .pane-strip .meter .bar { order: 3; width: 100%; }
   /* As round 6's touch title row: the host follows the directory ("tidepool · on halyard"), the context sits bare in
-     the title row beside More, find is in More, and the strip holds only the meters (or the other host's words). */
+     the title row beside More, find is in More, and the band holds only the meters (or the other host's words). */
   .convo-head > .title-row .crumb.place[data-host]::after { content: " · on " attr(data-host); }
   .convo-head > .title-row .icon.find { display: none; }
-  .convo-head .phone-ctx { display: inline-flex; flex: none; align-items: center; }
-  .convo-head .pane-strip-host, .convo-head .pane-strip .ctx { display: none; }
+  .convo-head > .title-row .ctx .name, .convo-head > .title-row .ctx .used { display: none; }
+  .convo-head .machine-band { padding: var(--o-space-8) var(--o-layout-page-pad-phone); }
+  .convo-head .pane-strip-host { display: none; }
   .convo-head .pane-strip .other { grid-column: 1 / -1; }
   /* The worker session's title row reads as the conversation head's: the crumbs that lead to it share one line, each
-     ellipsized, and the page's crumb takes the line under them, whole. The mark and the separator after it go. */
-  .worker-session > .title-row .crumbs { display: flex; flex: 1 1 0; flex-wrap: wrap; align-items: baseline; column-gap: var(--o-space-4); }
-  .worker-session > .title-row .mark-crumb, .worker-session > .title-row .mark-crumb + .sep { display: none; }
+     ellipsized, and the page's crumb takes the line under them, whole. */
+  .worker-session > .title-row .crumbs { display: flex; flex: 1 1 0; flex-wrap: wrap; align-items: baseline; gap: 0 var(--o-space-4); }
   .worker-session > .title-row .crumb { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .worker-session > .title-row .crumb.here { flex: 0 0 100%; white-space: normal; overflow-wrap: normal; font: var(--o-type-body); font-weight: var(--o-font-weight-bold); }
 }
@@ -1054,7 +1071,8 @@ button.act.primary { background: var(--o-role-primary); color: var(--o-ink-on-ac
   background: none; color: var(--o-ink-2); font: var(--o-type-small);
   appearance: none; -webkit-appearance: none;
 }
-.crumb {
+/* A crumb's plain look weighs nothing, so a crumb's own class (a project's name) draws over it wherever it is written. */
+:where(.crumb) {
   min-height: var(--o-space-24); padding: 0; border: 0; background: none; cursor: pointer; color: var(--o-ink-2); font: inherit;
   appearance: none; -webkit-appearance: none;
 }
@@ -1270,28 +1288,92 @@ button.act:active, .back:active, .crumb:active { transform: scale(.97); backgrou
 /* A control that carries .flash shows a focus ring for a moment after a use; flash.ts adds and removes the class. */
 .flash { outline: var(--o-size-hairline) solid var(--o-role-focus); outline-offset: var(--o-space-2); }
 
-/* The left rail: the inbox at rest, the mark, a rule, a tile per project in the tree's order, then New, Search and Keys under
-   the spring. It shows while the inbox rests or flies out (data-inbox rail and flyout, at 760px and wider) and is out of
-   the grid otherwise. Its tiles are buttons, reset to the tile's own look. */
+/* The left rail: the collapsed inbox, the mark that expands it, a rule, a tile per project in the tree's order in a scroll
+   area of their own, then New, Search, Notices and Keys under the spring. It shows while the inbox is collapsed (data-inbox
+   collapsed, at 760px and wider) and is out of the grid otherwise. Its tiles are buttons, reset to the tile's own look. A
+   project's flyout lies beside it, so the rail is its containing block and clips nothing. */
 .panes > .rail.start { display: none; }
 .rail.start {
-  flex-direction: column; align-items: center; gap: var(--o-space-4); flex: none; width: var(--o-layout-rail-width); min-height: 0;
+  position: relative; flex-direction: column; align-items: center; gap: var(--o-space-4); flex: none; width: var(--o-layout-rail-width); min-height: 0;
   padding: var(--o-space-8) 0; border-right: var(--o-size-hairline) solid var(--o-line-soft); background: var(--o-surface-side);
 }
 .rail .spring { flex: 1 1 auto; }
 .rail-sep { flex: none; width: var(--o-space-24); height: var(--o-size-hairline); margin: var(--o-space-4) 0; background: var(--o-line-soft); }
+.rail-tiles {
+  display: flex; flex-direction: column; align-items: center; gap: var(--o-space-4); flex: 0 1 auto; align-self: stretch; min-height: 0;
+  overflow-x: hidden; overflow-y: auto; scrollbar-width: none;
+}
 .tile { border: 0; min-height: 0; padding: 0; }
 .tile:hover { background: var(--o-surface-raised); }
-.tile.place { color: var(--o-role-place); }
 .tile.bare { background: none; color: var(--o-ink-3); }
 .tile.bare:hover { background: var(--o-surface-well); color: var(--o-ink-1); }
 .tile.brand:hover { background: none; }
 .tile.primary { background: var(--o-role-primary); color: var(--o-ink-on-accent); }
 .tile.brand .mark { width: var(--o-space-32); height: var(--o-space-32); }
-.tile .dots { position: absolute; bottom: var(--o-space-2); left: 0; right: 0; display: flex; justify-content: center; gap: var(--o-space-2); }
-.tile .dots i { width: var(--o-space-4); height: var(--o-space-4); border-radius: var(--o-radius-round); }
-.tile .dots i.live { background: var(--o-role-live); }
-.tile .dots i.new { background: var(--o-role-new); }
+
+/* A project's tile, round 7's B2c: its waiting count above, its whole name set up the tile in the place colour, and its
+   running and new dots in a column below. A project with nothing waiting and nothing new is quiet: no ground, a hairline
+   outline, its name in ink.3 at regular weight. Its ::after reaches the rail's edge, so the pointer crossing to the
+   project's flyout never leaves the tile for the rail. */
+.vtile {
+  position: relative; display: flex; flex-direction: column; align-items: center; gap: var(--o-space-4); flex: none;
+  width: calc(var(--o-space-32) + var(--o-space-8)); min-height: 0; padding: var(--o-space-8) 0; border: 0; border-radius: var(--o-radius-2);
+  background: var(--o-surface-well); color: var(--o-role-place); font: var(--o-type-small); font-weight: var(--o-font-weight-bold);
+}
+.vtile::after { content: ""; position: absolute; top: 0; bottom: 0; left: 100%; width: var(--o-space-12); }
+.vtile:hover, .vtile.open { background: var(--o-surface-raised); }
+.vtile.cur { background: var(--o-surface-raised); box-shadow: inset 0 0 0 var(--o-size-hairline) var(--o-role-focus); }
+.vtile.quiet { background: none; box-shadow: inset 0 0 0 var(--o-size-hairline) var(--o-line-soft); color: var(--o-ink-3); font-weight: var(--o-font-weight-regular); }
+.vtile.quiet:hover, .vtile.quiet.open { background: var(--o-surface-well); }
+.vtile.quiet.cur { box-shadow: inset 0 0 0 var(--o-size-hairline) var(--o-role-focus); }
+.vtile .vn { writing-mode: vertical-rl; transform: rotate(180deg); max-height: calc(var(--o-space-48) * 2 + var(--o-space-16)); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vtile .n {
+  display: grid; place-items: center; min-width: var(--o-space-16); height: var(--o-space-16); padding: 0 var(--o-space-4); border-radius: var(--o-radius-round);
+  background: var(--o-role-attention); color: var(--o-ink-on-accent); font: var(--o-type-label);
+}
+.vtile .vdots { display: flex; flex-direction: column; gap: var(--o-space-2); }
+.vtile .vdots i { width: var(--o-space-4); height: var(--o-space-4); border-radius: var(--o-radius-round); }
+.vtile .vdots i.live { background: var(--o-role-live); }
+.vtile .vdots i.new { background: var(--o-role-new); }
+
+/* A project's flyout, beside the rail over the page: its head with the project's name, counts and path, its rows that wait
+   and then its new rows, which scroll when they are long, the line that counts the rest, and its foot. App sets its top
+   level with its tile's. Its ::before bridges the gap to the rail, so the pointer crossing it stays in the flyout. */
+.pfly {
+  position: absolute; top: 0; left: calc(var(--o-layout-rail-width) + var(--o-space-8)); z-index: var(--o-z-menu);
+  display: flex; flex-direction: column; width: calc(var(--o-space-32) * 12); max-height: 100%; padding: var(--o-space-4);
+  border-radius: var(--o-radius-3); background: var(--o-surface-overlay);
+  box-shadow: inset 0 0 0 var(--o-size-hairline) var(--o-line-firm), var(--o-elevation-overlay);
+}
+.pfly::before { content: ""; position: absolute; top: 0; bottom: 0; right: 100%; width: var(--o-space-12); }
+.pf-head { flex: none; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 0 var(--o-space-12); align-items: baseline; padding: var(--o-space-8); border-bottom: var(--o-size-hairline) solid var(--o-line-soft); }
+.pf-nm { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--o-role-place); font: var(--o-type-body); font-weight: var(--o-font-weight-bold); }
+.pf-n { display: inline-flex; gap: var(--o-space-8); font: var(--o-type-small); }
+.pf-n .is-attention { font-weight: var(--o-font-weight-bold); }
+.pf-path { grid-column: 1 / -1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--o-ink-3); font: var(--o-type-small); }
+.pf-rows { flex: 0 1 auto; display: grid; align-content: start; gap: var(--o-space-2); min-height: 0; padding: var(--o-space-4) 0; overflow-y: auto; }
+.pf-row {
+  display: grid; grid-template-columns: var(--o-size-glyph) minmax(0, 1fr) auto; column-gap: var(--o-space-8); align-items: center;
+  padding: var(--o-space-8); border-radius: var(--o-radius-2); color: var(--o-ink-2); font: var(--o-type-small); cursor: pointer;
+}
+.pf-row:hover { background: var(--o-surface-raised); }
+.pf-row.cur { background: var(--o-surface-raised); box-shadow: inset 0 0 0 var(--o-size-hairline) var(--o-role-focus); }
+.pf-row .t { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--o-ink-1); font: var(--o-type-body); }
+.pf-row[data-unseen] .t { font-weight: var(--o-font-weight-bold); }
+.pf-row .age { color: var(--o-ink-3); }
+.pf-row[data-unseen] .age { color: var(--o-role-new); }
+.pf-row .s, .pf-row .l2 { grid-column: 2 / -1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--o-ink-3); }
+.pf-row .s.asks { color: var(--o-role-attention); }
+.pf-row .l2.asks { color: var(--o-role-attention); }
+/* A flyout row's state glyph already says it asks, so its second line draws no question mark of its own. */
+.pf-row .l2 .icon { display: none; }
+.pf-row .l2 .name { color: var(--o-role-ref); }
+.pf-more { flex: none; padding: var(--o-space-4) var(--o-space-8); color: var(--o-ink-3); font: var(--o-type-small); }
+.pf-foot { flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: var(--o-space-8); padding: var(--o-space-8); border-top: var(--o-size-hairline) solid var(--o-line-soft); font: var(--o-type-small); }
+.pf-open { max-width: 100%; min-width: 0; min-height: 0; padding: 0 var(--o-space-4); overflow: hidden; text-align: start; text-overflow: ellipsis; white-space: nowrap; border: 0; border-radius: var(--o-radius-1); background: none; color: var(--o-role-ref); font: var(--o-type-small); cursor: pointer; }
+.pf-open:hover { text-decoration: underline; }
+.pf-open.cur { box-shadow: inset 0 0 0 var(--o-size-hairline) var(--o-role-focus); }
+.pf-keys { display: inline-flex; align-items: center; gap: var(--o-space-4); margin-left: auto; color: var(--o-ink-3); white-space: nowrap; }
 
 /* The right rail: what a conversation steers, in named groups of tiles, each tile a thing's state at a glance. A tile is lit
    while its panel is open, and its edge and its panel's top edge take the thing's tone; a shell left running is quiet,

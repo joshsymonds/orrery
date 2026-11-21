@@ -2,6 +2,8 @@ package io.github.joshsymonds.orrery.ui
 
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertCountEquals
@@ -15,6 +17,8 @@ import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.text.TextLayoutResult
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import io.github.joshsymonds.orrery.api.StepFacts
 import io.github.joshsymonds.orrery.mainThreadComposeRule
@@ -42,6 +46,28 @@ class ShapesBlocksTest {
         composeRule.onNodeWithTag("at").assertTextEquals("13:48")
         composeRule.onNodeWithText("Plan the rota export.").assertIsDisplayed()
         assertRailTone("block:you", "you")
+    }
+
+    @Test
+    fun youBlocksYouSharesItsRowWithTheTimeAndItsWordsRunOnFromThatRow() {
+        setBlock { YouBlock(text = "Plan the rota export.", time = "13:48") }
+
+        val you = composeRule.onNodeWithText("YOU").getBoundsInRoot()
+        val at = composeRule.onNodeWithTag("at").getBoundsInRoot()
+        val words = composeRule.onNodeWithText("Plan the rota export.").getBoundsInRoot()
+        assertTrue("the time is on YOU's row: YOU $you, time $at", at.top < you.bottom && you.top < at.bottom)
+        assertTrue("the words start on YOU's row, not under it: YOU $you, words $words", words.top < you.bottom)
+        val first = firstCharacterLeft("Plan the rota export.")
+        assertTrue("the words' first line starts after the time: time ends at ${at.right}, words start at $first", first >= at.right)
+    }
+
+    @Test
+    fun aYouBlockThatOpensOnAListKeepsItsHeadOnALineOfItsOwn() {
+        setBlock { YouBlock(text = "- Plan the rota export.", time = "13:48") }
+
+        val you = composeRule.onNodeWithText("YOU").getBoundsInRoot()
+        val item = composeRule.onNodeWithText("Plan the rota export.").getBoundsInRoot()
+        assertTrue("the list starts under the head: YOU $you, item $item", item.top >= you.bottom)
     }
 
     @Test
@@ -244,6 +270,16 @@ class ShapesBlocksTest {
         composeRule.onNodeWithTag(blockTag).assert(
             hasAnyDescendant(hasTestTag("rail") and SemanticsMatcher.expectValue(ShapeToneKey, tone)),
         )
+    }
+
+    // Where the first character of the text node reads, in the root's dp: the node's left plus the character's left in
+    // its laid-out text.
+    private fun firstCharacterLeft(text: String): Dp {
+        val node = composeRule.onNodeWithText(text).fetchSemanticsNode()
+        val layouts = mutableListOf<TextLayoutResult>()
+        checkNotNull(node.config.getOrNull(SemanticsActions.GetTextLayoutResult)?.action).invoke(layouts)
+        val density = composeRule.density
+        return composeRule.onNodeWithText(text).getBoundsInRoot().left + with(density) { layouts.single().getBoundingBox(0).left.toDp() }
     }
 
     private fun setBlock(content: @Composable () -> Unit) {

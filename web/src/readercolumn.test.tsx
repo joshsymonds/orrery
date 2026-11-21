@@ -20,7 +20,6 @@ import {
 import { type ColumnHead, ReaderColumn, type ReaderColumnProps } from "./readercolumn";
 import type { Row } from "./rows";
 import { assertNone, installTestDom, removeTestDom } from "./testdom";
-import type { InboxMark } from "./titlerow";
 
 // neverFetch is the transport the columns run over. A column makes no call while it draws, so no request is sent.
 function neverFetch(): Promise<Response> {
@@ -29,7 +28,7 @@ function neverFetch(): Promise<Response> {
 
 const clients: Clients = createClients(createTransport({ baseUrl: "https://orrery.test", fetch: neverFetch }));
 
-// The epic calls and the title row's inbox mark are fakes that do nothing: a column draws without calling them.
+// The epic calls are fakes that do nothing: a column draws without calling them.
 const epicCalls: EpicCalls = {
   get: () => new Promise(() => {}),
   answer: () => new Promise(() => {}),
@@ -40,7 +39,6 @@ const epicCalls: EpicCalls = {
   epics: noEpics,
 };
 
-const quietMark: InboxMark = { needs: 0, enter: () => {}, leave: () => {}, pin: () => {} };
 // bareHead is a column's head with no strip, asks, badges or note, and a More menu that does nothing.
 const bareHead: ColumnHead = {
   host: null,
@@ -123,7 +121,6 @@ function columnProps(init: Pick<ReaderColumnProps, "column"> & Partial<ReaderCol
     conversation: null,
     rows: [],
     interrupts: new Set(),
-    mark: quietMark,
     pageStrip: () => undefined,
     head: () => bareHead,
     narrow: false,

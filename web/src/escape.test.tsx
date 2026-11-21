@@ -455,7 +455,7 @@ test("EscapeInterrupt: a failed withdraw shows an error line, and the interrupt 
     assert.equal(container.textContent?.includes("queue unreachable"), false, "the server's text is not shown");
   }));
 
-// clickRow clicks the list's row for key, as a pointer does: the row opens, and a docked inbox rests on the rail.
+// clickRow clicks the list's row for key, as a pointer does: the row opens into its reply box, and the inbox stays as it is.
 async function clickRow(container: HTMLElement, key: string): Promise<void> {
   const element = container.querySelector(`[data-key="${key}"]`);
   assert.ok(element, `the list draws the row ${key}`);
@@ -464,16 +464,25 @@ async function clickRow(container: HTMLElement, key: string): Promise<void> {
   });
 }
 
-// hoverMark moves the pointer onto the mark, which pops the rail's inbox out over the page.
-async function hoverMark(container: HTMLElement): Promise<void> {
-  const mark = container.querySelector(".mark-crumb");
-  assert.ok(mark, "the page draws the mark");
+// collapseInbox collapses the inbox to its rail with the inbox foot's control. A click on it leaves the focus where it is.
+async function collapseInbox(container: HTMLElement): Promise<void> {
+  const control = container.querySelector('.inbox-foot button[aria-label="Collapse the inbox"]');
+  assert.ok(control, "the inbox foot draws its collapse control");
   await act(() => {
-    mark.dispatchEvent(new Event("mouseenter", { bubbles: true }));
+    control.dispatchEvent(new Event("click", { bubbles: true }));
   });
 }
 
-// paneState is the inbox state the app draws on the panes: docked, pinned, rail or flyout.
+// hoverTile moves the pointer onto the collapsed rail's first project tile, which opens that project's flyout.
+async function hoverTile(container: HTMLElement): Promise<void> {
+  const tile = container.querySelector("nav.rail.start .vtile");
+  assert.ok(tile, "the rail draws a project tile");
+  await act(() => {
+    tile.dispatchEvent(new Event("pointerover", { bubbles: true }));
+  });
+}
+
+// paneState is the inbox state the app draws on the panes: expanded or collapsed.
 function paneState(container: HTMLElement): string | null {
   return container.querySelector(".panes")?.getAttribute("data-inbox") ?? null;
 }
@@ -490,11 +499,12 @@ async function leaveComposer(container: HTMLElement): Promise<void> {
   });
 }
 
-test("EscapeInterrupt InboxPin: Escape on a working session with the inbox resting on the rail after a click takes back its queued messages and interrupts", (t) =>
+test("EscapeInterrupt InboxPin: Escape on a working session opened by a click, with the inbox collapsed, takes back its queued messages and interrupts", (t) =>
   withApp(t.signal, { rows: [sessionRow] }, async (container, fake) => {
     fake.replies.set(interruptPath, [{ texts: ["first", "second"] }]);
     await clickRow(container, "s1");
-    assert.equal(paneState(container), "rail", "the click opened the row and hid the inbox");
+    await collapseInbox(container);
+    assert.equal(paneState(container), "collapsed", "the inbox is collapsed beside the opened row");
     await emitQueued(t.signal, container, fake, [
       { promptId: "p1", text: "first" },
       { promptId: "p2", text: "second" },
@@ -505,12 +515,13 @@ test("EscapeInterrupt InboxPin: Escape on a working session with the inbox resti
     assert.equal(fake.callsTo(withdrawPath).length, 0, "no withdraw is called");
   }));
 
-test("EscapeInterrupt InboxPin: Escape after a hover on the mark popped the inbox out takes back the queued messages and interrupts, and leaves the inbox out", (t) =>
+test("EscapeInterrupt InboxPin: Escape in the reply box with a hovered flyout open takes back the queued messages and interrupts, and leaves the flyout open", (t) =>
   withApp(t.signal, { rows: [sessionRow] }, async (container, fake) => {
     fake.replies.set(interruptPath, [{ texts: ["first", "second"] }]);
     await clickRow(container, "s1");
-    await hoverMark(container);
-    assert.equal(paneState(container), "flyout", "the hover popped the inbox out");
+    await collapseInbox(container);
+    await hoverTile(container);
+    assert.ok(container.querySelector(".pfly") !== null, "the hover opened the project's flyout");
     await emitQueued(t.signal, container, fake, [
       { promptId: "p1", text: "first" },
       { promptId: "p2", text: "second" },
@@ -519,7 +530,7 @@ test("EscapeInterrupt InboxPin: Escape after a hover on the mark popped the inbo
     await until(t.signal, () => fake.callsTo(interruptPath).length === 1, "the interrupt");
     await until(t.signal, () => composer(container).value === "first\n\nsecond", "the returned messages");
     assert.equal(fake.callsTo(withdrawPath).length, 0, "no withdraw is called");
-    assert.equal(paneState(container), "flyout", "Escape does not tuck a hover pop-out");
+    assert.ok(container.querySelector(".pfly") !== null, "Escape in the reply box does not close the flyout");
   }));
 
 // resizeWindow sets the viewport of the window the test's DOM is in, the one installTestDom made, to width pixels wide.
@@ -539,14 +550,14 @@ async function narrowWindow(width: number): Promise<void> {
   await resizeWindow(width);
 }
 
-test("EscapeInterrupt InboxPin: at 700px, a list key after a row is opened leaves the inbox docked, and Escape on the working session still takes back its queued messages and interrupts", (t) =>
+test("EscapeInterrupt InboxPin: at 700px, a list key after a row is opened leaves the inbox expanded, and Escape on the working session still takes back its queued messages and interrupts", (t) =>
   withApp(t.signal, { rows: [sessionRow] }, async (container, fake) => {
     fake.replies.set(interruptPath, [{ texts: ["first", "second"] }]);
     await narrowWindow(700);
     await clickRow(container, "s1");
     await leaveComposer(container);
     await press("j");
-    assert.equal(paneState(container), "docked", "the list key pops no inbox out");
+    assert.equal(paneState(container), "expanded", "the list key leaves the stacked inbox as it is");
     await emitQueued(t.signal, container, fake, [
       { promptId: "p1", text: "first" },
       { promptId: "p2", text: "second" },

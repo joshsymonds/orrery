@@ -1,9 +1,9 @@
 package grants
 
 import (
-	"encoding/binary"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"log/slog"
 	"math"
@@ -15,6 +15,7 @@ import (
 	"golang.org/x/sys/unix"
 
 	"github.com/joshsymonds/orrery/internal/holder"
+	"github.com/joshsymonds/orrery/internal/inotify"
 )
 
 // exitWatchRetry is how long a default exit watch waits before its next attempt, after an attempt failed while the
@@ -25,10 +26,6 @@ const exitWatchRetry = 5 * time.Second
 // holderEvents are the inotify events a holder watch waits for: a close of the holder's lock file. The holder's close
 // lets go of its lock, and any other open file's close may leave the lock free as well.
 const holderEvents = unix.IN_CLOSE_WRITE | unix.IN_CLOSE_NOWRITE
-
-// inotifyBufSize is the size of the buffer a holder watch reads its events into. It holds several events, each with a
-// name of at most NAME_MAX bytes.
-const inotifyBufSize = 4096
 
 // clientExitWatch is the default Config.WatchClient, and logs the failures of its watch to logger. It watches the
 // process with pid that started at start through a pidfd, so exited closes once that process is gone: a pid with no
@@ -63,7 +60,7 @@ type defaultWatch struct {
 	armed    chan struct{} // nil for a client watch
 	armOnce  sync.Once
 	mu       sync.Mutex
-	file     *os.File // the file the running attempt waits on, or nil
+	file     io.Closer // the file the running attempt waits on, or nil
 }
 
 // startExitWatch starts an exit watch whose goroutine runs attempt until it reports the watched thing gone. armed is
@@ -147,7 +144,7 @@ func (w *defaultWatch) arm() {
 
 // hold records file as the one the attempt waits on, so stop can close it. It reports false once the watch is stopped,
 // and then the attempt gives up file.
-func (w *defaultWatch) hold(file *os.File) bool {
+func (w *defaultWatch) hold(file io.Closer) bool {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	if w.isStopped() {
@@ -158,7 +155,7 @@ func (w *defaultWatch) hold(file *os.File) bool {
 }
 
 // release gives up file, which the attempt is done with, and closes it.
-func (w *defaultWatch) release(file *os.File) {
+func (w *defaultWatch) release(file io.Closer) {
 	w.mu.Lock()
 	if w.file == file {
 		w.file = nil
@@ -249,19 +246,19 @@ func (w *defaultWatch) waitHolder(dir string) (bool, error) {
 		return false, fmt.Errorf("open holder lock: %w", err)
 	}
 	defer w.release(lock)
-	inotify, err := newInotify()
+	watch, err := inotify.New()
 	if err != nil {
-		return false, err
+		return false, fmt.Errorf("create holder watch: %w", err)
 	}
-	// The attempt waits on the inotify fd, so stop closes it, and that ends the wait.
-	if !w.hold(inotify) {
-		w.release(inotify)
+	// The attempt waits on the inotify instance, so stop closes it, and that ends the wait.
+	if !w.hold(watch) {
+		w.release(watch)
 		return false, nil
 	}
-	defer w.release(inotify)
-	err = addCloseWatch(inotify, lock)
-	if err != nil {
-		return false, err
+	defer w.release(watch)
+	// The watch names the inode of the lock file that was opened, whatever the holder directory's path names now.
+	if _, err = watch.AddFile(lock, holderEvents); err != nil {
+		return false, fmt.Errorf("watch holder lock: %w", err)
 	}
 	free, err := lockFree(lock)
 	if err != nil {
@@ -271,38 +268,7 @@ func (w *defaultWatch) waitHolder(dir string) (bool, error) {
 		return true, nil
 	}
 	w.arm()
-	return awaitFree(inotify, lock)
-}
-
-// newInotify creates the inotify fd a holder watch waits on. It is non-blocking, so the runtime poller serves its
-// reads, and a read ends when stop closes the file.
-func newInotify() (*os.File, error) {
-	fd, err := unix.InotifyInit1(unix.IN_NONBLOCK | unix.IN_CLOEXEC)
-	if err != nil {
-		return nil, fmt.Errorf("create holder watch: %w", err)
-	}
-	return os.NewFile(uintptr(fd), "holder watch"), nil
-}
-
-// addCloseWatch adds to inotify a watch for the close events of the inode of lock. The watch names the inode by
-// /proc/self/fd/<the lock file's fd>, which resolves to the file that was opened.
-func addCloseWatch(inotify, lock *os.File) error {
-	var path string
-	if err := controlFD(lock, func(fd uintptr) {
-		path = fmt.Sprintf("/proc/self/fd/%d", fd)
-	}); err != nil {
-		return fmt.Errorf("watch holder lock: %w", err)
-	}
-	var watchErr error
-	if err := controlFD(inotify, func(fd uintptr) {
-		_, watchErr = unix.InotifyAddWatch(int(fd), path, holderEvents)
-	}); err != nil {
-		return fmt.Errorf("watch holder lock: %w", err)
-	}
-	if watchErr != nil {
-		return fmt.Errorf("watch holder lock: %w", watchErr)
-	}
-	return nil
+	return awaitFree(watch, lock)
 }
 
 // controlFD runs fn on the descriptor of file while the file stays open. fn must not keep the descriptor.
@@ -351,18 +317,19 @@ func probeFlock(fd uintptr) (bool, error) {
 	}
 }
 
-// awaitFree waits for events on inotify, which watches the inode of lock, and probes the lock after each read of
-// events. It reports true once the lock is free. It fails when a read fails, which stop causes, or when the kernel has
-// dropped the watch.
-func awaitFree(inotify, lock *os.File) (bool, error) {
-	buf := make([]byte, inotifyBufSize)
+// awaitFree waits for events on watch, which watches the inode of lock, and probes the lock after each read of events.
+// It reports true once the lock is free. It fails when a read fails, which stop causes, or when the kernel has dropped
+// the watch, which it reports with IN_IGNORED.
+func awaitFree(watch *inotify.Inotify, lock *os.File) (bool, error) {
 	for {
-		n, err := inotify.Read(buf)
+		events, err := watch.Read()
 		if err != nil {
 			return false, fmt.Errorf("read holder watch: %w", err)
 		}
-		if droppedWatch(buf[:n]) {
-			return false, errors.New("the kernel dropped the holder watch")
+		for _, event := range events {
+			if event.Mask&unix.IN_IGNORED != 0 {
+				return false, errors.New("the kernel dropped the holder watch")
+			}
 		}
 		free, err := lockFree(lock)
 		if err != nil {
@@ -372,20 +339,4 @@ func awaitFree(inotify, lock *os.File) (bool, error) {
 			return true, nil
 		}
 	}
-}
-
-// droppedWatch reports whether the inotify events in buf include IN_IGNORED, which the kernel sends once it has dropped
-// a watch. The mask and name length fields of an inotify_event are at offsets 4 and 12.
-func droppedWatch(buf []byte) bool {
-	for len(buf) >= unix.SizeofInotifyEvent {
-		if binary.NativeEndian.Uint32(buf[4:8])&unix.IN_IGNORED != 0 {
-			return true
-		}
-		size := unix.SizeofInotifyEvent + int(binary.NativeEndian.Uint32(buf[12:16]))
-		if size > len(buf) {
-			return false
-		}
-		buf = buf[size:]
-	}
-	return false
 }

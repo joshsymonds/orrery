@@ -3967,7 +3967,7 @@ test("EpicRecord: under 760px the loading epic's title row draws no host strip, 
         assert.equal(epicReadText(container), "loading the epic…");
         const row = container.querySelector('section.page[aria-label="epic"] header.title-row');
         assert.ok(row, "the loading page draws its title row");
-        assert.equal(row.lastElementChild?.className, "acts", "nothing follows the commands: no strip");
+        assert.deepEqual([...row.children].map((child) => child.className), ["line1"], "nothing follows the commands' line: no strip");
       } finally {
         fake.replies.set(getEpicPath, [epicReply(widgetsFirst, "first")]);
         answer();

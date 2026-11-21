@@ -9,8 +9,8 @@ import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.hasTestTag
+import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.onAllNodesWithTag
-import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -179,12 +179,12 @@ class EndedBarTest {
     }
 
     /**
-     * Waits until the screen's head shows the host it read. The head reads its epics and then its host in one step,
-     * so once the host shows, the epics the bar decides on are read too.
+     * Waits until the screen's machine band names the host it read. The head reads its epics and then its host in one
+     * step, so once the host shows, the epics the bar decides on are read too.
      */
     private fun awaitHeadRead() {
         composeRule.awaitUntil("the head reads its epics and host") {
-            composeRule.onAllNodesWithText("· on $HOST", substring = true).fetchSemanticsNodes().isNotEmpty()
+            composeRule.onAllNodes(hasTestTag("machine-host") and hasText(HOST)).fetchSemanticsNodes().isNotEmpty()
         }
     }
 

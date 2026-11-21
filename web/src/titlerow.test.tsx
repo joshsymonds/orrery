@@ -96,16 +96,31 @@ test("a crumb with no handler is a plain label, and a crumb with one is a button
   });
 });
 
-test("the crumbs read as one line, each after a › separator", async () => {
+test("the crumbs read as one line, a › between each", async () => {
   const crumbs: Crumb[] = [
     { label: "orrery", onGo: () => {} },
     { label: "rota-export", onGo: () => {} },
     { label: "contract" },
   ];
   await withRow(<TitleRow crumbs={crumbs} onBack={() => {}} />, (container) => {
-    assert.equal(textOf(container, ".crumbs")?.trim(), "› orrery › rota-export › contract");
-    assert.equal(countOf(container, ".crumbs .sep"), 3);
+    assert.equal(textOf(container, ".crumbs")?.replace(/\s+/g, " ").trim(), "orrery › rota-export › contract");
+    assert.equal(countOf(container, ".crumbs .sep"), 2);
     assert.equal(textOf(container, ".crumbs .sep"), "›");
+  });
+});
+
+test("the row draws no Orrery mark and no count: the crumbs open on the first crumb, as round 6's title row does", async () => {
+  const crumbs: Crumb[] = [{ label: "tidepool", place: true }, { label: "Tide table cache warm-up" }];
+  await withRow(<TitleRow crumbs={crumbs} onBack={() => {}} />, (container) => {
+    assert.equal(countOf(container, ".mark-crumb, .mark, .needs, svg"), 0);
+    assert.equal(container.querySelector(".crumbs")?.firstElementChild?.textContent ?? null, "tidepool");
+  });
+});
+
+test("the page crumb carries its whole text as its title, so a title cut short reads whole on hover", async () => {
+  const title = "Merging main into a story-out client branch, resolving four conflicts in the dock";
+  await withRow(<TitleRow crumbs={[{ label: "commonframe", place: true }, { label: title }]} onBack={() => {}} />, (container) => {
+    assert.equal(container.querySelector(".crumbs .here")?.getAttribute("title") ?? null, title);
   });
 });
 
@@ -152,10 +167,10 @@ test("children show inside .acts", async () => {
   );
 });
 
-test("the row holds its parts in order, under a header", async () => {
+test("the row holds its parts in order on its first line, under a header, and the strip on a line of its own", async () => {
   const crumbs: Crumb[] = [{ label: "orrery", onGo: () => {} }, { label: "contract" }];
   await withRow(
-    <TitleRow crumbs={crumbs} onBack={() => {}} state="running" blocker="waiting">
+    <TitleRow crumbs={crumbs} onBack={() => {}} state="running" blocker="waiting" strip={<div class="pane-strip" />}>
       <button type="button">Pause</button>
     </TitleRow>,
     (container) => {
@@ -163,6 +178,10 @@ test("the row holds its parts in order, under a header", async () => {
       assert.equal(header?.tagName ?? null, "HEADER");
       assert.deepEqual(
         [...(header?.children ?? [])].map((child) => child.className),
+        ["line1", "pane-strip"],
+      );
+      assert.deepEqual(
+        [...(header?.querySelector(".line1")?.children ?? [])].map((child) => child.className),
         ["back", "crumbs", "state", "blocker", "acts"],
       );
     },
@@ -183,10 +202,12 @@ test("markup in a label, state, or blocker shows as text, not as elements", asyn
   );
 });
 
-test("HeadTitle: a place crumb draws with class crumb place, and the page crumb does not", async () => {
+test("HeadTitle: a place crumb draws with class crumb place and the inbox's project-name class, and the page crumb does not", async () => {
   const crumbs: Crumb[] = [{ label: "tidepool", place: true }, { label: "Tide table cache warm-up" }];
   await withRow(<TitleRow crumbs={crumbs} onBack={() => {}} />, (container) => {
     assert.equal(countOf(container, ".crumbs .crumb.place"), 1);
+    assert.equal(countOf(container, ".crumbs .crumb.place.project-name"), 1);
+    assert.equal(container.querySelector(".crumbs .here")?.classList.contains("project-name") ?? null, false);
     assert.equal(textOf(container, ".crumbs .crumb.place"), "tidepool");
     assert.equal(container.querySelector(".crumbs .here")?.classList.contains("place") ?? null, false);
   });

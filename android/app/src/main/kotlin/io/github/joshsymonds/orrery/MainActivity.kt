@@ -35,7 +35,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color as ComposeColor
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.SemanticsPropertyKey
+import androidx.compose.ui.semantics.semantics
 import io.github.joshsymonds.orrery.api.OrreryClient
 import io.github.joshsymonds.orrery.api.Pane
 import io.github.joshsymonds.orrery.push.PushNotifier
@@ -70,6 +73,10 @@ import java.io.IOException
 
 internal const val ROOT_CONTENT_TAG = "root-content"
 internal const val TOP_BAND_TAG = "top-band"
+internal const val ROOT_SURFACE_TAG = "root-surface"
+
+/** Semantics key: the colour the app's root surface is filled with, on that surface's node. */
+val RootColourKey = SemanticsPropertyKey<ComposeColor>("RootColour")
 
 class MainActivity : ComponentActivity() {
     private var screen by mutableStateOf<Screen>(Screen.Panes)
@@ -97,9 +104,13 @@ class MainActivity : ComponentActivity() {
         val settings = ServerSettings(this)
         setContent {
             OrreryTheme {
+                val ground = MaterialTheme.colorScheme.background
                 Surface(
-                    modifier = Modifier.fillMaxSize(),
-                    color = MaterialTheme.colorScheme.background,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .testTag(ROOT_SURFACE_TAG)
+                        .semantics { set(RootColourKey, ground) },
+                    color = ground,
                 ) {
                     var client by remember { mutableStateOf(OrreryClient(settings.serverUrl)) }
                     // With no server saved or built in, Welcome is the only page; the screen asked for (a

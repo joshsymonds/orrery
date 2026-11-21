@@ -385,6 +385,17 @@ test("Band: an epic this conversation created but another steers is never in its
   });
 });
 
+test("HeadTitle: the title row draws no Orrery icon or count, and opens on the project's name in the inbox's project-name class", (t) =>
+  withHead(t.signal, { rows: [row({ key: "api", label: "api", state: "waiting" })] }, ({ container }) => {
+    const title = 'section[aria-label="reader"] .convo-head > header.title-row';
+    assert.equal(container.querySelector(`${title} .mark, ${title} .mark-crumb, ${title} .needs, ${title} svg.mark`), null, "no icon and no count");
+    const first = container.querySelector(`${title} .crumbs`)?.firstElementChild;
+    assert.equal(first?.textContent, "app", "the row opens on the project's name");
+    assert.equal(first?.classList.contains("project-name"), true, "the project's name carries the inbox's project-name class");
+    const inboxName = container.querySelector(".dir-head .proj > .project-name");
+    assert.equal(inboxName?.textContent, "app", "the inbox draws the same project's name in that class");
+  }));
+
 test("HeadTitle: the title row has no pill or state, and its crumbs are the directory in the place colour and the label", (t) =>
   withHead(t.signal, { rows: [row({ key: "api", label: "api", state: "waiting" })] }, ({ container }) => {
     const title = 'section[aria-label="reader"] .convo-head > header.title-row';

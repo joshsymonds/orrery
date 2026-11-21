@@ -21,6 +21,7 @@ import (
 	enginev1connect "github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1/enginev1connect"
 	orreryv1 "github.com/joshsymonds/orrery/internal/gen/orrery/v1"
 	"github.com/joshsymonds/orrery/internal/gen/orrery/v1/orreryv1connect"
+	"github.com/joshsymonds/orrery/internal/inotify"
 	"github.com/joshsymonds/orrery/internal/protocol"
 	"github.com/joshsymonds/orrery/internal/store"
 	"github.com/joshsymonds/orrery/internal/tmuxctl"
@@ -160,7 +161,7 @@ func (e paneFeedEvents) Events(context.Context, int64, int) (store.EventPage, er
 
 // paneFeedRig is the setup the feed tests share: the tmux server their panes run on, the fake Changes service their
 // hub subscribes to, the retry timers of that hub and the keepalive timers of the pane streams, the step and read
-// reports of the panes, and the URLs of a Panes server and an Events server that share the hub.
+// reports of the panes, the Panes server and its client, and the URL of an Events server that shares the hub.
 type paneFeedRig struct {
 	tmux       *tmuxctl.Client
 	changes    *eventsFeedChanges
@@ -169,13 +170,20 @@ type paneFeedRig struct {
 	steps      chan string // the pane of each step, sent before the step reads the pane
 	reports    chan string // the pane of each read report
 	eventReads chan struct{}
+	panesSrv   *httptest.Server
 	panes      orreryv1connect.PanesClient
 	eventsURL  string
 }
 
 // paneFeedSetup returns a rig whose Panes and Events servers share one hub, which subscribes to a fake Changes service.
-// The servers close at cleanup.
+// Its pane streams open their inotify instances through inotify.New. The servers close at cleanup.
 func paneFeedSetup(t *testing.T) *paneFeedRig {
+	t.Helper()
+	return paneFeedSetupWith(t, inotify.New)
+}
+
+// paneFeedSetupWith is paneFeedSetup for pane streams that open their inotify instances through open.
+func paneFeedSetupWith(t *testing.T, open func() (*inotify.Inotify, error)) *paneFeedRig {
 	t.Helper()
 	rig := &paneFeedRig{
 		tmux:       paneFeedTmux(t),
@@ -202,11 +210,12 @@ func paneFeedSetup(t *testing.T) *paneFeedRig {
 		newTimer:              rig.keeps.newTimer,
 		conversationKeepalive: paneFeedKeepalive,
 		sendTimeout:           defaultEventSendTimeout,
+		openInotify:           open,
 		stepped:               func(pane string) { rig.steps <- pane },
 	})
-	panesSrv := httptest.NewServer(withResponseWriter(panesHandler))
-	t.Cleanup(panesSrv.Close)
-	rig.panes = orreryv1connect.NewPanesClient(http.DefaultClient, panesSrv.URL)
+	rig.panesSrv = httptest.NewServer(withResponseWriter(panesHandler))
+	t.Cleanup(rig.panesSrv.Close)
+	rig.panes = orreryv1connect.NewPanesClient(http.DefaultClient, rig.panesSrv.URL)
 
 	_, eventsHandler := orreryv1connect.NewEventsHandler(eventsServer{
 		reader: paneFeedEvents{reads: rig.eventReads}, changes: hub, sendTimeout: defaultEventSendTimeout,
@@ -371,12 +380,12 @@ func TestPaneWatchStreamFeedIdleReadsNothing(t *testing.T) {
 }
 
 // TestPaneWatchStreamFeedWakesOnlyItsSession proves that a feed message naming a pane's @orrery_id wakes that pane's
-// stream and no other: the pane is read once and sends one delta, and the other pane is neither read nor sent to.
+// stream and no other: when a hook has changed the pane, the pane is read once and its stream sends the changed state
+// with no items, and the other pane is neither read nor sent to.
 func TestPaneWatchStreamFeedWakesOnlyItsSession(t *testing.T) {
 	t.Parallel()
 	rig := paneFeedSetup(t)
-	pathP := paneFeedTranscript(t)
-	p := paneFeedPane(t, rig.tmux, "feed-p", pathP, paneFeedOrreryP)
+	p := paneFeedPane(t, rig.tmux, "feed-p", paneFeedTranscript(t), paneFeedOrreryP)
 	q := paneFeedPane(t, rig.tmux, "feed-q", paneFeedTranscript(t), paneFeedOrreryQ)
 	sp := paneFeedOpen(t, rig, p)
 	sq := paneFeedOpen(t, rig, q)
@@ -387,17 +396,45 @@ func TestPaneWatchStreamFeedWakesOnlyItsSession(t *testing.T) {
 	paneFeedNext(t, sq)
 
 	call := <-rig.changes.calls
-	paneFeedAppend(t, pathP, paneFeedReply(2))
+	if err := rig.tmux.SetPaneOption(t.Context(), p, protocol.OptionState, string(protocol.StateDone)); err != nil {
+		t.Fatalf("SetPaneOption(%s, %s): %v", p, protocol.OptionState, err)
+	}
 	call.msgs <- &enginev1.ChangesWatchResponse{Seq: 1, Sessions: []string{paneFeedOrreryP}}
-	paneFeedWantItems(t, paneFeedNext(t, sp), "synthetic reply 2")
+	msg := paneFeedNext(t, sp)
+	if got := msg.GetState().GetPane().GetState(); got != string(protocol.StateDone) || len(msg.GetItems()) != 0 {
+		t.Fatalf("pane delta state=%q items=%d, want state %q and no items", got, len(msg.GetItems()),
+			protocol.StateDone)
+	}
 	paneFeedWantPanes(t, paneFeedDrain(rig.steps), p)
 	paneFeedAssertQuiet(t, sp)
 	paneFeedAssertQuiet(t, sq)
 }
 
+// TestPaneWatchStreamFeedUnchangedPaneSendsNothing proves that a feed message naming a pane that no hook has changed
+// reads the pane and sends nothing: content comes from the transcript watch, not the feed. The keepalive is the
+// barrier: the stream handles one wake at a time, so a delta the feed step sent would come before it.
+func TestPaneWatchStreamFeedUnchangedPaneSendsNothing(t *testing.T) {
+	t.Parallel()
+	rig := paneFeedSetup(t)
+	p := paneFeedPane(t, rig.tmux, "feed-p", paneFeedTranscript(t), paneFeedOrreryP)
+	st := paneFeedOpen(t, rig, p)
+	paneFeedWantPanes(t, paneFeedAwaitSteps(rig, 1), p)
+	paneFeedNext(t, st)
+	keepalive := <-rig.keeps.armed
+
+	call := <-rig.changes.calls
+	call.msgs <- &enginev1.ChangesWatchResponse{Seq: 1, Sessions: []string{paneFeedOrreryP}}
+	paneFeedWantPanes(t, paneFeedAwaitSteps(rig, 1), p)
+	keepalive.fire <- time.Time{}
+	if msg := paneFeedNext(t, st); !paneFeedIsKeepalive(msg) {
+		t.Fatalf("feed wake of an unchanged pane sent reset=%v items=%d state=%v, want nothing before the keepalive",
+			msg.GetReset_(), len(msg.GetItems()), msg.GetState())
+	}
+}
+
 // TestPaneWatchStreamFeedReopenReadsOnce proves that when the feed's call ends, the retry timer reopens it, and the
-// reopened call's opened message makes each stream read once from its position. A line appended while the feed is down
-// reaches its pane's stream exactly once.
+// reopened call's opened message makes each stream read its pane once. A line appended while the feed is down reaches
+// its pane's stream through the transcript watch, exactly once.
 func TestPaneWatchStreamFeedReopenReadsOnce(t *testing.T) {
 	t.Parallel()
 	rig := paneFeedSetup(t)
@@ -416,20 +453,19 @@ func TestPaneWatchStreamFeedReopenReadsOnce(t *testing.T) {
 	if retry.after != feedRetry {
 		t.Fatalf("retry timer armed for %v, want %v", retry.after, feedRetry)
 	}
-	// The feed is down, so this line wakes no stream.
+	// The feed is down, and the line still reaches the stream.
 	paneFeedAppend(t, pathP, paneFeedReply(2))
+	paneFeedWantItems(t, paneFeedNext(t, sp), "synthetic reply 2")
+	paneFeedWantPanes(t, paneFeedDrain(rig.steps), p)
 	retry.fire <- time.Time{}
 
 	reopened := <-rig.changes.calls
 	reopened.msgs <- &enginev1.ChangesWatchResponse{Opened: true}
 	paneFeedWantPanes(t, paneFeedAwaitSteps(rig, 2), p, q)
-	paneFeedWantItems(t, paneFeedNext(t, sp), "synthetic reply 2")
-	paneFeedWantPanes(t, paneFeedDrain(rig.steps))
 	paneFeedAssertQuiet(t, sq)
 
-	// Line 2 was delivered once, so the next change brings line 3 and no repeat of line 2.
+	// Line 2 was delivered once, so the next line brings line 3 and no repeat of line 2.
 	paneFeedAppend(t, pathP, paneFeedReply(3))
-	reopened.msgs <- &enginev1.ChangesWatchResponse{Seq: 2, Sessions: []string{paneFeedOrreryP}}
 	paneFeedWantItems(t, paneFeedNext(t, sp), "synthetic reply 3")
 }
 

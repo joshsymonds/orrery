@@ -34,11 +34,14 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.SubcomposeLayout
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.SemanticsPropertyKey
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.unit.TextUnit
 import io.github.joshsymonds.orrery.api.StepCheckRow
 import io.github.joshsymonds.orrery.api.StepFacts
 import io.github.joshsymonds.orrery.ui.theme.OrreryTokens
@@ -71,8 +74,8 @@ data class StepFact(val text: String, val kind: FactKind)
 /** The tone a Block draws in: its rail's and its label's. */
 private enum class BlockTone { You, Engine, Ok, Bad, Attention, Quiet }
 
-/** The icon a Block's label line leads with. */
-private enum class BlockIcon { Person, Phone, Gear, Clock, Check, Cross, Stop, Question, Pause, Open, Gauge }
+/** The icon a Block's label line leads with, and the host icon the machine band's label leads with. */
+internal enum class BlockIcon { Person, Phone, Gear, Clock, Check, Cross, Stop, Question, Pause, Open, Gauge, Host }
 
 /** The kinds of epic event an EpicEventBlock draws: a question, a park, a release, an end, and the epic a create made. */
 enum class EpicEventKind { Question, Park, Release, End, Created }
@@ -126,10 +129,13 @@ private fun durationOf(seconds: Long): String = when {
 
 /**
  * A user's message; while it is being sent it is drawn as SENDING, dashed, with no time. A message sent from the phone
- * app, when [phone] is set, is drawn with the phone's icon and the words from your phone.
+ * app, when [phone] is set, is drawn with the phone's icon and the words from your phone. Its head, YOU beside the time,
+ * leads the first line of its words when they open on a paragraph, so the message takes no line of its own for its
+ * head; words that open on anything else start under the head.
  */
 @Composable
 fun YouBlock(text: String, time: String? = null, sending: Boolean = false, marks: EntryMarks? = null, phone: Boolean = false) {
+    val leads = remember(text) { parseMarkdown(text).firstOrNull().let { it is MdBlock.Paragraph && it.lead == 0 } }
     Block(
         kind = "you",
         tone = BlockTone.You,
@@ -139,6 +145,7 @@ fun YouBlock(text: String, time: String? = null, sending: Boolean = false, marks
         pending = sending,
         time = if (sending) null else time,
         body = { Prose(text, OrreryTokens.Ink.one, marks) },
+        leadBody = if (leads) { indent -> Prose(text, OrreryTokens.Ink.one, marks, firstIndent = indent) } else null,
     )
 }
 
@@ -305,6 +312,7 @@ private fun Block(
     time: String? = null,
     end: (@Composable () -> Unit)? = null,
     onTap: (() -> Unit)? = null,
+    leadBody: (@Composable (TextUnit) -> Unit)? = null,
     body: @Composable () -> Unit,
 ) {
     val ink = inkOf(tone)
@@ -343,25 +351,58 @@ private fun Block(
             ),
             verticalArrangement = Arrangement.spacedBy(OrreryTokens.Space.four),
         ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(OrreryTokens.Space.eight),
-            ) {
-                BlockGlyph(icon, ink)
-                Text(text = label.inLabelCase(), color = ink, style = OrreryTokens.Type.label)
-                if (who != null) Text(text = who, color = OrreryTokens.Ink.one, style = OrreryTokens.Type.small)
-                if (words != null) Text(text = words, color = OrreryTokens.Ink.three, style = OrreryTokens.Type.small)
-                if (time != null) {
-                    Text(
-                        text = time,
-                        modifier = Modifier.testTag("at"),
-                        color = OrreryTokens.Ink.four,
-                        style = OrreryTokens.Type.small,
-                    )
+            val head = @Composable {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(OrreryTokens.Space.eight),
+                ) {
+                    BlockGlyph(icon, ink)
+                    Text(text = label.inLabelCase(), color = ink, style = OrreryTokens.Type.label)
+                    if (who != null) Text(text = who, color = OrreryTokens.Ink.one, style = OrreryTokens.Type.small)
+                    if (words != null) Text(text = words, color = OrreryTokens.Ink.three, style = OrreryTokens.Type.small)
+                    if (time != null) {
+                        Text(
+                            text = time,
+                            modifier = Modifier.testTag("at"),
+                            color = OrreryTokens.Ink.four,
+                            style = OrreryTokens.Type.small,
+                        )
+                    }
+                    end?.invoke()
                 }
-                end?.invoke()
             }
-            body()
+            if (leadBody == null) {
+                head()
+                body()
+            } else {
+                HeadLeading(head, leadBody)
+            }
+        }
+    }
+}
+
+/**
+ * Draws [head] at the start of the first line of [body], which is given the indent that clears the head and the gap after
+ * it. The head sits centred on that line; a body shorter than the head takes the head's height.
+ */
+@Composable
+private fun HeadLeading(head: @Composable () -> Unit, body: @Composable (TextUnit) -> Unit) {
+    val density = LocalDensity.current
+    val line = with(density) { OrreryTokens.Type.body.lineHeight.roundToPx() }
+    val gap = with(density) { OrreryTokens.Space.eight.roundToPx() }
+    SubcomposeLayout { constraints ->
+        val loose = constraints.copy(minWidth = 0, minHeight = 0)
+        val heads = subcompose("head", head).map { it.measure(loose) }
+        val headWidth = heads.maxOfOrNull { it.width } ?: 0
+        val headHeight = heads.maxOfOrNull { it.height } ?: 0
+        val indent = with(density) { (headWidth + gap).toSp() }
+        val bodies = subcompose("body") { body(indent) }.map { it.measure(loose) }
+        val width = maxOf(headWidth, bodies.maxOfOrNull { it.width } ?: 0).coerceIn(constraints.minWidth, constraints.maxWidth)
+        val headTop = maxOf(0, (line - headHeight) / 2)
+        val height = maxOf(headTop + headHeight, bodies.maxOfOrNull { it.height } ?: 0)
+        layout(width, height) {
+            bodies.forEach { it.place(0, 0) }
+            heads.forEach { it.place(0, headTop) }
         }
     }
 }
@@ -418,12 +459,16 @@ private fun FactsLine(facts: List<StepFact>) {
 
 /** A text as Markdown, with the find's marks drawn from [base] in its entry's searched text. */
 @Composable
-private fun Prose(text: String, color: Color, marks: EntryMarks? = null, base: Int = 0) {
-    MarkdownBody(blocks = remember(text, marks, base) { markedBlocks(parseMarkdown(text), marks, base) }, color = color)
+private fun Prose(text: String, color: Color, marks: EntryMarks? = null, base: Int = 0, firstIndent: TextUnit = TextUnit.Unspecified) {
+    MarkdownBody(
+        blocks = remember(text, marks, base) { markedBlocks(parseMarkdown(text), marks, base) },
+        color = color,
+        firstIndent = firstIndent,
+    )
 }
 
 @Composable
-private fun BlockGlyph(icon: BlockIcon, ink: Color) {
+internal fun BlockGlyph(icon: BlockIcon, ink: Color) {
     Canvas(modifier = Modifier.size(OrreryTokens.Size.icon).testTag("icon:${icon.name.lowercase()}")) {
         drawBlockIcon(icon, ink)
     }
@@ -514,6 +559,13 @@ private fun DrawScope.drawBlockIcon(icon: BlockIcon, ink: Color) {
                 style = stroke,
             )
             line(8f, 9f, 11f, 6.5f)
+        }
+        BlockIcon.Host -> {
+            // Two stacked units, each with its light: the web's host glyph.
+            drawRect(ink, point(3f, 3f), Size(10f * unit, 4f * unit), style = stroke)
+            drawRect(ink, point(3f, 9f), Size(10f * unit, 4f * unit), style = stroke)
+            line(5.5f, 5f, 6f, 5f)
+            line(5.5f, 11f, 6f, 11f)
         }
     }
 }

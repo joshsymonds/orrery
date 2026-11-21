@@ -175,7 +175,7 @@ async function leaveReplyBox(container: HTMLElement): Promise<boolean> {
   return shiftTabFrom(box);
 }
 
-// paneState is the inbox state the app draws on the panes: docked, pinned, rail or flyout.
+// paneState is the inbox state the app draws on the panes: expanded or collapsed.
 function paneState(container: HTMLElement): string | null {
   return container.querySelector(".panes")?.getAttribute("data-inbox") ?? null;
 }
@@ -188,53 +188,24 @@ function rowKeys(container: HTMLElement): string[] {
     .filter((key) => !key.startsWith("epic:"));
 }
 
-// markCount is the count the mark crumb carries, or null when it carries none.
-function markCount(container: HTMLElement): string | null {
-  return container.querySelector(".mark-crumb .needs")?.textContent ?? null;
-}
-
-test("InboxFlyout: the inbox is docked before a row is opened, and on the rail once a click opens one", (t) =>
+test("InboxFlyout: the inbox is expanded before a row is opened, and stays expanded once a click opens one", (t) =>
   withInbox(t.signal, {}, async (container) => {
-    assert.equal(paneState(container), "docked");
+    assert.equal(paneState(container), "expanded");
     await clickRow(container, "b");
-    assert.equal(paneState(container), "rail");
+    assert.equal(paneState(container), "expanded");
   }));
 
-test("InboxFlyout: Enter on the cursor's row hides the inbox as a click does", (t) =>
+test("InboxFlyout: Enter on the cursor's row leaves the inbox as it was, as a click does", (t) =>
   withInbox(t.signal, {}, async (container) => {
-    assert.equal(paneState(container), "docked");
     await press("Enter");
-    assert.equal(paneState(container), "rail");
+    assert.equal(paneState(container), "expanded", "Enter leaves an expanded inbox expanded");
+    await leaveReplyBox(container);
+    await press("b");
+    await press("Enter");
+    assert.equal(paneState(container), "collapsed", "Enter leaves a collapsed inbox collapsed");
   }));
 
-test("InboxFlyout: the mark's count is the waiting rows not archived plus the live epics' needs, and holds under a filter", (t) => {
-  const epic = makeEpic("first");
-  const detail = create(EpicsGetResponseSchema, { epic, questions: [{ id: "Q1", text: "Which way?" }] });
-  const epics = epicsView([epic], new Map([[epic.id, detail]]));
-  const archived = row({
-    key: "s",
-    id: "s",
-    kind: "session",
-    label: "old docs",
-    state: "waiting",
-    archived: true,
-    archiveKind: "session",
-  });
-  return withInbox(t.signal, { rows: [...fixture(), archived], epics }, async (container) => {
-    assert.equal(markCount(container), "2", "one waiting row and one epic need");
-    await press("/");
-    await act(() => {
-      const input = container.querySelector<HTMLInputElement>('.inbox-search input');
-      assert.ok(input, "the filter input is drawn");
-      input.value = "docs";
-      input.dispatchEvent(new Event("input", { bubbles: true }));
-    });
-    assert.deepEqual(rowKeys(container), ["c"], "the filter hides every row but the done one");
-    assert.equal(markCount(container), "2", "under a filter");
-  });
-});
-
-test("InboxFlyout: a step entry's page draws the mark as its first crumb, carrying the count", (t) => {
+test("InboxFlyout: a step entry's page has the step as its page crumb, opening on the epic's crumb with no mark or count before it", (t) => {
   const epic = makeEpic("first", { runningSteps: [makeStep("s1")] });
   const detail = create(EpicsGetResponseSchema, { epic, questions: [{ id: "Q1", text: "Which way?" }] });
   const epics = epicsView([epic], new Map([[epic.id, detail]]));
@@ -242,43 +213,25 @@ test("InboxFlyout: a step entry's page draws the mark as its first crumb, carryi
     await press("G");
     const reader = 'section[aria-label="reader"] .title-row';
     assert.equal(container.querySelector(`${reader} .crumb.here`)?.textContent, "s1", "the cursor's step is the page");
-    assert.equal(container.querySelector(`${reader} .crumbs`)?.firstElementChild?.getAttribute("class"), "mark-crumb");
-    assert.equal(markCount(container), "1", "the step's page carries the epic's need on its mark");
+    assert.equal(container.querySelector(`${reader} .crumbs`)?.firstElementChild?.classList.contains("crumb"), true);
+    assert.equal(container.querySelector(`${reader} .mark-crumb, ${reader} .needs`), null);
   });
 });
 
-test("InboxFlyout: hovering the mark pops the rail's inbox out over the page, and the pointer leaving the inbox tucks it away", (t) =>
+test("InboxFlyout: a click on the inbox's collapse control collapses it and the rail's mark expands it, and B does neither", (t) =>
   withInbox(t.signal, {}, async (container) => {
     await clickRow(container, "b");
-    assert.equal(paneState(container), "rail");
-    const mark = container.querySelector(".mark-crumb");
-    const list = container.querySelector(".list");
-    await dispatchOn(mark, "mouseenter");
-    assert.equal(paneState(container), "flyout");
-    // The test DOM has no MouseEvent, so the leave carries its related target as a plain property.
-    const leave = new Event("mouseleave", { bubbles: true });
-    Object.defineProperty(leave, "relatedTarget", { value: list });
-    await act(() => {
-      mark?.dispatchEvent(leave);
-    });
-    assert.equal(paneState(container), "flyout", "a pointer moving from the mark into the inbox keeps it out");
-    await dispatchOn(list, "mouseleave");
-    assert.equal(paneState(container), "rail", "the pointer leaving the inbox tucks it away");
-  }));
-
-test("InboxFlyout: a click on the mark or B pins the inbox beside the page, and doing either again unpins it", (t) =>
-  withInbox(t.signal, {}, async (container) => {
-    await clickRow(container, "b");
-    await dispatchOn(container.querySelector(".mark-crumb"), "click");
-    assert.equal(paneState(container), "pinned");
-    await dispatchOn(container.querySelector(".mark-crumb"), "click");
-    assert.equal(paneState(container), "rail");
+    await dispatchOn(container.querySelector('.inbox-foot button[aria-label="Collapse the inbox"]'), "click");
+    assert.equal(paneState(container), "collapsed");
     await leaveReplyBox(container);
-    await press("b");
+    assert.equal(paneState(container), "expanded", "Shift+Tab out of the reply box expands the inbox to its cursor row");
+    await dispatchOn(container.querySelector('.inbox-foot button[aria-label="Collapse the inbox"]'), "click");
     await press("B");
-    assert.equal(paneState(container), "pinned");
+    assert.equal(paneState(container), "collapsed", "B does not expand the inbox");
+    await dispatchOn(container.querySelector('nav.rail.start button[aria-label="Expand the inbox"]'), "click");
+    assert.equal(paneState(container), "expanded");
     await press("B");
-    assert.equal(paneState(container), "rail");
+    assert.equal(paneState(container), "expanded", "B does not collapse the inbox");
   }));
 
 test("InboxFlyout: the brand row holds no counts row", (t) =>
@@ -339,30 +292,30 @@ function cursorKey(container: HTMLElement): string | null {
   return container.querySelector(".row.cur")?.getAttribute("data-key") ?? null;
 }
 
-test("InboxRail: b pops the rail's inbox out by key, and b again tucks it back to the rail", (t) =>
+test("InboxRail: b collapses the inbox with a row open, and b again expands it", (t) =>
   withInbox(t.signal, {}, async (container) => {
     await clickRow(container, "b");
-    assert.equal(paneState(container), "rail");
+    assert.equal(paneState(container), "expanded");
     await leaveReplyBox(container);
     await press("b");
+    assert.equal(paneState(container), "collapsed", "b collapses the inbox to its rail");
     await press("b");
-    assert.equal(paneState(container), "flyout", "b pops the inbox out over the page");
-    await press("b");
-    assert.equal(paneState(container), "rail", "b again tucks it back to the rail");
+    assert.equal(paneState(container), "expanded", "b again expands it");
   }));
 
-test("InboxRail: b pops the inbox out, and Escape tucks it back with no interrupt or withdraw call", (t) => {
+test("InboxRail: p opens a flyout over a working row's page, and Escape closes it with no interrupt or withdraw call", (t) => {
   const paths: string[] = [];
   return withRecordedInbox(t.signal, paths, async (container) => {
     await clickRow(container, "b");
     await leaveReplyBox(container);
     await press("b");
-    await press("b");
-    assert.equal(paneState(container), "flyout");
+    await press("p");
+    assert.equal(container.querySelector(".pfly")?.getAttribute("aria-label"), "web", "p opens the flyout on web");
     const before = paths.length;
     await press("Escape");
     await settle();
-    assert.equal(paneState(container), "rail", "Escape tucks the key-popped inbox back to the rail");
+    assert.equal(container.querySelector(".pfly"), null, "Escape closes the flyout");
+    assert.equal(paneState(container), "collapsed", "and leaves the inbox collapsed");
     assert.deepEqual(
       paths.slice(before).filter((path) => escapeCallPaths.includes(path)),
       [],
@@ -371,41 +324,28 @@ test("InboxRail: b pops the inbox out, and Escape tucks it back with no interrup
   });
 });
 
-test("InboxPin: j while on the rail pops the inbox out and leaves the cursor row unchanged, then j moves the cursor, then Escape tucks the inbox and makes no interrupt call", (t) => {
-  const paths: string[] = [];
-  return withRecordedInbox(t.signal, paths, async (container) => {
+test("InboxPin: j with the inbox collapsed expands it and leaves the cursor row unchanged, then j moves the cursor", (t) =>
+  withInbox(t.signal, {}, async (container) => {
     await clickRow(container, "a");
-    assert.equal(paneState(container), "rail");
     await leaveReplyBox(container);
     await press("b");
+    assert.equal(paneState(container), "collapsed");
     await press("j");
-    assert.equal(paneState(container), "flyout", "j pops the rail's inbox out");
-    assert.equal(cursorKey(container), "a", "the press that pops the inbox out does not move the cursor");
+    assert.equal(paneState(container), "expanded", "j expands the collapsed inbox");
+    assert.equal(cursorKey(container), "a", "the press that expands the inbox does not move the cursor");
     await press("j");
-    assert.equal(cursorKey(container), "b", "the next j moves the cursor in the popped inbox");
-    const before = paths.length;
-    await press("Escape");
-    await settle();
-    assert.equal(paneState(container), "rail", "Escape tucks the key-popped inbox back to the rail");
-    assert.deepEqual(
-      paths.slice(before).filter((path) => escapeCallPaths.includes(path)),
-      [],
-      "the working row under the cursor is not interrupted",
-    );
-  });
-});
+    assert.equal(cursorKey(container), "b", "the next j moves the cursor in the expanded inbox");
+  }));
 
-test("InboxPin: Enter opens the cursor row and hides the inbox, clearing a key pop-out", (t) =>
+test("InboxPin: Enter with the inbox collapsed and no flyout opens the cursor row and leaves the inbox collapsed", (t) =>
   withInbox(t.signal, { rows: fixture().map((item) => (item.key === "b" ? { ...item, project: "" } : item)) }, async (container) => {
     await clickRow(container, "c");
     await leaveReplyBox(container);
-    await press("b");
-    await press("b");
-    assert.equal(paneState(container), "flyout");
     await press("j");
     assert.equal(cursorKey(container), "b");
+    await press("b");
     await press("Enter");
-    assert.equal(paneState(container), "rail", "Enter hides the inbox and clears the pop-out");
+    assert.equal(paneState(container), "collapsed", "Enter leaves the inbox collapsed");
     assert.equal(
       container.querySelector('section[aria-label="reader"] .crumb.here')?.textContent,
       "web",
@@ -413,17 +353,18 @@ test("InboxPin: Enter opens the cursor row and hides the inbox, clearing a key p
     );
   }));
 
-test("InboxPin: h at a row's first crumb pops the rail's inbox out by key", (t) =>
+test("InboxPin: h at a row's first crumb leaves the inbox as it is, expanded or collapsed", (t) =>
   withInbox(t.signal, {}, async (container) => {
     await clickRow(container, "b");
-    assert.equal(paneState(container), "rail");
     await leaveReplyBox(container);
+    await press("h");
+    assert.equal(paneState(container), "expanded", "h leaves an expanded inbox expanded");
     await press("b");
     await press("h");
-    assert.equal(paneState(container), "flyout", "h at the row's first crumb pops the inbox out");
+    assert.equal(paneState(container), "collapsed", "h leaves a collapsed inbox collapsed");
   }));
 
-test("InboxPin: the keys help lists b, B and h", (t) =>
+test("InboxPin: the keys help lists b, p and h, and no B", (t) =>
   withInbox(t.signal, {}, async (container) => {
     await press("?");
     const help = container.querySelector('[role="dialog"][aria-label="Keys"]');
@@ -431,9 +372,10 @@ test("InboxPin: the keys help lists b, B and h", (t) =>
     const listed = [...help.querySelectorAll(".keyline .ks")].map((caps) =>
       [...caps.querySelectorAll("kbd")].map((kbd) => kbd.textContent).join(" "),
     );
-    for (const keys of ["b", "B", "h ←"]) {
+    for (const keys of ["b", "p", "h ←"]) {
       assert.ok(listed.includes(keys), `the keys help lists ${keys}`);
     }
+    assert.ok(!listed.some((keys) => keys.split(" ").includes("B")), "the keys help lists no B");
   }));
 
 // resizeWindow sets the viewport of the window the test's DOM is in, the one installTestDom made, to width pixels wide,
@@ -453,56 +395,57 @@ async function narrowWindow(width: number): Promise<void> {
   await resizeWindow(width);
 }
 
-test("InboxPin: at 700px a row opened by click leaves the inbox docked, and j moves the cursor to the next row on its first press", (t) =>
+test("InboxPin: at 700px a row opened by click leaves the inbox as the stacked layout draws it, and j moves the cursor to the next row on its first press", (t) =>
   withInbox(t.signal, {}, async (container) => {
     await narrowWindow(700);
     await clickRow(container, "a");
-    assert.equal(paneState(container), "docked", "a narrow window draws the inbox docked once a row is open");
+    assert.equal(paneState(container), "expanded", "a narrow window draws the inbox expanded once a row is open");
     await leaveReplyBox(container);
     await press("j");
     assert.equal(cursorKey(container), "b", "the first j moves the cursor to the next row");
-    assert.equal(paneState(container), "docked", "j pops no inbox out");
+    assert.equal(paneState(container), "expanded");
   }));
 
-test("InboxPin: at 700px b and h after a row is opened leave the inbox docked", (t) =>
+test("InboxPin: at 700px b and h after a row is opened leave the inbox expanded", (t) =>
   withInbox(t.signal, {}, async (container) => {
     await narrowWindow(700);
     await clickRow(container, "b");
     await leaveReplyBox(container);
     await press("b");
-    assert.equal(paneState(container), "docked", "b pops no inbox out");
+    assert.equal(paneState(container), "expanded", "b collapses no stacked inbox");
     await press("h");
-    assert.equal(paneState(container), "docked", "h pops no inbox out");
+    assert.equal(paneState(container), "expanded", "h collapses no stacked inbox");
   }));
 
-test("InboxPin: a window narrowed from wide with a row open reads docked, and reads rail again once widened", (t) =>
+test("InboxPin: a collapsed inbox narrowed from wide with a row open reads expanded, and reads collapsed again once widened", (t) =>
   withInbox(t.signal, {}, async (container) => {
-    // The click opens the row while the window is wide. The widened read is the rail only if that open row was kept
-    // through the narrow layout, so the final assertion also shows the click took effect.
+    // The click opens the row while the window is wide, and b collapses the inbox. The widened read is collapsed only if
+    // the collapse was kept through the narrow layout.
     await clickRow(container, "b");
+    await leaveReplyBox(container);
+    await press("b");
+    assert.equal(paneState(container), "collapsed");
     await narrowWindow(700);
-    assert.equal(paneState(container), "docked", "the narrowed window draws the inbox docked");
+    assert.equal(paneState(container), "expanded", "the narrowed window draws the stacked inbox");
     await resizeWindow(1024);
-    assert.equal(paneState(container), "rail", "widened again, the inbox is on the rail as the open row leaves it");
+    assert.equal(paneState(container), "collapsed", "widened again, the inbox is collapsed as it was left");
   }));
 
-test("InboxPin: Shift+Tab out of a reply box pops the rail's inbox out by key and focuses the cursor row, and Escape tucks it back with no interrupt or withdraw call", (t) => {
+test("InboxPin: Shift+Tab out of a reply box with the inbox collapsed expands it and focuses the cursor row, with no interrupt or withdraw call", (t) => {
   const paths: string[] = [];
   return withRecordedInbox(t.signal, paths, async (container) => {
     await clickRow(container, "b");
-    assert.equal(paneState(container), "rail");
-    await act(() => {
-      replyBox(container).focus();
-    });
+    await leaveReplyBox(container);
+    await press("b");
+    assert.equal(paneState(container), "collapsed");
+    await press("i");
     assert.equal(document.activeElement === replyBox(container), true, "the reply box is focused");
-    const prevented = await shiftTabFrom(replyBox(container));
-    assert.equal(prevented, true, "the Shift+Tab press is default-prevented");
-    assert.equal(paneState(container), "flyout", "Shift+Tab pops the rail's inbox out by key");
-    assert.equal(onCursorRow(container), true, "the focus is on the cursor row");
     const before = paths.length;
-    await press("Escape");
+    const prevented = await shiftTabFrom(replyBox(container));
     await settle();
-    assert.equal(paneState(container), "rail", "Escape tucks the key-popped inbox back to the rail");
+    assert.equal(prevented, true, "the Shift+Tab press is default-prevented");
+    assert.equal(paneState(container), "expanded", "Shift+Tab expands the collapsed inbox");
+    assert.equal(onCursorRow(container), true, "the focus is on the cursor row");
     assert.deepEqual(
       paths.slice(before).filter((path) => escapeCallPaths.includes(path)),
       [],
@@ -511,22 +454,20 @@ test("InboxPin: Shift+Tab out of a reply box pops the rail's inbox out by key an
   });
 });
 
-test("InboxPin: Shift+Tab out of a reply box with the inbox docked focuses the cursor row and leaves the inbox docked", (t) =>
+test("InboxPin: Shift+Tab out of a reply box with the inbox expanded focuses the cursor row and leaves the inbox expanded", (t) =>
   withInbox(t.signal, {}, async (container) => {
     await press("i");
     assert.equal(document.activeElement?.tagName === "TEXTAREA", true, "i focuses the cursor's reply box");
     await shiftTabFrom(replyBox(container));
     assert.equal(onCursorRow(container), true, "the focus is on the cursor row");
-    assert.equal(paneState(container), "docked", "the docked inbox stays docked");
+    assert.equal(paneState(container), "expanded", "the expanded inbox stays expanded");
   }));
 
-test("InboxPin: Shift+Tab out of a reply box with the inbox pinned focuses the cursor row and leaves the inbox pinned", (t) =>
+test("InboxPin: Shift+Tab out of an opened row's reply box focuses the cursor row and leaves the inbox expanded", (t) =>
   withInbox(t.signal, {}, async (container) => {
-    await dispatchOn(container.querySelector(".mark-crumb"), "click");
-    assert.equal(paneState(container), "pinned");
-    await press("i");
-    assert.equal(document.activeElement?.tagName === "TEXTAREA", true, "i focuses the cursor's reply box");
+    await clickRow(container, "b");
+    assert.equal(document.activeElement === replyBox(container), true, "the click opened the row into its reply box");
     await shiftTabFrom(replyBox(container));
     assert.equal(onCursorRow(container), true, "the focus is on the cursor row");
-    assert.equal(paneState(container), "pinned", "the pinned inbox stays pinned");
+    assert.equal(paneState(container), "expanded", "the inbox stays expanded");
   }));

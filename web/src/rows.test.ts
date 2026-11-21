@@ -11,7 +11,7 @@ import {
   type Pane,
   type Session,
 } from "./gen/orrery/v1/orrery_pb";
-import { rowsFrom, splitArchived, waitsOnYou, type Row } from "./rows";
+import { rowsFrom, waitsOnYou, type Row } from "./rows";
 
 function makePane(init: MessageInitShape<typeof PaneSchema>): Pane {
   return create(PaneSchema, { host: "box", session: "work", cwd: "/work/app", ...init });
@@ -232,29 +232,6 @@ test("ArchivePaneRow: a pane with an orrery_id archives as the session that id n
       ["%2", "sess-live", "session", false],
       ["%4", "sess-missing", "session", false],
     ],
-  );
-});
-
-test("ArchiveView: splitArchived leaves archived rows out of the default rows and lists them as archived, each in input order", () => {
-  const rows = rowsFrom(
-    [makePane({ id: "%1" })],
-    [
-      makeSession({ id: "sess-z", pane: "", archived: true }),
-      makeSession({ id: "sess-y", pane: "" }),
-      makeSession({ id: "sess-x", pane: "", archived: true }),
-    ],
-    [makeHeadless({ id: "head-w" })],
-  );
-
-  const split = splitArchived(rows);
-
-  assert.deepEqual(
-    split.rows.map((row) => row.key),
-    ["pane:box:%1", "session:sess-y", "session:head-w"],
-  );
-  assert.deepEqual(
-    split.archived.map((row) => row.key),
-    ["session:sess-z", "session:sess-x"],
   );
 });
 
