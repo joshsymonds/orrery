@@ -777,8 +777,9 @@ func questionInputOf(question Question) store.EpicQuestionInput {
 }
 
 // returnCheck returns the check a planner step's return runs for epic. A return that does not parse is one line.
-// Any other return gets the refusals of Check, against the epic's Requirement ids, the files of its open tasks, and the
-// gates and judges that resolve answers for epic, then those of checkAmendKeeps against the epic's Requirements, then
+// Any other return gets the refusals of Check, against the epic's Requirement ids and its tasks, whose open tasks own
+// files and whose tasks a depends_on entry may name, and the gates and judges that resolve answers for epic, then those
+// of checkAmendKeeps against the epic's Requirements, then
 // those of checkClosureTasks against the epic's phase, then those of checkCloses against the epic's phase and the
 // findings of review that the next closure round checks, then those of checkSpentGaps against gapTurns, the planner
 // turns each gap of the epic was given before the checked turn, for the rerun_review actions that name a reviewer whose
@@ -798,7 +799,6 @@ func returnCheck(
 	for _, finding := range findings {
 		open = append(open, finding.ID)
 	}
-	owned := openFiles(epic.Tasks)
 	park := ""
 	if !epic.ParkClass.OwnerHeld() {
 		park = epic.Parked
@@ -811,22 +811,11 @@ func returnCheck(
 		if err != nil {
 			return []string{err.Error()}
 		}
-		refusals := Check(ret, requirements, owned, gate, judge)
+		refusals := Check(ret, requirements, epic.Tasks, gate, judge)
 		refusals = append(refusals, checkAmendKeeps(ret, epic.Requirements)...)
 		refusals = append(refusals, checkClosureTasks(ret, epic.Phase)...)
 		refusals = append(refusals, checkCloses(ret, epic.Phase, open)...)
 		refusals = append(refusals, checkSpentGaps(ret, gapTurns)...)
 		return append(refusals, checkPark(ret, park)...)
 	}
-}
-
-// openFiles returns the files of the tasks whose status is open, in task order.
-func openFiles(tasks []store.EpicTask) []string {
-	var files []string
-	for _, task := range tasks {
-		if task.Status == taskOpen {
-			files = append(files, task.Files...)
-		}
-	}
-	return files
 }

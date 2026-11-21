@@ -43,10 +43,23 @@ func checkLines(t *testing.T, got []string, want ...string) {
 
 // checkPlan runs Check on ret against epicRequirements() and owned, with the gates and judges of testResolver.
 func checkPlan(ret Return, owned []string) []string {
+	return checkTasks(ret, epicTasksOwning(owned))
+}
+
+// checkTasks runs Check on ret against epicRequirements() and tasks, with the gates and judges of testResolver.
+func checkTasks(ret Return, tasks []store.EpicTask) []string {
 	var resolve testResolver
 	gate := func(name string) error { return resolve.Gate(context.Background(), store.EpicRow{}, name) }
 	judge := func(name string) error { return resolve.Judge(store.EpicRow{}, name) }
-	return Check(ret, epicRequirements(), owned, gate, judge)
+	return Check(ret, epicRequirements(), tasks, gate, judge)
+}
+
+// epicTasksOwning returns the epic's tasks for a test that names owned files: one open task, T1, that owns them.
+func epicTasksOwning(owned []string) []store.EpicTask {
+	if len(owned) == 0 {
+		return nil
+	}
+	return []store.EpicTask{{Seq: 1, Status: taskOpen, Files: owned}}
 }
 
 func TestCheckRefusesUncleanOrNonRelativeFile(t *testing.T) {
@@ -500,11 +513,10 @@ func TestParseRoundTripsValidReturn(t *testing.T) {
 
 // schemaNode is the part of a JSON schema the schema test reads.
 type schemaNode struct {
-	Type                 string                `json:"type"`
-	Items                *schemaNode           `json:"items"`
-	Properties           map[string]schemaNode `json:"properties"`
-	Required             []string              `json:"required"`
-	AdditionalProperties *bool                 `json:"additionalProperties"`
+	Type       string                `json:"type"`
+	Items      *schemaNode           `json:"items"`
+	Properties map[string]schemaNode `json:"properties"`
+	Required   []string              `json:"required"`
 }
 
 func TestSchemaRequiresGateAndEvidenceOfEachTask(t *testing.T) {
@@ -519,6 +531,7 @@ func TestSchemaRequiresGateAndEvidenceOfEachTask(t *testing.T) {
 	}
 	wantTask := []string{
 		"title", "deliverable", "files", "requirements", "contributes", "test_changes", "gate", "evidence",
+		"depends_on",
 	}
 	if !reflect.DeepEqual(task.Required, wantTask) {
 		t.Errorf("task required = %q, want %q", task.Required, wantTask)
@@ -536,24 +549,10 @@ func TestSchemaRequiresGateAndEvidenceOfEachTask(t *testing.T) {
 		t.Errorf("gate type = %q, want string", got)
 	}
 
-	ev := task.Properties["evidence"]
-	wantEvidence := []string{"capture", "limit", "artifacts", "supplied", "conclusion", "judge", "kind", "tests"}
-	if !reflect.DeepEqual(ev.Required, wantEvidence) {
-		t.Errorf("evidence required = %q, want %q", ev.Required, wantEvidence)
-	}
-	if len(ev.Properties) != len(wantEvidence) {
-		t.Errorf("evidence has %d properties, want %d", len(ev.Properties), len(wantEvidence))
-	}
-	for _, name := range wantEvidence {
-		if _, ok := ev.Properties[name]; !ok {
-			t.Errorf("evidence lacks property %q", name)
+	for _, name := range []string{"evidence", "depends_on"} {
+		if got := task.Properties[name].Type; got != "string" {
+			t.Errorf("%s type = %q, want string", name, got)
 		}
-	}
-	if ev.AdditionalProperties == nil || *ev.AdditionalProperties {
-		t.Errorf("evidence additionalProperties = %v, want false", ev.AdditionalProperties)
-	}
-	if got := ev.Properties["limit"].Type; got != "integer" {
-		t.Errorf("evidence limit type = %q, want integer", got)
 	}
 }
 
