@@ -510,6 +510,8 @@ func TestEpicWrongFormsAreUsageErrors(t *testing.T) {
 	t.Parallel()
 	const answerForm = "answer EPIC --id ID [--question QN] [--choice C] [TEXT]"
 	const releaseForm = "release ID [--undo-none N]..."
+	const getForm = "get ID [--part PART] [--task T<n>] [--question Q<n>] [--decision ID] [--turn N] [--offset N] " +
+		"[--limit N]"
 	cases := []struct {
 		args []string
 		form string
@@ -518,8 +520,8 @@ func TestEpicWrongFormsAreUsageErrors(t *testing.T) {
 		{args: []string{"bogus"}, form: "create FILE|-"},
 		{args: []string{"create"}, form: "create FILE|-"},
 		{args: []string{"create", "a.json", "b.json"}, form: "create FILE|-"},
-		{args: []string{"get"}, form: "get ID"},
-		{args: []string{"get", "a", "b"}, form: "get ID"},
+		{args: []string{"get"}, form: getForm},
+		{args: []string{"get", "a", "b"}, form: getForm},
 		{args: []string{"list", "extra"}, form: "list"},
 		{args: []string{"follow", "extra"}, form: "follow"},
 		{args: []string{"answer", epicTestID, "text"}, form: answerForm},
