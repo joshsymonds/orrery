@@ -127,56 +127,12 @@ func composeMeta(t *testing.T, dir, commit string) string {
 		"--format=%an <%ae> %ad|%cn <%ce> %cd|%B", commit)
 }
 
-func TestComposeChainsOneCommitPerTask(t *testing.T) {
-	t.Parallel()
-	ctx := t.Context()
-	dir := composeRepo(t)
-	base := composeBase(t, dir)
-	first := composeRevision(t, dir, base, "change a, add x, drop b\n",
-		map[string]string{"a": "one changed", "x": "new"}, []string{"b"})
-	second := composeRevision(t, dir, base, "add y\n", map[string]string{"y": "two"}, nil)
-	tasks := []Task{{Seq: 1, Base: base, Revision: first}, {Seq: 2, Base: base, Revision: second}}
-
-	result, err := Compose(ctx, dir, base, tasks, testRef)
-	if err != nil {
-		t.Fatalf("Compose: %v", err)
-	}
-	if len(result.LeftOut) != 0 {
-		t.Fatalf("LeftOut = %v, want none", result.LeftOut)
-	}
-	if len(result.Composed) != 2 {
-		t.Fatalf("Composed = %v, want two commits", result.Composed)
-	}
-	firstCommit, secondCommit := result.Composed[0], result.Composed[1]
-	if firstCommit.Seq != 1 || secondCommit.Seq != 2 {
-		t.Fatalf("Composed seqs = %d, %d; want 1, 2", firstCommit.Seq, secondCommit.Seq)
-	}
-	if got := composeParents(t, dir, firstCommit.Commit); !slices.Equal(got, []string{base}) {
-		t.Fatalf("first commit parents = %v, want the base %s", got, base)
-	}
-	if got := composeParents(t, dir, secondCommit.Commit); !slices.Equal(got, []string{firstCommit.Commit}) {
-		t.Fatalf("second commit parents = %v, want the first commit %s", got, firstCommit.Commit)
-	}
-	if result.Base != base || result.Candidate != secondCommit.Commit {
-		t.Fatalf("Base, Candidate = %s, %s; want %s, %s", result.Base, result.Candidate, base, secondCommit.Commit)
-	}
-	wantFirst := map[string]string{"a": "one changed", "x": "new"}
-	if got := composeFiles(t, dir, firstCommit.Commit); !maps.Equal(got, wantFirst) {
-		t.Fatalf("first commit files = %v, want %v", got, wantFirst)
-	}
-	wantCandidate := map[string]string{"a": "one changed", "x": "new", "y": "two"}
-	if got := composeFiles(t, dir, result.Candidate); !maps.Equal(got, wantCandidate) {
-		t.Fatalf("candidate files = %v, want %v", got, wantCandidate)
-	}
-	if got, want := composeMeta(t, dir, firstCommit.Commit), composeMeta(t, dir, first); got != want {
-		t.Fatalf("first commit meta = %q, want the revision's %q", got, want)
-	}
-	if got, want := composeMeta(t, dir, secondCommit.Commit), composeMeta(t, dir, second); got != want {
-		t.Fatalf("second commit meta = %q, want the revision's %q", got, want)
-	}
-	if got := composeGit(t, dir, nil, "", "rev-parse", testRef); got != result.Candidate {
-		t.Fatalf("pin %s = %s, want the candidate %s", testRef, got, result.Candidate)
-	}
+// composeIdentity returns the author and committer of commit, with the dates raw, so two commits can be compared on
+// identity when their messages differ.
+func composeIdentity(t *testing.T, dir, commit string) string {
+	t.Helper()
+	return composeGit(t, dir, nil, "", "log", "-1", "--date=raw",
+		"--format=%an <%ae> %ad|%cn <%ce> %cd", commit)
 }
 
 func TestComposeRecomposeGivesSameCommits(t *testing.T) {
@@ -262,18 +218,18 @@ func TestComposeLeavesOutTasksAndComposesTheRest(t *testing.T) {
 		t.Fatalf("Compose: %v", err)
 	}
 	wantLeftOut := []LeftOut{
-		{Seq: 2, Reason: "T2 overlaps T1 at a"},
+		{Seq: 2, Reason: "T2 conflicts with the candidate at a", Conflicts: []string{"a"}},
 		{Seq: 3, Reason: fmt.Sprintf("T3 was built on %s, not on the batch base %s", other, base)},
 	}
-	if !slices.Equal(result.LeftOut, wantLeftOut) {
+	if !reflect.DeepEqual(result.LeftOut, wantLeftOut) {
 		t.Fatalf("LeftOut = %v, want %v", result.LeftOut, wantLeftOut)
 	}
 	if len(result.Composed) != 2 || result.Composed[0].Seq != 1 || result.Composed[1].Seq != 4 {
 		t.Fatalf("Composed = %v, want T1 and T4", result.Composed)
 	}
 	firstCommit := result.Composed[0].Commit
-	if got := composeParents(t, dir, result.Composed[1].Commit); !slices.Equal(got, []string{firstCommit}) {
-		t.Fatalf("T4 parents = %v, want T1's commit %s", got, firstCommit)
+	if got := composeParents(t, dir, result.Composed[1].Commit); !slices.Equal(got, []string{firstCommit, last}) {
+		t.Fatalf("T4 parents = %v, want T1's commit %s and T4's revision %s", got, firstCommit, last)
 	}
 	want := map[string]string{"a": "first", "b": "bee", "y": "two"}
 	if got := composeFiles(t, dir, result.Candidate); !maps.Equal(got, want) {
@@ -290,8 +246,8 @@ func composeAncestry(t *testing.T, dir string) (older, batchBase string) {
 	return older, batchBase
 }
 
-// A task built on an ancestor of the batch base whose changed paths are not among those changed since composes: its
-// paths are laid over the batch base, which keeps both the batch base's changes and the task's.
+// A task built on an ancestor of the batch base whose changes do not conflict with the batch base's composes: its merge
+// keeps both the batch base's changes and the task's.
 func TestComposeTaskOnAncestorWithDisjointChangesComposes(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
@@ -316,11 +272,11 @@ func TestComposeTaskOnAncestorWithDisjointChangesComposes(t *testing.T) {
 		t.Fatalf("Composed = %v, LeftOut = %v; want both tasks composed", result.Composed, result.LeftOut)
 	}
 	first := result.Composed[0].Commit
-	if got := composeParents(t, dir, first); !slices.Equal(got, []string{batchBase}) {
-		t.Fatalf("T1 parents = %v, want the batch base %s", got, batchBase)
+	if got := composeParents(t, dir, first); !slices.Equal(got, []string{batchBase, revision}) {
+		t.Fatalf("T1 parents = %v, want the batch base %s and the revision %s", got, batchBase, revision)
 	}
-	if got, want := composeMeta(t, dir, first), composeMeta(t, dir, revision); got != want {
-		t.Fatalf("T1 commit meta = %q, want the revision's %q", got, want)
+	if got, want := composeIdentity(t, dir, first), composeIdentity(t, dir, revision); got != want {
+		t.Fatalf("T1 commit identity = %q, want the revision's %q", got, want)
 	}
 	want := map[string]string{"a": "integrated", "c": "sea", "d/e": "deep", "d/f": "beside"}
 	if got := composeFiles(t, dir, first); !maps.Equal(got, want) {
@@ -329,34 +285,6 @@ func TestComposeTaskOnAncestorWithDisjointChangesComposes(t *testing.T) {
 	want["y"] = "two"
 	if got := composeFiles(t, dir, result.Candidate); !maps.Equal(got, want) {
 		t.Fatalf("candidate files = %v, want %v", got, want)
-	}
-}
-
-// A task built on an ancestor of the batch base that changed a path changed since, or one that holds or lies under
-// such a path, is left out as built on another base: composing it would undo the batch base's change.
-func TestComposeTaskOnAncestorWithOverlappingChangesIsLeftOut(t *testing.T) {
-	t.Parallel()
-	ctx := t.Context()
-	dir := composeRepo(t)
-	older, batchBase := composeAncestry(t, dir)
-	same := composeRevision(t, dir, older, "same\n", map[string]string{"a": "mine"}, nil)
-	holds := composeRevision(t, dir, older, "holds\n", map[string]string{"d": "file"}, nil)
-	tasks := []Task{{Seq: 1, Base: older, Revision: same}, {Seq: 2, Base: older, Revision: holds}}
-
-	result, err := Compose(ctx, dir, batchBase, tasks, testRef)
-	if err != nil {
-		t.Fatalf("Compose: %v", err)
-	}
-	wantLeftOut := []LeftOut{
-		{Seq: 1, Reason: fmt.Sprintf("T1 was built on %s, not on the batch base %s", older, batchBase)},
-		{Seq: 2, Reason: fmt.Sprintf("T2 was built on %s, not on the batch base %s", older, batchBase)},
-	}
-	if len(result.Composed) != 0 || !slices.Equal(result.LeftOut, wantLeftOut) {
-		t.Fatalf("Composed = %v, LeftOut = %v; want none composed and LeftOut %v",
-			result.Composed, result.LeftOut, wantLeftOut)
-	}
-	if result.Candidate != batchBase {
-		t.Fatalf("Candidate = %s, want the batch base %s", result.Candidate, batchBase)
 	}
 }
 
@@ -380,83 +308,150 @@ func TestComposeTaskOnUnrelatedBaseIsLeftOut(t *testing.T) {
 		{Seq: 1, Reason: fmt.Sprintf("T1 was built on %s, not on the batch base %s", sibling, batchBase)},
 		{Seq: 2, Reason: fmt.Sprintf("T2 was built on %s, not on the batch base %s", missing, batchBase)},
 	}
-	if len(result.Composed) != 0 || !slices.Equal(result.LeftOut, wantLeftOut) {
+	if len(result.Composed) != 0 || !reflect.DeepEqual(result.LeftOut, wantLeftOut) {
 		t.Fatalf("Composed = %v, LeftOut = %v; want none composed and LeftOut %v",
 			result.Composed, result.LeftOut, wantLeftOut)
 	}
 }
 
-func TestComposeOverlapRules(t *testing.T) {
-	t.Parallel()
-	cases := []struct {
-		name       string
-		first      map[string]string
-		second     map[string]string
-		wantReason string
-	}{
-		{
-			name:       "second under first",
-			first:      map[string]string{"d/f": "x"},
-			second:     map[string]string{"d/f/g": "y"},
-			wantReason: "T2 overlaps T1 at d/f/g",
-		},
-		{
-			name:       "second holds first",
-			first:      map[string]string{"d/f/g": "x"},
-			second:     map[string]string{"d/f": "y"},
-			wantReason: "T2 overlaps T1 at d/f",
-		},
-		{
-			name:   "sibling sharing a name prefix",
-			first:  map[string]string{"a": "x"},
-			second: map[string]string{"ab": "y"},
-		},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			ctx := t.Context()
-			dir := composeRepo(t)
-			base := composeBase(t, dir)
-			first := composeRevision(t, dir, base, "first\n", tc.first, nil)
-			second := composeRevision(t, dir, base, "second\n", tc.second, nil)
-			tasks := []Task{{Seq: 1, Base: base, Revision: first}, {Seq: 2, Base: base, Revision: second}}
-
-			result, err := Compose(ctx, dir, base, tasks, testRef)
-			if err != nil {
-				t.Fatalf("Compose: %v", err)
-			}
-			if tc.wantReason == "" {
-				if len(result.Composed) != 2 || len(result.LeftOut) != 0 {
-					t.Fatalf("Composed = %v, LeftOut = %v; want both tasks composed", result.Composed, result.LeftOut)
-				}
-				return
-			}
-			wantLeftOut := []LeftOut{{Seq: 2, Reason: tc.wantReason}}
-			if len(result.Composed) != 1 || !slices.Equal(result.LeftOut, wantLeftOut) {
-				t.Fatalf("Composed = %v, LeftOut = %v; want T1 composed and LeftOut %v",
-					result.Composed, result.LeftOut, wantLeftOut)
-			}
-		})
-	}
-}
-
-// TestComposeKeepsPathsThatLookLikePathspecs composes a task that changes a file named ":foo", which git would read as
-// pathspec magic, and one that adds "*": the candidate holds both files as the task wrote them.
-func TestComposeKeepsPathsThatLookLikePathspecs(t *testing.T) {
+// TestComposeBranchMergeKeepsTaskCommitsInHistory: each composed task's revision is an ancestor of the candidate, and
+// each composed commit merges the candidate so far with its task's revision, so the task's own commits stay in the
+// history. The merge takes the revision's identity and says which task and revision it merges.
+func TestComposeBranchMergeKeepsTaskCommitsInHistory(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
 	dir := composeRepo(t)
 	base := composeBase(t, dir)
-	revision := composeRevision(t, dir, base, "magic names\n", map[string]string{":foo": "colon", "*": "star"}, nil)
+	first := composeRevision(t, dir, base, "change a, add x\n", map[string]string{"a": "one changed", "x": "new"}, nil)
+	second := composeRevision(t, dir, base, "add y\n", map[string]string{"y": "two"}, nil)
+	revisions := map[int64]string{1: first, 2: second}
+	tasks := []Task{{Seq: 1, Base: base, Revision: first}, {Seq: 2, Base: base, Revision: second}}
 
-	result, err := Compose(ctx, dir, base, []Task{{Seq: 1, Base: base, Revision: revision}}, testRef)
+	result, err := Compose(ctx, dir, base, tasks, testRef)
 	if err != nil {
 		t.Fatalf("Compose: %v", err)
 	}
-	want := map[string]string{"a": "one", "b": "bee", ":foo": "colon", "*": "star"}
+	if len(result.LeftOut) != 0 || len(result.Composed) != 2 {
+		t.Fatalf("Composed = %v, LeftOut = %v; want both tasks composed", result.Composed, result.LeftOut)
+	}
+	candidate := base
+	for _, composed := range result.Composed {
+		revision := revisions[composed.Seq]
+		composeGit(t, dir, nil, "", "merge-base", "--is-ancestor", revision, result.Candidate)
+		if got := composeParents(t, dir, composed.Commit); !slices.Equal(got, []string{candidate, revision}) {
+			t.Fatalf("T%d commit parents = %v, want the candidate so far %s and the revision %s",
+				composed.Seq, got, candidate, revision)
+		}
+		if got, want := composeIdentity(t, dir, composed.Commit), composeIdentity(t, dir, revision); got != want {
+			t.Fatalf("T%d commit identity = %q, want the revision's %q", composed.Seq, got, want)
+		}
+		message := composeGit(t, dir, nil, "", "log", "-1", "--format=%B", composed.Commit)
+		if want := fmt.Sprintf("Merge T%d %s", composed.Seq, revision); message != want {
+			t.Fatalf("T%d commit message = %q, want %q", composed.Seq, message, want)
+		}
+		candidate = composed.Commit
+	}
+	if candidate != result.Candidate {
+		t.Fatalf("candidate = %s, want the last composed commit %s", result.Candidate, candidate)
+	}
+}
+
+// TestComposeBranchMergeLeavesOutConflictWholeNamingPaths: of three tasks, the second changes the line of a that the
+// first changes. It is left out whole, with the conflicted path, and the first and third compose.
+func TestComposeBranchMergeLeavesOutConflictWholeNamingPaths(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	dir := composeRepo(t)
+	base := composeBase(t, dir)
+	first := composeRevision(t, dir, base, "first\n", map[string]string{"a": "first"}, nil)
+	second := composeRevision(t, dir, base, "second\n", map[string]string{"a": "second"}, nil)
+	third := composeRevision(t, dir, base, "third\n", map[string]string{"b": "third"}, nil)
+	tasks := []Task{
+		{Seq: 1, Base: base, Revision: first},
+		{Seq: 2, Base: base, Revision: second},
+		{Seq: 3, Base: base, Revision: third},
+	}
+
+	result, err := Compose(ctx, dir, base, tasks, testRef)
+	if err != nil {
+		t.Fatalf("Compose: %v", err)
+	}
+	wantLeftOut := []LeftOut{{Seq: 2, Reason: "T2 conflicts with the candidate at a", Conflicts: []string{"a"}}}
+	if !reflect.DeepEqual(result.LeftOut, wantLeftOut) {
+		t.Fatalf("LeftOut = %v, want %v", result.LeftOut, wantLeftOut)
+	}
+	if len(result.Composed) != 2 || result.Composed[0].Seq != 1 || result.Composed[1].Seq != 3 {
+		t.Fatalf("Composed = %v, want T1 and T3", result.Composed)
+	}
+	want := map[string]string{"a": "first", "b": "third"}
 	if got := composeFiles(t, dir, result.Candidate); !maps.Equal(got, want) {
 		t.Fatalf("candidate files = %v, want %v", got, want)
+	}
+}
+
+// TestComposeBranchMergeLeavesOutTaskOffTheBatchBase: a task built on a commit the batch base does not hold is left out
+// with the built-on reason, and the task built on the batch base still composes.
+func TestComposeBranchMergeLeavesOutTaskOffTheBatchBase(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	dir := composeRepo(t)
+	base := composeBase(t, dir)
+	sibling := composeRevision(t, dir, base, "sibling\n", map[string]string{"s": "side"}, nil)
+	elsewhere := composeRevision(t, dir, sibling, "elsewhere\n", map[string]string{"q": "queue"}, nil)
+	here := composeRevision(t, dir, base, "here\n", map[string]string{"y": "two"}, nil)
+	tasks := []Task{{Seq: 1, Base: sibling, Revision: elsewhere}, {Seq: 2, Base: base, Revision: here}}
+
+	result, err := Compose(ctx, dir, base, tasks, testRef)
+	if err != nil {
+		t.Fatalf("Compose: %v", err)
+	}
+	wantLeftOut := []LeftOut{
+		{Seq: 1, Reason: fmt.Sprintf("T1 was built on %s, not on the batch base %s", sibling, base)},
+	}
+	if !reflect.DeepEqual(result.LeftOut, wantLeftOut) {
+		t.Fatalf("LeftOut = %v, want %v", result.LeftOut, wantLeftOut)
+	}
+	if len(result.Composed) != 1 || result.Composed[0].Seq != 2 {
+		t.Fatalf("Composed = %v, want T2 alone", result.Composed)
+	}
+	want := map[string]string{"a": "one", "b": "bee", "y": "two"}
+	if got := composeFiles(t, dir, result.Candidate); !maps.Equal(got, want) {
+		t.Fatalf("candidate files = %v, want %v", got, want)
+	}
+}
+
+// TestComposeBranchMergeRecomposeGivesSameCommits: composing the batch again, with a task left out for a conflict,
+// gives the same candidate and the create-only pin still passes.
+func TestComposeBranchMergeRecomposeGivesSameCommits(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	dir := composeRepo(t)
+	base := composeBase(t, dir)
+	first := composeRevision(t, dir, base, "first\n", map[string]string{"a": "first"}, nil)
+	conflicting := composeRevision(t, dir, base, "conflicting\n", map[string]string{"a": "second"}, nil)
+	third := composeRevision(t, dir, base, "third\n", map[string]string{"b": "third"}, nil)
+	tasks := []Task{
+		{Seq: 1, Base: base, Revision: first},
+		{Seq: 2, Base: base, Revision: conflicting},
+		{Seq: 3, Base: base, Revision: third},
+	}
+
+	composed, err := Compose(ctx, dir, base, tasks, testRef)
+	if err != nil {
+		t.Fatalf("Compose: %v", err)
+	}
+	if len(composed.Composed) != 2 || len(composed.LeftOut) != 1 {
+		t.Fatalf("Composed = %v, LeftOut = %v; want two composed and one left out", composed.Composed, composed.LeftOut)
+	}
+	again, err := Compose(ctx, dir, base, tasks, testRef)
+	if err != nil {
+		t.Fatalf("recompose refused by the pin: %v", err)
+	}
+	if !reflect.DeepEqual(again, composed) {
+		t.Fatalf("recompose = %+v, want the same result %+v", again, composed)
+	}
+	if got := composeGit(t, dir, nil, "", "rev-parse", testRef); got != composed.Candidate {
+		t.Fatalf("pin = %s after recompose, want the candidate %s", got, composed.Candidate)
 	}
 }
 

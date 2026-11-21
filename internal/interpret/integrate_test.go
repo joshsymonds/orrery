@@ -296,8 +296,8 @@ func integrateBatchGreenAdvancesBranchAndStoredBase(images *worldImages) func(t 
 		if got := w.pending(); got != pending+1 {
 			t.Errorf("pending triggers = %d, want %d: green wakes the planner once", got, pending+1)
 		}
-		if got := w.git("rev-list", "--count", w.base+".."+candidate); got != "2" {
-			t.Errorf("commits on the stored base = %s, want 2", got)
+		if got := w.git("rev-list", "--count", w.base+".."+candidate); got != "4" {
+			t.Errorf("commits on the stored base = %s, want 4: each task's commit and the merge that composed it", got)
 		}
 		if got := w.git("diff", "--name-only", w.base, candidate); got != "b.go\ninternal/a/x.go" {
 			t.Errorf("paths the candidate changes over the stored base = %q, want both tasks' paths", got)
@@ -360,8 +360,8 @@ func integrateFailedGateKeepsBranchAndNextBatchComposesOnCandidate(images *world
 		if tip := w.git("rev-parse", integrateBranch); tip != next {
 			t.Errorf("branch = %s, want the second candidate %s", tip, next)
 		}
-		if got := w.git("rev-list", "--count", candidate+".."+next); got != "2" {
-			t.Errorf("commits of the second batch on the first candidate = %s, want 2", got)
+		if got := w.git("rev-list", "--count", candidate+".."+next); got != "4" {
+			t.Errorf("commits of the second batch on the first candidate = %s, want 4: each task and its merge", got)
 		}
 		if got := w.git("rev-parse", next+"~2"); got != candidate {
 			t.Errorf("second candidate builds on %s, want the first candidate %s", got, candidate)
@@ -447,10 +447,10 @@ func integrateCutAdvanceEndsPassedOnce(images *worldImages) func(t *testing.T) {
 	}
 }
 
-// TestIntegrateOverlapLeavesTaskOutAndTellsThePlanner: two accepted tasks that change the same path compose to one
-// commit. The later task is left out, and the overlap line is the batch's output and the cause of the trigger that wakes
-// the planner.
-func TestIntegrateOverlapLeavesTaskOutAndTellsThePlanner(t *testing.T) {
+// TestIntegrateConflictLeavesTaskOutAndTellsThePlanner: two accepted tasks that change the same line of b.go compose to
+// one merge. The later task's merge conflicts, so it is left out, and the conflict line is the batch's output and the
+// cause of the trigger that wakes the planner.
+func TestIntegrateConflictLeavesTaskOutAndTellsThePlanner(t *testing.T) {
 	t.Parallel()
 	w := newIntegrateWorld(t)
 	first := w.commit(w.base, "b.go", "one\n")
@@ -466,19 +466,19 @@ func TestIntegrateOverlapLeavesTaskOutAndTellsThePlanner(t *testing.T) {
 	w.endCapture(integrateBatch)
 	w.pass()
 
-	if got := w.git("rev-list", "--count", w.base+".."+candidate); got != "1" {
-		t.Errorf("commits on the stored base = %s, want only T1's", got)
+	if got := w.git("rev-list", "--count", w.base+".."+candidate); got != "2" {
+		t.Errorf("commits on the stored base = %s, want T1's commit and its merge", got)
 	}
-	const overlap = "T2 overlaps T1 at b.go"
+	const conflict = "T2 conflicts with the candidate at b.go"
 	run := runAt(t, w.s, integrateBatch)
-	if run.State != store.NodeEnded || run.Outcome != "passed" || run.Output != "R1 green\n"+overlap {
-		t.Errorf("batch = %+v, want ended passed with output %q", run, "R1 green\n"+overlap)
+	if run.State != store.NodeEnded || run.Outcome != "passed" || run.Output != "R1 green\n"+conflict {
+		t.Errorf("batch = %+v, want ended passed with output %q", run, "R1 green\n"+conflict)
 	}
 	triggers, err := w.s.TurnTriggers(context.Background(), runEpic, 0)
 	if err != nil {
 		t.Fatalf("TurnTriggers: %v", err)
 	}
-	wantCause := fmt.Sprintf("workflow node %s passed: R1 green\n%s", integrateBatch, overlap)
+	wantCause := fmt.Sprintf("workflow node %s passed: R1 green\n%s", integrateBatch, conflict)
 	if !slices.ContainsFunc(triggers, func(trigger store.EpicTrigger) bool { return trigger.Cause == wantCause }) {
 		t.Errorf("pending triggers = %+v, want one with cause %q", triggers, wantCause)
 	}

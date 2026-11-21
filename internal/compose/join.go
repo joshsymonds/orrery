@@ -34,11 +34,12 @@ func Join(ctx context.Context, repo, base, line, prefix string) (string, bool, e
 			return pair[1], true, nil
 		}
 	}
-	tree, clean, err := mergedTree(ctx, repo, lineCommit, baseCommit)
+	tree, _, clean, err := mergedTree(ctx, repo, lineCommit, baseCommit)
 	if err != nil || !clean {
 		return "", false, err
 	}
-	merge, err := mergeCommit(ctx, repo, tree, lineCommit, baseCommit)
+	message := fmt.Appendf(nil, "Merge %s into %s\n", baseCommit, lineCommit)
+	merge, err := mergeCommit(ctx, repo, tree, lineCommit, baseCommit, lineCommit, message)
 	if err != nil {
 		return "", false, err
 	}
@@ -48,34 +49,37 @@ func Join(ctx context.Context, repo, base, line, prefix string) (string, bool, e
 	return merge, true, nil
 }
 
-// mergedTree writes the tree of the merge of base into line with merge-tree, without a checkout, and returns it. It
-// returns false, and no tree, when the merge conflicts.
-func mergedTree(ctx context.Context, repo, line, base string) (string, bool, error) {
-	out, err := runGit(ctx, repo, nil, nil, "merge-tree", "--write-tree", "--no-messages", "--name-only", line, base)
+// mergedTree writes the tree of the merge of base into line with merge-tree, without a checkout, and returns it with
+// true. A merge that conflicts returns no tree, false, and the conflicted paths. The paths are read NUL-separated, so
+// a name that git would otherwise quote comes back as it is.
+func mergedTree(ctx context.Context, repo, line, base string) (string, []string, bool, error) {
+	args := []string{"merge-tree", "--write-tree", "--no-messages", "--name-only", "-z", line, base}
+	out, err := runGit(ctx, repo, nil, nil, args...)
 	var exitErr *exec.ExitError
 	switch {
 	case err == nil:
-		tree, _, _ := strings.Cut(string(out), "\n")
-		return strings.TrimSpace(tree), true, nil
+		tree, _, _ := strings.Cut(string(out), "\x00")
+		return tree, nil, true, nil
 	case errors.As(err, &exitErr) && exitErr.ExitCode() == mergeConflict:
-		return "", false, nil
+		// The first record is the tree the conflicted merge wrote; the rest name the conflicted paths.
+		_, paths, _ := strings.Cut(string(out), "\x00")
+		return "", splitNUL([]byte(paths)), false, nil
 	default:
-		return "", false, fmt.Errorf("merge %s into %s: %w", base, line, err)
+		return "", nil, false, fmt.Errorf("merge %s into %s: %w", base, line, err)
 	}
 }
 
-// mergeCommit writes the commit of tree whose parents are line and then base, with line's author, committer and
-// dates.
-func mergeCommit(ctx context.Context, repo, tree, line, base string) (string, error) {
-	raw, err := runGit(ctx, repo, nil, nil, "cat-file", "commit", line)
+// mergeCommit writes the commit of tree whose parents are line and then base, with the author, committer and dates of
+// from, which is line or base, and message.
+func mergeCommit(ctx context.Context, repo, tree, line, base, from string, message []byte) (string, error) {
+	raw, err := runGit(ctx, repo, nil, nil, "cat-file", "commit", from)
 	if err != nil {
-		return "", fmt.Errorf("read join line: %w", err)
+		return "", fmt.Errorf("read merge identity: %w", err)
 	}
 	identity, _, err := commitIdentity(raw)
 	if err != nil {
 		return "", err
 	}
-	message := fmt.Appendf(nil, "Merge %s into %s\n", base, line)
 	commit, err := runGit(ctx, repo, identity, message, "commit-tree", tree, "-p", line, "-p", base)
 	if err != nil {
 		return "", fmt.Errorf("create merge commit: %w", err)

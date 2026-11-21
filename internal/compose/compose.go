@@ -1,5 +1,6 @@
-// Package compose composes a batch of accepted task commits into one candidate commit: one commit per task on the
-// batch base, pinned create-only under refs/orrery/, and an epic branch moved only from the commit it is expected at.
+// Package compose composes a batch of accepted task commits into one candidate commit: the batch base with each task's
+// revision merged in, pinned create-only under refs/orrery/, and an epic branch moved only from the commit it is
+// expected at.
 package compose
 
 import (
@@ -9,7 +10,6 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 )
 
@@ -32,10 +32,12 @@ type Composed struct {
 	Commit string
 }
 
-// LeftOut is a task that did not compose, and why.
+// LeftOut is a task that did not compose, and why. Conflicts holds the paths a task's merge conflicted at, and is empty
+// for a task left out for any other reason.
 type LeftOut struct {
-	Seq    int64
-	Reason string
+	Seq       int64
+	Reason    string
+	Conflicts []string
 }
 
 // Result is what Compose built. Candidate is the last composed commit, or Base when no task composed.
@@ -46,29 +48,15 @@ type Result struct {
 	LeftOut   []LeftOut
 }
 
-// owner is a path that an earlier composed task of the batch changed.
-type owner struct {
-	seq  int64
-	path string
-}
-
 // Compose composes tasks, in order, on base, and pins the candidate at ref when any task composed. Nothing reads or
-// writes the repository's index or working tree: each commit is staged in a temporary index outside the repository.
-func Compose(ctx context.Context, repo, base string, tasks []Task, ref string) (result Result, err error) {
+// writes the repository's index or working tree: merges are written with merge-tree and commit-tree, without a
+// checkout.
+func Compose(ctx context.Context, repo, base string, tasks []Task, ref string) (Result, error) {
 	batchBase, err := resolveCommit(ctx, repo, base)
 	if err != nil {
 		return Result{}, fmt.Errorf("resolve batch base: %w", err)
 	}
-	scratch, err := os.MkdirTemp("", "orrery-compose-")
-	if err != nil {
-		return Result{}, fmt.Errorf("create temporary index directory: %w", err)
-	}
-	defer func() {
-		if removeErr := os.RemoveAll(scratch); removeErr != nil && err == nil {
-			result, err = Result{}, fmt.Errorf("remove temporary index directory: %w", removeErr)
-		}
-	}()
-	result, err = composeTasks(ctx, repo, batchBase, filepath.Join(scratch, "index"), tasks)
+	result, err := composeTasks(ctx, repo, batchBase, tasks)
 	if err != nil {
 		return Result{}, err
 	}
@@ -80,101 +68,72 @@ func Compose(ctx context.Context, repo, base string, tasks []Task, ref string) (
 	return result, nil
 }
 
-// composeTasks walks tasks in order. A task's changed paths are those from the commit it was built on to its revision.
-// A task built on another commit than the batch base is left out, unless that commit is an ancestor of the batch base
-// and none of the task's changed paths was changed between the two (see baseCovers). A task whose changed paths overlap
-// a path an earlier composed task changed is left out too. Every other task becomes a commit on the candidate so far.
-func composeTasks(ctx context.Context, repo, batchBase, index string, tasks []Task) (Result, error) {
+// composeTasks walks tasks in order, each merged into the candidate so far, which starts at batchBase. A task built on
+// a commit that is neither batchBase nor an ancestor of it is left out. A task whose revision the candidate already
+// holds composes as the candidate itself. Every other task is merged in with a merge commit whose first parent is the
+// candidate, and a task whose merge conflicts is left out whole, with the conflicted paths.
+func composeTasks(ctx context.Context, repo, batchBase string, tasks []Task) (Result, error) {
 	result := Result{
 		Base:      batchBase,
 		Candidate: batchBase,
 		Composed:  make([]Composed, 0, len(tasks)),
 		LeftOut:   make([]LeftOut, 0, len(tasks)),
 	}
-	owners := make([]owner, 0)
 	for _, task := range tasks {
-		builtOn := LeftOut{
-			Seq:    task.Seq,
-			Reason: fmt.Sprintf("T%d was built on %s, not on the batch base %s", task.Seq, task.Base, batchBase),
-		}
-		base, ok, err := taskBase(ctx, repo, batchBase, task.Base)
+		builds, err := buildsOn(ctx, repo, batchBase, task.Base)
 		if err != nil {
 			return Result{}, fmt.Errorf("base of T%d: %w", task.Seq, err)
 		}
-		if !ok {
-			result.LeftOut = append(result.LeftOut, builtOn)
+		if !builds {
+			result.LeftOut = append(result.LeftOut, LeftOut{
+				Seq:    task.Seq,
+				Reason: fmt.Sprintf("T%d was built on %s, not on the batch base %s", task.Seq, task.Base, batchBase),
+			})
 			continue
 		}
 		revision, err := resolveCommit(ctx, repo, task.Revision)
 		if err != nil {
 			return Result{}, fmt.Errorf("resolve T%d revision: %w", task.Seq, err)
 		}
-		paths, err := changedPaths(ctx, repo, base, revision)
+		held, err := isAncestor(ctx, repo, revision, result.Candidate)
 		if err != nil {
-			return Result{}, fmt.Errorf("changed paths of T%d: %w", task.Seq, err)
+			return Result{}, fmt.Errorf("check whether the candidate holds T%d: %w", task.Seq, err)
 		}
-		covers, err := baseCovers(ctx, repo, base, batchBase, paths)
-		if err != nil {
-			return Result{}, fmt.Errorf("paths changed since the base of T%d: %w", task.Seq, err)
-		}
-		if !covers {
-			result.LeftOut = append(result.LeftOut, builtOn)
+		if held {
+			result.Composed = append(result.Composed, Composed{Seq: task.Seq, Commit: result.Candidate})
 			continue
 		}
-		if reason, overlapped := overlapReason(task.Seq, paths, owners); overlapped {
-			result.LeftOut = append(result.LeftOut, LeftOut{Seq: task.Seq, Reason: reason})
+		tree, conflicts, clean, err := mergedTree(ctx, repo, result.Candidate, revision)
+		if err != nil {
+			return Result{}, fmt.Errorf("merge T%d: %w", task.Seq, err)
+		}
+		if !clean {
+			reason := fmt.Sprintf("T%d conflicts with the candidate at %s", task.Seq, strings.Join(conflicts, ", "))
+			result.LeftOut = append(result.LeftOut, LeftOut{Seq: task.Seq, Reason: reason, Conflicts: conflicts})
 			continue
 		}
-		commit, err := composeTask(ctx, repo, index, result.Candidate, revision, paths)
+		message := fmt.Appendf(nil, "Merge T%d %s\n", task.Seq, revision)
+		commit, err := mergeCommit(ctx, repo, tree, result.Candidate, revision, revision, message)
 		if err != nil {
 			return Result{}, fmt.Errorf("compose T%d: %w", task.Seq, err)
 		}
 		result.Composed = append(result.Composed, Composed{Seq: task.Seq, Commit: commit})
 		result.Candidate = commit
-		for _, path := range paths {
-			owners = append(owners, owner{seq: task.Seq, path: path})
-		}
 	}
 	return result, nil
 }
 
-// taskBase returns the commit a task built on base takes its changed paths from, and whether that commit can be
-// composed on batchBase at all: batchBase itself, or the commit base names when it is an ancestor of batchBase. A base
-// that names no commit, or a commit that is not an ancestor of batchBase, cannot.
-func taskBase(ctx context.Context, repo, batchBase, base string) (string, bool, error) {
-	if base == batchBase {
-		return batchBase, true, nil
-	}
-	commit, ok := commitOf(ctx, repo, base)
-	if !ok {
-		return "", false, nil
-	}
-	ancestor, err := isAncestor(ctx, repo, commit, batchBase)
-	if err != nil {
-		return "", false, err
-	}
-	return commit, ancestor, nil
-}
-
-// baseCovers reports whether laying paths, a task's changed paths from base, over batchBase keeps every change made
-// between base and batchBase: base is batchBase, or no path changed between the two equals, holds or lies under one of
-// paths.
-func baseCovers(ctx context.Context, repo, base, batchBase string, paths []string) (bool, error) {
+// buildsOn reports whether a task built on base can compose on batchBase: base names batchBase itself, or a commit that
+// is an ancestor of batchBase. A base that names no commit cannot.
+func buildsOn(ctx context.Context, repo, batchBase, base string) (bool, error) {
 	if base == batchBase {
 		return true, nil
 	}
-	since, err := changedPaths(ctx, repo, base, batchBase)
-	if err != nil {
-		return false, err
+	commit, ok := commitOf(ctx, repo, base)
+	if !ok {
+		return false, nil
 	}
-	for _, path := range paths {
-		for _, changed := range since {
-			if pathsOverlap(path, changed) {
-				return false, nil
-			}
-		}
-	}
-	return true, nil
+	return isAncestor(ctx, repo, commit, batchBase)
 }
 
 // isAncestor reports whether ancestor is an ancestor of commit, or commit itself. It returns an error when git fails
@@ -190,33 +149,6 @@ func isAncestor(ctx context.Context, repo, ancestor, commit string) (bool, error
 	default:
 		return false, fmt.Errorf("check that %s is an ancestor of %s: %w", ancestor, commit, err)
 	}
-}
-
-// changedPaths returns the paths that differ between from and to.
-func changedPaths(ctx context.Context, repo, from, to string) ([]string, error) {
-	out, err := runGit(ctx, repo, nil, nil, "diff", "--name-only", "-z", "--no-renames", from, to)
-	if err != nil {
-		return nil, err
-	}
-	return splitNUL(out), nil
-}
-
-// overlapReason returns the reason task seq is left out when one of its paths is, or lies under, or holds, a path an
-// earlier composed task changed. The path reported is the task's own.
-func overlapReason(seq int64, paths []string, owners []owner) (string, bool) {
-	for _, path := range paths {
-		for _, earlier := range owners {
-			if pathsOverlap(path, earlier.path) {
-				return fmt.Sprintf("T%d overlaps T%d at %s", seq, earlier.seq, path), true
-			}
-		}
-	}
-	return "", false
-}
-
-// pathsOverlap reports whether two repository paths are equal, or one is a directory that holds the other.
-func pathsOverlap(first, second string) bool {
-	return first == second || strings.HasPrefix(first, second+"/") || strings.HasPrefix(second, first+"/")
 }
 
 // composeTask writes one commit on parent: the revision's changed paths staged over parent's tree in the temporary
@@ -407,7 +339,8 @@ func splitNUL(out []byte) []string {
 }
 
 // runGit runs git in repo with argv and no shell. env is added to its environment and stdin is fed to it. It returns
-// git's stdout, and on failure an error that carries git's stderr.
+// git's stdout, which on failure is what git wrote before it failed, such as the conflicted paths merge-tree names when
+// it exits 1, and an error that carries git's stderr when git failed.
 func runGit(ctx context.Context, repo string, env []string, stdin []byte, args ...string) ([]byte, error) {
 	cmd := exec.CommandContext(ctx, "git")
 	cmd.Args = append(cmd.Args, "-C", repo)
@@ -418,7 +351,9 @@ func runGit(ctx context.Context, repo string, env []string, stdin []byte, args .
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
-		return nil, fmt.Errorf("git %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(stderr.String()))
+		return stdout.Bytes(), fmt.Errorf(
+			"git %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(stderr.String()),
+		)
 	}
 	return stdout.Bytes(), nil
 }

@@ -19,11 +19,11 @@ func (w *integrateWorld) laterBy(by time.Duration) {
 
 // syncPastAFailedBatchThatComposedNothingLeavesNoCandidate: a batch whose tasks were all left out composes nothing
 // and fails at the stored base, with no candidate. Its tasks were built on the epic's base, an ancestor of the stored
-// base, and change the files the first batch changed since, so neither composes. A sync then moves the stored base past it. The owner's retry of that
-// failed batch ends it failed again at once, at the old base, and sets no candidate: one would hold the epic behind
-// its stored base, where no sync starts while it stands and the next batch composes on it. So the next turn's batch,
-// built on the sync's merge, composes on the stored base and advances the branch without a park, and a later move of
-// origin's main is synced again.
+// base, and change the files the first batch changed since, so each conflicts with the candidate and neither composes.
+// A sync then moves the stored base past it. The owner's retry of that failed batch ends it failed again at once, at
+// the old base, and sets no candidate: one would hold the epic behind its stored base, where no sync starts while it
+// stands and the next batch composes on it. So the next turn's batch, built on the sync's merge, composes on the stored
+// base and advances the branch without a park, and a later move of origin's main is synced again.
 func syncPastAFailedBatchThatComposedNothingLeavesNoCandidate(images *worldImages) func(t *testing.T) {
 	return func(t *testing.T) {
 		t.Parallel()
@@ -40,13 +40,7 @@ func syncPastAFailedBatchThatComposedNothingLeavesNoCandidate(images *worldImage
 		if !w.passed() {
 			t.Error("the planner got no turn after the batch that composed nothing failed")
 		}
-		leftOut := fmt.Sprintf(
-			"T3 was built on %s, not on the batch base %s\nT4 was built on %s, not on the batch base %s",
-			w.base,
-			candidate,
-			w.base,
-			candidate,
-		)
+		const leftOut = "T3 conflicts with the candidate at internal/a/x.go\nT4 conflicts with the candidate at b.go"
 		if batch := runAt(t, w.s, integrateNextBatch); batch.Outcome != outcomeFailed || batch.Output != leftOut ||
 			batch.Revision != candidate {
 			t.Fatalf("batch = %+v, want failed at the stored base %s with %q", batch, candidate, leftOut)

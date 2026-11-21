@@ -285,7 +285,7 @@ func TestIntegrateComposesAForkedCandidatesTasksOnTheStoredBaseWhenTheMergeConfl
 	}
 	output := runAt(t, w.s, integrateNextBatch).Output
 	for _, left := range []string{
-		"T2 was built on " + w.base + ", not on the batch base " + newer,
+		"T2 conflicts with the candidate at b.go",
 		"T4 was built on " + forked + ", not on the batch base " + newer,
 	} {
 		if !strings.Contains(output, left) {
