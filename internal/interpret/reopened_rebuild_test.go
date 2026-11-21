@@ -68,27 +68,27 @@ func TestReopenedTaskRebuildRestartsEndedBuildRun(t *testing.T) {
 	})
 }
 
-// TestReopenedTaskRebuildWaitsOnOpenBatch checks that an open task whose build child run ended gets no rebuild while an
-// integrate run under its plan is running or parked, as no task starts while a batch holds the fan-out.
-func TestReopenedTaskRebuildWaitsOnOpenBatch(t *testing.T) {
+// TestReopenedTaskRebuildRunsWhileBatchOpen checks that an open task whose build child run ended is rebuilt while an
+// integrate run under its plan is running or parked: the fan-out does not wait for a batch.
+func TestReopenedTaskRebuildRunsWhileBatchOpen(t *testing.T) {
 	t.Parallel()
 	turns := []store.EpicTurn{turnAt(1, "work")}
 	reopened := []store.EpicTask{openTask(1, 1)}
 	plan := Action{Kind: ActRun, Path: "plan", NodeKind: "plan"}
 	decideCases(t, []decideCase{
 		{
-			name: "running integrate run holds the rebuild",
+			name: "running integrate run does not hold the rebuild",
 			flow: planWithChecks(batchNode()),
 			rows: rowsOf(turns, reopened, runningPlan(0), reopenedBuild(store.NodeEnded), batchRun("c1")),
 			reg:  integrateKinds(scripted{}),
-			want: []Action{plan},
+			want: []Action{plan, reopenedRebuild()},
 		},
 		{
-			name: "parked integrate run holds the rebuild",
+			name: "parked integrate run does not hold the rebuild",
 			flow: planWithChecks(batchNode()),
 			rows: rowsOf(turns, reopened, runningPlan(0), reopenedBuild(store.NodeEnded), parked(batchRun("c1"))),
 			reg:  integrateKinds(scripted{}),
-			want: []Action{plan},
+			want: []Action{plan, reopenedRebuild()},
 		},
 	})
 }

@@ -106,11 +106,11 @@ func (w *integrateWorld) requireAdvanced(path string) string {
 	return next
 }
 
-// TestIntegrateBatchFailingAfterANewerBatchPassedKeepsTheCandidateOnTheStoredBase: two batches are in flight at once,
-// as a settle walk that starts while an older one still runs makes them, both composed on the stored base. The newer
-// batch passes first and moves the stored base. The older batch then fails: the candidate it leaves must build on the
-// new stored base and still hold the older batch's work, and the next batch composed on it advances the branch with
-// every task's work.
+// TestIntegrateBatchFailingAfterANewerBatchPassedKeepsTheCandidateOnTheStoredBase: a newer batch passes over the older
+// one while the older one still runs, which overtake stands in for, since one integrate runs at a time and no second
+// batch starts while the first runs. That pass moves the stored base. The older batch then fails: the candidate it
+// leaves must build on the new stored base and still hold the older batch's work, and the next batch composed on it
+// advances the branch with every task's work.
 func TestIntegrateBatchFailingAfterANewerBatchPassedKeepsTheCandidateOnTheStoredBase(t *testing.T) {
 	t.Parallel()
 	w := newIntegrateWorld(t)
@@ -123,14 +123,11 @@ func TestIntegrateBatchFailingAfterANewerBatchPassedKeepsTheCandidateOnTheStored
 	w.accept(3, w.base, third)
 	w.accept(4, w.base, fourth)
 	w.pass()
-	newer := w.candidate(integrateNextBatch)
-	if !w.holds(newer, w.base) || w.holds(newer, older) {
-		t.Fatalf("second batch %s, want it composed on the stored base %s while the first batch %s runs", newer,
-			w.base, older)
-	}
-	w.green(integrateNextBatch)
+
+	newer := w.commit(w.base, "newer.go", "newer\n")
+	w.overtake(newer)
 	if got := epicOf(t, w.s).StoredBase; got != newer {
-		t.Fatalf("stored base = %s, want the second batch %s", got, newer)
+		t.Fatalf("stored base = %s, want the newer batch %s that passed over the first batch %s", got, newer, older)
 	}
 
 	w.endGate(integrateBatch, 1, "lint failed")
@@ -144,28 +141,32 @@ func TestIntegrateBatchFailingAfterANewerBatchPassedKeepsTheCandidateOnTheStored
 			candidate, newer, older)
 	}
 
-	fifth := w.commit(candidate, "e.go", "five\n")
-	sixth := w.commit(candidate, "f.go", "six\n")
+	w.pass()
+	w.green(integrateNextBatch)
+	landed := w.requireAdvanced(integrateNextBatch)
+
+	fifth := w.commit(landed, "e.go", "five\n")
+	sixth := w.commit(landed, "f.go", "six\n")
 	w.planTurn()
-	w.accept(5, candidate, fifth)
-	w.accept(6, candidate, sixth)
+	w.accept(5, landed, fifth)
+	w.accept(6, landed, sixth)
 	w.pass()
 	w.green(integrateThirdBatch)
-	landed := w.requireAdvanced(integrateThirdBatch)
+	last := w.requireAdvanced(integrateThirdBatch)
 	for path, text := range map[string]string{
-		"internal/a/x.go": "one", "b.go": "two", "c.go": "three", "d.go": "four", "e.go": "five", "f.go": "six",
+		"internal/a/x.go": "one", "b.go": "two", "c.go": "three", "d.go": "four", "newer.go": "newer",
+		"e.go": "five", "f.go": "six",
 	} {
-		if got := w.file(landed, path); got != text {
+		if got := w.file(last, path); got != text {
 			t.Errorf("%s on the branch = %q, want %q", path, got, text)
 		}
 	}
 }
 
-// TestIntegrateBatchPassingAfterAnOlderBatchFailedKeepsTheOlderBatchsWork: two batches are in flight at once, both
-// composed on the stored base. The older batch fails first and leaves its revision as the candidate. The newer batch,
-// which was not composed on that candidate, then passes and moves the stored base: the candidate it leaves joins the
-// failed batch's work with the new stored base, so that work is not dropped, and the next batch composed on it
-// advances the branch with every task's work.
+// TestIntegrateBatchPassingAfterAnOlderBatchFailedKeepsTheOlderBatchsWork: the older batch fails first and leaves its
+// revision as the candidate. The next batch starts only once the failed batch has ended, so it composes that candidate
+// with the stored base, and when it passes and moves the stored base, the failed batch's work is kept, not dropped. The
+// batch after it then advances the branch with every task's work.
 func TestIntegrateBatchPassingAfterAnOlderBatchFailedKeepsTheOlderBatchsWork(t *testing.T) {
 	t.Parallel()
 	w := newIntegrateWorld(t)
@@ -178,35 +179,32 @@ func TestIntegrateBatchPassingAfterAnOlderBatchFailedKeepsTheOlderBatchsWork(t *
 	w.accept(3, w.base, third)
 	w.accept(4, w.base, fourth)
 	w.pass()
-	newer := w.candidate(integrateNextBatch)
 
 	w.endGate(integrateBatch, 1, "lint failed")
 	w.pass()
 	if got := epicOf(t, w.s).Candidate; got != older {
 		t.Fatalf("candidate after the first batch failed = %q, want its revision %s", got, older)
 	}
+	w.pass()
+	newer := w.candidate(integrateNextBatch)
+	if !w.holds(newer, older) {
+		t.Fatalf("second batch %s, want it composed on the failed batch's candidate %s", newer, older)
+	}
 	w.green(integrateNextBatch)
-	epic := epicOf(t, w.s)
-	if epic.StoredBase != newer {
-		t.Fatalf("stored base = %s, want the second batch %s", epic.StoredBase, newer)
-	}
-	if epic.Candidate == "" || !w.holds(epic.Candidate, newer) || !w.holds(epic.Candidate, older) {
-		t.Fatalf("candidate %q, want one that builds on the stored base %s and holds the failed batch %s",
-			epic.Candidate, newer, older)
-	}
+	landed := w.requireAdvanced(integrateNextBatch)
 
-	fifth := w.commit(epic.Candidate, "e.go", "five\n")
-	sixth := w.commit(epic.Candidate, "f.go", "six\n")
+	fifth := w.commit(landed, "e.go", "five\n")
+	sixth := w.commit(landed, "f.go", "six\n")
 	w.planTurn()
-	w.accept(5, epic.Candidate, fifth)
-	w.accept(6, epic.Candidate, sixth)
+	w.accept(5, landed, fifth)
+	w.accept(6, landed, sixth)
 	w.pass()
 	w.green(integrateThirdBatch)
-	landed := w.requireAdvanced(integrateThirdBatch)
+	last := w.requireAdvanced(integrateThirdBatch)
 	for path, text := range map[string]string{
 		"internal/a/x.go": "one", "b.go": "two", "c.go": "three", "d.go": "four", "e.go": "five", "f.go": "six",
 	} {
-		if got := w.file(landed, path); got != text {
+		if got := w.file(last, path); got != text {
 			t.Errorf("%s on the branch = %q, want %q", path, got, text)
 		}
 	}

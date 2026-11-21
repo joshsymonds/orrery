@@ -10,8 +10,8 @@ import (
 )
 
 // sendBackLateBatch is the path of the late walk's integrate run that batches T3 and T4 once the failed batch sent them
-// back and each is rebuilt: the walk of T3's first reopen generation.
-const sendBackLateBatch = "plan/L3g1/integrate"
+// back and each is rebuilt: the late walk of T4, the highest unclaimed task, at its first reopen generation.
+const sendBackLateBatch = "plan/L4g1/integrate"
 
 // laterBy sets the runner's clock to by after runClock, so the runner's reads and writes from then on are stamped
 // then.
