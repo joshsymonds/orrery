@@ -93,6 +93,7 @@ class ReplyReceiverTest {
     private val answerNotReachedText = "Your answer did not reach the server."
     private val replyNotReachedText = "Your reply did not reach the server. It is kept in the app."
     private val unkeptReplyNotReachedText = "Your reply did not reach the server."
+    private val unkeptRefusedReplyText = "The server refused your reply."
 
     @Before
     fun setUp() {
@@ -265,6 +266,19 @@ class ReplyReceiverTest {
         assertEquals(unkeptReplyNotReachedText, shownText())
         assertEquals(emptyList<String>(), keptTexts(PANE, pane))
         assertEquals(emptyList<String>(), keptTexts(SESSION, session))
+    }
+
+    @Test
+    fun failedReplyWithoutHostSendsKeepsNothingAndShowsNotSentWithoutKeptSuffix() {
+        server.fail(textPath, Code.INTERNAL_ERROR, "boom")
+
+        deliverReply("synthetic reply", Intent(ACTION_REPLY).putExtra(EXTRA_PANE, pane))
+        awaitDelivered { shownTitle() == "$dir: not sent" }
+
+        assertEquals(listOf(textPath), paths())
+        assertEquals(unkeptRefusedReplyText, shownText())
+        assertEquals(emptyList<String>(), KeptReplies(context).kept("", PANE, pane).map { it.text })
+        assertEquals(emptyList<String>(), keptTexts(PANE, pane))
     }
 
     @Test

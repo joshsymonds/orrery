@@ -140,8 +140,12 @@ class ReplyReceiver : BroadcastReceiver() {
         }
     }
 
-    /** Keeps a reply the receiver did not see land, and returns the result that says it is kept. */
+    /**
+     * Keeps a reply the receiver did not see land, and returns the result that says it is kept. A reply that names no
+     * host keeps nothing: no dock reads a reply kept under an empty host.
+     */
     private fun unlanded(context: Context, reply: TypedReply, title: String, reason: String): Shown {
+        if (reply.host.isEmpty()) return Shown(title, reason)
         val kept = KeptReplies(context).keep(reply.host, reply.kind, reply.conversation, reply.text)
         return Shown(title, if (kept) "$reason $KEPT_IN_APP" else reason)
     }
