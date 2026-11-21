@@ -10,7 +10,7 @@ import { Block, CheckBlock, EventBlock, YouBlock } from "./blocks";
 import { EpicStepCheckSchema, type EpicStepCheck } from "./gen/orrery/v1/epics_pb";
 import { Icon, type IconName } from "./glyphs";
 import { clock } from "./reader";
-import { installTestDom, removeTestDom } from "./testdom";
+import { assertNone, installTestDom, removeTestDom } from "./testdom";
 
 // withBlock renders the element into a fresh test DOM, runs the check on its container, and removes the DOM.
 async function withBlock(element: JSX.Element, check: (container: HTMLElement) => void | Promise<void>): Promise<void> {
@@ -80,7 +80,7 @@ test("Shapes: a desk prompt's YouBlock keeps the person icon and draws no phone 
     assert.ok(root, "the desk YouBlock has no block root");
     assert.equal(root.querySelector(".head")?.innerHTML.includes(personIcon), true, "the head does not draw the person icon");
     assert.equal(root.querySelector(".head")?.innerHTML.includes(phoneIcon), false, "the head draws the phone icon");
-    assert.equal(root.querySelector(".head .words"), null, "the desk prompt draws words after its label");
+    assertNone(root.querySelector(".head .words"), "the desk prompt draws words after its label");
   });
 });
 

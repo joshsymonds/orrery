@@ -1,6 +1,6 @@
 // The stories of the blocks: round 6's YouBlock states, Default, FromPhone and Sending, its EventBlock, and its CheckBlock
-// states, Bad, Ok and NoteOpen. Block's stories are the YouBlock's, which Block draws (catalog/coverage.ts storyRenames). Every state
-// draws inside the reader's element, where the reader's CSS applies.
+// states, Bad, Ok and NoteOpen. Block's stories are the YouBlock's, which Block draws (catalog/coverage.ts storyRenames).
+// Every state draws inside the reader's element, where the reader's CSS applies.
 
 import { create } from "@bufbuild/protobuf";
 

@@ -9,7 +9,7 @@ import { ConversationItemSchema, type ConversationItem } from "./gen/orrery/v1/o
 import { Icon, type IconName } from "./glyphs";
 import { EngineFold, NoticeLine, ThinkingLine, ToolLine, ToolRun, type RunCall } from "./lines";
 import { mockTimers } from "./testclock";
-import { installTestDom, removeTestDom } from "./testdom";
+import { assertNone, installTestDom, removeTestDom } from "./testdom";
 
 // withDom renders the element into a fresh test DOM, runs the check on its container, and removes the DOM.
 async function withDom(
@@ -144,13 +144,13 @@ test("Shapes: a tool line whose result counts its lines draws its +N and −M, a
   await withDom(
     <ToolLine item={call("Edit", "query.go")} result={editResult("c1", 0n, 0n)} running={false} query="" current={-1} />,
     (container) => {
-      assert.equal(container.querySelector(".more"), null, "a result with no counts draws no counts");
+      assertNone(container.querySelector(".more"), "a result with no counts draws no counts");
     },
   );
   await withDom(
     <ToolLine item={call("Edit", "query.go")} result={undefined} running={false} query="" current={-1} />,
     (container) => {
-      assert.equal(container.querySelector(".more"), null, "a call with no result draws no counts");
+      assertNone(container.querySelector(".more"), "a call with no result draws no counts");
     },
   );
 });
