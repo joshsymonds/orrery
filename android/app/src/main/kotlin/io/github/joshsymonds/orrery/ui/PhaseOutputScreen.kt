@@ -104,7 +104,11 @@ fun PhaseOutputScreen(
             client.watchSession(session, after = 0L) { delta ->
                 delta.items.briefText()?.let { brief = it }
                 if (delta.reset && brief == null && delta.oldest > 0L) {
-                    briefBefore(client, session, delta.oldest)?.let { brief = it }
+                    try {
+                        briefBefore(client, session, delta.oldest)?.let { brief = it }
+                    } catch (error: IOException) {
+                        // A failed older page leaves no brief, and the watch goes on to its later deltas.
+                    }
                 }
             }
         } catch (error: IOException) {
