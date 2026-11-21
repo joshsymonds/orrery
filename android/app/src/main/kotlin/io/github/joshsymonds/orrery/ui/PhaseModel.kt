@@ -193,6 +193,12 @@ internal fun provenOf(id: String, wedges: List<Wedge>, requirements: List<EpicRe
     return wedges.filter { id in it.requirements }.all { it.place == WedgePlace.INTEGRATED }
 }
 
+// The proven ids of an epic: every requirement's id and every wedge's requirement id that [provenOf] holds for.
+internal fun provenIdsOf(requirements: List<EpicRequirementRow>, wedges: List<Wedge>): Set<String> {
+    val ids = requirements.map { it.id } + wedges.flatMap { it.requirements }
+    return ids.filter { provenOf(it, wedges, requirements) }.toSet()
+}
+
 /**
  * The arcs of the requirements around the wedges. Wedge i with k requirements gives part j the span from i + j/k to
  * i + (j+1)/k; a part continues the previous arc when it names the same requirement and starts where that arc ends.

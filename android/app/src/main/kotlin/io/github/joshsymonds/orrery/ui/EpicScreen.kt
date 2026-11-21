@@ -393,10 +393,7 @@ private fun EpicBody(
     val detail = loaded.detail
     val reached = reachedOf(detail, loaded.history)
     val tasks = remember(detail) { recordTasksOf(detail) }
-    val proven = remember(detail) {
-        val wedges = wedgesOf(detail)
-        detail.requirements.filter { provenOf(it.id, wedges, detail.requirements) }.map { it.id }.toSet()
-    }
+    val proven = remember(detail) { provenIdsOf(detail.requirements, wedgesOf(detail)) }
     val review = remember(detail) { reviewOf(detail) }
     val release = remember(detail) { releaseOf(detail) }
     val report = remember(detail) { reportOf(detail) }
@@ -476,12 +473,12 @@ private fun EpicBody(
                 ) {
                     SectionHeading("Requirements")
                     Text(
-                        "${proven.size} of ${detail.requirements.size} proven",
+                        "${detail.requirements.count { it.id in proven }} of ${detail.requirements.size} proven",
                         style = OrreryTokens.Type.small,
                         color = OrreryTokens.Ink.three,
                     )
                 }
-                RequirementTable(requirements = detail.requirements, loadArtifact = loadArtifact)
+                RequirementTable(requirements = detail.requirements, proven = proven, loadArtifact = loadArtifact)
             }
         }
         if (review != null) {
