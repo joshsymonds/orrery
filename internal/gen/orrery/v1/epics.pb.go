@@ -493,8 +493,16 @@ type EpicQuestion struct {
 	Choices []*EpicQuestionChoice `protobuf:"bytes,6,rep,name=choices,proto3" json:"choices,omitempty"`
 	// The choice the question recommends, with why and how sure the planner is. Unset when it recommends none.
 	Recommendation *EpicRecommendation `protobuf:"bytes,7,opt,name=recommendation,proto3" json:"recommendation,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	// When the question was escalated, in unix seconds; 0 while it is not escalated.
+	Escalated int64 `protobuf:"varint,8,opt,name=escalated,proto3" json:"escalated,omitempty"`
+	// Why the question was escalated. Empty while it is not escalated.
+	EscalationReason string `protobuf:"bytes,9,opt,name=escalation_reason,json=escalationReason,proto3" json:"escalation_reason,omitempty"`
+	// Who escalated the question: owner, conversation or orreryd. Empty while it is not escalated.
+	EscalationBy string `protobuf:"bytes,10,opt,name=escalation_by,json=escalationBy,proto3" json:"escalation_by,omitempty"`
+	// The session that escalated the question when a conversation did. Empty otherwise.
+	EscalationSession string `protobuf:"bytes,11,opt,name=escalation_session,json=escalationSession,proto3" json:"escalation_session,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
 }
 
 func (x *EpicQuestion) Reset() {
@@ -574,6 +582,34 @@ func (x *EpicQuestion) GetRecommendation() *EpicRecommendation {
 		return x.Recommendation
 	}
 	return nil
+}
+
+func (x *EpicQuestion) GetEscalated() int64 {
+	if x != nil {
+		return x.Escalated
+	}
+	return 0
+}
+
+func (x *EpicQuestion) GetEscalationReason() string {
+	if x != nil {
+		return x.EscalationReason
+	}
+	return ""
+}
+
+func (x *EpicQuestion) GetEscalationBy() string {
+	if x != nil {
+		return x.EscalationBy
+	}
+	return ""
+}
+
+func (x *EpicQuestion) GetEscalationSession() string {
+	if x != nil {
+		return x.EscalationSession
+	}
+	return ""
 }
 
 // EpicQuestionChoice is one choice a planner question declares.
@@ -6147,7 +6183,7 @@ const file_orrery_v1_epics_proto_rawDesc = "" +
 	"\x05label\x18\x03 \x01(\tR\x05label\x12\x12\n" +
 	"\x04call\x18\x04 \x01(\tR\x04call\x12\x0e\n" +
 	"\x02at\x18\x05 \x01(\x03R\x02at\x12\x18\n" +
-	"\acreator\x18\x06 \x01(\bR\acreator\"\xf2\x01\n" +
+	"\acreator\x18\x06 \x01(\bR\acreator\"\x91\x03\n" +
 	"\fEpicQuestion\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04text\x18\x02 \x01(\tR\x04text\x12\x12\n" +
@@ -6155,7 +6191,12 @@ const file_orrery_v1_epics_proto_rawDesc = "" +
 	"\x05asked\x18\x04 \x01(\x03R\x05asked\x12\x14\n" +
 	"\x05label\x18\x05 \x01(\tR\x05label\x127\n" +
 	"\achoices\x18\x06 \x03(\v2\x1d.orrery.v1.EpicQuestionChoiceR\achoices\x12E\n" +
-	"\x0erecommendation\x18\a \x01(\v2\x1d.orrery.v1.EpicRecommendationR\x0erecommendation\"8\n" +
+	"\x0erecommendation\x18\a \x01(\v2\x1d.orrery.v1.EpicRecommendationR\x0erecommendation\x12\x1c\n" +
+	"\tescalated\x18\b \x01(\x03R\tescalated\x12+\n" +
+	"\x11escalation_reason\x18\t \x01(\tR\x10escalationReason\x12#\n" +
+	"\rescalation_by\x18\n" +
+	" \x01(\tR\fescalationBy\x12-\n" +
+	"\x12escalation_session\x18\v \x01(\tR\x11escalationSession\"8\n" +
 	"\x12EpicQuestionChoice\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04does\x18\x02 \x01(\tR\x04does\"^\n" +

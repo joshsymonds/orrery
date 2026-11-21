@@ -23,6 +23,9 @@ public  final class EpicQuestion extends
     text_ = "";
     label_ = "";
     choices_ = emptyProtobufList();
+    escalationReason_ = "";
+    escalationBy_ = "";
+    escalationSession_ = "";
   }
   private int bitField0_;
   public static final int ID_FIELD_NUMBER = 1;
@@ -505,6 +508,245 @@ public  final class EpicQuestion extends
   private void clearRecommendation() {
     recommendation_ = null;
     bitField0_ = (bitField0_ & ~0x00000001);
+  }
+
+  public static final int ESCALATED_FIELD_NUMBER = 8;
+  private long escalated_;
+  /**
+   * <pre>
+   * When the question was escalated, in unix seconds; 0 while it is not escalated.
+   * </pre>
+   *
+   * <code>int64 escalated = 8 [json_name = "escalated"];</code>
+   * @return The escalated.
+   */
+  @java.lang.Override
+  public long getEscalated() {
+    return escalated_;
+  }
+  /**
+   * <pre>
+   * When the question was escalated, in unix seconds; 0 while it is not escalated.
+   * </pre>
+   *
+   * <code>int64 escalated = 8 [json_name = "escalated"];</code>
+   * @param value The escalated to set.
+   */
+  private void setEscalated(long value) {
+    
+    escalated_ = value;
+  }
+  /**
+   * <pre>
+   * When the question was escalated, in unix seconds; 0 while it is not escalated.
+   * </pre>
+   *
+   * <code>int64 escalated = 8 [json_name = "escalated"];</code>
+   */
+  private void clearEscalated() {
+
+    escalated_ = 0L;
+  }
+
+  public static final int ESCALATION_REASON_FIELD_NUMBER = 9;
+  private java.lang.String escalationReason_;
+  /**
+   * <pre>
+   * Why the question was escalated. Empty while it is not escalated.
+   * </pre>
+   *
+   * <code>string escalation_reason = 9 [json_name = "escalationReason"];</code>
+   * @return The escalationReason.
+   */
+  @java.lang.Override
+  public java.lang.String getEscalationReason() {
+    return escalationReason_;
+  }
+  /**
+   * <pre>
+   * Why the question was escalated. Empty while it is not escalated.
+   * </pre>
+   *
+   * <code>string escalation_reason = 9 [json_name = "escalationReason"];</code>
+   * @return The bytes for escalationReason.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString
+      getEscalationReasonBytes() {
+    return com.google.protobuf.ByteString.copyFromUtf8(escalationReason_);
+  }
+  /**
+   * <pre>
+   * Why the question was escalated. Empty while it is not escalated.
+   * </pre>
+   *
+   * <code>string escalation_reason = 9 [json_name = "escalationReason"];</code>
+   * @param value The escalationReason to set.
+   */
+  private void setEscalationReason(
+      java.lang.String value) {
+    java.util.Objects.requireNonNull(value);
+
+    escalationReason_ = value;
+  }
+  /**
+   * <pre>
+   * Why the question was escalated. Empty while it is not escalated.
+   * </pre>
+   *
+   * <code>string escalation_reason = 9 [json_name = "escalationReason"];</code>
+   */
+  private void clearEscalationReason() {
+
+    escalationReason_ = getDefaultInstance().getEscalationReason();
+  }
+  /**
+   * <pre>
+   * Why the question was escalated. Empty while it is not escalated.
+   * </pre>
+   *
+   * <code>string escalation_reason = 9 [json_name = "escalationReason"];</code>
+   * @param value The bytes for escalationReason to set.
+   */
+  private void setEscalationReasonBytes(
+      com.google.protobuf.ByteString value) {
+    checkByteStringIsUtf8(value);
+    escalationReason_ = value.toStringUtf8();
+
+  }
+
+  public static final int ESCALATION_BY_FIELD_NUMBER = 10;
+  private java.lang.String escalationBy_;
+  /**
+   * <pre>
+   * Who escalated the question: owner, conversation or orreryd. Empty while it is not escalated.
+   * </pre>
+   *
+   * <code>string escalation_by = 10 [json_name = "escalationBy"];</code>
+   * @return The escalationBy.
+   */
+  @java.lang.Override
+  public java.lang.String getEscalationBy() {
+    return escalationBy_;
+  }
+  /**
+   * <pre>
+   * Who escalated the question: owner, conversation or orreryd. Empty while it is not escalated.
+   * </pre>
+   *
+   * <code>string escalation_by = 10 [json_name = "escalationBy"];</code>
+   * @return The bytes for escalationBy.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString
+      getEscalationByBytes() {
+    return com.google.protobuf.ByteString.copyFromUtf8(escalationBy_);
+  }
+  /**
+   * <pre>
+   * Who escalated the question: owner, conversation or orreryd. Empty while it is not escalated.
+   * </pre>
+   *
+   * <code>string escalation_by = 10 [json_name = "escalationBy"];</code>
+   * @param value The escalationBy to set.
+   */
+  private void setEscalationBy(
+      java.lang.String value) {
+    java.util.Objects.requireNonNull(value);
+
+    escalationBy_ = value;
+  }
+  /**
+   * <pre>
+   * Who escalated the question: owner, conversation or orreryd. Empty while it is not escalated.
+   * </pre>
+   *
+   * <code>string escalation_by = 10 [json_name = "escalationBy"];</code>
+   */
+  private void clearEscalationBy() {
+
+    escalationBy_ = getDefaultInstance().getEscalationBy();
+  }
+  /**
+   * <pre>
+   * Who escalated the question: owner, conversation or orreryd. Empty while it is not escalated.
+   * </pre>
+   *
+   * <code>string escalation_by = 10 [json_name = "escalationBy"];</code>
+   * @param value The bytes for escalationBy to set.
+   */
+  private void setEscalationByBytes(
+      com.google.protobuf.ByteString value) {
+    checkByteStringIsUtf8(value);
+    escalationBy_ = value.toStringUtf8();
+
+  }
+
+  public static final int ESCALATION_SESSION_FIELD_NUMBER = 11;
+  private java.lang.String escalationSession_;
+  /**
+   * <pre>
+   * The session that escalated the question when a conversation did. Empty otherwise.
+   * </pre>
+   *
+   * <code>string escalation_session = 11 [json_name = "escalationSession"];</code>
+   * @return The escalationSession.
+   */
+  @java.lang.Override
+  public java.lang.String getEscalationSession() {
+    return escalationSession_;
+  }
+  /**
+   * <pre>
+   * The session that escalated the question when a conversation did. Empty otherwise.
+   * </pre>
+   *
+   * <code>string escalation_session = 11 [json_name = "escalationSession"];</code>
+   * @return The bytes for escalationSession.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString
+      getEscalationSessionBytes() {
+    return com.google.protobuf.ByteString.copyFromUtf8(escalationSession_);
+  }
+  /**
+   * <pre>
+   * The session that escalated the question when a conversation did. Empty otherwise.
+   * </pre>
+   *
+   * <code>string escalation_session = 11 [json_name = "escalationSession"];</code>
+   * @param value The escalationSession to set.
+   */
+  private void setEscalationSession(
+      java.lang.String value) {
+    java.util.Objects.requireNonNull(value);
+
+    escalationSession_ = value;
+  }
+  /**
+   * <pre>
+   * The session that escalated the question when a conversation did. Empty otherwise.
+   * </pre>
+   *
+   * <code>string escalation_session = 11 [json_name = "escalationSession"];</code>
+   */
+  private void clearEscalationSession() {
+
+    escalationSession_ = getDefaultInstance().getEscalationSession();
+  }
+  /**
+   * <pre>
+   * The session that escalated the question when a conversation did. Empty otherwise.
+   * </pre>
+   *
+   * <code>string escalation_session = 11 [json_name = "escalationSession"];</code>
+   * @param value The bytes for escalationSession to set.
+   */
+  private void setEscalationSessionBytes(
+      com.google.protobuf.ByteString value) {
+    checkByteStringIsUtf8(value);
+    escalationSession_ = value.toStringUtf8();
+
   }
 
   public static io.github.joshsymonds.orrery.gen.orrery.v1.EpicQuestion parseFrom(
@@ -1116,6 +1358,253 @@ public  final class EpicQuestion extends
       return this;
     }
 
+    /**
+     * <pre>
+     * When the question was escalated, in unix seconds; 0 while it is not escalated.
+     * </pre>
+     *
+     * <code>int64 escalated = 8 [json_name = "escalated"];</code>
+     * @return The escalated.
+     */
+    @java.lang.Override
+    public long getEscalated() {
+      return instance.getEscalated();
+    }
+    /**
+     * <pre>
+     * When the question was escalated, in unix seconds; 0 while it is not escalated.
+     * </pre>
+     *
+     * <code>int64 escalated = 8 [json_name = "escalated"];</code>
+     * @param value The escalated to set.
+     * @return This builder for chaining.
+     */
+    public Builder setEscalated(long value) {
+      copyOnWrite();
+      instance.setEscalated(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * When the question was escalated, in unix seconds; 0 while it is not escalated.
+     * </pre>
+     *
+     * <code>int64 escalated = 8 [json_name = "escalated"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearEscalated() {
+      copyOnWrite();
+      instance.clearEscalated();
+      return this;
+    }
+
+    /**
+     * <pre>
+     * Why the question was escalated. Empty while it is not escalated.
+     * </pre>
+     *
+     * <code>string escalation_reason = 9 [json_name = "escalationReason"];</code>
+     * @return The escalationReason.
+     */
+    @java.lang.Override
+    public java.lang.String getEscalationReason() {
+      return instance.getEscalationReason();
+    }
+    /**
+     * <pre>
+     * Why the question was escalated. Empty while it is not escalated.
+     * </pre>
+     *
+     * <code>string escalation_reason = 9 [json_name = "escalationReason"];</code>
+     * @return The bytes for escalationReason.
+     */
+    @java.lang.Override
+    public com.google.protobuf.ByteString
+        getEscalationReasonBytes() {
+      return instance.getEscalationReasonBytes();
+    }
+    /**
+     * <pre>
+     * Why the question was escalated. Empty while it is not escalated.
+     * </pre>
+     *
+     * <code>string escalation_reason = 9 [json_name = "escalationReason"];</code>
+     * @param value The escalationReason to set.
+     * @return This builder for chaining.
+     */
+    public Builder setEscalationReason(
+        java.lang.String value) {
+      copyOnWrite();
+      instance.setEscalationReason(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * Why the question was escalated. Empty while it is not escalated.
+     * </pre>
+     *
+     * <code>string escalation_reason = 9 [json_name = "escalationReason"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearEscalationReason() {
+      copyOnWrite();
+      instance.clearEscalationReason();
+      return this;
+    }
+    /**
+     * <pre>
+     * Why the question was escalated. Empty while it is not escalated.
+     * </pre>
+     *
+     * <code>string escalation_reason = 9 [json_name = "escalationReason"];</code>
+     * @param value The bytes for escalationReason to set.
+     * @return This builder for chaining.
+     */
+    public Builder setEscalationReasonBytes(
+        com.google.protobuf.ByteString value) {
+      copyOnWrite();
+      instance.setEscalationReasonBytes(value);
+      return this;
+    }
+
+    /**
+     * <pre>
+     * Who escalated the question: owner, conversation or orreryd. Empty while it is not escalated.
+     * </pre>
+     *
+     * <code>string escalation_by = 10 [json_name = "escalationBy"];</code>
+     * @return The escalationBy.
+     */
+    @java.lang.Override
+    public java.lang.String getEscalationBy() {
+      return instance.getEscalationBy();
+    }
+    /**
+     * <pre>
+     * Who escalated the question: owner, conversation or orreryd. Empty while it is not escalated.
+     * </pre>
+     *
+     * <code>string escalation_by = 10 [json_name = "escalationBy"];</code>
+     * @return The bytes for escalationBy.
+     */
+    @java.lang.Override
+    public com.google.protobuf.ByteString
+        getEscalationByBytes() {
+      return instance.getEscalationByBytes();
+    }
+    /**
+     * <pre>
+     * Who escalated the question: owner, conversation or orreryd. Empty while it is not escalated.
+     * </pre>
+     *
+     * <code>string escalation_by = 10 [json_name = "escalationBy"];</code>
+     * @param value The escalationBy to set.
+     * @return This builder for chaining.
+     */
+    public Builder setEscalationBy(
+        java.lang.String value) {
+      copyOnWrite();
+      instance.setEscalationBy(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * Who escalated the question: owner, conversation or orreryd. Empty while it is not escalated.
+     * </pre>
+     *
+     * <code>string escalation_by = 10 [json_name = "escalationBy"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearEscalationBy() {
+      copyOnWrite();
+      instance.clearEscalationBy();
+      return this;
+    }
+    /**
+     * <pre>
+     * Who escalated the question: owner, conversation or orreryd. Empty while it is not escalated.
+     * </pre>
+     *
+     * <code>string escalation_by = 10 [json_name = "escalationBy"];</code>
+     * @param value The bytes for escalationBy to set.
+     * @return This builder for chaining.
+     */
+    public Builder setEscalationByBytes(
+        com.google.protobuf.ByteString value) {
+      copyOnWrite();
+      instance.setEscalationByBytes(value);
+      return this;
+    }
+
+    /**
+     * <pre>
+     * The session that escalated the question when a conversation did. Empty otherwise.
+     * </pre>
+     *
+     * <code>string escalation_session = 11 [json_name = "escalationSession"];</code>
+     * @return The escalationSession.
+     */
+    @java.lang.Override
+    public java.lang.String getEscalationSession() {
+      return instance.getEscalationSession();
+    }
+    /**
+     * <pre>
+     * The session that escalated the question when a conversation did. Empty otherwise.
+     * </pre>
+     *
+     * <code>string escalation_session = 11 [json_name = "escalationSession"];</code>
+     * @return The bytes for escalationSession.
+     */
+    @java.lang.Override
+    public com.google.protobuf.ByteString
+        getEscalationSessionBytes() {
+      return instance.getEscalationSessionBytes();
+    }
+    /**
+     * <pre>
+     * The session that escalated the question when a conversation did. Empty otherwise.
+     * </pre>
+     *
+     * <code>string escalation_session = 11 [json_name = "escalationSession"];</code>
+     * @param value The escalationSession to set.
+     * @return This builder for chaining.
+     */
+    public Builder setEscalationSession(
+        java.lang.String value) {
+      copyOnWrite();
+      instance.setEscalationSession(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The session that escalated the question when a conversation did. Empty otherwise.
+     * </pre>
+     *
+     * <code>string escalation_session = 11 [json_name = "escalationSession"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearEscalationSession() {
+      copyOnWrite();
+      instance.clearEscalationSession();
+      return this;
+    }
+    /**
+     * <pre>
+     * The session that escalated the question when a conversation did. Empty otherwise.
+     * </pre>
+     *
+     * <code>string escalation_session = 11 [json_name = "escalationSession"];</code>
+     * @param value The bytes for escalationSession to set.
+     * @return This builder for chaining.
+     */
+    public Builder setEscalationSessionBytes(
+        com.google.protobuf.ByteString value) {
+      copyOnWrite();
+      instance.setEscalationSessionBytes(value);
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:orrery.v1.EpicQuestion)
   }
   @java.lang.Override
@@ -1141,10 +1630,15 @@ public  final class EpicQuestion extends
             "choices_",
             io.github.joshsymonds.orrery.gen.orrery.v1.EpicQuestionChoice.class,
             "recommendation_",
+            "escalated_",
+            "escalationReason_",
+            "escalationBy_",
+            "escalationSession_",
           };
           java.lang.String info =
-              "\u0000\u0007\u0000\u0001\u0001\u0007\u0007\u0000\u0001\u0000\u0001\u0208\u0002\u0208" +
-              "\u0003\u0002\u0004\u0002\u0005\u0208\u0006\u001b\u0007\u1009\u0000";
+              "\u0000\u000b\u0000\u0001\u0001\u000b\u000b\u0000\u0001\u0000\u0001\u0208\u0002\u0208" +
+              "\u0003\u0002\u0004\u0002\u0005\u0208\u0006\u001b\u0007\u1009\u0000\b\u0002\t\u0208" +
+              "\n\u0208\u000b\u0208";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {
