@@ -134,57 +134,11 @@
      "deliverable": {
       "type": "string"
      },
+     "depends_on": {
+      "type": "string"
+     },
      "evidence": {
-      "additionalProperties": false,
-      "properties": {
-       "artifacts": {
-        "items": {
-         "type": "string"
-        },
-        "type": "array"
-       },
-       "capture": {
-        "items": {
-         "type": "string"
-        },
-        "type": "array"
-       },
-       "conclusion": {
-        "type": "string"
-       },
-       "judge": {
-        "type": "string"
-       },
-       "kind": {
-        "type": "string"
-       },
-       "limit": {
-        "type": "integer"
-       },
-       "supplied": {
-        "items": {
-         "type": "string"
-        },
-        "type": "array"
-       },
-       "tests": {
-        "items": {
-         "type": "string"
-        },
-        "type": "array"
-       }
-      },
-      "required": [
-       "capture",
-       "limit",
-       "artifacts",
-       "supplied",
-       "conclusion",
-       "judge",
-       "kind",
-       "tests"
-      ],
-      "type": "object"
+      "type": "string"
      },
      "files": {
       "items": {
@@ -219,7 +173,8 @@
      "contributes",
      "test_changes",
      "gate",
-     "evidence"
+     "evidence",
+     "depends_on"
     ],
     "type": "object"
    },

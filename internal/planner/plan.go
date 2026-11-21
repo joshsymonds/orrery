@@ -15,7 +15,10 @@ import (
 	"github.com/joshsymonds/orrery/internal/evidence"
 )
 
-// Schema is the JSON schema of the planner turn's return. It uses only the keywords the step schema check accepts.
+// Schema is the JSON schema of the planner turn's return. It uses only the keywords the step schema check accepts. A
+// task's evidence and depends_on are strings the engine reads as JSON, as args is, because the API refuses a schema
+// whose compiled grammar is too large: with evidence as an object, a depends_on property is refused
+// (TestPlannerSchemaIsTheOneTheAPIAccepted).
 const Schema = `{
 	"type": "object",
 	"properties": {
@@ -33,23 +36,10 @@ const Schema = `{
 					"contributes": {"type": "array", "items": {"type": "string"}},
 					"test_changes": {"type": "array", "items": {"type": "string"}},
 					"gate": {"type": "string"},
-					"evidence": {
-						"type": "object",
-						"properties": {
-							"capture": {"type": "array", "items": {"type": "string"}},
-							"limit": {"type": "integer"},
-							"artifacts": {"type": "array", "items": {"type": "string"}},
-							"supplied": {"type": "array", "items": {"type": "string"}},
-							"conclusion": {"type": "string"},
-							"judge": {"type": "string"},
-							"kind": {"type": "string"},
-							"tests": {"type": "array", "items": {"type": "string"}}
-						},
-						"required": ["capture", "limit", "artifacts", "supplied", "conclusion", "judge", "kind", "tests"],
-						"additionalProperties": false
-					}
+					"evidence": {"type": "string"},
+					"depends_on": {"type": "string"}
 				},
-				"required": ["title", "deliverable", "files", "requirements", "contributes", "test_changes", "gate", "evidence"],
+				"required": ["title", "deliverable", "files", "requirements", "contributes", "test_changes", "gate", "evidence", "depends_on"],
 				"additionalProperties": false
 			}
 		},
@@ -241,22 +231,76 @@ func closesOf(closes string) []string {
 	return ids
 }
 
-// Task is one task the planner proposes for the epic.
+// Task is one task the planner proposes for the epic. Its evidence is an object, or a string holding one, which
+// UnmarshalJSON reads; EvidenceError is why a string did not read, and check.go refuses it. DependsOn is the tasks
+// this one depends on, each a T<n> of the epic or the title of a task of the return. Parse reads it from the key
+// depends_on, a JSON array of strings written as a string; DependsOnError is why that string did not read, and
+// check.go refuses it.
 type Task struct {
-	Title        string        `json:"title"`
-	Deliverable  string        `json:"deliverable"`
-	Files        []string      `json:"files"`
-	Requirements []string      `json:"requirements"`
-	Contributes  []string      `json:"contributes"`
-	TestChanges  []string      `json:"-"` // read by Parse from the key test_changes
-	Gate         string        `json:"gate"`
-	Evidence     evidence.Item `json:"evidence"`
+	Title          string        `json:"title"`
+	Deliverable    string        `json:"deliverable"`
+	Files          []string      `json:"files"`
+	Requirements   []string      `json:"requirements"`
+	Contributes    []string      `json:"contributes"`
+	TestChanges    []string      `json:"-"` // read by Parse from the key test_changes
+	DependsOn      []string      `json:"-"` // read by Parse from the key depends_on
+	DependsOnError string        `json:"-"`
+	Gate           string        `json:"gate"`
+	Evidence       evidence.Item `json:"evidence"`
+	EvidenceError  string        `json:"-"`
 }
 
-// Parse decodes a planner return from raw JSON. It refuses input that is not valid JSON, and an unresolvable that is not a
-// string. A task's test_changes is read by its key, as the schema spells it, since the package's JSON tags are camel case,
-// each action's fields are read from its args (readArgs), and the unresolvable list is read from its string
-// (readUnresolvable).
+// UnmarshalJSON decodes a task. Its key evidence is read as an object, or as a string holding one, which decodeEvidence
+// reads; every other key is read as the struct's tags say. A value of the evidence key that is neither a string nor an
+// object is an error of the whole return.
+func (task *Task) UnmarshalJSON(raw []byte) error {
+	type plain Task
+	var shadow struct {
+		plain
+		EvidenceValue json.RawMessage `json:"evidence"`
+	}
+	if err := json.Unmarshal(raw, &shadow); err != nil {
+		return fmt.Errorf("task: %w", err)
+	}
+	*task = Task(shadow.plain)
+	if len(shadow.EvidenceValue) == 0 {
+		return nil
+	}
+	var text string
+	if err := json.Unmarshal(shadow.EvidenceValue, &text); err == nil {
+		task.Evidence, task.EvidenceError = decodeEvidence(text)
+		return nil
+	}
+	if err := json.Unmarshal(shadow.EvidenceValue, &task.Evidence); err != nil {
+		return fmt.Errorf("task evidence: %w", err)
+	}
+	return nil
+}
+
+// decodeEvidence reads text as one evidence object whose keys are the item's, as readArgs reads an action's item, so
+// an unknown key is refused. Blank text reads as an empty item. Text that is not such an object gives an empty item and
+// the reason it did not read.
+func decodeEvidence(text string) (evidence.Item, string) {
+	var item evidence.Item
+	if strings.TrimSpace(text) == "" {
+		return item, ""
+	}
+	decoder := json.NewDecoder(strings.NewReader(text))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&item); err != nil {
+		return evidence.Item{}, err.Error()
+	}
+	if _, err := decoder.Token(); err != io.EOF {
+		return evidence.Item{}, "data after the JSON object"
+	}
+	return item, ""
+}
+
+// Parse decodes a planner return from raw JSON. It refuses input that is not valid JSON, an unresolvable that is not a
+// string, a task's depends_on that is not a string, and a task's evidence that is neither a string nor an object. A
+// task's test_changes is read by its key, as the schema spells it, since the package's JSON tags are camel case. Its
+// depends_on is read by its key and then by readDependsOn, and its evidence by Task.UnmarshalJSON. Each action's fields
+// are read from its args (readArgs), and the unresolvable list from its string (readUnresolvable).
 func Parse(raw json.RawMessage) (Return, error) {
 	var ret Return
 	if err := json.Unmarshal(raw, &ret); err != nil {
@@ -278,6 +322,9 @@ func Parse(raw json.RawMessage) (Return, error) {
 		if err := json.Unmarshal(value, &ret.Tasks[i].TestChanges); err != nil {
 			return Return{}, fmt.Errorf("planner return: tasks[%d] test_changes: %w", i, err)
 		}
+	}
+	if err := readDependsOnKeys(&ret, keyed.Tasks); err != nil {
+		return Return{}, err
 	}
 	for i, action := range keyed.Actions {
 		var args string
@@ -311,6 +358,44 @@ func readUnresolvable(ret *Return, text string) {
 		return
 	}
 	ret.Unresolvable = entries
+}
+
+// readDependsOnKeys reads the depends_on key of each task of ret, whose keys are tasks, as readDependsOn reads its string.
+// A key that is not a string is an error of the whole return.
+func readDependsOnKeys(ret *Return, tasks []map[string]json.RawMessage) error {
+	for i, task := range tasks {
+		value, ok := task["depends_on"]
+		if !ok {
+			continue
+		}
+		var text string
+		if err := json.Unmarshal(value, &text); err != nil {
+			return fmt.Errorf("planner return: tasks[%d] depends_on: %w", i, err)
+		}
+		readDependsOn(&ret.Tasks[i], text)
+	}
+	return nil
+}
+
+// readDependsOn fills task's DependsOn from text, the depends_on string of a task: a JSON array of strings. Blank text
+// and an empty array read as none. Text that is not such an array, a null included, leaves the list empty and sets
+// DependsOnError.
+func readDependsOn(task *Task, text string) {
+	if strings.TrimSpace(text) == "" {
+		return
+	}
+	var names []string
+	if err := json.Unmarshal([]byte(text), &names); err != nil {
+		task.DependsOnError = err.Error()
+		return
+	}
+	if names == nil {
+		task.DependsOnError = "null is not an array"
+		return
+	}
+	if len(names) > 0 {
+		task.DependsOn = names
+	}
 }
 
 // decodeUnresolvable decodes text as one JSON array of objects whose only keys are gap, reason and recommended, each
