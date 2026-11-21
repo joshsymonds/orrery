@@ -107,7 +107,7 @@ private fun durationOf(seconds: Long): String = when {
 
 /** A user's message; while it is being sent it is drawn as SENDING, dashed, with no time. */
 @Composable
-fun YouBlock(text: String, time: String? = null, sending: Boolean = false) {
+fun YouBlock(text: String, time: String? = null, sending: Boolean = false, marks: EntryMarks? = null) {
     Block(
         kind = "you",
         tone = BlockTone.You,
@@ -115,7 +115,7 @@ fun YouBlock(text: String, time: String? = null, sending: Boolean = false) {
         label = if (sending) "SENDING" else "YOU",
         pending = sending,
         time = if (sending) null else time,
-        body = { Prose(text, OrreryTokens.Ink.one) },
+        body = { Prose(text, OrreryTokens.Ink.one, marks) },
     )
 }
 
@@ -354,8 +354,8 @@ private fun FactsLine(facts: List<StepFact>) {
 }
 
 @Composable
-private fun Prose(text: String, color: Color) {
-    MarkdownBody(blocks = remember(text) { parseMarkdown(text) }, color = color)
+private fun Prose(text: String, color: Color, marks: EntryMarks? = null) {
+    MarkdownBody(blocks = remember(text, marks) { markedBlocks(parseMarkdown(text), marks) }, color = color)
 }
 
 @Composable

@@ -116,6 +116,9 @@ fun SessionScreen(
     var sentTexts by remember(sessionId) { mutableStateOf<List<SentText>>(emptyList()) }
     // Whether the strip under the band has tiles: then it, not the band, carries the control that hides the header.
     var stripTiles by remember(sessionId) { mutableStateOf(false) }
+    // The find bar while it is open: its query, and the current match of the matches the transcript holds.
+    var finding by remember(sessionId) { mutableStateOf<FindSession?>(null) }
+    val searchCache = remember { MarkdownCache() }
     var headEpics by remember(sessionId) { mutableStateOf(HeadEpics(emptyList(), emptyMap())) }
     var contracts by remember(sessionId) { mutableStateOf<List<ContractRow>>(emptyList()) }
     var servingHost by remember(sessionId) { mutableStateOf("") }
@@ -210,6 +213,8 @@ fun SessionScreen(
         }.orEmpty()
     }
     val epicDetails = questionEpicDetails(entries, headEpics.details, client)
+    val found = remember(entries, finding?.query) { transcriptMatches(entries, finding?.query.orEmpty(), searchCache) }
+    val foundCurrent = finding?.let { if (found.isEmpty()) -1 else it.current.coerceIn(0, found.lastIndex) } ?: -1
     val ask = if (step == null) held?.request?.let { open -> pane?.let { sessionAsk(it, open) } } else null
     // The stream redraws the session once its answer lands, so the Ask needs no refresh of its own.
     // The Ask's answer lives per session, outside the footer item that draws the Ask, so scrolling that item away keeps it.
@@ -268,6 +273,7 @@ fun SessionScreen(
                     headHidden.value = false
                     tapped = true
                 },
+                onFind = { finding = FindSession(query = "") },
                 modifier = Modifier.fillMaxWidth().background(OrreryTokens.Surface.page),
             )
             if (fold == HeadFold.OPEN) {
@@ -298,6 +304,7 @@ fun SessionScreen(
                     epicQuestion = { epic, question ->
                         EpicQuestion(epicDetails[epic], question, nowSeconds, client)
                     },
+                    find = finding?.let { TranscriptFind(found, foundCurrent, it.step) },
                     onRead = { _ ->
                         scope.launch(Dispatchers.IO) {
                             try {
@@ -309,6 +316,18 @@ fun SessionScreen(
                     },
                 )
             }
+        }
+        finding?.let { session ->
+            FindBar(
+                query = session.query,
+                count = found.size,
+                current = foundCurrent,
+                onQuery = { finding = FindSession(query = it, step = session.step + 1) },
+                onNext = { finding = session.copy(current = stepFind(foundCurrent, found.size, 1), step = session.step + 1) },
+                onPrevious = { finding = session.copy(current = stepFind(foundCurrent, found.size, -1), step = session.step + 1) },
+                onClose = { finding = null },
+                modifier = Modifier.padding(horizontal = OrreryTokens.Space.twelve, vertical = OrreryTokens.Space.four),
+            )
         }
         val ended = pane?.state.orEmpty() in ENDED_STATES || (pane == null && unlisted)
         val endedEpic = if (step == null && ended) {

@@ -23,6 +23,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.semantics.SemanticsPropertyKey
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -77,11 +78,11 @@ private fun LineFrame(
     }
 }
 
-/** What a line opens under its head: its text, in [colour]. */
+/** What a line opens under its head: its text, in [colour], with the find's marks drawn from [base] in the entry's text. */
 @Composable
-private fun OpenedText(text: String, colour: Color) {
-    Text(
-        text = text,
+private fun OpenedText(text: String, colour: Color, marks: EntryMarks? = null, base: Int = 0) {
+    FindText(
+        text = markedText(AnnotatedString(text), base, marks),
         modifier = Modifier.fillMaxWidth().padding(top = OrreryTokens.Space.two),
         color = colour,
         style = OrreryTokens.Type.small,
@@ -140,7 +141,14 @@ private fun glyphSymbolOf(kind: String): String = when (kind) {
  * a second tap folds it again; a failed result is drawn in the bad tone.
  */
 @Composable
-internal fun ToolLine(call: ToolCall, running: Boolean = false, expanded: Set<String>, onToggle: (String) -> Unit) {
+internal fun ToolLine(
+    call: ToolCall,
+    running: Boolean = false,
+    expanded: Set<String>,
+    onToggle: (String) -> Unit,
+    marks: EntryMarks? = null,
+    base: Int = 0,
+) {
     val isOpen = call.id in expanded
     val result = call.result
     val tap: (() -> Unit)? = if (result != null) ({ onToggle(call.id) }) else null
@@ -150,7 +158,12 @@ internal fun ToolLine(call: ToolCall, running: Boolean = false, expanded: Set<St
         onTap = tap,
         opened = {
             if (isOpen && result != null) {
-                OpenedText(result, if (call.error) OrreryTokens.Role.bad else OrreryTokens.Ink.two)
+                OpenedText(
+                    result,
+                    if (call.error) OrreryTokens.Role.bad else OrreryTokens.Ink.two,
+                    marks,
+                    base + call.input.length + 1,
+                )
             }
         },
     ) {
@@ -161,12 +174,13 @@ internal fun ToolLine(call: ToolCall, running: Boolean = false, expanded: Set<St
             style = OrreryTokens.Type.small.copy(fontWeight = OrreryTokens.Font.Weight.bold),
             maxLines = 1,
         )
-        Text(
-            text = call.input,
+        // An input that holds a match draws whole, so the match is on the line rather than past its ellipsis.
+        FindText(
+            text = markedText(AnnotatedString(call.input), base, marks),
             modifier = Modifier.weight(1f),
             color = OrreryTokens.Ink.three,
             style = OrreryTokens.Type.small,
-            maxLines = 1,
+            maxLines = if (holdsMatch(marks, base, call.input.length)) Int.MAX_VALUE else 1,
             overflow = TextOverflow.Ellipsis,
         )
         when {
@@ -188,10 +202,12 @@ internal fun ToolRun(
     expanded: Set<String>,
     onToggle: (String) -> Unit,
     runningIds: Set<String> = emptySet(),
+    marks: EntryMarks? = null,
 ) {
     val key = calls.first().id
     val isOpen = key in expanded
     val running = calls.any { it.id in runningIds }
+    val bases = callBases(calls)
     LineFrame(
         kind = "run",
         live = running,
@@ -199,8 +215,15 @@ internal fun ToolRun(
         opened = {
             if (isOpen) {
                 Column(modifier = Modifier.padding(top = OrreryTokens.Space.two)) {
-                    calls.forEach { call ->
-                        ToolLine(call, running = call.id in runningIds, expanded = expanded, onToggle = onToggle)
+                    calls.forEachIndexed { index, call ->
+                        ToolLine(
+                            call,
+                            running = call.id in runningIds,
+                            expanded = expanded,
+                            onToggle = onToggle,
+                            marks = marks,
+                            base = bases[index],
+                        )
                     }
                 }
             }
@@ -278,12 +301,20 @@ internal fun ThinkingLine(text: String, key: String, expanded: Set<String>, onTo
  * first line. A tap opens the whole text under the line, and a second tap folds it.
  */
 @Composable
-internal fun EngineFold(brief: Boolean, text: String, key: String, expanded: Set<String>, onToggle: (String) -> Unit) {
+internal fun EngineFold(
+    brief: Boolean,
+    text: String,
+    key: String,
+    expanded: Set<String>,
+    onToggle: (String) -> Unit,
+    marks: EntryMarks? = null,
+) {
     val isOpen = key in expanded
+    val words = if (brief) AnnotatedString("from the engine") else markedText(AnnotatedString(text.lineSequence().first()), 0, marks)
     LineFrame(
         kind = "fold",
         onTap = { onToggle(key) },
-        opened = { if (isOpen) OpenedText(text, OrreryTokens.Ink.three) },
+        opened = { if (isOpen) OpenedText(text, OrreryTokens.Ink.three, marks) },
     ) {
         LineCaret(isOpen)
         Text(
@@ -292,8 +323,8 @@ internal fun EngineFold(brief: Boolean, text: String, key: String, expanded: Set
             style = OrreryTokens.Type.small.copy(fontWeight = OrreryTokens.Font.Weight.bold),
             maxLines = 1,
         )
-        Text(
-            text = if (brief) "from the engine" else text.lineSequence().first(),
+        FindText(
+            text = words,
             modifier = Modifier.weight(1f),
             color = OrreryTokens.Ink.three,
             style = OrreryTokens.Type.small,
@@ -343,17 +374,19 @@ private fun taskEndWordOf(status: String): String = if (status == "done") "finis
  * with a cross.
  */
 @Composable
-internal fun NoticeLine(notice: ConvoEntry.Notice) {
+internal fun NoticeLine(notice: ConvoEntry.Notice, marks: EntryMarks? = null) {
     val tone = if (notice.error) OrreryTokens.Role.bad else OrreryTokens.Ink.three
+    val label = noticeLabel(notice.sort).inLabelCase()
     LineFrame(kind = "notice") {
-        Text(
-            text = noticeLabel(notice.sort).inLabelCase(),
+        FindText(
+            text = markedText(AnnotatedString(label), 0, marks),
             color = tone,
             style = OrreryTokens.Type.small.copy(fontWeight = OrreryTokens.Font.Weight.bold),
             maxLines = 1,
         )
-        Text(
-            text = notice.text,
+        // The text follows the label and a line break, as findParts joins them.
+        FindText(
+            text = markedText(AnnotatedString(notice.text), label.length + 1, marks),
             modifier = Modifier.weight(1f),
             color = tone,
             style = OrreryTokens.Type.small,

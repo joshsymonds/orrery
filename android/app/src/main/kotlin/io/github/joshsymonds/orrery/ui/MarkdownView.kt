@@ -81,13 +81,13 @@ private fun Leading(lead: Int, style: BodyStyle, modifier: Modifier, content: @C
 @Composable
 private fun Block(block: MdBlock, style: BodyStyle) {
     when (block) {
-        is MdBlock.Paragraph -> Text(
+        is MdBlock.Paragraph -> FindText(
             text = block.text,
             color = style.color,
             fontSize = style.size,
             fontWeight = style.weight,
         )
-        is MdBlock.Heading -> Text(
+        is MdBlock.Heading -> FindText(
             text = block.text,
             color = OrreryTokens.Prose.heading,
             style = headingStyle(block.level),
@@ -100,7 +100,7 @@ private fun Block(block: MdBlock, style: BodyStyle) {
                 fontWeight = style.weight,
                 softWrap = false,
             )
-            Text(
+            FindText(
                 text = block.text,
                 modifier = Modifier.weight(1f),
                 color = style.color,
@@ -143,8 +143,8 @@ private fun CodeBlock(block: MdBlock.Code) {
             .clip(RoundedCornerShape(OrreryTokens.Radius.two))
             .background(OrreryTokens.Surface.side),
     ) {
-        Text(
-            text = block.code,
+        FindText(
+            text = block.drawn,
             modifier = Modifier
                 .fillMaxWidth()
                 .horizontalScroll(rememberScrollState())
@@ -192,7 +192,7 @@ private fun TableGrid(table: MdBlock.Table, style: TextStyle) {
         content = {
             table.rows.forEachIndexed { r, row ->
                 row.forEach { cell ->
-                    Text(
+                    FindText(
                         text = cell,
                         color = OrreryTokens.Ink.one,
                         style = style,

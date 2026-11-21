@@ -21,9 +21,13 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListLayoutInfo
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -34,18 +38,26 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextLayoutResult
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.unit.TextUnit
 import io.github.joshsymonds.orrery.api.ContractRow
 import io.github.joshsymonds.orrery.api.EpicDetail
 import io.github.joshsymonds.orrery.api.OrreryClient
@@ -95,6 +107,10 @@ private const val READ_DWELL_MS = 1_000L
  * window) between the top and bottom content padding. A call that writes a contract, with a result that did not fail,
  * draws that contract's line (see [contractLineWords]) in place of its row, and a press on it calls [onOpenContract]
  * with the contract's id; [contracts] supplies the words. A press on an epic's slug calls [onOpenEpic] with the epic's id.
+ * With [find] set, every match of the find's query is marked in the text it draws, the current one solid. The entry
+ * that holds the current match opens its fold or call, the list scrolls to that entry, and the text that holds the
+ * match brings its run into view. Closing the find (a null
+ * [find]) returns the list to the place it was at when the find opened.
  */
 @Composable
 fun ConversationView(
@@ -112,6 +128,7 @@ fun ConversationView(
     onOpenContract: (String) -> Unit = {},
     onOpenEpic: (String) -> Unit = {},
     epicQuestion: @Composable (epic: String, question: String) -> Unit = { _, _ -> },
+    find: TranscriptFind? = null,
 ) {
     var expanded by remember { mutableStateOf(emptySet<String>()) }
     val toggle: (String) -> Unit = { id ->
@@ -181,6 +198,32 @@ fun ConversationView(
             if (currentLast >= 0) ownScroll.around(listState) { listState.followEnd(currentLast) }
         }
     }
+    // The place the list was at when the find opened, kept until the find closes and the list returns to it.
+    val findOpen = find != null
+    var findReturn by remember { mutableStateOf<Pair<Int, Int>?>(null) }
+    LaunchedEffect(findOpen) {
+        if (findOpen) {
+            findReturn = listState.firstVisibleItemIndex to listState.firstVisibleItemScrollOffset
+        } else {
+            findReturn?.let { (index, offset) ->
+                findReturn = null
+                ownScroll.around(listState) { listState.scrollToItem(index, offset) }
+                followBottom = listState.layoutInfo.isAtEnd()
+            }
+        }
+    }
+    val marks = remember(find) { marksByEntry(find) }
+    val currentMatch = find?.matches?.getOrNull(find.current)
+    // One reveal for each step of the find, so a step that lands on the same match still brings it into view.
+    val reveal = remember(find?.step) { find?.let { FindReveal() } }
+    LaunchedEffect(currentMatch, find?.step) {
+        val match = currentMatch ?: return@LaunchedEffect
+        val entry = entries.getOrNull(match.entry) ?: return@LaunchedEffect
+        expanded = expanded + foldKeysHolding(entry, keys[match.entry], match.range.first)
+        ownScroll.around(listState) { listState.scrollToItem(match.entry) }
+        reveal?.scrolled = true
+        followBottom = listState.layoutInfo.isAtEnd()
+    }
     // Each entry's dwell is kept by its key, so an equal list re-delivered mid-count leaves it standing.
     val latestKeys by rememberUpdatedState(keys)
     val latestEntries by rememberUpdatedState(entries)
@@ -205,54 +248,57 @@ fun ConversationView(
                 }
             }
     }
-    LazyColumn(
-        modifier = modifier
-            .fillMaxSize()
-            .padding(horizontal = OrreryTokens.Space.twelve + OrreryTokens.Space.two)
-            .testTag("conversation-list"),
-        state = listState,
-        contentPadding = contentPadding,
-    ) {
-        items(count = entries.size, key = { index -> keys[index] }) { index ->
-            // The new rule rides in its entry's item, so the item count, and the end that follows it, stay put.
-            val tinted = newerAt >= 0 && index >= newerAt
-            Column(modifier = Modifier.fillMaxWidth()) {
-                if (index == newerAt) NewRule()
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .testTag("entry-row:$index")
-                        .then(
-                            if (tinted) {
-                                Modifier
-                                    .semantics { stateDescription = NEW_LABEL }
-                                    .background(OrreryTokens.Role.newFill)
-                            } else {
-                                Modifier
-                            },
-                        ),
-                ) {
-                    EntryView(
-                        entries[index],
-                        keys[index],
-                        expanded,
-                        toggle,
-                        markdownCache,
-                        contracts,
-                        onOpenContract,
-                        onOpenEpic,
-                        epicQuestion,
-                    )
+    CompositionLocalProvider(LocalFindReveal provides reveal) {
+        LazyColumn(
+            modifier = modifier
+                .fillMaxSize()
+                .padding(horizontal = OrreryTokens.Space.twelve + OrreryTokens.Space.two)
+                .testTag("conversation-list"),
+            state = listState,
+            contentPadding = contentPadding,
+        ) {
+            items(count = entries.size, key = { index -> keys[index] }) { index ->
+                // The new rule rides in its entry's item, so the item count, and the end that follows it, stay put.
+                val tinted = newerAt >= 0 && index >= newerAt
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    if (index == newerAt) NewRule()
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("entry-row:$index")
+                            .then(
+                                if (tinted) {
+                                    Modifier
+                                        .semantics { stateDescription = NEW_LABEL }
+                                        .background(OrreryTokens.Role.newFill)
+                                } else {
+                                    Modifier
+                                },
+                            ),
+                    ) {
+                        EntryView(
+                            entries[index],
+                            keys[index],
+                            expanded,
+                            toggle,
+                            markdownCache,
+                            contracts,
+                            onOpenContract,
+                            onOpenEpic,
+                            epicQuestion,
+                            marks[index],
+                        )
+                    }
                 }
             }
+            waiting.take(WAITING_SHOWN).forEachIndexed { index, waitingItem ->
+                item(key = "$WAITING_KEY_PREFIX$index") { WaitingRow(waitingItem, expanded, toggle) }
+            }
+            if (waiting.size > WAITING_SHOWN) {
+                item(key = WAITING_MORE_KEY) { WaitingMore(waiting.size - WAITING_SHOWN) }
+            }
+            footer?.let { content -> item(key = FOOTER_KEY) { content() } }
         }
-        waiting.take(WAITING_SHOWN).forEachIndexed { index, waitingItem ->
-            item(key = "$WAITING_KEY_PREFIX$index") { WaitingRow(waitingItem, expanded, toggle) }
-        }
-        if (waiting.size > WAITING_SHOWN) {
-            item(key = WAITING_MORE_KEY) { WaitingMore(waiting.size - WAITING_SHOWN) }
-        }
-        footer?.let { content -> item(key = FOOTER_KEY) { content() } }
     }
 }
 
@@ -272,9 +318,10 @@ private fun EntryView(
     onOpenContract: (String) -> Unit,
     onOpenEpic: (String) -> Unit,
     epicQuestion: @Composable (epic: String, question: String) -> Unit,
+    marks: EntryMarks?,
 ) {
     when (entry) {
-        is ConvoEntry.Prompt -> YouBlock(entry.text, timeOf(entry.time))
+        is ConvoEntry.Prompt -> YouBlock(entry.text, timeOf(entry.time), marks = marks)
         is ConvoEntry.Sending -> YouBlock(entry.text, sending = true)
         is ConvoEntry.Event -> EventBlock(entry.text, timeOf(entry.time))
         is ConvoEntry.Cron -> EventBlock(entry.text, timeOf(entry.time), cron = true)
@@ -295,14 +342,16 @@ private fun EntryView(
             onOpen = { onOpenEpic(entry.epic) },
         )
         is ConvoEntry.Move -> MoveLine(entry.event)
-        is ConvoEntry.Brief -> EngineFold(brief = true, text = entry.text, key = key, expanded = expanded, onToggle = onToggle)
-        is ConvoEntry.Engine -> EngineFold(brief = false, text = entry.text, key = key, expanded = expanded, onToggle = onToggle)
+        is ConvoEntry.Brief ->
+            EngineFold(brief = true, text = entry.text, key = key, expanded = expanded, onToggle = onToggle, marks = marks)
+        is ConvoEntry.Engine ->
+            EngineFold(brief = false, text = entry.text, key = key, expanded = expanded, onToggle = onToggle, marks = marks)
         is ConvoEntry.Check -> CheckBlock(entry.round, entry.text, time = timeOf(entry.time))
-        is ConvoEntry.Reply -> ReplyText(entry.text, cache)
+        is ConvoEntry.Reply -> ReplyText(entry.text, cache, marks = marks)
         is ConvoEntry.LiveReply -> ReplyText(entry.text, cache, live = true)
         is ConvoEntry.Thinking -> ThinkingLine(entry.text, key, expanded, onToggle)
-        is ConvoEntry.Tool -> ToolLine(entry.call, expanded = expanded, onToggle = onToggle)
-        is ConvoEntry.Group -> ToolRun(entry.calls, expanded = expanded, onToggle = onToggle)
+        is ConvoEntry.Tool -> ToolLine(entry.call, expanded = expanded, onToggle = onToggle, marks = marks)
+        is ConvoEntry.Group -> ToolRun(entry.calls, expanded = expanded, onToggle = onToggle, marks = marks)
         is ConvoEntry.ContractLine -> ContractLineRow(entry.call.contract, contracts, onOpenContract)
         is ConvoEntry.Compaction -> CompactionRule(
             trigger = entry.trigger,
@@ -311,7 +360,7 @@ private fun EntryView(
             onToggle = { onToggle(key) },
             summary = { ReplyText(entry.text, cache) },
         )
-        is ConvoEntry.Notice -> NoticeLine(entry)
+        is ConvoEntry.Notice -> NoticeLine(entry, marks = marks)
         is ConvoEntry.Task -> TaskLine(entry.type, entry.subagentType, entry.description, entry.status)
         is ConvoEntry.Interrupted -> InterruptedRule(entry.time)
         is ConvoEntry.Day -> DayRule(entry.seconds)
@@ -401,8 +450,8 @@ private fun WaitingMore(count: Int) {
  * written, ends in a caret.
  */
 @Composable
-private fun ReplyText(text: String, cache: MarkdownCache, live: Boolean = false) {
-    val blocks = remember(text) { cache.blocks(text) }
+private fun ReplyText(text: String, cache: MarkdownCache, live: Boolean = false, marks: EntryMarks? = null) {
+    val blocks = remember(text, marks) { markedBlocks(cache.blocks(text), marks) }
     Column(modifier = Modifier.testTag("reply").padding(vertical = OrreryTokens.Space.twelve)) {
         MarkdownBody(
             blocks = blocks,
@@ -612,4 +661,190 @@ private suspend fun LazyListState.scrollToEnd() {
     val last = info.visibleItemsInfo.lastOrNull() ?: return
     val overhang = last.offset + last.size - (info.viewportEndOffset - info.afterContentPadding)
     if (overhang > 0) scrollBy(overhang.toFloat())
+}
+
+/**
+ * The find bar while it is open: the [query] typed in it, the index of the current match among the matches, and the
+ * [step] of the find, which each move of the find bumps, so a move to the same match still scrolls to it.
+ */
+data class FindSession(val query: String, val current: Int = 0, val step: Int = 0)
+
+/** An open find as a transcript draws it: every match in entry order, the index of the [current] one (-1 for none), and the [step]. */
+data class TranscriptFind(val matches: List<FindMatch>, val current: Int, val step: Int)
+
+/**
+ * One step of a find, carried to the drawn text that holds the current match. The view sets [scrolled] once it has
+ * scrolled to the match's entry; the first such text laid out brings its run into view and sets [revealed].
+ */
+internal class FindReveal {
+    var scrolled by mutableStateOf(false)
+    var revealed = false
+}
+
+internal val LocalFindReveal = staticCompositionLocalOf<FindReveal?> { null }
+
+// The run of a marked text that its find's current match covers, tagged so a text can bring it into view.
+private const val FIND_CURRENT_TAG = "find-current"
+
+/** The matches of [query] across [entries]' searched text, in entry order. */
+fun transcriptMatches(entries: List<ConvoEntry>, query: String, cache: MarkdownCache): List<FindMatch> =
+    findMatches(entries.map { entry -> findParts(entry, cache).joinToString("\n") }, query)
+
+/**
+ * The parts of [entry] that find searches, in the order they draw, as the web's searchedText takes them: the drawn text of
+ * a prompt, a reply or a notice, an engine or brief fold's text, and each call's input and result. The parts of an entry
+ * join with a line break, so a match never runs across two of them.
+ */
+internal fun findParts(entry: ConvoEntry, cache: MarkdownCache): List<String> = when (entry) {
+    is ConvoEntry.Prompt -> markdownLeaves(cache.blocks(entry.text))
+    is ConvoEntry.Reply -> markdownLeaves(cache.blocks(entry.text))
+    is ConvoEntry.Engine -> listOf(entry.text)
+    is ConvoEntry.Brief -> listOf(entry.text)
+    is ConvoEntry.Notice -> listOf(noticeLabel(entry.sort).inLabelCase(), entry.text)
+    is ConvoEntry.Tool -> listOfNotNull(entry.call.input, entry.call.result)
+    is ConvoEntry.Group -> entry.calls.flatMap { call -> listOfNotNull(call.input, call.result) }
+    else -> emptyList()
+}
+
+/** The texts a Markdown reader draws, in draw order. */
+private fun markdownLeaves(blocks: List<MdBlock>): List<String> {
+    val leaves = mutableListOf<String>()
+    mapLeaves(blocks) { leaf ->
+        leaves.add(leaf.text)
+        leaf
+    }
+    return leaves
+}
+
+/** [blocks] with each text a reader draws passed through [leaf], in draw order, a code block's text included. */
+private fun mapLeaves(blocks: List<MdBlock>, leaf: (AnnotatedString) -> AnnotatedString): List<MdBlock> = blocks.map { block ->
+    when (block) {
+        is MdBlock.Paragraph -> block.copy(text = leaf(block.text))
+        is MdBlock.Heading -> block.copy(text = leaf(block.text))
+        is MdBlock.Item -> block.copy(text = leaf(block.text))
+        is MdBlock.Code -> block.copy(drawn = leaf(block.drawn))
+        is MdBlock.Table -> block.copy(rows = block.rows.map { row -> row.map { cell -> leaf(cell) } })
+        is MdBlock.Quote -> block.copy(blocks = mapLeaves(block.blocks, leaf))
+        is MdBlock.Rule -> block
+    }
+}
+
+/** [blocks] with the find's marks drawn into each text, the texts counted in the order [markdownLeaves] reads them. */
+internal fun markedBlocks(blocks: List<MdBlock>, marks: EntryMarks?): List<MdBlock> {
+    if (marks == null) return blocks
+    var base = 0
+    return mapLeaves(blocks) { leaf ->
+        markedText(leaf, base, marks).also { base += leaf.length + 1 }
+    }
+}
+
+/** The matches one entry marks: those of the find that fall in its searched text, and the current match when it is one. */
+class EntryMarks(val matches: List<FindMatch>, val current: FindMatch?)
+
+/** Each entry's marks for [find], by the entry's index. */
+private fun marksByEntry(find: TranscriptFind?): Map<Int, EntryMarks> {
+    if (find == null) return emptyMap()
+    val current = find.matches.getOrNull(find.current)
+    return find.matches.groupBy { it.entry }.mapValues { (_, matches) -> EntryMarks(matches, current) }
+}
+
+/**
+ * [source], drawn from [base] in its entry's searched text, with the entry's matches marked as Find.kt marks them: each in
+ * the match tint, the current one solid. The current one's run is tagged for [FindText]. The source's links and styles stay.
+ */
+internal fun markedText(source: AnnotatedString, base: Int, marks: EntryMarks?): AnnotatedString {
+    if (marks == null) return source
+    val end = base + source.length
+    val inside = marks.matches.filter { it.range.first >= base && it.range.last < end }
+    if (inside.isEmpty()) return source
+    val local = inside.map { FindMatch(0, (it.range.first - base)..(it.range.last - base)) }
+    val current = marks.current?.let { inside.indexOf(it) } ?: -1
+    val highlight = findHighlight(source.text, 0, local, current)
+    return buildAnnotatedString {
+        append(source)
+        highlight.spanStyles.forEach { addStyle(it.item, it.start, it.end) }
+        if (current >= 0) addStringAnnotation(FIND_CURRENT_TAG, "", local[current].range.first, local[current].range.last + 1)
+    }
+}
+
+/**
+ * A [Text] of a transcript that a find marks. The text that holds the find's current match brings that match's run into
+ * view, once its entry is scrolled to: the first such text laid out does it, once for each step of the find.
+ */
+@Composable
+internal fun FindText(
+    text: AnnotatedString,
+    modifier: Modifier = Modifier,
+    color: Color = Color.Unspecified,
+    fontSize: TextUnit = TextUnit.Unspecified,
+    fontWeight: FontWeight? = null,
+    style: TextStyle = LocalTextStyle.current,
+    softWrap: Boolean = true,
+    maxLines: Int = Int.MAX_VALUE,
+    overflow: TextOverflow = TextOverflow.Clip,
+) {
+    val reveal = LocalFindReveal.current
+    val run = text.getStringAnnotations(FIND_CURRENT_TAG, 0, text.length).firstOrNull()
+    val holds = reveal != null && run != null
+    val scrolled = reveal?.scrolled == true
+    val requester = remember { BringIntoViewRequester() }
+    var layout by remember { mutableStateOf<TextLayoutResult?>(null) }
+    LaunchedEffect(holds, scrolled, layout) {
+        val drawn = layout ?: return@LaunchedEffect
+        if (reveal == null || run == null || !scrolled || reveal.revealed) return@LaunchedEffect
+        reveal.revealed = true
+        requester.bringIntoView(runRect(drawn, run.start, run.end))
+    }
+    Text(
+        text = text,
+        modifier = if (holds) modifier.bringIntoViewRequester(requester) else modifier,
+        color = color,
+        fontSize = fontSize,
+        fontWeight = fontWeight,
+        style = style,
+        softWrap = softWrap,
+        maxLines = maxLines,
+        overflow = overflow,
+        onTextLayout = { if (holds) layout = it },
+    )
+}
+
+/** The box that the characters from [start] to [end] (exclusive) of [layout] cover, over every line they reach. */
+private fun runRect(layout: TextLayoutResult, start: Int, end: Int): Rect {
+    val first = layout.getBoundingBox(start)
+    val last = layout.getBoundingBox(end - 1)
+    return Rect(
+        left = minOf(first.left, last.left),
+        top = minOf(first.top, last.top),
+        right = maxOf(first.right, last.right),
+        bottom = maxOf(first.bottom, last.bottom),
+    )
+}
+
+/** Whether [marks] hold a match that starts within [length] characters from [base]: text that holds one draws whole. */
+internal fun holdsMatch(marks: EntryMarks?, base: Int, length: Int): Boolean =
+    marks?.matches?.any { it.range.first >= base && it.range.first < base + length } == true
+
+/** The length of a call's searched text: its input, then its result after a line break when it has one. */
+internal fun callLength(call: ToolCall): Int = call.input.length + (call.result?.let { it.length + 1 } ?: 0)
+
+/** Where each call of [calls] starts in its run's searched text, the calls joined by a line break. */
+internal fun callBases(calls: List<ToolCall>): List<Int> {
+    var base = 0
+    return calls.map { call -> base.also { base += callLength(call) + 1 } }
+}
+
+/**
+ * The keys of the folds that open for the match at [at] in [entry]'s searched text: an engine or brief fold by its [key],
+ * a call by its id, and a run by its first call's id with each call that holds the match.
+ */
+private fun foldKeysHolding(entry: ConvoEntry, key: String, at: Int): Set<String> = when (entry) {
+    is ConvoEntry.Engine, is ConvoEntry.Brief -> setOf(key)
+    is ConvoEntry.Tool -> setOf(entry.call.id)
+    is ConvoEntry.Group -> {
+        val bases = callBases(entry.calls)
+        val holding = entry.calls.filterIndexed { index, call -> at >= bases[index] && at < bases[index] + callLength(call) }
+        setOf(entry.calls.first().id) + holding.map { it.id }
+    }
+    else -> emptySet()
 }

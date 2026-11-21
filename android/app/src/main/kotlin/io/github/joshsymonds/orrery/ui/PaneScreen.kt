@@ -285,6 +285,11 @@ fun PaneScreen(
             unsent.map { message -> ConvoEntry.Sending(message.text) }
     }
     val epicDetails = questionEpicDetails(entries, headEpics.details, client)
+    // The find bar while it is open: its query, and the current match of the matches the transcript holds.
+    var finding by remember(paneId) { mutableStateOf<FindSession?>(null) }
+    val searchCache = remember { MarkdownCache() }
+    val found = remember(entries, finding?.query) { transcriptMatches(entries, finding?.query.orEmpty(), searchCache) }
+    val foundCurrent = finding?.let { if (found.isEmpty()) -1 else it.current.coerceIn(0, found.lastIndex) } ?: -1
 
     val density = LocalDensity.current
     val showingConversation = conversation != null
@@ -354,6 +359,7 @@ fun PaneScreen(
                     epicQuestion = { epic, question ->
                         EpicQuestion(epicDetails[epic], question, nowSeconds, client)
                     },
+                    find = finding?.let { TranscriptFind(found, foundCurrent, it.step) },
                     onRead = { readUpTo ->
                         scope.launch(Dispatchers.IO) {
                             try {
@@ -421,6 +427,7 @@ fun PaneScreen(
                                 headHidden.value = false
                                 tapped = true
                             },
+                            onFind = { finding = FindSession(query = "") },
                             modifier = Modifier.fillMaxWidth().background(OrreryTokens.Surface.page),
                         )
                         if (fold == HeadFold.OPEN) {
@@ -441,6 +448,18 @@ fun PaneScreen(
                     }
                 }
             }
+        }
+        finding?.let { session ->
+            FindBar(
+                query = session.query,
+                count = found.size,
+                current = foundCurrent,
+                onQuery = { finding = FindSession(query = it, step = session.step + 1) },
+                onNext = { finding = session.copy(current = stepFind(foundCurrent, found.size, 1), step = session.step + 1) },
+                onPrevious = { finding = session.copy(current = stepFind(foundCurrent, found.size, -1), step = session.step + 1) },
+                onClose = { finding = null },
+                modifier = Modifier.padding(horizontal = OrreryTokens.Space.twelve, vertical = OrreryTokens.Space.four),
+            )
         }
         val draft = rememberDockDraft(paneId)
         Dock(
