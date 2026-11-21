@@ -192,3 +192,47 @@ func TestRoleTellsThePlannerWhatFailsATaskBeforeItsCodeDoes(t *testing.T) {
 		}
 	}
 }
+
+// TestRoleInterfaceWave asserts that the prompt tells the planner the first wave fixes the epic's interfaces and code
+// design, its schemas, generated code, exported types, signatures and test seams, unless the epic has none, and that a
+// plan skipping the wave says why in a decision.
+func TestRoleInterfaceWave(t *testing.T) {
+	t.Parallel()
+	prompt := promptOf(t, syntheticEpic(), 2, syntheticTriggers())
+	for _, want := range []string{
+		"The first wave must fix the epic's interfaces and code design: its schemas, generated code, exported types, " +
+			"signatures and test seams, unless the epic has none.",
+		"A plan that skips the wave says why in a decision.",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Errorf("prompt lacks %q", want)
+		}
+	}
+}
+
+// TestRoleDependsOn asserts that the prompt describes depends_on, with each entry a T<n> or the exact title of another
+// task in the return, says a task starts once every task it depends on is integrated, carries the shared-file rule, and
+// no longer carries the start-now rule or the rule against naming an open task's file.
+func TestRoleDependsOn(t *testing.T) {
+	t.Parallel()
+	prompt := promptOf(t, syntheticEpic(), 2, syntheticTriggers())
+	for _, want := range []string{
+		"depends_on: a JSON array of strings written as a string",
+		"Each entry is T<n> for a task of an earlier turn, or the exact title of another task in this return",
+		"starts once every task it depends on is integrated",
+		"Two tasks may name the same file only when one depends on the other through depends_on.",
+		"A task may name a file an open task owns only when it depends on that task.",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Errorf("prompt lacks %q", want)
+		}
+	}
+	for _, gone := range []string{
+		"Plan only tasks that can start now",
+		"Never name a file that an open task already owns",
+	} {
+		if strings.Contains(prompt, gone) {
+			t.Errorf("prompt still contains %q", gone)
+		}
+	}
+}

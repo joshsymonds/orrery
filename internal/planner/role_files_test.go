@@ -24,11 +24,6 @@ const roleCallersSentence = "A task's files also include every caller of a funct
 const roleRegeneratedSentence = "A task's files also include every file that a proto, query or schema the task " +
 	"changes regenerates, such as the generated code `just gen` writes."
 
-// roleStartsNowSentence is the sentence role.md gives the planner about when a task may build on another's work.
-const roleStartsNowSentence = "Plan only tasks that can start now. Work that builds on an open task's change, such as " +
-	"code that uses fields or functions another open task adds, waits for a later turn: once the open tasks are done, " +
-	"orreryd integrates them and plans the epic again from the new base."
-
 // assertRoleHasSentence asserts that the embedded role text contains sentence.
 func assertRoleHasSentence(t *testing.T, sentence string) {
 	t.Helper()
@@ -75,11 +70,4 @@ func TestPlannerPromptsTightened(t *testing.T) {
 			t.Errorf("prompt has an Exclusions line")
 		}
 	})
-}
-
-// TestPlannerRolePlansOnlyTasksThatCanStartNow asserts that the role text tells the planner that every task starts at
-// once from the integrated branch, so work that builds on an open task's change waits for a later turn.
-func TestPlannerRolePlansOnlyTasksThatCanStartNow(t *testing.T) {
-	t.Parallel()
-	assertRoleHasSentence(t, roleStartsNowSentence)
 }
