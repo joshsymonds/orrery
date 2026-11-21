@@ -161,6 +161,10 @@ button.link.notices-more { justify-self: end; padding: 0 var(--o-space-12); colo
   .read { display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr) auto; gap: 0; }
   .read.pinned { border-left: var(--o-size-hairline) solid var(--o-line-soft); }
   .read > .reader { min-height: 0; overflow-y: auto; padding: var(--o-space-16) var(--o-space-24) var(--o-space-8); }
+  /* The find bar is a field across the column, as round 6 draws it: its own row, as tall as the field and inset to the
+     reader's sides, so the conversation's row takes what is left and the bar is never squeezed over the band above. */
+  .read:has(> .find) { grid-template-rows: auto auto minmax(0, 1fr) auto; }
+  .read > .find { height: var(--o-size-control-desk); margin: var(--o-space-8) var(--o-layout-page-pad-desk) 0; }
   /* A worker's session drawn in the middle fills the reader's three rows, and its own column scrolls its conversation. */
   .read > .worker-session { grid-row: 1 / -1; min-height: 0; padding: var(--o-space-12) var(--o-space-24); }
   .head, .convo-head > .title-row { padding: var(--o-space-12) var(--o-space-24) var(--o-space-12); }
@@ -567,7 +571,7 @@ button.link.notices-more { justify-self: end; padding: 0 var(--o-space-12); colo
   margin: var(--o-space-4) 0; color: var(--o-prose-heading); font: var(--o-type-body); font-weight: var(--o-font-weight-bold);
 }
 .reader .reply code, .reader .reply pre, .reader [data-shape="block"] code, .reader [data-shape="block"] pre { font: var(--o-type-small); }
-.reader .reply code, .reader [data-shape="block"] code {
+.reader .reply code, .reader [data-shape="block"] code, .reader .opened code {
   padding: 0 var(--o-space-4); border-radius: var(--o-radius-1); background: var(--o-surface-well); color: var(--o-prose-code);
 }
 .reader .reply pre, .reader [data-shape="block"] pre {
@@ -702,7 +706,7 @@ button.link.notices-more { justify-self: end; padding: 0 var(--o-space-12); colo
 }
 .reader .result.err { color: var(--o-role-bad); }
 .reader .notice { font: var(--o-type-small); color: var(--o-ink-3); white-space: pre-wrap; overflow-wrap: anywhere; }
-.reader .notice-kind { margin-right: var(--o-space-8); font: var(--o-type-label); letter-spacing: var(--o-type-label-tracking); text-transform: uppercase; color: var(--o-ink-3); }
+.reader .notice-kind { flex: none; margin-right: var(--o-space-8); font: var(--o-type-label); letter-spacing: var(--o-type-label-tracking); text-transform: uppercase; color: var(--o-ink-3); }
 .reader .notice.err .notice-kind { color: var(--o-role-bad); }
 .reader .t.live-row > .body { color: var(--o-ink-1); }
 /* A fold is a line that opens: a run's head, or a brief's or an engine's prompt. Its button chrome is reset to the line, and

@@ -306,3 +306,17 @@ test("Shapes: ContractBlock keeps its own rail, tint and ground, which no Block 
   assert.equal(declaredValue(rules, ".block.ok", "--rail"), "var(--o-role-ok)");
   assert.equal(declaredValue(rules, ".block.quiet", "--rail"), "var(--o-ink-3)");
 });
+
+test("Shapes: a Line's label is a flex item that never shrinks, so its word never wraps inside it", () => {
+  assert.equal(declaredValue(rules, ".reader .notice-kind", "flex"), "none");
+});
+
+test("Shapes: at the desk the find bar is a field in its own row, across the column between the reader's sides", () => {
+  assert.equal(declaredValue(desk, ".read > .find", "height"), "var(--o-size-control-desk)");
+  assert.equal(declaredValue(desk, ".read:has(> .find)", "grid-template-rows"), "auto auto minmax(0, 1fr) auto");
+  assert.equal(declaredValue(desk, ".read > .find", "margin"), "var(--o-space-8) var(--o-layout-page-pad-desk) 0");
+});
+
+test("Shapes: an opened Line's prose sinks its inline code in the well, as a reply does", () => {
+  assert.equal(declaredValue(rules, ".reader .opened code", "background"), "var(--o-surface-well)");
+});
