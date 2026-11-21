@@ -56,3 +56,13 @@ test("a wait stepped by turn ends while setTimeout is mocked, once a promise cha
   await until(t.signal, () => landed, "the promise chain", { step: turn });
   assert.equal(landed, true);
 });
+
+test("until yields a macrotask each round, so a timer ends a wait stepped by promise jobs alone", async () => {
+  // The timer is the event under test: the wait can end only if each round lets the timer's macrotask run.
+  const controller = new AbortController();
+  setTimeout(() => controller.abort(), 5);
+  await assert.rejects(
+    until(controller.signal, () => false, "the thing", { step: () => Promise.resolve() }),
+    { message: "the thing never happened: the test ended first" },
+  );
+});
