@@ -502,6 +502,12 @@ func writeOnceUnshared(t *testing.T, p *Process, link string, data []byte) write
 	t.Helper()
 	syscall.ForkLock.Lock()
 	defer syscall.ForkLock.Unlock()
+	return writeWhenUnshared(t, p, link, data)
+}
+
+// writeWhenUnshared is writeOnceUnshared for a caller that already holds syscall.ForkLock for writing.
+func writeWhenUnshared(t *testing.T, p *Process, link string, data []byte) writeResult {
+	t.Helper()
 	waittest.Until(t, nil, "no other process holding "+link, func() bool { return !childHasOpen(t, link) })
 	return awaitWrite(t, startWrite(p, data))
 }
@@ -525,6 +531,13 @@ func TestProcessWriteToAChildWhoseStdinIsClosedReturnsAnError(t *testing.T) {
 	stopProcess(t, p)
 }
 
+// The race: the test holds the child's stdin pipe's read end in this process, and a fork another test starts while that
+// end is open copies it into the forked process, which keeps the copy until it execs. The final write must find no
+// reader, but the fork scan (childHasOpen) never reads this process's own fds and skips any child whose fd table it
+// cannot read, so a copy it misses leaves the pipe with a reader and the write succeeds. The test lost the race that
+// way. Now the test holds syscall.ForkLock from before it opens the read end until the final write, so no fork can copy
+// the read end while it is open, and the final write runs under the same lock.
+
 // A write to a child that has closed its stdin still succeeds while another process holds the pipe's read end, as a
 // process forked while the pipe was open does until it execs. The test holds that end itself, through /proc, to force
 // the order: while it holds it the write succeeds, and once it has let go and no child holds it the write fails.
@@ -541,19 +554,24 @@ func TestProcessWriteToAClosedStdinSucceedsWhileAnotherProcessHoldsItsPipe(t *te
 	if err != nil {
 		t.Fatalf("read the holder's pids: %v", err)
 	}
-	reader, err := os.Open(fmt.Sprintf("/proc/%d/fd/0", pids.Child))
-	if err != nil {
-		t.Fatalf("hold the child's stdin pipe: %v", err)
-	}
-	closeChildStdin(t, run, cfg)
-	if got := awaitWrite(t, startWrite(p, []byte("x"))); got.err != nil || got.n != 1 {
-		t.Fatalf("write while another reader holds the pipe = %d, %v; want 1, nil", got.n, got.err)
-	}
-	if err = reader.Close(); err != nil {
-		t.Fatalf("let go of the child's stdin pipe: %v", err)
-	}
-	if got := writeOnceUnshared(t, p, link, []byte("x")); got.err == nil {
-		t.Fatalf("write once no reader holds the pipe = %d, nil; want an error", got.n)
+	last := func() writeResult {
+		syscall.ForkLock.Lock()
+		defer syscall.ForkLock.Unlock()
+		reader, openErr := os.Open(fmt.Sprintf("/proc/%d/fd/0", pids.Child))
+		if openErr != nil {
+			t.Fatalf("hold the child's stdin pipe: %v", openErr)
+		}
+		closeChildStdin(t, run, cfg)
+		if got := awaitWrite(t, startWrite(p, []byte("x"))); got.err != nil || got.n != 1 {
+			t.Fatalf("write while another reader holds the pipe = %d, %v; want 1, nil", got.n, got.err)
+		}
+		if err = reader.Close(); err != nil {
+			t.Fatalf("let go of the child's stdin pipe: %v", err)
+		}
+		return writeWhenUnshared(t, p, link, []byte("x"))
+	}()
+	if last.err == nil {
+		t.Fatalf("write once no reader holds the pipe = %d, nil; want an error", last.n)
 	}
 	stopProcess(t, p)
 }
