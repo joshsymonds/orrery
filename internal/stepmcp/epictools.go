@@ -48,7 +48,7 @@ type epicGetArgs struct {
 type epicAnswerArgs struct {
 	EpicID   string `json:"epicId"`
 	ID       string `json:"id"`
-	Text     string `json:"text,omitempty"     jsonschema:"the owner's words: required with choice other, optional with a declared choice"`
+	Text     string `json:"text,omitempty"     jsonschema:"the caller's words: required with choice other, optional with a declared choice"`
 	Question string `json:"question,omitempty" jsonschema:"the Q<n> the answer names; omit for a note"`
 	Choice   string `json:"choice,omitempty"   jsonschema:"the choice the answer gives the question: a declared choice's id, or other; omit for a note"`
 }
@@ -63,11 +63,11 @@ type epicRetryArgs struct {
 	Node string `json:"node,omitempty" jsonschema:"the workflow node id whose parked run reruns under its next attempt; omit to end the epic's park"`
 }
 
-// epicKickArgs is the arguments of epic_kick, described for its input schema. Text is the owner's words, which the
+// epicKickArgs is the arguments of epic_kick, described for its input schema. Text is the caller's words, which the
 // planner reads at the epic's next plan run.
 type epicKickArgs struct {
 	ID   string `json:"id"`
-	Text string `json:"text" jsonschema:"the owner's words, which the planner reads at the epic's next plan run"`
+	Text string `json:"text" jsonschema:"the caller's words, which the planner reads at the epic's next plan run"`
 }
 
 // epicReleaseArgs is the arguments of epic_release, described for its input schema. UndoNone names the 1-based positions
@@ -248,7 +248,7 @@ func epicControlTools(epics enginev1connect.EpicsClient, in epicInputs) []Tool {
 		},
 		{
 			Name: "epic_kick",
-			Description: "Kick an epic by id: record text as the owner's decision and wake the epic's planner with it " +
+			Description: "Kick an epic by id: record text as a decision made by the caller and wake the epic's planner with it " +
 				"at the epic's next plan run. Refused for a paused epic, for a parked epic (epic_retry ends the park " +
 				"first), and for an epic in an ended phase, which takes no kick. Returns a short acknowledgement, " +
 				"not the stored epic: the epic id, its phase and one line naming what changed.",
@@ -258,7 +258,7 @@ func epicControlTools(epics enginev1connect.EpicsClient, in epicInputs) []Tool {
 		{
 			Name: "epic_release",
 			Description: "Release an epic by id. A stopped release resumes at its first unfinished step, and undoNone names the 1-based positions of undo-none release steps to run again. " +
-				"An epic that ended with gaps is released on the owner's word, logged as the owner's decision, so undoNone must be empty for it. " +
+				"An epic that ended with gaps is released on the caller's word, logged as a decision made by the caller, so undoNone must be empty for it. " +
 				"Returns a short acknowledgement, not the stored epic: the epic id, its phase and one line naming " +
 				"what changed. Refused unless the release is stopped or the epic ended with gaps, and each position is undo-none.",
 			InputSchema: in.release,
