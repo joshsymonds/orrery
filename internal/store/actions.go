@@ -248,19 +248,9 @@ func sendBack(ctx context.Context, queries *sqlcgen.Queries, action PlannerActio
 			"task %d of epic %s is in integrate run %s, which has not ended", action.Task, action.Epic, path))
 	}
 	inBase := claimedPassed(runs, task)
-	from := buildOf(task)
-	cause := capTurnText(action.Reason)
-	err = setTaskStatus(ctx, queries, action.Epic, action.Task, taskOpen)
+	err = reopenTask(ctx, queries, action.Epic, task, head.StoredBase, action.Reason, actionDecisionID(action), at)
 	if err != nil {
 		return nil, err
-	}
-	err = moveTask(ctx, queries, action.Epic, action.Task, from, sentBackBuild(from, head.StoredBase, cause))
-	if err != nil {
-		return nil, err
-	}
-	err = queries.ClearEpicTaskBatch(ctx, sqlcgen.ClearEpicTaskBatchParams{Epic: action.Epic, Seq: action.Task})
-	if err != nil {
-		return nil, fmt.Errorf("clear batch of task %d of epic %s: %w", action.Task, action.Epic, err)
 	}
 	if !inBase && head.Candidate != "" {
 		err = queries.SetEpicCandidate(ctx, sqlcgen.SetEpicCandidateParams{Candidate: "", ID: action.Epic})
@@ -268,15 +258,37 @@ func sendBack(ctx context.Context, queries *sqlcgen.Queries, action PlannerActio
 			return nil, fmt.Errorf("clear candidate of epic %s: %w", action.Epic, err)
 		}
 	}
-	err = restartLadder(ctx, queries, action.Epic, action.Task, cause, at)
-	if err != nil {
-		return nil, err
-	}
-	err = insertSendBackVersion(ctx, queries, action.Epic, action.Task, actionDecisionID(action), action.Reason, at)
-	if err != nil {
-		return nil, err
-	}
 	return openTaskSteps(ctx, queries, action.Epic, action.Task)
+}
+
+// reopenTask reopens the done task a send_back or a batch that left it out names, in the caller's write. Its status is
+// open and its build is a fresh build on implement at attempt 1, built on base, with reason as its failure
+// (sentBackBuild). Its batch claim is cleared, its ladder restarts at rung 1 moved by send_back (restartLadder), and a
+// version of source send_back records the reopen as decision and reason (insertSendBackVersion). The epic's candidate
+// is left to the caller.
+func reopenTask(
+	ctx context.Context,
+	queries *sqlcgen.Queries,
+	epic string,
+	task sqlcgen.EpicTask,
+	base, reason, decision string,
+	at time.Time,
+) error {
+	from := buildOf(task)
+	cause := capTurnText(reason)
+	if err := setTaskStatus(ctx, queries, epic, task.Seq, taskOpen); err != nil {
+		return err
+	}
+	if err := moveTask(ctx, queries, epic, task.Seq, from, sentBackBuild(from, base, cause)); err != nil {
+		return err
+	}
+	if err := queries.ClearEpicTaskBatch(ctx, sqlcgen.ClearEpicTaskBatchParams{Epic: epic, Seq: task.Seq}); err != nil {
+		return fmt.Errorf("clear batch of task %d of epic %s: %w", task.Seq, epic, err)
+	}
+	if err := restartLadder(ctx, queries, epic, task.Seq, cause, at); err != nil {
+		return err
+	}
+	return insertSendBackVersion(ctx, queries, epic, task.Seq, decision, reason, at)
 }
 
 // carryOutAction runs the control of action's kind in the caller's write, with the action's fields as given, and returns

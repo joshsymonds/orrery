@@ -2,7 +2,9 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"slices"
 	"time"
@@ -58,7 +60,8 @@ func claimBatchTasks(ctx context.Context, queries *sqlcgen.Queries, epic, path s
 // Candidate is the epic's candidate once the batch has ended, which the caller worked out with git: a commit that holds
 // Over, the stored base the caller read, and builds on it. For a passed batch Over is the run's revision, the stored
 // base it moves to, and an empty Candidate leaves the epic with none. For a failed batch Over is the stored base the
-// epic held, and an empty Candidate leaves the epic's candidate as it is.
+// epic held, and an empty Candidate leaves the epic's candidate as it is. SendBacks are the tasks the batch left out
+// for a merge conflict, each with the reason, which EndBatch reopens as a send_back does.
 type BatchEnd struct {
 	Path      string
 	Attempt   int64
@@ -66,11 +69,19 @@ type BatchEnd struct {
 	Output    string
 	Candidate string
 	Over      string
+	SendBacks []BatchSendBack
+}
+
+// BatchSendBack is a task a batch left out for a merge conflict: the task at Seq is sent back for Reason.
+type BatchSendBack struct {
+	Seq    int64
+	Reason string
 }
 
 // EndBatch ends the running run end names, and settles the epic's bases by the run's revision and end's candidate, in
-// one write (settleBatchBase). A non-nil trigger is added pending unless its id is stored. A run at another attempt and
-// a run that is not running change nothing, so a repeat adds no trigger.
+// one write (settleBatchBase). It then reopens each of end's SendBacks that is done and claimed by the run, as
+// sendLeftOut describes. A non-nil trigger is added pending unless its id is stored. A run at another attempt and a run
+// that is not running change nothing, so a repeat adds no trigger and reopens no task.
 func (s *Store) EndBatch(ctx context.Context, epic string, end BatchEnd, trigger *NodeTrigger, at time.Time) error {
 	return s.write(ctx, func(queries *sqlcgen.Queries) error {
 		ended, err := queries.EndEpicNodeRunAttempt(ctx, sqlcgen.EndEpicNodeRunAttemptParams{
@@ -89,6 +100,9 @@ func (s *Store) EndBatch(ctx context.Context, epic string, end BatchEnd, trigger
 		}
 		if settleErr := settleBatchBase(ctx, queries, epic, end, run); settleErr != nil {
 			return settleErr
+		}
+		if sendErr := sendLeftOut(ctx, queries, epic, end, at); sendErr != nil {
+			return sendErr
 		}
 		if trigger == nil {
 			return nil
@@ -133,6 +147,41 @@ func settleBatchBase(
 		Candidate: end.Candidate, ID: epic,
 	}); err != nil {
 		return fmt.Errorf("set candidate of epic %s: %w", epic, err)
+	}
+	return nil
+}
+
+// sendLeftOut reopens, in the caller's write, each of end's SendBacks that is done and claimed by the run end ends, as
+// a send_back does (reopenTask). The base is the epic's candidate as it stands once the run has settled, or the stored
+// base when there is none, so the reopened task builds on what the next batch composes on. The candidate is kept, since
+// the batch left the task out, and no trigger is added. A task that does not exist, is not done, or is claimed by
+// another batch or by none is skipped and changes nothing.
+func sendLeftOut(ctx context.Context, queries *sqlcgen.Queries, epic string, end BatchEnd, at time.Time) error {
+	if len(end.SendBacks) == 0 {
+		return nil
+	}
+	head, headErr := epicHead(ctx, queries, epic)
+	if headErr != nil {
+		return headErr
+	}
+	base := head.Candidate
+	if base == "" {
+		base = head.StoredBase
+	}
+	for _, send := range end.SendBacks {
+		task, readErr := queries.GetEpicTask(ctx, sqlcgen.GetEpicTaskParams{Epic: epic, Seq: send.Seq})
+		if errors.Is(readErr, sql.ErrNoRows) {
+			continue
+		}
+		if readErr != nil {
+			return fmt.Errorf("read task %d of epic %s: %w", send.Seq, epic, readErr)
+		}
+		if task.Status != taskDone || task.Batch != end.Path {
+			continue
+		}
+		if reopenErr := reopenTask(ctx, queries, epic, task, base, send.Reason, "", at); reopenErr != nil {
+			return reopenErr
+		}
 	}
 	return nil
 }
