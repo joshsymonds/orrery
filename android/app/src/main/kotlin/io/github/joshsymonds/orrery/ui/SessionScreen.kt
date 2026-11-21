@@ -1,17 +1,25 @@
 package io.github.joshsymonds.orrery.ui
 
 import android.util.Log
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -20,6 +28,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -28,7 +37,9 @@ import io.github.joshsymonds.orrery.api.EpicDetail
 import io.github.joshsymonds.orrery.api.HostStat
 import io.github.joshsymonds.orrery.api.OrreryClient
 import io.github.joshsymonds.orrery.api.Pane
+import io.github.joshsymonds.orrery.ui.theme.Move
 import io.github.joshsymonds.orrery.ui.theme.OrreryTokens
+import io.github.joshsymonds.orrery.ui.theme.spec
 import java.io.IOException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -270,6 +281,9 @@ fun SessionScreen(
     val draft = rememberDockDraft(sessionId)
 
     val headHidden = rememberHeadHidden()
+    val density = LocalDensity.current
+    val ime = WindowInsets.ime
+    val keyboardUp by remember(ime, density) { derivedStateOf { ime.getBottom(density) > 0 } }
     val listState = rememberLazyListState()
     var tapped by remember(sessionId) { mutableStateOf(false) }
     // Whether the reader is at the newest line, as the conversation view follows it.
@@ -318,44 +332,53 @@ fun SessionScreen(
             }
         }
         pane?.takeIf { step == null }?.let { shown ->
-            Head(
-                bandHides = !stripTiles,
-                dir = lastPathElement(shown.cwd),
-                host = shown.host.ifEmpty { servingHost },
-                title = shown.label.ifEmpty { shown.command },
-                context = conversation?.context,
-                note = if (refreshFailed) REFRESH_FAILED else "",
-                stats = if (otherHost == null) stats else null,
-                otherHost = otherHost,
-                goal = conversation?.goal.orEmpty(),
-                lines = lines,
-                asking = asking,
-                badges = headBadges(steered, lines, conversation?.background.orEmpty()),
-                fold = fold,
-                onBack = onBack,
-                onOpenEpic = onOpenEpic,
-                contracts = bandLines,
-                onOpenContract = openContract,
-                onHide = { headHidden.value = true },
-                onShow = {
-                    headHidden.value = false
-                    tapped = true
-                },
-                onFind = { finding = FindSession(query = "") },
-                modifier = Modifier.fillMaxWidth().background(OrreryTokens.Surface.page),
-            )
-            if (fold == HeadFold.OPEN) {
-                ConversationStrip(
-                    conversation = sessionId,
-                    pane = false,
-                    background = conversation?.background.orEmpty(),
-                    now = nowSeconds,
-                    client = client,
-                    onOpenEpic = onOpenEpic,
-                    onOpenContract = openContract,
-                    onTiles = { stripTiles = it },
-                    end = { HideHeader { headHidden.value = true } },
-                )
+            AnimatedVisibility(
+                visible = !keyboardUp,
+                enter = expandVertically(Move.LAYOUT.spec(animated = true)) + fadeIn(Move.LAYOUT.spec(animated = true)),
+                exit = shrinkVertically(Move.LAYOUT.spec(animated = true)) + fadeOut(Move.LAYOUT.spec(animated = true)),
+                label = "head",
+            ) {
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    Head(
+                        bandHides = !stripTiles,
+                        dir = lastPathElement(shown.cwd),
+                        host = shown.host.ifEmpty { servingHost },
+                        title = shown.label.ifEmpty { shown.command },
+                        context = conversation?.context,
+                        note = if (refreshFailed) REFRESH_FAILED else "",
+                        stats = if (otherHost == null) stats else null,
+                        otherHost = otherHost,
+                        goal = conversation?.goal.orEmpty(),
+                        lines = lines,
+                        asking = asking,
+                        badges = headBadges(steered, lines, conversation?.background.orEmpty()),
+                        fold = fold,
+                        onBack = onBack,
+                        onOpenEpic = onOpenEpic,
+                        contracts = bandLines,
+                        onOpenContract = openContract,
+                        onHide = { headHidden.value = true },
+                        onShow = {
+                            headHidden.value = false
+                            tapped = true
+                        },
+                        onFind = { finding = FindSession(query = "") },
+                        modifier = Modifier.fillMaxWidth().background(OrreryTokens.Surface.page),
+                    )
+                    if (fold == HeadFold.OPEN) {
+                        ConversationStrip(
+                            conversation = sessionId,
+                            pane = false,
+                            background = conversation?.background.orEmpty(),
+                            now = nowSeconds,
+                            client = client,
+                            onOpenEpic = onOpenEpic,
+                            onOpenContract = openContract,
+                            onTiles = { stripTiles = it },
+                            end = { HideHeader { headHidden.value = true } },
+                        )
+                    }
+                }
             }
         }
         Box(modifier = Modifier.weight(1f).fillMaxWidth().clipToBounds()) {
