@@ -22,7 +22,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
@@ -30,6 +29,7 @@ import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.SemanticsPropertyKey
 import androidx.compose.ui.semantics.onClick
@@ -56,7 +56,10 @@ data class StepFact(val text: String, val kind: FactKind)
 private enum class BlockTone { You, Engine, Ok, Bad, Attention, Quiet }
 
 /** The icon a Block's label line leads with. */
-private enum class BlockIcon { Person, Gear, Clock, Check, Cross, Stop }
+private enum class BlockIcon { Person, Gear, Clock, Check, Cross, Stop, Question, Pause, Open, Gauge }
+
+/** The kinds of epic event an EpicEventBlock draws: a question, a park, a release, an end, and the epic a create made. */
+enum class EpicEventKind { Question, Park, Release, End, Created }
 
 /** A step end's words and the tone its rail takes. */
 private class EndWord(val word: String, val tone: BlockTone)
@@ -130,7 +133,7 @@ fun EventBlock(text: String, time: String? = null, cron: Boolean = false) {
 
 /** A step that ended: its rail is its verdict, its end chip says how, and its facts line sits under its summary. */
 @Composable
-fun StepEndBlock(agent: String, end: String, summary: String, facts: StepFacts?) {
+fun StepEndBlock(agent: String, end: String, summary: String, facts: StepFacts?, time: String? = null) {
     val verdict = END_WORDS[end] ?: EndWord(end, BlockTone.Quiet)
     Block(
         kind = "stepend",
@@ -142,10 +145,50 @@ fun StepEndBlock(agent: String, end: String, summary: String, facts: StepFacts?)
         },
         label = "STEP ENDED",
         who = agent,
+        time = time,
         end = { Chip(verdict.word, chipToneOf(verdict.tone)) },
         body = {
             Prose(summary, OrreryTokens.Ink.one)
             FactsLine(stepFactsOf(facts))
+        },
+    )
+}
+
+/** An epic's event as its block names it: its kind's tone and icon, the EPIC label, its [sentence], and its [slug] with a chevron. */
+@Composable
+fun EpicEventBlock(
+    kind: EpicEventKind,
+    slug: String,
+    sentence: String,
+    time: String? = null,
+    under: @Composable () -> Unit = {},
+) {
+    val tone = when (kind) {
+        EpicEventKind.Question, EpicEventKind.Park -> BlockTone.Attention
+        EpicEventKind.Release -> BlockTone.Ok
+        EpicEventKind.End -> BlockTone.Quiet
+        EpicEventKind.Created -> BlockTone.Engine
+    }
+    val icon = when (kind) {
+        EpicEventKind.Question -> BlockIcon.Question
+        EpicEventKind.Park -> BlockIcon.Pause
+        EpicEventKind.Release -> BlockIcon.Open
+        EpicEventKind.End -> BlockIcon.Stop
+        EpicEventKind.Created -> BlockIcon.Gauge
+    }
+    Block(
+        kind = "epicevent",
+        tone = tone,
+        icon = icon,
+        label = "EPIC",
+        time = time,
+        end = {
+            Text(text = slug, color = OrreryTokens.Role.ref, style = OrreryTokens.Type.small, maxLines = 1)
+            Text(text = "›", color = OrreryTokens.Ink.four, style = OrreryTokens.Type.small, maxLines = 1)
+        },
+        body = {
+            Prose(sentence, OrreryTokens.Ink.one)
+            under()
         },
     )
 }
@@ -155,7 +198,7 @@ fun StepEndBlock(agent: String, end: String, summary: String, facts: StepFacts?)
  * and with no checks it is the engine's. The text's first line is the note; the rest opens under it.
  */
 @Composable
-fun CheckBlock(round: Int, text: String, checks: List<CheckResult>) {
+fun CheckBlock(round: Int, text: String, checks: List<CheckResult> = emptyList(), time: String? = null) {
     val tone = when {
         checks.isEmpty() -> BlockTone.Engine
         checks.all { it.ok } -> BlockTone.Ok
@@ -174,6 +217,7 @@ fun CheckBlock(round: Int, text: String, checks: List<CheckResult>) {
         },
         label = "CHECKS",
         words = "round $round from the engine",
+        time = time,
         onTap = if (rest.isEmpty()) null else { { open = !open } },
         body = {
             if (checks.isNotEmpty()) ChecksRow(checks)
@@ -346,6 +390,40 @@ private fun DrawScope.drawBlockIcon(icon: BlockIcon, ink: Color) {
             line(11f, 5f, 5f, 11f)
         }
         BlockIcon.Stop -> drawRect(ink, point(5f, 5f), Size(6f * unit, 6f * unit))
+        BlockIcon.Question -> {
+            drawArc(
+                color = ink,
+                startAngle = 180f,
+                sweepAngle = 270f,
+                useCenter = false,
+                topLeft = point(5f, 4f),
+                size = Size(6f * unit, 6f * unit),
+                style = stroke,
+            )
+            line(8f, 10f, 8f, 11f)
+            drawCircle(ink, OrreryTokens.Size.hairline.toPx(), point(8f, 13.5f))
+        }
+        BlockIcon.Pause -> {
+            line(6f, 5f, 6f, 11f)
+            line(10f, 5f, 10f, 11f)
+        }
+        BlockIcon.Open -> {
+            line(5f, 11f, 11f, 5f)
+            line(6.5f, 5f, 11f, 5f)
+            line(11f, 5f, 11f, 9.5f)
+        }
+        BlockIcon.Gauge -> {
+            drawArc(
+                color = ink,
+                startAngle = 180f,
+                sweepAngle = 180f,
+                useCenter = false,
+                topLeft = point(3f, 4f),
+                size = Size(10f * unit, 10f * unit),
+                style = stroke,
+            )
+            line(8f, 9f, 11f, 6.5f)
+        }
     }
 }
 

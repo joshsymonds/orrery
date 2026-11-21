@@ -4,7 +4,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.scrollBy
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -22,8 +21,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListLayoutInfo
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -39,8 +36,6 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.onClick
@@ -48,10 +43,8 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
-import androidx.compose.ui.text.withStyle
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.dp
+import androidx.compose.ui.text.withStyle
 import io.github.joshsymonds.orrery.api.ContractRow
 import io.github.joshsymonds.orrery.api.WaitingItem
 import io.github.joshsymonds.orrery.ui.theme.OrreryTokens
@@ -63,10 +56,8 @@ import kotlinx.coroutines.launch
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
-import java.util.Locale
 
 internal val CLOCK_TIME: DateTimeFormatter = DateTimeFormatter.ofPattern("HH:mm")
-private val MONTH_DAY: DateTimeFormatter = DateTimeFormatter.ofPattern("MMM d", Locale.ENGLISH)
 
 // Entry keys always start with their kind ("reply:", "tool:", ...), so these never equal one.
 private const val FOOTER_KEY = "footer"
@@ -75,41 +66,28 @@ private const val WAITING_KEY_PREFIX = "waiting:"
 private const val WAITING_MORE_KEY = "waiting-more"
 // At most this many waiting rows draw; the rest are counted on one "+N more" row after them.
 private const val WAITING_SHOWN = 3
-// The divider and the tint on the rows from it on, both in the lavender of the palette.
+// The new rule's label and the tint on the rows from it on, both in the lavender of the palette.
 private const val NEW_LABEL = "new"
 // How long an entry must stay on screen, enough of it, to count as read.
 private const val READ_DWELL_MS = 1_000L
 
-private enum class CallMark(val symbol: String, val colour: Color) {
-    Done("✓", OrreryTokens.Role.ok),
-    Failed("✗", OrreryTokens.Role.bad),
-}
-
 /**
- * The folded conversation as the phone draws it: time labels, prompt blocks, markdown replies, tool
- * rows that expand to their result, groups of calls that expand to their rows, compaction bars that
- * expand to their summary, and slim notice rows, with an optional footer after the last entry. The
- * [waiting] rows follow the last entry, one per queued message up to three, then a "+N more" row for
- * the rest, and the footer comes last. Which rows are
- * open is kept by tool id (a group by its first call's id, a compaction bar by its entry key, a
- * waiting row by its message's time and text), so it survives new entries. The first entries it
- * shows open at the divider's entry, at the top, when a divider is
- * drawn (see below), or at the end of the newest item otherwise. Landing leaves following on only
- * when the end is in view; otherwise the view waits for the reader to reach the end or an end
- * request before following. While the reader is at the
- * bottom, new entries keep the end of the newest item in view; once they scroll up, new entries
- * leave their position
- * alone. A change of the viewport's height or top padding (the keyboard, a growing draft, the
- * header folding) follows the same way. Each change of [endRequests] brings the end into view and
- * resumes following, even when the reader has scrolled up; the first composition is not a change.
- * Time rows are read against [now], in unix seconds, and follow it as it changes. A divider labelled
- * "new" sits before the first entry newer than [seen] (unix seconds, null for none), and every entry
- * from there on carries a faint tint; without a newer entry neither is drawn. [onRead] receives each
- * new, larger time of the newest entry read: one that stays on screen for a second, at least half of
- * it (or of the window, for one taller than the window) between the top and bottom content padding.
- * A call that writes a contract, with a result that did not fail, draws that contract's line (see
- * [contractLineWords]) in place of its row, and a press on it calls [onOpenContract] with the contract's
- * id; [contracts] supplies the words.
+ * The folded conversation as the phone draws it: each entry in its shape, a block someone speaks in, a line of
+ * machinery, a rule between, or the session's Markdown reply, with an optional footer after the last entry. The
+ * [waiting] rows follow the last entry, one per queued message up to three, then a "+N more" row for the rest, and the
+ * footer comes last. Which lines and rules are open is kept by their key, so it survives new entries. The first
+ * entries it shows open at the new rule when one is drawn, or at the end of the newest item otherwise. Landing leaves
+ * following on only when the end is in view; otherwise the view waits for the reader to reach the end or an end
+ * request before following. While the reader is at the bottom, new entries keep the end of the newest item in view;
+ * once they scroll up, new entries leave their position alone. A change of the viewport's height or top padding (the
+ * keyboard, a growing draft, the header folding) follows the same way. Each change of [endRequests] brings the end
+ * into view and resumes following, even when the reader has scrolled up; the first composition is not a change. A
+ * new rule sits before the first entry newer than [seen] (unix seconds, null for none), and every entry from there on
+ * carries a faint tint; without a newer entry neither is drawn. [onRead] receives each new, larger time of the newest
+ * entry read: one that stays on screen for a second, at least half of it (or of the window, for one taller than the
+ * window) between the top and bottom content padding. A call that writes a contract, with a result that did not fail,
+ * draws that contract's line (see [contractLineWords]) in place of its row, and a press on it calls [onOpenContract]
+ * with the contract's id; [contracts] supplies the words.
  */
 @Composable
 fun ConversationView(
@@ -228,10 +206,10 @@ fun ConversationView(
         contentPadding = contentPadding,
     ) {
         items(count = entries.size, key = { index -> keys[index] }) { index ->
-            // The divider rides in its entry's item, so the item count, and the end that follows it, stay put.
+            // The new rule rides in its entry's item, so the item count, and the end that follows it, stay put.
             val tinted = newerAt >= 0 && index >= newerAt
             Column(modifier = Modifier.fillMaxWidth()) {
-                if (index == newerAt) NewDivider()
+                if (index == newerAt) NewRule()
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -246,19 +224,7 @@ fun ConversationView(
                             },
                         ),
                 ) {
-                    when (val entry = entries[index]) {
-                        is ConvoEntry.Time -> TimeLabel(entry.seconds, now)
-                        is ConvoEntry.Prompt -> {
-                            val move = moveLineOf(entry.text)
-                            if (move != null) MoveLine(move) else PromptBlock(entry.text)
-                        }
-                        is ConvoEntry.Reply -> ReplyText(entry.text, markdownCache)
-                        is ConvoEntry.Tool -> ToolRow(entry.call, expanded, toggle)
-                        is ConvoEntry.Group -> GroupRow(entry.calls, expanded, toggle)
-                        is ConvoEntry.ContractLine -> ContractLineRow(entry.call.contract, contracts, onOpenContract)
-                        is ConvoEntry.Compaction -> CompactionRow(entry, keys[index], expanded, toggle, markdownCache)
-                        is ConvoEntry.Notice -> NoticeRow(entry)
-                    }
+                    EntryView(entries[index], keys[index], expanded, toggle, markdownCache, contracts, onOpenContract)
                 }
             }
         }
@@ -272,104 +238,66 @@ fun ConversationView(
     }
 }
 
-/**
- * The label a time row shows for [seconds], read against [now] (both unix seconds) in the device
- * zone: "just now" under a minute old or dated after now, "N min ago" under an hour old, the clock
- * time when it is from today, and the date otherwise.
- */
-fun timeLabel(seconds: Long, now: Long): String {
-    val age = now - seconds
-    return when {
-        age < 60 -> "just now"
-        age < 3_600 -> "${age / 60} min ago"
-        else -> {
-            val zone = ZoneId.systemDefault()
-            val time = Instant.ofEpochSecond(seconds).atZone(zone)
-            val today = Instant.ofEpochSecond(now).atZone(zone).toLocalDate()
-            if (time.toLocalDate() == today) time.format(CLOCK_TIME) else time.format(MONTH_DAY)
-        }
+/** The clock time a block or a rule shows for [seconds] in the device zone, or null for a time of 0, which is no time. */
+private fun timeOf(seconds: Long): String? =
+    if (seconds <= 0) null else Instant.ofEpochSecond(seconds).atZone(ZoneId.systemDefault()).format(CLOCK_TIME)
+
+/** The shape each entry draws as. */
+@Composable
+private fun EntryView(
+    entry: ConvoEntry,
+    key: String,
+    expanded: Set<String>,
+    onToggle: (String) -> Unit,
+    cache: MarkdownCache,
+    contracts: List<ContractRow>,
+    onOpenContract: (String) -> Unit,
+) {
+    when (entry) {
+        is ConvoEntry.Prompt -> YouBlock(entry.text, timeOf(entry.time))
+        is ConvoEntry.Event -> EventBlock(entry.text, timeOf(entry.time))
+        is ConvoEntry.Cron -> EventBlock(entry.text, timeOf(entry.time), cron = true)
+        is ConvoEntry.StepEnd -> StepEndBlock(entry.agent, entry.end, entry.summary, entry.facts, timeOf(entry.time))
+        is ConvoEntry.EpicEvent -> EpicEventBlock(
+            kind = epicEventKindOf(entry.kind),
+            slug = entry.epic.substringAfter('/'),
+            sentence = entry.sentence,
+            time = timeOf(entry.time),
+        )
+        is ConvoEntry.Created -> EpicEventBlock(
+            kind = EpicEventKind.Created,
+            slug = entry.epic.substringAfter('/'),
+            sentence = "Created the epic from the accepted contract.",
+            time = timeOf(entry.time),
+        )
+        is ConvoEntry.Move -> MoveLine(entry.event)
+        is ConvoEntry.Brief -> EngineFold(brief = true, text = entry.text, key = key, expanded = expanded, onToggle = onToggle)
+        is ConvoEntry.Engine -> EngineFold(brief = false, text = entry.text, key = key, expanded = expanded, onToggle = onToggle)
+        is ConvoEntry.Check -> CheckBlock(entry.round, entry.text, time = timeOf(entry.time))
+        is ConvoEntry.Reply -> ReplyText(entry.text, cache)
+        is ConvoEntry.Tool -> ToolLine(entry.call, expanded = expanded, onToggle = onToggle)
+        is ConvoEntry.Group -> ToolRun(entry.calls, expanded = expanded, onToggle = onToggle)
+        is ConvoEntry.ContractLine -> ContractLineRow(entry.call.contract, contracts, onOpenContract)
+        is ConvoEntry.Compaction -> CompactionRule(
+            trigger = entry.trigger,
+            tokens = entry.tokens,
+            expanded = key in expanded,
+            onToggle = { onToggle(key) },
+            summary = { ReplyText(entry.text, cache) },
+        )
+        is ConvoEntry.Notice -> NoticeLine(entry)
+        is ConvoEntry.Task -> TaskLine(entry.type, entry.subagentType, entry.description, entry.status)
+        is ConvoEntry.Interrupted -> InterruptedRule(entry.time)
+        is ConvoEntry.Day -> DayRule(entry.seconds)
     }
 }
 
-@Composable
-private fun TimeLabel(seconds: Long, now: Long) {
-    Text(
-        text = timeLabel(seconds, now),
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(top = OrreryTokens.Space.eight + OrreryTokens.Space.two, bottom = OrreryTokens.Space.two),
-        color = OrreryTokens.Ink.four,
-        style = OrreryTokens.Type.small,
-        textAlign = TextAlign.Center,
-    )
-}
-
-/** The line that marks where the entries newer than the seen time begin, labelled "new". */
-@Composable
-private fun NewDivider() {
-    Row(
-        modifier = Modifier
-            .testTag("new-divider")
-            .fillMaxWidth()
-            .padding(
-                top = OrreryTokens.Space.four + OrreryTokens.Space.two,
-                bottom = OrreryTokens.Space.four + OrreryTokens.Space.two,
-            ),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(OrreryTokens.Space.eight),
-    ) {
-        Box(
-            modifier = Modifier
-                .weight(1f)
-                .height(OrreryTokens.Size.hairline)
-                .background(OrreryTokens.Role.newLine),
-        )
-        Text(
-            text = NEW_LABEL.inLabelCase(),
-            color = OrreryTokens.Role.new,
-            style = OrreryTokens.Type.label,
-        )
-        Box(
-            modifier = Modifier
-                .weight(1f)
-                .height(OrreryTokens.Size.hairline)
-                .background(OrreryTokens.Role.newLine),
-        )
-    }
-}
-
-@Composable
-private fun PromptBlock(text: String) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(top = OrreryTokens.Space.eight + OrreryTokens.Space.two, bottom = OrreryTokens.Space.twelve)
-            .height(IntrinsicSize.Min)
-            .clip(RoundedCornerShape(topEnd = OrreryTokens.Radius.two, bottomEnd = OrreryTokens.Radius.two))
-            .background(OrreryTokens.Surface.raised),
-    ) {
-        Box(
-            modifier = Modifier
-                .width(OrreryTokens.Size.rail)
-                .fillMaxHeight()
-                .background(OrreryTokens.Role.you),
-        )
-        Column(
-            modifier = Modifier.padding(
-                start = OrreryTokens.Space.twelve,
-                end = OrreryTokens.Space.twelve,
-                top = OrreryTokens.Space.eight,
-                bottom = OrreryTokens.Space.eight,
-            ),
-        ) {
-            Text(
-                text = "YOU".inLabelCase(),
-                color = OrreryTokens.Role.you,
-                style = OrreryTokens.Type.label,
-            )
-            Text(text = text, color = OrreryTokens.Ink.one, style = OrreryTokens.Type.body)
-        }
-    }
+// The kind of epic event a question, park, release or end entry draws as; the fold gives no other kind.
+private fun epicEventKindOf(kind: String): EpicEventKind = when (kind) {
+    "question" -> EpicEventKind.Question
+    "park" -> EpicEventKind.Park
+    "release" -> EpicEventKind.Release
+    else -> EpicEventKind.End
 }
 
 /**
@@ -448,46 +376,10 @@ private fun ReplyText(text: String, cache: MarkdownCache) {
     val blocks = remember(text) { cache.blocks(text) }
     MarkdownBody(
         blocks = blocks,
-        modifier = Modifier.padding(vertical = OrreryTokens.Space.twelve),
+        modifier = Modifier.testTag("reply").padding(vertical = OrreryTokens.Space.twelve),
         color = OrreryTokens.Ink.one,
         fontSize = OrreryTokens.Type.body.fontSize,
     )
-}
-
-@Composable
-private fun ToolRow(call: ToolCall, expanded: Set<String>, onToggle: (String) -> Unit) {
-    val isOpen = call.id in expanded
-    Column(modifier = Modifier.fillMaxWidth().padding(vertical = OrreryTokens.Space.four)) {
-        Row(
-            modifier = Modifier
-                .testTag("tool-row:${call.id}")
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(OrreryTokens.Radius.two))
-                .background(OrreryTokens.Surface.well)
-                .clickable { onToggle(call.id) }
-                .padding(horizontal = OrreryTokens.Space.eight + OrreryTokens.Space.two, vertical = OrreryTokens.Space.eight),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(OrreryTokens.Space.eight),
-        ) {
-            Caret(isOpen)
-            Text(
-                text = call.name,
-                color = OrreryTokens.Role.ref,
-                style = OrreryTokens.Type.small.copy(fontWeight = OrreryTokens.Font.Weight.bold),
-                maxLines = 1,
-            )
-            Text(
-                text = call.input,
-                modifier = Modifier.weight(1f),
-                color = OrreryTokens.Ink.two,
-                style = OrreryTokens.Type.small,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            MarkText(toolMark(call))
-        }
-        if (isOpen) ResultBox(call)
-    }
 }
 
 /** The one line a contract's call draws: its title and state words, pressed to open the contract. */
@@ -531,171 +423,6 @@ private fun ContractLineRow(id: String, contracts: List<ContractRow>, onOpen: (S
     }
 }
 
-@Composable
-private fun GroupRow(calls: List<ToolCall>, expanded: Set<String>, onToggle: (String) -> Unit) {
-    val firstId = calls.first().id
-    val isOpen = firstId in expanded
-    Column(modifier = Modifier.fillMaxWidth().padding(vertical = OrreryTokens.Space.four)) {
-        Row(
-            modifier = Modifier
-                .testTag("group-row:$firstId")
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(OrreryTokens.Radius.two))
-                .background(OrreryTokens.Surface.well)
-                .clickable { onToggle(firstId) }
-                .padding(horizontal = OrreryTokens.Space.eight + OrreryTokens.Space.two, vertical = OrreryTokens.Space.eight),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(OrreryTokens.Space.eight),
-        ) {
-            Caret(isOpen)
-            Text(
-                text = "${calls.size} tool calls",
-                color = OrreryTokens.Ink.two,
-                style = OrreryTokens.Type.small.copy(fontWeight = OrreryTokens.Font.Weight.bold),
-                maxLines = 1,
-            )
-            Text(
-                text = groupSummary(calls),
-                modifier = Modifier.weight(1f),
-                color = OrreryTokens.Ink.two,
-                style = OrreryTokens.Type.small,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            MarkText(groupMark(calls))
-        }
-        if (isOpen) {
-            Row(
-                modifier = Modifier
-                    .height(IntrinsicSize.Min)
-                    .padding(start = OrreryTokens.Space.eight + OrreryTokens.Space.two, top = OrreryTokens.Space.two),
-            ) {
-                Box(
-                    modifier = Modifier
-                        .width(OrreryTokens.Size.hairline)
-                        .fillMaxHeight()
-                        .background(OrreryTokens.Line.soft),
-                )
-                Column(modifier = Modifier.weight(1f).padding(start = OrreryTokens.Space.eight)) {
-                    calls.forEach { call -> ToolRow(call, expanded, onToggle) }
-                }
-            }
-        }
-    }
-}
-
-/**
- * The label a compaction bar shows: "compacted", then its trigger when set, the context tokens in
- * thousands when there are any, and the clock time in the device zone when it is known, joined by " · ".
- */
-fun compactionLabel(entry: ConvoEntry.Compaction): String {
-    val parts = mutableListOf("compacted")
-    if (entry.trigger.isNotEmpty()) parts.add(entry.trigger)
-    if (entry.tokens > 0) parts.add("${entry.tokens / 1_000}k")
-    if (entry.time > 0) parts.add(Instant.ofEpochSecond(entry.time).atZone(ZoneId.systemDefault()).format(CLOCK_TIME))
-    return parts.joinToString(" · ")
-}
-
-/**
- * A compaction as a thin bar with its label between two rules. A tap opens the summary below it,
- * as a reply draws it, and a second tap closes it.
- */
-@Composable
-private fun CompactionRow(
-    entry: ConvoEntry.Compaction,
-    key: String,
-    expanded: Set<String>,
-    onToggle: (String) -> Unit,
-    cache: MarkdownCache,
-) {
-    val isOpen = key in expanded
-    Column(modifier = Modifier.fillMaxWidth()) {
-        Row(
-            modifier = Modifier
-                .testTag("compaction-bar:$key")
-                .fillMaxWidth()
-                .clickable { onToggle(key) }
-                .padding(top = OrreryTokens.Space.eight + OrreryTokens.Space.two, bottom = OrreryTokens.Space.two),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(OrreryTokens.Space.eight),
-        ) {
-            Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .height(OrreryTokens.Size.hairline)
-                    .background(OrreryTokens.Line.soft),
-            )
-            Text(
-                text = compactionLabel(entry),
-                color = OrreryTokens.Ink.four,
-                style = OrreryTokens.Type.small,
-                maxLines = 1,
-            )
-            Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .height(OrreryTokens.Size.hairline)
-                    .background(OrreryTokens.Line.soft),
-            )
-        }
-        if (isOpen) ReplyText(entry.text, cache)
-    }
-}
-
-/**
- * A session event on one quiet line: a small dot and its sort's label, then its text, cut with an
- * ellipsis (a teammate notice keeps a few of its summary lines). A failed task is red and marked
- * with a cross. The text is drawn as it comes, never as markdown.
- */
-@Composable
-private fun NoticeRow(notice: ConvoEntry.Notice) {
-    val accent = if (notice.error) OrreryTokens.Role.bad else OrreryTokens.Ink.three
-    Row(
-        modifier = Modifier
-            .testTag("notice:${notice.sort}")
-            .fillMaxWidth()
-            .padding(
-                start = OrreryTokens.Space.four,
-                end = OrreryTokens.Space.four,
-                top = OrreryTokens.Space.four,
-                bottom = OrreryTokens.Space.four,
-            ),
-        verticalAlignment = Alignment.Top,
-        horizontalArrangement = Arrangement.spacedBy(OrreryTokens.Space.eight),
-    ) {
-        NoticeDot(accent)
-        Text(
-            text = noticeLabel(notice.sort),
-            color = accent,
-            style = OrreryTokens.Type.small.copy(fontWeight = OrreryTokens.Font.Weight.bold),
-            maxLines = 1,
-        )
-        Text(
-            text = notice.text,
-            modifier = Modifier.weight(1f),
-            color = if (notice.error) OrreryTokens.Role.bad else OrreryTokens.Ink.three,
-            style = OrreryTokens.Type.small,
-            maxLines = noticeMaxLines(notice.sort),
-            overflow = TextOverflow.Ellipsis,
-        )
-        if (notice.error) MarkText(CallMark.Failed)
-    }
-}
-
-@Composable
-private fun NoticeDot(accent: Color) {
-    Box(
-        modifier = Modifier
-            .padding(top = NOTICE_DOT_TOP)
-            .size(NOTICE_DOT)
-            .clip(CircleShape)
-            .background(accent),
-    )
-}
-
-private val NOTICE_DOT = OrreryTokens.Size.dot
-private val NOTICE_DOT_TOP = OrreryTokens.Space.four + OrreryTokens.Space.two
-
 /** The label a notice of [sort] shows before its text. */
 fun noticeLabel(sort: String): String = when (sort) {
     "compaction" -> "context compacted"
@@ -706,60 +433,9 @@ fun noticeLabel(sort: String): String = when (sort) {
     else -> sort
 }
 
-/** How many lines of text a notice of [sort] shows before the ellipsis. */
-fun noticeMaxLines(sort: String): Int = if (sort == "teammate") 3 else 2
-
-@Composable
-private fun Caret(isOpen: Boolean) {
-    Text(
-        text = "›",
-        modifier = Modifier
-            .width(OrreryTokens.Space.eight)
-            .graphicsLayer { rotationZ = if (isOpen) 90f else 0f },
-        color = OrreryTokens.Ink.four,
-        style = OrreryTokens.Type.small,
-        maxLines = 1,
-    )
-}
-
-@Composable
-private fun MarkText(mark: CallMark?) {
-    mark?.let {
-        Text(
-            text = it.symbol,
-            color = it.colour,
-            style = OrreryTokens.Type.small,
-            maxLines = 1,
-        )
-    }
-}
-
-/** The result, unwrapped and panning sideways, in a crust box below its row. */
-@Composable
-private fun ResultBox(call: ToolCall) {
-    val scroll = rememberScrollState()
-    Box(
-        modifier = Modifier
-            .testTag("tool-result:${call.id}")
-            .fillMaxWidth()
-            .padding(bottom = OrreryTokens.Space.four + OrreryTokens.Space.two)
-            .clip(RoundedCornerShape(OrreryTokens.Radius.two))
-            .background(OrreryTokens.Surface.side)
-            .horizontalScroll(scroll)
-            .padding(horizontal = OrreryTokens.Space.eight + OrreryTokens.Space.two, vertical = OrreryTokens.Space.eight),
-    ) {
-        Text(
-            text = call.result.orEmpty(),
-            color = OrreryTokens.Ink.two,
-            style = OrreryTokens.Type.small,
-            softWrap = false,
-        )
-    }
-}
-
 /**
  * The read-counting entries on screen, by key, with their times: those whose part between the top
- * and bottom content padding is at least half of the smaller of the row and the window. Time rows
+ * and bottom content padding is at least half of the smaller of the row and the window. Rules
  * and untimed entries never count.
  */
 private fun readingEntries(info: LazyListLayoutInfo, entries: List<ConvoEntry>, keys: List<String>): Map<String, Long> {
@@ -769,7 +445,6 @@ private fun readingEntries(info: LazyListLayoutInfo, entries: List<ConvoEntry>, 
     for (item in info.visibleItemsInfo) {
         if (item.index >= entries.size) continue
         val entry = entries[item.index]
-        if (entry is ConvoEntry.Time) continue
         val time = entryTime(entry)
         if (time <= 0L) continue
         val shown = minOf(item.offset + item.size, contentEnd) - maxOf(item.offset, 0)
@@ -823,16 +498,4 @@ private suspend fun LazyListState.scrollToEnd() {
     val last = info.visibleItemsInfo.lastOrNull() ?: return
     val overhang = last.offset + last.size - (info.viewportEndOffset - info.afterContentPadding)
     if (overhang > 0) scrollBy(overhang.toFloat())
-}
-
-private fun toolMark(call: ToolCall): CallMark? = when {
-    call.result == null -> null
-    call.error -> CallMark.Failed
-    else -> CallMark.Done
-}
-
-private fun groupMark(calls: List<ToolCall>): CallMark? = when {
-    calls.any { it.error } -> CallMark.Failed
-    calls.all { it.result != null } -> CallMark.Done
-    else -> null
 }

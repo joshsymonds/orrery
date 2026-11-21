@@ -257,7 +257,7 @@ class ContractLinesTranscriptTest {
             contracts = listOf(contractRow("proposed")),
         )
 
-        composeRule.onNodeWithTag("tool-row:call-1").assertIsDisplayed()
+        composeRule.onNodeWithTag("line:tool").assertIsDisplayed()
         composeRule.onAllNodesWithTag("contract-line:$CONTRACT_ID").assertCountEquals(0)
     }
 }

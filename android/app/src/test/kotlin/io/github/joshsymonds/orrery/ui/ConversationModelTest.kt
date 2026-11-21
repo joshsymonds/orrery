@@ -4,6 +4,12 @@ import io.github.joshsymonds.orrery.api.ConversationItem
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
 import org.junit.Test
+import java.time.ZoneId
+
+// The items in this file are timed on 1 January 1970 and 14 November 2023 (UTC); a fold given the matching now draws no day rule.
+private const val EPOCH_DAY_NOW = 100L
+private const val NOV_14_2213_UTC = 1_700_000_000L
+private val UTC: ZoneId = ZoneId.of("UTC")
 
 class ConversationModelTest {
     private fun item(
@@ -34,9 +40,12 @@ class ConversationModelTest {
     private fun toolCall(id: String, name: String = "Read", input: String = "synthetic input", result: String? = null, error: Boolean = false) =
         ToolCall(id, name, input, result, error)
 
+    private fun fold(items: List<ConversationItem>, now: Long = EPOCH_DAY_NOW) =
+        foldConversation(items, now = now, zone = UTC)
+
     @Test
     fun resultAttachesToCallWithItsIdAfterADifferentCall() {
-        val entries = foldConversation(
+        val entries = fold(
             listOf(
                 call("call-a"),
                 call("call-b"),
@@ -55,7 +64,7 @@ class ConversationModelTest {
 
     @Test
     fun errorResultSetsErrorFlagAndText() {
-        val entries = foldConversation(
+        val entries = fold(
             listOf(
                 call("call-x", name = "Bash", input = "synthetic command"),
                 result("call-x", text = "synthetic failure", error = true),
@@ -70,14 +79,14 @@ class ConversationModelTest {
 
     @Test
     fun twoCallsStayTwoToolEntries() {
-        val entries = foldConversation(listOf(call("a"), call("b")))
+        val entries = fold(listOf(call("a"), call("b")))
 
         assertEquals(listOf(toolEntry("a"), toolEntry("b")), entries)
     }
 
     @Test
     fun threeCallsBecomeOneGroupInOrder() {
-        val entries = foldConversation(listOf(call("a"), call("b"), call("c")))
+        val entries = fold(listOf(call("a"), call("b"), call("c")))
 
         assertEquals(
             listOf(ConvoEntry.Group(listOf(toolCall("a"), toolCall("b"), toolCall("c")))),
@@ -87,7 +96,7 @@ class ConversationModelTest {
 
     @Test
     fun resultsBetweenCallsDoNotBreakARun() {
-        val entries = foldConversation(
+        val entries = fold(
             listOf(
                 call("a"),
                 result("a", text = "out a"),
@@ -113,7 +122,7 @@ class ConversationModelTest {
 
     @Test
     fun replyBreaksARunAndTwoCallsBeforeItStayRows() {
-        val entries = foldConversation(
+        val entries = fold(
             listOf(
                 call("a"),
                 call("b"),
@@ -137,20 +146,21 @@ class ConversationModelTest {
 
     @Test
     fun compactionItemSplitsARunAndBecomesItsOwnEntry() {
-        val entries = foldConversation(
+        val entries = fold(
             listOf(
                 call("a"),
                 call("b"),
-                item("compaction", time = 1_700_000_000L, text = "synthetic summary", trigger = "auto", tokens = 611_000L),
+                item("compaction", time = NOV_14_2213_UTC, text = "synthetic summary", trigger = "auto", tokens = 611_000L),
                 call("c"),
             ),
+            now = NOV_14_2213_UTC,
         )
 
         assertEquals(
             listOf(
                 toolEntry("a"),
                 toolEntry("b"),
-                ConvoEntry.Compaction("auto", 611_000L, "synthetic summary", 1_700_000_000L),
+                ConvoEntry.Compaction("auto", 611_000L, "synthetic summary", NOV_14_2213_UTC),
                 toolEntry("c"),
             ),
             entries,
@@ -159,51 +169,49 @@ class ConversationModelTest {
 
     @Test
     fun compactionKeyHoldsWhenTheWindowSlides() {
-        val compaction = item("compaction", time = 1_700_000_000L, text = "synthetic summary", trigger = "auto", tokens = 611_000L)
+        val compaction = item("compaction", time = NOV_14_2213_UTC, text = "synthetic summary", trigger = "auto", tokens = 611_000L)
+        val earlier = item("reply", time = NOV_14_2213_UTC - 100L, text = "synthetic reply")
 
-        val before = entryKeys(foldConversation(listOf(item("reply", time = 100L, text = "synthetic reply"), compaction)))
-        val after = entryKeys(foldConversation(listOf(compaction)))
+        val before = entryKeys(fold(listOf(earlier, compaction), now = NOV_14_2213_UTC))
+        val after = entryKeys(fold(listOf(compaction), now = NOV_14_2213_UTC))
 
         assertEquals(after.single(), before.last())
     }
 
     @Test
-    fun promptWithZeroTimeHasNoTimeEntry() {
-        val entries = foldConversation(listOf(item("prompt", time = 0L, text = "synthetic prompt")))
+    fun promptWithZeroTimeKeepsNoTime() {
+        val entries = fold(listOf(item("prompt", time = 0L, text = "synthetic prompt")))
 
         assertEquals(listOf(ConvoEntry.Prompt("synthetic prompt")), entries)
     }
 
     @Test
-    fun promptWithTimeGetsTimeEntryFirst() {
-        val entries = foldConversation(listOf(item("prompt", time = 1_700_000_000L, text = "synthetic prompt")))
+    fun promptKeepsItsTimeAndPromptId() {
+        val prompt = item("prompt", time = NOV_14_2213_UTC, text = "synthetic prompt").copy(promptId = "p-1")
 
         assertEquals(
-            listOf(ConvoEntry.Time(1_700_000_000L), ConvoEntry.Prompt("synthetic prompt", 1_700_000_000L)),
-            entries,
+            listOf(ConvoEntry.Prompt("synthetic prompt", NOV_14_2213_UTC, "p-1")),
+            fold(listOf(prompt), now = NOV_14_2213_UTC),
         )
     }
 
     @Test
-    fun replyWithTimeGetsTimeEntryFirst() {
-        val entries = foldConversation(listOf(item("reply", time = 1_700_000_000L, text = "synthetic reply")))
+    fun replyWithTimeKeepsItsTime() {
+        val entries = fold(listOf(item("reply", time = NOV_14_2213_UTC, text = "synthetic reply")), now = NOV_14_2213_UTC)
 
-        assertEquals(
-            listOf(ConvoEntry.Time(1_700_000_000L), ConvoEntry.Reply("synthetic reply", 1_700_000_000L)),
-            entries,
-        )
+        assertEquals(listOf(ConvoEntry.Reply("synthetic reply", NOV_14_2213_UTC)), entries)
     }
 
     @Test
-    fun replyWithZeroTimeHasNoTimeEntry() {
-        val entries = foldConversation(listOf(item("reply", time = 0L, text = "synthetic reply")))
+    fun replyWithZeroTimeKeepsNoTime() {
+        val entries = fold(listOf(item("reply", time = 0L, text = "synthetic reply")))
 
         assertEquals(listOf(ConvoEntry.Reply("synthetic reply")), entries)
     }
 
     @Test
-    fun timeEntryPrecedesEachTimedPromptAndReplyOnly() {
-        val entries = foldConversation(
+    fun timedItemsKeepTheirTimesAndTheRunsBetweenThemStay() {
+        val entries = fold(
             listOf(
                 item("prompt", time = 100L, text = "synthetic prompt one"),
                 call("a"),
@@ -221,18 +229,14 @@ class ConversationModelTest {
 
         assertEquals(
             listOf(
-                ConvoEntry.Time(100L),
                 ConvoEntry.Prompt("synthetic prompt one", 100L),
                 toolEntry("a"),
                 toolEntry("b"),
-                ConvoEntry.Time(105L),
                 ConvoEntry.Reply("synthetic reply one", 105L),
                 ConvoEntry.Notice("task", "synthetic task", false, 110L),
                 ConvoEntry.Reply("synthetic reply two"),
-                ConvoEntry.Time(200L),
                 ConvoEntry.Prompt("synthetic prompt two", 200L),
                 ConvoEntry.Group(listOf(toolCall("c"), toolCall("d"), toolCall("e"))),
-                ConvoEntry.Time(210L),
                 ConvoEntry.Reply("synthetic reply three", 210L),
             ),
             entries,
@@ -241,7 +245,7 @@ class ConversationModelTest {
 
     @Test
     fun orphanResultAndUnknownKindProduceNothing() {
-        val entries = foldConversation(
+        val entries = fold(
             listOf(
                 result("no-such-call", text = "orphan output"),
                 item("mystery", text = "synthetic unknown"),
@@ -253,7 +257,7 @@ class ConversationModelTest {
 
     @Test
     fun questionItemBecomesCallWithQuestionsAsInput() {
-        val entries = foldConversation(
+        val entries = fold(
             listOf(
                 item("question", tool = "AskUserQuestion", text = "Pick one?\nPick two?", id = "q-1"),
                 result("q-1", text = "synthetic answer"),
@@ -264,13 +268,6 @@ class ConversationModelTest {
             listOf(toolEntry("q-1", name = "AskUserQuestion", input = "Pick one?\nPick two?", result = "synthetic answer")),
             entries,
         )
-    }
-
-    @Test
-    fun groupSummaryCountsRepeatedNamesInFirstAppearanceOrder() {
-        val summary = groupSummary(listOf(toolCall("a", "Read"), toolCall("b", "Read"), toolCall("c", "Grep")))
-
-        assertEquals("Read ×2 · Grep", summary)
     }
 
     @Test
@@ -285,19 +282,19 @@ class ConversationModelTest {
         )
         val windowAfter = windowBefore.drop(1) + item("reply", time = 210L, text = "synthetic reply two")
 
-        val entriesBefore = foldConversation(windowBefore)
-        val entriesAfter = foldConversation(windowAfter)
+        val entriesBefore = fold(windowBefore)
+        val entriesAfter = fold(windowAfter)
 
-        assertEquals(entriesBefore.subList(2, 6), entriesAfter.subList(0, 4))
+        assertEquals(entriesBefore.subList(1, 4), entriesAfter.subList(0, 3))
         assertEquals(
-            entryKeys(entriesBefore).subList(2, 6),
-            entryKeys(entriesAfter).subList(0, 4),
+            entryKeys(entriesBefore).subList(1, 4),
+            entryKeys(entriesAfter).subList(0, 3),
         )
     }
 
     @Test
     fun repliesWithSameTextAndTimeGetDistinctKeys() {
-        val entries = foldConversation(
+        val entries = fold(
             listOf(
                 item("reply", time = 50L, text = "same text"),
                 item("reply", time = 50L, text = "same text"),
@@ -307,29 +304,29 @@ class ConversationModelTest {
 
         val keys = entryKeys(entries)
 
-        assertEquals(6, entries.size)
+        assertEquals(3, entries.size)
         assertEquals(entries.size, keys.toSet().size)
     }
 
     @Test
     fun promptsWithSameTextAtDifferentTimesGetDistinctKeys() {
         val pair = entryKeys(
-            foldConversation(
+            fold(
                 listOf(
                     item("prompt", time = 100L, text = "same text"),
                     item("prompt", time = 200L, text = "same text"),
                 ),
             ),
         )
-        val alone = entryKeys(foldConversation(listOf(item("prompt", time = 200L, text = "same text"))))
+        val alone = entryKeys(fold(listOf(item("prompt", time = 200L, text = "same text"))))
 
-        assertNotEquals(pair[1], pair[3])
-        assertEquals(alone.last(), pair.last())
+        assertNotEquals(pair[0], pair[1])
+        assertEquals(alone.single(), pair.last())
     }
 
     @Test
     fun foldKeepsReplyAndPromptTimes() {
-        val entries = foldConversation(
+        val entries = fold(
             listOf(
                 item("reply", time = 300L, text = "synthetic reply"),
                 item("prompt", time = 400L, text = "synthetic prompt"),
@@ -338,9 +335,7 @@ class ConversationModelTest {
 
         assertEquals(
             listOf(
-                ConvoEntry.Time(300L),
                 ConvoEntry.Reply("synthetic reply", 300L),
-                ConvoEntry.Time(400L),
                 ConvoEntry.Prompt("synthetic prompt", 400L),
             ),
             entries,
@@ -349,7 +344,7 @@ class ConversationModelTest {
 
     @Test
     fun eachNoticeSortBecomesANoticeEntryWithItsTextErrorAndTime() {
-        val entries = foldConversation(
+        val entries = fold(
             listOf(
                 notice("compaction", time = 10L),
                 notice("task", text = "synthetic task", time = 20L),
@@ -373,7 +368,7 @@ class ConversationModelTest {
 
     @Test
     fun noticeBetweenRepliesStaysInPlace() {
-        val entries = foldConversation(
+        val entries = fold(
             listOf(
                 item("reply", text = "synthetic reply one"),
                 notice("compaction"),
@@ -393,7 +388,7 @@ class ConversationModelTest {
 
     @Test
     fun noticeInsideARunOfThreeKeepsOneGroupAndFollowsIt() {
-        val entries = foldConversation(
+        val entries = fold(
             listOf(
                 call("a"),
                 notice("task", text = "synthetic task"),
@@ -413,7 +408,7 @@ class ConversationModelTest {
 
     @Test
     fun noticesAndResultsInsideARunKeepTheGroupAndTheNoticesKeepTheirOrder() {
-        val entries = foldConversation(
+        val entries = fold(
             listOf(
                 call("a"),
                 result("a", text = "out a"),
@@ -447,7 +442,7 @@ class ConversationModelTest {
 
     @Test
     fun noticeInsideARunOfTwoKeepsItsPlaceBetweenTheRows() {
-        val entries = foldConversation(
+        val entries = fold(
             listOf(
                 call("a"),
                 notice("task", text = "synthetic task"),
@@ -469,7 +464,7 @@ class ConversationModelTest {
 
     @Test
     fun aReplyStillSplitsARunThatNoticesDoNot() {
-        val entries = foldConversation(
+        val entries = fold(
             listOf(
                 call("a"),
                 notice("task", text = "synthetic task"),
@@ -497,7 +492,7 @@ class ConversationModelTest {
 
     @Test
     fun noticesWithTheSameSortTextAndTimeGetDistinctKeys() {
-        val entries = foldConversation(listOf(notice("interrupted", time = 5L), notice("interrupted", time = 5L)))
+        val entries = fold(listOf(notice("interrupted", time = 5L), notice("interrupted", time = 5L)))
 
         val keys = entryKeys(entries)
 
@@ -507,9 +502,9 @@ class ConversationModelTest {
 
     @Test
     fun aNoticeKeyHoldsWhenItMovesBehindAGroup() {
-        val alone = entryKeys(foldConversation(listOf(notice("task", text = "synthetic task", time = 7L))))
+        val alone = entryKeys(fold(listOf(notice("task", text = "synthetic task", time = 7L))))
         val behindGroup = entryKeys(
-            foldConversation(listOf(call("a"), notice("task", text = "synthetic task", time = 7L), call("b"), call("c"))),
+            fold(listOf(call("a"), notice("task", text = "synthetic task", time = 7L), call("b"), call("c"))),
         )
 
         assertEquals(alone.single(), behindGroup.last())

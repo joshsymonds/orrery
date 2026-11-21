@@ -10,7 +10,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.MutableState
-import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.neverEqualPolicy
 import androidx.compose.runtime.rememberCoroutineScope
@@ -22,6 +21,8 @@ import androidx.compose.ui.test.SemanticsNodeInteraction
 import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertTextContains
+import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.hasAnyDescendant
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
@@ -157,120 +158,50 @@ class ConversationViewTest {
     }
 
     @Test
-    fun promptShowsMarkupVerbatim() {
-        val raw = "**synthetic bold** and `synthetic code`\n- synthetic item"
-        setList(listOf(ConvoEntry.Prompt(raw)))
+    fun promptDrawsItsTextAsMarkdown() {
+        setList(listOf(ConvoEntry.Prompt("**synthetic bold** and `synthetic code`")))
 
-        composeRule.onNodeWithText(raw).assertIsDisplayed()
+        composeRule.onNodeWithText("synthetic bold and synthetic code").assertIsDisplayed()
+        composeRule.onAllNodesWithText("**", substring = true).assertCountEquals(0)
     }
 
     @Test
-    fun clockTimeForTodayShowsHourAndMinuteInTheDeviceZone() {
+    fun promptShowsItsClockTimeInTheDeviceZone() {
         inUtc()
-        composeRule.setContent {
-            MaterialTheme {
-                ConversationView(entries = listOf(ConvoEntry.Time(NOV_14_2213_UTC)), now = FIXED_NOW)
-            }
-        }
+        setList(listOf(ConvoEntry.Prompt("synthetic prompt", NOV_14_2213_UTC)))
 
-        composeRule.onNodeWithText("22:13").assertIsDisplayed()
+        composeRule.onNodeWithTag("at").assertTextEquals("22:13")
     }
 
     @Test
-    fun timeRowShowsJustNowUnderAMinuteAndFollowsTheClockAsItAdvances() {
-        inUtc()
-        val now = mutableLongStateOf(FIXED_NOW)
-        composeRule.setContent {
-            MaterialTheme {
-                ConversationView(entries = listOf(ConvoEntry.Time(FIXED_NOW - 30)), now = now.longValue)
-            }
-        }
-
-        composeRule.onNodeWithText("just now").assertIsDisplayed()
-        composeRule.runOnIdle { now.longValue = FIXED_NOW + 600 }
-        composeRule.onNodeWithText("10 min ago").assertIsDisplayed()
-        composeRule.onAllNodesWithText("just now").assertCountEquals(0)
-    }
-
-    @Test
-    fun timeLabelIsJustNowBelowAMinuteIncludingATimeAfterNow() {
-        inUtc()
-        assertEquals("just now", timeLabel(FIXED_NOW, FIXED_NOW))
-        assertEquals("just now", timeLabel(FIXED_NOW - 59, FIXED_NOW))
-        assertEquals("just now", timeLabel(FIXED_NOW + 120, FIXED_NOW))
-    }
-
-    @Test
-    fun timeLabelCountsWholeMinutesFromSixtySecondsToAnHour() {
-        inUtc()
-        assertEquals("1 min ago", timeLabel(FIXED_NOW - 60, FIXED_NOW))
-        assertEquals("59 min ago", timeLabel(FIXED_NOW - 3_540, FIXED_NOW))
-    }
-
-    @Test
-    fun timeLabelFromSixtyMinutesOnIsTheClockTimeWhenItIsToday() {
-        inUtc()
-        assertEquals("22:59", timeLabel(FIXED_NOW - 3_600, FIXED_NOW))
-    }
-
-    @Test
-    fun timeLabelFromEarlierTodayIsTheClockTime() {
-        inUtc()
-        assertEquals("08:00", timeLabel(NOV_14_0800_UTC, FIXED_NOW))
-    }
-
-    @Test
-    fun timeLabelFromAPreviousDayIsTheDateWithoutPadding() {
-        inUtc()
-        assertEquals("Nov 9", timeLabel(NOV_9_1030_UTC, FIXED_NOW))
-    }
-
-    @Test
-    fun timeLabelUnderAnHourAcrossMidnightIsRelative() {
-        inUtc()
-        assertEquals("40 min ago", timeLabel(NOV_14_2330_UTC, NOV_15_0010_UTC))
-    }
-
-    @Test
-    fun timeLabelUsesTheDeviceZoneToDecideToday() {
-        TimeZone.setDefault(TimeZone.getTimeZone("America/Los_Angeles"))
-        // 22:13 UTC on Nov 14 is 14:13 in Los Angeles. Three hours on, it is 01:13 Nov 15 in UTC
-        // but still 17:13 Nov 14 in Los Angeles, so the clock time shows.
-        assertEquals("14:13", timeLabel(NOV_14_2213_UTC, NOV_14_2213_UTC + 10_800))
-    }
-
-    @Test
-    fun toolRowShowsNameAndInputAndResultOnlyAfterTapsToggleIt() {
+    fun toolLineShowsNameAndInputAndResultOnlyAfterTapsToggleIt() {
         setList(
             listOf(
                 ConvoEntry.Tool(call("tool-1", name = "Bash", input = "synthetic command", result = "synthetic output line")),
             ),
         )
 
-        composeRule.onNodeWithText("Bash").assertIsDisplayed()
-        composeRule.onNodeWithText("synthetic command").assertIsDisplayed()
-        composeRule.onAllNodesWithText("synthetic output line").assertCountEquals(0)
+        composeRule.onNodeWithTag("line:tool").assertTextContains("Bash").assertTextContains("synthetic command")
+        composeRule.onAllNodesWithText("synthetic output line", useUnmergedTree = true).assertCountEquals(0)
 
-        composeRule.onNodeWithTag("tool-row:tool-1").performClick()
-        composeRule.onNodeWithTag("tool-result:tool-1").assertIsDisplayed()
-        composeRule.onNodeWithText("synthetic output line").assertIsDisplayed()
+        composeRule.onNodeWithTag("line:tool").performClick()
+        composeRule.onNodeWithText("synthetic output line", useUnmergedTree = true).assertIsDisplayed()
 
-        composeRule.onNodeWithTag("tool-row:tool-1").performClick()
-        composeRule.onAllNodesWithText("synthetic output line").assertCountEquals(0)
+        composeRule.onNodeWithTag("line:tool").performClick()
+        composeRule.onAllNodesWithText("synthetic output line", useUnmergedTree = true).assertCountEquals(0)
     }
 
     @Test
-    fun doneShowsTickErrorShowsCrossAndRunningShowsNeither() {
+    fun doneLineShowsTickAndFailedLineShowsCross() {
         setList(
             listOf(
                 ConvoEntry.Tool(call("done-1", result = "synthetic output")),
                 ConvoEntry.Tool(call("err-1", result = "synthetic failure", error = true)),
-                ConvoEntry.Tool(call("run-1")),
             ),
         )
 
-        composeRule.onAllNodesWithText("✓").assertCountEquals(1)
-        composeRule.onAllNodesWithText("✗").assertCountEquals(1)
+        composeRule.onAllNodesWithTag("line:tool")[0].assertTextContains("✓")
+        composeRule.onAllNodesWithTag("line:tool")[1].assertTextContains("✗")
     }
 
     @Test
@@ -287,41 +218,28 @@ class ConversationViewTest {
             ),
         )
 
-        composeRule.onNodeWithText("3 tool calls").assertIsDisplayed()
-        composeRule.onNodeWithText("Read ×2 · Grep").assertIsDisplayed()
-        composeRule.onAllNodesWithTag("tool-row:g-a").assertCountEquals(0)
-        composeRule.onAllNodesWithTag("tool-row:g-b").assertCountEquals(0)
-        composeRule.onAllNodesWithTag("tool-row:g-c").assertCountEquals(0)
+        composeRule.onNodeWithTag("line:run").assertTextContains("3 tool calls").assertTextContains("Read ×2, Grep")
+        composeRule.onAllNodesWithTag("line:tool", useUnmergedTree = true).assertCountEquals(0)
 
-        composeRule.onNodeWithTag("group-row:g-a").performClick()
-        composeRule.onNodeWithTag("tool-row:g-a").assertIsDisplayed()
-        composeRule.onNodeWithTag("tool-row:g-b").assertIsDisplayed()
-        composeRule.onNodeWithTag("tool-row:g-c").assertIsDisplayed()
+        composeRule.onNodeWithTag("line:run").performClick()
+        composeRule.onAllNodesWithTag("line:tool", useUnmergedTree = true).assertCountEquals(3)
     }
 
     @Test
-    fun groupTickWhenAllDoneAndCrossWhenAnyErrored() {
+    fun runDrawsOneDotPerCall() {
         setList(
             listOf(
                 ConvoEntry.Group(
                     listOf(
                         call("d-a", result = "synthetic output"),
-                        call("d-b", result = "synthetic output"),
-                        call("d-c", result = "synthetic output"),
-                    ),
-                ),
-                ConvoEntry.Group(
-                    listOf(
-                        call("e-a", result = "synthetic output"),
-                        call("e-b", result = "synthetic failure", error = true),
-                        call("e-c", result = "synthetic output"),
+                        call("d-b", result = "synthetic failure", error = true),
+                        call("d-c"),
                     ),
                 ),
             ),
         )
 
-        composeRule.onAllNodesWithText("✓").assertCountEquals(1)
-        composeRule.onAllNodesWithText("✗").assertCountEquals(1)
+        composeRule.onAllNodesWithTag("dot", useUnmergedTree = true).assertCountEquals(3)
     }
 
     @Test
@@ -336,7 +254,7 @@ class ConversationViewTest {
             MaterialTheme { ConversationView(entries = entries.value) }
         }
 
-        composeRule.onNodeWithTag("tool-row:keep-1").performClick()
+        composeRule.onNodeWithTag("line:tool").performClick()
         composeRule.onNodeWithText("synthetic kept output").assertIsDisplayed()
 
         // The poll's window slides: the oldest entry drops off and a new one arrives, so the
@@ -350,42 +268,38 @@ class ConversationViewTest {
     }
 
     @Test
-    fun compactionBarShowsItsFullLabel() {
-        inUtc()
+    fun compactionRuleShowsItsTriggerAndTokensAsDetail() {
         setList(listOf(ConvoEntry.Compaction("auto", 611_000L, "synthetic summary", NOV_14_2213_UTC)))
 
-        composeRule.onNodeWithText("compacted · auto · 611k · 22:13").assertIsDisplayed()
+        composeRule.onNodeWithTag("rule:compaction").assertTextContains("COMPACTED").assertTextContains("auto · 611k tokens")
     }
 
     @Test
-    fun compactionBarOmitsEmptyParts() {
-        inUtc()
+    fun compactionRuleOmitsEmptyDetailParts() {
         setList(
             listOf(
-                ConvoEntry.Compaction("", 0L, "synthetic summary one"),
-                ConvoEntry.Compaction("manual", 0L, "synthetic summary two"),
-                ConvoEntry.Compaction("", 611_999L, "synthetic summary three"),
-                ConvoEntry.Compaction("", 0L, "synthetic summary four", NOV_14_2213_UTC),
+                ConvoEntry.Compaction("manual", 0L, "synthetic summary one"),
+                ConvoEntry.Compaction("", 611_999L, "synthetic summary two"),
+                ConvoEntry.Compaction("", 0L, "synthetic summary three"),
             ),
         )
 
-        composeRule.onNodeWithText("compacted").assertIsDisplayed()
-        composeRule.onNodeWithText("compacted · manual").assertIsDisplayed()
-        composeRule.onNodeWithText("compacted · 611k").assertIsDisplayed()
-        composeRule.onNodeWithText("compacted · 22:13").assertIsDisplayed()
+        composeRule.onAllNodesWithTag("rule:compaction")[0].assertTextContains("manual")
+        composeRule.onAllNodesWithTag("rule:compaction")[1].assertTextContains("611k tokens")
+        composeRule.onAllNodesWithTag("rule:compaction")[2].assertTextContains("COMPACTED")
+        composeRule.onAllNodesWithText("tokens", substring = true, useUnmergedTree = true).assertCountEquals(1)
+        composeRule.onAllNodesWithText(" · ", substring = true, useUnmergedTree = true).assertCountEquals(0)
     }
 
     @Test
-    fun compactionBarOpensItsSummaryOnATapAndClosesOnTheNextTap() {
+    fun compactionRuleOpensItsSummaryOnATapAndClosesOnTheNextTap() {
         inUtc()
-        val entry = ConvoEntry.Compaction("auto", 611_000L, "synthetic compaction summary", NOV_14_2213_UTC)
-        setList(listOf(entry))
-        val tag = "compaction-bar:${entryKeys(listOf(entry)).single()}"
+        setList(listOf(ConvoEntry.Compaction("auto", 611_000L, "synthetic compaction summary", NOV_14_2213_UTC)))
 
         composeRule.onAllNodesWithText("synthetic compaction summary").assertCountEquals(0)
-        composeRule.onNodeWithTag(tag).performClick()
+        composeRule.onNodeWithTag("rule:compaction").performClick()
         composeRule.onNodeWithText("synthetic compaction summary").assertIsDisplayed()
-        composeRule.onNodeWithTag(tag).performClick()
+        composeRule.onNodeWithTag("rule:compaction").performClick()
         composeRule.onAllNodesWithText("synthetic compaction summary").assertCountEquals(0)
     }
 
@@ -411,9 +325,9 @@ class ConversationViewTest {
 
     /** The divider sits between the bottom of entry row [below] - 1 and the top of entry row [below]. */
     private fun assertDividerBefore(below: Int) {
-        composeRule.onAllNodesWithTag("new-divider").assertCountEquals(1)
-        composeRule.onNodeWithText("NEW").assertIsDisplayed()
-        val divider = composeRule.onNodeWithTag("new-divider").fetchSemanticsNode().boundsInRoot
+        composeRule.onAllNodesWithTag("rule:new").assertCountEquals(1)
+        composeRule.onNodeWithTag("rule:new").assertTextContains("NEW SINCE YOU LOOKED")
+        val divider = composeRule.onNodeWithTag("rule:new").fetchSemanticsNode().boundsInRoot
         val row = composeRule.onNodeWithTag("entry-row:$below").fetchSemanticsNode().boundsInRoot
         assertTrue("the divider ends above entry row $below", divider.bottom <= row.top + 1f)
         if (below > 0) {
@@ -435,24 +349,22 @@ class ConversationViewTest {
     }
 
     private fun assertNoDividerAndNoTint(count: Int) {
-        composeRule.onAllNodesWithTag("new-divider").assertCountEquals(0)
+        composeRule.onAllNodesWithTag("rule:new").assertCountEquals(0)
         assertTintFromRow(from = count, count = count)
     }
 
     @Test
-    fun newDividerSitsBeforeANewerTimeLabelAndTintsTheRowsFromThereOn() {
+    fun newRuleSitsBeforeANewerPromptAndTintsTheRowsFromThereOn() {
         setSeen(
             listOf(
-                ConvoEntry.Time(EARLIER_TIME),
                 ConvoEntry.Prompt("synthetic earlier prompt", EARLIER_TIME),
-                ConvoEntry.Time(LATER_TIME),
                 ConvoEntry.Reply("synthetic later reply", LATER_TIME),
             ),
             seen = SEEN_TIME,
         )
 
-        assertDividerBefore(below = 2)
-        assertTintFromRow(from = 2, count = 4)
+        assertDividerBefore(below = 1)
+        assertTintFromRow(from = 1, count = 2)
     }
 
     @Test
@@ -531,10 +443,10 @@ class ConversationViewTest {
         setSeen(entries, seen = SEEN_TIME)
 
         // Replies 21 to 40 are newer; the divider rides in item 20 (reply 21), which opens at the top.
-        composeRule.onNodeWithTag("new-divider").assertIsDisplayed()
+        composeRule.onNodeWithTag("rule:new").assertIsDisplayed()
         composeRule.onAllNodesWithText("synthetic reply 40").assertCountEquals(0)
         val listTop = composeRule.onNodeWithTag("conversation-list").fetchSemanticsNode().boundsInRoot.top
-        val dividerTop = composeRule.onNodeWithTag("new-divider").fetchSemanticsNode().boundsInRoot.top
+        val dividerTop = composeRule.onNodeWithTag("rule:new").fetchSemanticsNode().boundsInRoot.top
         assertEquals(listTop, dividerTop, 1f)
     }
 
@@ -543,7 +455,7 @@ class ConversationViewTest {
         val entries = (1..40).map { ConvoEntry.Reply("synthetic reply %02d".format(it), LATER_TIME + it) }
         setSeen(entries, seen = SEEN_TIME)
 
-        composeRule.onNodeWithTag("new-divider").assertIsDisplayed()
+        composeRule.onNodeWithTag("rule:new").assertIsDisplayed()
         composeRule.onNodeWithText("synthetic reply 01").assertIsDisplayed()
         composeRule.onAllNodesWithText("synthetic reply 40").assertCountEquals(0)
     }
@@ -593,7 +505,7 @@ class ConversationViewTest {
                 ConversationView(entries = entries.value, listState = state, seen = SEEN_TIME, now = FIXED_NOW)
             }
         }
-        composeRule.onNodeWithTag("new-divider").assertIsDisplayed()
+        composeRule.onNodeWithTag("rule:new").assertIsDisplayed()
 
         composeRule.runOnIdle {
             entries.value = entries.value + ConvoEntry.Reply(tallReply("synthetic tall A"), LATER_TIME + 1_000)
@@ -980,9 +892,9 @@ class ConversationViewTest {
         }
 
         composeRule.onNodeWithTag("conversation-list").performScrollToIndex(19)
-        composeRule.onNodeWithTag("tool-row:keep-1").performClick()
+        composeRule.onNodeWithTag("line:tool").performClick()
         composeRule.onNodeWithText("synthetic kept output").assertIsDisplayed()
-        val before = composeRule.onNodeWithTag("tool-row:keep-1").fetchSemanticsNode().boundsInRoot.top
+        val before = composeRule.onNodeWithTag("line:tool").fetchSemanticsNode().boundsInRoot.top
 
         // The poll's window slides: the oldest entry drops off and one reply arrives. Without keys
         // the row at the top position becomes a different entry and the expanded row moves up.
@@ -990,7 +902,7 @@ class ConversationViewTest {
             entries.value = entries.value.drop(1) + ConvoEntry.Reply("synthetic appended reply")
         }
 
-        val after = composeRule.onNodeWithTag("tool-row:keep-1").fetchSemanticsNode().boundsInRoot.top
+        val after = composeRule.onNodeWithTag("line:tool").fetchSemanticsNode().boundsInRoot.top
         assertEquals(before, after, 1f)
         composeRule.onNodeWithText("synthetic kept output").assertIsDisplayed()
     }
@@ -1157,14 +1069,8 @@ class ConversationViewTest {
         composeRule.onAllNodesWithText("synthetic twin").assertCountEquals(2)
     }
 
-    private fun layoutOf(node: SemanticsNodeInteraction): TextLayoutResult {
-        val results = mutableListOf<TextLayoutResult>()
-        node.fetchSemanticsNode().config[SemanticsActions.GetTextLayoutResult].action!!.invoke(results)
-        return results.single()
-    }
-
     @Test
-    fun eachNoticeShowsItsLabelAndItsText() {
+    fun eachNoticeDrawsItsLineWithItsLabelAndText() {
         setList(
             listOf(
                 ConvoEntry.Notice("compaction", "", false),
@@ -1174,22 +1080,19 @@ class ConversationViewTest {
             ),
         )
 
-        composeRule.onNodeWithTag("notice:compaction").assertIsDisplayed()
-        composeRule.onNodeWithText("context compacted").assertIsDisplayed()
-        composeRule.onNodeWithText("interrupted").assertIsDisplayed()
-        composeRule.onNodeWithText("task").assertIsDisplayed()
-        composeRule.onNodeWithText("synthetic task line").assertIsDisplayed()
-        composeRule.onNodeWithText("teammate").assertIsDisplayed()
-        composeRule.onNodeWithText("synthetic summary one\nsynthetic summary two").assertIsDisplayed()
-        composeRule.onAllNodesWithText("✗").assertCountEquals(0)
+        composeRule.onAllNodesWithTag("line:notice").assertCountEquals(4)
+        composeRule.onAllNodesWithTag("line:notice")[0].assertTextContains("CONTEXT COMPACTED")
+        composeRule.onAllNodesWithTag("line:notice")[1].assertTextContains("INTERRUPTED")
+        composeRule.onAllNodesWithTag("line:notice")[2].assertTextContains("TASK").assertTextContains("synthetic task line")
+        composeRule.onAllNodesWithTag("line:notice")[3].assertTextContains("TEAMMATE")
+        composeRule.onAllNodesWithText("✗", useUnmergedTree = true).assertCountEquals(0)
     }
 
     @Test
     fun failedTaskNoticeShowsCross() {
         setList(listOf(ConvoEntry.Notice("task", "synthetic failed task", true)))
 
-        composeRule.onNodeWithText("synthetic failed task").assertIsDisplayed()
-        composeRule.onNodeWithText("✗").assertIsDisplayed()
+        composeRule.onNodeWithTag("line:notice").assertTextContains("synthetic failed task").assertTextContains("✗")
     }
 
     @Test
@@ -1197,28 +1100,7 @@ class ConversationViewTest {
         val raw = "**synthetic** `task` [link](https://example.com)"
         setList(listOf(ConvoEntry.Notice("task", raw, false)))
 
-        composeRule.onNodeWithText(raw).assertIsDisplayed()
-    }
-
-    @Test
-    fun longTaskNoticeIsCutToTwoLines() {
-        // Robolectric's text layout does not soft-wrap, so the lines are broken by hand.
-        val long = (1..4).joinToString("\n") { "synthetic task line $it" }
-        setList(listOf(ConvoEntry.Notice("task", long, false)))
-
-        val layout = layoutOf(composeRule.onNodeWithText(long))
-        assertEquals(2, layout.lineCount)
-        assertTrue(layout.hasVisualOverflow)
-    }
-
-    @Test
-    fun teammateNoticeShowsAtMostThreeLines() {
-        val summaries = (1..6).joinToString("\n") { "synthetic summary $it" }
-        setList(listOf(ConvoEntry.Notice("teammate", summaries, false)))
-
-        val layout = layoutOf(composeRule.onNodeWithText(summaries))
-        assertEquals(3, layout.lineCount)
-        assertTrue(layout.hasVisualOverflow)
+        composeRule.onNodeWithText(raw, useUnmergedTree = true).assertIsDisplayed()
     }
 
     private lateinit var scope: CoroutineScope
@@ -1379,8 +1261,8 @@ class ConversationViewTest {
     }
 
     @Test
-    fun aTimeLabelAloneIsNeverReported() {
-        val entries = mutableStateOf(listOf<ConvoEntry>(ConvoEntry.Time(500L)))
+    fun aDayRuleAloneIsNeverReported() {
+        val entries = mutableStateOf(listOf<ConvoEntry>(ConvoEntry.Day(500L)))
         val reads = mutableListOf<Long>()
         setReadList(entries, reads)
 

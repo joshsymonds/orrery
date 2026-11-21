@@ -269,8 +269,8 @@ class PaneScreenTest {
 
     /** The divider sits between the bottom of entry row [below] - 1 and the top of entry row [below]. */
     private fun assertDividerBeforeRow(below: Int) {
-        composeRule.onAllNodesWithTag("new-divider").assertCountEquals(1)
-        val divider = composeRule.onNodeWithTag("new-divider").fetchSemanticsNode().boundsInRoot
+        composeRule.onAllNodesWithTag("rule:new").assertCountEquals(1)
+        val divider = composeRule.onNodeWithTag("rule:new").fetchSemanticsNode().boundsInRoot
         val row = composeRule.onNodeWithTag("entry-row:$below").fetchSemanticsNode().boundsInRoot
         assertTrue("the divider ends above entry row $below", divider.bottom <= row.top + 1f)
         val previous = composeRule.onNodeWithTag("entry-row:${below - 1}").fetchSemanticsNode().boundsInRoot
@@ -283,7 +283,7 @@ class PaneScreenTest {
             servePane(server, seen = SEEN_BETWEEN_REPLIES, conversation = twoReplies())
             setScreen(server)
 
-            composeRule.awaitExactlyOne(hasTestTag("new-divider"))
+            composeRule.awaitExactlyOne(hasTestTag("rule:new"))
             assertDividerBeforeRow(below = 2)
             composeRule.onNodeWithTag("entry-row:2")
                 .assert(SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, "new"))
@@ -297,7 +297,7 @@ class PaneScreenTest {
         FakeOrreryServer().use { server ->
             servePane(server, seen = SEEN_BETWEEN_REPLIES, conversation = twoReplies())
             setScreen(server)
-            composeRule.awaitExactlyOne(hasTestTag("new-divider"))
+            composeRule.awaitExactlyOne(hasTestTag("rule:new"))
             assertDividerBeforeRow(below = 2)
 
             // The later poll also turns the pane to working. Its composer edge is drawn from the same
@@ -317,7 +317,7 @@ class PaneScreenTest {
             setScreen(server)
 
             composeRule.awaitExactlyOne(hasText("synthetic newer reply"))
-            composeRule.onAllNodesWithTag("new-divider").assertCountEquals(0)
+            composeRule.onAllNodesWithTag("rule:new").assertCountEquals(0)
         }
     }
 
@@ -937,19 +937,17 @@ class PaneScreenTest {
             setScreen(server)
 
             composeRule.awaitExactlyOne(hasText("3 tool calls"))
-            composeRule.onNodeWithTag("notice:task").assertIsDisplayed()
-            composeRule.onNodeWithText("synthetic task notice").assertIsDisplayed()
-            composeRule.onAllNodesWithTag("tool-row:synthetic-tool-1").assertCountEquals(0)
-            composeRule.onAllNodesWithTag("tool-row:synthetic-tool-2").assertCountEquals(0)
-            composeRule.onAllNodesWithTag("tool-row:synthetic-tool-3").assertCountEquals(0)
-            val group = composeRule.onNodeWithTag("group-row:synthetic-tool-1").fetchSemanticsNode().boundsInRoot
-            val notice = composeRule.onNodeWithTag("notice:task").fetchSemanticsNode().boundsInRoot
+            composeRule.onNodeWithTag("line:notice").assertIsDisplayed()
+            composeRule.onNodeWithText("synthetic task notice", useUnmergedTree = true).assertIsDisplayed()
+            composeRule.onAllNodesWithTag("line:tool", useUnmergedTree = true).assertCountEquals(0)
+            val group = composeRule.onNodeWithTag("line:run").fetchSemanticsNode().boundsInRoot
+            val notice = composeRule.onNodeWithTag("line:notice").fetchSemanticsNode().boundsInRoot
             assertTrue(notice.top >= group.bottom - EDGE_TOLERANCE_PX)
 
-            composeRule.onNodeWithTag("group-row:synthetic-tool-1").performClick()
-            composeRule.onNodeWithTag("tool-row:synthetic-tool-1").performScrollTo().assertIsDisplayed()
-            composeRule.onNodeWithTag("tool-row:synthetic-tool-2").performScrollTo().assertIsDisplayed()
-            composeRule.onNodeWithTag("tool-row:synthetic-tool-3").performScrollTo().assertIsDisplayed()
+            composeRule.onNodeWithTag("line:run").performClick()
+            composeRule.onAllNodesWithTag("line:tool")[0].performScrollTo().assertIsDisplayed()
+            composeRule.onAllNodesWithTag("line:tool")[1].performScrollTo().assertIsDisplayed()
+            composeRule.onAllNodesWithTag("line:tool")[2].performScrollTo().assertIsDisplayed()
         }
     }
 
