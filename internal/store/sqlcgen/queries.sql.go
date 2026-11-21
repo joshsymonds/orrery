@@ -4173,6 +4173,27 @@ func (q *Queries) InsertNoticeHistory(ctx context.Context, arg InsertNoticeHisto
 	return err
 }
 
+const insertPaneSend = `-- name: InsertPaneSend :exec
+INSERT INTO pane_sends (pane, text, client, at) VALUES (?, ?, ?, ?)
+`
+
+type InsertPaneSendParams struct {
+	Pane   string
+	Text   string
+	Client string
+	At     int64
+}
+
+func (q *Queries) InsertPaneSend(ctx context.Context, arg InsertPaneSendParams) error {
+	_, err := q.db.ExecContext(ctx, insertPaneSend,
+		arg.Pane,
+		arg.Text,
+		arg.Client,
+		arg.At,
+	)
+	return err
+}
+
 const insertPlannerAction = `-- name: InsertPlannerAction :exec
 INSERT INTO planner_actions (
     epic, turn, position, kind, node, task, close_kind, by_epic, undo_none, reason, state, refusal, requirement, item,
@@ -8829,6 +8850,46 @@ func (q *Queries) ListOpenSteps(ctx context.Context) ([]Step, error) {
 			&i.LinesFiles,
 			&i.LinesAdded,
 			&i.LinesRemoved,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listPaneSends = `-- name: ListPaneSends :many
+SELECT id, pane, text, client, at FROM pane_sends WHERE pane = ?1 AND at >= ?2 AND at <= ?3
+ORDER BY at, id
+`
+
+type ListPaneSendsParams struct {
+	Pane   string
+	FromAt int64
+	ToAt   int64
+}
+
+func (q *Queries) ListPaneSends(ctx context.Context, arg ListPaneSendsParams) ([]PaneSend, error) {
+	rows, err := q.db.QueryContext(ctx, listPaneSends, arg.Pane, arg.FromAt, arg.ToAt)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []PaneSend
+	for rows.Next() {
+		var i PaneSend
+		if err := rows.Scan(
+			&i.ID,
+			&i.Pane,
+			&i.Text,
+			&i.Client,
+			&i.At,
 		); err != nil {
 			return nil, err
 		}

@@ -1656,6 +1656,13 @@ DELETE FROM put_off_questions WHERE kind = ? AND session_id = ? AND question = ?
 -- name: ListPutOffQuestions :many
 SELECT * FROM put_off_questions ORDER BY kind, session_id, question;
 
+-- name: InsertPaneSend :exec
+INSERT INTO pane_sends (pane, text, client, at) VALUES (?, ?, ?, ?);
+
+-- name: ListPaneSends :many
+SELECT * FROM pane_sends WHERE pane = sqlc.arg(pane) AND at >= sqlc.arg(from_at) AND at <= sqlc.arg(to_at)
+ORDER BY at, id;
+
 -- name: ListEpicIntegrateRunPaths :many
 SELECT path FROM epic_node_runs WHERE epic = ? AND node = ? AND kind = 'integrate' ORDER BY rowid;
 
