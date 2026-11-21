@@ -1,6 +1,5 @@
 // The stories of TaskLine: the lines BackgroundRow draws for a background task, which round 6 names TaskLine (catalog/
-// coverage.ts storyRenames): an agent task that runs, which is a link to its Agent call; an agent task that has ended; an
-// agent task that failed; a shell task that runs, which is not a link; and a shell task that was stopped.
+// coverage.ts storyRenames): an agent task that has ended; an agent task that failed; and a shell task that was stopped.
 
 import { create, type MessageInitShape } from "@bufbuild/protobuf";
 
@@ -17,21 +16,6 @@ function taskOf(init: MessageInitShape<typeof BackgroundTaskSchema>): Background
 }
 
 export const TaskLine: Stories = {
-  "agent-running": () => (
-    <backgroundrow.BackgroundRow
-      task={taskOf({
-        id: "bg-1",
-        toolUseId: "toolu_7",
-        description: "map the rota package",
-        type: "agent",
-        subagentType: "Explore",
-        status: "running",
-        activity: "Grep rota.*Export",
-        started: at("@14:40"),
-      })}
-      onOpen={ignore}
-    />
-  ),
   finished: () => (
     <backgroundrow.BackgroundRow
       task={taskOf({
@@ -58,19 +42,6 @@ export const TaskLine: Stories = {
         activity: "timed out waiting for a reply",
         started: at("@14:20"),
         ended: at("@14:24"),
-      })}
-      onOpen={ignore}
-    />
-  ),
-  "shell-running": () => (
-    <backgroundrow.BackgroundRow
-      task={taskOf({
-        id: "bg-4",
-        toolUseId: "",
-        description: "go test ./cli/...",
-        type: "shell",
-        status: "running",
-        started: at("@14:30"),
       })}
       onOpen={ignore}
     />

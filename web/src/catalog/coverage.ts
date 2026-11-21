@@ -42,13 +42,20 @@ export const storyRenames: Renames = {
   "happenings.tsx": { JustHappened: "HappeningList" },
   "inbox.tsx": { Inbox: { module: "app.stories.tsx", story: "Page" } },
   "helppanel.tsx": { KeyList: { module: "app.stories.tsx", story: "Page" } },
+  "markdown.tsx": { Markdown: { module: "reply.stories.tsx", story: "Reply" } },
   "notices.tsx": { NoticeBanner: "Notice" },
   "nowsection.tsx": { NowSection: { module: "app.stories.tsx", story: "Page" } },
   "picker.tsx": { NewPanel: { module: "app.stories.tsx", story: "Page" } },
   "projectpage.tsx": { ProjectPage: { module: "app.stories.tsx", story: "Page" } },
+  "reader.tsx": { Reader: { module: "app.stories.tsx", story: "Page" } },
+  "readercolumn.tsx": { ReaderColumn: { module: "app.stories.tsx", story: "Page" } },
   "sidepanel.tsx": { SidePanel: "ListPanel" },
   "steermenu.tsx": { SteerMenu: { module: "app.stories.tsx", story: "Page" } },
   "strip.tsx": { PaneStrip: "MeterStrip" },
+  "text.tsx": {
+    MarkedText: { module: "app.stories.tsx", story: "Page" },
+    ReplyText: { module: "app.stories.tsx", story: "Page" },
+  },
 };
 
 // isComponent reports whether an export is a component: a function whose name starts with an uppercase letter.

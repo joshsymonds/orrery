@@ -1,6 +1,5 @@
 // The stories of the event pieces: EventRing and StepCard. A ring's question is read through a fixture
-// transport, so the rota export's open question draws its form, and the followups epic, which holds no question, draws
-// that it is settled.
+// transport, so the rota export's open question draws its form.
 
 import { create } from "@bufbuild/protobuf";
 
@@ -27,12 +26,6 @@ const questionEvent: EpicEvent = {
   epic: rota,
   tail: "Q1",
   sentence: "Epic lighthouse/rota-export asks a question.",
-};
-const settledEvent: EpicEvent = {
-  kind: "question",
-  epic: "orrery/orrery-followups",
-  tail: "Q1",
-  sentence: "Epic orrery/orrery-followups asks a question.",
 };
 const parkEvent: EpicEvent = {
   kind: "park",
@@ -103,19 +96,8 @@ const stepStopped: StepEvent = {
 const stepReturn = `{"verdict": "met", "answer": "${shiftsBrief}"}`;
 const returningCalls: EpicCalls = { ...calls, stepResult: async () => stepReturn };
 
-// stepLooping is a step whose block names no agent and gives a brief of its own.
-const stepLooping: StepEvent = {
-  step: "st-rota-t5-try1",
-  agent: "",
-  end: "looping",
-  epic: "",
-  task: "",
-  brief: ["The monitor saw the same edit three times, so it was nudged, ended and retried on sonnet."],
-};
-
 export const EpicEventBlock: Stories = {
   question: () => <eventring.EventRing event={questionEvent} calls={calls} />,
-  "question-settled": () => <eventring.EventRing event={settledEvent} calls={calls} />,
   parked: () => <eventring.EventRing event={parkEvent} calls={calls} />,
   released: () => <eventring.EventRing event={releaseEvent} calls={calls} />,
   ended: () => <eventring.EventRing event={endEvent} calls={calls} />,
@@ -126,6 +108,5 @@ export const StepEndBlock: Stories = {
   ok: () => <eventring.StepCard event={stepEnded} facts={okFacts} calls={returningCalls} />,
   failed: () => <eventring.StepCard event={stepFailed} facts={failedFacts} calls={returningCalls} />,
   stopped: () => <eventring.StepCard event={stepStopped} facts={stoppedFacts} calls={returningCalls} />,
-  "without-agent": () => <eventring.StepCard event={stepLooping} />,
 };
 

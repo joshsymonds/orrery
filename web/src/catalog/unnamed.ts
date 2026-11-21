@@ -13,19 +13,8 @@ export const unnamed: Readonly<Record<string, UnnamedEntry>> = {
   app: { replacement: "inbox-home", epic: "F2" },
   // Mark draws the Orrery mark, the symbol the rail and the title row open on.
   mark: { replacement: "Tile", epic: "F2" },
-  // Markdown draws reply prose: emphasis, a list, a fenced code block, a table, a heading with a link, and a marked query.
-  markdown: { replacement: "Reply", epic: "F3" },
-  // MarkedText draws text with its query's occurrences marked, the current one among them.
-  "marked-text": { replacement: "convo-find", epic: "F3" },
-  // ReplyText draws reply text whose web links are links and whose other schemes stay text.
-  "reply-text": { replacement: "Reply", epic: "F3" },
   // PhaseOutputPage draws a task's phase output at each phase of the rota export.
   "phase-output-page": { replacement: "phase-implement", epic: "F4" },
-  // Reader draws one conversation: loading, a pane's conversation, a folded compaction, a question, find, a sending box, live
-  // session text, and a session's step.
-  reader: { replacement: "convo-shell", epic: "F3" },
-  // ReaderColumn draws a row's column: its head, reader and send box, or the cursor's step, a held step, a loading session.
-  "reader-column": { replacement: "convo-shell", epic: "F3" },
   // ReaderHead draws a conversation's head, titled, or with where.
   "reader-head": { replacement: "TitleRow", epic: "F3" },
   // TitleParts draws a title's directory and line, with either alone, and a line that holds a link.
@@ -39,16 +28,6 @@ export const unnamed: Readonly<Record<string, UnnamedEntry>> = {
 
   // ---- single stories of round-6 components, each the component in a state round 6 does not draw ----
 
-  // TaskLine draws a background task that is still running: an agent, and a shell. Round 6 draws only ended tasks.
-  "task-line/agent-running": { replacement: "TaskLine", epic: "F3" },
-  "task-line/shell-running": { replacement: "TaskLine", epic: "F3" },
-  // EpicEventBlock draws an epic's question event whose epic holds no open question, so the event reads it as settled.
-  "epic-event-block/question-settled": { replacement: "EpicEventBlock", epic: "F3" },
-  // StepEndBlock draws a step that ended with no agent named and a looping reason.
-  "step-end-block/without-agent": { replacement: "StepEndBlock", epic: "F3" },
-  // FindBar draws the find field with no query, and with a query that has one match.
-  "find-bar/empty": { replacement: "FindBar", epic: "F3" },
-  "find-bar/one-match": { replacement: "FindBar", epic: "F3" },
   // HappeningList draws the history of the holder epic, and an empty history.
   "happening-list/holder": { replacement: "HappeningList", epic: "F4" },
   "happening-list/empty": { replacement: "HappeningList", epic: "F4" },
