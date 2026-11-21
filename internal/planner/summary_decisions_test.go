@@ -27,12 +27,14 @@ func summaryDecisionsEpic(turns ...store.EpicTurn) store.EpicRow {
 	}
 }
 
-// summaryDecisionsEpicLines are the lines of the epic decisions of summaryDecisionsEpic, each rendered in full.
-var summaryDecisionsEpicLines = []string{
-	"- D1 (by owner): seed one",
-	"- D2 (by owner): seed two",
-	"- ans-3 (answers Q1 with sqlite, by conversation sess-9): use the sqlite store. Keep the cache.",
-	"- n-4 (by orreryd): keep the old schema",
+// summaryDecisionsEpicLines returns the lines of the epic decisions of summaryDecisionsEpic, each rendered in full.
+func summaryDecisionsEpicLines() []string {
+	return []string{
+		"- D1 (by owner): seed one",
+		"- D2 (by owner): seed two",
+		"- ans-3 (answers Q1 with sqlite, by conversation sess-9): use the sqlite store. Keep the cache.",
+		"- n-4 (by orreryd): keep the old schema",
+	}
 }
 
 // summaryDecisionsSection returns the lines of the Decisions section of prompt, and fails the test when it has none.
@@ -60,14 +62,14 @@ func assertSummaryDecisions(t *testing.T, prompt string, want []string) {
 func TestSummaryDecisionsKeepEpicDecisionsInFull(t *testing.T) {
 	t.Parallel()
 	first := summaryDecisionsEpic(store.EpicTurn{Seq: 1, State: "running"})
-	assertSummaryDecisions(t, promptOf(t, first, 1, nil), summaryDecisionsEpicLines)
+	assertSummaryDecisions(t, promptOf(t, first, 1, nil), summaryDecisionsEpicLines())
 
 	later := summaryDecisionsEpic(
 		store.EpicTurn{Seq: 1, State: "failed", Decisions: []string{"Turn one kept. Dropped tail."}},
 		store.EpicTurn{Seq: 2, State: "failed", Decisions: []string{"Turn two kept. Whole tail."}},
 		store.EpicTurn{Seq: 3, State: "running"},
 	)
-	assertSummaryDecisions(t, promptOf(t, later, 3, nil), slices.Concat(summaryDecisionsEpicLines, []string{
+	assertSummaryDecisions(t, promptOf(t, later, 3, nil), slices.Concat(summaryDecisionsEpicLines(), []string{
 		"- turn 1: Turn one kept.",
 		"- turn 2: Turn two kept. Whole tail.",
 	}))
@@ -85,7 +87,7 @@ func TestSummaryDecisionsRenderLatestEarlierTurnInFull(t *testing.T) {
 		},
 		store.EpicTurn{Seq: 3, State: "running", Decisions: []string{"Current turn. Not shown."}},
 	)
-	assertSummaryDecisions(t, promptOf(t, epic, 3, nil), slices.Concat(summaryDecisionsEpicLines, []string{
+	assertSummaryDecisions(t, promptOf(t, epic, 3, nil), slices.Concat(summaryDecisionsEpicLines(), []string{
 		"- turn 1: Older one.",
 		"- turn 2: Latest first. Latest second.",
 		"- turn 2: Latest third.",
@@ -108,7 +110,7 @@ func TestSummaryDecisionsCutOlderTurnsToFirstSentence(t *testing.T) {
 		}},
 		store.EpicTurn{Seq: 2, State: "failed", Decisions: []string{"Latest. Stays whole."}},
 	)
-	assertSummaryDecisions(t, promptOf(t, epic, 3, nil), slices.Concat(summaryDecisionsEpicLines, []string{
+	assertSummaryDecisions(t, promptOf(t, epic, 3, nil), slices.Concat(summaryDecisionsEpicLines(), []string{
 		"- turn 1: Keep the store.",
 		"- turn 1: Pin v1.5 here.",
 		"- turn 1: Name the table",
@@ -129,7 +131,7 @@ func TestSummaryDecisionsKeepTurnBeforeAnEmptyTurnInFull(t *testing.T) {
 		store.EpicTurn{Seq: 2, State: "failed", Decisions: []string{"Turn two keeps. Its tail."}},
 		store.EpicTurn{Seq: 3, State: "failed"},
 	)
-	assertSummaryDecisions(t, promptOf(t, epic, 4, nil), slices.Concat(summaryDecisionsEpicLines, []string{
+	assertSummaryDecisions(t, promptOf(t, epic, 4, nil), slices.Concat(summaryDecisionsEpicLines(), []string{
 		"- turn 1: Old one.",
 		"- turn 2: Turn two keeps. Its tail.",
 	}))

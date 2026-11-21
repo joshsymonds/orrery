@@ -285,15 +285,15 @@ func summaryDecisionLines(epic store.EpicRow, turn int64) []string {
 		lines = append(lines, decisionLine(d, choices[d.Question]))
 	}
 	latest, found := latestDecidingTurn(epic.Turns, turn)
-	for _, t := range epic.Turns {
-		if t.Seq >= turn {
+	for _, earlier := range epic.Turns {
+		if earlier.Seq >= turn {
 			continue
 		}
-		for _, text := range t.Decisions {
-			if found && t.Seq == latest {
-				lines = append(lines, fmt.Sprintf("- turn %d: %s", t.Seq, text))
+		for _, text := range earlier.Decisions {
+			if found && earlier.Seq == latest {
+				lines = append(lines, fmt.Sprintf("- turn %d: %s", earlier.Seq, text))
 			} else {
-				lines = append(lines, fmt.Sprintf("- turn %d: %s", t.Seq, firstSentence(text)))
+				lines = append(lines, fmt.Sprintf("- turn %d: %s", earlier.Seq, firstSentence(text)))
 			}
 		}
 	}
