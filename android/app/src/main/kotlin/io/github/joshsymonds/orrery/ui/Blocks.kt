@@ -92,13 +92,13 @@ private val END_WORDS: Map<String, EndWord> = mapOf(
 fun stepFactsOf(facts: StepFacts?): List<StepFact> {
     if (facts == null) return emptyList()
     return buildList {
+        if (facts.rounds > 0) add(StepFact(countOf(facts.rounds.toLong(), "round"), FactKind.Plain))
+        add(StepFact(durationOf(facts.seconds), FactKind.Plain))
         if (facts.counted) {
             add(StepFact(countOf(facts.files, "file"), FactKind.Plain))
             add(StepFact("+${facts.added}", FactKind.Added))
             add(StepFact("−${facts.removed}", FactKind.Removed))
         }
-        if (facts.rounds > 0) add(StepFact(countOf(facts.rounds.toLong(), "round"), FactKind.Plain))
-        add(StepFact(durationOf(facts.seconds), FactKind.Plain))
     }
 }
 

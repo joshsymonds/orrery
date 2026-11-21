@@ -11,15 +11,31 @@ class StepEndFactsTest {
     }
 
     @Test
-    fun countedFactsShowFilesThenLinesAddedAndRemovedThenTheTime() {
+    fun countedFactsShowRoundsThenTimeThenFilesThenLinesAddedAndRemoved() {
+        val facts = StepFacts(rounds = 3, seconds = 480, counted = true, files = 2, added = 96, removed = 4)
+
+        assertEquals(
+            listOf(
+                StepFact("3 rounds", FactKind.Plain),
+                StepFact("8m", FactKind.Plain),
+                StepFact("2 files", FactKind.Plain),
+                StepFact("+96", FactKind.Added),
+                StepFact("−4", FactKind.Removed),
+            ),
+            stepFactsOf(facts),
+        )
+    }
+
+    @Test
+    fun countedFactsWithNoRoundsShowTimeBeforeFilesAndLines() {
         val facts = StepFacts(rounds = 0, seconds = 45, counted = true, files = 2, added = 96, removed = 4)
 
         assertEquals(
             listOf(
+                StepFact("45s", FactKind.Plain),
                 StepFact("2 files", FactKind.Plain),
                 StepFact("+96", FactKind.Added),
                 StepFact("−4", FactKind.Removed),
-                StepFact("45s", FactKind.Plain),
             ),
             stepFactsOf(facts),
         )
