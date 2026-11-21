@@ -10572,6 +10572,26 @@ func (q *Queries) RaiseNoticeIDFloor(ctx context.Context, id interface{}) error 
 	return err
 }
 
+const rebuildEpicTaskRun = `-- name: RebuildEpicTaskRun :execrows
+UPDATE epic_node_runs SET state = 'running', attempt = attempt + 1, outcome = '', output = '', revision = '',
+    refs = '', refs_checked = 0, result = '', ended = 0
+WHERE epic = ? AND path = ? AND attempt = ? AND kind = 'build' AND state = 'ended'
+`
+
+type RebuildEpicTaskRunParams struct {
+	Epic    string
+	Path    string
+	Attempt int64
+}
+
+func (q *Queries) RebuildEpicTaskRun(ctx context.Context, arg RebuildEpicTaskRunParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, rebuildEpicTaskRun, arg.Epic, arg.Path, arg.Attempt)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const recordEpicNodeResult = `-- name: RecordEpicNodeResult :exec
 UPDATE epic_node_runs SET result = ?
 WHERE epic = ? AND path = ? AND attempt = ? AND state = 'running' AND result = ''

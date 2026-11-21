@@ -880,6 +880,11 @@ UPDATE epic_node_runs SET state = 'running', attempt = attempt + 1, outcome = ''
     refs = '', refs_checked = 0, result = '', ended = 0
 WHERE epic = ? AND path = ? AND kind <> 'loop' AND state = 'parked';
 
+-- name: RebuildEpicTaskRun :execrows
+UPDATE epic_node_runs SET state = 'running', attempt = attempt + 1, outcome = '', output = '', revision = '',
+    refs = '', refs_checked = 0, result = '', ended = 0
+WHERE epic = ? AND path = ? AND attempt = ? AND kind = 'build' AND state = 'ended';
+
 -- name: NextEpicNodeRunAttempt :execrows
 UPDATE epic_node_runs SET attempt = attempt + 1, outcome = '', output = '', revision = '', refs = '', refs_checked = 0,
     result = '', ended = 0
