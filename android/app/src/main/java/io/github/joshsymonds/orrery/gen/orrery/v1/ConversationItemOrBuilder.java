@@ -296,4 +296,47 @@ public interface ConversationItemOrBuilder extends
    */
   com.google.protobuf.ByteString
       getContractBytes();
+
+  /**
+   * <pre>
+   * The lines a result item's successful file edit added: the + lines of the tool's structuredPatch, or a created
+   * file's content lines; 0 otherwise.
+   * </pre>
+   *
+   * <code>int64 added = 17 [json_name = "added"];</code>
+   * @return The added.
+   */
+  long getAdded();
+
+  /**
+   * <pre>
+   * The lines a result item's successful file edit removed: the - lines of that patch; 0 otherwise.
+   * </pre>
+   *
+   * <code>int64 removed = 18 [json_name = "removed"];</code>
+   * @return The removed.
+   */
+  long getRemoved();
+
+  /**
+   * <pre>
+   * The X-Orrery-Client of the request that sent a prompt item's prompt, such as orrery-android; empty when none was
+   * recorded.
+   * </pre>
+   *
+   * <code>string client = 19 [json_name = "client"];</code>
+   * @return The client.
+   */
+  java.lang.String getClient();
+  /**
+   * <pre>
+   * The X-Orrery-Client of the request that sent a prompt item's prompt, such as orrery-android; empty when none was
+   * recorded.
+   * </pre>
+   *
+   * <code>string client = 19 [json_name = "client"];</code>
+   * @return The bytes for client.
+   */
+  com.google.protobuf.ByteString
+      getClientBytes();
 }

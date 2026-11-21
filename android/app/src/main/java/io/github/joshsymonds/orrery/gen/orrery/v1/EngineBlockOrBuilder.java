@@ -209,4 +209,25 @@ public interface EngineBlockOrBuilder extends
    * @return The truncated.
    */
   boolean getTruncated();
+
+  /**
+   * <pre>
+   * The lines a tool_result block's successful file edit added: the + lines of the tool's structuredPatch, or a created
+   * file's content lines; 0 otherwise.
+   * </pre>
+   *
+   * <code>int64 added = 12 [json_name = "added"];</code>
+   * @return The added.
+   */
+  long getAdded();
+
+  /**
+   * <pre>
+   * The lines a tool_result block's successful file edit removed: the - lines of that patch; 0 otherwise.
+   * </pre>
+   *
+   * <code>int64 removed = 13 [json_name = "removed"];</code>
+   * @return The removed.
+   */
+  long getRemoved();
 }

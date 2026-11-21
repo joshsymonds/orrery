@@ -48,6 +48,12 @@ service Engine {
   rpc BringBack(BringBackRequest) returns (BringBackResponse);
 }
 
+// PaneSends keeps the record of the texts serve sends to panes.
+service PaneSends {
+  // Record stores one text serve sent to a pane, stamped with orreryd's clock.
+  rpc Record(PaneSendsRecordRequest) returns (PaneSendsRecordResponse);
+}
+
 // StartRequest asks for a new headless session.
 message StartRequest {
   // The existing absolute directory the session runs in.
@@ -62,6 +68,9 @@ message StartRequest {
   // A session id the client chooses, 32 lowercase hex digits. Empty means orreryd mints one. A start whose id names
   // an existing session starts nothing and returns that id.
   string id = 4;
+
+  // The client that sent the request, such as orrery-android. Empty means none.
+  string client = 5;
 }
 
 // StartResponse names the started session.
@@ -81,6 +90,9 @@ message SayRequest {
   // An id the client chooses for this prompt. Empty means none. A say whose prompt id the session has already recorded
   // sends nothing and succeeds.
   string prompt_id = 3;
+
+  // The client that sent the request, such as orrery-android. Empty means none.
+  string client = 4;
 }
 
 // SayResponse acknowledges a message. It has no fields.
@@ -221,3 +233,18 @@ message BringBackRequest {
 
 // BringBackResponse acknowledges a bring-back. It has no fields.
 message BringBackResponse {}
+
+// PaneSendsRecordRequest names one text serve sent to a pane.
+message PaneSendsRecordRequest {
+  // The tmux pane id, a % then digits.
+  string pane = 1;
+
+  // The text serve sent.
+  string text = 2;
+
+  // The client that sent the text, such as orrery-android. Empty means none.
+  string client = 3;
+}
+
+// PaneSendsRecordResponse acknowledges a record. It has no fields.
+message PaneSendsRecordResponse {}

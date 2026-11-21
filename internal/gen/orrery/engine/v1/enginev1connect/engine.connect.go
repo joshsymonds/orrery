@@ -23,6 +23,8 @@ const _ = connect.IsAtLeastVersion1_13_0
 const (
 	// EngineName is the fully-qualified name of the Engine service.
 	EngineName = "orrery.engine.v1.Engine"
+	// PaneSendsName is the fully-qualified name of the PaneSends service.
+	PaneSendsName = "orrery.engine.v1.PaneSends"
 )
 
 // These constants are the fully-qualified names of the RPCs defined in this package. They're
@@ -55,6 +57,8 @@ const (
 	EngineNotNowProcedure = "/orrery.engine.v1.Engine/NotNow"
 	// EngineBringBackProcedure is the fully-qualified name of the Engine's BringBack RPC.
 	EngineBringBackProcedure = "/orrery.engine.v1.Engine/BringBack"
+	// PaneSendsRecordProcedure is the fully-qualified name of the PaneSends's Record RPC.
+	PaneSendsRecordProcedure = "/orrery.engine.v1.PaneSends/Record"
 )
 
 // EngineClient is a client for the orrery.engine.v1.Engine service.
@@ -425,4 +429,76 @@ func (UnimplementedEngineHandler) NotNow(context.Context, *connect.Request[v1.No
 
 func (UnimplementedEngineHandler) BringBack(context.Context, *connect.Request[v1.BringBackRequest]) (*connect.Response[v1.BringBackResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orrery.engine.v1.Engine.BringBack is not implemented"))
+}
+
+// PaneSendsClient is a client for the orrery.engine.v1.PaneSends service.
+type PaneSendsClient interface {
+	// Record stores one text serve sent to a pane, stamped with orreryd's clock.
+	Record(context.Context, *connect.Request[v1.PaneSendsRecordRequest]) (*connect.Response[v1.PaneSendsRecordResponse], error)
+}
+
+// NewPaneSendsClient constructs a client for the orrery.engine.v1.PaneSends service. By default, it
+// uses the Connect protocol with the binary Protobuf Codec, asks for gzipped responses, and sends
+// uncompressed requests. To use the gRPC or gRPC-Web protocols, supply the connect.WithGRPC() or
+// connect.WithGRPCWeb() options.
+//
+// The URL supplied here should be the base URL for the Connect or gRPC server (for example,
+// http://api.acme.com or https://acme.com/grpc).
+func NewPaneSendsClient(httpClient connect.HTTPClient, baseURL string, opts ...connect.ClientOption) PaneSendsClient {
+	baseURL = strings.TrimRight(baseURL, "/")
+	paneSendsMethods := v1.File_orrery_engine_v1_engine_proto.Services().ByName("PaneSends").Methods()
+	return &paneSendsClient{
+		record: connect.NewClient[v1.PaneSendsRecordRequest, v1.PaneSendsRecordResponse](
+			httpClient,
+			baseURL+PaneSendsRecordProcedure,
+			connect.WithSchema(paneSendsMethods.ByName("Record")),
+			connect.WithClientOptions(opts...),
+		),
+	}
+}
+
+// paneSendsClient implements PaneSendsClient.
+type paneSendsClient struct {
+	record *connect.Client[v1.PaneSendsRecordRequest, v1.PaneSendsRecordResponse]
+}
+
+// Record calls orrery.engine.v1.PaneSends.Record.
+func (c *paneSendsClient) Record(ctx context.Context, req *connect.Request[v1.PaneSendsRecordRequest]) (*connect.Response[v1.PaneSendsRecordResponse], error) {
+	return c.record.CallUnary(ctx, req)
+}
+
+// PaneSendsHandler is an implementation of the orrery.engine.v1.PaneSends service.
+type PaneSendsHandler interface {
+	// Record stores one text serve sent to a pane, stamped with orreryd's clock.
+	Record(context.Context, *connect.Request[v1.PaneSendsRecordRequest]) (*connect.Response[v1.PaneSendsRecordResponse], error)
+}
+
+// NewPaneSendsHandler builds an HTTP handler from the service implementation. It returns the path
+// on which to mount the handler and the handler itself.
+//
+// By default, handlers support the Connect, gRPC, and gRPC-Web protocols with the binary Protobuf
+// and JSON codecs. They also support gzip compression.
+func NewPaneSendsHandler(svc PaneSendsHandler, opts ...connect.HandlerOption) (string, http.Handler) {
+	paneSendsMethods := v1.File_orrery_engine_v1_engine_proto.Services().ByName("PaneSends").Methods()
+	paneSendsRecordHandler := connect.NewUnaryHandler(
+		PaneSendsRecordProcedure,
+		svc.Record,
+		connect.WithSchema(paneSendsMethods.ByName("Record")),
+		connect.WithHandlerOptions(opts...),
+	)
+	return "/orrery.engine.v1.PaneSends/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case PaneSendsRecordProcedure:
+			paneSendsRecordHandler.ServeHTTP(w, r)
+		default:
+			http.NotFound(w, r)
+		}
+	})
+}
+
+// UnimplementedPaneSendsHandler returns CodeUnimplemented from all methods.
+type UnimplementedPaneSendsHandler struct{}
+
+func (UnimplementedPaneSendsHandler) Record(context.Context, *connect.Request[v1.PaneSendsRecordRequest]) (*connect.Response[v1.PaneSendsRecordResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orrery.engine.v1.PaneSends.Record is not implemented"))
 }

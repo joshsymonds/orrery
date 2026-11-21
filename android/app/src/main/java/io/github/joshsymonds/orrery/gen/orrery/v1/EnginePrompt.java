@@ -22,6 +22,7 @@ public  final class EnginePrompt extends
     text_ = "";
     promptId_ = "";
     sender_ = "";
+    client_ = "";
   }
   public static final int TEXT_FIELD_NUMBER = 1;
   private java.lang.String text_;
@@ -260,6 +261,73 @@ public  final class EnginePrompt extends
   private void clearRound() {
 
     round_ = 0;
+  }
+
+  public static final int CLIENT_FIELD_NUMBER = 5;
+  private java.lang.String client_;
+  /**
+   * <pre>
+   * The X-Orrery-Client of the request that sent the prompt, such as orrery-android; empty when none was recorded.
+   * </pre>
+   *
+   * <code>string client = 5 [json_name = "client"];</code>
+   * @return The client.
+   */
+  @java.lang.Override
+  public java.lang.String getClient() {
+    return client_;
+  }
+  /**
+   * <pre>
+   * The X-Orrery-Client of the request that sent the prompt, such as orrery-android; empty when none was recorded.
+   * </pre>
+   *
+   * <code>string client = 5 [json_name = "client"];</code>
+   * @return The bytes for client.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString
+      getClientBytes() {
+    return com.google.protobuf.ByteString.copyFromUtf8(client_);
+  }
+  /**
+   * <pre>
+   * The X-Orrery-Client of the request that sent the prompt, such as orrery-android; empty when none was recorded.
+   * </pre>
+   *
+   * <code>string client = 5 [json_name = "client"];</code>
+   * @param value The client to set.
+   */
+  private void setClient(
+      java.lang.String value) {
+    java.util.Objects.requireNonNull(value);
+
+    client_ = value;
+  }
+  /**
+   * <pre>
+   * The X-Orrery-Client of the request that sent the prompt, such as orrery-android; empty when none was recorded.
+   * </pre>
+   *
+   * <code>string client = 5 [json_name = "client"];</code>
+   */
+  private void clearClient() {
+
+    client_ = getDefaultInstance().getClient();
+  }
+  /**
+   * <pre>
+   * The X-Orrery-Client of the request that sent the prompt, such as orrery-android; empty when none was recorded.
+   * </pre>
+   *
+   * <code>string client = 5 [json_name = "client"];</code>
+   * @param value The bytes for client to set.
+   */
+  private void setClientBytes(
+      com.google.protobuf.ByteString value) {
+    checkByteStringIsUtf8(value);
+    client_ = value.toStringUtf8();
+
   }
 
   public static io.github.joshsymonds.orrery.gen.orrery.v1.EnginePrompt parseFrom(
@@ -610,6 +678,75 @@ public  final class EnginePrompt extends
       return this;
     }
 
+    /**
+     * <pre>
+     * The X-Orrery-Client of the request that sent the prompt, such as orrery-android; empty when none was recorded.
+     * </pre>
+     *
+     * <code>string client = 5 [json_name = "client"];</code>
+     * @return The client.
+     */
+    @java.lang.Override
+    public java.lang.String getClient() {
+      return instance.getClient();
+    }
+    /**
+     * <pre>
+     * The X-Orrery-Client of the request that sent the prompt, such as orrery-android; empty when none was recorded.
+     * </pre>
+     *
+     * <code>string client = 5 [json_name = "client"];</code>
+     * @return The bytes for client.
+     */
+    @java.lang.Override
+    public com.google.protobuf.ByteString
+        getClientBytes() {
+      return instance.getClientBytes();
+    }
+    /**
+     * <pre>
+     * The X-Orrery-Client of the request that sent the prompt, such as orrery-android; empty when none was recorded.
+     * </pre>
+     *
+     * <code>string client = 5 [json_name = "client"];</code>
+     * @param value The client to set.
+     * @return This builder for chaining.
+     */
+    public Builder setClient(
+        java.lang.String value) {
+      copyOnWrite();
+      instance.setClient(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The X-Orrery-Client of the request that sent the prompt, such as orrery-android; empty when none was recorded.
+     * </pre>
+     *
+     * <code>string client = 5 [json_name = "client"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearClient() {
+      copyOnWrite();
+      instance.clearClient();
+      return this;
+    }
+    /**
+     * <pre>
+     * The X-Orrery-Client of the request that sent the prompt, such as orrery-android; empty when none was recorded.
+     * </pre>
+     *
+     * <code>string client = 5 [json_name = "client"];</code>
+     * @param value The bytes for client to set.
+     * @return This builder for chaining.
+     */
+    public Builder setClientBytes(
+        com.google.protobuf.ByteString value) {
+      copyOnWrite();
+      instance.setClientBytes(value);
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:orrery.v1.EnginePrompt)
   }
   @java.lang.Override
@@ -630,10 +767,11 @@ public  final class EnginePrompt extends
             "promptId_",
             "sender_",
             "round_",
+            "client_",
           };
           java.lang.String info =
-              "\u0000\u0004\u0000\u0000\u0001\u0004\u0004\u0000\u0000\u0000\u0001\u0208\u0002\u0208" +
-              "\u0003\u0208\u0004\u000b";
+              "\u0000\u0005\u0000\u0000\u0001\u0005\u0005\u0000\u0000\u0000\u0001\u0208\u0002\u0208" +
+              "\u0003\u0208\u0004\u000b\u0005\u0208";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

@@ -612,6 +612,9 @@ message EnginePrompt {
 
   // The check round a send-back returns, or 0 otherwise.
   uint32 round = 4;
+
+  // The X-Orrery-Client of the request that sent the prompt, such as orrery-android; empty when none was recorded.
+  string client = 5;
 }
 
 // EngineBlock carries one finished content block of a headless session.
@@ -648,6 +651,13 @@ message EngineBlock {
 
   // Whether text, input or content was cut.
   bool truncated = 11;
+
+  // The lines a tool_result block's successful file edit added: the + lines of the tool's structuredPatch, or a created
+  // file's content lines; 0 otherwise.
+  int64 added = 12;
+
+  // The lines a tool_result block's successful file edit removed: the - lines of that patch; 0 otherwise.
+  int64 removed = 13;
 }
 
 // EngineRequest carries a request a headless session sent that the host must answer.
@@ -1018,6 +1028,17 @@ message ConversationItem {
   // The id of the contract a tool item's call writes: the id input of a contract_propose or contract_revise call; empty
   // when the item is not one of those calls or its input names no id.
   string contract = 16;
+
+  // The lines a result item's successful file edit added: the + lines of the tool's structuredPatch, or a created
+  // file's content lines; 0 otherwise.
+  int64 added = 17;
+
+  // The lines a result item's successful file edit removed: the - lines of that patch; 0 otherwise.
+  int64 removed = 18;
+
+  // The X-Orrery-Client of the request that sent a prompt item's prompt, such as orrery-android; empty when none was
+  // recorded.
+  string client = 19;
 }
 
 // ConversationContext is the context figure of a conversation: its tokens out of the window they are measured
