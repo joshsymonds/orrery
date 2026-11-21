@@ -2,6 +2,7 @@ package io.github.joshsymonds.orrery.ui
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -32,6 +33,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.SemanticsPropertyKey
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.semantics
 import io.github.joshsymonds.orrery.api.StepFacts
@@ -154,13 +156,17 @@ fun StepEndBlock(agent: String, end: String, summary: String, facts: StepFacts?,
     )
 }
 
-/** An epic's event as its block names it: its kind's tone and icon, the EPIC label, its [sentence], and its [slug] with a chevron. */
+/**
+ * An epic's event as its block names it: its kind's tone and icon, the EPIC label, its [sentence], and its [slug] with a
+ * chevron. The slug and the chevron are one control that [onOpen] runs when pressed, when it is given.
+ */
 @Composable
 fun EpicEventBlock(
     kind: EpicEventKind,
     slug: String,
     sentence: String,
     time: String? = null,
+    onOpen: (() -> Unit)? = null,
     under: @Composable () -> Unit = {},
 ) {
     val tone = when (kind) {
@@ -183,8 +189,19 @@ fun EpicEventBlock(
         label = "EPIC",
         time = time,
         end = {
-            Text(text = slug, color = OrreryTokens.Role.ref, style = OrreryTokens.Type.small, maxLines = 1)
-            Text(text = "›", color = OrreryTokens.Ink.four, style = OrreryTokens.Type.small, maxLines = 1)
+            val open = onOpen
+            Row(
+                modifier = if (open == null) {
+                    Modifier
+                } else {
+                    Modifier
+                        .semantics { contentDescription = "Open the epic $slug" }
+                        .clickable(onClick = open)
+                },
+            ) {
+                Text(text = slug, color = OrreryTokens.Role.ref, style = OrreryTokens.Type.small, maxLines = 1)
+                Text(text = "›", color = OrreryTokens.Ink.four, style = OrreryTokens.Type.small, maxLines = 1)
+            }
         },
         body = {
             Prose(sentence, OrreryTokens.Ink.one)

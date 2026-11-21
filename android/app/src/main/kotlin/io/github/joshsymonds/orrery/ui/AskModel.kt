@@ -236,7 +236,7 @@ private fun archiveOf(pane: Pane): Pair<String, String>? = when {
 }
 
 /** The project an epic's Ask names: its repository's directory, or its repository when it has no path. */
-private fun epicProject(epic: EpicRow): String = directoryOf(epic.path).ifEmpty { epic.repository }
+internal fun epicProject(epic: EpicRow): String = directoryOf(epic.path).ifEmpty { epic.repository }
 
 /** The last element of a path, "" for no path. */
 private fun directoryOf(path: String): String = if (path.isEmpty()) "" else lastPathElement(path)

@@ -1,8 +1,11 @@
 package io.github.joshsymonds.orrery.ui
 
+import io.github.joshsymonds.orrery.api.BackgroundTask
 import io.github.joshsymonds.orrery.api.ContractRow
 import io.github.joshsymonds.orrery.api.ConversationItem
+import io.github.joshsymonds.orrery.api.QueuedItem
 import io.github.joshsymonds.orrery.api.StepFacts
+import io.github.joshsymonds.orrery.api.UnfinishedText
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
@@ -41,10 +44,14 @@ sealed interface ConvoEntry {
         val promptId: String = "",
     ) : ConvoEntry
 
-    /** An epic's [kind] of event (question, park, release or end) about [epic], with its first [sentence]. */
+    /**
+     * An epic's [kind] of event (question, park, release or end) about [epic], answering [tail] (the question's id, or the
+     * phase the epic reached), with its first [sentence].
+     */
     data class EpicEvent(
         val kind: String,
         val epic: String,
+        val tail: String,
         val sentence: String,
         val time: Long = 0L,
         val promptId: String = "",
@@ -92,6 +99,15 @@ sealed interface ConvoEntry {
         val time: Long = 0L,
     ) : ConvoEntry
 
+    /** An unfinished thinking block of a headless session, drawn as a line of thinking that opens to its [text]. */
+    data class Thinking(val id: String, val text: String) : ConvoEntry
+
+    /** An unfinished text block of a headless session, drawn as a reply with its caret. */
+    data class LiveReply(val id: String, val text: String) : ConvoEntry
+
+    /** A message the page sent that the stored conversation does not hold yet, drawn as a YouBlock while sending. */
+    data class Sending(val text: String) : ConvoEntry
+
     /** The owner's interruption, drawn as a rule with its time. */
     data class Interrupted(val time: Long) : ConvoEntry
 
@@ -105,6 +121,8 @@ private const val STEP_PREFIX = "step:"
 private const val STEP_KIND = "step_end"
 private const val MORE_PREFIX = "More: "
 private val EPIC_KINDS = setOf("question", "park", "release", "end")
+private const val THINKING_BLOCK = "thinking"
+private const val TEXT_BLOCK = "text"
 
 // The item kinds that draw an entry, and so can open a local day.
 private val DAY_KINDS = setOf("prompt", "reply", "tool", "question", "notice", "compaction", "interrupted", "agent_finished")
@@ -167,11 +185,11 @@ private fun firstSentence(body: String): String =
  * own order. A call that writes a contract and has a result that did not fail is its own contract line, and so is an
  * epic_create call with a result that did not fail, its created line; each ends the run before it, so it never joins a
  * group. A day rule is drawn before an item whose local day, in [zone], differs from the item before it, and before the
- * first item when its day is not the day of [now] (unix seconds). Any kind not named draws nothing.
+ * first item when its day is not the day of [now] (unix seconds, the caller's clock). Any kind not named draws nothing.
  */
 fun foldConversation(
     items: List<ConversationItem>,
-    now: Long = System.currentTimeMillis() / 1_000,
+    now: Long,
     zone: ZoneId = ZoneId.systemDefault(),
 ): List<ConvoEntry> {
     val outcomes = outcomesByCallIndex(items)
@@ -252,20 +270,71 @@ private fun eventEntry(item: ConversationItem): ConvoEntry {
     }
     moveLineOf(item.text)?.let { return ConvoEntry.Move(it, item.time, item.promptId) }
     if (block != null && block.kind in EPIC_KINDS && block.id.startsWith(EPIC_PREFIX)) {
-        epicOf(block.id)?.let { epic ->
-            return ConvoEntry.EpicEvent(block.kind, epic, firstSentence(block.body), item.time, item.promptId)
+        splitEpicId(block.id)?.let { (epic, tail) ->
+            return ConvoEntry.EpicEvent(block.kind, epic, tail, firstSentence(block.body), item.time, item.promptId)
         }
     }
     return ConvoEntry.Event(item.text, item.time, item.promptId)
 }
 
-// epicOf is the epic an event id names: epic:<epic>:<tail>, with the tail after the last colon. Null when the id has no
-// epic or no tail.
-private fun epicOf(id: String): String? {
+// splitEpicId reads an event id, epic:<epic>:<tail>, as its epic and its tail, which follows the last colon. Null when the
+// id has no epic or no tail.
+private fun splitEpicId(id: String): Pair<String, String>? {
     val rest = id.removePrefix(EPIC_PREFIX)
     val cut = rest.lastIndexOf(':')
-    return if (cut <= 0 || cut == rest.length - 1) null else rest.substring(0, cut)
+    return if (cut <= 0 || cut == rest.length - 1) null else rest.substring(0, cut) to rest.substring(cut + 1)
 }
+
+/**
+ * The entries of a headless session's unfinished blocks, in order: a thinking block as thinking, a text block as a live
+ * reply. A subagent's block, a block of another kind and an empty block draw nothing.
+ */
+fun unfinishedEntries(unfinished: List<UnfinishedText>): List<ConvoEntry> =
+    unfinished.filter { it.parentToolUseId.isEmpty() && it.text.isNotEmpty() }.mapNotNull { block ->
+        val id = "${block.messageId}/${block.index}"
+        when (block.kind) {
+            THINKING_BLOCK -> ConvoEntry.Thinking(id, block.text)
+            TEXT_BLOCK -> ConvoEntry.LiveReply(id, block.text)
+            else -> null
+        }
+    }
+
+/**
+ * The background tasks of a headless session as task lines, in the state's order. A task has no time of its own, so it
+ * never counts as new or read.
+ */
+fun backgroundEntries(tasks: List<BackgroundTask>): List<ConvoEntry> =
+    tasks.map { ConvoEntry.Task(it.type, it.subagentType, it.description, it.status) }
+
+/**
+ * A message a screen sent: its [text], the [promptId] a session's send was named by ("" when the send named none, as a
+ * pane's or a step's does), and the newest item the conversation held when the send began, null when none.
+ */
+data class SentText(val text: String, val after: ConversationItem?, val promptId: String = "")
+
+/**
+ * The sent messages the conversation does not hold yet, in order. A message with a prompt id is held once a prompt item
+ * or a queued message carries that id. A message without one is held once a prompt with its text, compared trimmed,
+ * follows the item its send began after (or any prompt, when that item is no longer held), or once a queued message has
+ * its text. A pane has no queue, so its [queued] is empty.
+ */
+fun unsentTexts(sent: List<SentText>, items: List<ConversationItem>, queued: List<QueuedItem>): List<SentText> =
+    sent.filterNot { entry ->
+        if (entry.promptId.isNotEmpty()) {
+            items.any { it.kind == "prompt" && it.promptId == entry.promptId } || queued.any { it.promptId == entry.promptId }
+        } else {
+            heldAfter(entry, items) || queued.any { sameText(it.text, entry.text) }
+        }
+    }
+
+private fun heldAfter(entry: SentText, items: List<ConversationItem>): Boolean {
+    val from = entry.after?.let { items.indexOf(it) } ?: -1
+    return items.withIndex().any { (index, item) ->
+        index > from && item.kind == "prompt" && sameText(item.text, entry.text)
+    }
+}
+
+private fun sameText(a: String, b: String): Boolean = a.trim() == b.trim()
 
 // dayOpens is whether the item at index opens a local day: the first item when its day is not the day of now, and any
 // other item whose day differs from the item before it. An item with no time, or whose predecessor has none, opens no day.
@@ -316,6 +385,9 @@ private fun baseKey(entry: ConvoEntry): String = when (entry) {
     is ConvoEntry.Task -> "task:${entry.time}:${entry.type}:${entry.subagentType}:${entry.description.hashCode()}:${entry.status}"
     is ConvoEntry.Interrupted -> "interrupted:${entry.time}"
     is ConvoEntry.Day -> "day:${entry.seconds}"
+    is ConvoEntry.Thinking -> "thinking:${entry.id}"
+    is ConvoEntry.LiveReply -> "live:${entry.id}"
+    is ConvoEntry.Sending -> "sending:${entry.text.hashCode()}"
 }
 
 /**
@@ -351,6 +423,9 @@ internal fun entryTime(entry: ConvoEntry): Long = when (entry) {
     is ConvoEntry.Task -> entry.time
     is ConvoEntry.Interrupted -> entry.time
     is ConvoEntry.Day -> 0L
+    is ConvoEntry.Thinking -> 0L
+    is ConvoEntry.LiveReply -> 0L
+    is ConvoEntry.Sending -> 0L
 }
 
 /** The tone a contract's transcript line is drawn in. */

@@ -22,6 +22,7 @@ import java.util.TimeZone
 
 // Unix seconds: 2023-11-14 22:13:20 UTC, which reads 22:13 in UTC.
 private const val ACCEPTED_TIME = 1_700_000_000L
+private const val SCREEN_NOW = 1_700_000_000L
 private const val CONTRACT_ID = "tidepool/tide-alerts"
 private const val TITLE = "Synthetic contract title"
 private const val FAILED_OUTPUT = "synthetic failure"
@@ -98,6 +99,7 @@ class ContractLinesTranscriptTest {
                 plain("c"),
                 plain("d"),
             ),
+            now = SCREEN_NOW,
         )
 
         assertEquals(
@@ -121,6 +123,7 @@ class ContractLinesTranscriptTest {
                 item("tool", "k", contract = CONTRACT_ID),
                 result("k", FAILED_OUTPUT, error = true),
             ),
+            now = SCREEN_NOW,
         )
 
         assertEquals(
@@ -145,6 +148,7 @@ class ContractLinesTranscriptTest {
                 item("tool", "k", contract = CONTRACT_ID),
                 plain("b"),
             ),
+            now = SCREEN_NOW,
         )
 
         assertEquals(
@@ -206,7 +210,7 @@ class ContractLinesTranscriptTest {
         contracts: List<ContractRow> = emptyList(),
         onOpen: (String) -> Unit = {},
     ) {
-        val entries = foldConversation(items)
+        val entries = foldConversation(items, now = SCREEN_NOW)
         composeRule.setContent {
             MaterialTheme {
                 ConversationView(entries = entries, contracts = contracts, onOpenContract = onOpen)

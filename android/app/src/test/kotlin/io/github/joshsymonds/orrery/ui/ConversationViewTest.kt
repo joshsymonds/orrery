@@ -53,7 +53,6 @@ import org.robolectric.annotation.Config
 import java.util.TimeZone
 
 // Unix seconds; the zone is UTC wherever a test says so.
-private const val FIXED_NOW = 1_700_006_399L // 2023-11-14 23:59:59 UTC
 private const val NOV_14_2213_UTC = 1_700_000_000L
 private const val NOV_14_0800_UTC = 1_699_948_800L
 private const val NOV_14_2330_UTC = 1_700_004_600L
@@ -319,7 +318,7 @@ class ConversationViewTest {
 
     private fun setSeen(entries: List<ConvoEntry>, seen: Long?) {
         composeRule.setContent {
-            MaterialTheme { ConversationView(entries = entries, seen = seen, now = FIXED_NOW) }
+            MaterialTheme { ConversationView(entries = entries, seen = seen) }
         }
     }
 
@@ -410,7 +409,7 @@ class ConversationViewTest {
         )
         val seen = mutableStateOf<Long?>(LATER_TIME)
         composeRule.setContent {
-            MaterialTheme { ConversationView(entries = entries, seen = seen.value, now = FIXED_NOW) }
+            MaterialTheme { ConversationView(entries = entries, seen = seen.value) }
         }
         assertNoDividerAndNoTint(count = entries.size)
 
@@ -468,7 +467,7 @@ class ConversationViewTest {
             MaterialTheme {
                 val state = rememberLazyListState()
                 list = state
-                ConversationView(entries = entries.value, listState = state, seen = seen.value, now = FIXED_NOW)
+                ConversationView(entries = entries.value, listState = state, seen = seen.value)
             }
         }
         composeRule.waitForIdle()
@@ -502,7 +501,7 @@ class ConversationViewTest {
             MaterialTheme {
                 val state = rememberLazyListState()
                 list = state
-                ConversationView(entries = entries.value, listState = state, seen = SEEN_TIME, now = FIXED_NOW)
+                ConversationView(entries = entries.value, listState = state, seen = SEEN_TIME)
             }
         }
         composeRule.onNodeWithTag("rule:new").assertIsDisplayed()

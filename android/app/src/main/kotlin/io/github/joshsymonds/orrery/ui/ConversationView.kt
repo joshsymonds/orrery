@@ -30,6 +30,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
@@ -46,13 +47,19 @@ import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import io.github.joshsymonds.orrery.api.ContractRow
+import io.github.joshsymonds.orrery.api.EpicDetail
+import io.github.joshsymonds.orrery.api.OrreryClient
+import io.github.joshsymonds.orrery.api.StepCallResult
 import io.github.joshsymonds.orrery.api.WaitingItem
 import io.github.joshsymonds.orrery.ui.theme.OrreryTokens
 import io.github.joshsymonds.orrery.ui.theme.inLabelCase
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.io.IOException
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -87,7 +94,7 @@ private const val READ_DWELL_MS = 1_000L
  * entry read: one that stays on screen for a second, at least half of it (or of the window, for one taller than the
  * window) between the top and bottom content padding. A call that writes a contract, with a result that did not fail,
  * draws that contract's line (see [contractLineWords]) in place of its row, and a press on it calls [onOpenContract]
- * with the contract's id; [contracts] supplies the words.
+ * with the contract's id; [contracts] supplies the words. A press on an epic's slug calls [onOpenEpic] with the epic's id.
  */
 @Composable
 fun ConversationView(
@@ -99,11 +106,12 @@ fun ConversationView(
     waiting: List<WaitingItem> = emptyList(),
     endRequests: Int = 0,
     seen: Long? = null,
-    now: Long = System.currentTimeMillis() / 1000,
     onRead: ((Long) -> Unit)? = null,
     onFollowing: ((Boolean) -> Unit)? = null,
     contracts: List<ContractRow> = emptyList(),
     onOpenContract: (String) -> Unit = {},
+    onOpenEpic: (String) -> Unit = {},
+    epicQuestion: @Composable (epic: String, question: String) -> Unit = { _, _ -> },
 ) {
     var expanded by remember { mutableStateOf(emptySet<String>()) }
     val toggle: (String) -> Unit = { id ->
@@ -224,7 +232,17 @@ fun ConversationView(
                             },
                         ),
                 ) {
-                    EntryView(entries[index], keys[index], expanded, toggle, markdownCache, contracts, onOpenContract)
+                    EntryView(
+                        entries[index],
+                        keys[index],
+                        expanded,
+                        toggle,
+                        markdownCache,
+                        contracts,
+                        onOpenContract,
+                        onOpenEpic,
+                        epicQuestion,
+                    )
                 }
             }
         }
@@ -252,9 +270,12 @@ private fun EntryView(
     cache: MarkdownCache,
     contracts: List<ContractRow>,
     onOpenContract: (String) -> Unit,
+    onOpenEpic: (String) -> Unit,
+    epicQuestion: @Composable (epic: String, question: String) -> Unit,
 ) {
     when (entry) {
         is ConvoEntry.Prompt -> YouBlock(entry.text, timeOf(entry.time))
+        is ConvoEntry.Sending -> YouBlock(entry.text, sending = true)
         is ConvoEntry.Event -> EventBlock(entry.text, timeOf(entry.time))
         is ConvoEntry.Cron -> EventBlock(entry.text, timeOf(entry.time), cron = true)
         is ConvoEntry.StepEnd -> StepEndBlock(entry.agent, entry.end, entry.summary, entry.facts, timeOf(entry.time))
@@ -263,18 +284,23 @@ private fun EntryView(
             slug = entry.epic.substringAfter('/'),
             sentence = entry.sentence,
             time = timeOf(entry.time),
+            onOpen = { onOpenEpic(entry.epic) },
+            under = { if (entry.kind == "question") epicQuestion(entry.epic, entry.tail) },
         )
         is ConvoEntry.Created -> EpicEventBlock(
             kind = EpicEventKind.Created,
             slug = entry.epic.substringAfter('/'),
             sentence = "Created the epic from the accepted contract.",
             time = timeOf(entry.time),
+            onOpen = { onOpenEpic(entry.epic) },
         )
         is ConvoEntry.Move -> MoveLine(entry.event)
         is ConvoEntry.Brief -> EngineFold(brief = true, text = entry.text, key = key, expanded = expanded, onToggle = onToggle)
         is ConvoEntry.Engine -> EngineFold(brief = false, text = entry.text, key = key, expanded = expanded, onToggle = onToggle)
         is ConvoEntry.Check -> CheckBlock(entry.round, entry.text, time = timeOf(entry.time))
         is ConvoEntry.Reply -> ReplyText(entry.text, cache)
+        is ConvoEntry.LiveReply -> ReplyText(entry.text, cache, live = true)
+        is ConvoEntry.Thinking -> ThinkingLine(entry.text, key, expanded, onToggle)
         is ConvoEntry.Tool -> ToolLine(entry.call, expanded = expanded, onToggle = onToggle)
         is ConvoEntry.Group -> ToolRun(entry.calls, expanded = expanded, onToggle = onToggle)
         is ConvoEntry.ContractLine -> ContractLineRow(entry.call.contract, contracts, onOpenContract)
@@ -370,16 +396,104 @@ private fun WaitingMore(count: Int) {
     )
 }
 
-/** The reply's markdown, rendered; the parse is kept in [cache] by the reply's text. */
+/**
+ * The reply's markdown, rendered; the parse is kept in [cache] by the reply's text. A [live] reply, one still being
+ * written, ends in a caret.
+ */
 @Composable
-private fun ReplyText(text: String, cache: MarkdownCache) {
+private fun ReplyText(text: String, cache: MarkdownCache, live: Boolean = false) {
     val blocks = remember(text) { cache.blocks(text) }
-    MarkdownBody(
-        blocks = blocks,
-        modifier = Modifier.testTag("reply").padding(vertical = OrreryTokens.Space.twelve),
-        color = OrreryTokens.Ink.one,
-        fontSize = OrreryTokens.Type.body.fontSize,
+    Column(modifier = Modifier.testTag("reply").padding(vertical = OrreryTokens.Space.twelve)) {
+        MarkdownBody(
+            blocks = blocks,
+            color = OrreryTokens.Ink.one,
+            fontSize = OrreryTokens.Type.body.fontSize,
+        )
+        if (live) {
+            Box(
+                modifier = Modifier
+                    .testTag("caret")
+                    .size(width = OrreryTokens.Size.hairline * 2, height = OrreryTokens.Size.icon)
+                    .background(OrreryTokens.Ink.three),
+            )
+        }
+    }
+}
+
+/**
+ * The Ask of an epic's open question [question] in [detail]: it draws with no call of its own, and its confirm answers
+ * the epic through [client]. Once the question is no longer open it draws the settled line, with the epic's project and
+ * slug. Draws nothing while the epic is unread.
+ */
+@Composable
+internal fun EpicQuestion(detail: EpicDetail?, question: String, now: Long, client: OrreryClient) {
+    if (detail == null) return
+    val open = detail.questions.firstOrNull { it.id == question }
+    if (open == null) {
+        AskSettledLine("${epicProject(detail.epic)} · ${detail.epic.slug}")
+        return
+    }
+    Ask(
+        model = epicAsk(detail.epic, open),
+        now = now,
+        phase = AskPhase.OPEN,
+        picked = null,
+        note = "",
+        onAnswer = null,
+        onNotNow = null,
+        onBringBack = null,
+        onDecline = null,
+        onArchive = null,
+        onConfirm = { choice, text -> answerQuestion(client, detail.epic.id, open.id, choice, text) },
     )
+}
+
+/**
+ * The epic details a screen's questions draw from: [held], the head's, which hold only the epics the conversation steers,
+ * and each epic a question names that [held] lacks. Each such epic is read once through [client] and kept for the screen,
+ * so a settled question's epic is not read again.
+ */
+@Composable
+internal fun questionEpicDetails(
+    entries: List<ConvoEntry>,
+    held: Map<String, EpicDetail>,
+    client: OrreryClient,
+): Map<String, EpicDetail> {
+    val asked = remember(entries) {
+        entries.filterIsInstance<ConvoEntry.EpicEvent>().filter { it.kind == "question" }.map { it.epic }.distinct()
+    }
+    val requested = remember { mutableSetOf<String>() }
+    var read by remember { mutableStateOf(emptyMap<String, EpicDetail>()) }
+    val scope = rememberCoroutineScope()
+    LaunchedEffect(asked, held) {
+        for (epic in asked) {
+            if (epic in held || !requested.add(epic)) continue
+            // The read runs in the screen's scope, so a restart of this effect does not cancel it.
+            scope.launch {
+                val detail = withContext(Dispatchers.IO) {
+                    try {
+                        client.epic(epic)
+                    } catch (e: IOException) {
+                        null
+                    }
+                }
+                detail?.let { read = read + (epic to it) }
+            }
+        }
+    }
+    return held + read
+}
+
+// answerQuestion records the owner's answer on the epic, and returns the words a refusal shows, or "" once it landed.
+private suspend fun answerQuestion(
+    client: OrreryClient,
+    epicId: String,
+    questionId: String,
+    choice: String,
+    text: String,
+): String = when (val result = withContext(Dispatchers.IO) { client.answerEpic(epicId, questionId, text, choice) }) {
+    StepCallResult.Landed -> ""
+    is StepCallResult.Refused -> result.message
 }
 
 /** The one line a contract's call draws: its title and state words, pressed to open the contract. */

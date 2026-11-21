@@ -167,6 +167,8 @@ fun PaneScreen(
     var stripTiles by remember(paneId) { mutableStateOf(false) }
     var refreshFailed by remember(paneId) { mutableStateOf(false) }
     var seenAtOpen by remember(paneId) { mutableStateOf<Long?>(null) }
+    // The messages the screen sent, until the conversation holds each one.
+    var sentTexts by remember(paneId) { mutableStateOf<List<SentText>>(emptyList()) }
     // What the stream holds, kept across starts so the next start resumes from its transcript and seq.
     var held by remember(paneId) { mutableStateOf<StreamedConversation?>(null) }
     val refreshRequests = remember(paneId) { Channel<Unit>(Channel.CONFLATED) }
@@ -197,6 +199,8 @@ fun PaneScreen(
                                                     nowSeconds = clock()
                                                     val next = held.applyDelta(delta)
                                                     held = next
+                                                    // Forgotten here, in the write that holds the delta, so a prompt the stream trims later cannot bring it back.
+                                                    sentTexts = unsentTexts(sentTexts, next.conversation.items, queued = emptyList())
                                                     pane = next.pane
                                                     seenAtOpen = seenAtOpen ?: next.pane?.seen
                                                     conversation = next.conversation.takeIf { next.pane?.state?.isNotEmpty() == true }
@@ -241,6 +245,7 @@ fun PaneScreen(
                                             // seen time does not move the divider.
                                             seenAtOpen = seenAtOpen ?: snapshot.pane?.seen
                                             conversation = snapshot.conversation
+                                            snapshot.conversation?.let { sentTexts = unsentTexts(sentTexts, it.items, queued = emptyList()) }
                                             refreshFailed = false
                                         }
                                     }
@@ -273,7 +278,13 @@ fun PaneScreen(
     val current = pane
     val ask = current?.let(::paneAsk)
     val refresh: () -> Unit = { refreshRequests.trySend(Unit) }
-    val entries = remember(conversation) { foldConversation(conversation?.items.orEmpty()) }
+    val unsent = unsentTexts(sentTexts, conversation?.items.orEmpty(), queued = emptyList())
+    val entries = remember(conversation, unsent) {
+        foldConversation(conversation?.items.orEmpty(), now = nowSeconds) +
+            backgroundEntries(conversation?.background.orEmpty()) +
+            unsent.map { message -> ConvoEntry.Sending(message.text) }
+    }
+    val epicDetails = questionEpicDetails(entries, headEpics.details, client)
 
     val density = LocalDensity.current
     val showingConversation = conversation != null
@@ -337,9 +348,12 @@ fun PaneScreen(
                     footer = footer,
                     endRequests = endRequests,
                     seen = seenAtOpen,
-                    now = nowSeconds,
                     contracts = contracts,
                     onOpenContract = openTranscriptContract,
+                    onOpenEpic = onOpenEpic,
+                    epicQuestion = { epic, question ->
+                        EpicQuestion(epicDetails[epic], question, nowSeconds, client)
+                    },
                     onRead = { readUpTo ->
                         scope.launch(Dispatchers.IO) {
                             try {
@@ -441,7 +455,9 @@ fun PaneScreen(
             draft = draft,
             send = { text ->
                 val sent = about?.let { aboutMessage(it.id, it.text, text) } ?: text
+                val after = conversation?.items?.lastOrNull()
                 client.sendComposed(paneId, sent)
+                scope.launch { sentTexts = sentTexts + SentText(sent, after) }
                 if (about != null) onClearAbout()
             },
             paneId = paneId,

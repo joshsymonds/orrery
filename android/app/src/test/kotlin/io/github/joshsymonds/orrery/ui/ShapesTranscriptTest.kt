@@ -137,7 +137,7 @@ class ShapesTranscriptTest {
 
         assertEquals(
             kinds.mapIndexed { index, kind ->
-                ConvoEntry.EpicEvent(kind, EPIC, "Synthetic sentence.", T1, "p-$index")
+                ConvoEntry.EpicEvent(kind, EPIC, "e-$index", "Synthetic sentence.", T1, "p-$index")
             },
             fold(*items.toTypedArray()),
         )
@@ -346,7 +346,7 @@ class ShapesTranscriptTest {
 
     @Test
     fun epicQuestionDrawsAnAttentionEpicEventWithItsSlug() {
-        setEntries(ConvoEntry.EpicEvent("question", EPIC, "Which rota?", T1, "p-4"))
+        setEntries(ConvoEntry.EpicEvent("question", EPIC, "Q1", "Which rota?", T1, "p-4"))
 
         composeRule.onNodeWithTag("block:epicevent").assertIsDisplayed()
         composeRule.onNodeWithText("EPIC").assertIsDisplayed()
@@ -358,7 +358,7 @@ class ShapesTranscriptTest {
 
     @Test
     fun epicEndDrawsAQuietEpicEventWithTheStopIcon() {
-        setEntries(ConvoEntry.EpicEvent("end", EPIC, "Ended the epic.", T1, "p-5"))
+        setEntries(ConvoEntry.EpicEvent("end", EPIC, "synthetic phase", "Ended the epic.", T1, "p-5"))
 
         composeRule.onNodeWithTag("icon:stop").assertIsDisplayed()
         assertRailTone("block:epicevent", "quiet")
@@ -503,7 +503,7 @@ class ShapesTranscriptTest {
     private fun setEntries(vararg entries: ConvoEntry, seen: Long? = null) {
         composeRule.setContent {
             MaterialTheme {
-                ConversationView(entries = entries.toList(), seen = seen, now = NOW_SAME_DAY)
+                ConversationView(entries = entries.toList(), seen = seen)
             }
         }
     }
