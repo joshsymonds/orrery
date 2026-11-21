@@ -18,7 +18,7 @@ import {
   NoticesWatchResponseSchema,
 } from "./gen/orrery/v1/notice_pb";
 import { applyNotice, Notice, NoticeStack, noticeLifetimeMillis, watchNotices } from "./notices";
-import type { NoticeAct, NoticeHead } from "./noticewords";
+import { type NoticeAct, type NoticeHead, noticeAct } from "./noticewords";
 import { mockTimers } from "./testclock";
 import { installTestDom, removeTestDom } from "./testdom";
 import { installResizeObserver, placeRect } from "./testlayout";
@@ -332,7 +332,10 @@ function stackOf(notices: InAppNotice[], handlers: StackHandlers = {}): JSX.Elem
       notices={notices}
       head={(item) => ({ lead: { kind: "icon", icon: "bell" }, dir: "", what: item.title })}
       age={() => "2m"}
+      act={(item) => noticeAct(item, [])}
+      bringBackRow={() => undefined}
       onOpen={handlers.onOpen ?? (() => undefined)}
+      onBringBack={() => undefined}
       onRead={handlers.onRead ?? (() => undefined)}
       onMore={handlers.onMore ?? (() => undefined)}
     />

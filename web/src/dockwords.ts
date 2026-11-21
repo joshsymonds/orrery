@@ -122,6 +122,9 @@ function running(word: string, facts: DockFacts, clockText: string): StateLine {
   };
 }
 
+// putOffWords is what a waiting row whose owner put its question off says. The notices say it too.
+export const putOffWords = "waiting on a question you put off";
+
 export function stateLine(facts: DockFacts, now: number): StateLine {
   if (facts.kind === "step" && facts.step !== null) {
     if (facts.step.held) {
@@ -141,7 +144,7 @@ export function stateLine(facts: DockFacts, now: number): StateLine {
     return running("working", facts, since(started, now));
   }
   if (facts.state === "waiting") {
-    return facts.putOff ? plain("idle", "waiting on a question you put off") : plain("waiting", "waiting on you");
+    return facts.putOff ? plain("idle", putOffWords) : plain("waiting", "waiting on you");
   }
   if (facts.state === "done" && facts.interruptedAt > 0) {
     return plain("interrupted", "interrupted by you", [clock(BigInt(facts.interruptedAt))]);

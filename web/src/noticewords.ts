@@ -1,6 +1,8 @@
+import { putOffWords } from "./dockwords";
 import { type EpicRowWords, epicWords, type GaugeShare } from "./epicrow";
 import type { NoticeBlock, NoticeKey } from "./gen/orrery/v1/notice_pb";
 import { stateWord } from "./glyphs";
+import { quietRow, stateWaiting } from "./inboxrow";
 import type { Row } from "./rows";
 import { lastPathElement } from "./titleparts";
 import type { EpicNode, Project } from "./tree";
@@ -67,6 +69,12 @@ function listedRowOf(rows: readonly Row[], key: NoticeKey | undefined): Row | un
   return rows.find((row) => (row.kind === "pane" ? pane !== "" && row.id === pane : session !== "" && row.id === session));
 }
 
+// quietWordsOf is what a listed row that does not wait on the owner says: its put-off words when its owner put it off, else
+// the idle state's word. An archived row that is also put off reads put off.
+function quietWordsOf(row: Row): string {
+  return row.putOff ? putOffWords : stateWord("idle");
+}
+
 // epicLead is an epic's lead: its gauge as the inbox row draws it, or the bell when the gauge is not drawn.
 function epicLead(words: EpicRowWords): NoticeLead {
   return words.gauge === null ? { kind: "icon", icon: "bell" } : { kind: "gauge", gauge: words.gauge };
@@ -96,13 +104,14 @@ export function noticeHead(
     }
     case "row": {
       const listed = listedRowOf(rows, key);
+      const quiet = listed !== undefined && quietRow(listed);
       const separator = notice.title.indexOf(" · ");
       const titled = separator === -1 ? notice.title : notice.title.slice(0, separator);
       const dir = listed === undefined ? "" : lastPathElement(listed.project);
       return {
-        lead: { kind: "glyph", state: notice.state },
+        lead: { kind: "glyph", state: quiet ? "idle" : notice.state },
         dir: dir !== "" ? dir : titled,
-        what: stateWord(notice.state),
+        what: quiet ? quietWordsOf(listed) : stateWord(notice.state),
       };
     }
     case "limit":
@@ -116,17 +125,28 @@ export function noticeHead(
 export type NoticeAct = "Answer" | "Open" | null;
 
 // noticeAct is the control a notice draws. An epic whose block is a question, and a pane or session waiting on you, are
-// answered. A limit and an alert have none. Anything else is opened.
-export function noticeAct(notice: NoticeFields): NoticeAct {
+// answered; a pane or session whose listed row is waiting but does not wait on you (quietRow) is opened, as the inbox
+// draws that row quiet. A limit and an alert have none. Anything else is opened.
+export function noticeAct(notice: NoticeFields, rows: readonly Row[]): NoticeAct {
   switch (subjectOf(notice.key)) {
     case "epic":
       return notice.block?.kind === "question" ? "Answer" : "Open";
-    case "row":
-      return notice.state === "waiting" ? "Answer" : "Open";
+    case "row": {
+      const listed = listedRowOf(rows, notice.key);
+      const quiet = listed !== undefined && quietRow(listed);
+      return notice.state === "waiting" && !quiet ? "Answer" : "Open";
+    }
     case "limit":
     case "alert":
       return null;
   }
+}
+
+// bringBackRowOf is the listed row a notice's Bring it back takes: a pane that is put off and waiting. A headless session
+// names no pane, and its Control.BringBack needs the open request id its row does not hold, so a session has none.
+export function bringBackRowOf(notice: NoticeFields, rows: readonly Row[]): Row | undefined {
+  const listed = listedRowOf(rows, notice.key);
+  return listed !== undefined && listed.kind === "pane" && listed.putOff && listed.state === stateWaiting ? listed : undefined;
 }
 
 // Seconds in a minute, an hour and a day.

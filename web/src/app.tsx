@@ -42,7 +42,7 @@ import { epicNeeds } from "./needs";
 import { NoticeCentre } from "./noticecentre";
 import { useNoticeLog } from "./noticelog";
 import { NoticeStack } from "./notices";
-import { type NoticeFields, noticeAge, noticeHead, noticeKey } from "./noticewords";
+import { bringBackRowOf, type NoticeFields, noticeAct, noticeAge, noticeHead, noticeKey } from "./noticewords";
 import { briefOf, briefStepOf, PhaseOutputPage } from "./phaseoutput";
 import type { Phase } from "./phases";
 import { NewPanel } from "./picker";
@@ -2513,9 +2513,14 @@ export function App({
             notices={notices}
             head={(notice) => noticeHead(notice, tree, shownRows, now)}
             age={noticeAgeOf}
+            act={(notice) => noticeAct(notice, shownRows)}
+            bringBackRow={(notice) => bringBackRowOf(notice, shownRows)}
             onOpen={(notice) => {
               setNoticesOpen(false);
               openNotice(notice);
+            }}
+            onBringBack={(row) => {
+              void actions.bringBack(clients, { kind: "pane", id: row.id, questionHash: row.questionHash, changed: row.changed });
             }}
             onRead={markNoticeSeen}
             onMore={() => setNoticesOpen(true)}

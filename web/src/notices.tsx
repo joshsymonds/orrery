@@ -4,7 +4,8 @@ import { useLayoutEffect, useRef, useState } from "preact/hooks";
 import type { createClients } from "./client";
 import type { InAppNotice, NoticesWatchResponse } from "./gen/orrery/v1/notice_pb";
 import { Gauge, Icon, StateGlyph } from "./glyphs";
-import { type NoticeAct, type NoticeHead, noticeAct, noticeKey, type NoticeLead } from "./noticewords";
+import type { Row } from "./rows";
+import { type NoticeAct, type NoticeHead, noticeKey, type NoticeLead } from "./noticewords";
 
 // applyNotice applies one change to the notices showing. A shown notice replaces the one under its key in place, or
 // joins the end of the list in the order it was first shown. An ended notice leaves the list. The list it is given is
@@ -132,17 +133,32 @@ interface NoticeStackProps {
   notices: InAppNotice[];
   head: (notice: InAppNotice) => NoticeHead;
   age: (notice: InAppNotice) => string;
+  act: (notice: InAppNotice) => NoticeAct;
+  // bringBackRow is the listed row a notice's Bring it back takes, or undefined when the notice has no such control.
+  bringBackRow: (notice: InAppNotice) => Row | undefined;
   onOpen: (notice: InAppNotice) => void;
+  onBringBack: (row: Row) => void;
   onRead: (notice: InAppNotice) => void;
   onMore: () => void;
 }
 
 // NoticeStack shows the notices as a stack of two-line rows under the page's title row: the first three that are still on
 // it, then an "N more in Notices" link for the rest, which calls onMore. A row's Answer or Open calls onOpen with its
-// notice, and its Mark read calls onRead and drops the row at once. A row also leaves the stack noticeLifetimeMillis
-// after it first shows, and nothing is told of that. Each row's clock starts when it is drawn, and a row that leaves the
-// stack is forgotten, so a notice that is shown again under its key shows again. The stack makes no sound.
-export function NoticeStack({ notices, head, age, onOpen, onRead, onMore }: NoticeStackProps): JSX.Element {
+// notice, and a row's Bring it back calls onBringBack with the row it takes, leaving the notice on the stack. Its Mark read
+// calls onRead and drops the row at once. A row also leaves the stack noticeLifetimeMillis after it first shows, and
+// nothing is told of that. Each row's clock starts when it is drawn, and a row that leaves the stack is forgotten, so a
+// notice that is shown again under its key shows again. The stack makes no sound.
+export function NoticeStack({
+  notices,
+  head,
+  age,
+  act,
+  bringBackRow,
+  onOpen,
+  onBringBack,
+  onRead,
+  onMore,
+}: NoticeStackProps): JSX.Element {
   // gone holds the keys of the notices this page has taken off the stack, by a Mark read or by the lifetime.
   const [gone, setGone] = useState<ReadonlySet<string>>(() => new Set());
   // lives holds the timer of each drawn row, by key, from the render that first draws it until the row leaves.
@@ -202,17 +218,21 @@ export function NoticeStack({ notices, head, age, onOpen, onRead, onMore }: Noti
   const more = shown.length - rows.length;
   return (
     <div class="notices" ref={stack}>
-      {rows.map((notice) => (
-        <Notice
-          key={noticeKey(notice.key)}
-          head={head(notice)}
-          when={age(notice)}
-          body={notice.body}
-          act={noticeAct(notice)}
-          onAct={() => onOpen(notice)}
-          onRead={() => readNotice(notice)}
-        />
-      ))}
+      {rows.map((notice) => {
+        const bringBack = bringBackRow(notice);
+        return (
+          <Notice
+            key={noticeKey(notice.key)}
+            head={head(notice)}
+            when={age(notice)}
+            body={notice.body}
+            act={act(notice)}
+            onAct={() => onOpen(notice)}
+            onBringBack={bringBack === undefined ? undefined : () => onBringBack(bringBack)}
+            onRead={() => readNotice(notice)}
+          />
+        );
+      })}
       {more > 0 && (
         <button type="button" class="link notices-more" onClick={onMore}>
           {`${more} more in Notices`}
@@ -240,6 +260,7 @@ interface NoticeProps {
   body: string;
   act?: NoticeAct;
   onAct?: () => void;
+  onBringBack?: () => void;
   onRead?: () => void;
   flat?: boolean;
   unread?: boolean;
@@ -248,14 +269,15 @@ interface NoticeProps {
 
 // Notice draws one notice in two lines, as round 6 draws it. The first line is its lead, its directory in the place
 // colour and its words, then its age. The second is the body's first line, since a body may hold several lines. A stack
-// row is a status block with its primary control, Answer or Open when it has one, and a quiet Mark read. A flat row is
-// one button, marked unread while it is unread, and holds no control.
+// row is a status block with its primary control, Answer or Open when it has one, a quiet Bring it back when it has
+// onBringBack, and a quiet Mark read. A flat row is one button, marked unread while it is unread, and holds no control.
 export function Notice({
   head,
   when,
   body,
   act = null,
   onAct,
+  onBringBack,
   onRead,
   flat = false,
   unread = false,
@@ -290,6 +312,11 @@ export function Notice({
         {act !== null && (
           <button type="button" class={act === "Answer" ? "btn primary" : "btn"} onClick={onAct}>
             {act}
+          </button>
+        )}
+        {onBringBack !== undefined && (
+          <button type="button" class="btn quiet" onClick={onBringBack}>
+            Bring it back
           </button>
         )}
         <button type="button" class="btn quiet" onClick={onRead}>

@@ -164,9 +164,20 @@ function stackNotice(key: Record<string, string>, title: string): InAppNotice {
   return create(InAppNoticeSchema, { key, state: "done", title, body: `${title} body` });
 }
 
+// waitingNotice is a notice the page's stack shows for a waiting row under key, titled title.
+function waitingNotice(key: Record<string, string>, title: string): InAppNotice {
+  return create(InAppNoticeSchema, { key, state: "waiting", title, body: `${title} body` });
+}
+
+// rowsWith is the page's rows with the row under key changed by changed.
+function rowsWith(key: string, changed: Partial<Row>): Row[] {
+  return rows().map((item) => (item.key === key ? { ...item, ...changed } : item));
+}
+
 interface Setup {
   width: number;
   listed?: ListedRow[];
+  rows?: Row[];
   notices?: InAppNotice[];
   // The wait between checks while the page loads. A test whose timers are mocked passes settle, since the default wait is
   // a timer.
@@ -195,7 +206,7 @@ async function withDesk(
   });
   try {
     await act(() => {
-      render(<App rows={rows()} now={now} clients={clients} notices={setup.notices} />, container);
+      render(<App rows={setup.rows ?? rows()} now={now} clients={clients} notices={setup.notices} />, container);
     });
     await until(signal, () => server.lists > 0, "the notice log listed", { step: setup.step });
     await act(() => {});
@@ -265,6 +276,17 @@ function markAllOf(container: HTMLElement): HTMLElement | undefined {
   return Array.from(container.querySelectorAll<HTMLElement>("section.ncentre button")).find(
     (button) => button.textContent === "Mark all read",
   );
+}
+
+// buttonNamed finds the button under root whose text is label, when one is drawn.
+function buttonNamed(root: ParentNode, label: string): HTMLElement | undefined {
+  return Array.from(root.querySelectorAll<HTMLElement>("button")).find((button) => button.textContent === label);
+}
+
+// buttonLabels are the texts of the buttons under root, in order. The tests assert on these and not on the elements, since
+// a failed assertion on an element prints the page's DOM.
+function buttonLabels(root: ParentNode): string[] {
+  return Array.from(root.querySelectorAll<HTMLElement>("button"), (button) => button.textContent ?? "");
 }
 
 // stackRowOf finds the stack's row whose body is body, which the fixtures give each notice as "<title> body".
@@ -367,6 +389,8 @@ function keysSent(server: FakeServer): string[][] {
 const sendKeysSuffix = "/orrery.v1.Panes/SendKeys";
 const markSeenSuffix = "/orrery.v1.Panes/MarkSeen";
 const archiveSuffix = "/orrery.v1.Epics/Archive";
+const bringBackSuffix = "/orrery.v1.Control/BringBack";
+const seenSuffix = "/orrery.v1.Notices/Seen";
 
 test("NoticeBell: the inbox head draws the bell between search and New, labelled Notices", (t) =>
   withDesk(t.signal, { width: wideWidth }, (container) => {
@@ -471,6 +495,42 @@ test("NoticeStack: at 1024px, Open on a stack row with the centre open sends See
 test("NoticeStack: at 700px, Open on a stack row with the centre open sends Seen, closes the centre, and lands on the row", (t) =>
   withDesk(t.signal, { width: narrowWidth, notices: stackedNotices() }, (container, server) =>
     pressStackOpenWithCentre(t.signal, container, server),
+  ));
+
+test("NoticeStack: a put-off pane notice draws Open and Bring it back, and no Answer", (t) =>
+  withDesk(
+    t.signal,
+    {
+      width: wideWidth,
+      rows: rowsWith("a", { putOff: true, questionHash: "hash-a", changed: 300 }),
+      notices: [waitingNotice({ pane: "a" }, "api needs you")],
+    },
+    async (container, server) => {
+      const stackRow = stackRowOf(container, "api needs you body");
+      assert.ok(stackRow !== undefined, "the put-off notice is on the stack");
+      assert.deepEqual(buttonLabels(stackRow), ["Open", "Bring it back", "Mark read"], "a put-off notice's controls");
+      await press(buttonNamed(stackRow, "Bring it back"));
+      await until(t.signal, () => callsTo(server, bringBackSuffix) === 1, "the Bring it back call");
+      const call = server.requests.find((request) => request.path.endsWith(bringBackSuffix));
+      assert.deepEqual(JSON.parse(call?.body ?? "{}"), { kind: "pane", id: "a", questionHash: "hash-a", changed: "300" });
+      assert.equal(callsTo(server, seenSuffix), 0, "Bring it back sends no Seen");
+      assert.ok(stackRowOf(container, "api needs you body") !== undefined, "the notice stays on the stack");
+    },
+  ));
+
+test("NoticeStack: an archived waiting row's notice draws Open and no Answer and no Bring it back", (t) =>
+  withDesk(
+    t.signal,
+    {
+      width: wideWidth,
+      rows: rowsWith("a", { archived: true }),
+      notices: [waitingNotice({ pane: "a" }, "api needs you")],
+    },
+    (container) => {
+      const stackRow = stackRowOf(container, "api needs you body");
+      assert.ok(stackRow !== undefined, "the archived notice is on the stack");
+      assert.deepEqual(buttonLabels(stackRow), ["Open", "Mark read"], "an archived notice's controls");
+    },
   ));
 
 test("NoticeStack: a notice that leaves the stack after 8 s leaves its log row unread, so the bell still counts it", (t) => {
