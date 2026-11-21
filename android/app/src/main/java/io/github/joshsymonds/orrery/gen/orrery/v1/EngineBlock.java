@@ -708,6 +708,85 @@ public  final class EngineBlock extends
     truncated_ = false;
   }
 
+  public static final int ADDED_FIELD_NUMBER = 12;
+  private long added_;
+  /**
+   * <pre>
+   * The lines a tool_result block's successful file edit added: the + lines of the tool's structuredPatch, or a created
+   * file's content lines; 0 otherwise.
+   * </pre>
+   *
+   * <code>int64 added = 12 [json_name = "added"];</code>
+   * @return The added.
+   */
+  @java.lang.Override
+  public long getAdded() {
+    return added_;
+  }
+  /**
+   * <pre>
+   * The lines a tool_result block's successful file edit added: the + lines of the tool's structuredPatch, or a created
+   * file's content lines; 0 otherwise.
+   * </pre>
+   *
+   * <code>int64 added = 12 [json_name = "added"];</code>
+   * @param value The added to set.
+   */
+  private void setAdded(long value) {
+    
+    added_ = value;
+  }
+  /**
+   * <pre>
+   * The lines a tool_result block's successful file edit added: the + lines of the tool's structuredPatch, or a created
+   * file's content lines; 0 otherwise.
+   * </pre>
+   *
+   * <code>int64 added = 12 [json_name = "added"];</code>
+   */
+  private void clearAdded() {
+
+    added_ = 0L;
+  }
+
+  public static final int REMOVED_FIELD_NUMBER = 13;
+  private long removed_;
+  /**
+   * <pre>
+   * The lines a tool_result block's successful file edit removed: the - lines of that patch; 0 otherwise.
+   * </pre>
+   *
+   * <code>int64 removed = 13 [json_name = "removed"];</code>
+   * @return The removed.
+   */
+  @java.lang.Override
+  public long getRemoved() {
+    return removed_;
+  }
+  /**
+   * <pre>
+   * The lines a tool_result block's successful file edit removed: the - lines of that patch; 0 otherwise.
+   * </pre>
+   *
+   * <code>int64 removed = 13 [json_name = "removed"];</code>
+   * @param value The removed to set.
+   */
+  private void setRemoved(long value) {
+    
+    removed_ = value;
+  }
+  /**
+   * <pre>
+   * The lines a tool_result block's successful file edit removed: the - lines of that patch; 0 otherwise.
+   * </pre>
+   *
+   * <code>int64 removed = 13 [json_name = "removed"];</code>
+   */
+  private void clearRemoved() {
+
+    removed_ = 0L;
+  }
+
   public static io.github.joshsymonds.orrery.gen.orrery.v1.EngineBlock parseFrom(
       java.nio.ByteBuffer data)
       throws com.google.protobuf.InvalidProtocolBufferException {
@@ -1510,6 +1589,89 @@ public  final class EngineBlock extends
       return this;
     }
 
+    /**
+     * <pre>
+     * The lines a tool_result block's successful file edit added: the + lines of the tool's structuredPatch, or a created
+     * file's content lines; 0 otherwise.
+     * </pre>
+     *
+     * <code>int64 added = 12 [json_name = "added"];</code>
+     * @return The added.
+     */
+    @java.lang.Override
+    public long getAdded() {
+      return instance.getAdded();
+    }
+    /**
+     * <pre>
+     * The lines a tool_result block's successful file edit added: the + lines of the tool's structuredPatch, or a created
+     * file's content lines; 0 otherwise.
+     * </pre>
+     *
+     * <code>int64 added = 12 [json_name = "added"];</code>
+     * @param value The added to set.
+     * @return This builder for chaining.
+     */
+    public Builder setAdded(long value) {
+      copyOnWrite();
+      instance.setAdded(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The lines a tool_result block's successful file edit added: the + lines of the tool's structuredPatch, or a created
+     * file's content lines; 0 otherwise.
+     * </pre>
+     *
+     * <code>int64 added = 12 [json_name = "added"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearAdded() {
+      copyOnWrite();
+      instance.clearAdded();
+      return this;
+    }
+
+    /**
+     * <pre>
+     * The lines a tool_result block's successful file edit removed: the - lines of that patch; 0 otherwise.
+     * </pre>
+     *
+     * <code>int64 removed = 13 [json_name = "removed"];</code>
+     * @return The removed.
+     */
+    @java.lang.Override
+    public long getRemoved() {
+      return instance.getRemoved();
+    }
+    /**
+     * <pre>
+     * The lines a tool_result block's successful file edit removed: the - lines of that patch; 0 otherwise.
+     * </pre>
+     *
+     * <code>int64 removed = 13 [json_name = "removed"];</code>
+     * @param value The removed to set.
+     * @return This builder for chaining.
+     */
+    public Builder setRemoved(long value) {
+      copyOnWrite();
+      instance.setRemoved(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The lines a tool_result block's successful file edit removed: the - lines of that patch; 0 otherwise.
+     * </pre>
+     *
+     * <code>int64 removed = 13 [json_name = "removed"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearRemoved() {
+      copyOnWrite();
+      instance.clearRemoved();
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:orrery.v1.EngineBlock)
   }
   @java.lang.Override
@@ -1537,11 +1699,13 @@ public  final class EngineBlock extends
             "content_",
             "isError_",
             "truncated_",
+            "added_",
+            "removed_",
           };
           java.lang.String info =
-              "\u0000\u000b\u0000\u0000\u0001\u000b\u000b\u0000\u0000\u0000\u0001\u0208\u0002\u0208" +
-              "\u0003\u0208\u0004\u0208\u0005\u0208\u0006\u0208\u0007\u0208\b\u0208\t\u0208\n\u0007" +
-              "\u000b\u0007";
+              "\u0000\r\u0000\u0000\u0001\r\r\u0000\u0000\u0000\u0001\u0208\u0002\u0208\u0003\u0208" +
+              "\u0004\u0208\u0005\u0208\u0006\u0208\u0007\u0208\b\u0208\t\u0208\n\u0007\u000b\u0007" +
+              "\f\u0002\r\u0002";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

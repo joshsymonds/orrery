@@ -30,6 +30,7 @@ public  final class ConversationItem extends
     promptId_ = "";
     epic_ = "";
     contract_ = "";
+    client_ = "";
   }
   private int bitField0_;
   public static final int KIND_FIELD_NUMBER = 1;
@@ -1005,6 +1006,157 @@ public  final class ConversationItem extends
       com.google.protobuf.ByteString value) {
     checkByteStringIsUtf8(value);
     contract_ = value.toStringUtf8();
+
+  }
+
+  public static final int ADDED_FIELD_NUMBER = 17;
+  private long added_;
+  /**
+   * <pre>
+   * The lines a result item's successful file edit added: the + lines of the tool's structuredPatch, or a created
+   * file's content lines; 0 otherwise.
+   * </pre>
+   *
+   * <code>int64 added = 17 [json_name = "added"];</code>
+   * @return The added.
+   */
+  @java.lang.Override
+  public long getAdded() {
+    return added_;
+  }
+  /**
+   * <pre>
+   * The lines a result item's successful file edit added: the + lines of the tool's structuredPatch, or a created
+   * file's content lines; 0 otherwise.
+   * </pre>
+   *
+   * <code>int64 added = 17 [json_name = "added"];</code>
+   * @param value The added to set.
+   */
+  private void setAdded(long value) {
+    
+    added_ = value;
+  }
+  /**
+   * <pre>
+   * The lines a result item's successful file edit added: the + lines of the tool's structuredPatch, or a created
+   * file's content lines; 0 otherwise.
+   * </pre>
+   *
+   * <code>int64 added = 17 [json_name = "added"];</code>
+   */
+  private void clearAdded() {
+
+    added_ = 0L;
+  }
+
+  public static final int REMOVED_FIELD_NUMBER = 18;
+  private long removed_;
+  /**
+   * <pre>
+   * The lines a result item's successful file edit removed: the - lines of that patch; 0 otherwise.
+   * </pre>
+   *
+   * <code>int64 removed = 18 [json_name = "removed"];</code>
+   * @return The removed.
+   */
+  @java.lang.Override
+  public long getRemoved() {
+    return removed_;
+  }
+  /**
+   * <pre>
+   * The lines a result item's successful file edit removed: the - lines of that patch; 0 otherwise.
+   * </pre>
+   *
+   * <code>int64 removed = 18 [json_name = "removed"];</code>
+   * @param value The removed to set.
+   */
+  private void setRemoved(long value) {
+    
+    removed_ = value;
+  }
+  /**
+   * <pre>
+   * The lines a result item's successful file edit removed: the - lines of that patch; 0 otherwise.
+   * </pre>
+   *
+   * <code>int64 removed = 18 [json_name = "removed"];</code>
+   */
+  private void clearRemoved() {
+
+    removed_ = 0L;
+  }
+
+  public static final int CLIENT_FIELD_NUMBER = 19;
+  private java.lang.String client_;
+  /**
+   * <pre>
+   * The X-Orrery-Client of the request that sent a prompt item's prompt, such as orrery-android; empty when none was
+   * recorded.
+   * </pre>
+   *
+   * <code>string client = 19 [json_name = "client"];</code>
+   * @return The client.
+   */
+  @java.lang.Override
+  public java.lang.String getClient() {
+    return client_;
+  }
+  /**
+   * <pre>
+   * The X-Orrery-Client of the request that sent a prompt item's prompt, such as orrery-android; empty when none was
+   * recorded.
+   * </pre>
+   *
+   * <code>string client = 19 [json_name = "client"];</code>
+   * @return The bytes for client.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString
+      getClientBytes() {
+    return com.google.protobuf.ByteString.copyFromUtf8(client_);
+  }
+  /**
+   * <pre>
+   * The X-Orrery-Client of the request that sent a prompt item's prompt, such as orrery-android; empty when none was
+   * recorded.
+   * </pre>
+   *
+   * <code>string client = 19 [json_name = "client"];</code>
+   * @param value The client to set.
+   */
+  private void setClient(
+      java.lang.String value) {
+    java.util.Objects.requireNonNull(value);
+
+    client_ = value;
+  }
+  /**
+   * <pre>
+   * The X-Orrery-Client of the request that sent a prompt item's prompt, such as orrery-android; empty when none was
+   * recorded.
+   * </pre>
+   *
+   * <code>string client = 19 [json_name = "client"];</code>
+   */
+  private void clearClient() {
+
+    client_ = getDefaultInstance().getClient();
+  }
+  /**
+   * <pre>
+   * The X-Orrery-Client of the request that sent a prompt item's prompt, such as orrery-android; empty when none was
+   * recorded.
+   * </pre>
+   *
+   * <code>string client = 19 [json_name = "client"];</code>
+   * @param value The bytes for client to set.
+   */
+  private void setClientBytes(
+      com.google.protobuf.ByteString value) {
+    checkByteStringIsUtf8(value);
+    client_ = value.toStringUtf8();
 
   }
 
@@ -2120,6 +2272,163 @@ public  final class ConversationItem extends
       return this;
     }
 
+    /**
+     * <pre>
+     * The lines a result item's successful file edit added: the + lines of the tool's structuredPatch, or a created
+     * file's content lines; 0 otherwise.
+     * </pre>
+     *
+     * <code>int64 added = 17 [json_name = "added"];</code>
+     * @return The added.
+     */
+    @java.lang.Override
+    public long getAdded() {
+      return instance.getAdded();
+    }
+    /**
+     * <pre>
+     * The lines a result item's successful file edit added: the + lines of the tool's structuredPatch, or a created
+     * file's content lines; 0 otherwise.
+     * </pre>
+     *
+     * <code>int64 added = 17 [json_name = "added"];</code>
+     * @param value The added to set.
+     * @return This builder for chaining.
+     */
+    public Builder setAdded(long value) {
+      copyOnWrite();
+      instance.setAdded(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The lines a result item's successful file edit added: the + lines of the tool's structuredPatch, or a created
+     * file's content lines; 0 otherwise.
+     * </pre>
+     *
+     * <code>int64 added = 17 [json_name = "added"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearAdded() {
+      copyOnWrite();
+      instance.clearAdded();
+      return this;
+    }
+
+    /**
+     * <pre>
+     * The lines a result item's successful file edit removed: the - lines of that patch; 0 otherwise.
+     * </pre>
+     *
+     * <code>int64 removed = 18 [json_name = "removed"];</code>
+     * @return The removed.
+     */
+    @java.lang.Override
+    public long getRemoved() {
+      return instance.getRemoved();
+    }
+    /**
+     * <pre>
+     * The lines a result item's successful file edit removed: the - lines of that patch; 0 otherwise.
+     * </pre>
+     *
+     * <code>int64 removed = 18 [json_name = "removed"];</code>
+     * @param value The removed to set.
+     * @return This builder for chaining.
+     */
+    public Builder setRemoved(long value) {
+      copyOnWrite();
+      instance.setRemoved(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The lines a result item's successful file edit removed: the - lines of that patch; 0 otherwise.
+     * </pre>
+     *
+     * <code>int64 removed = 18 [json_name = "removed"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearRemoved() {
+      copyOnWrite();
+      instance.clearRemoved();
+      return this;
+    }
+
+    /**
+     * <pre>
+     * The X-Orrery-Client of the request that sent a prompt item's prompt, such as orrery-android; empty when none was
+     * recorded.
+     * </pre>
+     *
+     * <code>string client = 19 [json_name = "client"];</code>
+     * @return The client.
+     */
+    @java.lang.Override
+    public java.lang.String getClient() {
+      return instance.getClient();
+    }
+    /**
+     * <pre>
+     * The X-Orrery-Client of the request that sent a prompt item's prompt, such as orrery-android; empty when none was
+     * recorded.
+     * </pre>
+     *
+     * <code>string client = 19 [json_name = "client"];</code>
+     * @return The bytes for client.
+     */
+    @java.lang.Override
+    public com.google.protobuf.ByteString
+        getClientBytes() {
+      return instance.getClientBytes();
+    }
+    /**
+     * <pre>
+     * The X-Orrery-Client of the request that sent a prompt item's prompt, such as orrery-android; empty when none was
+     * recorded.
+     * </pre>
+     *
+     * <code>string client = 19 [json_name = "client"];</code>
+     * @param value The client to set.
+     * @return This builder for chaining.
+     */
+    public Builder setClient(
+        java.lang.String value) {
+      copyOnWrite();
+      instance.setClient(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The X-Orrery-Client of the request that sent a prompt item's prompt, such as orrery-android; empty when none was
+     * recorded.
+     * </pre>
+     *
+     * <code>string client = 19 [json_name = "client"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearClient() {
+      copyOnWrite();
+      instance.clearClient();
+      return this;
+    }
+    /**
+     * <pre>
+     * The X-Orrery-Client of the request that sent a prompt item's prompt, such as orrery-android; empty when none was
+     * recorded.
+     * </pre>
+     *
+     * <code>string client = 19 [json_name = "client"];</code>
+     * @param value The bytes for client to set.
+     * @return This builder for chaining.
+     */
+    public Builder setClientBytes(
+        com.google.protobuf.ByteString value) {
+      copyOnWrite();
+      instance.setClientBytes(value);
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:orrery.v1.ConversationItem)
   }
   @java.lang.Override
@@ -2153,11 +2462,15 @@ public  final class ConversationItem extends
             "epic_",
             "stepFacts_",
             "contract_",
+            "added_",
+            "removed_",
+            "client_",
           };
           java.lang.String info =
-              "\u0000\u0010\u0000\u0001\u0001\u0010\u0010\u0000\u0000\u0000\u0001\u0208\u0002\u0002" +
+              "\u0000\u0013\u0000\u0001\u0001\u0013\u0013\u0000\u0000\u0000\u0001\u0208\u0002\u0002" +
               "\u0003\u0208\u0004\u0208\u0005\u0208\u0006\u0208\u0007\u0007\b\u0208\t\u0208\n\u0002" +
-              "\u000b\u0208\f\u000b\r\u0208\u000e\u0208\u000f\u1009\u0000\u0010\u0208";
+              "\u000b\u0208\f\u000b\r\u0208\u000e\u0208\u000f\u1009\u0000\u0010\u0208\u0011\u0002" +
+              "\u0012\u0002\u0013\u0208";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

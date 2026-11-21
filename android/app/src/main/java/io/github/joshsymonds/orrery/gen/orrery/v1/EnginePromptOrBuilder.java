@@ -79,4 +79,24 @@ public interface EnginePromptOrBuilder extends
    * @return The round.
    */
   int getRound();
+
+  /**
+   * <pre>
+   * The X-Orrery-Client of the request that sent the prompt, such as orrery-android; empty when none was recorded.
+   * </pre>
+   *
+   * <code>string client = 5 [json_name = "client"];</code>
+   * @return The client.
+   */
+  java.lang.String getClient();
+  /**
+   * <pre>
+   * The X-Orrery-Client of the request that sent the prompt, such as orrery-android; empty when none was recorded.
+   * </pre>
+   *
+   * <code>string client = 5 [json_name = "client"];</code>
+   * @return The bytes for client.
+   */
+  com.google.protobuf.ByteString
+      getClientBytes();
 }

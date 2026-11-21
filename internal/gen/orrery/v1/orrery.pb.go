@@ -2824,7 +2824,9 @@ type EnginePrompt struct {
 	// Who sent the prompt: brief, engine, owner or event, or empty when the prompt was stored without a sender.
 	Sender string `protobuf:"bytes,3,opt,name=sender,proto3" json:"sender,omitempty"`
 	// The check round a send-back returns, or 0 otherwise.
-	Round         uint32 `protobuf:"varint,4,opt,name=round,proto3" json:"round,omitempty"`
+	Round uint32 `protobuf:"varint,4,opt,name=round,proto3" json:"round,omitempty"`
+	// The X-Orrery-Client of the request that sent the prompt, such as orrery-android; empty when none was recorded.
+	Client        string `protobuf:"bytes,5,opt,name=client,proto3" json:"client,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2887,6 +2889,13 @@ func (x *EnginePrompt) GetRound() uint32 {
 	return 0
 }
 
+func (x *EnginePrompt) GetClient() string {
+	if x != nil {
+		return x.Client
+	}
+	return ""
+}
+
 // EngineBlock carries one finished content block of a headless session.
 type EngineBlock struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -2911,7 +2920,12 @@ type EngineBlock struct {
 	// Whether the tool result is an error.
 	IsError bool `protobuf:"varint,10,opt,name=is_error,json=isError,proto3" json:"is_error,omitempty"`
 	// Whether text, input or content was cut.
-	Truncated     bool `protobuf:"varint,11,opt,name=truncated,proto3" json:"truncated,omitempty"`
+	Truncated bool `protobuf:"varint,11,opt,name=truncated,proto3" json:"truncated,omitempty"`
+	// The lines a tool_result block's successful file edit added: the + lines of the tool's structuredPatch, or a created
+	// file's content lines; 0 otherwise.
+	Added int64 `protobuf:"varint,12,opt,name=added,proto3" json:"added,omitempty"`
+	// The lines a tool_result block's successful file edit removed: the - lines of that patch; 0 otherwise.
+	Removed       int64 `protobuf:"varint,13,opt,name=removed,proto3" json:"removed,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -3021,6 +3035,20 @@ func (x *EngineBlock) GetTruncated() bool {
 		return x.Truncated
 	}
 	return false
+}
+
+func (x *EngineBlock) GetAdded() int64 {
+	if x != nil {
+		return x.Added
+	}
+	return 0
+}
+
+func (x *EngineBlock) GetRemoved() int64 {
+	if x != nil {
+		return x.Removed
+	}
+	return 0
 }
 
 // EngineRequest carries a request a headless session sent that the host must answer.
@@ -4115,7 +4143,15 @@ type ConversationItem struct {
 	StepFacts *StepFacts `protobuf:"bytes,15,opt,name=step_facts,json=stepFacts,proto3" json:"step_facts,omitempty"`
 	// The id of the contract a tool item's call writes: the id input of a contract_propose or contract_revise call; empty
 	// when the item is not one of those calls or its input names no id.
-	Contract      string `protobuf:"bytes,16,opt,name=contract,proto3" json:"contract,omitempty"`
+	Contract string `protobuf:"bytes,16,opt,name=contract,proto3" json:"contract,omitempty"`
+	// The lines a result item's successful file edit added: the + lines of the tool's structuredPatch, or a created
+	// file's content lines; 0 otherwise.
+	Added int64 `protobuf:"varint,17,opt,name=added,proto3" json:"added,omitempty"`
+	// The lines a result item's successful file edit removed: the - lines of that patch; 0 otherwise.
+	Removed int64 `protobuf:"varint,18,opt,name=removed,proto3" json:"removed,omitempty"`
+	// The X-Orrery-Client of the request that sent a prompt item's prompt, such as orrery-android; empty when none was
+	// recorded.
+	Client        string `protobuf:"bytes,19,opt,name=client,proto3" json:"client,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -4258,6 +4294,27 @@ func (x *ConversationItem) GetStepFacts() *StepFacts {
 func (x *ConversationItem) GetContract() string {
 	if x != nil {
 		return x.Contract
+	}
+	return ""
+}
+
+func (x *ConversationItem) GetAdded() int64 {
+	if x != nil {
+		return x.Added
+	}
+	return 0
+}
+
+func (x *ConversationItem) GetRemoved() int64 {
+	if x != nil {
+		return x.Removed
+	}
+	return 0
+}
+
+func (x *ConversationItem) GetClient() string {
+	if x != nil {
+		return x.Client
 	}
 	return ""
 }
@@ -7194,12 +7251,13 @@ const file_orrery_v1_orrery_proto_rawDesc = "" +
 	"\x05_seenB\v\n" +
 	"\t_questionB\x11\n" +
 	"\x0f_claude_sessionB\t\n" +
-	"\a_reason\"m\n" +
+	"\a_reason\"\x85\x01\n" +
 	"\fEnginePrompt\x12\x12\n" +
 	"\x04text\x18\x01 \x01(\tR\x04text\x12\x1b\n" +
 	"\tprompt_id\x18\x02 \x01(\tR\bpromptId\x12\x16\n" +
 	"\x06sender\x18\x03 \x01(\tR\x06sender\x12\x14\n" +
-	"\x05round\x18\x04 \x01(\rR\x05round\"\xb2\x02\n" +
+	"\x05round\x18\x04 \x01(\rR\x05round\x12\x16\n" +
+	"\x06client\x18\x05 \x01(\tR\x06client\"\xe2\x02\n" +
 	"\vEngineBlock\x12\x12\n" +
 	"\x04kind\x18\x01 \x01(\tR\x04kind\x12\x12\n" +
 	"\x04role\x18\x02 \x01(\tR\x04role\x12\x1d\n" +
@@ -7213,7 +7271,9 @@ const file_orrery_v1_orrery_proto_rawDesc = "" +
 	"\acontent\x18\t \x01(\tR\acontent\x12\x19\n" +
 	"\bis_error\x18\n" +
 	" \x01(\bR\aisError\x12\x1c\n" +
-	"\ttruncated\x18\v \x01(\bR\ttruncated\"\xc9\x01\n" +
+	"\ttruncated\x18\v \x01(\bR\ttruncated\x12\x14\n" +
+	"\x05added\x18\f \x01(\x03R\x05added\x12\x18\n" +
+	"\aremoved\x18\r \x01(\x03R\aremoved\"\xc9\x01\n" +
 	"\rEngineRequest\x12\x12\n" +
 	"\x04kind\x18\x01 \x01(\tR\x04kind\x12\x1d\n" +
 	"\n" +
@@ -7295,7 +7355,7 @@ const file_orrery_v1_orrery_proto_rawDesc = "" +
 	"\x05items\x18\x02 \x03(\v2\x1b.orrery.v1.ConversationItemR\x05items\x12\x12\n" +
 	"\x04goal\x18\x03 \x01(\tR\x04goal\x123\n" +
 	"\awaiting\x18\x04 \x03(\v2\x19.orrery.v1.WaitingMessageR\awaiting\x128\n" +
-	"\acontext\x18\x05 \x01(\v2\x1e.orrery.v1.ConversationContextR\acontext\"\x98\x03\n" +
+	"\acontext\x18\x05 \x01(\v2\x1e.orrery.v1.ConversationContextR\acontext\"\xe0\x03\n" +
 	"\x10ConversationItem\x12\x12\n" +
 	"\x04kind\x18\x01 \x01(\tR\x04kind\x12\x12\n" +
 	"\x04time\x18\x02 \x01(\x03R\x04time\x12\x12\n" +
@@ -7314,7 +7374,10 @@ const file_orrery_v1_orrery_proto_rawDesc = "" +
 	"\x04epic\x18\x0e \x01(\tR\x04epic\x123\n" +
 	"\n" +
 	"step_facts\x18\x0f \x01(\v2\x14.orrery.v1.StepFactsR\tstepFacts\x12\x1a\n" +
-	"\bcontract\x18\x10 \x01(\tR\bcontract\"E\n" +
+	"\bcontract\x18\x10 \x01(\tR\bcontract\x12\x14\n" +
+	"\x05added\x18\x11 \x01(\x03R\x05added\x12\x18\n" +
+	"\aremoved\x18\x12 \x01(\x03R\aremoved\x12\x16\n" +
+	"\x06client\x18\x13 \x01(\tR\x06client\"E\n" +
 	"\x13ConversationContext\x12\x16\n" +
 	"\x06tokens\x18\x01 \x01(\x03R\x06tokens\x12\x16\n" +
 	"\x06window\x18\x02 \x01(\x03R\x06window\"T\n" +

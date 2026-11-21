@@ -32,7 +32,9 @@ type StartRequest struct {
 	Model string `protobuf:"bytes,3,opt,name=model,proto3" json:"model,omitempty"`
 	// A session id the client chooses, 32 lowercase hex digits. Empty means orreryd mints one. A start whose id names
 	// an existing session starts nothing and returns that id.
-	Id            string `protobuf:"bytes,4,opt,name=id,proto3" json:"id,omitempty"`
+	Id string `protobuf:"bytes,4,opt,name=id,proto3" json:"id,omitempty"`
+	// The client that sent the request, such as orrery-android. Empty means none.
+	Client        string `protobuf:"bytes,5,opt,name=client,proto3" json:"client,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -95,6 +97,13 @@ func (x *StartRequest) GetId() string {
 	return ""
 }
 
+func (x *StartRequest) GetClient() string {
+	if x != nil {
+		return x.Client
+	}
+	return ""
+}
+
 // StartResponse names the started session.
 type StartResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -150,7 +159,9 @@ type SayRequest struct {
 	Text string `protobuf:"bytes,2,opt,name=text,proto3" json:"text,omitempty"`
 	// An id the client chooses for this prompt. Empty means none. A say whose prompt id the session has already recorded
 	// sends nothing and succeeds.
-	PromptId      string `protobuf:"bytes,3,opt,name=prompt_id,json=promptId,proto3" json:"prompt_id,omitempty"`
+	PromptId string `protobuf:"bytes,3,opt,name=prompt_id,json=promptId,proto3" json:"prompt_id,omitempty"`
+	// The client that sent the request, such as orrery-android. Empty means none.
+	Client        string `protobuf:"bytes,4,opt,name=client,proto3" json:"client,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -202,6 +213,13 @@ func (x *SayRequest) GetText() string {
 func (x *SayRequest) GetPromptId() string {
 	if x != nil {
 		return x.PromptId
+	}
+	return ""
+}
+
+func (x *SayRequest) GetClient() string {
+	if x != nil {
+		return x.Client
 	}
 	return ""
 }
@@ -1147,23 +1165,126 @@ func (*BringBackResponse) Descriptor() ([]byte, []int) {
 	return file_orrery_engine_v1_engine_proto_rawDescGZIP(), []int{21}
 }
 
+// PaneSendsRecordRequest names one text serve sent to a pane.
+type PaneSendsRecordRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The tmux pane id, a % then digits.
+	Pane string `protobuf:"bytes,1,opt,name=pane,proto3" json:"pane,omitempty"`
+	// The text serve sent.
+	Text string `protobuf:"bytes,2,opt,name=text,proto3" json:"text,omitempty"`
+	// The client that sent the text, such as orrery-android. Empty means none.
+	Client        string `protobuf:"bytes,3,opt,name=client,proto3" json:"client,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PaneSendsRecordRequest) Reset() {
+	*x = PaneSendsRecordRequest{}
+	mi := &file_orrery_engine_v1_engine_proto_msgTypes[22]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PaneSendsRecordRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PaneSendsRecordRequest) ProtoMessage() {}
+
+func (x *PaneSendsRecordRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_orrery_engine_v1_engine_proto_msgTypes[22]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PaneSendsRecordRequest.ProtoReflect.Descriptor instead.
+func (*PaneSendsRecordRequest) Descriptor() ([]byte, []int) {
+	return file_orrery_engine_v1_engine_proto_rawDescGZIP(), []int{22}
+}
+
+func (x *PaneSendsRecordRequest) GetPane() string {
+	if x != nil {
+		return x.Pane
+	}
+	return ""
+}
+
+func (x *PaneSendsRecordRequest) GetText() string {
+	if x != nil {
+		return x.Text
+	}
+	return ""
+}
+
+func (x *PaneSendsRecordRequest) GetClient() string {
+	if x != nil {
+		return x.Client
+	}
+	return ""
+}
+
+// PaneSendsRecordResponse acknowledges a record. It has no fields.
+type PaneSendsRecordResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PaneSendsRecordResponse) Reset() {
+	*x = PaneSendsRecordResponse{}
+	mi := &file_orrery_engine_v1_engine_proto_msgTypes[23]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PaneSendsRecordResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PaneSendsRecordResponse) ProtoMessage() {}
+
+func (x *PaneSendsRecordResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_orrery_engine_v1_engine_proto_msgTypes[23]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PaneSendsRecordResponse.ProtoReflect.Descriptor instead.
+func (*PaneSendsRecordResponse) Descriptor() ([]byte, []int) {
+	return file_orrery_engine_v1_engine_proto_rawDescGZIP(), []int{23}
+}
+
 var File_orrery_engine_v1_engine_proto protoreflect.FileDescriptor
 
 const file_orrery_engine_v1_engine_proto_rawDesc = "" +
 	"\n" +
-	"\x1dorrery/engine/v1/engine.proto\x12\x10orrery.engine.v1\"^\n" +
+	"\x1dorrery/engine/v1/engine.proto\x12\x10orrery.engine.v1\"v\n" +
 	"\fStartRequest\x12\x10\n" +
 	"\x03dir\x18\x01 \x01(\tR\x03dir\x12\x16\n" +
 	"\x06prompt\x18\x02 \x01(\tR\x06prompt\x12\x14\n" +
 	"\x05model\x18\x03 \x01(\tR\x05model\x12\x0e\n" +
-	"\x02id\x18\x04 \x01(\tR\x02id\"\x1f\n" +
+	"\x02id\x18\x04 \x01(\tR\x02id\x12\x16\n" +
+	"\x06client\x18\x05 \x01(\tR\x06client\"\x1f\n" +
 	"\rStartResponse\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\tR\x02id\"M\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\"e\n" +
 	"\n" +
 	"SayRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04text\x18\x02 \x01(\tR\x04text\x12\x1b\n" +
-	"\tprompt_id\x18\x03 \x01(\tR\bpromptId\"\r\n" +
+	"\tprompt_id\x18\x03 \x01(\tR\bpromptId\x12\x16\n" +
+	"\x06client\x18\x04 \x01(\tR\x06client\"\r\n" +
 	"\vSayResponse\"V\n" +
 	"\rAnswerRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1d\n" +
@@ -1212,7 +1333,12 @@ const file_orrery_engine_v1_engine_proto_rawDesc = "" +
 	"request_id\x18\x03 \x01(\tR\trequestId\x12#\n" +
 	"\rquestion_hash\x18\x04 \x01(\tR\fquestionHash\x12\x18\n" +
 	"\achanged\x18\x05 \x01(\x03R\achanged\"\x13\n" +
-	"\x11BringBackResponse2\xda\x06\n" +
+	"\x11BringBackResponse\"X\n" +
+	"\x16PaneSendsRecordRequest\x12\x12\n" +
+	"\x04pane\x18\x01 \x01(\tR\x04pane\x12\x12\n" +
+	"\x04text\x18\x02 \x01(\tR\x04text\x12\x16\n" +
+	"\x06client\x18\x03 \x01(\tR\x06client\"\x19\n" +
+	"\x17PaneSendsRecordResponse2\xda\x06\n" +
 	"\x06Engine\x12H\n" +
 	"\x05Start\x12\x1e.orrery.engine.v1.StartRequest\x1a\x1f.orrery.engine.v1.StartResponse\x12B\n" +
 	"\x03Say\x12\x1c.orrery.engine.v1.SayRequest\x1a\x1d.orrery.engine.v1.SayResponse\x12K\n" +
@@ -1224,7 +1350,9 @@ const file_orrery_engine_v1_engine_proto_rawDesc = "" +
 	"\x06Resume\x12\x1f.orrery.engine.v1.ResumeRequest\x1a .orrery.engine.v1.ResumeResponse\x12Q\n" +
 	"\bWithdraw\x12!.orrery.engine.v1.WithdrawRequest\x1a\".orrery.engine.v1.WithdrawResponse\x12K\n" +
 	"\x06NotNow\x12\x1f.orrery.engine.v1.NotNowRequest\x1a .orrery.engine.v1.NotNowResponse\x12T\n" +
-	"\tBringBack\x12\".orrery.engine.v1.BringBackRequest\x1a#.orrery.engine.v1.BringBackResponseB\xcb\x01\n" +
+	"\tBringBack\x12\".orrery.engine.v1.BringBackRequest\x1a#.orrery.engine.v1.BringBackResponse2j\n" +
+	"\tPaneSends\x12]\n" +
+	"\x06Record\x12(.orrery.engine.v1.PaneSendsRecordRequest\x1a).orrery.engine.v1.PaneSendsRecordResponseB\xcb\x01\n" +
 	"\x14com.orrery.engine.v1B\vEngineProtoP\x01ZDgithub.com/joshsymonds/orrery/internal/gen/orrery/engine/v1;enginev1\xa2\x02\x03OEX\xaa\x02\x10Orrery.Engine.V1\xca\x02\x10Orrery\\Engine\\V1\xe2\x02\x1cOrrery\\Engine\\V1\\GPBMetadata\xea\x02\x12Orrery::Engine::V1b\x06proto3"
 
 var (
@@ -1239,30 +1367,32 @@ func file_orrery_engine_v1_engine_proto_rawDescGZIP() []byte {
 	return file_orrery_engine_v1_engine_proto_rawDescData
 }
 
-var file_orrery_engine_v1_engine_proto_msgTypes = make([]protoimpl.MessageInfo, 22)
+var file_orrery_engine_v1_engine_proto_msgTypes = make([]protoimpl.MessageInfo, 24)
 var file_orrery_engine_v1_engine_proto_goTypes = []any{
-	(*StartRequest)(nil),      // 0: orrery.engine.v1.StartRequest
-	(*StartResponse)(nil),     // 1: orrery.engine.v1.StartResponse
-	(*SayRequest)(nil),        // 2: orrery.engine.v1.SayRequest
-	(*SayResponse)(nil),       // 3: orrery.engine.v1.SayResponse
-	(*AnswerRequest)(nil),     // 4: orrery.engine.v1.AnswerRequest
-	(*AnswerResponse)(nil),    // 5: orrery.engine.v1.AnswerResponse
-	(*InterruptRequest)(nil),  // 6: orrery.engine.v1.InterruptRequest
-	(*InterruptResponse)(nil), // 7: orrery.engine.v1.InterruptResponse
-	(*DeclineRequest)(nil),    // 8: orrery.engine.v1.DeclineRequest
-	(*DeclineResponse)(nil),   // 9: orrery.engine.v1.DeclineResponse
-	(*StopRequest)(nil),       // 10: orrery.engine.v1.StopRequest
-	(*StopResponse)(nil),      // 11: orrery.engine.v1.StopResponse
-	(*SeenRequest)(nil),       // 12: orrery.engine.v1.SeenRequest
-	(*SeenResponse)(nil),      // 13: orrery.engine.v1.SeenResponse
-	(*ResumeRequest)(nil),     // 14: orrery.engine.v1.ResumeRequest
-	(*ResumeResponse)(nil),    // 15: orrery.engine.v1.ResumeResponse
-	(*WithdrawRequest)(nil),   // 16: orrery.engine.v1.WithdrawRequest
-	(*WithdrawResponse)(nil),  // 17: orrery.engine.v1.WithdrawResponse
-	(*NotNowRequest)(nil),     // 18: orrery.engine.v1.NotNowRequest
-	(*NotNowResponse)(nil),    // 19: orrery.engine.v1.NotNowResponse
-	(*BringBackRequest)(nil),  // 20: orrery.engine.v1.BringBackRequest
-	(*BringBackResponse)(nil), // 21: orrery.engine.v1.BringBackResponse
+	(*StartRequest)(nil),            // 0: orrery.engine.v1.StartRequest
+	(*StartResponse)(nil),           // 1: orrery.engine.v1.StartResponse
+	(*SayRequest)(nil),              // 2: orrery.engine.v1.SayRequest
+	(*SayResponse)(nil),             // 3: orrery.engine.v1.SayResponse
+	(*AnswerRequest)(nil),           // 4: orrery.engine.v1.AnswerRequest
+	(*AnswerResponse)(nil),          // 5: orrery.engine.v1.AnswerResponse
+	(*InterruptRequest)(nil),        // 6: orrery.engine.v1.InterruptRequest
+	(*InterruptResponse)(nil),       // 7: orrery.engine.v1.InterruptResponse
+	(*DeclineRequest)(nil),          // 8: orrery.engine.v1.DeclineRequest
+	(*DeclineResponse)(nil),         // 9: orrery.engine.v1.DeclineResponse
+	(*StopRequest)(nil),             // 10: orrery.engine.v1.StopRequest
+	(*StopResponse)(nil),            // 11: orrery.engine.v1.StopResponse
+	(*SeenRequest)(nil),             // 12: orrery.engine.v1.SeenRequest
+	(*SeenResponse)(nil),            // 13: orrery.engine.v1.SeenResponse
+	(*ResumeRequest)(nil),           // 14: orrery.engine.v1.ResumeRequest
+	(*ResumeResponse)(nil),          // 15: orrery.engine.v1.ResumeResponse
+	(*WithdrawRequest)(nil),         // 16: orrery.engine.v1.WithdrawRequest
+	(*WithdrawResponse)(nil),        // 17: orrery.engine.v1.WithdrawResponse
+	(*NotNowRequest)(nil),           // 18: orrery.engine.v1.NotNowRequest
+	(*NotNowResponse)(nil),          // 19: orrery.engine.v1.NotNowResponse
+	(*BringBackRequest)(nil),        // 20: orrery.engine.v1.BringBackRequest
+	(*BringBackResponse)(nil),       // 21: orrery.engine.v1.BringBackResponse
+	(*PaneSendsRecordRequest)(nil),  // 22: orrery.engine.v1.PaneSendsRecordRequest
+	(*PaneSendsRecordResponse)(nil), // 23: orrery.engine.v1.PaneSendsRecordResponse
 }
 var file_orrery_engine_v1_engine_proto_depIdxs = []int32{
 	0,  // 0: orrery.engine.v1.Engine.Start:input_type -> orrery.engine.v1.StartRequest
@@ -1276,19 +1406,21 @@ var file_orrery_engine_v1_engine_proto_depIdxs = []int32{
 	16, // 8: orrery.engine.v1.Engine.Withdraw:input_type -> orrery.engine.v1.WithdrawRequest
 	18, // 9: orrery.engine.v1.Engine.NotNow:input_type -> orrery.engine.v1.NotNowRequest
 	20, // 10: orrery.engine.v1.Engine.BringBack:input_type -> orrery.engine.v1.BringBackRequest
-	1,  // 11: orrery.engine.v1.Engine.Start:output_type -> orrery.engine.v1.StartResponse
-	3,  // 12: orrery.engine.v1.Engine.Say:output_type -> orrery.engine.v1.SayResponse
-	5,  // 13: orrery.engine.v1.Engine.Answer:output_type -> orrery.engine.v1.AnswerResponse
-	7,  // 14: orrery.engine.v1.Engine.Interrupt:output_type -> orrery.engine.v1.InterruptResponse
-	9,  // 15: orrery.engine.v1.Engine.Decline:output_type -> orrery.engine.v1.DeclineResponse
-	11, // 16: orrery.engine.v1.Engine.Stop:output_type -> orrery.engine.v1.StopResponse
-	13, // 17: orrery.engine.v1.Engine.Seen:output_type -> orrery.engine.v1.SeenResponse
-	15, // 18: orrery.engine.v1.Engine.Resume:output_type -> orrery.engine.v1.ResumeResponse
-	17, // 19: orrery.engine.v1.Engine.Withdraw:output_type -> orrery.engine.v1.WithdrawResponse
-	19, // 20: orrery.engine.v1.Engine.NotNow:output_type -> orrery.engine.v1.NotNowResponse
-	21, // 21: orrery.engine.v1.Engine.BringBack:output_type -> orrery.engine.v1.BringBackResponse
-	11, // [11:22] is the sub-list for method output_type
-	0,  // [0:11] is the sub-list for method input_type
+	22, // 11: orrery.engine.v1.PaneSends.Record:input_type -> orrery.engine.v1.PaneSendsRecordRequest
+	1,  // 12: orrery.engine.v1.Engine.Start:output_type -> orrery.engine.v1.StartResponse
+	3,  // 13: orrery.engine.v1.Engine.Say:output_type -> orrery.engine.v1.SayResponse
+	5,  // 14: orrery.engine.v1.Engine.Answer:output_type -> orrery.engine.v1.AnswerResponse
+	7,  // 15: orrery.engine.v1.Engine.Interrupt:output_type -> orrery.engine.v1.InterruptResponse
+	9,  // 16: orrery.engine.v1.Engine.Decline:output_type -> orrery.engine.v1.DeclineResponse
+	11, // 17: orrery.engine.v1.Engine.Stop:output_type -> orrery.engine.v1.StopResponse
+	13, // 18: orrery.engine.v1.Engine.Seen:output_type -> orrery.engine.v1.SeenResponse
+	15, // 19: orrery.engine.v1.Engine.Resume:output_type -> orrery.engine.v1.ResumeResponse
+	17, // 20: orrery.engine.v1.Engine.Withdraw:output_type -> orrery.engine.v1.WithdrawResponse
+	19, // 21: orrery.engine.v1.Engine.NotNow:output_type -> orrery.engine.v1.NotNowResponse
+	21, // 22: orrery.engine.v1.Engine.BringBack:output_type -> orrery.engine.v1.BringBackResponse
+	23, // 23: orrery.engine.v1.PaneSends.Record:output_type -> orrery.engine.v1.PaneSendsRecordResponse
+	12, // [12:24] is the sub-list for method output_type
+	0,  // [0:12] is the sub-list for method input_type
 	0,  // [0:0] is the sub-list for extension type_name
 	0,  // [0:0] is the sub-list for extension extendee
 	0,  // [0:0] is the sub-list for field type_name
@@ -1305,9 +1437,9 @@ func file_orrery_engine_v1_engine_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_orrery_engine_v1_engine_proto_rawDesc), len(file_orrery_engine_v1_engine_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   22,
+			NumMessages:   24,
 			NumExtensions: 0,
-			NumServices:   1,
+			NumServices:   2,
 		},
 		GoTypes:           file_orrery_engine_v1_engine_proto_goTypes,
 		DependencyIndexes: file_orrery_engine_v1_engine_proto_depIdxs,
