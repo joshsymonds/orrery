@@ -1776,7 +1776,7 @@ func (q *Queries) GetEpicSteerer(ctx context.Context, id string) (GetEpicSteerer
 }
 
 const getEpicTask = `-- name: GetEpicTask :one
-SELECT epic, seq, turn, title, deliverable, status, gate, evidence, stage, base, attempt, rerun, no_verdict, held, step, red_run, green_run, revision, failure, review, refs, gate_pos, finding_pos, batch, guard, needs_files, decisions, after_tasks, question, gate_changes, rebriefs, notes, generation FROM epic_tasks WHERE epic = ? AND seq = ?
+SELECT epic, seq, turn, title, deliverable, status, gate, evidence, stage, base, attempt, rerun, no_verdict, held, step, red_run, green_run, revision, failure, review, refs, gate_pos, finding_pos, batch, guard, needs_files, decisions, after_tasks, question, gate_changes, rebriefs, notes, generation, depends_on FROM epic_tasks WHERE epic = ? AND seq = ?
 `
 
 type GetEpicTaskParams struct {
@@ -1821,6 +1821,7 @@ func (q *Queries) GetEpicTask(ctx context.Context, arg GetEpicTaskParams) (EpicT
 		&i.Rebriefs,
 		&i.Notes,
 		&i.Generation,
+		&i.DependsOn,
 	)
 	return i, err
 }
@@ -3513,7 +3514,8 @@ func (q *Queries) InsertEpicReviewer(ctx context.Context, arg InsertEpicReviewer
 }
 
 const insertEpicTask = `-- name: InsertEpicTask :exec
-INSERT INTO epic_tasks (epic, seq, turn, title, deliverable, gate, evidence, status) VALUES (?, ?, ?, ?, ?, ?, ?, 'open')
+INSERT INTO epic_tasks (epic, seq, turn, title, deliverable, gate, evidence, status, depends_on)
+VALUES (?, ?, ?, ?, ?, ?, ?, 'open', ?)
 `
 
 type InsertEpicTaskParams struct {
@@ -3524,6 +3526,7 @@ type InsertEpicTaskParams struct {
 	Deliverable string
 	Gate        string
 	Evidence    string
+	DependsOn   string
 }
 
 func (q *Queries) InsertEpicTask(ctx context.Context, arg InsertEpicTaskParams) error {
@@ -3535,6 +3538,7 @@ func (q *Queries) InsertEpicTask(ctx context.Context, arg InsertEpicTaskParams) 
 		arg.Deliverable,
 		arg.Gate,
 		arg.Evidence,
+		arg.DependsOn,
 	)
 	return err
 }
@@ -7168,7 +7172,7 @@ func (q *Queries) ListEpicTaskVersions(ctx context.Context, epic string) ([]Epic
 }
 
 const listEpicTasks = `-- name: ListEpicTasks :many
-SELECT epic, seq, turn, title, deliverable, status, gate, evidence, stage, base, attempt, rerun, no_verdict, held, step, red_run, green_run, revision, failure, review, refs, gate_pos, finding_pos, batch, guard, needs_files, decisions, after_tasks, question, gate_changes, rebriefs, notes, generation FROM epic_tasks WHERE epic = ? ORDER BY seq
+SELECT epic, seq, turn, title, deliverable, status, gate, evidence, stage, base, attempt, rerun, no_verdict, held, step, red_run, green_run, revision, failure, review, refs, gate_pos, finding_pos, batch, guard, needs_files, decisions, after_tasks, question, gate_changes, rebriefs, notes, generation, depends_on FROM epic_tasks WHERE epic = ? ORDER BY seq
 `
 
 func (q *Queries) ListEpicTasks(ctx context.Context, epic string) ([]EpicTask, error) {
@@ -7214,6 +7218,7 @@ func (q *Queries) ListEpicTasks(ctx context.Context, epic string) ([]EpicTask, e
 			&i.Rebriefs,
 			&i.Notes,
 			&i.Generation,
+			&i.DependsOn,
 		); err != nil {
 			return nil, err
 		}

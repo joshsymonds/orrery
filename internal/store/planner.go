@@ -2,10 +2,14 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
 	"slices"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/joshsymonds/orrery/internal/evidence"
@@ -18,6 +22,11 @@ var ErrNotClaimable = errors.New("epic has no turn to claim")
 
 // ErrTurnNotRunning reports that a turn is not running.
 var ErrTurnNotRunning = errors.New("turn is not running")
+
+// ErrBadDependency reports a task of a planner return whose dependency CompleteTurn refuses: an entry that names no
+// task of the epic or of the return, a title two tasks of the return share, or the task itself. The error names the
+// task's position and the entry, and the turn writes nothing.
+var ErrBadDependency = errors.New("bad task dependency")
 
 // EpicPlanState is the planning state of one epic with pending triggers. Parked is the park reason of an owner park,
 // empty when the epic is not parked or its park is a planner park, which the planner answers. PlannerPark is the park
@@ -93,6 +102,8 @@ type EpicTask struct {
 	// Generation is the task's reopen generation: 0 until its first send_back, and one more for each send_back after.
 	// Reviews and Rungs are the current generation's alone; the rows of earlier generations stay stored under theirs.
 	Generation int64
+	// DependsOn are the seqs of the tasks the task depends on, in the order its planner named them, nil for none.
+	DependsOn []int64
 }
 
 // EpicQuestion is one question a planner turn asked, with its state. Turn is the seq of the turn that asked it. Label,
@@ -142,7 +153,8 @@ type EpicPlan struct {
 }
 
 // EpicTaskInput is one task of a planner return: its title, its deliverable, the files it touches, the Requirements
-// it covers, the Requirements it contributes to, the test files it changes, its gate and its evidence item.
+// it covers, the Requirements it contributes to, the test files it changes, its gate, its evidence item and the tasks
+// it depends on.
 type EpicTaskInput struct {
 	Title        string
 	Deliverable  string
@@ -152,6 +164,11 @@ type EpicTaskInput struct {
 	TestChanges  []string
 	Gate         string
 	Evidence     evidence.Item
+	// DependsOn names the tasks this task depends on, in order. An entry of the form T<n>, with n >= 1 and no leading
+	// zero, names the task of the epic with seq n, which must already be stored. Any other entry names the task of the
+	// return with that exact title, so a title is never T<n>. A title two tasks of the return share names neither task,
+	// and an entry naming the task itself is refused. CompleteTurn returns ErrBadDependency for a refused entry.
+	DependsOn []string
 }
 
 // PlanStates returns one entry per epic with at least one pending trigger, ordered by epic id.
@@ -348,6 +365,10 @@ func taskOf(
 	if err != nil {
 		return EpicTask{}, fmt.Errorf("task %d gate changes: %w", stored.Seq, err)
 	}
+	dependsOn, err := decodeSeqs(stored.DependsOn)
+	if err != nil {
+		return EpicTask{}, fmt.Errorf("task %d depends on: %w", stored.Seq, err)
+	}
 	notes, err := decodeList[string](stored.Notes)
 	if err != nil {
 		return EpicTask{}, fmt.Errorf("task %d notes: %w", stored.Seq, err)
@@ -358,7 +379,7 @@ func taskOf(
 		Gate: stored.Gate, Evidence: item,
 		Status: stored.Status, Build: buildOf(stored), Reviews: reviews, Batch: stored.Batch,
 		NeedsFiles: needsFiles, GateChanges: gateChanges, Notes: notes,
-		Refused: refused, Version: 1, Versions: versions, Generation: stored.Generation,
+		Refused: refused, Version: 1, Versions: versions, Generation: stored.Generation, DependsOn: dependsOn,
 	}
 	overlayVersions(&task)
 	if task.Build.RedRun != "" {
@@ -551,8 +572,10 @@ func startTurn(ctx context.Context, queries *sqlcgen.Queries, epic string, at ti
 // is consumed. When epic has a running plan run whose pinned workflow holds a build node
 // under the plan, each task also gets a running build child run under that node in the same write. A turn that is not
 // running, or does not exist, is ErrTurnNotRunning and writes nothing. A question of the plan that breaks a rule of
-// QuestionRefusals, or replaces a question epic does not hold, is ErrBadQuestion, and the call writes nothing. A gap
-// declaration whose recommendation is not release or correct also writes nothing.
+// QuestionRefusals, or replaces a question epic does not hold, is ErrBadQuestion, and the call writes nothing. A task
+// whose DependsOn names no task of the epic or of the plan, a title two of its tasks share, or the task itself is
+// ErrBadDependency, and the call writes nothing. A gap declaration whose recommendation is not release or correct also
+// writes nothing.
 func (s *Store) CompleteTurn(ctx context.Context, epic string, turn int64, plan EpicPlan, at time.Time) error {
 	if err := checkQuestions(plan.Questions); err != nil {
 		return err
@@ -637,8 +660,9 @@ func planFanOutOf(ctx context.Context, queries *sqlcgen.Queries, epic string) (t
 	return taskFanOut{}, nil
 }
 
-// insertTasks stores tasks as the next task seqs of epic after its highest, each with its files, Requirements and
-// contributions in order. When fan has a build node, each task also gets a running build child run under the plan run
+// insertTasks stores tasks as the next task seqs of epic after its highest, each with its files, Requirements,
+// contributions and dependencies in order. Each dependency is resolved before anything is written, so a refused one
+// stores nothing. When fan has a build node, each task also gets a running build child run under the plan run
 // at fan.plan, with an id from its turn and its 1-based position in the turn, started at at.
 func insertTasks(ctx context.Context, queries *sqlcgen.Queries, epic string, turn int64, tasks []EpicTaskInput,
 	fan taskFanOut, at time.Time,
@@ -646,6 +670,10 @@ func insertTasks(ctx context.Context, queries *sqlcgen.Queries, epic string, tur
 	highest, err := queries.MaxEpicTaskSeq(ctx, epic)
 	if err != nil {
 		return fmt.Errorf("read task count of epic %s: %w", epic, err)
+	}
+	dependsOn, err := resolveDependencies(ctx, queries, epic, highest, tasks)
+	if err != nil {
+		return err
 	}
 	return insertInOrder(tasks, func(taskPosition int64, task EpicTaskInput) error {
 		seq := highest + taskPosition
@@ -655,7 +683,7 @@ func insertTasks(ctx context.Context, queries *sqlcgen.Queries, epic string, tur
 		}
 		if err = queries.InsertEpicTask(ctx, sqlcgen.InsertEpicTaskParams{
 			Epic: epic, Seq: seq, Turn: turn, Title: task.Title, Deliverable: task.Deliverable,
-			Gate: task.Gate, Evidence: item,
+			Gate: task.Gate, Evidence: item, DependsOn: encodeSeqs(dependsOn[taskPosition-1]),
 		}); err != nil {
 			return fmt.Errorf("insert task %d of epic %s: %w", seq, epic, err)
 		}
@@ -700,6 +728,104 @@ func insertTasks(ctx context.Context, queries *sqlcgen.Queries, epic string, tur
 		}
 		return nil
 	})
+}
+
+// taskRef matches a dependency entry that names a task by seq: T<n> with n >= 1 and no leading zero.
+var taskRef = regexp.MustCompile(`^T[1-9][0-9]*$`)
+
+// resolveDependencies returns, for each task of tasks, the seqs of the tasks it depends on, in the order it names them.
+// The tasks of the return take the seqs after highest in position order, as insertTasks gives them. The first entry
+// resolveDependency refuses is returned as an ErrBadDependency error that names the task's position and the entry.
+func resolveDependencies(
+	ctx context.Context,
+	queries *sqlcgen.Queries,
+	epic string,
+	highest int64,
+	tasks []EpicTaskInput,
+) ([][]int64, error) {
+	resolved := make([][]int64, len(tasks))
+	for i, task := range tasks {
+		for _, entry := range task.DependsOn {
+			seq, err := resolveDependency(ctx, queries, epic, highest, tasks, i, entry)
+			if err != nil {
+				return nil, fmt.Errorf("task at position %d depends on %q: %w", i+1, entry, err)
+			}
+			resolved[i] = append(resolved[i], seq)
+		}
+	}
+	return resolved, nil
+}
+
+// resolveDependency returns the seq of the task entry names, from task i of tasks. An entry of the form T<n> names the
+// task of epic with seq n, which must be stored already. Any other entry names the one task of tasks with that exact
+// title. An entry that names no such task, a title two tasks of tasks share, or the task itself is ErrBadDependency.
+func resolveDependency(
+	ctx context.Context,
+	queries *sqlcgen.Queries,
+	epic string,
+	highest int64,
+	tasks []EpicTaskInput,
+	i int,
+	entry string,
+) (int64, error) {
+	if taskRef.MatchString(entry) {
+		seq, err := strconv.ParseInt(entry[1:], 10, 64)
+		if err != nil {
+			return 0, fmt.Errorf("%w: names no task of the epic", ErrBadDependency)
+		}
+		if seq == highest+int64(i)+1 {
+			return 0, fmt.Errorf("%w: names the task itself", ErrBadDependency)
+		}
+		_, err = queries.GetEpicTask(ctx, sqlcgen.GetEpicTaskParams{Epic: epic, Seq: seq})
+		if errors.Is(err, sql.ErrNoRows) {
+			return 0, fmt.Errorf("%w: names no task of the epic", ErrBadDependency)
+		}
+		if err != nil {
+			return 0, fmt.Errorf("read task %d of epic %s: %w", seq, epic, err)
+		}
+		return seq, nil
+	}
+	var named []int
+	for j, task := range tasks {
+		if task.Title == entry {
+			named = append(named, j)
+		}
+	}
+	switch {
+	case len(named) == 0:
+		return 0, fmt.Errorf("%w: names no task of the return", ErrBadDependency)
+	case len(named) > 1:
+		return 0, fmt.Errorf("%w: names a title two tasks of the return share", ErrBadDependency)
+	case named[0] == i:
+		return 0, fmt.Errorf("%w: names the task itself", ErrBadDependency)
+	}
+	return highest + int64(named[0]) + 1, nil
+}
+
+// encodeSeqs returns seqs as decimals joined with commas in the order given, and the empty string for none: the
+// encoding a task's depends_on holds, as after_tasks holds its build's.
+func encodeSeqs(seqs []int64) string {
+	parts := make([]string, len(seqs))
+	for i, seq := range seqs {
+		parts[i] = strconv.FormatInt(seq, 10)
+	}
+	return strings.Join(parts, ",")
+}
+
+// decodeSeqs returns the seqs encodeSeqs joined into encoded, nil for the empty string.
+func decodeSeqs(encoded string) ([]int64, error) {
+	if encoded == "" {
+		return nil, nil
+	}
+	var seqs []int64
+	for _, part := range strings.Split(encoded, ",") {
+		seq, err := strconv.ParseInt(part, 10, 64)
+		if err != nil {
+			return nil, fmt.Errorf("seq %q: %w", part, err)
+		}
+		seqs = append(seqs, seq)
+	}
+	return seqs, nil
 }
 
 // insertQuestions stores questions as the next question seqs of epic after its highest, each open, with its label,
