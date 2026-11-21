@@ -1,7 +1,7 @@
 // The stories of Reply: round 6's Reply states, Default, a finished answer, and Live, an answer still being written, which
-// ends in its caret.
+// ends in its caret. Every state draws inside the reader's element, where the reader's CSS applies.
 
-import type { Stories } from "./catalog/story";
+import { type Stories, inReader } from "./catalog/story";
 import { Reply as ReplyShape } from "./reply";
 
 const answer = [
@@ -15,7 +15,7 @@ const answer = [
 
 const streaming = "The rota export now writes **one file per week**.\n\n- the uploader retries each";
 
-export const Reply: Stories = {
+export const Reply: Stories = inReader({
   default: () => <ReplyShape text={answer} />,
   live: () => <ReplyShape text={streaming} live />,
-};
+});

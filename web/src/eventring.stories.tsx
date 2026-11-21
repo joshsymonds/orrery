@@ -3,7 +3,7 @@
 
 import { create } from "@bufbuild/protobuf";
 
-import type { Stories } from "./catalog/story";
+import { type Stories, inReader } from "./catalog/story";
 import { type EpicCalls, EpicWidget, epicCallsOf } from "./card";
 import { noEpics } from "./epics";
 import * as eventring from "./eventring";
@@ -96,17 +96,17 @@ const stepStopped: StepEvent = {
 const stepReturn = `{"verdict": "met", "answer": "${shiftsBrief}"}`;
 const returningCalls: EpicCalls = { ...calls, stepResult: async () => stepReturn };
 
-export const EpicEventBlock: Stories = {
+export const EpicEventBlock: Stories = inReader({
   question: () => <eventring.EventRing event={questionEvent} calls={calls} />,
   parked: () => <eventring.EventRing event={parkEvent} calls={calls} />,
   released: () => <eventring.EventRing event={releaseEvent} calls={calls} />,
   ended: () => <eventring.EventRing event={endEvent} calls={calls} />,
   created: () => <EpicWidget epic={rota} calls={calls} />,
-};
+});
 
-export const StepEndBlock: Stories = {
+export const StepEndBlock: Stories = inReader({
   ok: () => <eventring.StepCard event={stepEnded} facts={okFacts} calls={returningCalls} />,
   failed: () => <eventring.StepCard event={stepFailed} facts={failedFacts} calls={returningCalls} />,
   stopped: () => <eventring.StepCard event={stepStopped} facts={stoppedFacts} calls={returningCalls} />,
-};
+});
 

@@ -18,6 +18,7 @@ import { catalogStories } from "./catalog";
 import { missingStories, staleRenames, storyExemptions, storyRenames } from "./coverage";
 import { PageStory } from "./pagestory";
 import { storyModules } from "./registry.gen";
+import { kebab, type Story } from "./story";
 
 // wideWidth is the window width the stories draw at, as withStory in fixtures/transport.test.ts sets it.
 const wideWidth = 1280;
@@ -288,7 +289,36 @@ test("StoryRenders: a page story whose fixture is called for a procedure it does
   });
 });
 
-for (const { name, story } of catalogStories(storyModules)) {
+// shapeExports are the transcript shapes whose stories draw inside the reader, as the reader draws their rows.
+const shapeExports = [
+  "ToolLine",
+  "ToolRun",
+  "ThinkingLine",
+  "NoticeLine",
+  "EngineFold",
+  "Rule",
+  "TaskLine",
+  "Reply",
+  "YouBlock",
+  "EventBlock",
+  "CheckBlock",
+  "StepEndBlock",
+  "EpicEventBlock",
+];
+const shapeStates = new Set(shapeExports.map(kebab));
+
+const entries = catalogStories(storyModules);
+
+// storyNamed is the story the catalog holds under name, and it throws when the catalog holds none.
+function storyNamed(name: string): Story {
+  const entry = entries.find((candidate) => candidate.name === name);
+  if (entry === undefined) {
+    throw new Error(`the catalog holds no story ${name}`);
+  }
+  return entry.story;
+}
+
+for (const { name, story } of entries) {
   test(`StoryRenders: ${name}`, (t) => {
     mockTimers(t, ["setTimeout"]);
     return mountStory(t, story, (root, errors) => {
@@ -296,3 +326,35 @@ for (const { name, story } of catalogStories(storyModules)) {
     });
   });
 }
+
+for (const { name, story } of entries.filter((entry) => shapeStates.has(entry.name.split("/")[0] ?? ""))) {
+  test(`StoryRenders: ${name} draws its root inside a reader`, (t) => {
+    mockTimers(t, ["setTimeout"]);
+    return mountStory(t, story, (root) => {
+      // The stories of a shape are wrapped in the reader, so the reader is the root's element and holds the drawn shape.
+      const reader = root.firstElementChild;
+      assert.ok(
+        reader?.classList.contains("reader") && reader.firstElementChild !== null,
+        `${name} does not draw its root inside a reader`,
+      );
+    });
+  });
+}
+
+test("StoryRenders: tool-run/running draws four calls named Read ×3, Bash, a dot per call, the last one running", (t) => {
+  mockTimers(t, ["setTimeout"]);
+  return mountStory(t, storyNamed("tool-run/running"), (root) => {
+    assert.equal(root.querySelector(".line.run .names")?.textContent, "Read ×3, Bash");
+    const dots = [...root.querySelectorAll(".line.run .trail > span")].map((dot) => dot.className);
+    assert.deepEqual(dots, ["dot ok", "dot ok", "dot ok", "dot running"]);
+  });
+});
+
+test("StoryRenders: tool-line/open-failed draws the go test line with its FAIL output opened", (t) => {
+  mockTimers(t, ["setTimeout"]);
+  return mountStory(t, storyNamed("tool-line/open-failed"), (root) => {
+    assert.equal(root.querySelector(".line.tool .in")?.textContent, "go test ./internal/roster -run Slow -count=1");
+    const result = root.querySelector(".opened.result.err");
+    assert.ok(result?.textContent?.includes("--- FAIL: TestSlowWeek"), "the failed result is not opened under the line");
+  });
+});

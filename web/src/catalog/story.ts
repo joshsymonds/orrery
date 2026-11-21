@@ -1,7 +1,7 @@
 // The shape of a story catalog: a story draws one state of a component, and a catalog holds the stories of one module's
 // exports, each record keyed by a state. A story's name is its export's name in kebab case, a slash and its state.
 
-import type { VNode } from "preact";
+import { h, type VNode } from "preact";
 
 // Story draws one state of a component.
 export type Story = () => VNode;
@@ -18,4 +18,12 @@ export function kebab(exportName: string): string {
 // the state.
 export function storyName(exportName: string, state: string): string {
   return `${kebab(exportName)}/${state}`;
+}
+
+// inReader draws each state of stories inside a reader's element, as the reader draws its rows, so the reader's CSS
+// applies to the state.
+export function inReader(stories: Stories): Stories {
+  return Object.fromEntries(
+    Object.entries(stories).map(([state, story]) => [state, () => h("div", { class: "reader" }, story()) as VNode]),
+  );
 }

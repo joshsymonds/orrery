@@ -4,7 +4,7 @@
 import { create, type MessageInitShape } from "@bufbuild/protobuf";
 
 import * as backgroundrow from "./backgroundrow";
-import type { Stories } from "./catalog/story";
+import { type Stories, inReader } from "./catalog/story";
 import { at } from "./fixtures/clock";
 import { type BackgroundTask, BackgroundTaskSchema } from "./gen/orrery/v1/orrery_pb";
 
@@ -15,7 +15,7 @@ function taskOf(init: MessageInitShape<typeof BackgroundTaskSchema>): Background
   return create(BackgroundTaskSchema, init);
 }
 
-export const TaskLine: Stories = {
+export const TaskLine: Stories = inReader({
   finished: () => (
     <backgroundrow.BackgroundRow
       task={taskOf({
@@ -60,4 +60,4 @@ export const TaskLine: Stories = {
       onOpen={ignore}
     />
   ),
-};
+});
