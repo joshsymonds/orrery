@@ -135,14 +135,6 @@ export function rowsFrom(panes: Pane[], sessions: Session[], headless: HeadlessS
   return rows;
 }
 
-// Splits rows into the rows the default views draw, which are not archived, and the archived rows, each in input order.
-export function splitArchived(rows: Row[]): { rows: Row[]; archived: Row[] } {
-  return {
-    rows: rows.filter((row) => !row.archived),
-    archived: rows.filter((row) => row.archived),
-  };
-}
-
 // waitsOnYou reports whether a row's question waits on the owner: the row is waiting, not archived, and not put off.
 export function waitsOnYou(row: Row): boolean {
   return row.state === "waiting" && !row.archived && !row.putOff;

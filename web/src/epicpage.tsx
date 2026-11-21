@@ -21,7 +21,7 @@ import { type Blocker, controlsOf, stateOf } from "./status";
 import { steererRowOf } from "./steer";
 import { TaskTable } from "./tasktable";
 import { listedTitle, TitleParts } from "./titleparts";
-import { type InboxMark, TitleRow } from "./titlerow";
+import { TitleRow } from "./titlerow";
 import { Track } from "./track";
 
 // EpicCommands are the epic's commands: pause, resume, stop and retry, and the answer to one open question: the choice
@@ -133,7 +133,6 @@ export function EpicPage(props: {
   onBack: () => void;
   onOpenPhase?: (task: string, phase: Phase) => void;
   landing?: Landing;
-  mark?: InboxMark;
   strip?: ComponentChildren;
   rows?: Row[];
   narrow?: boolean;
@@ -155,7 +154,6 @@ export function EpicPage(props: {
     onBack,
     onOpenPhase,
     landing,
-    mark,
     strip,
     rows = [],
     narrow = false,
@@ -224,7 +222,6 @@ export function EpicPage(props: {
         stateTone={state.tone}
         blocker={blocker?.word}
         blockerTone={blocker?.tone}
-        mark={mark}
         strip={narrow ? undefined : strip}
         note={commandError}
       >

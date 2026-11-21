@@ -464,12 +464,12 @@ async function clickRow(container: HTMLElement, key: string): Promise<void> {
   });
 }
 
-// hoverMark moves the pointer onto the mark, which pops the rail's inbox out over the page.
-async function hoverMark(container: HTMLElement): Promise<void> {
-  const mark = container.querySelector(".mark-crumb");
-  assert.ok(mark, "the page draws the mark");
+// hoverRail moves the pointer onto the inbox rail, which pops the rail's inbox out over the page.
+async function hoverRail(container: HTMLElement): Promise<void> {
+  const rail = container.querySelector("nav.rail.start");
+  assert.ok(rail, "the page draws the rail");
   await act(() => {
-    mark.dispatchEvent(new Event("mouseenter", { bubbles: true }));
+    rail.dispatchEvent(new Event("pointerenter", { bubbles: true }));
   });
 }
 
@@ -505,11 +505,11 @@ test("EscapeInterrupt InboxPin: Escape on a working session with the inbox resti
     assert.equal(fake.callsTo(withdrawPath).length, 0, "no withdraw is called");
   }));
 
-test("EscapeInterrupt InboxPin: Escape after a hover on the mark popped the inbox out takes back the queued messages and interrupts, and leaves the inbox out", (t) =>
+test("EscapeInterrupt InboxPin: Escape after a hover on the rail popped the inbox out takes back the queued messages and interrupts, and leaves the inbox out", (t) =>
   withApp(t.signal, { rows: [sessionRow] }, async (container, fake) => {
     fake.replies.set(interruptPath, [{ texts: ["first", "second"] }]);
     await clickRow(container, "s1");
-    await hoverMark(container);
+    await hoverRail(container);
     assert.equal(paneState(container), "flyout", "the hover popped the inbox out");
     await emitQueued(t.signal, container, fake, [
       { promptId: "p1", text: "first" },

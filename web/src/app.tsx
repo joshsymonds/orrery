@@ -38,7 +38,6 @@ import {
   type Popout,
 } from "./keymap";
 import { listHolds, listsEpic } from "./listholds";
-import { epicNeeds } from "./needs";
 import { NoticeCentre } from "./noticecentre";
 import { useNoticeLog } from "./noticelog";
 import { NoticeStack } from "./notices";
@@ -52,7 +51,7 @@ import { ProjectPage } from "./projectpage";
 import { type ContractCalls, newestItemKey, type ReaderHandle } from "./reader";
 import { railTiles } from "./railtiles";
 import { type Address, type Entry, formatAddress, type ListPanelKind, type PageView, type View } from "./router";
-import { type Row, splitArchived, waitsOnYou } from "./rows";
+import type { Row } from "./rows";
 import { realClock, type SeenClock, type SeenWindow, watchSeen } from "./seen";
 import { type SendKind, type Sending, type SentText, sendingEntry, unsentEntries, withoutTexts } from "./sending";
 import {
@@ -71,7 +70,7 @@ import { conversationEnded, steerCallsOf, steererRowOf, steersLive } from "./ste
 import { SteerMenu, useSteer } from "./steermenu";
 import { PaneStrip, type StripHost } from "./strip";
 import { lastPathElement } from "./titleparts";
-import { type InboxMark, TitleRow } from "./titlerow";
+import { TitleRow } from "./titlerow";
 import { Toast } from "./toast";
 import { buildTree, type Convo, type Project } from "./tree";
 import { countsOf, type Narrow, narrow as narrowTree, projectWaiting, search as searchTree, waitOrder } from "./treefilter";
@@ -275,9 +274,9 @@ export function App({
   const [open, setOpen] = useState(false);
   // Whether the strips under the title rows are drawn. m hides and shows every one of them.
   const [stripsShown, setStripsShown] = useState(true);
-  // Whether an entry, a row, a step or an epic, has been opened by a click or Enter, which hides the inbox. The mark's
-  // click or B pins the inbox beside the page. A railed inbox is popped out over the page by the pointer on the rail or
-  // the mark, or by a key, and popout records which.
+  // Whether an entry, a row, a step or an epic, has been opened by a click or Enter, which hides the inbox. The inbox
+  // foot's pin or B pins the inbox beside the page. A railed inbox is popped out over the page by the pointer on the
+  // rail, or by a key, and popout records which.
   const [rowOpened, setRowOpened] = useState(false);
   const [inboxPinned, setInboxPinned] = useState(false);
   const [popout, setPopout] = useState<Popout>("none");
@@ -532,17 +531,6 @@ export function App({
       setNarrowBy("");
     }
   }, [narrowBy, counts.waiting, counts.fresh]);
-  // The needs of the live epics, in list order: a live epic's Get answer carries its Epic, and the details hold exactly
-  // the live epics. An archived epic's needs are left out.
-  const archivedIds = new Set(marked.archived.map((item) => item.id));
-  const detailEpics = [...epics.details.values()].flatMap((detail) =>
-    detail.epic === undefined || archivedIds.has(detail.epic.id) ? [] : [detail.epic],
-  );
-  // The mark's count: the loaded rows that wait on you and are not archived, and the live epics' needs. It reads the same
-  // in every view and under any filter, as the list reads every loaded row after seen writes.
-  const markNeeds =
-    splitArchived(shownRows).rows.filter((row) => waitsOnYou(row)).length +
-    epicNeeds(detailEpics, epics.details).length;
   // Under 760px the inbox is docked, whatever the row, the pin and the pop-out hold.
   const inboxState: InboxState = !wide
     ? "docked"
@@ -1737,16 +1725,16 @@ export function App({
     setPinStream(null);
   };
 
-  // togglePin pins the inbox beside the page, or unpins it: the mark's click and B both do this.
+  // togglePin pins the inbox beside the page, or unpins it: the inbox foot's pin and B both do this.
   const togglePin = () => setInboxPinned((value) => !value);
-  // inboxEnter is the pointer's entry to the mark or the rail, which pops the inbox out over the page. A hover does not
+  // inboxEnter is the pointer's entry to the rail, which pops the inbox out over the page. A hover does not
   // change a pop-out a key already made, and a narrow window takes no hover at all.
   const inboxEnter = () => {
     if (wide) {
       setPopout((current) => (current === "none" ? "hover" : current));
     }
   };
-  // inboxLeave is the pointer's leave from the mark, the rail or the list. A leave into the inbox's list or its rail keeps
+  // inboxLeave is the pointer's leave from the rail or the list. A leave into the inbox's list or its rail keeps
   // the inbox out; any other leave tucks it away.
   const inboxLeave = (to: EventTarget | null) => {
     const within =
@@ -1756,15 +1744,6 @@ export function App({
       setPopout("none");
     }
   };
-  // inboxMark is the mark every title row draws: its count, the hover that pops the inbox out, and the click that pins
-  // it. The inbox's own rules for the pointer apply to it as to the rail.
-  const inboxMark: InboxMark = {
-    needs: markNeeds,
-    enter: inboxEnter,
-    leave: inboxLeave,
-    pin: togglePin,
-  };
-
   // pageStrip is the strip a page draws under its title row: the host part stripHost names for the row the page shows,
   // and the context of a pane row's conversation, which the stream holds. A page with no row names the serving host. m
   // hides every strip, and then a page draws none.
@@ -2133,7 +2112,7 @@ export function App({
       return (
         <section class="read" aria-label="project">
           <div class="head">
-            <TitleRow crumbs={[{ label: "Project" }]} onBack={navigated(backToInbox)} mark={inboxMark} />
+            <TitleRow crumbs={[{ label: "Project" }]} onBack={navigated(backToInbox)} />
           </div>
           <p class="side-note">{noProjectText}</p>
         </section>
@@ -2144,7 +2123,6 @@ export function App({
         project={project}
         now={now}
         narrow={!wide}
-        mark={inboxMark}
         onOpen={openProjectItem}
         onNewHere={openPickerIn}
         onBack={navigated(backToInbox)}
@@ -2163,7 +2141,6 @@ export function App({
           <TitleRow
             crumbs={[{ label: entry.slug }]}
             onBack={closeEpicPage}
-            mark={inboxMark}
             strip={wide ? pageStrip(null, null) : undefined}
           />
           {failedEpicReads.has(entry.id) ? (
@@ -2200,7 +2177,6 @@ export function App({
           crumbs={[{ label: contractSlug(contract.id) }, { label: "contract" }]}
           state={statePill(contract.state)}
           onBack={closeContract}
-          mark={inboxMark}
           strip={pageStrip(null, null)}
         />
         <ContractRecord
@@ -2280,7 +2256,7 @@ export function App({
       if (listed !== undefined) {
         return (
           <div>
-            <TitleRow crumbs={crumbs} onBack={back} mark={inboxMark} strip={pageStrip(null, null)} />
+            <TitleRow crumbs={crumbs} onBack={back} strip={pageStrip(null, null)} />
             <ContractRecord
               key={listed.id}
               id={listed.id}
@@ -2297,7 +2273,7 @@ export function App({
       if (detail.contract !== undefined) {
         return (
           <div>
-            <TitleRow crumbs={crumbs} onBack={back} mark={inboxMark} strip={pageStrip(null, null)} />
+            <TitleRow crumbs={crumbs} onBack={back} strip={pageStrip(null, null)} />
             <ContractBody contract={detail.contract} requirements={detail.requirements} />
           </div>
         );
@@ -2322,7 +2298,6 @@ export function App({
           )}
           hold={(step) => stepCalls(clients, step).hold()}
           stop={(step) => stepCalls(clients, step).stop()}
-          mark={inboxMark}
           strip={pageStrip(null, null)}
         />
       );
@@ -2348,7 +2323,6 @@ export function App({
           nudge={calls.nudge}
           hold={calls.hold}
           stop={calls.stop}
-          mark={inboxMark}
           strip={pageStrip(null, null)}
         />
       );
@@ -2369,7 +2343,6 @@ export function App({
         onOpenSession={openSession}
         onOpenPhase={openPhase}
         onBack={closeEpicPage}
-        mark={inboxMark}
         strip={pageStrip(null, null)}
         rows={rows}
         listed={[...epics.listed.values()]}
@@ -2458,7 +2431,6 @@ export function App({
       conversation={cursorConversation}
       rows={visited}
       interrupts={interrupts}
-      mark={inboxMark}
       pageStrip={pageStrip}
       head={(row, conversation) => headOf(row, conversation, true)}
       narrow={!wide}
@@ -2625,7 +2597,6 @@ export function App({
           conversation={pinnedConversation}
           rows={pinnedRows}
           interrupts={interrupts}
-          mark={inboxMark}
           pageStrip={pageStrip}
           head={headOf}
           narrow={!wide}

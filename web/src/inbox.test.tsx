@@ -188,11 +188,6 @@ function rowKeys(container: HTMLElement): string[] {
     .filter((key) => !key.startsWith("epic:"));
 }
 
-// markCount is the count the mark crumb carries, or null when it carries none.
-function markCount(container: HTMLElement): string | null {
-  return container.querySelector(".mark-crumb .needs")?.textContent ?? null;
-}
-
 test("InboxFlyout: the inbox is docked before a row is opened, and on the rail once a click opens one", (t) =>
   withInbox(t.signal, {}, async (container) => {
     assert.equal(paneState(container), "docked");
@@ -207,34 +202,7 @@ test("InboxFlyout: Enter on the cursor's row hides the inbox as a click does", (
     assert.equal(paneState(container), "rail");
   }));
 
-test("InboxFlyout: the mark's count is the waiting rows not archived plus the live epics' needs, and holds under a filter", (t) => {
-  const epic = makeEpic("first");
-  const detail = create(EpicsGetResponseSchema, { epic, questions: [{ id: "Q1", text: "Which way?" }] });
-  const epics = epicsView([epic], new Map([[epic.id, detail]]));
-  const archived = row({
-    key: "s",
-    id: "s",
-    kind: "session",
-    label: "old docs",
-    state: "waiting",
-    archived: true,
-    archiveKind: "session",
-  });
-  return withInbox(t.signal, { rows: [...fixture(), archived], epics }, async (container) => {
-    assert.equal(markCount(container), "2", "one waiting row and one epic need");
-    await press("/");
-    await act(() => {
-      const input = container.querySelector<HTMLInputElement>('.inbox-search input');
-      assert.ok(input, "the filter input is drawn");
-      input.value = "docs";
-      input.dispatchEvent(new Event("input", { bubbles: true }));
-    });
-    assert.deepEqual(rowKeys(container), ["c"], "the filter hides every row but the done one");
-    assert.equal(markCount(container), "2", "under a filter");
-  });
-});
-
-test("InboxFlyout: a step entry's page draws the mark as its first crumb, carrying the count", (t) => {
+test("InboxFlyout: a step entry's page has the step as its page crumb, opening on the epic's crumb with no mark or count before it", (t) => {
   const epic = makeEpic("first", { runningSteps: [makeStep("s1")] });
   const detail = create(EpicsGetResponseSchema, { epic, questions: [{ id: "Q1", text: "Which way?" }] });
   const epics = epicsView([epic], new Map([[epic.id, detail]]));
@@ -242,36 +210,17 @@ test("InboxFlyout: a step entry's page draws the mark as its first crumb, carryi
     await press("G");
     const reader = 'section[aria-label="reader"] .title-row';
     assert.equal(container.querySelector(`${reader} .crumb.here`)?.textContent, "s1", "the cursor's step is the page");
-    assert.equal(container.querySelector(`${reader} .crumbs`)?.firstElementChild?.getAttribute("class"), "mark-crumb");
-    assert.equal(markCount(container), "1", "the step's page carries the epic's need on its mark");
+    assert.equal(container.querySelector(`${reader} .crumbs`)?.firstElementChild?.classList.contains("crumb"), true);
+    assert.equal(container.querySelector(`${reader} .mark-crumb, ${reader} .needs`), null);
   });
 });
 
-test("InboxFlyout: hovering the mark pops the rail's inbox out over the page, and the pointer leaving the inbox tucks it away", (t) =>
+test("InboxFlyout: a click on the inbox's pin or B pins the inbox beside the page, and doing either again unpins it", (t) =>
   withInbox(t.signal, {}, async (container) => {
     await clickRow(container, "b");
-    assert.equal(paneState(container), "rail");
-    const mark = container.querySelector(".mark-crumb");
-    const list = container.querySelector(".list");
-    await dispatchOn(mark, "mouseenter");
-    assert.equal(paneState(container), "flyout");
-    // The test DOM has no MouseEvent, so the leave carries its related target as a plain property.
-    const leave = new Event("mouseleave", { bubbles: true });
-    Object.defineProperty(leave, "relatedTarget", { value: list });
-    await act(() => {
-      mark?.dispatchEvent(leave);
-    });
-    assert.equal(paneState(container), "flyout", "a pointer moving from the mark into the inbox keeps it out");
-    await dispatchOn(list, "mouseleave");
-    assert.equal(paneState(container), "rail", "the pointer leaving the inbox tucks it away");
-  }));
-
-test("InboxFlyout: a click on the mark or B pins the inbox beside the page, and doing either again unpins it", (t) =>
-  withInbox(t.signal, {}, async (container) => {
-    await clickRow(container, "b");
-    await dispatchOn(container.querySelector(".mark-crumb"), "click");
+    await dispatchOn(container.querySelector('button[aria-label="Pin the inbox beside the page"]'), "click");
     assert.equal(paneState(container), "pinned");
-    await dispatchOn(container.querySelector(".mark-crumb"), "click");
+    await dispatchOn(container.querySelector('button[aria-label="Unpin the inbox"]'), "click");
     assert.equal(paneState(container), "rail");
     await leaveReplyBox(container);
     await press("b");
@@ -522,7 +471,7 @@ test("InboxPin: Shift+Tab out of a reply box with the inbox docked focuses the c
 
 test("InboxPin: Shift+Tab out of a reply box with the inbox pinned focuses the cursor row and leaves the inbox pinned", (t) =>
   withInbox(t.signal, {}, async (container) => {
-    await dispatchOn(container.querySelector(".mark-crumb"), "click");
+    await dispatchOn(container.querySelector('button[aria-label="Pin the inbox beside the page"]'), "click");
     assert.equal(paneState(container), "pinned");
     await press("i");
     assert.equal(document.activeElement?.tagName === "TEXTAREA", true, "i focuses the cursor's reply box");

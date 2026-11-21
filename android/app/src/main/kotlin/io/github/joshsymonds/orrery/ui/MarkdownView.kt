@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -21,6 +22,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextIndent
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.TextUnit
@@ -40,19 +42,23 @@ fun MarkdownBody(
     color: Color = Color.Unspecified,
     fontSize: TextUnit = TextUnit.Unspecified,
     fontWeight: FontWeight? = null,
+    firstIndent: TextUnit = TextUnit.Unspecified,
 ) {
     val size = if (fontSize.isSpecified) fontSize else OrreryTokens.Type.body.fontSize
-    Blocks(blocks, modifier, BodyStyle(color, size, fontWeight))
+    Blocks(blocks, modifier, BodyStyle(color, size, fontWeight), firstIndent)
 }
 
 private class BodyStyle(val color: Color, val size: TextUnit, val weight: FontWeight?)
 
+// firstIndent, when specified, indents the first line of the first block when that block is a paragraph, so what the
+// caller draws at its start leads the paragraph's first line.
 @Composable
-private fun Blocks(blocks: List<MdBlock>, modifier: Modifier, style: BodyStyle) {
+private fun Blocks(blocks: List<MdBlock>, modifier: Modifier, style: BodyStyle, firstIndent: TextUnit = TextUnit.Unspecified) {
     Column(modifier = modifier.fillMaxWidth()) {
         blocks.forEachIndexed { index, block ->
             val gap = if (index == 0) 0.dp else gapBetween(blocks[index - 1], block)
-            Leading(block.lead, style, Modifier.padding(top = gap)) { Block(block, style) }
+            val indent = if (index == 0) firstIndent else TextUnit.Unspecified
+            Leading(block.lead, style, Modifier.padding(top = gap)) { Block(block, style, indent) }
         }
     }
 }
@@ -79,13 +85,18 @@ private fun Leading(lead: Int, style: BodyStyle, modifier: Modifier, content: @C
 }
 
 @Composable
-private fun Block(block: MdBlock, style: BodyStyle) {
+private fun Block(block: MdBlock, style: BodyStyle, firstIndent: TextUnit) {
     when (block) {
         is MdBlock.Paragraph -> FindText(
             text = block.text,
             color = style.color,
             fontSize = style.size,
             fontWeight = style.weight,
+            style = if (firstIndent.isSpecified) {
+                LocalTextStyle.current.copy(textIndent = TextIndent(firstLine = firstIndent))
+            } else {
+                LocalTextStyle.current
+            },
         )
         is MdBlock.Heading -> FindText(
             text = block.text,

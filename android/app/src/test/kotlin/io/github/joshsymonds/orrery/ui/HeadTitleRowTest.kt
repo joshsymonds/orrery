@@ -5,14 +5,19 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertTextEquals
+import androidx.compose.ui.test.getBoundsInRoot
 import androidx.compose.ui.test.hasAnyAncestor
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.text.TextLayoutResult
+import androidx.compose.ui.text.style.TextOverflow
 import io.github.joshsymonds.orrery.api.ConversationContext
 import io.github.joshsymonds.orrery.mainThreadAndroidComposeRule
 import io.github.joshsymonds.orrery.ui.theme.OrreryTokens
@@ -40,12 +45,13 @@ class HeadTitleRowTest {
         context: ConversationContext? = null,
         note: String = "",
         host: String = "halyard",
+        title: String = "Tide table cache warm-up",
     ) {
         composeRule.setContent {
             HeadTitleRow(
                 dir = "tidepool",
                 host = host,
-                title = "Tide table cache warm-up",
+                title = title,
                 context = context,
                 note = note,
                 onBack = { backCalls++ },
@@ -73,6 +79,31 @@ class HeadTitleRowTest {
             .fetchSemanticsNodes()
             .flatMap { node -> node.config.getOrElse(SemanticsProperties.Text) { emptyList() }.map { it.text } }
         assertEquals(setOf("‹", "tidepool · on halyard", "Tide table cache warm-up", "⋯"), texts.toSet())
+    }
+
+    @Test
+    fun theTitleIsBodyBoldOnAtMostTwoLinesCutShortAsRound6sTouchTitleRowDrawsIt() {
+        setRow()
+
+        val input = textLayout("head-text").layoutInput
+        assertEquals(OrreryTokens.Type.body.fontSize, input.style.fontSize)
+        assertEquals(OrreryTokens.Font.Weight.bold, input.style.fontWeight)
+        assertEquals(2, input.maxLines)
+        assertEquals(TextOverflow.Ellipsis, input.overflow)
+    }
+
+    @Test
+    fun aTitleTooLongForTheRowWrapsInsideItAndMoreStaysInView() {
+        setRow(title = "Merging main into a story-out client branch, resolving four conflicts in the dock, the reader and the head")
+
+        val row = composeRule.onNodeWithTag("head-title").getBoundsInRoot()
+        val text = composeRule.onNodeWithTag("head-text").getBoundsInRoot()
+        val more = composeRule.onNodeWithTag("head-more").getBoundsInRoot()
+        assertTrue("More is inside the row: row $row, More $more", more.left >= row.left && more.right <= row.right)
+        assertTrue("the title ends before More: title $text, More $more", text.right <= more.left)
+        val layout = textLayout("head-text")
+        assertEquals(2, layout.lineCount)
+        assertTrue("the title is cut short at its second line", layout.isLineEllipsized(1))
     }
 
     @Test
@@ -165,6 +196,14 @@ class HeadTitleRowTest {
         setRow(note = "")
 
         composeRule.onAllNodesWithTag("head-note").assertCountEquals(0)
+    }
+
+    // The laid-out text of a tagged node, read through the semantics tree.
+    private fun textLayout(tag: String): TextLayoutResult {
+        val node = composeRule.onNodeWithTag(tag).fetchSemanticsNode()
+        val layouts = mutableListOf<TextLayoutResult>()
+        checkNotNull(node.config.getOrNull(SemanticsActions.GetTextLayoutResult)?.action).invoke(layouts)
+        return layouts.single()
     }
 
     // The colours a tagged text draws in, read from its annotated spans in the semantics tree.

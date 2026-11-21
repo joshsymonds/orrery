@@ -299,3 +299,37 @@ test("EpicClose: the gap controls wrap", () => {
   assert.equal(declaredValue(rules, ".gaps-acts", "display"), "flex");
   assert.equal(declaredValue(rules, ".gaps-acts", "flex-wrap"), "wrap");
 });
+
+test("TitleRow: as round 6 draws it, the row's first line never wraps: back, crumbs, state and commands share it", () => {
+  assert.equal(declaredValue(rules, ".title-row", "display"), "grid");
+  assert.equal(declaredValue(rules, ".title-row", "flex-wrap"), undefined, "the row does not wrap its parts onto lines of their own");
+  assert.equal(declaredValue(rules, ".title-row .line1", "display"), "flex");
+  assert.equal(declaredValue(rules, ".title-row .line1", "flex-wrap"), undefined);
+  assert.equal(declaredValue(rules, ".title-row .line1", "min-width"), "0");
+});
+
+test("TitleRow: the page crumb ellipsizes on its line at the desk, so the commands at the row's end stay in view", () => {
+  assert.equal(declaredValue(rules, ".title-row .crumbs", "display"), "flex");
+  assert.equal(declaredValue(rules, ".title-row .crumbs", "min-width"), "0");
+  assert.equal(declaredValue(rules, ".title-row .crumbs", "overflow"), "hidden");
+  assert.equal(declaredValue(rules, ".title-row .crumb", "flex"), "none");
+  const here = ".title-row .crumb.here";
+  assert.equal(declaredValue(rules, here, "flex"), "0 1 auto");
+  assert.equal(declaredValue(rules, here, "min-width"), "0");
+  assert.equal(declaredValue(rules, here, "overflow"), "hidden");
+  assert.equal(declaredValue(rules, here, "text-overflow"), "ellipsis");
+  assert.equal(declaredValue(rules, ".title-row .acts", "flex"), "none");
+  assert.equal(declaredValue(rules, ".title-row .acts", "margin-left"), "auto");
+});
+
+test("TitleRow: at phone width a conversation's title wraps to two lines and is cut there, as round 6's touch title row draws it", () => {
+  const here = ".convo-head > .title-row .crumb.here";
+  assert.equal(declaredValue(phone, here, "-webkit-line-clamp"), "2");
+  assert.equal(declaredValue(phone, here, "white-space"), "normal");
+  assert.equal(declaredValue(phone, here, "overflow"), "hidden");
+  assert.equal(declaredValue(phone, here, "min-width"), "0");
+});
+
+test("TitleRow: no rule is left for the mark and count the title row no longer draws", () => {
+  assert.equal(css.includes("mark-crumb"), false);
+});

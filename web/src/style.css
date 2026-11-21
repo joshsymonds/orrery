@@ -500,12 +500,11 @@ button.link.notices-more { justify-self: end; padding: 0 var(--o-space-12); colo
 .pill.tone-idle { color: var(--o-ink-3); background: var(--o-surface-raised); box-shadow: 0 0 0 var(--o-size-hairline) var(--o-line-firm); }
 .reader { min-width: 0; padding: var(--o-space-4) 0 var(--o-space-8); }
 .reader-loading { margin: 0; color: var(--o-ink-3); }
-/* Each row is one 88ch column, centred in the reader, with its time in the 5ch gutter on its left. The row takes the
-   reading size, so its ch is the width of the reading text's characters. The owner's turn starts 32px below the row
+/* Each row fills the reader between its gutters, with its time in the 5ch gutter on its left. The row takes the reading
+   size, so its ch is the width of the reading text's characters. The owner's turn starts 32px below the row
    before it; the first row has no row before it, so no gap above it. A row whose body is a line touches the line after it. */
 .reader .t {
   display: grid; grid-template-columns: 5ch minmax(0, 1fr); column-gap: var(--o-space-16); font: var(--o-type-body);
-  width: 88ch; max-width: 100%; margin-inline: auto;
 }
 .reader .t.owner-turn { margin-top: var(--o-layout-turn-gap); }
 .reader .t.owner-turn:first-child { margin-top: 0; }
@@ -554,6 +553,14 @@ button.link.notices-more { justify-self: end; padding: 0 var(--o-space-12); colo
 .reader [data-shape="block"] > .head .who { color: var(--o-ink-1); font-weight: var(--o-font-weight-bold); }
 .reader [data-shape="block"] > .head .end { display: inline-flex; align-items: center; gap: var(--o-space-8); flex: 0 1 auto; flex-wrap: wrap; margin-left: auto; }
 .reader [data-shape="block"] > .head .at { flex: none; color: var(--o-ink-3); white-space: nowrap; }
+/* A prompt's head leads the first line of its words: its YOU sits beside the time (the gutter's at the desk, the head's own
+   at phone width) and the words run on after it, so the prompt takes no line for its head. The block flows its children
+   and keeps the Block's gap between them as margin. A prompt that opens on anything but a paragraph keeps its head on a
+   line of its own. */
+.reader [data-shape="block"].you { display: flow-root; }
+.reader [data-shape="block"].you > .head { margin-bottom: var(--o-space-4); }
+.reader [data-shape="block"].you > .head:has(+ p) { float: left; min-height: var(--o-space-24); margin: 0 var(--o-space-8) 0 0; }
+.reader [data-shape="block"].you > :not(.head):not(:last-child) { margin-bottom: calc(var(--o-space-8) + var(--o-space-4)); }
 
 /* Markdown draws in a reply and in a Block's body alike, so each rule names both. Code takes the mono family too. A code
    block and a table scroll sideways inside themselves, so a wide one never widens the column. */
@@ -916,20 +923,26 @@ section.page.leave { animation: move-leave var(--o-move-leave); }
 .epic-page ul, .epic-page ol, .phase-output ul, .phase-output ol { margin: 0; padding: 0; list-style: none; }
 .epic-page h3 { margin: 0; font: var(--o-type-label); letter-spacing: var(--o-type-label-tracking); text-transform: uppercase; color: var(--o-ink-3); }
 .epic-page .sure { font: var(--o-type-small); color: var(--o-ink-2); }
-/* The title row: back, the crumbs, the state and blocker, and the commands pushed to its right. */
-.title-row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--o-space-8); min-width: 0; padding-bottom: var(--o-space-8); border-bottom: var(--o-size-hairline) solid var(--o-line-soft); white-space: nowrap; }
-.title-row .crumbs { min-width: 0; overflow: hidden; text-overflow: ellipsis; font: var(--o-type-small); color: var(--o-ink-3); }
-.title-row .sep { color: var(--o-ink-4); }
+/* The title row, as round 6 draws it: a first line holding back, the crumbs, the state and blocker, and the commands pushed
+   to its end, then the strip on a line of its own. The first line never wraps: the page's crumb ellipsizes to keep the
+   commands in view, and the crumbs before it hold their width. */
+.title-row { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--o-space-4); min-width: 0; padding-bottom: var(--o-space-8); border-bottom: var(--o-size-hairline) solid var(--o-line-soft); white-space: nowrap; }
+.title-row .line1 { display: flex; align-items: center; gap: var(--o-space-8); min-width: 0; min-height: var(--o-size-control-desk); }
+.title-row .crumbs { display: flex; align-items: baseline; gap: var(--o-space-8); flex: 0 1 auto; min-width: 0; overflow: hidden; font: var(--o-type-small); color: var(--o-ink-3); }
+.title-row .crumb { flex: none; }
+.title-row .sep { flex: none; color: var(--o-ink-4); }
 .title-row .crumb.place { color: var(--o-role-place); }
-.title-row .crumb.here { font: var(--o-type-title); color: var(--o-ink-1); }
+.title-row .crumb.here { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; font: var(--o-type-title); color: var(--o-ink-1); }
 .title-row .state { flex: none; font: var(--o-type-small); font-weight: var(--o-font-weight-bold); color: var(--o-ink-2); transition: color var(--o-move-state); }
 .title-row .blocker { min-width: 0; overflow: hidden; text-overflow: ellipsis; font: var(--o-type-small); color: var(--o-role-attention); transition: color var(--o-move-state); }
 .epic-page .title-row .state, .epic-page .title-row .blocker {
-  flex: none; display: inline-flex; align-items: center; min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; padding: var(--o-space-2) var(--o-space-8);
+  flex: 0 1 auto; display: inline-flex; align-items: center; min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; padding: var(--o-space-2) var(--o-space-8);
   border-radius: var(--o-radius-round); font: var(--o-type-small); color: var(--o-ink-2); background: var(--o-surface-raised); box-shadow: inset 0 0 0 var(--o-size-hairline) var(--o-line-firm);
   transition: color var(--o-move-state), background-color var(--o-move-state), box-shadow var(--o-move-state);
 }
 .epic-page .title-row .state { font-weight: var(--o-font-weight-bold); }
+/* Short of room, the blocker gives way before the state, as round 6's second pill does. */
+.epic-page .title-row .blocker { flex: 0 100 auto; }
 /* On the epic page the state and the blocker are pills. A pill's tone sets its word, its tint and its outline. Quiet is grey on the raised ground. */
 .epic-page .title-row .t-live { color: var(--o-role-live); background: var(--o-role-live-fill); box-shadow: inset 0 0 0 var(--o-size-hairline) var(--o-role-live-line); }
 .epic-page .title-row .t-attention { color: var(--o-role-attention); background: var(--o-role-attention-fill); box-shadow: inset 0 0 0 var(--o-size-hairline) var(--o-role-attention-line); }
@@ -949,14 +962,9 @@ section.page.leave { animation: move-leave var(--o-move-leave); }
 .title-row .head-menu kbd { margin-left: auto; }
 /* A command's error under the title row: an alert in the bad role's tint. */
 .page-note { margin: 0; padding: var(--o-space-4) var(--o-space-24); border-bottom: var(--o-size-hairline) solid var(--o-line-soft); background: var(--o-role-bad-fill); color: var(--o-role-bad); font: var(--o-type-small); overflow-wrap: anywhere; }
-/* The mark is the title row's first crumb: the orrery drawing, with the count of what needs you beside it when any does. */
-.title-row .mark-crumb { flex: none; display: inline-flex; align-items: center; gap: var(--o-space-4); min-height: var(--o-space-24); padding: 0; border: 0; background: none; cursor: pointer; appearance: none; -webkit-appearance: none; }
-.title-row .mark-crumb .mark { flex: none; width: calc(var(--o-space-16) + var(--o-space-2)); height: calc(var(--o-space-16) + var(--o-space-2)); }
-.title-row .mark-crumb .needs { font: var(--o-type-small); font-weight: var(--o-font-weight-bold); color: var(--o-ink-1); }
 /* The strip is the title row's own line under its controls: the host's name, each meter, then the context. A meter is its
    name, a bar at its percent and its value, in its series colour; at warn and crit all three take the level's colour. */
 .pane-strip { display: flex; flex-wrap: wrap; align-items: center; gap: var(--o-space-4) var(--o-space-16); min-width: 0; font: var(--o-type-small); color: var(--o-ink-3); }
-.title-row .pane-strip { flex: 0 0 100%; }
 .pane-strip-host { flex: none; font-weight: var(--o-font-weight-bold); color: var(--o-ink-2); }
 .pane-strip .other { color: var(--o-ink-4); }
 .meter { --hue: var(--o-series-1); display: inline-flex; align-items: center; gap: var(--o-space-8); flex: none; font: var(--o-type-small); white-space: nowrap; }
@@ -1014,8 +1022,8 @@ button.subj:hover { background: var(--o-surface-raised); }
   .notices { right: var(--o-space-8); width: calc(100% - var(--o-space-16)); }
   /* The head sticks to the top of its column while the page scrolls under it, so the folded line stays in view. */
   .convo-head { position: sticky; top: 0; z-index: var(--o-z-sticky); background: var(--o-surface-page); }
-  .convo-head > .title-row .crumbs { display: grid; flex: 1 1 0; grid-template-columns: minmax(0, 1fr); }
-  .convo-head > .title-row .mark-crumb, .convo-head > .title-row .sep { display: none; }
+  .convo-head > .title-row .crumbs { display: grid; flex: 1 1 0; grid-template-columns: minmax(0, 1fr); gap: 0; }
+  .convo-head > .title-row .sep { display: none; }
   .convo-head > .title-row .crumb.place { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .convo-head > .title-row .crumb.here { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; min-width: 0; overflow: hidden; white-space: normal; font: var(--o-type-body); font-weight: var(--o-font-weight-bold); }
   .convo-head .pane-strip { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--o-space-8) var(--o-space-12); }
@@ -1032,9 +1040,8 @@ button.subj:hover { background: var(--o-surface-raised); }
   .convo-head .pane-strip-host, .convo-head .pane-strip .ctx { display: none; }
   .convo-head .pane-strip .other { grid-column: 1 / -1; }
   /* The worker session's title row reads as the conversation head's: the crumbs that lead to it share one line, each
-     ellipsized, and the page's crumb takes the line under them, whole. The mark and the separator after it go. */
-  .worker-session > .title-row .crumbs { display: flex; flex: 1 1 0; flex-wrap: wrap; align-items: baseline; column-gap: var(--o-space-4); }
-  .worker-session > .title-row .mark-crumb, .worker-session > .title-row .mark-crumb + .sep { display: none; }
+     ellipsized, and the page's crumb takes the line under them, whole. */
+  .worker-session > .title-row .crumbs { display: flex; flex: 1 1 0; flex-wrap: wrap; align-items: baseline; gap: 0 var(--o-space-4); }
   .worker-session > .title-row .crumb { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .worker-session > .title-row .crumb.here { flex: 0 0 100%; white-space: normal; overflow-wrap: normal; font: var(--o-type-body); font-weight: var(--o-font-weight-bold); }
 }

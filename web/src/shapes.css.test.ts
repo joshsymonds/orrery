@@ -320,3 +320,15 @@ test("Shapes: at the desk the find bar is a field in its own row, across the col
 test("Shapes: an opened Line's prose sinks its inline code in the well, as a reply does", () => {
   assert.equal(declaredValue(rules, ".reader .opened code", "background"), "var(--o-surface-well)");
 });
+
+test("Shapes: the reader's rows fill the reader between its gutters, with no measure capping their width", () => {
+  assert.equal(declaredValue(rules, ".reader .t", "max-width"), undefined);
+  assert.equal(declaredValue(rules, ".reader .t", "width"), undefined);
+  assert.equal(declaredValue(desk, ".read > .reader", "padding"), "var(--o-space-16) var(--o-space-24) var(--o-space-8)", "the gutters stay");
+});
+
+test("Shapes: a prompt's YOU leads the first line of its words, beside the time, so the prompt takes no line of its own for it", () => {
+  assert.equal(declaredValue(rules, `${block}.you`, "display"), "flow-root");
+  assert.equal(declaredValue(rules, `${block}.you > .head:has(+ p)`, "float"), "left");
+  assert.equal(declaredValue(phone, `${block} > .head .at`, "display"), "inline", "at phone width the time is in the head beside YOU");
+});

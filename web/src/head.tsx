@@ -9,7 +9,7 @@ import type { Row } from "./rows";
 import { ContextMeter, contextFigure, PaneStrip, type StripHost } from "./strip";
 import { type ContractBandLine, foldHead, SubjectBand } from "./subjectband";
 import { lastPathElement } from "./titleparts";
-import { type InboxMark, TitleRow } from "./titlerow";
+import { TitleRow } from "./titlerow";
 import type { RailGroup, Thing } from "./work";
 import { WorkRail } from "./workrail";
 
@@ -21,7 +21,6 @@ export interface HeadProps {
   title: string;
   host: StripHost | null;
   showStrip: boolean;
-  mark: InboxMark;
   onBack: () => void;
   note: string;
   lines: readonly AskLine[];
@@ -78,7 +77,6 @@ export function Head({
   title,
   host,
   showStrip,
-  mark,
   onBack,
   note,
   lines,
@@ -125,7 +123,6 @@ export function Head({
       <TitleRow
         crumbs={[...(dirName === "" ? [] : [{ label: dirName, place: true, host: host?.host }]), { label: title }]}
         onBack={onBack}
-        mark={mark}
         note={note}
         strip={strip}
       >

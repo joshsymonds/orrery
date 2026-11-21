@@ -41,8 +41,6 @@ async function click(element: Element): Promise<void> {
 
 const noop = () => {};
 
-const noMark = { needs: 0, enter: noop, leave: noop, pin: noop };
-
 function makeRow(init: Partial<Row>): Row {
   return {
     putOff: false,
@@ -95,7 +93,6 @@ function headProps(init: Partial<HeadProps> = {}): HeadProps {
     title: "Tide table cache warm-up",
     host: null,
     showStrip: false,
-    mark: noMark,
     onBack: noop,
     note: "",
     lines: [],

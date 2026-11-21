@@ -5,7 +5,7 @@ import { standInWords } from "./convorow";
 import { Icon, StateGlyph } from "./glyphs";
 import { ageText, clockText, parseTool, quietRow, shortName, stateWaiting, waitingText } from "./inboxrow";
 import type { Row } from "./rows";
-import { type InboxMark, TitleRow } from "./titlerow";
+import { TitleRow } from "./titlerow";
 import { type Convo, changedOf, type Project } from "./tree";
 import { projectWaiting } from "./treefilter";
 import { WorkCard, workCardOf } from "./workcard";
@@ -18,7 +18,6 @@ export function ProjectPage({
   project,
   now,
   narrow,
-  mark,
   onOpen,
   onNewHere,
   onBack,
@@ -26,7 +25,6 @@ export function ProjectPage({
   project: Project;
   now: number;
   narrow: boolean;
-  mark?: InboxMark;
   onOpen: (key: string) => void;
   onNewHere: (dir: string) => void;
   onBack: () => void;
@@ -39,7 +37,7 @@ export function ProjectPage({
   return (
     <section class="read project" aria-label="project">
       <div class="head">
-        <TitleRow crumbs={[{ label: project.name }]} onBack={onBack} mark={mark}>
+        <TitleRow crumbs={[{ label: project.name }]} onBack={onBack}>
           {!narrow && newHere && <NewHereButton grow={false} onClick={() => onNewHere(project.dir)} />}
         </TitleRow>
       </div>

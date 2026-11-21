@@ -27,8 +27,9 @@ import io.github.joshsymonds.orrery.api.HostStat
 import io.github.joshsymonds.orrery.ui.theme.OrreryTokens
 
 /**
- * A conversation's title row: back, then the directory and host in the place colour over the title in the largest
- * type, the bare context meter when there is a figure, and More. More opens a menu holding Find and Hide the header. A
+ * A conversation's title row, as round 6's touch title row draws it: back, then the directory and host in the place
+ * colour over the title in bold body type, cut short at its second line, the bare context meter when there is a figure,
+ * and More. More opens a menu holding Find and Hide the header. A
  * non-empty [note] draws under the row, in the crit colour.
  */
 @Composable
@@ -79,7 +80,7 @@ fun HeadTitleRow(
                     text = title,
                     modifier = Modifier.testTag("head-text"),
                     color = OrreryTokens.Ink.one,
-                    style = OrreryTokens.Type.title,
+                    style = OrreryTokens.Type.body.copy(fontWeight = OrreryTokens.Font.Weight.bold),
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )

@@ -326,7 +326,7 @@ function titleCommandsOf(container: HTMLElement): string[] {
 test("TaskBand: the crumbs read the epic, then the task, and both the epic crumb and ‹ leave the page", async () => {
   const calls: string[] = [];
   await withPage(pageProps(detailOf(false), "T1", calls), async (container) => {
-    assert.equal(elementOf(container, ".crumbs").textContent?.trim(), "› orrery-style › Parser");
+    assert.equal(elementOf(container, ".crumbs").textContent?.trim(), "orrery-style / Parser");
     assert.equal(elementOf(container, ".crumbs .here").textContent, "Parser");
     await click(elementOf(container, ".back"));
     const [epic] = [...container.querySelectorAll<HTMLButtonElement>(".crumbs button.crumb")];
