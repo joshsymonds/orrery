@@ -25,6 +25,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
@@ -71,7 +72,7 @@ data class StepFact(val text: String, val kind: FactKind)
 private enum class BlockTone { You, Engine, Ok, Bad, Attention, Quiet }
 
 /** The icon a Block's label line leads with. */
-private enum class BlockIcon { Person, Gear, Clock, Check, Cross, Stop, Question, Pause, Open, Gauge }
+private enum class BlockIcon { Person, Phone, Gear, Clock, Check, Cross, Stop, Question, Pause, Open, Gauge }
 
 /** The kinds of epic event an EpicEventBlock draws: a question, a park, a release, an end, and the epic a create made. */
 enum class EpicEventKind { Question, Park, Release, End, Created }
@@ -123,14 +124,18 @@ private fun durationOf(seconds: Long): String = when {
     else -> "${seconds / 3600}h ${(seconds % 3600) / 60}m"
 }
 
-/** A user's message; while it is being sent it is drawn as SENDING, dashed, with no time. */
+/**
+ * A user's message; while it is being sent it is drawn as SENDING, dashed, with no time. A message sent from the phone
+ * app, when [phone] is set, is drawn with the phone's icon and the words from your phone.
+ */
 @Composable
-fun YouBlock(text: String, time: String? = null, sending: Boolean = false, marks: EntryMarks? = null) {
+fun YouBlock(text: String, time: String? = null, sending: Boolean = false, marks: EntryMarks? = null, phone: Boolean = false) {
     Block(
         kind = "you",
         tone = BlockTone.You,
-        icon = BlockIcon.Person,
+        icon = if (phone) BlockIcon.Phone else BlockIcon.Person,
         label = if (sending) "SENDING" else "YOU",
+        words = if (phone) "· from your phone" else null,
         pending = sending,
         time = if (sending) null else time,
         body = { Prose(text, OrreryTokens.Ink.one, marks) },
@@ -443,6 +448,16 @@ private fun DrawScope.drawBlockIcon(icon: BlockIcon, ink: Color) {
                 size = Size(7f * unit, 7f * unit),
                 style = stroke,
             )
+        }
+        BlockIcon.Phone -> {
+            drawRoundRect(
+                color = ink,
+                topLeft = point(5f, 2f),
+                size = Size(6f * unit, 12f * unit),
+                cornerRadius = CornerRadius(1.5f * unit),
+                style = stroke,
+            )
+            line(7.5f, 11.5f, 8.5f, 11.5f)
         }
         BlockIcon.Gear -> {
             drawCircle(ink, 3.25f * unit, point(8f, 8f), style = stroke)

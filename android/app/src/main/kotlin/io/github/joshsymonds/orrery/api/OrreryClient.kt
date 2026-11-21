@@ -242,6 +242,12 @@ data class ConversationItem(
     val epic: String = "",
     /** The facts of a step's end; null when the item carries none, on other kinds, or from an older server. */
     val stepFacts: StepFacts? = null,
+    /** The lines a `result` item's successful file edit added; 0 otherwise, or from an older server. */
+    val added: Long = 0L,
+    /** The lines a `result` item's successful file edit removed; 0 otherwise, or from an older server. */
+    val removed: Long = 0L,
+    /** The X-Orrery-Client of a `prompt` item's prompt, such as orrery-android; "" on other kinds, when none was recorded, or from an older server. */
+    val client: String = "",
 )
 
 /**
@@ -1998,6 +2004,9 @@ class OrreryClient(
             round = round,
             epic = epic,
             stepFacts = if (hasStepFacts()) stepFacts.toStepFacts() else null,
+            added = added,
+            removed = removed,
+            client = client,
         )
 
     private fun StepFactsProto.toStepFacts(): StepFacts =

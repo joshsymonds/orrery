@@ -58,6 +58,26 @@ class ShapesBlocksTest {
     }
 
     @Test
+    fun phonePromptDrawsThePhoneIconAndFromYourPhone() {
+        setBlock { YouBlock(text = "Ship the rota export.", time = "14:02", phone = true) }
+
+        composeRule.onNodeWithTag("block:you").assertIsDisplayed()
+        composeRule.onNodeWithText("YOU").assertIsDisplayed()
+        composeRule.onNodeWithTag("icon:phone").assertIsDisplayed()
+        composeRule.onNodeWithText("· from your phone").assertIsDisplayed()
+        composeRule.onAllNodesWithTag("icon:person").assertCountEquals(0)
+    }
+
+    @Test
+    fun deskPromptDrawsThePersonIconAndNoPhoneWords() {
+        setBlock { YouBlock(text = "Ship the rota export.", time = "14:02") }
+
+        composeRule.onNodeWithTag("icon:person").assertIsDisplayed()
+        composeRule.onAllNodesWithTag("icon:phone").assertCountEquals(0)
+        composeRule.onAllNodesWithText("from your phone", substring = true).assertCountEquals(0)
+    }
+
+    @Test
     fun sendingYouBlockDrawsSendingWithNoTime() {
         setBlock { YouBlock(text = "Keep the pin.", time = "14:40", sending = true) }
 
