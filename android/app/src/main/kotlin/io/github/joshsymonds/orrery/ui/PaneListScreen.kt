@@ -119,7 +119,8 @@ internal class TreeData(
  * its pane, a tap on an epic or one of its steps calls [onOpenEpic], a tap on a contract's row calls [onOpenContract]
  * with its id and the conversation it hangs under, whose pane is null for a stand-in row, and a tap on a project's
  * name calls [onOpenProject] with its key. A long press on a conversation or an epic opens its sheet, where the owner
- * marks it seen or archives it, and a landed change reads the tree again. New opens the picker as a bottom sheet; a
+ * marks it seen or archives it, and a landed change reads the tree again; a landed archive also shows the [ArchiveToast]
+ * at the foot, whose Undo reads the tree again. New opens the picker as a bottom sheet; a
  * run it answers opens that pane through [onOpenPaneId], and a start it answers opens that session through
  * [onStartedSession]. The Pools button opens the pools view through [onOpenPools]. The bell counts the unread notices,
  * read on start and every minute while started, and opens the notices through [onOpenNotices].
@@ -150,6 +151,7 @@ fun PaneListScreen(
     var generation by remember(client) { mutableIntStateOf(0) }
     var picking by remember { mutableStateOf(false) }
     var sheet by remember { mutableStateOf<SheetRow?>(null) }
+    val toast = rememberArchiveToast()
 
     LaunchedEffect(client, generation) {
         val read = readTree(client, state.held)
@@ -166,98 +168,107 @@ fun PaneListScreen(
 
     BackHandler(enabled = state.search != null) { state.search = null }
 
-    Column(modifier = modifier.fillMaxSize()) {
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = OrreryTokens.Space.sixteen, vertical = OrreryTokens.Space.eight),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
+    Box(modifier = modifier.fillMaxSize()) {
+        Column(modifier = Modifier.fillMaxSize()) {
             Row(
-                modifier = Modifier.height(IntrinsicSize.Min),
+                modifier = Modifier.fillMaxWidth().padding(horizontal = OrreryTokens.Space.sixteen, vertical = OrreryTokens.Space.eight),
+                horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                TitleMark(modifier = Modifier.fillMaxHeight())
-                Spacer(modifier = Modifier.width(OrreryTokens.Space.eight))
-                Text("orrery", style = OrreryTokens.Type.title)
+                Row(
+                    modifier = Modifier.height(IntrinsicSize.Min),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    TitleMark(modifier = Modifier.fillMaxHeight())
+                    Spacer(modifier = Modifier.width(OrreryTokens.Space.eight))
+                    Text("orrery", style = OrreryTokens.Type.title)
+                }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    TextButton(
+                        onClick = { state.search = state.search ?: "" },
+                        modifier = Modifier.testTag("open-search"),
+                    ) {
+                        Text("Search")
+                    }
+                    TextButton(
+                        onClick = { picking = true },
+                        modifier = Modifier.testTag("picker-new"),
+                    ) {
+                        Text("New")
+                    }
+                    TextButton(
+                        onClick = onOpenPools,
+                        modifier = Modifier.testTag("open-pools"),
+                    ) {
+                        Text("Pools")
+                    }
+                    NoticesBell(unread = notices.unread, onClick = onOpenNotices)
+                    TextButton(onClick = onOpenSettings) {
+                        Text("Settings")
+                    }
+                }
             }
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                TextButton(
-                    onClick = { state.search = state.search ?: "" },
-                    modifier = Modifier.testTag("open-search"),
-                ) {
-                    Text("Search")
-                }
-                TextButton(
-                    onClick = { picking = true },
-                    modifier = Modifier.testTag("picker-new"),
-                ) {
-                    Text("New")
-                }
-                TextButton(
-                    onClick = onOpenPools,
-                    modifier = Modifier.testTag("open-pools"),
-                ) {
-                    Text("Pools")
-                }
-                NoticesBell(unread = notices.unread, onClick = onOpenNotices)
-                TextButton(onClick = onOpenSettings) {
-                    Text("Settings")
-                }
+            state.search?.let { words ->
+                SearchField(
+                    words = words,
+                    onWords = { state.search = it },
+                    onClear = { state.search = null },
+                    modifier = Modifier.padding(horizontal = OrreryTokens.Space.sixteen, vertical = OrreryTokens.Space.four),
+                )
+            }
+            if (picking) {
+                PickerPanel(
+                    client = client,
+                    onOpened = { paneId ->
+                        picking = false
+                        onOpenPaneId(paneId)
+                    },
+                    onStarted = { sessionId ->
+                        picking = false
+                        onStartedSession(sessionId)
+                    },
+                    onClose = { picking = false },
+                )
+            }
+            sheet?.let { row ->
+                InboxSheet(
+                    row = row,
+                    client = client,
+                    onArchived = { title, kind, id -> toast.show(title, kind, id) },
+                    onLanded = {
+                        sheet = null
+                        generation++
+                    },
+                    onClose = { sheet = null },
+                )
+            }
+            val loaded = data
+            when {
+                failed -> DidNotAnswer(onTryNow = { generation++ })
+                loaded == null -> Text(
+                    "loading…",
+                    color = OrreryTokens.Ink.three,
+                    modifier = Modifier.padding(OrreryTokens.Space.sixteen),
+                )
+                else -> InboxBody(
+                    data = loaded,
+                    state = state,
+                    now = now(),
+                    onOpenPane = onOpenPane,
+                    onOpenEpic = onOpenEpic,
+                    onOpenProject = onOpenProject,
+                    onOpenContract = onOpenContract,
+                    onNew = { picking = true },
+                    onLongPress = { sheet = it },
+                )
             }
         }
-        state.search?.let { words ->
-            SearchField(
-                words = words,
-                onWords = { state.search = it },
-                onClear = { state.search = null },
-                modifier = Modifier.padding(horizontal = OrreryTokens.Space.sixteen, vertical = OrreryTokens.Space.four),
-            )
-        }
-        if (picking) {
-            PickerPanel(
-                client = client,
-                onOpened = { paneId ->
-                    picking = false
-                    onOpenPaneId(paneId)
-                },
-                onStarted = { sessionId ->
-                    picking = false
-                    onStartedSession(sessionId)
-                },
-                onClose = { picking = false },
-            )
-        }
-        sheet?.let { row ->
-            InboxSheet(
-                row = row,
-                client = client,
-                onLanded = {
-                    sheet = null
-                    generation++
-                },
-                onClose = { sheet = null },
-            )
-        }
-        val loaded = data
-        when {
-            failed -> DidNotAnswer(onTryNow = { generation++ })
-            loaded == null -> Text(
-                "loading…",
-                color = OrreryTokens.Ink.three,
-                modifier = Modifier.padding(OrreryTokens.Space.sixteen),
-            )
-            else -> InboxBody(
-                data = loaded,
-                state = state,
-                now = now(),
-                onOpenPane = onOpenPane,
-                onOpenEpic = onOpenEpic,
-                onOpenProject = onOpenProject,
-                onOpenContract = onOpenContract,
-                onNew = { picking = true },
-                onLongPress = { sheet = it },
-            )
-        }
+        ArchiveToast(
+            state = toast,
+            client = client,
+            onUndone = { generation++ },
+            modifier = Modifier.align(Alignment.BottomCenter),
+        )
     }
 }
 
