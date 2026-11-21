@@ -16,6 +16,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.semantics
+import io.github.joshsymonds.orrery.api.EpicDecisionRow
 import io.github.joshsymonds.orrery.api.EpicHistoryRow
 import io.github.joshsymonds.orrery.api.EpicTurnRow
 import io.github.joshsymonds.orrery.api.EvidenceRunRow
@@ -123,9 +124,18 @@ private fun whatOf(entry: EpicHistoryRow): String = when (entry.kind) {
     "trigger" -> entry.trigger?.let { "trigger · ${it.cause}" }.orEmpty()
     "step" -> entry.step?.let(::stepText).orEmpty()
     "evidence" -> entry.evidence?.let(::evidenceText).orEmpty()
-    "decision" -> entry.decision?.let { "decision · ${it.text}" }.orEmpty()
+    "decision" -> entry.decision?.let { "decision by ${makerOf(it)} · ${it.text}" }.orEmpty()
     "tell" -> entry.tell?.text.orEmpty()
     else -> ""
+}
+
+// makerOf names who recorded a decision: you, orreryd, or the session of the conversation that did. A decision with no
+// maker on record reads unknown.
+private fun makerOf(decision: EpicDecisionRow): String = when (decision.by) {
+    "owner" -> "you"
+    "orreryd" -> "orreryd"
+    "conversation" -> "session ${decision.session}"
+    else -> "unknown"
 }
 
 private fun turnText(turn: EpicTurnRow): String {

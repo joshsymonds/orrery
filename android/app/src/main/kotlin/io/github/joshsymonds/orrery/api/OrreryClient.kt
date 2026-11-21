@@ -635,8 +635,20 @@ data class EpicTurnRow(
  */
 data class EpicTriggerRow(val id: String, val cause: String, val state: String, val turn: Long, val created: Long)
 
-/** A decision recorded on an epic. [question] is the Q<n> it answers, empty for a note. */
-data class EpicDecisionRow(val seq: Long, val id: String, val text: String, val time: Long, val question: String)
+/**
+ * A decision recorded on an epic. [question] is the Q<n> it answers, empty for a note. [by] is who recorded it,
+ * 'owner', 'conversation' or 'orreryd', and empty for a decision stored before makers were recorded. [session] is the
+ * conversation's session id when [by] is 'conversation', empty otherwise.
+ */
+data class EpicDecisionRow(
+    val seq: Long,
+    val id: String,
+    val text: String,
+    val time: Long,
+    val question: String,
+    val by: String = "",
+    val session: String = "",
+)
 
 /** Something an epic told its owner. [told] is whether the owner has been told it. */
 data class EpicTellRow(val seq: Long, val text: String, val at: Long, val told: Boolean)
@@ -1719,7 +1731,15 @@ class OrreryClient(
         EpicTriggerRow(id = id, cause = cause, state = state, turn = turn, created = created)
 
     private fun EpicDecisionProto.toEpicDecisionRow(): EpicDecisionRow =
-        EpicDecisionRow(seq = seq, id = id, text = text, time = time, question = question)
+        EpicDecisionRow(
+            seq = seq,
+            id = id,
+            text = text,
+            time = time,
+            question = question,
+            by = by,
+            session = session,
+        )
 
     private fun EpicTellProto.toEpicTellRow(): EpicTellRow =
         EpicTellRow(seq = seq, text = text, at = at, told = told)
