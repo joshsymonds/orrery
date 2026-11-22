@@ -6,25 +6,16 @@ import io.github.joshsymonds.orrery.api.EpicRow
 import io.github.joshsymonds.orrery.api.Pane
 import io.github.joshsymonds.orrery.api.currentTool
 
-/** The tone of an epic's gauge. */
-internal enum class GaugeTone { NONE, LIVE, ENGINE, ATTENTION, OK }
-
-/** The mark at a gauge's centre. */
-internal enum class GaugeInner { CHECK, DASH, DOT }
-
-/** An epic's gauge: its [done] and [total] tasks, its [tone], and the [inner] mark, null for none. */
-internal data class GaugeShare(val done: Int, val total: Int, val tone: GaugeTone, val inner: GaugeInner?)
-
 /**
  * What an epic or contract row says: its [name], its [count], its state [words], its [blocker] (empty when nothing
- * blocks it), and its [gauge], which a contract's row does not draw.
+ * blocks it), and its [mark], which a contract's row does not draw.
  */
 internal data class EpicRowWords(
     val name: String,
     val count: String,
     val words: String,
     val blocker: String,
-    val gauge: GaugeShare?,
+    val mark: EpicMarkModel?,
 )
 
 private const val CONTRACT_PROPOSED = "proposed"
@@ -37,7 +28,6 @@ private const val STATE_WORKING = "working"
 private const val TERMINAL_WORDS = "a terminal with no conversation"
 private const val WAITS_ON_YOU = "waits on you"
 private const val RELEASING = "releasing"
-private val DONE_STATUSES = setOf("done", "integrated")
 
 /** What a row says of its epic or contract at [now], in unix seconds. A proposed contract draws as the contract. */
 internal fun epicRowWords(hung: Hung, now: Long): EpicRowWords = when (hung) {
@@ -68,11 +58,11 @@ private fun contractWords(contract: ContractRow, now: Long): EpicRowWords {
         count = "v${contract.version}",
         words = words.filter { it.isNotEmpty() }.joinToString(" · "),
         blocker = if (contract.state == CONTRACT_PROPOSED) WAITS_ON_ACCEPT else "",
-        gauge = null,
+        mark = null,
     )
 }
 
-// An epic reads its count, its state word with the time since its phase began, its blocker, and its gauge.
+// An epic reads its count, its state word with the time since its phase began, its blocker, and its mark.
 internal fun epicWords(node: EpicNode, now: Long): EpicRowWords {
     val listed = node.epic
     val detail = node.detail
@@ -84,7 +74,7 @@ internal fun epicWords(node: EpicNode, now: Long): EpicRowWords {
         count = epicLineOf(detail, now).count,
         words = if (state.isEmpty()) "" else listOf(state, timed).filter { it.isNotEmpty() }.joinToString(" · "),
         blocker = blocker,
-        gauge = gaugeOf(listed, detail, state, blocker),
+        mark = epicMarkOf(detail?.requirements.orEmpty(), detail?.centre.orEmpty()),
     )
 }
 
@@ -119,22 +109,6 @@ private fun blockerWordsOf(listed: EpicRow, detail: EpicDetail?, now: Long): Str
             ?.let { "Release step ${it.position} failed: ${it.reason}" }.orEmpty()
         NeedKind.PARK -> detail.parked
         NeedKind.OTHER -> blockerOf(detail)?.text.orEmpty()
-    }
-}
-
-// A gauge: a check in ok when an ended epic shipped, a dash when it ended short, a dot in attention when blocked, no
-// tone when paused, engine while releasing, and live otherwise. Its share is the done tasks out of all of them.
-private fun gaugeOf(listed: EpicRow, detail: EpicDetail?, state: String, blocker: String): GaugeShare {
-    val tasks = detail?.tasks.orEmpty()
-    val done = tasks.count { it.status.lowercase() in DONE_STATUSES }
-    val total = tasks.size
-    return when {
-        !listed.live && state == "shipped" -> GaugeShare(done, total, GaugeTone.OK, GaugeInner.CHECK)
-        !listed.live -> GaugeShare(done, total, GaugeTone.NONE, GaugeInner.DASH)
-        blocker.isNotEmpty() -> GaugeShare(done, total, GaugeTone.ATTENTION, GaugeInner.DOT)
-        listed.paused -> GaugeShare(done, total, GaugeTone.NONE, null)
-        state == RELEASING -> GaugeShare(done, total, GaugeTone.ENGINE, null)
-        else -> GaugeShare(done, total, GaugeTone.LIVE, null)
     }
 }
 

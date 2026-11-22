@@ -8,9 +8,9 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 
-/** What leads a notice row: an epic's gauge, a session's or pane's state glyph, or the bell or the clock. */
+/** What leads a notice row: an epic's mark, a session's or pane's state glyph, or the bell or the clock. */
 internal sealed interface NoticeLead {
-    data class Gauge(val share: GaugeShare) : NoticeLead
+    data class Mark(val mark: EpicMarkModel) : NoticeLead
 
     data class State(val state: String) : NoticeLead
 
@@ -40,14 +40,14 @@ internal fun noticeWordsOf(row: NoticeRow, tree: TreeData?, now: Long): NoticeWo
     else -> conversationNoticeWords(row, tree)
 }
 
-// An epic leads with the gauge its inbox card draws, then its slug and its block's words. An epic the tree does not list
+// An epic leads with the mark its inbox card draws, then its slug and its block's words. An epic the tree does not list
 // leads with the bell, then the text after the last / of its id.
 private fun epicNoticeWords(row: NoticeRow, tree: TreeData?, now: Long): NoticeWords {
     val words = blockWordsOf(row.blockKind)
     val listed = tree?.epics?.firstOrNull { it.id == row.epic }
         ?: return NoticeWords(NoticeLead.Bell, row.epic.substringAfterLast('/'), words)
     val node = EpicNode(listed, tree.details[listed.id], contract = null)
-    val lead = epicWords(node, now).gauge?.let(NoticeLead::Gauge) ?: NoticeLead.Bell
+    val lead = epicWords(node, now).mark?.let(NoticeLead::Mark) ?: NoticeLead.Bell
     return NoticeWords(lead, listed.slug, words)
 }
 
