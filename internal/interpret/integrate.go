@@ -39,9 +39,10 @@ type batchLeftOut struct {
 // prepareBatch composes the batch of an integrate run and pins the candidate under the run. The batch composes on the
 // epic's batch base (batchBase), and holds, with the tasks act names, each task whose work a failed batch composed and
 // the batch base does not hold (strandedTasks), so that work is composed again or left out with its reason, never
-// lost. The tasks compose in seq order. It claims the batch with the candidate, the refs as they are now and the result
-// compose made, and claims every task of the batch: the tasks act names, and each stranded task, whose claim on its
-// failed batch the claim moves to this one, so a failed batch never holds a task that a later batch composed.
+// lost. The tasks compose in the order composeOrder gives: a producer before its consumer, and otherwise in seq order.
+// It claims the batch with the candidate, the refs as they are now and the result compose made, and claims every task
+// of the batch: the tasks act names, and each stranded task, whose claim on its failed batch the claim moves to this
+// one, so a failed batch never holds a task that a later batch composed.
 func (r *Runner) prepareBatch(ctx context.Context, epic store.EpicRow, act Action) error {
 	base, err := batchBase(ctx, epic)
 	if err != nil {
@@ -58,7 +59,11 @@ func (r *Runner) prepareBatch(ctx context.Context, epic store.EpicRow, act Actio
 	seqs := slices.Concat(stranded, act.Tasks)
 	slices.Sort(seqs)
 	seqs = slices.Compact(seqs)
-	tasks, err := batchTasks(epic, seqs)
+	order, err := composeOrder(epic.Tasks, seqs)
+	if err != nil {
+		return fmt.Errorf("order batch of node %s: %w", act.Path, err)
+	}
+	tasks, err := batchTasks(epic, order)
 	if err != nil {
 		return err
 	}
@@ -243,6 +248,61 @@ func holdsAny(ctx context.Context, repo, base string, commits []string) (bool, e
 // its own id (compose.Join).
 func joinPrefix(epic store.EpicRow) string {
 	return fmt.Sprintf("refs/orrery/%s/join/", build.Slug(epic.ID))
+}
+
+// composeOrder returns the tasks seqs name, in the order a batch composes them: each task after every task of the batch
+// that it depends on, directly or through another batch task, and otherwise the lowest seq first. An entry of depends_on
+// that names a task outside the batch orders nothing. seqs is in seq order and holds no task twice. Tasks that depend on
+// one another in a cycle have no order, so the batch is refused.
+func composeOrder(tasks []store.EpicTask, seqs []int64) ([]int64, error) {
+	inBatch := make(map[int64]bool, len(seqs))
+	for _, seq := range seqs {
+		inBatch[seq] = true
+	}
+	// waiting counts the batch tasks each task of the batch depends on that have not composed yet, and dependents
+	// lists the tasks that wait on each.
+	waiting := make(map[int64]int, len(seqs))
+	dependents := make(map[int64][]int64, len(seqs))
+	for _, task := range tasks {
+		if !inBatch[task.Seq] {
+			continue
+		}
+		for _, dep := range task.DependsOn {
+			if inBatch[dep] {
+				waiting[task.Seq]++
+				dependents[dep] = append(dependents[dep], task.Seq)
+			}
+		}
+	}
+	var ready []int64
+	for _, seq := range seqs {
+		if waiting[seq] == 0 {
+			ready = append(ready, seq)
+		}
+	}
+	order := make([]int64, 0, len(seqs))
+	for len(ready) > 0 {
+		slices.Sort(ready)
+		next := ready[0]
+		ready = ready[1:]
+		order = append(order, next)
+		for _, dependent := range dependents[next] {
+			waiting[dependent]--
+			if waiting[dependent] == 0 {
+				ready = append(ready, dependent)
+			}
+		}
+	}
+	if len(order) < len(seqs) {
+		var cyclic []int64
+		for _, seq := range seqs {
+			if waiting[seq] > 0 {
+				cyclic = append(cyclic, seq)
+			}
+		}
+		return nil, fmt.Errorf("tasks %v have no order: their depends_on forms a cycle", cyclic)
+	}
+	return order, nil
 }
 
 // batchTasks returns the tasks seqs name, in that order, as compose takes them: each with the base it was built on and
