@@ -132,12 +132,13 @@ func TestHeadlessColumnsListingMatchesEventReference(t *testing.T) {
 	cutoff := headlessCutoff()
 
 	want := referenceHeadless(t, s, cutoff)
-	var ids []string
+	ids := make([]string, 0, len(want))
 	for _, row := range want {
 		ids = append(ids, row.ID)
 	}
 	if wantIDs := []string{"e-a", "e-b", "e-c"}; !reflect.DeepEqual(ids, wantIDs) {
-		t.Fatalf("event-derived reference lists %v, want %v, so the comparison would not exercise the listing", ids, wantIDs)
+		t.Fatalf("event-derived reference lists %v, want %v, so the comparison would not exercise the listing",
+			ids, wantIDs)
 	}
 
 	got, err := NewReader(path).HeadlessSessions(context.Background(), cutoff)
@@ -190,7 +191,8 @@ func TestHeadlessColumnsListingKeepsColumnsAfterEventPrune(t *testing.T) {
 		t.Fatalf("HeadlessSessions after the prune lists %+v, want only %s", got, id)
 	}
 	row := got[0]
-	if row.Reply != "reply" || row.NewestReply != t0.Unix() || row.FirstPrompt != "first prompt" || row.RequestID != "r1" {
+	if row.Reply != "reply" || row.NewestReply != t0.Unix() ||
+		row.FirstPrompt != "first prompt" || row.RequestID != "r1" {
 		t.Fatalf("HeadlessSessions after the prune: reply %q at %d, first prompt %q, request %q; want %q at %d, %q, %q",
 			row.Reply, row.NewestReply, row.FirstPrompt, row.RequestID,
 			"reply", t0.Unix(), "first prompt", "r1")

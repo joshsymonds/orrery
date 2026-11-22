@@ -325,8 +325,8 @@ func TestReaderQueryPlansHeadlessColumns(t *testing.T) {
 			continue
 		}
 		if fields[0] != "SEARCH" || !strings.Contains(detail, "EXISTS") || !strings.Contains(detail, "INDEX") {
-			t.Errorf("query ListHeadlessSessions: plan row %q touches events other than by an index SEARCH for the cutoff EXISTS",
-				detail)
+			t.Errorf("query ListHeadlessSessions: plan row %q touches events other than by an index SEARCH "+
+				"for the cutoff EXISTS", detail)
 			continue
 		}
 		searches++
