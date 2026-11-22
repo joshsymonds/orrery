@@ -185,7 +185,7 @@ is one 100 ms step and loops hold still. No component uses a raw duration.
   at one width, and is lit while it is open. Under 1250 a panel lies over the conversation. A page is a title row, a scrolling area and a foot. Reading text is one column 88 characters wide with a 6-character time gutter. Other pages keep to
   1120. A conversation's head is its title row, with the context before Find and More, then the machine band on
   surface.side, then the goal; under a 900 head (breakpointHeadNarrow) the context's name drops to its tooltip.
-- **Phone** (under 760, and Android): one page at a time. A conversation's header (title, meters, goal, ask lines,
+- **Phone** (under 760, and Android): one page at a time. A conversation's header (title, goal, ask lines,
   tiles) folds to one line of badges while you read back, stays folded when you hide it, and is gone while you type;
   folded, it turns peach when something asks. No gutter: a turn's time is in its block's label line.
   Controls are 48 high and key caps are not drawn. A menu or a confirm is a sheet. A conversation's tiles are a strip
@@ -238,7 +238,8 @@ Names are story names: `Component/State`. The catalogue draws each component in 
 | EpicRow | Building, Asking, ContractProposed, ReleaseFailed, Releasing, Parked, Paused, Planning, Shipped, EndedShort |
 | StepRow | Running, Held |
 | TitleRow | Conversation, InboxHidden, Epic, Subpage, WithError, UnreachablePane; phone: Folded |
-| MeterStrip | HostAndContext, HostOnly, UnderLoad, OtherHost |
+| MeterStrip | HostAndContext, HostOnly, UnderLoad, OtherHost. Superseded by HostsView, to be removed by the build epic. The head keeps its host, as a HostLabel, and the context; it draws no meters |
+| HostsView | AllReachable, UnderLoad, OneUnreachable. Opened from the inbox head. Every host the server lists, one row each: its name as a HostLabel, its load and its memory as Meters, and whether it answers. A host that does not answer reads unreachable beside its name, with its glyph, and draws no numbers |
 | HostLabel | Inline, CardHeading. The host a pane, a session, an epic or a step runs on, with the host's icon: inline on its own row, or once on a card's heading. Beside it the word unreachable when the host does not answer |
 | WorkRail | the right rail, in groups each named once: contract, epics, agents, running. Up to three things show as tiles; more is one tile of dots (one per thing, in its colour) that opens a RailPicker. Empty when nothing is started |
 | RailPicker | what a tile of dots opens: each thing in the group and its state; choosing one opens its panel |

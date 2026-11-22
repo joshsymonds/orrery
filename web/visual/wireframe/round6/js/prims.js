@@ -83,6 +83,7 @@
     paneDown: 'a pane listed unreachable from stored rows is marked so: Pane.unreachable (orrery-host-surfaces R3, unchecked)',
     sessionDown: 'a session on a host that does not answer reads state unreachable: its session row’s state (orrery-first-class-hosts R4, unchecked)',
     hostDown: 'a host that does not answer reads not reachable: Host.Status’s reachable for it (orrery-host-surfaces R4, unchecked)',
+    hosts: 'Host.Status lists every host with load percent, memory percent and reachable (orrery-host-surfaces R4, unchecked)',
     proposal: 'a Starter proposal’s host and folder come from the ranked proposals call beside Picker.Ask, over reachable hosts only (orrery-host-relay R5, unchecked)',
     start: 'the host a new session starts on is the host Control.Start takes (orrery-host-relay R4, unchecked)',
   };

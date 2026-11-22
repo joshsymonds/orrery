@@ -75,7 +75,7 @@
     const attn = i.attn || {};
     const head = `<header class="inbox-head">${O.mark()}<span class="name">orrery</span><span class="end">`
       + `${O.iconBtn('search', 'Search sessions and epics', { kbd: '', tip: touch ? undefined : 'Search  /' })}`
-      + `${O.bell(i.unread === undefined ? 2 : i.unread)}${when(touch, () => O.iconBtn('pools', 'Pools') + O.iconBtn('gear', 'Settings'))}`
+      + `${O.iconBtn('host', 'Hosts', { tip: 'Hosts', tipSide: 'left', go: 'hosts' })}${O.bell(i.unread === undefined ? 2 : i.unread)}${when(touch, () => O.iconBtn('pools', 'Pools') + O.iconBtn('gear', 'Settings'))}`
       + `${O.btn('New', { icon: 'plus', kbd: touch ? '' : 'N', tip: 'Start a session, or find one', tipSide: 'left', go: 'new-empty' })}</span></header>`;
     const chips = when(i.view !== 'archived' && (attn.waiting || attn.fresh), () => `<div class="inbox-attn">`
       + `${when(attn.waiting, () => O.fchip(attn.waiting === 1 ? 'waits on you' : 'wait on you', attn.waiting, 'attention', i.filter === 'waiting', i.filter === 'waiting' ? 'inbox-home' : 'inbox-waiting'))}`
@@ -98,15 +98,12 @@
 
   // ---------- title row and strip ----------
 
-  // strip draws a MeterStrip. s: { host, stats: [meter], ctx, other, down }. host is the host the page's thing runs on, drawn as
-  // a HostLabel; other: a host this server cannot read; down: the host does not answer, so it has no meters now.
+  // strip draws the head's strip: the host the page's thing runs on, as a HostLabel, and the context. s: { host, ctx, down }.
+  // down: the host does not answer, so its label says so. The meters of every host are in the hosts view, not here.
   O.strip = (s) => {
     if (!s) return '';
     const touch = O.touch();
-    return `<div class="strip" aria-label="host and context">${when(s.host, () => O.hostLabel(s.host, { down: s.down }))}`
-      + `${when(s.other, '<span class="other">on another host: no meters</span>')}`
-      + `${when(s.down, '<span class="other">no meters while it does not answer</span>')}`
-      + `${each(s.stats, (m, i) => O.meter({ series: (i % 5) + 1, ...m }, touch))}${when(!touch, () => O.ctx(s.ctx))}</div>`;
+    return `<div class="strip" aria-label="host and context">${when(s.host, () => O.hostLabel(s.host, { down: s.down }))}${when(!touch, () => O.ctx(s.ctx))}</div>`;
   };
 
   // bell draws the control that opens the notice centre, counting the unread.
@@ -114,9 +111,9 @@
 
   // titleRow draws a TitleRow. t: {
   //   back (scenario id), crumbs: [{ t, go }], dir, here, state (html), cmds (html), menu (html), strip, note, folded,
-  //   host }. The host is the one the page's thing runs on: the meters strip draws it when the strip is drawn, so the
-  //   title row draws it only when there is no strip, and on touch, where the heading names it and the strip draws its
-  //   meters alone. host defaults to the strip's; null draws none.
+  //   host }. The host is the one the page's thing runs on: the strip draws it when the strip is drawn, so the title row
+  //   draws it only when there is no strip, and on touch, where the heading names it. host defaults to the strip's; null
+  //   draws none.
   O.titleRow = (t) => {
     const touch = O.touch();
     const host = t.host !== undefined ? t.host : t.strip && t.strip.host;
@@ -127,7 +124,7 @@
         + `<div class="heading"><span class="dirline">${[esc([...(t.crumbs || []).map((c) => c.t), t.dir].filter(Boolean).join(' / ')), hostLabel].filter(Boolean).join(' · ')}</span><span class="${cls('here', t.one && 'one')}">${esc(t.here)}</span></div>`
         + `${when(t.strip && t.strip.ctx, () => O.ctx(t.strip.ctx, { bare: true }))}${when(t.touchCmds !== false, () => O.iconBtn('more', 'More'))}</div>`
         + `${when(t.state, () => `<div class="line1 state">${t.state}</div>`)}`
-        + `${when(t.strip && !t.noStrip, () => O.strip({ ...t.strip, host: null }))}</header>${when(t.note, () => `<div class="page-note">${O.inote(t.note, 'error')}</div>`)}`;
+        + `</header>${when(t.note, () => `<div class="page-note">${O.inote(t.note, 'error')}</div>`)}`;
     }
     const lead = when(t.back, () => O.iconBtn('back', 'Back', { tip: 'Back  h', tipSide: 'right', go: t.back }));
     const crumbs = `<nav class="crumbs" aria-label="where you are">${each(t.crumbs, (c, i) => `${c.go ? `<a class="${cls('crumb', i === 0 && 'dir')}" href="${O.go(c.go)}">${esc(c.t)}</a>` : `<span class="${cls('crumb', i === 0 && 'dir')}">${esc(c.t)}</span>`}<span class="crumb sep">/</span>`)}`
@@ -301,7 +298,7 @@
   // under the band.
   // c: { title, band, work (null for a page that has no rail), on (the tile whose panel is open), panel (html), find,
   //   items, reader, dock, ended, notices, class, label, over, pick (the rail group whose picker is open) }
-  // On touch the header has four states (c.head): open (title, meters, band, tiles); scrolled, while reading back, and
+  // On touch the header has four states (c.head): open (title, band, tiles); scrolled, while reading back, and
   // pinned, hidden by you until you open it, both one compact line under the title; and keyboard, with nothing at all.
   O.convoPage = (c) => {
     const head = O.touch() ? c.head || 'open' : 'open';
@@ -357,6 +354,31 @@
         + `<section>${O.sec('Conversations', { icon: 'chat', hue: '1', n: p.convos.length })}<div class="pconvs">${each(p.convos, convo)}</div></section>`
         + `${when(p.ended, () => `<section><button class="fold-line">${icon('chevronRight')}<span>${esc(p.ended)}</span></button></section>`)}</div></div>`,
       foot: when(touch, () => `<div class="cmdbar">${O.btn('New session here', { icon: 'plus', class: 'grow', go: 'new-form' })}</div>`),
+    });
+  };
+
+  // ---------- hosts ----------
+
+  // hostsView draws the hosts view: every host the server lists, one row each, in its order. A row is the host's name as
+  // a HostLabel, its load and its memory as Meters, and whether it answers. A host that does not answer is marked with its
+  // glyph and says unreachable beside its name; it draws no numbers, since its load and memory are not known now.
+  // hosts: [{ name, reachable, load: { pct, level }, memory: { pct, level } }]; a host that does not answer has no load or memory.
+  O.hostsView = (hosts) => `<section class="hosts" aria-label="hosts">${each(hosts, (h) => O.hostRow(h))}</section>`;
+  O.hostRow = (h) => {
+    if (!h.reachable) return `<div class="host-row" data-state="unreachable">${O.stateGlyph('unreachable')}${O.hostLabel(h.name, { down: true })}<span class="none">no numbers while it does not answer</span></div>`;
+    const touch = O.touch();
+    const meter = (name, series, m) => O.meter({ series, name, value: `${m.pct}%`, pct: m.pct, level: m.level, title: `${name}: ${m.pct}%` }, touch);
+    return `<div class="host-row" data-state="reachable"><span class="slot"></span>${O.hostLabel(h.name)}`
+      + `<span class="stats">${meter('load', 1, h.load)}${meter('memory', 2, h.memory)}</span><span class="reach">reachable</span></div>`;
+  };
+  // hostsPage draws the hosts view as a page, opened from the inbox head. It is about every host, so its title row names
+  // none and draws no context; on touch it goes back to the inbox.
+  O.hostsPage = (hosts) => {
+    const touch = O.touch();
+    return O.page({
+      label: 'hosts',
+      title: O.titleRow({ back: touch ? 'inbox-home' : undefined, here: 'Hosts', one: true, noStrip: true, touchCmds: false }),
+      body: `<div class="spage"><div class="inner">${O.hostsView(hosts)}</div></div>`,
     });
   };
 

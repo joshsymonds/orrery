@@ -614,7 +614,6 @@ a.crumb:hover { color: var(--o-ink-1); text-decoration: underline; }
 .titlerow .cmds > .menu { position: absolute; top: calc(100% + var(--o-space-4)); right: 0; z-index: var(--o-z-menu); }
 .strip { display: flex; align-items: center; gap: var(--o-space-16); min-width: 0; min-height: var(--o-space-24); overflow: hidden; color: var(--o-ink-3); font: var(--o-type-small); }
 .strip .ctx { margin-left: auto; }
-.strip .other { color: var(--o-ink-4); }
 .page-note { flex: none; padding: var(--o-space-4) var(--o-layout-page-pad-desk); border-bottom: var(--o-size-hairline) solid var(--o-line-soft); background: var(--o-role-bad-fill); }
 .touch .titlerow { padding: var(--o-space-4) var(--o-space-4) var(--o-space-8); }
 .touch .titlerow .line1 { min-height: var(--o-size-control-touch); gap: var(--o-space-4); }
@@ -623,9 +622,13 @@ a.crumb:hover { color: var(--o-ink-1); text-decoration: underline; }
 .touch .titlerow .heading .dirline { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--o-role-place); font: var(--o-type-small); }
 .touch .titlerow .heading .here { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; min-width: 0; overflow: hidden; color: var(--o-ink-1); font: var(--o-type-body); font-weight: var(--o-font-weight-bold); }
 .touch .titlerow .heading .here.one { -webkit-line-clamp: 1; }
-.touch .strip { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--o-space-8) var(--o-space-12); padding: 0 var(--o-space-12); }
-.touch .strip .other { grid-column: 1 / -1; }
-.touch .strip .ctx { margin-left: 0; }
+/* HostsView: every host the server lists, one row each. A host that does not answer draws its glyph and its word, and no numbers. */
+.hosts { display: grid; gap: var(--o-space-4); min-width: 0; }
+.host-row { display: grid; grid-template-columns: var(--o-size-glyph) max-content minmax(0, 1fr) auto; align-items: center; column-gap: var(--o-space-12); padding: var(--o-space-8); border-radius: var(--o-radius-2); }
+.host-row .stats { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--o-space-12); min-width: 0; }
+.host-row .reach, .host-row .none { color: var(--o-ink-3); font: var(--o-type-small); white-space: nowrap; }
+.host-row[data-state="unreachable"] .host-label { color: var(--o-ink-3); font-weight: var(--o-font-weight-regular); }
+.touch .host-row .stats { justify-content: flex-start; }
 .touch .page-note { padding: var(--o-space-4) var(--o-layout-page-pad-phone); }
 
 /* EpicPin: a conversation that created an epic keeps a line to it in sight, wherever it is scrolled. */

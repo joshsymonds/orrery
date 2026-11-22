@@ -122,20 +122,20 @@
   });
 
   convo({
-    id: 'convo-hot', group: 'Conversation', name: 'A host under load, and a context nearly full',
-    note: 'A meter is grey until its level is warn or crit; then its value and bar take yellow or red. The context does the same from 60 and from 80 percent. A quantity is never peach.',
-    title: { dir: 'tidepool', here: 'Tide table cache warm-up', strip: W.strip(W.ctx.high, { hot: true }) }, items: W.short, dock: { state: 'done', what: '· 4m ago', name: 'tidepool' },
+    id: 'convo-hot', group: 'Conversation', name: 'A context nearly full',
+    note: 'The context is green below 60 percent, yellow below 80, and red from there, drawn as five blocks of twenty. The host it runs on has no meters in the head: its load and memory are in the hosts view, where each stat keeps its own colour until warn or crit. A quantity is never peach.',
+    title: { dir: 'tidepool', here: 'Tide table cache warm-up', strip: W.strip(W.ctx.high) }, items: W.short, dock: { state: 'done', what: '· 4m ago', name: 'tidepool' },
   });
 
   convo({
     id: 'convo-other-host', group: 'Conversation', name: 'A session on another host',
-    note: 'The server reads meters only for the host it runs on. Another host shows its name and says there are none, in place of a blank strip.',
-    title: { dir: 'kelp', here: 'Kelp bed survey importer', strip: W.strip(null, { host: 'brine', other: true }) }, items: W.short, dock: { state: 'done', what: '· 1d ago', name: 'kelp' },
+    note: 'Its host is named in the title row, as on every page. The head draws no meters for it: the load and memory of every host, this one included, are in the hosts view.',
+    title: { dir: 'kelp', here: 'Kelp bed survey importer', strip: W.strip(null, { host: 'brine' }) }, items: W.short, dock: { state: 'done', what: '· 1d ago', name: 'kelp' },
   });
 
   convo({
     id: 'pane-host-unreachable', group: 'Conversation', name: 'A pane whose host does not answer',
-    note: 'A terminal pane\'s conversation as it was last stored. Its host does not answer, so its title row says unreachable with no meters, and its dock says so in words. The dock offers nothing that would act on the pane: no input, no queue, no Interrupt and no quick keys. The transcript stays as it was stored.',
+    note: 'A terminal pane\'s conversation as it was last stored. Its host does not answer, so its title row says unreachable beside its host, with no context of its own, and its dock says so in words. The dock offers nothing that would act on the pane: no input, no queue, no Interrupt and no quick keys. The transcript stays as it was stored.',
     pane: true, hosts: ['paneDown', 'hostDown'],
     title: { dir: 'tidepool', here: 'Tide table cache warm-up', state: O.pill('unreachable', 'unreachable', { state: 'unreachable' }), strip: W.strip(null, { host: 'halyard', down: true }) },
     items: W.short, dock: { state: 'unreachable', host: 'halyard', what: '· shown as last stored' },
@@ -220,7 +220,7 @@
   });
 
   // The phone's header, folded. Reading back folds it to one line; you can hide it for good; the keyboard hides it all.
-  dock('phone-head-scrolled', 'The phone\'s header while you read back', 'Scrolling back through the conversation folds the meters, the goal, the band and the tiles into one line under the title: the rail\'s groups as small badges. Back at the newest line, or a tap on it, opens them again.',
+  dock('phone-head-scrolled', 'The phone\'s header while you read back', 'Scrolling back through the conversation folds the goal, the band and the tiles into one line under the title: the rail\'s groups as small badges. Back at the newest line, or a tap on it, opens them again.',
     { state: 'working', tool: 'Agent', what: 'waiting on 2 sub-agents', clock: '3:02' }, { work: { ...W.workFull, epics: [{ ...W.workRota.epics[0], asks: '', state: 'building · 49m' }] }, items: W.lamp, desk: null, phone: { head: 'scrolled' } });
   dock('phone-head-hidden', 'The phone\'s header hidden, with an ask waiting', 'The chevron at the end of the tiles, or Hide the header in More, keeps it folded in every conversation until you open it; it looks the same as the line scrolling makes. An ask is never hidden by it: the line turns peach, says how many ask you, and the badge shows the question mark. It does not open by itself.',
     { state: 'working', tool: 'Agent', what: 'waiting on 2 sub-agents', clock: '3:02' }, { work: W.workFull, items: W.lamp, desk: null, phone: { head: 'pinned' } });
@@ -241,7 +241,7 @@
 
   dock('dock-waiting', 'Waiting on you, with no options', 'The turn ended on a question in words. The state says it waits on you; the input answers.', { state: 'waiting' }, { items: W.short.concat([{ k: 'reply', at: '14:12', md: ['Should the warm-up also run on deploy, or only by hand?'] }]) });
 
-  dock('dock-failed', 'Failed', 'A session that ended with an error says why, in red, once. A message starts it again.', { state: 'failed', what: '· the API refused the request · 1d ago' }, { title: { dir: 'kelp', here: 'Kelp bed survey importer', strip: W.strip(null, { host: 'brine', other: true }) } });
+  dock('dock-failed', 'Failed', 'A session that ended with an error says why, in red, once. A message starts it again.', { state: 'failed', what: '· the API refused the request · 1d ago' }, { title: { dir: 'kelp', here: 'Kelp bed survey importer', strip: W.strip(null, { host: 'brine' }) } });
 
   dock('dock-stopped', 'Stopped by you', 'Stopped is grey, not red: you stopped it.', { state: 'stopped', what: '· 2d ago' });
 

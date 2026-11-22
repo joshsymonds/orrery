@@ -40,6 +40,7 @@ are grouped by host and folder, the host is drawn once on the card heading; ever
 | an epic's step, on a host that does not answer | the step's host is not reachable in `Host.Status` (unchecked) | orrery-host-surfaces |
 | the Starter's proposals, in a dropdown under its prompt: each a folder and its host | the ranked proposals call beside `Picker.Ask`: a host and a folder each, over reachable hosts only (orrery-host-relay R5, unchecked) | orrery-host-relay |
 | the Starter's host choice, and the host a started session runs on | the host `Control.Start` takes (orrery-host-relay R4, unchecked); the choice lists reachable hosts only | orrery-host-relay |
+| the hosts view, opened from the inbox head: each host's name, its load percent, its memory percent and whether it answers | `Host.Status`'s per-host list: every host with its load percent, memory percent and reachable (orrery-host-surfaces R4, unchecked) | orrery-host-surfaces |
 
 The field names are the host epics' own, taken from their contracts and not checked against them. A scenario whose
 drawing shows a host says so in its note, with the field and the epic. The world gains two hosts, `sextant` and
@@ -76,7 +77,7 @@ The owner: the header should get out of the way while chatting, and be hideable 
 
 | state | the header | scenario |
 |---|---|---|
-| open | title, meters, goal, ask lines, tiles; a chevron at the end of the tiles hides the header | `dock-full` |
+| open | title, goal, ask lines, tiles; a chevron at the end of the tiles hides the header | `dock-full` |
 | reading back | one line under the title: the rail's groups as small badges; back at the newest line, or a tap, opens it | `phone-head-scrolled` |
 | hidden by you | the same line, drawn the same, kept in every conversation until you open it (its chevron, or Hide the header in More) | `phone-head-hidden` |
 | typing | nothing: the keyboard hides the whole header, folded line and all | `android-keyboard` |
@@ -222,7 +223,7 @@ Settled with the owner:
 |---|---|
 | Type: the larger scale. | Decided: 12, 13, 15, 18, 28. |
 | Meters: the web's look is right; the phone should match. | Decided: each stat its own colour, then yellow and red, on both clients. Android drops lavender, peach, red. |
-| Host meters stay in the phone's header. | Decided, as drawn. |
+| Host meters stay in the phone's header. | The meters moved to the hosts view on both clients. The head keeps its host, as a HostLabel, and the context; `HostsView` (`hosts`, `hosts-unreachable`) draws each host's load and memory. |
 | Release and close need public calls. | Decided. The engine has them (`ReleaseEpic`, `CloseEpic` in `internal/enginehost/epicservice.go`); the public service passes them through. |
 | Verify stays a word under review. | Decided, as drawn. |
 | A contract must be a real record you can go back to, not part of a conversation. | A contract is kept from the moment it is proposed. It has versions, each with its time, its writer and what changed; a state (proposed, accepted, set aside); and the conversation that wrote it. It is found under its project, in its conversation's Work, and from its epic once accepted. `contract-versions`, `contract-set-aside`, `project` |
@@ -499,7 +500,7 @@ Drawn, and not available from the server today.
 | Release from step 2; Release it anyway; Close as… | No public call. The engine does them from a session or the CLI. |
 | A contract as a record: proposed, its versions, accepted or set aside; Accept, Keep, Strike and the decision on it | Decided (revision 5), not built. Today Gambit's brainstorm settles these in the conversation and writes the contract only once accepted. It needs a contract record the brainstorm writes to when it proposes and at each change (body, time, writing session, what changed), calls to accept, set aside and reopen, and `epic_create` to take an accepted contract. |
 | A contract Block in a conversation | No item kind marks a contract. |
-| A session's meters on another host | `Host.Status` answers for the serving host. |
+| A session's meters on another host | Every host's load, memory and reach comes from `Host.Status`'s per-host list (orrery-host-surfaces R4, unchecked). Today `Host.Status` answers for the serving host only. |
 | Interrupting, with a clock | `interrupting` is a bare flag with no time. |
 | Notices by day, read and unread | `Notices.Watch` is a stream of what is current; nothing lists what has passed. The client can keep what it has seen while it is open. |
 | Open in a new window | The web has no address per page. The routes epic in flight gives it one. |
