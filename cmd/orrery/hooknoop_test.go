@@ -13,8 +13,8 @@ import (
 // hookNoopInput is a Stop event, the stdin of a plain `orrery hook` that a Claude Code pane runs.
 const hookNoopInput = `{"hook_event_name":"Stop","session_id":"session-7"}`
 
-// hookNoopSentinel is what the sentinel connection of TestHookNoopMakesNoConnection sends, so that a connection the hook
-// made is told from the sentinel.
+// hookNoopSentinel is what the sentinel connection of TestHookNoopMakesNoConnection sends, so that a connection the
+// hook made is told from the sentinel.
 const hookNoopSentinel = "sentinel"
 
 // listenHookNoop listens on a fresh unix socket in the test's temp directory, the daemon socket that `--socket` names.
@@ -78,9 +78,9 @@ func TestHookNoopExitsZeroSilently(t *testing.T) {
 	}
 }
 
-// TestHookNoopMakesNoConnection checks that plain `orrery hook` connects to no daemon socket. The hook runs first, then a
-// sentinel connects and sends hookNoopSentinel. Connections queue in the order they arrive, so a connection the hook made
-// would be accepted before the sentinel, and its read would not be the sentinel.
+// TestHookNoopMakesNoConnection checks that plain `orrery hook` connects to no daemon socket. The hook runs first,
+// then a sentinel connects and sends hookNoopSentinel. Connections queue in the order they arrive, so a connection the
+// hook made would be accepted before the sentinel, and its read would not be the sentinel.
 func TestHookNoopMakesNoConnection(t *testing.T) {
 	t.Parallel()
 	socket, ln := listenHookNoop(t)
@@ -112,6 +112,7 @@ func TestHookNoopMakesNoConnection(t *testing.T) {
 		t.Fatalf("read the first connection: %v", err)
 	}
 	if string(got) != hookNoopSentinel {
-		t.Fatalf("the daemon's first connection carried %q, want the sentinel %q: the hook connected", got, hookNoopSentinel)
+		t.Fatalf("the daemon's first connection carried %q, want the sentinel %q: the hook connected",
+			got, hookNoopSentinel)
 	}
 }
