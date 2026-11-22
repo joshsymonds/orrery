@@ -21,6 +21,14 @@ type CallerEvent struct {
 	At      int64
 }
 
+type ClosureVerdict struct {
+	SessionID string
+	Changed   int64
+	Closed    int64
+	Why       string
+	At        int64
+}
+
 type Contract struct {
 	ID      string
 	Created int64

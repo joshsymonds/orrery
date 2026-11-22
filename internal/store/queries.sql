@@ -1663,6 +1663,16 @@ INSERT INTO pane_sends (pane, text, client, at) VALUES (?, ?, ?, ?);
 SELECT * FROM pane_sends WHERE pane = sqlc.arg(pane) AND at >= sqlc.arg(from_at) AND at <= sqlc.arg(to_at)
 ORDER BY at, id;
 
+-- name: UpsertClosureVerdict :exec
+INSERT INTO closure_verdicts (session_id, changed, closed, why, at) VALUES (?, ?, ?, ?, ?)
+ON CONFLICT(session_id) DO UPDATE SET changed = excluded.changed, closed = excluded.closed, why = excluded.why, at = excluded.at;
+
+-- name: ListClosureVerdicts :many
+SELECT * FROM closure_verdicts ORDER BY session_id;
+
+-- name: GetClosureEngineSession :one
+SELECT state, changed FROM sessions WHERE id = ? AND kind = 'engine';
+
 -- name: ListEpicIntegrateRunPaths :many
 SELECT path FROM epic_node_runs WHERE epic = ? AND node = ? AND kind = 'integrate' ORDER BY rowid;
 

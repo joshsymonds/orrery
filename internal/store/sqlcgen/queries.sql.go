@@ -1237,6 +1237,22 @@ func (q *Queries) GetActionAmendment(ctx context.Context, arg GetActionAmendment
 	return i, err
 }
 
+const getClosureEngineSession = `-- name: GetClosureEngineSession :one
+SELECT state, changed FROM sessions WHERE id = ? AND kind = 'engine'
+`
+
+type GetClosureEngineSessionRow struct {
+	State   string
+	Changed string
+}
+
+func (q *Queries) GetClosureEngineSession(ctx context.Context, id string) (GetClosureEngineSessionRow, error) {
+	row := q.db.QueryRowContext(ctx, getClosureEngineSession, id)
+	var i GetClosureEngineSessionRow
+	err := row.Scan(&i.State, &i.Changed)
+	return i, err
+}
+
 const getContractListing = `-- name: GetContractListing :one
 SELECT contracts.id, contracts.created,
        newest.repository, newest.title, newest.care, newest.version, newest.open_decisions,
@@ -4811,6 +4827,39 @@ func (q *Queries) ListCallerSteps(ctx context.Context) ([]ListCallerStepsRow, er
 			&i.CallerServer,
 			&i.CallerPane,
 			&i.CallerState,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listClosureVerdicts = `-- name: ListClosureVerdicts :many
+SELECT session_id, changed, closed, why, at FROM closure_verdicts ORDER BY session_id
+`
+
+func (q *Queries) ListClosureVerdicts(ctx context.Context) ([]ClosureVerdict, error) {
+	rows, err := q.db.QueryContext(ctx, listClosureVerdicts)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ClosureVerdict
+	for rows.Next() {
+		var i ClosureVerdict
+		if err := rows.Scan(
+			&i.SessionID,
+			&i.Changed,
+			&i.Closed,
+			&i.Why,
+			&i.At,
 		); err != nil {
 			return nil, err
 		}
@@ -12286,6 +12335,30 @@ type UpsertArchivedRowParams struct {
 
 func (q *Queries) UpsertArchivedRow(ctx context.Context, arg UpsertArchivedRowParams) error {
 	_, err := q.db.ExecContext(ctx, upsertArchivedRow, arg.Kind, arg.ID, arg.ArchivedAt)
+	return err
+}
+
+const upsertClosureVerdict = `-- name: UpsertClosureVerdict :exec
+INSERT INTO closure_verdicts (session_id, changed, closed, why, at) VALUES (?, ?, ?, ?, ?)
+ON CONFLICT(session_id) DO UPDATE SET changed = excluded.changed, closed = excluded.closed, why = excluded.why, at = excluded.at
+`
+
+type UpsertClosureVerdictParams struct {
+	SessionID string
+	Changed   int64
+	Closed    int64
+	Why       string
+	At        int64
+}
+
+func (q *Queries) UpsertClosureVerdict(ctx context.Context, arg UpsertClosureVerdictParams) error {
+	_, err := q.db.ExecContext(ctx, upsertClosureVerdict,
+		arg.SessionID,
+		arg.Changed,
+		arg.Closed,
+		arg.Why,
+		arg.At,
+	)
 	return err
 }
 
