@@ -391,14 +391,13 @@ func TestPaneRegistryBindSamePaneIDOnAnotherServerIsADifferentPane(t *testing.T)
 func TestPaneRegistryBindSdkAndDeadEntriesBindNothing(t *testing.T) {
 	t.Parallel()
 	dir, proc := readyRegistry(t)
-	r := startWatch(t, dir, proc.add(2001, cliEnv()))
+	r := startWatch(t, dir, proc.add(2001, cliEnv()).add(4242, cliEnv()))
 	expectBinding(t, r.next(t), readyPane, readySession)
 
 	sdk := Entry{PID: 2001, SessionID: "sess-invented-sdk", Cwd: testCwd, Entrypoint: "sdk-cli",
 		Status: StatusBusy, Tmux: "testsrv:@7.%5"}
 	publish(t, dir, "2001.json", entryData(t, sdk))
 	publish(t, dir, "2002.json", entryData(t, cliEntry(2002, "sess-invented-dead", "testsrv:@7.%6")))
-	proc.add(4242, cliEnv())
 	publish(t, dir, "4242.json", entryData(t, cliEntry(4242, "sess-invented-1", "testsrv:@7.%9")))
 	expectBinding(t, r.next(t), "%9", "sess-invented-1")
 }
