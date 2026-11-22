@@ -61,6 +61,9 @@ type Config struct {
 	// AfterTidy, when set and Mirror is set, runs on the tidy loop's goroutine after each tidy pass. It must return
 	// quickly, since the next pass waits for it. orreryd retries the notice row writes the store refused with it.
 	AfterTidy func(context.Context)
+	// Updates, when non-nil, is where Serve takes the session registry's pane updates. Serve applies each one in order on
+	// one goroutine, as it applies a frame, until ctx is done. Nil takes none.
+	Updates <-chan PaneUpdate
 	// Observers are called in order, synchronously, for each state change. They must return quickly.
 	Observers []Observer
 	// Seen receives each seen report whose pane is set, in the connection's goroutine. Nil drops seen reports.
@@ -241,7 +244,8 @@ func removeStaleSocket(path string) error {
 
 // Serve accepts connections on ln until ctx is done, then closes ln, waits for in-flight connections,
 // and returns nil. Any other accept failure is returned once in-flight connections finish. With a Mirror, Serve
-// also runs the tidy loop and returns only after that loop stops.
+// also runs the tidy loop and returns only after that loop stops. With Updates, Serve applies the registry's pane
+// updates on a goroutine of its own, and returns only after that goroutine stops.
 func Serve(ctx context.Context, ln net.Listener, cfg Config) error {
 	logger := cfg.Logger
 	if logger == nil {
@@ -264,6 +268,17 @@ func Serve(ctx context.Context, ln net.Listener, cfg Config) error {
 		go func() {
 			defer tidies.Done()
 			frames.tidyLoop(tidyCtx)
+		}()
+	}
+	var updates sync.WaitGroup
+	updateCtx, cancelUpdates := context.WithCancel(ctx)
+	defer updates.Wait()
+	defer cancelUpdates()
+	if cfg.Updates != nil {
+		updates.Add(1)
+		go func() {
+			defer updates.Done()
+			frames.applyUpdates(updateCtx, cfg.Updates)
 		}()
 	}
 	var wg sync.WaitGroup
@@ -399,13 +414,20 @@ func (h *frameHandler) apply(ctx context.Context, frame protocol.HookFrame) {
 		return
 	}
 	out, read, ok := h.applyLocked(ctx, client, server, frame)
+	h.syncApplied(ctx, server, frame.TmuxPane, out, read, ok)
+}
+
+// syncApplied syncs pane on server to the store after its apply, outside the mutex: from the output of the read that
+// the apply ran in its own write when read and ok, releases the mirror lock when read and the apply failed, and
+// otherwise syncs the pane from its own read when ok and there is a Mirror.
+func (h *frameHandler) syncApplied(ctx context.Context, server tmuxctl.Server, pane, out string, read, ok bool) {
 	switch {
 	case read && ok:
-		h.cfg.Mirror.SyncRead(ctx, server, frame.TmuxPane, out)
+		h.cfg.Mirror.SyncRead(ctx, server, pane, out)
 	case read:
 		h.cfg.Mirror.ReleaseRead()
 	case ok && h.cfg.Mirror != nil:
-		h.cfg.Mirror.SyncPane(ctx, server, frame.TmuxPane)
+		h.cfg.Mirror.SyncPane(ctx, server, pane)
 	}
 }
 
@@ -423,7 +445,8 @@ func (h *frameHandler) applyLocked(
 	if err != nil {
 		h.logger.ErrorContext(ctx, "record pane session", "pane", frame.TmuxPane, "error", err)
 	}
-	extra := slices.Concat([]tmuxctl.OptionWrite{h.contextWrite(ctx, frame)}, session)
+	contextOpt := h.contextWrite(ctx, frame.TmuxPane, frame.Cwd, frame.AnthropicBaseURL)
+	extra := slices.Concat([]tmuxctl.OptionWrite{contextOpt}, session)
 	var then []string
 	if h.cfg.Mirror != nil {
 		then, read = h.cfg.Mirror.TryRead(frame.TmuxPane)
@@ -453,16 +476,16 @@ func (h *frameHandler) applyLocked(
 	return out, read, true
 }
 
-// contextWrite returns the write of frame's context to its pane's @orrery_context. The context is that of the stamp
-// in effect for the frame's Cwd under h.cfg.Home, or else that of the frame's base URL. When the stamp cannot be read,
-// the option is unset, so the pane is left out of the intent call rather than given a context it may not hold.
-func (h *frameHandler) contextWrite(ctx context.Context, frame protocol.HookFrame) tmuxctl.OptionWrite {
-	found, err := stamp.Find(h.cfg.Home, frame.Cwd)
+// contextWrite returns the write of a session's context to pane's @orrery_context. The context is that of the stamp in
+// effect for cwd under h.cfg.Home, or else that of baseURL. When the stamp cannot be read, the option is unset, so the
+// pane is left out of the intent call rather than given a context it may not hold.
+func (h *frameHandler) contextWrite(ctx context.Context, pane, cwd, baseURL string) tmuxctl.OptionWrite {
+	found, err := stamp.Find(h.cfg.Home, cwd)
 	if err != nil {
-		h.logger.ErrorContext(ctx, "find context stamp", "pane", frame.TmuxPane, "cwd", frame.Cwd, "error", err)
+		h.logger.ErrorContext(ctx, "find context stamp", "pane", pane, "cwd", cwd, "error", err)
 		return tmuxctl.Unset(protocol.OptionContext)
 	}
-	contextName := protocol.SummaryContext(frame.AnthropicBaseURL)
+	contextName := protocol.SummaryContext(baseURL)
 	if found.Folder != "" {
 		contextName = protocol.SummaryContext(found.BaseURL())
 	}

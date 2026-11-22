@@ -240,6 +240,13 @@ func SessionWrites(hook json.RawMessage) ([]tmuxctl.OptionWrite, error) {
 			tmuxctl.Unset(protocol.OptionClaudeSession), tmuxctl.Unset(protocol.OptionTranscript),
 		}, nil
 	}
+	return SessionValueWrites(sessionID, transcript), nil
+}
+
+// SessionValueWrites returns the writes that record a session id and a transcript path: each option whose value is
+// non-empty is set to it, with its newlines made spaces, since the stored values are single-line. An empty value leaves
+// its option unchanged.
+func SessionValueWrites(sessionID, transcript string) []tmuxctl.OptionWrite {
 	var writes []tmuxctl.OptionWrite
 	for _, option := range []struct{ name, value string }{
 		{protocol.OptionClaudeSession, sessionID},
@@ -249,7 +256,7 @@ func SessionWrites(hook json.RawMessage) ([]tmuxctl.OptionWrite, error) {
 			writes = append(writes, tmuxctl.Set(option.name, strings.ReplaceAll(option.value, "\n", " ")))
 		}
 	}
-	return writes, nil
+	return writes
 }
 
 // targetState maps a hook event to the state it leaves the pane in. SessionEnd is handled with
@@ -459,7 +466,14 @@ func questionValue(fields hookFields) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	payload, err := questionPayload(tool, fields[keyToolInput])
+	return encodeQuestion(tool, fields[keyToolInput])
+}
+
+// encodeQuestion is the compact single-line @orrery_question value for a call of tool whose tool_input is toolInput,
+// encoded as questionValue encodes a PermissionRequest. A value over maxQuestionBytes is replaced by a truncated marker
+// (see truncatedValue).
+func encodeQuestion(tool string, toolInput json.RawMessage) (string, error) {
+	payload, err := questionPayload(tool, toolInput)
 	if err != nil {
 		return "", err
 	}
