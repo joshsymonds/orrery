@@ -148,6 +148,35 @@ func roundRecord(rounds []store.IntegrateRound, run store.NodeRun, seq, round in
 	})
 }
 
+// TaskEnding returns how the task integrator rounds of the conflicting task seq of run ended without composing it, which is
+// what its send_back says: the explanation of the round that clashed, the explanation of the round whose step ended
+// without a done return, or the failure of the third round when it failed. It returns "" when the rounds did not end that
+// way: a round is not recorded or is still undecided, the task was composed, or a round's step never started, since such a
+// round leaves its task out as it was before.
+func TaskEnding(rows Rows, run store.NodeRun, seq int64) string {
+	failure := ""
+	for round := int64(1); round <= taskIntegratorRounds; round++ {
+		record, recorded := roundRecord(rows.Rounds, run, seq, round)
+		if !recorded {
+			return ""
+		}
+		started := slices.ContainsFunc(rows.Steps, func(row store.StepRow) bool { return row.ID == record.Step })
+		if !started {
+			return ""
+		}
+		switch {
+		case record.Verdict == RoundClash:
+			return fmt.Sprintf("task integrator round %d clashed: %s", round, record.Explanation)
+		case record.Verdict == RoundEnded:
+			return fmt.Sprintf("task integrator round %d ended: %s", round, record.Explanation)
+		case record.Verdict != RoundMerged || record.Outcome != outcomeFailed:
+			return ""
+		}
+		failure = fmt.Sprintf("task integrator round %d failed: %s", round, record.Failure)
+	}
+	return failure
+}
+
 // roundStep decides round of the task integrator of the conflicting task seq, which has no record. A round with no step
 // starts one (TaskStart), with the run's revision as the candidate, the task's revision and previous as its Output, and
 // a paused or parked epic starts none. A round whose step is running waits, and one whose step has ended is recorded
