@@ -45,6 +45,7 @@ import (
 	orreryv1 "github.com/joshsymonds/orrery/internal/gen/orrery/v1"
 	"github.com/joshsymonds/orrery/internal/gen/orrery/v1/orreryv1connect"
 	"github.com/joshsymonds/orrery/internal/help"
+	"github.com/joshsymonds/orrery/internal/paneregistry"
 	"github.com/joshsymonds/orrery/internal/protocol"
 	"github.com/joshsymonds/orrery/internal/push"
 	"github.com/joshsymonds/orrery/internal/server"
@@ -1151,7 +1152,8 @@ func readOption(t *testing.T, client *tmuxctl.Client, pane, name string) string 
 
 // waitForOption polls pane until option reads want, for an option that daemon writes on its own time, such as a summary
 // run's. It has no deadline of its own, and fails at once when daemon exits first and option still does not read want.
-// An option a hook sets is set once sendHook returns, so it is read with requireOption.
+// A registry update's options are applied a moment after the update is written, so a test waits for them here too.
+// requireOption reads an option that is already set.
 func waitForOption(t *testing.T, daemon *orreryProcess, client *tmuxctl.Client, pane, name, want string) {
 	t.Helper()
 	ticker := time.NewTicker(pollEvery)
@@ -1291,45 +1293,6 @@ func assertSummaryRun(t *testing.T, run string) {
 	}
 }
 
-// sendHook sends hook for pane, run in cwd, straight to the orreryd on socket as the hook command would, and returns
-// once orreryd closes the connection, which it does after it has applied the frame, run its observers and synced the
-// pane. So the options the frame sets are set when it returns: a test reads them, and waits only for what orreryd
-// writes later on its own, such as a summary. It spawns no orrery process: the hook command exits before orreryd has
-// applied its frame, so a wait after it has nothing that ends it. TestOrrerydDrivesHooksEndToEnd runs the command
-// itself. The wait has no deadline of its own, and ends when orreryd closes the connection or exits.
-func sendHook(t *testing.T, socket, pane, cwd string, hook map[string]any) {
-	t.Helper()
-	payload, err := json.Marshal(hook)
-	if err != nil {
-		t.Fatalf("encode hook: %v", err)
-	}
-	var dialer net.Dialer
-	conn, err := dialer.DialContext(t.Context(), "unix", socket)
-	if err != nil {
-		t.Fatalf("dial %s: %v", socket, err)
-	}
-	defer conn.Close()
-	frame := protocol.HookFrame{Hook: payload, TmuxPane: pane, Cwd: cwd, AnthropicBaseURL: exampleProxyURL}
-	if err = protocol.WriteFrame(conn, frame); err != nil {
-		t.Fatalf("write hook frame: %v", err)
-	}
-	if _, err = io.Copy(io.Discard, conn); err != nil {
-		t.Fatalf("wait for orreryd to close the hook connection: %v", err)
-	}
-}
-
-// runHookCommand runs `orrery hook` in project with hook on its stdin, as Claude Code runs it for pane, with extra
-// added to its environment. The command exits 0 once it has written its frame, before orreryd applies it.
-func runHookCommand(t *testing.T, socket, pane, project string, hook map[string]any, extra ...string) {
-	t.Helper()
-	payload, err := json.Marshal(hook)
-	if err != nil {
-		t.Fatalf("encode hook: %v", err)
-	}
-	env := scrubbedEnv(append([]string{"TMUX_PANE=" + pane, "ANTHROPIC_BASE_URL=" + exampleProxyURL}, extra...)...)
-	wantExit(t, runCommand(t, project, "orrery", string(payload), env, "--socket", socket, "hook"), 0)
-}
-
 func TestOrrerydDrivesHooksEndToEnd(t *testing.T) {
 	t.Parallel()
 	client, name := newServer(t)
@@ -1342,22 +1305,17 @@ func TestOrrerydDrivesHooksEndToEnd(t *testing.T) {
 	if err := os.Mkdir(project, 0o700); err != nil {
 		t.Fatalf("make project: %v", err)
 	}
-	transcript := filepath.Join(dir, "transcript.jsonl")
-	if err := os.WriteFile(transcript, []byte(exampleTranscript), 0o600); err != nil {
-		t.Fatalf("write transcript: %v", err)
-	}
 	socket := filepath.Join(dir, "orreryd.sock")
 
-	daemon := startBinary(t, "orreryd", scrubbedEnv("XDG_STATE_HOME="+t.TempDir()),
+	daemon := startBinary(t, "orreryd", scrubbedEnv("XDG_STATE_HOME="+t.TempDir(), "HOME="+dir),
 		"-L", name, "--socket", socket, "--judge-delay", judgeDelay,
 		"--claude", fakeClaude, "--summary-model", exampleContextName+"="+exampleModel)
 	daemon.waitForListener(t, socket)
 	notices := startNoticeReader(t, scrubbedEnv(), socket)
 
-	runHookCommand(t, socket, pane, project, map[string]any{
-		"hook_event_name": "UserPromptSubmit",
-		"transcript_path": transcript,
-	})
+	session := startClaudeSession(t, client, dir, pane, project)
+	session.appendTranscript(t, exampleTranscript)
+	session.setStatus(t, paneregistry.StatusBusy, "")
 	waitForOption(t, daemon, client, pane, protocol.OptionState, string(protocol.StateWorking))
 	waitForOption(t, daemon, client, pane, protocol.OptionSummary, exampleSummary)
 	runs := finishedRuns(t, dir)
@@ -1366,11 +1324,8 @@ func TestOrrerydDrivesHooksEndToEnd(t *testing.T) {
 	}
 	assertSummaryRun(t, runs[0])
 
-	runHookCommand(t, socket, pane, project, map[string]any{
-		"hook_event_name": "PermissionRequest",
-		"tool_name":       "example-tool",
-		"tool_input":      map[string]any{"command": "example"},
-	})
+	session.appendTranscript(t, toolUseLine(t, "toolu_example", "example-tool", map[string]any{"command": "example"}))
+	session.setStatus(t, paneregistry.StatusWaiting, paneregistry.WaitingPermission)
 	waiting := nextNotice(t, notices)
 	question := readOption(t, client, pane, protocol.OptionQuestion)
 	want := notice{state: string(protocol.StateWaiting), title: exampleTitle, body: question}
@@ -1378,32 +1333,28 @@ func TestOrrerydDrivesHooksEndToEnd(t *testing.T) {
 		t.Fatalf("waiting notice %+v, want state waiting, title %q, body %q", waiting, exampleTitle, question)
 	}
 
-	runHookCommand(t, socket, pane, project, map[string]any{
-		"hook_event_name":        "Stop",
-		"transcript_path":        transcript,
-		"last_assistant_message": exampleLastMessage,
-	})
+	session.appendTranscript(t, assistantTextLine(t, exampleLastMessage))
+	session.setStatus(t, paneregistry.StatusIdle, "")
 	done := nextNotice(t, notices)
 	if done != (notice{state: string(protocol.StateDone), title: exampleTitle, body: exampleSummary}) {
 		t.Fatalf("done notice %+v, want state done, title %q, body %q", done, exampleTitle, exampleSummary)
 	}
 	waitForRunWithStdin(t, dir, exampleLastMessage)
 
-	// The summarizer's own hooks change nothing: its PermissionRequest must not reach the daemon. It goes to the
-	// pane that is done, so a leaked one would notify from that pane. A sentinel PermissionRequest goes to a second
-	// pane, which then notifies exactly once. The pane's waiting state marks the sentinel applied. Connections are
-	// accepted in order, so the summarizer's connection was accepted before it and Serve awaits it at shutdown.
+	// The summarizer's own session changes nothing: its waiting entry must not bind the pane that is done, since a
+	// leaked one would notify from that pane. A sentinel session in a second pane then waits for permission and notifies
+	// exactly once, and its waiting state marks the sentinel applied. orreryd reads registry entries in order, so the
+	// summarizer's entry was read before the sentinel's.
 	sentinelPane := splitPane(t, client, pane, "sleep 300")
-	runHookCommand(t, socket, pane, project, map[string]any{
-		"hook_event_name": "PermissionRequest",
-		"tool_name":       "example-summarizer-tool",
-		"tool_input":      map[string]any{"command": "example"},
-	}, protocol.EnvSummarizer+"="+protocol.SummarizerValue)
-	runHookCommand(t, socket, sentinelPane, project, map[string]any{
-		"hook_event_name": "PermissionRequest",
-		"tool_name":       "example-sentinel-tool",
-		"tool_input":      map[string]any{"command": "example"},
-	})
+	summarizer := startClaudeSession(t, client, dir, pane, project,
+		protocol.EnvSummarizer+"="+protocol.SummarizerValue)
+	summarizer.appendTranscript(t,
+		toolUseLine(t, "toolu_summarizer", "example-summarizer-tool", map[string]any{"command": "example"}))
+	summarizer.setStatus(t, paneregistry.StatusWaiting, paneregistry.WaitingPermission)
+	sentinel := startClaudeSession(t, client, dir, sentinelPane, project)
+	sentinel.appendTranscript(t,
+		toolUseLine(t, "toolu_sentinel", "example-sentinel-tool", map[string]any{"command": "example"}))
+	sentinel.setStatus(t, paneregistry.StatusWaiting, paneregistry.WaitingPermission)
 	waitForOption(t, daemon, client, sentinelPane, protocol.OptionState, string(protocol.StateWaiting))
 
 	// orreryd writes every queued notice to its open streams before it exits, so once the stream has ended the reader
@@ -1412,7 +1363,7 @@ func TestOrrerydDrivesHooksEndToEnd(t *testing.T) {
 	got := notices.finish(t)
 	if len(got) != 1 || got[0].state != string(protocol.StateWaiting) || got[0].title != exampleTitle ||
 		!strings.Contains(got[0].body, "example-sentinel-tool") {
-		t.Fatalf("notices after the summarizer and sentinel hooks %+v, want exactly the sentinel question", got)
+		t.Fatalf("notices after the summarizer and sentinel sessions %+v, want exactly the sentinel question", got)
 	}
 }
 
@@ -1432,8 +1383,10 @@ func startSummaryDaemon(t *testing.T, server, script string) (*orreryProcess, st
 	fakeClaude := filepath.Join(dir, "fake-claude.sh")
 	writeFile(t, fakeClaude, script, 0o700)
 	socket := filepath.Join(dir, "orreryd.sock")
-	daemon := startBinary(t, "orreryd", scrubbedEnv("XDG_STATE_HOME="+dir), "-L", server, "--socket", socket,
-		"--judge-delay", judgeDelay, "--claude", fakeClaude, "--summary-model", exampleContextName+"="+exampleModel)
+	// HOME is dir, so the daemon's session registry is the test's own and not the developer's.
+	daemon := startBinary(t, "orreryd", scrubbedEnv("XDG_STATE_HOME="+dir, "HOME="+dir),
+		"-L", server, "--socket", socket, "--judge-delay", judgeDelay,
+		"--claude", fakeClaude, "--summary-model", exampleContextName+"="+exampleModel)
 	daemon.waitForListener(t, socket)
 	return daemon, socket, dir
 }
@@ -1442,26 +1395,20 @@ func TestOrrerydForgetsPaneOnSessionEnd(t *testing.T) {
 	t.Parallel()
 	client, name := newServer(t)
 	pane := startPane(t, client, "sleep 300")
-	daemon, socket, dir := startSummaryDaemon(t, name, gatedFakeClaudeScript)
-	transcript := filepath.Join(dir, "transcript.jsonl")
-	writeFile(t, transcript, exampleTranscript, 0o600)
+	daemon, _, dir := startSummaryDaemon(t, name, gatedFakeClaudeScript)
+	session := startClaudeSession(t, client, dir, pane, dir)
+	session.appendTranscript(t, exampleTranscript)
 
-	// The UserPromptSubmit starts the pane's summary run, which the fake holds, and the Stop's request waits behind it.
-	// The SessionEnd forgets the pane while the run is held, and the run is released only then, so it finishes for a
+	// The busy entry starts the pane's summary run, which the fake holds, and the idle entry's request waits behind it.
+	// The session's end forgets the pane while the run is held, and the run is released only then, so it finishes for a
 	// forgotten pane.
-	sendHook(t, socket, pane, dir, map[string]any{
-		"hook_event_name": "UserPromptSubmit",
-		"transcript_path": transcript,
-	})
-	requireOption(t, client, pane, protocol.OptionState, string(protocol.StateWorking))
-	sendHook(t, socket, pane, dir, map[string]any{
-		"hook_event_name":        "Stop",
-		"transcript_path":        transcript,
-		"last_assistant_message": exampleLastMessage,
-	})
-	requireOption(t, client, pane, protocol.OptionState, string(protocol.StateDone))
-	sendHook(t, socket, pane, dir, map[string]any{"hook_event_name": "SessionEnd"})
-	requireOption(t, client, pane, protocol.OptionState, "")
+	session.setStatus(t, paneregistry.StatusBusy, "")
+	waitForOption(t, daemon, client, pane, protocol.OptionState, string(protocol.StateWorking))
+	session.appendTranscript(t, assistantTextLine(t, exampleLastMessage))
+	session.setStatus(t, paneregistry.StatusIdle, "")
+	waitForOption(t, daemon, client, pane, protocol.OptionState, string(protocol.StateDone))
+	session.end(t)
+	waitForOption(t, daemon, client, pane, protocol.OptionState, "")
 
 	writeFile(t, filepath.Join(dir, summaryReleaseFile), "", 0o600)
 	// Once orreryd has logged that it dropped the run's reply, the run can write nothing, and the Stop's request went
@@ -1509,28 +1456,29 @@ func TestOrrerydAsksLabelAfterSessionEnd(t *testing.T) {
 	t.Parallel()
 	client, name := newServer(t)
 	pane := startPane(t, client, "sleep 300")
-	daemon, socket, dir := startSummaryDaemon(t, name, labelFakeClaudeScript)
-	long := filepath.Join(dir, "long.jsonl")
-	writeFile(t, long, strings.Repeat(exampleTranscript, exampleExchanges), 0o600)
-	short := filepath.Join(dir, "short.jsonl")
-	writeFile(t, short, exampleTranscript, 0o600)
+	daemon, _, dir := startSummaryDaemon(t, name, labelFakeClaudeScript)
 
-	// The first session is labeled at exampleExchanges exchanges.
-	sendHook(t, socket, pane, dir, map[string]any{
-		"hook_event_name":        "Stop",
-		"transcript_path":        long,
-		"last_assistant_message": exampleLastMessage,
-	})
+	// The first session is labeled by its first run, which its busy entry starts at exampleExchanges exchanges.
+	first := startClaudeSession(t, client, dir, pane, dir)
+	first.appendTranscript(t, strings.Repeat(exampleTranscript, exampleExchanges))
+	first.setStatus(t, paneregistry.StatusBusy, "")
 	waitForOption(t, daemon, client, pane, protocol.OptionLabel, exampleLabel)
-	sendHook(t, socket, pane, dir, map[string]any{"hook_event_name": "SessionEnd"})
-	requireOption(t, client, pane, protocol.OptionLabel, "")
+	first.appendTranscript(t, assistantTextLine(t, exampleLastMessage))
+	first.setStatus(t, paneregistry.StatusIdle, "")
+	waitForOption(t, daemon, client, pane, protocol.OptionState, string(protocol.StateDone))
+	first.end(t)
+	waitForOption(t, daemon, client, pane, protocol.OptionLabel, "")
 
 	// The next session has one exchange, far below the first session's label count, yet its first run asks for a label.
-	sendHook(t, socket, pane, dir, map[string]any{
-		"hook_event_name":        "Stop",
-		"transcript_path":        short,
-		"last_assistant_message": exampleFollowUp,
-	})
+	// Its entry starts waiting rather than busy: a busy entry's summary request falls within the throttle of the first
+	// session's runs, which Forget does not reset, and a throttled request runs nothing. The stop is not throttled, so
+	// its run is the session's first, and that run asks for the label.
+	next := startClaudeSession(t, client, dir, pane, dir)
+	next.appendTranscript(t, exampleTranscript)
+	next.setStatus(t, paneregistry.StatusWaiting, paneregistry.WaitingInput)
+	waitForOption(t, daemon, client, pane, protocol.OptionState, string(protocol.StateWaiting))
+	next.appendTranscript(t, assistantTextLine(t, exampleFollowUp))
+	next.setStatus(t, paneregistry.StatusIdle, "")
 	run := waitForRunWithStdin(t, dir, exampleFollowUp)
 	stdin, err := os.ReadFile(filepath.Join(run, "stdin"))
 	if err != nil {
@@ -1539,6 +1487,7 @@ func TestOrrerydAsksLabelAfterSessionEnd(t *testing.T) {
 	if !strings.Contains(string(stdin), labelPrompt) {
 		t.Fatalf("next session's run stdin lacks %q; stdin %q", labelPrompt, stdin)
 	}
+	waitForOption(t, daemon, client, pane, protocol.OptionState, string(protocol.StateDone))
 	wantExit(t, daemon.stop(t), 0)
 }
 
@@ -1667,28 +1616,26 @@ func TestOrrerydMarksViewedPaneSeenOnDone(t *testing.T) {
 	paneB := strings.TrimSpace(out)
 
 	view := attachViewer(t, inner, name)
-	_, socket, dir := startSummaryDaemon(t, name, fakeClaudeScript)
-	transcript := filepath.Join(dir, "transcript.jsonl")
-	writeFile(t, transcript, exampleTranscript, 0o600)
+	daemon, _, dir := startSummaryDaemon(t, name, fakeClaudeScript)
+	sessionA := startClaudeSession(t, inner, dir, paneA, dir)
+	sessionA.appendTranscript(t, exampleTranscript)
+	sessionB := startClaudeSession(t, inner, dir, paneB, dir)
+	sessionB.appendTranscript(t, exampleTranscript)
 	view.typeKey(t)
 
-	prompt := map[string]any{"hook_event_name": "UserPromptSubmit", "transcript_path": transcript}
-	stop := map[string]any{
-		"hook_event_name":        "Stop",
-		"transcript_path":        transcript,
-		"last_assistant_message": exampleLastMessage,
-	}
+	// paneB finishes first. The observer runs under the daemon's lock, and the updates for paneA wait for that lock, so
+	// paneA's seen mark cannot land before paneB's observer has returned.
+	sessionB.setStatus(t, paneregistry.StatusBusy, "")
+	waitForOption(t, daemon, inner, paneB, protocol.OptionState, string(protocol.StateWorking))
+	sessionB.appendTranscript(t, assistantTextLine(t, exampleLastMessage))
+	sessionB.setStatus(t, paneregistry.StatusIdle, "")
+	waitForOption(t, daemon, inner, paneB, protocol.OptionState, string(protocol.StateDone))
 
-	// paneB finishes first. The observer runs under the daemon's lock, and the frames for paneA wait for that lock,
-	// so paneA's seen mark cannot land before paneB's observer has returned.
-	sendHook(t, socket, paneB, dir, prompt)
-	sendHook(t, socket, paneB, dir, stop)
-	requireOption(t, inner, paneB, protocol.OptionState, string(protocol.StateDone))
-
-	sendHook(t, socket, paneA, dir, prompt)
-	requireOption(t, inner, paneA, protocol.OptionState, string(protocol.StateWorking))
-	sendHook(t, socket, paneA, dir, stop)
-	requireOption(t, inner, paneA, protocol.OptionState, string(protocol.StateDone))
+	sessionA.setStatus(t, paneregistry.StatusBusy, "")
+	waitForOption(t, daemon, inner, paneA, protocol.OptionState, string(protocol.StateWorking))
+	sessionA.appendTranscript(t, assistantTextLine(t, exampleLastMessage))
+	sessionA.setStatus(t, paneregistry.StatusIdle, "")
+	waitForOption(t, daemon, inner, paneA, protocol.OptionState, string(protocol.StateDone))
 	waitUntil(t, func() bool {
 		return readOption(t, inner, paneA, protocol.OptionSeen) != ""
 	})
@@ -3421,7 +3368,10 @@ func startPushDaemon(
 		"-L", server, "--socket", socket, "--judge-delay", judgeDelay, "--claude", fakeClaude,
 		"--summary-model", exampleContextName + "=" + exampleModel, "--push-host", "127.0.0.1",
 	}, extra)
-	daemon := startBinary(t, "orreryd", scrubbedEnv("XDG_STATE_HOME="+stateHome, "SSL_CERT_FILE="+roots), args...)
+	// HOME is dir, so the daemon's session registry is the test's own and not the developer's, whose live sessions would
+	// otherwise bind this server's panes.
+	daemon := startBinary(t, "orreryd",
+		scrubbedEnv("XDG_STATE_HOME="+stateHome, "SSL_CERT_FILE="+roots, "HOME="+dir), args...)
 	daemon.waitForListener(t, socket)
 	return daemon, socket
 }
@@ -3541,22 +3491,15 @@ func TestOrrerydPushesEncryptedNotifications(t *testing.T) {
 	stateHome := filepath.Join(dir, "state")
 	endpoint := newPushEndpoint(t)
 	registerPush(t, stateHome, endpoint)
-	daemon, socket := startPushDaemon(t, name, dir, stateHome, endpoint)
-	transcript := filepath.Join(dir, "transcript.jsonl")
-	writeFile(t, transcript, exampleTranscript, 0o600)
-
-	sendHook(t, socket, pane, dir, map[string]any{
-		"hook_event_name": "PermissionRequest",
-		"tool_name":       "example-tool",
-		"tool_input":      map[string]any{"command": "example"},
-	})
+	daemon, _ := startPushDaemon(t, name, dir, stateHome, endpoint)
+	session := startClaudeSession(t, client, dir, pane, dir)
+	session.appendTranscript(t, exampleTranscript)
+	session.appendTranscript(t, toolUseLine(t, "toolu_example", "example-tool", map[string]any{"command": "example"}))
+	session.setStatus(t, paneregistry.StatusWaiting, paneregistry.WaitingPermission)
 	assertPushed(t, endpoint, pane, protocol.StateWaiting)
 
-	sendHook(t, socket, pane, dir, map[string]any{
-		"hook_event_name":        "Stop",
-		"transcript_path":        transcript,
-		"last_assistant_message": exampleLastMessage,
-	})
+	session.appendTranscript(t, assistantTextLine(t, exampleLastMessage))
+	session.setStatus(t, paneregistry.StatusIdle, "")
 	assertPushed(t, endpoint, pane, protocol.StateDone)
 
 	// orreryd awaits every notification before it exits, so a request still queued after the stop is an extra one.
@@ -3577,13 +3520,11 @@ func TestOrrerydPushFailureHidesEndpointURL(t *testing.T) {
 	closed := newPushEndpoint(t)
 	closed.drop.Store(true)
 	registerPush(t, stateHome, live, closed)
-	daemon, socket := startPushDaemon(t, name, dir, stateHome, live)
+	daemon, _ := startPushDaemon(t, name, dir, stateHome, live)
 
-	sendHook(t, socket, pane, dir, map[string]any{
-		"hook_event_name": "PermissionRequest",
-		"tool_name":       "example-tool",
-		"tool_input":      map[string]any{"command": "example"},
-	})
+	session := startClaudeSession(t, client, dir, pane, dir)
+	session.appendTranscript(t, toolUseLine(t, "toolu_example", "example-tool", map[string]any{"command": "example"}))
+	session.setStatus(t, paneregistry.StatusWaiting, paneregistry.WaitingPermission)
 	assertPushed(t, live, pane, protocol.StateWaiting)
 
 	out := daemon.stop(t)
