@@ -7,10 +7,15 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.LocalMinimumInteractiveComponentSize
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.assertHeightIsEqualTo
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
@@ -18,7 +23,15 @@ import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import io.github.joshsymonds.orrery.R
+import io.github.joshsymonds.orrery.api.Pane
 import io.github.joshsymonds.orrery.mainThreadComposeRule
+import io.github.joshsymonds.orrery.ui.Ask
+import io.github.joshsymonds.orrery.ui.AskPhase
+import io.github.joshsymonds.orrery.ui.MarkdownBody
+import io.github.joshsymonds.orrery.ui.ToolCall
+import io.github.joshsymonds.orrery.ui.ToolLine
+import io.github.joshsymonds.orrery.ui.paneAsk
+import io.github.joshsymonds.orrery.ui.parseMarkdown
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertSame
 import org.junit.Rule
@@ -184,5 +197,99 @@ class ThemeTest {
         captured.forEach { (name, style) ->
             assertEquals(name, OrreryInter, style.fontFamily)
         }
+    }
+
+    @Test
+    fun markdownCodeBlockDrawsInOrreryMonoAtTheCodeSize() {
+        setInTheme { MarkdownBody(parseMarkdown("```\nsynthetic code block\n```")) }
+
+        val style = textLayoutOf("synthetic code block").layoutInput.style
+        assertEquals(OrreryMono, style.fontFamily)
+        assertEquals(OrreryTokens.Type.code.fontSize, style.fontSize)
+    }
+
+    @Test
+    fun replyParagraphDrawsInInterAndItsInlineCodeInOrreryMonoAtTheCodeSize() {
+        setInTheme { MarkdownBody(parseMarkdown("synthetic reply with `synthetic code` inline")) }
+
+        val layout = textLayoutOf("synthetic reply with synthetic code inline")
+        assertEquals(OrreryInter, layout.layoutInput.style.fontFamily)
+        val code = codeSpanOf(layout, "synthetic code")
+        assertEquals(OrreryMono, code.fontFamily)
+        assertEquals(OrreryTokens.Type.code.fontSize, code.fontSize)
+    }
+
+    @Test
+    fun askCommandDrawsInOrreryMonoAtTheCodeSize() {
+        val model = checkNotNull(paneAsk(waitingPane("""{"tool":"Bash","input":{"command":"echo synthetic"}}""")))
+        setInTheme {
+            Ask(
+                model = model,
+                now = NOW,
+                phase = AskPhase.OPEN,
+                picked = null,
+                note = "",
+                onAnswer = null,
+                onNotNow = null,
+                onBringBack = null,
+                onDecline = null,
+                onArchive = null,
+                onConfirm = null,
+            )
+        }
+
+        val style = textLayoutOf("echo synthetic").layoutInput.style
+        assertEquals(OrreryMono, style.fontFamily)
+        assertEquals(OrreryTokens.Type.code.fontSize, style.fontSize)
+    }
+
+    @Test
+    fun toolLineInputDrawsInOrreryMonoAtTheCodeSize() {
+        val call = ToolCall(id = "call-1", name = "Read", input = "synthetic input", result = null, error = false)
+        setInTheme { ToolLine(call, expanded = emptySet(), onToggle = {}) }
+
+        val style = textLayoutOf("synthetic input").layoutInput.style
+        assertEquals(OrreryMono, style.fontFamily)
+        assertEquals(OrreryTokens.Type.code.fontSize, style.fontSize)
+    }
+
+    private fun setInTheme(content: @Composable () -> Unit) {
+        composeRule.setContent { OrreryTheme { content() } }
+        composeRule.waitForIdle()
+    }
+
+    /** The text layout of the one node that reads [text], in the unmerged tree. */
+    private fun textLayoutOf(text: String): TextLayoutResult {
+        val layouts = mutableListOf<TextLayoutResult>()
+        val node = composeRule.onNodeWithText(text, useUnmergedTree = true).fetchSemanticsNode()
+        checkNotNull(node.config[SemanticsActions.GetTextLayoutResult].action).invoke(layouts)
+        return layouts.single()
+    }
+
+    /** The style of the one span of [layout] that covers exactly [code]. */
+    private fun codeSpanOf(layout: TextLayoutResult, code: String): SpanStyle {
+        val annotated = layout.layoutInput.text
+        return annotated.spanStyles.single { annotated.text.substring(it.start, it.end) == code }.item
+    }
+
+    private fun waitingPane(question: String): Pane = Pane(
+        id = "%3",
+        host = "example-host",
+        session = "example-session",
+        window = 1,
+        pane = 2,
+        cwd = "/home/user/alpha",
+        command = "claude",
+        state = "waiting",
+        summary = "",
+        label = "label-alpha",
+        changed = NOW - 60,
+        seen = 0L,
+        question = question,
+        questionHash = "hash-1",
+    )
+
+    private companion object {
+        const val NOW = 1_700_000_000L
     }
 }

@@ -180,7 +180,7 @@ internal fun ToolLine(
             text = markedText(AnnotatedString(call.input), base, marks),
             modifier = Modifier.weight(1f),
             color = OrreryTokens.Ink.three,
-            style = OrreryTokens.Type.small,
+            style = OrreryTokens.Type.code,
             maxLines = if (holdsMatch(marks, base, call.input.length)) Int.MAX_VALUE else 1,
             overflow = TextOverflow.Ellipsis,
         )
