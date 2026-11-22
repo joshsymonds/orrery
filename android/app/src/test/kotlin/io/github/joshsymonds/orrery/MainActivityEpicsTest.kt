@@ -530,6 +530,7 @@ class MainActivityEpicsTest {
         awaitNode(hasTestTag("happened:0"))
 
         composeRule.onNodeWithTag("happened:0").performClick()
+        composeRule.onNodeWithTag("happened-open:0", useUnmergedTree = true).performClick()
 
         awaitNode(workerSession)
 

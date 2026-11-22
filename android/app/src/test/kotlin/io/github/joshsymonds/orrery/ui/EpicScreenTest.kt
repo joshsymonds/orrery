@@ -126,7 +126,12 @@ class EpicScreenTest {
         EpicQuestion.newBuilder().setId(id).setText(text).setTurn(1L).setAsked(asked).addAllChoices(choices).build()
 
     private fun historyEntry(time: Long, cursor: String, step: EpicStep): EpicHistoryEntry =
-        EpicHistoryEntry.newBuilder().setTime(time).setCursor(cursor).setStep(step).build()
+        EpicHistoryEntry.newBuilder()
+            .setTime(time)
+            .setCursor(cursor)
+            .setStep(step)
+            .setSentence("${step.task} running")
+            .build()
 
     private fun historyOf(vararg entries: EpicHistoryEntry): EpicsHistoryResponse =
         EpicsHistoryResponse.newBuilder().addAllEntries(entries.toList()).setNext("").build()
@@ -325,8 +330,8 @@ class EpicScreenTest {
             setScreen(server)
             awaitLoaded()
 
-            assertEquals(1, countIn("happened:0", hasText("example-task-2 · started")))
-            assertEquals(1, countIn("happened:1", hasText("example-task-1 · started")))
+            assertEquals(1, countIn("happened:0", hasText("example-task-2 running")))
+            assertEquals(1, countIn("happened:1", hasText("example-task-1 running")))
             assertEquals(2, requestsTo(server, EPICS_HISTORY).size)
         }
     }
