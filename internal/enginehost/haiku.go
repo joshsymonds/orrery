@@ -19,6 +19,14 @@ import (
 // haikuDefaultTimeout applies when HaikuConfig leaves Timeout zero.
 const haikuDefaultTimeout = 60 * time.Second
 
+// haikuResultType is the type of the result line claude -p --output-format json prints.
+const haikuResultType = "result"
+
+// haikuMaxTurns is the --max-turns of a call. A --json-schema answer takes two turns, the structured output's tool call
+// and the reply after it, and a third lets claude retry an answer the schema refused. With one turn, claude ended some
+// calls error_max_turns before the answer.
+const haikuMaxTurns = "3"
+
 // haikuKillGrace bounds how long a killed claude may hold its output pipes open before the run returns.
 const haikuKillGrace = 2 * time.Second
 
@@ -155,10 +163,32 @@ func (h *Haiku) run(ctx context.Context, settings, baseURL, model, schema, input
 		return nil, errors.Join(fmt.Errorf("haiku: claude run: %w", ctx.Err()), killErr, waitErr)
 	}
 	if waitErr != nil {
-		return nil, fmt.Errorf("haiku: claude run: %w: %s", waitErr, strings.TrimSpace(stderr.String()))
+		return nil, fmt.Errorf("haiku: claude run: %w: %s", waitErr, haikuFailure(stdout.Bytes(), stderr.String()))
 	}
 
 	return haikuResultOutput(stdout.Bytes())
+}
+
+// haikuFailure returns what a claude run that exited non-zero said of its failure: the subtype and errors of the result
+// it wrote to stdout, when stdout holds one, since claude -p --output-format json reports there and leaves stderr empty;
+// otherwise stderr, trimmed.
+func haikuFailure(stdout []byte, stderr string) string {
+	var result struct {
+		Type    string   `json:"type"`
+		Subtype string   `json:"subtype"`
+		Errors  []string `json:"errors"`
+	}
+	if json.Unmarshal(stdout, &result) != nil || result.Type != haikuResultType {
+		return strings.TrimSpace(stderr)
+	}
+	detail := "result " + result.Subtype
+	if len(result.Errors) > 0 {
+		detail += ": " + strings.Join(result.Errors, "; ")
+	}
+	if trimmed := strings.TrimSpace(stderr); trimmed != "" {
+		detail += "; stderr: " + trimmed
+	}
+	return detail
 }
 
 // haikuResultOutput returns the structured_output of the one JSON result line claude -p --output-format json
@@ -178,7 +208,7 @@ func haikuResultOutput(stdout []byte) (json.RawMessage, error) {
 			return nil, err
 		}
 	}
-	if typ != "result" {
+	if typ != haikuResultType {
 		return nil, fmt.Errorf("haiku: stdout is a %q message, not a result", typ)
 	}
 	if isError {
@@ -206,15 +236,15 @@ func haikuDecodeField(fields map[string]json.RawMessage, key string, dst any) er
 	return nil
 }
 
-// haikuArgv is the argv after the claude binary: one structured turn on model with settings as its --settings value,
-// no tools, no saved session.
+// haikuArgv is the argv after the claude binary: one structured answer on model, in at most haikuMaxTurns turns, with
+// settings as its --settings value, no tools, no saved session.
 func haikuArgv(model, schema, settings string) []string {
 	return []string{
 		"-p", "--model", model,
 		"--settings", settings,
 		"--no-session-persistence",
 		"--tools", "",
-		"--max-turns", "1",
+		"--max-turns", haikuMaxTurns,
 		"--output-format", "json",
 		"--json-schema", schema,
 	}

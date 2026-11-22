@@ -127,7 +127,7 @@ func haikuWantArgv(settings string) string {
 		"--settings", settings,
 		"--no-session-persistence",
 		"--tools", "",
-		"--max-turns", "1",
+		"--max-turns", "3",
 		"--output-format", "json",
 		"--json-schema", haikuSchema,
 	}
@@ -240,6 +240,15 @@ func TestHaikuCallErrors(t *testing.T) {
 			name:   "nonzero exit carries stderr",
 			fake:   haikuFake{stdout: "", stderr: "boom from claude", status: 3},
 			errHas: "boom from claude",
+		},
+		{
+			name: "nonzero exit carries the result's subtype and errors from stdout",
+			fake: haikuFake{
+				stdout: `{"type":"result","subtype":"error_max_turns","is_error":true,` +
+					`"errors":["Reached maximum number of turns (3)"]}`,
+				status: 1,
+			},
+			errHas: "exit status 1: result error_max_turns: Reached maximum number of turns (3)",
 		},
 		{
 			name:   "stdout is not JSON",
@@ -494,7 +503,7 @@ func TestHaikuCallViaRunsClaudeWithEnvBaseURLAndModel(t *testing.T) {
 			`"CTX_EXAMPLE":"example"},"claudeMdExcludes":["` + haikuMemory + `"]}`,
 		"--no-session-persistence",
 		"--tools", "",
-		"--max-turns", "1",
+		"--max-turns", "3",
 		"--output-format", "json",
 		"--json-schema", haikuSchema,
 	}

@@ -101,8 +101,7 @@ const apiErrorRateLimit = "rate_limit"
 // runs holding the members of grant that pools grants, and its check records gateName and gateSource; a nil pools fails
 // the gate. countLines counts the lines a done return's commit changes from start in dir, and newStepRun makes it
 // stepGitLines when nil. stateDir and scope are the state directory and the systemd-run scope the gate's holder runs
-// under, and
-// scopeMemory is the scope's memory cap in bytes, zero for holder.DefaultScopeMemory. A read-only
+// under. A read-only
 // step runs in dir too, and each of its returns is compared with checkout, the state its checkout was in at its start; a
 // moved checkout ends it checks_failed. A read-only step's done return passes on its schema check alone. A nil cleanup
 // has nothing to run. The watch reads now as its clock, time.Now when now is nil, and allows the step modelLimit of model
@@ -134,23 +133,22 @@ type stepRunConfig struct {
 	publish     func(ctx context.Context, id string)
 	wake        func()
 
-	writing     bool
-	dir         string
-	checkout    stepCheckout
-	start       string
-	owned       []string
-	unowned     bool
-	countLines  func(ctx context.Context, dir, start, commit string) (store.StepLines, error)
-	gate        []string
-	gateLimit   time.Duration
-	environ     []string
-	pools       PoolCommands
-	grant       grants.Request
-	gateName    string
-	gateSource  string
-	stateDir    string
-	scope       string
-	scopeMemory int64
+	writing    bool
+	dir        string
+	checkout   stepCheckout
+	start      string
+	owned      []string
+	unowned    bool
+	countLines func(ctx context.Context, dir, start, commit string) (store.StepLines, error)
+	gate       []string
+	gateLimit  time.Duration
+	environ    []string
+	pools      PoolCommands
+	grant      grants.Request
+	gateName   string
+	gateSource string
+	stateDir   string
+	scope      string
 
 	// restore, when set, is the state a re-adopted step resumes from. run takes it up before it takes any return or
 	// exit.
@@ -1075,7 +1073,7 @@ func (r *stepRun) gateAttemptOf(round int) (int, error) {
 func (r *stepRun) runGateAttempt(ctx context.Context, round, attempt int, prev string) (gateResult, error) {
 	run := gateRun{
 		Argv: r.gate, Dir: r.dir, Limit: r.gateLimit, Environ: r.environ,
-		Name: stepGateSession(r.id, attempt), StateDir: r.stateDir, Scope: r.scope, ScopeMemory: r.scopeMemory,
+		Name: stepGateSession(r.id, attempt), StateDir: r.stateDir, Scope: r.scope,
 		Tail: stepGateLogTail,
 	}
 	if restored := r.resumeGate; restored.Holder != "" && restored.Round == round {

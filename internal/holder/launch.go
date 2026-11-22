@@ -18,12 +18,6 @@ import (
 // LaunchTimeout is how long Launch waits for a holder to serve its socket.
 const LaunchTimeout = 30 * time.Second
 
-// DefaultScopeMemory is the memory cap, in bytes, of a holder's scope whose launch names none: 8 GiB. Of the 6,601
-// holder scopes one host ran over 14 days, 98% peaked under it, page cache included, which the kernel reclaims before
-// it kills anything at the cap. The runaways peaked at 20 to 30 GiB on a 60 GiB host, so the cap ends a runaway long
-// before it starves the host, while a build or test run that peaks at a few GiB never meets it.
-const DefaultScopeMemory int64 = 8 << 30
-
 // launchDialEvery is how often Launch dials a holder's socket while the holder does not serve it yet.
 const launchDialEvery = 10 * time.Millisecond
 
@@ -39,9 +33,6 @@ type LaunchConfig struct {
 	// Scope is the absolute path of systemd-run, which runs the holder in its own user scope. Empty starts the holder
 	// plainly.
 	Scope string
-	// ScopeMemory is the scope's memory cap in bytes, its MemoryMax, with no swap beyond it. Zero takes
-	// DefaultScopeMemory. It is read only when Scope is set.
-	ScopeMemory int64
 	// StateDir is the state directory whose holders subdirectory holds the session. Empty takes a fresh directory that
 	// is removed once the holder ends or the launch fails. A gate needs a StateDir, since its caller clears the session's
 	// directory and no caller can reach a fresh one.
@@ -167,10 +158,10 @@ func launchIn(ctx context.Context, cfg LaunchConfig, orrery, stateDir string, pr
 // holderCommand returns the program and argument vector that start the holder: orrery holder, with the session, the
 // state directory, a positive gate limit as --gate-limit with a non-empty gate limit signal as --gate-limit-signal and
 // a positive gate tail as --gate-tail, and the child's path and arguments after the separator. When cfg.Scope is set,
-// the program is the scope, named unit, and orrery's argv follows the scope's arguments. The scope caps its memory at
-// cfg.ScopeMemory, or DefaultScopeMemory when that is zero, and swaps none, so the kernel kills a process of the scope
-// that would pass the cap. OOMPolicy=continue keeps the scope, and with it the holder, running past that kill, so the
-// holder records it in the exit record.
+// the program is the scope, named unit, and orrery's argv follows the scope's arguments. The scope's memory cap is the
+// host's: a systemd drop-in for orrery-hold-*.scope units sets it, as it does for terminal scopes. OOMPolicy=continue
+// keeps the scope, and with it the holder, running past a kill at that cap, so the holder records it in the exit
+// record.
 func holderCommand(cfg LaunchConfig, orrery, stateDir, unit string) (string, []string) {
 	argv := []string{"holder", "--session", cfg.Session, "--state-dir", stateDir}
 	if cfg.GateLimit > 0 {
@@ -187,13 +178,8 @@ func holderCommand(cfg LaunchConfig, orrery, stateDir, unit string) (string, []s
 	if cfg.Scope == "" {
 		return orrery, argv
 	}
-	memory := cfg.ScopeMemory
-	if memory <= 0 {
-		memory = DefaultScopeMemory
-	}
 	scoped := append([]string{
-		"--user", "--scope", "--collect", "-p", "OOMPolicy=continue",
-		"-p", "MemoryMax=" + strconv.FormatInt(memory, 10), "-p", "MemorySwapMax=0", "--unit", unit, orrery,
+		"--user", "--scope", "--collect", "-p", "OOMPolicy=continue", "--unit", unit, orrery,
 	}, argv...)
 	return cfg.Scope, scoped
 }

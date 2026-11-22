@@ -141,8 +141,7 @@ type StepStore interface {
 // time.Now when nil. NewTimer arms each started step's deadline timer, a timer that sends on its channel once after a
 // duration and returns the timer's stop; a nil NewTimer wraps time.NewTimer.
 // GateStateDir is the state directory each gate's holder lives under, and a directory under os.TempDir when empty.
-// GateScope is the systemd-run scope each gate's holder runs in, and empty runs it without one. GateScopeMemory is that
-// scope's memory cap in bytes, and zero takes holder.DefaultScopeMemory. With GateScope set, Close
+// GateScope is the systemd-run scope each gate's holder runs in, and empty runs it without one. With GateScope set, Close
 // leaves a running gate under its holder for a restarted Steps to re-adopt; without it, Close kills the gate.
 // ReadoptCheck returns the return check a step row is re-adopted with: a return check is Go-only, so the row cannot hold
 // it, and the caller that started the step supplies it again. A nil ReadoptCheck, or one that returns a nil check,
@@ -155,23 +154,22 @@ type StepStore interface {
 // EpicWake, when set, is called with the epic of each stored end or hold whose step has an epic, after Stored, so a caller
 // can wake that epic's flow. A nil EpicWake does nothing.
 type StepsConfig struct {
-	Sessions        stepSessions
-	Store           StepStore
-	Writer          *Writer
-	Pools           PoolCommands
-	Worktrees       string
-	Environ         []string
-	Logger          *slog.Logger
-	Haiku           *Haiku
-	Now             func() time.Time
-	NewTimer        func(time.Duration) (<-chan time.Time, func() bool)
-	GateStateDir    string
-	GateScope       string
-	GateScopeMemory int64
-	ReadoptCheck    func(ctx context.Context, row store.StepRow) (func(value json.RawMessage) []string, error)
-	ReadoptGate     func(ctx context.Context, row store.StepRow) (*gates.Gate, error)
-	Stored          func()
-	EpicWake        func(epic string)
+	Sessions     stepSessions
+	Store        StepStore
+	Writer       *Writer
+	Pools        PoolCommands
+	Worktrees    string
+	Environ      []string
+	Logger       *slog.Logger
+	Haiku        *Haiku
+	Now          func() time.Time
+	NewTimer     func(time.Duration) (<-chan time.Time, func() bool)
+	GateStateDir string
+	GateScope    string
+	ReadoptCheck func(ctx context.Context, row store.StepRow) (func(value json.RawMessage) []string, error)
+	ReadoptGate  func(ctx context.Context, row store.StepRow) (*gates.Gate, error)
+	Stored       func()
+	EpicWake     func(epic string)
 }
 
 // StepAdopter is what Readopt registers each open step with, and what Reconcile asks whether the step is live. Manager
@@ -189,23 +187,22 @@ type StepAdopter interface {
 // the StepsConfig Stored callback, epicWake is the StepsConfig EpicWake callback, and subs holds each subscription Subscribe
 // registered and Close has not removed.
 type Steps struct {
-	sessions        stepSessions
-	store           StepStore
-	writer          *Writer
-	pools           PoolCommands
-	worktrees       string
-	environ         []string
-	logger          *slog.Logger
-	haiku           *Haiku
-	now             func() time.Time
-	newTimer        func(time.Duration) (<-chan time.Time, func() bool)
-	gateStateDir    string
-	gateScope       string
-	gateScopeMemory int64
-	readoptCheck    func(ctx context.Context, row store.StepRow) (func(value json.RawMessage) []string, error)
-	readoptGate     func(ctx context.Context, row store.StepRow) (*gates.Gate, error)
-	stored          func()
-	epicWake        func(epic string)
+	sessions     stepSessions
+	store        StepStore
+	writer       *Writer
+	pools        PoolCommands
+	worktrees    string
+	environ      []string
+	logger       *slog.Logger
+	haiku        *Haiku
+	now          func() time.Time
+	newTimer     func(time.Duration) (<-chan time.Time, func() bool)
+	gateStateDir string
+	gateScope    string
+	readoptCheck func(ctx context.Context, row store.StepRow) (func(value json.RawMessage) []string, error)
+	readoptGate  func(ctx context.Context, row store.StepRow) (*gates.Gate, error)
+	stored       func()
+	epicWake     func(epic string)
 
 	mu       sync.Mutex
 	loops    map[string]context.CancelFunc
@@ -234,29 +231,28 @@ func NewSteps(cfg StepsConfig) *Steps {
 		}
 	}
 	steps := &Steps{
-		sessions:        cfg.Sessions,
-		store:           cfg.Store,
-		writer:          cfg.Writer,
-		pools:           cfg.Pools,
-		worktrees:       cfg.Worktrees,
-		environ:         cfg.Environ,
-		logger:          logger,
-		haiku:           cfg.Haiku,
-		now:             cfg.Now,
-		newTimer:        newTimer,
-		gateStateDir:    cfg.GateStateDir,
-		gateScope:       cfg.GateScope,
-		gateScopeMemory: cfg.GateScopeMemory,
-		readoptCheck:    cfg.ReadoptCheck,
-		readoptGate:     cfg.ReadoptGate,
-		stored:          cfg.Stored,
-		epicWake:        cfg.EpicWake,
-		loops:           map[string]context.CancelFunc{},
-		causes:          map[string]context.CancelCauseFunc{},
-		runs:            map[string]*stepRun{},
-		adopted:         map[string]*stepRun{},
-		starting:        map[string]bool{},
-		subs:            map[*StepSubscription]bool{},
+		sessions:     cfg.Sessions,
+		store:        cfg.Store,
+		writer:       cfg.Writer,
+		pools:        cfg.Pools,
+		worktrees:    cfg.Worktrees,
+		environ:      cfg.Environ,
+		logger:       logger,
+		haiku:        cfg.Haiku,
+		now:          cfg.Now,
+		newTimer:     newTimer,
+		gateStateDir: cfg.GateStateDir,
+		gateScope:    cfg.GateScope,
+		readoptCheck: cfg.ReadoptCheck,
+		readoptGate:  cfg.ReadoptGate,
+		stored:       cfg.Stored,
+		epicWake:     cfg.EpicWake,
+		loops:        map[string]context.CancelFunc{},
+		causes:       map[string]context.CancelCauseFunc{},
+		runs:         map[string]*stepRun{},
+		adopted:      map[string]*stepRun{},
+		starting:     map[string]bool{},
+		subs:         map[*StepSubscription]bool{},
 	}
 	steps.idle = sync.NewCond(&steps.mu)
 	return steps
@@ -325,7 +321,7 @@ func (s *Steps) Start(ctx context.Context, start StepStart) (string, error) {
 		gate:      gate.argv,
 		gateLimit: gateLimit, gateName: gate.name, gateSource: gate.source, grant: gate.grant, pools: s.pools,
 		environ: s.environ, prompt: start.Prompt, now: s.now, modelLimit: modelLimit, agentGate: gate.agent,
-		stateDir: s.gateStateDir, scope: s.gateScope, scopeMemory: s.gateScopeMemory, returnCheck: start.ReturnCheck,
+		stateDir: s.gateStateDir, scope: s.gateScope, returnCheck: start.ReturnCheck,
 		publish: s.publish,
 		wake:    s.stored,
 	}

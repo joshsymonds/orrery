@@ -132,8 +132,7 @@ type Store interface {
 // Notifier receives the notices of their state changes (nil sends none), Store is the engine rows Reconcile, Say and
 // Seen read and Logger reports pump errors (nil discards). HolderScope is the absolute path of systemd-run that runs
 // each session's holder in its own user scope, or empty to run holders plainly; with it set, Close detaches the
-// sessions instead of stopping them, so their holders keep running. HolderScopeMemory is that scope's memory cap in
-// bytes, or zero for holder.DefaultScopeMemory. StateDir is the state directory that holds the
+// sessions instead of stopping them, so their holders keep running. StateDir is the state directory that holds the
 // sessions' holders, or empty for a private directory per session. ManagedDir is the managed settings root that a
 // step's agent resolves under, or empty to read none. HolderVersion is the holder wire version this manager's controller
 // speaks when it re-adopts a holder, or zero for holder.WireVersion. Metrics counts each holder lost in re-adoption, or
@@ -153,24 +152,23 @@ type Store interface {
 // when nil. Panes reads the panes' questions and reports a pane seen to the notice router, which NotNow and BringBack of a
 // pane need, so it refuses a pane call as unavailable when nil.
 type Config struct {
-	Shell             string
-	Claude            string
-	Environ           []string
-	HolderScope       string
-	HolderScopeMemory int64
-	StateDir          string
-	ManagedDir        string
-	HolderVersion     int
-	Writer            *Writer
-	Now               func() time.Time
-	Notifier          NoticeSink
-	Store             Store
-	Logger            *slog.Logger
-	Metrics           *telemetry.Daemon
-	CronWake          func(session string)
-	EventWake         func()
-	PutOffs           PutOffStore
-	Panes             PaneQuestions
+	Shell         string
+	Claude        string
+	Environ       []string
+	HolderScope   string
+	StateDir      string
+	ManagedDir    string
+	HolderVersion int
+	Writer        *Writer
+	Now           func() time.Time
+	Notifier      NoticeSink
+	Store         Store
+	Logger        *slog.Logger
+	Metrics       *telemetry.Daemon
+	CronWake      func(session string)
+	EventWake     func()
+	PutOffs       PutOffStore
+	Panes         PaneQuestions
 
 	// AfterFunc arms a timer that calls the function once after the duration, and returns the function that stops the
 	// timer, as time.AfterFunc does. A nil AfterFunc wraps time.AfterFunc. The idle deadline of each session is armed
@@ -239,10 +237,8 @@ type Manager struct {
 	claude      string
 	environ     []string
 	holderScope string
-	// holderScopeMemory is the memory cap of each holder's scope, in bytes, or zero for holder.DefaultScopeMemory.
-	holderScopeMemory int64
-	stateDir          string
-	managedDir        string
+	stateDir    string
+	managedDir  string
 	// holderVersion is the holder wire version the controller speaks when it re-adopts a holder.
 	holderVersion int
 	// attachTimeout bounds a re-adoption's attach in place of holder.AttachTimeout when it is not zero. Tests set it.
@@ -325,33 +321,32 @@ type Manager struct {
 // NewManager returns a Manager for cfg.
 func NewManager(cfg Config) *Manager {
 	manager := &Manager{
-		shell:             cfg.Shell,
-		claude:            cfg.Claude,
-		environ:           cfg.Environ,
-		holderScope:       cfg.HolderScope,
-		holderScopeMemory: cfg.HolderScopeMemory,
-		stateDir:          cfg.StateDir,
-		managedDir:        cfg.ManagedDir,
-		holderVersion:     cfg.HolderVersion,
-		writer:            cfg.Writer,
-		now:               cfg.Now,
-		afterFunc:         cfg.AfterFunc,
-		notifier:          cfg.Notifier,
-		store:             cfg.Store,
-		logger:            cfg.Logger,
-		metrics:           cfg.Metrics,
-		cronWake:          cfg.CronWake,
-		eventWake:         cfg.EventWake,
-		putOffs:           cfg.PutOffs,
-		panes:             cfg.Panes,
-		sessions:          map[string]*liveSession{},
-		stopping:          map[string]*liveSession{},
-		stepObservers:     map[string]StepObserver{},
-		kept:              map[string]*liveSession{},
-		quiet:             map[string]struct{}{},
-		attempts:          map[attemptKey]*attempt{},
-		idleDue:           make(chan struct{}),
-		idleQuit:          make(chan struct{}),
+		shell:         cfg.Shell,
+		claude:        cfg.Claude,
+		environ:       cfg.Environ,
+		holderScope:   cfg.HolderScope,
+		stateDir:      cfg.StateDir,
+		managedDir:    cfg.ManagedDir,
+		holderVersion: cfg.HolderVersion,
+		writer:        cfg.Writer,
+		now:           cfg.Now,
+		afterFunc:     cfg.AfterFunc,
+		notifier:      cfg.Notifier,
+		store:         cfg.Store,
+		logger:        cfg.Logger,
+		metrics:       cfg.Metrics,
+		cronWake:      cfg.CronWake,
+		eventWake:     cfg.EventWake,
+		putOffs:       cfg.PutOffs,
+		panes:         cfg.Panes,
+		sessions:      map[string]*liveSession{},
+		stopping:      map[string]*liveSession{},
+		stepObservers: map[string]StepObserver{},
+		kept:          map[string]*liveSession{},
+		quiet:         map[string]struct{}{},
+		attempts:      map[attemptKey]*attempt{},
+		idleDue:       make(chan struct{}),
+		idleQuit:      make(chan struct{}),
 	}
 	if manager.holderVersion == 0 {
 		manager.holderVersion = holder.WireVersion
@@ -2073,21 +2068,20 @@ func (m *Manager) spawn(ctx context.Context, id, dir string, sp spawnSpec) (*ses
 		return nil, fmt.Errorf("launch session %s: %w", id, err)
 	}
 	sess, err := session.Start(ctx, session.Config{
-		Shell:             m.shell,
-		Claude:            claude,
-		Dir:               dir,
-		PermissionMode:    permissionMode,
-		Settings:          settings,
-		Resume:            sp.claudeSession,
-		Model:             sp.model,
-		Agent:             sp.agent,
-		Agents:            sp.agents,
-		Schema:            sp.schema,
-		Name:              id,
-		HolderScope:       m.holderScope,
-		HolderScopeMemory: m.holderScopeMemory,
-		StateDir:          m.stateDir,
-		Environ:           m.environ,
+		Shell:          m.shell,
+		Claude:         claude,
+		Dir:            dir,
+		PermissionMode: permissionMode,
+		Settings:       settings,
+		Resume:         sp.claudeSession,
+		Model:          sp.model,
+		Agent:          sp.agent,
+		Agents:         sp.agents,
+		Schema:         sp.schema,
+		Name:           id,
+		HolderScope:    m.holderScope,
+		StateDir:       m.stateDir,
+		Environ:        m.environ,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("spawn session %s: %w", id, err)

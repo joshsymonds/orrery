@@ -100,12 +100,12 @@ const scopeGlobStopLine = "--user stop orrery-hold-" + testSession + "-?????????
 // nonce of hex digits.
 var scopeUnitPattern = regexp.MustCompile("^" + regexp.QuoteMeta(scopeUnitPrefix+testSession) + "-[0-9a-f]{16}$")
 
-// scopeArgs returns the arguments that put a holder of testSession in its own user scope named unit, capped at
-// DefaultScopeMemory, before the holder's argv.
+// scopeArgs returns the arguments that put a holder of testSession in its own user scope named unit, before the holder's
+// argv. They set no memory cap, which the host's drop-in for orrery-hold-*.scope units sets.
 func scopeArgs(unit string) []string {
 	return []string{
 		"--user", "--scope", "--collect", "-p", "OOMPolicy=continue",
-		"-p", "MemoryMax=8589934592", "-p", "MemorySwapMax=0", "--unit", unit,
+		"--unit", unit,
 	}
 }
 
