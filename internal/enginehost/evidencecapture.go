@@ -277,7 +277,7 @@ func (c evidenceCapture) keepArtifact(
 	}
 	// A file over the cap is refused on its size before it is read, so a large one is never held in memory.
 	if info.Size() > evidenceCaptureArtifactCap {
-		return store.EvidenceArtifact{Path: path, State: artifactOverCap,Size: info.Size()}, nil
+		return store.EvidenceArtifact{Path: path, State: artifactOverCap, Size: info.Size()}, nil
 	}
 	data, err := host.ReadRooted(ctx, worktree, path)
 	switch {
@@ -288,13 +288,13 @@ func (c evidenceCapture) keepArtifact(
 	}
 	// The file may have grown since it was stat'ed, so its read is checked against the cap as well.
 	if int64(len(data)) > evidenceCaptureArtifactCap {
-		return store.EvidenceArtifact{Path: path, State: artifactOverCap,Size: int64(len(data))}, nil
+		return store.EvidenceArtifact{Path: path, State: artifactOverCap, Size: int64(len(data))}, nil
 	}
 	hash, name, err := c.blobs.put(data, evidenceExt(path))
 	if err != nil {
 		return store.EvidenceArtifact{}, err
 	}
-	return store.EvidenceArtifact{Path: path, State: artifactKept,Hash: hash, Blob: name, Size: int64(len(data))}, nil
+	return store.EvidenceArtifact{Path: path, State: artifactKept, Hash: hash, Blob: name, Size: int64(len(data))}, nil
 }
 
 // artifactFile returns the stat of path in worktree and true when path is a regular file inside worktree, whose resolved
