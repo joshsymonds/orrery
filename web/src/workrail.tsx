@@ -1,8 +1,9 @@
 import type { ComponentChildren, JSX } from "preact";
 import { useEffect, useRef, useState } from "preact/hooks";
 
+import { EpicMark } from "./epicmark";
 import { Sheet } from "./sheet";
-import type { Gauge, ListThing, RailGroup, Thing } from "./work";
+import type { ListThing, RailGroup, Thing } from "./work";
 
 export interface WorkRailProps {
   groups: RailGroup[];
@@ -34,7 +35,7 @@ export function WorkRail({ groups, lit, layout, onOpen, end }: WorkRailProps): J
   );
 }
 
-// Tile draws one thing as a tile: an epic's gauge, a contract's doc, or a list's icon. An epic or a contract draws its
+// Tile draws one thing as a tile: an epic's mark, a contract's doc, or a list's icon. An epic or a contract draws its
 // short name, and ? when it asks, and a list draws its count. lit marks the tile whose panel is open.
 export function Tile({
   thing,
@@ -48,7 +49,7 @@ export function Tile({
   const title = titleOf(thing);
   const face =
     thing.kind === "epic" ? (
-      <GaugeRing gauge={thing.gauge} />
+      <EpicMark detail={thing.detail} size={24} />
     ) : (
       <Icon path={thing.kind === "contract" ? docIcon : listIcons[thing.kind]} />
     );
@@ -137,7 +138,7 @@ function GroupView({ group, lit, layout, onOpen }: GroupViewProps): JSX.Element 
   };
   const rows = group.things.map((thing) => (
     <button type="button" key={thing.key} class="rpick-row" role="menuitem" onClick={() => choose(thing)}>
-      {thing.kind === "epic" && <GaugeRing gauge={thing.gauge} />}
+      {thing.kind === "epic" && <EpicMark detail={thing.detail} size={24} />}
       <span class="t">{nameOf(thing)}</span>
       <span class="s">{wordsOf(thing)}</span>
     </button>
@@ -186,22 +187,6 @@ function GroupView({ group, lit, layout, onOpen }: GroupViewProps): JSX.Element 
   );
 }
 
-// GaugeRing draws an epic's gauge: a planned ring, with its started and done arcs as shares of its total.
-function GaugeRing({ gauge }: { gauge: Gauge }): JSX.Element {
-  const total = Math.max(1, gauge.total);
-  const started = (100 * (gauge.done + gauge.started)) / total;
-  const done = (100 * gauge.done) / total;
-  const label = gauge.total > 0 ? `${gauge.done} of ${gauge.total} tasks done` : "no tasks yet";
-  return (
-    <svg class="gauge" viewBox="0 0 24 24" role="img" aria-label={label}>
-      <title>{label}</title>
-      <circle class="planned" cx="12" cy="12" r="9" />
-      {started > 0 && <Arc klass="started" share={started} />}
-      {done > 0 && <Arc klass="done" share={done} />}
-    </svg>
-  );
-}
-
 // listIcons is each list's drawing, round 6's: the agents' star, and the running shell's prompt. docIcon is a
 // contract's, round 6's doc.
 const listIcons: Record<ListThing["kind"], string> = {
@@ -210,7 +195,7 @@ const listIcons: Record<ListThing["kind"], string> = {
 };
 const docIcon = "M4 2h5l3 3v9H4zM9 2v3h3M6 8h4M6 11h4";
 
-// Icon draws a tile's icon, stroked in the current colour, where an epic draws its gauge.
+// Icon draws a tile's icon, stroked in the current colour, where an epic draws its mark.
 function Icon({ path }: { path: string }): JSX.Element {
   return (
     <svg class="icon" viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor">
@@ -222,21 +207,6 @@ function Icon({ path }: { path: string }): JSX.Element {
 // asksOf is whether a thing asks: an epic or a contract while it has an open need or decision. A list never asks.
 function asksOf(thing: Thing): boolean {
   return thing.kind === "epic" || thing.kind === "contract" ? thing.asks : false;
-}
-
-// Arc draws one arc of a gauge's ring, share percent of the way round from the top.
-function Arc({ klass, share }: { klass: string; share: number }): JSX.Element {
-  return (
-    <circle
-      class={klass}
-      cx="12"
-      cy="12"
-      r="9"
-      pathLength={100}
-      stroke-dasharray={`${share.toFixed(1)} 100`}
-      transform="rotate(-90 12 12)"
-    />
-  );
 }
 
 // nameOf is what a thing is called: an epic's or a contract's slug, or a list's key.

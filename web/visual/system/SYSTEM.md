@@ -210,7 +210,6 @@ Names are story names: `Component/State`. The catalogue draws each component in 
 | Pill | Neutral, Live, Attention, Ok, Engine; WithGlyph |
 | Meter | Ok, Warn, Crit; NoBar; Stacked (touch) |
 | ContextMeter | Ok, Warn, Crit; Bare |
-| Gauge | Building, AsksYou, NoTasks, Paused, Releasing, Shipped, EndedShort |
 | EpicMark | Running, Asks, Paused, Releasing, Shipped, EndedShort. A rim of one segment per requirement, toned by its state, and the centre: the proven count, or a glyph; 32 in the inbox row, 24 elsewhere |
 | Pips | Running, Held, Limited, Failed, Accepted, Done, NotStarted. Five cells: red, implement, green, review, integrate. |
 | CommitMark | Default |
@@ -300,7 +299,7 @@ composables under `android/.../ui`.
 |---|---|---|
 | Inbox, Dir | `.list`, the three views of `App`, `rows.ts` sections | `PaneListScreen`, `treeRows` in `PaneTree.kt`, `EpicsGroup` |
 | InboxRow | `.b-row`, `TitleParts` | the pane row of `PaneListScreen` |
-| EpicRow, StepRow, Gauge | `EpicLine` and its mini orrery, `.b-row.step` | `EpicsGroup` lines, `EpicLine.kt` |
+| EpicRow, StepRow, EpicMark | `EpicLine` and its mini orrery, `.b-row.step` | `EpicsGroup` lines, `EpicLine.kt` |
 | TitleRow, MeterStrip | `TitleRow`, `Strip` | `TitleRow.kt`, `PaneHeader`, `HostMeters` |
 | Dock | `Composer` with its queue, `StepBox`, the pill of `workline.tsx` | `ComposeBox`, `StatusLine`, `SessionControls`, `StepControls`, `QuickKeys` |
 | WorkRail, SidePanel | `.epic-card`, waiting cards, background rows, all in the transcript today | `GoalLine`; the rest is not drawn |

@@ -1,6 +1,6 @@
-// The round-6 glyphs: the icon set, the state glyphs and an epic's gauge. Every drawing is on a 16 grid
-// (the gauge's on 24), stroked in currentColor, so each takes its colour from the text around it. The data-state and
-// data-tone attributes carry the colour rules the stylesheet sets.
+// The round-6 glyphs: the icon set and the state glyphs. Every drawing is on a 16 grid, stroked in currentColor, so each
+// takes its colour from the text around it. The data-state and data-tone attributes carry the colour rules the
+// stylesheet sets.
 
 import type { JSX } from "preact";
 
@@ -165,58 +165,6 @@ export function StateGlyph({ state }: { state: string }): JSX.Element {
       <title>{word}</title>
       {stateDrawing(name)}
     </svg>
-  );
-}
-
-// GaugeInner is the mark an epic's gauge draws at its centre.
-export type GaugeInner = "check" | "dash" | "dot";
-
-// Gauge draws an epic's one-ring gauge: the done share of its tasks, the started share after it, and the planned ring.
-// tone is the colour the stylesheet sets; inner is the mark at the centre, if any.
-export function Gauge({
-  done = 0,
-  started = 0,
-  total = 0,
-  tone,
-  inner,
-}: {
-  done?: number;
-  started?: number;
-  total?: number;
-  tone?: string;
-  inner?: GaugeInner;
-}): JSX.Element {
-  const size = Math.max(1, total);
-  const doneShare = (100 * done) / size;
-  const startedShare = (100 * (done + started)) / size;
-  const label = total ? `${done} of ${total} tasks done` : "no tasks yet";
-  return (
-    <svg class="gauge" viewBox="0 0 24 24" role="img" aria-label={label} data-tone={tone}>
-      <title>{label}</title>
-      <circle class="planned" cx="12" cy="12" r="9" stroke-dasharray={total ? undefined : "2 3"} />
-      {startedShare > 0 && <Arc klass="started" share={startedShare} />}
-      {doneShare > 0 && <Arc klass="done" share={doneShare} />}
-      {inner === "check" && (
-        <path class="done" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" d="M8.6 12.3l2.3 2.3 4.4-4.9" />
-      )}
-      {inner === "dash" && <path class="done" stroke-width="1.5" stroke-linecap="round" d="M9 12h6" />}
-      {inner === "dot" && <circle class="core" cx="12" cy="12" r="3" />}
-    </svg>
-  );
-}
-
-// Arc draws one share of the gauge's ring, from the top, clockwise.
-function Arc({ klass, share }: { klass: string; share: number }): JSX.Element {
-  return (
-    <circle
-      class={klass}
-      cx="12"
-      cy="12"
-      r="9"
-      pathLength={100}
-      stroke-dasharray={`${share.toFixed(1)} 100`}
-      transform="rotate(-90 12 12)"
-    />
   );
 }
 

@@ -1,5 +1,5 @@
 import { putOffWords } from "./dockwords";
-import { type EpicRowWords, epicWords, type GaugeShare } from "./epicrow";
+import { type MarkDetail, markDetailOf } from "./epicrow";
 import type { NoticeBlock, NoticeKey } from "./gen/orrery/v1/notice_pb";
 import { stateWord } from "./glyphs";
 import { quietRow, stateWaiting } from "./inboxrow";
@@ -21,8 +21,8 @@ export interface NoticeFields {
   block?: NoticeBlock;
 }
 
-// NoticeLead is what a notice's first line is led by: an epic's gauge, a pane's or session's state glyph, or an icon.
-export type NoticeLead = { kind: "gauge"; gauge: GaugeShare } | { kind: "glyph"; state: string } | { kind: "icon"; icon: "bell" | "clock" };
+// NoticeLead is what a notice's first line is led by: an epic's mark, a pane's or session's state glyph, or an icon.
+export type NoticeLead = { kind: "mark"; detail: MarkDetail } | { kind: "glyph"; state: string } | { kind: "icon"; icon: "bell" | "clock" };
 
 // NoticeHead is a notice's first line: its lead, its directory or slug, and what in words.
 export interface NoticeHead {
@@ -83,22 +83,17 @@ function quietWordsOf(row: Row): string {
   return row.putOff ? putOffWords : stateWord("idle");
 }
 
-// epicLead is an epic's lead: its gauge as the inbox row draws it, or the bell when the gauge is not drawn.
-function epicLead(words: EpicRowWords): NoticeLead {
-  return words.gauge === null ? { kind: "icon", icon: "bell" } : { kind: "gauge", gauge: words.gauge };
+// epicLead is an epic's lead: its mark, drawn from the detail its inbox row reads.
+function epicLead(node: EpicNode): NoticeLead {
+  return { kind: "mark", detail: markDetailOf(node.block.epic.detail) };
 }
 
-// noticeHead writes a notice's first line at now, in unix seconds. An epic's line is led by its gauge and named by its
-// slug, or by a bell and the text after the last slash of its id when no listed project holds it; its words are its
-// block's. A pane's or session's is led by its state glyph and its state's word, and names the directory its listed row
-// runs in, or the title before its separator when no listed row names one. A limit is led by a clock and an alert by a
-// bell, and each reads its title. A session's id never appears.
-export function noticeHead(
-  notice: NoticeFields,
-  projects: readonly Project[],
-  rows: readonly Row[],
-  now: number,
-): NoticeHead {
+// noticeHead writes a notice's first line. An epic's line is led by its mark and named by its slug, or by a bell and the
+// text after the last slash of its id when no listed project holds it; its words are its block's. A pane's or session's
+// is led by its state glyph and its state's word, and names the directory its listed row runs in, or the title before
+// its separator when no listed row names one. A limit is led by a clock and an alert by a bell, and each reads its
+// title. A session's id never appears.
+export function noticeHead(notice: NoticeFields, projects: readonly Project[], rows: readonly Row[]): NoticeHead {
   const key = notice.key;
   switch (subjectOf(key)) {
     case "epic": {
@@ -108,7 +103,7 @@ export function noticeHead(
       if (node === undefined) {
         return { lead: { kind: "icon", icon: "bell" }, dir: "", what: `${id.slice(id.lastIndexOf("/") + 1)} ${words}` };
       }
-      return { lead: epicLead(epicWords(node, now)), dir: "", what: `${node.listed.slug} ${words}` };
+      return { lead: epicLead(node), dir: "", what: `${node.listed.slug} ${words}` };
     }
     case "row": {
       const listed = listedRowOf(rows, key);

@@ -2,8 +2,9 @@ import type { JSX, RefObject } from "preact";
 import { useLayoutEffect, useRef, useState } from "preact/hooks";
 
 import type { createClients } from "./client";
+import { EpicMark } from "./epicmark";
 import type { InAppNotice, NoticesWatchResponse } from "./gen/orrery/v1/notice_pb";
-import { Gauge, Icon, StateGlyph } from "./glyphs";
+import { Icon, StateGlyph } from "./glyphs";
 import type { Row } from "./rows";
 import { type NoticeAct, type NoticeHead, noticeKey, type NoticeLead } from "./noticewords";
 
@@ -286,11 +287,11 @@ export function NoticeStack({
   );
 }
 
-// NoticeLeadMark draws a notice's lead: its epic's gauge, its session's or pane's state glyph, or its icon.
+// NoticeLeadMark draws a notice's lead: its epic's mark at 24, its session's or pane's state glyph, or its icon.
 function NoticeLeadMark({ lead }: { lead: NoticeLead }): JSX.Element {
   switch (lead.kind) {
-    case "gauge":
-      return <Gauge {...lead.gauge} />;
+    case "mark":
+      return <EpicMark detail={lead.detail} size={24} />;
     case "glyph":
       return <StateGlyph state={lead.state} />;
     case "icon":

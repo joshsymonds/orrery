@@ -3,7 +3,6 @@ import { test } from "node:test";
 
 import { create, type MessageInitShape } from "@bufbuild/protobuf";
 
-import { epicRowWords } from "./epicrow";
 import { blockOf } from "./epics";
 import { epics, gets } from "./fixtures/epics";
 import type { Epic } from "./gen/orrery/v1/epics_pb";
@@ -47,6 +46,15 @@ function listedEpic(id: string): Epic {
 function epicNode(id: string): EpicNode {
   const listed = listedEpic(id);
   return { kind: "epic", key: `epic:${id}`, block: blockOf(listed, gets.get(id)), listed, contract: null };
+}
+
+// detailOf is the fixture's Get answer of the epic id, the detail its inbox row's mark reads.
+function detailOf(id: string) {
+  const detail = gets.get(id);
+  if (detail === undefined) {
+    throw new Error(`the fixture holds no detail for ${id}`);
+  }
+  return detail;
 }
 
 // project holds the given hung items under one conversation in the tree and the ended ones behind the ended line.
@@ -102,16 +110,15 @@ function block(kind: string) {
   return create(NoticeBlockSchema, { kind, ref: "" });
 }
 
-test("NoticeStack: a listed epic leads with the gauge its inbox row draws, names its slug and what it waits on", () => {
+test("NoticeStack: a listed epic leads with the mark its inbox row draws, names its slug and what it waits on", () => {
   const node = epicNode("orrery/notices-usable");
   const head = noticeHead(
     notice({ key: noticeKeyOf({ epic: node.listed.id }), block: block("question") }),
     [project([node])],
     [],
-    now,
   );
   assert.deepEqual(head, {
-    lead: { kind: "gauge", gauge: epicRowWords(node, now).gauge },
+    lead: { kind: "mark", detail: detailOf("orrery/notices-usable") },
     dir: "",
     what: "notices-usable asks you a question",
   });
@@ -132,22 +139,20 @@ test("NoticeStack: an epic's block kind sets its words, and a block of any other
       notice({ key: noticeKeyOf({ epic: node.listed.id }), block: kind === undefined ? undefined : block(kind) }),
       [project([node])],
       [],
-      now,
     );
     assert.equal(head.what, `notices-usable ${want}`, `block kind ${kind ?? "none"}`);
   }
 });
 
-test("NoticeStack: an epic under a project's ended line is found as listed and leads with its gauge", () => {
+test("NoticeStack: an epic under a project's ended line is found as listed and leads with its mark", () => {
   const node = epicNode("orrery/holder-scopes");
   const head = noticeHead(
     notice({ key: noticeKeyOf({ epic: node.listed.id }), block: block("report") }),
     [project([], [node])],
     [],
-    now,
   );
   assert.deepEqual(head, {
-    lead: { kind: "gauge", gauge: epicRowWords(node, now).gauge },
+    lead: { kind: "mark", detail: detailOf("orrery/holder-scopes") },
     dir: "",
     what: "holder-scopes finished",
   });
@@ -158,7 +163,6 @@ test("NoticeStack: an epic no listed project holds leads with a bell and the tex
     notice({ key: noticeKeyOf({ epic: "orrery/gone-epic" }), block: block("contract") }),
     [],
     [],
-    now,
   );
   assert.deepEqual(head, { lead: { kind: "icon", icon: "bell" }, dir: "", what: "gone-epic has a contract for you" });
 });
@@ -169,7 +173,6 @@ test("NoticeStack: a pane leads with its state glyph, names its directory's last
     notice({ key: noticeKeyOf({ pane: "%3" }), state: "waiting", title: "orrery · fix the build" }),
     [],
     rows,
-    now,
   );
   assert.deepEqual(head, { lead: { kind: "glyph", state: "waiting" }, dir: "orrery", what: "waiting on you" });
 });
@@ -180,7 +183,6 @@ test("NoticeStack: a session names its listed directory and never its id", () =>
     notice({ key: noticeKeyOf({ session: "sess-9c" }), state: "done", title: "sess-9c · wrapped up" }),
     [],
     rows,
-    now,
   );
   assert.deepEqual(head, { lead: { kind: "glyph", state: "done" }, dir: "tidepool", what: "done" });
 });
@@ -198,7 +200,6 @@ test("NoticeStack: a pane's notice words its failed, cut off and stopped states 
       notice({ key: noticeKeyOf({ pane: "%3" }), state, title: "orrery · fix the build" }),
       [],
       [],
-      now,
     );
     assert.equal(head.what, want, `state ${state}`);
   }
@@ -209,7 +210,6 @@ test("NoticeStack: a row that is not listed takes its directory from the title b
     notice({ key: noticeKeyOf({ pane: "%9" }), state: "working", title: "orrery · tidying the tests" }),
     [],
     [],
-    now,
   );
   assert.deepEqual(withSeparator, { lead: { kind: "glyph", state: "working" }, dir: "orrery", what: "working" });
 
@@ -217,7 +217,6 @@ test("NoticeStack: a row that is not listed takes its directory from the title b
     notice({ key: noticeKeyOf({ session: "sess-2" }), state: "working", title: "scratch" }),
     [],
     [],
-    now,
   );
   assert.deepEqual(withoutSeparator, { lead: { kind: "glyph", state: "working" }, dir: "scratch", what: "working" });
 });
@@ -227,7 +226,6 @@ test("NoticeStack: a limit leads with a clock and reads its title, and an alert 
     notice({ key: noticeKeyOf({ limit: "weekly@1794855660" }), state: "limited", title: "weekly limit reached" }),
     [],
     [],
-    now,
   );
   assert.deepEqual(limit, { lead: { kind: "icon", icon: "clock" }, dir: "", what: "weekly limit reached" });
 
@@ -235,7 +233,6 @@ test("NoticeStack: a limit leads with a clock and reads its title, and an alert 
     notice({ key: noticeKeyOf({ alert: "disk-full" }), state: "failed", title: "disk nearly full" }),
     [],
     [],
-    now,
   );
   assert.deepEqual(alert, { lead: { kind: "icon", icon: "bell" }, dir: "", what: "disk nearly full" });
 });
@@ -255,7 +252,7 @@ test("NoticeStack: an epic's question is answered, a waiting pane or session is 
 test("NoticeStack: a waiting pane notice whose listed row is put off leads with idle, says so in words, and is opened", () => {
   const rows = [row({ kind: "pane", id: "%3", project: "/home/owner/code/orrery", state: "waiting", putOff: true })];
   const fields = notice({ key: noticeKeyOf({ pane: "%3" }), state: "waiting", title: "orrery · fix the build" });
-  assert.deepEqual(noticeHead(fields, [], rows, now), {
+  assert.deepEqual(noticeHead(fields, [], rows), {
     lead: { kind: "glyph", state: "idle" },
     dir: "orrery",
     what: "waiting on a question you put off",
@@ -266,7 +263,7 @@ test("NoticeStack: a waiting pane notice whose listed row is put off leads with 
 test("NoticeStack: a waiting pane notice whose listed row is archived leads with idle, says idle, and is opened", () => {
   const rows = [row({ kind: "pane", id: "%3", project: "/home/owner/code/orrery", state: "waiting", archived: true })];
   const fields = notice({ key: noticeKeyOf({ pane: "%3" }), state: "waiting", title: "orrery · fix the build" });
-  assert.deepEqual(noticeHead(fields, [], rows, now), {
+  assert.deepEqual(noticeHead(fields, [], rows), {
     lead: { kind: "glyph", state: "idle" },
     dir: "orrery",
     what: "idle",
@@ -279,7 +276,7 @@ test("NoticeStack: a waiting row both archived and put off reads put off, and is
     row({ kind: "pane", id: "%3", project: "/home/owner/code/orrery", state: "waiting", archived: true, putOff: true }),
   ];
   const fields = notice({ key: noticeKeyOf({ pane: "%3" }), state: "waiting", title: "orrery · fix the build" });
-  assert.deepEqual(noticeHead(fields, [], rows, now), {
+  assert.deepEqual(noticeHead(fields, [], rows), {
     lead: { kind: "glyph", state: "idle" },
     dir: "orrery",
     what: "waiting on a question you put off",
@@ -290,7 +287,7 @@ test("NoticeStack: a waiting row both archived and put off reads put off, and is
 test("NoticeStack: a done notice keeps its done glyph and word when its listed pane is waiting and put off, and is opened", () => {
   const rows = [row({ kind: "pane", id: "%3", project: "/home/owner/code/orrery", state: "waiting", putOff: true })];
   const fields = notice({ key: noticeKeyOf({ pane: "%3" }), state: "done", title: "orrery · fix the build" });
-  assert.deepEqual(noticeHead(fields, [], rows, now), {
+  assert.deepEqual(noticeHead(fields, [], rows), {
     lead: { kind: "glyph", state: "done" },
     dir: "orrery",
     what: "done",
@@ -301,7 +298,7 @@ test("NoticeStack: a done notice keeps its done glyph and word when its listed p
 test("NoticeStack: a waiting row that waits on you keeps waiting on you and is answered", () => {
   const rows = [row({ kind: "pane", id: "%3", project: "/home/owner/code/orrery", state: "waiting" })];
   const fields = notice({ key: noticeKeyOf({ pane: "%3" }), state: "waiting", title: "orrery · fix the build" });
-  assert.deepEqual(noticeHead(fields, [], rows, now), {
+  assert.deepEqual(noticeHead(fields, [], rows), {
     lead: { kind: "glyph", state: "waiting" },
     dir: "orrery",
     what: "waiting on you",
