@@ -67,7 +67,9 @@ type ServeConfig struct {
 	Contracts    *Contracts
 	ReleaseSlots ReleaseSlotCommands
 	PaneSends    PaneSendRecorder
-	Options      []connect.HandlerOption
+	// Host is the host name each epic the Epics service creates is stamped with.
+	Host    string
+	Options []connect.HandlerOption
 }
 
 // Serve answers the engine service on ln with commands, the steps service with steps, the epics service with epics and
@@ -127,7 +129,7 @@ func ServeWith(ctx context.Context, ln net.Listener, cfg ServeConfig) error {
 		&stepService{steps: cfg.Steps},
 		opts...)
 	epicsPath, epicsHandler := enginev1connect.NewEpicsHandler(
-		&epicService{epics: cfg.Epics, steps: cfg.Steps, steering: cfg.Steering}, opts...)
+		&epicService{epics: cfg.Epics, steps: cfg.Steps, steering: cfg.Steering, host: cfg.Host}, opts...)
 	poolsPath, poolsHandler := enginev1connect.NewPoolsHandler(&poolService{pools: cfg.Pools}, opts...)
 	evidencePath, evidenceHandler := enginev1connect.NewEvidenceHandler(
 		&evidenceService{evidence: cfg.Evidence}, opts...)

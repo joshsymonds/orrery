@@ -170,6 +170,8 @@ type StepsConfig struct {
 	ReadoptGate  func(ctx context.Context, row store.StepRow) (*gates.Gate, error)
 	Stored       func()
 	EpicWake     func(epic string)
+	// Host is the host name each step Start makes is stamped with, unless the step has an epic, whose host it takes.
+	Host string
 }
 
 // StepAdopter is what Readopt registers each open step with, and what Reconcile asks whether the step is live. Manager
@@ -203,6 +205,7 @@ type Steps struct {
 	readoptGate  func(ctx context.Context, row store.StepRow) (*gates.Gate, error)
 	stored       func()
 	epicWake     func(epic string)
+	host         string
 
 	mu       sync.Mutex
 	loops    map[string]context.CancelFunc
@@ -247,6 +250,7 @@ func NewSteps(cfg StepsConfig) *Steps {
 		readoptGate:  cfg.ReadoptGate,
 		stored:       cfg.Stored,
 		epicWake:     cfg.EpicWake,
+		host:         cfg.Host,
 		loops:        map[string]context.CancelFunc{},
 		causes:       map[string]context.CancelCauseFunc{},
 		runs:         map[string]*stepRun{},
@@ -313,7 +317,7 @@ func (s *Steps) Start(ctx context.Context, start StepStart) (string, error) {
 		Workspace: start.Workspace, Revision: commit, DoneValue: doneValue, ReadOnly: start.ReadOnly,
 		Owned: start.Owned, Unowned: start.Unowned, Gate: gate.argv, GateName: gate.name, GateSource: gate.source,
 		GateNeeds: gate.needs, GateLimit: gateLimit, ModelLimit: modelLimit, Epic: start.Epic, Task: start.Task,
-		Caller: start.Caller,
+		Caller: start.Caller, Host: s.host,
 	}
 	cfg := stepRunConfig{
 		id: id, schema: start.Schema, doneValue: doneValue, sessions: s.sessions, store: s.store, writer: s.writer,

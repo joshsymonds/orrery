@@ -101,6 +101,8 @@ type epicService struct {
 	steps    StepCommands
 	steering SteeringSessions
 	getenv   func(string) string
+	// host is the host name each epic CreateEpic makes is stamped with.
+	host string
 }
 
 // ready returns the refusal every epic RPC gets when there is no epic store.
@@ -218,6 +220,7 @@ func (s *epicService) CreateEpic(
 		return nil, err
 	}
 	row.Steerer = steerer
+	row.Host = s.host
 	if err = s.epics.CreateContractEpic(ctx, row, version); err != nil {
 		return nil, s.refuseCreate(ctx, row.ID, started, err)
 	}

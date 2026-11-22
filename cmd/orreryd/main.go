@@ -1009,6 +1009,9 @@ func startSessions(
 		if err != nil {
 			return nil, err
 		}
+		if err = st.AdoptHost(ctx, hostName); err != nil {
+			return nil, fmt.Errorf("adopt host: %w", err)
+		}
 		host.newWriter(opts, st, logger)
 		host.newCron(opts, st, logger)
 		host.newWakes(st, opts, router, logger)
@@ -1045,6 +1048,7 @@ func startSessions(
 			ReadoptCheck: readoptCheck(st, resolve),
 			ReadoptGate:  readoptGate(st),
 			Stored:       host.storedWake, EpicWake: host.stepEpicWake,
+			Host: hostName,
 		})
 		host.steps = steps
 		host.wireStore(st)
@@ -1079,6 +1083,7 @@ func startSessions(
 	serveCtx, host.stopServe = context.WithCancel(ctx)
 	// The session socket also serves the release slots, through serveConfig's ReleaseSlots.
 	cfg := host.serveConfig(commands, stepCommands, evidence, notices, crons, serveOpts(opts, st, logger))
+	cfg.Host = hostName
 	go func() {
 		host.serveDone <- enginehost.ServeWith(serveCtx, ln, cfg)
 	}()
