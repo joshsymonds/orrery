@@ -140,17 +140,17 @@
 
   inbox({
     id: 'hosts', group: 'Inbox', title: 'Hosts: all reachable, one under load',
-    note: 'The hosts view, opened from the Hosts control in the inbox head. It lists every host, one row each: its name, its load and its memory as meters, and whether it answers. Host.Status lists every host with load percent, memory percent and reachable (orrery-host-surfaces R4, unchecked). Here every host answers, and sextant is under load: its load is warn and its memory is crit. The conversation head no longer draws the serving host\'s meters; they are in this view.',
+    note: 'The hosts view, opened from the Hosts control in the inbox head. It lists every host, one row each: its name, its load and its memory as meters, and whether it answers. Here every host answers, and sextant is under load: its load is warn and its memory is crit. The conversation head no longer draws the serving host\'s meters; they are in this view.',
     desk: () => O.desk({ pages: [O.hostsPage(W.hosts)] }),
     phone: () => O.screen(O.hostsPage(W.hosts)),
     differs: ['The web under 760 does not differ on this screen: each host is one row with its two meters and whether it answers, as here.'],
-  });
+  }, ['hosts']);
 
   inbox({
     id: 'hosts-unreachable', group: 'Inbox', title: 'Hosts: one does not answer',
-    note: 'The same view with brine not answering. Its row marks it with the unreachable glyph and says unreachable beside its name, and it draws no load or memory: what it is doing is not known now, so its last numbers would be stale. The other rows are as they were. Host.Status lists every host with load percent, memory percent and reachable (orrery-host-surfaces R4, unchecked): reachable is false for brine.',
+    note: 'The same view with brine not answering. Its row marks it with the unreachable glyph and says unreachable beside its name, and it draws no load or memory: what it is doing is not known now, so its last numbers would be stale. The other rows are as they were.',
     desk: () => O.desk({ pages: [O.hostsPage(W.hostsOneDown)] }),
     phone: () => O.screen(O.hostsPage(W.hostsOneDown)),
     differs: ['The web under 760 does not differ on this screen: the host that does not answer says unreachable beside its name and draws no numbers.'],
-  });
+  }, ['hosts']);
 })();

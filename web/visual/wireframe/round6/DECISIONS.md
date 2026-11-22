@@ -77,7 +77,7 @@ The owner: the header should get out of the way while chatting, and be hideable 
 
 | state | the header | scenario |
 |---|---|---|
-| open | title, meters, goal, ask lines, tiles; a chevron at the end of the tiles hides the header | `dock-full` |
+| open | title, goal, ask lines, tiles; a chevron at the end of the tiles hides the header | `dock-full` |
 | reading back | one line under the title: the rail's groups as small badges; back at the newest line, or a tap, opens it | `phone-head-scrolled` |
 | hidden by you | the same line, drawn the same, kept in every conversation until you open it (its chevron, or Hide the header in More) | `phone-head-hidden` |
 | typing | nothing: the keyboard hides the whole header, folded line and all | `android-keyboard` |
