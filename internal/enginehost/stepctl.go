@@ -167,8 +167,8 @@ func (s *Steps) readoptRun(ctx context.Context, row store.StepRow) (*stepRun, er
 	}
 	folder := readoptPlace(&cfg, row, host)
 	if len(row.Gate) > 0 {
-		cfg.grant, err = stepGrant(ctx, row.Workspace, row.GateName, row.Gate, storedGrantNeeds(row.GateNeeds),
-			stepGetenv(s.environ))
+		cfg.grant, err = stepGrant(ctx, host, row.Workspace, row.GateName, row.Gate,
+			storedGrantNeeds(row.GateNeeds), stepGetenv(s.environ))
 		if err != nil {
 			return nil, err
 		}

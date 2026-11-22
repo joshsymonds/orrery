@@ -233,7 +233,11 @@ func (r *Runner) withCostGate(ctx context.Context, epic store.EpicRow, check sto
 func (r *Runner) withGate(
 	ctx context.Context, epic store.EpicRow, name string, check store.NodeCheck,
 ) (store.NodeCheck, error) {
-	gate, err := build.ResolveGate(ctx, epic, name, r.getenv)
+	host, err := r.hostOf(epic)
+	if err != nil {
+		return store.NodeCheck{}, fmt.Errorf("check %s: %w", check.ID, err)
+	}
+	gate, err := build.ResolveGate(ctx, host, epic, name, r.getenv)
 	switch {
 	case errors.Is(err, gates.ErrUnknown):
 		check.NotRun = err.Error()

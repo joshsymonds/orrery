@@ -38,7 +38,7 @@ func (r *Runner) orchestratorPrompt(
 	}
 	planner.WriteSection(&out, "Contract", contract)
 	planner.WriteSection(&out, "Decisions", planner.DecisionLines(epic, math.MaxInt64))
-	taskSection, err := r.requestTaskLines(ctx, epic, task)
+	taskSection, err := r.requestTaskLines(ctx, host, epic, task)
 	if err != nil {
 		return "", err
 	}
@@ -69,15 +69,18 @@ func (r *Runner) orchestratorPrompt(
 // requestTaskLines returns the Task section: the task's label and title, the lines naming its spec version when it is
 // past version 1 (taskspec.Lines), its deliverable, files, test_changes, the gate-needed changes its implementers
 // declared, each as `<path>: <reason>`, the Requirements it claims and contributes to,
-// its gate with its argv when it resolves, its evidence item as compact JSON, its base, attempt, rerun and decisions,
-// and the turn that planned it with that turn's outline.
-func (r *Runner) requestTaskLines(ctx context.Context, epic store.EpicRow, task store.EpicTask) ([]string, error) {
+// its gate with its argv when it resolves on host, its evidence item as compact JSON, its base, attempt, rerun and
+// decisions, and the turn that planned it with that turn's outline.
+func (r *Runner) requestTaskLines(
+	ctx context.Context, host hostexec.Host, epic store.EpicRow, task store.EpicTask,
+) ([]string, error) {
 	item, err := json.Marshal(task.Evidence)
 	if err != nil {
 		return nil, fmt.Errorf("encode evidence of %s: %w", taskLabel(task.Seq), err)
 	}
 	gate := "Gate: " + task.Gate
-	if resolved, gateErr := ResolveGate(ctx, epic, task.Gate, r.getenv); gateErr == nil && len(resolved.Argv) > 0 {
+	resolved, gateErr := ResolveGate(ctx, host, epic, task.Gate, r.getenv)
+	if gateErr == nil && len(resolved.Argv) > 0 {
 		argv, encodeErr := json.Marshal(resolved.Argv)
 		if encodeErr == nil {
 			gate += " " + string(argv)

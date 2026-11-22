@@ -91,7 +91,11 @@ func (r *Runner) implementerStart(
 	if err != nil {
 		return enginehost.StepStart{}, RoleError{Err: err}
 	}
-	gate, err := ResolveGate(ctx, epic, task.Gate, r.getenv)
+	host, err := r.hostOf(epic)
+	if err != nil {
+		return enginehost.StepStart{}, err
+	}
+	gate, err := ResolveGate(ctx, host, epic, task.Gate, r.getenv)
 	if err != nil {
 		return enginehost.StepStart{}, err
 	}
@@ -99,10 +103,7 @@ func (r *Runner) implementerStart(
 		return enginehost.StepStart{}, fmt.Errorf("gate %s is an agent gate, not a command gate", task.Gate)
 	}
 	path := ImplementWorktree(r.stateDir, epic.ID, task)
-	host, err := r.hostOf(epic)
-	if err == nil {
-		err = r.git.AddTaskWorktree(ctx, host, epic.Repository, epic.ID, task.Seq, path, task.Build.Base)
-	}
+	err = r.git.AddTaskWorktree(ctx, host, epic.Repository, epic.ID, task.Seq, path, task.Build.Base)
 	if err != nil {
 		return enginehost.StepStart{}, fmt.Errorf("prepare worktree: %w", err)
 	}

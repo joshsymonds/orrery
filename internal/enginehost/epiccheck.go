@@ -160,7 +160,7 @@ func checkEpicGateRefs(
 	getenv func(string) string,
 ) error {
 	resolve := func(name string) (gates.Resolved, error) {
-		return gates.ResolveDefined(ctx, name, defined, contract.GetRepository(), getenv)
+		return gates.ResolveDefined(ctx, hostexec.NewLocal(), name, defined, contract.GetRepository(), getenv)
 	}
 	for i, name := range contract.GetDoneGates() {
 		resolved, err := resolve(name)

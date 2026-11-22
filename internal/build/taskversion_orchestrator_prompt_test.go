@@ -34,7 +34,7 @@ func TestTaskVersionOrchestratorTaskLinesRenderTheCurrentVersion(t *testing.T) {
 	task := orchestratorVersionedTask(1, taskOpen, deliverable)
 	epic := store.EpicRow{Repository: t.TempDir()}
 	runner := &Runner{getenv: func(string) string { return "" }}
-	got, err := runner.requestTaskLines(context.Background(), epic, task)
+	got, err := runner.requestTaskLines(context.Background(), hostexec.NewLocal(), epic, task)
 	if err != nil {
 		t.Fatalf("requestTaskLines: %v", err)
 	}

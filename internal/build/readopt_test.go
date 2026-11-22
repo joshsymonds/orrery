@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/joshsymonds/orrery/internal/gates"
+	"github.com/joshsymonds/orrery/internal/hostexec"
 	"github.com/joshsymonds/orrery/internal/reviewers"
 	"github.com/joshsymonds/orrery/internal/store"
 )
@@ -93,7 +94,7 @@ func (f fakeEpics) Epic(_ context.Context, id string) (store.EpicRow, error) {
 func TestResolveGateFindsEpicGate(t *testing.T) {
 	t.Parallel()
 	epic, getenv := readoptEpic(t, readoptCommandGate("check"))
-	got, err := ResolveGate(context.Background(), epic, "check", getenv)
+	got, err := ResolveGate(context.Background(), hostexec.NewLocal(), epic, "check", getenv)
 	if err != nil {
 		t.Fatalf("ResolveGate(check) = %v, want nil", err)
 	}
@@ -107,7 +108,7 @@ func TestResolveGateFallsBackToProjectFile(t *testing.T) {
 	epic, getenv := readoptEpic(t)
 	writeReadoptFile(t, filepath.Join(epic.Repository, ".orrery", "project.toml"),
 		"[gates]\n[gates.lint]\nargv = [\"/opt/tools/lint\"]\nlimit = 60\n")
-	got, err := ResolveGate(context.Background(), epic, "lint", getenv)
+	got, err := ResolveGate(context.Background(), hostexec.NewLocal(), epic, "lint", getenv)
 	if err != nil {
 		t.Fatalf("ResolveGate(lint) = %v, want nil", err)
 	}
@@ -119,7 +120,7 @@ func TestResolveGateFallsBackToProjectFile(t *testing.T) {
 func TestResolveGateUnknownNameWrapsErrUnknown(t *testing.T) {
 	t.Parallel()
 	epic, getenv := readoptEpic(t, readoptCommandGate("check"))
-	_, err := ResolveGate(context.Background(), epic, "missing", getenv)
+	_, err := ResolveGate(context.Background(), hostexec.NewLocal(), epic, "missing", getenv)
 	if !errors.Is(err, gates.ErrUnknown) {
 		t.Fatalf("ResolveGate(missing) = %v, want an error wrapping gates.ErrUnknown", err)
 	}

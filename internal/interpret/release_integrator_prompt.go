@@ -368,8 +368,13 @@ func patchIDs(ctx context.Context, host hostexec.Host, repo, span string) (map[s
 // why it does not resolve, then each capture with its Requirement and its argv.
 func (r *Runner) checkLines(ctx context.Context, epic store.EpicRow) []string {
 	gates := make([]string, 0, len(epic.DoneGates))
+	host, hostErr := r.hostOf(epic)
 	for _, name := range epic.DoneGates {
-		gate, err := build.ResolveGate(ctx, epic, name, r.getenv)
+		if hostErr != nil {
+			gates = append(gates, fmt.Sprintf("- %s: does not resolve: %v", name, hostErr))
+			continue
+		}
+		gate, err := build.ResolveGate(ctx, host, epic, name, r.getenv)
 		switch {
 		case err != nil:
 			gates = append(gates, fmt.Sprintf("- %s: does not resolve: %v", name, err))

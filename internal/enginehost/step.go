@@ -269,25 +269,30 @@ func NewSteps(cfg StepsConfig) *Steps {
 	return steps
 }
 
-// Start checks start and its caller, resolves its gate, which an agent gate turns into the step's agent, schema and
-// prompt, and checks the schema. It then resolves its host, the epic's stored host or the Steps' own when the epic is
-// unstored, and its revision, and starts the step under start.ID, or under a fresh id when it names none, and runs its
-// loop. A refusal returns its error with an empty id and stores nothing; a read-only step's worktree is removed then
-// too. A writing step runs in start.Workspace on its host. A read-only step gets a detached worktree at its start
-// commit under the worktrees directory, which is removed when the step ends. Its checkout is fingerprinted before its
-// agent starts, and a git error there refuses the start the same way. A folder whose stamp cannot be read refuses the
-// start the same way. The step's monitor and judge calls carry the env of the stamp in effect for its folder. Any other
-// StartStep error, after the row is written, ends the step failed and returns its id with the error.
+// Start checks start and its caller, resolves its host, the epic's stored host or the Steps' own when the epic is
+// unstored, then its gate on that host, which an agent gate turns into the step's agent, schema and prompt, and checks
+// the schema. It then resolves its revision on that host, and starts the step under start.ID, or under a fresh id when
+// it names none, and runs its loop. A refusal returns its error with an empty id and stores nothing; a read-only step's
+// worktree is removed then too. A writing step runs in start.Workspace on its host. A read-only step gets a detached
+// worktree at its start commit under the worktrees directory, which is removed when the step ends. Its checkout is
+// fingerprinted before its agent starts, and a git error there refuses the start the same way. A folder whose stamp
+// cannot be read refuses the start the same way. The step's monitor and judge calls carry the env of the stamp in
+// effect for its folder. Any other StartStep error, after the row is written, ends the step failed and returns its id
+// with the error.
 func (s *Steps) Start(ctx context.Context, start StepStart) (string, error) {
 	defer s.calls.enter()()
 	if err := s.checkStart(ctx, start); err != nil {
 		return "", err
 	}
-	start, gate, err := s.resolveStart(ctx, start)
+	hostName, host, err := s.startHost(ctx, start.Epic)
 	if err != nil {
 		return "", err
 	}
-	hostName, host, commit, err := s.startPlace(ctx, start)
+	start, gate, err := s.resolveStart(ctx, host, start)
+	if err != nil {
+		return "", err
+	}
+	commit, err := s.startPlace(ctx, host, start)
 	if err != nil {
 		return "", err
 	}
@@ -378,17 +383,13 @@ func (s *Steps) addReadOnlyStep(
 	return nil
 }
 
-// startPlace returns the name and the Host of the host start runs on, and the commit its revision resolves to there. A
-// writing start's workspace must be a linked worktree on that host, which checkWritingWorkspace checks.
-func (s *Steps) startPlace(ctx context.Context, start StepStart) (string, hostexec.Host, string, error) {
-	name, host, err := s.startHost(ctx, start.Epic)
-	if err != nil {
-		return "", nil, "", err
-	}
+// startPlace returns the commit start's revision resolves to on host, the Host start runs on. A writing start's
+// workspace must be a linked worktree on that host, which checkWritingWorkspace checks.
+func (s *Steps) startPlace(ctx context.Context, host hostexec.Host, start StepStart) (string, error) {
 	if !start.ReadOnly {
-		err = checkWritingWorkspace(ctx, host, start.Workspace)
+		err := checkWritingWorkspace(ctx, host, start.Workspace)
 		if err != nil {
-			return "", nil, "", err
+			return "", err
 		}
 	}
 	revision := start.Revision
@@ -397,9 +398,9 @@ func (s *Steps) startPlace(ctx context.Context, start StepStart) (string, hostex
 	}
 	commit, err := stepGitResolve(ctx, host, start.Workspace, revision)
 	if err != nil {
-		return "", nil, "", fmt.Errorf("resolve revision %q: %w", revision, err)
+		return "", fmt.Errorf("resolve revision %q: %w", revision, err)
 	}
-	return name, host, commit, nil
+	return commit, nil
 }
 
 // startHost returns the name of the host a start under epic runs on, and the Host of that name. The epic's stored host
@@ -438,10 +439,11 @@ func (s *Steps) hostNamed(name string) (hostexec.Host, error) {
 	return host, nil
 }
 
-// resolveStart resolves start's gate and returns start as the step runs it, with the gate. An agent gate sets start's
-// agent, schema and prompt, and the schema is checked whatever set it. A refusal returns its error and no start.
-func (s *Steps) resolveStart(ctx context.Context, start StepStart) (StepStart, stepGate, error) {
-	gate, err := s.resolveStepGate(ctx, start)
+// resolveStart resolves start's gate on host and returns start as the step runs it, with the gate. An agent gate sets
+// start's agent, schema and prompt, and the schema is checked whatever set it. A refusal returns its error and no
+// start.
+func (s *Steps) resolveStart(ctx context.Context, host hostexec.Host, start StepStart) (StepStart, stepGate, error) {
+	gate, err := s.resolveStepGate(ctx, host, start)
 	if err != nil {
 		return StepStart{}, stepGate{}, err
 	}
@@ -676,14 +678,14 @@ type stepGate struct {
 // resolveStepGate returns the gate start runs. A CommandGate or an AgentGate is the gate as the start gives it, checked
 // by dataCommandGate or dataAgentGate, and no file is read for it. A CommandGate is checked first, so it also refuses a
 // start that sets an AgentGate. A start without GateName runs no gate, and GatesFile set without GateName is refused. A
-// named gate is resolved once, from start.GatesFile or else the project file for start.Workspace. An agent gate returns
-// here, before any pool file is read. Any other named gate has the pools every pool file for start.Workspace declares
-// loaded with it. It is refused with an error matching ErrBadGate when GatesFile is not absolute, when the name does not
-// resolve, when the pool files do not load, and when a need is for a pool no pool file declares. The resolved argv is
-// used as the gate's definition gives it; nothing is looked up on PATH.
-func (s *Steps) resolveStepGate(ctx context.Context, start StepStart) (stepGate, error) {
+// named gate is resolved once on host, from start.GatesFile or else the project file for start.Workspace. An agent gate
+// returns here, before any pool file is read. Any other named gate has the pools every pool file for start.Workspace
+// declares loaded with it, on host. It is refused with an error matching ErrBadGate when GatesFile is not absolute,
+// when the name does not resolve, when the pool files do not load, and when a need is for a pool no pool file declares.
+// The resolved argv is used as the gate's definition gives it; nothing is looked up on PATH.
+func (s *Steps) resolveStepGate(ctx context.Context, host hostexec.Host, start StepStart) (stepGate, error) {
 	if start.CommandGate != nil {
-		return s.dataCommandGate(ctx, start)
+		return s.dataCommandGate(ctx, host, start)
 	}
 	if start.AgentGate != nil {
 		return dataAgentGate(start)
@@ -698,7 +700,7 @@ func (s *Steps) resolveStepGate(ctx context.Context, start StepStart) (stepGate,
 		return stepGate{}, fmt.Errorf("%w: gates file %s is not an absolute path", ErrBadGate, start.GatesFile)
 	}
 	getenv := stepGetenv(s.environ)
-	resolved, err := gates.Resolve(ctx, start.GateName, start.GatesFile, start.Workspace, getenv)
+	resolved, err := gates.Resolve(ctx, host, start.GateName, start.GatesFile, start.Workspace, getenv)
 	if err != nil {
 		return stepGate{}, fmt.Errorf("%w: %w", ErrBadGate, err)
 	}
@@ -707,7 +709,9 @@ func (s *Steps) resolveStepGate(ctx context.Context, start StepStart) (stepGate,
 			name: start.GateName, source: resolved.Source, limit: resolved.Limit, agent: &resolved.Gate,
 		}, nil
 	}
-	grant, err := stepGrant(ctx, start.Workspace, start.GateName, resolved.Argv, gateGrantNeeds(resolved.Needs), getenv)
+	grant, err := stepGrant(
+		ctx, host, start.Workspace, start.GateName, resolved.Argv, gateGrantNeeds(resolved.Needs), getenv,
+	)
 	if err != nil {
 		return stepGate{}, err
 	}
@@ -724,7 +728,7 @@ const stepGateSourceData = "data"
 // an error matching ErrBadGate when start also sets AgentGate, GateName or GatesFile, when start is read-only, and when
 // the gate has no name, no argv, an agent or assertions, or a limit under a second. Its needs are granted from the pools
 // the workspace's pool files declare, as a named gate's are, and a need for a pool no pool file declares is refused.
-func (s *Steps) dataCommandGate(ctx context.Context, start StepStart) (stepGate, error) {
+func (s *Steps) dataCommandGate(ctx context.Context, host hostexec.Host, start StepStart) (stepGate, error) {
 	gate := *start.CommandGate
 	switch {
 	case start.AgentGate != nil || start.GateName != "" || start.GatesFile != "":
@@ -745,7 +749,7 @@ func (s *Steps) dataCommandGate(ctx context.Context, start StepStart) (stepGate,
 			"%w: command gate %s limit %s is under a second", ErrBadGate, gate.Name, gate.Limit,
 		)
 	}
-	grant, err := stepGrant(ctx, start.Workspace, gate.Name, gate.Argv, gateGrantNeeds(gate.Needs),
+	grant, err := stepGrant(ctx, host, start.Workspace, gate.Name, gate.Argv, gateGrantNeeds(gate.Needs),
 		stepGetenv(s.environ))
 	if err != nil {
 		return stepGate{}, err
@@ -784,13 +788,19 @@ func dataAgentGate(start StepStart) (stepGate, error) {
 	return stepGate{name: gate.Name, source: stepGateSourceData, limit: gate.Limit, agent: &gate}, nil
 }
 
-// stepGrant returns the grant request a gate runs under in workspace: the project and the pool definitions every pool file
-// for workspace declares, with needs and argv as the command. It is refused with an error matching ErrBadGate when the pool
-// files do not load, or when a need is for a pool no pool file declares, which the error names gateName for.
+// stepGrant returns the grant request a gate runs under in workspace: the project and the pool definitions every pool
+// file for workspace declares on host, with needs and argv as the command. It is refused with an error matching
+// ErrBadGate when the pool files do not load, or when a need is for a pool no pool file declares, which the error names
+// gateName for.
 func stepGrant(
-	ctx context.Context, workspace, gateName string, argv []string, needs []grants.Need, getenv func(string) string,
+	ctx context.Context,
+	host hostexec.Host,
+	workspace, gateName string,
+	argv []string,
+	needs []grants.Need,
+	getenv func(string) string,
 ) (grants.Request, error) {
-	project, defs, err := pools.Load(ctx, workspace, getenv)
+	project, defs, err := pools.Load(ctx, host, workspace, getenv)
 	if err != nil {
 		return grants.Request{}, fmt.Errorf("%w: %w", ErrBadGate, err)
 	}

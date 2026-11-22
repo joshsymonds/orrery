@@ -150,7 +150,7 @@ func (c evidenceCapture) captureRequest(
 	ctx context.Context, worktree, id string, item evidence.Item,
 ) (grants.Request, error) {
 	needs := []grants.Need{{Pool: gates.DefaultPool, Count: 1}}
-	return stepGrant(ctx, worktree, "evidence-"+id, item.Capture, needs, stepGetenv(c.environ))
+	return stepGrant(ctx, hostexec.NewLocal(), worktree, "evidence-"+id, item.Capture, needs, stepGetenv(c.environ))
 }
 
 // captureGate returns the gate that runs item's capture in worktree as run id. Its stdout and stderr tails are 1 MiB
