@@ -20,7 +20,7 @@ import (
 // changes is the change hub WatchConversation streams wake from, and newTimer arms their keepalive and background
 // timers. keepalive is the time without a message after which WatchConversation sends a keepalive, sendTimeout bounds
 // each of its sends, and closing shutdown ends its streams. A nil shutdown never closes. now is the clock ListHeadless
-// dates its retention window and its aging by, and the clock Sessions.List ages panes by, and the clock
+// dates its retention window and its aging by, the clock Sessions.List ages its panes by, and the clock
 // WatchConversation reads a background window against.
 // stepped, when set, is called with the session id of each WatchConversation step before the step reads the session. A
 // test sets it to count the reads of its streams. It is nil in production.
@@ -57,18 +57,26 @@ func (s sessionsServer) List(
 	if err != nil {
 		return nil, err
 	}
+	verdicts, err := readClosureVerdicts(ctx, s.reader)
+	if err != nil {
+		return nil, err
+	}
 	sessions := make([]*orreryv1.Session, 0, len(snap.Sessions))
 	for _, row := range snap.Sessions {
 		session := sessionMessage(row)
 		mark := marks[archiveKey{kind: archiveKindSession, id: row.ID}]
 		changed := sessionChanged(row.Fields.Changed)
-		// A pane row ages by the seven-day floor in any state, and once it is done by the done rule, both at s.now(). A
-		// row with no change time, changed 0, never ages. A server with no clock ages none.
+		// A pane row ages by the seven-day floor in any state, once it is done by the done rule, and by a closed verdict
+		// for its current change time, all at s.now(). A row with no change time, changed 0, never ages. A server with
+		// no clock ages none.
+		verdict, ok := verdicts[row.ID]
 		aged := false
 		if changed != 0 && s.now != nil {
 			now := s.now()
+			seen := sessionSeen(row.Fields.Seen)
 			aged = floorAged(changed, now) ||
-				(row.Fields.State == string(protocol.StateDone) && doneAged(changed, sessionSeen(row.Fields.Seen), now))
+				(row.Fields.State == string(protocol.StateDone) && doneAged(changed, seen, now)) ||
+				closureAged(verdict, ok, changed, seen, now)
 		}
 		session.Archived = archivedRow(mark, changed, aged)
 		sessions = append(sessions, session)
