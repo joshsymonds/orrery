@@ -16,7 +16,8 @@ import (
 // The units a task's build runs, in order: red at its base, one implementer, green at its commit, then the review
 // gates and the verification of their findings. A closure-kind task runs no red and no green: its build is the one
 // implementer, then the review gates and the verification of their findings. StageOrchestrate is the unit an
-// implementer's request runs between implement and the decision on it: one orchestrator step.
+// implementer's request runs between implement and the decision on it: one orchestrator step. A design task runs one
+// more unit after its last review gate: StageDesign, the design judge's step that checks it against the contract.
 const (
 	StageRed         = "red"
 	StageImplement   = "implement"
@@ -24,6 +25,7 @@ const (
 	StageGreen       = "green"
 	StageReview      = "review"
 	StageVerify      = "verify"
+	StageDesign      = "design"
 )
 
 // unitRepro is the unit a test item's green stage runs first: its reproduction at the commit, under the derived id of

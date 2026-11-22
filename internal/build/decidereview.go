@@ -165,10 +165,17 @@ func reproNoted(view View, outcome string) (Action, bool) {
 // and moves to the next gate. A failed review with findings stores them and moves to their verification, or with
 // verify off stores them settled as confirmed and unverified. Any other end gives no verdict: its first reruns the
 // gate, and its second stores the review undetermined, with the reason it ended so, and moves to the next gate. Past
-// the last gate the task is accepted as reviewed, or as unreviewed when the epic has no review gates.
+// the last gate a design task moves to its design judge (decideDesign), and any other task is accepted as reviewed, or
+// as unreviewed when the epic has no review gates.
 func decideReview(view View) Action {
 	build := view.Task.Build
 	if build.GatePos >= int64(len(view.ReviewGates)) {
+		if view.Task.Kind == store.TaskKindDesign {
+			build.Stage = StageDesign
+			build.Rerun = 0
+			build.NoVerdict = 0
+			return Action{Kind: ActMove, Next: build}
+		}
 		if len(view.ReviewGates) == 0 {
 			return Action{Kind: ActAccept, Next: build, Reason: ReviewUnreviewed}
 		}
