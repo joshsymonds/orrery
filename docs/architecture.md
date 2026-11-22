@@ -19,7 +19,7 @@ flowchart LR
     pane["Claude Code in a pane"]
     opts["pane options at orrery"]
   end
-  hook["orrery hook"]
+  hook["orrery hook cron"]
   daemon["orreryd hook socket"]
   mirror["store mirror"]
   store[("SQLite store orrery.db")]
@@ -63,7 +63,7 @@ Arrows point the way data moves. The store has one writer in the daemon. The ser
 
 ## CLI and hook
 
-Claude Code runs `orrery hook` for each hook event that the user's settings register (see [Claude Code hook settings](contract.md#claude-code-hook-settings)). [`hook.Run`](../internal/hook/hook.go) reads the event's JSON from stdin, adds the pane id, the tmux socket, the working directory and the session's `ANTHROPIC_BASE_URL`, and writes one frame to the daemon socket. It always exits 0 and prints nothing. Its write has a 20 ms deadline, so a slow or absent daemon never holds up Claude Code. It sends nothing for the summarizer's own `claude` process or for headless sessions that `orreryd` started, since the hook recognizes each by an environment marker.
+A pane's state is read from `~/.claude/sessions/<pid>.json` and from the session's transcript, which orrery watches under inotify, so no hook event reports state. The only hook the user's settings register is `orrery hook cron`, which answers the cron tools (see [Claude Code hook settings](contract.md#claude-code-hook-settings)). Plain `orrery hook` is a no-op kept for one release: it reads its stdin to the end, prints nothing, sends no frame and exits 0.
 
 [`state.ApplyWith`](../internal/state/state.go) maps each hook event to a pane state:
 
