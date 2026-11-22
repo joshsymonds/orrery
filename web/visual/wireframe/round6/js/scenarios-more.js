@@ -115,7 +115,7 @@
 
   O.convoScenario({
     id: 'android-keyboard', group: 'Android only', name: 'Typing: the keyboard is up',
-    note: 'With the keyboard up the whole header folds to nothing: the title, the meters, the goal, the ask line and the tiles. The dock stays whole above the keyboard: state, queue and input. The quick keys fold away while the draft has text.',
+    note: 'With the keyboard up the whole header folds to nothing: the title, the goal, the ask line and the tiles. The dock stays whole above the keyboard: state, queue and input. The quick keys fold away while the draft has text.',
     desk: null, title: W.lampTitle, work: W.workFull, phone: { head: 'keyboard' }, items: W.lamp, hosts: [],
     dock: { ...W.lampDock, draft: 'And skip ports that are already warm.', focused: true },
     differs: ['The web under 760 keeps its title row; a browser\'s own bar already folds.'],

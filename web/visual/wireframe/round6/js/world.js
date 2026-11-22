@@ -20,10 +20,22 @@
     { name: 'disk', value: '49%', pct: 49, level: 'ok' },
     { name: 'net', value: '↓1M ↑298K', level: 'ok' },
   ];
-  // strip: the meters of the host the page's thing runs on. o.host defaults to halyard; null names none. o.down: the host
-  // does not answer, so it has no meters.
-  W.strip = (ctx, o = {}) => ({ host: o.host === undefined ? 'halyard' : o.host, stats: o.other || o.down ? [] : (o.hot ? W.statsHot : W.stats), other: o.other, down: o.down, ctx });
+  // strip: the head's host and context. The host is the one the page's thing runs on; o.host defaults to halyard, and null
+  // names none. o.down: the host does not answer, so its label says so. The meters of every host are in the hosts view.
+  W.strip = (ctx, o = {}) => ({ host: o.host === undefined ? 'halyard' : o.host, down: o.down, ctx });
   W.ctx = { low: { pct: 15, used: '152k', window: '1M' }, mid: { pct: 64, used: '640k', window: '1M' }, high: { pct: 87, used: '174k', window: '200k' } };
+  // hostsAll is what Host.Status lists for every host, in its order: its name, whether it answers, and its load and memory
+  // as percents, each with the level the server gives it. A host that does not answer lists no numbers.
+  W.hostsAll = [
+    { name: 'halyard', reachable: true, load: { pct: 12, level: 'ok' }, memory: { pct: 44, level: 'ok' } },
+    { name: 'sextant', reachable: true, load: { pct: 9, level: 'ok' }, memory: { pct: 38, level: 'ok' } },
+    { name: 'lantern', reachable: true, load: { pct: 6, level: 'ok' }, memory: { pct: 21, level: 'ok' } },
+    { name: 'brine', reachable: true, load: { pct: 14, level: 'ok' }, memory: { pct: 30, level: 'ok' } },
+  ];
+  // The same hosts with sextant under load: its load is warn and its memory crit.
+  W.hosts = W.hostsAll.map((h) => (h.name === 'sextant' ? { ...h, load: { pct: 71, level: 'warn' }, memory: { pct: 94, level: 'crit' } } : h));
+  // The same hosts with brine not answering: it lists no numbers.
+  W.hostsOneDown = W.hostsAll.map((h) => (h.name === 'brine' ? { name: 'brine', reachable: false } : h));
 
   // ---------- the inbox ----------
 

@@ -238,7 +238,8 @@ Names are story names: `Component/State`. The catalogue draws each component in 
 | EpicRow | Building, Asking, ContractProposed, ReleaseFailed, Releasing, Parked, Paused, Planning, Shipped, EndedShort |
 | StepRow | Running, Held |
 | TitleRow | Conversation, InboxHidden, Epic, Subpage, WithError, UnreachablePane; phone: Folded |
-| MeterStrip | HostAndContext, HostOnly, UnderLoad, OtherHost |
+| MeterStrip | HostAndContext, HostOnly, UnderLoad, OtherHost. Superseded by HostsView, to be removed by the build epic. The head keeps its host, as a HostLabel, and the context; it draws no meters |
+| HostsView | AllReachable, UnderLoad, OneUnreachable. Opened from the inbox head. Every host the server lists, one row each: its name as a HostLabel, its load and its memory as Meters, and whether it answers. A host that does not answer reads unreachable beside its name, with its glyph, and draws no numbers |
 | HostLabel | Inline, CardHeading. The host a pane, a session, an epic or a step runs on, with the host's icon: inline on its own row, or once on a card's heading. Beside it the word unreachable when the host does not answer |
 | WorkRail | the right rail, in groups each named once: contract, epics, agents, running. Up to three things show as tiles; more is one tile of dots (one per thing, in its colour) that opens a RailPicker. Empty when nothing is started |
 | RailPicker | what a tile of dots opens: each thing in the group and its state; choosing one opens its panel |
