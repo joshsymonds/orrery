@@ -116,6 +116,7 @@ func (r *Runner) implementerStart(
 		DoneValue:   "done",
 		Epic:        epic.ID,
 		Task:        taskLabel(task.Seq),
+		Purpose:     fmt.Sprintf("Implement %s: %s.", taskLabel(task.Seq), task.Title),
 	}, nil
 }
 
@@ -202,6 +203,7 @@ func (r *Runner) reviewStart(
 		Prompt:    prompt,
 		Epic:      epic.ID,
 		Task:      taskLabel(task.Seq),
+		Purpose:   fmt.Sprintf("Review %s as %s.", taskLabel(task.Seq), name),
 	}, nil
 }
 
@@ -282,6 +284,7 @@ func (r *Runner) designJudgeStart(epic store.EpicRow, view View, id string) (eng
 		DoneValue:   statusDone,
 		Epic:        epic.ID,
 		Task:        taskLabel(task.Seq),
+		Purpose:     fmt.Sprintf("Judge %s's design.", taskLabel(task.Seq)),
 	}, nil
 }
 
@@ -317,5 +320,6 @@ func (r *Runner) orchestratorStart(
 		DoneValue:   statusDone,
 		Epic:        epic.ID,
 		Task:        taskLabel(task.Seq),
+		Purpose:     fmt.Sprintf("Decide %s's request.", taskLabel(task.Seq)),
 	}, nil
 }

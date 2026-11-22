@@ -22,7 +22,8 @@ type Subject struct {
 
 // VerifierStart returns the start of the verifier step id that checks finding of subject, under agent: a read-only step
 // at the subject's revision in the epic's repository, with the verifier schema and its return check. The step carries
-// the epic's label, and its task's label when the subject is a task.
+// the epic's label, and its task's label when the subject is a task. Its purpose names the finding and the review it
+// belongs to: the task's review when the subject is a task, the epic's review otherwise.
 func VerifierStart(subject Subject, finding store.TaskFinding, id, agent string) enginehost.StepStart {
 	epic := subject.Epic
 	start := enginehost.StepStart{
@@ -38,9 +39,11 @@ func VerifierStart(subject Subject, finding store.TaskFinding, id, agent string)
 	}
 	if subject.Task == nil {
 		start.Prompt = epicVerifierPrompt(epic, subject.Base, subject.Revision, finding)
+		start.Purpose = fmt.Sprintf("Verify finding %s of epic %s's review.", finding.ID, epic.ID)
 	} else {
 		start.Prompt = VerifierPrompt(epic, *subject.Task, subject.Base, subject.Revision, finding)
 		start.Task = taskLabel(subject.Task.Seq)
+		start.Purpose = fmt.Sprintf("Verify finding %s of %s's review.", finding.ID, start.Task)
 	}
 	return start
 }
