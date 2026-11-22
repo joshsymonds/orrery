@@ -698,7 +698,7 @@ button.link.notices-more { justify-self: end; padding: 0 var(--o-space-12); colo
 .ask.later > .head .lbl { color: var(--o-ink-3); }
 .ask > .q { margin: 0; color: var(--o-ink-1); font: var(--o-type-body); font-weight: var(--o-font-weight-regular); white-space: pre-wrap; overflow-wrap: anywhere; }
 .ask .t-label { color: var(--o-ink-3); }
-.ask .cmd { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--o-space-4); min-width: 0; margin: 0; }
+.ask .cmd { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--o-space-4); min-width: 0; margin: 0; font: var(--o-type-code); }
 .ask .cmd pre { margin: 0; padding: var(--o-space-4) var(--o-space-8); border-radius: var(--o-radius-1); background: var(--o-surface-well); color: var(--o-ink-2); font: var(--o-type-code); white-space: pre-wrap; overflow-wrap: anywhere; }
 .ask .cmd code { font: inherit; color: inherit; }
 .ask .opts { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--o-space-4); min-width: 0; }

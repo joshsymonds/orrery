@@ -96,6 +96,10 @@ test("TypeFaces: a block's code block and inline code take the code level", () =
   assertCodeLevel('.reader [data-shape="block"] code');
 });
 
+test("TypeFaces: the Ask's command rule itself takes the code level", () => {
+  assertCodeLevel(".ask .cmd");
+});
+
 test("TypeFaces: the Ask's command takes the code level, and the code in it inherits that", () => {
   assertCodeLevel(".ask .cmd pre");
   assert.deepEqual(fontsOf(".ask .cmd code"), ["inherit"]);
