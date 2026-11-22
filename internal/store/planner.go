@@ -438,6 +438,40 @@ func overlayVersions(task *EpicTask) {
 	}
 }
 
+// currentSpecOf returns the spec of stored, a task row of epic, as its current version leaves it, in the caller's write:
+// its Files as the task owns them, and its Gate, TestChanges and Evidence as overlayVersions sets them from the
+// applied versions, as taskOf reads them.
+func currentSpecOf(ctx context.Context, queries *sqlcgen.Queries, epic string, stored sqlcgen.EpicTask) (EpicTask, error) {
+	item, err := decodeItem(stored.Evidence)
+	if err != nil {
+		return EpicTask{}, fmt.Errorf("task %d evidence: %w", stored.Seq, err)
+	}
+	files, err := ownedFiles(ctx, queries, epic, stored.Seq)
+	if err != nil {
+		return EpicTask{}, err
+	}
+	changes, err := queries.ListEpicTaskTestChanges(ctx, epic)
+	if err != nil {
+		return EpicTask{}, fmt.Errorf("list task test changes: %w", err)
+	}
+	rows, err := queries.ListEpicTaskVersions(ctx, epic)
+	if err != nil {
+		return EpicTask{}, fmt.Errorf("list task versions: %w", err)
+	}
+	versions, err := taskVersionsOf(rows)
+	if err != nil {
+		return EpicTask{}, fmt.Errorf("task versions: %w", err)
+	}
+	testChanges := groupByTask(changes, func(change sqlcgen.EpicTaskTestChange) int64 { return change.Task },
+		func(change sqlcgen.EpicTaskTestChange) string { return change.Path })
+	task := EpicTask{
+		Files: files, TestChanges: testChanges[stored.Seq], Gate: stored.Gate, Evidence: item,
+		Versions: versions[stored.Seq],
+	}
+	overlayVersions(&task)
+	return task, nil
+}
+
 // taskRunOf returns the evidence run with id. The id names a run that must be stored: its absence is an error.
 func taskRunOf(ctx context.Context, queries *sqlcgen.Queries, id string) (EvidenceRun, error) {
 	stored, err := queries.GetEvidenceRun(ctx, id)

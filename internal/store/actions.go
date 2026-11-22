@@ -28,6 +28,7 @@ const (
 	ActionChangeApproach = "change_approach"
 	ActionSendBack       = "send_back"
 	ActionRerunReview    = "rerun_review"
+	ActionReopenDesign   = "reopen_design"
 )
 
 // The states a planner action leaves its pending state in, once: taken, or refused. The state is stored as text, so
@@ -116,8 +117,9 @@ func plannerActionOf(row sqlcgen.PlannerAction) (PlannerAction, error) {
 // fail_task climbs the task one rung off its stored build with the reason as the cause, as failPlannedTask does,
 // resume_release is the planner's resume of a stopped release, close_epic is CloseEpic by the planner, change_approach
 // stores the task's change-of-approach version from the action's deliverable and evidence item, as changeApproach does,
-// send_back reopens the task at implement on rung 1 with the reason as its failure, as sendBack does, and rerun_review
-// records a rerun of the epic's review for the action's reviewer, as rerunReview does.
+// send_back reopens the task at implement on rung 1 with the reason as its failure, as sendBack does, rerun_review
+// records a rerun of the epic's review for the action's reviewer, as rerunReview does, and reopen_design adds the design
+// task that revises the action's task, as reopenDesign does.
 //
 // A close returns the step of the turn it ended and each step of the epic with no end. A fail_task and a send_back
 // return the open steps of the task they move. Every other action returns none.
@@ -314,8 +316,69 @@ func carryOutAction(
 		return sendBack(ctx, queries, action, at)
 	case ActionRerunReview:
 		return nil, rerunReview(ctx, queries, action, at)
+	case ActionReopenDesign:
+		return nil, reopenDesign(ctx, queries, action)
 	}
 	return nil, RefusalError(fmt.Sprintf("%q is not a planner action", action.Kind))
+}
+
+// taskFailed is the status of a task whose build failed. A reopen refuses a failed task, as it refuses a gap.
+const taskFailed = "failed"
+
+// reopenDesign adds the design task that revises the design task action names, in the caller's write, as CarryOutAction
+// describes. The new task is open with the next seq, of kind design, revising the reopened task, and planned on the
+// action's turn. Its title is Revise T<n>: and the reopened task's title, its deliverable is the action's, and it copies
+// the files, gate, test changes and evidence item of the reopened task's current version. It has no depends_on. The
+// reopened task is not written, so it keeps its status and history. A task that does not exist, a task that is not a
+// design task, and a task that has failed or ended as a gap are RefusalErrors, and write nothing.
+func reopenDesign(ctx context.Context, queries *sqlcgen.Queries, action PlannerAction) error {
+	stored, err := queries.GetEpicTask(ctx, sqlcgen.GetEpicTaskParams{Epic: action.Epic, Seq: action.Task})
+	if errors.Is(err, sql.ErrNoRows) {
+		return RefusalError(fmt.Sprintf("task %d of epic %s does not exist", action.Task, action.Epic))
+	}
+	if err != nil {
+		return fmt.Errorf("read task %d of epic %s: %w", action.Task, action.Epic, err)
+	}
+	if stored.Kind != TaskKindDesign {
+		return RefusalError(fmt.Sprintf("task %d of epic %s is not a design task", action.Task, action.Epic))
+	}
+	switch stored.Status {
+	case taskFailed:
+		return RefusalError(fmt.Sprintf("task %d of epic %s has failed", action.Task, action.Epic))
+	case TaskGap:
+		return RefusalError(fmt.Sprintf("task %d of epic %s ended as a gap", action.Task, action.Epic))
+	}
+	spec, err := currentSpecOf(ctx, queries, action.Epic, stored)
+	if err != nil {
+		return err
+	}
+	highest, err := queries.MaxEpicTaskSeq(ctx, action.Epic)
+	if err != nil {
+		return fmt.Errorf("read task count of epic %s: %w", action.Epic, err)
+	}
+	seq := highest + 1
+	item, err := encodeItem(spec.Evidence)
+	if err != nil {
+		return fmt.Errorf("evidence of task %d of epic %s: %w", seq, action.Epic, err)
+	}
+	if err = queries.InsertEpicTask(ctx, sqlcgen.InsertEpicTaskParams{
+		Epic: action.Epic, Seq: seq, Turn: action.Turn, Title: fmt.Sprintf("Revise T%d: %s", action.Task, stored.Title),
+		Deliverable: action.Deliverable, Gate: spec.Gate, Evidence: item, Kind: TaskKindDesign, Revises: action.Task,
+	}); err != nil {
+		return fmt.Errorf("insert task %d of epic %s: %w", seq, action.Epic, err)
+	}
+	if err = appendTaskFiles(ctx, queries, action.Epic, seq, spec.Files); err != nil {
+		return err
+	}
+	err = insertInOrder(spec.TestChanges, func(position int64, path string) error {
+		return queries.InsertEpicTaskTestChange(ctx, sqlcgen.InsertEpicTaskTestChangeParams{
+			Epic: action.Epic, Task: seq, Position: position, Path: path,
+		})
+	})
+	if err != nil {
+		return fmt.Errorf("test changes of task %d of epic %s: %w", seq, action.Epic, err)
+	}
+	return nil
 }
 
 // changeApproach stores the change-of-approach version of the task action names: its deliverable is the action's, its
@@ -578,6 +641,8 @@ func actionSummary(action PlannerAction) string {
 		return fmt.Sprintf("change approach of task %d", action.Task)
 	case ActionSendBack:
 		return fmt.Sprintf("send back task %d", action.Task)
+	case ActionReopenDesign:
+		return fmt.Sprintf("reopen design of task %d", action.Task)
 	}
 	return strings.ReplaceAll(action.Kind, "_", " ")
 }
