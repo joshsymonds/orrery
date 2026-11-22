@@ -29,11 +29,11 @@ func repairView(decisions int64, needs string, step *store.StepRow) View {
 	}
 }
 
-// TestTaskRepairsGrantRuleGrantPassesTheOwnerCheck checks a needs_context file's rule grant against the peers that hold
+// TestSharedFilesAcceptedRunTimeRequest checks a needs_context file's rule grant against the peers that hold
 // it: a file an open task owns, or an accepted task changed and has not integrated, is held, and is granted by rule
 // like a free file, as is a file an accepted task has integrated. A file the task refused is not granted by rule and
 // goes to the orchestrator as a request, whatever else its request names.
-func TestTaskRepairsGrantRuleGrantPassesTheOwnerCheck(t *testing.T) {
+func TestSharedFilesAcceptedRunTimeRequest(t *testing.T) {
 	t.Parallel()
 	asked := needsFilesView("needs_context", repairReturn(`["`+repairFile+`"]`))
 	requested := store.TaskBuild{
@@ -182,10 +182,10 @@ func acceptChanging(t *testing.T, f *passFixture, seq int64, file string) {
 	}
 }
 
-// TestTaskRepairsGrantRunnerRuleGrantsAHeldFile runs a needs_context return through the runner. Task 2 is accepted and
+// TestSharedFilesAcceptedRunTimeRequestThroughTheRunner runs a needs_context return through the runner. Task 2 is accepted and
 // not yet integrated, and its change touched the file task 1's implementer names, so the file is held. It is granted by
 // rule like a free file: task 1 gains the file and its implementer runs again at rerun 1.
-func TestTaskRepairsGrantRunnerRuleGrantsAHeldFile(t *testing.T) {
+func TestSharedFilesAcceptedRunTimeRequestThroughTheRunner(t *testing.T) {
 	t.Parallel()
 	plan := passTwoTaskPlan()
 	plan.Tasks[1].Files = []string{"internal/other/b.go"}
