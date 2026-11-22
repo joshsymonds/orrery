@@ -136,6 +136,18 @@ class ThemeTest {
     }
 
     @Test
+    fun interResolvesRegularBoldAndItalicResources() {
+        assertEquals(
+            FontFamily(
+                Font(R.font.inter_regular, FontWeight.Normal, FontStyle.Normal),
+                Font(R.font.inter_bold, FontWeight.Bold, FontStyle.Normal),
+                Font(R.font.inter_italic, FontWeight.Normal, FontStyle.Italic),
+            ),
+            OrreryInter,
+        )
+    }
+
+    @Test
     fun everyTypographyStyleInsideOrreryThemeUsesOrreryMono() {
         var styles: List<Pair<String, TextStyle>>? = null
         composeRule.setContent {
