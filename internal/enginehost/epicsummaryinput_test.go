@@ -16,23 +16,6 @@ import (
 // summaryContractEpic is the id of the epic the input tests store with every section filled.
 const summaryContractEpic = "orrery-1a2b3c4/epic-contract"
 
-// summaryOtherSectionText is the text of each section a summary's input must not hold, and the label each renders
-// under: the approved line, care, failures, additions, requirements, premises, exclusions, alternatives, release steps,
-// the release then line and checks.
-var summaryOtherSectionText = []string{
-	"Approved:", "Approved marker line.",
-	"Care:", "Care marker text.",
-	"Failures:", "Failure marker text.", "Response marker text.",
-	"Additions:", "Addition marker text.", "Addition why marker.", "Addition cost marker.",
-	"Requirements:", "Requirement marker text.", "Evidence marker text.",
-	"Premises:", "Premise marker text.", "If wrong marker.",
-	"Exclusions:", "Exclusion marker text.",
-	"Alternatives:", "Alternative marker text.", "Why not marker.", "Reconsider marker.",
-	"Release steps:", "Release marker step.", "Target marker.", "Undo marker.",
-	"Release then:", "Release then marker.",
-	"Checks:", "Checks marker text.",
-}
-
 // createSummaryContractEpic stores an accepted epic with id, created at the unix second created, whose title, intent and
 // approach are the synthetic ones createSummaryEpic stores, and whose other sections each hold a marker text.
 func createSummaryContractEpic(t *testing.T, st *store.Store, id string, created int64) {
@@ -83,7 +66,23 @@ func TestEpicSummaryInputHoldsTitleIntentAndApproachOnly(t *testing.T) {
 			t.Fatalf("stdin = %q, want it to hold %q", stdin, line)
 		}
 	}
-	for _, text := range summaryOtherSectionText {
+	// The text of each section a summary's input must not hold, and the label each renders under: the approved line,
+	// care, failures, additions, requirements, premises, exclusions, alternatives, release steps, the release then line
+	// and checks.
+	otherSectionText := []string{
+		"Approved:", "Approved marker line.",
+		"Care:", "Care marker text.",
+		"Failures:", "Failure marker text.", "Response marker text.",
+		"Additions:", "Addition marker text.", "Addition why marker.", "Addition cost marker.",
+		"Requirements:", "Requirement marker text.", "Evidence marker text.",
+		"Premises:", "Premise marker text.", "If wrong marker.",
+		"Exclusions:", "Exclusion marker text.",
+		"Alternatives:", "Alternative marker text.", "Why not marker.", "Reconsider marker.",
+		"Release steps:", "Release marker step.", "Target marker.", "Undo marker.",
+		"Release then:", "Release then marker.",
+		"Checks:", "Checks marker text.",
+	}
+	for _, text := range otherSectionText {
 		if strings.Contains(stdin, text) {
 			t.Fatalf("stdin = %q, want no text of the other sections, but it holds %q", stdin, text)
 		}
