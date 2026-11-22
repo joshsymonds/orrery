@@ -149,16 +149,14 @@ func TestCheckDependsOnRefuses(t *testing.T) {
 	}
 }
 
-// TestCheckDependsOnSharedFiles checks the file rule. Two tasks of the return may name one file only when depends_on
-// orders them, and a task may name a file an open epic task owns only when it reaches that task, by a T<n> of its own
-// or through the return tasks it depends on.
+// TestCheckDependsOnSharedFiles checks that a file two tasks of the return name, or that an open epic task owns, passes
+// when depends_on orders the tasks or names the open task by its T<n>, or reaches it through a return task.
 func TestCheckDependsOnSharedFiles(t *testing.T) {
 	t.Parallel()
 	tasks := []store.EpicTask{epicTask(1, taskOpen, "internal/store/epics.go")}
 	cases := []struct {
 		name string
 		ret  Return
-		want []string
 	}{
 		{
 			name: "a dependent names its dependency's file",
@@ -178,27 +176,11 @@ func TestCheckDependsOnSharedFiles(t *testing.T) {
 				dependent("B", "internal/store/epics.go", "A"),
 			}},
 		},
-		{
-			name: "unordered tasks name one file",
-			ret: Return{Tasks: []Task{
-				validTask("A", "internal/a.go"),
-				dependent("B", "internal/a.go", "T1"),
-			}},
-			want: []string{`tasks[1] "B" files[0]: named twice in the plan`},
-		},
-		{
-			name: "a task names a file an open task owns that it does not reach",
-			ret: Return{Tasks: []Task{
-				dependent("B", "internal/store/epics.go", "A"),
-				validTask("A", "internal/a.go"),
-			}},
-			want: []string{`tasks[0] "B" files[0]: owned by an unfinished task`},
-		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			checkLines(t, checkTasks(tc.ret, tasks), tc.want...)
+			checkLines(t, checkTasks(tc.ret, tasks))
 		})
 	}
 }

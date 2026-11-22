@@ -119,44 +119,6 @@ func TestCheckAcceptsGitNamedFilesOutsideGitDirectory(t *testing.T) {
 	checkLines(t, checkPlan(ret, nil))
 }
 
-func TestCheckRefusesFileNamedTwice(t *testing.T) {
-	t.Parallel()
-	const reason = "named twice in the plan"
-	cases := []struct {
-		name string
-		ret  Return
-		want string
-	}{
-		{
-			name: "across tasks",
-			ret: Return{Tasks: []Task{
-				validTask("A", "internal/a.go"),
-				validTask("B", "internal/a.go"),
-			}},
-			want: `tasks[1] "B" files[0]: ` + reason,
-		},
-		{
-			name: "within one task",
-			ret:  Return{Tasks: []Task{validTask("T", "internal/a.go", "internal/a.go")}},
-			want: `tasks[0] "T" files[1]: ` + reason,
-		},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			checkLines(t, checkPlan(tc.ret, nil), tc.want)
-		})
-	}
-}
-
-func TestCheckRefusesFileOwnedByUnfinishedTask(t *testing.T) {
-	t.Parallel()
-	ret := Return{Tasks: []Task{validTask("T", "internal/store/epics.go")}}
-	owned := []string{"internal/store/epics.go"}
-	checkLines(t, checkPlan(ret, owned),
-		`tasks[0] "T" files[0]: owned by an unfinished task`)
-}
-
 func TestCheckRefusesUnknownRequirement(t *testing.T) {
 	t.Parallel()
 	task := validTask("T", "internal/a.go")

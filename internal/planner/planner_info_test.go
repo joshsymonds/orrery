@@ -47,17 +47,16 @@ func TestPlannerInfoPromptListsEachUnclaimedRequirement(t *testing.T) {
 	}
 }
 
-func TestPlannerInfoStillRefusesAnUnknownRequirementAndAnOpenTasksFile(t *testing.T) {
+// TestPlannerInfoStillRefusesAnUnknownRequirementWithAnOpenTasksFile checks that an unknown Requirement is still refused
+// when the task names a file an open task owns, which the check now accepts.
+func TestPlannerInfoStillRefusesAnUnknownRequirementWithAnOpenTasksFile(t *testing.T) {
 	t.Parallel()
 	epic := store.EpicRow{
 		Requirements: []store.EpicRequirement{{ID: "R1"}},
 		Tasks:        []store.EpicTask{{Seq: 1, Title: "open", Status: "open", Files: []string{"internal/a.go"}}},
 	}
 	check := returnCheck(context.Background(), epic, store.Review{}, testResolver{}, nil)
-	want := []string{
-		`tasks[0] "Touch a" files[0]: owned by an unfinished task`,
-		`tasks[0] "Touch a" requirements[0]: not a Requirement of the epic`,
-	}
+	want := []string{`tasks[0] "Touch a" requirements[0]: not a Requirement of the epic`}
 	if got := check(json.RawMessage(claimPlan("work", "R9"))); !reflect.DeepEqual(got, want) {
 		t.Errorf("returnCheck of an unknown Requirement and an open task's file = %q, want %q", got, want)
 	}

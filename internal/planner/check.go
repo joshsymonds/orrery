@@ -15,8 +15,6 @@ import (
 // The reasons a refusal gives after its field. Each says what the field must be.
 const (
 	reasonFileForm    = "not a normalized repository-relative file path"
-	reasonFileTwice   = "named twice in the plan"
-	reasonFileOwned   = "owned by an unfinished task"
 	reasonGitDir      = "inside a .git directory"
 	reasonRequirement = "not a Requirement of the epic"
 	reasonNotTaskFile = "not one of the task's files"
@@ -42,17 +40,15 @@ const (
 // refusal names the question by index and label, then the field and reason that store.QuestionRefusals gives. Each action
 // refusal names the action by index and kind, then the field and the reason. Each unresolvable refusal names the entry by
 // index, then the field and the reason. requirements are the epic's Requirement ids, and tasks are the epic's tasks:
-// the files an open task owns are refused to a return task that does not reach it, and the depends_on entries of the
-// return name tasks of the epic or of the return (taskGraph). gate and judge resolve a task's gate name and judge name,
-// and a name they refuse gives the refusal its error text. Check does not test whether an action's target is valid;
-// the engine does that.
+// the depends_on entries of the return name tasks of the epic or of the return (taskGraph). gate and judge resolve a
+// task's gate name and judge name, and a name they refuse gives the refusal its error text. Check does not test whether
+// an action's target is valid; the engine does that.
 func Check(ret Return, requirements []string, tasks []store.EpicTask, gate, judge func(name string) error) []string {
 	known := stringSet(requirements)
 	graph := newTaskGraph(ret, tasks)
-	named := make(map[string][]int)
 	refusals := make([]string, 0, len(ret.Tasks)+len(ret.Questions)+len(ret.Actions)+len(ret.Unresolvable))
 	for i, task := range ret.Tasks {
-		refusals = append(refusals, checkTask(i, task, known, graph, named, gate, judge)...)
+		refusals = append(refusals, checkTask(i, task, known, graph, gate, judge)...)
 	}
 	for i, question := range ret.Questions {
 		refusals = append(refusals, checkQuestion(i, question)...)
@@ -298,11 +294,9 @@ func kindRefusals(prefix, kind string) []string {
 // checkTask returns the refusals of one task's fields, in the order title, deliverable, kind, files, test_changes,
 // requirements, gate, the evidence string that did not read, each line of the evidence item's form, the depends_on
 // refusals, then the gate and the judge that do not resolve. graph is the return's depends_on graph and the epic's
-// tasks, and named records, for each well-formed file, the return tasks that name it so far, so a later naming of the
-// same file is refused unless the two tasks are ordered by depends_on.
+// tasks.
 func checkTask(
-	i int, task Task, known map[string]bool, graph taskGraph, named map[string][]int,
-	gate, judge func(name string) error,
+	i int, task Task, known map[string]bool, graph taskGraph, gate, judge func(name string) error,
 ) []string {
 	prefix := fmt.Sprintf(`tasks[%d] "%s"`, i, task.Title)
 	var refusals []string
@@ -317,7 +311,7 @@ func checkTask(
 		refusals = append(refusals, prefix+" files: "+reasonNoFiles)
 	}
 	for j, file := range task.Files {
-		if reason := graph.fileReason(i, file, named); reason != "" {
+		if reason := FileRefusal(file); reason != "" {
 			refusals = append(refusals, fmt.Sprintf("%s files[%d]: %s", prefix, j, reason))
 		}
 	}
@@ -618,14 +612,12 @@ func itemSet(item evidence.Item) bool {
 
 // taskGraph is what Check knows of a return's depends_on entries and of the epic's tasks. titles maps each title to
 // the return tasks that have it. reach[i][k] reports whether return task i reaches return task k through one or more
-// entries that name a return task by its title. epic holds the epic's tasks by their name, T<n>, and owners maps each
-// file to the names of the open epic tasks that own it.
+// entries that name a return task by its title. epic holds the epic's tasks by their name, T<n>.
 type taskGraph struct {
 	ret    Return
 	titles map[string][]int
 	reach  [][]bool
 	epic   map[string]store.EpicTask
-	owners map[string][]string
 }
 
 // newTaskGraph returns the depends_on graph of ret over the epic's tasks. A title names a return task only when
@@ -636,7 +628,6 @@ func newTaskGraph(ret Return, tasks []store.EpicTask) taskGraph {
 		titles: make(map[string][]int, len(ret.Tasks)),
 		reach:  make([][]bool, len(ret.Tasks)),
 		epic:   make(map[string]store.EpicTask, len(tasks)),
-		owners: make(map[string][]string),
 	}
 	for i, task := range ret.Tasks {
 		graph.titles[task.Title] = append(graph.titles[task.Title], i)
@@ -653,13 +644,7 @@ func newTaskGraph(ret Return, tasks []store.EpicTask) taskGraph {
 		graph.reach[i] = reachable(edges, i)
 	}
 	for _, task := range tasks {
-		name := "T" + strconv.FormatInt(task.Seq, 10)
-		graph.epic[name] = task
-		if task.Status == taskOpen {
-			for _, file := range task.Files {
-				graph.owners[file] = append(graph.owners[file], name)
-			}
-		}
+		graph.epic["T"+strconv.FormatInt(task.Seq, 10)] = task
 	}
 	return graph
 }
@@ -685,48 +670,6 @@ func reachable(edges [][]int, start int) []bool {
 func isTName(name string) bool {
 	digits, ok := strings.CutPrefix(name, "T")
 	return ok && digits != "" && strings.Trim(digits, "0123456789") == ""
-}
-
-// ordered reports whether return task i reaches return task k, or k reaches i, through depends_on entries.
-func (g taskGraph) ordered(i, k int) bool {
-	return g.reach[i][k] || g.reach[k][i]
-}
-
-// reachesOwner reports whether return task i reaches the open epic task named name: it names that task by a T<n> entry
-// of its own, or it reaches a return task that does.
-func (g taskGraph) reachesOwner(i int, name string) bool {
-	for k, task := range g.ret.Tasks {
-		if (k == i || g.reach[i][k]) && slices.Contains(task.DependsOn, name) {
-			return true
-		}
-	}
-	return false
-}
-
-// fileReason returns the reason the file of return task i is refused, or "" when it passes. named records, for each
-// well-formed file, the return tasks that name it, before ownership is checked, so the plan's own naming is counted
-// whether or not the file is owned. Two naming tasks are refused unless depends_on orders them, and a file an open task
-// owns is refused to a task that does not reach that open task.
-func (g taskGraph) fileReason(i int, file string, named map[string][]int) string {
-	if reason := FileRefusal(file); reason != "" {
-		return reason
-	}
-	twice := false
-	for _, k := range named[file] {
-		if k == i || !g.ordered(i, k) {
-			twice = true
-		}
-	}
-	named[file] = append(named[file], i)
-	if twice {
-		return reasonFileTwice
-	}
-	for _, name := range g.owners[file] {
-		if !g.reachesOwner(i, name) {
-			return reasonFileOwned
-		}
-	}
-	return ""
 }
 
 // dependsOnRefusals returns the refusals of the depends_on of return task i: one line when the list did not read, or
