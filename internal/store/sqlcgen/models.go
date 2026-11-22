@@ -908,6 +908,7 @@ type Session struct {
 	Headline      string
 	HeadlineAt    int64
 	Awaited       bool
+	Host          string
 }
 
 type Step struct {
