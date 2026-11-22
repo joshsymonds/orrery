@@ -602,37 +602,6 @@ func TestPassCarriesOutNodeWorkOnce(t *testing.T) {
 	}
 }
 
-// TestCommandMovingMainParksNodeAndEpicTold: a command whose work moves refs/heads/main parks its node and the epic with
-// the move as the reason, and tells the owner of the move and of the HEAD it moves with.
-func TestCommandMovingMainParksNodeAndEpicTold(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	repo, base := nodeRepo(t)
-	s, dbPath := openNodeStore(t)
-	createNodeEpic(t, s, repo, base, nodeCommandFlow)
-	nodeEpicBranch(t, repo, "b.go")
-	runner := runNodes(s, newNodeFakes(s))
-	runner.Pass(ctx)
-	check := workID(t, s, "tests", "check")
-
-	nodeGit(t, repo, "commit", "-q", "--allow-empty", "-m", "work moves main")
-	moved := nodeGit(t, repo, "rev-parse", "HEAD")
-	nodeEndCheck(t, s, check, 0, "")
-	runner.Pass(ctx)
-
-	park := fmt.Sprintf("workflow node tests moved refs/heads/main (%s to %s)", base, moved)
-	head := fmt.Sprintf("workflow node tests moved HEAD (refs/heads/main %s to refs/heads/main %s)", base, moved)
-	if run := runAt(t, s, "tests"); run.State != store.NodeParked {
-		t.Errorf("node tests = %+v, want parked", run)
-	}
-	if got := epicOf(t, s).Parked; got != park {
-		t.Errorf("epic Parked = %q, want %q", got, park)
-	}
-	if got := nodeTells(t, dbPath); !reflect.DeepEqual(got, []string{park, head}) {
-		t.Errorf("tells = %q, want %q", got, []string{park, head})
-	}
-}
-
 // TestOwnedRecordsAnEmptyArrayWhenNothingChanged: an owned node whose epic branch changes nothing over its base records
 // the empty JSON array, so its kind ends it passed rather than starting it again.
 func TestOwnedRecordsAnEmptyArrayWhenNothingChanged(t *testing.T) {

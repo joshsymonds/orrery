@@ -34,7 +34,7 @@ func failIntegrateRun(t *testing.T, s *Store, path, id, revision, output string)
 	if err := s.RecordNodeResult(ctx, integrateEpic, path, 1, retryComposed); err != nil {
 		t.Fatalf("RecordNodeResult %s: %v", path, err)
 	}
-	if err := s.CheckNodeRefs(ctx, integrateEpic, path, 1, "", nil, integrateEndedAt()); err != nil {
+	if err := s.CheckNodeRefs(ctx, integrateEpic, path, 1, nil, integrateEndedAt()); err != nil {
 		t.Fatalf("CheckNodeRefs %s: %v", path, err)
 	}
 	trigger := NodeTrigger{ID: "workflow:failed:" + id, Cause: "workflow node " + path + " failed: " + output}

@@ -73,18 +73,19 @@ func metAtBaseParks(t *testing.T, s *Store, _ string) {
 	parkRedMetAtBase(t, s)
 }
 
-// refMoveParks parks the running check run of a new claimEpic, which has had no planner turn, when its refs check finds
-// a move no step explains.
+// refMoveParks parks task T1 of a new claimEpic, planned by its one turn, when its implementer's refs check finds a move
+// of main the implementer made, as the ref guard does.
 func refMoveParks(t *testing.T, s *Store, park string) {
 	t.Helper()
 	ctx := context.Background()
 	createEpic(t, s, fullEpic(claimEpic))
-	runs := []NodeRun{{Path: "check", ID: "id-check", Node: "check", Kind: "gate", Attempt: 1}}
-	if err := s.StartNodes(ctx, claimEpic, runs, nil, claimedAt()); err != nil {
-		t.Fatalf("StartNodes: %v", err)
+	turn := claimTurnOf(t, s)
+	if err := s.CompleteTurn(ctx, claimEpic, turn.Seq, plannedTurn(), completedAt()); err != nil {
+		t.Fatalf("CompleteTurn: %v", err)
 	}
-	if err := s.CheckNodeRefs(ctx, claimEpic, "check", 1, park, nil, claimedAt()); err != nil {
-		t.Fatalf("CheckNodeRefs: %v", err)
+	to := TaskBuild{Stage: "implement", Base: "base-rev", Attempt: 1, Step: "step-1", Held: "parked"}
+	if err := s.ParkTask(ctx, claimEpic, 1, TaskBuild{}, to, ParkClassRefMove, park, claimedAt()); err != nil {
+		t.Fatalf("ParkTask: %v", err)
 	}
 }
 
@@ -102,12 +103,12 @@ func freeTurnParks(t *testing.T, s *Store, park string) {
 	}
 }
 
-// TestCatastropheParkOpensItsOwnerQuestionAndRoutesItsNotice checks that each owner-class park of a catastrophe, driven
+// TestCatastropheParkOpensItsParkQuestionAndTellsIt checks that each question-class park of a catastrophe, driven
 // through the store entry point that parks it, stores its class and reason, opens one open park question with the reason,
-// routes the reason as the owner's notice, and adds no planner park trigger. A park that adds a tell routes that tell,
-// and Attention lists its epic although the epic has had no planner turn. A park that ends a turn adds no tell, so the
-// turn it ended is the notice.
-func TestCatastropheParkOpensItsOwnerQuestionAndRoutesItsNotice(t *testing.T) {
+// adds the reason as the tell that carries it, and adds no planner park trigger. A park that adds a tell leaves that tell
+// untold, and Attention lists its epic even when the epic has had no planner turn. A park that ends a turn adds no tell,
+// so the turn it ended is left untold instead.
+func TestCatastropheParkOpensItsParkQuestionAndTellsIt(t *testing.T) {
 	t.Parallel()
 	rows := []struct {
 		name      string
@@ -127,7 +128,7 @@ func TestCatastropheParkOpensItsOwnerQuestionAndRoutesItsNotice(t *testing.T) {
 		{name: "met_at_base", class: ParkClassMetAtBase, park: metAtBaseParkReason, drive: metAtBaseParks},
 		{
 			name: "ref_move", class: ParkClassRefMove,
-			park: "refs/heads/main moved and no step explains the move", drive: refMoveParks,
+			park: "T1 implementer moved refs/heads/main (aaa to bbb)", drive: refMoveParks,
 		},
 		{
 			name: "orchestrator", class: ParkClassOrchestrator, park: "no role file",
@@ -158,7 +159,11 @@ func TestCatastropheParkOpensItsOwnerQuestionAndRoutesItsNotice(t *testing.T) {
 				t.Fatalf("Attention = %+v, want an entry for %s", attention, claimEpic)
 			}
 			entry := attention[idx]
-			if len(entry.Open) != 1 || entry.Open[0].Label != ParkLabel || entry.Open[0].Text != row.park {
+			parks := slices.DeleteFunc(
+				slices.Clone(entry.Open),
+				func(q EpicQuestion) bool { return q.Label != ParkLabel },
+			)
+			if len(parks) != 1 || parks[0].Text != row.park {
 				t.Fatalf("open questions = %+v, want one park question with text %q", entry.Open, row.park)
 			}
 			if row.turnEnded {
@@ -169,7 +174,7 @@ func TestCatastropheParkOpensItsOwnerQuestionAndRoutesItsNotice(t *testing.T) {
 					t.Errorf("latest turn = %+v, want the free turn that parked it, untold", entry.Latest)
 				}
 			} else if len(entry.Tells) != 1 || entry.Tells[0].Text != row.park || entry.Tells[0].Question == nil ||
-				entry.Tells[0].Question.Seq != entry.Open[0].Seq {
+				entry.Tells[0].Question.Seq != parks[0].Seq {
 				t.Errorf("tells = %+v, want one untold tell %q that carries the park question", entry.Tells, row.park)
 			}
 

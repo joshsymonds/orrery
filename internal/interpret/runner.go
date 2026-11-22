@@ -70,9 +70,7 @@ type Store interface {
 	EndPlanBuilt(ctx context.Context, epic string, ends []store.NodeEnd, at time.Time) error
 	PrepareNode(ctx context.Context, epic, path string, attempt int64, revision, refs string) error
 	RecordNodeResult(ctx context.Context, epic, path string, attempt int64, result string) error
-	CheckNodeRefs(
-		ctx context.Context, epic, path string, attempt int64, park string, tells []string, at time.Time,
-	) error
+	CheckNodeRefs(ctx context.Context, epic, path string, attempt int64, tells []string, at time.Time) error
 	TakeReleaseSlot(ctx context.Context, epic string, at time.Time) (string, error)
 	FreeReleaseSlot(ctx context.Context, epic string) error
 	StopRelease(ctx context.Context, epic, path string, attempt int64, reason string, at time.Time) error
@@ -385,7 +383,7 @@ func (r *Runner) passEpics(ctx context.Context, epics []store.EpicRow) {
 			continue
 		}
 		// A planner park wakes the planner even when no plan run was given its turn, since no node runs on a parked epic.
-		plannerParked := epic.Parked != "" && !epic.ParkClass.OwnerHeld()
+		plannerParked := epic.Parked != "" && !epic.ParkClass.OpensQuestion()
 		resting := statesErr == nil && Rests(flow, kinds.Rows{Epic: epic, Runs: states[epic.ID]}, r.kinds)
 		if (!resting && r.passFlow(ctx, epic, flow)) || plannerParked {
 			planned[epic.ID] = true

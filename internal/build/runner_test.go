@@ -675,14 +675,15 @@ func TestPassImplementerDoneWithoutCommitReadsHeadFromTheStepsWorkspace(t *testi
 	f.expectGreenAt(head)
 }
 
-// TestPassImplementerMovingMainParksEpicWithTell covers R1 and R6: a move of refs/heads/main by the implementer parks
-// the epic with the move as its reason, tells the owner, consumes the refs check, and starts no run while parked.
+// TestPassImplementerMovingMainParksEpicWithTell covers R1 and R6: a move of refs/heads/main by the implementer, onto
+// the commit it made, parks the epic with the move as its reason, tells the owner, consumes the refs check, and starts
+// no run while parked.
 func TestPassImplementerMovingMainParksEpicWithTell(t *testing.T) {
 	t.Parallel()
 	f := newImplementerFixture(t)
-	id := passStep(StageImplement, 1, 0)
-	f.setStep(id, "done", `{"summary":"done"}`)
 	moved := buildObject(t, f.repo, f.base)
+	detachStep(t, f, moved)
+	f.setStep(passStep(StageImplement, 1, 0), "done", `{"summary":"done","commit":"`+moved+`"}`)
 	buildRun(t, f.repo, "update-ref", "refs/heads/main", moved)
 	f.pass()
 	reason := fmt.Sprintf("T1 implementer moved refs/heads/main (%s to %s)", f.base, moved)

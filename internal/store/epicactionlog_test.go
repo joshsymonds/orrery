@@ -124,7 +124,7 @@ func actionLogCases() []actionLogCase {
 			},
 		},
 		{
-			name: "retry node accepted", epic: claimEpic, kind: ActionRetry, setup: refMoveRunParked,
+			name: "retry node accepted", epic: claimEpic, kind: ActionRetry, setup: branchRunParked,
 			call: func(s *Store) error {
 				return s.RetryNode(context.Background(), claimEpic, parkRetryRunPath, owner, actionLogAt())
 			},

@@ -12,25 +12,9 @@ import (
 	"strings"
 )
 
-// originMainRef is the remote-tracking ref of origin's main branch, which a move of main or of HEAD is judged against.
-const originMainRef = "refs/remotes/origin/main"
-
 // notAncestor is the exit status of `git merge-base --is-ancestor` when the first commit is not an ancestor of the
 // second.
 const notAncestor = 1
-
-// originMain returns the commit origin's main names in repo, and false with no error when repo has no origin main.
-func originMain(ctx context.Context, repo string) (string, bool, error) {
-	commit, err := runGit(ctx, repo, "rev-parse", "--verify", "--quiet", originMainRef+"^{commit}")
-	if err != nil {
-		var exit *exec.ExitError
-		if errors.As(err, &exit) && exit.ExitCode() == revParseMissing {
-			return "", false, nil
-		}
-		return "", false, fmt.Errorf("read origin main: %w", err)
-	}
-	return commit, true, nil
-}
 
 // isAncestor reports whether ancestor is reachable from descendant in repo. A commit is its own ancestor.
 func isAncestor(ctx context.Context, repo, ancestor, descendant string) (bool, error) {

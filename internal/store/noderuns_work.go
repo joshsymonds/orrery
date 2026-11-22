@@ -56,12 +56,11 @@ func (s *Store) RecordNodeResult(ctx context.Context, epic, path string, attempt
 	})
 }
 
-// CheckNodeRefs records, in one write, that the refs of the running run at path of epic at attempt were checked. A
-// non-empty park parks the run and epic with park as one tell, and each of tells is then added as a tell. A run whose
-// refs were checked already, a run at another attempt and a run that is not running change nothing, so a repeat adds
-// no tell.
+// CheckNodeRefs records, in one write, that the refs of the running run at path of epic at attempt were checked, and
+// adds each of tells as a tell. A run whose refs were checked already, a run at another attempt and a run that is not
+// running change nothing, so a repeat adds no tell.
 func (s *Store) CheckNodeRefs(
-	ctx context.Context, epic, path string, attempt int64, park string, tells []string, at time.Time,
+	ctx context.Context, epic, path string, attempt int64, tells []string, at time.Time,
 ) error {
 	return s.write(ctx, func(queries *sqlcgen.Queries) error {
 		checked, err := queries.CheckEpicNodeRefs(ctx, sqlcgen.CheckEpicNodeRefsParams{
@@ -73,38 +72,12 @@ func (s *Store) CheckNodeRefs(
 		if checked == 0 {
 			return nil
 		}
-		if park == "" {
-			return insertTells(ctx, queries, epic, tells, at)
-		}
-		return parkCheckedRun(ctx, queries, epic, path, attempt, park, tells, at)
+		return insertTells(ctx, queries, epic, tells, at)
 	})
 }
 
-// parkCheckedRun parks the running run at path of epic at attempt, parks epic with park and adds park as a tell, then
-// adds each of tells, in the caller's write. The park question it opens names the run.
-func parkCheckedRun(
-	ctx context.Context, queries *sqlcgen.Queries, epic, path string, attempt int64, park string, tells []string,
-	at time.Time,
-) error {
-	// A running run has no outcome or output, so parking it with neither leaves them as they are.
-	if _, err := queries.ParkEpicNodeRun(ctx, sqlcgen.ParkEpicNodeRunParams{
-		Epic: epic, Path: path, Attempt: attempt,
-	}); err != nil {
-		return fmt.Errorf("park node run %s of epic %s: %w", path, epic, err)
-	}
-	question, err := parkEpicQuestion(ctx, queries, epic, ParkClassRefMove, path, park, at)
-	if err != nil {
-		return err
-	}
-	err = insertParkQuestionRun(ctx, queries, epic, question, path)
-	if err != nil {
-		return err
-	}
-	return insertTells(ctx, queries, epic, tells, at)
-}
-
 // ParkNode parks the running run at path of epic at attempt with outcome and output, and parks epic with reason as class,
-// in one write. An owner class adds reason as a tell, and a planner class wakes the planner. Output is cut to
+// in one write. A question class adds reason as a tell, and a planner class wakes the planner. Output is cut to
 // NodeOutputMax bytes and reason to TurnReasonMax. A run at another attempt and a run that is not running change nothing
 // and add no tell, so a repeat is a no-op.
 func (s *Store) ParkNode(
@@ -117,7 +90,7 @@ func (s *Store) ParkNode(
 }
 
 // parkNodeRun parks the running run at path of epic at attempt with outcome and output, and parks epic with reason as
-// class, in the caller's write. When the park opens a park question, as an owner class does and a planner park at the
+// class, in the caller's write. When the park opens a park question, as a question class does and a planner park at the
 // bound of its chain does, the question names the run.
 func parkNodeRun(
 	ctx context.Context, queries *sqlcgen.Queries, epic, path string, attempt int64, outcome, output string,

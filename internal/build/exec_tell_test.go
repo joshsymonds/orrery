@@ -102,16 +102,17 @@ func TestPassRefMoveIsToldInTheMoveWrite(t *testing.T) {
 }
 
 // TestPassParkingRefCheckWritesItsOtherTellsWithThePark covers R3 and R4: a move that parks the epic and a move that
-// does not both reach the store in the park's write, the non-parking move's tell with the park's reason.
+// does not, both onto the implementer's commit, reach the store in the park's write, the non-parking move's tell with
+// the park's reason.
 func TestPassParkingRefCheckWritesItsOtherTellsWithThePark(t *testing.T) {
 	t.Parallel()
 	f := newImplementerFixture(t)
 	commit := buildObject(t, f.repo, f.base)
 	detachStep(t, f, commit)
 	buildRun(t, f.repo, "update-ref", "refs/heads/feature", commit)
-	moved := buildObject(t, f.repo, f.base)
+	moved := buildObject(t, f.repo, commit)
 	buildRun(t, f.repo, "update-ref", "refs/heads/main", moved)
-	f.setStep(passStep(StageImplement, 1, 0), "done", `{"summary":"done"}`)
+	f.setStep(passStep(StageImplement, 1, 0), "done", `{"summary":"done","commit":"`+commit+`"}`)
 	tells := &tellStore{Store: f.store}
 	f.runOver(tells)
 
@@ -169,9 +170,9 @@ func TestPassParkingRefCheckRefusedByStoreRecordsNoTell(t *testing.T) {
 	commit := buildObject(t, f.repo, f.base)
 	detachStep(t, f, commit)
 	buildRun(t, f.repo, "update-ref", "refs/heads/feature", commit)
-	moved := buildObject(t, f.repo, f.base)
+	moved := buildObject(t, f.repo, commit)
 	buildRun(t, f.repo, "update-ref", "refs/heads/main", moved)
-	f.setStep(passStep(StageImplement, 1, 0), "done", `{"summary":"done"}`)
+	f.setStep(passStep(StageImplement, 1, 0), "done", `{"summary":"done","commit":"`+commit+`"}`)
 	refusing := &parkRefusingStore{tellStore: tellStore{Store: f.store}}
 	f.runOver(refusing)
 
