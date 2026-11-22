@@ -255,31 +255,8 @@ func joinPrefix(epic store.EpicRow) string {
 // that names a task outside the batch orders nothing. seqs is in seq order and holds no task twice. Tasks that depend on
 // one another in a cycle have no order, so the batch is refused.
 func composeOrder(tasks []store.EpicTask, seqs []int64) ([]int64, error) {
-	inBatch := make(map[int64]bool, len(seqs))
-	for _, seq := range seqs {
-		inBatch[seq] = true
-	}
-	// waiting counts the batch tasks each task of the batch depends on that have not composed yet, and dependents
-	// lists the tasks that wait on each.
-	waiting := make(map[int64]int, len(seqs))
-	dependents := make(map[int64][]int64, len(seqs))
-	for _, task := range tasks {
-		if !inBatch[task.Seq] {
-			continue
-		}
-		for _, dep := range task.DependsOn {
-			if inBatch[dep] {
-				waiting[task.Seq]++
-				dependents[dep] = append(dependents[dep], task.Seq)
-			}
-		}
-	}
-	var ready []int64
-	for _, seq := range seqs {
-		if waiting[seq] == 0 {
-			ready = append(ready, seq)
-		}
-	}
+	waiting, dependents := batchWaits(tasks, seqs)
+	ready := slices.DeleteFunc(slices.Clone(seqs), func(seq int64) bool { return waiting[seq] > 0 })
 	order := make([]int64, 0, len(seqs))
 	for len(ready) > 0 {
 		slices.Sort(ready)
@@ -294,15 +271,45 @@ func composeOrder(tasks []store.EpicTask, seqs []int64) ([]int64, error) {
 		}
 	}
 	if len(order) < len(seqs) {
-		var cyclic []int64
-		for _, seq := range seqs {
-			if waiting[seq] > 0 {
-				cyclic = append(cyclic, seq)
-			}
-		}
-		return nil, fmt.Errorf("tasks %v have no order: their depends_on forms a cycle", cyclic)
+		return nil, fmt.Errorf(
+			"tasks %v have no order: their depends_on forms a cycle", blockedSeqs(seqs, waiting),
+		)
 	}
 	return order, nil
+}
+
+// batchWaits returns, for each task of seqs, the number of batch tasks it depends on, and for each batch task, the
+// tasks that depend on it directly. A depends_on entry that names a task outside seqs is not counted.
+func batchWaits(tasks []store.EpicTask, seqs []int64) (map[int64]int, map[int64][]int64) {
+	inBatch := make(map[int64]bool, len(seqs))
+	for _, seq := range seqs {
+		inBatch[seq] = true
+	}
+	waiting := make(map[int64]int, len(seqs))
+	dependents := make(map[int64][]int64, len(seqs))
+	for _, task := range tasks {
+		if !inBatch[task.Seq] {
+			continue
+		}
+		for _, dep := range task.DependsOn {
+			if inBatch[dep] {
+				waiting[task.Seq]++
+				dependents[dep] = append(dependents[dep], task.Seq)
+			}
+		}
+	}
+	return waiting, dependents
+}
+
+// blockedSeqs returns the tasks of seqs that still wait on another task, in seq order.
+func blockedSeqs(seqs []int64, waiting map[int64]int) []int64 {
+	var blocked []int64
+	for _, seq := range seqs {
+		if waiting[seq] > 0 {
+			blocked = append(blocked, seq)
+		}
+	}
+	return blocked
 }
 
 // batchTasks returns the tasks seqs name, in that order, as compose takes them: each with the base it was built on and
