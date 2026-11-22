@@ -68,6 +68,49 @@ func removeStepWorktree(ctx context.Context, repoDir, path string) error {
 	return fmt.Errorf("remove step worktree %s: %w", path, errors.Join(err, checkErr))
 }
 
+// clearUnlaunchedWorktree clears path, the worktree orrery names for one run or check under its own worktrees directory,
+// before a restart starts that run again. A registered worktree, or nothing at path, is cleared as removeStepWorktree
+// clears it. A start stopped inside git worktree add can leave a directory git does not list and that holds no .git
+// entry, part of a checkout no git command can remove; only that start wrote it, so it is removed whole. Any other
+// directory git does not list is refused, as removeStepWorktree refuses it.
+func clearUnlaunchedWorktree(ctx context.Context, repoDir, path string) error {
+	err := removeStepWorktree(ctx, repoDir, path)
+	if err == nil {
+		return nil
+	}
+	half, checkErr := halfMadeWorktree(path)
+	if checkErr != nil {
+		return errors.Join(err, checkErr)
+	}
+	if !half {
+		return err
+	}
+	if rmErr := os.RemoveAll(path); rmErr != nil {
+		return fmt.Errorf("remove half-made worktree %s: %w", path, rmErr)
+	}
+	return nil
+}
+
+// halfMadeWorktree reports whether path is a directory, not a symbolic link, with no .git entry: what a git worktree
+// add stopped part way through its checkout leaves.
+func halfMadeWorktree(path string) (bool, error) {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return false, fmt.Errorf("inspect %s: %w", path, err)
+	}
+	if !info.IsDir() {
+		return false, nil
+	}
+	_, err = os.Lstat(filepath.Join(path, ".git"))
+	if errors.Is(err, os.ErrNotExist) {
+		return true, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("inspect %s: %w", filepath.Join(path, ".git"), err)
+	}
+	return false, nil
+}
+
 // stepPathAbsent reports whether nothing is at path, not even a symbolic link. The check reads only the last element of
 // path, through an os.Root of its parent directory, so it stays inside that directory. An empty path is absent, as
 // os.Lstat reports it. It returns an error only when the root fails to close.

@@ -70,11 +70,12 @@ func (e *Evidence) readoptDrive(ctx context.Context, repo string, run store.Evid
 }
 
 // readoptUnlaunched runs the capture of a run with no grant from the start. Its gate never launched, so a worktree a restart
-// found at its path is what a start stopped before the grant left, and it is removed before the capture is added again.
+// found at its path is what a start stopped before the grant left, whole or part made, and clearUnlaunchedWorktree clears
+// it before the capture is added again.
 func (e *Evidence) readoptUnlaunched(ctx context.Context, repo string, run store.EvidenceRun) {
 	if run.Source == evidence.SourceCaptured {
 		worktree := filepath.Join(e.captures.worktrees, run.ID)
-		if err := removeStepWorktree(context.WithoutCancel(ctx), repo, worktree); err != nil {
+		if err := clearUnlaunchedWorktree(context.WithoutCancel(ctx), repo, worktree); err != nil {
 			e.logger.WarnContext(ctx, "clear worktree of unlaunched evidence run", "run", run.ID, "err", err)
 			return
 		}
