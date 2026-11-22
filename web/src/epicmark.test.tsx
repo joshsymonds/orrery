@@ -11,7 +11,7 @@ import {
   EpicsGetResponseSchema,
   type EpicsGetResponse,
 } from "./gen/orrery/v1/epics_pb";
-import { installTestDom, removeTestDom } from "./testdom";
+import { assertNone, installTestDom, removeTestDom } from "./testdom";
 import { styleDeclaration } from "./teststyle";
 
 // Each test's name carries the token EpicMark: the mark draws on its own, outside any page.
@@ -99,7 +99,7 @@ test("EpicMark: an ended-short centre draws a dash in the grey ink", () =>
 
 test("EpicMark: a centre it does not name draws no centre mark, and its rim still draws", () =>
   drawn(<EpicMark detail={epicOf("", ["proven"])} />, (container) => {
-    assert.equal(container.querySelector("svg.epicmark g.centre"), null);
+    assertNone(container.querySelector("svg.epicmark g.centre"));
     assert.equal(container.querySelectorAll("svg.epicmark circle.rim").length, 1);
   }));
 
@@ -133,7 +133,7 @@ test("EpicMark: an orreryd epic building tasks, with no record tasks, draws its 
       ["R1", "R2", "R3"],
       "the rim draws one segment per requirement of the contract",
     );
-    assert.equal(container.querySelector("svg.epicmark circle.planned"), null, "the empty ring is drawn only with no requirements");
+    assertNone(container.querySelector("svg.epicmark circle.planned"), "the empty ring is drawn only with no requirements");
     assert.equal(one(container, "svg.epicmark g.centre text").textContent, "1");
   });
 });
@@ -141,7 +141,7 @@ test("EpicMark: an orreryd epic building tasks, with no record tasks, draws its 
 test("EpicMark: an epic with no requirements draws the dotted planned ring and its centre, and no segment", () =>
   drawn(<EpicMark detail={epicOf("running", [])} />, (container) => {
     assert.equal(one(container, "svg.epicmark circle.planned").getAttribute("stroke-dasharray"), "2 3");
-    assert.equal(container.querySelector("svg.epicmark circle.rim"), null);
+    assertNone(container.querySelector("svg.epicmark circle.rim"));
     assert.equal(one(container, "svg.epicmark g.centre text").textContent, "0");
     assert.equal(one(container, "svg.epicmark").getAttribute("aria-label"), "no requirements yet, running");
   }));
