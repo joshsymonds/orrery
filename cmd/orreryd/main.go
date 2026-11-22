@@ -1033,12 +1033,7 @@ func startSessions(
 		host.startLimits(ctx)
 		host.startSummaries(ctx, st, haiku, logger)
 		host.startTitles(ctx, st, haiku, logger)
-		headlinesWake := host.startHeadlines(ctx, st, haiku, logger)
-		closuresWake := host.startClosures(ctx, st, haiku, opts.models, logger)
-		st.OnTurnEnded(func(session string) {
-			headlinesWake(session)
-			closuresWake(session)
-		})
+		host.startTurnEnded(ctx, st, haiku, opts.models, logger)
 		host.startReports(ctx, st, haiku, logger)
 		host.startDue(ctx, st, opts.dueNow, logger)
 		host.startIdle(ctx)
@@ -1878,6 +1873,23 @@ func (h *sessionHost) startHeadlines(
 		headlines.Run(headlinesCtx)
 	}()
 	return headlines.Wake
+}
+
+// startTurnEnded starts the session headlines and the session closures, and sets the store's single OnTurnEnded hook to
+// wake both for each session whose turn end the store stores.
+func (h *sessionHost) startTurnEnded(
+	ctx context.Context,
+	st *store.Store,
+	haiku *enginehost.Haiku,
+	models map[string]string,
+	logger *slog.Logger,
+) {
+	headlinesWake := h.startHeadlines(ctx, st, haiku, logger)
+	closuresWake := h.startClosures(ctx, st, haiku, models, logger)
+	st.OnTurnEnded(func(session string) {
+		headlinesWake(session)
+		closuresWake(session)
+	})
 }
 
 // startClosures stores whether each headless session whose turn ended done is closed, from its recent turns through the

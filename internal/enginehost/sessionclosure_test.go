@@ -47,11 +47,11 @@ func newClosureFakeStore() *closureFakeStore {
 	return &closureFakeStore{sessions: make(map[string]closureFakeSession)}
 }
 
-// addSession adds the session id as sess.
-func (s *closureFakeStore) addSession(id string, sess closureFakeSession) {
+// addSession adds the example session as sess.
+func (s *closureFakeStore) addSession(sess closureFakeSession) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.sessions[id] = sess
+	s.sessions[exampleClosureSession] = sess
 }
 
 // ClosureSession returns the state and change time of the session id, and false when the fake does not hold it.
@@ -138,9 +138,9 @@ func (c *closureFakeCaller) CallVia(
 	return c.reply, nil
 }
 
-// closureRun wakes the session id on a SessionClosures over st and judge, runs it until one pass has judged the wake,
-// and then stops it.
-func closureRun(t *testing.T, st ClosureStore, judge ClosureJudge, id string) {
+// closureRun wakes the example session on a SessionClosures over st and judge, runs it until one pass has judged the
+// wake, and then stops it.
+func closureRun(t *testing.T, st ClosureStore, judge ClosureJudge) {
 	t.Helper()
 	passed := make(chan struct{}, 1)
 	closures := NewSessionClosures(SessionClosuresConfig{
@@ -154,7 +154,7 @@ func closureRun(t *testing.T, st ClosureStore, judge ClosureJudge, id string) {
 		defer close(done)
 		closures.Run(ctx)
 	}()
-	closures.Wake(id)
+	closures.Wake(exampleClosureSession)
 	<-passed
 	cancel()
 	<-done
@@ -171,12 +171,12 @@ func TestInboxClosureJudgeDoneSessionGetsOneCallAndStoredVerdict(t *testing.T) {
 		turns = append(turns, store.RecentTurn{Role: role, Text: fmt.Sprintf("example turn %d", i)})
 	}
 	st := newClosureFakeStore()
-	st.addSession(exampleClosureSession, closureFakeSession{
+	st.addSession(closureFakeSession{
 		state: string(protocol.StateDone), changed: exampleClosureChanged, turns: turns,
 	})
 	judge := &closureFakeJudge{verdict: closurejudge.Verdict{Closed: true, Why: exampleClosureWhy}}
 
-	closureRun(t, st, judge, exampleClosureSession)
+	closureRun(t, st, judge)
 
 	calls := judge.callsOf()
 	if len(calls) != 1 {
@@ -186,7 +186,7 @@ func TestInboxClosureJudgeDoneSessionGetsOneCallAndStoredVerdict(t *testing.T) {
 		t.Errorf("baseURL, env = %q, %v, want \"\", nil", calls[0].baseURL, calls[0].env)
 	}
 	// The newest twelve turns are read, so the oldest of the thirteen is left out.
-	var wantLines []string
+	wantLines := make([]string, 0, len(turns)-1)
 	for _, turn := range turns[1:] {
 		wantLines = append(wantLines, turn.Role+": "+turn.Text)
 	}
@@ -207,13 +207,13 @@ func TestInboxClosureJudgeWorkingOrWaitingSessionMakesNoCall(t *testing.T) {
 		t.Run(state, func(t *testing.T) {
 			t.Parallel()
 			st := newClosureFakeStore()
-			st.addSession(exampleClosureSession, closureFakeSession{
+			st.addSession(closureFakeSession{
 				state: state, changed: exampleClosureChanged,
 				turns: []store.RecentTurn{{Role: "user", Text: "example prompt"}},
 			})
 			judge := &closureFakeJudge{verdict: closurejudge.Verdict{Closed: true, Why: exampleClosureWhy}}
 
-			closureRun(t, st, judge, exampleClosureSession)
+			closureRun(t, st, judge)
 
 			if calls := judge.callsOf(); len(calls) != 0 {
 				t.Errorf("Closed calls = %d, want 0", len(calls))
@@ -228,13 +228,13 @@ func TestInboxClosureJudgeWorkingOrWaitingSessionMakesNoCall(t *testing.T) {
 func TestInboxClosureJudgeFailedCallStoresNothing(t *testing.T) {
 	t.Parallel()
 	st := newClosureFakeStore()
-	st.addSession(exampleClosureSession, closureFakeSession{
+	st.addSession(closureFakeSession{
 		state: string(protocol.StateDone), changed: exampleClosureChanged,
 		turns: []store.RecentTurn{{Role: "user", Text: "example prompt"}},
 	})
 	judge := &closureFakeJudge{err: errExampleClosure}
 
-	closureRun(t, st, judge, exampleClosureSession)
+	closureRun(t, st, judge)
 
 	if calls := judge.callsOf(); len(calls) != 1 {
 		t.Fatalf("Closed calls = %d, want 1", len(calls))
@@ -247,14 +247,14 @@ func TestInboxClosureJudgeFailedCallStoresNothing(t *testing.T) {
 func TestInboxClosureJudgeUnreadableReplyStoresNothing(t *testing.T) {
 	t.Parallel()
 	st := newClosureFakeStore()
-	st.addSession(exampleClosureSession, closureFakeSession{
+	st.addSession(closureFakeSession{
 		state: string(protocol.StateDone), changed: exampleClosureChanged,
 		turns: []store.RecentTurn{{Role: "user", Text: "example prompt"}},
 	})
 	caller := &closureFakeCaller{reply: json.RawMessage("example unreadable reply")}
 	judge := closurejudge.New(caller, nil)
 
-	closureRun(t, st, judge, exampleClosureSession)
+	closureRun(t, st, judge)
 
 	if caller.calls != 1 {
 		t.Fatalf("caller calls = %d, want 1", caller.calls)
