@@ -231,7 +231,7 @@ test("EpicRecord: in the desk's panel the epic page's title row stays pinned at 
 test("EpicRecord: the Tasks section sets the chart beside the task table, wrapping the table under it when narrow", () => {
   assert.equal(declaredValue(rules, ".epic-page section.tasks", "display"), "flex");
   assert.equal(declaredValue(rules, ".epic-page section.tasks", "flex-wrap"), "wrap");
-  assert.equal(declaredValue(rules, ".epic-page section.tasks > .sec-head", "flex"), "1 1 100%");
+  assert.equal(declaredValue(rules, ".epic-page section.tasks > .sec", "flex"), "1 1 100%");
   assert.equal(declaredValue(rules, ".epic-page section.tasks > .orrery-fig", "flex"), "0 0 var(--o-size-orrery-full)");
   assert.equal(declaredValue(rules, ".epic-page section.tasks > .tbl", "flex"), "1 1 56ch");
 });

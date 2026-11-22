@@ -325,7 +325,7 @@ test("EpicRecord: the Tasks head counts the integrated tasks, and the chart and 
       ],
     }),
     (container) => {
-      assert.equal(textOf(container, ".tasks .sec-head span"), "1 of 2 done");
+      assert.equal(textOf(container, ".tasks .sec .n"), "1 of 2 done");
       assert.equal(container.querySelectorAll(".tasks path.cell").length, 10);
       assert.deepEqual(textsOf(container, ".tasks .tr .strong"), ["Login", "Logout"]);
     },
@@ -360,7 +360,7 @@ test("EpicRecord: the Requirements head counts the proven requirements, and the 
       ],
     }),
     (container) => {
-      assert.equal(textOf(container, ".requirements .sec-head span"), "1 of 2 proven");
+      assert.equal(textOf(container, ".requirements .sec .n"), "1 of 2 proven");
       assert.deepEqual(textsOf(container, ".requirements .tbl.reqs .tr .id"), ["R1", "R2"]);
     },
   );
@@ -594,7 +594,7 @@ test("EpicAsk: an open question draws its Ask in Now, under the sentence", async
   await withPage(
     detail({ ...build, questions: [{ id: "Q1", text: "Which branch?", asked: 9_880n }] }),
     (container) => {
-      assert.deepEqual(labelsOf(container, ".now"), ["h3", "now-sentence", "ask", "tbl steps"]);
+      assert.deepEqual(labelsOf(container, ".now"), ["sec", "now-sentence", "ask", "tbl steps"]);
       assert.equal(textOf(container, ".now .ask .q"), "Which branch?");
       assert.equal(textOf(container, ".now-sentence"), "One task is being worked on, and one waits on you.");
     },
@@ -1069,7 +1069,7 @@ test("EpicReview: a reviewing epic draws its Review after the Requirements, with
   await withPage(detail(reviewed), (container) => {
     const labels = labelsOf(container, ".epic-page");
     assert.deepEqual(labels.slice(-2), ["requirements", "review"]);
-    assert.equal(textOf(container, ".review .sec-head span"), "1 reviewer · 1 finding");
+    assert.equal(textOf(container, ".review .sec .n"), "1 reviewer · 1 finding");
     assert.equal(textOf(container, '.review [data-reviewer="security"] .wide'), "The token is checked");
     assert.equal(textOf(container, '.review [data-finding="security-1"] .wide'), "Token not checked · auth.go:12");
   });
@@ -1095,8 +1095,8 @@ const releasing = {
 
 test("ReleaseTable: a releasing epic draws its Release section with its words, its steps and its Then, and offers no release", async () => {
   await withPage(detail(releasing), (container) => {
-    assert.equal(textOf(container, ".release .sec-head h3"), "Release");
-    assert.equal(textOf(container, ".release .sec-head span"), "step 2 of 2");
+    assert.equal(textOf(container, ".release .sec .name"), "Release");
+    assert.equal(textOf(container, ".release .sec .n"), "step 2 of 2");
     assert.deepEqual(textsOf(container, ".release .tr .id"), ["1", "2"]);
     assert.equal(textOf(container, ".release .then"), "Then: the tag is pushed");
     assert.equal(has(container, ".release button"), false, "a running release offers no Release from step");
