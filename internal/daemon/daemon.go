@@ -1,5 +1,6 @@
-// Package daemon serves the hook socket: it reads one hook frame per connection, applies it to the
-// pane's tmux server through state.Apply, and reports each state change to observers.
+// Package daemon serves the hook socket: it reads one frame per connection and reports its seen, read and input
+// reports or answers its sessions question. It applies the session registry's pane updates to the pane's tmux server
+// through state.ApplyPane, and reports each state change to observers.
 package daemon
 
 import (
@@ -21,7 +22,6 @@ import (
 
 	"github.com/joshsymonds/orrery/internal/protocol"
 	"github.com/joshsymonds/orrery/internal/stamp"
-	"github.com/joshsymonds/orrery/internal/state"
 	"github.com/joshsymonds/orrery/internal/tmuxctl"
 )
 
@@ -45,9 +45,9 @@ type Config struct {
 	// DefaultServer, when non-zero and Server is zero, is tidied with the servers frames name, so the default server's
 	// panes have rows from the first tidy. A frame whose $TMUX names the same socket names the same server.
 	DefaultServer tmuxctl.Server
-	// Mirror, when set, syncs each applied frame's pane to the store after its tmux writes and observers, outside the
-	// frame mutex, and tidies the store against tmux at start (or when TidyStart closes) and every TidyInterval. Nil
-	// skips both.
+	// Mirror, when set, syncs each applied pane update's pane to the store after its tmux writes and observers, outside
+	// the update mutex, and tidies the store against tmux at start (or when TidyStart closes) and every TidyInterval.
+	// Nil skips both.
 	Mirror *Mirror
 	// TidyInterval is how often Serve tidies with Mirror; zero or negative means 10 s.
 	TidyInterval time.Duration
@@ -62,7 +62,7 @@ type Config struct {
 	// quickly, since the next pass waits for it. orreryd retries the notice row writes the store refused with it.
 	AfterTidy func(context.Context)
 	// Updates, when non-nil, is where Serve takes the session registry's pane updates. Serve applies each one in order on
-	// one goroutine, as it applies a frame, until ctx is done. Nil takes none.
+	// one goroutine, until ctx is done. Nil takes none.
 	Updates <-chan PaneUpdate
 	// Observers are called in order, synchronously, for each state change. They must return quickly.
 	Observers []Observer
@@ -78,7 +78,7 @@ type Config struct {
 	Viewing func(ViewReport)
 	// Logger receives read, resolve and apply errors. Nil discards them.
 	Logger *slog.Logger
-	// Home is the user's home directory. Each applied frame's Cwd is searched for a context stamp below it. Empty
+	// Home is the user's home directory. Each applied pane update's Cwd is searched for a context stamp below it. Empty
 	// means no stamp is found.
 	Home string
 	// Sessions is whether this orreryd serves sessions.sock. A sessions question is answered with it.
@@ -107,39 +107,36 @@ type ViewReport struct {
 // Observer receives one state change.
 type Observer func(Transition)
 
-// Transition is one state change of a pane, with the facts of the frame that caused it that its observers read.
+// Transition is one state change of a pane, with the facts of the pane update that caused it that its observers read.
 type Transition struct {
 	PaneID string
 	Server tmuxctl.Server
 	From   protocol.State
 	To     protocol.State
-	// Cwd and BaseURL are the frame's working directory and API base URL.
+	// Cwd and BaseURL are the update's working directory and API base URL.
 	Cwd     string
 	BaseURL string
-	// Transcript and LastMessage are the hook's transcript_path and last_assistant_message.
+	// Transcript is the session's transcript path, and LastMessage is the last message of its turn.
 	Transcript  string
 	LastMessage string
-	// Failed is whether the hook is a StopFailure, and APIError is its error field when it is.
+	// Failed is whether the turn ended in an API error, and APIError is that error when it did.
 	Failed   bool
 	APIError string
-	// Background is whether the hook's background_tasks holds a subagent or workflow task.
-	Background bool
 }
 
-// Hook JSON keys and event that a Transition's facts read. Claude Code writes them in snake case.
+// Hook JSON keys and event that a stored legacy transition's facts read. Claude Code writes them in snake case.
 const (
 	keyHookEventName        = "hook_event_name"
 	keyTranscriptPath       = "transcript_path"
 	keyLastAssistantMessage = "last_assistant_message"
 	keyAPIError             = "error"
-	keyBackgroundTasks      = "background_tasks"
 	stopFailureEvent        = "StopFailure"
 )
 
 // SetHookFacts sets the facts of t that its hook carries: Transcript and LastMessage from transcript_path and
-// last_assistant_message, Failed and APIError from hook_event_name and error, and Background from background_tasks. A
-// hook that is not a JSON object sets none of them. A field that does not decode leaves its fact empty, and the
-// returned error reports every such field, so the other facts are still set.
+// last_assistant_message, and Failed and APIError from hook_event_name and error. A hook that is not a JSON object sets
+// none of them. A field that does not decode leaves its fact empty, and the returned error reports every such field, so
+// the other facts are still set.
 func (t *Transition) SetHookFacts(hook json.RawMessage) error {
 	var fields map[string]json.RawMessage
 	if err := json.Unmarshal(hook, &fields); err != nil {
@@ -157,21 +154,6 @@ func (t *Transition) SetHookFacts(hook json.RawMessage) error {
 	t.APIError = ""
 	if t.Failed {
 		t.APIError = text(keyAPIError)
-	}
-	t.Background = false
-	if raw, ok := fields[keyBackgroundTasks]; ok {
-		var tasks []struct {
-			Type string `json:"type"`
-		}
-		if err := json.Unmarshal(raw, &tasks); err != nil {
-			errs = append(errs, fmt.Errorf("decode %s: %w", keyBackgroundTasks, err))
-		} else {
-			t.Background = slices.ContainsFunc(tasks, func(task struct {
-				Type string `json:"type"`
-			}) bool {
-				return task.Type == "subagent" || task.Type == "workflow"
-			})
-		}
 	}
 	return errors.Join(errs...)
 }
@@ -299,8 +281,8 @@ func Serve(ctx context.Context, ln net.Listener, cfg Config) error {
 	}
 }
 
-// frameHandler applies frames. Its mutex serializes state.Apply and the observer calls for each frame; the store
-// sync runs after the mutex is released. serversMu guards servers, the tmux servers frames have named, and
+// frameHandler applies pane updates. Its mutex serializes state.ApplyPane and the observer calls for each update; the
+// store sync runs after the mutex is released. serversMu guards servers, the tmux servers frames have named, and
 // defaultSkipReason, the reason the default socket was last skipped, which the tidy loop reads and writes.
 type frameHandler struct {
 	cfg               Config
@@ -311,9 +293,9 @@ type frameHandler struct {
 	defaultSkipReason string
 }
 
-// serveConn reads one frame from conn, applies it, and closes conn; the close tells the sender the frame
-// was handled. The frame is applied even when ctx is done, so an accepted event is never half-written. The
-// read deadline bounds the wait for the frame.
+// serveConn reads one frame from conn, answers or reports it, and closes conn; the close tells the sender the frame
+// was handled. A frame that carries none of seen, read, input or ask does not read, so it is dropped with a warning.
+// The read deadline bounds the wait for the frame.
 func (h *frameHandler) serveConn(ctx context.Context, conn net.Conn) {
 	defer func() {
 		if err := conn.Close(); err != nil {
@@ -333,23 +315,15 @@ func (h *frameHandler) serveConn(ctx context.Context, conn net.Conn) {
 		h.answerSessions(ctx, conn)
 		return
 	}
-	if frame.Hook == nil {
-		if frame.Input != 0 {
-			h.reportInput(frame)
-			return
-		}
-		if frame.Read != 0 {
-			h.reportRead(ctx, frame)
-			return
-		}
-		h.reportSeen(ctx, frame)
+	if frame.Input != 0 {
+		h.reportInput(frame)
 		return
 	}
-	if frame.TmuxPane == "" {
-		h.logger.WarnContext(ctx, "drop hook frame", "reason", "empty tmuxPane")
+	if frame.Read != 0 {
+		h.reportRead(ctx, frame)
 		return
 	}
-	h.apply(context.WithoutCancel(ctx), frame)
+	h.reportSeen(ctx, frame)
 }
 
 // answerSessions writes whether this orreryd serves sessions to conn. It never touches tmux, a pane, the observers,
@@ -401,22 +375,6 @@ func (h *frameHandler) reportRead(ctx context.Context, frame protocol.HookFrame)
 	h.cfg.Read(ReadReport{PaneID: frame.TmuxPane, Read: frame.Read})
 }
 
-// apply runs one frame through state.ApplyWith under the mutex and calls every observer when the state changes. With a
-// Mirror, it then syncs the frame's pane to the store outside the mutex, so a slow or locked store delays only this
-// frame's connection and never the frames queued behind it. When the mirror lock is free, the sync's tmux read runs in
-// the frame's own write invocation (see applyLocked).
-func (h *frameHandler) apply(ctx context.Context, frame protocol.HookFrame) {
-	server := resolveServer(h.cfg.Server, frame.Tmux)
-	h.noteServer(server)
-	client, err := tmuxctl.New(server)
-	if err != nil {
-		h.logger.ErrorContext(ctx, "resolve tmux server", "error", err)
-		return
-	}
-	out, read, ok := h.applyLocked(ctx, client, server, frame)
-	h.syncApplied(ctx, server, frame.TmuxPane, out, read, ok)
-}
-
 // syncApplied syncs pane on server to the store after its apply, outside the mutex: from the output of the read that
 // the apply ran in its own write when read and ok, releases the mirror lock when read and the apply failed, and
 // otherwise syncs the pane from its own read when ok and there is a Mirror.
@@ -429,51 +387,6 @@ func (h *frameHandler) syncApplied(ctx context.Context, server tmuxctl.Server, p
 	case ok && h.cfg.Mirror != nil:
 		h.cfg.Mirror.SyncPane(ctx, server, pane)
 	}
-}
-
-// applyLocked runs state.ApplyWith, with the context and session writes after the hook's own, and the observers under
-// the mutex. Each hook makes at most two tmux invocations: the read of the pane's state, and one write of every option
-// it changes. When the mirror lock is free, it is taken without waiting and the mirror's read of the pane runs last in
-// that write; read reports so, and out is that read's output. ok reports whether state.ApplyWith succeeded. A context
-// or session write that cannot be decided is logged and left out, and the others are written.
-func (h *frameHandler) applyLocked(
-	ctx context.Context, client *tmuxctl.Client, server tmuxctl.Server, frame protocol.HookFrame,
-) (out string, read, ok bool) {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	session, err := state.SessionWrites(frame.Hook)
-	if err != nil {
-		h.logger.ErrorContext(ctx, "record pane session", "pane", frame.TmuxPane, "error", err)
-	}
-	contextOpt := h.contextWrite(ctx, frame.TmuxPane, frame.Cwd, frame.AnthropicBaseURL)
-	extra := slices.Concat([]tmuxctl.OptionWrite{contextOpt}, session)
-	var then []string
-	if h.cfg.Mirror != nil {
-		then, read = h.cfg.Mirror.TryRead(frame.TmuxPane)
-	}
-	transition, changed, out, err := state.ApplyWith(ctx, client, frame.TmuxPane, frame.Hook, time.Now(), extra, then)
-	if err != nil {
-		h.logger.ErrorContext(ctx, "apply hook frame", "pane", frame.TmuxPane, "error", err)
-		return "", read, false
-	}
-	if !changed {
-		return out, read, true
-	}
-	event := Transition{
-		PaneID:  frame.TmuxPane,
-		Server:  server,
-		From:    transition.From,
-		To:      transition.To,
-		Cwd:     frame.Cwd,
-		BaseURL: frame.AnthropicBaseURL,
-	}
-	if err = event.SetHookFacts(frame.Hook); err != nil {
-		h.logger.WarnContext(ctx, "read hook facts", "pane", frame.TmuxPane, "error", err)
-	}
-	for _, observe := range h.cfg.Observers {
-		observe(event)
-	}
-	return out, read, true
 }
 
 // contextWrite returns the write of a session's context to pane's @orrery_context. The context is that of the stamp in

@@ -27,21 +27,28 @@ const unknownAPIError = "unknown"
 
 // paneSource is the stored form of a daemon.Transition. It has the transition's fields under the JSON names a stored
 // source uses, and it converts to and from the transition field for field. A row stored before a transition carried
-// its facts has a frame instead: the hook frame the transition came from, which decodePaneSource reads back into the
-// same fields.
+// its facts has a frame instead: the cwd, base URL and hook the transition came from, which decodePaneSource reads back
+// into the same fields.
 type paneSource struct {
-	PaneID      string              `json:"paneId"`
-	Server      paneServer          `json:"server"`
-	From        protocol.State      `json:"from"`
-	To          protocol.State      `json:"to"`
-	Cwd         string              `json:"cwd"`
-	BaseURL     string              `json:"baseUrl"`
-	Transcript  string              `json:"transcript"`
-	LastMessage string              `json:"lastMessage"`
-	Failed      bool                `json:"failed"`
-	APIError    string              `json:"apiError"`
-	Background  bool                `json:"background"`
-	Frame       *protocol.HookFrame `json:"frame,omitempty"`
+	PaneID      string         `json:"paneId"`
+	Server      paneServer     `json:"server"`
+	From        protocol.State `json:"from"`
+	To          protocol.State `json:"to"`
+	Cwd         string         `json:"cwd"`
+	BaseURL     string         `json:"baseUrl"`
+	Transcript  string         `json:"transcript"`
+	LastMessage string         `json:"lastMessage"`
+	Failed      bool           `json:"failed"`
+	APIError    string         `json:"apiError"`
+	Frame       *legacyFrame   `json:"frame,omitempty"`
+}
+
+// legacyFrame is the frame form of a stored row: the cwd and base URL of the hook frame that a transition came from,
+// and the hook it carried.
+type legacyFrame struct {
+	Cwd              string          `json:"cwd"`
+	AnthropicBaseURL string          `json:"anthropicBaseUrl"`
+	Hook             json.RawMessage `json:"hook,omitempty"`
 }
 
 // paneServer is the stored form of a tmuxctl.Server.
@@ -63,7 +70,6 @@ func encodePaneSource(transition daemon.Transition) ([]byte, error) {
 		LastMessage: transition.LastMessage,
 		Failed:      transition.Failed,
 		APIError:    transition.APIError,
-		Background:  transition.Background,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("%s notice: %w", paneSourceKind, err)
@@ -73,7 +79,7 @@ func encodePaneSource(transition daemon.Transition) ([]byte, error) {
 
 // decodePaneSource returns the transition that source data stores. A legacy row's frame gives the transition its cwd
 // and base URL, and its hook gives the rest of its facts. A hook that does not decode is logged, and the facts that do
-// decode stay set, as they do for a hook that arrives as a frame.
+// decode stay set.
 func decodePaneSource(data []byte, logger *slog.Logger) (daemon.Transition, error) {
 	var source paneSource
 	if err := json.Unmarshal(data, &source); err != nil {
@@ -90,7 +96,6 @@ func decodePaneSource(data []byte, logger *slog.Logger) (daemon.Transition, erro
 		LastMessage: source.LastMessage,
 		Failed:      source.Failed,
 		APIError:    source.APIError,
-		Background:  source.Background,
 	}
 	if source.Frame != nil {
 		transition.Cwd = source.Frame.Cwd
@@ -111,8 +116,8 @@ func decodePaneSource(data []byte, logger *slog.Logger) (daemon.Transition, erro
 // that started it.
 func (r *relay) paneNotice(transition daemon.Transition, summarized <-chan struct{}, view *doneView) route.Notice {
 	silent := ""
-	if !push.Wanted(transition.To, transition.Background) {
-		silent = silentBackground
+	if !push.Wanted(transition.To) {
+		silent = silentNotWanted
 	}
 	failure, failed := stopFailureText(transition)
 	incoming := route.Notice{

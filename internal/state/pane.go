@@ -23,11 +23,11 @@ type Pane struct {
 	Turn       panetranscript.Turn
 }
 
-// ApplyPane applies one session registry update to the pane paneID and reports the transition, as ApplyWith applies a
-// hook event: the bool is true exactly when the state changes, a handled update reads the pane's state in one tmux
-// invocation and writes its own options, then extra, then runs then, all in one more, and its stdout is what then
-// printed. A dialog-open update and an idle or shell update to a pane that is neither working nor waiting make no
-// transition and write none of the pane's own options, so they write only extra and run then.
+// ApplyPane applies one session registry update to the pane paneID and reports the transition: the bool is true
+// exactly when the state changes, a handled update reads the pane's state in one tmux invocation and writes its own
+// options, then extra, then runs then, all in one more, and its stdout is what then printed. A dialog-open update and
+// an idle or shell update to a pane that is neither working nor waiting make no transition and write none of the
+// pane's own options, so they write only extra and run then.
 func ApplyPane(
 	ctx context.Context,
 	client *tmuxctl.Client,
@@ -53,7 +53,7 @@ func ApplyPane(
 }
 
 // planPane returns the transition a registry update makes and the writes of the pane's own options that make it. An
-// unbound pane ends as SessionEnd ends it. A dialog-open update changes nothing and reads nothing. Any other update
+// unbound pane is cleared by unboundWrites. A dialog-open update changes nothing and reads nothing. Any other update
 // reads the pane's state, and an idle or shell update to a pane that is neither working nor waiting returns the pane's
 // state as both ends of its transition and no writes.
 func planPane(
@@ -107,9 +107,9 @@ func registryTarget(status string, from protocol.State) (to protocol.State, move
 	return from, false
 }
 
-// registryWrites returns the writes of the tool, the question, the turn start, then the state and its change time, as
-// transitionWrites does for a hook. The tool is the turn's open call, unset when there is none and on done. The state
-// options are written only when the state changes.
+// registryWrites returns the writes of the tool, the question, the turn start, then the state and its change time. The
+// tool is the turn's open call, unset when there is none and on done. The state options are written only when the
+// state changes.
 func registryWrites(pane Pane, transition Transition, now time.Time) ([]tmuxctl.OptionWrite, error) {
 	tool, err := toolOption(pane.Turn.Tool, transition.To)
 	if err != nil {
@@ -181,7 +181,7 @@ func questionCall(pane Pane) (panetranscript.Call, bool) {
 	return panetranscript.Call{}, false
 }
 
-// unboundWrites clears the pane's options as SessionEnd does, and then unsets its session options.
+// unboundWrites clears the pane's options as sessionEndWrites does, and then unsets its session options.
 func unboundWrites() []tmuxctl.OptionWrite {
 	return append(sessionEndWrites(),
 		tmuxctl.Unset(protocol.OptionClaudeSession), tmuxctl.Unset(protocol.OptionTranscript))

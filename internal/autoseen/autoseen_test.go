@@ -1,14 +1,11 @@
 package autoseen_test
 
 import (
-	"bytes"
 	"context"
 	"crypto/rand"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
-	"net"
 	"os"
 	"path/filepath"
 	"slices"
@@ -23,6 +20,7 @@ import (
 
 	"github.com/joshsymonds/orrery/internal/autoseen"
 	"github.com/joshsymonds/orrery/internal/daemon"
+	"github.com/joshsymonds/orrery/internal/paneregistry"
 	"github.com/joshsymonds/orrery/internal/protocol"
 	"github.com/joshsymonds/orrery/internal/tmuxctl"
 	"github.com/joshsymonds/orrery/internal/tmuxtest"
@@ -37,12 +35,6 @@ const (
 	typedChannel = "typed"
 	// staleOffset puts the observer's clock past the client's last input by more than the 30 s window.
 	staleOffset = 31 * time.Second
-)
-
-// Synthetic Claude Code hook events.
-const (
-	userPromptSubmitHook = `{"hook_event_name":"UserPromptSubmit","prompt":"synthetic prompt"}`
-	stopHook             = `{"hook_event_name":"Stop","stop_hook_active":false}`
 )
 
 // clock is the observer's now function. The test sets it while daemon goroutines read it.
@@ -242,9 +234,9 @@ func waitFor(t *testing.T, dir, what string, check func() (bool, error)) {
 	}
 }
 
-// serve listens on a fresh socket path, runs Serve with cfg in a goroutine, and returns the path. Cleanup
-// cancels Serve and requires it to return nil.
-func serve(t *testing.T, cfg daemon.Config) string {
+// serve listens on a fresh socket path and runs Serve with cfg in a goroutine. Cleanup cancels Serve and requires it
+// to return nil.
+func serve(t *testing.T, cfg daemon.Config) {
 	t.Helper()
 	socketPath := filepath.Join(t.TempDir(), "orreryd.sock")
 	ln, err := daemon.Listen(socketPath)
@@ -260,42 +252,18 @@ func serve(t *testing.T, cfg daemon.Config) string {
 			t.Errorf("Serve: %v", err)
 		}
 	})
-	return socketPath
 }
 
-// frameFor returns a frame for pane whose $TMUX names socket, the way the hook sends it.
-func frameFor(hook, pane, socket string) protocol.HookFrame {
-	return protocol.HookFrame{
-		Hook:     json.RawMessage(hook),
-		TmuxPane: pane,
-		Tmux:     fmt.Sprintf("%s,1234,0", socket),
-	}
+// paneUpdate returns an update of pane whose $TMUX names socket, with the registry status that starts or ends a turn.
+func paneUpdate(pane, socket, status string) daemon.PaneUpdate {
+	return daemon.PaneUpdate{PaneID: pane, Tmux: fmt.Sprintf("%s,1234,0", socket), Status: status}
 }
 
-// sendFrame sends frame to the daemon socket and returns once the daemon closes the connection. The
-// daemon closes it only after the frame is handled, so this return is the synchronization point.
-func sendFrame(t *testing.T, socketPath string, frame protocol.HookFrame) {
-	t.Helper()
-	var buf bytes.Buffer
-	if err := protocol.WriteFrame(&buf, frame); err != nil {
-		t.Fatalf("WriteFrame: %v", err)
-	}
-	var dialer net.Dialer
-	conn, err := dialer.DialContext(t.Context(), "unix", socketPath)
-	if err != nil {
-		t.Fatalf("dial %s: %v", socketPath, err)
-	}
-	defer func() {
-		if err := conn.Close(); err != nil {
-			t.Errorf("close connection: %v", err)
-		}
-	}()
-	if _, err := conn.Write(buf.Bytes()); err != nil {
-		t.Fatalf("write frame: %v", err)
-	}
-	// The daemon closes the connection once it has handled the frame, so the read returns at that close. It has no
-	// deadline: handling the frame writes tmux at the machine's pace.
-	_, _ = conn.Read(make([]byte, 1))
+// applyUpdate sends update to the daemon and returns once the daemon has applied it. The daemon takes one update at a
+// time, and it drops the paneless update sent after update, so that one is taken only once update is applied.
+func applyUpdate(updates chan<- daemon.PaneUpdate, update daemon.PaneUpdate) {
+	updates <- update
+	updates <- daemon.PaneUpdate{}
 }
 
 // wantOption checks pane-scoped option name on pane; want "" means unset.
@@ -322,23 +290,25 @@ func TestObserverMarksPaneSeenWhenClientIsViewingIt(t *testing.T) {
 	fx := newFixture(t)
 	var clk clock
 	var rep reports
-	socket := serve(t, daemon.Config{
+	updates := make(chan daemon.PaneUpdate)
+	serve(t, daemon.Config{
+		Updates:   updates,
 		Observers: []daemon.Observer{autoseen.New(clk.now, nil, rep.record, nil)},
 	})
 	fx.typeIntoClient(t)
 
-	sendFrame(t, socket, frameFor(userPromptSubmitHook, fx.paneA, fx.socket))
+	applyUpdate(updates, paneUpdate(fx.paneA, fx.socket, paneregistry.StatusBusy))
 	wantOption(t, fx.inner.client, fx.paneA, protocol.OptionState, string(protocol.StateWorking))
 	wantOption(t, fx.inner.client, fx.paneA, protocol.OptionSeen, "")
 
 	stopped := time.Now()
 	clk.set(stopped)
-	sendFrame(t, socket, frameFor(stopHook, fx.paneA, fx.socket))
+	applyUpdate(updates, paneUpdate(fx.paneA, fx.socket, paneregistry.StatusIdle))
 	wantOption(t, fx.inner.client, fx.paneA, protocol.OptionState, string(protocol.StateDone))
 	wantOption(t, fx.inner.client, fx.paneA, protocol.OptionSeen, strconv.FormatInt(stopped.Unix(), 10))
 
-	sendFrame(t, socket, frameFor(userPromptSubmitHook, fx.paneB, fx.socket))
-	sendFrame(t, socket, frameFor(stopHook, fx.paneB, fx.socket))
+	applyUpdate(updates, paneUpdate(fx.paneB, fx.socket, paneregistry.StatusBusy))
+	applyUpdate(updates, paneUpdate(fx.paneB, fx.socket, paneregistry.StatusIdle))
 	wantOption(t, fx.inner.client, fx.paneB, protocol.OptionState, string(protocol.StateDone))
 	wantOption(t, fx.inner.client, fx.paneB, protocol.OptionSeen, "")
 
@@ -354,14 +324,16 @@ func TestObserverLeavesPaneUnseenWhenClientInputIsStale(t *testing.T) {
 	fx := newFixture(t)
 	var clk clock
 	var rep reports
-	socket := serve(t, daemon.Config{
+	updates := make(chan daemon.PaneUpdate)
+	serve(t, daemon.Config{
+		Updates:   updates,
 		Observers: []daemon.Observer{autoseen.New(clk.now, nil, rep.record, nil)},
 	})
 	fx.typeIntoClient(t)
 
-	sendFrame(t, socket, frameFor(userPromptSubmitHook, fx.paneA, fx.socket))
+	applyUpdate(updates, paneUpdate(fx.paneA, fx.socket, paneregistry.StatusBusy))
 	clk.set(time.Now().Add(staleOffset))
-	sendFrame(t, socket, frameFor(stopHook, fx.paneA, fx.socket))
+	applyUpdate(updates, paneUpdate(fx.paneA, fx.socket, paneregistry.StatusIdle))
 	wantOption(t, fx.inner.client, fx.paneA, protocol.OptionState, string(protocol.StateDone))
 	wantOption(t, fx.inner.client, fx.paneA, protocol.OptionSeen, "")
 	if got := rep.list(); len(got) != 0 {

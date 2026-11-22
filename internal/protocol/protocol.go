@@ -230,17 +230,15 @@ func (v ViewKey) fields() int {
 	return count
 }
 
-// HookFrame is the single frame a sender writes to orreryd per connection. A Claude Code hook frame carries Hook.
-// A seen report carries Seen and no Hook. A read report carries Read and neither Hook nor Seen. An input report
-// carries Input and neither Hook, Seen nor Read, and carries View when the web view views a key. A sessions question
-// carries Ask and none of Hook, Seen, Read, Input or View.
+// HookFrame is the single frame a sender writes to orreryd per connection. A seen report carries Seen. A read report
+// carries Read and not Seen. An input report carries Input and neither Seen nor Read, and carries View when the web
+// view views a key. A sessions question carries Ask and none of Seen, Read, Input or View.
 type HookFrame struct {
-	Hook             json.RawMessage `json:"hook,omitempty"`
-	TmuxPane         string          `json:"tmuxPane"`
-	Tmux             string          `json:"tmux"`
-	Cwd              string          `json:"cwd"`
-	AnthropicBaseURL string          `json:"anthropicBaseUrl"`
-	Seen             int64           `json:"seen,omitempty"`
+	TmuxPane         string `json:"tmuxPane"`
+	Tmux             string `json:"tmux"`
+	Cwd              string `json:"cwd"`
+	AnthropicBaseURL string `json:"anthropicBaseUrl"`
+	Seen             int64  `json:"seen,omitempty"`
 	// Read is the time of a read report: serve's word that the phone read the pane at that time.
 	Read int64 `json:"read,omitempty"`
 	// Input is the time of an input report: serve's word that the web view had input at that time.
@@ -248,8 +246,7 @@ type HookFrame struct {
 	// View is the key the web view views, as its input report carries it. Only an input report carries a View, and a
 	// zero View is omitted.
 	View ViewKey `json:"view,omitzero"`
-	// Ask names a question the sender puts to orreryd. A question carries Ask and none of Hook, Seen, Read, Input or
-	// View.
+	// Ask names a question the sender puts to orreryd. A question carries Ask and none of Seen, Read, Input or View.
 	Ask string `json:"ask,omitempty"`
 }
 
@@ -264,10 +261,10 @@ func WriteFrame(w io.Writer, frame HookFrame) error {
 	return nil
 }
 
-// checkInputReport rejects an input report that carries a hook, a seen or a read, or a negative input.
+// checkInputReport rejects an input report that carries a seen or a read, or a negative input.
 func checkInputReport(frame HookFrame) error {
-	if frame.Hook != nil || frame.Seen != 0 || frame.Read != 0 {
-		return errors.New("read hook frame: an input report carries no hook, seen or read")
+	if frame.Seen != 0 || frame.Read != 0 {
+		return errors.New("read hook frame: an input report carries no seen or read")
 	}
 	if frame.Input < 0 {
 		return errors.New("read hook frame: input must be positive")
@@ -275,10 +272,10 @@ func checkInputReport(frame HookFrame) error {
 	return nil
 }
 
-// checkReadReport rejects a read report that carries a hook or a seen, or a negative read.
+// checkReadReport rejects a read report that carries a seen, or a negative read.
 func checkReadReport(frame HookFrame) error {
-	if frame.Hook != nil || frame.Seen != 0 {
-		return errors.New("read hook frame: a read report carries no hook or seen")
+	if frame.Seen != 0 {
+		return errors.New("read hook frame: a read report carries no seen")
 	}
 	if frame.Read < 0 {
 		return errors.New("read hook frame: read must be positive")
@@ -300,28 +297,26 @@ func checkView(frame HookFrame) error {
 	return nil
 }
 
-// checkSessionsQuestion rejects a question whose ask is not SessionsAsk, and a question that carries a hook, a seen,
-// a read, an input or a view.
+// checkSessionsQuestion rejects a question whose ask is not SessionsAsk, and a question that carries a seen, a read, an
+// input or a view.
 func checkSessionsQuestion(frame HookFrame) error {
 	if frame.Ask != SessionsAsk {
 		return fmt.Errorf("read hook frame: unknown ask %q", frame.Ask)
 	}
-	if frame.Hook != nil || frame.Seen != 0 || frame.Read != 0 || frame.Input != 0 || frame.View.fields() != 0 {
-		return errors.New("read hook frame: a sessions question carries no hook, seen, read, input or view")
+	if frame.Seen != 0 || frame.Read != 0 || frame.Input != 0 || frame.View.fields() != 0 {
+		return errors.New("read hook frame: a sessions question carries no seen, read, input or view")
 	}
 	return nil
 }
 
-// ReadFrame decodes one frame from r with no line-length limit. It accepts a hook frame, whose hook is a JSON
-// object, a seen report, which has a positive seen and no hook, and a read report, which has a positive read and
-// neither a hook nor a seen, and an input report, which has a positive input and neither a hook, a seen nor a read,
-// and which may carry a view naming one key, and a sessions question, which has ask set to SessionsAsk and neither a
-// hook, a seen, a read, an input nor a view.
-// It rejects malformed JSON, a hook that is null or not a JSON object, a frame with neither a hook nor a positive
-// seen nor a positive read, a frame with both a hook and a seen, a frame that carries read together with a hook or
-// a seen, or with a negative read, a frame that carries input together with a hook, a seen or a read, or with
-// a negative input, a frame that carries a view without an input, or a view that names more than one key, a frame
-// whose ask is not SessionsAsk, and a frame that carries ask together with a hook, a seen, a read, an input or a view.
+// ReadFrame decodes one frame from r with no line-length limit. It accepts a seen report, which has a positive seen,
+// a read report, which has a positive read and no seen, an input report, which has a positive input and neither a
+// seen nor a read, and which may carry a view naming one key, and a sessions question, which has ask set to
+// SessionsAsk and none of seen, read, input or view.
+// It rejects malformed JSON, a frame that carries none of seen, read, input or ask, a frame that carries read together
+// with a seen, or with a negative read, a frame that carries input together with a seen or a read, or with a negative
+// input, a frame that carries a view without an input, or a view that names more than one key, a frame whose ask is
+// not SessionsAsk, and a frame that carries ask together with a seen, a read, an input or a view.
 func ReadFrame(r io.Reader) (HookFrame, error) {
 	var frame HookFrame
 	if err := json.NewDecoder(r).Decode(&frame); err != nil {
@@ -348,20 +343,10 @@ func ReadFrame(r io.Reader) (HookFrame, error) {
 		}
 		return frame, nil
 	}
-	if frame.Hook == nil {
-		if frame.Seen > 0 {
-			return frame, nil
-		}
-		return HookFrame{}, errors.New("read hook frame: hook must be a JSON object")
+	if frame.Seen > 0 {
+		return frame, nil
 	}
-	hook := bytes.TrimSpace(frame.Hook)
-	if len(hook) == 0 || hook[0] != '{' {
-		return HookFrame{}, errors.New("read hook frame: hook must be a JSON object")
-	}
-	if frame.Seen != 0 {
-		return HookFrame{}, errors.New("read hook frame: a frame carries a hook or a seen report, not both")
-	}
-	return frame, nil
+	return HookFrame{}, errors.New("read hook frame: a frame carries none of seen, read, input or ask")
 }
 
 // sessionsAnswer is the answer to the sessions question: one JSON object whose sessions key is a boolean.

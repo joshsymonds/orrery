@@ -195,11 +195,11 @@ func TestPaneUnmarshalRejectsNonStringClaudeSession(t *testing.T) {
 }
 
 func TestHookFrameJSONKeys(t *testing.T) {
-	data, err := json.Marshal(protocol.HookFrame{Hook: json.RawMessage(`{}`)})
+	data, err := json.Marshal(protocol.HookFrame{Seen: 1700000000})
 	if err != nil {
 		t.Fatalf("marshal HookFrame: %v", err)
 	}
-	want := []string{"anthropicBaseUrl", "cwd", "hook", "tmux", "tmuxPane"}
+	want := []string{"anthropicBaseUrl", "cwd", "seen", "tmux", "tmuxPane"}
 	if got := sortedKeys(t, data); !slices.Equal(got, want) {
 		t.Errorf("HookFrame keys = %v, want %v", got, want)
 	}
@@ -207,7 +207,7 @@ func TestHookFrameJSONKeys(t *testing.T) {
 
 func TestWriteFrameWireFormat(t *testing.T) {
 	frame := protocol.HookFrame{
-		Hook:             json.RawMessage(`{"hook_event_name":"Stop"}`),
+		Seen:             1700000000,
 		TmuxPane:         "%1",
 		Tmux:             "/tmp/tmux-1000/default,123,0",
 		Cwd:              "/home/u/proj",
@@ -217,32 +217,24 @@ func TestWriteFrameWireFormat(t *testing.T) {
 	if err := protocol.WriteFrame(&buf, frame); err != nil {
 		t.Fatalf("WriteFrame: %v", err)
 	}
-	want := `{"hook":{"hook_event_name":"Stop"},"tmuxPane":"%1",` +
+	want := `{"tmuxPane":"%1",` +
 		`"tmux":"/tmp/tmux-1000/default,123,0","cwd":"/home/u/proj",` +
-		`"anthropicBaseUrl":"https://proxy.example/ctx/example"}` + "\n"
+		`"anthropicBaseUrl":"https://proxy.example/ctx/example","seen":1700000000}` + "\n"
 	if buf.String() != want {
 		t.Errorf("WriteFrame wrote\n%q\nwant\n%q", buf.String(), want)
 	}
 }
 
 func TestWriteFrameReportsWriterError(t *testing.T) {
-	frame := protocol.HookFrame{Hook: json.RawMessage(`{}`)}
+	frame := protocol.HookFrame{TmuxPane: "%1", Seen: 1700000000}
 	if err := protocol.WriteFrame(failingWriter{}, frame); err == nil {
 		t.Error("WriteFrame returned no error for a failing writer")
 	}
 }
 
-func TestWriteFrameRejectsInvalidHook(t *testing.T) {
-	frame := protocol.HookFrame{Hook: json.RawMessage(`{bad`)}
-	var buf bytes.Buffer
-	if err := protocol.WriteFrame(&buf, frame); err == nil {
-		t.Error("WriteFrame returned no error for invalid hook JSON")
-	}
-}
-
 func TestFrameRoundTrip(t *testing.T) {
 	want := protocol.HookFrame{
-		Hook:             json.RawMessage(`{"hook_event_name":"Stop","session_id":"s1"}`),
+		Seen:             1700000000,
 		TmuxPane:         "%3",
 		Tmux:             "/tmp/tmux-1000/default,123,0",
 		Cwd:              "/home/u/proj",
@@ -256,8 +248,8 @@ func TestFrameRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReadFrame: %v", err)
 	}
-	if !bytes.Equal(got.Hook, want.Hook) {
-		t.Errorf("Hook = %s, want %s", got.Hook, want.Hook)
+	if got.Seen != want.Seen {
+		t.Errorf("Seen = %d, want %d", got.Seen, want.Seen)
 	}
 	if got.TmuxPane != want.TmuxPane || got.Tmux != want.Tmux ||
 		got.Cwd != want.Cwd || got.AnthropicBaseURL != want.AnthropicBaseURL {
@@ -266,7 +258,7 @@ func TestFrameRoundTrip(t *testing.T) {
 }
 
 func TestFrameIsOneLine(t *testing.T) {
-	frame := protocol.HookFrame{Hook: json.RawMessage(`{"message":"line one\nline two"}`)}
+	frame := protocol.HookFrame{Cwd: "/home/u/line one\nline two", Seen: 1700000000}
 	var buf bytes.Buffer
 	if err := protocol.WriteFrame(&buf, frame); err != nil {
 		t.Fatalf("WriteFrame: %v", err)
@@ -278,7 +270,7 @@ func TestFrameIsOneLine(t *testing.T) {
 
 func TestReadFrameAcceptsLargePayload(t *testing.T) {
 	large := strings.Repeat("a", hookPayloadBytes)
-	frame := protocol.HookFrame{Hook: json.RawMessage(`{"text":"` + large + `"}`)}
+	frame := protocol.HookFrame{TmuxPane: "%1", Cwd: large, Seen: 1700000000}
 	var buf bytes.Buffer
 	if err := protocol.WriteFrame(&buf, frame); err != nil {
 		t.Fatalf("WriteFrame: %v", err)
@@ -287,38 +279,33 @@ func TestReadFrameAcceptsLargePayload(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReadFrame: %v", err)
 	}
-	if !bytes.Equal(got.Hook, frame.Hook) {
-		t.Errorf("large hook payload changed in round trip (%d bytes)", len(got.Hook))
+	if got.Cwd != frame.Cwd {
+		t.Errorf("large cwd changed in round trip (%d bytes)", len(got.Cwd))
 	}
 }
 
 func TestReadFrameRejects(t *testing.T) {
 	cases := map[string]string{
-		"empty input":      ``,
-		"malformed json":   `{"hook":`,
-		"missing hook":     `{"tmuxPane":"%1","cwd":"/c"}`,
-		"null hook":        `{"hook":null,"tmuxPane":"%1"}`,
-		"string hook":      `{"hook":"stop"}`,
-		"array hook":       `{"hook":[1,2]}`,
-		"number hook":      `{"hook":1}`,
-		"boolean hook":     `{"hook":true}`,
-		"non-object root":  `["hook"]`,
-		"wrong field type": `{"hook":{},"tmuxPane":7}`,
-		"read with hook":   `{"hook":{},"tmuxPane":"%1","read":1700000000}`,
-		"read with seen":   `{"tmuxPane":"%1","seen":1700000000,"read":1700000000}`,
-		"read zero":        `{"tmuxPane":"%1","read":0}`,
-		"read negative":    `{"tmuxPane":"%1","read":-1}`,
-		"input with hook":  `{"hook":{},"tmuxPane":"%1","input":1700000000}`,
-		"input with seen":  `{"tmuxPane":"%1","seen":1700000000,"input":1700000000}`,
-		"input with read":  `{"tmuxPane":"%1","read":1700000000,"input":1700000000}`,
-		"input zero":       `{"tmuxPane":"%1","input":0}`,
-		"input negative":   `{"tmuxPane":"%1","input":-1}`,
-		"unknown ask":      `{"tmuxPane":"%1","ask":"history"}`,
-		"ask wrong case":   `{"ask":"Sessions"}`,
-		"ask with hook":    `{"hook":{},"tmuxPane":"%1","ask":"sessions"}`,
-		"ask with seen":    `{"tmuxPane":"%1","seen":1700000000,"ask":"sessions"}`,
-		"ask with read":    `{"tmuxPane":"%1","read":1700000000,"ask":"sessions"}`,
-		"ask with input":   `{"tmuxPane":"%1","input":1700000000,"ask":"sessions"}`,
+		"empty input":       ``,
+		"malformed json":    `{"hook":`,
+		"none of the kinds": `{"tmuxPane":"%1","cwd":"/c"}`,
+		"hook only":         `{"hook":{"hook_event_name":"Stop"},"tmuxPane":"%1"}`,
+		"non-object root":   `["hook"]`,
+		"wrong field type":  `{"tmuxPane":7,"seen":1700000000}`,
+		"read with seen":    `{"tmuxPane":"%1","seen":1700000000,"read":1700000000}`,
+		"read zero":         `{"tmuxPane":"%1","read":0}`,
+		"read negative":     `{"tmuxPane":"%1","read":-1}`,
+		"input with seen":   `{"tmuxPane":"%1","seen":1700000000,"input":1700000000}`,
+		"input with read":   `{"tmuxPane":"%1","read":1700000000,"input":1700000000}`,
+		"input zero":        `{"tmuxPane":"%1","input":0}`,
+		"input negative":    `{"tmuxPane":"%1","input":-1}`,
+		"unknown ask":       `{"tmuxPane":"%1","ask":"history"}`,
+		"ask wrong case":    `{"ask":"Sessions"}`,
+		"ask with seen":     `{"tmuxPane":"%1","seen":1700000000,"ask":"sessions"}`,
+		"ask with read":     `{"tmuxPane":"%1","read":1700000000,"ask":"sessions"}`,
+		"ask with input":    `{"tmuxPane":"%1","input":1700000000,"ask":"sessions"}`,
+		"seen zero":         `{"tmuxPane":"%1","seen":0}`,
+		"seen negative":     `{"tmuxPane":"%1","seen":-1}`,
 	}
 	for name, input := range cases {
 		if _, err := protocol.ReadFrame(strings.NewReader(input)); err == nil {
@@ -335,8 +322,8 @@ func TestReadFrameAcceptsReadReport(t *testing.T) {
 	if got.TmuxPane != "%1" || got.Read != 1700000000 {
 		t.Errorf("TmuxPane = %q, Read = %d, want %%1 and 1700000000", got.TmuxPane, got.Read)
 	}
-	if got.Hook != nil || got.Seen != 0 {
-		t.Errorf("Hook = %s, Seen = %d, want no hook and no seen", got.Hook, got.Seen)
+	if got.Seen != 0 {
+		t.Errorf("Seen = %d, want no seen", got.Seen)
 	}
 }
 
@@ -348,8 +335,8 @@ func TestReadFrameAcceptsInputReport(t *testing.T) {
 	if got.TmuxPane != "%1" || got.Input != 1700000000 {
 		t.Errorf("TmuxPane = %q, Input = %d, want %%1 and 1700000000", got.TmuxPane, got.Input)
 	}
-	if got.Hook != nil || got.Seen != 0 || got.Read != 0 {
-		t.Errorf("Hook = %s, Seen = %d, Read = %d, want no hook, seen or read", got.Hook, got.Seen, got.Read)
+	if got.Seen != 0 || got.Read != 0 {
+		t.Errorf("Seen = %d, Read = %d, want no seen or read", got.Seen, got.Read)
 	}
 }
 
@@ -404,19 +391,20 @@ func TestReadReportRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReadFrame: %v", err)
 	}
-	if got.TmuxPane != want.TmuxPane || got.Read != want.Read || got.Hook != nil || got.Seen != 0 {
+	if got.TmuxPane != want.TmuxPane || got.Read != want.Read || got.Seen != 0 {
 		t.Errorf("round trip = %+v, want %+v", got, want)
 	}
 }
 
-func TestReadFrameAcceptsObjectHook(t *testing.T) {
-	input := `{"hook":{"hook_event_name":"Notification"},"tmuxPane":"%2","tmux":"t","cwd":"/c","anthropicBaseUrl":"u"}`
+func TestReadFrameIgnoresHookOfSeenReport(t *testing.T) {
+	input := `{"hook":{"hook_event_name":"Notification"},"tmuxPane":"%2","tmux":"t","cwd":"/c",` +
+		`"anthropicBaseUrl":"u","seen":1700000000}`
 	got, err := protocol.ReadFrame(strings.NewReader(input))
 	if err != nil {
 		t.Fatalf("ReadFrame: %v", err)
 	}
-	if string(got.Hook) != `{"hook_event_name":"Notification"}` {
-		t.Errorf("Hook = %s", got.Hook)
+	if got.Seen != 1700000000 {
+		t.Errorf("Seen = %d, want 1700000000", got.Seen)
 	}
 	if got.TmuxPane != "%2" || got.Tmux != "t" || got.Cwd != "/c" || got.AnthropicBaseURL != "u" {
 		t.Errorf("fields = %+v", got)
@@ -445,7 +433,7 @@ func TestSessionsQuestionRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReadFrame: %v", err)
 	}
-	if got.Ask != protocol.SessionsAsk || got.Hook != nil || got.Seen != 0 || got.Read != 0 || got.Input != 0 {
+	if got.Ask != protocol.SessionsAsk || got.Seen != 0 || got.Read != 0 || got.Input != 0 {
 		t.Errorf("round trip = %+v, want only Ask %q", got, protocol.SessionsAsk)
 	}
 }
@@ -459,8 +447,8 @@ func TestReadFrameAcceptsSessionsQuestion(t *testing.T) {
 	if got.Ask != protocol.SessionsAsk {
 		t.Errorf("Ask = %q, want %q", got.Ask, protocol.SessionsAsk)
 	}
-	if got.Hook != nil || got.Seen != 0 || got.Read != 0 || got.Input != 0 {
-		t.Errorf("Hook = %s, Seen = %d, Read = %d, Input = %d, want none", got.Hook, got.Seen, got.Read, got.Input)
+	if got.Seen != 0 || got.Read != 0 || got.Input != 0 {
+		t.Errorf("Seen = %d, Read = %d, Input = %d, want none", got.Seen, got.Read, got.Input)
 	}
 }
 

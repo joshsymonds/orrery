@@ -1,7 +1,8 @@
-// Command orreryd is the orrery daemon. It listens on a unix socket for hook frames, applies each one to the pane
-// it names, starts summaries, and routes waiting and done notifications to the desk stream and Web Push. With
-// --sessions it also serves the engine session socket: the enginehost Manager, Steps, Writer, pools and evidence,
-// and the planner and build runners. With --metrics-listen it serves /metrics and POST /alerts on that address.
+// Command orreryd is the orrery daemon. It listens on a unix socket for seen, read and input reports, applies each
+// session registry update to the pane it names, starts summaries, and routes waiting and done notifications to the
+// desk stream and Web Push. With --sessions it also serves the engine session socket: the enginehost Manager, Steps,
+// Writer, pools and evidence, and the planner and build runners. With --metrics-listen it serves /metrics and POST
+// /alerts on that address.
 package main
 
 import (
@@ -90,8 +91,8 @@ const (
 	noticeLogName = "notices.jsonl"
 	// readWindow is how long after a read report its pane still counts as read, so a waiting notice for it is held.
 	readWindow = 30 * time.Second
-	// silentBackground is why a done notice goes nowhere when its Stop left a subagent or workflow running.
-	silentBackground = "background work"
+	// silentNotWanted is why a notice goes nowhere when push.Wanted does not want its state.
+	silentNotWanted = "state not wanted"
 	// storeOpenRetry is how long openStore waits before it tries a busy store open again.
 	storeOpenRetry = 2 * time.Second
 	// waitingBody and doneBody stand in for an empty question or summary.
@@ -533,8 +534,8 @@ func startDesk(ctx context.Context, host string, deskLn net.Listener, logger *sl
 	return desk
 }
 
-// serve listens on the daemon and desk sockets and applies hook frames while it opens the store, so no frame waits for
-// the store. The first tidy runs once the store is open and the sessions have started. A failed sessions start stops
+// serve listens on the daemon and desk sockets and serves frames while it opens the store, so no frame waits for the
+// store. The first tidy runs once the store is open and the sessions have started. A failed sessions start stops
 // serving and returns its error. Once the store is open, serve returns only after the store is closed. serve sends
 // systemd READY=1 once the sessions have started, or once the store has opened when there are no sessions. With
 // --metrics-listen, the ready time is recorded just before READY=1. With a flight recorder, a start to READY over its
@@ -2158,7 +2159,7 @@ func (r *relay) clock() time.Time {
 	return r.now()
 }
 
-// viewTimeout bounds the viewing check of one done transition, which runs on the hook path.
+// viewTimeout bounds the viewing check of one done transition, which runs on the daemon's observer path.
 const viewTimeout = 2 * time.Second
 
 // doneView is the one viewing check a done transition makes: whether a client of the pane's tmux server shows the pane
@@ -2372,10 +2373,10 @@ func readPaneText(ctx context.Context, client *tmuxctl.Client, pane string) (pan
 	return paneText{summary: values[0], label: values[1], question: values[2], session: values[3], window: window}, nil
 }
 
-// notify hands the transition's notice to the router, with view as its first watching check when it is not nil. A done notice whose Stop left a subagent or workflow running is
-// silent. Any other done is judged before it routes. A hook whose facts do not decode still routes, and the daemon logs
-// its decode error. A notice that routes keeps its transition as its source, so a restart can resume it; a silent one
-// never pends, so it needs none.
+// notify hands the transition's notice to the router, with view as its first watching check when it is not nil. A
+// notice whose state push.Wanted does not want is silent. Any other done is judged before it routes. A hook whose facts
+// do not decode still routes, and the daemon logs its decode error. A notice that routes keeps its transition as its
+// source, so a restart can resume it; a silent one never pends, so it needs none.
 func (r *relay) notify(ctx context.Context, transition daemon.Transition, summarized <-chan struct{}, view *doneView) {
 	incoming := r.paneNotice(transition, summarized, view)
 	if incoming.Silent == "" {
