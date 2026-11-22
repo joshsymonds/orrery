@@ -65,14 +65,14 @@ func readSteered(
 // readRunningCallers asks steps for the running steps in one call under ctx, with no retry, and returns the caller of
 // each step that names one. A nil steps lists none. Any ListSteps failure answers unavailable with stepsUnavailable.
 func readRunningCallers(ctx context.Context, steps StepClient) (map[string]bool, error) {
+	callers := map[string]bool{}
 	if steps == nil {
-		return nil, nil
+		return callers, nil
 	}
 	resp, err := steps.ListSteps(ctx, connect.NewRequest(&enginev1.ListStepsRequest{Running: true}))
 	if err != nil {
 		return nil, listError(connect.CodeUnavailable, stepsUnavailable)
 	}
-	callers := map[string]bool{}
 	for _, step := range resp.Msg.GetSteps() {
 		if caller := step.GetCaller(); caller != "" {
 			callers[caller] = true
