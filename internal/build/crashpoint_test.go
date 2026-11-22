@@ -14,14 +14,20 @@ import (
 	"time"
 
 	"github.com/joshsymonds/orrery/internal/enginehost"
+	"github.com/joshsymonds/orrery/internal/hostexec"
+	"github.com/joshsymonds/orrery/internal/hostexec/hostexectest"
 	"github.com/joshsymonds/orrery/internal/planner"
 	"github.com/joshsymonds/orrery/internal/route"
 	"github.com/joshsymonds/orrery/internal/store"
 	"github.com/joshsymonds/orrery/internal/storetest"
 )
 
-// crashEpic is the epic a crash run drives.
-const crashEpic = "acme/epic"
+// crashEpic is the epic a crash run drives, and crashHost is the host name it lives on, which the run's Hosts
+// resolves to the world's fake Host.
+const (
+	crashEpic = "acme/epic"
+	crashHost = "crash"
+)
 
 // crashRounds is how many rounds a run takes, and crashEpoch and crashRoundSeconds set the fake clock: round r is at the
 // epoch plus r rounds of crashRoundSeconds. Round 0 is when the epic is created.
@@ -40,13 +46,15 @@ func roundAt(round int) time.Time {
 var crashAddress = regexp.MustCompile(`0x[0-9a-f]+`)
 
 // crashResult is what a run leaves behind: its end rows, the labels of its performed actions in order, and the outside
-// logs: the starts of each step and run id, the resume prompts sent per prompt id, and the notices routed per id.
+// logs: the starts of each step and run id, the resume prompts sent per prompt id, and the notices routed per id. It
+// also holds gitCalls, the git calls the run's fake Host recorded in its repository.
 type crashResult struct {
-	rows   string
-	labels []string
-	starts map[string]int
-	sends  map[string]int
-	routed map[string]int
+	rows     string
+	labels   []string
+	starts   map[string]int
+	sends    map[string]int
+	routed   map[string]int
+	gitCalls int
 }
 
 // crashWindow is a span of the uninterrupted run between two named actions: it opens at the last action from before the
@@ -108,6 +116,11 @@ func TestCrashPointRestartsToTheUninterruptedRows(t *testing.T) {
 			}
 		})
 	}
+	t.Run("git runs through the fake Host", func(t *testing.T) {
+		if want.gitCalls == 0 {
+			t.Error("the uninterrupted run recorded no git call in its repository through the fake Host")
+		}
+	})
 }
 
 // crashUninterrupted runs the epic through every round without a kill, checks that it did the work the run is about,
@@ -215,7 +228,7 @@ func newCrashWorld(t *testing.T) *crashWorld {
 		}
 	})
 	if err = s.CreateEpic(ctx, store.EpicRow{
-		ID: crashEpic, Repository: setup.epic.Repository, Base: setup.base, Title: "Build the thing",
+		ID: crashEpic, Host: crashHost, Repository: setup.epic.Repository, Base: setup.base, Title: "Build the thing",
 		Approved: "approved text", Intent: "build the thing", Care: "serious", Approach: "one planner turn",
 		ReleaseThen: "release it", Checks: "just check", Phase: "accepted", Created: roundAt(0), Changed: roundAt(0),
 		Gates: setup.epic.Gates,
@@ -229,6 +242,7 @@ func newCrashWorld(t *testing.T) *crashWorld {
 		t: t, store: s, dbPath: path, repo: setup.epic.Repository, base: setup.base, stateDir: setup.stateDir,
 		getenv: setup.getenv, gate: &gate{limit: -1, cancel: func() {}},
 		starts: make(map[string]int), sends: make(map[string]int), routed: make(map[string]int),
+		host: hostexectest.NewRecorder(hostexec.NewLocal()),
 	}
 }
 
@@ -268,6 +282,7 @@ func (w *crashWorld) incarnation(limit, from int) (int, bool) {
 	runner := New(Config{
 		Store: kstore, Steps: crashBuildSteps{w: w}, Evidence: crashEvidence{w: w}, Getenv: w.getenv,
 		StateDir: w.stateDir, Git: crashGit{w: w}, Now: w.now,
+		Hosts: hostexec.Map{crashHost: w.host},
 	})
 	due := enginehost.NewDuePass(enginehost.DuePassConfig{Store: kstore, Steps: crashResume{w: w}, Now: w.now})
 	for round := from; round <= crashRounds; round++ {
@@ -306,12 +321,24 @@ func (w *crashWorld) result(t *testing.T) crashResult {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	return crashResult{
-		rows:   w.endRows(t),
-		labels: slices.Clone(w.labels),
-		starts: maps.Clone(w.starts),
-		sends:  maps.Clone(w.sends),
-		routed: maps.Clone(w.routed),
+		rows:     w.endRows(t),
+		labels:   slices.Clone(w.labels),
+		starts:   maps.Clone(w.starts),
+		sends:    maps.Clone(w.sends),
+		routed:   maps.Clone(w.routed),
+		gitCalls: w.gitCalls(),
 	}
+}
+
+// gitCalls returns the number of git calls the world's fake Host recorded in its repository.
+func (w *crashWorld) gitCalls() int {
+	n := 0
+	for _, call := range w.host.Calls() {
+		if call.Op == "Git" && call.Path == w.repo {
+			n++
+		}
+	}
+	return n
 }
 
 // endRows returns the end rows of the run as text, with the paths and commit ids that differ between runs replaced: the
