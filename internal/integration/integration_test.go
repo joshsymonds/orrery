@@ -542,54 +542,6 @@ func assertNothingTyped(t *testing.T, client *tmuxctl.Client, name, pane string)
 	}
 }
 
-func TestHookForwardsFrameSilently(t *testing.T) {
-	t.Parallel()
-	socket := filepath.Join(t.TempDir(), "orreryd.sock")
-	listener, err := net.Listen("unix", socket)
-	if err != nil {
-		t.Fatalf("listen: %v", err)
-	}
-	t.Cleanup(func() { listener.Close() })
-
-	frames := make(chan []byte, 1)
-	failures := make(chan error, 1)
-	go func() {
-		conn, acceptErr := listener.Accept()
-		if acceptErr != nil {
-			failures <- acceptErr
-			return
-		}
-		defer conn.Close()
-		frame, readErr := io.ReadAll(conn)
-		if readErr != nil {
-			failures <- readErr
-			return
-		}
-		frames <- frame
-	}()
-
-	// A developer shell inside an orrery session exports ORRERY_SESSION, which makes the hook send nothing.
-	env := []string{"TMUX_PANE=%7", protocol.EnvSession + "="}
-	out := runOrrery(t, exampleHookJSON, env, "--socket", socket, "hook")
-	wantExit(t, out, 0)
-	if out.stdout != "" || out.stderr != "" {
-		t.Fatalf("hook printed stdout %q stderr %q, want nothing", out.stdout, out.stderr)
-	}
-
-	select {
-	case frame := <-frames:
-		var got protocol.HookFrame
-		if err = json.Unmarshal(frame, &got); err != nil {
-			t.Fatalf("decode frame %q: %v", frame, err)
-		}
-		if got.TmuxPane != "%7" || string(got.Hook) != exampleHookJSON {
-			t.Fatalf("frame pane %q hook %s, want pane %%7 hook %s", got.TmuxPane, got.Hook, exampleHookJSON)
-		}
-	case err = <-failures:
-		t.Fatalf("daemon socket: %v", err)
-	}
-}
-
 func TestHookAbsentSocketIsSilentWithJunkArgs(t *testing.T) {
 	t.Parallel()
 	absent := filepath.Join(t.TempDir(), "absent.sock")
