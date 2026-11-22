@@ -207,4 +207,24 @@ public interface HeadlessSessionOrBuilder extends
    * @return The putOff.
    */
   boolean getPutOff();
+
+  /**
+   * <pre>
+   * The orrery name of the host the session runs on.
+   * </pre>
+   *
+   * <code>string host = 13 [json_name = "host"];</code>
+   * @return The host.
+   */
+  java.lang.String getHost();
+  /**
+   * <pre>
+   * The orrery name of the host the session runs on.
+   * </pre>
+   *
+   * <code>string host = 13 [json_name = "host"];</code>
+   * @return The bytes for host.
+   */
+  com.google.protobuf.ByteString
+      getHostBytes();
 }

@@ -37,8 +37,8 @@ func TestNotNowMigrationStepsDownAndUp(t *testing.T) {
 	ctx := context.Background()
 	s, provider := storeAtVersion(t, 66)
 	at := time.Unix(1700000000, 0)
+	addSessionBeforeHost(t, s, "e-1", "/d", "idle", at)
 	if err := s.ApplyEngine(ctx, []EngineOp{
-		EngineAdd{ID: "e-1", Dir: "/d", State: "idle"},
 		EngineBlock{ID: "e-1", Kind: "text", Role: "assistant", MessageID: "m1", Text: "reply"},
 	}, at); err != nil {
 		t.Fatalf("ApplyEngine: %v", err)

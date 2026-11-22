@@ -393,7 +393,9 @@ type HeadlessSession struct {
 	Headline string `protobuf:"bytes,11,opt,name=headline,proto3" json:"headline,omitempty"`
 	// true while the owner has put this question off with Control.NotNow and not brought it back; a mark covers one
 	// question, so a new request or a pane that starts waiting again reads false.
-	PutOff        bool `protobuf:"varint,12,opt,name=put_off,json=putOff,proto3" json:"put_off,omitempty"`
+	PutOff bool `protobuf:"varint,12,opt,name=put_off,json=putOff,proto3" json:"put_off,omitempty"`
+	// The orrery name of the host the session runs on.
+	Host          string `protobuf:"bytes,13,opt,name=host,proto3" json:"host,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -510,6 +512,13 @@ func (x *HeadlessSession) GetPutOff() bool {
 		return x.PutOff
 	}
 	return false
+}
+
+func (x *HeadlessSession) GetHost() string {
+	if x != nil {
+		return x.Host
+	}
+	return ""
 }
 
 // SessionsWatchConversationRequest asks for the conversation of one headless session. limit follows
@@ -7068,7 +7077,7 @@ const file_orrery_v1_orrery_proto_rawDesc = "" +
 	"\barchived\x18\x0e \x01(\bR\barchived\"\x15\n" +
 	"\x13ListHeadlessRequest\"N\n" +
 	"\x14ListHeadlessResponse\x126\n" +
-	"\bsessions\x18\x01 \x03(\v2\x1a.orrery.v1.HeadlessSessionR\bsessions\"\xb7\x02\n" +
+	"\bsessions\x18\x01 \x03(\v2\x1a.orrery.v1.HeadlessSessionR\bsessions\"\xcb\x02\n" +
 	"\x0fHeadlessSession\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x10\n" +
 	"\x03dir\x18\x02 \x01(\tR\x03dir\x12\x14\n" +
@@ -7082,7 +7091,8 @@ const file_orrery_v1_orrery_proto_rawDesc = "" +
 	"\barchived\x18\n" +
 	" \x01(\bR\barchived\x12\x1a\n" +
 	"\bheadline\x18\v \x01(\tR\bheadline\x12\x17\n" +
-	"\aput_off\x18\f \x01(\bR\x06putOff\"^\n" +
+	"\aput_off\x18\f \x01(\bR\x06putOff\x12\x12\n" +
+	"\x04host\x18\r \x01(\tR\x04host\"^\n" +
 	" SessionsWatchConversationRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x14\n" +
 	"\x05limit\x18\x02 \x01(\rR\x05limit\x12\x14\n" +
