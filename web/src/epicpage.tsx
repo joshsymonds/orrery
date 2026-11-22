@@ -292,7 +292,7 @@ export function EpicPage(props: {
             <h3>Tasks</h3>
             <span>{`${doneTasks} of ${tasks.length} done`}</span>
           </header>
-          <Orrery tasks={tasks} proven={provenIds} onOpenPhase={onOpenPhase} />
+          <Orrery tasks={tasks} requirements={requirements} proven={provenIds} onOpenPhase={onOpenPhase} />
           <TaskTable tasks={tasks} now={now} onOpenPhase={onOpenPhase} />
         </section>
       )}

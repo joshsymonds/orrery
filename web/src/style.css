@@ -1145,6 +1145,12 @@ button.act:active, .back:active, .crumb:active { transform: scale(.97); backgrou
 .orrery .cell.now { fill: var(--tone); }
 .orrery .req { fill: var(--o-line-firm); }
 .orrery .req.proven { fill: var(--o-role-ok); }
+.orrery .req.failed { fill: var(--o-tone-bad); }
+.orrery .req.held { fill: var(--o-tone-mine); }
+.orrery .req.in_flight { fill: var(--o-tone-run); }
+.orrery .req.unlabelled { fill: var(--o-line-soft); }
+.orrery .req[role="button"] { cursor: pointer; }
+.orrery .req-id { font: var(--o-type-label); fill: var(--o-ink-2); }
 .orrery .req.open { fill: var(--o-line-firm); }
 .orrery .ring-way { fill: none; stroke: none; }
 .orrery .ring-name { font: var(--o-type-label); fill: var(--o-ink-2); }
