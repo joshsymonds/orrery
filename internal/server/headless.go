@@ -68,7 +68,7 @@ func (s sessionsServer) ListHeadless(
 		session.Ended, session.EndedAt = endedRow(
 			session.GetState() == stateStopped, verdict, ok, session.GetChanged(),
 		)
-		aged := headlessAged(session.GetState(), session.GetChanged(), session.GetSeen(), now) ||
+		aged := headlessAged(session.GetState(), session.GetChanged(), now) ||
 			closureAged(verdict, ok, session.GetChanged(), session.GetSeen(), now)
 		session.Archived = archivedRow(mark, session.GetChanged(), aged)
 		session.PutOff = headlessPutOff(puts, row.ID, row.RequestID, row.State)
