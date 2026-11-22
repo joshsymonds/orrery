@@ -20,6 +20,8 @@ public  final class EpicHistoryEntry extends
     EpicHistoryEntryOrBuilder {
   private EpicHistoryEntry() {
     cursor_ = "";
+    sentence_ = "";
+    runs_ = emptyProtobufList();
   }
   private int itemCase_ = 0;
   private java.lang.Object item_;
@@ -671,6 +673,211 @@ public  final class EpicHistoryEntry extends
       itemCase_ = 0;
       item_ = null;
     }
+  }
+
+  public static final int SENTENCE_FIELD_NUMBER = 10;
+  private java.lang.String sentence_;
+  /**
+   * <pre>
+   * The entry's line as a sentence built from its stored fields.
+   * </pre>
+   *
+   * <code>string sentence = 10 [json_name = "sentence"];</code>
+   * @return The sentence.
+   */
+  @java.lang.Override
+  public java.lang.String getSentence() {
+    return sentence_;
+  }
+  /**
+   * <pre>
+   * The entry's line as a sentence built from its stored fields.
+   * </pre>
+   *
+   * <code>string sentence = 10 [json_name = "sentence"];</code>
+   * @return The bytes for sentence.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString
+      getSentenceBytes() {
+    return com.google.protobuf.ByteString.copyFromUtf8(sentence_);
+  }
+  /**
+   * <pre>
+   * The entry's line as a sentence built from its stored fields.
+   * </pre>
+   *
+   * <code>string sentence = 10 [json_name = "sentence"];</code>
+   * @param value The sentence to set.
+   */
+  private void setSentence(
+      java.lang.String value) {
+    java.util.Objects.requireNonNull(value);
+
+    sentence_ = value;
+  }
+  /**
+   * <pre>
+   * The entry's line as a sentence built from its stored fields.
+   * </pre>
+   *
+   * <code>string sentence = 10 [json_name = "sentence"];</code>
+   */
+  private void clearSentence() {
+
+    sentence_ = getDefaultInstance().getSentence();
+  }
+  /**
+   * <pre>
+   * The entry's line as a sentence built from its stored fields.
+   * </pre>
+   *
+   * <code>string sentence = 10 [json_name = "sentence"];</code>
+   * @param value The bytes for sentence to set.
+   */
+  private void setSentenceBytes(
+      com.google.protobuf.ByteString value) {
+    checkByteStringIsUtf8(value);
+    sentence_ = value.toStringUtf8();
+
+  }
+
+  public static final int RUNS_FIELD_NUMBER = 11;
+  private com.google.protobuf.Internal.ProtobufList<io.github.joshsymonds.orrery.gen.orrery.v1.EvidenceRun> runs_;
+  /**
+   * <pre>
+   * Every run an evidence line groups, the run in evidence included; empty for any other entry.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EvidenceRun runs = 11 [json_name = "runs"];</code>
+   */
+  @java.lang.Override
+  public java.util.List<io.github.joshsymonds.orrery.gen.orrery.v1.EvidenceRun> getRunsList() {
+    return runs_;
+  }
+  /**
+   * <pre>
+   * Every run an evidence line groups, the run in evidence included; empty for any other entry.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EvidenceRun runs = 11 [json_name = "runs"];</code>
+   */
+  public java.util.List<? extends io.github.joshsymonds.orrery.gen.orrery.v1.EvidenceRunOrBuilder> 
+      getRunsOrBuilderList() {
+    return runs_;
+  }
+  /**
+   * <pre>
+   * Every run an evidence line groups, the run in evidence included; empty for any other entry.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EvidenceRun runs = 11 [json_name = "runs"];</code>
+   */
+  @java.lang.Override
+  public int getRunsCount() {
+    return runs_.size();
+  }
+  /**
+   * <pre>
+   * Every run an evidence line groups, the run in evidence included; empty for any other entry.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EvidenceRun runs = 11 [json_name = "runs"];</code>
+   */
+  @java.lang.Override
+  public io.github.joshsymonds.orrery.gen.orrery.v1.EvidenceRun getRuns(int index) {
+    return runs_.get(index);
+  }
+  /**
+   * <pre>
+   * Every run an evidence line groups, the run in evidence included; empty for any other entry.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EvidenceRun runs = 11 [json_name = "runs"];</code>
+   */
+  public io.github.joshsymonds.orrery.gen.orrery.v1.EvidenceRunOrBuilder getRunsOrBuilder(
+      int index) {
+    return runs_.get(index);
+  }
+  private void ensureRunsIsMutable() {
+    com.google.protobuf.Internal.ProtobufList<io.github.joshsymonds.orrery.gen.orrery.v1.EvidenceRun> tmp = runs_;
+    if (!tmp.isModifiable()) {
+      runs_ =
+          com.google.protobuf.GeneratedMessageLite.mutableCopy(tmp);
+     }
+  }
+
+  /**
+   * <pre>
+   * Every run an evidence line groups, the run in evidence included; empty for any other entry.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EvidenceRun runs = 11 [json_name = "runs"];</code>
+   */
+  private void setRuns(
+      int index, io.github.joshsymonds.orrery.gen.orrery.v1.EvidenceRun value) {
+    java.util.Objects.requireNonNull(value);
+    ensureRunsIsMutable();
+    runs_.set(index, value);
+  }
+  /**
+   * <pre>
+   * Every run an evidence line groups, the run in evidence included; empty for any other entry.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EvidenceRun runs = 11 [json_name = "runs"];</code>
+   */
+  private void addRuns(io.github.joshsymonds.orrery.gen.orrery.v1.EvidenceRun value) {
+    java.util.Objects.requireNonNull(value);
+    ensureRunsIsMutable();
+    runs_.add(value);
+  }
+  /**
+   * <pre>
+   * Every run an evidence line groups, the run in evidence included; empty for any other entry.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EvidenceRun runs = 11 [json_name = "runs"];</code>
+   */
+  private void addRuns(
+      int index, io.github.joshsymonds.orrery.gen.orrery.v1.EvidenceRun value) {
+    java.util.Objects.requireNonNull(value);
+    ensureRunsIsMutable();
+    runs_.add(index, value);
+  }
+  /**
+   * <pre>
+   * Every run an evidence line groups, the run in evidence included; empty for any other entry.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EvidenceRun runs = 11 [json_name = "runs"];</code>
+   */
+  private void addAllRuns(
+      java.lang.Iterable<? extends io.github.joshsymonds.orrery.gen.orrery.v1.EvidenceRun> values) {
+    ensureRunsIsMutable();
+    com.google.protobuf.AbstractMessageLite.addAll(
+        values, runs_);
+  }
+  /**
+   * <pre>
+   * Every run an evidence line groups, the run in evidence included; empty for any other entry.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EvidenceRun runs = 11 [json_name = "runs"];</code>
+   */
+  private void clearRuns() {
+    runs_ = emptyProtobufList();
+  }
+  /**
+   * <pre>
+   * Every run an evidence line groups, the run in evidence included; empty for any other entry.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EvidenceRun runs = 11 [json_name = "runs"];</code>
+   */
+  private void removeRuns(int index) {
+    ensureRunsIsMutable();
+    runs_.remove(index);
   }
 
   public static io.github.joshsymonds.orrery.gen.orrery.v1.EpicHistoryEntry parseFrom(
@@ -1402,6 +1609,225 @@ public  final class EpicHistoryEntry extends
       return this;
     }
 
+    /**
+     * <pre>
+     * The entry's line as a sentence built from its stored fields.
+     * </pre>
+     *
+     * <code>string sentence = 10 [json_name = "sentence"];</code>
+     * @return The sentence.
+     */
+    @java.lang.Override
+    public java.lang.String getSentence() {
+      return instance.getSentence();
+    }
+    /**
+     * <pre>
+     * The entry's line as a sentence built from its stored fields.
+     * </pre>
+     *
+     * <code>string sentence = 10 [json_name = "sentence"];</code>
+     * @return The bytes for sentence.
+     */
+    @java.lang.Override
+    public com.google.protobuf.ByteString
+        getSentenceBytes() {
+      return instance.getSentenceBytes();
+    }
+    /**
+     * <pre>
+     * The entry's line as a sentence built from its stored fields.
+     * </pre>
+     *
+     * <code>string sentence = 10 [json_name = "sentence"];</code>
+     * @param value The sentence to set.
+     * @return This builder for chaining.
+     */
+    public Builder setSentence(
+        java.lang.String value) {
+      copyOnWrite();
+      instance.setSentence(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The entry's line as a sentence built from its stored fields.
+     * </pre>
+     *
+     * <code>string sentence = 10 [json_name = "sentence"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearSentence() {
+      copyOnWrite();
+      instance.clearSentence();
+      return this;
+    }
+    /**
+     * <pre>
+     * The entry's line as a sentence built from its stored fields.
+     * </pre>
+     *
+     * <code>string sentence = 10 [json_name = "sentence"];</code>
+     * @param value The bytes for sentence to set.
+     * @return This builder for chaining.
+     */
+    public Builder setSentenceBytes(
+        com.google.protobuf.ByteString value) {
+      copyOnWrite();
+      instance.setSentenceBytes(value);
+      return this;
+    }
+
+    /**
+     * <pre>
+     * Every run an evidence line groups, the run in evidence included; empty for any other entry.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.EvidenceRun runs = 11 [json_name = "runs"];</code>
+     */
+    @java.lang.Override
+    public java.util.List<io.github.joshsymonds.orrery.gen.orrery.v1.EvidenceRun> getRunsList() {
+      return java.util.Collections.unmodifiableList(
+          instance.getRunsList());
+    }
+    /**
+     * <pre>
+     * Every run an evidence line groups, the run in evidence included; empty for any other entry.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.EvidenceRun runs = 11 [json_name = "runs"];</code>
+     */
+    @java.lang.Override
+    public int getRunsCount() {
+      return instance.getRunsCount();
+    }/**
+     * <pre>
+     * Every run an evidence line groups, the run in evidence included; empty for any other entry.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.EvidenceRun runs = 11 [json_name = "runs"];</code>
+     */
+    @java.lang.Override
+    public io.github.joshsymonds.orrery.gen.orrery.v1.EvidenceRun getRuns(int index) {
+      return instance.getRuns(index);
+    }
+    /**
+     * <pre>
+     * Every run an evidence line groups, the run in evidence included; empty for any other entry.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.EvidenceRun runs = 11 [json_name = "runs"];</code>
+     */
+    public Builder setRuns(
+        int index, io.github.joshsymonds.orrery.gen.orrery.v1.EvidenceRun value) {
+      copyOnWrite();
+      instance.setRuns(index, value);
+      return this;
+    }
+    /**
+     * <pre>
+     * Every run an evidence line groups, the run in evidence included; empty for any other entry.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.EvidenceRun runs = 11 [json_name = "runs"];</code>
+     */
+    public Builder setRuns(
+        int index, io.github.joshsymonds.orrery.gen.orrery.v1.EvidenceRun.Builder builderForValue) {
+      copyOnWrite();
+      instance.setRuns(index,
+          builderForValue.build());
+      return this;
+    }
+    /**
+     * <pre>
+     * Every run an evidence line groups, the run in evidence included; empty for any other entry.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.EvidenceRun runs = 11 [json_name = "runs"];</code>
+     */
+    public Builder addRuns(io.github.joshsymonds.orrery.gen.orrery.v1.EvidenceRun value) {
+      copyOnWrite();
+      instance.addRuns(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * Every run an evidence line groups, the run in evidence included; empty for any other entry.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.EvidenceRun runs = 11 [json_name = "runs"];</code>
+     */
+    public Builder addRuns(
+        int index, io.github.joshsymonds.orrery.gen.orrery.v1.EvidenceRun value) {
+      copyOnWrite();
+      instance.addRuns(index, value);
+      return this;
+    }
+    /**
+     * <pre>
+     * Every run an evidence line groups, the run in evidence included; empty for any other entry.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.EvidenceRun runs = 11 [json_name = "runs"];</code>
+     */
+    public Builder addRuns(
+        io.github.joshsymonds.orrery.gen.orrery.v1.EvidenceRun.Builder builderForValue) {
+      copyOnWrite();
+      instance.addRuns(builderForValue.build());
+      return this;
+    }
+    /**
+     * <pre>
+     * Every run an evidence line groups, the run in evidence included; empty for any other entry.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.EvidenceRun runs = 11 [json_name = "runs"];</code>
+     */
+    public Builder addRuns(
+        int index, io.github.joshsymonds.orrery.gen.orrery.v1.EvidenceRun.Builder builderForValue) {
+      copyOnWrite();
+      instance.addRuns(index,
+          builderForValue.build());
+      return this;
+    }
+    /**
+     * <pre>
+     * Every run an evidence line groups, the run in evidence included; empty for any other entry.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.EvidenceRun runs = 11 [json_name = "runs"];</code>
+     */
+    public Builder addAllRuns(
+        java.lang.Iterable<? extends io.github.joshsymonds.orrery.gen.orrery.v1.EvidenceRun> values) {
+      copyOnWrite();
+      instance.addAllRuns(values);
+      return this;
+    }
+    /**
+     * <pre>
+     * Every run an evidence line groups, the run in evidence included; empty for any other entry.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.EvidenceRun runs = 11 [json_name = "runs"];</code>
+     */
+    public Builder clearRuns() {
+      copyOnWrite();
+      instance.clearRuns();
+      return this;
+    }
+    /**
+     * <pre>
+     * Every run an evidence line groups, the run in evidence included; empty for any other entry.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.EvidenceRun runs = 11 [json_name = "runs"];</code>
+     */
+    public Builder removeRuns(int index) {
+      copyOnWrite();
+      instance.removeRuns(index);
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:orrery.v1.EpicHistoryEntry)
   }
   @java.lang.Override
@@ -1429,10 +1855,14 @@ public  final class EpicHistoryEntry extends
             io.github.joshsymonds.orrery.gen.orrery.v1.EpicDecision.class,
             io.github.joshsymonds.orrery.gen.orrery.v1.EpicTell.class,
             io.github.joshsymonds.orrery.gen.orrery.v1.EpicAction.class,
+            "sentence_",
+            "runs_",
+            io.github.joshsymonds.orrery.gen.orrery.v1.EvidenceRun.class,
           };
           java.lang.String info =
-              "\u0000\t\u0001\u0000\u0001\t\t\u0000\u0000\u0000\u0001\u0002\u0002\u0208\u0003<\u0000" +
-              "\u0004<\u0000\u0005<\u0000\u0006<\u0000\u0007<\u0000\b<\u0000\t<\u0000";
+              "\u0000\u000b\u0001\u0000\u0001\u000b\u000b\u0000\u0001\u0000\u0001\u0002\u0002\u0208" +
+              "\u0003<\u0000\u0004<\u0000\u0005<\u0000\u0006<\u0000\u0007<\u0000\b<\u0000\t<\u0000" +
+              "\n\u0208\u000b\u001b";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

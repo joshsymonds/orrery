@@ -112,7 +112,8 @@ public interface EpicsGetResponseOrBuilder extends
 
   /**
    * <pre>
-   * The orreryd epic's requirements in contract order, empty for a record epic.
+   * The orreryd epic's requirements in contract order. A record epic's requirements are the ids its tasks name, in
+   * first-named order, carrying id and state only.
    * </pre>
    *
    * <code>repeated .orrery.v1.EpicRequirement requirements = 5 [json_name = "requirements"];</code>
@@ -121,7 +122,8 @@ public interface EpicsGetResponseOrBuilder extends
       getRequirementsList();
   /**
    * <pre>
-   * The orreryd epic's requirements in contract order, empty for a record epic.
+   * The orreryd epic's requirements in contract order. A record epic's requirements are the ids its tasks name, in
+   * first-named order, carrying id and state only.
    * </pre>
    *
    * <code>repeated .orrery.v1.EpicRequirement requirements = 5 [json_name = "requirements"];</code>
@@ -129,7 +131,8 @@ public interface EpicsGetResponseOrBuilder extends
   io.github.joshsymonds.orrery.gen.orrery.v1.EpicRequirement getRequirements(int index);
   /**
    * <pre>
-   * The orreryd epic's requirements in contract order, empty for a record epic.
+   * The orreryd epic's requirements in contract order. A record epic's requirements are the ids its tasks name, in
+   * first-named order, carrying id and state only.
    * </pre>
    *
    * <code>repeated .orrery.v1.EpicRequirement requirements = 5 [json_name = "requirements"];</code>
@@ -497,4 +500,44 @@ public interface EpicsGetResponseOrBuilder extends
    */
   com.google.protobuf.ByteString
       getSupersededByBytes();
+
+  /**
+   * <pre>
+   * The epic's centre state, one of asks, paused, releasing, shipped, ended_short or running.
+   * </pre>
+   *
+   * <code>string centre = 22 [json_name = "centre"];</code>
+   * @return The centre.
+   */
+  java.lang.String getCentre();
+  /**
+   * <pre>
+   * The epic's centre state, one of asks, paused, releasing, shipped, ended_short or running.
+   * </pre>
+   *
+   * <code>string centre = 22 [json_name = "centre"];</code>
+   * @return The bytes for centre.
+   */
+  com.google.protobuf.ByteString
+      getCentreBytes();
+
+  /**
+   * <pre>
+   * The sentence of the epic's newest history entry; empty when it has none.
+   * </pre>
+   *
+   * <code>string newest = 23 [json_name = "newest"];</code>
+   * @return The newest.
+   */
+  java.lang.String getNewest();
+  /**
+   * <pre>
+   * The sentence of the epic's newest history entry; empty when it has none.
+   * </pre>
+   *
+   * <code>string newest = 23 [json_name = "newest"];</code>
+   * @return The bytes for newest.
+   */
+  com.google.protobuf.ByteString
+      getNewestBytes();
 }

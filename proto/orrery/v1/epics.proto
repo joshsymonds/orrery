@@ -108,7 +108,8 @@ message EpicsGetResponse {
   // steps and steps with no task label add none.
   repeated EpicSlice slices = 4;
 
-  // The orreryd epic's requirements in contract order, empty for a record epic.
+  // The orreryd epic's requirements in contract order. A record epic's requirements are the ids its tasks name, in
+  // first-named order, carrying id and state only.
   repeated EpicRequirement requirements = 5;
 
   // The orreryd epic's workflow node runs in the engine's order, empty for a record epic.
@@ -165,6 +166,12 @@ message EpicsGetResponse {
   // The orreryd epic a close named as its replacement; empty when its close named none, when it is not closed, and for
   // a record epic.
   string superseded_by = 21;
+
+  // The epic's centre state, one of asks, paused, releasing, shipped, ended_short or running.
+  string centre = 22;
+
+  // The sentence of the epic's newest history entry; empty when it has none.
+  string newest = 23;
 }
 
 // EpicSession is one session that works on an epic, with its newest epic call.
@@ -413,6 +420,12 @@ message EpicHistoryEntry {
     // An action taken on the epic's steering or controls.
     EpicAction action = 9;
   }
+
+  // The entry's line as a sentence built from its stored fields.
+  string sentence = 10;
+
+  // Every run an evidence line groups, the run in evidence included; empty for any other entry.
+  repeated EvidenceRun runs = 11;
 }
 
 // EpicAction is one action taken on an orreryd epic's steering or controls, such as a move.
@@ -1082,6 +1095,9 @@ message EpicStep {
 
   // The step's done-judge verdicts.
   repeated EpicStepVerdict verdicts = 22;
+
+  // What the step is for, as stored at its start; empty when none is stored yet.
+  string purpose = 23;
 }
 
 // EpicStepCheck is one check a step ran in one round.
@@ -1183,6 +1199,9 @@ message EpicRequirement {
 
   // The conclusion the requirement's evidence is judged against.
   string conclusion = 6;
+
+  // The requirement's state: proven, failed, held, in_flight or not_reached.
+  string state = 7;
 }
 
 // EpicNodeCheck is the check a gate or command node run ran: its state, how it ended, and its output.
@@ -1309,6 +1328,9 @@ message EvidenceRun {
   // The requirement or task whose evidence the run shows. History sets it; Get leaves it empty, since there each run
   // sits under its requirement, node or task.
   string item = 17;
+
+  // The id of the run's judge step; empty when none.
+  string judge_step = 18;
 }
 
 // EvidenceArtifact is one file an evidence run kept, with the state it was kept in.

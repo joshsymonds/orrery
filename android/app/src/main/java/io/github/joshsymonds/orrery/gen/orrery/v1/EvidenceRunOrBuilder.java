@@ -287,4 +287,24 @@ public interface EvidenceRunOrBuilder extends
    */
   com.google.protobuf.ByteString
       getItemBytes();
+
+  /**
+   * <pre>
+   * The id of the run's judge step; empty when none.
+   * </pre>
+   *
+   * <code>string judge_step = 18 [json_name = "judgeStep"];</code>
+   * @return The judgeStep.
+   */
+  java.lang.String getJudgeStep();
+  /**
+   * <pre>
+   * The id of the run's judge step; empty when none.
+   * </pre>
+   *
+   * <code>string judge_step = 18 [json_name = "judgeStep"];</code>
+   * @return The bytes for judgeStep.
+   */
+  com.google.protobuf.ByteString
+      getJudgeStepBytes();
 }

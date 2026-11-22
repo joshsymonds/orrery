@@ -92,6 +92,8 @@ const stepDefaultModelLimit = 60 * time.Minute
 // ReturnCheck, when set, runs on every schema-valid return of the step. Its failure lines are stored as the failed
 // check named return and sent back to the session, and a step with a ReturnCheck is never judged by Haiku. It is
 // Go-only: the Steps proto does not carry it, so only an in-process caller sets it.
+//
+// Purpose is the step's purpose, stored with it; empty asks Haiku for one.
 type StepStart struct {
 	ID          string
 	Agent       string
@@ -109,6 +111,7 @@ type StepStart struct {
 	DoneValue   string
 	Epic        string
 	Task        string
+	Purpose     string
 	Caller      store.EpicCaller
 	AgentGate   *gates.Gate
 	CommandGate *gates.Gate
