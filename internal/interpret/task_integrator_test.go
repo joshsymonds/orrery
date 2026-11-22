@@ -62,11 +62,11 @@ func (c taskClash) start(t *testing.T) integratorMerge {
 	return merge
 }
 
-// resolveTaskMerge writes README and notes in wt as readme and notes, and stages both.
-func resolveTaskMerge(t *testing.T, wt, readme, notes string) {
+// resolveTaskMerge writes README in wt as readme, and notes as both sides' lines, and stages both.
+func resolveTaskMerge(t *testing.T, wt, readme string) {
 	t.Helper()
 	nodeWrite(t, wt, "README", readme)
-	nodeWrite(t, wt, "notes", notes)
+	nodeWrite(t, wt, "notes", "both\n")
 	nodeGit(t, wt, "add", "README", "notes")
 }
 
@@ -200,7 +200,8 @@ func TestConflictIntegratorCheckRefuses(t *testing.T) {
 			name: "change outside the conflicts not listed",
 			want: "other_changes: ",
 			ret: func(t *testing.T, c taskClash, wt string) map[string]any {
-				resolveTaskMerge(t, wt, "both\n", "both\n")
+				t.Helper()
+				resolveTaskMerge(t, wt, "both\n")
 				nodeWrite(t, wt, "extra.txt", "extra\n")
 				nodeGit(t, wt, "add", "extra.txt")
 				return taskReturn(verdictMerged, taskMergeCommit(t, wt, c.revision), "")
@@ -210,7 +211,8 @@ func TestConflictIntegratorCheckRefuses(t *testing.T) {
 			name: "conflict marker left",
 			want: "markers: ",
 			ret: func(t *testing.T, c taskClash, wt string) map[string]any {
-				resolveTaskMerge(t, wt, "<<<<<<< candidate\none\n=======\ntwo\n>>>>>>> task\n", "both\n")
+				t.Helper()
+				resolveTaskMerge(t, wt, "<<<<<<< candidate\none\n=======\ntwo\n>>>>>>> task\n")
 				return taskReturn(verdictMerged, taskMergeCommit(t, wt, c.revision), "")
 			},
 		},
@@ -218,7 +220,8 @@ func TestConflictIntegratorCheckRefuses(t *testing.T) {
 			name: "parents not the candidate then the revision",
 			want: "parents: ",
 			ret: func(t *testing.T, c taskClash, wt string) map[string]any {
-				resolveTaskMerge(t, wt, "both\n", "both\n")
+				t.Helper()
+				resolveTaskMerge(t, wt, "both\n")
 				tree := nodeGit(t, wt, "write-tree")
 				commit := nodeGit(t, wt, "commit-tree", tree, "-p", c.revision, "-p", c.candidate, "-m", "reversed")
 				return taskReturn(verdictMerged, commit, "")
@@ -269,7 +272,7 @@ func TestConflictIntegratorCheckAccepts(t *testing.T) {
 		c := newTaskClash(t)
 		merge := c.start(t)
 		check := taskCheckOf(t, merge)
-		resolveTaskMerge(t, merge.worktree, "both\n", "both\n")
+		resolveTaskMerge(t, merge.worktree, "both\n")
 		commit := taskMergeCommit(t, merge.worktree, c.revision)
 		if failures := failuresOfReturn(t, check, taskReturn(verdictMerged, commit, "")); len(failures) != 0 {
 			t.Errorf("failures = %q, want none", failures)
@@ -280,7 +283,7 @@ func TestConflictIntegratorCheckAccepts(t *testing.T) {
 		c := newTaskClash(t)
 		merge := c.start(t)
 		check := taskCheckOf(t, merge)
-		resolveTaskMerge(t, merge.worktree, "both\n", "both\n")
+		resolveTaskMerge(t, merge.worktree, "both\n")
 		nodeWrite(t, merge.worktree, "extra.txt", "extra\n")
 		nodeGit(t, merge.worktree, "add", "extra.txt")
 		commit := taskMergeCommit(t, merge.worktree, c.revision)
