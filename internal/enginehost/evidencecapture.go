@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"io/fs"
 	"path/filepath"
-	"syscall"
+	"strings"
 	"time"
 
 	"github.com/joshsymonds/orrery/internal/evidence"
@@ -240,16 +240,21 @@ func (c evidenceCapture) keepLog(tail string) (string, int64, error) {
 	return hash, int64(len(tail)), nil
 }
 
-// keepArtifacts returns what each path left in worktree, in the order paths gives, as keepArtifact keeps each one.
+// keepArtifacts returns what each path left in worktree, in the order paths gives, as keepArtifact keeps each one. The
+// worktree is resolved once, so each path can be checked to lie inside it.
 func (c evidenceCapture) keepArtifacts(
 	ctx context.Context, worktree string, paths []string,
 ) ([]store.EvidenceArtifact, error) {
 	if len(paths) == 0 {
 		return nil, nil
 	}
+	root, err := c.hostOf().EvalSymlinks(ctx, worktree)
+	if err != nil {
+		return nil, fmt.Errorf("open worktree %s: %w", worktree, err)
+	}
 	artifacts := make([]store.EvidenceArtifact, 0, len(paths))
 	for _, path := range paths {
-		artifact, keepErr := c.keepArtifact(ctx, worktree, path)
+		artifact, keepErr := c.keepArtifact(ctx, worktree, root, path)
 		if keepErr != nil {
 			return nil, keepErr
 		}
@@ -258,18 +263,30 @@ func (c evidenceCapture) keepArtifacts(
 	return artifacts, nil
 }
 
-// keepArtifact returns what path left in worktree. A regular file up to the cap is kept as a blob. A larger one is over_cap
-// and not stored. A path nothing is at, a path under a file, and a path that is not a regular file, such as a symbolic link,
-// which is never followed, or a directory, is missing. The read goes through the host's ReadRooted, so it stays inside
-// worktree.
-func (c evidenceCapture) keepArtifact(ctx context.Context, worktree, path string) (store.EvidenceArtifact, error) {
-	data, err := c.hostOf().ReadRooted(ctx, worktree, path)
+// keepArtifact returns what path left in worktree, whose resolved path is root. A regular file up to the cap is kept as a
+// blob, and a larger one is over_cap and not stored. A path that artifactFile refuses is missing, and so is one that is
+// swapped for a symbolic link between its stat and its read. The read goes through the host's ReadRooted, so it stays
+// inside worktree.
+func (c evidenceCapture) keepArtifact(
+	ctx context.Context, worktree, root, path string,
+) (store.EvidenceArtifact, error) {
+	host := c.hostOf()
+	info, ok := artifactFile(ctx, host, worktree, root, path)
+	if !ok {
+		return store.EvidenceArtifact{Path: path, State: "missing"}, nil
+	}
+	// A file over the cap is refused on its size before it is read, so a large one is never held in memory.
+	if info.Size() > evidenceCaptureArtifactCap {
+		return store.EvidenceArtifact{Path: path, State: "over_cap", Size: info.Size()}, nil
+	}
+	data, err := host.ReadRooted(ctx, worktree, path)
 	switch {
-	case errors.Is(err, hostexec.ErrNotRegular), errors.Is(err, fs.ErrNotExist), errors.Is(err, syscall.ENOTDIR):
+	case errors.Is(err, hostexec.ErrNotRegular):
 		return store.EvidenceArtifact{Path: path, State: "missing"}, nil
 	case err != nil:
 		return store.EvidenceArtifact{}, fmt.Errorf("read artifact %s: %w", path, err)
 	}
+	// The file may have grown since it was stat'ed, so its read is checked against the cap as well.
 	if int64(len(data)) > evidenceCaptureArtifactCap {
 		return store.EvidenceArtifact{Path: path, State: "over_cap", Size: int64(len(data))}, nil
 	}
@@ -278,6 +295,26 @@ func (c evidenceCapture) keepArtifact(ctx context.Context, worktree, path string
 		return store.EvidenceArtifact{}, err
 	}
 	return store.EvidenceArtifact{Path: path, State: "kept", Hash: hash, Blob: name, Size: int64(len(data))}, nil
+}
+
+// artifactFile returns the stat of path in worktree and true when path is a regular file inside worktree, whose resolved
+// path is under root. A symbolic link at path is not followed, so it is not a regular file. A path that is not local to
+// worktree, and one that cannot be stat'ed or resolved, is not a regular file inside it either. A directory on the way to
+// path may be a symbolic link out of worktree, which the read would refuse, so the resolved path is checked too.
+func artifactFile(ctx context.Context, host hostexec.Host, worktree, root, path string) (fs.FileInfo, bool) {
+	if !filepath.IsLocal(path) {
+		return nil, false
+	}
+	full := filepath.Join(worktree, path)
+	info, err := host.Lstat(ctx, full)
+	if err != nil || !info.Mode().IsRegular() {
+		return nil, false
+	}
+	resolved, err := host.EvalSymlinks(ctx, full)
+	if err != nil || !strings.HasPrefix(resolved, root+string(filepath.Separator)) {
+		return nil, false
+	}
+	return info, true
 }
 
 // captureEnsureWorktree adds the worktree at path on host, at revision of repo, when a restart removed it. A directory
