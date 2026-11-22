@@ -158,6 +158,7 @@ func TestRoutesRefuseLeavesStoreUnchanged(t *testing.T) {
 	}
 	for _, tc := range refusals {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			_, err := h.Routes.Replace(t.Context(), connect.NewRequest(&orreryv1.RoutesReplaceRequest{
 				Registry: tc.build(),
 			}))
@@ -167,6 +168,7 @@ func TestRoutesRefuseLeavesStoreUnchanged(t *testing.T) {
 	}
 
 	t.Run("remove account a context uses", func(t *testing.T) {
+		t.Parallel()
 		_, err := h.Accounts.Remove(t.Context(), connect.NewRequest(&orreryv1.AccountsRemoveRequest{
 			Id: alpha.GetId(),
 		}))
