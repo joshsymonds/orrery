@@ -53,6 +53,12 @@
 /* TextArea: the same box for several lines. */
 .field.area { display: block; height: auto; padding: var(--o-space-8) var(--o-space-12); color: var(--o-ink-1); white-space: pre-wrap; }
 
+/* HostLabel: the host a pane, a session, an epic or a step runs on, with the host's icon. Inline it sits on its row; on a
+   card's heading it is drawn once, for the rows under it. */
+.host-label { display: inline-flex; align-items: center; gap: var(--o-space-4); flex: none; min-width: 0; color: var(--o-ink-2); font: var(--o-type-small); font-weight: var(--o-font-weight-bold); white-space: nowrap; }
+.host-label .icon { color: var(--o-ink-4); }
+.host-label.heading { color: var(--o-ink-3); font-weight: var(--o-font-weight-regular); }
+
 /* Chip: a short verdict or tag on its role's tint. */
 .chip { display: inline-flex; align-items: center; gap: var(--o-space-4); flex: none; padding: 0 var(--o-space-8); border-radius: var(--o-radius-1); background: var(--o-surface-raised); color: var(--o-ink-2); font: var(--o-type-small); white-space: nowrap; }
 .chip.ok { background: var(--o-role-ok-fill); color: var(--o-role-ok); }
@@ -579,6 +585,7 @@ a.subj:hover { background: var(--o-surface-raised); }
 .row.step .label { color: var(--o-ink-1); white-space: nowrap; }
 .row.step .doing { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--o-ink-3); }
 .row.step.held .doing { color: var(--o-role-attention); }
+.row.step .host-line { grid-column: 2 / -1; }
 .touch .row.step { min-height: var(--o-size-control-touch); }
 
 /* TitleRow: where you are, and what you can do here. The last crumb is the page and the largest text in the row. */
@@ -600,8 +607,6 @@ a.crumb:hover { color: var(--o-ink-1); text-decoration: underline; }
 .titlerow .cmds { position: relative; }
 .titlerow .cmds > .menu { position: absolute; top: calc(100% + var(--o-space-4)); right: 0; z-index: var(--o-z-menu); }
 .strip { display: flex; align-items: center; gap: var(--o-space-16); min-width: 0; min-height: var(--o-space-24); overflow: hidden; color: var(--o-ink-3); font: var(--o-type-small); }
-.strip .host { display: inline-flex; align-items: center; gap: var(--o-space-4); flex: none; color: var(--o-ink-2); font-weight: var(--o-font-weight-bold); }
-.strip .host .icon { color: var(--o-ink-4); }
 .strip .ctx { margin-left: auto; }
 .strip .other { color: var(--o-ink-4); }
 .page-note { flex: none; padding: var(--o-space-4) var(--o-layout-page-pad-desk); border-bottom: var(--o-size-hairline) solid var(--o-line-soft); background: var(--o-role-bad-fill); }
@@ -613,7 +618,6 @@ a.crumb:hover { color: var(--o-ink-1); text-decoration: underline; }
 .touch .titlerow .heading .here { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; min-width: 0; overflow: hidden; color: var(--o-ink-1); font: var(--o-type-body); font-weight: var(--o-font-weight-bold); }
 .touch .titlerow .heading .here.one { -webkit-line-clamp: 1; }
 .touch .strip { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--o-space-8) var(--o-space-12); padding: 0 var(--o-space-12); }
-.touch .strip .host { display: none; }
 .touch .strip .other { grid-column: 1 / -1; }
 .touch .strip .ctx { margin-left: 0; }
 .touch .page-note { padding: var(--o-space-4) var(--o-layout-page-pad-phone); }
@@ -896,6 +900,7 @@ a.litem:hover, button.litem:hover { background: var(--o-surface-well); }
 .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(44ch, 100%), 1fr)); gap: var(--o-space-12); }
 .proj-head { display: grid; gap: var(--o-space-4); }
 .proj-head .path { color: var(--o-ink-3); font: var(--o-type-small); }
+.proj-head .path .host-label { margin-left: var(--o-space-8); }
 .proj-head .counts { display: flex; flex-wrap: wrap; gap: var(--o-space-4) var(--o-space-16); color: var(--o-ink-2); font: var(--o-type-small); }
 .proj-head .counts span { display: inline-flex; align-items: center; gap: var(--o-space-4); }
 /* A project's conversations: each its row, and under it, hanging from a line, the live cards of what it steers. */

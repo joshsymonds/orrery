@@ -17,8 +17,11 @@
       on: c.panel ? KEY[c.panel] : undefined, pick: c.pick, panel: c.panel && !touch ? O.listPanel(c.panel, c.work, 'work-rail') : '',
       dock: c.dock === null ? null : { ...(c.dock || {}), ...(touch ? ((c.phone || {}).dock || {}) : {}) },
     });
+    // Its title row names the host the thing runs on: a pane's, or a session's. The inbox at rest is a rail, which hides
+    // its rows, so the page's own title is the only host drawn; c.hosts names what else is drawn.
+    const kinds = [c.pane ? 'pane' : 'session'];
     O.scenario({
-      id: c.id, group: c.group, title: c.name, note: c.note, differs: c.differs, widths: c.widths,
+      id: c.id, group: c.group, title: c.name, note: `${c.note}${O.hostsNote(c.hosts || kinds)}`, differs: c.differs, widths: c.widths,
       desk: c.desk === null ? undefined : () => O.desk({ inboxState: (c.desk || {}).inboxState || 'rail', open: (c.desk || {}).open || c.id, inbox: (c.desk || {}).inbox, pages: [page(false), ...((c.desk || {}).pages || [])], over: (c.desk || {}).over, side: c.panel ? 'panel' : 'rail' }),
       phone: c.phone === null ? undefined : () => O.screen(page(true), { over: (c.phone || {}).over || (c.panel ? O.listSheet(c.panel, c.work) : undefined) }),
     });
@@ -112,8 +115,8 @@
 
   convo({
     id: 'convo-shell', group: 'Conversation', name: 'A terminal pane with no conversation',
-    note: 'A plain shell has no transcript. The page says so, and the dock sends a command.',
-    title: { dir: 'orrery', here: 'zsh', strip: W.strip(null) }, reader: { state: 'empty', hint: 'This is a terminal pane with no Claude session in it.' },
+    note: 'A plain shell has no transcript. The page says so, and the dock sends a command.', pane: true,
+    title: { dir: 'orrery', here: 'zsh', strip: W.strip(null, { host: W.rows.shell.host }) }, reader: { state: 'empty', hint: 'This is a terminal pane with no Claude session in it.' },
     dock: { state: 'idle', shell: true, name: 'orrery' },
     phone: { dock: { quickKeys: true } }, differs: PANE_KEYS,
   });
@@ -225,7 +228,7 @@
     { state: 'interrupted', what: '· the server restarted mid-turn · 2h ago' }, { title: { dir: 'almanac', here: 'The 2027 ephemeris import', strip: W.strip(W.ctx.mid) } });
 
   dock('dock-pane-queue', 'A terminal pane\'s queue', 'A pane\'s queue is Claude Code\'s own, with different rules, so it has different words: Claude Code takes a message when it chooses, and queued messages come back only all together.',
-    { state: 'working', pane: true, tool: 'Bash', what: 'just warm --port lisbon', clock: '4:10', queued: [{ text: 'Also log the batch id whenever a batch is spooled.' }, { text: 'Then put the 5-minute cap in the README.' }] }, { phone: { dock: { quickKeys: true } } });
+    { state: 'working', pane: true, tool: 'Bash', what: 'just warm --port lisbon', clock: '4:10', queued: [{ text: 'Also log the batch id whenever a batch is spooled.' }, { text: 'Then put the 5-minute cap in the README.' }] }, { pane: true, phone: { dock: { quickKeys: true } } });
 
   dock('dock-waiting', 'Waiting on you, with no options', 'The turn ended on a question in words. The state says it waits on you; the input answers.', { state: 'waiting' }, { items: W.short.concat([{ k: 'reply', at: '14:12', md: ['Should the warm-up also run on deploy, or only by hand?'] }]) });
 

@@ -149,7 +149,7 @@
     const now = when(e.now || e.ask || e.running, () => sec('Now', { rest: e.asOf }, `${when(e.now, () => `<p class="now-sentence">${md(e.now)}</p>`)}${when(e.ask, () => O.ask(e.ask))}${e.nowExtra || ''}`
       + when(e.running && e.running.length, () => O.table('auto minmax(0, 1fr) auto minmax(0, 2fr) auto', null, e.running.map((s) => ({
         go: s.go || 'worker-running',
-        cells: [O.stateGlyph(s.limited ? 'limited' : s.held ? 'held' : 'working'), `<span class="strong cutc">${esc(s.label)}</span>`, O.pips(s.pips), `<span class="cutc wide ${s.held && !s.limited ? 'is-attention' : ''}">${esc(s.doing)}</span>`, `<span class="end id">${esc(s.time || '')}${icon('chevronRight')}</span>`],
+        cells: [O.stateGlyph(s.limited ? 'limited' : s.held ? 'held' : 'working'), `<span class="strong cutc">${esc(s.label)}</span>${when(s.host, () => O.hostLabel(s.host))}`, O.pips(s.pips), `<span class="cutc wide ${s.held && !s.limited ? 'is-attention' : ''}">${esc(s.doing)}</span>`, `<span class="end id">${esc(s.time || '')}${icon('chevronRight')}</span>`],
       })), { touch: 'auto minmax(0, 1fr) auto' }))
       + when(e.next, () => `<p class="inote">Next: ${esc(e.next)}</p>`)));
     const build = when(e.tasks && e.tasks.length, () => sec('Tasks', { n: `${e.tasks.filter((t) => t.place === 'integrated').length} of ${e.tasks.length} done` }, `<div class="build">${O.orrery(e)}<div>${O.taskTable(e)}</div></div>`));
@@ -166,10 +166,10 @@
   // conversation that steers it (o.record, o.close: the conversation with the panel shut).
   O.epicPage = (e, o = {}) => {
     const touch = O.touch();
-    const title = !touch && o.record ? O.recordTitle({ close: o.close, here: e.slug, one: true, state: O.epicState(e), cmds: O.epicCmds(e), menu: o.menu, note: e.cmdError }) : O.titleRow({
+    const title = !touch && o.record ? O.recordTitle({ close: o.close, here: e.slug, one: true, state: O.epicState(e), cmds: O.epicCmds(e), menu: o.menu, note: e.cmdError, host: e.host }) : O.titleRow({
       toggle: !touch && o.toggle !== false, waiting: 6, back: touch ? 'inbox-home' : undefined,
       dir: e.dir, here: e.slug, one: true,
-      state: O.epicState(e), cmds: O.epicCmds(e), menu: o.menu, strip: O.W.strip(null), noStrip: touch, note: e.cmdError,
+      state: O.epicState(e), cmds: O.epicCmds(e), menu: o.menu, strip: O.W.strip(null, { host: e.host }), noStrip: touch, note: e.cmdError, host: e.host,
     });
     const body = e.unavailable
       ? `<div class="blank">${O.inote(e.unavailable, e.loading ? '' : 'error')}${when(!e.loading, () => O.btn('Try again', { icon: 'retry' }))}</div>`
@@ -183,8 +183,8 @@
     const touch = O.touch();
     return O.page({
       label: p.label, class: !touch && p.record ? 'rpage' : '', pinned: p.band || '',
-      title: !touch && p.record ? O.recordTitle({ up: p.up, close: p.close, crumbs: (p.crumbs || []).slice(1), here: p.here, one: true, state: p.state, cmds: p.cmds, menu: p.menu, note: p.note })
-        : O.titleRow({ toggle: !touch, waiting: 6, back: p.back, crumbs: p.crumbs, here: p.here, one: true, state: touch ? '' : p.state, cmds: p.cmds, strip: O.W.strip(null), noStrip: touch, note: p.note }),
+      title: !touch && p.record ? O.recordTitle({ up: p.up, close: p.close, crumbs: (p.crumbs || []).slice(1), here: p.here, one: true, state: p.state, cmds: p.cmds, menu: p.menu, note: p.note, host: p.host })
+        : O.titleRow({ toggle: !touch, waiting: 6, back: p.back, crumbs: p.crumbs, here: p.here, one: true, state: touch ? '' : p.state, cmds: p.cmds, strip: O.W.strip(null, { host: p.host }), noStrip: touch, note: p.note, host: p.host }),
       body: `<div class="spage"><div class="inner">${p.body}</div></div>`,
       foot: when(touch && (p.state || p.touchCmds), () => `<div class="cmdbar">${p.state || ''}<span class="end">${p.touchCmds || ''}</span></div>`) + (p.foot || ''),
       over: p.over,

@@ -8,7 +8,7 @@ Open `index.html` (the board lists every scenario), `desk.html#<id>`, `phone.htm
 arrows page through the scenarios. `shoot.mjs` shoots every desk scenario at 1600 and 1000 wide and every phone
 scenario at 412 into a temporary directory, and fails when a screen overflows its width or the page errors.
 
-128 scenarios: 114 drawn for the desk, 119 for the phone. Every one is drawn by the same components
+130 scenarios: 116 drawn for the desk, 121 for the phone. Every one is drawn by the same components
 (`js/prims.js`, `js/shell.js`, `js/convo.js`, `js/epic.js`) from one stylesheet (`css/components.css`) that reads only
 the variables `../../system/gen-tokens.mjs` writes from `../../system/tokens.json`. `lint-css.mjs` fails the sheet on a
 raw colour, length, duration, font size or opacity.
@@ -16,6 +16,28 @@ raw colour, length, duration, font size or opacity.
 It was drawn from three inventories made for it: what the web client draws today, what the Android app draws today, and
 what the server can say. Where the drawing asks for something the server does not send, it is listed under
 "Needs the server".
+
+## Revision 7: hosts (2026-11-22)
+
+The owner: every pane, session, epic and step shows the host it runs on, also when there is only one host. Where rows
+are grouped by host and folder, the host is drawn once on the card heading; everywhere else it is drawn inline, as a
+`HostLabel`. A card is one host and one folder, so the session rows under it name no host of their own.
+
+| drawn | server field | epic |
+|---|---|---|
+| a card's head in the inbox, and a project page's head | the host of its headless sessions: each session row's host | orrery-first-class-hosts |
+| a headless session's InboxRow, where it is not under a card | its session row's host | orrery-first-class-hosts |
+| a headless session's title row | its session row's host | orrery-first-class-hosts |
+| a terminal pane's title row | Pane.host | orrery-host-surfaces |
+| an EpicRow, an EpicPin, a WorkCard | Epic.host | orrery-host-relay |
+| an epic's page title row | Epic.host | orrery-host-relay |
+| a StepRow, under an epic in the inbox or as a row of its Now table | EpicStep.host | orrery-host-relay |
+| a step's page title row | EpicStep.host | orrery-host-relay |
+| a contract's WorkCard | its session row's host: the session that wrote it | orrery-first-class-hosts |
+
+The field names are the host epics' own, taken from their contracts and not checked against them. A scenario whose
+drawing shows a host says so in its note, with the field and the epic. The world gains two hosts, `sextant` and
+`lantern`, for `inbox-hosts` (four cards, one per host) and `epic-hosts` (an epic whose steps run on two hosts).
 
 ## Revision 13: Not now, not Dismiss (2026-11-18)
 

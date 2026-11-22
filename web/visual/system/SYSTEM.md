@@ -236,6 +236,7 @@ Names are story names: `Component/State`. The catalogue draws each component in 
 | StepRow | Running, Held |
 | TitleRow | Conversation, InboxHidden, Epic, Subpage, WithError; phone: Folded |
 | MeterStrip | HostAndContext, HostOnly, UnderLoad, OtherHost |
+| HostLabel | Inline, CardHeading. The host a pane, a session, an epic or a step runs on, with the host's icon: inline on its own row, or once on a card's heading |
 | WorkRail | the right rail, in groups each named once: contract, epics, agents, running. Up to three things show as tiles; more is one tile of dots (one per thing, in its colour) that opens a RailPicker. Empty when nothing is started |
 | RailPicker | what a tile of dots opens: each thing in the group and its state; choosing one opens its panel |
 | SidePanel | one thing opened from its tile, beside the conversation: an epic's or a contract's record, or a list (Agents, Running); the thing inset as a card with its colour on the top edge; over the conversation under 1250 |
@@ -250,6 +251,8 @@ Names are story names: `Component/State`. The catalogue draws each component in 
 | Notice | AsksYou, EpicAsks, Shipped, Failed; InTheCentre |
 | NoticeCentre | Days, Empty |
 | Panel | New (Empty, Working, Results, Form, NoResults, Error), KeyList |
+
+Every pane, session, epic and step draws its host, also when there is only one host: where rows are grouped by host and folder it is drawn once on the card heading, and everywhere else inline as a HostLabel.
 
 ### Conversation
 
