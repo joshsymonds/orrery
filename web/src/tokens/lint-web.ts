@@ -33,21 +33,24 @@ interface TokenSet {
 }
 
 let tokenSet: TokenSet | undefined;
-// The --o- names tokens.css defines, the two page breakpoints tokens.json's layout names, and the container breakpoint
-// it names for the conversation head's own width.
+// The --o- names tokens.css defines, the two page breakpoints tokens.json's layout names, and the container breakpoints
+// it names: the conversation head's own width, and the meter cell's line.
 function tokens(): TokenSet {
   if (tokenSet === undefined) {
     const { layout } = JSON.parse(read("web/visual/system/tokens.json")) as {
-      layout: { breakpointPhone: number; breakpointNarrow: number; breakpointHeadNarrow: number };
+      layout: { breakpointPhone: number; breakpointNarrow: number; breakpointHeadNarrow: number; meterCellLine: number };
     };
     tokenSet = {
       defined: new Set([...read("web/src/tokens.css").matchAll(/(--o-[a-z0-9-]+)\s*:/g)].map((m) => m[1])),
       breakpoints: new Set([layout.breakpointPhone, layout.breakpointNarrow]),
-      containerBreakpoints: new Set([layout.breakpointHeadNarrow]),
+      containerBreakpoints: new Set([layout.breakpointHeadNarrow, layout.meterCellLine]),
     };
   }
   return tokenSet;
 }
+
+// A font-family names one of the two faces, quoted. Any other family fails, in a declaration and in a face.
+const FAMILY = /\bfont-family\s*:(?!\s*"(?:Inter|Orrery Mono)")/;
 
 // What a sheet may not hold, each with the reason printed beside the line.
 const STRICT: readonly (readonly [RegExp, string])[] = [
@@ -57,7 +60,7 @@ const STRICT: readonly (readonly [RegExp, string])[] = [
   [/(?<![\w-])\d*\.?\d+r?em\b/, "an em or rem length: use a token"],
   [/(?<![\w-])\d*\.?\d+m?s\b/, "a duration: use a move or loop token"],
   [/\bfont-size\s*:/, "font-size: set font to a type token"],
-  [/\bfont-family\s*:(?!\s*"Orrery Mono")/, "font-family: set font to a type token"],
+  [FAMILY, "font-family: set font to a type token, whose family is Inter or Orrery Mono"],
   [/\bline-height\s*:/, "line-height: the type token carries it"],
   [/\bfont-weight\s*:(?!\s*var\()/, "a raw font-weight: use --o-font-weight-*"],
   [/\bletter-spacing\s*:(?!\s*(var\(|0(?![.\d])|normal))/, "raw letter-spacing: use the label's tracking"],
@@ -81,8 +84,13 @@ export function lintCss(file: string, css: string): Problem[] {
 
   sheet.split("\n").forEach((text, i) => {
     const line = i + 1;
-    // A face declares its own family and weight; those are not component values.
-    if (/^\s*@font-face/.test(text)) return;
+    // A face names its family, which is one of the two faces; its weight and source are not component values.
+    if (/^\s*@font-face/.test(text)) {
+      if (FAMILY.test(text)) {
+        fail(line, "@font-face names a family other than Inter or Orrery Mono: a face is one of the two");
+      }
+      return;
+    }
     // A media query cannot read a variable, so each number it names is a breakpoint token, or one less for max-width.
     if (/^\s*@media/.test(text)) {
       for (const [, digits] of text.matchAll(/(\d+)px/g)) {
@@ -96,7 +104,7 @@ export function lintCss(file: string, css: string): Problem[] {
     if (/^\s*@container/.test(text)) {
       for (const [, digits] of text.matchAll(/(\d+)px/g)) {
         if (containerBreakpoints.has(Number(digits))) continue;
-        fail(line, `${digits}px is not a container breakpoint token: use breakpointHeadNarrow`);
+        fail(line, `${digits}px is not a container breakpoint token: use breakpointHeadNarrow or meterCellLine`);
       }
       return;
     }
