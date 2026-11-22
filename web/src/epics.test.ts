@@ -160,7 +160,7 @@ test("a held step carries its reason", () => {
   assert.equal(running.reason, "");
 });
 
-test("a full block's tail reads its gaps, its not-started tasks and its ended steps", () => {
+test("a full block's tail reads its gaps and its not-started tasks, and no ended steps", () => {
   const epic = makeEpic({ runningSteps: [makeStep({ id: "s1", task: "t2" })], endedSteps: 9 });
   const tasks = [
     { slug: "t0", status: "pending" },
@@ -171,7 +171,7 @@ test("a full block's tail reads its gaps, its not-started tasks and its ended st
   const steps = [makeStep({ id: "s2", task: "t0", end: "goal_unmet" }), makeStep({ id: "s3", task: "t3" })];
   const details = new Map([[epic.id, detailOfTasks(epic, tasks, [], steps)]]);
 
-  assert.equal(epicsView([epic], details).blocks[0].tail, "1 gap · 2 not started · 9 steps ended");
+  assert.equal(epicsView([epic], details).blocks[0].tail, "1 gap · 2 not started");
 });
 
 // The strip of an epic whose one record task, t0, has the given status and steps.
@@ -236,7 +236,7 @@ test("StripAgreesOrrery: an epic with no record tasks and one failed build task 
   assert.equal(epicsView([epic], new Map([[epic.id, detail]])).blocks[0].tail, "1 gap");
 });
 
-test("a tail leaves out each part at zero, and is empty when no part is left", () => {
+test("a tail leaves out each part at zero, and is empty when no part is left, ended steps included", () => {
   const onlyEnded = makeEpic({ runningSteps: [makeStep({ id: "s1" })], endedSteps: 4 });
   const nothing = makeEpic({ runningSteps: [makeStep({ id: "s1" })] });
   const unstarted = makeEpic({ runningSteps: [makeStep({ id: "s1" })] });
@@ -246,7 +246,7 @@ test("a tail leaves out each part at zero, and is empty when no part is left", (
   ];
   const details = new Map([[unstarted.id, detailOfTasks(unstarted, tasks, [])]]);
 
-  assert.equal(epicsView([onlyEnded], new Map()).blocks[0].tail, "4 steps ended");
+  assert.equal(epicsView([onlyEnded], new Map()).blocks[0].tail, "");
   assert.equal(epicsView([nothing], new Map()).blocks[0].tail, "");
   assert.equal(epicsView([unstarted], details).blocks[0].tail, "2 not started");
 });
@@ -262,7 +262,7 @@ test("a one-line block has no steps, no more and an empty tail, even with ended 
   assert.equal(block.tail, "");
 });
 
-test("five running steps show four, count one more, keep a held mark, and carry the tail", () => {
+test("five running steps show four, count one more, keep a held mark, and leave ended steps out of the tail", () => {
   const epic = makeEpic({
     runningSteps: [
       makeStep({ id: "s1", task: "first task" }),
@@ -282,7 +282,7 @@ test("five running steps show four, count one more, keep a held mark, and carry 
   );
   assert.equal(block.full, true);
   assert.equal(block.more, 1);
-  assert.equal(block.tail, "3 steps ended");
+  assert.equal(block.tail, "");
   assert.deepEqual(block.steps[0], {
     kind: "step",
     key: "step:s1",
@@ -659,21 +659,23 @@ test("repositoryName returns a name without that suffix whole", () => {
   }
 });
 
-test("the count is the requirements a passing green run proves, out of all of them", () => {
+test("the count is the requirements the server states as proven, out of all of them", () => {
   const epic = makeEpic({});
   const requirements = [
-    create(EpicRequirementSchema, { id: "R1", runs: [{ phase: "green", passed: true }] }),
-    create(EpicRequirementSchema, { id: "R2", runs: [{ phase: "green", passed: false }] }),
-    create(EpicRequirementSchema, { id: "R3", runs: [{ phase: "green", passed: true }] }),
+    create(EpicRequirementSchema, { id: "R1", state: "proven" }),
+    create(EpicRequirementSchema, { id: "R2", state: "failed" }),
+    create(EpicRequirementSchema, { id: "R3", state: "proven" }),
   ];
   const detail = create(EpicsGetResponseSchema, { epic, requirements });
 
   assert.equal(lineOf(epic, detail).count, "2 of 3 proven");
 });
 
-test("a requirement with only a red run is not proven", () => {
+test("a requirement the server does not state as proven is not counted, whatever its green run says", () => {
   const epic = makeEpic({});
-  const requirements = [create(EpicRequirementSchema, { id: "R1", runs: [{ phase: "red", passed: true }] })];
+  const requirements = [
+    create(EpicRequirementSchema, { id: "R1", state: "in_flight", runs: [{ phase: "green", passed: true }] }),
+  ];
   const detail = create(EpicsGetResponseSchema, { epic, requirements });
 
   assert.equal(lineOf(epic, detail).count, "0 of 1 proven");

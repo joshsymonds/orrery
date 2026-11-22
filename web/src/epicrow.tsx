@@ -33,12 +33,13 @@ export function markDetailOf(detail: EpicsGetResponse | undefined): MarkDetail {
   return detail ?? { requirements: [], centre: "" };
 }
 
-// EpicRowWords is what a row says in words: its count, its state with the time it has been in that state, and its
-// blocker (empty when nothing blocks it).
+// EpicRowWords is what a row says in words: its count, its state with the time it has been in that state, its blocker
+// (empty when nothing blocks it), and the newest sentence the server gives its epic (empty when it has none).
 export interface EpicRowWords {
   count: string;
   words: string;
   blocker: string;
+  newest: string;
 }
 
 // contractOf is the contract a row draws as a contract: a contract item's own, or an epic's proposed contract. An epic
@@ -58,7 +59,7 @@ export function hungName(hung: Hung): string {
 
 // epicRowWords reads what a row says at now, in unix seconds. A contract reads its version, its state with its age,
 // and, while it is proposed, the ask it waits on. An epic reads its count, its state word with the time since its phase
-// began, and its blocker.
+// began, its blocker, and its newest sentence.
 export function epicRowWords(hung: Hung, now: number): EpicRowWords {
   const contract = contractOf(hung);
   if (contract !== null) {
@@ -66,6 +67,7 @@ export function epicRowWords(hung: Hung, now: number): EpicRowWords {
       count: `v${contract.version}`,
       words: `contract · ${contract.state} · ${sinceText(Number(contract.changed), now, false)}`,
       blocker: contract.state === proposedState ? waitsOnAccept : "",
+      newest: "",
     };
   }
   if (hung.kind !== "epic") {
@@ -84,8 +86,8 @@ function sinceText(since: number, now: number, live: boolean): string {
   return live ? elapsed : `${elapsed} ago`;
 }
 
-// epicWords reads an epic's row: its count from its line, its state word with the time since its phase began, and its
-// blocker. An epic with no state word, such as one with no detail, reads no words.
+// epicWords reads an epic's row: its count from its line, its state word with the time since its phase began, its
+// blocker, and the newest sentence of its detail. An epic with no state word, such as one with no detail, reads none.
 export function epicWords(node: EpicNode, now: number): EpicRowWords {
   const item = node.block.epic;
   const listed = node.listed;
@@ -95,6 +97,7 @@ export function epicWords(node: EpicNode, now: number): EpicRowWords {
     count: epicLine(item, now).count,
     words: state === "" ? "" : [state, timed].filter((part) => part !== "").join(" · "),
     blocker: blockerWords(node, now),
+    newest: item.detail?.newest ?? "",
   };
 }
 
@@ -152,9 +155,11 @@ function stepState(step: StepItem): string {
 
 // EpicRow draws a row of the inbox tree: an epic hung under its conversation, with its running steps under it, or a
 // contract hung there, with the contract's mark. An epic's row draws its EpicMark at 32, from the epic's detail. Its
-// name, count, words and blocker are epicRowWords'. An epic's row draws each running step, then a line for the steps
-// past the shown ones and the block's tail. A press on the row calls onSelect with its key, and a press on a step with
-// the step's key. currentStep is the key of the step the cursor is on. The row draws no command.
+// name, count, words, blocker and newest sentence are epicRowWords'. The row's first line is the name with the count at
+// its end, its second the words, and its third the blocker, else the newest sentence. An epic's row draws each running
+// step, then a line for the steps past the shown ones and the block's tail. A press on the row calls onSelect with its
+// key, and a press on a step with the step's key. currentStep is the key of the step the cursor is on. The row draws no
+// command.
 export function EpicRow({
   hung,
   now,
@@ -194,15 +199,15 @@ export function EpicRow({
           epic !== null && <EpicMark detail={markDetailOf(epic.block.epic.detail)} size={32} />
         )}
         <span class="title">{name}</span>
-        {contract !== null && <span class="age">{words.count}</span>}
-        <span class="l2">
-          {contract !== null ? words.words : [words.words, words.count].filter((part) => part !== "").join(" · ")}
-        </span>
-        {words.blocker !== "" && (
+        <span class="age">{words.count}</span>
+        <span class="l2">{words.words}</span>
+        {words.blocker !== "" ? (
           <span class="l3">
             <Icon name="question" />
             {words.blocker}
           </span>
+        ) : (
+          words.newest !== "" && <span class="l3">{words.newest}</span>
         )}
       </div>
       {epic !== null && <EpicSteps block={epic.block} currentStep={currentStep} onSelect={onSelect} />}

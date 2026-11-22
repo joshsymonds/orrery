@@ -3238,7 +3238,7 @@ test("an epic shows four running steps with the held one marked, then its more a
     );
     assert.deepEqual(
       [...steers.querySelectorAll(".fold-line")].map((line) => line.textContent),
-      ["1 more · 3 steps ended"],
+      ["1 more"],
     );
   });
 });
@@ -3523,8 +3523,8 @@ test("an epic whose detail names no state reads its count alone, and epic unavai
   const unknown = makeEpic(gadgetsRepo, "second");
   const epics = epicsView([known, unknown], new Map([[known.id, detailOf(known, ["done", "integrated", "pending"])]]));
   return withApp(t.signal, { epics }, (container) => {
-    assert.equal(rowElement(container, epicKey(known)).querySelector(".l2")?.textContent, "2 of 3 tasks done");
-    assert.equal(rowElement(container, epicKey(unknown)).querySelector(".l2")?.textContent, "epic unavailable");
+    assert.equal(rowElement(container, epicKey(known)).querySelector(".age")?.textContent, "2 of 3 tasks done");
+    assert.equal(rowElement(container, epicKey(unknown)).querySelector(".age")?.textContent, "epic unavailable");
   });
 });
 
