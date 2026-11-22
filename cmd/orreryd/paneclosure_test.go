@@ -107,21 +107,17 @@ func closureTranscript(t *testing.T, dir string) string {
 	return path
 }
 
-// closureTransition is a transition of a pane to state, whose frame runs in cwd through the base URL frameURL and
-// whose hook names transcript and the final assistant message.
+// closureTransition is a transition of a pane to state in cwd through the base URL frameURL, whose turn's transcript
+// is transcript and whose last assistant message is the final message.
 func closureTransition(t *testing.T, state protocol.State, cwd, frameURL, transcript string) daemon.Transition {
 	t.Helper()
-	hook, err := json.Marshal(map[string]string{
-		keyTranscriptPath:       transcript,
-		keyLastAssistantMessage: closureFinal,
-	})
-	if err != nil {
-		t.Fatalf("marshal hook: %v", err)
-	}
 	return daemon.Transition{
-		PaneID: closurePaneID,
-		To:     state,
-		Frame:  protocol.HookFrame{Hook: hook, Cwd: cwd, AnthropicBaseURL: frameURL},
+		PaneID:      closurePaneID,
+		To:          state,
+		Cwd:         cwd,
+		BaseURL:     frameURL,
+		Transcript:  transcript,
+		LastMessage: closureFinal,
 	}
 }
 

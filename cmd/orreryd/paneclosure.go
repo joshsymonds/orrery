@@ -122,18 +122,10 @@ func readPaneKey(ctx context.Context, server tmuxctl.Server, pane string) (strin
 	return values[0], values[1], nil
 }
 
-// closureRecentText returns the recent text of the transition's transcript, through the Stop hook's last assistant
+// closureRecentText returns the recent text of the transition's transcript, through its turn's last assistant
 // message, as the summarizer reads it.
 func closureRecentText(transition daemon.Transition) (string, error) {
-	transcript, err := hookString(transition.Frame.Hook, keyTranscriptPath)
-	if err != nil {
-		return "", fmt.Errorf("read transcript path: %w", err)
-	}
-	last, err := hookString(transition.Frame.Hook, keyLastAssistantMessage)
-	if err != nil {
-		return "", fmt.Errorf("read last assistant message: %w", err)
-	}
-	excerpt, err := summary.ReadExcerpt(transcript, last)
+	excerpt, err := summary.ReadExcerpt(transition.Transcript, transition.LastMessage)
 	if err != nil {
 		return "", fmt.Errorf("read transcript excerpt: %w", err)
 	}
@@ -141,17 +133,17 @@ func closureRecentText(transition daemon.Transition) (string, error) {
 }
 
 // closureAccount returns the base URL and env the closure call runs under, resolved as the done judge resolves its
-// account: the context stamp in effect for the transition's cwd under the relay's home, or else the frame's base URL,
+// account: the context stamp in effect for the transition's cwd under the relay's home, or else the transition's base URL,
 // with that URL as the env. A stamp that cannot be read is an error, and no call is made.
 func (r *relay) closureAccount(transition daemon.Transition) (string, map[string]string, error) {
-	found, err := stamp.Find(r.home, transition.Frame.Cwd)
+	found, err := stamp.Find(r.home, transition.Cwd)
 	if err != nil {
 		return "", nil, fmt.Errorf("find context stamp: %w", err)
 	}
 	if found.Folder != "" {
 		return found.BaseURL(), found.Env, nil
 	}
-	baseURL := transition.Frame.AnthropicBaseURL
+	baseURL := transition.BaseURL
 	if baseURL == "" {
 		return "", nil, nil
 	}
