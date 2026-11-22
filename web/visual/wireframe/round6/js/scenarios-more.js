@@ -11,8 +11,9 @@
     { kind: 'fresh', title: '~/code/tidepool', note: 'Start a new session in this directory.', first: true },
     { kind: 'pane', title: '~/code/tidepool.worktrees/offline', note: 'Start a new session in this worktree.' },
   ];
+  // The panel is drawn over the desk's open inbox, and over the phone's inbox: every kind of host is drawn in it.
   const newScenario = (id, name, note, n, o = {}) => O.scenario({
-    id, group: 'New and find', title: name, note, differs: o.differs,
+    id, group: 'New and find', title: name, note: `${note}${O.hostsNote(['session', 'epic', 'step'])}`, differs: o.differs,
     desk: () => O.desk({ open: 'convo-working', pages: [O.lampPage()], over: O.newPanel(n) }),
     phone: () => O.home({ over: O.newPanel(n) }),
   });
@@ -28,13 +29,13 @@
 
   O.scenario({
     id: 'keys', group: 'Web only', title: 'The key list',
-    note: 'Every key the client answers to, grouped by what it is for. Escape\'s real behaviour (take back, then interrupt) is listed; today the list says only that it closes help. Opened by ? or the control at the foot of the inbox.',
+    note: 'Every key the client answers to, grouped by what it is for. Escape\'s real behaviour (take back, then interrupt) is listed; today the list says only that it closes help. Opened by ? or the control at the foot of the inbox.' + O.hostsNote(['session', 'epic', 'step']),
     desk: () => O.desk({ open: 'convo-working', pages: [O.lampPage()], over: O.keyList() }), widths: [1600],
   });
 
   O.scenario({
     id: 'more-menu', group: 'Conversation', title: 'A conversation\'s More menu',
-    note: 'Everything that had no pointer control is here with its key: archive, hide the meters, page the transcript, the key list. Stop is here too, behind its confirm.',
+    note: 'Everything that had no pointer control is here with its key: archive, hide the meters, page the transcript, the key list. Stop is here too, behind its confirm.' + O.hostsNote(['session']),
     desk: () => O.desk({ inboxState: 'rail', open: 'convo-working', pages: [O.lampPage({ title: { toggle: true, waiting: 6, menu: O.menu([
       { label: 'Open in a new window', icon: 'open' }, { label: 'Find in this conversation', icon: 'search', kbd: '/' }, { label: 'Hide the meters', icon: 'host', kbd: 'm' }, 'sep',
       { label: 'Mark unseen', icon: 'check', kbd: 'x' }, { label: 'Archive', icon: 'archive', kbd: 'A' }, 'sep', { label: 'Keys', icon: 'keys', kbd: '?' },
@@ -92,7 +93,7 @@
   O.convoScenario({
     id: 'android-keyboard', group: 'Android only', name: 'Typing: the keyboard is up',
     note: 'With the keyboard up the whole header folds to nothing: the title, the meters, the goal, the ask line and the tiles. The dock stays whole above the keyboard: state, queue and input. The quick keys fold away while the draft has text.',
-    desk: null, title: W.lampTitle, work: W.workFull, phone: { head: 'keyboard' }, items: W.lamp,
+    desk: null, title: W.lampTitle, work: W.workFull, phone: { head: 'keyboard' }, items: W.lamp, hosts: [],
     dock: { ...W.lampDock, draft: 'And skip ports that are already warm.', focused: true },
     differs: ['The web under 760 keeps its title row; a browser\'s own bar already folds.'],
   });
@@ -112,7 +113,7 @@
 
   O.scenario({
     id: 'android-toast', group: 'Android only', title: 'A row archived, with undo',
-    note: 'On touch a command that removes something says so in one line at the foot, with the way back.',
+    note: 'On touch a command that removes something says so in one line at the foot, with the way back.' + O.hostsNote(['session', 'epic', 'step']),
     phone: () => O.home({ over: O.toast('Archived “Tide table cache warm-up”.', 'Undo') }),
     differs: ['The web under 760 shows the same line.'],
   });

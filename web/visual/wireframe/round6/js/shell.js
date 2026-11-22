@@ -7,7 +7,8 @@
   // ---------- inbox ----------
 
   // sessionRow draws an InboxRow. r: { id, state, title, age, l2, l2kind: '' | 'asks' | 'live', tool, clock, unseen,
-  //   tag, go, acts }. o: { cur, open, menu, hover }
+  //   tag, go, acts, host }. o: { cur, open, menu, hover, card }. Under a card (o.card) the card's head names the host
+  //   its rows run on, so the row draws none; elsewhere its host is drawn on a line of its own.
   O.sessionRow = (r, o = {}) => {
     const l2 = r.l2kind === 'live'
       ? `<span class="l2">${when(r.tool, () => `<span class="name">${esc(r.tool)}</span> `)}${esc(r.l2 || '')}${when(r.clock, () => ` · ${esc(r.clock)}`)}</span>`
@@ -15,7 +16,7 @@
     const menu = when(o.menu, () => O.rowMenu(r));
     return `<a class="${cls('row', o.cur && 'cur', o.open && 'open', o.menu && 'menu-open', o.hover && 'hover')}"${attrs({ href: O.go(r.go || r.id), 'data-unseen': r.unseen, 'aria-current': o.open ? 'page' : undefined })}>`
       + `<span class="dot"${attrs({ title: r.unseen ? 'new since you looked' : undefined })}></span>${O.stateGlyph(r.state)}<span class="title">${esc(r.title)}</span><span class="age">${esc(r.age || '')}</span>`
-      + `${l2}${when(r.tag, () => `<span class="l2 tag">${esc(r.tag)}</span>`)}`
+      + `${l2}${when(r.tag, () => `<span class="l2 tag">${esc(r.tag)}</span>`)}${when(r.host && !o.card, () => `<span class="l2 host-line">${O.hostLabel(r.host)}</span>`)}`
       + `${O.iconBtn('more', 'Archive, open beside…', { class: 'more-btn', tipSide: 'left' })}${menu}</a>`;
   };
 
@@ -29,34 +30,35 @@
   O.rowMenu = (r) => O.menu(O.rowMenuItems(r));
 
   // epicRow draws an EpicRow and, under it, its running steps. A contract not yet accepted is the same row led by the
-  // contract's mark. e: { id, slug, contract, count, words, blocker, cmds, gauge, steps: [{ held, label, pips, doing }],
-  //   more, tail, ended, go }
+  // contract's mark. e: { id, slug, contract, count, words, blocker, cmds, gauge, host, steps: [{ held, label, host,
+  //   pips, doing }], more, tail, ended, go }. The epic names its host, and each step names its own.
   O.epicRow = (e, o = {}) => `<a class="${cls('row', 'epic', e.contract && 'contract', e.ended && 'ended', o.cur && 'cur', o.open && 'open')}" href="${O.go(e.go || e.id)}">`
     + `${e.contract ? `<span class="cmark">${icon('doc')}</span>` : O.gauge(e.gauge)}<span class="title">${esc(e.slug)}</span><span class="age">${esc(e.contract ? e.count || '' : '')}</span>`
-    + `<span class="l2">${esc(e.contract ? e.words : [e.words, e.count].filter(Boolean).join(' · '))}</span>${when(e.blocker, () => `<span class="l3">${icon('question')}${esc(e.blocker)}</span>`)}`
+    + `<span class="l2">${when(e.host, () => `${O.hostLabel(e.host)} · `)}${esc(e.contract ? e.words : [e.words, e.count].filter(Boolean).join(' · '))}</span>${when(e.blocker, () => `<span class="l3">${icon('question')}${esc(e.blocker)}</span>`)}`
     + `${when(e.cmds, () => `<span class="acts">${e.cmds}</span>`)}</a>`
-    + each(e.steps, (s) => `<a class="${cls('row', 'step', s.held && !s.limited && 'held', o.curStep === s.label && 'cur')}" href="${O.go(s.go || 'worker-running')}">${O.stateGlyph(s.limited ? 'limited' : s.held ? 'held' : 'working')}<span class="label">${esc(s.label)}</span>${O.pips(s.pips)}<span class="doing">${esc(s.doing)}</span></a>`)
+    + each(e.steps, (s) => `<a class="${cls('row', 'step', s.held && !s.limited && 'held', o.curStep === s.label && 'cur')}" href="${O.go(s.go || 'worker-running')}">${O.stateGlyph(s.limited ? 'limited' : s.held ? 'held' : 'working')}<span class="label">${esc(s.label)}</span>${O.pips(s.pips)}<span class="doing">${esc(s.doing)}</span>${when(s.host, () => `<span class="l2 host-line">${O.hostLabel(s.host)}</span>`)}</a>`)
     + when(e.more || e.tail, () => `<div class="fold-line">${esc([e.more, e.tail].filter(Boolean).join(' · '))}</div>`);
 
   // convoRow draws a conversation's row and, hanging under it, every epic and contract it steers. An epic belongs to
   // exactly one conversation, so it is drawn once, under that conversation, and never on its own.
-  O.convoRow = (r, o = {}) => O.sessionRow(r, { cur: o.cur === r.id, open: o.open === r.id, menu: o.menu === r.id })
+  O.convoRow = (r, o = {}) => O.sessionRow(r, { cur: o.cur === r.id, open: o.open === r.id, menu: o.menu === r.id, card: o.card })
     + when(r.epics && r.epics.length, () => `<div class="steers" aria-label="what this conversation steers">${each(r.epics, (e) => O.epicRow(e, { cur: o.cur === e.id, open: o.open === e.id, curStep: o.curStep }))}</div>`);
   // epicsIn gives every epic and contract the conversations of a directory steer.
   O.epicsIn = (d) => (d.rows || []).flatMap((r) => r.epics || []);
 
-  // dir draws a Dir: a project. Its head is the project: its name, its path, and the way to its page. What it holds
-  // hangs from a line under the head: its conversations, each with what it steers under it, then one line for what
-  // has ended.
+  // dir draws a Dir: a project. Its head is the project: its name, its path, the way to its page, and the host its rows
+  // run on, drawn once here. What it holds hangs from a line under the head: its conversations, each with what it
+  // steers under it, then one line for what has ended.
   O.dir = (d, o = {}) => {
     const full = d.full || (d.path === 'home' ? 'your home directory' : `${d.path}/${d.name}`);
     const head = `<div class="dir-head"><button class="fold" aria-expanded="${!d.collapsed}" aria-label="${d.collapsed ? 'Unfold' : 'Fold'} ${esc(d.name)}">${icon(d.collapsed ? 'chevronRight' : 'chevronDown')}</button>`
       + `<a class="proj" href="${O.go('project')}" title="Everything working in ${esc(full)}">${icon('folder')}<span class="nm">${esc(d.name)}</span><span class="path">${esc(full)}</span></a>`
-      + `<span class="end">${when(d.host, () => O.chip(d.host, '', 'host'))}${when(d.collapsed && d.waiting, () => `<span class="is-attention">${d.waiting} waiting</span>`)}${when(d.collapsed, () => `<span>${d.count}</span>`)}</span></div>`;
+      + `<span class="end">${when(d.host, () => O.hostLabel(d.host, { heading: true }))}${when(d.collapsed && d.waiting, () => `<span class="is-attention">${d.waiting} waiting</span>`)}${when(d.collapsed, () => `<span>${d.count}</span>`)}</span></div>`;
     if (d.collapsed) return `<section class="dir" aria-label="${esc(d.name)}">${head}</section>`;
-    const rows = each(d.rows, (r) => O.convoRow(r, o));
+    const card = { ...o, card: true };
+    const rows = each(d.rows, (r) => O.convoRow(r, card));
     const ended = when(d.ended, () => `<button class="fold-line" aria-expanded="${!!d.ended.open}">${icon(d.ended.open ? 'chevronDown' : 'chevronRight')}<span>${esc(d.ended.label)}</span></button>`
-      + when(d.ended.open, () => each(d.ended.rows, (r) => O.convoRow(r, o))));
+      + when(d.ended.open, () => each(d.ended.rows, (r) => O.convoRow(r, card))));
     return `<section class="dir" aria-label="${esc(d.name)}">${head}<div class="dir-kids">${rows}${ended}</div></section>`;
   };
 
@@ -90,11 +92,12 @@
 
   // ---------- title row and strip ----------
 
-  // strip draws a MeterStrip. s: { host, stats: [meter], ctx, other }. other: a host this server cannot read.
+  // strip draws a MeterStrip. s: { host, stats: [meter], ctx, other }. host is the host the page's thing runs on, drawn as
+  // a HostLabel; other: a host this server cannot read.
   O.strip = (s) => {
     if (!s) return '';
     const touch = O.touch();
-    return `<div class="strip" aria-label="host and context">${when(s.host, () => `<span class="host">${icon('host')}${esc(s.host)}</span>`)}`
+    return `<div class="strip" aria-label="host and context">${when(s.host, () => O.hostLabel(s.host))}`
       + `${when(s.other, '<span class="other">on another host: no meters</span>')}`
       + `${each(s.stats, (m, i) => O.meter({ series: (i % 5) + 1, ...m }, touch))}${when(!touch, () => O.ctx(s.ctx))}</div>`;
   };
@@ -103,21 +106,26 @@
   O.bell = (n, o = {}) => O.badged(O.iconBtn('bell', 'Notices', { tip: n ? `Notices · ${n} unread` : 'Notices', tipSide: o.tipSide || 'left', go: 'notices-centre' }), n, 'new');
 
   // titleRow draws a TitleRow. t: {
-  //   back (scenario id), crumbs: [{ t, go }], dir, here, state (html), cmds (html), menu (html), strip, note, folded }
+  //   back (scenario id), crumbs: [{ t, go }], dir, here, state (html), cmds (html), menu (html), strip, note, folded,
+  //   host }. The host is the one the page's thing runs on: the meters strip draws it when the strip is drawn, so the
+  //   title row draws it only when there is no strip, and on touch, where the heading names it and the strip draws its
+  //   meters alone. host defaults to the strip's; null draws none.
   O.titleRow = (t) => {
     const touch = O.touch();
+    const host = t.host !== undefined ? t.host : t.strip && t.strip.host;
+    const hostLabel = when(host, () => O.hostLabel(host));
     if (touch) {
       if (t.folded) return '';
       return `<header class="titlerow"><div class="line1"><span class="lead">${O.iconBtn('back', 'Back', { go: t.back || 'inbox-home' })}</span>`
-        + `<div class="heading"><span class="dirline">${esc([[...(t.crumbs || []).map((c) => c.t), t.dir].filter(Boolean).join(' / '), t.strip && t.strip.host ? `on ${t.strip.host}` : ''].filter(Boolean).join(' · '))}</span><span class="${cls('here', t.one && 'one')}">${esc(t.here)}</span></div>`
+        + `<div class="heading"><span class="dirline">${[esc([...(t.crumbs || []).map((c) => c.t), t.dir].filter(Boolean).join(' / ')), hostLabel].filter(Boolean).join(' · ')}</span><span class="${cls('here', t.one && 'one')}">${esc(t.here)}</span></div>`
         + `${when(t.strip && t.strip.ctx, () => O.ctx(t.strip.ctx, { bare: true }))}${when(t.touchCmds !== false, () => O.iconBtn('more', 'More'))}</div>`
         + `${when(t.state, () => `<div class="line1 state">${t.state}</div>`)}`
-        + `${when(t.strip && !t.noStrip, () => O.strip(t.strip))}</header>${when(t.note, () => `<div class="page-note">${O.inote(t.note, 'error')}</div>`)}`;
+        + `${when(t.strip && !t.noStrip, () => O.strip({ ...t.strip, host: null }))}</header>${when(t.note, () => `<div class="page-note">${O.inote(t.note, 'error')}</div>`)}`;
     }
     const lead = when(t.back, () => O.iconBtn('back', 'Back', { tip: 'Back  h', tipSide: 'right', go: t.back }));
     const crumbs = `<nav class="crumbs" aria-label="where you are">${each(t.crumbs, (c, i) => `${c.go ? `<a class="${cls('crumb', i === 0 && 'dir')}" href="${O.go(c.go)}">${esc(c.t)}</a>` : `<span class="${cls('crumb', i === 0 && 'dir')}">${esc(c.t)}</span>`}<span class="crumb sep">/</span>`)}`
       + `${when(t.dir, () => `<span class="crumb dir">${esc(t.dir)}</span><span class="crumb sep">/</span>`)}<h1 class="crumb here" title="${esc(t.here)}">${esc(t.here)}</h1></nav>`;
-    return `<header class="titlerow"><div class="line1">${when(lead, () => `<span class="lead">${lead}</span>`)}${crumbs}${when(t.state, () => `<span class="state">${t.state}</span>`)}`
+    return `<header class="titlerow"><div class="line1">${when(lead, () => `<span class="lead">${lead}</span>`)}${crumbs}${when(t.noStrip, () => hostLabel)}${when(t.state, () => `<span class="state">${t.state}</span>`)}`
       + `<span class="cmds">${t.cmds || ''}${t.menu || ''}</span></div>${when(t.line2, () => `<div class="line2">${t.line2}</div>`)}${when(!t.noStrip, () => O.strip(t.strip))}</header>`
       + when(t.note, () => `<div class="page-note">${O.inote(t.note, 'error')}</div>`);
   };
@@ -127,8 +135,8 @@
     + `${O.iconBtn('open', 'Open in a new window', { tipSide: 'left' })}`
     + `${O.iconBtn('more', 'Archive, hide meters, keys', { tipSide: 'left', go: 'more-menu' })}`;
 
-  // epicPin draws an EpicPin. p: { slug, gauge, words, blocker, go }
-  O.epicPin = (p) => `<a class="epic-pin" href="${O.go(p.go)}">${O.gauge(p.gauge)}<span class="slug">${esc(p.slug)}</span><span class="words">${esc(p.words)}</span>`
+  // epicPin draws an EpicPin. p: { slug, host, gauge, words, blocker, go }
+  O.epicPin = (p) => `<a class="epic-pin" href="${O.go(p.go)}">${O.gauge(p.gauge)}<span class="slug">${esc(p.slug)}</span>${when(p.host, () => O.hostLabel(p.host))}<span class="words">${esc(p.words)}</span>`
     + `${when(p.blocker, () => `<span class="blocker">${esc(p.blocker)}</span>`)}<span class="end"><span>open the epic</span>${icon('chevronRight')}</span></a>`;
 
   // ---------- pages ----------
@@ -139,13 +147,13 @@
 
   // ---------- work: what a conversation has started ----------
 
-  // workCard draws a WorkCard: an epic this conversation started, live. e: { slug, gauge, tone, state, track: five of
+  // workCard draws a WorkCard: an epic this conversation started, live. e: { slug, host, gauge, tone, state, track: five of
   //   'done' | 'now' | '', now, asks, count, go }
   O.workCard = (e) => `<div class="${cls('wcard', e.tone)}"><div class="top">${O.gauge(e.gauge)}<span class="slug">${esc(e.slug)}</span><span class="end">${O.pill(e.state, e.pill === undefined ? e.tone : e.pill)}</span></div>`
     + `<div class="mtrack" title="contract, build, review, release, report">${each(e.track, (st) => `<i class="${st}"></i>`)}</div>`
     + `${when(e.now, () => `<p class="now">${esc(e.now)}</p>`)}`
     + `${when(e.asks, () => `<div class="asks">${icon('question')}<span>${esc(e.asks)}</span>${O.btn(e.act || 'Answer', { variant: 'primary', go: e.go })}</div>`)}`
-    + `<div class="foot"><span>${esc(e.count || '')}</span><a class="link end" href="${O.go(e.go)}">Open</a></div></div>`;
+    + `<div class="foot">${when(e.host, () => O.hostLabel(e.host))}<span>${esc(e.count || '')}</span><a class="link end" href="${O.go(e.go)}">Open</a></div></div>`;
 
   // lrow draws one row of a list panel: a state, what it is, how long, and a second line.
   const lrow = (state, title, age, l2) => `<div class="row"><span class="dot"></span>${state}<span class="title">${esc(title)}</span><span class="age">${esc(age || '')}</span>${when(l2, () => `<span class="l2">${l2}</span>`)}</div>`;
@@ -336,8 +344,9 @@
       + `${when(r.cards && r.cards.length, () => `<div class="pc-kids"><div class="cards">${each(r.cards, O.workCard)}</div></div>`)}</div>`;
     return O.page({
       label: 'project',
-      title: O.titleRow({ toggle: !touch, waiting: 6, back: touch ? 'inbox-home' : undefined, here: p.name, one: true, cmds: O.btn('New session here', { icon: 'plus', go: 'new-form' }), strip: O.W.strip(null), noStrip: touch, touchCmds: false }),
-      body: `<div class="spage"><div class="inner"><section class="proj-head"><span class="path">${esc(p.path)}${when(p.host, () => ` · on ${esc(p.host)}`)}</span><div class="counts">${each(p.counts, ([ic, text, tone]) => `<span class="${tone || ''}">${icon(ic)}${esc(text)}</span>`)}</div></section>`
+      // The project's host is named on its head, once; its title row's strip names none.
+      title: O.titleRow({ toggle: !touch, waiting: 6, back: touch ? 'inbox-home' : undefined, here: p.name, one: true, cmds: O.btn('New session here', { icon: 'plus', go: 'new-form' }), strip: O.W.strip(null, { host: null }), noStrip: touch, touchCmds: false }),
+      body: `<div class="spage"><div class="inner"><section class="proj-head"><span class="path">${esc(p.path)}${when(p.host, () => O.hostLabel(p.host, { heading: true }))}</span><div class="counts">${each(p.counts, ([ic, text, tone]) => `<span class="${tone || ''}">${icon(ic)}${esc(text)}</span>`)}</div></section>`
         + `<section>${O.sec('Conversations', { icon: 'chat', hue: '1', n: p.convos.length })}<div class="pconvs">${each(p.convos, convo)}</div></section>`
         + `${when(p.ended, () => `<section><button class="fold-line">${icon('chevronRight')}<span>${esc(p.ended)}</span></button></section>`)}</div></div>`,
       foot: when(touch, () => `<div class="cmdbar">${O.btn('New session here', { icon: 'plus', class: 'grow', go: 'new-form' })}</div>`),

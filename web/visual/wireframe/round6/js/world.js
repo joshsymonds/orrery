@@ -20,7 +20,8 @@
     { name: 'disk', value: '49%', pct: 49, level: 'ok' },
     { name: 'net', value: '↓1M ↑298K', level: 'ok' },
   ];
-  W.strip = (ctx, o = {}) => ({ host: o.host || 'halyard', stats: o.other ? [] : (o.hot ? W.statsHot : W.stats), other: o.other, ctx });
+  // strip: the meters of the host the page's thing runs on. o.host defaults to halyard; null names none.
+  W.strip = (ctx, o = {}) => ({ host: o.host === undefined ? 'halyard' : o.host, stats: o.other ? [] : (o.hot ? W.statsHot : W.stats), other: o.other, ctx });
   W.ctx = { low: { pct: 15, used: '152k', window: '1M' }, mid: { pct: 64, used: '640k', window: '1M' }, high: { pct: 87, used: '174k', window: '200k' } };
 
   // ---------- the inbox ----------
@@ -28,63 +29,76 @@
   const PIPS = { run2: ['ok', 'run', '', '', ''], held2: ['ok', 'mine', '', '', ''], limit2: ['ok', 'plan', '', '', ''], limit3: ['ok', 'ok', 'plan', '', ''], run3: ['ok', 'ok', 'run', '', ''], bad1: ['ok', 'bad', '', '', ''], acc: ['ok', 'ok', 'ok', 'ok', 'acc'] };
   W.PIPS = PIPS;
 
+  // Every row names the host its session runs on. Under a directory's card the card names it once, so its rows agree.
   W.rows = {
-    lamp: { id: 'convo-working', state: 'working', title: 'Retry backoff and jitter for the telemetry uploader', age: '1m', l2kind: 'live', tool: 'Bash', l2: 'go test ./internal/telemetry/...', clock: '0:46' },
-    rotaplan: { id: 'convo-epic', state: 'done', title: 'Planned the rota export, and steers its epic', age: '13m', l2: 'The epic is building. I will tell you when it asks for anything.' },
-    beacon: { id: 'ask-session', state: 'waiting', title: 'Why the roster page is slow past forty shifts', age: '4m', l2kind: 'asks', l2: 'Which fix should I make?' },
-    tideplan: { id: 'convo-contract', state: 'waiting', title: 'Wrote the tide-alerts contract', age: '26m', l2kind: 'asks', l2: 'Read and accept the tide-alerts contract?' },
-    stale: { id: 'ask-stale', state: 'waiting', title: 'Merging main into the story-out client branch', age: '5d', l2kind: 'asks', l2: 'The AWS fleet won’t launch. How should the gates run?' },
-    almanac: { id: 'dock-cut-off', state: 'interrupted', title: 'The 2027 ephemeris import', age: '2h', l2: 'Cut off mid-turn when the server restarted.' },
-    phase: { id: 'dock-idle', state: 'done', title: 'Phase endpoint returns ISO dates', age: '39m', unseen: true, l2: 'Done. `GET /phase` now answers ISO 8601 and the three callers are updated.' },
-    orchard: { id: 'convo-markdown', state: 'done', title: 'Parser tests for nested scion grafting', age: '20m', unseen: true, l2: 'All 41 cases pass. Two grammar gaps are written up at the end.' },
-    shell: { id: 'convo-shell', state: 'idle', title: 'zsh', age: '3h', tag: 'a terminal with no conversation' },
-    failed: { id: 'dock-failed', state: 'failed', title: 'Kelp bed survey importer', age: '1d', l2: 'The session ended with an error: the API refused the request.' },
-    stopped: { id: 'dock-stopped', state: 'stopped', title: 'Tide table cache warm-up', age: '2d', l2: 'You stopped it.' },
-    home: { id: 'dock-waiting', state: 'waiting', title: 'Swapping the phone’s font for a subset', age: '8m', l2kind: 'asks', l2: 'Its turn ended on a question in words' },
+    lamp: { id: 'convo-working', state: 'working', title: 'Retry backoff and jitter for the telemetry uploader', age: '1m', l2kind: 'live', tool: 'Bash', l2: 'go test ./internal/telemetry/...', clock: '0:46', host: 'halyard' },
+    rotaplan: { id: 'convo-epic', state: 'done', title: 'Planned the rota export, and steers its epic', age: '13m', l2: 'The epic is building. I will tell you when it asks for anything.', host: 'halyard' },
+    beacon: { id: 'ask-session', state: 'waiting', title: 'Why the roster page is slow past forty shifts', age: '4m', l2kind: 'asks', l2: 'Which fix should I make?', host: 'halyard' },
+    tideplan: { id: 'convo-contract', state: 'waiting', title: 'Wrote the tide-alerts contract', age: '26m', l2kind: 'asks', l2: 'Read and accept the tide-alerts contract?', host: 'halyard' },
+    stale: { id: 'ask-stale', state: 'waiting', title: 'Merging main into the story-out client branch', age: '5d', l2kind: 'asks', l2: 'The AWS fleet won’t launch. How should the gates run?', host: 'halyard' },
+    almanac: { id: 'dock-cut-off', state: 'interrupted', title: 'The 2027 ephemeris import', age: '2h', l2: 'Cut off mid-turn when the server restarted.', host: 'halyard' },
+    phase: { id: 'dock-idle', state: 'done', title: 'Phase endpoint returns ISO dates', age: '39m', unseen: true, l2: 'Done. `GET /phase` now answers ISO 8601 and the three callers are updated.', host: 'halyard' },
+    orchard: { id: 'convo-markdown', state: 'done', title: 'Parser tests for nested scion grafting', age: '20m', unseen: true, l2: 'All 41 cases pass. Two grammar gaps are written up at the end.', host: 'halyard' },
+    shell: { id: 'convo-shell', state: 'idle', title: 'zsh', age: '3h', tag: 'a terminal with no conversation', host: 'halyard' },
+    failed: { id: 'dock-failed', state: 'failed', title: 'Kelp bed survey importer', age: '1d', l2: 'The session ended with an error: the API refused the request.', host: 'brine' },
+    stopped: { id: 'dock-stopped', state: 'stopped', title: 'Tide table cache warm-up', age: '2d', l2: 'You stopped it.', host: 'halyard' },
+    home: { id: 'dock-waiting', state: 'waiting', title: 'Swapping the phone’s font for a subset', age: '8m', l2kind: 'asks', l2: 'Its turn ended on a question in words', host: 'halyard' },
+    // Two more hosts, for the inbox where the work runs on several: a buoy poller on sextant and a light on lantern.
+    buoy: { id: 'epic-hosts', state: 'working', title: 'Poll the buoy feeds once a minute', age: '3m', l2kind: 'live', tool: 'Bash', l2: 'go test ./internal/buoy/...', clock: '0:21', host: 'sextant' },
+    lantern: { id: 'ask-session', state: 'waiting', title: 'Which light sequence the lantern runs at dusk', age: '9m', l2kind: 'asks', l2: 'Which sequence should it run?', host: 'lantern' },
   };
 
   W.epics = {
     rota: {
-      id: 'epic-question', slug: 'rota-export', count: '3 of 6 proven', words: 'building · 49m · 2 of 7 tasks done',
+      id: 'epic-question', slug: 'rota-export', host: 'halyard', count: '3 of 6 proven', words: 'building · 49m · 2 of 7 tasks done',
       blocker: 'tz-fixtures: bump the embedded tz database?', gauge: { done: 2, started: 3, total: 7, tone: 'attention', inner: 'dot' },
       steps: [
-        { label: 'export-cli', pips: PIPS.run3, doing: 'implement · gate just check · 2:41', go: 'worker-running' },
-        { label: 'tz-fixtures', held: true, pips: PIPS.held2, doing: 'held · waits on your answer', go: 'worker-held' },
+        { label: 'export-cli', host: 'halyard', pips: PIPS.run3, doing: 'implement · gate just check · 2:41', go: 'worker-running' },
+        { label: 'tz-fixtures', host: 'halyard', held: true, pips: PIPS.held2, doing: 'held · waits on your answer', go: 'worker-held' },
       ],
       tail: '3 not started',
     },
     followups: {
-      id: 'epic-building', slug: 'orrery-followups', count: '1 of 3 proven', words: 'building · 20m · 0 of 3 tasks done',
+      id: 'epic-building', slug: 'orrery-followups', host: 'halyard', count: '1 of 3 proven', words: 'building · 20m · 0 of 3 tasks done',
       gauge: { done: 0, started: 2, total: 3, tone: 'live' },
-      steps: [{ label: 'judge-head-tail', pips: PIPS.run2, doing: 'implement · round 2 after a send-back' }],
+      steps: [{ label: 'judge-head-tail', host: 'halyard', pips: PIPS.run2, doing: 'implement · round 2 after a send-back' }],
     },
     // A contract hangs under the conversation that wrote it, as an epic hangs under the one that steers it.
     tide: {
-      id: 'contract-to-accept', slug: 'tide-alerts', contract: true, count: 'v2', words: 'contract · proposed 26m ago',
+      id: 'contract-to-accept', slug: 'tide-alerts', host: 'halyard', contract: true, count: 'v2', words: 'contract · proposed 26m ago',
       blocker: 'Read it and accept it', gauge: { done: 0, started: 0, total: 0, tone: 'attention', inner: 'dot' },
     },
     offline: {
-      id: 'epic-release-failed', slug: 'offline-tables', count: '6 of 6 proven', words: 'releasing · 9m · step 2 of 3',
+      id: 'epic-release-failed', slug: 'offline-tables', host: 'halyard', count: '6 of 6 proven', words: 'releasing · 9m · step 2 of 3',
       blocker: 'Release step 2 failed: CI is red on the tag', gauge: { done: 6, started: 0, total: 6, tone: 'attention', inner: 'dot' },
     },
     labels: {
-      id: 'epic-releasing', slug: 'orbit-labels', count: '4 of 4 proven', words: 'releasing · 4m · pushing tag v0.46.0',
+      id: 'epic-releasing', slug: 'orbit-labels', host: 'halyard', count: '4 of 4 proven', words: 'releasing · 4m · pushing tag v0.46.0',
       gauge: { done: 4, started: 0, total: 4, tone: 'engine' },
     },
     parked: {
-      id: 'epic-parked', slug: 'notices-usable', count: '0 of 5 proven', words: 'parked · 29h',
+      id: 'epic-parked', slug: 'notices-usable', host: 'halyard', count: '0 of 5 proven', words: 'parked · 29h',
       blocker: 'R5 is already met: retry, drop it, or end?', gauge: { done: 0, started: 1, total: 5, tone: 'attention', inner: 'dot' },
     },
     paused: {
-      id: 'epic-paused', slug: 'harbour-map', count: '2 of 4 proven', words: 'paused by you · 3h · 5 of 9 tasks done',
+      id: 'epic-paused', slug: 'harbour-map', host: 'halyard', count: '2 of 4 proven', words: 'paused by you · 3h · 5 of 9 tasks done',
       gauge: { done: 5, started: 1, total: 9, tone: '' },
     },
     planning: {
-      id: 'epic-planning', slug: 'buoy-feeds', count: '0 of 4 proven', words: 'planning · 3m · no tasks yet',
+      id: 'epic-planning', slug: 'buoy-feeds', host: 'halyard', count: '0 of 4 proven', words: 'planning · 3m · no tasks yet',
       gauge: { done: 0, started: 0, total: 0, tone: 'live' },
     },
-    holder: { id: 'epic-shipped', slug: 'holder-scopes', ended: true, count: '9:52', words: 'shipped v0.45.0 · all 4 proven', gauge: { done: 4, total: 4, tone: 'ok', inner: 'check' } },
-    cache: { id: 'epic-ended-gaps', slug: 'tide-cache', ended: true, count: 'Tue', words: 'superseded by offline-tables · 0 of 3 proven', gauge: { done: 0, started: 1, total: 3, tone: '', inner: 'dash' } },
+    holder: { id: 'epic-shipped', slug: 'holder-scopes', host: 'halyard', ended: true, count: '9:52', words: 'shipped v0.45.0 · all 4 proven', gauge: { done: 4, total: 4, tone: 'ok', inner: 'check' } },
+    cache: { id: 'epic-ended-gaps', slug: 'tide-cache', host: 'halyard', ended: true, count: 'Tue', words: 'superseded by offline-tables · 0 of 3 proven', gauge: { done: 0, started: 1, total: 3, tone: '', inner: 'dash' } },
+    // An epic whose steps run on two hosts: the epic runs on sextant, its poller beside the feeds and its gap check on lantern.
+    buoy: {
+      id: 'epic-hosts', slug: 'buoy-alerts', host: 'sextant', count: '1 of 3 proven', words: 'building · 6m · 1 of 3 tasks done',
+      gauge: { done: 1, started: 2, total: 3, tone: 'live' },
+      steps: [
+        { label: 'poll-feeds', host: 'sextant', pips: PIPS.run2, doing: 'implement · gate just check', go: 'worker-running' },
+        { label: 'gap-alerts', host: 'lantern', pips: PIPS.run2, doing: 'implement · round 2 after a send-back' },
+      ],
+    },
   };
 
   // The conversations that steer epics. Every epic belongs to exactly one conversation and hangs under it; one
@@ -94,27 +108,40 @@
   W.steerers = {
     rotaplan: { ...R0.rotaplan, epics: [E0.rota] },
     tideplan: { ...R0.tideplan, epics: [E0.tide] },
-    offlineplan: { id: 'epic-release-failed', state: 'done', title: 'Planned offline tables', age: '2h', l2: 'Release is running. I will tell you how it goes.', epics: [E0.offline] },
-    followplan: { id: 'convo-many-epics', state: 'done', title: 'Follow-ups from the round-5 review', age: '20m', l2: 'Four epics are out. One is parked on a question for you.', epics: [E0.followups, E0.labels, E0.parked, E0.paused] },
-    buoyshell: { id: 'epic-planning', state: 'done', title: 'Started from the shell: buoy-feeds', age: '3m', l2: 'Made for the epic you created with orrery epic create.', epics: [E0.planning] },
-    holderplan: { id: 'epic-shipped', state: 'done', title: 'Planned holder scopes', age: '9:52', l2: 'Shipped v0.45.0.', epics: [E0.holder] },
-    cacheplan: { id: 'epic-ended-gaps', state: 'done', title: 'Planned the tide cache', age: 'Tue', l2: 'Superseded by offline-tables.', epics: [E0.cache] },
+    offlineplan: { id: 'epic-release-failed', state: 'done', title: 'Planned offline tables', age: '2h', l2: 'Release is running. I will tell you how it goes.', host: 'halyard', epics: [E0.offline] },
+    followplan: { id: 'convo-many-epics', state: 'done', title: 'Follow-ups from the round-5 review', age: '20m', l2: 'Four epics are out. One is parked on a question for you.', host: 'halyard', epics: [E0.followups, E0.labels, E0.parked, E0.paused] },
+    buoyshell: { id: 'epic-planning', state: 'done', title: 'Started from the shell: buoy-feeds', age: '3m', l2: 'Made for the epic you created with orrery epic create.', host: 'halyard', epics: [E0.planning] },
+    holderplan: { id: 'epic-shipped', state: 'done', title: 'Planned holder scopes', age: '9:52', l2: 'Shipped v0.45.0.', host: 'halyard', epics: [E0.holder] },
+    cacheplan: { id: 'epic-ended-gaps', state: 'done', title: 'Planned the tide cache', age: 'Tue', l2: 'Superseded by offline-tables.', host: 'halyard', epics: [E0.cache] },
+    buoyplan: { ...R0.buoy, epics: [E0.buoy] },
   };
 
-  // dirs builds the inbox's directories. A directory holds its conversations, each with the epics and contracts it
-  // steers hanging under it, then one line for what has ended.
+  // dirs builds the inbox's directories. A directory is one host and one folder: its head names the host, and every
+  // conversation under it runs there. Its conversations hang with the epics and contracts they steer, then one line for
+  // what has ended.
   W.dirs = (o = {}) => {
     const R = W.rows;
     const S = W.steerers;
     return [
-      { name: 'lighthouse', path: '~/code', count: 3, rows: [R.lamp, S.rotaplan] },
-      { name: 'tidepool', path: '~/code', count: 6, waiting: 3, rows: [R.beacon, S.tideplan, S.offlineplan, S.buoyshell], ended: { label: '3 ended', open: !!o.endedOpen, rows: [S.holderplan, S.cacheplan, R.stopped] } },
-      { name: 'commonframe', path: '~/work', count: 1, waiting: 1, rows: [R.stale] },
-      { name: 'almanac', path: '~/code', count: 2, rows: [R.phase, R.almanac] },
-      { name: 'orrery', path: '~/code', count: 5, collapsed: !!o.collapsed, rows: [S.followplan, R.shell] },
-      { name: 'orchard', path: '~/code', count: 1, rows: [R.orchard] },
+      { name: 'lighthouse', path: '~/code', host: 'halyard', count: 3, rows: [R.lamp, S.rotaplan] },
+      { name: 'tidepool', path: '~/code', host: 'halyard', count: 6, waiting: 3, rows: [R.beacon, S.tideplan, S.offlineplan, S.buoyshell], ended: { label: '3 ended', open: !!o.endedOpen, rows: [S.holderplan, S.cacheplan, R.stopped] } },
+      { name: 'commonframe', path: '~/work', host: 'halyard', count: 1, waiting: 1, rows: [R.stale] },
+      { name: 'almanac', path: '~/code', host: 'halyard', count: 2, rows: [R.phase, R.almanac] },
+      { name: 'orrery', path: '~/code', host: 'halyard', count: 5, collapsed: !!o.collapsed, rows: [S.followplan, R.shell] },
+      { name: 'orchard', path: '~/code', host: 'halyard', count: 1, rows: [R.orchard] },
       { name: 'kelp', path: '~/code', host: 'brine', count: 1, rows: [R.failed] },
-      { name: '~', path: 'home', count: 1, waiting: 1, rows: [R.home] },
+      { name: '~', path: 'home', host: 'halyard', count: 1, waiting: 1, rows: [R.home] },
+    ];
+  };
+  // hostDirs is the inbox where the work runs on four hosts: one card for each host and folder.
+  W.hostDirs = () => {
+    const R = W.rows;
+    const S = W.steerers;
+    return [
+      { name: 'lighthouse', path: '~/code', host: 'halyard', count: 2, rows: [R.lamp, S.rotaplan] },
+      { name: 'buoys', path: '~/code', host: 'sextant', count: 1, rows: [S.buoyplan] },
+      { name: 'lanterns', path: '~/work', host: 'lantern', count: 1, waiting: 1, rows: [R.lantern] },
+      { name: 'kelp', path: '~/code', host: 'brine', count: 1, rows: [R.failed] },
     ];
   };
   W.attn = { waiting: 6, fresh: 2 };
@@ -127,15 +154,15 @@
     const R = W.rows;
     const S = W.steerers;
     return [
-      { name: 'lighthouse', path: '~/code', rows: [S.rotaplan] },
-      { name: 'tidepool', path: '~/code', rows: [R.beacon, S.tideplan, S.offlineplan] },
-      { name: 'commonframe', path: '~/work', rows: [R.stale] },
-      { name: '~', path: 'home', rows: [R.home] },
+      { name: 'lighthouse', path: '~/code', host: 'halyard', rows: [S.rotaplan] },
+      { name: 'tidepool', path: '~/code', host: 'halyard', rows: [R.beacon, S.tideplan, S.offlineplan] },
+      { name: 'commonframe', path: '~/work', host: 'halyard', rows: [R.stale] },
+      { name: '~', path: 'home', host: 'halyard', rows: [R.home] },
     ];
   };
   W.newDirs = () => [
-    { name: 'almanac', path: '~/code', rows: [W.rows.phase] },
-    { name: 'orchard', path: '~/code', rows: [W.rows.orchard] },
+    { name: 'almanac', path: '~/code', host: 'halyard', rows: [W.rows.phase] },
+    { name: 'orchard', path: '~/code', host: 'halyard', rows: [W.rows.orchard] },
   ];
 
 
@@ -151,8 +178,8 @@
   };
 
   W.archivedDirs = () => [
-    { name: 'tidepool', path: '~/code', rows: [{ ...W.rows.stopped, archived: true }, { ...W.steerers.cacheplan, archived: true }] },
-    { name: 'almanac', path: '~/code', rows: [{ id: 'dock-idle', state: 'done', title: 'Moon phase rounding at the date line', age: '9d', l2: 'Fixed and merged.', archived: true }, { id: 'dock-idle', state: 'done', title: 'Leap-second table refresh', age: '12d', l2: 'The table is current to 2027.', archived: true }] },
+    { name: 'tidepool', path: '~/code', host: 'halyard', rows: [{ ...W.rows.stopped, archived: true }, { ...W.steerers.cacheplan, archived: true }] },
+    { name: 'almanac', path: '~/code', host: 'halyard', rows: [{ id: 'dock-idle', state: 'done', title: 'Moon phase rounding at the date line', age: '9d', l2: 'Fixed and merged.', host: 'halyard', archived: true }, { id: 'dock-idle', state: 'done', title: 'Leap-second table refresh', age: '12d', l2: 'The table is current to 2027.', host: 'halyard', archived: true }] },
   ];
 
   // ---------- conversations ----------
@@ -274,7 +301,7 @@
     { k: 'rule', v: 'new' },
     { k: 'epicevent', v: 'question', text: 'tz-fixtures asks: bump the embedded tz database?', slug: 'rota-export', go: 'epic-question' },
   ];
-  W.rotaPin = { slug: 'rota-export', gauge: W.epics.rota.gauge, words: 'building · 49m · 2 of 7 tasks done', blocker: 'tz-fixtures asks you a question · 2m', go: 'epic-question' };
+  W.rotaPin = { slug: 'rota-export', host: 'halyard', gauge: W.epics.rota.gauge, words: 'building · 49m · 2 of 7 tasks done', blocker: 'tz-fixtures asks you a question · 2m', go: 'epic-question' };
   W.rotaAsk = {
     variant: 'epic', who: 'rota-export · tz-fixtures', age: '2m',
     q: ['Bump the embedded tz database?', 'The pinned database lacks the 2026 Lisbon rule, so one fixture cannot pass. A bump changes `go.mod`, which is outside this task’s owned files, and the contract says no dependency changes.'],
@@ -313,12 +340,12 @@
 
   // work: what a conversation has started: its goal, and a tile on its right rail for each thing.
   W.workRota = { epics: [{
-    slug: 'rota-export', gauge: W.epics.rota.gauge, tone: 'attention', state: 'building · 49m', pill: 'live', track: ['done', 'now', '', '', ''],
+    slug: 'rota-export', host: 'halyard', gauge: W.epics.rota.gauge, tone: 'attention', state: 'building · 49m', pill: 'live', track: ['done', 'now', '', '', ''],
     now: 'Two tasks are being worked on, and one waits on you.', asks: 'tz-fixtures asks: bump the embedded tz database?', count: '3 of 6 proven · 2 of 7 tasks', go: 'epic-question', steps: W.epics.rota.steps,
   }] };
   W.project.convos[1].cards = W.workRota.epics;
   // workMany: a conversation steering four epics, more than its band shows.
-  const card = (e, o) => ({ slug: e.slug, gauge: e.gauge, tone: e.blocker ? 'attention' : o.tone || '', state: o.state, pill: e.blocker ? 'attention' : o.pill || '', track: o.track, now: o.now, asks: e.blocker, act: o.act, count: e.count, go: e.id, steps: e.steps });
+  const card = (e, o) => ({ slug: e.slug, host: e.host, gauge: e.gauge, tone: e.blocker ? 'attention' : o.tone || '', state: o.state, pill: e.blocker ? 'attention' : o.pill || '', track: o.track, now: o.now, asks: e.blocker, act: o.act, count: e.count, go: e.id, steps: e.steps });
   W.workMany = { epics: [
     card(W.epics.followups, { state: 'building · 20m', tone: 'live', pill: 'live', track: ['done', 'now', '', '', ''], now: 'One task is being worked on, round 2 after a send-back.' }),
     card(W.epics.labels, { state: 'releasing · 4m', tone: 'engine', pill: 'engine', track: ['done', 'done', 'done', 'now', ''], now: 'Pushing tag v0.46.0.' }),
@@ -327,7 +354,7 @@
   ] };
   W.handedOver = () => W.rotaplan.concat([{ k: 'epicevent', v: 'moved', text: W.MOVED_OUT, slug: 'rota-export', gauge: W.epics.rota.gauge, go: 'convo-took-over' }]);
   W.workContract = { contract: {
-    slug: 'tide-alerts', gauge: W.epics.tide.gauge, tone: 'attention', state: 'severe care', pill: 'attention', track: ['now', '', '', '', ''],
+    slug: 'tide-alerts', host: 'halyard', gauge: W.epics.tide.gauge, tone: 'attention', state: 'severe care', pill: 'attention', track: ['now', '', '', '', ''],
     now: 'The harbour office hears within a minute when a published tide table changes.', asks: '1 added row to keep or drop; read “can’t be undone”', act: 'Read and decide', count: 'written 14:15 · waiting 26m', go: 'contract-to-accept', record: 'proposed v2 · waits for you',
   } };
   W.agents = [{ type: 'agent', agent: 'Explore', desc: 'Find every caller of keeperFor', activity: 'Grep keeperFor\\(', clock: '2:11' }, { type: 'agent', agent: 'reviewer', desc: 'Review the query change', activity: 'Read query.go', clock: '0:48' }];

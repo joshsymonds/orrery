@@ -69,6 +69,19 @@
   // idc draws an IdChip: a row's short id (R4, F2, P1), coloured by its kind.
   O.idc = (id) => `<span class="idc" data-k="${esc(String(id)[0])}">${esc(id)}</span>`;
 
+  // hostLabel draws a HostLabel: the host a pane, a session, an epic or a step runs on, with the host icon. o.heading
+  // draws it on a card's heading, once for the rows under it, which all run on that host; inline it sits on its own row.
+  O.hostLabel = (name, o = {}) => `<span class="${cls('host-label', o.heading && 'heading')}">${icon('host')}<span class="name">${esc(name)}</span></span>`;
+  // HOST_FROM names where each kind of host a drawing shows comes from: the server field, and the epic that gives it.
+  O.HOST_FROM = {
+    pane: 'a pane’s host is Pane.host (orrery-host-surfaces)',
+    session: 'a headless session’s host is its session row’s host (orrery-first-class-hosts)',
+    epic: 'an epic’s host is Epic.host (orrery-host-relay)',
+    step: 'a step’s host is EpicStep.host (orrery-host-relay)',
+  };
+  // hostsNote is the sentence a scenario's note ends with when its drawing shows a host; none when it shows none.
+  O.hostsNote = (kinds) => (kinds.length ? ` Hosts: ${kinds.map((k) => O.HOST_FROM[k]).join('; ')}.` : '');
+
   // ctl draws a Ctl: a control inside a line. o.tone: '' | 'bad' | 'go'. o.only: the icon alone, its label its name.
   O.ctl = (label, iconName, o = {}) => `<button class="${cls('ctl', o.tone, o.only && 'only')}"${attrs({ 'aria-label': o.only ? label : undefined, title: o.tip || (o.only ? label : undefined), disabled: o.disabled })}>${when(iconName, () => icon(iconName))}${o.only ? '' : `<span>${esc(label)}</span>`}${when(o.kbd && !O.touch(), () => O.kbd(o.kbd))}</button>`;
 

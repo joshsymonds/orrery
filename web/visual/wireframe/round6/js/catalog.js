@@ -50,6 +50,9 @@
 
   // ---------- shell ----------
   h2('Shell');
+  comp('HostLabel', 'the host a pane, a session, an epic or a step runs on: inline on its row, and once on a card\'s heading where rows are grouped by host and folder', [
+    ['Inline', O.hostLabel('halyard'), 'row'], ['CardHeading', O.hostLabel('sextant', { heading: true }), 'row'],
+  ], { cell: 200 });
   comp('InboxRow', 'a session', [
     ['Working', O.sessionRow(W.rows.lamp), 'side'], ['WaitingQuestion', O.sessionRow(W.rows.beacon), 'side'], ['Done', O.sessionRow(W.rows.rotaplan), 'side'], ['Unseen', O.sessionRow(W.rows.phase), 'side'],
     ['CutOff', O.sessionRow(W.rows.almanac), 'side'], ['Failed', O.sessionRow(W.rows.failed), 'side'], ['Stopped', O.sessionRow(W.rows.stopped), 'side'], ['Idle', O.sessionRow(W.rows.shell), 'side'],
@@ -58,15 +61,16 @@
   comp('EpicRow', 'an epic, and its running steps, hanging under the conversation that steers it; a contract not yet accepted is the same row', [
     ['Asking', O.epicRow(W.epics.rota), 'side'], ['Building', O.epicRow(W.epics.followups), 'side'], ['ContractProposed', O.epicRow(W.epics.tide), 'side'], ['ReleaseFailed', O.epicRow(W.epics.offline), 'side'],
     ['Releasing', O.epicRow(W.epics.labels), 'side'], ['Parked', O.epicRow(W.epics.parked), 'side'], ['Paused', O.epicRow(W.epics.paused), 'side'], ['Planning', O.epicRow(W.epics.planning), 'side'],
-    ['Shipped', O.epicRow(W.epics.holder), 'side'], ['EndedShort', O.epicRow(W.epics.cache), 'side'],
+    ['Shipped', O.epicRow(W.epics.holder), 'side'], ['EndedShort', O.epicRow(W.epics.cache), 'side'], ['StepsOnTwoHosts', O.epicRow(W.epics.buoy), 'side'],
   ], { cell: 340 });
   comp('ConvoRow', 'a conversation in the inbox, and what it steers hanging under it', [['Plain', O.convoRow(W.rows.lamp), 'side'], ['SteersEpic', O.convoRow(W.steerers.rotaplan), 'side'], ['WroteContract', O.convoRow(W.steerers.tideplan), 'side'], ['SteersSeveral', O.convoRow(W.steerers.followplan), 'side'], ['FromShell', O.convoRow(W.steerers.buoyshell), 'side']], { cell: 340 });
-  comp('Dir', 'a project in the inbox: its head, then its conversations, each with what it steers', [['Open', O.dir({ name: 'lighthouse', path: '~/code', rows: [W.rows.lamp, W.steerers.rotaplan] }), 'side'], ['Folded', O.dir({ name: 'orrery', path: '~/code', collapsed: true, count: 4 }), 'side'], ['FoldedWaiting', O.dir({ name: 'tidepool', path: '~/code', collapsed: true, count: 5, waiting: 3 }), 'side'], ['OtherHost', O.dir({ name: 'kelp', path: '~/code', host: 'brine', collapsed: true, count: 1 }), 'side']], { cell: 340 });
+  comp('Dir', 'a project in the inbox: its head, then its conversations, each with what it steers', [['Open', O.dir({ name: 'lighthouse', path: '~/code', host: 'halyard', rows: [W.rows.lamp, W.steerers.rotaplan] }), 'side'], ['Folded', O.dir({ name: 'orrery', path: '~/code', host: 'halyard', collapsed: true, count: 4 }), 'side'], ['FoldedWaiting', O.dir({ name: 'tidepool', path: '~/code', host: 'halyard', collapsed: true, count: 5, waiting: 3 }), 'side'], ['OtherHost', O.dir({ name: 'kelp', path: '~/code', host: 'brine', collapsed: true, count: 1 }), 'side']], { cell: 340 });
   comp('MeterStrip', 'the host, its meters, the context', [['HostAndContext', O.strip(W.strip(W.ctx.low))], ['HostOnly', O.strip(W.strip(null))], ['UnderLoad', O.strip(W.strip(W.ctx.high, { hot: true }))], ['OtherHost', O.strip(W.strip(null, { host: 'brine', other: true }))]], { cell: 640 });
   comp('TitleRow', 'where you are and what you can do', [
     ['Conversation', O.titleRow({ ...W.lampTitle, cmds: O.convoCmds() }), 'flush'], ['InboxHidden', O.titleRow({ ...W.lampTitle, toggle: true, waiting: 6, cmds: O.convoCmds() }), 'flush'],
-    ['Epic', O.titleRow({ toggle: true, waiting: 6, dir: 'lighthouse', here: 'rota-export', state: O.epicState(W.epic.question), cmds: O.epicCmds(W.epic.question), strip: W.strip(null) }), 'flush'],
-    ['Subpage', O.titleRow({ toggle: true, waiting: 6, back: 'epic-building', crumbs: [{ t: 'lighthouse' }, { t: 'rota-export', go: 'epic-building' }], here: 'export-cli', state: O.pill('checking · 2:41', 'live', { state: 'working' }), cmds: O.btn('Interrupt', { class: 'stopper', icon: 'stop' }), strip: W.strip(null) }), 'flush'],
+    ['Epic', O.titleRow({ toggle: true, waiting: 6, dir: 'lighthouse', here: 'rota-export', state: O.epicState(W.epic.question), cmds: O.epicCmds(W.epic.question), strip: W.strip(null, { host: W.epics.rota.host }) }), 'flush'],
+    ['Subpage', O.titleRow({ toggle: true, waiting: 6, back: 'epic-building', crumbs: [{ t: 'lighthouse' }, { t: 'rota-export', go: 'epic-building' }], here: 'export-cli', state: O.pill('checking · 2:41', 'live', { state: 'working' }), cmds: O.btn('Interrupt', { class: 'stopper', icon: 'stop' }), strip: W.strip(null, { host: W.epic.building.running[0].host }) }), 'flush'],
+    ['Pane', O.titleRow({ toggle: true, waiting: 6, dir: 'orrery', here: 'zsh', strip: W.strip(null, { host: W.rows.shell.host }) }), 'flush'],
     ['WithError', O.titleRow({ ...W.shortTitle, cmds: O.convoCmds(), note: 'Could not archive this session: the server did not answer.' }), 'flush'],
   ], { cell: 760 });
   comp('EpicPin', 'an epic as one line: on a task’s page, and on touch', [['Asking', O.epicPin(W.rotaPin), 'flush'], ['Quiet', O.epicPin({ ...W.rotaPin, blocker: '' }), 'flush']], { cell: 640 });
