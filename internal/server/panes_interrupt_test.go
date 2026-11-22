@@ -1,7 +1,6 @@
 package server_test
 
 import (
-	"encoding/json"
 	"net/http"
 	"path/filepath"
 	"strconv"
@@ -9,6 +8,8 @@ import (
 	"time"
 
 	orreryv1 "github.com/joshsymonds/orrery/internal/gen/orrery/v1"
+	"github.com/joshsymonds/orrery/internal/paneregistry"
+	"github.com/joshsymonds/orrery/internal/panetranscript"
 	"github.com/joshsymonds/orrery/internal/protocol"
 	"github.com/joshsymonds/orrery/internal/state"
 	"github.com/joshsymonds/orrery/internal/tmuxctl"
@@ -121,8 +122,8 @@ func TestServePanesInterruptOlderLeavesLaterTurn(t *testing.T) {
 	}
 }
 
-// userPromptSubmitHook is the hook Claude Code sends when the person submits a prompt.
-const userPromptSubmitHook = `{"hook_event_name":"UserPromptSubmit","prompt":"synthetic prompt"}`
+// repromptStamp is the transcript stamp of the person's re-prompt, one minute after the interruption.
+const repromptStamp = "2026-11-10T09:06:00Z"
 
 func TestServePanesInterruptRepromptStartsTurn(t *testing.T) {
 	t.Parallel()
@@ -132,11 +133,17 @@ func TestServePanesInterruptRepromptStartsTurn(t *testing.T) {
 	// pane is still working. That prompt starts a new turn, and the 09:05 interruption belongs to the old one.
 	path := writeNewestTranscript(t,
 		newestToolLine(newestStamp0900),
-		interruptLine(newestStamp0905))
+		interruptLine(newestStamp0905),
+		newestPromptLine(repromptStamp))
 	pane := conversationPane(t, tmux, workingTurnOptions(path, newestUnix0900))
 	reprompt := time.Unix(newestUnix0905+60, 0)
-	if _, _, err := state.Apply(t.Context(), tmux, pane, json.RawMessage(userPromptSubmitHook), reprompt); err != nil {
-		t.Fatalf("Apply(UserPromptSubmit): %v", err)
+	turn, err := panetranscript.NewReader(path).Read()
+	if err != nil {
+		t.Fatalf("read transcript: %v", err)
+	}
+	if _, _, _, err := state.ApplyPane(t.Context(), tmux, pane,
+		state.Pane{Status: paneregistry.StatusBusy, Turn: turn}, reprompt, nil, nil); err != nil {
+		t.Fatalf("ApplyPane(busy): %v", err)
 	}
 
 	listed := listedPane(t, newHandler(t, tmux), pane)
