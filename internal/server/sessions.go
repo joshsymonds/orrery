@@ -20,7 +20,7 @@ import (
 // changes is the change hub WatchConversation streams wake from, and newTimer arms their keepalive and background
 // timers. keepalive is the time without a message after which WatchConversation sends a keepalive, sendTimeout bounds
 // each of its sends, and closing shutdown ends its streams. A nil shutdown never closes. now is the clock ListHeadless
-// dates its retention window and its aging by, and the clock Sessions.List ages done panes by, and the clock
+// dates its retention window and its aging by, and the clock Sessions.List ages panes by, and the clock
 // WatchConversation reads a background window against.
 // stepped, when set, is called with the session id of each WatchConversation step before the step reads the session. A
 // test sets it to count the reads of its streams. It is nil in production.
@@ -62,9 +62,14 @@ func (s sessionsServer) List(
 		session := sessionMessage(row)
 		mark := marks[archiveKey{kind: archiveKindSession, id: row.ID}]
 		changed := sessionChanged(row.Fields.Changed)
-		// A pane session ages out only once it is done, by the done rule at s.now(). A server with no clock ages none.
-		aged := row.Fields.State == string(protocol.StateDone) && s.now != nil &&
-			doneAged(changed, sessionSeen(row.Fields.Seen), s.now())
+		// A pane row ages by the seven-day floor in any state, and once it is done by the done rule, both at s.now(). A
+		// row with no change time, changed 0, never ages. A server with no clock ages none.
+		aged := false
+		if changed != 0 && s.now != nil {
+			now := s.now()
+			aged = floorAged(changed, now) ||
+				(row.Fields.State == string(protocol.StateDone) && doneAged(changed, sessionSeen(row.Fields.Seen), now))
+		}
 		session.Archived = archivedRow(mark, changed, aged)
 		sessions = append(sessions, session)
 	}
