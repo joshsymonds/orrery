@@ -211,6 +211,7 @@ Names are story names: `Component/State`. The catalogue draws each component in 
 | Meter | Ok, Warn, Crit; NoBar; Stacked (touch) |
 | ContextMeter | Ok, Warn, Crit; Bare |
 | Gauge | Building, AsksYou, NoTasks, Paused, Releasing, Shipped, EndedShort |
+| EpicMark | Running, Asks, Paused, Releasing, Shipped, EndedShort. A rim of one segment per requirement, toned by its state, and the centre: the proven count, or a glyph; 32 in the inbox row, 24 elsewhere |
 | Pips | Running, Held, Limited, Failed, Accepted, Done, NotStarted. Five cells: red, implement, green, review, integrate. |
 | CommitMark | Default |
 | SectionHead | Plain, Attention, WithRest |

@@ -245,6 +245,24 @@ button.link.notices-more { justify-self: end; padding: 0 var(--o-space-12); colo
 .gauge[data-tone="bad"] { color: var(--o-role-bad); }
 .gauge[data-tone="engine"] { color: var(--o-role-engine); }
 
+/* EpicMark: an epic as a mark. A rim of one segment per requirement, toned by its state, and the centre in its centre's colour.
+   It is the gauge's size, 24, and the mark's, 32, in the inbox row. */
+.epicmark { width: var(--o-size-gauge); height: var(--o-size-gauge); flex: none; fill: none; stroke-width: 3; }
+.epicmark[data-size="32"] { width: var(--o-size-mark); height: var(--o-size-mark); }
+.epicmark .planned { stroke: var(--o-line-firm); }
+.epicmark .rim[data-tone="ok"] { stroke: var(--o-tone-ok); }
+.epicmark .rim[data-tone="run"] { stroke: var(--o-tone-run); }
+.epicmark .rim[data-tone="mine"] { stroke: var(--o-tone-mine); }
+.epicmark .rim[data-tone="bad"] { stroke: var(--o-tone-bad); }
+.epicmark .rim[data-tone="line.firm"] { stroke: var(--o-line-firm); }
+.epicmark .centre { fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.epicmark text { fill: currentColor; stroke: none; font: var(--o-type-label); text-anchor: middle; dominant-baseline: central; }
+.epicmark .centre[data-tone="live"] { color: var(--o-role-live); }
+.epicmark .centre[data-tone="attention"] { color: var(--o-role-attention); }
+.epicmark .centre[data-tone="engine"] { color: var(--o-role-engine); }
+.epicmark .centre[data-tone="ok"] { color: var(--o-role-ok); }
+.epicmark .centre[data-tone="ink.3"] { color: var(--o-ink-3); }
+
 /* StateGlyph: a session's or a step's state, drawn as a ring in its state's colour. */
 .glyph { width: var(--o-size-glyph); height: var(--o-size-glyph); fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; color: var(--o-state-idle); }
 .glyph .solid { fill: currentColor; stroke: none; }
