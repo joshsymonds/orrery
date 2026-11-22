@@ -2244,7 +2244,7 @@ export function App({
   };
   const contractPage =
     contract === undefined ? null : (
-      <div>
+      <section class="page contract-page">
         <TitleRow
           crumbs={[{ label: contractSlug(contract.id) }, { label: "contract" }]}
           state={statePill(contract.state)}
@@ -2267,7 +2267,7 @@ export function App({
           }
           onOpenEpic={navigated(openEpic)}
         />
-      </div>
+      </section>
     );
 
   // steeredBar is an epic's ended bar, which steers the epic from another conversation, and whose current steering is
@@ -2327,7 +2327,7 @@ export function App({
       const listed = contracts.find((candidate) => candidate.id === entry.id);
       if (listed !== undefined) {
         return (
-          <div>
+          <section class="page contract-page">
             <TitleRow crumbs={crumbs} onBack={back} strip={pageStrip(null, null)} />
             <ContractRecord
               key={listed.id}
@@ -2339,15 +2339,15 @@ export function App({
               onRead={readContract}
               live={false}
             />
-          </div>
+          </section>
         );
       }
       if (detail.contract !== undefined) {
         return (
-          <div>
+          <section class="page contract-page">
             <TitleRow crumbs={crumbs} onBack={back} strip={pageStrip(null, null)} />
             <ContractBody contract={detail.contract} requirements={detail.requirements} />
-          </div>
+          </section>
         );
       }
     }

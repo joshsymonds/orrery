@@ -1700,6 +1700,14 @@ button.link { min-height: 0; padding: 0; border: 0; border-radius: 0; background
 
 /* The record: its document, the older-version banner, and the command bar that accepts, sets aside or reopens it. */
 .contract-record { display: grid; gap: var(--o-space-32); min-width: 0; }
+/* The contract page is a section.page: its title row and its record sit a section gap apart, 32 at the desk and 24 under
+   760px. The card's padding at the desk and the panes' gutters on a phone pad it, as they pad the epic page. */
+@media (min-width: 760px) {
+  section.page.contract-page { display: grid; gap: var(--o-space-32); min-width: 0; }
+}
+@media (width < 760px) {
+  section.page.contract-page { display: grid; gap: var(--o-space-24); min-width: 0; }
+}
 .cmdbar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--o-space-8); flex: none; padding: var(--o-space-8); border-top: var(--o-size-hairline) solid var(--o-line-soft); background: var(--o-surface-well); }
 .cmdbar .inote { min-width: 0; }
 /* At the desk the record scrolls inside its panel and its bar stays at the panel's foot; on the phone the bar ends the page. */
