@@ -5,11 +5,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/joshsymonds/orrery/internal/build"
 	"github.com/joshsymonds/orrery/internal/compose"
 	"github.com/joshsymonds/orrery/internal/evidence"
+	"github.com/joshsymonds/orrery/internal/kinds"
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
@@ -402,6 +404,99 @@ func sendBacks(result string) []store.BatchSendBack {
 	return sends
 }
 
+// sendBackNoteMax and sendBackDiffMax bound the two parts a send_back reason adds to the reason compose gave a task whose
+// task integrator rounds ended without composing it: how the rounds ended, and the candidate's change to its conflicted
+// paths. With the compose line they fit store.TurnReasonMax, the most a task's failure keeps.
+const (
+	sendBackNoteMax = 384
+	sendBackDiffMax = 448
+)
+
+// batchSendBacks returns the tasks act's run left out for a merge conflict, as sendBacks gives them, each with the reason
+// it is sent back for. A task whose task integrator rounds ended without composing it (kinds.TaskEnding) has that reason
+// extended by sendBackReason, with the candidate's change to its conflicted paths since the merge base of the candidate
+// and the task's revision. A task whose rounds did not end that way, such as one whose round's step never started, keeps
+// the reason compose gave it.
+func (r *Runner) batchSendBacks(ctx context.Context, epic store.EpicRow, act Action) ([]store.BatchSendBack, error) {
+	sends := sendBacks(act.Run.Result)
+	if len(sends) == 0 {
+		return nil, nil
+	}
+	flow, err := r.store.EpicFlow(ctx, epic.ID)
+	if err != nil {
+		return nil, fmt.Errorf("read the integrate rounds of epic %s: %w", epic.ID, err)
+	}
+	steps, err := r.store.LabelledSteps(ctx, epic.ID, act.Path)
+	if err != nil {
+		return nil, fmt.Errorf("read the task integrator steps of node %s of epic %s: %w", act.Path, epic.ID, err)
+	}
+	rows := kinds.Rows{Rounds: flow.Rounds, Steps: steps}
+	conflicts := conflictsOf(act.Run.Result)
+	for i, send := range sends {
+		ending := kinds.TaskEnding(rows, act.Run, send.Seq)
+		if ending == "" {
+			continue
+		}
+		task, found := taskBySeq(epic.Tasks, send.Seq)
+		if !found {
+			return nil, fmt.Errorf("task %d of epic %s is not stored", send.Seq, epic.ID)
+		}
+		base, change, diffErr := candidateChange(
+			ctx, epic.Repository, act.Run.Revision, task.Build.Revision, conflicts[send.Seq],
+		)
+		if diffErr != nil {
+			return nil, diffErr
+		}
+		sends[i].Reason = sendBackReason(send.Reason, ending, base, change)
+	}
+	return sends, nil
+}
+
+// conflictsOf returns, by task, the paths each task result left out for a merge conflict conflicted at. A result that is not
+// a batch result names none.
+func conflictsOf(result string) map[int64][]string {
+	conflicts := make(map[int64][]string)
+	var batch batchResult
+	if json.Unmarshal([]byte(result), &batch) != nil {
+		return conflicts
+	}
+	for _, left := range batch.LeftOut {
+		conflicts[left.Task] = left.Conflicts
+	}
+	return conflicts
+}
+
+// candidateChange returns the merge base of candidate and revision, the commit a merge of revision into candidate starts
+// from, and the change candidate makes to paths since that base, as git diff prints it. It is the side a task's merge met.
+func candidateChange(ctx context.Context, repo, candidate, revision string, paths []string) (string, string, error) {
+	out, err := gitOutput(ctx, repo, "merge-base", candidate, revision)
+	if err != nil {
+		return "", "", fmt.Errorf("find the merge base of %s and %s: %w", candidate, revision, err)
+	}
+	base := strings.TrimSpace(out)
+	args := make([]string, 0, len(paths)+7)
+	args = append(args, "--literal-pathspecs", "diff", "--no-color", "--no-ext-diff", base, candidate, "--")
+	args = append(args, paths...)
+	change, err := gitOutput(ctx, repo, args...)
+	if err != nil {
+		return "", "", fmt.Errorf("diff candidate %s against its merge base %s: %w", candidate, base, err)
+	}
+	return base, change, nil
+}
+
+// sendBackReason returns the reason a task whose rounds ended without composing it is sent back for: conflict, the compose
+// line that names its conflicted paths, then ending, how its rounds ended, then the candidate's change to those paths since
+// base, cut to sendBackDiffMax bytes. A candidate that changes none of them since base says so. The reason is cut to
+// store.TurnReasonMax.
+func sendBackReason(conflict, ending, base, change string) string {
+	changed := "the candidate changes none of the conflicted paths since the merge base " + base
+	if diff := strings.TrimRight(change, "\n"); diff != "" {
+		changed = fmt.Sprintf("the candidate's change to the conflicted paths since the merge base %s:\n%s",
+			base, cutText(diff, sendBackDiffMax))
+	}
+	return cutText(conflict+"\n"+cutText(ending, sendBackNoteMax)+"\n"+changed, store.TurnReasonMax)
+}
+
 // endBatch ends the integrate run of act, which ended without an advance, with its outcome, and keeps the epic's
 // candidate on its stored base. A failed run that composed a task leaves as the candidate its revision joined with the
 // stored base (compose.Join): the revision itself when it builds on the stored base, and otherwise the merge of the
@@ -409,9 +504,13 @@ func sendBacks(result string) []store.BatchSendBack {
 // does not merge with the stored base leaves the candidate as it is, and the next batch composes the run's tasks again
 // (strandedTasks). Any other run ends with the candidate as it is.
 func (r *Runner) endBatch(ctx context.Context, epic store.EpicRow, act Action, at time.Time) error {
+	sends, sendErr := r.batchSendBacks(ctx, epic, act)
+	if sendErr != nil {
+		return sendErr
+	}
 	end := store.BatchEnd{
 		Path: act.Path, Attempt: act.Attempt, Outcome: act.Outcome, Output: act.Output, Over: epic.StoredBase,
-		SendBacks: sendBacks(act.Run.Result),
+		SendBacks: sends,
 	}
 	if act.Outcome == outcomeFailed && composedAny(act.Run.Result) {
 		joined, ok, err := compose.Join(ctx, epic.Repository, epic.StoredBase, act.Run.Revision, joinPrefix(epic))
@@ -465,9 +564,13 @@ func (r *Runner) advance(ctx context.Context, epic store.EpicRow, act Action, at
 			return fmt.Errorf("advance epic %s to %s: %w", epic.ID, act.Run.Revision, err)
 		}
 	}
+	sends, err := r.batchSendBacks(ctx, epic, act)
+	if err != nil {
+		return err
+	}
 	end := store.BatchEnd{
 		Path: act.Path, Attempt: act.Run.Attempt, Outcome: outcomePassed, Output: act.Output, Over: act.Run.Revision,
-		SendBacks: sendBacks(act.Run.Result),
+		SendBacks: sends,
 	}
 	if epic.Candidate != "" {
 		joined, joins, joinErr := compose.Join(
