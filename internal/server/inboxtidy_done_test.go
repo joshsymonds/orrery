@@ -171,7 +171,8 @@ func inboxTidyDoneUnarchiveHolds(t *testing.T, kind doneKind) {
 	kind.write(t, path, doneUnarchivedID, now.Add(-10*archiveDay), time.Time{})
 	unarchiveRowAt(t, path, kind.mark, doneUnarchivedID, now.Add(-9*archiveDay))
 	sessions := sessionsClientAt(t, store.NewReader(path), epicsNow)
-	expectArchived(t, kind.name+" after the unarchive", kind.list(t, sessions), map[string]bool{doneUnarchivedID: false})
+	expectArchived(t, kind.name+" after the unarchive", kind.list(t, sessions),
+		map[string]bool{doneUnarchivedID: false})
 
 	kind.change(t, path, doneUnarchivedID, now.Add(-5*archiveDay))
 	expectArchived(t, kind.name+" after the change", kind.list(t, sessions), map[string]bool{doneUnarchivedID: true})
