@@ -92,7 +92,7 @@ func taskReturn(verdict, commit, explanation string, changes ...map[string]strin
 // taskCheckOf returns the return check of the task integrator round that finishes merge.
 func taskCheckOf(t *testing.T, merge integratorMerge) func(json.RawMessage) []string {
 	t.Helper()
-	check, err := taskIntegratorCheck(t.Context(), merge)
+	check, err := taskIntegratorCheck(t.Context(), hostexec.NewLocal(), merge)
 	if err != nil {
 		t.Fatalf("return check: %v", err)
 	}
@@ -150,7 +150,7 @@ func TestConflictIntegratorBriefCarriesBothSides(t *testing.T) {
 		{Seq: 2, Title: "Title two", Deliverable: "Deliverable two"},
 		{Seq: 3, Title: "Title three", Deliverable: "Deliverable three"},
 	}
-	prompt, err := taskIntegratorPrompt(t.Context(), merge, tasks, tasks[1], "")
+	prompt, err := taskIntegratorPrompt(t.Context(), hostexec.NewLocal(), merge, tasks, tasks[1], "")
 	if err != nil {
 		t.Fatalf("task integrator prompt: %v", err)
 	}
@@ -174,7 +174,7 @@ func TestConflictIntegratorBriefCarriesBothSides(t *testing.T) {
 		}
 	}
 
-	again, err := taskIntegratorPrompt(t.Context(), merge, tasks, tasks[1], "markers: README\n")
+	again, err := taskIntegratorPrompt(t.Context(), hostexec.NewLocal(), merge, tasks, tasks[1], "markers: README\n")
 	if err != nil {
 		t.Fatalf("task integrator prompt after a failure: %v", err)
 	}

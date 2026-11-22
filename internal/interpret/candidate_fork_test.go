@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/joshsymonds/orrery/internal/hostexec"
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
@@ -34,7 +35,7 @@ func (w *integrateWorld) green(path string) {
 // holds reports whether commit is an ancestor of revision, or revision itself.
 func (w *integrateWorld) holds(revision, commit string) bool {
 	w.t.Helper()
-	ok, err := isAncestor(context.Background(), w.repo, commit, revision)
+	ok, err := isAncestor(context.Background(), hostexec.NewLocal(), w.repo, commit, revision)
 	if err != nil {
 		w.t.Fatalf("isAncestor %s %s: %v", commit, revision, err)
 	}

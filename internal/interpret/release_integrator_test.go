@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/joshsymonds/orrery/internal/enginehost"
+	"github.com/joshsymonds/orrery/internal/hostexec"
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
@@ -623,7 +624,7 @@ func TestReleaseIntegratorRestartFindsStepByID(t *testing.T) {
 	if err != nil {
 		t.Fatalf("stored integrator step: %v", err)
 	}
-	check, err := ReadoptCheck(w.s)(t.Context(), row)
+	check, err := ReadoptCheck(w.s, hostexec.LocalHosts())(t.Context(), row)
 	if err != nil || check == nil {
 		t.Fatalf("ReadoptCheck = %v, %v, want the integrator's check", check != nil, err)
 	}
@@ -647,7 +648,7 @@ func TestReleaseIntegratorRestartFindsStepByID(t *testing.T) {
 	}
 
 	row.Schema = wantReleaseStepSchema
-	if other, otherErr := ReadoptCheck(w.s)(t.Context(), row); other != nil || otherErr != nil {
+	if other, otherErr := ReadoptCheck(w.s, hostexec.LocalHosts())(t.Context(), row); other != nil || otherErr != nil {
 		t.Errorf("ReadoptCheck of another step = %v, %v, want no check", other != nil, otherErr)
 	}
 }
@@ -690,7 +691,9 @@ func TestSameChangeLinesPairsEqualPatchesAndDatedSubjects(t *testing.T) {
 	redone := commit("b.txt", "b\n", "T5: tune the cache", "2026-01-03T00:00:00Z")
 	origin := nodeGit(t, repo, "rev-parse", "HEAD")
 
-	got, err := sameChangeLines(t.Context(), repo, base, integratorMerge{repo: repo, tip: tip, origin: origin})
+	got, err := sameChangeLines(
+		t.Context(), hostexec.NewLocal(), repo, base, integratorMerge{repo: repo, tip: tip, origin: origin},
+	)
 	if err != nil {
 		t.Fatalf("sameChangeLines: %v", err)
 	}
@@ -717,7 +720,7 @@ func TestConflictStatusCodesByStage(t *testing.T) {
 		return nodeGit(t, repo, "rev-parse", "HEAD")
 	}
 	tip, origin := side("tip\n"), side("origin\n")
-	got, err := conflictStatus(t.Context(), integratorMerge{repo: repo, tip: tip, origin: origin})
+	got, err := conflictStatus(t.Context(), hostexec.NewLocal(), integratorMerge{repo: repo, tip: tip, origin: origin})
 	if err != nil {
 		t.Fatalf("conflictStatus: %v", err)
 	}

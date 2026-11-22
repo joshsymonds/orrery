@@ -13,6 +13,7 @@ import (
 
 	"github.com/joshsymonds/orrery/internal/build"
 	"github.com/joshsymonds/orrery/internal/enginehost"
+	"github.com/joshsymonds/orrery/internal/hostexec"
 	"github.com/joshsymonds/orrery/internal/roles"
 	"github.com/joshsymonds/orrery/internal/store"
 )
@@ -200,9 +201,13 @@ func (r *Runner) recordReleaseStep(ctx context.Context, epic store.EpicRow, act 
 	if err != nil {
 		return err
 	}
+	host, err := r.hostOf(epic)
+	if err != nil {
+		return err
+	}
 	wt := filepath.Join(dir, releaseWorktree)
 	result, decodeReason := decodeReturn[releaseStepResult](row.Result)
-	head, reason, err := releaseStepEnd(ctx, wt, start, row, decodeReason)
+	head, reason, err := releaseStepEnd(ctx, host, wt, start, row, decodeReason)
 	if err != nil {
 		return err
 	}
@@ -223,49 +228,45 @@ func (r *Runner) recordReleaseStep(ctx context.Context, epic store.EpicRow, act 
 	if err = r.store.RecordRelease(ctx, epic.ID, run); err != nil {
 		return fmt.Errorf("record release step %d of epic %s: %w", position, epic.ID, err)
 	}
-	host, err := r.hostOf(epic)
-	if err != nil {
-		return fmt.Errorf("remove worktree of release step %s: %w", id, err)
-	}
 	if err = build.RemoveWorktrees(ctx, host, epic.Repository, dir); err != nil {
 		return fmt.Errorf("remove worktree of release step %s: %w", id, err)
 	}
 	return nil
 }
 
-// releaseStepEnd returns the HEAD of the release step whose row is row, which ran in worktree wt from start, and why it
-// did not pass, or "" when it did. A step that did not end done is named by its end, and its HEAD is not read. A step
-// that ended done whose worktree cannot be read is named as lost, with HEAD "".
+// releaseStepEnd returns the HEAD of the release step whose row is row, which ran in worktree wt on host from start, and
+// why it did not pass, or "" when it did. A step that did not end done is named by its end, and its HEAD is not read. A
+// step that ended done whose worktree cannot be read is named as lost, with HEAD "".
 func releaseStepEnd(
-	ctx context.Context, wt, start string, row store.StepRow, decodeReason string,
+	ctx context.Context, host hostexec.Host, wt, start string, row store.StepRow, decodeReason string,
 ) (string, string, error) {
 	if row.End != releaseDone {
 		return "", releaseEndReason("step", row), nil
 	}
-	head, err := gitOutput(ctx, wt, "rev-parse", "--verify", "HEAD^{commit}")
+	head, err := gitOutput(ctx, host, wt, "rev-parse", "--verify", "HEAD^{commit}")
 	if err != nil {
 		return "", fmt.Sprintf("step ended done, but its worktree is gone, so HEAD cannot be read: %v", err), nil
 	}
 	head = strings.TrimSpace(head)
-	reason, err := releaseStepReason(ctx, wt, start, head, decodeReason)
+	reason, err := releaseStepReason(ctx, host, wt, start, head, decodeReason)
 	return head, reason, err
 }
 
-// releaseStepReason returns why the release step that ended done, ran in worktree wt from start and has HEAD head did
-// not pass. decodeReason says why its return did not decode, or is "" when it did. It returns "" when the step passed.
-// Otherwise the first check it fails is named.
-func releaseStepReason(ctx context.Context, wt, start, head, decodeReason string) (string, error) {
+// releaseStepReason returns why the release step that ended done, ran in worktree wt on host from start and has HEAD
+// head did not pass. decodeReason says why its return did not decode, or is "" when it did. It returns "" when the step
+// passed. Otherwise the first check it fails is named.
+func releaseStepReason(ctx context.Context, host hostexec.Host, wt, start, head, decodeReason string) (string, error) {
 	if decodeReason != "" {
 		return decodeReason, nil
 	}
-	descends, err := isAncestor(ctx, wt, start, head)
+	descends, err := isAncestor(ctx, host, wt, start, head)
 	if err != nil {
 		return "", err
 	}
 	if !descends {
 		return fmt.Sprintf("HEAD %s does not descend from the step's start %s", head, start), nil
 	}
-	merges, err := gitOutput(ctx, wt, "rev-list", "--merges", start+".."+head)
+	merges, err := gitOutput(ctx, host, wt, "rev-list", "--merges", start+".."+head)
 	if err != nil {
 		return "", err
 	}
