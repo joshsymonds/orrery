@@ -25,7 +25,6 @@ const (
 	accountStoreMessage       = "account store failed"
 	accountNameMessage        = "name: empty"
 	accountProviderMessage    = "provider: want anthropic"
-	accountTokenMessage       = "token: empty or holds whitespace"
 	accountUnknownMessage     = "account: unknown id"
 	accountUnknownContext     = "context: unknown id"
 	accountInUseMessage       = "account: in use"
@@ -80,7 +79,7 @@ func (s *accountService) AddAccount(
 	}
 	token := strings.TrimSpace(req.Msg.GetToken())
 	if token == "" || strings.ContainsFunc(token, unicode.IsSpace) {
-		return nil, refuseEpic(connect.CodeInvalidArgument, accountTokenMessage)
+		return nil, refuseEpic(connect.CodeInvalidArgument, "token: empty or holds whitespace")
 	}
 	account, err := s.accounts.Store.AddAccount(ctx, store.NewAccount{
 		ID:       s.accounts.accountID(),

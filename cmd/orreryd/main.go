@@ -1079,8 +1079,8 @@ func startSessions(
 		host.steps = steps
 		host.wireStore(st)
 		commands, stepCommands = host.manager, host.steps
-		host.epics, host.steering, host.contracts = st, epicSteering(host.manager, st), contractsOf(st)
-		host.accounts = &enginehost.Accounts{Store: st, Now: time.Now}
+		host.epics, host.steering, host.contracts, host.accounts = st, epicSteering(host.manager, st),
+			contractsOf(st), &enginehost.Accounts{Store: st, Now: time.Now}
 		crons = enginehost.NewCronAnswers(enginehost.CronAnswersConfig{
 			Store: st, Now: opts.cronNow, Changed: host.cron.Changed})
 		host.newReleaseSlots(opts, st, logger)
