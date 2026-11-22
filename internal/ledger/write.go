@@ -71,14 +71,18 @@ func (l *Ledger) Start(ctx context.Context, start Start) (int64, error) {
 	return id, nil
 }
 
-// Finish records the completion of the request id, with its tokens, its costs and the claims it reported. It runs in
-// one transaction, and it refuses an id with no row, or a request already finalized, with an error and no change.
-func (l *Ledger) Finish(ctx context.Context, id int64, f Finish) error {
+// Finish records the completion of the request id, with its tokens, its costs and the claims it reported, and it
+// writes the account's usage limit readings from those claims. It runs in one transaction, and it refuses an id with
+// no row, or a request already finalized, with an error and no change.
+func (l *Ledger) Finish(ctx context.Context, id int64, finish Finish) error {
 	tx, err := l.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("begin finish: %w", err)
 	}
-	if err = finishIn(ctx, tx, id, f); err != nil {
+	if err = finishIn(ctx, tx, id, finish); err != nil {
+		return errors.Join(err, tx.Rollback())
+	}
+	if err = writeReadingsIn(ctx, tx, id, finish); err != nil {
 		return errors.Join(err, tx.Rollback())
 	}
 	if err = tx.Commit(); err != nil {
