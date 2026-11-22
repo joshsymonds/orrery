@@ -25,6 +25,29 @@
   newScenario('new-none', 'New: nothing found', 'Today an empty answer is an empty panel.', { state: 'noresults', query: 'harbour pilot' });
   newScenario('new-error', 'New: the ask failed', 'The reason, and the field keeps what was typed.', { state: 'error', query: 'roster page tidepool', error: 'The search did not finish: the server did not answer in 90 seconds.' });
 
+  // The Starter: a prompt first, then where it runs. It takes over starting a session from the new-* scenarios above, which
+  // the build epic removes. brine does not answer in this world, so it is in no proposal and not in the host choice.
+  const STARTER_WEB = 'The web under 760 draws this sheet over the inbox the same way, with the proposals at full width.';
+  const STARTER_ANDROID = 'On Android today a prompt lists rows to start in, and the start form is a Directory and a First message, with no host choice. This sheet replaces both.';
+  const STARTER_BEHIND = 'Behind it the inbox draws brine unreachable, as inbox-host-unreachable does: its card says so, and the Starter leaves it out.';
+  const starter = (id, name, note, s, differs = [STARTER_WEB, STARTER_ANDROID]) => O.scenario({
+    id, group: 'New and find', title: name, note: `${note} ${STARTER_BEHIND}${O.hostsNote(['proposal', 'start'])}`, differs,
+    desk: () => O.desk({ inbox: { dirs: W.unreachableDirs() }, open: 'convo-working', pages: [O.lampPage()], over: O.starterPanel(s) }),
+    phone: () => O.home({ dirs: W.unreachableDirs(), over: O.starterPanel(s) }),
+  });
+  starter('start-prompt', 'Starter: the prompt', 'The Starter takes over starting a session from the New panel: you type what to start first, and the server proposes where to run it. The new-* scenarios stay until the build epic removes them. Nothing is proposed until you press ⏎.',
+    W.starter.states.prompt);
+  starter('start-loading', 'Starter: finding a place', 'The prompt is sent and the place is asked for. Start waits for the answer, or for a host and a folder typed by hand.',
+    W.starter.states.loading);
+  starter('start-proposals', 'Starter: proposals', 'Ranked host and folder proposals in a dropdown under the prompt, the top one preselected and the place below set to it. Each shows its folder and its host. Another proposal can be picked. A host that does not answer, brine in this world, is in no proposal and not in the host choice.',
+    W.starter.states.several);
+  starter('start-none', 'Starter: nothing fits', 'No reachable host has a folder that fits the prompt. It says so, and a host and a folder are typed by hand. Start stays off until there is a folder.',
+    W.starter.states.none);
+  starter('start-failed', 'Starter: the ask failed', 'The proposals did not come back. The reason is said, the prompt is kept, and the place can be typed by hand or the ask tried again.',
+    W.starter.states.failed);
+  starter('start-typed-folder', 'Starter: a folder typed', 'A host chosen from the reachable hosts, and a folder typed. The list closes: the place is yours until a proposal is picked again. The folder is checked on that host when the session starts.',
+    W.starter.states.typed, [STARTER_WEB, 'On Android today the start form has a Directory and no host to choose; here the host is chosen too, from the reachable hosts.']);
+
   // ---------- keys ----------
 
   O.scenario({

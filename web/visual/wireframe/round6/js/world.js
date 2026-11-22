@@ -150,6 +150,28 @@
   // unreachableDirs is the inbox where one host, brine, does not answer: its card says so, and the conversation under it
   // reads unreachable. The other three cards are as in hostDirs.
   W.unreachableDirs = () => W.hostDirs().map((d) => (d.host === 'brine' ? { ...d, unreachable: true, rows: [W.rows.unreach] } : d));
+  // starter is the prompt-first starter's world. hosts is the host choice: the hosts that answer. brine does not answer, so
+  // none of its folders is proposed and it is not in the choice. proposals are the ranked answer to the prompt, the top one
+  // preselected; none is a prompt no reachable folder fits.
+  W.starter = {
+    prompt: 'Why is the roster page slow past forty shifts?',
+    none: 'Draft a harbour pilot roster for the new dock',
+    hosts: ['halyard', 'sextant', 'lantern'],
+    proposals: [
+      { host: 'halyard', folder: '~/code/tidepool', note: 'The repository the roster page is built from.' },
+      { host: 'halyard', folder: '~/code/tidepool.worktrees/offline', note: 'A worktree of it, on the offline tables.' },
+      { host: 'halyard', folder: '~/work/commonframe', note: 'The shift model the roster page reads.' },
+    ],
+  };
+  // The Starter's six states, each the input of O.starterBody: the place is the top proposal's when it is preselected.
+  W.starter.states = {
+    prompt: { state: 'prompt', prompt: '' },
+    loading: { state: 'loading', prompt: W.starter.prompt },
+    several: { state: 'several', prompt: W.starter.prompt, host: W.starter.proposals[0].host, folder: W.starter.proposals[0].folder },
+    none: { state: 'none', prompt: W.starter.none, host: W.starter.hosts[0], folder: '' },
+    failed: { state: 'failed', prompt: W.starter.prompt, host: W.starter.hosts[0], folder: '' },
+    typed: { state: 'typed', prompt: W.starter.prompt, host: 'sextant', folder: '~/code/buoys' },
+  };
   W.attn = { waiting: 6, fresh: 2 };
   // inbox builds the Inbox's data for a scenario: which row is open, where the keyboard is, what is filtered.
   W.inbox = (o = {}) => ({ dirs: W.dirs(o), attn: W.attn, open: o.open, cur: o.cur === undefined ? o.open : o.cur, ...o });

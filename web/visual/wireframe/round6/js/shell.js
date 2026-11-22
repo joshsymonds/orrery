@@ -1,5 +1,5 @@
 // Round 6 wireframe: the shell. The frame, the inbox, the title row with its strip, and what lies over a page:
-// notices, the New panel, the key list, a menu, and on touch a sheet.
+// notices, the New panel, the Starter, the key list, a menu, and on touch a sheet.
 (() => {
   'use strict';
   const { esc, cls, attrs, each, when, icon } = O;
@@ -412,6 +412,33 @@
     return `${ask}${hint}${rows}${form}`;
   };
   O.newPanel = (n) => (O.touch() ? O.sheet(`<div class="sheet-body">${O.newBody(n)}</div>`, { title: 'New session' }) : O.panel('New session', O.newBody(n), { hint: `${O.kbd('N')} or ${O.kbd('⌘K')}` }));
+
+  // starterBody draws the Starter: a prompt first, then the place it runs. s: { state: 'prompt' | 'loading' | 'several' |
+  //   'none' | 'failed' | 'typed', prompt, host, folder }. The ranked proposals are a dropdown under the prompt, the top one
+  //   preselected; picking one sets the place below. The host choice lists the reachable hosts only, so a host that does
+  //   not answer is in neither the proposals nor the choice. Start is on once there is a place: a proposal, or a folder.
+  O.starterBody = (s) => {
+    const prompt = O.field({ icon: 'chat', value: s.prompt, placeholder: 'What should it do? Say it in your words', state: s.state === 'typed' ? '' : 'focused', trail: s.state === 'loading' ? '<span class="count">asking…</span>' : '' });
+    const dropdown = {
+      prompt: O.inote('Press ⏎ and Orrery proposes where to run it.'),
+      loading: O.inote('Finding where to run it…'),
+      several: `<div class="starter-list" role="listbox" aria-label="Proposals">${O.W.starter.proposals.map((p, i) => `<button class="${cls('pick-row', i === 0 && 'cur')}" role="option" aria-selected="${i === 0}"><span class="k">start in</span><span class="t">${esc(p.folder)}</span>${O.hostLabel(p.host)}<span class="n">${esc(p.note)}</span></button>`).join('')}</div>`,
+      none: O.inote('No reachable host has a folder that fits this. Choose a host and type a folder.'),
+      failed: O.inote('The proposals did not come back: the server did not answer in 90 seconds. Your prompt is kept.', 'error'),
+      typed: '',
+    }[s.state];
+    const hostChoice = `<label class="field host-choice">${icon('host')}<select aria-label="Host">${O.W.starter.hosts.map((h) => `<option${h === s.host ? ' selected' : ''}>${esc(h)}</option>`).join('')}</select></label>`;
+    const place = s.state === 'prompt' || s.state === 'loading' ? '' : `<div class="starter-place">`
+      + `<div class="form-row"><span class="t-label">Host</span>${hostChoice}</div>`
+      + `<div class="form-row"><span class="t-label">Folder</span>${O.field({ icon: 'folder', value: s.folder, placeholder: 'A folder on that host' })}</div>`
+      + `${when(s.state === 'typed', () => O.inote(`The folder is checked on ${s.host} when the session starts.`))}</div>`;
+    const startable = s.state === 'several' || s.state === 'typed';
+    const foot = `<div class="foot">${when(s.state === 'failed', () => O.btn('Try again', { variant: 'quiet', icon: 'retry' }))}`
+      + `<span class="end">${O.btn('Start the session', { variant: 'primary', kbd: O.touch() ? '' : '⌘⏎', state: startable ? '' : 'disabled' })}</span></div>`;
+    return `${prompt}${dropdown}${place}${foot}`;
+  };
+  // starterPanel draws the Starter over the page on the desk, and as a sheet over the inbox on touch.
+  O.starterPanel = (s) => (O.touch() ? O.sheet(`<div class="sheet-body">${O.starterBody(s)}</div>`, { title: 'Start a session' }) : O.panel('Start a session', O.starterBody(s), { hint: `${O.kbd('N')} or ${O.kbd('⌘K')}` }));
 
   // confirmSheet draws a ConfirmButton's Asking state on touch.
   O.confirmSheet = (question, yes, no = 'Keep it running', sub = '') => O.sheet(`<div class="foot">${O.btn(no)}${O.btn(yes, { variant: 'danger' })}</div>`, { title: question, sub });

@@ -38,6 +38,8 @@ are grouped by host and folder, the host is drawn once on the card heading; ever
 | a pane's title row and its dock, on a host that does not answer | a pane listed from stored rows is marked unreachable: `Pane.unreachable` (unchecked) | orrery-host-surfaces |
 | a card's head, on a host that does not answer | the host's `reachable` is false in `Host.Status` (unchecked) | orrery-host-surfaces |
 | an epic's step, on a host that does not answer | the step's host is not reachable in `Host.Status` (unchecked) | orrery-host-surfaces |
+| the Starter's proposals, in a dropdown under its prompt: each a folder and its host | the ranked proposals call beside `Picker.Ask`: a host and a folder each, over reachable hosts only (orrery-host-relay R5, unchecked) | orrery-host-relay |
+| the Starter's host choice, and the host a started session runs on | the host `Control.Start` takes (orrery-host-relay R4, unchecked); the choice lists reachable hosts only | orrery-host-relay |
 
 The field names are the host epics' own, taken from their contracts and not checked against them. A scenario whose
 drawing shows a host says so in its note, with the field and the epic. The world gains two hosts, `sextant` and
@@ -48,6 +50,13 @@ beside the host, or on a row's line under a card; its dock reads "unreachable: `
 input, queue or control. The three unreachable fields above are read from orrery-first-class-hosts R4 and
 orrery-host-surfaces R3 and R4, and their names are not checked against those contracts. `inbox-host-unreachable` and
 `pane-host-unreachable` draw it.
+
+The Starter (`start-prompt`, `start-loading`, `start-proposals`, `start-none`, `start-failed`, `start-typed-folder`) takes
+over starting a session from the `new-*` scenarios of the New panel: the prompt comes first, and the server proposes where
+it runs. The `new-*` scenarios stay, and the build epic removes them. The proposals are a dropdown under the prompt, the
+top one preselected, and each is a folder with its host. A host that does not answer is in neither the proposals nor the
+host choice. Choosing a host and typing a folder closes the list. The two fields in the table above are unchecked against
+orrery-host-relay R4 and R5.
 
 ## Revision 13: Not now, not Dismiss (2026-11-18)
 
