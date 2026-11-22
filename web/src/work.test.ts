@@ -159,18 +159,25 @@ test("WorkRail: the short name is the slug past its repository, up to the first 
   assert.equal(thing.short, "followups");
 });
 
-test("WorkRail: the gauge counts the done tasks, the started steps and all the tasks", () => {
+test("WorkRail: the epic's thing carries the detail its mark reads, and an epic with no detail reads an empty one", () => {
   const epic = makeEpic("first");
-  const tasks = [
-    { effort: 1, slug: "t0", subject: "Subject t0", status: "done" },
-    { effort: 1, slug: "t1", subject: "Subject t1", status: "pending" },
-    { effort: 1, slug: "t2", subject: "Subject t2", status: "pending" },
-  ];
-  const view = epicsView([epic], new Map([detailed(epic, { tasks, steps: [makeStep("s1", { task: "t2" })] })]));
+  const [, detail] = detailed(epic, {
+    centre: "running",
+    requirements: [
+      { id: "R1", state: "proven" },
+      { id: "R2", state: "in_flight" },
+      { id: "R3", state: "not_reached" },
+    ],
+  });
+  const view = epicsView([epic], new Map([[epic.id, detail]]));
 
   const thing = workOf(conversation("s1"), view, 0)[0].things[0] as EpicThing;
 
-  assert.deepEqual(thing.gauge, { done: 1, started: 1, total: 3 });
+  assert.equal(thing.detail, detail);
+
+  const bare = workOf(conversation("s1"), epicsView([epic], new Map()), 0)[0].things[0] as EpicThing;
+
+  assert.deepEqual(bare.detail, { requirements: [], centre: "" });
 });
 
 test("WorkLists: agent and shell tasks sit in their own groups, with their counts", () => {
