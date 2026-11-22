@@ -1181,8 +1181,8 @@ const endedWithOpen = detail({
     { id: "t2", title: "Logout", status: "done", requirements: ["R2"] },
   ],
   requirements: [
-    { id: "R1", text: "A user signs in", runs: [redRun, greenRun] },
-    { id: "R2", text: "A user signs out" },
+    { id: "R1", text: "A user signs in", runs: [redRun, greenRun], state: "proven" },
+    { id: "R2", text: "A user signs out", state: "not_reached" },
   ],
 });
 
@@ -1191,7 +1191,7 @@ test("EpicReport: an ended-with-gaps epic's task rims read proven exactly when t
     const rims = [...container.querySelectorAll(".tasks path.req")].map((rim) => rim.getAttribute("class"));
     const words = [...container.querySelectorAll(".requirements .tbl.reqs .tr .end")].map((end) => end.textContent);
     assert.deepEqual(words, ["proven", "open"]);
-    assert.deepEqual(rims, ["req proven", "req"], "each rim follows the row of the requirement its task names");
+    assert.deepEqual(rims, ["req proven", "req not_reached"], "each segment reads its requirement's server state");
   });
 });
 
