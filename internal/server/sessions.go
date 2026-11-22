@@ -10,7 +10,6 @@ import (
 
 	orreryv1 "github.com/joshsymonds/orrery/internal/gen/orrery/v1"
 	"github.com/joshsymonds/orrery/internal/gen/orrery/v1/orreryv1connect"
-	"github.com/joshsymonds/orrery/internal/protocol"
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
@@ -66,18 +65,15 @@ func (s sessionsServer) List(
 		session := sessionMessage(row)
 		mark := marks[archiveKey{kind: archiveKindSession, id: row.ID}]
 		changed := sessionChanged(row.Fields.Changed)
-		// A pane row ages by the seven-day floor in any state, once it is done by the done rule, and by a closed verdict
-		// for its current change time, all at s.now(). A row with no change time, changed 0, never ages. A server with
-		// no clock ages none.
+		// A pane row ages by the seven-day floor in any state, and by a closed verdict for its current change time, all
+		// at s.now(). A row with no change time, changed 0, never ages. A server with no clock ages none.
 		verdict, ok := verdicts[row.ID]
 		session.Ended, session.EndedAt = endedRow(false, verdict, ok, changed)
 		aged := false
 		if changed != 0 && s.now != nil {
 			now := s.now()
 			seen := sessionSeen(row.Fields.Seen)
-			aged = floorAged(changed, now) ||
-				(row.Fields.State == string(protocol.StateDone) && doneAged(changed, seen, now)) ||
-				closureAged(verdict, ok, changed, seen, now)
+			aged = floorAged(changed, now) || closureAged(verdict, ok, changed, seen, now)
 		}
 		session.Archived = archivedRow(mark, changed, aged)
 		sessions = append(sessions, session)

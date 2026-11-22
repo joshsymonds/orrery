@@ -8,7 +8,6 @@ import (
 	"connectrpc.com/connect"
 
 	orreryv1 "github.com/joshsymonds/orrery/internal/gen/orrery/v1"
-	"github.com/joshsymonds/orrery/internal/protocol"
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
@@ -24,19 +23,11 @@ const stateStopped = "stopped"
 
 // epicAge is the seven-day floor: how long any list row must go unchanged before it ages out, whatever its state and
 // whether or not it is live (see floorAged). finalEpicAge is how long a final epic must go unchanged before it ages out
-// when no owner has seen it. headlessAge is how long a stopped or failed headless session must go unchanged before it
-// ages out.
+// when no owner has seen it. headlessAge is how long a stopped headless session must go unchanged before it ages out.
 const (
 	epicAge      = 7 * 24 * time.Hour
 	finalEpicAge = 24 * time.Hour
 	headlessAge  = 24 * time.Hour
-)
-
-// doneSeenAge is how long a done conversation must go unchanged once it has been seen at or after its change.
-// doneUnseenAge is how long a done conversation must go unchanged when no owner has seen it since its change.
-const (
-	doneSeenAge   = 12 * time.Hour
-	doneUnseenAge = 3 * 24 * time.Hour
 )
 
 // archiveKey names one list row by its kind and id.
@@ -70,7 +61,7 @@ func readArchiveMarks(ctx context.Context, reader *store.Reader) (archiveMarks, 
 }
 
 // archivedRow is the archive rule every list applies at its now. changed is the row's change time in unix seconds, mark
-// is its mark, and aged reports whether the row ages out at now (see epicAged, headlessAged and doneAged). A mark with
+// is its mark, and aged reports whether the row ages out at now (see epicAged and headlessAged). A mark with
 // an archived_at archives the row while changed is at or before archived_at, so a row that changes after its archive
 // comes back. Otherwise an aged row is archived unless the owner unarchived it at or after its last change, so an
 // unarchived row stays out of aging until it changes.
@@ -133,41 +124,14 @@ func epicAged(epic *orreryv1.Epic, now time.Time) bool {
 	return (seen != 0 && seen >= changed) || changed <= now.Add(-finalEpicAge).Unix()
 }
 
-// doneAged reports whether a done conversation changed at changed and seen at seen, both unix seconds, ages out at now.
-// A conversation with no change time, changed 0, never ages. Otherwise it ages once it has been unchanged for
-// doneUnseenAge, or once it has been seen at or after its change and has been unchanged for doneSeenAge.
-func doneAged(changed, seen int64, now time.Time) bool {
-	if changed == 0 {
-		return false
-	}
-	if changed <= now.Add(-doneUnseenAge).Unix() {
-		return true
-	}
-	return seen != 0 && seen >= changed && changed <= now.Add(-doneSeenAge).Unix()
-}
-
-// headlessAged reports whether a headless session in state, changed at changed and seen at seen, ages out at now. Any
-// session ages by the floor (see floorAged). Otherwise a done session ages by doneAged. A stopped session ages once it
-// has been unchanged for headlessAge. A failed session ages once it has been unchanged for headlessAge and has been
-// seen since it failed. No other state ages.
-func headlessAged(state string, changed, seen int64, now time.Time) bool {
+// headlessAged reports whether a headless session in state, changed at changed, ages out at now. Any session ages by
+// the floor (see floorAged). Otherwise a stopped session ages once it has been unchanged for headlessAge. No other
+// state has a rule of its own, so a done or failed session ages by the floor alone.
+func headlessAged(state string, changed int64, now time.Time) bool {
 	if floorAged(changed, now) {
 		return true
 	}
-	if state == string(protocol.StateDone) {
-		return doneAged(changed, seen, now)
-	}
-	if changed > now.Add(-headlessAge).Unix() {
-		return false
-	}
-	switch state {
-	case stateStopped:
-		return true
-	case stateFailed:
-		return seen >= changed
-	default:
-		return false
-	}
+	return state == stateStopped && changed <= now.Add(-headlessAge).Unix()
 }
 
 // markEpics sets the archived field of each epic in epics by the archive rule at now. An epic is matched to its mark
