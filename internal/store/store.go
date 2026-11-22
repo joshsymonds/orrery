@@ -320,31 +320,8 @@ func Open(ctx context.Context, path string, opts ...Option) (*Store, error) {
 	if err = opened.migrate(ctx); err != nil {
 		return nil, errors.Join(err, opened.Close())
 	}
-	if err = openReadConns(ctx, readDB); err != nil {
-		return nil, errors.Join(err, opened.Close())
-	}
 	connector.counting.Store(true)
 	return opened, nil
-}
-
-// openReadConns opens each of the read pool's readConns connections at once, then returns them to the pool. Open runs it
-// so that a read never opens a connection inside its own store call's timer, which would count the open as a wait or a
-// run of that call.
-func openReadConns(ctx context.Context, read *sql.DB) error {
-	conns := make([]*sql.Conn, 0, readConns)
-	var err error
-	for range readConns {
-		conn, connErr := read.Conn(ctx)
-		if connErr != nil {
-			err = fmt.Errorf("open store reads: %w", connErr)
-			break
-		}
-		conns = append(conns, conn)
-	}
-	for _, conn := range conns {
-		err = errors.Join(err, conn.Close())
-	}
-	return err
 }
 
 // Close closes the store and returns once every connection it opened is closed, so the database's files are settled
