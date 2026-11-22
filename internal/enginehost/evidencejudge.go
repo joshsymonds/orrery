@@ -154,7 +154,18 @@ func judgeStart(run store.EvidenceRun, repo, prompt string) StepStart {
 		AgentGate: &gate,
 		Epic:      run.Epic,
 		Task:      "evidence-" + run.ID,
+		Purpose:   judgePurpose(run),
 	}
+}
+
+// judgePurpose returns the purpose of the judge step of run: its phase, the place the phase is judged at, which is base for
+// a red run and head otherwise, and the item it judges.
+func judgePurpose(run store.EvidenceRun) string {
+	place := "head"
+	if run.Phase == evidence.PhaseRed {
+		place = "base"
+	}
+	return fmt.Sprintf("Judge %s's %s evidence at %s", run.Item, run.Phase, place)
 }
 
 // judgeVerdict reads the verdict of a judge step from its row, and the reason it keeps: the judge's reasoning, read from
