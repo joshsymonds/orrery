@@ -258,6 +258,7 @@ func (r *Runner) taskRoundStart(
 	return enginehost.StepStart{
 		ID: act.IDs[0], Agent: agent, Prompt: prompt, Schema: TaskIntegratorSchema, Workspace: merge.worktree,
 		Revision: merge.tip, Unowned: true, DoneValue: releaseDone, Epic: epic.ID, Task: act.Path, ReturnCheck: check,
+		Purpose: fmt.Sprintf("Integrate T%d into %s.", task.Seq, build.Slug(epic.ID)),
 	}, nil
 }
 
