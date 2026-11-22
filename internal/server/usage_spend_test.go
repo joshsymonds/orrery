@@ -40,21 +40,23 @@ func spendCost(v int64) *int64 {
 	return &v
 }
 
-// spendRequests are the invented requests. Seat A has one request before the span, one at its start, one inside it,
-// one at its last second, one at its end, one with an unknown billed cost and one in flight. Seat B has one before the
-// span, one inside it with an unknown list cost, one inside it and one at its end.
-var spendRequests = []spendRequest{
-	{startedAt: spendFrom - 1, seat: spendSeatA, billed: spendCost(1000), list: spendCost(2000), done: true},
-	{startedAt: spendFrom, seat: spendSeatA, billed: spendCost(10), list: spendCost(20), done: true},
-	{startedAt: 1_800_000_150, seat: spendSeatA, billed: spendCost(30), list: spendCost(40), done: true},
-	{startedAt: spendTo - 1, seat: spendSeatA, billed: spendCost(300), list: spendCost(400), done: true},
-	{startedAt: spendTo, seat: spendSeatA, billed: spendCost(5000), list: spendCost(6000), done: true},
-	{startedAt: 1_800_000_160, seat: spendSeatA, billed: nil, list: spendCost(50), done: true},
-	{startedAt: 1_800_000_170, seat: spendSeatA},
-	{startedAt: spendFrom - 1, seat: spendSeatB, billed: spendCost(7000), list: spendCost(8000), done: true},
-	{startedAt: 1_800_000_120, seat: spendSeatB, billed: spendCost(100), list: nil, done: true},
-	{startedAt: 1_800_000_180, seat: spendSeatB, billed: spendCost(200), list: spendCost(300), done: true},
-	{startedAt: spendTo, seat: spendSeatB, billed: spendCost(9000), list: spendCost(9500), done: true},
+// spendRequests returns the invented requests. Seat A has one request before the span, one at its start, one inside
+// it, one at its last second, one at its end, one with an unknown billed cost and one in flight. Seat B has one before
+// the span, one inside it with an unknown list cost, one inside it and one at its end.
+func spendRequests() []spendRequest {
+	return []spendRequest{
+		{startedAt: spendFrom - 1, seat: spendSeatA, billed: spendCost(1000), list: spendCost(2000), done: true},
+		{startedAt: spendFrom, seat: spendSeatA, billed: spendCost(10), list: spendCost(20), done: true},
+		{startedAt: 1_800_000_150, seat: spendSeatA, billed: spendCost(30), list: spendCost(40), done: true},
+		{startedAt: spendTo - 1, seat: spendSeatA, billed: spendCost(300), list: spendCost(400), done: true},
+		{startedAt: spendTo, seat: spendSeatA, billed: spendCost(5000), list: spendCost(6000), done: true},
+		{startedAt: 1_800_000_160, seat: spendSeatA, billed: nil, list: spendCost(50), done: true},
+		{startedAt: 1_800_000_170, seat: spendSeatA},
+		{startedAt: spendFrom - 1, seat: spendSeatB, billed: spendCost(7000), list: spendCost(8000), done: true},
+		{startedAt: 1_800_000_120, seat: spendSeatB, billed: spendCost(100), list: nil, done: true},
+		{startedAt: 1_800_000_180, seat: spendSeatB, billed: spendCost(200), list: spendCost(300), done: true},
+		{startedAt: spendTo, seat: spendSeatB, billed: spendCost(9000), list: spendCost(9500), done: true},
+	}
 }
 
 // seedSpendLedger writes spendRequests into a new ledger at path through its writer, and closes the writer.
@@ -65,7 +67,7 @@ func seedSpendLedger(t *testing.T, path string) {
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
-	for _, r := range spendRequests {
+	for _, r := range spendRequests() {
 		id, err := l.Start(ctx, ledger.Start{
 			Account:        "synthetic-account",
 			Seat:           r.seat,
