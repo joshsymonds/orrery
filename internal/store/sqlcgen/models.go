@@ -964,6 +964,7 @@ type Step struct {
 	LinesFiles      int64
 	LinesAdded      int64
 	LinesRemoved    int64
+	Purpose         string
 }
 
 type StepListing struct {
@@ -983,6 +984,7 @@ type StepListing struct {
 	Ended           int64
 	Epic            string
 	Task            string
+	Purpose         string
 	GateName        string
 	GateLimit       int64
 	LoopLimited     bool

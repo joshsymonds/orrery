@@ -14,7 +14,9 @@ import (
 func TestStepFactsMigration(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	s, provider := storeAtVersion(t, 75)
+	// The store's inserts name the purpose column of 00095, so the steps are seeded at 00095 and the store is rolled
+	// back to 75 after them, which keeps the rows and drops that column.
+	s, provider := storeAtVersion(t, 95)
 	at := time.Unix(1700000000, 0)
 	applyStepOps(ctx, t, s, at,
 		StepAdd{ID: "step-ended", Agent: "implementer", Prompt: "do it"},
@@ -26,6 +28,9 @@ func TestStepFactsMigration(t *testing.T) {
 		StepEnd{ID: "step-ended", End: "done", Status: "passed", Reason: "gate green"},
 		StepLoop{ID: "step-running", Round: 2, Stage: StepStageJudge, StageFrom: at.Add(time.Minute)},
 	)
+	if _, err := provider.DownTo(ctx, 75); err != nil {
+		t.Fatalf("DownTo of 00075: %v", err)
+	}
 
 	seeded := rowsOf(t, s.db.DB, "steps")
 	if _, err := provider.Down(ctx); err != nil {
