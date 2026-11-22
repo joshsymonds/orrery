@@ -19,7 +19,8 @@ import (
 // changes is the change hub WatchConversation streams wake from, and newTimer arms their keepalive and background
 // timers. keepalive is the time without a message after which WatchConversation sends a keepalive, sendTimeout bounds
 // each of its sends, and closing shutdown ends its streams. A nil shutdown never closes. now is the clock ListHeadless
-// dates its retention window and its aging by, and the clock WatchConversation reads a background window against.
+// dates its retention window and its aging by, List ages its panes by, and the clock WatchConversation reads a
+// background window against.
 // stepped, when set, is called with the session id of each WatchConversation step before the step reads the session. A
 // test sets it to count the reads of its streams. It is nil in production.
 type sessionsServer struct {
@@ -55,12 +56,20 @@ func (s sessionsServer) List(
 	if err != nil {
 		return nil, err
 	}
+	verdicts, err := readClosureVerdicts(ctx, s.reader)
+	if err != nil {
+		return nil, err
+	}
+	now := s.now()
 	sessions := make([]*orreryv1.Session, 0, len(snap.Sessions))
 	for _, row := range snap.Sessions {
 		session := sessionMessage(row)
 		mark := marks[archiveKey{kind: archiveKindSession, id: row.ID}]
-		// A pane session takes its mark alone: it never ages out.
-		session.Archived = archivedRow(mark, sessionChanged(row.Fields.Changed), false)
+		// A pane session takes its mark, and ages out by a closed verdict for its current change time.
+		verdict, ok := verdicts[row.ID]
+		changed := sessionChanged(row.Fields.Changed)
+		aged := closureAged(verdict, ok, changed, sessionChanged(row.Fields.Seen), now)
+		session.Archived = archivedRow(mark, changed, aged)
 		sessions = append(sessions, session)
 	}
 	return connect.NewResponse(&orreryv1.ListResponse{Sessions: sessions, Seq: snap.Seq}), nil
