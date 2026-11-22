@@ -80,6 +80,9 @@ func epicTableColumns() map[string][]string {
 			"generation",
 			// The seqs of the tasks the task depends on, from 00088_task_depends_on.sql.
 			"depends_on",
+			// The task's kind and the seq of the design task it revises, from 00090_task_kind.sql.
+			"kind",
+			"revises",
 		},
 		"epic_task_files":        {"epic", "task", "position", "path"},
 		"epic_task_requirements": {"epic", "task", "position", "requirement"},
@@ -577,8 +580,9 @@ func TestEpicMigrationKeepsExistingRows(t *testing.T) {
 		`SELECT COALESCE(MAX(version_id), 0) FROM goose_db_version WHERE is_applied = 1`).Scan(&version); err != nil {
 		t.Fatalf("read store version: %v", err)
 	}
-	// Open applies 00014_epics.sql and every migration after it: 00089_pane_sends.sql is the newest. The newest
-	// was 00088_task_depends_on.sql before the pane sends migration added 00089,
+	// Open applies 00014_epics.sql and every migration after it: 00090_task_kind.sql is the newest. The newest
+	// was 00089_pane_sends.sql before the task kind migration added 00090,
+	// 00088_task_depends_on.sql before the pane sends migration added 00089,
 	// 00087_task_generation.sql before the task dependencies migration added 00088,
 	// 00086_amender_makers.sql before the task generation migration added 00087,
 	// 00085_question_escalation.sql before the amender makers migration added 00086, 00084_contract_base.sql before
@@ -598,8 +602,8 @@ func TestEpicMigrationKeepsExistingRows(t *testing.T) {
 	// added 00065, 00063_task_versions.sql before the step indexes added 00064, 00062_drop_engine_held.sql before the
 	// task versions added 00063, 00061_prompt_states.sql before the drop of engine_held added 00062, and
 	// 00060_cron_jobs.sql before the prompt states added 00061.
-	if version != 89 {
-		t.Fatalf("store version after Open = %d, want 89", version)
+	if version != 90 {
+		t.Fatalf("store version after Open = %d, want 90", version)
 	}
 
 	// A later migration may add columns at the end of an existing table, as 00015_step_readopt.sql adds to steps and

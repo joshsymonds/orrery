@@ -730,7 +730,7 @@ func planOf(ret Return) store.EpicPlan {
 		tasks = append(tasks, store.EpicTaskInput{
 			Title: task.Title, Deliverable: task.Deliverable, Files: task.Files,
 			Requirements: task.Requirements, Contributes: task.Contributes, TestChanges: task.TestChanges,
-			Gate: task.Gate, Evidence: task.Evidence, DependsOn: task.DependsOn,
+			Gate: task.Gate, Evidence: task.Evidence, Kind: task.Kind, DependsOn: task.DependsOn,
 		})
 	}
 	questions := make([]store.EpicQuestionInput, 0, len(ret.Questions))

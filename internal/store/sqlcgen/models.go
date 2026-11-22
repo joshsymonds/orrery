@@ -513,6 +513,8 @@ type EpicTask struct {
 	Notes       string
 	Generation  int64
 	DependsOn   string
+	Kind        string
+	Revises     int64
 }
 
 type EpicTaskContribute struct {

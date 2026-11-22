@@ -286,7 +286,7 @@ func gapKeyOf(trigger store.EpicTrigger) (string, bool) {
 	return key, ok
 }
 
-// checkTask returns the refusals of one task's fields, in the order title, deliverable, files, test_changes,
+// checkTask returns the refusals of one task's fields, in the order title, deliverable, kind, files, test_changes,
 // requirements, gate, the evidence string that did not read, each line of the evidence item's form, the depends_on
 // refusals, then the gate and the judge that do not resolve. graph is the return's depends_on graph and the epic's
 // tasks, and named records, for each well-formed file, the return tasks that name it so far, so a later naming of the
@@ -302,6 +302,9 @@ func checkTask(
 	}
 	if strings.TrimSpace(task.Deliverable) == "" {
 		refusals = append(refusals, prefix+" deliverable: "+reasonEmpty)
+	}
+	if task.Kind != "" && task.Kind != store.TaskKindDesign {
+		refusals = append(refusals, fmt.Sprintf("%s kind: unknown kind %q", prefix, task.Kind))
 	}
 	if len(task.Files) == 0 {
 		refusals = append(refusals, prefix+" files: "+reasonNoFiles)
