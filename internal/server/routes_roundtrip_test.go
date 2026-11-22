@@ -106,6 +106,7 @@ func TestRoutesRoundTripEveryLiveField(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Replace: %v", err)
 	}
+	t.Logf("Replace answered %v", replaced.Msg.GetRegistry())
 	if !proto.Equal(replaced.Msg.GetRegistry(), want) {
 		t.Fatalf("Replace answered %v, want %v", replaced.Msg.GetRegistry(), want)
 	}
@@ -114,6 +115,7 @@ func TestRoutesRoundTripEveryLiveField(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Get: %v", err)
 	}
+	t.Logf("Get answered %v", got.Msg.GetRegistry())
 	if !proto.Equal(got.Msg.GetRegistry(), want) {
 		t.Fatalf("Get answered %v, want %v", got.Msg.GetRegistry(), want)
 	}
