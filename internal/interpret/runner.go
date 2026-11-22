@@ -452,11 +452,22 @@ func (r *Runner) decide(ctx context.Context, epic string, flow workflow.Workflow
 	return read.Epic, Decide(flow, rows, r.kinds), nil
 }
 
-// awaitsDependencies reports whether one of tasks is open, has not started and depends on other tasks: a build of such a
-// task waits on its dependencies, and reads the stranded tasks of its epic (kinds.Rows.Stranded).
+// awaitsDependencies reports whether one of tasks is open, has not started and waits on other tasks: it depends on
+// some, or it is a task that is not a design task and its turn holds a design task. A build of such a task waits on
+// them, and reads the stranded tasks of its epic (kinds.Rows.Stranded).
 func awaitsDependencies(tasks []store.EpicTask) bool {
 	return slices.ContainsFunc(tasks, func(task store.EpicTask) bool {
-		return task.Status == taskOpen && task.Build.Stage == "" && len(task.DependsOn) > 0
+		if task.Status != taskOpen || task.Build.Stage != "" {
+			return false
+		}
+		return len(task.DependsOn) > 0 || (task.Kind != store.TaskKindDesign && turnHoldsDesign(tasks, task.Turn))
+	})
+}
+
+// turnHoldsDesign reports whether a design task was planned in turn among tasks.
+func turnHoldsDesign(tasks []store.EpicTask, turn int64) bool {
+	return slices.ContainsFunc(tasks, func(task store.EpicTask) bool {
+		return task.Turn == turn && task.Kind == store.TaskKindDesign
 	})
 }
 
