@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/joshsymonds/orrery/internal/hostexec"
 	"github.com/joshsymonds/orrery/internal/store"
 	"github.com/joshsymonds/orrery/internal/workflow"
 )
@@ -29,7 +30,7 @@ func pinWorkflow(ctx context.Context, repository, base, name string) (store.Epic
 	if name == "" {
 		name = defaultWorkflowName
 	}
-	commit, err := stepGitResolve(ctx, repository, base)
+	commit, err := stepGitResolve(ctx, hostexec.NewLocal(), repository, base)
 	if err != nil {
 		return store.EpicWorkflow{}, fmt.Errorf("resolve base: %w", err)
 	}
@@ -44,7 +45,7 @@ func pinWorkflow(ctx context.Context, repository, base, name string) (store.Epic
 // path it holds as anything but a regular file is refused, and a regular file's exact bytes are read from the commit.
 func baseReader(ctx context.Context, repository, commit string) workflow.Reader {
 	return func(path string) ([]byte, bool, error) {
-		entry, err := stepGit(ctx, repository, "ls-tree", "--full-tree", commit, "--", path)
+		entry, err := stepGit(ctx, hostexec.NewLocal(), repository, "ls-tree", "--full-tree", commit, "--", path)
 		if err != nil {
 			return nil, false, err
 		}
@@ -57,7 +58,7 @@ func baseReader(ctx context.Context, repository, commit string) workflow.Reader 
 			return nil, false, fmt.Errorf("not a regular file (mode %s)", mode)
 		}
 		// The object is commit:path, which suppliedBlob reads as the exact bytes of a blob.
-		text, err := suppliedBlob(ctx, repository, commit+":"+path)
+		text, err := suppliedBlob(ctx, hostexec.NewLocal(), repository, commit+":"+path)
 		if err != nil {
 			return nil, false, err
 		}

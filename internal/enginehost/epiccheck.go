@@ -10,6 +10,7 @@ import (
 	"github.com/joshsymonds/orrery/internal/evidence"
 	"github.com/joshsymonds/orrery/internal/gates"
 	v1 "github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1"
+	"github.com/joshsymonds/orrery/internal/hostexec"
 )
 
 // epicIDMaxBytes caps the length of a contract's id.
@@ -106,7 +107,8 @@ func checkEpicBase(ctx context.Context, contract *v1.EpicContract) error {
 		return &epicFieldError{field: "base", reason: epicReasonEmpty}
 	}
 	_, err := stepGit(
-		ctx, contract.GetRepository(), "rev-parse", "--verify", "--quiet", "--end-of-options", base+"^{commit}",
+		ctx, hostexec.NewLocal(), contract.GetRepository(),
+		"rev-parse", "--verify", "--quiet", "--end-of-options", base+"^{commit}",
 	)
 	if err != nil {
 		return &epicFieldError{field: "base", reason: "not a commit in the repository"}
@@ -203,7 +205,7 @@ func checkEpicRepository(ctx context.Context, repository string) error {
 	if !filepath.IsAbs(repository) {
 		return &epicFieldError{field: "repository", reason: "not absolute"}
 	}
-	inside, err := stepGit(ctx, repository, "rev-parse", "--is-inside-work-tree")
+	inside, err := stepGit(ctx, hostexec.NewLocal(), repository, "rev-parse", "--is-inside-work-tree")
 	if err != nil || inside != "true" {
 		return &epicFieldError{field: "repository", reason: "not inside a git work tree"}
 	}

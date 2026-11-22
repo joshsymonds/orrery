@@ -9,6 +9,7 @@ import (
 
 	"github.com/joshsymonds/orrery/internal/evidence"
 	"github.com/joshsymonds/orrery/internal/gates"
+	"github.com/joshsymonds/orrery/internal/hostexec"
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
@@ -74,7 +75,7 @@ func (e *Evidence) readoptDrive(ctx context.Context, repo string, run store.Evid
 func (e *Evidence) readoptUnlaunched(ctx context.Context, repo string, run store.EvidenceRun) {
 	if run.Source == evidence.SourceCaptured {
 		worktree := filepath.Join(e.captures.worktrees, run.ID)
-		if err := removeStepWorktree(context.WithoutCancel(ctx), repo, worktree); err != nil {
+		if err := removeStepWorktree(context.WithoutCancel(ctx), hostexec.NewLocal(), repo, worktree); err != nil {
 			e.logger.WarnContext(ctx, "clear worktree of unlaunched evidence run", "run", run.ID, "err", err)
 			return
 		}

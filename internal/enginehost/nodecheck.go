@@ -11,6 +11,7 @@ import (
 
 	"github.com/joshsymonds/orrery/internal/gates"
 	"github.com/joshsymonds/orrery/internal/grants"
+	"github.com/joshsymonds/orrery/internal/hostexec"
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
@@ -188,7 +189,7 @@ func (n *NodeChecks) record(ctx context.Context, id string, end store.NodeCheckE
 // when ctx ends before the gate launched.
 func (n *NodeChecks) run(ctx context.Context, repo string, check store.NodeCheck) (store.NodeCheckEnd, error) {
 	worktree := filepath.Join(n.worktrees, check.ID)
-	if err := addStepWorktree(ctx, repo, worktree, check.Revision); err != nil {
+	if err := addStepWorktree(ctx, hostexec.NewLocal(), repo, worktree, check.Revision); err != nil {
 		return n.notStarted(ctx, repo, worktree, check.ID, err)
 	}
 	req, err := n.request(ctx, worktree, check)
@@ -219,7 +220,7 @@ func (n *NodeChecks) run(ctx context.Context, repo string, check store.NodeCheck
 			// Nothing ran, so the worktree is removed and the check is left for a restart to run.
 			cut := fmt.Errorf("run node check %s: %w", check.ID, ctx.Err())
 			return store.NodeCheckEnd{}, errors.Join(
-				cut, removeStepWorktree(context.WithoutCancel(ctx), repo, worktree),
+				cut, removeStepWorktree(context.WithoutCancel(ctx), hostexec.NewLocal(), repo, worktree),
 			)
 		}
 		reason := captureNotStarted(err)
@@ -238,7 +239,9 @@ func (n *NodeChecks) notStarted(
 ) (store.NodeCheckEnd, error) {
 	if ctx.Err() != nil {
 		cut := fmt.Errorf("run node check %s: %w", id, ctx.Err())
-		return store.NodeCheckEnd{}, errors.Join(cut, removeStepWorktree(context.WithoutCancel(ctx), repo, worktree))
+		return store.NodeCheckEnd{}, errors.Join(
+			cut, removeStepWorktree(context.WithoutCancel(ctx), hostexec.NewLocal(), repo, worktree),
+		)
 	}
 	return n.end(ctx, repo, worktree, nil, captureNotStarted(err)), nil
 }
@@ -290,7 +293,7 @@ func (n *NodeChecks) end(
 		ended.Stderr = result.Stderr
 	}
 	cleanErr := errors.Join(
-		removeStepWorktree(context.WithoutCancel(ctx), repo, worktree),
+		removeStepWorktree(context.WithoutCancel(ctx), hostexec.NewLocal(), repo, worktree),
 		gateClear(ctx, holder),
 	)
 	if cleanErr != nil {

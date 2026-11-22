@@ -9,6 +9,7 @@ import (
 	"connectrpc.com/connect"
 
 	v1 "github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1"
+	"github.com/joshsymonds/orrery/internal/hostexec"
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
@@ -110,12 +111,16 @@ func (s *epicService) moveTargetDir(ctx context.Context, session string) (string
 // share a git common directory, so a subdirectory of the repository and a linked worktree of it both pass. An empty dir
 // is refused, since git would read the server's own directory for it.
 func checkInRepository(ctx context.Context, epic store.EpicRow, session, dir string) error {
-	common, err := stepGit(ctx, epic.Repository, "rev-parse", "--path-format=absolute", "--git-common-dir")
+	common, err := stepGit(
+		ctx, hostexec.NewLocal(), epic.Repository, "rev-parse", "--path-format=absolute", "--git-common-dir",
+	)
 	if err != nil {
 		return epicStoreError(fmt.Errorf("resolve repository of epic %s: %w", epic.ID, err))
 	}
 	if dir != "" {
-		target, dirErr := stepGit(ctx, dir, "rev-parse", "--path-format=absolute", "--git-common-dir")
+		target, dirErr := stepGit(
+			ctx, hostexec.NewLocal(), dir, "rev-parse", "--path-format=absolute", "--git-common-dir",
+		)
 		if dirErr == nil && target == common {
 			return nil
 		}

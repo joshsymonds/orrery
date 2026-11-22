@@ -18,6 +18,7 @@ import (
 	"github.com/joshsymonds/orrery/internal/engine/session"
 	"github.com/joshsymonds/orrery/internal/gates"
 	"github.com/joshsymonds/orrery/internal/grants"
+	"github.com/joshsymonds/orrery/internal/hostexec"
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
@@ -96,12 +97,12 @@ const stepCheckRetry = 5 * time.Second
 const apiErrorRateLimit = "rate_limit"
 
 // stepRunConfig is what a stepRun is built from. A writing step may change its worktree: its done return is checked
-// with commitChecks against start and owned in dir, without its owned check when unowned, and with gate when every
-// commit check passes and gate is set. gate
+// with commitChecks against start and owned in dir on host, without its owned check when unowned, and with gate when
+// every commit check passes and gate is set. gate
 // runs holding the members of grant that pools grants, and its check records gateName and gateSource; a nil pools fails
 // the gate. countLines counts the lines a done return's commit changes from start in dir, and newStepRun makes it
-// stepGitLines when nil. stateDir and scope are the state directory and the systemd-run scope the gate's holder runs
-// under. A read-only
+// stepGitLines on host when nil. stateDir and scope are the state directory and the systemd-run scope the gate's
+// holder runs under. A read-only
 // step runs in dir too, and each of its returns is compared with checkout, the state its checkout was in at its start; a
 // moved checkout ends it checks_failed. A read-only step's done return passes on its schema check alone. A nil cleanup
 // has nothing to run. The watch reads now as its clock, time.Now when now is nil, and allows the step modelLimit of model
@@ -133,6 +134,7 @@ type stepRunConfig struct {
 	publish     func(ctx context.Context, id string)
 	wake        func()
 
+	host       hostexec.Host
 	writing    bool
 	dir        string
 	checkout   stepCheckout
@@ -251,8 +253,14 @@ func newStepRun(cfg stepRunConfig) *stepRun {
 	if cfg.publish == nil {
 		cfg.publish = func(context.Context, string) {}
 	}
+	if cfg.host == nil {
+		cfg.host = hostexec.NewLocal()
+	}
 	if cfg.countLines == nil {
-		cfg.countLines = stepGitLines
+		host := cfg.host
+		cfg.countLines = func(ctx context.Context, dir, start, commit string) (store.StepLines, error) {
+			return stepGitLines(ctx, host, dir, start, commit)
+		}
 	}
 	start := cfg.now()
 	return &stepRun{
@@ -829,12 +837,12 @@ func (r *stepRun) endNotDone(ctx context.Context, status string, commit json.Raw
 // the return names no other. The commit is kept instead of the work being lost to the return. It reports whether it
 // ended the step.
 func (r *stepRun) keepJudgedCommit(ctx context.Context, status string, raw json.RawMessage) bool {
-	if !r.writing || r.judgedCommit == "" || !stepGitHeadCheck(ctx, r.dir, r.judgedCommit).OK {
+	if !r.writing || r.judgedCommit == "" || !stepGitHeadCheck(ctx, r.host, r.dir, r.judgedCommit).OK {
 		return false
 	}
 	var named string
 	if err := json.Unmarshal(raw, &named); err == nil && named != "" {
-		resolved, resolveErr := stepGitResolve(ctx, r.dir, named)
+		resolved, resolveErr := stepGitResolve(ctx, r.host, r.dir, named)
 		if resolveErr != nil || resolved != r.judgedCommit {
 			return false
 		}
@@ -851,7 +859,7 @@ func (r *stepRun) checkoutMove(ctx context.Context, round int) (store.StepCheck,
 	if r.checkout == (stepCheckout{}) {
 		return store.StepCheck{}, false
 	}
-	check := stepGitCheckoutCheck(ctx, r.dir, r.checkout)
+	check := stepGitCheckoutCheck(ctx, r.host, r.dir, r.checkout)
 	if check.OK {
 		return store.StepCheck{}, false
 	}
@@ -928,9 +936,9 @@ func (r *stepRun) doneChecks(ctx context.Context, round int, commit string,
 	passed := true
 	var ran []stepCheck
 	if r.unowned {
-		ran = commitChecksWithoutOwned(ctx, r.dir, r.start, commit)
+		ran = commitChecksWithoutOwned(ctx, r.host, r.dir, r.start, commit)
 	} else {
-		ran = commitChecks(ctx, r.dir, r.start, commit, r.owned)
+		ran = commitChecks(ctx, r.host, r.dir, r.start, commit, r.owned)
 	}
 	for _, c := range ran {
 		checks = append(checks, stepLoopRecord(round, c))
@@ -1125,7 +1133,7 @@ func (r *stepRun) stepLoopCommit(ctx context.Context, raw json.RawMessage) strin
 	if err := json.Unmarshal(raw, &commit); err == nil && commit != "" {
 		return commit
 	}
-	head, err := stepGitResolve(ctx, r.dir, "HEAD")
+	head, err := stepGitResolve(ctx, r.host, r.dir, "HEAD")
 	if err != nil || head == r.start {
 		return ""
 	}

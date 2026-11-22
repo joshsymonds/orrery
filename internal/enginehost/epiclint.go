@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os/exec"
 	"path"
 	"path/filepath"
 	"regexp"
@@ -13,6 +12,7 @@ import (
 	"unicode"
 
 	v1 "github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1"
+	"github.com/joshsymonds/orrery/internal/hostexec"
 )
 
 // The reasons a lint refusal gives after its field. A refused element is split into argv elements, or handed to a
@@ -63,7 +63,7 @@ func checkContractLint(contract *v1.EpicContract) error {
 // merge, names a fixed version or waits on CI. Each names its field and reason. It runs after checkContractLint, so each
 // argv element it reads has passed it. A git failure reading a go test's package is returned, so no check passes on it.
 func contractLintWarnings(ctx context.Context, contract *v1.EpicContract) ([]string, error) {
-	base, err := stepGitResolve(ctx, contract.GetRepository(), contract.GetBase())
+	base, err := stepGitResolve(ctx, hostexec.NewLocal(), contract.GetRepository(), contract.GetBase())
 	if err != nil {
 		return nil, err
 	}
@@ -372,10 +372,10 @@ type goTestFunc struct {
 // git grep lists them. TestMain is not a test. A git grep that finds no line is not an error; any other failure of
 // git grep is returned, so no check passes on it.
 func goTestFuncsAtBase(ctx context.Context, repo, base string, scope goTestScope) ([]goTestFunc, error) {
-	out, err := stepGit(ctx, repo, "grep", "-z", "-e", "^func Test", base, "--", scope.pathspec())
+	out, err := stepGit(ctx, hostexec.NewLocal(), repo, "grep", "-z", "-e", "^func Test", base, "--", scope.pathspec())
 	if err != nil {
-		var exit *exec.ExitError
-		if errors.As(err, &exit) && exit.ExitCode() == 1 {
+		var exit *hostexec.GitError
+		if errors.As(err, &exit) && exit.ExitCode == 1 {
 			return nil, nil
 		}
 		return nil, err

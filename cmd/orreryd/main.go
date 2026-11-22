@@ -1046,7 +1046,8 @@ func startSessions(
 			ReadoptCheck: readoptCheck(st, resolve, hosts),
 			ReadoptGate:  readoptGate(st),
 			Stored:       host.storedWake, EpicWake: host.stepEpicWake,
-			Host: hostName,
+			Host:  hostName,
+			Hosts: hosts,
 		})
 		host.steps = steps
 		host.wireStore(st)

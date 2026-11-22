@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 
 	"github.com/joshsymonds/orrery/internal/grants"
+	"github.com/joshsymonds/orrery/internal/hostexec"
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
@@ -76,7 +77,7 @@ func (n *NodeChecks) readoptDrive(ctx context.Context, repo string, check store.
 // found at its path is what a start stopped before the grant left, so it is removed before the check runs again.
 func (n *NodeChecks) readoptUnlaunched(ctx context.Context, repo string, check store.NodeCheck) {
 	worktree := filepath.Join(n.worktrees, check.ID)
-	if err := removeStepWorktree(context.WithoutCancel(ctx), repo, worktree); err != nil {
+	if err := removeStepWorktree(context.WithoutCancel(ctx), hostexec.NewLocal(), repo, worktree); err != nil {
 		n.logger.WarnContext(ctx, "clear worktree of unlaunched node check", "check", check.ID, "err", err)
 		return
 	}

@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/joshsymonds/orrery/internal/gates"
+	"github.com/joshsymonds/orrery/internal/hostexec"
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
@@ -45,17 +46,32 @@ func (s *Steps) Stop(ctx context.Context, id string) error {
 }
 
 // rowRun returns a stepRun for an open step row with no loop, so Stop can end it through finish. Its cleanup removes the
-// row's worktree when the row has one.
+// row's worktree on the row's host when the row has one.
 func (s *Steps) rowRun(row store.StepRow) *stepRun {
 	cfg := stepRunConfig{
 		id: row.ID, sessions: s.sessions, writer: s.writer, logger: s.logger, publish: s.publish, wake: s.stored,
 	}
 	if row.Worktree != "" {
 		cfg.cleanup = func(ctx context.Context) error {
-			return removeStepWorktree(ctx, row.Workspace, row.Worktree)
+			return s.removeRowWorktree(ctx, row)
 		}
 	}
 	return newStepRun(cfg)
+}
+
+// rowHost returns the Host the step row names, which is the host its git and worktrees run on. A name Hosts resolves to
+// no Host is an error matching hostexec.ErrUnknownHost.
+func (s *Steps) rowHost(row store.StepRow) (hostexec.Host, error) {
+	return s.hostNamed(row.Host)
+}
+
+// removeRowWorktree removes the worktree of row on the host row names.
+func (s *Steps) removeRowWorktree(ctx context.Context, row store.StepRow) error {
+	host, err := s.rowHost(row)
+	if err != nil {
+		return err
+	}
+	return removeStepWorktree(ctx, host, row.Workspace, row.Worktree)
 }
 
 // Readopt registers each open step row with adopter before the manager's Reconcile runs, so the manager re-adopts the
@@ -116,6 +132,10 @@ func (s *Steps) readoptRun(ctx context.Context, row store.StepRow) (*stepRun, er
 	if agent != nil && found && turn.Returned {
 		return nil, fmt.Errorf("%w: step %s stored its return before the restart", errStepAgentGateRestarted, row.ID)
 	}
+	host, err := s.rowHost(row)
+	if err != nil {
+		return nil, err
+	}
 	cfg := stepRunConfig{
 		id:         row.ID,
 		schema:     row.Schema,
@@ -124,6 +144,7 @@ func (s *Steps) readoptRun(ctx context.Context, row store.StepRow) (*stepRun, er
 		store:      s.store,
 		writer:     s.writer,
 		logger:     s.logger,
+		host:       host,
 		writing:    !row.ReadOnly,
 		start:      row.Revision,
 		owned:      row.Owned,
@@ -144,18 +165,7 @@ func (s *Steps) readoptRun(ctx context.Context, row store.StepRow) (*stepRun, er
 		publish:    s.publish,
 		wake:       s.stored,
 	}
-	folder := row.Workspace
-	if row.ReadOnly {
-		folder = row.Worktree
-		cfg.dir = row.Worktree
-		// A row started before the checkout was fingerprinted stores no state, so its return is not compared.
-		cfg.checkout = stepCheckout{head: row.CheckoutHead, hash: row.CheckoutHash}
-		cfg.cleanup = func(ctx context.Context) error {
-			return removeStepWorktree(ctx, row.Workspace, row.Worktree)
-		}
-	} else {
-		cfg.dir = row.Workspace
-	}
+	folder := readoptPlace(&cfg, row, host)
 	if len(row.Gate) > 0 {
 		cfg.grant, err = stepGrant(ctx, row.Workspace, row.GateName, row.Gate, storedGrantNeeds(row.GateNeeds),
 			stepGetenv(s.environ))
@@ -184,6 +194,23 @@ func (s *Steps) readoptRun(ctx context.Context, row store.StepRow) (*stepRun, er
 		run.started = row.Started
 	}
 	return run, nil
+}
+
+// readoptPlace sets cfg to run in the place row names on host, and returns the folder the step's calls are bound to. A
+// read-only row runs in its worktree, which is removed when the step ends, and its checkout is compared with the state
+// the row stores. Any other row runs in its workspace.
+func readoptPlace(cfg *stepRunConfig, row store.StepRow, host hostexec.Host) string {
+	if !row.ReadOnly {
+		cfg.dir = row.Workspace
+		return row.Workspace
+	}
+	cfg.dir = row.Worktree
+	// A row started before the checkout was fingerprinted stores no state, so its return is not compared.
+	cfg.checkout = stepCheckout{head: row.CheckoutHead, hash: row.CheckoutHash}
+	cfg.cleanup = func(ctx context.Context) error {
+		return removeStepWorktree(ctx, host, row.Workspace, row.Worktree)
+	}
+	return row.Worktree
 }
 
 // errStepAgentGateRestarted reports a step that runs an agent gate which Readopt does not re-adopt: the Steps has no
@@ -291,7 +318,7 @@ func (s *Steps) endRestarted(ctx context.Context, rows []store.StepRow) error {
 // be removed or cleared is logged and the rest goes on, so one bad row never keeps the others open.
 func (s *Steps) cleanRestartedStep(ctx context.Context, row store.StepRow, adopter StepAdopter) {
 	if row.Worktree != "" {
-		if err := removeStepWorktree(ctx, row.Workspace, row.Worktree); err != nil {
+		if err := s.removeRowWorktree(ctx, row); err != nil {
 			s.logger.WarnContext(ctx, "remove worktree of restarted step", "step", row.ID, "err", err)
 		}
 	}
