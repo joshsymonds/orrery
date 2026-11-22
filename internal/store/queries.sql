@@ -208,6 +208,23 @@ UPDATE sessions
 SET state = ?, changed = ?, seen = ?, question = ?, claude_session = ?, reason = ?
 WHERE id = ? AND kind IN ('engine', 'step');
 
+-- name: SetSessionLatestReply :exec
+UPDATE sessions
+SET latest_reply = sqlc.arg(latest_reply),
+    newest_reply_at = MAX(newest_reply_at, CAST(sqlc.arg(at) AS INTEGER))
+WHERE id = sqlc.arg(id);
+
+-- name: SetSessionLatestRequest :exec
+UPDATE sessions
+SET latest_request_id = sqlc.arg(request_id),
+    newest_reply_at = MAX(newest_reply_at, CAST(sqlc.arg(at) AS INTEGER))
+WHERE id = sqlc.arg(id);
+
+-- name: SetSessionFirstPrompt :exec
+UPDATE sessions
+SET first_prompt_text = sqlc.arg(text)
+WHERE id = sqlc.arg(id) AND first_prompt_text = '';
+
 -- name: UpdateEngineConsumed :execrows
 UPDATE sessions
 SET consumed = sqlc.arg(consumed),
