@@ -688,11 +688,12 @@ func emptyFields(decision string, fields ...field) []string {
 
 // stateRefusals returns the refusals of a rerun, grant or re_brief against the epic's tasks: an after_tasks entry that is
 // this task, no task of the epic, a task that is neither open nor accepted and pending, a task that waits on this one
-// (after_tasks and depends_on both count, directly or through another task), or a task named twice; a file of version.files that planner.FileRefusal refuses, that is already the task's, that is named
-// twice, or that an open task owns or an accepted pending task changed when after_tasks does not name that task; a file
-// of version.remove that is not one of the task's; and a test change that is none of the files the task has once the
-// version removes and adds its files. Any other decision has none. With integrated set, an after_tasks entry a batch has
-// integrated since the step started is not refused, since the wait for it is already over. An ask is refused as the
+// (after_tasks and depends_on both count, directly or through another task), or a task named twice; a file of
+// version.files that planner.FileRefusal refuses, that is already the task's, or that is named twice, a file another
+// task holds being granted at once; a file of version.remove that is not one of the task's; and a test change that is
+// none of the files the task has once the version removes and adds its files. Any other decision has none. With
+// integrated set, an after_tasks entry a batch has integrated since the step started is not refused, since the wait
+// for it is already over. An ask is refused as the
 // task's last decision, since the orchestrator that would read the answer could not run.
 func stateRefusals(ret orchestratorReturn, task store.EpicTask, peers []Peer, integrated bool) []string {
 	if ret.Decision == decisionAsk && task.Build.Decisions+1 >= decisionLimit {
@@ -716,7 +717,7 @@ func stateRefusals(ret orchestratorReturn, task store.EpicTask, peers []Peer, in
 	}
 	files := ret.Version.Files
 	for i, file := range files {
-		if reason := fileRefusal(file, task, peers, ret.AfterTasks, files[:i]); reason != "" {
+		if reason := grantRefusal(file, task, files[:i]); reason != "" {
 			refusals = append(refusals, fmt.Sprintf("version.files[%d]: %s", i, reason))
 		}
 	}
@@ -760,18 +761,30 @@ func filesLeft(task store.EpicTask, remove []string) []string {
 	return slices.DeleteFunc(slices.Clone(task.Files), func(file string) bool { return slices.Contains(remove, file) })
 }
 
-// fileRefusal returns why file may not be granted to task behind after, given the files before it, or "" when it may.
-func fileRefusal(file string, task store.EpicTask, peers []Peer, after []int64, before []string) string {
+// grantRefusal returns why file may not be granted to task, given the files before it, or "" when it may: a path
+// planner.FileRefusal refuses, a file that is already the task's, or a file named twice. A file another task holds is
+// granted at once, as a free file is, so it is not refused here.
+func grantRefusal(file string, task store.EpicTask, before []string) string {
 	if slices.Contains(before, file) {
 		return file + " is named twice"
 	}
-	held := holderOf(file, task, peers)
-	switch {
-	case held.Refused:
-		return file + " is " + held.Text
-	case held.Own:
+	if reason := planner.FileRefusal(file); reason != "" {
+		return file + " is refused: " + reason
+	}
+	if slices.Contains(task.Files, file) {
 		return file + " is already one of the task's files"
 	}
+	return ""
+}
+
+// fileRefusal returns why file may not be granted to task by rule behind after, given the files before it, or "" when
+// it may. It is grantRefusal, and also refuses a file that an open task owns or an accepted pending task changed unless
+// after names that task. The implementer's own grant uses it, so a held file goes to the orchestrator, which decides it.
+func fileRefusal(file string, task store.EpicTask, peers []Peer, after []int64, before []string) string {
+	if reason := grantRefusal(file, task, before); reason != "" {
+		return reason
+	}
+	held := holderOf(file, task, peers)
 	for _, seq := range held.Tasks {
 		if !slices.Contains(after, seq) {
 			return fmt.Sprintf("%s is %s, and after_tasks does not name %s", file, held.Text, taskLabel(seq))
