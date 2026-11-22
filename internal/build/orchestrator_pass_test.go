@@ -330,8 +330,9 @@ func TestOrchestratePassGrantsAFreeFile(t *testing.T) {
 // waitFile is the file task 2 of the wait fixture owns, which task 1's implementer asks for.
 const waitFile = "internal/other/a.go"
 
-// newWaitFixture returns a fixture whose task 2 owns waitFile, and whose task 1 asked for it, could not be granted it,
-// and is at orchestrate with its orchestrator started.
+// newWaitFixture returns a fixture whose task 2 owns waitFile, and whose task 1 asked for it and for a path the planner
+// refuses. A file another task holds is granted by rule, so the refused path keeps the whole request for the
+// orchestrator, and task 1 is at orchestrate with its orchestrator started.
 func newWaitFixture(t *testing.T) *passFixture {
 	t.Helper()
 	const file = waitFile
@@ -341,10 +342,10 @@ func newWaitFixture(t *testing.T) *passFixture {
 	f.runner.PassTasks(f.ctx, passEpic, first)
 	f.addRun(RunID(passEpic, 1, StageRed, 0, 0), evidence.PhaseRed, f.base, 1, evidence.VerdictFails)
 	f.runner.PassTasks(f.ctx, passEpic, first)
-	f.returnRequest(0, "needs_context", "needs the other file", file)
+	f.returnRequest(0, "needs_context", "needs the other file", file, ".git/config")
 	f.runner.PassTasks(f.ctx, passEpic, first)
 	if f.task().Build.Stage != StageOrchestrate {
-		t.Fatalf("build at %q, want orchestrate after the grant was refused", f.task().Build.Stage)
+		t.Fatalf("build at %q, want orchestrate after the request named a refused path", f.task().Build.Stage)
 	}
 	return f
 }
