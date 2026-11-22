@@ -1,169 +1,188 @@
 # LLM accounts and routes
 
-Status: **spec**, for the `llm-accounts` epic. It defines an account, a seat, a context and a binding, the rules a route set must pass before it is stored, and which later epic produces or consumes each part. Code is named by symbol only: a Go package and symbol, or a `.proto` path and its service, message or field.
+This document specifies the LLM accounts orrery routes requests through, and the route registry the gateway serves: the seats a request may be sent to, the contexts that pick a seat, the bindings inside each context, and the default context. It is the reference the later llm-accounts epics build against. It defines what is stored, who writes and who reads it, which rules a registry must pass before it is stored, and which later epic produces or consumes each part.
 
-Orrery stores LLM accounts and routes behind one interface. The gateway (`orrery gateway`, on 127.0.0.1:4110) routes each Anthropic API request to a seat by these rules, and forwards the account tokens these rules name.
+It does not define how the gateway handles a request, how the screens look, or how the limits probe works. Those belong to the epics that build them. Code is named by symbol, never by line.
 
-The examples here use invented names only. Hosts end in `.example.test`, and the profile is `example-profile`. The one real host is `https://api.anthropic.com`, the only upstream a forward seat may use.
+## Terms
 
-## Where the data lives
+- **Account**: one LLM account and the token that authenticates requests sent under it.
+- **Seat**: one destination a request may be sent to, with the way it authenticates.
+- **Context**: a routing table a request names. It holds a default seat, the model bindings, optional subagent routing, and an optional account.
+- **Binding**: one selector mapped to a seat inside a context. The selector is a model name, a subagent's agent type, or a model name a subagent uses.
+- **Route registry**: the seats, the contexts and the default context, stored and replaced as one unit.
 
-The store is `orrery.db`, a SQLite file. orreryd is its one writer. The tables below are the ones this epic's migration adds. As with every orrery table, none declares a foreign key; the rules in [Validation](#validation-routesreplace) and [Account use](#account-use-and-removal) keep the references whole.
+## Owners and interfaces
 
-| Table | Columns | Holds |
-|---|---|---|
-| `llm_accounts` | `id`, `name`, `provider`, `plan`, `token`, `fingerprint`, `created` | one row per account; primary key `id` |
-| `llm_seats` | `id`, `auth_mode`, and one column per seat field below | one row per seat; a column the seat's mode does not take is NULL; primary key `id` |
-| `llm_contexts` | `id`, `default_seat`, `account` | one row per context; `account` is NULL when unset; primary key `id` |
-| `llm_context_subagents` | `context`, `default_seat` | one row for each context that has a subagent policy; primary key `context` |
-| `llm_bindings` | `context`, `kind`, `selector`, `seat` | one row per binding; `kind` is `model`, `agent_type` or `subagent_model`; primary key `(context, kind, selector)` |
-| `llm_default_context` | `context` | one row, naming the default context |
+`orreryd` is the one writer of the store. Every write to an account or to the route registry runs in orreryd, and nothing else opens the store for writing.
 
-The interfaces that touch these tables are:
+`orrery serve` reads accounts and routes from the store through `store.Reader`. It forwards each write to orreryd over the engine `Accounts` service on orreryd's session socket, and waits for orreryd's answer before it replies. Serve never writes the store.
 
-- `proto/orrery/v1/accounts.proto: Accounts` is the client service that `orrery serve` answers. It lists, adds and removes accounts. Its reads come from the store.
-- `proto/orrery/v1/accounts.proto: Routes` is the client service that `orrery serve` answers for the route set. It reads the route set from the store, and `Routes.Replace` replaces the whole route set.
-- `proto/orrery/engine/v1/accounts.proto: Accounts` is the service orreryd serves on its session socket. It carries every account and route write that `orrery serve` forwards. orreryd validates each write and applies it through `store.Store`, its one writer.
-- `store.Reader.RoutesSnapshot` reads the seats, contexts, bindings, default context and account tokens in one read. It is the store's one token-bearing read. The gateway calls it, and so does any orreryd probe that needs a token. `orrery serve` never calls it.
+`orrery gateway` on 127.0.0.1:4110 reads the route registry and the account tokens through `store.Reader.RoutesSnapshot`. That is the gateway's one read, and the only read in this spec that returns a token.
 
-`orrery serve` reads the store and never writes it. Each write it accepts goes to orreryd, which validates it and writes it. A read through `Accounts` or `Routes` never returns a token.
+| Interface | Symbol | Used by |
+| --- | --- | --- |
+| Public accounts | `proto/orrery/v1/accounts.proto: Accounts`, with `Add`, `List`, `Rename` and `Remove` | clients of `orrery serve`, through the accounts screen |
+| Public routes | `proto/orrery/v1/accounts.proto: Routes`, with `Get`, `Replace` and `SetContextAccount` | clients of `orrery serve`, through the routes screen and the switch |
+| Writer | `proto/orrery/engine/v1/accounts.proto: Accounts`, with `AddAccount`, `RenameAccount`, `RemoveAccount`, `ReplaceRoutes` and `SetContextAccount` | `orrery serve` only, on orreryd's session socket; never on the public orrery serve API |
+| Tables | `internal/store/migrations/00095_llm_accounts.sql`: `llm_accounts`, `route_registry`, `route_seats`, `route_contexts`, `route_bindings` | orreryd writes them; `store.Reader` reads them |
+| Token read | `store.Reader.RoutesSnapshot` | the gateway |
+
+The engine service has no read rpc. Reads come from the store, and writes go to orreryd.
 
 ## Account
 
-An account is one Anthropic login the operator has pasted in.
+An account has these fields.
 
-| Field | Rule |
-|---|---|
-| `id` | 32 lowercase hex characters, minted by orreryd when `Accounts.Add` stores the account. A client never supplies it. It is opaque. |
-| `name` | Free text. Required, and not blank. |
-| `provider` | `anthropic` only, for now. Any other value is refused. |
-| `plan` | Free text, and it may be empty. |
-| `token` | The bearer that `claude setup-token` prints, as pasted. Surrounding whitespace is trimmed before the token is stored. Required after trimming. It is stored in plain text in `orrery.db`. Encryption is deferred. |
-| `fingerprint` | The first 12 lowercase hex characters of the SHA-256 digest of the stored token. orreryd computes it once, when the account is stored. It is the only part of the token a list shows. |
+- **id**: opaque, 32 lowercase hex characters, minted by orreryd when the account is added. A caller never chooses it. Stored as `llm_accounts.id`.
+- **name**: as the owner gave it. Required. Rename changes it and nothing else.
+- **provider**: `anthropic`, and nothing else for now. Add refuses any other provider. A second provider needs a change to this section first.
+- **plan**: free text. It may be empty, and is stored as `''` when none is given.
+- **token**: the bearer a `claude setup-token` run prints, pasted by the owner. Required, and kept as given. It is stored in plain text in the `token` column of `llm_accounts` in orrery.db. Encryption is deferred. When it lands, this section changes with it.
+- **fingerprint**: the first 12 lowercase hex characters of the SHA-256 of the token, computed by orreryd when the account is added. It is the only thing any list or answer shows of the token. Stored as `llm_accounts.fingerprint`.
+- **created**: the unix second orreryd stored the account, as `llm_accounts.created`.
 
-The token is the secret. No answer, error or log carries it, and no read except `store.Reader.RoutesSnapshot` returns it. A list shows `id`, `name`, `provider`, `plan` and `fingerprint`.
+The rules that keep the token where it belongs are these.
+
+1. No rpc returns a token. Add, List and Rename, and their engine forms, carry the account without its token. Remove answers with no account.
+2. No error and no log line carries a token. An error names an account by its id and its name.
+3. The one token read this spec defines is `store.Reader.RoutesSnapshot`, and only the gateway calls it.
+4. A stored token goes only to `https://api.anthropic.com`. Only a forward seat sends an account's token, and Routes.Replace admits a forward seat only when its upstream is exactly that URL. The limits probe, when it needs a token, sends it to that URL and nowhere else.
+
+The account operations are these.
+
+- **Add** checks the provider and that the name and the token are present. orreryd mints the id, computes the fingerprint, stores the row and returns the account without its token.
+- **List** returns every account, created ascending and then by id. Serve reads it from the store.
+- **Rename** gives the named account a new name and returns it as it stands. An id that names no account is refused.
+- **Remove** deletes the named account. It refuses an account that a context uses, which means a context whose `account` names it. The refusal names the context ids, and the account stays stored. A removal therefore never leaves a context with a dangling account.
 
 ## Seat
 
-A seat is a reusable upstream destination, with the policy applied when a request goes there. A seat has an `id` and an `auth_mode`, which is `forward`, `inject` or `sigv4`.
+A seat has an `id` and an `auth_mode`. The id follows the id grammar in the validation section. The auth mode is `forward`, `inject` or `sigv4`. Each mode takes only some fields.
 
-Each auth mode takes exactly the fields in its column below. A field the mode does not take is refused. A field the mode requires must be present.
+| Field | forward | inject | sigv4 |
+| --- | --- | --- | --- |
+| `upstream` | yes, exactly `https://api.anthropic.com` | yes | no |
+| `model` | yes | yes | yes |
+| `cache_ttl` | yes | no | no |
+| `max_input_tokens` | yes | yes | yes |
+| `strict_structured_output` | yes | no | no |
+| `billing` | no | yes | no |
+| `api_key_env_file` | no | yes | no |
+| `speed` | no | yes | no |
+| `insecure` | no | yes | no |
+| `strip_cache_control` | no | yes | no |
+| `aws_profile` | no | no | yes |
+| `aws_region` | no | no | yes |
+| `model_map_env_file` | no | no | yes |
+| `strip_betas` | no | no | yes |
 
-| Field | `forward` | `inject` | `sigv4` |
-|---|---|---|---|
-| `upstream` | required; exactly `https://api.anthropic.com` | required; an absolute URL under the rules in [Field rules](#field-rules) | not taken; the endpoint derives from `aws_region` |
-| `model` | optional | optional | optional |
-| `cache_ttl` | optional; `1h` or unset | not taken | not taken |
-| `max_input_tokens` | optional | optional | optional |
-| `strict_structured_output` | optional boolean | not taken | not taken |
-| `billing` | not taken | required; `subscription`, `metered` or `self_hosted` | not taken |
-| `api_key_env_file` | not taken | required; an environment variable name | not taken |
-| `speed` | not taken | optional; `fast` or unset | not taken |
-| `insecure` | not taken | optional boolean | not taken |
-| `strip_cache_control` | not taken | optional boolean | not taken |
-| `aws_profile` | not taken | not taken | required; a profile name |
-| `aws_region` | not taken | not taken | required; a region name |
-| `model_map_env_file` | not taken | not taken | required; not blank |
-| `strip_betas` | not taken | not taken | optional list of beta flag names |
+A field a mode does not take must be empty, `false` or `0` when a registry is replaced. A registry that sets one is refused.
 
 What the fields mean:
 
-- `forward` sends the caller's own credential upstream. When its context names an account, it sends that account's token instead.
-- `inject` sends a key read from the environment variable named by `api_key_env_file`. Its `billing` names who pays for that key, since nothing downstream can tell.
-- `sigv4` signs requests for AWS with the profile `aws_profile` in region `aws_region`. `strip_betas` names the beta flags it withholds.
-- `model` is the upstream model a request is rewritten to, when it is set. An inject seat's model is subject to the rule below.
+- **upstream**: the URL a seat's requests are sent to.
+- **model**: the model the seat sends for. On an inject seat it is the model the request is rewritten to, and it is required on an inject seat that is a subagent destination.
+- **cache_ttl**: the prompt-cache lifetime a forward seat asks for, `1h` or empty.
+- **max_input_tokens**: the largest input the seat sends, in tokens. `0` when none is set. Never negative.
+- **strict_structured_output**: `true` when a forward seat enforces strict structured output.
+- **billing**: the billing class an inject seat declares, `subscription`, `metered` or `self_hosted`. Forward and sigv4 seats derive their class from the credential or the AWS account, so they take no billing field.
+- **api_key_env_file**: the name the gateway validates against the environment-variable grammar, `^[A-Za-z_][A-Za-z0-9_]*$`. It is taken only by an inject seat.
+- **speed**: the speed tier an inject seat asks for, `fast` or empty.
+- **insecure**: `true` allows an inject seat's upstream to be plain http on a host that is not loopback.
+- **strip_cache_control**: `true` removes the cache-control markers from an inject seat's requests.
+- **aws_profile**: the AWS profile a sigv4 seat signs with. Required on sigv4. Lowercase letters, digits, dashes, dots and underscores only. An example is `example-profile`.
+- **aws_region**: the AWS region a sigv4 seat signs for. Required on sigv4. Lowercase letters, digits and dashes only.
+- **model_map_env_file**: the env file that maps a sigv4 seat's model names. Required on sigv4.
+- **strip_betas**: the anthropic-beta flags a sigv4 seat removes from its requests. A JSON array in the store, `[]` when it removes none.
 
-### Field rules
+Examples, with invented hosts and names:
 
-- **Upstream.** An upstream is an absolute URL with a scheme and a host. It has no user information, query or fragment. `https` is allowed. `http` is allowed only for the loopback hosts `127.0.0.1` and `localhost`, and only without `insecure`. `http` to any other host requires `insecure`. Any other scheme is refused. `insecure` is refused with `https`, and with a loopback `http` upstream.
-- **Forward upstream.** It must be exactly `https://api.anthropic.com`. Because that is `https`, a forward seat cannot set `insecure`, and it does not take the field.
-- **Inject model.** When set, it must not contain `claude`, in any letter case.
-- **Inject key variable.** `api_key_env_file` must match `^[A-Za-z_][A-Za-z0-9_]*$`.
-- **Billing.** `billing` is required on an inject seat, and refused on a forward or sigv4 seat, whose billing class comes from the caller's credential or the signing AWS account.
-- **Speed.** `speed` takes only `fast`. It is not a Bedrock request field, so it is refused on a sigv4 seat.
-- **Cache TTL.** `cache_ttl` takes only `1h`, the one prompt-cache lifetime the seat may impose. Only a forward seat takes it.
-- **Strict structured output.** The value must be a JSON boolean. `null` is refused.
-- **Profile and region.** `aws_region` must use only lowercase letters, digits and dashes. `aws_profile` must use only lowercase letters, digits, dashes, dots and underscores. Both are required and not blank.
-- **Model map file.** `model_map_env_file` is required and not blank.
-- **Strip betas.** Each entry must be a non-blank beta flag name with no surrounding whitespace. The names are compared exactly.
-- **Input token limit.** `max_input_tokens` must not be negative.
+```json
+{"id": "example-forward", "auth_mode": "forward",
+ "upstream": "https://api.anthropic.com", "model": "", "cache_ttl": "1h"}
+
+{"id": "example-inject", "auth_mode": "inject",
+ "upstream": "https://models.example.test", "model": "example-model",
+ "billing": "metered", "api_key_env_file": "EXAMPLE_API_KEY"}
+
+{"id": "example-sigv4", "auth_mode": "sigv4", "aws_profile": "example-profile",
+ "aws_region": "example-region-1", "model_map_env_file": "EXAMPLE_MODEL_MAP",
+ "strip_betas": ["example-beta"]}
+```
 
 ## Context
 
-A context is a named set of bindings: the seats one caller's requests may reach, and the default seat for the rest. A context has these fields:
+A context has these fields.
 
-| Field | Rule |
-|---|---|
-| `id` | Matches `^[a-z0-9][a-z0-9-]*$`. |
-| `default_seat` | Required. Names a seat. Used when no binding matches. |
-| `models` | The model bindings, in [Binding](#binding). Optional. |
-| `subagents` | Optional. When set, it holds `default_seat` (required, names a seat), the `agent_type` bindings and the `subagent_model` bindings. |
-| `account` | Optional. Names an account. When unset, the context's forward seats send the caller's own login. |
-
-The `account` field is the one that makes a context a credential choice as well as a route. When it names an account, the context's forward seats send that account's token upstream in place of the caller's credential. Inject and sigv4 seats never send an account token. Their own configured credentials are the only ones they send.
+- **id**: the id a request names. It follows the id grammar.
+- **default_seat**: the seat the context's requests go to when no binding names another. Required, and it names a seat.
+- **models**: the model bindings, a map from a model selector to a seat id. Each selector is non-empty and each seat exists.
+- **subagents**: optional. Unset means the context keeps no subagent routing. Set, it has its own `default_seat` (required, naming a seat), an `agent_types` map from an agent type to a seat id, and a `models` map from a model selector to a seat id. The gateway applies these to the requests it marks as subagent traffic.
+- **account**: optional, the id of a stored account. Unset, empty, means the caller's own login. Set, the context's forward seats send that account's token, and no other seat sends it. A context that names an account but has no forward seat keeps the account and sends nothing with it.
 
 ## Binding
 
-A binding maps a selector, within one context, to a seat id. There are three kinds:
+A binding is one selector mapped to one seat inside one context. A binding has a scope, which says what the selector names.
 
-| Kind | Selector | Matches |
-|---|---|---|
-| `model` | a model name, non-empty | a request whose model is that name |
-| `agent_type` | an agent type, 1 to 256 printable ASCII bytes with no space | a marked subagent request whose agent type is that name, such as the built-in `Explore` |
-| `subagent_model` | a model name, non-empty | a marked subagent request whose model is that name |
+- `model`: a model name. It is a key of the context's `models`.
+- `subagent_agent_type`: a subagent's agent type. It is a key of the subagents' `agent_types`. It must be header-observable: 1 to 256 bytes of printable, non-space ASCII.
+- `subagent_model`: a model name for subagent traffic. It is a key of the subagents' `models`.
 
-A context's `default_seat` and its `subagents.default_seat` are not bindings. They are the fallbacks.
-
-A request takes the first seat that applies, in this order:
-
-1. The `model` binding whose selector is the request's model.
-2. For a marked subagent request: the `agent_type` binding for its agent type; then the `subagent_model` binding for its model; then `subagents.default_seat`.
-3. The context's `default_seat`.
-
-The `agent_type` binding ranks above the `subagent_model` binding because a built-in agent that inherits its session's model names that model on the wire, and the model alone cannot tell it apart.
+The store keeps a binding as one row of `route_bindings`, keyed by context, scope and selector. A context keeps one binding per scope and selector, so a repeated binding is the same row. The seat a binding names must exist.
 
 ## default_context
 
-`default_context` names the context the gateway uses when a request names none. It is stored once, in `llm_default_context`. It must name a context that the route set holds.
+The registry's `default_context` is the id of the context a request names by none. It must name a context in the same registry, so Routes.Replace refuses a registry that names none. It is stored in the one row of `route_registry`.
 
-## Validation: Routes.Replace
+Before any registry is stored, `route_registry` has no row and the registry reads empty: no seats, no contexts, and `default_context` set to `''`. Routes.Get returns that empty registry.
 
-`Routes.Replace` replaces the whole route set: the default context, every seat, every context and every binding. It validates the whole set before it writes anything, and either stores all of it or none of it. The rules are ported from the gateway's registry validation, patchbay at commit 4c28c9f: its `registry.validateDocument` and the seat and context checks under it (`registry.validateSeat`, `registry.validateContext`, `registry.validateSubagents`, `registry.validateUpstream`, `registry.validateAuthFields`). Routes.Replace applies each rule below, and refuses the whole set on the first failure.
+## Validation Routes.Replace applies
 
-1. `default_context` names a context in the set.
-2. Every seat id and every context id matches `^[a-z0-9][a-z0-9-]*$`.
-3. Every seat's `auth_mode` is `forward`, `inject` or `sigv4`. Every seat field is one its mode takes, and every field the mode requires is present. An unknown field is refused.
-4. Every seat passes its field rules in [Field rules](#field-rules).
-5. Every context's `default_seat` names a seat.
-6. Every `model` binding's selector is non-empty, and names a seat.
-7. A `model` binding whose selector contains `claude`, in any letter case, may not name an inject seat.
-8. When a context has `subagents`, its `default_seat` names a seat. Its `agent_type` keys are header-observable: 1 to 256 printable ASCII bytes with no space. Its `agent_type` and `subagent_model` values name seats. Its `subagent_model` selectors are non-empty.
-9. Every seat a subagent binding or a subagent default names, if it is an inject seat, has a non-empty `model`, and that model does not contain `claude`.
-10. A context's `account`, when set, names an account in the store. Routes.Replace refuses an account id that names none.
+Routes.Replace stores the whole registry or refuses it whole. The rules below are ported from the gateway's registry validation in patchbay, `internal/registry/validate.go` at 4c28c9f, and the registry rules run in the order listed. The first failed rule refuses the registry. Each rule that is not a port from the gateway is marked (orrery).
 
-The gateway's `extra_body`, `max_output_tokens` and `capture_bodies` seat fields are not in orrery's seat, so these rules do not check them. The gateway also refuses, at request time, a model name that is another seat's upstream rewrite target. That refusal belongs to the gateway, and Routes.Replace does not make it.
+1. **Ids.** A context id, a seat id and the default context id each match `^[a-z0-9][a-z0-9-]*$`. An id is refused when it is empty, and a seat id or context id that appears twice is refused. (orrery: the duplicate rule, because the store keys each by id.)
+2. **Default context.** `default_context` names a context in the registry.
+3. **Seat fields by mode.** Each seat's `auth_mode` is `forward`, `inject` or `sigv4`. Each field the seat sets is one its mode takes, as the table in the seat section says. (orrery: the mode rule as a whole. The gateway refuses these pairings one field at a time.)
+4. **Upstream.** For a forward or inject seat, `upstream` is an absolute URL with a scheme and a host. It has no user information, no query and no fragment. Its scheme is `https`, or `http` only for the host `127.0.0.1` or `localhost`. An `http` upstream on any other host needs `insecure`, and `insecure` is refused for an `https` upstream and for a loopback `http` upstream. A sigv4 seat sets no `upstream`, because its endpoint comes from `aws_region`.
+5. **Forward seats.** `upstream` is exactly `https://api.anthropic.com`. The seat sets no `api_key_env_file` and no AWS field.
+6. **Inject seats.** `api_key_env_file` is set and matches `^[A-Za-z_][A-Za-z0-9_]*$`. `model`, when set, does not contain `claude` in any letter case. `billing` is set, and it is one of `subscription`, `metered` or `self_hosted`.
+7. **Sigv4 seats.** `upstream` is empty, `api_key_env_file` is empty, and `insecure` is false. `aws_profile`, `aws_region` and `model_map_env_file` are each set and non-empty after trimming. `aws_region` uses only lowercase letters, digits and dashes. `aws_profile` uses only lowercase letters, digits, dashes, dots and underscores.
+8. **Speed and billing.** `speed` is `fast` or empty, and only an inject seat sets it. `billing` is only an inject seat's field, and an inject seat sets it.
+9. **strip_betas.** Only a sigv4 seat sets it.
+10. **cache_ttl.** `cache_ttl` is `1h` or empty, and only a forward seat sets it. The gateway also refuses it alongside `strip_cache_control`. Here a forward seat takes no `strip_cache_control`, so rule 3 refuses that pairing.
+11. **max_input_tokens.** Never negative.
+12. **Context models.** Each `models` selector is non-empty and names a seat. An inject seat is never bound to a selector that contains `claude` in any letter case.
+13. **Context default seat.** `default_seat` names a seat.
+14. **Subagents.** When a context has `subagents`, its `default_seat` names a seat, and each seat it routes to is a valid subagent destination. Each `agent_types` key is a header-observable agent type, 1 to 256 bytes of printable, non-space ASCII, and names a seat. Each `models` selector is non-empty and names a seat.
+15. **Subagent destinations.** A subagent destination that is an inject seat needs a non-empty `model`, and that `model` does not contain `claude` in any letter case.
+16. **Context account.** When a context's `account` is set, it names a stored account. (orrery: the reference rule. It keeps a context from naming an account that does not exist, and Accounts.Remove keeps a stored account from being removed under a context.)
 
-## Account use and removal
+A refusal names the context, the seat or the selector at fault, and never a token. Because the registry carries no token, a refusal cannot carry one.
 
-- A context uses an account when its `account` field names that account.
-- `Accounts.Remove` refuses an account that any context uses. Its refusal names the contexts, and never the token. To remove such an account, first replace the route set with that context's `account` unset.
-- `Accounts.Remove` removes an account that no context uses, and its token goes with its row.
+Routes.SetContextAccount sets only one context's `account`. It refuses an unknown context, and an account that is neither empty nor a stored account. Its answer is the registry as it stands.
 
-## Token handling
+## Tokens and the gateway
 
-- Tokens are stored in plain text in `orrery.db`. Encryption is deferred.
-- A token goes only to `https://api.anthropic.com`. The only seat that sends an account token is a forward seat, and Routes.Replace admits a forward seat only with that exact upstream. No inject or sigv4 seat sends an account token. A probe that uses a token, such as the limits probe below, sends it only there too.
-- No answer, error or log carries a token. Lists show the fingerprint, and never the token.
-- `store.Reader.RoutesSnapshot` is the only read that returns a token. Every consumer that needs one, the gateway and any orreryd probe, calls it.
+`store.Reader.RoutesSnapshot` reads, in one read transaction that writes nothing, the route registry and the token of each account a context names. The gateway serves each request from that one snapshot. A context whose `account` is unset carries no token, and its forward seats send the caller's own login.
+
+The gateway sends each token it reads only to `https://api.anthropic.com`, as the forward rule requires. `RoutesSnapshot` is the one token-bearing read this spec defines. A later epic that needs a token another way must add that read to this document before it ships, and it holds that read to the token rules above.
+
+The limits probe is such a case. It probes each account, and `RoutesSnapshot` returns a token only for an account a context names, so an account no context uses has no token in that read. The limits epic adds its token read to this document before it ships.
 
 ## Who produces and consumes each part
 
-| Part | Later epic | Role |
-|---|---|---|
-| Accounts: add, list and remove | accounts and routes screens | produces, through `Accounts` |
-| The route set: seats, contexts, bindings and default context | accounts and routes screens | produces, through `Routes.Replace` |
-| A context's `account` (the switch) | accounts and routes screens | produces. The switch sets the context's `account` with `Routes.Replace`. |
-| Seats, contexts, bindings, default context and account tokens | gateway (`orrery gateway`, on 127.0.0.1:4110) | consumes, through `store.Reader.RoutesSnapshot` |
-| Each account and its token | limits | consumes. It probes each account with that account's token, through `store.Reader.RoutesSnapshot`, and sends the token only to `https://api.anthropic.com`. |
-| Usage per account | inbox band | consumes. It shows the usage the limits probes read, for each account, labelled with the account's name and fingerprint. |
-| The gateway's routes file (`routes.json`) | cutover | consumes once. It imports the file into the store, checking it with the rules in [Validation](#validation-routesreplace), then moves the gateway's traffic from the file to the store. The file is not copied into the repository. |
+| Part | Produced by | Consumed by |
+| --- | --- | --- |
+| Account (id, name, provider, plan, fingerprint) | accounts and routes screens, through Accounts.Add, Rename and Remove | inbox band, which shows usage per account by id, name and fingerprint and never by token; limits, which probes each account |
+| Account token | accounts and routes screens, through Accounts.Add | gateway, through `store.Reader.RoutesSnapshot`; limits, which needs a token read this spec does not yet define (see Tokens and the gateway) and sends the token only to `https://api.anthropic.com` |
+| Seat | accounts and routes screens, through Routes.Replace; cutover, which imports routes.json once through the same rules | gateway, through `store.Reader.RoutesSnapshot` |
+| Context and binding | accounts and routes screens, through Routes.Replace; cutover, which imports routes.json once through the same rules | gateway, through `store.Reader.RoutesSnapshot` |
+| Default context | accounts and routes screens, through Routes.Replace; cutover | gateway, through `store.Reader.RoutesSnapshot` |
+| Context account | the switch in the accounts and routes screens, through Routes.SetContextAccount | gateway, which uses the token for the forward seats of that context |
+
+Cutover leaves every context's account unset when it imports routes, so each forward seat sends the caller's own login until the switch sets an account. Cutover then moves traffic to the gateway.
+
+## Out of scope
+
+This document is the spec only. It leaves to the later epics the gateway's request handling, the accounts and routes screens, the switch button, the limits probe, the inbox band and the cutover import. Token encryption is deferred, and this spec changes no patchbay code.
