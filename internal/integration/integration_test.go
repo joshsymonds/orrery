@@ -196,15 +196,14 @@ type outcome struct {
 // runOrrery runs the built orrery with args, stdin, and env added to the test's environment.
 func runOrrery(t *testing.T, stdin string, env []string, args ...string) outcome {
 	t.Helper()
-	return runCommand(t, "", "orrery", stdin, append(os.Environ(), env...), args...)
+	return runCommand(t, "orrery", stdin, append(os.Environ(), env...), args...)
 }
 
-// runCommand runs the built binary name with args in dir ("" keeps the test's directory) and env, which is the
-// whole environment, and returns what it printed and how it exited.
-func runCommand(t *testing.T, dir, name, stdin string, env []string, args ...string) outcome {
+// runCommand runs the built binary name with args in the test's directory and env, which is the whole environment,
+// and returns what it printed and how it exited.
+func runCommand(t *testing.T, name, stdin string, env []string, args ...string) outcome {
 	t.Helper()
 	cmd := exec.CommandContext(t.Context(), filepath.Join(os.Getenv(binDirEnv), name), args...)
-	cmd.Dir = dir
 	cmd.Stdin = strings.NewReader(stdin)
 	cmd.Env = env
 	var stdout, stderr bytes.Buffer
@@ -1626,7 +1625,7 @@ func TestOrrerydUsageExitCodes(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			out := runCommand(t, "", "orreryd", "", scrubbedEnv("XDG_STATE_HOME="+t.TempDir()), tc.args...)
+			out := runCommand(t, "orreryd", "", scrubbedEnv("XDG_STATE_HOME="+t.TempDir()), tc.args...)
 			wantExit(t, out, 2)
 			if !strings.HasPrefix(out.stderr, "orreryd: ") {
 				t.Fatalf("stderr %q, want orreryd: prefix", out.stderr)
@@ -3732,7 +3731,7 @@ func TestServeRefusesNonLoopbackListen(t *testing.T) {
 		t.Run(listen, func(t *testing.T) {
 			t.Parallel()
 			env := scrubbedEnv("XDG_STATE_HOME=" + t.TempDir())
-			out := runCommand(t, "", "orrery", "", env, "-L", unusedServer, "serve",
+			out := runCommand(t, "orrery", "", env, "-L", unusedServer, "serve",
 				"--listen", listen, "--allow-login", exampleLogin)
 			wantExit(t, out, 1)
 			if !strings.Contains(out.stderr, "is not a loopback IP literal") {
@@ -3758,7 +3757,7 @@ func TestServeUsageExitCodes(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			args := append([]string{"-L", unusedServer, "serve"}, tc.args...)
-			out := runCommand(t, "", "orrery", "", scrubbedEnv("XDG_STATE_HOME="+t.TempDir()), args...)
+			out := runCommand(t, "orrery", "", scrubbedEnv("XDG_STATE_HOME="+t.TempDir()), args...)
 			wantExit(t, out, 2)
 			if !strings.HasPrefix(out.stderr, "orrery: ") || !strings.Contains(out.stderr, "  serve --listen ADDR") {
 				t.Fatalf("stderr %q, want an orrery: message and usage text that lists serve", out.stderr)

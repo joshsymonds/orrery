@@ -65,7 +65,7 @@ func (f *engineFixture) urlSessionDir(t *testing.T, name string) string {
 // urlSession runs `orrery session --url proxy ARGS...` in the client environment env.
 func urlSession(t *testing.T, env []string, proxy string, args ...string) outcome {
 	t.Helper()
-	return runCommand(t, "", "orrery", "", env, append([]string{"session", "--url", proxy}, args...)...)
+	return runCommand(t, "orrery", "", env, append([]string{"session", "--url", proxy}, args...)...)
 }
 
 // startViaURL runs `session --url proxy start --model haiku DIR PROMPT` and returns the id it prints.
@@ -100,7 +100,7 @@ func TestEngineCLIURLSessionVerbs(t *testing.T) {
 	proxy := startLoginProxy(t, base)
 	env := f.urlClientEnv(t)
 
-	noURL := runCommand(t, "", "orrery", "", env, "session", "start", f.engineHome(t), "hello")
+	noURL := runCommand(t, "orrery", "", env, "session", "start", f.engineHome(t), "hello")
 	wantExit(t, noURL, 1)
 	if !strings.Contains(noURL.stderr, "no daemon socket") {
 		t.Fatalf("session without --url stderr %q, want a no daemon socket failure", noURL.stderr)

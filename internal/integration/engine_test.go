@@ -136,7 +136,7 @@ func (f *engineFixture) startOrreryd(t *testing.T, sessions bool, extra ...strin
 // orrery runs the built orrery CLI with the fixture's environment.
 func (f *engineFixture) orrery(t *testing.T, args ...string) outcome {
 	t.Helper()
-	return runCommand(t, "", "orrery", "", f.env, args...)
+	return runCommand(t, "orrery", "", f.env, args...)
 }
 
 // sessionDir makes and returns the directory a session named name starts in.
