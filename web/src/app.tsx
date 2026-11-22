@@ -1127,7 +1127,6 @@ export function App({
             {
               label: view === "archived" ? "Unarchive" : "Archive",
               icon: "archive" as const,
-              kbd: "A",
               onSelect: () => setArchive(row, view !== "archived"),
             },
           ]),
@@ -2080,7 +2079,6 @@ export function App({
     index,
     flat,
     waitKeys,
-    view,
     cursorItem,
     cursorRow,
     cursorRowKey,
@@ -2096,7 +2094,6 @@ export function App({
     waitTo: keyMoved(waitTo),
     nextUnseen: keyMoved(nextUnseen),
     writeSeen,
-    setArchive,
     escapeRow,
     replyBoxTarget,
     focusCursorRow,
