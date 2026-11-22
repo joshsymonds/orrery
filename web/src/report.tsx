@@ -2,6 +2,7 @@ import type { JSX } from "preact";
 import { useEffect, useState } from "preact/hooks";
 
 import type { ReportView } from "./ending";
+import { Icon } from "./glyphs";
 import { type CallOutcome, useOwnerCall } from "./ownercall";
 import { Sheet } from "./sheet";
 
@@ -154,9 +155,10 @@ export function EpicReport(props: {
   );
   return (
     <section class="report" aria-label="Report">
-      <header class="sec-head">
-        <h3>Report</h3>
-      </header>
+      <div class="sec" data-hue="5">
+        <Icon name="doc" />
+        <span class="name">Report</span>
+      </div>
       <p class="now-sentence">{view.sentence}</p>
       {view.why !== "" && <p class="report-why">{view.why}</p>}
       {(view.shipped !== "" || view.notShipped !== "") && (
