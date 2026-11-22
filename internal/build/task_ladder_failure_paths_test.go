@@ -42,7 +42,7 @@ func ladderPathsCheckingVersion(f *passFixture, from store.TaskBuild) {
 		Source: store.SourceOrchestrator, Step: "orch-step", Reason: "the evidence moved", Evidence: &item,
 	}
 	decision := store.TaskDecision{ID: "T1-request-1", Text: "T1 rerun: the evidence moved"}
-	if err := f.store.RerunTask(f.ctx, passEpic, 1, from, to, version, nil, decision, passClock()); err != nil {
+	if err := f.store.RerunTask(f.ctx, passEpic, 1, from, to, version, decision, passClock()); err != nil {
 		f.t.Fatalf("RerunTask: %v", err)
 	}
 }

@@ -41,7 +41,7 @@ func TestTaskRepairsGrantRerunStoresTheRefusedFilesWithItsDecision(t *testing.T)
 	to.Rerun = 1
 	decision := TaskDecision{ID: "T1-request-3", Text: "T1 grant b.go", Refused: []string{"c.go"}}
 	version := TaskVersionInput{Source: SourceOrchestrator, Files: []string{"b.go"}}
-	if err := s.RerunTask(ctx, climbEpic, 1, from, to, version, nil, decision, climbedAt()); err != nil {
+	if err := s.RerunTask(ctx, climbEpic, 1, from, to, version, decision, climbedAt()); err != nil {
 		t.Fatalf("RerunTask: %v", err)
 	}
 	task := climbTaskOf(ctx, t, s, 1)
@@ -86,13 +86,13 @@ func TestTaskRepairsGrantRefusalKeepsTheFirstDecisionThatRefusedIt(t *testing.T)
 	seedClimbTask(t, s, from)
 	first := from
 	first.Rerun = 1
-	if err := s.RerunTask(ctx, climbEpic, 1, from, first, TaskVersionInput{Source: SourceOrchestrator}, nil,
+	if err := s.RerunTask(ctx, climbEpic, 1, from, first, TaskVersionInput{Source: SourceOrchestrator},
 		TaskDecision{ID: "T1-request-1", Text: "T1 rerun", Refused: []string{"c.go"}}, climbedAt()); err != nil {
 		t.Fatalf("first RerunTask: %v", err)
 	}
 	second := first
 	second.Rerun = 2
-	if err := s.RerunTask(ctx, climbEpic, 1, first, second, TaskVersionInput{Source: SourceOrchestrator}, nil,
+	if err := s.RerunTask(ctx, climbEpic, 1, first, second, TaskVersionInput{Source: SourceOrchestrator},
 		TaskDecision{ID: "T1-request-2", Text: "T1 rerun again", Refused: []string{"c.go"}}, climbedAt()); err != nil {
 		t.Fatalf("second RerunTask: %v", err)
 	}
@@ -114,14 +114,14 @@ func TestTaskRepairsGrantGrantedFileIsNoLongerRefused(t *testing.T) {
 	seedClimbTask(t, s, from)
 	refusing := from
 	refusing.Rerun = 1
-	if err := s.RerunTask(ctx, climbEpic, 1, from, refusing, TaskVersionInput{Source: SourceOrchestrator}, nil,
+	if err := s.RerunTask(ctx, climbEpic, 1, from, refusing, TaskVersionInput{Source: SourceOrchestrator},
 		TaskDecision{ID: "T1-request-1", Text: "T1 rerun", Refused: []string{"c.go"}}, climbedAt()); err != nil {
 		t.Fatalf("refusing RerunTask: %v", err)
 	}
 	granting := refusing
 	granting.Rerun = 2
 	version := TaskVersionInput{Source: SourceOrchestrator, Files: []string{"c.go"}}
-	if err := s.RerunTask(ctx, climbEpic, 1, refusing, granting, version, nil,
+	if err := s.RerunTask(ctx, climbEpic, 1, refusing, granting, version,
 		TaskDecision{ID: "T1-request-2", Text: "T1 grant c.go"}, climbedAt()); err != nil {
 		t.Fatalf("granting RerunTask: %v", err)
 	}
@@ -146,7 +146,7 @@ func TestTaskRepairsGrantRefusedOwnedFileWritesNothing(t *testing.T) {
 	to := from
 	to.Rerun = 1
 	decision := TaskDecision{ID: "T1-request-1", Text: "T1 rerun", Refused: []string{"a.go"}}
-	if err := s.RerunTask(ctx, climbEpic, 1, from, to, TaskVersionInput{Source: SourceOrchestrator}, nil, decision,
+	if err := s.RerunTask(ctx, climbEpic, 1, from, to, TaskVersionInput{Source: SourceOrchestrator}, decision,
 		climbedAt()); err == nil {
 		t.Fatal("RerunTask refusing an owned file = nil, want an error")
 	}

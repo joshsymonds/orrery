@@ -377,12 +377,12 @@ func TestOrchestratePassGrantsAnOwnedFileBehindItsOwnerAndWaits(t *testing.T) {
 	}
 }
 
-func TestOrchestratePassGrantRefusedByTheStoreSettlesAsBefore(t *testing.T) {
+func TestOrchestratePassGrantOfAHeldFileIsStoredWhenItsHolderReopens(t *testing.T) {
 	t.Parallel()
 	const file = waitFile
 	f := newWaitFixture(t)
 	// The step's check saw T2 as accepted and pending, and T2 opened again before the decision was carried out: the
-	// store refuses the grant of its file, since after_tasks does not name it.
+	// store grants the file anyway, since tasks may share a file.
 	peers := []Peer{{Task: f.task()}}
 	ret := orchReturn(t, map[string]any{"decision": "grant", "version": filesVersion("internal/c.go", file)})
 	if got := OrchestratorCheck(f.task(), peers)(json.RawMessage(ret)); len(got) != 0 {
@@ -392,16 +392,19 @@ func TestOrchestratePassGrantRefusedByTheStoreSettlesAsBefore(t *testing.T) {
 		ID: passStep(StageImplement, 1, 0), End: endReturned, Status: "needs_context",
 		Result: `{"status":"needs_context","summary":"needs the other file","needs_files":["` + file + `"]}`,
 	}, Step: orchDone(ret), Peers: peers}
-	before := ladderClimbBefore(f, 1)
+	ladderClimbBefore(f, 1)
 	if !f.runner.execute(f.ctx, f.epic(), view, Decide(view)) {
-		t.Fatal("execute changed nothing, want the fallback carried out")
+		t.Fatal("execute changed nothing, want the grant carried out")
 	}
-	want := "returned needs_context: needs the other file; orreryd refused the orchestrator's grant: " +
-		file + " is owned by open task T2"
-	if task := f.task(); task.Build.Failure != want {
-		t.Fatalf("task failure %q, want %q", task.Build.Failure, want)
+	task := f.task()
+	if task.Build.Stage != StageImplement || !slices.Contains(task.Files, "internal/c.go") ||
+		!slices.Contains(task.Files, file) {
+		t.Errorf("build stage %q files %v, want implement with the granted files including %s", task.Build.Stage,
+			task.Files, file)
 	}
-	ladderClimbCheck(f, store.RungOf(before), store.MovedByUnit)
+	if strings.Contains(task.Build.Failure, "refused") {
+		t.Errorf("task failure %q, want no refusal of the grant", task.Build.Failure)
+	}
 }
 
 // integrateTask accepts open task seq of the fixture's epic and ends a passed integrate batch that composed it as

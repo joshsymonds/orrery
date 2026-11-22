@@ -162,7 +162,6 @@ func TestTaskLadderApproachRunsTwoAttempts(t *testing.T) {
 		store.TaskVersionInput{
 			Source: store.SourceApproach, Reason: ladderApproachWaitReason, Deliverable: &deliverable,
 		},
-		nil,
 		store.TaskDecision{ID: "T1-approach", Text: "T1 change of approach: " + ladderApproachWaitReason},
 		passClock(),
 	)

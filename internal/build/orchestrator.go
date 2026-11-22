@@ -967,10 +967,7 @@ func carry(view View, ret orchestratorReturn, fallback Action) Action {
 		next.Held = HeldWaiting
 		next.After = afterText(ret.AfterTasks)
 	}
-	return Action{
-		Kind: ActDecide, Next: next, Behind: ret.AfterTasks, Decision: decision, Version: versionInput(view, ret),
-		Fallback: &fallback,
-	}
+	return Action{Kind: ActDecide, Next: next, Decision: decision, Version: versionInput(view, ret)}
 }
 
 // fallbackText returns the failure orreryd gives the implementer's step a decision answers: the failure fallback moves

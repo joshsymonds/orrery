@@ -6,9 +6,9 @@ import (
 	"testing"
 )
 
-// TestSharedFilesAcceptedOwnedCheckStillFails: a file another task holds is accepted in a task's own files, but the owned
-// check reads only the task's own files. A commit that changes the shared file outside the task's files fails the owned
-// check and names it; the same commit passes once the task lists the file among its own.
+// TestSharedFilesAcceptedOwnedCheckStillFails: a file another task holds is accepted in a task's own files, but the
+// owned check reads only the task's own files. A commit that changes the shared file outside the task's files fails the
+// owned check and names it; the same commit passes once the task lists the file among its own.
 func TestSharedFilesAcceptedOwnedCheckStillFails(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
