@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"testing"
 	"time"
 
@@ -16,15 +17,30 @@ import (
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
-// Session row ids, epic ids and contract ids of the steering tests, with invented values. The headless id is 32 hex
-// digits, as session ids are.
+// Session row ids, epic ids and contract ids of the steering tests, with invented values. The cases of
+// TestInboxStatesSteers share one store, so each case has a pane and a headless session of its own. The headless ids
+// are 32 hex digits, as session ids are.
 const (
-	steersPaneID       = "orrery-steers-pane"
-	steersHeadlessID   = "3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d"
-	steersPaneEpic     = "repoa/steers-pane"
-	steersHeadEpic     = "repoa/steers-headless"
-	steersPaneContract = "repoa/steers-pane-contract"
-	steersHeadContract = "repoa/steers-headless-contract"
+	steersLivePane     = "orrery-steers-live"
+	steersLiveHead     = "3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d"
+	steersProposedPane = "orrery-steers-proposed"
+	steersProposedHead = "3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e"
+	steersFinalPane    = "orrery-steers-final"
+	steersFinalHead    = "3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f"
+	steersAfterPane    = "orrery-steers-after"
+	steersAfterHead    = "40404040404040404040404040404040"
+	steersFailPane     = "orrery-steers-failing"
+	steersFailHead     = "41414141414141414141414141414141"
+	steersUnimplPane   = "orrery-steers-unimplemented"
+	steersUnimplHead   = "42424242424242424242424242424242"
+
+	steersPaneEpic = "repoa/steers-pane"
+	steersHeadEpic = "repoa/steers-headless"
+
+	steersProposedPaneContract = "repoa/steers-proposed-pane-contract"
+	steersProposedHeadContract = "repoa/steers-proposed-headless-contract"
+	steersFinalHeadContract    = "repoa/steers-final-headless-contract"
+	steersAfterHeadContract    = "repoa/steers-after-headless-contract"
 )
 
 // steersStart is the fixed clock of the steering tests.
@@ -66,17 +82,33 @@ func steersEpic(id, phase, steerer string) *enginev1.EpicSummary {
 	return &enginev1.EpicSummary{Id: id, Phase: phase, Steerer: steerer}
 }
 
-// steersStore returns the path of a store holding the pane steersPaneID and the headless session steersHeadlessID, each
-// changed at steersChangedAt and closed for that change time.
-func steersStore(t *testing.T) string {
+// seedSteersCases writes the rows of the cases of TestInboxStatesSteers into the store at path. The headless sessions
+// are added in one write at steersChangedAt. Each pane is synced at that time, and each pane and headless session is
+// closed for that change time by a verdict stamped at steersStart. The proposed contracts name their conversations.
+func seedSteersCases(t *testing.T, path string) {
 	t.Helper()
-	path := archiveStorePath(t)
 	changed := steersChangedAt()
-	applyHeadlessAt(t, path, changed, store.EngineAdd{ID: steersHeadlessID, Dir: "/work/steers", State: "idle"})
-	syncEndedPane(t, path, steersPaneID, "idle", changed)
-	setClosureVerdict(t, path, closureVerdictOf(steersPaneID, changed, true), steersStart())
-	setClosureVerdict(t, path, closureVerdictOf(steersHeadlessID, changed, true), steersStart())
-	return path
+	panes := []string{
+		steersLivePane, steersProposedPane, steersFinalPane, steersAfterPane, steersFailPane, steersUnimplPane,
+	}
+	heads := []string{
+		steersLiveHead, steersProposedHead, steersFinalHead, steersAfterHead, steersFailHead, steersUnimplHead,
+	}
+	adds := make([]store.EngineOp, 0, len(heads))
+	for _, id := range heads {
+		adds = append(adds, store.EngineAdd{ID: id, Dir: "/work/steers", State: "idle"})
+	}
+	applyHeadlessAt(t, path, changed, adds...)
+	for _, pane := range panes {
+		syncEndedPane(t, path, pane, "idle", changed)
+	}
+	for _, id := range slices.Concat(panes, heads) {
+		setClosureVerdict(t, path, closureVerdictOf(id, changed, true), steersStart())
+	}
+	proposeSteersContract(t, path, steersProposedPaneContract, steersProposedPane, changed)
+	proposeSteersContract(t, path, steersProposedHeadContract, steersProposedHead, changed)
+	proposeSteersContract(t, path, steersFinalHeadContract, steersFinalHead, changed)
+	proposeSteersContract(t, path, steersAfterHeadContract, steersAfterHead, changed)
 }
 
 // proposeSteersContract proposes the contract id with writer as its conversation, at at, in the store at path, and
@@ -118,78 +150,94 @@ func steersClient(t *testing.T, path string, epics EpicStoreClient) orreryv1conn
 	return orreryv1connect.NewSessionsClient(srv.Client(), srv.URL)
 }
 
-// expectSteersEnded lists the store at path through Sessions.List and ListHeadless over epics, and fails the test unless
-// the pane steersPaneID has the ended state wantPane and the headless session has wantHeadless.
+// pickStates returns the entries of states whose ids are among ids. A store holds the rows of every case, so a case
+// reads only its own rows, and a row it names that is absent is absent from the result.
+func pickStates[V any](states map[string]V, ids ...string) map[string]V {
+	picked := make(map[string]V, len(ids))
+	for _, id := range ids {
+		if state, ok := states[id]; ok {
+			picked[id] = state
+		}
+	}
+	return picked
+}
+
+// expectSteersEnded lists the store through sessions, by Sessions.List and ListHeadless, and fails the test unless the
+// pane and the headless session of one case have the ended states wantPane and wantHeadless.
 func expectSteersEnded(
-	t *testing.T, step, path string, epics EpicStoreClient, wantPane, wantHeadless endedRowState,
+	t *testing.T, step string, sessions orreryv1connect.SessionsClient, pane, headless string,
+	wantPane, wantHeadless endedRowState,
 ) {
 	t.Helper()
-	sessions := steersClient(t, path, epics)
-	expectEnded(t, step+" Sessions.List", endedStates(listSessionRows(t, sessions)),
-		map[string]endedRowState{steersPaneID: wantPane})
-	expectEnded(t, step+" ListHeadless", endedStates(listHeadlessRows(t, sessions)),
-		map[string]endedRowState{steersHeadlessID: wantHeadless})
+	panes := pickStates(endedStates(listSessionRows(t, sessions)), pane)
+	expectEnded(t, step+" Sessions.List", panes, map[string]endedRowState{pane: wantPane})
+	headlessStates := pickStates(endedStates(listHeadlessRows(t, sessions)), headless)
+	expectEnded(t, step+" ListHeadless", headlessStates, map[string]endedRowState{headless: wantHeadless})
 }
 
-func TestInboxStatesSteersLiveEpicHoldsRowsOpen(t *testing.T) {
+// TestInboxStatesSteers holds the cases of the steering rule: a conversation that steers a live epic, or that a proposed
+// contract names, is never ended. The cases share the store seedSteersCases writes. The case that sets its contract
+// aside runs in order, before the cases that only read, and those run in parallel on their own rows.
+func TestInboxStatesSteers(t *testing.T) {
 	t.Parallel()
-	path := steersStore(t)
-	epics := &steersEpics{summaries: []*enginev1.EpicSummary{
-		steersEpic(steersPaneEpic, "accepted", steersPaneID),
-		steersEpic(steersHeadEpic, "accepted", steersHeadlessID),
-	}}
+	path := archiveStorePath(t)
+	seedSteersCases(t, path)
 	none := endedRowState{}
-	expectSteersEnded(t, "live epics", path, epics, none, none)
-}
+	ended := endedRowState{ended: true, endedAt: steersChangedAt().Unix()}
 
-func TestInboxStatesSteersProposedContractHoldsRowsOpen(t *testing.T) {
-	t.Parallel()
-	path := steersStore(t)
-	proposeSteersContract(t, path, steersPaneContract, steersPaneID, steersChangedAt())
-	proposeSteersContract(t, path, steersHeadContract, steersHeadlessID, steersChangedAt())
-	none := endedRowState{}
-	expectSteersEnded(t, "proposed contracts", path, &steersEpics{}, none, none)
-}
+	t.Run("LiveEpicHoldsRowsOpen", func(t *testing.T) {
+		t.Parallel()
+		epics := &steersEpics{summaries: []*enginev1.EpicSummary{
+			steersEpic(steersPaneEpic, "accepted", steersLivePane),
+			steersEpic(steersHeadEpic, "accepted", steersLiveHead),
+		}}
+		expectSteersEnded(t, "live epics", steersClient(t, path, epics), steersLivePane, steersLiveHead, none, none)
+	})
 
-func TestInboxStatesSteersEndedOnceEpicFinalAndContractSetAside(t *testing.T) {
-	t.Parallel()
-	path := steersStore(t)
-	epics := &steersEpics{summaries: []*enginev1.EpicSummary{steersEpic(steersPaneEpic, "accepted", steersPaneID)}}
-	proposeSteersContract(t, path, steersHeadContract, steersHeadlessID, steersChangedAt())
-	none := endedRowState{}
-	expectSteersEnded(t, "while live and proposed", path, epics, none, none)
+	t.Run("ProposedContractHoldsRowsOpen", func(t *testing.T) {
+		t.Parallel()
+		sessions := steersClient(t, path, &steersEpics{})
+		expectSteersEnded(t, "proposed contracts", sessions, steersProposedPane, steersProposedHead, none, none)
+	})
 
-	epics.summaries = []*enginev1.EpicSummary{steersEpic(steersPaneEpic, "released", steersPaneID)}
-	setAsideSteersContract(t, path, steersHeadContract, steersStart())
-	want := endedRowState{ended: true, endedAt: steersChangedAt().Unix()}
-	expectSteersEnded(t, "once final and set aside", path, epics, want, want)
-}
+	t.Run("EndedOnceEpicFinalAndContractSetAside", func(t *testing.T) {
+		epics := &steersEpics{summaries: []*enginev1.EpicSummary{
+			steersEpic(steersPaneEpic, "accepted", steersFinalPane),
+		}}
+		sessions := steersClient(t, path, epics)
+		expectSteersEnded(t, "while live and proposed", sessions, steersFinalPane, steersFinalHead, none, none)
 
-func TestInboxStatesSteersProposedContractHoldsAfterEpicFinal(t *testing.T) {
-	t.Parallel()
-	path := steersStore(t)
-	proposeSteersContract(t, path, steersHeadContract, steersHeadlessID, steersChangedAt())
-	epics := &steersEpics{summaries: []*enginev1.EpicSummary{steersEpic(steersPaneEpic, "released", steersPaneID)}}
-	expectSteersEnded(t, "epic final, contract proposed", path, epics,
-		endedRowState{ended: true, endedAt: steersChangedAt().Unix()}, endedRowState{})
-}
+		epics.summaries = []*enginev1.EpicSummary{steersEpic(steersPaneEpic, "released", steersFinalPane)}
+		setAsideSteersContract(t, path, steersFinalHeadContract, steersStart())
+		expectSteersEnded(t, "once final and set aside", sessions, steersFinalPane, steersFinalHead, ended, ended)
+	})
 
-func TestInboxStatesSteersEpicStoreFailureAnswersUnavailable(t *testing.T) {
-	t.Parallel()
-	path := steersStore(t)
-	epics := &steersEpics{listErr: connect.NewError(connect.CodeInternal, errors.New("synthetic failure"))}
-	sessions := steersClient(t, path, epics)
-	_, err := sessions.List(t.Context(), connect.NewRequest(&orreryv1.ListRequest{}))
-	if connect.CodeOf(err) != connect.CodeUnavailable {
-		t.Fatalf("List error = %v, want code %v", err, connect.CodeUnavailable)
-	}
-	expectHeadlessCode(t, sessions, connect.CodeUnavailable)
-}
+	t.Run("ProposedContractHoldsAfterEpicFinal", func(t *testing.T) {
+		t.Parallel()
+		epics := &steersEpics{summaries: []*enginev1.EpicSummary{
+			steersEpic(steersPaneEpic, "released", steersAfterPane),
+		}}
+		expectSteersEnded(t, "epic final, contract proposed", steersClient(t, path, epics),
+			steersAfterPane, steersAfterHead, ended, none)
+	})
 
-func TestInboxStatesSteersUnimplementedEpicStoreReadsNone(t *testing.T) {
-	t.Parallel()
-	path := steersStore(t)
-	epics := &steersEpics{listErr: connect.NewError(connect.CodeUnimplemented, errors.New("synthetic unimplemented"))}
-	want := endedRowState{ended: true, endedAt: steersChangedAt().Unix()}
-	expectSteersEnded(t, "unimplemented epic store", path, epics, want, want)
+	t.Run("EpicStoreFailureAnswersUnavailable", func(t *testing.T) {
+		t.Parallel()
+		epics := &steersEpics{listErr: connect.NewError(connect.CodeInternal, errors.New("synthetic failure"))}
+		sessions := steersClient(t, path, epics)
+		_, err := sessions.List(t.Context(), connect.NewRequest(&orreryv1.ListRequest{}))
+		if connect.CodeOf(err) != connect.CodeUnavailable {
+			t.Fatalf("List error = %v, want code %v", err, connect.CodeUnavailable)
+		}
+		expectHeadlessCode(t, sessions, connect.CodeUnavailable)
+	})
+
+	t.Run("UnimplementedEpicStoreReadsNone", func(t *testing.T) {
+		t.Parallel()
+		epics := &steersEpics{
+			listErr: connect.NewError(connect.CodeUnimplemented, errors.New("synthetic unimplemented")),
+		}
+		expectSteersEnded(t, "unimplemented epic store", steersClient(t, path, epics),
+			steersUnimplPane, steersUnimplHead, ended, ended)
+	})
 }
