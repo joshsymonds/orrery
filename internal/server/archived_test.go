@@ -129,19 +129,6 @@ func listHeadlessRows(t *testing.T, client orreryv1connect.SessionsClient) []*or
 	return resp.Msg.GetSessions()
 }
 
-func TestAutoArchiveReleasedEpicAtSevenDays(t *testing.T) {
-	t.Parallel()
-	stored := &epicStoreFake{stored: []*enginev1.StoredEpic{
-		storedEpicOf("repob/aged", "released", epicsAgo(7*archiveDay)),
-		storedEpicOf("repob/younger", "released", epicsAgo(7*archiveDay-time.Second)),
-	}}
-	client := archiveEpicsClient(t, t.TempDir(), archiveStorePath(t), stored)
-	expectArchived(t, "Epics.List", archivedByID(epicsList(t, client)), map[string]bool{
-		"repob/aged":    true,
-		"repob/younger": false,
-	})
-}
-
 func TestAutoArchiveLiveEpicNeverArchived(t *testing.T) {
 	t.Parallel()
 	stored := &epicStoreFake{stored: []*enginev1.StoredEpic{

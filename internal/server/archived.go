@@ -21,11 +21,13 @@ const (
 // stateStopped is the headless state of a session the owner stopped. stateFailed is the state of one that failed.
 const stateStopped = "stopped"
 
-// epicAge is how long an epic that is not live must go unchanged before it ages out. headlessAge is how long a stopped
-// or failed headless session must go unchanged before it ages out.
+// epicAge is how long an epic that is not live must go unchanged before it ages out. finalEpicAge is how long a final
+// epic must go unchanged before it ages out when no owner has seen it. headlessAge is how long a stopped or failed
+// headless session must go unchanged before it ages out.
 const (
-	epicAge     = 7 * 24 * time.Hour
-	headlessAge = 24 * time.Hour
+	epicAge      = 7 * 24 * time.Hour
+	finalEpicAge = 24 * time.Hour
+	headlessAge  = 24 * time.Hour
 )
 
 // archiveKey names one list row by its kind and id.
@@ -73,10 +75,48 @@ func archivedRow(mark store.ArchiveMark, changed int64, aged bool) bool {
 	return mark.UnarchivedAt.IsZero() || mark.UnarchivedAt.Unix() < changed
 }
 
-// epicAged reports whether an epic that Epics.List answers ages out at now. It does when the answer is not live and the
-// epic changed at least epicAge before now. A live epic never ages.
-func epicAged(live bool, changed int64, now time.Time) bool {
-	return !live && changed <= now.Add(-epicAge).Unix()
+// The phase and outcome spellings the final-epic rule reads, named once here.
+const (
+	epicPhaseReleased = "released"
+	epicPhaseDone     = "done"
+)
+
+// epicFinal reports whether an epic from source with outcome has a final outcome. An orreryd epic is final in released,
+// done, closed_superseded, closed_shipped, closed_abandoned or met_at_base. A record epic is final when its outcome's
+// leading letters, read as epicLive reads them, are released or retired.
+func epicFinal(source, outcome string) bool {
+	switch source {
+	case epicSourceOrreryd:
+		switch outcome {
+		case epicPhaseReleased, epicPhaseDone, store.PhaseClosedSuperseded, store.PhaseClosedShipped,
+			store.PhaseClosedAbandoned, "met_at_base":
+			return true
+		}
+	case epicSourceRecord:
+		switch leadingLetters(outcome) {
+		case epicPhaseReleased, "retired":
+			return true
+		}
+	}
+	return false
+}
+
+// epicAged reports whether an epic that Epics.List answers ages out at now. A live epic never ages. An epic that is not
+// live ages once it changed at least epicAge before now. A final epic (see epicFinal) also ages once its seen time is
+// set and at or after its change, or once it changed at least finalEpicAge before now.
+func epicAged(epic *orreryv1.Epic, now time.Time) bool {
+	if epic.GetLive() {
+		return false
+	}
+	changed := epic.GetChanged()
+	if changed <= now.Add(-epicAge).Unix() {
+		return true
+	}
+	if !epicFinal(epic.GetSource(), epic.GetOutcome()) {
+		return false
+	}
+	seen := epic.GetSeen()
+	return (seen != 0 && seen >= changed) || changed <= now.Add(-finalEpicAge).Unix()
 }
 
 // headlessAged reports whether a headless session in state, changed at changed and seen at seen, ages out at now. A
@@ -101,7 +141,7 @@ func headlessAged(state string, changed, seen int64, now time.Time) bool {
 func markEpics(epics []*orreryv1.Epic, marks archiveMarks, now time.Time) {
 	for _, epic := range epics {
 		mark := marks[archiveKey{kind: archiveKindEpic, id: epic.GetId()}]
-		epic.Archived = archivedRow(mark, epic.GetChanged(), epicAged(epic.GetLive(), epic.GetChanged(), now))
+		epic.Archived = archivedRow(mark, epic.GetChanged(), epicAged(epic, now))
 	}
 }
 
