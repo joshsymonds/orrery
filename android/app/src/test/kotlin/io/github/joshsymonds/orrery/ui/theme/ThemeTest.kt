@@ -105,7 +105,13 @@ class ThemeTest {
         assertEquals(OrreryTokens.Type.small, typography.bodySmall)
         assertEquals(OrreryTokens.Type.small, typography.labelLarge)
         assertEquals(OrreryTokens.Type.small, typography.labelMedium)
-        assertEquals(OrreryTokens.Type.label, typography.labelSmall)
+        assertEquals(OrreryTokens.Type.small, typography.labelSmall)
+    }
+
+    @Test
+    fun labelAndCodeTypeAreOrreryMono() {
+        assertEquals(OrreryMono, OrreryTokens.Type.label.fontFamily)
+        assertEquals(OrreryMono, OrreryTokens.Type.code.fontFamily)
     }
 
     @Test
@@ -148,7 +154,7 @@ class ThemeTest {
     }
 
     @Test
-    fun everyTypographyStyleInsideOrreryThemeUsesOrreryMono() {
+    fun everyTypographyStyleInsideOrreryThemeUsesInter() {
         var styles: List<Pair<String, TextStyle>>? = null
         composeRule.setContent {
             OrreryTheme {
@@ -176,7 +182,7 @@ class ThemeTest {
         val captured = checkNotNull(styles)
         assertEquals(15, captured.size)
         captured.forEach { (name, style) ->
-            assertEquals(name, OrreryMono, style.fontFamily)
+            assertEquals(name, OrreryInter, style.fontFamily)
         }
     }
 }

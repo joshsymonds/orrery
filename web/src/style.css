@@ -582,7 +582,7 @@ button.link.notices-more { justify-self: end; padding: 0 var(--o-space-12); colo
 
 /* Markdown draws in a reply and in a Block's body alike, so each rule names both. Code takes the mono family too. A code
    block and a table scroll sideways inside themselves, so a wide one never widens the column. */
-.reader .reply { overflow-wrap: anywhere; }
+.reader .reply { overflow-wrap: anywhere; max-width: var(--o-layout-read-measure-ch); }
 .reader .reply > :first-child { margin-top: 0; }
 .reader .reply > :last-child { margin-bottom: 0; }
 .reader .reply p, .reader .reply ul, .reader .reply ol, .reader .reply blockquote, .reader .reply pre, .reader .reply table,
