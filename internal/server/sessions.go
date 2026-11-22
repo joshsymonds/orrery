@@ -21,6 +21,8 @@ import (
 // each of its sends, and closing shutdown ends its streams. A nil shutdown never closes. now is the clock ListHeadless
 // dates its retention window and its aging by, the clock Sessions.List ages its panes by, and the clock
 // WatchConversation reads a background window against.
+// epics is the client whose ListEpics names the sessions that steer a live epic, which List and ListHeadless keep
+// unended, and a nil epics names none.
 // stepped, when set, is called with the session id of each WatchConversation step before the step reads the session. A
 // test sets it to count the reads of its streams. It is nil in production.
 type sessionsServer struct {
@@ -28,6 +30,7 @@ type sessionsServer struct {
 	home        string
 	now         func() time.Time
 	steps       StepClient
+	epics       EpicStoreClient
 	changes     *changeHub
 	newTimer    func(time.Duration) (<-chan time.Time, func() bool)
 	keepalive   time.Duration
@@ -60,6 +63,10 @@ func (s sessionsServer) List(
 	if err != nil {
 		return nil, err
 	}
+	steered, err := readSteered(ctx, s.epics, s.reader)
+	if err != nil {
+		return nil, err
+	}
 	sessions := make([]*orreryv1.Session, 0, len(snap.Sessions))
 	for _, row := range snap.Sessions {
 		session := sessionMessage(row)
@@ -69,6 +76,7 @@ func (s sessionsServer) List(
 		// seen, all at s.now(). A row with no change time, changed 0, never ages. A server with no clock ages none.
 		verdict, ok := verdicts[row.ID]
 		session.Ended, session.EndedAt = endedRow(false, verdict, ok, changed, mark)
+		session.Ended, session.EndedAt = steeredEnd(steered, row.ID, session.Ended, session.EndedAt)
 		aged := false
 		if changed != 0 && s.now != nil {
 			now := s.now()
@@ -104,16 +112,17 @@ func sessionMessage(row store.Session) *orreryv1.Session {
 	}
 }
 
-// newSessionsHandler returns the path and handler that serve Sessions over reader and steps, with home, the clock now,
-// the change hub changes, and the keepalive and send timings and shutdown signal of sessionsServer. WatchConversation
-// steps when changes wakes its stream, and its keepalive and background timers are armed through newTimer, or through
-// time.NewTimer when newTimer is nil. The handler runs under withResponseWriter, so WatchConversation can reach its
-// connection.
+// newSessionsHandler returns the path and handler that serve Sessions over reader and steps, with epics naming the
+// sessions that steer a live epic, home, the clock now, the change hub changes, and the keepalive and send timings and
+// shutdown signal of sessionsServer. WatchConversation steps when changes wakes its stream, and its keepalive and
+// background timers are armed through newTimer, or through time.NewTimer when newTimer is nil. The handler runs under
+// withResponseWriter, so WatchConversation can reach its connection.
 func newSessionsHandler(
 	reader *store.Reader,
 	home string,
 	now func() time.Time,
 	steps StepClient,
+	epics EpicStoreClient,
 	changes *changeHub,
 	newTimer func(time.Duration) (<-chan time.Time, func() bool),
 	keepalive, sendTimeout time.Duration,
@@ -124,7 +133,7 @@ func newSessionsHandler(
 		newTimer = stdTimer
 	}
 	service := sessionsServer{
-		reader: reader, home: home, now: now, steps: steps, changes: changes, newTimer: newTimer,
+		reader: reader, home: home, now: now, steps: steps, epics: epics, changes: changes, newTimer: newTimer,
 		keepalive: keepalive, sendTimeout: sendTimeout, shutdown: shutdown,
 	}
 	path, handler := orreryv1connect.NewSessionsHandler(service, opts...)

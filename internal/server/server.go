@@ -271,8 +271,8 @@ func New(cfg Config) (http.Handler, error) {
 	tokens := &pickerTokens{entries: make(map[string]pickerEntry)}
 	changes := newChangeHub(cfg.Changes, cfg.NewTimer)
 	sessionsPath, sessions := newSessionsHandler(
-		cfg.Sessions, cfg.Home, now, cfg.Steps, changes, cfg.NewTimer, conversationKeepalive, sendTimeout,
-		cfg.Shutdown, cfg.HandlerOptions...,
+		cfg.Sessions, cfg.Home, now, cfg.Steps, cfg.EpicStore, changes, cfg.NewTimer, conversationKeepalive,
+		sendTimeout, cfg.Shutdown, cfg.HandlerOptions...,
 	)
 	mux.Handle(sessionsPath, sessions)
 	eventsPath, events := newEventsHandler(cfg.Sessions, changes, sendTimeout, cfg.Shutdown, cfg.HandlerOptions...)
