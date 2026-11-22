@@ -98,10 +98,11 @@ func publish(t *testing.T, dir, name string, data []byte) {
 	}
 }
 
-// writeInPlace overwrites the entry name in dir with data of the same length, in one write, so the watch sees one
+// writeInPlace overwrites the entry 4242.json in dir with data of the same length, in one write, so the watch sees one
 // modify of the entry.
-func writeInPlace(t *testing.T, dir, name string, data []byte) {
+func writeInPlace(t *testing.T, dir string, data []byte) {
 	t.Helper()
+	const name = "4242.json"
 	file, err := os.OpenFile(filepath.Join(dir, name), os.O_WRONLY, 0)
 	if err != nil {
 		t.Fatalf("open %s: %v", name, err)
@@ -311,7 +312,7 @@ func TestPaneRegistryBindEntryWrittenInPlaceRebinds(t *testing.T) {
 	publish(t, dir, "4242.json", entryData(t, cliEntry(4242, "sess-invented-a", "testsrv:@7.%9")))
 	expectBinding(t, r.next(t), "%9", "sess-invented-a")
 
-	writeInPlace(t, dir, "4242.json", entryData(t, cliEntry(4242, "sess-invented-b", "testsrv:@7.%9")))
+	writeInPlace(t, dir, entryData(t, cliEntry(4242, "sess-invented-b", "testsrv:@7.%9")))
 	expectBinding(t, r.next(t), "%9", "sess-invented-b")
 }
 
@@ -434,7 +435,8 @@ func TestPaneRegistryBindIgnoresNamesThatAreNotEntries(t *testing.T) {
 }
 
 // TestPaneRegistryBindUnparsableEntryKeepsItsBinding checks that an entry rewritten with contents that do not parse
-// emits nothing, calls Unreadable with the entry's path, and keeps the binding it held.
+// emits nothing, calls Unreadable with the entry's path once it is still unparsable at its next read, and keeps the
+// binding it held.
 func TestPaneRegistryBindUnparsableEntryKeepsItsBinding(t *testing.T) {
 	t.Parallel()
 	dir, proc := readyRegistry(t)
@@ -444,7 +446,9 @@ func TestPaneRegistryBindUnparsableEntryKeepsItsBinding(t *testing.T) {
 	publish(t, dir, "4242.json", entryData(t, cliEntry(4242, "sess-invented-1", "testsrv:@7.%9")))
 	bound := expectBinding(t, r.next(t), "%9", "sess-invented-1")
 
-	publish(t, dir, "4242.json", []byte(`{"pid":4242,"sessionId":"sess-invented-1","status":`))
+	torn := []byte(`{"pid":4242,"sessionId":"sess-invented-1","status":`)
+	publish(t, dir, "4242.json", torn)
+	publish(t, dir, "4242.json", torn)
 	call := r.nextUnreadable(t)
 	if want := filepath.Join(dir, "4242.json"); call.path != want || call.err == nil {
 		t.Fatalf("Unreadable(%q, %v), want %q with a parse error", call.path, call.err, want)
