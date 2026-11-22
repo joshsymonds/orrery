@@ -12,9 +12,9 @@ import (
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
-// designGates are the review gates of the epic the design judge tests run under, so a design task past its last gate
-// is at position 2.
-var designGates = []string{"lint", "security"}
+// designGates returns the review gates of the epic the design judge tests run under, so a design task past its last
+// gate is at position 2.
+func designGates() []string { return []string{"lint", "security"} }
 
 // designPassReturn is a design judge's done return that passes the design.
 const designPassReturn = `{"status":"done","verdict":"pass",` +
@@ -28,7 +28,7 @@ const designFailReturn = `{"status":"done","verdict":"fail",` +
 // with step as its judge's step (nil for none) and reviews as the reviews it holds.
 func designView(step *store.StepRow, reviews ...store.TaskReview) View {
 	return View{
-		Epic: decideEpic, ReviewGates: designGates, Step: step,
+		Epic: decideEpic, ReviewGates: designGates(), Step: step,
 		Task: store.EpicTask{
 			Seq: 3, Kind: store.TaskKindDesign, Title: "Design the store",
 			Deliverable: "Put the Store interface in place",
@@ -51,16 +51,16 @@ func TestDesignJudgeDoneEndStartsOneReadOnlyJudgeStepAtRevision(t *testing.T) {
 	setup := newStartSetup(t)
 	revision := buildCommit(t, setup.epic.Repository)
 	build := store.TaskBuild{
-		Stage: StageReview, Base: setup.base, Attempt: 1, Revision: revision, GatePos: int64(len(designGates)),
+		Stage: StageReview, Base: setup.base, Attempt: 1, Revision: revision, GatePos: int64(len(designGates())),
 	}
 	task := designView(nil).Task
 	task.Build = build
-	moved := decideReview(View{Epic: setup.epic.ID, ReviewGates: designGates, Task: task})
+	moved := decideReview(View{Epic: setup.epic.ID, ReviewGates: designGates(), Task: task})
 	if moved.Kind != ActMove || moved.Next.Stage != StageDesign {
 		t.Fatalf("decideReview past the last gate of a design task = %s at stage %q, want a move to %q",
 			moved.Kind, moved.Next.Stage, StageDesign)
 	}
-	view := View{Epic: setup.epic.ID, ReviewGates: designGates, Task: store.EpicTask{
+	view := View{Epic: setup.epic.ID, ReviewGates: designGates(), Task: store.EpicTask{
 		Seq: task.Seq, Kind: task.Kind, Title: task.Title, Deliverable: task.Deliverable, Build: moved.Next,
 	}}
 	started := decideDesign(view)
@@ -165,7 +165,7 @@ func TestDesignJudgeNonDesignTaskIsAcceptedWithNoJudgeStep(t *testing.T) {
 	t.Parallel()
 	build := store.TaskBuild{Stage: StageReview, Base: "base", Attempt: 1, Revision: "rev", GatePos: 2}
 	got := decideReview(View{
-		Epic: decideEpic, ReviewGates: designGates,
+		Epic: decideEpic, ReviewGates: designGates(),
 		Task: store.EpicTask{Seq: 3, Build: build},
 	})
 	if got.Kind != ActAccept || got.Reason != ReviewReviewed || got.Next.Stage != StageReview {

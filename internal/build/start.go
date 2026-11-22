@@ -279,7 +279,7 @@ func (r *Runner) designJudgeStart(epic store.EpicRow, view View, id string) (eng
 		Prompt:      DesignJudgePrompt(epic, task),
 		Schema:      DesignJudgeSchema,
 		ReturnCheck: DesignJudgeCheck,
-		DoneValue:   "done",
+		DoneValue:   statusDone,
 		Epic:        epic.ID,
 		Task:        taskLabel(task.Seq),
 	}, nil
