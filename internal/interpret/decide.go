@@ -402,7 +402,7 @@ func (p pass) running(def workflow.Node, run store.NodeRun, at scope) []Action {
 		return p.end(def, run, act, at)
 	case kinds.ActPrepare, kinds.ActStart, kinds.ActCapture, kinds.ActRepro, kinds.ActRefs, kinds.ActAdvance,
 		kinds.ActTake, kinds.ActIntegrator, kinds.ActStep, kinds.ActJudge, kinds.ActRecord, kinds.ActStop,
-		kinds.ActEnding, kinds.ActFree, kinds.ActResume:
+		kinds.ActEnding, kinds.ActFree, kinds.ActResume, kinds.ActTaskIntegrator:
 		return []Action{p.work(def, run, act)}
 	case kinds.ActReplan:
 		return []Action{p.replan(def, run, act)}
@@ -531,7 +531,7 @@ func (p pass) decideSync(kind kinds.Kind, run store.NodeRun) []Action {
 			end.Reason = syncTell(run.Path, act.Outcome, act.Output)
 		}
 		return []Action{end}
-	case kinds.ActPrepare, kinds.ActStart, kinds.ActCapture, kinds.ActRepro, kinds.ActAdvance:
+	case kinds.ActPrepare, kinds.ActStart, kinds.ActCapture, kinds.ActRepro, kinds.ActAdvance, kinds.ActTaskIntegrator:
 		return []Action{p.work(def, run, act)}
 	default:
 		return nil
