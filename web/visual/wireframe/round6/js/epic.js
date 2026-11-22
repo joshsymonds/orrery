@@ -149,7 +149,7 @@
     const now = when(e.now || e.ask || e.running, () => sec('Now', { rest: e.asOf }, `${when(e.now, () => `<p class="now-sentence">${md(e.now)}</p>`)}${when(e.ask, () => O.ask(e.ask))}${e.nowExtra || ''}`
       + when(e.running && e.running.length, () => O.table('auto minmax(0, 1fr) auto minmax(0, 2fr) auto', null, e.running.map((s) => ({
         go: s.go || 'worker-running',
-        cells: [O.stateGlyph(s.limited ? 'limited' : s.held ? 'held' : 'working'), `<span class="strong cutc">${esc(s.label)}</span>${when(s.host, () => O.hostLabel(s.host))}`, O.pips(s.pips), `<span class="cutc wide ${s.held && !s.limited ? 'is-attention' : ''}">${esc(s.doing)}</span>`, `<span class="end id">${esc(s.time || '')}${icon('chevronRight')}</span>`],
+        cells: [O.stateGlyph(s.down ? 'unreachable' : s.limited ? 'limited' : s.held ? 'held' : 'working'), `<span class="strong cutc">${esc(s.label)}</span>${when(s.host, () => O.hostLabel(s.host, { down: s.down }))}`, O.pips(s.pips), `<span class="cutc wide ${s.held && !s.limited && !s.down ? 'is-attention' : ''}">${esc(s.down ? '' : s.doing)}</span>`, `<span class="end id">${esc(s.time || '')}${icon('chevronRight')}</span>`],
       })), { touch: 'auto minmax(0, 1fr) auto' }))
       + when(e.next, () => `<p class="inote">Next: ${esc(e.next)}</p>`)));
     const build = when(e.tasks && e.tasks.length, () => sec('Tasks', { n: `${e.tasks.filter((t) => t.place === 'integrated').length} of ${e.tasks.length} done` }, `<div class="build">${O.orrery(e)}<div>${O.taskTable(e)}</div></div>`));

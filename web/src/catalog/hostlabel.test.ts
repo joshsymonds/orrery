@@ -32,12 +32,14 @@ interface HostDir {
   name: string;
   path: string;
   host?: string;
+  unreachable?: boolean;
   rows: object[];
 }
 
 // Wireframe is the namespace the scripts build on window.O: the world they draw from and the parts a drawing is made of.
 interface Wireframe {
   frame: string;
+  STATES: string[];
   W: {
     rows: Record<string, object>;
     epics: Record<string, object>;
@@ -47,8 +49,11 @@ interface Wireframe {
     workRota: { epics: object[] };
     dirs(): HostDir[];
     hostDirs(): HostDir[];
+    unreachableDirs(): HostDir[];
   };
-  scenarios: { id: string; desk?: () => string; phone?: () => string }[];
+  scenarios: { id: string; note: string; desk?: () => string; phone?: () => string }[];
+  stateGlyph(state: string): string;
+  dock(d: object): string;
   sessionRow(row: object, o?: { card?: boolean }): string;
   epicRow(epic: object): string;
   epicPin(pin: object): string;
@@ -213,4 +218,104 @@ test("R1 HostLabel: the catalogue draws HostLabel inline, then as a card heading
   assert.ok(inlineAt >= 0 && headingAt > inlineAt, "the catalogue holds HostLabel's Inline state, then its CardHeading state");
   assert.deepEqual(labelsIn(catalogue.slice(inlineAt, headingAt)), [inline("halyard")]);
   assert.deepEqual(labelsIn(catalogue.slice(headingAt, catalogue.indexOf("</section>", headingAt))), [head("sextant")]);
+});
+
+// R4 Unreachable: a host that does not answer is not stopped. Its rows, panes, cards and steps say unreachable, in grey,
+// with a glyph of their own, and the word sits beside the host. The SYSTEM.md State table carries the same state.
+
+// UNREACH_WORD is the word unreachable as a host draws it beside itself.
+const UNREACH_WORD = '<span class="unreach">unreachable</span>';
+
+// unreachableDir is the brine card of the inbox where that host does not answer.
+function unreachableDir(): HostDir {
+  const dir = O.W.unreachableDirs().find((candidate) => candidate.host === "brine");
+  assert.ok(dir !== undefined, "the inbox where a host does not answer has a card for brine");
+  return dir;
+}
+
+test("R4 Unreachable: the glyph is a dashed ring of its own, worded unreachable, and not stopped's square", () => {
+  const glyph = O.stateGlyph("unreachable");
+  assert.ok(glyph.includes('data-state="unreachable"'), "the glyph is drawn as unreachable");
+  assert.ok(glyph.includes('aria-label="unreachable"'), "its word is unreachable");
+  assert.ok(glyph.includes("stroke-dasharray"), "its ring is dashed");
+  assert.ok(!glyph.includes("<rect"), "it has no stopped square");
+  assert.ok(O.STATES.includes("unreachable"), "unreachable is one of the states");
+});
+
+test("R4 Unreachable: rows and panes whose host is unreachable say unreachable, not stopped", () => {
+  // A session row draws the word beside its host and no last words; under a card its line reads unreachable.
+  const row = inFrame("desk", () => O.sessionRow(O.W.rows.unreach));
+  assert.ok(row.includes('data-state="unreachable"') && row.includes(UNREACH_WORD), "a session row says unreachable beside its host");
+  assert.ok(!row.includes('data-state="stopped"'), "a session row is not drawn as stopped");
+  assert.ok(
+    inFrame("desk", () => O.sessionRow(O.W.rows.unreach, { card: true })).includes('<span class="l2 unreach">unreachable</span>'),
+    "under a card, a session's line reads unreachable",
+  );
+
+  // A card whose host does not answer says so on its head, and each conversation under it reads unreachable.
+  const card = inFrame("desk", () => O.dir(unreachableDir()));
+  assert.ok(card.includes(UNREACH_WORD), "the card head says unreachable beside its host");
+  assert.ok(card.includes('data-state="unreachable"') && !card.includes('data-state="stopped"'), "its conversations read unreachable, not stopped");
+
+  // An epic's step on that host reads unreachable, and its doing is not drawn, since it is not known now.
+  const step = { ...(O.W.epics.rota as { steps: object[] }).steps[0], down: true };
+  const epic = inFrame("desk", () => O.epicRow({ ...O.W.epics.rota, steps: [step] }));
+  assert.ok(epic.includes('data-state="unreachable"') && epic.includes(UNREACH_WORD), "a step on that host says unreachable beside its host");
+  assert.ok(!epic.includes("gate just check"), "a step on that host draws no doing");
+  assert.ok(!epic.includes('data-state="stopped"'), "a step on that host is not drawn as stopped");
+});
+
+test("R4 Unreachable: a pane's title row says unreachable, and its dock says so and offers nothing that would act on the pane", () => {
+  for (const frame of ["desk", "phone"] as const) {
+    const drawing = drawOf("pane-host-unreachable", frame);
+    const dock = inFrame(frame, () => O.dock({ state: "unreachable", host: "halyard", what: "· shown as last stored" }));
+    assert.ok(drawing.includes(dock), `the ${frame} dock of the pane is the unreachable dock`);
+    assert.ok(dock.includes("unreachable: halyard does not answer"), `the ${frame} dock says unreachable: halyard does not answer`);
+    for (const action of ["Send", "Interrupt", "Take all back", "Queued"]) {
+      assert.ok(!dock.includes(action), `the ${frame} dock offers no ${action}`);
+    }
+  }
+  const title = titleRowsOf(drawOf("pane-host-unreachable", "desk"));
+  assert.ok(title.includes(UNREACH_WORD) && title.includes('data-state="unreachable"'), "the pane's title row says unreachable beside its host");
+  assert.ok(!title.includes('data-state="stopped"'), "the pane's title row is not drawn as stopped");
+});
+
+test("R4 Unreachable: the inbox with one host down draws that card as unreachable on the desk and the phone", () => {
+  assert.ok(
+    drawOf("inbox-host-unreachable", "desk").includes(inFrame("desk", () => O.dir(unreachableDir()))),
+    "the desk inbox draws the brine card as unreachable",
+  );
+  assert.ok(drawOf("inbox-host-unreachable", "phone").includes(UNREACH_WORD), "the phone inbox says unreachable beside the host");
+});
+
+test("R4 Unreachable: the catalogue draws the unreachable states of StateGlyph, InboxRow, Dir and TitleRow", () => {
+  const catalogue = written["[data-catalog]"];
+  for (const cell of ["<b>StateGlyph</b>/Unreachable", "<b>InboxRow</b>/Unreachable", "<b>Dir</b>/Unreachable", "<b>TitleRow</b>/UnreachablePane"]) {
+    assert.ok(catalogue.includes(cell), `the catalogue holds ${cell}`);
+  }
+});
+
+test("R4 Unreachable: the scenario notes name the server fields the drawings read", () => {
+  const note = (id: string): string => {
+    const scenario = O.scenarios.find((candidate) => candidate.id === id);
+    assert.ok(scenario !== undefined, `the scenario ${id} is registered`);
+    return scenario.note;
+  };
+  assert.ok(note("inbox-host-unreachable").includes("orrery-first-class-hosts"), "the inbox note names a session's unreachable state");
+  assert.ok(note("pane-host-unreachable").includes("Pane.unreachable (orrery-host-surfaces"), "the pane note names a pane listed unreachable");
+});
+
+test("R4 Unreachable: SYSTEM.md's State table has an unreachable row, and says why it is not stopped", () => {
+  const system = readFileSync(new URL("../../visual/system/SYSTEM.md", import.meta.url), "utf8");
+  const start = system.indexOf("### State");
+  assert.ok(start >= 0, "SYSTEM.md has a State section");
+  const section = system.slice(start, system.indexOf("\n### ", start + 1));
+  const row = section.split("\n").find((line) => line.startsWith("| unreachable |"));
+  assert.ok(row !== undefined, "the State table has an unreachable row");
+  assert.deepEqual(
+    row.split("|").slice(1, -1).map((cell) => cell.trim()),
+    ["unreachable", "`ink.3`", "dashed hollow ring", "unreachable: `<host>` does not answer"],
+    "the row gives its state, colour, glyph and what the dock says",
+  );
+  assert.ok(section.includes("Unreachable is not stopped"), "the State section says why unreachable is not stopped");
 });

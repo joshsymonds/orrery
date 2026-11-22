@@ -129,4 +129,12 @@
     desk: () => O.desk({ inbox: { state: 'error', attn: {} }, pages: [O.blankPage('', '')] }),
     phone: () => O.home({ state: 'error', attn: {} }),
   }, []);
+
+  inbox({
+    id: 'inbox-host-unreachable', group: 'Empty, loading, error', title: 'Inbox: one host does not answer',
+    note: 'One host, brine, does not answer; the other three are as they were. Its card says unreachable beside its host, and the conversation under it reads unreachable in place of its last words, in grey and not as stopped: nothing it did is known now, and it is not a session that was stopped. The other cards draw as usual.',
+    desk: () => O.desk({ inbox: { dirs: W.unreachableDirs() }, pages: [O.blankPage('One host does not answer.', 'Its card says so; the other cards are as you left them.')] }),
+    phone: () => O.home({ dirs: W.unreachableDirs() }),
+    differs: ['The web under 760 does not differ on this screen: the card head says unreachable beside its host, and the row under it reads the same.'],
+  }, ['sessionDown', 'hostDown']);
 })();

@@ -101,9 +101,12 @@ One table for the glyph, the dock and the phone.
 | failed | `bad` | ringed cross | failed, and why |
 | stopped | `ink.3` | square | stopped |
 | idle | `ink.3` | hollow ring | nothing |
+| unreachable | `ink.3` | dashed hollow ring | unreachable: `<host>` does not answer |
 
-Stopped is grey because you stopped it. Held and limited share a drawing and differ in colour: held waits on you;
-limited waits on a usage limit and asks nothing. The web's `mine` tone covers both today.
+Stopped is grey because you stopped it. Unreachable is not stopped: nothing was stopped, the host does not answer, so
+what the session is doing is not known, and it is drawn as a dashed ring worded for the host. Held and limited share a
+drawing and differ in colour: held waits on you; limited waits on a usage limit and asks nothing. The web's `mine`
+tone covers both today.
 
 **Tone** (a task's cell): plan `line.firm`, run `live`, mine `attention`, bad `bad`, acc `engine`, ok `ok`. A task's
 cells are its stages in order: red, implement, green, review, integrate. Verify and orchestrate are said in words
@@ -206,7 +209,7 @@ Names are story names: `Component/State`. The catalogue draws each component in 
 | Field | Empty, Filled, Focused, Error |
 | Chip | Neutral, Ok, Bad, Attention, Live, Engine |
 | FilterChip | Off, On |
-| StateGlyph | Working, Waiting, Held, Limited, Done, Interrupted, Interrupting, Failed, Stopped, Idle |
+| StateGlyph | Working, Waiting, Held, Limited, Done, Interrupted, Interrupting, Failed, Stopped, Unreachable, Idle |
 | Pill | Neutral, Live, Attention, Ok, Engine; WithGlyph |
 | Meter | Ok, Warn, Crit; NoBar; Stacked (touch) |
 | ContextMeter | Ok, Warn, Crit; Bare |
@@ -226,17 +229,17 @@ Names are story names: `Component/State`. The catalogue draws each component in 
 | component | states |
 |---|---|
 | Inbox | Expanded, Collapsed, Flyout; FilterWaiting, FilterNew, Search, Archived; Loading, Empty, Error, NoMatch |
-| Dir | a project: Open, Folded, FoldedWaiting, OtherHost. A card: its head is the project's name and path and opens its page; its conversations hang from a line under it. |
+| Dir | a project: Open, Folded, FoldedWaiting, OtherHost, Unreachable. A card: its head is the project's name and path and opens its page; its conversations hang from a line under it. A card on a host that does not answer reads unreachable, and so do its conversations. |
 | ConvoRow | Plain, SteersEpic, WroteContract, SteersSeveral, FromShell. A conversation's row, with the epics it steers and the contract it wrote hanging from a line under it. An epic belongs to exactly one conversation. |
 | Project | the page behind a Dir's head: its conversations with what each last said, each with its epics as WorkCards under it |
 | Rail | InboxRail (a tile per project, and a project's flyout beside it), WorkRail (named groups of what the conversation steers) |
 | Tile | Mark, Lit, Project, ProjectWaiting, ProjectNew, Current, EpicAsks, SubAgents, LeftRunning, New |
-| InboxRow | Working, WaitingQuestion, Done, CutOff, Failed, Stopped, Idle; Unseen, Open, Cursor, Hover, MenuOpen |
+| InboxRow | Working, WaitingQuestion, Done, CutOff, Failed, Stopped, Unreachable, Idle; Unseen, Open, Cursor, Hover, MenuOpen |
 | EpicRow | Building, Asking, ContractProposed, ReleaseFailed, Releasing, Parked, Paused, Planning, Shipped, EndedShort |
 | StepRow | Running, Held |
-| TitleRow | Conversation, InboxHidden, Epic, Subpage, WithError; phone: Folded |
+| TitleRow | Conversation, InboxHidden, Epic, Subpage, WithError, UnreachablePane; phone: Folded |
 | MeterStrip | HostAndContext, HostOnly, UnderLoad, OtherHost |
-| HostLabel | Inline, CardHeading. The host a pane, a session, an epic or a step runs on, with the host's icon: inline on its own row, or once on a card's heading |
+| HostLabel | Inline, CardHeading. The host a pane, a session, an epic or a step runs on, with the host's icon: inline on its own row, or once on a card's heading. Beside it the word unreachable when the host does not answer |
 | WorkRail | the right rail, in groups each named once: contract, epics, agents, running. Up to three things show as tiles; more is one tile of dots (one per thing, in its colour) that opens a RailPicker. Empty when nothing is started |
 | RailPicker | what a tile of dots opens: each thing in the group and its state; choosing one opens its panel |
 | SidePanel | one thing opened from its tile, beside the conversation: an epic's or a contract's record, or a list (Agents, Running); the thing inset as a card with its colour on the top edge; over the conversation under 1250 |
