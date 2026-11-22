@@ -9,7 +9,7 @@ import { type PipTone, Pips } from "./pips";
 import { askingOf, nowSentenceOf, stepLinesOf } from "./recordwords";
 import { elapsed } from "./dockwords";
 
-// A step with no task, or a task the record does not list, draws five unreached pips.
+// A step with a task the record does not list draws five unreached pips. A step with no task draws none.
 const unreached: readonly PipTone[] = ["none", "none", "none", "none", "none"];
 
 // NowSection is the record's Now: its one sentence, what asks placed first under it, and each running step as a row. An
@@ -102,7 +102,7 @@ export function NowSection({
           <div key={line.id} class={`tr t-${line.glyph}`}>
             <span class={`g g-${line.glyph}`} aria-label={line.glyph} />
             <span class="strong">{line.label}</span>
-            <Pips cells={tasks.find((task) => task.task === line.task)?.cells ?? unreached} />
+            {line.task !== "" && <Pips cells={tasks.find((task) => task.task === line.task)?.cells ?? unreached} />}
             <span class="doing wide">{line.doing}</span>
             <span class="end">{elapsed(now - line.since)}</span>
           </div>

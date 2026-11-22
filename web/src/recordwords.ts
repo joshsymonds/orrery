@@ -441,12 +441,20 @@ export function askingOf(detail: EpicsGetResponse): Asking {
   return null;
 }
 
+// A step row's label: its purpose, else its task, else its role. The agent profile is never a row's label.
+export function stepLabelOf(step: EpicStep): string {
+  if (step.purpose !== "") {
+    return step.purpose;
+  }
+  return step.task !== "" ? step.task : step.role;
+}
+
 // The running steps as Now's rows, one each.
 export function stepLinesOf(detail: EpicsGetResponse): StepLine[] {
   return runningSteps(detail).map((step) => ({
     id: step.id,
     glyph: step.held ? "held" : step.limited ? "limited" : "working",
-    label: stepName(step),
+    label: stepLabelOf(step),
     task: step.task,
     doing: rowDoing(step),
     since: Number(step.stageStarted > 0n ? step.stageStarted : step.started),

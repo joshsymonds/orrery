@@ -3,6 +3,7 @@ import type { Epic, EpicSlice, EpicStep, EpicsGetResponse, EpicTask } from "./ge
 import { type CellKind, cellKind, RINGS } from "./orbitcells";
 import { durationText, placementOf, recordTaskOf, type Tone, wedgesOf } from "./phases";
 import type { Row } from "./rows";
+import { stepLabelOf } from "./recordwords";
 import { blockerOf } from "./status";
 import { taskStateOf } from "./taskstatus";
 
@@ -256,7 +257,7 @@ function stepOf(epic: Epic, step: EpicStep, slices: EpicSlice[]): StepItem {
     id: step.id,
     epic: epic.id,
     epicSlug: epic.slug,
-    label: step.task || step.agent,
+    label: stepLabelOf(step),
     doing: step.doing,
     held: step.held,
     agent: step.agent,
@@ -268,8 +269,12 @@ function stepOf(epic: Epic, step: EpicStep, slices: EpicSlice[]): StepItem {
   };
 }
 
-// A step's five cells: the cells of the slice that names its task, or five track when no slice does.
+// A step's five cells: none for a step with no task, else the cells of the slice that names its task, or five track
+// when no slice does.
 export function pipsOf(task: string, slices: EpicSlice[]): CellKind[] {
+  if (task === "") {
+    return [];
+  }
   const slice = slices.find((candidate) => candidate.task === task);
   return RINGS.map((_, index) => (slice ? cellKind(slice, index + 1) : "track"));
 }
