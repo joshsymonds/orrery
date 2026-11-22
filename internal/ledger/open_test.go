@@ -11,26 +11,22 @@ import (
 	"time"
 )
 
-// invented is the content of the invented orrery.db each test places beside the ledger.
-var invented = []byte("invented orrery.db, not a real store")
-
-// orreryMTime is the modification time each test gives its invented orrery.db, so a write to it shows as a new time.
-var orreryMTime = time.Date(2026, time.March, 1, 12, 0, 0, 0, time.UTC)
-
 // orreryState is the bytes and modification time of an orrery.db.
 type orreryState struct {
 	data  []byte
 	mtime time.Time
 }
 
-// writeOrrery writes an invented orrery.db into a new temp dir, gives it orreryMTime, and returns its path.
+// writeOrrery writes an invented orrery.db into a new temp dir, gives it a fixed modification time, so a write to it
+// shows as a new time, and returns its path.
 func writeOrrery(t *testing.T) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "orrery.db")
-	if err := os.WriteFile(path, invented, 0o600); err != nil {
+	mtime := time.Date(2026, time.March, 1, 12, 0, 0, 0, time.UTC)
+	if err := os.WriteFile(path, []byte("invented orrery.db, not a real store"), 0o600); err != nil {
 		t.Fatalf("write orrery.db: %v", err)
 	}
-	if err := os.Chtimes(path, orreryMTime, orreryMTime); err != nil {
+	if err := os.Chtimes(path, mtime, mtime); err != nil {
 		t.Fatalf("set orrery.db mtime: %v", err)
 	}
 	return path
@@ -185,14 +181,8 @@ func TestLedgerOpen(t *testing.T) {
 
 	t.Run("reads empty when ledger.db is absent", func(t *testing.T) {
 		ctx := context.Background()
-		dir := t.TempDir()
-		orreryDB := filepath.Join(dir, "orrery.db")
-		if err := os.WriteFile(orreryDB, invented, 0o600); err != nil {
-			t.Fatalf("write orrery.db: %v", err)
-		}
-		if err := os.Chtimes(orreryDB, orreryMTime, orreryMTime); err != nil {
-			t.Fatalf("set orrery.db mtime: %v", err)
-		}
+		orreryDB := writeOrrery(t)
+		dir := filepath.Dir(orreryDB)
 		want := stateOf(t, orreryDB)
 		r := NewReader(Path(orreryDB))
 

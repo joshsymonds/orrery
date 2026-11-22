@@ -17,6 +17,8 @@ import (
 	"time"
 
 	"github.com/pressly/goose/v3"
+
+	// The blank import registers the "sqlite" driver that Open and Reader open the ledger with.
 	_ "modernc.org/sqlite"
 )
 
