@@ -13,9 +13,9 @@ import (
 // dependentBatchPath is the integrate run that composes the revision in the dependents tests.
 const dependentBatchPath = "plan/S1/integrate"
 
-// revisionReason is the reason the dependents of design task design get when revision, a revision of it, is integrated.
-func revisionReason(design, revision int64) string {
-	return fmt.Sprintf("design T%d was revised by T%d: %s", design, revision, reopenDeliverable)
+// revisionReason is the reason the dependents of T1 are sent back with, once revision, a revision of T1, integrates.
+func revisionReason(revision int64) string {
+	return fmt.Sprintf("design T1 was revised by T%d: %s", revision, reopenDeliverable)
 }
 
 // addDependentsTask stores task seq of integrateEpic, of kind, with the depends_on dependsOn encodes and the status, so
@@ -46,14 +46,14 @@ func setDependentsStatus(t *testing.T, s *Store, seq int64, status string) {
 	}
 }
 
-// reviseDesignAt stores a reopen_design action of the design task design of integrateEpic at turn, carries it out, and
+// reviseDesignAt stores a reopen_design action of the design task T1 of integrateEpic at turn, carries it out, and
 // returns the seq of the revision it adds.
-func reviseDesignAt(t *testing.T, s *Store, turn, design int64) int64 {
+func reviseDesignAt(t *testing.T, s *Store, turn int64) int64 {
 	t.Helper()
 	ctx := context.Background()
 	if err := s.write(ctx, func(queries *sqlcgen.Queries) error {
 		return insertActions(ctx, queries, integrateEpic, turn, []EpicActionInput{{
-			Kind: ActionReopenDesign, Task: design, Deliverable: reopenDeliverable, Reason: reopenReason,
+			Kind: ActionReopenDesign, Task: 1, Deliverable: reopenDeliverable, Reason: reopenReason,
 		}})
 	}); err != nil {
 		t.Fatalf("insert reopen_design action of turn %d of epic %s: %v", turn, integrateEpic, err)
@@ -73,12 +73,12 @@ func reviseDesignAt(t *testing.T, s *Store, turn, design int64) int64 {
 	}
 	var revision int64
 	for _, task := range integrateEpicRow(t, s).Tasks {
-		if task.Revises == design {
+		if task.Revises == 1 {
 			revision = task.Seq
 		}
 	}
 	if revision == 0 {
-		t.Fatalf("epic %s has no revision of task %d", integrateEpic, design)
+		t.Fatalf("epic %s has no revision of task 1", integrateEpic)
 	}
 	return revision
 }
@@ -99,7 +99,9 @@ func claimComposing(t *testing.T, s *Store, path, revision string, composed []in
 		commits[i] = fmt.Sprintf(`{"task":%d,"commit":"c%d"}`, seq, seq)
 	}
 	result := fmt.Sprintf(`{"composed":[%s],"leftOut":[]}`, strings.Join(commits, ","))
-	if err := s.ClaimBatch(context.Background(), integrateEpic, path, 1, revision, "refs", result, composed); err != nil {
+	if err := s.ClaimBatch(
+		context.Background(), integrateEpic, path, 1, revision, "refs", result, composed,
+	); err != nil {
 		t.Fatalf("ClaimBatch %s: %v", path, err)
 	}
 }
@@ -182,13 +184,13 @@ func TestReopenDesignDependentsSendsBackDirectAndTransitiveDependents(t *testing
 	addDependentsTask(t, s, 3, "", taskOpen, "2")
 	addDependentsTask(t, s, 4, "", taskDone, "3")
 	addDependentsTask(t, s, 5, "", taskDone, "")
-	revision := reviseDesignAt(t, s, 1, 1)
+	revision := reviseDesignAt(t, s, 1)
 	markDoneTask(t, s, revision)
 	before := integrateEpicRow(t, s).Tasks
 
 	endComposingBatch(t, s, dependentBatchPath, nodePassedOutcome, "rev-1", []int64{revision})
 
-	reason := revisionReason(1, revision)
+	reason := revisionReason(revision)
 	for _, seq := range []int64{2, 3, 4} {
 		requireDependentReopened(t, s, seq, 1, "rev-1", reason)
 	}
@@ -199,7 +201,7 @@ func TestReopenDesignDependentsSendsBackDirectAndTransitiveDependents(t *testing
 	}
 	got := dependentTaskOf(t, s, revision)
 	if got.Status != taskDone || got.Batch != dependentBatchPath || got.Generation != 0 || got.Revises != 1 {
-		t.Errorf("revision %d = status %q batch %q generation %d revises %d, want done in %s at generation 0 revising 1",
+		t.Errorf("revision %d = status %q batch %q generation %d revises %d, want done in %s at generation 0",
 			revision, got.Status, got.Batch, got.Generation, got.Revises, dependentBatchPath)
 	}
 }
@@ -217,7 +219,7 @@ func TestReopenDesignDependentsLeavesOutFailedGapAndTheRevision(t *testing.T) {
 	addDependentsTask(t, s, 3, "", taskFailed, "1")
 	addDependentsTask(t, s, 4, "", TaskGap, "1")
 	addDependentsTask(t, s, 5, "", taskDone, "3")
-	revision := reviseDesignAt(t, s, 1, 1)
+	revision := reviseDesignAt(t, s, 1)
 	if _, err := s.fixtureExec(ctx,
 		`UPDATE epic_tasks SET depends_on = '1' WHERE epic = ? AND seq = ?`, integrateEpic, revision); err != nil {
 		t.Fatalf("set depends_on of revision %d: %v", revision, err)
@@ -227,7 +229,7 @@ func TestReopenDesignDependentsLeavesOutFailedGapAndTheRevision(t *testing.T) {
 
 	endComposingBatch(t, s, dependentBatchPath, nodePassedOutcome, "rev-1", []int64{revision})
 
-	reason := revisionReason(1, revision)
+	reason := revisionReason(revision)
 	requireDependentReopened(t, s, 2, 1, "rev-1", reason)
 	requireDependentReopened(t, s, 5, 1, "rev-1", reason)
 	for _, seq := range []int64{3, 4} {
@@ -250,7 +252,7 @@ func TestReopenDesignDependentsWaitsForAPassedBatch(t *testing.T) {
 	s := openIntegrateStore(t)
 	addDependentsTask(t, s, 1, TaskKindDesign, taskDone, "")
 	addDependentsTask(t, s, 2, "", taskDone, "1")
-	revision := reviseDesignAt(t, s, 1, 1)
+	revision := reviseDesignAt(t, s, 1)
 	markDoneTask(t, s, revision)
 	before := dependentTaskOf(t, s, 2)
 
@@ -260,7 +262,7 @@ func TestReopenDesignDependentsWaitsForAPassedBatch(t *testing.T) {
 	}
 
 	endComposingBatch(t, s, "plan/S2/integrate", nodePassedOutcome, "rev-2", []int64{revision})
-	requireDependentReopened(t, s, 2, 1, "rev-2", revisionReason(1, revision))
+	requireDependentReopened(t, s, 2, 1, "rev-2", revisionReason(revision))
 }
 
 // TestReopenDesignDependentsRepeatSendsNothingTwice checks that a second end of a passed run changes nothing: the
@@ -271,7 +273,7 @@ func TestReopenDesignDependentsRepeatSendsNothingTwice(t *testing.T) {
 	s := openIntegrateStore(t)
 	addDependentsTask(t, s, 1, TaskKindDesign, taskDone, "")
 	addDependentsTask(t, s, 2, "", taskDone, "1")
-	revision := reviseDesignAt(t, s, 1, 1)
+	revision := reviseDesignAt(t, s, 1)
 	markDoneTask(t, s, revision)
 	endComposingBatch(t, s, dependentBatchPath, nodePassedOutcome, "rev-1", []int64{revision})
 	reopened := integrateEpicRow(t, s).Tasks
@@ -285,7 +287,7 @@ func TestReopenDesignDependentsRepeatSendsNothingTwice(t *testing.T) {
 	if got := integrateEpicRow(t, s).Tasks; !reflect.DeepEqual(got, reopened) {
 		t.Errorf("tasks after a repeat of the end:\n got %+v\nwant %+v", got, reopened)
 	}
-	requireDependentReopened(t, s, 2, 1, "rev-1", revisionReason(1, revision))
+	requireDependentReopened(t, s, 2, 1, "rev-1", revisionReason(revision))
 }
 
 // TestReopenDesignDependentsKeepsEarlierGenerations checks that a send back keeps the history of the dependent: the
@@ -312,12 +314,12 @@ func TestReopenDesignDependentsKeepsEarlierGenerations(t *testing.T) {
 		t.Fatalf("insert rung 1 of task 2 at generation 0: %v", err)
 	}
 	before := dependentTaskOf(t, s, 2)
-	revision := reviseDesignAt(t, s, 1, 1)
+	revision := reviseDesignAt(t, s, 1)
 	markDoneTask(t, s, revision)
 
 	endComposingBatch(t, s, dependentBatchPath, nodePassedOutcome, "rev-1", []int64{revision})
 
-	requireDependentReopened(t, s, 2, 1, "rev-1", revisionReason(1, revision))
+	requireDependentReopened(t, s, 2, 1, "rev-1", revisionReason(revision))
 	after := dependentTaskOf(t, s, 2)
 	if len(after.Versions) != len(before.Versions)+1 {
 		t.Fatalf("versions of task 2 = %d, want %d: the earlier ones and the send back", len(after.Versions),
@@ -347,7 +349,7 @@ func TestReopenDesignDependentsLeftOutTaskIsSentBackOnce(t *testing.T) {
 	s := openIntegrateStore(t)
 	addDependentsTask(t, s, 1, TaskKindDesign, taskDone, "")
 	addDependentsTask(t, s, 2, "", taskDone, "1")
-	revision := reviseDesignAt(t, s, 1, 1)
+	revision := reviseDesignAt(t, s, 1)
 	markDoneTask(t, s, revision)
 	startIntegrateRuns(t, s,
 		NodeRun{Path: dependentBatchPath, ID: "id-s1", Node: "integrate", Kind: integrateKind, Attempt: 1})
@@ -374,73 +376,73 @@ func TestReopenDesignDependentsEachRevisionSendsBackAgain(t *testing.T) {
 	s := openIntegrateStore(t)
 	addDependentsTask(t, s, 1, TaskKindDesign, taskDone, "")
 	addDependentsTask(t, s, 2, "", taskDone, "1")
-	first := reviseDesignAt(t, s, 1, 1)
+	first := reviseDesignAt(t, s, 1)
 	markDoneTask(t, s, first)
 	endComposingBatch(t, s, dependentBatchPath, nodePassedOutcome, "rev-1", []int64{first})
-	requireDependentReopened(t, s, 2, 1, "rev-1", revisionReason(1, first))
+	requireDependentReopened(t, s, 2, 1, "rev-1", revisionReason(first))
 
-	second := reviseDesignAt(t, s, 2, 1)
+	second := reviseDesignAt(t, s, 2)
 	markDoneTask(t, s, second)
 	endComposingBatch(t, s, "plan/S2/integrate", nodePassedOutcome, "rev-2", []int64{second})
-	requireDependentReopened(t, s, 2, 2, "rev-2", revisionReason(1, second))
+	requireDependentReopened(t, s, 2, 2, "rev-2", revisionReason(second))
 }
 
-// TestReopenDesignDependentsCandidateKeptOnlyForABasedDependent checks that a passed batch clears the epic's candidate
-// when it reopens a dependent the stored base lacks, since the candidate may hold that dependent's commit, and keeps
-// the candidate when the batch composed every dependent it reopens, since the stored base holds their commits.
-func TestReopenDesignDependentsCandidateKeptOnlyForABasedDependent(t *testing.T) {
+// TestReopenDesignDependentsClearsTheCandidateForAnUnbasedDependent checks that a passed batch clears the epic's
+// candidate when it reopens a dependent the stored base lacks, since the candidate may hold that dependent's commit.
+func TestReopenDesignDependentsClearsTheCandidateForAnUnbasedDependent(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	t.Run("a dependent the stored base lacks clears the candidate", func(t *testing.T) {
-		t.Parallel()
-		s := openIntegrateStore(t)
-		addDependentsTask(t, s, 1, TaskKindDesign, taskDone, "")
-		addDependentsTask(t, s, 2, "", taskDone, "1")
-		const earlier = "plan/S0/integrate"
-		claimComposing(t, s, earlier, "rev-0", []int64{2})
-		if err := s.EndBatch(ctx, integrateEpic, BatchEnd{
-			Path: earlier, Attempt: 1, Outcome: "failed", Output: "red", Candidate: "rev-cand", Over: integrationBase,
-		}, nil, integrateEndedAt()); err != nil {
-			t.Fatalf("EndBatch %s: %v", earlier, err)
-		}
-		if got := integrateEpicRow(t, s).Candidate; got != "rev-cand" {
-			t.Fatalf("candidate after the failed batch = %q, want rev-cand", got)
-		}
-		revision := reviseDesignAt(t, s, 1, 1)
-		markDoneTask(t, s, revision)
-		claimComposing(t, s, dependentBatchPath, "rev-b", []int64{revision})
+	s := openIntegrateStore(t)
+	addDependentsTask(t, s, 1, TaskKindDesign, taskDone, "")
+	addDependentsTask(t, s, 2, "", taskDone, "1")
+	const earlier = "plan/S0/integrate"
+	claimComposing(t, s, earlier, "rev-0", []int64{2})
+	if err := s.EndBatch(ctx, integrateEpic, BatchEnd{
+		Path: earlier, Attempt: 1, Outcome: "failed", Output: "red", Candidate: "rev-cand", Over: integrationBase,
+	}, nil, integrateEndedAt()); err != nil {
+		t.Fatalf("EndBatch %s: %v", earlier, err)
+	}
+	if got := integrateEpicRow(t, s).Candidate; got != "rev-cand" {
+		t.Fatalf("candidate after the failed batch = %q, want rev-cand", got)
+	}
+	revision := reviseDesignAt(t, s, 1)
+	markDoneTask(t, s, revision)
+	claimComposing(t, s, dependentBatchPath, "rev-b", []int64{revision})
 
-		if err := s.EndBatch(ctx, integrateEpic, BatchEnd{
-			Path: dependentBatchPath, Attempt: 1, Outcome: nodePassedOutcome, Output: "green",
-			Candidate: "rev-joined", Over: "rev-b",
-		}, nil, integrateEndedAt()); err != nil {
-			t.Fatalf("EndBatch %s: %v", dependentBatchPath, err)
-		}
+	if err := s.EndBatch(ctx, integrateEpic, BatchEnd{
+		Path: dependentBatchPath, Attempt: 1, Outcome: nodePassedOutcome, Output: "green",
+		Candidate: "rev-joined", Over: "rev-b",
+	}, nil, integrateEndedAt()); err != nil {
+		t.Fatalf("EndBatch %s: %v", dependentBatchPath, err)
+	}
 
-		if got := integrateEpicRow(t, s).Candidate; got != "" {
-			t.Errorf("candidate after the send back = %q, want it cleared", got)
-		}
-		requireDependentReopened(t, s, 2, 1, "rev-b", revisionReason(1, revision))
-	})
-	t.Run("a dependent the batch composed keeps the candidate", func(t *testing.T) {
-		t.Parallel()
-		s := openIntegrateStore(t)
-		addDependentsTask(t, s, 1, TaskKindDesign, taskDone, "")
-		addDependentsTask(t, s, 2, "", taskDone, "1")
-		revision := reviseDesignAt(t, s, 1, 1)
-		markDoneTask(t, s, revision)
-		claimComposing(t, s, dependentBatchPath, "rev-b", []int64{revision, 2})
+	if got := integrateEpicRow(t, s).Candidate; got != "" {
+		t.Errorf("candidate after the send back = %q, want it cleared", got)
+	}
+	requireDependentReopened(t, s, 2, 1, "rev-b", revisionReason(revision))
+}
 
-		if err := s.EndBatch(ctx, integrateEpic, BatchEnd{
-			Path: dependentBatchPath, Attempt: 1, Outcome: nodePassedOutcome, Output: "green",
-			Candidate: "rev-joined", Over: "rev-b",
-		}, nil, integrateEndedAt()); err != nil {
-			t.Fatalf("EndBatch %s: %v", dependentBatchPath, err)
-		}
+// TestReopenDesignDependentsKeepsTheCandidateForAComposedDependent checks that a passed batch keeps the epic's candidate
+// when the batch composed the dependent it reopens, since the stored base holds its commit.
+func TestReopenDesignDependentsKeepsTheCandidateForAComposedDependent(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s := openIntegrateStore(t)
+	addDependentsTask(t, s, 1, TaskKindDesign, taskDone, "")
+	addDependentsTask(t, s, 2, "", taskDone, "1")
+	revision := reviseDesignAt(t, s, 1)
+	markDoneTask(t, s, revision)
+	claimComposing(t, s, dependentBatchPath, "rev-b", []int64{revision, 2})
 
-		if got := integrateEpicRow(t, s).Candidate; got != "rev-joined" {
-			t.Errorf("candidate after the send back = %q, want rev-joined kept", got)
-		}
-		requireDependentReopened(t, s, 2, 1, "rev-b", revisionReason(1, revision))
-	})
+	if err := s.EndBatch(ctx, integrateEpic, BatchEnd{
+		Path: dependentBatchPath, Attempt: 1, Outcome: nodePassedOutcome, Output: "green",
+		Candidate: "rev-joined", Over: "rev-b",
+	}, nil, integrateEndedAt()); err != nil {
+		t.Fatalf("EndBatch %s: %v", dependentBatchPath, err)
+	}
+
+	if got := integrateEpicRow(t, s).Candidate; got != "rev-joined" {
+		t.Errorf("candidate after the send back = %q, want rev-joined kept", got)
+	}
+	requireDependentReopened(t, s, 2, 1, "rev-b", revisionReason(revision))
 }

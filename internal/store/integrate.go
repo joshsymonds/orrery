@@ -248,8 +248,9 @@ func reopenRevisedDependents(
 		if !claimedPassed(runs, dependent.task) {
 			clearCandidate = true
 		}
-		if err = reopenTask(ctx, queries, epic, dependent.task, head.StoredBase, dependent.reason, "", at); err != nil {
-			return err
+		reopenErr := reopenTask(ctx, queries, epic, dependent.task, head.StoredBase, dependent.reason, "", at)
+		if reopenErr != nil {
+			return reopenErr
 		}
 	}
 	if !clearCandidate || head.Candidate == "" {
