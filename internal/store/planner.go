@@ -441,7 +441,9 @@ func overlayVersions(task *EpicTask) {
 // currentSpecOf returns the spec of stored, a task row of epic, as its current version leaves it, in the caller's write:
 // its Files as the task owns them, and its Gate, TestChanges and Evidence as overlayVersions sets them from the
 // applied versions, as taskOf reads them.
-func currentSpecOf(ctx context.Context, queries *sqlcgen.Queries, epic string, stored sqlcgen.EpicTask) (EpicTask, error) {
+func currentSpecOf(
+	ctx context.Context, queries *sqlcgen.Queries, epic string, stored sqlcgen.EpicTask,
+) (EpicTask, error) {
 	item, err := decodeItem(stored.Evidence)
 	if err != nil {
 		return EpicTask{}, fmt.Errorf("task %d evidence: %w", stored.Seq, err)

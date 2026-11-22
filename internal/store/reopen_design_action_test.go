@@ -31,9 +31,9 @@ func seedReopenTask(t *testing.T, s *Store, kind, status string) {
 	if err != nil {
 		t.Fatalf("encode evidence of task 1: %v", err)
 	}
-	if _, err = s.fixtureExec(ctx, `INSERT INTO epic_tasks (epic, seq, turn, title, deliverable, gate, evidence, status, kind)
-		VALUES (?, 1, 1, 'Design the index', 'the index interface', 'review', ?, ?, ?)`,
-		climbEpic, item, status, kind); err != nil {
+	const insert = `INSERT INTO epic_tasks (epic, seq, turn, title, deliverable, gate, evidence, status, kind)
+		VALUES (?, 1, 1, 'Design the index', 'the index interface', 'review', ?, ?, ?)`
+	if _, err = s.fixtureExec(ctx, insert, climbEpic, item, status, kind); err != nil {
 		t.Fatalf("insert task 1: %v", err)
 	}
 	ladderApproachOwn(t, s, 1, "index.go")

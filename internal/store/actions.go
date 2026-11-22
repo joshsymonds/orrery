@@ -367,7 +367,7 @@ func reopenDesign(ctx context.Context, queries *sqlcgen.Queries, action PlannerA
 	}); err != nil {
 		return fmt.Errorf("insert task %d of epic %s: %w", seq, action.Epic, err)
 	}
-	if err = appendTaskFiles(ctx, queries, action.Epic, seq, spec.Files); err != nil {
+	if err := appendTaskFiles(ctx, queries, action.Epic, seq, spec.Files); err != nil {
 		return err
 	}
 	err = insertInOrder(spec.TestChanges, func(position int64, path string) error {
