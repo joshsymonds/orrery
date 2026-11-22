@@ -883,31 +883,35 @@ type PutOffQuestion struct {
 }
 
 type Session struct {
-	ID            string
-	Server        string
-	Pane          string
-	State         string
-	Changed       string
-	Seen          string
-	Question      string
-	Summary       string
-	Label         string
-	Context       string
-	Tool          string
-	ClaudeSession string
-	Transcript    string
-	Kind          string
-	Dir           string
-	Reason        string
-	Consumed      sql.NullInt64
-	ReplayFrom    int64
-	Background    bool
-	TurnOutput    string
-	PromptsFrom   int64
-	Title         string
-	Headline      string
-	HeadlineAt    int64
-	Awaited       bool
+	ID              string
+	Server          string
+	Pane            string
+	State           string
+	Changed         string
+	Seen            string
+	Question        string
+	Summary         string
+	Label           string
+	Context         string
+	Tool            string
+	ClaudeSession   string
+	Transcript      string
+	Kind            string
+	Dir             string
+	Reason          string
+	Consumed        sql.NullInt64
+	ReplayFrom      int64
+	Background      bool
+	TurnOutput      string
+	PromptsFrom     int64
+	Title           string
+	Headline        string
+	HeadlineAt      int64
+	Awaited         bool
+	LatestReply     string
+	NewestReplyAt   int64
+	FirstPromptText string
+	LatestRequestID string
 }
 
 type Step struct {

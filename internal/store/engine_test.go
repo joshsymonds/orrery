@@ -95,12 +95,14 @@ func TestApplyEngineWritesEveryOpForTwoSessions(t *testing.T) {
 	}
 
 	wantE1 := sqlcgen.Session{ID: "e1", Dir: "/a", State: "waiting", Changed: engineNowText,
-		Question: "ok?", Kind: "engine"}
+		Question: "ok?", Kind: "engine", FirstPromptText: "hi", LatestReply: "done",
+		NewestReplyAt: engineNowAt().Unix()}
 	if row := engineRowOf(t, s, "e1"); row != wantE1 {
 		t.Fatalf("e1 row: got %+v, want %+v", row, wantE1)
 	}
 	wantE2 := sqlcgen.Session{ID: "e2", Dir: "/b", State: "idle", Changed: engineNowText,
-		Seen: "yes", ClaudeSession: "c-2", Reason: "x", Kind: "engine"}
+		Seen: "yes", ClaudeSession: "c-2", Reason: "x", Kind: "engine",
+		NewestReplyAt: engineNowAt().Unix(), LatestRequestID: "r1"}
 	if row := engineRowOf(t, s, "e2"); row != wantE2 {
 		t.Fatalf("e2 row: got %+v, want %+v", row, wantE2)
 	}

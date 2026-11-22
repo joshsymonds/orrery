@@ -144,3 +144,84 @@ func TestRemoveStepWorktreeLeavesMainTreeAndUnregisteredDirectory(t *testing.T) 
 		t.Fatalf("unregistered directory was touched: %v", err)
 	}
 }
+
+// stepWorktreeTestHalfMade writes what a git worktree add stopped part way through its checkout leaves at path: checked
+// out files in nested directories and no .git entry.
+func stepWorktreeTestHalfMade(t *testing.T, path string) {
+	t.Helper()
+	stepGitTestWrite(t, path, "go.mod", "module half\n")
+	stepGitTestWrite(t, path, filepath.Join("android", "app", "build.gradle.kts"), "plugins {}\n")
+}
+
+func TestClearUnlaunchedWorktreeRemovesAHalfMadeWorktree(t *testing.T) {
+	t.Parallel()
+	repo := stepGitTestRepo(t)
+	path := filepath.Join(t.TempDir(), "run")
+	stepWorktreeTestHalfMade(t, path)
+
+	if err := removeStepWorktree(context.Background(), repo, path); err == nil {
+		t.Fatal("removeStepWorktree(half-made worktree) = nil, want git's refusal")
+	}
+	if err := clearUnlaunchedWorktree(context.Background(), repo, path); err != nil {
+		t.Fatalf("clearUnlaunchedWorktree: %v", err)
+	}
+	if _, err := os.Lstat(path); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("half-made worktree still present: %v", err)
+	}
+}
+
+func TestClearUnlaunchedWorktreeRemovesARegisteredWorktreeAndNothing(t *testing.T) {
+	t.Parallel()
+	repo := stepGitTestRepo(t)
+	path := stepWorktreeTestAddLinked(t, repo)
+	stepGitTestWrite(t, path, "uncommitted.txt", "dirty\n")
+
+	if err := clearUnlaunchedWorktree(context.Background(), repo, path); err != nil {
+		t.Fatalf("clearUnlaunchedWorktree(registered): %v", err)
+	}
+	if _, err := os.Lstat(path); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("registered worktree still present: %v", err)
+	}
+	if list := stepWorktreeTestWorktrees(t, repo); strings.Contains(list, path) {
+		t.Fatalf("git worktree list still names %s:\n%s", path, list)
+	}
+	if err := clearUnlaunchedWorktree(context.Background(), repo, path); err != nil {
+		t.Fatalf("clearUnlaunchedWorktree(nothing at path) = %v, want nil", err)
+	}
+}
+
+func TestClearUnlaunchedWorktreeLeavesAnUnregisteredDirectoryWithAGitEntry(t *testing.T) {
+	t.Parallel()
+	repo := stepGitTestRepo(t)
+	path := filepath.Join(t.TempDir(), "run")
+	if err := os.MkdirAll(path, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	stepGitTestWrite(t, path, ".git", "gitdir: /nowhere\n")
+	stepGitTestWrite(t, path, "keep.txt", "keep\n")
+
+	if err := clearUnlaunchedWorktree(context.Background(), repo, path); err == nil {
+		t.Fatal("clearUnlaunchedWorktree(directory with a .git entry) = nil, want an error")
+	}
+	if _, err := os.Stat(filepath.Join(path, "keep.txt")); err != nil {
+		t.Fatalf("directory with a .git entry was touched: %v", err)
+	}
+}
+
+func TestClearUnlaunchedWorktreeLeavesASymbolicLink(t *testing.T) {
+	t.Parallel()
+	repo := stepGitTestRepo(t)
+	target := t.TempDir()
+	stepGitTestWrite(t, target, "keep.txt", "keep\n")
+	path := filepath.Join(t.TempDir(), "run")
+	if err := os.Symlink(target, path); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := clearUnlaunchedWorktree(context.Background(), repo, path); err == nil {
+		t.Fatal("clearUnlaunchedWorktree(symbolic link) = nil, want an error")
+	}
+	if _, err := os.Stat(filepath.Join(target, "keep.txt")); err != nil {
+		t.Fatalf("link target was touched: %v", err)
+	}
+}

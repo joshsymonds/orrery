@@ -105,7 +105,7 @@ func (s *Store) DeletePushedAlert(ctx context.Context, alert string) error {
 // ordered by epic, then the limit rows ordered by limit, then the alert rows ordered by alert. The four tables are
 // read in one read transaction, so they come from one snapshot.
 func (s *Store) Pushed(ctx context.Context) ([]PushedRow, error) {
-	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	tx, err := s.read.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
 	if err != nil {
 		return nil, fmt.Errorf("begin pushed read: %w", err)
 	}

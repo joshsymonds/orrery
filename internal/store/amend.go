@@ -364,7 +364,7 @@ func (s *Store) startPlannedAmendment(ctx context.Context, action PlannerAction,
 
 // OpenAmendments returns the amendments of every epic that are checking or capturing, ordered by epic, then seq.
 func (s *Store) OpenAmendments(ctx context.Context) ([]EvidenceAmendment, error) {
-	rows, err := sqlcgen.New(s.db).ListOpenEpicAmendments(ctx)
+	rows, err := sqlcgen.New(s.read).ListOpenEpicAmendments(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("list open amendments: %w", err)
 	}

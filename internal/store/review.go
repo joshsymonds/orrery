@@ -60,7 +60,7 @@ type ReviewRound struct {
 // EpicReview returns the review of epic with its verdicts, ledger, rounds and holds, all read in one read transaction,
 // so they describe one state of the store. An epic whose review has not started returns the zero Review.
 func (s *Store) EpicReview(ctx context.Context, epic string) (Review, error) {
-	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	tx, err := s.read.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
 	if err != nil {
 		return Review{}, fmt.Errorf("begin review read: %w", err)
 	}

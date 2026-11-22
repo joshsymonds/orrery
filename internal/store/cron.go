@@ -69,7 +69,7 @@ func (s *Store) DeleteCronJob(ctx context.Context, session, id string) (bool, er
 
 // CronJobs returns the cron jobs of session, oldest first.
 func (s *Store) CronJobs(ctx context.Context, session string) ([]CronJob, error) {
-	rows, err := sqlcgen.New(s.db).ListSessionCronJobs(ctx, session)
+	rows, err := sqlcgen.New(s.read).ListSessionCronJobs(ctx, session)
 	if err != nil {
 		return nil, fmt.Errorf("list cron jobs of %s: %w", session, err)
 	}
@@ -78,7 +78,7 @@ func (s *Store) CronJobs(ctx context.Context, session string) ([]CronJob, error)
 
 // AllCronJobs returns the cron jobs of every session, oldest first.
 func (s *Store) AllCronJobs(ctx context.Context) ([]CronJob, error) {
-	rows, err := sqlcgen.New(s.db).ListCronJobs(ctx)
+	rows, err := sqlcgen.New(s.read).ListCronJobs(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("list cron jobs: %w", err)
 	}

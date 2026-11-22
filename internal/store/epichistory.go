@@ -18,7 +18,7 @@ type EpicHistory struct {
 // EpicHistory returns the triggers of epic ordered by creation time then id, its tells in seq order, and its actions in
 // seq order. An unknown epic is ErrNoEpic.
 func (s *Store) EpicHistory(ctx context.Context, id string) (EpicHistory, error) {
-	queries := sqlcgen.New(s.db)
+	queries := sqlcgen.New(s.read)
 	if err := requireEpic(ctx, queries, id); err != nil {
 		return EpicHistory{}, err
 	}

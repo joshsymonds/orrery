@@ -211,6 +211,33 @@ func TestEvidenceReadoptCapturingWithNoGrantClearsTheWorktreeAStopLeft(t *testin
 	}
 }
 
+// TestEvidenceReadoptCapturingWithNoGrantClearsAHalfMadeWorktree resumes a run with no grant whose start stopped inside git
+// worktree add, leaving checked out files at its path and no .git entry. The directory is cleared, the capture runs once
+// from the start, and the judge gives the verdict.
+func TestEvidenceReadoptCapturingWithNoGrantClearsAHalfMadeWorktree(t *testing.T) {
+	t.Parallel()
+	counter := filepath.Join(t.TempDir(), "runs")
+	repo, head := evidenceRunRepo(t, "echo run >> "+counter+"\nexit 0\n")
+	st := epicTestStore(t)
+	evidenceRunSeed(t, st, repo, evidenceRunItem(), evidenceRunItem())
+	evidenceReadoptAdd(t, st, "half", head, evidence.PhaseGreen, evidenceRunItem())
+	steps := &evidenceRunSteps{judges: []evidenceRunJudge{evidenceRunHolds()}}
+	ev := evidenceRunNew(t, st, steps)
+	stepWorktreeTestHalfMade(t, filepath.Join(ev.captures.worktrees, "half"))
+
+	if err := ev.Resume(t.Context()); err != nil {
+		t.Fatalf("Resume: %v", err)
+	}
+	got := evidenceRunSettled(t, engineOf(ev), st, "half")
+	if got.NotCaptured != "" || got.Verdict != evidence.VerdictHolds || !got.Passed || steps.startCount() != 1 {
+		t.Fatalf("run = not captured %q verdict %q passed %t starts %d, want captured, holds, passed, one start",
+			got.NotCaptured, got.Verdict, got.Passed, steps.startCount())
+	}
+	if n := evidenceReadoptLines(t, counter); n != 1 {
+		t.Fatalf("capture ran %d times, want once", n)
+	}
+}
+
 // TestEvidenceReadoptCapturingWithAGrantReadsTheHoldersExitAndIsNotRunAgain detaches a capture and lets its gate end under
 // its holder, then stores the grant the run held. Resume reads the holder's exit record, records the capture and judges it,
 // and the gate runs once.

@@ -89,12 +89,12 @@ func checkPutOffKey(kind, session, question string) error {
 // transaction on a connection it opens and closes. It returns an error that matches ErrUnavailable when the file is
 // missing or the database is busy. It never creates the file and never writes the database.
 func (r *Reader) PutOffQuestions(ctx context.Context) ([]PutOffMark, error) {
-	db, err := sql.Open("sqlite", readOnlyDSN(r.path))
+	db, closeDB, err := r.database()
 	if err != nil {
-		return nil, fmt.Errorf("open store reader: %w", err)
+		return nil, err
 	}
 	marks, err := readPutOffQuestions(ctx, db)
-	if closeErr := db.Close(); closeErr != nil {
+	if closeErr := closeDB(); closeErr != nil {
 		err = errors.Join(err, fmt.Errorf("close store reader: %w", closeErr))
 	}
 	if err != nil {

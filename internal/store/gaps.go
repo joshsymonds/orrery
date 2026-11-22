@@ -64,7 +64,7 @@ func insertUnresolvable(
 // UnresolvableGaps returns the gaps the epic's highest-seq succeeded turn declared it cannot resolve without the owner, in
 // the order they were declared, or nil when that turn declared none.
 func (s *Store) UnresolvableGaps(ctx context.Context, epic string) ([]GapDeclaration, error) {
-	return readUnresolvable(ctx, sqlcgen.New(s.db), epic)
+	return readUnresolvable(ctx, sqlcgen.New(s.read), epic)
 }
 
 // readUnresolvable returns the gaps the epic's highest-seq succeeded turn declared it cannot resolve as queries read
@@ -108,7 +108,7 @@ func rerunReview(ctx context.Context, queries *sqlcgen.Queries, action PlannerAc
 // ReviewReruns returns the reruns of the epic's review that its rerun_review actions carried out, in turn then position
 // order.
 func (s *Store) ReviewReruns(ctx context.Context, epic string) ([]ReviewRerun, error) {
-	return readReviewReruns(ctx, sqlcgen.New(s.db), epic)
+	return readReviewReruns(ctx, sqlcgen.New(s.read), epic)
 }
 
 // readReviewReruns returns the reruns of the epic's review that its rerun_review actions carried out as queries read
@@ -160,7 +160,7 @@ func insertGapTurn(
 
 // GapTurns returns the planner turns each gap of the epic was given, in gap then turn order.
 func (s *Store) GapTurns(ctx context.Context, epic string) ([]GapTurn, error) {
-	return readGapTurns(ctx, sqlcgen.New(s.db), epic)
+	return readGapTurns(ctx, sqlcgen.New(s.read), epic)
 }
 
 // readGapTurns returns the turns each gap of the epic was given as queries read them, in gap then turn order.
