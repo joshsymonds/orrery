@@ -19,7 +19,8 @@ func TestRoutesSnapshotGivesRoutesAndTokens(t *testing.T) {
 	addRouteAccounts(t, s)
 	// No context in fullRoutes names acct-gamma, so its token must not come back.
 	if _, err := s.AddAccount(ctx, store.NewAccount{
-		ID: "acct-gamma", Name: "Gamma", Provider: "example-provider", Token: "example-token-gamma", Created: 1700000300,
+		ID: "acct-gamma", Name: "Gamma", Provider: "example-provider", Token: "example-token-gamma",
+		Created: 1700000300,
 	}); err != nil {
 		t.Fatalf("AddAccount acct-gamma: %v", err)
 	}
