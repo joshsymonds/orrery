@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/joshsymonds/orrery/internal/evidence"
+	"github.com/joshsymonds/orrery/internal/hostexec"
 	"github.com/joshsymonds/orrery/internal/planner"
 	"github.com/joshsymonds/orrery/internal/store"
 )
@@ -298,14 +299,14 @@ type batchResult struct {
 	} `json:"leftOut"`
 }
 
-// peersOf returns every task of epic as a Peer, in seq order, given the epic's node runs. An accepted task that is
-// pending has the paths git names between its base and its revision as Changed.
-func peersOf(ctx context.Context, epic store.EpicRow, runs []store.NodeRun) ([]Peer, error) {
+// peersOf returns every task of epic as a Peer, in seq order, given the epic's node runs, read on host. An accepted
+// task that is pending has the paths git names between its base and its revision as Changed.
+func peersOf(ctx context.Context, host hostexec.Host, epic store.EpicRow, runs []store.NodeRun) ([]Peer, error) {
 	peers := make([]Peer, 0, len(epic.Tasks))
 	for _, task := range epic.Tasks {
 		peer := integrationOf(task, runs)
 		if task.Status == taskDone && peer.State == Pending && task.Build.Revision != "" {
-			changed, err := diffPaths(ctx, epic.Repository, task.Build.Base, task.Build.Revision)
+			changed, err := diffPaths(ctx, host, epic.Repository, task.Build.Base, task.Build.Revision)
 			if err != nil {
 				return nil, fmt.Errorf("changed paths of %s: %w", taskLabel(task.Seq), err)
 			}
@@ -356,9 +357,9 @@ func integrationOf(task store.EpicTask, runs []store.NodeRun) Peer {
 	return peer
 }
 
-// diffPaths returns the paths that differ between from and to in repo.
-func diffPaths(ctx context.Context, repo, from, to string) ([]string, error) {
-	out, err := runGit(ctx, repo, "diff", "--name-only", "--no-renames", from, to)
+// diffPaths returns the paths that differ between from and to in repo on host.
+func diffPaths(ctx context.Context, host hostexec.Host, repo, from, to string) ([]string, error) {
+	out, err := runGit(ctx, host, repo, "diff", "--name-only", "--no-renames", from, to)
 	if err != nil {
 		return nil, err
 	}

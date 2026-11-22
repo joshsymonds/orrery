@@ -82,7 +82,7 @@ func (r *Runner) work(ctx context.Context, epic store.EpicRow, act Action, at ti
 // prepare records the revision a check node run's work runs at. A gate, command or evidence run also records the refs it
 // is checked against, and an agent run none, since no ref compare applies to it.
 func (r *Runner) prepare(ctx context.Context, epic store.EpicRow, act Action) error {
-	revision, err := revisionOf(ctx, epic, act.Def.Settings.At)
+	revision, err := r.revisionOf(ctx, epic, act.Def.Settings.At)
 	if err != nil {
 		return err
 	}
@@ -100,19 +100,24 @@ func (r *Runner) prepare(ctx context.Context, epic store.EpicRow, act Action) er
 
 // revisionOf returns the revision a node names with at: the epic's base for base, and the head of the epic's branch for
 // head.
-func revisionOf(ctx context.Context, epic store.EpicRow, at string) (string, error) {
+func (r *Runner) revisionOf(ctx context.Context, epic store.EpicRow, at string) (string, error) {
 	if at == atBase {
 		if epic.Base == "" {
 			return "", fmt.Errorf("epic %s has no base to run at", epic.ID)
 		}
 		return epic.Base, nil
 	}
-	return branchHead(ctx, epic)
+	return r.branchHead(ctx, epic)
 }
 
-// branchHead returns the commit of the epic's branch. A branch that does not exist is an error.
-func branchHead(ctx context.Context, epic store.EpicRow) (string, error) {
-	tip, ok, err := build.BranchTip(ctx, epic.Repository, epic.ID)
+// branchHead returns the commit of the epic's branch, read on the host the epic lives on. A branch that does not exist
+// is an error.
+func (r *Runner) branchHead(ctx context.Context, epic store.EpicRow) (string, error) {
+	host, err := r.hostOf(epic)
+	if err != nil {
+		return "", fmt.Errorf("read branch of epic %s: %w", epic.ID, err)
+	}
+	tip, ok, err := build.BranchTip(ctx, host, epic.Repository, epic.ID)
 	if err != nil {
 		return "", fmt.Errorf("read branch of epic %s: %w", epic.ID, err)
 	}
@@ -136,7 +141,11 @@ func (r *Runner) refSnapshot(ctx context.Context, epic store.EpicRow) (string, e
 			exclude = append(exclude, build.BranchRef(other.ID))
 		}
 	}
-	snapshot, err := build.Snapshot(ctx, epic.Repository, exclude)
+	host, err := r.hostOf(epic)
+	if err != nil {
+		return "", fmt.Errorf("snapshot refs of epic %s: %w", epic.ID, err)
+	}
+	snapshot, err := build.Snapshot(ctx, host, epic.Repository, exclude)
 	if err != nil {
 		return "", fmt.Errorf("snapshot refs of epic %s: %w", epic.ID, err)
 	}
@@ -316,7 +325,7 @@ func refusedForGood(err error) bool {
 // when none changed. --no-renames lists a renamed path under both its names, so a rename out of an owned path is not
 // missed.
 func (r *Runner) recordOwned(ctx context.Context, epic store.EpicRow, act Action) error {
-	head, err := branchHead(ctx, epic)
+	head, err := r.branchHead(ctx, epic)
 	if err != nil {
 		return err
 	}
@@ -351,7 +360,11 @@ func (r *Runner) checkRefs(ctx context.Context, epic store.EpicRow, act Action, 
 	if err != nil {
 		return fmt.Errorf("compare refs of node %s: %w", act.Path, err)
 	}
-	moves, err = build.ScopeMoves(ctx, epic.Repository, epic.ID, moves, "", "")
+	host, err := r.hostOf(epic)
+	if err != nil {
+		return fmt.Errorf("scope refs of node %s: %w", act.Path, err)
+	}
+	moves, err = build.ScopeMoves(ctx, host, epic.Repository, epic.ID, moves, "", "")
 	if err != nil {
 		return fmt.Errorf("scope refs of node %s: %w", act.Path, err)
 	}

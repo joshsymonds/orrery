@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/joshsymonds/orrery/internal/enginehost"
+	"github.com/joshsymonds/orrery/internal/hostexec"
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
@@ -274,49 +275,54 @@ type Checks interface {
 	Run(ctx context.Context, check store.NodeCheck) (store.NodeCheck, error)
 }
 
-// Git makes the writes a Runner makes to a repository: the epic's branch create, a pin of a ref, a task worktree add
-// on a new task branch, the move of a task's worktree onto a new base as a task branch that merges its work, the keep
-// of a task's work on a ref when that move is refused, and the removal of a task's worktrees.
+// Git makes the writes a Runner makes to a repository on a Host: the epic's branch create, a pin of a ref, a task
+// worktree add on a new task branch, the move of a task's worktree onto a new base as a task branch that merges its
+// work, the keep of a task's work on a ref when that move is refused, and the removal of a task's worktrees.
 type Git interface {
-	CreateBranch(ctx context.Context, repo, epic, base string) error
-	Pin(ctx context.Context, repo, ref, commit string) error
-	AddTaskWorktree(ctx context.Context, repo, epic string, seq int64, path, base string) error
-	MoveTaskWorktree(ctx context.Context, path, wip, epic string, seq int64, to string) error
-	KeepWork(ctx context.Context, path, wip, ref string) (string, error)
-	RemoveWorktrees(ctx context.Context, repo, dir string) error
+	CreateBranch(ctx context.Context, host hostexec.Host, repo, epic, base string) error
+	Pin(ctx context.Context, host hostexec.Host, repo, ref, commit string) error
+	AddTaskWorktree(ctx context.Context, host hostexec.Host, repo, epic string, seq int64, path, base string) error
+	MoveTaskWorktree(ctx context.Context, host hostexec.Host, path, wip, epic string, seq int64, to string) error
+	KeepWork(ctx context.Context, host hostexec.Host, path, wip, ref string) (string, error)
+	RemoveWorktrees(ctx context.Context, host hostexec.Host, repo, dir string) error
 }
 
 // packageGit makes the writes of Git through the package's own functions.
 type packageGit struct{}
 
-func (packageGit) CreateBranch(ctx context.Context, repo, epic, base string) error {
-	return CreateBranch(ctx, repo, epic, base)
+func (packageGit) CreateBranch(ctx context.Context, host hostexec.Host, repo, epic, base string) error {
+	return CreateBranch(ctx, host, repo, epic, base)
 }
 
-func (packageGit) Pin(ctx context.Context, repo, ref, commit string) error {
-	return Pin(ctx, repo, ref, commit)
+func (packageGit) Pin(ctx context.Context, host hostexec.Host, repo, ref, commit string) error {
+	return Pin(ctx, host, repo, ref, commit)
 }
 
-func (packageGit) AddTaskWorktree(ctx context.Context, repo, epic string, seq int64, path, base string) error {
-	return AddTaskWorktree(ctx, repo, epic, seq, path, base)
+func (packageGit) AddTaskWorktree(
+	ctx context.Context, host hostexec.Host, repo, epic string, seq int64, path, base string,
+) error {
+	return AddTaskWorktree(ctx, host, repo, epic, seq, path, base)
 }
 
-func (packageGit) MoveTaskWorktree(ctx context.Context, path, wip, epic string, seq int64, to string) error {
-	return MoveTaskWorktree(ctx, path, wip, epic, seq, to)
+func (packageGit) MoveTaskWorktree(
+	ctx context.Context, host hostexec.Host, path, wip, epic string, seq int64, to string,
+) error {
+	return MoveTaskWorktree(ctx, host, path, wip, epic, seq, to)
 }
 
-func (packageGit) KeepWork(ctx context.Context, path, wip, ref string) (string, error) {
-	return KeepWork(ctx, path, wip, ref)
+func (packageGit) KeepWork(ctx context.Context, host hostexec.Host, path, wip, ref string) (string, error) {
+	return KeepWork(ctx, host, path, wip, ref)
 }
 
-func (packageGit) RemoveWorktrees(ctx context.Context, repo, dir string) error {
-	return RemoveWorktrees(ctx, repo, dir)
+func (packageGit) RemoveWorktrees(ctx context.Context, host hostexec.Host, repo, dir string) error {
+	return RemoveWorktrees(ctx, host, repo, dir)
 }
 
 // Config configures a Runner. A nil Now means time.Now. A nil Logger discards, and a nil Getenv means os.Getenv.
 // StateDir is the directory the task worktrees live under. A nil Git makes the repository writes through the package's
 // own functions. Checks runs the reproductions of test items, and a test item whose green unit needs one has no
-// reproduction without it.
+// reproduction without it. Hosts resolves each epic's Host, which is the host the epic's repository writes and reads
+// run on; a nil Hosts is hostexec.LocalHosts.
 type Config struct {
 	Store    Store
 	Steps    Steps
@@ -325,6 +331,7 @@ type Config struct {
 	Getenv   func(string) string
 	StateDir string
 	Git      Git
+	Hosts    hostexec.Hosts
 	Now      func() time.Time
 	Logger   *slog.Logger
 }
@@ -338,6 +345,7 @@ type Runner struct {
 	getenv   func(string) string
 	stateDir string
 	git      Git
+	hosts    hostexec.Hosts
 	now      func() time.Time
 	logger   *slog.Logger
 }
@@ -346,10 +354,13 @@ type Runner struct {
 func New(cfg Config) *Runner {
 	runner := &Runner{
 		store: cfg.Store, steps: cfg.Steps, evidence: cfg.Evidence, checks: cfg.Checks, getenv: cfg.Getenv,
-		stateDir: cfg.StateDir, git: cfg.Git, now: cfg.Now, logger: cfg.Logger,
+		stateDir: cfg.StateDir, git: cfg.Git, hosts: cfg.Hosts, now: cfg.Now, logger: cfg.Logger,
 	}
 	if runner.git == nil {
 		runner.git = packageGit{}
+	}
+	if runner.hosts == nil {
+		runner.hosts = hostexec.LocalHosts()
 	}
 	if runner.getenv == nil {
 		runner.getenv = os.Getenv

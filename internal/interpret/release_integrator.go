@@ -16,6 +16,7 @@ import (
 
 	"github.com/joshsymonds/orrery/internal/build"
 	"github.com/joshsymonds/orrery/internal/enginehost"
+	"github.com/joshsymonds/orrery/internal/hostexec"
 	"github.com/joshsymonds/orrery/internal/kinds"
 	"github.com/joshsymonds/orrery/internal/roles"
 	"github.com/joshsymonds/orrery/internal/store"
@@ -210,7 +211,11 @@ func (r *Runner) removeIntegrator(ctx context.Context, epic store.EpicRow, run s
 	if err != nil {
 		return err
 	}
-	if err = build.RemoveWorktrees(ctx, epic.Repository, dir); err != nil {
+	host, err := r.hostOf(epic)
+	if err != nil {
+		return err
+	}
+	if err = build.RemoveWorktrees(ctx, host, epic.Repository, dir); err != nil {
 		return fmt.Errorf("remove release integrator worktree of epic %s: %w", epic.ID, err)
 	}
 	return nil
@@ -254,7 +259,10 @@ func (r *Runner) startIntegrator(ctx context.Context, epic store.EpicRow, act Ac
 		return fail(err)
 	}
 	if head == "" {
-		err = startMerge(ctx, merge, dir)
+		var host hostexec.Host
+		if host, err = r.hostOf(epic); err == nil {
+			err = startMerge(ctx, host, merge, dir)
+		}
 	} else {
 		err = keptMerge(ctx, merge, head)
 	}
@@ -306,11 +314,11 @@ func (r *Runner) failIntegrator(
 // earlier start left there, and runs the merge of origin's commit in it with merge.conflictStyle zdiff3 and neither a
 // fast-forward nor a commit. The merge's conflicts stay in place: git's exit for a merge that conflicts is no error. A
 // merge that is not in progress afterwards is an error.
-func startMerge(ctx context.Context, merge integratorMerge, dir string) error {
-	if err := build.RemoveWorktrees(ctx, merge.repo, dir); err != nil {
+func startMerge(ctx context.Context, host hostexec.Host, merge integratorMerge, dir string) error {
+	if err := build.RemoveWorktrees(ctx, host, merge.repo, dir); err != nil {
 		return fmt.Errorf("remove the worktree an earlier start left: %w", err)
 	}
-	if err := build.AddWorktree(ctx, merge.repo, merge.worktree, merge.tip); err != nil {
+	if err := build.AddWorktree(ctx, host, merge.repo, merge.worktree, merge.tip); err != nil {
 		return fmt.Errorf("add the release integrator worktree: %w", err)
 	}
 	_, err := gitOutput(ctx, merge.worktree, "-c", "merge.conflictStyle=zdiff3", "merge", "--no-ff", "--no-commit",
@@ -335,6 +343,18 @@ func keptMerge(ctx context.Context, merge integratorMerge, head string) error {
 	if got = strings.TrimSpace(got); got != head {
 		return fmt.Errorf("the worktree %s is at %s, not at %s, the merge the last round made", merge.worktree, got,
 			head)
+	}
+	return nil
+}
+
+// pinIntegrator pins head, the commit of the release integrator's merge, under run's release ref on the epic's host.
+func (r *Runner) pinIntegrator(ctx context.Context, epic store.EpicRow, run store.NodeRun, head string) error {
+	host, err := r.hostOf(epic)
+	if err != nil {
+		return fmt.Errorf("pin release integrator merge: %w", err)
+	}
+	if err = build.Pin(ctx, host, epic.Repository, runPin(epic, run), head); err != nil {
+		return fmt.Errorf("pin release integrator merge: %w", err)
 	}
 	return nil
 }
@@ -383,8 +403,8 @@ func (r *Runner) recordIntegrator(ctx context.Context, epic store.EpicRow, act A
 				"; the release integrator's commit was refused: " + strings.Join(failures, "; ")
 			break
 		}
-		if err = build.Pin(ctx, epic.Repository, runPin(epic, act.Run), head); err != nil {
-			return fmt.Errorf("pin release integrator merge: %w", err)
+		if pinErr := r.pinIntegrator(ctx, epic, act.Run, head); pinErr != nil {
+			return pinErr
 		}
 		run.Head, run.Commits, run.Passed = head, []string{head}, true
 	case row.End == stepReturned && ret.Status == releaseBlocked && decodeReason == "":

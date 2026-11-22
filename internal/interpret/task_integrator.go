@@ -14,6 +14,7 @@ import (
 
 	"github.com/joshsymonds/orrery/internal/build"
 	"github.com/joshsymonds/orrery/internal/enginehost"
+	"github.com/joshsymonds/orrery/internal/hostexec"
 	"github.com/joshsymonds/orrery/internal/kinds"
 	"github.com/joshsymonds/orrery/internal/roles"
 	"github.com/joshsymonds/orrery/internal/store"
@@ -105,10 +106,10 @@ func taskMerge(repo, dir, candidate, revision string) integratorMerge {
 	return integratorMerge{repo: repo, worktree: filepath.Join(dir, taskWorktree), tip: candidate, origin: revision}
 }
 
-// startTaskMerge makes the worktree of merge afresh under dir, detached at the candidate, and merges the task's
+// startTaskMerge makes the worktree of merge afresh under dir on host, detached at the candidate, and merges the task's
 // revision into it without a commit (startMerge). The conflicts stay in place: it returns the paths they leave unmerged.
-func startTaskMerge(ctx context.Context, merge integratorMerge, dir string) ([]string, error) {
-	if err := startMerge(ctx, merge, dir); err != nil {
+func startTaskMerge(ctx context.Context, host hostexec.Host, merge integratorMerge, dir string) ([]string, error) {
+	if err := startMerge(ctx, host, merge, dir); err != nil {
 		return nil, fmt.Errorf("merge the task's revision %s into %s: %w", merge.origin, merge.tip, err)
 	}
 	return unmergedPaths(ctx, merge.worktree)
@@ -242,7 +243,11 @@ func (r *Runner) taskRoundStart(
 		return enginehost.StepStart{}, fmt.Errorf("task %d of epic %s is not stored", act.Tasks[0], epic.ID)
 	}
 	merge := taskMerge(epic.Repository, dir, act.Items[2], act.Items[3])
-	conflicts, err := startTaskMerge(ctx, merge, dir)
+	host, err := r.hostOf(epic)
+	if err != nil {
+		return enginehost.StepStart{}, err
+	}
+	conflicts, err := startTaskMerge(ctx, host, merge, dir)
 	if err != nil {
 		return enginehost.StepStart{}, err
 	}
@@ -280,7 +285,11 @@ func (r *Runner) recordTaskRound(ctx context.Context, epic store.EpicRow, act Ac
 		return err
 	}
 	if verdict.verdict == verdictMerged {
-		if err = build.Pin(ctx, epic.Repository, taskPin(epic, act.Run, seq, round), verdict.head); err != nil {
+		host, hostErr := r.hostOf(epic)
+		if hostErr != nil {
+			return fmt.Errorf("pin the task integrator merge of node %s: %w", act.Path, hostErr)
+		}
+		if err = build.Pin(ctx, host, epic.Repository, taskPin(epic, act.Run, seq, round), verdict.head); err != nil {
 			return fmt.Errorf("pin the task integrator merge of node %s: %w", act.Path, err)
 		}
 	}
@@ -417,7 +426,11 @@ func (r *Runner) storeRound(
 	if dir == "" {
 		return nil
 	}
-	if err := build.RemoveWorktrees(ctx, epic.Repository, dir); err != nil {
+	host, err := r.hostOf(epic)
+	if err != nil {
+		return fmt.Errorf("remove the worktree of task integrator %s: %w", record.Step, err)
+	}
+	if err = build.RemoveWorktrees(ctx, host, epic.Repository, dir); err != nil {
 		return fmt.Errorf("remove the worktree of task integrator %s: %w", record.Step, err)
 	}
 	return nil

@@ -99,7 +99,10 @@ func (r *Runner) implementerStart(
 		return enginehost.StepStart{}, fmt.Errorf("gate %s is an agent gate, not a command gate", task.Gate)
 	}
 	path := ImplementWorktree(r.stateDir, epic.ID, task)
-	err = r.git.AddTaskWorktree(ctx, epic.Repository, epic.ID, task.Seq, path, task.Build.Base)
+	host, err := r.hostOf(epic)
+	if err == nil {
+		err = r.git.AddTaskWorktree(ctx, host, epic.Repository, epic.ID, task.Seq, path, task.Build.Base)
+	}
 	if err != nil {
 		return enginehost.StepStart{}, fmt.Errorf("prepare worktree: %w", err)
 	}
@@ -296,11 +299,15 @@ func (r *Runner) orchestratorStart(
 	if err != nil {
 		return enginehost.StepStart{}, RoleError{Err: err}
 	}
+	host, err := r.hostOf(epic)
+	if err != nil {
+		return enginehost.StepStart{}, err
+	}
 	peers, err := r.peers(ctx, epic)
 	if err != nil {
 		return enginehost.StepStart{}, err
 	}
-	prompt, err := r.orchestratorPrompt(ctx, epic, view, peers)
+	prompt, err := r.orchestratorPrompt(ctx, host, epic, view, peers)
 	if err != nil {
 		return enginehost.StepStart{}, err
 	}

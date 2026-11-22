@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/joshsymonds/orrery/internal/build"
+	"github.com/joshsymonds/orrery/internal/hostexec"
 	"github.com/joshsymonds/orrery/internal/kinds"
 	"github.com/joshsymonds/orrery/internal/store"
 )
@@ -44,7 +45,7 @@ func (r *Runner) prepareRelease(ctx context.Context, epic store.EpicRow, act Act
 		return fmt.Errorf("read result of node %s: %w", act.Path, err)
 	}
 	if act.Run.Result == "" {
-		decided, decideErr := decideRelease(ctx, epic, act.Run)
+		decided, decideErr := r.decideRelease(ctx, epic, act.Run)
 		if decideErr != nil {
 			decided = kinds.ReleaseResult{Error: decideErr.Error()}
 		}
@@ -71,8 +72,14 @@ func (r *Runner) prepareRelease(ctx context.Context, epic store.EpicRow, act Act
 // no candidate: its Result names origin's commit, the branch of origin it was fetched from and the conflicted paths. A
 // merge that conflicts in no path git names is an error. Nothing is checked out, and the only ref written is the
 // release's own ref for origin and the run's pin.
-func decideRelease(ctx context.Context, epic store.EpicRow, run store.NodeRun) (kinds.ReleaseResult, error) {
-	tip, ok, err := build.BranchTip(ctx, epic.Repository, epic.ID)
+func (r *Runner) decideRelease(
+	ctx context.Context, epic store.EpicRow, run store.NodeRun,
+) (kinds.ReleaseResult, error) {
+	host, err := r.hostOf(epic)
+	if err != nil {
+		return kinds.ReleaseResult{}, err
+	}
+	tip, ok, err := build.BranchTip(ctx, host, epic.Repository, epic.ID)
 	if err != nil {
 		return kinds.ReleaseResult{}, fmt.Errorf("branch of epic %s: %w", epic.ID, err)
 	}
@@ -101,7 +108,7 @@ func decideRelease(ctx context.Context, epic store.EpicRow, run store.NodeRun) (
 		}
 		return kinds.ReleaseResult{Behind: true, Tip: tip, Origin: origin, Branch: branch, Conflicts: paths}, nil
 	}
-	merged, err := mergeOrigin(ctx, epic, run, tip, origin, tree)
+	merged, err := mergeOrigin(ctx, host, epic, run, tip, origin, tree)
 	if err != nil {
 		return kinds.ReleaseResult{}, err
 	}
@@ -218,15 +225,17 @@ func isAncestor(ctx context.Context, repo, ancestor, descendant string) (bool, e
 }
 
 // mergeOrigin commits tree, the tree merge-tree wrote for the merge of origin's commit into tip, as the merge of the two
-// in epic's repository, without a checkout, and pins the merge under the run's release ref.
-func mergeOrigin(ctx context.Context, epic store.EpicRow, run store.NodeRun, tip, origin, tree string) (string, error) {
+// in epic's repository, without a checkout, and pins the merge under the run's release ref on host.
+func mergeOrigin(
+	ctx context.Context, host hostexec.Host, epic store.EpicRow, run store.NodeRun, tip, origin, tree string,
+) (string, error) {
 	commit, err := gitOutput(ctx, epic.Repository, "commit-tree", tree, "-p", tip, "-p", origin, "-m",
 		mergeMessage(tip, origin))
 	if err != nil {
 		return "", err
 	}
 	merged := strings.TrimSpace(commit)
-	if pinErr := build.Pin(ctx, epic.Repository, runPin(epic, run), merged); pinErr != nil {
+	if pinErr := build.Pin(ctx, host, epic.Repository, runPin(epic, run), merged); pinErr != nil {
 		return "", fmt.Errorf("pin release merge: %w", pinErr)
 	}
 	return merged, nil

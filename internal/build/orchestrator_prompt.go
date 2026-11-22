@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/joshsymonds/orrery/internal/hostexec"
 	"github.com/joshsymonds/orrery/internal/planner"
 	"github.com/joshsymonds/orrery/internal/store"
 	"github.com/joshsymonds/orrery/internal/taskspec"
@@ -21,11 +22,13 @@ const (
 )
 
 // orchestratorPrompt renders the prompt of the orchestrator step that decides the request of view's task in epic, with
-// peers the epic's tasks: the role text, then the sections Contract, Decisions, Task, Worktree, Requested files, Tasks,
-// Return, Gate and History, each under a `## ` heading and None. when it has no lines (planner.WriteSection). The facts
-// orreryd reads come before the implementer's own account of them. It returns an error when the contract or the task's
-// evidence item cannot be encoded.
-func (r *Runner) orchestratorPrompt(ctx context.Context, epic store.EpicRow, view View, peers []Peer) (string, error) {
+// peers the epic's tasks, read from host: the role text, then the sections Contract, Decisions, Task, Worktree,
+// Requested files, Tasks, Return, Gate and History, each under a `## ` heading and None. when it has no lines
+// (planner.WriteSection). The facts orreryd reads come before the implementer's own account of them. It returns an
+// error when the contract or the task's evidence item cannot be encoded.
+func (r *Runner) orchestratorPrompt(
+	ctx context.Context, host hostexec.Host, epic store.EpicRow, view View, peers []Peer,
+) (string, error) {
 	task := view.Task
 	var out strings.Builder
 	out.WriteString(strings.TrimRight(OrchestratorRole, "\n") + "\n")
@@ -44,7 +47,7 @@ func (r *Runner) orchestratorPrompt(ctx context.Context, epic store.EpicRow, vie
 	if view.Returned != nil && view.Returned.Workspace != "" {
 		path = view.Returned.Workspace
 	}
-	tree := readWorktree(ctx, path, task.Build.Base)
+	tree := readWorktree(ctx, host, path, task.Build.Base)
 	planner.WriteSection(&out, "Worktree", tree.lines())
 	var asked []string
 	if view.Returned != nil {
@@ -54,9 +57,9 @@ func (r *Runner) orchestratorPrompt(ctx context.Context, epic store.EpicRow, vie
 	planner.WriteSection(
 		&out,
 		"Requested files",
-		requestedLines(ctx, epic.Repository, task, asked, tree.changed, peers),
+		requestedLines(ctx, host, epic.Repository, task, asked, tree.changed, peers),
 	)
-	planner.WriteSection(&out, "Tasks", peerLines(ctx, epic.Repository, task, peers))
+	planner.WriteSection(&out, "Tasks", peerLines(ctx, host, epic.Repository, task, peers))
 	planner.WriteSection(&out, "Return", returnLines(view.Returned))
 	planner.WriteSection(&out, "Gate", r.gateLines(ctx, task, view.Returned))
 	planner.WriteSection(&out, "History", r.historyLines(ctx, epic.ID, task))
@@ -120,12 +123,12 @@ type worktreeState struct {
 	missing                string
 }
 
-// readWorktree reads the implement worktree at path against base. A git command that fails leaves its part empty and
-// records the first failure, so the prompt says what it could not read.
-func readWorktree(ctx context.Context, path, base string) worktreeState {
+// readWorktree reads the implement worktree at path on host against base. A git command that fails leaves its part
+// empty and records the first failure, so the prompt says what it could not read.
+func readWorktree(ctx context.Context, host hostexec.Host, path, base string) worktreeState {
 	tree := worktreeState{path: path}
 	read := func(args ...string) string {
-		out, err := runGit(ctx, path, args...)
+		out, err := runGit(ctx, host, path, args...)
 		if err != nil && tree.missing == "" {
 			tree.missing = err.Error()
 		}
@@ -186,7 +189,7 @@ func cutMiddle(text string, limit int) string {
 // worktree changed outside the task's files, in that order and once each, saying whether it exists at the base and who
 // holds it (holderOf).
 func requestedLines(
-	ctx context.Context, repo string, task store.EpicTask, asked, changed []string, peers []Peer,
+	ctx context.Context, host hostexec.Host, repo string, task store.EpicTask, asked, changed []string, peers []Peer,
 ) []string {
 	var paths []string
 	for _, path := range asked {
@@ -202,7 +205,7 @@ func requestedLines(
 	lines := make([]string, 0, len(paths))
 	for _, path := range paths {
 		exists := "new at the base"
-		if _, err := runGit(ctx, repo, "cat-file", "-e", task.Build.Base+":"+path); err == nil {
+		if _, err := runGit(ctx, host, repo, "cat-file", "-e", task.Build.Base+":"+path); err == nil {
 			exists = "exists at the base"
 		}
 		origin := "changed outside the task's files"
@@ -218,7 +221,7 @@ func requestedLines(
 // title, the lines naming its spec version when it is past version 1 (taskspec.Lines), its deliverable, files or
 // changed paths, and the tasks it waits for; then the tasks integrated since this task's base; then the failed tasks
 // with their failures.
-func peerLines(ctx context.Context, repo string, task store.EpicTask, peers []Peer) []string {
+func peerLines(ctx context.Context, host hostexec.Host, repo string, task store.EpicTask, peers []Peer) []string {
 	var lines, integrated, failed []string
 	for _, peer := range peers {
 		other := peer.Task
@@ -238,7 +241,7 @@ func peerLines(ctx context.Context, repo string, task store.EpicTask, peers []Pe
 			lines = append(lines, fmt.Sprintf("- %s [accepted, not yet integrated] %s", label, other.Title))
 			lines = append(lines, specInBlock(other)...)
 			lines = append(lines, "  deliverable: "+other.Deliverable, "  changed: "+listText(peer.Changed))
-		case peer.State == Integrated && !reaches(ctx, repo, peer.Composed, task.Build.Base):
+		case peer.State == Integrated && !reaches(ctx, host, repo, peer.Composed, task.Build.Base):
 			integrated = append(integrated, fmt.Sprintf("- %s %s, composed as %s", label, other.Title, peer.Composed))
 		case other.Status == taskFailed:
 			failed = append(failed, fmt.Sprintf("- %s %s", label, other.Title), "  failure: "+other.Build.Failure)
@@ -259,12 +262,12 @@ func specInBlock(task store.EpicTask) []string {
 	return block
 }
 
-// reaches reports whether descendant reaches ancestor in repo. A comparison git cannot make reaches nothing.
-func reaches(ctx context.Context, repo, ancestor, descendant string) bool {
+// reaches reports whether descendant reaches ancestor in repo on host. A comparison git cannot make reaches nothing.
+func reaches(ctx context.Context, host hostexec.Host, repo, ancestor, descendant string) bool {
 	if ancestor == "" || descendant == "" {
 		return false
 	}
-	ok, err := isAncestor(ctx, repo, ancestor, descendant)
+	ok, err := isAncestor(ctx, host, repo, ancestor, descendant)
 	return err == nil && ok
 }
 

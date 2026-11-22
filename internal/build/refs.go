@@ -6,10 +6,11 @@ import (
 	"errors"
 	"fmt"
 	"maps"
-	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
+
+	"github.com/joshsymonds/orrery/internal/hostexec"
 )
 
 // mainRef is main, whose move parks when the step made it, headRef names the move of the primary checkout's HEAD, and
@@ -45,28 +46,28 @@ type snapshot struct {
 	Refs map[string]string `json:"refs"`
 }
 
-// Snapshot returns the JSON of repo's refs and of its primary checkout's HEAD, which is the parent of repo's common
-// git directory. It leaves out refs under refs/orrery/, refs under refs/heads/orrery/ (the task branches), and each ref
-// named in exclude. It writes nothing to the repository.
-func Snapshot(ctx context.Context, repo string, exclude []string) (string, error) {
-	common, err := runGit(ctx, repo, "rev-parse", "--path-format=absolute", "--git-common-dir")
+// Snapshot returns the JSON of repo's refs on host and of its primary checkout's HEAD, which is the parent of repo's
+// common git directory. It leaves out refs under refs/orrery/, refs under refs/heads/orrery/ (the task branches), and
+// each ref named in exclude. It writes nothing to the repository.
+func Snapshot(ctx context.Context, host hostexec.Host, repo string, exclude []string) (string, error) {
+	common, err := runGit(ctx, host, repo, "rev-parse", "--path-format=absolute", "--git-common-dir")
 	if err != nil {
 		return "", fmt.Errorf("find primary checkout: %w", err)
 	}
 	primary := filepath.Dir(common)
-	branch, err := runGit(ctx, primary, "symbolic-ref", "-q", "HEAD")
+	branch, err := runGit(ctx, host, primary, "symbolic-ref", "-q", "HEAD")
 	if err != nil {
-		var exit *exec.ExitError
-		if !errors.As(err, &exit) || exit.ExitCode() != symbolicRefDetached {
+		var gitErr *hostexec.GitError
+		if !errors.As(err, &gitErr) || gitErr.ExitCode != symbolicRefDetached {
 			return "", fmt.Errorf("read HEAD branch: %w", err)
 		}
 		branch = ""
 	}
-	commit, err := runGit(ctx, primary, "rev-parse", "--verify", "HEAD")
+	commit, err := runGit(ctx, host, primary, "rev-parse", "--verify", "HEAD")
 	if err != nil {
 		return "", fmt.Errorf("read HEAD commit: %w", err)
 	}
-	listing, err := runGit(ctx, repo, "for-each-ref", "--format=%(refname) %(objectname)")
+	listing, err := runGit(ctx, host, repo, "for-each-ref", "--format=%(refname) %(objectname)")
 	if err != nil {
 		return "", fmt.Errorf("list refs: %w", err)
 	}
@@ -130,11 +131,13 @@ func Compare(before, after string) ([]RefMove, error) {
 // for HEAD as for any other ref; a kept move of one of those keeps its Parks. Every other move is dropped, and so is a
 // move that removes its ref, which has no target to hold a commit. Those commits are read only when a move needs them.
 // A check node makes no commits, so it passes "" for base and head, and only the epic's own refs are kept for it.
-func ScopeMoves(ctx context.Context, repo, epic string, moves []RefMove, base, head string) ([]RefMove, error) {
+func ScopeMoves(
+	ctx context.Context, host hostexec.Host, repo, epic string, moves []RefMove, base, head string,
+) ([]RefMove, error) {
 	var steps []string
 	if head != "" && slices.ContainsFunc(moves, func(move RefMove) bool { return judgedByCommits(move, epic) }) {
 		var err error
-		if steps, err = stepCommits(ctx, repo, base, head); err != nil {
+		if steps, err = stepCommits(ctx, host, repo, base, head); err != nil {
 			return nil, fmt.Errorf("read implementer commits: %w", err)
 		}
 	}
@@ -142,7 +145,7 @@ func ScopeMoves(ctx context.Context, repo, epic string, moves []RefMove, base, h
 	for _, move := range moves {
 		keep := isEpicRef(move.Ref, epic)
 		if judgedByCommits(move, epic) {
-			holds, err := containsAny(ctx, repo, moveTarget(move), steps)
+			holds, err := containsAny(ctx, host, repo, moveTarget(move), steps)
 			if err != nil {
 				return nil, fmt.Errorf("check ref %s against implementer commits: %w", move.Ref, err)
 			}
@@ -176,10 +179,11 @@ func isEpicRef(ref, epic string) bool {
 	return ref == BranchRef(epic) || strings.HasPrefix(ref, refsOrreryPrefix+Slug(epic)+"/")
 }
 
-// containsAny reports whether commit contains any of commits in repo, that is, whether one of them is reachable from it.
-func containsAny(ctx context.Context, repo, commit string, commits []string) (bool, error) {
+// containsAny reports whether commit contains any of commits in repo on host, that is, whether one of them is reachable
+// from it.
+func containsAny(ctx context.Context, host hostexec.Host, repo, commit string, commits []string) (bool, error) {
 	for _, c := range commits {
-		ok, err := isAncestor(ctx, repo, c, commit)
+		ok, err := isAncestor(ctx, host, repo, c, commit)
 		if err != nil || ok {
 			return ok, err
 		}

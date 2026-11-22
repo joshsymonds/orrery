@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/joshsymonds/orrery/internal/hostexec"
 	"github.com/joshsymonds/orrery/internal/store"
 	"github.com/joshsymonds/orrery/internal/taskspec"
 )
@@ -68,7 +69,7 @@ func TestTaskVersionOrchestratorPeerLinesRenderTheCurrentVersion(t *testing.T) {
 		{Task: pending, State: Pending, Changed: []string{"p.go"}},
 		{Task: plain, State: Pending},
 	}
-	got := peerLines(context.Background(), "", task, peers)
+	got := peerLines(context.Background(), hostexec.NewLocal(), "", task, peers)
 	for _, peer := range []store.EpicTask{open, pending} {
 		var want []string
 		for _, line := range taskspec.Lines(peer) {
