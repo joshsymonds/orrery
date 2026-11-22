@@ -1987,3 +1987,31 @@ JOIN contract_versions AS entered ON entered.contract = states.contract AND ente
 JOIN contract_versions AS opening ON opening.contract = states.contract AND opening.version = 1
 WHERE states.session <> opening.writer
 ORDER BY states.at, states.contract, states.seq;
+
+-- name: InsertIntegrateRound :exec
+INSERT INTO integrate_rounds (epic, path, attempt, task, round, step, verdict, head, explanation, outcome, failure, created)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT (epic, path, attempt, task, round) DO NOTHING;
+
+-- name: ComposeIntegrateRound :execrows
+UPDATE integrate_rounds SET outcome = 'composed'
+WHERE integrate_rounds.epic = sqlc.arg(epic) AND integrate_rounds.path = sqlc.arg(path)
+  AND integrate_rounds.attempt = sqlc.arg(attempt) AND integrate_rounds.task = sqlc.arg(task)
+  AND integrate_rounds.round = sqlc.arg(round) AND integrate_rounds.outcome = ''
+  AND EXISTS (
+      SELECT 1 FROM epic_node_runs AS runs
+      WHERE runs.epic = integrate_rounds.epic AND runs.path = integrate_rounds.path
+        AND runs.attempt = integrate_rounds.attempt AND runs.state = 'running'
+  );
+
+-- name: SetIntegrateRunWork :exec
+UPDATE epic_node_runs SET revision = sqlc.arg(revision), result = sqlc.arg(result)
+WHERE epic = sqlc.arg(epic) AND path = sqlc.arg(path) AND attempt = sqlc.arg(attempt) AND state = 'running';
+
+-- name: FailIntegrateRound :execrows
+UPDATE integrate_rounds SET outcome = 'failed', failure = sqlc.arg(failure)
+WHERE epic = sqlc.arg(epic) AND path = sqlc.arg(path) AND attempt = sqlc.arg(attempt)
+  AND task = sqlc.arg(task) AND round = sqlc.arg(round) AND outcome = '';
+
+-- name: ListEpicIntegrateRounds :many
+SELECT * FROM integrate_rounds WHERE epic = ? ORDER BY path, attempt, task, round;
