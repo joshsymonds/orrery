@@ -119,8 +119,8 @@ func (e epicsServer) List(
 // lists them, its release steps in the order of its release proof, its report, its open questions with their labels,
 // choices and recommendations, its contract with its acceptance time, its summary, whether it is paused, why it is
 // parked and whether the planner holds the park, its repository, its sessions newest call first, and the tasks of its
-// record when one exists. An id that neither the database nor the record root lists
-// answers not_found, and the id is never joined into a path.
+// record when one exists. Each Requirement carries its state, and the epic its centre (see epicCentre). An id that
+// neither the database nor the record root lists answers not_found, and the id is never joined into a path.
 func (e epicsServer) Get(
 	ctx context.Context,
 	req *connect.Request[orreryv1.EpicsGetRequest],
@@ -173,7 +173,7 @@ func (e epicsServer) Get(
 		roles := storedStepRoles(stored, runs)
 		applyStoredRoles(resp.GetSteps(), roles)
 		applyStoredRoles(resp.GetEpic().GetRunningSteps(), roles)
-		resp.Requirements = epicRequirementMessages(stored.GetContract().GetRequirements(), runs)
+		resp.Requirements = orreryRequirements(stored, resp.GetSteps(), runs)
 		resp.Nodes = epicNodeMessages(stored.GetNodes(), runs)
 		resp.BuildTasks = epicBuildTaskMessages(stored.GetTasks())
 		resp.Ledger = epicLedgerFindingMessages(stored.GetLedger().GetFindings())
@@ -190,7 +190,9 @@ func (e epicsServer) Get(
 		resp.SupersededBy = stored.GetSupersededBy()
 	} else {
 		resp.Epic = epicMessage(rec, tasks, taskProblems, counts, e.now())
+		resp.Requirements = recordRequirementMessages(recordMarkTasks(tasks), resp.GetSteps())
 	}
+	resp.Centre = epicCentre(resp, stored)
 	return connect.NewResponse(resp), nil
 }
 
