@@ -72,11 +72,9 @@ func judgeStampCwd(t *testing.T, stamped string) string {
 
 // judgeStampTransition is a done transition whose frame runs in cwd through the base URL frameURL.
 func judgeStampTransition(cwd, frameURL string) daemon.Transition {
-	return daemon.Transition{Frame: protocol.HookFrame{
-		Hook:             json.RawMessage(judgeStampMessage),
-		Cwd:              cwd,
-		AnthropicBaseURL: frameURL,
-	}}
+	transition := daemon.Transition{Cwd: cwd, BaseURL: frameURL}
+	setHookFacts(&transition, judgeStampMessage)
+	return transition
 }
 
 // TestJudgeDoneResolvesFromStampedFolder checks that the done judge asks through the URL, the model and the whole env of
@@ -88,7 +86,7 @@ func TestJudgeDoneResolvesFromStampedFolder(t *testing.T) {
 	caller := &judgeStampCaller{}
 	r := &relay{home: home, judge: donejudge.New(caller, judgeStampModels())}
 
-	if _, err := r.judgeDone(t.Context(), judgeStampTransition(judgeStampCwd(t, stamped), judgeStampFrame))(
+	if _, err := r.judgeDone(judgeStampTransition(judgeStampCwd(t, stamped), judgeStampFrame))(
 		t.Context()); err != nil {
 		t.Fatalf("judgeDone: %v", err)
 	}
@@ -120,7 +118,7 @@ func TestJudgeDoneWithoutStampUsesFrameURL(t *testing.T) {
 	caller := &judgeStampCaller{}
 	r := &relay{home: home, judge: donejudge.New(caller, judgeStampModels())}
 
-	if _, err := r.judgeDone(t.Context(), judgeStampTransition(cwd, judgeStampFrame))(t.Context()); err != nil {
+	if _, err := r.judgeDone(judgeStampTransition(cwd, judgeStampFrame))(t.Context()); err != nil {
 		t.Fatalf("judgeDone: %v", err)
 	}
 
@@ -150,7 +148,7 @@ func TestJudgeDoneWithoutStampOrFrameURLRunsWithNoEnv(t *testing.T) {
 	caller := &judgeStampCaller{}
 	r := &relay{home: home, judge: donejudge.New(caller, judgeStampModels())}
 
-	if _, err := r.judgeDone(t.Context(), judgeStampTransition(cwd, ""))(t.Context()); err != nil {
+	if _, err := r.judgeDone(judgeStampTransition(cwd, ""))(t.Context()); err != nil {
 		t.Fatalf("judgeDone: %v", err)
 	}
 
@@ -174,7 +172,7 @@ func TestJudgeDoneUnparseableStampMakesNoCall(t *testing.T) {
 	caller := &judgeStampCaller{}
 	r := &relay{home: home, judge: donejudge.New(caller, judgeStampModels())}
 
-	_, err := r.judgeDone(t.Context(), judgeStampTransition(judgeStampCwd(t, stamped), judgeStampFrame))(t.Context())
+	_, err := r.judgeDone(judgeStampTransition(judgeStampCwd(t, stamped), judgeStampFrame))(t.Context())
 	if err == nil {
 		t.Fatal("judgeDone: want an error for an unparseable stamp, got nil")
 	}
@@ -218,7 +216,7 @@ func TestJudgeDoneDanglingCommondirMakesNoCall(t *testing.T) {
 	caller := &judgeStampCaller{}
 	r := &relay{home: home, judge: donejudge.New(caller, judgeStampModels())}
 
-	_, err := r.judgeDone(t.Context(), judgeStampTransition(cwd, judgeStampFrame))(t.Context())
+	_, err := r.judgeDone(judgeStampTransition(cwd, judgeStampFrame))(t.Context())
 	if err == nil {
 		t.Fatal("judgeDone: want an error for a dangling commondir, got nil")
 	}

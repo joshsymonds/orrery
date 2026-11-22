@@ -46,7 +46,7 @@ func questionOptions(stored string) []string {
 // option labels of the pane's question only when the pane waits. Notices sets the host, pane, session and time.
 func paneNotification(transition daemon.Transition, text paneText) push.Notification {
 	note := push.Notification{
-		Project:  filepath.Base(transition.Frame.Cwd),
+		Project:  filepath.Base(transition.Cwd),
 		State:    transition.To,
 		Summary:  text.summary,
 		Label:    text.label,
