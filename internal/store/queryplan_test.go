@@ -39,6 +39,7 @@ func TestReaderQueryPlans(t *testing.T) {
 		"EpicSessions":       {"ListEpicSessions"},
 		"PromptStates":       {"ListPromptStates"},
 		"ArchivedRows":       {"ListArchivedRows"},
+		"ClosureVerdicts":    {"ListClosureVerdicts"},
 		"PutOffQuestions":    {"ListPutOffQuestions"},
 		"PaneSends":          {"ListPaneSends"},
 		"PendingCallerEvents": {
