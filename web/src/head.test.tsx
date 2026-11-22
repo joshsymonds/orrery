@@ -279,7 +279,7 @@ test("HeadTitle: More is titled Archive, hide meters, keys, and opens a menu of 
         ["Find in this conversation", "/"],
         ["Hide the meters", "m"],
         ["Mark seen", "x"],
-        ["Archive", "A"],
+        ["Archive", null],
         ["Keys", "?"],
       ],
     );

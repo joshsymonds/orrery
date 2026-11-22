@@ -379,6 +379,24 @@ async function keyPress(key: string): Promise<void> {
   });
 }
 
+// archiveFromRow opens the More menu of the list row under key and chooses its Archive.
+async function archiveFromRow(container: HTMLElement, key: string): Promise<void> {
+  await press(one(container, `[data-key="${key}"] button[aria-label="more"]`));
+  const item = [...container.querySelectorAll<HTMLElement>(`[data-key="${key}"] .row-menu-list button`)].find(
+    (candidate) => candidate.textContent.trim() === "Archive",
+  );
+  await press(item);
+}
+
+// archiveFromHead opens the More menu of the reader's head and chooses its Archive, which archives the row the reader shows.
+async function archiveFromHead(container: HTMLElement): Promise<void> {
+  await press(one(container, 'section[aria-label="reader"]:not([hidden]) .icon.more'));
+  const item = [...container.querySelectorAll<HTMLElement>('section[aria-label="reader"] .head-menu button')].find(
+    (candidate) => candidate.textContent.trim() === "Archive",
+  );
+  await press(item);
+}
+
 // callsTo counts the requests the fake server took for the method whose path ends in suffix.
 function callsTo(server: FakeServer, suffix: string): number {
   return server.requests.filter((request) => request.path.endsWith(suffix)).length;
@@ -735,7 +753,7 @@ test("NoticeCentre: 1, 2 and 3 send nothing while the centre is open, and 2 answ
     assert.deepEqual(keysSent(server), [["2"]], "only the key pressed once the centre was shut was sent");
   }));
 
-test("NoticeCentre: with the list on screen beside the centre, x, e and A act on the cursor row", (t) =>
+test("NoticeCentre: with the list on screen beside the centre, x and e act on the cursor row, and its row menu's Archive archives it", (t) =>
   withDesk(t.signal, { width: wideWidth }, async (container, server) => {
     await pressRow(container, "a");
     await until(t.signal, () => cursored(container) === "a", "the cursor on the waiting row");
@@ -746,11 +764,11 @@ test("NoticeCentre: with the list on screen beside the centre, x, e and A act on
     await until(t.signal, () => callsTo(server, markSeenSuffix) === seenBefore + 1, "x marks the cursor row seen");
     await keyPress("e");
     await until(t.signal, () => callsTo(server, markSeenSuffix) === seenBefore + 2, "e marks the cursor row seen");
-    await keyPress("A");
-    await until(t.signal, () => callsTo(server, archiveSuffix) === 1, "A archives the cursor row");
+    await archiveFromRow(container, "a");
+    await until(t.signal, () => callsTo(server, archiveSuffix) === 1, "the row's Archive archives the cursor row");
   }));
 
-test("NoticeCentre: under 760px the centre covers the cursor row, so x, e and A do nothing on it until it is shut", (t) =>
+test("NoticeCentre: under 760px the centre covers the cursor row, so x, e and A do nothing on it until it is shut, and then its head's More Archive archives it", (t) =>
   withDesk(t.signal, { width: narrowWidth, notices: stackedNotices() }, async (container, server) => {
     await pressRow(container, "a");
     await press(stackMore(container));
@@ -760,8 +778,8 @@ test("NoticeCentre: under 760px the centre covers the cursor row, so x, e and A 
     await keyPress("A");
     await keyPress("Escape");
     assert.equal(centreDrawn(container), false, "Escape closes the centre page");
-    await keyPress("A");
-    await until(t.signal, () => callsTo(server, archiveSuffix) >= 1, "A archives once the centre is shut");
+    await archiveFromHead(container);
+    await until(t.signal, () => callsTo(server, archiveSuffix) >= 1, "the head's Archive once the centre is shut");
     assert.equal(callsTo(server, markSeenSuffix), 0, "x and e marked nothing while the centre covered the row");
-    assert.equal(callsTo(server, archiveSuffix), 1, "only the A pressed once the centre was shut archived");
+    assert.equal(callsTo(server, archiveSuffix), 1, "only the head's Archive, once the centre was shut, archived");
   }));

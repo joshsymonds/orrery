@@ -565,7 +565,7 @@ test("HashRoute: an address whose entry is pending records nothing until the ent
     },
   ));
 
-// archivableRows are historyRows with s0 given the archive kind a session row has, so the A key archives it.
+// archivableRows are historyRows with s0 given the archive kind a session row has, so its More menu archives it.
 function archivableRows(): Row[] {
   return [
     session("s0", { label: "waiting work", state: "waiting", archiveKind: "session", archiveId: "s0" }),
@@ -596,7 +596,8 @@ test("HashRoute: a filter that hides an opened entry drops the open, and clearin
 test("HashRoute: an opened row a landed archive marked archived drops the open, and the next key reports", (t) => {
   const rows = archivableRows();
   return withApp(t, { rows }, async ({ container, reports, rerender }) => {
-    await press("A");
+    await click(container, '[data-key="session:s0"] button[aria-label="more"]');
+    await click(container, '[data-key="session:s0"] .row-menu-list button', "Archive");
     const gone = () => container.querySelector('[data-key="session:s0"]') === null;
     await until(t.signal, gone, "the row leaving", { step: () => act(turn) });
     const before = reports.length;
@@ -606,26 +607,6 @@ test("HashRoute: an opened row a landed archive marked archived drops the open, 
     assert.deepEqual(reports.slice(before), [["#/inbox/session/s1", "replace"]], "the shown address replaces");
     await press("j");
     assert.deepEqual(reports.slice(before + 1), [["#/inbox/session/s3", "push"]], "the next cursor key pushes");
-  });
-});
-
-test("HashRoute: an epic address a local archive mark moved off the inbox line drops, and reports resume", (t) => {
-  const rows = historyRows().slice(1);
-  const epics = firstEpic();
-  return withApp(t, { rows, epics }, async ({ container, reports, rerender }) => {
-    for (let step = 0; step < 4 && cursorKey(container) !== widgetsFirstKey; step++) {
-      await press("j");
-    }
-    assert.equal(cursorKey(container), widgetsFirstKey, "the cursor walks to the epic");
-    await press("A");
-    const gone = () => container.querySelector(`[data-key="${widgetsFirstKey}"]`) === null;
-    await until(t.signal, gone, "the epic leaving", { step: () => act(turn) });
-    const before = reports.length;
-    const address: Address = { view: "inbox", entry: { kind: "epic", id: widgetsFirst, page: { kind: "epic" } } };
-    await rerender({ rows, epics, address });
-    assert.deepEqual(reports.slice(before), [["#/inbox/pane/box/%253", "replace"]], "the shown address replaces");
-    await press("k");
-    assert.deepEqual(reports.slice(before + 1), [["#/inbox/session/s2", "push"]], "the next cursor key pushes");
   });
 });
 

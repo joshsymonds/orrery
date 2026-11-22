@@ -12,7 +12,7 @@ export const Menu: Stories = {
         { label: "Open in a new window", icon: "open", onSelect: noop },
         { label: "Mark seen", icon: "check", kbd: "x", onSelect: noop },
         "sep",
-        { label: "Archive", icon: "archive", kbd: "A", onSelect: noop },
+        { label: "Archive", icon: "archive", onSelect: noop },
       ]}
     />
   ),

@@ -43,7 +43,7 @@ function row(line: Row): VNode {
   const items: MenuEntry[] = [
     { label: "Open in a new window", icon: "open", onSelect: noop },
     ...(line.unseen ? [{ label: "Mark seen", icon: "check", kbd: "x", onSelect: noop } satisfies MenuEntry] : []),
-    ...(line.archiveKind === "none" ? [] : ["sep" as const, { label: "Archive", icon: "archive", kbd: "A", onSelect: noop } satisfies MenuEntry]),
+    ...(line.archiveKind === "none" ? [] : ["sep" as const, { label: "Archive", icon: "archive", onSelect: noop } satisfies MenuEntry]),
   ];
   return (
     <InboxRow

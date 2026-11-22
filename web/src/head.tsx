@@ -106,7 +106,7 @@ export function Head({
     { label: "Find in this conversation", shortcut: "/", run: onFind },
     { label: menu.stripsShown ? "Hide the meters" : "Show the meters", shortcut: "m", run: menu.toggleStrips },
     { label: "Mark seen", shortcut: "x", run: menu.markSeen },
-    ...(menu.archive === null ? [] : [{ label: "Archive", shortcut: "A", run: menu.archive }]),
+    ...(menu.archive === null ? [] : [{ label: "Archive", run: menu.archive }]),
     { label: "Keys", shortcut: "?", run: menu.keys },
     ...(narrow ? [{ label: "Hide the header", run: onHide }] : []),
   ];
