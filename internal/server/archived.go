@@ -67,7 +67,13 @@ func archivedRow(mark store.ArchiveMark, changed int64, aged bool) bool {
 	if !aged {
 		return false
 	}
-	return mark.UnarchivedAt.IsZero() || mark.UnarchivedAt.Unix() < changed
+	return !unarchivedAtChange(mark, changed)
+}
+
+// unarchivedAtChange reports whether the owner unarchived the row mark marks at or after its change time changed, unix
+// seconds. Such a row stays out of aging, and out of ended, until it changes again.
+func unarchivedAtChange(mark store.ArchiveMark, changed int64) bool {
+	return !mark.UnarchivedAt.IsZero() && mark.UnarchivedAt.Unix() >= changed
 }
 
 // The phase and outcome spellings the final-epic rule reads, named once here.

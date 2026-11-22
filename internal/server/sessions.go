@@ -68,7 +68,7 @@ func (s sessionsServer) List(
 		// A pane row ages by the seven-day floor in any state, and once it has ended for endedAge, whether or not it was
 		// seen, all at s.now(). A row with no change time, changed 0, never ages. A server with no clock ages none.
 		verdict, ok := verdicts[row.ID]
-		session.Ended, session.EndedAt = endedRow(false, verdict, ok, changed)
+		session.Ended, session.EndedAt = endedRow(false, verdict, ok, changed, mark)
 		aged := false
 		if changed != 0 && s.now != nil {
 			now := s.now()
