@@ -99,13 +99,13 @@ func (r *Reader) Events(ctx context.Context, after int64, limit int) (EventPage,
 	if limit < 1 {
 		return EventPage{}, fmt.Errorf("event page limit %d: must be at least 1", limit)
 	}
-	db, err := sql.Open("sqlite", readOnlyDSN(r.path))
+	db, closeDB, err := r.database()
 	if err != nil {
-		return EventPage{}, fmt.Errorf("open store reader: %w", err)
+		return EventPage{}, err
 	}
 	r.reach(readOpened)
 	page, err := readEventPage(ctx, db, after, limit, r.reach)
-	if closeErr := db.Close(); closeErr != nil {
+	if closeErr := closeDB(); closeErr != nil {
 		err = errors.Join(err, fmt.Errorf("close store reader: %w", closeErr))
 	}
 	if err != nil {
