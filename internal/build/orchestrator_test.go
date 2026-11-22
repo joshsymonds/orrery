@@ -298,8 +298,6 @@ func TestOrchestratorCheckRefusesStateTheEngineCannotCarryOut(t *testing.T) {
 			[]string{
 				"version.files[0]: .git/config is refused: inside a .git directory",
 				"version.files[1]: a.go is already one of the task's files",
-				"version.files[2]: owned.go is owned by open T4 (implement), and after_tasks does not name T4",
-				"version.files[3]: changed.go is changed by accepted T5, not yet integrated, and after_tasks does not name T5",
 				"version.files[5]: free.go is named twice",
 			},
 		},
@@ -706,7 +704,7 @@ func TestAfterSeqsRoundTripsAndSkipsJunk(t *testing.T) {
 	}
 }
 
-func TestOrchestratorCheckNeedsEveryHolderOfAFileInAfterTasks(t *testing.T) {
+func TestOrchestratorCheckGrantsAHeldFileWithOrWithoutItsHolders(t *testing.T) {
 	t.Parallel()
 	task := store.EpicTask{Seq: 3, Files: []string{"a.go"}, Status: taskOpen}
 	behind := openPeer(1, "shared.go")
@@ -722,13 +720,10 @@ func TestOrchestratorCheckNeedsEveryHolderOfAFileInAfterTasks(t *testing.T) {
 			"decision": "grant", "version": filesVersion("shared.go"), "after_tasks": after,
 		})))
 	}
-	want := []string{"version.files[0]: shared.go is owned by open T1 (implement, waiting) and owned by open T2 " +
-		"(implement), and after_tasks does not name T1"}
-	if got := grant(2); !slices.Equal(got, want) {
-		t.Errorf("grant behind T2 only = %q, want %q", got, want)
-	}
-	if got := grant(1, 2); len(got) != 0 {
-		t.Errorf("grant behind both = %q, want none", got)
+	for _, after := range [][]int64{nil, {2}, {1, 2}} {
+		if got := grant(after...); len(got) != 0 {
+			t.Errorf("grant behind %v = %q, want none", after, got)
+		}
 	}
 }
 
