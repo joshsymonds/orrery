@@ -22,13 +22,8 @@ const (
 const stateStopped = "stopped"
 
 // epicAge is the seven-day floor: how long any list row must go unchanged before it ages out, whatever its state and
-// whether or not it is live (see floorAged). finalEpicAge is how long a final epic must go unchanged before it ages out
-// when no owner has seen it. headlessAge is how long a stopped headless session must go unchanged before it ages out.
-const (
-	epicAge      = 7 * 24 * time.Hour
-	finalEpicAge = 24 * time.Hour
-	headlessAge  = 24 * time.Hour
-)
+// whether or not it is live (see floorAged).
+const epicAge = 7 * 24 * time.Hour
 
 // archiveKey names one list row by its kind and id.
 type archiveKey struct {
@@ -61,7 +56,7 @@ func readArchiveMarks(ctx context.Context, reader *store.Reader) (archiveMarks, 
 }
 
 // archivedRow is the archive rule every list applies at its now. changed is the row's change time in unix seconds, mark
-// is its mark, and aged reports whether the row ages out at now (see epicAged and headlessAged). A mark with
+// is its mark, and aged reports whether the row ages out at now (see epicAged and endedAged). A mark with
 // an archived_at archives the row while changed is at or before archived_at, so a row that changes after its archive
 // comes back. Otherwise an aged row is archived unless the owner unarchived it at or after its last change, so an
 // unarchived row stays out of aging until it changes.
@@ -110,8 +105,8 @@ func floorAged(changed int64, now time.Time) bool {
 
 // epicAged reports whether an epic that Epics.List answers ages out at now. An epic ages once it changed at least
 // epicAge before now, live or not (see floorAged). An epic that is not live also ages by the final-epic rule: a final
-// epic (see epicFinal) ages once its seen time is set and at or after its change, or once it changed at least
-// finalEpicAge before now. A live epic ages by the floor alone.
+// epic (see epicFinal) ends at its change time, so it ages once it changed at least endedAge before now, whether or
+// not an owner has seen it (see endedAged). A live epic ages by the floor alone.
 func epicAged(epic *orreryv1.Epic, now time.Time) bool {
 	changed := epic.GetChanged()
 	if floorAged(changed, now) {
@@ -120,18 +115,7 @@ func epicAged(epic *orreryv1.Epic, now time.Time) bool {
 	if epic.GetLive() || !epicFinal(epic.GetSource(), epic.GetOutcome()) {
 		return false
 	}
-	seen := epic.GetSeen()
-	return (seen != 0 && seen >= changed) || changed <= now.Add(-finalEpicAge).Unix()
-}
-
-// headlessAged reports whether a headless session in state, changed at changed, ages out at now. Any session ages by
-// the floor (see floorAged). Otherwise a stopped session ages once it has been unchanged for headlessAge. No other
-// state has a rule of its own, so a done or failed session ages by the floor alone.
-func headlessAged(state string, changed int64, now time.Time) bool {
-	if floorAged(changed, now) {
-		return true
-	}
-	return state == stateStopped && changed <= now.Add(-headlessAge).Unix()
+	return endedAged(true, changed, now)
 }
 
 // markEpics sets the archived field of each epic in epics by the archive rule at now. An epic is matched to its mark
@@ -151,9 +135,4 @@ func sessionChanged(value string) int64 {
 		return 0
 	}
 	return changed
-}
-
-// sessionSeen reads a session row's seen column as unix seconds, the same way sessionChanged reads the changed column.
-func sessionSeen(value string) int64 {
-	return sessionChanged(value)
 }

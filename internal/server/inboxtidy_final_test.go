@@ -19,8 +19,9 @@ func inboxTidyFinalStored(id, phase string, changed, seen int64) *enginev1.Store
 	return epic
 }
 
-// TestInboxTidyFinalEpicSeenAfterEndArchives lists each stored final epic, seen at the time it last changed, as archived.
-func TestInboxTidyFinalEpicSeenAfterEndArchives(t *testing.T) {
+// TestInboxTidyFinalEpicSeenHourOldUnarchived lists each stored final epic, seen at the time it last changed and changed
+// an hour ago, as unarchived: being seen does not age a final epic, so it waits for its day like an unseen one.
+func TestInboxTidyFinalEpicSeenHourOldUnarchived(t *testing.T) {
 	t.Parallel()
 	phases := inboxTidyFinalPhases()
 	stored := make([]*enginev1.StoredEpic, 0, len(phases))
@@ -28,7 +29,7 @@ func TestInboxTidyFinalEpicSeenAfterEndArchives(t *testing.T) {
 	for _, phase := range phases {
 		id := "repoa/seen-" + phase
 		stored = append(stored, inboxTidyFinalStored(id, phase, epicsAgo(time.Hour), epicsAgo(time.Hour)))
-		want[id] = true
+		want[id] = false
 	}
 	client := archiveEpicsClient(t, t.TempDir(), archiveStorePath(t), &epicStoreFake{stored: stored})
 	expectArchived(t, "Epics.List", archivedByID(epicsList(t, client)), want)

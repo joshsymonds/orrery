@@ -65,15 +65,14 @@ func (s sessionsServer) List(
 		session := sessionMessage(row)
 		mark := marks[archiveKey{kind: archiveKindSession, id: row.ID}]
 		changed := sessionChanged(row.Fields.Changed)
-		// A pane row ages by the seven-day floor in any state, and by a closed verdict for its current change time, all
-		// at s.now(). A row with no change time, changed 0, never ages. A server with no clock ages none.
+		// A pane row ages by the seven-day floor in any state, and once it has ended for endedAge, whether or not it was
+		// seen, all at s.now(). A row with no change time, changed 0, never ages. A server with no clock ages none.
 		verdict, ok := verdicts[row.ID]
 		session.Ended, session.EndedAt = endedRow(false, verdict, ok, changed)
 		aged := false
 		if changed != 0 && s.now != nil {
 			now := s.now()
-			seen := sessionSeen(row.Fields.Seen)
-			aged = floorAged(changed, now) || closureAged(verdict, ok, changed, seen, now)
+			aged = floorAged(changed, now) || endedAged(session.Ended, session.EndedAt, now)
 		}
 		session.Archived = archivedRow(mark, changed, aged)
 		sessions = append(sessions, session)
