@@ -14,6 +14,7 @@ import (
 
 	"github.com/joshsymonds/orrery/internal/enginehost"
 	"github.com/joshsymonds/orrery/internal/evidence"
+	"github.com/joshsymonds/orrery/internal/hostexec"
 	"github.com/joshsymonds/orrery/internal/kinds"
 	"github.com/joshsymonds/orrery/internal/store"
 	"github.com/joshsymonds/orrery/internal/workflow"
@@ -170,7 +171,10 @@ type Config struct {
 	Reviewers Reviewers
 	Ending    Ending
 	StateDir  string
-	Getenv    func(string) string
+	// Hosts resolves each epic's Host to the host its repository work runs on, which the build functions the Runner calls
+	// are given. A nil Hosts is hostexec.LocalHosts.
+	Hosts  hostexec.Hosts
+	Getenv func(string) string
 	// Ticks is a test seam: when set, Run passes at start and then once at each value it receives, and wakes and
 	// deadlines pass nothing. Production leaves it nil.
 	Ticks    <-chan time.Time
@@ -199,6 +203,7 @@ type Runner struct {
 	reviewers  Reviewers
 	ending     Ending
 	stateDir   string
+	hosts      hostexec.Hosts
 	getenv     func(string) string
 	ticks      <-chan time.Time
 	now        func() time.Time
@@ -228,8 +233,9 @@ const builtinEpic = "epic"
 func New(cfg Config) *Runner {
 	runner := &Runner{
 		store: cfg.Store, planner: cfg.Planner, builder: cfg.Builder, checks: cfg.Checks, evidence: cfg.Evidence,
-		steps: cfg.Steps, reviewers: cfg.Reviewers, ending: cfg.Ending, stateDir: cfg.StateDir, getenv: cfg.Getenv,
-		now: cfg.Now, newTimer: cfg.NewTimer, logger: cfg.Logger, ticks: cfg.Ticks, passed: cfg.Passed,
+		steps: cfg.Steps, reviewers: cfg.Reviewers, ending: cfg.Ending, stateDir: cfg.StateDir, hosts: cfg.Hosts,
+		getenv: cfg.Getenv, now: cfg.Now, newTimer: cfg.NewTimer, logger: cfg.Logger, ticks: cfg.Ticks,
+		passed:    cfg.Passed,
 		readLimit: syncReadLimit, fetchLimit: syncFetchLimit,
 		kinds: map[string]kinds.Kind{
 			kindPlan: kinds.Plan{}, kindBuild: kinds.Build{}, kindGate: kinds.Gate{}, kindCommand: kinds.Command{},
@@ -255,10 +261,23 @@ func New(cfg Config) *Runner {
 	if runner.getenv == nil {
 		runner.getenv = os.Getenv
 	}
+	if runner.hosts == nil {
+		runner.hosts = hostexec.LocalHosts()
+	}
 	if runner.logger == nil {
 		runner.logger = slog.New(slog.DiscardHandler)
 	}
 	return runner
+}
+
+// hostOf returns the Host epic lives on, which the Runner's hosts resolves by the epic's Host. A name that resolves to
+// no Host is an error that names the epic.
+func (r *Runner) hostOf(epic store.EpicRow) (hostexec.Host, error) {
+	host, err := r.hosts.Host(epic.Host)
+	if err != nil {
+		return nil, fmt.Errorf("host of epic %s: %w", epic.ID, err)
+	}
+	return host, nil
 }
 
 // Run recovers the planner's turns a previous orreryd left running, then passes every open epic at once. With
@@ -450,7 +469,11 @@ func (r *Runner) decide(ctx context.Context, epic string, flow workflow.Workflow
 	}
 	rows.Steps = append(rows.Steps, roundSteps...)
 	if awaitsDependencies(read.Epic.Tasks) {
-		rows.Stranded, err = startStranded(ctx, read.Epic, read.Runs)
+		host, hostErr := r.hostOf(read.Epic)
+		if hostErr != nil {
+			return store.EpicRow{}, nil, fmt.Errorf("read stranded tasks of epic %s: %w", epic, hostErr)
+		}
+		rows.Stranded, err = startStranded(ctx, host, read.Epic, read.Runs)
 		if err != nil {
 			return store.EpicRow{}, nil, fmt.Errorf("read stranded tasks of epic %s: %w", epic, err)
 		}

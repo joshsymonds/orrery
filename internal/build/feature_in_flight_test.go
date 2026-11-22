@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/joshsymonds/orrery/internal/evidence"
+	"github.com/joshsymonds/orrery/internal/hostexec"
 )
 
 // featureInFlightFixture returns a fixture whose task has passed red, with the implement worktree the engine before task
@@ -15,7 +16,7 @@ func featureInFlightFixture(t *testing.T) (*passFixture, string) {
 	f.pass()
 	f.addRun(f.lastRun().id, evidence.PhaseRed, f.base, 1, evidence.VerdictFails)
 	path := ImplementWorktree(f.stateDir, passEpic, f.task())
-	if err := AddWorktree(f.ctx, f.repo, path, f.base); err != nil {
+	if err := AddWorktree(f.ctx, hostexec.NewLocal(), f.repo, path, f.base); err != nil {
 		t.Fatalf("AddWorktree: %v", err)
 	}
 	return f, path

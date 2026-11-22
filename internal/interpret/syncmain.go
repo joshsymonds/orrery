@@ -12,6 +12,7 @@ import (
 
 	"github.com/joshsymonds/orrery/internal/build"
 	"github.com/joshsymonds/orrery/internal/compose"
+	"github.com/joshsymonds/orrery/internal/hostexec"
 	"github.com/joshsymonds/orrery/internal/kinds"
 	"github.com/joshsymonds/orrery/internal/store"
 )
@@ -256,7 +257,11 @@ func (r *Runner) mergeMain(ctx context.Context, epic store.EpicRow, act Action, 
 		result.Conflicts = paths
 		return nil
 	}
-	result.Merge, err = commitSync(ctx, epic, origin, tree)
+	host, err := r.hostOf(epic)
+	if err != nil {
+		return err
+	}
+	result.Merge, err = commitSync(ctx, host, epic, origin, tree)
 	return err
 }
 
@@ -271,8 +276,8 @@ func hasOrigin(ctx context.Context, repo string) (bool, error) {
 
 // commitSync commits tree, the tree merge-tree wrote for the merge of origin's commit into epic's stored base, as the
 // merge of the two in epic's repository, the stored base its first parent and origin's commit its second, without a
-// checkout. It pins the merge under the sync ref named for origin's commit, and returns it.
-func commitSync(ctx context.Context, epic store.EpicRow, origin, tree string) (string, error) {
+// checkout. It pins the merge under the sync ref named for origin's commit on host, and returns it.
+func commitSync(ctx context.Context, host hostexec.Host, epic store.EpicRow, origin, tree string) (string, error) {
 	message := fmt.Sprintf("Merge origin's commit %s into stored base %s", origin, epic.StoredBase)
 	commit, err := gitOutput(ctx, epic.Repository, "commit-tree", tree, "-p", epic.StoredBase, "-p", origin, "-m",
 		message)
@@ -280,7 +285,7 @@ func commitSync(ctx context.Context, epic store.EpicRow, origin, tree string) (s
 		return "", err
 	}
 	merged := strings.TrimSpace(commit)
-	if err = build.Pin(ctx, epic.Repository, syncRef(epic, origin), merged); err != nil {
+	if err = build.Pin(ctx, host, epic.Repository, syncRef(epic, origin), merged); err != nil {
 		return "", fmt.Errorf("pin sync merge: %w", err)
 	}
 	return merged, nil
@@ -373,7 +378,7 @@ func (r *Runner) syncEnd(ctx context.Context, epic store.EpicRow, act Action) (s
 	passed := store.SyncEnd{
 		Path: act.Path, Attempt: act.Run.Attempt, Outcome: outcomePassed, Output: act.Output, Synced: result.Origin,
 	}
-	tip, err := branchHead(ctx, epic)
+	tip, err := r.branchHead(ctx, epic)
 	if err != nil {
 		return store.SyncEnd{}, err
 	}
@@ -383,7 +388,11 @@ func (r *Runner) syncEnd(ctx context.Context, epic store.EpicRow, act Action) (s
 	if act.Reason != "" {
 		return notAdvanced(act, result, act.Reason, false), nil
 	}
-	block, err := advanceBlock(ctx, epic, tip, merge)
+	host, err := r.hostOf(epic)
+	if err != nil {
+		return store.SyncEnd{}, err
+	}
+	block, err := advanceBlock(ctx, host, epic, tip, merge)
 	if err != nil {
 		return store.SyncEnd{}, err
 	}

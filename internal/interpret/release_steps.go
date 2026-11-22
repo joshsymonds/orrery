@@ -119,8 +119,12 @@ func (r *Runner) startReleaseStep(ctx context.Context, epic store.EpicRow, act A
 	if err != nil {
 		return r.failReleaseStep(ctx, epic, act, position, step, at, err)
 	}
+	host, err := r.hostOf(epic)
+	if err != nil {
+		return r.failReleaseStep(ctx, epic, act, position, step, at, err)
+	}
 	wt := filepath.Join(dir, releaseWorktree)
-	if err = build.AddWorktree(ctx, epic.Repository, wt, start); err != nil {
+	if err = build.AddWorktree(ctx, host, epic.Repository, wt, start); err != nil {
 		return r.failReleaseStep(ctx, epic, act, position, step, at, err)
 	}
 	_, err = r.steps.Start(ctx, enginehost.StepStart{
@@ -135,7 +139,7 @@ func (r *Runner) startReleaseStep(ctx context.Context, epic store.EpicRow, act A
 	}
 	return errors.Join(
 		r.failReleaseStep(ctx, epic, act, position, step, at, err),
-		build.RemoveWorktrees(ctx, epic.Repository, dir),
+		build.RemoveWorktrees(ctx, host, epic.Repository, dir),
 	)
 }
 
@@ -219,7 +223,11 @@ func (r *Runner) recordReleaseStep(ctx context.Context, epic store.EpicRow, act 
 	if err = r.store.RecordRelease(ctx, epic.ID, run); err != nil {
 		return fmt.Errorf("record release step %d of epic %s: %w", position, epic.ID, err)
 	}
-	if err = build.RemoveWorktrees(ctx, epic.Repository, dir); err != nil {
+	host, err := r.hostOf(epic)
+	if err != nil {
+		return fmt.Errorf("remove worktree of release step %s: %w", id, err)
+	}
+	if err = build.RemoveWorktrees(ctx, host, epic.Repository, dir); err != nil {
 		return fmt.Errorf("remove worktree of release step %s: %w", id, err)
 	}
 	return nil

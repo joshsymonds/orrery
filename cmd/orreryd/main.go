@@ -1030,7 +1030,7 @@ func startSessions(
 		})
 		host.startBroker(ctx, hostName, st, logger)
 		// host.pools is nil when the broker's restore failed, which leaves the gates no pools to run under.
-		resolve := planner.NewResolver(os.Environ(), managedDir)
+		resolve, hosts := planner.NewResolver(os.Environ(), managedDir), hostexec.Map{hostName: hostexec.NewLocal()}
 		haiku := enginehost.NewHaiku(enginehost.HaikuConfig{Claude: opts.claude, Environ: os.Environ()})
 		steps := enginehost.NewSteps(enginehost.StepsConfig{
 			Sessions:     host.manager,
@@ -1043,7 +1043,7 @@ func startSessions(
 			Haiku:        haiku,
 			GateStateDir: filepath.Join(stateDir, "gates"),
 			GateScope:    opts.holderScope,
-			ReadoptCheck: readoptCheck(st, resolve),
+			ReadoptCheck: readoptCheck(st, resolve, hosts),
 			ReadoptGate:  readoptGate(st),
 			Stored:       host.storedWake, EpicWake: host.stepEpicWake,
 			Host: hostName,
@@ -1062,7 +1062,7 @@ func startSessions(
 		host.startEvidence(ctx, st, stateDir, opts, childEnviron, logger)
 		evidence = host.evidence
 		host.startNodeChecks(ctx, st, stateDir, opts, childEnviron, logger)
-		host.startFlow(ctx, st, router, opts.attentionTicks, opts.flowTicks, getenv, resolve, stateDir, logger)
+		host.startFlow(ctx, st, router, opts.attentionTicks, opts.flowTicks, getenv, resolve, stateDir, hosts, logger)
 		host.startReleaseSlots(ctx)
 		host.startLimits(ctx)
 		host.startSummaries(ctx, st, haiku, logger)
@@ -1182,14 +1182,16 @@ func serveOpts(opts options, st *store.Store, logger *slog.Logger) []connect.Han
 
 // readoptCheck is the ReadoptCheck of the steps. A re-adopted row gets the planner's return check when it is the step of a
 // running planner turn, and when that check is nil, the release integrator's check when it is a release integrator
-// step, and then the build's verifier or orchestrator check. An error from any of them is returned.
+// step, and then the build's verifier or orchestrator check, which reads the epic's tasks on the host that hosts
+// resolves the epic to. An error from any of them is returned.
 func readoptCheck(
 	st *store.Store,
 	resolve planner.Resolver,
+	hosts hostexec.Hosts,
 ) func(ctx context.Context, row store.StepRow) (func(value json.RawMessage) []string, error) {
 	plan := planner.ReadoptCheck(st, resolve)
 	integrate := interpret.ReadoptCheck(st)
-	verify := build.ReadoptCheck(st)
+	verify := build.ReadoptCheck(st, hosts)
 	return func(ctx context.Context, row store.StepRow) (func(value json.RawMessage) []string, error) {
 		check, err := plan(ctx, row)
 		if err != nil || check != nil {
@@ -1397,6 +1399,7 @@ func (h *sessionHost) startFlow(
 	getenv func(string) string,
 	resolve planner.Resolver,
 	stateDir string,
+	hosts hostexec.Hosts,
 	logger *slog.Logger,
 ) {
 	plannerRun := planner.New(planner.Config{
@@ -1413,6 +1416,7 @@ func (h *sessionHost) startFlow(
 		Checks:   h.checks,
 		Getenv:   getenv,
 		StateDir: stateDir,
+		Hosts:    hosts,
 		Logger:   logger,
 	})
 	var flowCtx context.Context
@@ -1428,6 +1432,7 @@ func (h *sessionHost) startFlow(
 		Reviewers: interpret.NewEpicReviewers(),
 		Ending:    st,
 		StateDir:  stateDir,
+		Hosts:     hosts,
 		Getenv:    getenv,
 		Logger:    logger,
 		Ticks:     ticks,

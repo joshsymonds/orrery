@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/joshsymonds/orrery/internal/hostexec"
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
@@ -54,7 +55,7 @@ func taskBranch(t *testing.T, repo, branch string, files map[string]string) stri
 func (c taskClash) start(t *testing.T) integratorMerge {
 	t.Helper()
 	merge := taskMerge(c.repo, c.dir, c.candidate, c.revision)
-	conflicts, err := startTaskMerge(t.Context(), merge, c.dir)
+	conflicts, err := startTaskMerge(t.Context(), hostexec.NewLocal(), merge, c.dir)
 	if err != nil {
 		t.Fatalf("start task merge: %v", err)
 	}

@@ -11,6 +11,7 @@ import (
 	"github.com/joshsymonds/orrery/internal/build"
 	"github.com/joshsymonds/orrery/internal/compose"
 	"github.com/joshsymonds/orrery/internal/evidence"
+	"github.com/joshsymonds/orrery/internal/hostexec"
 	"github.com/joshsymonds/orrery/internal/kinds"
 	"github.com/joshsymonds/orrery/internal/store"
 )
@@ -140,9 +141,9 @@ func strandedTasks(
 // startStranded returns, in seq order, the done tasks of epic whose work a failed batch composed and the base a fresh
 // task starts on does not hold (strandedTasks). That base is the epic's candidate when it has one, and otherwise the
 // branch tip, as decideFresh starts a task. No run is skipped. An epic with no branch returns none, since no task starts
-// without one.
-func startStranded(ctx context.Context, epic store.EpicRow, runs []store.NodeRun) ([]int64, error) {
-	tip, ok, err := build.BranchTip(ctx, epic.Repository, epic.ID)
+// without one. The branch is read on host, the host the epic lives on.
+func startStranded(ctx context.Context, host hostexec.Host, epic store.EpicRow, runs []store.NodeRun) ([]int64, error) {
+	tip, ok, err := build.BranchTip(ctx, host, epic.Repository, epic.ID)
 	if err != nil {
 		return nil, fmt.Errorf("read branch of epic %s: %w", epic.ID, err)
 	}
@@ -543,7 +544,11 @@ func (r *Runner) capture(ctx context.Context, epic store.EpicRow, act Action) er
 // (compose.Join), so its work is kept on a candidate that builds on the stored base. One that does not merge with the
 // revision is cleared, and the next batch composes its tasks again (strandedTasks).
 func (r *Runner) advance(ctx context.Context, epic store.EpicRow, act Action, at time.Time) error {
-	tip, ok, err := build.BranchTip(ctx, epic.Repository, epic.ID)
+	host, err := r.hostOf(epic)
+	if err != nil {
+		return fmt.Errorf("read branch of epic %s: %w", epic.ID, err)
+	}
+	tip, ok, err := build.BranchTip(ctx, host, epic.Repository, epic.ID)
 	if err != nil {
 		return fmt.Errorf("read branch of epic %s: %w", epic.ID, err)
 	}
@@ -551,7 +556,7 @@ func (r *Runner) advance(ctx context.Context, epic store.EpicRow, act Action, at
 		return fmt.Errorf("epic %s has no branch", epic.ID)
 	}
 	if tip != act.Run.Revision {
-		reason, blockErr := advanceBlock(ctx, epic, tip, act.Run.Revision)
+		reason, blockErr := advanceBlock(ctx, host, epic, tip, act.Run.Revision)
 		if blockErr != nil {
 			return blockErr
 		}
@@ -591,9 +596,11 @@ func (r *Runner) advance(ctx context.Context, epic store.EpicRow, act Action, at
 }
 
 // advanceBlock returns why the epic's branch, at tip, may not move to candidate: it is not at the stored base, candidate
-// does not build on it, so the move would drop what the branch holds, or it is checked out in a worktree. It returns ""
-// when the branch may move.
-func advanceBlock(ctx context.Context, epic store.EpicRow, tip, candidate string) (string, error) {
+// does not build on it, so the move would drop what the branch holds, or it is checked out in a worktree on host. It
+// returns "" when the branch may move.
+func advanceBlock(
+	ctx context.Context, host hostexec.Host, epic store.EpicRow, tip, candidate string,
+) (string, error) {
 	slug := build.Slug(epic.ID)
 	if tip != epic.StoredBase {
 		return fmt.Sprintf("epic/%s moved: at %s, not the stored base %s", slug, tip, epic.StoredBase), nil
@@ -606,7 +613,7 @@ func advanceBlock(ctx context.Context, epic store.EpicRow, tip, candidate string
 		return fmt.Sprintf("epic/%s is at %s, which the candidate %s does not build on, so it was not moved", slug, tip,
 			candidate), nil
 	}
-	checked, err := build.BranchCheckedOut(ctx, epic.Repository, epic.ID)
+	checked, err := build.BranchCheckedOut(ctx, host, epic.Repository, epic.ID)
 	if err != nil {
 		return "", fmt.Errorf("read worktrees of epic %s: %w", epic.ID, err)
 	}
