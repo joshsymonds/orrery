@@ -535,6 +535,25 @@ func startDesk(ctx context.Context, host string, deskLn net.Listener, logger *sl
 	return desk
 }
 
+// serveRelay returns the relay serve observes panes through: its done and closure judges run opts' claude and
+// models, under home, and it mirrors through mirror.
+func serveRelay(opts options, home string, logger *slog.Logger, mirror *daemon.Mirror) *relay {
+	return &relay{
+		claude:      opts.claude,
+		models:      opts.models,
+		home:        home,
+		logger:      logger,
+		judge:       newDoneJudge(opts.claude, opts.models),
+		closures:    newClosureJudge(opts.claude, opts.models),
+		reads:       newReadTimes(),
+		mirror:      mirror,
+		webhook:     opts.webhook,
+		summarizers: make(map[tmuxctl.Server]*summary.Summarizer),
+		views:       newDoneViews(),
+		now:         opts.relayNow,
+	}
+}
+
 // serve listens on the daemon and desk sockets and serves frames while it opens the store, so no frame waits for the
 // store. The first tidy runs once the store is open and the sessions have started. A failed sessions start stops
 // serving and returns its error. Once the store is open, serve returns only after the store is closed. serve sends
@@ -590,20 +609,7 @@ func serve(ctx context.Context, opts options, logger *slog.Logger, getenv func(s
 		Subscribed: hasSubscription(store),
 		Log:        noticeLog,
 		Logger:     logger,
-	}, viewing), &relay{
-		claude:      opts.claude,
-		models:      opts.models,
-		home:        home,
-		logger:      logger,
-		judge:       newDoneJudge(opts.claude, opts.models),
-		closures:    newClosureJudge(opts.claude, opts.models),
-		reads:       newReadTimes(),
-		mirror:      mirror,
-		webhook:     opts.webhook,
-		summarizers: make(map[tmuxctl.Server]*summary.Summarizer),
-		views:       newDoneViews(),
-		now:         opts.relayNow,
-	})
+	}, viewing), serveRelay(opts, home, logger, mirror))
 	router := hub.router
 	pageNotices := enginehost.NewPageNotices(pages, router, router, time.Now)
 	observe := func(transition daemon.Transition) { hub.observe(ctx, transition) }
