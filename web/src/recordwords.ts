@@ -1,6 +1,7 @@
 import type { EpicHistoryEntry, EpicQuestion, EpicsGetResponse, EpicStep } from "./gen/orrery/v1/epics_pb";
 import { releaseOf } from "./ending";
-import { durationText, wedgesOf } from "./phases";
+import { durationText, tasksOf } from "./phases";
+import { recordTasksOf } from "./record";
 import { clock } from "./reader";
 import { stateOf } from "./status";
 
@@ -128,7 +129,7 @@ function orrerydPill(detail: EpicsGetResponse): Pill {
   const phase = phaseOf(detail);
   switch (phase) {
     case "accepted":
-      return { word: wedgesOf(detail).length === 0 ? "planning" : "building", tone: liveTone(detail) };
+      return { word: tasksOf(detail).length === 0 ? "planning" : "building", tone: liveTone(detail) };
     case "built":
       return { word: "building", tone: liveTone(detail) };
     case "reviewing":
@@ -203,12 +204,12 @@ function acceptedWords(detail: EpicsGetResponse): string {
 // The Build stage: its task count, and while it is now, what asks, whether it is paused, and whether a step waits on a
 // limit.
 function buildStage(detail: EpicsGetResponse, state: "done" | "now"): Stage {
-  const wedges = wedgesOf(detail);
-  if (state === "now" && wedges.length === 0) {
+  const tasks = recordTasksOf(detail);
+  if (state === "now" && tasks.length === 0) {
     return { name: "Build", state, tone: buildTone(detail), words: "the planner is outlining tasks" };
   }
-  const done = wedges.filter((wedge) => wedge.place === "integrated").length;
-  let words = `${done} of ${wedges.length} tasks done`;
+  const done = tasks.filter((task) => task.place === "integrated").length;
+  let words = `${done} of ${tasks.length} tasks done`;
   if (state === "now") {
     if (asksYou(detail)) {
       words += " · 1 waits on you";
@@ -320,7 +321,7 @@ function summaryText(detail: EpicsGetResponse): string {
 
 // The sections an epic has reached. A record epic reaches its Now and its tasks only.
 export function reachedOf(detail: EpicsGetResponse, history: EpicHistoryEntry[]): Reached {
-  const tasks = wedgesOf(detail).length > 0;
+  const tasks = tasksOf(detail).length > 0;
   if (!isOrreryd(detail)) {
     return { summary: false, track: false, now: true, history: false, tasks, requirements: false };
   }
@@ -394,7 +395,7 @@ export function nowSentenceOf(detail: EpicsGetResponse): string {
   if (isOrreryd(detail) && stageIndexOf(phaseOf(detail)) === reportIndex) {
     return `It ended: ${orrerydPill(detail).word}.`;
   }
-  if (isOrreryd(detail) && wedgesOf(detail).length === 0) {
+  if (isOrreryd(detail) && tasksOf(detail).length === 0) {
     return "The planner is reading the contract and outlining tasks. No task has started.";
   }
   if (tasks === 0) {

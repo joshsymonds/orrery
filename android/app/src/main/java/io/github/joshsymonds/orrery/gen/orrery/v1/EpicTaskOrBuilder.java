@@ -120,4 +120,62 @@ public interface EpicTaskOrBuilder extends
    */
   com.google.protobuf.ByteString
       getRequirementsBytes(int index);
+
+  /**
+   * <pre>
+   * Where the task stands in its lifecycle of red, implement, green, review and integrate, read from its status,
+   * compared without case, and the steps its slug labels, by the first rule that holds: integrated when its status is
+   * done or integrated; for a gap, the ring of its latest step, or implement with no step; the ring of a running latest
+   * step; integrate when its status is gated or its latest step ended done; the ring of a latest step that ended
+   * otherwise; implement for a dispatched task with no step; and planned otherwise. A step's ring is review for a
+   * read-only step, green for one running its checks, gate or judge or one that ended checks_failed or goal_unmet, and
+   * implement for any other.
+   * </pre>
+   *
+   * <code>string place = 6 [json_name = "place"];</code>
+   * @return The place.
+   */
+  java.lang.String getPlace();
+  /**
+   * <pre>
+   * Where the task stands in its lifecycle of red, implement, green, review and integrate, read from its status,
+   * compared without case, and the steps its slug labels, by the first rule that holds: integrated when its status is
+   * done or integrated; for a gap, the ring of its latest step, or implement with no step; the ring of a running latest
+   * step; integrate when its status is gated or its latest step ended done; the ring of a latest step that ended
+   * otherwise; implement for a dispatched task with no step; and planned otherwise. A step's ring is review for a
+   * read-only step, green for one running its checks, gate or judge or one that ended checks_failed or goal_unmet, and
+   * implement for any other.
+   * </pre>
+   *
+   * <code>string place = 6 [json_name = "place"];</code>
+   * @return The bytes for place.
+   */
+  com.google.protobuf.ByteString
+      getPlaceBytes();
+
+  /**
+   * <pre>
+   * How the task stands at its place, by the same rules, in the tones EpicBuildTask.tone names: ok when integrated, bad
+   * for a gap, the running latest step's tone (mine while held, limited while a usage limit holds it, run otherwise),
+   * acc at integrate, run at the ring of a latest step that ended otherwise and for a dispatched task with no step, so
+   * an ended attempt of a task still open is no failure, and plan while planned.
+   * </pre>
+   *
+   * <code>string tone = 7 [json_name = "tone"];</code>
+   * @return The tone.
+   */
+  java.lang.String getTone();
+  /**
+   * <pre>
+   * How the task stands at its place, by the same rules, in the tones EpicBuildTask.tone names: ok when integrated, bad
+   * for a gap, the running latest step's tone (mine while held, limited while a usage limit holds it, run otherwise),
+   * acc at integrate, run at the ring of a latest step that ended otherwise and for a dispatched task with no step, so
+   * an ended attempt of a task still open is no failure, and plan while planned.
+   * </pre>
+   *
+   * <code>string tone = 7 [json_name = "tone"];</code>
+   * @return The bytes for tone.
+   */
+  com.google.protobuf.ByteString
+      getToneBytes();
 }

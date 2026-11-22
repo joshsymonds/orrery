@@ -57,9 +57,11 @@ function orrerydIn(outcome: string, init: DetailInit = {}): EpicsGetResponse {
   });
 }
 
-// A planned build task with the given status.
+// A build task with the given status and no stage, integrated when it is done and planned otherwise, as the server
+// stands such a task.
 function build(id: string, status: string) {
-  return create(EpicBuildTaskSchema, { id, title: `Task ${id}`, status, stage: "", requirements: ["R1"] });
+  const [place, tone] = status === "done" ? ["integrated", "ok"] : ["planned", "plan"];
+  return create(EpicBuildTaskSchema, { id, title: `Task ${id}`, status, stage: "", requirements: ["R1"], place, tone });
 }
 
 // A running step of a task, limited or held or neither.

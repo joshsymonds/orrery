@@ -12,7 +12,6 @@ import {
   EpicReleaseProofSchema,
   EpicSchema,
   EpicSessionSchema,
-  EpicSliceSchema,
   EpicStepCheckSchema,
   EpicStepSchema,
   EpicsGetResponseSchema,
@@ -33,7 +32,6 @@ type EpicInit = MessageInitShape<typeof EpicSchema>;
 export type EpicRow = Plain<EpicInit>;
 type StepInit = MessageInitShape<typeof EpicStepSchema>;
 type CheckInit = MessageInitShape<typeof EpicStepCheckSchema>;
-type SliceInit = MessageInitShape<typeof EpicSliceSchema>;
 type RunInit = MessageInitShape<typeof EvidenceRunSchema>;
 type RunFields = Plain<RunInit>;
 type RequirementInit = MessageInitShape<typeof EpicRequirementSchema>;
@@ -281,10 +279,13 @@ const rotaSteps: StepInit[] = [rotaT5Try1, rotaT4Impl, rotaT5Try2, rotaT2Impl, r
 
 // The seven tasks of the rota-export plan, by task id. T6 is the readme and T7 the audit-log task, both for R6.
 const rotaTasks: TaskInit[] = [
-  { id: "T1", title: "tz-fixtures", status: "open", stage: "implement", requirements: ["R5"], red: rotaR5Red },
+  {
+    id: "T1", title: "tz-fixtures", status: "open", stage: "implement", requirements: ["R5"], red: rotaR5Red,
+    place: "implement", tone: "mine",
+  },
   {
     id: "T2", title: "export-cli", status: "open", stage: "implement",
-    requirements: ["R4"], red: rotaR4Red, green: rotaR4Green,
+    requirements: ["R4"], red: rotaR4Red, green: rotaR4Green, place: "implement", tone: "run",
     reviews: [{
       attempt: 1n, gate: "review", step: "st-rota-t2-review", verdict: "fails",
       findings: [{
@@ -296,29 +297,21 @@ const rotaTasks: TaskInit[] = [
   },
   {
     id: "T3", title: "rota-endpoint", status: "done", stage: "verify",
-    requirements: ["R2"], red: rotaR2Red, green: rotaR2Green,
+    requirements: ["R2"], red: rotaR2Red, green: rotaR2Green, place: "integrated", tone: "ok",
     reviews: [{ attempt: 1n, gate: "review", step: "st-rota-t3-review", verdict: "holds", findings: [] }],
   },
   {
     id: "T4", title: "shift-store", status: "done", stage: "verify",
-    requirements: ["R1"], red: rotaR1Red, green: rotaR1Green,
+    requirements: ["R1"], red: rotaR1Red, green: rotaR1Green, place: "integrated", tone: "ok",
     reviews: [{ attempt: 1n, gate: "review", step: "", verdict: "holds", findings: [] }],
   },
   {
-    id: "T5", title: "csv-writer", status: "open", stage: "verify",
-    requirements: ["R3"], red: rotaR3Red, green: rotaR3Green,
+    id: "T5", title: "csv-writer", status: "done", stage: "verify",
+    requirements: ["R3"], red: rotaR3Red, green: rotaR3Green, place: "integrate", tone: "acc",
     reviews: [{ attempt: 2n, gate: "review", step: "", verdict: "holds", findings: [] }],
   },
-  { id: "T6", title: "readme", status: "open", stage: "", requirements: ["R6"] },
-  { id: "T7", title: "audit-log", status: "open", stage: "", requirements: ["R6"] },
-];
-
-const rotaSlices: SliceInit[] = [
-  { task: "T5", hue: "done", redTest: true, working: true, testsPass: true, checks: true, gateAccepted: true, at: 0, held: false, errorAt: 0 },
-  { task: "T4", hue: "done", redTest: true, working: true, testsPass: true, checks: true, gateAccepted: true, at: 0, held: false, errorAt: 0 },
-  { task: "T2", hue: "dispatched", redTest: true, working: true, testsPass: true, checks: true, gateAccepted: false, at: 5, held: false, errorAt: 0 },
-  { task: "T3", hue: "done", redTest: true, working: true, testsPass: true, checks: true, gateAccepted: true, at: 0, held: false, errorAt: 0 },
-  { task: "T1", hue: "dispatched", redTest: true, working: true, testsPass: false, checks: false, gateAccepted: false, at: 3, held: true, errorAt: 0 },
+  { id: "T6", title: "readme", status: "open", stage: "", requirements: ["R6"], place: "planned", tone: "plan" },
+  { id: "T7", title: "audit-log", status: "open", stage: "", requirements: ["R6"], place: "planned", tone: "plan" },
 ];
 
 const rotaContract: ContractInit = {
@@ -432,7 +425,6 @@ const rotaGetInit: Plain<MessageInitShape<typeof EpicsGetResponseSchema>> = {
   requirements: rotaRequirements,
   buildTasks: rotaTasks,
   steps: rotaSteps,
-  slices: rotaSlices,
   releaseSteps: [
     { position: 1n, step: "Merge the epic branch to main", target: "lighthouse main", undo: "revert the merge", state: "waiting" } satisfies ProofInit,
     { position: 2n, step: "Deploy lighthouse to halyard", target: "halyard", undo: "redeploy the previous build", state: "waiting" } satisfies ProofInit,
@@ -495,20 +487,19 @@ const followupsGet: EpicsGetResponse = create(EpicsGetResponseSchema, {
   ],
   buildTasks: [
     {
-      id: "T1", status: "open", stage: "implement", requirements: ["R1"],
+      id: "T1", status: "open", stage: "implement", requirements: ["R1"], place: "implement", tone: "run",
       title: "The done-judge sees a long Task or Return section’s head and tail, with a line naming the bytes left out.",
     },
     {
-      id: "T2", status: "open", stage: "review", requirements: ["R2"],
+      id: "T2", status: "open", stage: "review", requirements: ["R2"], place: "review", tone: "run",
       title: "A planner turn freed by a limit with no reset says “reset time unknown”.",
     },
-    { id: "T3", status: "open", stage: "", requirements: ["R3"], title: "The docs state the new judge input and the new limit text." },
+    {
+      id: "T3", status: "open", stage: "", requirements: ["R3"], place: "planned", tone: "plan",
+      title: "The docs state the new judge input and the new limit text.",
+    },
   ],
   steps: [followupsT1Impl, followupsT2Impl, followupsT2Review],
-  slices: [
-    { task: "T1", hue: "dispatched", redTest: true, working: true, testsPass: true, checks: true, gateAccepted: false, at: 5, held: false, errorAt: 0 },
-    { task: "T2", hue: "done", redTest: true, working: true, testsPass: true, checks: true, gateAccepted: true, at: 0, held: false, errorAt: 0 },
-  ],
 });
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -631,31 +622,27 @@ const holderGet: EpicsGetResponse = create(EpicsGetResponseSchema, {
   ],
   buildTasks: [
     {
-      id: "T1", title: "Each holder runs in its own systemd scope.", status: "done", stage: "verify", requirements: ["R1"],
+      id: "T1", title: "Each holder runs in its own systemd scope.", status: "done", stage: "verify", requirements: ["R1"], place: "integrated", tone: "ok",
       red: holderR1Red, green: holderR1Green,
       reviews: [{ attempt: 1n, gate: "review", step: "", verdict: "holds", findings: [] }],
     },
     {
-      id: "T2", title: "The terminal memory cap covers holder scopes.", status: "done", stage: "verify", requirements: ["R2"],
+      id: "T2", title: "The terminal memory cap covers holder scopes.", status: "done", stage: "verify", requirements: ["R2"], place: "integrated", tone: "ok",
       red: holderR2Red, green: holderR2Green,
       reviews: [{ attempt: 1n, gate: "review", step: "", verdict: "holds", findings: [] }],
     },
     {
-      id: "T3", title: "orreryd starts as Type=notify with a 900 s ceiling.", status: "done", stage: "verify", requirements: ["R3"],
+      id: "T3", title: "orreryd starts as Type=notify with a 900 s ceiling.", status: "done", stage: "verify", requirements: ["R3"], place: "integrated", tone: "ok",
       red: holderR3Red, green: holderR3Green,
       reviews: [{ attempt: 1n, gate: "review", step: "", verdict: "holds", findings: [] }],
     },
     {
-      id: "T4", title: "The devspaces doc names no orrery version.", status: "done", stage: "verify", requirements: ["R4"],
+      id: "T4", title: "The devspaces doc names no orrery version.", status: "done", stage: "verify", requirements: ["R4"], place: "integrated", tone: "ok",
       green: holderR4Green,
       reviews: [{ attempt: 1n, gate: "review", step: "", verdict: "holds", findings: [] }],
     },
   ],
   steps: holderSteps,
-  slices: [1, 2, 3, 4].map((n) => ({
-    task: `T${n}`, hue: "done", redTest: true, working: true, testsPass: true, checks: true, gateAccepted: true,
-    at: 0, held: false, errorAt: 0,
-  })),
   releaseSteps: [
     { position: 1n, step: holderReleaseStep1, target: "github, tag v0.45.0", undo: "none once someone has fetched the tag", state: "passed", evidence: "github · 09:44 · signature good", reason: "The signed tag v0.45.0 is on github.", attempt: 1n, at: at("@09:44") } satisfies ProofInit,
     { position: 2n, step: "CI green on the tag", target: "github actions", undo: "rerun", state: "passed", evidence: "run 5490 · 09:51", reason: "CI is green on the tag.", attempt: 1n, at: at("@09:51") } satisfies ProofInit,
@@ -764,9 +751,9 @@ const offlineGet: EpicsGetResponse = create(EpicsGetResponseSchema, {
     { id: "R6", kind: "review", text: "The screen says how old its data is.", runs: [greenRun("ev-offline-r6-green", true)] },
   ],
   buildTasks: [
-    { id: "T1", title: "Tide tables for the home port are stored on the phone.", status: "done", stage: "", requirements: ["R1", "R2"] },
-    { id: "T2", title: "The sync worker retries with backoff and never blocks the screen.", status: "done", stage: "", requirements: ["R3", "R4"] },
-    { id: "T3", title: "The tables screen works with no network and says how old its data is.", status: "done", stage: "", requirements: ["R5", "R6"] },
+    { id: "T1", title: "Tide tables for the home port are stored on the phone.", status: "done", stage: "", requirements: ["R1", "R2"], place: "integrated", tone: "ok" },
+    { id: "T2", title: "The sync worker retries with backoff and never blocks the screen.", status: "done", stage: "", requirements: ["R3", "R4"], place: "integrated", tone: "ok" },
+    { id: "T3", title: "The tables screen works with no network and says how old its data is.", status: "done", stage: "", requirements: ["R5", "R6"], place: "integrated", tone: "ok" },
   ],
   releaseSteps: [
     {
@@ -798,9 +785,9 @@ const orbitGet: EpicsGetResponse = create(EpicsGetResponseSchema, {
     { id: "R4", kind: "review", text: "The chart spec states the new labels.", runs: [greenRun("ev-orbit-r4-green", true)] },
   ],
   buildTasks: [
-    { id: "T1", title: "Every orbit carries its stage name.", status: "done", stage: "", requirements: ["R1"] },
-    { id: "T2", title: "A card for every body, on the web and the phone.", status: "done", stage: "", requirements: ["R2", "R3"] },
-    { id: "T3", title: "The chart spec states the new labels.", status: "done", stage: "", requirements: ["R4"] },
+    { id: "T1", title: "Every orbit carries its stage name.", status: "done", stage: "", requirements: ["R1"], place: "integrated", tone: "ok" },
+    { id: "T2", title: "A card for every body, on the web and the phone.", status: "done", stage: "", requirements: ["R2", "R3"], place: "integrated", tone: "ok" },
+    { id: "T3", title: "The chart spec states the new labels.", status: "done", stage: "", requirements: ["R4"], place: "integrated", tone: "ok" },
   ],
   releaseSteps: [
     // The target and undo of this step are left open, so both are empty.
@@ -871,7 +858,9 @@ const harbourTask = (
   status: string,
   stage: string,
   requirements: string[],
-): TaskInit => ({ id, title, status, stage, requirements });
+  place: string,
+  tone: string,
+): TaskInit => ({ id, title, status, stage, requirements, place, tone });
 
 const harbourGet: EpicsGetResponse = create(EpicsGetResponseSchema, {
   epic: {
@@ -897,15 +886,15 @@ const harbourGet: EpicsGetResponse = create(EpicsGetResponseSchema, {
     { id: "R4", kind: "check", text: "The map keeps working with no network.", evidence: "go test ./internal/harbour/ -run TestNoNetwork", conclusion: "", runs: [] },
   ],
   buildTasks: [
-    harbourTask("T1", "Each berth is drawn with its depth", "done", "", ["R1"]),
-    harbourTask("T2", "A berth’s depth is read at the tide", "done", "", ["R1"]),
-    harbourTask("T3", "The day’s tide table is read on open", "done", "", ["R2"]),
-    harbourTask("T4", "The depth follows the day’s table", "done", "", ["R2"]),
-    harbourTask("T5", "A stale table is marked on the map", "done", "", ["R2"]),
-    harbourTask("T6", "The map pans with a drag", "open", "implement", ["R3"]),
-    harbourTask("T7", "The map zooms with the wheel", "open", "", ["R3"]),
-    harbourTask("T8", "The map keeps its last table with no network", "open", "", ["R4"]),
-    harbourTask("T9", "The map says how old its table is with no network", "open", "", ["R4"]),
+    harbourTask("T1", "Each berth is drawn with its depth", "done", "", ["R1"], "integrated", "ok"),
+    harbourTask("T2", "A berth’s depth is read at the tide", "done", "", ["R1"], "integrated", "ok"),
+    harbourTask("T3", "The day’s tide table is read on open", "done", "", ["R2"], "integrated", "ok"),
+    harbourTask("T4", "The depth follows the day’s table", "done", "", ["R2"], "integrated", "ok"),
+    harbourTask("T5", "A stale table is marked on the map", "done", "", ["R2"], "integrated", "ok"),
+    harbourTask("T6", "The map pans with a drag", "open", "implement", ["R3"], "implement", "mine"),
+    harbourTask("T7", "The map zooms with the wheel", "open", "", ["R3"], "planned", "plan"),
+    harbourTask("T8", "The map keeps its last table with no network", "open", "", ["R4"], "planned", "plan"),
+    harbourTask("T9", "The map says how old its table is with no network", "open", "", ["R4"], "planned", "plan"),
   ],
 });
 
@@ -964,9 +953,9 @@ const tidecacheGetInit: Plain<MessageInitShape<typeof EpicsGetResponseSchema>> =
   ],
   // This epic has no task titles, so each task carries its requirement's text.
   buildTasks: [
-    { id: "T1", title: "Tide tables are cached on disk.", status: "open", stage: "", requirements: ["R1"] },
-    { id: "T2", title: "The cache drops tables older than a week.", status: "open", stage: "", requirements: ["R2"] },
-    { id: "T3", title: "The docs describe the cache.", status: "open", stage: "", requirements: ["R3"] },
+    { id: "T1", title: "Tide tables are cached on disk.", status: "open", stage: "", requirements: ["R1"], place: "planned", tone: "plan" },
+    { id: "T2", title: "The cache drops tables older than a week.", status: "open", stage: "", requirements: ["R2"], place: "planned", tone: "plan" },
+    { id: "T3", title: "The docs describe the cache.", status: "open", stage: "", requirements: ["R3"], place: "planned", tone: "plan" },
   ],
   report: {
     outcome: "closed_superseded",
@@ -1142,15 +1131,26 @@ function rotaStateEpic(steps: StepInit[], change: Partial<Plain<EpicInit>> = {})
   return { ...rotaEpic, runningSteps: steps.filter((step) => step.end === ""), ...change };
 }
 
-// rotaStateGet is rota-export's Epics.Get answer in a state: its steps, the epic row, and the detail fields the state
-// changes. No state here asks a question, so none is given.
+// rotaStateGet is rota-export's Epics.Get answer in a state: its steps, the epic row, the detail fields the state
+// changes, and the tone the server gives each build task tones names, by task id. No state here asks a question, so
+// none is given.
 function rotaStateGet(
   steps: StepInit[],
+  tones: Record<string, string>,
   change: Partial<Plain<EpicInit>> = {},
   detail: { parked?: string; plannerParked?: boolean; requirements?: RequirementInit[] } = {},
 ): EpicsGetResponse {
-  return create(EpicsGetResponseSchema, { ...rotaGetInit, ...detail, epic: rotaStateEpic(steps, change), steps, questions: [] });
+  const buildTasks = rotaTasks.map((task) => ({ ...task, tone: tones[task.id ?? ""] ?? task.tone }));
+  return create(EpicsGetResponseSchema, {
+    ...rotaGetInit, ...detail, epic: rotaStateEpic(steps, change), steps, buildTasks, questions: [],
+  });
 }
+
+// rotaRunningTones and rotaLimitedTones are the tones of the building states: tz-fixtures' red runs, held by nothing,
+// and in the limited state it and export-cli wait on the weekly limit.
+const rotaRunningTones = { T1: "run" };
+const rotaLimitedTones = { T1: "limited", T2: "limited" };
+
 
 // rotaRedRunning is tz-fixtures' step while its red stage runs. Nothing holds it, so no question asks about it.
 const rotaRedRunning: StepInit = {
@@ -1194,22 +1194,22 @@ const rotaProblemText = "The epic’s workflow file did not load: workflow.yaml 
 // The rota-export states: the list row and the Epics.Get answer each reads, and the history it shows.
 export const rotaBuilding = {
   row: rotaStateEpic(rotaBuildingSteps),
-  get: rotaStateGet(rotaBuildingSteps),
+  get: rotaStateGet(rotaBuildingSteps, rotaRunningTones),
   history: create(EpicsHistoryResponseSchema, { entries: rotaBuildingHistory, next: "" }),
 };
 export const rotaLimited = {
   row: rotaStateEpic(rotaLimitedSteps),
-  get: rotaStateGet(rotaLimitedSteps),
+  get: rotaStateGet(rotaLimitedSteps, rotaLimitedTones),
   history: create(EpicsHistoryResponseSchema, { entries: rotaBuildingHistory, next: "" }),
 };
 export const rotaPlanner = {
   row: rotaStateEpic(rotaBuildingSteps),
-  get: rotaStateGet(rotaBuildingSteps, {}, { parked: "workflow node gate failed", plannerParked: true }),
+  get: rotaStateGet(rotaBuildingSteps, rotaRunningTones, {}, { parked: "workflow node gate failed", plannerParked: true }),
   history: create(EpicsHistoryResponseSchema, { entries: rotaPlannerHistory, next: "" }),
 };
 export const rotaProblem = {
   row: rotaStateEpic(rotaBuildingSteps, { problem: rotaProblemText }),
-  get: rotaStateGet(rotaBuildingSteps, { problem: rotaProblemText }),
+  get: rotaStateGet(rotaBuildingSteps, rotaRunningTones, { problem: rotaProblemText }),
   history: create(EpicsHistoryResponseSchema, { entries: rotaBuildingHistory, next: "" }),
 };
 
@@ -1220,7 +1220,7 @@ const rotaEvidenceRequirements: RequirementInit[] = rotaRequirements.map((requir
 );
 export const rotaEvidence = {
   row: rotaStateEpic(rotaBuildingSteps),
-  get: rotaStateGet(rotaBuildingSteps, {}, { requirements: rotaEvidenceRequirements }),
+  get: rotaStateGet(rotaBuildingSteps, rotaRunningTones, {}, { requirements: rotaEvidenceRequirements }),
   history: create(EpicsHistoryResponseSchema, { entries: rotaBuildingHistory, next: "" }),
 };
 
@@ -1236,7 +1236,7 @@ const rotaReviewingGet: EpicsGetResponse = create(EpicsGetResponseSchema, {
   epic: rotaStateEpic(rotaReviewingSteps, { outcome: "reviewing" }),
   steps: rotaReviewingSteps,
   questions: [],
-  buildTasks: rotaTasks.map((task) => ({ ...task, status: "done", stage: "verify" })),
+  buildTasks: rotaTasks.map((task) => ({ ...task, status: "done", stage: "verify", place: "integrated", tone: "ok" })),
   reviews: [
     { position: 1n, reviewer: "contract", step: "", verdict: "holds", reason: "Every requirement has a red and a green run at the stored base." },
     { position: 2n, reviewer: "security", step: "", verdict: "fails", reason: "One finding: export writes outside the rota directory when the name holds “../”." },
@@ -1299,7 +1299,9 @@ export const tidecacheGaps: EpicsGetResponse = create(EpicsGetResponseSchema, {
     { id: "R2", kind: "check", text: "The cache drops tables older than a week.", runs: [greenRun("ev-cache-r2-green", false)] },
     { id: "R3", kind: "review", text: "The docs describe the cache.", runs: [] },
   ],
-  buildTasks: (tidecacheGetInit.buildTasks ?? []).map((task) => ({ ...task, status: "done" })),
+  buildTasks: (tidecacheGetInit.buildTasks ?? []).map((task) => ({
+    ...task, status: "done", place: "integrated", tone: "ok",
+  })),
   report: {
     outcome: "ended_with_gaps",
     shipped: [],
@@ -1324,7 +1326,8 @@ export const noticesParked: EpicsGetResponse = { ...noticesGet, questions: [] };
 // buoyPlanning is buoy-feeds before its planner has outlined a task: its contract is accepted and nothing asks.
 export const buoyPlanning: EpicsGetResponse = { ...buoyGet, questions: [] };
 
-// The deck-pipeline epic: 120 tasks, 96 of them integrated. Its two running steps are the only steps it has.
+// The deck-pipeline epic: 120 tasks, 96 of them integrated and one a gap. Its running steps and the gap's failed step
+// are the only steps it has.
 function denseNumber(n: number): string {
   return String(n).padStart(3, "0");
 }
@@ -1347,19 +1350,33 @@ function denseStage(n: number): string {
   }
   return "";
 }
+// denseLife is where the server stands task n: the first 96 integrated, then at its stage's ring, running, except
+// unit-102, a gap at green, and unit-107, whose running step is held; past unit-110, planned.
+function denseLife(n: number): { place: string; tone: string } {
+  if (n <= 96) {
+    return { place: "integrated", tone: "ok" };
+  }
+  const place = { verify: "review", green: "green", implement: "implement", red: "red" }[denseStage(n)];
+  if (place === undefined) {
+    return { place: "planned", tone: "plan" };
+  }
+  return { place, tone: n === 102 ? "bad" : n === 107 ? "mine" : "run" };
+}
 const denseTasks: TaskInit[] = Array.from({ length: 120 }, (_, index) => ({
   id: `U${denseNumber(index + 1)}`,
   title: `unit-${denseNumber(index + 1)}`,
-  status: index < 96 ? "done" : "open",
+  status: index < 96 ? "done" : index === 101 ? "gap" : "open",
   stage: denseStage(index + 1),
   requirements: [`R${(index % 6) + 1}`],
+  ...denseLife(index + 1),
 }));
 const denseStep = (n: number, doing: string): StepInit => ({
   ...gateDefaults, id: `st-deck-u${denseNumber(n)}`, task: `U${denseNumber(n)}`, agent: "haiku", role: "implementer",
   readOnly: false, end: "", status: "running", held: false, started: at("@14:20"), ended: 0n, stage: "turn",
   stageStarted: at("@14:36"), doing, reason: "", summary: "", checks: [],
 });
-// denseFailed is unit-102's only step: it ended at a failed check, so its wedge is drawn failed.
+// denseFailed is unit-102's only step: it ended at a failed check, and the task ended a gap, so its wedge is drawn
+// failed.
 const denseFailed: StepInit = {
   ...denseStep(102, ""), end: "checks_failed", status: "ended", ended: at("@14:30"),
   reason: "The playthrough did not match the recorded run.",

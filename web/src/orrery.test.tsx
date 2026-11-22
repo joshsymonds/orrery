@@ -6,8 +6,8 @@ import { act } from "preact/test-utils";
 
 import { CENTRE, GAP, RING_RADII, cellPath, point, sliceStart } from "./orbits";
 import { Orrery } from "./orrery";
-import type { Phase } from "./phases";
-import { type Cell, PLACES, type RecordTask } from "./record";
+import { type Cell, type Phase, PLACES } from "./phases";
+import type { RecordTask } from "./record";
 import { installTestDom, removeTestDom } from "./testdom";
 
 // Props is the orrery's props, so a test can pass its own tasks, proven set and open handler.
@@ -27,6 +27,7 @@ const integrated: RecordTask = {
   cells: ["ok", "ok", "ok", "ok", "ok"],
   words: "done",
   since: 0,
+  labels: ["t1"],
 };
 
 // implementing is a task running in the implement ring: red is ok, implement is live, and the rest are not reached.
@@ -39,6 +40,7 @@ const implementing: RecordTask = {
   cells: ["ok", "run", "none", "none", "none"],
   words: "implement · writing the parser",
   since: 100,
+  labels: ["t2"],
 };
 
 // planned is a task before any ring: every cell none.
@@ -51,6 +53,7 @@ const planned: RecordTask = {
   cells: ["none", "none", "none", "none", "none"],
   words: "not started",
   since: 0,
+  labels: ["t3"],
 };
 
 // blocked is a task failing in the green ring, which proves R4 and R5 and so is not proven.
@@ -63,6 +66,7 @@ const blocked: RecordTask = {
   cells: ["ok", "ok", "bad", "none", "none"],
   words: "green · failed",
   since: 50,
+  labels: ["t4"],
 };
 
 const tasks = [integrated, implementing, planned, blocked];

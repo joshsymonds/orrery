@@ -239,7 +239,7 @@ func sendBack(ctx context.Context, queries *sqlcgen.Queries, action PlannerActio
 	if err != nil {
 		return nil, err
 	}
-	if endedPhase(head.Phase) {
+	if EndedPhase(head.Phase) {
 		return nil, RefusalError(fmt.Sprintf("epic %s is %s, an ended phase", action.Epic, head.Phase))
 	}
 	runs, err := readNodeRuns(ctx, queries, action.Epic)

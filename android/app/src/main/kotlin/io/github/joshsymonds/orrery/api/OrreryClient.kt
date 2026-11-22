@@ -43,7 +43,6 @@ import io.github.joshsymonds.orrery.gen.orrery.v1.EpicPremise as EpicPremiseProt
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicQuestion as EpicQuestionProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicReleaseStep as EpicReleaseStepProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicRequirement as EpicRequirementProto
-import io.github.joshsymonds.orrery.gen.orrery.v1.EpicSlice as EpicSliceProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicStep as EpicStepProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicStepCheck as EpicStepCheckProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicStepVerdict as EpicStepVerdictProto
@@ -689,37 +688,27 @@ data class EvidenceArtifactRow(val path: String, val state: String, val size: Lo
 /** The bytes of one artifact or log an evidence run kept, with their [mediaType]. */
 data class EvidenceArtifactFile(val data: ByteArray, val mediaType: String)
 
-/** One task from an effort's state.json. [requirements] are the requirement ids the task names, in order. */
+/**
+ * One task from an effort's state.json. [requirements] are the requirement ids the task names, in order. [place] and
+ * [tone] are where the task stands in its lifecycle and how it stands there, as serve computes them: place is planned,
+ * red, implement, green, review, integrate or integrated, and tone is plan, run, mine, limited, bad, acc or ok.
+ */
 data class EpicTaskRow(
     val effort: Int,
     val slug: String,
     val subject: String,
     val status: String,
     val requirements: List<String> = emptyList(),
-)
-
-/**
- * One task's slice of the epic chart as serve sends it: rings outermost first. [at] is the ring a running or held task
- * is working toward, the first ring not reached, 0 once it ended. [held] is whether its step is held. [errorAt] is the
- * ring that errored, 0 unless it ended short.
- */
-data class EpicSliceRow(
-    val task: String,
-    val hue: String,
-    val redTest: Boolean,
-    val working: Boolean,
-    val testsPass: Boolean,
-    val checks: Boolean,
-    val gateAccepted: Boolean,
-    val at: Int,
-    val held: Boolean,
-    val errorAt: Int,
+    val place: String = "",
+    val tone: String = "",
 )
 
 /**
  * One task of an orreryd epic's plan, with its build: [stage] is the stage the build is on, empty before its first
  * unit. [red] and [green] are the evidence runs the build names, null until it names one. [requirements] are the
- * requirement ids the task covers, in order. [reviews] are the build's reviews, in attempt then position order.
+ * requirement ids the task covers, in order. [reviews] are the build's reviews, in attempt then position order. [place]
+ * and [tone] are where the task stands in its lifecycle and how it stands there, as serve computes them, named as
+ * [EpicTaskRow] names them.
  */
 data class EpicBuildTaskRow(
     val id: String,
@@ -730,6 +719,8 @@ data class EpicBuildTaskRow(
     val green: EvidenceRunRow?,
     val requirements: List<String> = emptyList(),
     val reviews: List<TaskReviewRow> = emptyList(),
+    val place: String = "",
+    val tone: String = "",
 )
 
 /**
@@ -823,7 +814,7 @@ data class EpicContractRow(
 )
 
 /**
- * One epic with its tasks, its [slices] in serve's order, and every step labelled with it, oldest step first.
+ * One epic with its tasks and every step labelled with it, oldest step first.
  * [requirements] are an orreryd epic's requirements in contract order, empty for a record epic. [buildTasks] are an
  * orreryd epic's planned tasks in the order they were planned, empty for a record epic. [summary] is the epic's summary
  * paragraph, empty until it is written. [contract] is the accepted contract, null for a record epic. [questions] are
@@ -840,7 +831,6 @@ data class EpicContractRow(
 data class EpicDetail(
     val epic: EpicRow,
     val tasks: List<EpicTaskRow>,
-    val slices: List<EpicSliceRow>,
     val steps: List<StepRow>,
     val requirements: List<EpicRequirementRow> = emptyList(),
     val buildTasks: List<EpicBuildTaskRow> = emptyList(),
@@ -1160,7 +1150,6 @@ class OrreryClient(
         return EpicDetail(
             epic = response.epic.toEpicRow(),
             tasks = response.tasksList.map { it.toEpicTaskRow() },
-            slices = response.slicesList.map { it.toEpicSliceRow() },
             steps = response.stepsList.map { it.toStepRow() },
             requirements = response.requirementsList.map { it.toEpicRequirementRow() },
             buildTasks = response.buildTasksList.map { it.toEpicBuildTaskRow() },
@@ -1824,6 +1813,8 @@ class OrreryClient(
             green = if (hasGreen()) green.toEvidenceRunRow() else null,
             requirements = requirementsList.toList(),
             reviews = reviewsList.map { it.toTaskReviewRow() },
+            place = place,
+            tone = tone,
         )
 
     private fun EpicTaskReviewProto.toTaskReviewRow(): TaskReviewRow =
@@ -1853,6 +1844,8 @@ class OrreryClient(
             subject = subject,
             status = status,
             requirements = requirementsList.toList(),
+            place = place,
+            tone = tone,
         )
 
     private fun EpicQuestionProto.toEpicQuestionRow(): EpicQuestionRow =
@@ -1900,20 +1893,6 @@ class OrreryClient(
 
     private fun EpicAlternativeProto.toEpicAlternativeRow(): EpicAlternativeRow =
         EpicAlternativeRow(alternative = alternative, whyNot = whyNot, reconsider = reconsider)
-
-    private fun EpicSliceProto.toEpicSliceRow(): EpicSliceRow =
-        EpicSliceRow(
-            task = task,
-            hue = hue,
-            redTest = redTest,
-            working = working,
-            testsPass = testsPass,
-            checks = checks,
-            gateAccepted = gateAccepted,
-            at = at,
-            held = held,
-            errorAt = errorAt,
-        )
 
     private fun PoolStatusProto.toPool(): Pool =
         Pool(

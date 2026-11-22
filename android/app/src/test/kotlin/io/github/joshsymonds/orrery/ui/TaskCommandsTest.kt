@@ -235,11 +235,13 @@ class TaskCommandsTest {
     private fun buildTask(): EpicBuildTaskRow = EpicBuildTaskRow(
         id = TASK,
         title = TITLE,
-        status = "dispatched",
+        status = "open",
         stage = "implement",
         red = null,
         green = null,
         requirements = listOf("R1"),
+        place = "implement",
+        tone = "run",
     )
 
     private fun detail(
@@ -258,7 +260,6 @@ class TaskCommandsTest {
             problem = "",
         ),
         tasks = emptyList(),
-        slices = emptyList(),
         steps = steps,
         buildTasks = buildTasks,
     )

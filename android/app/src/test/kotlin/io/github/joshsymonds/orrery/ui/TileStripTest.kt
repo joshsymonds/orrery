@@ -135,7 +135,6 @@ class TileStripTest {
     private fun detail(epic: EpicRow, questions: List<EpicQuestionRow> = emptyList()): EpicDetail = EpicDetail(
         epic = epic,
         tasks = emptyList(),
-        slices = emptyList(),
         steps = emptyList(),
         questions = questions,
     )

@@ -115,7 +115,6 @@ class InboxTreeTest {
     private fun parkedDetail(epic: EpicRow) = EpicDetail(
         epic = epic,
         tasks = emptyList(),
-        slices = emptyList(),
         steps = emptyList(),
         parked = "synthetic park",
     )

@@ -105,7 +105,6 @@ class ProjectPageCardTest {
         val detail = EpicDetail(
             epic = epic,
             tasks = listOf(taskRow()),
-            slices = emptyList(),
             steps = listOf(runningStep()),
             questions = listOf(question),
         )
@@ -128,7 +127,6 @@ class ProjectPageCardTest {
         val detail = EpicDetail(
             epic = epic,
             tasks = listOf(taskRow()),
-            slices = emptyList(),
             steps = emptyList(),
             parked = "held for a decision",
         )
@@ -143,7 +141,7 @@ class ProjectPageCardTest {
     @Test
     fun anEpicBuildingIsLiveAndAsksNothing() {
         val epic = epicRow()
-        val detail = EpicDetail(epic = epic, tasks = listOf(taskRow()), slices = emptyList(), steps = listOf(runningStep()))
+        val detail = EpicDetail(epic = epic, tasks = listOf(taskRow()), steps = listOf(runningStep()))
         val card = workCardOf(EpicNode(epic, detail, contract = null), NOW)
 
         assertEquals(CardTone.LIVE, card.tone)
@@ -171,7 +169,7 @@ class ProjectPageCardTest {
     @Test
     fun anArchivedLiveEpicHasNoToneAndAsksNothing() {
         val epic = epicRow().copy(archived = true)
-        val detail = EpicDetail(epic = epic, tasks = listOf(taskRow()), slices = emptyList(), steps = emptyList(), questions = listOf(question))
+        val detail = EpicDetail(epic = epic, tasks = listOf(taskRow()), steps = emptyList(), questions = listOf(question))
         val card = workCardOf(EpicNode(epic, detail, contract = null), NOW)
 
         assertEquals(CardTone.NONE, card.tone)
@@ -182,7 +180,7 @@ class ProjectPageCardTest {
     @Test
     fun anEndedEpicHasNoToneAndAsksNothing() {
         val epic = epicRow(outcome = "released", live = false)
-        val detail = EpicDetail(epic = epic, tasks = listOf(taskRow()), slices = emptyList(), steps = emptyList())
+        val detail = EpicDetail(epic = epic, tasks = listOf(taskRow()), steps = emptyList())
         val card = workCardOf(EpicNode(epic, detail, contract = null), NOW)
 
         assertEquals(CardTone.NONE, card.tone)
@@ -198,7 +196,6 @@ class ProjectPageCardTest {
         val detail = EpicDetail(
             epic = epic,
             tasks = listOf(taskRow()),
-            slices = emptyList(),
             steps = listOf(runningStep()),
             questions = listOf(question),
         )

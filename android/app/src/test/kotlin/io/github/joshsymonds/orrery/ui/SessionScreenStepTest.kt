@@ -127,9 +127,11 @@ class SessionScreenStepTest {
             EpicBuildTask.newBuilder()
                 .setId(TASK_ID)
                 .setTitle(STEP_TITLE)
-                .setStatus("dispatched")
+                .setStatus("open")
                 .setStage("implement")
-                .addRequirements("R1"),
+                .addRequirements("R1")
+                .setPlace("implement")
+                .setTone(if (held) "mine" else "run"),
         )
         .build()
 

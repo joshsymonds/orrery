@@ -1713,7 +1713,8 @@ type EpicTask struct {
 	Gate string `protobuf:"bytes,9,opt,name=gate,proto3" json:"gate,omitempty"`
 	// The evidence that shows the task is done.
 	Evidence *EvidenceItem `protobuf:"bytes,10,opt,name=evidence,proto3" json:"evidence,omitempty"`
-	// The stage the task's build is on: empty before its first unit, then red, implement, green, review or verify.
+	// The stage the task's build is on: empty before its first unit, then red, implement, orchestrate, green, review,
+	// verify or design.
 	Stage string `protobuf:"bytes,11,opt,name=stage,proto3" json:"stage,omitempty"`
 	// The attempt the task's build is on; 0 before the build's first attempt starts.
 	Attempt int64 `protobuf:"varint,12,opt,name=attempt,proto3" json:"attempt,omitempty"`
@@ -1753,7 +1754,10 @@ type EpicTask struct {
 	// version.
 	Source string `protobuf:"bytes,27,opt,name=source,proto3" json:"source,omitempty"`
 	// The task's ladder rows in rung order, empty for a task that never climbed.
-	Rungs         []*EpicTaskRung `protobuf:"bytes,28,rep,name=rungs,proto3" json:"rungs,omitempty"`
+	Rungs []*EpicTaskRung `protobuf:"bytes,28,rep,name=rungs,proto3" json:"rungs,omitempty"`
+	// Whether the integrate run that claims the task ended passed with the task in its batch, so the stored base holds
+	// the task's commit. False for a task no run claims.
+	Integrated    bool `protobuf:"varint,29,opt,name=integrated,proto3" json:"integrated,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1982,6 +1986,13 @@ func (x *EpicTask) GetRungs() []*EpicTaskRung {
 		return x.Rungs
 	}
 	return nil
+}
+
+func (x *EpicTask) GetIntegrated() bool {
+	if x != nil {
+		return x.Integrated
+	}
+	return false
 }
 
 // EpicTaskVersion is one stored version of a task's spec after the planner's: the source and epic decision that wrote
@@ -7375,7 +7386,7 @@ const file_orrery_engine_v1_epic_proto_rawDesc = "" +
 	"\aoutcome\x18\x06 \x01(\tR\aoutcome\x12\x1c\n" +
 	"\tdecisions\x18\a \x03(\tR\tdecisions\x12\x18\n" +
 	"\astarted\x18\b \x01(\x03R\astarted\x12\x14\n" +
-	"\x05ended\x18\t \x01(\x03R\x05ended\"\xfc\x06\n" +
+	"\x05ended\x18\t \x01(\x03R\x05ended\"\x9c\a\n" +
 	"\bEpicTask\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04turn\x18\x02 \x01(\x03R\x04turn\x12\x14\n" +
@@ -7405,7 +7416,10 @@ const file_orrery_engine_v1_epic_proto_rawDesc = "" +
 	"\aversion\x18\x19 \x01(\x03R\aversion\x12=\n" +
 	"\bversions\x18\x1a \x03(\v2!.orrery.engine.v1.EpicTaskVersionR\bversions\x12\x16\n" +
 	"\x06source\x18\x1b \x01(\tR\x06source\x124\n" +
-	"\x05rungs\x18\x1c \x03(\v2\x1e.orrery.engine.v1.EpicTaskRungR\x05rungs\"\xcd\x03\n" +
+	"\x05rungs\x18\x1c \x03(\v2\x1e.orrery.engine.v1.EpicTaskRungR\x05rungs\x12\x1e\n" +
+	"\n" +
+	"integrated\x18\x1d \x01(\bR\n" +
+	"integrated\"\xcd\x03\n" +
 	"\x0fEpicTaskVersion\x12\x18\n" +
 	"\aversion\x18\x01 \x01(\x03R\aversion\x12\x16\n" +
 	"\x06source\x18\x02 \x01(\tR\x06source\x12\x1a\n" +

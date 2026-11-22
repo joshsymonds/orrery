@@ -7,7 +7,8 @@ import { test } from "node:test";
 import { Code } from "@connectrpc/connect";
 
 import type { Epic, EpicRequirement, EpicsGetResponse } from "../gen/orrery/v1/epics_pb";
-import { type Place, type Tone, provenOf, wedgesOf } from "../phases";
+import { type TaskPlace, type Tone, provenOf } from "../phases";
+import { recordTasksOf } from "../record";
 import { allLimited, askingOf, nowSentenceOf, ownerParked, plannerParked } from "../recordwords";
 import { rowsFrom } from "../rows";
 import { blockerOf, stateOf } from "../status";
@@ -36,21 +37,21 @@ function requirementOf(slug: string, id: string): EpicRequirement {
   return requirement;
 }
 
-// provenIds are the ids of the epic's requirements that are proven, by the client's own rule over its wedges.
+// provenIds are the ids of the epic's requirements that are proven, by the client's own rule over its tasks.
 function provenIds(slug: string): string[] {
   const detail = detailOf(slug);
-  const wedges = wedgesOf(detail);
+  const tasks = recordTasksOf(detail);
   return detail.requirements
-    .filter((requirement) => provenOf(requirement.id, wedges, detail.requirements))
+    .filter((requirement) => provenOf(requirement.id, tasks, detail.requirements))
     .map((requirement) => requirement.id);
 }
 
-// assertTask checks rota-export's task with the title: its task id, requirements, place and tone, as the client's wedges
-// derive them from the epic's detail.
-function assertTask(title: string, task: string, requirements: string[], place: Place, tone: Tone): void {
-  const wedge = wedgesOf(detailOf("rota-export")).find((candidate) => candidate.title === title);
-  assert.ok(wedge !== undefined, `rota-export holds a task titled ${title}`);
-  assert.deepEqual([wedge.task, wedge.requirements, wedge.place, wedge.tone], [task, requirements, place, tone], title);
+// assertTask checks rota-export's task with the title: its task id, requirements, place and tone, as the client reads
+// them from the epic's detail.
+function assertTask(title: string, task: string, requirements: string[], place: TaskPlace, tone: Tone): void {
+  const found = recordTasksOf(detailOf("rota-export")).find((candidate) => candidate.title === title);
+  assert.ok(found !== undefined, `rota-export holds a task titled ${title}`);
+  assert.deepEqual([found.task, found.requirements, found.place, found.tone], [task, requirements, place, tone], title);
 }
 
 test("FixtureWorld: the epic list holds the ten epics of round 6, then the two archived ones, by slug, in list order", () => {
@@ -190,7 +191,7 @@ test("FixtureWorld: harbour-map is paused by you, with 5 of its 9 tasks done", (
   assert.equal(stateOf(detail), "paused");
   assert.equal(detail.paused, true, "the owner paused it");
   assert.equal(detail.buildTasks.length, 9);
-  assert.equal(wedgesOf(detail).filter((wedge) => wedge.place === "integrated").length, 5);
+  assert.equal(recordTasksOf(detail).filter((task) => task.place === "integrated").length, 5);
 });
 
 test("FixtureWorld: buoy-feeds is planning, with no task yet", () => {
@@ -223,15 +224,15 @@ test("FixtureWorld: rota-export's task rota-endpoint is integrated, with task T3
 });
 
 test("FixtureWorld: rota-export's task csv-writer is accepted and waits to integrate, with task T5 proving R3", () => {
-  assertTask("csv-writer", "T5", ["R3"], "integrating", "acc");
+  assertTask("csv-writer", "T5", ["R3"], "integrate", "acc");
 });
 
 test("FixtureWorld: rota-export's task export-cli is implementing R4 under the gate, with task T2", () => {
-  assertTask("export-cli", "T2", ["R4"], "implementing", "run");
+  assertTask("export-cli", "T2", ["R4"], "implement", "run");
 });
 
 test("FixtureWorld: rota-export's task tz-fixtures is held on your answer, with task T1 for R5", () => {
-  assertTask("tz-fixtures", "T1", ["R5"], "implementing", "mine");
+  assertTask("tz-fixtures", "T1", ["R5"], "implement", "mine");
 });
 
 test("FixtureWorld: rota-export's task audit-log is planned for R6", () => {
@@ -284,8 +285,8 @@ test("FixtureScenarios: building draws rota-export building, with nothing asked 
   const running = detail.steps.filter((step) => step.end === "");
   assert.deepEqual(running.map((step) => [step.task, step.held]), [["T2", false], ["T1", false]]);
   assert.deepEqual(
-    wedgesOf(detail).filter((wedge) => ["T1", "T2"].includes(wedge.task)).map((wedge) => [wedge.task, wedge.place, wedge.tone]),
-    [["T1", "implementing", "run"], ["T2", "implementing", "run"]],
+    recordTasksOf(detail).filter((task) => ["T1", "T2"].includes(task.task)).map((task) => [task.task, task.place, task.tone]),
+    [["T1", "implement", "run"], ["T2", "implement", "run"]],
   );
 });
 
@@ -343,7 +344,7 @@ test("FixtureScenarios: planning draws buoy-feeds with no question, no task, and
   const detail = scenarioDetail("planning", "buoy-feeds");
   assert.equal(detail.questions.length, 0, "no question is open");
   assert.equal(askingOf(detail), null, "nothing asks the owner");
-  assert.equal(wedgesOf(detail).length, 0, "no task is outlined");
+  assert.equal(recordTasksOf(detail).length, 0, "no task is outlined");
   assert.equal(nowSentenceOf(detail), "The planner is reading the contract and outlining tasks. No task has started.");
 });
 
@@ -356,7 +357,7 @@ test("FixtureScenarios: loading holds the Epics.Get of an epic the first load do
 
 test("FixtureScenarios: dense draws deck-pipeline with 120 tasks, 96 of them done", () => {
   const detail = scenarioDetail("dense", "deck-pipeline");
-  const wedges = wedgesOf(detail);
-  assert.equal(wedges.length, 120);
-  assert.equal(wedges.filter((wedge) => wedge.place === "integrated").length, 96);
+  const tasks = recordTasksOf(detail);
+  assert.equal(tasks.length, 120);
+  assert.equal(tasks.filter((task) => task.place === "integrated").length, 96);
 });

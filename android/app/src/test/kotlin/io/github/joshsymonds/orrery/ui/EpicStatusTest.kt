@@ -224,7 +224,6 @@ class EpicStatusTest {
     ) = EpicDetail(
         epic = epic,
         tasks = tasks,
-        slices = emptyList(),
         steps = steps,
         buildTasks = buildTasks,
         questions = questions,

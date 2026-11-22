@@ -80,7 +80,6 @@ class InboxTreeWordsTest {
     ): EpicDetail = EpicDetail(
         epic = epic,
         tasks = tasks,
-        slices = emptyList(),
         steps = steps,
         questions = questions,
         paused = paused,

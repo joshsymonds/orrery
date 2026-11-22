@@ -398,7 +398,7 @@ class StageBodiesTest {
 
     @Test
     fun anIntegratedTaskSaysMerged() {
-        assertEquals(ToneLine("Merged.", BodyTone.OK), bodiesOf(detail(buildTasks = listOf(buildTask(status = "integrated")))).integrate.line)
+        assertEquals(ToneLine("Merged.", BodyTone.OK), bodiesOf(detail(buildTasks = listOf(buildTask(place = "integrated", tone = "ok")))).integrate.line)
     }
 
     @Test
@@ -532,20 +532,24 @@ class StageBodiesTest {
             reason = reason,
         )
 
+    // The build task at the place and tone serve computed for it, running at implement unless the arguments say otherwise.
     private fun buildTask(
-        status: String = "dispatched",
+        place: String = "implement",
+        tone: String = "run",
         red: EvidenceRunRow? = null,
         green: EvidenceRunRow? = null,
         reviews: List<TaskReviewRow> = emptyList(),
     ): EpicBuildTaskRow = EpicBuildTaskRow(
         id = TASK,
         title = "Parser $TASK",
-        status = status,
+        status = if (place == "integrated") "done" else "open",
         stage = "",
         red = red,
         green = green,
         requirements = listOf("R1"),
         reviews = reviews,
+        place = place,
+        tone = tone,
     )
 
     private fun detail(
@@ -564,7 +568,6 @@ class StageBodiesTest {
             problem = "",
         ),
         tasks = emptyList(),
-        slices = emptyList(),
         steps = steps,
         buildTasks = buildTasks,
     )

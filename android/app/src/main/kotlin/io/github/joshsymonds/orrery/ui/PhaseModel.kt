@@ -1,5 +1,6 @@
 package io.github.joshsymonds.orrery.ui
 
+import io.github.joshsymonds.orrery.api.EpicBuildTaskRow
 import io.github.joshsymonds.orrery.api.EpicDetail
 import io.github.joshsymonds.orrery.api.EpicRequirementRow
 import io.github.joshsymonds.orrery.api.StepRow
@@ -16,8 +17,9 @@ enum class Phase(val word: String) {
 enum class WedgePlace { PLANNED, IMPLEMENTING, CHECKING, REVIEWING, INTEGRATING, INTEGRATED }
 
 /**
- * A wedge's tone: plan at the rim, run while a step runs, mine while a held step runs, limited while a usage limit holds
- * a step that is not held, bad when the latest step ended otherwise, acc when it ended done, and ok when integrated.
+ * A wedge's tone, as serve computes it for the task: plan while planned, run while it runs or retries, mine while the owner
+ * holds it, limited while a usage limit holds its step, bad for a gap or a task its ended epic left short, acc while it is
+ * accepted and waits to integrate, and ok once integrated.
  */
 enum class WedgeTone { PLAN, RUN, MINE, LIMITED, BAD, ACC, OK }
 
@@ -43,22 +45,31 @@ data class Wedge(
 /** A part of a requirement's arc around the orrery, from [start] to [end] in wedge units, [proven] when it is. */
 data class RequirementArc(val id: String, val start: Double, val end: Double, val proven: Boolean)
 
-// A task as a wedge reads it: a build task, or a record task, which has no stage.
+// A task as a wedge reads it: a build task, or a record task, with the place and tone serve computed for it and the step
+// labels that belong to it.
 internal data class WedgeTask(
     val task: String,
     val title: String,
-    val status: String,
-    val stage: String,
     val requirements: List<String>,
+    val labels: Set<String>,
+    val place: String,
+    val tone: String,
 )
 
 // The build tasks when the epic has any, else the record's tasks.
 internal fun tasksOf(detail: EpicDetail): List<WedgeTask> {
     if (detail.buildTasks.isNotEmpty()) {
-        return detail.buildTasks.map { WedgeTask(it.id, it.title, it.status, it.stage, it.requirements) }
+        return detail.buildTasks.map { WedgeTask(it.id, it.title, it.requirements, labelsOf(it), it.place, it.tone) }
     }
-    return detail.tasks.map { WedgeTask(it.slug, it.subject, it.status, "", it.requirements) }
+    return detail.tasks.map { WedgeTask(it.slug, it.subject, it.requirements, setOf(it.slug), it.place, it.tone) }
 }
+
+// The prefix of the label an evidence judge step carries, before its run's id.
+private const val EVIDENCE_LABEL = "evidence-"
+
+// The step labels that belong to a build task: its id, and the evidence label of its red run and of its green run.
+private fun labelsOf(task: EpicBuildTaskRow): Set<String> =
+    setOf(task.id) + listOfNotNull(task.red, task.green).map { EVIDENCE_LABEL + it.id }
 
 // The stages whose running step is checking.
 private val CHECK_STAGES = listOf("checks", "gate", "judge")
@@ -71,51 +82,28 @@ private fun phaseOf(step: StepRow): Phase = when {
     else -> Phase.IMPLEMENTING
 }
 
-private fun Phase.toPlace(): WedgePlace = when (this) {
-    Phase.IMPLEMENTING -> WedgePlace.IMPLEMENTING
-    Phase.CHECKING -> WedgePlace.CHECKING
-    Phase.REVIEWING -> WedgePlace.REVIEWING
-    Phase.INTEGRATING -> WedgePlace.INTEGRATING
+// The wedge place of a task's place as serve names it: red and implement are implementing, green checking, review
+// reviewing, integrate integrating. A place serve does not name, or none, reads as planned, the reading that claims no
+// progress.
+internal fun wedgePlaceOf(place: String): WedgePlace = when (place) {
+    "red", "implement" -> WedgePlace.IMPLEMENTING
+    "green" -> WedgePlace.CHECKING
+    "review" -> WedgePlace.REVIEWING
+    "integrate" -> WedgePlace.INTEGRATING
+    "integrated" -> WedgePlace.INTEGRATED
+    else -> WedgePlace.PLANNED
 }
 
-internal data class Placement(val place: WedgePlace, val tone: WedgeTone)
-
-// The place of a task with no step, by its build stage. Null for a stage the rules do not name.
-private fun stagePlacement(stage: String): Placement? = when (stage) {
-    "red", "implement", "orchestrate" -> Placement(WedgePlace.IMPLEMENTING, WedgeTone.RUN)
-    "green" -> Placement(WedgePlace.CHECKING, WedgeTone.RUN)
-    "review", "verify" -> Placement(WedgePlace.REVIEWING, WedgeTone.RUN)
-    else -> null
-}
-
-// The place of a task with no step and no build stage, by its lower-case status: dispatched, gated or gap, else
-// planned at the rim.
-private fun statusPlacement(status: String): Placement = when (status) {
-    "dispatched" -> Placement(WedgePlace.IMPLEMENTING, WedgeTone.RUN)
-    "gated" -> Placement(WedgePlace.INTEGRATING, WedgeTone.ACC)
-    "gap" -> Placement(WedgePlace.IMPLEMENTING, WedgeTone.BAD)
-    else -> Placement(WedgePlace.PLANNED, WedgeTone.PLAN)
-}
-
-// The tone of a running step: the owner's hold, else a usage limit, else running.
-private fun runningToneOf(step: StepRow): WedgeTone = when {
-    step.held -> WedgeTone.MINE
-    step.limited -> WedgeTone.LIMITED
-    else -> WedgeTone.RUN
-}
-
-// The place and tone of a task, by the first rule that matches.
-internal fun placementOf(task: WedgeTask, steps: List<StepRow>): Placement {
-    val status = task.status.lowercase()
-    val latest = steps.lastOrNull()
-    return when {
-        status == "done" || status == "integrated" -> Placement(WedgePlace.INTEGRATED, WedgeTone.OK)
-        latest != null && latest.end == "" ->
-            Placement(phaseOf(latest).toPlace(), runningToneOf(latest))
-        latest != null && latest.end == "done" -> Placement(WedgePlace.INTEGRATING, WedgeTone.ACC)
-        latest != null -> Placement(phaseOf(latest).toPlace(), WedgeTone.BAD)
-        else -> stagePlacement(task.stage) ?: statusPlacement(status)
-    }
+// The wedge tone of a task's tone as serve names it. A tone serve does not name, or none, reads as plan, the reading
+// that claims nothing about the task's work.
+internal fun wedgeToneOf(tone: String): WedgeTone = when (tone) {
+    "run" -> WedgeTone.RUN
+    "mine" -> WedgeTone.MINE
+    "limited" -> WedgeTone.LIMITED
+    "bad" -> WedgeTone.BAD
+    "acc" -> WedgeTone.ACC
+    "ok" -> WedgeTone.OK
+    else -> WedgeTone.PLAN
 }
 
 // The index of a place among the phases: -1 before the first phase, and the count of phases once integrated.
@@ -169,17 +157,19 @@ private fun slicesOf(place: WedgePlace, steps: List<StepRow>): List<PhaseSlice> 
     }
 }
 
-/** The wedges of an epic, one per task, in task order. */
+/**
+ * The wedges of an epic, one per task, in task order: each at the place and in the tone serve computed for its task, its
+ * phase slices from the steps its task's id labels.
+ */
 fun wedgesOf(detail: EpicDetail): List<Wedge> = tasksOf(detail).map { task ->
-    val steps = detail.steps.filter { it.task == task.task }
-    val placement = placementOf(task, steps)
+    val place = wedgePlaceOf(task.place)
     Wedge(
         task = task.task,
         title = task.title,
         requirements = task.requirements,
-        place = placement.place,
-        tone = placement.tone,
-        slices = slicesOf(placement.place, steps),
+        place = place,
+        tone = wedgeToneOf(task.tone),
+        slices = slicesOf(place, detail.steps.filter { it.task == task.task }),
     )
 }
 

@@ -21,7 +21,6 @@ public  final class EpicsGetResponse extends
   private EpicsGetResponse() {
     tasks_ = emptyProtobufList();
     steps_ = emptyProtobufList();
-    slices_ = emptyProtobufList();
     requirements_ = emptyProtobufList();
     nodes_ = emptyProtobufList();
     buildTasks_ = emptyProtobufList();
@@ -378,155 +377,6 @@ public  final class EpicsGetResponse extends
   private void removeSteps(int index) {
     ensureStepsIsMutable();
     steps_.remove(index);
-  }
-
-  public static final int SLICES_FIELD_NUMBER = 4;
-  private com.google.protobuf.Internal.ProtobufList<io.github.joshsymonds.orrery.gen.orrery.v1.EpicSlice> slices_;
-  /**
-   * <pre>
-   * A slice per task label among the epic's labelled writing steps, in order of each label's first start. Read-only
-   * steps and steps with no task label add none.
-   * </pre>
-   *
-   * <code>repeated .orrery.v1.EpicSlice slices = 4 [json_name = "slices"];</code>
-   */
-  @java.lang.Override
-  public java.util.List<io.github.joshsymonds.orrery.gen.orrery.v1.EpicSlice> getSlicesList() {
-    return slices_;
-  }
-  /**
-   * <pre>
-   * A slice per task label among the epic's labelled writing steps, in order of each label's first start. Read-only
-   * steps and steps with no task label add none.
-   * </pre>
-   *
-   * <code>repeated .orrery.v1.EpicSlice slices = 4 [json_name = "slices"];</code>
-   */
-  public java.util.List<? extends io.github.joshsymonds.orrery.gen.orrery.v1.EpicSliceOrBuilder> 
-      getSlicesOrBuilderList() {
-    return slices_;
-  }
-  /**
-   * <pre>
-   * A slice per task label among the epic's labelled writing steps, in order of each label's first start. Read-only
-   * steps and steps with no task label add none.
-   * </pre>
-   *
-   * <code>repeated .orrery.v1.EpicSlice slices = 4 [json_name = "slices"];</code>
-   */
-  @java.lang.Override
-  public int getSlicesCount() {
-    return slices_.size();
-  }
-  /**
-   * <pre>
-   * A slice per task label among the epic's labelled writing steps, in order of each label's first start. Read-only
-   * steps and steps with no task label add none.
-   * </pre>
-   *
-   * <code>repeated .orrery.v1.EpicSlice slices = 4 [json_name = "slices"];</code>
-   */
-  @java.lang.Override
-  public io.github.joshsymonds.orrery.gen.orrery.v1.EpicSlice getSlices(int index) {
-    return slices_.get(index);
-  }
-  /**
-   * <pre>
-   * A slice per task label among the epic's labelled writing steps, in order of each label's first start. Read-only
-   * steps and steps with no task label add none.
-   * </pre>
-   *
-   * <code>repeated .orrery.v1.EpicSlice slices = 4 [json_name = "slices"];</code>
-   */
-  public io.github.joshsymonds.orrery.gen.orrery.v1.EpicSliceOrBuilder getSlicesOrBuilder(
-      int index) {
-    return slices_.get(index);
-  }
-  private void ensureSlicesIsMutable() {
-    com.google.protobuf.Internal.ProtobufList<io.github.joshsymonds.orrery.gen.orrery.v1.EpicSlice> tmp = slices_;
-    if (!tmp.isModifiable()) {
-      slices_ =
-          com.google.protobuf.GeneratedMessageLite.mutableCopy(tmp);
-     }
-  }
-
-  /**
-   * <pre>
-   * A slice per task label among the epic's labelled writing steps, in order of each label's first start. Read-only
-   * steps and steps with no task label add none.
-   * </pre>
-   *
-   * <code>repeated .orrery.v1.EpicSlice slices = 4 [json_name = "slices"];</code>
-   */
-  private void setSlices(
-      int index, io.github.joshsymonds.orrery.gen.orrery.v1.EpicSlice value) {
-    java.util.Objects.requireNonNull(value);
-    ensureSlicesIsMutable();
-    slices_.set(index, value);
-  }
-  /**
-   * <pre>
-   * A slice per task label among the epic's labelled writing steps, in order of each label's first start. Read-only
-   * steps and steps with no task label add none.
-   * </pre>
-   *
-   * <code>repeated .orrery.v1.EpicSlice slices = 4 [json_name = "slices"];</code>
-   */
-  private void addSlices(io.github.joshsymonds.orrery.gen.orrery.v1.EpicSlice value) {
-    java.util.Objects.requireNonNull(value);
-    ensureSlicesIsMutable();
-    slices_.add(value);
-  }
-  /**
-   * <pre>
-   * A slice per task label among the epic's labelled writing steps, in order of each label's first start. Read-only
-   * steps and steps with no task label add none.
-   * </pre>
-   *
-   * <code>repeated .orrery.v1.EpicSlice slices = 4 [json_name = "slices"];</code>
-   */
-  private void addSlices(
-      int index, io.github.joshsymonds.orrery.gen.orrery.v1.EpicSlice value) {
-    java.util.Objects.requireNonNull(value);
-    ensureSlicesIsMutable();
-    slices_.add(index, value);
-  }
-  /**
-   * <pre>
-   * A slice per task label among the epic's labelled writing steps, in order of each label's first start. Read-only
-   * steps and steps with no task label add none.
-   * </pre>
-   *
-   * <code>repeated .orrery.v1.EpicSlice slices = 4 [json_name = "slices"];</code>
-   */
-  private void addAllSlices(
-      java.lang.Iterable<? extends io.github.joshsymonds.orrery.gen.orrery.v1.EpicSlice> values) {
-    ensureSlicesIsMutable();
-    com.google.protobuf.AbstractMessageLite.addAll(
-        values, slices_);
-  }
-  /**
-   * <pre>
-   * A slice per task label among the epic's labelled writing steps, in order of each label's first start. Read-only
-   * steps and steps with no task label add none.
-   * </pre>
-   *
-   * <code>repeated .orrery.v1.EpicSlice slices = 4 [json_name = "slices"];</code>
-   */
-  private void clearSlices() {
-    slices_ = emptyProtobufList();
-  }
-  /**
-   * <pre>
-   * A slice per task label among the epic's labelled writing steps, in order of each label's first start. Read-only
-   * steps and steps with no task label add none.
-   * </pre>
-   *
-   * <code>repeated .orrery.v1.EpicSlice slices = 4 [json_name = "slices"];</code>
-   */
-  private void removeSlices(int index) {
-    ensureSlicesIsMutable();
-    slices_.remove(index);
   }
 
   public static final int REQUIREMENTS_FIELD_NUMBER = 5;
@@ -2774,168 +2624,6 @@ public  final class EpicsGetResponse extends
 
     /**
      * <pre>
-     * A slice per task label among the epic's labelled writing steps, in order of each label's first start. Read-only
-     * steps and steps with no task label add none.
-     * </pre>
-     *
-     * <code>repeated .orrery.v1.EpicSlice slices = 4 [json_name = "slices"];</code>
-     */
-    @java.lang.Override
-    public java.util.List<io.github.joshsymonds.orrery.gen.orrery.v1.EpicSlice> getSlicesList() {
-      return java.util.Collections.unmodifiableList(
-          instance.getSlicesList());
-    }
-    /**
-     * <pre>
-     * A slice per task label among the epic's labelled writing steps, in order of each label's first start. Read-only
-     * steps and steps with no task label add none.
-     * </pre>
-     *
-     * <code>repeated .orrery.v1.EpicSlice slices = 4 [json_name = "slices"];</code>
-     */
-    @java.lang.Override
-    public int getSlicesCount() {
-      return instance.getSlicesCount();
-    }/**
-     * <pre>
-     * A slice per task label among the epic's labelled writing steps, in order of each label's first start. Read-only
-     * steps and steps with no task label add none.
-     * </pre>
-     *
-     * <code>repeated .orrery.v1.EpicSlice slices = 4 [json_name = "slices"];</code>
-     */
-    @java.lang.Override
-    public io.github.joshsymonds.orrery.gen.orrery.v1.EpicSlice getSlices(int index) {
-      return instance.getSlices(index);
-    }
-    /**
-     * <pre>
-     * A slice per task label among the epic's labelled writing steps, in order of each label's first start. Read-only
-     * steps and steps with no task label add none.
-     * </pre>
-     *
-     * <code>repeated .orrery.v1.EpicSlice slices = 4 [json_name = "slices"];</code>
-     */
-    public Builder setSlices(
-        int index, io.github.joshsymonds.orrery.gen.orrery.v1.EpicSlice value) {
-      copyOnWrite();
-      instance.setSlices(index, value);
-      return this;
-    }
-    /**
-     * <pre>
-     * A slice per task label among the epic's labelled writing steps, in order of each label's first start. Read-only
-     * steps and steps with no task label add none.
-     * </pre>
-     *
-     * <code>repeated .orrery.v1.EpicSlice slices = 4 [json_name = "slices"];</code>
-     */
-    public Builder setSlices(
-        int index, io.github.joshsymonds.orrery.gen.orrery.v1.EpicSlice.Builder builderForValue) {
-      copyOnWrite();
-      instance.setSlices(index,
-          builderForValue.build());
-      return this;
-    }
-    /**
-     * <pre>
-     * A slice per task label among the epic's labelled writing steps, in order of each label's first start. Read-only
-     * steps and steps with no task label add none.
-     * </pre>
-     *
-     * <code>repeated .orrery.v1.EpicSlice slices = 4 [json_name = "slices"];</code>
-     */
-    public Builder addSlices(io.github.joshsymonds.orrery.gen.orrery.v1.EpicSlice value) {
-      copyOnWrite();
-      instance.addSlices(value);
-      return this;
-    }
-    /**
-     * <pre>
-     * A slice per task label among the epic's labelled writing steps, in order of each label's first start. Read-only
-     * steps and steps with no task label add none.
-     * </pre>
-     *
-     * <code>repeated .orrery.v1.EpicSlice slices = 4 [json_name = "slices"];</code>
-     */
-    public Builder addSlices(
-        int index, io.github.joshsymonds.orrery.gen.orrery.v1.EpicSlice value) {
-      copyOnWrite();
-      instance.addSlices(index, value);
-      return this;
-    }
-    /**
-     * <pre>
-     * A slice per task label among the epic's labelled writing steps, in order of each label's first start. Read-only
-     * steps and steps with no task label add none.
-     * </pre>
-     *
-     * <code>repeated .orrery.v1.EpicSlice slices = 4 [json_name = "slices"];</code>
-     */
-    public Builder addSlices(
-        io.github.joshsymonds.orrery.gen.orrery.v1.EpicSlice.Builder builderForValue) {
-      copyOnWrite();
-      instance.addSlices(builderForValue.build());
-      return this;
-    }
-    /**
-     * <pre>
-     * A slice per task label among the epic's labelled writing steps, in order of each label's first start. Read-only
-     * steps and steps with no task label add none.
-     * </pre>
-     *
-     * <code>repeated .orrery.v1.EpicSlice slices = 4 [json_name = "slices"];</code>
-     */
-    public Builder addSlices(
-        int index, io.github.joshsymonds.orrery.gen.orrery.v1.EpicSlice.Builder builderForValue) {
-      copyOnWrite();
-      instance.addSlices(index,
-          builderForValue.build());
-      return this;
-    }
-    /**
-     * <pre>
-     * A slice per task label among the epic's labelled writing steps, in order of each label's first start. Read-only
-     * steps and steps with no task label add none.
-     * </pre>
-     *
-     * <code>repeated .orrery.v1.EpicSlice slices = 4 [json_name = "slices"];</code>
-     */
-    public Builder addAllSlices(
-        java.lang.Iterable<? extends io.github.joshsymonds.orrery.gen.orrery.v1.EpicSlice> values) {
-      copyOnWrite();
-      instance.addAllSlices(values);
-      return this;
-    }
-    /**
-     * <pre>
-     * A slice per task label among the epic's labelled writing steps, in order of each label's first start. Read-only
-     * steps and steps with no task label add none.
-     * </pre>
-     *
-     * <code>repeated .orrery.v1.EpicSlice slices = 4 [json_name = "slices"];</code>
-     */
-    public Builder clearSlices() {
-      copyOnWrite();
-      instance.clearSlices();
-      return this;
-    }
-    /**
-     * <pre>
-     * A slice per task label among the epic's labelled writing steps, in order of each label's first start. Read-only
-     * steps and steps with no task label add none.
-     * </pre>
-     *
-     * <code>repeated .orrery.v1.EpicSlice slices = 4 [json_name = "slices"];</code>
-     */
-    public Builder removeSlices(int index) {
-      copyOnWrite();
-      instance.removeSlices(index);
-      return this;
-    }
-
-    /**
-     * <pre>
      * The orreryd epic's requirements in contract order, empty for a record epic.
      * </pre>
      *
@@ -4858,8 +4546,6 @@ public  final class EpicsGetResponse extends
             io.github.joshsymonds.orrery.gen.orrery.v1.EpicTask.class,
             "steps_",
             io.github.joshsymonds.orrery.gen.orrery.v1.EpicStep.class,
-            "slices_",
-            io.github.joshsymonds.orrery.gen.orrery.v1.EpicSlice.class,
             "requirements_",
             io.github.joshsymonds.orrery.gen.orrery.v1.EpicRequirement.class,
             "nodes_",
@@ -4888,10 +4574,10 @@ public  final class EpicsGetResponse extends
             "supersededBy_",
           };
           java.lang.String info =
-              "\u0000\u0015\u0000\u0001\u0001\u0015\u0015\u0000\f\u0000\u0001\u1009\u0000\u0002" +
-              "\u001b\u0003\u001b\u0004\u001b\u0005\u001b\u0006\u001b\u0007\u001b\b\u001b\t\u1009" +
-              "\u0001\n\u0007\u000b\u0208\f\u0208\r\u001b\u000e\u001b\u000f\u001b\u0010\u001b\u0011" +
-              "\u0208\u0012\u001b\u0013\u1009\u0002\u0014\u0007\u0015\u0208";
+              "\u0000\u0014\u0000\u0001\u0001\u0015\u0014\u0000\u000b\u0000\u0001\u1009\u0000\u0002" +
+              "\u001b\u0003\u001b\u0005\u001b\u0006\u001b\u0007\u001b\b\u001b\t\u1009\u0001\n\u0007" +
+              "\u000b\u0208\f\u0208\r\u001b\u000e\u001b\u000f\u001b\u0010\u001b\u0011\u0208\u0012" +
+              "\u001b\u0013\u1009\u0002\u0014\u0007\u0015\u0208";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

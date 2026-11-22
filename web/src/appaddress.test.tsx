@@ -125,7 +125,7 @@ function phaseEpic(): EpicsView {
   const epic = makeEpic(widgetsRepo, "first", { runningSteps: [run] });
   const detail = create(EpicsGetResponseSchema, {
     epic,
-    buildTasks: [{ id: "T1", title: "Parser", status: "dispatched", requirements: ["R1"] }],
+    buildTasks: [{ id: "T1", title: "Parser", status: "dispatched", requirements: ["R1"], place: "green", tone: "run" }],
     requirements: [{ id: "R1", text: "The parser parses" }],
     steps: [run],
   });

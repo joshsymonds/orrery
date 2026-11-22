@@ -372,9 +372,11 @@ class WorkerSessionTest {
             EpicBuildTask.newBuilder()
                 .setId(TASK)
                 .setTitle(TITLE)
-                .setStatus("dispatched")
+                .setStatus("open")
                 .setStage("implement")
                 .addRequirements("R1")
+                .setPlace("implement")
+                .setTone("run")
                 .build(),
         )
         .build()

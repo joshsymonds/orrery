@@ -87,7 +87,6 @@ class EndedBarEpicFootTest {
     private fun detail(steering: String, live: Boolean = true, source: String = "orreryd"): EpicDetail = EpicDetail(
         epic = epicRow(steering, live, source),
         tasks = emptyList(),
-        slices = emptyList(),
         steps = emptyList(),
         repository = REPO,
     )

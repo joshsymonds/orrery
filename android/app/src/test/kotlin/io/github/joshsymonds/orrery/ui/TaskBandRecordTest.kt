@@ -66,7 +66,7 @@ class TaskBandRecordTest {
 
     @Test
     fun theBandDrawsThePinAndOneChipPerTaskWithThisOneSelected() {
-        showBody(detail(buildTasks = listOf(buildTask(TASK), buildTask(OTHER_TASK, status = "gated"))))
+        showBody(detail(buildTasks = listOf(buildTask(TASK), buildTask(OTHER_TASK, place = "integrate", tone = "acc"))))
 
         composeRule.onNodeWithTag("epic-pin", useUnmergedTree = true).assertExists()
         composeRule.onAllNodesWithTag("task-strip", useUnmergedTree = true).assertCountEquals(1)
@@ -78,7 +78,7 @@ class TaskBandRecordTest {
     fun aChipOpensItsTaskAtItsPhaseAndTheCurrentChipOpensNothing() {
         val opened = CopyOnWriteArrayList<Pair<String, Phase>>()
         showBody(
-            detail(buildTasks = listOf(buildTask(TASK, stage = "red"), buildTask(OTHER_TASK))),
+            detail(buildTasks = listOf(buildTask(TASK, place = "red", tone = "run"), buildTask(OTHER_TASK))),
             onOpenTask = { task, phase -> opened.add(task to phase) },
         )
 
@@ -147,7 +147,7 @@ class TaskBandRecordTest {
 
     @Test
     fun theFootReadsTheTasksWordsWhileNoStepRuns() {
-        showBody(detail(buildTasks = listOf(buildTask(TASK, status = "gated"))))
+        showBody(detail(buildTasks = listOf(buildTask(TASK, place = "integrate", tone = "acc"))))
 
         composeRule.onNodeWithTag("task-state", useUnmergedTree = true).assertTextEquals("accepted · waits to integrate")
     }
@@ -327,19 +327,22 @@ class TaskBandRecordTest {
     private fun requirement(id: String, text: String): EpicRequirementRow =
         EpicRequirementRow(id = id, text = text, evidence = "", kind = "check")
 
+    // A build task at the place and tone serve computed for it, planned unless the arguments say otherwise.
     private fun buildTask(
-        id: String = TASK,
-        status: String = "dispatched",
-        stage: String = "",
+        id: String,
+        place: String = "planned",
+        tone: String = "plan",
         requirements: List<String> = listOf("R1"),
     ): EpicBuildTaskRow = EpicBuildTaskRow(
         id = id,
         title = "Parser $id",
-        status = status,
-        stage = stage,
+        status = "open",
+        stage = "",
         red = null,
         green = null,
         requirements = requirements,
+        place = place,
+        tone = tone,
     )
 
     private fun detail(
@@ -359,7 +362,6 @@ class TaskBandRecordTest {
             problem = "",
         ),
         tasks = emptyList(),
-        slices = emptyList(),
         steps = steps,
         requirements = requirements,
         buildTasks = buildTasks,

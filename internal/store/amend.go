@@ -173,7 +173,7 @@ func startAmendment(
 	if err != nil {
 		return EvidenceAmendment{}, err
 	}
-	if endedPhase(head.Phase) {
+	if EndedPhase(head.Phase) {
 		return EvidenceAmendment{}, RefusalError(fmt.Sprintf(
 			"epic %s is %s, an ended phase, and takes no evidence amendment", epic, head.Phase))
 	}

@@ -43,6 +43,7 @@ private fun task(
     task = name,
     title = "title of $name",
     requirements = requirements,
+    labels = setOf(name),
     place = place,
     integrated = integrated,
     tone = WedgeTone.RUN,
@@ -205,6 +206,23 @@ class EpicOrreryTableTest {
             ),
         )
         node("step-row:s1").assert(hasAnyDescendant(hasText("csv-writer")))
+    }
+
+    @Test
+    fun anEvidenceJudgeStepRowShowsThePipsOfTheTaskWhoseRunItJudges() {
+        val lines = listOf(StepLine("s1", StepGlyph.WORKING, "evidence-run-9", "evidence-run-9", "judging", NOW - 10))
+        val tasks = listOf(
+            task("T1", RingPlace.GREEN, words = "green · judging").copy(labels = setOf("T1", "evidence-run-9")),
+        )
+        composeRule.setContent {
+            MaterialTheme { StepRows(lines = lines, tasks = tasks, now = NOW) }
+        }
+
+        node("step-row:s1").assert(
+            hasAnyDescendant(
+                hasContentDescription("red passed, implement passed, green running, review not reached, integrate not reached"),
+            ),
+        )
     }
 
     @Test

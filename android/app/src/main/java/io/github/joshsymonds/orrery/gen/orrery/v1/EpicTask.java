@@ -23,6 +23,8 @@ public  final class EpicTask extends
     subject_ = "";
     status_ = "";
     requirements_ = emptyProtobufList();
+    place_ = "";
+    tone_ = "";
   }
   public static final int EFFORT_FIELD_NUMBER = 1;
   private int effort_;
@@ -390,6 +392,185 @@ public  final class EpicTask extends
     checkByteStringIsUtf8(value);
     ensureRequirementsIsMutable();
     requirements_.add(value.toStringUtf8());
+  }
+
+  public static final int PLACE_FIELD_NUMBER = 6;
+  private java.lang.String place_;
+  /**
+   * <pre>
+   * Where the task stands in its lifecycle of red, implement, green, review and integrate, read from its status,
+   * compared without case, and the steps its slug labels, by the first rule that holds: integrated when its status is
+   * done or integrated; for a gap, the ring of its latest step, or implement with no step; the ring of a running latest
+   * step; integrate when its status is gated or its latest step ended done; the ring of a latest step that ended
+   * otherwise; implement for a dispatched task with no step; and planned otherwise. A step's ring is review for a
+   * read-only step, green for one running its checks, gate or judge or one that ended checks_failed or goal_unmet, and
+   * implement for any other.
+   * </pre>
+   *
+   * <code>string place = 6 [json_name = "place"];</code>
+   * @return The place.
+   */
+  @java.lang.Override
+  public java.lang.String getPlace() {
+    return place_;
+  }
+  /**
+   * <pre>
+   * Where the task stands in its lifecycle of red, implement, green, review and integrate, read from its status,
+   * compared without case, and the steps its slug labels, by the first rule that holds: integrated when its status is
+   * done or integrated; for a gap, the ring of its latest step, or implement with no step; the ring of a running latest
+   * step; integrate when its status is gated or its latest step ended done; the ring of a latest step that ended
+   * otherwise; implement for a dispatched task with no step; and planned otherwise. A step's ring is review for a
+   * read-only step, green for one running its checks, gate or judge or one that ended checks_failed or goal_unmet, and
+   * implement for any other.
+   * </pre>
+   *
+   * <code>string place = 6 [json_name = "place"];</code>
+   * @return The bytes for place.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString
+      getPlaceBytes() {
+    return com.google.protobuf.ByteString.copyFromUtf8(place_);
+  }
+  /**
+   * <pre>
+   * Where the task stands in its lifecycle of red, implement, green, review and integrate, read from its status,
+   * compared without case, and the steps its slug labels, by the first rule that holds: integrated when its status is
+   * done or integrated; for a gap, the ring of its latest step, or implement with no step; the ring of a running latest
+   * step; integrate when its status is gated or its latest step ended done; the ring of a latest step that ended
+   * otherwise; implement for a dispatched task with no step; and planned otherwise. A step's ring is review for a
+   * read-only step, green for one running its checks, gate or judge or one that ended checks_failed or goal_unmet, and
+   * implement for any other.
+   * </pre>
+   *
+   * <code>string place = 6 [json_name = "place"];</code>
+   * @param value The place to set.
+   */
+  private void setPlace(
+      java.lang.String value) {
+    java.util.Objects.requireNonNull(value);
+
+    place_ = value;
+  }
+  /**
+   * <pre>
+   * Where the task stands in its lifecycle of red, implement, green, review and integrate, read from its status,
+   * compared without case, and the steps its slug labels, by the first rule that holds: integrated when its status is
+   * done or integrated; for a gap, the ring of its latest step, or implement with no step; the ring of a running latest
+   * step; integrate when its status is gated or its latest step ended done; the ring of a latest step that ended
+   * otherwise; implement for a dispatched task with no step; and planned otherwise. A step's ring is review for a
+   * read-only step, green for one running its checks, gate or judge or one that ended checks_failed or goal_unmet, and
+   * implement for any other.
+   * </pre>
+   *
+   * <code>string place = 6 [json_name = "place"];</code>
+   */
+  private void clearPlace() {
+
+    place_ = getDefaultInstance().getPlace();
+  }
+  /**
+   * <pre>
+   * Where the task stands in its lifecycle of red, implement, green, review and integrate, read from its status,
+   * compared without case, and the steps its slug labels, by the first rule that holds: integrated when its status is
+   * done or integrated; for a gap, the ring of its latest step, or implement with no step; the ring of a running latest
+   * step; integrate when its status is gated or its latest step ended done; the ring of a latest step that ended
+   * otherwise; implement for a dispatched task with no step; and planned otherwise. A step's ring is review for a
+   * read-only step, green for one running its checks, gate or judge or one that ended checks_failed or goal_unmet, and
+   * implement for any other.
+   * </pre>
+   *
+   * <code>string place = 6 [json_name = "place"];</code>
+   * @param value The bytes for place to set.
+   */
+  private void setPlaceBytes(
+      com.google.protobuf.ByteString value) {
+    checkByteStringIsUtf8(value);
+    place_ = value.toStringUtf8();
+
+  }
+
+  public static final int TONE_FIELD_NUMBER = 7;
+  private java.lang.String tone_;
+  /**
+   * <pre>
+   * How the task stands at its place, by the same rules, in the tones EpicBuildTask.tone names: ok when integrated, bad
+   * for a gap, the running latest step's tone (mine while held, limited while a usage limit holds it, run otherwise),
+   * acc at integrate, run at the ring of a latest step that ended otherwise and for a dispatched task with no step, so
+   * an ended attempt of a task still open is no failure, and plan while planned.
+   * </pre>
+   *
+   * <code>string tone = 7 [json_name = "tone"];</code>
+   * @return The tone.
+   */
+  @java.lang.Override
+  public java.lang.String getTone() {
+    return tone_;
+  }
+  /**
+   * <pre>
+   * How the task stands at its place, by the same rules, in the tones EpicBuildTask.tone names: ok when integrated, bad
+   * for a gap, the running latest step's tone (mine while held, limited while a usage limit holds it, run otherwise),
+   * acc at integrate, run at the ring of a latest step that ended otherwise and for a dispatched task with no step, so
+   * an ended attempt of a task still open is no failure, and plan while planned.
+   * </pre>
+   *
+   * <code>string tone = 7 [json_name = "tone"];</code>
+   * @return The bytes for tone.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString
+      getToneBytes() {
+    return com.google.protobuf.ByteString.copyFromUtf8(tone_);
+  }
+  /**
+   * <pre>
+   * How the task stands at its place, by the same rules, in the tones EpicBuildTask.tone names: ok when integrated, bad
+   * for a gap, the running latest step's tone (mine while held, limited while a usage limit holds it, run otherwise),
+   * acc at integrate, run at the ring of a latest step that ended otherwise and for a dispatched task with no step, so
+   * an ended attempt of a task still open is no failure, and plan while planned.
+   * </pre>
+   *
+   * <code>string tone = 7 [json_name = "tone"];</code>
+   * @param value The tone to set.
+   */
+  private void setTone(
+      java.lang.String value) {
+    java.util.Objects.requireNonNull(value);
+
+    tone_ = value;
+  }
+  /**
+   * <pre>
+   * How the task stands at its place, by the same rules, in the tones EpicBuildTask.tone names: ok when integrated, bad
+   * for a gap, the running latest step's tone (mine while held, limited while a usage limit holds it, run otherwise),
+   * acc at integrate, run at the ring of a latest step that ended otherwise and for a dispatched task with no step, so
+   * an ended attempt of a task still open is no failure, and plan while planned.
+   * </pre>
+   *
+   * <code>string tone = 7 [json_name = "tone"];</code>
+   */
+  private void clearTone() {
+
+    tone_ = getDefaultInstance().getTone();
+  }
+  /**
+   * <pre>
+   * How the task stands at its place, by the same rules, in the tones EpicBuildTask.tone names: ok when integrated, bad
+   * for a gap, the running latest step's tone (mine while held, limited while a usage limit holds it, run otherwise),
+   * acc at integrate, run at the ring of a latest step that ended otherwise and for a dispatched task with no step, so
+   * an ended attempt of a task still open is no failure, and plan while planned.
+   * </pre>
+   *
+   * <code>string tone = 7 [json_name = "tone"];</code>
+   * @param value The bytes for tone to set.
+   */
+  private void setToneBytes(
+      com.google.protobuf.ByteString value) {
+    checkByteStringIsUtf8(value);
+    tone_ = value.toStringUtf8();
+
   }
 
   public static io.github.joshsymonds.orrery.gen.orrery.v1.EpicTask parseFrom(
@@ -868,6 +1049,189 @@ public  final class EpicTask extends
       return this;
     }
 
+    /**
+     * <pre>
+     * Where the task stands in its lifecycle of red, implement, green, review and integrate, read from its status,
+     * compared without case, and the steps its slug labels, by the first rule that holds: integrated when its status is
+     * done or integrated; for a gap, the ring of its latest step, or implement with no step; the ring of a running latest
+     * step; integrate when its status is gated or its latest step ended done; the ring of a latest step that ended
+     * otherwise; implement for a dispatched task with no step; and planned otherwise. A step's ring is review for a
+     * read-only step, green for one running its checks, gate or judge or one that ended checks_failed or goal_unmet, and
+     * implement for any other.
+     * </pre>
+     *
+     * <code>string place = 6 [json_name = "place"];</code>
+     * @return The place.
+     */
+    @java.lang.Override
+    public java.lang.String getPlace() {
+      return instance.getPlace();
+    }
+    /**
+     * <pre>
+     * Where the task stands in its lifecycle of red, implement, green, review and integrate, read from its status,
+     * compared without case, and the steps its slug labels, by the first rule that holds: integrated when its status is
+     * done or integrated; for a gap, the ring of its latest step, or implement with no step; the ring of a running latest
+     * step; integrate when its status is gated or its latest step ended done; the ring of a latest step that ended
+     * otherwise; implement for a dispatched task with no step; and planned otherwise. A step's ring is review for a
+     * read-only step, green for one running its checks, gate or judge or one that ended checks_failed or goal_unmet, and
+     * implement for any other.
+     * </pre>
+     *
+     * <code>string place = 6 [json_name = "place"];</code>
+     * @return The bytes for place.
+     */
+    @java.lang.Override
+    public com.google.protobuf.ByteString
+        getPlaceBytes() {
+      return instance.getPlaceBytes();
+    }
+    /**
+     * <pre>
+     * Where the task stands in its lifecycle of red, implement, green, review and integrate, read from its status,
+     * compared without case, and the steps its slug labels, by the first rule that holds: integrated when its status is
+     * done or integrated; for a gap, the ring of its latest step, or implement with no step; the ring of a running latest
+     * step; integrate when its status is gated or its latest step ended done; the ring of a latest step that ended
+     * otherwise; implement for a dispatched task with no step; and planned otherwise. A step's ring is review for a
+     * read-only step, green for one running its checks, gate or judge or one that ended checks_failed or goal_unmet, and
+     * implement for any other.
+     * </pre>
+     *
+     * <code>string place = 6 [json_name = "place"];</code>
+     * @param value The place to set.
+     * @return This builder for chaining.
+     */
+    public Builder setPlace(
+        java.lang.String value) {
+      copyOnWrite();
+      instance.setPlace(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * Where the task stands in its lifecycle of red, implement, green, review and integrate, read from its status,
+     * compared without case, and the steps its slug labels, by the first rule that holds: integrated when its status is
+     * done or integrated; for a gap, the ring of its latest step, or implement with no step; the ring of a running latest
+     * step; integrate when its status is gated or its latest step ended done; the ring of a latest step that ended
+     * otherwise; implement for a dispatched task with no step; and planned otherwise. A step's ring is review for a
+     * read-only step, green for one running its checks, gate or judge or one that ended checks_failed or goal_unmet, and
+     * implement for any other.
+     * </pre>
+     *
+     * <code>string place = 6 [json_name = "place"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearPlace() {
+      copyOnWrite();
+      instance.clearPlace();
+      return this;
+    }
+    /**
+     * <pre>
+     * Where the task stands in its lifecycle of red, implement, green, review and integrate, read from its status,
+     * compared without case, and the steps its slug labels, by the first rule that holds: integrated when its status is
+     * done or integrated; for a gap, the ring of its latest step, or implement with no step; the ring of a running latest
+     * step; integrate when its status is gated or its latest step ended done; the ring of a latest step that ended
+     * otherwise; implement for a dispatched task with no step; and planned otherwise. A step's ring is review for a
+     * read-only step, green for one running its checks, gate or judge or one that ended checks_failed or goal_unmet, and
+     * implement for any other.
+     * </pre>
+     *
+     * <code>string place = 6 [json_name = "place"];</code>
+     * @param value The bytes for place to set.
+     * @return This builder for chaining.
+     */
+    public Builder setPlaceBytes(
+        com.google.protobuf.ByteString value) {
+      copyOnWrite();
+      instance.setPlaceBytes(value);
+      return this;
+    }
+
+    /**
+     * <pre>
+     * How the task stands at its place, by the same rules, in the tones EpicBuildTask.tone names: ok when integrated, bad
+     * for a gap, the running latest step's tone (mine while held, limited while a usage limit holds it, run otherwise),
+     * acc at integrate, run at the ring of a latest step that ended otherwise and for a dispatched task with no step, so
+     * an ended attempt of a task still open is no failure, and plan while planned.
+     * </pre>
+     *
+     * <code>string tone = 7 [json_name = "tone"];</code>
+     * @return The tone.
+     */
+    @java.lang.Override
+    public java.lang.String getTone() {
+      return instance.getTone();
+    }
+    /**
+     * <pre>
+     * How the task stands at its place, by the same rules, in the tones EpicBuildTask.tone names: ok when integrated, bad
+     * for a gap, the running latest step's tone (mine while held, limited while a usage limit holds it, run otherwise),
+     * acc at integrate, run at the ring of a latest step that ended otherwise and for a dispatched task with no step, so
+     * an ended attempt of a task still open is no failure, and plan while planned.
+     * </pre>
+     *
+     * <code>string tone = 7 [json_name = "tone"];</code>
+     * @return The bytes for tone.
+     */
+    @java.lang.Override
+    public com.google.protobuf.ByteString
+        getToneBytes() {
+      return instance.getToneBytes();
+    }
+    /**
+     * <pre>
+     * How the task stands at its place, by the same rules, in the tones EpicBuildTask.tone names: ok when integrated, bad
+     * for a gap, the running latest step's tone (mine while held, limited while a usage limit holds it, run otherwise),
+     * acc at integrate, run at the ring of a latest step that ended otherwise and for a dispatched task with no step, so
+     * an ended attempt of a task still open is no failure, and plan while planned.
+     * </pre>
+     *
+     * <code>string tone = 7 [json_name = "tone"];</code>
+     * @param value The tone to set.
+     * @return This builder for chaining.
+     */
+    public Builder setTone(
+        java.lang.String value) {
+      copyOnWrite();
+      instance.setTone(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * How the task stands at its place, by the same rules, in the tones EpicBuildTask.tone names: ok when integrated, bad
+     * for a gap, the running latest step's tone (mine while held, limited while a usage limit holds it, run otherwise),
+     * acc at integrate, run at the ring of a latest step that ended otherwise and for a dispatched task with no step, so
+     * an ended attempt of a task still open is no failure, and plan while planned.
+     * </pre>
+     *
+     * <code>string tone = 7 [json_name = "tone"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearTone() {
+      copyOnWrite();
+      instance.clearTone();
+      return this;
+    }
+    /**
+     * <pre>
+     * How the task stands at its place, by the same rules, in the tones EpicBuildTask.tone names: ok when integrated, bad
+     * for a gap, the running latest step's tone (mine while held, limited while a usage limit holds it, run otherwise),
+     * acc at integrate, run at the ring of a latest step that ended otherwise and for a dispatched task with no step, so
+     * an ended attempt of a task still open is no failure, and plan while planned.
+     * </pre>
+     *
+     * <code>string tone = 7 [json_name = "tone"];</code>
+     * @param value The bytes for tone to set.
+     * @return This builder for chaining.
+     */
+    public Builder setToneBytes(
+        com.google.protobuf.ByteString value) {
+      copyOnWrite();
+      instance.setToneBytes(value);
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:orrery.v1.EpicTask)
   }
   @java.lang.Override
@@ -889,10 +1253,12 @@ public  final class EpicTask extends
             "subject_",
             "status_",
             "requirements_",
+            "place_",
+            "tone_",
           };
           java.lang.String info =
-              "\u0000\u0005\u0000\u0000\u0001\u0005\u0005\u0000\u0001\u0000\u0001\u0004\u0002\u0208" +
-              "\u0003\u0208\u0004\u0208\u0005\u021a";
+              "\u0000\u0007\u0000\u0000\u0001\u0007\u0007\u0000\u0001\u0000\u0001\u0004\u0002\u0208" +
+              "\u0003\u0208\u0004\u0208\u0005\u021a\u0006\u0208\u0007\u0208";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

@@ -84,8 +84,16 @@ func TestEpicsGetAnswersBuildTasksInOrder(t *testing.T) {
 				Attempt: 2, Gate: "review-gate", Step: "step-review-2", Verdict: "undetermined",
 				Reason: "synthetic review step stopped",
 			}},
+			Place: "integrate", Tone: "acc",
 		},
-		{Id: "T2", Title: "synthetic task two", Status: "open", Requirements: []string{"R2"}},
+		{
+			Id:           "T2",
+			Title:        "synthetic task two",
+			Status:       "open",
+			Requirements: []string{"R2"},
+			Place:        "planned",
+			Tone:         "plan",
+		},
 	}
 	if len(got) != len(want) {
 		t.Fatalf("build_tasks = %d tasks, want %d", len(got), len(want))

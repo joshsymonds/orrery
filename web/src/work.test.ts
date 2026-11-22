@@ -162,9 +162,9 @@ test("WorkRail: the short name is the slug past its repository, up to the first 
 test("WorkRail: the gauge counts the done tasks, the started steps and all the tasks", () => {
   const epic = makeEpic("first");
   const tasks = [
-    { effort: 1, slug: "t0", subject: "Subject t0", status: "done" },
-    { effort: 1, slug: "t1", subject: "Subject t1", status: "pending" },
-    { effort: 1, slug: "t2", subject: "Subject t2", status: "pending" },
+    { effort: 1, slug: "t0", subject: "Subject t0", status: "done", place: "integrated", tone: "ok" },
+    { effort: 1, slug: "t1", subject: "Subject t1", status: "pending", place: "planned", tone: "plan" },
+    { effort: 1, slug: "t2", subject: "Subject t2", status: "pending", place: "implement", tone: "run" },
   ];
   const view = epicsView([epic], new Map([detailed(epic, { tasks, steps: [makeStep("s1", { task: "t2" })] })]));
 

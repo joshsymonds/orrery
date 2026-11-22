@@ -47,7 +47,7 @@ class TaskStagesTest {
 
     @Test
     fun theFiveRowsComeInPlaceOrder() {
-        showBody(detail(buildTasks = listOf(buildTask(stage = "implement"))))
+        showBody(detail(buildTasks = listOf(buildTask(place = "implement", stage = "implement"))))
 
         val tops = STAGES.map { composeRule.onNodeWithTag("stage-head:$it", useUnmergedTree = true).fetchSemanticsNode().positionInRoot.y }
         assertTrue("expected the rows top to bottom in place order, got $tops", tops.zipWithNext().all { (a, b) -> a < b })
@@ -55,7 +55,7 @@ class TaskStagesTest {
 
     @Test
     fun theCurrentRowIsOpenAndTheOthersAreFolded() {
-        showBody(detail(buildTasks = listOf(buildTask(stage = "implement"))))
+        showBody(detail(buildTasks = listOf(buildTask(place = "implement", stage = "implement"))))
 
         composeRule.onNodeWithTag("stage-body:implement", useUnmergedTree = true).assertExists()
         listOf("red", "green", "review", "integrate").forEach { assertNoNode("stage-body:$it") }
@@ -64,7 +64,7 @@ class TaskStagesTest {
 
     @Test
     fun theNowRowSaysItsTonesWord() {
-        showBody(detail(buildTasks = listOf(buildTask(stage = "implement", status = "dispatched"))))
+        showBody(detail(buildTasks = listOf(buildTask(place = "implement", stage = "implement"))))
 
         val tone = composeRule.onNodeWithTag("stage-tone:implement", useUnmergedTree = true).fetchSemanticsNode()
         assertEquals("run", tone.config[SemanticsProperties.StateDescription])
@@ -72,7 +72,7 @@ class TaskStagesTest {
 
     @Test
     fun theOrchestrateStageSaysAnOrchestratorDecides() {
-        showBody(detail(buildTasks = listOf(buildTask(stage = "orchestrate"))))
+        showBody(detail(buildTasks = listOf(buildTask(place = "implement", stage = "orchestrate"))))
 
         composeRule.onNodeWithTag("stage-sum:implement", useUnmergedTree = true)
             .assertTextEquals("an orchestrator is deciding on the implementer’s request")
@@ -80,7 +80,7 @@ class TaskStagesTest {
 
     @Test
     fun theVerifyStageSaysAVerifierChecksTheReview() {
-        showBody(detail(buildTasks = listOf(buildTask(stage = "verify"))))
+        showBody(detail(buildTasks = listOf(buildTask(place = "review", stage = "verify"))))
 
         composeRule.onNodeWithTag("stage-sum:review", useUnmergedTree = true)
             .assertTextEquals("a verifier is checking its findings")
@@ -89,7 +89,7 @@ class TaskStagesTest {
 
     @Test
     fun anAheadRowCannotBeOpened() {
-        showBody(detail(buildTasks = listOf(buildTask(stage = "red"))))
+        showBody(detail(buildTasks = listOf(buildTask(place = "red", stage = "red"))))
 
         composeRule.onNodeWithTag("stage-head:review", useUnmergedTree = true).assertHasNoClickAction()
         composeRule.onNodeWithTag("stage-head:review", useUnmergedTree = true).performClick()
@@ -102,7 +102,7 @@ class TaskStagesTest {
 
     @Test
     fun aPassedRowOpensInPlaceClosingTheOtherAndItsHeadFoldsIt() {
-        showBody(detail(buildTasks = listOf(buildTask(stage = "green"))))
+        showBody(detail(buildTasks = listOf(buildTask(place = "green", stage = "green"))))
 
         composeRule.onNodeWithTag("stage-head:red", useUnmergedTree = true).performClick()
         composeRule.waitForIdle()
@@ -116,7 +116,7 @@ class TaskStagesTest {
 
     @Test
     fun theRedRowShowsItsRunOrSaysNoRedRunYet() {
-        showBody(detail(buildTasks = listOf(buildTask(stage = "red"))))
+        showBody(detail(buildTasks = listOf(buildTask(place = "red", stage = "red"))))
 
         composeRule.onNodeWithText("No red run yet.", useUnmergedTree = true).assertExists()
         composeRule.onNodeWithTag("stage-sum:red", useUnmergedTree = true).assertTextEquals("capturing the failing test")
@@ -124,7 +124,7 @@ class TaskStagesTest {
 
     @Test
     fun theRedRowDrawsTheRedRun() {
-        showBody(detail(buildTasks = listOf(buildTask(stage = "red", red = run("red-a", "red", passed = false)))))
+        showBody(detail(buildTasks = listOf(buildTask(place = "red", stage = "red", red = run("red-a", "red", passed = false)))))
 
         composeRule.onNodeWithTag("stage-body:red", useUnmergedTree = true).assertExists()
         composeRule.onAllNodesWithTag("evidence-run:-1:0", useUnmergedTree = true).assertCountEquals(1)
@@ -133,7 +133,7 @@ class TaskStagesTest {
     @Test
     fun theImplementBodyListsItsAttemptsAndItsLatestRoundsAsCheckBlocks() {
         val epic = detail(
-            buildTasks = listOf(buildTask(stage = "implement")),
+            buildTasks = listOf(buildTask(place = "implement", stage = "implement")),
             steps = listOf(
                 step("w1", end = "returned", ended = 130, checks = checkRounds()),
             ),
@@ -154,7 +154,7 @@ class TaskStagesTest {
         val opened = CopyOnWriteArrayList<StepRow>()
         val writer = step("w1", end = "returned", ended = 130)
         showBody(
-            detail(buildTasks = listOf(buildTask(stage = "implement")), steps = listOf(writer)),
+            detail(buildTasks = listOf(buildTask(place = "implement", stage = "implement")), steps = listOf(writer)),
             onOpenSession = { opened.add(it) },
         )
 
@@ -167,7 +167,7 @@ class TaskStagesTest {
 
     @Test
     fun theIntegrateBodySaysMergedOnceIntegrated() {
-        showBody(detail(buildTasks = listOf(buildTask(status = "done"))))
+        showBody(detail(buildTasks = listOf(buildTask(place = "integrated", tone = "ok"))))
 
         composeRule.onNodeWithTag("stage-body:integrate", useUnmergedTree = true).assertExists()
         composeRule.onNodeWithText("Merged.", useUnmergedTree = true).assertExists()
@@ -175,14 +175,14 @@ class TaskStagesTest {
 
     @Test
     fun theReviewBodySaysNoReviewHasRunYet() {
-        showBody(detail(buildTasks = listOf(buildTask(stage = "review"))))
+        showBody(detail(buildTasks = listOf(buildTask(place = "review", stage = "review"))))
 
         composeRule.onNodeWithText("No review has run yet.", useUnmergedTree = true).assertExists()
     }
 
     @Test
     fun theIntegrateBodySaysItWaitsForItsMergeWhileNotIntegrated() {
-        showBody(detail(buildTasks = listOf(buildTask(status = "gated"))))
+        showBody(detail(buildTasks = listOf(buildTask(place = "integrate", tone = "acc"))))
 
         composeRule.onNodeWithTag("stage-body:integrate", useUnmergedTree = true).assertExists()
         composeRule.onNodeWithText("Every gate took it. It waits for its merge.", useUnmergedTree = true).assertExists()
@@ -190,7 +190,7 @@ class TaskStagesTest {
 
     @Test
     fun theGreenBodyDrawsItsReproductionAndItsGreenRun() {
-        showBody(detail(buildTasks = listOf(buildTask(stage = "green", green = run("green-a", "green", passed = true)))))
+        showBody(detail(buildTasks = listOf(buildTask(place = "green", stage = "green", green = run("green-a", "green", passed = true)))))
 
         composeRule.onNodeWithTag("stage-body:green", useUnmergedTree = true).assertExists()
         composeRule.onNodeWithText("Reproduction", useUnmergedTree = true).assertExists()
@@ -201,7 +201,7 @@ class TaskStagesTest {
 
     @Test
     fun theGreenBodySaysNoGreenRunYetWhenNoneRan() {
-        showBody(detail(buildTasks = listOf(buildTask(stage = "green"))))
+        showBody(detail(buildTasks = listOf(buildTask(place = "green", stage = "green"))))
 
         composeRule.onNodeWithText("The red test has not run on the change yet.", useUnmergedTree = true).assertExists()
         composeRule.onNodeWithText("No green run yet.", useUnmergedTree = true).assertExists()
@@ -221,7 +221,7 @@ class TaskStagesTest {
             ),
         )
         val epic = detail(
-            buildTasks = listOf(buildTask(stage = "implement")),
+            buildTasks = listOf(buildTask(place = "implement", stage = "implement")),
             steps = listOf(step("w1", end = "returned", ended = 130, checks = gateRound, gateName = "synthetic gate")),
         )
 
@@ -237,7 +237,7 @@ class TaskStagesTest {
     @Test
     fun theImplementBodyJudgesTheLatestAttempt() {
         val epic = detail(
-            buildTasks = listOf(buildTask(stage = "implement")),
+            buildTasks = listOf(buildTask(place = "implement", stage = "implement")),
             steps = listOf(
                 step(
                     "w1",
@@ -258,7 +258,7 @@ class TaskStagesTest {
     fun aReviewWithNoFindingsDrawsItsRowWithItsVerdict() {
         val review = TaskReviewRow(attempt = 1, gate = "lint", step = "v1", verdict = "holds", findings = emptyList())
 
-        showBody(detail(buildTasks = listOf(buildTask(stage = "review", reviews = listOf(review)))))
+        showBody(detail(buildTasks = listOf(buildTask(place = "review", stage = "review", reviews = listOf(review)))))
 
         composeRule.onNodeWithTag("review-row:lint", useUnmergedTree = true).assertExists()
         composeRule.onNode(hasText("lint") and hasAnyAncestor(hasTestTag("review-row:lint")), useUnmergedTree = true).assertExists()
@@ -295,7 +295,7 @@ class TaskStagesTest {
             ),
         )
 
-        showBody(detail(buildTasks = listOf(buildTask(stage = "review", reviews = listOf(review)))))
+        showBody(detail(buildTasks = listOf(buildTask(place = "review", stage = "review", reviews = listOf(review)))))
 
         listOf("f1", "f2", "f3").forEach { composeRule.onNodeWithTag("finding:$it", useUnmergedTree = true).assertExists() }
         inFinding("f1", "synthetic claim one")
@@ -316,7 +316,7 @@ class TaskStagesTest {
         val reader = step("v1", end = "returned", ended = 130, readOnly = true)
         val review = TaskReviewRow(attempt = 1, gate = "spec", step = "v1", verdict = "holds", findings = emptyList())
         showBody(
-            detail(buildTasks = listOf(buildTask(stage = "review", reviews = listOf(review))), steps = listOf(reader)),
+            detail(buildTasks = listOf(buildTask(place = "review", stage = "review", reviews = listOf(review))), steps = listOf(reader)),
             onOpenSession = { opened.add(it) },
         )
 
@@ -406,8 +406,10 @@ class TaskStagesTest {
         artifacts = emptyList(),
     )
 
+    // The build task at the place and tone serve computed for it, on its build stage.
     private fun buildTask(
-        status: String = "dispatched",
+        place: String,
+        tone: String = "run",
         stage: String = "",
         red: EvidenceRunRow? = null,
         green: EvidenceRunRow? = null,
@@ -415,12 +417,14 @@ class TaskStagesTest {
     ): EpicBuildTaskRow = EpicBuildTaskRow(
         id = TASK,
         title = "Parser $TASK",
-        status = status,
+        status = if (place == "integrated") "done" else "open",
         stage = stage,
         red = red,
         green = green,
         requirements = listOf("R1"),
         reviews = reviews,
+        place = place,
+        tone = tone,
     )
 
     private fun detail(
@@ -439,7 +443,6 @@ class TaskStagesTest {
             problem = "",
         ),
         tasks = emptyList(),
-        slices = emptyList(),
         steps = steps,
         buildTasks = buildTasks,
     )

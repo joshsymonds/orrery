@@ -289,9 +289,10 @@ func closeParkQuestions(ctx context.Context, queries *sqlcgen.Queries, epic stri
 	return nil
 }
 
-// endedPhase reports whether phase is one an epic ends in, which a kick is refused for. The store keeps its own list,
-// since the kinds package that reads the phases imports the store. The closed phases are ended too (IsClosedPhase).
-func endedPhase(phase string) bool {
+// EndedPhase reports whether phase is one an epic ends in, which a kick is refused for and no build runs in. The store
+// keeps its own list, since the kinds package that reads the phases imports the store. The closed phases are ended too
+// (IsClosedPhase).
+func EndedPhase(phase string) bool {
 	switch phase {
 	case "met_at_base", "clean", "ended_with_gaps", "released", "done", "stopped":
 		return true
@@ -313,7 +314,7 @@ func (s *Store) KickEpic(ctx context.Context, epic, text string, maker Maker, at
 			return err
 		}
 		switch {
-		case endedPhase(head.Phase):
+		case EndedPhase(head.Phase):
 			return RefusalError(fmt.Sprintf("epic %s is %s, an ended phase, and takes no kick", epic, head.Phase))
 		case head.Paused != 0:
 			return RefusalError(fmt.Sprintf("epic %s is paused; resume it before kicking it", epic))

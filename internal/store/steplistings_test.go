@@ -13,61 +13,35 @@ import (
 	"github.com/joshsymonds/orrery/internal/store/sqlcgen"
 )
 
-// listingResultCase is one stored result and what a listing reads of it.
+// listingResultCase is one stored result and the summary a listing reads of it.
 type listingResultCase struct {
 	name    string
 	result  string
 	summary string
-	red     bool
-	green   bool
 }
 
-// listingResultCases are the results the listing tests store: well-formed objects, evidence white space and NOT RUN in
-// every form, values that are not strings, keys held twice, and results that are not JSON objects at all.
+// listingResultCases are the results the listing tests store: well-formed objects, values that are not strings, keys
+// held twice, and results that are not JSON objects at all.
 func listingResultCases() []listingResultCase {
 	filler := strings.Repeat("synthetic filler ", 300)
 	return []listingResultCase{
 		{
-			name:    "every key",
-			result:  `{"summary":"synthetic summary","red_evidence":"FAIL TestX","green_evidence":"ok TestX"}`,
-			summary: "synthetic summary", red: true, green: true,
+			name:    "summary among other keys",
+			result:  `{"summary":"synthetic summary","status":"done"}`,
+			summary: "synthetic summary",
 		},
 		{name: "no key", result: `{"status":"done"}`},
-		{name: "not run in any case", result: `{"red_evidence":"not run: no test","green_evidence":"Not Run"}`},
-		{
-			name:   "not run after white space",
-			result: `{"red_evidence":" \t\n\r\u000bNOT RUN yet","green_evidence":"　  passing"}`,
-			green:  true,
-		},
-		{name: "only white space", result: `{"red_evidence":"　 \u0085  ","green_evidence":"   "}`},
-		{name: "empty strings", result: `{"summary":"","red_evidence":"","green_evidence":""}`},
-		{
-			name:   "not run as a prefix only",
-			result: `{"red_evidence":"NOT RUNNING","green_evidence":"NOTRUN"}`,
-			green:  true,
-		},
-		{
-			name:   "not run with two spaces and in full width",
-			result: `{"red_evidence":"NOT  RUN","green_evidence":"ｎot run"}`,
-			red:    true, green: true,
-		},
-		{
-			name:   "values that are not strings",
-			result: `{"summary":3,"red_evidence":true,"green_evidence":{"text":"synthetic"}}`,
-		},
-		{name: "null values", result: `{"summary":null,"red_evidence":null,"green_evidence":null}`},
-		{
-			name: "keys held twice",
-			result: `{"summary":"first","summary":"second","red_evidence":"synthetic red","red_evidence":3,` +
-				`"green_evidence":4,"green_evidence":"synthetic green"}`,
-			summary: "second", green: true,
-		},
-		{name: "nested keys", result: `{"result":{"summary":"inner","red_evidence":"inner red"}}`},
+		{name: "empty string", result: `{"summary":""}`},
+		{name: "value that is not a string", result: `{"summary":3}`},
+		{name: "null value", result: `{"summary":null}`},
+		{name: "key held twice", result: `{"summary":"first","summary":"second"}`, summary: "second"},
+		{name: "key held twice, last not a string", result: `{"summary":"first","summary":3}`},
+		{name: "nested key", result: `{"result":{"summary":"inner"}}`},
 		{name: "escaped key", result: `{"summary":"escaped summary"}`, summary: "escaped summary"},
 		{name: "escaped value", result: `{"summary":"line one\nline \"two\""}`, summary: "line one\nline \"two\""},
 		{name: "malformed", result: `{"summary":"cut`},
 		{name: "trailing garbage", result: `{"summary":"synthetic"} trailing`},
-		{name: "json5", result: `{summary:'synthetic',red_evidence:'synthetic red',}`},
+		{name: "json5", result: `{summary:'synthetic',}`},
 		{name: "raw control character", result: "{\"summary\":\"a\tb\"}"},
 		{name: "array", result: `["summary","synthetic"]`},
 		{name: "string", result: `"summary"`},
@@ -76,15 +50,15 @@ func listingResultCases() []listingResultCase {
 		{name: "empty", result: ``},
 		{
 			name:    "large object",
-			result:  `{"notes":"` + filler + `","summary":"after the notes","green_evidence":"` + filler + `"}`,
-			summary: "after the notes", green: true,
+			result:  `{"notes":"` + filler + `","summary":"after the notes","more":"` + filler + `"}`,
+			summary: "after the notes",
 		},
 	}
 }
 
 // TestStepListingsReadTheResultAsStepRowListingDoes stores a step for each listing result case and reads it back both
-// ways: through the step_listings view, and as StepRow.Listing of the full row. Each must give the case's summary and
-// evidence, so the view and the Go reading are one rule, and no result fails the view's read.
+// ways: through the step_listings view, and as StepRow.Listing of the full row. Each must give the case's summary, so
+// the view and the Go reading are one rule, and no result fails the view's read.
 func TestStepListingsReadTheResultAsStepRowListingDoes(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -115,19 +89,8 @@ func TestStepListingsReadTheResultAsStepRowListingDoes(t *testing.T) {
 			by      string
 			listing StepListing
 		}{{"step_listings", listing}, {"StepRow.Listing", row.Listing()}} {
-			if got.listing.Summary != tc.summary || got.listing.RedEvidence != tc.red ||
-				got.listing.GreenEvidence != tc.green {
-				t.Errorf(
-					"%s: %s = summary %q red %v green %v, want summary %q red %v green %v",
-					tc.name,
-					got.by,
-					got.listing.Summary,
-					got.listing.RedEvidence,
-					got.listing.GreenEvidence,
-					tc.summary,
-					tc.red,
-					tc.green,
-				)
+			if got.listing.Summary != tc.summary {
+				t.Errorf("%s: %s = summary %q, want %q", tc.name, got.by, got.listing.Summary, tc.summary)
 			}
 		}
 	}
@@ -156,7 +119,7 @@ func TestStepListingsCarryEveryListedFieldOfTheRow(t *testing.T) {
 			ID: "running", Round: 2, Limited: true, LimitKind: "synthetic-kind", LimitResets: t0.Add(time.Hour),
 			Stage: StepStageLimited, StageFrom: t0.Add(time.Minute),
 		},
-		StepReturn{ID: "ended", Result: `{"red_evidence":"synthetic red"}`},
+		StepReturn{ID: "ended", Result: `{"summary":"synthetic ended"}`},
 		StepEnd{ID: "ended", End: "done", Status: "DONE", Reason: "returned"},
 	}, t0.Add(2*time.Minute)); err != nil {
 		t.Fatalf("ApplyEngine writes: %v", err)
@@ -181,9 +144,9 @@ func TestStepListingsCarryEveryListedFieldOfTheRow(t *testing.T) {
 	endedListing, runningListing := listings[0], listings[1]
 	if runningListing.LoopLimitResets.IsZero() || runningListing.LoopStageFrom.IsZero() ||
 		len(runningListing.Checks) != 1 || len(runningListing.Verdicts) != 1 || runningListing.Summary != "synthetic" ||
-		endedListing.Ended.IsZero() || endedListing.End != "done" || !endedListing.RedEvidence {
+		endedListing.Ended.IsZero() || endedListing.End != "done" || endedListing.Summary != "synthetic ended" {
 		t.Errorf("listings = %+v, want the running step's limit, stage, check, verdict and summary and the ended "+
-			"step's end and red evidence", listings)
+			"step's end and summary", listings)
 	}
 }
 
@@ -194,13 +157,13 @@ const (
 )
 
 // seedLargeListingSteps stores, in epic E, ended steps and one running step, each with a 64 KiB prompt and a result
-// that holds a 32 KiB note besides its summary and evidence, and one running step in epic F.
+// that holds a 32 KiB note besides its summary, and one running step in epic F.
 func seedLargeListingSteps(t *testing.T, s *Store, ended int) {
 	t.Helper()
 	ctx := context.Background()
 	prompt := listingPromptMarker + strings.Repeat("p", 64<<10)
 	result := `{"notes":"` + listingResultMarker + strings.Repeat("r", 32<<10) +
-		`","summary":"synthetic summary","red_evidence":"synthetic red","green_evidence":"NOT RUN"}`
+		`","summary":"synthetic summary"}`
 	var ops []EngineOp
 	add := func(id, epic, task string) {
 		step := labelledStepOf(id, epic, task)
@@ -219,8 +182,7 @@ func seedLargeListingSteps(t *testing.T, s *Store, ended int) {
 	}
 }
 
-// requireLeanListings fails unless every listing carries the fixture's summary and evidence and none of its prompt or
-// result text.
+// requireLeanListings fails unless every listing carries the fixture's summary and none of its prompt or result text.
 func requireLeanListings(t *testing.T, listings []StepListing) {
 	t.Helper()
 	for _, listing := range listings {
@@ -228,15 +190,14 @@ func requireLeanListings(t *testing.T, listings []StepListing) {
 		if strings.Contains(text, listingPromptMarker) || strings.Contains(text, listingResultMarker) {
 			t.Errorf("listing %s carries prompt or result text", listing.ID)
 		}
-		if listing.Summary != "synthetic summary" || !listing.RedEvidence || listing.GreenEvidence {
-			t.Errorf("listing %s = summary %q red %v green %v, want the fixture's summary, red and no green",
-				listing.ID, listing.Summary, listing.RedEvidence, listing.GreenEvidence)
+		if listing.Summary != "synthetic summary" {
+			t.Errorf("listing %s = summary %q, want the fixture's summary", listing.ID, listing.Summary)
 		}
 	}
 }
 
 // TestStepListingsCarryNoPromptOrResultText stores steps with large prompts and results and reads them as listings,
-// by epic and as the running steps: each listing has the result's summary and evidence and none of the prompt's or
+// by epic and as the running steps: each listing has the result's summary and none of the prompt's or
 // result's text.
 func TestStepListingsCarryNoPromptOrResultText(t *testing.T) {
 	t.Parallel()

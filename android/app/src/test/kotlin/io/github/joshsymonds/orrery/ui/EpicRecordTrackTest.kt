@@ -203,13 +203,20 @@ class EpicRecordTrackTest {
         phaseAt = phaseAt,
     )
 
-    private fun buildTask(id: String, status: String) = EpicBuildTaskRow(
+    // A build task at the place serve computed for it, done once integrated and open before.
+    private fun buildTask(id: String, place: String) = EpicBuildTaskRow(
         id = id,
         title = "",
-        status = status,
+        status = if (place == "integrated") "done" else "open",
         stage = "",
         red = null,
         green = null,
+        place = place,
+        tone = when (place) {
+            "integrated" -> "ok"
+            "planned" -> "plan"
+            else -> "run"
+        },
     )
 
     private fun contract(accepted: Long) = EpicContractRow(
@@ -253,7 +260,6 @@ class EpicRecordTrackTest {
     ) = EpicDetail(
         epic = epic,
         tasks = emptyList(),
-        slices = emptyList(),
         steps = steps,
         requirements = emptyList(),
         buildTasks = buildTasks,

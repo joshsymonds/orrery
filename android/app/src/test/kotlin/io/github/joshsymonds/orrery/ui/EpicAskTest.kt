@@ -71,7 +71,6 @@ private fun detail(
         problem = "",
     ),
     tasks = emptyList(),
-    slices = emptyList(),
     steps = steps,
     questions = questions,
     parked = parked,

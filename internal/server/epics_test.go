@@ -58,7 +58,7 @@ func (f *epicsFake) calls() int {
 }
 
 // listStepsAnswer answers req over steps as orreryd's Steps service does: the labeled steps of req's epic and task,
-// each as its listing, with its result's summary and evidence and no result. A request for the running steps answers
+// each as its listing, with its result's summary and no result. A request for the running steps answers
 // only those that have not ended, and counts the ended ones by epic.
 func listStepsAnswer(steps []*enginev1.Step, req *enginev1.ListStepsRequest) *enginev1.ListStepsResponse {
 	resp := &enginev1.ListStepsResponse{}
@@ -79,14 +79,12 @@ func listStepsAnswer(steps []*enginev1.Step, req *enginev1.ListStepsRequest) *en
 	return resp
 }
 
-// listedStep returns step as a ListSteps answer carries it: its summary and evidence read from its result as orreryd
-// reads them, and no result. A step with no result keeps the summary and evidence it was given.
+// listedStep returns step as a ListSteps answer carries it: its summary read from its result as orreryd reads it, and
+// no result. A step with no result keeps the summary it was given.
 func listedStep(step *enginev1.Step) *enginev1.Step {
 	listed := proto.CloneOf(step)
 	if result := step.GetResult(); result != "" {
-		listing := store.StepRow{Result: result}.Listing()
-		listed.Summary, listed.RedEvidence, listed.GreenEvidence =
-			listing.Summary, listing.RedEvidence, listing.GreenEvidence
+		listed.Summary = store.StepRow{Result: result}.Listing().Summary
 	}
 	listed.Result = ""
 	return listed

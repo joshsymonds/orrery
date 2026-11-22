@@ -88,7 +88,6 @@ class InboxTreeRowsTest {
     private fun detail(epic: EpicRow, questions: List<EpicQuestionRow> = emptyList()) = EpicDetail(
         epic = epic,
         tasks = emptyList(),
-        slices = emptyList(),
         steps = emptyList(),
         questions = questions,
     )

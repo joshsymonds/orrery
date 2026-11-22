@@ -354,8 +354,6 @@ func listingMessage(row store.StepListing, held bool) (*v1.Step, error) {
 		Verdicts:         verdicts,
 		Caller:           row.Caller,
 		Summary:          row.Summary,
-		RedEvidence:      row.RedEvidence,
-		GreenEvidence:    row.GreenEvidence,
 	}
 	if !row.Ended.IsZero() {
 		step.Ended = row.Ended.Unix()

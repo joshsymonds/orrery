@@ -750,7 +750,6 @@ class EpicEndingWordsTest {
             path = path,
         ),
         tasks = emptyList(),
-        slices = emptyList(),
         steps = emptyList(),
         contract = EpicContractRow(
             title = "Example epic title",

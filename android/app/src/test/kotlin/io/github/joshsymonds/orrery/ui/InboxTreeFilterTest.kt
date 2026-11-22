@@ -115,7 +115,6 @@ class InboxTreeFilterTest {
     ) = EpicDetail(
         epic = epic,
         tasks = emptyList(),
-        slices = emptyList(),
         steps = emptyList(),
         questions = questions,
         parked = parked,

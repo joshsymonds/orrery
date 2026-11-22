@@ -77,7 +77,6 @@ class WaitsOnYouTest {
     private fun parked(epic: EpicRow) = EpicDetail(
         epic = epic,
         tasks = emptyList(),
-        slices = emptyList(),
         steps = emptyList(),
         questions = emptyList(),
         parked = "held",

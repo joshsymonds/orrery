@@ -15,7 +15,6 @@ import {
   EpicLedgerFindingSchema,
   EpicReviewVerdictSchema,
   EpicSchema,
-  EpicSliceSchema,
   type EpicStep,
   EpicStepSchema,
   type EpicsGetResponse,
@@ -2753,19 +2752,31 @@ function makeStep(id: string, init: MessageInitShape<typeof EpicStepSchema> = {}
   return create(EpicStepSchema, { id, task: id, agent: "builder", doing: "", held: false, ...init });
 }
 
-// detailOf is the Get response for an epic whose tasks carry the given statuses, one task per status, and its steps and
-// slices.
+// standing is where the server stands a record task with no step, by its status.
+const standing: Record<string, { place: string; tone: string }> = {
+  done: { place: "integrated", tone: "ok" },
+  integrated: { place: "integrated", tone: "ok" },
+  gap: { place: "implement", tone: "bad" },
+};
+
+// detailOf is the Get response for an epic whose tasks carry the given statuses, one task per status, each standing as
+// the server stands a task of that status with no step unless lives names where it stands, and its steps.
 function detailOf(
   epic: Epic,
   statuses: string[],
   steps: EpicStep[] = [],
-  slices: MessageInitShape<typeof EpicSliceSchema>[] = [],
+  lives: { place: string; tone: string }[] = [],
 ): EpicsGetResponse {
   return create(EpicsGetResponseSchema, {
     epic,
-    tasks: statuses.map((status, index) => ({ effort: 1, slug: `task-${index}`, subject: `Subject ${index}`, status })),
+    tasks: statuses.map((status, index) => ({
+      effort: 1,
+      slug: `task-${index}`,
+      subject: `Subject ${index}`,
+      status,
+      ...(lives[index] ?? standing[status] ?? { place: "planned", tone: "plan" }),
+    })),
     steps,
-    slices,
   });
 }
 
@@ -3531,7 +3542,7 @@ test("an epic whose detail names no state reads its count alone, and epic unavai
 test("a one-line epic draws no strip, and a full epic with no detail draws none", (t) => {
   const quiet = makeEpic(widgetsRepo, "quiet", { outcome: "build" });
   const busy = makeEpic(gadgetsRepo, "busy", { runningSteps: [makeStep("s1")] });
-  const detail = detailOf(quiet, ["done", "pending"], [], [{ task: "task-0", hue: "done" }]);
+  const detail = detailOf(quiet, ["done", "pending"]);
   const epics = epicsView([quiet, busy], new Map([[quiet.id, detail]]));
   return withApp(t.signal, { epics }, (container) => {
     assert.equal(
@@ -3543,17 +3554,21 @@ test("a one-line epic draws no strip, and a full epic with no detail draws none"
   });
 });
 
-test("a running step draws its working glyph, its label, its five pips and its doing", (t) => {
+test("a running step draws its working glyph, its label, its task's five pips and its doing", (t) => {
   const running = makeStep("s1", { task: "task-0", doing: "writing the test" });
-  const slices = [{ task: "task-0", hue: "dispatched", at: 4, redTest: true, working: true, testsPass: true }];
+  const lives = [{ place: "green", tone: "run" }];
   const epic = makeEpic(widgetsRepo, "first", { runningSteps: [running] });
-  const epics = epicsView([epic], new Map([[epic.id, detailOf(epic, ["pending"], [running], slices)]]));
+  const epics = epicsView([epic], new Map([[epic.id, detailOf(epic, ["dispatched"], [running], lives)]]));
   return withApp(t.signal, { epics }, (container) => {
     const step = rowElement(container, "step:s1");
     assert.equal(step.className, "row step");
     assert.equal(step.querySelector("svg.glyph")?.getAttribute("data-state"), "working");
     assert.equal(step.querySelector(".label")?.textContent, "task-0");
-    assert.equal(step.querySelectorAll(".pips i").length, 5, "five pips");
+    assert.deepEqual(
+      [...step.querySelectorAll(".pips i")].map((pip) => pip.getAttribute("data-tone")),
+      ["ok", "ok", "run", "none", "none"],
+      "five pips, the task's lifecycle at green",
+    );
     assert.equal(step.querySelector(".doing")?.textContent, "writing the test");
   });
 });
@@ -4088,8 +4103,8 @@ function phaseEpic(): EpicsView {
   const detail = create(EpicsGetResponseSchema, {
     epic,
     buildTasks: [
-      { id: "T1", title: "Parser", status: "dispatched", requirements: ["R1"] },
-      { id: "T2", title: "Logout", status: "", requirements: ["R2"] },
+      { id: "T1", title: "Parser", status: "dispatched", requirements: ["R1"], place: "green", tone: "run" },
+      { id: "T2", title: "Logout", status: "", requirements: ["R2"], place: "planned", tone: "plan" },
     ],
     requirements: [{ id: "R1", text: "The parser parses" }],
     steps: [run],

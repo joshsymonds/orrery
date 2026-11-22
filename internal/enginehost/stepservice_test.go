@@ -201,7 +201,7 @@ func fullStepRow() store.StepRow {
 			{Round: 1, Name: "gate", OK: false, Detail: "exit 1"},
 			{Round: 2, Name: "gate", OK: true, Detail: ""},
 		},
-		Result: `{"summary":"all good","red_evidence":"FAIL TestCheck","green_evidence":"NOT RUN: no gate"}`,
+		Result: `{"summary":"all good","status":"pass"}`,
 		Status: "pass",
 		Doing:  "reading the diff",
 		End:    "done",
@@ -222,7 +222,7 @@ func fullStep() *v1.Step {
 		Worktree:  "/wt/s1",
 		End:       "done",
 		Status:    "pass",
-		Result:    `{"summary":"all good","red_evidence":"FAIL TestCheck","green_evidence":"NOT RUN: no gate"}`,
+		Result:    `{"summary":"all good","status":"pass"}`,
 		Doing:     "reading the diff",
 		Checks: []*v1.StepCheck{
 			{Round: 1, Name: "gate", Ok: false, Detail: "exit 1"},
@@ -233,7 +233,6 @@ func fullStep() *v1.Step {
 		Ended:            1700000600,
 		GateLimitSeconds: 60,
 		Summary:          "all good",
-		RedEvidence:      true,
 	}
 }
 

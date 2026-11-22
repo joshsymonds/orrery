@@ -243,7 +243,7 @@ fun SessionScreen(
         }
         stepRead = true
     }
-    val stepRecord = step?.let { s -> stepDetail?.let { detail -> recordTasksOf(detail).find { it.task == s.task } } }
+    val stepRecord = step?.let { s -> stepDetail?.let { detail -> recordTasksOf(detail).taskOfStep(s.task) } }
     val stepRow = if (step != null) stepDetail?.steps?.find { it.id == sessionId } else null
     val stepEnded = stepRow?.end?.isNotEmpty() == true
     val stepTitle = stepRecord?.title ?: step?.label.orEmpty()

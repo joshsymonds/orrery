@@ -532,7 +532,8 @@ message EpicTask {
   // The evidence that shows the task is done.
   EvidenceItem evidence = 10;
 
-  // The stage the task's build is on: empty before its first unit, then red, implement, green, review or verify.
+  // The stage the task's build is on: empty before its first unit, then red, implement, orchestrate, green, review,
+  // verify or design.
   string stage = 11;
 
   // The attempt the task's build is on; 0 before the build's first attempt starts.
@@ -590,6 +591,10 @@ message EpicTask {
 
   // The task's ladder rows in rung order, empty for a task that never climbed.
   repeated EpicTaskRung rungs = 28;
+
+  // Whether the integrate run that claims the task ended passed with the task in its batch, so the stored base holds
+  // the task's commit. False for a task no run claims.
+  bool integrated = 29;
 }
 
 // EpicTaskVersion is one stored version of a task's spec after the planner's: the source and epic decision that wrote

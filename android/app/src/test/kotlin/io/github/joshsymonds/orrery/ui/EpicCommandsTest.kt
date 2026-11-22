@@ -73,7 +73,6 @@ class EpicCommandsTest {
             steering = steering,
         ),
         tasks = emptyList(),
-        slices = emptyList(),
         steps = emptyList(),
         repository = "/home/user/example-repo",
     )

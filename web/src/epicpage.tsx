@@ -8,7 +8,7 @@ import { JustHappened } from "./happenings";
 import { NowSection } from "./nowsection";
 import type { CallOutcome } from "./ownercall";
 import { Orrery } from "./orrery";
-import { durationText, type Phase, provenOf, wedgesOf } from "./phases";
+import { durationText, type Phase, provenOf } from "./phases";
 import { recordTasksOf } from "./record";
 import { blockerPillOf, contractDoorOf, ownerParked, reachedOf, statePillOf, trackOf } from "./recordwords";
 import { ReleaseTable } from "./release";
@@ -164,12 +164,11 @@ export function EpicPage(props: {
   } = props;
   const { epic, contract, requirements, steps } = detail;
   const reached = reachedOf(detail, history);
-  const wedges = wedgesOf(detail);
   const tasks = recordTasksOf(detail);
   const doneTasks = tasks.filter((task) => task.place === "integrated").length;
   const provenIds = new Set(
-    [...requirements.map((requirement) => requirement.id), ...wedges.flatMap((wedge) => wedge.requirements)].filter((id) =>
-      provenOf(id, wedges, requirements),
+    [...requirements.map((requirement) => requirement.id), ...tasks.flatMap((task) => task.requirements)].filter((id) =>
+      provenOf(id, tasks, requirements),
     ),
   );
   const slug = epic?.slug ?? "";

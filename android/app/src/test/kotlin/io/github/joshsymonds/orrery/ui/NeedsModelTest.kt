@@ -30,7 +30,6 @@ private fun detail(
 ) = EpicDetail(
     epic = alpha,
     tasks = emptyList(),
-    slices = emptyList(),
     steps = steps,
     questions = questions,
     parked = parked,

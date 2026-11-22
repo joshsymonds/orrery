@@ -56,13 +56,13 @@ const greenRun = {
 // contract is an orreryd epic's contract, accepted at zero so its words carry no time.
 const contract = { title: "Show the accepted contract", care: "high", accepted: 0n };
 
-// build is a live build: task t1 is running its implementing step and names R1, and task t2 is planned and names R2.
-// Each test spreads it and names the fields it changes.
+// build is a live build: task t1 is running its implementing step and names R1, and task t2 is planned and names R2,
+// each where the server stands it. Each test spreads it and names the fields it changes.
 const build = {
   epic: liveEpic,
   buildTasks: [
-    { id: "t1", title: "Login", status: "dispatched", requirements: ["R1"] },
-    { id: "t2", title: "Logout", status: "", requirements: ["R2"] },
+    { id: "t1", title: "Login", status: "dispatched", requirements: ["R1"], place: "implement", tone: "run" },
+    { id: "t2", title: "Logout", status: "", requirements: ["R2"], place: "planned", tone: "plan" },
   ],
   steps: [
     {
@@ -320,8 +320,8 @@ test("EpicRecord: the Tasks head counts the integrated tasks, and the chart and 
     detail({
       ...build,
       buildTasks: [
-        { id: "t1", title: "Login", status: "done", requirements: ["R1"] },
-        { id: "t2", title: "Logout", status: "", requirements: ["R2"] },
+        { id: "t1", title: "Login", status: "done", requirements: ["R1"], place: "integrated", tone: "ok" },
+        { id: "t2", title: "Logout", status: "", requirements: ["R2"], place: "planned", tone: "plan" },
       ],
     }),
     (container) => {
@@ -567,7 +567,7 @@ test("MoveLines: the epic page names a session its move line mentions by its lis
   );
 });
 
-test("EpicRecord: a running step's task draws one running cell in each stage: turn, checks, gate, judge and a read-only step", async () => {
+test("EpicRecord: a running task draws one running cell, whatever stage its running step is in: turn, checks, gate, judge or a read-only step", async () => {
   const stages = [
     { phase: "turn", stage: { stage: "turn" } },
     { phase: "checks", stage: { stage: "checks" } },
@@ -1177,8 +1177,8 @@ const endedWithOpen = detail({
   epic: { ...orrerydEpic, outcome: "ended_with_gaps", live: false, path: pathOf },
   report: { outcome: "ended_with_gaps", shipped: ["R1"], notShipped: ["R2"], why: "" },
   buildTasks: [
-    { id: "t1", title: "Login", status: "done", requirements: ["R1"] },
-    { id: "t2", title: "Logout", status: "done", requirements: ["R2"] },
+    { id: "t1", title: "Login", status: "done", requirements: ["R1"], place: "integrated", tone: "ok" },
+    { id: "t2", title: "Logout", status: "done", requirements: ["R2"], place: "integrated", tone: "ok" },
   ],
   requirements: [
     { id: "R1", text: "A user signs in", runs: [redRun, greenRun] },

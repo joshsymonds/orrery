@@ -409,10 +409,10 @@ func (s *epicService) fillHistory(ctx context.Context, id string, message *v1.St
 	return nil
 }
 
-// storedEpic returns the StoredEpic message of the epic with id with its workflow node runs, its review, its release
-// runs, its release proof and the holder of its repository's release slot, all read in one read of the store, so every
-// reply that carries the epic shows the same state. It returns an error matching store.ErrNoEpic when no epic has that
-// id.
+// storedEpic returns the StoredEpic message of the epic with id with its workflow node runs, whether each task is
+// integrated, its review, its release runs, its release proof and the holder of its repository's release slot, all
+// read in one read of the store, so every reply that carries the epic shows the same state. It returns an error
+// matching store.ErrNoEpic when no epic has that id.
 func (s *epicService) storedEpic(ctx context.Context, id string) (*v1.StoredEpic, error) {
 	flow, err := s.epics.EpicFlow(ctx, id)
 	if err != nil {
@@ -421,6 +421,9 @@ func (s *epicService) storedEpic(ctx context.Context, id string) (*v1.StoredEpic
 	message, err := storedEpicMessage(flow.Epic)
 	if err != nil {
 		return nil, err
+	}
+	for i, task := range flow.Epic.Tasks {
+		message.Tasks[i].Integrated = store.Integrated(flow.Runs, task)
 	}
 	requirementClaims(message, flow)
 	message.Nodes, err = nodeMessages(flow)

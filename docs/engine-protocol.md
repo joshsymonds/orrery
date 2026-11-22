@@ -380,7 +380,7 @@ Every tool that reports a step returns this object, and so does `orrery step sta
 - `reason`: the first line of the step's reason, cut to 200 runes: its first 199 runes and an ellipsis when it is longer (`stepmcp.reasonLine`, `stepmcp.reasonCap`).
 - `checks`: each `{round, name, ok}` from the rounds the return's checks ran in. A check's detail, tails and log are not reported (`stepmcp.checkJSON`, `stepmcp.stepFromProto`; `proto/orrery/engine/v1/step.proto: Step.checks`). The check output is read with [step_check](#step_check).
 
-The engine `Step` message has fields that the step object does not carry, so `step_status` does not report them: `workspace`, `revision`, `read_only`, `worktree`, `result`, `held`, `stage_started`, `gate_name`, `gate_limit_seconds`, `verdicts`, `caller`, `summary`, `red_evidence` and `green_evidence` (`proto/orrery/engine/v1/step.proto: Step`; `stepmcp.stepJSON` names no field for them). The return's `result` is read by part with [step_result](#step_result). `StepStatus` still returns the full `Step`, `caller` included, for the web (`enginehost.stepService.StepStatus`; see [Steps](contract.md#steps)).
+The engine `Step` message has fields that the step object does not carry, so `step_status` does not report them: `workspace`, `revision`, `read_only`, `worktree`, `result`, `held`, `stage_started`, `gate_name`, `gate_limit_seconds`, `verdicts`, `caller` and `summary` (`proto/orrery/engine/v1/step.proto: Step`; `stepmcp.stepJSON` names no field for them). The return's `result` is read by part with [step_result](#step_result). `StepStatus` still returns the full `Step`, `caller` included, for the web (`enginehost.stepService.StepStatus`; see [Steps](contract.md#steps)).
 
 #### epic_create
 

@@ -328,11 +328,11 @@ test("TaskStages: review says no review has run yet when the build task has none
 });
 
 test("TaskStages: integrate says Merged. once the task is integrated, else that every gate took it and it waits", () => {
-  assert.deepEqual(stageBodiesOf(detailOf([], { status: "done" }), "T1")?.integrate, {
+  assert.deepEqual(stageBodiesOf(detailOf([], { status: "done", place: "integrated", tone: "ok" }), "T1")?.integrate, {
     text: "Merged.",
     tone: "ok",
   });
-  assert.deepEqual(stageBodiesOf(detailOf([]), "T1")?.integrate, {
+  assert.deepEqual(stageBodiesOf(detailOf([], { status: "done", place: "integrate", tone: "acc" }), "T1")?.integrate, {
     text: "Every gate took it. It waits for its merge.",
     tone: "accepted",
   });

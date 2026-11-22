@@ -14,7 +14,6 @@ import io.github.joshsymonds.orrery.gen.orrery.v1.EpicQuestion
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicReleaseProof
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicReleaseStep
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicRequirement
-import io.github.joshsymonds.orrery.gen.orrery.v1.EpicSlice
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicStep
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicStepCheck
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicTask
@@ -271,7 +270,9 @@ class OrreryClientEpicsTest {
                             .setEffort(1)
                             .setSlug("example-task")
                             .setSubject("Example subject")
-                            .setStatus("DONE?  as written "),
+                            .setStatus("DONE?  as written ")
+                            .setPlace("integrated")
+                            .setTone("ok"),
                     )
                     .addSteps(runningStepProto)
                     .addSteps(endedStepProto)
@@ -289,9 +290,10 @@ class OrreryClientEpicsTest {
                             slug = "example-task",
                             subject = "Example subject",
                             status = "DONE?  as written ",
+                            place = "integrated",
+                            tone = "ok",
                         ),
                     ),
-                    slices = emptyList(),
                     steps = listOf(
                         runningStepRow,
                         StepRow(
@@ -326,47 +328,36 @@ class OrreryClientEpicsTest {
     }
 
     @Test
-    fun epicMapsEverySliceFieldInServeOrder() {
+    fun epicMapsEachTasksPlaceAndToneAsServeSendsThem() {
         FakeOrreryServer().use { server ->
             server.respond(
                 EPICS_GET,
                 EpicsGetResponse.newBuilder()
                     .setEpic(epicProto)
-                    .addSlices(
-                        EpicSlice.newBuilder()
-                            .setTask("example-task-a")
-                            .setHue("dispatched")
-                            .setRedTest(true)
-                            .setWorking(true)
-                            .setTestsPass(true)
-                            .setChecks(true)
-                            .setGateAccepted(false)
-                            .setAt(4)
-                            .setHeld(false)
-                            .setErrorAt(0),
+                    .addTasks(
+                        EpicTask.newBuilder()
+                            .setEffort(1)
+                            .setSlug("example-task-a")
+                            .setStatus("gated")
+                            .setPlace("integrate")
+                            .setTone("acc"),
                     )
-                    .addSlices(
-                        EpicSlice.newBuilder()
-                            .setTask("example-task-b")
-                            .setHue("gap")
-                            .setWorking(true)
-                            .setTestsPass(true)
-                            .setAt(0)
-                            .setHeld(true)
-                            .setErrorAt(3),
+                    .addTasks(
+                        EpicTask.newBuilder()
+                            .setEffort(1)
+                            .setSlug("example-task-b")
+                            .setStatus("gap")
+                            .setPlace("green")
+                            .setTone("bad"),
                     )
-                    .addSlices(
-                        EpicSlice.newBuilder()
-                            .setTask("example-task-c")
-                            .setHue("done")
-                            .setRedTest(false)
-                            .setWorking(true)
-                            .setTestsPass(false)
-                            .setChecks(true)
-                            .setGateAccepted(true)
-                            .setAt(0)
-                            .setHeld(false)
-                            .setErrorAt(4),
+                    .addTasks(EpicTask.newBuilder().setEffort(2).setSlug("example-task-c").setStatus("planned"))
+                    .addBuildTasks(
+                        EpicBuildTask.newBuilder()
+                            .setId("T1")
+                            .setStatus("open")
+                            .setStage("review")
+                            .setPlace("review")
+                            .setTone("limited"),
                     )
                     .build(),
             )
@@ -374,46 +365,10 @@ class OrreryClientEpicsTest {
             val detail = OrreryClient(server.baseUrl).epic("example-repo/example-epic")
 
             assertEquals(
-                listOf(
-                    EpicSliceRow(
-                        task = "example-task-a",
-                        hue = "dispatched",
-                        redTest = true,
-                        working = true,
-                        testsPass = true,
-                        checks = true,
-                        gateAccepted = false,
-                        at = 4,
-                        held = false,
-                        errorAt = 0,
-                    ),
-                    EpicSliceRow(
-                        task = "example-task-b",
-                        hue = "gap",
-                        redTest = false,
-                        working = true,
-                        testsPass = true,
-                        checks = false,
-                        gateAccepted = false,
-                        at = 0,
-                        held = true,
-                        errorAt = 3,
-                    ),
-                    EpicSliceRow(
-                        task = "example-task-c",
-                        hue = "done",
-                        redTest = false,
-                        working = true,
-                        testsPass = false,
-                        checks = true,
-                        gateAccepted = true,
-                        at = 0,
-                        held = false,
-                        errorAt = 4,
-                    ),
-                ),
-                detail?.slices,
+                listOf("integrate" to "acc", "green" to "bad", "" to ""),
+                detail?.tasks?.map { it.place to it.tone },
             )
+            assertEquals(listOf("review" to "limited"), detail?.buildTasks?.map { it.place to it.tone })
         }
     }
 
@@ -477,7 +432,9 @@ class OrreryClientEpicsTest {
                             .setStatus("done")
                             .setStage("green")
                             .setRed(buildRunProto("example-run-1", "red", "example/red-screen.png"))
-                            .setGreen(buildRunProto("example-run-2", "green", "example/green-screen.png")),
+                            .setGreen(buildRunProto("example-run-2", "green", "example/green-screen.png"))
+                            .setPlace("integrated")
+                            .setTone("ok"),
                     )
                     .addBuildTasks(
                         EpicBuildTask.newBuilder()
@@ -486,7 +443,9 @@ class OrreryClientEpicsTest {
                             .setStatus("open")
                             .setStage("implement")
                             .setRed(buildRunProto("example-run-3", "red", "example/second-red-screen.png"))
-                            .setGreen(buildRunProto("example-run-4", "green", "example/second-green-screen.png")),
+                            .setGreen(buildRunProto("example-run-4", "green", "example/second-green-screen.png"))
+                            .setPlace("implement")
+                            .setTone("run"),
                     )
                     .build(),
             )
@@ -502,6 +461,8 @@ class OrreryClientEpicsTest {
                         stage = "green",
                         red = buildRunRow("example-run-1", "red", "example/red-screen.png"),
                         green = buildRunRow("example-run-2", "green", "example/green-screen.png"),
+                        place = "integrated",
+                        tone = "ok",
                     ),
                     EpicBuildTaskRow(
                         id = "T2",
@@ -510,6 +471,8 @@ class OrreryClientEpicsTest {
                         stage = "implement",
                         red = buildRunRow("example-run-3", "red", "example/second-red-screen.png"),
                         green = buildRunRow("example-run-4", "green", "example/second-green-screen.png"),
+                        place = "implement",
+                        tone = "run",
                     ),
                 ),
                 detail?.buildTasks,

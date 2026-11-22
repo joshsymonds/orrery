@@ -57,13 +57,20 @@ class EpicLineTest {
 
     private fun task(status: String) = EpicTaskRow(effort = 1, slug = "task", subject = "", status = status)
 
-    private fun buildTask(id: String, status: String) = EpicBuildTaskRow(
+    // A build task at the place serve computed for it, done once integrated and open before.
+    private fun buildTask(id: String, place: String) = EpicBuildTaskRow(
         id = id,
         title = "",
-        status = status,
+        status = if (place == "integrated") "done" else "open",
         stage = "",
         red = null,
         green = null,
+        place = place,
+        tone = when (place) {
+            "integrated" -> "ok"
+            "planned" -> "plan"
+            else -> "run"
+        },
     )
 
     private fun question(asked: Long) = EpicQuestionRow(id = "Q1", text = "Which branch?", turn = 1L, asked = asked)
@@ -78,7 +85,6 @@ class EpicLineTest {
     ): EpicDetail = EpicDetail(
         epic = epic,
         tasks = tasks,
-        slices = emptyList(),
         steps = emptyList<StepRow>(),
         requirements = requirements,
         buildTasks = buildTasks,
@@ -110,13 +116,13 @@ class EpicLineTest {
         val d = detail(
             epic = epic(phaseAt = now - 2_940L),
             buildTasks = listOf(
-                buildTask("T1", "done"),
-                buildTask("T2", "done"),
-                buildTask("T3", "open"),
-                buildTask("T4", "open"),
-                buildTask("T5", "open"),
-                buildTask("T6", "open"),
-                buildTask("T7", "open"),
+                buildTask("T1", "integrated"),
+                buildTask("T2", "integrated"),
+                buildTask("T3", "implement"),
+                buildTask("T4", "implement"),
+                buildTask("T5", "implement"),
+                buildTask("T6", "implement"),
+                buildTask("T7", "implement"),
             ),
         )
         assertEquals("building · 49 min · 2 of 7 units integrated", epicLineOf(d, now).state)
@@ -132,7 +138,7 @@ class EpicLineTest {
     fun aStateWithNoStateWordIsTheUnitsAlone() {
         val d = detail(
             epic = epic(live = false),
-            buildTasks = listOf(buildTask("T1", "done"), buildTask("T2", "open")),
+            buildTasks = listOf(buildTask("T1", "integrated"), buildTask("T2", "implement")),
         )
         assertEquals("1 of 2 units integrated", epicLineOf(d, now).state)
     }

@@ -1,15 +1,15 @@
 import { blockerLine, stateLine } from "./epicpage";
-import type { Epic, EpicSlice, EpicStep, EpicsGetResponse, EpicTask } from "./gen/orrery/v1/epics_pb";
-import { type CellKind, cellKind, RINGS } from "./orbitcells";
-import { durationText, placementOf, provenOf, recordTaskOf, type Tone, wedgesOf } from "./phases";
+import type { Epic, EpicStep, EpicsGetResponse, EpicTask } from "./gen/orrery/v1/epics_pb";
+import { type Cell, durationText, provenOf, recordTaskOf, type Tone } from "./phases";
+import { pipsOf, type RecordTask, recordTasksOf } from "./record";
 import type { Row } from "./rows";
 import { blockerOf } from "./status";
 import { taskStateOf } from "./taskstatus";
 
-// A strip segment's tone: the tone its record task is placed at, over the epic's steps of every kind.
+// A strip segment's tone: the tone the server stands its record task in.
 export type StripTone = "passed" | "accepted" | "now" | "held" | "errored" | "none";
 
-// The strip tone each placement tone draws as.
+// The strip tone each task tone draws as.
 const stripToneOf: Record<Tone, StripTone> = {
   ok: "passed",
   acc: "accepted",
@@ -55,7 +55,7 @@ export interface StepItem {
   agent: string;
   started: number;
   round: number;
-  pips: CellKind[];
+  pips: Cell[];
   reason: string;
   step: EpicStep;
 }
@@ -159,13 +159,13 @@ export function endedWords(item: EpicItem, now: number): string {
 }
 
 export function blockOf(epic: Epic, detail: EpicsGetResponse | undefined): EpicBlock {
-  const slices = detail?.slices ?? [];
+  const tasks = detail === undefined ? [] : recordTasksOf(detail);
   const item = itemOf(epic, detail);
   const full = epic.runningSteps.length > 0;
   return {
     epic: item,
     full,
-    steps: epic.runningSteps.slice(0, shownSteps).map((step) => stepOf(epic, step, slices)),
+    steps: epic.runningSteps.slice(0, shownSteps).map((step) => stepOf(epic, step, tasks)),
     more: Math.max(0, epic.runningSteps.length - shownSteps),
     tail: full ? tailOf(epic.endedSteps, item.strip, detail) : "",
   };
@@ -184,7 +184,7 @@ function itemOf(epic: Epic, detail: EpicsGetResponse | undefined): EpicItem {
     phaseAt: Number(epic.phaseAt),
     done: doneOf(tasks),
     total: tasks.length,
-    strip: stripOf(tasks, detail?.steps ?? []),
+    strip: stripOf(tasks),
     archived: epic.archived,
     detail,
   };
@@ -208,8 +208,8 @@ export function epicLine(item: EpicItem, now: number): EpicLine {
 function countOf(item: EpicItem, detail: EpicsGetResponse): string {
   const requirements = detail.requirements;
   if (requirements.length > 0) {
-    const wedges = wedgesOf(detail);
-    const proven = requirements.filter((requirement) => provenOf(requirement.id, wedges, requirements)).length;
+    const tasks = recordTasksOf(detail);
+    const proven = requirements.filter((requirement) => provenOf(requirement.id, tasks, requirements)).length;
     return `${proven} of ${requirements.length} proven`;
   }
   return `${item.done} of ${item.total} tasks done`;
@@ -217,9 +217,9 @@ function countOf(item: EpicItem, detail: EpicsGetResponse): string {
 
 // The state: the title row's state phrase, then the units integrated when the epic has any units.
 function stateWords(detail: EpicsGetResponse, now: number): string {
-  const wedges = wedgesOf(detail);
-  const integrated = wedges.filter((wedge) => wedge.place === "integrated").length;
-  const units = wedges.length > 0 ? `${integrated} of ${wedges.length} units integrated` : "";
+  const tasks = recordTasksOf(detail);
+  const integrated = tasks.filter((task) => task.place === "integrated").length;
+  const units = tasks.length > 0 ? `${integrated} of ${tasks.length} units integrated` : "";
   return [stateLine(detail, now), units].filter((part) => part !== "").join(" · ");
 }
 
@@ -228,19 +228,16 @@ export function doneOf(tasks: EpicTask[]): number {
   return tasks.filter((task) => taskStateOf(task.status) === "done").length;
 }
 
-// One tone per record task, in record order: the strip tone its placement takes over the epic's steps of every kind,
-// the same placement the orrery draws its wedge at.
-export function stripOf(tasks: EpicTask[], steps: EpicStep[]): StripTone[] {
-  return tasks.map((record) => {
-    const task = recordTaskOf(record);
-    return stripToneOf[placementOf(task, steps.filter((step) => step.task === task.task)).tone];
-  });
+// One tone per record task, in record order: the strip tone of the tone the server stands it in, the same tone the
+// orrery draws its ring in.
+export function stripOf(tasks: EpicTask[]): StripTone[] {
+  return tasks.map((record) => stripToneOf[recordTaskOf(record).tone]);
 }
 
-// A full block's tail: its gap wedges, the record tasks not started, and its ended steps, each left out at zero. A gap
-// is a wedge the orrery draws bad, so the count matches its glyph, whether or not the epic has record tasks.
+// A full block's tail: its gap tasks, the record tasks not started, and its ended steps, each left out at zero. A gap
+// is a task the orrery draws bad, so the count matches its glyph, whether or not the epic has record tasks.
 function tailOf(ended: number, strip: StripTone[], detail: EpicsGetResponse | undefined): string {
-  const gaps = detail === undefined ? 0 : wedgesOf(detail).filter((wedge) => wedge.tone === "bad").length;
+  const gaps = detail === undefined ? 0 : recordTasksOf(detail).filter((task) => task.tone === "bad").length;
   const notStarted = strip.filter((tone) => tone === "none").length;
   return [
     gaps > 0 ? `${gaps} gap` : "",
@@ -251,7 +248,7 @@ function tailOf(ended: number, strip: StripTone[], detail: EpicsGetResponse | un
     .join(" · ");
 }
 
-function stepOf(epic: Epic, step: EpicStep, slices: EpicSlice[]): StepItem {
+function stepOf(epic: Epic, step: EpicStep, tasks: RecordTask[]): StepItem {
   return {
     kind: "step",
     key: `step:${step.id}`,
@@ -264,16 +261,10 @@ function stepOf(epic: Epic, step: EpicStep, slices: EpicSlice[]): StepItem {
     agent: step.agent,
     started: Number(step.started),
     round: roundOf(step),
-    pips: pipsOf(step.task, slices),
+    pips: pipsOf(step.task, tasks),
     reason: step.reason,
     step,
   };
-}
-
-// A step's five cells: the cells of the slice that names its task, or five track when no slice does.
-export function pipsOf(task: string, slices: EpicSlice[]): CellKind[] {
-  const slice = slices.find((candidate) => candidate.task === task);
-  return RINGS.map((_, index) => (slice ? cellKind(slice, index + 1) : "track"));
 }
 
 // A step's round, per DL17: the highest round its checks reached, plus one while the step runs.

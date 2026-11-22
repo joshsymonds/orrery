@@ -11,7 +11,6 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	enginev1 "github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1"
-	orreryv1 "github.com/joshsymonds/orrery/internal/gen/orrery/v1"
 )
 
 // countingEpicStore is an EpicStoreClient that counts the ListEpics and GetEpic calls that reach inner.
@@ -76,7 +75,7 @@ func loadSteps() []*enginev1.Step {
 			Epic:    "repoa/stored",
 			Task:    "t1",
 			End:     "done",
-			Result:  `{"summary":"synthetic summary","red_evidence":"synthetic red","green_evidence":"synthetic green"}`,
+			Result:  `{"summary":"synthetic summary"}`,
 			Started: epicsAgo(6 * time.Hour),
 			Ended:   epicsAgo(5 * time.Hour),
 			Checks:  []*enginev1.StepCheck{{Round: 1, Name: "gate", Ok: true}},
@@ -141,8 +140,8 @@ func TestEpicsListAsksOnlyTheRunningStepsOnce(t *testing.T) {
 }
 
 // TestEpicsGetAsksTheStepsOfItsEpicOnce proves Get reads its epic's steps in one ListSteps narrowed to the epic, its
-// stored epic in one GetEpic and its runs in one ListEvidence, and answers every step with its summary and its slice
-// from the evidence orreryd read from the result.
+// stored epic in one GetEpic and its runs in one ListEvidence, and answers every step with the summary orreryd read
+// from its result.
 func TestEpicsGetAsksTheStepsOfItsEpicOnce(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
@@ -171,10 +170,6 @@ func TestEpicsGetAsksTheStepsOfItsEpicOnce(t *testing.T) {
 	if summary := got.GetSteps()[0].GetSummary(); summary != "synthetic summary" {
 		t.Errorf("db-a summary = %q, want %q", summary, "synthetic summary")
 	}
-	wantSlice := &orreryv1.EpicSlice{
-		Task: "t1", Hue: "done", RedTest: true, Working: true, TestsPass: true, Checks: true, GateAccepted: true,
-	}
-	requireSlices(t, got.GetSlices(), []*orreryv1.EpicSlice{wantSlice})
 	if epic := got.GetEpic(); epic.GetEndedSteps() != 3 || len(epic.GetRunningSteps()) != 1 {
 		t.Errorf("epic = running %v ended %d, want one running step and 3 ended",
 			epicStepIDs(epic.GetRunningSteps()), epic.GetEndedSteps())

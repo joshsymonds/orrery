@@ -992,8 +992,6 @@ type StepListing struct {
 	LoopStageFrom   int64
 	Caller          string
 	Summary         string
-	RedEvidence     bool
-	GreenEvidence   bool
 }
 
 type ToldLimitStep struct {
