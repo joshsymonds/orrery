@@ -1,4 +1,4 @@
-// Package state applies Claude Code hook events to the per-pane @orrery_* tmux options.
+// Package state applies session registry updates to the per-pane @orrery_* tmux options.
 package state
 
 import (
@@ -7,7 +7,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -16,8 +15,8 @@ import (
 	"github.com/joshsymonds/orrery/internal/tmuxctl"
 )
 
-// Transition is a pane's state before and after one hook event. From is "" when the pane had no
-// state; To is "" after SessionEnd.
+// Transition is a pane's state before and after one update. From is "" when the pane had no
+// state; To is "" after an unbound update.
 type Transition struct {
 	From protocol.State
 	To   protocol.State
@@ -27,130 +26,8 @@ type Transition struct {
 // larger value would make the set-option fail.
 const maxQuestionBytes = 8192
 
-// stopGraceWindow is how long after a done pane's Stop or StopFailure a tool event is still treated as a late frame
-// from the finished turn. A tool event at or after it means Claude continued the turn.
-const stopGraceWindow = 5 * time.Second
-
-// Hook JSON keys and values the state machine reads.
-const (
-	keyEventName        = "hook_event_name"
-	keyNotificationType = "notification_type"
-	keyToolName         = "tool_name"
-	keyToolInput        = "tool_input"
-	keyToolUseID        = "tool_use_id"
-	keyReason           = "reason"
-	keySessionID        = "session_id"
-	keyTranscriptPath   = "transcript_path"
-
-	reasonClear = "clear"
-
-	eventUserPromptSubmit   = "UserPromptSubmit"
-	eventPreToolUse         = "PreToolUse"
-	eventPostToolUse        = "PostToolUse"
-	eventPostToolUseFailure = "PostToolUseFailure"
-	eventPermissionRequest  = "PermissionRequest"
-	eventNotification       = "Notification"
-	eventStop               = "Stop"
-	eventStopFailure        = "StopFailure"
-	eventSessionEnd         = "SessionEnd"
-	toolAskUserQuestion     = "AskUserQuestion"
-	notifyPermissionPrompt  = "permission_prompt"
-	notifyElicitationDialog = "elicitation_dialog"
-	notifyAgentNeedsInput   = "agent_needs_input"
-)
-
-// hookFields is a hook event decoded one level deep. Values stay raw until a field is read.
-type hookFields map[string]json.RawMessage
-
-// Apply applies one Claude Code hook event to the pane paneID and reports the transition, as ApplyWith does with no
-// extra writes and no command after them.
-func Apply(
-	ctx context.Context,
-	client *tmuxctl.Client,
-	paneID string,
-	hook json.RawMessage,
-	now time.Time,
-) (Transition, bool, error) {
-	transition, changed, _, err := ApplyWith(ctx, client, paneID, hook, now, nil, nil)
-	return transition, changed, err
-}
-
-// ApplyWith applies one Claude Code hook event to the pane paneID and reports the transition. The bool is true exactly
-// when the event is handled and the state changes. A handled event reads the pane's options in one tmux invocation,
-// then writes its own options, then extra, then runs then, all in one more; its stdout is what then printed. An
-// unhandled event reads nothing, writes only extra and runs then, and returns the zero Transition and false; with no
-// extra and no then it makes no tmux call. Malformed hook JSON is an error and writes nothing, and so is a malformed
-// @orrery_changed when a tool event reaches a done pane.
-func ApplyWith(
-	ctx context.Context,
-	client *tmuxctl.Client,
-	paneID string,
-	hook json.RawMessage,
-	now time.Time,
-	extra []tmuxctl.OptionWrite,
-	then []string,
-) (Transition, bool, string, error) {
-	fields, err := decodeHook(hook)
-	if err != nil {
-		return Transition{}, false, "", err
-	}
-	event, err := fields.text(keyEventName)
-	if err != nil {
-		return Transition{}, false, "", err
-	}
-	notification, err := fields.text(keyNotificationType)
-	if err != nil {
-		return Transition{}, false, "", err
-	}
-	var transition Transition
-	var own []tmuxctl.OptionWrite
-	if to, handled := targetState(event, notification); handled {
-		pane, readErr := readPane(ctx, client, paneID)
-		if readErr != nil {
-			return Transition{}, false, "", readErr
-		}
-		if transition, own, err = planEvent(fields, event, pane, to, now); err != nil {
-			return Transition{}, false, "", err
-		}
-	}
-	cmds := tmuxctl.WriteCommands(paneID, slices.Concat(own, extra))
-	if then != nil {
-		cmds = append(cmds, then)
-	}
-	out, err := client.Batch(ctx, cmds...)
-	if err != nil {
-		return Transition{}, false, "", fmt.Errorf("write pane %s: %w", paneID, err)
-	}
-	return transition, transition.From != transition.To, out, nil
-}
-
-// planEvent returns the transition a handled event makes from the pane's options and the writes that make it. A tool
-// event that lands just after the turn's Stop is a late frame from that turn: it leaves the pane and its options
-// untouched, and its transition is from the pane's state to the same. A later tool event means Claude continued the
-// turn.
-func planEvent(
-	fields hookFields, event string, pane paneValues, to protocol.State, now time.Time,
-) (Transition, []tmuxctl.OptionWrite, error) {
-	from := pane.state
-	if from == protocol.StateDone && isToolEvent(event) {
-		late, err := isLateToolEvent(pane.changed, now)
-		if err != nil {
-			return Transition{}, nil, err
-		}
-		if late {
-			return Transition{From: from, To: from}, nil, nil
-		}
-	}
-	transition := Transition{From: from, To: to}
-	if event == eventSessionEnd {
-		return transition, sessionEndWrites(), nil
-	}
-	writes, err := transitionWrites(fields, event, transition, pane.tool, now)
-	if err != nil {
-		return Transition{}, nil, err
-	}
-	return transition, writes, nil
-}
+// toolAskUserQuestion is the name of the AskUserQuestion tool, whose calls carry the questions a pane asks.
+const toolAskUserQuestion = "AskUserQuestion"
 
 // EndInterruptedTurn ends a working or waiting pane's turn when the transcript shows an interruption after the turn
 // started. interrupted is the unix seconds of the newest interruption line, 0 when there is none. The turn
@@ -172,11 +49,11 @@ func EndInterruptedTurn(
 	if pane.state != protocol.StateWorking && pane.state != protocol.StateWaiting {
 		return false, nil
 	}
-	changed, _, err := optionSecond(protocol.OptionChanged, pane.changed)
+	changed, err := optionSecond(protocol.OptionChanged, pane.changed)
 	if err != nil {
 		return false, err
 	}
-	turnStart, _, err := optionSecond(protocol.OptionTurnStart, pane.turnStart)
+	turnStart, err := optionSecond(protocol.OptionTurnStart, pane.turnStart)
 	if err != nil {
 		return false, err
 	}
@@ -184,63 +61,16 @@ func EndInterruptedTurn(
 	if interrupted <= started {
 		return false, nil
 	}
-	// The Stop path reads no hook fields, so no hook is passed.
-	transition := Transition{From: pane.state, To: protocol.StateDone}
-	writes, err := transitionWrites(nil, eventStop, transition, pane.tool, now)
-	if err != nil {
-		return false, err
+	writes := []tmuxctl.OptionWrite{
+		tmuxctl.Unset(protocol.OptionTool),
+		tmuxctl.Unset(protocol.OptionQuestion),
+		tmuxctl.Set(protocol.OptionState, string(protocol.StateDone)),
+		tmuxctl.Set(protocol.OptionChanged, strconv.FormatInt(now.Unix(), 10)),
 	}
 	if err = client.WritePaneOptions(ctx, paneID, writes); err != nil {
 		return false, fmt.Errorf("write pane %s: %w", paneID, err)
 	}
 	return true, nil
-}
-
-// RecordSession records the Claude Code session id and transcript path that one hook event carries, in one tmux
-// invocation, as SessionWrites decides them. A hook that makes no write makes no tmux call.
-func RecordSession(ctx context.Context, client *tmuxctl.Client, paneID string, hook json.RawMessage) error {
-	writes, err := SessionWrites(hook)
-	if err != nil {
-		return err
-	}
-	if err = client.WritePaneOptions(ctx, paneID, writes); err != nil {
-		return fmt.Errorf("write pane %s session: %w", paneID, err)
-	}
-	return nil
-}
-
-// SessionWrites returns the writes that record the Claude Code session id and transcript path one hook event carries,
-// so a later close can archive them. A SessionEnd with reason clear unsets both options. Any other event sets each
-// option whose hook value is non-empty, with its newlines made spaces, since the stored values are single-line; an
-// absent or empty value leaves it unchanged. The whole hook is decoded first, so a malformed or mistyped field returns
-// an error and no writes.
-func SessionWrites(hook json.RawMessage) ([]tmuxctl.OptionWrite, error) {
-	fields, err := decodeHook(hook)
-	if err != nil {
-		return nil, err
-	}
-	event, err := fields.text(keyEventName)
-	if err != nil {
-		return nil, err
-	}
-	reason, err := fields.text(keyReason)
-	if err != nil {
-		return nil, err
-	}
-	sessionID, err := fields.text(keySessionID)
-	if err != nil {
-		return nil, err
-	}
-	transcript, err := fields.text(keyTranscriptPath)
-	if err != nil {
-		return nil, err
-	}
-	if event == eventSessionEnd && reason == reasonClear {
-		return []tmuxctl.OptionWrite{
-			tmuxctl.Unset(protocol.OptionClaudeSession), tmuxctl.Unset(protocol.OptionTranscript),
-		}, nil
-	}
-	return SessionValueWrites(sessionID, transcript), nil
 }
 
 // SessionValueWrites returns the writes that record a session id and a transcript path: each option whose value is
@@ -259,187 +89,38 @@ func SessionValueWrites(sessionID, transcript string) []tmuxctl.OptionWrite {
 	return writes
 }
 
-// targetState maps a hook event to the state it leaves the pane in. SessionEnd is handled with
-// target "" (no state). ok is false for events the state machine ignores.
-func targetState(event, notification string) (protocol.State, bool) {
-	switch event {
-	case eventUserPromptSubmit, eventPreToolUse, eventPostToolUse, eventPostToolUseFailure:
-		return protocol.StateWorking, true
-	case eventPermissionRequest:
-		return protocol.StateWaiting, true
-	case eventNotification:
-		switch notification {
-		case notifyPermissionPrompt, notifyElicitationDialog, notifyAgentNeedsInput:
-			return protocol.StateWaiting, true
-		}
-	case eventStop, eventStopFailure:
-		return protocol.StateDone, true
-	case eventSessionEnd:
-		return "", true
-	}
-	return "", false
-}
-
-// paneValues is what a transition reads of a pane: its state, and the raw @orrery_changed, @orrery_turn_start and
-// @orrery_tool. An unset option reads as "".
+// paneValues is what a transition reads of a pane: its state, and the raw @orrery_changed and @orrery_turn_start. An
+// unset option reads as "".
 type paneValues struct {
 	state     protocol.State
 	changed   string
 	turnStart string
-	tool      string
 }
 
 // readPane reads the options of paneValues in one tmux invocation.
 func readPane(ctx context.Context, client *tmuxctl.Client, paneID string) (paneValues, error) {
 	values, err := client.PaneValues(ctx, paneID,
-		protocol.OptionState, protocol.OptionChanged, protocol.OptionTurnStart, protocol.OptionTool)
+		protocol.OptionState, protocol.OptionChanged, protocol.OptionTurnStart)
 	if err != nil {
 		return paneValues{}, fmt.Errorf("read pane %s: %w", paneID, err)
 	}
-	return paneValues{state: protocol.State(values[0]), changed: values[1], turnStart: values[2], tool: values[3]}, nil
+	return paneValues{state: protocol.State(values[0]), changed: values[1], turnStart: values[2]}, nil
 }
 
-// isLateToolEvent reports whether a tool event at now falls inside stopGraceWindow after the pane's
-// Stop or StopFailure, read from @orrery_changed, the raw value changed. An unset @orrery_changed is outside the
-// window.
-func isLateToolEvent(changed string, now time.Time) (bool, error) {
-	stopped, ok, err := optionSecond(protocol.OptionChanged, changed)
-	if err != nil || !ok {
-		return false, err
-	}
-	return now.Sub(time.Unix(stopped, 0)) < stopGraceWindow, nil
-}
-
-// optionSecond reads value, the option name's raw value, as unix seconds. ok is false when the option is unset, and
-// a value that is not an integer is an error.
-func optionSecond(name, value string) (int64, bool, error) {
+// optionSecond reads value, the option name's raw value, as unix seconds. An unset value reads as 0, and a value that
+// is not an integer is an error.
+func optionSecond(name, value string) (int64, error) {
 	if value == "" {
-		return 0, false, nil
+		return 0, nil
 	}
 	seconds, err := strconv.ParseInt(value, 10, 64)
 	if err != nil {
-		return 0, false, fmt.Errorf("parse %s: %w", name, err)
+		return 0, fmt.Errorf("parse %s: %w", name, err)
 	}
-	return seconds, true, nil
+	return seconds, nil
 }
 
-// isToolEvent reports whether event is a tool-use event.
-func isToolEvent(event string) bool {
-	switch event {
-	case eventPreToolUse, eventPostToolUse, eventPostToolUseFailure:
-		return true
-	}
-	return false
-}
-
-// transitionWrites returns the writes of the tool, the question, the turn start, then the state and its change time.
-// The state options are written only when the state changes; the tool, the question and the turn start are written
-// whenever their event applies. storedTool is the pane's raw @orrery_tool. A malformed field returns an error and no
-// writes.
-func transitionWrites(
-	fields hookFields, event string, transition Transition, storedTool string, now time.Time,
-) ([]tmuxctl.OptionWrite, error) {
-	writes, err := toolWrites(fields, event, storedTool, now)
-	if err != nil {
-		return nil, err
-	}
-	question, err := questionWrites(fields, event, transition.To)
-	if err != nil {
-		return nil, err
-	}
-	writes = append(writes, question...)
-	if event == eventUserPromptSubmit {
-		writes = append(writes, tmuxctl.Set(protocol.OptionTurnStart, strconv.FormatInt(now.Unix(), 10)))
-	}
-	if transition.From == transition.To {
-		return writes, nil
-	}
-	return append(writes,
-		tmuxctl.Set(protocol.OptionState, string(transition.To)),
-		tmuxctl.Set(protocol.OptionChanged, strconv.FormatInt(now.Unix(), 10)),
-	), nil
-}
-
-// questionWrites captures the question on PermissionRequest and clears it on working or done.
-// Notification-driven waiting leaves it unchanged.
-func questionWrites(fields hookFields, event string, to protocol.State) ([]tmuxctl.OptionWrite, error) {
-	if event == eventPermissionRequest {
-		value, err := questionValue(fields)
-		if err != nil {
-			return nil, err
-		}
-		return []tmuxctl.OptionWrite{tmuxctl.Set(protocol.OptionQuestion, value)}, nil
-	}
-	if to == protocol.StateWorking || to == protocol.StateDone {
-		return []tmuxctl.OptionWrite{tmuxctl.Unset(protocol.OptionQuestion)}, nil
-	}
-	return nil, nil
-}
-
-// toolWrites records the tool a PreToolUse starts, clears it when its PostToolUse or PostToolUseFailure ends it, and
-// clears it on Stop or StopFailure. Other events leave it unchanged. storedTool is the pane's raw @orrery_tool.
-func toolWrites(fields hookFields, event, storedTool string, now time.Time) ([]tmuxctl.OptionWrite, error) {
-	switch event {
-	case eventPreToolUse:
-		return setTool(fields, now)
-	case eventPostToolUse, eventPostToolUseFailure:
-		return clearTool(fields, storedTool)
-	case eventStop, eventStopFailure:
-		return []tmuxctl.OptionWrite{tmuxctl.Unset(protocol.OptionTool)}, nil
-	}
-	return nil, nil
-}
-
-// setTool stores the tool a PreToolUse starts as a single-line @orrery_tool value. A PreToolUse without
-// tool_use_id leaves the option unchanged.
-func setTool(fields hookFields, now time.Time) ([]tmuxctl.OptionWrite, error) {
-	id, err := fields.text(keyToolUseID)
-	if err != nil {
-		return nil, err
-	}
-	if id == "" {
-		return nil, nil
-	}
-	name, err := fields.text(keyToolName)
-	if err != nil {
-		return nil, err
-	}
-	data, err := json.Marshal(currentTool{
-		ID:    id,
-		Name:  name,
-		Input: protocol.ToolInputText(fields[keyToolInput]),
-		Start: now.Unix(),
-	})
-	if err != nil {
-		return nil, fmt.Errorf("encode %s: %w", protocol.OptionTool, err)
-	}
-	return []tmuxctl.OptionWrite{tmuxctl.Set(protocol.OptionTool, string(data))}, nil
-}
-
-// clearTool unsets the tool when the id in storedTool, the pane's raw @orrery_tool, equals the event's tool_use_id. An
-// event without an id, and a stored value that is unset, whose id does not match or that does not decode, leave the
-// option unchanged.
-func clearTool(fields hookFields, storedTool string) ([]tmuxctl.OptionWrite, error) {
-	id, err := fields.text(keyToolUseID)
-	if err != nil {
-		return nil, err
-	}
-	if id == "" || storedTool == "" || storedToolID(storedTool) != id {
-		return nil, nil
-	}
-	return []tmuxctl.OptionWrite{tmuxctl.Unset(protocol.OptionTool)}, nil
-}
-
-// storedToolID returns the id in a stored @orrery_tool value, or "" when the value does not decode.
-func storedToolID(value string) string {
-	var stored currentTool
-	if err := json.Unmarshal([]byte(value), &stored); err != nil {
-		return ""
-	}
-	return stored.ID
-}
-
-// sessionEndWrites removes all eight per-pane options for SessionEnd.
+// sessionEndWrites removes all eight per-pane options of an unbound pane.
 func sessionEndWrites() []tmuxctl.OptionWrite {
 	names := []string{
 		protocol.OptionState,
@@ -458,20 +139,9 @@ func sessionEndWrites() []tmuxctl.OptionWrite {
 	return writes
 }
 
-// questionValue is the compact single-line @orrery_question value for a PermissionRequest.
-// AskUserQuestion stores its questions; any other tool stores its input. A value over
-// maxQuestionBytes is replaced by a truncated marker (see truncatedValue).
-func questionValue(fields hookFields) (string, error) {
-	tool, err := fields.text(keyToolName)
-	if err != nil {
-		return "", err
-	}
-	return encodeQuestion(tool, fields[keyToolInput])
-}
-
-// encodeQuestion is the compact single-line @orrery_question value for a call of tool whose tool_input is toolInput,
-// encoded as questionValue encodes a PermissionRequest. A value over maxQuestionBytes is replaced by a truncated marker
-// (see truncatedValue).
+// encodeQuestion is the compact single-line @orrery_question value for a call of tool whose tool_input is toolInput.
+// AskUserQuestion stores its questions; any other tool stores its input. A value over maxQuestionBytes is replaced by
+// a truncated marker (see truncatedValue).
 func encodeQuestion(tool string, toolInput json.RawMessage) (string, error) {
 	payload, err := questionPayload(tool, toolInput)
 	if err != nil {
@@ -509,7 +179,7 @@ func questionPayload(tool string, toolInput json.RawMessage) (any, error) {
 	}
 	if len(toolInput) > 0 {
 		if err := json.Unmarshal(toolInput, &input); err != nil {
-			return nil, fmt.Errorf("hook field %s: %w", keyToolInput, err)
+			return nil, fmt.Errorf("decode tool input: %w", err)
 		}
 	}
 	return askUserQuestion{Tool: tool, Questions: input.Questions}, nil
@@ -527,8 +197,8 @@ type askUserQuestion struct {
 	Questions json.RawMessage `json:"questions"`
 }
 
-// currentTool is the @orrery_tool value: the tool a PreToolUse started and no end event has cleared.
-// Input is protocol.ToolInputText of the tool's input, and Start is the Unix time of the PreToolUse.
+// currentTool is the @orrery_tool value: the call that a pane's turn has open. Input is protocol.ToolInputText of the
+// call's input, and Start is the Unix time the call started.
 type currentTool struct {
 	ID    string `json:"id"`
 	Name  string `json:"name"`
@@ -542,26 +212,4 @@ type truncatedQuestion struct {
 	Tool      string `json:"tool"`
 	Truncated bool   `json:"truncated"`
 	SHA256    string `json:"sha256"`
-}
-
-// decodeHook decodes a hook event one level deep. A null hook decodes to no fields.
-func decodeHook(hook json.RawMessage) (hookFields, error) {
-	var fields hookFields
-	if err := json.Unmarshal(hook, &fields); err != nil {
-		return nil, fmt.Errorf("decode hook: %w", err)
-	}
-	return fields, nil
-}
-
-// text returns the string value of key, or "" when key is absent or null.
-func (f hookFields) text(key string) (string, error) {
-	raw, ok := f[key]
-	if !ok {
-		return "", nil
-	}
-	var value string
-	if err := json.Unmarshal(raw, &value); err != nil {
-		return "", fmt.Errorf("hook field %s: %w", key, err)
-	}
-	return value, nil
 }

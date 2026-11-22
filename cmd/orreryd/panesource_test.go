@@ -11,7 +11,7 @@ import (
 )
 
 // TestPaneSourceRoundTrip checks that a stored pane transition keeps every field: its cwd, base URL, transcript, last
-// message, failed flag, API error and background flag all come back unchanged.
+// message, failed flag and API error all come back unchanged.
 func TestPaneSourceRoundTrip(t *testing.T) {
 	want := daemon.Transition{
 		PaneID:      "%7",
@@ -24,7 +24,6 @@ func TestPaneSourceRoundTrip(t *testing.T) {
 		LastMessage: "synthetic final message",
 		Failed:      true,
 		APIError:    "rate_limit",
-		Background:  true,
 	}
 	data, err := encodePaneSource(want)
 	if err != nil {
@@ -49,8 +48,8 @@ func legacyRow(hook string) []byte {
 }
 
 // TestPaneSourceLegacyFrame checks that a row stored in the frame form decodes into the same fields a transition
-// carries: a Stop's transcript, last message and background work, and a StopFailure's failed flag and API error. A
-// Stop whose background_tasks does not decode still restores, with no background work.
+// carries: a Stop's transcript and last message, and a StopFailure's failed flag and API error. A Stop's
+// background_tasks is no fact a transition carries, so it decodes to none.
 func TestPaneSourceLegacyFrame(t *testing.T) {
 	base := daemon.Transition{
 		PaneID:  "%7",
@@ -75,7 +74,6 @@ func TestPaneSourceLegacyFrame(t *testing.T) {
 				Cwd: base.Cwd, BaseURL: base.BaseURL,
 				Transcript:  "/synthetic/transcripts/one.jsonl",
 				LastMessage: "synthetic final message",
-				Background:  true,
 			},
 		},
 		{
@@ -86,17 +84,6 @@ func TestPaneSourceLegacyFrame(t *testing.T) {
 				Cwd: base.Cwd, BaseURL: base.BaseURL,
 				Failed:   true,
 				APIError: "rate_limit",
-			},
-		},
-		{
-			name: "stop with background tasks that do not decode",
-			hook: `{"hook_event_name":"Stop","transcript_path":"/synthetic/transcripts/one.jsonl",` +
-				`"last_assistant_message":"synthetic final message","background_tasks":"none"}`,
-			want: daemon.Transition{
-				PaneID: base.PaneID, Server: base.Server, From: base.From, To: base.To,
-				Cwd: base.Cwd, BaseURL: base.BaseURL,
-				Transcript:  "/synthetic/transcripts/one.jsonl",
-				LastMessage: "synthetic final message",
 			},
 		},
 	}

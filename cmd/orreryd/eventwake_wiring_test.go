@@ -1,15 +1,11 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
-	"errors"
 	"fmt"
-	"io"
 	"log/slog"
-	"net"
 	"net/url"
 	"os"
 	"os/exec"
@@ -17,13 +13,13 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
-	"syscall"
 	"testing"
 	"time"
 
 	"github.com/joshsymonds/orrery/internal/daemon"
 	"github.com/joshsymonds/orrery/internal/enginehost"
 	"github.com/joshsymonds/orrery/internal/holdertest"
+	"github.com/joshsymonds/orrery/internal/paneregistry"
 	"github.com/joshsymonds/orrery/internal/protocol"
 	"github.com/joshsymonds/orrery/internal/store"
 	"github.com/joshsymonds/orrery/internal/tmuxctl"
@@ -458,9 +454,9 @@ func TestStepEndPushWiringSlotFreed(t *testing.T) {
 	}
 }
 
-// serveWakeDaemon serves a daemon with cfg on a socket in a directory of its own, and returns the socket's path. The
-// daemon stops at cleanup, and its Serve must return nil.
-func serveWakeDaemon(t *testing.T, cfg daemon.Config) string {
+// serveWakeDaemon serves a daemon with cfg on a socket in a directory of its own. The daemon stops at cleanup, and its
+// Serve must return nil.
+func serveWakeDaemon(t *testing.T, cfg daemon.Config) {
 	t.Helper()
 	root, err := shortStateRoot()
 	if err != nil {
@@ -484,7 +480,6 @@ func serveWakeDaemon(t *testing.T, cfg daemon.Config) string {
 			t.Errorf("serve daemon: %v", err)
 		}
 	})
-	return socket
 }
 
 // tmuxSocketOf returns the socket path of the tmux server client talks to, which a frame names in its Tmux.
@@ -497,52 +492,17 @@ func tmuxSocketOf(t *testing.T, client *tmuxctl.Client) string {
 	return strings.TrimSpace(out)
 }
 
-// paneHookFrame returns the frame of pane on the tmux server at socket that carries hook, the way the hook sends it.
-func paneHookFrame(hook, pane, socket string) protocol.HookFrame {
-	return protocol.HookFrame{
-		Hook:     json.RawMessage(hook),
-		TmuxPane: pane,
-		Tmux:     fmt.Sprintf("%s,1234,0", socket),
-	}
+// paneUpdate returns an update of pane on the tmux server at socket, with the registry status that starts or ends a
+// turn of the pane.
+func paneUpdate(pane, socket, status string) daemon.PaneUpdate {
+	return daemon.PaneUpdate{PaneID: pane, Tmux: fmt.Sprintf("%s,1234,0", socket), Status: status}
 }
 
-// sendHookFrame writes frame to the daemon socket as one newline-delimited frame, and returns once the daemon closes
-// the connection, which it does after it applies the frame.
-func sendHookFrame(t *testing.T, socket string, frame protocol.HookFrame) {
-	t.Helper()
-	var line bytes.Buffer
-	if err := protocol.WriteFrame(&line, frame); err != nil {
-		t.Fatalf("encode hook frame: %v", err)
-	}
-	var dialer net.Dialer
-	conn, err := dialer.DialContext(t.Context(), "unix", socket)
-	if err != nil {
-		t.Fatalf("dial %s: %v", socket, err)
-	}
-	defer func() {
-		if err := conn.Close(); err != nil {
-			t.Errorf("close connection: %v", err)
-		}
-	}()
-	if _, err := conn.Write(line.Bytes()); err != nil {
-		t.Fatalf("write hook frame: %v", err)
-	}
-	// The read ends once the daemon closes the connection. A reset from input the daemon left unread also means closed.
-	if _, err := conn.Read(make([]byte, 1)); err != nil &&
-		!errors.Is(err, io.EOF) && !errors.Is(err, syscall.ECONNRESET) {
-		t.Fatalf("wait for the daemon to close: %v", err)
-	}
-}
-
-// TestStepEndPushWiringPaneStopFrame checks that a step end held by a working pane caller is sent once a Stop frame the
-// daemon applies turns the pane done, which wakes delivery with no wake from the test. The frames are sent over a daemon
-// socket whose observer is the one run builds, and the pane's keys go through a seam that reports the pane idle only
+// TestStepEndPushWiringPaneStopFrame checks that a step end held by a working pane caller is sent once a registry update
+// the daemon applies turns the pane done, which wakes delivery with no wake from the test. The updates are sent to a
+// daemon whose observer is the one run builds, and the pane's keys go through a seam that reports the pane idle only
 // when its state option reads done.
 func TestStepEndPushWiringPaneStopFrame(t *testing.T) {
-	const (
-		submitHook = `{"hook_event_name":"UserPromptSubmit","prompt":"synthetic prompt"}`
-		stopHook   = `{"hook_event_name":"Stop","stop_hook_active":false}`
-	)
 	st, getenv, path := openEventWakeStore(t)
 	passed := make(chan struct{}, eventWakeSignals)
 	sent := make(chan string, eventWakeSignals)
@@ -565,18 +525,22 @@ func TestStepEndPushWiringPaneStopFrame(t *testing.T) {
 
 	var wake atomic.Pointer[func()]
 	publishCallerWake(&wake, host)
-	socket := serveWakeDaemon(t, daemon.Config{Observers: []daemon.Observer{callerWakeOnDone(&wake)}})
+	updates := make(chan daemon.PaneUpdate)
+	serveWakeDaemon(t, daemon.Config{
+		Observers: []daemon.Observer{callerWakeOnDone(&wake)},
+		Updates:   updates,
+	})
 	tmuxSocket := tmuxSocketOf(t, client)
 	caller := syncWakePane(t, st, tmuxctl.Server{Socket: tmuxSocket}.Column(), pane)
 
-	sendHookFrame(t, socket, paneHookFrame(submitHook, pane, tmuxSocket))
+	updates <- paneUpdate(pane, tmuxSocket, paneregistry.StatusBusy)
 	stopStepUnder(t, st, host, caller)
 	awaitCallerRound(passed)
 	if markedIn(t, st, eventWakeStepEvent, eventWakePaneID) {
 		t.Fatalf("step end marked while its pane was working")
 	}
 
-	sendHookFrame(t, socket, paneHookFrame(stopHook, pane, tmuxSocket))
+	updates <- paneUpdate(pane, tmuxSocket, paneregistry.StatusIdle)
 	awaitMarked(t, st, passed, eventWakeStepEvent, eventWakePaneID)
 	if text := <-sent; !strings.Contains(text, eventWakeStepEvent) {
 		t.Fatalf("pane woken with %q, want the step end block", text)

@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
-	"encoding/json"
 	"fmt"
 	"io/fs"
 	"net"
@@ -92,16 +91,6 @@ func serve(t *testing.T, cfg daemon.Config) string {
 		}
 	})
 	return socketPath
-}
-
-// hookFrameOn returns a frame that carries a hook, for pane whose $TMUX names socket. The hook is an empty object:
-// the frames it is used for are rejected by protocol.ReadFrame before the daemon reads the hook.
-func hookFrameOn(pane, socket string) protocol.HookFrame {
-	return protocol.HookFrame{
-		Hook:     json.RawMessage("{}"),
-		TmuxPane: pane,
-		Tmux:     fmt.Sprintf("%s,1234,0", socket),
-	}
 }
 
 // applyUpdate sends update to the daemon and returns once the daemon has applied it. The daemon takes one update at a
@@ -329,7 +318,7 @@ func TestDaemonDropsBadFrames(t *testing.T) {
 	wantOption(t, srv, protocol.OptionState, "working")
 }
 
-// seenFrameFor returns a seen report for pane whose $TMUX names socket. It carries no hook.
+// seenFrameFor returns a seen report for pane whose $TMUX names socket.
 func seenFrameFor(pane, socket string, seen int64) protocol.HookFrame {
 	return protocol.HookFrame{
 		TmuxPane: pane,
@@ -338,7 +327,7 @@ func seenFrameFor(pane, socket string, seen int64) protocol.HookFrame {
 	}
 }
 
-// unsetPaneOptions checks that none of the options a hook frame writes is set on srv's pane.
+// unsetPaneOptions checks that none of the pane state options is set on srv's pane.
 func unsetPaneOptions(t *testing.T, srv testServer) {
 	t.Helper()
 	for _, name := range []string{
@@ -380,8 +369,6 @@ func TestDaemonDropsBadSeenReports(t *testing.T) {
 		Observers: []daemon.Observer{func(transition daemon.Transition) { transitions <- transition }},
 	})
 
-	withHook := hookFrameOn(srv.pane, srv.socket)
-	withHook.Seen = 1700000000
 	bad := []struct {
 		name  string
 		frame protocol.HookFrame
@@ -389,7 +376,6 @@ func TestDaemonDropsBadSeenReports(t *testing.T) {
 		{"empty tmuxPane", seenFrameFor("", srv.socket, 1700000000)},
 		{"seen zero without hook", seenFrameFor(srv.pane, srv.socket, 0)},
 		{"seen negative without hook", seenFrameFor(srv.pane, srv.socket, -1)},
-		{"seen with hook", withHook},
 	}
 	for _, tc := range bad {
 		t.Run(tc.name, func(t *testing.T) {
@@ -435,7 +421,7 @@ func TestDaemonSeenReportWithoutHandler(t *testing.T) {
 // readAt is the synthetic read time every read report in these tests carries.
 const readAt = 1700000000
 
-// readFrameFor returns a read report for pane whose $TMUX names socket. It carries no hook and no seen.
+// readFrameFor returns a read report for pane whose $TMUX names socket. It carries no seen.
 func readFrameFor(pane, socket string) protocol.HookFrame {
 	return protocol.HookFrame{
 		TmuxPane: pane,
@@ -481,14 +467,11 @@ func TestDaemonDropsBadReadReports(t *testing.T) {
 		Observers: []daemon.Observer{func(transition daemon.Transition) { transitions <- transition }},
 	})
 
-	withHook := hookFrameOn(srv.pane, srv.socket)
-	withHook.Read = readAt
 	bad := []struct {
 		name  string
 		frame protocol.HookFrame
 	}{
 		{"empty tmuxPane", readFrameFor("", srv.socket)},
-		{"read with hook", withHook},
 	}
 	for _, tc := range bad {
 		t.Run(tc.name, func(t *testing.T) {
@@ -540,7 +523,7 @@ func TestDaemonReadReportWithoutHandler(t *testing.T) {
 // inputAt is the synthetic input time every input report in these tests carries.
 const inputAt = 1700000200
 
-// inputFrameFor returns an input report for pane whose $TMUX names socket. It carries no hook, seen or read.
+// inputFrameFor returns an input report for pane whose $TMUX names socket. It carries no seen or read.
 func inputFrameFor(pane, socket string) protocol.HookFrame {
 	return protocol.HookFrame{
 		TmuxPane: pane,

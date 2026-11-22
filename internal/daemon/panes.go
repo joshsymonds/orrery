@@ -46,8 +46,8 @@ func (h *frameHandler) applyUpdates(ctx context.Context, updates <-chan PaneUpda
 	}
 }
 
-// applyUpdate runs one registry update through applyPaneLocked, then syncs its pane to the store as apply does. An
-// update with no pane is dropped, since tmux would then write to the current pane.
+// applyUpdate runs one registry update through applyPaneLocked, then syncs its pane to the store. An update with no
+// pane is dropped, since tmux would then write to the current pane.
 func (h *frameHandler) applyUpdate(ctx context.Context, update PaneUpdate) {
 	if update.PaneID == "" {
 		h.logger.WarnContext(ctx, "drop pane update", "reason", "empty pane")
@@ -66,7 +66,7 @@ func (h *frameHandler) applyUpdate(ctx context.Context, update PaneUpdate) {
 
 // applyPaneLocked runs one registry update through state.ApplyPane under the mutex, and calls every observer when the
 // state changes. The update's context and session writes follow the update's own writes; an unbound update writes no
-// session, since its own writes unset it. It returns as applyLocked does.
+// session, since its own writes unset it. It returns the output, read and ok that syncApplied takes.
 func (h *frameHandler) applyPaneLocked(
 	ctx context.Context, client *tmuxctl.Client, server tmuxctl.Server, update PaneUpdate,
 ) (out string, read, ok bool) {
