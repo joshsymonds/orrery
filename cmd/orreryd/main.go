@@ -40,6 +40,7 @@ import (
 	"github.com/joshsymonds/orrery/internal/gates"
 	"github.com/joshsymonds/orrery/internal/grants"
 	"github.com/joshsymonds/orrery/internal/holder"
+	"github.com/joshsymonds/orrery/internal/hostexec"
 	"github.com/joshsymonds/orrery/internal/inapp"
 	"github.com/joshsymonds/orrery/internal/interpret"
 	"github.com/joshsymonds/orrery/internal/notice"
@@ -1095,7 +1096,7 @@ func adoptSessionState(
 	hostName string,
 	getenv func(string) string,
 ) (string, []string, error) {
-	stateDir, childEnviron, err := sessionState(getenv)
+	stateDir, childEnviron, err := sessionState(ctx, getenv)
 	if err != nil {
 		return "", nil, err
 	}
@@ -1311,12 +1312,13 @@ func (h *sessionHost) stop() error {
 // sessionState returns the state directory getenv names and the environment of every child a holder runs: sessions,
 // steps and gates alike build with Gradle daemonless (enginehost.GradleEnviron), since a holder's scope is stopped when
 // the holder ends, which would end a daemon another step's build runs in.
-func sessionState(getenv func(string) string) (string, []string, error) {
+func sessionState(ctx context.Context, getenv func(string) string) (string, []string, error) {
 	stateDir, err := stateDirOf(getenv)
 	if err != nil {
 		return "", nil, fmt.Errorf("step worktrees: %w", err)
 	}
-	environ, err := enginehost.GradleEnviron(os.Environ(), stateDir, enginehost.UserGradleHome(os.Getenv))
+	environ, err := enginehost.GradleEnviron(
+		ctx, hostexec.NewLocal(), os.Environ(), stateDir, enginehost.UserGradleHome(os.Getenv))
 	if err != nil {
 		return "", nil, fmt.Errorf("session environment: %w", err)
 	}
