@@ -406,6 +406,8 @@ linters:
         - empty
         # Bubble Tea's Update returns the tea.Model interface by the framework's contract.
         - charm.land/bubbletea/v2.Model
+        # paneregistry.SystemProc returns the Proc interface, the process view that tests substitute, by its contract.
+        - github.com/joshsymonds/orrery/internal/paneregistry.Proc
 
     wrapcheck:
       ignore-sigs:
