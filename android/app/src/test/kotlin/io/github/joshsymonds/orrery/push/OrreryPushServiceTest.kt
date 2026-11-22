@@ -211,19 +211,19 @@ class OrreryPushServiceTest {
 
     @Test
     fun decryptedQuestionPostsNotificationWithKeyActionsCarryingQuestionHash() {
-        service.onMessage(PushMessage(payload(), decrypted = true), instance)
+        service.onMessage(PushMessage(payload(question = """{"tool":"Bash","input":{"command":"ls"}}"""), decrypted = true), instance)
 
         val notification = posted()
         assertEquals(
-            "synthetic-project asks you a question",
+            "synthetic-project asks to run Bash",
             notification.extras.getCharSequence(Notification.EXTRA_TITLE).toString(),
         )
         assertEquals(
-            "Synthetic summary.",
+            "ls",
             notification.extras.getCharSequence(Notification.EXTRA_TEXT).toString(),
         )
         val actions = notification.actions.orEmpty()
-        assertEquals(4, actions.size)
+        assertEquals(3, actions.size)
         listOf("1", "2", "3").forEachIndexed { index, key ->
             val intent = shadowOf(actions[index].actionIntent).savedIntent
             assertEquals(key, intent.getStringExtra(EXTRA_KEY))
