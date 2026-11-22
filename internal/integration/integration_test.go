@@ -933,6 +933,8 @@ const (
 		`"structured_output":{"needed":false,"why":"example finished work"}}`
 	judgeFailedReply = `{"type":"result","subtype":"error_during_execution","is_error":true}`
 	judgeReplyFile   = "judge-reply"
+	// doneJudgeSchemaField is the property a done judge's schema requires and a closure judge's does not.
+	doneJudgeSchemaField = `"needed"`
 	// judgeRunScript answers a judge run, the one given --json-schema, with the reply in judgeReplyFile beside the fake
 	// claude, or else judgeNeededReply, and marks the run done. Each fake claude runs it before it answers a summary.
 	judgeRunScript = `case " $* " in
@@ -1147,12 +1149,15 @@ func finishedRuns(t *testing.T, dir string) []string {
 	return done
 }
 
-// judgeRuns returns the finished fake claude runs under dir that judged a done: those given --json-schema.
+// judgeRuns returns the finished fake claude runs under dir that judged a done: those given --json-schema with the
+// done judge's schema, whose answer is needed. A closure judge run is given --json-schema too, and is not one.
 func judgeRuns(t *testing.T, dir string) []string {
 	t.Helper()
 	var judges []string
 	for _, run := range finishedRuns(t, dir) {
-		if slices.Contains(readLines(t, filepath.Join(run, "args")), "--json-schema") {
+		args := readLines(t, filepath.Join(run, "args"))
+		at := slices.Index(args, "--json-schema")
+		if at >= 0 && at+1 < len(args) && strings.Contains(args[at+1], doneJudgeSchemaField) {
 			judges = append(judges, run)
 		}
 	}
