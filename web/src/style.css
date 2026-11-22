@@ -78,7 +78,7 @@ button.link.notices-more { justify-self: end; padding: 0 var(--o-space-12); colo
   margin: 0; padding: var(--o-space-12); border: 0; border-radius: 0; background: none; box-shadow: none;
   color: var(--o-ink-2); font: var(--o-type-small); text-align: left; cursor: pointer;
 }
-.notice > .icon, .notice > .gauge, .notice > .glyph { margin-top: var(--o-space-4); }
+.notice > .icon, .notice > .epicmark, .notice > .glyph { margin-top: var(--o-space-4); }
 .notice .t { min-width: 0; overflow-wrap: anywhere; color: var(--o-ink-1); font: var(--o-type-body); font-weight: var(--o-font-weight-bold); }
 .notice.flat .t { font-weight: var(--o-font-weight-regular); }
 .notice.flat.unread .t { font-weight: var(--o-font-weight-bold); }
@@ -236,18 +236,6 @@ button.link.notices-more { justify-self: end; padding: 0 var(--o-space-12); colo
 .menu-item kbd { margin-left: auto; }
 .menu-sep { height: var(--o-size-hairline); margin: var(--o-space-4) 0; background: var(--o-line-soft); }
 
-/* Gauge: an epic at a glance. One ring in three zones: done, started, planned. Its colour is the epic's state. */
-.gauge { width: var(--o-size-gauge); height: var(--o-size-gauge); flex: none; fill: none; stroke-width: 3; color: var(--o-ink-3); }
-.gauge .planned { stroke: var(--o-line-firm); }
-.gauge .started { stroke: currentColor; stroke-opacity: var(--o-pulse-low); }
-.gauge .done { stroke: currentColor; }
-.gauge .core { fill: currentColor; stroke: none; }
-.gauge[data-tone="live"] { color: var(--o-role-live); }
-.gauge[data-tone="attention"] { color: var(--o-role-attention); }
-.gauge[data-tone="ok"] { color: var(--o-role-ok); }
-.gauge[data-tone="bad"] { color: var(--o-role-bad); }
-.gauge[data-tone="engine"] { color: var(--o-role-engine); }
-
 /* EpicMark: an epic as a mark. A rim of one segment per requirement, toned by its state, and the centre in its centre's colour.
    It is the gauge's size, 24, and the mark's, 32, in the inbox row. */
 .epicmark { width: var(--o-size-gauge); height: var(--o-size-gauge); flex: none; fill: none; stroke-width: 3; }
@@ -355,14 +343,14 @@ button.link.notices-more { justify-self: end; padding: 0 var(--o-space-12); colo
 .inbox .steers { display: grid; grid-template-columns: minmax(0, 1fr); margin: 0 0 var(--o-space-4) var(--o-space-24); padding-left: var(--o-space-4); border-left: var(--o-size-hairline) solid var(--o-line-firm); }
 .inbox .steers .row.epic .title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-/* EpicRow: an epic. Its gauge, its name and count; then its state in words; then what blocks it, in attention. */
-.inbox .row.epic { grid-template-columns: var(--o-size-gauge) minmax(0, 1fr) auto; align-items: start; }
-.inbox .row.epic .gauge { grid-row: 1 / span 2; }
+/* EpicRow: an epic. Its mark, its name and count; then its state in words; then what blocks it, in attention. */
+.inbox .row.epic { grid-template-columns: var(--o-size-mark) minmax(0, 1fr) auto; align-items: start; }
+.inbox .row.epic .epicmark { grid-row: 1 / span 2; }
 .inbox .row.epic .title { color: var(--o-ink-1); font-weight: var(--o-font-weight-bold); }
 .inbox .row.epic .l2, .inbox .row.epic .l3 { grid-column: 2 / -1; }
 .inbox .row.epic .l3 { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--o-role-attention); font: var(--o-type-small); }
 .inbox .row.epic.ended .title { color: var(--o-ink-2); font-weight: var(--o-font-weight-regular); }
-.inbox .row.epic.contract .cmark { display: grid; place-items: center; grid-row: 1 / span 2; width: var(--o-size-gauge); height: var(--o-size-gauge); color: var(--o-role-attention); }
+.inbox .row.epic.contract .cmark { display: grid; place-items: center; grid-row: 1 / span 2; width: var(--o-size-mark); height: var(--o-size-mark); color: var(--o-role-attention); }
 
 /* StepRow: a running step, under its epic. */
 .inbox .row.step { grid-template-columns: var(--o-size-glyph) auto auto minmax(0, 1fr); align-items: center; margin-left: var(--o-space-32); width: auto; padding: var(--o-space-4) var(--o-space-8); font: var(--o-type-small); }
@@ -572,7 +560,7 @@ button.link.notices-more { justify-self: end; padding: 0 var(--o-space-12); colo
   display: flex; flex-wrap: wrap; align-items: center; gap: var(--o-space-4) var(--o-space-8); min-width: 0; padding: 0;
   border-bottom: 0; color: var(--o-ink-3); font: var(--o-type-small); white-space: normal; overflow-wrap: normal;
 }
-.reader [data-shape="block"] > .head > .icon, .reader [data-shape="block"] > .head > .gauge { flex: none; color: var(--rail); }
+.reader [data-shape="block"] > .head > .icon, .reader [data-shape="block"] > .head > .epicmark { flex: none; color: var(--rail); }
 .reader [data-shape="block"] > .head .label {
   flex: none; color: var(--rail); font: var(--o-type-label); letter-spacing: var(--o-type-label-tracking);
   text-transform: uppercase; white-space: nowrap;
@@ -1439,23 +1427,13 @@ button.act:active, .back:active, .crumb:active { transform: scale(.97); backgrou
 .dotgrid i { width: var(--o-space-8); height: var(--o-space-8); border-radius: var(--o-radius-round); background: var(--o-ink-4); }
 .dotgrid i.attention { background: var(--o-role-attention); }
 .dotgrid i.live { background: var(--o-role-live); }
-/* The rail's gauge, on a tile or a picker's row, is drawn at the rail's stroke. The inbox's epic rows draw the gauge of
-   glyphs.tsx under the .gauge rules above, so these rules name the rail's places. */
-.tile .gauge, .rpick-row .gauge { stroke-width: var(--o-size-rail); color: var(--o-ink-3); }
-/* The started arc is the gauge's colour as a tint's outline, never dimmed with opacity (SYSTEM.md: nothing is dimmed with
-   opacity; a tint is outlined at alpha.tintLine): an asking or live tile's role line, else the glyph line. */
-.tile .gauge .started, .rpick-row .gauge .started { stroke: var(--gauge-started, var(--o-line-glyph)); stroke-opacity: 1; }
-.tile.attention .gauge { --gauge-started: var(--o-role-attention-line); }
-.tile.live .gauge { --gauge-started: var(--o-role-live-line); }
-/* A tile's gauge takes the tile's tone, so an asking, live or quiet epic reads on its ring. */
-.tile .gauge { color: inherit; }
 /* A list tile's icon is drawn at the icon size, stroked in the tile's tone as round 6's icon is. */
 .tile > .icon { width: var(--o-size-icon); height: var(--o-size-icon); fill: none; stroke: currentColor; stroke-width: var(--o-size-hairline); stroke-linecap: round; stroke-linejoin: round; }
 .rpick { position: absolute; top: 0; right: calc(100% + var(--o-space-4)); z-index: var(--o-z-menu); display: grid; width: calc(var(--o-space-32) * 10); padding: var(--o-space-4); border-radius: var(--o-radius-2); background: var(--o-surface-overlay); box-shadow: inset 0 0 0 var(--o-size-hairline) var(--o-line-firm), var(--o-elevation-overlay); }
 .menu-head { padding: var(--o-space-4) var(--o-space-12); color: var(--o-ink-3); font: var(--o-type-label); letter-spacing: var(--o-type-label-tracking); text-transform: uppercase; }
 .rpick-row { display: grid; grid-template-columns: var(--o-size-gauge) minmax(0, 1fr); align-items: center; gap: 0 var(--o-space-12); width: 100%; min-height: 0; padding: var(--o-space-8); border: 0; border-radius: var(--o-radius-2); background: none; text-align: left; cursor: pointer; }
 .rpick-row:hover { background: var(--o-surface-raised); }
-.rpick-row > .gauge { grid-column: 1; grid-row: 1 / span 2; }
+.rpick-row > .epicmark { grid-column: 1; grid-row: 1 / span 2; }
 .rpick-row .t { grid-column: 2; color: var(--o-ink-1); font: var(--o-type-small); font-weight: var(--o-font-weight-bold); }
 .rpick-row .s { grid-column: 2; color: var(--o-ink-3); font: var(--o-type-small); }
 .tilestrip { display: flex; align-items: flex-start; gap: var(--o-space-16); flex: none; overflow-x: auto; padding: var(--o-space-8) var(--o-layout-page-pad-phone); border-bottom: var(--o-size-hairline) solid var(--o-line-soft); background: var(--o-surface-side); }

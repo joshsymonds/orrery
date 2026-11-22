@@ -1,9 +1,11 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
+import { create } from "@bufbuild/protobuf";
 import { type JSX, render } from "preact";
 import { act } from "preact/test-utils";
 
+import { EpicRequirementSchema, EpicsGetResponseSchema } from "./gen/orrery/v1/epics_pb";
 import { assertNone, assertSame, installTestDom, removeTestDom } from "./testdom";
 import type { ContractThing, EpicThing, ListThing, RailGroup, Thing } from "./work";
 import { WorkRail } from "./workrail";
@@ -51,7 +53,7 @@ function textsOf(root: ParentNode, selector: string): string[] {
 
 const noop = () => undefined;
 
-// epicOf is a steered epic of the fixture, quiet and building, with no tasks, unless init says otherwise.
+// epicOf is a steered epic of the fixture, quiet and building, with no requirements, unless init says otherwise.
 function epicOf(slug: string, init: Partial<EpicThing> = {}): EpicThing {
   return {
     kind: "epic",
@@ -62,9 +64,17 @@ function epicOf(slug: string, init: Partial<EpicThing> = {}): EpicThing {
     asks: false,
     tone: "quiet",
     state: "building",
-    gauge: { done: 0, started: 0, total: 0 },
+    detail: { requirements: [], centre: "" },
     ...init,
   };
+}
+
+// markOf is an epic's detail in centre, with one requirement per state in states, named R1, R2 and so on in order.
+function markOf(centre: string, states: readonly string[]) {
+  return create(EpicsGetResponseSchema, {
+    centre,
+    requirements: states.map((state, i) => create(EpicRequirementSchema, { id: `R${i + 1}`, state })),
+  });
 }
 
 function agentsOf(count: number): ListThing {
@@ -113,33 +123,34 @@ test("WorkRail: groups draw in order, each name drawn once, in the rail", () => 
   });
 });
 
-test("WorkRail: an epic tile draws its gauge, its short name, and ? when it asks", () => {
+test("WorkRail: an epic tile draws its mark at 24, its short name, and ? when it asks", () => {
   const asking = epicOf("widgets-rail", {
     short: "rail",
     asks: true,
     tone: "attention",
     state: "rail asks: which store?",
-    gauge: { done: 2, started: 1, total: 5 },
+    detail: markOf("asks", ["proven", "proven", "in_flight", "not_reached", "not_reached"]),
   });
   return withDom((container) => {
     draw(container, onRail([groupOf("epic", "epic", [asking])]));
 
     const tile = one(container, ".rgroup.epic .tile-w");
-    assert.equal(one(tile, "svg.gauge").getAttribute("aria-label"), "2 of 5 tasks done");
-    assert.equal(one(tile, "svg.gauge circle.done").getAttribute("stroke-dasharray"), "40.0 100");
-    assert.equal(one(tile, "svg.gauge circle.started").getAttribute("stroke-dasharray"), "60.0 100");
+    assert.equal(one(tile, "svg.epicmark").getAttribute("data-size"), "24");
+    assert.equal(one(tile, "svg.epicmark").getAttribute("aria-label"), "2 of 5 requirements proven, asks you a question");
+    assert.equal(tile.querySelectorAll('svg.epicmark circle.rim[data-tone="ok"]').length, 2);
+    assert.equal(tile.querySelectorAll('svg.epicmark circle.rim[data-tone="run"]').length, 1);
     assert.equal(one(tile, ".cap").textContent, "rail");
     assert.equal(one(tile, ".n").textContent, "?");
     assert.equal(one(tile, ".n").className, "n attention");
   });
 });
 
-test("WorkRail: an epic with no tasks says so in its gauge, and one that does not ask draws no ?", () => {
+test("WorkRail: an epic with no requirements says so in its mark, and one that does not ask draws no ?", () => {
   return withDom((container) => {
     draw(container, onRail([groupOf("epic", "epic", [epicOf("widgets-rail", { short: "rail" })])]));
 
     const tile = one(container, ".rgroup.epic .tile-w");
-    assert.equal(one(tile, "svg.gauge").getAttribute("aria-label"), "no tasks yet");
+    assert.equal(one(tile, "svg.epicmark").getAttribute("aria-label"), "no requirements yet");
     assert.equal(tile.querySelector(".n"), null);
   });
 });
@@ -486,7 +497,7 @@ test("ContractTile: a contract tile draws round 6's doc icon and its short name,
     assert.equal(tile.getAttribute("title"), "tide-alerts: a contract waits for you");
     assert.equal(one(tile, ".cap").textContent, "tide");
     assert.equal(one(tile, "svg.icon path").getAttribute("d"), docIcon);
-    assert.equal(tile.querySelector("svg.gauge"), null);
+    assert.equal(tile.querySelector("svg.epicmark"), null);
   });
 });
 

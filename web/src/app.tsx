@@ -2573,7 +2573,7 @@ export function App({
         {notices.length > 0 && (
           <NoticeStack
             notices={notices}
-            head={(notice) => noticeHead(notice, tree, shownRows, now)}
+            head={(notice) => noticeHead(notice, tree, shownRows)}
             age={noticeAgeOf}
             act={(notice) => noticeAct(notice, shownRows)}
             bringBackRow={(notice) => bringBackRowOf(notice, shownRows)}
@@ -2597,7 +2597,7 @@ export function App({
           <NoticeCentre
             rows={noticeLog.rows}
             failed={noticeLog.failed}
-            head={(row) => noticeHead(row, tree, shownRows, now)}
+            head={(row) => noticeHead(row, tree, shownRows)}
             now={now}
             narrow={!wide}
             onOpen={(row) => {

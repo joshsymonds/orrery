@@ -1,9 +1,12 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
+import { create } from "@bufbuild/protobuf";
 import { type JSX, render } from "preact";
 
-import { Gauge, Icon, StateGlyph } from "./glyphs";
+import { EpicMark } from "./epicmark";
+import { EpicRequirementSchema, EpicsGetResponseSchema, type EpicsGetResponse } from "./gen/orrery/v1/epics_pb";
+import { Icon, StateGlyph } from "./glyphs";
 import { installTestDom, removeTestDom } from "./testdom";
 
 // Each test's name carries the token Glyphs: the glyphs draw on their own, outside any page.
@@ -52,33 +55,41 @@ test("Glyphs: a StateGlyph of a state it does not know draws idle", () =>
     assert.equal(glyph.getAttribute("aria-label"), "idle");
   }));
 
-test("Glyphs: a Gauge names its done of total tasks, carries its tone, its arcs and its inner mark", () =>
-  drawn(<Gauge done={2} started={3} total={7} tone="attention" inner="dot" />, (container) => {
-    const gauge = one(container, "svg.gauge");
-    assert.equal(gauge.getAttribute("aria-label"), "2 of 7 tasks done");
-    assert.equal(one(gauge, "title").textContent, "2 of 7 tasks done");
-    assert.equal(gauge.getAttribute("data-tone"), "attention");
-    assert.equal(one(gauge, "circle.done").getAttribute("stroke-dasharray"), "28.6 100");
-    assert.equal(one(gauge, "circle.started").getAttribute("stroke-dasharray"), "71.4 100");
-    one(gauge, "circle.core");
-  }));
-
-test("Glyphs: a Gauge with no tasks says so, draws the dotted planned ring and no arcs", () =>
-  drawn(<Gauge total={0} tone="live" />, (container) => {
-    const gauge = one(container, "svg.gauge");
-    assert.equal(gauge.getAttribute("aria-label"), "no tasks yet");
-    assert.equal(gauge.getAttribute("data-tone"), "live");
-    assert.equal(one(gauge, "circle.planned").getAttribute("stroke-dasharray"), "2 3");
-    assert.equal(container.querySelector("circle.done"), null);
-    assert.equal(container.querySelector("circle.started"), null);
-  }));
-
-test("Glyphs: a Gauge's check and dash inner marks draw their own path", async () => {
-  await drawn(<Gauge done={4} total={4} inner="check" />, (container) => {
-    assert.equal(one(container, "path.done").getAttribute("d"), "M8.6 12.3l2.3 2.3 4.4-4.9");
+// epicOf is an epic's detail in centre, with one requirement per state in states, named R1, R2 and so on in order.
+function epicOf(centre: string, states: readonly string[]): EpicsGetResponse {
+  return create(EpicsGetResponseSchema, {
+    centre,
+    requirements: states.map((state, i) => create(EpicRequirementSchema, { id: `R${i + 1}`, state })),
   });
-  await drawn(<Gauge done={0} started={1} total={3} inner="dash" />, (container) => {
-    assert.equal(one(container, "path.done").getAttribute("d"), "M9 12h6");
+}
+
+test("Glyphs: an EpicMark names its proven of total requirements, carries its rim segments toned by state, and its centre mark", () =>
+  drawn(<EpicMark detail={epicOf("asks", ["proven", "proven", "in_flight", "in_flight", "in_flight", "not_reached", "not_reached"])} />, (container) => {
+    const mark = one(container, "svg.epicmark");
+    assert.equal(mark.getAttribute("aria-label"), "2 of 7 requirements proven, asks you a question");
+    assert.equal(one(mark, "title").textContent, "2 of 7 requirements proven, asks you a question");
+    assert.equal(container.querySelectorAll("svg.epicmark circle.rim").length, 7);
+    assert.equal(container.querySelectorAll('svg.epicmark circle.rim[data-tone="ok"]').length, 2);
+    assert.equal(container.querySelectorAll('svg.epicmark circle.rim[data-tone="run"]').length, 3);
+    assert.equal(one(mark, "g.centre").getAttribute("data-tone"), "attention");
+    assert.equal(one(mark, "g.centre text").textContent, "?");
+  }));
+
+test("Glyphs: an EpicMark with no requirements says so, draws the dotted planned ring and no rim, and its centre in its tone", () =>
+  drawn(<EpicMark detail={epicOf("running", [])} />, (container) => {
+    const mark = one(container, "svg.epicmark");
+    assert.equal(mark.getAttribute("aria-label"), "no requirements yet, running");
+    assert.equal(one(mark, "g.centre").getAttribute("data-tone"), "live");
+    assert.equal(one(mark, "circle.planned").getAttribute("stroke-dasharray"), "2 3");
+    assert.equal(container.querySelector("circle.rim"), null);
+  }));
+
+test("Glyphs: an EpicMark's shipped and ended-short centres draw their own path", async () => {
+  await drawn(<EpicMark detail={epicOf("shipped", ["proven"])} />, (container) => {
+    assert.equal(one(container, "g.centre path").getAttribute("d"), "M8.6 12.3l2.3 2.3 4.4-4.9");
+  });
+  await drawn(<EpicMark detail={epicOf("ended_short", ["failed"])} />, (container) => {
+    assert.equal(one(container, "g.centre path").getAttribute("d"), "M9 12h6");
   });
 });
 

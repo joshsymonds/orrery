@@ -1,10 +1,11 @@
 import type { JSX } from "preact";
 
+import { EpicMark } from "./epicmark";
 import { blockerLine } from "./epicpage";
 import type { Contract } from "./gen/orrery/v1/contracts_pb";
-import type { Epic, EpicsGetResponse } from "./gen/orrery/v1/epics_pb";
-import { type EpicBlock, type EpicItem, blockOf, epicLine, type StepItem } from "./epics";
-import { Gauge, type GaugeInner, Icon, StateGlyph } from "./glyphs";
+import type { EpicsGetResponse } from "./gen/orrery/v1/epics_pb";
+import { type EpicBlock, epicLine, type StepItem } from "./epics";
+import { Icon, StateGlyph } from "./glyphs";
 import { epicNeeds } from "./needs";
 import type { CellKind } from "./orbitcells";
 import { type PipTone, Pips } from "./pips";
@@ -23,21 +24,21 @@ const failedStep = "failed";
 // a ring with evidence passed, and a ring not reached none.
 const pipTone: Record<CellKind, PipTone> = { now: "run", held: "mine", errored: "bad", passed: "ok", track: "none" };
 
-// GaugeShare is an epic's gauge: the done share of its tasks out of the total, its tone, and the mark at its centre.
-export interface GaugeShare {
-  done: number;
-  total: number;
-  tone: string;
-  inner?: GaugeInner;
+// MarkDetail is the detail an epic's mark reads: its requirements and its centre state, as Epics.Get gives them.
+export type MarkDetail = Pick<EpicsGetResponse, "requirements" | "centre">;
+
+// markDetailOf is the detail an epic's mark reads: the detail the epic holds, or else one with no requirements and no
+// centre, which the mark draws as its planned ring.
+export function markDetailOf(detail: EpicsGetResponse | undefined): MarkDetail {
+  return detail ?? { requirements: [], centre: "" };
 }
 
-// EpicRowWords is what a row says in words: its count, its state with the time it has been in that state, its blocker
-// (empty when nothing blocks it), and its gauge, which a contract's row does not draw.
+// EpicRowWords is what a row says in words: its count, its state with the time it has been in that state, and its
+// blocker (empty when nothing blocks it).
 export interface EpicRowWords {
   count: string;
   words: string;
   blocker: string;
-  gauge: GaugeShare | null;
 }
 
 // contractOf is the contract a row draws as a contract: a contract item's own, or an epic's proposed contract. An epic
@@ -57,7 +58,7 @@ export function hungName(hung: Hung): string {
 
 // epicRowWords reads what a row says at now, in unix seconds. A contract reads its version, its state with its age,
 // and, while it is proposed, the ask it waits on. An epic reads its count, its state word with the time since its phase
-// began, its blocker, and its gauge.
+// began, and its blocker.
 export function epicRowWords(hung: Hung, now: number): EpicRowWords {
   const contract = contractOf(hung);
   if (contract !== null) {
@@ -65,7 +66,6 @@ export function epicRowWords(hung: Hung, now: number): EpicRowWords {
       count: `v${contract.version}`,
       words: `contract · ${contract.state} · ${sinceText(Number(contract.changed), now, false)}`,
       blocker: contract.state === proposedState ? waitsOnAccept : "",
-      gauge: null,
     };
   }
   if (hung.kind !== "epic") {
@@ -84,20 +84,17 @@ function sinceText(since: number, now: number, live: boolean): string {
   return live ? elapsed : `${elapsed} ago`;
 }
 
-// epicWords reads an epic's row: its count from its line, its state word with the time since its phase began, its
-// blocker and its gauge. An epic with no state word, such as one with no detail, reads no words.
+// epicWords reads an epic's row: its count from its line, its state word with the time since its phase began, and its
+// blocker. An epic with no state word, such as one with no detail, reads no words.
 export function epicWords(node: EpicNode, now: number): EpicRowWords {
   const item = node.block.epic;
   const listed = node.listed;
   const state = stateWordOf(node);
-  const blocker = blockerWords(node, now);
-  const released = !listed.live && listed.outcome === releasedOutcome;
   const timed = sinceText(item.phaseAt, now, listed.live);
   return {
     count: epicLine(item, now).count,
     words: state === "" ? "" : [state, timed].filter((part) => part !== "").join(" · "),
-    blocker,
-    gauge: gaugeOf(item, state, blocker, listed.live, released),
+    blocker: blockerWords(node, now),
   };
 }
 
@@ -145,32 +142,6 @@ function blockerWords(node: EpicNode, now: number): string {
   return first.text.startsWith(named) ? first.text.slice(named.length) : first.text;
 }
 
-// gaugeOf draws an epic's gauge: an ended epic's check when it shipped and its dash otherwise; a blocked epic's dot in
-// attention; a paused epic in no tone; a releasing epic in engine; and any other in live.
-function gaugeOf(item: EpicItem, state: string, blocker: string, live: boolean, released: boolean): GaugeShare {
-  const { done, total } = item;
-  if (!live) {
-    return released ? { done, total, tone: "ok", inner: "check" } : { done, total, tone: "", inner: "dash" };
-  }
-  if (blocker !== "") {
-    return { done, total, tone: "attention", inner: "dot" };
-  }
-  if (state.startsWith("paused")) {
-    return { done, total, tone: "" };
-  }
-  return { done, total, tone: state === "releasing" ? "engine" : "live" };
-}
-
-// epicGaugeOf draws an epic's gauge as the epic list draws its row's, from the epic's listed message, its detail and now.
-// It is null when there is no listed message to draw from.
-export function epicGaugeOf(listed: Epic | undefined, detail: EpicsGetResponse, now: number): GaugeShare | null {
-  if (listed === undefined) {
-    return null;
-  }
-  const node: EpicNode = { kind: "epic", key: `epic:${listed.id}`, block: blockOf(listed, detail), listed, contract: null };
-  return epicWords(node, now).gauge;
-}
-
 // stepState is the glyph state of a running step: limited, held, or working.
 function stepState(step: StepItem): string {
   if (step.step.limited) {
@@ -180,10 +151,10 @@ function stepState(step: StepItem): string {
 }
 
 // EpicRow draws a row of the inbox tree: an epic hung under its conversation, with its running steps under it, or a
-// contract hung there, with the contract's mark. Its gauge, name, count, words and blocker are epicRowWords'. An epic's
-// row draws each running step, then a line for the steps past the shown ones and the block's tail. A press on the row
-// calls onSelect with its key, and a press on a step with the step's key. currentStep is the key of the step the cursor
-// is on. The row draws no command.
+// contract hung there, with the contract's mark. An epic's row draws its EpicMark at 32, from the epic's detail. Its
+// name, count, words and blocker are epicRowWords'. An epic's row draws each running step, then a line for the steps
+// past the shown ones and the block's tail. A press on the row calls onSelect with its key, and a press on a step with
+// the step's key. currentStep is the key of the step the cursor is on. The row draws no command.
 export function EpicRow({
   hung,
   now,
@@ -220,7 +191,7 @@ export function EpicRow({
             <Icon name="doc" />
           </span>
         ) : (
-          words.gauge !== null && <Gauge {...words.gauge} />
+          epic !== null && <EpicMark detail={markDetailOf(epic.block.epic.detail)} size={32} />
         )}
         <span class="title">{name}</span>
         {contract !== null && <span class="age">{words.count}</span>}

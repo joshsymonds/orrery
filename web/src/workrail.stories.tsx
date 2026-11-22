@@ -1,7 +1,11 @@
 // The stories of WorkRail and Tile: the rail's groups, and a group of many things as one tile of dots; then one tile in
 // each state it draws.
 
+import { create } from "@bufbuild/protobuf";
+
 import type { Stories } from "./catalog/story";
+import type { MarkDetail } from "./epicrow";
+import { EpicRequirementSchema, EpicsGetResponseSchema } from "./gen/orrery/v1/epics_pb";
 import type { EpicThing, ListThing, RailGroup, Thing } from "./work";
 import { Tile as One, WorkRail as Rail } from "./workrail";
 
@@ -17,9 +21,17 @@ function epicOf(slug: string, init: Partial<EpicThing>): EpicThing {
     asks: false,
     tone: "quiet",
     state: "building",
-    gauge: { done: 0, started: 0, total: 0 },
+    detail: { requirements: [], centre: "" },
     ...init,
   };
+}
+
+// markOf is an epic's detail in centre, with one requirement per state in states, named R1, R2 and so on in order.
+function markOf(centre: string, states: readonly string[]): MarkDetail {
+  return create(EpicsGetResponseSchema, {
+    centre,
+    requirements: states.map((state, i) => create(EpicRequirementSchema, { id: `R${i + 1}`, state })),
+  });
 }
 
 const asking = epicOf("widgets-rail", {
@@ -27,14 +39,14 @@ const asking = epicOf("widgets-rail", {
   asks: true,
   tone: "attention",
   state: "rail asks: which store?",
-  gauge: { done: 2, started: 1, total: 5 },
+  detail: markOf("asks", ["proven", "proven", "in_flight", "not_reached", "not_reached"]),
 });
 
 const live = epicOf("orrery-picker", {
   short: "picker",
   tone: "live",
   state: "picker is building",
-  gauge: { done: 1, started: 0, total: 3 },
+  detail: markOf("running", ["proven", "not_reached", "not_reached"]),
 });
 
 const agents: ListThing = { kind: "agents", key: "agents", count: 2, tone: "live", tasks: [] };

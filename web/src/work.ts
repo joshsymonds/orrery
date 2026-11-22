@@ -2,16 +2,11 @@ import type { Contract } from "./gen/orrery/v1/contracts_pb";
 import type { Epic } from "./gen/orrery/v1/epics_pb";
 import type { BackgroundTask } from "./gen/orrery/v1/orrery_pb";
 import { contractSlug } from "./contracts";
+import { type MarkDetail, markDetailOf } from "./epicrow";
 import { type EpicItem, type EpicsView, endedWords, epicLine, repositoryName } from "./epics";
 import { type Need, epicNeeds } from "./needs";
 
 export type ThingTone = "attention" | "live" | "quiet";
-
-export interface Gauge {
-  done: number;
-  started: number;
-  total: number;
-}
 
 export interface EpicThing {
   kind: "epic";
@@ -22,7 +17,8 @@ export interface EpicThing {
   asks: boolean;
   tone: ThingTone;
   state: string;
-  gauge: Gauge;
+  // The detail the epic's EpicMark reads: its requirements and centre, or none when the epic holds no detail.
+  detail: MarkDetail;
 }
 
 export interface ContractThing {
@@ -157,11 +153,7 @@ function epicThingOf(item: EpicItem, listed: Epic, epics: EpicsView, ended: bool
     asks,
     tone: toneOf(asks, listed),
     state: stateOf(item, needs, ended, now),
-    gauge: {
-      done: item.done,
-      started: item.strip.filter((tone) => tone === "now").length,
-      total: item.total,
-    },
+    detail: markDetailOf(item.detail),
   };
 }
 

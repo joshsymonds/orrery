@@ -16,14 +16,14 @@ type Tone = "you" | "engine" | "ok" | "bad" | "attention" | "quiet";
 type BlockKind = "you" | "event" | "stepend" | "epicevent" | "checks";
 
 // BlockProps is what a Block draws: its tone, kind, icon and label; then who spoke, the words after the label, the time,
-// and the end, each when given; then the children as the body. A gauge, when given, leads the head before the icon. A
+// and the end, each when given; then the children as the body. A mark, when given, leads the head before the icon. A
 // pending block is one still being sent.
 interface BlockProps {
   tone: Tone;
   kind: BlockKind;
   icon: IconName;
   label: string;
-  gauge?: ComponentChildren;
+  mark?: ComponentChildren;
   who?: string;
   words?: string;
   time?: string;
@@ -33,13 +33,13 @@ interface BlockProps {
 }
 
 // Block draws someone speaking. The root is the one block element, and its tone draws the rail on its left. Its head holds
-// the gauge when it has one, then the icon and the label line, and its children follow as the body.
+// the mark when it has one, then the icon and the label line, and its children follow as the body.
 export function Block({
   tone,
   kind,
   icon,
   label,
-  gauge,
+  mark,
   who,
   words,
   time,
@@ -50,7 +50,7 @@ export function Block({
   return (
     <div class={`block ${tone} ${kind}${pending ? " pending" : ""}`} data-shape="block" data-tone={tone}>
       <div class="head">
-        {gauge}
+        {mark}
         <Icon name={icon} />
         <span class="label">{label}</span>
         {who ? <b class="who">{who}</b> : null}
