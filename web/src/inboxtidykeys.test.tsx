@@ -256,57 +256,54 @@ function dataList(container: HTMLElement): string | null {
   return container.querySelector(".inbox-rows")?.getAttribute("data-list") ?? null;
 }
 
-// pressEachKey presses each of listKeys once in a fresh app over setup, and checks that no archive or unarchive call
-// was sent. When archived is set, the Archived view is entered first with v, which is not one of the keys pressed.
-async function pressEachKey(setup: Setup, archived: boolean): Promise<void> {
-  for (const init of listKeys) {
-    const name = `${init.shiftKey === true ? "Shift+" : ""}${init.key ?? ""}`;
-    await withInbox(setup, async (container, fake) => {
-      if (archived) {
-        await press({ key: "v" });
-        assert.equal(dataList(container), "archived", "v opens the Archived view");
-      }
-      await press(init);
-      await flush();
-      assert.deepEqual(archiveCalls(fake), [], `the ${name} key sends no Epics.Archive or Epics.Unarchive`);
-    });
-  }
+// keyName is a key as its test names it: Shift+ before a shifted key, then the key itself.
+function keyName(init: KeyboardEventInit): string {
+  return `${init.shiftKey === true ? "Shift+" : ""}${init.key ?? ""}`;
 }
 
-test("InboxTidyKeys: in the inbox, no key the list reads archives a conversation row", async () => {
-  await pressEachKey(
-    {
-      rows: [
-        session({ key: "s1", id: "s1", label: "notes" }),
-        headless({ key: "h1", id: "h1", label: "docs", state: "waiting" }),
-      ],
-    },
-    false,
-  );
-});
+// pressKey mounts a fresh app over setup, presses init once and checks that no archive or unarchive call was sent.
+// When archived is set, the Archived view is entered first with v, which is not the key pressed.
+async function pressKey(setup: Setup, init: KeyboardEventInit, archived: boolean): Promise<void> {
+  await withInbox(setup, async (container, fake) => {
+    if (archived) {
+      await press({ key: "v" });
+      assert.equal(dataList(container), "archived", "v opens the Archived view");
+    }
+    await press(init);
+    await flush();
+    assert.deepEqual(archiveCalls(fake), [], `the ${keyName(init)} key sends no Epics.Archive or Epics.Unarchive`);
+  });
+}
 
-test("InboxTidyKeys: in the inbox, no key the list reads archives an epic", async () => {
-  await pressEachKey({ epics: epicsView([epic({ id: "w/first", slug: "first", repository: "w" })], new Map()) }, false);
-});
+// The four setups each key in listKeys is pressed in.
+const inboxRows: Setup = {
+  rows: [
+    session({ key: "s1", id: "s1", label: "notes" }),
+    headless({ key: "h1", id: "h1", label: "docs", state: "waiting" }),
+  ],
+};
+const inboxEpics: Setup = { epics: epicsView([epic({ id: "w/first", slug: "first", repository: "w" })], new Map()) };
+const archivedRows: Setup = {
+  rows: [row({ key: "p", label: "pane" }), headless({ key: "ha", id: "ha", label: "old docs", archived: true })],
+};
+const archivedEpics: Setup = {
+  epics: epicsView(
+    [epic({ id: "w/old", slug: "old", outcome: "released", live: false, archived: true, phaseAt: 99000n })],
+    new Map(),
+  ),
+};
 
-test("InboxTidyKeys: in the Archived view, no key the list reads unarchives a conversation row", async () => {
-  await pressEachKey(
-    { rows: [row({ key: "p", label: "pane" }), headless({ key: "ha", id: "ha", label: "old docs", archived: true })] },
-    true,
-  );
-});
-
-test("InboxTidyKeys: in the Archived view, no key the list reads unarchives an archived epic", async () => {
-  await pressEachKey(
-    {
-      epics: epicsView(
-        [epic({ id: "w/old", slug: "old", outcome: "released", live: false, archived: true, phaseAt: 99000n })],
-        new Map(),
-      ),
-    },
-    true,
-  );
-});
+// Each key in listKeys gets a test in each setup, so every test mounts the app once and presses one key.
+for (const init of listKeys) {
+  const name = keyName(init);
+  test(`InboxTidyKeys: in the inbox, the ${name} key archives no conversation row`, () =>
+    pressKey(inboxRows, init, false));
+  test(`InboxTidyKeys: in the inbox, the ${name} key archives no epic`, () => pressKey(inboxEpics, init, false));
+  test(`InboxTidyKeys: in the Archived view, the ${name} key unarchives no conversation row`, () =>
+    pressKey(archivedRows, init, true));
+  test(`InboxTidyKeys: in the Archived view, the ${name} key unarchives no archived epic`, () =>
+    pressKey(archivedEpics, init, true));
+}
 
 test("InboxTidyKeys: the row menu archives a row in the inbox, and draws no key cap on Archive", (t) =>
   withInbox({ rows: [session({ key: "s1", id: "s1", label: "notes" })] }, async (container, fake) => {
