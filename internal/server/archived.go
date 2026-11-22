@@ -75,6 +75,12 @@ func archivedRow(mark store.ArchiveMark, changed int64, aged bool) bool {
 	return mark.UnarchivedAt.IsZero() || mark.UnarchivedAt.Unix() < changed
 }
 
+// The phase and outcome spellings the final-epic rule reads, named once here.
+const (
+	epicPhaseReleased = "released"
+	epicPhaseDone     = "done"
+)
+
 // epicFinal reports whether an epic from source with outcome has a final outcome. An orreryd epic is final in released,
 // done, closed_superseded, closed_shipped, closed_abandoned or met_at_base. A record epic is final when its outcome's
 // leading letters, read as epicLive reads them, are released or retired.
@@ -82,13 +88,13 @@ func epicFinal(source, outcome string) bool {
 	switch source {
 	case epicSourceOrreryd:
 		switch outcome {
-		case "released", "done", store.PhaseClosedSuperseded, store.PhaseClosedShipped, store.PhaseClosedAbandoned,
-			"met_at_base":
+		case epicPhaseReleased, epicPhaseDone, store.PhaseClosedSuperseded, store.PhaseClosedShipped,
+			store.PhaseClosedAbandoned, "met_at_base":
 			return true
 		}
 	case epicSourceRecord:
 		switch leadingLetters(outcome) {
-		case "released", "retired":
+		case epicPhaseReleased, "retired":
 			return true
 		}
 	}

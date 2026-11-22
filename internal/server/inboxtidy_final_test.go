@@ -22,9 +22,10 @@ func inboxTidyFinalStored(id, phase string, changed, seen int64) *enginev1.Store
 // TestInboxTidyFinalEpicSeenAfterEndArchives lists each stored final epic, seen at the time it last changed, as archived.
 func TestInboxTidyFinalEpicSeenAfterEndArchives(t *testing.T) {
 	t.Parallel()
-	var stored []*enginev1.StoredEpic
+	phases := inboxTidyFinalPhases()
+	stored := make([]*enginev1.StoredEpic, 0, len(phases))
 	want := make(map[string]bool)
-	for _, phase := range inboxTidyFinalPhases() {
+	for _, phase := range phases {
 		id := "repoa/seen-" + phase
 		stored = append(stored, inboxTidyFinalStored(id, phase, epicsAgo(time.Hour), epicsAgo(time.Hour)))
 		want[id] = true
@@ -37,9 +38,10 @@ func TestInboxTidyFinalEpicSeenAfterEndArchives(t *testing.T) {
 // archived.
 func TestInboxTidyFinalEpicUnseenDayUnchangedArchives(t *testing.T) {
 	t.Parallel()
-	var stored []*enginev1.StoredEpic
+	phases := inboxTidyFinalPhases()
+	stored := make([]*enginev1.StoredEpic, 0, len(phases))
 	want := make(map[string]bool)
-	for _, phase := range inboxTidyFinalPhases() {
+	for _, phase := range phases {
 		id := "repoa/day-" + phase
 		stored = append(stored, inboxTidyFinalStored(id, phase, epicsAgo(24*time.Hour), 0))
 		want[id] = true
@@ -52,9 +54,10 @@ func TestInboxTidyFinalEpicUnseenDayUnchangedArchives(t *testing.T) {
 // unarchived.
 func TestInboxTidyFinalEpicUnseenShortOfDayUnarchived(t *testing.T) {
 	t.Parallel()
-	var stored []*enginev1.StoredEpic
+	phases := inboxTidyFinalPhases()
+	stored := make([]*enginev1.StoredEpic, 0, len(phases))
 	want := make(map[string]bool)
-	for _, phase := range inboxTidyFinalPhases() {
+	for _, phase := range phases {
 		id := "repoa/short-" + phase
 		stored = append(stored, inboxTidyFinalStored(id, phase, epicsAgo(23*time.Hour), 0))
 		want[id] = false
