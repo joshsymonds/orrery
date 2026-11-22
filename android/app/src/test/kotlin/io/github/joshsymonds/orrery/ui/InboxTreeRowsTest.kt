@@ -183,7 +183,7 @@ class InboxTreeRowsTest {
     }
 
     @Test
-    fun anEpicHangsUnderItsConversationWithItsGaugeNameWordsAndQuestion() {
+    fun anEpicHangsUnderItsConversationWithItsMarkNameWordsAndQuestion() {
         val asked = listOf(EpicQuestionRow(id = "Q1", text = "Which branch?", turn = 1L, asked = NOW - 120))
         setRow(convo(hung = listOf(epicNode(epic(), asked))))
 
@@ -191,7 +191,8 @@ class InboxTreeRowsTest {
         assertTextShown("rota-export")
         assertTextShown("planning · 49 min · 0 of 0 tasks done")
         assertTextShown("? waits on your answer · 2 min")
-        composeRule.onNodeWithTag("gauge:$EPIC_ID", useUnmergedTree = true).assert(hasContentDescription("no tasks yet"))
+        composeRule.onNodeWithTag("epicmark:$EPIC_ID", useUnmergedTree = true)
+            .assert(hasContentDescription("no requirements yet"))
     }
 
     @Test
@@ -204,7 +205,7 @@ class InboxTreeRowsTest {
         assertTextShown("v3")
         assertTextShown("contract · proposed · 3 min ago")
         assertTextShown("? waits to be read and accepted")
-        assertTagAbsent("gauge:$CONTRACT_ID")
+        assertTagAbsent("epicmark:$CONTRACT_ID")
     }
 
     @Test

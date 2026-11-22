@@ -4,6 +4,7 @@ import io.github.joshsymonds.orrery.api.ContractRow
 import io.github.joshsymonds.orrery.api.EpicDetail
 import io.github.joshsymonds.orrery.api.EpicQuestionRow
 import io.github.joshsymonds.orrery.api.EpicReleaseProofRow
+import io.github.joshsymonds.orrery.api.EpicRequirementRow
 import io.github.joshsymonds.orrery.api.EpicRow
 import io.github.joshsymonds.orrery.api.EpicTaskRow
 import io.github.joshsymonds.orrery.api.Pane
@@ -43,6 +44,9 @@ class InboxTreeWordsTest {
 
     private fun question(asked: Long) = EpicQuestionRow(id = "Q1", text = "Which branch?", turn = 1L, asked = asked)
 
+    private fun requirement(id: String, state: String) =
+        EpicRequirementRow(id = id, text = "", evidence = "", kind = "check", state = state)
+
     private fun failedRelease() = EpicReleaseProofRow(
         position = 3L,
         step = "tag",
@@ -77,6 +81,8 @@ class InboxTreeWordsTest {
         releaseProof: List<EpicReleaseProofRow> = emptyList(),
         paused: Boolean = false,
         parked: String = "",
+        requirements: List<EpicRequirementRow> = emptyList(),
+        centre: String = "",
     ): EpicDetail = EpicDetail(
         epic = epic,
         tasks = tasks,
@@ -86,6 +92,8 @@ class InboxTreeWordsTest {
         paused = paused,
         parked = parked,
         releaseProof = releaseProof,
+        requirements = requirements,
+        centre = centre,
     )
 
     private fun node(
@@ -142,51 +150,90 @@ class InboxTreeWordsTest {
     private fun epicWords(node: EpicNode): EpicRowWords = epicRowWords(node, now)
 
     @Test
-    fun aPlanningEpicReadsPlanningWithItsPhaseTimeAndALiveRing() {
-        val words = epicWords(node(detail = detail()))
+    fun aPlanningEpicReadsPlanningWithItsPhaseTimeAndADottedRingInItsRunningCentre() {
+        val words = epicWords(node(detail = detail(centre = "running")))
 
         assertEquals("rota-export", words.name)
         assertEquals("0 of 0 tasks done", words.count)
         assertEquals("planning · 49 min", words.words)
         assertEquals("", words.blocker)
-        assertEquals(GaugeShare(done = 0, total = 0, tone = GaugeTone.LIVE, inner = null), words.gauge)
+        assertEquals(
+            EpicMarkModel(
+                rim = emptyList(),
+                centre = CentreMark("running", CentreTone.LIVE, CentreGlyph.COUNT),
+                label = "no requirements yet, running",
+            ),
+            words.mark,
+        )
     }
 
     @Test
-    fun aBuildingEpicCountsItsDoneAndIntegratedTasksAsDone() {
+    fun aBuildingEpicCountsItsDoneAndIntegratedTasksAsDoneAndItsMarkCountsNoTasks() {
         val tasks = listOf(task("done"), task("integrated"), task("pending"))
-        val words = epicWords(node(detail = detail(tasks = tasks)))
+        val words = epicWords(node(detail = detail(tasks = tasks, centre = "running")))
 
         assertEquals("2 of 3 tasks done", words.count)
         assertEquals("building · 49 min", words.words)
-        assertEquals(GaugeShare(done = 2, total = 3, tone = GaugeTone.LIVE, inner = null), words.gauge)
+        assertEquals(
+            EpicMarkModel(
+                rim = emptyList(),
+                centre = CentreMark("running", CentreTone.LIVE, CentreGlyph.COUNT),
+                label = "no requirements yet, running",
+            ),
+            words.mark,
+        )
+    }
+
+    @Test
+    fun anEpicsMarkDrawsItsRequirementsRimAndCountsItsProvenOnes() {
+        val requirements = listOf(
+            requirement("R1", "proven"),
+            requirement("R2", "in_flight"),
+            requirement("R3", "not_reached"),
+        )
+        val words = epicWords(node(detail = detail(requirements = requirements, centre = "running")))
+
+        assertEquals(
+            EpicMarkModel(
+                rim = listOf(
+                    MarkSegment("R1", "proven", RimTone.OK),
+                    MarkSegment("R2", "in_flight", RimTone.RUN),
+                    MarkSegment("R3", "not_reached", RimTone.FIRM),
+                ),
+                centre = CentreMark("running", CentreTone.LIVE, CentreGlyph.COUNT, proven = 1),
+                label = "1 of 3 requirements proven, running",
+            ),
+            words.mark,
+        )
     }
 
     @Test
     fun aReleasingEpicReadsReleasingInTheEngineTone() {
-        val words = epicWords(node(epic = epic(outcome = "clean"), detail = detail(epic = epic(outcome = "clean"))))
+        val clean = epic(outcome = "clean")
+        val words = epicWords(node(epic = clean, detail = detail(epic = clean, centre = "releasing")))
 
         assertEquals("releasing · 49 min", words.words)
-        assertEquals(GaugeTone.ENGINE, words.gauge?.tone)
+        assertEquals(CentreTone.ENGINE, words.mark?.centre?.tone)
+        assertEquals(CentreGlyph.ARROW, words.mark?.centre?.glyph)
     }
 
     @Test
     fun aShippedEpicReadsShippedWithItsAgeAndACheck() {
         val ended = epic(outcome = "released", live = false)
-        val words = epicWords(node(epic = ended, detail = detail(epic = ended)))
+        val words = epicWords(node(epic = ended, detail = detail(epic = ended, centre = "shipped")))
 
         assertEquals("shipped · 49 min ago", words.words)
         assertEquals("", words.blocker)
-        assertEquals(GaugeShare(done = 0, total = 0, tone = GaugeTone.OK, inner = GaugeInner.CHECK), words.gauge)
+        assertEquals(CentreMark("shipped", CentreTone.OK, CentreGlyph.CHECK), words.mark?.centre)
     }
 
     @Test
     fun anEndedShortEpicReadsEndedShortWithADash() {
         val ended = epic(outcome = "abandoned", live = false)
-        val words = epicWords(node(epic = ended, detail = detail(epic = ended)))
+        val words = epicWords(node(epic = ended, detail = detail(epic = ended, centre = "ended_short")))
 
         assertEquals("ended short · 49 min ago", words.words)
-        assertEquals(GaugeShare(done = 0, total = 0, tone = GaugeTone.NONE, inner = GaugeInner.DASH), words.gauge)
+        assertEquals(CentreMark("ended short", CentreTone.QUIET, CentreGlyph.DASH), words.mark?.centre)
     }
 
     @Test
@@ -200,20 +247,22 @@ class InboxTreeWordsTest {
     @Test
     fun aParkedEpicReadsParkedAndItsReasonIsTheBlocker() {
         val parked = epic(parked = "waits for the owner")
-        val words = epicWords(node(epic = parked, detail = detail(epic = parked, parked = "waits for the owner")))
+        val words = epicWords(
+            node(epic = parked, detail = detail(epic = parked, parked = "waits for the owner", centre = "asks")),
+        )
 
         assertEquals("parked · 49 min", words.words)
         assertEquals("waits for the owner", words.blocker)
-        assertEquals(GaugeShare(done = 0, total = 0, tone = GaugeTone.ATTENTION, inner = GaugeInner.DOT), words.gauge)
+        assertEquals(CentreMark("asks you a question", CentreTone.ATTENTION, CentreGlyph.QUESTION), words.mark?.centre)
     }
 
     @Test
-    fun aPausedEpicReadsPausedByYouAndTakesNoGaugeTone() {
+    fun aPausedEpicReadsPausedByYouAndDrawsThePauseCentre() {
         val paused = epic(paused = true, pauseSource = "owner")
-        val words = epicWords(node(epic = paused, detail = detail(epic = paused, paused = true)))
+        val words = epicWords(node(epic = paused, detail = detail(epic = paused, paused = true, centre = "paused")))
 
         assertEquals("paused by you · 49 min", words.words)
-        assertEquals(GaugeShare(done = 0, total = 0, tone = GaugeTone.NONE, inner = null), words.gauge)
+        assertEquals(CentreMark("paused", CentreTone.QUIET, CentreGlyph.PAUSE), words.mark?.centre)
     }
 
     @Test
@@ -225,27 +274,27 @@ class InboxTreeWordsTest {
     }
 
     @Test
-    fun anOpenQuestionIsTheBlockerWithItsWaitAndAttention() {
-        val words = epicWords(node(detail = detail(questions = listOf(question(now - 120)))))
+    fun anOpenQuestionIsTheBlockerWithItsWaitAndAnAskCentre() {
+        val words = epicWords(node(detail = detail(questions = listOf(question(now - 120)), centre = "asks")))
 
         assertEquals("waits on your answer · 2 min", words.blocker)
-        assertEquals(GaugeShare(done = 0, total = 0, tone = GaugeTone.ATTENTION, inner = GaugeInner.DOT), words.gauge)
+        assertEquals(CentreMark("asks you a question", CentreTone.ATTENTION, CentreGlyph.QUESTION), words.mark?.centre)
     }
 
     @Test
     fun aFailedReleaseStepIsTheBlockerWithItsReasonAndNoSlug() {
-        val words = epicWords(node(detail = detail(releaseProof = listOf(failedRelease()))))
+        val words = epicWords(node(detail = detail(releaseProof = listOf(failedRelease()), centre = "asks")))
 
         assertEquals("Release step 3 failed: tag exists", words.blocker)
-        assertEquals(GaugeTone.ATTENTION, words.gauge?.tone)
+        assertEquals(CentreTone.ATTENTION, words.mark?.centre?.tone)
     }
 
     @Test
     fun aHeldStepIsTheBlockerNamedByItsHold() {
-        val words = epicWords(node(detail = detail(steps = listOf(heldStep(started = now - 60)))))
+        val words = epicWords(node(detail = detail(steps = listOf(heldStep(started = now - 60)), centre = "asks")))
 
         assertEquals("build held", words.blocker)
-        assertEquals(GaugeTone.ATTENTION, words.gauge?.tone)
+        assertEquals(CentreTone.ATTENTION, words.mark?.centre?.tone)
     }
 
     @Test
@@ -256,7 +305,7 @@ class InboxTreeWordsTest {
         assertEquals("v3", words.count)
         assertEquals("contract · proposed · 3 min ago", words.words)
         assertEquals("waits to be read and accepted", words.blocker)
-        assertNull(words.gauge)
+        assertNull(words.mark)
     }
 
     @Test
@@ -265,7 +314,7 @@ class InboxTreeWordsTest {
 
         assertEquals("tide-alerts", words.name)
         assertEquals("contract · proposed · 3 min ago", words.words)
-        assertNull(words.gauge)
+        assertNull(words.mark)
     }
 
     @Test

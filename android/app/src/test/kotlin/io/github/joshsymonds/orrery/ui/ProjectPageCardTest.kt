@@ -81,7 +81,7 @@ class ProjectPageCardTest {
 
         assertEquals("contract:lighthouse/tide-alerts", card.key)
         assertEquals("tide-alerts", card.slug)
-        assertEquals(null, card.gauge)
+        assertEquals(null, card.mark)
         assertEquals(CardTone.ATTENTION, card.tone)
         assertEquals("severe care", card.state)
         assertEquals(listOf(TrackState.NOW, TrackState.AHEAD, TrackState.AHEAD, TrackState.AHEAD, TrackState.AHEAD), card.track)
