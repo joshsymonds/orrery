@@ -747,6 +747,21 @@ type Hold struct {
 	Since  int64
 }
 
+type IntegrateRound struct {
+	Epic        string
+	Path        string
+	Attempt     int64
+	Task        int64
+	Round       int64
+	Step        string
+	Verdict     string
+	Head        string
+	Explanation string
+	Outcome     string
+	Failure     string
+	Created     int64
+}
+
 type NoticeHistory struct {
 	ID       int64
 	Pane     string

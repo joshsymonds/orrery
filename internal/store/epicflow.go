@@ -33,7 +33,7 @@ const (
 // their Item, its steps, its release runs as ReleaseRuns returns them, the holder of its repository's release slot, how
 // many of its triggers and of its amend_evidence actions are pending, and how many of its planner actions are pending.
 // GapTurns, Unresolvable and Reruns hold its gap turns, its unresolvable gaps and its review reruns as GapTurns,
-// UnresolvableGaps and ReviewReruns return them.
+// UnresolvableGaps and ReviewReruns return them. Rounds holds its integrate rounds as readIntegrateRounds reads them.
 // Steps holds the steps its agent and release node runs ran under as Step returns them, for the runs that have them,
 // then every step labeled with the epic and the path of one of its review, closure or release node runs, in the order
 // of the runs.
@@ -54,6 +54,7 @@ type EpicFlow struct {
 	GapTurns     []GapTurn
 	Unresolvable []GapDeclaration
 	Reruns       []ReviewRerun
+	Rounds       []IntegrateRound
 }
 
 // EpicFlow returns the stored epic with id with its review, node runs, checks, evidence runs, steps, release runs,
@@ -130,10 +131,14 @@ func readEpicFlow(ctx context.Context, queries *sqlcgen.Queries, id string) (Epi
 	if err != nil {
 		return EpicFlow{}, err
 	}
+	rounds, err := readIntegrateRounds(ctx, queries, id)
+	if err != nil {
+		return EpicFlow{}, err
+	}
 	return EpicFlow{
 		Epic: epic, Review: review, Runs: runs, Checks: checks, Evidence: currentRuns(stored, epic), Steps: steps,
 		Releases: releases, Slot: slot, Pending: int(pending), AmendActions: int(amends), Actions: int(actions),
-		GapTurns: gapTurns, Unresolvable: unresolvable, Reruns: reruns,
+		GapTurns: gapTurns, Unresolvable: unresolvable, Reruns: reruns, Rounds: rounds,
 	}, nil
 }
 

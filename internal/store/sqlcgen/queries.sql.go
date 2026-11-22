@@ -249,6 +249,40 @@ func (q *Queries) CompleteEpicTurn(ctx context.Context, arg CompleteEpicTurnPara
 	return result.RowsAffected()
 }
 
+const composeIntegrateRound = `-- name: ComposeIntegrateRound :execrows
+UPDATE integrate_rounds SET outcome = 'composed'
+WHERE integrate_rounds.epic = ?1 AND integrate_rounds.path = ?2
+  AND integrate_rounds.attempt = ?3 AND integrate_rounds.task = ?4
+  AND integrate_rounds.round = ?5 AND integrate_rounds.outcome = ''
+  AND EXISTS (
+      SELECT 1 FROM epic_node_runs AS runs
+      WHERE runs.epic = integrate_rounds.epic AND runs.path = integrate_rounds.path
+        AND runs.attempt = integrate_rounds.attempt AND runs.state = 'running'
+  )
+`
+
+type ComposeIntegrateRoundParams struct {
+	Epic    string
+	Path    string
+	Attempt int64
+	Task    int64
+	Round   int64
+}
+
+func (q *Queries) ComposeIntegrateRound(ctx context.Context, arg ComposeIntegrateRoundParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, composeIntegrateRound,
+		arg.Epic,
+		arg.Path,
+		arg.Attempt,
+		arg.Task,
+		arg.Round,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const consumeEpicTriggers = `-- name: ConsumeEpicTriggers :exec
 UPDATE epic_triggers SET state = 'consumed' WHERE epic = ? AND turn = ? AND state = 'claimed'
 `
@@ -1136,6 +1170,36 @@ func (q *Queries) EventPageAfter(ctx context.Context, arg EventPageAfterParams) 
 		return nil, err
 	}
 	return items, nil
+}
+
+const failIntegrateRound = `-- name: FailIntegrateRound :execrows
+UPDATE integrate_rounds SET outcome = 'failed', failure = ?1
+WHERE epic = ?2 AND path = ?3 AND attempt = ?4
+  AND task = ?5 AND round = ?6 AND outcome = ''
+`
+
+type FailIntegrateRoundParams struct {
+	Failure string
+	Epic    string
+	Path    string
+	Attempt int64
+	Task    int64
+	Round   int64
+}
+
+func (q *Queries) FailIntegrateRound(ctx context.Context, arg FailIntegrateRoundParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, failIntegrateRound,
+		arg.Failure,
+		arg.Epic,
+		arg.Path,
+		arg.Attempt,
+		arg.Task,
+		arg.Round,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const freeEpicReleaseSlot = `-- name: FreeEpicReleaseSlot :exec
@@ -4143,6 +4207,45 @@ func (q *Queries) InsertHold(ctx context.Context, arg InsertHoldParams) error {
 	return err
 }
 
+const insertIntegrateRound = `-- name: InsertIntegrateRound :exec
+INSERT INTO integrate_rounds (epic, path, attempt, task, round, step, verdict, head, explanation, outcome, failure, created)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT (epic, path, attempt, task, round) DO NOTHING
+`
+
+type InsertIntegrateRoundParams struct {
+	Epic        string
+	Path        string
+	Attempt     int64
+	Task        int64
+	Round       int64
+	Step        string
+	Verdict     string
+	Head        string
+	Explanation string
+	Outcome     string
+	Failure     string
+	Created     int64
+}
+
+func (q *Queries) InsertIntegrateRound(ctx context.Context, arg InsertIntegrateRoundParams) error {
+	_, err := q.db.ExecContext(ctx, insertIntegrateRound,
+		arg.Epic,
+		arg.Path,
+		arg.Attempt,
+		arg.Task,
+		arg.Round,
+		arg.Step,
+		arg.Verdict,
+		arg.Head,
+		arg.Explanation,
+		arg.Outcome,
+		arg.Failure,
+		arg.Created,
+	)
+	return err
+}
+
 const insertNoticeHistory = `-- name: InsertNoticeHistory :exec
 INSERT INTO notice_history (pane, session, epic, limit_key, alert, state, title, body, block, block_ref, time)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -5731,6 +5834,46 @@ func (q *Queries) ListEpicGates(ctx context.Context, epic string) ([]EpicGate, e
 			&i.Agent,
 			&i.Must,
 			&i.MustNot,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listEpicIntegrateRounds = `-- name: ListEpicIntegrateRounds :many
+SELECT epic, path, attempt, task, round, step, verdict, head, explanation, outcome, failure, created FROM integrate_rounds WHERE epic = ? ORDER BY path, attempt, task, round
+`
+
+func (q *Queries) ListEpicIntegrateRounds(ctx context.Context, epic string) ([]IntegrateRound, error) {
+	rows, err := q.db.QueryContext(ctx, listEpicIntegrateRounds, epic)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []IntegrateRound
+	for rows.Next() {
+		var i IntegrateRound
+		if err := rows.Scan(
+			&i.Epic,
+			&i.Path,
+			&i.Attempt,
+			&i.Task,
+			&i.Round,
+			&i.Step,
+			&i.Verdict,
+			&i.Head,
+			&i.Explanation,
+			&i.Outcome,
+			&i.Failure,
+			&i.Created,
 		); err != nil {
 			return nil, err
 		}
@@ -11758,6 +11901,30 @@ type SetEvidenceRunJudgeParams struct {
 
 func (q *Queries) SetEvidenceRunJudge(ctx context.Context, arg SetEvidenceRunJudgeParams) error {
 	_, err := q.db.ExecContext(ctx, setEvidenceRunJudge, arg.JudgeStep, arg.ID)
+	return err
+}
+
+const setIntegrateRunWork = `-- name: SetIntegrateRunWork :exec
+UPDATE epic_node_runs SET revision = ?1, result = ?2
+WHERE epic = ?3 AND path = ?4 AND attempt = ?5 AND state = 'running'
+`
+
+type SetIntegrateRunWorkParams struct {
+	Revision string
+	Result   string
+	Epic     string
+	Path     string
+	Attempt  int64
+}
+
+func (q *Queries) SetIntegrateRunWork(ctx context.Context, arg SetIntegrateRunWorkParams) error {
+	_, err := q.db.ExecContext(ctx, setIntegrateRunWork,
+		arg.Revision,
+		arg.Result,
+		arg.Epic,
+		arg.Path,
+		arg.Attempt,
+	)
 	return err
 }
 
