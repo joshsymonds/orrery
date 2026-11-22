@@ -84,7 +84,7 @@ global flags, before the subcommand:
   --socket PATH   orreryd socket (default ORRERY_SOCKET, then $XDG_RUNTIME_DIR/orrery/orreryd.sock)
 
 subcommands:
-  hook                                          forward a Claude Code hook event from stdin; exits 0
+  hook                                          no-op kept for one release; use hook cron
   notices                                       print desk notices as JSON lines on stdout; runs until stdin ends
   desk --sound FILE [--host HOST]...            show each notice as a popup and play FILE with it, from this machine
                                                 and each HOST's notices, until SIGINT or SIGTERM
@@ -345,23 +345,15 @@ func runOwnerAction(ctx context.Context, opts globals, name string, args []strin
 	return runHold(ctx, opts, args, stderr, getenv)
 }
 
-// hookSocket returns the orreryd socket a hook forwards to, or "" when no socket path can be named.
-func hookSocket(opts globals, getenv func(string) string) string {
-	socket, err := protocol.SocketPath(opts.daemonSocket, getenv)
-	if err != nil {
-		return ""
-	}
-	return socket
-}
-
 // cronWait is how long `orrery hook cron` waits for orreryd's answer before it denies the call.
 const cronWait = 5 * time.Second
 
-// runHook runs `orrery hook`, which forwards the Claude Code hook event on stdin to the daemon, and `orrery hook cron`,
-// which answers the cron tool call on stdin. Plain hook exits 0 whatever happens, as it always has.
+// runHook runs `orrery hook`, a no-op kept for one release, and `orrery hook cron`, which answers the cron tool call on
+// stdin. Plain hook reads its stdin to the end and prints nothing, and exits 0 whatever happens.
 func runHook(opts globals, args []string, stdin io.Reader, stdout, stderr io.Writer, getenv func(string) string) {
 	if len(args) == 0 || args[0] != "cron" {
-		hook.Run(stdin, getenv, hookSocket(opts, getenv))
+		// A read that fails has nowhere to report, since the hook prints nothing and never fails a turn.
+		_, _ = io.Copy(io.Discard, stdin)
 		return
 	}
 	socket, err := protocol.SocketPath(opts.daemonSocket, getenv)

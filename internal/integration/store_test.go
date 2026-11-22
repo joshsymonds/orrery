@@ -16,9 +16,6 @@ import (
 	"github.com/joshsymonds/orrery/internal/tmuxctl"
 )
 
-// exampleSessionID is the Claude Code session id that default_socket_test.go's hook carries.
-const exampleSessionID = "example-session"
-
 // storeFixture is one private tmux server with a pane, a fake claude, and the socket and project a session needs.
 // orreryd started from it keeps its store under stateHome, reads the session registry under home, and its notices are
 // read from notices once it listens. session is the Claude session the pane runs.

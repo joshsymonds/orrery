@@ -3373,20 +3373,17 @@ Migration `00060_cron_jobs.sql` creates the table `cron_jobs` and its two indexe
 
 ### Claude Code hook settings
 
-Register `orrery hook` for each hook event that reports state, `StopFailure` among them (see section 1). The path below is synthetic:
+A pane's state is read from `~/.claude/sessions/<pid>.json` and from the session's transcript, which orrery watches under inotify, so no hook event reports state. Register only `orrery hook cron`, as a `PreToolUse` hook on the cron tools `CronCreate`, `CronDelete` and `CronList` (see [Cron jobs](#cron-jobs)). Plain `orrery hook` is a no-op kept for one release: it reads its stdin, prints nothing and exits 0, so a settings file that still names it does no harm. The path below is synthetic:
 
 ```json
 {
   "hooks": {
-    "UserPromptSubmit": [{ "hooks": [{ "type": "command", "command": "/usr/local/bin/orrery hook" }] }],
-    "PreToolUse": [{ "hooks": [{ "type": "command", "command": "/usr/local/bin/orrery hook" }] }],
-    "PostToolUse": [{ "hooks": [{ "type": "command", "command": "/usr/local/bin/orrery hook" }] }],
-    "PostToolUseFailure": [{ "hooks": [{ "type": "command", "command": "/usr/local/bin/orrery hook" }] }],
-    "PermissionRequest": [{ "hooks": [{ "type": "command", "command": "/usr/local/bin/orrery hook" }] }],
-    "Notification": [{ "hooks": [{ "type": "command", "command": "/usr/local/bin/orrery hook" }] }],
-    "Stop": [{ "hooks": [{ "type": "command", "command": "/usr/local/bin/orrery hook" }] }],
-    "StopFailure": [{ "hooks": [{ "type": "command", "command": "/usr/local/bin/orrery hook" }] }],
-    "SessionEnd": [{ "hooks": [{ "type": "command", "command": "/usr/local/bin/orrery hook" }] }]
+    "PreToolUse": [
+      {
+        "matcher": "CronCreate|CronDelete|CronList",
+        "hooks": [{ "type": "command", "command": "/usr/local/bin/orrery hook cron" }]
+      }
+    ]
   }
 }
 ```

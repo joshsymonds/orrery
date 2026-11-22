@@ -6,7 +6,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"net"
 	"os"
 	"syscall"
@@ -15,53 +14,8 @@ import (
 	"github.com/joshsymonds/orrery/internal/protocol"
 )
 
-// forwardDeadline bounds how long one hook frame waits on a daemon that is not reading it. A slow or absent daemon must
-// not hold up the Claude Code hook.
-const forwardDeadline = 20 * time.Millisecond
-
 // reportDeadline bounds how long one seen or read report waits on a daemon that is not reading it.
 const reportDeadline = time.Second
-
-// Run forwards the hook JSON read from stdin, with the pane, tmux, working directory and
-// base URL of its Anthropic-format proxy, to the daemon listening on socketPath. It writes nothing to stdout or
-// stderr and returns no error: a missing or slow daemon drops the event silently. The
-// summarizer's own subprocess sends nothing, an orrery-started headless session (one whose
-// protocol.EnvSession marker is non-empty) sends nothing and returns without reading stdin,
-// and an empty socketPath sends nothing.
-func Run(stdin io.Reader, getenv func(string) string, socketPath string) {
-	run(stdin, getenv, socketPath, time.Now)
-}
-
-// run is Run with the clock it times the forward on.
-func run(stdin io.Reader, getenv func(string) string, socketPath string, now func() time.Time) {
-	if protocol.IsSummarizer(getenv) || getenv(protocol.EnvSession) != "" || socketPath == "" {
-		return
-	}
-	hookJSON, err := io.ReadAll(stdin)
-	if err != nil {
-		return
-	}
-	cwd, err := os.Getwd()
-	if err != nil {
-		cwd = ""
-	}
-	frame := protocol.HookFrame{
-		Hook:             hookJSON,
-		TmuxPane:         getenv("TMUX_PANE"),
-		Tmux:             getenv("TMUX"),
-		Cwd:              cwd,
-		AnthropicBaseURL: getenv("ANTHROPIC_BASE_URL"),
-	}
-
-	var payload bytes.Buffer
-	if err = protocol.WriteFrame(&payload, frame); err != nil {
-		return
-	}
-	// A failed delivery has nowhere to report: Run stays silent and the hook exits 0.
-	if err = deliver(socketPath, payload.Bytes(), forwardDeadline, now); err != nil {
-		return
-	}
-}
 
 // deliver writes payload to the daemon listening on socketPath, waiting on the daemon for at most wait. It never waits on
 // a daemon that is keeping up, so no stall of this process, however long, drops a frame such a daemon would take. A unix

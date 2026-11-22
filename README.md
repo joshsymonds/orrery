@@ -29,7 +29,7 @@ flowchart LR
     pane["Claude Code in a pane"]
     opts["pane options at orrery"]
   end
-  hook["orrery hook"]
+  hook["orrery hook cron"]
   daemon["orreryd hook socket"]
   mirror["store mirror"]
   store[("SQLite store orrery.db")]
@@ -162,8 +162,8 @@ your home-manager configuration:
 
 The module installs `orrery` and the `p` launcher, and it sources the tmux plugin
 through `programs.tmux.extraConfig`, which is why tmux must be enabled. It does not
-start `orreryd` and does not register hooks. Register `orrery hook` for the Claude
-Code events yourself; the settings are in
+start `orreryd` and does not register hooks. Register `orrery hook cron` for the cron
+tools yourself; the settings are in
 [Claude Code hook settings](docs/contract.md#claude-code-hook-settings).
 
 The module's options are `enable`, `package`, `remoteHost`, `roots` and `roles`.

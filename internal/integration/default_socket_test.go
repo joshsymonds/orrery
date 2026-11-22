@@ -3,7 +3,6 @@ package integration_test
 import (
 	"bytes"
 	"database/sql"
-	"encoding/json"
 	"errors"
 	"os"
 	"os/exec"
@@ -59,16 +58,15 @@ func killDefaultServer(t *testing.T, env []string) {
 }
 
 // defaultFixture is a tmux server on the default socket under a symlinked TMUX_TMPDIR, with one pane. Its daemon
-// runs with no -L or -S and keeps its store under stateHome.
+// runs with no -L or -S, keeps its store under stateHome and reads the session registry under dir.
 type defaultFixture struct {
 	client       *tmuxctl.Client
 	socket       string // tmux's #{socket_path}, the -S value a frame's $TMUX names
 	pane         string
 	tmuxTmp      string
-	dir          string // holds the daemon socket, the fake claude, the project and the transcript
+	dir          string // holds the daemon socket, the fake claude, the project and the daemon's HOME
 	daemonSocket string
 	project      string
-	transcript   string
 	stateHome    string
 	dbPath       string
 }
@@ -89,7 +87,6 @@ func newDefaultFixture(t *testing.T) *defaultFixture {
 		dir:          dir,
 		daemonSocket: filepath.Join(dir, "orreryd.sock"),
 		project:      filepath.Join(dir, exampleProjectName),
-		transcript:   filepath.Join(dir, "transcript.jsonl"),
 		stateHome:    stateHome,
 		dbPath:       filepath.Join(stateHome, "orrery", "orrery.db"),
 	}
@@ -107,40 +104,20 @@ func newDefaultFixture(t *testing.T) *defaultFixture {
 	if err = os.Mkdir(f.project, 0o700); err != nil {
 		t.Fatalf("make project: %v", err)
 	}
-	if err = os.WriteFile(f.transcript, []byte(exampleTranscript), 0o600); err != nil {
-		t.Fatalf("write transcript: %v", err)
-	}
 	return f
 }
 
 // startDaemon starts orreryd with no -L or -S, on the default socket, waits for its socket to listen, and returns it.
+// HOME is dir, so the daemon's session registry is the test's own and not the developer's.
 func (f *defaultFixture) startDaemon(t *testing.T) *orreryProcess {
 	t.Helper()
 	claude := filepath.Join(f.dir, "fake-claude.sh")
 	writeFile(t, claude, fakeClaudeScript, 0o700)
-	env := defaultSocketEnv(f.tmuxTmp, "XDG_STATE_HOME="+f.stateHome)
+	env := defaultSocketEnv(f.tmuxTmp, "XDG_STATE_HOME="+f.stateHome, "HOME="+f.dir)
 	daemon := startBinary(t, "orreryd", env,
 		"--socket", f.daemonSocket, "--claude", claude, "--summary-model", exampleContextName+"="+exampleModel)
 	daemon.waitForListener(t, f.daemonSocket)
 	return daemon
-}
-
-// hook runs orrery hook for a UserPromptSubmit in the fixture's pane, with $TMUX naming the default socket as a
-// Claude Code hook in that pane would.
-func (f *defaultFixture) hook(t *testing.T) {
-	t.Helper()
-	pid := strings.TrimSpace(defaultTmux(t, defaultSocketEnv(f.tmuxTmp), "display-message", "-p", "#{pid}"))
-	payload, err := json.Marshal(map[string]any{
-		"hook_event_name": "UserPromptSubmit",
-		"session_id":      exampleSessionID,
-		"transcript_path": f.transcript,
-	})
-	if err != nil {
-		t.Fatalf("encode hook: %v", err)
-	}
-	env := defaultSocketEnv(f.tmuxTmp,
-		"TMUX_PANE="+f.pane, "TMUX="+f.socket+","+pid+",0", "ANTHROPIC_BASE_URL="+exampleProxyURL)
-	wantExit(t, runCommand(t, f.project, "orrery", string(payload), env, "--socket", f.daemonSocket, "hook"), 0)
 }
 
 // waitForStartupRow waits for daemon to log that its store is open, then polls until the fixture's pane has an
@@ -209,7 +186,8 @@ func TestDefaultSocketOneRow(t *testing.T) {
 	daemon := f.startDaemon(t)
 	db, id, _ := f.waitForStartupRow(t, daemon)
 
-	f.hook(t)
+	session := startClaudeSession(t, f.client, f.dir, f.pane, f.project)
+	session.submitPrompt(t)
 	waitForState(t, db, id, protocol.StateWorking)
 	// The summary run that working starts writes into f.dir; it must finish before the test's directories are removed.
 	waitForFinishedRuns(t, f.dir, 1)
