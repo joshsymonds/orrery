@@ -184,6 +184,24 @@ async function openInbox(t: TestContext, serve: FakeServe, root: HTMLElement): P
   return stop;
 }
 
+// leaveFirst moves the cursor from the first row, where the page starts, to the second. A list answer that archives the
+// entry the cursor rests on keeps it drawn, so an archive test moves the cursor off the row it archives first.
+async function leaveFirst(root: HTMLElement): Promise<void> {
+  assert.equal(
+    root.querySelector(".row.cur")?.getAttribute("data-key"),
+    `session:${firstId}`,
+    "the cursor starts on the first row",
+  );
+  await act(() => {
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "j", cancelable: true }));
+  });
+  assert.equal(
+    root.querySelector(".row.cur")?.getAttribute("data-key"),
+    `session:${secondId}`,
+    "the cursor moved to the second row",
+  );
+}
+
 // InboxTidyRowTick: with the event stream open, each tick lists the conversations and never the panes. A tick reads
 // Sessions.List and Sessions.ListHeadless once each, so the rows are re-listed while the stream is open.
 test("InboxTidyRowTick: with the event stream open, each tick lists the conversations and no panes", async (t) => {
@@ -230,6 +248,7 @@ test("InboxTidyRowTick: a row whose answer turns archived leaves the inbox on th
   });
   try {
     stop = await openInbox(t, serve, root);
+    await leaveFirst(root);
     serve.setHeadless([headless(firstId, "gatehouse", true), headless(secondId, "orrery", false)]);
     t.mock.timers.tick(pollMs);
     await calm(t, serve);
@@ -257,6 +276,7 @@ for (const failed of ["sessions", "headless"] as const) {
     });
     try {
       stop = await openInbox(t, serve, root);
+      await leaveFirst(root);
       serve.setHeadless([headless(firstId, "gatehouse", true), headless(secondId, "orrery", false)]);
       serve.failing[failed] = true;
       t.mock.timers.tick(pollMs);

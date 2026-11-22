@@ -439,6 +439,9 @@ export function App({
   const seenWatch = useRef<ReturnType<typeof watchSeen>>();
   // The row or ended epic the seen watch last rested on, which its write marks seen.
   const restedSeen = useRef<Row | EpicItem | null>(null);
+  // The conversation row or epic the cursor rested on at the last commit, when the inbox drew it unarchived. A list answer
+  // that archives it leaves it drawn while the cursor rests on it.
+  const drawnOpen = useRef<Row | EpicItem | null>(null);
 
   // The address App reports. lastForm is the form it last reported or applied. cause is the mode the next address change
   // takes: push for an open, a crumb return or the first cursor key after one, replace for a later cursor key. A cause
@@ -501,13 +504,20 @@ export function App({
     .toLowerCase()
     .split(/\s+/)
     .filter((word) => word !== "");
-  const shownRows = rows.map((row) => readAsSeen(withRowMark(row, rowMarks), seenWritten));
+  // The open entry the inbox keeps drawn though a list answer archived it, by key, or "" when none. The inbox reads it as
+  // unarchived; the Archived view lists it as the answer says.
+  const keptKey = heldOpenKey(drawnOpen.current, cursor.key, view, rows, epics, rowMarks, epicMarks);
+  const shownRows = rows.map((row) =>
+    readAsSeen(withRowMark(row.key === keptKey ? { ...row, archived: false } : row, rowMarks), seenWritten),
+  );
   // The epics as the local archive marks leave them, which the views draw in place of the list's.
   const marked = withEpicMarks(epics, epicMarks);
-  // The listed epics, each with the local archive mark applied to its archived field, which the tree places.
+  // The listed epics, each with the local archive mark applied to its archived field, which the tree places. The open
+  // entry a list answer archived reads as unarchived while it is held.
   const treeEpics = [...epics.listed.values()].map((epic) => {
     const mark = epicMarks.get(epic.id);
-    return mark === undefined ? epic : { ...epic, archived: mark };
+    const archived = mark ?? (`epic:${epic.id}` === keptKey ? false : epic.archived);
+    return archived === epic.archived ? epic : { ...epic, archived };
   });
   // The tree of the view before the chips and the search narrow it: each project's conversations, with the epics and
   // contracts that hang under them.
@@ -540,7 +550,8 @@ export function App({
   // collapse holds.
   const collapsed = wide && inboxCollapsed;
   // The Archived head's count: the archived conversations and the archived epics.
-  const archivedCount = shownRows.filter((row) => row.archived).length + marked.archived.length;
+  const archivedCount =
+    shownRows.filter((row) => row.archived).length + marked.archived.filter((item) => item.key !== keptKey).length;
   const flat = treeEntries(projects, folded, endedOpen);
   // The open ⋯ menu's entry, when the list draws it: a menu whose entry is not drawn counts as closed.
   const menuDrawn = menuKey !== null && flat.some((item) => item.key === menuKey);
@@ -653,6 +664,15 @@ export function App({
       setCursor({ key: cursorKey, index: shownIndex });
     }
   }, [cursor, cursorKey, shownIndex]);
+
+  // Each commit records the cursor's row or epic when the inbox drew it unarchived, which the next list answer reads. A
+  // step, a contract, or an entry drawn archived records nothing.
+  useLayoutEffect(() => {
+    drawnOpen.current =
+      cursorItem !== null && (cursorItem.kind === "epic" || isRow(cursorItem)) && !cursorItem.archived
+        ? cursorItem
+        : null;
+  });
 
   // The contract panel shuts once the cursor leaves the entry it opened over, so a return to that entry does not reopen
   // it.
@@ -2772,6 +2792,28 @@ function unseenEnding(epic: EpicItem, listed: Epic | undefined, written: Set<str
 function readAsSeen(row: Row, written: Map<string, number>): Row {
   const writtenAt = written.get(row.key);
   return row.unseen && writtenAt !== undefined && row.changed <= writtenAt ? { ...row, unseen: false } : row;
+}
+
+// heldOpenKey is the key of the open entry the inbox keeps drawn while a list answer archives it. That is the cursor's
+// conversation row or epic, drawn unarchived at the last commit, which the answer now archives with no local archive
+// mark of its own. The cursor's move to another entry ends the hold, as does any other view than the inbox. It is "" when
+// nothing is held.
+function heldOpenKey(
+  drawn: Row | EpicItem | null,
+  cursorKey: string,
+  view: View,
+  rows: readonly Row[],
+  epics: EpicsView,
+  rowMarks: ReadonlyMap<string, boolean>,
+  epicMarks: ReadonlyMap<string, boolean>,
+): string {
+  if (view !== "inbox" || drawn === null || drawn.key !== cursorKey) {
+    return "";
+  }
+  if (drawn.kind === "epic") {
+    return epics.listed.get(drawn.id)?.archived === true && !epicMarks.has(drawn.id) ? drawn.key : "";
+  }
+  return rows.some((row) => row.key === drawn.key && row.archived) && !rowMarks.has(drawn.key) ? drawn.key : "";
 }
 
 // withRowMark applies the archive mark a landed call left to a row. A row with no mark is returned as it is.
