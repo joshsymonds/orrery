@@ -69,7 +69,8 @@ type historyWant struct {
 	item proto.Message
 }
 
-// historyFixtureWant returns the twelve entries historyFixture's epic answers, oldest first.
+// historyFixtureWant returns the eleven entries historyFixture's epic answers, oldest first. The judge step step-a has no
+// entry: its run's entry names it.
 func historyFixtureWant() []historyWant {
 	return []historyWant{
 		{historyAt(0), &orreryv1.EpicTurn{
@@ -80,13 +81,13 @@ func historyFixtureWant() []historyWant {
 			Id: "trig-1", Cause: "synthetic cause one", State: "consumed", Turn: 1, Created: historyAt(0),
 		}},
 		{historyAt(0), &orreryv1.EpicStep{Id: "turn-1", ReadOnly: true, Role: "planner", Started: historyAt(0)}},
-		{historyAt(60), &orreryv1.EpicStep{Id: "step-a", ReadOnly: true, Role: "evidence", Started: historyAt(60)}},
 		{historyAt(60), &orreryv1.EpicStep{
 			Id: "step-b", Task: "one-a", Role: "implementer", Started: historyAt(60),
 		}},
 		{historyAt(60), &orreryv1.EvidenceRun{
 			Id: "run-1", Item: "R1", Phase: "red", Source: "captured", State: "ended", Exit: 1, Verdict: "holds",
 			Passed: true, Revision: "synthetic-rev", LogBytes: 10, Created: historyAt(60), Ended: historyAt(120),
+			JudgeStep: "step-a",
 			Artifacts: []*orreryv1.EvidenceArtifact{{
 				Path: "out/screen.png", State: "kept", Size: 512, MediaType: "image/png",
 			}},
@@ -199,7 +200,7 @@ func TestEpicsHistoryAnswersEveryKindOldestFirst(t *testing.T) {
 	got := epicsHistory(t, client, "repoa/shared", "", 0)
 	requireHistoryEntries(t, got.GetEntries(), historyFixtureWant())
 	if got.GetNext() != "" {
-		t.Errorf("next = %q, want empty: all twelve entries fit one page", got.GetNext())
+		t.Errorf("next = %q, want empty: all eleven entries fit one page", got.GetNext())
 	}
 }
 
@@ -230,7 +231,7 @@ func TestEpicsHistoryPagesWalkEveryEntryOnce(t *testing.T) {
 	}
 	requireHistoryEntries(t, entries, want)
 	if pages != 6 {
-		t.Errorf("pages = %d, want 6 of two entries for twelve entries", pages)
+		t.Errorf("pages = %d, want 6 of two entries for eleven entries", pages)
 	}
 }
 
