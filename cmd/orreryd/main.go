@@ -41,6 +41,8 @@ import (
 	"github.com/joshsymonds/orrery/internal/inapp"
 	"github.com/joshsymonds/orrery/internal/interpret"
 	"github.com/joshsymonds/orrery/internal/notice"
+	"github.com/joshsymonds/orrery/internal/paneregistry"
+	"github.com/joshsymonds/orrery/internal/panewatch"
 	"github.com/joshsymonds/orrery/internal/planner"
 	"github.com/joshsymonds/orrery/internal/protocol"
 	"github.com/joshsymonds/orrery/internal/push"
@@ -561,6 +563,13 @@ func serve(ctx context.Context, opts options, logger *slog.Logger, getenv func(s
 	defer stop()
 	// The watch logs the shutdown's start and writes the goroutine stacks of one that runs long, until serve returns.
 	defer watchShutdown(ctx, logger, stacksDir(getenv), shutdownStacksAfter)()
+	// The pane watch reads the session registry under HOME, so the registry directory is created when it is absent.
+	home := getenv("HOME")
+	if home != "" {
+		if err := os.MkdirAll(registryDir(home), 0o700); err != nil {
+			return fmt.Errorf("session registry: %w", err)
+		}
+	}
 	ln, deskLn, err := listenSockets(opts.socket)
 	if err != nil {
 		return err
@@ -575,7 +584,6 @@ func serve(ctx context.Context, opts options, logger *slog.Logger, getenv func(s
 
 	// The mirror waits for the store that the open below attaches to it.
 	mirror := daemon.NewPendingMirror(time.Now, logger)
-	home := getenv("HOME")
 	hub := newRelay(routeConfig(serveRouteInputs{
 		Host:       host,
 		Now:        time.Now,
@@ -607,6 +615,8 @@ func serve(ctx context.Context, opts options, logger *slog.Logger, getenv func(s
 	var callerWake atomic.Pointer[func()]
 	// The first tidy waits for tidyStart, which closes once the store is open and the sessions have started.
 	tidyStart := make(chan struct{})
+	// The pane watch sends the session registry's pane updates on updates, which Serve applies.
+	updates := make(chan daemon.PaneUpdate)
 	serveDone := serveInBackground(ctx, ln, daemon.Config{
 		Server:        opts.server,
 		DefaultServer: opts.defaultServer,
@@ -622,9 +632,12 @@ func serve(ctx context.Context, opts options, logger *slog.Logger, getenv func(s
 		Logger:    logger,
 		Mirror:    mirror,
 		TidyStart: tidyStart,
+		Updates:   updates,
 		// Each tidy pass retries the notice row writes the store refused, so they are stored once it takes writes.
 		AfterTidy: notices.Retry,
 	})
+	watchCtx, stopWatch := context.WithCancel(ctx)
+	watchDone := startPaneWatch(watchCtx, logger, home, router, updates)
 
 	st := openStore(ctx, getenv, logger, opts.metrics, opts.storeBusy, opts.storeRetryAfter)
 	attachStore(ctx, st, mirror, notices, router)
@@ -641,6 +654,9 @@ func serve(ctx context.Context, opts options, logger *slog.Logger, getenv func(s
 		notifyReady(ctx, logger, opts)
 	}
 	serveErr := awaitServe(ctx, logger, serveDone)
+	// The pane watch stops before the router closes, since its unreadable entries notify the router.
+	stopWatch()
+	shutdownPhase(logger, "pane watch", func() { <-watchDone })
 	shutdownPhase(logger, "metrics listener", opts.stopMetricsListener)
 	sessionErr := shutdownServe(ctx, logger, pages, st, hub, sessions, router, notices)
 	if serveErr != nil {
@@ -770,6 +786,42 @@ func (opts options) stopMetricsListener() {
 func serveInBackground(ctx context.Context, ln net.Listener, cfg daemon.Config) <-chan error {
 	done := make(chan error, 1)
 	go func() { done <- daemon.Serve(ctx, ln, cfg) }()
+	return done
+}
+
+// registryDir returns the session registry directory under home, where Claude Code writes an entry for each session.
+func registryDir(home string) string {
+	return filepath.Join(home, ".claude", "sessions")
+}
+
+// startPaneWatch runs the pane watch of the session registry under home in a goroutine until ctx is done. Run sends
+// each pane update on updates, and each registry or transcript it cannot read goes to router as a notice. The returned
+// channel closes once Run has returned. An error Run returns is logged, except the context's error, which is how every
+// run ends. Without a home there is no registry to watch, so no watch runs and the channel is closed at once.
+func startPaneWatch(
+	ctx context.Context, logger *slog.Logger, home string, router *route.Router, updates chan<- daemon.PaneUpdate,
+) <-chan struct{} {
+	done := make(chan struct{})
+	if home == "" {
+		close(done)
+		return done
+	}
+	go func() {
+		defer close(done)
+		err := panewatch.Run(ctx, panewatch.Config{
+			Dir:     registryDir(home),
+			Home:    home,
+			Proc:    paneregistry.SystemProc(),
+			Updates: updates,
+			Unreadable: func(path string, err error) {
+				router.Notify(ctx, registryNotice(path, err))
+			},
+			Logger: logger,
+		})
+		if err != nil && !errors.Is(err, context.Canceled) {
+			logger.ErrorContext(ctx, "watch panes", "error", err)
+		}
+	}()
 	return done
 }
 
