@@ -35,6 +35,7 @@ import (
 	"github.com/joshsymonds/orrery/internal/help"
 	"github.com/joshsymonds/orrery/internal/hook"
 	"github.com/joshsymonds/orrery/internal/hoststatus"
+	"github.com/joshsymonds/orrery/internal/ledger"
 	"github.com/joshsymonds/orrery/internal/open"
 	"github.com/joshsymonds/orrery/internal/picker"
 	"github.com/joshsymonds/orrery/internal/protocol"
@@ -652,6 +653,11 @@ func runServe(ctx context.Context, opts globals, args []string, getenv func(stri
 	cfg.ReportRead = readReporter(opts.daemonSocket, getenv)
 	cfg.ReportInput = inputReporter(opts.daemonSocket, getenv)
 	cfg.Web = webui.FS()
+	storePath, err := store.Path(getenv)
+	if err != nil {
+		return fmt.Errorf("store: %w", err)
+	}
+	cfg.Ledger = ledger.NewReader(ledger.Path(storePath))
 	handler, err := server.New(cfg)
 	if err != nil {
 		return fmt.Errorf("serve: %w", err)

@@ -28,6 +28,7 @@ import (
 	enginev1 "github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1"
 	enginev1connect "github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1/enginev1connect"
 	"github.com/joshsymonds/orrery/internal/hoststatus"
+	"github.com/joshsymonds/orrery/internal/ledger"
 	"github.com/joshsymonds/orrery/internal/open"
 	"github.com/joshsymonds/orrery/internal/protocol"
 	"github.com/joshsymonds/orrery/internal/push"
@@ -214,6 +215,9 @@ type Config struct {
 	// ContractCommands is orreryd's Contracts client, which Accept, SetAside and Reopen forward the owner's commands
 	// to, or nil, which answers unavailable.
 	ContractCommands enginev1connect.ContractsClient
+	// Ledger is the reader of the LLM ledger the Usage API answers from, or nil, which answers every Usage read
+	// unavailable.
+	Ledger *ledger.Reader
 	// Evidence is orreryd's Evidence client, which Epics.Get reads each Requirement's runs from and Evidence.Artifact
 	// reads artifacts from, or nil for no runs and no artifacts.
 	Evidence EvidenceClient
@@ -306,12 +310,14 @@ func New(cfg Config) (http.Handler, error) {
 	mux.Handle(pushPath, pushService)
 	pickerPath, pickerService := newPickerHandler(cfg.Picker, tokens, cfg.Tmux, now, cfg.HandlerOptions...)
 	mux.Handle(pickerPath, pickerService)
+	usagePath, usageService := newUsageHandler(cfg.Ledger, cfg.Sessions, cfg.HandlerOptions...)
+	mux.Handle(usagePath, usageService)
 	if cfg.Web != nil {
 		mux.Handle("/", newPageHandler(cfg.Web))
 	}
 	connectPaths := []string{
 		sessionsPath, eventsPath, controlPath, epicsPath, evidencePath, stepsPath, poolsPath, noticesPath, panesPath,
-		hostPath, pushPath, pickerPath, presencePath, contractsPath,
+		hostPath, pushPath, pickerPath, presencePath, contractsPath, usagePath,
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if _, ok := allowed[r.Header.Get(HeaderLogin)]; !ok {
