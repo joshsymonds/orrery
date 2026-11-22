@@ -174,5 +174,51 @@ public interface EpicHistoryEntryOrBuilder extends
    */
   io.github.joshsymonds.orrery.gen.orrery.v1.EpicAction getAction();
 
+  /**
+   * <pre>
+   * The entry's line as a sentence built from its stored fields.
+   * </pre>
+   *
+   * <code>string sentence = 10 [json_name = "sentence"];</code>
+   * @return The sentence.
+   */
+  java.lang.String getSentence();
+  /**
+   * <pre>
+   * The entry's line as a sentence built from its stored fields.
+   * </pre>
+   *
+   * <code>string sentence = 10 [json_name = "sentence"];</code>
+   * @return The bytes for sentence.
+   */
+  com.google.protobuf.ByteString
+      getSentenceBytes();
+
+  /**
+   * <pre>
+   * Every run an evidence line groups, the run in evidence included; empty for any other entry.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EvidenceRun runs = 11 [json_name = "runs"];</code>
+   */
+  java.util.List<io.github.joshsymonds.orrery.gen.orrery.v1.EvidenceRun> 
+      getRunsList();
+  /**
+   * <pre>
+   * Every run an evidence line groups, the run in evidence included; empty for any other entry.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EvidenceRun runs = 11 [json_name = "runs"];</code>
+   */
+  io.github.joshsymonds.orrery.gen.orrery.v1.EvidenceRun getRuns(int index);
+  /**
+   * <pre>
+   * Every run an evidence line groups, the run in evidence included; empty for any other entry.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EvidenceRun runs = 11 [json_name = "runs"];</code>
+   */
+  int getRunsCount();
+
   public io.github.joshsymonds.orrery.gen.orrery.v1.EpicHistoryEntry.ItemCase getItemCase();
 }

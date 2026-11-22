@@ -95,6 +95,9 @@ message StartStepRequest {
 
   // The absolute path of the epic's gates file. Empty reads only the project file.
   string gates_file = 15;
+
+  // What the step is for. Optional: a start without one gets a model-written purpose.
+  string purpose = 16;
 }
 
 // StartStepResponse names the started step.
@@ -219,6 +222,9 @@ message Step {
   // Whether the step's latest result is a JSON object whose green_evidence is a string that, trimmed of white space, is
   // not empty and does not start with NOT RUN in any case.
   bool green_evidence = 29;
+
+  // What the step is for, as stored at its start; empty when none is stored.
+  string purpose = 30;
 }
 
 // ReadStepResultRequest asks for part of a step's result.

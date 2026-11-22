@@ -386,4 +386,24 @@ public interface EpicStepOrBuilder extends
    * <code>repeated .orrery.v1.EpicStepVerdict verdicts = 22 [json_name = "verdicts"];</code>
    */
   int getVerdictsCount();
+
+  /**
+   * <pre>
+   * What the step is for, as stored at its start; empty when none is stored yet.
+   * </pre>
+   *
+   * <code>string purpose = 23 [json_name = "purpose"];</code>
+   * @return The purpose.
+   */
+  java.lang.String getPurpose();
+  /**
+   * <pre>
+   * What the step is for, as stored at its start; empty when none is stored yet.
+   * </pre>
+   *
+   * <code>string purpose = 23 [json_name = "purpose"];</code>
+   * @return The bytes for purpose.
+   */
+  com.google.protobuf.ByteString
+      getPurposeBytes();
 }

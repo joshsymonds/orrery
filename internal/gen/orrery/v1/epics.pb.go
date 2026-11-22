@@ -162,7 +162,8 @@ type EpicsGetResponse struct {
 	// A slice per task label among the epic's labelled writing steps, in order of each label's first start. Read-only
 	// steps and steps with no task label add none.
 	Slices []*EpicSlice `protobuf:"bytes,4,rep,name=slices,proto3" json:"slices,omitempty"`
-	// The orreryd epic's requirements in contract order, empty for a record epic.
+	// The orreryd epic's requirements in contract order. A record epic's requirements are the ids its tasks name, in
+	// first-named order, carrying id and state only.
 	Requirements []*EpicRequirement `protobuf:"bytes,5,rep,name=requirements,proto3" json:"requirements,omitempty"`
 	// The orreryd epic's workflow node runs in the engine's order, empty for a record epic.
 	Nodes []*EpicNode `protobuf:"bytes,6,rep,name=nodes,proto3" json:"nodes,omitempty"`
@@ -202,7 +203,11 @@ type EpicsGetResponse struct {
 	PlannerParked bool `protobuf:"varint,20,opt,name=planner_parked,json=plannerParked,proto3" json:"planner_parked,omitempty"`
 	// The orreryd epic a close named as its replacement; empty when its close named none, when it is not closed, and for
 	// a record epic.
-	SupersededBy  string `protobuf:"bytes,21,opt,name=superseded_by,json=supersededBy,proto3" json:"superseded_by,omitempty"`
+	SupersededBy string `protobuf:"bytes,21,opt,name=superseded_by,json=supersededBy,proto3" json:"superseded_by,omitempty"`
+	// The epic's centre state, one of asks, paused, releasing, shipped, ended_short or running.
+	Centre string `protobuf:"bytes,22,opt,name=centre,proto3" json:"centre,omitempty"`
+	// The sentence of the epic's newest history entry; empty when it has none.
+	Newest        string `protobuf:"bytes,23,opt,name=newest,proto3" json:"newest,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -380,6 +385,20 @@ func (x *EpicsGetResponse) GetPlannerParked() bool {
 func (x *EpicsGetResponse) GetSupersededBy() string {
 	if x != nil {
 		return x.SupersededBy
+	}
+	return ""
+}
+
+func (x *EpicsGetResponse) GetCentre() string {
+	if x != nil {
+		return x.Centre
+	}
+	return ""
+}
+
+func (x *EpicsGetResponse) GetNewest() string {
+	if x != nil {
+		return x.Newest
 	}
 	return ""
 }
@@ -1379,7 +1398,11 @@ type EpicHistoryEntry struct {
 	//	*EpicHistoryEntry_Decision
 	//	*EpicHistoryEntry_Tell
 	//	*EpicHistoryEntry_Action
-	Item          isEpicHistoryEntry_Item `protobuf_oneof:"item"`
+	Item isEpicHistoryEntry_Item `protobuf_oneof:"item"`
+	// The entry's line as a sentence built from its stored fields.
+	Sentence string `protobuf:"bytes,10,opt,name=sentence,proto3" json:"sentence,omitempty"`
+	// Every run an evidence line groups, the run in evidence included; empty for any other entry.
+	Runs          []*EvidenceRun `protobuf:"bytes,11,rep,name=runs,proto3" json:"runs,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1494,6 +1517,20 @@ func (x *EpicHistoryEntry) GetAction() *EpicAction {
 		if x, ok := x.Item.(*EpicHistoryEntry_Action); ok {
 			return x.Action
 		}
+	}
+	return nil
+}
+
+func (x *EpicHistoryEntry) GetSentence() string {
+	if x != nil {
+		return x.Sentence
+	}
+	return ""
+}
+
+func (x *EpicHistoryEntry) GetRuns() []*EvidenceRun {
+	if x != nil {
+		return x.Runs
 	}
 	return nil
 }
@@ -4555,7 +4592,9 @@ type EpicStep struct {
 	// The step's summary, redacted.
 	Summary string `protobuf:"bytes,21,opt,name=summary,proto3" json:"summary,omitempty"`
 	// The step's done-judge verdicts.
-	Verdicts      []*EpicStepVerdict `protobuf:"bytes,22,rep,name=verdicts,proto3" json:"verdicts,omitempty"`
+	Verdicts []*EpicStepVerdict `protobuf:"bytes,22,rep,name=verdicts,proto3" json:"verdicts,omitempty"`
+	// What the step is for, as stored at its start; empty when none is stored yet.
+	Purpose       string `protobuf:"bytes,23,opt,name=purpose,proto3" json:"purpose,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -4742,6 +4781,13 @@ func (x *EpicStep) GetVerdicts() []*EpicStepVerdict {
 		return x.Verdicts
 	}
 	return nil
+}
+
+func (x *EpicStep) GetPurpose() string {
+	if x != nil {
+		return x.Purpose
+	}
+	return ""
 }
 
 // EpicStepCheck is one check a step ran in one round.
@@ -5066,7 +5112,9 @@ type EpicRequirement struct {
 	// The evidence runs of the requirement.
 	Runs []*EvidenceRun `protobuf:"bytes,5,rep,name=runs,proto3" json:"runs,omitempty"`
 	// The conclusion the requirement's evidence is judged against.
-	Conclusion    string `protobuf:"bytes,6,opt,name=conclusion,proto3" json:"conclusion,omitempty"`
+	Conclusion string `protobuf:"bytes,6,opt,name=conclusion,proto3" json:"conclusion,omitempty"`
+	// The requirement's state: proven, failed, held, in_flight or not_reached.
+	State         string `protobuf:"bytes,7,opt,name=state,proto3" json:"state,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -5139,6 +5187,13 @@ func (x *EpicRequirement) GetRuns() []*EvidenceRun {
 func (x *EpicRequirement) GetConclusion() string {
 	if x != nil {
 		return x.Conclusion
+	}
+	return ""
+}
+
+func (x *EpicRequirement) GetState() string {
+	if x != nil {
+		return x.State
 	}
 	return ""
 }
@@ -5445,7 +5500,9 @@ type EvidenceRun struct {
 	StderrBytes int64 `protobuf:"varint,16,opt,name=stderr_bytes,json=stderrBytes,proto3" json:"stderr_bytes,omitempty"`
 	// The requirement or task whose evidence the run shows. History sets it; Get leaves it empty, since there each run
 	// sits under its requirement, node or task.
-	Item          string `protobuf:"bytes,17,opt,name=item,proto3" json:"item,omitempty"`
+	Item string `protobuf:"bytes,17,opt,name=item,proto3" json:"item,omitempty"`
+	// The id of the run's judge step; empty when none.
+	JudgeStep     string `protobuf:"bytes,18,opt,name=judge_step,json=judgeStep,proto3" json:"judge_step,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -5595,6 +5652,13 @@ func (x *EvidenceRun) GetStderrBytes() int64 {
 func (x *EvidenceRun) GetItem() string {
 	if x != nil {
 		return x.Item
+	}
+	return ""
+}
+
+func (x *EvidenceRun) GetJudgeStep() string {
+	if x != nil {
+		return x.JudgeStep
 	}
 	return ""
 }
@@ -6150,7 +6214,7 @@ const file_orrery_v1_epics_proto_rawDesc = "" +
 	"\x11EpicsListResponse\x12%\n" +
 	"\x05epics\x18\x01 \x03(\v2\x0f.orrery.v1.EpicR\x05epics\"!\n" +
 	"\x0fEpicsGetRequest\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\tR\x02id\"\xcd\a\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\"\xfd\a\n" +
 	"\x10EpicsGetResponse\x12#\n" +
 	"\x04epic\x18\x01 \x01(\v2\x0f.orrery.v1.EpicR\x04epic\x12)\n" +
 	"\x05tasks\x18\x02 \x03(\v2\x13.orrery.v1.EpicTaskR\x05tasks\x12)\n" +
@@ -6176,7 +6240,9 @@ const file_orrery_v1_epics_proto_rawDesc = "" +
 	"\rrelease_steps\x18\x12 \x03(\v2\x1b.orrery.v1.EpicReleaseProofR\freleaseSteps\x12-\n" +
 	"\x06report\x18\x13 \x01(\v2\x15.orrery.v1.EpicReportR\x06report\x12%\n" +
 	"\x0eplanner_parked\x18\x14 \x01(\bR\rplannerParked\x12#\n" +
-	"\rsuperseded_by\x18\x15 \x01(\tR\fsupersededBy\"\x85\x01\n" +
+	"\rsuperseded_by\x18\x15 \x01(\tR\fsupersededBy\x12\x16\n" +
+	"\x06centre\x18\x16 \x01(\tR\x06centre\x12\x16\n" +
+	"\x06newest\x18\x17 \x01(\tR\x06newest\"\x85\x01\n" +
 	"\vEpicSession\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04pane\x18\x02 \x01(\tR\x04pane\x12\x14\n" +
@@ -6255,7 +6321,7 @@ const file_orrery_v1_epics_proto_rawDesc = "" +
 	"\x05limit\x18\x03 \x01(\x05R\x05limit\"a\n" +
 	"\x14EpicsHistoryResponse\x125\n" +
 	"\aentries\x18\x01 \x03(\v2\x1b.orrery.v1.EpicHistoryEntryR\aentries\x12\x12\n" +
-	"\x04next\x18\x02 \x01(\tR\x04next\"\x99\x03\n" +
+	"\x04next\x18\x02 \x01(\tR\x04next\"\xe1\x03\n" +
 	"\x10EpicHistoryEntry\x12\x12\n" +
 	"\x04time\x18\x01 \x01(\x03R\x04time\x12\x16\n" +
 	"\x06cursor\x18\x02 \x01(\tR\x06cursor\x12)\n" +
@@ -6265,7 +6331,10 @@ const file_orrery_v1_epics_proto_rawDesc = "" +
 	"\bevidence\x18\x06 \x01(\v2\x16.orrery.v1.EvidenceRunH\x00R\bevidence\x125\n" +
 	"\bdecision\x18\a \x01(\v2\x17.orrery.v1.EpicDecisionH\x00R\bdecision\x12)\n" +
 	"\x04tell\x18\b \x01(\v2\x13.orrery.v1.EpicTellH\x00R\x04tell\x12/\n" +
-	"\x06action\x18\t \x01(\v2\x15.orrery.v1.EpicActionH\x00R\x06actionB\x06\n" +
+	"\x06action\x18\t \x01(\v2\x15.orrery.v1.EpicActionH\x00R\x06action\x12\x1a\n" +
+	"\bsentence\x18\n" +
+	" \x01(\tR\bsentence\x12*\n" +
+	"\x04runs\x18\v \x03(\v2\x16.orrery.v1.EvidenceRunR\x04runsB\x06\n" +
 	"\x04item\"\x94\x01\n" +
 	"\n" +
 	"EpicAction\x12\x10\n" +
@@ -6474,7 +6543,7 @@ const file_orrery_v1_epics_proto_rawDesc = "" +
 	"\ashipped\x18\x02 \x03(\tR\ashipped\x12\x1f\n" +
 	"\vnot_shipped\x18\x03 \x03(\tR\n" +
 	"notShipped\x12\x10\n" +
-	"\x03why\x18\x04 \x01(\tR\x03why\"\xe8\x04\n" +
+	"\x03why\x18\x04 \x01(\tR\x03why\"\x82\x05\n" +
 	"\bEpicStep\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04task\x18\x02 \x01(\tR\x04task\x12\x14\n" +
@@ -6500,7 +6569,8 @@ const file_orrery_v1_epics_proto_rawDesc = "" +
 	"\tread_only\x18\x13 \x01(\bR\breadOnly\x12\x12\n" +
 	"\x04role\x18\x14 \x01(\tR\x04role\x12\x18\n" +
 	"\asummary\x18\x15 \x01(\tR\asummary\x126\n" +
-	"\bverdicts\x18\x16 \x03(\v2\x1a.orrery.v1.EpicStepVerdictR\bverdicts\"\xd3\x01\n" +
+	"\bverdicts\x18\x16 \x03(\v2\x1a.orrery.v1.EpicStepVerdictR\bverdicts\x12\x18\n" +
+	"\apurpose\x18\x17 \x01(\tR\apurpose\"\xd3\x01\n" +
 	"\rEpicStepCheck\x12\x14\n" +
 	"\x05round\x18\x01 \x01(\rR\x05round\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x0e\n" +
@@ -6528,7 +6598,7 @@ const file_orrery_v1_epics_proto_rawDesc = "" +
 	"\x02at\x18\b \x01(\x05R\x02at\x12\x12\n" +
 	"\x04held\x18\t \x01(\bR\x04held\x12\x19\n" +
 	"\berror_at\x18\n" +
-	" \x01(\x05R\aerrorAt\"\xb1\x01\n" +
+	" \x01(\x05R\aerrorAt\"\xc7\x01\n" +
 	"\x0fEpicRequirement\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04text\x18\x02 \x01(\tR\x04text\x12\x1a\n" +
@@ -6537,7 +6607,8 @@ const file_orrery_v1_epics_proto_rawDesc = "" +
 	"\x04runs\x18\x05 \x03(\v2\x16.orrery.v1.EvidenceRunR\x04runs\x12\x1e\n" +
 	"\n" +
 	"conclusion\x18\x06 \x01(\tR\n" +
-	"conclusion\"\x9f\x01\n" +
+	"conclusion\x12\x14\n" +
+	"\x05state\x18\a \x01(\tR\x05state\"\x9f\x01\n" +
 	"\rEpicNodeCheck\x12\x14\n" +
 	"\x05state\x18\x01 \x01(\tR\x05state\x12\x12\n" +
 	"\x04exit\x18\x02 \x01(\x05R\x04exit\x12\x1b\n" +
@@ -6562,7 +6633,7 @@ const file_orrery_v1_epics_proto_rawDesc = "" +
 	"\x05tasks\x18\f \x03(\x03R\x05tasks\x12*\n" +
 	"\x04runs\x18\r \x03(\v2\x16.orrery.v1.EvidenceRunR\x04runs\x12.\n" +
 	"\x05check\x18\x0e \x01(\v2\x18.orrery.v1.EpicNodeCheckR\x05check\x12\x12\n" +
-	"\x04step\x18\x0f \x01(\tR\x04step\"\xe5\x03\n" +
+	"\x04step\x18\x0f \x01(\tR\x04step\"\x84\x04\n" +
 	"\vEvidenceRun\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x14\n" +
 	"\x05phase\x18\x02 \x01(\tR\x05phase\x12\x16\n" +
@@ -6581,7 +6652,9 @@ const file_orrery_v1_epics_proto_rawDesc = "" +
 	"\tlog_bytes\x18\x0e \x01(\x03R\blogBytes\x129\n" +
 	"\tartifacts\x18\x0f \x03(\v2\x1b.orrery.v1.EvidenceArtifactR\tartifacts\x12!\n" +
 	"\fstderr_bytes\x18\x10 \x01(\x03R\vstderrBytes\x12\x12\n" +
-	"\x04item\x18\x11 \x01(\tR\x04item\"o\n" +
+	"\x04item\x18\x11 \x01(\tR\x04item\x12\x1d\n" +
+	"\n" +
+	"judge_step\x18\x12 \x01(\tR\tjudgeStep\"o\n" +
 	"\x10EvidenceArtifact\x12\x12\n" +
 	"\x04path\x18\x01 \x01(\tR\x04path\x12\x14\n" +
 	"\x05state\x18\x02 \x01(\tR\x05state\x12\x12\n" +
@@ -6763,66 +6836,67 @@ var file_orrery_v1_epics_proto_depIdxs = []int32{
 	20, // 28: orrery.v1.EpicHistoryEntry.decision:type_name -> orrery.v1.EpicDecision
 	21, // 29: orrery.v1.EpicHistoryEntry.tell:type_name -> orrery.v1.EpicTell
 	17, // 30: orrery.v1.EpicHistoryEntry.action:type_name -> orrery.v1.EpicAction
-	20, // 31: orrery.v1.EpicsAnswerResponse.decision:type_name -> orrery.v1.EpicDecision
-	59, // 32: orrery.v1.Epic.running_steps:type_name -> orrery.v1.EpicStep
-	66, // 33: orrery.v1.EpicBuildTask.red:type_name -> orrery.v1.EvidenceRun
-	66, // 34: orrery.v1.EpicBuildTask.green:type_name -> orrery.v1.EvidenceRun
-	51, // 35: orrery.v1.EpicBuildTask.reviews:type_name -> orrery.v1.EpicTaskReview
-	52, // 36: orrery.v1.EpicTaskReview.findings:type_name -> orrery.v1.EpicTaskFinding
-	55, // 37: orrery.v1.EpicLedgerFinding.closures:type_name -> orrery.v1.EpicClosure
-	60, // 38: orrery.v1.EpicStep.checks:type_name -> orrery.v1.EpicStepCheck
-	61, // 39: orrery.v1.EpicStep.verdicts:type_name -> orrery.v1.EpicStepVerdict
-	66, // 40: orrery.v1.EpicRequirement.runs:type_name -> orrery.v1.EvidenceRun
-	66, // 41: orrery.v1.EpicNode.runs:type_name -> orrery.v1.EvidenceRun
-	64, // 42: orrery.v1.EpicNode.check:type_name -> orrery.v1.EpicNodeCheck
-	67, // 43: orrery.v1.EvidenceRun.artifacts:type_name -> orrery.v1.EvidenceArtifact
-	0,  // 44: orrery.v1.Epics.List:input_type -> orrery.v1.EpicsListRequest
-	2,  // 45: orrery.v1.Epics.Get:input_type -> orrery.v1.EpicsGetRequest
-	14, // 46: orrery.v1.Epics.History:input_type -> orrery.v1.EpicsHistoryRequest
-	26, // 47: orrery.v1.Epics.Pause:input_type -> orrery.v1.EpicsPauseRequest
-	28, // 48: orrery.v1.Epics.Resume:input_type -> orrery.v1.EpicsResumeRequest
-	30, // 49: orrery.v1.Epics.Stop:input_type -> orrery.v1.EpicsStopRequest
-	32, // 50: orrery.v1.Epics.Retry:input_type -> orrery.v1.EpicsRetryRequest
-	34, // 51: orrery.v1.Epics.Kick:input_type -> orrery.v1.EpicsKickRequest
-	36, // 52: orrery.v1.Epics.Answer:input_type -> orrery.v1.EpicsAnswerRequest
-	38, // 53: orrery.v1.Epics.Seen:input_type -> orrery.v1.EpicsSeenRequest
-	40, // 54: orrery.v1.Epics.Archive:input_type -> orrery.v1.EpicsArchiveRequest
-	42, // 55: orrery.v1.Epics.Unarchive:input_type -> orrery.v1.EpicsUnarchiveRequest
-	44, // 56: orrery.v1.Epics.Release:input_type -> orrery.v1.EpicsReleaseRequest
-	46, // 57: orrery.v1.Epics.Close:input_type -> orrery.v1.EpicsCloseRequest
-	22, // 58: orrery.v1.Epics.Move:input_type -> orrery.v1.EpicsMoveRequest
-	24, // 59: orrery.v1.Epics.Continue:input_type -> orrery.v1.EpicsContinueRequest
-	70, // 60: orrery.v1.Steps.Hold:input_type -> orrery.v1.StepsHoldRequest
-	72, // 61: orrery.v1.Steps.Nudge:input_type -> orrery.v1.StepsNudgeRequest
-	74, // 62: orrery.v1.Steps.Stop:input_type -> orrery.v1.StepsStopRequest
-	76, // 63: orrery.v1.Steps.Result:input_type -> orrery.v1.StepsResultRequest
-	68, // 64: orrery.v1.Evidence.Artifact:input_type -> orrery.v1.EvidenceArtifactRequest
-	1,  // 65: orrery.v1.Epics.List:output_type -> orrery.v1.EpicsListResponse
-	3,  // 66: orrery.v1.Epics.Get:output_type -> orrery.v1.EpicsGetResponse
-	15, // 67: orrery.v1.Epics.History:output_type -> orrery.v1.EpicsHistoryResponse
-	27, // 68: orrery.v1.Epics.Pause:output_type -> orrery.v1.EpicsPauseResponse
-	29, // 69: orrery.v1.Epics.Resume:output_type -> orrery.v1.EpicsResumeResponse
-	31, // 70: orrery.v1.Epics.Stop:output_type -> orrery.v1.EpicsStopResponse
-	33, // 71: orrery.v1.Epics.Retry:output_type -> orrery.v1.EpicsRetryResponse
-	35, // 72: orrery.v1.Epics.Kick:output_type -> orrery.v1.EpicsKickResponse
-	37, // 73: orrery.v1.Epics.Answer:output_type -> orrery.v1.EpicsAnswerResponse
-	39, // 74: orrery.v1.Epics.Seen:output_type -> orrery.v1.EpicsSeenResponse
-	41, // 75: orrery.v1.Epics.Archive:output_type -> orrery.v1.EpicsArchiveResponse
-	43, // 76: orrery.v1.Epics.Unarchive:output_type -> orrery.v1.EpicsUnarchiveResponse
-	45, // 77: orrery.v1.Epics.Release:output_type -> orrery.v1.EpicsReleaseResponse
-	47, // 78: orrery.v1.Epics.Close:output_type -> orrery.v1.EpicsCloseResponse
-	23, // 79: orrery.v1.Epics.Move:output_type -> orrery.v1.EpicsMoveResponse
-	25, // 80: orrery.v1.Epics.Continue:output_type -> orrery.v1.EpicsContinueResponse
-	71, // 81: orrery.v1.Steps.Hold:output_type -> orrery.v1.StepsHoldResponse
-	73, // 82: orrery.v1.Steps.Nudge:output_type -> orrery.v1.StepsNudgeResponse
-	75, // 83: orrery.v1.Steps.Stop:output_type -> orrery.v1.StepsStopResponse
-	77, // 84: orrery.v1.Steps.Result:output_type -> orrery.v1.StepsResultResponse
-	69, // 85: orrery.v1.Evidence.Artifact:output_type -> orrery.v1.EvidenceArtifactResponse
-	65, // [65:86] is the sub-list for method output_type
-	44, // [44:65] is the sub-list for method input_type
-	44, // [44:44] is the sub-list for extension type_name
-	44, // [44:44] is the sub-list for extension extendee
-	0,  // [0:44] is the sub-list for field type_name
+	66, // 31: orrery.v1.EpicHistoryEntry.runs:type_name -> orrery.v1.EvidenceRun
+	20, // 32: orrery.v1.EpicsAnswerResponse.decision:type_name -> orrery.v1.EpicDecision
+	59, // 33: orrery.v1.Epic.running_steps:type_name -> orrery.v1.EpicStep
+	66, // 34: orrery.v1.EpicBuildTask.red:type_name -> orrery.v1.EvidenceRun
+	66, // 35: orrery.v1.EpicBuildTask.green:type_name -> orrery.v1.EvidenceRun
+	51, // 36: orrery.v1.EpicBuildTask.reviews:type_name -> orrery.v1.EpicTaskReview
+	52, // 37: orrery.v1.EpicTaskReview.findings:type_name -> orrery.v1.EpicTaskFinding
+	55, // 38: orrery.v1.EpicLedgerFinding.closures:type_name -> orrery.v1.EpicClosure
+	60, // 39: orrery.v1.EpicStep.checks:type_name -> orrery.v1.EpicStepCheck
+	61, // 40: orrery.v1.EpicStep.verdicts:type_name -> orrery.v1.EpicStepVerdict
+	66, // 41: orrery.v1.EpicRequirement.runs:type_name -> orrery.v1.EvidenceRun
+	66, // 42: orrery.v1.EpicNode.runs:type_name -> orrery.v1.EvidenceRun
+	64, // 43: orrery.v1.EpicNode.check:type_name -> orrery.v1.EpicNodeCheck
+	67, // 44: orrery.v1.EvidenceRun.artifacts:type_name -> orrery.v1.EvidenceArtifact
+	0,  // 45: orrery.v1.Epics.List:input_type -> orrery.v1.EpicsListRequest
+	2,  // 46: orrery.v1.Epics.Get:input_type -> orrery.v1.EpicsGetRequest
+	14, // 47: orrery.v1.Epics.History:input_type -> orrery.v1.EpicsHistoryRequest
+	26, // 48: orrery.v1.Epics.Pause:input_type -> orrery.v1.EpicsPauseRequest
+	28, // 49: orrery.v1.Epics.Resume:input_type -> orrery.v1.EpicsResumeRequest
+	30, // 50: orrery.v1.Epics.Stop:input_type -> orrery.v1.EpicsStopRequest
+	32, // 51: orrery.v1.Epics.Retry:input_type -> orrery.v1.EpicsRetryRequest
+	34, // 52: orrery.v1.Epics.Kick:input_type -> orrery.v1.EpicsKickRequest
+	36, // 53: orrery.v1.Epics.Answer:input_type -> orrery.v1.EpicsAnswerRequest
+	38, // 54: orrery.v1.Epics.Seen:input_type -> orrery.v1.EpicsSeenRequest
+	40, // 55: orrery.v1.Epics.Archive:input_type -> orrery.v1.EpicsArchiveRequest
+	42, // 56: orrery.v1.Epics.Unarchive:input_type -> orrery.v1.EpicsUnarchiveRequest
+	44, // 57: orrery.v1.Epics.Release:input_type -> orrery.v1.EpicsReleaseRequest
+	46, // 58: orrery.v1.Epics.Close:input_type -> orrery.v1.EpicsCloseRequest
+	22, // 59: orrery.v1.Epics.Move:input_type -> orrery.v1.EpicsMoveRequest
+	24, // 60: orrery.v1.Epics.Continue:input_type -> orrery.v1.EpicsContinueRequest
+	70, // 61: orrery.v1.Steps.Hold:input_type -> orrery.v1.StepsHoldRequest
+	72, // 62: orrery.v1.Steps.Nudge:input_type -> orrery.v1.StepsNudgeRequest
+	74, // 63: orrery.v1.Steps.Stop:input_type -> orrery.v1.StepsStopRequest
+	76, // 64: orrery.v1.Steps.Result:input_type -> orrery.v1.StepsResultRequest
+	68, // 65: orrery.v1.Evidence.Artifact:input_type -> orrery.v1.EvidenceArtifactRequest
+	1,  // 66: orrery.v1.Epics.List:output_type -> orrery.v1.EpicsListResponse
+	3,  // 67: orrery.v1.Epics.Get:output_type -> orrery.v1.EpicsGetResponse
+	15, // 68: orrery.v1.Epics.History:output_type -> orrery.v1.EpicsHistoryResponse
+	27, // 69: orrery.v1.Epics.Pause:output_type -> orrery.v1.EpicsPauseResponse
+	29, // 70: orrery.v1.Epics.Resume:output_type -> orrery.v1.EpicsResumeResponse
+	31, // 71: orrery.v1.Epics.Stop:output_type -> orrery.v1.EpicsStopResponse
+	33, // 72: orrery.v1.Epics.Retry:output_type -> orrery.v1.EpicsRetryResponse
+	35, // 73: orrery.v1.Epics.Kick:output_type -> orrery.v1.EpicsKickResponse
+	37, // 74: orrery.v1.Epics.Answer:output_type -> orrery.v1.EpicsAnswerResponse
+	39, // 75: orrery.v1.Epics.Seen:output_type -> orrery.v1.EpicsSeenResponse
+	41, // 76: orrery.v1.Epics.Archive:output_type -> orrery.v1.EpicsArchiveResponse
+	43, // 77: orrery.v1.Epics.Unarchive:output_type -> orrery.v1.EpicsUnarchiveResponse
+	45, // 78: orrery.v1.Epics.Release:output_type -> orrery.v1.EpicsReleaseResponse
+	47, // 79: orrery.v1.Epics.Close:output_type -> orrery.v1.EpicsCloseResponse
+	23, // 80: orrery.v1.Epics.Move:output_type -> orrery.v1.EpicsMoveResponse
+	25, // 81: orrery.v1.Epics.Continue:output_type -> orrery.v1.EpicsContinueResponse
+	71, // 82: orrery.v1.Steps.Hold:output_type -> orrery.v1.StepsHoldResponse
+	73, // 83: orrery.v1.Steps.Nudge:output_type -> orrery.v1.StepsNudgeResponse
+	75, // 84: orrery.v1.Steps.Stop:output_type -> orrery.v1.StepsStopResponse
+	77, // 85: orrery.v1.Steps.Result:output_type -> orrery.v1.StepsResultResponse
+	69, // 86: orrery.v1.Evidence.Artifact:output_type -> orrery.v1.EvidenceArtifactResponse
+	66, // [66:87] is the sub-list for method output_type
+	45, // [45:66] is the sub-list for method input_type
+	45, // [45:45] is the sub-list for extension type_name
+	45, // [45:45] is the sub-list for extension extendee
+	0,  // [0:45] is the sub-list for field type_name
 }
 
 func init() { file_orrery_v1_epics_proto_init() }

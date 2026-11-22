@@ -35,6 +35,8 @@ public  final class EpicsGetResponse extends
     repository_ = "";
     releaseSteps_ = emptyProtobufList();
     supersededBy_ = "";
+    centre_ = "";
+    newest_ = "";
   }
   private int bitField0_;
   public static final int EPIC_FIELD_NUMBER = 1;
@@ -533,7 +535,8 @@ public  final class EpicsGetResponse extends
   private com.google.protobuf.Internal.ProtobufList<io.github.joshsymonds.orrery.gen.orrery.v1.EpicRequirement> requirements_;
   /**
    * <pre>
-   * The orreryd epic's requirements in contract order, empty for a record epic.
+   * The orreryd epic's requirements in contract order. A record epic's requirements are the ids its tasks name, in
+   * first-named order, carrying id and state only.
    * </pre>
    *
    * <code>repeated .orrery.v1.EpicRequirement requirements = 5 [json_name = "requirements"];</code>
@@ -544,7 +547,8 @@ public  final class EpicsGetResponse extends
   }
   /**
    * <pre>
-   * The orreryd epic's requirements in contract order, empty for a record epic.
+   * The orreryd epic's requirements in contract order. A record epic's requirements are the ids its tasks name, in
+   * first-named order, carrying id and state only.
    * </pre>
    *
    * <code>repeated .orrery.v1.EpicRequirement requirements = 5 [json_name = "requirements"];</code>
@@ -555,7 +559,8 @@ public  final class EpicsGetResponse extends
   }
   /**
    * <pre>
-   * The orreryd epic's requirements in contract order, empty for a record epic.
+   * The orreryd epic's requirements in contract order. A record epic's requirements are the ids its tasks name, in
+   * first-named order, carrying id and state only.
    * </pre>
    *
    * <code>repeated .orrery.v1.EpicRequirement requirements = 5 [json_name = "requirements"];</code>
@@ -566,7 +571,8 @@ public  final class EpicsGetResponse extends
   }
   /**
    * <pre>
-   * The orreryd epic's requirements in contract order, empty for a record epic.
+   * The orreryd epic's requirements in contract order. A record epic's requirements are the ids its tasks name, in
+   * first-named order, carrying id and state only.
    * </pre>
    *
    * <code>repeated .orrery.v1.EpicRequirement requirements = 5 [json_name = "requirements"];</code>
@@ -577,7 +583,8 @@ public  final class EpicsGetResponse extends
   }
   /**
    * <pre>
-   * The orreryd epic's requirements in contract order, empty for a record epic.
+   * The orreryd epic's requirements in contract order. A record epic's requirements are the ids its tasks name, in
+   * first-named order, carrying id and state only.
    * </pre>
    *
    * <code>repeated .orrery.v1.EpicRequirement requirements = 5 [json_name = "requirements"];</code>
@@ -596,7 +603,8 @@ public  final class EpicsGetResponse extends
 
   /**
    * <pre>
-   * The orreryd epic's requirements in contract order, empty for a record epic.
+   * The orreryd epic's requirements in contract order. A record epic's requirements are the ids its tasks name, in
+   * first-named order, carrying id and state only.
    * </pre>
    *
    * <code>repeated .orrery.v1.EpicRequirement requirements = 5 [json_name = "requirements"];</code>
@@ -609,7 +617,8 @@ public  final class EpicsGetResponse extends
   }
   /**
    * <pre>
-   * The orreryd epic's requirements in contract order, empty for a record epic.
+   * The orreryd epic's requirements in contract order. A record epic's requirements are the ids its tasks name, in
+   * first-named order, carrying id and state only.
    * </pre>
    *
    * <code>repeated .orrery.v1.EpicRequirement requirements = 5 [json_name = "requirements"];</code>
@@ -621,7 +630,8 @@ public  final class EpicsGetResponse extends
   }
   /**
    * <pre>
-   * The orreryd epic's requirements in contract order, empty for a record epic.
+   * The orreryd epic's requirements in contract order. A record epic's requirements are the ids its tasks name, in
+   * first-named order, carrying id and state only.
    * </pre>
    *
    * <code>repeated .orrery.v1.EpicRequirement requirements = 5 [json_name = "requirements"];</code>
@@ -634,7 +644,8 @@ public  final class EpicsGetResponse extends
   }
   /**
    * <pre>
-   * The orreryd epic's requirements in contract order, empty for a record epic.
+   * The orreryd epic's requirements in contract order. A record epic's requirements are the ids its tasks name, in
+   * first-named order, carrying id and state only.
    * </pre>
    *
    * <code>repeated .orrery.v1.EpicRequirement requirements = 5 [json_name = "requirements"];</code>
@@ -647,7 +658,8 @@ public  final class EpicsGetResponse extends
   }
   /**
    * <pre>
-   * The orreryd epic's requirements in contract order, empty for a record epic.
+   * The orreryd epic's requirements in contract order. A record epic's requirements are the ids its tasks name, in
+   * first-named order, carrying id and state only.
    * </pre>
    *
    * <code>repeated .orrery.v1.EpicRequirement requirements = 5 [json_name = "requirements"];</code>
@@ -657,7 +669,8 @@ public  final class EpicsGetResponse extends
   }
   /**
    * <pre>
-   * The orreryd epic's requirements in contract order, empty for a record epic.
+   * The orreryd epic's requirements in contract order. A record epic's requirements are the ids its tasks name, in
+   * first-named order, carrying id and state only.
    * </pre>
    *
    * <code>repeated .orrery.v1.EpicRequirement requirements = 5 [json_name = "requirements"];</code>
@@ -2300,6 +2313,140 @@ public  final class EpicsGetResponse extends
 
   }
 
+  public static final int CENTRE_FIELD_NUMBER = 22;
+  private java.lang.String centre_;
+  /**
+   * <pre>
+   * The epic's centre state, one of asks, paused, releasing, shipped, ended_short or running.
+   * </pre>
+   *
+   * <code>string centre = 22 [json_name = "centre"];</code>
+   * @return The centre.
+   */
+  @java.lang.Override
+  public java.lang.String getCentre() {
+    return centre_;
+  }
+  /**
+   * <pre>
+   * The epic's centre state, one of asks, paused, releasing, shipped, ended_short or running.
+   * </pre>
+   *
+   * <code>string centre = 22 [json_name = "centre"];</code>
+   * @return The bytes for centre.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString
+      getCentreBytes() {
+    return com.google.protobuf.ByteString.copyFromUtf8(centre_);
+  }
+  /**
+   * <pre>
+   * The epic's centre state, one of asks, paused, releasing, shipped, ended_short or running.
+   * </pre>
+   *
+   * <code>string centre = 22 [json_name = "centre"];</code>
+   * @param value The centre to set.
+   */
+  private void setCentre(
+      java.lang.String value) {
+    java.util.Objects.requireNonNull(value);
+
+    centre_ = value;
+  }
+  /**
+   * <pre>
+   * The epic's centre state, one of asks, paused, releasing, shipped, ended_short or running.
+   * </pre>
+   *
+   * <code>string centre = 22 [json_name = "centre"];</code>
+   */
+  private void clearCentre() {
+
+    centre_ = getDefaultInstance().getCentre();
+  }
+  /**
+   * <pre>
+   * The epic's centre state, one of asks, paused, releasing, shipped, ended_short or running.
+   * </pre>
+   *
+   * <code>string centre = 22 [json_name = "centre"];</code>
+   * @param value The bytes for centre to set.
+   */
+  private void setCentreBytes(
+      com.google.protobuf.ByteString value) {
+    checkByteStringIsUtf8(value);
+    centre_ = value.toStringUtf8();
+
+  }
+
+  public static final int NEWEST_FIELD_NUMBER = 23;
+  private java.lang.String newest_;
+  /**
+   * <pre>
+   * The sentence of the epic's newest history entry; empty when it has none.
+   * </pre>
+   *
+   * <code>string newest = 23 [json_name = "newest"];</code>
+   * @return The newest.
+   */
+  @java.lang.Override
+  public java.lang.String getNewest() {
+    return newest_;
+  }
+  /**
+   * <pre>
+   * The sentence of the epic's newest history entry; empty when it has none.
+   * </pre>
+   *
+   * <code>string newest = 23 [json_name = "newest"];</code>
+   * @return The bytes for newest.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString
+      getNewestBytes() {
+    return com.google.protobuf.ByteString.copyFromUtf8(newest_);
+  }
+  /**
+   * <pre>
+   * The sentence of the epic's newest history entry; empty when it has none.
+   * </pre>
+   *
+   * <code>string newest = 23 [json_name = "newest"];</code>
+   * @param value The newest to set.
+   */
+  private void setNewest(
+      java.lang.String value) {
+    java.util.Objects.requireNonNull(value);
+
+    newest_ = value;
+  }
+  /**
+   * <pre>
+   * The sentence of the epic's newest history entry; empty when it has none.
+   * </pre>
+   *
+   * <code>string newest = 23 [json_name = "newest"];</code>
+   */
+  private void clearNewest() {
+
+    newest_ = getDefaultInstance().getNewest();
+  }
+  /**
+   * <pre>
+   * The sentence of the epic's newest history entry; empty when it has none.
+   * </pre>
+   *
+   * <code>string newest = 23 [json_name = "newest"];</code>
+   * @param value The bytes for newest to set.
+   */
+  private void setNewestBytes(
+      com.google.protobuf.ByteString value) {
+    checkByteStringIsUtf8(value);
+    newest_ = value.toStringUtf8();
+
+  }
+
   public static io.github.joshsymonds.orrery.gen.orrery.v1.EpicsGetResponse parseFrom(
       java.nio.ByteBuffer data)
       throws com.google.protobuf.InvalidProtocolBufferException {
@@ -2936,7 +3083,8 @@ public  final class EpicsGetResponse extends
 
     /**
      * <pre>
-     * The orreryd epic's requirements in contract order, empty for a record epic.
+     * The orreryd epic's requirements in contract order. A record epic's requirements are the ids its tasks name, in
+     * first-named order, carrying id and state only.
      * </pre>
      *
      * <code>repeated .orrery.v1.EpicRequirement requirements = 5 [json_name = "requirements"];</code>
@@ -2948,7 +3096,8 @@ public  final class EpicsGetResponse extends
     }
     /**
      * <pre>
-     * The orreryd epic's requirements in contract order, empty for a record epic.
+     * The orreryd epic's requirements in contract order. A record epic's requirements are the ids its tasks name, in
+     * first-named order, carrying id and state only.
      * </pre>
      *
      * <code>repeated .orrery.v1.EpicRequirement requirements = 5 [json_name = "requirements"];</code>
@@ -2958,7 +3107,8 @@ public  final class EpicsGetResponse extends
       return instance.getRequirementsCount();
     }/**
      * <pre>
-     * The orreryd epic's requirements in contract order, empty for a record epic.
+     * The orreryd epic's requirements in contract order. A record epic's requirements are the ids its tasks name, in
+     * first-named order, carrying id and state only.
      * </pre>
      *
      * <code>repeated .orrery.v1.EpicRequirement requirements = 5 [json_name = "requirements"];</code>
@@ -2969,7 +3119,8 @@ public  final class EpicsGetResponse extends
     }
     /**
      * <pre>
-     * The orreryd epic's requirements in contract order, empty for a record epic.
+     * The orreryd epic's requirements in contract order. A record epic's requirements are the ids its tasks name, in
+     * first-named order, carrying id and state only.
      * </pre>
      *
      * <code>repeated .orrery.v1.EpicRequirement requirements = 5 [json_name = "requirements"];</code>
@@ -2982,7 +3133,8 @@ public  final class EpicsGetResponse extends
     }
     /**
      * <pre>
-     * The orreryd epic's requirements in contract order, empty for a record epic.
+     * The orreryd epic's requirements in contract order. A record epic's requirements are the ids its tasks name, in
+     * first-named order, carrying id and state only.
      * </pre>
      *
      * <code>repeated .orrery.v1.EpicRequirement requirements = 5 [json_name = "requirements"];</code>
@@ -2996,7 +3148,8 @@ public  final class EpicsGetResponse extends
     }
     /**
      * <pre>
-     * The orreryd epic's requirements in contract order, empty for a record epic.
+     * The orreryd epic's requirements in contract order. A record epic's requirements are the ids its tasks name, in
+     * first-named order, carrying id and state only.
      * </pre>
      *
      * <code>repeated .orrery.v1.EpicRequirement requirements = 5 [json_name = "requirements"];</code>
@@ -3008,7 +3161,8 @@ public  final class EpicsGetResponse extends
     }
     /**
      * <pre>
-     * The orreryd epic's requirements in contract order, empty for a record epic.
+     * The orreryd epic's requirements in contract order. A record epic's requirements are the ids its tasks name, in
+     * first-named order, carrying id and state only.
      * </pre>
      *
      * <code>repeated .orrery.v1.EpicRequirement requirements = 5 [json_name = "requirements"];</code>
@@ -3021,7 +3175,8 @@ public  final class EpicsGetResponse extends
     }
     /**
      * <pre>
-     * The orreryd epic's requirements in contract order, empty for a record epic.
+     * The orreryd epic's requirements in contract order. A record epic's requirements are the ids its tasks name, in
+     * first-named order, carrying id and state only.
      * </pre>
      *
      * <code>repeated .orrery.v1.EpicRequirement requirements = 5 [json_name = "requirements"];</code>
@@ -3034,7 +3189,8 @@ public  final class EpicsGetResponse extends
     }
     /**
      * <pre>
-     * The orreryd epic's requirements in contract order, empty for a record epic.
+     * The orreryd epic's requirements in contract order. A record epic's requirements are the ids its tasks name, in
+     * first-named order, carrying id and state only.
      * </pre>
      *
      * <code>repeated .orrery.v1.EpicRequirement requirements = 5 [json_name = "requirements"];</code>
@@ -3048,7 +3204,8 @@ public  final class EpicsGetResponse extends
     }
     /**
      * <pre>
-     * The orreryd epic's requirements in contract order, empty for a record epic.
+     * The orreryd epic's requirements in contract order. A record epic's requirements are the ids its tasks name, in
+     * first-named order, carrying id and state only.
      * </pre>
      *
      * <code>repeated .orrery.v1.EpicRequirement requirements = 5 [json_name = "requirements"];</code>
@@ -3061,7 +3218,8 @@ public  final class EpicsGetResponse extends
     }
     /**
      * <pre>
-     * The orreryd epic's requirements in contract order, empty for a record epic.
+     * The orreryd epic's requirements in contract order. A record epic's requirements are the ids its tasks name, in
+     * first-named order, carrying id and state only.
      * </pre>
      *
      * <code>repeated .orrery.v1.EpicRequirement requirements = 5 [json_name = "requirements"];</code>
@@ -3073,7 +3231,8 @@ public  final class EpicsGetResponse extends
     }
     /**
      * <pre>
-     * The orreryd epic's requirements in contract order, empty for a record epic.
+     * The orreryd epic's requirements in contract order. A record epic's requirements are the ids its tasks name, in
+     * first-named order, carrying id and state only.
      * </pre>
      *
      * <code>repeated .orrery.v1.EpicRequirement requirements = 5 [json_name = "requirements"];</code>
@@ -4836,6 +4995,144 @@ public  final class EpicsGetResponse extends
       return this;
     }
 
+    /**
+     * <pre>
+     * The epic's centre state, one of asks, paused, releasing, shipped, ended_short or running.
+     * </pre>
+     *
+     * <code>string centre = 22 [json_name = "centre"];</code>
+     * @return The centre.
+     */
+    @java.lang.Override
+    public java.lang.String getCentre() {
+      return instance.getCentre();
+    }
+    /**
+     * <pre>
+     * The epic's centre state, one of asks, paused, releasing, shipped, ended_short or running.
+     * </pre>
+     *
+     * <code>string centre = 22 [json_name = "centre"];</code>
+     * @return The bytes for centre.
+     */
+    @java.lang.Override
+    public com.google.protobuf.ByteString
+        getCentreBytes() {
+      return instance.getCentreBytes();
+    }
+    /**
+     * <pre>
+     * The epic's centre state, one of asks, paused, releasing, shipped, ended_short or running.
+     * </pre>
+     *
+     * <code>string centre = 22 [json_name = "centre"];</code>
+     * @param value The centre to set.
+     * @return This builder for chaining.
+     */
+    public Builder setCentre(
+        java.lang.String value) {
+      copyOnWrite();
+      instance.setCentre(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The epic's centre state, one of asks, paused, releasing, shipped, ended_short or running.
+     * </pre>
+     *
+     * <code>string centre = 22 [json_name = "centre"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearCentre() {
+      copyOnWrite();
+      instance.clearCentre();
+      return this;
+    }
+    /**
+     * <pre>
+     * The epic's centre state, one of asks, paused, releasing, shipped, ended_short or running.
+     * </pre>
+     *
+     * <code>string centre = 22 [json_name = "centre"];</code>
+     * @param value The bytes for centre to set.
+     * @return This builder for chaining.
+     */
+    public Builder setCentreBytes(
+        com.google.protobuf.ByteString value) {
+      copyOnWrite();
+      instance.setCentreBytes(value);
+      return this;
+    }
+
+    /**
+     * <pre>
+     * The sentence of the epic's newest history entry; empty when it has none.
+     * </pre>
+     *
+     * <code>string newest = 23 [json_name = "newest"];</code>
+     * @return The newest.
+     */
+    @java.lang.Override
+    public java.lang.String getNewest() {
+      return instance.getNewest();
+    }
+    /**
+     * <pre>
+     * The sentence of the epic's newest history entry; empty when it has none.
+     * </pre>
+     *
+     * <code>string newest = 23 [json_name = "newest"];</code>
+     * @return The bytes for newest.
+     */
+    @java.lang.Override
+    public com.google.protobuf.ByteString
+        getNewestBytes() {
+      return instance.getNewestBytes();
+    }
+    /**
+     * <pre>
+     * The sentence of the epic's newest history entry; empty when it has none.
+     * </pre>
+     *
+     * <code>string newest = 23 [json_name = "newest"];</code>
+     * @param value The newest to set.
+     * @return This builder for chaining.
+     */
+    public Builder setNewest(
+        java.lang.String value) {
+      copyOnWrite();
+      instance.setNewest(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The sentence of the epic's newest history entry; empty when it has none.
+     * </pre>
+     *
+     * <code>string newest = 23 [json_name = "newest"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearNewest() {
+      copyOnWrite();
+      instance.clearNewest();
+      return this;
+    }
+    /**
+     * <pre>
+     * The sentence of the epic's newest history entry; empty when it has none.
+     * </pre>
+     *
+     * <code>string newest = 23 [json_name = "newest"];</code>
+     * @param value The bytes for newest to set.
+     * @return This builder for chaining.
+     */
+    public Builder setNewestBytes(
+        com.google.protobuf.ByteString value) {
+      copyOnWrite();
+      instance.setNewestBytes(value);
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:orrery.v1.EpicsGetResponse)
   }
   @java.lang.Override
@@ -4886,12 +5183,15 @@ public  final class EpicsGetResponse extends
             "report_",
             "plannerParked_",
             "supersededBy_",
+            "centre_",
+            "newest_",
           };
           java.lang.String info =
-              "\u0000\u0015\u0000\u0001\u0001\u0015\u0015\u0000\f\u0000\u0001\u1009\u0000\u0002" +
+              "\u0000\u0017\u0000\u0001\u0001\u0017\u0017\u0000\f\u0000\u0001\u1009\u0000\u0002" +
               "\u001b\u0003\u001b\u0004\u001b\u0005\u001b\u0006\u001b\u0007\u001b\b\u001b\t\u1009" +
               "\u0001\n\u0007\u000b\u0208\f\u0208\r\u001b\u000e\u001b\u000f\u001b\u0010\u001b\u0011" +
-              "\u0208\u0012\u001b\u0013\u1009\u0002\u0014\u0007\u0015\u0208";
+              "\u0208\u0012\u001b\u0013\u1009\u0002\u0014\u0007\u0015\u0208\u0016\u0208\u0017\u0208" +
+              "";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {
