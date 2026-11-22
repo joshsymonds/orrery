@@ -323,7 +323,11 @@ func (s *Steps) cleanRestartedStep(ctx context.Context, row store.StepRow, adopt
 		}
 	}
 	if row.GateHolder != "" {
-		if err := gateEnd(ctx, row.GateHolder); err != nil {
+		host, err := s.rowHost(row)
+		if err == nil {
+			err = gateEnd(ctx, host, row.GateHolder)
+		}
+		if err != nil {
 			s.logger.WarnContext(ctx, "end gate of restarted step", "step", row.ID, "err", err)
 		}
 	}

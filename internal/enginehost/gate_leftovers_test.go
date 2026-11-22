@@ -103,7 +103,7 @@ func TestGateLeftoversSpareGroupOfPidHeldElsewhere(t *testing.T) {
 	}
 	dir := t.TempDir()
 	gateWriteLeftoverPids(t, dir, leader, strconv.FormatUint(start+1, 10))
-	if err = gateKillLeftovers(dir); err != nil {
+	if err = gateKillLeftovers(gateTestHost(), dir); err != nil {
 		t.Fatalf("gateKillLeftovers: %v", err)
 	}
 	gateAssertStillRunning(t, leader, "its pids record names another start time for the pid")
@@ -114,7 +114,7 @@ func TestGateLeftoversSignalNothingWithoutChildStart(t *testing.T) {
 	leader := gateStartLeader(t)
 	dir := t.TempDir()
 	gateWriteLeftoverPids(t, dir, leader, "")
-	if err := gateKillLeftovers(dir); err != nil {
+	if err := gateKillLeftovers(gateTestHost(), dir); err != nil {
 		t.Fatalf("gateKillLeftovers: %v", err)
 	}
 	gateAssertStillRunning(t, leader, "its pids record has no ChildStart to check it against")
@@ -125,7 +125,7 @@ func TestGateLeftoversKillsGroupOfRecordedChild(t *testing.T) {
 	child := gateStartLeader(t)
 	dir := t.TempDir()
 	gateWriteLeftoverPids(t, dir, child, gateTestStart(t, child))
-	if err := gateKillLeftovers(dir); err != nil {
+	if err := gateKillLeftovers(gateTestHost(), dir); err != nil {
 		t.Fatalf("gateKillLeftovers: %v", err)
 	}
 	gateWaitGone(t, child)
@@ -140,6 +140,7 @@ func TestGateLeftoversKillsMemberLeftByExitedChild(t *testing.T) {
 	}
 	member := filepath.Join(t.TempDir(), "member")
 	result, err := runGrantedGate(t.Context(), &fakeGatePools{}, gateGrantRequest(), gateRun{
+		Host: gateTestHost(),
 		// The child leaves a background sleep in its group, then exits once its holder has recorded the child.
 		Argv: []string{"/bin/sh", "-c",
 			`sleep 30 >/dev/null 2>&1 & echo "$!" > "$MEMBER"; ` +

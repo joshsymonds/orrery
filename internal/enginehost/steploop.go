@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io/fs"
 	"log/slog"
-	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -801,11 +800,11 @@ func (r *stepRun) judge(ctx context.Context, round int, value json.RawMessage) b
 	ret := store.StepReturn{ID: r.id, Result: string(value), Checks: checks, Lines: lines}
 	if err := r.commitReturn(ctx, round, ret); err != nil {
 		r.finish(ctx, stepLoopEndFailed, "", fmt.Sprintf("record return of step %s: %v", r.id,
-			errors.Join(err, gateClear(ctx, gateDir))))
+			errors.Join(err, gateClear(ctx, r.host, gateDir))))
 		return false
 	}
 	// The gate's holder keeps its exit record until the return that judges it is stored.
-	if err := gateClear(ctx, gateDir); err != nil {
+	if err := gateClear(ctx, r.host, gateDir); err != nil {
 		r.finish(ctx, stepLoopEndFailed, "", fmt.Sprintf("clear gate of step %s: %v", r.id, err))
 		return false
 	}
@@ -966,7 +965,7 @@ func (r *stepRun) doneChecks(ctx context.Context, round int, commit string,
 	check.Detail = record + check.Detail
 	if !check.OK {
 		// The gate's holder directory is cleared once its result is read, so a failed gate's output is kept apart.
-		if check.Log, err = r.keepGateLog(round, result); err != nil {
+		if check.Log, err = r.keepGateLog(ctx, round, result); err != nil {
 			check.Detail += "; gate output not kept: " + err.Error()
 		}
 	}
@@ -974,28 +973,21 @@ func (r *stepRun) doneChecks(ctx context.Context, round int, commit string,
 }
 
 // keepGateLog writes the output a failed gate of round kept, its stdout and then its stderr under their labels, each
-// already redacted, to round-<round>.log in the step's directory under the logs directory of the gate state directory.
-// That directory outlives the gate's holder. The step's directory and the file are made through an os.Root of the logs
-// directory, so the step id cannot lead them outside it. It returns the file's path.
-func (r *stepRun) keepGateLog(round int, result gateResult) (string, error) {
+// already redacted, to round-<round>.log in the step's directory under the logs directory of the gate state directory,
+// on the step's host. That directory outlives the gate's holder. The step's directory is named by the step id, which Start
+// checks is exactly 32 lowercase hex digits (ErrBadStepID), so the directory and the file lie inside the logs directory.
+// It returns the file's path.
+func (r *stepRun) keepGateLog(ctx context.Context, round int, result gateResult) (string, error) {
 	stateDir, err := gateStateDir(r.stateDir)
 	if err != nil {
 		return "", err
 	}
 	logs := filepath.Join(stateDir, gateLogsName)
-	if err = os.MkdirAll(logs, gateLogDirMode); err != nil {
+	if err = r.host.MkdirAll(ctx, logs, gateLogDirMode); err != nil {
 		return "", fmt.Errorf("make gate log directory: %w", err)
 	}
-	root, err := os.OpenRoot(logs)
-	if err != nil {
-		return "", fmt.Errorf("open gate log directory: %w", err)
-	}
-	defer func() {
-		if closeErr := root.Close(); closeErr != nil {
-			r.logger.Warn("close gate log directory", "step", r.id, "err", closeErr)
-		}
-	}()
-	if err = root.MkdirAll(r.id, gateLogDirMode); err != nil {
+	stepDir := filepath.Join(logs, r.id)
+	if err = r.host.MkdirAll(ctx, stepDir, gateLogDirMode); err != nil {
 		return "", fmt.Errorf("make gate log directory of step %s: %w", r.id, err)
 	}
 	var log strings.Builder
@@ -1005,11 +997,11 @@ func (r *stepRun) keepGateLog(round int, result gateResult) (string, error) {
 			log.WriteString("\n")
 		}
 	}
-	name := filepath.Join(r.id, fmt.Sprintf("round-%d.log", round))
-	if err = root.WriteFile(name, []byte(log.String()), gateLogFileMode); err != nil {
+	path := filepath.Join(stepDir, fmt.Sprintf("round-%d.log", round))
+	if err = r.host.WriteFile(ctx, path, []byte(log.String()), gateLogFileMode); err != nil {
 		return "", fmt.Errorf("write gate log: %w", err)
 	}
-	return filepath.Join(logs, name), nil
+	return path, nil
 }
 
 // writingChecks runs the done checks of a writing step's return with doneChecks. A failed run ends the step: errGateLost
@@ -1027,7 +1019,7 @@ func (r *stepRun) writingChecks(ctx context.Context, round int, commit string,
 		if errors.Is(err, errGateLost) {
 			end = stepRestartedEnd
 		}
-		r.finish(ctx, end, "", errors.Join(err, gateClear(ctx, gateDir)).Error())
+		r.finish(ctx, end, "", errors.Join(err, gateClear(ctx, r.host, gateDir)).Error())
 		return checks, "", false
 	}
 	return checks, gateDir, true
@@ -1080,7 +1072,7 @@ func (r *stepRun) gateAttemptOf(round int) (int, error) {
 // the row never names a holder that is gone.
 func (r *stepRun) runGateAttempt(ctx context.Context, round, attempt int, prev string) (gateResult, error) {
 	run := gateRun{
-		Argv: r.gate, Dir: r.dir, Limit: r.gateLimit, Environ: r.environ,
+		Argv: r.gate, Dir: r.dir, Limit: r.gateLimit, Environ: r.environ, Host: r.host,
 		Name: stepGateSession(r.id, attempt), StateDir: r.stateDir, Scope: r.scope,
 		Tail: stepGateLogTail,
 	}
@@ -1097,7 +1089,7 @@ func (r *stepRun) runGateAttempt(ctx context.Context, round, attempt int, prev s
 		if err := r.writer.Commit(ctx, r.id, gate, r.loopState()); err != nil {
 			return err
 		}
-		return gateClear(ctx, prev)
+		return gateClear(ctx, r.host, prev)
 	}
 	return runGrantedGate(ctx, r.pools, r.grant, run)
 }
