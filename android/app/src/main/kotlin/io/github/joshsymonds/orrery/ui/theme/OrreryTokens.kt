@@ -234,6 +234,7 @@ object OrreryTokens {
         val controlDesk: Dp = 32.dp
         val controlTouch: Dp = 48.dp
         val gauge: Dp = 24.dp
+        val mark: Dp = 32.dp
         val orreryFull: Dp = 320.dp
     }
 
