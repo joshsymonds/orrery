@@ -138,7 +138,7 @@ func TestTaskVersionJudgeStartsOnTheCurrentVersionsConclusion(t *testing.T) {
 	version2 := taskVersionItem("the build passes at the base")
 	err := st.RerunTask(ctx, evidenceRunEpic, 1, store.TaskBuild{}, store.TaskBuild{}, store.TaskVersionInput{
 		Source: store.SourceOrchestrator, Step: "step-2", Reason: "the evidence moved", Evidence: &version2,
-	}, nil, store.TaskDecision{ID: "T1-request-1", Text: "T1 rerun: the evidence moved"}, time.Unix(1700000600, 0))
+	}, store.TaskDecision{ID: "T1-request-1", Text: "T1 rerun: the evidence moved"}, time.Unix(1700000600, 0))
 	if err != nil {
 		t.Fatalf("RerunTask: %v", err)
 	}

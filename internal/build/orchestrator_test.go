@@ -418,7 +418,6 @@ func TestDecideOrchestrate(t *testing.T) {
 	waiter := openPeer(8)
 	waiter.Task.Build.Held, waiter.Task.Build.After = HeldWaiting, "3"
 	fallback := orchFail()
-	grantFallback := fallback
 	question := store.EpicQuestionInput{
 		Label: "capture-broken", Text: "T3 (contract-cannot-hold): R1's capture exits 2 as written",
 		Choices:     []store.EpicChoice{{ID: "edit", Does: "edit the contract"}, {ID: "end", Does: "end it"}},
@@ -451,7 +450,7 @@ func TestDecideOrchestrate(t *testing.T) {
 			name: "rerun moves to implement at the next rerun with its version, counting the decision",
 			view: orchView(0, orchDone(rerunRet)),
 			want: Action{
-				Kind: ActDecide, Next: rerun, Fallback: &fallback, Behind: []int64{}, Version: redone,
+				Kind: ActDecide, Next: rerun, Version: redone,
 				Decision: &store.TaskDecision{
 					ID: "T3-request-1", Text: "T3 rerun: the code says so", Refused: []string{"b.go"},
 				},
@@ -461,7 +460,7 @@ func TestDecideOrchestrate(t *testing.T) {
 			name: "rerun after open tasks holds the build waiting on them",
 			view: orchView(0, orchDone(waitRet), openPeer(4), acceptedPeer(5)),
 			want: Action{
-				Kind: ActDecide, Next: waiting, Behind: []int64{4, 5}, Fallback: &fallback, Version: nothing,
+				Kind: ActDecide, Next: waiting, Version: nothing,
 				Decision: &store.TaskDecision{
 					ID: "T3-request-1", Text: "T3 rerun after T4, T5: the code says so", Refused: []string{"b.go"},
 				},
@@ -471,7 +470,7 @@ func TestDecideOrchestrate(t *testing.T) {
 			name: "grant carries its files",
 			view: orchView(0, orchDone(grantRet)),
 			want: Action{
-				Kind: ActDecide, Next: grantedRerun, Version: granted, Fallback: &grantFallback, Behind: []int64{},
+				Kind: ActDecide, Next: grantedRerun, Version: granted,
 				Decision: &store.TaskDecision{ID: "T3-request-1", Text: "T3 grant b.go: the code says so"},
 			},
 		},
@@ -516,7 +515,7 @@ func TestDecideOrchestrate(t *testing.T) {
 				"decision": "rerun", "after_tasks": []int64{4},
 			})), Peer{Task: store.EpicTask{Seq: 4, Status: taskDone}, State: Integrated, Composed: "c4"}),
 			want: Action{
-				Kind: ActDecide, Next: waitingOnFour, Behind: []int64{4}, Fallback: &fallback, Version: nothing,
+				Kind: ActDecide, Next: waitingOnFour, Version: nothing,
 				Decision: &store.TaskDecision{
 					ID: "T3-request-1", Text: "T3 rerun after T4: the code says so", Refused: []string{"b.go"},
 				},

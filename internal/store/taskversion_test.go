@@ -20,7 +20,7 @@ func TestTaskVersionRerunStoresAnOrchestratorVersionWithItsDecision(t *testing.T
 		Source: store.SourceOrchestrator, Step: "step-2", Reason: "T1 rerun: the code says so",
 		Deliverable: &deliverable, Files: []string{"b.go"},
 	}
-	err := s.RerunTask(ctx, buildEpic, 1, openBuildOf(), grantedBuild(), version, []int64{2}, requestDecision(),
+	err := s.RerunTask(ctx, buildEpic, 1, openBuildOf(), grantedBuild(), version, requestDecision(),
 		writtenAt())
 	if err != nil {
 		t.Fatalf("RerunTask: %v", err)
@@ -104,7 +104,7 @@ func TestTaskVersionReadOverlaysTheCurrentVersion(t *testing.T) {
 		Source: store.SourceOrchestrator, Step: "step-2", Reason: "the spec moved", Deliverable: &deliverable,
 		TestChanges: &testChanges, Gate: &gate, Evidence: &item,
 	}
-	err := s.RerunTask(ctx, buildEpic, 1, store.TaskBuild{}, openBuildOf(), version, nil, requestDecision(),
+	err := s.RerunTask(ctx, buildEpic, 1, store.TaskBuild{}, openBuildOf(), version, requestDecision(),
 		writtenAt())
 	if err != nil {
 		t.Fatalf("RerunTask: %v", err)
@@ -152,7 +152,7 @@ func TestTaskVersionsOnlyAppend(t *testing.T) {
 	first := store.TaskVersionInput{
 		Source: store.SourceOrchestrator, Step: "step-2", Reason: "the first spec", Deliverable: &deliverable,
 	}
-	err := s.RerunTask(ctx, buildEpic, 1, store.TaskBuild{}, openBuildOf(), first, nil, requestDecision(),
+	err := s.RerunTask(ctx, buildEpic, 1, store.TaskBuild{}, openBuildOf(), first, requestDecision(),
 		writtenAt())
 	if err != nil {
 		t.Fatalf("RerunTask: %v", err)

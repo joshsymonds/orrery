@@ -124,12 +124,11 @@ const (
 // need: the paths an implementer that returned needs_context named. Phase and ID name the evidence
 // run or step to start, Revision the revision it runs at, and Unit the step's unit. Review and Finding are what a
 // review or finding action stores, and Tells are the texts the owner is told. Decision is the epic decision that
-// records an orchestrator's decision, written with the action. Behind is the tasks a decided build waits for, whose
-// ownership of a granted file does not refuse it. Version is the task spec version a decided rerun or grant stores with
-// its decision: the files it adds to the task and the fields it changes. Question is the owner question an ask opens,
-// with Reason as the tell that carries it. Fallback is what a decided grant does instead when the store refuses one of
-// its files. Settle is how an ActSettleVersion settles the task's checking version, applied, with the red run that
-// judged it. GateChanges is the whole list of gate-needed changes an ActGuard stores with its build when the guard
+// records an orchestrator's decision, written with the action. Version is the task spec version a decided rerun or
+// grant stores with its decision: the files it adds to the task and the fields it changes. Question is the owner
+// question an ask opens, with Reason as the tell that carries it. Fallback is what an ask does instead when the store
+// refuses its question. Settle is how an ActSettleVersion settles the task's checking version, applied, with the red
+// run that judged it. GateChanges is the whole list of gate-needed changes an ActGuard stores with its build when the guard
 // passes the commit, nil when the return declares nothing new. Notes is the whole list of notes the task holds after a
 // move that records one, nil when the move records none; Tells is the text of each note the move adds.
 type Action struct {
@@ -145,7 +144,6 @@ type Action struct {
 	Finding     store.TaskFindingResult
 	Tells       []string
 	Decision    *store.TaskDecision
-	Behind      []int64
 	Version     store.TaskVersionInput
 	Question    *store.EpicQuestionInput
 	Fallback    *Action
@@ -232,7 +230,7 @@ type Store interface {
 	) error
 	RerunTask(
 		ctx context.Context, epic string, seq int64, from, to store.TaskBuild, version store.TaskVersionInput,
-		behind []int64, decision store.TaskDecision, at time.Time,
+		decision store.TaskDecision, at time.Time,
 	) error
 	AskTask(
 		ctx context.Context, epic string, seq int64, from, to store.TaskBuild, question store.EpicQuestionInput,

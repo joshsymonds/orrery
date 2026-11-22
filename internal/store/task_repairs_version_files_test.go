@@ -3,9 +3,7 @@ package store_test
 import (
 	"context"
 	"database/sql"
-	"errors"
 	"reflect"
-	"strings"
 	"testing"
 	"time"
 
@@ -39,7 +37,6 @@ func rerunWithCheckingFiles(ctx context.Context, t *testing.T, s *store.Store) {
 		store.TaskBuild{},
 		openBuildOf(),
 		version,
-		nil,
 		requestDecision(),
 		writtenAt(),
 	)
@@ -53,7 +50,7 @@ func TestTaskRepairsVersionFilesRerunAddsAndRemovesFiles(t *testing.T) {
 	ctx := context.Background()
 	s, _ := openBuildStore(ctx, t)
 	first := store.TaskVersionInput{Source: store.SourceOrchestrator, Files: []string{"b.go"}}
-	if err := s.RerunTask(ctx, buildEpic, 1, store.TaskBuild{}, openBuildOf(), first, nil, requestDecision(),
+	if err := s.RerunTask(ctx, buildEpic, 1, store.TaskBuild{}, openBuildOf(), first, requestDecision(),
 		writtenAt()); err != nil {
 		t.Fatalf("first RerunTask: %v", err)
 	}
@@ -66,7 +63,7 @@ func TestTaskRepairsVersionFilesRerunAddsAndRemovesFiles(t *testing.T) {
 		Remove: []string{"a.go"},
 	}
 	decision := store.TaskDecision{ID: "T1-request-2", Text: "T1 rerun: a.go is the wrong file"}
-	if err := s.RerunTask(ctx, buildEpic, 1, openBuildOf(), rerun, second, nil, decision, writtenAt()); err != nil {
+	if err := s.RerunTask(ctx, buildEpic, 1, openBuildOf(), rerun, second, decision, writtenAt()); err != nil {
 		t.Fatalf("second RerunTask: %v", err)
 	}
 
@@ -134,90 +131,13 @@ func TestTaskRepairsVersionFilesRefusedSettleKeepsFiles(t *testing.T) {
 	}
 }
 
-func TestTaskRepairsVersionFilesSettleRefusesAFileAnotherOpenTaskNowOwns(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	s, raw := openBuildStore(ctx, t)
-	addRawTask(t, raw, 3, "open")
-	item := checkingEvidence()
-	version := store.TaskVersionInput{
-		Source: store.SourceOrchestrator, Step: "step-2", Reason: "the evidence and files move", Evidence: &item,
-		Files: []string{"c.go"},
-	}
-	err := s.RerunTask(ctx, buildEpic, 1, store.TaskBuild{}, openBuildOf(), version, nil, requestDecision(),
-		writtenAt())
-	if err != nil {
-		t.Fatalf("RerunTask: %v", err)
-	}
-
-	// Task 1 does not own c.go while its version checks, so task 3 can be granted it before the settle.
-	grant := store.TaskVersionInput{Source: store.SourceGrant, Files: []string{"c.go"}}
-	granted := store.TaskBuild{Stage: "implement", Base: buildBase, Attempt: 1, Step: "step-1"}
-	if err = s.GrantTaskFiles(ctx, buildEpic, 3, store.TaskBuild{}, granted, grant, writtenAt()); err != nil {
-		t.Fatalf("GrantTaskFiles of task 3: %v", err)
-	}
-
-	before := versionFileState(t, raw)
-	err = s.SettleTaskVersion(ctx, buildEpic, 1, openBuildOf(), openBuildOf(), store.TaskVersionSettle{
-		Version: 2, State: store.VersionApplied, RedRun: checkingRedRun,
-	}, time.Unix(1700000900, 0))
-	var owned store.FileOwnedError
-	if !errors.As(err, &owned) || owned != (store.FileOwnedError{File: "c.go", Task: 3}) {
-		t.Fatalf("SettleTaskVersion err = %v, want c.go owned by T3", err)
-	}
-	if !reflect.DeepEqual(before, versionFileState(t, raw)) {
-		t.Errorf("a settle refused for an owned file changed the store")
-	}
-
-	if checking, ok := buildTaskOf(ctx, t, s).Checking(); !ok || checking.Version != 2 {
-		t.Errorf("Checking() = %+v, %t, want version 2 still checking", checking, ok)
-	}
-}
-
-// TestTaskRepairsVersionFilesSettleRefusesAFileAnAcceptedUnintegratedTaskOwns checks the settle of a checking version
-// that adds a file another task took and was accepted for while the version checked, with no integrate batch ended: the
-// settle is refused naming the accepted holder, and the store is unchanged, so two tasks never own one file.
-func TestTaskRepairsVersionFilesSettleRefusesAFileAnAcceptedUnintegratedTaskOwns(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	s, raw := openBuildStore(ctx, t)
-	item := checkingEvidence()
-	version := store.TaskVersionInput{
-		Source: store.SourceOrchestrator, Step: "step-2", Reason: "the evidence and files move", Evidence: &item,
-		Files: []string{"c.go"},
-	}
-	err := s.RerunTask(ctx, buildEpic, 1, store.TaskBuild{}, openBuildOf(), version, nil, requestDecision(),
-		writtenAt())
-	if err != nil {
-		t.Fatalf("RerunTask: %v", err)
-	}
-
-	// While task 1's version checks, task 3 owns c.go and is accepted, and no integrate batch has claimed it.
-	addRawTask(t, raw, 3, "done", "c.go")
-
-	before := versionFileState(t, raw)
-	err = s.SettleTaskVersion(ctx, buildEpic, 1, openBuildOf(), openBuildOf(), store.TaskVersionSettle{
-		Version: 2, State: store.VersionApplied, RedRun: checkingRedRun,
-	}, time.Unix(1700000900, 0))
-	var refusal store.RefusalError
-	if !errors.As(err, &refusal) || !strings.Contains(string(refusal), "accepted T3") {
-		t.Fatalf("SettleTaskVersion err = %v, want a refusal naming accepted T3", err)
-	}
-	if !reflect.DeepEqual(before, versionFileState(t, raw)) {
-		t.Errorf("a settle refused for a file an accepted task holds changed the store")
-	}
-	if checking, ok := buildTaskOf(ctx, t, s).Checking(); !ok || checking.Version != 2 {
-		t.Errorf("Checking() = %+v, %t, want version 2 still checking", checking, ok)
-	}
-}
-
 func TestTaskRepairsVersionFilesRemoveOfUnownedFileWritesNothing(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	s, raw := openBuildStore(ctx, t)
 	before := versionFileState(t, raw)
 	version := store.TaskVersionInput{Source: store.SourceOrchestrator, Remove: []string{"z.go"}}
-	err := s.RerunTask(ctx, buildEpic, 1, store.TaskBuild{}, openBuildOf(), version, nil, requestDecision(),
+	err := s.RerunTask(ctx, buildEpic, 1, store.TaskBuild{}, openBuildOf(), version, requestDecision(),
 		writtenAt())
 	if err == nil {
 		t.Fatal("RerunTask removing z.go, which task 1 does not own, err = nil, want an error")
@@ -233,7 +153,7 @@ func TestTaskRepairsVersionFilesLeavingNoFilesWritesNothing(t *testing.T) {
 	s, raw := openBuildStore(ctx, t)
 	before := versionFileState(t, raw)
 	version := store.TaskVersionInput{Source: store.SourceOrchestrator, Remove: []string{"a.go"}}
-	err := s.RerunTask(ctx, buildEpic, 1, store.TaskBuild{}, openBuildOf(), version, nil, requestDecision(),
+	err := s.RerunTask(ctx, buildEpic, 1, store.TaskBuild{}, openBuildOf(), version, requestDecision(),
 		writtenAt())
 	if err == nil {
 		t.Fatal("RerunTask removing a.go, the task's only file, err = nil, want an error")
