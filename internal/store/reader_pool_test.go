@@ -95,14 +95,6 @@ func TestReaderPoolReadsWhileWriteHoldsWriteLock(t *testing.T) {
 	assertSnapshot(t, snap, nil, 0)
 }
 
-// TestReaderPoolNewReaderKeepsReplacementReads runs the two tests that replace the store under a reader as subtests.
-// Both build their readers with NewReader, so the reader that holds no connection still reopens a replaced store.
-func TestReaderPoolNewReaderKeepsReplacementReads(t *testing.T) {
-	t.Parallel()
-	t.Run("TestSnapshotReopensReplacedStore", TestSnapshotReopensReplacedStore)
-	t.Run("TestSnapshotReplacedWhileReaderHasReadAndWriterOpen", TestSnapshotReplacedWhileReaderHasReadAndWriterOpen)
-}
-
 // restoreOrderStatements returns the statements the restore order is made of. A file states the order when one of its
 // sentences states each of them, in any case.
 func restoreOrderStatements() []string {
