@@ -449,6 +449,17 @@ func (q *Queries) CountHolderPromptsUnanswered(ctx context.Context, id string) (
 	return count, err
 }
 
+const countLLMAccount = `-- name: CountLLMAccount :one
+SELECT CAST(COUNT(*) AS INTEGER) FROM llm_accounts WHERE id = ?
+`
+
+func (q *Queries) CountLLMAccount(ctx context.Context, id string) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countLLMAccount, id)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const countLabelledSteps = `-- name: CountLabelledSteps :many
 SELECT epic, task, COUNT(*) AS steps FROM steps WHERE epic <> '' GROUP BY epic, task
 `
@@ -538,6 +549,17 @@ SELECT CAST(COUNT(*) AS INTEGER) FROM epic_triggers WHERE epic = ? AND state = '
 
 func (q *Queries) CountPendingEpicTriggers(ctx context.Context, epic string) (int64, error) {
 	row := q.db.QueryRowContext(ctx, countPendingEpicTriggers, epic)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
+const countRouteContext = `-- name: CountRouteContext :one
+SELECT CAST(COUNT(*) AS INTEGER) FROM route_contexts WHERE id = ?
+`
+
+func (q *Queries) CountRouteContext(ctx context.Context, id string) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countRouteContext, id)
 	var column_1 int64
 	err := row.Scan(&column_1)
 	return column_1, err
@@ -798,6 +820,15 @@ func (q *Queries) DeleteHold(ctx context.Context, member string) error {
 	return err
 }
 
+const deleteLLMAccount = `-- name: DeleteLLMAccount :exec
+DELETE FROM llm_accounts WHERE id = ?
+`
+
+func (q *Queries) DeleteLLMAccount(ctx context.Context, id string) error {
+	_, err := q.db.ExecContext(ctx, deleteLLMAccount, id)
+	return err
+}
+
 const deletePendingNotice = `-- name: DeletePendingNotice :exec
 DELETE FROM pending_notices WHERE id = ?
 `
@@ -860,6 +891,42 @@ type DeletePutOffQuestionParams struct {
 
 func (q *Queries) DeletePutOffQuestion(ctx context.Context, arg DeletePutOffQuestionParams) error {
 	_, err := q.db.ExecContext(ctx, deletePutOffQuestion, arg.Kind, arg.SessionID, arg.Question)
+	return err
+}
+
+const deleteRouteBindings = `-- name: DeleteRouteBindings :exec
+DELETE FROM route_bindings
+`
+
+func (q *Queries) DeleteRouteBindings(ctx context.Context) error {
+	_, err := q.db.ExecContext(ctx, deleteRouteBindings)
+	return err
+}
+
+const deleteRouteContexts = `-- name: DeleteRouteContexts :exec
+DELETE FROM route_contexts
+`
+
+func (q *Queries) DeleteRouteContexts(ctx context.Context) error {
+	_, err := q.db.ExecContext(ctx, deleteRouteContexts)
+	return err
+}
+
+const deleteRouteRegistry = `-- name: DeleteRouteRegistry :exec
+DELETE FROM route_registry
+`
+
+func (q *Queries) DeleteRouteRegistry(ctx context.Context) error {
+	_, err := q.db.ExecContext(ctx, deleteRouteRegistry)
+	return err
+}
+
+const deleteRouteSeats = `-- name: DeleteRouteSeats :exec
+DELETE FROM route_seats
+`
+
+func (q *Queries) DeleteRouteSeats(ctx context.Context) error {
+	_, err := q.db.ExecContext(ctx, deleteRouteSeats)
 	return err
 }
 
@@ -2010,6 +2077,33 @@ func (q *Queries) GetHeadlineDueSession(ctx context.Context, id string) (GetHead
 	return i, err
 }
 
+const getLLMAccount = `-- name: GetLLMAccount :one
+SELECT id, name, provider, plan, fingerprint, created FROM llm_accounts WHERE id = ?
+`
+
+type GetLLMAccountRow struct {
+	ID          string
+	Name        string
+	Provider    string
+	Plan        string
+	Fingerprint string
+	Created     int64
+}
+
+func (q *Queries) GetLLMAccount(ctx context.Context, id string) (GetLLMAccountRow, error) {
+	row := q.db.QueryRowContext(ctx, getLLMAccount, id)
+	var i GetLLMAccountRow
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.Provider,
+		&i.Plan,
+		&i.Fingerprint,
+		&i.Created,
+	)
+	return i, err
+}
+
 const getLatestEndedEpicTurn = `-- name: GetLatestEndedEpicTurn :one
 SELECT epic, seq, step, state, reason, seen, outline, outcome, started, ended, told, stop, resets FROM epic_turns WHERE epic = ? AND state <> 'running' ORDER BY seq DESC LIMIT 1
 `
@@ -2149,6 +2243,17 @@ func (q *Queries) GetPromptWrite(ctx context.Context, arg GetPromptWriteParams) 
 	row := q.db.QueryRowContext(ctx, getPromptWrite, arg.SessionID, arg.PromptID)
 	var i GetPromptWriteRow
 	err := row.Scan(&i.WriteID, &i.Text, &i.Sender)
+	return i, err
+}
+
+const getRouteRegistry = `-- name: GetRouteRegistry :one
+SELECT id, default_context FROM route_registry WHERE id = 1
+`
+
+func (q *Queries) GetRouteRegistry(ctx context.Context) (RouteRegistry, error) {
+	row := q.db.QueryRowContext(ctx, getRouteRegistry)
+	var i RouteRegistry
+	err := row.Scan(&i.ID, &i.DefaultContext)
 	return i, err
 }
 
@@ -4262,6 +4367,33 @@ func (q *Queries) InsertIntegrateRound(ctx context.Context, arg InsertIntegrateR
 	return err
 }
 
+const insertLLMAccount = `-- name: InsertLLMAccount :exec
+INSERT INTO llm_accounts (id, name, provider, plan, token, fingerprint, created) VALUES (?, ?, ?, ?, ?, ?, ?)
+`
+
+type InsertLLMAccountParams struct {
+	ID          string
+	Name        string
+	Provider    string
+	Plan        string
+	Token       string
+	Fingerprint string
+	Created     int64
+}
+
+func (q *Queries) InsertLLMAccount(ctx context.Context, arg InsertLLMAccountParams) error {
+	_, err := q.db.ExecContext(ctx, insertLLMAccount,
+		arg.ID,
+		arg.Name,
+		arg.Provider,
+		arg.Plan,
+		arg.Token,
+		arg.Fingerprint,
+		arg.Created,
+	)
+	return err
+}
+
 const insertNoticeHistory = `-- name: InsertNoticeHistory :exec
 INSERT INTO notice_history (pane, session, epic, limit_key, alert, state, title, body, block, block_ref, time)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -4415,6 +4547,107 @@ func (q *Queries) InsertPromptState(ctx context.Context, arg InsertPromptStatePa
 		return 0, err
 	}
 	return result.RowsAffected()
+}
+
+const insertRouteBinding = `-- name: InsertRouteBinding :exec
+INSERT INTO route_bindings (context, scope, selector, seat) VALUES (?, ?, ?, ?)
+`
+
+type InsertRouteBindingParams struct {
+	Context  string
+	Scope    string
+	Selector string
+	Seat     string
+}
+
+func (q *Queries) InsertRouteBinding(ctx context.Context, arg InsertRouteBindingParams) error {
+	_, err := q.db.ExecContext(ctx, insertRouteBinding,
+		arg.Context,
+		arg.Scope,
+		arg.Selector,
+		arg.Seat,
+	)
+	return err
+}
+
+const insertRouteContext = `-- name: InsertRouteContext :exec
+INSERT INTO route_contexts (id, default_seat, account, has_subagents, subagent_default_seat) VALUES (?, ?, ?, ?, ?)
+`
+
+type InsertRouteContextParams struct {
+	ID                  string
+	DefaultSeat         string
+	Account             string
+	HasSubagents        int64
+	SubagentDefaultSeat string
+}
+
+func (q *Queries) InsertRouteContext(ctx context.Context, arg InsertRouteContextParams) error {
+	_, err := q.db.ExecContext(ctx, insertRouteContext,
+		arg.ID,
+		arg.DefaultSeat,
+		arg.Account,
+		arg.HasSubagents,
+		arg.SubagentDefaultSeat,
+	)
+	return err
+}
+
+const insertRouteRegistry = `-- name: InsertRouteRegistry :exec
+INSERT INTO route_registry (id, default_context) VALUES (1, ?)
+`
+
+func (q *Queries) InsertRouteRegistry(ctx context.Context, defaultContext string) error {
+	_, err := q.db.ExecContext(ctx, insertRouteRegistry, defaultContext)
+	return err
+}
+
+const insertRouteSeat = `-- name: InsertRouteSeat :exec
+INSERT INTO route_seats (id, auth_mode, upstream, model, api_key_env_file, aws_profile, aws_region, model_map_env_file,
+                         billing, speed, cache_ttl, insecure, strip_cache_control, strict_structured_output,
+                         max_input_tokens, strip_betas)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+`
+
+type InsertRouteSeatParams struct {
+	ID                     string
+	AuthMode               string
+	Upstream               string
+	Model                  string
+	ApiKeyEnvFile          string
+	AwsProfile             string
+	AwsRegion              string
+	ModelMapEnvFile        string
+	Billing                string
+	Speed                  string
+	CacheTtl               string
+	Insecure               int64
+	StripCacheControl      int64
+	StrictStructuredOutput int64
+	MaxInputTokens         int64
+	StripBetas             string
+}
+
+func (q *Queries) InsertRouteSeat(ctx context.Context, arg InsertRouteSeatParams) error {
+	_, err := q.db.ExecContext(ctx, insertRouteSeat,
+		arg.ID,
+		arg.AuthMode,
+		arg.Upstream,
+		arg.Model,
+		arg.ApiKeyEnvFile,
+		arg.AwsProfile,
+		arg.AwsRegion,
+		arg.ModelMapEnvFile,
+		arg.Billing,
+		arg.Speed,
+		arg.CacheTtl,
+		arg.Insecure,
+		arg.StripCacheControl,
+		arg.StrictStructuredOutput,
+		arg.MaxInputTokens,
+		arg.StripBetas,
+	)
+	return err
 }
 
 const insertSession = `-- name: InsertSession :exec
@@ -8283,6 +8516,76 @@ func (q *Queries) ListKnownDirs(ctx context.Context) ([]string, error) {
 	return items, nil
 }
 
+const listLLMAccountIDs = `-- name: ListLLMAccountIDs :many
+SELECT id FROM llm_accounts ORDER BY id
+`
+
+func (q *Queries) ListLLMAccountIDs(ctx context.Context) ([]string, error) {
+	rows, err := q.db.QueryContext(ctx, listLLMAccountIDs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listLLMAccounts = `-- name: ListLLMAccounts :many
+SELECT id, name, provider, plan, fingerprint, created FROM llm_accounts ORDER BY created, id
+`
+
+type ListLLMAccountsRow struct {
+	ID          string
+	Name        string
+	Provider    string
+	Plan        string
+	Fingerprint string
+	Created     int64
+}
+
+func (q *Queries) ListLLMAccounts(ctx context.Context) ([]ListLLMAccountsRow, error) {
+	rows, err := q.db.QueryContext(ctx, listLLMAccounts)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListLLMAccountsRow
+	for rows.Next() {
+		var i ListLLMAccountsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.Provider,
+			&i.Plan,
+			&i.Fingerprint,
+			&i.Created,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listLabelledStepListings = `-- name: ListLabelledStepListings :many
 SELECT id, agent, workspace, revision, worktree, read_only, started, checks, doing, verdicts, status, end_value, reason, ended, epic, task, gate_name, gate_limit, loop_limited, loop_limit_kind, loop_limit_resets, loop_stage, loop_stage_from, caller, summary FROM step_listings
 WHERE epic <> '' AND (CAST(?1 AS TEXT) = '' OR task = CAST(?1 AS TEXT))
@@ -9615,6 +9918,142 @@ func (q *Queries) ListRecentTurns(ctx context.Context, arg ListRecentTurnsParams
 	for rows.Next() {
 		var i ListRecentTurnsRow
 		if err := rows.Scan(&i.Role, &i.Text); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listRouteBindings = `-- name: ListRouteBindings :many
+SELECT context, scope, selector, seat FROM route_bindings ORDER BY context, scope, selector
+`
+
+func (q *Queries) ListRouteBindings(ctx context.Context) ([]RouteBinding, error) {
+	rows, err := q.db.QueryContext(ctx, listRouteBindings)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []RouteBinding
+	for rows.Next() {
+		var i RouteBinding
+		if err := rows.Scan(
+			&i.Context,
+			&i.Scope,
+			&i.Selector,
+			&i.Seat,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listRouteContexts = `-- name: ListRouteContexts :many
+SELECT id, default_seat, account, has_subagents, subagent_default_seat FROM route_contexts ORDER BY id
+`
+
+func (q *Queries) ListRouteContexts(ctx context.Context) ([]RouteContext, error) {
+	rows, err := q.db.QueryContext(ctx, listRouteContexts)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []RouteContext
+	for rows.Next() {
+		var i RouteContext
+		if err := rows.Scan(
+			&i.ID,
+			&i.DefaultSeat,
+			&i.Account,
+			&i.HasSubagents,
+			&i.SubagentDefaultSeat,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listRouteContextsOfAccount = `-- name: ListRouteContextsOfAccount :many
+SELECT id FROM route_contexts WHERE account = ? AND account <> '' ORDER BY id
+`
+
+func (q *Queries) ListRouteContextsOfAccount(ctx context.Context, account string) ([]string, error) {
+	rows, err := q.db.QueryContext(ctx, listRouteContextsOfAccount, account)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listRouteSeats = `-- name: ListRouteSeats :many
+SELECT id, auth_mode, upstream, model, api_key_env_file, aws_profile, aws_region, model_map_env_file, billing, speed, cache_ttl, insecure, strip_cache_control, strict_structured_output, max_input_tokens, strip_betas FROM route_seats ORDER BY id
+`
+
+func (q *Queries) ListRouteSeats(ctx context.Context) ([]RouteSeat, error) {
+	rows, err := q.db.QueryContext(ctx, listRouteSeats)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []RouteSeat
+	for rows.Next() {
+		var i RouteSeat
+		if err := rows.Scan(
+			&i.ID,
+			&i.AuthMode,
+			&i.Upstream,
+			&i.Model,
+			&i.ApiKeyEnvFile,
+			&i.AwsProfile,
+			&i.AwsRegion,
+			&i.ModelMapEnvFile,
+			&i.Billing,
+			&i.Speed,
+			&i.CacheTtl,
+			&i.Insecure,
+			&i.StripCacheControl,
+			&i.StrictStructuredOutput,
+			&i.MaxInputTokens,
+			&i.StripBetas,
+		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -11046,6 +11485,23 @@ func (q *Queries) ReleaseEpicTriggers(ctx context.Context, arg ReleaseEpicTrigge
 	return err
 }
 
+const renameLLMAccount = `-- name: RenameLLMAccount :execrows
+UPDATE llm_accounts SET name = ? WHERE id = ?
+`
+
+type RenameLLMAccountParams struct {
+	Name string
+	ID   string
+}
+
+func (q *Queries) RenameLLMAccount(ctx context.Context, arg RenameLLMAccountParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, renameLLMAccount, arg.Name, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const replacedEpicTask = `-- name: ReplacedEpicTask :one
 SELECT CAST(COALESCE(MIN(failed.seq), 0) AS INTEGER)
 FROM epic_tasks AS failed
@@ -11998,6 +12454,20 @@ func (q *Queries) SetPlannerActionState(ctx context.Context, arg SetPlannerActio
 		return 0, err
 	}
 	return result.RowsAffected()
+}
+
+const setRouteContextAccount = `-- name: SetRouteContextAccount :exec
+UPDATE route_contexts SET account = ? WHERE id = ?
+`
+
+type SetRouteContextAccountParams struct {
+	Account string
+	ID      string
+}
+
+func (q *Queries) SetRouteContextAccount(ctx context.Context, arg SetRouteContextAccountParams) error {
+	_, err := q.db.ExecContext(ctx, setRouteContextAccount, arg.Account, arg.ID)
+	return err
 }
 
 const setSessionHeadline = `-- name: SetSessionHeadline :exec

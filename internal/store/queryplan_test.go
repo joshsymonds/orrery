@@ -48,6 +48,8 @@ func TestReaderQueryPlans(t *testing.T) {
 		"StepFacts": {"ListStepFacts"},
 		"Contract":  {"GetContractListing", "ListContractVersions", "ListContractStates"},
 		"Contracts": {"ListContractListings"},
+		"Accounts":  {"ListLLMAccounts"},
+		"Routes":    {"GetRouteRegistry", "ListRouteSeats", "ListRouteContexts", "ListRouteBindings"},
 	}
 	checkReaderMethodsListed(t, readerQueries)
 
