@@ -11,31 +11,34 @@ import { createClients, createTransport } from "./client";
 import { type EpicsView, epicsView } from "./epics";
 import { contracts as contractList } from "./fixtures/contracts";
 import { tideProposed } from "./fixtures/contractrecords";
-import { ContractsGetResponseSchema } from "./gen/orrery/v1/contracts_pb";
+import { type Contract, ContractsGetResponseSchema } from "./gen/orrery/v1/contracts_pb";
 import { type Epic, EpicSchema, type EpicsGetResponse, EpicsGetResponseSchema } from "./gen/orrery/v1/epics_pb";
 import type { Row } from "./rows";
-import type { Address } from "./router";
+import { type Address } from "./router";
 import { installTestDom, removeTestDom, teardownOnce } from "./testdom";
 import { turn, until } from "./testwait";
 
-// Each test's name starts with ContractPageLook. Each renders App at a window width of its own, as contractaddress.test.tsx
-// does, and reads the declarations of style.css, as recordstyle.test.ts does, with comments removed. The contract page is a
-// section.page: at the desk it sits directly under the panel's .rcard, which pads it, and under 760px it sits in .epic-read,
-// in the panes that pad the epic page.
+// Each test's name carries the token ContractPageLook: the contract page is a section.page, as the epic page is. At the
+// desk it sits directly under the panel's .rcard, which gives it the card's padding; under 760px it sits in .epic-read,
+// which takes the panes' gutter the epic page takes there. Its title row and its record are a section gap apart. Each test
+// mounts App at a window width of its own, since the layout reads the width when App mounts.
 
 const now = 1000;
 const contractId = "tidepool/tide-alerts";
 const conversation = "sess-tide-16";
 const contractAddress: Address = { view: "inbox", entry: { kind: "contract", id: contractId } };
-const epicAddress: Address = { view: "inbox", entry: { kind: "epic", id: contractId, page: { kind: "contract" } } };
-const contracts = contractList.contracts;
+const epicContractAddress: Address = {
+  view: "inbox",
+  entry: { kind: "epic", id: contractId, page: { kind: "contract" } },
+};
 
+// css is style.css with its comments cut, which the CSS checks read as the desk and the phone do.
 const css = readFileSync(new URL("../src/style.css", import.meta.url), "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
 
-// mediaBodies is the bodies of every @media block of query, such as "(width < 760px)", one after another.
-function mediaBodies(query: string): string {
+// under is the text inside every @media block of the query, such as "(width < 760px)".
+function under(query: string): string {
   const opener = `@media ${query} {`;
-  const bodies: string[] = [];
+  let text = "";
   let from = css.indexOf(opener);
   while (from !== -1) {
     const start = from + opener.length;
@@ -49,21 +52,20 @@ function mediaBodies(query: string): string {
       }
       end += 1;
     }
-    bodies.push(css.slice(start, end - 1));
+    text += css.slice(start, end - 1);
     from = css.indexOf(opener, end);
   }
-  assert.ok(bodies.length > 0, `style.css has a ${query} block`);
-  return bodies.join("\n");
+  return text;
 }
 
-// declaredIn is the value the rules of body set for selector's property, the last one that sets it, or undefined when none does.
-function declaredIn(body: string, selector: string, property: string): string | undefined {
+// valueOf is the value a property takes from the last rule of the text that names the selector, or undefined when none does.
+function valueOf(text: string, selector: string, property: string): string | undefined {
   let value: string | undefined;
-  for (const [, selectors, declarations] of body.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
-    if (!selectors.split(",").some((part) => part.trim() === selector)) {
+  for (const match of text.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+    if (!match[1].split(",").some((part) => part.trim() === selector)) {
       continue;
     }
-    for (const declaration of declarations.split(";")) {
+    for (const declaration of match[2].split(";")) {
       const colon = declaration.indexOf(":");
       if (colon > 0 && declaration.slice(0, colon).trim() === property) {
         value = declaration.slice(colon + 1).trim();
@@ -73,7 +75,7 @@ function declaredIn(body: string, selector: string, property: string): string | 
   return value;
 }
 
-// row is a session row with the fields the App reads, and the rest left at their empty values.
+// row is a session row, with the fields the list reads.
 function row(init: Partial<Row> & Pick<Row, "key">): Row {
   return {
     putOff: false,
@@ -108,7 +110,10 @@ function conversationRow(): Row {
   });
 }
 
-// epicsOf is the epics view of the contract's own epic, with its detail.
+// contracts is the Contracts.List answer the App is given: the tide-alerts contract, proposed by the conversation.
+const contracts: Contract[] = contractList.contracts;
+
+// epicsOf is the epics view of one epic, the contract's own, with its detail.
 function epicsOf(): EpicsView {
   const epic: Epic = create(EpicSchema, {
     id: contractId,
@@ -124,7 +129,8 @@ function epicsOf(): EpicsView {
 // fakeFetch serves the contract record as the Contracts.Get answer, holds each conversation stream open, and answers
 // every other unary call with an empty message.
 async function fakeFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
-  const path = new URL(new Request(input, init).url).pathname;
+  const request = new Request(input, init);
+  const path = new URL(request.url).pathname;
   if (path.endsWith("/WatchConversation")) {
     return new Response(new ReadableStream<Uint8Array>(), {
       status: 200,
@@ -135,13 +141,17 @@ async function fakeFetch(input: RequestInfo | URL, init?: RequestInit): Promise<
   return new Response(JSON.stringify(answer), { status: 200, headers: { "content-type": "application/json" } });
 }
 
-// withApp mounts App at width over the rows, the epics and the address, and runs check with the container. App is unmounted
+interface Mount {
+  container: HTMLElement;
+}
+
+// withApp mounts App at width over the rows, the epics and the address, and runs check with the mount. App is unmounted
 // and the DOM removed when the test ends, or as soon as signal aborts first.
 async function withApp(
   signal: AbortSignal,
   width: number,
   setup: { rows: Row[]; epics?: EpicsView; address: Address },
-  check: (container: HTMLElement) => void | Promise<void>,
+  check: (mount: Mount) => void | Promise<void>,
 ): Promise<void> {
   const window = installTestDom();
   window.innerWidth = width;
@@ -169,7 +179,7 @@ async function withApp(
         container,
       );
     });
-    await check(container);
+    await check({ container });
   } finally {
     await teardown();
   }
@@ -180,88 +190,87 @@ function settle(signal: AbortSignal, check: () => boolean, what: string): Promis
   return until(signal, check, what, { step: () => act(turn) });
 }
 
-// panelOf is the panel labelled as given, or null when none is drawn.
-function panelOf(container: HTMLElement, label: string): HTMLElement | null {
-  return container.querySelector<HTMLElement>(`aside.rpanel[aria-label="${label}"]`);
+// recordDrawn is whether a contract record is drawn in the container, or in the panel labelled as given.
+function recordDrawn(container: HTMLElement, label?: string): boolean {
+  const scope =
+    label === undefined ? container : container.querySelector<HTMLElement>(`aside.rpanel[aria-label="${label}"]`);
+  return Boolean(scope?.querySelector(".contract-record"));
 }
 
-// recordDrawn is whether the contract record is drawn in the container.
-function recordDrawn(container: HTMLElement): boolean {
-  return container.querySelector(".contract-record") !== null;
+// titleAndRecord is whether the page's only children are its title row, then its record, so a section gap separates them.
+function titleAndRecord(page: Element): boolean {
+  return (
+    page.children.length === 2 &&
+    page.children[0]?.classList.contains("title-row") === true &&
+    page.children[1]?.classList.contains("contract-record") === true
+  );
 }
 
-// titleThenRecord is whether the page holds exactly two children, its title row and then its record.
-function titleThenRecord(page: Element): boolean {
-  const children = [...page.children];
-  return children.length === 2 && children[0].classList.contains("title-row") && children[1].classList.contains("contract-record");
-}
-
-test("ContractPageLook: at the desk the contract page is a section.page directly under the panel's .rcard, which pads it", (t) =>
-  withApp(t.signal, 1600, { rows: [conversationRow()], address: contractAddress }, async (container) => {
-    await settle(t.signal, () => recordDrawn(container), "the record is drawn");
-    const page = panelOf(container, "tide-alerts contract")?.querySelector(".rcard > section.page.contract-page");
-    assert.ok(page, "the panel's card holds the contract page as a section.page");
-    assert.ok(page.querySelector(".contract-record"), "the record is drawn in the page");
+test("ContractPageLook: at the desk the contract page is a section.page directly under the panel's .rcard, which gives it the card's padding", (t) =>
+  withApp(t.signal, 1600, { rows: [conversationRow()], address: contractAddress }, async ({ container }) => {
+    await settle(t.signal, () => recordDrawn(container, "tide-alerts contract"), "the record is drawn in the panel");
+    const page = container.querySelector<HTMLElement>(
+      'aside.rpanel[aria-label="tide-alerts contract"] section.page[aria-label="contract"]',
+    );
+    assert.ok(page !== null, "the panel draws the contract as a section.page");
+    assert.equal(page.parentElement?.classList.contains("rcard"), true, "the section is a direct child of the card");
     assert.equal(
-      declaredIn(mediaBodies("(min-width: 760px)"), ".rcard > section.page", "padding"),
+      valueOf(under("(min-width: 760px)"), ".rcard > section.page", "padding"),
       "var(--o-space-16) var(--o-space-24) var(--o-space-8)",
-      "the card's rule pads a section.page directly under it",
+      "the card's section padding is the epic page's at the desk",
     );
   }));
 
-test("ContractPageLook: under 760px the contract page is a section.page in .epic-read, which the panes pad as the epic page", (t) =>
-  withApp(t.signal, 400, { rows: [conversationRow()], address: contractAddress }, async (container) => {
-    await settle(t.signal, () => recordDrawn(container), "the record is drawn");
-    const page = container.querySelector(".panes > .epic-read > section.page.contract-page");
-    assert.ok(page, "the contract page is drawn as a section.page directly in .epic-read, in the panes");
-    assert.equal(panelOf(container, "tide-alerts contract"), null, "no panel is drawn beside the page");
-    assert.equal(
-      declaredIn(css, ".panes", "padding-left"),
-      "max(var(--o-space-16), env(safe-area-inset-left, 0))",
-      "the panes pad the phone's left edge, where the epic page's section sits too",
+test("ContractPageLook: at the desk the contract's title row and record are a section gap apart, 32px, in a grid", (t) =>
+  withApp(t.signal, 1600, { rows: [conversationRow()], address: contractAddress }, async ({ container }) => {
+    await settle(t.signal, () => recordDrawn(container, "tide-alerts contract"), "the record is drawn in the panel");
+    const page = container.querySelector<HTMLElement>(
+      'aside.rpanel[aria-label="tide-alerts contract"] section.page[aria-label="contract"]',
     );
-  }));
-
-test("ContractPageLook: at the desk the title row and the record are a section gap of 32 apart", (t) =>
-  withApp(t.signal, 1600, { rows: [conversationRow()], address: contractAddress }, async (container) => {
-    await settle(t.signal, () => recordDrawn(container), "the record is drawn");
-    const page = container.querySelector("section.page.contract-page");
-    assert.ok(page && titleThenRecord(page), "the title row and the record are the page's two children");
+    assert.ok(page !== null && titleAndRecord(page), "the section holds the title row, then the record");
+    assert.equal(valueOf(css, ".contract-page", "display"), "grid", "the page lays its two parts out in a grid");
     assert.equal(
-      declaredIn(mediaBodies("(min-width: 760px)"), "section.page.contract-page", "gap"),
+      valueOf(under("(min-width: 760px)"), ".contract-page", "gap"),
       "var(--o-space-32)",
-      "the desk page gaps its title row from its record by a section gap of 32",
+      "the gap at the desk is the epic page's section gap",
     );
   }));
 
-test("ContractPageLook: under 760px the title row and the record are a section gap of 24 apart", (t) =>
-  withApp(t.signal, 400, { rows: [conversationRow()], address: contractAddress }, async (container) => {
+test("ContractPageLook: at a phone's width the contract page is a section.page in .epic-read, with the epic page's padding, the panes' gutter", (t) =>
+  withApp(t.signal, 400, { rows: [conversationRow()], address: contractAddress }, async ({ container }) => {
     await settle(t.signal, () => recordDrawn(container), "the record is drawn");
-    const page = container.querySelector("section.page.contract-page");
-    assert.ok(page && titleThenRecord(page), "the title row and the record are the page's two children");
+    const page = container.querySelector<HTMLElement>('.epic-read > section.page[aria-label="contract"]');
+    assert.ok(page !== null, "the contract is a section.page inside .epic-read");
+    assert.equal(page.parentElement?.parentElement?.classList.contains("panes"), true, "the page sits in the panes");
     assert.equal(
-      declaredIn(mediaBodies("(width < 760px)"), "section.page.contract-page", "gap"),
+      valueOf(css, ".panes", "padding-left"),
+      "max(var(--o-space-16), env(safe-area-inset-left, 0))",
+      "the panes pad the page's left edge, as they do the epic page",
+    );
+    assert.equal(
+      valueOf(css, ".panes", "padding-right"),
+      "max(var(--o-space-16), env(safe-area-inset-right, 0))",
+      "and its right edge",
+    );
+    assert.equal(valueOf(css, ".epic-read", "padding"), undefined, ".epic-read adds no padding of its own");
+    assert.equal(valueOf(under("(width < 760px)"), ".contract-page", "padding"), undefined, "the page adds none under 760px");
+  }));
+
+test("ContractPageLook: under 760px the contract's title row and record are a section gap apart, 24px", (t) =>
+  withApp(t.signal, 400, { rows: [conversationRow()], address: contractAddress }, async ({ container }) => {
+    await settle(t.signal, () => recordDrawn(container), "the record is drawn");
+    const page = container.querySelector<HTMLElement>('.epic-read > section.page[aria-label="contract"]');
+    assert.ok(page !== null && titleAndRecord(page), "the section holds the title row, then the record");
+    assert.equal(
+      valueOf(under("(width < 760px)"), ".contract-page", "gap"),
       "var(--o-space-24)",
-      "the phone page gaps its title row from its record by a section gap of 24",
+      "the gap under 760px is the epic page's section gap there",
     );
   }));
 
-test("ContractPageLook: an epic's contract page at the desk is a section.page under the epic panel's .rcard, inside the epic's section", (t) =>
-  withApp(t.signal, 1600, { rows: [conversationRow()], epics: epicsOf(), address: epicAddress }, async (container) => {
-    await settle(t.signal, () => recordDrawn(container), "the record is drawn");
-    const page = panelOf(container, "epic")?.querySelector(
-      ".rcard > section.page[aria-label='epic'] > section.page.contract-page",
-    );
-    assert.ok(page, "the epic's section holds the contract page as a section.page under the panel's card");
-    assert.ok(titleThenRecord(page), "the title row and the record are the page's two children");
-  }));
-
-test("ContractPageLook: an epic's contract page under 760px is a section.page in the .epic-read the epic page is in", (t) =>
-  withApp(t.signal, 400, { rows: [conversationRow()], epics: epicsOf(), address: epicAddress }, async (container) => {
-    await settle(t.signal, () => recordDrawn(container), "the record is drawn");
-    const page = container.querySelector(
-      ".panes > .epic-read > section.page[aria-label='epic'] > section.page.contract-page",
-    );
-    assert.ok(page, "the epic's section, in .epic-read, holds the contract page as a section.page");
-    assert.ok(titleThenRecord(page), "the title row and the record are the page's two children");
+test("ContractPageLook: an epic's contract door draws the contract as a section.page inside the epic page, with its title row and record a section gap apart", (t) =>
+  withApp(t.signal, 1600, { rows: [conversationRow()], epics: epicsOf(), address: epicContractAddress }, async ({ container }) => {
+    await settle(t.signal, () => recordDrawn(container, "epic"), "the door draws the record");
+    const page = container.querySelector<HTMLElement>('section.page[aria-label="epic"] section.page[aria-label="contract"]');
+    assert.ok(page !== null && titleAndRecord(page), "the epic page holds the contract's title row, then its record");
   }));

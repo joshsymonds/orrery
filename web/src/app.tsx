@@ -2244,7 +2244,7 @@ export function App({
   };
   const contractPage =
     contract === undefined ? null : (
-      <section class="page contract-page">
+      <section class="page contract-page" aria-label="contract">
         <TitleRow
           crumbs={[{ label: contractSlug(contract.id) }, { label: "contract" }]}
           state={statePill(contract.state)}
@@ -2327,7 +2327,7 @@ export function App({
       const listed = contracts.find((candidate) => candidate.id === entry.id);
       if (listed !== undefined) {
         return (
-          <section class="page contract-page">
+          <section class="page contract-page" aria-label="contract">
             <TitleRow crumbs={crumbs} onBack={back} strip={pageStrip(null, null)} />
             <ContractRecord
               key={listed.id}
@@ -2344,7 +2344,7 @@ export function App({
       }
       if (detail.contract !== undefined) {
         return (
-          <section class="page contract-page">
+          <section class="page contract-page" aria-label="contract">
             <TitleRow crumbs={crumbs} onBack={back} strip={pageStrip(null, null)} />
             <ContractBody contract={detail.contract} requirements={detail.requirements} />
           </section>
