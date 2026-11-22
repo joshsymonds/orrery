@@ -70,7 +70,7 @@ func expectClosureArchived(
 		map[string]bool{closurePaneID: wantPane})
 }
 
-func TestInboxClosureArchiveOnceSeen(t *testing.T) {
+func TestInboxClosureSeenAloneDoesNotArchive(t *testing.T) {
 	t.Parallel()
 	path := archiveStorePath(t)
 	clock := &closureClock{now: closureStart()}
@@ -94,10 +94,10 @@ func TestInboxClosureArchiveOnceSeen(t *testing.T) {
 		ID: closureHeadlessID, Changes: store.EngineChanges{Seen: optionalString(seenAt)},
 	})
 	syncClosurePane(t, path, stamp(changed), seenAt, clock.now)
-	expectClosureArchived(t, sessions, "seen at the change", true, true)
+	expectClosureArchived(t, sessions, "seen at the change, 10 minutes on", false, false)
 }
 
-func TestInboxClosureArchiveUnseenAtOneHour(t *testing.T) {
+func TestInboxClosureArchiveUnseenAtOneDay(t *testing.T) {
 	t.Parallel()
 	path := archiveStorePath(t)
 	clock := &closureClock{now: closureStart()}
@@ -108,11 +108,11 @@ func TestInboxClosureArchiveUnseenAtOneHour(t *testing.T) {
 	setClosureVerdict(t, path, closureVerdictOf(closurePaneID, changed, true), changed)
 	sessions := sessionsClientAt(t, store.NewReader(path), clock.Now)
 
-	clock.now = changed.Add(time.Hour - time.Minute)
-	expectClosureArchived(t, sessions, "59 minutes after the change", false, false)
+	clock.now = changed.Add(archiveDay - time.Minute)
+	expectClosureArchived(t, sessions, "23 hours 59 minutes after the change", false, false)
 
-	clock.now = changed.Add(time.Hour)
-	expectClosureArchived(t, sessions, "an hour after the change", true, true)
+	clock.now = changed.Add(archiveDay)
+	expectClosureArchived(t, sessions, "a day after the change", true, true)
 }
 
 func TestInboxClosureArchiveNotClosedArchivesNothing(t *testing.T) {
@@ -157,7 +157,7 @@ func TestInboxClosureReturnsWhenUnarchived(t *testing.T) {
 	t.Parallel()
 	path := archiveStorePath(t)
 	clock := &closureClock{now: closureStart()}
-	closedAt := clock.now.Add(-3 * time.Hour)
+	closedAt := clock.now.Add(-archiveDay - time.Hour)
 	seenAt := closedAt.Add(time.Minute)
 	applyHeadlessAt(t, path, closedAt, store.EngineAdd{ID: closureHeadlessID, Dir: "/work/back", State: "idle"})
 	applyHeadlessAt(t, path, seenAt, store.EngineSet{
@@ -167,7 +167,7 @@ func TestInboxClosureReturnsWhenUnarchived(t *testing.T) {
 	setClosureVerdict(t, path, closureVerdictOf(closureHeadlessID, closedAt, true), closedAt)
 	setClosureVerdict(t, path, closureVerdictOf(closurePaneID, closedAt, true), closedAt)
 	sessions := sessionsClientAt(t, store.NewReader(path), clock.Now)
-	expectClosureArchived(t, sessions, "closed, seen and past an hour", true, true)
+	expectClosureArchived(t, sessions, "closed, seen and a day on", true, true)
 
 	unarchivedAt := clock.now.Add(-time.Hour)
 	unarchiveRowAt(t, path, archiveKindHeadless, closureHeadlessID, unarchivedAt)
