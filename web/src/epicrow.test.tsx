@@ -202,14 +202,15 @@ test("InboxTree EpicRow contract row draws the contract's mark and its name, wit
 
 // The row draws the epic's mark, name, count, words and blocker.
 
-test("InboxTree EpicRow row draws the mark, slug, words with count, and the blocker led by a question mark", () => {
+test("InboxTree EpicRow row draws the mark, slug with its count, words, and the blocker led by a question mark", () => {
   const hung = epicNode(listedEpic("lighthouse/rota-export"));
   const words = epicRowWords(hung, now);
   return withRow(hung, (container) => {
     assert.equal(container.querySelectorAll(".row.epic").length, 1);
     assert.equal(container.querySelectorAll(".epicmark").length, 1);
     assert.equal(textOf(container, ".title"), "rota-export");
-    assert.equal(textOf(container, ".l2"), `building · 49 min · ${words.count}`);
+    assert.equal(textOf(container, ".age"), words.count);
+    assert.equal(textOf(container, ".l2"), "building · 49 min");
     assert.equal(container.querySelectorAll(".l3 svg.icon").length, 1);
     assert.equal(textOf(container, ".l3"), "waits on your answer · 2 min");
   });

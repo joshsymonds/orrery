@@ -159,6 +159,7 @@ const rotaR4Requirement: Plain<RequirementInit> = {
   id: "R4", kind: "check", text: "Export refuses to overwrite an existing file.",
   evidence: "go test ./cli/ -run TestExportRefusesOverwrite",
   conclusion: "TestExportRefusesOverwrite passes: Export returns ErrExists for a path that exists.",
+  state: "in_flight",
   runs: [rotaR4Red, rotaR4Green],
 };
 
@@ -167,18 +168,21 @@ const rotaRequirements: RequirementInit[] = [
     id: "R1", kind: "check", text: "Shifts are stored per keeper and week.",
     evidence: "go test ./internal/rota/ -run TestShiftStorePerKeeperWeek",
     conclusion: "TestShiftStorePerKeeperWeek passes: a stored week reads back per keeper.",
+    state: "proven",
     runs: [rotaR1Red, rotaR1Green],
   },
   {
     id: "R2", kind: "check", text: "The rota endpoint serves one week of shifts.",
     evidence: "go test ./api/ -run TestRotaEndpointServesWeek",
     conclusion: "TestRotaEndpointServesWeek passes: GET /rota/{week} returns that week’s shifts.",
+    state: "proven",
     runs: [rotaR2Red, rotaR2Green],
   },
   {
     id: "R3", kind: "check", text: "A week exports as CSV, one row per shift.",
     evidence: "go test ./internal/rota/ -run TestCSVOneRowPerShift",
     conclusion: "TestCSVOneRowPerShift passes: 21 stored shifts give 21 rows.",
+    state: "proven",
     runs: [rotaR3Red, rotaR3Green],
   },
   rotaR4Requirement,
@@ -186,11 +190,12 @@ const rotaRequirements: RequirementInit[] = [
     id: "R5", kind: "check", text: "Fixtures cover every port zone.",
     evidence: "go test ./internal/rota/ -run TestFixturesCoverPortZones",
     conclusion: "TestFixturesCoverPortZones passes for every zone on the rota.",
+    state: "in_flight",
     runs: [rotaR5Red],
   },
   {
     id: "R6", kind: "review", text: "Every export is written to the audit log.",
-    evidence: "review of cli/export.go and README.md", conclusion: "", runs: [],
+    evidence: "review of cli/export.go and README.md", conclusion: "", state: "not_reached", runs: [],
   },
 ];
 
@@ -490,14 +495,16 @@ const followupsGet: EpicsGetResponse = create(EpicsGetResponseSchema, {
     {
       id: "R1", kind: "check",
       text: "The judge gets the Task and Return sections whole up to 16 KiB, else their first and last 8 KiB and a line naming the bytes left out.",
+      state: "in_flight",
       runs: [followupsR1Red],
     },
     {
       id: "R2", kind: "check",
       text: "A planner turn freed by a rejected limit with no reset stores “reset time unknown”.",
+      state: "proven",
       runs: [followupsR2Red, followupsR2Green],
     },
-    { id: "R3", kind: "review", text: "docs/contract.md and engine-protocol.md state R1 and R2.", runs: [] },
+    { id: "R3", kind: "review", text: "docs/contract.md and engine-protocol.md state R1 and R2.", state: "not_reached", runs: [] },
   ],
   buildTasks: [
     {
@@ -762,12 +769,12 @@ const offlineGet: EpicsGetResponse = create(EpicsGetResponseSchema, {
   },
   repository: "/home/owner/code/tidepool",
   requirements: [
-    { id: "R1", kind: "check", text: "Tide tables for the home port are stored on the phone.", runs: [greenRun("ev-offline-r1-green", false)] },
-    { id: "R2", kind: "check", text: "Stored tables refresh when the network returns.", runs: [greenRun("ev-offline-r2-green", false)] },
-    { id: "R3", kind: "check", text: "The sync worker retries with backoff.", runs: [greenRun("ev-offline-r3-green", false)] },
-    { id: "R4", kind: "check", text: "A sync never blocks the screen.", runs: [greenRun("ev-offline-r4-green", false)] },
-    { id: "R5", kind: "check", text: "The tables screen works with no network.", runs: [greenRun("ev-offline-r5-green", false)] },
-    { id: "R6", kind: "review", text: "The screen says how old its data is.", runs: [greenRun("ev-offline-r6-green", true)] },
+    { id: "R1", kind: "check", text: "Tide tables for the home port are stored on the phone.", state: "proven", runs: [greenRun("ev-offline-r1-green", false)] },
+    { id: "R2", kind: "check", text: "Stored tables refresh when the network returns.", state: "proven", runs: [greenRun("ev-offline-r2-green", false)] },
+    { id: "R3", kind: "check", text: "The sync worker retries with backoff.", state: "proven", runs: [greenRun("ev-offline-r3-green", false)] },
+    { id: "R4", kind: "check", text: "A sync never blocks the screen.", state: "proven", runs: [greenRun("ev-offline-r4-green", false)] },
+    { id: "R5", kind: "check", text: "The tables screen works with no network.", state: "proven", runs: [greenRun("ev-offline-r5-green", false)] },
+    { id: "R6", kind: "review", text: "The screen says how old its data is.", state: "proven", runs: [greenRun("ev-offline-r6-green", true)] },
   ],
   buildTasks: [
     { id: "T1", title: "Tide tables for the home port are stored on the phone.", status: "done", stage: "", requirements: ["R1", "R2"] },
