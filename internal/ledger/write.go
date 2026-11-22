@@ -53,13 +53,14 @@ const insertClaimSQL = `INSERT INTO request_claims (request_id, claim, utilizati
 
 // Start records the start of a request and returns the id the request is known by. The request is stored under
 // Start.Account, or under Start.CallerAccount when Account is empty.
-func (l *Ledger) Start(ctx context.Context, s Start) (int64, error) {
-	account := s.Account
+func (l *Ledger) Start(ctx context.Context, start Start) (int64, error) {
+	account := start.Account
 	if account == "" {
-		account = s.CallerAccount
+		account = start.CallerAccount
 	}
 	result, err := l.db.ExecContext(ctx, insertRequestSQL,
-		s.StartedAt, account, s.Seat, s.Context, s.RequestedModel, s.ClaudeSession, s.AgentID, s.AgentType)
+		start.StartedAt, account, start.Seat, start.Context, start.RequestedModel, start.ClaudeSession,
+		start.AgentID, start.AgentType)
 	if err != nil {
 		return 0, fmt.Errorf("insert request: %w", err)
 	}
@@ -88,10 +89,10 @@ func (l *Ledger) Finish(ctx context.Context, id int64, f Finish) error {
 
 // finishIn finalizes the request id within tx and stores its claims. It returns an error, for the caller to roll tx
 // back, when no open request has the id or a statement fails.
-func finishIn(ctx context.Context, tx *sql.Tx, id int64, f Finish) error {
+func finishIn(ctx context.Context, tx *sql.Tx, id int64, finish Finish) error {
 	result, err := tx.ExecContext(ctx, finishRequestSQL,
-		f.CompletedAt, f.ResolvedModel, f.InputTokens, f.OutputTokens, f.CacheReadTokens, f.CacheWriteTokens,
-		f.BilledCostNanoUSD, f.ListCostNanoUSD, id)
+		finish.CompletedAt, finish.ResolvedModel, finish.InputTokens, finish.OutputTokens,
+		finish.CacheReadTokens, finish.CacheWriteTokens, finish.BilledCostNanoUSD, finish.ListCostNanoUSD, id)
 	if err != nil {
 		return fmt.Errorf("update request %d: %w", id, err)
 	}
@@ -102,7 +103,7 @@ func finishIn(ctx context.Context, tx *sql.Tx, id int64, f Finish) error {
 	if updated == 0 {
 		return fmt.Errorf("request %d: no such request, or it is already finalized", id)
 	}
-	for _, c := range f.Claims {
+	for _, c := range finish.Claims {
 		if _, err = tx.ExecContext(ctx, insertClaimSQL, id, c.Name, c.Utilization, c.Reset, c.Status); err != nil {
 			return fmt.Errorf("insert claim %q for request %d: %w", c.Name, id, err)
 		}
