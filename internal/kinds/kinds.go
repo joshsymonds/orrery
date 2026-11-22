@@ -140,8 +140,9 @@ type Plan struct{}
 
 // Build is the build kind. Its run is one planned task: it runs while the task is open on an epic with a base whose phase
 // is not ended, and ends once the task is no longer open. A task that has not started, one whose build has no stage yet,
-// waits for the tasks it depends on: it gives none while one is pending, and gives a gap naming the first lost one, so
-// it runs only once each of them has been integrated into a batch.
+// waits for the design tasks planned in its turn, and then for the tasks it depends on: it gives none while one is
+// pending, and gives a gap naming the first lost one, so it runs only once each of them has been integrated into a
+// batch.
 type Build struct{}
 
 // The states, statuses, outcomes and phases a kind reads, as the store and the epic write them.
@@ -224,7 +225,8 @@ func anyTaskOpen(tasks []store.EpicTask) bool {
 }
 
 // Decide returns end with no outcome when the run's task is not open on the epic. An open task that has not started
-// and depends on tasks returns gap when one of them is lost, naming the first lost one in DependsOn order, and none
+// waits for the design tasks planned in its turn, in seq order, when it is not a design task itself, and then for the
+// tasks it depends on: each returns gap when one of them is lost, naming the first lost one in its order, and none
 // while one is pending. A dependency that its batch composed is lost too when Rows.Stranded holds it: a failed batch
 // composed it, and the base a fresh task starts on does not hold its work. Otherwise it returns run when the epic has a
 // base and its phase is not ended, and none when it does not.
@@ -234,6 +236,9 @@ func (Build) Decide(node Node, rows Rows) Action {
 		return Action{Kind: ActEnd}
 	}
 	if task.Build.Stage == "" {
+		if action, waiting := awaitDependencies(heldDesigns(task, rows.Epic.Tasks), rows); waiting {
+			return action
+		}
 		if action, waiting := awaitDependencies(task.DependsOn, rows); waiting {
 			return action
 		}
@@ -242,6 +247,22 @@ func (Build) Decide(node Node, rows Rows) Action {
 		return Action{Kind: ActRun}
 	}
 	return Action{Kind: ActNone}
+}
+
+// heldDesigns returns, in seq order, the seqs of the design tasks task waits on: those planned in its turn. A design
+// task is held by no design task, so it returns nil for one, as it does for a turn that planned none.
+func heldDesigns(task store.EpicTask, tasks []store.EpicTask) []int64 {
+	if task.Kind == store.TaskKindDesign {
+		return nil
+	}
+	var seqs []int64
+	for i := range tasks {
+		if tasks[i].Turn == task.Turn && tasks[i].Kind == store.TaskKindDesign {
+			seqs = append(seqs, tasks[i].Seq)
+		}
+	}
+	slices.Sort(seqs)
+	return seqs
 }
 
 // openTask returns the task with seq among tasks, and whether it is open.
