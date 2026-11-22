@@ -81,6 +81,7 @@ func (EpicReviewers) Start(
 		Agents:    agents,
 		Prompt:    prompt,
 		Epic:      epic.ID,
+		Purpose:   fmt.Sprintf("Review %s as %s.", build.Slug(epic.ID), name),
 	}, nil
 }
 

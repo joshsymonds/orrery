@@ -56,7 +56,7 @@ const ClosureSchema = `{
 func epicVerifierStart(
 	epic store.EpicRow, base, frozen string, finding store.LedgerFinding, id, agent string,
 ) enginehost.StepStart {
-	return build.VerifierStart(
+	start := build.VerifierStart(
 		build.Subject{Epic: epic, Base: base, Revision: frozen},
 		store.TaskFinding{
 			Position: finding.Position, ID: finding.ID, Claim: finding.Claim, Citation: finding.Citation,
@@ -65,6 +65,8 @@ func epicVerifierStart(
 		},
 		id, agent,
 	)
+	start.Purpose = fmt.Sprintf("Verify finding %s of %s's review.", finding.ID, build.Slug(epic.ID))
+	return start
 }
 
 // closureStart returns the start of the closure verifier step id for finding, a confirmed ledger finding, at revision,
@@ -84,6 +86,7 @@ func closureStart(
 		ReturnCheck: closureCheck,
 		DoneValue:   "done",
 		Epic:        epic.ID,
+		Purpose:     fmt.Sprintf("Check finding %s is closed.", finding.ID),
 	}
 }
 

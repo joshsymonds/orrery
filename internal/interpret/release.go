@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/joshsymonds/orrery/internal/build"
 	"github.com/joshsymonds/orrery/internal/kinds"
 	"github.com/joshsymonds/orrery/internal/store"
 )
@@ -121,6 +122,7 @@ func (r *Runner) startReleaseReview(ctx context.Context, epic store.EpicRow, act
 	// The step's task is the release run's path. The rows of a release read a step under that path, which is how they
 	// read a review's steps, since the review's label is none the release reads by name.
 	start.ID, start.Epic, start.Task = id, epic.ID, act.Path
+	start.Purpose = fmt.Sprintf("Review %s's release candidate.", build.Slug(epic.ID))
 	if _, err = r.steps.Start(ctx, start); err != nil {
 		if !refusedForGood(err) {
 			return fmt.Errorf("start step %s: %w", id, err)

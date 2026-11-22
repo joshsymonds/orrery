@@ -126,6 +126,7 @@ func (r *Runner) startReleaseStep(ctx context.Context, epic store.EpicRow, act A
 	_, err = r.steps.Start(ctx, enginehost.StepStart{
 		ID: id, Agent: agent, Prompt: releaseStepPrompt(step, start, epic.ReleaseThen), Schema: releaseStepSchema,
 		Workspace: wt, Revision: start, Unowned: true, DoneValue: releaseDone, Epic: epic.ID,
+		Purpose: fmt.Sprintf("Release step %d: %s.", position, step.Step),
 	})
 	if err == nil {
 		return nil
@@ -299,6 +300,7 @@ func (r *Runner) startJudge(ctx context.Context, epic store.EpicRow, act Action,
 	_, err = r.steps.Start(ctx, enginehost.StepStart{
 		ID: id, Agent: agent, Prompt: releaseJudgePrompt(epic.ReleaseThen, flow.Releases), Schema: releaseJudgeSchema,
 		Workspace: epic.Repository, Revision: candidate, ReadOnly: true, Epic: epic.ID,
+		Purpose: fmt.Sprintf("Judge %s's release.", build.Slug(epic.ID)),
 	})
 	if err == nil {
 		return nil
