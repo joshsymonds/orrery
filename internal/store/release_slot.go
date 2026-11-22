@@ -40,7 +40,7 @@ func slotHolderOf(row sqlcgen.EpicReleaseSlot) ReleaseSlotHolder {
 
 // ReleaseSlot returns the holder of the release slot of repository, and whether the slot is held.
 func (s *Store) ReleaseSlot(ctx context.Context, repository string) (ReleaseSlotHolder, bool, error) {
-	row, err := sqlcgen.New(s.db).GetEpicReleaseSlotHolder(ctx, repository)
+	row, err := sqlcgen.New(s.read).GetEpicReleaseSlotHolder(ctx, repository)
 	if errors.Is(err, sql.ErrNoRows) {
 		return ReleaseSlotHolder{}, false, nil
 	}
@@ -120,7 +120,7 @@ func (s *Store) FreeExpiredReleaseSlots(ctx context.Context, now time.Time) ([]s
 
 // NextReleaseSlotDeadline returns the earliest deadline of an outside hold, and whether there is one.
 func (s *Store) NextReleaseSlotDeadline(ctx context.Context) (time.Time, bool, error) {
-	deadline, err := sqlcgen.New(s.db).NextOutsideReleaseSlotDeadline(ctx)
+	deadline, err := sqlcgen.New(s.read).NextOutsideReleaseSlotDeadline(ctx)
 	if errors.Is(err, sql.ErrNoRows) {
 		return time.Time{}, false, nil
 	}

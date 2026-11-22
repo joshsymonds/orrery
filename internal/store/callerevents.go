@@ -42,7 +42,7 @@ type CallerStep struct {
 // CallerSteps returns the ended steps whose caller has a sessions row, and that have no caller_events mark for the
 // event "step:" followed by the step id, under the caller's row id. It orders them by ended time, then id.
 func (s *Store) CallerSteps(ctx context.Context) ([]CallerStep, error) {
-	rows, err := sqlcgen.New(s.db).ListCallerSteps(ctx)
+	rows, err := sqlcgen.New(s.read).ListCallerSteps(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("list caller steps: %w", err)
 	}
@@ -77,7 +77,7 @@ func (s *Store) MarkCallerEvent(ctx context.Context, event, session string, at t
 
 // CallerEventMarked reports whether MarkCallerEvent has recorded the event as delivered to the session.
 func (s *Store) CallerEventMarked(ctx context.Context, event, session string) (bool, error) {
-	return callerEventMarkedIn(ctx, sqlcgen.New(s.db), event, session)
+	return callerEventMarkedIn(ctx, sqlcgen.New(s.read), event, session)
 }
 
 // callerEventMarkedIn reports whether a caller_events row holds event under session, as read through queries.

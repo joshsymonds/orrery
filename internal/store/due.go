@@ -41,7 +41,7 @@ func (op StepDueResumesClosed) applyEngine(ctx context.Context, queries *sqlcgen
 
 // DueResumes returns the due rows that are still due, oldest reset first.
 func (s *Store) DueResumes(ctx context.Context) ([]DueResume, error) {
-	rows, err := sqlcgen.New(s.db).ListDueResumes(ctx)
+	rows, err := sqlcgen.New(s.read).ListDueResumes(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("list due resumes: %w", err)
 	}

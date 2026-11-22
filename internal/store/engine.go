@@ -125,7 +125,7 @@ type EnginePromptFailed struct {
 // started reads as not sent and can be sent again under the same prompt id. Prompts of other senders, and prompts
 // with no sender, count whatever their state. It reads the writer's database, as EngineSession does.
 func (s *Store) EnginePromptSent(ctx context.Context, sessionID, promptID string) (bool, error) {
-	count, err := sqlcgen.New(s.db).CountEnginePrompts(ctx, sqlcgen.CountEnginePromptsParams{
+	count, err := sqlcgen.New(s.read).CountEnginePrompts(ctx, sqlcgen.CountEnginePromptsParams{
 		SessionID: sessionID, PromptID: promptID,
 	})
 	if err != nil {
@@ -137,7 +137,7 @@ func (s *Store) EnginePromptSent(ctx context.Context, sessionID, promptID string
 // EnginePromptFailure reports the reason a prompt failed to send, and whether a failure marker exists for it. It
 // reads the writer's database, as EnginePromptSent does.
 func (s *Store) EnginePromptFailure(ctx context.Context, sessionID, promptID string) (string, bool, error) {
-	reason, err := sqlcgen.New(s.db).GetEnginePromptFailure(ctx, sqlcgen.GetEnginePromptFailureParams{
+	reason, err := sqlcgen.New(s.read).GetEnginePromptFailure(ctx, sqlcgen.GetEnginePromptFailureParams{
 		SessionID: sessionID, PromptID: promptID,
 	})
 	if errors.Is(err, sql.ErrNoRows) {

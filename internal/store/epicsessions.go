@@ -74,7 +74,7 @@ func resolveEpicCaller(ctx context.Context, queries *sqlcgen.Queries, caller Epi
 // CallerSession returns the id of the sessions row caller names, and true. It returns "" and false, and no error,
 // when no row matches caller. It reads the store without writing it.
 func (s *Store) CallerSession(ctx context.Context, caller EpicCaller) (string, bool, error) {
-	session, err := resolveEpicCaller(ctx, sqlcgen.New(s.db), caller)
+	session, err := resolveEpicCaller(ctx, sqlcgen.New(s.read), caller)
 	if err != nil {
 		return "", false, err
 	}
@@ -117,7 +117,7 @@ func (s *Store) CallerMaker(ctx context.Context, caller EpicCaller) (Maker, erro
 	if caller == (EpicCaller{}) {
 		return owner, nil
 	}
-	queries := sqlcgen.New(s.db)
+	queries := sqlcgen.New(s.read)
 	id := caller.Session
 	if id == "" {
 		pane, err := queries.GetPaneSession(ctx, sqlcgen.GetPaneSessionParams{Server: caller.Server, Pane: caller.Pane})
@@ -151,7 +151,7 @@ func (s *Store) CallerMaker(ctx context.Context, caller EpicCaller) (Maker, erro
 // EpicSteerer returns the sessions row of the session that steers epic, and true. It returns false, and no error, when
 // epic has no steerer or when the steerer's sessions row is gone.
 func (s *Store) EpicSteerer(ctx context.Context, epic string) (CallerSession, bool, error) {
-	row, err := sqlcgen.New(s.db).GetEpicSteerer(ctx, epic)
+	row, err := sqlcgen.New(s.read).GetEpicSteerer(ctx, epic)
 	if errors.Is(err, sql.ErrNoRows) {
 		return CallerSession{}, false, nil
 	}

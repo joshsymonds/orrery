@@ -53,7 +53,7 @@ func (op EngineRateLimitCleared) applyEngine(ctx context.Context, queries *sqlcg
 // RateLimit returns the stored rate limit of session and true. It returns the zero value and false when the session
 // has none.
 func (s *Store) RateLimit(ctx context.Context, session string) (RateLimit, bool, error) {
-	row, err := sqlcgen.New(s.db).GetEngineRateLimit(ctx, session)
+	row, err := sqlcgen.New(s.read).GetEngineRateLimit(ctx, session)
 	if errors.Is(err, sql.ErrNoRows) {
 		return RateLimit{}, false, nil
 	}
@@ -67,7 +67,7 @@ func (s *Store) RateLimit(ctx context.Context, session string) (RateLimit, bool,
 // at or after the at of the session's newest engine_prompt event. It returns the zero value and false otherwise. A
 // session with no prompt compares against zero.
 func (s *Store) StepRateLimit(ctx context.Context, id string) (RateLimit, bool, error) {
-	row, err := sqlcgen.New(s.db).GetStepRateLimit(ctx, id)
+	row, err := sqlcgen.New(s.read).GetStepRateLimit(ctx, id)
 	if errors.Is(err, sql.ErrNoRows) {
 		return RateLimit{}, false, nil
 	}
