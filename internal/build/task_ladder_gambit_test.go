@@ -117,19 +117,6 @@ func ladderGambitRecarve(t *testing.T, f *passFixture, files, remove []string) {
 	ladderGambitCarryApproach(t, f)
 }
 
-// ladderGambitRefusal returns the decision the epic recorded for a refused change of approach, or fails the test when
-// there is none.
-func ladderGambitRefusal(t *testing.T, f *passFixture) string {
-	t.Helper()
-	for _, decision := range f.epic().Decisions {
-		if strings.HasSuffix(decision.ID, "-refused") && strings.Contains(decision.Text, "change approach") {
-			return decision.Text
-		}
-	}
-	t.Fatalf("decisions = %+v, want a refusal of the change of approach", f.epic().Decisions)
-	return ""
-}
-
 // ladderGambitReBrief returns the orchestrator's return of a re-brief that adds file and removes nothing.
 func ladderGambitReBrief(t *testing.T, file string) string {
 	t.Helper()
@@ -260,18 +247,17 @@ func TestLadderGambitCannotMeetGoesToRecarve(t *testing.T) {
 	}
 }
 
-// TestLadderGambitRecarveRefusesAHeldFile: a recarve that adds a file an open task owns, or an accepted task has not
-// integrated, is refused naming that task, and changes neither the task's files nor its rung. The planner's turn plans
-// the holder and the recarve together, so the holder exists when the recarve is carried out.
-func TestLadderGambitRecarveRefusesAHeldFile(t *testing.T) {
+// TestLadderGambitRecarveGrantsAHeldFile: a recarve that adds a file an open task owns, or an accepted task has not
+// integrated, is granted: the file joins the task's files, no refusal is recorded, and the task stays on its rung. The
+// planner's turn plans the holder and the recarve together, so the holder exists when the recarve is carried out.
+func TestLadderGambitRecarveGrantsAHeldFile(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {
 		name   string
 		accept bool
-		holder string
 	}{
-		{"an open task owns the file", false, "owned by open T2"},
-		{"an accepted task has not integrated the file", true, "owned by accepted T2, not yet integrated"},
+		{"an open task owns the file", false},
+		{"an accepted task has not integrated the file", true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
@@ -288,11 +274,13 @@ func TestLadderGambitRecarveRefusesAHeldFile(t *testing.T) {
 				}
 			}
 			ladderGambitCarryApproach(t, f)
-			if text := ladderGambitRefusal(t, f); !strings.Contains(text, tc.holder) {
-				t.Errorf("refusal %q, want it to name the holder %q", text, tc.holder)
+			if files := f.task().Files; !slices.Contains(files, ladderGambitFile) {
+				t.Errorf("task files = %q, want the held file granted", files)
 			}
-			if files := f.task().Files; slices.Contains(files, ladderGambitFile) {
-				t.Errorf("task files = %q, want the held file not granted", files)
+			for _, decision := range f.epic().Decisions {
+				if strings.HasSuffix(decision.ID, "-refused") {
+					t.Errorf("decision %+v, want no refusal of the change of approach", decision)
+				}
 			}
 			if build := f.task().Build; build.Attempt != store.ApproachRung {
 				t.Errorf("build attempt = %d, want the task still on rung %d", build.Attempt, store.ApproachRung)

@@ -26,21 +26,19 @@ type TaskDecision struct {
 // RerunTask carries out an orchestrator's rerun or grant of task seq of epic in one write, when its stored build is
 // from: version's files are added, in order, after the task's files, to is stored as its build, version is stored as
 // the task's next version carrying decision's id, decision's refused files are stored as refused by decision's id, and
-// decision is appended to the epic's decisions. A file another open task of the epic owns is a FileOwnedError, unless
-// that task is among behind, the tasks to waits for, and writes nothing. A task that is not open, or whose stored build
-// is not from, is ErrTaskMoved and writes nothing.
+// decision is appended to the epic's decisions. A file another task of the epic owns is added as well, since tasks may
+// share a file. A task that is not open, or whose stored build is not from, is ErrTaskMoved and writes nothing.
 func (s *Store) RerunTask(
 	ctx context.Context,
 	epic string,
 	seq int64,
 	from, to TaskBuild,
 	version TaskVersionInput,
-	behind []int64,
 	decision TaskDecision,
 	at time.Time,
 ) error {
 	return s.write(ctx, func(queries *sqlcgen.Queries) error {
-		if err := grantFiles(ctx, queries, epic, seq, from, to, version, behind, decision.ID, at); err != nil {
+		if err := grantFiles(ctx, queries, epic, seq, from, to, version, decision.ID, at); err != nil {
 			return err
 		}
 		if err := storeRefusals(ctx, queries, epic, seq, decision, version.Files, at); err != nil {
