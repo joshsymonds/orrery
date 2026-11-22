@@ -145,24 +145,28 @@
 
   /* type: one font shorthand per level, and the label's tracking */
   --o-font-mono: "Orrery Mono", ui-monospace, "JetBrains Mono", Menlo, monospace;
+  --o-font-inter: "Inter", system-ui, sans-serif;
   --o-font-weight-regular: 400;
   --o-font-weight-bold: 700;
   --o-type-label: 700 12px/16px var(--o-font-mono);
   --o-type-label-size: 12px;
   --o-type-label-line: 16px;
   --o-type-label-tracking: 0.06em;
-  --o-type-small: 400 13px/20px var(--o-font-mono);
+  --o-type-small: 400 13px/18px var(--o-font-inter);
   --o-type-small-size: 13px;
-  --o-type-small-line: 20px;
-  --o-type-body: 400 15px/24px var(--o-font-mono);
+  --o-type-small-line: 18px;
+  --o-type-body: 400 15px/22px var(--o-font-inter);
   --o-type-body-size: 15px;
-  --o-type-body-line: 24px;
-  --o-type-title: 700 18px/28px var(--o-font-mono);
+  --o-type-body-line: 22px;
+  --o-type-title: 700 18px/24px var(--o-font-inter);
   --o-type-title-size: 18px;
-  --o-type-title-line: 28px;
-  --o-type-display: 700 28px/36px var(--o-font-mono);
+  --o-type-title-line: 24px;
+  --o-type-display: 700 28px/34px var(--o-font-inter);
   --o-type-display-size: 28px;
-  --o-type-display-line: 36px;
+  --o-type-display-line: 34px;
+  --o-type-code: 400 13px/18px var(--o-font-mono);
+  --o-type-code-size: 13px;
+  --o-type-code-line: 18px;
 
   /* space */
   --o-space-2: 2px;
@@ -201,13 +205,15 @@
   --o-layout-inbox-width: 340px;
   --o-layout-inbox-width-narrow: 316px;
   --o-layout-rail-width: 64px;
-  --o-layout-read-measure-ch: 88ch;
+  --o-layout-read-measure-ch: 70ch;
   --o-layout-gutter-ch: 6ch;
   --o-layout-page-measure: 1120px;
   --o-layout-page-pad-desk: 24px;
   --o-layout-page-pad-phone: 16px;
   --o-layout-turn-gap: 32px;
   --o-layout-item-gap: 12px;
+  --o-layout-meter-cell: 160px;
+  --o-layout-meter-cell-line: 136px;
 
   /* elevation */
   --o-elevation-overlay: 0px 8px 24px color-mix(in srgb, #11111b 60%, transparent);
