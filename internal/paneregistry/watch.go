@@ -211,7 +211,9 @@ func (w *watcher) rescan() error {
 }
 
 // refresh reads the entry name, and binds, rebinds or unbinds its pane as the entry and its process now say. An entry
-// that cannot be read, or does not parse, emits nothing and keeps the binding it holds.
+// that cannot be read, or does not parse, emits nothing and keeps the binding it holds. So does the entry of a session
+// that is still starting, which has no status yet; it is read whole, so it clears any fault, and it binds once a later
+// read finds its status.
 func (w *watcher) refresh(name string) {
 	path := filepath.Join(w.cfg.Dir, name)
 	data, err := fs.ReadFile(w.files, name)
@@ -229,6 +231,9 @@ func (w *watcher) refresh(name string) {
 		return
 	}
 	delete(w.faults, name)
+	if entry.Starting() {
+		return
+	}
 	binding, binds, err := w.bindingOf(path, entry)
 	switch {
 	case err != nil:
