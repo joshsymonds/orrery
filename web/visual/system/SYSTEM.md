@@ -121,15 +121,16 @@ release, grey.
 
 ## 2. Type
 
-One face: Orrery Mono (Maple Mono), regular and bold; italic only for emphasis and a thought.
+Two faces. **Inter** sets the reading text: `small`, `body`, `title` and `display`. **Orrery Mono** (Maple Mono) sets the label and the code level: `label` and `code`. Italic is for emphasis and a thought only, in either face.
 
 | token | size / line | weight | for |
 |---|---|---|---|
 | `type.label` | 12 / 16 | bold, caps, tracked 0.06em | Section heads, a block's label, a meter's name. |
-| `type.small` | 13 / 20 | regular | Machinery and meta: a tool line, a second line, a chip, a button, the strip. |
-| `type.body` | 15 / 24 | regular | Reading text, your words, a row's title, an input, an option's name. |
-| `type.title` | 18 / 28 | bold | The page's title; an epic's now sentence. |
-| `type.display` | 28 / 36 | bold | The chart's count; a contract's title. One per page. |
+| `type.small` | 13 / 18 | regular | Machinery and meta: a tool line's name and counts, a second line, a chip, a button, the strip. |
+| `type.code` | 13 / 18 mono | regular | Code blocks, inline code, a command, a tool line, an id and a gutter time. |
+| `type.body` | 15 / 22 | regular | Reading text, your words, a row's title, an input, an option's name. |
+| `type.title` | 18 / 24 | bold | The page's title; an epic's now sentence. |
+| `type.display` | 28 / 34 | bold | The chart's count; a contract's title. One per page. |
 
 Bold is allowed at `small` and `body` for emphasis. There are no other sizes.
 
