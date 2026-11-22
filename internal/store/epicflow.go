@@ -61,7 +61,7 @@ type EpicFlow struct {
 // release slot holder and its pending trigger and planner action counts. All of them are read in one read transaction,
 // so they describe one state of the store. It returns an error matching ErrNoEpic when no epic has that id.
 func (s *Store) EpicFlow(ctx context.Context, id string) (EpicFlow, error) {
-	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	tx, err := s.read.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
 	if err != nil {
 		return EpicFlow{}, fmt.Errorf("begin epic read: %w", err)
 	}

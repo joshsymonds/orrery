@@ -32,7 +32,7 @@ type ActionEvent struct {
 // no caller_events mark holds under the recipient. The events of the actions come first, a move's and the others' in
 // the order of their time, then those of the decisions, in the order of theirs.
 func (s *Store) ActionEvents(ctx context.Context) ([]ActionEvent, error) {
-	events, err := allActionEvents(ctx, sqlcgen.New(s.db))
+	events, err := allActionEvents(ctx, sqlcgen.New(s.read))
 	if err != nil {
 		return nil, fmt.Errorf("list action events: %w", err)
 	}

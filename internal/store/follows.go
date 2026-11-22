@@ -19,7 +19,7 @@ type LabelFollow struct {
 // one of its answered questions had a recommendation. Notes, open and replaced questions, and questions with no label
 // or no recommendation are never counted.
 func (s *Store) Follows(ctx context.Context) ([]LabelFollow, error) {
-	rows, err := sqlcgen.New(s.db).ListEpicQuestionFollows(ctx)
+	rows, err := sqlcgen.New(s.read).ListEpicQuestionFollows(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("list question follows: %w", err)
 	}

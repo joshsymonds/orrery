@@ -125,7 +125,7 @@ type EnginePromptFailed struct {
 // started reads as not sent and can be sent again under the same prompt id. Prompts of other senders, and prompts
 // with no sender, count whatever their state. It reads the writer's database, as EngineSession does.
 func (s *Store) EnginePromptSent(ctx context.Context, sessionID, promptID string) (bool, error) {
-	count, err := sqlcgen.New(s.db).CountEnginePrompts(ctx, sqlcgen.CountEnginePromptsParams{
+	count, err := sqlcgen.New(s.read).CountEnginePrompts(ctx, sqlcgen.CountEnginePromptsParams{
 		SessionID: sessionID, PromptID: promptID,
 	})
 	if err != nil {
@@ -137,7 +137,7 @@ func (s *Store) EnginePromptSent(ctx context.Context, sessionID, promptID string
 // EnginePromptFailure reports the reason a prompt failed to send, and whether a failure marker exists for it. It
 // reads the writer's database, as EnginePromptSent does.
 func (s *Store) EnginePromptFailure(ctx context.Context, sessionID, promptID string) (string, bool, error) {
-	reason, err := sqlcgen.New(s.db).GetEnginePromptFailure(ctx, sqlcgen.GetEnginePromptFailureParams{
+	reason, err := sqlcgen.New(s.read).GetEnginePromptFailure(ctx, sqlcgen.GetEnginePromptFailureParams{
 		SessionID: sessionID, PromptID: promptID,
 	})
 	if errors.Is(err, sql.ErrNoRows) {
@@ -454,6 +454,13 @@ func (op EnginePrompt) applyEngine(ctx context.Context, queries *sqlcgen.Queries
 	}); err != nil {
 		return fmt.Errorf("append %s for session %s: %w", EventEnginePrompt, op.ID, err)
 	}
+	// first_prompt_text is set only while it is empty, so a later prompt leaves it, and so does the prune of the event
+	// this prompt appended. An empty first prompt leaves it empty, and the next prompt fills it.
+	if err = queries.SetSessionFirstPrompt(ctx, sqlcgen.SetSessionFirstPromptParams{
+		Text: op.Text, ID: op.ID,
+	}); err != nil {
+		return fmt.Errorf("set first prompt of session %s: %w", op.ID, err)
+	}
 	return nil
 }
 
@@ -520,18 +527,42 @@ func (op EngineBlock) applyEngine(ctx context.Context, queries *sqlcgen.Queries,
 	text, cutText := capEngineText(op.Text)
 	input, cutInput := capEngineText(op.Input)
 	content, cutContent := capEngineText(op.Content)
-	return appendEnginePayload(ctx, queries, op.ID, EventEngineBlock, engineBlockPayload{
+	if err := appendEnginePayload(ctx, queries, op.ID, EventEngineBlock, engineBlockPayload{
 		Kind: op.Kind, Role: op.Role, MessageID: op.MessageID, ParentToolUseID: op.ParentToolUseID,
 		Text: text, ToolUseID: op.ToolUseID, Name: op.Name, Input: input, Content: content,
 		IsError: op.IsError, Truncated: cutText || cutInput || cutContent, Added: op.Added, Removed: op.Removed,
-	}, now)
+	}, now); err != nil {
+		return err
+	}
+	if op.Kind != "text" || op.Role != "assistant" || op.ParentToolUseID != "" {
+		return nil
+	}
+	// latest_reply is the text of the newest main-conversation reply block. A later such block replaces it, which is
+	// the listing's ORDER BY at DESC, seq DESC whenever at does not move backwards: blocks are written in seq order.
+	if err := queries.SetSessionLatestReply(ctx, sqlcgen.SetSessionLatestReplyParams{
+		LatestReply: text, At: now.Unix(), ID: op.ID,
+	}); err != nil {
+		return fmt.Errorf("set latest reply of session %s: %w", op.ID, err)
+	}
+	return nil
 }
 
 func (op EngineRequest) applyEngine(ctx context.Context, queries *sqlcgen.Queries, now time.Time) error {
-	return appendEnginePayload(ctx, queries, op.ID, EventEngineRequest, engineRequestPayload{
+	if err := appendEnginePayload(ctx, queries, op.ID, EventEngineRequest, engineRequestPayload{
 		Kind: op.Kind, RequestID: op.RequestID, ToolUseID: op.ToolUseID, ToolName: op.ToolName,
 		Subtype: op.Subtype, Input: op.Input, Refused: op.Refused,
-	}, now)
+	}, now); err != nil {
+		return err
+	}
+	if op.Refused {
+		return nil
+	}
+	if err := queries.SetSessionLatestRequest(ctx, sqlcgen.SetSessionLatestRequestParams{
+		RequestID: op.RequestID, At: now.Unix(), ID: op.ID,
+	}); err != nil {
+		return fmt.Errorf("set latest request of session %s: %w", op.ID, err)
+	}
+	return nil
 }
 
 func (op EngineRequestCancelled) applyEngine(ctx context.Context, queries *sqlcgen.Queries, now time.Time) error {

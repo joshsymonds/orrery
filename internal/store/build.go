@@ -228,7 +228,7 @@ func (s *Store) SetTaskBuildNotes(
 // BuildEpics returns the ids, ordered by id, of the epics that have a base, are not in an ended phase (met_at_base,
 // clean, ended_with_gaps, released, done, stopped or one of the closed phases), and hold at least one open task.
 func (s *Store) BuildEpics(ctx context.Context) ([]string, error) {
-	ids, err := sqlcgen.New(s.db).ListBuildEpics(ctx)
+	ids, err := sqlcgen.New(s.read).ListBuildEpics(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("list build epics: %w", err)
 	}

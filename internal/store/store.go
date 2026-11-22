@@ -30,10 +30,19 @@ var migrationFS embed.FS
 // this binary. Open returns it without migrating the database.
 var ErrTooNew = errors.New("store schema is newer than this binary")
 
+// readConns is how many connections the store's read pool opens at most. Reads run on that pool, so a read waits for
+// one of these connections and never for the writer.
+const readConns = 4
+
 // Store is an open orrery SQLite store.
 type Store struct {
+	// db is the writer: the one connection every write runs on, in turn (writeDB).
 	db        *pool
 	connector *trackedConnector
+	// read is the read pool every read runs on. Its connections open the file read-only, so a read sees each committed
+	// write and never waits for the writer's lock.
+	read          *pool
+	readConnector *trackedConnector
 
 	liveMu     sync.Mutex
 	engineLive func() []string
@@ -190,9 +199,9 @@ const (
 // BusyTimeout is how long a store write waits for SQLite's write lock while another connection holds it, before it
 // fails with SQLITE_BUSY. The other writer of orreryd's store is Litestream, which takes the write lock for its
 // checkpoints. Over a large store those holds outlast 200 ms often enough to fail writes, and Litestream recommends a
-// 5 s busy timeout for the processes that share its database. The store's one connection runs every store call in
-// turn, so the calls behind a write wait out Litestream's hold whatever the timeout is: the timeout decides only
-// whether the write at the front fails.
+// 5 s busy timeout for the processes that share its database. Writes run on the store's one writer in turn, so the
+// writes behind one wait out Litestream's hold whatever the timeout is: the timeout decides only whether the write at
+// the front fails. Reads run on the read pool, so a write queued on the writer does not hold them up.
 const BusyTimeout = 5 * time.Second
 
 // Option changes how Open opens the store.
@@ -213,8 +222,9 @@ type openConfig struct {
 }
 
 // WithLogger sets the logger the store warns on for each call that takes longer than 100 ms, from the call until the
-// store's one connection is free again. The warning names the call's queries and splits its time into the wait for the
-// connection and the run on it. Without WithLogger the warnings are discarded.
+// connection it runs on is free again: the writer's for a write, one of the read pool's for a read. The warning names
+// the call's queries and splits its time into the wait for the connection and the run on it. Without WithLogger the
+// warnings are discarded.
 func WithLogger(logger *slog.Logger) Option {
 	return func(c *openConfig) { c.logger = logger }
 }
@@ -245,8 +255,10 @@ func WithSynchronous(mode Synchronous) Option {
 }
 
 // Open creates the store's directory (0700) and file (0600) when absent, opens the database in WAL mode with a
-// BusyTimeout busy timeout, and applies the embedded migrations. It returns ErrTooNew, without migrating, when the
-// database records a newer migration than this binary embeds. A file it cannot use is left untouched.
+// BusyTimeout busy timeout, and applies the embedded migrations. Its writer is the one connection writes run on, and
+// its read pool opens the file read-only, with the same busy timeout, for every read. It returns ErrTooNew, without
+// migrating, when the database records a newer migration than this binary embeds. A file it cannot use is left
+// untouched.
 func Open(ctx context.Context, path string, opts ...Option) (*Store, error) {
 	cfg := openConfig{busyTimeout: BusyTimeout}
 	for _, opt := range opts {
@@ -281,9 +293,17 @@ func Open(ctx context.Context, path string, opts ...Option) (*Store, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open store: %w", err)
 	}
+	readInner, err := sqlite.NewConnector(readOnlyDSNBusy(clean, cfg.busyTimeout.Milliseconds()))
+	if err != nil {
+		return nil, fmt.Errorf("open store: %w", err)
+	}
 	connector := &trackedConnector{inner: inner, gate: cfg.connectGate, waiting: cfg.closeWaiting}
 	db := sql.OpenDB(connector)
 	db.SetMaxOpenConns(1)
+	readConnector := &trackedConnector{inner: readInner, readPool: true}
+	readDB := sql.OpenDB(readConnector)
+	readDB.SetMaxOpenConns(readConns)
+	readDB.SetMaxIdleConns(readConns)
 	slow := &slowCalls{now: cfg.callClock, logger: cfg.logger, counted: cfg.slowCounted}
 	if slow.now == nil {
 		slow.now = time.Now
@@ -291,7 +311,12 @@ func Open(ctx context.Context, path string, opts ...Option) (*Store, error) {
 	if slow.logger == nil {
 		slow.logger = slog.New(slog.DiscardHandler)
 	}
-	opened := &Store{db: &pool{DB: db, slow: slow}, connector: connector}
+	opened := &Store{
+		db:            &pool{DB: db, slow: slow},
+		connector:     connector,
+		read:          &pool{DB: readDB, slow: slow},
+		readConnector: readConnector,
+	}
 	if err = opened.migrate(ctx); err != nil {
 		return nil, errors.Join(err, opened.Close())
 	}
@@ -301,19 +326,27 @@ func Open(ctx context.Context, path string, opts ...Option) (*Store, error) {
 
 // Close closes the store and returns once every connection it opened is closed, so the database's files are settled
 // when it returns. database/sql opens a connection on its own goroutine when one is discarded, an interrupted one for
-// instance, while another call waits for it, and DB.Close does not wait for that open. Close refuses new connections
-// first, then closes the pool, then waits for the connections still open, which close as their calls return them. It
-// returns an error matching ErrEpicWriteOutsideWrite, naming the tables, when a row was written on one of the store's
-// connections outside a store write to a table that names an epic or that no store write had touched (epicMoves), since
-// such a write may have moved no epic's revision.
+// instance, while another call waits for it, and DB.Close does not wait for that open. Close refuses new connections on
+// both pools first, then closes the read pool and waits for its connections, then closes the writer and waits for its
+// connection, which stays the store's last one, so its close removes the -wal and -shm files. A connection still open
+// closes as its call returns it. It returns an error matching ErrEpicWriteOutsideWrite, naming the tables, when a row
+// was written on one of the store's connections outside a store write to a table that names an epic or that no store
+// write had touched (epicMoves), since such a write may have moved no epic's revision.
 func (s *Store) Close() error {
 	outside := s.outsideWrites()
+	s.readConnector.beginClose()
 	s.connector.beginClose()
+	readErr := s.read.Close()
+	s.readConnector.wait()
 	err := s.db.Close()
 	s.connector.wait()
+	if readErr != nil {
+		readErr = fmt.Errorf("close store reads: %w", readErr)
+	}
 	if err != nil {
 		err = fmt.Errorf("close store: %w", err)
 	}
+	err = errors.Join(readErr, err)
 	if outside != "" {
 		err = errors.Join(err, fmt.Errorf("%w: %s", ErrEpicWriteOutsideWrite, outside))
 	}
