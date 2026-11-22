@@ -41,6 +41,8 @@ import (
 	"github.com/joshsymonds/orrery/internal/inapp"
 	"github.com/joshsymonds/orrery/internal/interpret"
 	"github.com/joshsymonds/orrery/internal/notice"
+	"github.com/joshsymonds/orrery/internal/paneregistry"
+	"github.com/joshsymonds/orrery/internal/panewatch"
 	"github.com/joshsymonds/orrery/internal/planner"
 	"github.com/joshsymonds/orrery/internal/protocol"
 	"github.com/joshsymonds/orrery/internal/push"
@@ -607,6 +609,7 @@ func serve(ctx context.Context, opts options, logger *slog.Logger, getenv func(s
 	var callerWake atomic.Pointer[func()]
 	// The first tidy waits for tidyStart, which closes once the store is open and the sessions have started.
 	tidyStart := make(chan struct{})
+	watch := startPaneWatch(ctx, logger, home, router)
 	serveDone := serveInBackground(ctx, ln, daemon.Config{
 		Server:        opts.server,
 		DefaultServer: opts.defaultServer,
@@ -622,6 +625,7 @@ func serve(ctx context.Context, opts options, logger *slog.Logger, getenv func(s
 		Logger:    logger,
 		Mirror:    mirror,
 		TidyStart: tidyStart,
+		Updates:   watch.updates,
 		// Each tidy pass retries the notice row writes the store refused, so they are stored once it takes writes.
 		AfterTidy: notices.Retry,
 	})
@@ -640,7 +644,7 @@ func serve(ctx context.Context, opts options, logger *slog.Logger, getenv func(s
 		close(tidyStart)
 		notifyReady(ctx, logger, opts)
 	}
-	serveErr := awaitServe(ctx, logger, serveDone)
+	serveErr := awaitServe(ctx, logger, serveDone, watch)
 	shutdownPhase(logger, "metrics listener", opts.stopMetricsListener)
 	sessionErr := shutdownServe(ctx, logger, pages, st, hub, sessions, router, notices)
 	if serveErr != nil {
@@ -668,8 +672,10 @@ func openPushes(opts options, getenv func(string) string) (string, *push.Store, 
 }
 
 // awaitServe returns the error daemon.Serve returns on serveDone. Once ctx has ended, the wait for Serve's shutdown is
-// logged as the hook socket phase.
-func awaitServe(ctx context.Context, logger *slog.Logger, serveDone <-chan error) error {
+// logged as the hook socket phase. The pane watch is stopped on return, before serve closes the router its unreadable
+// entries notify.
+func awaitServe(ctx context.Context, logger *slog.Logger, serveDone <-chan error, watch *paneWatch) error {
+	defer watch.stop(logger)
 	select {
 	case err := <-serveDone:
 		return err
@@ -771,6 +777,58 @@ func serveInBackground(ctx context.Context, ln net.Listener, cfg daemon.Config) 
 	done := make(chan error, 1)
 	go func() { done <- daemon.Serve(ctx, ln, cfg) }()
 	return done
+}
+
+// paneWatch is the pane watch of one serve: the channel its pane updates go to, which Serve takes them from, and the
+// means to stop the watch and wait for it to return.
+type paneWatch struct {
+	updates chan daemon.PaneUpdate
+	cancel  context.CancelFunc
+	done    chan struct{} // closed once the watch has returned, or at once when it never started
+}
+
+// startPaneWatch makes the session registry under home, the directory Claude Code writes its entries to, and runs the
+// pane watch of it in a goroutine. Run sends each pane update on the watch's updates, and each registry entry or
+// transcript it cannot read goes to router as a notice. A directory that cannot be made is logged, and no watch runs.
+// An error Run returns is logged too, except the context's error, which is how every run ends. Without a home there is
+// no registry, so no directory is made and no watch runs.
+func startPaneWatch(ctx context.Context, logger *slog.Logger, home string, router *route.Router) *paneWatch {
+	watchCtx, cancel := context.WithCancel(ctx)
+	watch := &paneWatch{updates: make(chan daemon.PaneUpdate), cancel: cancel, done: make(chan struct{})}
+	if home == "" {
+		close(watch.done)
+		return watch
+	}
+	dir := filepath.Join(home, ".claude", "sessions")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		logger.ErrorContext(ctx, "create session registry", "dir", dir, "error", err)
+		close(watch.done)
+		return watch
+	}
+	go func() {
+		defer close(watch.done)
+		err := panewatch.Run(watchCtx, panewatch.Config{
+			Dir:     dir,
+			Home:    home,
+			Proc:    paneregistry.SystemProc(),
+			Updates: watch.updates,
+			Unreadable: func(path string, err error) {
+				router.Notify(watchCtx, registryNotice(path, err))
+			},
+			Logger: logger,
+		})
+		if err != nil && !errors.Is(err, context.Canceled) {
+			logger.ErrorContext(ctx, "watch panes", "error", err)
+		}
+	}()
+	return watch
+}
+
+// stop ends the pane watch and waits until it has returned, so that no unreadable entry notifies the router once serve
+// closes it. The wait is logged as the pane watch phase.
+func (w *paneWatch) stop(logger *slog.Logger) {
+	w.cancel()
+	shutdownPhase(logger, "pane watch", func() { <-w.done })
 }
 
 // shutdownServe runs once Serve has returned. It closes pages first, so the Watch streams open on it end before the
