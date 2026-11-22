@@ -474,7 +474,8 @@ func candidateChange(ctx context.Context, repo, candidate, revision string, path
 		return "", "", fmt.Errorf("find the merge base of %s and %s: %w", candidate, revision, err)
 	}
 	base := strings.TrimSpace(out)
-	args := append([]string{"--literal-pathspecs", "diff", "--no-color", "--no-ext-diff", base, candidate, "--"}, paths...)
+	args := []string{"--literal-pathspecs", "diff", "--no-color", "--no-ext-diff", base, candidate, "--"}
+	args = append(args, paths...)
 	change, err := gitOutput(ctx, repo, args...)
 	if err != nil {
 		return "", "", fmt.Errorf("diff candidate %s against its merge base %s: %w", candidate, base, err)

@@ -8,17 +8,17 @@ import (
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
-// clashSentBackReason returns the reason task seq was sent back for: the reason of its newest version, which must be a
+// clashSentBackReason returns the reason task 2 was sent back for: the reason of its newest version, which must be a
 // send_back.
-func clashSentBackReason(t *testing.T, s *store.Store, seq int64) string {
+func clashSentBackReason(t *testing.T, s *store.Store) string {
 	t.Helper()
-	task := mergeTask(t, s, seq)
+	task := mergeTask(t, s, 2)
 	if len(task.Versions) == 0 {
-		t.Fatalf("task %d has no versions, want a send_back", seq)
+		t.Fatal("task 2 has no versions, want a send_back")
 	}
 	newest := task.Versions[len(task.Versions)-1]
 	if newest.Source != store.SourceSendBack {
-		t.Fatalf("task %d newest version = %+v, want a send_back", seq, newest)
+		t.Fatalf("task 2 newest version = %+v, want a send_back", newest)
 	}
 	return newest.Reason
 }
@@ -65,7 +65,7 @@ func TestIntegratorClashSendsTheTaskBackWithItsExplanationAndTheDiff(t *testing.
 	w.endCapture(integrateBatch)
 	w.pass()
 
-	reason := clashSentBackReason(t, w.s, 2)
+	reason := clashSentBackReason(t, w.s)
 	if !strings.Contains(reason, "task integrator round 1 clashed: both sides decide the title") {
 		t.Errorf("reason = %q, want the clash's explanation", reason)
 	}
@@ -96,7 +96,7 @@ func TestIntegratorClashThirdFailedRoundSendsTheTaskBack(t *testing.T) {
 	w.endCapture(integrateBatch)
 	w.pass()
 
-	reason := clashSentBackReason(t, w.s, 2)
+	reason := clashSentBackReason(t, w.s)
 	want := "task integrator round 3 failed: Done gate lint failed on commit " + third
 	if !strings.Contains(reason, want) {
 		t.Errorf("reason = %q, want the third round's failure %q", reason, want)
@@ -123,7 +123,7 @@ func TestIntegratorClashEndedStepSendsTheTaskBack(t *testing.T) {
 	w.endCapture(integrateBatch)
 	w.pass()
 
-	reason := clashSentBackReason(t, w.s, 2)
+	reason := clashSentBackReason(t, w.s)
 	if !strings.Contains(reason, "task integrator round 1 ended: task integrator ended stopped") {
 		t.Errorf("reason = %q, want how the step ended", reason)
 	}
@@ -161,7 +161,7 @@ func TestIntegratorClashReasonIsCutToItsBounds(t *testing.T) {
 	w.endCapture(integrateBatch)
 	w.pass()
 
-	reason := clashSentBackReason(t, w.s, 2)
+	reason := clashSentBackReason(t, w.s)
 	if len(reason) > store.TurnReasonMax {
 		t.Errorf("reason is %d bytes, want at most %d", len(reason), store.TurnReasonMax)
 	}

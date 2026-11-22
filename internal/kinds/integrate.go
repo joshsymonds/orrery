@@ -160,7 +160,8 @@ func TaskEnding(rows Rows, run store.NodeRun, seq int64) string {
 		if !recorded {
 			return ""
 		}
-		if _, started := firstMatch(rows.Steps, func(row store.StepRow) bool { return row.ID == record.Step }); !started {
+		started := slices.ContainsFunc(rows.Steps, func(row store.StepRow) bool { return row.ID == record.Step })
+		if !started {
 			return ""
 		}
 		switch {
