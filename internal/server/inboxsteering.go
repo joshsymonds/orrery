@@ -7,37 +7,87 @@ import (
 	"connectrpc.com/connect"
 
 	enginev1 "github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1"
+	"github.com/joshsymonds/orrery/internal/protocol"
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
-// readSteered reads, once, the session ids that a list keeps unended: the steerer of each live orreryd epic that epics
-// lists, and the conversation of each proposed contract that reader lists. The ids are session row ids. A nil epics
-// lists no epics, and so does an epic store whose ListEpics is unimplemented, as listStored answers. Any other ListEpics
-// failure answers unavailable. A failed contracts read answers as readClosureVerdicts maps store errors.
-func readSteered(ctx context.Context, epics EpicStoreClient, reader *store.Reader) (map[string]bool, error) {
+// steerReads is what a list reads once about the sessions that steer or run a step. kept holds the ids a list keeps
+// unended: the steerer of each live epic and the conversation of each proposed contract. busy holds the ids a done row
+// lists as working: the steerer of each live epic and the caller of each running step.
+type steerReads struct {
+	kept map[string]bool
+	busy map[string]bool
+}
+
+// readSteered reads, once, the session ids that a list keeps unended and the ones that list a done row as working. The
+// steerer of each live orreryd epic that epics lists is in both sets. The conversation of each proposed contract that
+// reader lists is in kept only, and the caller of each running step that steps lists is in busy only. The ids are
+// session row ids. A nil epics lists no epics, and so does an epic store whose ListEpics is unimplemented, as
+// listStored answers. Any other ListEpics failure answers unavailable. A nil steps lists no steps, and a failed
+// ListSteps answers as readRunningCallers reads it. A failed contracts read answers as readClosureVerdicts maps store
+// errors.
+func readSteered(
+	ctx context.Context, epics EpicStoreClient, steps StepClient, reader *store.Reader,
+) (steerReads, error) {
 	summaries, err := listSteerEpics(ctx, epics)
 	if err != nil {
-		return nil, err
+		return steerReads{}, err
 	}
-	steered := map[string]bool{}
+	reads := steerReads{kept: map[string]bool{}, busy: map[string]bool{}}
 	for _, epic := range summaries {
 		if storedPhaseLive(epic.GetPhase()) {
-			steered[epic.GetSteerer()] = true
+			reads.kept[epic.GetSteerer()] = true
+			reads.busy[epic.GetSteerer()] = true
 		}
+	}
+	callers, err := readRunningCallers(ctx, steps)
+	if err != nil {
+		return steerReads{}, err
+	}
+	for caller := range callers {
+		reads.busy[caller] = true
 	}
 	contracts, err := reader.Contracts(ctx)
 	if errors.Is(err, store.ErrUnavailable) {
-		return nil, listError(connect.CodeUnavailable, "store unavailable")
+		return steerReads{}, listError(connect.CodeUnavailable, "store unavailable")
 	}
 	if err != nil {
-		return nil, listError(connect.CodeInternal, "read contracts")
+		return steerReads{}, listError(connect.CodeInternal, "read contracts")
 	}
 	for _, contract := range contracts {
 		if contract.State == store.ContractProposed {
-			steered[contract.Conversation] = true
+			reads.kept[contract.Conversation] = true
 		}
 	}
-	return steered, nil
+	return reads, nil
+}
+
+// readRunningCallers asks steps for the running steps in one call under ctx, with no retry, and returns the caller of
+// each step that names one. A nil steps lists none. Any ListSteps failure answers unavailable with stepsUnavailable.
+func readRunningCallers(ctx context.Context, steps StepClient) (map[string]bool, error) {
+	if steps == nil {
+		return nil, nil
+	}
+	resp, err := steps.ListSteps(ctx, connect.NewRequest(&enginev1.ListStepsRequest{Running: true}))
+	if err != nil {
+		return nil, listError(connect.CodeUnavailable, stepsUnavailable)
+	}
+	callers := map[string]bool{}
+	for _, step := range resp.Msg.GetSteps() {
+		if caller := step.GetCaller(); caller != "" {
+			callers[caller] = true
+		}
+	}
+	return callers, nil
+}
+
+// busyState returns the state a list answers for the row id, whose stored state is state. A done row that busy holds
+// lists as working. Any other row keeps its stored state.
+func busyState(busy map[string]bool, id, state string) string {
+	if state == string(protocol.StateDone) && busy[id] {
+		return string(protocol.StateWorking)
+	}
+	return state
 }
 
 // listSteerEpics asks epics for its epic summaries in one call under ctx, with no retry. A nil epics lists none, and so
