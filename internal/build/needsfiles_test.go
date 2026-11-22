@@ -199,11 +199,11 @@ func newOwnerFixture(t *testing.T, file string) *passFixture {
 }
 
 // TestNeedsFilesPassStoresThePathsWithTheClimb covers R3: an implementer that returns needs_context with needs_files
-// that cannot be granted, since another open task owns one, on a task with no orchestrator decisions left, climbs the
-// task with the paths stored under it.
+// that cannot be granted, since the planner refuses one, on a task with no orchestrator decisions left, climbs the task
+// with the paths stored under it.
 func TestNeedsFilesPassStoresThePathsWithTheClimb(t *testing.T) {
 	t.Parallel()
-	f := newOwnerFixture(t, "internal/other/a.go")
+	f := newPassFixture(t)
 	first := []int64{1}
 	f.runner.PassTasks(f.ctx, passEpic, first)
 	f.addRun(RunID(passEpic, 1, StageRed, 0, 0), evidence.PhaseRed, f.base, 1, evidence.VerdictFails)
@@ -213,7 +213,7 @@ func TestNeedsFilesPassStoresThePathsWithTheClimb(t *testing.T) {
 	f.setBuild(spent)
 	f.steps.rows[passStep(StageImplement, 1, 0)] = store.StepRow{
 		ID: passStep(StageImplement, 1, 0), End: "returned", Status: "needs_context",
-		Result: `{"status":"needs_context","summary":"stuck","needs_files":["internal/other/a.go"]}`,
+		Result: `{"status":"needs_context","summary":"stuck","needs_files":[".git/config"]}`,
 	}
 	before := ladderClimbBefore(f, 1)
 	f.runner.PassTasks(f.ctx, passEpic, first)
@@ -223,7 +223,7 @@ func TestNeedsFilesPassStoresThePathsWithTheClimb(t *testing.T) {
 		t.Errorf("task failure %q, want %q", task.Build.Failure, want)
 	}
 	ladderClimbCheck(f, store.RungOf(before), store.MovedByUnit)
-	if want := []string{"internal/other/a.go"}; !reflect.DeepEqual(task.NeedsFiles, want) {
+	if want := []string{".git/config"}; !reflect.DeepEqual(task.NeedsFiles, want) {
 		t.Errorf("NeedsFiles = %v, want %v", task.NeedsFiles, want)
 	}
 }

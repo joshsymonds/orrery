@@ -777,22 +777,6 @@ func grantRefusal(file string, task store.EpicTask, before []string) string {
 	return ""
 }
 
-// fileRefusal returns why file may not be granted to task by rule behind after, given the files before it, or "" when
-// it may. It is grantRefusal, and also refuses a file that an open task owns or an accepted pending task changed unless
-// after names that task. The implementer's own grant uses it, so a held file goes to the orchestrator, which decides it.
-func fileRefusal(file string, task store.EpicTask, peers []Peer, after []int64, before []string) string {
-	if reason := grantRefusal(file, task, before); reason != "" {
-		return reason
-	}
-	held := holderOf(file, task, peers)
-	for _, seq := range held.Tasks {
-		if !slices.Contains(after, seq) {
-			return fmt.Sprintf("%s is %s, and after_tasks does not name %s", file, held.Text, taskLabel(seq))
-		}
-	}
-	return ""
-}
-
 // request returns the action for an implementer step that ended in a request orreryd cannot settle by rule. With
 // orchestrator decisions left, the build moves to orchestrate, keeping the implementer's step as its step so the
 // orchestrator decides that step's end. Without, fallback, what the build did before the orchestrator, is taken.
