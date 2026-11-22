@@ -985,28 +985,41 @@ section.page.leave { animation: move-leave var(--o-move-leave); }
 /* A command's error under the title row: an alert in the bad role's tint. */
 .page-note { margin: 0; padding: var(--o-space-4) var(--o-space-24); border-bottom: var(--o-size-hairline) solid var(--o-line-soft); background: var(--o-role-bad-fill); color: var(--o-role-bad); font: var(--o-type-small); overflow-wrap: anywhere; }
 /* The strip is the title row's own line under its controls: the host's name, each meter, then the context. A meter is its
-   name, a bar at its percent and its value, in its series colour; at warn and crit all three take the level's colour. */
+   name, a bar at its percent and its value, in its series colour; at warn and crit all three take the level's colour. A
+   stat with no percent draws an empty bar line. */
 .pane-strip { display: flex; flex-wrap: wrap; align-items: center; gap: var(--o-space-4) var(--o-space-16); min-width: 0; font: var(--o-type-small); color: var(--o-ink-3); }
 .pane-strip-host { flex: none; font-weight: var(--o-font-weight-bold); color: var(--o-ink-2); }
 .pane-strip .other { color: var(--o-ink-4); }
+/* The meters are a grid of equal cells, each at most meterCell wide and at least twice the bar's width, so the cells wrap
+   to further rows of the same columns. */
+.pane-strip .meters { display: grid; flex: 1 1 auto; min-width: 0; grid-template-columns: repeat(auto-fill, minmax(calc(var(--o-size-meter-bar-width) * 2), var(--o-layout-meter-cell))); gap: var(--o-space-8) var(--o-space-12); }
 /* A conversation head's machine band: the strip as a full-width row of its own under the title row, on surface.side, the
    inbox column's ground, one step deeper than the goal's well, with an edge under it. The host is marked with its icon. */
 .machine-band { min-height: var(--o-size-control-desk); padding: var(--o-space-4) var(--o-layout-page-pad-desk); border-bottom: var(--o-size-hairline) solid var(--o-line-soft); background: var(--o-surface-side); }
 .machine-band .pane-strip-host { display: inline-flex; align-items: center; gap: var(--o-space-4); }
 .machine-band .pane-strip-host .icon { color: var(--o-ink-4); }
-.meter { --hue: var(--o-series-1); display: inline-flex; align-items: center; gap: var(--o-space-8); flex: none; font: var(--o-type-small); white-space: nowrap; }
+/* A meter is a cell: it never widens past its grid column, and it is an inline-size container, so a cell under meterCellLine
+   stacks (see the query below). Its value wraps inside the cell and is never ellipsized or clipped. */
+.meter { --hue: var(--o-series-1); display: flex; flex-wrap: wrap; align-items: center; gap: var(--o-space-2) var(--o-space-8); min-width: 0; container-type: inline-size; font: var(--o-type-small); }
 .meter.series-2 { --hue: var(--o-series-2); }
 .meter.series-3 { --hue: var(--o-series-3); }
 .meter.series-4 { --hue: var(--o-series-4); }
 .meter.series-5 { --hue: var(--o-series-5); }
 .meter.level-warn { --hue: var(--o-level-warn); }
 .meter.level-crit { --hue: var(--o-level-crit); }
-.meter .name { font: var(--o-type-label); letter-spacing: var(--o-type-label-tracking); text-transform: uppercase; color: var(--hue); }
+.meter .name { min-width: 0; overflow-wrap: anywhere; font: var(--o-type-label); letter-spacing: var(--o-type-label-tracking); text-transform: uppercase; color: var(--hue); }
 .meter .bar { width: var(--o-size-meter-bar-width); height: var(--o-size-meter-bar-height); border-radius: var(--o-radius-round); background: var(--o-line-soft); overflow: hidden; }
 .meter .bar i { display: block; height: 100%; border-radius: var(--o-radius-round); background: var(--hue); }
-.meter .value { color: var(--o-ink-1); }
+.meter .value { min-width: 0; overflow-wrap: anywhere; color: var(--o-ink-1); }
 .meter.level-warn .value { color: var(--o-level-warn); }
 .meter.level-crit .value { color: var(--o-level-crit); font-weight: var(--o-font-weight-bold); }
+/* A cell under meterCellLine stacks its name, its value, then its bar across the cell. A container query reads the cell
+   as its container, so it styles the cell's children. */
+@container (width < 136px) {
+  .meter .name, .meter .value { flex-basis: 100%; }
+  .meter .value { order: 2; }
+  .meter .bar { order: 3; width: 100%; }
+}
 /* The context: five blocks in its level's colour, the filled ones on, then its percent. */
 .ctx { display: inline-flex; align-items: center; gap: var(--o-space-8); flex: none; font: var(--o-type-small); color: var(--o-ink-3); white-space: nowrap; }
 .ctx .name { font: var(--o-type-label); letter-spacing: var(--o-type-label-tracking); text-transform: uppercase; }
@@ -1053,12 +1066,6 @@ button.subj:hover { background: var(--o-surface-raised); }
   .convo-head > .title-row .sep { display: none; }
   .convo-head > .title-row .crumb.place { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .convo-head > .title-row .crumb.here { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; min-width: 0; overflow: hidden; white-space: normal; }
-  .convo-head .pane-strip { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--o-space-8) var(--o-space-12); }
-  /* Each meter stacks as round 6's touch meter does: its name, its value, then its bar across the cell. */
-  .convo-head .pane-strip .meter { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--o-space-2); white-space: nowrap; }
-  .convo-head .pane-strip .meter .name, .convo-head .pane-strip .meter .value { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-  .convo-head .pane-strip .meter .value { order: 2; }
-  .convo-head .pane-strip .meter .bar { order: 3; width: 100%; }
   /* As round 6's touch title row: the host follows the directory ("tidepool · on halyard"), the context sits bare in
      the title row beside More, find is in More, and the band holds only the meters (or the other host's words). */
   .convo-head > .title-row .crumb.place[data-host]::after { content: " · on " attr(data-host); }
@@ -1066,7 +1073,6 @@ button.subj:hover { background: var(--o-surface-raised); }
   .convo-head > .title-row .ctx .name, .convo-head > .title-row .ctx .used { display: none; }
   .convo-head .machine-band { padding: var(--o-space-8) var(--o-layout-page-pad-phone); }
   .convo-head .pane-strip-host { display: none; }
-  .convo-head .pane-strip .other { grid-column: 1 / -1; }
   /* The worker session's title row reads as the conversation head's: the crumbs that lead to it share one line, each
      ellipsized, and the page's crumb takes the line under them, whole. */
   .worker-session > .title-row .crumbs { display: flex; flex: 1 1 0; flex-wrap: wrap; align-items: baseline; gap: 0 var(--o-space-4); }
