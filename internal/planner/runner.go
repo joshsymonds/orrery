@@ -88,7 +88,7 @@ const rateLimitRejected = "rejected"
 // stepCapFull is the reason a turn is freed with when the step cap refuses its step.
 const stepCapFull = "step cap full"
 
-// taskOpen is the status of a task that is not yet accepted or failed. Only an open task owns its files.
+// taskOpen is the status of a task that is not yet accepted or failed.
 const taskOpen = "open"
 
 // taskFailed is the status of a task whose build failed. A failed task's claims do not count toward coverage.
@@ -777,8 +777,8 @@ func questionInputOf(question Question) store.EpicQuestionInput {
 }
 
 // returnCheck returns the check a planner step's return runs for epic. A return that does not parse is one line.
-// Any other return gets the refusals of Check, against the epic's Requirement ids and its tasks, whose open tasks own
-// files and whose tasks a depends_on entry may name, and the gates and judges that resolve answers for epic, then those
+// Any other return gets the refusals of Check, against the epic's Requirement ids and its tasks, whose tasks a depends_on
+// entry may name, and the gates and judges that resolve answers for epic, then those
 // of checkAmendKeeps against the epic's Requirements, then those of checkClosureTasks against the epic's phase, then
 // those of checkCloses against the epic's phase and the findings of review that the next closure round checks, then
 // those of checkSpentGaps against gapTurns, the planner turns each gap of the epic was given before the checked turn,
