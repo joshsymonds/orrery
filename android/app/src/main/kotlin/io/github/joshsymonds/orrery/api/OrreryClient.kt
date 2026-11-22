@@ -758,6 +758,8 @@ data class EpicQuestionChoiceRow(val id: String, val does: String)
  * and [recommendedWhy] is why. [escalated] is when the question was escalated, in unix seconds, 0 while it is not.
  * [escalationReason] is why it was escalated, [escalationBy] who escalated it (owner, conversation or orreryd) and
  * [escalationSession] the session that did when a conversation did. Those three are "" while it is not escalated.
+ * [steererHeld] is whether the epic's steerer answers the question, so the owner is not asked: a steering session
+ * hears the epic and the question is not escalated.
  */
 data class EpicQuestionRow(
     val id: String,
@@ -771,6 +773,7 @@ data class EpicQuestionRow(
     val escalationReason: String = "",
     val escalationBy: String = "",
     val escalationSession: String = "",
+    val steererHeld: Boolean = false,
 )
 
 /** One failure an orreryd epic's contract guards against, with its [rating] and what the epic does about it. */
@@ -819,7 +822,8 @@ data class EpicContractRow(
  * orreryd epic's planned tasks in the order they were planned, empty for a record epic. [summary] is the epic's summary
  * paragraph, empty until it is written. [contract] is the accepted contract, null for a record epic. [questions] are
  * the open questions in the order they were asked. [paused] is whether the epic's planner starts no turn, and [parked]
- * is why the epic is parked, empty when it is not. [plannerParked] is whether the planner holds that park.
+ * is why the epic is parked, empty when it is not. [plannerParked] is whether the planner holds that park, and
+ * [steererParked] whether the epic's steerer holds it until it escalates it.
  * [repository] is the absolute path of the git repository the epic belongs to, empty when none is named.
  * [releaseProof] is the contract's release steps with the state their release runs gave them, in contract order,
  * empty for a record epic. [reviews] are the verdicts of the epic-stage reviewers by position, empty before its review.
@@ -840,6 +844,7 @@ data class EpicDetail(
     val paused: Boolean = false,
     val parked: String = "",
     val plannerParked: Boolean = false,
+    val steererParked: Boolean = false,
     val repository: String = "",
     val releaseProof: List<EpicReleaseProofRow> = emptyList(),
     val reviews: List<EpicReviewVerdictRow> = emptyList(),
@@ -1159,6 +1164,7 @@ class OrreryClient(
             paused = response.paused,
             parked = response.parked,
             plannerParked = response.plannerParked,
+            steererParked = response.steererParked,
             repository = response.repository,
             releaseProof = response.releaseStepsList.map { it.toEpicReleaseProofRow() },
             reviews = response.reviewsList.map { it.toEpicReviewVerdictRow() },
@@ -1861,6 +1867,7 @@ class OrreryClient(
             escalationReason = escalationReason,
             escalationBy = escalationBy,
             escalationSession = escalationSession,
+            steererHeld = steererHeld,
         )
 
     private fun EpicContractProto.toEpicContractRow(): EpicContractRow =

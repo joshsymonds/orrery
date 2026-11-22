@@ -117,10 +117,10 @@ func (e epicsServer) List(
 // with its conclusion and the evidence runs of its item, its workflow nodes in the engine's order, its build_tasks in
 // plan order, its ledger findings with their closures, its review verdicts in ledger order, its release runs in the
 // order the stored epic lists them, its release steps in the order of its release proof, its report, its open questions
-// with their labels, choices and recommendations, its contract with its acceptance time, its summary, whether it is
-// paused, why it is parked and whether the planner holds the park, its repository, its sessions newest call first, and
-// the tasks of its record when one exists. An id that neither the database nor the record root lists answers not_found,
-// and the id is never joined into a path.
+// with their labels, choices and recommendations and whether its steerer holds each, its contract with its acceptance
+// time, its summary, whether it is paused, why it is parked and whether the planner or its steerer holds the park, its
+// repository, its sessions newest call first, and the tasks of its record when one exists. An id that neither the
+// database nor the record root lists answers not_found, and the id is never joined into a path.
 func (e epicsServer) Get(
 	ctx context.Context,
 	req *connect.Request[orreryv1.EpicsGetRequest],
@@ -180,12 +180,13 @@ func (e epicsServer) Get(
 		resp.Releases = epicReleaseRunMessages(stored.GetReleases())
 		resp.ReleaseSteps = epicReleaseProofMessages(stored.GetReleaseProof())
 		resp.Report = epicReportMessage(stored.GetReport())
-		resp.Questions = epicQuestionMessages(stored.GetQuestions(), stored.GetTurns())
+		resp.Questions = epicQuestionMessages(stored.GetQuestions(), stored.GetTurns(), stored.GetSteererHeard())
 		resp.Contract = epicContractMessage(stored.GetContract(), stored.GetCreated())
 		resp.Summary = stored.GetSummary()
 		resp.Paused = stored.GetPaused()
 		resp.Parked = stored.GetParked()
-		resp.PlannerParked = stored.GetParked() != "" && !store.ParkClass(stored.GetParkClass()).OwnerHeld()
+		resp.PlannerParked = stored.GetParked() != "" && !store.ParkClass(stored.GetParkClass()).OpensQuestion()
+		resp.SteererParked = steererParked(stored)
 		resp.SupersededBy = stored.GetSupersededBy()
 	} else {
 		resp.Epic = epicMessage(rec, tasks, taskProblems, counts, e.now())
@@ -367,6 +368,7 @@ type storedHead interface {
 	GetSeen() int64
 	GetRevision() int64
 	GetSteerer() string
+	GetSteererHeard() bool
 	GetPaused() bool
 	GetPauseSource() string
 	GetParked() string
@@ -375,10 +377,10 @@ type storedHead interface {
 // storedEpicMessage returns the Epic of an epic orreryd's database holds, from its head: its outcome is the phase,
 // which for a closed epic is the closed phase of its kind, its phase time, changed time, seen time and revision are the
 // database's, and it is live unless the phase is met_at_base, released or done, which end an epic, or a closed phase,
-// which a close ends it in; ended_with_gaps and stopped stay live. Its steering, paused, pause source and park are the
-// head's, its path is the repository path given and its open questions are the count given, since the two heads answer
-// them differently. Its problem joins problems, which are the record's when a record of the id exists and none
-// otherwise. Its running steps and its count of ended steps are counts', as epicMessage's are.
+// which a close ends it in; ended_with_gaps and stopped stay live. Its steering and whether it is heard, paused, pause
+// source and park are the head's, its path is the repository path given and its open questions are the count given,
+// since the two heads answer them differently. Its problem joins problems, which are the record's when a record of the
+// id exists and none otherwise. Its running steps and its count of ended steps are counts', as epicMessage's are.
 func storedEpicMessage(
 	id string,
 	head storedHead,
@@ -409,6 +411,7 @@ func storedEpicMessage(
 		PauseSource:   head.GetPauseSource(),
 		Parked:        head.GetParked(),
 		OpenQuestions: openQuestions,
+		SteererHeard:  head.GetSteererHeard(),
 	}
 }
 
@@ -484,8 +487,11 @@ const epicQuestionOpen = "open"
 // epicQuestionMessages converts each open question to its EpicQuestion, in order, and leaves out the answered ones. A
 // question's asked is the end of the turn whose seq is the question's turn; a turn that no seq matches gives zero. A
 // question's escalation (escalated, escalation reason, by and session) is copied as stored, and is zero or empty while
-// it is not escalated.
-func epicQuestionMessages(questions []*enginev1.EpicQuestion, turns []*enginev1.EpicTurn) []*orreryv1.EpicQuestion {
+// it is not escalated. A question is steerer_held when heard, a steering session hears the epic, and it is not
+// escalated (store.SteererHolds).
+func epicQuestionMessages(
+	questions []*enginev1.EpicQuestion, turns []*enginev1.EpicTurn, heard bool,
+) []*orreryv1.EpicQuestion {
 	endedBySeq := make(map[int64]int64, len(turns))
 	for _, turn := range turns {
 		endedBySeq[turn.GetSeq()] = turn.GetEnded()
@@ -507,9 +513,25 @@ func epicQuestionMessages(questions []*enginev1.EpicQuestion, turns []*enginev1.
 			EscalationReason:  question.GetEscalationReason(),
 			EscalationBy:      question.GetEscalationBy(),
 			EscalationSession: question.GetEscalationSession(),
+			SteererHeld:       store.SteererHolds(heard, question.GetEscalated() != 0),
 		})
 	}
 	return out
+}
+
+// steererParked reports whether stored is parked and its steerer holds the park: the park opens a park question, which
+// is open, and its steerer holds that question (store.SteererHolds). A question park whose park question is not open
+// waits on the owner, since no steerer has a question to answer or escalate.
+func steererParked(stored *enginev1.StoredEpic) bool {
+	if stored.GetParked() == "" || !store.ParkClass(stored.GetParkClass()).OpensQuestion() {
+		return false
+	}
+	for _, question := range stored.GetQuestions() {
+		if question.GetState() == epicQuestionOpen && question.GetLabel() == store.ParkLabel {
+			return store.SteererHolds(stored.GetSteererHeard(), question.GetEscalated() != 0)
+		}
+	}
+	return false
 }
 
 // epicOpenQuestions counts the questions the owner has not answered.

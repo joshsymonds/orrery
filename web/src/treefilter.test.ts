@@ -406,3 +406,41 @@ test("WaitsOnYou: an archived waiting conversation in the archived view counts n
   assert.deepEqual(waitOrder(projects), []);
   assert.deepEqual(narrow(projects, "waiting"), []);
 });
+
+test("SteererHolds: an epic whose only question its steerer holds is not counted, and counts once the steerer escalates it", () => {
+  const quiet = [makeRow({ key: "a", label: "a", archiveId: "sess-a", state: "done" })];
+  const epics = [makeEpic({ steering: "sess-a", steererHeard: true })];
+  const withQuestion = (question: { steererHeld: boolean; escalated: bigint }) =>
+    buildTree(
+      inputOf(quiet, {
+        epics,
+        details: new Map([["repo-a/alpha", makeDetail({ questions: [{ id: "Q1", text: "one?", ...question }] })]]),
+      }),
+    );
+  const held = withQuestion({ steererHeld: true, escalated: 0n });
+  assert.equal(countsOf(held).waiting, 0);
+  assert.deepEqual(waitOrder(held), []);
+  assert.deepEqual(narrow(held, "waiting"), []);
+  const escalated = withQuestion({ steererHeld: false, escalated: 1700000300n });
+  assert.equal(countsOf(escalated).waiting, 1);
+  assert.deepEqual(waitOrder(escalated), ["epic:repo-a/alpha"]);
+});
+
+test("SteererHolds: a steerer-parked epic is not counted", () => {
+  const projects = buildTree(
+    inputOf([makeRow({ key: "a", label: "a", archiveId: "sess-a", state: "done" })], {
+      epics: [makeEpic({ steering: "sess-a", steererHeard: true, parked: "gate failed" })],
+      details: new Map([
+        [
+          "repo-a/alpha",
+          makeDetail({
+            parked: "gate failed",
+            steererParked: true,
+            questions: [{ id: "Q1", text: "Retry the gate?", steererHeld: true }],
+          }),
+        ],
+      ]),
+    }),
+  );
+  assert.equal(countsOf(projects).waiting, 0);
+});

@@ -77,6 +77,7 @@ class InboxTreeWordsTest {
         releaseProof: List<EpicReleaseProofRow> = emptyList(),
         paused: Boolean = false,
         parked: String = "",
+        steererParked: Boolean = false,
     ): EpicDetail = EpicDetail(
         epic = epic,
         tasks = tasks,
@@ -84,6 +85,7 @@ class InboxTreeWordsTest {
         questions = questions,
         paused = paused,
         parked = parked,
+        steererParked = steererParked,
         releaseProof = releaseProof,
     )
 
@@ -229,6 +231,47 @@ class InboxTreeWordsTest {
 
         assertEquals("waits on your answer · 2 min", words.blocker)
         assertEquals(GaugeShare(done = 0, total = 0, tone = GaugeTone.ATTENTION, inner = GaugeInner.DOT), words.gauge)
+    }
+
+    @Test
+    fun aQuestionItsSteererHoldsIsNoBlockerUntilItsSteererEscalatesIt() {
+        val held = question(now - 120).copy(steererHeld = true)
+        val words = epicWords(node(detail = detail(questions = listOf(held))))
+
+        assertEquals("", words.blocker)
+        assertEquals(GaugeTone.LIVE, words.gauge?.tone)
+
+        val escalated = question(now - 120).copy(escalated = now - 60, escalationBy = "conversation")
+        val asked = epicWords(node(detail = detail(questions = listOf(escalated))))
+
+        assertEquals("waits on your answer · 2 min", asked.blocker)
+        assertEquals(GaugeTone.ATTENTION, asked.gauge?.tone)
+    }
+
+    @Test
+    fun aParkItsSteererHoldsReadsParkedWithNoBlockerAndAHeldStepBesideItIsTheBlocker() {
+        val parked = epic(parked = "waits for the steerer")
+        val words = epicWords(
+            node(epic = parked, detail = detail(epic = parked, parked = "waits for the steerer", steererParked = true)),
+        )
+
+        assertEquals("parked · 49 min", words.words)
+        assertEquals("", words.blocker)
+        assertEquals(GaugeTone.LIVE, words.gauge?.tone)
+
+        val stepped = epicWords(
+            node(
+                epic = parked,
+                detail = detail(
+                    epic = parked,
+                    parked = "waits for the steerer",
+                    steererParked = true,
+                    steps = listOf(heldStep(started = now - 60)),
+                ),
+            ),
+        )
+
+        assertEquals("build held", stepped.blocker)
     }
 
     @Test

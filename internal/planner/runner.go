@@ -784,7 +784,7 @@ func questionInputOf(question Question) store.EpicQuestionInput {
 // those of checkSpentGaps against gapTurns, the planner turns each gap of the epic was given before the checked turn,
 // for the rerun_review actions that name a reviewer whose gap has spent its turns. Coverage and the spent lines are not
 // refusals: the prompt names them. When epic holds a planner-class park, a return with no action and no question gets one more line from checkPark, which names the park
-// reason. An owner park is not checked, since the owner answers it. The gate resolves under ctx without its
+// reason. A question park is not checked, since its park question answers it. The gate resolves under ctx without its
 // cancellation, so the turn that started the step ending does not refuse its return.
 func returnCheck(
 	ctx context.Context, epic store.EpicRow, review store.Review, resolve Resolver, gapTurns []store.GapTurn,
@@ -799,7 +799,7 @@ func returnCheck(
 		open = append(open, finding.ID)
 	}
 	park := ""
-	if !epic.ParkClass.OwnerHeld() {
+	if !epic.ParkClass.OpensQuestion() {
 		park = epic.Parked
 	}
 	gateCtx := context.WithoutCancel(ctx)

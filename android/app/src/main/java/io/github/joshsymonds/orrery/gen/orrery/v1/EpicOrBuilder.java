@@ -363,4 +363,16 @@ public interface EpicOrBuilder extends
    * @return The openQuestions.
    */
   int getOpenQuestions();
+
+  /**
+   * <pre>
+   * Whether a steering session hears the orreryd epic: it has a steerer whose session row exists and is not stopped.
+   * While one does, the epic's open questions are the steerer's to answer until it escalates them. False for a record
+   * epic.
+   * </pre>
+   *
+   * <code>bool steerer_heard = 23 [json_name = "steererHeard"];</code>
+   * @return The steererHeard.
+   */
+  boolean getSteererHeard();
 }

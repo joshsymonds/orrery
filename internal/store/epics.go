@@ -107,7 +107,10 @@ type EpicRow struct {
 	Questions    []EpicQuestion
 	// OpenQuestions is how many of Questions are open.
 	OpenQuestions int64
-	Reviewers     []reviewers.Reviewer
+	// SteererHeard is whether a steering session hears the epic: Steerer names a sessions row that is not stopped. While
+	// one does, an open question that is not escalated is the steerer's to answer (SteererHolds).
+	SteererHeard bool
+	Reviewers    []reviewers.Reviewer
 	// Amendments are the amendments of the evidence items of the epic's Requirements, in seq order.
 	Amendments []EvidenceAmendment
 }
@@ -511,8 +514,8 @@ func readEpic(ctx context.Context, queries *sqlcgen.Queries, id string) (EpicRow
 	return readEpicOf(ctx, queries, head)
 }
 
-// readEpicOf returns the stored epic whose head is head, every section in order, its pinned workflow's nodes, its seen
-// mark, its evidence amendments and its revision.
+// readEpicOf returns the stored epic whose head is head, every section in order, whether its steerer hears it, its pinned
+// workflow's nodes, its seen mark, its evidence amendments and its revision.
 func readEpicOf(ctx context.Context, queries *sqlcgen.Queries, head sqlcgen.Epic) (EpicRow, error) {
 	row := epicHeadOf(head)
 	report, err := epicReportOf(head)
@@ -524,6 +527,9 @@ func readEpicOf(ctx context.Context, queries *sqlcgen.Queries, head sqlcgen.Epic
 		return EpicRow{}, fmt.Errorf("read sections of epic %s: %w", row.ID, err)
 	}
 	row.OpenQuestions = countOpenQuestions(row.Questions)
+	if row.SteererHeard, err = steererHeard(ctx, queries, row.ID); err != nil {
+		return EpicRow{}, fmt.Errorf("read steerer of epic %s: %w", row.ID, err)
+	}
 	if err = loadEpicWorkflowNodes(ctx, queries, &row); err != nil {
 		return EpicRow{}, fmt.Errorf("read workflow of epic %s: %w", row.ID, err)
 	}
@@ -744,8 +750,8 @@ func readEpics(ctx context.Context, queries *sqlcgen.Queries) ([]EpicRow, error)
 }
 
 // EpicListings returns every stored epic ordered by id, with only the fields a listing of epics reads: its id,
-// repository, title, phase, phase time, created and changed times, revision, seen mark, steerer, pause and its source,
-// park reason and open question count. Every other field is zero, and no workflow node is read. The rows come from one
+// repository, title, phase, phase time, created and changed times, revision, seen mark, steerer and whether it is
+// heard, pause and its source, park reason and open question count. Every other field is zero, and no workflow node is read. The rows come from one
 // query.
 func (s *Store) EpicListings(ctx context.Context) ([]EpicRow, error) {
 	return readEpicListings(ctx, sqlcgen.New(s.db))
@@ -776,6 +782,7 @@ func epicListingOf(listed sqlcgen.ListEpicListingsRow) EpicRow {
 		PauseSource:   listed.PauseSource,
 		Parked:        listed.Parked,
 		OpenQuestions: listed.OpenQuestions,
+		SteererHeard:  listed.SteererHeard != 0,
 	}
 	if listed.SeenAt.Valid {
 		row.Seen = time.Unix(listed.SeenAt.Int64, 0)

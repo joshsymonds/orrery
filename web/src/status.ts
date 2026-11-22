@@ -129,10 +129,10 @@ export function controlsOf(detail: EpicsGetResponse): Controls {
   return { pause: open && !detail.paused, resume: open && detail.paused, stop: open };
 }
 
-// The blocker an epic waits on, first match: its first open question, its park, then its first step that has not
-// ended and is held or limited. Null when none of them holds.
+// The blocker an epic waits on, first match: its first open question the owner is asked (one its steerer does not
+// hold), its park, then its first step that has not ended and is held or limited. Null when none of them holds.
 export function blockerOf(detail: EpicsGetResponse): Blocker | null {
-  const question = detail.questions[0];
+  const question = detail.questions.find((candidate) => !candidate.steererHeld);
   if (question !== undefined) {
     return { kind: "question", text: "waits on your answer", since: Number(question.asked), question };
   }

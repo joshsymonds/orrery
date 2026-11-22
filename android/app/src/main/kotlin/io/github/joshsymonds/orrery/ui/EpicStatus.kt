@@ -40,11 +40,11 @@ fun epicStateOf(detail: EpicDetail): String {
 }
 
 /**
- * The blocker an epic waits on, first match: its first open question, its park, then its first step that has not
- * ended and is held or limited. Null when none of them holds.
+ * The blocker an epic waits on, first match: its first open question the owner is asked (one its steerer does not
+ * hold), its park, then its first step that has not ended and is held or limited. Null when none of them holds.
  */
 fun blockerOf(detail: EpicDetail): EpicBlocker? {
-    val question = detail.questions.firstOrNull()
+    val question = detail.questions.firstOrNull { !it.steererHeld }
     if (question != null) {
         return EpicBlocker.Question(text = "waits on your answer", since = question.asked, question = question)
     }

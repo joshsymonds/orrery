@@ -1,11 +1,14 @@
 package store
 
-// ParkClass is the class of an epic's park, which says who answers it. An owner class is answered by the owner: the park
-// opens the owner's question and adds its tell. A planner class is answered by the planner: the park opens no question,
-// adds no tell, and adds a pending trigger that wakes the planner with the park reason as its cause.
+// ParkClass is the class of an epic's park, which says who answers it first. A question class opens the epic's park
+// question and adds its tell: the epic's steerer is told of the question and answers it, and the owner is asked only once
+// the steerer escalates it, or when no steering session hears the epic (see SteererHolds). A planner class is answered
+// by the planner: the park opens no question, adds no tell, and adds a pending trigger that wakes the planner with the
+// park reason as its cause.
 type ParkClass string
 
-// The owner classes. Each is a catastrophe the owner decides.
+// The question classes. Each is a catastrophe the planner does not answer: its park question goes to the epic's
+// steerer, which answers it or escalates it to the owner.
 const (
 	// ParkClassReleaseUndoNone is a release that stopped at a release step with undo none that failed.
 	ParkClassReleaseUndoNone ParkClass = "release_undo_none"
@@ -39,9 +42,10 @@ const (
 	ParkClassReleaseStep ParkClass = "release_step"
 )
 
-// OwnerHeld reports whether the owner answers a park of class c: an owner class, or the empty class. The empty class is
-// the class of a park stored before 00050_park_class.sql, which the owner's question answered, so it stays the owner's.
-func (c ParkClass) OwnerHeld() bool {
+// OpensQuestion reports whether a park of class c opens a park question rather than waking the planner: a question
+// class, or the empty class. The empty class is the class of a park stored before 00050_park_class.sql, which its
+// question answered, so it stays a question park.
+func (c ParkClass) OpensQuestion() bool {
 	switch c {
 	case "", ParkClassReleaseUndoNone, ParkClassReleaseOwnerStop, ParkClassBranch, ParkClassRefMove,
 		ParkClassMetAtBase, ParkClassOrchestrator, ParkClassRetryBound:
@@ -52,18 +56,27 @@ func (c ParkClass) OwnerHeld() bool {
 	return false
 }
 
-// ownedPark returns reason when the owner answers a park of class, and "" otherwise. Owner-facing readers report a park
-// through it, so a planner park is not one the owner is asked about.
-func ownedPark(reason, class string) string {
-	if !ParkClass(class).OwnerHeld() {
+// SteererHolds reports whether an open question, escalated when escalated is set, of an epic a steering session hears
+// when heard is set, is its steerer's to answer rather than the owner's: a steering session hears the epic and the
+// question is not escalated. The owner is asked an escalated question, and every open question of an epic no steering
+// session hears, since no steerer is there to answer it or escalate it.
+func SteererHolds(heard, escalated bool) bool {
+	return heard && !escalated
+}
+
+// questionPark returns reason when a park of class opens a park question, and "" otherwise: the park plannerPark leaves
+// out.
+func questionPark(reason, class string) string {
+	if !ParkClass(class).OpensQuestion() {
 		return ""
 	}
 	return reason
 }
 
-// plannerPark returns reason when the planner answers a park of class, and "" otherwise: the park ownedPark leaves out.
+// plannerPark returns reason when the planner answers a park of class, and "" otherwise: the park questionPark leaves
+// out.
 func plannerPark(reason, class string) string {
-	if ParkClass(class).OwnerHeld() {
+	if ParkClass(class).OpensQuestion() {
 		return ""
 	}
 	return reason

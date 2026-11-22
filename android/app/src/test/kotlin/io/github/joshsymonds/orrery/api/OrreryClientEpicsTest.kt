@@ -688,6 +688,41 @@ class OrreryClientEpicsTest {
     }
 
     @Test
+    fun epicMapsTheSteerersParkAndWhichQuestionsItsSteererHolds() {
+        FakeOrreryServer().use { server ->
+            server.respond(
+                EPICS_GET,
+                EpicsGetResponse.newBuilder()
+                    .setEpic(epicProto.toBuilder().setSource("orreryd"))
+                    .setParked("example park reason")
+                    .setSteererParked(true)
+                    .addQuestions(
+                        EpicQuestion.newBuilder()
+                            .setId("Q1")
+                            .setText("Example question one?")
+                            .setTurn(2L)
+                            .setAsked(4102444700L)
+                            .setSteererHeld(true),
+                    )
+                    .addQuestions(
+                        EpicQuestion.newBuilder()
+                            .setId("Q2")
+                            .setText("Example question two?")
+                            .setTurn(3L)
+                            .setAsked(4102444800L),
+                    )
+                    .build(),
+            )
+
+            val detail = OrreryClient(server.baseUrl).epic("example-repo/example-epic")
+
+            assertEquals(true, detail?.steererParked)
+            assertEquals(false, detail?.plannerParked)
+            assertEquals(listOf(true, false), detail?.questions?.map { it.steererHeld })
+        }
+    }
+
+    @Test
     fun epicMapsEveryTaskAndBuildTaskRequirementInOrder() {
         FakeOrreryServer().use { server ->
             server.respond(

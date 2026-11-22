@@ -81,6 +81,17 @@ class EpicStatusTest {
     }
 
     @Test
+    fun aQuestionItsSteererHoldsIsNoBlockerAndTheFirstOwnersQuestionIs() {
+        val held = question("Q1", asked = 1700000100L, steererHeld = true)
+        val owner = question("Q2", asked = 1700000200L)
+        assertNull(blockerOf(detail(questions = listOf(held))))
+        assertEquals(
+            EpicBlocker.Question("waits on your answer", 1700000200L, owner),
+            blockerOf(detail(questions = listOf(held, owner))),
+        )
+    }
+
+    @Test
     fun aQuestionIsAheadOfAParkAndAHeldStep() {
         val q = question("Q1", asked = 1700000100L)
         val held = step(task = "t-1", end = "", held = true, started = 400L)
@@ -201,8 +212,8 @@ class EpicStatusTest {
         limitKind = limitKind,
     )
 
-    private fun question(id: String, asked: Long) =
-        EpicQuestionRow(id = id, text = "Which branch?", turn = 1L, asked = asked)
+    private fun question(id: String, asked: Long, steererHeld: Boolean = false) =
+        EpicQuestionRow(id = id, text = "Which branch?", turn = 1L, asked = asked, steererHeld = steererHeld)
 
     private fun buildTask(id: String) = EpicBuildTaskRow(
         id = id,

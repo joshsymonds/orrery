@@ -1166,7 +1166,7 @@ func epicGateOf(gate *v1.EpicGate) store.EpicGate {
 }
 
 // storedEpicMessage returns the StoredEpic message of row: its contract, summary, phase, times, decisions in order, its
-// merged reviewers in order, its steerer, its paused state and pause source, its parked state with its turns, tasks and
+// merged reviewers in order, its steerer and whether it is heard, its paused state and pause source, its parked state with its turns, tasks and
 // questions in order, its branch state, its pinned workflow, its phase time, its seen mark, its report, its evidence
 // amendments in order and the epic its close named as its replacement, as stored, with no kind filter. It fails when a
 // task's messages fail.
@@ -1187,6 +1187,7 @@ func storedEpicMessage(row store.EpicRow) (*v1.StoredEpic, error) {
 		Decisions:    epicMap(row.Decisions, decisionMessage),
 		Reviewers:    epicMap(row.Reviewers, epicReviewerMessage),
 		Steerer:      row.Steerer,
+		SteererHeard: row.SteererHeard,
 		Paused:       row.Paused,
 		PauseSource:  row.PauseSource,
 		Parked:       row.Parked,
@@ -1751,7 +1752,7 @@ func unixOrZero(t time.Time) int64 {
 }
 
 // summaryMessage returns the EpicSummary message of row: its head fields, its phase time, its seen mark, its revision,
-// its steerer, its paused and parked state and its open question count, with no sections. It fails when the open
+// its steerer and whether it is heard, its paused and parked state and its open question count, with no sections. It fails when the open
 // question count is outside the range of int32.
 func summaryMessage(row store.EpicRow) (*v1.EpicSummary, error) {
 	if row.OpenQuestions < 0 || row.OpenQuestions > math.MaxInt32 {
@@ -1769,6 +1770,7 @@ func summaryMessage(row store.EpicRow) (*v1.EpicSummary, error) {
 		Changed:       row.Changed.Unix(),
 		Revision:      row.Revision,
 		Steerer:       row.Steerer,
+		SteererHeard:  row.SteererHeard,
 		Paused:        row.Paused,
 		PauseSource:   row.PauseSource,
 		Parked:        row.Parked,

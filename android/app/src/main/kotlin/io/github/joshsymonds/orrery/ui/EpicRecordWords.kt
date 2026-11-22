@@ -30,13 +30,18 @@ data class Reached(
     val requirements: Boolean,
 )
 
-/** What asks of the owner under Now: an open question, the owner's park, the planner's park, or a limit. */
+/**
+ * What asks under Now: an open question the owner is asked, the owner's park, the planner's park, a park or question
+ * the epic's steerer holds, or a limit.
+ */
 sealed interface Asking {
     data class Question(val question: EpicQuestionRow) : Asking
 
     data class Park(val reason: String) : Asking
 
     data class Planner(val line: String) : Asking
+
+    data class Steerer(val line: String) : Asking
 
     data object Limited : Asking
 }
@@ -63,11 +68,25 @@ private const val REVIEW = 2
 private const val RELEASE = 3
 private const val REPORT = 4
 
-/** Whether the owner holds the epic's park: a park the planner does not hold. */
-fun ownerParked(detail: EpicDetail): Boolean = detail.parked.isNotEmpty() && !detail.plannerParked
+/** Whether the owner holds the epic's park: a park neither the planner nor the epic's steerer holds. */
+fun ownerParked(detail: EpicDetail): Boolean =
+    detail.parked.isNotEmpty() && !detail.plannerParked && !detail.steererParked
 
 /** Whether the planner holds the epic's park. */
 fun plannerParked(detail: EpicDetail): Boolean = detail.plannerParked
+
+/** Whether the epic's steerer holds the epic's park, until it escalates it. */
+fun steererParked(detail: EpicDetail): Boolean = detail.steererParked
+
+/** The first open question the owner is asked: one the epic's steerer does not hold. Null when there is none. */
+fun ownerQuestionOf(detail: EpicDetail): EpicQuestionRow? = detail.questions.firstOrNull { !it.steererHeld }
+
+/** The first open question the epic's steerer holds. Null when there is none. */
+fun steererQuestionOf(detail: EpicDetail): EpicQuestionRow? = detail.questions.firstOrNull { it.steererHeld }
+
+/** The line that names an open question as the steerer's: it answers it, or escalates it to the owner. */
+fun steererQuestionLineOf(question: EpicQuestionRow): String =
+    "Its steerer holds this question, and answers it or escalates it to you: ${question.text}"
 
 /** Whether at least one step runs and every running step is waiting on a usage limit. */
 fun allLimited(detail: EpicDetail): Boolean {
@@ -97,17 +116,23 @@ fun statePillOf(detail: EpicDetail, now: Long): Pill {
 }
 
 /**
- * The blocker pill, when something asks: an open question, the owner's park, a step the owner held, a stopped release
- * whose failed step has no undo, or an ended-with-gaps epic.
+ * The blocker pill, first match: what asks the owner, in attention (an open question the owner is asked, the owner's
+ * park, a step the owner held), then a park the steerer holds, quiet, then a stopped release whose failed step has no
+ * undo or an ended-with-gaps epic, then a question the steerer holds with its time, quiet. The steerer's park comes
+ * ahead of the ending because the park holds the stopped release, which the owner is not asked about until the steerer
+ * escalates it.
  */
 fun blockerPillOf(detail: EpicDetail, now: Long): Pill? {
-    val question = detail.questions.firstOrNull()
+    val question = ownerQuestionOf(detail)
     val held = runningOf(detail).firstOrNull { it.held }
     return when {
         question != null -> Pill(stateLineOf("asks you a question", question.asked, now), WordTone.ATTENTION)
         ownerParked(detail) -> Pill("asks you what to do", WordTone.ATTENTION)
         held != null -> Pill("${labelOf(held)} held", WordTone.ATTENTION)
-        isOrreryd(detail) -> endingPillOf(detail)
+        steererParked(detail) -> Pill("its steerer holds the park", WordTone.QUIET)
+        isOrreryd(detail) -> endingPillOf(detail) ?: steererQuestionOf(detail)?.let {
+            Pill(stateLineOf("asks its steerer a question", it.asked, now), WordTone.QUIET)
+        }
         else -> null
     }
 }
@@ -138,9 +163,12 @@ fun nowSentenceOf(detail: EpicDetail): String {
     return when {
         ownerParked(detail) -> "Parked. Nothing runs until you answer."
         detail.paused -> "Paused. The steps that were running finish; nothing new starts until you resume."
-        detail.plannerParked -> "The planner holds a park and is deciding what to do. Nothing is asked of you."
+        plannerParked(detail) -> "The planner holds a park and is deciding what to do. Nothing is asked of you."
+        steererParked(detail) ->
+            "Parked. Its steerer holds the question; nothing is asked of you unless it escalates it."
         allLimited(detail) -> limitedSentenceOf(steps)
-        detail.questions.isNotEmpty() -> questionSentenceOf(steps)
+        ownerQuestionOf(detail) != null -> questionSentenceOf(steps)
+        detail.questions.isNotEmpty() -> steererQuestionSentenceOf(steps)
         isOrreryd(detail) && detail.epic.outcome == "releasing" -> releasingSentenceOf(detail)
         isOrreryd(detail) && detail.epic.outcome == "stopped" -> stoppedSentenceOf(detail)
         isOrreryd(detail) && stageNowOf(detail.epic.outcome) == REPORT -> "It ended: ${stateWordOf(detail).word}."
@@ -150,14 +178,21 @@ fun nowSentenceOf(detail: EpicDetail): String {
     }
 }
 
-/** What asks of the owner, first match: an open question, the owner's park, the planner's park, then a limit. */
+/**
+ * What asks under Now, first match: an open question the owner is asked, the owner's park, the planner's park, the
+ * steerer's park, the first question the steerer holds, then a limit.
+ */
 fun askingOf(detail: EpicDetail): Asking? {
-    val question = detail.questions.firstOrNull()
+    val question = ownerQuestionOf(detail)
+    val steererQuestion = steererQuestionOf(detail)
     return when {
         question != null -> Asking.Question(question)
         ownerParked(detail) -> Asking.Park(plainReasonOf(detail.parked))
-        detail.plannerParked ->
+        plannerParked(detail) ->
             Asking.Planner("The planner holds this park: ${detail.parked}. It will retry, replan, or ask you.")
+        steererParked(detail) ->
+            Asking.Steerer("Its steerer holds this park, and answers it or escalates it to you: ${detail.parked}")
+        steererQuestion != null -> Asking.Steerer(steererQuestionLineOf(steererQuestion))
         allLimited(detail) -> Asking.Limited
         else -> null
     }
@@ -183,7 +218,8 @@ private fun isOrreryd(detail: EpicDetail): Boolean = detail.epic.source == ORREY
 
 private fun runningOf(detail: EpicDetail): List<StepRow> = detail.steps.filter { it.end.isEmpty() }
 
-private fun asks(detail: EpicDetail): Boolean = detail.questions.isNotEmpty() || ownerParked(detail)
+// asks is whether the epic waits on the owner: an open question the owner is asked, or the owner's park.
+private fun asks(detail: EpicDetail): Boolean = ownerQuestionOf(detail) != null || ownerParked(detail)
 
 private fun labelOf(step: StepRow): String = step.task.ifEmpty { step.agent }
 
@@ -334,6 +370,12 @@ private fun questionSentenceOf(steps: List<StepRow>): String = when (val tasks =
     0 -> "It waits on your answer."
     1 -> "One task is being worked on, and one waits on you."
     else -> "$tasks tasks are being worked on, and one waits on you."
+}
+
+private fun steererQuestionSentenceOf(steps: List<StepRow>): String = when (val tasks = runningTasksOf(steps)) {
+    0 -> "It waits on its steerer's answer."
+    1 -> "One task is being worked on, and one waits on its steerer."
+    else -> "$tasks tasks are being worked on, and one waits on its steerer."
 }
 
 private fun runningSentenceOf(steps: List<StepRow>): String = when (val tasks = runningTasksOf(steps)) {

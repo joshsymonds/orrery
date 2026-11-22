@@ -214,7 +214,7 @@ func TestReleaseReviewerRefusalStopsAsOwnerStop(t *testing.T) {
 			if phase := w.flowOf(runEpic).Epic.Phase; phase != store.PhaseStopped {
 				t.Errorf("epic phase = %q, want stopped", phase)
 			}
-			requireOwnerPark(t, w.s, store.ParkClassReleaseOwnerStop, tc.reason)
+			requireQuestionPark(t, w.s, store.ParkClassReleaseOwnerStop, tc.reason)
 			for _, call := range w.fakes.steps.calls {
 				if call.ID == w.stepID(1) {
 					t.Errorf("step starts = %+v, want the first release step never started", w.fakes.steps.calls)

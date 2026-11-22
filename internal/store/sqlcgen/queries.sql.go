@@ -6014,7 +6014,9 @@ SELECT epics.id, epics.repository, epics.title, epics.phase, epics.phase_at, epi
     epics.steerer, epics.paused, epics.pause_source, epics.parked,
     CAST(COALESCE(epic_revisions.revision, 0) AS INTEGER) AS revision, epic_seen.at AS seen_at,
     CAST((SELECT COUNT(*) FROM epic_questions WHERE epic_questions.epic = epics.id AND epic_questions.state = 'open')
-        AS INTEGER) AS open_questions
+        AS INTEGER) AS open_questions,
+    CAST(EXISTS (SELECT 1 FROM sessions WHERE sessions.id = epics.steerer AND sessions.state <> 'stopped')
+        AS INTEGER) AS steerer_heard
 FROM epics
 LEFT JOIN epic_revisions ON epic_revisions.epic = epics.id
 LEFT JOIN epic_seen ON epic_seen.epic = epics.id
@@ -6036,6 +6038,7 @@ type ListEpicListingsRow struct {
 	Revision      int64
 	SeenAt        sql.NullInt64
 	OpenQuestions int64
+	SteererHeard  int64
 }
 
 func (q *Queries) ListEpicListings(ctx context.Context) ([]ListEpicListingsRow, error) {
@@ -6062,6 +6065,7 @@ func (q *Queries) ListEpicListings(ctx context.Context) ([]ListEpicListingsRow, 
 			&i.Revision,
 			&i.SeenAt,
 			&i.OpenQuestions,
+			&i.SteererHeard,
 		); err != nil {
 			return nil, err
 		}

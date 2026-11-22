@@ -210,7 +210,7 @@ func TestOrchestratorActionRetryOnAnOwnerParkIsRefusedAndKeepsThePark(t *testing
 			action:  EpicActionInput{Kind: ActionRetryEpic, Reason: "the credit is back"},
 			park:    "credit ran out",
 			summary: "retry epic",
-			refusal: "epic " + claimEpic + " holds the owner's branch park; only the owner retries it",
+			refusal: "epic " + claimEpic + " holds a branch park, which its park question answers; the planner does not retry it",
 		},
 		{
 			name: "retry_node on a node of an epic parked as branch",
@@ -232,7 +232,7 @@ func TestOrchestratorActionRetryOnAnOwnerParkIsRefusedAndKeepsThePark(t *testing
 			},
 			park:    "integrate is red",
 			summary: "retry node integrate",
-			refusal: "epic " + integrateEpic + " holds the owner's branch park; only the owner retries it",
+			refusal: "epic " + integrateEpic + " holds a branch park, which its park question answers; the planner does not retry it",
 		},
 	}
 	for _, c := range cases {

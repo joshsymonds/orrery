@@ -2150,6 +2150,53 @@ public  final class EpicsGetResponse extends
 
   }
 
+  public static final int STEERER_PARKED_FIELD_NUMBER = 22;
+  private boolean steererParked_;
+  /**
+   * <pre>
+   * Whether the orreryd epic is parked and its steerer holds the park, so the owner is not asked about it: the park
+   * opens a question, a steering session hears the epic, and the steerer has not escalated the park's question. The
+   * owner is asked once the steerer escalates it. False when it is not parked, when the planner holds its park, when
+   * the park waits on the owner, and for a record epic. The parked reason is still in parked.
+   * </pre>
+   *
+   * <code>bool steerer_parked = 22 [json_name = "steererParked"];</code>
+   * @return The steererParked.
+   */
+  @java.lang.Override
+  public boolean getSteererParked() {
+    return steererParked_;
+  }
+  /**
+   * <pre>
+   * Whether the orreryd epic is parked and its steerer holds the park, so the owner is not asked about it: the park
+   * opens a question, a steering session hears the epic, and the steerer has not escalated the park's question. The
+   * owner is asked once the steerer escalates it. False when it is not parked, when the planner holds its park, when
+   * the park waits on the owner, and for a record epic. The parked reason is still in parked.
+   * </pre>
+   *
+   * <code>bool steerer_parked = 22 [json_name = "steererParked"];</code>
+   * @param value The steererParked to set.
+   */
+  private void setSteererParked(boolean value) {
+    
+    steererParked_ = value;
+  }
+  /**
+   * <pre>
+   * Whether the orreryd epic is parked and its steerer holds the park, so the owner is not asked about it: the park
+   * opens a question, a steering session hears the epic, and the steerer has not escalated the park's question. The
+   * owner is asked once the steerer escalates it. False when it is not parked, when the planner holds its park, when
+   * the park waits on the owner, and for a record epic. The parked reason is still in parked.
+   * </pre>
+   *
+   * <code>bool steerer_parked = 22 [json_name = "steererParked"];</code>
+   */
+  private void clearSteererParked() {
+
+    steererParked_ = false;
+  }
+
   public static io.github.joshsymonds.orrery.gen.orrery.v1.EpicsGetResponse parseFrom(
       java.nio.ByteBuffer data)
       throws com.google.protobuf.InvalidProtocolBufferException {
@@ -4524,6 +4571,55 @@ public  final class EpicsGetResponse extends
       return this;
     }
 
+    /**
+     * <pre>
+     * Whether the orreryd epic is parked and its steerer holds the park, so the owner is not asked about it: the park
+     * opens a question, a steering session hears the epic, and the steerer has not escalated the park's question. The
+     * owner is asked once the steerer escalates it. False when it is not parked, when the planner holds its park, when
+     * the park waits on the owner, and for a record epic. The parked reason is still in parked.
+     * </pre>
+     *
+     * <code>bool steerer_parked = 22 [json_name = "steererParked"];</code>
+     * @return The steererParked.
+     */
+    @java.lang.Override
+    public boolean getSteererParked() {
+      return instance.getSteererParked();
+    }
+    /**
+     * <pre>
+     * Whether the orreryd epic is parked and its steerer holds the park, so the owner is not asked about it: the park
+     * opens a question, a steering session hears the epic, and the steerer has not escalated the park's question. The
+     * owner is asked once the steerer escalates it. False when it is not parked, when the planner holds its park, when
+     * the park waits on the owner, and for a record epic. The parked reason is still in parked.
+     * </pre>
+     *
+     * <code>bool steerer_parked = 22 [json_name = "steererParked"];</code>
+     * @param value The steererParked to set.
+     * @return This builder for chaining.
+     */
+    public Builder setSteererParked(boolean value) {
+      copyOnWrite();
+      instance.setSteererParked(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * Whether the orreryd epic is parked and its steerer holds the park, so the owner is not asked about it: the park
+     * opens a question, a steering session hears the epic, and the steerer has not escalated the park's question. The
+     * owner is asked once the steerer escalates it. False when it is not parked, when the planner holds its park, when
+     * the park waits on the owner, and for a record epic. The parked reason is still in parked.
+     * </pre>
+     *
+     * <code>bool steerer_parked = 22 [json_name = "steererParked"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearSteererParked() {
+      copyOnWrite();
+      instance.clearSteererParked();
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:orrery.v1.EpicsGetResponse)
   }
   @java.lang.Override
@@ -4572,12 +4668,13 @@ public  final class EpicsGetResponse extends
             "report_",
             "plannerParked_",
             "supersededBy_",
+            "steererParked_",
           };
           java.lang.String info =
-              "\u0000\u0014\u0000\u0001\u0001\u0015\u0014\u0000\u000b\u0000\u0001\u1009\u0000\u0002" +
+              "\u0000\u0015\u0000\u0001\u0001\u0016\u0015\u0000\u000b\u0000\u0001\u1009\u0000\u0002" +
               "\u001b\u0003\u001b\u0005\u001b\u0006\u001b\u0007\u001b\b\u001b\t\u1009\u0001\n\u0007" +
               "\u000b\u0208\f\u0208\r\u001b\u000e\u001b\u000f\u001b\u0010\u001b\u0011\u0208\u0012" +
-              "\u001b\u0013\u1009\u0002\u0014\u0007\u0015\u0208";
+              "\u001b\u0013\u1009\u0002\u0014\u0007\u0015\u0208\u0016\u0007";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

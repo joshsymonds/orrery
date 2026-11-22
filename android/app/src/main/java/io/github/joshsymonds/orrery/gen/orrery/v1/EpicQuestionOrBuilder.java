@@ -204,4 +204,16 @@ public interface EpicQuestionOrBuilder extends
    */
   com.google.protobuf.ByteString
       getEscalationSessionBytes();
+
+  /**
+   * <pre>
+   * Whether the epic's steerer answers the question, so the owner is not asked about it: a steering session hears the
+   * epic and the question is not escalated. The owner is asked once the steerer escalates it, and is asked every open
+   * question of an epic no steering session hears.
+   * </pre>
+   *
+   * <code>bool steerer_held = 12 [json_name = "steererHeld"];</code>
+   * @return The steererHeld.
+   */
+  boolean getSteererHeld();
 }

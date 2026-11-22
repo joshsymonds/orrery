@@ -96,7 +96,7 @@ func (s *Store) StopTask(ctx context.Context, epic string, seq int64, from, to T
 }
 
 // ParkTask stores to as the build of task seq of epic and parks the epic with reason as class, in one write, when the
-// stored build is from. An owner class also adds reason as a tell and each of tells after it. A planner class adds
+// stored build is from. A question class also adds reason as a tell and each of tells after it. A planner class adds
 // neither, so its tells are dropped, and wakes the planner instead. Reason is cut to TurnReasonMax bytes. A task that is
 // not open, or whose stored build is not from, is ErrTaskMoved and parks nothing.
 func (s *Store) ParkTask(
@@ -116,15 +116,15 @@ func (s *Store) ParkTask(
 		if err := parkEpicAs(ctx, queries, epic, class, taskSubject(seq), reason, at); err != nil {
 			return err
 		}
-		if !class.OwnerHeld() {
+		if !class.OpensQuestion() {
 			return nil
 		}
 		return insertTells(ctx, queries, epic, tells, at)
 	})
 }
 
-// ParkEpic parks epic with reason as class, in one write. An owner class adds reason as a tell; a planner class wakes the
-// planner. Reason is cut to TurnReasonMax bytes. An unknown epic is ErrNoEpic and writes nothing.
+// ParkEpic parks epic with reason as class, in one write. A question class adds reason as a tell; a planner class wakes
+// the planner. Reason is cut to TurnReasonMax bytes. An unknown epic is ErrNoEpic and writes nothing.
 func (s *Store) ParkEpic(ctx context.Context, epic string, class ParkClass, reason string, at time.Time) error {
 	return s.write(ctx, func(queries *sqlcgen.Queries) error {
 		return parkEpicAs(ctx, queries, epic, class, "", reason, at)

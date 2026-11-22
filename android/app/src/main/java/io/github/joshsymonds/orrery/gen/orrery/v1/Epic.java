@@ -1309,6 +1309,50 @@ public  final class Epic extends
     openQuestions_ = 0;
   }
 
+  public static final int STEERER_HEARD_FIELD_NUMBER = 23;
+  private boolean steererHeard_;
+  /**
+   * <pre>
+   * Whether a steering session hears the orreryd epic: it has a steerer whose session row exists and is not stopped.
+   * While one does, the epic's open questions are the steerer's to answer until it escalates them. False for a record
+   * epic.
+   * </pre>
+   *
+   * <code>bool steerer_heard = 23 [json_name = "steererHeard"];</code>
+   * @return The steererHeard.
+   */
+  @java.lang.Override
+  public boolean getSteererHeard() {
+    return steererHeard_;
+  }
+  /**
+   * <pre>
+   * Whether a steering session hears the orreryd epic: it has a steerer whose session row exists and is not stopped.
+   * While one does, the epic's open questions are the steerer's to answer until it escalates them. False for a record
+   * epic.
+   * </pre>
+   *
+   * <code>bool steerer_heard = 23 [json_name = "steererHeard"];</code>
+   * @param value The steererHeard to set.
+   */
+  private void setSteererHeard(boolean value) {
+    
+    steererHeard_ = value;
+  }
+  /**
+   * <pre>
+   * Whether a steering session hears the orreryd epic: it has a steerer whose session row exists and is not stopped.
+   * While one does, the epic's open questions are the steerer's to answer until it escalates them. False for a record
+   * epic.
+   * </pre>
+   *
+   * <code>bool steerer_heard = 23 [json_name = "steererHeard"];</code>
+   */
+  private void clearSteererHeard() {
+
+    steererHeard_ = false;
+  }
+
   public static io.github.joshsymonds.orrery.gen.orrery.v1.Epic parseFrom(
       java.nio.ByteBuffer data)
       throws com.google.protobuf.InvalidProtocolBufferException {
@@ -2741,6 +2785,52 @@ public  final class Epic extends
       return this;
     }
 
+    /**
+     * <pre>
+     * Whether a steering session hears the orreryd epic: it has a steerer whose session row exists and is not stopped.
+     * While one does, the epic's open questions are the steerer's to answer until it escalates them. False for a record
+     * epic.
+     * </pre>
+     *
+     * <code>bool steerer_heard = 23 [json_name = "steererHeard"];</code>
+     * @return The steererHeard.
+     */
+    @java.lang.Override
+    public boolean getSteererHeard() {
+      return instance.getSteererHeard();
+    }
+    /**
+     * <pre>
+     * Whether a steering session hears the orreryd epic: it has a steerer whose session row exists and is not stopped.
+     * While one does, the epic's open questions are the steerer's to answer until it escalates them. False for a record
+     * epic.
+     * </pre>
+     *
+     * <code>bool steerer_heard = 23 [json_name = "steererHeard"];</code>
+     * @param value The steererHeard to set.
+     * @return This builder for chaining.
+     */
+    public Builder setSteererHeard(boolean value) {
+      copyOnWrite();
+      instance.setSteererHeard(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * Whether a steering session hears the orreryd epic: it has a steerer whose session row exists and is not stopped.
+     * While one does, the epic's open questions are the steerer's to answer until it escalates them. False for a record
+     * epic.
+     * </pre>
+     *
+     * <code>bool steerer_heard = 23 [json_name = "steererHeard"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearSteererHeard() {
+      copyOnWrite();
+      instance.clearSteererHeard();
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:orrery.v1.Epic)
   }
   @java.lang.Override
@@ -2780,12 +2870,13 @@ public  final class Epic extends
             "pauseSource_",
             "parked_",
             "openQuestions_",
+            "steererHeard_",
           };
           java.lang.String info =
-              "\u0000\u0016\u0000\u0000\u0001\u0016\u0016\u0000\u0001\u0000\u0001\u0208\u0002\u0208" +
+              "\u0000\u0017\u0000\u0000\u0001\u0017\u0017\u0000\u0001\u0000\u0001\u0208\u0002\u0208" +
               "\u0003\u0208\u0004\u0208\u0005\u0002\u0006\u0007\u0007\u001b\b\u0004\t\u0208\n\u0208" +
               "\u000b\u0208\f\u0007\r\u0002\u000e\u0002\u000f\u0007\u0010\u0002\u0011\u0208\u0012" +
-              "\u0208\u0013\u0007\u0014\u0208\u0015\u0208\u0016\u0004";
+              "\u0208\u0013\u0007\u0014\u0208\u0015\u0208\u0016\u0004\u0017\u0007";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

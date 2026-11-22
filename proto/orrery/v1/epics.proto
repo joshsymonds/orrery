@@ -165,6 +165,12 @@ message EpicsGetResponse {
   // The orreryd epic a close named as its replacement; empty when its close named none, when it is not closed, and for
   // a record epic.
   string superseded_by = 21;
+
+  // Whether the orreryd epic is parked and its steerer holds the park, so the owner is not asked about it: the park
+  // opens a question, a steering session hears the epic, and the steerer has not escalated the park's question. The
+  // owner is asked once the steerer escalates it. False when it is not parked, when the planner holds its park, when
+  // the park waits on the owner, and for a record epic. The parked reason is still in parked.
+  bool steerer_parked = 22;
 }
 
 // EpicSession is one session that works on an epic, with its newest epic call.
@@ -223,6 +229,11 @@ message EpicQuestion {
 
   // The session that escalated the question when a conversation did. Empty otherwise.
   string escalation_session = 11;
+
+  // Whether the epic's steerer answers the question, so the owner is not asked about it: a steering session hears the
+  // epic and the question is not escalated. The owner is asked once the steerer escalates it, and is asked every open
+  // question of an epic no steering session hears.
+  bool steerer_held = 12;
 }
 
 // EpicQuestionChoice is one choice a planner question declares.
@@ -767,6 +778,11 @@ message Epic {
 
   // How many of the epic's questions are open.
   int32 open_questions = 22;
+
+  // Whether a steering session hears the orreryd epic: it has a steerer whose session row exists and is not stopped.
+  // While one does, the epic's open questions are the steerer's to answer until it escalates them. False for a record
+  // epic.
+  bool steerer_heard = 23;
 }
 
 // EpicTask is one task from an effort's state.json.

@@ -11,9 +11,9 @@ import (
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
-// requireOwnerPark fails unless the runner epic is parked as class with reason, its one question is the open park question
+// requireQuestionPark fails unless the runner epic is parked as class with reason, its one question is the open park question
 // with reason, and no pending trigger is a planner park trigger.
-func requireOwnerPark(ctx context.Context, t *testing.T, s *store.Store, class store.ParkClass, reason string) {
+func requireQuestionPark(ctx context.Context, t *testing.T, s *store.Store, class store.ParkClass, reason string) {
 	t.Helper()
 	epic, err := s.Epic(ctx, runnerEpicID)
 	if err != nil {
@@ -55,8 +55,8 @@ func requireOneNotice(ctx context.Context, t *testing.T, s *store.Store, reason 
 	}
 }
 
-// TestCatastropheParkPlannerRoutesItsOwnerNotice checks that the planner's owner-class catastrophe parks open the owner's
-// park question and route its notice in one attention pass. An orchestrator whose role or agent does not resolve is parked
+// TestCatastropheParkPlannerRoutesItsOwnerNotice checks that the planner's question-class catastrophe parks, on an epic
+// with no steerer, open the park question and route its notice to the owner in one attention pass. An orchestrator whose role or agent does not resolve is parked
 // by a Pass, and a met-at-base park on an epic that has had no planner turn is routed although the epic has no turn.
 func TestCatastropheParkPlannerRoutesItsOwnerNotice(t *testing.T) {
 	t.Parallel()
@@ -70,7 +70,7 @@ func TestCatastropheParkPlannerRoutesItsOwnerNotice(t *testing.T) {
 		runner := New(runnerConfig(s, newFakeSteps(), agentReturning("", roleErr, &reads)))
 		runner.Pass(ctx)
 		runner.WaitTurns()
-		requireOwnerPark(ctx, t, s, store.ParkClassOrchestrator, roleErr.Error())
+		requireQuestionPark(ctx, t, s, store.ParkClassOrchestrator, roleErr.Error())
 		requireOneNotice(ctx, t, s, roleErr.Error())
 	})
 	t.Run("agent does not resolve", func(t *testing.T) {
@@ -85,7 +85,7 @@ func TestCatastropheParkPlannerRoutesItsOwnerNotice(t *testing.T) {
 		runner.Pass(ctx)
 		runner.WaitTurns()
 		reason := "start planner step: " + agents.ErrUnresolved.Error()
-		requireOwnerPark(ctx, t, s, store.ParkClassOrchestrator, reason)
+		requireQuestionPark(ctx, t, s, store.ParkClassOrchestrator, reason)
 		requireOneNotice(ctx, t, s, reason)
 	})
 	t.Run("met at base with no planner turn", func(t *testing.T) {
@@ -102,7 +102,7 @@ func TestCatastropheParkPlannerRoutesItsOwnerNotice(t *testing.T) {
 			[]string{"R1"}, claimedAt()); err != nil {
 			t.Fatalf("ParkNodeMetAtBase: %v", err)
 		}
-		requireOwnerPark(ctx, t, s, store.ParkClassMetAtBase, reason)
+		requireQuestionPark(ctx, t, s, store.ParkClassMetAtBase, reason)
 		requireOneNotice(ctx, t, s, reason)
 	})
 }

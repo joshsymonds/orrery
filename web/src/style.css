@@ -1217,6 +1217,8 @@ button.act:active, .back:active, .crumb:active { transform: scale(.97); backgrou
 .epic-pin .slug { flex: none; color: var(--o-ink-1); font-weight: var(--o-font-weight-bold); }
 .epic-pin .words { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .epic-pin .blocker { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--o-role-attention); }
+/* A park or question the epic's steerer holds asks the owner nothing, so its blocker is grey. */
+.epic-pin .blocker.t-quiet { color: var(--o-ink-3); }
 .epic-pin .end { display: inline-flex; align-items: center; gap: var(--o-space-4); flex: none; margin-left: auto; color: var(--o-ink-3); }
 .tstrip { display: flex; gap: var(--o-space-4); min-width: 0; padding: 0 var(--o-layout-page-pad-desk) var(--o-space-8); overflow-x: auto; }
 .tchip { display: inline-grid; gap: var(--o-space-2); flex: none; min-width: 0; min-height: 0; margin: 0; padding: var(--o-space-4) var(--o-space-8); border: 0; border-radius: var(--o-radius-2); background: none; color: var(--o-ink-3); font: var(--o-type-small); text-align: left; white-space: nowrap; cursor: pointer; appearance: none; -webkit-appearance: none; }

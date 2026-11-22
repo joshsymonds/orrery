@@ -74,12 +74,14 @@ class WaitsOnYouTest {
         path = "/home/user/repo",
     )
 
-    private fun parked(epic: EpicRow) = EpicDetail(
+    private fun parked(epic: EpicRow, plannerParked: Boolean = false, steererParked: Boolean = false) = EpicDetail(
         epic = epic,
         tasks = emptyList(),
         steps = emptyList(),
         questions = emptyList(),
         parked = "held",
+        plannerParked = plannerParked,
+        steererParked = steererParked,
     )
 
     private fun tree(
@@ -154,6 +156,21 @@ class WaitsOnYouTest {
         val kept = narrow(projects, Narrow.WAITING).single().convos.single()
         assertEquals("pane:laptop:%1", kept.key)
         assertEquals(listOf("epic:e1"), kept.hung.map { it.key })
+    }
+
+    @Test
+    fun anEpicWhosePlannerOrSteererHoldsItsParkDoesNotWaitOnYou() {
+        val e = epic("e1", steering = "o1")
+        for (held in listOf(parked(e, plannerParked = true), parked(e, steererParked = true))) {
+            val projects = tree(
+                panes = listOf(pane("%1", "o1", "working")),
+                epics = listOf(e),
+                details = mapOf("e1" to held),
+            )
+            assertEquals(0, countsOf(projects).waiting)
+            assertFalse(waits(EpicNode(e, held, contract = null)))
+        }
+        assertTrue(waits(EpicNode(e, parked(e), contract = null)))
     }
 
     @Test

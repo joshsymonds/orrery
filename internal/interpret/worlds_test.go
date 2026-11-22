@@ -51,7 +51,7 @@ func TestFromWorldImages(t *testing.T) {
 	t.Parallel()
 	images := &worldImages{}
 	t.Run("AmendmentRecomputesGreenAtTheStoredBase", amendmentRecomputesGreenAtTheStoredBase(images))
-	t.Run("CatastropheParkInterpretOpensOwnerQuestion", catastropheParkInterpretOpensOwnerQuestion(images))
+	t.Run("CatastropheParkInterpretOpensParkQuestion", catastropheParkInterpretOpensParkQuestion(images))
 	t.Run("IntegrateBatchGreenAdvancesBranchAndStoredBase", integrateBatchGreenAdvancesBranchAndStoredBase(images))
 	t.Run(
 		"IntegrateFailedGateKeepsBranchAndNextBatchComposesOnCandidate",

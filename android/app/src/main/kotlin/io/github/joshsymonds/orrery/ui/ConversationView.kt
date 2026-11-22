@@ -491,8 +491,9 @@ private fun ReplyText(text: String, cache: MarkdownCache, live: Boolean = false,
 
 /**
  * The Ask of an epic's open question [question] in [detail]: it draws with no call of its own, and its confirm answers
- * the epic through [client]. Once the question is no longer open it draws the settled line, with the epic's project and
- * slug. Draws nothing while the epic is unread.
+ * the epic through [client]. A question the epic's steerer holds draws no Ask: one quiet line names it as the
+ * steerer's, so the owner is not prompted until the steerer escalates it. Once the question is no longer open it draws
+ * the settled line, with the epic's project and slug. Draws nothing while the epic is unread.
  */
 @Composable
 internal fun EpicQuestion(detail: EpicDetail?, question: String, now: Long, client: OrreryClient) {
@@ -500,6 +501,15 @@ internal fun EpicQuestion(detail: EpicDetail?, question: String, now: Long, clie
     val open = detail.questions.firstOrNull { it.id == question }
     if (open == null) {
         AskSettledLine("${epicProject(detail.epic)} · ${detail.epic.slug}")
+        return
+    }
+    if (open.steererHeld) {
+        Text(
+            steererQuestionLineOf(open),
+            modifier = Modifier.testTag("epic-steerer-question"),
+            color = OrreryTokens.Ink.three,
+            style = OrreryTokens.Type.small,
+        )
         return
     }
     Ask(

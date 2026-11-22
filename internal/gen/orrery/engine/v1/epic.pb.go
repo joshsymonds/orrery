@@ -3804,7 +3804,10 @@ type StoredEpic struct {
 	// Why the orreryd epic is paused, 'owner' or 'limit' while it is paused, empty otherwise.
 	PauseSource string `protobuf:"bytes,32,opt,name=pause_source,json=pauseSource,proto3" json:"pause_source,omitempty"`
 	// The epic's steering actions in seq order. Only a GetEpic that asks for history fills them.
-	Actions       []*EpicAction `protobuf:"bytes,33,rep,name=actions,proto3" json:"actions,omitempty"`
+	Actions []*EpicAction `protobuf:"bytes,33,rep,name=actions,proto3" json:"actions,omitempty"`
+	// Whether a steering session hears the epic: it has a steerer whose session row exists and is not stopped. While one
+	// does, the epic's open questions are the steerer's to answer until it escalates them.
+	SteererHeard  bool `protobuf:"varint,34,opt,name=steerer_heard,json=steererHeard,proto3" json:"steerer_heard,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -4068,6 +4071,13 @@ func (x *StoredEpic) GetActions() []*EpicAction {
 		return x.Actions
 	}
 	return nil
+}
+
+func (x *StoredEpic) GetSteererHeard() bool {
+	if x != nil {
+		return x.SteererHeard
+	}
+	return false
 }
 
 // EpicAction is one action taken on an epic's steering or controls, such as a move.
@@ -4538,6 +4548,9 @@ type EpicSummary struct {
 	Parked string `protobuf:"bytes,13,opt,name=parked,proto3" json:"parked,omitempty"`
 	// How many of the epic's questions are open.
 	OpenQuestions int32 `protobuf:"varint,14,opt,name=open_questions,json=openQuestions,proto3" json:"open_questions,omitempty"`
+	// Whether a steering session hears the epic: it has a steerer whose session row exists and is not stopped. While one
+	// does, the epic's open questions are the steerer's to answer until it escalates them.
+	SteererHeard  bool `protobuf:"varint,15,opt,name=steerer_heard,json=steererHeard,proto3" json:"steerer_heard,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -4668,6 +4681,13 @@ func (x *EpicSummary) GetOpenQuestions() int32 {
 		return x.OpenQuestions
 	}
 	return 0
+}
+
+func (x *EpicSummary) GetSteererHeard() bool {
+	if x != nil {
+		return x.SteererHeard
+	}
+	return false
 }
 
 // CreateEpicRequest names the accepted contract an epic is made from, by its id, with the base the epic starts from, its
@@ -7572,8 +7592,7 @@ const file_orrery_engine_v1_epic_proto_rawDesc = "" +
 	"\x05round\x18\x01 \x01(\x03R\x05round\x12\x1a\n" +
 	"\brevision\x18\x02 \x01(\tR\brevision\x12\x14\n" +
 	"\x05tasks\x18\x03 \x03(\x03R\x05tasks\x12\x18\n" +
-	"\aoutcome\x18\x04 \x01(\tR\aoutcome\"\xf6\n" +
-	"\n" +
+	"\aoutcome\x18\x04 \x01(\tR\aoutcome\"\x9b\v\n" +
 	"\n" +
 	"StoredEpic\x12:\n" +
 	"\bcontract\x18\x01 \x01(\v2\x1e.orrery.engine.v1.EpicContractR\bcontract\x12\x14\n" +
@@ -7612,7 +7631,8 @@ const file_orrery_engine_v1_epic_proto_rawDesc = "" +
 	"\brevision\x18\x1e \x01(\x03R\brevision\x12\x18\n" +
 	"\asteerer\x18\x1f \x01(\tR\asteerer\x12!\n" +
 	"\fpause_source\x18  \x01(\tR\vpauseSource\x126\n" +
-	"\aactions\x18! \x03(\v2\x1c.orrery.engine.v1.EpicActionR\aactions\"\x94\x01\n" +
+	"\aactions\x18! \x03(\v2\x1c.orrery.engine.v1.EpicActionR\aactions\x12#\n" +
+	"\rsteerer_heard\x18\" \x01(\bR\fsteererHeard\"\x94\x01\n" +
 	"\n" +
 	"EpicAction\x12\x10\n" +
 	"\x03seq\x18\x01 \x01(\x03R\x03seq\x12\x12\n" +
@@ -7652,7 +7672,7 @@ const file_orrery_engine_v1_epic_proto_rawDesc = "" +
 	"\ashipped\x18\x02 \x03(\tR\ashipped\x12\x1f\n" +
 	"\vnot_shipped\x18\x03 \x03(\tR\n" +
 	"notShipped\x12\x10\n" +
-	"\x03why\x18\x04 \x01(\tR\x03why\"\xfc\x02\n" +
+	"\x03why\x18\x04 \x01(\tR\x03why\"\xa1\x03\n" +
 	"\vEpicSummary\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1e\n" +
 	"\n" +
@@ -7670,7 +7690,8 @@ const file_orrery_engine_v1_epic_proto_rawDesc = "" +
 	"\x06paused\x18\v \x01(\bR\x06paused\x12!\n" +
 	"\fpause_source\x18\f \x01(\tR\vpauseSource\x12\x16\n" +
 	"\x06parked\x18\r \x01(\tR\x06parked\x12%\n" +
-	"\x0eopen_questions\x18\x0e \x01(\x05R\ropenQuestions\"\xa6\x01\n" +
+	"\x0eopen_questions\x18\x0e \x01(\x05R\ropenQuestions\x12#\n" +
+	"\rsteerer_heard\x18\x0f \x01(\bR\fsteererHeard\"\xa6\x01\n" +
 	"\x11CreateEpicRequest\x12A\n" +
 	"\tdecisions\x18\x02 \x03(\v2#.orrery.engine.v1.EpicDecisionInputR\tdecisions\x12\x1a\n" +
 	"\bworkflow\x18\x03 \x01(\tR\bworkflow\x12\x0e\n" +

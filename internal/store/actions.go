@@ -190,9 +190,12 @@ func takeAction(ctx context.Context, queries *sqlcgen.Queries, action PlannerAct
 		return nil, RefusalError(fmt.Sprintf("epic %s is closed", action.Epic))
 	}
 	retries := action.Kind == ActionRetryNode || action.Kind == ActionRetryEpic
-	if retries && head.Parked != "" && ParkClass(head.ParkClass).OwnerHeld() {
+	if retries && head.Parked != "" && ParkClass(head.ParkClass).OpensQuestion() {
 		return nil, RefusalError(fmt.Sprintf(
-			"epic %s holds the owner's %s park; only the owner retries it", action.Epic, head.ParkClass))
+			"epic %s holds a %s park, which its park question answers; the planner does not retry it",
+			action.Epic,
+			head.ParkClass,
+		))
 	}
 	stop, err := carryOutAction(ctx, queries, action, at)
 	if err != nil {

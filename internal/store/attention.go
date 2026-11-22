@@ -29,12 +29,14 @@ func SilentMoveTell(text string, hasQuestion bool) bool {
 	return !hasQuestion && refMoveText.MatchString(text)
 }
 
-// EpicAttention is what an epic needs from its owner: its phase, its owner park reason, whether it is paused, the
+// EpicAttention is what an epic needs from its owner or its steerer: its phase, the reason of its park when the park
+// opens a park question (a planner park reads empty, since the planner answers it), whether it is paused, the
 // lowest release step its release runs failed (0 when none did), its open questions in seq order, its untold tells in
 // seq order, the time of its newest tell that is not silent (see SilentMoveTell), its latest ended turn with the number
 // of questions that turn asked, and whether its steerer hears it. Heard is true when the epic has a steerer whose
 // sessions row exists and is not stopped. It is false when the epic has no steerer, when the steerer's row is gone,
-// and when the row is stopped.
+// and when the row is stopped. While it is true, an open question that is not escalated is the steerer's to answer
+// (SteererHolds), and the owner is not asked it.
 type EpicAttention struct {
 	Epic        string
 	Title       string
@@ -123,7 +125,7 @@ func attentionOf(
 	}
 	entry := EpicAttention{
 		Epic: head.ID, Title: head.Title, Phase: head.Phase,
-		Parked: ownedPark(head.Parked, head.ParkClass), Paused: head.Paused != 0,
+		Parked: questionPark(head.Parked, head.ParkClass), Paused: head.Paused != 0,
 		FailedStep: failedReleaseStep(releases), Open: questions, Tells: untold, Heard: heard,
 	}
 	for _, tell := range slices.Backward(tells) {

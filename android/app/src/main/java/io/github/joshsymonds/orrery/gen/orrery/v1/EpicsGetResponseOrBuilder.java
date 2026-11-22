@@ -468,4 +468,17 @@ public interface EpicsGetResponseOrBuilder extends
    */
   com.google.protobuf.ByteString
       getSupersededByBytes();
+
+  /**
+   * <pre>
+   * Whether the orreryd epic is parked and its steerer holds the park, so the owner is not asked about it: the park
+   * opens a question, a steering session hears the epic, and the steerer has not escalated the park's question. The
+   * owner is asked once the steerer escalates it. False when it is not parked, when the planner holds its park, when
+   * the park waits on the owner, and for a record epic. The parked reason is still in parked.
+   * </pre>
+   *
+   * <code>bool steerer_parked = 22 [json_name = "steererParked"];</code>
+   * @return The steererParked.
+   */
+  boolean getSteererParked();
 }

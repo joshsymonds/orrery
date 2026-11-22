@@ -1128,6 +1128,10 @@ message StoredEpic {
 
   // The epic's steering actions in seq order. Only a GetEpic that asks for history fills them.
   repeated EpicAction actions = 33;
+
+  // Whether a steering session hears the epic: it has a steerer whose session row exists and is not stopped. While one
+  // does, the epic's open questions are the steerer's to answer until it escalates them.
+  bool steerer_heard = 34;
 }
 
 // EpicAction is one action taken on an epic's steering or controls, such as a move.
@@ -1282,6 +1286,10 @@ message EpicSummary {
 
   // How many of the epic's questions are open.
   int32 open_questions = 14;
+
+  // Whether a steering session hears the epic: it has a steerer whose session row exists and is not stopped. While one
+  // does, the epic's open questions are the steerer's to answer until it escalates them.
+  bool steerer_heard = 15;
 }
 
 // CreateEpicRequest names the accepted contract an epic is made from, by its id, with the base the epic starts from, its

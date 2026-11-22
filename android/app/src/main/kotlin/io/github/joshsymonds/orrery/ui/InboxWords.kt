@@ -118,7 +118,7 @@ private fun blockerWordsOf(listed: EpicRow, detail: EpicDetail?, now: Long): Str
         NeedKind.RELEASE -> detail.releaseProof.firstOrNull { it.state == RELEASE_FAILED }
             ?.let { "Release step ${it.position} failed: ${it.reason}" }.orEmpty()
         NeedKind.PARK -> detail.parked
-        NeedKind.OTHER -> blockerOf(detail)?.text.orEmpty()
+        NeedKind.OTHER -> otherBlockerOf(detail)?.text.orEmpty()
     }
 }
 

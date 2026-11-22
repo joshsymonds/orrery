@@ -173,6 +173,27 @@ test("the first open question is the blocker, waiting on your answer since it wa
   assert.equal(b.since, 1700000100);
 });
 
+test("SteererHolds: the question blocker is the first open question its steerer does not hold, and none while the steerer holds every one", () => {
+  const steererOnly = detail({
+    questions: [{ id: "Q1", text: "Which branch?", turn: 1n, asked: 1700000100n, steererHeld: true }],
+    steps: [{ id: "s1", task: "t-1", end: "", held: true, started: 400n }],
+  });
+  assert.equal(blockerOf(steererOnly)?.text, "t-1 held");
+  const escalatedSecond = detail({
+    questions: [
+      { id: "Q1", text: "Which branch?", turn: 1n, asked: 1700000100n, steererHeld: true },
+      { id: "Q2", text: "Which index?", turn: 2n, asked: 1700000200n, escalated: 1700000300n },
+    ],
+  });
+  const b = blockerOf(escalatedSecond);
+  if (b?.kind !== "question") {
+    assert.fail("expected a question blocker");
+  }
+  assert.equal(b.question.id, "Q2");
+  assert.equal(b.text, "waits on your answer");
+  assert.equal(b.since, 1700000200);
+});
+
 test("a question asked at 0 has a since of 0", () => {
   const b = blockerOf(detail({ questions: [{ id: "Q1", text: "Which branch?", turn: 1n, asked: 0n }] }));
   assert.equal(b?.kind, "question");

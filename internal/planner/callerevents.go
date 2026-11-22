@@ -276,8 +276,11 @@ type eventLayout struct {
 // boundedEventBody), and both say that epic_get with part question reads the question whole and that epic_answer
 // answers it.
 func questionEventOf(entry store.EpicAttention, question store.EpicQuestion) (string, string) {
-	last := fmt.Sprintf("epic_get with part question and question Q%d reads it whole; epic_answer answers it.",
-		question.Seq)
+	last := fmt.Sprintf(
+		"epic_get with part question and question Q%d reads it whole; epic_answer answers it, "+
+			"and epic_escalate takes it to the owner.",
+		question.Seq,
+	)
 	if question.Label == store.ParkLabel {
 		return store.CallerKindPark, boundedEventBody(parkLayout(entry, question, last))
 	}

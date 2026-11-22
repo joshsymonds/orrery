@@ -170,6 +170,24 @@ class EpicWordsTest {
     }
 
     @Test
+    fun aBuildWhoseQuestionOrParkItsSteererHoldsDoesNotSayItWaitsOnYou() {
+        val held = detail(
+            epic = epic(outcome = "built"),
+            buildTasks = listOf(buildTask("example-task-a", "planned")),
+            questions = listOf(question(asked = NOW - 120, steererHeld = true)),
+        )
+        val parked = detail(
+            epic = epic(outcome = "built"),
+            buildTasks = listOf(buildTask("example-task-a", "planned")),
+            parked = "budget",
+            steererParked = true,
+        )
+
+        assertEquals(Stage("Build", StageState.NOW, WordTone.LIVE, "0 of 1 tasks done"), trackOf(held)[1])
+        assertEquals(Stage("Build", StageState.NOW, WordTone.LIVE, "0 of 1 tasks done"), trackOf(parked)[1])
+    }
+
+    @Test
     fun aBuildWithEveryRunningStepLimitedIsQuietAndSaysItWaitsOnALimit() {
         val d = detail(
             epic = epic(outcome = "built"),
@@ -307,6 +325,75 @@ class EpicWordsTest {
     }
 
     @Test
+    fun theBlockerPillNamesTheSteerersParkAndQuestionQuietlyAfterWhatAsksTheOwner() {
+        val steererQuestion = question(asked = NOW - 300, id = "Q1", steererHeld = true)
+        val ownerQuestion = question(asked = NOW - 120, id = "Q2")
+        val cases = listOf(
+            detail(epic = epic(outcome = "built"), parked = "budget", steererParked = true) to
+                Pill("its steerer holds the park", WordTone.QUIET),
+            detail(epic = epic(outcome = "built"), questions = listOf(steererQuestion)) to
+                Pill("asks its steerer a question · 5 min", WordTone.QUIET),
+            detail(epic = epic(outcome = "built"), questions = listOf(steererQuestion, ownerQuestion)) to
+                Pill("asks you a question · 2 min", WordTone.ATTENTION),
+            detail(
+                epic = epic(outcome = "built"),
+                questions = listOf(steererQuestion),
+                parked = "budget",
+                steererParked = true,
+            ) to Pill("its steerer holds the park", WordTone.QUIET),
+            detail(
+                epic = epic(outcome = "built"),
+                parked = "budget",
+                steererParked = true,
+                steps = listOf(step(held = true)),
+            ) to Pill("example-task held", WordTone.ATTENTION),
+            detail(
+                epic = epic(outcome = "stopped"),
+                releaseProof = listOf(releaseStep(1L, "passed"), releaseStep(2L, "failed", undo = "none")),
+                parked = "release step 2 failed",
+                steererParked = true,
+            ) to Pill("its steerer holds the park", WordTone.QUIET),
+            detail(epic = epic(outcome = "ended_with_gaps"), questions = listOf(steererQuestion)) to
+                Pill("release it anyway, or close it", WordTone.ATTENTION),
+        )
+
+        assertEquals(cases.map { it.second }, cases.map { blockerPillOf(it.first, NOW) })
+    }
+
+    @Test
+    fun theNowSentenceNamesTheSteerersParkAndASteerersQuestionAsItsSteerers() {
+        val steererQuestion = question(asked = NOW - 120, steererHeld = true)
+        val cases = listOf(
+            detail(epic = epic(outcome = "built"), parked = "budget", steererParked = true) to
+                "Parked. Its steerer holds the question; nothing is asked of you unless it escalates it.",
+            detail(
+                epic = epic(outcome = "built"),
+                buildTasks = listOf(buildTask("a", "planned")),
+                questions = listOf(steererQuestion),
+            ) to "It waits on its steerer's answer.",
+            detail(
+                epic = epic(outcome = "built"),
+                buildTasks = listOf(buildTask("a", "planned")),
+                steps = listOf(step(task = "example-task")),
+                questions = listOf(steererQuestion),
+            ) to "One task is being worked on, and one waits on its steerer.",
+            detail(
+                epic = epic(outcome = "built"),
+                buildTasks = listOf(buildTask("a", "planned")),
+                steps = listOf(step(id = "s1", task = "example-task-a"), step(id = "s2", task = "example-task-b")),
+                questions = listOf(steererQuestion),
+            ) to "2 tasks are being worked on, and one waits on its steerer.",
+            detail(
+                epic = epic(outcome = "built"),
+                buildTasks = listOf(buildTask("a", "planned")),
+                questions = listOf(steererQuestion, question(asked = NOW - 60, id = "Q2")),
+            ) to "It waits on your answer.",
+        )
+
+        assertEquals(cases.map { it.second }, cases.map { nowSentenceOf(it.first) })
+    }
+
+    @Test
     fun theNowSentenceNamesTheFirstStateThatHolds() {
         val cases = listOf(
             detail(epic = epic(outcome = "built"), parked = "budget") to
@@ -417,6 +504,35 @@ class EpicWordsTest {
                 Asking.Planner("The planner holds this park: budget exhausted. It will retry, replan, or ask you."),
             detail(epic = epic(outcome = "built"), steps = listOf(step(limited = true))) to Asking.Limited,
             detail(epic = epic(outcome = "built"), buildTasks = listOf(buildTask("a", "planned"))) to null,
+        )
+
+        assertEquals(cases.map { it.second }, cases.map { askingOf(it.first) })
+    }
+
+    @Test
+    fun askingNamesTheSteerersParkThenTheSteerersQuestionAsLinesAfterWhatAsksTheOwner() {
+        val steererQuestion = question(asked = NOW - 300, id = "Q1", steererHeld = true)
+        val ownerQuestion = question(asked = NOW - 120, id = "Q2")
+        val parkLine = Asking.Steerer(
+            "Its steerer holds this park, and answers it or escalates it to you: budget exhausted",
+        )
+        val cases = listOf(
+            detail(epic = epic(outcome = "built"), parked = "budget exhausted", steererParked = true) to parkLine,
+            detail(epic = epic(outcome = "built"), questions = listOf(steererQuestion)) to
+                Asking.Steerer("Its steerer holds this question, and answers it or escalates it to you: Which branch?"),
+            detail(
+                epic = epic(outcome = "built"),
+                questions = listOf(steererQuestion),
+                parked = "budget exhausted",
+                steererParked = true,
+            ) to parkLine,
+            detail(epic = epic(outcome = "built"), questions = listOf(steererQuestion, ownerQuestion)) to
+                Asking.Question(ownerQuestion),
+            detail(
+                epic = epic(outcome = "built"),
+                questions = listOf(steererQuestion),
+                steps = listOf(step(limited = true)),
+            ) to Asking.Steerer("Its steerer holds this question, and answers it or escalates it to you: Which branch?"),
         )
 
         assertEquals(cases.map { it.second }, cases.map { askingOf(it.first) })
@@ -641,7 +757,8 @@ class EpicWordsTest {
     private fun requirement(id: String) =
         EpicRequirementRow(id = id, text = "Example requirement.", evidence = "", kind = "check")
 
-    private fun question(asked: Long) = EpicQuestionRow(id = "Q1", text = "Which branch?", turn = 1L, asked = asked)
+    private fun question(asked: Long, id: String = "Q1", steererHeld: Boolean = false) =
+        EpicQuestionRow(id = id, text = "Which branch?", turn = 1L, asked = asked, steererHeld = steererHeld)
 
     private fun historyEntry() = EpicHistoryRow(time = NOW, cursor = "example-cursor", kind = "")
 
@@ -686,6 +803,7 @@ class EpicWordsTest {
         paused: Boolean = false,
         parked: String = "",
         plannerParked: Boolean = false,
+        steererParked: Boolean = false,
         releaseProof: List<EpicReleaseProofRow> = emptyList(),
     ) = EpicDetail(
         epic = epic,
@@ -699,6 +817,7 @@ class EpicWordsTest {
         paused = paused,
         parked = parked,
         plannerParked = plannerParked,
+        steererParked = steererParked,
         releaseProof = releaseProof,
     )
 

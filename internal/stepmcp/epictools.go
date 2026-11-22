@@ -304,7 +304,9 @@ func epicControlTools(epics enginev1connect.EpicsClient, in epicInputs) []Tool {
 		{
 			Name: "epic_escalate",
 			Description: "Escalate an open question of an epic by id to the owner, with reason, so the owner is " +
-				"notified. Only the conversation that steers the epic, or the owner, may escalate; a step of the " +
+				"notified. An epic's questions, parks included, are its steerer's to answer: the owner is asked one " +
+				"only once it is escalated, or when no session steers the epic. " +
+				"Only the conversation that steers the epic, or the owner, may escalate; a step of the " +
 				"epic is refused, as are an answered, replaced or already escalated question and an empty reason. " +
 				"Returns a short acknowledgement, not the stored epic: the epic id, its phase and one line naming " +
 				"what changed.",

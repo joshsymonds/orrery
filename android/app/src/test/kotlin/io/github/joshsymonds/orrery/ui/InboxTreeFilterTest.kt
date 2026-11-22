@@ -6,6 +6,7 @@ import io.github.joshsymonds.orrery.api.EpicQuestionRow
 import io.github.joshsymonds.orrery.api.EpicRow
 import io.github.joshsymonds.orrery.api.Pane
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -153,6 +154,22 @@ class InboxTreeFilterTest {
             details = mapOf("e1" to detail(e, questions = questions)),
         )
         assertEquals(1, countsOf(projects).waiting)
+    }
+
+    @Test
+    fun countsWaitingDoesNotCountAnEpicWhoseOnlyQuestionItsSteererHoldsAndDoesOnceItIsEscalated() {
+        val e = epic("e1", steering = "o1")
+        val held = EpicQuestionRow("q1", "Which?", 1L, 1L, steererHeld = true)
+        val heldDetail = detail(e, questions = listOf(held))
+        val heldTree = tree(panes = listOf(pane("%1", "o1")), epics = listOf(e), details = mapOf("e1" to heldDetail))
+        assertEquals(0, countsOf(heldTree).waiting)
+        assertFalse(waits(EpicNode(e, heldDetail, contract = null)))
+
+        val escalated = held.copy(steererHeld = false, escalated = 50L, escalationBy = "conversation")
+        val asked = detail(e, questions = listOf(escalated))
+        val askedTree = tree(panes = listOf(pane("%1", "o1")), epics = listOf(e), details = mapOf("e1" to asked))
+        assertEquals(1, countsOf(askedTree).waiting)
+        assertTrue(waits(EpicNode(e, asked, contract = null)))
     }
 
     @Test

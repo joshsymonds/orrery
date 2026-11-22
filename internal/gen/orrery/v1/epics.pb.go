@@ -199,7 +199,12 @@ type EpicsGetResponse struct {
 	PlannerParked bool `protobuf:"varint,20,opt,name=planner_parked,json=plannerParked,proto3" json:"planner_parked,omitempty"`
 	// The orreryd epic a close named as its replacement; empty when its close named none, when it is not closed, and for
 	// a record epic.
-	SupersededBy  string `protobuf:"bytes,21,opt,name=superseded_by,json=supersededBy,proto3" json:"superseded_by,omitempty"`
+	SupersededBy string `protobuf:"bytes,21,opt,name=superseded_by,json=supersededBy,proto3" json:"superseded_by,omitempty"`
+	// Whether the orreryd epic is parked and its steerer holds the park, so the owner is not asked about it: the park
+	// opens a question, a steering session hears the epic, and the steerer has not escalated the park's question. The
+	// owner is asked once the steerer escalates it. False when it is not parked, when the planner holds its park, when
+	// the park waits on the owner, and for a record epic. The parked reason is still in parked.
+	SteererParked bool `protobuf:"varint,22,opt,name=steerer_parked,json=steererParked,proto3" json:"steerer_parked,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -374,6 +379,13 @@ func (x *EpicsGetResponse) GetSupersededBy() string {
 	return ""
 }
 
+func (x *EpicsGetResponse) GetSteererParked() bool {
+	if x != nil {
+		return x.SteererParked
+	}
+	return false
+}
+
 // EpicSession is one session that works on an epic, with its newest epic call.
 type EpicSession struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -491,8 +503,12 @@ type EpicQuestion struct {
 	EscalationBy string `protobuf:"bytes,10,opt,name=escalation_by,json=escalationBy,proto3" json:"escalation_by,omitempty"`
 	// The session that escalated the question when a conversation did. Empty otherwise.
 	EscalationSession string `protobuf:"bytes,11,opt,name=escalation_session,json=escalationSession,proto3" json:"escalation_session,omitempty"`
-	unknownFields     protoimpl.UnknownFields
-	sizeCache         protoimpl.SizeCache
+	// Whether the epic's steerer answers the question, so the owner is not asked about it: a steering session hears the
+	// epic and the question is not escalated. The owner is asked once the steerer escalates it, and is asked every open
+	// question of an epic no steering session hears.
+	SteererHeld   bool `protobuf:"varint,12,opt,name=steerer_held,json=steererHeld,proto3" json:"steerer_held,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *EpicQuestion) Reset() {
@@ -600,6 +616,13 @@ func (x *EpicQuestion) GetEscalationSession() string {
 		return x.EscalationSession
 	}
 	return ""
+}
+
+func (x *EpicQuestion) GetSteererHeld() bool {
+	if x != nil {
+		return x.SteererHeld
+	}
+	return false
 }
 
 // EpicQuestionChoice is one choice a planner question declares.
@@ -3299,6 +3322,10 @@ type Epic struct {
 	Parked string `protobuf:"bytes,21,opt,name=parked,proto3" json:"parked,omitempty"`
 	// How many of the epic's questions are open.
 	OpenQuestions int32 `protobuf:"varint,22,opt,name=open_questions,json=openQuestions,proto3" json:"open_questions,omitempty"`
+	// Whether a steering session hears the orreryd epic: it has a steerer whose session row exists and is not stopped.
+	// While one does, the epic's open questions are the steerer's to answer until it escalates them. False for a record
+	// epic.
+	SteererHeard  bool `protobuf:"varint,23,opt,name=steerer_heard,json=steererHeard,proto3" json:"steerer_heard,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -3485,6 +3512,13 @@ func (x *Epic) GetOpenQuestions() int32 {
 		return x.OpenQuestions
 	}
 	return 0
+}
+
+func (x *Epic) GetSteererHeard() bool {
+	if x != nil {
+		return x.SteererHeard
+	}
+	return false
 }
 
 // EpicTask is one task from an effort's state.json.
@@ -6060,7 +6094,7 @@ const file_orrery_v1_epics_proto_rawDesc = "" +
 	"\x11EpicsListResponse\x12%\n" +
 	"\x05epics\x18\x01 \x03(\v2\x0f.orrery.v1.EpicR\x05epics\"!\n" +
 	"\x0fEpicsGetRequest\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\tR\x02id\"\xad\a\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\"\xd4\a\n" +
 	"\x10EpicsGetResponse\x12#\n" +
 	"\x04epic\x18\x01 \x01(\v2\x0f.orrery.v1.EpicR\x04epic\x12)\n" +
 	"\x05tasks\x18\x02 \x03(\v2\x13.orrery.v1.EpicTaskR\x05tasks\x12)\n" +
@@ -6085,14 +6119,15 @@ const file_orrery_v1_epics_proto_rawDesc = "" +
 	"\rrelease_steps\x18\x12 \x03(\v2\x1b.orrery.v1.EpicReleaseProofR\freleaseSteps\x12-\n" +
 	"\x06report\x18\x13 \x01(\v2\x15.orrery.v1.EpicReportR\x06report\x12%\n" +
 	"\x0eplanner_parked\x18\x14 \x01(\bR\rplannerParked\x12#\n" +
-	"\rsuperseded_by\x18\x15 \x01(\tR\fsupersededByJ\x04\b\x04\x10\x05R\x06slices\"\x85\x01\n" +
+	"\rsuperseded_by\x18\x15 \x01(\tR\fsupersededBy\x12%\n" +
+	"\x0esteerer_parked\x18\x16 \x01(\bR\rsteererParkedJ\x04\b\x04\x10\x05R\x06slices\"\x85\x01\n" +
 	"\vEpicSession\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04pane\x18\x02 \x01(\tR\x04pane\x12\x14\n" +
 	"\x05label\x18\x03 \x01(\tR\x05label\x12\x12\n" +
 	"\x04call\x18\x04 \x01(\tR\x04call\x12\x0e\n" +
 	"\x02at\x18\x05 \x01(\x03R\x02at\x12\x18\n" +
-	"\acreator\x18\x06 \x01(\bR\acreator\"\x91\x03\n" +
+	"\acreator\x18\x06 \x01(\bR\acreator\"\xb4\x03\n" +
 	"\fEpicQuestion\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04text\x18\x02 \x01(\tR\x04text\x12\x12\n" +
@@ -6105,7 +6140,8 @@ const file_orrery_v1_epics_proto_rawDesc = "" +
 	"\x11escalation_reason\x18\t \x01(\tR\x10escalationReason\x12#\n" +
 	"\rescalation_by\x18\n" +
 	" \x01(\tR\fescalationBy\x12-\n" +
-	"\x12escalation_session\x18\v \x01(\tR\x11escalationSession\"8\n" +
+	"\x12escalation_session\x18\v \x01(\tR\x11escalationSession\x12!\n" +
+	"\fsteerer_held\x18\f \x01(\bR\vsteererHeld\"8\n" +
 	"\x12EpicQuestionChoice\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04does\x18\x02 \x01(\tR\x04does\"^\n" +
@@ -6269,7 +6305,7 @@ const file_orrery_v1_epics_proto_rawDesc = "" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04kind\x18\x02 \x01(\tR\x04kind\x12\x0e\n" +
 	"\x02by\x18\x03 \x01(\tR\x02by\"\x14\n" +
-	"\x12EpicsCloseResponse\"\xf1\x04\n" +
+	"\x12EpicsCloseResponse\"\x96\x05\n" +
 	"\x04Epic\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1e\n" +
 	"\n" +
@@ -6296,7 +6332,8 @@ const file_orrery_v1_epics_proto_rawDesc = "" +
 	"\x06paused\x18\x13 \x01(\bR\x06paused\x12!\n" +
 	"\fpause_source\x18\x14 \x01(\tR\vpauseSource\x12\x16\n" +
 	"\x06parked\x18\x15 \x01(\tR\x06parked\x12%\n" +
-	"\x0eopen_questions\x18\x16 \x01(\x05R\ropenQuestions\"\xb6\x01\n" +
+	"\x0eopen_questions\x18\x16 \x01(\x05R\ropenQuestions\x12#\n" +
+	"\rsteerer_heard\x18\x17 \x01(\bR\fsteererHeard\"\xb6\x01\n" +
 	"\bEpicTask\x12\x16\n" +
 	"\x06effort\x18\x01 \x01(\x05R\x06effort\x12\x12\n" +
 	"\x04slug\x18\x02 \x01(\tR\x04slug\x12\x18\n" +

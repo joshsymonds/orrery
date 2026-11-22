@@ -16,7 +16,8 @@ import io.github.joshsymonds.orrery.ui.theme.OrreryTokens
 /**
  * The top of Now: its one sentence, then what asks, placed first under it. An open question draws its Ask, to pick a
  * choice and confirm it; an owner's park draws its Ask with the one answer that runs the parked work again, then Stop…;
- * the planner's park draws one grey line with no control; a limit wait draws Resume now. [onAnswer] receives the
+ * the planner's park draws one grey line with no control, and so does a park or question the epic's steerer holds,
+ * which asks nothing of the owner until the steerer escalates it; a limit wait draws Resume now. [onAnswer] receives the
  * question's id, the chosen choice's id or "other", and the text sent with it; the caller makes the call off the main
  * thread. [onStop] only opens Stop's confirm; the screen makes the call after the confirm.
  */
@@ -78,6 +79,11 @@ fun NowAsk(
                 asking.line,
                 color = OrreryTokens.Ink.three,
                 modifier = Modifier.testTag("epic-planner-park"),
+            )
+            is Asking.Steerer -> Text(
+                asking.line,
+                color = OrreryTokens.Ink.three,
+                modifier = Modifier.testTag("epic-steerer-holds"),
             )
             Asking.Limited -> Column(verticalArrangement = Arrangement.spacedBy(OrreryTokens.Space.four)) {
                 Button(onClick = onResume, modifier = Modifier.testTag("epic-resume-now")) {

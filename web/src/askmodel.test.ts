@@ -314,3 +314,19 @@ test("Ask: staleWords is null before a full day and reads the days from a day on
   assert.equal(staleWords(now - secondsPerDay, now), "1 day");
   assert.equal(staleWords(now - 5 * secondsPerDay, now), "5 days");
 });
+
+test("SteererHolds: a question its steerer escalated asks as the owner's, carrying the escalation line", () => {
+  const question: EpicQuestion = create(EpicQuestionSchema, {
+    id: "Q5",
+    text: "Retry the gate?",
+    asked: 1794700000n,
+    steererHeld: false,
+    escalated: 1794700300n,
+    escalationBy: "conversation",
+    escalationSession: "sess-steer",
+    escalationReason: "the owner decides release scope",
+  });
+  const model = epicAsk(epic, question);
+  assert.equal(model.escalation, "escalated by session sess-steer: the owner decides release scope");
+  assert.deepEqual(model.epic, { id: "harbour-rota/rota-export", questionId: "Q5" });
+});
