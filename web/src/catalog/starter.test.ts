@@ -293,6 +293,22 @@ test("R2 Starter: no unreachable host is offered: the host choice lists the host
   }
 });
 
+test("R2 Starter: each start drawing shows brine unreachable in the inbox behind the panel, and the panel itself leaves it out", () => {
+  for (const [id, key] of SCENARIO_STATE) {
+    for (const frame of ["desk", "phone"] as const) {
+      const drawing = drawOf(id, frame);
+      assert.match(
+        drawing,
+        /<span class="name">brine<\/span><\/span><span class="unreach">unreachable<\/span>/,
+        `the ${id} ${frame} drawing shows brine's card unreachable`,
+      );
+      const panel = inFrame(frame, () => O.starterPanel(stateOf(key)));
+      assert.ok(drawing.includes(panel), `the ${id} ${frame} drawing has the ${key} panel`);
+      assert.ok(!panel.includes("brine"), `the ${id} ${frame} panel names no host that does not answer`);
+    }
+  }
+});
+
 test("R2 Starter: the six start scenarios are in New and find, drawn for the desk and the phone, and each names the server fields it reads", () => {
   for (const [id] of SCENARIO_STATE) {
     const scenario = scenarioOf(id);

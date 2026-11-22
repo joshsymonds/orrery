@@ -29,10 +29,11 @@
   // the build epic removes. brine does not answer in this world, so it is in no proposal and not in the host choice.
   const STARTER_WEB = 'The web under 760 draws this sheet over the inbox the same way, with the proposals at full width.';
   const STARTER_ANDROID = 'On Android today a prompt lists rows to start in, and the start form is a Directory and a First message, with no host choice. This sheet replaces both.';
+  const STARTER_BEHIND = 'Behind it the inbox draws brine unreachable, as inbox-host-unreachable does: its card says so, and the Starter leaves it out.';
   const starter = (id, name, note, s, differs = [STARTER_WEB, STARTER_ANDROID]) => O.scenario({
-    id, group: 'New and find', title: name, note: `${note}${O.hostsNote(['proposal', 'start'])}`, differs,
-    desk: () => O.desk({ open: 'convo-working', pages: [O.lampPage()], over: O.starterPanel(s) }),
-    phone: () => O.home({ over: O.starterPanel(s) }),
+    id, group: 'New and find', title: name, note: `${note} ${STARTER_BEHIND}${O.hostsNote(['proposal', 'start'])}`, differs,
+    desk: () => O.desk({ inbox: { dirs: W.unreachableDirs() }, open: 'convo-working', pages: [O.lampPage()], over: O.starterPanel(s) }),
+    phone: () => O.home({ dirs: W.unreachableDirs(), over: O.starterPanel(s) }),
   });
   starter('start-prompt', 'Starter: the prompt', 'The Starter takes over starting a session from the New panel: you type what to start first, and the server proposes where to run it. The new-* scenarios stay until the build epic removes them. Nothing is proposed until you press ⏎.',
     W.starter.states.prompt);
