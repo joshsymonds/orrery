@@ -924,7 +924,8 @@ button.link.notices-more { justify-self: end; padding: 0 var(--o-space-12); colo
 .caret.soft { width: var(--o-size-hairline); background: var(--o-role-live); }
 
 /* ============ the epic page, in the reader's track: its title row, summary, track, Now, tasks and requirements, happenings and evidence runs ============ */
-.epic-page { display: flex; flex-direction: column; gap: var(--o-space-12); min-width: 0; }
+.epic-page { display: flex; flex-direction: column; gap: var(--o-space-24); min-width: 0; }
+@media (min-width: 760px) { .epic-page { gap: var(--o-space-32); } }
 /* A page moving deeper drills in over the drill move, and a page coming back leaves in over the leave move. */
 section.page.drill { animation: move-drill var(--o-move-drill); }
 section.page.leave { animation: move-leave var(--o-move-leave); }
@@ -1172,7 +1173,7 @@ button.act:active, .back:active, .crumb:active { transform: scale(.97); backgrou
 @media (min-width: 760px) {
   .rcard > section.page > .epic-page > .title-row {
     position: sticky; top: calc(-1 * var(--o-space-16)); z-index: var(--o-z-sticky);
-    margin-top: calc(-1 * var(--o-space-16)); padding-top: var(--o-space-16); background: var(--o-surface-side);
+    margin-top: calc(-1 * var(--o-space-16)); padding-top: var(--o-space-16); background: var(--o-surface-page);
   }
   .epic-page .happen li .at { display: inline-block; min-width: var(--o-layout-gutter-ch); margin-right: var(--o-space-16); color: var(--o-ink-4); text-align: right; }
 }
