@@ -82,6 +82,15 @@ func waitForExec(t *testing.T, client *tmuxctl.Client, pane, want string) {
 	}
 }
 
+// waitForExecAll runs waitForExec for each pane in panes, in order, so the tests that wait on several panes share one
+// call site for waitForExec.
+func waitForExecAll(t *testing.T, client *tmuxctl.Client, panes []string, want string) {
+	t.Helper()
+	for _, pane := range panes {
+		waitForExec(t, client, pane, want)
+	}
+}
+
 // paneExeced reports whether the process tmux started for pane has exec'd want: its /proc comm is want. It fails the
 // test if the process has exited, since it can exec nothing more.
 func paneExeced(t *testing.T, client *tmuxctl.Client, pane, want string) bool {
@@ -277,9 +286,7 @@ func TestListPanesReturnsEveryPane(t *testing.T) {
 	setPaneOption(t, client, s1[0], protocol.OptionClaudeSession, "example-claude-session")
 	setPaneOption(t, client, s1[0], protocol.OptionTool, exampleTool)
 
-	for _, pane := range append(s1, s2...) {
-		waitForExec(t, client, pane, "sleep")
-	}
+	waitForExecAll(t, client, append(s1, s2...), "sleep")
 	s1Activity := sessionActivity(t, client, "s1")
 	s2Activity := sessionActivity(t, client, "s2")
 
@@ -360,9 +367,7 @@ func TestListCarriesOrreryOptions(t *testing.T) {
 	setPaneOption(t, client, panes[0], protocol.OptionID, "example-orrery-id")
 	setPaneOption(t, client, panes[0], protocol.OptionTranscript, "/example/transcript.jsonl")
 	setPaneOption(t, client, panes[0], protocol.OptionTurnStart, "1700000200")
-	for _, pane := range panes {
-		waitForExec(t, client, pane, "sleep")
-	}
+	waitForExecAll(t, client, panes, "sleep")
 
 	listed, err := client.List(t.Context())
 	if err != nil {
@@ -511,9 +516,10 @@ func TestWritePaneOptionsKeepsSemicolons(t *testing.T) {
 
 // TestWritePaneOptionsExpandsFormats writes one option with SetFormat and one with Set, both given the same format: the
 // SetFormat write stores what tmux expands it to, the pane's foreground command, and the Set write stores it as text.
-// The command is read in the same invocation as the writes, so it is the one tmux expanded while the pane starts.
+// The test waits for the pane's sleep to exec before the batch, so the command the batch reads is sleep.
 func TestWritePaneOptionsExpandsFormats(t *testing.T) {
 	client, pane := startPane(t)
+	waitForExec(t, client, pane, "sleep")
 	const format = "#{pane_current_command}"
 	writes := []tmuxctl.OptionWrite{
 		tmuxctl.SetFormat(protocol.OptionCommand, format),
@@ -527,6 +533,9 @@ func TestWritePaneOptionsExpandsFormats(t *testing.T) {
 	command := strings.TrimSuffix(out, "\n")
 	if command == "" {
 		t.Fatal("the pane's command reads empty")
+	}
+	if command != "sleep" {
+		t.Fatalf("the pane's command reads %q, want sleep", command)
 	}
 	got, ok, err := client.PaneOption(t.Context(), pane, protocol.OptionCommand)
 	if err != nil || !ok || got != command {
