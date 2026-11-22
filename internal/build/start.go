@@ -185,7 +185,11 @@ func (r *Runner) reviewStart(
 	}
 	var facts []string
 	if name == reviewFloor {
-		judgments, factErr := guard.Check(ctx, epic.Repository, base, revision, guardSpec(epic, task))
+		host, hostErr := r.hostOf(epic)
+		if hostErr != nil {
+			return enginehost.StepStart{}, fmt.Errorf("guard facts of %s: %w", taskLabel(task.Seq), hostErr)
+		}
+		judgments, factErr := guard.Check(ctx, host, epic.Repository, base, revision, guardSpec(epic, task))
 		if factErr != nil {
 			return enginehost.StepStart{}, fmt.Errorf("guard facts of %s: %w", taskLabel(task.Seq), factErr)
 		}

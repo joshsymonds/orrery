@@ -406,7 +406,7 @@ func (r *Runner) syncEnd(ctx context.Context, epic store.EpicRow, act Action) (s
 	if moved != "" {
 		return notAdvanced(act, result, moved, false), nil
 	}
-	if err = compose.Advance(ctx, epic.Repository, build.BranchRef(epic.ID), merge, epic.StoredBase); err != nil {
+	if err = compose.Advance(ctx, host, epic.Repository, build.BranchRef(epic.ID), merge, epic.StoredBase); err != nil {
 		return store.SyncEnd{}, fmt.Errorf("advance epic %s to %s: %w", epic.ID, merge, err)
 	}
 	return passed, nil
