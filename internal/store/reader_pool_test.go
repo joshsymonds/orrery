@@ -103,13 +103,15 @@ func TestReaderPoolNewReaderKeepsReplacementReads(t *testing.T) {
 	t.Run("TestSnapshotReplacedWhileReaderHasReadAndWriterOpen", TestSnapshotReplacedWhileReaderHasReadAndWriterOpen)
 }
 
-// restoreOrderStatements are the statements the restore order is made of. A file states the order when one of its
+// restoreOrderStatements returns the statements the restore order is made of. A file states the order when one of its
 // sentences states each of them, in any case.
-var restoreOrderStatements = []string{
-	"serve's reader holds connections to the store",
-	"serve is stopped before the store file is replaced",
-	"orreryd closes last",
-	"both are started after the store file is replaced",
+func restoreOrderStatements() []string {
+	return []string{
+		"serve's reader holds connections to the store",
+		"serve is stopped before the store file is replaced",
+		"orreryd closes last",
+		"both are started after the store file is replaced",
+	}
 }
 
 // TestReaderPoolRestoreOrderIsStated fails when reader.go or docs/architecture.md lacks a sentence that states the
@@ -125,7 +127,7 @@ func TestReaderPoolRestoreOrderIsStated(t *testing.T) {
 		for _, sentence := range sentencesOf(string(raw)) {
 			lower := strings.ToLower(sentence)
 			matched := false
-			for _, statement := range restoreOrderStatements {
+			for _, statement := range restoreOrderStatements() {
 				if strings.Contains(lower, statement) {
 					covered[statement] = true
 					matched = true
@@ -135,7 +137,7 @@ func TestReaderPoolRestoreOrderIsStated(t *testing.T) {
 				t.Logf("%s: %s", file, sentence)
 			}
 		}
-		for _, statement := range restoreOrderStatements {
+		for _, statement := range restoreOrderStatements() {
 			if !covered[statement] {
 				t.Errorf("%s states no sentence with %q", file, statement)
 			}
