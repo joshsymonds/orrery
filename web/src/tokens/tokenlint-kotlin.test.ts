@@ -113,6 +113,36 @@ test("TokenLint: FontFamily.Monospace and FontFamily.Default fail on their lines
   assert.deepEqual(where(screen, text), [`${screen}:1`, `${screen}:2`]);
 });
 
+test("TypeFaces: FontFamily.SansSerif, Serif and Cursive fail on their lines", () => {
+  const text = fixture(
+    "Text(fontFamily = FontFamily.SansSerif)",
+    "Text(fontFamily = FontFamily.Serif)",
+    "Text(fontFamily = FontFamily.Cursive)",
+  );
+  assert.deepEqual(where(screen, text), [`${screen}:1`, `${screen}:2`, `${screen}:3`]);
+  assert.match(lintKotlin(screen, text)[0].reason, /^FontFamily\.SansSerif is a system font family/);
+});
+
+test("TypeFaces: a FontFamily( built outside ui/theme fails, and one built in ui/theme passes", () => {
+  const text = fixture("val family = FontFamily(Font(R.font.inter_regular))");
+  assert.deepEqual(where(screen, text), [`${screen}:1`]);
+  assert.match(lintKotlin(screen, text)[0].reason, /^FontFamily\( is a font family built outside ui\/theme/);
+  assert.deepEqual(where(theme, text), []);
+});
+
+test("TypeFaces: an R.font resource other than orrery_mono_* or inter_* fails, and both faces pass", () => {
+  const text = fixture(
+    "Font(R.font.roboto_regular)",
+    "Font(R.font.orrery_mono_bold)",
+    "ResourcesCompat.getFont(context, R.font.inter_italic)",
+  );
+  assert.deepEqual(where(screen, text), [`${screen}:1`]);
+  assert.match(
+    lintKotlin(screen, text)[0].reason,
+    /^R\.font\.roboto_regular is a font resource other than orrery_mono_\* or inter_\*/,
+  );
+});
+
 test("TokenLint: MaterialTheme.typography and MaterialTheme.colorScheme fail outside ui/theme, and pass inside it", () => {
   const text = fixture(
     "Text(style = MaterialTheme.typography.bodyLarge)",
