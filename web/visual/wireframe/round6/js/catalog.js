@@ -80,6 +80,10 @@
   comp('NoticeCentre', 'where notices collect', [['Days', O.noticeCentre(W.noticeDays).replace('class="ncentre"', 'class="ncentre flat"')], ['Empty', O.noticeCentre([]).replace('class="ncentre"', 'class="ncentre flat"')]], { cell: 520 });
   comp('WorkCard', 'an epic or a contract as a live card, on a project\'s page', [['EpicAsks', O.workCard(W.workRota.epics[0])], ['EpicBuilding', O.workCard({ ...W.workRota.epics[0], tone: 'live', asks: '', now: 'Three tasks are being worked on.' })], ['ContractWaiting', O.workCard(W.workContract.contract)]], { cell: 400 });
   comp('WorkRail', 'what a conversation steers, in named groups', [['Groups', O.workRail(W.workFull).replace('class="rail end"', 'class="rail end" style="display:flex"'), 'side'], ['Many', O.workRail(W.workMany).replace('class="rail end"', 'class="rail end" style="display:flex"'), 'side']], { cell: 160 });
+  comp('Starter', 'where a session runs: a prompt first, then ranked host and folder proposals in a dropdown, or a host and a folder typed', [
+    ['Prompt', O.starterBody(W.starter.states.prompt)], ['Loading', O.starterBody(W.starter.states.loading)], ['Several', O.starterBody(W.starter.states.several)],
+    ['None', O.starterBody(W.starter.states.none)], ['Failed', O.starterBody(W.starter.states.failed)], ['TypedFolder', O.starterBody(W.starter.states.typed)],
+  ], { cell: 460 });
   comp('CompactHead', 'touch: the header folded to one line, the same whether scrolling or you folded it', [['Quiet', O.compactHead({ ...W.workFull, epics: [{ ...W.workRota.epics[0], asks: '' }] })], ['Asking', O.compactHead(W.workFull)]], { cell: 412 });
   comp('ListPanel', 'one of a conversation\'s lists, opened from its tile', [['Agents', O.listBody('agents', W.workFull)], ['Running', O.listBody('running', { background: W.shells })]], { cell: 520 });
   comp('SubjectBand', 'what a conversation is for, and what it steers that waits on you, under its title row', [['Goal', O.subject({ goal: W.workFull.goal })], ['Asks', O.subject(W.workFull)], ['Contract', O.subject(W.workContract)], ['OpenOnRight', O.subject(W.workRota, 'rota-export')]], { cell: 760 });

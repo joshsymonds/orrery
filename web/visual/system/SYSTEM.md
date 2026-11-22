@@ -254,6 +254,7 @@ Names are story names: `Component/State`. The catalogue draws each component in 
 | Notice | AsksYou, EpicAsks, Shipped, Failed; InTheCentre |
 | NoticeCentre | Days, Empty |
 | Panel | New (Empty, Working, Results, Form, NoResults, Error), KeyList |
+| Starter | Prompt, Loading, Several, None, Failed, TypedFolder. Starting a session takes over from New: a prompt first, then where it runs. Its ranked proposals are a dropdown under the prompt, the top one preselected, each a folder with its host; or a host and a folder typed, the host chosen from the reachable hosts only. A panel on the desk, a sheet on touch. |
 
 Every pane, session, epic and step draws its host, also when there is only one host: where rows are grouped by host and folder it is drawn once on the card heading, and everywhere else inline as a HostLabel.
 
@@ -318,3 +319,4 @@ composables under `android/.../ui`.
 | Epic page | `EpicPage`, `proof.tsx`, `happenings.tsx`, `orrery.tsx` | `EpicScreen` and its parts |
 | Contract, Phase | `contract.tsx`, `phaseoutput.tsx` | `ContractScreen`, `PhaseOutputScreen` |
 | New | `picker.tsx` | `PickerPanel` |
+| Starter | `picker.tsx`, its start form | `PickerPanel`, its start form |
