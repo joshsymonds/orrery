@@ -238,23 +238,6 @@ func TestTaskLadderChangeApproachStoresVersion(t *testing.T) {
 			refusal: "file b.go is named twice",
 		},
 		{
-			name: "a file an open task owns",
-			seed: func(t *testing.T, s *Store) {
-				t.Helper()
-				ladderApproachOnRung5(t, s, nil)
-				ladderApproachOwn(t, s, 1, "thing.go")
-				if _, err := s.fixtureExec(context.Background(), `INSERT INTO epic_tasks (epic, seq, turn, title,
-					deliverable, status) VALUES (?, 2, 1, 'Other', 'the other change', 'open')`, climbEpic); err != nil {
-					t.Fatalf("insert task 2: %v", err)
-				}
-				ladderApproachOwn(t, s, 2, "held.go")
-			},
-			task:    1,
-			files:   []string{"held.go"},
-			summary: "change approach of task 1",
-			refusal: "held.go is owned by open T2",
-		},
-		{
 			name: "a change that would leave the task no files",
 			seed: func(t *testing.T, s *Store) {
 				t.Helper()

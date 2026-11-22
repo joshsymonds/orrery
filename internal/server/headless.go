@@ -49,6 +49,10 @@ func (s sessionsServer) ListHeadless(
 	if err != nil {
 		return nil, err
 	}
+	verdicts, err := readClosureVerdicts(ctx, s.reader)
+	if err != nil {
+		return nil, err
+	}
 	puts, err := readPutOffMarks(ctx, s.reader)
 	if err != nil {
 		return nil, err
@@ -60,7 +64,9 @@ func (s sessionsServer) ListHeadless(
 			return nil, listError(connect.CodeInternal, "read headless sessions")
 		}
 		mark := marks[archiveKey{kind: archiveKindHeadless, id: row.ID}]
-		aged := headlessAged(session.GetState(), session.GetChanged(), session.GetSeen(), now)
+		verdict, ok := verdicts[row.ID]
+		aged := headlessAged(session.GetState(), session.GetChanged(), session.GetSeen(), now) ||
+			closureAged(verdict, ok, session.GetChanged(), session.GetSeen(), now)
 		session.Archived = archivedRow(mark, session.GetChanged(), aged)
 		session.PutOff = headlessPutOff(puts, row.ID, row.RequestID, row.State)
 		sessions = append(sessions, session)

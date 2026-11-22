@@ -33,7 +33,7 @@ func openCheckingStore(ctx context.Context, t *testing.T) (*store.Store, *sql.DB
 	version := store.TaskVersionInput{
 		Source: store.SourceOrchestrator, Step: "step-2", Reason: "the evidence moved", Evidence: &item,
 	}
-	err := s.RerunTask(ctx, buildEpic, 1, store.TaskBuild{}, openBuildOf(), version, nil, requestDecision(),
+	err := s.RerunTask(ctx, buildEpic, 1, store.TaskBuild{}, openBuildOf(), version, requestDecision(),
 		writtenAt())
 	if err != nil {
 		t.Fatalf("RerunTask: %v", err)

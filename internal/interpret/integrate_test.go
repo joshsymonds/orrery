@@ -448,11 +448,15 @@ func integrateCutAdvanceEndsPassedOnce(images *worldImages) func(t *testing.T) {
 }
 
 // TestIntegrateConflictLeavesTaskOutAndNoTrigger: two accepted tasks that change the same line of b.go compose to one
-// merge. The later task's merge conflicts, so it is left out and sent back open, and the conflict line is the batch's
-// output. The passed batch leaves that open task behind, so it writes no trigger and wakes no planner.
+// merge. The later task's merge conflicts, so its task integrator runs, and it clashes: the task is left out and sent
+// back open, and the conflict line is the batch's output. The passed batch leaves that open task behind, so it writes
+// no trigger and wakes no planner.
 func TestIntegrateConflictLeavesTaskOutAndNoTrigger(t *testing.T) {
 	t.Parallel()
 	w := newIntegrateWorld(t)
+	w.mergeIdentity()
+	w.runner.stateDir = t.TempDir()
+	w.runner.getenv = integratorRoles(t)
 	first := w.commit(w.base, "b.go", "one\n")
 	second := w.commit(w.base, "b.go", "two\n")
 	w.pass()
@@ -461,6 +465,9 @@ func TestIntegrateConflictLeavesTaskOutAndNoTrigger(t *testing.T) {
 	w.accept(2, w.base, second)
 	w.pass()
 	candidate := w.candidate(integrateBatch)
+	endTaskStep(t, w.s, workID(t, w.s, integrateBatch, "task integrator T2 1"), "done", "done",
+		taskReturn(verdictClash, "", "both sides decide b.go"))
+	w.pass()
 	w.endGate(integrateBatch, 0, "")
 	w.pass()
 	w.endCapture(integrateBatch)

@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"reflect"
 	"strings"
 	"testing"
 
@@ -19,7 +18,9 @@ func filesTaskJSON(title, file string) string {
 		`"supplied":[],"conclusion":"c","judge":"a judge","kind":"capture"}}`, title, file)
 }
 
-func TestReturnCheckOwnsFilesOfOpenTasksOnly(t *testing.T) {
+// TestReturnCheckAcceptsFilesOfTasksOfEveryStatus checks that a plan touching a file of an open, a done and a failed
+// epic task passes, since the check no longer holds a file to the epic task that owns it.
+func TestReturnCheckAcceptsFilesOfTasksOfEveryStatus(t *testing.T) {
 	t.Parallel()
 	epic := store.EpicRow{
 		Requirements: []store.EpicRequirement{{ID: "R1"}},
@@ -36,8 +37,7 @@ func TestReturnCheckOwnsFilesOfOpenTasksOnly(t *testing.T) {
 		filesTaskJSON("Touch c", "internal/c.go"),
 	}, ",") + `],"outline":"o","questions":[],"outcome":"work"}`
 
-	want := []string{`tasks[0] "Touch a" files[0]: owned by an unfinished task`}
-	if got := check(json.RawMessage(plan)); !reflect.DeepEqual(got, want) {
-		t.Errorf("ReturnCheck of a plan touching an open, a done and a failed task = %q, want %q", got, want)
+	if got := check(json.RawMessage(plan)); got != nil {
+		t.Errorf("ReturnCheck of a plan touching an open, a done and a failed task = %q, want none", got)
 	}
 }

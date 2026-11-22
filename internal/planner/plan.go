@@ -37,7 +37,8 @@ const Schema = `{
 					"test_changes": {"type": "array", "items": {"type": "string"}},
 					"gate": {"type": "string"},
 					"evidence": {"type": "string"},
-					"depends_on": {"type": "string"}
+					"depends_on": {"type": "string"},
+					"kind": {"type": "string"}
 				},
 				"required": ["title", "deliverable", "files", "requirements", "contributes", "test_changes", "gate", "evidence", "depends_on"],
 				"additionalProperties": false
@@ -238,6 +239,7 @@ func closesOf(closes string) []string {
 // check.go refuses it.
 type Task struct {
 	Title          string        `json:"title"`
+	Kind           string        `json:"kind"` // "" for an ordinary task, or store.TaskKindDesign
 	Deliverable    string        `json:"deliverable"`
 	Files          []string      `json:"files"`
 	Requirements   []string      `json:"requirements"`

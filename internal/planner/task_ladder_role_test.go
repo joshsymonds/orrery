@@ -23,9 +23,7 @@ const ladderRoleArgsSentence = `change_approach {"task": <number>, "deliverable"
 const ladderRoleChangeApproachSentence = "change_approach writes the one change of approach of a task on rung 4, its " +
 	"recarve: a version with source approach, which every agent on the task reads, holding deliverable, the whole new " +
 	"deliverable, and item, when given, the whole new evidence item, which red judges at the task's base; and files and " +
-	"remove, the files the version adds to the task and drops from it, where a file that another open task owns, or an " +
-	"accepted task has not yet integrated, is refused and the refusal names its holder. Its reason states what changes " +
-	"and why."
+	"remove, the files the version adds to the task and drops from it. Its reason states what changes and why."
 
 // ladderRoleNeverReplacedSentence is the first sentence of the paragraph on the ladder: a failing task is never
 // replaced.

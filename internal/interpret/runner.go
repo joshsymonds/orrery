@@ -52,6 +52,14 @@ type Store interface {
 		ctx context.Context, epic, path string, attempt int64, revision, refs, result string, tasks []int64,
 	) error
 	EndBatch(ctx context.Context, epic string, end store.BatchEnd, trigger *store.NodeTrigger, at time.Time) error
+	RecordIntegrateRound(ctx context.Context, epic string, round store.IntegrateRound, at time.Time) error
+	ComposeIntegrateRound(
+		ctx context.Context, epic, path string, attempt, task, round int64, commit, result string, at time.Time,
+	) error
+	FailIntegrateRound(
+		ctx context.Context, epic, path string, attempt, task, round int64, failure string, at time.Time,
+	) error
+	LabelledSteps(ctx context.Context, epic, task string) ([]store.StepRow, error)
 	NodeRuns(ctx context.Context, epic string) ([]store.NodeRun, error)
 	PrepareSync(
 		ctx context.Context, epic, path string, attempt int64, revision, result string, read store.OriginRead,
@@ -438,6 +446,11 @@ func (r *Runner) decide(ctx context.Context, epic string, flow workflow.Workflow
 		return store.EpicRow{}, nil, fmt.Errorf("read epic %s: %w", epic, err)
 	}
 	rows := flowRows(read)
+	roundSteps, err := r.roundSteps(ctx, epic, read.Runs)
+	if err != nil {
+		return store.EpicRow{}, nil, err
+	}
+	rows.Steps = append(rows.Steps, roundSteps...)
 	if awaitsDependencies(read.Epic.Tasks) {
 		rows.Stranded, err = startStranded(ctx, read.Epic, read.Runs)
 		if err != nil {
@@ -452,11 +465,22 @@ func (r *Runner) decide(ctx context.Context, epic string, flow workflow.Workflow
 	return read.Epic, Decide(flow, rows, r.kinds), nil
 }
 
-// awaitsDependencies reports whether one of tasks is open, has not started and depends on other tasks: a build of such a
-// task waits on its dependencies, and reads the stranded tasks of its epic (kinds.Rows.Stranded).
+// awaitsDependencies reports whether one of tasks is open, has not started and waits on other tasks: it depends on
+// some, or it is a task that is not a design task and its turn holds a design task. A build of such a task waits on
+// them, and reads the stranded tasks of its epic (kinds.Rows.Stranded).
 func awaitsDependencies(tasks []store.EpicTask) bool {
 	return slices.ContainsFunc(tasks, func(task store.EpicTask) bool {
-		return task.Status == taskOpen && task.Build.Stage == "" && len(task.DependsOn) > 0
+		if task.Status != taskOpen || task.Build.Stage != "" {
+			return false
+		}
+		return len(task.DependsOn) > 0 || (task.Kind != store.TaskKindDesign && turnHoldsDesign(tasks, task.Turn))
+	})
+}
+
+// turnHoldsDesign reports whether a design task was planned in turn among tasks.
+func turnHoldsDesign(tasks []store.EpicTask, turn int64) bool {
+	return slices.ContainsFunc(tasks, func(task store.EpicTask) bool {
+		return task.Turn == turn && task.Kind == store.TaskKindDesign
 	})
 }
 
@@ -465,7 +489,7 @@ func flowRows(read store.EpicFlow) kinds.Rows {
 	return kinds.Rows{
 		Epic: read.Epic, Runs: read.Runs, Checks: read.Checks, Evidence: read.Evidence, Steps: read.Steps,
 		Pending: read.Pending, Actions: read.Actions, Releases: read.Releases, Slot: read.Slot, Review: read.Review,
-		GapTurns: read.GapTurns, Unresolvable: read.Unresolvable, Reruns: read.Reruns,
+		GapTurns: read.GapTurns, Unresolvable: read.Unresolvable, Reruns: read.Reruns, Rounds: read.Rounds,
 	}
 }
 

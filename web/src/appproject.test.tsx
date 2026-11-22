@@ -211,6 +211,18 @@ function cursorKey(container: HTMLElement): string | null {
   return container.querySelector(".row.cur")?.getAttribute("data-key") ?? null;
 }
 
+// archiveFromRow opens the More menu of the list row under key and chooses its Archive.
+async function archiveFromRow(container: HTMLElement, key: string): Promise<void> {
+  await press(one(container, `.row[data-key="${key}"] button[aria-label="more"]`));
+  await press(buttonIn(container, `.row[data-key="${key}"] .row-menu-list`, "Archive"));
+}
+
+// archiveFromHead opens the More menu of the reader's head and chooses its Archive, which archives the row the reader shows.
+async function archiveFromHead(container: HTMLElement): Promise<void> {
+  await press(one(container, 'section[aria-label="reader"] .icon.more'));
+  await press(buttonIn(container, 'section[aria-label="reader"] .head-menu', "Archive"));
+}
+
 test("ProjectPage: a project's head opens its page beside the inbox, which stays expanded", (t) =>
   withApp(t.signal, undefined, async ({ container }) => {
     await press(headOf(container, "api"));
@@ -407,21 +419,21 @@ test("ProjectPage: A, x and e send nothing while the page covers the cursor row 
     assert.deepEqual(writesOf(calls.slice(sentBefore)), [], "no archive or mark-seen is sent");
   }));
 
-test("ProjectPage: with a conversation's own page open and the inbox collapsed, A still acts on that row", (t) =>
+test("ProjectPage: with a conversation's own page open and the inbox collapsed, its head's More Archive still acts on that row", (t) =>
   withApp(t.signal, undefined, async ({ container, calls }) => {
     await press(one(container, '.row[data-key="a"]'));
-    // The click puts the focus in the row's reply box, where A is typed; the key goes to the page once it is left.
+    // The click puts the focus in the row's reply box; the key goes to the page once it is left.
     await act(() => {
       (document.activeElement as HTMLElement | null)?.blur();
     });
     await pressKey("b");
     assert.equal(paneState(container), "collapsed", "the inbox is collapsed beside the conversation");
     const sentBefore = calls.length;
-    await pressKey("A");
-    assert.ok(writesOf(calls.slice(sentBefore)).length > 0, "A sends the archive of the row on screen");
+    await archiveFromHead(container);
+    assert.ok(writesOf(calls.slice(sentBefore)).length > 0, "the head's Archive sends the archive of the row on screen");
   }));
 
-test("ProjectPage: with the inbox expanded beside the page, x and A act on the cursor row", (t) =>
+test("ProjectPage: with the inbox expanded beside the page, x and the cursor row's More Archive act on the cursor row", (t) =>
   withApp(t.signal, undefined, async ({ container, calls }) => {
     await press(headOf(container, "api"));
     assert.equal(paneState(container), "expanded", "the inbox is expanded beside the page");
@@ -429,11 +441,11 @@ test("ProjectPage: with the inbox expanded beside the page, x and A act on the c
     await pressKey("x");
     assert.ok(writesOf(calls.slice(sentBefore)).length > 0, "x sends the mark-seen");
     const afterX = calls.length;
-    await pressKey("A");
-    assert.ok(writesOf(calls.slice(afterX)).length > 0, "A sends the archive");
+    await archiveFromRow(container, "a");
+    assert.ok(writesOf(calls.slice(afterX)).length > 0, "the row's Archive sends the archive");
   }));
 
-test("ProjectPage: with the inbox collapsed and expanded again by b beside the page, x and A act on the cursor row", (t) =>
+test("ProjectPage: with the inbox collapsed and expanded again by b beside the page, x and the cursor row's More Archive act on the cursor row", (t) =>
   withApp(t.signal, undefined, async ({ container, calls }) => {
     await press(headOf(container, "api"));
     await pressKey("b");
@@ -443,8 +455,8 @@ test("ProjectPage: with the inbox collapsed and expanded again by b beside the p
     await pressKey("x");
     assert.ok(writesOf(calls.slice(sentBefore)).length > 0, "x sends the mark-seen");
     const afterX = calls.length;
-    await pressKey("A");
-    assert.ok(writesOf(calls.slice(afterX)).length > 0, "A sends the archive");
+    await archiveFromRow(container, "a");
+    assert.ok(writesOf(calls.slice(afterX)).length > 0, "the row's Archive sends the archive");
   }));
 
 test("ProjectPage: under 760px, A, x and e send nothing while the page draws alone", (t) =>

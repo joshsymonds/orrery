@@ -25,6 +25,7 @@ const interruptPath = "/orrery.v1.Control/Interrupt";
 const pullPath = "/orrery.v1.Panes/PullQueued";
 const sendKeysPath = "/orrery.v1.Panes/SendKeys";
 const takeBackFailedText = "could not take the queued messages back";
+const interruptFailedText = "could not interrupt";
 const widgetsRepo = "widgets-5d0c1a7";
 
 type Clients = ReturnType<typeof createClients>;
@@ -42,6 +43,8 @@ class FakeServer {
   readonly calls: Call[] = [];
   // failNext holds the unary paths whose next call the server fails with a Connect error, once each.
   readonly failNext = new Set<string>();
+  // refuseNext holds the unary paths whose next call the server refuses with the given Connect code, once each.
+  readonly refuseNext = new Map<string, string>();
   // replies queues the bodies a unary path answers with, one per call in order.
   readonly replies = new Map<string, object[]>();
 
@@ -56,6 +59,14 @@ class FakeServer {
       if (this.failNext.delete(path)) {
         return new Response(JSON.stringify({ code: "unavailable", message: "queue unreachable" }), {
           status: 503,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      const refusal = this.refuseNext.get(path);
+      if (refusal !== undefined) {
+        this.refuseNext.delete(path);
+        return new Response(JSON.stringify({ code: refusal, message: "refused" }), {
+          status: 400,
           headers: { "content-type": "application/json" },
         });
       }
@@ -453,6 +464,29 @@ test("EscapeInterrupt: a failed withdraw shows an error line, and the interrupt 
     await until(t.signal, () => alertTexts(container).includes(takeBackFailedText), "the error line");
     assert.equal(fake.callsTo(sendKeysPath).length, 1, "the Escape key went out after the failed pull");
     assert.equal(container.textContent?.includes("queue unreachable"), false, "the server's text is not shown");
+  }));
+
+test("EscapeInterrupt: Escape on a working pane with nothing queued shows no error line, and sends the Escape key", (t) =>
+  withApp(t.signal, { rows: [paneRow] }, async (container, fake) => {
+    fake.refuseNext.set(pullPath, "failed_precondition");
+    await press("Escape");
+    await until(t.signal, () => fake.callsTo(sendKeysPath).length === 1, "the Escape key");
+    assert.deepEqual(alertTexts(container), [], "an empty queue is no failure");
+    assert.equal(composer(container).value, "", "nothing is taken back");
+  }));
+
+test("EscapeInterrupt: a failed withdraw and a failed interrupt draw a line each, in the inbox above its rows", (t) =>
+  withApp(t.signal, { rows: [paneRow] }, async (container, fake) => {
+    fake.failNext.add(pullPath);
+    fake.failNext.add(sendKeysPath);
+    await press("Escape");
+    await until(t.signal, () => alertTexts(container).length === 2, "the error lines");
+    assert.deepEqual(alertTexts(container), [takeBackFailedText, interruptFailedText]);
+    const lines = [...container.querySelectorAll('[role="alert"]')];
+    for (const line of lines) {
+      assert.equal(line.parentElement?.classList.contains("inbox"), true, "the line is the inbox's");
+    }
+    assert.equal(lines[1].nextElementSibling?.classList.contains("inbox-rows"), true, "the lines sit above the rows");
   }));
 
 // clickRow clicks the list's row for key, as a pointer does: the row opens into its reply box, and the inbox stays as it is.

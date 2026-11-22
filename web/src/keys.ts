@@ -127,7 +127,6 @@ export const keyGroups: readonly KeyGroup[] = [
         acts: [{ chords: [{ key: "/" }], in: listed }],
       },
       { caps: ["v"], text: "archived", acts: [{ chords: [{ key: "v" }], in: listed }] },
-      { caps: ["A"], text: "archive the row", acts: [{ chords: [{ key: "A" }], in: page }] },
       { caps: ["x"], text: "mark it seen", acts: [{ chords: [{ key: "x" }], in: page }] },
       {
         caps: ["e"],

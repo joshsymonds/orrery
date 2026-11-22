@@ -702,10 +702,10 @@ func (s crashStore) GrantTaskFiles(
 
 func (s crashStore) RerunTask(
 	ctx context.Context, epic string, seq int64, from, to store.TaskBuild, version store.TaskVersionInput,
-	behind []int64, decision store.TaskDecision, at time.Time,
+	decision store.TaskDecision, at time.Time,
 ) error {
 	return s.w.act("RerunTask", func() error {
-		return wrapErr("rerun task", s.Store.RerunTask(ctx, epic, seq, from, to, version, behind, decision, at))
+		return wrapErr("rerun task", s.Store.RerunTask(ctx, epic, seq, from, to, version, decision, at))
 	})
 }
 

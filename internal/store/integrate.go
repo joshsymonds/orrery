@@ -81,8 +81,10 @@ type BatchSendBack struct {
 
 // EndBatch ends the running run end names, and settles the epic's bases by the run's revision and end's candidate, in
 // one write (settleBatchBase). It then reopens each of end's SendBacks that is done and claimed by the run, as
-// sendLeftOut describes. A non-nil trigger is added pending unless its id is stored. A run at another attempt and a run
-// that is not running change nothing, so a repeat adds no trigger and reopens no task.
+// sendLeftOut describes. A passed run that composed a revision of a design task also sends back the tasks built on
+// the design it revised, as reopenRevisedDependents describes. A non-nil trigger is added pending unless its id is
+// stored. A run at another attempt and a run that is not running change nothing, so a repeat adds no trigger and
+// reopens no task.
 func (s *Store) EndBatch(ctx context.Context, epic string, end BatchEnd, trigger *NodeTrigger, at time.Time) error {
 	return s.write(ctx, func(queries *sqlcgen.Queries) error {
 		ended, err := queries.EndEpicNodeRunAttempt(ctx, sqlcgen.EndEpicNodeRunAttemptParams{
@@ -102,8 +104,15 @@ func (s *Store) EndBatch(ctx context.Context, epic string, end BatchEnd, trigger
 		if settleErr := settleBatchBase(ctx, queries, epic, end, run); settleErr != nil {
 			return settleErr
 		}
-		if sendErr := sendLeftOut(ctx, queries, epic, end, at); sendErr != nil {
+		reopened, sendErr := sendLeftOut(ctx, queries, epic, end, at)
+		if sendErr != nil {
 			return sendErr
+		}
+		if end.Outcome == nodePassedOutcome {
+			revisedErr := reopenRevisedDependents(ctx, queries, epic, nodeRunOf(run), reopened, at)
+			if revisedErr != nil {
+				return revisedErr
+			}
 		}
 		if trigger == nil {
 			return nil
@@ -153,17 +162,20 @@ func settleBatchBase(
 }
 
 // sendLeftOut reopens, in the caller's write, each of end's SendBacks that is done and claimed by the run end ends, as
-// a send_back does (reopenTask). The base is the epic's candidate as it stands once the run has settled, or the stored
-// base when there is none, so the reopened task builds on what the next batch composes on. The candidate is kept, since
-// the batch left the task out, and no trigger is added. A task that does not exist, is not done, or is claimed by
-// another batch or by none is skipped and changes nothing.
-func sendLeftOut(ctx context.Context, queries *sqlcgen.Queries, epic string, end BatchEnd, at time.Time) error {
+// a send_back does (reopenTask), and returns the seqs it reopened. The base is the epic's candidate as it stands once
+// the run has settled, or the stored base when there is none, so the reopened task builds on what the next batch
+// composes on. The candidate is kept, since the batch left the task out, and no trigger is added. A task that does not
+// exist, is not done, or is claimed by another batch or by none is skipped and changes nothing.
+func sendLeftOut(
+	ctx context.Context, queries *sqlcgen.Queries, epic string, end BatchEnd, at time.Time,
+) (map[int64]bool, error) {
+	reopened := map[int64]bool{}
 	if len(end.SendBacks) == 0 {
-		return nil
+		return reopened, nil
 	}
 	head, headErr := epicHead(ctx, queries, epic)
 	if headErr != nil {
-		return headErr
+		return nil, headErr
 	}
 	base := head.Candidate
 	if base == "" {
@@ -175,16 +187,167 @@ func sendLeftOut(ctx context.Context, queries *sqlcgen.Queries, epic string, end
 			continue
 		}
 		if readErr != nil {
-			return fmt.Errorf("read task %d of epic %s: %w", send.Seq, epic, readErr)
+			return nil, fmt.Errorf("read task %d of epic %s: %w", send.Seq, epic, readErr)
 		}
 		if task.Status != taskDone || task.Batch != end.Path {
 			continue
 		}
 		if reopenErr := reopenTask(ctx, queries, epic, task, base, send.Reason, "", at); reopenErr != nil {
+			return nil, reopenErr
+		}
+		reopened[send.Seq] = true
+	}
+	return reopened, nil
+}
+
+// reopenRevisedDependents sends back, in the caller's write, each task built on a design task that a revision composed
+// by run revised. The run has passed. A revision is a task run composed whose Revises names a design task. Each design
+// task's dependents are the tasks dependentsOf finds, and each open or done dependent is reopened as a send_back
+// reopens it, at its next generation, with the reason 'design T<d> was revised by T<r>: <the revision's deliverable>'.
+// A task reopened once in this write is not reopened again: a task an earlier revision of the write reopened, or one
+// that sendLeftOut reopened, keeps the reason it was reopened for. A failed or gap dependent is left as it is. The
+// base is the stored base the run moved the epic to. The candidate is cleared when a task reopened here is not in the
+// stored base, as sendBack clears it, since the candidate may hold that task's commit. Nothing of a task's history is
+// deleted.
+func reopenRevisedDependents(
+	ctx context.Context, queries *sqlcgen.Queries, epic string, run NodeRun, reopened map[int64]bool, at time.Time,
+) error {
+	rows, err := queries.ListEpicTasks(ctx, epic)
+	if err != nil {
+		return fmt.Errorf("list tasks of epic %s: %w", epic, err)
+	}
+	revisions := composedRevisions(rows, run)
+	if len(revisions) == 0 {
+		return nil
+	}
+	versionRows, err := queries.ListEpicTaskVersions(ctx, epic)
+	if err != nil {
+		return fmt.Errorf("list versions of epic %s: %w", epic, err)
+	}
+	versions, err := taskVersionsOf(versionRows)
+	if err != nil {
+		return fmt.Errorf("list versions of epic %s: %w", epic, err)
+	}
+	dependents, err := revisedDependents(rows, versions, revisions, reopened)
+	if err != nil {
+		return err
+	}
+	if len(dependents) == 0 {
+		return nil
+	}
+	runs, err := readNodeRuns(ctx, queries, epic)
+	if err != nil {
+		return err
+	}
+	head, err := epicHead(ctx, queries, epic)
+	if err != nil {
+		return err
+	}
+	clearCandidate := false
+	for _, dependent := range dependents {
+		if !claimedPassed(runs, dependent.task) {
+			clearCandidate = true
+		}
+		reopenErr := reopenTask(ctx, queries, epic, dependent.task, head.StoredBase, dependent.reason, "", at)
+		if reopenErr != nil {
 			return reopenErr
 		}
 	}
+	if !clearCandidate || head.Candidate == "" {
+		return nil
+	}
+	if err = queries.SetEpicCandidate(ctx, sqlcgen.SetEpicCandidateParams{Candidate: "", ID: epic}); err != nil {
+		return fmt.Errorf("clear candidate of epic %s: %w", epic, err)
+	}
 	return nil
+}
+
+// revisedDependent is a task reopenRevisedDependents sends back, with the reason it is sent back for.
+type revisedDependent struct {
+	task   sqlcgen.EpicTask
+	reason string
+}
+
+// composedRevisions returns, in seq order, the tasks of rows that run composed and that revise a design task.
+func composedRevisions(rows []sqlcgen.EpicTask, run NodeRun) []sqlcgen.EpicTask {
+	revisions := make([]sqlcgen.EpicTask, 0, len(rows))
+	for _, row := range rows {
+		if row.Revises > 0 && composesTask(run, row.Seq) {
+			revisions = append(revisions, row)
+		}
+	}
+	return revisions
+}
+
+// revisedDependents returns the tasks reopenRevisedDependents sends back, in revision order and seq order within each
+// revision: each open or done dependent of the design task a revision revises, once, under the first revision that
+// reaches it, and not one that sendLeftOut reopened in this write. Its reason names that revision, with the revision's
+// current deliverable.
+func revisedDependents(
+	rows []sqlcgen.EpicTask, versions map[int64][]TaskVersion, revisions []sqlcgen.EpicTask, reopened map[int64]bool,
+) ([]revisedDependent, error) {
+	var out []revisedDependent
+	sent := map[int64]bool{}
+	for _, revision := range revisions {
+		dependents, err := dependentsOf(rows, revision.Revises, revision.Seq)
+		if err != nil {
+			return nil, err
+		}
+		reason := fmt.Sprintf("design T%d was revised by T%d: %s",
+			revision.Revises, revision.Seq, currentDeliverable(revision, versions[revision.Seq]))
+		for _, task := range dependents {
+			if sent[task.Seq] || reopened[task.Seq] || (task.Status != taskOpen && task.Status != taskDone) {
+				continue
+			}
+			sent[task.Seq] = true
+			out = append(out, revisedDependent{task: task, reason: reason})
+		}
+	}
+	return out, nil
+}
+
+// currentDeliverable returns the deliverable of revision as its current version leaves it: the one the task is stored
+// with, or the one the last applied version that sets a deliverable gives it.
+func currentDeliverable(revision sqlcgen.EpicTask, versions []TaskVersion) string {
+	task := EpicTask{Deliverable: revision.Deliverable, Versions: versions}
+	overlayVersions(&task)
+	return task.Deliverable
+}
+
+// dependentsOf returns, in seq order, the tasks of rows that depend on the design task design: each task that names
+// design in its depends_on, and each task that names one of those, through any number of links. The task revision,
+// which revised design, is neither a dependent nor a link, so no chain runs through it. A task that is failed or a gap
+// is still a link, so a task built on one is a dependent of design. design itself is not a dependent.
+func dependentsOf(rows []sqlcgen.EpicTask, design, revision int64) ([]sqlcgen.EpicTask, error) {
+	named := make(map[int64][]int64, len(rows))
+	for _, row := range rows {
+		seqs, err := decodeSeqs(row.DependsOn)
+		if err != nil {
+			return nil, fmt.Errorf("task %d depends on: %w", row.Seq, err)
+		}
+		named[row.Seq] = seqs
+	}
+	reached := map[int64]bool{design: true}
+	for grew := true; grew; {
+		grew = false
+		for _, row := range rows {
+			if reached[row.Seq] || row.Seq == revision {
+				continue
+			}
+			if !slices.ContainsFunc(named[row.Seq], func(seq int64) bool { return reached[seq] }) {
+				continue
+			}
+			reached[row.Seq] = true
+			grew = true
+		}
+	}
+	dependents := make([]sqlcgen.EpicTask, 0, len(rows))
+	for _, row := range rows {
+		if reached[row.Seq] && row.Seq != design {
+			dependents = append(dependents, row)
+		}
+	}
+	return dependents, nil
 }
 
 // EndNodesTelling ends each of ends at its running run, and adds tell as a tell of epic, in one write. The tell is

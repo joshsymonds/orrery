@@ -23,7 +23,7 @@ func TestTaskVersionSourcesWrittenArePlannerOrchestratorAndGrant(t *testing.T) {
 	rerun := store.TaskVersionInput{
 		Source: store.SourceOrchestrator, Step: "step-2", Reason: "T1 rerun: the spec moved", Deliverable: &deliverable,
 	}
-	err := s.RerunTask(ctx, buildEpic, 1, store.TaskBuild{}, openBuildOf(), rerun, nil, requestDecision(), writtenAt())
+	err := s.RerunTask(ctx, buildEpic, 1, store.TaskBuild{}, openBuildOf(), rerun, requestDecision(), writtenAt())
 	if err != nil {
 		t.Fatalf("RerunTask: %v", err)
 	}
@@ -61,7 +61,7 @@ func TestTaskVersionSourcesWrittenArePlannerOrchestratorAndGrant(t *testing.T) {
 		Source: store.SourceOrchestrator, Step: "step-4", Reason: "T1 rerun: the evidence moved", Evidence: &item,
 	}
 	checkDecision := store.TaskDecision{ID: "T1-request-2", Text: check.Reason}
-	err = s.RerunTask(ctx, buildEpic, 1, grantedBuild(), grantedBuild(), check, nil, checkDecision, writtenAt())
+	err = s.RerunTask(ctx, buildEpic, 1, grantedBuild(), grantedBuild(), check, checkDecision, writtenAt())
 	if err != nil {
 		t.Fatalf("RerunTask with evidence: %v", err)
 	}

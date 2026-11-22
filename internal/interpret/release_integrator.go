@@ -555,9 +555,21 @@ func parentsFailure(ctx context.Context, merge integratorMerge, commit, _ string
 
 // unmergedFailure names the paths git ls-files -u lists in the worktree.
 func unmergedFailure(ctx context.Context, merge integratorMerge, _, _ string, _ integratorReturn) string {
-	out, err := gitOutput(ctx, merge.worktree, "ls-files", "-u", "-z")
+	paths, err := unmergedPaths(ctx, merge.worktree)
 	if err != nil {
 		return fmt.Sprintf("unmerged: %v", err)
+	}
+	if len(paths) == 0 {
+		return ""
+	}
+	return "unmerged: git ls-files -u lists " + listPaths(paths)
+}
+
+// unmergedPaths returns the paths git ls-files -u lists in dir, each once: the paths the index leaves unmerged.
+func unmergedPaths(ctx context.Context, dir string) ([]string, error) {
+	out, err := gitOutput(ctx, dir, "ls-files", "-u", "-z")
+	if err != nil {
+		return nil, err
 	}
 	var paths []string
 	for _, record := range strings.Split(out, "\x00") {
@@ -566,10 +578,7 @@ func unmergedFailure(ctx context.Context, merge integratorMerge, _, _ string, _ 
 			paths = append(paths, path)
 		}
 	}
-	if len(paths) == 0 {
-		return ""
-	}
-	return "unmerged: git ls-files -u lists " + listPaths(paths)
+	return paths, nil
 }
 
 // markerFailure names each path that commit changes from either parent and that holds a conflict-marker line at commit.

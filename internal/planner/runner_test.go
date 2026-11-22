@@ -819,36 +819,6 @@ func TestRunnerLeavesTurnRunningWhenItsContextEnds(t *testing.T) {
 	}
 }
 
-func TestReturnCheckRefusesFilesOfUnfinishedTasksOnly(t *testing.T) {
-	t.Parallel()
-	epic := store.EpicRow{
-		Requirements: []store.EpicRequirement{{ID: "R1"}},
-		Tasks: []store.EpicTask{
-			{Seq: 1, Title: "open", Files: []string{"internal/a.go"}, Status: "open"},
-			{Seq: 2, Title: "done", Files: []string{"internal/b.go"}, Status: "done"},
-		},
-	}
-	check := returnCheck(context.Background(), epic, store.Review{}, testResolver{}, nil)
-	const touchA = `{"status":"done","decisions":[],` +
-		`"tasks":[{"title":"Touch a","deliverable":"d","files":["internal/a.go"],` +
-		`"requirements":["R1"],"gate":"check","evidence":{"capture":["scripts/check"],"limit":60,"artifacts":[],` +
-		`"supplied":[],"conclusion":"c","judge":"a judge","kind":"capture"}}],"outline":"o",` +
-		`"questions":[],"outcome":"work"}`
-	const touchB = `{"status":"done","decisions":[],` +
-		`"tasks":[{"title":"Touch b","deliverable":"d","files":["internal/b.go"],` +
-		`"requirements":["R1"],"gate":"check","evidence":{"capture":["scripts/check"],"limit":60,"artifacts":[],` +
-		`"supplied":[],"conclusion":"c","judge":"a judge","kind":"capture"}}],"outline":"o",` +
-		`"questions":[],"outcome":"work"}`
-
-	want := []string{`tasks[0] "Touch a" files[0]: owned by an unfinished task`}
-	if got := check(json.RawMessage(touchA)); !reflect.DeepEqual(got, want) {
-		t.Errorf("ReturnCheck of a file of an open task = %q, want %q", got, want)
-	}
-	if got := check(json.RawMessage(touchB)); got != nil {
-		t.Errorf("ReturnCheck of a file of a done task = %q, want none", got)
-	}
-}
-
 func TestRunnerClaimsEveryPendingTriggerInOneTurn(t *testing.T) {
 	t.Parallel()
 	path := filepath.Join(t.TempDir(), "orrery.db")

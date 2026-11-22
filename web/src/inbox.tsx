@@ -40,6 +40,7 @@ export interface InboxProps {
   onOpenProject?: (key: string) => void;
   // onCollapse is the foot's control that collapses the inbox to its rail. The foot draws it only when given.
   onCollapse?: () => void;
+  // notes are the page's error lines, drawn above the rows, under the chips and the search field, as round 6 draws them.
   notes?: ComponentChildren;
 }
 
@@ -108,7 +109,6 @@ export function Inbox({
           </button>
         </span>
       </header>
-      {notes}
       {showChips && (
         <div class="inbox-attn">
           {counts.waiting > 0 && (
@@ -159,6 +159,7 @@ export function Inbox({
           </label>
         </div>
       )}
+      {notes}
       <div class="inbox-rows" data-list={view}>
         <Body
           view={view}

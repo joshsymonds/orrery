@@ -40,7 +40,7 @@ func TestTaskVersionGetEpicServesEachTasksCurrentVersionAndHistory(t *testing.T)
 		Source: store.SourceOrchestrator, Step: "step-2", Reason: "T1 rerun: the spec moved", Deliverable: &reworded,
 	}
 	decision := store.TaskDecision{ID: "T1-request-1", Text: "T1 rerun: the spec moved"}
-	err = st.RerunTask(ctx, epicServiceID, 1, store.TaskBuild{}, store.TaskBuild{}, rerun, nil, decision,
+	err = st.RerunTask(ctx, epicServiceID, 1, store.TaskBuild{}, store.TaskBuild{}, rerun, decision,
 		time.Unix(versionRerunAt, 0))
 	if err != nil {
 		t.Fatalf("RerunTask: %v", err)

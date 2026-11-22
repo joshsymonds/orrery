@@ -967,12 +967,12 @@ test("the head, the chips, the rows and the foot sit inside the list, in that or
     assert.deepEqual(outsideList(container, ".inbox-head, .inbox-foot"), []);
   }));
 
-test("a failed write's line shows in the list, under the head and above the rows", (t) =>
+test("a failed write's line shows in the list, under the head and its chips and above the rows, as round 6 draws it", (t) =>
   withApp(t.signal, {}, async (container, fake) => {
     fake.failNext.add(markPanePath);
     await press("x");
     await until(t.signal, () => container.querySelector('[role="alert"]') !== null, "the seen failure line");
-    assert.deepEqual(inboxChildren(container), ["inbox-head", "error", "inbox-attn", "inbox-rows", "inbox-foot"]);
+    assert.deepEqual(inboxChildren(container), ["inbox-head", "inbox-attn", "inote error", "inbox-rows", "inbox-foot"]);
     assert.deepEqual(outsideList(container, ".error"), []);
   }));
 
@@ -5404,6 +5404,12 @@ function moreOf(container: HTMLElement, key: string): HTMLButtonElement {
   return more;
 }
 
+// archiveFromMore opens the More of the row under key and chooses its Archive, in a sheet under 760px or a popover.
+async function archiveFromMore(container: HTMLElement, key: string): Promise<void> {
+  await clickElement(moreOf(container, key));
+  await clickElement(menuItem(container, "Archive"));
+}
+
 // menuItem is the menu item, in a popover or a sheet, whose label is label.
 function menuItem(container: HTMLElement, label: string): HTMLButtonElement {
   const item = [...container.querySelectorAll<HTMLButtonElement>(".menu-item")].find(
@@ -5464,10 +5470,10 @@ test("InboxTree: under 760px the archive toast goes five seconds after it shows,
     t.signal,
     { rows: archiveRows() },
     async (container, fake) => {
-      await press("A");
+      await archiveFromMore(container, "a");
       await until(t.signal, () => toastText(container) === "Archived “tidepool work”.", "the first toast");
       fake.seen.advance(3000);
-      await press("A");
+      await archiveFromMore(container, "b");
       await until(t.signal, () => toastText(container) === "Archived “bundling”.", "the second toast replaces the first");
       fake.seen.advance(4999);
       assert.equal(toastOf(container) !== null, true, "the toast stays under five seconds after the later archive");
@@ -5610,15 +5616,15 @@ function paneArchiveRow(): Row {
   });
 }
 
-test("InboxTree: under 760px A on a pane row archives the pane's orrery_id, and Undo unarchives that id", (t) =>
+test("InboxTree: under 760px Archive from a pane row's sheet archives the pane's orrery_id, and Undo unarchives that id", (t) =>
   withApp(
     t.signal,
     { rows: [paneArchiveRow()] },
     async (container, fake) => {
       assert.equal(cursorKey(container), "pane:box:%3", "the cursor rests on the pane row");
-      await press("A");
+      await archiveFromMore(container, "pane:box:%3");
       await until(t.signal, () => fake.callsTo(archivePath).length === 1, "the Archive call");
-      assert.deepEqual(fake.callsTo(archivePath)[0].body, { kind: "session", id: "orr-p" }, "A names the pane's archive id");
+      assert.deepEqual(fake.callsTo(archivePath)[0].body, { kind: "session", id: "orr-p" }, "Archive names the pane's archive id");
       await until(t.signal, () => toastText(container) === "Archived “pane work”.", "the toast");
       await clickElement(toastButton(container));
       await until(t.signal, () => fake.callsTo(unarchivePath).length === 1, "the Unarchive call");
@@ -5628,7 +5634,7 @@ test("InboxTree: under 760px A on a pane row archives the pane's orrery_id, and 
     600,
   ));
 
-test("InboxTree: under 760px A on a headless row archives it as headless by its id, and Undo unarchives the same", (t) =>
+test("InboxTree: under 760px Archive from a headless row's sheet archives it as headless by its id, and Undo unarchives the same", (t) =>
   withApp(
     t.signal,
     {
@@ -5649,9 +5655,9 @@ test("InboxTree: under 760px A on a headless row archives it as headless by its 
     },
     async (container, fake) => {
       assert.equal(cursorKey(container), "session:h-9", "the cursor rests on the headless row");
-      await press("A");
+      await archiveFromMore(container, "session:h-9");
       await until(t.signal, () => fake.callsTo(archivePath).length === 1, "the Archive call");
-      assert.deepEqual(fake.callsTo(archivePath)[0].body, { kind: "headless", id: "h-9" }, "A names the row's kind and id");
+      assert.deepEqual(fake.callsTo(archivePath)[0].body, { kind: "headless", id: "h-9" }, "Archive names the row's kind and id");
       await until(t.signal, () => toastText(container) === "Archived “headless work”.", "the toast");
       await clickElement(toastButton(container));
       await until(t.signal, () => fake.callsTo(unarchivePath).length === 1, "the Unarchive call");

@@ -21,6 +21,14 @@ type CallerEvent struct {
 	At      int64
 }
 
+type ClosureVerdict struct {
+	SessionID string
+	Changed   int64
+	Closed    int64
+	Why       string
+	At        int64
+}
+
 type Contract struct {
 	ID      string
 	Created int64
@@ -513,6 +521,8 @@ type EpicTask struct {
 	Notes       string
 	Generation  int64
 	DependsOn   string
+	Kind        string
+	Revises     int64
 }
 
 type EpicTaskContribute struct {
@@ -743,6 +753,21 @@ type GrantMember struct {
 type Hold struct {
 	Member string
 	Since  int64
+}
+
+type IntegrateRound struct {
+	Epic        string
+	Path        string
+	Attempt     int64
+	Task        int64
+	Round       int64
+	Step        string
+	Verdict     string
+	Head        string
+	Explanation string
+	Outcome     string
+	Failure     string
+	Created     int64
 }
 
 type NoticeHistory struct {

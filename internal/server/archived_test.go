@@ -129,20 +129,9 @@ func listHeadlessRows(t *testing.T, client orreryv1connect.SessionsClient) []*or
 	return resp.Msg.GetSessions()
 }
 
-func TestAutoArchiveReleasedEpicAtSevenDays(t *testing.T) {
-	t.Parallel()
-	stored := &epicStoreFake{stored: []*enginev1.StoredEpic{
-		storedEpicOf("repob/aged", "released", epicsAgo(7*archiveDay)),
-		storedEpicOf("repob/younger", "released", epicsAgo(7*archiveDay-time.Second)),
-	}}
-	client := archiveEpicsClient(t, t.TempDir(), archiveStorePath(t), stored)
-	expectArchived(t, "Epics.List", archivedByID(epicsList(t, client)), map[string]bool{
-		"repob/aged":    true,
-		"repob/younger": false,
-	})
-}
-
-func TestAutoArchiveLiveEpicNeverArchived(t *testing.T) {
+// TestAutoArchiveLiveEpicArchivesAfterSevenDays expects accepted and ended_with_gaps epics, both live, unchanged 400 days
+// to list archived: the seven-day floor ages a live epic too.
+func TestAutoArchiveLiveEpicArchivesAfterSevenDays(t *testing.T) {
 	t.Parallel()
 	stored := &epicStoreFake{stored: []*enginev1.StoredEpic{
 		storedEpicOf("repoa/accepted", "accepted", epicsAgo(400*archiveDay)),
@@ -150,8 +139,8 @@ func TestAutoArchiveLiveEpicNeverArchived(t *testing.T) {
 	}}
 	client := archiveEpicsClient(t, t.TempDir(), archiveStorePath(t), stored)
 	expectArchived(t, "Epics.List", archivedByID(epicsList(t, client)), map[string]bool{
-		"repoa/accepted": false,
-		"repoa/gaps":     false,
+		"repoa/accepted": true,
+		"repoa/gaps":     true,
 	})
 }
 
@@ -167,6 +156,9 @@ func TestAutoArchiveNonLiveRecordEpicAfterSevenDays(t *testing.T) {
 	})
 }
 
+// TestAutoArchiveStoppedHeadlessAfterOneDay expects a stopped session unchanged one day to list archived, and one
+// changed a second later to list unarchived. A waiting session unchanged 13 days lists archived: the seven-day floor
+// ages it, though its state has no rule of its own.
 func TestAutoArchiveStoppedHeadlessAfterOneDay(t *testing.T) {
 	t.Parallel()
 	storePath := archiveStorePath(t)
@@ -181,7 +173,7 @@ func TestAutoArchiveStoppedHeadlessAfterOneDay(t *testing.T) {
 	expectArchived(t, "ListHeadless", archivedByID(listHeadlessRows(t, sessions)), map[string]bool{
 		archiveAgedID:    true,
 		archiveYoungerID: false,
-		archiveWaitingID: false,
+		archiveWaitingID: true,
 	})
 }
 

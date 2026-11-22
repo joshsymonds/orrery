@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"reflect"
-	"slices"
 	"strings"
 	"testing"
 
@@ -53,7 +52,6 @@ func TestRerunTaskGrantsBehindAWaitedTaskAndRecordsTheDecision(t *testing.T) {
 		openBuildOf(),
 		to,
 		store.TaskVersionInput{Source: store.SourceOrchestrator, Files: []string{"b.go"}},
-		[]int64{2},
 		requestDecision(),
 		writtenAt(),
 	)
@@ -69,34 +67,11 @@ func TestRerunTaskGrantsBehindAWaitedTaskAndRecordsTheDecision(t *testing.T) {
 	}
 }
 
-func TestRerunTaskRefusesAFileAnOpenTaskOwnsWhenNotBehindIt(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	s := openRequestStore(ctx, t)
-	version := store.TaskVersionInput{Source: store.SourceOrchestrator, Files: []string{"b.go"}}
-	err := s.RerunTask(ctx, buildEpic, 1, openBuildOf(), grantedBuild(), version, nil, requestDecision(),
-		writtenAt())
-	var owned store.FileOwnedError
-	if !errors.As(err, &owned) || owned.Task != 2 {
-		t.Fatalf("RerunTask = %v, want the file owned by T2", err)
-	}
-	if task := buildTaskOf(ctx, t, s); task.Build != openBuildOf() {
-		t.Errorf("build = %+v, want it unmoved", task.Build)
-	}
-	row, err := s.Epic(ctx, buildEpic)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if slices.ContainsFunc(row.Decisions, func(d store.EpicDecision) bool { return d.ID == "T1-request-1" }) {
-		t.Error("the refused rerun recorded its decision")
-	}
-}
-
 func TestRerunTaskOfAMovedBuildWritesNothing(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	s := openRequestStore(ctx, t)
-	err := s.RerunTask(ctx, buildEpic, 1, grantedBuild(), openBuildOf(), store.TaskVersionInput{}, nil,
+	err := s.RerunTask(ctx, buildEpic, 1, grantedBuild(), openBuildOf(), store.TaskVersionInput{},
 		requestDecision(), writtenAt())
 	if !errors.Is(err, store.ErrTaskMoved) {
 		t.Fatalf("RerunTask from a stale build = %v, want ErrTaskMoved", err)

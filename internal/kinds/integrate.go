@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"reflect"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/joshsymonds/orrery/internal/evidence"
@@ -17,23 +18,49 @@ const (
 	kindIntegrate = "integrate"
 )
 
+// taskIntegratorRounds is how many rounds the task integrator of one conflicting task runs: the first, and one more for
+// each of the two times a round fails. A round that fails the last of them leaves the task out.
+const taskIntegratorRounds = 3
+
+// The modes of an ActTaskIntegrator action, its first item. TaskStart starts a round's step, TaskRecord records the round
+// once its step ends, TaskCompose composes the round's merged commit into the candidate, and TaskFail fails the round,
+// its Output being the failure the next round reads.
+const (
+	TaskStart   = "start"
+	TaskRecord  = "record"
+	TaskCompose = "compose"
+	TaskFail    = "fail"
+)
+
+// The verdicts a task integrator round is recorded with: merged when its step committed the task's revision merged into
+// the candidate, clash when its step found that both sides cannot hold, and ended when its step ended without a done
+// return or its return was refused.
+const (
+	RoundMerged = "merged"
+	RoundClash  = "clash"
+	RoundEnded  = "ended"
+)
+
 // Integrate is the integrate kind. Its run composes a batch of accepted tasks on the stored base into a candidate, runs
 // the epic's Done gates, captures each Requirement at the candidate and reproduces each test item's red at the epic's
 // base, and then ends red or advances the epic to the candidate.
 type Integrate struct{}
 
 // integrateResult is the Result an integrate run records when it claims its batch: the tasks compose made into commits
-// and the tasks it left out, each with its reason.
+// and the tasks it left out, each with its reason and, for a merge conflict, the paths it conflicted at.
 type integrateResult struct {
 	Composed []json.RawMessage `json:"composed"`
 	LeftOut  []struct {
-		Reason string `json:"reason"`
+		Task      int64    `json:"task"`
+		Reason    string   `json:"reason"`
+		Conflicts []string `json:"conflicts"`
 	} `json:"leftOut"`
 }
 
 // Decide decides an integrate run. Without a revision it prepares the batch, or ends passed when the batch is empty.
-// With one it reads what compose made of the batch, and ends failed when nothing was composed. Otherwise it walks the
-// Done gates, then the captures and then the reproductions of the test items, and settles the run on what they found.
+// With one it first runs the task integrator rounds of the tasks the batch left out for a merge conflict (conflictRounds),
+// then reads what compose made of the batch, and ends failed when nothing was composed. Otherwise it walks the Done
+// gates, then the captures and then the reproductions of the test items, and settles the run on what they found.
 func (Integrate) Decide(node Node, rows Rows) Action {
 	run := node.Run
 	if run.Revision == "" {
@@ -45,6 +72,9 @@ func (Integrate) Decide(node Node, rows Rows) Action {
 			Kind: ActEnd, Outcome: outcomeFailed,
 			Output: "integrate result is not a JSON compose result: " + err.Error(),
 		}
+	}
+	if act, settled := conflictRounds(run, rows, result); !settled {
+		return act
 	}
 	leftOut := make([]string, 0, len(result.LeftOut))
 	for _, left := range result.LeftOut {
@@ -68,6 +98,150 @@ func (Integrate) Decide(node Node, rows Rows) Action {
 		return act
 	}
 	return settle(run, captureCauses(rows, captured), requirementLines(rows, captured), leftOut)
+}
+
+// conflictRounds decides the task integrator rounds of each task the batch left out for a merge conflict, in the order
+// the batch left them out. It returns the action the first task whose rounds are not settled asks for, and settled true
+// once every such task is settled: composed by one of its rounds, or left out with its rounds ended.
+func conflictRounds(run store.NodeRun, rows Rows, result integrateResult) (Action, bool) {
+	for _, left := range result.LeftOut {
+		if len(left.Conflicts) == 0 {
+			continue
+		}
+		if act, settled := taskRounds(run, rows, left.Task); !settled {
+			return act, false
+		}
+	}
+	return Action{}, true
+}
+
+// taskRounds decides the rounds of the task integrator of the conflicting task seq. Round 1 starts first, and each later
+// round starts only once the round before it failed, with that failure as its Output. A round recorded clash or ended
+// ends the task's rounds, and so does a failed round when it is the last. It returns settled true once they have ended
+// with the task left out, and otherwise the action the round it is on asks for, with settled false.
+func taskRounds(run store.NodeRun, rows Rows, seq int64) (Action, bool) {
+	previous := ""
+	for round := int64(1); round <= taskIntegratorRounds; round++ {
+		record, recorded := roundRecord(rows.Rounds, run, seq, round)
+		if !recorded {
+			return roundStep(run, rows, seq, round, previous)
+		}
+		if record.Verdict != RoundMerged {
+			return Action{}, true
+		}
+		switch record.Outcome {
+		case "":
+			return roundChecks(run, rows, seq, round, record)
+		case outcomeFailed:
+			previous = record.Failure
+		default:
+			return Action{}, true
+		}
+	}
+	return Action{}, true
+}
+
+// roundRecord returns the recorded round at round of the task seq of run, and whether one is recorded.
+func roundRecord(rounds []store.IntegrateRound, run store.NodeRun, seq, round int64) (store.IntegrateRound, bool) {
+	return firstMatch(rounds, func(record store.IntegrateRound) bool {
+		return record.Path == run.Path && record.Attempt == run.Attempt && record.Task == seq && record.Round == round
+	})
+}
+
+// TaskEnding returns how the task integrator rounds of the conflicting task seq of run ended without composing it, which is
+// what its send_back says: the explanation of the round that clashed, the explanation of the round whose step ended
+// without a done return, or the failure of the third round when it failed. It returns "" when the rounds did not end that
+// way: a round is not recorded or is still undecided, the task was composed, or a round's step never started, since such a
+// round leaves its task out as it was before.
+func TaskEnding(rows Rows, run store.NodeRun, seq int64) string {
+	failure := ""
+	for round := int64(1); round <= taskIntegratorRounds; round++ {
+		record, recorded := roundRecord(rows.Rounds, run, seq, round)
+		if !recorded {
+			return ""
+		}
+		started := slices.ContainsFunc(rows.Steps, func(row store.StepRow) bool { return row.ID == record.Step })
+		if !started {
+			return ""
+		}
+		switch {
+		case record.Verdict == RoundClash:
+			return fmt.Sprintf("task integrator round %d clashed: %s", round, record.Explanation)
+		case record.Verdict == RoundEnded:
+			return fmt.Sprintf("task integrator round %d ended: %s", round, record.Explanation)
+		case record.Verdict != RoundMerged || record.Outcome != outcomeFailed:
+			return ""
+		}
+		failure = fmt.Sprintf("task integrator round %d failed: %s", round, record.Failure)
+	}
+	return failure
+}
+
+// roundStep decides round of the task integrator of the conflicting task seq, which has no record. A round with no step
+// starts one (TaskStart), with the run's revision as the candidate, the task's revision and previous as its Output, and
+// a paused or parked epic starts none. A round whose step is running waits, and one whose step has ended is recorded
+// (TaskRecord).
+func roundStep(run store.NodeRun, rows Rows, seq, round int64, previous string) (Action, bool) {
+	id := store.NodeWorkID(run.ID, run.Attempt, taskStepWork(seq, round))
+	step, started := firstMatch(rows.Steps, func(row store.StepRow) bool { return row.ID == id })
+	switch {
+	case started && step.End == "":
+		return Action{Kind: ActNone}, false
+	case started:
+		return Action{
+			Kind: ActTaskIntegrator, IDs: []string{id}, Tasks: []int64{seq},
+			Items: []string{TaskRecord, roundItem(round)},
+		}, false
+	case rows.Epic.Paused || rows.Epic.Parked != "":
+		return Action{Kind: ActNone}, false
+	}
+	return Action{
+		Kind: ActTaskIntegrator, IDs: []string{id},
+		Items:  []string{TaskStart, roundItem(round), run.Revision, taskRevision(rows.Epic.Tasks, seq)},
+		Tasks:  []int64{seq},
+		Output: previous,
+	}, false
+}
+
+// roundChecks decides the Done gates and then the captures of a merged round's commit, its record's head, each under an
+// id of the round's own. A failure ends the round as TaskFail, its detail as the Output the next round reads. Once they
+// all pass, the round composes its task (TaskCompose).
+func roundChecks(run store.NodeRun, rows Rows, seq, round int64, record store.IntegrateRound) (Action, bool) {
+	checked := run
+	checked.ID = fmt.Sprintf("%s-task-%d-%d", run.ID, seq, round)
+	checked.Revision = record.Head
+	failure, previous, act, settled := mergedChecks(checked, rows)
+	switch {
+	case !settled:
+		act.Revision = record.Head
+		return act, false
+	case failure != "":
+		return Action{
+			Kind: ActTaskIntegrator, Items: []string{TaskFail, roundItem(round)}, Tasks: []int64{seq}, Output: previous,
+		}, false
+	}
+	return Action{
+		Kind: ActTaskIntegrator, Items: []string{TaskCompose, roundItem(round), record.Head}, Tasks: []int64{seq},
+	}, false
+}
+
+// taskStepWork is the part of the work of a task integrator round's step: the task's seq and the round.
+func taskStepWork(seq, round int64) string {
+	return fmt.Sprintf("task integrator T%d %d", seq, round)
+}
+
+// roundItem returns round as the item an ActTaskIntegrator action carries it in.
+func roundItem(round int64) string {
+	return strconv.FormatInt(round, 10)
+}
+
+// taskRevision returns the revision the build of the task seq holds, and "" when no task has seq.
+func taskRevision(tasks []store.EpicTask, seq int64) string {
+	i := slices.IndexFunc(tasks, func(task store.EpicTask) bool { return task.Seq == seq })
+	if i < 0 {
+		return ""
+	}
+	return tasks[i].Build.Revision
 }
 
 // prepareBatch decides an integrate run that has no revision. A paused or parked epic starts no batch, and a batch of

@@ -29,11 +29,11 @@ func repairView(decisions int64, needs string, step *store.StepRow) View {
 	}
 }
 
-// TestTaskRepairsGrantRuleGrantPassesTheOwnerCheck checks a needs_context file's rule grant against the orchestrator's
-// owner check: a file an open task owns, or an accepted task changed and has not integrated, is not granted by rule and
-// goes to the orchestrator as a request, and so does a file the task refused, whatever else its request names. A file
-// an accepted task has integrated is free, and is granted by rule.
-func TestTaskRepairsGrantRuleGrantPassesTheOwnerCheck(t *testing.T) {
+// TestSharedFilesAcceptedRunTimeRequest checks a needs_context file's rule grant against the peers that hold
+// it: a file an open task owns, or an accepted task changed and has not integrated, is held, and is granted by rule
+// like a free file, as is a file an accepted task has integrated. A file the task refused is not granted by rule and
+// goes to the orchestrator as a request, whatever else its request names.
+func TestSharedFilesAcceptedRunTimeRequest(t *testing.T) {
 	t.Parallel()
 	asked := needsFilesView("needs_context", repairReturn(`["`+repairFile+`"]`))
 	requested := store.TaskBuild{
@@ -55,14 +55,20 @@ func TestTaskRepairsGrantRuleGrantPassesTheOwnerCheck(t *testing.T) {
 	mixed.Task.Refused = []string{repairFile}
 	runDecideCases(t, Decide, []decideCase{
 		{
-			name: "a file an open task owns is not granted by rule and becomes a request",
+			name: "a file an open task owns is granted by rule",
 			view: withPeers(openPeer(4, repairFile)),
-			want: Action{Kind: ActMove, Next: requested},
+			want: Action{
+				Kind: ActGrant, Next: granted, NeedsFiles: []string{repairFile},
+				Reason: "returned needs_context: the spec is short",
+			},
 		},
 		{
-			name: "a file an accepted task changed and has not integrated is not granted by rule and becomes a request",
+			name: "a file an accepted task changed and has not integrated is granted by rule",
 			view: withPeers(acceptedPeer(4, repairFile)),
-			want: Action{Kind: ActMove, Next: requested},
+			want: Action{
+				Kind: ActGrant, Next: granted, NeedsFiles: []string{repairFile},
+				Reason: "returned needs_context: the spec is short",
+			},
 		},
 		{
 			name: "a file an accepted task integrated is granted by rule",
@@ -176,11 +182,10 @@ func acceptChanging(t *testing.T, f *passFixture, seq int64, file string) {
 	}
 }
 
-// TestTaskRepairsGrantRunnerRuleGrantChecksThePeers runs a needs_context return through the runner, where the epic's
-// peers are read for the owner check. Task 2 is accepted and not yet integrated, and its change touched the file task
-// 1's implementer names, so the file is not granted by rule: the request goes to the orchestrator and task 1 keeps its
-// files and its reruns. The store grants a file only an open task owns, so the owner check is what refuses this one.
-func TestTaskRepairsGrantRunnerRuleGrantChecksThePeers(t *testing.T) {
+// TestSharedFilesAcceptedRunTimeRequestThroughTheRunner runs a needs_context return through the runner. Task 2 is accepted and
+// not yet integrated, and its change touched the file task 1's implementer names, so the file is held. It is granted by
+// rule like a free file: task 1 gains the file and its implementer runs again at rerun 1.
+func TestSharedFilesAcceptedRunTimeRequestThroughTheRunner(t *testing.T) {
 	t.Parallel()
 	plan := passTwoTaskPlan()
 	plan.Tasks[1].Files = []string{"internal/other/b.go"}
@@ -197,11 +202,11 @@ func TestTaskRepairsGrantRunnerRuleGrantChecksThePeers(t *testing.T) {
 	}
 	f.runner.PassTasks(f.ctx, passEpic, first)
 	task := f.task()
-	if task.Build.Stage != StageOrchestrate || task.Build.Rerun != 0 {
-		t.Errorf("build at stage %s rerun %d, want the request at orchestrate with no rerun",
+	if task.Build.Stage != StageImplement || task.Build.Rerun != 1 {
+		t.Errorf("build at stage %s rerun %d, want the implementer rerun once at implement",
 			task.Build.Stage, task.Build.Rerun)
 	}
-	if want := []string{"thing.go"}; !reflect.DeepEqual(task.Files, want) {
+	if want := []string{"thing.go", repairFile}; !reflect.DeepEqual(task.Files, want) {
 		t.Errorf("Files = %v, want %v: the file an accepted task changed was granted by rule", task.Files, want)
 	}
 }

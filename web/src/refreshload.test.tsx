@@ -349,34 +349,39 @@ async function runScenario(t: TestContext, hidden: boolean): Promise<Scenario> {
   }
 }
 
-// counts builds the expected counts: the epics list and gets, one count for each of the three rows reads, and the host.
-function counts(epicsList: number, epicsGet: number, rows: number, hostStatus: number): Counts {
-  return { epicsList, epicsGet, panesList: rows, sessionsList: rows, listHeadless: rows, hostStatus };
+// counts builds the expected counts: the epics list and gets, the panes list, the conversations' two lists, Sessions.List
+// and Sessions.ListHeadless, which each read conversations times, and the host. A full rows load reads all three rows
+// lists once; a tick with the stream open reads the two conversation lists alone.
+function counts(epicsList: number, epicsGet: number, panesList: number, conversations: number, hostStatus: number): Counts {
+  return { epicsList, epicsGet, panesList, sessionsList: conversations, listHeadless: conversations, hostStatus };
 }
 
 // The first load lists the epics and asks for each of the five live epics once, reads the rows once, and reads the
 // host. The two cards show the poll's detail of their epics and read nothing.
-const firstLoad = counts(1, 5, 1, 1);
+const firstLoad = counts(1, 5, 1, 1, 1);
 
 // Before the page reloaded by what an event can change, the same visible minute made 600 epics lists, 180 Gets (12
 // ticks of 5 live epics, and each card reading its epic each second) and 600 reads of each of the three rows lists, and
 // the first load made 7 Gets. The hidden minute made the same work as the visible one.
-test("RefreshLoad: a visible tab over a streaming agent, five live epics and two epic cards, for a minute", async (t) => {
+// These two simulate a minute in 600 steps of renders, so they take longer than the suite's 5 s default; 30 s still
+// bounds a hang.
+test("RefreshLoad: a visible tab over a streaming agent, five live epics and two epic cards, for a minute", { timeout: 30_000 }, async (t) => {
   const scenario = await runScenario(t, false);
   assert.deepEqual(scenario.first, firstLoad, "the first load");
   // The agent's streaming text and its turns' ends change neither the rows nor the epics, so only the 12 ticks load:
-  // each lists the epics, asks for none, since none changed and the page shows no epic, and reads the host.
-  assert.deepEqual(scenario.minute, counts(12, 0, 0, 12), "the minute");
-  assert.deepEqual(scenario.shown, counts(0, 0, 0, 0), "a visibilitychange on a tab that stayed visible");
+  // each lists the epics, asks for none, since none changed and the page shows no epic, lists the conversations, since
+  // the stream is open, and reads the host. No tick reads the panes.
+  assert.deepEqual(scenario.minute, counts(12, 0, 0, 12, 12), "the minute");
+  assert.deepEqual(scenario.shown, counts(0, 0, 0, 0, 0), "a visibilitychange on a tab that stayed visible");
   const open = { events: 1, notices: 1, eventsOpened: 1, noticesOpened: 1 };
   assert.deepEqual(scenario.minuteStreams, open, "the streams of the visible minute");
   assert.deepEqual(scenario.shownStreams, open, "the streams of a tab that stayed visible");
 });
 
-test("RefreshLoad: a hidden tab over a streaming agent, five live epics and two epic cards, for a minute", async (t) => {
+test("RefreshLoad: a hidden tab over a streaming agent, five live epics and two epic cards, for a minute", { timeout: 30_000 }, async (t) => {
   const scenario = await runScenario(t, true);
   assert.deepEqual(scenario.first, firstLoad, "the first load");
-  assert.deepEqual(scenario.minute, counts(0, 0, 0, 0), "the hidden minute");
+  assert.deepEqual(scenario.minute, counts(0, 0, 0, 0, 0), "the hidden minute");
   // Hiding the tab closed both streams, and none opened while it stayed hidden.
   assert.deepEqual(
     scenario.minuteStreams,
@@ -385,7 +390,7 @@ test("RefreshLoad: a hidden tab over a streaming agent, five live epics and two 
   );
   // Shown again, the stale tab reloads once: the rows, the host, and the epics, asking for no detail, since no epic's
   // revision moved and the tab shows no epic. The rows load reopens Events.Watch and the notices watch reopens.
-  assert.deepEqual(scenario.shown, counts(1, 0, 1, 1), "the tab shown after the minute");
+  assert.deepEqual(scenario.shown, counts(1, 0, 1, 1, 1), "the tab shown after the minute");
   assert.deepEqual(
     scenario.shownStreams,
     { events: 1, notices: 1, eventsOpened: 2, noticesOpened: 2 },
@@ -412,14 +417,14 @@ test("RefreshLoad: a tab hidden at start loads nothing until it is shown, and th
       t.mock.timers.tick(pollMs);
       await calm(t, serve);
     }
-    assert.deepEqual(serve.counts, counts(0, 0, 0, 0), "a hidden tab loaded");
+    assert.deepEqual(serve.counts, counts(0, 0, 0, 0, 0), "a hidden tab loaded");
     assert.deepEqual(serve.streams, { events: 0, notices: 0, eventsOpened: 0, noticesOpened: 0 }, "a hidden tab's streams");
     visibility.set("visible");
     await until(t.signal, () => root.querySelector('[data-key="epic:repo-a/e1"]') !== null, "the shown tab's epics", {
       step: () => act(turn),
     });
     await calm(t, serve);
-    assert.deepEqual(serve.counts, counts(1, 5, 1, 1), "the shown tab's load");
+    assert.deepEqual(serve.counts, counts(1, 5, 1, 1, 1), "the shown tab's load");
     assert.deepEqual(serve.streams, { events: 1, notices: 1, eventsOpened: 1, noticesOpened: 1 }, "the shown tab's streams");
   } finally {
     await teardown();
@@ -456,12 +461,12 @@ test("RefreshLoad: a tick asks Epics.Get for exactly the live epic whose revisio
     };
     t.mock.timers.tick(pollMs);
     await calm(t, serve);
-    assert.deepEqual(minus(serve.counts, before), counts(1, 1, 0, 1), "the tick after the revision moved");
+    assert.deepEqual(minus(serve.counts, before), counts(1, 1, 0, 1, 1), "the tick after the revision moved");
     assert.deepEqual(gets, ["repo-a/e3"], "the epics the tick asked Epics.Get for");
     const settled = { ...serve.counts };
     t.mock.timers.tick(pollMs);
     await calm(t, serve);
-    assert.deepEqual(minus(serve.counts, settled), counts(1, 0, 0, 1), "the tick after, with no revision moved");
+    assert.deepEqual(minus(serve.counts, settled), counts(1, 0, 0, 1, 1), "the tick after, with no revision moved");
   } finally {
     await teardown();
   }
@@ -498,8 +503,9 @@ test("RefreshLoad: step-session events list the epics again and ask Epics.Get fo
       t.mock.timers.tick(250);
       await calm(t, serve);
     }
-    // Each event lists the epics once after its 100 ms wait, and each of the two 5 s ticks lists them once more.
-    assert.deepEqual(minus(serve.counts, before), counts(42, 0, 0, 2), "the ten seconds of step events");
+    // Each event lists the epics once after its 100 ms wait, and each of the two 5 s ticks lists them once more and the
+    // conversations too, since the stream is open.
+    assert.deepEqual(minus(serve.counts, before), counts(42, 0, 0, 2, 2), "the ten seconds of step events");
   } finally {
     await teardown();
   }

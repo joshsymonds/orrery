@@ -330,8 +330,9 @@ func TestOrchestratePassGrantsAFreeFile(t *testing.T) {
 // waitFile is the file task 2 of the wait fixture owns, which task 1's implementer asks for.
 const waitFile = "internal/other/a.go"
 
-// newWaitFixture returns a fixture whose task 2 owns waitFile, and whose task 1 asked for it, could not be granted it,
-// and is at orchestrate with its orchestrator started.
+// newWaitFixture returns a fixture whose task 2 owns waitFile, and whose task 1 asked for it and for a path the planner
+// refuses. A file another task holds is granted by rule, so the refused path keeps the whole request for the
+// orchestrator, and task 1 is at orchestrate with its orchestrator started.
 func newWaitFixture(t *testing.T) *passFixture {
 	t.Helper()
 	const file = waitFile
@@ -341,10 +342,10 @@ func newWaitFixture(t *testing.T) *passFixture {
 	f.runner.PassTasks(f.ctx, passEpic, first)
 	f.addRun(RunID(passEpic, 1, StageRed, 0, 0), evidence.PhaseRed, f.base, 1, evidence.VerdictFails)
 	f.runner.PassTasks(f.ctx, passEpic, first)
-	f.returnRequest(0, "needs_context", "needs the other file", file)
+	f.returnRequest(0, "needs_context", "needs the other file", file, ".git/config")
 	f.runner.PassTasks(f.ctx, passEpic, first)
 	if f.task().Build.Stage != StageOrchestrate {
-		t.Fatalf("build at %q, want orchestrate after the grant was refused", f.task().Build.Stage)
+		t.Fatalf("build at %q, want orchestrate after the request named a refused path", f.task().Build.Stage)
 	}
 	return f
 }
@@ -377,12 +378,12 @@ func TestOrchestratePassGrantsAnOwnedFileBehindItsOwnerAndWaits(t *testing.T) {
 	}
 }
 
-func TestOrchestratePassGrantRefusedByTheStoreSettlesAsBefore(t *testing.T) {
+func TestOrchestratePassGrantOfAHeldFileIsStoredWhenItsHolderReopens(t *testing.T) {
 	t.Parallel()
 	const file = waitFile
 	f := newWaitFixture(t)
 	// The step's check saw T2 as accepted and pending, and T2 opened again before the decision was carried out: the
-	// store refuses the grant of its file, since after_tasks does not name it.
+	// store grants the file anyway, since tasks may share a file.
 	peers := []Peer{{Task: f.task()}}
 	ret := orchReturn(t, map[string]any{"decision": "grant", "version": filesVersion("internal/c.go", file)})
 	if got := OrchestratorCheck(f.task(), peers)(json.RawMessage(ret)); len(got) != 0 {
@@ -392,16 +393,19 @@ func TestOrchestratePassGrantRefusedByTheStoreSettlesAsBefore(t *testing.T) {
 		ID: passStep(StageImplement, 1, 0), End: endReturned, Status: "needs_context",
 		Result: `{"status":"needs_context","summary":"needs the other file","needs_files":["` + file + `"]}`,
 	}, Step: orchDone(ret), Peers: peers}
-	before := ladderClimbBefore(f, 1)
+	ladderClimbBefore(f, 1)
 	if !f.runner.execute(f.ctx, f.epic(), view, Decide(view)) {
-		t.Fatal("execute changed nothing, want the fallback carried out")
+		t.Fatal("execute changed nothing, want the grant carried out")
 	}
-	want := "returned needs_context: needs the other file; orreryd refused the orchestrator's grant: " +
-		file + " is owned by open task T2"
-	if task := f.task(); task.Build.Failure != want {
-		t.Fatalf("task failure %q, want %q", task.Build.Failure, want)
+	task := f.task()
+	if task.Build.Stage != StageImplement || !slices.Contains(task.Files, "internal/c.go") ||
+		!slices.Contains(task.Files, file) {
+		t.Errorf("build stage %q files %v, want implement with the granted files including %s", task.Build.Stage,
+			task.Files, file)
 	}
-	ladderClimbCheck(f, store.RungOf(before), store.MovedByUnit)
+	if strings.Contains(task.Build.Failure, "refused") {
+		t.Errorf("task failure %q, want no refusal of the grant", task.Build.Failure)
+	}
 }
 
 // integrateTask accepts open task seq of the fixture's epic and ends a passed integrate batch that composed it as

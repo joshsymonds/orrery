@@ -298,8 +298,6 @@ func TestOrchestratorCheckRefusesStateTheEngineCannotCarryOut(t *testing.T) {
 			[]string{
 				"version.files[0]: .git/config is refused: inside a .git directory",
 				"version.files[1]: a.go is already one of the task's files",
-				"version.files[2]: owned.go is owned by open T4 (implement), and after_tasks does not name T4",
-				"version.files[3]: changed.go is changed by accepted T5, not yet integrated, and after_tasks does not name T5",
 				"version.files[5]: free.go is named twice",
 			},
 		},
@@ -420,7 +418,6 @@ func TestDecideOrchestrate(t *testing.T) {
 	waiter := openPeer(8)
 	waiter.Task.Build.Held, waiter.Task.Build.After = HeldWaiting, "3"
 	fallback := orchFail()
-	grantFallback := fallback
 	question := store.EpicQuestionInput{
 		Label: "capture-broken", Text: "T3 (contract-cannot-hold): R1's capture exits 2 as written",
 		Choices:     []store.EpicChoice{{ID: "edit", Does: "edit the contract"}, {ID: "end", Does: "end it"}},
@@ -453,7 +450,7 @@ func TestDecideOrchestrate(t *testing.T) {
 			name: "rerun moves to implement at the next rerun with its version, counting the decision",
 			view: orchView(0, orchDone(rerunRet)),
 			want: Action{
-				Kind: ActDecide, Next: rerun, Fallback: &fallback, Behind: []int64{}, Version: redone,
+				Kind: ActDecide, Next: rerun, Version: redone,
 				Decision: &store.TaskDecision{
 					ID: "T3-request-1", Text: "T3 rerun: the code says so", Refused: []string{"b.go"},
 				},
@@ -463,7 +460,7 @@ func TestDecideOrchestrate(t *testing.T) {
 			name: "rerun after open tasks holds the build waiting on them",
 			view: orchView(0, orchDone(waitRet), openPeer(4), acceptedPeer(5)),
 			want: Action{
-				Kind: ActDecide, Next: waiting, Behind: []int64{4, 5}, Fallback: &fallback, Version: nothing,
+				Kind: ActDecide, Next: waiting, Version: nothing,
 				Decision: &store.TaskDecision{
 					ID: "T3-request-1", Text: "T3 rerun after T4, T5: the code says so", Refused: []string{"b.go"},
 				},
@@ -473,7 +470,7 @@ func TestDecideOrchestrate(t *testing.T) {
 			name: "grant carries its files",
 			view: orchView(0, orchDone(grantRet)),
 			want: Action{
-				Kind: ActDecide, Next: grantedRerun, Version: granted, Fallback: &grantFallback, Behind: []int64{},
+				Kind: ActDecide, Next: grantedRerun, Version: granted,
 				Decision: &store.TaskDecision{ID: "T3-request-1", Text: "T3 grant b.go: the code says so"},
 			},
 		},
@@ -518,7 +515,7 @@ func TestDecideOrchestrate(t *testing.T) {
 				"decision": "rerun", "after_tasks": []int64{4},
 			})), Peer{Task: store.EpicTask{Seq: 4, Status: taskDone}, State: Integrated, Composed: "c4"}),
 			want: Action{
-				Kind: ActDecide, Next: waitingOnFour, Behind: []int64{4}, Fallback: &fallback, Version: nothing,
+				Kind: ActDecide, Next: waitingOnFour, Version: nothing,
 				Decision: &store.TaskDecision{
 					ID: "T3-request-1", Text: "T3 rerun after T4: the code says so", Refused: []string{"b.go"},
 				},
@@ -706,7 +703,7 @@ func TestAfterSeqsRoundTripsAndSkipsJunk(t *testing.T) {
 	}
 }
 
-func TestOrchestratorCheckNeedsEveryHolderOfAFileInAfterTasks(t *testing.T) {
+func TestOrchestratorCheckGrantsAHeldFileWithOrWithoutItsHolders(t *testing.T) {
 	t.Parallel()
 	task := store.EpicTask{Seq: 3, Files: []string{"a.go"}, Status: taskOpen}
 	behind := openPeer(1, "shared.go")
@@ -722,13 +719,10 @@ func TestOrchestratorCheckNeedsEveryHolderOfAFileInAfterTasks(t *testing.T) {
 			"decision": "grant", "version": filesVersion("shared.go"), "after_tasks": after,
 		})))
 	}
-	want := []string{"version.files[0]: shared.go is owned by open T1 (implement, waiting) and owned by open T2 " +
-		"(implement), and after_tasks does not name T1"}
-	if got := grant(2); !slices.Equal(got, want) {
-		t.Errorf("grant behind T2 only = %q, want %q", got, want)
-	}
-	if got := grant(1, 2); len(got) != 0 {
-		t.Errorf("grant behind both = %q, want none", got)
+	for _, after := range [][]int64{nil, {2}, {1, 2}} {
+		if got := grant(after...); len(got) != 0 {
+			t.Errorf("grant behind %v = %q, want none", after, got)
+		}
 	}
 }
 

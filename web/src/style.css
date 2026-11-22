@@ -191,6 +191,9 @@ button.link.notices-more { justify-self: end; padding: 0 var(--o-space-12); colo
 .inbox-foot { display: flex; align-items: center; gap: var(--o-space-4); flex: none; padding: var(--o-space-4) var(--o-space-8); border-top: var(--o-size-hairline) solid var(--o-line-soft); }
 .inbox-foot > :first-child { margin-right: auto; }
 .inbox .inote { padding: var(--o-space-4) var(--o-space-16); }
+/* The page's error lines above the rows keep the inbox's gutter, which .inote.error would clear, and their height: the
+   rows alone give way when the column is short. */
+.inbox > .inote.error { flex: none; padding: var(--o-space-4) var(--o-space-16); }
 
 .blank { margin: auto; display: grid; gap: var(--o-space-8); justify-items: center; max-width: 48ch; padding: var(--o-space-24); color: var(--o-ink-3); font: var(--o-type-small); text-align: center; }
 .blank .t-body { color: var(--o-ink-2); }

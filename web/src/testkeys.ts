@@ -30,7 +30,6 @@ export function fakeContext(init: Partial<KeyContext> = {}): Fake {
     index: 0,
     flat: [],
     waitKeys: [],
-    view: "inbox",
     cursorItem: null,
     cursorRow: null,
     cursorRowKey: "",
@@ -49,7 +48,6 @@ export function fakeContext(init: Partial<KeyContext> = {}): Fake {
       calls.push(["writeSeen", target]);
       return Promise.resolve();
     },
-    setArchive: record("setArchive"),
     escapeRow: (target, box) => {
       calls.push(["escapeRow", target, box]);
       return Promise.resolve();

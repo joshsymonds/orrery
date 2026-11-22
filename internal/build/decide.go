@@ -87,6 +87,8 @@ func decideStage(view View) Action {
 		return decideReview(view)
 	case StageVerify:
 		return decideVerify(view)
+	case StageDesign:
+		return decideDesign(view)
 	}
 	return Action{Kind: ActNone}
 }
@@ -387,18 +389,18 @@ func parseImplementerReturn(result string) (implementerReturn, bool) {
 const grantLimit = 3
 
 // grantOrFail returns the action for an implementer that returned needs_context naming the files fail carries. When
-// it names a file the task does not own, the build has reruns left under grantLimit, and every such file passes the
-// orchestrator's owner check against the epic's peers (fileRefusal) and is not one of the task's refused files, the
-// task is granted those files and its implementer runs again in the same worktree, with a note naming them. When a file
-// fails either test, no file is granted by rule and the request goes to the orchestrator, which decides it. Otherwise
-// fail is returned, and the task climbs with its failure.
+// it names a file the task does not own, the build has reruns left under grantLimit, and every such file passes
+// grantRefusal and is not one of the task's refused files, the task is granted those files and its implementer runs
+// again in the same worktree, with a note naming them. A file another task holds, open or accepted and not yet
+// integrated, is granted like a free file. When a file fails either test, no file is granted by rule and the request
+// goes to the orchestrator, which decides it. Otherwise fail is returned, and the task climbs with its failure.
 func grantOrFail(view View, fail Action) Action {
 	var grant []string
 	for _, file := range fail.NeedsFiles {
 		if slices.Contains(view.Task.Files, file) || slices.Contains(grant, file) {
 			continue
 		}
-		if fileRefusal(file, view.Task, view.Peers, nil, nil) != "" || slices.Contains(view.Task.Refused, file) {
+		if grantRefusal(file, view.Task, nil) != "" || slices.Contains(view.Task.Refused, file) {
 			return fail
 		}
 		grant = append(grant, file)

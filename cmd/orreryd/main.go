@@ -32,6 +32,7 @@ import (
 	"github.com/joshsymonds/orrery/internal/autoseen"
 	"github.com/joshsymonds/orrery/internal/build"
 	"github.com/joshsymonds/orrery/internal/cli"
+	"github.com/joshsymonds/orrery/internal/closurejudge"
 	"github.com/joshsymonds/orrery/internal/daemon"
 	"github.com/joshsymonds/orrery/internal/deskstream"
 	"github.com/joshsymonds/orrery/internal/donejudge"
@@ -595,6 +596,7 @@ func serve(ctx context.Context, opts options, logger *slog.Logger, getenv func(s
 		home:        home,
 		logger:      logger,
 		judge:       newDoneJudge(opts.claude, opts.models),
+		closures:    newClosureJudge(opts.claude, opts.models),
 		reads:       newReadTimes(),
 		mirror:      mirror,
 		webhook:     opts.webhook,
@@ -633,6 +635,7 @@ func serve(ctx context.Context, opts options, logger *slog.Logger, getenv func(s
 
 	st := openStore(ctx, getenv, logger, opts.metrics, opts.storeBusy, opts.storeRetryAfter)
 	attachStore(ctx, st, mirror, notices, router)
+	hub.attachVerdicts(st)
 	var sessions *sessionHost
 	var startErr error
 	if opts.sessions {
@@ -906,6 +909,8 @@ type sessionHost struct {
 	titlesDone    chan struct{}
 	stopHeadlines context.CancelFunc
 	headlinesDone chan struct{}
+	stopClosures  context.CancelFunc
+	closuresDone  chan struct{}
 	stopReports   context.CancelFunc
 	reportsDone   chan struct{}
 	stopServe     context.CancelFunc
@@ -1083,7 +1088,7 @@ func startSessions(
 		host.startLimits(ctx)
 		host.startSummaries(ctx, st, haiku, logger)
 		host.startTitles(ctx, st, haiku, logger)
-		host.startHeadlines(ctx, st, haiku, logger)
+		host.startTurnEnded(ctx, st, haiku, opts.models, logger)
 		host.startReports(ctx, st, haiku, logger)
 		host.startDue(ctx, st, opts.dueNow, logger)
 		host.startIdle(ctx)
@@ -1901,20 +1906,20 @@ func (h *sessionHost) startTitles(
 }
 
 // startHeadlines refreshes the headline of each headless session whose turns have ended since its last headline, from
-// its first prompt and recent turns through haiku. It checks every due session at start, then each session whose turn
-// end the store stores, on the store's OnTurnEnded hook, until stop.
+// its first prompt and recent turns through haiku. It checks every due session at start, then each session the wake it
+// returns names, until stop. The store's OnTurnEnded hook calls that wake for each session whose turn end the store
+// stores.
 func (h *sessionHost) startHeadlines(
 	ctx context.Context,
 	st *store.Store,
 	haiku *enginehost.Haiku,
 	logger *slog.Logger,
-) {
+) func(session string) {
 	headlines := enginehost.NewSessionHeadlines(enginehost.SessionHeadlinesConfig{
 		Store:  st,
 		Haiku:  haiku,
 		Logger: logger,
 	})
-	st.OnTurnEnded(headlines.Wake)
 	var headlinesCtx context.Context
 	headlinesCtx, h.stopHeadlines = context.WithCancel(ctx)
 	h.headlinesDone = make(chan struct{})
@@ -1922,6 +1927,49 @@ func (h *sessionHost) startHeadlines(
 		defer close(h.headlinesDone)
 		headlines.Run(headlinesCtx)
 	}()
+	return headlines.Wake
+}
+
+// startTurnEnded starts the session headlines and the session closures, and sets the store's single OnTurnEnded hook to
+// wake both for each session whose turn end the store stores.
+func (h *sessionHost) startTurnEnded(
+	ctx context.Context,
+	st *store.Store,
+	haiku *enginehost.Haiku,
+	models map[string]string,
+	logger *slog.Logger,
+) {
+	headlinesWake := h.startHeadlines(ctx, st, haiku, logger)
+	closuresWake := h.startClosures(ctx, st, haiku, models, logger)
+	st.OnTurnEnded(func(session string) {
+		headlinesWake(session)
+		closuresWake(session)
+	})
+}
+
+// startClosures stores whether each headless session whose turn ended done is closed, from its recent turns through the
+// closure judge, which calls haiku under models. It judges each session the wake it returns names, until stop. The
+// store's OnTurnEnded hook calls that wake for each session whose turn end the store stores.
+func (h *sessionHost) startClosures(
+	ctx context.Context,
+	st *store.Store,
+	haiku *enginehost.Haiku,
+	models map[string]string,
+	logger *slog.Logger,
+) func(session string) {
+	closures := enginehost.NewSessionClosures(enginehost.SessionClosuresConfig{
+		Store:  st,
+		Judge:  closurejudge.New(haiku, models),
+		Logger: logger,
+	})
+	var closuresCtx context.Context
+	closuresCtx, h.stopClosures = context.WithCancel(ctx)
+	h.closuresDone = make(chan struct{})
+	go func() {
+		defer close(h.closuresDone)
+		closures.Run(closuresCtx)
+	}()
+	return closures.Wake
 }
 
 // startReports writes the report of each ended epic that has none, through haiku. It checks every ended epic at start,
@@ -1948,8 +1996,9 @@ func (h *sessionHost) startReports(
 
 // shutdown stops the broker, stops the idle check, stops the flow and waits for it to return, which waits for the
 // planner's turns, stops the limit notices and waits for the attention loop, the limit loop, the due pass, the epic
-// summaries, the session titles, the session headlines and the epic reports to return, stops the caller-event delivery
-// and waits for it to return, closes the node checks and the evidence runner and waits for their drives, ends every
+// summaries, the session titles, the session headlines, the session closures and the epic reports to return, stops
+// the caller-event delivery and waits for it to return, closes the node checks and the evidence runner and waits for
+// their drives, ends every
 // step loop, stops every live session, and ends the writer after its last flush. The notices the sessions started are
 // waited on in serve. Without a broker, manager and writer it does nothing.
 func (h *sessionHost) shutdown() {
@@ -1995,6 +2044,10 @@ func (h *sessionHost) shutdown() {
 		h.phase("session headlines", func() {
 			h.stopHeadlines()
 			<-h.headlinesDone
+		})
+		h.phase("session closures", func() {
+			h.stopClosures()
+			<-h.closuresDone
 		})
 		h.phase("epic reports", func() {
 			h.stopReports()
@@ -2148,6 +2201,11 @@ type relay struct {
 	summarizers map[tmuxctl.Server]*summary.Summarizer
 	views       *doneViews       // each done's viewing check, handed from observe to the autoseen observer
 	now         func() time.Time // the clock the viewing checks read; nil reads time.Now
+
+	closures *closurejudge.Judge          // decides whether a done pane's conversation is closed
+	paneKeys paneKeyReader                // reads a pane's id and change time for its closure check; nil reads tmux
+	verdicts atomic.Pointer[verdictStore] // stores the closure verdicts, once the store opens
+	closing  sync.WaitGroup               // the closure checks, which wait returns after
 }
 
 // clock returns the time the relay's viewing checks compare the tmux clients' input with: r.now's, or time.Now's when
@@ -2272,12 +2330,13 @@ func (rt *readTimes) forget(pane string) {
 
 // observe requests a summary for a pane that starts working or finishes, hands the notice for a pane that waits for
 // input or finishes to the router, and otherwise tells the router the pane changed. A session's end also forgets the
-// pane's summary and read time.
+// pane's summary and read time. A transition to done starts the pane's closure check.
 func (r *relay) observe(ctx context.Context, transition daemon.Transition) {
 	if transition.To == "" {
 		r.forget(ctx, transition)
 		r.reads.forget(transition.PaneID)
 	}
+	r.checkClosure(ctx, transition)
 	var summarized <-chan struct{}
 	if transition.To == protocol.StateWorking || transition.To == protocol.StateDone {
 		summarized = r.summarize(ctx, transition)
@@ -2521,9 +2580,11 @@ func (r *relay) pushNotification(ctx context.Context, transition daemon.Transiti
 	return paneNotification(transition, text), nil
 }
 
-// wait returns once every summary run has finished. It runs after Serve returns, so no observer can start more work.
+// wait returns once every summary run and closure check has finished. It runs after Serve returns, so no observer can
+// start more work.
 func (r *relay) wait() {
 	for _, summarizer := range r.summarizers {
 		summarizer.Wait()
 	}
+	r.closing.Wait()
 }

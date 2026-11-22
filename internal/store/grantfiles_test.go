@@ -59,7 +59,7 @@ func TestGrantTaskFilesAddsTheFilesAfterTheTasksOwnAndMovesTheBuild(t *testing.T
 	}
 }
 
-func TestGrantTaskFilesRefusesAFileAnotherOpenTaskOwnsAndWritesNothing(t *testing.T) {
+func TestGrantTaskFilesAddsAFileAnotherOpenTaskOwns(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	s, raw := openBuildStore(ctx, t)
@@ -67,18 +67,12 @@ func TestGrantTaskFilesRefusesAFileAnotherOpenTaskOwnsAndWritesNothing(t *testin
 	if err := s.SetTaskBuild(ctx, buildEpic, 1, store.TaskBuild{}, openBuildOf()); err != nil {
 		t.Fatalf("SetTaskBuild: %v", err)
 	}
-	before := storedState(t, raw)
 	grant := store.TaskVersionInput{Source: store.SourceGrant, Files: []string{"c.go", "b.go"}}
-	err := s.GrantTaskFiles(ctx, buildEpic, 1, openBuildOf(), grantedBuild(), grant, writtenAt())
-	var owned store.FileOwnedError
-	if !errors.As(err, &owned) || owned != (store.FileOwnedError{File: "b.go", Task: 2}) {
-		t.Fatalf("GrantTaskFiles err = %v, want b.go owned by T2", err)
+	if err := s.GrantTaskFiles(ctx, buildEpic, 1, openBuildOf(), grantedBuild(), grant, writtenAt()); err != nil {
+		t.Fatalf("GrantTaskFiles of b.go, which open T2 owns: %v", err)
 	}
-	if got := err.Error(); got != "b.go is owned by open task T2" {
-		t.Errorf("error = %q, want it to name the file and the task", got)
-	}
-	if !reflect.DeepEqual(before, storedState(t, raw)) {
-		t.Errorf("a refused grant changed the store")
+	if want := []string{"a.go", "c.go", "b.go"}; !reflect.DeepEqual(buildTaskOf(ctx, t, s).Files, want) {
+		t.Errorf("Files of task 1 = %v, want %v", buildTaskOf(ctx, t, s).Files, want)
 	}
 }
 
