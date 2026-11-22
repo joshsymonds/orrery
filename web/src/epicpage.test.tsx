@@ -86,6 +86,7 @@ const history = [
   create(EpicHistoryEntrySchema, {
     cursor: "h1",
     time: 9_500n,
+    sentence: "The contract was accepted.",
     item: { case: "trigger", value: { cause: "accepted" } },
   }),
 ];
@@ -411,6 +412,7 @@ test("EpicRecord: Just happened draws the newest three entries, and +n earlier s
     create(EpicHistoryEntrySchema, {
       cursor: `h${n}`,
       time: BigInt(9_000 + n * 100),
+      sentence: `entry ${n}`,
       item: { case: "tell", value: { text: `entry ${n}` } },
     }),
   );
@@ -514,6 +516,7 @@ test("EpicWords: a page whose runs and history carry 40-character revisions show
         create(EpicHistoryEntrySchema, {
           cursor: "h2",
           time: 9_600n,
+          sentence: "R1 green run · passed.",
           item: { case: "evidence", value: greenRun },
         }),
       ],
@@ -549,6 +552,7 @@ test("MoveLines: the epic page names a session its move line mentions by its lis
   const move: EpicHistoryEntry = create(EpicHistoryEntrySchema, {
     time: 400n,
     cursor: "m1",
+    sentence: "moved to session sess-lamp from “Planned the rota export”, by you.",
     item: {
       case: "action",
       value: { seq: 1n, kind: "move", time: 400n, by: "owner", session: "", from: "sess-rota", to: "sess-lamp" },
@@ -560,7 +564,7 @@ test("MoveLines: the epic page names a session its move line mentions by its lis
     (container) => {
       assert.equal(
         textOf(container, "section.happen.just .what"),
-        "moved to session sess-lamp from “Planned the rota export”, by you",
+        "moved to session sess-lamp from “Planned the rota export”, by you.",
       );
     },
     { history: [move], rows },

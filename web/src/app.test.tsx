@@ -4597,10 +4597,10 @@ test("a command that fails shows its did-not-land line under the title row, and 
 test("Just happened shows the epic's history, read from its first entry", (t) =>
   withApp(t.signal, { epics: pageEpic({}, 0n, true) }, async (container, fake) => {
     fake.replies.set(historyPath, [
-      { entries: [{ cursor: "c1", decision: { id: "d1", text: "use postgres" } }], next: "" },
+      { entries: [{ cursor: "c1", sentence: "Decision by unknown: use postgres.", decision: { id: "d1", text: "use postgres" } }], next: "" },
     ]);
     await press("j");
-    await until(t.signal, () => historyText(container).includes("decision by unknown · use postgres"), "the history entry");
+    await until(t.signal, () => historyText(container).includes("Decision by unknown: use postgres."), "the history entry");
     const [call] = fake.callsTo(historyPath);
     assert.equal(call.body.id, widgetsFirst);
     assert.equal(call.body.after, undefined, "the first page reads from the start");
@@ -4610,8 +4610,8 @@ test("Just happened shows the epic's history, read from its first entry", (t) =>
 test("the history reads page by page until a page names no next cursor", (t) =>
   withApp(t.signal, { epics: pageEpic({}, 0n, true) }, async (container, fake) => {
     fake.replies.set(historyPath, [
-      { entries: [{ cursor: "c1", decision: { id: "d1", text: "first decision" } }], next: "c1" },
-      { entries: [{ cursor: "c2", decision: { id: "d2", text: "second decision" } }], next: "" },
+      { entries: [{ cursor: "c1", sentence: "Decision by unknown: first decision.", decision: { id: "d1", text: "first decision" } }], next: "c1" },
+      { entries: [{ cursor: "c2", sentence: "Decision by unknown: second decision.", decision: { id: "d2", text: "second decision" } }], next: "" },
     ]);
     await press("j");
     await until(t.signal, () => historyText(container).includes("second decision"), "the second page");
@@ -4626,8 +4626,8 @@ test("the history reads page by page until a page names no next cursor", (t) =>
 test("a change to the epic's last write reads its history again", (t) =>
   withApp(t.signal, { epics: pageEpic({}, 1n, true) }, async (container, fake) => {
     fake.replies.set(historyPath, [
-      { entries: [{ cursor: "c1", decision: { id: "d1", text: "before the change" } }], next: "" },
-      { entries: [{ cursor: "c2", decision: { id: "d2", text: "after the change" } }], next: "" },
+      { entries: [{ cursor: "c1", sentence: "Decision by unknown: before the change.", decision: { id: "d1", text: "before the change" } }], next: "" },
+      { entries: [{ cursor: "c2", sentence: "Decision by unknown: after the change.", decision: { id: "d2", text: "after the change" } }], next: "" },
     ]);
     await press("j");
     await until(t.signal, () => historyText(container).includes("before the change"), "the first history");

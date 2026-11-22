@@ -112,7 +112,7 @@ function SteeredFrom({
 // happened, the tasks with their chart and table, and the requirements. A record epic draws only Now and its tasks. A
 // section the epic has not reached is not drawn. The commands are the ones controlsOf shows for the epic. Each phase
 // click reaches onOpenPhase. After the requirements, the Review, Release and Report sections draw when their views are
-// non-null, in that order. Just happened names a session a move names by its listed row's label. A landing brings its
+// non-null, in that order. Just happened's step lines and evidence runs' judge steps reach onOpenStep. A landing brings its
 // part of the page into view once the page is drawn, and a page that draws its Report brings the Report into view once
 // when no landing names another block. numberKeys is whether a digit key picks an option of the open
 // question. steer draws the steering control: in the title row at the desk, and under narrow the sheet that More's Steer
@@ -132,6 +132,7 @@ export function EpicPage(props: {
   onOpenSession: (target: SessionTarget) => void;
   onBack: () => void;
   onOpenPhase?: (task: string, phase: Phase) => void;
+  onOpenStep?: (step: string) => void;
   landing?: Landing;
   strip?: ComponentChildren;
   rows?: Row[];
@@ -153,6 +154,7 @@ export function EpicPage(props: {
     onOpenSession,
     onBack,
     onOpenPhase,
+    onOpenStep,
     landing,
     strip,
     rows = [],
@@ -191,8 +193,6 @@ export function EpicPage(props: {
   const pausing = controls.pause && !ownerParked(detail);
   const [steerOpen, setSteerOpen] = useState(false);
   const steerSheet: SteerSheet = { open: steerOpen, onClose: () => setSteerOpen(false) };
-  // titleOf names a session by its listed row's label, for the move lines of the epic's log.
-  const titleOf = (session: string) => steererRowOf(rows, session)?.label;
   const pageRef = useRef<HTMLDivElement>(null);
   // The page brings one block into view when it is first drawn and when its landing changes, never on a later read: the
   // block the landing's kind names, else the Report when the page draws one, else the page's top for a landing.
@@ -285,7 +285,7 @@ export function EpicPage(props: {
         onStop={() => commands.stop()}
         onResume={() => commands.resume()}
       />
-      {reached.history && <JustHappened entries={history} steps={steps} titleOf={titleOf} />}
+      {reached.history && <JustHappened entries={history} steps={steps} onOpenStep={onOpenStep} />}
       {reached.tasks && (
         <section class="tasks" aria-label="Tasks">
           <header class="sec-head">

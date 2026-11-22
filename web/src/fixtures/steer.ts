@@ -91,12 +91,16 @@ function withoutPane14(paneStreams: ReadonlyMap<string, WatchConversationRespons
   return next;
 }
 
+// movedSentence is the server's sentence for the owner's move, the line the epic page's log draws for it.
+const movedSentence = "moved to “Retry backoff and jitter for the telemetry uploader” from “Planned the rota export, and steers its epic”, by you";
+
 // withMoveHistory appends the owner's move of the rota epic to lampSession, which is the epic's latest entry.
 function withMoveHistory(histories: ReadonlyMap<string, EpicsHistoryResponse>): Map<string, EpicsHistoryResponse> {
   const history = shippedOf(histories, rota);
   const entry = create(EpicHistoryEntrySchema, {
     time: movedAt,
     cursor: "c13",
+    sentence: movedSentence,
     item: {
       case: "action",
       value: create(EpicActionSchema, {
