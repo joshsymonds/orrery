@@ -87,6 +87,8 @@ func decideStage(view View) Action {
 		return decideReview(view)
 	case StageVerify:
 		return decideVerify(view)
+	case StageDesign:
+		return decideDesign(view)
 	}
 	return Action{Kind: ActNone}
 }

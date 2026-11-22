@@ -356,9 +356,9 @@ func runItemOf(task store.EpicTask) evidence.Item {
 }
 
 // unitIDs returns the derived ids of the evidence run and of the step of the unit build is on, in scope, the unit scope
-// of the task (unitScope). A red or green unit has a run and no step, a review or verify unit a step and no run, and an
-// implement unit a step. An orchestrate unit's step counts the decisions made on the task where a review step has its
-// gate position. A unit a build is not on has neither, so both ids are empty.
+// of the task (unitScope). A red or green unit has a run and no step, a review, verify or design unit a step and no
+// run, and an implement unit a step. An orchestrate unit's step counts the decisions made on the task where a review
+// step has its gate position. A unit a build is not on has neither, so both ids are empty.
 func unitIDs(scope string, seq int64, build store.TaskBuild) (string, string) {
 	switch build.Stage {
 	case StageRed:
@@ -373,6 +373,8 @@ func unitIDs(scope string, seq int64, build store.TaskBuild) (string, string) {
 		return "", StepID(scope, seq, StageReview, build.Attempt, build.Rerun, build.GatePos, 0)
 	case StageVerify:
 		return "", StepID(scope, seq, StageVerify, build.Attempt, build.Rerun, build.GatePos, build.FindingPos)
+	case StageDesign:
+		return "", StepID(scope, seq, StageDesign, build.Attempt, build.Rerun, 0, 0)
 	}
 	return "", ""
 }

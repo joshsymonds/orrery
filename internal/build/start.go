@@ -35,8 +35,9 @@ func (e RoleError) Unwrap() error { return e.Err }
 // startStep starts the step of action, under the id it carries, for the task of view in epic, and returns the id the
 // engine started it under. An implement step runs the implementer's agent in its own worktree; a review step runs the
 // task-stage reviewer its review gate names, read-only; a verify step runs the verifier's agent read-only on one
-// finding; an orchestrate step runs the orchestrator's agent read-only on the implementer's request. An error the engine
-// returns on start is wrapped, so errors.Is still matches it.
+// finding; a design step runs the design judge read-only at the task's revision; an orchestrate step runs the
+// orchestrator's agent read-only on the implementer's request. An error the engine returns on start is wrapped, so
+// errors.Is still matches it.
 func (r *Runner) startStep(ctx context.Context, epic store.EpicRow, view View, action Action) (string, error) {
 	var (
 		start enginehost.StepStart
@@ -49,6 +50,8 @@ func (r *Runner) startStep(ctx context.Context, epic store.EpicRow, view View, a
 		start, err = r.reviewStart(ctx, epic, view.Task, action.ID)
 	case StageVerify:
 		start, err = r.verifierStart(epic, view, action.ID)
+	case StageDesign:
+		start, err = r.designJudgeStart(epic, view, action.ID)
 	case StageOrchestrate:
 		start, err = r.orchestratorStart(ctx, epic, view, action.ID)
 	default:
@@ -256,6 +259,30 @@ func (r *Runner) verifierStart(epic store.EpicRow, view View, id string) (engine
 	task := view.Task
 	subject := Subject{Epic: epic, Task: &task, Base: task.Build.Base, Revision: task.Build.Revision}
 	return VerifierStart(subject, findings[pos], id, agent), nil
+}
+
+// designJudgeStart returns the start of the design judge step id for the design task of view in epic. The step runs the
+// roles file's verifier agent read-only at the revision the task's build reached, in the epic's repository, with the
+// design judge's prompt, schema and return check.
+func (r *Runner) designJudgeStart(epic store.EpicRow, view View, id string) (enginehost.StepStart, error) {
+	agent, err := roles.Agent(r.getenv, roleVerifier)
+	if err != nil {
+		return enginehost.StepStart{}, RoleError{Err: err}
+	}
+	task := view.Task
+	return enginehost.StepStart{
+		ID:          id,
+		Agent:       agent,
+		ReadOnly:    true,
+		Workspace:   epic.Repository,
+		Revision:    task.Build.Revision,
+		Prompt:      DesignJudgePrompt(epic, task),
+		Schema:      DesignJudgeSchema,
+		ReturnCheck: DesignJudgeCheck,
+		DoneValue:   "done",
+		Epic:        epic.ID,
+		Task:        taskLabel(task.Seq),
+	}, nil
 }
 
 // orchestratorStart returns the start of the orchestrator step id that decides the request of view's task. The step runs
