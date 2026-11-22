@@ -16,7 +16,9 @@ func TestInboxClosureVerdictStoredReadsBack(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "orrery.db")
 	s := openArchiveStore(t, path)
-	want := store.ClosureVerdict{Session: "orrery-41", Changed: 1700000100, Closed: true, Why: "the owner closed the book"}
+	want := store.ClosureVerdict{
+		Session: "orrery-41", Changed: 1700000100, Closed: true, Why: "the owner closed the book",
+	}
 
 	if err := s.SetClosureVerdict(ctx, want, time.Unix(1700000200, 0)); err != nil {
 		t.Fatalf("SetClosureVerdict: %v", err)

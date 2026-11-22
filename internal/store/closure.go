@@ -11,7 +11,7 @@ import (
 	"github.com/joshsymonds/orrery/internal/store/sqlcgen"
 )
 
-// ClosureVerdict is the newest closure verdict of one pane or headless session, with its Changed, Closed and Why fields.
+// ClosureVerdict is the newest closure verdict of one pane or headless session: its Changed stamp, Closed flag and Why.
 type ClosureVerdict struct {
 	Session string
 	Changed int64
@@ -25,17 +25,18 @@ type ClosureSession struct {
 	Changed int64
 }
 
-// SetClosureVerdict stores v as the newest closure verdict of its session at at, replacing the verdict an earlier
-// call stored for that session. An empty session is ErrEmptyRowID.
-func (s *Store) SetClosureVerdict(ctx context.Context, v ClosureVerdict, at time.Time) error {
-	if v.Session == "" {
+// SetClosureVerdict stores verdict as the newest closure verdict of its session at at, replacing the verdict an
+// earlier call stored for that session. An empty session is ErrEmptyRowID.
+func (s *Store) SetClosureVerdict(ctx context.Context, verdict ClosureVerdict, at time.Time) error {
+	if verdict.Session == "" {
 		return fmt.Errorf("closure verdict: %w", ErrEmptyRowID)
 	}
 	return s.write(ctx, func(queries *sqlcgen.Queries) error {
 		if err := queries.UpsertClosureVerdict(ctx, sqlcgen.UpsertClosureVerdictParams{
-			SessionID: v.Session, Changed: v.Changed, Closed: boolInt(v.Closed), Why: v.Why, At: at.Unix(),
+			SessionID: verdict.Session, Changed: verdict.Changed, Closed: boolInt(verdict.Closed), Why: verdict.Why,
+			At: at.Unix(),
 		}); err != nil {
-			return fmt.Errorf("set closure verdict of %s: %w", v.Session, err)
+			return fmt.Errorf("set closure verdict of %s: %w", verdict.Session, err)
 		}
 		return nil
 	})
