@@ -123,9 +123,9 @@ func TestRegistryEntryPaneFallsBackToTMUXPANE(t *testing.T) {
 	}
 }
 
-// TestRegistryEntryTranscriptPath checks that TranscriptPath maps a cwd to its project directory under .claude/projects,
-// replacing each rune that is not an ASCII letter or digit with '-', and that it returns "" when home or id is empty or
-// id holds a path separator.
+// TestRegistryEntryTranscriptPath checks that TranscriptPath maps a cwd to its project directory under
+// .claude/projects, replacing each rune that is not an ASCII letter or digit with '-', and that it returns "" when home
+// or id is empty or id holds a path separator.
 func TestRegistryEntryTranscriptPath(t *testing.T) {
 	cases := []struct {
 		name string
