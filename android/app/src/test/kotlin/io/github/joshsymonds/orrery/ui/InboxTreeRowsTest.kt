@@ -188,11 +188,21 @@ class InboxTreeRowsTest {
         setRow(convo(hung = listOf(epicNode(epic(), asked))))
 
         assertTagShown("hung:epic:$EPIC_ID")
-        assertTextShown("rota-export")
-        assertTextShown("planning · 49 min · 0 of 0 tasks done")
+        assertTextShown("rota-export · 0 of 0 proven")
+        assertTextShown("planning · 49 min")
         assertTextShown("? waits on your answer · 2 min")
         composeRule.onNodeWithTag("epicmark:$EPIC_ID", useUnmergedTree = true)
             .assert(hasContentDescription("no requirements yet"))
+    }
+
+    @Test
+    fun anEpicNothingBlockingDrawsItsNewestSentenceAsItsThirdLine() {
+        val epic = epic()
+        setRow(convo(hung = listOf(EpicNode(epic, detail(epic).copy(newest = "Wrote the release notes."), contract = null))))
+
+        assertTextShown("rota-export · 0 of 0 proven")
+        assertTextShown("planning · 49 min")
+        assertTextShown("Wrote the release notes.")
     }
 
     @Test

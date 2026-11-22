@@ -21,6 +21,20 @@ fun epicLineOf(detail: EpicDetail?, now: Long): EpicLine {
     )
 }
 
+// The state a requirement the server states as proven carries, as the epic's mark counts it.
+private const val PROVEN = "proven"
+
+/**
+ * The proven count an epic's row draws first: `<p> of <n> proven` over all of the requirements, each proven when the
+ * server states its state so. A null detail reads `epic unavailable`.
+ */
+fun provenCountOf(detail: EpicDetail?): String {
+    if (detail == null) return "epic unavailable"
+    val requirements = detail.requirements
+    val proven = requirements.count { it.state == PROVEN }
+    return "$proven of ${requirements.size} proven"
+}
+
 // The record task statuses that count as done, compared without case, as the web's taskStateOf counts them.
 private val DONE_STATUSES = setOf("done", "integrated")
 
