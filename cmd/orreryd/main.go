@@ -1030,7 +1030,7 @@ func startSessions(
 		})
 		host.startBroker(ctx, hostName, st, logger)
 		// host.pools is nil when the broker's restore failed, which leaves the gates no pools to run under.
-		resolve, hosts := planner.NewResolver(os.Environ(), managedDir), hostexec.Map{hostName: hostexec.NewLocal()}
+		hosts := hostexec.Map{hostName: hostexec.NewLocal()}
 		haiku := enginehost.NewHaiku(enginehost.HaikuConfig{Claude: opts.claude, Environ: os.Environ()})
 		steps := enginehost.NewSteps(enginehost.StepsConfig{
 			Sessions:     host.manager,
@@ -1043,7 +1043,7 @@ func startSessions(
 			Haiku:        haiku,
 			GateStateDir: filepath.Join(stateDir, "gates"),
 			GateScope:    opts.holderScope,
-			ReadoptCheck: readoptCheck(st, resolve, hosts),
+			ReadoptCheck: readoptCheck(st, planner.NewResolver(os.Environ(), managedDir, hosts), hosts),
 			ReadoptGate:  readoptGate(st),
 			Stored:       host.storedWake, EpicWake: host.stepEpicWake,
 			Host:  hostName,
@@ -1063,7 +1063,10 @@ func startSessions(
 		host.startEvidence(ctx, st, stateDir, opts, childEnviron, hosts, logger)
 		evidence = host.evidence
 		host.startNodeChecks(ctx, st, stateDir, opts, childEnviron, hosts, logger)
-		host.startFlow(ctx, st, router, opts.attentionTicks, opts.flowTicks, getenv, resolve, stateDir, hosts, logger)
+		host.startFlow(
+			ctx, st, router, opts.attentionTicks, opts.flowTicks, getenv,
+			planner.NewResolver(os.Environ(), managedDir, hosts), stateDir, hosts, logger,
+		)
 		host.startReleaseSlots(ctx)
 		host.startLimits(ctx)
 		host.startSummaries(ctx, st, haiku, logger)

@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	v1 "github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1"
+	"github.com/joshsymonds/orrery/internal/hostexec"
 	"github.com/joshsymonds/orrery/internal/reviewers"
 )
 
@@ -20,7 +21,7 @@ func epicReviewers(
 	contract *v1.EpicContract,
 	getenv func(string) string,
 ) ([]reviewers.Reviewer, error) {
-	project, err := reviewers.Project(ctx, contract.GetRepository(), getenv)
+	project, err := reviewers.Project(ctx, hostexec.NewLocal(), contract.GetRepository(), getenv)
 	if err != nil {
 		return nil, fmt.Errorf("read the reviewers of %s: %w", contract.GetRepository(), err)
 	}

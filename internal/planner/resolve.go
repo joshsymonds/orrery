@@ -7,6 +7,7 @@ import (
 
 	"github.com/joshsymonds/orrery/internal/agents"
 	"github.com/joshsymonds/orrery/internal/gates"
+	"github.com/joshsymonds/orrery/internal/hostexec"
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
@@ -17,27 +18,37 @@ type Resolver interface {
 	Judge(epic store.EpicRow, name string) error
 }
 
-// EnvResolver is the Resolver orreryd uses. It reads its environment through getenv and checks agent folders under
-// managed.
+// EnvResolver is the Resolver orreryd uses. It reads its environment through getenv, checks agent folders under
+// managed, and reads each epic's project file on the host the epic names in hosts.
 type EnvResolver struct {
 	getenv  func(string) string
 	managed string
+	hosts   hostexec.Hosts
 }
 
 // NewResolver returns an EnvResolver that reads its environment from environ. managed is the managed settings root,
-// or "" when there is none.
-func NewResolver(environ []string, managed string) EnvResolver {
-	return EnvResolver{getenv: environLookup(environ), managed: managed}
+// or "" when there is none. hosts resolves each epic's host name to the Host its project file is read on; nil means
+// hostexec.LocalHosts.
+func NewResolver(environ []string, managed string, hosts hostexec.Hosts) EnvResolver {
+	if hosts == nil {
+		hosts = hostexec.LocalHosts()
+	}
+	return EnvResolver{getenv: environLookup(environ), managed: managed, hosts: hosts}
 }
 
 // Gate returns nil when name resolves to a command gate for epic, from the epic's gates or else the repository's
-// project file. A name that neither defines wraps gates.ErrUnknown. An agent gate is refused.
+// project file, which is read on the epic's host. A name that neither defines wraps gates.ErrUnknown. An agent gate is
+// refused.
 func (r EnvResolver) Gate(ctx context.Context, epic store.EpicRow, name string) error {
 	defined, err := DefineEpicGates(epic.Gates)
 	if err != nil {
 		return err
 	}
-	resolved, err := gates.ResolveDefined(ctx, name, defined, epic.Repository, r.getenv)
+	host, err := r.hosts.Host(epic.Host)
+	if err != nil {
+		return fmt.Errorf("resolve gate: %w", err)
+	}
+	resolved, err := gates.ResolveDefined(ctx, host, name, defined, epic.Repository, r.getenv)
 	if err != nil {
 		return fmt.Errorf("resolve gate: %w", err)
 	}

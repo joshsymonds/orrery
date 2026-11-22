@@ -4,12 +4,11 @@ import (
 	"context"
 	"fmt"
 	"maps"
-	"os"
-	"path/filepath"
 	"slices"
 
 	"github.com/BurntSushi/toml"
 
+	"github.com/joshsymonds/orrery/internal/hostexec"
 	"github.com/joshsymonds/orrery/internal/pools"
 )
 
@@ -19,17 +18,18 @@ const sectionReviewers = "reviewers"
 // keyPrompt is the entry key that holds a reviewer's prompt; Merge and the compile name the same key.
 const keyPrompt = "prompt"
 
-// Project reads the reviewers of the project file that pools.Discover finds for dir. It returns nil when there is no
-// project file. getenv reads the environment for the machine's pool file, as pools.Discover does.
-func Project(ctx context.Context, dir string, getenv func(string) string) ([]Entry, error) {
-	files, err := pools.Discover(ctx, dir, getenv)
+// Project reads the reviewers of the project file that pools.Discover finds for dir on host, which reads the file. It
+// returns nil when there is no project file. getenv reads the environment for the machine's pool file, as
+// pools.Discover does.
+func Project(ctx context.Context, host hostexec.Host, dir string, getenv func(string) string) ([]Entry, error) {
+	files, err := pools.Discover(ctx, host, dir, getenv)
 	if err != nil {
 		return nil, fmt.Errorf("find the project for %s: %w", dir, err)
 	}
 	if files.ProjectFile == "" {
 		return nil, nil
 	}
-	data, err := os.ReadFile(filepath.Clean(files.ProjectFile))
+	data, err := host.ReadFile(ctx, files.ProjectFile)
 	if err != nil {
 		return nil, fmt.Errorf("read %s: %w", files.ProjectFile, err)
 	}

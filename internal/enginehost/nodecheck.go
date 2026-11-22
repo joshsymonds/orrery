@@ -274,7 +274,9 @@ func (n *NodeChecks) request(ctx context.Context, worktree string, check store.N
 			needs = append(needs, grants.Need{Pool: need.Pool, Count: int(need.Count)})
 		}
 	}
-	return stepGrant(ctx, worktree, "node-check-"+check.ID, check.Argv, needs, stepGetenv(n.environ))
+	return stepGrant(
+		ctx, hostexec.NewLocal(), worktree, "node-check-"+check.ID, check.Argv, needs, stepGetenv(n.environ),
+	)
 }
 
 // gate returns the gate that runs check in worktree. Its limit is the check's limit in seconds, and it keeps the newest
