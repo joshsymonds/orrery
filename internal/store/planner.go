@@ -28,6 +28,10 @@ var ErrTurnNotRunning = errors.New("turn is not running")
 // task's position and the entry, and the turn writes nothing.
 var ErrBadDependency = errors.New("bad task dependency")
 
+// TaskKindDesign is the kind of a design task, which designs an interface the epic's other tasks build against. A task
+// of the empty kind is an ordinary task.
+const TaskKindDesign = "design"
+
 // EpicPlanState is the planning state of one epic with pending triggers. Parked is the park reason of an owner park,
 // empty when the epic is not parked or its park is a planner park, which the planner answers. PlannerPark is the park
 // reason of that planner park, empty otherwise, so a decision records the park it was made under. Running is true when
@@ -71,6 +75,8 @@ type EpicTurn struct {
 // implementers declared with a commit the guard passed, one per file in the order first declared. Notes are the notes
 // its build holds, in the order they were recorded. Refused are the paths
 // an orchestrator decision refused on the task, which no rule grant gives the task again until a decision adds them.
+// Kind is the task's kind, "" for an ordinary task or TaskKindDesign. Revises is the seq of the design task the task
+// revises, 0 for none.
 type EpicTask struct {
 	Seq          int64
 	Turn         int64
@@ -104,6 +110,8 @@ type EpicTask struct {
 	Generation int64
 	// DependsOn are the seqs of the tasks the task depends on, in the order its planner named them, nil for none.
 	DependsOn []int64
+	Kind      string
+	Revises   int64
 }
 
 // EpicQuestion is one question a planner turn asked, with its state. Turn is the seq of the turn that asked it. Label,
@@ -153,8 +161,9 @@ type EpicPlan struct {
 }
 
 // EpicTaskInput is one task of a planner return: its title, its deliverable, the files it touches, the Requirements
-// it covers, the Requirements it contributes to, the test files it changes, its gate, its evidence item and the tasks
-// it depends on.
+// it covers, the Requirements it contributes to, the test files it changes, its gate, its evidence item, its kind and
+// the tasks it depends on. Kind is "" or TaskKindDesign; CompleteTurn stores it as given, and the store refuses any
+// other kind.
 type EpicTaskInput struct {
 	Title        string
 	Deliverable  string
@@ -164,6 +173,7 @@ type EpicTaskInput struct {
 	TestChanges  []string
 	Gate         string
 	Evidence     evidence.Item
+	Kind         string
 	// DependsOn names the tasks this task depends on, in order. An entry of the form T<n>, with n >= 1 and no leading
 	// zero, names the task of the epic with seq n, which must already be stored. Any other entry names the task of the
 	// return with that exact title, so a title is never T<n>. A title two tasks of the return share names neither task,
@@ -380,6 +390,7 @@ func taskOf(
 		Status: stored.Status, Build: buildOf(stored), Reviews: reviews, Batch: stored.Batch,
 		NeedsFiles: needsFiles, GateChanges: gateChanges, Notes: notes,
 		Refused: refused, Version: 1, Versions: versions, Generation: stored.Generation, DependsOn: dependsOn,
+		Kind: stored.Kind, Revises: stored.Revises,
 	}
 	overlayVersions(&task)
 	if task.Build.RedRun != "" {
@@ -684,6 +695,7 @@ func insertTasks(ctx context.Context, queries *sqlcgen.Queries, epic string, tur
 		if err = queries.InsertEpicTask(ctx, sqlcgen.InsertEpicTaskParams{
 			Epic: epic, Seq: seq, Turn: turn, Title: task.Title, Deliverable: task.Deliverable,
 			Gate: task.Gate, Evidence: item, DependsOn: encodeSeqs(dependsOn[taskPosition-1]),
+			Kind: task.Kind, Revises: 0,
 		}); err != nil {
 			return fmt.Errorf("insert task %d of epic %s: %w", seq, epic, err)
 		}

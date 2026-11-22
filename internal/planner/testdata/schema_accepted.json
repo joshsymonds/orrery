@@ -149,6 +149,9 @@
      "gate": {
       "type": "string"
      },
+     "kind": {
+      "type": "string"
+     },
      "requirements": {
       "items": {
        "type": "string"
