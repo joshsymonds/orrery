@@ -47,7 +47,6 @@ private const val CONTRACT_STROKE = 1.5f
 private const val STATE_WAITING = "waiting"
 private const val UNSEEN_WORDS = "new since you looked"
 private const val CONTRACT_WORDS = "contract"
-private const val QUESTION_LEAD = "? "
 
 /**
  * One conversation and what hangs under it, drawn as round 6 draws the inbox tree: its row, then each epic's and
@@ -142,15 +141,16 @@ private fun NewDot(unseen: Boolean) {
     }
 }
 
-// A hung epic or contract: an epic's mark or a contract's mark, its name and words, its blocker in attention, and for
-// an epic its running steps. The count of a contract sits at the row's end, its version.
+// A hung epic or contract: an epic's mark or a contract's mark, then three lines: its name with its count at the end (a
+// contract's count sits at the row's end, its version), its words, and its blocker in attention, else its newest
+// sentence. An epic also draws its running steps.
 @Composable
 private fun HungRow(hung: Hung, now: Long, onOpen: (String) -> Unit, onLongPress: (SheetRow) -> Unit) {
     val words = epicRowWords(hung, now)
     val mark = words.mark
     val contract = mark == null
     val ended = hung is EpicNode && !hung.epic.live
-    val line = if (contract) words.words else listOf(words.words, words.count).filter { it.isNotEmpty() }.joinToString(" · ")
+    val third = thirdLineOf(words)
     // Only an epic has a sheet; a contract has no archive to offer.
     val onLongClick: (() -> Unit)? = (hung as? EpicNode)?.let { node -> { onLongPress(SheetRow.Epic(node.epic)) } }
     Column(modifier = Modifier.fillMaxWidth()) {
@@ -170,7 +170,7 @@ private fun HungRow(hung: Hung, now: Long, onOpen: (String) -> Unit, onLongPress
             }
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    words.name,
+                    titleLineOf(words),
                     style = OrreryTokens.Type.body.copy(
                         fontWeight = if (ended) OrreryTokens.Font.Weight.regular else OrreryTokens.Font.Weight.bold,
                     ),
@@ -178,12 +178,12 @@ private fun HungRow(hung: Hung, now: Long, onOpen: (String) -> Unit, onLongPress
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
-                Text(line, style = OrreryTokens.Type.small, color = OrreryTokens.Ink.three, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                if (words.blocker.isNotEmpty()) {
+                Text(words.words, style = OrreryTokens.Type.small, color = OrreryTokens.Ink.three, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                if (third.isNotEmpty()) {
                     Text(
-                        QUESTION_LEAD + words.blocker,
+                        third,
                         style = OrreryTokens.Type.small,
-                        color = OrreryTokens.Role.attention,
+                        color = if (words.blocker.isNotEmpty()) OrreryTokens.Role.attention else OrreryTokens.Ink.three,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )

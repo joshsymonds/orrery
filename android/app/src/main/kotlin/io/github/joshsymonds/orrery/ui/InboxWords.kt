@@ -7,17 +7,22 @@ import io.github.joshsymonds.orrery.api.Pane
 import io.github.joshsymonds.orrery.api.currentTool
 
 /**
- * What an epic or contract row says: its [name], its [count], its state [words], its [blocker] (empty when nothing
- * blocks it), and its [mark], which a contract's row does not draw.
+ * What an epic or contract row says: its [name], its [count] (an epic's line count, a contract's version), its [proven]
+ * count of requirements (empty for a contract), its state [words], its [blocker] (empty when nothing blocks it), its
+ * [newest] sentence (empty when the server gives none, and for a contract), and its [mark], which a contract's row does
+ * not draw.
  */
 internal data class EpicRowWords(
     val name: String,
     val count: String,
+    val proven: String,
     val words: String,
     val blocker: String,
+    val newest: String,
     val mark: EpicMarkModel?,
 )
 
+private const val QUESTION_LEAD = "? "
 private const val CONTRACT_PROPOSED = "proposed"
 private const val WAITS_ON_ACCEPT = "waits to be read and accepted"
 private const val RELEASED = "released"
@@ -35,6 +40,14 @@ internal fun epicRowWords(hung: Hung, now: Long): EpicRowWords = when (hung) {
     is EpicNode -> hung.contract?.takeIf { it.state == CONTRACT_PROPOSED }?.let { contractWords(it, now) }
         ?: epicWords(hung, now)
 }
+
+/** A row's first line: an epic's slug with its proven count at its end; a contract's name, its count at the row's end. */
+internal fun titleLineOf(words: EpicRowWords): String =
+    if (words.mark == null) words.name else "${words.name} · ${words.proven}"
+
+/** A row's third line: its blocker led by a question mark, else its newest sentence; empty when neither is there. */
+internal fun thirdLineOf(words: EpicRowWords): String =
+    if (words.blocker.isNotEmpty()) QUESTION_LEAD + words.blocker else words.newest
 
 /** A conversation's second line at [now], in unix seconds; a stand-in row's words when it has no pane. */
 internal fun convoLineOf(convo: Convo, now: Long): String {
@@ -56,13 +69,16 @@ private fun contractWords(contract: ContractRow, now: Long): EpicRowWords {
     return EpicRowWords(
         name = contract.id.substringAfter('/'),
         count = "v${contract.version}",
+        proven = "",
         words = words.filter { it.isNotEmpty() }.joinToString(" · "),
         blocker = if (contract.state == CONTRACT_PROPOSED) WAITS_ON_ACCEPT else "",
+        newest = "",
         mark = null,
     )
 }
 
-// An epic reads its count, its state word with the time since its phase began, its blocker, and its mark.
+// An epic reads its line's count, its proven count, its state word with the time since its phase began, its blocker,
+// its newest sentence, and its mark.
 internal fun epicWords(node: EpicNode, now: Long): EpicRowWords {
     val listed = node.epic
     val detail = node.detail
@@ -72,8 +88,10 @@ internal fun epicWords(node: EpicNode, now: Long): EpicRowWords {
     return EpicRowWords(
         name = listed.slug,
         count = epicLineOf(detail, now).count,
+        proven = provenCountOf(detail),
         words = if (state.isEmpty()) "" else listOf(state, timed).filter { it.isNotEmpty() }.joinToString(" · "),
         blocker = blocker,
+        newest = detail?.newest.orEmpty(),
         mark = epicMarkOf(detail?.requirements.orEmpty(), detail?.centre.orEmpty()),
     )
 }
