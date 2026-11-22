@@ -22,7 +22,8 @@ import (
 // dates its retention window and its aging by, the clock Sessions.List ages its panes by, and the clock
 // WatchConversation reads a background window against.
 // epics is the client whose ListEpics names the sessions that steer a live epic, which List and ListHeadless keep
-// unended, and a nil epics names none.
+// unended and list as working while done, and a nil epics names none. List and ListHeadless also read steps' running
+// steps, whose callers list as working while done, and a nil steps names none.
 // stepped, when set, is called with the session id of each WatchConversation step before the step reads the session. A
 // test sets it to count the reads of its streams. It is nil in production.
 type sessionsServer struct {
@@ -63,7 +64,7 @@ func (s sessionsServer) List(
 	if err != nil {
 		return nil, err
 	}
-	steered, err := readSteered(ctx, s.epics, s.reader)
+	reads, err := readSteered(ctx, s.epics, s.steps, s.reader)
 	if err != nil {
 		return nil, err
 	}
@@ -76,13 +77,15 @@ func (s sessionsServer) List(
 		// seen, all at s.now(). A row with no change time, changed 0, never ages. A server with no clock ages none.
 		verdict, ok := verdicts[row.ID]
 		session.Ended, session.EndedAt = endedRow(false, verdict, ok, changed, mark)
-		session.Ended, session.EndedAt = steeredEnd(steered, row.ID, session.Ended, session.EndedAt)
+		session.Ended, session.EndedAt = steeredEnd(reads.kept, row.ID, session.Ended, session.EndedAt)
 		aged := false
 		if changed != 0 && s.now != nil {
 			now := s.now()
 			aged = floorAged(changed, now) || endedAged(session.Ended, session.EndedAt, now)
 		}
 		session.Archived = archivedRow(mark, changed, aged)
+		// Only the listed state takes the busy set. The fields above read the stored state.
+		session.State = busyState(reads.busy, row.ID, session.State)
 		sessions = append(sessions, session)
 	}
 	return connect.NewResponse(&orreryv1.ListResponse{Sessions: sessions, Seq: snap.Seq}), nil
