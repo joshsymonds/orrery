@@ -599,6 +599,7 @@ func serve(ctx context.Context, opts options, logger *slog.Logger, getenv func(s
 		home:        home,
 		logger:      logger,
 		judge:       newDoneJudge(opts.claude, opts.models),
+		closures:    newClosureJudge(opts.claude, opts.models),
 		reads:       newReadTimes(),
 		mirror:      mirror,
 		webhook:     opts.webhook,
@@ -635,6 +636,7 @@ func serve(ctx context.Context, opts options, logger *slog.Logger, getenv func(s
 
 	st := openStore(ctx, getenv, logger, opts.metrics, opts.storeBusy, opts.storeRetryAfter)
 	attachStore(ctx, st, mirror, notices, router)
+	hub.attachVerdicts(st)
 	var sessions *sessionHost
 	var startErr error
 	if opts.sessions {
@@ -2146,6 +2148,11 @@ type relay struct {
 	summarizers map[tmuxctl.Server]*summary.Summarizer
 	views       *doneViews       // each done's viewing check, handed from observe to the autoseen observer
 	now         func() time.Time // the clock the viewing checks read; nil reads time.Now
+
+	closures *closurejudge.Judge          // decides whether a done pane's conversation is closed
+	paneKeys paneKeyReader                // reads a pane's id and change time for its closure check; nil reads tmux
+	verdicts atomic.Pointer[verdictStore] // stores the closure verdicts, once the store opens
+	closing  sync.WaitGroup               // the closure checks, which wait returns after
 }
 
 // clock returns the time the relay's viewing checks compare the tmux clients' input with: r.now's, or time.Now's when
@@ -2287,12 +2294,13 @@ func hookString(hook json.RawMessage, key string) (string, error) {
 
 // observe requests a summary for a pane that starts working or finishes, hands the notice for a pane that waits for
 // input or finishes to the router, and otherwise tells the router the pane changed. A session's end also forgets the
-// pane's summary and read time.
+// pane's summary and read time. A transition to done starts the pane's closure check.
 func (r *relay) observe(ctx context.Context, transition daemon.Transition) {
 	if transition.To == "" {
 		r.forget(ctx, transition)
 		r.reads.forget(transition.PaneID)
 	}
+	r.checkClosure(ctx, transition)
 	var summarized <-chan struct{}
 	if transition.To == protocol.StateWorking || transition.To == protocol.StateDone {
 		summarized = r.summarize(ctx, transition)
@@ -2552,9 +2560,11 @@ func (r *relay) pushNotification(ctx context.Context, transition daemon.Transiti
 	return paneNotification(transition, text), nil
 }
 
-// wait returns once every summary run has finished. It runs after Serve returns, so no observer can start more work.
+// wait returns once every summary run and closure check has finished. It runs after Serve returns, so no observer can
+// start more work.
 func (r *relay) wait() {
 	for _, summarizer := range r.summarizers {
 		summarizer.Wait()
 	}
+	r.closing.Wait()
 }
