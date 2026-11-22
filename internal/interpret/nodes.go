@@ -72,6 +72,8 @@ func (r *Runner) work(ctx context.Context, epic store.EpicRow, act Action, at ti
 		return r.checkRefs(ctx, epic, act, at)
 	case kinds.ActAdvance:
 		return r.advance(ctx, epic, act, at)
+	case kinds.ActTaskIntegrator:
+		return r.taskIntegrator(ctx, epic, act, at)
 	default:
 		return fmt.Errorf("work %s is not one the executor carries out", act.Work)
 	}

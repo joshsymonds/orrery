@@ -353,6 +353,31 @@ func encodeBatch(result compose.Result) (string, error) {
 	return string(data), nil
 }
 
+// composedRound returns result, the result an integrate run claimed its batch with, with task moved from the tasks it left
+// out to the tasks it composed, into commit. It is the result a round writes when its merged commit composes the task, so
+// the task is no longer left out, and sendBacks never sends it back.
+func composedRound(result string, seq int64, commit string) (string, error) {
+	var batch batchResult
+	if err := json.Unmarshal([]byte(result), &batch); err != nil {
+		return "", fmt.Errorf("integrate result does not decode: %w", err)
+	}
+	out := batchResult{
+		Base: batch.Base, Candidate: batch.Candidate,
+		Composed: slices.Concat(batch.Composed, []batchCommit{{Task: seq, Commit: commit}}),
+		LeftOut:  make([]batchLeftOut, 0, len(batch.LeftOut)),
+	}
+	for _, left := range batch.LeftOut {
+		if left.Task != seq {
+			out.LeftOut = append(out.LeftOut, left)
+		}
+	}
+	data, err := json.Marshal(out)
+	if err != nil {
+		return "", fmt.Errorf("encode batch result: %w", err)
+	}
+	return string(data), nil
+}
+
 // composedAny reports whether result, the result an integrate run claimed its batch with, names a task compose made
 // into a commit. A result that is not a batch result names none.
 func composedAny(result string) bool {
