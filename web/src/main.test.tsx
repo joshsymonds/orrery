@@ -611,7 +611,8 @@ if (process.env[childEnv] === "1") {
     }));
 }
 
-test("a page whose test times out stops before the next test, which fails only on its own", async () => {
+// This test spawns a whole node run, whose startup under load can exceed the suite's 5 s per-test limit, so it gets 30 s.
+test("a page whose test times out stops before the next test, which fails only on its own", { timeout: 30_000 }, async () => {
   // The forced order: in a child run, the first test's page is up when its test times out, and node:test starts the
   // second test at once. A page that ran on past its test would render into the second test's DOM, or remove it, and
   // fail the second test in the first one's place. The child must report the first test alone as failed.
