@@ -10,7 +10,7 @@ import { createClients, createTransport } from "./client";
 import { type EpicsView, epicsView } from "./epics";
 import { type Epic, EpicSchema } from "./gen/orrery/v1/epics_pb";
 import type { Row } from "./rows";
-import { installTestDom, removeTestDom } from "./testdom";
+import { assertNone, installTestDom, removeTestDom } from "./testdom";
 import { turn, until as waitUntil } from "./testwait";
 
 const now = 1000;
@@ -312,7 +312,7 @@ test("InboxTidyKeys: the row menu archives a row in the inbox, and draws no key 
   withInbox({ rows: [session({ key: "s1", id: "s1", label: "notes" })] }, async (container, fake) => {
     await openMenu(container, "s1");
     const item = menuItemOf(container, "s1", "Archive");
-    assert.equal(item.querySelector("kbd"), null, "Archive draws no key cap");
+    assertNone(item.querySelector("kbd"), "Archive draws no key cap");
     await click(item);
     await until(t.signal, () => fake.callsTo(archivePath).length === 1, "the archive call");
     assert.deepEqual(fake.callsTo(archivePath)[0].body, { kind: "session", id: "s1" });
@@ -325,7 +325,7 @@ test("InboxTidyKeys: the row menu unarchives a row in the Archived view, and dra
       await press({ key: "v" });
       await openMenu(container, "ha");
       const item = menuItemOf(container, "ha", "Unarchive");
-      assert.equal(item.querySelector("kbd"), null, "Unarchive draws no key cap");
+      assertNone(item.querySelector("kbd"), "Unarchive draws no key cap");
       await click(item);
       await until(t.signal, () => fake.callsTo(unarchivePath).length === 1, "the unarchive call");
       assert.deepEqual(fake.callsTo(unarchivePath)[0].body, { kind: "headless", id: "ha" });
@@ -339,7 +339,7 @@ test("InboxTidyKeys: the head menu archives the conversation it shows, and draws
     const items = container.querySelectorAll<HTMLButtonElement>('section[aria-label="reader"] .head-menu [role="menuitem"]');
     const item = [...items].find((candidate) => candidate.firstChild?.textContent === "Archive");
     assert.ok(item, "the head's More menu holds Archive");
-    assert.equal(item.querySelector("kbd"), null, "Archive draws no key cap");
+    assertNone(item.querySelector("kbd"), "Archive draws no key cap");
     await click(item);
     await until(t.signal, () => fake.callsTo(archivePath).length === 1, "the archive call");
     assert.deepEqual(fake.callsTo(archivePath)[0].body, { kind: "session", id: "s1" });
