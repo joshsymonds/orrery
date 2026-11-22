@@ -136,7 +136,7 @@
     desk: () => O.desk({ inbox: { dirs: W.unreachableDirs() }, pages: [O.blankPage('One host does not answer.', 'Its card says so; the other cards are as you left them.')] }),
     phone: () => O.home({ dirs: W.unreachableDirs() }),
     differs: ['The web under 760 does not differ on this screen: the card head says unreachable beside its host, and the row under it reads the same.'],
-  }, ['sessionDown', 'hostDown']);
+  }, ['session', 'epic', 'step', 'sessionDown', 'hostDown']);
 
   inbox({
     id: 'hosts', group: 'Inbox', title: 'Hosts: all reachable, one under load',
@@ -144,7 +144,7 @@
     desk: () => O.desk({ pages: [O.hostsPage(W.hosts)] }),
     phone: () => O.screen(O.hostsPage(W.hosts)),
     differs: ['The web under 760 does not differ on this screen: each host is one row with its two meters and whether it answers, as here.'],
-  }, ['hosts']);
+  }, ['session', 'epic', 'step', 'hosts']);
 
   inbox({
     id: 'hosts-unreachable', group: 'Inbox', title: 'Hosts: one does not answer',
@@ -152,5 +152,5 @@
     desk: () => O.desk({ pages: [O.hostsPage(W.hostsOneDown)] }),
     phone: () => O.screen(O.hostsPage(W.hostsOneDown)),
     differs: ['The web under 760 does not differ on this screen: the host that does not answer says unreachable beside its name and draws no numbers.'],
-  }, ['hosts']);
+  }, ['session', 'epic', 'step', 'hostDown', 'hosts']);
 })();
