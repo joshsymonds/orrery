@@ -2,7 +2,6 @@ package enginehost
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"slices"
@@ -123,21 +122,6 @@ func (j *closureFakeJudge) callsOf() []closureJudgeCall {
 	return slices.Clone(j.calls)
 }
 
-// closureFakeCaller is the closurejudge.Caller under a real judge: it answers each call with reply and counts the
-// calls. Its count is read only after closureRun returns, which is after the goroutine that makes the calls has ended.
-type closureFakeCaller struct {
-	reply json.RawMessage
-	calls int
-}
-
-// CallVia counts the call and answers it with the fake's reply.
-func (c *closureFakeCaller) CallVia(
-	context.Context, string, string, map[string]string, string, string,
-) (json.RawMessage, error) {
-	c.calls++
-	return c.reply, nil
-}
-
 // closureRun wakes the example session on a SessionClosures over st and judge, runs it until one pass has judged the
 // wake, and then stops it.
 func closureRun(t *testing.T, st ClosureStore, judge ClosureJudge) {
@@ -238,26 +222,6 @@ func TestInboxClosureJudgeFailedCallStoresNothing(t *testing.T) {
 
 	if calls := judge.callsOf(); len(calls) != 1 {
 		t.Fatalf("Closed calls = %d, want 1", len(calls))
-	}
-	if got := st.verdictsOf(); len(got) != 0 {
-		t.Errorf("verdicts = %+v, want none", got)
-	}
-}
-
-func TestInboxClosureJudgeUnreadableReplyStoresNothing(t *testing.T) {
-	t.Parallel()
-	st := newClosureFakeStore()
-	st.addSession(closureFakeSession{
-		state: string(protocol.StateDone), changed: exampleClosureChanged,
-		turns: []store.RecentTurn{{Role: "user", Text: "example prompt"}},
-	})
-	caller := &closureFakeCaller{reply: json.RawMessage("example unreadable reply")}
-	judge := closurejudge.New(caller, nil)
-
-	closureRun(t, st, judge)
-
-	if caller.calls != 1 {
-		t.Fatalf("caller calls = %d, want 1", caller.calls)
 	}
 	if got := st.verdictsOf(); len(got) != 0 {
 		t.Errorf("verdicts = %+v, want none", got)

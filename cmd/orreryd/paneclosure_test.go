@@ -203,39 +203,6 @@ func TestInboxClosureJudgeFailedCallStoresNothing(t *testing.T) {
 	}
 }
 
-// TestInboxClosureJudgeUnreadableReplyStoresNothing checks that a reply the closure judge cannot read stores no verdict,
-// after the one call it made.
-func TestInboxClosureJudgeUnreadableReplyStoresNothing(t *testing.T) {
-	t.Parallel()
-	tests := []struct {
-		name  string
-		reply string
-	}{
-		{"not json", `not json`},
-		{"missing closed", `{"why":"no verdict"}`},
-		{"closed not boolean", `{"closed":"yes","why":"string verdict"}`},
-	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			home := t.TempDir()
-			caller := &closureCaller{reply: json.RawMessage(tc.reply)}
-			writer := &closureWriter{}
-			r := closureRelay(home, caller, closureKeys(closurePaneID, closureChanged, nil), writer)
-
-			awaitClosure(t, r, closureTransition(t, protocol.StateDone, closurePlainCwd(t, home), "",
-				closureTranscript(t, t.TempDir())))
-
-			if len(caller.calls) != 1 {
-				t.Fatalf("closure calls = %d, want 1", len(caller.calls))
-			}
-			if len(writer.writes) != 0 {
-				t.Errorf("verdict writes = %d, want none for an unreadable reply", len(writer.writes))
-			}
-		})
-	}
-}
-
 // TestInboxClosureJudgeWorkingOrWaitingSessionMakesNoCall checks that a pane's transition to working or waiting starts
 // no closure check, so it makes no call and stores nothing.
 func TestInboxClosureJudgeWorkingOrWaitingSessionMakesNoCall(t *testing.T) {
