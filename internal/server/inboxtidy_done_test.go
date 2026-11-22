@@ -34,33 +34,39 @@ type doneKind struct {
 }
 
 // inboxTidyPane is a pane session row, listed by Sessions.List.
-var inboxTidyPane = doneKind{
-	name:  "Sessions.List",
-	mark:  archiveKindSession,
-	write: writeDonePane,
-	change: func(t *testing.T, path, id string, at time.Time) {
-		t.Helper()
-		writeDonePane(t, path, id, at, time.Time{})
-	},
-	list: func(t *testing.T, client orreryv1connect.SessionsClient) map[string]bool {
-		t.Helper()
-		return archivedByID(listSessionRows(t, client))
-	},
+func inboxTidyPane() doneKind {
+	return doneKind{
+		name:  "Sessions.List",
+		mark:  archiveKindSession,
+		write: writeDonePane,
+		change: func(t *testing.T, path, id string, at time.Time) {
+			t.Helper()
+			writeDonePane(t, path, id, at, time.Time{})
+		},
+		list: func(t *testing.T, client orreryv1connect.SessionsClient) map[string]bool {
+			t.Helper()
+			return archivedByID(listSessionRows(t, client))
+		},
+	}
 }
 
 // inboxTidyHeadless is a headless session row, listed by ListHeadless.
-var inboxTidyHeadless = doneKind{
-	name:  "ListHeadless",
-	mark:  archiveKindHeadless,
-	write: writeDoneHeadless,
-	change: func(t *testing.T, path, id string, at time.Time) {
-		t.Helper()
-		applyHeadlessAt(t, path, at, store.EngineSet{ID: id, Changes: store.EngineChanges{State: optionalString("done")}})
-	},
-	list: func(t *testing.T, client orreryv1connect.SessionsClient) map[string]bool {
-		t.Helper()
-		return archivedByID(listHeadlessRows(t, client))
-	},
+func inboxTidyHeadless() doneKind {
+	return doneKind{
+		name:  "ListHeadless",
+		mark:  archiveKindHeadless,
+		write: writeDoneHeadless,
+		change: func(t *testing.T, path, id string, at time.Time) {
+			t.Helper()
+			applyHeadlessAt(t, path, at, store.EngineSet{
+				ID: id, Changes: store.EngineChanges{State: optionalString("done")},
+			})
+		},
+		list: func(t *testing.T, client orreryv1connect.SessionsClient) map[string]bool {
+			t.Helper()
+			return archivedByID(listHeadlessRows(t, client))
+		},
+	}
 }
 
 // doneRow is one done row of a test: its id, its change and seen times (a zero seen is unseen), and whether its list
@@ -173,40 +179,40 @@ func inboxTidyDoneUnarchiveHolds(t *testing.T, kind doneKind) {
 
 func TestInboxTidyDoneConversationPaneSeenAgesAtTwelveHours(t *testing.T) {
 	t.Parallel()
-	inboxTidyDoneSeenAtTwelveHours(t, inboxTidyPane)
+	inboxTidyDoneSeenAtTwelveHours(t, inboxTidyPane())
 }
 
 func TestInboxTidyDoneConversationPaneUnseenAgesAtThreeDays(t *testing.T) {
 	t.Parallel()
-	inboxTidyDoneUnseenAtThreeDays(t, inboxTidyPane)
+	inboxTidyDoneUnseenAtThreeDays(t, inboxTidyPane())
 }
 
 func TestInboxTidyDoneConversationPaneChangedAfterMarkComesBack(t *testing.T) {
 	t.Parallel()
-	inboxTidyDoneChangedAfterMark(t, inboxTidyPane)
+	inboxTidyDoneChangedAfterMark(t, inboxTidyPane())
 }
 
 func TestInboxTidyDoneConversationPaneUnarchiveHoldsUntilChange(t *testing.T) {
 	t.Parallel()
-	inboxTidyDoneUnarchiveHolds(t, inboxTidyPane)
+	inboxTidyDoneUnarchiveHolds(t, inboxTidyPane())
 }
 
 func TestInboxTidyDoneConversationHeadlessSeenAgesAtTwelveHours(t *testing.T) {
 	t.Parallel()
-	inboxTidyDoneSeenAtTwelveHours(t, inboxTidyHeadless)
+	inboxTidyDoneSeenAtTwelveHours(t, inboxTidyHeadless())
 }
 
 func TestInboxTidyDoneConversationHeadlessUnseenAgesAtThreeDays(t *testing.T) {
 	t.Parallel()
-	inboxTidyDoneUnseenAtThreeDays(t, inboxTidyHeadless)
+	inboxTidyDoneUnseenAtThreeDays(t, inboxTidyHeadless())
 }
 
 func TestInboxTidyDoneConversationHeadlessChangedAfterMarkComesBack(t *testing.T) {
 	t.Parallel()
-	inboxTidyDoneChangedAfterMark(t, inboxTidyHeadless)
+	inboxTidyDoneChangedAfterMark(t, inboxTidyHeadless())
 }
 
 func TestInboxTidyDoneConversationHeadlessUnarchiveHoldsUntilChange(t *testing.T) {
 	t.Parallel()
-	inboxTidyDoneUnarchiveHolds(t, inboxTidyHeadless)
+	inboxTidyDoneUnarchiveHolds(t, inboxTidyHeadless())
 }
