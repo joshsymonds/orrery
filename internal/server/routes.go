@@ -50,12 +50,18 @@ func (r routesServer) Replace(
 	ctx context.Context,
 	req *connect.Request[orreryv1.RoutesReplaceRequest],
 ) (*connect.Response[orreryv1.RoutesReplaceResponse], error) {
-	reply, err := forwardAccount(ctx, r.commands, r.timeout, r.clock, "replace routes",
+	reply, err := forwardAccount(
+		ctx,
+		r.commands,
+		r.timeout,
+		r.clock,
+		"replace routes",
 		func(ctx context.Context, c enginev1connect.AccountsClient) (*connect.Response[enginev1.ReplaceRoutesResponse], error) {
 			return c.ReplaceRoutes(ctx, connect.NewRequest(&enginev1.ReplaceRoutesRequest{
 				Registry: req.Msg.GetRegistry(),
 			}))
-		})
+		},
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -67,12 +73,18 @@ func (r routesServer) SetContextAccount(
 	ctx context.Context,
 	req *connect.Request[orreryv1.RoutesSetContextAccountRequest],
 ) (*connect.Response[orreryv1.RoutesSetContextAccountResponse], error) {
-	reply, err := forwardAccount(ctx, r.commands, r.timeout, r.clock, "set context account",
+	reply, err := forwardAccount(
+		ctx,
+		r.commands,
+		r.timeout,
+		r.clock,
+		"set context account",
 		func(ctx context.Context, c enginev1connect.AccountsClient) (*connect.Response[enginev1.SetContextAccountResponse], error) {
 			return c.SetContextAccount(ctx, connect.NewRequest(&enginev1.SetContextAccountRequest{
 				Context: req.Msg.GetContext(), Account: req.Msg.GetAccount(),
 			}))
-		})
+		},
+	)
 	if err != nil {
 		return nil, err
 	}

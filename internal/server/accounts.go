@@ -61,12 +61,21 @@ func (a accountsServer) Add(
 	ctx context.Context,
 	req *connect.Request[orreryv1.AccountsAddRequest],
 ) (*connect.Response[orreryv1.AccountsAddResponse], error) {
-	reply, err := forwardAccount(ctx, a.commands, a.timeout, a.clock, "add account",
+	reply, err := forwardAccount(
+		ctx,
+		a.commands,
+		a.timeout,
+		a.clock,
+		"add account",
 		func(ctx context.Context, c enginev1connect.AccountsClient) (*connect.Response[enginev1.AddAccountResponse], error) {
 			return c.AddAccount(ctx, connect.NewRequest(&enginev1.AddAccountRequest{
-				Name: req.Msg.GetName(), Provider: req.Msg.GetProvider(), Plan: req.Msg.GetPlan(), Token: req.Msg.GetToken(),
+				Name:     req.Msg.GetName(),
+				Provider: req.Msg.GetProvider(),
+				Plan:     req.Msg.GetPlan(),
+				Token:    req.Msg.GetToken(),
 			}))
-		})
+		},
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -78,12 +87,18 @@ func (a accountsServer) Rename(
 	ctx context.Context,
 	req *connect.Request[orreryv1.AccountsRenameRequest],
 ) (*connect.Response[orreryv1.AccountsRenameResponse], error) {
-	reply, err := forwardAccount(ctx, a.commands, a.timeout, a.clock, "rename account",
+	reply, err := forwardAccount(
+		ctx,
+		a.commands,
+		a.timeout,
+		a.clock,
+		"rename account",
 		func(ctx context.Context, c enginev1connect.AccountsClient) (*connect.Response[enginev1.RenameAccountResponse], error) {
 			return c.RenameAccount(ctx, connect.NewRequest(&enginev1.RenameAccountRequest{
 				Id: req.Msg.GetId(), Name: req.Msg.GetName(),
 			}))
-		})
+		},
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -95,10 +110,16 @@ func (a accountsServer) Remove(
 	ctx context.Context,
 	req *connect.Request[orreryv1.AccountsRemoveRequest],
 ) (*connect.Response[orreryv1.AccountsRemoveResponse], error) {
-	_, err := forwardAccount(ctx, a.commands, a.timeout, a.clock, "remove account",
+	_, err := forwardAccount(
+		ctx,
+		a.commands,
+		a.timeout,
+		a.clock,
+		"remove account",
 		func(ctx context.Context, c enginev1connect.AccountsClient) (*connect.Response[enginev1.RemoveAccountResponse], error) {
 			return c.RemoveAccount(ctx, connect.NewRequest(&enginev1.RemoveAccountRequest{Id: req.Msg.GetId()}))
-		})
+		},
+	)
 	if err != nil {
 		return nil, err
 	}
