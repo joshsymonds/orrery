@@ -174,25 +174,32 @@ func (e epicsServer) Get(
 		applyStoredRoles(resp.GetEpic().GetRunningSteps(), roles)
 		resp.Requirements = epicRequirementMessages(stored.GetContract().GetRequirements(), runs)
 		resp.Nodes = epicNodeMessages(stored.GetNodes(), runs)
-		resp.BuildTasks = epicBuildTaskMessages(stored.GetTasks())
-		resp.Ledger = epicLedgerFindingMessages(stored.GetLedger().GetFindings())
-		resp.Reviews = epicReviewVerdictMessages(stored.GetLedger().GetVerdicts())
-		resp.Releases = epicReleaseRunMessages(stored.GetReleases())
-		resp.ReleaseSteps = epicReleaseProofMessages(stored.GetReleaseProof())
-		resp.Report = epicReportMessage(stored.GetReport())
-		resp.Questions = epicQuestionMessages(stored.GetQuestions(), stored.GetTurns(), stored.GetSteererHeard())
-		resp.Contract = epicContractMessage(stored.GetContract(), stored.GetCreated())
-		resp.Summary = stored.GetSummary()
-		resp.Paused = stored.GetPaused()
-		resp.Parked = stored.GetParked()
-		resp.PlannerParked = stored.GetParked() != "" && !store.ParkClass(stored.GetParkClass()).OpensQuestion()
-		resp.SteererParked = steererParked(stored)
-		resp.SupersededBy = stored.GetSupersededBy()
+		setStoredEpicParts(resp, stored)
 	} else {
 		resp.Epic = epicMessage(rec, tasks, taskProblems, counts, e.now())
 	}
 	epicLifecycles(resp, stored, labeled)
 	return connect.NewResponse(resp), nil
+}
+
+// setStoredEpicParts sets the parts of resp that stored alone answers: its build tasks, ledger findings, review
+// verdicts, release runs and steps, report, questions, contract and summary, whether it is paused, why it is parked,
+// whether the planner or its steerer holds the park, and the epic that superseded it.
+func setStoredEpicParts(resp *orreryv1.EpicsGetResponse, stored *enginev1.StoredEpic) {
+	resp.BuildTasks = epicBuildTaskMessages(stored.GetTasks())
+	resp.Ledger = epicLedgerFindingMessages(stored.GetLedger().GetFindings())
+	resp.Reviews = epicReviewVerdictMessages(stored.GetLedger().GetVerdicts())
+	resp.Releases = epicReleaseRunMessages(stored.GetReleases())
+	resp.ReleaseSteps = epicReleaseProofMessages(stored.GetReleaseProof())
+	resp.Report = epicReportMessage(stored.GetReport())
+	resp.Questions = epicQuestionMessages(stored.GetQuestions(), stored.GetTurns(), stored.GetSteererHeard())
+	resp.Contract = epicContractMessage(stored.GetContract(), stored.GetCreated())
+	resp.Summary = stored.GetSummary()
+	resp.Paused = stored.GetPaused()
+	resp.Parked = stored.GetParked()
+	resp.PlannerParked = stored.GetParked() != "" && !store.ParkClass(stored.GetParkClass()).OpensQuestion()
+	resp.SteererParked = steererParked(stored)
+	resp.SupersededBy = stored.GetSupersededBy()
 }
 
 // listSteps asks the step client for the labeled steps req narrows to, and answers its reply. A nil client, or a
