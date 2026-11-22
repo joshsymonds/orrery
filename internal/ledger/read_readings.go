@@ -49,7 +49,8 @@ func queryReadings(ctx context.Context, db *sql.DB) (readings []Reading, err err
 		var utilization sql.NullFloat64
 		var reset sql.NullInt64
 		if err = rows.Scan(
-			&reading.Account, &reading.Claim, &utilization, &reset, &reading.Status, &reading.Observed, &reading.Dropped,
+			&reading.Account, &reading.Claim, &utilization, &reset,
+			&reading.Status, &reading.Observed, &reading.Dropped,
 		); err != nil {
 			return nil, fmt.Errorf("scan reading: %w", err)
 		}

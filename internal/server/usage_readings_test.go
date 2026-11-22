@@ -37,9 +37,9 @@ type readingRequest struct {
 	claims    []ledger.Claim
 }
 
-// readingClaim returns a claim named name that reports a utilization, a reset and a status.
-func readingClaim(name string, utilization float64, reset int64, status string) ledger.Claim {
-	return ledger.Claim{Name: name, Utilization: &utilization, Reset: &reset, Status: status}
+// readingClaim returns a claim named name that reports a utilization and a reset, with status allowed.
+func readingClaim(name string, utilization float64, reset int64) ledger.Claim {
+	return ledger.Claim{Name: name, Utilization: &utilization, Reset: &reset, Status: "allowed"}
 }
 
 // statusClaim returns a claim named name that reports only a status: no utilization and no reset.
@@ -53,17 +53,17 @@ func statusClaim(name, status string) ledger.Claim {
 func readingsRequests() []readingRequest {
 	return []readingRequest{
 		{account: readingsAccountA, completed: readingsFirst, claims: []ledger.Claim{
-			readingClaim(readingsClaimFive, 0.1, readingsFiveReset, "allowed"),
-			readingClaim(readingsClaimWeek, 0.2, readingsWeekReset, "allowed"),
-			readingClaim(readingsClaimSonnet, 0.3, readingsWeekReset, "allowed"),
+			readingClaim(readingsClaimFive, 0.1, readingsFiveReset),
+			readingClaim(readingsClaimWeek, 0.2, readingsWeekReset),
+			readingClaim(readingsClaimSonnet, 0.3, readingsWeekReset),
 		}},
 		{account: readingsAccountA, completed: readingsSecond, claims: []ledger.Claim{
-			readingClaim(readingsClaimFive, 0.5, readingsFiveReset, "allowed"),
-			readingClaim(readingsClaimWeek, 0.6, readingsWeekReset, "allowed"),
+			readingClaim(readingsClaimFive, 0.5, readingsFiveReset),
+			readingClaim(readingsClaimWeek, 0.6, readingsWeekReset),
 			statusClaim(readingsClaimOverage, "rejected"),
 		}},
 		{account: readingsAccountB, completed: readingsFirst, claims: []ledger.Claim{
-			readingClaim(readingsClaimFive, 0.4, readingsFiveReset, "allowed"),
+			readingClaim(readingsClaimFive, 0.4, readingsFiveReset),
 		}},
 	}
 }

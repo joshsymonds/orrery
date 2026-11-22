@@ -22,15 +22,15 @@ func (u usageServer) Readings(
 		return nil, listError(connect.CodeUnavailable, "read readings")
 	}
 	messages := make([]*orreryv1.UsageReading, 0, len(readings))
-	for _, r := range readings {
+	for _, reading := range readings {
 		messages = append(messages, &orreryv1.UsageReading{
-			Account:     r.Account,
-			Claim:       r.Claim,
-			Utilization: r.Utilization,
-			Reset_:      r.Reset,
-			Status:      r.Status,
-			Observed:    r.Observed,
-			Dropped:     r.Dropped,
+			Account:     reading.Account,
+			Claim:       reading.Claim,
+			Utilization: reading.Utilization,
+			Reset_:      reading.Reset,
+			Status:      reading.Status,
+			Observed:    reading.Observed,
+			Dropped:     reading.Dropped,
 		})
 	}
 	return connect.NewResponse(&orreryv1.UsageReadingsResponse{Readings: messages}), nil
