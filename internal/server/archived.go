@@ -22,9 +22,10 @@ const (
 // stateStopped is the headless state of a session the owner stopped. stateFailed is the state of one that failed.
 const stateStopped = "stopped"
 
-// epicAge is how long an epic that is not live must go unchanged before it ages out. finalEpicAge is how long a final
-// epic must go unchanged before it ages out when no owner has seen it. headlessAge is how long a stopped or failed
-// headless session must go unchanged before it ages out.
+// epicAge is the seven-day floor: how long any list row must go unchanged before it ages out, whatever its state and
+// whether or not it is live (see floorAged). finalEpicAge is how long a final epic must go unchanged before it ages out
+// when no owner has seen it. headlessAge is how long a stopped or failed headless session must go unchanged before it
+// ages out.
 const (
 	epicAge      = 7 * 24 * time.Hour
 	finalEpicAge = 24 * time.Hour
@@ -109,18 +110,23 @@ func epicFinal(source, outcome string) bool {
 	return false
 }
 
-// epicAged reports whether an epic that Epics.List answers ages out at now. A live epic never ages. An epic that is not
-// live ages once it changed at least epicAge before now. A final epic (see epicFinal) also ages once its seen time is
-// set and at or after its change, or once it changed at least finalEpicAge before now.
+// floorAged reports whether a row changed at changed, unix seconds, ages out at now by the seven-day floor: it changed
+// at least epicAge before now. The floor applies to every list row, whatever its state and whether or not it is live,
+// and is added to each row's other rules.
+func floorAged(changed int64, now time.Time) bool {
+	return changed <= now.Add(-epicAge).Unix()
+}
+
+// epicAged reports whether an epic that Epics.List answers ages out at now. An epic ages once it changed at least
+// epicAge before now, live or not (see floorAged). An epic that is not live also ages by the final-epic rule: a final
+// epic (see epicFinal) ages once its seen time is set and at or after its change, or once it changed at least
+// finalEpicAge before now. A live epic ages by the floor alone.
 func epicAged(epic *orreryv1.Epic, now time.Time) bool {
-	if epic.GetLive() {
-		return false
-	}
 	changed := epic.GetChanged()
-	if changed <= now.Add(-epicAge).Unix() {
+	if floorAged(changed, now) {
 		return true
 	}
-	if !epicFinal(epic.GetSource(), epic.GetOutcome()) {
+	if epic.GetLive() || !epicFinal(epic.GetSource(), epic.GetOutcome()) {
 		return false
 	}
 	seen := epic.GetSeen()
@@ -140,10 +146,14 @@ func doneAged(changed, seen int64, now time.Time) bool {
 	return seen != 0 && seen >= changed && changed <= now.Add(-doneSeenAge).Unix()
 }
 
-// headlessAged reports whether a headless session in state, changed at changed and seen at seen, ages out at now. A
-// done session ages by doneAged. A stopped session ages once it has been unchanged for headlessAge. A failed session
-// ages once it has been unchanged for headlessAge and has been seen since it failed. No other state ages.
+// headlessAged reports whether a headless session in state, changed at changed and seen at seen, ages out at now. Any
+// session ages by the floor (see floorAged). Otherwise a done session ages by doneAged. A stopped session ages once it
+// has been unchanged for headlessAge. A failed session ages once it has been unchanged for headlessAge and has been
+// seen since it failed. No other state ages.
 func headlessAged(state string, changed, seen int64, now time.Time) bool {
+	if floorAged(changed, now) {
+		return true
+	}
 	if state == string(protocol.StateDone) {
 		return doneAged(changed, seen, now)
 	}
