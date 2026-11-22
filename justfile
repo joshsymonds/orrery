@@ -370,15 +370,18 @@ android-install:
         gradle -p android assembleDebug -Porrery.defaultServer="${ORRERY_DEFAULT_SERVER:-}" -Porrery.version="$(git describe --tags --abbrev=0)"; \
         adb install -r android/app/build/outputs/apk/debug/app-debug.apk'
 
-# Regenerate the Orrery Mono subsets (Regular, Bold, Italic) of Maple Mono NF
-# from the flake's pinned nixpkgs, renamed because the OFL reserves the name.
+# Regenerate the Orrery Mono subsets (Regular, Bold, Italic) of Maple Mono NF from the flake's pinned nixpkgs, renamed
+# because the OFL reserves the name, and the Inter faces (inter_regular, inter_bold, inter_italic) from nixpkgs' Inter:
+# its variable faces instanced at wght 400 and 700 upright and 400 italic, every other axis pinned to its default.
+# Both are subset to the same unicodes.
 [script]
 android-font:
     src=$(nix build --no-link --print-out-paths --inputs-from . nixpkgs#maple-mono.NF-CN-unhinted)
+    inter=$(nix build --no-link --print-out-paths --inputs-from . nixpkgs#inter)
     tmp=$(mktemp -d)
     trap 'rm -rf "$tmp"' EXIT
-    nix shell --inputs-from . nixpkgs#python3Packages.fonttools -c bash -euo pipefail -s "$src" "$tmp" "$PWD/android/app/src/main/res" <<'SCRIPT'
-    src=$1 tmp=$2 res=$3
+    nix shell --inputs-from . nixpkgs#python3Packages.fonttools -c bash -euo pipefail -s "$src" "$tmp" "$PWD/android/app/src/main/res" "$inter" <<'SCRIPT'
+    src=$1 tmp=$2 res=$3 inter=$4
     unicodes='U+0020-007E,U+00A0-024F,U+2000-206F,U+2190-21FF,U+2200-22FF,U+2300-23FF,U+2500-259F,U+25A0-25FF,U+2600-27BF,U+2800-28FF,U+2B00-2BFF,U+E000-F8FF,U+F0000-F1FFF'
     mkdir -p "$res/font"
     for style in Regular Bold Italic; do
@@ -388,6 +391,13 @@ android-font:
         ttx -q -t name -f -o "$tmp/$lower.name.ttx" "$tmp/$lower.ttf"
         sed -i -e 's/Maple Mono NF CN/Orrery Mono/g' -e 's/MapleMono-NF-CN-/OrreryMono-/g' "$tmp/$lower.name.ttx"
         ttx -q --no-recalc-timestamp -m "$tmp/$lower.ttf" -o "$res/font/orrery_mono_$lower.ttf" "$tmp/$lower.name.ttx"
+    done
+    inter_src="$inter/share/fonts/truetype"
+    fonttools varLib.instancer --static --no-recalc-timestamp "$inter_src/InterVariable.ttf" wght=400 -o "$tmp/inter-regular.ttf"
+    fonttools varLib.instancer --static --no-recalc-timestamp "$inter_src/InterVariable.ttf" wght=700 -o "$tmp/inter-bold.ttf"
+    fonttools varLib.instancer --static --no-recalc-timestamp "$inter_src/InterVariable-Italic.ttf" wght=400 -o "$tmp/inter-italic.ttf"
+    for face in regular bold italic; do
+        pyftsubset "$tmp/inter-$face.ttf" --output-file="$res/font/inter_$face.ttf" --unicodes="$unicodes" --layout-features='*' --name-IDs='*'
     done
     SCRIPT
 
