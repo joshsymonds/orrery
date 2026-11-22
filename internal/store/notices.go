@@ -110,7 +110,7 @@ func (s *Store) DeleteNotice(ctx context.Context, id int64) error {
 
 // Notices returns every stored notice ordered by id.
 func (s *Store) Notices(ctx context.Context) ([]NoticeRow, error) {
-	rows, err := sqlcgen.New(s.db).ListPendingNotices(ctx)
+	rows, err := sqlcgen.New(s.read).ListPendingNotices(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("list notices: %w", err)
 	}
@@ -127,7 +127,7 @@ func (s *Store) Notices(ctx context.Context) ([]NoticeRow, error) {
 
 // NoticeIDFloor returns the highest id ever put, or 0 when none has been. Deletes do not lower it.
 func (s *Store) NoticeIDFloor(ctx context.Context) (int64, error) {
-	floor, err := sqlcgen.New(s.db).GetNoticeIDFloor(ctx)
+	floor, err := sqlcgen.New(s.read).GetNoticeIDFloor(ctx)
 	if err != nil {
 		return 0, fmt.Errorf("read notice id floor: %w", err)
 	}

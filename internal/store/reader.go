@@ -97,9 +97,14 @@ func (r *Reader) Snapshot(ctx context.Context) (Snapshot, error) {
 
 // readOnlyDSN opens the store file read-only, so the reader can never write it or create it.
 func readOnlyDSN(path string) string {
+	return readOnlyDSNBusy(path, readBusyTimeoutMillis)
+}
+
+// readOnlyDSNBusy is readOnlyDSN with busyTimeoutMillis as the busy timeout, in milliseconds, in place of the reader's.
+func readOnlyDSNBusy(path string, busyTimeoutMillis int64) string {
 	query := url.Values{}
 	query.Set("mode", "ro")
-	query.Add("_pragma", fmt.Sprintf("busy_timeout(%d)", readBusyTimeoutMillis))
+	query.Add("_pragma", fmt.Sprintf("busy_timeout(%d)", busyTimeoutMillis))
 	return (&url.URL{Scheme: "file", Path: path, RawQuery: query.Encode()}).String()
 }
 

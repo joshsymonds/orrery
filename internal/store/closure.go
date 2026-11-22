@@ -89,7 +89,7 @@ func readClosureVerdicts(ctx context.Context, db *sql.DB) ([]ClosureVerdict, err
 // when no engine session has id, so a pane or step session is not found. It returns an error when the changed stamp is
 // not unix seconds.
 func (s *Store) ClosureSession(ctx context.Context, id string) (ClosureSession, bool, error) {
-	row, err := sqlcgen.New(s.db).GetClosureEngineSession(ctx, id)
+	row, err := sqlcgen.New(s.read).GetClosureEngineSession(ctx, id)
 	if errors.Is(err, sql.ErrNoRows) {
 		return ClosureSession{}, false, nil
 	}

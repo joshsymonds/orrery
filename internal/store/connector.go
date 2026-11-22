@@ -39,6 +39,9 @@ type trackedConnector struct {
 	gate func(context.Context)
 	// waiting, when set, runs once Close has closed the pool and is about to wait for the connections left.
 	waiting func()
+	// readPool is set for the store's read pool. Its connections write nothing, so they register no pre-update hook and
+	// record no epic moves.
+	readPool bool
 
 	// counting is set once Open has migrated the store: from then on each connection's pre-update hook records the
 	// epics a write's rows name (epicMoves). It is unset while the migrations run, and on a store at an older schema,
@@ -49,7 +52,12 @@ type trackedConnector struct {
 
 	mu      sync.Mutex
 	closing bool
-	open    sync.WaitGroup
+	// open is how many connections the connector counts: each from the start of its open to its Close. It is a count,
+	// not a sync.WaitGroup, because a WaitGroup that a synctest bubble adds to may not be released outside the bubble,
+	// and a connection a test opens inside its bubble is closed by the store's Close outside it.
+	open atomic.Int32
+	// drained is set by beginClose while connections are counted, and closed once the count falls to zero.
+	drained chan struct{}
 	// moves is the epic moves of every connection the connector opened, for Close's report of writes outside a store
 	// write.
 	moves []*epicMoves
@@ -84,7 +92,7 @@ func (c *trackedConnector) Connect(ctx context.Context) (driver.Conn, error) {
 	}
 	raw, err := c.inner.Connect(ctx)
 	if err != nil {
-		c.open.Done()
+		c.release()
 		return nil, fmt.Errorf("open store connection: %w", err)
 	}
 	conn, ok := raw.(sqliteConn)
@@ -93,15 +101,32 @@ func (c *trackedConnector) Connect(ctx context.Context) (driver.Conn, error) {
 	})
 	if !ok || !hooks {
 		closeErr := raw.Close()
-		c.open.Done()
+		c.release()
 		return nil, errors.Join(fmt.Errorf("store connection %T lacks a method the store uses", raw), closeErr)
 	}
-	moves := &epicMoves{keys: &c.keys, counting: c.counting.Load}
-	hooked.RegisterPreUpdateHook(moves.hook)
+	var moves *epicMoves
+	if !c.readPool {
+		moves = &epicMoves{keys: &c.keys, counting: c.counting.Load}
+		hooked.RegisterPreUpdateHook(moves.hook)
+		c.mu.Lock()
+		c.moves = append(c.moves, moves)
+		c.mu.Unlock()
+	}
+	return &trackedConn{sqliteConn: conn, done: c.release, moves: moves}, nil
+}
+
+// release counts a connection the connector opened as closed, or failed to open. The last one released after Close
+// begins releases the Close that waits for the connector's connections.
+func (c *trackedConnector) release() {
+	if c.open.Add(-1) > 0 {
+		return
+	}
 	c.mu.Lock()
-	c.moves = append(c.moves, moves)
+	if c.drained != nil {
+		close(c.drained)
+		c.drained = nil
+	}
 	c.mu.Unlock()
-	return &trackedConn{sqliteConn: conn, done: c.open.Done, moves: moves}, nil
 }
 
 // Driver returns the sqlite driver.
@@ -113,6 +138,9 @@ func (c *trackedConnector) Driver() driver.Driver {
 func (c *trackedConnector) beginClose() {
 	c.mu.Lock()
 	c.closing = true
+	if c.open.Load() > 0 {
+		c.drained = make(chan struct{})
+	}
 	c.mu.Unlock()
 }
 
@@ -121,7 +149,12 @@ func (c *trackedConnector) wait() {
 	if c.waiting != nil {
 		c.waiting()
 	}
-	c.open.Wait()
+	c.mu.Lock()
+	drained := c.drained
+	c.mu.Unlock()
+	if drained != nil {
+		<-drained
+	}
 }
 
 // trackedConn is a store connection that tells its connector when it closes, and records each statement on the timer

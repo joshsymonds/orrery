@@ -159,9 +159,26 @@ func storeAtVersion(t *testing.T, version int64) (*Store, *goose.Provider) {
 			t.Errorf("close store at version %d: %v", version, err)
 		}
 	})
+	// The read pool opens the file as Open's does, so a read of the store at version sees each committed write.
+	readInner, err := sqlite.NewConnector(readOnlyDSNBusy(path, BusyTimeout.Milliseconds()))
+	if err != nil {
+		t.Fatalf("open read pool at version %d: %v", version, err)
+	}
+	readConnector := &trackedConnector{inner: readInner, readPool: true}
+	readDB := sql.OpenDB(readConnector)
+	readDB.SetMaxOpenConns(readConns)
+	readDB.SetMaxIdleConns(readConns)
+	t.Cleanup(func() {
+		if err := readDB.Close(); err != nil {
+			t.Errorf("close read pool at version %d: %v", version, err)
+		}
+	})
+	slow := &slowCalls{now: time.Now, logger: slog.New(slog.DiscardHandler)}
 	s := &Store{
-		db:        &pool{DB: db, slow: &slowCalls{now: time.Now, logger: slog.New(slog.DiscardHandler)}},
-		connector: connector,
+		db:            &pool{DB: db, slow: slow},
+		connector:     connector,
+		read:          &pool{DB: readDB, slow: slow},
+		readConnector: readConnector,
 	}
 	return s, migrationProvider(t, db)
 }

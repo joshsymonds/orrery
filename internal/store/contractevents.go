@@ -31,7 +31,7 @@ func ContractStateEvent(contract string, seq int64) string {
 // the contract's version 1, whose writer has a sessions row, and whose id no caller_events mark holds under that row,
 // with Recipient filled from that row. They are ordered by the change's time, then contract id, then seq.
 func (s *Store) ContractEvents(ctx context.Context) ([]ContractEvent, error) {
-	queries := sqlcgen.New(s.db)
+	queries := sqlcgen.New(s.read)
 	rows, err := queries.ListContractChangeEvents(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("list contract changes: %w", err)
