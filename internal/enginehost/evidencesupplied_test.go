@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/joshsymonds/orrery/internal/hostexec"
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
@@ -22,11 +23,14 @@ const suppliedTestCap = 10 << 20
 func suppliedTestSnapshot(t *testing.T, dir string) (head, status string, index []byte) {
 	t.Helper()
 	ctx := context.Background()
-	head, err := stepGitResolve(ctx, dir, "HEAD")
+	head, err := stepGitResolve(ctx, hostexec.NewLocal(), dir, "HEAD")
 	if err != nil {
 		t.Fatalf("resolve HEAD: %v", err)
 	}
-	status, err = stepGit(ctx, dir, "--no-optional-locks", "status", "--porcelain=v1", "-z", "--untracked-files=all")
+	status, err = stepGit(
+		ctx, hostexec.NewLocal(), dir, "--no-optional-locks", "status", "--porcelain=v1", "-z",
+		"--untracked-files=all",
+	)
 	if err != nil {
 		t.Fatalf("status: %v", err)
 	}
@@ -48,7 +52,8 @@ func TestReadSuppliedKeepsTheCommittedBytes(t *testing.T) {
 	blobs := newTestBlobs(t)
 
 	capture := readSupplied(
-		context.Background(), repo, commit, []string{"evidence/report.txt", "evidence/untracked.txt"}, blobs,
+		context.Background(), hostexec.NewLocal(), repo, commit,
+		[]string{"evidence/report.txt", "evidence/untracked.txt"}, blobs,
 	)
 
 	if capture.NotCaptured != "" {
@@ -90,7 +95,7 @@ func TestReadSuppliedExitsZeroOnlyWhenEveryFileIsKept(t *testing.T) {
 	blobs := newTestBlobs(t)
 	ctx := context.Background()
 
-	all := readSupplied(ctx, repo, commit, []string{"a.txt", "b/c.txt"}, blobs)
+	all := readSupplied(ctx, hostexec.NewLocal(), repo, commit, []string{"a.txt", "b/c.txt"}, blobs)
 	if all.Exit != 0 {
 		t.Fatalf("Exit = %d with every file kept, want 0: %+v", all.Exit, all.Artifacts)
 	}
@@ -100,7 +105,7 @@ func TestReadSuppliedExitsZeroOnlyWhenEveryFileIsKept(t *testing.T) {
 		}
 	}
 
-	some := readSupplied(ctx, repo, commit, []string{"a.txt", "absent.txt"}, blobs)
+	some := readSupplied(ctx, hostexec.NewLocal(), repo, commit, []string{"a.txt", "absent.txt"}, blobs)
 	if some.Exit != 1 {
 		t.Fatalf("Exit = %d with a missing file, want 1", some.Exit)
 	}
@@ -117,7 +122,9 @@ func TestReadSuppliedOverTenMiBIsOverCapAndNotStored(t *testing.T) {
 	})
 	blobs := newTestBlobs(t)
 
-	capture := readSupplied(context.Background(), repo, commit, []string{"big/exact.bin", "big/over.bin"}, blobs)
+	capture := readSupplied(
+		context.Background(), hostexec.NewLocal(), repo, commit, []string{"big/exact.bin", "big/over.bin"}, blobs,
+	)
 
 	if len(capture.Artifacts) != 2 {
 		t.Fatalf("got %d artifacts, want 2: %+v", len(capture.Artifacts), capture.Artifacts)
@@ -148,7 +155,9 @@ func TestReadSuppliedDirectoryAndAbsentPathsAreMissing(t *testing.T) {
 	repo := stepGitTestRepo(t)
 	commit := stepGitTestCommit(t, repo, map[string]string{"dir/a.txt": "a\n"})
 
-	capture := readSupplied(context.Background(), repo, commit, []string{"dir", "absent.txt"}, newTestBlobs(t))
+	capture := readSupplied(
+		context.Background(), hostexec.NewLocal(), repo, commit, []string{"dir", "absent.txt"}, newTestBlobs(t),
+	)
 
 	want := []store.EvidenceArtifact{{Path: "dir", State: "missing"}, {Path: "absent.txt", State: "missing"}}
 	if !slices.Equal(capture.Artifacts, want) {
@@ -173,7 +182,8 @@ func TestReadSuppliedLeavesTheRepositoryAlone(t *testing.T) {
 	}
 
 	capture := readSupplied(
-		context.Background(), repo, commit, []string{"evidence/report.txt", "evidence/untracked.txt"}, newTestBlobs(t),
+		context.Background(), hostexec.NewLocal(), repo, commit,
+		[]string{"evidence/report.txt", "evidence/untracked.txt"}, newTestBlobs(t),
 	)
 	if capture.Exit != 1 {
 		t.Fatalf("Exit = %d, want 1 so the read ran to its end", capture.Exit)
@@ -202,7 +212,9 @@ func TestReadSuppliedRevisionThatDoesNotResolveIsNotCaptured(t *testing.T) {
 			repo := stepGitTestRepo(t)
 			blobs := newTestBlobs(t)
 
-			capture := readSupplied(context.Background(), repo, revision, []string{"README"}, blobs)
+			capture := readSupplied(
+				context.Background(), hostexec.NewLocal(), repo, revision, []string{"README"}, blobs,
+			)
 
 			if !strings.HasPrefix(capture.NotCaptured, "could not start: ") {
 				t.Fatalf("NotCaptured = %q, want a could not start reason", capture.NotCaptured)

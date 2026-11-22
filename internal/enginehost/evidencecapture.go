@@ -13,6 +13,7 @@ import (
 	"github.com/joshsymonds/orrery/internal/evidence"
 	"github.com/joshsymonds/orrery/internal/gates"
 	"github.com/joshsymonds/orrery/internal/grants"
+	"github.com/joshsymonds/orrery/internal/hostexec"
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
@@ -62,7 +63,7 @@ func (c evidenceCapture) run(
 	started func(ctx context.Context, grant, holder string) error,
 ) (store.EvidenceCapture, error) {
 	worktree := filepath.Join(c.worktrees, id)
-	if err := addStepWorktree(ctx, repo, worktree, revision); err != nil {
+	if err := addStepWorktree(ctx, hostexec.NewLocal(), repo, worktree, revision); err != nil {
 		return c.end(ctx, repo, worktree, item, nil, captureNotStarted(err)), nil
 	}
 	req, err := c.captureRequest(ctx, worktree, id, item)
@@ -202,7 +203,7 @@ func (c evidenceCapture) end(
 		keepErr = errors.Join(logErr, stderrErr, artifactErr)
 	}
 	cleanErr := errors.Join(
-		removeStepWorktree(context.WithoutCancel(ctx), repo, worktree),
+		removeStepWorktree(context.WithoutCancel(ctx), hostexec.NewLocal(), repo, worktree),
 		gateClear(ctx, holder),
 	)
 	capture.At = time.Now()
@@ -287,10 +288,10 @@ func captureEnsureWorktree(ctx context.Context, repo, revision, path string) err
 	case err == nil:
 		return nil
 	case errors.Is(err, fs.ErrNotExist):
-		if rmErr := removeStepWorktree(ctx, repo, path); rmErr != nil {
+		if rmErr := removeStepWorktree(ctx, hostexec.NewLocal(), repo, path); rmErr != nil {
 			return rmErr
 		}
-		return addStepWorktree(ctx, repo, path, revision)
+		return addStepWorktree(ctx, hostexec.NewLocal(), repo, path, revision)
 	}
 	return fmt.Errorf("stat worktree %s: %w", path, err)
 }

@@ -8,12 +8,13 @@ import (
 	"testing"
 
 	v1 "github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1"
+	"github.com/joshsymonds/orrery/internal/hostexec"
 )
 
 // epicTestBase returns the commit the synthetic repository at repo is at: the base a valid contract starts from. It
 // panics when git cannot resolve HEAD, because the fixtures that call it run where no test can fail with the error.
 func epicTestBase(repo string) string {
-	base, err := stepGitResolve(context.Background(), repo, "HEAD")
+	base, err := stepGitResolve(context.Background(), hostexec.NewLocal(), repo, "HEAD")
 	if err != nil {
 		panic(fmt.Sprintf("epicTestBase: %v", err))
 	}

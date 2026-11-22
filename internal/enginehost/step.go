@@ -15,6 +15,7 @@ import (
 
 	"github.com/joshsymonds/orrery/internal/gates"
 	"github.com/joshsymonds/orrery/internal/grants"
+	"github.com/joshsymonds/orrery/internal/hostexec"
 	"github.com/joshsymonds/orrery/internal/pools"
 	"github.com/joshsymonds/orrery/internal/stamp"
 	"github.com/joshsymonds/orrery/internal/store"
@@ -117,8 +118,8 @@ type StepStart struct {
 
 // StepStore reads the step rows and listings Steps reports, the turn ends and finished blocks their sessions stored and
 // the rate limits their sessions were rejected with, the running steps a caller started, the listings of the steps a
-// caller started, and the sessions row a caller names, which Start checks a caller against before it stores a step.
-// *store.Store satisfies it.
+// caller started, the sessions row a caller names, which Start checks a caller against before it stores a step, and the
+// host the stored epic a step starts under lives on. *store.Store satisfies it.
 type StepStore interface {
 	Step(ctx context.Context, id string) (store.StepRow, error)
 	OpenSteps(ctx context.Context) ([]store.StepRow, error)
@@ -131,6 +132,7 @@ type StepStore interface {
 	RunningCallerSteps(ctx context.Context, caller string) ([]store.StepRow, error)
 	CallerStepListings(ctx context.Context, caller, epic string) ([]store.StepListing, error)
 	CallerSession(ctx context.Context, caller store.EpicCaller) (string, bool, error)
+	EpicHost(ctx context.Context, epic string) (string, error)
 }
 
 // StepsConfig configures Steps. Sessions starts and stops the step sessions, Store reads the step rows and Writer
@@ -153,6 +155,8 @@ type StepStore interface {
 // can wake to deliver it. A nil Stored does nothing.
 // EpicWake, when set, is called with the epic of each stored end or hold whose step has an epic, after Stored, so a caller
 // can wake that epic's flow. A nil EpicWake does nothing.
+// Hosts resolves the host names steps are stamped with to the Host their git and worktrees run on. A nil Hosts is
+// hostexec.LocalHosts, which every name resolves to the local host.
 type StepsConfig struct {
 	Sessions     stepSessions
 	Store        StepStore
@@ -171,7 +175,8 @@ type StepsConfig struct {
 	Stored       func()
 	EpicWake     func(epic string)
 	// Host is the host name each step Start makes is stamped with, unless the step has an epic, whose host it takes.
-	Host string
+	Host  string
+	Hosts hostexec.Hosts
 }
 
 // StepAdopter is what Readopt registers each open step with, and what Reconcile asks whether the step is live. Manager
@@ -206,6 +211,7 @@ type Steps struct {
 	stored       func()
 	epicWake     func(epic string)
 	host         string
+	hosts        hostexec.Hosts
 
 	mu       sync.Mutex
 	loops    map[string]context.CancelFunc
@@ -251,6 +257,7 @@ func NewSteps(cfg StepsConfig) *Steps {
 		stored:       cfg.Stored,
 		epicWake:     cfg.EpicWake,
 		host:         cfg.Host,
+		hosts:        cfg.Hosts,
 		loops:        map[string]context.CancelFunc{},
 		causes:       map[string]context.CancelCauseFunc{},
 		runs:         map[string]*stepRun{},
@@ -263,14 +270,14 @@ func NewSteps(cfg StepsConfig) *Steps {
 }
 
 // Start checks start and its caller, resolves its gate, which an agent gate turns into the step's agent, schema and
-// prompt, and checks the schema. It then resolves its revision and starts the step under start.ID, or under a fresh id
-// when it names none, and runs its loop. A refusal returns its error with an empty id and stores nothing; a read-only
-// step's worktree is removed then too. A writing step runs in start.Workspace. A read-only step gets a detached
-// worktree at its start commit under the worktrees directory, which is removed when the step ends. Its checkout is
-// fingerprinted before its agent starts, and a git error there refuses the start the same way. A folder whose stamp
-// cannot be read refuses the start the same way. The step's monitor and judge calls carry the env of the stamp in
-// effect for its folder. Any other StartStep error, after the row is written, ends the step failed and returns its id
-// with the error.
+// prompt, and checks the schema. It then resolves its host, the epic's stored host or the Steps' own when the epic is
+// unstored, and its revision, and starts the step under start.ID, or under a fresh id when it names none, and runs its
+// loop. A refusal returns its error with an empty id and stores nothing; a read-only step's worktree is removed then
+// too. A writing step runs in start.Workspace on its host. A read-only step gets a detached worktree at its start
+// commit under the worktrees directory, which is removed when the step ends. Its checkout is fingerprinted before its
+// agent starts, and a git error there refuses the start the same way. A folder whose stamp cannot be read refuses the
+// start the same way. The step's monitor and judge calls carry the env of the stamp in effect for its folder. Any other
+// StartStep error, after the row is written, ends the step failed and returns its id with the error.
 func (s *Steps) Start(ctx context.Context, start StepStart) (string, error) {
 	defer s.calls.enter()()
 	if err := s.checkStart(ctx, start); err != nil {
@@ -280,19 +287,9 @@ func (s *Steps) Start(ctx context.Context, start StepStart) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if !start.ReadOnly {
-		err = checkWritingWorkspace(ctx, start.Workspace)
-		if err != nil {
-			return "", err
-		}
-	}
-	revision := start.Revision
-	if revision == "" {
-		revision = "HEAD"
-	}
-	commit, err := stepGitResolve(ctx, start.Workspace, revision)
+	hostName, host, commit, err := s.startPlace(ctx, start)
 	if err != nil {
-		return "", fmt.Errorf("resolve revision %q: %w", revision, err)
+		return "", err
 	}
 	id, release, err := s.startID(ctx, start.ID)
 	if err != nil {
@@ -317,11 +314,12 @@ func (s *Steps) Start(ctx context.Context, start StepStart) (string, error) {
 		Workspace: start.Workspace, Revision: commit, DoneValue: doneValue, ReadOnly: start.ReadOnly,
 		Owned: start.Owned, Unowned: start.Unowned, Gate: gate.argv, GateName: gate.name, GateSource: gate.source,
 		GateNeeds: gate.needs, GateLimit: gateLimit, ModelLimit: modelLimit, Epic: start.Epic, Task: start.Task,
-		Caller: start.Caller, Host: s.host,
+		Caller: start.Caller, Host: hostName,
 	}
 	cfg := stepRunConfig{
 		id: id, schema: start.Schema, doneValue: doneValue, sessions: s.sessions, store: s.store, writer: s.writer,
-		logger: s.logger, writing: !start.ReadOnly, start: commit, owned: start.Owned, unowned: start.Unowned,
+		logger: s.logger, host: host, writing: !start.ReadOnly, start: commit, owned: start.Owned,
+		unowned:   start.Unowned,
 		gate:      gate.argv,
 		gateLimit: gateLimit, gateName: gate.name, gateSource: gate.source, grant: gate.grant, pools: s.pools,
 		environ: s.environ, prompt: start.Prompt, now: s.now, modelLimit: modelLimit, agentGate: gate.agent,
@@ -334,7 +332,7 @@ func (s *Steps) Start(ctx context.Context, start StepStart) (string, error) {
 		Schema: start.Schema,
 	}
 	if start.ReadOnly {
-		if err = s.addReadOnlyStep(ctx, start, id, commit, &add, &cfg); err != nil {
+		if err = s.addReadOnlyStep(ctx, host, start, id, commit, &add, &cfg); err != nil {
 			return s.refuseStart(ctx, id, cfg.cleanup, err)
 		}
 		step.Dir = cfg.dir
@@ -355,28 +353,89 @@ func (s *Steps) Start(ctx context.Context, start StepStart) (string, error) {
 	return id, nil
 }
 
-// addReadOnlyStep adds the detached worktree of the read-only step id at commit, under the worktrees directory. It records
-// the checkout's state in add, and sets cfg to run in the worktree and to remove it when the step ends. cfg's cleanup is
-// set only once the worktree exists, so a caller that refuses the start on the error removes exactly what was added.
+// addReadOnlyStep adds the detached worktree of the read-only step id on host at commit, under the worktrees directory.
+// It records the checkout's state in add, and sets cfg to run in the worktree and to remove it when the step ends.
+// cfg's cleanup is set only once the worktree exists, so a caller that refuses the start on the error removes exactly
+// what was added.
 func (s *Steps) addReadOnlyStep(
-	ctx context.Context, start StepStart, id, commit string, add *store.StepAdd, cfg *stepRunConfig,
+	ctx context.Context, host hostexec.Host, start StepStart, id, commit string, add *store.StepAdd, cfg *stepRunConfig,
 ) error {
 	wt := filepath.Join(s.worktrees, id)
-	if err := addStepWorktree(ctx, start.Workspace, wt, commit); err != nil {
+	if err := addStepWorktree(ctx, host, start.Workspace, wt, commit); err != nil {
 		return err
 	}
 	add.Worktree = wt
 	cfg.cleanup = func(ctx context.Context) error {
-		return removeStepWorktree(ctx, start.Workspace, wt)
+		return removeStepWorktree(ctx, host, start.Workspace, wt)
 	}
 	cfg.dir = wt
-	checkout, err := stepGitCheckout(ctx, wt)
+	checkout, err := stepGitCheckout(ctx, host, wt)
 	if err != nil {
 		return fmt.Errorf("fingerprint worktree %s: %w", wt, err)
 	}
 	cfg.checkout = checkout
 	add.CheckoutHead, add.CheckoutHash = checkout.head, checkout.hash
 	return nil
+}
+
+// startPlace returns the name and the Host of the host start runs on, and the commit its revision resolves to there. A
+// writing start's workspace must be a linked worktree on that host, which checkWritingWorkspace checks.
+func (s *Steps) startPlace(ctx context.Context, start StepStart) (string, hostexec.Host, string, error) {
+	name, host, err := s.startHost(ctx, start.Epic)
+	if err != nil {
+		return "", nil, "", err
+	}
+	if !start.ReadOnly {
+		err = checkWritingWorkspace(ctx, host, start.Workspace)
+		if err != nil {
+			return "", nil, "", err
+		}
+	}
+	revision := start.Revision
+	if revision == "" {
+		revision = "HEAD"
+	}
+	commit, err := stepGitResolve(ctx, host, start.Workspace, revision)
+	if err != nil {
+		return "", nil, "", fmt.Errorf("resolve revision %q: %w", revision, err)
+	}
+	return name, host, commit, nil
+}
+
+// startHost returns the name of the host a start under epic runs on, and the Host of that name. The epic's stored host
+// names it when epic is set and stored. An epic that is not stored, and a start with no epic, take the Steps' own host
+// name. Any other read error is returned wrapped.
+func (s *Steps) startHost(ctx context.Context, epic string) (string, hostexec.Host, error) {
+	name := s.host
+	if epic != "" {
+		stored, err := s.store.EpicHost(ctx, epic)
+		if err != nil && !errors.Is(err, store.ErrNoEpic) {
+			return "", nil, fmt.Errorf("read host of epic %s: %w", epic, err)
+		}
+		if err == nil {
+			name = stored
+		}
+	}
+	host, err := s.hostNamed(name)
+	if err != nil {
+		return "", nil, err
+	}
+	return name, host, nil
+}
+
+// hostNamed returns the Host named name on the Steps' Hosts. A Steps with no Hosts, which a Steps built without
+// NewSteps has, resolves every name to the local host, as hostexec.LocalHosts does. A name that resolves to no Host is
+// returned wrapped with the name.
+func (s *Steps) hostNamed(name string) (hostexec.Host, error) {
+	hosts := s.hosts
+	if hosts == nil {
+		hosts = hostexec.LocalHosts()
+	}
+	host, err := hosts.Host(name)
+	if err != nil {
+		return nil, fmt.Errorf("find host %q: %w", name, err)
+	}
+	return host, nil
 }
 
 // resolveStart resolves start's gate and returns start as the step runs it, with the gate. An agent gate sets start's

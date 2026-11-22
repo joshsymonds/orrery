@@ -18,6 +18,7 @@ import (
 
 	"github.com/joshsymonds/orrery/internal/evidence"
 	v1 "github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1"
+	"github.com/joshsymonds/orrery/internal/hostexec"
 	"github.com/joshsymonds/orrery/internal/kinds"
 	"github.com/joshsymonds/orrery/internal/protocol"
 	"github.com/joshsymonds/orrery/internal/reviewers"
@@ -196,7 +197,7 @@ func (s *epicService) CreateEpic(
 	if err != nil {
 		return nil, refuseEpic(connect.CodeInvalidArgument, err.Error())
 	}
-	base, err := stepGitResolve(ctx, contract.GetRepository(), contract.GetBase())
+	base, err := stepGitResolve(ctx, hostexec.NewLocal(), contract.GetRepository(), contract.GetBase())
 	if err != nil {
 		return nil, epicStoreError(fmt.Errorf("resolve base: %w", err))
 	}

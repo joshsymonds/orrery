@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/joshsymonds/orrery/internal/grants"
+	"github.com/joshsymonds/orrery/internal/hostexec"
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
@@ -143,7 +144,7 @@ func TestNodeChecksResumeRunsAnUngrantedCheckFromTheStart(t *testing.T) {
 		t.Fatalf("store AddNodeCheck: %v", err)
 	}
 	left := filepath.Join(f.checks.worktrees, nodeCheckID)
-	if err := addStepWorktree(t.Context(), f.repo, left, f.head); err != nil {
+	if err := addStepWorktree(t.Context(), hostexec.NewLocal(), f.repo, left, f.head); err != nil {
 		t.Fatalf("add the worktree a stop left: %v", err)
 	}
 

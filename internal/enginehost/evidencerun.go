@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/joshsymonds/orrery/internal/evidence"
+	"github.com/joshsymonds/orrery/internal/hostexec"
 	"github.com/joshsymonds/orrery/internal/redact"
 	"github.com/joshsymonds/orrery/internal/store"
 )
@@ -159,7 +160,7 @@ func (e *Evidence) Run(ctx context.Context, epic, item, revision, phase string) 
 	if phase != evidence.PhaseRed && phase != evidence.PhaseGreen {
 		return store.EvidenceRun{}, fmt.Errorf("%w: phase %q is not red or green", ErrEvidenceRefused, phase)
 	}
-	commit, err := stepGitResolve(ctx, row.Repository, revision)
+	commit, err := stepGitResolve(ctx, hostexec.NewLocal(), row.Repository, revision)
 	if err != nil {
 		return store.EvidenceRun{}, fmt.Errorf(
 			"%w: revision %q does not resolve: %w", ErrEvidenceRefused, revision, err,
@@ -398,7 +399,7 @@ func (e *Evidence) recordJudge(ctx context.Context, id, step string) error {
 // has ended: before its gate launched, or before its supplied files were read. Nothing ran then, so nothing is recorded.
 func (e *Evidence) capture(ctx context.Context, repo string, run store.EvidenceRun) (store.EvidenceCapture, error) {
 	if run.Source == evidence.SourceSupplied {
-		capture := readSupplied(ctx, repo, run.Revision, run.Spec.Supplied, e.blobs)
+		capture := readSupplied(ctx, hostexec.NewLocal(), repo, run.Revision, run.Spec.Supplied, e.blobs)
 		// A read that ctx cut short has not ended, so a restart reads the files again rather than recording the cut.
 		if capture.NotCaptured != "" && ctx.Err() != nil {
 			return store.EvidenceCapture{}, fmt.Errorf("read evidence run %s: %w", run.ID, ctx.Err())

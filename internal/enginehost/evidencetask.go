@@ -8,6 +8,7 @@ import (
 	"slices"
 
 	"github.com/joshsymonds/orrery/internal/evidence"
+	"github.com/joshsymonds/orrery/internal/hostexec"
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
@@ -97,7 +98,7 @@ func (e *Evidence) runUnder(
 	if phase != evidence.PhaseRed && phase != evidence.PhaseGreen {
 		return store.EvidenceRun{}, fmt.Errorf("%w: phase %q is not red or green", ErrEvidenceRefused, phase)
 	}
-	commit, err := stepGitResolve(ctx, row.Repository, revision)
+	commit, err := stepGitResolve(ctx, hostexec.NewLocal(), row.Repository, revision)
 	if err != nil {
 		return store.EvidenceRun{}, fmt.Errorf(
 			"%w: revision %q does not resolve: %w", ErrEvidenceRefused, revision, err,

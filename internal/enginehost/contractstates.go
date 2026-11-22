@@ -14,6 +14,7 @@ import (
 	"connectrpc.com/connect"
 
 	v1 "github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1"
+	"github.com/joshsymonds/orrery/internal/hostexec"
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
@@ -253,5 +254,5 @@ func fetchOriginMain(ctx context.Context, repository string) (string, error) {
 	if err := cmd.Run(); err != nil {
 		return "", fmt.Errorf("git fetch origin: %w: %s", err, strings.TrimSpace(stderr.String()))
 	}
-	return stepGitResolve(ctx, repository, "refs/remotes/origin/main")
+	return stepGitResolve(ctx, hostexec.NewLocal(), repository, "refs/remotes/origin/main")
 }

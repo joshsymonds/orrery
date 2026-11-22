@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/joshsymonds/orrery/internal/evidence"
+	"github.com/joshsymonds/orrery/internal/hostexec"
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
@@ -194,7 +195,7 @@ func TestEvidenceReadoptCapturingWithNoGrantClearsTheWorktreeAStopLeft(t *testin
 	steps := &evidenceRunSteps{judges: []evidenceRunJudge{evidenceRunHolds()}}
 	ev := evidenceRunNew(t, st, steps)
 	left := filepath.Join(ev.captures.worktrees, "left")
-	if err := addStepWorktree(t.Context(), repo, left, head); err != nil {
+	if err := addStepWorktree(t.Context(), hostexec.NewLocal(), repo, left, head); err != nil {
 		t.Fatalf("add the worktree a stop left: %v", err)
 	}
 
