@@ -41,6 +41,7 @@ type StepListing struct {
 	Ended           time.Time
 	Epic            string
 	Task            string
+	Purpose         string
 	GateName        string
 	GateLimit       time.Duration
 	LoopLimited     bool
@@ -78,6 +79,7 @@ func (row StepRow) Listing() StepListing {
 		Ended:           row.Ended,
 		Epic:            row.Epic,
 		Task:            row.Task,
+		Purpose:         row.Purpose,
 		GateName:        row.GateName,
 		GateLimit:       row.GateLimit,
 		LoopLimited:     row.LoopLimited,
@@ -223,6 +225,7 @@ func stepListingOf(row sqlcgen.StepListing) (StepListing, error) {
 		Reason:        row.Reason,
 		Epic:          row.Epic,
 		Task:          row.Task,
+		Purpose:       row.Purpose,
 		GateName:      row.GateName,
 		GateLimit:     time.Duration(row.GateLimit),
 		LoopLimited:   row.LoopLimited,

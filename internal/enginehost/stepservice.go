@@ -74,6 +74,7 @@ func (s *stepService) StartStep(
 		DoneValue:  req.Msg.GetDoneValue(),
 		Epic:       req.Msg.GetEpic(),
 		Task:       req.Msg.GetTask(),
+		Purpose:    req.Msg.GetPurpose(),
 		Caller:     caller,
 	})
 	if err != nil {
@@ -335,6 +336,7 @@ func listingMessage(row store.StepListing, held bool) (*v1.Step, error) {
 		Agent:            row.Agent,
 		Epic:             row.Epic,
 		Task:             row.Task,
+		Purpose:          row.Purpose,
 		Held:             held,
 		Workspace:        row.Workspace,
 		Revision:         row.Revision,

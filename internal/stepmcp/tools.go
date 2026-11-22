@@ -194,6 +194,7 @@ type startArgs struct {
 	GatesFile  string          `json:"gatesFile,omitempty"`
 	Epic       string          `json:"epic,omitempty"`
 	Task       string          `json:"task,omitempty"`
+	Purpose    string          `json:"purpose,omitempty"`
 }
 
 // idArgs is the arguments of a tool that takes one id, the step tools and the epic tools alike.
@@ -328,6 +329,7 @@ func startHandler(steps enginev1connect.StepsClient, clock rpcretry.Clock) ToolH
 				DoneValue:  args.DoneValue,
 				Epic:       args.Epic,
 				Task:       args.Task,
+				Purpose:    args.Purpose,
 			}))
 			return errors.Join(callErr)
 		})
