@@ -662,4 +662,11 @@ func TestReleasePostconditionsShown(t *testing.T) {
 			t.Errorf("prompt = %q, want it to hold %q", prompt, judgeParagraph)
 		}
 	})
+	t.Run("a release step's prompt adds no condition of CI to the epic's step", func(t *testing.T) {
+		t.Parallel()
+		prompt := releaseStepPrompt(tagStep(), "0123abcd", releaseThen)
+		if strings.Contains(prompt, "CI") {
+			t.Errorf("prompt = %q, want no mention of CI: the release is the epic's steps and nothing more", prompt)
+		}
+	})
 }
