@@ -59,7 +59,7 @@ func (r *Runner) prepareBatch(ctx context.Context, epic store.EpicRow, act Actio
 	if err != nil {
 		return fmt.Errorf("read node runs of epic %s: %w", epic.ID, err)
 	}
-	stranded, err := strandedTasks(ctx, epic, runs, act.Path, base)
+	stranded, err := strandedTasks(ctx, host, epic, runs, act.Path, base)
 	if err != nil {
 		return err
 	}
@@ -122,7 +122,7 @@ func batchBase(ctx context.Context, host hostexec.Host, epic store.EpicRow) (str
 // revision did not join the stored base, or whose candidate a passed batch cleared without holding it, leaves such
 // tasks. The integrate run at path, the one being prepared, is not read.
 func strandedTasks(
-	ctx context.Context, epic store.EpicRow, runs []store.NodeRun, path, base string,
+	ctx context.Context, host hostexec.Host, epic store.EpicRow, runs []store.NodeRun, path, base string,
 ) ([]int64, error) {
 	batches := readBatches(runs, path)
 	var stranded []int64
@@ -131,7 +131,7 @@ func strandedTasks(
 		if !ok {
 			continue
 		}
-		held, err := holdsAny(ctx, epic.Repository, base, commits)
+		held, err := holdsAny(ctx, host, epic.Repository, base, commits)
 		if err != nil {
 			return nil, err
 		}
@@ -158,7 +158,7 @@ func startStranded(ctx context.Context, host hostexec.Host, epic store.EpicRow, 
 	if base == "" {
 		base = tip
 	}
-	return strandedTasks(ctx, epic, runs, "", base)
+	return strandedTasks(ctx, host, epic, runs, "", base)
 }
 
 // batches is what strandedTasks reads of an epic's integrate runs: each run by its path, the commits the runs composed
@@ -237,10 +237,10 @@ func (b batches) failedWork(task store.EpicTask) ([]string, bool) {
 	return commits, true
 }
 
-// holdsAny reports whether one of commits is base or an ancestor of it.
-func holdsAny(ctx context.Context, repo, base string, commits []string) (bool, error) {
+// holdsAny reports whether one of commits is base or an ancestor of it, in repo on host.
+func holdsAny(ctx context.Context, host hostexec.Host, repo, base string, commits []string) (bool, error) {
 	for _, commit := range commits {
-		held, err := isAncestor(ctx, repo, commit, base)
+		held, err := isAncestor(ctx, host, repo, commit, base)
 		if err != nil {
 			return false, fmt.Errorf("check that %s holds %s: %w", base, commit, err)
 		}
@@ -437,6 +437,10 @@ func (r *Runner) batchSendBacks(ctx context.Context, epic store.EpicRow, act Act
 	}
 	rows := kinds.Rows{Rounds: flow.Rounds, Steps: steps}
 	conflicts := conflictsOf(act.Run.Result)
+	host, err := r.hostOf(epic)
+	if err != nil {
+		return nil, err
+	}
 	for i, send := range sends {
 		ending := kinds.TaskEnding(rows, act.Run, send.Seq)
 		if ending == "" {
@@ -447,7 +451,7 @@ func (r *Runner) batchSendBacks(ctx context.Context, epic store.EpicRow, act Act
 			return nil, fmt.Errorf("task %d of epic %s is not stored", send.Seq, epic.ID)
 		}
 		base, change, diffErr := candidateChange(
-			ctx, epic.Repository, act.Run.Revision, task.Build.Revision, conflicts[send.Seq],
+			ctx, host, epic.Repository, act.Run.Revision, task.Build.Revision, conflicts[send.Seq],
 		)
 		if diffErr != nil {
 			return nil, diffErr
@@ -472,9 +476,12 @@ func conflictsOf(result string) map[int64][]string {
 }
 
 // candidateChange returns the merge base of candidate and revision, the commit a merge of revision into candidate starts
-// from, and the change candidate makes to paths since that base, as git diff prints it. It is the side a task's merge met.
-func candidateChange(ctx context.Context, repo, candidate, revision string, paths []string) (string, string, error) {
-	out, err := gitOutput(ctx, repo, "merge-base", candidate, revision)
+// from, and the change candidate makes to paths since that base, as git diff prints it, both read in repo on host. It is
+// the side a task's merge met.
+func candidateChange(
+	ctx context.Context, host hostexec.Host, repo, candidate, revision string, paths []string,
+) (string, string, error) {
+	out, err := gitOutput(ctx, host, repo, "merge-base", candidate, revision)
 	if err != nil {
 		return "", "", fmt.Errorf("find the merge base of %s and %s: %w", candidate, revision, err)
 	}
@@ -482,7 +489,7 @@ func candidateChange(ctx context.Context, repo, candidate, revision string, path
 	args := make([]string, 0, len(paths)+7)
 	args = append(args, "--literal-pathspecs", "diff", "--no-color", "--no-ext-diff", base, candidate, "--")
 	args = append(args, paths...)
-	change, err := gitOutput(ctx, repo, args...)
+	change, err := gitOutput(ctx, host, repo, args...)
 	if err != nil {
 		return "", "", fmt.Errorf("diff candidate %s against its merge base %s: %w", candidate, base, err)
 	}
@@ -613,7 +620,7 @@ func advanceBlock(
 	if tip != epic.StoredBase {
 		return fmt.Sprintf("epic/%s moved: at %s, not the stored base %s", slug, tip, epic.StoredBase), nil
 	}
-	builds, err := isAncestor(ctx, epic.Repository, tip, candidate)
+	builds, err := isAncestor(ctx, host, epic.Repository, tip, candidate)
 	if err != nil {
 		return "", fmt.Errorf("compare candidate %s with epic/%s: %w", candidate, slug, err)
 	}

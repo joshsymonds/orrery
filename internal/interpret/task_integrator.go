@@ -112,15 +112,17 @@ func startTaskMerge(ctx context.Context, host hostexec.Host, merge integratorMer
 	if err := startMerge(ctx, host, merge, dir); err != nil {
 		return nil, fmt.Errorf("merge the task's revision %s into %s: %w", merge.origin, merge.tip, err)
 	}
-	return unmergedPaths(ctx, merge.worktree)
+	return unmergedPaths(ctx, host, merge.worktree)
 }
 
 // taskIntegratorCheck returns the return check of a task integrator step that finishes merge. A merged return's commit
 // is checked by the checks a release integrator's commit meets (integratorFailures), with its other_changes as the
 // changes listed outside the conflicts. A clash return is checked by clashFailures, and any other verdict fails. The
 // tree git's own merge writes is computed once, here.
-func taskIntegratorCheck(ctx context.Context, merge integratorMerge) (func(json.RawMessage) []string, error) {
-	tree, err := mergeTreeOf(ctx, merge)
+func taskIntegratorCheck(
+	ctx context.Context, host hostexec.Host, merge integratorMerge,
+) (func(json.RawMessage) []string, error) {
+	tree, err := mergeTreeOf(ctx, host, merge)
 	if err != nil {
 		return nil, err
 	}
@@ -132,7 +134,7 @@ func taskIntegratorCheck(ctx context.Context, merge integratorMerge) (func(json.
 		}
 		switch ret.Verdict {
 		case verdictMerged:
-			return integratorFailures(checkCtx, merge, tree, mergedAsIntegrator(ret))
+			return integratorFailures(checkCtx, host, merge, tree, mergedAsIntegrator(ret))
 		case verdictClash:
 			return clashFailures(ret)
 		default:
@@ -252,11 +254,11 @@ func (r *Runner) taskRoundStart(
 		return enginehost.StepStart{}, err
 	}
 	merge.conflicts = conflicts
-	prompt, err := taskIntegratorPrompt(ctx, merge, epic.Tasks, task, act.Output)
+	prompt, err := taskIntegratorPrompt(ctx, host, merge, epic.Tasks, task, act.Output)
 	if err != nil {
 		return enginehost.StepStart{}, err
 	}
-	check, err := taskIntegratorCheck(ctx, merge)
+	check, err := taskIntegratorCheck(ctx, host, merge)
 	if err != nil {
 		return enginehost.StepStart{}, err
 	}
@@ -334,14 +336,18 @@ func (r *Runner) judgeTaskRound(
 	merge := integratorMerge{
 		repo: epic.Repository, worktree: row.Workspace, tip: row.Revision, origin: task.Build.Revision,
 	}
-	conflicts, err := taskConflicts(ctx, merge)
+	host, err := r.hostOf(epic)
+	if err != nil {
+		return roundVerdict{}, err
+	}
+	conflicts, err := taskConflicts(ctx, host, merge)
 	if err != nil {
 		return roundVerdict{}, err
 	}
 	merge.conflicts = conflicts
 	switch ret.Verdict {
 	case verdictMerged:
-		return judgeMerged(ctx, merge, ret)
+		return judgeMerged(ctx, host, merge, ret)
 	case verdictClash:
 		if failures := clashFailures(ret); len(failures) > 0 {
 			return roundVerdict{
@@ -360,8 +366,10 @@ func (r *Runner) judgeTaskRound(
 
 // judgeMerged returns the verdict of a merged return ret: merged with the commit it names when the commit passes the
 // engine's checks, and ended with each check it fails otherwise.
-func judgeMerged(ctx context.Context, merge integratorMerge, ret taskIntegratorReturn) (roundVerdict, error) {
-	head, failures, err := integratorCommit(ctx, merge, mergedAsIntegrator(ret))
+func judgeMerged(
+	ctx context.Context, host hostexec.Host, merge integratorMerge, ret taskIntegratorReturn,
+) (roundVerdict, error) {
+	head, failures, err := integratorCommit(ctx, host, merge, mergedAsIntegrator(ret))
 	if err != nil {
 		return roundVerdict{}, err
 	}
@@ -474,10 +482,10 @@ func (r *Runner) roundSteps(ctx context.Context, epic string, runs []store.NodeR
 	return steps, nil
 }
 
-// taskConflicts returns the paths git's merge of the task's revision into the candidate conflicts at, as git's merge tree
-// names them.
-func taskConflicts(ctx context.Context, merge integratorMerge) ([]string, error) {
-	out, _, err := mergeTree(ctx, merge.repo, merge.tip, merge.origin)
+// taskConflicts returns the paths git's merge of the task's revision into the candidate conflicts at on host, as git's
+// merge tree names them.
+func taskConflicts(ctx context.Context, host hostexec.Host, merge integratorMerge) ([]string, error) {
+	out, _, err := mergeTree(ctx, host, merge.repo, merge.tip, merge.origin)
 	if err != nil {
 		return nil, err
 	}

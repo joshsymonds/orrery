@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/joshsymonds/orrery/internal/hostexec"
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
@@ -75,7 +76,7 @@ func TestStrandedTasksReopenedTaskCorrectionIsStranded(t *testing.T) {
 			map[int64]string{1: correction}),
 	}
 
-	got, err := strandedTasks(context.Background(), epic, runs, "", built)
+	got, err := strandedTasks(context.Background(), hostexec.NewLocal(), epic, runs, "", built)
 	if err != nil {
 		t.Fatalf("strandedTasks: %v", err)
 	}
@@ -99,7 +100,7 @@ func TestStrandedTasksSkipsAnOpenTaskAndKeepsADoneOneOfAFailedBatch(t *testing.T
 	t.Run("an open task is not stranded", func(t *testing.T) {
 		t.Parallel()
 		epic := store.EpicRow{Repository: repo, Tasks: []store.EpicTask{{Seq: 1, Status: "open"}}}
-		got, err := strandedTasks(context.Background(), epic, runs, "", base)
+		got, err := strandedTasks(context.Background(), hostexec.NewLocal(), epic, runs, "", base)
 		if err != nil {
 			t.Fatalf("strandedTasks: %v", err)
 		}
@@ -112,7 +113,7 @@ func TestStrandedTasksSkipsAnOpenTaskAndKeepsADoneOneOfAFailedBatch(t *testing.T
 		epic := store.EpicRow{Repository: repo, Tasks: []store.EpicTask{{
 			Seq: 2, Status: taskDone, Batch: "plan/integrate",
 		}}}
-		got, err := strandedTasks(context.Background(), epic, runs, "", base)
+		got, err := strandedTasks(context.Background(), hostexec.NewLocal(), epic, runs, "", base)
 		if err != nil {
 			t.Fatalf("strandedTasks: %v", err)
 		}

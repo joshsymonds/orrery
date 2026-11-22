@@ -1,12 +1,10 @@
 package interpret
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os/exec"
 	"strings"
 	"time"
 
@@ -15,6 +13,7 @@ import (
 	"github.com/joshsymonds/orrery/internal/enginehost"
 	"github.com/joshsymonds/orrery/internal/evidence"
 	"github.com/joshsymonds/orrery/internal/gates"
+	"github.com/joshsymonds/orrery/internal/hostexec"
 	"github.com/joshsymonds/orrery/internal/kinds"
 	"github.com/joshsymonds/orrery/internal/store"
 	"github.com/joshsymonds/orrery/internal/workflow"
@@ -329,7 +328,12 @@ func (r *Runner) recordOwned(ctx context.Context, epic store.EpicRow, act Action
 	if err != nil {
 		return err
 	}
-	listing, err := gitOutput(ctx, epic.Repository, "diff", "--name-only", "-z", "--no-renames", changeBase(epic), head)
+	host, err := r.hostOf(epic)
+	if err != nil {
+		return fmt.Errorf("list paths changed by epic %s: %w", epic.ID, err)
+	}
+	listing, err := gitOutput(ctx, host, epic.Repository, "diff", "--name-only", "-z", "--no-renames", changeBase(epic),
+		head)
 	if err != nil {
 		return fmt.Errorf("list paths changed by epic %s: %w", epic.ID, err)
 	}
@@ -381,31 +385,12 @@ func (r *Runner) checkRefs(ctx context.Context, epic store.EpicRow, act Action, 
 	return nil
 }
 
-// gitOutput runs git in dir and returns its stdout as git wrote it. On failure the error carries git's stderr.
-func gitOutput(ctx context.Context, dir string, args ...string) (string, error) {
-	return gitRun(gitCommand(ctx, dir, args), args)
-}
-
-// gitCommand returns the command that runs git in dir with args, which ctx's end stops.
-func gitCommand(ctx context.Context, dir string, args []string) *exec.Cmd {
-	cmd := exec.CommandContext(ctx, "git")
-	cmd.Args = append(cmd.Args, "-C", dir)
-	cmd.Args = append(cmd.Args, args...)
-	return cmd
-}
-
-// gitRun runs cmd, git with args, and returns its stdout as git wrote it. On failure the error carries git's stderr,
-// when git wrote any.
-func gitRun(cmd *exec.Cmd, args []string) (string, error) {
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-	out, err := cmd.Output()
+// gitOutput runs git in dir on host and returns its stdout as git wrote it, untrimmed. A git that ran and failed returns
+// its *hostexec.GitError, whose text carries git's command and stderr, so the error reads as it always has.
+func gitOutput(ctx context.Context, host hostexec.Host, dir string, args ...string) (string, error) {
+	out, err := host.Git(ctx, hostexec.GitCall{Dir: dir, Args: args})
 	if err != nil {
-		err = fmt.Errorf("git %s: %w", strings.Join(args, " "), err)
-		if detail := strings.TrimSpace(stderr.String()); detail != "" {
-			err = fmt.Errorf("%w: %s", err, detail)
-		}
-		return "", err
+		return "", fmt.Errorf("%w", err)
 	}
 	return string(out), nil
 }

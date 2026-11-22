@@ -1190,7 +1190,7 @@ func readoptCheck(
 	hosts hostexec.Hosts,
 ) func(ctx context.Context, row store.StepRow) (func(value json.RawMessage) []string, error) {
 	plan := planner.ReadoptCheck(st, resolve)
-	integrate := interpret.ReadoptCheck(st)
+	integrate := interpret.ReadoptCheck(st, hosts)
 	verify := build.ReadoptCheck(st, hosts)
 	return func(ctx context.Context, row store.StepRow) (func(value json.RawMessage) []string, error) {
 		check, err := plan(ctx, row)

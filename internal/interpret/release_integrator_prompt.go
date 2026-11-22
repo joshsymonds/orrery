@@ -1,17 +1,16 @@
 package interpret
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
-	"os/exec"
 	"slices"
 	"strings"
 
 	"github.com/joshsymonds/orrery/internal/build"
+	"github.com/joshsymonds/orrery/internal/hostexec"
 	"github.com/joshsymonds/orrery/internal/planner"
 	"github.com/joshsymonds/orrery/internal/store"
 	"github.com/joshsymonds/orrery/internal/taskspec"
@@ -60,15 +59,15 @@ type sideCommit struct {
 // fetched from origin's branch: the role text, then the sections Contract, Decisions, Merge, Conflicted paths, Tasks,
 // Candidate commits, Origin commits, Same change, Checks after you and Previous attempt, each under a `## ` heading and
 // None. when it has no lines (planner.WriteSection). head is the merge commit the round before made, "" for the first
-// round, and previous the failure that commit met.
+// round, and previous the failure that commit met. Git runs on host, the host the epic lives on.
 func (r *Runner) integratorPrompt(
-	ctx context.Context, epic store.EpicRow, merge integratorMerge, branch, head, previous string,
+	ctx context.Context, host hostexec.Host, epic store.EpicRow, merge integratorMerge, branch, head, previous string,
 ) (string, error) {
 	flow, err := r.store.EpicFlow(ctx, epic.ID)
 	if err != nil {
 		return "", fmt.Errorf("read epic %s: %w", epic.ID, err)
 	}
-	base, err := gitOutput(ctx, merge.repo, "merge-base", merge.tip, merge.origin)
+	base, err := gitOutput(ctx, host, merge.repo, "merge-base", merge.tip, merge.origin)
 	if err != nil {
 		return "", err
 	}
@@ -77,19 +76,19 @@ func (r *Runner) integratorPrompt(
 	if err != nil {
 		return "", err
 	}
-	conflicted, err := conflictedLines(ctx, merge, base)
+	conflicted, err := conflictedLines(ctx, host, merge, base)
 	if err != nil {
 		return "", err
 	}
-	candidate, err := logLines(ctx, merge.repo, base, merge.tip)
+	candidate, err := logLines(ctx, host, merge.repo, base, merge.tip)
 	if err != nil {
 		return "", err
 	}
-	origin, err := logLines(ctx, merge.repo, base, merge.origin)
+	origin, err := logLines(ctx, host, merge.repo, base, merge.origin)
 	if err != nil {
 		return "", err
 	}
-	same, err := sameChangeLines(ctx, merge.repo, base, merge)
+	same, err := sameChangeLines(ctx, host, merge.repo, base, merge)
 	if err != nil {
 		return "", err
 	}
@@ -147,8 +146,8 @@ func mergeLines(merge integratorMerge, branch, base, head string) []string {
 // conflictedLines returns each conflicted path of merge as `- <code> <path>`, with the status code git status gives it
 // for the stages it conflicts in, then the commits of each side since base that touched it, newest first, as
 // `  candidate: <commit> <subject>` and `  origin: <commit> <subject>`.
-func conflictedLines(ctx context.Context, merge integratorMerge, base string) ([]string, error) {
-	codes, err := conflictStatus(ctx, merge)
+func conflictedLines(ctx context.Context, host hostexec.Host, merge integratorMerge, base string) ([]string, error) {
+	codes, err := conflictStatus(ctx, host, merge)
 	if err != nil {
 		return nil, err
 	}
@@ -160,7 +159,7 @@ func conflictedLines(ctx context.Context, merge integratorMerge, base string) ([
 		}
 		lines = append(lines, line)
 		for _, side := range []struct{ name, tip string }{{"candidate", merge.tip}, {"origin", merge.origin}} {
-			touched, logErr := pathCommits(ctx, merge.repo, base, side.tip, path)
+			touched, logErr := pathCommits(ctx, host, merge.repo, base, side.tip, path)
 			if logErr != nil {
 				return nil, logErr
 			}
@@ -174,8 +173,8 @@ func conflictedLines(ctx context.Context, merge integratorMerge, base string) ([
 
 // conflictStatus returns the status code of each path git's merge of origin's commit into the release tip leaves
 // unmerged, from the stages merge-tree names for it.
-func conflictStatus(ctx context.Context, merge integratorMerge) (map[string]string, error) {
-	out, _, err := runMergeTree(ctx, merge.repo, "-z", merge.tip, merge.origin)
+func conflictStatus(ctx context.Context, host hostexec.Host, merge integratorMerge) (map[string]string, error) {
+	out, _, err := runMergeTree(ctx, host, merge.repo, "-z", merge.tip, merge.origin)
 	if err != nil {
 		return nil, err
 	}
@@ -202,8 +201,8 @@ func conflictStatus(ctx context.Context, merge integratorMerge) (map[string]stri
 
 // pathCommits returns the commits from base to tip that touched path, newest first, each as its id and subject. It
 // returns at most integratorPathLimit of them, and says so in a last line when there are more.
-func pathCommits(ctx context.Context, repo, base, tip, path string) ([]string, error) {
-	out, err := gitOutput(ctx, repo, "log", fmt.Sprintf("-n%d", integratorPathLimit+1), "--format=%H %s",
+func pathCommits(ctx context.Context, host hostexec.Host, repo, base, tip, path string) ([]string, error) {
+	out, err := gitOutput(ctx, host, repo, "log", fmt.Sprintf("-n%d", integratorPathLimit+1), "--format=%H %s",
 		base+".."+tip, "--", path)
 	if err != nil {
 		return nil, err
@@ -264,8 +263,8 @@ func composedCommits(runs []store.NodeRun) map[int64]string {
 
 // logLines returns the commits from base to tip, newest first, as git log --oneline gives them. Past
 // integratorLogLimit commits it gives the newest of them and a last line that says how many there are.
-func logLines(ctx context.Context, repo, base, tip string) ([]string, error) {
-	out, err := gitOutput(ctx, repo, "log", "--oneline", fmt.Sprintf("-n%d", integratorLogLimit), base+".."+tip)
+func logLines(ctx context.Context, host hostexec.Host, repo, base, tip string) ([]string, error) {
+	out, err := gitOutput(ctx, host, repo, "log", "--oneline", fmt.Sprintf("-n%d", integratorLogLimit), base+".."+tip)
 	if err != nil {
 		return nil, err
 	}
@@ -273,7 +272,7 @@ func logLines(ctx context.Context, repo, base, tip string) ([]string, error) {
 	if len(lines) < integratorLogLimit {
 		return lines, nil
 	}
-	count, err := gitOutput(ctx, repo, "rev-list", "--count", base+".."+tip)
+	count, err := gitOutput(ctx, host, repo, "rev-list", "--count", base+".."+tip)
 	if err != nil {
 		return nil, err
 	}
@@ -286,12 +285,14 @@ func logLines(ctx context.Context, repo, base, tip string) ([]string, error) {
 // sameChangeLines returns each pair of a candidate commit and an origin commit since base that hold one change: the
 // pairs whose patch ids, as git patch-id --stable gives them, are equal, as `same`, and the pairs whose subject and
 // author date are equal and whose patches are not, as `differs`.
-func sameChangeLines(ctx context.Context, repo, base string, merge integratorMerge) ([]string, error) {
-	candidate, err := sideCommits(ctx, repo, base, merge.tip)
+func sameChangeLines(
+	ctx context.Context, host hostexec.Host, repo, base string, merge integratorMerge,
+) ([]string, error) {
+	candidate, err := sideCommits(ctx, host, repo, base, merge.tip)
 	if err != nil {
 		return nil, err
 	}
-	origin, err := sideCommits(ctx, repo, base, merge.origin)
+	origin, err := sideCommits(ctx, host, repo, base, merge.origin)
 	if err != nil {
 		return nil, err
 	}
@@ -316,13 +317,13 @@ func sameChangeLines(ctx context.Context, repo, base string, merge integratorMer
 
 // sideCommits returns the commits from base to tip that are not merges, newest first, each with its subject, author
 // date and patch id.
-func sideCommits(ctx context.Context, repo, base, tip string) ([]sideCommit, error) {
+func sideCommits(ctx context.Context, host hostexec.Host, repo, base, tip string) ([]sideCommit, error) {
 	span := base + ".." + tip
-	out, err := gitOutput(ctx, repo, "log", "--no-merges", "--format=%H%x00%s%x00%aI", span)
+	out, err := gitOutput(ctx, host, repo, "log", "--no-merges", "--format=%H%x00%s%x00%aI", span)
 	if err != nil {
 		return nil, err
 	}
-	patches, err := patchIDs(ctx, repo, span)
+	patches, err := patchIDs(ctx, host, repo, span)
 	if err != nil {
 		return nil, err
 	}
@@ -339,30 +340,18 @@ func sideCommits(ctx context.Context, repo, base, tip string) ([]sideCommit, err
 	return commits, nil
 }
 
-// patchIDs returns the patch id git patch-id --stable gives each commit of span that is not a merge, by commit. The
-// patches stream from git log into git patch-id, so none is held whole.
-func patchIDs(ctx context.Context, repo, span string) (map[string]string, error) {
-	logCmd := exec.CommandContext(ctx, "git")
-	logCmd.Args = append(logCmd.Args, "-C", repo, "log", "--no-merges", "-p", "--format=commit %H", span)
-	patchCmd := exec.CommandContext(ctx, "git")
-	patchCmd.Args = append(patchCmd.Args, "-C", repo, "patch-id", "--stable")
-	pipe, err := logCmd.StdoutPipe()
+// patchIDs returns the patch id git patch-id --stable gives each commit of span that is not a merge, by commit, on host.
+// The patches git log -p --no-merges writes for span are fed to git patch-id as its stdin.
+func patchIDs(ctx context.Context, host hostexec.Host, repo, span string) (map[string]string, error) {
+	patches, err := gitOutput(ctx, host, repo, "log", "--no-merges", "-p", "--format=commit %H", span)
 	if err != nil {
 		return nil, fmt.Errorf("git log of %s: %w", span, err)
 	}
-	patchCmd.Stdin = pipe
-	var logErr, patchErr bytes.Buffer
-	logCmd.Stderr, patchCmd.Stderr = &logErr, &patchErr
-	if err = logCmd.Start(); err != nil {
-		return nil, fmt.Errorf("git log of %s: %w", span, err)
-	}
-	out, patchRunErr := patchCmd.Output()
-	logRunErr := logCmd.Wait()
-	if logRunErr != nil {
-		return nil, fmt.Errorf("git log of %s: %w: %s", span, logRunErr, strings.TrimSpace(logErr.String()))
-	}
-	if patchRunErr != nil {
-		return nil, fmt.Errorf("git patch-id of %s: %w: %s", span, patchRunErr, strings.TrimSpace(patchErr.String()))
+	out, err := host.Git(ctx, hostexec.GitCall{
+		Dir: repo, Args: []string{"patch-id", "--stable"}, Stdin: []byte(patches),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("git patch-id of %s: %w", span, err)
 	}
 	ids := make(map[string]string)
 	for _, line := range nonEmptyLines(string(out)) {

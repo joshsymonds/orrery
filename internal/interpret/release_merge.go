@@ -1,16 +1,12 @@
 package interpret
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
-	"os/exec"
 	"slices"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/joshsymonds/orrery/internal/build"
@@ -86,18 +82,18 @@ func (r *Runner) decideRelease(
 	if !ok {
 		return kinds.ReleaseResult{}, fmt.Errorf("epic %s has no branch", epic.ID)
 	}
-	branch, origin, err := fetchOrigin(ctx, epic, releaseRef(epic, "origin"))
+	branch, origin, err := fetchOrigin(ctx, host, epic, releaseRef(epic, "origin"))
 	if err != nil {
 		return kinds.ReleaseResult{}, err
 	}
-	ancestor, err := isAncestor(ctx, epic.Repository, origin, tip)
+	ancestor, err := isAncestor(ctx, host, epic.Repository, origin, tip)
 	if err != nil {
 		return kinds.ReleaseResult{}, err
 	}
 	if ancestor {
 		return kinds.ReleaseResult{Candidate: tip, Tip: tip}, nil
 	}
-	out, conflicted, err := mergeTree(ctx, epic.Repository, tip, origin)
+	out, conflicted, err := mergeTree(ctx, host, epic.Repository, tip, origin)
 	if err != nil {
 		return kinds.ReleaseResult{}, err
 	}
@@ -115,25 +111,25 @@ func (r *Runner) decideRelease(
 	return kinds.ReleaseResult{Behind: true, Candidate: merged, Tip: tip}, nil
 }
 
-// fetchOrigin fetches origin's default branch into ref of epic's repository, and returns the branch and the commit the
-// ref names. The default branch is the one origin's HEAD names (lsRemoteHead). A release fetches into its origin ref,
-// and a sync of origin's main into its own, each git it runs for at most its own limit (Runner.fetchMain).
-func fetchOrigin(ctx context.Context, epic store.EpicRow, ref string) (string, string, error) {
-	branch, _, err := lsRemoteHead(ctx, epic.Repository)
+// fetchOrigin fetches origin's default branch into ref of epic's repository on host, and returns the branch and the
+// commit the ref names. The default branch is the one origin's HEAD names (lsRemoteHead). A release fetches into its
+// origin ref, and a sync of origin's main into its own, each git it runs for at most its own limit (Runner.fetchMain).
+func fetchOrigin(ctx context.Context, host hostexec.Host, epic store.EpicRow, ref string) (string, string, error) {
+	branch, _, err := lsRemoteHead(ctx, host, epic.Repository)
 	if err != nil {
 		return "", "", err
 	}
-	commit, err := fetchBranch(ctx, epic, branch, ref)
+	commit, err := fetchBranch(ctx, host, epic, branch, ref)
 	if err != nil {
 		return "", "", err
 	}
 	return branch, commit, nil
 }
 
-// lsRemoteHead reads origin of repo with git ls-remote --symref origin HEAD (remoteOutput), and returns origin's
+// lsRemoteHead reads origin of repo on host with git ls-remote --symref origin HEAD (remoteOutput), and returns origin's
 // default branch, the one its HEAD names, and the commit its HEAD names. It fetches nothing.
-func lsRemoteHead(ctx context.Context, repo string) (string, string, error) {
-	listing, err := remoteOutput(ctx, repo, "ls-remote", "--symref", releaseRemote, "HEAD")
+func lsRemoteHead(ctx context.Context, host hostexec.Host, repo string) (string, string, error) {
+	listing, err := remoteOutput(ctx, host, repo, "ls-remote", "--symref", releaseRemote, "HEAD")
 	if err != nil {
 		return "", "", err
 	}
@@ -148,43 +144,55 @@ func lsRemoteHead(ctx context.Context, repo string) (string, string, error) {
 	return branch, commit, nil
 }
 
-// fetchBranch fetches branch of origin into ref of epic's repository (remoteOutput), and returns the commit the ref
-// names.
-func fetchBranch(ctx context.Context, epic store.EpicRow, branch, ref string) (string, error) {
+// fetchBranch fetches branch of origin into ref of epic's repository on host (remoteOutput), and returns the commit the
+// ref names.
+func fetchBranch(ctx context.Context, host hostexec.Host, epic store.EpicRow, branch, ref string) (string, error) {
 	fetchSpec := "+" + branch + ":" + ref
 	if _, err := remoteOutput(
-		ctx, epic.Repository, "fetch", "--no-tags", "--no-write-fetch-head", "--refmap=", releaseRemote, fetchSpec,
+		ctx,
+		host,
+		epic.Repository,
+		"fetch",
+		"--no-tags",
+		"--no-write-fetch-head",
+		"--refmap=",
+		releaseRemote,
+		fetchSpec,
 	); err != nil {
 		return "", err
 	}
-	commit, err := gitOutput(ctx, epic.Repository, "rev-parse", "--verify", ref+"^{commit}")
+	commit, err := gitOutput(ctx, host, epic.Repository, "rev-parse", "--verify", ref+"^{commit}")
 	if err != nil {
 		return "", err
 	}
 	return strings.TrimSpace(commit), nil
 }
 
-// remoteOutput runs git in dir as gitOutput does, for a command that reads origin. git never prompts for a username or
-// password (GIT_TERMINAL_PROMPT=0), so it fails where it would wait on a prompt. It runs in a process group of its own,
-// which ctx's end kills whole, so the transport git started is stopped with it, and it is waited for at most
+// remoteOutput runs git in dir on host as gitOutput does, for a command that reads origin. The run is a Remote one: git
+// never prompts for a username or password, so it fails where it would wait on a prompt, and it runs in a process group
+// of its own, which ctx's end kills whole, so the transport git started is stopped with it. It is waited for at most
 // remoteKillGrace after that.
-func remoteOutput(ctx context.Context, dir string, args ...string) (string, error) {
-	cmd := gitCommand(ctx, dir, args)
-	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
-	cmd.WaitDelay = remoteKillGrace
-	return gitRun(cmd, args)
+func remoteOutput(ctx context.Context, host hostexec.Host, dir string, args ...string) (string, error) {
+	out, err := host.Git(ctx, hostexec.GitCall{Dir: dir, Args: args, Remote: true, WaitDelay: remoteKillGrace})
+	if err != nil {
+		return "", fmt.Errorf("%w", err)
+	}
+	return string(out), nil
 }
 
 // candidateContainsOrigin reports whether origin's current main is in candidate, which is to say an ancestor of it or the
 // commit itself. It fetches origin first, as a prepare does, so the answer is for origin as it is now.
-func candidateContainsOrigin(ctx context.Context, epic store.EpicRow, candidate string) (bool, error) {
-	_, origin, err := fetchOrigin(ctx, epic, releaseRef(epic, "origin"))
+func candidateContainsOrigin(
+	ctx context.Context,
+	host hostexec.Host,
+	epic store.EpicRow,
+	candidate string,
+) (bool, error) {
+	_, origin, err := fetchOrigin(ctx, host, epic, releaseRef(epic, "origin"))
 	if err != nil {
 		return false, err
 	}
-	return isAncestor(ctx, epic.Repository, origin, candidate)
+	return isAncestor(ctx, host, epic.Repository, origin, candidate)
 }
 
 // defaultBranch returns the branch that origin's HEAD names, read from the output of ls-remote --symref.
@@ -210,15 +218,15 @@ func headCommit(listing string) (string, error) {
 	return "", fmt.Errorf("git ls-remote --symref %s HEAD names no commit", releaseRemote)
 }
 
-// isAncestor reports whether ancestor is an ancestor of descendant in repo. A commit that is not one is an answer, not a
-// failure.
-func isAncestor(ctx context.Context, repo, ancestor, descendant string) (bool, error) {
-	_, err := gitOutput(ctx, repo, "merge-base", "--is-ancestor", ancestor, descendant)
+// isAncestor reports whether ancestor is an ancestor of descendant in repo on host. A commit that is not one is an
+// answer, not a failure.
+func isAncestor(ctx context.Context, host hostexec.Host, repo, ancestor, descendant string) (bool, error) {
+	_, err := gitOutput(ctx, host, repo, "merge-base", "--is-ancestor", ancestor, descendant)
 	if err == nil {
 		return true, nil
 	}
-	var exit *exec.ExitError
-	if errors.As(err, &exit) && exit.ExitCode() == notAncestor {
+	var gitErr *hostexec.GitError
+	if errors.As(err, &gitErr) && gitErr.ExitCode == notAncestor {
 		return false, nil
 	}
 	return false, err
@@ -229,7 +237,7 @@ func isAncestor(ctx context.Context, repo, ancestor, descendant string) (bool, e
 func mergeOrigin(
 	ctx context.Context, host hostexec.Host, epic store.EpicRow, run store.NodeRun, tip, origin, tree string,
 ) (string, error) {
-	commit, err := gitOutput(ctx, epic.Repository, "commit-tree", tree, "-p", tip, "-p", origin, "-m",
+	commit, err := gitOutput(ctx, host, epic.Repository, "commit-tree", tree, "-p", tip, "-p", origin, "-m",
 		mergeMessage(tip, origin))
 	if err != nil {
 		return "", err
@@ -252,29 +260,24 @@ func runPin(epic store.EpicRow, run store.NodeRun) string {
 	return releaseRef(epic, fmt.Sprintf("%s-%d", run.ID, run.Attempt))
 }
 
-// mergeTree runs merge-tree --write-tree of tip and origin in repo, without a checkout, naming only the conflicted
-// paths, and returns what git printed on stdout and whether the merge conflicts (runMergeTree).
-func mergeTree(ctx context.Context, repo, tip, origin string) (string, bool, error) {
-	return runMergeTree(ctx, repo, "--name-only", tip, origin)
+// mergeTree runs merge-tree --write-tree of tip and origin in repo on host, without a checkout, naming only the
+// conflicted paths, and returns what git printed on stdout and whether the merge conflicts (runMergeTree).
+func mergeTree(ctx context.Context, host hostexec.Host, repo, tip, origin string) (string, bool, error) {
+	return runMergeTree(ctx, host, repo, "--name-only", tip, origin)
 }
 
-// runMergeTree runs merge-tree --write-tree --no-messages with args in repo, without a checkout, and returns what git
-// printed on stdout and whether the merge conflicts, which git says with the exit status mergeConflict.
-func runMergeTree(ctx context.Context, repo string, args ...string) (string, bool, error) {
+// runMergeTree runs merge-tree --write-tree --no-messages with args in repo on host, without a checkout, and returns
+// what git printed on stdout and whether the merge conflicts, which git says with the exit status mergeConflict. A
+// conflicting merge's stdout is returned with no error.
+func runMergeTree(ctx context.Context, host hostexec.Host, repo string, args ...string) (string, bool, error) {
 	args = append([]string{"merge-tree", "--write-tree", "--no-messages"}, args...)
-	cmd := exec.CommandContext(ctx, "git")
-	cmd.Args = append(cmd.Args, "-C", repo)
-	cmd.Args = append(cmd.Args, args...)
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	err := cmd.Run()
-	var exit *exec.ExitError
-	conflicted := errors.As(err, &exit) && exit.ExitCode() == mergeConflict
+	out, err := host.Git(ctx, hostexec.GitCall{Dir: repo, Args: args})
+	var gitErr *hostexec.GitError
+	conflicted := errors.As(err, &gitErr) && gitErr.ExitCode == mergeConflict
 	if err != nil && !conflicted {
-		return "", false, fmt.Errorf("git %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(stderr.String()))
+		return "", false, fmt.Errorf("%w", err)
 	}
-	return stdout.String(), conflicted, nil
+	return string(out), conflicted, nil
 }
 
 // mergedTree returns the tree merge-tree wrote and the paths it names as conflicted, as its stdout out gives them. git
