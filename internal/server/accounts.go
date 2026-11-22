@@ -61,15 +61,11 @@ func (a accountsServer) Add(
 	ctx context.Context,
 	req *connect.Request[orreryv1.AccountsAddRequest],
 ) (*connect.Response[orreryv1.AccountsAddResponse], error) {
-	name, provider, plan, token := req.Msg.GetName(), req.Msg.GetProvider(), req.Msg.GetPlan(), req.Msg.GetToken()
-	var reply *connect.Response[enginev1.AddAccountResponse]
-	err := forwardAccountCommand(ctx, a.commands, a.timeout, a.clock,
-		func(ctx context.Context, commands enginev1connect.AccountsClient) error {
-			var err error
-			reply, err = commands.AddAccount(ctx, connect.NewRequest(&enginev1.AddAccountRequest{
-				Name: name, Provider: provider, Plan: plan, Token: token,
+	reply, err := forwardAccount(ctx, a.commands, a.timeout, a.clock, "add account",
+		func(ctx context.Context, c enginev1connect.AccountsClient) (*connect.Response[enginev1.AddAccountResponse], error) {
+			return c.AddAccount(ctx, connect.NewRequest(&enginev1.AddAccountRequest{
+				Name: req.Msg.GetName(), Provider: req.Msg.GetProvider(), Plan: req.Msg.GetPlan(), Token: req.Msg.GetToken(),
 			}))
-			return wrapEngine("add account", err)
 		})
 	if err != nil {
 		return nil, err
@@ -82,15 +78,11 @@ func (a accountsServer) Rename(
 	ctx context.Context,
 	req *connect.Request[orreryv1.AccountsRenameRequest],
 ) (*connect.Response[orreryv1.AccountsRenameResponse], error) {
-	id, name := req.Msg.GetId(), req.Msg.GetName()
-	var reply *connect.Response[enginev1.RenameAccountResponse]
-	err := forwardAccountCommand(ctx, a.commands, a.timeout, a.clock,
-		func(ctx context.Context, commands enginev1connect.AccountsClient) error {
-			var err error
-			reply, err = commands.RenameAccount(ctx, connect.NewRequest(&enginev1.RenameAccountRequest{
-				Id: id, Name: name,
+	reply, err := forwardAccount(ctx, a.commands, a.timeout, a.clock, "rename account",
+		func(ctx context.Context, c enginev1connect.AccountsClient) (*connect.Response[enginev1.RenameAccountResponse], error) {
+			return c.RenameAccount(ctx, connect.NewRequest(&enginev1.RenameAccountRequest{
+				Id: req.Msg.GetId(), Name: req.Msg.GetName(),
 			}))
-			return wrapEngine("rename account", err)
 		})
 	if err != nil {
 		return nil, err
@@ -103,11 +95,9 @@ func (a accountsServer) Remove(
 	ctx context.Context,
 	req *connect.Request[orreryv1.AccountsRemoveRequest],
 ) (*connect.Response[orreryv1.AccountsRemoveResponse], error) {
-	id := req.Msg.GetId()
-	err := forwardAccountCommand(ctx, a.commands, a.timeout, a.clock,
-		func(ctx context.Context, commands enginev1connect.AccountsClient) error {
-			_, err := commands.RemoveAccount(ctx, connect.NewRequest(&enginev1.RemoveAccountRequest{Id: id}))
-			return wrapEngine("remove account", err)
+	_, err := forwardAccount(ctx, a.commands, a.timeout, a.clock, "remove account",
+		func(ctx context.Context, c enginev1connect.AccountsClient) (*connect.Response[enginev1.RemoveAccountResponse], error) {
+			return c.RemoveAccount(ctx, connect.NewRequest(&enginev1.RemoveAccountRequest{Id: req.Msg.GetId()}))
 		})
 	if err != nil {
 		return nil, err
@@ -115,26 +105,30 @@ func (a accountsServer) Remove(
 	return connect.NewResponse(&orreryv1.AccountsRemoveResponse{}), nil
 }
 
-// forwardAccountCommand runs call against the accounts command client. A nil client answers unavailable. A call whose
-// connection was never made is retried under timeout while rpcretry.NeverConnected accepts its error, on clock. Any
-// other error answers as translateError does.
-func forwardAccountCommand(
+// forwardAccount runs call against the accounts command client and returns orreryd's reply. A nil client answers
+// unavailable. A call whose connection was never made is retried under timeout while rpcretry.NeverConnected accepts
+// its error, on clock. A failed call's error is named op and translated as translateError does.
+func forwardAccount[Resp any](
 	ctx context.Context,
 	commands enginev1connect.AccountsClient,
 	timeout time.Duration,
 	clock rpcretry.Clock,
-	call func(context.Context, enginev1connect.AccountsClient) error,
-) error {
+	op string,
+	call func(context.Context, enginev1connect.AccountsClient) (*connect.Response[Resp], error),
+) (*connect.Response[Resp], error) {
 	if commands == nil {
-		return listError(connect.CodeUnavailable, accountCommandsUnavailable)
+		return nil, listError(connect.CodeUnavailable, accountCommandsUnavailable)
 	}
+	var reply *connect.Response[Resp]
 	err := retryUnder(ctx, clock, timeout, rpcretry.NeverConnected, func(ctx context.Context) error {
-		return call(ctx, commands)
+		var callErr error
+		reply, callErr = call(ctx, commands)
+		return callErr
 	})
 	if err != nil {
-		return translateError(err)
+		return nil, translateError(wrapEngine(op, err))
 	}
-	return nil
+	return reply, nil
 }
 
 // accountReadError returns the error an account or route read answers with for err: unavailable when the store is, and

@@ -50,15 +50,11 @@ func (r routesServer) Replace(
 	ctx context.Context,
 	req *connect.Request[orreryv1.RoutesReplaceRequest],
 ) (*connect.Response[orreryv1.RoutesReplaceResponse], error) {
-	registry := req.Msg.GetRegistry()
-	var reply *connect.Response[enginev1.ReplaceRoutesResponse]
-	err := forwardAccountCommand(ctx, r.commands, r.timeout, r.clock,
-		func(ctx context.Context, commands enginev1connect.AccountsClient) error {
-			var err error
-			reply, err = commands.ReplaceRoutes(ctx, connect.NewRequest(&enginev1.ReplaceRoutesRequest{
-				Registry: registry,
+	reply, err := forwardAccount(ctx, r.commands, r.timeout, r.clock, "replace routes",
+		func(ctx context.Context, c enginev1connect.AccountsClient) (*connect.Response[enginev1.ReplaceRoutesResponse], error) {
+			return c.ReplaceRoutes(ctx, connect.NewRequest(&enginev1.ReplaceRoutesRequest{
+				Registry: req.Msg.GetRegistry(),
 			}))
-			return wrapEngine("replace routes", err)
 		})
 	if err != nil {
 		return nil, err
@@ -71,15 +67,11 @@ func (r routesServer) SetContextAccount(
 	ctx context.Context,
 	req *connect.Request[orreryv1.RoutesSetContextAccountRequest],
 ) (*connect.Response[orreryv1.RoutesSetContextAccountResponse], error) {
-	contextID, account := req.Msg.GetContext(), req.Msg.GetAccount()
-	var reply *connect.Response[enginev1.SetContextAccountResponse]
-	err := forwardAccountCommand(ctx, r.commands, r.timeout, r.clock,
-		func(ctx context.Context, commands enginev1connect.AccountsClient) error {
-			var err error
-			reply, err = commands.SetContextAccount(ctx, connect.NewRequest(&enginev1.SetContextAccountRequest{
-				Context: contextID, Account: account,
+	reply, err := forwardAccount(ctx, r.commands, r.timeout, r.clock, "set context account",
+		func(ctx context.Context, c enginev1connect.AccountsClient) (*connect.Response[enginev1.SetContextAccountResponse], error) {
+			return c.SetContextAccount(ctx, connect.NewRequest(&enginev1.SetContextAccountRequest{
+				Context: req.Msg.GetContext(), Account: req.Msg.GetAccount(),
 			}))
-			return wrapEngine("set context account", err)
 		})
 	if err != nil {
 		return nil, err
