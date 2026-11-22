@@ -5,6 +5,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/joshsymonds/orrery/internal/hostexec"
 )
 
 // domTestPath is the node test file the DOM assert tests change.
@@ -182,7 +184,7 @@ func TestCheckReadsEveryChangedNodeTestFile(t *testing.T) {
 	repo := newRepo(t)
 	base := commitFiles(t, repo, map[string]string{domTestPath: domBase})
 	head := commitFiles(t, repo, map[string]string{domTestPath: withLine(`assert.equal(document.activeElement, box);`)})
-	got, err := Check(t.Context(), repo, base, head, Spec{})
+	got, err := Check(t.Context(), hostexec.NewLocal(), repo, base, head, Spec{})
 	if err != nil {
 		t.Fatalf("Check: %v", err)
 	}

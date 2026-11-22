@@ -94,7 +94,13 @@ func (r *Runner) amendmentRepro(ctx context.Context, epic store.EpicRow, amended
 		return fmt.Errorf("read reproduction of amendment %d: %w", amended.Seq, err)
 	}
 	ref := fmt.Sprintf("refs/orrery/%s/repro/%s", build.Slug(epic.ID), amended.ReproCheck)
-	overlay, err := compose.Overlay(ctx, epic.Repository, amended.Base, amended.StoredBase, amended.Item.Tests, ref)
+	host, err := r.hostOf(epic)
+	if err != nil {
+		return fmt.Errorf("make reproduction of amendment %d: %w", amended.Seq, err)
+	}
+	overlay, err := compose.Overlay(
+		ctx, host, epic.Repository, amended.Base, amended.StoredBase, amended.Item.Tests, ref,
+	)
 	if err != nil {
 		return fmt.Errorf("make reproduction of amendment %d: %w", amended.Seq, err)
 	}

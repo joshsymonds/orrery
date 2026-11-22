@@ -47,7 +47,11 @@ type batchLeftOut struct {
 // of the batch: the tasks act names, and each stranded task, whose claim on its failed batch the claim moves to this
 // one, so a failed batch never holds a task that a later batch composed.
 func (r *Runner) prepareBatch(ctx context.Context, epic store.EpicRow, act Action) error {
-	base, err := batchBase(ctx, epic)
+	host, err := r.hostOf(epic)
+	if err != nil {
+		return err
+	}
+	base, err := batchBase(ctx, host, epic)
 	if err != nil {
 		return err
 	}
@@ -70,7 +74,7 @@ func (r *Runner) prepareBatch(ctx context.Context, epic store.EpicRow, act Actio
 	if err != nil {
 		return err
 	}
-	result, err := compose.Compose(ctx, epic.Repository, base, tasks, candidateRef(epic, act.Run))
+	result, err := compose.Compose(ctx, host, epic.Repository, base, tasks, candidateRef(epic, act.Run))
 	if err != nil {
 		return fmt.Errorf("compose batch of node %s: %w", act.Path, err)
 	}
@@ -95,11 +99,11 @@ func (r *Runner) prepareBatch(ctx context.Context, epic store.EpicRow, act Actio
 // which is the candidate when it builds on the stored base and the merge of the stored base into it when it does not.
 // A candidate that does not merge with the stored base gives the stored base, and the work of the candidate's tasks
 // that the stored base lacks is then composed again (strandedTasks).
-func batchBase(ctx context.Context, epic store.EpicRow) (string, error) {
+func batchBase(ctx context.Context, host hostexec.Host, epic store.EpicRow) (string, error) {
 	if epic.Candidate == "" {
 		return epic.StoredBase, nil
 	}
-	joined, ok, err := compose.Join(ctx, epic.Repository, epic.StoredBase, epic.Candidate, joinPrefix(epic))
+	joined, ok, err := compose.Join(ctx, host, epic.Repository, epic.StoredBase, epic.Candidate, joinPrefix(epic))
 	if err != nil {
 		return "", fmt.Errorf(
 			"join candidate %s of epic %s with its stored base %s: %w", epic.Candidate, epic.ID, epic.StoredBase, err,
@@ -514,7 +518,11 @@ func (r *Runner) endBatch(ctx context.Context, epic store.EpicRow, act Action, a
 		SendBacks: sends,
 	}
 	if act.Outcome == outcomeFailed && composedAny(act.Run.Result) {
-		joined, ok, err := compose.Join(ctx, epic.Repository, epic.StoredBase, act.Run.Revision, joinPrefix(epic))
+		host, err := r.hostOf(epic)
+		if err != nil {
+			return err
+		}
+		joined, ok, err := compose.Join(ctx, host, epic.Repository, epic.StoredBase, act.Run.Revision, joinPrefix(epic))
 		if err != nil {
 			return fmt.Errorf("join batch %s with the stored base %s: %w", act.Path, epic.StoredBase, err)
 		}
@@ -564,7 +572,7 @@ func (r *Runner) advance(ctx context.Context, epic store.EpicRow, act Action, at
 			return r.parkBatch(ctx, epic, act, reason, at)
 		}
 		if err = compose.Advance(
-			ctx, epic.Repository, build.BranchRef(epic.ID), act.Run.Revision, epic.StoredBase,
+			ctx, host, epic.Repository, build.BranchRef(epic.ID), act.Run.Revision, epic.StoredBase,
 		); err != nil {
 			return fmt.Errorf("advance epic %s to %s: %w", epic.ID, act.Run.Revision, err)
 		}
@@ -579,7 +587,7 @@ func (r *Runner) advance(ctx context.Context, epic store.EpicRow, act Action, at
 	}
 	if epic.Candidate != "" {
 		joined, joins, joinErr := compose.Join(
-			ctx, epic.Repository, act.Run.Revision, epic.Candidate, joinPrefix(epic),
+			ctx, host, epic.Repository, act.Run.Revision, epic.Candidate, joinPrefix(epic),
 		)
 		if joinErr != nil {
 			return fmt.Errorf("join candidate %s of epic %s with %s: %w", epic.Candidate, epic.ID,

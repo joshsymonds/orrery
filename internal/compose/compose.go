@@ -8,9 +8,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
-	"os/exec"
 	"strings"
+
+	"github.com/joshsymonds/orrery/internal/hostexec"
 )
 
 // pinPrefix is the namespace a candidate is pinned under, and branchPrefix the namespace Advance may move.
@@ -50,18 +50,20 @@ type Result struct {
 
 // Compose composes tasks, in order, on base, and pins the candidate at ref when any task composed. Nothing reads or
 // writes the repository's index or working tree: merges are written with merge-tree and commit-tree, without a
-// checkout.
-func Compose(ctx context.Context, repo, base string, tasks []Task, ref string) (Result, error) {
-	batchBase, err := resolveCommit(ctx, repo, base)
+// checkout. Its git runs in repo through host.
+func Compose(
+	ctx context.Context, host hostexec.Host, repo, base string, tasks []Task, ref string,
+) (Result, error) {
+	batchBase, err := resolveCommit(ctx, host, repo, base)
 	if err != nil {
 		return Result{}, fmt.Errorf("resolve batch base: %w", err)
 	}
-	result, err := composeTasks(ctx, repo, batchBase, tasks)
+	result, err := composeTasks(ctx, host, repo, batchBase, tasks)
 	if err != nil {
 		return Result{}, err
 	}
 	if len(result.Composed) > 0 {
-		if pinErr := pinCandidate(ctx, repo, ref, result.Candidate); pinErr != nil {
+		if pinErr := pinCandidate(ctx, host, repo, ref, result.Candidate); pinErr != nil {
 			return Result{}, pinErr
 		}
 	}
@@ -72,7 +74,9 @@ func Compose(ctx context.Context, repo, base string, tasks []Task, ref string) (
 // a commit that is neither batchBase nor an ancestor of it is left out. A task whose revision the candidate already
 // holds composes as the candidate itself. Every other task is merged in with a merge commit whose first parent is the
 // candidate, and a task whose merge conflicts is left out whole, with the conflicted paths.
-func composeTasks(ctx context.Context, repo, batchBase string, tasks []Task) (Result, error) {
+func composeTasks(
+	ctx context.Context, host hostexec.Host, repo, batchBase string, tasks []Task,
+) (Result, error) {
 	result := Result{
 		Base:      batchBase,
 		Candidate: batchBase,
@@ -80,7 +84,7 @@ func composeTasks(ctx context.Context, repo, batchBase string, tasks []Task) (Re
 		LeftOut:   make([]LeftOut, 0, len(tasks)),
 	}
 	for _, task := range tasks {
-		builds, err := buildsOn(ctx, repo, batchBase, task.Base)
+		builds, err := buildsOn(ctx, host, repo, batchBase, task.Base)
 		if err != nil {
 			return Result{}, fmt.Errorf("base of T%d: %w", task.Seq, err)
 		}
@@ -91,11 +95,11 @@ func composeTasks(ctx context.Context, repo, batchBase string, tasks []Task) (Re
 			})
 			continue
 		}
-		revision, err := resolveCommit(ctx, repo, task.Revision)
+		revision, err := resolveCommit(ctx, host, repo, task.Revision)
 		if err != nil {
 			return Result{}, fmt.Errorf("resolve T%d revision: %w", task.Seq, err)
 		}
-		held, err := isAncestor(ctx, repo, revision, result.Candidate)
+		held, err := isAncestor(ctx, host, repo, revision, result.Candidate)
 		if err != nil {
 			return Result{}, fmt.Errorf("check whether the candidate holds T%d: %w", task.Seq, err)
 		}
@@ -103,7 +107,7 @@ func composeTasks(ctx context.Context, repo, batchBase string, tasks []Task) (Re
 			result.Composed = append(result.Composed, Composed{Seq: task.Seq, Commit: result.Candidate})
 			continue
 		}
-		tree, conflicts, clean, err := mergedTree(ctx, repo, result.Candidate, revision)
+		tree, conflicts, clean, err := mergedTree(ctx, host, repo, result.Candidate, revision)
 		if err != nil {
 			return Result{}, fmt.Errorf("merge T%d: %w", task.Seq, err)
 		}
@@ -113,7 +117,7 @@ func composeTasks(ctx context.Context, repo, batchBase string, tasks []Task) (Re
 			continue
 		}
 		message := fmt.Appendf(nil, "Merge T%d %s\n", task.Seq, revision)
-		commit, err := mergeCommit(ctx, repo, tree, result.Candidate, revision, revision, message)
+		commit, err := mergeCommit(ctx, host, repo, tree, result.Candidate, revision, revision, message)
 		if err != nil {
 			return Result{}, fmt.Errorf("compose T%d: %w", task.Seq, err)
 		}
@@ -125,26 +129,26 @@ func composeTasks(ctx context.Context, repo, batchBase string, tasks []Task) (Re
 
 // buildsOn reports whether a task built on base can compose on batchBase: base names batchBase itself, or a commit that
 // is an ancestor of batchBase. A base that names no commit cannot.
-func buildsOn(ctx context.Context, repo, batchBase, base string) (bool, error) {
+func buildsOn(ctx context.Context, host hostexec.Host, repo, batchBase, base string) (bool, error) {
 	if base == batchBase {
 		return true, nil
 	}
-	commit, ok := commitOf(ctx, repo, base)
+	commit, ok := commitOf(ctx, host, repo, base)
 	if !ok {
 		return false, nil
 	}
-	return isAncestor(ctx, repo, commit, batchBase)
+	return isAncestor(ctx, host, repo, commit, batchBase)
 }
 
 // isAncestor reports whether ancestor is an ancestor of commit, or commit itself. It returns an error when git fails
 // for another reason than the answer no.
-func isAncestor(ctx context.Context, repo, ancestor, commit string) (bool, error) {
-	_, err := runGit(ctx, repo, nil, nil, "merge-base", "--is-ancestor", ancestor, commit)
-	var exitErr *exec.ExitError
+func isAncestor(ctx context.Context, host hostexec.Host, repo, ancestor, commit string) (bool, error) {
+	_, err := runGit(ctx, host, repo, nil, nil, "merge-base", "--is-ancestor", ancestor, commit)
+	var gitErr *hostexec.GitError
 	switch {
 	case err == nil:
 		return true, nil
-	case errors.As(err, &exitErr) && exitErr.ExitCode() == 1:
+	case errors.As(err, &gitErr) && gitErr.ExitCode == 1:
 		return false, nil
 	default:
 		return false, fmt.Errorf("check that %s is an ancestor of %s: %w", ancestor, commit, err)
@@ -153,8 +157,10 @@ func isAncestor(ctx context.Context, repo, ancestor, commit string) (bool, error
 
 // composeTask writes one commit on parent: the revision's changed paths staged over parent's tree in the temporary
 // index, with the revision's author, committer and message.
-func composeTask(ctx context.Context, repo, index, parent, revision string, paths []string) (string, error) {
-	raw, err := runGit(ctx, repo, nil, nil, "cat-file", "commit", revision)
+func composeTask(
+	ctx context.Context, host hostexec.Host, repo, index, parent, revision string, paths []string,
+) (string, error) {
+	raw, err := runGit(ctx, host, repo, nil, nil, "cat-file", "commit", revision)
 	if err != nil {
 		return "", fmt.Errorf("read revision: %w", err)
 	}
@@ -163,17 +169,19 @@ func composeTask(ctx context.Context, repo, index, parent, revision string, path
 		return "", err
 	}
 	indexEnv := []string{"GIT_INDEX_FILE=" + index}
-	if _, err = runGit(ctx, repo, indexEnv, nil, "read-tree", parent); err != nil {
+	if _, err = runGit(ctx, host, repo, indexEnv, nil, "read-tree", parent); err != nil {
 		return "", fmt.Errorf("read parent tree: %w", err)
 	}
-	if stageErr := stagePaths(ctx, repo, indexEnv, revision, paths); stageErr != nil {
+	if stageErr := stagePaths(ctx, host, repo, indexEnv, revision, paths); stageErr != nil {
 		return "", stageErr
 	}
-	tree, err := runGit(ctx, repo, indexEnv, nil, "write-tree")
+	tree, err := runGit(ctx, host, repo, indexEnv, nil, "write-tree")
 	if err != nil {
 		return "", fmt.Errorf("write composed tree: %w", err)
 	}
-	commit, err := runGit(ctx, repo, identity, message, "commit-tree", strings.TrimSpace(string(tree)), "-p", parent)
+	commit, err := runGit(
+		ctx, host, repo, identity, message, "commit-tree", strings.TrimSpace(string(tree)), "-p", parent,
+	)
 	if err != nil {
 		return "", fmt.Errorf("create commit: %w", err)
 	}
@@ -182,14 +190,16 @@ func composeTask(ctx context.Context, repo, index, parent, revision string, path
 
 // stagePaths sets each of paths in the index to the revision's entry for it, and removes a path the revision lacks.
 // Removals run first, so a file and a directory of the same name can trade places.
-func stagePaths(ctx context.Context, repo string, env []string, revision string, paths []string) error {
+func stagePaths(
+	ctx context.Context, host hostexec.Host, repo string, env []string, revision string, paths []string,
+) error {
 	if len(paths) == 0 {
 		return nil
 	}
 	// The paths are literal: a path such as ":foo" must not be read as pathspec magic, or its entry would be missed and
 	// the path removed.
 	args := append([]string{"ls-tree", "-r", "-z", "--full-tree", revision, "--"}, paths...)
-	listing, err := runGit(ctx, repo, []string{"GIT_LITERAL_PATHSPECS=1"}, nil, args...)
+	listing, err := runGit(ctx, host, repo, []string{"GIT_LITERAL_PATHSPECS=1"}, nil, args...)
 	if err != nil {
 		return fmt.Errorf("read revision entries: %w", err)
 	}
@@ -213,12 +223,14 @@ func stagePaths(ctx context.Context, repo string, env []string, revision string,
 	}
 	if removals.Len() > 0 {
 		removeArgs := []string{"update-index", "-z", "--force-remove", "--stdin"}
-		if _, err = runGit(ctx, repo, env, removals.Bytes(), removeArgs...); err != nil {
+		if _, err = runGit(ctx, host, repo, env, removals.Bytes(), removeArgs...); err != nil {
 			return fmt.Errorf("remove paths from temporary index: %w", err)
 		}
 	}
 	if updates.Len() > 0 {
-		if _, err = runGit(ctx, repo, env, updates.Bytes(), "update-index", "-z", "--index-info"); err != nil {
+		if _, err = runGit(
+			ctx, host, repo, env, updates.Bytes(), "update-index", "-z", "--index-info",
+		); err != nil {
 			return fmt.Errorf("stage paths in temporary index: %w", err)
 		}
 	}
@@ -273,15 +285,15 @@ func identityEnv(role, value string) ([]string, error) {
 
 // pinCandidate points ref at commit, create-only. A ref that already points at commit passes, and one that points at
 // another commit is an error.
-func pinCandidate(ctx context.Context, repo, ref, commit string) error {
+func pinCandidate(ctx context.Context, host hostexec.Host, repo, ref, commit string) error {
 	if !strings.HasPrefix(ref, pinPrefix) {
 		return fmt.Errorf("candidate ref %q is outside %s", ref, pinPrefix)
 	}
-	_, createErr := runGit(ctx, repo, nil, nil, "update-ref", ref, commit, "")
+	_, createErr := runGit(ctx, host, repo, nil, nil, "update-ref", ref, commit, "")
 	if createErr == nil {
 		return nil
 	}
-	existing, err := resolveCommit(ctx, repo, ref)
+	existing, err := resolveCommit(ctx, host, repo, ref)
 	if err != nil {
 		return fmt.Errorf("pin candidate ref: %w", createErr)
 	}
@@ -293,40 +305,42 @@ func pinCandidate(ctx context.Context, repo, ref, commit string) error {
 
 // Advance moves branchRef to to, and only when the branch is at from and to builds on from, so the move is a
 // fast-forward that drops nothing the branch holds. The empty from means the branch must not exist. Only a branch under
-// refs/heads/epic/ can move.
-func Advance(ctx context.Context, repo, branchRef, to, from string) error {
+// refs/heads/epic/ can move. Its git runs in repo through host.
+func Advance(ctx context.Context, host hostexec.Host, repo, branchRef, to, from string) error {
 	if !strings.HasPrefix(branchRef, branchPrefix) {
 		return fmt.Errorf("branch %q is outside %s", branchRef, branchPrefix)
 	}
-	target, err := resolveCommit(ctx, repo, to)
+	target, err := resolveCommit(ctx, host, repo, to)
 	if err != nil {
 		return fmt.Errorf("resolve advance target: %w", err)
 	}
 	expected := ""
 	if from != "" {
-		if expected, err = resolveCommit(ctx, repo, from); err != nil {
+		if expected, err = resolveCommit(ctx, host, repo, from); err != nil {
 			return fmt.Errorf("resolve advance expected commit: %w", err)
 		}
-		if _, err = runGit(ctx, repo, nil, nil, "merge-base", "--is-ancestor", expected, target); err != nil {
+		if _, err = runGit(
+			ctx, host, repo, nil, nil, "merge-base", "--is-ancestor", expected, target,
+		); err != nil {
 			return fmt.Errorf("advance branch: %s does not build on %s, so the move is not a fast-forward: %w",
 				target, expected, err)
 		}
 	}
-	if _, err = runGit(ctx, repo, nil, nil, "update-ref", branchRef, target, expected); err != nil {
+	if _, err = runGit(ctx, host, repo, nil, nil, "update-ref", branchRef, target, expected); err != nil {
 		return fmt.Errorf("advance branch: %w", err)
 	}
 	return nil
 }
 
 // commitOf returns the full id of the commit that value names, and false when value names none.
-func commitOf(ctx context.Context, repo, value string) (string, bool) {
-	commit, err := resolveCommit(ctx, repo, value)
+func commitOf(ctx context.Context, host hostexec.Host, repo, value string) (string, bool) {
+	commit, err := resolveCommit(ctx, host, repo, value)
 	return commit, err == nil
 }
 
 // resolveCommit returns the full id of the commit that value names.
-func resolveCommit(ctx context.Context, repo, value string) (string, error) {
-	out, err := runGit(ctx, repo, nil, nil, "rev-parse", "--verify", "--end-of-options", value+"^{commit}")
+func resolveCommit(ctx context.Context, host hostexec.Host, repo, value string) (string, error) {
+	out, err := runGit(ctx, host, repo, nil, nil, "rev-parse", "--verify", "--end-of-options", value+"^{commit}")
 	if err != nil {
 		return "", err
 	}
@@ -338,22 +352,16 @@ func splitNUL(out []byte) []string {
 	return strings.FieldsFunc(string(out), func(r rune) bool { return r == '\x00' })
 }
 
-// runGit runs git in repo with argv and no shell. env is added to its environment and stdin is fed to it. It returns
-// git's stdout, which on failure is what git wrote before it failed, such as the conflicted paths merge-tree names when
-// it exits 1, and an error that carries git's stderr when git failed.
-func runGit(ctx context.Context, repo string, env []string, stdin []byte, args ...string) ([]byte, error) {
-	cmd := exec.CommandContext(ctx, "git")
-	cmd.Args = append(cmd.Args, "-C", repo)
-	cmd.Args = append(cmd.Args, args...)
-	cmd.Env = append(os.Environ(), env...)
-	cmd.Stdin = bytes.NewReader(stdin)
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
-		return stdout.Bytes(), fmt.Errorf(
-			"git %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(stderr.String()),
-		)
+// runGit runs git in repo through host with argv and no shell. env is added to its environment and stdin is fed to it.
+// It returns git's stdout, which on failure is what git wrote before it failed, such as the conflicted paths merge-tree
+// names when it exits 1, and an error that carries git's stderr when git failed. A git that exits non-zero fails with a
+// *hostexec.GitError.
+func runGit(
+	ctx context.Context, host hostexec.Host, repo string, env []string, stdin []byte, args ...string,
+) ([]byte, error) {
+	out, err := host.Git(ctx, hostexec.GitCall{Dir: repo, Args: args, Env: env, Stdin: stdin})
+	if err != nil {
+		return out, fmt.Errorf("run git in %s: %w", repo, err)
 	}
-	return stdout.Bytes(), nil
+	return out, nil
 }
