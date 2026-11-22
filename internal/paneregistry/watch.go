@@ -42,7 +42,9 @@ type Config struct {
 	Open func() (*inotify.Inotify, error)
 	// Events receives each change to the bound panes, in the order the changes happen.
 	Events func(Event)
-	// Unreadable receives the path of an entry that Watch could not read, and why. Watch emits nothing for that entry.
+	// Unreadable receives the path of an entry that Watch could not read or parse, and why. Watch emits nothing for that
+	// entry. Such an entry is reported only when it is still unreadable at its next read, and then once, until it is read
+	// whole again. An entry whose process environment cannot be read is reported at once, on each event that finds it so.
 	Unreadable func(path string, err error)
 	// Logger receives what Watch does beyond its events; nil discards it.
 	Logger *slog.Logger
@@ -71,6 +73,7 @@ func Watch(ctx context.Context, cfg Config) error {
 		logger:   logger,
 		files:    os.DirFS(cfg.Dir),
 		bindings: make(map[string]bound),
+		faults:   make(map[string]fault),
 	}
 	// Closing the instance ends the read that run waits in. Once ctx is done the callback closes it, and otherwise this
 	// function does. Either way the close is run once, and its error reaches this function through closed.
@@ -96,8 +99,22 @@ type watcher struct {
 	logger   *slog.Logger
 	files    fs.FS
 	bindings map[string]bound
+	faults   map[string]fault
 	reads    uint64
 }
+
+// fault is where an entry stands after a read that could not read or parse it. An entry whose last read was whole has
+// no fault, which is the zero value.
+type fault uint8
+
+const (
+	// faultNone is an entry whose last read was whole.
+	faultNone fault = iota
+	// faultHeld is an entry whose last read failed. A write in place can be read torn, so the next read decides.
+	faultHeld
+	// faultReported is an entry whose failure has been reported. It stays silent until it is read whole.
+	faultReported
+)
 
 // bound is the binding an entry holds, and the read that made it. A larger seq is a more recent read.
 type bound struct {
@@ -203,14 +220,15 @@ func (w *watcher) refresh(name string) {
 		return
 	}
 	if err != nil {
-		w.cfg.Unreadable(path, err)
+		w.unreadable(name, path, err)
 		return
 	}
 	entry, err := Parse(data)
 	if err != nil {
-		w.cfg.Unreadable(path, err)
+		w.unreadable(name, path, err)
 		return
 	}
+	delete(w.faults, name)
 	binding, binds, err := w.bindingOf(path, entry)
 	switch {
 	case err != nil:
@@ -219,6 +237,20 @@ func (w *watcher) refresh(name string) {
 		w.bind(name, binding)
 	default:
 		w.unbind(name)
+	}
+}
+
+// unreadable handles a read of the entry name, at path, that could not read or parse it, with cause err. The first such
+// read is held back, because the entry may have been read torn and the next read may find it whole. A failed read that
+// follows a held one reports err once, and no later failure is reported until the entry is read whole.
+func (w *watcher) unreadable(name, path string, err error) {
+	switch w.faults[name] {
+	case faultNone:
+		w.faults[name] = faultHeld
+	case faultHeld:
+		w.faults[name] = faultReported
+		w.cfg.Unreadable(path, err)
+	case faultReported:
 	}
 }
 
