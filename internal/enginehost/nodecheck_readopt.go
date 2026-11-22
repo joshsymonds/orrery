@@ -63,31 +63,36 @@ func (n *NodeChecks) readoptStart(ctx context.Context, check store.NodeCheck) er
 	return nil
 }
 
-// readoptDrive takes up check at repo. A check with a stored grant readopts its gate, and any other check runs from the
-// start.
+// readoptDrive takes up check at repo, on the host its epic lives on. A check with a stored grant readopts its gate, and any
+// other check runs from the start. A check whose epic's host cannot be read is left for a restart.
 func (n *NodeChecks) readoptDrive(ctx context.Context, repo string, check store.NodeCheck) {
-	if check.Grant == "" {
-		n.readoptUnlaunched(ctx, repo, check)
+	host, err := hostOfEpic(ctx, n.store, n.hosts, check.Epic)
+	if err != nil {
+		n.logger.InfoContext(ctx, "node check left for a restart", "check", check.ID, "err", err)
 		return
 	}
-	n.readoptGranted(ctx, repo, check)
+	if check.Grant == "" {
+		n.readoptUnlaunched(ctx, host, repo, check)
+		return
+	}
+	n.readoptGranted(ctx, host, repo, check)
 }
 
 // readoptUnlaunched runs check from the start when no grant is stored, so its gate never launched. A worktree a restart
-// found at its path is what a start stopped before the grant left, so it is removed before the check runs again.
-func (n *NodeChecks) readoptUnlaunched(ctx context.Context, repo string, check store.NodeCheck) {
+// found at its path is what a start stopped before the grant left, so it is removed on host before the check runs again.
+func (n *NodeChecks) readoptUnlaunched(ctx context.Context, host hostexec.Host, repo string, check store.NodeCheck) {
 	worktree := filepath.Join(n.worktrees, check.ID)
-	if err := removeStepWorktree(context.WithoutCancel(ctx), hostexec.NewLocal(), repo, worktree); err != nil {
+	if err := removeStepWorktree(context.WithoutCancel(ctx), host, repo, worktree); err != nil {
 		n.logger.WarnContext(ctx, "clear worktree of unlaunched node check", "check", check.ID, "err", err)
 		return
 	}
 	n.drive(ctx, repo, check)
 }
 
-// readoptGranted readopts the gate of check under its stored grant, and records its end as drive does (see record). A
-// gate that detaches again records nothing, so the next restart readopts it.
-func (n *NodeChecks) readoptGranted(ctx context.Context, repo string, check store.NodeCheck) {
-	end, err := n.readoptEnd(ctx, repo, check)
+// readoptGranted readopts the gate of check under its stored grant on host, and records its end as drive does (see
+// record). A gate that detaches again records nothing, so the next restart readopts it.
+func (n *NodeChecks) readoptGranted(ctx context.Context, host hostexec.Host, repo string, check store.NodeCheck) {
+	end, err := n.readoptEnd(ctx, host, repo, check)
 	if err != nil {
 		n.logger.InfoContext(ctx, "node check left for a restart", "check", check.ID, "err", err)
 		return
@@ -95,17 +100,19 @@ func (n *NodeChecks) readoptGranted(ctx context.Context, repo string, check stor
 	n.record(ctx, check.ID, end)
 }
 
-// readoptEnd readopts the gate of check under its stored grant and returns how the check ended. A gate that cannot be
-// readopted ends lost. It returns an error matching errGateDetach when the gate detaches again, and an error when ctx
+// readoptEnd readopts the gate of check under its stored grant on host and returns how the check ended. A gate that cannot
+// be readopted ends lost. It returns an error matching errGateDetach when the gate detaches again, and an error when ctx
 // ends before the gate is touched, so the check is left running with its holder for a restart.
-func (n *NodeChecks) readoptEnd(ctx context.Context, repo string, check store.NodeCheck) (store.NodeCheckEnd, error) {
+func (n *NodeChecks) readoptEnd(
+	ctx context.Context, host hostexec.Host, repo string, check store.NodeCheck,
+) (store.NodeCheckEnd, error) {
 	worktree := filepath.Join(n.worktrees, check.ID)
-	req, err := n.readoptRequest(ctx, repo, worktree, check)
+	req, err := n.readoptRequest(ctx, host, repo, worktree, check)
 	if err != nil {
 		if ctx.Err() != nil {
 			return store.NodeCheckEnd{}, fmt.Errorf("readopt node check %s: %w", check.ID, err)
 		}
-		return n.readoptLost(ctx, repo, worktree, check, err), nil
+		return n.readoptLost(ctx, host, repo, worktree, check, err), nil
 	}
 	result, err := readoptGrantedGate(ctx, n.pools, req, n.gate(worktree, check, nil), check.Grant)
 	switch {
@@ -113,17 +120,17 @@ func (n *NodeChecks) readoptEnd(ctx context.Context, repo string, check store.No
 		// The gate keeps running under its holder in worktree, so neither is removed: a restart readopts it again.
 		return store.NodeCheckEnd{}, err
 	case err != nil:
-		return n.readoptLost(ctx, repo, worktree, check, err), nil
+		return n.readoptLost(ctx, host, repo, worktree, check, err), nil
 	}
-	return n.end(ctx, repo, worktree, &result, ""), nil
+	return n.end(ctx, host, repo, worktree, &result, ""), nil
 }
 
-// readoptRequest re-adds check's worktree when a restart removed it, and returns the grant request the check queues in
-// it.
+// readoptRequest re-adds check's worktree on host when a restart removed it, and returns the grant request the check queues
+// in it.
 func (n *NodeChecks) readoptRequest(
-	ctx context.Context, repo, worktree string, check store.NodeCheck,
+	ctx context.Context, host hostexec.Host, repo, worktree string, check store.NodeCheck,
 ) (grants.Request, error) {
-	if err := captureEnsureWorktree(ctx, repo, check.Revision, worktree); err != nil {
+	if err := captureEnsureWorktree(ctx, host, repo, check.Revision, worktree); err != nil {
 		return grants.Request{}, err
 	}
 	return n.request(ctx, worktree, check)
@@ -133,11 +140,11 @@ func (n *NodeChecks) readoptRequest(
 // holder again, so the holder is stopped and cleared before the worktree is removed. A failure to clear it is kept as
 // not finished.
 func (n *NodeChecks) readoptLost(
-	ctx context.Context, repo, worktree string, check store.NodeCheck, cause error,
+	ctx context.Context, host hostexec.Host, repo, worktree string, check store.NodeCheck, cause error,
 ) store.NodeCheckEnd {
 	n.logger.WarnContext(ctx, "node check lost at a restart", "check", check.ID, "err", cause)
 	clearErr := gateClear(ctx, check.Holder)
-	ended := n.end(ctx, repo, worktree, nil, store.LostAtRestart)
+	ended := n.end(ctx, host, repo, worktree, nil, store.LostAtRestart)
 	if clearErr != nil {
 		ended.NotRun += "; " + captureNotFinished(clearErr)
 	}

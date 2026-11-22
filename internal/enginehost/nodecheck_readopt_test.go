@@ -54,7 +54,7 @@ func TestNodeChecksResumeEndsADetachedGateWithItsExitOnce(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		_, runErr = f.checks.run(ctx, f.repo, check)
+		_, runErr = f.checks.run(ctx, hostexec.NewLocal(), f.repo, check)
 	}()
 	gateWaitFile(t, started, done)
 	cancel(errGateDetach)
