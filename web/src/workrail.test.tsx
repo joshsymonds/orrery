@@ -497,7 +497,7 @@ test("ContractTile: a contract tile draws round 6's doc icon and its short name,
     assert.equal(tile.getAttribute("title"), "tide-alerts: a contract waits for you");
     assert.equal(one(tile, ".cap").textContent, "tide");
     assert.equal(one(tile, "svg.icon path").getAttribute("d"), docIcon);
-    assert.equal(tile.querySelector("svg.epicmark"), null);
+    assertNone(tile.querySelector("svg.epicmark"), "a contract tile draws no mark");
   });
 });
 

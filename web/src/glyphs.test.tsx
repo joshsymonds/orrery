@@ -7,7 +7,7 @@ import { type JSX, render } from "preact";
 import { EpicMark } from "./epicmark";
 import { EpicRequirementSchema, EpicsGetResponseSchema, type EpicsGetResponse } from "./gen/orrery/v1/epics_pb";
 import { Icon, StateGlyph } from "./glyphs";
-import { installTestDom, removeTestDom } from "./testdom";
+import { assertNone, installTestDom, removeTestDom } from "./testdom";
 
 // Each test's name carries the token Glyphs: the glyphs draw on their own, outside any page.
 
@@ -81,7 +81,7 @@ test("Glyphs: an EpicMark with no requirements says so, draws the dotted planned
     assert.equal(mark.getAttribute("aria-label"), "no requirements yet, running");
     assert.equal(one(mark, "g.centre").getAttribute("data-tone"), "live");
     assert.equal(one(mark, "circle.planned").getAttribute("stroke-dasharray"), "2 3");
-    assert.equal(container.querySelector("circle.rim"), null);
+    assertNone(container.querySelector("circle.rim"), "a planned mark draws no rim");
   }));
 
 test("Glyphs: an EpicMark's shipped and ended-short centres draw their own path", async () => {
