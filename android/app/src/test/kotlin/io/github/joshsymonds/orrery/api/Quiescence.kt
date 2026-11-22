@@ -28,8 +28,9 @@ object Quiescence {
     private val sockets: MutableSet<CountingSocket> = Collections.newSetFromMap(ConcurrentHashMap())
 
     /**
-     * Calls started and not yet answered, failed or canceled: queued for a thread, connecting, or a unary answer whose
-     * headers came but whose body is not read yet.
+     * Calls started and not yet answered, failed or canceled: queued for a thread, connecting, a unary answer whose
+     * headers came but whose body is not read yet, or a stream that ends of its own accord whose body is not read to
+     * its end yet.
      */
     private val pendingCalls: MutableSet<Call> = Collections.newSetFromMap(ConcurrentHashMap())
 
@@ -281,10 +282,12 @@ object Quiescence {
     }
 
     /**
-     * Counts each call from its start until its answer is in, it fails, or it is canceled. A stream's answer is in with
-     * its headers, since its body stays open as long as the stream does. A unary answer's body is still to come after
-     * its headers, and while it comes the call's socket is quiet and its thread waits for it, so the call counts until
-     * the body is read and the call ends.
+     * Counts each call from its start until its answer is in, it fails, or it is canceled. A stream that holds open for
+     * its client has its answer in with its headers, since its body stays open as long as the client keeps it. Any other
+     * answer's body is still to come after its headers: a unary answer's, and the envelopes and end of a stream that
+     * ends of its own accord, as the fake server says in [FAKE_STREAM_HEADER]. While that body comes the call's socket
+     * can be quiet, the server's handler done and its bytes not yet arrived, and the call's thread waits in a socket
+     * read, so the call counts until the body is read and the call ends.
      */
     private object CallCounter : EventListener(), EventListener.Factory {
         private const val STREAM_TYPE_PREFIX = "application/connect+"
@@ -296,7 +299,8 @@ object Quiescence {
         }
 
         override fun responseHeadersEnd(call: Call, response: Response) {
-            if (response.header("Content-Type")?.startsWith(STREAM_TYPE_PREFIX) == true) pendingCalls -= call
+            val stream = response.header("Content-Type")?.startsWith(STREAM_TYPE_PREFIX) == true
+            if (stream && response.header(FAKE_STREAM_HEADER) == STREAM_HOLDS) pendingCalls -= call
         }
 
         override fun callFailed(call: Call, ioe: IOException) {

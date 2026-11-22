@@ -227,6 +227,9 @@ fun PaneScreen(
                             }
                             launch {
                                 while (true) {
+                                    // This read answers every wake asked for before it starts: the stream's give-up, or
+                                    // a refresh. Left queued, a wake would start a second read the moment this one ends.
+                                    refreshRequests.tryReceive()
                                     val polled = polling
                                     val snapshot = if (polled) fetchSnapshot(client, paneId) else null
                                     // Read before the snapshot's conversation is shown, so its time rows

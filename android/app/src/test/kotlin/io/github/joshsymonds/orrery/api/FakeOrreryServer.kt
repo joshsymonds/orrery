@@ -18,6 +18,16 @@ import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 
 private const val STREAM_CONTENT_TYPE = "application/connect+proto"
+
+/**
+ * The header a fake stream's answer carries to say whether the stream ends of its own accord ([STREAM_ENDS]: its end
+ * envelope comes and the body closes, as a clean or failed end does, or as a silent stream does once its client
+ * closes) or holds open for its client ([STREAM_HOLDS]). Quiescence counts an ending stream's call as in flight until
+ * the call ends, and a holding one's only until its headers are in.
+ */
+internal const val FAKE_STREAM_HEADER = "Orrery-Fake-Stream"
+internal const val STREAM_ENDS = "ends"
+internal const val STREAM_HOLDS = "holds"
 private const val ENVELOPE_MESSAGE_FLAG = 0
 private const val ENVELOPE_END_FLAG = 0x02
 /** How often a silent or open stream looks whether its client has closed the connection. */
@@ -213,9 +223,14 @@ class FakeOrreryServer : AutoCloseable {
         }
     }
 
-    /** Answers 200 with a chunked body of envelopes, as a Connect server stream does. */
+    /**
+     * Answers 200 with a chunked body of envelopes, as a Connect server stream does, saying in [FAKE_STREAM_HEADER]
+     * whether the stream ends of its own accord or holds open for its client.
+     */
     private fun stream(exchange: HttpExchange, reply: Reply.Stream, holding: AtomicBoolean) {
         exchange.responseHeaders.add("Content-Type", STREAM_CONTENT_TYPE)
+        val holds = reply.end is StreamEnd.Open || reply.end is StreamEnd.Held || reply.end is StreamEnd.HeldWith
+        exchange.responseHeaders.add(FAKE_STREAM_HEADER, if (holds) STREAM_HOLDS else STREAM_ENDS)
         exchange.sendResponseHeaders(200, 0)
         exchange.responseBody.use { body ->
             for (message in reply.messages) {
