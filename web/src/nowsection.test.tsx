@@ -17,7 +17,7 @@ import {
 import { NowSection } from "./nowsection";
 import { clock as resetAt } from "./reader";
 import { nowSentenceOf } from "./recordwords";
-import { installTestDom, removeTestDom } from "./testdom";
+import { assertNone, installTestDom, removeTestDom } from "./testdom";
 import { elapsed } from "./dockwords";
 
 type Props = Parameters<typeof NowSection>[0];
@@ -340,7 +340,7 @@ test("EpicWords: each running step is a row with its glyph, label, pips, doing a
     assert.equal(first.querySelector("span.doing")?.textContent, "editing the parser");
     assert.equal(first.querySelector("span.end")?.textContent, elapsed(now - 9_000));
     assert.equal(second.querySelector("span.strong")?.textContent, "", "a step with no purpose, task or role names none");
-    assert.equal(second.querySelector("span.pips"), null, "a step with no task draws no pips");
+    assertNone(second.querySelector("span.pips"), "a step with no task draws no pips");
   });
 });
 

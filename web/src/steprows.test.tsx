@@ -9,7 +9,7 @@ import { EpicRow } from "./epicrow";
 import { blockOf } from "./epics";
 import { type EpicStep, EpicStepSchema, EpicSchema, EpicsGetResponseSchema } from "./gen/orrery/v1/epics_pb";
 import { NowSection } from "./nowsection";
-import { installTestDom, removeTestDom } from "./testdom";
+import { assertNone, installTestDom, removeTestDom } from "./testdom";
 import type { EpicNode } from "./tree";
 
 type StepInit = MessageInitShape<typeof EpicStepSchema>;
@@ -143,8 +143,8 @@ test("StepRows: pips draw only for a step with a task, in the inbox row and the 
     [step({ id: "s1", task: "api-1", purpose: "" }), step({ id: "s2", task: "", purpose: "", role: "reviewer" })],
     ({ inbox, now: nowRows }) => {
       assert.equal(inbox[0].querySelectorAll("span.pips > i").length, 5, "a step with a task draws five pips");
-      assert.equal(inbox[1].querySelector("span.pips"), null, "a step with no task draws no pips");
+      assertNone(inbox[1].querySelector("span.pips"), "a step with no task draws no pips");
       assert.equal(nowRows[0].querySelectorAll("span.pips > i").length, 5, "a step with a task draws five pips");
-      assert.equal(nowRows[1].querySelector("span.pips"), null, "a step with no task draws no pips");
+      assertNone(nowRows[1].querySelector("span.pips"), "a step with no task draws no pips");
     },
   ));
