@@ -170,34 +170,10 @@ ORDER BY MAX(known.at) DESC, known.dir;
 SELECT
     sessions.id, sessions.dir, sessions.state, sessions.changed, sessions.seen, sessions.question, sessions.reason,
     sessions.title, sessions.headline,
-    CAST(COALESCE((
-        SELECT json_extract(events.payload, '$.text') FROM events
-        WHERE events.session_id = sessions.id AND events.kind = 'engine_block'
-          AND json_extract(events.payload, '$.kind') = 'text'
-          AND json_extract(events.payload, '$.role') = 'assistant'
-          AND IFNULL(json_extract(events.payload, '$.parentToolUseId'), '') = ''
-        ORDER BY events.at DESC, events.seq DESC LIMIT 1
-    ), '') AS TEXT) AS reply,
-    CAST(COALESCE((
-        SELECT MAX(events.at) FROM events
-        WHERE events.session_id = sessions.id AND (
-            (events.kind = 'engine_block' AND json_extract(events.payload, '$.kind') = 'text'
-             AND json_extract(events.payload, '$.role') = 'assistant'
-             AND IFNULL(json_extract(events.payload, '$.parentToolUseId'), '') = '')
-            OR (events.kind = 'engine_request' AND json_extract(events.payload, '$.refused') IS NOT 1)
-        )
-    ), 0) AS INTEGER) AS newest_reply,
-    CAST(COALESCE((
-        SELECT json_extract(events.payload, '$.text') FROM events
-        WHERE events.session_id = sessions.id AND events.kind = 'engine_prompt'
-        ORDER BY events.seq LIMIT 1
-    ), '') AS TEXT) AS first_prompt,
-    CAST(COALESCE((
-        SELECT json_extract(events.payload, '$.requestId') FROM events
-        WHERE events.session_id = sessions.id AND events.kind = 'engine_request'
-          AND json_extract(events.payload, '$.refused') IS NOT 1
-        ORDER BY events.seq DESC LIMIT 1
-    ), '') AS TEXT) AS request_id
+    sessions.latest_reply AS reply,
+    sessions.newest_reply_at AS newest_reply,
+    sessions.first_prompt_text AS first_prompt,
+    sessions.latest_request_id AS request_id
 FROM sessions
 WHERE sessions.kind = 'engine'
   AND EXISTS (SELECT 1 FROM events WHERE events.session_id = sessions.id AND events.at >= sqlc.arg(cutoff))
