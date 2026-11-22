@@ -1,6 +1,7 @@
 import type { JSX } from "preact";
 
 import type { ReviewView } from "./ending";
+import { Icon } from "./glyphs";
 
 // EpicReview draws an epic's Review section, headed Review: its count words, the reviewer table with each reviewer's reason
 // and verdict, and the findings table with each finding's id, what and where, and its result. Under each finding row its
@@ -9,10 +10,11 @@ export function EpicReview(props: { view: ReviewView }): JSX.Element {
   const { view } = props;
   return (
     <section class="review" aria-label="Review">
-      <header class="sec-head">
-        <h3>Review</h3>
-        <span>{view.words}</span>
-      </header>
+      <div class="sec" data-hue="2">
+        <Icon name="search" />
+        <span class="name">Review</span>
+        <span class="n">{view.words}</span>
+      </div>
       {view.reviewers.length > 0 && (
         <div class="tbl reviews">
           {view.reviewers.map((reviewer) => (

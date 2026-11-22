@@ -198,8 +198,17 @@ button.link.notices-more { justify-self: end; padding: 0 var(--o-space-12); colo
 .blank { margin: auto; display: grid; gap: var(--o-space-8); justify-items: center; max-width: 48ch; padding: var(--o-space-24); color: var(--o-ink-3); font: var(--o-type-small); text-align: center; }
 .blank .t-body { color: var(--o-ink-2); }
 .sec { --hue: var(--o-ink-3); display: flex; align-items: baseline; gap: var(--o-space-8); color: var(--o-ink-3); }
+.sec > .icon { align-self: center; color: var(--hue); }
 .sec .name { color: var(--hue); font: var(--o-type-label); letter-spacing: var(--o-type-label-tracking); text-transform: uppercase; }
 .sec .n { font: var(--o-type-small); }
+.sec[data-hue="1"] { --hue: var(--o-series-1); }
+.sec[data-hue="2"] { --hue: var(--o-series-2); }
+.sec[data-hue="3"] { --hue: var(--o-series-3); }
+.sec[data-hue="4"] { --hue: var(--o-series-4); }
+.sec[data-hue="5"] { --hue: var(--o-series-5); }
+.sec[data-hue="live"] { --hue: var(--o-role-live); }
+.sec[data-hue="ok"] { --hue: var(--o-role-ok); }
+.sec[data-hue="engine"] { --hue: var(--o-role-engine); }
 
 /* Button. Quiet has no fill; Default is raised; Primary is the one action a form exists for. */
 .btn { display: inline-flex; align-items: center; justify-content: center; gap: var(--o-space-8); flex: none; height: var(--o-size-control-desk); padding: 0 var(--o-space-12); border: 0; border-radius: var(--o-radius-2); background: var(--o-surface-raised); color: var(--o-ink-1); font: var(--o-type-small); white-space: nowrap; transition: background var(--o-move-press), transform var(--o-move-press); }
@@ -1087,17 +1096,20 @@ button.act:active, .back:active, .crumb:active { transform: scale(.97); backgrou
 .epic-page .summary { display: grid; gap: var(--o-space-8); min-width: 0; }
 .epic-page .summary-text { max-width: var(--o-layout-read-measure-ch); margin: 0; color: var(--o-ink-2); font: var(--o-type-body); overflow-wrap: anywhere; }
 .epic-page .doors { display: flex; flex-wrap: wrap; gap: var(--o-space-4) var(--o-space-24); min-width: 0; }
-/* A door: its label holds one line and never shrinks, and its line takes the rest of the row and ellipsizes. The Contract
-   door is also .contract, whose anywhere wrap would split the label inside a word, so the door resets that wrap. */
+/* A door, as round 6 draws it: an icon, its label in the reference colour, its text in ink, and a chevron when it opens.
+   Its label holds one line and never shrinks, and its text takes the rest of the row and ellipsizes. The label is the
+   first span, so the icon in front of it does not move it. The Contract door is also .contract, whose anywhere wrap
+   would split the label inside a word, so the door resets that wrap. */
 .epic-page .door {
   display: inline-flex; align-items: center; gap: var(--o-space-8); min-width: 0; max-width: 100%; min-height: var(--o-space-24); padding: var(--o-space-4) 0; border: 0; border-radius: 0;
-  background: none; color: var(--o-role-ref); font: var(--o-type-small); text-align: left; cursor: pointer; appearance: none; -webkit-appearance: none; overflow-wrap: normal;
+  background: none; color: var(--o-ink-3); font: var(--o-type-small); text-align: left; cursor: pointer; appearance: none; -webkit-appearance: none; overflow-wrap: normal;
 }
-.epic-page .door > span:first-child { color: var(--o-ink-3); flex: none; white-space: nowrap; }
-.epic-page .door > span:not(:first-child) { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.epic-page .door:hover { text-decoration: underline; }
-.epic-page .door.shipped > span:first-child { color: var(--o-role-ok); }
-.epic-page .door.not-shipped > span:first-child { color: var(--o-role-attention); }
+.epic-page .door > .icon { flex: none; color: var(--o-ink-4); }
+.epic-page .door > span:first-of-type { color: var(--o-role-ref); flex: none; white-space: nowrap; }
+.epic-page .door > span:not(:first-of-type) { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.epic-page .door:hover > span:first-of-type { text-decoration: underline; }
+.epic-page .door.shipped > span:first-of-type { color: var(--o-role-ok); }
+.epic-page .door.not-shipped > span:first-of-type { color: var(--o-role-attention); }
 /* The track: five stages in the epic's order, each a rail in its state's colour, its name in the label face and its words under it. */
 .epic-page .track { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: var(--o-space-4); min-width: 0; margin: 0; padding: 0; list-style: none; }
 .epic-page .stage {
@@ -1119,11 +1131,10 @@ button.act:active, .back:active, .crumb:active { transform: scale(.97); backgrou
 .epic-page .tasks, .epic-page .requirements { display: grid; gap: var(--o-space-12); min-width: 0; }
 /* Tasks sets the chart beside the task table, and the table wraps under the chart when the two do not fit side by side. */
 .epic-page section.tasks { display: flex; flex-wrap: wrap; align-items: flex-start; column-gap: var(--o-space-32); row-gap: var(--o-space-12); }
-.epic-page section.tasks > .sec-head { flex: 1 1 100%; }
+.epic-page section.tasks > .sec { flex: 1 1 100%; }
 .epic-page section.tasks > .orrery-fig { flex: 0 0 var(--o-size-orrery-full); max-width: 100%; margin: 0 auto; }
 .epic-page section.tasks > .tbl { flex: 1 1 56ch; min-width: 0; }
-.epic-page .sec-head { display: flex; align-items: baseline; gap: var(--o-space-8); min-width: 0; }
-.epic-page .sec-head span { font: var(--o-type-small); color: var(--o-ink-3); }
+.epic-page .sec { min-width: 0; }
 /* The chart: the rings of task cells, outside in, each cell in its tone; the requirement rim outside them; the count in the
    centre; the hovered wedge outlined, with no pointer, and named in its caption. The epic line's mini chart shares the cell
    and arc rules. A running cell pulses. */

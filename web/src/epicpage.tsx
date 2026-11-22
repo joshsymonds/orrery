@@ -4,6 +4,7 @@ import { useLayoutEffect, useRef, useState } from "preact/hooks";
 import { releaseOf, replacementsOf, reportOf, reviewOf } from "./ending";
 import type { LoadArtifact } from "./evidence";
 import type { Epic, EpicHistoryEntry, EpicsGetResponse } from "./gen/orrery/v1/epics_pb";
+import { Icon } from "./glyphs";
 import { JustHappened } from "./happenings";
 import { NowSection } from "./nowsection";
 import type { CallOutcome } from "./ownercall";
@@ -101,7 +102,9 @@ function SteeredFrom({
   const title = listedTitle(rows, target.kind, target.id, target.label);
   return (
     <button type="button" class="door steered" onClick={() => onOpen(target)}>
+      <Icon name="chat" />
       <span>Steered from</span> <TitleParts dir={title.dir} line={title.line} />
+      <Icon name="chevronRight" />
     </button>
   );
 }
@@ -267,7 +270,9 @@ export function EpicPage(props: {
           <div class="doors">
             {contract !== undefined && (
               <button type="button" class="door contract" onClick={() => onOpenContract()}>
+                <Icon name="doc" />
                 <span>Contract</span> <span>{contractDoorOf(detail)}</span>
+                <Icon name="chevronRight" />
               </button>
             )}
             {steering !== "" && <SteeredFrom steering={steering} rows={rows} onOpen={onOpenSession} />}
@@ -288,30 +293,33 @@ export function EpicPage(props: {
       {reached.history && <JustHappened entries={history} steps={steps} titleOf={titleOf} />}
       {reached.tasks && (
         <section class="tasks" aria-label="Tasks">
-          <header class="sec-head">
-            <h3>Tasks</h3>
-            <span>{`${doneTasks} of ${tasks.length} done`}</span>
-          </header>
+          <div class="sec" data-hue="4">
+            <Icon name="pools" />
+            <span class="name">Tasks</span>
+            <span class="n">{`${doneTasks} of ${tasks.length} done`}</span>
+          </div>
           <Orrery tasks={tasks} proven={provenIds} onOpenPhase={onOpenPhase} />
           <TaskTable tasks={tasks} now={now} onOpenPhase={onOpenPhase} />
         </section>
       )}
       {reached.requirements && (
         <section class="requirements" aria-label="Requirements">
-          <header class="sec-head">
-            <h3>Requirements</h3>
-            <span>{`${provenCount} of ${requirements.length} proven`}</span>
-          </header>
+          <div class="sec" data-hue="ok">
+            <Icon name="check" />
+            <span class="name">Requirements</span>
+            <span class="n">{`${provenCount} of ${requirements.length} proven`}</span>
+          </div>
           <RequirementTable requirements={requirements} loadArtifact={loadArtifact} proven={provenIds} />
         </section>
       )}
       {reviewView !== null && <EpicReview view={reviewView} />}
       {releaseView !== null && (
         <section class="release" aria-label="Release">
-          <header class="sec-head">
-            <h3>Release</h3>
-            <span>{releaseView.words}</span>
-          </header>
+          <div class="sec" data-hue="engine">
+            <Icon name="open" />
+            <span class="name">Release</span>
+            <span class="n">{releaseView.words}</span>
+          </div>
           <ReleaseTable
             view={releaseView}
             narrow={narrow}

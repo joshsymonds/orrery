@@ -231,23 +231,23 @@ test("EpicRecord: in the desk's panel the epic page's title row stays pinned at 
 test("EpicRecord: the Tasks section sets the chart beside the task table, wrapping the table under it when narrow", () => {
   assert.equal(declaredValue(rules, ".epic-page section.tasks", "display"), "flex");
   assert.equal(declaredValue(rules, ".epic-page section.tasks", "flex-wrap"), "wrap");
-  assert.equal(declaredValue(rules, ".epic-page section.tasks > .sec-head", "flex"), "1 1 100%");
+  assert.equal(declaredValue(rules, ".epic-page section.tasks > .sec", "flex"), "1 1 100%");
   assert.equal(declaredValue(rules, ".epic-page section.tasks > .orrery-fig", "flex"), "0 0 var(--o-size-orrery-full)");
   assert.equal(declaredValue(rules, ".epic-page section.tasks > .tbl", "flex"), "1 1 56ch");
 });
 
 test("EpicRecord: a door's label keeps one line and never shrinks, and no inherited wrap breaks it inside a word", () => {
-  assert.equal(declaredValue(rules, ".epic-page .door > span:first-child", "white-space"), "nowrap");
-  assert.equal(declaredValue(rules, ".epic-page .door > span:first-child", "flex"), "none");
+  assert.equal(declaredValue(rules, ".epic-page .door > span:first-of-type", "white-space"), "nowrap");
+  assert.equal(declaredValue(rules, ".epic-page .door > span:first-of-type", "flex"), "none");
   assert.equal(declaredValue(rules, ".epic-page .door", "overflow-wrap"), "normal");
 });
 
 test("EpicRecord: a door's line takes the rest of its row and ellipsizes on one line, and the door stays within its row", () => {
   assert.equal(declaredValue(rules, ".epic-page .door", "max-width"), "100%");
-  assert.equal(declaredValue(rules, ".epic-page .door > span:not(:first-child)", "min-width"), "0");
-  assert.equal(declaredValue(rules, ".epic-page .door > span:not(:first-child)", "overflow"), "hidden");
-  assert.equal(declaredValue(rules, ".epic-page .door > span:not(:first-child)", "text-overflow"), "ellipsis");
-  assert.equal(declaredValue(rules, ".epic-page .door > span:not(:first-child)", "white-space"), "nowrap");
+  assert.equal(declaredValue(rules, ".epic-page .door > span:not(:first-of-type)", "min-width"), "0");
+  assert.equal(declaredValue(rules, ".epic-page .door > span:not(:first-of-type)", "overflow"), "hidden");
+  assert.equal(declaredValue(rules, ".epic-page .door > span:not(:first-of-type)", "text-overflow"), "ellipsis");
+  assert.equal(declaredValue(rules, ".epic-page .door > span:not(:first-of-type)", "white-space"), "nowrap");
 });
 
 test("EpicCommands: an epic the server could not read says so in the bad role, apart from the quiet loading line", () => {
