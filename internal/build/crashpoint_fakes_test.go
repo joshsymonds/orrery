@@ -13,6 +13,7 @@ import (
 	"github.com/joshsymonds/orrery/internal/enginehost"
 	"github.com/joshsymonds/orrery/internal/evidence"
 	"github.com/joshsymonds/orrery/internal/hostexec"
+	"github.com/joshsymonds/orrery/internal/hostexec/hostexectest"
 	"github.com/joshsymonds/orrery/internal/notice"
 	"github.com/joshsymonds/orrery/internal/push"
 	"github.com/joshsymonds/orrery/internal/route"
@@ -41,6 +42,9 @@ type crashWorld struct {
 	base     string
 	stateDir string
 	getenv   func(string) string
+
+	// host is the fake Host the epic's repository writes run on. It records each call and delegates it to the local Host.
+	host *hostexectest.Recorder
 
 	mu      sync.Mutex
 	gate    *gate
