@@ -149,11 +149,14 @@ func (c *Client) Batch(ctx context.Context, cmds ...[]string) (string, error) {
 	return c.Run(ctx, args...)
 }
 
-// OptionWrite is one change to a pane-scoped option: Name set to Value, or unset when Unset is true.
+// OptionWrite is one change to a pane-scoped option: Name set to Value, set to what tmux expands Value to when Format
+// is true, or unset when Unset is true.
 type OptionWrite struct {
 	Name  string
 	Value string
 	Unset bool
+	// Format makes Value a tmux format that tmux expands when the write runs, with set-option -F.
+	Format bool
 }
 
 // Set returns the write that sets the option name to value.
@@ -161,20 +164,33 @@ func Set(name, value string) OptionWrite {
 	return OptionWrite{Name: name, Value: value}
 }
 
+// SetFormat returns the write that sets the option name to what tmux expands format to when the write runs, as
+// set-option -F does. format must be a constant of the caller's, never text from outside.
+func SetFormat(name, format string) OptionWrite {
+	return OptionWrite{Name: name, Value: format, Format: true}
+}
+
 // Unset returns the write that removes the option name.
 func Unset(name string) OptionWrite {
 	return OptionWrite{Name: name, Unset: true}
 }
+
+// setOptionCmd is the tmux command that sets or unsets an option.
+const setOptionCmd = "set-option"
 
 // WriteCommands returns the set-option command of each of writes on paneID, in order, for Batch.
 func WriteCommands(paneID string, writes []OptionWrite) [][]string {
 	cmds := make([][]string, 0, len(writes))
 	for _, write := range writes {
 		if write.Unset {
-			cmds = append(cmds, []string{"set-option", "-p", "-u", "-t", paneID, write.Name})
+			cmds = append(cmds, []string{setOptionCmd, "-p", "-u", "-t", paneID, write.Name})
 			continue
 		}
-		cmds = append(cmds, []string{"set-option", "-p", "-t", paneID, write.Name, write.Value})
+		if write.Format {
+			cmds = append(cmds, []string{setOptionCmd, "-p", "-F", "-t", paneID, write.Name, write.Value})
+			continue
+		}
+		cmds = append(cmds, []string{setOptionCmd, "-p", "-t", paneID, write.Name, write.Value})
 	}
 	return cmds
 }

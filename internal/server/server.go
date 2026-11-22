@@ -737,22 +737,32 @@ func (p *paneLocks) lock(id string) *sync.Mutex {
 }
 
 // sendText sends text to pane id as `orrery send --text` does: typed into a Claude pane showing its input box, else
-// pasted, then Enter. The send holds the pane's lock, so two texts to one pane never interleave. A tmux failure is
-// internalError. The caller has checked that the pane exists.
+// pasted, then Enter. The send holds the pane's lock, so two texts to one pane never interleave. A pane whose Claude no
+// longer runs is 409 and is sent nothing, and a tmux failure is internalError. The caller has checked that the pane
+// exists.
 func sendText(ctx context.Context, tmux *tmuxctl.Client, locks *paneLocks, id, text string) error {
 	mu := locks.lock(id)
 	mu.Lock()
 	err := cli.Send(ctx, tmux, []string{flagPane, id, "--text", text}, io.Discard)
 	mu.Unlock()
-	if err != nil {
+	switch {
+	case errors.Is(err, cli.ErrClaudeGone):
+		return claudeGoneError()
+	case err != nil:
 		return internalError()
 	}
 	return nil
 }
 
+// claudeGoneError is the 409 of a send refused because Claude Code no longer runs in the pane.
+func claudeGoneError() routeError {
+	return routeError{status: http.StatusConflict, message: cli.ErrClaudeGone.Error()}
+}
+
 // sendKeys sends keys to pane id. A non-nil expectQuestion makes the send conditional
-// on the pane's question: when that question does not match, nothing is sent and the answer is 409. An empty key list
-// is 400. A tmux failure is internalError. The caller has checked that the pane exists.
+// on the pane's question: when that question does not match, nothing is sent and the answer is 409. A pane whose Claude
+// no longer runs is 409 too, and is sent nothing. An empty key list is 400. A tmux failure is internalError. The caller
+// has checked that the pane exists.
 func sendKeys(ctx context.Context, tmux *tmuxctl.Client, id string, keys []string, expectQuestion *string) error {
 	if len(keys) == 0 {
 		return routeError{status: http.StatusBadRequest, message: badRequestMessage}
@@ -767,6 +777,8 @@ func sendKeys(ctx context.Context, tmux *tmuxctl.Client, id string, keys []strin
 	switch err := cli.Send(ctx, tmux, args, io.Discard); {
 	case errors.Is(err, cli.ErrQuestionRefused):
 		return routeError{status: http.StatusConflict, message: "question refused"}
+	case errors.Is(err, cli.ErrClaudeGone):
+		return claudeGoneError()
 	case err != nil:
 		return internalError()
 	}

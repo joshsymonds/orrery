@@ -122,11 +122,14 @@ func (e echoEnv) serve(t *testing.T, reader *store.Reader) string {
 	return srv.URL
 }
 
-// pane starts a session whose pane is a live Claude session with the transcript at path, and returns the pane ID.
+// pane starts a session whose pane is a live Claude session with the transcript at path, and returns the pane ID. It
+// returns once sleep is the pane's foreground, since a send refuses a pane whose foreground is still the shell that
+// starts it (see cli.ErrClaudeGone).
 func (e echoEnv) pane(t *testing.T, path string) string {
 	t.Helper()
 	startSession(t, e.tmux, "echo", longCommand)
 	pane := paneID(t, e.tmux, "echo")
+	waitForCommand(t, e.tmux, pane, "sleep")
 	for name, value := range liveOptions(path) {
 		setPaneOption(t, e.tmux, pane, name, value)
 	}

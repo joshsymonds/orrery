@@ -413,8 +413,9 @@ func (h *frameHandler) noteServer(server tmuxctl.Server) {
 }
 
 // tidyLoop tidies the servers at start, or when Config.TidyStart closes, and then every TidyInterval, or at each
-// value of Config.TidyTicks, until ctx is done, running Config.AfterTidy after each pass. It returns without tidying
-// when ctx is done before TidyStart closes.
+// value of Config.TidyTicks, until ctx is done, running Config.AfterTidy after each pass. Each server's tidy first
+// ends the sessions whose Claude Code is gone (see endGoneSessions), so the store reads them ended. It returns without
+// tidying when ctx is done before TidyStart closes.
 func (h *frameHandler) tidyLoop(ctx context.Context) {
 	if h.cfg.TidyStart != nil {
 		select {
@@ -435,6 +436,7 @@ func (h *frameHandler) tidyLoop(ctx context.Context) {
 	}
 	for {
 		for _, server := range h.tidyServers() {
+			h.endGoneSessions(ctx, server)
 			h.cfg.Mirror.Tidy(ctx, server)
 		}
 		if h.cfg.AfterTidy != nil {

@@ -125,7 +125,8 @@ func sendPollUntil(t *testing.T, what string, ready func() (bool, error)) {
 
 // sendStartPane starts session s1 whose pane prints screen, enables bracketed paste, turns off the
 // line discipline, prints "ready", and then runs cat into a file. It returns the pane ID and the file
-// path; the pane is ready once "ready" is on screen. The screen is written to a file and printed with
+// path; the pane is ready once "ready" is on screen and cat is its foreground, since a send refuses a pane whose
+// foreground is still the sh that printed "ready" (see cli.ErrClaudeGone). The screen is written to a file and printed with
 // cat, so its text is never interpolated into the shell.
 func sendStartPane(t *testing.T, client *tmuxctl.Client, screen string) (string, string) {
 	t.Helper()
@@ -143,7 +144,20 @@ func sendStartPane(t *testing.T, client *tmuxctl.Client, screen string) (string,
 		"exec sh -c '"+script+"'")
 	pane := strings.TrimSpace(sendRun(t, client, "list-panes", "-t", "s1", "-F", "#{pane_id}"))
 	sendWaitScreen(t, client, pane, "ready")
+	sendWaitCommand(t, client, pane, "cat")
 	return pane, file
+}
+
+// sendWaitCommand waits until want is the pane's foreground command.
+func sendWaitCommand(t *testing.T, client *tmuxctl.Client, pane, want string) {
+	t.Helper()
+	sendPollUntil(t, fmt.Sprintf("%s in the foreground of %s", want, pane), func() (bool, error) {
+		out, err := client.Run(t.Context(), "display-message", "-p", "-t", pane, "#{pane_current_command}")
+		if err != nil {
+			return false, err
+		}
+		return strings.TrimSpace(out) == want, nil
+	})
 }
 
 // sendWaitScreen waits until want appears in the pane's captured screen.

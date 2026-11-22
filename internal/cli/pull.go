@@ -56,8 +56,9 @@ var pullEscape = regexp.MustCompile(`\x1b\[[0-9;]*[A-Za-z]`)
 var pullHistory = regexp.MustCompile(`(?m)^\s*History \d+/\d+`)
 
 // PullQueued takes back the messages Claude Code's queue holds for pane, as Claude Code's own up-arrow does. It
-// returns ErrInputBusy without sending a key unless the pane is idle in its input box and the box holds only dim
-// placeholder text. It then sends Up and reads the popAll records that Up appends to transcript, which hold the
+// returns an error wrapping ErrClaudeGone without sending a key when Claude Code no longer runs in the pane's
+// foreground, and ErrInputBusy without sending a key unless the pane is idle in its input box and the box holds only
+// dim placeholder text. It then sends Up and reads the popAll records that Up appends to transcript, which hold the
 // queued messages oldest first. The returned text is those messages joined by line breaks, and the box is emptied
 // with one Backspace per rune of that text. When no message is taken, PullQueued returns ErrNothingQueued, and it
 // sends one Down first if Claude Code shows its history indicator. Once Up is sent, the call runs to the end even
@@ -70,6 +71,9 @@ func PullQueued(ctx context.Context, client *tmuxctl.Client, pane, transcript st
 func pullQueuedWithClock(
 	ctx context.Context, clock rpcretry.Clock, client *tmuxctl.Client, pane, transcript string,
 ) (string, error) {
+	if err := requireClaude(ctx, client, pane, "pull"); err != nil {
+		return "", err
+	}
 	idle, err := pullBoxIdle(ctx, client, pane)
 	if err != nil {
 		return "", err

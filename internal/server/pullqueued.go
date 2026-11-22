@@ -36,8 +36,8 @@ func (s panesServer) PullQueued(
 // pullQueued takes back the messages Claude Code's queue holds for pane, as cli.PullQueued does, and returns their
 // text. It holds the pane's text lock from the queue read to the end of the pull, so no text is sent to the pane in
 // between. It fails with a routeError: 410 when the queue holds no uncanceled message, and 409 when the input box is
-// not empty. Both are checked before a key is sent. When cli.PullQueued fails after taking text, the box still holds
-// that text, so the failure is the same 409 as a box that holds typed text.
+// not empty or Claude Code no longer runs in the pane. Each is checked before a key is sent. When cli.PullQueued fails
+// after taking text, the box still holds that text, so the failure is the same 409 as a box that holds typed text.
 func (s panesServer) pullQueued(ctx context.Context, pane *v1.Pane, path string) (string, error) {
 	id := pane.GetId()
 	mu := s.textLocks.lock(id)
@@ -52,6 +52,8 @@ func (s panesServer) pullQueued(ctx context.Context, pane *v1.Pane, path string)
 	}
 	text, err := cli.PullQueued(ctx, s.tmux, id, path)
 	switch {
+	case errors.Is(err, cli.ErrClaudeGone):
+		return "", claudeGoneError()
 	case errors.Is(err, cli.ErrInputBusy):
 		return "", routeError{status: http.StatusConflict, message: "input not empty"}
 	case errors.Is(err, cli.ErrNothingQueued):

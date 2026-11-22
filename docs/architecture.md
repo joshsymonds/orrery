@@ -298,6 +298,7 @@ Each pane carries these options. Values are single-line, and an unset option rea
 | `@orrery_turn_start` | Unix seconds of the newest prompt, which moves on every prompt. |
 | `@orrery_claude_session` | The Claude Code session id. |
 | `@orrery_transcript` | The transcript path. |
+| `@orrery_command` | The name Claude Code runs under in the pane, read from `#{pane_current_command}` at each registry update that binds the pane. A pane whose foreground no longer matches it has lost its Claude. |
 | `@orrery_dir` | The project directory, set on the session rather than the pane. |
 
 ### Files on disk

@@ -502,7 +502,9 @@ func jsonBody(t *testing.T, fields map[string]any) string {
 }
 
 // startInputPane starts session whose pane prints screen, enables bracketed paste, turns off the line
-// discipline, and runs cat into a file. It returns the pane ID and the file, once the pane is ready.
+// discipline, and runs cat into a file. It returns the pane ID and the file, once the pane is ready: its marker is on
+// screen and cat is its foreground, since a send refuses a pane whose foreground is still the sh that printed the
+// marker (see cli.ErrClaudeGone).
 // The screen is written to a file and printed with cat, so its text is never interpolated into the shell.
 func startInputPane(t *testing.T, tmux *tmuxctl.Client, session, screen string) (string, string) {
 	t.Helper()
@@ -519,7 +521,30 @@ func startInputPane(t *testing.T, tmux *tmuxctl.Client, session, screen string) 
 	startSession(t, tmux, session, "exec sh -c '"+script+"'")
 	pane := paneID(t, tmux, session)
 	waitForScreen(t, tmux, pane, inputReady)
+	waitForCommand(t, tmux, pane, "cat")
 	return pane, file
+}
+
+// waitForCommand waits until want is the foreground command of pane.
+func waitForCommand(t *testing.T, tmux *tmuxctl.Client, pane, want string) {
+	t.Helper()
+	ctx := t.Context()
+	ticker := time.NewTicker(screenPoll)
+	defer ticker.Stop()
+	for {
+		out, err := tmux.Run(ctx, "display-message", "-p", "-t", pane, "#{pane_current_command}")
+		if err != nil {
+			t.Fatalf("display-message %s: %v", pane, err)
+		}
+		if strings.TrimSpace(out) == want {
+			return
+		}
+		select {
+		case <-ctx.Done():
+			t.Fatalf("foreground of %s never became %q", pane, want)
+		case <-ticker.C:
+		}
+	}
 }
 
 // waitForScreen waits until want appears in the captured screen of pane.

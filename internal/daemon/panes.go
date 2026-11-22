@@ -76,6 +76,15 @@ func (h *frameHandler) applyPaneLocked(
 	if !update.Unbound {
 		extra = append(extra, state.SessionValueWrites(update.SessionID, update.Transcript)...)
 	}
+	return h.applyPaneHeld(ctx, client, server, update, extra)
+}
+
+// applyPaneHeld runs one registry update through state.ApplyPane with extra after the update's own writes, and calls
+// every observer when the state changes, as applyPaneLocked describes. The caller holds the mutex.
+func (h *frameHandler) applyPaneHeld(
+	ctx context.Context, client *tmuxctl.Client, server tmuxctl.Server, update PaneUpdate,
+	extra []tmuxctl.OptionWrite,
+) (out string, read, ok bool) {
 	var then []string
 	if h.cfg.Mirror != nil {
 		then, read = h.cfg.Mirror.TryRead(update.PaneID)

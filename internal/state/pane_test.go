@@ -362,6 +362,9 @@ func TestPaneRegistryStateUnboundClearsPane(t *testing.T) {
 			t.Fatalf("SetPaneOption(%s): %v", name, err)
 		}
 	}
+	if _, ok := option(t, client, pane, protocol.OptionCommand); !ok {
+		t.Fatalf("%s unset after a bound update, want it recorded", protocol.OptionCommand)
+	}
 
 	transition, changed := applyPane(t, client, pane, state.Pane{Unbound: true}, t0.Add(time.Second))
 	wantTransition(t, transition, protocol.StateWaiting, "")
@@ -372,9 +375,46 @@ func TestPaneRegistryStateUnboundClearsPane(t *testing.T) {
 	for _, name := range []string{
 		protocol.OptionChanged, protocol.OptionSeen, protocol.OptionQuestion, protocol.OptionSummary,
 		protocol.OptionLabel, protocol.OptionTool, protocol.OptionTurnStart,
-		protocol.OptionClaudeSession, protocol.OptionTranscript,
+		protocol.OptionClaudeSession, protocol.OptionTranscript, protocol.OptionCommand,
 	} {
 		wantOption(t, client, pane, name, "")
+	}
+}
+
+// TestPaneRegistryStateRecordsForegroundCommand applies each kind of bound update, the ones that move the pane and the
+// ones that leave it, and requires each to record the pane's foreground command. The pane's sh signals a channel once
+// it runs and stays the pane's foreground, since tmux wait-for is its child and read is a builtin; tmux keeps a signal
+// no one waits for yet, so the wait returns once sh runs.
+func TestPaneRegistryStateRecordsForegroundCommand(t *testing.T) {
+	t0 := time.Unix(1700000000, 0)
+	client := newServer(t)
+	const channel = "orrery-state-test-sh"
+	if _, err := client.Run(t.Context(), "-f", noConfig, "new-session", "-d", "-s", "s1",
+		"-c", t.TempDir(), "sh", "-c", "tmux wait-for -S "+channel+"; read x"); err != nil {
+		t.Fatalf("new-session: %v", err)
+	}
+	if _, err := client.Run(t.Context(), "wait-for", channel); err != nil {
+		t.Fatalf("wait-for %s: %v", channel, err)
+	}
+	out, err := client.Run(t.Context(), "list-panes", "-t", "s1", "-F", "#{pane_id}")
+	if err != nil {
+		t.Fatalf("list-panes: %v", err)
+	}
+	pane := strings.Fields(out)[0]
+	updates := []state.Pane{
+		{Status: paneregistry.StatusBusy},
+		{Status: paneregistry.StatusWaiting, WaitingFor: paneregistry.WaitingDialog},
+		{Status: paneregistry.StatusIdle},
+		{Status: paneregistry.StatusShell},
+	}
+	for _, update := range updates {
+		if err := client.UnsetPaneOption(t.Context(), pane, protocol.OptionCommand); err != nil {
+			t.Fatalf("UnsetPaneOption: %v", err)
+		}
+		applyPane(t, client, pane, update, t0)
+		if got, ok := option(t, client, pane, protocol.OptionCommand); !ok || got != "sh" {
+			t.Fatalf("%s after %+v = (%q, %v), want (\"sh\", true)", protocol.OptionCommand, update, got, ok)
+		}
 	}
 }
 

@@ -120,9 +120,10 @@ func optionSecond(name, value string) (int64, error) {
 	return seconds, nil
 }
 
-// sessionEndWrites removes all eight per-pane options of an unbound pane.
+// sessionEndWrites removes all nine per-pane options of an unbound pane.
 func sessionEndWrites() []tmuxctl.OptionWrite {
 	names := []string{
+		protocol.OptionCommand,
 		protocol.OptionState,
 		protocol.OptionChanged,
 		protocol.OptionSeen,

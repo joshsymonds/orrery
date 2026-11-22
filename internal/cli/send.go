@@ -47,7 +47,8 @@ const (
 // --text types T into the pane when its input box is on screen and it is idle or working, else pastes
 // T with bracketed paste; either way it then presses Enter as a separate key. --keys sends each
 // positional argument as one key. With --expect-question, nothing is sent unless the pane's question
-// hashes to H and its display fragment is visible on the pane. Send prints nothing.
+// hashes to H and its display fragment is visible on the pane. Nothing is sent, and the error wraps ErrClaudeGone, when
+// Claude Code no longer runs in the pane's foreground. Send prints nothing.
 func Send(ctx context.Context, client *tmuxctl.Client, args []string, out io.Writer) error {
 	return sendWithClock(ctx, rpcretry.SystemClock{}, client, args, out)
 }
@@ -70,6 +71,9 @@ func sendWithClock(
 
 	keys := flags.Args()
 	if err := sendValidate(*pane, given["text"], *keysMode, keys); err != nil {
+		return err
+	}
+	if err := requireClaude(ctx, client, *pane, "send"); err != nil {
 		return err
 	}
 
@@ -230,9 +234,9 @@ func sendText(ctx context.Context, clock rpcretry.Clock, client *tmuxctl.Client,
 	return sendPaste(ctx, client, pane, text)
 }
 
-// SendIdle types text into pane and presses Enter when the pane is done, not in a tmux mode, and its
-// captured screen shows Claude Code's input box. Otherwise it sends no key and returns false. It never
-// pastes: text that cannot be typed exactly is an error, and no key is sent. It returns true once it
+// SendIdle types text into pane and presses Enter when Claude Code runs in the pane's foreground, the pane is done,
+// not in a tmux mode, and its captured screen shows Claude Code's input box. Otherwise it sends no key and returns
+// false. It never pastes: text that cannot be typed exactly is an error, and no key is sent. It returns true once it
 // begins typing, so an error after that means the pane may hold part of the text.
 func SendIdle(ctx context.Context, client *tmuxctl.Client, pane, text string) (bool, error) {
 	return sendIdleWithClock(ctx, rpcretry.SystemClock{}, client, pane, text)
@@ -244,6 +248,13 @@ func sendIdleWithClock(
 ) (bool, error) {
 	if !sendTypeable(pane, text) {
 		return false, errors.New("send: text cannot be typed exactly")
+	}
+	runs, err := claudeRuns(ctx, client, pane)
+	if err != nil {
+		return false, fmt.Errorf("send: %w", err)
+	}
+	if !runs {
+		return false, nil
 	}
 	ready, err := paneInputReady(ctx, client, pane, protocol.StateDone)
 	if err != nil || !ready {

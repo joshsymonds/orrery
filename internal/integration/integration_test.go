@@ -530,6 +530,24 @@ func waitForScreen(t *testing.T, client *tmuxctl.Client, pane, want string) {
 	}
 }
 
+// waitForCommand waits until want is the foreground command of pane.
+func waitForCommand(t *testing.T, client *tmuxctl.Client, pane, want string) {
+	t.Helper()
+	ticker := time.NewTicker(pollEvery)
+	defer ticker.Stop()
+	for {
+		out, err := client.Run(t.Context(), "display-message", "-p", "-t", pane, "#{pane_current_command}")
+		if err != nil {
+			t.Fatalf("display-message %s: %v", pane, err)
+		}
+		if strings.TrimSpace(out) == want {
+			return
+		}
+		stopIfFailed(t)
+		<-ticker.C
+	}
+}
+
 // assertNothingTyped sends the sentinel key and waits for it to echo. Keys reach the pane in order, so any
 // refused key sent before the sentinel would already be on screen; the check then finds no typed "1".
 func assertNothingTyped(t *testing.T, client *tmuxctl.Client, name, pane string) {
@@ -697,6 +715,8 @@ func TestSendRefusesSendFlagsAfterKeys(t *testing.T) {
 	t.Parallel()
 	client, name := newServer(t)
 	pane := startPane(t, client, "cat")
+	// The sentinel send refuses a pane whose foreground is still the shell that starts cat (see cli.ErrClaudeGone).
+	waitForCommand(t, client, pane, "cat")
 
 	refused := [][]string{
 		{"--expect-question", "0000"},
@@ -725,6 +745,8 @@ func TestSendGuardedKeysRequireMatchingQuestion(t *testing.T) {
 		t.Fatalf("set question: %v", err)
 	}
 	waitForScreen(t, client, pane, exampleQuestion)
+	// The send refuses a pane whose foreground is still the sh that printed the question (see cli.ErrClaudeGone).
+	waitForCommand(t, client, pane, "cat")
 
 	wrong := protocol.QuestionHash("example other question?")
 	out := runOrrery(t, "", nil, "-L", name, "send", "--pane", pane, "--expect-question", wrong, "--keys", "1")

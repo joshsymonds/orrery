@@ -27,7 +27,9 @@ type Pane struct {
 // exactly when the state changes, a handled update reads the pane's state in one tmux invocation and writes its own
 // options, then extra, then runs then, all in one more, and its stdout is what then printed. A dialog-open update and
 // an idle or shell update to a pane that is neither working nor waiting make no transition and write none of the
-// pane's own options, so they write only extra and run then.
+// pane's state options. Every update that binds the pane also records its foreground command in @orrery_command: the
+// registry binds a pane only while its Claude's process lives, and a Claude in a pane holds its foreground, so tmux
+// reads Claude's own name there (see protocol.ClaudeGone).
 func ApplyPane(
 	ctx context.Context,
 	client *tmuxctl.Client,
@@ -40,6 +42,9 @@ func ApplyPane(
 	transition, own, err := planPane(ctx, client, paneID, pane, now)
 	if err != nil {
 		return Transition{}, false, "", err
+	}
+	if !pane.Unbound {
+		own = append(own, commandWrite())
 	}
 	cmds := tmuxctl.WriteCommands(paneID, slices.Concat(own, extra))
 	if then != nil {
@@ -89,6 +94,14 @@ func planPane(
 		return Transition{}, nil, err
 	}
 	return transition, writes, nil
+}
+
+// paneCommandFormat is the tmux format of a pane's foreground command.
+const paneCommandFormat = "#{pane_current_command}"
+
+// commandWrite returns the write that records the pane's foreground command, which tmux reads as the write runs.
+func commandWrite() tmuxctl.OptionWrite {
+	return tmuxctl.SetFormat(protocol.OptionCommand, paneCommandFormat)
 }
 
 // registryTarget returns the state that a registry status leaves a pane in, given the pane's state from. moves is false

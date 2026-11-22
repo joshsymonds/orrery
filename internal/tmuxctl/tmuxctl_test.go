@@ -509,6 +509,35 @@ func TestWritePaneOptionsKeepsSemicolons(t *testing.T) {
 	}
 }
 
+// TestWritePaneOptionsExpandsFormats writes one option with SetFormat and one with Set, both given the same format: the
+// SetFormat write stores what tmux expands it to, the pane's foreground command, and the Set write stores it as text.
+// The command is read in the same invocation as the writes, so it is the one tmux expanded while the pane starts.
+func TestWritePaneOptionsExpandsFormats(t *testing.T) {
+	client, pane := startPane(t)
+	const format = "#{pane_current_command}"
+	writes := []tmuxctl.OptionWrite{
+		tmuxctl.SetFormat(protocol.OptionCommand, format),
+		tmuxctl.Set(protocol.OptionSummary, format),
+	}
+	cmds := append(tmuxctl.WriteCommands(pane, writes), []string{"display-message", "-p", "-t", pane, format})
+	out, err := client.Batch(t.Context(), cmds...)
+	if err != nil {
+		t.Fatalf("write the options and read the pane's command: %v", err)
+	}
+	command := strings.TrimSuffix(out, "\n")
+	if command == "" {
+		t.Fatal("the pane's command reads empty")
+	}
+	got, ok, err := client.PaneOption(t.Context(), pane, protocol.OptionCommand)
+	if err != nil || !ok || got != command {
+		t.Errorf("%s = (%q, %v, %v), want (%q, true, nil)", protocol.OptionCommand, got, ok, err, command)
+	}
+	got, ok, err = client.PaneOption(t.Context(), pane, protocol.OptionSummary)
+	if err != nil || !ok || got != format {
+		t.Errorf("%s = (%q, %v, %v), want (%q, true, nil)", protocol.OptionSummary, got, ok, err, format)
+	}
+}
+
 // TestPaneValuesReadsInOneLine reads a set option, an option set to a value with ";" and a format, and an unset
 // option, which reads as "".
 func TestPaneValuesReadsInOneLine(t *testing.T) {
