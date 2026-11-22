@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/joshsymonds/orrery/internal/daemon"
+	"github.com/joshsymonds/orrery/internal/paneregistry"
 	"github.com/joshsymonds/orrery/internal/protocol"
 )
 
@@ -42,13 +43,14 @@ func TestMirrorAttachFrameBeforeOpenLandsAfterOpen(t *testing.T) {
 	st, db := openFrameStore(t)
 	logs, logger := newAttachLogs()
 	m := daemon.NewPendingMirror(time.Now, logger)
-	// Every wait for the store or the lock has already expired, so the frame's sync is deferred at once.
+	// Every wait for the store or the lock has already expired, so the update's sync is deferred at once.
 	expired := make(chan time.Time)
 	close(expired)
 	daemon.SetMirrorLockWait(m, func() <-chan time.Time { return expired })
-	socket := serve(t, daemon.Config{Server: srv.server, Mirror: m, Logger: logger})
+	updates := make(chan daemon.PaneUpdate)
+	serve(t, daemon.Config{Server: srv.server, Mirror: m, Updates: updates, Logger: logger})
 
-	sendFrame(t, socket, frameFor(userPromptSubmitHook, srv.pane, srv.socket))
+	applyUpdate(updates, registryPaneUpdate(t, srv, paneregistry.StatusBusy, "", registryPrompt))
 	wantOption(t, srv, protocol.OptionState, "working")
 	wantOption(t, srv, protocol.OptionID, "")
 	if rows := listSessions(t, db); len(rows) != 0 {
@@ -59,11 +61,12 @@ func TestMirrorAttachFrameBeforeOpenLandsAfterOpen(t *testing.T) {
 		t.Fatalf("%q records before Attach = %v, want one for the store still opening", mirrorSyncDeferredMsg, deferred)
 	}
 
-	// The deferred sync lands once the store is attached, with no further frame.
+	// The deferred sync lands once the store is attached, with no further update.
 	m.Attach(st)
 	awaitPaneRow(t, m, srv, db)
 
-	sendFrame(t, socket, frameFor(permissionHook, srv.pane, srv.socket))
+	applyUpdate(updates, registryPaneUpdate(t, srv, paneregistry.StatusWaiting, paneregistry.WaitingPermission,
+		registryPrompt, registryBash))
 	wantOption(t, srv, protocol.OptionState, "waiting")
 	awaitPaneRow(t, m, srv, db)
 }
@@ -99,9 +102,10 @@ func TestMirrorAttachNilIsSilent(t *testing.T) {
 	logs, logger := newAttachLogs()
 	m := daemon.NewPendingMirror(time.Now, logger)
 	m.Attach(nil)
-	socket := serve(t, daemon.Config{Server: srv.server, Mirror: m, Logger: logger})
+	updates := make(chan daemon.PaneUpdate)
+	serve(t, daemon.Config{Server: srv.server, Mirror: m, Updates: updates, Logger: logger})
 
-	sendFrame(t, socket, frameFor(userPromptSubmitHook, srv.pane, srv.socket))
+	applyUpdate(updates, registryPaneUpdate(t, srv, paneregistry.StatusBusy, "", registryPrompt))
 	wantOption(t, srv, protocol.OptionState, "working")
 	wantOption(t, srv, protocol.OptionID, "")
 

@@ -4,20 +4,16 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
-	"errors"
-	"fmt"
-	"io"
 	"maps"
-	"net"
 	"net/url"
 	"path/filepath"
 	"slices"
 	"strings"
-	"syscall"
 	"testing"
 	"time"
 
 	"github.com/joshsymonds/orrery/internal/daemon"
+	"github.com/joshsymonds/orrery/internal/paneregistry"
 	"github.com/joshsymonds/orrery/internal/protocol"
 	"github.com/joshsymonds/orrery/internal/store"
 	"github.com/joshsymonds/orrery/internal/store/sqlcgen"
@@ -173,60 +169,67 @@ func checkPaneRow(t *testing.T, srv testServer, db *sql.DB) {
 func TestFrameSyncRowMatchesTmuxAndReplay(t *testing.T) {
 	srv := startServer(t)
 	st, db := openFrameStore(t)
-	socket := serve(t, daemon.Config{
+	updates := make(chan daemon.PaneUpdate)
+	serve(t, daemon.Config{
 		Server:       srv.server,
 		Mirror:       daemon.NewMirror(st, time.Now, nil),
+		Updates:      updates,
 		TidyInterval: time.Hour,
 	})
 	waitForPaneID(t, srv.client, srv.pane)
 
+	unbound := registryPaneUpdate(t, srv, paneregistry.StatusIdle, "", registryPrompt)
+	unbound.Unbound = true
 	steps := []struct {
-		name string
-		hook string
+		name   string
+		update daemon.PaneUpdate
 	}{
-		{"prompt submitted", userPromptSubmitHook},
-		{"permission requested", permissionHook},
-		{"stopped", stopHook},
-		{"session ended", sessionEndHook},
+		{"prompt submitted", registryPaneUpdate(t, srv, paneregistry.StatusBusy, "", registryPrompt)},
+		{"permission requested", registryPaneUpdate(t, srv, paneregistry.StatusWaiting,
+			paneregistry.WaitingPermission, registryPrompt, registryBash)},
+		{"stopped", registryPaneUpdate(t, srv, paneregistry.StatusIdle, "", registryPrompt, registryFinal)},
+		{"session ended", unbound},
 	}
 	for _, step := range steps {
 		t.Run(step.name, func(t *testing.T) {
-			sendFrame(t, socket, frameFor(step.hook, srv.pane, srv.socket))
+			applyUpdate(updates, step.update)
 			checkPaneRow(t, srv, db)
 		})
 	}
 }
 
 func TestFrameSyncUnchangedFrameUpdatesRow(t *testing.T) {
-	const (
-		firstHook = `{"hook_event_name":"UserPromptSubmit","prompt":"synthetic prompt",` +
-			`"session_id":"synthetic-session-1","transcript_path":"/synthetic/transcripts/one.jsonl"}`
-		nextHook = `{"hook_event_name":"UserPromptSubmit","prompt":"synthetic prompt",` +
-			`"session_id":"synthetic-session-2","transcript_path":"/synthetic/transcripts/two.jsonl"}`
-	)
 	srv := startServer(t)
 	st, db := openFrameStore(t)
 	transitions := make(chan daemon.Transition, 4)
-	socket := serve(t, daemon.Config{
+	updates := make(chan daemon.PaneUpdate)
+	serve(t, daemon.Config{
 		Server:       srv.server,
 		Mirror:       daemon.NewMirror(st, time.Now, nil),
+		Updates:      updates,
 		Observers:    []daemon.Observer{func(transition daemon.Transition) { transitions <- transition }},
 		TidyInterval: time.Hour,
 	})
 	waitForPaneID(t, srv.client, srv.pane)
 
-	sendFrame(t, socket, frameFor(firstHook, srv.pane, srv.socket))
+	first := registryPaneUpdate(t, srv, paneregistry.StatusBusy, "", registryPrompt)
+	first.SessionID = "synthetic-session-1"
+	first.Transcript = "/synthetic/transcripts/one.jsonl"
+	applyUpdate(updates, first)
 	checkPaneRow(t, srv, db)
 	if got := drain(transitions); len(got) != 1 {
-		t.Fatalf("first frame observed %d transitions, want 1", len(got))
+		t.Fatalf("first update observed %d transitions, want 1", len(got))
 	}
 
-	sendFrame(t, socket, frameFor(nextHook, srv.pane, srv.socket))
+	next := registryPaneUpdate(t, srv, paneregistry.StatusBusy, "", registryPrompt)
+	next.SessionID = "synthetic-session-2"
+	next.Transcript = "/synthetic/transcripts/two.jsonl"
+	applyUpdate(updates, next)
 	wantOption(t, srv, protocol.OptionClaudeSession, "synthetic-session-2")
 	wantOption(t, srv, protocol.OptionTranscript, "/synthetic/transcripts/two.jsonl")
 	checkPaneRow(t, srv, db)
 	if got := drain(transitions); len(got) != 0 {
-		t.Fatalf("unchanged frame observed %d transitions, want 0: %+v", len(got), got)
+		t.Fatalf("unchanged update observed %d transitions, want 0: %+v", len(got), got)
 	}
 }
 
@@ -234,26 +237,34 @@ func TestFrameSyncObserversReceiveEachTransitionOnce(t *testing.T) {
 	srv := startServer(t)
 	st, _ := openFrameStore(t)
 	transitions := make(chan daemon.Transition, 16)
-	socket := serve(t, daemon.Config{
+	updates := make(chan daemon.PaneUpdate)
+	serve(t, daemon.Config{
 		Server:    srv.server,
 		Mirror:    daemon.NewMirror(st, time.Now, nil),
+		Updates:   updates,
 		Observers: []daemon.Observer{func(transition daemon.Transition) { transitions <- transition }},
 	})
 
+	unbound := registryPaneUpdate(t, srv, paneregistry.StatusIdle, "", registryPrompt)
+	unbound.Unbound = true
 	steps := []struct {
-		name string
-		hook string
-		want [][2]protocol.State // nil when the frame changes no state
+		name   string
+		update daemon.PaneUpdate
+		want   [][2]protocol.State // nil when the update changes no state
 	}{
-		{"prompt submitted", userPromptSubmitHook, [][2]protocol.State{{"", protocol.StateWorking}}},
-		{"prompt repeated", userPromptSubmitHook, nil},
-		{"permission requested", permissionHook, [][2]protocol.State{{protocol.StateWorking, protocol.StateWaiting}}},
-		{"stopped", stopHook, [][2]protocol.State{{protocol.StateWaiting, protocol.StateDone}}},
-		{"session ended", sessionEndHook, [][2]protocol.State{{protocol.StateDone, ""}}},
+		{"prompt submitted", registryPaneUpdate(t, srv, paneregistry.StatusBusy, "", registryPrompt),
+			[][2]protocol.State{{"", protocol.StateWorking}}},
+		{"prompt repeated", registryPaneUpdate(t, srv, paneregistry.StatusBusy, "", registryPrompt), nil},
+		{"permission requested", registryPaneUpdate(t, srv, paneregistry.StatusWaiting,
+			paneregistry.WaitingPermission, registryPrompt, registryBash),
+			[][2]protocol.State{{protocol.StateWorking, protocol.StateWaiting}}},
+		{"stopped", registryPaneUpdate(t, srv, paneregistry.StatusIdle, "", registryPrompt, registryFinal),
+			[][2]protocol.State{{protocol.StateWaiting, protocol.StateDone}}},
+		{"session ended", unbound, [][2]protocol.State{{protocol.StateDone, ""}}},
 	}
 	for _, step := range steps {
 		t.Run(step.name, func(t *testing.T) {
-			sendFrame(t, socket, frameFor(step.hook, srv.pane, srv.socket))
+			applyUpdate(updates, step.update)
 			observed := drain(transitions)
 			got := make([][2]protocol.State, 0, len(observed))
 			for _, transition := range observed {
@@ -271,7 +282,7 @@ func TestFrameSyncObserversReceiveEachTransitionOnce(t *testing.T) {
 
 func TestFrameSyncStoreWriteLockedStillReachesTmuxAndObserver(t *testing.T) {
 	srv := startServer(t)
-	// A busy timeout of 0 fails the locked sync at once, so the frame waits out no timeout.
+	// A busy timeout of 0 fails the locked sync at once, so the update waits out no timeout.
 	st, db := openFrameStore(t, store.WithBusyTimeout(0))
 	ctx := context.Background()
 
@@ -293,9 +304,11 @@ func TestFrameSyncStoreWriteLockedStillReachesTmuxAndObserver(t *testing.T) {
 
 	observed := make(chan time.Time, 1)
 	mirror := daemon.NewMirror(st, time.Now, nil)
-	socket := serve(t, daemon.Config{
-		Server: srv.server,
-		Mirror: mirror,
+	updates := make(chan daemon.PaneUpdate)
+	serve(t, daemon.Config{
+		Server:  srv.server,
+		Mirror:  mirror,
+		Updates: updates,
 		Observers: []daemon.Observer{func(daemon.Transition) {
 			observed <- time.Now()
 		}},
@@ -303,12 +316,13 @@ func TestFrameSyncStoreWriteLockedStillReachesTmuxAndObserver(t *testing.T) {
 	// The locked sync is deferred for the drain, which Wait ends, with the lock still held, before the store closes.
 	t.Cleanup(mirror.Wait)
 
-	sendFrame(t, socket, frameFor(permissionHook, srv.pane, srv.socket))
+	applyUpdate(updates, registryPaneUpdate(t, srv, paneregistry.StatusWaiting, paneregistry.WaitingPermission,
+		registryPrompt, registryBash))
 
 	select {
 	case <-observed:
 	default:
-		t.Fatal("observer was not called for the frame")
+		t.Fatal("observer was not called for the update")
 	}
 	wantOption(t, srv, protocol.OptionState, "waiting")
 
@@ -321,31 +335,12 @@ func TestFrameSyncStoreWriteLockedStillReachesTmuxAndObserver(t *testing.T) {
 	}
 }
 
-// burstPanes is how many panes send a frame at once in the locked-store burst test.
+// burstPanes is how many panes take an update in the locked-store burst test.
 const burstPanes = 8
-
-// sendFrameErr sends frame to the daemon socket and waits for the daemon to close the connection, returning any
-// failure instead of failing the test, so it can run on its own goroutine. It has no deadline of its own.
-func sendFrameErr(socketPath string, frame protocol.HookFrame) error {
-	ctx := context.Background()
-	var dialer net.Dialer
-	conn, err := dialer.DialContext(ctx, "unix", socketPath)
-	if err != nil {
-		return fmt.Errorf("dial %s: %w", socketPath, err)
-	}
-	defer conn.Close()
-	if err = protocol.WriteFrame(conn, frame); err != nil {
-		return fmt.Errorf("write frame: %w", err)
-	}
-	if _, err = io.Copy(io.Discard, conn); err != nil && !errors.Is(err, syscall.ECONNRESET) {
-		return fmt.Errorf("wait for close: %w", err)
-	}
-	return nil
-}
 
 func TestFrameSyncLockedStoreBurstStillReachesObserversInTime(t *testing.T) {
 	srv := startServer(t)
-	// A busy timeout of 0 fails each locked sync at once, so the frames wait out no timeout.
+	// A busy timeout of 0 fails each locked sync at once, so the updates wait out no timeout.
 	st, db := openFrameStore(t, store.WithBusyTimeout(0))
 	ctx := context.Background()
 
@@ -376,9 +371,11 @@ func TestFrameSyncLockedStoreBurstStillReachesObserversInTime(t *testing.T) {
 
 	observed := make(chan time.Time, burstPanes)
 	mirror := daemon.NewMirror(st, time.Now, nil)
-	socket := serve(t, daemon.Config{
-		Server: srv.server,
-		Mirror: mirror,
+	updates := make(chan daemon.PaneUpdate)
+	serve(t, daemon.Config{
+		Server:  srv.server,
+		Mirror:  mirror,
+		Updates: updates,
 		Observers: []daemon.Observer{func(daemon.Transition) {
 			observed <- time.Now()
 		}},
@@ -386,20 +383,17 @@ func TestFrameSyncLockedStoreBurstStillReachesObserversInTime(t *testing.T) {
 	// The locked syncs are deferred for the drain, which Wait ends, with the lock still held, before the store closes.
 	t.Cleanup(mirror.Wait)
 
-	errs := make(chan error, burstPanes)
 	for _, pane := range panes {
-		go func() { errs <- sendFrameErr(socket, frameFor(permissionHook, pane, srv.socket)) }()
-	}
-	for range panes {
-		if err := <-errs; err != nil {
-			t.Fatalf("send frame: %v", err)
-		}
+		update := registryPaneUpdate(t, srv, paneregistry.StatusWaiting, paneregistry.WaitingPermission,
+			registryPrompt, registryBash)
+		update.PaneID = pane
+		applyUpdate(updates, update)
 	}
 	for range panes {
 		select {
 		case <-observed:
 		default:
-			t.Fatal("an observer was not called for its frame")
+			t.Fatal("an observer was not called for its update")
 		}
 	}
 	for _, pane := range panes {
