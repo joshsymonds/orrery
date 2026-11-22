@@ -381,6 +381,12 @@ type storedHead interface {
 	GetParked() string
 }
 
+// storedPhaseLive reports whether an orreryd epic in phase is live: it is not met_at_base, released or done, which end an
+// epic, and not a closed phase, which a close ends it in. Each list that reads a stored epic's phase applies this rule.
+func storedPhaseLive(phase string) bool {
+	return phase != "met_at_base" && phase != "released" && phase != "done" && !store.IsClosedPhase(phase)
+}
+
 // storedEpicMessage returns the Epic of an epic orreryd's database holds, from its head: its outcome is the phase,
 // which for a closed epic is the closed phase of its kind, its phase time, changed time, seen time and revision are the
 // database's, and it is live unless the phase is met_at_base, released or done, which end an epic, or a closed phase,
@@ -407,7 +413,7 @@ func storedEpicMessage(
 		Changed:       head.GetChanged(),
 		Seen:          head.GetSeen(),
 		Revision:      head.GetRevision(),
-		Live:          phase != "met_at_base" && phase != "released" && phase != "done" && !store.IsClosedPhase(phase),
+		Live:          storedPhaseLive(phase),
 		RunningSteps:  counts.running,
 		EndedSteps:    counts.ended,
 		Problem:       strings.Join(problems, "; "),

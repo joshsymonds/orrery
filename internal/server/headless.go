@@ -57,6 +57,10 @@ func (s sessionsServer) ListHeadless(
 	if err != nil {
 		return nil, err
 	}
+	steered, err := readSteered(ctx, s.epics, s.reader)
+	if err != nil {
+		return nil, err
+	}
 	sessions := make([]*orreryv1.HeadlessSession, 0, len(rows))
 	for _, row := range rows {
 		session, convErr := headlessMessage(row)
@@ -68,6 +72,7 @@ func (s sessionsServer) ListHeadless(
 		session.Ended, session.EndedAt = endedRow(
 			session.GetState() == stateStopped, verdict, ok, session.GetChanged(), mark,
 		)
+		session.Ended, session.EndedAt = steeredEnd(steered, row.ID, session.Ended, session.EndedAt)
 		aged := floorAged(session.GetChanged(), now) || endedAged(session.GetEnded(), session.GetEndedAt(), now)
 		session.Archived = archivedRow(mark, session.GetChanged(), aged)
 		session.PutOff = headlessPutOff(puts, row.ID, row.RequestID, row.State)

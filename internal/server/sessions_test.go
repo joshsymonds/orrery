@@ -29,7 +29,7 @@ func sessionsClient(t *testing.T, reader *store.Reader) orreryv1connect.Sessions
 // sessionsClientAt is sessionsClient with the clock now, which dates the retention window ListHeadless answers.
 func sessionsClientAt(t *testing.T, reader *store.Reader, now func() time.Time) orreryv1connect.SessionsClient {
 	t.Helper()
-	path, handler := newSessionsHandler(reader, "", now, nil, newChangeHub(nil, nil), nil, 0, 0, nil)
+	path, handler := newSessionsHandler(reader, "", now, nil, nil, newChangeHub(nil, nil), nil, 0, 0, nil)
 	mux := http.NewServeMux()
 	mux.Handle(path, handler)
 	srv := httptest.NewServer(mux)
