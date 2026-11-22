@@ -91,6 +91,16 @@ func TestStoreReadHandleReadsWhileAWriteHoldsTheWriter(t *testing.T) {
 	t.Logf("LabelledSteps (ListLabelledSteps) returned while writeDB held the writer")
 }
 
+// TestStoreReadHandleOpensEveryConnectionWithTheStore checks that Open leaves each of the read pool's connections open, so
+// no read's store call opens one inside its timer.
+func TestStoreReadHandleOpensEveryConnectionWithTheStore(t *testing.T) {
+	t.Parallel()
+	s := openEpicStore(t)
+	if got := s.readConnector.open.Load(); got != readConns {
+		t.Fatalf("read connections open after Open = %d, want %d", got, readConns)
+	}
+}
+
 // TestStoreReadHandleRefusesAWrite runs an INSERT on the read pool. The pool's connections open the file read-only, so
 // SQLite fails the INSERT with its read-only error.
 func TestStoreReadHandleRefusesAWrite(t *testing.T) {
