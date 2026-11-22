@@ -360,9 +360,10 @@ const rotaEpic: Plain<EpicInit> = {
 };
 
 const rotaHistory: HistoryInit[] = [
-  { time: at("@13:50"), cursor: "c1", item: { case: "tell", value: { seq: 1n, text: "You accepted the contract: 6 requirements, serious care.", at: at("@13:50"), told: true } } },
+  { time: at("@13:50"), cursor: "c1", sentence: "You accepted the contract: 6 requirements, serious care.", item: { case: "tell", value: { seq: 1n, text: "You accepted the contract: 6 requirements, serious care.", at: at("@13:50"), told: true } } },
   {
     time: at("@13:52"), cursor: "c2",
+    sentence: "Planner turn 1 succeeded: outlined 5 units and started shift-store and csv-writer.",
     item: {
       case: "turn",
       value: {
@@ -373,11 +374,12 @@ const rotaHistory: HistoryInit[] = [
       },
     },
   },
-  { time: at("@13:52:40"), cursor: "c3", item: { case: "step", value: rotaT5Try1 } },
-  { time: at("@13:58:30"), cursor: "c4", item: { case: "step", value: rotaT5Try2 } },
-  { time: at("@14:07"), cursor: "c5", item: { case: "step", value: rotaT2Impl } },
+  { time: at("@13:52:40"), cursor: "c3", sentence: "T5 ended: looping.", item: { case: "step", value: rotaT5Try1 } },
+  { time: at("@13:58:30"), cursor: "c4", sentence: "T5 ended: done.", item: { case: "step", value: rotaT5Try2 } },
+  { time: at("@14:07"), cursor: "c5", sentence: "T2 started.", item: { case: "step", value: rotaT2Impl } },
   {
     time: at("@14:10"), cursor: "c6",
+    sentence: "Planner turn 3 succeeded: outlined 2 more units, readme and audit-log.",
     item: {
       case: "turn",
       value: {
@@ -387,10 +389,14 @@ const rotaHistory: HistoryInit[] = [
       },
     },
   },
-  { time: at("@14:11"), cursor: "c7", item: { case: "evidence", value: { ...rotaR3Green, item: "R3" } } },
-  { time: at("@14:22"), cursor: "c8", item: { case: "step", value: rotaT1Impl } },
-  { time: at("@14:31:30"), cursor: "c9", item: { case: "step", value: rotaT2Review } },
-  { time: at("@14:37"), cursor: "c10", item: { case: "tell", value: { seq: 2n, text: "Review finding F1 confirmed: export overwrites an existing file, and R4 says it must refuse. Sent back.", at: at("@14:37"), told: true } } },
+  {
+    time: at("@14:11"), cursor: "c7", sentence: "R3 green run · passed.",
+    item: { case: "evidence", value: { ...rotaR3Green, item: "R3" } },
+    runs: [{ ...rotaR3Green, item: "R3" }],
+  },
+  { time: at("@14:22"), cursor: "c8", sentence: "T1 started.", item: { case: "step", value: rotaT1Impl } },
+  { time: at("@14:31:30"), cursor: "c9", sentence: "T2 ended: gate failed.", item: { case: "step", value: rotaT2Review } },
+  { time: at("@14:37"), cursor: "c10", sentence: "Review finding F1 confirmed: export overwrites an existing file, and R4 says it must refuse. Sent back.", item: { case: "tell", value: { seq: 2n, text: "Review finding F1 confirmed: export overwrites an existing file, and R4 says it must refuse. Sent back.", at: at("@14:37"), told: true } } },
   {
     time: at("@14:39"), cursor: "c11",
     item: {
@@ -402,7 +408,7 @@ const rotaHistory: HistoryInit[] = [
       },
     },
   },
-  { time: at("@14:40"), cursor: "c12", item: { case: "tell", value: { seq: 3n, text: "rota-endpoint: the engine started merging it onto the epic branch.", at: at("@14:40"), told: true } } },
+  { time: at("@14:40"), cursor: "c12", sentence: "rota-endpoint: the engine started merging it onto the epic branch.", item: { case: "tell", value: { seq: 3n, text: "rota-endpoint: the engine started merging it onto the epic branch.", at: at("@14:40"), told: true } } },
 ];
 
 const rotaSummary =
@@ -664,12 +670,12 @@ const holderGet: EpicsGetResponse = create(EpicsGetResponseSchema, {
 });
 
 const holderHistory: HistoryInit[] = [
-  { time: at("@08:04"), cursor: "c1", item: { case: "tell", value: { seq: 1n, text: "You accepted the contract: 4 requirements, serious care.", at: at("@08:04"), told: true } } },
-  { time: at("@09:31"), cursor: "c2", item: { case: "tell", value: { seq: 2n, text: "docs-devspaces integrated: the last task.", at: at("@09:31"), told: true } } },
-  { time: at("@09:38"), cursor: "c3", item: { case: "tell", value: { seq: 3n, text: "Final review of the epic branch: 0 findings.", at: at("@09:38"), told: true } } },
-  { time: at("@09:39"), cursor: "c4", item: { case: "tell", value: { seq: 4n, text: "orrery started the release by itself, because the epic is clean.", at: at("@09:39"), told: true } } },
-  { time: at("@09:44"), cursor: "c5", item: { case: "tell", value: { seq: 5n, text: "Tagged v0.45.0 and pushed. CI went green on the tag.", at: at("@09:44"), told: true } } },
-  { time: at("@09:52"), cursor: "c6", item: { case: "tell", value: { seq: 6n, text: "Released v0.45.0. halyard runs it.", at: at("@09:52"), told: true } } },
+  { time: at("@08:04"), cursor: "c1", sentence: "You accepted the contract: 4 requirements, serious care.", item: { case: "tell", value: { seq: 1n, text: "You accepted the contract: 4 requirements, serious care.", at: at("@08:04"), told: true } } },
+  { time: at("@09:31"), cursor: "c2", sentence: "docs-devspaces integrated: the last task.", item: { case: "tell", value: { seq: 2n, text: "docs-devspaces integrated: the last task.", at: at("@09:31"), told: true } } },
+  { time: at("@09:38"), cursor: "c3", sentence: "Final review of the epic branch: 0 findings.", item: { case: "tell", value: { seq: 3n, text: "Final review of the epic branch: 0 findings.", at: at("@09:38"), told: true } } },
+  { time: at("@09:39"), cursor: "c4", sentence: "orrery started the release by itself, because the epic is clean.", item: { case: "tell", value: { seq: 4n, text: "orrery started the release by itself, because the epic is clean.", at: at("@09:39"), told: true } } },
+  { time: at("@09:44"), cursor: "c5", sentence: "Tagged v0.45.0 and pushed. CI went green on the tag.", item: { case: "tell", value: { seq: 5n, text: "Tagged v0.45.0 and pushed. CI went green on the tag.", at: at("@09:44"), told: true } } },
+  { time: at("@09:52"), cursor: "c6", sentence: "Released v0.45.0. halyard runs it.", item: { case: "tell", value: { seq: 6n, text: "Released v0.45.0. halyard runs it.", at: at("@09:52"), told: true } } },
 ];
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -1108,7 +1114,7 @@ export const gets = new Map<string, EpicsGetResponse>([
 // tellHistory is a history of told lines, oldest first, each at its time.
 function tellHistory(lines: [time: bigint, text: string][]): HistoryInit[] {
   return lines.map(([time, text], index) => ({
-    time, cursor: `t${index + 1}`, item: { case: "tell", value: { seq: BigInt(index + 1), text, at: time, told: true } },
+    time, cursor: `t${index + 1}`, sentence: text, item: { case: "tell", value: { seq: BigInt(index + 1), text, at: time, told: true } },
   }));
 }
 
@@ -1183,7 +1189,7 @@ export const denseHistory = create(EpicsHistoryResponseSchema, { entries: rotaBu
 const rotaPlannerHistory: HistoryInit[] = [
   ...rotaBuildingHistory,
   {
-    time: at("@14:44"), cursor: "c13",
+    time: at("@14:44"), cursor: "c13", sentence: "The planner took the park: gate failed on export-cli.",
     item: { case: "tell", value: { seq: 5n, text: "The planner took the park: gate failed on export-cli.", at: at("@14:44"), told: true } },
   },
 ];
@@ -1277,8 +1283,8 @@ export const offlineStopped: EpicsGetResponse = {
 // offlineStoppedHistory is what just happened to offline-tables: its release ran step 1 and stopped at step 2.
 export const offlineStoppedHistory = create(EpicsHistoryResponseSchema, {
   entries: [
-    { time: at("@14:05"), cursor: "c1", item: { case: "tell", value: { seq: 1n, text: "Release step 1 passed: v0.4.0 is tagged and pushed.", at: at("@14:05"), told: true } } },
-    { time: at("@14:32"), cursor: "c2", item: { case: "tell", value: { seq: 2n, text: "Release step 2 failed: CI is red on the tag. It has no undo, so it waits on you.", at: at("@14:32"), told: true } } },
+    { time: at("@14:05"), cursor: "c1", sentence: "Release step 1 passed: v0.4.0 is tagged and pushed.", item: { case: "tell", value: { seq: 1n, text: "Release step 1 passed: v0.4.0 is tagged and pushed.", at: at("@14:05"), told: true } } },
+    { time: at("@14:32"), cursor: "c2", sentence: "Release step 2 failed: CI is red on the tag. It has no undo, so it waits on you.", item: { case: "tell", value: { seq: 2n, text: "Release step 2 failed: CI is red on the tag. It has no undo, so it waits on you.", at: at("@14:32"), told: true } } },
   ],
   next: "",
 });
@@ -1311,8 +1317,8 @@ export const tidecacheGaps: EpicsGetResponse = create(EpicsGetResponseSchema, {
 // tidecacheGapsHistory is what just happened to tide-cache: its review left a gap, so it ended without releasing.
 export const tidecacheGapsHistory = create(EpicsHistoryResponseSchema, {
   entries: [
-    { time: at("@-4d 09:02"), cursor: "c1", item: { case: "tell", value: { seq: 1n, text: "The review confirmed a finding the fix plans did not close in three rounds.", at: at("@-4d 09:02"), told: true } } },
-    { time: at("@-4d 09:12"), cursor: "c2", item: { case: "tell", value: { seq: 2n, text: "Ended with 1 gap. It did not release.", at: at("@-4d 09:12"), told: true } } },
+    { time: at("@-4d 09:02"), cursor: "c1", sentence: "The review confirmed a finding the fix plans did not close in three rounds.", item: { case: "tell", value: { seq: 1n, text: "The review confirmed a finding the fix plans did not close in three rounds.", at: at("@-4d 09:02"), told: true } } },
+    { time: at("@-4d 09:12"), cursor: "c2", sentence: "Ended with 1 gap. It did not release.", item: { case: "tell", value: { seq: 2n, text: "Ended with 1 gap. It did not release.", at: at("@-4d 09:12"), told: true } } },
   ],
   next: "",
 });

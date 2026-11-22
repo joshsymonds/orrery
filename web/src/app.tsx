@@ -2414,6 +2414,7 @@ export function App({
         onOpenContract={openContract}
         onOpenSession={openSession}
         onOpenPhase={openPhase}
+        onOpenStep={navigated((step: string) => openEpicStep(entry.id, step))}
         onBack={closeEpicPage}
         strip={pageStrip(null, null)}
         rows={rows}

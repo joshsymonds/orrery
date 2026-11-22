@@ -7,6 +7,9 @@ import * as happenings from "./happenings";
 
 const checkError = "error: recipe `check` failed with exit code 1";
 
+// noop is the step door of the stories: it opens nothing, since a story draws the page without one.
+const noop = () => {};
+
 // fixtureOf is the fixture's entry under id. The stories name only held ids, so a missing one is a broken story.
 function fixtureOf<Value>(entries: ReadonlyMap<string, Value>, id: string): Value {
   const entry = entries.get(id);
@@ -22,8 +25,8 @@ const holder = fixtureOf(gets, "orrery/holder-scopes");
 const holderEntries = fixtureOf(histories, "orrery/holder-scopes").entries;
 
 export const HappeningList: Stories = {
-  default: () => <happenings.JustHappened entries={rotaEntries} steps={rota.steps} />,
-  holder: () => <happenings.JustHappened entries={holderEntries} steps={holder.steps} />,
+  default: () => <happenings.JustHappened entries={rotaEntries} steps={rota.steps} onOpenStep={noop} />,
+  holder: () => <happenings.JustHappened entries={holderEntries} steps={holder.steps} onOpenStep={noop} />,
   empty: () => <happenings.JustHappened entries={[]} steps={[]} />,
 };
 
