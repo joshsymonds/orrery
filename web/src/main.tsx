@@ -6,11 +6,11 @@ import { createClients, createTransport } from "./client";
 import { type EpicsView, epicsView, noEpics } from "./epics";
 import type { Contract } from "./gen/orrery/v1/contracts_pb";
 import type { InAppNotice } from "./gen/orrery/v1/notice_pb";
-import type { HostStatusResponse, WatchResponse } from "./gen/orrery/v1/orrery_pb";
+import type { HostStatusResponse, Pane, WatchResponse } from "./gen/orrery/v1/orrery_pb";
 import { localHeadStore } from "./headfold";
 import { listHolds } from "./listholds";
 import { changedOnly, type HeldEpic, loadEpics, type Refetch } from "./loadepics";
-import { loadRows } from "./load";
+import { loadConversations, loadRows } from "./load";
 import { bundledBuild, holdsUnsentText, watchPageBuild } from "./pagebuild";
 import { watchNotices } from "./notices";
 import { type Viewing, watchPresence } from "./presence";
@@ -116,7 +116,8 @@ function pageStorage(): Storage | null {
 // epic it holds no detail for, whose listed message changed, or that it names. Each poll tick loads the epics and names
 // the epic the page shows, so a change only Epics.Get carries reaches an open epic page within a tick; moving the view
 // onto a live epic loads the epics naming it at once. A tick also reads the host's status and moves the age labels to the current time, and
-// while the stream is down it reloads the rows too. A stream that fails unavailable reopens from the last seq it
+// while the stream is down it reloads the rows too. While the stream is open, a tick lists the conversations alone, so a
+// row whose answer now reads archived leaves the inbox with no event. A stream that fails unavailable reopens from the last seq it
 // delivered after retryMs. Once the stream ends or fails any other way, the poll reloads the rows, and the next
 // successful rows load reopens the stream.
 //
@@ -162,6 +163,8 @@ export function start(
   let eventAffects: Affects = noAffects;
   let eventTimer: ReturnType<typeof setTimeout> | undefined;
   let stream: AbortController | null = null;
+  // The panes of the last full rows load, which a conversations load rebuilds the rows from.
+  let lastPanes: Pane[] = [];
   // Whether a tick or an event asked for a load while the page was hidden.
   let stale = false;
   // The address App is given, which is undefined until one applies, so App opens nothing before then. holding is the
@@ -321,6 +324,7 @@ export function start(
       return;
     }
     loaded = { ...loaded, rows: next.rows, error: next.error };
+    lastPanes = next.panes;
     rowsAnswered = true;
     settleAddress();
     now = Math.floor(Date.now() / 1000);
@@ -336,6 +340,19 @@ export function start(
   // pollRows asks for a rows load that is dropped while one is in flight, as a tick's is: the load in flight is as new
   // as the tick, and the next tick polls again.
   const pollRows = () => runRows(false);
+  // runConversations runs one conversations load at a time, and a call while one is in flight is dropped, as a tick's
+  // rows load is. A failed list leaves the rows as they were.
+  const runConversations = coalesced(async () => {
+    const rows = await loadConversations(clients, lastPanes);
+    if (stopped || rows === null) {
+      return;
+    }
+    loaded = { ...loaded, rows };
+    now = Math.floor(Date.now() / 1000);
+    draw();
+  }, isStopped);
+  // pollConversations asks for a conversations load that is dropped while one is in flight, as a tick's is.
+  const pollConversations = () => runConversations(false);
   // retryLists runs the rows and the epics loads at once, as Try now asks.
   const retryLists = () => {
     reloadRows();
@@ -515,6 +532,8 @@ export function start(
     reloadEpics(shownEpic());
     if (stream === null) {
       pollRows();
+    } else {
+      pollConversations();
     }
     now = Math.floor(Date.now() / 1000);
     draw();
