@@ -250,6 +250,13 @@ func assistantTokens(line []byte) (int64, bool) {
 	return tokens, tokens > 0
 }
 
+// AssistantContext returns the context figure of a main-chain assistant line whose usage sums above 0: the tokens of
+// its usage out of the context window. ok is false for any other line.
+func AssistantContext(line []byte) (Context, bool) {
+	tokens, ok := assistantTokens(line)
+	return Context{Tokens: tokens, Window: contextWindow}, ok
+}
+
 // lineItems returns the items of one transcript line in order, or none when the line is skipped.
 func lineItems(line []byte) []Item {
 	var entry transcriptLine
