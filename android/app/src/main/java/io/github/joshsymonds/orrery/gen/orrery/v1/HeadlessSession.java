@@ -710,6 +710,88 @@ public  final class HeadlessSession extends
     putOff_ = false;
   }
 
+  public static final int ENDED_FIELD_NUMBER = 13;
+  private boolean ended_;
+  /**
+   * <pre>
+   * true once the conversation's turn is judged closed by a closure verdict for its current change time, or (headless)
+   * it stopped. It is false while the conversation steers a live epic or a proposed contract, and false while the owner
+   * has unarchived it since its last change.
+   * </pre>
+   *
+   * <code>bool ended = 13 [json_name = "ended"];</code>
+   * @return The ended.
+   */
+  @java.lang.Override
+  public boolean getEnded() {
+    return ended_;
+  }
+  /**
+   * <pre>
+   * true once the conversation's turn is judged closed by a closure verdict for its current change time, or (headless)
+   * it stopped. It is false while the conversation steers a live epic or a proposed contract, and false while the owner
+   * has unarchived it since its last change.
+   * </pre>
+   *
+   * <code>bool ended = 13 [json_name = "ended"];</code>
+   * @param value The ended to set.
+   */
+  private void setEnded(boolean value) {
+    
+    ended_ = value;
+  }
+  /**
+   * <pre>
+   * true once the conversation's turn is judged closed by a closure verdict for its current change time, or (headless)
+   * it stopped. It is false while the conversation steers a live epic or a proposed contract, and false while the owner
+   * has unarchived it since its last change.
+   * </pre>
+   *
+   * <code>bool ended = 13 [json_name = "ended"];</code>
+   */
+  private void clearEnded() {
+
+    ended_ = false;
+  }
+
+  public static final int ENDED_AT_FIELD_NUMBER = 14;
+  private long endedAt_;
+  /**
+   * <pre>
+   * The unix seconds the conversation ended (its change time), or 0 when it has not ended.
+   * </pre>
+   *
+   * <code>int64 ended_at = 14 [json_name = "endedAt"];</code>
+   * @return The endedAt.
+   */
+  @java.lang.Override
+  public long getEndedAt() {
+    return endedAt_;
+  }
+  /**
+   * <pre>
+   * The unix seconds the conversation ended (its change time), or 0 when it has not ended.
+   * </pre>
+   *
+   * <code>int64 ended_at = 14 [json_name = "endedAt"];</code>
+   * @param value The endedAt to set.
+   */
+  private void setEndedAt(long value) {
+    
+    endedAt_ = value;
+  }
+  /**
+   * <pre>
+   * The unix seconds the conversation ended (its change time), or 0 when it has not ended.
+   * </pre>
+   *
+   * <code>int64 ended_at = 14 [json_name = "endedAt"];</code>
+   */
+  private void clearEndedAt() {
+
+    endedAt_ = 0L;
+  }
+
   public static io.github.joshsymonds.orrery.gen.orrery.v1.HeadlessSession parseFrom(
       java.nio.ByteBuffer data)
       throws com.google.protobuf.InvalidProtocolBufferException {
@@ -1518,6 +1600,92 @@ public  final class HeadlessSession extends
       return this;
     }
 
+    /**
+     * <pre>
+     * true once the conversation's turn is judged closed by a closure verdict for its current change time, or (headless)
+     * it stopped. It is false while the conversation steers a live epic or a proposed contract, and false while the owner
+     * has unarchived it since its last change.
+     * </pre>
+     *
+     * <code>bool ended = 13 [json_name = "ended"];</code>
+     * @return The ended.
+     */
+    @java.lang.Override
+    public boolean getEnded() {
+      return instance.getEnded();
+    }
+    /**
+     * <pre>
+     * true once the conversation's turn is judged closed by a closure verdict for its current change time, or (headless)
+     * it stopped. It is false while the conversation steers a live epic or a proposed contract, and false while the owner
+     * has unarchived it since its last change.
+     * </pre>
+     *
+     * <code>bool ended = 13 [json_name = "ended"];</code>
+     * @param value The ended to set.
+     * @return This builder for chaining.
+     */
+    public Builder setEnded(boolean value) {
+      copyOnWrite();
+      instance.setEnded(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * true once the conversation's turn is judged closed by a closure verdict for its current change time, or (headless)
+     * it stopped. It is false while the conversation steers a live epic or a proposed contract, and false while the owner
+     * has unarchived it since its last change.
+     * </pre>
+     *
+     * <code>bool ended = 13 [json_name = "ended"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearEnded() {
+      copyOnWrite();
+      instance.clearEnded();
+      return this;
+    }
+
+    /**
+     * <pre>
+     * The unix seconds the conversation ended (its change time), or 0 when it has not ended.
+     * </pre>
+     *
+     * <code>int64 ended_at = 14 [json_name = "endedAt"];</code>
+     * @return The endedAt.
+     */
+    @java.lang.Override
+    public long getEndedAt() {
+      return instance.getEndedAt();
+    }
+    /**
+     * <pre>
+     * The unix seconds the conversation ended (its change time), or 0 when it has not ended.
+     * </pre>
+     *
+     * <code>int64 ended_at = 14 [json_name = "endedAt"];</code>
+     * @param value The endedAt to set.
+     * @return This builder for chaining.
+     */
+    public Builder setEndedAt(long value) {
+      copyOnWrite();
+      instance.setEndedAt(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The unix seconds the conversation ended (its change time), or 0 when it has not ended.
+     * </pre>
+     *
+     * <code>int64 ended_at = 14 [json_name = "endedAt"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearEndedAt() {
+      copyOnWrite();
+      instance.clearEndedAt();
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:orrery.v1.HeadlessSession)
   }
   @java.lang.Override
@@ -1546,11 +1714,13 @@ public  final class HeadlessSession extends
             "archived_",
             "headline_",
             "putOff_",
+            "ended_",
+            "endedAt_",
           };
           java.lang.String info =
-              "\u0000\f\u0000\u0000\u0001\f\f\u0000\u0000\u0000\u0001\u0208\u0002\u0208\u0003\u0208" +
-              "\u0004\u0208\u0005\u0002\u0006\u0002\u0007\u0208\b\u0208\t\u0002\n\u0007\u000b\u0208" +
-              "\f\u0007";
+              "\u0000\u000e\u0000\u0000\u0001\u000e\u000e\u0000\u0000\u0000\u0001\u0208\u0002\u0208" +
+              "\u0003\u0208\u0004\u0208\u0005\u0002\u0006\u0002\u0007\u0208\b\u0208\t\u0002\n\u0007" +
+              "\u000b\u0208\f\u0007\r\u0007\u000e\u0002";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {
