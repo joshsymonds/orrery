@@ -103,7 +103,7 @@ function SteeredFrom({
   return (
     <button type="button" class="door steered" onClick={() => onOpen(target)}>
       <Icon name="chat" />
-      <span class="door-label">Steered from</span> <TitleParts dir={title.dir} line={title.line} />
+      <span>Steered from</span> <TitleParts dir={title.dir} line={title.line} />
       <Icon name="chevronRight" />
     </button>
   );
@@ -271,7 +271,7 @@ export function EpicPage(props: {
             {contract !== undefined && (
               <button type="button" class="door contract" onClick={() => onOpenContract()}>
                 <Icon name="doc" />
-                <span class="door-label">Contract</span> <span>{contractDoorOf(detail)}</span>
+                <span>Contract</span> <span>{contractDoorOf(detail)}</span>
                 <Icon name="chevronRight" />
               </button>
             )}
