@@ -66,7 +66,7 @@ func (s sessionsServer) ListHeadless(
 		mark := marks[archiveKey{kind: archiveKindHeadless, id: row.ID}]
 		verdict, ok := verdicts[row.ID]
 		session.Ended, session.EndedAt = endedRow(
-			session.GetState() == stateStopped, verdict, ok, session.GetChanged(),
+			session.GetState() == stateStopped, verdict, ok, session.GetChanged(), mark,
 		)
 		aged := floorAged(session.GetChanged(), now) || endedAged(session.GetEnded(), session.GetEndedAt(), now)
 		session.Archived = archivedRow(mark, session.GetChanged(), aged)

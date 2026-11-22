@@ -39,8 +39,12 @@ func readClosureVerdicts(ctx context.Context, reader *store.Reader) (map[string]
 // is set, as a headless row in state stopped is, or when its newest closure verdict v is closed and was written for
 // its current change time, changed in unix seconds, whether or not the owner has seen the row. ok is whether the row
 // has a verdict. A row with change time 0 is never ended by a verdict. An ended row's time is changed, and an unended
-// row's is 0.
-func endedRow(stopped bool, v store.ClosureVerdict, ok bool, changed int64) (bool, int64) {
+// row's is 0. A row the owner unarchived at or after its change time, which mark records, is unended whatever its state
+// or verdict, until it changes again (see unarchivedAtChange).
+func endedRow(stopped bool, v store.ClosureVerdict, ok bool, changed int64, mark store.ArchiveMark) (bool, int64) {
+	if unarchivedAtChange(mark, changed) {
+		return false, 0
+	}
 	closedAtChange := ok && v.Closed && changed != 0 && v.Changed == changed
 	if !stopped && !closedAtChange {
 		return false, 0
