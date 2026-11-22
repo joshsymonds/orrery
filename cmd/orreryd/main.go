@@ -1060,9 +1060,9 @@ func startSessions(
 		host.reconcile(ctx, logger, opts.holdReconcile, opts.flight, opts.flightNow)
 		host.startCallerEvents(ctx)
 		host.startCron(ctx)
-		host.startEvidence(ctx, st, stateDir, opts, childEnviron, logger)
+		host.startEvidence(ctx, st, stateDir, opts, childEnviron, hosts, logger)
 		evidence = host.evidence
-		host.startNodeChecks(ctx, st, stateDir, opts, childEnviron, logger)
+		host.startNodeChecks(ctx, st, stateDir, opts, childEnviron, hosts, logger)
 		host.startFlow(ctx, st, router, opts.attentionTicks, opts.flowTicks, getenv, resolve, stateDir, hosts, logger)
 		host.startReleaseSlots(ctx)
 		host.startLimits(ctx)
@@ -1331,18 +1331,20 @@ func sessionState(ctx context.Context, getenv func(string) string) (string, []st
 // startEvidence builds the evidence runner over st, the steps and the pools, with its blobs and capture worktrees under
 // stateDir and its gates under stateDir/gates, and takes up the open evidence runs a previous run left. A failure to take
 // them up is logged and serving goes on. Its gates run in environ, under the holder scope and its memory cap that opts
-// name.
+// name. Its runs run on the hosts of their epics, which hosts resolves.
 func (h *sessionHost) startEvidence(
 	ctx context.Context,
 	st *store.Store,
 	stateDir string,
 	opts options,
 	environ []string,
+	hosts hostexec.Hosts,
 	logger *slog.Logger,
 ) {
 	h.evidence = enginehost.NewEvidence(enginehost.EvidenceConfig{
 		Store:        st,
 		Steps:        h.steps,
+		Hosts:        hosts,
 		Pools:        h.pools,
 		Environ:      environ,
 		StateDir:     stateDir,
@@ -1357,17 +1359,20 @@ func (h *sessionHost) startEvidence(
 
 // startNodeChecks builds the node checks runner over st and the pools, with its check worktrees under stateDir and its
 // gates under stateDir/gates, and takes up the open checks a previous run left. A failure to take them up is logged and
-// serving goes on. Its gates run in environ, under the holder scope and its memory cap that opts name.
+// serving goes on. Its gates run in environ, under the holder scope and its memory cap that opts name. Its checks run on
+// the hosts of their epics, which hosts resolves.
 func (h *sessionHost) startNodeChecks(
 	ctx context.Context,
 	st *store.Store,
 	stateDir string,
 	opts options,
 	environ []string,
+	hosts hostexec.Hosts,
 	logger *slog.Logger,
 ) {
 	h.checks = enginehost.NewNodeChecks(enginehost.NodeChecksConfig{
 		Store:        st,
+		Hosts:        hosts,
 		Pools:        h.pools,
 		Environ:      environ,
 		StateDir:     stateDir,
