@@ -158,12 +158,18 @@ func judgeStart(run store.EvidenceRun, repo, prompt string) StepStart {
 	}
 }
 
+// The places a judge phase is judged at: a red run at the task's base, any other run at head.
+const (
+	judgePlaceBase = "base"
+	judgePlaceHead = "head"
+)
+
 // judgePurpose returns the purpose of the judge step of run: its phase, the place the phase is judged at, which is base for
 // a red run and head otherwise, and the item it judges.
 func judgePurpose(run store.EvidenceRun) string {
-	place := "head"
+	place := judgePlaceHead
 	if run.Phase == evidence.PhaseRed {
-		place = "base"
+		place = judgePlaceBase
 	}
 	return fmt.Sprintf("Judge %s's %s evidence at %s", run.Item, run.Phase, place)
 }
