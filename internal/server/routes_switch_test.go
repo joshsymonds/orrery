@@ -49,7 +49,10 @@ func routesSwitchRegistry(firstAccount string) llmroutes.Registry {
 			},
 			{
 				ID: "ctx-work", DefaultSeat: "seat-forward", Account: firstAccount,
-				Models: map[string]string{"synthetic-model-alpha": "seat-forward", "synthetic-model-beta": "seat-inject"},
+				Models: map[string]string{
+					"synthetic-model-alpha": "seat-forward",
+					"synthetic-model-beta":  "seat-inject",
+				},
 				Subagents: &llmroutes.Subagents{
 					DefaultSeat: "seat-forward",
 					AgentTypes:  map[string]string{"synthetic-agent": "seat-inject"},
@@ -112,7 +115,10 @@ func routesSwitchAssertOnlyTarget(t *testing.T, label string, before, got *orrer
 		if gotRoute.GetAccount() != account {
 			t.Fatalf("%s context %s account = %q, want %q", label, route.GetId(), gotRoute.GetAccount(), account)
 		}
-		want := proto.Clone(route).(*orreryv1.RouteContext)
+		want, ok := proto.Clone(route).(*orreryv1.RouteContext)
+		if !ok {
+			t.Fatalf("clone of context %s is not a RouteContext", route.GetId())
+		}
 		want.Account = account
 		if !proto.Equal(gotRoute, want) {
 			t.Fatalf("%s context %s = %v, want only its account changed to %v", label, route.GetId(), gotRoute, want)
