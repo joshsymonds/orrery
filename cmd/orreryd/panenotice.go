@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"slices"
 	"strings"
 	"sync/atomic"
@@ -21,23 +22,26 @@ import (
 // paneSourceKind is the source kind of a pane notice. Its data is the daemon.Transition that notify routed, as JSON.
 const paneSourceKind = "pane"
 
-// Hook JSON keys and event a StopFailure notice reads. Claude Code writes them in snake case.
-const (
-	keyHookEventName = "hook_event_name"
-	keyAPIError      = "error"
-	stopFailureEvent = "StopFailure"
-	// unknownAPIError names the API error of a StopFailure whose error field is empty or absent.
-	unknownAPIError = "unknown"
-)
+// unknownAPIError names the API error of a StopFailure whose error field is empty or absent.
+const unknownAPIError = "unknown"
 
 // paneSource is the stored form of a daemon.Transition. It has the transition's fields under the JSON names a stored
-// source uses, and it converts to and from the transition field for field.
+// source uses, and it converts to and from the transition field for field. A row stored before a transition carried
+// its facts has a frame instead: the hook frame the transition came from, which decodePaneSource reads back into the
+// same fields.
 type paneSource struct {
-	PaneID string             `json:"paneId"`
-	Server paneServer         `json:"server"`
-	From   protocol.State     `json:"from"`
-	To     protocol.State     `json:"to"`
-	Frame  protocol.HookFrame `json:"frame"`
+	PaneID      string              `json:"paneId"`
+	Server      paneServer          `json:"server"`
+	From        protocol.State      `json:"from"`
+	To          protocol.State      `json:"to"`
+	Cwd         string              `json:"cwd"`
+	BaseURL     string              `json:"baseUrl"`
+	Transcript  string              `json:"transcript"`
+	LastMessage string              `json:"lastMessage"`
+	Failed      bool                `json:"failed"`
+	APIError    string              `json:"apiError"`
+	Background  bool                `json:"background"`
+	Frame       *protocol.HookFrame `json:"frame,omitempty"`
 }
 
 // paneServer is the stored form of a tmuxctl.Server.
@@ -46,14 +50,20 @@ type paneServer struct {
 	Socket string `json:"socket"`
 }
 
-// encodePaneSource returns the source data that stores transition, hook included.
+// encodePaneSource returns the source data that stores transition's fields.
 func encodePaneSource(transition daemon.Transition) ([]byte, error) {
 	data, err := json.Marshal(paneSource{
-		PaneID: transition.PaneID,
-		Server: paneServer(transition.Server),
-		From:   transition.From,
-		To:     transition.To,
-		Frame:  transition.Frame,
+		PaneID:      transition.PaneID,
+		Server:      paneServer(transition.Server),
+		From:        transition.From,
+		To:          transition.To,
+		Cwd:         transition.Cwd,
+		BaseURL:     transition.BaseURL,
+		Transcript:  transition.Transcript,
+		LastMessage: transition.LastMessage,
+		Failed:      transition.Failed,
+		APIError:    transition.APIError,
+		Background:  transition.Background,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("%s notice: %w", paneSourceKind, err)
@@ -61,19 +71,35 @@ func encodePaneSource(transition daemon.Transition) ([]byte, error) {
 	return data, nil
 }
 
-// decodePaneSource returns the transition that source data stores.
-func decodePaneSource(data []byte) (daemon.Transition, error) {
+// decodePaneSource returns the transition that source data stores. A legacy row's frame gives the transition its cwd
+// and base URL, and its hook gives the rest of its facts. A hook that does not decode is logged, and the facts that do
+// decode stay set, as they do for a hook that arrives as a frame.
+func decodePaneSource(data []byte, logger *slog.Logger) (daemon.Transition, error) {
 	var source paneSource
 	if err := json.Unmarshal(data, &source); err != nil {
 		return daemon.Transition{}, fmt.Errorf("%s notice: %w", paneSourceKind, err)
 	}
-	return daemon.Transition{
-		PaneID: source.PaneID,
-		Server: tmuxctl.Server(source.Server),
-		From:   source.From,
-		To:     source.To,
-		Frame:  source.Frame,
-	}, nil
+	transition := daemon.Transition{
+		PaneID:      source.PaneID,
+		Server:      tmuxctl.Server(source.Server),
+		From:        source.From,
+		To:          source.To,
+		Cwd:         source.Cwd,
+		BaseURL:     source.BaseURL,
+		Transcript:  source.Transcript,
+		LastMessage: source.LastMessage,
+		Failed:      source.Failed,
+		APIError:    source.APIError,
+		Background:  source.Background,
+	}
+	if source.Frame != nil {
+		transition.Cwd = source.Frame.Cwd
+		transition.BaseURL = source.Frame.AnthropicBaseURL
+		if err := transition.SetHookFacts(source.Frame.Hook); err != nil {
+			logger.Warn("read stored hook facts", "pane", source.PaneID, "error", err)
+		}
+	}
+	return transition, nil
 }
 
 // paneNotice is the notice transition makes, with the closures that route it: Watching, Desk and Push, and Judge for a
@@ -83,18 +109,12 @@ func decodePaneSource(data []byte) (daemon.Transition, error) {
 // turn it ends, written by the Stop's summary run, and not the summary before it. A nil summarized waits for nothing:
 // a waiting notice's body is the question its hook wrote, and a restored notice's summary run ended with the orreryd
 // that started it.
-func (r *relay) paneNotice(
-	ctx context.Context, transition daemon.Transition, summarized <-chan struct{}, view *doneView,
-) route.Notice {
-	wanted, err := push.Wanted(transition.To, transition.Frame.Hook)
-	if err != nil {
-		r.logger.WarnContext(ctx, "decide notice push", "pane", transition.PaneID, "error", err)
-	}
+func (r *relay) paneNotice(transition daemon.Transition, summarized <-chan struct{}, view *doneView) route.Notice {
 	silent := ""
-	if !wanted {
+	if !push.Wanted(transition.To, transition.Background) {
 		silent = silentBackground
 	}
-	failure, failed := r.stopFailureText(ctx, transition)
+	failure, failed := stopFailureText(transition)
 	incoming := route.Notice{
 		Key:      notice.Key{Pane: transition.PaneID},
 		State:    string(transition.To),
@@ -122,30 +142,18 @@ func (r *relay) paneNotice(
 		},
 	}
 	if transition.To == protocol.StateDone && silent == "" && !failed {
-		incoming.Judge = r.judgeDone(ctx, transition)
+		incoming.Judge = r.judgeDone(transition)
 	}
 	return incoming
 }
 
 // stopFailureText returns the text of a done that a StopFailure hook reported, and whether transition is one. The text
-// is "API error: " and the hook's error field, or unknownAPIError when the field is empty or absent. A hook that does
-// not decode is logged and is not a StopFailure.
-func (r *relay) stopFailureText(ctx context.Context, transition daemon.Transition) (string, bool) {
-	if transition.To != protocol.StateDone {
+// is "API error: " and the transition's API error, or unknownAPIError when that is empty.
+func stopFailureText(transition daemon.Transition) (string, bool) {
+	if transition.To != protocol.StateDone || !transition.Failed {
 		return "", false
 	}
-	event, err := hookString(transition.Frame.Hook, keyHookEventName)
-	if err != nil {
-		r.logger.WarnContext(ctx, "read hook event name", "pane", transition.PaneID, "error", err)
-		return "", false
-	}
-	if event != stopFailureEvent {
-		return "", false
-	}
-	apiError, err := hookString(transition.Frame.Hook, keyAPIError)
-	if err != nil {
-		r.logger.WarnContext(ctx, "read api error", "pane", transition.PaneID, "error", err)
-	}
+	apiError := transition.APIError
 	if apiError == "" {
 		apiError = unknownAPIError
 	}
@@ -166,7 +174,7 @@ func awaitSummary(ctx context.Context, summarized <-chan struct{}) {
 // rebuildPane is the route.Rebuild of paneSourceKind. It decodes the transition that notify stored, checks the pane
 // the notice is about, and builds the notice for the transition. at is the row's recorded time, unix seconds.
 func (r *relay) rebuildPane(ctx context.Context, data []byte, at int64) (route.Notice, error) {
-	transition, err := decodePaneSource(data)
+	transition, err := decodePaneSource(data, r.logger)
 	if err != nil {
 		return route.Notice{}, err
 	}
@@ -174,7 +182,7 @@ func (r *relay) rebuildPane(ctx context.Context, data []byte, at int64) (route.N
 	if err != nil {
 		return route.Notice{}, err
 	}
-	return r.paneNotice(ctx, transition, nil, nil), nil
+	return r.paneNotice(transition, nil, nil), nil
 }
 
 // checkPane reads transition's pane from its tmux server once. It returns route.ErrChanged when the pane is gone or in

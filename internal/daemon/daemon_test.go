@@ -207,6 +207,90 @@ func TestDaemonAppliesFrames(t *testing.T) {
 	}
 }
 
+// stopHookWithTasks is a Stop hook whose background_tasks member is tasks, as raw JSON, or has no member when tasks is "".
+func stopHookWithTasks(tasks string) string {
+	member := ""
+	if tasks != "" {
+		member = `,"background_tasks":` + tasks
+	}
+	return `{"hook_event_name":"Stop","transcript_path":"/synthetic/transcripts/one.jsonl",` +
+		`"last_assistant_message":"synthetic final message"` + member + `}`
+}
+
+// stopFacts is what a Stop hook from stopHookWithTasks sets, with background as its Background.
+func stopFacts(background bool) daemon.Transition {
+	return daemon.Transition{
+		Transcript:  "/synthetic/transcripts/one.jsonl",
+		LastMessage: "synthetic final message",
+		Background:  background,
+	}
+}
+
+// TestSetHookFacts checks the facts a transition takes from its hook: whether a Stop left subagent or workflow work
+// running, and the StopFailure error. A field that does not decode leaves the other facts set.
+func TestSetHookFacts(t *testing.T) {
+	const (
+		subagentTasks = `[{"id":"a1","type":"subagent","status":"running","description":"search the tree"}]`
+		workflowTasks = `[{"id":"w1","type":"workflow","status":"running","description":"release check"}]`
+		shellTasks    = `[{"id":"b1","type":"shell","status":"running","description":"make test","command":"make test"}]`
+		monitorTasks  = `[{"id":"m1","type":"monitor","status":"running","description":"watch the log"}]`
+		mixedTasks    = `[{"id":"b1","type":"shell","status":"running","description":"make test","command":"make test"},` +
+			`{"id":"a1","type":"subagent","status":"running","description":"search the tree"}]`
+	)
+	cases := []struct {
+		name    string
+		hook    string
+		want    daemon.Transition
+		wantErr bool
+	}{
+		{name: "stop with shell task", hook: stopHookWithTasks(shellTasks), want: stopFacts(false)},
+		{name: "stop with monitor task", hook: stopHookWithTasks(monitorTasks), want: stopFacts(false)},
+		{name: "stop with empty task array", hook: stopHookWithTasks(`[]`), want: stopFacts(false)},
+		{name: "stop with null task array", hook: stopHookWithTasks(`null`), want: stopFacts(false)},
+		{name: "stop without background_tasks", hook: stopHookWithTasks(""), want: stopFacts(false)},
+		{name: "stop with subagent task", hook: stopHookWithTasks(subagentTasks), want: stopFacts(true)},
+		{name: "stop with workflow task", hook: stopHookWithTasks(workflowTasks), want: stopFacts(true)},
+		{name: "stop with shell and subagent tasks", hook: stopHookWithTasks(mixedTasks), want: stopFacts(true)},
+		{
+			name: "stop with string task list errors", hook: stopHookWithTasks(`"none"`),
+			want: stopFacts(false), wantErr: true,
+		},
+		{
+			name: "stop with non-object tasks errors", hook: stopHookWithTasks(`[1]`),
+			want: stopFacts(false), wantErr: true,
+		},
+		{
+			name: "stop with a subagent before a non-object task errors",
+			hook: stopHookWithTasks(`[{"type":"subagent"},1]`), want: stopFacts(false), wantErr: true,
+		},
+		{
+			name: "stop failure names its error", hook: `{"hook_event_name":"StopFailure","error":"rate_limit"}`,
+			want: daemon.Transition{Failed: true, APIError: "rate_limit"},
+		},
+		{
+			name: "stop failure without error has no API error", hook: `{"hook_event_name":"StopFailure"}`,
+			want: daemon.Transition{Failed: true},
+		},
+		{
+			name: "error of a stop is not an API error", hook: `{"hook_event_name":"Stop","error":"rate_limit"}`,
+			want: daemon.Transition{},
+		},
+		{name: "hook that is not an object sets nothing", hook: `not json`, want: daemon.Transition{}, wantErr: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var got daemon.Transition
+			err := got.SetHookFacts(json.RawMessage(tc.hook))
+			if (err != nil) != tc.wantErr {
+				t.Fatalf("SetHookFacts error = %v, want error %v", err, tc.wantErr)
+			}
+			if got != tc.want {
+				t.Errorf("SetHookFacts = %+v, want %+v", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestDaemonObservers(t *testing.T) {
 	srv := startServer(t)
 	transitions := make(chan daemon.Transition, 16)
@@ -215,6 +299,8 @@ func TestDaemonObservers(t *testing.T) {
 	})
 
 	frame := frameFor(userPromptSubmitHook, srv.pane, srv.socket)
+	frame.Cwd = "/synthetic/work"
+	frame.AnthropicBaseURL = "https://synthetic.example"
 	sendFrame(t, socket, frame)
 	got := drain(transitions)
 	if len(got) != 1 {
@@ -225,9 +311,9 @@ func TestDaemonObservers(t *testing.T) {
 		first.From != "" || first.To != protocol.StateWorking {
 		t.Fatalf("transition = %+v, want pane %s, server socket %s, from \"\" to working", first, srv.pane, srv.socket)
 	}
-	if first.Frame.TmuxPane != frame.TmuxPane || first.Frame.Tmux != frame.Tmux ||
-		string(first.Frame.Hook) != userPromptSubmitHook {
-		t.Fatalf("transition frame = %+v, want %+v", first.Frame, frame)
+	if first.Cwd != frame.Cwd || first.BaseURL != frame.AnthropicBaseURL {
+		t.Fatalf("transition cwd %q and base URL %q, want %q and %q",
+			first.Cwd, first.BaseURL, frame.Cwd, frame.AnthropicBaseURL)
 	}
 
 	sendFrame(t, socket, frame)

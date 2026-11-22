@@ -4,6 +4,7 @@ package daemon
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -103,13 +104,87 @@ type ViewReport struct {
 // Observer receives one state change.
 type Observer func(Transition)
 
-// Transition is one state change of a pane, with the frame that caused it.
+// Transition is one state change of a pane, with the facts of the frame that caused it that its observers read.
 type Transition struct {
 	PaneID string
 	Server tmuxctl.Server
 	From   protocol.State
 	To     protocol.State
-	Frame  protocol.HookFrame
+	// Cwd and BaseURL are the frame's working directory and API base URL.
+	Cwd     string
+	BaseURL string
+	// Transcript and LastMessage are the hook's transcript_path and last_assistant_message.
+	Transcript  string
+	LastMessage string
+	// Failed is whether the hook is a StopFailure, and APIError is its error field when it is.
+	Failed   bool
+	APIError string
+	// Background is whether the hook's background_tasks holds a subagent or workflow task.
+	Background bool
+}
+
+// Hook JSON keys and event that a Transition's facts read. Claude Code writes them in snake case.
+const (
+	keyHookEventName        = "hook_event_name"
+	keyTranscriptPath       = "transcript_path"
+	keyLastAssistantMessage = "last_assistant_message"
+	keyAPIError             = "error"
+	keyBackgroundTasks      = "background_tasks"
+	stopFailureEvent        = "StopFailure"
+)
+
+// SetHookFacts sets the facts of t that its hook carries: Transcript and LastMessage from transcript_path and
+// last_assistant_message, Failed and APIError from hook_event_name and error, and Background from background_tasks. A
+// hook that is not a JSON object sets none of them. A field that does not decode leaves its fact empty, and the
+// returned error reports every such field, so the other facts are still set.
+func (t *Transition) SetHookFacts(hook json.RawMessage) error {
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(hook, &fields); err != nil {
+		return fmt.Errorf("decode hook: %w", err)
+	}
+	var errs []error
+	text := func(key string) string {
+		value, err := hookText(fields, key)
+		errs = append(errs, err)
+		return value
+	}
+	t.Transcript = text(keyTranscriptPath)
+	t.LastMessage = text(keyLastAssistantMessage)
+	t.Failed = text(keyHookEventName) == stopFailureEvent
+	t.APIError = ""
+	if t.Failed {
+		t.APIError = text(keyAPIError)
+	}
+	t.Background = false
+	if raw, ok := fields[keyBackgroundTasks]; ok {
+		var tasks []struct {
+			Type string `json:"type"`
+		}
+		if err := json.Unmarshal(raw, &tasks); err != nil {
+			errs = append(errs, fmt.Errorf("decode %s: %w", keyBackgroundTasks, err))
+		} else {
+			t.Background = slices.ContainsFunc(tasks, func(task struct {
+				Type string `json:"type"`
+			}) bool {
+				return task.Type == "subagent" || task.Type == "workflow"
+			})
+		}
+	}
+	return errors.Join(errs...)
+}
+
+// hookText returns the string value of key in fields, or "" when key is absent or null. A value that is not a string
+// is an error.
+func hookText(fields map[string]json.RawMessage, key string) (string, error) {
+	raw, ok := fields[key]
+	if !ok {
+		return "", nil
+	}
+	var value string
+	if err := json.Unmarshal(raw, &value); err != nil {
+		return "", fmt.Errorf("hook field %s: %w", key, err)
+	}
+	return value, nil
 }
 
 // Listen returns a listener on the unix socket socketPath. It creates the parent directory with mode
@@ -362,11 +437,15 @@ func (h *frameHandler) applyLocked(
 		return out, read, true
 	}
 	event := Transition{
-		PaneID: frame.TmuxPane,
-		Server: server,
-		From:   transition.From,
-		To:     transition.To,
-		Frame:  frame,
+		PaneID:  frame.TmuxPane,
+		Server:  server,
+		From:    transition.From,
+		To:      transition.To,
+		Cwd:     frame.Cwd,
+		BaseURL: frame.AnthropicBaseURL,
+	}
+	if err = event.SetHookFacts(frame.Hook); err != nil {
+		h.logger.WarnContext(ctx, "read hook facts", "pane", frame.TmuxPane, "error", err)
 	}
 	for _, observe := range h.cfg.Observers {
 		observe(event)

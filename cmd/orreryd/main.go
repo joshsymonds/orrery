@@ -62,12 +62,6 @@ const (
 	exitUsage   = 2
 )
 
-// Hook JSON keys the summarizer reads. Claude Code writes them in snake case.
-const (
-	keyTranscriptPath       = "transcript_path"
-	keyLastAssistantMessage = "last_assistant_message"
-)
-
 // envAnthropicBaseURL is the settings env key that sets claude's API base URL.
 const envAnthropicBaseURL = "ANTHROPIC_BASE_URL"
 
@@ -2217,23 +2211,6 @@ func (rt *readTimes) forget(pane string) {
 	delete(rt.times, pane)
 }
 
-// hookString returns the string value of key in the hook JSON, or "" when key is absent or null.
-func hookString(hook json.RawMessage, key string) (string, error) {
-	var fields map[string]json.RawMessage
-	if err := json.Unmarshal(hook, &fields); err != nil {
-		return "", fmt.Errorf("decode hook: %w", err)
-	}
-	raw, ok := fields[key]
-	if !ok {
-		return "", nil
-	}
-	var value string
-	if err := json.Unmarshal(raw, &value); err != nil {
-		return "", fmt.Errorf("hook field %s: %w", key, err)
-	}
-	return value, nil
-}
-
 // observe requests a summary for a pane that starts working or finishes, hands the notice for a pane that waits for
 // input or finishes to the router, and otherwise tells the router the pane changed. A session's end also forgets the
 // pane's summary and read time.
@@ -2274,11 +2251,6 @@ func (r *relay) forget(ctx context.Context, transition daemon.Transition) {
 // request is the Stop run and carries the last assistant message. It returns the channel that closes once the request
 // has settled (see summary.Summarizer.Request), or nil when no request was made.
 func (r *relay) summarize(ctx context.Context, transition daemon.Transition) <-chan struct{} {
-	transcript, err := hookString(transition.Frame.Hook, keyTranscriptPath)
-	if err != nil {
-		r.logger.WarnContext(ctx, "read transcript path", "pane", transition.PaneID, "error", err)
-		return nil
-	}
 	summarizer, err := r.summarizerFor(transition.Server)
 	if err != nil {
 		r.logger.ErrorContext(ctx, "create summarizer", "error", err)
@@ -2286,17 +2258,13 @@ func (r *relay) summarize(ctx context.Context, transition daemon.Transition) <-c
 	}
 	req := summary.Request{
 		PaneID:         transition.PaneID,
-		BaseURL:        transition.Frame.AnthropicBaseURL,
-		Dir:            transition.Frame.Cwd,
-		TranscriptPath: transcript,
+		BaseURL:        transition.BaseURL,
+		Dir:            transition.Cwd,
+		TranscriptPath: transition.Transcript,
 	}
 	if transition.To == protocol.StateDone {
 		req.Stop = true
-		req.LastAssistantMessage, err = hookString(transition.Frame.Hook, keyLastAssistantMessage)
-		if err != nil {
-			r.logger.WarnContext(ctx, "read last assistant message", "pane", transition.PaneID, "error", err)
-			return nil
-		}
+		req.LastAssistantMessage = transition.LastMessage
 	}
 	return summarizer.Request(ctx, req)
 }
@@ -2347,11 +2315,11 @@ func readPaneText(ctx context.Context, client *tmuxctl.Client, pane string) (pan
 }
 
 // notify hands the transition's notice to the router, with view as its first watching check when it is not nil. A done notice whose Stop left a subagent or workflow running is
-// silent. Any other done is judged before it routes. A hook that does not decode still routes, and its decode error is
-// logged. A notice that routes keeps its transition as its source, so a restart can resume it; a silent one never
-// pends, so it needs none.
+// silent. Any other done is judged before it routes. A hook whose facts do not decode still routes, and the daemon logs
+// its decode error. A notice that routes keeps its transition as its source, so a restart can resume it; a silent one
+// never pends, so it needs none.
 func (r *relay) notify(ctx context.Context, transition daemon.Transition, summarized <-chan struct{}, view *doneView) {
-	incoming := r.paneNotice(ctx, transition, summarized, view)
+	incoming := r.paneNotice(transition, summarized, view)
 	if incoming.Silent == "" {
 		if data, err := encodePaneSource(transition); err != nil {
 			r.logger.ErrorContext(ctx, "encode pane notice", "pane", transition.PaneID, "error", err)
@@ -2418,23 +2386,16 @@ func newRelay(cfg route.Config, hub *relay) *relay {
 }
 
 // judgeDone returns the Judge of a done transition: the verdict on the Stop hook's last assistant message. The call
-// runs against the URL and env of the context stamp in effect for the frame's cwd under the relay's home, or else
-// against the frame's base URL, as the summarizer does. A stamp that cannot be read fails the judge without a call. A
-// last message that does not decode is logged and judged as empty, which fails the judge.
-func (r *relay) judgeDone(
-	ctx context.Context,
-	transition daemon.Transition,
-) func(context.Context) (route.Verdict, error) {
-	message, err := hookString(transition.Frame.Hook, keyLastAssistantMessage)
-	if err != nil {
-		r.logger.WarnContext(ctx, "read last assistant message", "pane", transition.PaneID, "error", err)
-	}
+// runs against the URL and env of the context stamp in effect for the transition's cwd under the relay's home, or else
+// against the transition's base URL, as the summarizer does. A stamp that cannot be read fails the judge without a call.
+func (r *relay) judgeDone(transition daemon.Transition) func(context.Context) (route.Verdict, error) {
+	message := transition.LastMessage
 	return func(ctx context.Context) (route.Verdict, error) {
-		found, err := stamp.Find(r.home, transition.Frame.Cwd)
+		found, err := stamp.Find(r.home, transition.Cwd)
 		if err != nil {
 			return route.Verdict{}, fmt.Errorf("done judge: find context stamp: %w", err)
 		}
-		baseURL, env := transition.Frame.AnthropicBaseURL, map[string]string(nil)
+		baseURL, env := transition.BaseURL, map[string]string(nil)
 		if found.Folder != "" {
 			baseURL, env = found.BaseURL(), found.Env
 		} else if baseURL != "" {
@@ -2482,7 +2443,7 @@ func (r *relay) deskNotice(ctx context.Context, transition daemon.Transition) (d
 	}
 	return deskstream.Notice{
 		State: string(transition.To),
-		Title: deskstream.PaneTitle(filepath.Base(transition.Frame.Cwd), text.session, text.window),
+		Title: deskstream.PaneTitle(filepath.Base(transition.Cwd), text.session, text.window),
 		Body:  body,
 	}, nil
 }

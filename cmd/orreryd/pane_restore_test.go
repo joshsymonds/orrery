@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -293,24 +294,34 @@ func setPaneState(t *testing.T, client *tmuxctl.Client, pane string, state proto
 
 // paneTransition is a transition of pane on server to state, whose frame ran in cwd and carried hook.
 func paneTransition(server tmuxctl.Server, pane string, state protocol.State, cwd, hook string) daemon.Transition {
-	return daemon.Transition{
+	transition := daemon.Transition{
 		PaneID: pane,
 		Server: server,
 		From:   protocol.StateWorking,
 		To:     state,
-		Frame:  protocol.HookFrame{Hook: json.RawMessage(hook), TmuxPane: pane, Cwd: cwd},
+		Cwd:    cwd,
+	}
+	setHookFacts(&transition, hook)
+	return transition
+}
+
+// setHookFacts sets transition's hook facts from hook, as the daemon sets them for a hook frame. The hooks the tests
+// pass decode, so an error is a broken fixture and panics.
+func setHookFacts(transition *daemon.Transition, hook string) {
+	if err := transition.SetHookFacts(json.RawMessage(hook)); err != nil {
+		panic(fmt.Sprintf("hook %s: %v", hook, err))
 	}
 }
 
 // sourceOf is the source a pane notice stores for transition. It checks that the source decodes back to transition,
-// hook included.
+// hook facts included.
 func sourceOf(t *testing.T, transition daemon.Transition) []byte {
 	t.Helper()
 	data, err := encodePaneSource(transition)
 	if err != nil {
 		t.Fatalf("encode pane source: %v", err)
 	}
-	decoded, err := decodePaneSource(data)
+	decoded, err := decodePaneSource(data, slog.New(slog.DiscardHandler))
 	if err != nil {
 		t.Fatalf("decode pane source: %v", err)
 	}
