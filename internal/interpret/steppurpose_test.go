@@ -95,9 +95,11 @@ func TestStepPurposeReleaseStepNamesItsPositionAndText(t *testing.T) {
 	w.pass()
 	w.finishStep(1, "tagged main")
 	w.pass()
+	w.finishStep(2, "published the tag")
+	w.pass()
 
-	if len(w.fakes.steps.calls) != 2 {
-		t.Fatalf("step starts = %+v, want the first step and then the second started", w.fakes.steps.calls)
+	if len(w.fakes.steps.calls) != 3 {
+		t.Fatalf("step starts = %+v, want the first step, the second, then the judge started", w.fakes.steps.calls)
 	}
 	if want := "Release step 1: tag the release."; w.fakes.steps.calls[0].Purpose != want {
 		t.Errorf("first step Purpose = %q, want %q", w.fakes.steps.calls[0].Purpose, want)
