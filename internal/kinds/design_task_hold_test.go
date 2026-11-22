@@ -91,7 +91,9 @@ func TestDesignTaskHoldWaitsUntilIntegrated(t *testing.T) {
 // depends_on, and that a pending design task holds it before its depends_on is read.
 func TestDesignTaskHoldKeepsOwnDependsOn(t *testing.T) {
 	t.Parallel()
-	integratedDesign := store.EpicTask{Seq: 1, Turn: 1, Status: taskDone, Kind: store.TaskKindDesign, Batch: rollingBatch}
+	integratedDesign := store.EpicTask{
+		Seq: 1, Turn: 1, Status: taskDone, Kind: store.TaskKindDesign, Batch: rollingBatch,
+	}
 	cases := []decideCase{
 		{
 			"integrated design task with a pending dependency gives none",
