@@ -29,12 +29,12 @@ const mirrorBusyLog = `reason="store busy"`
 // corruptStoreBytes is not a SQLite database. A store file holding it must stay byte-identical.
 const corruptStoreBytes = "this is not a sqlite database, it is plain text kept for the test\n"
 
-// assertHooksStillReach sends a PermissionRequest and fails unless the pane reads waiting and its waiting notice
-// arrives. It then sends a Stop and fails unless the pane reads done.
-func (f *storeFixture) assertHooksStillReach(t *testing.T) {
+// assertHooksStillReach requests a permission and fails unless the pane reads waiting and its waiting notice arrives. It
+// then finishes the turn and fails unless the pane reads done.
+func (f *storeFixture) assertHooksStillReach(t *testing.T, daemon *orreryProcess) {
 	t.Helper()
-	f.hook(t, f.permissionHook())
-	requireOption(t, f.client, f.pane, protocol.OptionState, string(protocol.StateWaiting))
+	f.session.requestPermission(t)
+	waitForOption(t, daemon, f.client, f.pane, protocol.OptionState, string(protocol.StateWaiting))
 	waiting := noticeOf(t, f.notices.receive(t))
 	question := readOption(t, f.client, f.pane, protocol.OptionQuestion)
 	want := notice{state: string(protocol.StateWaiting), title: exampleTitle, body: question}
@@ -42,8 +42,8 @@ func (f *storeFixture) assertHooksStillReach(t *testing.T) {
 		t.Fatalf("waiting notice %+v, want state waiting, title %q, body %q", waiting, exampleTitle, question)
 	}
 
-	f.hook(t, f.stopHook())
-	requireOption(t, f.client, f.pane, protocol.OptionState, string(protocol.StateDone))
+	f.session.finishTurn(t, exampleLastMessage)
+	waitForOption(t, daemon, f.client, f.pane, protocol.OptionState, string(protocol.StateDone))
 }
 
 // lockedDrop returns the first line of stderr that logs a mirror sync dropped because the store was locked, or "" when
@@ -104,7 +104,7 @@ func TestOrrerydServesHooksWithMissingStore(t *testing.T) {
 	f := newStoreFixture(t)
 	daemon := f.startOrreryd(t)
 
-	f.assertHooksStillReach(t)
+	f.assertHooksStillReach(t, daemon)
 
 	wantExit(t, daemon.stop(t), 0)
 	if got := fileMode(t, f.dbPath); got != 0o600 {
@@ -123,7 +123,7 @@ func TestOrrerydServesHooksWithCorruptStore(t *testing.T) {
 	}
 	daemon := f.startOrreryd(t)
 
-	f.assertHooksStillReach(t)
+	f.assertHooksStillReach(t, daemon)
 
 	out := daemon.stop(t)
 	wantExit(t, out, 0)
@@ -162,7 +162,7 @@ func TestOrrerydServesHooksWithTooNewStore(t *testing.T) {
 	}
 	daemon := f.startOrreryd(t)
 
-	f.assertHooksStillReach(t)
+	f.assertHooksStillReach(t, daemon)
 
 	out := daemon.stop(t)
 	wantExit(t, out, 0)
@@ -188,7 +188,7 @@ func TestOrrerydServesHooksWithWriteLockedStore(t *testing.T) {
 	daemon.waitForStoreOpen(t)
 	release := holdWriteLock(t, f.dbPath)
 
-	f.assertHooksStillReach(t)
+	f.assertHooksStillReach(t, daemon)
 
 	// The lock is released once a sync it refused has been logged as deferred, and orreryd stops after that, so its stop
 	// reruns the deferred sync, and writes the notice rows, to an unlocked store.

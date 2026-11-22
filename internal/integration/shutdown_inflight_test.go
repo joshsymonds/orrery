@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	v1 "github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1"
+	"github.com/joshsymonds/orrery/internal/protocol"
 	"github.com/joshsymonds/orrery/internal/store"
 	"github.com/joshsymonds/orrery/internal/tmuxctl"
 	"github.com/joshsymonds/orrery/internal/waittest"
@@ -50,7 +51,7 @@ exec %s "$@"
 // TestOrrerydStopEndsWithJudgesAndSummaryInFlight stops orreryd as systemd does, with a step's judge run, a pane's
 // summary run and that pane's done judge all in flight: SIGTERM to orreryd and to every process of its unit, which
 // takes the runs, while the step's session runs on under its holder's scope. The forced order: the step's turn returns
-// done, so its loop calls the judge, which holds; a prompt hook starts the pane's summary run, which holds; the pane's
+// done, so its loop calls the judge, which holds; a prompt starts the pane's summary run, which holds; the pane's
 // Stop routes a done notice whose judge holds; only then does the stop come. orreryd must exit 0, having logged every
 // shutdown phase it started done.
 func TestOrrerydStopEndsWithJudgesAndSummaryInFlight(t *testing.T) {
@@ -84,20 +85,14 @@ func TestOrrerydStopEndsWithJudgesAndSummaryInFlight(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list-panes: %v", err)
 	}
-	dir := t.TempDir()
-	transcript := filepath.Join(dir, "transcript.jsonl")
-	writeFile(t, transcript, exampleTranscript, 0o600)
-	sendHook(t, r.f.socket, strings.TrimSpace(out), dir, map[string]any{
-		"hook_event_name": "UserPromptSubmit",
-		"transcript_path": transcript,
-	})
+	pane := strings.TrimSpace(out)
+	// The session's home is the rig's HOME, which the daemon reads its session registry under.
+	session := startClaudeSession(t, client, filepath.Join(r.f.root, "home"), pane, t.TempDir())
+	session.submitPrompt(t)
+	waitForOption(t, daemon, client, pane, protocol.OptionState, string(protocol.StateWorking))
 	waittest.Until(t, daemon.done, "the pane's summary run", func() bool { return heldRun(t, pids, summaryMark) })
-	// The pane's Stop routes a done notice, whose judge runs at once under the test's judge delay and holds too.
-	sendHook(t, r.f.socket, strings.TrimSpace(out), dir, map[string]any{
-		"hook_event_name":        "Stop",
-		"transcript_path":        transcript,
-		"last_assistant_message": "the pane's turn ended",
-	})
+	// The pane's turn ends and routes a done notice, whose judge runs at once under the test's judge delay and holds too.
+	session.finishTurn(t, "the pane's turn ended")
 	waittest.Until(t, daemon.done, "the pane's done judge run", func() bool { return heldRun(t, pids, doneJudgeMark) })
 
 	daemon.asked.Store(true)

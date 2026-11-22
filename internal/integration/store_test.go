@@ -16,25 +16,28 @@ import (
 	"github.com/joshsymonds/orrery/internal/tmuxctl"
 )
 
-// exampleSessionID is the Claude Code session id every fixture hook carries.
+// exampleSessionID is the Claude Code session id that default_socket_test.go's hook carries.
 const exampleSessionID = "example-session"
 
-// storeFixture is one private tmux server with a pane, a fake claude, and the socket and project a hook needs.
-// orreryd started from it keeps its store under stateHome, and its notices are read from notices once it listens.
+// storeFixture is one private tmux server with a pane, a fake claude, and the socket and project a session needs.
+// orreryd started from it keeps its store under stateHome, reads the session registry under home, and its notices are
+// read from notices once it listens. session is the Claude session the pane runs.
 type storeFixture struct {
 	client     *tmuxctl.Client
 	server     string
 	pane       string
 	socket     string
 	project    string
-	transcript string
+	home       string
+	session    *claudeSession
 	fakeClaude string
 	stateHome  string
 	dbPath     string
 	notices    *noticeReader
 }
 
-// newStoreFixture starts the pane and writes the fake claude, project and transcript a daemon needs.
+// newStoreFixture starts the pane and writes the fake claude and project a daemon needs, then starts the session the
+// pane runs in the project.
 func newStoreFixture(t *testing.T) *storeFixture {
 	t.Helper()
 	client, name := newServer(t)
@@ -48,7 +51,7 @@ func newStoreFixture(t *testing.T) *storeFixture {
 		pane:       pane,
 		socket:     filepath.Join(dir, "orreryd.sock"),
 		project:    filepath.Join(dir, exampleProjectName),
-		transcript: filepath.Join(dir, "transcript.jsonl"),
+		home:       dir,
 		fakeClaude: filepath.Join(dir, "fake-claude.sh"),
 		stateHome:  stateHome,
 		dbPath:     filepath.Join(stateHome, "orrery", "orrery.db"),
@@ -57,69 +60,23 @@ func newStoreFixture(t *testing.T) *storeFixture {
 	if err := os.Mkdir(f.project, 0o700); err != nil {
 		t.Fatalf("make project: %v", err)
 	}
-	if err := os.WriteFile(f.transcript, []byte(exampleTranscript), 0o600); err != nil {
-		t.Fatalf("write transcript: %v", err)
-	}
+	f.session = startClaudeSession(t, client, dir, pane, f.project)
 	return f
 }
 
-// startOrreryd starts orreryd against the fixture's tmux server with XDG_STATE_HOME set to its state home, waits for
-// its socket to listen, and starts reading its notices. extra is passed as more flags.
+// startOrreryd starts orreryd against the fixture's tmux server with XDG_STATE_HOME set to its state home and HOME to
+// the fixture's home, so the session registry it reads is the test's own. It waits for its socket to listen, and starts
+// reading its notices. extra is passed as more flags.
 func (f *storeFixture) startOrreryd(t *testing.T, extra ...string) *orreryProcess {
 	t.Helper()
 	args := append([]string{
 		"-L", f.server, "--socket", f.socket,
 		"--claude", f.fakeClaude, "--summary-model", exampleContextName + "=" + exampleModel,
 	}, extra...)
-	daemon := startBinary(t, "orreryd", scrubbedEnv("XDG_STATE_HOME="+f.stateHome), args...)
+	daemon := startBinary(t, "orreryd", scrubbedEnv("XDG_STATE_HOME="+f.stateHome, "HOME="+f.home), args...)
 	daemon.waitForListener(t, f.socket)
 	f.notices = startNoticeReader(t, scrubbedEnv(), f.socket)
 	return daemon
-}
-
-// hook sends one hook JSON for the fixture's pane.
-func (f *storeFixture) hook(t *testing.T, hook map[string]any) {
-	t.Helper()
-	sendHook(t, f.socket, f.pane, f.project, hook)
-}
-
-// userPromptHook is a UserPromptSubmit for the fixture's session.
-func (f *storeFixture) userPromptHook() map[string]any {
-	return map[string]any{
-		"hook_event_name": "UserPromptSubmit",
-		"session_id":      exampleSessionID,
-		"transcript_path": f.transcript,
-	}
-}
-
-// permissionHook is a PermissionRequest for the fixture's session.
-func (f *storeFixture) permissionHook() map[string]any {
-	return map[string]any{
-		"hook_event_name": "PermissionRequest",
-		"session_id":      exampleSessionID,
-		"transcript_path": f.transcript,
-		"tool_name":       "example-tool",
-		"tool_input":      map[string]any{"command": "example"},
-	}
-}
-
-// stopHook is a Stop for the fixture's session, carrying the last assistant message.
-func (f *storeFixture) stopHook() map[string]any {
-	return map[string]any{
-		"hook_event_name":        "Stop",
-		"session_id":             exampleSessionID,
-		"transcript_path":        f.transcript,
-		"last_assistant_message": exampleLastMessage,
-	}
-}
-
-// sessionEndHook is a SessionEnd for the fixture's session.
-func (f *storeFixture) sessionEndHook() map[string]any {
-	return map[string]any{
-		"hook_event_name": "SessionEnd",
-		"session_id":      exampleSessionID,
-		"transcript_path": f.transcript,
-	}
 }
 
 // paneRow returns the store row that pane's @orrery_id names, and the row the pane's mirrored options describe.
@@ -156,8 +113,8 @@ func (f *storeFixture) paneRow(t *testing.T, db *sql.DB, pane string) (got, want
 }
 
 // waitForRow polls until the store row for pane equals the pane's mirrored options. The daemon syncs a pane after its
-// hook is applied, and the hook client returns before that sync, so the row can trail the options; a sync that cannot
-// take the mirror's lock in time is deferred and lands once the lock frees. The wait has no deadline of its own: the
+// registry update is applied, and the test returns before that sync, so the row can trail the options; a sync that
+// cannot take the mirror's lock in time is deferred and lands once the lock frees. The wait has no deadline of its own: the
 // row converges at the machine's pace, and the test binary's timeout ends a wait that never does.
 func (f *storeFixture) waitForRow(t *testing.T, db *sql.DB, pane string) {
 	t.Helper()
@@ -268,25 +225,26 @@ func TestStoreMirrorsHooksIntoRowsAndEvents(t *testing.T) {
 	t.Parallel()
 	f := newStoreFixture(t)
 	daemon := f.startOrreryd(t)
-	// The inspection connection reads the store's tables, so the hooks follow the store-open line.
+	// The inspection connection reads the store's tables, so the session's updates follow the store-open line.
 	daemon.waitForStoreOpen(t)
 
-	f.hook(t, f.userPromptHook())
-	requireOption(t, f.client, f.pane, protocol.OptionState, string(protocol.StateWorking))
+	f.session.submitPrompt(t)
+	waitForOption(t, daemon, f.client, f.pane, protocol.OptionState, string(protocol.StateWorking))
 	waitForOption(t, daemon, f.client, f.pane, protocol.OptionSummary, exampleSummary)
 	db := openStoreForInspection(t, f.dbPath)
 
-	// The summary is written by the summarizer, not a hook, so the row is checked after the next hook syncs the pane.
-	f.hook(t, f.permissionHook())
-	requireOption(t, f.client, f.pane, protocol.OptionState, string(protocol.StateWaiting))
+	// The summary is written by the summarizer, not a registry update, so the row is checked after the next update syncs
+	// the pane.
+	f.session.requestPermission(t)
+	waitForOption(t, daemon, f.client, f.pane, protocol.OptionState, string(protocol.StateWaiting))
 	f.waitForRow(t, db, f.pane)
 
-	f.hook(t, f.stopHook())
-	requireOption(t, f.client, f.pane, protocol.OptionState, string(protocol.StateDone))
+	f.session.finishTurn(t, exampleLastMessage)
+	waitForOption(t, daemon, f.client, f.pane, protocol.OptionState, string(protocol.StateDone))
 	f.waitForRow(t, db, f.pane)
 
-	f.hook(t, f.sessionEndHook())
-	requireOption(t, f.client, f.pane, protocol.OptionState, "")
+	f.session.end(t)
+	waitForOption(t, daemon, f.client, f.pane, protocol.OptionState, "")
 	f.waitForRow(t, db, f.pane)
 
 	wantExit(t, daemon.stop(t), 0)

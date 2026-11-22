@@ -185,7 +185,7 @@ func TestEngineSigkillReconcilesOnRestart(t *testing.T) {
 }
 
 // TestEngineKilledSessionFailsWhileOthersReply proves that killing one session's fake claude marks that session failed
-// with a reason, while another session still replies and a pane hook still updates its pane.
+// with a reason, while another session still replies and a registry update still moves its pane.
 func TestEngineKilledSessionFailsWhileOthersReply(t *testing.T) {
 	t.Parallel()
 	f := newEngineFixture(t)
@@ -217,15 +217,9 @@ func TestEngineKilledSessionFailsWhileOthersReply(t *testing.T) {
 	}
 	pane := fixturePane(t, client)
 	pulseDir := f.sessionDir(t, "pulse")
-	transcript := filepath.Join(pulseDir, "transcript.jsonl")
-	writeFile(t, transcript, exampleTranscript, 0o600)
+	pulse := startClaudeSession(t, client, filepath.Join(f.root, "home"), pane, pulseDir)
 	q := sqlcgen.New(openStoreForInspection(t, f.dbPath))
-	hook := map[string]any{
-		"hook_event_name": "UserPromptSubmit",
-		"session_id":      pulseSession,
-		"transcript_path": transcript,
-	}
-	sendHook(t, f.socket, pane, pulseDir, hook)
+	pulse.submitPrompt(t)
 	waitForPaneState(t, q, client, pane, "", protocol.StateWorking)
 
 	f.stopSession(t, idB, dirB)

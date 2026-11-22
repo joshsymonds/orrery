@@ -136,6 +136,30 @@ func (s *claudeSession) end(t *testing.T) {
 	}
 }
 
+// submitPrompt is what a prompt leaves in the session: the prompt's transcript lines, then a busy entry, which reads the
+// pane working and starts its summary run.
+func (s *claudeSession) submitPrompt(t *testing.T) {
+	t.Helper()
+	s.appendTranscript(t, exampleTranscript)
+	s.setStatus(t, paneregistry.StatusBusy, "")
+}
+
+// requestPermission is what a permission prompt leaves in the session: the open tool call the prompt waits on, then a
+// waiting entry for permission.
+func (s *claudeSession) requestPermission(t *testing.T) {
+	t.Helper()
+	s.appendTranscript(t, toolUseLine(t, "toolu_example", "example-tool", map[string]any{"command": "example"}))
+	s.setStatus(t, paneregistry.StatusWaiting, paneregistry.WaitingPermission)
+}
+
+// finishTurn is what the end of a turn leaves in the session: the reply's last text, then an idle entry, which reads a
+// working or waiting pane done.
+func (s *claudeSession) finishTurn(t *testing.T, lastMessage string) {
+	t.Helper()
+	s.appendTranscript(t, assistantTextLine(t, lastMessage))
+	s.setStatus(t, paneregistry.StatusIdle, "")
+}
+
 // transcriptLine returns value encoded as one transcript line, with its newline.
 func transcriptLine(t *testing.T, value map[string]any) string {
 	t.Helper()

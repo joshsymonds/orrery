@@ -39,12 +39,8 @@ func TestOrrerydLeftRunningEndsItsRunsAtCleanup(t *testing.T) {
 	})
 	client, name := newServer(t)
 	pane := startPane(t, client, "sleep 300")
-	daemon, socket, dir := startSummaryDaemon(t, name, lateRunScript)
-	transcript := filepath.Join(dir, "transcript.jsonl")
-	writeFile(t, transcript, exampleTranscript, 0o600)
-	sendHook(t, socket, pane, dir, map[string]any{
-		"hook_event_name": "UserPromptSubmit",
-		"transcript_path": transcript,
-	})
+	daemon, _, dir := startSummaryDaemon(t, name, lateRunScript)
+	session := startClaudeSession(t, client, dir, pane, dir)
+	session.submitPrompt(t)
 	sleep = waitForPID(t, daemon, filepath.Join(dir, "late.pid"))
 }

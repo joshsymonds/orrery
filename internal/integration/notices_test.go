@@ -31,12 +31,11 @@ func TestOrrerydStreamsNoticesToTheDesk(t *testing.T) {
 	client, name := newServer(t)
 	pane := startPane(t, client, "sleep 300")
 	daemon, socket, dir := startSummaryDaemon(t, name, fakeClaudeScript)
-	transcript := filepath.Join(dir, "transcript.jsonl")
-	writeFile(t, transcript, exampleTranscript, 0o600)
 	project := filepath.Join(dir, exampleProjectName)
 	if err := os.Mkdir(project, 0o700); err != nil {
 		t.Fatalf("make project: %v", err)
 	}
+	session := startClaudeSession(t, client, dir, pane, project)
 
 	noticesSocket := deskstream.SocketPath(socket)
 	if filepath.Base(noticesSocket) != "notices.sock" || filepath.Dir(noticesSocket) != dir {
@@ -55,18 +54,11 @@ func TestOrrerydStreamsNoticesToTheDesk(t *testing.T) {
 		t.Fatalf("hello %+v, want kind %q host %q", hello, deskstream.KindHello, host)
 	}
 
-	sendHook(t, socket, pane, project, map[string]any{
-		"hook_event_name": "UserPromptSubmit",
-		"transcript_path": transcript,
-	})
-	requireOption(t, client, pane, protocol.OptionState, string(protocol.StateWorking))
+	session.submitPrompt(t)
+	waitForOption(t, daemon, client, pane, protocol.OptionState, string(protocol.StateWorking))
 	waitForOption(t, daemon, client, pane, protocol.OptionSummary, exampleSummary)
 
-	sendHook(t, socket, pane, project, map[string]any{
-		"hook_event_name": "PermissionRequest",
-		"tool_name":       "example-tool",
-		"tool_input":      map[string]any{"command": "example"},
-	})
+	session.requestPermission(t)
 	waiting := nextDeskLine(t, r)
 	question := readOption(t, client, pane, protocol.OptionQuestion)
 	want := deskstream.Line{
@@ -76,11 +68,7 @@ func TestOrrerydStreamsNoticesToTheDesk(t *testing.T) {
 		t.Fatalf("waiting notice %+v, want %+v", waiting, want)
 	}
 
-	sendHook(t, socket, pane, project, map[string]any{
-		"hook_event_name":        "Stop",
-		"transcript_path":        transcript,
-		"last_assistant_message": exampleLastMessage,
-	})
+	session.finishTurn(t, exampleLastMessage)
 	done := nextDeskLine(t, r)
 	want = deskstream.Line{
 		Kind: deskstream.KindNotice, Host: host, State: "done", Title: exampleTitle, Body: exampleSummary,

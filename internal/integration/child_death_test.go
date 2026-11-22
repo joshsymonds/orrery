@@ -29,14 +29,9 @@ func TestOrrerydKilledTakesItsSummaryRun(t *testing.T) {
 	t.Parallel()
 	client, name := newServer(t)
 	pane := startPane(t, client, "sleep 300")
-	daemon, socket, dir := startSummaryDaemon(t, name, heldSummaryScript)
-	transcript := filepath.Join(dir, "transcript.jsonl")
-	writeFile(t, transcript, exampleTranscript, 0o600)
-
-	sendHook(t, socket, pane, dir, map[string]any{
-		"hook_event_name": "UserPromptSubmit",
-		"transcript_path": transcript,
-	})
+	daemon, _, dir := startSummaryDaemon(t, name, heldSummaryScript)
+	session := startClaudeSession(t, client, dir, pane, dir)
+	session.submitPrompt(t)
 	run := waitForPID(t, daemon, filepath.Join(dir, "held.pid"))
 	t.Cleanup(func() { _ = syscall.Kill(run, syscall.SIGKILL) })
 
