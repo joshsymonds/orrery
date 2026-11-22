@@ -236,7 +236,7 @@ test("ContractPageLook: at the desk the contract's title row and record are a se
     );
   }));
 
-test("ContractPageLook: at a phone's width the contract page is a section.page in .epic-read, which takes the panes' gutter", (t) =>
+test("ContractPageLook: at a phone's width the contract page is a section.page in .epic-read, with the epic page's padding, the panes' gutter", (t) =>
   withApp(t.signal, 400, { rows: [conversationRow()], address: contractAddress }, async ({ container }) => {
     await settle(t.signal, () => recordDrawn(container), "the record is drawn");
     const page = container.querySelector<HTMLElement>('.epic-read > section.page[aria-label="contract"]');
