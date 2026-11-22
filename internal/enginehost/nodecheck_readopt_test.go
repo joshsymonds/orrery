@@ -27,7 +27,9 @@ func nodeCheckReadoptScript(started, release string) []string {
 // nodeCheckHolderDir returns the holder directory of check's gate, which the gate serves under the check's name.
 func nodeCheckHolderDir(t *testing.T, checks *NodeChecks, check store.NodeCheck) string {
 	t.Helper()
-	plan, err := planGate(checks.gate(filepath.Join(checks.worktrees, check.ID), check, nil))
+	run := checks.gate(filepath.Join(checks.worktrees, check.ID), check, nil)
+	run.Host = gateTestHost()
+	plan, err := planGate(run)
 	if err != nil {
 		t.Fatalf("plan the gate of node check %s: %v", check.ID, err)
 	}

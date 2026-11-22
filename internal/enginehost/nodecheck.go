@@ -227,6 +227,7 @@ func (n *NodeChecks) run(
 		launched = true
 		return nil
 	})
+	gate.Host = host
 	result, err := runGrantedGate(ctx, n.pools, req, gate)
 	if errors.Is(err, errGateDetach) {
 		// The gate keeps running under its holder in worktree, so neither is removed: a restart re-adopts the gate.
@@ -312,7 +313,7 @@ func (n *NodeChecks) end(
 	}
 	cleanErr := errors.Join(
 		removeStepWorktree(context.WithoutCancel(ctx), host, repo, worktree),
-		gateClear(ctx, holder),
+		gateClear(ctx, host, holder),
 	)
 	if cleanErr != nil {
 		finished := captureNotFinished(cleanErr)

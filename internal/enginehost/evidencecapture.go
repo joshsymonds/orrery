@@ -157,7 +157,7 @@ func (c evidenceCapture) readoptLost(
 ) store.EvidenceCapture {
 	plan, err := planGate(c.captureGate(worktree, id, item, nil))
 	if err == nil {
-		err = gateClear(ctx, plan.dir)
+		err = gateClear(ctx, c.hostOf(), plan.dir)
 	}
 	return captureFinished(c.end(ctx, repo, worktree, item, nil, store.LostAtRestart), err)
 }
@@ -182,6 +182,7 @@ func (c evidenceCapture) captureGate(
 		Dir:      worktree,
 		Limit:    time.Duration(item.Limit) * time.Second,
 		Environ:  c.environ,
+		Host:     c.hostOf(),
 		Name:     "evidence-" + id,
 		StateDir: c.gateStateDir,
 		Scope:    c.gateScope,
@@ -221,7 +222,7 @@ func (c evidenceCapture) end(
 	}
 	cleanErr := errors.Join(
 		removeStepWorktree(context.WithoutCancel(ctx), c.hostOf(), repo, worktree),
-		gateClear(ctx, holder),
+		gateClear(ctx, c.hostOf(), holder),
 	)
 	capture.At = time.Now()
 	return captureFinished(capture, errors.Join(keepErr, cleanErr))

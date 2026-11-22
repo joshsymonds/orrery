@@ -114,7 +114,9 @@ func (n *NodeChecks) readoptEnd(
 		}
 		return n.readoptLost(ctx, host, repo, worktree, check, err), nil
 	}
-	result, err := readoptGrantedGate(ctx, n.pools, req, n.gate(worktree, check, nil), check.Grant)
+	gate := n.gate(worktree, check, nil)
+	gate.Host = host
+	result, err := readoptGrantedGate(ctx, n.pools, req, gate, check.Grant)
 	switch {
 	case errors.Is(err, errGateDetach):
 		// The gate keeps running under its holder in worktree, so neither is removed: a restart readopts it again.
@@ -143,7 +145,7 @@ func (n *NodeChecks) readoptLost(
 	ctx context.Context, host hostexec.Host, repo, worktree string, check store.NodeCheck, cause error,
 ) store.NodeCheckEnd {
 	n.logger.WarnContext(ctx, "node check lost at a restart", "check", check.ID, "err", cause)
-	clearErr := gateClear(ctx, check.Holder)
+	clearErr := gateClear(ctx, host, check.Holder)
 	ended := n.end(ctx, host, repo, worktree, nil, store.LostAtRestart)
 	if clearErr != nil {
 		ended.NotRun += "; " + captureNotFinished(clearErr)

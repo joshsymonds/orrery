@@ -4,21 +4,17 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io/fs"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
-	"syscall"
 	"time"
 
-	"github.com/joshsymonds/orrery/internal/engine/proc"
 	"github.com/joshsymonds/orrery/internal/grants"
-	"github.com/joshsymonds/orrery/internal/holder"
+	"github.com/joshsymonds/orrery/internal/hostexec"
 	"github.com/joshsymonds/orrery/internal/redact"
 )
 
-// gateHoldersName is the subdirectory of a gate's state directory that holds the holder directories, as holder.Launch
+// gateHoldersName is the subdirectory of a gate's state directory that holds the holder directories, as the gate's Host
 // lays them out.
 const gateHoldersName = "holders"
 
@@ -32,16 +28,18 @@ const gateTailDefault = 8 << 10
 var errGateNoCommand = errors.New("enginehost: gate names no command")
 
 // gateRun describes one gate: the command, where it runs, how long it may run, and the complete environment it runs in.
-// Name is the session the gate's holder serves, and a fresh session when empty. StateDir is the state directory the holder
-// directory lives under, and a directory under os.TempDir when empty. Scope, when set, is the systemd-run scope the holder
-// runs in. Started, when set, is called once the grant holds, with the grant's id and the holder directory, before the gate
-// launches; its error releases the grant and launches nothing. Tail is the number of newest bytes the gate keeps of each
-// of its stdout and stderr, and zero keeps gateTailDefault.
+// Host is the Host the gate runs on: its holder is launched, reattached and cleared there, and its holder directory is
+// named there. Name is the session the gate's holder serves, and a fresh session when empty. StateDir is the state
+// directory the holder directory lives under, and a directory under os.TempDir when empty. Scope, when set, is the
+// systemd-run scope the holder runs in. Started, when set, is called once the grant holds, with the grant's id and the
+// holder directory, before the gate launches; its error releases the grant and launches nothing. Tail is the number of
+// newest bytes the gate keeps of each of its stdout and stderr, and zero keeps gateTailDefault.
 type gateRun struct {
 	Argv     []string
 	Dir      string
 	Limit    time.Duration
 	Environ  []string
+	Host     hostexec.Host
 	Name     string
 	StateDir string
 	Scope    string
@@ -103,15 +101,14 @@ const (
 )
 
 // runGrantedGate runs run.Argv as a gate that holds the members pools grants for req. Each attempt queues req, naming the
-// gate's holder directory, and runs the gate once the grant holds its members. The gate runs under a holder in run.Dir,
-// with the environment gateEnviron(run.Environ) gives. The Limit of an attempt counts from its grant, not from the queue.
-// A stop from an owner hold ends the gate's holder, yields no result, and reclaims the stopped grant by its id, then the
-// gate runs again. The grant ends only after the gate's processes have ended, except when the attempt detaches: ctx
-// ends with errGateDetach, or a gate with a Scope has its grant's Acquire end with grants.ErrClosed. The holder then
-// keeps running, and the gate's outcome is left to its exit record. It returns an error when pools is nil, when the
-// grant ends without the gate ending, when the gate cannot start, or when ctx ends first, and an error matching
-// errGateDetach when the attempt detaches. Argv[0] is a path, absolute or relative to run.Dir; it is not looked up on
-// PATH.
+// gate's holder directory, and runs the gate once the grant holds its members. The gate runs under a holder in run.Dir on
+// run.Host, with the environment gateEnviron(run.Environ) gives. The Limit of an attempt counts from its grant, not from the
+// queue. A stop from an owner hold ends the gate's holder, yields no result, and reclaims the stopped grant by its id, then
+// the gate runs again. The grant ends only after the gate's processes have ended, except when the attempt detaches: ctx
+// ends with errGateDetach, or a gate with a Scope has its grant's Acquire end with grants.ErrClosed. The holder then keeps
+// running, and the gate's outcome is left to its exit record. It returns an error when pools is nil, when the grant ends
+// without the gate ending, when the gate cannot start, or when ctx ends first, and an error matching errGateDetach when the
+// attempt detaches. Argv[0] is a path, absolute or relative to run.Dir; it is not looked up on PATH.
 func runGrantedGate(ctx context.Context, pools PoolCommands, req grants.Request, run gateRun) (gateResult, error) {
 	if pools == nil {
 		return gateResult{}, errGateNoPools
@@ -128,10 +125,11 @@ func runGrantedGate(ctx context.Context, pools PoolCommands, req grants.Request,
 	}
 }
 
-// gatePlan is where an attempt's gate runs: its session, the holder directory that serves the session, the state directory
-// that holds the holder directory, the absolute path of the program, and the number of newest bytes the gate keeps of each
-// of its stdout and stderr.
+// gatePlan is where an attempt's gate runs: the Host it runs on, its session, the holder directory that serves the
+// session, the state directory that holds the holder directory, the absolute path of the program, and the number of
+// newest bytes the gate keeps of each of its stdout and stderr.
 type gatePlan struct {
+	host     hostexec.Host
 	stateDir string
 	session  string
 	dir      string
@@ -151,7 +149,7 @@ func planGate(run gateRun) (gatePlan, error) {
 			return gatePlan{}, err
 		}
 	}
-	dir, err := holder.SessionDir(filepath.Join(stateDir, gateHoldersName), session)
+	dir, err := run.Host.SessionDir(filepath.Join(stateDir, gateHoldersName), session)
 	if err != nil {
 		return gatePlan{}, fmt.Errorf("enginehost: gate holder: %w", err)
 	}
@@ -163,7 +161,9 @@ func planGate(run gateRun) (gatePlan, error) {
 	if tail <= 0 {
 		tail = gateTailDefault
 	}
-	return gatePlan{stateDir: stateDir, session: session, dir: dir, program: program, tail: tail}, nil
+	return gatePlan{
+		host: run.Host, stateDir: stateDir, session: session, dir: dir, program: program, tail: tail,
+	}, nil
 }
 
 // gateCall is the Acquire call an attempt queues with. The call runs on its own goroutine, and ended closes once it
@@ -267,8 +267,8 @@ func gateAttempt(
 	return gateHeld(ctx, call, held, plan, run)
 }
 
-// gateHeld launches the gate under its holder for the grant held, and waits for the gate to end. It ends the grant as the
-// gate's outcome requires. A detach returns with the gate left running under its holder.
+// gateHeld launches the gate under its holder on plan's Host for the grant held, and waits for the gate to end. It ends
+// the grant as the gate's outcome requires. A detach returns with the gate left running under its holder.
 func gateHeld(
 	ctx context.Context,
 	call *gateCall,
@@ -285,25 +285,26 @@ func gateHeld(
 		}
 	})
 	defer stopLaunch()
-	process, err := holder.Launch(launchCtx, holder.LaunchConfig{
-		Scope:    run.Scope,
-		StateDir: plan.stateDir,
-		Session:  plan.session,
-		Child: proc.Config{
-			Path: plan.program, Args: run.Argv[1:], Dir: run.Dir, Env: gateEnviron(run.Environ),
-		},
-		GateLimit:       run.Limit,
-		GateLimitSignal: run.limitSignal,
-		GateTail:        plan.tail,
+	process, err := plan.host.Launch(launchCtx, hostexec.Launch{
+		Scope:       run.Scope,
+		StateDir:    plan.stateDir,
+		Session:     plan.session,
+		Path:        plan.program,
+		Args:        run.Argv[1:],
+		Dir:         run.Dir,
+		Env:         gateEnviron(run.Environ),
+		Limit:       run.Limit,
+		LimitSignal: run.limitSignal,
+		Tail:        plan.tail,
 	})
 	if err != nil {
-		exit, ended := gateLaunchExit(plan.dir)
+		exit, ended := gateLaunchExit(plan.host, plan.dir)
 		if !ended {
-			return gateResult{}, nil, errors.Join(err, gateClear(ctx, plan.dir), call.release())
+			return gateResult{}, nil, errors.Join(err, gateClear(ctx, plan.host, plan.dir), call.release())
 		}
 		// The gate ended before Launch attached, so the holder ended and Launch failed with it. Its exit record is the
 		// gate's outcome, and the holder directory keeps it for the caller.
-		if endErr := errors.Join(gateKillLeftovers(plan.dir), call.release()); endErr != nil {
+		if endErr := errors.Join(gateKillLeftovers(plan.host, plan.dir), call.release()); endErr != nil {
 			return gateResult{}, nil, endErr
 		}
 		return gateExitResult(held, plan, exit), nil, nil
@@ -319,7 +320,7 @@ func gateHeld(
 // result.
 func gateWaitEnd(
 	ctx context.Context,
-	process *holder.Process,
+	process hostexec.Held,
 	call *gateCall,
 	held grants.Grant,
 	plan gatePlan,
@@ -328,13 +329,13 @@ func gateWaitEnd(
 	go func() {
 		waited <- process.Wait()
 	}()
-	outcome, exit, err := gateWatch(ctx, process, plan.dir, waited, call)
+	outcome, exit, err := gateWatch(ctx, plan.host, process, plan.dir, waited, call)
 	if outcome == gateDetached {
 		return gateResult{}, nil, err
 	}
 	if err != nil {
 		// A failed end clears the holder directory before the grant ends, whatever the failure.
-		err = errors.Join(err, gateClear(ctx, plan.dir))
+		err = errors.Join(err, gateClear(ctx, plan.host, plan.dir))
 	}
 	err = errors.Join(err, call.release())
 	if outcome == gateUngranted {
@@ -371,19 +372,19 @@ func readoptGrantedGate(
 	if err != nil {
 		return gateResult{}, err
 	}
-	process, err := holder.ReattachGate(ctx, plan.dir, holder.WithScope(run.Scope))
+	process, err := plan.host.Reattach(ctx, plan.dir, run.Scope)
 	switch {
 	case err == nil:
 		return readoptServed(ctx, pools, req, run, plan, process, grantID)
-	case errors.Is(err, holder.ErrGone):
+	case errors.Is(err, hostexec.ErrGone):
 		return readoptEnded(ctx, pools, req, run, plan, grantID)
 	}
 	// A holder writes its exit record before it removes its socket, and frees its lock last, so a holder that is ending
 	// can be unattachable with its record already written. That record is the gate's outcome.
-	if _, recorded := gateExitRecord(plan.dir); recorded {
+	if _, recorded := gateExitRecord(plan.host, plan.dir); recorded {
 		return readoptEnded(ctx, pools, req, run, plan, grantID)
 	}
-	return gateResult{}, errors.Join(errGateLost, err, gateEnd(ctx, plan.dir))
+	return gateResult{}, errors.Join(errGateLost, err, gateEnd(ctx, plan.host, plan.dir))
 }
 
 // readoptServed reclaims grantID for req, naming the holder that process is attached to, and waits for the gate's end
@@ -395,7 +396,7 @@ func readoptServed(
 	req grants.Request,
 	run gateRun,
 	plan gatePlan,
-	process *holder.Process,
+	process hostexec.Held,
 	grantID string,
 ) (gateResult, error) {
 	req.GrantID = grantID
@@ -406,7 +407,7 @@ func readoptServed(
 	case errors.Is(err, errGateDetach):
 		return gateResult{}, errors.Join(err, process.Detach())
 	case err != nil:
-		return gateResult{}, errors.Join(errGateLost, err, gateEnd(ctx, plan.dir))
+		return gateResult{}, errors.Join(errGateLost, err, gateEnd(ctx, plan.host, plan.dir))
 	}
 	result, stopped, err := gateWaitEnd(ctx, process, call, held, plan)
 	switch {
@@ -429,17 +430,17 @@ func readoptEnded(
 	plan gatePlan,
 	grantID string,
 ) (gateResult, error) {
-	exit, ok := gateExitRecord(plan.dir)
+	exit, ok := gateExitRecord(plan.host, plan.dir)
 	switch {
-	case ok && exit.Reason == holder.ReasonStopped:
+	case ok && exit.Reason == hostexec.ReasonStopped:
 		// The stop left the holder's directory and its record for clearing. Clear them here, as a live stop does: the
 		// rerun then launches a new holder, and no later call reads this record and reruns the gate again.
-		if err := gateEnd(ctx, plan.dir); err != nil {
+		if err := gateEnd(ctx, plan.host, plan.dir); err != nil {
 			return gateResult{}, errors.Join(errGateLost, err)
 		}
 		return gateRerun(ctx, pools, req, run, grantID)
 	case ok && gateEndedOnItsOwn(exit):
-		if err := gateKillLeftovers(plan.dir); err != nil {
+		if err := gateKillLeftovers(plan.host, plan.dir); err != nil {
 			return gateResult{}, err
 		}
 		held, err := gateEndKept(ctx, pools, req, run, plan, grantID)
@@ -448,7 +449,7 @@ func readoptEnded(
 		}
 		return gateExitResult(held, plan, exit), nil
 	}
-	return gateResult{}, errors.Join(errGateLost, gateEnd(ctx, plan.dir))
+	return gateResult{}, errors.Join(errGateLost, gateEnd(ctx, plan.host, plan.dir))
 }
 
 // gateEndKept ends grantID, the grant a gate that has ended held, if the pools still keep it: it reclaims the grant for
@@ -495,38 +496,34 @@ func gateRerun(
 	return result, err
 }
 
-// gateLaunchExit returns the exit record the holder of dir left once the gate ended on its own, and whether there is
-// one. Launch fails when the holder ends before it serves its socket, so a gate that ends at once is read here.
-func gateLaunchExit(dir string) (holder.Exit, bool) {
-	exit, ok := gateExitRecord(dir)
+// gateLaunchExit returns the exit record the holder of dir left on host once the gate ended on its own, and whether there
+// is one. Launch fails when the holder ends before it serves its socket, so a gate that ends at once is read here.
+func gateLaunchExit(host hostexec.Host, dir string) (hostexec.Exit, bool) {
+	exit, ok := gateExitRecord(host, dir)
 	return exit, ok && gateEndedOnItsOwn(exit)
 }
 
-// gateExitRecord returns the exit record the holder of dir left, and whether it left one. A directory that holds no
-// readable record has none.
-func gateExitRecord(dir string) (holder.Exit, bool) {
-	gone, err := holder.OpenGone(dir, 0)
-	if err != nil {
-		return holder.Exit{}, false
-	}
-	return gone.Exit()
+// gateExitRecord returns the exit record the holder of dir left on host, and whether it left one. A directory that holds
+// no readable record has none.
+func gateExitRecord(host hostexec.Host, dir string) (hostexec.Exit, bool) {
+	return host.ExitRecord(dir)
 }
 
 // gateEndedOnItsOwn reports whether an exit record is the gate's own end: its child reached an exit status, or was
 // killed at its limit. A holder that a stop or the idle timeout ended is not an outcome, and neither is a child that
 // reached no exit status, as a child that never started does: the holder records it with code -1 and no signal.
-func gateEndedOnItsOwn(exit holder.Exit) bool {
+func gateEndedOnItsOwn(exit hostexec.Exit) bool {
 	reached := exit.Code >= 0 || exit.Signal != ""
-	return reached && (exit.Reason == holder.ReasonExited || exit.Reason == holder.ReasonLimit)
+	return reached && (exit.Reason == hostexec.ReasonExited || exit.Reason == hostexec.ReasonLimit)
 }
 
 // gateExitResult returns the result of a gate that ended on its own with exit, under the grant held in plan's holder
 // directory. Its Stdout and Stderr are the tails of the two streams, kept apart and each redacted, so nothing stored,
 // shown, judged or sent back from the gate holds a listed credential.
-func gateExitResult(held grants.Grant, plan gatePlan, exit holder.Exit) gateResult {
+func gateExitResult(held grants.Grant, plan gatePlan, exit hostexec.Exit) gateResult {
 	return gateResult{
 		Exit:        exit.Code,
-		TimedOut:    exit.Reason == holder.ReasonLimit,
+		TimedOut:    exit.Reason == hostexec.ReasonLimit,
 		MemoryKills: exit.MemoryKills,
 		Stdout:      gateRedactTail(exit.Stdout, plan.tail),
 		Stderr:      gateRedactTail(exit.Stderr, plan.tail),
@@ -550,142 +547,89 @@ func gateRedactTail(tail string, size int) string {
 // stop, the grant's end or any other end of ctx ends is stopped, its leftovers are killed and its holder directory is
 // cleared. A holder that ends on its own keeps its directory and exit record for the caller. A ctx that ends with
 // errGateDetach leaves the holder running, with its directory, and so does the broker's close of a scoped gate's grant.
-// waited receives the holder's Wait error once the holder has ended.
+// waited receives the holder's Wait error once the holder has ended. The gate's holder is on host.
 func gateWatch(
 	ctx context.Context,
-	process *holder.Process,
+	host hostexec.Host,
+	process hostexec.Held,
 	dir string,
 	waited <-chan error,
 	call *gateCall,
-) (gateOutcome, holder.Exit, error) {
+) (gateOutcome, hostexec.Exit, error) {
 	select {
 	case waitErr := <-waited:
 		exit, ok := process.Exit()
 		if !ok {
-			return gateExited, holder.Exit{}, errors.Join(errGateNoRecord, waitErr, gateEnd(ctx, dir))
+			return gateExited, hostexec.Exit{}, errors.Join(errGateNoRecord, waitErr, gateEnd(ctx, host, dir))
 		}
-		return gateExited, exit, gateKillLeftovers(dir)
+		return gateExited, exit, gateKillLeftovers(host, dir)
 	case <-call.stop:
-		return gateStopped, holder.Exit{}, gateEnd(ctx, dir)
+		return gateStopped, hostexec.Exit{}, gateEnd(ctx, host, dir)
 	case <-call.ended:
 		if call.closedDetach() {
-			return gateDetached, holder.Exit{}, gateLeftRunning(process)
+			return gateDetached, hostexec.Exit{}, gateLeftRunning(process)
 		}
-		return gateUngranted, holder.Exit{}, gateEnd(ctx, dir)
+		return gateUngranted, hostexec.Exit{}, gateEnd(ctx, host, dir)
 	case <-ctx.Done():
 		if errors.Is(context.Cause(ctx), errGateDetach) {
-			return gateDetached, holder.Exit{}, gateLeftRunning(process)
+			return gateDetached, hostexec.Exit{}, gateLeftRunning(process)
 		}
-		return gateCancelled, holder.Exit{}, errors.Join(
+		return gateCancelled, hostexec.Exit{}, errors.Join(
 			fmt.Errorf("enginehost: gate ended by its context: %w", ctx.Err()),
-			gateEnd(ctx, dir),
+			gateEnd(ctx, host, dir),
 		)
 	}
 }
 
 // gateLeftRunning detaches process from its holder, which keeps the gate running in its directory. It returns the
 // error of the attempt that leaves the gate running: errGateDetach.
-func gateLeftRunning(process *holder.Process) error {
+func gateLeftRunning(process hostexec.Held) error {
 	return errors.Join(fmt.Errorf("enginehost: gate left running: %w", errGateDetach), process.Detach())
 }
 
-// gateEnd ends a gate whose holder may still run: it stops the holder, kills what the gate's child left in its process
-// group, and clears the holder directory. The grant ends only after it, so no process of the gate can use the members then.
-func gateEnd(ctx context.Context, dir string) error {
-	stopErr := gateStopHolder(ctx, dir)
-	killErr := gateKillLeftovers(dir)
-	return errors.Join(stopErr, killErr, gateClear(ctx, dir))
+// gateEnd ends a gate whose holder may still run on host: it stops the holder, kills what the gate's child left in its
+// process group, and clears the holder directory. The grant ends only after it, so no process of the gate can use the
+// members then.
+func gateEnd(ctx context.Context, host hostexec.Host, dir string) error {
+	stopErr := gateStopHolder(ctx, host, dir)
+	killErr := gateKillLeftovers(host, dir)
+	return errors.Join(stopErr, killErr, gateClear(ctx, host, dir))
 }
 
-// gateStopHolder stops the holder serving dir, if one does. It runs whatever state ctx is in, and waits no longer than
-// clearTimeout.
-func gateStopHolder(ctx context.Context, dir string) error {
+// gateStopHolder stops the holder serving dir on host, if one does. It runs whatever state ctx is in, and waits no longer
+// than clearTimeout.
+func gateStopHolder(ctx context.Context, host hostexec.Host, dir string) error {
 	stopCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), clearTimeout)
 	defer cancel()
-	if err := holder.Stop(stopCtx, dir); err != nil {
+	if err := host.Stop(stopCtx, dir); err != nil {
 		return fmt.Errorf("enginehost: stop gate holder: %w", err)
 	}
 	return nil
 }
 
-// gateClear clears the holder directory dir, stopping its holder first if one still serves it. An empty dir names no
-// holder directory and is left alone. It runs whatever state ctx is in, since the gate it holds has ended or never
+// gateClear clears the holder directory dir on host, stopping its holder first if one still serves it. An empty dir names
+// no holder directory and is left alone. It runs whatever state ctx is in, since the gate it holds has ended or never
 // launched, and waits no longer than clearTimeout.
-func gateClear(ctx context.Context, dir string) error {
+func gateClear(ctx context.Context, host hostexec.Host, dir string) error {
 	if dir == "" {
 		return nil
 	}
 	clearCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), clearTimeout)
 	defer cancel()
-	if err := holder.Clear(clearCtx, dir); err != nil {
+	if err := host.Clear(clearCtx, dir); err != nil {
 		return fmt.Errorf("enginehost: clear gate holder: %w", err)
 	}
 	return nil
 }
 
-// gateKillLeftovers kills the processes the gate's child left running in its process group. A holder does not signal
-// its child's group once the child has ended on its own, so the leftovers are killed here. A directory with no pids
-// record has no child to kill. The group is killed only when its leader is the recorded child: a record with no
-// ChildStart cannot be checked, so nothing is signaled, and nothing is signaled when another process holds the
-// child's pid, since that process's group is not the gate's.
-func gateKillLeftovers(dir string) error {
-	pids, err := holder.ReadPids(dir)
-	if errors.Is(err, fs.ErrNotExist) {
-		return nil
+// gateKillLeftovers kills the processes the gate's child left running in its process group, on host. A holder does not
+// signal its child's group once the child has ended on its own, so the leftovers are killed by host (see
+// hostexec.Processes.KillLeftovers).
+func gateKillLeftovers(host hostexec.Host, dir string) error {
+	if err := host.KillLeftovers(dir); err != nil {
+		return fmt.Errorf("enginehost: kill gate leftovers: %w", err)
 	}
-	if err != nil {
-		return fmt.Errorf("enginehost: read gate pids: %w", err)
-	}
-	if pids.Child <= 0 {
-		return fmt.Errorf("enginehost: gate pids in %s name no child", dir)
-	}
-	if pids.ChildStart == "" {
-		return nil
-	}
-	held, err := gatePidHeldElsewhere(pids.Child, pids.ChildStart)
-	if err != nil {
-		return err
-	}
-	if held {
-		return nil
-	}
-	return gateKillGroup(pids.Child)
-}
-
-// gateStartIndex is the index of field 22, the start time, among the stat fields after the command name, which begin
-// at field 3.
-const gateStartIndex = 22 - 3
-
-// gatePidHeldElsewhere reports whether a process other than the one that started at start holds pid. A zombie holds
-// its pid as a live process does, and a pid that /proc holds no stat for is held by no process.
-func gatePidHeldElsewhere(pid int, start string) (bool, error) {
-	raw, err := os.ReadFile(filepath.Join("/proc", strconv.Itoa(pid), "stat"))
-	// A process reaped between the open and the read fails the read with ESRCH; it is gone all the same.
-	if errors.Is(err, fs.ErrNotExist) || errors.Is(err, syscall.ESRCH) {
-		return false, nil
-	}
-	if err != nil {
-		return false, fmt.Errorf("enginehost: read stat of pid %d: %w", pid, err)
-	}
-	got, err := gateStartOf(string(raw))
-	if err != nil {
-		return false, fmt.Errorf("enginehost: stat of pid %d: %w", pid, err)
-	}
-	return got != start, nil
-}
-
-// gateStartOf returns field 22, the start time, of a /proc/PID/stat line. The command name is in parentheses and may
-// hold spaces and parentheses, so the fields are counted after the last ')'.
-func gateStartOf(stat string) (string, error) {
-	end := strings.LastIndexByte(stat, ')')
-	if end < 0 {
-		return "", fmt.Errorf("enginehost: stat has no command name: %q", stat)
-	}
-	fields := strings.Fields(stat[end+1:])
-	if len(fields) <= gateStartIndex {
-		return "", fmt.Errorf("enginehost: stat has %d fields after its command name: %q", len(fields), stat)
-	}
-	return fields[gateStartIndex], nil
+	return nil
 }
 
 // gateStateDir returns the absolute state directory a gate's holder directory lives under: stateDir, or a directory under
@@ -766,12 +710,4 @@ func gateEnviron(environ []string) []string {
 		kept = append(kept, entry)
 	}
 	return kept
-}
-
-// gateKillGroup kills every process in the group pgid. A group that already exited is not an error.
-func gateKillGroup(pgid int) error {
-	if err := syscall.Kill(-pgid, syscall.SIGKILL); err != nil && !errors.Is(err, syscall.ESRCH) {
-		return fmt.Errorf("enginehost: kill gate group %d: %w", pgid, err)
-	}
-	return nil
 }
