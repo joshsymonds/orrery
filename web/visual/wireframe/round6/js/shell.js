@@ -8,15 +8,19 @@
 
   // sessionRow draws an InboxRow. r: { id, state, title, age, l2, l2kind: '' | 'asks' | 'live', tool, clock, unseen,
   //   tag, go, acts, host }. o: { cur, open, menu, hover, card }. Under a card (o.card) the card's head names the host
-  //   its rows run on, so the row draws none; elsewhere its host is drawn on a line of its own.
+  //   its rows run on, so the row draws none; elsewhere its host is drawn on a line of its own. A session whose state is
+  //   unreachable says so beside its host, or on its line under a card, and draws no last words: they are not known now.
   O.sessionRow = (r, o = {}) => {
-    const l2 = r.l2kind === 'live'
-      ? `<span class="l2">${when(r.tool, () => `<span class="name">${esc(r.tool)}</span> `)}${esc(r.l2 || '')}${when(r.clock, () => ` · ${esc(r.clock)}`)}</span>`
-      : when(r.l2, () => `<span class="${cls('l2', r.l2kind, r.unseen && r.l2kind !== 'asks' && 'wrap2')}">${when(r.l2kind === 'asks', () => icon('question'))}${esc(r.l2)}</span>`);
+    const down = r.state === 'unreachable';
+    const l2 = down
+      ? when(o.card, () => '<span class="l2 unreach">unreachable</span>')
+      : r.l2kind === 'live'
+        ? `<span class="l2">${when(r.tool, () => `<span class="name">${esc(r.tool)}</span> `)}${esc(r.l2 || '')}${when(r.clock, () => ` · ${esc(r.clock)}`)}</span>`
+        : when(r.l2, () => `<span class="${cls('l2', r.l2kind, r.unseen && r.l2kind !== 'asks' && 'wrap2')}">${when(r.l2kind === 'asks', () => icon('question'))}${esc(r.l2)}</span>`);
     const menu = when(o.menu, () => O.rowMenu(r));
     return `<a class="${cls('row', o.cur && 'cur', o.open && 'open', o.menu && 'menu-open', o.hover && 'hover')}"${attrs({ href: O.go(r.go || r.id), 'data-unseen': r.unseen, 'aria-current': o.open ? 'page' : undefined })}>`
       + `<span class="dot"${attrs({ title: r.unseen ? 'new since you looked' : undefined })}></span>${O.stateGlyph(r.state)}<span class="title">${esc(r.title)}</span><span class="age">${esc(r.age || '')}</span>`
-      + `${l2}${when(r.tag, () => `<span class="l2 tag">${esc(r.tag)}</span>`)}${when(r.host && !o.card, () => `<span class="l2 host-line">${O.hostLabel(r.host)}</span>`)}`
+      + `${l2}${when(r.tag, () => `<span class="l2 tag">${esc(r.tag)}</span>`)}${when(r.host && !o.card, () => `<span class="l2 host-line">${O.hostLabel(r.host, { down })}</span>`)}`
       + `${O.iconBtn('more', 'Archive, open beside…', { class: 'more-btn', tipSide: 'left' })}${menu}</a>`;
   };
 
@@ -36,7 +40,7 @@
     + `${e.contract ? `<span class="cmark">${icon('doc')}</span>` : O.gauge(e.gauge)}<span class="title">${esc(e.slug)}</span><span class="age">${esc(e.contract ? e.count || '' : '')}</span>`
     + `<span class="l2">${when(e.host, () => `${O.hostLabel(e.host)} · `)}${esc(e.contract ? e.words : [e.words, e.count].filter(Boolean).join(' · '))}</span>${when(e.blocker, () => `<span class="l3">${icon('question')}${esc(e.blocker)}</span>`)}`
     + `${when(e.cmds, () => `<span class="acts">${e.cmds}</span>`)}</a>`
-    + each(e.steps, (s) => `<a class="${cls('row', 'step', s.held && !s.limited && 'held', o.curStep === s.label && 'cur')}" href="${O.go(s.go || 'worker-running')}">${O.stateGlyph(s.limited ? 'limited' : s.held ? 'held' : 'working')}<span class="label">${esc(s.label)}</span>${O.pips(s.pips)}<span class="doing">${esc(s.doing)}</span>${when(s.host, () => `<span class="l2 host-line">${O.hostLabel(s.host)}</span>`)}</a>`)
+    + each(e.steps, (s) => `<a class="${cls('row', 'step', s.held && !s.limited && !s.down && 'held', o.curStep === s.label && 'cur')}" href="${O.go(s.go || 'worker-running')}">${O.stateGlyph(s.down ? 'unreachable' : s.limited ? 'limited' : s.held ? 'held' : 'working')}<span class="label">${esc(s.label)}</span>${O.pips(s.pips)}<span class="doing">${esc(s.down ? '' : s.doing)}</span>${when(s.host, () => `<span class="l2 host-line">${O.hostLabel(s.host, { down: s.down })}</span>`)}</a>`)
     + when(e.more || e.tail, () => `<div class="fold-line">${esc([e.more, e.tail].filter(Boolean).join(' · '))}</div>`);
 
   // convoRow draws a conversation's row and, hanging under it, every epic and contract it steers. An epic belongs to
@@ -49,16 +53,18 @@
   // dir draws a Dir: a project. Its head is the project: its name, its path, the way to its page, and the host its rows
   // run on, drawn once here. What it holds hangs from a line under the head: its conversations, each with what it
   // steers under it, then one line for what has ended.
+  // A card whose host does not answer says so on its head, and every conversation under it reads unreachable.
   O.dir = (d, o = {}) => {
     const full = d.full || (d.path === 'home' ? 'your home directory' : `${d.path}/${d.name}`);
     const head = `<div class="dir-head"><button class="fold" aria-expanded="${!d.collapsed}" aria-label="${d.collapsed ? 'Unfold' : 'Fold'} ${esc(d.name)}">${icon(d.collapsed ? 'chevronRight' : 'chevronDown')}</button>`
       + `<a class="proj" href="${O.go('project')}" title="Everything working in ${esc(full)}">${icon('folder')}<span class="nm">${esc(d.name)}</span><span class="path">${esc(full)}</span></a>`
-      + `<span class="end">${when(d.host, () => O.hostLabel(d.host, { heading: true }))}${when(d.collapsed && d.waiting, () => `<span class="is-attention">${d.waiting} waiting</span>`)}${when(d.collapsed, () => `<span>${d.count}</span>`)}</span></div>`;
+      + `<span class="end">${when(d.host, () => O.hostLabel(d.host, { heading: true, down: d.unreachable }))}${when(d.collapsed && d.waiting, () => `<span class="is-attention">${d.waiting} waiting</span>`)}${when(d.collapsed, () => `<span>${d.count}</span>`)}</span></div>`;
     if (d.collapsed) return `<section class="dir" aria-label="${esc(d.name)}">${head}</section>`;
     const card = { ...o, card: true };
-    const rows = each(d.rows, (r) => O.convoRow(r, card));
+    const down = (r) => (d.unreachable ? { ...r, state: 'unreachable' } : r);
+    const rows = each(d.rows, (r) => O.convoRow(down(r), card));
     const ended = when(d.ended, () => `<button class="fold-line" aria-expanded="${!!d.ended.open}">${icon(d.ended.open ? 'chevronDown' : 'chevronRight')}<span>${esc(d.ended.label)}</span></button>`
-      + when(d.ended.open, () => each(d.ended.rows, (r) => O.convoRow(r, card))));
+      + when(d.ended.open, () => each(d.ended.rows, (r) => O.convoRow(down(r), card))));
     return `<section class="dir" aria-label="${esc(d.name)}">${head}<div class="dir-kids">${rows}${ended}</div></section>`;
   };
 
@@ -92,13 +98,14 @@
 
   // ---------- title row and strip ----------
 
-  // strip draws a MeterStrip. s: { host, stats: [meter], ctx, other }. host is the host the page's thing runs on, drawn as
-  // a HostLabel; other: a host this server cannot read.
+  // strip draws a MeterStrip. s: { host, stats: [meter], ctx, other, down }. host is the host the page's thing runs on, drawn as
+  // a HostLabel; other: a host this server cannot read; down: the host does not answer, so it has no meters now.
   O.strip = (s) => {
     if (!s) return '';
     const touch = O.touch();
-    return `<div class="strip" aria-label="host and context">${when(s.host, () => O.hostLabel(s.host))}`
+    return `<div class="strip" aria-label="host and context">${when(s.host, () => O.hostLabel(s.host, { down: s.down }))}`
       + `${when(s.other, '<span class="other">on another host: no meters</span>')}`
+      + `${when(s.down, '<span class="other">no meters while it does not answer</span>')}`
       + `${each(s.stats, (m, i) => O.meter({ series: (i % 5) + 1, ...m }, touch))}${when(!touch, () => O.ctx(s.ctx))}</div>`;
   };
 
@@ -113,7 +120,7 @@
   O.titleRow = (t) => {
     const touch = O.touch();
     const host = t.host !== undefined ? t.host : t.strip && t.strip.host;
-    const hostLabel = when(host, () => O.hostLabel(host));
+    const hostLabel = when(host, () => O.hostLabel(host, { down: t.strip && t.strip.down }));
     if (touch) {
       if (t.folded) return '';
       return `<header class="titlerow"><div class="line1"><span class="lead">${O.iconBtn('back', 'Back', { go: t.back || 'inbox-home' })}</span>`

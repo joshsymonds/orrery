@@ -134,6 +134,15 @@
   });
 
   convo({
+    id: 'pane-host-unreachable', group: 'Conversation', name: 'A pane whose host does not answer',
+    note: 'A terminal pane\'s conversation as it was last stored. Its host does not answer, so its title row says unreachable with no meters, and its dock says so in words. The dock offers nothing that would act on the pane: no input, no queue, no Interrupt and no quick keys. The transcript stays as it was stored.',
+    pane: true, hosts: ['paneDown', 'hostDown'],
+    title: { dir: 'tidepool', here: 'Tide table cache warm-up', state: O.pill('unreachable', 'unreachable', { state: 'unreachable' }), strip: W.strip(null, { host: 'halyard', down: true }) },
+    items: W.short, dock: { state: 'unreachable', host: 'halyard', what: '· shown as last stored' },
+    differs: ['Android draws no quick keys under this dock, since they would send keys to a pane that does not answer. The web under 760 draws the same dock, with no input.'],
+  });
+
+  convo({
     id: 'convo-command-error', group: 'Empty, loading, error', name: 'A command from this page failed',
     note: 'Today every such error is a line in the inbox\'s head, which is hidden while a page is open. It is drawn on the page that sent the command, under the title row.',
     title: { ...W.shortTitle, note: 'Could not archive this session: the server did not answer. Nothing changed.' }, items: W.short, dock: { state: 'done', what: '· 4m ago', name: 'tidepool' },

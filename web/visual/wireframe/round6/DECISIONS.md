@@ -34,10 +34,20 @@ are grouped by host and folder, the host is drawn once on the card heading; ever
 | a StepRow, under an epic in the inbox or as a row of its Now table | EpicStep.host | orrery-host-relay |
 | a step's page title row | EpicStep.host | orrery-host-relay |
 | a contract's WorkCard | its session row's host: the session that wrote it | orrery-first-class-hosts |
+| a session's InboxRow, its title row and its dock, on a host that does not answer | its session row's state reads `unreachable` (unchecked) | orrery-first-class-hosts |
+| a pane's title row and its dock, on a host that does not answer | a pane listed from stored rows is marked unreachable: `Pane.unreachable` (unchecked) | orrery-host-surfaces |
+| a card's head, on a host that does not answer | the host's `reachable` is false in `Host.Status` (unchecked) | orrery-host-surfaces |
+| an epic's step, on a host that does not answer | the step's host is not reachable in `Host.Status` (unchecked) | orrery-host-surfaces |
 
 The field names are the host epics' own, taken from their contracts and not checked against them. A scenario whose
 drawing shows a host says so in its note, with the field and the epic. The world gains two hosts, `sextant` and
 `lantern`, for `inbox-hosts` (four cards, one per host) and `epic-hosts` (an epic whose steps run on two hosts).
+
+An unreachable host is grey (`ink.3`), not stopped. Its glyph is a dashed hollow ring, and its word is "unreachable"
+beside the host, or on a row's line under a card; its dock reads "unreachable: `<host>` does not answer" and offers no
+input, queue or control. The three unreachable fields above are read from orrery-first-class-hosts R4 and
+orrery-host-surfaces R3 and R4, and their names are not checked against those contracts. `inbox-host-unreachable` and
+`pane-host-unreachable` draw it.
 
 ## Revision 13: Not now, not Dismiss (2026-11-18)
 

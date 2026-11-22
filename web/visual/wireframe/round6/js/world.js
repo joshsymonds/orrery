@@ -20,8 +20,9 @@
     { name: 'disk', value: '49%', pct: 49, level: 'ok' },
     { name: 'net', value: '↓1M ↑298K', level: 'ok' },
   ];
-  // strip: the meters of the host the page's thing runs on. o.host defaults to halyard; null names none.
-  W.strip = (ctx, o = {}) => ({ host: o.host === undefined ? 'halyard' : o.host, stats: o.other ? [] : (o.hot ? W.statsHot : W.stats), other: o.other, ctx });
+  // strip: the meters of the host the page's thing runs on. o.host defaults to halyard; null names none. o.down: the host
+  // does not answer, so it has no meters.
+  W.strip = (ctx, o = {}) => ({ host: o.host === undefined ? 'halyard' : o.host, stats: o.other || o.down ? [] : (o.hot ? W.statsHot : W.stats), other: o.other, down: o.down, ctx });
   W.ctx = { low: { pct: 15, used: '152k', window: '1M' }, mid: { pct: 64, used: '640k', window: '1M' }, high: { pct: 87, used: '174k', window: '200k' } };
 
   // ---------- the inbox ----------
@@ -46,6 +47,8 @@
     // Two more hosts, for the inbox where the work runs on several: a buoy poller on sextant and a light on lantern.
     buoy: { id: 'epic-hosts', state: 'working', title: 'Poll the buoy feeds once a minute', age: '3m', l2kind: 'live', tool: 'Bash', l2: 'go test ./internal/buoy/...', clock: '0:21', host: 'sextant' },
     lantern: { id: 'ask-session', state: 'waiting', title: 'Which light sequence the lantern runs at dusk', age: '9m', l2kind: 'asks', l2: 'Which sequence should it run?', host: 'lantern' },
+    // A session on brine, a host that does not answer: it reads unreachable, and shows no last words, since none are known now.
+    unreach: { id: 'dock-unreachable', go: 'pane-host-unreachable', state: 'unreachable', title: 'Kelp bed survey importer', age: '1d', host: 'brine' },
   };
 
   W.epics = {
@@ -144,6 +147,9 @@
       { name: 'kelp', path: '~/code', host: 'brine', count: 1, rows: [R.failed] },
     ];
   };
+  // unreachableDirs is the inbox where one host, brine, does not answer: its card says so, and the conversation under it
+  // reads unreachable. The other three cards are as in hostDirs.
+  W.unreachableDirs = () => W.hostDirs().map((d) => (d.host === 'brine' ? { ...d, unreachable: true, rows: [W.rows.unreach] } : d));
   W.attn = { waiting: 6, fresh: 2 };
   // inbox builds the Inbox's data for a scenario: which row is open, where the keyboard is, what is filtered.
   W.inbox = (o = {}) => ({ dirs: W.dirs(o), attn: W.attn, open: o.open, cur: o.cur === undefined ? o.open : o.cur, ...o });
