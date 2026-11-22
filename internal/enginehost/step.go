@@ -331,7 +331,7 @@ func (s *Steps) Start(ctx context.Context, start StepStart) (string, error) {
 	}
 	step := StepSession{
 		ID: id, Dir: start.Workspace, Prompt: start.Prompt, Agent: start.Agent, Agents: start.Agents,
-		Schema: start.Schema, Epic: start.Epic,
+		Schema: start.Schema,
 	}
 	if start.ReadOnly {
 		if err = s.addReadOnlyStep(ctx, start, id, commit, &add, &cfg); err != nil {

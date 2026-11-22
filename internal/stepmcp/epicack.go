@@ -79,16 +79,11 @@ func answerChange(req *v1.AnswerEpicRequest, decision *v1.EpicDecision) string {
 		decision.GetId(), req.GetQuestion(), req.GetChoice())
 }
 
-// resumeChange returns what epic_resume resumed: the count of the limited steps it resumed and, when any, their ids,
-// then the count of the steps a full step cap left limited and, when any, their ids.
-func resumeChange(resumed, stillLimited []string) string {
+// resumeChange returns what epic_resume resumed: the count of the limited steps it resumed and, when any, their ids.
+func resumeChange(resumed []string) string {
 	change := fmt.Sprintf("resumed %d limited steps", len(resumed))
 	if len(resumed) > 0 {
 		change += ": " + joinList(resumed)
-	}
-	change += fmt.Sprintf("; %d left limited by the step cap", len(stillLimited))
-	if len(stillLimited) > 0 {
-		change += ": " + joinList(stillLimited)
 	}
 	return change
 }

@@ -176,7 +176,7 @@ func TestReadoptAgentGateStepThatCannotBeRebuiltEndsEngineRestarted(t *testing.T
 			if restarted.StepLive(id) {
 				t.Errorf("step %s is live after the restart, though its run was not rebuilt", id)
 			}
-			requireStepSlots(t, restarted, 0)
+			requireStepsHeld(t, restarted, 0)
 		})
 	}
 }

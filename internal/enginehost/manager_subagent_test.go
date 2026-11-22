@@ -53,7 +53,7 @@ func TestSubagentBlocksAfterTurnEndLeaveSessionIdleAndSayIsSent(t *testing.T) {
 	t.Parallel()
 	sink := &fakeSink{}
 	_, path := openStore(t)
-	m := newManagerOn(t, path, 1, fakeClaudePath(t), sink)
+	m := newManagerOn(t, path, fakeClaudePath(t), sink)
 	dir := t.TempDir()
 	id, err := m.Start(t.Context(), StartRequest{Dir: dir, Prompt: "SUBAGENT"})
 	if err != nil {
@@ -89,7 +89,7 @@ func TestTurnClaudeStartsAfterSubagentBlocksStillOpens(t *testing.T) {
 	t.Parallel()
 	sink := &fakeSink{}
 	_, path := openStore(t)
-	m := newManagerOn(t, path, 1, fakeClaudePath(t), sink)
+	m := newManagerOn(t, path, fakeClaudePath(t), sink)
 	dir := t.TempDir()
 	id, err := m.Start(t.Context(), StartRequest{Dir: dir, Prompt: "SUBAGENTSELF"})
 	if err != nil {

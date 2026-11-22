@@ -483,7 +483,7 @@ func (p pass) syncMain(def workflow.Node, run store.NodeRun, settled bool) ([]Ac
 }
 
 // syncTurn returns the highest seq among the epic's turns that are not free, zero when it has none. A free turn ends a
-// turn the planner could not start, such as one a full step cap refused, or one a restart cut, and the planner claims
+// turn the planner could not start, such as one whose agent did not resolve, or one a restart cut, and the planner claims
 // another at its next pass, so a key of the highest seq would start a sync for each of them.
 func (p pass) syncTurn() int64 {
 	var highest int64

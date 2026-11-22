@@ -395,30 +395,6 @@ func TestEngineSessionInterrupt(t *testing.T) {
 	wantExit(t, daemon.stop(t), 0)
 }
 
-// TestEngineSessionCap proves that --session-cap 1 refuses a second live start with an error naming the cap, and that
-// the cap frees when the live session stops.
-func TestEngineSessionCap(t *testing.T) {
-	t.Parallel()
-	f := newEngineFixture(t)
-	daemon := f.startOrreryd(t, true, "--session-cap", "1")
-	first := f.sessionDir(t, "first")
-
-	id := f.start(t, first, "hello")
-	f.waitForBlock(t, id, "fake reply 1")
-
-	refused := f.orrery(t, "session", "start", f.sessionDir(t, "second"), "hello")
-	if refused.code == 0 {
-		t.Fatalf("second start exited 0 at cap 1; stdout %q", refused.stdout)
-	}
-	if !strings.Contains(refused.stderr, "cap 1") {
-		t.Errorf("second start stderr %q does not name the cap", refused.stderr)
-	}
-
-	f.stopSession(t, id, first)
-	wantExit(t, f.orrery(t, "session", "start", f.sessionDir(t, "third"), "hello"), 0)
-	wantExit(t, daemon.stop(t), 0)
-}
-
 // TestEngineSessionReplay proves that the events `orrery session watch` prints for a stopped session rebuild its
 // conversation: each prompt is a user turn and each finished assistant text block is an assistant turn.
 func TestEngineSessionReplay(t *testing.T) {

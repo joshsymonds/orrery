@@ -576,13 +576,13 @@ message EpicsResumeRequest {
   string id = 1;
 }
 
-// EpicsResumeResponse carries the limited steps a resume resumed and those a full step cap left limited.
+// EpicsResumeResponse carries the limited steps a resume resumed.
 message EpicsResumeResponse {
+  reserved 2;
+  reserved "still_limited";
+
   // The ids of the limited steps the resume resumed, oldest first.
   repeated string resumed = 1;
-
-  // The ids of the limited steps the resume left limited because the step cap was full, oldest first.
-  repeated string still_limited = 2;
 }
 
 // EpicsStopRequest names the orreryd epic to stop.

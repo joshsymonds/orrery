@@ -153,7 +153,7 @@ func TestReadoptStepWhoseReturnCheckHookFailsEndsEngineRestarted(t *testing.T) {
 	if !stepStartGone(wt) {
 		t.Errorf("worktree %s still exists after the restart", wt)
 	}
-	requireStepSlots(t, restarted, 0)
+	requireStepsHeld(t, restarted, 0)
 }
 
 func TestReadoptStepWithoutHookIsRebuiltAsBefore(t *testing.T) {

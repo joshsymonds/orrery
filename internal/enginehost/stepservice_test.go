@@ -663,7 +663,6 @@ func TestStepErrorsMapToConnectCodes(t *testing.T) {
 		err  error
 		code connect.Code
 	}{
-		{name: "cap refusal", err: ErrCapReached, code: connect.CodeResourceExhausted},
 		{name: "no such step", err: wrapf(store.ErrNoStep, "read step s1"), code: connect.CodeNotFound},
 		{name: "empty prompt", err: ErrEmptyPrompt, code: connect.CodeInvalidArgument},
 		{name: "bad schema", err: ErrBadSchema, code: connect.CodeInvalidArgument},

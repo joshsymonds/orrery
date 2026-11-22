@@ -14,7 +14,6 @@ import (
 // tests' helpers.
 const (
 	flowWakeWiringEpicB = "flow-wiring-epic-b"
-	flowWakeWiringEpicC = "flow-wiring-epic-c"
 	flowWakeWiringStep  = "flow-wiring-step"
 	// flowWakeWiringBranch is a branch state the store accepts; any other is refused by its check constraint.
 	flowWakeWiringBranch = "created"
@@ -94,20 +93,4 @@ func TestOrrerydFlowWakeStepEndWakesItsEpic(t *testing.T) {
 	host.flowWake.set(rec.record)
 	host.stepEpicWake(flowWakeWiringEpicB)
 	requireFlowWakeWiringCalls(t, rec, [][]string{{flowWakeWiringEpicB}})
-}
-
-// TestOrrerydFlowWakeStepFreedWakesRefusedEpics checks that the manager's StepFreed, which orreryd gives the manager,
-// hands the epics a freed step slot refused to the interpreter's wake, and hands nothing for none.
-func TestOrrerydFlowWakeStepFreedWakesRefusedEpics(t *testing.T) {
-	t.Parallel()
-	host := newSessionHost(slog.New(slog.DiscardHandler))
-	rec := &flowWakeWiringRecorder{}
-	host.flowWake.set(rec.record)
-
-	host.stepFreedWake([]string{flowWakeWiringEpicC})
-	requireFlowWakeWiringCalls(t, rec, [][]string{{flowWakeWiringEpicC}})
-
-	host.stepFreedWake(nil)
-	host.stepFreedWake([]string{})
-	requireFlowWakeWiringCalls(t, rec, nil)
 }

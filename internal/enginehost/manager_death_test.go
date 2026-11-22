@@ -23,7 +23,7 @@ func TestDyingSessionFailsAloneAndResumes(t *testing.T) {
 	t.Parallel()
 	sink := &fakeSink{}
 	_, path := openStore(t)
-	m := newManagerOn(t, path, 2, fakeClaudePath(t), sink)
+	m := newManagerOn(t, path, fakeClaudePath(t), sink)
 	deadDir, liveDir := t.TempDir(), t.TempDir()
 	dead, err := m.Start(t.Context(), StartRequest{Dir: deadDir, Prompt: "hi"})
 	if err != nil {

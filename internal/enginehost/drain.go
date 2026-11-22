@@ -13,7 +13,7 @@ import (
 // through reconcileRow. The holder has ended, so holder.StopOrphan first stops a child that still runs; a failure is
 // logged and the drain goes on. The stdout from row's replay-from to its consumed offset was recorded already, so it is
 // replayed with nothing stored. Each later line is recorded as the pump records it, so each is stored once. The session
-// is not registered live, and takes no slot. Its exit is recorded only when the holder wrote an exit record whose reason
+// is not registered live. Its exit is recorded only when the holder wrote an exit record whose reason
 // is exited, the child ending on its own. Any other exit, or none, records nothing for the session's end, since the
 // child was stopped, idled, or ended with no record of why.
 func (m *Manager) drain(ctx context.Context, row store.EngineRow, dir string) error {

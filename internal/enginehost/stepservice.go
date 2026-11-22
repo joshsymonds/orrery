@@ -371,8 +371,6 @@ func listingMessage(row store.StepListing, held bool) (*v1.Step, error) {
 func stepCommandError(err error) error {
 	code := connect.CodeInternal
 	switch {
-	case errors.Is(err, ErrCapReached):
-		code = connect.CodeResourceExhausted
 	case errors.Is(err, store.ErrNoStep):
 		code = connect.CodeNotFound
 	case errors.Is(err, ErrStepNoTurn), errors.Is(err, ErrStepHeld), errors.Is(err, ErrStepGating),

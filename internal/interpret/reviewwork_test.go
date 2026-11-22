@@ -348,9 +348,8 @@ func TestReviewStartGivesTestParsimonyTheDoneGateChecksAtTheFrozenRevision(t *te
 	}
 }
 
-// TestReviewStartStopsAtStepCapAndReturnsOtherStartErrors: a start the step cap refuses ends the pass's starts with no
-// error, so the unit after it is not started. Any other start error is returned, and the units after it are not started.
-func TestReviewStartStopsAtStepCapAndReturnsOtherStartErrors(t *testing.T) {
+// TestReviewStartReturnsStartErrors: a start error is returned, and the units after it are not started.
+func TestReviewStartReturnsStartErrors(t *testing.T) {
 	t.Parallel()
 	other := errors.New("spawn claude: no such file")
 	cases := []struct {
@@ -360,8 +359,8 @@ func TestReviewStartStopsAtStepCapAndReturnsOtherStartErrors(t *testing.T) {
 		wantCalls  int
 		wantErr    error
 	}{
-		{name: "cap refusal on the second unit", refuseFrom: 2, err: enginehost.ErrCapReached, wantCalls: 2},
-		{name: "other error on the first unit", refuseFrom: 1, err: other, wantCalls: 1, wantErr: other},
+		{name: "error on the first unit", refuseFrom: 1, err: other, wantCalls: 1, wantErr: other},
+		{name: "error on the second unit", refuseFrom: 2, err: other, wantCalls: 2, wantErr: other},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

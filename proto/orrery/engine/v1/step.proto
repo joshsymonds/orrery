@@ -43,8 +43,8 @@ service Steps {
   rpc NudgeStep(NudgeStepRequest) returns (NudgeStepResponse);
 
   // ResumeStep resumes a step a usage limit holds: the owner's prompt that the limit has reset respawns the step's
-  // process in its session. A step no limit holds refuses with failed_precondition, a step at the step cap with
-  // resource_exhausted, and an id with no row with not_found.
+  // process in its session. A step no limit holds refuses with failed_precondition, and an id with no row with
+  // not_found.
   rpc ResumeStep(ResumeStepRequest) returns (ResumeStepResponse);
 }
 

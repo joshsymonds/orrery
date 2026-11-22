@@ -26,9 +26,6 @@ import (
 	"github.com/joshsymonds/orrery/internal/telemetry"
 )
 
-// ErrCapReached reports a Start that would exceed the cap of live sessions.
-var ErrCapReached = errors.New("session cap reached")
-
 // ErrNoSession reports an id with no engine row, or a Stop, Answer or Interrupt of a session that is not live.
 var ErrNoSession = errors.New("no such session")
 
@@ -131,8 +128,7 @@ type Store interface {
 }
 
 // Config configures a Manager. Shell is the login shell and Claude the claude name, resolved with exec.LookPath at
-// each start. Environ is the environment sessions start with, Cap the most live sessions at once, StepCap the most
-// live step sessions at once, counted apart from Cap, Writer stores their ops, Now stamps them (nil is time.Now),
+// each start. Environ is the environment sessions start with, Writer stores their ops, Now stamps them (nil is time.Now),
 // Notifier receives the notices of their state changes (nil sends none), Store is the engine rows Reconcile, Say and
 // Seen read and Logger reports pump errors (nil discards). HolderScope is the absolute path of systemd-run that runs
 // each session's holder in its own user scope, or empty to run holders plainly; with it set, Close detaches the
@@ -144,18 +140,14 @@ type Store interface {
 // nil to count none.
 //
 // CronWake, when set, is called with a session id after the owner's Say to that session returns nil, and after a turn's
-// end that leaves a session which is not a step with no turn running is stored. It is called with "" whenever a session
-// slot frees. Each call runs on its own goroutine, off the manager's locks (see wakeCron).
+// end that leaves a session which is not a step with no turn running is stored. It is called with "" whenever the
+// process of a session that is not a step ends. Each call runs on its own goroutine, off the manager's locks (see
+// wakeCron).
 //
 // EventWake, when set, is called with no argument when a caller event may now find its session free to take it: after
 // the owner's Say to a session returns nil, when the owner's Say clears a session's quiet, when a session goes live,
-// when the last request a session has open closes, and when a session slot or step slot frees. It must not block or
-// call the manager: the manager calls it synchronously, including under its locks. Nil does nothing (see wakeEvent).
-//
-// StepFreed, when set, is called each time a step slot frees: when a step's pump ends, when a kept step slot is dropped,
-// and when a step slot taken for a step that never started is released. It receives the epics the step cap refused since
-// the last free, sorted, and nil when it refused none (see stepFreedLocked). It is called synchronously under the manager's
-// lock, as EventWake is, so it must not block or take a lock of the manager. Nil does nothing.
+// when the last request a session has open closes, and when a session's process ends. It must not block or call the
+// manager: the manager calls it synchronously, including under its locks. Nil does nothing (see wakeEvent).
 //
 // PutOffs stores the owner's put-off marks, which NotNow and BringBack set and clear, and it refuses both as unavailable
 // when nil. Panes reads the panes' questions and reports a pane seen to the notice router, which NotNow and BringBack of a
@@ -169,8 +161,6 @@ type Config struct {
 	StateDir          string
 	ManagedDir        string
 	HolderVersion     int
-	Cap               int
-	StepCap           int
 	Writer            *Writer
 	Now               func() time.Time
 	Notifier          NoticeSink
@@ -179,7 +169,6 @@ type Config struct {
 	Metrics           *telemetry.Daemon
 	CronWake          func(session string)
 	EventWake         func()
-	StepFreed         func(epics []string)
 	PutOffs           PutOffStore
 	Panes             PaneQuestions
 
@@ -202,8 +191,7 @@ type Config struct {
 // open, background is set while a background task runs, awaited while one of those tasks runs a model (see
 // awaitsTask), idleSince is when the session last became not busy (zero while it is busy), idleTimer is the function
 // that stops the timer armed for the session's idle deadline (nil while none is armed), and idleStopped is set when a
-// check stops the session for being idle. step is set for a step session, which sends no notice and frees a step slot
-// rather than a session slot. observer receives the hand-offs of a step, which the pump makes, and returned is set from
+// check stops the session for being idle. step is set for a step session, which sends no notice. observer receives the hand-offs of a step, which the pump makes, and returned is set from
 // a hand-off until Continue sends the step's next prompt, so the step stays busy meanwhile. schema is set for a step
 // that runs with a schema, whose init event must list StructuredOutput (see observe). draining is set for a session
 // re-adopted from a holder one version older than the controller's, which retireLocked takes out of the live set once
@@ -270,7 +258,6 @@ type Manager struct {
 	// interrupt has recorded its engine_interrupt. Tests set it to read the session while the interrupt is pending, or to
 	// end the session so the send fails.
 	interruptWritten func(id string)
-	limit            int
 	writer           *Writer
 	now              func() time.Time
 	notifier         NoticeSink
@@ -281,8 +268,6 @@ type Manager struct {
 	cronWake func(session string)
 	// eventWake is Config.EventWake, called synchronously (see wakeEvent).
 	eventWake func()
-	// stepFreed is Config.StepFreed, called synchronously under the lock that frees a step slot (see stepFreedLocked).
-	stepFreed func(epics []string)
 	// putOffs and panes are Config.PutOffs and Config.Panes, which NotNow and BringBack use.
 	putOffs PutOffStore
 	panes   PaneQuestions
@@ -298,19 +283,11 @@ type Manager struct {
 	// stopRetired). A Say or Continue that finds no live session waits for the one held here, so its old holder's
 	// directory is gone when it resumes (see awaitStopping).
 	stopping map[string]*liveSession
-	// reserved counts the sessions being started or running, which is what the cap limits. stepLimit is the cap on
-	// step sessions, and stepsRunning counts the step sessions being started or running, apart from reserved.
-	reserved     int
-	stepLimit    int
-	stepsRunning int
-	// capRefused holds the epics the step cap refused since a step slot last freed, as a set (see reserveStep). The next
-	// free hands them on and empties it (see stepFreedLocked).
-	capRefused map[string]bool
 	// stepObservers holds the observer each step was started with, kept after the step stops so a respawn hands its turns
 	// to the same observer.
 	stepObservers map[string]StepObserver
-	// kept holds the drained steps whose step slot is kept for their id, by id (see retireLocked). Each has no live session,
-	// and its slot still counts in stepsRunning until Stop, Release or a respawn takes it.
+	// kept holds the drained steps, by id, from their retirement until Stop, Release or a respawn takes them (see
+	// retireLocked). Each has no live session.
 	kept map[string]*liveSession
 	// quiet holds the ids of the sessions the owner's Interrupt left quiet, until the owner's next Say to each clears it.
 	// While an id is in it, no caller event starts a turn in that session or resumes it (see claimFree and admitEvent),
@@ -356,8 +333,6 @@ func NewManager(cfg Config) *Manager {
 		stateDir:          cfg.StateDir,
 		managedDir:        cfg.ManagedDir,
 		holderVersion:     cfg.HolderVersion,
-		limit:             cfg.Cap,
-		stepLimit:         cfg.StepCap,
 		writer:            cfg.Writer,
 		now:               cfg.Now,
 		afterFunc:         cfg.AfterFunc,
@@ -367,12 +342,10 @@ func NewManager(cfg Config) *Manager {
 		metrics:           cfg.Metrics,
 		cronWake:          cfg.CronWake,
 		eventWake:         cfg.EventWake,
-		stepFreed:         cfg.StepFreed,
 		putOffs:           cfg.PutOffs,
 		panes:             cfg.Panes,
 		sessions:          map[string]*liveSession{},
 		stopping:          map[string]*liveSession{},
-		capRefused:        map[string]bool{},
 		stepObservers:     map[string]StepObserver{},
 		kept:              map[string]*liveSession{},
 		quiet:             map[string]struct{}{},
@@ -505,23 +478,22 @@ func (m *Manager) execute(
 	close(at.done)
 }
 
-// start starts the session id as req describes. It checks req and takes a slot under the cap, records the row, then
-// spawns the process and sends the first prompt. A failure before the row is stored frees the slot.
+// start starts the session id as req describes. It checks req and that the manager is open, records the row, then
+// spawns the process and sends the first prompt.
 func (m *Manager) start(ctx context.Context, id string, req StartRequest) (string, error) {
 	if err := checkStart(req); err != nil {
 		return "", err
 	}
-	if err := m.reserve(); err != nil {
+	if err := m.checkOpen(); err != nil {
 		return "", err
 	}
 	add := store.EngineAdd{ID: id, Dir: req.Dir, State: string(protocol.StateWorking)}
 	if err := m.writer.Commit(ctx, id, add); err != nil {
-		m.release()
 		return "", fmt.Errorf("record session %s: %w", id, err)
 	}
 	live, err := m.spawnLive(ctx, id, req.Dir, spawnSpec{model: req.Model})
 	if err != nil {
-		return id, m.fail(ctx, id, req.Dir, err)
+		return id, m.recordFailed(ctx, id, req.Dir, err)
 	}
 	writeID, err := newWriteID()
 	if err != nil {
@@ -542,10 +514,10 @@ func (m *Manager) start(ctx context.Context, id string, req StartRequest) (strin
 }
 
 // Stop stops the live session id and records it stopped once its pump has stored its last ops. A drained step with no live
-// session is recorded stopped the same way, and its kept slot is freed (see stopDrained). It returns ErrNoSession when id
+// session is recorded stopped the same way, and leaves the drained set (see stopDrained). It returns ErrNoSession when id
 // is neither. Unless id is a step, which keeps its own cron, Stop first deletes the cron jobs of id, so none fires into
 // the stopped session, whether id is live or idle-stopped. A deletion error is joined into the error Stop returns, and
-// the stop goes on. resumeMu is held, as Release holds it, so a respawn cannot take the kept slot between the lookup
+// the stop goes on. resumeMu is held, as Release holds it, so a respawn cannot take the drained step between the lookup
 // and the stop.
 func (m *Manager) Stop(ctx context.Context, id string) error {
 	defer m.calls.enter()()
@@ -575,8 +547,8 @@ func (m *Manager) Stop(ctx context.Context, id string) error {
 	return errors.Join(cronErr, fmt.Errorf("stop session %s: %w", id, ErrNoSession))
 }
 
-// stopDrained records the drained step stopped once its pump has ended, then frees its kept slot. The caller holds
-// resumeMu. The slot is freed even when the record fails, since the step is stopped either way.
+// stopDrained records the drained step stopped once its pump has ended, then drops it from the drained set. The caller
+// holds resumeMu. It is dropped even when the record fails, since the step is stopped either way.
 func (m *Manager) stopDrained(ctx context.Context, drained *liveSession) error {
 	recordErr := m.recordStopped(ctx, drained)
 	m.mu.Lock()
@@ -588,26 +560,10 @@ func (m *Manager) stopDrained(ctx context.Context, drained *liveSession) error {
 	return nil
 }
 
-// dropKeptLocked frees the step slot kept for the drained step id, if one is kept (see retireLocked). The caller holds the
+// dropKeptLocked drops the drained step id from the drained set, if it is there (see retireLocked). The caller holds the
 // lock.
 func (m *Manager) dropKeptLocked(id string) {
-	if m.kept[id] != nil {
-		delete(m.kept, id)
-		m.stepsRunning--
-		m.stepFreedLocked()
-		m.wakeEvent()
-	}
-}
-
-// stepFreedLocked calls the step-freed hook (see Config.StepFreed) with the epics the step cap refused since the last
-// step slot freed, sorted, which it then forgets. It passes nil when none was refused, so a free with no refusal still
-// reaches the hook. The caller holds the lock that freed the step slot, and the hook runs under it.
-func (m *Manager) stepFreedLocked() {
-	epics := slices.Sorted(maps.Keys(m.capRefused))
-	clear(m.capRefused)
-	if m.stepFreed != nil {
-		m.stepFreed(epics)
-	}
+	delete(m.kept, id)
 }
 
 // Seen marks the engine row id as seen now, and once that is stored reports the seen time to the notifier, which clears
@@ -878,8 +834,8 @@ func (m *Manager) Deliver(ctx context.Context, req DeliverRequest) error {
 // does not hold it: a session that is busy returns ErrSessionBusy and stores and sends nothing. A live session that the
 // owner interrupted and has said nothing to since returns ErrCallerQuiet. A session that is not live is resumed from its
 // row, unless its row is stopped, which returns ErrCallerStopped, failed, which returns ErrCallerFailed, or the owner
-// interrupted it and has said nothing to it since, which returns ErrCallerQuiet; each of those starts no process. A full
-// cap returns the ErrCapReached of the resume. A step session returns an error naming it.
+// interrupted it and has said nothing to it since, which returns ErrCallerQuiet; each of those starts no process. A step
+// session returns an error naming it.
 func (m *Manager) DeliverCron(ctx context.Context, req DeliverRequest) error {
 	defer m.calls.enter()()
 	return m.deliverKeyed(ctx, req, m.deliverCron)
@@ -1201,8 +1157,8 @@ func (m *Manager) Continue(ctx context.Context, id string, prompt StepPrompt) er
 // respawnStep starts the step id that is not live again, from its engine row and its steps row: it resumes the row's
 // claude session with the step's agent, inline agents and schema, registered as a step with the observer it was started
 // with. It first waits for a drained holder of id to end (see awaitStopping), so the new process never starts over the
-// old holder's record or directory. Then it takes the step slot kept for id, or one under StepCap, before reading the rows, so a full cap
-// refuses the respawn before anything is recorded (see reserveStep). A directory that is gone, an agent that no longer
+// old holder's record or directory. Then it takes id out of the drained set, refusing when the manager is closed (see
+// claimRespawn), before it reads the rows. A directory that is gone, an agent that no longer
 // resolves, or a spawn that fails, records the step failed without a notice and returns the error. It returns the step
 // claimed with its turn running, as claimStep does. resumeMu makes concurrent calls for one id start a single process. It returns an error
 // wrapping ErrNoSession when id is not a step row.
@@ -1215,20 +1171,17 @@ func (m *Manager) respawnStep(ctx context.Context, id string) (*liveSession, err
 	if err := m.awaitStopping(ctx, id); err != nil {
 		return nil, err
 	}
-	if err := m.reserveStep(id, ""); err != nil {
+	if err := m.claimRespawn(id); err != nil {
 		return nil, err
 	}
 	row, step, err := m.stepLaunch(ctx, id)
 	if err != nil {
-		m.releaseStep()
 		return nil, err
 	}
 	if err = checkDir(row.Dir); err != nil {
-		m.releaseStep()
 		return nil, errors.Join(err, m.writeFailed(ctx, id, err))
 	}
 	if err = m.resolveStepAgent(StepSession{ID: id, Dir: row.Dir, Agent: step.Agent, Agents: step.Agents}); err != nil {
-		m.releaseStep()
 		return nil, errors.Join(err, m.writeFailed(ctx, id, err))
 	}
 	m.mu.Lock()
@@ -1237,7 +1190,6 @@ func (m *Manager) respawnStep(ctx context.Context, id string) (*liveSession, err
 	live, err := m.spawnLive(ctx, id, row.Dir, spawnSpec{claudeSession: row.ClaudeSession, agent: step.Agent,
 		agents: step.Agents, schema: step.Schema, step: true, observer: observer})
 	if err != nil {
-		m.releaseStep()
 		return nil, errors.Join(err, m.writeFailed(ctx, id, err))
 	}
 	m.markSending(live)
@@ -1538,8 +1490,8 @@ func (m *Manager) Live() []string {
 
 // resumeSession returns the live session id, starting it from its engine row when it is not live. The process starts in
 // the row's directory and resumes the row's claude session, when it has one. It waits for a retired session with id to
-// end (see awaitStopping), then reserves a slot under the cap before it reads the directory, so a full cap refuses the
-// resume before anything is recorded. A directory that is missing or not a directory records the session failed and
+// end (see awaitStopping), then checks that the manager is open before it reads the directory, so a closed manager refuses
+// the resume before anything is recorded. A directory that is missing or not a directory records the session failed and
 // returns an error wrapping ErrBadDir. resumeMu makes concurrent calls for one id start a single process: each call after
 // the first finds the session live. A non-nil admit sees the row under resumeMu before the process starts, and an error
 // it returns refuses the resume.
@@ -1573,8 +1525,8 @@ func (m *Manager) resumeSession(
 // awaitStopping waits until the retired session with id, if one is stopping, has ended, so it records nothing more and
 // its holder's directory is gone for a new holder to take: it waits until stopRetired has seen both the session's pump
 // end and its stop return, which is once the holder has ended and its directory is removed, since the stream can end
-// before that. A drained step's slot is kept for its id, not freed, when it ends (see retireLocked). It returns an error
-// wrapping ctx's error when ctx ends first.
+// before that. A drained step stays in the drained set when it ends (see retireLocked). It returns an error wrapping ctx's
+// error when ctx ends first.
 func (m *Manager) awaitStopping(ctx context.Context, id string) error {
 	m.mu.Lock()
 	old := m.stopping[id]
@@ -1590,18 +1542,18 @@ func (m *Manager) awaitStopping(ctx context.Context, id string) error {
 	}
 }
 
-// resume starts the process of row, an engine row that is not live, and registers it live. It takes a slot under the cap
-// first, then checks the row's directory. A failed check or spawn records the row failed and frees the slot.
+// resume starts the process of row, an engine row that is not live, and registers it live. It checks that the manager is
+// open first, then checks the row's directory. A failed check or spawn records the row failed.
 func (m *Manager) resume(ctx context.Context, row store.EngineRow) (*liveSession, error) {
-	if err := m.reserve(); err != nil {
+	if err := m.checkOpen(); err != nil {
 		return nil, err
 	}
 	if err := checkDir(row.Dir); err != nil {
-		return nil, errors.Join(err, m.fail(ctx, row.ID, row.Dir, err))
+		return nil, errors.Join(err, m.recordFailed(ctx, row.ID, row.Dir, err))
 	}
 	live, err := m.spawnLive(ctx, row.ID, row.Dir, spawnSpec{claudeSession: row.ClaudeSession})
 	if err != nil {
-		return nil, errors.Join(err, m.fail(ctx, row.ID, row.Dir, err))
+		return nil, errors.Join(err, m.recordFailed(ctx, row.ID, row.Dir, err))
 	}
 	return live, nil
 }
@@ -1619,7 +1571,7 @@ func (m *Manager) engineRow(ctx context.Context, id string) (store.EngineRow, er
 }
 
 // spawnLive starts the process for id in dir as sp describes, and registers it as live under a pump that records its
-// events. The caller holds the slot from reserve or reserveStep. An error that returns here leaves nothing registered.
+// events. An error that returns here leaves nothing registered.
 func (m *Manager) spawnLive(ctx context.Context, id, dir string, sp spawnSpec) (*liveSession, error) {
 	sess, err := m.spawn(ctx, id, dir, sp)
 	if err != nil {
@@ -1856,8 +1808,8 @@ func (m *Manager) idleDeadline() {
 	}
 }
 
-// checkIdle stops each live session that has been not busy for the idle timeout by the clock, and waits for its pump, which
-// frees its slot. A session is busy while a turn runs, a request is open, or a background task runs. The stop records
+// checkIdle stops each live session that has been not busy for the idle timeout by the clock, and waits for its pump to
+// end. A session is busy while a turn runs, a request is open, or a background task runs. The stop records
 // nothing, so the session's row and events stay as they were. The session is taken out of the live set under the lock
 // before it is stopped, and resumeMu is held through the stop, so a Say that finds no live session waits, then resumes it
 // from its row. A session whose deadline timer fires before it is due, or fires after it turned busy, is not stopped.
@@ -2062,27 +2014,14 @@ func checkDir(dir string) error {
 	return nil
 }
 
-// reserve takes one slot under the cap for a start. It refuses when the manager is closed or the cap is full.
-func (m *Manager) reserve() error {
+// checkOpen refuses a start or resume once the manager is closed.
+func (m *Manager) checkOpen() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.closed {
 		return errManagerClosed
 	}
-	if m.reserved >= m.limit {
-		return fmt.Errorf("%w: %d live sessions, cap %d", ErrCapReached, m.reserved, m.limit)
-	}
-	m.reserved++
 	return nil
-}
-
-// release frees a slot taken by reserve for a session that never started running. It then calls the cron hook with "".
-func (m *Manager) release() {
-	m.mu.Lock()
-	m.reserved--
-	m.mu.Unlock()
-	m.wakeCron("")
-	m.wakeEvent()
 }
 
 // newSessionID returns 128 random bits in hex.
@@ -2227,8 +2166,9 @@ func userMemoryOf(environ []string) (string, error) {
 // pump records the events of one running session, line by line and in order, until its lines close, and tells the owner
 // of each event once it is recorded. reply is the reply text of the turn the session's earlier lines left, so the pump
 // continues that turn. It is the only reader of the session's lines and the only user of its recorder. When it ends it
-// frees the session's slot and removes its live entry, only while that entry is its own. A retired step keeps its slot for
-// its id instead, and a retired session leaves m.stopping when its stop has returned (see stopRetired).
+// removes the session's live entry, only while that entry is its own, and wakes the caller events and, for a session that
+// is not a step, the cron hook. A retired step stays in the drained set, and a retired session leaves m.stopping when its
+// stop has returned (see stopRetired).
 func (m *Manager) pump(ctx context.Context, live *liveSession, rec *recorder, reply string) {
 	defer m.pumps.Done()
 	for line := range live.sess.Lines() {
@@ -2239,17 +2179,7 @@ func (m *Manager) pump(ctx context.Context, live *liveSession, rec *recorder, re
 		delete(m.sessions, live.id)
 	}
 	m.disarmIdleLocked(live)
-	freed := true
-	switch {
-	case !live.step:
-		m.reserved--
-	case !live.retired:
-		m.stepsRunning--
-		m.stepFreedLocked()
-	default:
-		freed = false
-	}
-	if freed {
+	if !live.step || !live.retired {
 		m.wakeEvent()
 	}
 	m.mu.Unlock()
@@ -2588,11 +2518,11 @@ func (m *Manager) noteTurnEndedLocked(live *liveSession, ended session.TurnEnded
 // following turn, or folds into the running turn, is answered on this holder before it stops. A background task still
 // running at a turn's end keeps the session until a later turn ends with none, or until the idle stop takes it. A step's
 // hand-off does not hold a draining step: its next Continue respawns it, so the step is retired at its hand-off. A retired
-// step keeps its step slot for its id, in m.kept, which its pump does not free. Each step that can leave a draining session
+// step enters the drained set, m.kept, which its pump's end does not leave. Each step that can leave a draining session
 // drained calls it under the lock: register, noteEvent at a turn's end, and endSend. The session leaves m.sessions and
 // enters m.stopping in that lock hold, so no prompt reaches it afterwards. Its stop runs on its own goroutine, so the pump
-// that calls this goes on recording the line it is on. The stop records nothing. An engine session holds its slot until its
-// pump ends, and awaitStopping also waits for the stop, so a new holder never starts over this one's directory. The
+// that calls this goes on recording the line it is on. The stop records nothing. awaitStopping waits for the pump's end and
+// the stop, so a new holder never starts over this one's directory. The
 // caller holds the lock.
 func (m *Manager) retireLocked(live *liveSession) {
 	if !live.draining || live.retired || live.sending > 0 || live.sess.UnansweredPrompts() > 0 {
@@ -2672,7 +2602,7 @@ func (m *Manager) changed(ctx context.Context, id string) {
 	m.notifier.Changed(ctx, id)
 }
 
-// wakeCron calls the cron hook (see Config.CronWake) with session id, or with "" for a freed slot. It runs the hook on
+// wakeCron calls the cron hook (see Config.CronWake) with session id, or with "" for an ended process. It runs the hook on
 // its own goroutine, so the caller holds no lock while the hook runs and never waits on it. It does nothing without a
 // hook.
 func (m *Manager) wakeCron(id string) {
@@ -2787,12 +2717,6 @@ func (m *Manager) abandon(ctx context.Context, live *liveSession, cause error) e
 		return nil
 	}
 	return m.recordFailed(ctx, live.id, live.dir, errors.Join(cause, stopErr))
-}
-
-// fail records a session in dir that never got a running process as failed with the reason err, and frees its slot.
-func (m *Manager) fail(ctx context.Context, id, dir string, err error) error {
-	m.release()
-	return m.recordFailed(ctx, id, dir, err)
 }
 
 // recordFailed writes the failed state of session id in dir with the reason err, then notifies the owner of it. It

@@ -243,7 +243,7 @@ func TestParentStepDeliverPastIdleLimit(t *testing.T) {
 }
 
 // TestParentStepDeliverSecondChildWhileTurnRuns covers a parent with two children whose turn runs after the first child's
-// end was delivered. The second child is started under that turn, so the step cap of two holds the parent and one child at
+// end was delivered. The second child is started under that turn, so the parent and one child run at
 // a time. The second child's end is sent while the turn runs, and both ends are among the parent's prompts before its done
 // return, which comes after the last end, ends it.
 func TestParentStepDeliverSecondChildWhileTurnRuns(t *testing.T) {

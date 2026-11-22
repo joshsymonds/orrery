@@ -23,7 +23,7 @@ func hasFlagValue(args, flag, value string) bool {
 
 func TestStartPassesModelToClaudeAndResumeOmitsIt(t *testing.T) {
 	t.Parallel()
-	m, path := newTestManager(t, 1, fakeClaudePath(t))
+	m, path := newTestManager(t, fakeClaudePath(t))
 	dir := t.TempDir()
 	id, err := m.Start(t.Context(), StartRequest{Dir: dir, Prompt: "hi", Model: "haiku"})
 	if err != nil {
@@ -55,7 +55,7 @@ func TestStartPassesModelToClaudeAndResumeOmitsIt(t *testing.T) {
 }
 
 func TestStartRefusesBadModelBeforeStoringOrSpawning(t *testing.T) {
-	m, path := newTestManager(t, 1, fakeClaudePath(t))
+	m, path := newTestManager(t, fakeClaudePath(t))
 	cases := []struct {
 		name  string
 		model string
@@ -85,9 +85,6 @@ func TestStartRefusesBadModelBeforeStoringOrSpawning(t *testing.T) {
 	}
 	if n := countRows(t, path, "events"); n != 0 {
 		t.Fatalf("events rows = %d, want 0", n)
-	}
-	if _, err := m.Start(t.Context(), StartRequest{Dir: t.TempDir(), Prompt: "hi", Model: "haiku"}); err != nil {
-		t.Fatalf("Start after refusals = %v, want the cap slot still free", err)
 	}
 }
 

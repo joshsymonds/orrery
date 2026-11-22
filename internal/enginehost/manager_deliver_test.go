@@ -39,7 +39,7 @@ func enginePromptsOf(t *testing.T, history store.EngineHistory) []deliveredPromp
 
 func TestCallerEventDeliverStoresEventPrompt(t *testing.T) {
 	t.Parallel()
-	m, path := newTestManager(t, 1, fakeClaudePath(t))
+	m, path := newTestManager(t, fakeClaudePath(t))
 	id, err := m.Start(t.Context(), StartRequest{Dir: t.TempDir(), Prompt: "hi"})
 	if err != nil {
 		t.Fatalf("Start: %v", err)
@@ -65,7 +65,7 @@ func TestCallerEventDeliverStoresEventPrompt(t *testing.T) {
 
 func TestCallerEventDeliverWhileTurnRuns(t *testing.T) {
 	t.Parallel()
-	m, path := newTestManager(t, 1, fakeClaudePath(t))
+	m, path := newTestManager(t, fakeClaudePath(t))
 	dir := t.TempDir()
 	// WAITOPEN holds the turn open until fakeclaude.open exists, so the turn ends by itself and not by the owner's
 	// Interrupt, which would leave the caller quiet (see TestOwnerInterruptQuietsCallerEventsUntilHisSay).
@@ -106,7 +106,7 @@ func TestCallerEventDeliverWhileTurnRuns(t *testing.T) {
 
 func TestCallerEventDeliverLeavesOpenQuestion(t *testing.T) {
 	t.Parallel()
-	m, path := newTestManager(t, 1, fakeClaudePath(t))
+	m, path := newTestManager(t, fakeClaudePath(t))
 	id, err := m.Start(t.Context(), StartRequest{Dir: t.TempDir(), Prompt: "ASK"})
 	if err != nil {
 		t.Fatalf("Start: %v", err)
@@ -138,7 +138,7 @@ func TestCallerEventDeliverLeavesOpenQuestion(t *testing.T) {
 
 func TestCallerEventDeliverRepeatedPromptIDSendsOnce(t *testing.T) {
 	t.Parallel()
-	m, path := newTestManager(t, 1, fakeClaudePath(t))
+	m, path := newTestManager(t, fakeClaudePath(t))
 	dir := t.TempDir()
 	id, err := m.Start(t.Context(), StartRequest{Dir: dir, Prompt: "hi"})
 	if err != nil {
@@ -161,7 +161,7 @@ func TestCallerEventDeliverRepeatedPromptIDSendsOnce(t *testing.T) {
 	if err := m.Stop(t.Context(), id); err != nil {
 		t.Fatalf("Stop: %v", err)
 	}
-	restarted := newManagerOn(t, path, 1, fakeClaudePath(t), &fakeSink{})
+	restarted := newManagerOn(t, path, fakeClaudePath(t), &fakeSink{})
 	if err := restarted.Deliver(t.Context(), req); err != nil {
 		t.Fatalf("Deliver of a delivered prompt after a restart: %v", err)
 	}
@@ -179,7 +179,7 @@ func TestCallerEventDeliverRepeatedPromptIDSendsOnce(t *testing.T) {
 
 func TestCallerEventDeliverResumesIdleStopped(t *testing.T) {
 	t.Parallel()
-	m, path, clock := newIdleManager(t, 1)
+	m, path, clock := newIdleManager(t)
 	id, err := m.Start(t.Context(), StartRequest{Dir: t.TempDir(), Prompt: "hi"})
 	if err != nil {
 		t.Fatalf("Start: %v", err)
@@ -210,7 +210,7 @@ func TestCallerEventDeliverResumesIdleStopped(t *testing.T) {
 
 func TestCallerEventDeliverRefusesOwnerStopped(t *testing.T) {
 	t.Parallel()
-	m, path := newTestManager(t, 1, fakeClaudePath(t))
+	m, path := newTestManager(t, fakeClaudePath(t))
 	dir := t.TempDir()
 	id, err := m.Start(t.Context(), StartRequest{Dir: dir, Prompt: "hi"})
 	if err != nil {
@@ -244,7 +244,7 @@ func TestCallerEventDeliverRefusesOwnerStopped(t *testing.T) {
 
 func TestCallerEventDeliverRefusesStepSession(t *testing.T) {
 	t.Parallel()
-	m, path := newStepManager(t, 1, fakeClaudePath(t), &fakeSink{})
+	m, path := newStepManager(t, fakeClaudePath(t), &fakeSink{})
 	if err := m.StartStep(t.Context(), StepSession{
 		ID: stepA, Dir: t.TempDir(), Prompt: "hi", Agent: "reviewer", Schema: stepSchema,
 	}); err != nil {

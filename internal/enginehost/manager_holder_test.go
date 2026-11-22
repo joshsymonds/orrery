@@ -92,7 +92,7 @@ func closeAndClear(t *testing.T, m *Manager, root, id string) {
 	}
 }
 
-// newHolderManager returns a manager with one slot, like newTestManager, whose sessions run their holders under scope
+// newHolderManager returns a manager like newTestManager whose sessions run their holders under scope
 // with state dir stateDir. Its environment is a PATH, a HOME of its own, and environ.
 func newHolderManager(t *testing.T, scope, stateDir string, environ ...string) (*Manager, string) {
 	t.Helper()
@@ -107,7 +107,6 @@ func newHolderManager(t *testing.T, scope, stateDir string, environ ...string) (
 		Shell:       sh,
 		Claude:      fakeClaudePath(t),
 		Environ:     append([]string{"PATH=" + os.Getenv("PATH"), "HOME=" + t.TempDir()}, environ...),
-		Cap:         1,
 		Writer:      writer,
 		Now:         fixedClock,
 		Store:       s,

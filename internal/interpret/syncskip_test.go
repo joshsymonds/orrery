@@ -115,7 +115,7 @@ func syncNotAdvancedWhileBusyIsTriedAgain(images *worldImages) func(t *testing.T
 		w.requireSyncEnded(syncFirst, "skipped", fmt.Sprintf(
 			"merge %s of origin's commit %s into the stored base %s\nnot advanced: planner turn %d is running",
 			sync.Revision, originHead, candidate, turn))
-		free := store.TurnFree{Reason: "the step cap is full"}
+		free := store.TurnFree{Reason: "engine_restarted"}
 		if err := w.s.FreeTurn(context.Background(), runEpic, turn, free, runClock()); err != nil {
 			t.Fatalf("FreeTurn: %v", err)
 		}

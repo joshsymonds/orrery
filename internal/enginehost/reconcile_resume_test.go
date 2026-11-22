@@ -208,45 +208,6 @@ func TestReconcileDoesNotResumeStepRow(t *testing.T) {
 	}
 }
 
-func TestReconcileInterruptsWorkingRowWhenCapRefusesResume(t *testing.T) {
-	t.Parallel()
-	s, _ := openStore(t)
-	writer := NewWriter(WriterConfig{Applier: s})
-	startRun(t, writer)
-	sink := &fakeSink{}
-	m := newReconcileManager(t, s, writer, sink)
-	// A live session takes the only slot under the cap, so the resume of the row below is refused.
-	live, err := m.Start(t.Context(), StartRequest{Dir: t.TempDir(), Prompt: "STALL"})
-	if err != nil {
-		t.Fatalf("Start: %v", err)
-	}
-	dir := t.TempDir()
-	seedClaudeRow(t, s, "working", dir, "working", store.KindEngine)
-
-	if err := m.Reconcile(t.Context()); err != nil {
-		t.Fatalf("Reconcile: %v", err)
-	}
-
-	row, err := s.EngineSession(t.Context(), "working")
-	if err != nil {
-		t.Fatalf("EngineSession: %v", err)
-	}
-	if row.State != "interrupted" || row.Reason != restartedReason {
-		t.Fatalf("row after the refused resume = state %q reason %q, want interrupted with the restart reason",
-			row.State, row.Reason)
-	}
-	want := Notice{Session: "working", Dir: dir, State: "interrupted", Body: restartedReason}
-	if got := sink.got(); len(got) != 1 || !reflect.DeepEqual(got[0], want) {
-		t.Fatalf("notices = %+v, want exactly [%+v]", got, want)
-	}
-	if starts := fakeStarts(t, dir); len(starts) != 0 {
-		t.Fatalf("fake claude starts for a refused resume = %q, want none", starts)
-	}
-	if !slices.Contains(m.Live(), live) {
-		t.Fatalf("live sessions = %v, want the session that holds the slot", m.Live())
-	}
-}
-
 func TestReconcileNotifiesOnlyFailureWhenResumeFails(t *testing.T) {
 	t.Parallel()
 	s, _ := openStore(t)

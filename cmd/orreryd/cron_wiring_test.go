@@ -137,10 +137,8 @@ func TestCronFireThroughOrrerydWiring(t *testing.T) {
 	timers := make(chan *cronWiringTimer, cronWiringBuffer)
 	delivered := make(chan enginehost.DeliverRequest, cronWiringBuffer)
 	opts := options{
-		socket:     filepath.Join(t.TempDir(), "orreryd.sock"),
-		sessionCap: defaultSessionCap,
-		stepCap:    defaultStepCap,
-		cronNow:    clock.now,
+		socket:  filepath.Join(t.TempDir(), "orreryd.sock"),
+		cronNow: clock.now,
 		cronTimers: func(d time.Duration) enginehost.CronTimer {
 			timer := &cronWiringTimer{c: make(chan time.Time, 1), d: d}
 			timers <- timer

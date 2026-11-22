@@ -42,10 +42,10 @@ func (failingRows) EngineSession(context.Context, string) (store.EngineRow, erro
 }
 
 // newContinueEnv returns the moveEnv of an epic created by a headless conversation started in a new git repository,
-// on a Manager with the cap limit, served with real steering, and the path of its store.
-func newContinueEnv(t *testing.T, limit int) (moveEnv, string) {
+// on a Manager served with real steering, and the path of its store.
+func newContinueEnv(t *testing.T) (moveEnv, string) {
 	t.Helper()
-	m, path := newTestManager(t, limit, fakeClaudePath(t))
+	m, path := newTestManager(t, fakeClaudePath(t))
 	st := concreteStore(t, m)
 	client := steererSetClient(t, m)
 	repo := stepGitTestRepo(t)
@@ -68,7 +68,7 @@ func continueEpicID(t *testing.T, client enginev1connect.EpicsClient, id string)
 
 func TestSteerContinueStartsOneSessionAndMovesEpicToIt(t *testing.T) {
 	t.Parallel()
-	env, path := newContinueEnv(t, 2)
+	env, path := newContinueEnv(t)
 	before := countRows(t, path, "sessions")
 
 	session, err := continueEpicID(t, env.client, epicServiceID)
@@ -81,27 +81,9 @@ func TestSteerContinueStartsOneSessionAndMovesEpicToIt(t *testing.T) {
 	env.wantOnlyMove(t, store.Maker{By: store.MakerOwner}, env.steerer, session)
 }
 
-func TestSteerContinueAtFullCapRefusesNamingCapAndMovesNothing(t *testing.T) {
-	t.Parallel()
-	env, path := newContinueEnv(t, 1)
-	before := countRows(t, path, "sessions")
-
-	_, err := continueEpicID(t, env.client, epicServiceID)
-	if got := connect.CodeOf(err); got != connect.CodeResourceExhausted {
-		t.Fatalf("code = %v (%v), want ResourceExhausted", got, err)
-	}
-	if !strings.Contains(err.Error(), "cap of 1") {
-		t.Fatalf("error %q does not name the cap of 1", err)
-	}
-	if n := countRows(t, path, "sessions"); n != before {
-		t.Fatalf("sessions rows = %d, want %d: a refused continue starts no session", n, before)
-	}
-	env.wantUnmoved(t)
-}
-
 func TestSteerContinueUnreadableStartedSessionRefusesNamingReasonAndMovesNothing(t *testing.T) {
 	t.Parallel()
-	env, path := newContinueEnv(t, 2)
+	env, path := newContinueEnv(t)
 	steering := NewEpicSteering(EpicSteeringConfig{Manager: env.m, Sessions: failingRows{}, Render: rowRender})
 	client := newEpicsClient(t, serveEpicsWith(t, env.st, steering))
 	before := countRows(t, path, "sessions")
@@ -151,7 +133,7 @@ func TestSteerContinueSpawnFailedStartedSessionRefusesNamingReasonAndMovesNothin
 
 func TestSteerContinueFailedMoveStopsStartedSession(t *testing.T) {
 	t.Parallel()
-	env, path := newContinueEnv(t, 2)
+	env, path := newContinueEnv(t)
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 	steering := NewEpicSteering(EpicSteeringConfig{Manager: env.m, Sessions: env.m.store, Render: rowRender})
@@ -185,7 +167,7 @@ func TestSteerContinueFailedMoveStopsStartedSession(t *testing.T) {
 
 func TestSteerContinueWithoutSteeringRefusesUnavailable(t *testing.T) {
 	t.Parallel()
-	env, path := newContinueEnv(t, 2)
+	env, path := newContinueEnv(t)
 	client := newEpicsClient(t, serveEpicsWith(t, env.st, nil))
 	before := countRows(t, path, "sessions")
 
@@ -211,7 +193,7 @@ func TestSteerContinueRefusesEmptyOrUnknownEpicAndStartsNothing(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
-			env, path := newContinueEnv(t, 2)
+			env, path := newContinueEnv(t)
 			before := countRows(t, path, "sessions")
 
 			_, err := continueEpicID(t, env.client, c.id)

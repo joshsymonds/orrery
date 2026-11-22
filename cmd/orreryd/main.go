@@ -77,10 +77,6 @@ const managedDir = "/etc/claude-code"
 
 const (
 	defaultClaude = "claude"
-	// defaultSessionCap is the most live engine sessions at once when --session-cap is not given.
-	defaultSessionCap = 4
-	// defaultStepCap is the most live step sessions at once when --step-cap is not given.
-	defaultStepCap = 6
 	// notifyTimeout bounds each notification request.
 	notifyTimeout = 10 * time.Second
 	// flightThreshold is how long a start to READY or a sessions reconcile may take before the flight recorder writes
@@ -102,8 +98,8 @@ const (
 )
 
 const usageText = `usage: orreryd [-L NAME | -S PATH] [--socket PATH] [--claude PATH] [--summary-model CONTEXT=MODEL]...
-               [--push-host HOST]... [--sessions] [--session-cap N] [--session-shell PATH]
-               [--holder-scope PATH] [--holder-scope-memory SIZE] [--step-cap N] [--metrics-listen ADDR]
+               [--push-host HOST]... [--sessions] [--session-shell PATH]
+               [--holder-scope PATH] [--holder-scope-memory SIZE] [--metrics-listen ADDR]
 
 flags:
   -L NAME           tmux server by name (tmux -L)
@@ -115,7 +111,6 @@ flags:
   --push-host HOST  push relay host a Web Push subscription may name; repeat for each host
                     (default ntfy.sh)
   --sessions        serve the engine session service on sessions.sock beside the daemon socket
-  --session-cap N   most live engine sessions at once (default 4)
   --session-shell PATH
                     absolute login shell that starts each session (default $SHELL)
   --holder-scope PATH
@@ -124,7 +119,6 @@ flags:
   --holder-scope-memory SIZE
                     memory cap of each holder's scope, with no swap past it: bytes, or a whole
                     number with K, M, G or T (powers of 1024) (default 8G)
-  --step-cap N      most live step sessions at once, counted apart from --session-cap (default 6)
   --metrics-listen ADDR
                     serve /metrics on ADDR, a loopback IP literal with a port (default: none)
 `
@@ -152,11 +146,9 @@ type options struct {
 	models          map[string]string
 	pushHosts       []string
 	sessions        bool
-	sessionCap      int
 	sessionShell    string
 	holderScope     string
-	scopeMemory     int64 // the --holder-scope-memory cap of each holder's scope, in bytes
-	stepCap         int
+	scopeMemory     int64                   // the --holder-scope-memory cap of each holder's scope, in bytes
 	judgeDelay      time.Duration           // the --judge-delay test seam's wait, route.JudgeDelay by default
 	storeBusy       time.Duration           // the --store-busy-timeout test seam's wait, store.BusyTimeout by default
 	metricsListen   string                  // the --metrics-listen address, "" when unset
@@ -376,14 +368,8 @@ func routeJudgeDelay(d time.Duration) time.Duration {
 	return d
 }
 
-// checkLimits refuses a --session-cap or --step-cap below 1 and a negative --judge-delay, each as a usage error.
-func checkLimits(sessionCap, stepCap int, judgeDelay, storeBusy time.Duration) error {
-	if sessionCap < 1 {
-		return usagef("--session-cap must be at least 1, got %d", sessionCap)
-	}
-	if stepCap < 1 {
-		return usagef("--step-cap must be at least 1, got %d", stepCap)
-	}
+// checkLimits refuses a negative --judge-delay or --store-busy-timeout, each as a usage error.
+func checkLimits(judgeDelay, storeBusy time.Duration) error {
 	if judgeDelay < 0 {
 		return usagef("--judge-delay must not be negative, got %v", judgeDelay)
 	}
@@ -406,11 +392,9 @@ func parseFlags(args []string, getenv func(string) string) (options, error) {
 	var pushHosts repeatFlag
 	flags.Var(&pushHosts, "push-host", "push relay host, repeatable")
 	sessions := flags.Bool("sessions", false, "serve the engine session service")
-	sessionCap := flags.Int("session-cap", defaultSessionCap, "most live engine sessions")
 	sessionShell := flags.String("session-shell", getenv("SHELL"), "login shell that starts each session")
 	holderScope := flags.String("holder-scope", "", "systemd-run binary that runs each session's holder")
 	scopeMemory := scopeMemoryFlag(flags)
-	stepCap := flags.Int("step-cap", defaultStepCap, "most live step sessions")
 	metricsListen := flags.String("metrics-listen", "", "loopback address that serves /metrics")
 	flowTicks := flags.String("flow-ticks", "", "test seam: file each flow pass appends a line to")
 	dueAt := flags.Int64("due-at", 0, "test seam: unix seconds the due pass reads as now")
@@ -431,7 +415,7 @@ func parseFlags(args []string, getenv func(string) string) (options, error) {
 	if *claude == "" {
 		return options{}, usagef("--claude is empty")
 	}
-	if err := checkLimits(*sessionCap, *stepCap, *judgeDelay, *storeBusy); err != nil {
+	if err := checkLimits(*judgeDelay, *storeBusy); err != nil {
 		return options{}, err
 	}
 	if err := checkClockSeams(*dueAt, *relayAt); err != nil {
@@ -463,11 +447,9 @@ func parseFlags(args []string, getenv func(string) string) (options, error) {
 		models:        models,
 		pushHosts:     pushHosts,
 		sessions:      *sessions,
-		sessionCap:    *sessionCap,
 		sessionShell:  *sessionShell,
 		holderScope:   *holderScope,
 		scopeMemory:   *scopeMemory,
-		stepCap:       *stepCap,
 		judgeDelay:    *judgeDelay,
 		storeBusy:     *storeBusy,
 		metricsListen: *metricsListen,
@@ -926,11 +908,10 @@ type sessionHost struct {
 	callerEvents     *enginehost.CallerEvents
 	stopCallerEvents context.CancelFunc
 	callerEventsDone chan struct{}
-	// flowWake is the relay the steps' EpicWake and the manager's StepFreed hand epics to. startFlow sets it to the
-	// interpreter's Wake.
+	// flowWake is the relay the steps' EpicWake hands epics to. startFlow sets it to the interpreter's Wake.
 	flowWake flowWakeRelay
-	// dueWake is the relay the steps' Stored, the manager's StepFreed and the epic writes wake the due pass through.
-	// startDue sets it to the due pass's Wake.
+	// dueWake is the relay the steps' Stored and the epic writes wake the due pass through. startDue sets it to the due
+	// pass's Wake.
 	dueWake dueWakeRelay
 	// outsideWake is the relay the release slots' frees wake the epics that waited on an outside holder through.
 	// startFlow sets it to the interpreter's WakeOutsideWaiters.
@@ -988,9 +969,9 @@ func newSessionHost(logger *slog.Logger) *sessionHost {
 }
 
 // startSessions listens on sessions.sock beside the daemon socket and serves the Engine, Steps, Pools and Evidence
-// services on it until stop. With an open store it also starts the writer, a manager capped at opts.sessionCap that
-// notifies through router, the grants broker for hostName, which restores the grants a previous run stored and then
-// runs no loop until stop, and the step engine capped at opts.stepCap whose worktrees go under step-worktrees
+// services on it until stop. With an open store it also starts the writer, a manager that notifies through router, the
+// grants broker for hostName, which restores the grants a previous run stored and then runs no loop until stop, and the
+// step engine whose worktrees go under step-worktrees
 // beside the store file. The steps re-adopt the open step rows a previous run left, the manager reconciles the session
 // rows and the steps reconcile the rest before the service serves. The evidence runner is then built over the store,
 // the steps and the pools, and takes up the open evidence runs, so no judge starts beside a step already re-adopted.
@@ -1045,15 +1026,13 @@ func startSessions(
 			HolderScopeMemory: opts.scopeMemory,
 			StateDir:          stateDir,
 			ManagedDir:        managedDir,
-			Cap:               opts.sessionCap,
-			StepCap:           opts.stepCap,
 			Writer:            host.writer,
 			Notifier:          enginehost.NewNotifier(enginehost.NotifierConfig{Route: router}),
 			Store:             st,
 			Logger:            logger,
 			Metrics:           opts.metrics,
 			CronWake:          host.cron.Wake, PutOffs: st, Panes: newPaneQuestions(questionServer(opts), router),
-			EventWake: host.callerEvents.Wake, StepFreed: host.stepFreedWake,
+			EventWake: host.callerEvents.Wake,
 		})
 		host.startBroker(ctx, hostName, st, logger)
 		// host.pools is nil when the broker's restore failed, which leaves the gates no pools to run under.
@@ -1569,17 +1548,6 @@ func (h *sessionHost) stepEpicWake(epic string) {
 func (h *sessionHost) stepStored() {
 	h.callerEvents.Wake()
 	h.dueWake.Wake()
-}
-
-// stepFreedWake is the manager's StepFreed: it wakes the due pass, since a freed slot may let a row the step cap refused
-// resume, and it hands the epics a freed step slot refused to the flow, and does nothing for none. The manager calls it
-// under its lock, so it does not block.
-func (h *sessionHost) stepFreedWake(epics []string) {
-	h.dueWake.Wake()
-	if len(epics) == 0 {
-		return
-	}
-	h.flowWake.Wake(epics)
 }
 
 // clearStoreHooks clears the epics-changed and session-events hooks of st, so no write after it calls them. A nil st

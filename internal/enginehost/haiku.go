@@ -16,11 +16,8 @@ import (
 	"github.com/joshsymonds/orrery/internal/stamp"
 )
 
-// haikuDefaultCap and haikuDefaultTimeout apply when HaikuConfig leaves Cap or Timeout zero.
-const (
-	haikuDefaultCap     = 2
-	haikuDefaultTimeout = 60 * time.Second
-)
+// haikuDefaultTimeout applies when HaikuConfig leaves Timeout zero.
+const haikuDefaultTimeout = 60 * time.Second
 
 // haikuKillGrace bounds how long a killed claude may hold its output pipes open before the run returns.
 const haikuKillGrace = 2 * time.Second
@@ -28,11 +25,10 @@ const haikuKillGrace = 2 * time.Second
 // haikuBaseURLPrefix names the environment entry the call drops so claude reaches the API directly.
 const haikuBaseURLPrefix = "ANTHROPIC_BASE_URL="
 
-// HaikuConfig configures a Haiku caller. Cap 0 means 2 concurrent calls, and Timeout 0 means 60 seconds.
+// HaikuConfig configures a Haiku caller. Timeout 0 means 60 seconds.
 type HaikuConfig struct {
 	Claude  string
 	Environ []string
-	Cap     int
 	Timeout time.Duration
 }
 
@@ -41,7 +37,6 @@ type Haiku struct {
 	claude  string
 	environ []string
 	timeout time.Duration
-	slots   chan struct{}
 }
 
 // haikuCaller is the one short structured call the engine makes.
@@ -51,10 +46,6 @@ type haikuCaller interface {
 
 // NewHaiku returns a Haiku caller for cfg with the defaults applied.
 func NewHaiku(cfg HaikuConfig) *Haiku {
-	capacity := cfg.Cap
-	if capacity == 0 {
-		capacity = haikuDefaultCap
-	}
 	timeout := cfg.Timeout
 	if timeout == 0 {
 		timeout = haikuDefaultTimeout
@@ -63,12 +54,11 @@ func NewHaiku(cfg HaikuConfig) *Haiku {
 		claude:  cfg.Claude,
 		environ: cfg.Environ,
 		timeout: timeout,
-		slots:   make(chan struct{}, capacity),
 	}
 }
 
 // Call runs claude once against schema with input on stdin, with the default summary model and no base URL, and
-// returns the result's structured_output. The timeout covers the wait for a call slot and the run together.
+// returns the result's structured_output. The timeout covers the run.
 func (h *Haiku) Call(ctx context.Context, schema, input string) (json.RawMessage, error) {
 	return h.CallVia(ctx, "", protocol.DefaultSummaryModel, nil, schema, input)
 }
@@ -76,7 +66,7 @@ func (h *Haiku) Call(ctx context.Context, schema, input string) (json.RawMessage
 // CallVia runs claude once against schema with input on stdin, using model (the default summary model when
 // empty). The --settings value of the run is stamp.Settings(true, env, [the user CLAUDE.md]), so env rides in it, and
 // when baseURL is non-empty, claude's API base URL in its process env is baseURL. It returns the result's
-// structured_output. The timeout covers the wait for a call slot and the run together. A run whose user CLAUDE.md path
+// structured_output. The timeout covers the run. A run whose user CLAUDE.md path
 // cannot be resolved fails before claude starts.
 func (h *Haiku) CallVia(
 	ctx context.Context, baseURL, model string, env map[string]string, schema, input string,
@@ -102,7 +92,7 @@ func (h *Haiku) settings(env map[string]string) (string, error) {
 }
 
 // withEnv returns a caller whose calls run as h.Call does, with env in each call's --settings value so the claude
-// it starts runs with env. A nil or empty env leaves the argv as h.Call's. The calls share h's call slots.
+// it starts runs with env. A nil or empty env leaves the argv as h.Call's.
 func (h *Haiku) withEnv(env map[string]string) haikuBound {
 	return haikuBound{h: h, env: env}
 }
@@ -113,7 +103,7 @@ type haikuBound struct {
 	env map[string]string
 }
 
-// Call runs claude once through h's call slots with the bound env in its --settings value, the default summary model
+// Call runs claude once as h.Call does, with the bound env in its --settings value, the default summary model
 // and no base URL in its process env.
 func (b haikuBound) Call(ctx context.Context, schema, input string) (json.RawMessage, error) {
 	settings, err := b.h.settings(b.env)
@@ -124,19 +114,10 @@ func (b haikuBound) Call(ctx context.Context, schema, input string) (json.RawMes
 }
 
 // call runs claude once on model with settings as its --settings value and, when baseURL is non-empty, claude's API
-// base URL set to baseURL in its process env, and returns the result's structured_output. The timeout covers the
-// wait for a call slot and the run together.
+// base URL set to baseURL in its process env, and returns the result's structured_output. The timeout covers the run.
 func (h *Haiku) call(ctx context.Context, settings, baseURL, model, schema, input string) (json.RawMessage, error) {
 	ctx, cancel := context.WithTimeout(ctx, h.timeout)
 	defer cancel()
-
-	select {
-	case h.slots <- struct{}{}:
-	case <-ctx.Done():
-		return nil, fmt.Errorf("haiku: waiting for a call slot: %w", ctx.Err())
-	}
-	defer func() { <-h.slots }()
-
 	return h.run(ctx, settings, baseURL, model, schema, input)
 }
 

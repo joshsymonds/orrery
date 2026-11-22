@@ -437,8 +437,6 @@ func (s *service) checkPutOff(ctx context.Context, req PutOffRequest) error {
 func commandError(err error) error {
 	code := connect.CodeInternal
 	switch {
-	case errors.Is(err, ErrCapReached):
-		code = connect.CodeResourceExhausted
 	case errors.Is(err, ErrNoSession), errors.Is(err, session.ErrNoPendingRequest):
 		code = connect.CodeNotFound
 	case errors.Is(err, ErrBadDir), errors.Is(err, ErrEmptyPrompt), errors.Is(err, ErrBadModel),

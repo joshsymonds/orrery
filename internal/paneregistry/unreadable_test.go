@@ -221,7 +221,8 @@ func TestPaneRegistryStartingEntryKeepsItsBinding(t *testing.T) {
 }
 
 // TestPaneRegistryStartingEntryClearsAHeldFault checks that a starting entry is a whole read: an entry read torn once
-// and then read as starting is not reported when it is next read torn, since that read is the first failure again.
+// and then read as starting is not reported when it is next read torn, since that read is the first failure again. Each
+// change is settled before the next, so each read finds the contents its change wrote.
 func TestPaneRegistryStartingEntryClearsAHeldFault(t *testing.T) {
 	t.Parallel()
 	torn := unparsableEntries(t)[0].data
@@ -231,7 +232,9 @@ func TestPaneRegistryStartingEntryClearsAHeldFault(t *testing.T) {
 	expectBinding(t, r.next(t), readyPane, readySession)
 
 	publish(t, dir, "4242.json", torn)
+	settle(t, dir, r)
 	publish(t, dir, "4242.json", startingEntry())
+	settle(t, dir, r)
 	publish(t, dir, "4242.json", torn)
 	settle(t, dir, r)
 	expectNoNotice(t, r)

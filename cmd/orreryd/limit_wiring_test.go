@@ -181,8 +181,6 @@ func startLimitHost(t *testing.T, st *store.Store, getenv func(string) string, r
 		socket:       filepath.Join(t.TempDir(), "orreryd.sock"),
 		claude:       eventWakeClaude(t),
 		sessionShell: eventWakeShell(t),
-		sessionCap:   defaultSessionCap,
-		stepCap:      defaultStepCap,
 		// The steps' resets are fixed dates, so the due pass reads a clock before them and resumes none, whatever
 		// the real date is.
 		dueNow: func() time.Time { return time.Unix(limitWiringStamp, 0) },

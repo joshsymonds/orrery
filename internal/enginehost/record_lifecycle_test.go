@@ -61,7 +61,7 @@ func TestQueueLifecycleExitDiscardsThePromptsClaudeDidNotStart(t *testing.T) {
 // store lists the opening prompt with its newest state completed.
 func TestQueueLifecycleFakeClaudeOpeningPromptEndsCompleted(t *testing.T) {
 	t.Parallel()
-	m, path := newTestManager(t, 1, fakeClaudePath(t))
+	m, path := newTestManager(t, fakeClaudePath(t))
 	id, err := m.Start(t.Context(), StartRequest{Dir: t.TempDir(), Prompt: "plain one"})
 	if err != nil {
 		t.Fatalf("Start: %v", err)

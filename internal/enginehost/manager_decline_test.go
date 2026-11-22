@@ -42,7 +42,7 @@ func denialOf(t *testing.T, dir, requestID string) bool {
 // engine_interrupt that says a turn runs, since the question is open in its turn.
 func TestDeclineHeadlessDeniesAndInterrupts(t *testing.T) {
 	t.Parallel()
-	m, path := newTestManager(t, 1, fakeClaudePath(t))
+	m, path := newTestManager(t, fakeClaudePath(t))
 	dir := t.TempDir()
 	id, err := m.Start(t.Context(), StartRequest{Dir: dir, Prompt: "ASK"})
 	if err != nil {
@@ -73,7 +73,7 @@ func TestDeclineHeadlessDeniesAndInterrupts(t *testing.T) {
 // next Say runs as a turn, and once it ends the pass delivers the pending event.
 func TestDeclineHeadlessQuietUntilSay(t *testing.T) {
 	t.Parallel()
-	m, path := newTestManager(t, 1, fakeClaudePath(t))
+	m, path := newTestManager(t, fakeClaudePath(t))
 	s := storeOf(t, m)
 	id, err := m.Start(t.Context(), StartRequest{Dir: t.TempDir(), Prompt: "ASK"})
 	if err != nil {
@@ -132,7 +132,7 @@ func TestDeclineHeadlessQuietUntilSay(t *testing.T) {
 // quieted. The open question is still open afterwards, so declining it then succeeds.
 func TestDeclineHeadlessRefusesUnopenedRequest(t *testing.T) {
 	t.Parallel()
-	m, path := newTestManager(t, 1, fakeClaudePath(t))
+	m, path := newTestManager(t, fakeClaudePath(t))
 	dir := t.TempDir()
 	id, err := m.Start(t.Context(), StartRequest{Dir: dir, Prompt: "ASK"})
 	if err != nil {

@@ -41,11 +41,11 @@ type cronDeliverRig struct {
 	sched  *CronScheduler
 }
 
-// newCronDeliverRig returns a rig whose manager has a cap of one. Its scheduler is the manager's cron hook, set before
+// newCronDeliverRig returns a rig over an idle manager. Its scheduler is the manager's cron hook, set before
 // the first start, and is not run: the test runs it with runFireScheduler once the jobs it fires are stored.
 func newCronDeliverRig(t *testing.T) *cronDeliverRig {
 	t.Helper()
-	m, path, idle := newIdleManager(t, 1)
+	m, path, idle := newIdleManager(t)
 	st := storeOf(t, m)
 	rig := &cronDeliverRig{
 		m: m, path: path, idle: idle, clock: &fireClock{at: cronTestNow()}, timers: newFakeFireTimers(), st: st,
@@ -395,83 +395,6 @@ func TestCronDeliverFireQuietUntilSay(t *testing.T) {
 	if len(owner) != 1 || len(ended) < 2 || len(cron) != 1 || owner[0] >= ended[1] || ended[1] >= cron[0] {
 		t.Fatalf("owner prompt at %v, turn ends at %v, cron prompt at %v, want the cron prompt after the Say's turn",
 			owner, ended, cron)
-	}
-}
-
-func TestCronDeliverFireCapWaitsForSlot(t *testing.T) {
-	t.Parallel()
-	rig := newCronDeliverRig(t)
-	rig.storeSentinel(t)
-	aDir := t.TempDir()
-	a, err := rig.m.Start(t.Context(), StartRequest{Dir: aDir, Prompt: "hi"})
-	if err != nil {
-		t.Fatalf("Start A: %v", err)
-	}
-	waitHistory(t, engineOf(rig.m), rig.path, a, "A's first reply done", func(h store.EngineHistory) bool {
-		return hasBlock(t, h, "fake reply 1") && lastState(t, h) == string(protocol.StateDone)
-	})
-	job := deliverJob(a, cronFireJob, cronFireDaily)
-	storeFireJob(t, rig.st, job)
-	runFireScheduler(t, rig.sched)
-	due := fireTime(0, 10, 30)
-
-	// The start pass arms the timer for the job, and so does the pass that A's first reply's end wakes.
-	requireArmed(t, rig.timers.awaitArmed(), due.Sub(cronTestNow()))
-	timer := rig.timers.awaitArmed()
-	requireArmed(t, timer, due.Sub(cronTestNow()))
-
-	// A goes idle-stopped, which frees the slot. The stop's exit wakes the scheduler, and that pass arms the timer again.
-	rig.idle.advance(defaultIdleAfter)
-	rig.m.checkIdle(t.Context())
-	timer = rig.timers.awaitArmed()
-	requireArmed(t, timer, due.Sub(cronTestNow()))
-
-	// B takes the slot and holds it with a turn that never ends.
-	b, err := rig.m.Start(t.Context(), StartRequest{Dir: t.TempDir(), Prompt: "STALL"})
-	if err != nil {
-		t.Fatalf("Start B: %v", err)
-	}
-	waitHistory(t, engineOf(rig.m), rig.path, b, "B's turn running", func(h store.EngineHistory) bool {
-		return h.State == string(protocol.StateWorking)
-	})
-
-	// Fired at due with the cap full, the pass delivers nothing and starts no process for A.
-	rig.clock.set(due)
-	timer.c <- time.Time{}
-	requireArmed(t, rig.timers.awaitArmed(), deliverSentinelDue().Sub(due))
-	requireUnfired(t, rig.st, job.ID)
-	if got := enginePromptsOf(t, historyOf(t, rig.path, a)); !reflect.DeepEqual(got, []deliveredPrompt{{Text: "hi"}}) {
-		t.Fatalf("prompts of A at the cap = %+v, want only the start's prompt", got)
-	}
-	if args := fakeArgs(t, aDir); len(args) != 1 {
-		t.Fatalf("fake claude starts of A at the cap = %q, want the start only", args)
-	}
-
-	// The owner's stop of B frees the slot. Its exit wakes the scheduler, and that pass resumes A and delivers the fire.
-	if err := rig.m.Stop(t.Context(), b); err != nil {
-		t.Fatalf("Stop B: %v", err)
-	}
-	rig.timers.awaitArmed()
-	requireStoredJobs(t, rig.st, deliverSentinelJob)
-	history := waitHistory(
-		t,
-		engineOf(rig.m),
-		rig.path,
-		a,
-		"the reply to the cron prompt",
-		func(h store.EngineHistory) bool {
-			return hasBlock(t, h, "fake reply 2")
-		},
-	)
-	want := []deliveredPrompt{
-		{Text: "hi"},
-		{Text: cronFirePrompt, PromptID: firePromptID(job, due), Sender: store.PromptSenderCron},
-	}
-	if got := enginePromptsOf(t, history); !reflect.DeepEqual(got, want) {
-		t.Fatalf("prompts of A after the slot freed = %+v, want %+v", got, want)
-	}
-	if args := fakeArgs(t, aDir); len(args) != 2 || !strings.Contains(args[1], "--resume session_1") {
-		t.Fatalf("fake claude starts of A = %q, want a second start resuming session_1", args)
 	}
 }
 

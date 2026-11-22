@@ -994,29 +994,6 @@ func TestPassExistingDerivedStepIsNotRestarted(t *testing.T) {
 	}
 }
 
-// TestPassCapReachedChangesNothingAndRetriesNextPass covers F6: a step start the cap refuses changes nothing, and the
-// next pass retries the same start.
-func TestPassCapReachedChangesNothingAndRetriesNextPass(t *testing.T) {
-	t.Parallel()
-	f := newPassFixture(t)
-	f.pass()
-	f.addRun(f.lastRun().id, evidence.PhaseRed, f.base, 1, evidence.VerdictFails)
-	f.steps.err = fmt.Errorf("start step: %w", enginehost.ErrCapReached)
-	f.pass()
-	before := f.task().Build
-	if before.Stage != StageImplement || before.Step != "" {
-		t.Fatalf("build = %+v, want implement with no step after the refused start", before)
-	}
-	f.pass()
-	if got := f.task().Build; got != before {
-		t.Errorf("build after the retry = %+v, want %+v unchanged", got, before)
-	}
-	id := passStep(StageImplement, 1, 0)
-	if len(f.steps.starts) != 2 || f.steps.starts[0].ID != id || f.lastStart().ID != id {
-		t.Errorf("Start calls = %d, want two starts of %s", len(f.steps.starts), id)
-	}
-}
-
 // TestPassRoleErrorParksTaskHeldParked: a role file that names no implementer parks the task held
 // parked with the role error as the reason, and starts nothing.
 func TestPassRoleErrorParksTaskHeldParked(t *testing.T) {

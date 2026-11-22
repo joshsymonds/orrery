@@ -36,7 +36,7 @@ func stampTestHome(t *testing.T) string {
 	return home
 }
 
-// stampTestManager returns a manager with a session cap and a step cap of one that runs the fake claude and starts
+// stampTestManager returns a manager that runs the fake claude and starts
 // every process with environ. It reads rows from the store at the returned path.
 func stampTestManager(t *testing.T, environ []string) (*Manager, string) {
 	t.Helper()
@@ -51,8 +51,6 @@ func stampTestManager(t *testing.T, environ []string) (*Manager, string) {
 		Shell:   sh,
 		Claude:  fakeClaudePath(t),
 		Environ: environ,
-		Cap:     1,
-		StepCap: 1,
 		Writer:  writer,
 		Now:     fixedClock,
 		Store:   s,

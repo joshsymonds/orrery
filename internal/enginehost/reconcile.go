@@ -40,7 +40,7 @@ const resumedBody = "orreryd restarted during the turn; resumed it"
 // it settles the engine rows that have no process in this manager, as a restart leaves them. A re-adopted session is
 // live, so its row is left as its replay gave it, except that a session re-adopted from a holder one version older is
 // stopped once it is not busy, at its turn's end or at once (see retireLocked), and that stop records nothing. A step's
-// stop keeps its slot for its id, and the step stays held (see StepLive). A drained row is settled by its drain. Each
+// stop keeps it in the drained set, and the step stays held (see StepLive). A drained row is settled by its drain. Each
 // other row loses its unfinished text. A row whose turn was running, working or waiting, is recorded interrupted with
 // restartedReason and no question. A working turn of an engine row whose session has a Claude id is then resumed with
 // resumePrompt, unless its session is quiet, its last prompt is resumePrompt already, or the read of the quiet sessions
@@ -280,10 +280,8 @@ func (m *Manager) drainGone(ctx context.Context, row store.EngineRow, dir string
 // the holder at row's replay-from, replays the stdout from there to row's consumed offset, and registers the session live,
 // primed from that replay (see prime). It owes the session the prompts the previous controller left unanswered (see
 // owedPrompts). A holder one version older than the controller's is re-adopted as well, but its session is draining, so it
-// is retired once no turn runs (see retireLocked); a step is retired at its hand-off and keeps its step slot for its id. It
-// takes a slot without the cap check, since the holder's process already runs: a step slot for a step, and a session slot
-// otherwise. A failure after the holder is attached ends the session with Detach, which leaves the holder running for the
-// caller to clear.
+// is retired once no turn runs (see retireLocked); a step is retired at its hand-off and enters the drained set. A failure
+// after the holder is attached ends the session with Detach, which leaves the holder running for the caller to clear.
 func (m *Manager) readopt(ctx context.Context, row store.EngineRow, dir string) error {
 	sp, err := m.readoptSpec(ctx, row)
 	if err != nil {
@@ -310,20 +308,8 @@ func (m *Manager) readopt(ctx context.Context, row store.EngineRow, dir string) 
 	}
 	rec := newRecorder(row.ID)
 	rec.claudeSession = row.ClaudeSession
-	m.mu.Lock()
-	if sp.step {
-		m.stepsRunning++
-	} else {
-		m.reserved++
-	}
-	m.mu.Unlock()
 	re := &readoption{row: row, lines: lines, written: written, draining: draining}
 	if _, err = m.register(ctx, sess, row.ID, row.Dir, sp, rec, re); err != nil {
-		if sp.step {
-			m.releaseStep()
-		} else {
-			m.release()
-		}
 		return errors.Join(fmt.Errorf("register session %s: %w", row.ID, err), sess.Detach())
 	}
 	return nil
@@ -421,8 +407,8 @@ func (m *Manager) ExpectStep(id string, observer StepObserver) {
 	m.stepObservers[id] = observer
 }
 
-// StepLive reports whether this manager holds the step id for its loop: a live step session, or a drained one whose step
-// slot is kept for its next Continue (see retireLocked).
+// StepLive reports whether this manager holds the step id for its loop: a live step session, or a drained one kept for its
+// next Continue (see retireLocked).
 func (m *Manager) StepLive(id string) bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -502,9 +488,9 @@ func (m *Manager) resumeHeld(id string) bool {
 }
 
 // resumeInterrupted resumes the session of row with resumePrompt, after the settle write of row is stored, so the resume
-// starts from the interrupted row. The resume's notice replaces the interruption's. A resume that the session cap refuses
-// leaves the row interrupted, and the interruption's notice stands. A resume whose spawn or send fails records the session
-// failed and notifies that failure itself, so no interruption notice follows it.
+// starts from the interrupted row. The resume's notice replaces the interruption's. A resume refused before it starts a
+// process leaves the row interrupted, and the interruption's notice stands. A resume whose spawn or send fails records the
+// session failed and notifies that failure itself, so no interruption notice follows it.
 func (m *Manager) resumeInterrupted(ctx context.Context, row store.EngineRow) {
 	err := m.Say(ctx, SayRequest{ID: row.ID, Text: resumePrompt})
 	if err == nil {

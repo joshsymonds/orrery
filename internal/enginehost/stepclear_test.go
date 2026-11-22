@@ -121,6 +121,6 @@ func TestReadoptStepThatGaveNoAnswerIsKilledThenClearedWithoutAsking(t *testing.
 	if restarted.StepLive(stepA) {
 		t.Fatalf("step %s is live after the restart, though its holder gave no answer", stepA)
 	}
-	requireStepSlots(t, restarted, 0)
+	requireStepsHeld(t, restarted, 0)
 	requireUndrained(t, rig, sink, obs)
 }

@@ -469,7 +469,7 @@ func epicResumeHandler(epics enginev1connect.EpicsClient) ToolHandler {
 		if err != nil {
 			return toolFailure(err), nil
 		}
-		change := resumeChange(resumed.Msg.GetResumed(), resumed.Msg.GetStillLimited())
+		change := resumeChange(resumed.Msg.GetResumed())
 		return epicAck(resumed.Msg.GetEpic(), req.GetId(), change), nil
 	}
 }

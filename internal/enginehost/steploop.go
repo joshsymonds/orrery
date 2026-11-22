@@ -595,7 +595,7 @@ func (r *stepRun) turnEnded(ctx context.Context, ended session.TurnEnded) bool {
 // limitTurn checks whether the turn that has just ended ended on a usage limit: the rate limit the store holds for the
 // step, or the rate limit error the session handed the run since the previous turn end. A limited turn drops the pending
 // nudges and the hold, stores the loop state with its limit, publishes the held step, and releases the step's process,
-// so the step stays open and its slot is free. It reports whether the turn was limited and, when it was, whether the run
+// so the step stays open with no process running. It reports whether the turn was limited and, when it was, whether the run
 // goes on. A failed read, store or release ends the step failed.
 func (r *stepRun) limitTurn(ctx context.Context) (limited, goOn bool) {
 	errored := r.rateLimit.Swap(false)

@@ -134,7 +134,6 @@ func TestStartWithHolderScopeMemoryCapsTheSessionsScope(t *testing.T) {
 		Environ: []string{
 			"PATH=" + os.Getenv("PATH"), "HOME=" + t.TempDir(), "FAKE_SYSTEMD_RUN_ARGS=" + record,
 		},
-		Cap:               1,
 		Writer:            writer,
 		Now:               fixedClock,
 		Store:             s,

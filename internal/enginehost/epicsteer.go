@@ -125,8 +125,7 @@ func checkInRepository(ctx context.Context, epic store.EpicRow, session, dir str
 }
 
 // ContinueEpic starts a steering session in the epic's repository and moves the epic to it as the owner, then answers
-// the stored epic and the session's id. A start that the session cap refuses, or whose session row cannot be read,
-// refuses the continue and moves nothing. A move that fails after the start refuses the continue, and the started
+// the stored epic and the session's id. A start that fails, or whose session row cannot be read, refuses the continue and moves nothing. A move that fails after the start refuses the continue, and the started
 // session is stopped, even when ctx has ended.
 func (s *epicService) ContinueEpic(
 	ctx context.Context,

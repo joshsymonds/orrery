@@ -5482,16 +5482,13 @@ func (x *ResumeEpicRequest) GetId() string {
 	return ""
 }
 
-// ResumeEpicResponse carries the resumed epic, the limited steps it resumed and the limited steps a full step cap left
-// limited.
+// ResumeEpicResponse carries the resumed epic and the limited steps it resumed.
 type ResumeEpicResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// The stored epic.
 	Epic *StoredEpic `protobuf:"bytes,1,opt,name=epic,proto3" json:"epic,omitempty"`
 	// The ids of the limited steps the resume resumed, oldest first.
-	Resumed []string `protobuf:"bytes,2,rep,name=resumed,proto3" json:"resumed,omitempty"`
-	// The ids of the limited steps the resume left limited because the step cap was full, oldest first.
-	StillLimited  []string `protobuf:"bytes,3,rep,name=still_limited,json=stillLimited,proto3" json:"still_limited,omitempty"`
+	Resumed       []string `protobuf:"bytes,2,rep,name=resumed,proto3" json:"resumed,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -5536,13 +5533,6 @@ func (x *ResumeEpicResponse) GetEpic() *StoredEpic {
 func (x *ResumeEpicResponse) GetResumed() []string {
 	if x != nil {
 		return x.Resumed
-	}
-	return nil
-}
-
-func (x *ResumeEpicResponse) GetStillLimited() []string {
-	if x != nil {
-		return x.StillLimited
 	}
 	return nil
 }
@@ -7732,11 +7722,10 @@ const file_orrery_engine_v1_epic_proto_rawDesc = "" +
 	"\x11PauseEpicResponse\x120\n" +
 	"\x04epic\x18\x01 \x01(\v2\x1c.orrery.engine.v1.StoredEpicR\x04epic\"#\n" +
 	"\x11ResumeEpicRequest\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\tR\x02id\"\x85\x01\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\"u\n" +
 	"\x12ResumeEpicResponse\x120\n" +
 	"\x04epic\x18\x01 \x01(\v2\x1c.orrery.engine.v1.StoredEpicR\x04epic\x12\x18\n" +
-	"\aresumed\x18\x02 \x03(\tR\aresumed\x12#\n" +
-	"\rstill_limited\x18\x03 \x03(\tR\fstillLimited\"!\n" +
+	"\aresumed\x18\x02 \x03(\tR\aresumedJ\x04\b\x03\x10\x04R\rstill_limited\"!\n" +
 	"\x0fStopEpicRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\"D\n" +
 	"\x10StopEpicResponse\x120\n" +

@@ -207,7 +207,7 @@ func TestStepsStartAgentGateRefusesCallerAgentSchemaOrDoneValue(t *testing.T) {
 
 func TestStepsStartAgentGateUnresolvedAgentStartsNothing(t *testing.T) {
 	t.Parallel()
-	f := newRefusalFixture(t, 2)
+	f := newRefusalFixture(t)
 	repo := stepGitTestRepo(t)
 	const agent = "no-such-agent-gate-probe"
 	gatesFile := filepath.Join(t.TempDir(), "gates.toml")
@@ -250,7 +250,7 @@ func TestStepsStartNoGateWithoutAgentStartsNothing(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			f := newRefusalFixture(t, 2)
+			f := newRefusalFixture(t)
 			start := stepStartReadOnly(stepGitTestRepo(t), "HEAD")
 			start.Agent = ""
 			start.Schema = tc.schema
