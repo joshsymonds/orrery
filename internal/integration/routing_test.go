@@ -28,12 +28,16 @@ func noticeLogPath(stateHome string) string {
 	return filepath.Join(stateHome, "orrery", "notices.jsonl")
 }
 
-// readNoticeLog returns the lines of the notice log at path, decoded.
+// readNoticeLog returns the lines of the notice log at path, decoded. orreryd creates the log when it starts, so a log that
+// no notice wrote to is empty and holds no lines.
 func readNoticeLog(t *testing.T, path string) []route.Line {
 	t.Helper()
 	raws := readLines(t, path)
 	lines := make([]route.Line, 0, len(raws))
 	for _, raw := range raws {
+		if raw == "" {
+			continue
+		}
 		var line route.Line
 		if err := json.Unmarshal([]byte(raw), &line); err != nil {
 			t.Fatalf("decode notice line %q: %v", raw, err)
@@ -70,15 +74,6 @@ func noticeLogHas(path, reason string) bool {
 	return err == nil && strings.Contains(string(data), `"reason":"`+reason+`"`)
 }
 
-// permissionRequestHook is a PermissionRequest hook input, which leaves its pane waiting for input.
-func permissionRequestHook() map[string]any {
-	return map[string]any{
-		"hook_event_name": "PermissionRequest",
-		"tool_name":       "example-tool",
-		"tool_input":      map[string]any{"command": "example"},
-	}
-}
-
 // sendInput reports on the daemon socket that the web view had input at input, unix seconds.
 func sendInput(t *testing.T, socket string, input int64) {
 	t.Helper()
@@ -100,12 +95,13 @@ func TestOrrerydRouteAwayPushesAndLogs(t *testing.T) {
 	stateHome := filepath.Join(dir, "state")
 	endpoint := newPushEndpoint(t)
 	registerPush(t, stateHome, endpoint)
-	daemon, socket := startPushDaemon(t, name, dir, stateHome, endpoint)
+	daemon, _ := startPushDaemon(t, name, dir, stateHome, endpoint)
+	session := startClaudeSession(t, client, dir, pane, dir)
 	since := time.Now().Unix()
 
-	sendHook(t, socket, pane, dir, permissionRequestHook())
-	requireOption(t, client, pane, protocol.OptionState, string(protocol.StateWaiting))
-	// The router decides the notice after the frame is applied, so the push is awaited before orreryd stops. Stopping
+	session.requestPermission(t)
+	waitForOption(t, daemon, client, pane, protocol.OptionState, string(protocol.StateWaiting))
+	// The router decides the notice after the entry is applied, so the push is awaited before orreryd stops. Stopping
 	// earlier would end the undecided notice with a shutdown line.
 	assertPushed(t, endpoint, pane, protocol.StateWaiting)
 	wantExit(t, daemon.stop(t), 0)
@@ -127,19 +123,21 @@ func TestOrrerydRouteSilencesBackgroundWorkStop(t *testing.T) {
 	stateHome := filepath.Join(dir, "state")
 	endpoint := newPushEndpoint(t)
 	registerPush(t, stateHome, endpoint)
-	daemon, socket := startPushDaemon(t, name, dir, stateHome, endpoint)
-	transcript := filepath.Join(dir, "transcript.jsonl")
-	writeFile(t, transcript, exampleTranscript, 0o600)
+	daemon, _ := startPushDaemon(t, name, dir, stateHome, endpoint)
+	session := startClaudeSession(t, client, dir, pane, dir)
 	since := time.Now().Unix()
 
-	sendHook(t, socket, pane, dir, stopHookInput(t, transcript, quietSubagentTasks))
-	requireOption(t, client, pane, protocol.OptionState, string(protocol.StateDone))
+	// The turn ends with its reply, but a subagent it started still runs, so Claude keeps the entry busy. The pane reads
+	// working, and no done notice is made for it.
+	session.submitPrompt(t)
+	session.appendTranscript(t, assistantTextLine(t, exampleLastMessage))
+	waitForOption(t, daemon, client, pane, protocol.OptionState, string(protocol.StateWorking))
 	wantExit(t, daemon.stop(t), 0)
 
 	if extra := len(endpoint.requests); extra != 0 {
-		t.Fatalf("%d push requests for a Stop with a background subagent, want none", extra)
+		t.Fatalf("%d push requests for a pane still busy with background work, want none", extra)
 	}
-	assertNoticeLog(t, noticeLogPath(stateHome), since, pane, loggedNotice{"done", route.None, "background work"})
+	assertNoticeLog(t, noticeLogPath(stateHome), since, pane)
 }
 
 func TestOrrerydRouteHoldsWatchedPane(t *testing.T) {
@@ -154,16 +152,17 @@ func TestOrrerydRouteHoldsWatchedPane(t *testing.T) {
 	// read and each recheck of the held notice finds it watched.
 	read := time.Now().Unix()
 	daemon, socket := startPushDaemon(t, name, dir, stateHome, endpoint, "--relay-at", strconv.FormatInt(read, 10))
+	session := startClaudeSession(t, client, dir, pane, dir)
 	logPath := noticeLogPath(stateHome)
 	since := read
 
-	// The read report is a connection of its own, written before the waiting hook starts its process, so orreryd
+	// The read report is a connection of its own, sent before the permission prompt's entry is written, so orreryd
 	// records the read before it decides the waiting notice.
 	if err := hook.ReportRead(socket, pane, read); err != nil {
 		t.Fatalf("report read: %v", err)
 	}
-	sendHook(t, socket, pane, dir, permissionRequestHook())
-	requireOption(t, client, pane, protocol.OptionState, string(protocol.StateWaiting))
+	session.requestPermission(t)
+	waitForOption(t, daemon, client, pane, protocol.OptionState, string(protocol.StateWaiting))
 	// The held notice logs its watching line from its own decision, so that line is awaited before orreryd stops. The
 	// store is attached once its open line is logged, so stopping then keeps the held notice for the next start, with
 	// no shutdown line.
@@ -202,11 +201,12 @@ func TestOrrerydRouteAtDeskReachesStreamOnly(t *testing.T) {
 	}
 	since := time.Now().Unix()
 
-	// The input report is applied on its own connection, which the waiting hook's process and tmux calls outlast before
-	// orreryd decides the notice.
+	// The input report is applied on its own connection, before the permission prompt's entry is written, so orreryd has
+	// the input when it decides the notice.
 	sendInput(t, socket, time.Now().Unix())
-	sendHook(t, socket, pane, project, permissionRequestHook())
-	requireOption(t, client, pane, protocol.OptionState, string(protocol.StateWaiting))
+	session := startClaudeSession(t, client, dir, pane, project)
+	session.requestPermission(t)
+	waitForOption(t, daemon, client, pane, protocol.OptionState, string(protocol.StateWaiting))
 	line := nextDeskLine(t, r)
 	if line.Kind != deskstream.KindNotice || line.Host != host || line.State != string(protocol.StateWaiting) ||
 		line.Title != exampleTitle {
@@ -230,11 +230,12 @@ func TestOrrerydRouteWithoutSubscriptionReachesDeskOnly(t *testing.T) {
 	dir := t.TempDir()
 	stateHome := filepath.Join(dir, "state")
 	endpoint := newPushEndpoint(t)
-	daemon, socket := startPushDaemon(t, name, dir, stateHome, endpoint)
+	daemon, _ := startPushDaemon(t, name, dir, stateHome, endpoint)
+	session := startClaudeSession(t, client, dir, pane, dir)
 	since := time.Now().Unix()
 
-	sendHook(t, socket, pane, dir, permissionRequestHook())
-	requireOption(t, client, pane, protocol.OptionState, string(protocol.StateWaiting))
+	session.requestPermission(t)
+	waitForOption(t, daemon, client, pane, protocol.OptionState, string(protocol.StateWaiting))
 	// No push marks the decision, so the notice's own line is awaited before orreryd stops.
 	logPath := noticeLogPath(stateHome)
 	waitUntil(t, func() bool { return noticeLogHas(logPath, "away; no push subscription") })
@@ -262,16 +263,6 @@ func TestOrrerydRouteNoticeLogOpenFailureExitsOne(t *testing.T) {
 	wantExit(t, out, 1)
 	if !strings.Contains(out.stderr, "notice log") {
 		t.Fatalf("stderr %q, want a notice log error", out.stderr)
-	}
-}
-
-// stopHook is a Stop hook input for the session whose transcript is transcript. Its last assistant message is
-// exampleLastMessage, so the done it makes is judged.
-func stopHook(transcript string) map[string]any {
-	return map[string]any{
-		"hook_event_name":        "Stop",
-		"transcript_path":        transcript,
-		"last_assistant_message": exampleLastMessage,
 	}
 }
 
@@ -335,15 +326,17 @@ func TestOrrerydRouteJudgedDoneRoutesByVerdict(t *testing.T) {
 			if err := os.Mkdir(project, 0o700); err != nil {
 				t.Fatalf("make project: %v", err)
 			}
-			transcript := filepath.Join(dir, "transcript.jsonl")
-			writeFile(t, transcript, exampleTranscript, 0o600)
+			session := startClaudeSession(t, client, dir, pane, project)
 			since := time.Now().Unix()
 
-			// The notice waits out the daemon's --judge-delay before the judge runs; route's own tests check that wait
-			// on fake timers, so this test checks only what the judged notice carries. The Stop's summary run is held
-			// until the judge has answered, so the notice must wait for the summary it carries as its body: a notice
-			// routed before it would carry "done".
-			sendHook(t, socket, pane, project, stopHook(transcript))
+			// The prompt starts a summary run, which the gate holds until the judge has answered, and the reply then ends the
+			// turn. The notice waits out the daemon's --judge-delay before the judge runs; route's own tests check that wait
+			// on fake timers, so this test checks only what the judged notice carries. The held summary run is in flight when
+			// the done is made, so the notice must wait for the summary it carries as its body: a notice routed before it
+			// would carry "done".
+			session.submitPrompt(t)
+			waitForOption(t, daemon, client, pane, protocol.OptionState, string(protocol.StateWorking))
+			session.finishTurn(t, exampleLastMessage)
 			waitUntil(t, func() bool { return len(judgeRuns(t, dir)) == 1 })
 			writeFile(t, filepath.Join(dir, summaryReleaseFile), "", 0o600)
 			line := nextDeskLine(t, r)
@@ -383,18 +376,16 @@ func TestOrrerydRouteWorkAfterDoneIsChanged(t *testing.T) {
 	registerPush(t, stateHome, endpoint)
 	// The work has to start inside the done's judge delay, so this daemon's delay outlasts the test. The later
 	// --judge-delay overrides the one startPushDaemon passes.
-	daemon, socket := startPushDaemon(t, name, dir, stateHome, endpoint, "--judge-delay", time.Hour.String())
-	transcript := filepath.Join(dir, "transcript.jsonl")
-	writeFile(t, transcript, exampleTranscript, 0o600)
+	daemon, _ := startPushDaemon(t, name, dir, stateHome, endpoint, "--judge-delay", time.Hour.String())
+	session := startClaudeSession(t, client, dir, pane, dir)
 	since := time.Now().Unix()
 
-	sendHook(t, socket, pane, dir, stopHook(transcript))
-	requireOption(t, client, pane, protocol.OptionState, string(protocol.StateDone))
-	sendHook(t, socket, pane, dir, map[string]any{
-		"hook_event_name": "UserPromptSubmit",
-		"transcript_path": transcript,
-	})
-	requireOption(t, client, pane, protocol.OptionState, string(protocol.StateWorking))
+	session.submitPrompt(t)
+	waitForOption(t, daemon, client, pane, protocol.OptionState, string(protocol.StateWorking))
+	session.finishTurn(t, exampleLastMessage)
+	waitForOption(t, daemon, client, pane, protocol.OptionState, string(protocol.StateDone))
+	session.submitPrompt(t)
+	waitForOption(t, daemon, client, pane, protocol.OptionState, string(protocol.StateWorking))
 	wantExit(t, daemon.stop(t), 0)
 
 	if extra := len(endpoint.requests); extra != 0 {
@@ -425,11 +416,12 @@ func TestOrrerydJudgesDoneWithSessions(t *testing.T) {
 	daemon.waitForStoreOpen(t)
 	daemon.waitForListener(t, protocol.SessionSocketPath(socket))
 	writeJudgeReply(t, dir, judgeUnneededReply)
-	transcript := filepath.Join(dir, "transcript.jsonl")
-	writeFile(t, transcript, exampleTranscript, 0o600)
+	session := startClaudeSession(t, client, dir, pane, dir)
 	since := time.Now().Unix()
 
-	sendHook(t, socket, pane, dir, stopHook(transcript))
+	session.submitPrompt(t)
+	waitForOption(t, daemon, client, pane, protocol.OptionState, string(protocol.StateWorking))
+	session.finishTurn(t, exampleLastMessage)
 	note := assertPushed(t, endpoint, pane, protocol.StateDone)
 	if _, silent := note["silent"]; !silent {
 		t.Fatalf("notification %v, want the unneeded done silent", note)

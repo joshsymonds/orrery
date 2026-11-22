@@ -76,16 +76,16 @@ func TestSummaryReachesRowAndEvents(t *testing.T) {
 	exectest.WriteFile(t, f.fakeClaude, []byte(gatedFakeClaudeScript), 0o700)
 	daemon := f.startOrreryd(t)
 	// A sync waits at most 200 ms for a store still opening, or for the mirror lock, and is then dropped. So the
-	// summarizer's sync must find the store open and the lock free: the hook follows the store-open line and the first
-	// tidy, and the summary run replies only once the hook's own sync has finished.
+	// summarizer's sync must find the store open and the lock free: the prompt follows the store-open line and the first
+	// tidy, and the summary run replies only once the prompt's own sync has finished.
 	daemon.waitForStoreOpen(t)
 	f.waitForPaneID(t)
-	f.hook(t, f.userPromptHook())
+	f.session.submitPrompt(t)
 	writeFile(t, filepath.Join(filepath.Dir(f.fakeClaude), summaryReleaseFile), "", 0o600)
 	waitForOption(t, daemon, f.client, f.pane, protocol.OptionSummary, exampleSummary)
 	db := openStoreForInspection(t, f.dbPath)
 
-	// No hook follows the summarizer's writes, so the row reaches the summary and label through the sync the
+	// No registry update follows the summarizer's writes, so the row reaches the summary and label through the sync the
 	// summarizer calls for after its run writes them, or through a later tidy.
 	row := f.waitForSummaryRow(t, db, f.pane, exampleSummary, exampleLabel)
 

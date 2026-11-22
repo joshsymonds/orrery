@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/joshsymonds/orrery/internal/paneregistry"
 	"github.com/joshsymonds/orrery/internal/protocol"
 	"github.com/joshsymonds/orrery/internal/store"
 	"github.com/joshsymonds/orrery/internal/store/sqlcgen"
@@ -24,22 +25,21 @@ const (
 	engineStreamSessions = 4
 	// engineStreamPrompt is the prompt that makes the fake claude stream engineStreamBlocks finished text blocks. It
 	// holds the last block until fakeclaude.release exists in the session's directory, so each turn stays open until the
-	// test has sent every pane hook.
+	// test has written every pane status.
 	engineStreamPrompt = "TRICKLEHELD"
 	// engineStreamBlocks is how many finished text blocks one stream prompt streams.
 	engineStreamBlocks = 60
 	// engineStreamText starts the text of each finished block the stream prompt streams.
 	engineStreamText = "fake trickle"
-	// panePulses is how many pane hooks the test sends while the sessions stream. They alternate working and done.
+	// panePulses is how many pane status updates the test writes while the sessions stream. They alternate working and
+	// done.
 	panePulses = 40
-	// pulseSession is the Claude Code session id every pane hook carries.
-	pulseSession = "pulse-session"
 )
 
 // TestEngineFourSessionsKeepPaneSyncs proves that four sessions streaming at once never cost a pane sync. While the
-// sessions stream, the test sends a run of pane hooks whose states alternate. Each hook's state must reach the pane's
-// store row and the event log in order, every session's pane event must fall within that session's blocks in the
-// event log, every session must store all of its blocks, and orreryd must log no dropped mirror sync.
+// sessions stream, the test writes a run of pane status updates whose states alternate. Each update's state must reach
+// the pane's store row and the event log in order, every session's pane event must fall within that session's blocks
+// in the event log, every session must store all of its blocks, and orreryd must log no dropped mirror sync.
 func TestEngineFourSessionsKeepPaneSyncs(t *testing.T) {
 	t.Parallel()
 	f := newEngineFixture(t)
@@ -50,12 +50,13 @@ func TestEngineFourSessionsKeepPaneSyncs(t *testing.T) {
 	for i := range engineStreamSessions {
 		dirs[i] = f.sessionDir(t, fmt.Sprintf("stream-%d", i))
 	}
-	// Each stream advances a block per pane hook, so the sessions stream while the hooks arrive at any machine's pace.
+	// Each stream advances a block per pane status, so the sessions stream while the statuses are written at any machine's
+	// pace.
 	paceStreams(t, dirs, 1)
 	for i := range engineStreamSessions {
 		ids[i] = f.start(t, dirs[i], engineStreamPrompt)
 	}
-	// Every session's first block is stored before the first hook, and its last block only after the last hook, so
+	// Every session's first block is stored before the first status, and its last block only after the last status, so
 	// every pane event falls within every session's blocks whatever the machine's pace.
 	for _, id := range ids {
 		f.waitForBlock(t, id, engineStreamText+" 1.1")
@@ -67,23 +68,22 @@ func TestEngineFourSessionsKeepPaneSyncs(t *testing.T) {
 	}
 	pane := fixturePane(t, client)
 	pulseDir := f.sessionDir(t, "pulse")
-	transcript := filepath.Join(pulseDir, "transcript.jsonl")
-	writeFile(t, transcript, exampleTranscript, 0o600)
+	pulse := startClaudeSession(t, client, filepath.Join(f.root, "home"), pane, pulseDir)
+	pulse.appendTranscript(t, exampleTranscript)
 	q := sqlcgen.New(openStoreForInspection(t, f.dbPath))
 
 	want := make([]string, 0, panePulses)
 	// Every pulse is the same session, so its row id, once the first pulse has minted it, is read from the store.
 	var rowID string
 	for i := range panePulses {
-		state, event := protocol.StateWorking, "UserPromptSubmit"
+		state, status := protocol.StateWorking, paneregistry.StatusBusy
 		if i%2 == 1 {
-			state, event = protocol.StateDone, "Stop"
+			state, status = protocol.StateDone, paneregistry.StatusIdle
 		}
-		hook := map[string]any{"hook_event_name": event, "session_id": pulseSession, "transcript_path": transcript}
-		// The frame goes straight to orreryd's socket: the subject is the pane syncs under the sessions' load, not
-		// the hook command, so no orrery process is spawned per pulse.
+		// The status goes straight to the session's registry entry: the subject is the pane syncs under the sessions'
+		// load, so no session is started per pulse.
 		paceStreams(t, dirs, i+2)
-		sendHook(t, f.socket, pane, pulseDir, hook)
+		pulse.setStatus(t, status, "")
 		rowID = waitForPaneState(t, q, client, pane, rowID, state)
 		want = append(want, string(state))
 	}

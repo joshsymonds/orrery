@@ -1,7 +1,6 @@
 package integration_test
 
 import (
-	"encoding/json"
 	"path/filepath"
 	"slices"
 	"testing"
@@ -9,51 +8,21 @@ import (
 	"github.com/joshsymonds/orrery/internal/protocol"
 )
 
-// Recorded Claude Code 2.1.321 background_tasks values for a Stop hook, as wanted_test.go records them.
-const (
-	quietSubagentTasks = `[{"id":"a1","type":"subagent","status":"running","description":"search the tree"}]`
-	quietWorkflowTasks = `[{"id":"w1","type":"workflow","status":"running","description":"release check"}]`
-	quietShellTasks    = `[{"id":"b1","type":"shell","status":"running","description":"make test","command":"make test"}]`
-	quietMonitorTasks  = `[{"id":"m1","type":"monitor","status":"running","description":"watch the log"}]`
-)
-
-// stopHookInput is a Claude Code 2.1.321 Stop hook input whose transcript_path is transcript. background is the raw
-// JSON for the background_tasks member, or "" to omit the member.
-func stopHookInput(t *testing.T, transcript, background string) map[string]any {
-	t.Helper()
-	hook := map[string]any{
-		"session_id":             "3f2c9a1e-0000-4000-8000-000000000001",
-		"transcript_path":        transcript,
-		"cwd":                    "/home/dev/work",
-		"hook_event_name":        "Stop",
-		"stop_hook_active":       false,
-		"last_assistant_message": "Done.",
-	}
-	if background != "" {
-		var tasks any
-		if err := json.Unmarshal([]byte(background), &tasks); err != nil {
-			t.Fatalf("decode background_tasks: %v", err)
-		}
-		hook["background_tasks"] = tasks
-	}
-	return hook
-}
-
-// TestOrrerydWebPushHonorsStopBackgroundTasks drives one orreryd with a Stop per pane. A Stop whose background_tasks
-// holds a subagent or workflow sends no Web Push, and a shell task, a monitor task, or no background_tasks member
-// each push one done notification for its pane.
+// TestOrrerydWebPushHonorsStopBackgroundTasks drives one orreryd with a session per pane, each ending its turn as its
+// background work leaves it. A subagent or workflow still running keeps the session's registry entry busy, so its pane
+// reads working and sends no Web Push. A shell task, a monitor task, or none leaves the entry idle once the turn ends,
+// so each pushes one done notification for its pane.
 func TestOrrerydWebPushHonorsStopBackgroundTasks(t *testing.T) {
 	t.Parallel()
 	client, name := newServer(t)
 	cases := []struct {
-		name       string
-		background string
-		notify     bool
+		name   string
+		notify bool
 	}{
-		{name: "subagent", background: quietSubagentTasks},
-		{name: "workflow", background: quietWorkflowTasks},
-		{name: "shell", background: quietShellTasks, notify: true},
-		{name: "monitor", background: quietMonitorTasks, notify: true},
+		{name: "subagent"},
+		{name: "workflow"},
+		{name: "shell", notify: true},
+		{name: "monitor", notify: true},
 		{name: "no field", notify: true},
 	}
 	panes := make([]string, len(cases))
@@ -66,23 +35,28 @@ func TestOrrerydWebPushHonorsStopBackgroundTasks(t *testing.T) {
 	stateHome := filepath.Join(dir, "state")
 	endpoint := newPushEndpoint(t)
 	registerPush(t, stateHome, endpoint)
-	daemon, socket := startPushDaemon(t, name, dir, stateHome, endpoint)
-	transcript := filepath.Join(dir, "transcript.jsonl")
-	writeFile(t, transcript, exampleTranscript, 0o600)
+	daemon, _ := startPushDaemon(t, name, dir, stateHome, endpoint)
 
 	notifying := 0
 	for i, c := range cases {
-		sendHook(t, socket, panes[i], dir, stopHookInput(t, transcript, c.background))
+		session := startClaudeSession(t, client, dir, panes[i], dir)
+		session.submitPrompt(t)
+		waitForOption(t, daemon, client, panes[i], protocol.OptionState, string(protocol.StateWorking))
 		if c.notify {
+			session.finishTurn(t, "Done.")
 			notifying++
 		}
 	}
 
-	// A pane reads done once sendHook has returned, since orreryd has applied its Stop by then. A Stop that notifies is
+	// A pane reads done once its entry's idle status is applied, and reads working otherwise. A Stop that notifies is
 	// judged after its judge delay, so each notifying push is awaited before orreryd stops. orreryd awaits every
-	// notification before it exits, so once it has exited, a push still queued is one a quiet Stop sent.
-	for _, pane := range panes {
-		requireOption(t, client, pane, protocol.OptionState, string(protocol.StateDone))
+	// notification before it exits, so once it has exited, a push still queued is one a quiet pane sent.
+	for i, c := range cases {
+		state := protocol.StateWorking
+		if c.notify {
+			state = protocol.StateDone
+		}
+		waitForOption(t, daemon, client, panes[i], protocol.OptionState, string(state))
 	}
 	pushed := make(map[string][]string)
 	for range notifying {
