@@ -7,14 +7,12 @@ import (
 	"github.com/joshsymonds/orrery/internal/protocol"
 )
 
-// declineQuestion is the @orrery_question value a PermissionRequest for the synthetic Bash command captures.
+// declineQuestion is the @orrery_question value of a waiting pane whose pending call is the synthetic Bash command.
 const declineQuestion = `{"tool":"Bash","input":{"command":"echo synthetic"}}`
 
 func TestDeclineWaitingPaneEndsOnInterruption(t *testing.T) {
 	t0 := time.Unix(1700000000, 0)
-	client, pane := startPane(t)
-	apply(t, client, pane, userPromptSubmitHook, t0)
-	apply(t, client, pane, permissionHook, t0.Add(time.Second))
+	client, pane := waitingBash(t, t0.Add(time.Second))
 	wantQuestion(t, client, pane, declineQuestion)
 
 	if !endInterrupted(t, client, pane, t0.Unix()+2, t0.Add(3*time.Second)) {
@@ -26,9 +24,7 @@ func TestDeclineWaitingPaneEndsOnInterruption(t *testing.T) {
 
 func TestDeclineWaitingPaneStaysWithoutInterruption(t *testing.T) {
 	t0 := time.Unix(1700000000, 0)
-	client, pane := startPane(t)
-	apply(t, client, pane, userPromptSubmitHook, t0)
-	apply(t, client, pane, permissionHook, t0.Add(time.Second))
+	client, pane := waitingBash(t, t0.Add(time.Second))
 	wantQuestion(t, client, pane, declineQuestion)
 
 	if endInterrupted(t, client, pane, 0, t0.Add(2*time.Second)) {
