@@ -24,10 +24,11 @@ func clashSentBackReason(t *testing.T, s *store.Store) string {
 }
 
 // requireClashSendBack fails unless task 2 of w is open on implement with no batch, its generation one more than it was
-// before the send_back, and its failure is the reason it was sent back for. The reason must hold the candidate's change to
-// b.go since the merge base, and the candidate must still hold the earlier task's change of b.go, which is composed in the
-// candidate. Its rounds are kept: each round's record is still stored with the verdict and outcome it was given.
-func requireClashSendBack(t *testing.T, w roundWorld, candidate, reason string) {
+// before the send_back, and its failure is the reason it was sent back for. The reason must hold the candidate's change
+// to b.go since the merge base. The batch ended with the epic's stored base at its candidate, so that stored base must
+// hold the earlier task's change of b.go, composed in it. Its rounds are kept: each round's record is still stored with
+// the verdict and outcome it was given.
+func requireClashSendBack(t *testing.T, w roundWorld, reason string) {
 	t.Helper()
 	task := mergeTask(t, w.s, 2)
 	if task.Status != taskOpen || task.Build.Stage != "implement" || task.Batch != "" {
@@ -46,8 +47,9 @@ func requireClashSendBack(t *testing.T, w roundWorld, candidate, reason string) 
 	if !strings.Contains(reason, "+one") {
 		t.Errorf("reason = %q, want the candidate's change to b.go, which adds one", reason)
 	}
-	if got := w.file(candidate, "b.go"); got != "one" {
-		t.Errorf("b.go on the candidate = %q, want the earlier task's %q composed", got, "one")
+	stored := epicOf(t, w.s).StoredBase
+	if got := w.file(stored, "b.go"); got != "one" {
+		t.Errorf("b.go on the stored base %s = %q, want the earlier task's %q composed", stored, got, "one")
 	}
 }
 
@@ -57,7 +59,6 @@ func requireClashSendBack(t *testing.T, w roundWorld, candidate, reason string) 
 func TestIntegratorClashSendsTheTaskBackWithItsExplanationAndTheDiff(t *testing.T) {
 	t.Parallel()
 	w := newRoundWorld(t)
-	candidate := w.candidate(integrateBatch)
 	endTaskStep(t, w.s, w.roundID(1), "done", "done", taskReturn(verdictClash, "", "both sides decide the title"))
 	w.pass()
 	w.endGate(integrateBatch, 0, "")
@@ -69,7 +70,7 @@ func TestIntegratorClashSendsTheTaskBackWithItsExplanationAndTheDiff(t *testing.
 	if !strings.Contains(reason, "task integrator round 1 clashed: both sides decide the title") {
 		t.Errorf("reason = %q, want the clash's explanation", reason)
 	}
-	requireClashSendBack(t, w, candidate, reason)
+	requireClashSendBack(t, w, reason)
 	if got := w.roundRecord(1); got.Verdict != verdictClash || got.Explanation != "both sides decide the title" {
 		t.Errorf("round 1 = %+v, want the clash kept with its explanation", got)
 	}
@@ -81,7 +82,6 @@ func TestIntegratorClashSendsTheTaskBackWithItsExplanationAndTheDiff(t *testing.
 func TestIntegratorClashThirdFailedRoundSendsTheTaskBack(t *testing.T) {
 	t.Parallel()
 	w := newRoundWorld(t)
-	candidate := w.candidate(integrateBatch)
 	third := ""
 	for round := 1; round <= 3; round++ {
 		head := w.mergeRound(w.roundStart(round), fmt.Sprintf("round %d\n", round))
@@ -101,7 +101,7 @@ func TestIntegratorClashThirdFailedRoundSendsTheTaskBack(t *testing.T) {
 	if !strings.Contains(reason, want) {
 		t.Errorf("reason = %q, want the third round's failure %q", reason, want)
 	}
-	requireClashSendBack(t, w, candidate, reason)
+	requireClashSendBack(t, w, reason)
 	for round := int64(1); round <= 3; round++ {
 		if got := w.roundRecord(round); got.Outcome != outcomeFailed {
 			t.Errorf("round %d = %+v, want its failed record kept", round, got)
@@ -115,7 +115,6 @@ func TestIntegratorClashThirdFailedRoundSendsTheTaskBack(t *testing.T) {
 func TestIntegratorClashEndedStepSendsTheTaskBack(t *testing.T) {
 	t.Parallel()
 	w := newRoundWorld(t)
-	candidate := w.candidate(integrateBatch)
 	endTaskStep(t, w.s, w.roundID(1), "stopped", "", nil)
 	w.pass()
 	w.endGate(integrateBatch, 0, "")
@@ -127,7 +126,7 @@ func TestIntegratorClashEndedStepSendsTheTaskBack(t *testing.T) {
 	if !strings.Contains(reason, "task integrator round 1 ended: task integrator ended stopped") {
 		t.Errorf("reason = %q, want how the step ended", reason)
 	}
-	requireClashSendBack(t, w, candidate, reason)
+	requireClashSendBack(t, w, reason)
 	if got := w.roundRecord(1); got.Verdict != "ended" {
 		t.Errorf("round 1 = %+v, want its ended record kept", got)
 	}
