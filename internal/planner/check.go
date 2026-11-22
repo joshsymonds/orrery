@@ -286,6 +286,15 @@ func gapKeyOf(trigger store.EpicTrigger) (string, bool) {
 	return key, ok
 }
 
+// kindRefusals returns the refusal of a task whose kind is neither the empty kind nor design, as a slice so that
+// checkTask, already at the complexity limit, takes no branch of its own for it.
+func kindRefusals(prefix, kind string) []string {
+	if kind == "" || kind == store.TaskKindDesign {
+		return nil
+	}
+	return []string{fmt.Sprintf("%s kind: unknown kind %q", prefix, kind)}
+}
+
 // checkTask returns the refusals of one task's fields, in the order title, deliverable, kind, files, test_changes,
 // requirements, gate, the evidence string that did not read, each line of the evidence item's form, the depends_on
 // refusals, then the gate and the judge that do not resolve. graph is the return's depends_on graph and the epic's
@@ -303,9 +312,7 @@ func checkTask(
 	if strings.TrimSpace(task.Deliverable) == "" {
 		refusals = append(refusals, prefix+" deliverable: "+reasonEmpty)
 	}
-	if task.Kind != "" && task.Kind != store.TaskKindDesign {
-		refusals = append(refusals, fmt.Sprintf("%s kind: unknown kind %q", prefix, task.Kind))
-	}
+	refusals = append(refusals, kindRefusals(prefix, task.Kind)...)
 	if len(task.Files) == 0 {
 		refusals = append(refusals, prefix+" files: "+reasonNoFiles)
 	}
