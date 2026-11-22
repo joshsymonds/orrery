@@ -174,7 +174,7 @@ func TestRegistryEntryParsesEnvironment(t *testing.T) {
 }
 
 // TestRegistryEntryProcRefusesNonPositivePID checks that SystemProc reports no live process for a pid that is not
-// positive, since signalling 0 or a negative pid would address a process group.
+// positive, since signaling 0 or a negative pid would address a process group.
 func TestRegistryEntryProcRefusesNonPositivePID(t *testing.T) {
 	proc := SystemProc()
 	for _, pid := range []int{0, -1} {

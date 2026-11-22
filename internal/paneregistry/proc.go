@@ -25,7 +25,7 @@ func SystemProc() Proc {
 type systemProc struct{}
 
 // Alive reports whether pid names a live process. Signal 0 checks for the process without sending it a signal, and
-// ESRCH means no such process. EPERM means the process exists but may not be signalled, so it is alive. A pid that is
+// ESRCH means no such process. EPERM means the process exists but may not be signaled, so it is alive. A pid that is
 // not positive is never alive: kill would address a process group, not a process.
 func (systemProc) Alive(pid int) bool {
 	if pid <= 0 {
