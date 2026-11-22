@@ -9931,6 +9931,38 @@ func (q *Queries) ListRecentTurns(ctx context.Context, arg ListRecentTurnsParams
 	return items, nil
 }
 
+const listRouteAccountTokens = `-- name: ListRouteAccountTokens :many
+SELECT id, token FROM llm_accounts WHERE id IN (SELECT account FROM route_contexts WHERE account <> '') ORDER BY id
+`
+
+type ListRouteAccountTokensRow struct {
+	ID    string
+	Token string
+}
+
+func (q *Queries) ListRouteAccountTokens(ctx context.Context) ([]ListRouteAccountTokensRow, error) {
+	rows, err := q.db.QueryContext(ctx, listRouteAccountTokens)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListRouteAccountTokensRow
+	for rows.Next() {
+		var i ListRouteAccountTokensRow
+		if err := rows.Scan(&i.ID, &i.Token); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listRouteBindings = `-- name: ListRouteBindings :many
 SELECT context, scope, selector, seat FROM route_bindings ORDER BY context, scope, selector
 `

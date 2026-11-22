@@ -2096,3 +2096,6 @@ INSERT INTO route_bindings (context, scope, selector, seat) VALUES (?, ?, ?, ?);
 
 -- name: ListRouteBindings :many
 SELECT * FROM route_bindings ORDER BY context, scope, selector;
+
+-- name: ListRouteAccountTokens :many
+SELECT id, token FROM llm_accounts WHERE id IN (SELECT account FROM route_contexts WHERE account <> '') ORDER BY id;
