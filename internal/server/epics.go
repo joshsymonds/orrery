@@ -119,14 +119,15 @@ func (e epicsServer) List(
 // lists them, its release steps in the order of its release proof, its report, its open questions with their labels,
 // choices and recommendations, its contract with its acceptance time, its summary, whether it is paused, why it is
 // parked and whether the planner holds the park, its repository, its sessions newest call first, and the tasks of its
-// record when one exists. Each Requirement carries its state, and the epic its centre (see epicCentre). An id that
-// neither the database nor the record root lists answers not_found, and the id is never joined into a path.
+// record when one exists. Each Requirement carries its state, and the epic its centre (see epicCentre). Its newest is
+// the sentence of its newest history entry, built as History builds it. An id that neither the database nor the record
+// root lists answers not_found, and the id is never joined into a path.
 func (e epicsServer) Get(
 	ctx context.Context,
 	req *connect.Request[orreryv1.EpicsGetRequest],
 ) (*connect.Response[orreryv1.EpicsGetResponse], error) {
 	id := req.Msg.GetId()
-	stored, inStore, err := e.getStored(ctx, id)
+	stored, inStore, err := e.getStoredHistory(ctx, id)
 	if err != nil {
 		return nil, err
 	}
@@ -166,13 +167,12 @@ func (e epicsServer) Get(
 		Repository: repository,
 		Sessions:   e.listSessions(ctx, id),
 	}
+	var runs []*enginev1.EvidenceRun
 	if inStore {
 		resp.Epic = storedEpicMessage(id, stored, stored.GetContract().GetRepository(),
 			epicOpenQuestions(stored.GetQuestions()), recordProblems(rec, taskProblems), counts)
-		runs := e.listEvidence(ctx, id)
-		roles := storedStepRoles(stored, runs)
-		applyStoredRoles(resp.GetSteps(), roles)
-		applyStoredRoles(resp.GetEpic().GetRunningSteps(), roles)
+		runs = e.listEvidence(ctx, id)
+		applyStoredEpicRoles(resp, stored, runs)
 		resp.Requirements = orreryRequirements(stored, resp.GetSteps(), runs)
 		resp.Nodes = epicNodeMessages(stored.GetNodes(), runs)
 		resp.BuildTasks = epicBuildTaskMessages(stored.GetTasks())
@@ -192,8 +192,17 @@ func (e epicsServer) Get(
 		resp.Epic = epicMessage(rec, tasks, taskProblems, counts, e.now())
 		resp.Requirements = recordRequirementMessages(recordMarkTasks(tasks), resp.GetSteps())
 	}
+	resp.Newest = historyNewest(epicHistoryEntries(stored, resp.GetSteps(), runs))
 	resp.Centre = epicCentre(resp, stored)
 	return connect.NewResponse(resp), nil
+}
+
+// applyStoredEpicRoles sets the roles of resp's labeled and running steps from the stored epic and its runs (see
+// storedStepRoles and applyStoredRoles).
+func applyStoredEpicRoles(resp *orreryv1.EpicsGetResponse, stored *enginev1.StoredEpic, runs []*enginev1.EvidenceRun) {
+	roles := storedStepRoles(stored, runs)
+	applyStoredRoles(resp.GetSteps(), roles)
+	applyStoredRoles(resp.GetEpic().GetRunningSteps(), roles)
 }
 
 // listSteps asks the step client for the labeled steps req narrows to, and answers its reply. A nil client, or a
@@ -293,28 +302,6 @@ func (e epicsServer) listStored(ctx context.Context) ([]*enginev1.EpicSummary, e
 		return nil, listError(connect.CodeUnavailable, epicStoreUnavailable)
 	}
 	return resp.Msg.GetEpics(), nil
-}
-
-// getStored asks the epic store for the epic of id. It reports false, with no error, when there is no store or the store
-// answers not_found or unimplemented, so that the record answers. An unavailable answer is retried as listSteps retries
-// it. Any other failure answers unavailable. Each attempt runs under the timeout.
-func (e epicsServer) getStored(ctx context.Context, id string) (*enginev1.StoredEpic, bool, error) {
-	if e.store == nil {
-		return nil, false, nil
-	}
-	var resp *connect.Response[enginev1.GetEpicResponse]
-	err := retryUnder(ctx, e.clock, e.timeout, rpcretry.Unavailable, func(ctx context.Context) error {
-		var err error
-		resp, err = e.store.GetEpic(ctx, connect.NewRequest(&enginev1.GetEpicRequest{Id: id}))
-		return errors.Join(err)
-	})
-	if err != nil {
-		if code := connect.CodeOf(err); code == connect.CodeNotFound || code == connect.CodeUnimplemented {
-			return nil, false, nil
-		}
-		return nil, false, listError(connect.CodeUnavailable, epicStoreUnavailable)
-	}
-	return resp.Msg.GetEpic(), true, nil
 }
 
 // stepsByEpic groups the labeled steps by their epic, each group oldest first. A step with no epic label belongs to no
@@ -744,8 +731,9 @@ func epicStepMessages(steps []*enginev1.Step) []*orreryv1.EpicStep {
 
 // epicStepMessage converts step to its EpicStep. Each check's detail and its two tails are carried, redacted. Stdout and
 // stderr are carried only for a failed gate check, and a check that is not a gate check carries none of the four. The
-// summary is the latest result's string summary. The verdicts are the step's judge verdicts. The role is implementer
-// for a writing step; a read-only step's role comes from its stored epic, through applyStoredRoles.
+// summary is the latest result's string summary. The verdicts are the step's judge verdicts. The purpose is the step's
+// stored purpose. The role is implementer for a writing step; a read-only step's role comes from its stored epic,
+// through applyStoredRoles.
 func epicStepMessage(step *enginev1.Step) *orreryv1.EpicStep {
 	checks := make([]*orreryv1.EpicStepCheck, 0, len(step.GetChecks()))
 	for _, check := range step.GetChecks() {
@@ -790,6 +778,7 @@ func epicStepMessage(step *enginev1.Step) *orreryv1.EpicStep {
 		Role:         role,
 		Summary:      redact.Text(step.GetSummary()),
 		Verdicts:     epicStepVerdictMessages(step.GetVerdicts()),
+		Purpose:      step.GetPurpose(),
 	}
 }
 
