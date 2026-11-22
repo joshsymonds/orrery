@@ -16,6 +16,7 @@ import (
 	"golang.org/x/sys/unix"
 
 	"github.com/joshsymonds/orrery/internal/daemon"
+	"github.com/joshsymonds/orrery/internal/paneregistry"
 	"github.com/joshsymonds/orrery/internal/protocol"
 	"github.com/joshsymonds/orrery/internal/store"
 	"github.com/joshsymonds/orrery/internal/store/sqlcgen"
@@ -334,12 +335,14 @@ func TestTidyServeTidiesAgainAfterInterval(t *testing.T) {
 func TestTidyServeWithoutConfiguredServerTidiesFrameServer(t *testing.T) {
 	srv := startTidyServer(t)
 	st, db := openFrameStore(t)
-	socket := serve(t, daemon.Config{
+	updates := make(chan daemon.PaneUpdate)
+	serve(t, daemon.Config{
 		Mirror:       daemon.NewMirror(st, tidyClock, nil),
 		TidyInterval: 20 * time.Millisecond,
+		Updates:      updates,
 	})
 
-	sendFrame(t, socket, frameFor(userPromptSubmitHook, srv.pane, srv.socket))
+	applyUpdate(updates, registryPaneUpdate(t, srv, paneregistry.StatusBusy, "", registryPrompt))
 	waitForPaneID(t, srv.client, srv.pane)
 
 	later := newPane(t, srv)

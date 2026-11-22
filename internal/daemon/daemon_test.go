@@ -15,6 +15,7 @@ import (
 	"testing"
 
 	"github.com/joshsymonds/orrery/internal/daemon"
+	"github.com/joshsymonds/orrery/internal/paneregistry"
 	"github.com/joshsymonds/orrery/internal/protocol"
 	"github.com/joshsymonds/orrery/internal/tmuxctl"
 	"github.com/joshsymonds/orrery/internal/tmuxtest"
@@ -24,15 +25,6 @@ import (
 const (
 	noConfig    = "/dev/null"
 	testCommand = "sleep 300"
-)
-
-// Synthetic Claude Code hook events.
-const (
-	userPromptSubmitHook = `{"hook_event_name":"UserPromptSubmit","prompt":"synthetic prompt"}`
-	permissionHook       = `{"hook_event_name":"PermissionRequest","tool_name":"Bash","tool_input":{"command":"echo synthetic"}}`
-	postToolUseHook      = `{"hook_event_name":"PostToolUse","tool_name":"Bash","tool_input":{"command":"echo synthetic"}}`
-	stopHook             = `{"hook_event_name":"Stop","stop_hook_active":false}`
-	sessionEndHook       = `{"hook_event_name":"SessionEnd","reason":"other"}`
 )
 
 // testServer is a private tmux server with one session whose pane runs testCommand.
@@ -102,13 +94,21 @@ func serve(t *testing.T, cfg daemon.Config) string {
 	return socketPath
 }
 
-// frameFor returns a frame for pane whose $TMUX names socket, the way the hook sends it.
-func frameFor(hook, pane, socket string) protocol.HookFrame {
+// hookFrameOn returns a frame that carries a hook, for pane whose $TMUX names socket. The hook is an empty object:
+// the frames it is used for are rejected by protocol.ReadFrame before the daemon reads the hook.
+func hookFrameOn(pane, socket string) protocol.HookFrame {
 	return protocol.HookFrame{
-		Hook:     json.RawMessage(hook),
+		Hook:     json.RawMessage("{}"),
 		TmuxPane: pane,
 		Tmux:     fmt.Sprintf("%s,1234,0", socket),
 	}
+}
+
+// applyUpdate sends update to the daemon and returns once the daemon has applied it. The daemon takes one update at a
+// time, and it drops the paneless update sent after update, so that one is taken only once update is applied.
+func applyUpdate(updates chan<- daemon.PaneUpdate, update daemon.PaneUpdate) {
+	updates <- update
+	updates <- daemon.PaneUpdate{}
 }
 
 // sendFrame encodes frame and sends it to the daemon socket.
@@ -184,109 +184,30 @@ func wantOption(t *testing.T, srv testServer, name, want string) {
 
 func TestDaemonAppliesFrames(t *testing.T) {
 	srv := startServer(t)
-	socket := serve(t, daemon.Config{})
+	updates := make(chan daemon.PaneUpdate)
+	serve(t, daemon.Config{Updates: updates})
 
+	unbound := registryPaneUpdate(t, srv, paneregistry.StatusIdle, "", registryPrompt)
+	unbound.Unbound = true
 	steps := []struct {
 		name     string
-		hook     string
+		update   daemon.PaneUpdate
 		state    string
 		question string
 	}{
-		{"prompt submitted", userPromptSubmitHook, "working", ""},
-		{"permission requested", permissionHook, "waiting", `{"tool":"Bash","input":{"command":"echo synthetic"}}`},
-		{"tool finished", postToolUseHook, "working", ""},
-		{"stopped", stopHook, "done", ""},
-		{"session ended", sessionEndHook, "", ""},
+		{"prompt submitted", registryPaneUpdate(t, srv, paneregistry.StatusBusy, "", registryPrompt), "working", ""},
+		{"permission requested", registryPaneUpdate(t, srv, paneregistry.StatusWaiting, paneregistry.WaitingPermission,
+			registryPrompt, registryBash), "waiting", `{"tool":"Bash","input":{"command":"make test"}}`},
+		{"turn continues", registryPaneUpdate(t, srv, paneregistry.StatusBusy, "", registryPrompt, registryBash),
+			"working", ""},
+		{"stopped", registryPaneUpdate(t, srv, paneregistry.StatusIdle, "", registryPrompt, registryFinal), "done", ""},
+		{"session ended", unbound, "", ""},
 	}
 	for _, step := range steps {
 		t.Run(step.name, func(t *testing.T) {
-			sendFrame(t, socket, frameFor(step.hook, srv.pane, srv.socket))
+			applyUpdate(updates, step.update)
 			wantOption(t, srv, protocol.OptionState, step.state)
 			wantOption(t, srv, protocol.OptionQuestion, step.question)
-		})
-	}
-}
-
-// stopHookWithTasks is a Stop hook whose background_tasks member is tasks, as raw JSON, or has no member when tasks is "".
-func stopHookWithTasks(tasks string) string {
-	member := ""
-	if tasks != "" {
-		member = `,"background_tasks":` + tasks
-	}
-	return `{"hook_event_name":"Stop","transcript_path":"/synthetic/transcripts/one.jsonl",` +
-		`"last_assistant_message":"synthetic final message"` + member + `}`
-}
-
-// stopFacts is what a Stop hook from stopHookWithTasks sets, with background as its Background.
-func stopFacts(background bool) daemon.Transition {
-	return daemon.Transition{
-		Transcript:  "/synthetic/transcripts/one.jsonl",
-		LastMessage: "synthetic final message",
-		Background:  background,
-	}
-}
-
-// TestSetHookFacts checks the facts a transition takes from its hook: whether a Stop left subagent or workflow work
-// running, and the StopFailure error. A field that does not decode leaves the other facts set.
-func TestSetHookFacts(t *testing.T) {
-	const (
-		subagentTasks = `[{"id":"a1","type":"subagent","status":"running","description":"search the tree"}]`
-		workflowTasks = `[{"id":"w1","type":"workflow","status":"running","description":"release check"}]`
-		shellTasks    = `[{"id":"b1","type":"shell","status":"running","description":"make test","command":"make test"}]`
-		monitorTasks  = `[{"id":"m1","type":"monitor","status":"running","description":"watch the log"}]`
-		mixedTasks    = `[{"id":"b1","type":"shell","status":"running","description":"make test","command":"make test"},` +
-			`{"id":"a1","type":"subagent","status":"running","description":"search the tree"}]`
-	)
-	cases := []struct {
-		name    string
-		hook    string
-		want    daemon.Transition
-		wantErr bool
-	}{
-		{name: "stop with shell task", hook: stopHookWithTasks(shellTasks), want: stopFacts(false)},
-		{name: "stop with monitor task", hook: stopHookWithTasks(monitorTasks), want: stopFacts(false)},
-		{name: "stop with empty task array", hook: stopHookWithTasks(`[]`), want: stopFacts(false)},
-		{name: "stop with null task array", hook: stopHookWithTasks(`null`), want: stopFacts(false)},
-		{name: "stop without background_tasks", hook: stopHookWithTasks(""), want: stopFacts(false)},
-		{name: "stop with subagent task", hook: stopHookWithTasks(subagentTasks), want: stopFacts(true)},
-		{name: "stop with workflow task", hook: stopHookWithTasks(workflowTasks), want: stopFacts(true)},
-		{name: "stop with shell and subagent tasks", hook: stopHookWithTasks(mixedTasks), want: stopFacts(true)},
-		{
-			name: "stop with string task list errors", hook: stopHookWithTasks(`"none"`),
-			want: stopFacts(false), wantErr: true,
-		},
-		{
-			name: "stop with non-object tasks errors", hook: stopHookWithTasks(`[1]`),
-			want: stopFacts(false), wantErr: true,
-		},
-		{
-			name: "stop with a subagent before a non-object task errors",
-			hook: stopHookWithTasks(`[{"type":"subagent"},1]`), want: stopFacts(false), wantErr: true,
-		},
-		{
-			name: "stop failure names its error", hook: `{"hook_event_name":"StopFailure","error":"rate_limit"}`,
-			want: daemon.Transition{Failed: true, APIError: "rate_limit"},
-		},
-		{
-			name: "stop failure without error has no API error", hook: `{"hook_event_name":"StopFailure"}`,
-			want: daemon.Transition{Failed: true},
-		},
-		{
-			name: "error of a stop is not an API error", hook: `{"hook_event_name":"Stop","error":"rate_limit"}`,
-			want: daemon.Transition{},
-		},
-		{name: "hook that is not an object sets nothing", hook: `not json`, want: daemon.Transition{}, wantErr: true},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			var got daemon.Transition
-			err := got.SetHookFacts(json.RawMessage(tc.hook))
-			if (err != nil) != tc.wantErr {
-				t.Fatalf("SetHookFacts error = %v, want error %v", err, tc.wantErr)
-			}
-			if got != tc.want {
-				t.Errorf("SetHookFacts = %+v, want %+v", got, tc.want)
-			}
 		})
 	}
 }
@@ -294,41 +215,47 @@ func TestSetHookFacts(t *testing.T) {
 func TestDaemonObservers(t *testing.T) {
 	srv := startServer(t)
 	transitions := make(chan daemon.Transition, 16)
-	socket := serve(t, daemon.Config{
+	updates := make(chan daemon.PaneUpdate)
+	serve(t, daemon.Config{
+		Updates:   updates,
 		Observers: []daemon.Observer{func(transition daemon.Transition) { transitions <- transition }},
 	})
 
-	frame := frameFor(userPromptSubmitHook, srv.pane, srv.socket)
-	frame.Cwd = "/synthetic/work"
-	frame.AnthropicBaseURL = "https://synthetic.example"
-	sendFrame(t, socket, frame)
+	update := registryPaneUpdate(t, srv, paneregistry.StatusBusy, "", registryPrompt)
+	update.Cwd = "/synthetic/work"
+	update.BaseURL = "https://synthetic.example"
+	applyUpdate(updates, update)
 	got := drain(transitions)
 	if len(got) != 1 {
-		t.Fatalf("observed %d transitions after first event, want 1: %+v", len(got), got)
+		t.Fatalf("observed %d transitions after first update, want 1: %+v", len(got), got)
 	}
 	first := got[0]
 	if first.PaneID != srv.pane || first.Server != (tmuxctl.Server{Socket: srv.socket}) ||
 		first.From != "" || first.To != protocol.StateWorking {
 		t.Fatalf("transition = %+v, want pane %s, server socket %s, from \"\" to working", first, srv.pane, srv.socket)
 	}
-	if first.Cwd != frame.Cwd || first.BaseURL != frame.AnthropicBaseURL {
+	if first.Cwd != update.Cwd || first.BaseURL != update.BaseURL {
 		t.Fatalf("transition cwd %q and base URL %q, want %q and %q",
-			first.Cwd, first.BaseURL, frame.Cwd, frame.AnthropicBaseURL)
+			first.Cwd, first.BaseURL, update.Cwd, update.BaseURL)
 	}
 
-	sendFrame(t, socket, frame)
+	applyUpdate(updates, update)
 	if got := drain(transitions); len(got) != 0 {
-		t.Fatalf("same-state event notified %d observers, want none: %+v", len(got), got)
+		t.Fatalf("same-state update notified %d observers, want none: %+v", len(got), got)
 	}
 
-	sendFrame(t, socket, frameFor("{\"hook_event_name\":\"PreCompact\"}", srv.pane, srv.socket))
+	applyUpdate(updates, registryPaneUpdate(t, srv, paneregistry.StatusWaiting, paneregistry.WaitingDialog,
+		registryPrompt))
 	if got := drain(transitions); len(got) != 0 {
-		t.Fatalf("unhandled event notified %d observers, want none: %+v", len(got), got)
+		t.Fatalf("dialog-open update notified %d observers, want none: %+v", len(got), got)
 	}
 
-	sendFrame(t, socket, frameFor(permissionHook, srv.pane, srv.socket))
-	sendFrame(t, socket, frameFor(stopHook, srv.pane, srv.socket))
-	sendFrame(t, socket, frameFor(sessionEndHook, srv.pane, srv.socket))
+	applyUpdate(updates, registryPaneUpdate(t, srv, paneregistry.StatusWaiting, paneregistry.WaitingPermission,
+		registryPrompt, registryBash))
+	applyUpdate(updates, registryPaneUpdate(t, srv, paneregistry.StatusIdle, "", registryPrompt, registryFinal))
+	unbound := registryPaneUpdate(t, srv, paneregistry.StatusIdle, "", registryPrompt)
+	unbound.Unbound = true
+	applyUpdate(updates, unbound)
 	got = drain(transitions)
 	wantPairs := [][2]protocol.State{
 		{protocol.StateWorking, protocol.StateWaiting},
@@ -349,12 +276,16 @@ func TestDaemonServerOverride(t *testing.T) {
 	srv := startServer(t)
 	transitions := make(chan daemon.Transition, 4)
 	missing := filepath.Join(t.TempDir(), "absent.sock")
-	socket := serve(t, daemon.Config{
+	updates := make(chan daemon.PaneUpdate)
+	serve(t, daemon.Config{
 		Server:    srv.server,
+		Updates:   updates,
 		Observers: []daemon.Observer{func(transition daemon.Transition) { transitions <- transition }},
 	})
 
-	sendFrame(t, socket, frameFor(userPromptSubmitHook, srv.pane, missing))
+	update := registryPaneUpdate(t, srv, paneregistry.StatusBusy, "", registryPrompt)
+	update.Tmux = fmt.Sprintf("%s,1234,0", missing)
+	applyUpdate(updates, update)
 	got := drain(transitions)
 	if len(got) != 1 {
 		t.Fatalf("observed %d transitions, want 1: %+v", len(got), got)
@@ -368,33 +299,32 @@ func TestDaemonServerOverride(t *testing.T) {
 func TestDaemonDropsBadFrames(t *testing.T) {
 	srv := startServer(t)
 	transitions := make(chan daemon.Transition, 4)
+	updates := make(chan daemon.PaneUpdate)
 	socket := serve(t, daemon.Config{
+		Updates:   updates,
 		Observers: []daemon.Observer{func(transition daemon.Transition) { transitions <- transition }},
 	})
 
-	bad := []struct {
-		name    string
-		payload string
-	}{
-		{"malformed JSON", "{not json\n"},
-		{"hook is not an object", fmt.Sprintf(`{"tmuxPane":%q,"tmux":%q,"hook":"text"}`+"\n", srv.pane, srv.socket)},
-		{"hook field has the wrong type", fmt.Sprintf(
-			`{"tmuxPane":%q,"tmux":%q,"hook":{"hook_event_name":5}}`+"\n", srv.pane, srv.socket)},
-		{"empty tmuxPane", fmt.Sprintf(`{"tmuxPane":"","tmux":%q,"hook":%s}`+"\n", srv.socket, userPromptSubmitHook)},
-	}
-	for _, tc := range bad {
-		t.Run(tc.name, func(t *testing.T) {
-			sendBytes(t, socket, []byte(tc.payload))
-			if got := drain(transitions); len(got) != 0 {
-				t.Fatalf("bad frame notified observers: %+v", got)
-			}
-			wantOption(t, srv, protocol.OptionState, "")
-		})
-	}
+	t.Run("malformed JSON", func(t *testing.T) {
+		sendBytes(t, socket, []byte("{not json\n"))
+		if got := drain(transitions); len(got) != 0 {
+			t.Fatalf("bad frame notified observers: %+v", got)
+		}
+		wantOption(t, srv, protocol.OptionState, "")
+	})
+	t.Run("empty pane", func(t *testing.T) {
+		paneless := registryPaneUpdate(t, srv, paneregistry.StatusBusy, "", registryPrompt)
+		paneless.PaneID = ""
+		applyUpdate(updates, paneless)
+		if got := drain(transitions); len(got) != 0 {
+			t.Fatalf("bad update notified observers: %+v", got)
+		}
+		wantOption(t, srv, protocol.OptionState, "")
+	})
 
-	sendFrame(t, socket, frameFor(userPromptSubmitHook, srv.pane, srv.socket))
+	applyUpdate(updates, registryPaneUpdate(t, srv, paneregistry.StatusBusy, "", registryPrompt))
 	if got := drain(transitions); len(got) != 1 {
-		t.Fatalf("good frame after bad frames observed %d transitions, want 1", len(got))
+		t.Fatalf("good update after bad frames observed %d transitions, want 1", len(got))
 	}
 	wantOption(t, srv, protocol.OptionState, "working")
 }
@@ -450,7 +380,7 @@ func TestDaemonDropsBadSeenReports(t *testing.T) {
 		Observers: []daemon.Observer{func(transition daemon.Transition) { transitions <- transition }},
 	})
 
-	withHook := frameFor(userPromptSubmitHook, srv.pane, srv.socket)
+	withHook := hookFrameOn(srv.pane, srv.socket)
 	withHook.Seen = 1700000000
 	bad := []struct {
 		name  string
@@ -486,7 +416,9 @@ func TestDaemonDropsBadSeenReports(t *testing.T) {
 func TestDaemonSeenReportWithoutHandler(t *testing.T) {
 	srv := startServer(t)
 	transitions := make(chan daemon.Transition, 4)
+	updates := make(chan daemon.PaneUpdate)
 	socket := serve(t, daemon.Config{
+		Updates:   updates,
 		Observers: []daemon.Observer{func(transition daemon.Transition) { transitions <- transition }},
 	})
 
@@ -496,7 +428,7 @@ func TestDaemonSeenReportWithoutHandler(t *testing.T) {
 	}
 	unsetPaneOptions(t, srv)
 
-	sendFrame(t, socket, frameFor(userPromptSubmitHook, srv.pane, srv.socket))
+	applyUpdate(updates, registryPaneUpdate(t, srv, paneregistry.StatusBusy, "", registryPrompt))
 	wantOption(t, srv, protocol.OptionState, "working")
 }
 
@@ -549,7 +481,7 @@ func TestDaemonDropsBadReadReports(t *testing.T) {
 		Observers: []daemon.Observer{func(transition daemon.Transition) { transitions <- transition }},
 	})
 
-	withHook := frameFor(userPromptSubmitHook, srv.pane, srv.socket)
+	withHook := hookFrameOn(srv.pane, srv.socket)
 	withHook.Read = readAt
 	bad := []struct {
 		name  string
@@ -589,7 +521,9 @@ func TestDaemonDropsBadReadReports(t *testing.T) {
 func TestDaemonReadReportWithoutHandler(t *testing.T) {
 	srv := startServer(t)
 	transitions := make(chan daemon.Transition, 4)
+	updates := make(chan daemon.PaneUpdate)
 	socket := serve(t, daemon.Config{
+		Updates:   updates,
 		Observers: []daemon.Observer{func(transition daemon.Transition) { transitions <- transition }},
 	})
 
@@ -599,7 +533,7 @@ func TestDaemonReadReportWithoutHandler(t *testing.T) {
 	}
 	unsetPaneOptions(t, srv)
 
-	sendFrame(t, socket, frameFor(userPromptSubmitHook, srv.pane, srv.socket))
+	applyUpdate(updates, registryPaneUpdate(t, srv, paneregistry.StatusBusy, "", registryPrompt))
 	wantOption(t, srv, protocol.OptionState, "working")
 }
 
@@ -667,8 +601,10 @@ func TestDaemonInputReportWithoutHandler(t *testing.T) {
 	srv := startServer(t)
 	seens := make(chan daemon.SeenReport, 4)
 	transitions := make(chan daemon.Transition, 4)
+	updates := make(chan daemon.PaneUpdate)
 	socket := serve(t, daemon.Config{
 		Seen:      func(report daemon.SeenReport) { seens <- report },
+		Updates:   updates,
 		Observers: []daemon.Observer{func(transition daemon.Transition) { transitions <- transition }},
 	})
 
@@ -681,7 +617,7 @@ func TestDaemonInputReportWithoutHandler(t *testing.T) {
 	}
 	unsetPaneOptions(t, srv)
 
-	sendFrame(t, socket, frameFor(userPromptSubmitHook, srv.pane, srv.socket))
+	applyUpdate(updates, registryPaneUpdate(t, srv, paneregistry.StatusBusy, "", registryPrompt))
 	wantOption(t, srv, protocol.OptionState, "working")
 }
 
@@ -699,19 +635,21 @@ func TestDaemonRecordsContext(t *testing.T) {
 	)
 	srv := startServer(t)
 	observed := make(chan contextObservation, 16)
-	socket := serve(t, daemon.Config{
+	updates := make(chan daemon.PaneUpdate)
+	serve(t, daemon.Config{
+		Updates: updates,
 		Observers: []daemon.Observer{func(daemon.Transition) {
 			value, ok, err := srv.client.PaneOption(context.Background(), srv.pane, protocol.OptionContext)
 			observed <- contextObservation{value: value, ok: ok, err: err}
 		}},
 	})
-	withBaseURL := func(hook, baseURL string) protocol.HookFrame {
-		frame := frameFor(hook, srv.pane, srv.socket)
-		frame.AnthropicBaseURL = baseURL
-		return frame
+	withBaseURL := func(status, waitingFor, baseURL string) daemon.PaneUpdate {
+		update := registryPaneUpdate(t, srv, status, waitingFor, registryPrompt)
+		update.BaseURL = baseURL
+		return update
 	}
 
-	sendFrame(t, socket, withBaseURL(userPromptSubmitHook, contextURL))
+	applyUpdate(updates, withBaseURL(paneregistry.StatusBusy, "", contextURL))
 	wantOption(t, srv, protocol.OptionContext, "example-context")
 	got := drain(observed)
 	if len(got) != 1 {
@@ -723,28 +661,22 @@ func TestDaemonRecordsContext(t *testing.T) {
 	}
 
 	// A base URL without /ctx/<name> sets the option to "", which is set, not unset.
-	sendFrame(t, socket, withBaseURL(userPromptSubmitHook, plainURL))
+	applyUpdate(updates, withBaseURL(paneregistry.StatusBusy, "", plainURL))
 	if value, ok := option(t, srv, protocol.OptionContext); !ok || value != "" {
 		t.Fatalf("@orrery_context = (%q, %v), want (\"\", true) for a base URL without a context", value, ok)
 	}
 
-	// A frame that leaves the state unchanged still writes the context.
-	sendFrame(t, socket, withBaseURL(userPromptSubmitHook, contextURL))
+	// An update that leaves the state unchanged still writes the context.
+	applyUpdate(updates, withBaseURL(paneregistry.StatusBusy, "", contextURL))
 	wantOption(t, srv, protocol.OptionContext, "example-context")
 	if got := drain(observed); len(got) != 0 {
-		t.Fatalf("observed %d transitions after the unchanged frame, want 0", len(got))
+		t.Fatalf("observed %d transitions after the unchanged update, want 0", len(got))
 	}
 
-	// An unhandled event still writes the context.
-	sendFrame(t, socket, withBaseURL(`{"hook_event_name":"PreCompact"}`, plainURL))
+	// A dialog-open update changes nothing, and still writes the context.
+	applyUpdate(updates, withBaseURL(paneregistry.StatusWaiting, paneregistry.WaitingDialog, plainURL))
 	if value, ok := option(t, srv, protocol.OptionContext); !ok || value != "" {
-		t.Fatalf("@orrery_context after unhandled event = (%q, %v), want (\"\", true)", value, ok)
-	}
-
-	// A frame whose hook fails to decode writes nothing.
-	sendFrame(t, socket, withBaseURL(`{"hook_event_name":5}`, contextURL))
-	if value, ok := option(t, srv, protocol.OptionContext); !ok || value != "" {
-		t.Fatalf("@orrery_context after failed frame = (%q, %v), want unchanged (\"\", true)", value, ok)
+		t.Fatalf("@orrery_context after dialog-open update = (%q, %v), want (\"\", true)", value, ok)
 	}
 }
 
@@ -755,41 +687,33 @@ func TestDaemonRecordsSession(t *testing.T) {
 		nextSession     = "synthetic-session-2"
 		nextTranscript  = "/synthetic/transcripts/two.jsonl"
 	)
-	const (
-		firstHook = `{"hook_event_name":"UserPromptSubmit","prompt":"synthetic prompt",` +
-			`"session_id":"synthetic-session-1","transcript_path":"/synthetic/transcripts/one.jsonl"}`
-		badHook = `{"hook_event_name":5,"session_id":"synthetic-session-bad",` +
-			`"transcript_path":"/synthetic/bad.jsonl"}`
-		nextHook = `{"hook_event_name":"PreCompact","session_id":"synthetic-session-2",` +
-			`"transcript_path":"/synthetic/transcripts/two.jsonl"}`
-	)
 	srv := startServer(t)
-	socket := serve(t, daemon.Config{})
+	updates := make(chan daemon.PaneUpdate)
+	serve(t, daemon.Config{Updates: updates})
 
-	// The hook carries the session id and transcript path on every frame it applies.
-	sendFrame(t, socket, frameFor(firstHook, srv.pane, srv.socket))
+	// The update carries the session id and transcript path it applies.
+	first := registryPaneUpdate(t, srv, paneregistry.StatusBusy, "", registryPrompt)
+	first.SessionID = firstSession
+	first.Transcript = firstTranscript
+	applyUpdate(updates, first)
 	wantOption(t, srv, protocol.OptionClaudeSession, firstSession)
 	wantOption(t, srv, protocol.OptionTranscript, firstTranscript)
 
-	// A frame whose hook fails to decode changes nothing.
-	sendFrame(t, socket, frameFor(badHook, srv.pane, srv.socket))
+	// An update with no session id or transcript path keeps both options.
+	empty := registryPaneUpdate(t, srv, paneregistry.StatusBusy, "", registryPrompt)
+	empty.SessionID = ""
+	empty.Transcript = ""
+	applyUpdate(updates, empty)
 	wantOption(t, srv, protocol.OptionClaudeSession, firstSession)
 	wantOption(t, srv, protocol.OptionTranscript, firstTranscript)
 
-	// An unhandled event with new values updates both options.
-	sendFrame(t, socket, frameFor(nextHook, srv.pane, srv.socket))
+	// A dialog-open update changes no state, and updates both options with new values.
+	next := registryPaneUpdate(t, srv, paneregistry.StatusWaiting, paneregistry.WaitingDialog, registryPrompt)
+	next.SessionID = nextSession
+	next.Transcript = nextTranscript
+	applyUpdate(updates, next)
 	wantOption(t, srv, protocol.OptionClaudeSession, nextSession)
 	wantOption(t, srv, protocol.OptionTranscript, nextTranscript)
-
-	// SessionEnd with reason other keeps both options.
-	sendFrame(t, socket, frameFor(sessionEndHook, srv.pane, srv.socket))
-	wantOption(t, srv, protocol.OptionClaudeSession, nextSession)
-	wantOption(t, srv, protocol.OptionTranscript, nextTranscript)
-
-	// SessionEnd with reason clear unsets both options.
-	sendFrame(t, socket, frameFor(`{"hook_event_name":"SessionEnd","reason":"clear"}`, srv.pane, srv.socket))
-	wantOption(t, srv, protocol.OptionClaudeSession, "")
-	wantOption(t, srv, protocol.OptionTranscript, "")
 }
 
 func TestListen(t *testing.T) {

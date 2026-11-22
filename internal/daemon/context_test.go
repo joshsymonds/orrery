@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/joshsymonds/orrery/internal/daemon"
+	"github.com/joshsymonds/orrery/internal/paneregistry"
 	"github.com/joshsymonds/orrery/internal/protocol"
 )
 
@@ -49,50 +50,54 @@ func writeSettings(t *testing.T, folder, body string) {
 	}
 }
 
-// sendFrameIn sends a user prompt frame for srv's pane whose Cwd is cwd and whose base URL is baseURL.
-func sendFrameIn(t *testing.T, socket string, srv testServer, cwd, baseURL string) {
+// applyUpdateIn applies a busy update for srv's pane whose Cwd is cwd and whose base URL is baseURL.
+func applyUpdateIn(t *testing.T, updates chan<- daemon.PaneUpdate, srv testServer, cwd, baseURL string) {
 	t.Helper()
-	frame := frameFor(userPromptSubmitHook, srv.pane, srv.socket)
-	frame.Cwd = cwd
-	frame.AnthropicBaseURL = baseURL
-	sendFrame(t, socket, frame)
+	update := registryPaneUpdate(t, srv, paneregistry.StatusBusy, "", registryPrompt)
+	update.Cwd = cwd
+	update.BaseURL = baseURL
+	applyUpdate(updates, update)
 }
 
 func TestDaemonContextBelowStampWithoutFrameURL(t *testing.T) {
 	home, attainProject, _, _ := contextHome(t)
 	srv := startServer(t)
-	socket := serve(t, daemon.Config{Home: home})
+	updates := make(chan daemon.PaneUpdate)
+	serve(t, daemon.Config{Home: home, Updates: updates})
 
-	sendFrameIn(t, socket, srv, attainProject, "")
+	applyUpdateIn(t, updates, srv, attainProject, "")
 	wantOption(t, srv, protocol.OptionContext, "example")
 }
 
 func TestDaemonContextStampOverridesFrameURL(t *testing.T) {
 	home, attainProject, _, _ := contextHome(t)
 	srv := startServer(t)
-	socket := serve(t, daemon.Config{Home: home})
+	updates := make(chan daemon.PaneUpdate)
+	serve(t, daemon.Config{Home: home, Updates: updates})
 
-	sendFrameIn(t, socket, srv, attainProject, personalBaseURL)
+	applyUpdateIn(t, updates, srv, attainProject, personalBaseURL)
 	wantOption(t, srv, protocol.OptionContext, "example")
 }
 
 func TestDaemonContextWithoutStampUsesFrameURL(t *testing.T) {
 	home, _, _, personalProject := contextHome(t)
 	srv := startServer(t)
-	socket := serve(t, daemon.Config{Home: home})
+	updates := make(chan daemon.PaneUpdate)
+	serve(t, daemon.Config{Home: home, Updates: updates})
 
-	sendFrameIn(t, socket, srv, personalProject, personalBaseURL)
+	applyUpdateIn(t, updates, srv, personalProject, personalBaseURL)
 	wantOption(t, srv, protocol.OptionContext, "personal")
 }
 
 func TestDaemonContextBelowBrokenStampUnsets(t *testing.T) {
 	home, _, brokenProject, personalProject := contextHome(t)
 	srv := startServer(t)
-	socket := serve(t, daemon.Config{Home: home})
+	updates := make(chan daemon.PaneUpdate)
+	serve(t, daemon.Config{Home: home, Updates: updates})
 
-	sendFrameIn(t, socket, srv, personalProject, personalBaseURL)
+	applyUpdateIn(t, updates, srv, personalProject, personalBaseURL)
 	wantOption(t, srv, protocol.OptionContext, "personal")
 
-	sendFrameIn(t, socket, srv, brokenProject, personalBaseURL)
+	applyUpdateIn(t, updates, srv, brokenProject, personalBaseURL)
 	wantOption(t, srv, protocol.OptionContext, "")
 }
