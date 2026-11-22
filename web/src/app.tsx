@@ -22,7 +22,7 @@ import type { Contract } from "./gen/orrery/v1/contracts_pb";
 import type { Epic, EpicHistoryEntry, EpicsGetResponse } from "./gen/orrery/v1/epics_pb";
 import type { InAppNotice, NoticeKey } from "./gen/orrery/v1/notice_pb";
 import type { HostStatusResponse } from "./gen/orrery/v1/orrery_pb";
-import { stateWord } from "./glyphs";
+import { Icon, stateWord } from "./glyphs";
 import { type HeadStore, memoryHeadStore } from "./headfold";
 import { KeyList } from "./helppanel";
 import { Inbox } from "./inbox";
@@ -366,8 +366,8 @@ export function App({
   // The answer's life for the middle conversation's own question, and the note its Ask's last call left.
   const [askState, setAskState] = useState<AskState>({ phase: "idle" });
   const [askNote, setAskNote] = useState<AskNote>(noAskNote);
-  // The fixed line an Escape leaves when taking queued messages back or interrupting a row fails.
-  const [escapeError, setEscapeError] = useState("");
+  // The fixed lines an Escape leaves when taking queued messages back or interrupting a row fails, one per failure.
+  const [escapeErrors, setEscapeErrors] = useState<string[]>([]);
   // The headless session rows the owner has interrupted, by row key, each with the turn_since its stream held at the press
   // (0 when no stream held one). A marked row reads interrupting on its dock's line while the list still says it is
   // working. The mark clears once the row's stream reports interrupting or a turn other than the one held, or once the
@@ -1239,7 +1239,7 @@ export function App({
       }
       takeBack(target, cancelled);
     }
-    setEscapeError(failures.join(" "));
+    setEscapeErrors(failures);
     if (box !== null && !interrupting && texts.length === 0) {
       box.blur();
     }
@@ -2451,12 +2451,13 @@ export function App({
     />
   );
 
-  // notes are the error lines the list shows above its rows, in the order they were set.
-  const notes = [seenError, escapeError, archiveError]
+  // notes are the error lines the list shows above its rows, in the order they were set, each led by the warning.
+  const notes = [seenError, ...escapeErrors, archiveError]
     .filter((line) => line !== "")
     .map((line) => (
-      <p class="error" role="alert" key={line}>
-        {line}
+      <p class="inote error" role="alert" key={line}>
+        <Icon name="warn" />
+        <span>{line}</span>
       </p>
     ));
 

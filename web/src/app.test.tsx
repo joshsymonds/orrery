@@ -967,12 +967,12 @@ test("the head, the chips, the rows and the foot sit inside the list, in that or
     assert.deepEqual(outsideList(container, ".inbox-head, .inbox-foot"), []);
   }));
 
-test("a failed write's line shows in the list, under the head and above the rows", (t) =>
+test("a failed write's line shows in the list, under the head and its chips and above the rows, as round 6 draws it", (t) =>
   withApp(t.signal, {}, async (container, fake) => {
     fake.failNext.add(markPanePath);
     await press("x");
     await until(t.signal, () => container.querySelector('[role="alert"]') !== null, "the seen failure line");
-    assert.deepEqual(inboxChildren(container), ["inbox-head", "error", "inbox-attn", "inbox-rows", "inbox-foot"]);
+    assert.deepEqual(inboxChildren(container), ["inbox-head", "inbox-attn", "inote error", "inbox-rows", "inbox-foot"]);
     assert.deepEqual(outsideList(container, ".error"), []);
   }));
 
