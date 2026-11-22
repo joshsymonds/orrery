@@ -39,11 +39,19 @@ type Snapshot struct {
 	Seq      int64
 }
 
-// Reader reads orreryd's store without writing it. Each Snapshot opens the file at the reader's path, reads it,
-// and closes it, so the reader holds no connection between calls and never keeps the writer from being the
-// store's last connection.
+// Reader reads orreryd's store without writing it. A reader from NewReader opens the file at its path on each call,
+// reads it and closes it, so it holds no connection between calls and never keeps the writer from being the store's
+// last connection. A reader from NewPooledReader keeps one read-only pool open until Close, so its reads reuse the
+// connections an earlier read left open. Serve's reader holds connections to the store, so serve is stopped before the
+// store file is replaced (a restore), orreryd closes last, and both are started after the store file is replaced.
 type Reader struct {
 	path string
+	// pool is the read-only pool of a reader from NewPooledReader, and nil for a reader from NewReader. connector is the
+	// pool's connector, which Close waits on.
+	pool      *sql.DB
+	connector *trackedConnector
+	// poolErr is why NewPooledReader could not make its pool. Each read returns it.
+	poolErr error
 	// at, when set, runs at each point of a Snapshot or Events read (see readPoint). It is a test seam: production
 	// leaves it nil.
 	at func(readPoint)
@@ -66,6 +74,53 @@ func NewReader(path string) *Reader {
 	return &Reader{path: path}
 }
 
+// NewPooledReader returns a Reader for the store file at path whose reads share one read-only pool of at most readConns
+// connections. The pool opens its first connection for the first read, and a later read reuses a connection the pool
+// holds. The reader holds those connections until Close.
+func NewPooledReader(path string) *Reader {
+	inner, err := sqlite.NewConnector(readOnlyDSN(path))
+	if err != nil {
+		return &Reader{path: path, poolErr: fmt.Errorf("open store reader: %w", err)}
+	}
+	connector := &trackedConnector{inner: inner, readPool: true}
+	pool := sql.OpenDB(connector)
+	pool.SetMaxOpenConns(readConns)
+	pool.SetMaxIdleConns(readConns)
+	return &Reader{path: path, pool: pool, connector: connector}
+}
+
+// Close closes a pooled reader's pool. It refuses new connections, closes the pool and returns once the connections
+// the pool made are closed. A reader from NewReader holds no connection, so Close returns nil for it.
+func (r *Reader) Close() error {
+	if r.pool == nil {
+		return nil
+	}
+	r.connector.beginClose()
+	err := r.pool.Close()
+	r.connector.wait()
+	if err != nil {
+		return fmt.Errorf("close store reader: %w", err)
+	}
+	return nil
+}
+
+// database returns the database a read runs on, and closeDB, which the read calls once it has run. A pooled reader's
+// database is its pool, and its closeDB leaves the pool open for the next read. Any other reader opens a connection for
+// the read, and its closeDB closes that connection.
+func (r *Reader) database() (*sql.DB, func() error, error) {
+	if r.poolErr != nil {
+		return nil, nil, r.poolErr
+	}
+	if r.pool != nil {
+		return r.pool, func() error { return nil }, nil
+	}
+	db, err := sql.Open("sqlite", readOnlyDSN(r.path))
+	if err != nil {
+		return nil, nil, fmt.Errorf("open store reader: %w", err)
+	}
+	return db, db.Close, nil
+}
+
 // reach runs r.at at point when it is set.
 func (r *Reader) reach(point readPoint) {
 	if r.at != nil {
@@ -77,13 +132,13 @@ func (r *Reader) reach(point readPoint) {
 // matches ErrUnavailable when the file is missing or the database is busy. It never creates the file or its
 // directory, and it never writes the database.
 func (r *Reader) Snapshot(ctx context.Context) (Snapshot, error) {
-	db, err := sql.Open("sqlite", readOnlyDSN(r.path))
+	db, closeDB, err := r.database()
 	if err != nil {
-		return Snapshot{}, fmt.Errorf("open store reader: %w", err)
+		return Snapshot{}, err
 	}
 	r.reach(readOpened)
 	snap, err := readSnapshot(ctx, db, r.reach)
-	if closeErr := db.Close(); closeErr != nil {
+	if closeErr := closeDB(); closeErr != nil {
 		err = errors.Join(err, fmt.Errorf("close store reader: %w", closeErr))
 	}
 	if err != nil {
