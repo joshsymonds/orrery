@@ -47,7 +47,16 @@ data class PushEvent(
     val silent: Boolean = false,
 )
 
-private class PushNotice(val title: String, val text: String, val channelId: String)
+// expanded, when set, is the notification's expanded text, shown when it is opened.
+private class PushNotice(val title: String, val text: String, val channelId: String, val expanded: String? = null)
+
+// How a waiting pane's stored question reads: an AskUserQuestion value with its first question's text, a tool
+// permission with its tool and detail, or anything else.
+private sealed interface Prompt {
+    class Asked(val question: String) : Prompt
+    class Permission(val tool: String, val detail: String) : Prompt
+    object Plain : Prompt
+}
 
 class PushNotifier(private val context: Context) {
     private val manager = context.getSystemService(NotificationManager::class.java)
@@ -69,6 +78,7 @@ class PushNotifier(private val context: Context) {
             .setContentIntent(contentIntent(event, tag, id))
             .setOnlyAlertOnce(replacedChannelId == channelId && event.state !in ALERTING_STATES)
             .setExtras(timeExtras(event.time))
+        notice.expanded?.let { builder.setStyle(Notification.BigTextStyle().bigText(it)) }
         actionsOf(event, tag, id).forEach { builder.addAction(it) }
         manager.notify(id, builder.build())
     }
@@ -122,7 +132,7 @@ class PushNotifier(private val context: Context) {
     private fun epicNotice(event: PushEvent): PushNotice {
         val slug = event.epic.substringAfterLast("/")
         return when (event.block) {
-            "question" -> PushNotice("$slug asks you a question", event.summary, CHANNEL_ID)
+            "question" -> PushNotice("$slug asks you a question", event.summary, CHANNEL_ID, expanded = event.summary)
             "release_step" -> PushNotice("$slug: release step ${event.blockRef} failed", event.summary, CHANNEL_ID)
             "contract" -> PushNotice("$slug: a contract is ready to read", event.summary, SILENT_CHANNEL_ID)
             "report" -> PushNotice("$slug: its report is ready", event.summary, SILENT_CHANNEL_ID)
@@ -134,7 +144,7 @@ class PushNotifier(private val context: Context) {
         val text = event.summary.ifEmpty { event.label }
         val dir = event.project
         return when (event.state) {
-            "waiting" -> PushNotice("$dir ${askOf(event)}", text, CHANNEL_ID)
+            "waiting" -> askNotice(event)
             "failed" -> PushNotice("$dir · failed", text, CHANNEL_ID)
             "interrupted" -> PushNotice("$dir · cut off", text, CHANNEL_ID)
             "done" -> PushNotice("$dir · done", text, SILENT_CHANNEL_ID)
@@ -142,24 +152,59 @@ class PushNotifier(private val context: Context) {
         }
     }
 
-    private fun askOf(event: PushEvent): String {
+    // A waiting session or pane is titled by its directory and what it asks. Its text is the question, or its detail or
+    // summary; an ask with options is titled by its directory alone and expands to its question and numbered options.
+    private fun askNotice(event: PushEvent): PushNotice {
+        val dir = event.project
+        val fallback = event.summary.ifEmpty { event.label }
         if (event.session.isNotEmpty()) {
-            return if (event.question.isEmpty()) UNREADABLE_ASK else "asks: ${event.question}"
+            return when {
+                event.options.isNotEmpty() -> optionsNotice(dir, event.question.ifEmpty { fallback }, event.options)
+                event.question.isEmpty() -> PushNotice("$dir $UNREADABLE_ASK", fallback, CHANNEL_ID)
+                else -> PushNotice("$dir asks: ${event.question}", fallback, CHANNEL_ID)
+            }
         }
-        return paneAsk(event.question) ?: UNREADABLE_ASK
+        if (event.question.isEmpty()) return PushNotice("$dir $UNREADABLE_ASK", fallback, CHANNEL_ID)
+        return when (val prompt = promptOf(event.question)) {
+            is Prompt.Asked -> askedNotice(dir, prompt.question, event.options, fallback)
+            is Prompt.Permission -> PushNotice("$dir asks to run ${prompt.tool}", prompt.detail.ifEmpty { fallback }, CHANNEL_ID)
+            Prompt.Plain -> PushNotice("$dir $UNREADABLE_ASK", fallback, CHANNEL_ID)
+        }
     }
 
-    // paneAsk reads a pane's stored question the way the Ask does: its first question's text, else its tool.
-    private fun paneAsk(stored: String): String? {
+    private fun askedNotice(dir: String, question: String, options: List<String>, fallback: String): PushNotice =
+        if (options.isNotEmpty()) optionsNotice(dir, question, options) else PushNotice("$dir asks: $question", fallback, CHANNEL_ID)
+
+    private fun optionsNotice(dir: String, question: String, options: List<String>): PushNotice {
+        val lines = listOf(question) + options.mapIndexed { index, label -> "${index + 1}. $label" }
+        return PushNotice("$dir asks", question, CHANNEL_ID, expanded = lines.joinToString("\n"))
+    }
+
+    // promptOf reads a pane's stored question the way the web does: an AskUserQuestion value by its first question's
+    // text, else a tool permission by its tool, else plain text, which is also what text that is not a JSON object is.
+    private fun promptOf(stored: String): Prompt {
         val json = try {
             JSONObject(stored)
         } catch (e: JSONException) {
-            return null
+            return Prompt.Plain
         }
-        val question = json.optJSONArray("questions")?.optJSONObject(0)?.optString("question").orEmpty()
-        if (question.isNotEmpty()) return "asks: $question"
-        return json.optString("tool").takeIf { it.isNotEmpty() }?.let { "asks to run $it" }
+        val question = json.optJSONArray("questions")?.optJSONObject(0)?.let { stringOf(it, "question") }.orEmpty()
+        if (question.isNotEmpty()) return Prompt.Asked(question)
+        val tool = stringOf(json, "tool")
+        if (tool.isEmpty()) return Prompt.Plain
+        return Prompt.Permission(tool, detailOf(json.optJSONObject("input")))
     }
+
+    // detailOf is the detail a permission asks about: its command, else its file path, else its URL, else nothing.
+    private fun detailOf(input: JSONObject?): String {
+        for (key in listOf("command", "file_path", "url")) {
+            val value = input?.let { stringOf(it, key) }.orEmpty()
+            if (value.isNotEmpty()) return value
+        }
+        return ""
+    }
+
+    private fun stringOf(json: JSONObject, key: String): String = json.opt(key) as? String ?: ""
 
     private fun tagOf(epic: String, session: String, pane: String, limit: String, alert: String): String = when {
         epic.isNotEmpty() -> epic
@@ -180,21 +225,31 @@ class PushNotifier(private val context: Context) {
     private fun paneOrSessionActions(event: PushEvent, tag: String, id: Int): List<Notification.Action> {
         val reply = replyAction(event, tag, id)
         val options = event.options
-        val waiting = event.state == "waiting"
-        return when {
-            waiting && options.size in 1..MAX_ANSWER_ACTIONS -> {
-                val answers = options.mapIndexed { index, label -> answerAction(event, tag, id, index, label) }
-                if (options.size < MAX_ANSWER_ACTIONS) answers + reply else answers
-            }
-            waiting && (options.size > MAX_ANSWER_ACTIONS || event.session.isNotEmpty()) ->
+        if (event.state != "waiting") return listOf(reply)
+        if (event.session.isNotEmpty()) {
+            return if (options.size in 1..MAX_ANSWER_ACTIONS) {
+                answersThen(options.mapIndexed { index, label -> sessionAnswerAction(event, tag, id, index, label) }, reply)
+            } else {
                 listOf(openAction(event, tag, id), reply)
-            waiting && event.question.isNotEmpty() ->
-                KEYS.mapIndexed { index, key -> answerAction(event, tag, id, index, key) } + reply
-            else -> listOf(reply)
+            }
+        }
+        if (event.question.isEmpty()) return listOf(reply)
+        return when (promptOf(event.question)) {
+            is Prompt.Asked -> if (options.size in 1..MAX_ANSWER_ACTIONS) {
+                answersThen(options.mapIndexed { index, label -> paneKeyAction(event, tag, id, index + 1, label) }, reply)
+            } else {
+                listOf(openAction(event, tag, id), reply)
+            }
+            is Prompt.Permission -> PERMISSION_ANSWERS.mapIndexed { index, label -> paneKeyAction(event, tag, id, index + 1, label) }
+            Prompt.Plain -> listOf(openAction(event, tag, id), reply)
         }
     }
 
-    private fun contentIntent(event: PushEvent, tag: String, id: Int): PendingIntent {
+    // Answers take the room up to three; Reply follows them only while fewer than three are offered.
+    private fun answersThen(answers: List<Notification.Action>, reply: Notification.Action): List<Notification.Action> =
+        if (answers.size < MAX_ANSWER_ACTIONS) answers + reply else answers
+
+    private fun contentIntent(event: PushEvent, tag: String, id: Int, slot: String = "content"): PendingIntent {
         val intent = Intent(context, MainActivity::class.java)
             .putExtra(EXTRA_NOTIFICATION_ID, id)
             .putExtra(EXTRA_DIR, event.project)
@@ -209,39 +264,49 @@ class PushNotifier(private val context: Context) {
         }
         return PendingIntent.getActivity(
             context,
-            requestCode(event.host, tag, "content"),
+            requestCode(event.host, tag, slot),
             intent,
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
     }
 
+    // Open has its own slot, apart from the notification's content intent, so each action's request code stays distinct.
     private fun openAction(event: PushEvent, tag: String, id: Int): Notification.Action =
-        Notification.Action.Builder(Icon.createWithResource(context, SMALL_ICON), "Open", contentIntent(event, tag, id))
+        Notification.Action.Builder(Icon.createWithResource(context, SMALL_ICON), "Open", contentIntent(event, tag, id, "open"))
             .build()
 
-    // A pane's option n sends key n of its question; a session's option sends its label as the answer to its request.
-    private fun answerAction(event: PushEvent, tag: String, id: Int, index: Int, label: String): Notification.Action {
-        val number = (index + 1).toString()
+    // A pane's key n answers its question with key n, guarded by the question's hash.
+    private fun paneKeyAction(event: PushEvent, tag: String, id: Int, key: Int, title: String): Notification.Action {
         val intent = Intent(ACTION_KEY)
             .setPackage(context.packageName)
             .putExtra(EXTRA_NOTIFICATION_ID, id)
             .putExtra(EXTRA_DIR, event.project)
-        if (event.session.isNotEmpty()) {
-            intent.putExtra(EXTRA_SESSION, event.session)
-                .putExtra(EXTRA_REQUEST, event.request)
-                .putExtra(EXTRA_ANSWER, label)
-        } else {
-            intent.putExtra(EXTRA_PANE, event.pane)
-                .putExtra(EXTRA_KEY, number)
-                .putExtra(EXTRA_QUESTION_HASH, event.questionHash)
-        }
+            .putExtra(EXTRA_PANE, event.pane)
+            .putExtra(EXTRA_KEY, key.toString())
+            .putExtra(EXTRA_QUESTION_HASH, event.questionHash)
+        return answerAction(event, tag, key, title, intent)
+    }
+
+    // A session's option sends its label as the answer to its request.
+    private fun sessionAnswerAction(event: PushEvent, tag: String, id: Int, index: Int, label: String): Notification.Action {
+        val intent = Intent(ACTION_KEY)
+            .setPackage(context.packageName)
+            .putExtra(EXTRA_NOTIFICATION_ID, id)
+            .putExtra(EXTRA_DIR, event.project)
+            .putExtra(EXTRA_SESSION, event.session)
+            .putExtra(EXTRA_REQUEST, event.request)
+            .putExtra(EXTRA_ANSWER, label)
+        return answerAction(event, tag, index + 1, label, intent)
+    }
+
+    private fun answerAction(event: PushEvent, tag: String, slot: Int, title: String, intent: Intent): Notification.Action {
         val pending = PendingIntent.getBroadcast(
             context,
-            requestCode(event.host, tag, "answer$number"),
+            requestCode(event.host, tag, "answer$slot"),
             intent,
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
-        return Notification.Action.Builder(Icon.createWithResource(context, SMALL_ICON), label, pending).build()
+        return Notification.Action.Builder(Icon.createWithResource(context, SMALL_ICON), title, pending).build()
     }
 
     private fun replyAction(event: PushEvent, tag: String, id: Int): Notification.Action {
@@ -294,7 +359,7 @@ class PushNotifier(private val context: Context) {
         const val EXTRA_ANSWER = "io.github.joshsymonds.orrery.extra.ANSWER"
         const val REMOTE_INPUT_KEY = "reply"
         private const val ALERT_TAG_PREFIX = "alert:"
-        private val KEYS = listOf("1", "2", "3")
+        private val PERMISSION_ANSWERS = listOf("Yes", "Don't ask again", "No")
         private const val MAX_ANSWER_ACTIONS = 3
         private val ALERTING_STATES = setOf("waiting", "failed")
         private val SMALL_ICON = R.drawable.ic_notification
