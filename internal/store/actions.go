@@ -365,9 +365,9 @@ func changeApproach(ctx context.Context, queries *sqlcgen.Queries, action Planne
 }
 
 // refuseApproachFiles returns a RefusalError for the files of a change of approach that the task of action cannot have:
-// a file it adds that it already owns, a file it adds that another open task owns, or one an accepted task owns that the
-// epic has not integrated, which the holder names; a file it removes that it does not own; a file both added and
-// removed, or named twice; and a change that would leave the task no files.
+// a file it adds that it already owns; a file it removes that it does not own; a file both added and removed, or named
+// twice; and a change that would leave the task no files. A file another task of the epic owns is not refused, since
+// tasks may share a file.
 func refuseApproachFiles(ctx context.Context, queries *sqlcgen.Queries, action PlannerAction) error {
 	owned, err := ownedFiles(ctx, queries, action.Epic, action.Task)
 	if err != nil {
@@ -390,62 +390,10 @@ func refuseApproachFiles(ctx context.Context, queries *sqlcgen.Queries, action P
 			return RefusalError(fmt.Sprintf("%s is already one of task %d's files", file, action.Task))
 		}
 	}
-	err = refuseHeldFiles(ctx, queries, action.Epic, action.Task, action.Files)
-	if err != nil {
-		return err
-	}
 	if len(action.Files)+len(action.Remove) > 0 && len(withoutPaths(owned, action.Remove))+len(action.Files) == 0 {
 		return RefusalError(fmt.Sprintf("task %d of epic %s would be left no files", action.Task, action.Epic))
 	}
 	return nil
-}
-
-// refuseHeldFiles returns a RefusalError naming the holder of each of files that another task of the epic holds: an
-// open task that owns it, or an accepted task that owns it and has not been integrated. An accepted task has not been
-// integrated while no integrate batch has claimed it, or while the batch that claimed it has not ended.
-func refuseHeldFiles(ctx context.Context, queries *sqlcgen.Queries, epic string, seq int64, files []string) error {
-	if len(files) == 0 {
-		return nil
-	}
-	tasks, err := queries.ListEpicTasks(ctx, epic)
-	if err != nil {
-		return fmt.Errorf("read tasks of epic %s: %w", epic, err)
-	}
-	rows, err := queries.ListEpicTaskFiles(ctx, epic)
-	if err != nil {
-		return fmt.Errorf("read task files of epic %s: %w", epic, err)
-	}
-	runs, err := readNodeRuns(ctx, queries, epic)
-	if err != nil {
-		return err
-	}
-	for _, row := range rows {
-		if row.Task == seq || !slices.Contains(files, row.Path) {
-			continue
-		}
-		i := slices.IndexFunc(tasks, func(task sqlcgen.EpicTask) bool { return task.Seq == row.Task })
-		if i < 0 {
-			continue
-		}
-		task := tasks[i]
-		switch {
-		case task.Status == taskOpen:
-			return RefusalError(fmt.Sprintf("%s is owned by open T%d", row.Path, row.Task))
-		case task.Status == taskDone && !batchEnded(task.Batch, runs):
-			return RefusalError(fmt.Sprintf("%s is owned by accepted T%d, not yet integrated", row.Path, row.Task))
-		}
-	}
-	return nil
-}
-
-// batchEnded reports whether the integrate batch at path has ended, so the task it claimed is composed or left out. A
-// task no batch claimed has an empty path, and a batch whose run is not among runs has not ended.
-func batchEnded(path string, runs []NodeRun) bool {
-	if path == "" {
-		return false
-	}
-	i := slices.IndexFunc(runs, func(run NodeRun) bool { return run.Path == path })
-	return i >= 0 && runs[i].State == NodeEnded
 }
 
 // failPlannedTask climbs the task action names one rung off the build the task stores, with the planner's reason as the

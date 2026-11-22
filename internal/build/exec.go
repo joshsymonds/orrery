@@ -222,40 +222,23 @@ func (r *Runner) carry(
 }
 
 // grant gives the task the files action names and stores action's build, which runs its implementer again in the same
-// worktree. When another open task owns one of the files, the store writes nothing, and the return is a request the
-// grant could not settle: it goes to the orchestrator (request), and when the task has no decisions left, the task
-// climbs with action's reason, the refusal and the files it named.
+// worktree.
 func (r *Runner) grant(ctx context.Context, epic store.EpicRow, view View, action Action) bool {
 	seq := view.Task.Seq
 	err := r.store.GrantTaskFiles(ctx, epic.ID, seq, view.Task.Build, action.Next, store.TaskVersionInput{
 		Source: store.SourceGrant, Step: view.Task.Build.Step, Reason: action.Next.Failure, Files: action.NeedsFiles,
 	}, r.now())
-	var owned store.FileOwnedError
-	if errors.As(err, &owned) {
-		reason := action.Reason + "; " + owned.Error()
-		return r.execute(
-			ctx,
-			epic,
-			view,
-			request(view, Action{Kind: ActFail, Reason: reason, NeedsFiles: action.NeedsFiles}),
-		)
-	}
 	return r.written(ctx, epic.ID, seq, "grant files", err)
 }
 
 // decide carries out an orchestrator's rerun, grant or re-brief: in one write the task's version, action's Version, is
 // stored with the files it adds and removes, its build moves to action's, and the decision is recorded
-// (store.Store.RerunTask). When an open task the build does not wait for owns one of the files, the store writes
-// nothing, and the request is settled as action's fallback, with the refusal added.
+// (store.Store.RerunTask).
 func (r *Runner) decide(ctx context.Context, epic store.EpicRow, view View, action Action) bool {
 	seq := view.Task.Seq
 	err := r.store.RerunTask(
-		ctx, epic.ID, seq, view.Task.Build, action.Next, action.Version, action.Behind, *action.Decision, r.now(),
+		ctx, epic.ID, seq, view.Task.Build, action.Next, action.Version, *action.Decision, r.now(),
 	)
-	var owned store.FileOwnedError
-	if errors.As(err, &owned) && action.Fallback != nil {
-		return r.execute(ctx, epic, view, refused(*action.Fallback, decisionGrant, []string{owned.Error()}))
-	}
 	return r.written(ctx, epic.ID, seq, "carry out decision", err)
 }
 

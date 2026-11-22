@@ -292,11 +292,8 @@ func applyTaskFiles(ctx context.Context, queries *sqlcgen.Queries, epic string, 
 }
 
 // settleTaskFiles makes the files of task seq of epic the whole list that version number of the task stores, in the
-// caller's write, when the version stores one. A file the list adds that an open task of the epic other than seq owns
-// is a FileOwnedError, as grantFiles refuses it, and writes nothing; one that an accepted task whose integrate batch has
-// not ended owns is a RefusalError naming that task, as refuseHeldFiles refuses it, and writes nothing. The build
-// reports either and settles again on a later pass, once the holder has integrated. Otherwise the files the task owns
-// and the list lacks are deleted, and the files the list adds are appended in its order.
+// caller's write, when the version stores one. The files the task owns and the list lacks are deleted, and the files
+// the list adds are appended in its order.
 func settleTaskFiles(ctx context.Context, queries *sqlcgen.Queries, epic string, seq, number int64) error {
 	rows, err := queries.ListEpicTaskVersions(ctx, epic)
 	if err != nil {
@@ -320,14 +317,6 @@ func settleTaskFiles(ctx context.Context, queries *sqlcgen.Queries, epic string,
 		return err
 	}
 	added := withoutPaths(whole, owned)
-	err = checkFileOwners(ctx, queries, epic, seq, added, nil)
-	if err != nil {
-		return err
-	}
-	err = refuseHeldFiles(ctx, queries, epic, seq, added)
-	if err != nil {
-		return err
-	}
 	err = removeTaskFiles(ctx, queries, epic, seq, withoutPaths(owned, whole))
 	if err != nil {
 		return err
@@ -458,10 +447,9 @@ type TaskVersionSettle struct {
 // settle.State, with settle.RedRun and settle.Refusal, at at, in one write, when the stored build is from, as
 // SetTaskBuild does. Settled applied, the task's files become the version's stored whole list in the same write: the
 // files it deletes are the task's files the list lacks, and the files it adds are the list's files the task lacks,
-// appended in the list's order. A file the list adds that another open task of the epic owns is a FileOwnedError, which
-// writes nothing and leaves the version checking. Settled refused, the task's files stay as they were. A State other
-// than applied or refused is an error. A task with no checking version under settle.Version is ErrVersionNotChecking.
-// Both write nothing. A task that is not open, or whose stored build is not from, is ErrTaskMoved and writes nothing.
+// appended in the list's order. Settled refused, the task's files stay as they were. A State other than applied or
+// refused is an error. A task with no checking version under settle.Version is ErrVersionNotChecking. Both write
+// nothing. A task that is not open, or whose stored build is not from, is ErrTaskMoved and writes nothing.
 func (s *Store) SettleTaskVersion(
 	ctx context.Context,
 	epic string,
