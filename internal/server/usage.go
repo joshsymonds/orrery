@@ -13,9 +13,6 @@ import (
 // usageUnavailable is the fixed message for a usage read when serve has no ledger reader.
 const usageUnavailable = "usage ledger unavailable"
 
-// usageNotImplemented is the fixed message for a usage read whose answer is not written yet.
-const usageNotImplemented = "usage read not implemented"
-
 // usageServer answers orrery.v1.Usage from the ledger reader. A nil ledger answers each read unavailable.
 type usageServer struct {
 	ledger   *ledger.Reader

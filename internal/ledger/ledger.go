@@ -35,9 +35,6 @@ var ErrTooNew = errors.New("ledger schema is newer than this binary")
 // store's BusyTimeout, for the same writer: Litestream holds the write lock for its checkpoints.
 const busyTimeout = 5 * time.Second
 
-// errNotImplemented is returned by each ledger operation whose implementation is not written yet.
-var errNotImplemented = errors.New("ledger: not implemented")
-
 // Path returns the ledger file's path: ledger.db in the directory of storePath, beside orreryd's store.
 func Path(storePath string) string {
 	return filepath.Join(filepath.Dir(storePath), "ledger.db")
