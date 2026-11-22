@@ -937,7 +937,6 @@ button.link.notices-more { justify-self: end; padding: 0 var(--o-space-12); colo
 
 /* ============ the epic page, in the reader's track: its title row, summary, track, Now, tasks and requirements, happenings and evidence runs ============ */
 .epic-page { display: flex; flex-direction: column; gap: var(--o-space-24); min-width: 0; }
-@media (min-width: 760px) { .epic-page { gap: var(--o-space-32); } }
 /* A page moving deeper drills in over the drill move, and a page coming back leaves in over the leave move. */
 section.page.drill { animation: move-drill var(--o-move-drill); }
 section.page.leave { animation: move-leave var(--o-move-leave); }
@@ -1185,6 +1184,7 @@ button.act:active, .back:active, .crumb:active { transform: scale(.97); backgrou
    panel the title row stays pinned at the card's top edge, across the scroller's padding and under the panel's own
    controls, while the record under it scrolls. */
 @media (min-width: 760px) {
+  .epic-page { gap: var(--o-space-32); }
   .rcard > section.page > .epic-page > .title-row {
     position: sticky; top: calc(-1 * var(--o-space-16)); z-index: var(--o-z-sticky);
     margin-top: calc(-1 * var(--o-space-16)); padding-top: var(--o-space-16); background: var(--o-surface-page);

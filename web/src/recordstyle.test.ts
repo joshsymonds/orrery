@@ -228,6 +228,41 @@ test("EpicRecord: in the desk's panel the epic page's title row stays pinned at 
   assert.equal(declaredValue(desk, ".epic-page > .title-row", "position"), undefined, "no page-wide pin outside the panel");
 });
 
+// outsideMedia is the stylesheet with the blocks of one query cut out, so a value is read as the widths outside that query read it.
+function outsideMedia(sheet: string, query: string): string {
+  const opener = `@media ${query} {`;
+  let rest = sheet;
+  let from = rest.indexOf(opener);
+  while (from !== -1) {
+    let depth = 1;
+    let end = from + opener.length;
+    while (depth > 0) {
+      depth += rest[end] === "{" ? 1 : rest[end] === "}" ? -1 : 0;
+      end += 1;
+    }
+    rest = rest.slice(0, from) + rest.slice(end);
+    from = rest.indexOf(opener);
+  }
+  return rest;
+}
+
+test("EpicPageLook: at the desk the epic page's sticky title row takes the card's own surface, so it reads as part of the card", () => {
+  const desk = rulesUnder(css, "(min-width: 760px)");
+  const card = declaredValue(rules, ".rcard", "background");
+  assert.equal(card, "var(--o-surface-page)", "the card is drawn in the page surface");
+  assert.equal(declaredValue(desk, ".rcard > section.page > .epic-page > .title-row", "background"), card);
+});
+
+test("EpicPageLook: at the desk the epic page's sections sit 32 apart", () => {
+  const desk = rulesUnder(css, "(min-width: 760px)");
+  assert.equal(declaredValue(desk, ".epic-page", "gap"), "var(--o-space-32)");
+});
+
+test("EpicPageLook: under 760px the epic page's sections sit 24 apart, the base gap no phone rule overrides", () => {
+  assert.equal(declaredValue(phone, ".epic-page", "gap"), undefined, "no phone rule sets the epic page's gap");
+  assert.equal(declaredValue(rulesOf(outsideMedia(css, "(min-width: 760px)")), ".epic-page", "gap"), "var(--o-space-24)");
+});
+
 test("EpicRecord: the Tasks section sets the chart beside the task table, wrapping the table under it when narrow", () => {
   assert.equal(declaredValue(rules, ".epic-page section.tasks", "display"), "flex");
   assert.equal(declaredValue(rules, ".epic-page section.tasks", "flex-wrap"), "wrap");
