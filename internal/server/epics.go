@@ -331,7 +331,8 @@ func stepsByEpic(steps []*enginev1.Step) map[string][]*enginev1.Step {
 
 // epicMessage returns the Epic for rec, an epic the records alone hold, with the tasks its efforts hold. Its problem is
 // recordProblems. Its running steps and its count of ended steps are counts'. It is waiting when it is live, has no
-// outcome, no running step and no task: accepted and yet to start.
+// outcome, no running step and no task: accepted and yet to start. Its path is the head's workspace, empty when the head
+// names none.
 func epicMessage(
 	rec epicRecord,
 	tasks []taskRecord,
@@ -354,6 +355,7 @@ func epicMessage(
 		EndedSteps:    counts.ended,
 		Problem:       strings.Join(recordProblems(rec, taskProblems), "; "),
 		Source:        epicSourceRecord,
+		Path:          rec.Workspace,
 	}
 }
 
