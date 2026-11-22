@@ -70,6 +70,7 @@ func (s sessionsServer) List(
 		// for its current change time, all at s.now(). A row with no change time, changed 0, never ages. A server with
 		// no clock ages none.
 		verdict, ok := verdicts[row.ID]
+		session.Ended, session.EndedAt = endedRow(false, verdict, ok, changed)
 		aged := false
 		if changed != 0 && s.now != nil {
 			now := s.now()
