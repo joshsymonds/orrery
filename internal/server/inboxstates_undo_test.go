@@ -5,181 +5,182 @@ import (
 	"testing"
 	"time"
 
+	"github.com/joshsymonds/orrery/internal/gen/orrery/v1/orreryv1connect"
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
-// Session ids of the unarchive tests, with invented values: a headless session and a pane.
+// Session ids of the unarchive tests, with invented values: a pane and a headless session for each case. The cases
+// share one store, and each has ids of its own. The headless ids are 32 hex digits each.
 const (
-	undoHeadlessID = "3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a"
-	undoPaneID     = "orrery-undo"
+	undoEndedPane  = "orrery-undo-ended"
+	undoEndedHead  = "3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a"
+	undoMarkedPane = "orrery-undo-marked"
+	undoMarkedHead = "3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b"
+	undoAgedPane   = "orrery-undo-aged"
+	undoAgedHead   = "3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c"
 )
 
-// expectUndoListed lists the pane rows and the headless rows of the store at path on the clock now, and fails the test
-// unless they give the ended states wantEnded and the archived flags wantArchived, by id. Each map names every row.
+// seedUndoCases writes the rows of the cases of TestInboxStatesUndo into the store at path, at closureStart. The
+// headless sessions are added in one write, and each pane is synced as done. The ended case's pane and headless session
+// are closed for their change time.
+func seedUndoCases(t *testing.T, path string) {
+	t.Helper()
+	at := closureStart()
+	applyHeadlessAt(t, path, at,
+		store.EngineAdd{ID: undoEndedHead, Dir: "/work/undo", State: "idle"},
+		store.EngineAdd{ID: undoMarkedHead, Dir: "/work/undo", State: "idle"},
+		store.EngineAdd{ID: undoAgedHead, Dir: "/work/undo", State: "stopped"},
+	)
+	for _, pane := range []string{undoEndedPane, undoMarkedPane, undoAgedPane} {
+		syncEndedPane(t, path, pane, "done", at)
+	}
+	setClosureVerdict(t, path, closureVerdictOf(undoEndedHead, at, true), at)
+	setClosureVerdict(t, path, closureVerdictOf(undoEndedPane, at, true), at)
+}
+
+// expectUndoListed lists the pane and the headless session of one case through sessions, on the clock they were built
+// with, and fails the test unless they give the ended states wantEnded and the archived flags wantArchived, by id. Each
+// map names both rows. The rows of the other cases are not this case's.
 func expectUndoListed(
-	t *testing.T, path, step string, now func() time.Time,
+	t *testing.T, sessions orreryv1connect.SessionsClient, step, pane, headless string,
 	wantEnded map[string]endedRowState, wantArchived map[string]bool,
 ) {
 	t.Helper()
-	sessions := sessionsClientAt(t, store.NewReader(path), now)
 	panes := listSessionRows(t, sessions)
-	headless := listHeadlessRows(t, sessions)
+	headlessRows := listHeadlessRows(t, sessions)
 	ended := endedStates(panes)
-	maps.Copy(ended, endedStates(headless))
+	maps.Copy(ended, endedStates(headlessRows))
 	archived := archivedByID(panes)
-	maps.Copy(archived, archivedByID(headless))
-	expectEnded(t, step, ended, wantEnded)
-	expectArchived(t, step, archived, wantArchived)
+	maps.Copy(archived, archivedByID(headlessRows))
+	expectEnded(t, step, pickStates(ended, pane, headless), wantEnded)
+	expectArchived(t, step, pickStates(archived, pane, headless), wantArchived)
 }
 
-// endUndoRows ends the pane and the headless session of the ended case at at, by a closed verdict for their change
-// time at, in the store at path.
-func endUndoRows(t *testing.T, path string, at time.Time) {
-	t.Helper()
-	applyHeadlessAt(t, path, at, store.EngineAdd{ID: undoHeadlessID, Dir: "/work/undo", State: "idle"})
-	syncEndedPane(t, path, undoPaneID, "done", at)
-	setClosureVerdict(t, path, closureVerdictOf(undoHeadlessID, at, true), at)
-	setClosureVerdict(t, path, closureVerdictOf(undoPaneID, at, true), at)
-}
-
-// TestInboxStatesUndoEndedRowListsUnendedUntilChange ends a pane and a headless session by closed verdicts at the fixed
-// clock, and unarchives both an hour on. Both list unended and unarchived 25 hours after they ended. A change after the
-// unarchive, with a closed verdict for it, ends both again at that change, and each archives a day on.
-func TestInboxStatesUndoEndedRowListsUnendedUntilChange(t *testing.T) {
-	t.Parallel()
+// TestInboxStatesUndo holds the cases of Unarchive: an ended or archived row returns to the tree until it changes. Each
+// case moves its own rows in order, so the cases run one after another on the shared store.
+func TestInboxStatesUndo(t *testing.T) {
 	path := archiveStorePath(t)
-	clock := &closureClock{now: closureStart()}
-	endedAt := clock.now
-	endUndoRows(t, path, endedAt)
+	seedUndoCases(t, path)
 
-	ended := map[string]endedRowState{
-		undoPaneID:     {ended: true, endedAt: endedAt.Unix()},
-		undoHeadlessID: {ended: true, endedAt: endedAt.Unix()},
-	}
-	unarchivedAt := endedAt.Add(time.Hour)
-	clock.now = unarchivedAt
-	expectUndoListed(t, path, "an hour after it ended, before the unarchive", clock.Now, ended,
-		map[string]bool{undoPaneID: false, undoHeadlessID: false})
+	t.Run("EndedRowListsUnendedUntilChange", func(t *testing.T) {
+		clock := &closureClock{now: closureStart()}
+		endedAt := clock.now
+		sessions := sessionsClientAt(t, store.NewReader(path), clock.Now)
+		ended := map[string]endedRowState{
+			undoEndedPane: {ended: true, endedAt: endedAt.Unix()},
+			undoEndedHead: {ended: true, endedAt: endedAt.Unix()},
+		}
+		unarchivedAt := endedAt.Add(time.Hour)
+		clock.now = unarchivedAt
+		expectUndoListed(t, sessions, "an hour after it ended, before the unarchive", undoEndedPane, undoEndedHead,
+			ended, map[string]bool{undoEndedPane: false, undoEndedHead: false})
 
-	unarchiveRowAt(t, path, archiveKindSession, undoPaneID, unarchivedAt)
-	unarchiveRowAt(t, path, archiveKindHeadless, undoHeadlessID, unarchivedAt)
-	clock.now = endedAt.Add(25 * time.Hour)
-	expectUndoListed(t, path, "25 hours after it ended, unarchived", clock.Now,
-		map[string]endedRowState{undoPaneID: {}, undoHeadlessID: {}},
-		map[string]bool{undoPaneID: false, undoHeadlessID: false})
+		unarchiveRowAt(t, path, archiveKindSession, undoEndedPane, unarchivedAt)
+		unarchiveRowAt(t, path, archiveKindHeadless, undoEndedHead, unarchivedAt)
+		clock.now = endedAt.Add(25 * time.Hour)
+		unended := map[string]endedRowState{undoEndedPane: {}, undoEndedHead: {}}
+		expectUndoListed(t, sessions, "25 hours after it ended, unarchived", undoEndedPane, undoEndedHead,
+			unended, map[string]bool{undoEndedPane: false, undoEndedHead: false})
 
-	changedAt := endedAt.Add(26 * time.Hour)
-	applyHeadlessAt(t, path, changedAt, store.EngineSet{
-		ID: undoHeadlessID, Changes: store.EngineChanges{State: new("working")},
+		changedAt := endedAt.Add(26 * time.Hour)
+		applyHeadlessAt(t, path, changedAt, store.EngineSet{
+			ID: undoEndedHead, Changes: store.EngineChanges{State: new("working")},
+		})
+		syncEndedPane(t, path, undoEndedPane, "working", changedAt)
+		setClosureVerdict(t, path, closureVerdictOf(undoEndedHead, changedAt, true), changedAt)
+		setClosureVerdict(t, path, closureVerdictOf(undoEndedPane, changedAt, true), changedAt)
+		relisted := map[string]endedRowState{
+			undoEndedPane: {ended: true, endedAt: changedAt.Unix()},
+			undoEndedHead: {ended: true, endedAt: changedAt.Unix()},
+		}
+
+		clock.now = changedAt.Add(archiveDay - time.Hour)
+		expectUndoListed(t, sessions, "23 hours after the change, closed for it", undoEndedPane, undoEndedHead,
+			relisted, map[string]bool{undoEndedPane: false, undoEndedHead: false})
+
+		clock.now = changedAt.Add(archiveDay)
+		expectUndoListed(t, sessions, "a day after the change, closed for it", undoEndedPane, undoEndedHead,
+			relisted, map[string]bool{undoEndedPane: true, undoEndedHead: true})
 	})
-	syncEndedPane(t, path, undoPaneID, "working", changedAt)
-	setClosureVerdict(t, path, closureVerdictOf(undoHeadlessID, changedAt, true), changedAt)
-	setClosureVerdict(t, path, closureVerdictOf(undoPaneID, changedAt, true), changedAt)
-	relisted := map[string]endedRowState{
-		undoPaneID:     {ended: true, endedAt: changedAt.Unix()},
-		undoHeadlessID: {ended: true, endedAt: changedAt.Unix()},
-	}
 
-	clock.now = changedAt.Add(archiveDay - time.Hour)
-	expectUndoListed(t, path, "23 hours after the change, closed for it", clock.Now, relisted,
-		map[string]bool{undoPaneID: false, undoHeadlessID: false})
+	t.Run("MarkedRowListsUnarchivedUntilChange", func(t *testing.T) {
+		clock := &closureClock{now: closureStart()}
+		changedAt := clock.now
+		sessions := sessionsClientAt(t, store.NewReader(path), clock.Now)
+		unended := map[string]endedRowState{undoMarkedPane: {}, undoMarkedHead: {}}
 
-	clock.now = changedAt.Add(archiveDay)
-	expectUndoListed(t, path, "a day after the change, closed for it", clock.Now, relisted,
-		map[string]bool{undoPaneID: true, undoHeadlessID: true})
-}
+		archivedAt := changedAt.Add(time.Hour)
+		archiveRowAt(t, path, archiveKindHeadless, undoMarkedHead, archivedAt)
+		archiveRowAt(t, path, archiveKindSession, undoMarkedPane, archivedAt)
+		clock.now = archivedAt
+		expectUndoListed(t, sessions, "archived by mark", undoMarkedPane, undoMarkedHead, unended,
+			map[string]bool{undoMarkedPane: true, undoMarkedHead: true})
 
-// TestInboxStatesUndoMarkedRowListsUnarchivedUntilChange archives a pane and a headless session by mark an hour after
-// they changed at the fixed clock. Unarchiving both lists them unarchived, past the seven-day floor too, until they
-// change. A change after the unarchive returns them to the ordinary rules, so they stay listed until the floor ages
-// them a week on.
-func TestInboxStatesUndoMarkedRowListsUnarchivedUntilChange(t *testing.T) {
-	t.Parallel()
-	path := archiveStorePath(t)
-	clock := &closureClock{now: closureStart()}
-	changedAt := clock.now
-	applyHeadlessAt(t, path, changedAt, store.EngineAdd{ID: undoHeadlessID, Dir: "/work/undo", State: "idle"})
-	syncEndedPane(t, path, undoPaneID, "done", changedAt)
-	unended := map[string]endedRowState{undoPaneID: {}, undoHeadlessID: {}}
+		unarchivedAt := archivedAt.Add(time.Hour)
+		unarchiveRowAt(t, path, archiveKindHeadless, undoMarkedHead, unarchivedAt)
+		unarchiveRowAt(t, path, archiveKindSession, undoMarkedPane, unarchivedAt)
+		clock.now = changedAt.Add(7 * archiveDay)
+		expectUndoListed(t, sessions, "a week on, unarchived and unchanged", undoMarkedPane, undoMarkedHead, unended,
+			map[string]bool{undoMarkedPane: false, undoMarkedHead: false})
 
-	archivedAt := changedAt.Add(time.Hour)
-	archiveRowAt(t, path, archiveKindHeadless, undoHeadlessID, archivedAt)
-	archiveRowAt(t, path, archiveKindSession, undoPaneID, archivedAt)
-	clock.now = archivedAt
-	expectUndoListed(t, path, "archived by mark", clock.Now, unended,
-		map[string]bool{undoPaneID: true, undoHeadlessID: true})
+		changedAgainAt := changedAt.Add(8 * archiveDay)
+		applyHeadlessAt(t, path, changedAgainAt, store.EngineSet{
+			ID: undoMarkedHead, Changes: store.EngineChanges{State: new("working")},
+		})
+		syncEndedPane(t, path, undoMarkedPane, "working", changedAgainAt)
+		clock.now = changedAgainAt
+		expectUndoListed(t, sessions, "at the next change", undoMarkedPane, undoMarkedHead, unended,
+			map[string]bool{undoMarkedPane: false, undoMarkedHead: false})
 
-	unarchivedAt := archivedAt.Add(time.Hour)
-	unarchiveRowAt(t, path, archiveKindHeadless, undoHeadlessID, unarchivedAt)
-	unarchiveRowAt(t, path, archiveKindSession, undoPaneID, unarchivedAt)
-	clock.now = changedAt.Add(7 * archiveDay)
-	expectUndoListed(t, path, "a week on, unarchived and unchanged", clock.Now, unended,
-		map[string]bool{undoPaneID: false, undoHeadlessID: false})
+		clock.now = changedAgainAt.Add(archiveDay*7 - time.Second)
+		expectUndoListed(t, sessions, "a week less a second after the change", undoMarkedPane, undoMarkedHead, unended,
+			map[string]bool{undoMarkedPane: false, undoMarkedHead: false})
 
-	changedAgainAt := changedAt.Add(8 * archiveDay)
-	applyHeadlessAt(t, path, changedAgainAt, store.EngineSet{
-		ID: undoHeadlessID, Changes: store.EngineChanges{State: new("working")},
+		clock.now = changedAgainAt.Add(archiveDay * 7)
+		expectUndoListed(t, sessions, "a week after the change", undoMarkedPane, undoMarkedHead, unended,
+			map[string]bool{undoMarkedPane: true, undoMarkedHead: true})
 	})
-	syncEndedPane(t, path, undoPaneID, "working", changedAgainAt)
-	clock.now = changedAgainAt
-	expectUndoListed(t, path, "at the next change", clock.Now, unended,
-		map[string]bool{undoPaneID: false, undoHeadlessID: false})
 
-	clock.now = changedAgainAt.Add(archiveDay*7 - time.Second)
-	expectUndoListed(t, path, "a week less a second after the change", clock.Now, unended,
-		map[string]bool{undoPaneID: false, undoHeadlessID: false})
+	t.Run("AgedRowListsUnarchivedUntilChange", func(t *testing.T) {
+		clock := &closureClock{now: closureStart()}
+		changedAt := clock.now
+		sessions := sessionsClientAt(t, store.NewReader(path), clock.Now)
 
-	clock.now = changedAgainAt.Add(archiveDay * 7)
-	expectUndoListed(t, path, "a week after the change", clock.Now, unended,
-		map[string]bool{undoPaneID: true, undoHeadlessID: true})
-}
+		clock.now = changedAt.Add(archiveDay)
+		expectUndoListed(t, sessions, "a day after it ended, aged", undoAgedPane, undoAgedHead,
+			map[string]endedRowState{
+				undoAgedPane: {},
+				undoAgedHead: {ended: true, endedAt: changedAt.Unix()},
+			},
+			map[string]bool{undoAgedPane: false, undoAgedHead: true})
 
-// TestInboxStatesUndoAgedRowListsUnarchivedUntilChange lets a stopped headless session age by its ended day, and a done
-// pane age by the seven-day floor. Unarchiving both lists them unarchived, unended and past the floor, until they
-// change. A change after the unarchive returns them to the ordinary rules: the session is no longer stopped, so only
-// the floor ages it.
-func TestInboxStatesUndoAgedRowListsUnarchivedUntilChange(t *testing.T) {
-	t.Parallel()
-	path := archiveStorePath(t)
-	clock := &closureClock{now: closureStart()}
-	changedAt := clock.now
-	applyHeadlessAt(t, path, changedAt, store.EngineAdd{ID: undoHeadlessID, Dir: "/work/undo", State: "stopped"})
-	syncEndedPane(t, path, undoPaneID, "done", changedAt)
+		unarchivedAt := changedAt.Add(archiveDay + time.Hour)
+		unarchiveRowAt(t, path, archiveKindHeadless, undoAgedHead, unarchivedAt)
+		unarchiveRowAt(t, path, archiveKindSession, undoAgedPane, unarchivedAt)
+		unended := map[string]endedRowState{undoAgedPane: {}, undoAgedHead: {}}
+		clock.now = unarchivedAt
+		expectUndoListed(t, sessions, "an hour after the unarchive", undoAgedPane, undoAgedHead, unended,
+			map[string]bool{undoAgedPane: false, undoAgedHead: false})
 
-	clock.now = changedAt.Add(archiveDay)
-	expectUndoListed(t, path, "a day after it ended, aged", clock.Now,
-		map[string]endedRowState{
-			undoPaneID:     {},
-			undoHeadlessID: {ended: true, endedAt: changedAt.Unix()},
-		},
-		map[string]bool{undoPaneID: false, undoHeadlessID: true})
+		clock.now = changedAt.Add(7 * archiveDay)
+		expectUndoListed(t, sessions, "a week on, unarchived and unchanged", undoAgedPane, undoAgedHead, unended,
+			map[string]bool{undoAgedPane: false, undoAgedHead: false})
 
-	unarchivedAt := changedAt.Add(archiveDay + time.Hour)
-	unarchiveRowAt(t, path, archiveKindHeadless, undoHeadlessID, unarchivedAt)
-	unarchiveRowAt(t, path, archiveKindSession, undoPaneID, unarchivedAt)
-	unended := map[string]endedRowState{undoPaneID: {}, undoHeadlessID: {}}
-	clock.now = unarchivedAt
-	expectUndoListed(t, path, "an hour after the unarchive", clock.Now, unended,
-		map[string]bool{undoPaneID: false, undoHeadlessID: false})
+		changedAgainAt := changedAt.Add(8 * archiveDay)
+		applyHeadlessAt(t, path, changedAgainAt, store.EngineSet{
+			ID: undoAgedHead, Changes: store.EngineChanges{State: new("working")},
+		})
+		syncEndedPane(t, path, undoAgedPane, "working", changedAgainAt)
+		clock.now = changedAgainAt
+		expectUndoListed(t, sessions, "at the next change", undoAgedPane, undoAgedHead, unended,
+			map[string]bool{undoAgedPane: false, undoAgedHead: false})
 
-	clock.now = changedAt.Add(7 * archiveDay)
-	expectUndoListed(t, path, "a week on, unarchived and unchanged", clock.Now, unended,
-		map[string]bool{undoPaneID: false, undoHeadlessID: false})
+		clock.now = changedAgainAt.Add(archiveDay*7 - time.Second)
+		expectUndoListed(t, sessions, "a week less a second after the change", undoAgedPane, undoAgedHead, unended,
+			map[string]bool{undoAgedPane: false, undoAgedHead: false})
 
-	changedAgainAt := changedAt.Add(8 * archiveDay)
-	applyHeadlessAt(t, path, changedAgainAt, store.EngineSet{
-		ID: undoHeadlessID, Changes: store.EngineChanges{State: new("working")},
+		clock.now = changedAgainAt.Add(archiveDay * 7)
+		expectUndoListed(t, sessions, "a week after the change", undoAgedPane, undoAgedHead, unended,
+			map[string]bool{undoAgedPane: true, undoAgedHead: true})
 	})
-	syncEndedPane(t, path, undoPaneID, "working", changedAgainAt)
-	clock.now = changedAgainAt
-	expectUndoListed(t, path, "at the next change", clock.Now, unended,
-		map[string]bool{undoPaneID: false, undoHeadlessID: false})
-
-	clock.now = changedAgainAt.Add(archiveDay*7 - time.Second)
-	expectUndoListed(t, path, "a week less a second after the change", clock.Now, unended,
-		map[string]bool{undoPaneID: false, undoHeadlessID: false})
-
-	clock.now = changedAgainAt.Add(archiveDay * 7)
-	expectUndoListed(t, path, "a week after the change", clock.Now, unended,
-		map[string]bool{undoPaneID: true, undoHeadlessID: true})
 }

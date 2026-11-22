@@ -18,13 +18,23 @@ import (
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
-// Row, epic and step ids of the busy tests, with invented values. The headless ids are 32 hex digits each, as session
-// ids are.
+// Row, epic and step ids of the busy tests, with invented values. The cases of TestInboxStatesBusy share one store, so
+// each case has a pane and a headless session of its own. The headless ids are 32 hex digits each, as session ids are.
 const (
-	busyPaneID       = "orrery-busy-done"
-	busyHeadlessID   = "4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a"
-	busyWaitPaneID   = "orrery-busy-waiting"
-	busyWaitHeadID   = "4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b"
+	busyLivePane     = "orrery-busy-live"
+	busyLiveHead     = "4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a"
+	busyRunPane      = "orrery-busy-running"
+	busyRunHead      = "4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b"
+	busyOncePane     = "orrery-busy-once"
+	busyOnceHead     = "4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c"
+	busyDonePane     = "orrery-busy-done"
+	busyDoneHead     = "4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d"
+	busyWaitPane     = "orrery-busy-waiting"
+	busyWaitHead     = "4e4e4e4e4e4e4e4e4e4e4e4e4e4e4e4e"
+	busyNilPane      = "orrery-busy-nil"
+	busyNilHead      = "4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f"
+	busyFailPane     = "orrery-busy-failing"
+	busyFailHead     = "50505050505050505050505050505050"
 	busyPaneEpic     = "repoa/busy-pane"
 	busyHeadEpic     = "repoa/busy-headless"
 	busyStepPane     = "busy-step-pane"
@@ -129,15 +139,24 @@ func busyStep(id, caller string) *enginev1.Step {
 	return &enginev1.Step{Id: id, Caller: caller}
 }
 
-// busyStore returns the path of a store holding the done pane busyPaneID and the done headless session busyHeadlessID,
-// each changed at busyChangedAt.
-func busyStore(t *testing.T) string {
+// seedBusyCases writes the rows of the cases of TestInboxStatesBusy into the store at path. The headless sessions are
+// added in one write at busyChangedAt, and each pane is synced at that time: done, except the waiting case's pane.
+func seedBusyCases(t *testing.T, path string) {
 	t.Helper()
-	path := archiveStorePath(t)
 	changed := busyChangedAt()
-	applyHeadlessAt(t, path, changed, store.EngineAdd{ID: busyHeadlessID, Dir: "/work/busy", State: busyDone})
-	syncEndedPane(t, path, busyPaneID, busyDone, changed)
-	return path
+	applyHeadlessAt(t, path, changed,
+		store.EngineAdd{ID: busyLiveHead, Dir: "/work/busy", State: busyDone},
+		store.EngineAdd{ID: busyRunHead, Dir: "/work/busy", State: busyDone},
+		store.EngineAdd{ID: busyOnceHead, Dir: "/work/busy", State: busyDone},
+		store.EngineAdd{ID: busyDoneHead, Dir: "/work/busy", State: busyDone},
+		store.EngineAdd{ID: busyWaitHead, Dir: "/work/busy-waiting", State: busyWaiting},
+		store.EngineAdd{ID: busyNilHead, Dir: "/work/busy", State: busyDone},
+		store.EngineAdd{ID: busyFailHead, Dir: "/work/busy", State: busyDone},
+	)
+	for _, pane := range []string{busyLivePane, busyRunPane, busyOncePane, busyDonePane, busyNilPane, busyFailPane} {
+		syncEndedPane(t, path, pane, busyDone, changed)
+	}
+	syncEndedPane(t, path, busyWaitPane, busyWaiting, changed)
 }
 
 // busyClient serves Sessions over the store at path on the clock busyStart, with epics as the epic store and steps as
@@ -177,17 +196,16 @@ func expectBusyStates(t *testing.T, list string, got, want map[string]string) {
 	}
 }
 
-// expectBusy lists the store at path through Sessions.List and ListHeadless over epics and steps, and fails the test
-// unless the pane busyPaneID lists wantPane and the headless session busyHeadlessID lists wantHeadless.
+// expectBusy lists the store through sessions, by Sessions.List and ListHeadless, and fails the test unless the pane and
+// the headless session of one case list wantPane and wantHeadless.
 func expectBusy(
-	t *testing.T, step, path string, epics EpicStoreClient, steps StepClient, wantPane, wantHeadless string,
+	t *testing.T, step string, sessions orreryv1connect.SessionsClient, pane, headless, wantPane, wantHeadless string,
 ) {
 	t.Helper()
-	sessions := busyClient(t, path, epics, steps)
-	expectBusyStates(t, step+" Sessions.List", busyStates(listSessionRows(t, sessions)),
-		map[string]string{busyPaneID: wantPane})
-	expectBusyStates(t, step+" ListHeadless", busyStates(listHeadlessRows(t, sessions)),
-		map[string]string{busyHeadlessID: wantHeadless})
+	panes := pickStates(busyStates(listSessionRows(t, sessions)), pane)
+	expectBusyStates(t, step+" Sessions.List", panes, map[string]string{pane: wantPane})
+	headlessStates := pickStates(busyStates(listHeadlessRows(t, sessions)), headless)
+	expectBusyStates(t, step+" ListHeadless", headlessStates, map[string]string{headless: wantHeadless})
 }
 
 // expectRunningCalls fails the test unless steps recorded calls ListSteps requests, each of them for the running steps
@@ -215,85 +233,87 @@ func expectBusyUnavailable(t *testing.T, call string, err error) {
 	}
 }
 
-func TestInboxStatesBusyLiveEpicSteererListsWorking(t *testing.T) {
+// TestInboxStatesBusy holds the cases of the working rule: a done conversation that steers a live epic, or is the caller
+// of a running step, lists working. The cases share the store seedBusyCases writes. The case whose epic goes final and
+// whose step stops runs in order, before the cases that only read, and those run in parallel on their own rows.
+func TestInboxStatesBusy(t *testing.T) {
 	t.Parallel()
-	path := busyStore(t)
-	epics := &busyEpics{summaries: []*enginev1.EpicSummary{
-		busyEpic(busyPaneEpic, "accepted", busyPaneID),
-		busyEpic(busyHeadEpic, "accepted", busyHeadlessID),
-	}}
-	expectBusy(t, "live epics", path, epics, &busySteps{}, busyWorking, busyWorking)
-}
+	path := archiveStorePath(t)
+	seedBusyCases(t, path)
 
-func TestInboxStatesBusyRunningStepCallerListsWorking(t *testing.T) {
-	t.Parallel()
-	path := busyStore(t)
-	steps := &busySteps{running: []*enginev1.Step{
-		busyStep(busyStepPane, busyPaneID),
-		busyStep(busyStepHeadless, busyHeadlessID),
-	}}
-	expectBusy(t, "running steps", path, &busyEpics{}, steps, busyWorking, busyWorking)
-	expectRunningCalls(t, steps, 2)
-}
-
-func TestInboxStatesBusyListsDoneOnceNeitherHolds(t *testing.T) {
-	t.Parallel()
-	path := busyStore(t)
-	epics := &busyEpics{summaries: []*enginev1.EpicSummary{busyEpic(busyPaneEpic, "accepted", busyPaneID)}}
-	steps := &busySteps{running: []*enginev1.Step{busyStep(busyStepHeadless, busyHeadlessID)}}
-	expectBusy(t, "live epic and running step", path, epics, steps, busyWorking, busyWorking)
-
-	epics.summaries = []*enginev1.EpicSummary{busyEpic(busyPaneEpic, "released", busyPaneID)}
-	expectBusy(t, "epic final, step running", path, epics, steps, busyDone, busyWorking)
-
-	steps.running = nil
-	expectBusy(t, "epic final, no running step", path, epics, steps, busyDone, busyDone)
-}
-
-func TestInboxStatesBusyOnlyDoneRowsChange(t *testing.T) {
-	t.Parallel()
-	path := busyStore(t)
-	changed := busyChangedAt()
-	applyHeadlessAt(t, path, changed, store.EngineAdd{
-		ID: busyWaitHeadID, Dir: "/work/busy-waiting", State: busyWaiting,
+	t.Run("LiveEpicSteererListsWorking", func(t *testing.T) {
+		t.Parallel()
+		epics := &busyEpics{summaries: []*enginev1.EpicSummary{
+			busyEpic(busyPaneEpic, "accepted", busyLivePane),
+			busyEpic(busyHeadEpic, "accepted", busyLiveHead),
+		}}
+		sessions := busyClient(t, path, epics, &busySteps{})
+		expectBusy(t, "live epics", sessions, busyLivePane, busyLiveHead, busyWorking, busyWorking)
 	})
-	syncEndedPane(t, path, busyWaitPaneID, busyWaiting, changed)
-	epics := &busyEpics{summaries: []*enginev1.EpicSummary{
-		busyEpic(busyPaneEpic, "accepted", busyWaitPaneID),
-		busyEpic(busyHeadEpic, "accepted", busyWaitHeadID),
-	}}
-	steps := &busySteps{running: []*enginev1.Step{
-		busyStep(busyStepPane, busyWaitPaneID),
-		busyStep(busyStepHeadless, busyWaitHeadID),
-	}}
 
-	sessions := busyClient(t, path, epics, steps)
-	expectBusyStates(t, "Sessions.List", busyStates(listSessionRows(t, sessions)), map[string]string{
-		busyPaneID: busyDone, busyWaitPaneID: busyWaiting,
+	t.Run("RunningStepCallerListsWorking", func(t *testing.T) {
+		t.Parallel()
+		steps := &busySteps{running: []*enginev1.Step{
+			busyStep(busyStepPane, busyRunPane),
+			busyStep(busyStepHeadless, busyRunHead),
+		}}
+		sessions := busyClient(t, path, &busyEpics{}, steps)
+		expectBusy(t, "running steps", sessions, busyRunPane, busyRunHead, busyWorking, busyWorking)
+		expectRunningCalls(t, steps, 2)
 	})
-	expectBusyStates(t, "ListHeadless", busyStates(listHeadlessRows(t, sessions)), map[string]string{
-		busyHeadlessID: busyDone, busyWaitHeadID: busyWaiting,
+
+	t.Run("ListsDoneOnceNeitherHolds", func(t *testing.T) {
+		epics := &busyEpics{summaries: []*enginev1.EpicSummary{busyEpic(busyPaneEpic, "accepted", busyOncePane)}}
+		steps := &busySteps{running: []*enginev1.Step{busyStep(busyStepHeadless, busyOnceHead)}}
+		sessions := busyClient(t, path, epics, steps)
+		expectBusy(t, "live epic and running step", sessions, busyOncePane, busyOnceHead, busyWorking, busyWorking)
+
+		epics.summaries = []*enginev1.EpicSummary{busyEpic(busyPaneEpic, "released", busyOncePane)}
+		expectBusy(t, "epic final, step running", sessions, busyOncePane, busyOnceHead, busyDone, busyWorking)
+
+		steps.running = nil
+		expectBusy(t, "epic final, no running step", sessions, busyOncePane, busyOnceHead, busyDone, busyDone)
 	})
-}
 
-func TestInboxStatesBusyNilStepsReadsNone(t *testing.T) {
-	t.Parallel()
-	path := busyStore(t)
-	epics := &busyEpics{summaries: []*enginev1.EpicSummary{busyEpic(busyPaneEpic, "accepted", busyPaneID)}}
-	expectBusy(t, "nil steps", path, epics, nil, busyWorking, busyDone)
-}
+	t.Run("OnlyDoneRowsChange", func(t *testing.T) {
+		t.Parallel()
+		epics := &busyEpics{summaries: []*enginev1.EpicSummary{
+			busyEpic(busyPaneEpic, "accepted", busyWaitPane),
+			busyEpic(busyHeadEpic, "accepted", busyWaitHead),
+		}}
+		steps := &busySteps{running: []*enginev1.Step{
+			busyStep(busyStepPane, busyWaitPane),
+			busyStep(busyStepHeadless, busyWaitHead),
+		}}
+		sessions := busyClient(t, path, epics, steps)
+		panes := pickStates(busyStates(listSessionRows(t, sessions)), busyDonePane, busyWaitPane)
+		expectBusyStates(t, "Sessions.List", panes, map[string]string{
+			busyDonePane: busyDone, busyWaitPane: busyWaiting,
+		})
+		headless := pickStates(busyStates(listHeadlessRows(t, sessions)), busyDoneHead, busyWaitHead)
+		expectBusyStates(t, "ListHeadless", headless, map[string]string{
+			busyDoneHead: busyDone, busyWaitHead: busyWaiting,
+		})
+	})
 
-func TestInboxStatesBusyStepFailureAnswersUnavailable(t *testing.T) {
-	t.Parallel()
-	path := busyStore(t)
-	steps := &busySteps{listErr: connect.NewError(connect.CodeInternal, errors.New("synthetic failure"))}
-	sessions := busyClient(t, path, &busyEpics{}, steps)
+	t.Run("NilStepsReadsNone", func(t *testing.T) {
+		t.Parallel()
+		epics := &busyEpics{summaries: []*enginev1.EpicSummary{busyEpic(busyPaneEpic, "accepted", busyNilPane)}}
+		sessions := busyClient(t, path, epics, nil)
+		expectBusy(t, "nil steps", sessions, busyNilPane, busyNilHead, busyWorking, busyDone)
+	})
 
-	_, err := sessions.List(t.Context(), connect.NewRequest(&orreryv1.ListRequest{}))
-	expectBusyUnavailable(t, "List", err)
-	expectRunningCalls(t, steps, 1)
+	t.Run("StepFailureAnswersUnavailable", func(t *testing.T) {
+		t.Parallel()
+		steps := &busySteps{listErr: connect.NewError(connect.CodeInternal, errors.New("synthetic failure"))}
+		sessions := busyClient(t, path, &busyEpics{}, steps)
 
-	_, err = sessions.ListHeadless(t.Context(), connect.NewRequest(&orreryv1.ListHeadlessRequest{}))
-	expectBusyUnavailable(t, "ListHeadless", err)
-	expectRunningCalls(t, steps, 2)
+		_, err := sessions.List(t.Context(), connect.NewRequest(&orreryv1.ListRequest{}))
+		expectBusyUnavailable(t, "List", err)
+		expectRunningCalls(t, steps, 1)
+
+		_, err = sessions.ListHeadless(t.Context(), connect.NewRequest(&orreryv1.ListHeadlessRequest{}))
+		expectBusyUnavailable(t, "ListHeadless", err)
+		expectRunningCalls(t, steps, 2)
+	})
 }
