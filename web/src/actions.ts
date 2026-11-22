@@ -1,4 +1,4 @@
-import { ConnectError } from "@connectrpc/connect";
+import { Code, ConnectError } from "@connectrpc/connect";
 
 import { conversationAsk, type AskTarget } from "./askmodel";
 import type { createClients } from "./client";
@@ -120,13 +120,22 @@ export async function pullQueued(clients: Clients, row: Row): Promise<string> {
   return reply.text;
 }
 
-// withdraw takes back a pane's queued input and resolves its text as one message, or none when the pull is empty. A
-// session resolves none and makes no call: its queued messages are taken back by interrupt, when Escape interrupts it.
+// withdraw takes back a pane's queued input and resolves its text as one message, or none when the pull is empty or
+// the pane has nothing queued: PullQueued's FailedPrecondition, which is most Escapes on a working pane. A session
+// resolves none and makes no call: its queued messages are taken back by interrupt, when Escape interrupts it.
 export async function withdraw(clients: Clients, row: Row): Promise<string[]> {
   if (row.kind === "session") {
     return [];
   }
-  const text = await pullQueued(clients, row);
+  let text: string;
+  try {
+    text = await pullQueued(clients, row);
+  } catch (error) {
+    if (ConnectError.from(error).code === Code.FailedPrecondition) {
+      return [];
+    }
+    throw error;
+  }
   return text === "" ? [] : [text];
 }
 

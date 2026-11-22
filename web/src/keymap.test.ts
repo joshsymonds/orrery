@@ -329,12 +329,13 @@ test("InboxTree: w does nothing when no counted thing is listed", () => {
   assert.deepEqual(fake.calls, []);
 });
 
-test("InboxTree: A archives the cursor's row in the inbox and unarchives it in Archived", () => {
+test("InboxTree: A and Shift+A act on no row, and prevent no default", () => {
   const item: Row = { ...row("a"), archiveKind: "session", archiveId: "sess-a" };
-  const inbox = fakeContext({ cursorItem: item, cursorRow: item, index: 0, flat: [item], view: "inbox" });
-  handleKey(key("A"), inbox.context);
-  assert.deepEqual(inbox.calls, [["setArchive", item, true]]);
-  const archived = fakeContext({ cursorItem: item, cursorRow: item, index: 0, flat: [item], view: "archived" });
-  handleKey(key("A"), archived.context);
-  assert.deepEqual(archived.calls, [["setArchive", item, false]]);
+  for (const init of [{}, { shiftKey: true }]) {
+    const fake = fakeContext({ cursorItem: item, cursorRow: item, index: 0, flat: [item] });
+    const event = key("A", init);
+    handleKey(event, fake.context);
+    assert.deepEqual(fake.calls, [], `A with ${JSON.stringify(init)}`);
+    assert.equal(event.defaultPrevented, false, `A with ${JSON.stringify(init)}`);
+  }
 });

@@ -33,7 +33,7 @@ function more(row: Row): RowMore {
   const items: MenuEntry[] = [
     { label: "Open in a new window", icon: "open", onSelect: noop },
     ...(row.unseen ? [{ label: "Mark seen", icon: "check", kbd: "x", onSelect: noop } satisfies MenuEntry] : []),
-    ...(row.archiveKind === "none" ? [] : ["sep" as const, { label: "Archive", icon: "archive", kbd: "A", onSelect: noop } satisfies MenuEntry]),
+    ...(row.archiveKind === "none" ? [] : ["sep" as const, { label: "Archive", icon: "archive", onSelect: noop } satisfies MenuEntry]),
   ];
   return { open: false, items, toggle: noop, close: noop };
 }

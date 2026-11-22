@@ -331,7 +331,8 @@ func stepsByEpic(steps []*enginev1.Step) map[string][]*enginev1.Step {
 
 // epicMessage returns the Epic for rec, an epic the records alone hold, with the tasks its efforts hold. Its problem is
 // recordProblems. Its running steps and its count of ended steps are counts'. It is waiting when it is live, has no
-// outcome, no running step and no task: accepted and yet to start.
+// outcome, no running step and no task: accepted and yet to start. Its path is the head's workspace, empty when the head
+// names none.
 func epicMessage(
 	rec epicRecord,
 	tasks []taskRecord,
@@ -354,6 +355,7 @@ func epicMessage(
 		EndedSteps:    counts.ended,
 		Problem:       strings.Join(recordProblems(rec, taskProblems), "; "),
 		Source:        epicSourceRecord,
+		Path:          rec.Workspace,
 	}
 }
 
@@ -372,11 +374,11 @@ type storedHead interface {
 
 // storedEpicMessage returns the Epic of an epic orreryd's database holds, from its head: its outcome is the phase,
 // which for a closed epic is the closed phase of its kind, its phase time, changed time, seen time and revision are the
-// database's, and it is live unless the phase is released or done, which end an epic, or a closed phase, which a close
-// ends it in; ended_with_gaps and stopped stay live. Its steering, paused, pause source and park are the head's, its
-// path is the repository path given and its open questions are the count given, since the two heads answer them
-// differently. Its problem joins problems, which are the record's when a record of the id exists and none otherwise.
-// Its running steps and its count of ended steps are counts', as epicMessage's are.
+// database's, and it is live unless the phase is met_at_base, released or done, which end an epic, or a closed phase,
+// which a close ends it in; ended_with_gaps and stopped stay live. Its steering, paused, pause source and park are the
+// head's, its path is the repository path given and its open questions are the count given, since the two heads answer
+// them differently. Its problem joins problems, which are the record's when a record of the id exists and none
+// otherwise. Its running steps and its count of ended steps are counts', as epicMessage's are.
 func storedEpicMessage(
 	id string,
 	head storedHead,
@@ -396,7 +398,7 @@ func storedEpicMessage(
 		Changed:       head.GetChanged(),
 		Seen:          head.GetSeen(),
 		Revision:      head.GetRevision(),
-		Live:          phase != "released" && phase != "done" && !store.IsClosedPhase(phase),
+		Live:          phase != "met_at_base" && phase != "released" && phase != "done" && !store.IsClosedPhase(phase),
 		RunningSteps:  counts.running,
 		EndedSteps:    counts.ended,
 		Problem:       strings.Join(problems, "; "),

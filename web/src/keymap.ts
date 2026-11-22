@@ -43,7 +43,7 @@ export interface KeyContext {
   collapsed: boolean;
   flyoutOpen: boolean;
   // Whether a page covers the cursor row: a project page or the notice centre is shown and the inbox list, where the
-  // row is drawn, is not on screen beside or over it. A, x and e do not act on a covered row.
+  // row is drawn, is not on screen beside or over it. x and e do not act on a covered row.
   rowCovered: boolean;
   // Whether a project page is shown. It covers the reader, so 1-9 and Escape's interrupt do nothing while it is.
   projectShown: boolean;
@@ -54,10 +54,8 @@ export interface KeyContext {
   // The cursor's index in the flat list, and the flat list, which G reads.
   index: number;
   flat: Item[];
-  // The keys of the counted things, oldest first, which w reads, and the view A reads: A archives in the inbox and
-  // unarchives in Archived.
+  // The keys of the counted things, oldest first, which w reads.
   waitKeys: string[];
-  view: View;
   cursorItem: Item | null;
   cursorRow: Row | null;
   cursorRowKey: string;
@@ -79,7 +77,6 @@ export interface KeyContext {
   waitTo: (key: string) => void;
   nextUnseen: () => void;
   writeSeen: (row: Row) => Promise<void>;
-  setArchive: (entry: Row | EpicItem, archived: boolean) => void;
   escapeRow: (target: EscapeTarget, box: HTMLElement | null) => Promise<void>;
   replyBoxTarget: (box: HTMLElement) => EscapeTarget | null;
   focusCursorRow: () => void;
@@ -131,7 +128,6 @@ export function handleKey(event: KeyboardEvent, context: KeyContext): void {
     index,
     flat,
     waitKeys,
-    view,
     cursorItem,
     cursorRow,
     cursorRowKey,
@@ -147,7 +143,6 @@ export function handleKey(event: KeyboardEvent, context: KeyContext): void {
     waitTo,
     nextUnseen,
     writeSeen,
-    setArchive,
     escapeRow,
     replyBoxTarget,
     focusCursorRow,
@@ -284,12 +279,6 @@ export function handleKey(event: KeyboardEvent, context: KeyContext): void {
       break;
     case "v":
       setView("archived");
-      break;
-    case "A":
-      // A pane with no orrery_id, a step and a contract have no archive kind, so the key does nothing on any of them.
-      if (!rowCovered && cursorItem !== null && cursorItem.kind !== "step" && cursorItem.kind !== "contract") {
-        setArchive(cursorItem, view !== "archived");
-      }
       break;
     case "w": {
       // w goes to the counted thing after the cursor's entry in waitKeys, wrapping; from an entry that counts nothing,
