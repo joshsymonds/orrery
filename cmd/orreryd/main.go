@@ -1005,7 +1005,7 @@ func startSessions(
 	var evidence enginehost.EvidenceCommands
 	var crons enginehost.CronCommands
 	if st != nil {
-		stateDir, childEnviron, err := sessionState(getenv)
+		stateDir, childEnviron, err := adoptSessionState(ctx, st, hostName, getenv)
 		if err != nil {
 			return nil, err
 		}
@@ -1045,6 +1045,7 @@ func startSessions(
 			ReadoptCheck: readoptCheck(st, resolve),
 			ReadoptGate:  readoptGate(st),
 			Stored:       host.storedWake, EpicWake: host.stepEpicWake,
+			Host: hostName,
 		})
 		host.steps = steps
 		host.wireStore(st)
@@ -1078,22 +1079,43 @@ func startSessions(
 	var serveCtx context.Context
 	serveCtx, host.stopServe = context.WithCancel(ctx)
 	// The session socket also serves the release slots, through serveConfig's ReleaseSlots.
-	cfg := host.serveConfig(commands, stepCommands, evidence, notices, crons, serveOpts(opts, st, logger))
+	cfg := host.serveConfig(
+		commands, stepCommands, evidence, notices, crons, hostName, serveOpts(opts, st, logger))
 	go func() {
 		host.serveDone <- enginehost.ServeWith(serveCtx, ln, cfg)
 	}()
 	return host, nil
 }
 
+// adoptSessionState returns sessionState's state directory and child environ, after st adopts hostName for the rows
+// stored before hosts, so the sessions start with each epic and step naming its host. It returns the error either gives.
+func adoptSessionState(
+	ctx context.Context,
+	st *store.Store,
+	hostName string,
+	getenv func(string) string,
+) (string, []string, error) {
+	stateDir, childEnviron, err := sessionState(getenv)
+	if err != nil {
+		return "", nil, err
+	}
+	if err = st.AdoptHost(ctx, hostName); err != nil {
+		return "", nil, fmt.Errorf("adopt host: %w", err)
+	}
+	return stateDir, childEnviron, nil
+}
+
 // serveConfig returns what the session socket serves: the services the host holds, and the given commands, evidence,
-// notices and crons, with handlerOpts on each handler. ReleaseSlots is set only when the host has release slots, since a
-// nil *ReleaseSlots in the interface would not refuse as unavailable, so it stays unset without a store.
+// notices and crons, with handlerOpts on each handler and hostName as the host each epic is stamped with. ReleaseSlots
+// is set only when the host has release slots, since a nil *ReleaseSlots in the interface would not refuse as
+// unavailable, so it stays unset without a store.
 func (h *sessionHost) serveConfig(
 	commands enginehost.Commands,
 	steps enginehost.StepCommands,
 	evidence enginehost.EvidenceCommands,
 	notices enginehost.NoticeSource,
 	crons enginehost.CronCommands,
+	hostName string,
 	handlerOpts []connect.HandlerOption,
 ) enginehost.ServeConfig {
 	cfg := enginehost.ServeConfig{
@@ -1108,6 +1130,7 @@ func (h *sessionHost) serveConfig(
 		Changes:   h.changes,
 		Contracts: h.contracts,
 		PaneSends: h.paneSends,
+		Host:      hostName,
 		Options:   handlerOpts,
 	}
 	if h.releaseSlots != nil {
