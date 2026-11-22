@@ -26,53 +26,55 @@ func writeExitedFailing(t *testing.T, path string, started, failedAt time.Time) 
 	}})
 }
 
-// TestInboxStatesFailedReasonInSummary writes a headless session that exited failing, and expects ListHeadless to list
-// it as failed, its summary holding the exit error and the last stderr line of its reason.
-func TestInboxStatesFailedReasonInSummary(t *testing.T) {
+// TestInboxStatesFailed checks the headless session that exited failing, in two cases. Each writes its own store: both
+// write failedHeadlessID, at different clocks, and the first asserts that its store holds exactly one row.
+func TestInboxStatesFailed(t *testing.T) {
 	t.Parallel()
-	path := archiveStorePath(t)
-	failedAt := epicsNow()
-	writeExitedFailing(t, path, failedAt.Add(-time.Hour), failedAt)
+	t.Run("ReasonInSummary", func(t *testing.T) {
+		t.Parallel()
+		path := archiveStorePath(t)
+		failedAt := epicsNow()
+		writeExitedFailing(t, path, failedAt.Add(-time.Hour), failedAt)
 
-	sessions := sessionsClientAt(t, store.NewReader(path), epicsNow)
-	rows := listHeadlessRows(t, sessions)
-	if len(rows) != 1 {
-		t.Fatalf("ListHeadless rows = %d, want 1", len(rows))
-	}
-	row := rows[0]
-	if row.GetId() != failedHeadlessID {
-		t.Fatalf("ListHeadless id = %q, want %q", row.GetId(), failedHeadlessID)
-	}
-	if row.GetState() != "failed" {
-		t.Fatalf("ListHeadless state = %q, want %q", row.GetState(), "failed")
-	}
-	if row.GetSummary() != failedExitReason {
-		t.Fatalf("ListHeadless summary = %q, want %q", row.GetSummary(), failedExitReason)
-	}
-}
+		sessions := sessionsClientAt(t, store.NewReader(path), epicsNow)
+		rows := listHeadlessRows(t, sessions)
+		if len(rows) != 1 {
+			t.Fatalf("ListHeadless rows = %d, want 1", len(rows))
+		}
+		row := rows[0]
+		if row.GetId() != failedHeadlessID {
+			t.Fatalf("ListHeadless id = %q, want %q", row.GetId(), failedHeadlessID)
+		}
+		if row.GetState() != "failed" {
+			t.Fatalf("ListHeadless state = %q, want %q", row.GetState(), "failed")
+		}
+		if row.GetSummary() != failedExitReason {
+			t.Fatalf("ListHeadless summary = %q, want %q", row.GetSummary(), failedExitReason)
+		}
+	})
+	// The owner saw the session an hour after it failed. Read two days past the failure, unchanged, it is listed
+	// neither archived nor ended.
+	t.Run("SeenTwoDaysStaysUnarchived", func(t *testing.T) {
+		t.Parallel()
+		path := archiveStorePath(t)
+		failedAt := epicsNow()
+		seenAt := failedAt.Add(time.Hour)
+		writeExitedFailing(t, path, failedAt.Add(-time.Hour), failedAt)
+		applyHeadlessAt(t, path, seenAt, store.EngineSet{ID: failedHeadlessID, Changes: store.EngineChanges{
+			Seen: new(stamp(seenAt)),
+		}})
 
-// TestInboxStatesFailedSeenTwoDaysStaysUnarchived writes a headless session that exited failing, which the owner saw an
-// hour after it failed. Read two days past the failure, unchanged, it is listed neither archived nor ended.
-func TestInboxStatesFailedSeenTwoDaysStaysUnarchived(t *testing.T) {
-	t.Parallel()
-	path := archiveStorePath(t)
-	failedAt := epicsNow()
-	seenAt := failedAt.Add(time.Hour)
-	writeExitedFailing(t, path, failedAt.Add(-time.Hour), failedAt)
-	applyHeadlessAt(t, path, seenAt, store.EngineSet{ID: failedHeadlessID, Changes: store.EngineChanges{
-		Seen: new(stamp(seenAt)),
-	}})
-
-	now := failedAt.Add(2 * archiveDay)
-	sessions := sessionsClientAt(t, store.NewReader(path), func() time.Time { return now })
-	rows := listHeadlessRows(t, sessions)
-	if len(rows) != 1 {
-		t.Fatalf("ListHeadless rows = %d, want 1", len(rows))
-	}
-	if rows[0].GetState() != "failed" || rows[0].GetSeen() != seenAt.Unix() {
-		t.Fatalf("ListHeadless row state = %q seen = %d, want failed seen %d",
-			rows[0].GetState(), rows[0].GetSeen(), seenAt.Unix())
-	}
-	expectArchived(t, "ListHeadless", archivedByID(rows), map[string]bool{failedHeadlessID: false})
-	expectEnded(t, "ListHeadless", endedStates(rows), map[string]endedRowState{failedHeadlessID: {}})
+		now := failedAt.Add(2 * archiveDay)
+		sessions := sessionsClientAt(t, store.NewReader(path), func() time.Time { return now })
+		rows := listHeadlessRows(t, sessions)
+		if len(rows) != 1 {
+			t.Fatalf("ListHeadless rows = %d, want 1", len(rows))
+		}
+		if rows[0].GetState() != "failed" || rows[0].GetSeen() != seenAt.Unix() {
+			t.Fatalf("ListHeadless row state = %q seen = %d, want failed seen %d",
+				rows[0].GetState(), rows[0].GetSeen(), seenAt.Unix())
+		}
+		expectArchived(t, "ListHeadless", archivedByID(rows), map[string]bool{failedHeadlessID: false})
+		expectEnded(t, "ListHeadless", endedStates(rows), map[string]endedRowState{failedHeadlessID: {}})
+	})
 }
