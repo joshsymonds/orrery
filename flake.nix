@@ -150,8 +150,8 @@
             tmuxConf=${local.config.xdg.configFile."tmux/tmux.conf".source}
             sourced=$(sed -n 's/^source-file //p' "$tmuxConf")
             [ -n "$sourced" ] || fail "generated tmux.conf sources no file"
-            grep -qF "${orrery}/bin/orrery tree --client" "$sourced" \
-              || fail "sourced file $sourced lacks ${orrery}/bin/orrery tree --client"
+            grep -qF "${local.config.home.profileDirectory}/bin/orrery tree --client" "$sourced" \
+              || fail "sourced file $sourced lacks ${local.config.home.profileDirectory}/bin/orrery tree --client"
 
             [ -x ${local.config.home.path}/bin/orrery ] || fail "profile lacks orrery"
             [ -x ${local.config.home.path}/bin/p ] || fail "profile lacks p"
