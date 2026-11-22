@@ -30,8 +30,10 @@
   const STARTER_WEB = 'The web under 760 draws this sheet over the inbox the same way, with the proposals at full width.';
   const STARTER_ANDROID = 'On Android today a prompt lists rows to start in, and the start form is a Directory and a First message, with no host choice. This sheet replaces both.';
   const STARTER_BEHIND = 'Behind it the inbox draws brine unreachable, as inbox-host-unreachable does: its card says so, and the Starter leaves it out.';
+  // Every state names the inbox behind it, every kind in it, and the two fields the Starter reads: its proposals and the
+  // host Start takes. The proposals are drawn in one state only; the note names them in each all the same.
   const starter = (id, name, note, s, differs = [STARTER_WEB, STARTER_ANDROID]) => O.scenario({
-    id, group: 'New and find', title: name, note: `${note} ${STARTER_BEHIND}${O.hostsNote(['proposal', 'start'])}`, differs,
+    id, group: 'New and find', title: name, note: `${note} ${STARTER_BEHIND}${O.hostsNote(['session', 'epic', 'step', 'sessionDown', 'hostDown', 'proposal', 'start'])}`, differs,
     desk: () => O.desk({ inbox: { dirs: W.unreachableDirs() }, open: 'convo-working', pages: [O.lampPage()], over: O.starterPanel(s) }),
     phone: () => O.home({ dirs: W.unreachableDirs(), over: O.starterPanel(s) }),
   });

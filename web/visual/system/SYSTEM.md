@@ -235,9 +235,9 @@ Names are story names: `Component/State`. The catalogue draws each component in 
 | Rail | InboxRail (a tile per project, and a project's flyout beside it), WorkRail (named groups of what the conversation steers) |
 | Tile | Mark, Lit, Project, ProjectWaiting, ProjectNew, Current, EpicAsks, SubAgents, LeftRunning, New |
 | InboxRow | Working, WaitingQuestion, Done, CutOff, Failed, Stopped, Unreachable, Idle; Unseen, Open, Cursor, Hover, MenuOpen |
-| EpicRow | Building, Asking, ContractProposed, ReleaseFailed, Releasing, Parked, Paused, Planning, Shipped, EndedShort |
+| EpicRow | Building, Asking, ContractProposed, ReleaseFailed, Releasing, Parked, Paused, Planning, Shipped, EndedShort, StepsOnTwoHosts |
 | StepRow | Running, Held |
-| TitleRow | Conversation, InboxHidden, Epic, Subpage, WithError, UnreachablePane; phone: Folded |
+| TitleRow | Conversation, InboxHidden, Epic, Subpage, Pane, WithError, UnreachablePane; phone: Folded |
 | MeterStrip | HostAndContext, HostOnly, UnderLoad, OtherHost. Superseded by HostsView, to be removed by the build epic. The head keeps its host, as a HostLabel, and the context; it draws no meters |
 | HostsView | AllReachable, UnderLoad, OneUnreachable. Opened from the inbox head. Every host the server lists, one row each: its name as a HostLabel, its load and its memory as Meters, and whether it answers. A host that does not answer reads unreachable beside its name, with its glyph, and draws no numbers |
 | HostLabel | Inline, CardHeading. The host a pane, a session, an epic or a step runs on, with the host's icon: inline on its own row, or once on a card's heading. Beside it the word unreachable when the host does not answer |

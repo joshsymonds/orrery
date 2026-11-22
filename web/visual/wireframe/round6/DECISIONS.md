@@ -30,10 +30,11 @@ are grouped by host and folder, the host is drawn once on the card heading; ever
 | a headless session's title row | its session row's host | orrery-first-class-hosts |
 | a terminal pane's title row | Pane.host | orrery-host-surfaces |
 | an EpicRow, an EpicPin, a WorkCard | Epic.host | orrery-host-relay |
-| an epic's page title row | Epic.host | orrery-host-relay |
+| an epic's page title row, and the epic band on a task's page (`ContextBand`) | Epic.host | orrery-host-relay |
 | a StepRow, under an epic in the inbox or as a row of its Now table | EpicStep.host | orrery-host-relay |
 | a step's page title row | EpicStep.host | orrery-host-relay |
 | a contract's WorkCard | its session row's host: the session that wrote it | orrery-first-class-hosts |
+| the head's host in `MeterStrip`, which the build epic removes with it: the conversation's host | Pane.host for a terminal pane, its session row's host for a headless session | orrery-host-surfaces, or orrery-first-class-hosts |
 | a session's InboxRow, its title row and its dock, on a host that does not answer | its session row's state reads `unreachable` (unchecked) | orrery-first-class-hosts |
 | a pane's title row and its dock, on a host that does not answer | a pane listed from stored rows is marked unreachable: `Pane.unreachable` (unchecked) | orrery-host-surfaces |
 | a card's head, on a host that does not answer | the host's `reachable` is false in `Host.Status` (unchecked) | orrery-host-surfaces |

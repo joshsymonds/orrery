@@ -136,7 +136,7 @@
   convo({
     id: 'pane-host-unreachable', group: 'Conversation', name: 'A pane whose host does not answer',
     note: 'A terminal pane\'s conversation as it was last stored. Its host does not answer, so its title row says unreachable beside its host, with no context of its own, and its dock says so in words. The dock offers nothing that would act on the pane: no input, no queue, no Interrupt and no quick keys. The transcript stays as it was stored.',
-    pane: true, hosts: ['paneDown', 'hostDown'],
+    pane: true, hosts: ['pane', 'paneDown'],
     title: { dir: 'tidepool', here: 'Tide table cache warm-up', state: O.pill('unreachable', 'unreachable', { state: 'unreachable' }), strip: W.strip(null, { host: 'halyard', down: true }) },
     items: W.short, dock: { state: 'unreachable', host: 'halyard', what: '· shown as last stored' },
     differs: ['Android draws no quick keys under this dock, since they would send keys to a pane that does not answer. The web under 760 draws the same dock, with no input.'],
