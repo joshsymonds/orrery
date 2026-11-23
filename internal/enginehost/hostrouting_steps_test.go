@@ -115,31 +115,6 @@ func TestEpicHostRoutingSteps(t *testing.T) {
 		if calls := f.b.Calls(); !hostRoutingGitCall(calls, f.repo, "worktree", "remove", "--force", wt) {
 			t.Errorf("host b recorded no worktree remove of %s in %s: %v", wt, f.repo, calls)
 		}
-	})
-	t.Run("host a records nothing", func(t *testing.T) {
-		t.Parallel()
-		f := newHostRoutingFixture(t)
-		linked := stepWorktreeTestAddLinked(t, f.repo)
-		writing := stepStartWriting(linked)
-		writing.Epic = hostRoutingEpic
-		writing.Prompt = "STALL"
-		if _, err := f.steps.Start(t.Context(), writing); err != nil {
-			t.Fatalf("Start writing step: %v", err)
-		}
-		reading := stepStartReadOnly(f.repo, "")
-		reading.Epic = hostRoutingEpic
-		reading.Prompt = "STALL"
-		id, err := f.steps.Start(t.Context(), reading)
-		if err != nil {
-			t.Fatalf("Start read-only step: %v", err)
-		}
-		if err := f.steps.Stop(t.Context(), id); err != nil {
-			t.Fatalf("Stop: %v", err)
-		}
-		// Host b must have seen the steps' calls, so a silent run does not pass for the routing.
-		if calls := f.b.Calls(); len(calls) == 0 {
-			t.Errorf("host b recorded no calls, so the steps did not run on it")
-		}
 		if calls := f.a.Calls(); len(calls) != 0 {
 			t.Errorf("host a recorded %d calls, want none: %v", len(calls), calls)
 		}

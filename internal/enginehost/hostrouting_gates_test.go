@@ -143,17 +143,20 @@ func TestEpicHostRoutingGates(t *testing.T) {
 	t.Parallel()
 	t.Run("evidence gate held on b", func(t *testing.T) {
 		t.Parallel()
-		_, b, hosts := hostRoutingGatesHosts()
+		a, b, hosts := hostRoutingGatesHosts()
 		holder, stateDir := hostRoutingGatesEvidence(t, hosts)
 		hostRoutingWantCalls(t, "b", b.Calls(),
 			hostRoutingCallOf{"Launch", stateDir},
 			hostRoutingCallOf{"ExitRecord", holder},
 			hostRoutingCallOf{"Clear", holder},
 		)
+		if calls := a.Calls(); len(calls) != 0 {
+			t.Errorf("host a recorded %d calls, want none: %v", len(calls), calls)
+		}
 	})
 	t.Run("step gate held on b", func(t *testing.T) {
 		t.Parallel()
-		_, b, hosts := hostRoutingGatesHosts()
+		a, b, hosts := hostRoutingGatesHosts()
 		f := hostRoutingGatesStep(t, hosts)
 		stateDir, err := gateStateDir(f.run.stateDir)
 		if err != nil {
@@ -180,16 +183,6 @@ func TestEpicHostRoutingGates(t *testing.T) {
 			hostRoutingCallOf{"ReadRooted", gateCheck.Log},
 			hostRoutingCallOf{"Clear", holder},
 		)
-	})
-	t.Run("host a records nothing", func(t *testing.T) {
-		t.Parallel()
-		a, b, hosts := hostRoutingGatesHosts()
-		hostRoutingGatesEvidence(t, hosts)
-		hostRoutingGatesStep(t, hosts)
-		// Host b must have seen the gates' calls, so a silent run does not pass for the routing.
-		if calls := b.Calls(); len(calls) == 0 {
-			t.Errorf("host b recorded no calls, so the gates did not run on it")
-		}
 		if calls := a.Calls(); len(calls) != 0 {
 			t.Errorf("host a recorded %d calls, want none: %v", len(calls), calls)
 		}

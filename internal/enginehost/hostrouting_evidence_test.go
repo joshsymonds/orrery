@@ -131,6 +131,9 @@ func TestEpicHostRoutingEvidence(t *testing.T) {
 		if artifact := filepath.Join(wt, "out.txt"); !hostRoutingCallAt(calls, "ReadRooted", artifact) {
 			t.Errorf("host b recorded no read of artifact %s: %v", artifact, calls)
 		}
+		if calls := f.a.Calls(); len(calls) != 0 {
+			t.Errorf("host a recorded %d calls, want none: %v", len(calls), calls)
+		}
 	})
 	t.Run("node check goes to b", func(t *testing.T) {
 		t.Parallel()
@@ -139,16 +142,6 @@ func TestEpicHostRoutingEvidence(t *testing.T) {
 		wt := filepath.Join(f.checks.worktrees, nodeCheckID)
 		if calls := f.b.Calls(); !hostRoutingGitCall(calls, f.repo, "worktree", "add", "--detach", wt) {
 			t.Errorf("host b recorded no worktree add of %s in %s: %v", wt, f.repo, calls)
-		}
-	})
-	t.Run("host a records nothing", func(t *testing.T) {
-		t.Parallel()
-		f := newHostRoutingEvidenceFixture(t)
-		hostRoutingRunEvidence(t, &f)
-		hostRoutingRunCheck(t, &f)
-		// Host b must have seen both runs' calls, so a silent run does not pass for the routing.
-		if calls := f.b.Calls(); len(calls) == 0 {
-			t.Errorf("host b recorded no calls, so the runs did not run on it")
 		}
 		if calls := f.a.Calls(); len(calls) != 0 {
 			t.Errorf("host a recorded %d calls, want none: %v", len(calls), calls)

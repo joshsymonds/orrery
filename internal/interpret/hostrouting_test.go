@@ -45,7 +45,7 @@ func hasGitCall(calls []hostexectest.Call, dir string, args ...string) bool {
 // main runs its git on host b, the host the epic lives on, and host a, which the epic does not name, sees no call.
 func TestEpicHostRoutingInterpret(t *testing.T) {
 	t.Run("interpret git goes to b", func(t *testing.T) {
-		w, _, recB := newHostRoutingSync(t)
+		w, recA, recB := newHostRoutingSync(t)
 		calls := recB.Calls()
 		for _, args := range [][]string{
 			{"remote"}, {"ls-remote"}, {"fetch"}, {"merge-base", "--is-ancestor"},
@@ -54,9 +54,6 @@ func TestEpicHostRoutingInterpret(t *testing.T) {
 				t.Errorf("host b recorded no %v in %s: %v", args, w.repo, calls)
 			}
 		}
-	})
-	t.Run("host a records nothing", func(t *testing.T) {
-		_, recA, _ := newHostRoutingSync(t)
 		if calls := recA.Calls(); len(calls) != 0 {
 			t.Errorf("host a recorded %d calls, want none: %v", len(calls), calls)
 		}
