@@ -1923,6 +1923,12 @@ button.block:hover { --ground: var(--o-surface-raised); }
 .held-sheet { position: relative; display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; border-radius: var(--o-radius-3); background: var(--o-surface-side); }
 .held-sheet-spine { position: absolute; top: 0; bottom: 0; left: 0; width: var(--o-space-8); background: var(--o-surface-raised); }
 .held-sheet-foot { flex: none; height: var(--o-space-8); background: var(--o-surface-raised); }
+/* Under 760px the sheet fills the page under the conversation's head (D5), and the band of its bracket (D9) runs under the head,
+   where the work link of the thing the sheet holds is lit on the same ground. The column's gap is taken back, so the band is
+   directly above the sheet. */
+.read > .held-sheet { flex: 1 1 auto; margin-top: calc(-1 * var(--o-space-8)); }
+.convo-head > .head-band { height: var(--o-space-8); background: var(--o-surface-raised); }
+.wlink[aria-current="true"] { border-radius: var(--o-radius-2); background: var(--o-surface-raised); }
 
 /* The held move (D16, flows 10a). A card rises out of its neck, scaled about its left edge at its row's height, and folds back
    into it; a neck grows from its row and draws back; a tab's ground fades; the chat moves between the middle and the right;

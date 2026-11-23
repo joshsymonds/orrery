@@ -30,7 +30,7 @@ import type { HostStatusResponse } from "./gen/orrery/v1/orrery_pb";
 import { Icon, stateWord } from "./glyphs";
 import { type HeadStore, memoryHeadStore } from "./headfold";
 import type { HeldThing } from "./held";
-import { HeldCard } from "./heldcard";
+import { HeldCard, HeldSheet } from "./heldcard";
 import { KeyList } from "./helppanel";
 import { Inbox } from "./inbox";
 import { InboxRail } from "./inboxrail";
@@ -654,13 +654,16 @@ export function App({
   const contractLiveRow =
     contractRow !== null && !contractRow.archived && !endedStates.includes(contractRow.state) ? contractRow : null;
   // The design whose card is held: the one an opened press named, while the cursor rests on the entry it opened over and no
-  // project page is shown, at the desk. Its conversation is the middle while that row is live, as a contract's is.
-  const openedDesignId = wide && shownProject === null && openedDesign?.cursor === cursorKey ? openedDesign.id : "";
-  const design = openedDesignId === "" ? undefined : designs.find((candidate) => candidate.id === openedDesignId);
-  const designShown = design !== undefined;
-  const designRow = design === undefined ? null : steererRowOf(shownRows, design.conversation);
+  // project page is shown. Its conversation is the middle while that row is live, as a contract's is.
+  const openedDesignId = shownProject === null && openedDesign?.cursor === cursorKey ? openedDesign.id : "";
+  const openedDesignFound = openedDesignId === "" ? undefined : designs.find((candidate) => candidate.id === openedDesignId);
+  const designRow = openedDesignFound === undefined ? null : steererRowOf(shownRows, openedDesignFound.conversation);
   const designLiveRow =
     designRow !== null && !designRow.archived && !endedStates.includes(designRow.state) ? designRow : null;
+  // A design is held at the desk whatever its conversation; under 760px it is the sheet only over a live conversation (D9),
+  // and with none the inbox draws it as before.
+  const design = openedDesignFound !== undefined && (wide || designLiveRow !== null) ? openedDesignFound : undefined;
+  const designShown = design !== undefined;
   // The About and the talk belong to the open contract: closing it, opening another, or moving the cursor off its entry
   // clears them.
   const shownContractId = contract?.id ?? "";
@@ -2060,7 +2063,8 @@ export function App({
       contracts: middle ? bandContractsOf(workConversation(row, conversation).session) : undefined,
       onOpenContract: navigated(openContractPanel),
       hereContract: middle && contract !== undefined ? contract.id : undefined,
-      // While a card is held the card is the work, so the head names no work link.
+      // While a card is held the card is the work, so the head names no work link. Under 760px the sheet under the head
+      // holds the work, and its link is the one lit.
       workLinks:
         middle && heldThing === null
           ? {
@@ -2068,6 +2072,7 @@ export function App({
               onOpen: openWorkLink,
             }
           : undefined,
+      sheetKey: middle && sheetHeld && openThing !== null ? openThing.key : undefined,
       note: headNote.key === row.key ? headNote.text : "",
       menu: {
         stripsShown,
@@ -2168,9 +2173,9 @@ export function App({
           ? `epic:${epicEntry.id}`
           : "";
   const tiles = railTiles(railTree, shownProject ?? cursorKey, lineageThing);
-  // Under 760px an open epic is the page in the conversation's place: the conversation is not drawn, and the page's
-  // foot bar opens the steering conversation. At the desk the epic panel lies beside the conversation, but not a worker
-  // session, which takes the conversation's place (sessionAtDesk).
+  // Under 760px an open epic is the page in the conversation's place, unless its conversation is drawn and holds it as the
+  // sheet under the head (sheetHeld); the page's foot bar then opens the steering conversation. At the desk the epic panel
+  // lies beside the conversation, but not a worker session, which takes the conversation's place (sessionAtDesk).
   const epicPageShown = !wide && panelOpen;
   // At the desk an open worker session is the middle conversation: it draws in the middle column, and no epic panel lies
   // beside it. Its back returns to the record in the panel. A session whose step the epic's detail lacks stays in the
@@ -2182,20 +2187,21 @@ export function App({
     openStep !== "" &&
     epicDetail?.steps.some((step) => step.id === openStep) === true;
   const epicBeside = panelOpen && !sessionAtDesk;
-  // Under 760px an open contract is the page in the conversation's place too, and the reader is not drawn.
+  // Under 760px an open contract is the page in the conversation's place too, unless its conversation holds it as the sheet
+  // under the head (sheetHeld).
   const contractPageShown = !wide && contractShown;
-  // heldThing is the thing the desk holds open beside its conversation, as a card set into the conversation: a design whose
-  // card is held, an epic whose panel is open, or an open contract, with the key of the middle conversation's row ("" when
-  // none). Under 760px nothing is held, since the page takes the conversation's place.
-  const heldThing: HeldThing | null = !wide
-    ? null
-    : design !== undefined
+  // openThing is the thing open over its conversation at any width: a design whose card is held, an epic whose panel is open,
+  // or an open contract, with the key of the middle conversation's row ("" when none). At the desk it is held as a card set
+  // into the conversation, as heldThing; under 760px it is the sheet under the conversation's head (sheetHeld).
+  const openThing: HeldThing | null =
+    design !== undefined
       ? { kind: "design", key: `design:${design.id}`, convo: middleKey }
       : contract !== undefined
         ? { kind: "contract", key: `contract:${contract.id}`, convo: middleKey }
         : epicBeside && epicEntry !== null
           ? { kind: "epic", key: `epic:${epicEntry.id}`, convo: middleKey }
           : null;
+  const heldThing: HeldThing | null = wide ? openThing : null;
   // The list panel's tone comes from its row's tasks, and its rows are the middle conversation's running tasks of its kind,
   // which are empty once none runs.
   const listThing = workThings.find(
@@ -2266,13 +2272,16 @@ export function App({
   // openDesign is a press on a design's tab, its link in the title or its mark on the rail. At the desk the design's card is
   // held beside its conversation, which takes the cursor, and an open contract's panel shuts. The design's tab shows in the
   // inbox, where the tree draws it under its conversation: a collapsed inbox expands, and the tab scrolls into view once it
-  // is drawn. Under 760px the page and the panels shut, so the inbox list draws with the tab in view, and no card is held.
+  // is drawn. Under 760px the design's sheet is held over its live conversation, as an epic's or a contract's is; with no live
+  // conversation the page and the panels shut, so the inbox list draws with the tab in view, and no card is held.
   const openDesign = (id: string) => {
     revealKey(`design:${id}`);
     setView("inbox");
     setProjectKey(null);
     setTabToShow(`design:${id}`);
-    if (!wide) {
+    const pressed = designs.find((candidate) => candidate.id === id);
+    const conversation = pressed === undefined ? null : steererRowOf(shownRows, pressed.conversation);
+    if (!wide && (conversation === null || conversation.archived || endedStates.includes(conversation.state))) {
       setRowOpened(false);
       setEpicPage(closedEpicPage);
       setOpenedContract(null);
@@ -2281,11 +2290,9 @@ export function App({
     if (collapsed) {
       expandInbox();
     }
-    const pressed = designs.find((candidate) => candidate.id === id);
     if (pressed === undefined) {
       return;
     }
-    const conversation = steererRowOf(shownRows, pressed.conversation);
     const conversationItem =
       conversation === null ? undefined : flat.find((candidate) => candidate.key === conversation.key);
     setOpenedContract(null);
@@ -2293,6 +2300,9 @@ export function App({
       selectItem(conversationItem);
     }
     setOpenedDesign({ id, cursor: conversationItem?.key ?? cursorKey });
+    if (!wide) {
+      setRowOpened(true);
+    }
   };
   // openWorkLink is a press on a work link in the title row: an epic's opens its panel, a contract's opens its contract,
   // and a design's opens its card.
@@ -2367,8 +2377,20 @@ export function App({
   // Under 760px the notice centre is a page of its own, which draws alone: the list, the reader and the pages under it
   // hide while it is open, and Back shows them as they were.
   const noticesPage = !wide && noticesOpen;
+  // sheetHeld is whether the phone's sheet holds the open thing under its conversation's head (D5, D9): under 760px an open
+  // epic, contract or design whose conversation is drawn, and no talk raised over the record. With no conversation the thing
+  // draws its page alone, as before.
+  const sheetHeld =
+    !wide &&
+    pageDrawn &&
+    !noticesPage &&
+    !talking &&
+    shownProject === null &&
+    !accountsOpen &&
+    openThing !== null &&
+    middleRow !== null;
   // The list hides under 760px while the opened row's, step's, epic's, contract's or project's page draws alone, and
-  // while the notice centre does.
+  // while the notice centre does, or while the sheet holds the open thing under its conversation.
   const listHides =
     !wide &&
     (noticesPage ||
@@ -2376,7 +2398,8 @@ export function App({
       accountsOpen ||
       (rowOpened && (cursorRow !== null || cursorStep !== null)) ||
       panelOpen ||
-      contractPageShown);
+      contractPageShown ||
+      sheetHeld);
   // The list is on screen where it is drawn: beside the page at the desk unless the inbox is collapsed, and under 760px
   // unless a page draws alone over it. A project page or the notice centre covers the cursor row unless the list is on
   // screen, and A, x and e do not act on a covered row.
@@ -2500,9 +2523,12 @@ export function App({
     );
   };
 
-  // epicRootBack is the back of the epic's root page: under 760px the page keeps it, and the page a held card draws has
-  // none, since Fold back is its way out (D15).
-  const epicRootBack = heldThing === null ? closeEpicPage : undefined;
+  // framed is whether the open thing is drawn in a card or the phone's sheet, whose own close is its way out: its page then
+  // has no back. A page drawn alone under 760px keeps its back.
+  const framed = heldThing !== null || sheetHeld;
+  // epicRootBack is the back of the epic's root page: under 760px the page keeps it, and the page a held card or sheet draws
+  // has none, since Fold back and the sheet's X are its way out (D15).
+  const epicRootBack = framed ? undefined : closeEpicPage;
   // epicPageSection draws the epic section over the epic's detail, or while the detail is not drawn, the title row with
   // the line its read leaves: loading, or the could-not-read line with Try again.
   const epicPageSection = (entry: EpicItem, detail: EpicsGetResponse | undefined) => (
@@ -2562,7 +2588,7 @@ export function App({
         <TitleRow
           crumbs={[{ label: contractSlug(contract.id) }, { label: "contract" }]}
           state={statePill(contract.state)}
-          onBack={heldThing === null ? closeContract : undefined}
+          onBack={framed ? undefined : closeContract}
           strip={pageStrip(null, null)}
         />
         <ContractRecord
@@ -2814,13 +2840,13 @@ export function App({
   // Under 760px one page draws at a time. The reader and the epic page draw only once an entry has been opened, so the
   // inbox is the home page until then. The list hides while the opened row's, step's, epic's, contract's or project's
   // page draws alone, and an open epic's or contract's page takes the conversation's place, unless the sheet holds the
-  // conversation over the contract. A shown project page takes the page area, so no reader draws. At 760px and wider the
+  // conversation over the contract. Where the sheet holds the open thing, the conversation's head stays and the sheet
+  // takes its reader's place under it. A shown project page takes the page area, so no reader draws. At 760px and wider the
   // list, the conversation and the panel sit abreast.
   const readerRow =
     pageDrawn &&
     !noticesPage &&
-    !epicPageShown &&
-    !(contractPageShown && !sheeted) &&
+    (sheetHeld || (!epicPageShown && !(contractPageShown && !sheeted))) &&
     shownProject === null &&
     !accountsOpen
       ? middleRow
@@ -2844,24 +2870,30 @@ export function App({
   const columnHolds = readerRow !== null || readerStep !== null;
   const heldTitle =
     design !== undefined ? design.title : contract !== undefined ? contractSlug(contract.id) : (epicEntry?.slug ?? "");
+  // heldBody is the page the card or the sheet draws: the design's card, the contract's page or the epic's section.
+  const heldBody =
+    design !== undefined
+      ? designPage
+      : contract !== undefined
+        ? contractPage
+        : epicEntry !== null
+          ? epicPageSection(epicEntry, epicDetail)
+          : null;
+  // closeHeld is what the card's Fold back and the sheet's X do: they close the thing and leave the conversation alone.
+  const closeHeld = design !== undefined ? closeDesign : contract !== undefined ? closeContract : closePanel;
   const heldCard =
     heldThing === null ? undefined : (
-      <HeldCard
-        thing={heldThing}
-        title={heldTitle}
-        move=""
-        gauge={heldGauge}
-        onFoldBack={design !== undefined ? closeDesign : contract !== undefined ? closeContract : closePanel}
-      >
-        {design !== undefined
-          ? designPage
-          : contract !== undefined
-            ? contractPage
-            : epicEntry !== null
-              ? epicPageSection(epicEntry, epicDetail)
-              : null}
+      <HeldCard thing={heldThing} title={heldTitle} move="" gauge={heldGauge} onFoldBack={closeHeld}>
+        {heldBody}
       </HeldCard>
     );
+  // sheet is the thing the phone's sheet holds under its conversation's head, when sheetHeld says it does. Its X is closeHeld.
+  const sheet =
+    sheetHeld && openThing !== null ? (
+      <HeldSheet thing={openThing} title={heldTitle} move="" gauge={heldGauge} onClose={closeHeld}>
+        {heldBody}
+      </HeldSheet>
+    ) : undefined;
   const middleColumn = (
     <ReaderColumn
       column="cursor"
@@ -2908,6 +2940,7 @@ export function App({
       ended={endedBarOf}
       activity={<ActivityLines lines={activityLines} now={now} open={listShown} onOpen={openActivity} />}
       held={columnHolds ? heldCard : undefined}
+      sheet={sheet}
     />
   );
   // railed is whether the inbox draws as its rail: when the owner collapsed it at the desk, or while a card is held between 760px
@@ -3082,10 +3115,10 @@ export function App({
             void escapeRow({ row, column: "pinned", state: headState(row, pinnedConversation) }, null)
           }
         />
-        {epicEntry !== null && panelOpen && !wide && !noticesPage && (
+        {epicEntry !== null && panelOpen && !wide && !noticesPage && !sheetHeld && (
           <div class="epic-read">{epicPageSection(epicEntry, epicDetail)}</div>
         )}
-        {contract !== undefined && !wide && !noticesPage && <div class="epic-read">{contractPage}</div>}
+        {contract !== undefined && !wide && !noticesPage && !sheetHeld && <div class="epic-read">{contractPage}</div>}
         {listShown !== null && wide && (
           <SidePanel label={listHead(listShown)} tone={listTone} href={shownForm} onClose={closeList}>
             <ListPanel kind={listShown} tasks={listTasks} now={now} />

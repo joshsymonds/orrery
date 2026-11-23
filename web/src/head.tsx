@@ -43,6 +43,9 @@ export interface HeadProps {
   // workLinks is what the middle conversation works on, drawn in the title row after its title as links: the things, and
   // what a link opens. Absent, the head draws no links.
   workLinks?: HeadWorkLinks;
+  // sheetKey is the key of the thing the phone's sheet holds under this head. Its work link is lit, and a band of its ground
+  // runs under the head. Absent, nothing is lit and no band is drawn.
+  sheetKey?: string;
 }
 
 // HeadWorkLinks is what the title row's work links draw: the things the conversation works on, and what a link opens.
@@ -70,7 +73,8 @@ interface MenuItem {
 // Head is a conversation's header: its title row, with the work links after the title when given, the context, the find
 // control and the More menu, then either the machine band and the band of what it is for and what waits on it, or, when
 // folded, the one folded line. The machine band is drawn with the open header only. The hide control on the band and the
-// Hide the header item are drawn only in the narrow layout.
+// Hide the header item are drawn only in the narrow layout. With a sheetKey, the work link of that thing is lit, and a band
+// of its ground runs under the head.
 export function Head({
   row,
   conversation,
@@ -90,6 +94,7 @@ export function Head({
   onShow,
   menu,
   workLinks,
+  sheetKey,
   here,
   contracts,
   onOpenContract,
@@ -124,7 +129,9 @@ export function Head({
         onBack={onBack}
         note={note}
       >
-        {workLinks !== undefined && <WorkLink items={workLinks.items} narrow={narrow} onOpen={workLinks.onOpen} />}
+        {workLinks !== undefined && (
+          <WorkLink items={workLinks.items} narrow={narrow} lit={sheetKey} onOpen={workLinks.onOpen} />
+        )}
         {context !== undefined && figure !== null && <ContextMeter context={context} figure={figure} />}
         <button type="button" class="icon find" aria-label="Find in this conversation" title="Find  /" onClick={() => onFind()}>
           <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 3a4 4 0 1 0 0 8 4 4 0 0 0 0-8zM10 10l3.5 3.5" /></svg>
@@ -167,6 +174,7 @@ export function Head({
       ) : (
         <CompactHead asking={askingWords} badges={badges} onOpen={onShow} />
       )}
+      {sheetKey !== undefined && <div class="head-band" aria-hidden="true" />}
     </div>
   );
 }
