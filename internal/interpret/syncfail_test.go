@@ -66,10 +66,11 @@ func requireSyncWake(t *testing.T, w *syncWorld, cause string) {
 	}
 	turn := w.claimTurn()
 	claimed := syncTriggers(t, w)
-	if len(claimed) != 1 || claimed[0].id != triggers[0].id || claimed[0].state != "claimed" ||
-			claimed[0].turn != turn {
-		t.Errorf("sync triggers after the planner's claim = %+v, want %s claimed by turn %d", claimed,
-			triggers[0].id, turn)
+	if len(claimed) != 1 {
+		t.Fatalf("sync triggers after the planner's claim = %+v, want one claimed by turn %d", claimed, turn)
+	}
+	if got := claimed[0]; got.id != triggers[0].id || got.state != "claimed" || got.turn != turn {
+		t.Errorf("sync trigger after the planner's claim = %+v, want %s claimed by turn %d", got, triggers[0].id, turn)
 	}
 }
 
