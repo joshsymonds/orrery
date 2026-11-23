@@ -41,6 +41,7 @@ import androidx.compose.ui.semantics.SemanticsPropertyKey
 import androidx.compose.ui.semantics.semantics
 import io.github.joshsymonds.orrery.api.OrreryClient
 import io.github.joshsymonds.orrery.api.Pane
+import io.github.joshsymonds.orrery.api.StepRow
 import io.github.joshsymonds.orrery.push.PushNotifier
 import io.github.joshsymonds.orrery.push.PushSetup
 import io.github.joshsymonds.orrery.ui.AccountsScreen
@@ -280,6 +281,12 @@ class MainActivity : ComponentActivity() {
                                                 screen = Screen.Contract(id, back = current, live = live)
                                             },
                                             onSteered = openSteerer,
+                                            onAbout = { about -> conversationAbout = ConversationAbout(current, about) },
+                                            onOpenStep = { epic, step -> screen = stepScreenOf(epic, step, back = current) },
+                                            onOpenPhase = { epic, task, phase ->
+                                                screen = Screen.Phase(epic, task, phase, back = current)
+                                            },
+                                            listedSteerer = listedSteerer,
                                         )
                                     }
                                     is Screen.Pane -> {
@@ -294,6 +301,13 @@ class MainActivity : ComponentActivity() {
                                             onOpenContract = { id, live ->
                                                 screen = Screen.Contract(id, back = current, live = live)
                                             },
+                                            onAbout = { about -> conversationAbout = ConversationAbout(current, about) },
+                                            onOpenStep = { epic, step -> screen = stepScreenOf(epic, step, back = current) },
+                                            onOpenPhase = { epic, task, phase ->
+                                                screen = Screen.Phase(epic, task, phase, back = current)
+                                            },
+                                            listedSteerer = listedSteerer,
+                                            onSteered = openSteerer,
                                         )
                                     }
                                     is Screen.Session -> {
@@ -310,6 +324,12 @@ class MainActivity : ComponentActivity() {
                                                 screen = Screen.Contract(id, back = current, live = live)
                                             },
                                             onSteered = openSteerer,
+                                            onAbout = { about -> conversationAbout = ConversationAbout(current, about) },
+                                            onOpenStep = { epic, step -> screen = stepScreenOf(epic, step, back = current) },
+                                            onOpenPhase = { epic, task, phase ->
+                                                screen = Screen.Phase(epic, task, phase, back = current)
+                                            },
+                                            listedSteerer = listedSteerer,
                                         )
                                     }
                                     Screen.Pools -> {
@@ -468,6 +488,17 @@ class MainActivity : ComponentActivity() {
         } else {
             Screen.Pane(pane.id, back = back)
         }
+
+    /** The screen a step's session opens from its [epic] at [step], returning to [back]. */
+    private fun stepScreenOf(epic: String, step: StepRow, back: Screen): Screen = Screen.Step(
+        step.id,
+        held = step.held,
+        back = back,
+        label = step.task.ifEmpty { step.agent },
+        doing = step.doing,
+        epic = epic,
+        task = step.task,
+    )
 
     /** The About set on [conversation], the screen a contract's row returned to, or null. */
     private fun aboutOf(conversation: Screen): RowAbout? = conversationAbout?.takeIf { it.screen == conversation }?.about

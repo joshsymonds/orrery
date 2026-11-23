@@ -7,9 +7,9 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -135,39 +135,36 @@ private fun Modifier.chip(tag: String, isLit: Boolean, onClick: () -> Unit): Mod
 }
 
 /**
- * The sheet of a conversation's work when its links are tapped: each design as its block, then the loose epics, those
- * with no design, under a label. A tap on a design's kid calls [onOpen] with the kid's key. [onDismiss] closes it.
+ * The body of the list "+N" opens, as the phone sheet hosts it: each design as its block, then the loose epics, those
+ * with no design, under a label. A tap on a design's kid, or on a loose epic, calls [onOpen] with its key.
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-internal fun WorkSheet(
+internal fun WorkSheetBody(
     designs: List<DesignBlock>,
     loose: List<Hung>,
     now: Long,
     onOpen: (String) -> Unit,
-    onDismiss: () -> Unit,
 ) {
-    ModalBottomSheet(onDismissRequest = onDismiss) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = OrreryTokens.Space.sixteen, vertical = OrreryTokens.Space.eight),
-            verticalArrangement = Arrangement.spacedBy(OrreryTokens.Space.eight),
-        ) {
-            for (block in designs) {
-                DesignBlockItem(block, now, onOpen, onLongPress = {})
-            }
-            if (loose.isNotEmpty()) {
-                val label = if (loose.size == 1) "an epic with no design" else "epics with no design"
-                Text(
-                    label,
-                    modifier = Modifier.testTag("work-sheet-loose"),
-                    color = OrreryTokens.Ink.three,
-                    style = OrreryTokens.Type.small,
-                )
-                for (hung in loose) {
-                    HungRow(hung, now, onOpen, onLongPress = {})
-                }
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = OrreryTokens.Space.sixteen, vertical = OrreryTokens.Space.eight),
+        verticalArrangement = Arrangement.spacedBy(OrreryTokens.Space.eight),
+    ) {
+        for (block in designs) {
+            DesignBlockItem(block, now, onOpen, onLongPress = {})
+        }
+        if (loose.isNotEmpty()) {
+            val label = if (loose.size == 1) "an epic with no design" else "epics with no design"
+            Text(
+                label,
+                modifier = Modifier.testTag("work-sheet-loose"),
+                color = OrreryTokens.Ink.three,
+                style = OrreryTokens.Type.small,
+            )
+            for (hung in loose) {
+                HungRow(hung, now, onOpen, onLongPress = {})
             }
         }
     }

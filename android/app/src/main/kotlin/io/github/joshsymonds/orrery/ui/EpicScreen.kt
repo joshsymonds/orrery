@@ -84,7 +84,8 @@ class EpicOpening(val section: String)
  * given the steering session's id when Talk or the steered door is tapped, and [onSteered] each steering the foot
  * settles on. [listState] is the list's state, so the caller keeps its scroll; [openAt] scrolls it to its section when
  * the list is composed. A tap on a task calls [onOpenPhase]. An ended orreryd epic the owner has not seen is marked
- * seen once the screen has rested on it for a second while resumed.
+ * seen once the screen has rested on it for a second while resumed. [titled] false leaves out the title row, as the
+ * phone sheet's body draws the epic.
  */
 @Composable
 fun EpicScreen(
@@ -101,6 +102,7 @@ fun EpicScreen(
     onOpenPhase: ((task: String, phase: Phase) -> Unit)? = null,
     onSteered: (steering: String) -> Unit = {},
     now: () -> Long = { System.currentTimeMillis() / 1000 },
+    titled: Boolean = true,
 ) {
     var load by remember(client, epicId) { mutableStateOf<EpicLoad>(EpicLoad.Loading) }
     var generation by remember(client, epicId) { mutableIntStateOf(0) }
@@ -209,14 +211,16 @@ fun EpicScreen(
     val statePill = detail?.let { statePillOf(it, nowAt) }
     val blockerPill = detail?.let { blockerPillOf(it, nowAt) }
     Column(modifier = modifier.fillMaxSize()) {
-        TitleRow(
-            crumbs = listOfNotNull(Crumb("orrery", onBack), detail?.let { Crumb(it.epic.slug) }),
-            onBack = onBack,
-            state = statePill?.word.orEmpty(),
-            stateTone = statePill?.tone,
-            blocker = blockerPill?.word.orEmpty(),
-            blockerTone = blockerPill?.tone,
-        )
+        if (titled) {
+            TitleRow(
+                crumbs = listOfNotNull(Crumb("orrery", onBack), detail?.let { Crumb(it.epic.slug) }),
+                onBack = onBack,
+                state = statePill?.word.orEmpty(),
+                stateTone = statePill?.tone,
+                blocker = blockerPill?.word.orEmpty(),
+                blockerTone = blockerPill?.tone,
+            )
+        }
         if (notice.isNotEmpty()) {
             Text(
                 notice,
