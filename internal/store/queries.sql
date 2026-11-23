@@ -2018,6 +2018,13 @@ SELECT * FROM design_edges WHERE design = ? ORDER BY created, contract, after;
 -- name: InsertDesignEdge :exec
 INSERT INTO design_edges (design, contract, after, created) VALUES (?, ?, ?, ?);
 
+-- name: ListContractPredecessors :many
+SELECT CAST(COALESCE(epics.phase, '') AS TEXT) AS epic_phase
+FROM design_edges AS edges
+LEFT JOIN epics ON epics.id = edges.after
+WHERE edges.contract = ?
+ORDER BY edges.after;
+
 -- name: GetLoneContract :one
 SELECT contracts.id, contracts.created,
        newest.repository, newest.title,

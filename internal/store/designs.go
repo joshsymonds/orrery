@@ -282,6 +282,30 @@ func hasDesignEdge(edges []sqlcgen.DesignEdge, contract, after string) bool {
 	return false
 }
 
+// startsAfterShipped reports whether every contract the contract starts after has an epic in a phase that ships. A
+// predecessor with no epic reads as phase "", which no shipped phase is, so it does not ship. Read with queries.
+func startsAfterShipped(ctx context.Context, queries *sqlcgen.Queries, contract string) (bool, error) {
+	phases, err := queries.ListContractPredecessors(ctx, contract)
+	if err != nil {
+		return false, fmt.Errorf("list predecessors of contract %s: %w", contract, err)
+	}
+	for _, phase := range phases {
+		if !shippedPhase(phase) {
+			return false, nil
+		}
+	}
+	return true, nil
+}
+
+// shippedPhase reports whether phase is one a predecessor of a held epic ships in: released, done or closed_shipped.
+func shippedPhase(phase string) bool {
+	switch phase {
+	case phaseReleased, phaseDone, PhaseClosedShipped:
+		return true
+	}
+	return false
+}
+
 // startsAfterPath returns the contracts of a path of starts-after edges from the contract from to the contract to, both
 // ends included, or nil when no path joins them. A contract from reaches to when from is to, so its path is [from].
 func startsAfterPath(edges []sqlcgen.DesignEdge, from, to string) []string {
