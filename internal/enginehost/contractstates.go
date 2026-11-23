@@ -229,18 +229,18 @@ func (s *contractService) contractChange(session, words string) store.ContractCh
 }
 
 // originMain returns the commit origin's main names in repository: what OriginMain returns when the Contracts sets it,
-// and otherwise the commit fetchOriginMain fetches.
+// and otherwise the commit FetchOriginMain fetches.
 func (s *contractService) originMain(ctx context.Context, repository string) (string, error) {
 	if s.contracts.OriginMain != nil {
 		return s.contracts.OriginMain(ctx, repository)
 	}
-	return fetchOriginMain(ctx, repository)
+	return FetchOriginMain(ctx, repository)
 }
 
-// fetchOriginMain fetches origin's main into refs/remotes/origin/main of repository, and returns the full commit that ref
-// names. git never prompts for a login (GIT_TERMINAL_PROMPT=0), so a fetch that needs one fails. The fetch runs in a
-// process group of its own, which ctx's end kills whole, so a transport it started does not outlive the accept.
-func fetchOriginMain(ctx context.Context, repository string) (string, error) {
+// FetchOriginMain fetches origin's main into refs/remotes/origin/main of repository, and returns the full commit that
+// ref names. git never prompts for a login (GIT_TERMINAL_PROMPT=0), so a fetch that needs one fails. The fetch runs
+// in a process group of its own, which ctx's end kills whole, so a transport it started does not outlive the accept.
+func FetchOriginMain(ctx context.Context, repository string) (string, error) {
 	cmd := exec.CommandContext(ctx, "git")
 	cmd.Args = append(cmd.Args,
 		"-C", repository, "fetch", "--no-tags", "origin", "+refs/heads/main:refs/remotes/origin/main")
