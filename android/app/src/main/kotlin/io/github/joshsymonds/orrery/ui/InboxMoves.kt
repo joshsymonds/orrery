@@ -64,8 +64,56 @@ internal fun movesBetween(before: Map<String, Placed>, after: Map<String, Placed
     }
 }
 
-/** The line the move notice shows for [moves]. */
-internal fun moveNoticeText(moves: List<Moved>): String = ""
+/**
+ * The line the move notice shows for [moves], which is not empty: one moved row names its place, and several name the
+ * count and every row, in the order of [moves].
+ */
+internal fun moveNoticeText(moves: List<Moved>): String {
+    require(moves.isNotEmpty()) { "a move notice names at least one moved row" }
+    val single = moves.singleOrNull()
+    return if (single != null) {
+        "Moved “${single.pane.label}” to ${placeWords(single.to)}."
+    } else {
+        val names = moves.joinToString(", ") { "“${it.pane.label}”" }
+        "Moved ${moves.size} conversations: $names."
+    }
+}
+
+/** The place a move names: the project's tree, the project's ended line, or Archived. */
+private fun placeWords(spot: Spot): String = when (spot.line) {
+    RowLine.TREE -> spot.name
+    RowLine.ENDED -> "${spot.name}’s ended line"
+    RowLine.ARCHIVED -> "Archived"
+}
+
+/**
+ * Opens the place [spot] names, for the move notice's Show: the archived view for an archived row; for a tree row or an
+ * ended line, the inbox with the project unfolded, and for an ended line also the project's ended line opened.
+ */
+internal fun PaneListState.showPlace(spot: Spot) {
+    when (spot.line) {
+        RowLine.ARCHIVED -> view = TreeView.ARCHIVED
+        RowLine.TREE -> {
+            view = TreeView.INBOX
+            folded = folded - spot.project
+        }
+        RowLine.ENDED -> {
+            view = TreeView.INBOX
+            folded = folded - spot.project
+            endedOpen = endedOpen + spot.project
+        }
+    }
+}
+
+/**
+ * The kind and id Epics.Unarchive names [pane] by, as the sheet archives it: a headless session by its id, a tmux pane by
+ * its orrery_id. Null for a tmux pane with no orrery_id, which an Undo skips.
+ */
+internal fun unarchiveTargetOf(pane: Pane): Pair<String, String>? = when {
+    pane.headless -> "headless" to pane.id
+    pane.orreryId.isEmpty() -> null
+    else -> "session" to pane.orreryId
+}
 
 /** The semantics flag a moving row or ended line carries. */
 internal val Moving = SemanticsPropertyKey<Boolean>("Moving")

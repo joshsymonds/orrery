@@ -137,7 +137,8 @@ internal class TreeData(
  * with its id and the conversation it hangs under, whose pane is null for a contract on its own row, and a tap on a project's
  * name calls [onOpenProject] with its key. A long press on a conversation or an epic opens its sheet, where the owner
  * marks it seen or archives it, and a landed change reads the tree again; a landed archive also shows the [ArchiveToast]
- * at the foot, whose Undo reads the tree again. New opens the picker as a bottom sheet; a
+ * at the foot, whose Undo reads the tree again. An answer that moved rows shows its move notice in that same place, which
+ * names the moved rows and their places, with Show and Undo. New opens the picker as a bottom sheet; a
  * run it answers opens that pane through [onOpenPaneId], and a start it answers opens that session through
  * [onStartedSession]. The Pools button opens the pools view through [onOpenPools]. The bell counts the unread notices,
  * read on start and every minute while started, and opens the notices through [onOpenNotices].
@@ -182,6 +183,8 @@ fun PaneListScreen(
             generation++
         } else {
             val moved = state.answered(spotsOfRead(read))
+            // An answer that moved rows shows its one notice in the foot's slot, in place of any toast or earlier notice.
+            if (state.moves.isNotEmpty()) toast.showMoves(state.moves)
             // Reduced motion marks nothing; the rows still land where the answer put them.
             if (animated) {
                 for (move in moved.filter { it.key != state.heldKey }) {
@@ -233,10 +236,11 @@ fun PaneListScreen(
                 )
             }
             sheet?.let { row ->
+                val rowKey = (row as? SheetRow.Conversation)?.let { convoKeyOf(it.pane) }.orEmpty()
                 InboxSheet(
                     row = row,
                     client = client,
-                    onArchived = { title, kind, id -> toast.show(title, kind, id) },
+                    onArchived = { title, kind, id -> toast.showArchive(title, kind, id, rowKey) },
                     onLanded = {
                         // A row the owner archived or marked here is not a move: the next answer leaves it out.
                         (row as? SheetRow.Conversation)?.let { state.handMoved = state.handMoved + convoKeyOf(it.pane) }
@@ -273,6 +277,9 @@ fun PaneListScreen(
             client = client,
             onUndone = { generation++ },
             modifier = Modifier.align(Alignment.BottomCenter),
+            // The rows an Undo brings back are the owner's doing, not moves: the read after the Undo does not notice them.
+            onRowsBack = { keys -> state.handMoved = state.handMoved + keys },
+            onShow = { spot -> state.showPlace(spot) },
         )
     }
 }
