@@ -72,11 +72,29 @@ func SyncCause(result SyncResult, causes []string) string {
 	return strings.Join(append(lines, causes...), "\n")
 }
 
-// SyncFailure returns, among the ended sync runs whose decoded result Base is rows.Epic.StoredBase and that tried
-// origin's commit (triedOrigin), the one with the latest Ended, with its result and true when its outcome is failed. It
-// returns false otherwise.
-func SyncFailure(_ Rows) (store.NodeRun, SyncResult, bool) {
-	return store.NodeRun{}, SyncResult{}, false
+// SyncFailure returns, among the sync runs of rows that tried origin's commit at the stored base (triedOrigin, keyed on
+// rows.Epic.StoredBase), the one with the latest Ended, with its decoded result and true when its outcome is failed. A
+// later run with the same Ended wins the tie, as rows.Runs is in path order. It returns false otherwise.
+func SyncFailure(rows Rows) (store.NodeRun, SyncResult, bool) {
+	var latest store.NodeRun
+	var latestResult SyncResult
+	found := false
+	for _, run := range rows.Runs {
+		if run.Kind != kindSync {
+			continue
+		}
+		result, err := ParseSyncResult(run.Result)
+		if err != nil {
+			continue
+		}
+		if _, tried := triedOrigin(run, rows.Epic.StoredBase); !tried {
+			continue
+		}
+		if !found || !run.Ended.Before(latest.Ended) {
+			latest, latestResult, found = run, result, true
+		}
+	}
+	return latest, latestResult, found && latest.Outcome == outcomeFailed
 }
 
 // SyncGap returns the gap of SyncFailure's run, keyed SyncGapKey, with a reason naming origin's commit, the stored base
