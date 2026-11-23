@@ -17,6 +17,7 @@ import { endedLead, EndedBar, unsteeredLead } from "./endedbar";
 import { type Conversation, shownConversation } from "./conversation";
 import { ConvoRow } from "./convorow";
 import { type EpicCommands, EpicPage, type Landing, type SessionTarget, type SteerSheet } from "./epicpage";
+import { epicGaugeOf } from "./epicrow";
 import { type EpicItem, type EpicsView, epicsView, noEpics, type StepItem } from "./epics";
 import { findMatches } from "./find";
 import { type Followed, follow } from "./follow";
@@ -27,6 +28,8 @@ import type { InAppNotice, NoticeKey } from "./gen/orrery/v1/notice_pb";
 import type { HostStatusResponse } from "./gen/orrery/v1/orrery_pb";
 import { Icon, stateWord } from "./glyphs";
 import { type HeadStore, memoryHeadStore } from "./headfold";
+import type { HeldThing } from "./held";
+import { HeldCard } from "./heldcard";
 import { KeyList } from "./helppanel";
 import { Inbox } from "./inbox";
 import { InboxRail } from "./inboxrail";
@@ -170,8 +173,9 @@ interface ListOpen {
   panel: ListPanelKind;
 }
 
-// What a panel held, which ] reopens once no panel is open: an epic by its id, or a session's list by its open state.
-type Held = { kind: "epic"; id: string } | { kind: "list"; open: ListOpen };
+// What a panel held, which ] reopens once no panel is open: an epic or a contract by its id, or a session's list by its open
+// state.
+type Held = { kind: "epic"; id: string } | { kind: "contract"; id: string } | { kind: "list"; open: ListOpen };
 
 // The row the palette answered: the pane Picker.Run answered, or the session Control.Start started, by its kind and id.
 interface PendingTarget {
@@ -635,7 +639,6 @@ export function App({
   const contractRow = contract === undefined ? null : steererRowOf(shownRows, contract.conversation);
   const contractLiveRow =
     contractRow !== null && !contractRow.archived && !endedStates.includes(contractRow.state) ? contractRow : null;
-  const contractTone = contract?.state === "proposed" ? "attention" : "quiet";
   // The About and the talk belong to the open contract: closing it, opening another, or moving the cursor off its entry
   // clears them.
   const shownContractId = contract?.id ?? "";
@@ -2022,12 +2025,14 @@ export function App({
       contracts: middle ? bandContractsOf(workConversation(row, conversation).session) : undefined,
       onOpenContract: navigated(openContractPanel),
       hereContract: middle && contract !== undefined ? contract.id : undefined,
-      workLinks: middle
-        ? {
-            items: workLinksOf(workConversation(row, conversation).session, designs, railEpics, contracts),
-            onOpen: openWorkLink,
-          }
-        : undefined,
+      // While a card is held the card is the work, so the head names no work link.
+      workLinks:
+        middle && heldThing === null
+          ? {
+              items: workLinksOf(workConversation(row, conversation).session, designs, railEpics, contracts),
+              onOpen: openWorkLink,
+            }
+          : undefined,
       note: headNote.key === row.key ? headNote.text : "",
       menu: {
         stripsShown,
@@ -2131,36 +2136,47 @@ export function App({
   const epicBeside = panelOpen && !sessionAtDesk;
   // Under 760px an open contract is the page in the conversation's place too, and the reader is not drawn.
   const contractPageShown = !wide && contractShown;
-  const panelThing = epicEntry === null ? undefined : workThings.find((thing) => thing.key === epicEntry.key);
-  const panelTone = panelThing?.tone ?? "quiet";
-  // The one panel open beside the conversation is an epic's, a contract's or a list's. A list's card takes its tone, and
-  // its rows are the middle conversation's running tasks of its kind, which are empty once none runs.
-  const panelShown = epicBeside || contractShown || listShown !== null;
+  // heldThing is the thing the desk holds open beside its conversation, as a card set into the conversation: an epic whose
+  // panel is open, or an open contract, with the key of the middle conversation's row ("" when none). Under 760px nothing
+  // is held, since the page takes the conversation's place.
+  const heldThing: HeldThing | null = !wide
+    ? null
+    : contract !== undefined
+      ? { kind: "contract", key: `contract:${contract.id}`, convo: middleKey }
+      : epicBeside && epicEntry !== null
+        ? { kind: "epic", key: `epic:${epicEntry.id}`, convo: middleKey }
+        : null;
+  // The list panel's tone comes from its row's tasks, and its rows are the middle conversation's running tasks of its kind,
+  // which are empty once none runs.
   const listThing = workThings.find(
     (thing): thing is ListThing => (thing.kind === "agents" || thing.kind === "running") && thing.key === listShown,
   );
   const listTone = listThing?.tone ?? "quiet";
   const listTasks = listThing?.tasks ?? [];
-  // What the panel holds while it is open: ] reopens it once it shuts. An epic is held while its panel is open, and a
-  // list while its panel is open on its row.
+  // What the panel holds while it is open: ] reopens it once it shuts. An open contract is held while it is open, an epic
+  // while its panel is open, and a list while its panel is open on its row.
   const openHeld: Held | null =
-    panelOpen && epicEntry !== null
-      ? { kind: "epic", id: epicEntry.id }
-      : listShown === null
-        ? null
-        : { kind: "list", open: { key: cursorRowKey, panel: listShown } };
+    contract !== undefined
+      ? { kind: "contract", id: contract.id }
+      : panelOpen && epicEntry !== null
+        ? { kind: "epic", id: epicEntry.id }
+        : listShown === null
+          ? null
+          : { kind: "list", open: { key: cursorRowKey, panel: listShown } };
   const heldKey =
     openHeld === null
       ? ""
       : openHeld.kind === "epic"
         ? `epic:${openHeld.id}`
-        : `list:${openHeld.open.key}:${openHeld.open.panel}`;
+        : openHeld.kind === "contract"
+          ? `contract:${openHeld.id}`
+          : `list:${openHeld.open.key}:${openHeld.open.panel}`;
   useEffect(() => {
     if (openHeld !== null) {
       setHeld(openHeld);
     }
   }, [heldKey]);
-  // closePanel shuts the epic panel, from its Close or ]. It moves the cursor to the steerer's row, as an open,
+  // closePanel shuts the epic panel, from its Fold back or ]. It moves the cursor to the steerer's row, as an open,
   // when the list shows that row; with no such row in the list, it closes the epic page instead, which under 760px
   // returns to the inbox.
   const closePanel = navigated(() => {
@@ -2187,7 +2203,7 @@ export function App({
   // closeList shuts the list panel, from its Close or a press on its activity line. The cursor stays on the session's row,
   // so the address is the session's own.
   const closeList = navigated(() => setListPanel(null));
-  // closeContract shuts the contract panel, from its Close or its title row's back. The address is the
+  // closeContract shuts the contract panel, from its Fold back or ]. The address is the
   // cursor's entry again.
   const closeContract = navigated(() => setOpenedContract(null));
   // openDesign is a press on a design link: the design's tab shows in the inbox, where the tree draws it under its
@@ -2228,9 +2244,13 @@ export function App({
     }
     navigated(openList)(middleKey, kind);
   };
-  // togglePanel is ]: it shuts the open panel, or with none open reopens the thing the panel held last, as long as the
-  // list still holds it.
+  // togglePanel is ]: it folds the held card back, or shuts the open panel, or with none open reopens the thing the panel
+  // held last, as long as the list still holds it.
   const togglePanel = () => {
+    if (contract !== undefined) {
+      closeContract();
+      return;
+    }
     if (panelOpen) {
       closePanel();
       return;
@@ -2240,6 +2260,12 @@ export function App({
       return;
     }
     if (held === null) {
+      return;
+    }
+    if (held.kind === "contract") {
+      if (contracts.some((candidate) => candidate.id === held.id)) {
+        navigated(openContractPanel)(held.id);
+      }
       return;
     }
     if (held.kind === "epic") {
@@ -2394,6 +2420,9 @@ export function App({
     );
   };
 
+  // epicRootBack is the back of the epic's root page: under 760px the page keeps it, and the page a held card draws has
+  // none, since Fold back is its way out (D15).
+  const epicRootBack = heldThing === null ? closeEpicPage : undefined;
   // epicPageSection draws the epic section over the epic's detail, or while the detail is not drawn, the title row with
   // the line its read leaves: loading, or the could-not-read line with Try again.
   const epicPageSection = (entry: EpicItem, detail: EpicsGetResponse | undefined) => (
@@ -2404,7 +2433,7 @@ export function App({
         <>
           <TitleRow
             crumbs={[{ label: entry.slug }]}
-            onBack={closeEpicPage}
+            onBack={epicRootBack}
             strip={wide ? pageStrip(null, null) : undefined}
           />
           {failedEpicReads.has(entry.id) ? (
@@ -2440,7 +2469,7 @@ export function App({
         <TitleRow
           crumbs={[{ label: contractSlug(contract.id) }, { label: "contract" }]}
           state={statePill(contract.state)}
-          onBack={closeContract}
+          onBack={heldThing === null ? closeContract : undefined}
           strip={pageStrip(null, null)}
         />
         <ContractRecord
@@ -2606,7 +2635,7 @@ export function App({
         onOpenContract={openContract}
         onOpenSession={openSession}
         onOpenPhase={openPhase}
-        onBack={closeEpicPage}
+        onBack={epicRootBack}
         strip={pageStrip(null, null)}
         rows={rows}
         listed={[...epics.listed.values()]}
@@ -2672,6 +2701,7 @@ export function App({
         />
       )}
       onSelect={selectKey}
+      held={heldThing}
     />
   );
 
@@ -2708,6 +2738,28 @@ export function App({
   const contractCalls: ContractCalls = { contracts, onOpen: navigated(openContractPanel) };
   // activityLines are what runs under the middle conversation, drawn above its composer while its reader is drawn.
   const activityLines = activityOf(readerRow === null ? null : railConversation);
+  // heldCard is the held thing's card at the desk: its title is the epic's or contract's slug, its body the page the panel drew,
+  // and its Fold back is closePanel for an epic and closeContract for a contract, which leave the conversation alone with the
+  // cursor on its row. An epic's gauge is the one its tree row draws, and a contract's mark needs none.
+  const heldGauge =
+    heldThing?.kind === "epic" && epicEntry !== null && epicDetail !== undefined
+      ? epicGaugeOf(epics.listed.get(epicEntry.id) ?? epicDetail.epic, epicDetail, now)
+      : null;
+  // columnHolds is whether the middle column draws, and so holds the card; with no row or step to draw, the column is hidden
+  // and the card sits in the no-conversation middle instead.
+  const columnHolds = readerRow !== null || readerStep !== null;
+  const heldCard =
+    heldThing === null ? undefined : (
+      <HeldCard
+        thing={heldThing}
+        title={contract !== undefined ? contractSlug(contract.id) : (epicEntry?.slug ?? "")}
+        move=""
+        gauge={heldGauge}
+        onFoldBack={contract !== undefined ? closeContract : closePanel}
+      >
+        {contract !== undefined ? contractPage : epicEntry !== null ? epicPageSection(epicEntry, epicDetail) : null}
+      </HeldCard>
+    );
   const middleColumn = (
     <ReaderColumn
       column="cursor"
@@ -2753,17 +2805,21 @@ export function App({
       stepInputs={stepInputs}
       ended={endedBarOf}
       activity={<ActivityLines lines={activityLines} now={now} open={listShown} onOpen={openActivity} />}
+      held={columnHolds ? heldCard : undefined}
     />
   );
+  // railed is whether the inbox draws as its rail: when the owner collapsed it at the desk, or while a card is held between 760px
+  // and 1250px, where the card takes the room the inbox's list would. Fold back draws the inbox as it was.
+  const railed = collapsed || (heldThing !== null && overlay);
 
   return (
     <main class="app">
       <div
         class={`panes${pinned !== null ? " split" : ""}${overlay ? " overlay" : ""}`}
-        data-inbox={collapsed ? "collapsed" : "expanded"}
-        data-side={panelShown ? "panel" : "rail"}
+        data-inbox={railed ? "collapsed" : "expanded"}
+        data-side={heldThing !== null ? "held" : listShown !== null ? "panel" : "rail"}
       >
-        {collapsed && (
+        {railed && (
           <InboxRail
             tiles={tiles}
             flyout={flyoutModel}
@@ -2880,10 +2936,11 @@ export function App({
           !sessionAtDesk && (
             <section class="read" aria-label="no conversation">
               {noSteererMiddle(epicDetail)}
+              {!columnHolds && heldCard}
             </section>
           )}
         {contractShown && contractLiveRow === null && !contractPageShown && (
-          <section class="read" aria-label="no conversation" />
+          <section class="read" aria-label="no conversation">{!columnHolds && heldCard}</section>
         )}
         <ReaderColumn
           column="pinned"
@@ -2919,23 +2976,8 @@ export function App({
             void escapeRow({ row, column: "pinned", state: headState(row, pinnedConversation) }, null)
           }
         />
-        {epicEntry !== null && epicBeside && wide && (
-          <SidePanel label="epic" tone={panelTone} href={shownForm} onClose={closePanel}>
-            {epicPageSection(epicEntry, epicDetail)}
-          </SidePanel>
-        )}
         {epicEntry !== null && panelOpen && !wide && !noticesPage && (
           <div class="epic-read">{epicPageSection(epicEntry, epicDetail)}</div>
-        )}
-        {contract !== undefined && wide && (
-          <SidePanel
-            label={`${contractSlug(contract.id)} contract`}
-            tone={contractTone}
-            href={shownForm}
-            onClose={closeContract}
-          >
-            {contractPage}
-          </SidePanel>
         )}
         {contract !== undefined && !wide && !noticesPage && <div class="epic-read">{contractPage}</div>}
         {listShown !== null && wide && (

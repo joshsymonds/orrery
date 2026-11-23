@@ -231,9 +231,9 @@ function epicLink(container: HTMLElement, slug: string): HTMLElement {
   return link;
 }
 
-// panelOf is the epic panel, or null when none is drawn.
+// panelOf is the epic's held card, or null when none is drawn.
 function panelOf(container: HTMLElement): HTMLElement | null {
-  return container.querySelector<HTMLElement>('aside.rpanel[aria-label="epic"]');
+  return container.querySelector<HTMLElement>('article.held-card[data-kind="epic"]');
 }
 
 // panelHolds is whether the epic panel draws the epic with the slug, which its page names in its title row.
@@ -287,7 +287,7 @@ test("RailAddress: an epic's address draws the conversation that steers it in th
     const { container, probe } = mount;
     await followed(probe, "s1");
     assert.equal(readerShown(container), true, "the steerer's conversation is drawn in the middle");
-    assert.ok(panelOf(container) !== null, "the epic is drawn in aside.rpanel");
+    assert.ok(panelOf(container) !== null, "the epic is drawn in its held card");
     assert.equal(panelHolds(container, "alpha"), true, "the panel holds the epic");
   }));
 
@@ -346,19 +346,22 @@ test("SidePanel: pressing an epic's work link opens its panel, with the address 
 test("SidePanel: pressing another epic's work link switches the panel to that epic, with its address pushed", (t) =>
   withRail(t.signal, 1600, { rows: [steererRow()], epics: view([alpha, beta]), address: epicAddress("alpha") }, async (mount) => {
     const { container, probe } = mount;
-    await press(epicLink(container, "beta"));
-    assert.equal(panelHolds(container, "beta"), true, "the panel holds beta");
-    assert.equal(panelHolds(container, "alpha"), false, "the panel no longer holds alpha");
+    // A held card is the work, so the title row names no work link while it is held: beta's row in the tree is the way to it.
+    const betaRow = container.querySelector<HTMLElement>(`.list [data-key="epic:${repository}/beta"]`);
+    assert.ok(betaRow !== null, "the tree draws beta's row");
+    await press(betaRow);
+    assert.equal(panelHolds(container, "beta"), true, "the card holds beta");
+    assert.equal(panelHolds(container, "alpha"), false, "the card no longer holds alpha");
     assert.deepEqual(lastReport(probe), { address: epicAddress("beta"), mode: "push" });
   }));
 
 test("SidePanel: Close closes the panel and moves to the steerer's conversation, with the address pushed", (t) =>
   withRail(t.signal, 1600, { rows: [steererRow()], epics: view([alpha]), address: epicAddress("alpha") }, async (mount) => {
     const { container, probe } = mount;
-    const close = container.querySelector<HTMLElement>('aside.rpanel .panel-ctl button[aria-label="Close the panel"]');
-    assert.ok(close !== null, "the panel has a Close button");
+    const close = container.querySelector<HTMLElement>('article.held-card button[aria-label="Fold back"]');
+    assert.ok(close !== null, "the card has a Fold back button");
     await press(close);
-    assert.equal(panelOf(container), null, "the panel is closed");
+    assert.equal(panelOf(container), null, "the card is folded back");
     assert.deepEqual(lastReport(probe), { address: steererAddress, mode: "push" });
   }));
 
@@ -373,7 +376,11 @@ test("SidePanel: the panel's card takes the epic's tone", (t) =>
     },
     (mount) => {
       const { container } = mount;
-      assert.equal(container.querySelector("aside.rpanel .rcard")?.classList.contains("attention"), true, "the card asks");
+      assert.equal(
+        container.querySelector("article.held-card .held-mark svg.gauge")?.getAttribute("data-tone"),
+        "attention",
+        "the card's mark asks",
+      );
     },
   ));
 
@@ -464,12 +471,13 @@ test("RailAddress: an epic's address leaves the inbox expanded at 1600, as a row
     assert.equal(mount.container.querySelector("nav.rail.start"), null, "no rail is drawn");
   }));
 
-test("RailAddress: an epic's address leaves the inbox expanded at 1000, where the panel overlays the page", (t) =>
+test("RailAddress: an epic's address draws the inbox as its rail at 1000, where the held card takes the room", (t) =>
   withRail(t.signal, 1000, { address: epicAddress("alpha") }, async (mount) => {
     await mount.rerender(arrived);
     await followed(mount.probe, "s1");
     assert.ok(mount.container.querySelector(".panes.overlay") !== null, "the layout is overlaid");
-    assert.ok(mount.container.querySelector('.panes[data-inbox="expanded"]') !== null, "the inbox is expanded");
+    assert.ok(mount.container.querySelector('.panes[data-inbox="collapsed"]') !== null, "the inbox draws as its rail");
+    assert.ok(mount.container.querySelector("nav.rail.start") !== null, "the rail is drawn");
   }));
 
 test("RailAddress: at 1000 the overlaid panel starts one rail width past the inbox's track, leaving the reader beside it", (t) =>

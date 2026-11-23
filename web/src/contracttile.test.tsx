@@ -160,7 +160,7 @@ function contractLink(container: HTMLElement): HTMLElement {
 
 // panelOf is the panel labelled as given, or null when none is drawn.
 function panelOf(container: HTMLElement, label: string): HTMLElement | null {
-  return container.querySelector<HTMLElement>(`aside.rpanel[aria-label="${label}"]`);
+  return container.querySelector<HTMLElement>(`article.held-card[aria-label="${label}"]`);
 }
 
 // press clicks an element and lets Preact draw what the click changed.
@@ -233,11 +233,11 @@ test("ContractTile: pressing the contract's work link opens its panel, with its 
     { rows: [conversationRow()], contracts: [makeContract(contractId)], address: steererAddress, width: 1600 },
     async (container, probe) => {
       await settle(t.signal, () => workLinkNames(container).length === 1, "the contract's work link is drawn");
-      assert.equal(panelOf(container, "tide-alerts contract"), null, "no panel before the press");
+      assert.equal(panelOf(container, "tide-alerts"), null, "no panel before the press");
       await press(contractLink(container));
       await settle(
         t.signal,
-        () => panelOf(container, "tide-alerts contract")?.querySelector(".contract-record") != null,
+        () => panelOf(container, "tide-alerts")?.querySelector(".contract-record") != null,
         "the record is drawn in the panel",
       );
       assert.deepEqual(lastReport(probe), { address: contractAddress, mode: "push" });
@@ -251,15 +251,15 @@ test("ContractTile: Close shuts the contract panel, with the steerer's address p
     async (container, probe) => {
       await settle(
         t.signal,
-        () => panelOf(container, "tide-alerts contract")?.querySelector(".contract-record") != null,
+        () => panelOf(container, "tide-alerts")?.querySelector(".contract-record") != null,
         "the record is drawn in the panel",
       );
-      const close = panelOf(container, "tide-alerts contract")?.querySelector<HTMLElement>(
-        '.panel-ctl button[aria-label="Close the panel"]',
+      const close = panelOf(container, "tide-alerts")?.querySelector<HTMLElement>(
+        'button[aria-label="Fold back"]',
       );
       assert.ok(close !== null && close !== undefined, "the contract panel has a Close button");
       await press(close);
-      assert.equal(panelOf(container, "tide-alerts contract"), null, "the panel is closed");
+      assert.equal(panelOf(container, "tide-alerts"), null, "the panel is closed");
       assert.deepEqual(lastReport(probe), { address: steererAddress, mode: "push" });
     },
   ));

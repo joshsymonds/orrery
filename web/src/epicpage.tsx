@@ -130,7 +130,7 @@ export function EpicPage(props: {
   commandError: string;
   onOpenContract: () => void;
   onOpenSession: (target: SessionTarget) => void;
-  onBack: () => void;
+  onBack?: () => void;
   onOpenPhase?: (task: string, phase: Phase) => void;
   landing?: Landing;
   strip?: ComponentChildren;

@@ -12,7 +12,7 @@ import { contracts as contractList } from "./fixtures/contracts";
 import { tideProposed } from "./fixtures/contractrecords";
 import { type Contract, ContractsGetResponseSchema } from "./gen/orrery/v1/contracts_pb";
 import { type Epic, EpicSchema, type EpicsGetResponse, EpicsGetResponseSchema } from "./gen/orrery/v1/epics_pb";
-import { parseAddress, type Address } from "./router";
+import type { Address } from "./router";
 import type { Row } from "./rows";
 import { type SeenClock, type SeenWindow } from "./seen";
 import { installTestDom, removeTestDom, teardownOnce } from "./testdom";
@@ -246,9 +246,9 @@ function cursorKeyOf(container: HTMLElement): string {
   return container.querySelector('[data-row][aria-current="true"]')?.getAttribute("data-key") ?? "";
 }
 
-// panelOf is the panel labelled as given, or null when none is drawn.
+// panelOf is the held card titled as given, or null when none is drawn.
 function panelOf(container: HTMLElement, label: string): HTMLElement | null {
-  return container.querySelector<HTMLElement>(`aside.rpanel[aria-label="${label}"]`);
+  return container.querySelector<HTMLElement>(`article.held-card[aria-label="${label}"]`);
 }
 
 // recordDrawn is whether a contract record is drawn in the container, or in the panel labelled as given.
@@ -257,7 +257,7 @@ function recordDrawn(container: HTMLElement, label?: string): boolean {
   return Boolean(scope?.querySelector(".contract-record"));
 }
 
-// shownSide is the panes' data-side: "panel" while a panel lies beside the conversation, "rail" otherwise.
+// shownSide is the panes' data-side: "held" while a card is held beside the conversation, "rail" otherwise.
 function shownSide(container: HTMLElement): string | null {
   return container.querySelector(".panes")?.getAttribute("data-side") ?? null;
 }
@@ -277,31 +277,31 @@ test("ContractAddress: the address draws the contract's conversation in the midd
   withApp(t.signal, 1600, { rows: [conversationRow()], address: contractAddress }, async ({ container, probe }) => {
     await settle(t.signal, () => probe.followed.includes(conversation), "the conversation is followed");
     assert.equal(readerShown(container), true, "the contract's conversation is drawn in the middle");
-    await settle(t.signal, () => recordDrawn(container, "tide-alerts contract"), "the record is drawn in the panel");
-    await settle(t.signal, () => titled(container, "tide-alerts contract"), "the record's title is drawn");
+    await settle(t.signal, () => recordDrawn(container, "tide-alerts"), "the record is drawn in the panel");
+    await settle(t.signal, () => titled(container, "tide-alerts"), "the record's title is drawn");
   }));
 
-test("ContractAddress: at the desk an open contract sets the panes to the panel side, and closing it returns the rail", (t) =>
+test("ContractAddress: at the desk an open contract sets the panes to the held side, and folding it back returns the rail", (t) =>
   withApp(t.signal, 1600, { rows: [conversationRow()], address: contractAddress }, async ({ container }) => {
-    await settle(t.signal, () => recordDrawn(container, "tide-alerts contract"), "the record is drawn in the panel");
-    assert.equal(shownSide(container), "panel", "the panel lies in its own column beside the conversation");
-    const close = panelOf(container, "tide-alerts contract")?.querySelector<HTMLButtonElement>(
-      'button[aria-label="Close the panel"]',
+    await settle(t.signal, () => recordDrawn(container, "tide-alerts"), "the record is drawn in the panel");
+    assert.equal(shownSide(container), "held", "the card is held beside the conversation");
+    const close = panelOf(container, "tide-alerts")?.querySelector<HTMLButtonElement>(
+      'button[aria-label="Fold back"]',
     );
-    assert.ok(close !== null && close !== undefined, "the panel draws its Close control");
+    assert.ok(close !== null && close !== undefined, "the card draws its Fold back control");
     await click(close);
     await settle(t.signal, () => shownSide(container) === "rail", "the panes return to the rail side");
-    assert.equal(recordDrawn(container, "tide-alerts contract"), false, "the panel is closed");
+    assert.equal(recordDrawn(container, "tide-alerts"), false, "the panel is closed");
   }));
 
-test("ContractAddress: the shown address names the contract, and parses back to the address it was opened with", (t) =>
+test("ContractAddress: the held contract's card draws no Open in a new window link (D15)", (t) =>
   withApp(t.signal, 1600, { rows: [conversationRow()], address: contractAddress }, async ({ container }) => {
-    await settle(t.signal, () => recordDrawn(container, "tide-alerts contract"), "the record is drawn in the panel");
-    const link = panelOf(container, "tide-alerts contract")?.querySelector<HTMLAnchorElement>(
-      'a[aria-label="Open in a new window"]',
+    await settle(t.signal, () => recordDrawn(container, "tide-alerts"), "the record is drawn in the card");
+    assert.equal(
+      panelOf(container, "tide-alerts")?.querySelector('a[aria-label="Open in a new window"]') ?? null,
+      null,
+      "the card draws no link",
     );
-    assert.ok(link !== null && link !== undefined, "the panel links the address it shows");
-    assert.deepEqual(parseAddress(link.getAttribute("href") ?? ""), contractAddress, "the shown address round-trips");
   }));
 
 test("ContractAddress: an epic's Contract door draws the contract's record in the epic panel", (t) =>
@@ -314,8 +314,8 @@ test("ContractAddress: an epic's Contract door draws the contract's record in th
       address: { view: "inbox", entry: { kind: "epic", id: contractId, page: { kind: "contract" } } },
     },
     async ({ container }) => {
-      await settle(t.signal, () => recordDrawn(container, "epic"), "the door draws the record");
-      await settle(t.signal, () => titled(container, "epic"), "the record's title is drawn");
+      await settle(t.signal, () => recordDrawn(container, "tide-alerts"), "the door draws the record");
+      await settle(t.signal, () => titled(container, "tide-alerts"), "the record's title is drawn");
     },
   ));
 
@@ -325,7 +325,7 @@ function noLiveCheck(signal: AbortSignal, rows: Row[]): Promise<void> {
   return withApp(signal, 1600, { rows, address: contractAddress }, async ({ container }) => {
     await settle(
       signal,
-      () => panelOf(container, "tide-alerts contract")?.textContent?.includes(noLive) === true,
+      () => panelOf(container, "tide-alerts")?.textContent?.includes(noLive) === true,
       "the record says it cannot be changed",
     );
     assert.ok(
@@ -353,7 +353,7 @@ test("ContractAddress: opening a contract moves the cursor onto its conversation
     1600,
     { rows: [waitingRow(), conversationRow()], address: contractAddress },
     async ({ container }) => {
-      await settle(t.signal, () => recordDrawn(container, "tide-alerts contract"), "the record is drawn in the panel");
+      await settle(t.signal, () => recordDrawn(container, "tide-alerts"), "the record is drawn in the panel");
       assert.equal(cursorKeyOf(container), `session:${conversation}`, "the cursor rests on the conversation's row");
     },
   ));
@@ -361,7 +361,7 @@ test("ContractAddress: opening a contract moves the cursor onto its conversation
 test("ContractAddress: at a phone's width the contract is the page in the conversation's place, with no reader", (t) =>
   withApp(t.signal, 400, { rows: [conversationRow()], address: contractAddress }, async ({ container }) => {
     await settle(t.signal, () => recordDrawn(container), "the record is drawn");
-    assert.equal(panelOf(container, "tide-alerts contract"), null, "no panel is drawn beside the page");
+    assert.equal(panelOf(container, "tide-alerts"), null, "no panel is drawn beside the page");
     assert.equal(readerShown(container), false, "no reader is drawn");
     await settle(t.signal, () => container.textContent?.includes(recordTitle) === true, "the record's title is drawn");
   }));
@@ -377,7 +377,7 @@ test("ContractAddress: the seen watch rests on the conversation the middle draws
       seen,
     },
     async ({ container, probe }) => {
-      await settle(t.signal, () => recordDrawn(container, "tide-alerts contract"), "the record is drawn in the panel");
+      await settle(t.signal, () => recordDrawn(container, "tide-alerts"), "the record is drawn in the panel");
       await settle(t.signal, () => seen.armed(), "the seen watch rests on a row");
       seen.input();
       seen.fire();
