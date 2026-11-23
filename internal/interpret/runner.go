@@ -104,6 +104,7 @@ type Store interface {
 	NodeCheck(ctx context.Context, id string) (store.NodeCheck, error)
 	HeldEpics(ctx context.Context) ([]store.HeldEpic, error)
 	StartHeldEpic(ctx context.Context, epic, base string, at time.Time) error
+	AskHeldEpic(ctx context.Context, epic, text string, at time.Time) error
 }
 
 // Checks runs the check of a gate or command node run under a holder, once per id. *enginehost.NodeChecks satisfies it.

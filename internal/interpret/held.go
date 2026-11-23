@@ -12,10 +12,12 @@ import (
 // zero.
 const defaultHeldRetry = time.Minute
 
-// passHeld starts each held epic whose predecessors have all shipped, from origin main on the host the epic lives on, and
-// returns epics with each epic it started replaced by its row as the store holds it now. It runs first in every pass, so
-// a held epic starts on the pass that sees its last predecessor ship. A held epic whose fetch or start fails is logged,
-// stays held, and is tried again after the held retry.
+// passHeld starts each held epic that starts, from origin main on the host the epic lives on, and returns epics with
+// each epic it started replaced by its row as the store holds it now. A held epic starts when its held question was
+// answered start, or when its predecessors have all shipped. A held epic that has a predecessor which will not ship is
+// asked about it, once, and stays held. It runs first in every pass, so a held epic starts on the pass that sees its
+// last predecessor ship. A held epic whose fetch or start fails is logged, stays held, and is tried again after the
+// held retry.
 func (r *Runner) passHeld(ctx context.Context, epics []store.EpicRow) []store.EpicRow {
 	held, err := r.store.HeldEpics(ctx)
 	if err != nil {
@@ -24,7 +26,8 @@ func (r *Runner) passHeld(ctx context.Context, epics []store.EpicRow) []store.Ep
 	}
 	var started []string
 	for _, epic := range held {
-		if !predecessorsShipped(epic) {
+		if !startsHeld(epic) {
+			r.askLostPredecessor(ctx, epic)
 			continue
 		}
 		if err = r.startHeldEpic(ctx, epic); err != nil {
@@ -38,6 +41,51 @@ func (r *Runner) passHeld(ctx context.Context, epics []store.EpicRow) []store.Ep
 		return epics
 	}
 	return r.replaceEpics(ctx, epics, started)
+}
+
+// startsHeld reports whether a held epic starts on this pass: its held question was answered start, or its predecessors
+// have all shipped.
+func startsHeld(epic store.HeldEpic) bool {
+	return epic.Answer == store.ChoiceStart || predecessorsShipped(epic)
+}
+
+// askLostPredecessor asks the steering conversation of epic, once, when one of its predecessors will not ship. The
+// question names epic, that predecessor and why it will not ship. An epic with a held question already is not asked
+// again, and an epic whose predecessors may all still ship is not asked. A failed ask is logged and tried again after
+// the held retry.
+func (r *Runner) askLostPredecessor(ctx context.Context, epic store.HeldEpic) {
+	if epic.Question != 0 {
+		return
+	}
+	for _, predecessor := range epic.Predecessors {
+		why := lossWhy(predecessor)
+		if why == "" {
+			continue
+		}
+		text := fmt.Sprintf("Epic %s is held after %s, which will not ship: %s.", epic.ID, predecessor.Contract, why)
+		if err := r.store.AskHeldEpic(ctx, epic.ID, text, r.now()); err != nil {
+			r.logger.ErrorContext(ctx, "ask held epic", "epic", epic.ID, "err", err)
+			r.retryHeld(epic.ID)
+		}
+		return
+	}
+}
+
+// lossWhy returns why predecessor will not ship, or "" when it may ship: its contract is set aside, or its epic is
+// closed superseded, closed abandoned or ended with gaps.
+func lossWhy(predecessor store.HeldPredecessor) string {
+	if predecessor.ContractState == store.ContractSetAside {
+		return "its contract is set aside"
+	}
+	switch predecessor.EpicPhase {
+	case store.PhaseClosedSuperseded:
+		return "its epic is closed superseded"
+	case store.PhaseClosedAbandoned:
+		return "its epic is closed abandoned"
+	case phaseEndedWithGaps:
+		return "its epic ended with gaps"
+	}
+	return ""
 }
 
 // predecessorsShipped reports whether epic has a predecessor and each predecessor's epic is in a phase that ships:
