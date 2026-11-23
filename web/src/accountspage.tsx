@@ -1,6 +1,6 @@
 // AccountsPage draws the accounts and routes page at #/accounts: its head, then the Accounts section, which is the accounts
-// table. On mount it reads Accounts.List and Routes.Get and holds both. A read that fails draws its reason with a Retry.
-// Later tasks add the Add button, the Contexts and the Seats.
+// table, then the Contexts section, which RouteContexts draws. On mount it reads Accounts.List and Routes.Get and holds
+// both. A read that fails draws its reason with a Retry. Later tasks add the Add button and the Seats.
 
 import { create } from "@bufbuild/protobuf";
 import { ConnectError } from "@connectrpc/connect";
@@ -10,6 +10,7 @@ import { useCallback, useEffect, useState } from "preact/hooks";
 import { AccountsTable } from "./accountstable";
 import type { createClients } from "./client";
 import { type Account, type RouteRegistry, RouteRegistrySchema } from "./gen/orrery/v1/accounts_pb";
+import { RouteContexts } from "./routecontexts";
 
 type Clients = Pick<ReturnType<typeof createClients>, "accounts" | "routes">;
 
@@ -68,6 +69,11 @@ export function AccountsPage({ clients, narrow }: AccountsPageProps): VNode {
     );
   }, []);
 
+  // changeRegistry holds the registry a write's answer returns. The accounts held stay as they are.
+  const changeRegistry = useCallback((registry: RouteRegistry) => {
+    setRead((current) => (current?.kind === "held" ? { kind: "held", held: { ...current.held, registry } } : current));
+  }, []);
+
   return (
     <div class={narrow ? "accounts-page narrow" : "accounts-page"}>
       <div class="ptitle">
@@ -83,18 +89,27 @@ export function AccountsPage({ clients, narrow }: AccountsPageProps): VNode {
           </p>
         ) : null}
         {read?.kind === "held" ? (
-          <section class="psec" aria-label="Accounts">
-            <div class="psec-h">
-              <span class="lbl">Accounts</span>
-            </div>
-            <AccountsTable
+          <>
+            <section class="psec" aria-label="Accounts">
+              <div class="psec-h">
+                <span class="lbl">Accounts</span>
+              </div>
+              <AccountsTable
+                accounts={read.held.accounts}
+                registry={read.held.registry}
+                clients={clients}
+                changeAccounts={changeAccounts}
+                reread={reread}
+              />
+            </section>
+            <RouteContexts
               accounts={read.held.accounts}
               registry={read.held.registry}
               clients={clients}
-              changeAccounts={changeAccounts}
+              changeRegistry={changeRegistry}
               reread={reread}
             />
-          </section>
+          </>
         ) : null}
       </div>
     </div>
