@@ -77,18 +77,6 @@ type EvidenceGatherer struct {
 	Ended   time.Time
 }
 
-// unsupportedError returns the error a stub method returns: it wraps errors.ErrUnsupported and names method.
-func unsupportedError(method string) error {
-	return fmt.Errorf("%s: %w", method, errors.ErrUnsupported)
-}
-
-// unsupported returns the zero value of T with the error unsupportedError gives for method. A stub that returns a value
-// returns it, until a later task gives the method a body.
-func unsupported[T any](method string) (T, error) {
-	var zero T
-	return zero, unsupportedError(method)
-}
-
 // AddCapture stores c as a running capture in one write, with its files and briefs in the order given.
 func (s *Store) AddCapture(ctx context.Context, capture Capture) error {
 	return s.write(ctx, func(queries *sqlcgen.Queries) error {
