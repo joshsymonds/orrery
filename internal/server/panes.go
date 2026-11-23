@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"slices"
 	"strconv"
+	"sync"
 	"time"
 
 	"connectrpc.com/connect"
@@ -21,6 +22,7 @@ import (
 	v1 "github.com/joshsymonds/orrery/internal/gen/orrery/v1"
 	orreryv1connect "github.com/joshsymonds/orrery/internal/gen/orrery/v1/orreryv1connect"
 	"github.com/joshsymonds/orrery/internal/inotify"
+	"github.com/joshsymonds/orrery/internal/node"
 	"github.com/joshsymonds/orrery/internal/protocol"
 	"github.com/joshsymonds/orrery/internal/store"
 	"github.com/joshsymonds/orrery/internal/tmuxctl"
@@ -55,6 +57,9 @@ type panesServer struct {
 	// stepped, when set, is called with the pane of each WatchConversation step before the step reads the pane. A test
 	// sets it to count the reads of its streams. It is nil in production.
 	stepped func(pane string)
+	// hosts holds the agent of each hosts.toml host whose panes List adds, in file order. It is nil for a server that
+	// lists its own panes alone, such as an agent's.
+	hosts []*node.Client
 }
 
 // newPanesServer returns the Panes server over the tmux client, the store reader of turn ends, conversation state,
@@ -108,6 +113,12 @@ func newPanesServer(
 	}
 }
 
+// withHosts returns s with hosts as the agents whose panes List adds after its own.
+func (s panesServer) withHosts(hosts []*node.Client) panesServer {
+	s.hosts = hosts
+	return s
+}
+
 // newPanesHandler returns the path and handler that serve orrery.v1.Panes over local alone, with every call served by
 // it. The handler runs under withResponseWriter, so a stream reaches its connection.
 func newPanesHandler(local panesServer) (string, http.Handler) {
@@ -141,7 +152,8 @@ type paneJSON struct {
 	Held     bool   `json:"held"`
 }
 
-// List answers Panes.List with the panes listPanes gives.
+// List answers Panes.List with the panes listPanes gives, then the panes of each of s.hosts in order, as hostPanes
+// gives them.
 func (s panesServer) List(
 	ctx context.Context,
 	_ *connect.Request[v1.PanesListRequest],
@@ -157,7 +169,88 @@ func (s panesServer) List(
 	if markErr := markPanePutOff(ctx, s.reader, out); markErr != nil {
 		return nil, markErr
 	}
+	out = append(out, s.hostPanes(ctx)...)
 	return connect.NewResponse(&v1.PanesListResponse{Panes: out}), nil
+}
+
+// hostPanes returns the panes of each of s.hosts, in order. The hosts are asked at once, so the answer waits for the
+// slowest of them, and no host waits past its client's bound.
+func (s panesServer) hostPanes(ctx context.Context) []*v1.Pane {
+	perHost := make([][]*v1.Pane, len(s.hosts))
+	var wg sync.WaitGroup
+	for index, agent := range s.hosts {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			perHost[index] = s.hostListing(ctx, agent)
+		}()
+	}
+	wg.Wait()
+	return slices.Concat(perHost...)
+}
+
+// hostListing returns the panes of agent's host, each naming that host. A call to the agent that fails, or does not
+// answer within the client's bound, gives the host's stored panes instead, as storedPanes gives them.
+func (s panesServer) hostListing(ctx context.Context, agent *node.Client) []*v1.Pane {
+	resp, err := agent.Panes().List(ctx, connect.NewRequest(&v1.PanesListRequest{}))
+	if err != nil {
+		return s.storedPanes(ctx, agent.Name())
+	}
+	panes := resp.Msg.GetPanes()
+	for _, pane := range panes {
+		pane.Host = agent.Name()
+	}
+	return panes
+}
+
+// storedPanes returns the panes of host that its stored rows give, in id order, as storedPane gives each. A nil store
+// reader, a store read that fails, and a row whose changed or seen time does not parse each list none of them, so the
+// other hosts still answer.
+func (s panesServer) storedPanes(ctx context.Context, host string) []*v1.Pane {
+	if s.reader == nil {
+		return nil
+	}
+	rows, err := s.reader.HostPanes(ctx, host)
+	if err != nil {
+		return nil
+	}
+	panes := make([]*v1.Pane, 0, len(rows))
+	for _, row := range rows {
+		pane, convErr := storedPane(row, host)
+		if convErr != nil {
+			return nil
+		}
+		panes = append(panes, pane)
+	}
+	return panes
+}
+
+// storedPane returns the Pane of one stored row of host: its tmux pane id, its orrery id and its mirrored options, with
+// unreachable set. Its other fields are zero. It fails when the row's changed or seen time is not a unix second count.
+func storedPane(row store.Session, host string) (*v1.Pane, error) {
+	changed, err := parseStamp(row.Fields.Changed)
+	if err != nil {
+		return nil, err
+	}
+	seen, err := parseStamp(row.Fields.Seen)
+	if err != nil {
+		return nil, err
+	}
+	return &v1.Pane{
+		Id:            row.Pane,
+		Host:          host,
+		OrreryId:      row.ID,
+		State:         row.Fields.State,
+		Summary:       row.Fields.Summary,
+		Label:         row.Fields.Label,
+		Changed:       changed,
+		Seen:          seen,
+		Question:      row.Fields.Question,
+		Context:       row.Fields.Context,
+		Tool:          row.Fields.Tool,
+		ClaudeSession: row.Fields.ClaudeSession,
+		Unreachable:   true,
+	}, nil
 }
 
 // Screen answers Panes.Screen with the screen of the pane. The request fields are encoded as the query screenFlags

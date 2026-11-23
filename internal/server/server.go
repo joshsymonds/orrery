@@ -310,7 +310,7 @@ func New(cfg Config) (http.Handler, error) {
 	local := newPanesServer(
 		hostName, cfg.Tmux, cfg.Sessions, newest, goals, queues, textLocks, seenLocks, cfg.ReportSeen, cfg.ReportRead,
 		cfg.PaneSends, paneSendErrs, now, changes, cfg.NewTimer, conversationKeepalive, sendTimeout, cfg.Shutdown,
-	)
+	).withHosts(cfg.Hosts)
 	panesPath, panesService := newPanesRouter(local, hostName, cfg.Hosts, cfg.HandlerOptions...)
 	mux.Handle(panesPath, panesService)
 	hostPath, hostService := newHostHandler(
