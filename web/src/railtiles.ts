@@ -34,6 +34,36 @@ export function railTiles(projects: readonly Project[], open: string): RailTileM
   });
 }
 
+// LineageMark is one thing the rail's lineage marks under a design: an epic or a contract, keyed by its tree key, with its
+// name and whether it is the open thing.
+export interface LineageMark {
+  key: string;    // the thing's tree key, epic:<id> or contract:<id>
+  kind: "epic" | "contract";
+  name: string;
+  open: boolean;  // the thing is the open thing
+}
+
+// LineageDesign is one design on the rail's lineage: its tree key, its name, whether it is the open thing, and the things
+// it marks.
+export interface LineageDesign {
+  key: string;    // design:<id>
+  name: string;
+  open: boolean;  // the design is the open thing
+  marks: LineageMark[];
+}
+
+// LineageConvo is one conversation on the rail's lineage: its key and the designs it works, each with its marks.
+export interface LineageConvo {
+  key: string;    // the Convo's key
+  designs: LineageDesign[];
+}
+
+// railLineage is the rail's lineage of a project: its conversations in the tree's order, each with the designs it works
+// and the marks of each design, with open the open thing's tree key ("" for none).
+export function railLineage(project: Project, open: string): LineageConvo[] {
+  return [];
+}
+
 // FlyoutRow is one row of a tile's flyout: a conversation's row, which waits on you or is new, or a hung epic or contract
 // that waits on you, with its name, what it asks, and when it last changed.
 export type FlyoutRow =

@@ -1,4 +1,5 @@
 import type { Contract } from "./gen/orrery/v1/contracts_pb";
+import type { Design } from "./gen/orrery/v1/designs_pb";
 import type { Epic } from "./gen/orrery/v1/epics_pb";
 import type { BackgroundTask } from "./gen/orrery/v1/orrery_pb";
 import { contractSlug } from "./contracts";
@@ -57,6 +58,43 @@ export interface WorkConversation {
   session: string;
   pane: boolean;
   background: BackgroundTask[];
+}
+
+// WorkLinkItem is one thing a conversation's work links to: a design, an epic or a contract, keyed by its tree key, with
+// its name.
+export interface WorkLinkItem {
+  kind: "design" | "epic" | "contract";
+  key: string;  // design:<id>, epic:<id> or contract:<id>
+  name: string;
+}
+
+// workLinksOf is the work links of a session: the designs, epics and contracts that link to it, each with its tree key
+// and name.
+export function workLinksOf(
+  session: string,
+  designs: readonly Design[],
+  epics: EpicsView,
+  contracts: readonly Contract[],
+): WorkLinkItem[] {
+  return [];
+}
+
+// ActivityLine is one line of a conversation's activity: a background task, an agent or a shell, with who runs it, what it
+// is for, what it is doing, when it started and the list it sits in. key is the BackgroundTask id, started is unix seconds.
+export interface ActivityLine {
+  key: string;      // the BackgroundTask id
+  type: "agent" | "shell";
+  who: string;
+  what: string;
+  doing: string;
+  started: number; // unix seconds
+  list: "agents" | "running";
+}
+
+// activityOf is the activity lines of a conversation, one per background task it runs, in the order the tasks are listed.
+// A null conversation has none.
+export function activityOf(conversation: WorkConversation | null): ActivityLine[] {
+  return [];
 }
 
 type ListKind = "agents" | "running";
