@@ -230,8 +230,8 @@ func TestHeadlessColumnsWrittenBackfilledFromVersion94(t *testing.T) {
 		`SELECT COALESCE(MAX(version_id), 0) FROM goose_db_version WHERE is_applied = 1`).Scan(&version); err != nil {
 		t.Fatalf("read store version: %v", err)
 	}
-	if version != 106 {
-		t.Fatalf("store version after Open = %d, want 106", version)
+	if version != 107 {
+		t.Fatalf("store version after Open = %d, want 107", version)
 	}
 
 	listing, err := s.fixtureQueries().ListHeadlessSessions(ctx, 0)

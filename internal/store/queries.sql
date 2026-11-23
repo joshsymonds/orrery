@@ -2298,3 +2298,82 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?);
 
 -- name: GetDesignClosureSkip :one
 SELECT * FROM design_closure_skips WHERE design = ?;
+
+-- name: InsertDesignApproach :exec
+INSERT INTO design_approaches (design, seq, name, shape, cost, wins, loses, reconsider, research, recommended, reason,
+                               session, at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+
+-- name: ListDesignApproaches :many
+SELECT * FROM design_approaches WHERE design = ? ORDER BY seq;
+
+-- name: InsertDesignApproachChoice :exec
+INSERT INTO design_approach_choices (design, seq, approach, words, maker, quote, maker_reason, delegation, session, at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+
+-- name: ListDesignApproachChoices :many
+SELECT * FROM design_approach_choices WHERE design = ? ORDER BY seq;
+
+-- name: InsertDesignDelegation :exec
+INSERT INTO design_delegations (design, seq, kinds, message, session, at) VALUES (?, ?, ?, ?, ?, ?);
+
+-- name: ListDesignDelegations :many
+SELECT * FROM design_delegations WHERE design = ? ORDER BY seq;
+
+-- name: InsertDesignConversation :exec
+INSERT INTO design_conversations (design, seq, session, previous, at) VALUES (?, ?, ?, ?, ?);
+
+-- name: ListDesignConversations :many
+SELECT * FROM design_conversations WHERE design = ? ORDER BY seq;
+
+-- name: NewestDesignConversation :one
+SELECT * FROM design_conversations WHERE design = ? ORDER BY seq DESC LIMIT 1;
+
+-- name: InsertDesignLogLine :exec
+INSERT INTO design_log (design, seq, at, maker, session, what, ids, words) VALUES (?, ?, ?, ?, ?, ?, ?, ?);
+
+-- name: ListDesignLog :many
+SELECT * FROM design_log WHERE design = ? ORDER BY seq;
+
+-- name: InsertContractStepRead :exec
+INSERT INTO design_step_reads (step, contract, version) VALUES (?, ?, ?);
+
+-- name: ListContractStepReads :many
+SELECT * FROM design_step_reads WHERE contract = ? ORDER BY step;
+
+-- name: GetContractWorking :one
+SELECT * FROM contract_working WHERE contract = ?;
+
+-- name: UpsertContractWorking :exec
+INSERT INTO contract_working (contract, version, body, decisions, writer, created, updated)
+VALUES (?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT (contract) DO UPDATE SET version = excluded.version, body = excluded.body,
+    decisions = excluded.decisions, writer = excluded.writer, updated = excluded.updated;
+
+-- name: DeleteContractWorking :exec
+DELETE FROM contract_working WHERE contract = ?;
+
+-- name: InsertContractRowWrite :exec
+INSERT INTO contract_row_writes (contract, seq, version, row, action, depends, words, maker, quote, maker_reason,
+                                 delegation, session, at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+
+-- name: ListContractRowWrites :many
+SELECT * FROM contract_row_writes WHERE contract = ? ORDER BY seq;
+
+-- name: InsertContractRefusal :exec
+INSERT INTO contract_refusals (contract, seq, version, field, text, session, at) VALUES (?, ?, ?, ?, ?, ?, ?);
+
+-- name: ListContractRefusals :many
+SELECT * FROM contract_refusals WHERE contract = ? ORDER BY seq;
+
+-- name: InsertContractShown :exec
+INSERT INTO contract_shown (contract, version, row, at) VALUES (?, ?, ?, ?);
+
+-- name: ListContractShown :many
+SELECT * FROM contract_shown WHERE contract = ? ORDER BY version, row;
+
+-- name: SetContractStateMaker :exec
+UPDATE contract_states SET maker = sqlc.arg(maker), quote = sqlc.arg(quote), maker_reason = sqlc.arg(maker_reason),
+    delegation = sqlc.arg(delegation)
+WHERE contract = sqlc.arg(contract) AND seq = sqlc.arg(seq);
