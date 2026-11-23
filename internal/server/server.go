@@ -172,6 +172,9 @@ type Config struct {
 	Push *push.Store
 	// HostStatus runs the host status command behind Host.Status, or is nil when serve has no command.
 	HostStatus *hoststatus.Runner
+	// LocalLoad reads the load of this controller's own host, which Host.Status answers as the controller's entry, or is
+	// nil for hostload.Local.
+	LocalLoad func() (node.Load, error)
 	// Sessions reads the store behind the Sessions and Events Connect APIs, the turn ends of Panes and the sessions
 	// of Epics.Get, or is nil when there is no store reader: Sessions and Events answer unavailable, Panes report no
 	// turn ends, and Epics.Get lists no sessions.
@@ -310,7 +313,9 @@ func New(cfg Config) (http.Handler, error) {
 	)
 	panesPath, panesService := newPanesRouter(local, hostName, cfg.Hosts, cfg.HandlerOptions...)
 	mux.Handle(panesPath, panesService)
-	hostPath, hostService := newHostHandler(cfg.HostStatus, cfg.Web, cfg.HandlerOptions...)
+	hostPath, hostService := newHostHandler(
+		cfg.HostStatus, cfg.Web, hostName, cfg.LocalLoad, cfg.Hosts, cfg.HandlerOptions...,
+	)
 	mux.Handle(hostPath, hostService)
 	presencePath := registerPresence(mux, cfg.ReportInput, now, cfg.HandlerOptions...)
 	pushPath, pushService := newPushHandler(cfg.Push, cfg.HandlerOptions...)
