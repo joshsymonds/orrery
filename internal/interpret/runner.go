@@ -358,7 +358,8 @@ func (r *Runner) openWoken(ctx context.Context, woken []string) []store.EpicRow 
 }
 
 // passEpics runs one pass over epics: their amendments, then their flows, then the planner for those given a plan turn
-// or planner-parked. Pass passes every listed epic, and a wake passes the open epics it names.
+// or planner-parked. Pass passes every listed epic, and a wake passes the open epics it names. A closed epic and a held
+// epic are passed over: neither has a flow decision or a planner pass.
 func (r *Runner) passEpics(ctx context.Context, epics []store.EpicRow) {
 	r.passAmendments(ctx, epics)
 	states, statesErr := r.store.OpenNodeRunStates(ctx)
@@ -367,7 +368,7 @@ func (r *Runner) passEpics(ctx context.Context, epics []store.EpicRow) {
 	}
 	planned := make(map[string]bool)
 	for _, epic := range epics {
-		if store.IsClosedPhase(epic.Phase) {
+		if store.IsClosedPhase(epic.Phase) || epic.Phase == store.PhaseHeld {
 			continue
 		}
 		flow, loadErr := loadFlow(epic)

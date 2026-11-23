@@ -5423,6 +5423,37 @@ func (q *Queries) ListContractListings(ctx context.Context) ([]ListContractListi
 	return items, nil
 }
 
+const listContractPredecessors = `-- name: ListContractPredecessors :many
+SELECT CAST(COALESCE(epics.phase, '') AS TEXT) AS epic_phase
+FROM design_edges AS edges
+LEFT JOIN epics ON epics.id = edges.after
+WHERE edges.contract = ?
+ORDER BY edges.after
+`
+
+func (q *Queries) ListContractPredecessors(ctx context.Context, contract string) ([]string, error) {
+	rows, err := q.db.QueryContext(ctx, listContractPredecessors, contract)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var epic_phase string
+		if err := rows.Scan(&epic_phase); err != nil {
+			return nil, err
+		}
+		items = append(items, epic_phase)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listContractStates = `-- name: ListContractStates :many
 SELECT contract, seq, state, version, session, words, at, base FROM contract_states WHERE contract = ? ORDER BY seq
 `

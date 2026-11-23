@@ -222,7 +222,8 @@ func (s *Store) CreateEpic(ctx context.Context, row EpicRow) error {
 // CreateContractEpic stores row as CreateEpic does, in one write that first reads the contract holding row's id: that
 // contract's newest state must be accepted and its newest version must be version. Otherwise it returns an error that
 // matches ErrNoContract or ErrContractState and stores nothing. An id an epic holds is ErrEpicExists, as CreateEpic
-// gives it.
+// gives it. The same write reads the contracts the contract starts after: when one has no epic, or an epic not in
+// released, done or closed_shipped, the epic is stored in PhaseHeld rather than row's phase.
 func (s *Store) CreateContractEpic(ctx context.Context, row EpicRow, version int64) error {
 	return s.write(ctx, func(queries *sqlcgen.Queries) error {
 		listing, err := readContractListing(ctx, queries, row.ID)
@@ -240,6 +241,13 @@ func (s *Store) CreateContractEpic(ctx context.Context, row EpicRow, version int
 				version,
 				ErrContractState,
 			)
+		}
+		shipped, err := startsAfterShipped(ctx, queries, row.ID)
+		if err != nil {
+			return err
+		}
+		if !shipped {
+			row.Phase = PhaseHeld
 		}
 		return insertEpic(ctx, queries, row)
 	})
