@@ -15,7 +15,7 @@ import { InboxRail } from "./inboxrail";
 import type { FlyoutRow, LineageConvo, RailTileModel } from "./railtiles";
 import type { Row } from "./rows";
 import type { SeenClock } from "./seen";
-import { installTestDom, removeTestDom, teardownOnce } from "./testdom";
+import { assertNone, installTestDom, removeTestDom, teardownOnce } from "./testdom";
 import { styleDeclaration } from "./teststyle";
 
 const now = 1000;
@@ -299,7 +299,7 @@ test("RailLineage: pressing a child mark on the collapsed rail opens its panel, 
     });
     assert.equal(one(container, ".panes").getAttribute("data-inbox"), "collapsed", "the inbox is collapsed");
     const mark = one(container, '.rail-lineage button[aria-label="contract: beta"]');
-    assert.equal(container.querySelector('aside[aria-label="beta contract"]'), null, "no panel before the press");
+    assertNone(container.querySelector('aside[aria-label="beta contract"]'), "no panel before the press");
     await act(() => {
       mark.click();
     });
