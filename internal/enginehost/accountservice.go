@@ -25,8 +25,8 @@ const (
 	accountStoreMessage       = "account store failed"
 	accountNameMessage        = "name: empty"
 	accountProviderMessage    = "provider: want anthropic"
-	accountAPIKeyMessage      = "That is an API key, not a setup-token. A setup-token starts sk-ant-oat."
-	accountSetupTokenMessage  = "That is not a setup-token. A setup-token starts sk-ant-oat."
+	accountAPIRefusalMessage  = "That is an API key, not a setup-token. A setup-token starts sk-ant-oat."
+	accountNotSetupMessage    = "That is not a setup-token. A setup-token starts sk-ant-oat."
 	accountUnknownMessage     = "account: unknown id"
 	accountUnknownContext     = "context: unknown id"
 	accountInUseMessage       = "account: in use"
@@ -85,10 +85,10 @@ func (s *accountService) AddAccount(
 		return nil, refuseEpic(connect.CodeInvalidArgument, "token: empty or holds whitespace")
 	}
 	if strings.HasPrefix(token, "sk-ant-api") {
-		return nil, refuseEpic(connect.CodeInvalidArgument, accountAPIKeyMessage)
+		return nil, refuseEpic(connect.CodeInvalidArgument, accountAPIRefusalMessage)
 	}
 	if !strings.HasPrefix(token, "sk-ant-oat") {
-		return nil, refuseEpic(connect.CodeInvalidArgument, accountSetupTokenMessage)
+		return nil, refuseEpic(connect.CodeInvalidArgument, accountNotSetupMessage)
 	}
 	account, err := s.accounts.Store.AddAccount(ctx, store.NewAccount{
 		ID:       s.accounts.accountID(),
