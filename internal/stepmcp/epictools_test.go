@@ -595,7 +595,8 @@ func TestContractEpicCreateRefusesAContractKey(t *testing.T) {
 func TestEpicCreatePrintsEachWarningLine(t *testing.T) {
 	warnings := []string{
 		"requirements[0].item.capture: -run pattern \"X\" matches TestX in ./pkg at the base: name a new top-level test",
-		`release_steps[1].step: a release does not wait for CI; write "do not wait for CI"`,
+		"release_steps[1].step: names the fixed version v0.86.3: a release step's tag is chosen when the step runs; " +
+			"name the next version above the newest tag instead",
 	}
 	fake := &fakeEpics{createReply: &v1.CreateEpicResponse{Epic: storedEpicOf(fullContract()), Warnings: warnings}}
 	p := newPeer(t, nil, fake)

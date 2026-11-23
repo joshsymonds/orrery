@@ -1,0 +1,96 @@
+syntax = "proto3";
+
+package orrery.engine.v1;
+
+import "orrery/v1/accounts.proto";
+
+// Accounts keeps the LLM accounts and the route registry in orreryd, which stores them. orreryd serves it on the
+// session socket, beside Contracts.
+service Accounts {
+  // AddAccount stores a new account from the name, provider, plan and token given, and returns it.
+  rpc AddAccount(AddAccountRequest) returns (AddAccountResponse);
+
+  // RenameAccount gives the account named by id a new name and returns it.
+  rpc RenameAccount(RenameAccountRequest) returns (RenameAccountResponse);
+
+  // RemoveAccount deletes the account named by id.
+  rpc RemoveAccount(RemoveAccountRequest) returns (RemoveAccountResponse);
+
+  // ReplaceRoutes stores the route registry given in place of the one stored and returns it as stored.
+  rpc ReplaceRoutes(ReplaceRoutesRequest) returns (ReplaceRoutesResponse);
+
+  // SetContextAccount sets the account a context's forward seats send, and returns the route registry as it stands.
+  rpc SetContextAccount(SetContextAccountRequest) returns (SetContextAccountResponse);
+}
+
+// AddAccountRequest names the account to add and carries its token.
+message AddAccountRequest {
+  // The account's name.
+  string name = 1;
+
+  // The provider the account is with.
+  string provider = 2;
+
+  // The plan the account is on; may be empty.
+  string plan = 3;
+
+  // The account's token, stored in plain text and never returned.
+  string token = 4;
+}
+
+// AddAccountResponse carries the account as it was stored.
+message AddAccountResponse {
+  // The account.
+  orrery.v1.Account account = 1;
+}
+
+// RenameAccountRequest names the account to rename and its new name.
+message RenameAccountRequest {
+  // The account's id.
+  string id = 1;
+
+  // The account's new name.
+  string name = 2;
+}
+
+// RenameAccountResponse carries the account as it stands after the rename.
+message RenameAccountResponse {
+  // The account.
+  orrery.v1.Account account = 1;
+}
+
+// RemoveAccountRequest names the account to remove.
+message RemoveAccountRequest {
+  // The account's id.
+  string id = 1;
+}
+
+// RemoveAccountResponse acknowledges a removal. It has no fields.
+message RemoveAccountResponse {}
+
+// ReplaceRoutesRequest carries the route registry to store in place of the one stored.
+message ReplaceRoutesRequest {
+  // The route registry to store.
+  orrery.v1.RouteRegistry registry = 1;
+}
+
+// ReplaceRoutesResponse carries the route registry as it was stored.
+message ReplaceRoutesResponse {
+  // The route registry.
+  orrery.v1.RouteRegistry registry = 1;
+}
+
+// SetContextAccountRequest names the context and the account its forward seats send.
+message SetContextAccountRequest {
+  // The context's id.
+  string context = 1;
+
+  // The id of the account whose token the context's forward seats send; empty means the caller's own login.
+  string account = 2;
+}
+
+// SetContextAccountResponse carries the route registry as it stands after the account was set.
+message SetContextAccountResponse {
+  // The route registry.
+  orrery.v1.RouteRegistry registry = 1;
+}
