@@ -116,8 +116,9 @@ type EpicsClient interface {
 	// AmendEvidence asks for a Requirement of a stored epic to hold a new evidence item, which must pass the shape check a
 	// created epic's items pass. The amendment starts checking: the item replaces the Requirement's own only once a red run
 	// of it at the epic's base is judged not to hold there, and a red that holds refuses it. It returns the stored
-	// amendment and the stored epic. A call from the step of the epic's running turn amends as the planner, which may not
-	// change the conclusion; any other call amends as the owner, who may.
+	// amendment and the stored epic. The owner and the conversation that steers the epic may change the conclusion and
+	// kind, and a conversation that does not steer the epic is refused. The planner amends through its action and may not
+	// change either, so a call from a step of the epic is refused.
 	AmendEvidence(context.Context, *connect.Request[v1.AmendEvidenceRequest]) (*connect.Response[v1.AmendEvidenceResponse], error)
 	// EscalateEpic marks question Q<n> of a stored epic escalated, with its reason, and returns the question read back. The
 	// steering conversation or the owner may escalate it; a call from a step of the epic is refused. An escalated question
@@ -419,8 +420,9 @@ type EpicsHandler interface {
 	// AmendEvidence asks for a Requirement of a stored epic to hold a new evidence item, which must pass the shape check a
 	// created epic's items pass. The amendment starts checking: the item replaces the Requirement's own only once a red run
 	// of it at the epic's base is judged not to hold there, and a red that holds refuses it. It returns the stored
-	// amendment and the stored epic. A call from the step of the epic's running turn amends as the planner, which may not
-	// change the conclusion; any other call amends as the owner, who may.
+	// amendment and the stored epic. The owner and the conversation that steers the epic may change the conclusion and
+	// kind, and a conversation that does not steer the epic is refused. The planner amends through its action and may not
+	// change either, so a call from a step of the epic is refused.
 	AmendEvidence(context.Context, *connect.Request[v1.AmendEvidenceRequest]) (*connect.Response[v1.AmendEvidenceResponse], error)
 	// EscalateEpic marks question Q<n> of a stored epic escalated, with its reason, and returns the question read back. The
 	// steering conversation or the owner may escalate it; a call from a step of the epic is refused. An escalated question
