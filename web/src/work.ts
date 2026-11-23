@@ -91,10 +91,35 @@ export interface ActivityLine {
   list: "agents" | "running";
 }
 
-// activityOf is the activity lines of a conversation, one per background task it runs, in the order the tasks are listed.
-// A null conversation has none.
+// activityOf is the activity lines of a conversation: one per background task that is running, the agents first and
+// then the shells, each kind in the order its tasks started. A pane and a null conversation have none.
 export function activityOf(conversation: WorkConversation | null): ActivityLine[] {
-  return [];
+  if (conversation === null || conversation.pane) {
+    return [];
+  }
+  const agents = startedOrder(running(conversation.background, "agent")).map((task) => activityLineOf(task, "agent"));
+  const shells = startedOrder(running(conversation.background, "shell")).map((task) => activityLineOf(task, "shell"));
+  return [...agents, ...shells];
+}
+
+// activityLineOf is the activity line of one running task. An agent is who its sub-agent type names, or agent when it
+// names none; a shell is who shell. A task's list is the list of its kind.
+function activityLineOf(task: BackgroundTask, type: "agent" | "shell"): ActivityLine {
+  return {
+    key: task.id,
+    type,
+    who: type === "agent" ? task.subagentType || "agent" : "shell",
+    what: task.description,
+    doing: task.activity,
+    started: Number(task.started),
+    list: type === "agent" ? "agents" : "running",
+  };
+}
+
+// startedOrder is the tasks in the order they started, the earliest first. Tasks that started together keep their
+// order.
+function startedOrder(tasks: BackgroundTask[]): BackgroundTask[] {
+  return [...tasks].sort((a, b) => Number(a.started) - Number(b.started));
 }
 
 type ListKind = "agents" | "running";
