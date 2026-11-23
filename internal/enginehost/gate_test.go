@@ -15,12 +15,18 @@ import (
 	"time"
 
 	"github.com/joshsymonds/orrery/internal/holder"
+	"github.com/joshsymonds/orrery/internal/hostexec"
 	"github.com/joshsymonds/orrery/internal/waittest"
 )
 
 // gateEnv is the environment a test gate runs in: the test's PATH so its tools resolve, plus extra.
 func gateEnv(extra ...string) []string {
 	return append([]string{"PATH=" + os.Getenv("PATH")}, extra...)
+}
+
+// gateTestHost is the Host a test gate runs on: this machine.
+func gateTestHost() hostexec.Host {
+	return hostexec.NewLocal()
 }
 
 // gateHeldScript writes running to $MARKER, waits until $RELEASE exists, prints done and exits 0, so a test acts on the
@@ -93,6 +99,7 @@ func TestGateRunsArgvInDirAndReportsExitAndOutput(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
 	result, err := runGrantedGate(t.Context(), &fakeGatePools{}, gateGrantRequest(), gateRun{
+		Host:  gateTestHost(),
 		Argv:  []string{"/bin/sh", "-c", `pwd -P; echo out; echo err >&2; exit 3`},
 		Dir:   dir,
 		Limit: time.Minute,
@@ -124,6 +131,7 @@ func TestGateRunsArgvInDirAndReportsExitAndOutput(t *testing.T) {
 func TestGateKeepsStdoutAndStderrApart(t *testing.T) {
 	t.Parallel()
 	result, err := runGrantedGate(t.Context(), &fakeGatePools{}, gateGrantRequest(), gateRun{
+		Host:  gateTestHost(),
 		Argv:  []string{"/bin/sh", "-c", `printf out; printf err >&2`},
 		Dir:   t.TempDir(),
 		Limit: time.Minute,
@@ -139,6 +147,7 @@ func TestGateKeepsStdoutAndStderrApart(t *testing.T) {
 func TestGateEnvironDropsTmuxMarkers(t *testing.T) {
 	t.Parallel()
 	result, err := runGrantedGate(t.Context(), &fakeGatePools{}, gateGrantRequest(), gateRun{
+		Host:    gateTestHost(),
 		Argv:    []string{"/bin/sh", "-c", `printf '%s\n' "${TMUX-unset}" "${TMUX_PANE-unset}" "$KEEP"`},
 		Dir:     t.TempDir(),
 		Limit:   time.Minute,
@@ -188,6 +197,7 @@ func TestGateLimitClockKillsItsGroup(t *testing.T) {
 	done := make(chan outcome, 1)
 	go func() {
 		result, err := runGrantedGate(t.Context(), &fakeGatePools{}, gateGrantRequest(), gateRun{
+			Host:        gateTestHost(),
 			Argv:        []string{"/bin/sh", "-c", `sleep 60 & echo "$$ $!" > "$PIDS"; sleep 60`},
 			Dir:         t.TempDir(),
 			Limit:       time.Hour,
@@ -222,6 +232,7 @@ func TestGateCancelKillsGroupAndErrors(t *testing.T) {
 	done := make(chan outcome, 1)
 	go func() {
 		result, err := runGrantedGate(ctx, &fakeGatePools{}, gateGrantRequest(), gateRun{
+			Host:    gateTestHost(),
 			Argv:    []string{"/bin/sh", "-c", `sleep 60 & echo "$$ $!" > "$PIDS"; sleep 60`},
 			Dir:     t.TempDir(),
 			Limit:   time.Minute,
@@ -243,6 +254,7 @@ func TestGateCancelKillsGroupAndErrors(t *testing.T) {
 func TestGateErrorsWhenItCannotStart(t *testing.T) {
 	t.Parallel()
 	_, err := runGrantedGate(t.Context(), &fakeGatePools{}, gateGrantRequest(), gateRun{
+		Host:  gateTestHost(),
 		Argv:  []string{filepath.Join(t.TempDir(), "no-such-gate")},
 		Dir:   t.TempDir(),
 		Limit: time.Minute,
@@ -288,6 +300,7 @@ func TestGateLimitClockReturnsPastDetachedChild(t *testing.T) {
 	done := make(chan outcome, 1)
 	go func() {
 		result, err := runGrantedGate(t.Context(), &fakeGatePools{}, gateGrantRequest(), gateRun{
+			Host:        gateTestHost(),
 			Argv:        []string{"/bin/sh", "-c", `setsid sleep 20 & echo "$!" > "$PIDS"; sleep 20`},
 			Dir:         t.TempDir(),
 			Limit:       time.Hour,
@@ -321,6 +334,7 @@ func TestGateCancelReturnsPastDetachedChild(t *testing.T) {
 	done := make(chan outcome, 1)
 	go func() {
 		result, err := runGrantedGate(ctx, &fakeGatePools{}, gateGrantRequest(), gateRun{
+			Host:    gateTestHost(),
 			Argv:    []string{"/bin/sh", "-c", `setsid sleep 20 & echo "$!" > "$PIDS"; sleep 20`},
 			Dir:     t.TempDir(),
 			Limit:   time.Minute,
@@ -345,6 +359,7 @@ func TestGateReportsExitWhenDetachedChildHoldsOutput(t *testing.T) {
 			t.Parallel()
 			pids := filepath.Join(t.TempDir(), "pids")
 			result, err := runGrantedGate(t.Context(), &fakeGatePools{}, gateGrantRequest(), gateRun{
+				Host:    gateTestHost(),
 				Argv:    []string{"/bin/sh", "-c", fmt.Sprintf(`setsid sleep 20 & echo "$!" > "$PIDS"; exit %d`, exit)},
 				Dir:     t.TempDir(),
 				Limit:   time.Minute,
@@ -437,6 +452,7 @@ func TestGateRunsUnderAHolderAndKeepsItsExitRecord(t *testing.T) {
 	t.Parallel()
 	stateDir := gateShortStateDir(t)
 	result, err := runGrantedGate(t.Context(), &fakeGatePools{}, gateGrantRequest(), gateRun{
+		Host:     gateTestHost(),
 		Argv:     []string{"/bin/sh", "-c", `echo out; exit 3`},
 		Dir:      t.TempDir(),
 		Limit:    time.Minute,
@@ -469,6 +485,7 @@ func TestGateExitRecordSurvivesAGateThatOutlivesItsAttach(t *testing.T) {
 	t.Parallel()
 	stateDir := gateShortStateDir(t)
 	result, err := runGrantedGate(t.Context(), &fakeGatePools{}, gateGrantRequest(), gateRun{
+		Host:     gateTestHost(),
 		Argv:     []string{"/bin/sh", "-c", `sleep 0.3; echo out; exit 3`},
 		Dir:      t.TempDir(),
 		Limit:    time.Minute,
@@ -495,6 +512,7 @@ func TestGateStartedSeesGrantAndHolderBeforeLaunch(t *testing.T) {
 	var grantID, dir string
 	var launchedAtStart bool
 	result, err := runGrantedGate(t.Context(), pools, gateGrantRequest(), gateRun{
+		Host:     gateTestHost(),
 		Argv:     []string{"/bin/sh", "-c", `touch "$MARKER"`},
 		Dir:      t.TempDir(),
 		Limit:    time.Minute,
@@ -534,6 +552,7 @@ func TestGateStartedErrorReleasesGrantAndStartsNothing(t *testing.T) {
 	pools := &fakeGatePools{onEnd: func() { close(released) }}
 
 	_, err := runGrantedGate(t.Context(), pools, gateGrantRequest(), gateRun{
+		Host:     gateTestHost(),
 		Argv:     []string{"/bin/sh", "-c", `touch "$MARKER"`},
 		Dir:      t.TempDir(),
 		Limit:    time.Minute,
@@ -572,6 +591,7 @@ func TestGateDetachLeavesGateRunningToItsExitRecord(t *testing.T) {
 	launched := make(chan struct{})
 	go func() {
 		result, err := runGrantedGate(ctx, pools, gateGrantRequest(), gateRun{
+			Host:     gateTestHost(),
 			Argv:     []string{"/bin/sh", "-c", gateHeldScript},
 			Dir:      t.TempDir(),
 			Limit:    time.Minute,
@@ -621,6 +641,7 @@ func TestGateDetachDuringLaunchLeavesHolderRunning(t *testing.T) {
 	var dir string
 
 	_, err := runGrantedGate(ctx, pools, gateGrantRequest(), gateRun{
+		Host:     gateTestHost(),
 		Argv:     []string{"/bin/sh", "-c", `sleep 1; echo done; exit 0`},
 		Dir:      t.TempDir(),
 		Limit:    time.Minute,
@@ -662,6 +683,7 @@ func TestGateCancelStopsHolderAndClearsItsDirectory(t *testing.T) {
 	done := make(chan outcome, 1)
 	go func() {
 		result, err := runGrantedGate(ctx, pools, gateGrantRequest(), gateRun{
+			Host:     gateTestHost(),
 			Argv:     []string{"/bin/sh", "-c", `sleep 60 & echo "$$ $!" > "$PIDS"; sleep 60`},
 			Dir:      t.TempDir(),
 			Limit:    time.Minute,
@@ -700,6 +722,7 @@ func TestGateNormalExitKillsWhatItLeftRunning(t *testing.T) {
 	pids := filepath.Join(t.TempDir(), "pids")
 	pools := &fakeGatePools{onEnd: gateGroupGoneAtEnd(t, pids)}
 	result, err := runGrantedGate(t.Context(), pools, gateGrantRequest(), gateRun{
+		Host:     gateTestHost(),
 		Argv:     []string{"/bin/sh", "-c", `sleep 60 & echo "$$ $!" > "$PIDS"; sleep 0.5; echo tail; exit 4`},
 		Dir:      t.TempDir(),
 		Limit:    time.Minute,

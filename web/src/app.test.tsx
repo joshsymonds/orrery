@@ -2837,6 +2837,11 @@ function treeRows(): Row[] {
   });
 }
 
+// endedTreeRows are the tree rows with d's conversation reported ended, as serve reports one whose steered epic has ended.
+function endedTreeRows(): Row[] {
+  return treeRows().map((item) => (item.key === "d" ? { ...item, ended: true } : item));
+}
+
 const treeHost = create(HostStatusResponseSchema, { host: "box" });
 const firstEpic = makeEpic(widgetsRepo, "first", {
   steering: "sess-a",
@@ -2962,7 +2967,7 @@ test("InboxTree: a folded project under a search says what waits in the whole pr
   }));
 
 test("InboxTree: a project's ended line opens to the conversations that ended, with their epics", (t) =>
-  withApp(t.signal, { rows: treeRows(), host: treeHost, epics: epicsView([oldEpic], new Map()) }, async (container) => {
+  withApp(t.signal, { rows: endedTreeRows(), host: treeHost, epics: epicsView([oldEpic], new Map()) }, async (container) => {
     assert.deepEqual(drawnKeys(dirCard(container, "api")), ["a"], "the ended conversation is behind the ended line");
     const line = dirCard(container, "api").querySelector<HTMLElement>(".fold-line");
     assert.equal(line?.textContent, "1 ended");
@@ -3030,7 +3035,7 @@ test("InboxTree: the cursor walks the drawn conversations, epics, contracts and 
   }));
 
 test("InboxTree: with a project's ended line open the cursor walks its ended conversations and their epics in tree order", (t) =>
-  withApp(t.signal, { rows: treeRows(), host: treeHost, epics: epicsView([firstEpic, oldEpic], new Map()) }, async (container) => {
+  withApp(t.signal, { rows: endedTreeRows(), host: treeHost, epics: epicsView([firstEpic, oldEpic], new Map()) }, async (container) => {
     const line = [...dirCard(container, "api").querySelectorAll<HTMLElement>(".fold-line")].find(
       (item) => item.textContent === "1 ended",
     );

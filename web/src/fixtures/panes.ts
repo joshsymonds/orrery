@@ -235,11 +235,12 @@ const paneStale: PaneInit = {
   claudeSession: claudeSession(21), questionHash: "qh-stale-1", newestReply: at("@-5d 14:20"), lastTurnEnd: at("@-5d 14:20"),
 };
 const paneFollow = donePane(22, "orrery", "/home/owner/code/orrery", "Follow-ups from the round-5 review", at("@14:21"), at("@14:22"), "sess-follow-22");
-// A plain shell: a terminal pane with no Claude session, so it has no state and no conversation.
+// A terminal pane with no state: its command is zsh, and it has a Claude session, so the inbox keeps its row with no
+// second line. A pane with no Claude session and no unbound mark makes no row at all.
 const paneShell: PaneInit = {
   id: "%23", host: "halyard", session: "orrery", pane: 23, cwd: "/home/owner/code/orrery", command: "zsh",
   state: "", summary: "zsh", label: "", changed: at("@11:41"), seen: at("@11:41"), question: "", context: "",
-  activity: at("@11:41"), tool: "", claudeSession: "", questionHash: "", newestReply: 0n, lastTurnEnd: 0n,
+  activity: at("@11:41"), tool: "", claudeSession: claudeSession(23), questionHash: "", newestReply: 0n, lastTurnEnd: 0n,
 };
 const paneKelp: PaneInit = {
   id: "%24", host: "brine", session: "kelp", pane: 24, cwd: "/home/owner/code/kelp", command: "claude",

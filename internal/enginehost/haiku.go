@@ -159,7 +159,7 @@ func (h *Haiku) run(ctx context.Context, settings, baseURL, model, schema, input
 	select {
 	case waitErr = <-waited:
 	case <-ctx.Done():
-		killErr := gateKillGroup(pid)
+		killErr := haikuKillGroup(pid)
 		waitErr = <-waited
 		return nil, errors.Join(fmt.Errorf("haiku: claude run: %w", ctx.Err()), killErr, waitErr)
 	}
@@ -168,6 +168,15 @@ func (h *Haiku) run(ctx context.Context, settings, baseURL, model, schema, input
 	}
 
 	return haikuResultOutput(stdout.Bytes())
+}
+
+// haikuKillGroup kills every process in the group pgid of a claude run that its context ended. A group that already exited
+// is not an error.
+func haikuKillGroup(pgid int) error {
+	if err := syscall.Kill(-pgid, syscall.SIGKILL); err != nil && !errors.Is(err, syscall.ESRCH) {
+		return fmt.Errorf("enginehost: kill haiku group %d: %w", pgid, err)
+	}
+	return nil
 }
 
 // haikuFailure returns what a claude run that exited non-zero said of its failure: the subtype and errors of the result

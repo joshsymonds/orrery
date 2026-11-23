@@ -210,10 +210,32 @@ public interface HeadlessSessionOrBuilder extends
 
   /**
    * <pre>
+   * true once the conversation's turn is judged closed by a closure verdict for its current change time, or (headless)
+   * it stopped. It is false while the conversation steers a live epic or a proposed contract, and false while the owner
+   * has unarchived it since its last change.
+   * </pre>
+   *
+   * <code>bool ended = 13 [json_name = "ended"];</code>
+   * @return The ended.
+   */
+  boolean getEnded();
+
+  /**
+   * <pre>
+   * The unix seconds the conversation ended (its change time), or 0 when it has not ended.
+   * </pre>
+   *
+   * <code>int64 ended_at = 14 [json_name = "endedAt"];</code>
+   * @return The endedAt.
+   */
+  long getEndedAt();
+
+  /**
+   * <pre>
    * The orrery name of the host the session runs on.
    * </pre>
    *
-   * <code>string host = 13 [json_name = "host"];</code>
+   * <code>string host = 15 [json_name = "host"];</code>
    * @return The host.
    */
   java.lang.String getHost();
@@ -222,7 +244,7 @@ public interface HeadlessSessionOrBuilder extends
    * The orrery name of the host the session runs on.
    * </pre>
    *
-   * <code>string host = 13 [json_name = "host"];</code>
+   * <code>string host = 15 [json_name = "host"];</code>
    * @return The bytes for host.
    */
   com.google.protobuf.ByteString

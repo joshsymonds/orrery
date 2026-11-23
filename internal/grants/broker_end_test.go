@@ -39,7 +39,7 @@ func openBusyStore(t *testing.T) (*store.Store, string) {
 // ends, which frees a lock the test still holds.
 func lockStore(t *testing.T, path string) *storeLock {
 	t.Helper()
-	db, err := sql.Open("sqlite", path)
+	db, err := sql.Open("sqlite3", path)
 	if err != nil {
 		t.Fatalf("open lock connection: %v", err)
 	}

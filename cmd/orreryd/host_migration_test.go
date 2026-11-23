@@ -68,7 +68,7 @@ func seedHostMigrationRows(t *testing.T, path string) {
 	t.Helper()
 	dir := t.TempDir()
 	storetest.Seed(t, path)
-	db, err := sql.Open("sqlite", path)
+	db, err := sql.Open("sqlite3", path)
 	if err != nil {
 		t.Fatalf("open store to seed rows: %v", err)
 	}
@@ -95,7 +95,7 @@ func seedHostMigrationRows(t *testing.T, path string) {
 // sessionHostsAt returns the host of every sessions row of the store at path, by row id. The store must be closed.
 func sessionHostsAt(t *testing.T, path string) map[string]string {
 	t.Helper()
-	db, err := sql.Open("sqlite", path)
+	db, err := sql.Open("sqlite3", path)
 	if err != nil {
 		t.Fatalf("open store to read hosts: %v", err)
 	}

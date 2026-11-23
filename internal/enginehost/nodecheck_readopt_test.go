@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/joshsymonds/orrery/internal/grants"
+	"github.com/joshsymonds/orrery/internal/hostexec"
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
@@ -26,7 +27,9 @@ func nodeCheckReadoptScript(started, release string) []string {
 // nodeCheckHolderDir returns the holder directory of check's gate, which the gate serves under the check's name.
 func nodeCheckHolderDir(t *testing.T, checks *NodeChecks, check store.NodeCheck) string {
 	t.Helper()
-	plan, err := planGate(checks.gate(filepath.Join(checks.worktrees, check.ID), check, nil))
+	run := checks.gate(filepath.Join(checks.worktrees, check.ID), check, nil)
+	run.Host = gateTestHost()
+	plan, err := planGate(run)
 	if err != nil {
 		t.Fatalf("plan the gate of node check %s: %v", check.ID, err)
 	}
@@ -53,7 +56,7 @@ func TestNodeChecksResumeEndsADetachedGateWithItsExitOnce(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		_, runErr = f.checks.run(ctx, f.repo, check)
+		_, runErr = f.checks.run(ctx, hostexec.NewLocal(), f.repo, check)
 	}()
 	gateWaitFile(t, started, done)
 	cancel(errGateDetach)
@@ -143,7 +146,7 @@ func TestNodeChecksResumeRunsAnUngrantedCheckFromTheStart(t *testing.T) {
 		t.Fatalf("store AddNodeCheck: %v", err)
 	}
 	left := filepath.Join(f.checks.worktrees, nodeCheckID)
-	if err := addStepWorktree(t.Context(), f.repo, left, f.head); err != nil {
+	if err := addStepWorktree(t.Context(), hostexec.NewLocal(), f.repo, left, f.head); err != nil {
 		t.Fatalf("add the worktree a stop left: %v", err)
 	}
 
@@ -161,6 +164,32 @@ func TestNodeChecksResumeRunsAnUngrantedCheckFromTheStart(t *testing.T) {
 	}
 	if _, err := os.Lstat(left); !errors.Is(err, fs.ErrNotExist) {
 		t.Fatalf("worktree after the check: err = %v, want it removed", err)
+	}
+}
+
+// TestNodeChecksResumeRunsAnUngrantedCheckWhoseWorktreeIsHalfMade stores a running check with no grant whose start
+// stopped inside git worktree add, leaving checked out files at its path and no .git entry. Resume clears the directory,
+// runs the check once, and ends it with its exit and output.
+func TestNodeChecksResumeRunsAnUngrantedCheckWhoseWorktreeIsHalfMade(t *testing.T) {
+	t.Parallel()
+	f := nodeCheckSetup(t)
+	check := nodeCheckOf(f.head, 60, "/bin/sh", "-c", "echo out; exit 0")
+	if err := f.st.AddNodeCheck(t.Context(), check, time.Unix(1700000000, 0)); err != nil {
+		t.Fatalf("store AddNodeCheck: %v", err)
+	}
+	left := filepath.Join(f.checks.worktrees, nodeCheckID)
+	stepWorktreeTestHalfMade(t, left)
+
+	if err := f.checks.Resume(t.Context()); err != nil {
+		t.Fatalf("Resume: %v", err)
+	}
+	nodeCheckEnded(t, f.ended)
+	got := nodeCheckStored(t, f.st)
+	if got.State != store.NodeEnded || got.Exit != 0 || got.NotRun != "" || got.Stdout != "out\n" {
+		t.Fatalf("stored check = %+v, want ended with exit 0 and stdout %q", got, "out\n")
+	}
+	if n := len(f.pools.requested()); n != 1 {
+		t.Fatalf("grant requests = %d, want 1", n)
 	}
 }
 

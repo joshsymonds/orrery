@@ -1,12 +1,12 @@
 import type { JSX } from "preact";
 import { useState } from "preact/hooks";
 
-import { standInWords } from "./convorow";
+import { hungName } from "./epicrow";
 import { Icon, StateGlyph } from "./glyphs";
-import { ageText, clockText, parseTool, quietRow, shortName, stateWaiting, waitingText } from "./inboxrow";
+import { ageText, clockText, glyphStateOf, parseTool, quietRow, shortName, stateWaiting, waitingText } from "./inboxrow";
 import type { Row } from "./rows";
 import { TitleRow } from "./titlerow";
-import { type Convo, changedOf, type Project } from "./tree";
+import { type Convo, changedOf, type Hung, type Project } from "./tree";
 import { projectWaiting } from "./treefilter";
 import { WorkCard, workCardOf } from "./workcard";
 
@@ -119,16 +119,18 @@ function NewHereButton({ grow, onClick }: { grow: boolean; onClick: () => void }
 }
 
 // ConvoLine draws one conversation of the page: a button that opens it, with its state's glyph, its title, what it last
-// said or asks, and its age, and under it a WorkCard for each thing the tree hung under it. A stand-in has no row, so its
-// title is what its conversation is, and it says nothing it last said. A quiet row, waiting but put off or archived, draws
-// the idle glyph, as the inbox row does.
+// said or asks, and its age, and under it a WorkCard for each thing the tree hung under it. A conversation with no row of
+// its own is its one thing: its title is that thing's name, its glyph is the state its card reads, and it says nothing it
+// last said. A quiet row, waiting but put off or archived, draws the idle glyph, as the inbox row does, and a failed row or
+// an unbound pane draws the broken glyph.
 function ConvoLine({ convo, now, onOpen }: { convo: Convo; now: number; onOpen: (key: string) => void }): JSX.Element {
   const row = convo.row;
+  const [thing] = convo.hung;
   return (
     <div class="pconv">
       <button type="button" class="pc-row" data-key={convo.key} onClick={() => onOpen(convo.key)}>
-        <StateGlyph state={row === null ? "" : quietRow(row) ? "idle" : row.state} />
-        <span class="t">{row !== null ? row.label : standInWords(convo.standIn)}</span>
+        <StateGlyph state={row === null ? ownState(thing, now) : glyphStateOf(row)} />
+        <span class="t">{row !== null ? row.label : hungName(thing)}</span>
         {row !== null && <Said row={row} now={now} />}
         <span class="end">
           <span class="id">{ageText(changedOf(convo), now)}</span>
@@ -146,6 +148,16 @@ function ConvoLine({ convo, now, onOpen }: { convo: Convo; now: number; onOpen: 
       )}
     </div>
   );
+}
+
+// ownState is the glyph state of a thing drawn as its own conversation: waiting on you, working, or idle, as its card's
+// tone reads it.
+function ownState(hung: Hung, now: number): string {
+  const tone = workCardOf(hung, now).tone;
+  if (tone === "attention") {
+    return "waiting";
+  }
+  return tone === "live" ? "working" : "idle";
 }
 
 // Said draws what a row last said or asks, in the inbox row's words: a waiting row's question, led by its icon, or else

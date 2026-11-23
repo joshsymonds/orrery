@@ -120,9 +120,9 @@ func registryTarget(status string, from protocol.State) (to protocol.State, move
 	return from, false
 }
 
-// registryWrites returns the writes of the tool, the question, the turn start, then the state and its change time. The
-// tool is the turn's open call, unset when there is none and on done. The state options are written only when the
-// state changes.
+// registryWrites returns the writes of the tool, the question, the hold, the turn start, then the state and its change
+// time. The tool is the turn's open call, unset when there is none and on done. The hold is heldOption's. The state
+// options are written only when the state changes.
 func registryWrites(pane Pane, transition Transition, now time.Time) ([]tmuxctl.OptionWrite, error) {
 	tool, err := toolOption(pane.Turn.Tool, transition.To)
 	if err != nil {
@@ -132,7 +132,7 @@ func registryWrites(pane Pane, transition Transition, now time.Time) ([]tmuxctl.
 	if err != nil {
 		return nil, err
 	}
-	writes := []tmuxctl.OptionWrite{tool, question}
+	writes := []tmuxctl.OptionWrite{tool, question, heldOption(pane)}
 	if pane.Turn.TurnStart != 0 {
 		writes = append(writes, tmuxctl.Set(protocol.OptionTurnStart, strconv.FormatInt(pane.Turn.TurnStart, 10)))
 	}
@@ -143,6 +143,23 @@ func registryWrites(pane Pane, transition Transition, now time.Time) ([]tmuxctl.
 		tmuxctl.Set(protocol.OptionState, string(transition.To)),
 		tmuxctl.Set(protocol.OptionChanged, strconv.FormatInt(now.Unix(), 10)),
 	), nil
+}
+
+// held reports whether pane is held: its registry entry reads busy while its transcript shows its turn ended. Claude
+// Code writes busy while a turn runs or while a background task it started runs a model (an agent, a workflow or a
+// teammate), so a busy session whose turn has ended runs no turn and waits on such a task, whose end starts the turn
+// that ends its work.
+func held(pane Pane) bool {
+	return !pane.Unbound && pane.Status == paneregistry.StatusBusy && pane.Turn.TurnEnd != 0
+}
+
+// heldOption returns the write of the @orrery_held option: the unix seconds of the turn's end while pane is held (see
+// held), and unset otherwise.
+func heldOption(pane Pane) tmuxctl.OptionWrite {
+	if !held(pane) {
+		return tmuxctl.Unset(protocol.OptionHeld)
+	}
+	return tmuxctl.Set(protocol.OptionHeld, strconv.FormatInt(pane.Turn.TurnEnd, 10))
 }
 
 // toolOption returns the write of the @orrery_tool option for the turn's open call tool, which is unset when there is no

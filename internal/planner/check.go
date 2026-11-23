@@ -67,9 +67,10 @@ func Check(ret Return, requirements []string, tasks []store.EpicTask, gate, judg
 }
 
 // checkAmendKeeps returns one refusal for each amend_evidence action of ret whose item changes the conclusion of the
-// Requirement it names, and one for each whose item changes its kind, which only the owner may change: the planner amends
-// how a Requirement is shown, never what it claims or what its kind checks. requirements are the epic's Requirements. An
-// action that names no Requirement of the epic is refused by Check, so it gets no line here.
+// Requirement it names, and one for each whose item changes its kind. Only the owner or the epic's steering
+// conversation may change a conclusion or kind: the planner amends how a Requirement is shown, never what it claims or
+// what its kind checks. requirements are the epic's Requirements. An action that names no Requirement of the epic is
+// refused by Check, so it gets no line here.
 func checkAmendKeeps(ret Return, requirements []store.EpicRequirement) []string {
 	var refusals []string
 	for i, action := range ret.Actions {

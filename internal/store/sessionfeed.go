@@ -7,8 +7,7 @@ import (
 	"fmt"
 	"slices"
 
-	"modernc.org/sqlite"
-	sqlite3 "modernc.org/sqlite/lib"
+	sqlite3 "github.com/mattn/go-sqlite3"
 
 	"github.com/joshsymonds/orrery/internal/store/sqlcgen"
 )
@@ -65,7 +64,7 @@ const stepsTable = "steps"
 // engine_text, caller_events, put_off_questions or prompt_states row any write wrote; and a steps or epic_sessions row
 // an insert or update wrote. A steps row's caller and an epic session's session name nothing when empty
 // (flushSessions).
-func feedsSession(data *sqlite.SQLitePreUpdateData) bool {
+func feedsSession(data *sqlite3.SQLitePreUpdateData) bool {
 	switch data.TableName {
 	case "events":
 		return data.Op == sqlite3.SQLITE_INSERT
@@ -96,7 +95,7 @@ func sessionColumnName(table string) string {
 // and, for an events row, its seq. The pre-update hook has no column names, so the flush finds the session's column
 // among the values by its name (sessionColumnName). A row it cannot read sets the error the flush returns, which fails
 // the write.
-func (m *epicMoves) recordSession(data *sqlite.SQLitePreUpdateData) {
+func (m *epicMoves) recordSession(data *sqlite3.SQLitePreUpdateData) {
 	if data.DatabaseName != "main" || !feedsSession(data) {
 		return
 	}
@@ -105,12 +104,8 @@ func (m *epicMoves) recordSession(data *sqlite.SQLitePreUpdateData) {
 	if !m.armed {
 		return
 	}
-	read := data.New
-	if data.Op == sqlite3.SQLITE_DELETE {
-		read = removedRow(data)
-	}
 	values := make([]any, data.Count())
-	if err := read(values...); err != nil {
+	if err := rowReader(data)(values...); err != nil {
 		m.sessionErr = errors.Join(m.sessionErr, fmt.Errorf("read a written row of %s: %w", data.TableName, err))
 		return
 	}

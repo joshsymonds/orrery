@@ -173,34 +173,10 @@ ORDER BY MAX(known.at) DESC, known.dir;
 SELECT
     sessions.id, sessions.dir, sessions.state, sessions.changed, sessions.seen, sessions.question, sessions.reason,
     sessions.title, sessions.headline, sessions.host,
-    CAST(COALESCE((
-        SELECT json_extract(events.payload, '$.text') FROM events
-        WHERE events.session_id = sessions.id AND events.kind = 'engine_block'
-          AND json_extract(events.payload, '$.kind') = 'text'
-          AND json_extract(events.payload, '$.role') = 'assistant'
-          AND IFNULL(json_extract(events.payload, '$.parentToolUseId'), '') = ''
-        ORDER BY events.at DESC, events.seq DESC LIMIT 1
-    ), '') AS TEXT) AS reply,
-    CAST(COALESCE((
-        SELECT MAX(events.at) FROM events
-        WHERE events.session_id = sessions.id AND (
-            (events.kind = 'engine_block' AND json_extract(events.payload, '$.kind') = 'text'
-             AND json_extract(events.payload, '$.role') = 'assistant'
-             AND IFNULL(json_extract(events.payload, '$.parentToolUseId'), '') = '')
-            OR (events.kind = 'engine_request' AND json_extract(events.payload, '$.refused') IS NOT 1)
-        )
-    ), 0) AS INTEGER) AS newest_reply,
-    CAST(COALESCE((
-        SELECT json_extract(events.payload, '$.text') FROM events
-        WHERE events.session_id = sessions.id AND events.kind = 'engine_prompt'
-        ORDER BY events.seq LIMIT 1
-    ), '') AS TEXT) AS first_prompt,
-    CAST(COALESCE((
-        SELECT json_extract(events.payload, '$.requestId') FROM events
-        WHERE events.session_id = sessions.id AND events.kind = 'engine_request'
-          AND json_extract(events.payload, '$.refused') IS NOT 1
-        ORDER BY events.seq DESC LIMIT 1
-    ), '') AS TEXT) AS request_id
+    sessions.latest_reply AS reply,
+    sessions.newest_reply_at AS newest_reply,
+    sessions.first_prompt_text AS first_prompt,
+    sessions.latest_request_id AS request_id
 FROM sessions
 WHERE sessions.kind = 'engine'
   AND EXISTS (SELECT 1 FROM events WHERE events.session_id = sessions.id AND events.at >= sqlc.arg(cutoff))
@@ -208,8 +184,25 @@ ORDER BY sessions.id;
 
 -- name: UpdateEngineSession :execrows
 UPDATE sessions
-SET state = ?, changed = ?, seen = ?, question = ?, claude_session = ?, reason = ?
+SET state = ?, changed = ?, seen = ?, question = ?, claude_session = ?, reason = ?, held = ?
 WHERE id = ? AND kind IN ('engine', 'step');
+
+-- name: SetSessionLatestReply :exec
+UPDATE sessions
+SET latest_reply = sqlc.arg(latest_reply),
+    newest_reply_at = MAX(newest_reply_at, CAST(sqlc.arg(at) AS INTEGER))
+WHERE id = sqlc.arg(id);
+
+-- name: SetSessionLatestRequest :exec
+UPDATE sessions
+SET latest_request_id = sqlc.arg(request_id),
+    newest_reply_at = MAX(newest_reply_at, CAST(sqlc.arg(at) AS INTEGER))
+WHERE id = sqlc.arg(id);
+
+-- name: SetSessionFirstPrompt :exec
+UPDATE sessions
+SET first_prompt_text = sqlc.arg(text)
+WHERE id = sqlc.arg(id) AND first_prompt_text = '';
 
 -- name: UpdateEngineConsumed :execrows
 UPDATE sessions
@@ -331,8 +324,8 @@ SELECT reason FROM engine_prompt_failed WHERE session_id = ? AND prompt_id = ?;
 INSERT INTO steps (id, agent, prompt, output_schema, workspace, revision, worktree, checkout_head, checkout_hash,
                    done_value, read_only, owned, unowned, gate, gate_name, gate_source, gate_needs, gate_limit,
                    model_limit, started, checks, result, status, end_value, reason, ended, doing, verdicts, epic, task,
-                   loop_stage, loop_stage_from, agents, caller)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '[]', '', '', '', '', 0, '', '[]', ?, ?, ?, ?, ?, ?);
+                   loop_stage, loop_stage_from, agents, caller, host)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '[]', '', '', '', '', 0, '', '[]', ?, ?, ?, ?, ?, ?, ?);
 
 -- name: GetStep :one
 SELECT * FROM steps WHERE id = ?;
@@ -590,14 +583,23 @@ SELECT * FROM told_limit_steps ORDER BY limit_key, step;
 
 -- name: InsertEpic :exec
 INSERT INTO epics (id, repository, base, stored_base, title, approved, intent, care, approach, release_then, checks,
-    phase, created, changed, workflow, workflow_text, workflow_sha256, phase_at, steerer)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+    phase, created, changed, workflow, workflow_text, workflow_sha256, phase_at, steerer, host)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 
 -- name: CountEpic :one
 SELECT COUNT(*) FROM epics WHERE id = ?;
 
 -- name: GetEpic :one
 SELECT * FROM epics WHERE id = ?;
+
+-- name: GetEpicHost :one
+SELECT host FROM epics WHERE id = ?;
+
+-- name: AdoptEpicHosts :exec
+UPDATE epics SET host = ? WHERE host = '';
+
+-- name: AdoptStepHosts :exec
+UPDATE steps SET host = ? WHERE host = '';
 
 -- name: ListEpics :many
 SELECT sqlc.embed(epics), CAST(COALESCE(epic_revisions.revision, 0) AS INTEGER) AS revision
@@ -669,14 +671,11 @@ WHERE id = sqlc.arg(id) AND phase = sqlc.arg(report_phase) AND report_phase <> s
 -- name: MoveEpicStoredBase :exec
 UPDATE epics SET stored_base = ?, candidate = '' WHERE id = ?;
 
--- name: SyncEpicStoredBase :exec
-UPDATE epics SET stored_base = ?, candidate = '', synced = ? WHERE id = ?;
-
--- name: SetEpicOriginRead :exec
-UPDATE epics
-SET origin_read_base = sqlc.arg(base), origin_read_commit = sqlc.arg(commit), origin_read_state = sqlc.arg(state),
-    origin_read_at = sqlc.arg(at)
-WHERE id = sqlc.arg(id);
+-- name: MoveEpicBase :execrows
+UPDATE epics SET base = sqlc.arg(to_base), stored_base = sqlc.arg(to_base)
+WHERE epics.id = sqlc.arg(id) AND epics.base = sqlc.arg(from_base) AND epics.stored_base = sqlc.arg(from_base)
+    AND epics.branch = '' AND epics.candidate = ''
+    AND NOT EXISTS (SELECT 1 FROM epic_tasks WHERE epic_tasks.epic = epics.id);
 
 -- name: SetEpicCandidate :exec
 UPDATE epics SET candidate = ? WHERE id = ?;
@@ -753,30 +752,6 @@ ON CONFLICT (epic, part, position, attempt) DO NOTHING;
 
 -- name: ListEpicReleaseRuns :many
 SELECT * FROM epic_release_runs WHERE epic = ? ORDER BY attempt, part, position;
-
--- name: InsertEpicReleaseSlot :exec
-INSERT INTO epic_release_slots (repository, epic, holder_kind) VALUES (?, ?, 'epic')
-ON CONFLICT (repository) DO NOTHING;
-
--- name: GetEpicReleaseSlotHolder :one
-SELECT * FROM epic_release_slots WHERE repository = ?;
-
--- name: FreeEpicReleaseSlot :exec
-DELETE FROM epic_release_slots WHERE epic = ? AND holder_kind = 'epic';
-
--- name: HoldOutsideReleaseSlot :exec
-INSERT INTO epic_release_slots (repository, epic, holder_kind, label, deadline) VALUES (?, '', 'outside', ?, ?)
-ON CONFLICT (repository) DO UPDATE SET label = excluded.label, deadline = excluded.deadline
-WHERE epic_release_slots.holder_kind = 'outside' AND epic_release_slots.label = excluded.label;
-
--- name: GiveOutsideReleaseSlot :execrows
-DELETE FROM epic_release_slots WHERE repository = ? AND holder_kind = 'outside' AND label = ?;
-
--- name: FreeExpiredReleaseSlots :many
-DELETE FROM epic_release_slots WHERE holder_kind = 'outside' AND deadline <= ? RETURNING repository;
-
--- name: NextOutsideReleaseSlotDeadline :one
-SELECT deadline FROM epic_release_slots WHERE holder_kind = 'outside' ORDER BY deadline LIMIT 1;
 
 -- name: StartEpicRelease :exec
 UPDATE epics SET phase = 'releasing', phase_at = ? WHERE id = ? AND phase = 'clean';
@@ -2030,3 +2005,75 @@ WHERE epic = sqlc.arg(epic) AND path = sqlc.arg(path) AND attempt = sqlc.arg(att
 
 -- name: ListEpicIntegrateRounds :many
 SELECT * FROM integrate_rounds WHERE epic = ? ORDER BY path, attempt, task, round;
+
+-- name: InsertLLMAccount :exec
+INSERT INTO llm_accounts (id, name, provider, plan, token, fingerprint, created) VALUES (?, ?, ?, ?, ?, ?, ?);
+
+-- name: GetLLMAccount :one
+SELECT id, name, provider, plan, fingerprint, created FROM llm_accounts WHERE id = ?;
+
+-- name: ListLLMAccounts :many
+SELECT id, name, provider, plan, fingerprint, created FROM llm_accounts ORDER BY created, id;
+
+-- name: ListLLMAccountIDs :many
+SELECT id FROM llm_accounts ORDER BY id;
+
+-- name: CountLLMAccount :one
+SELECT CAST(COUNT(*) AS INTEGER) FROM llm_accounts WHERE id = ?;
+
+-- name: RenameLLMAccount :execrows
+UPDATE llm_accounts SET name = ? WHERE id = ?;
+
+-- name: DeleteLLMAccount :exec
+DELETE FROM llm_accounts WHERE id = ?;
+
+-- name: ListRouteContextsOfAccount :many
+SELECT id FROM route_contexts WHERE account = ? AND account <> '' ORDER BY id;
+
+-- name: DeleteRouteBindings :exec
+DELETE FROM route_bindings;
+
+-- name: DeleteRouteContexts :exec
+DELETE FROM route_contexts;
+
+-- name: DeleteRouteSeats :exec
+DELETE FROM route_seats;
+
+-- name: DeleteRouteRegistry :exec
+DELETE FROM route_registry;
+
+-- name: InsertRouteRegistry :exec
+INSERT INTO route_registry (id, default_context) VALUES (1, ?);
+
+-- name: GetRouteRegistry :one
+SELECT * FROM route_registry WHERE id = 1;
+
+-- name: InsertRouteSeat :exec
+INSERT INTO route_seats (id, auth_mode, upstream, model, api_key_env_file, aws_profile, aws_region, model_map_env_file,
+                         billing, speed, cache_ttl, insecure, strip_cache_control, strict_structured_output,
+                         max_input_tokens, strip_betas)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+
+-- name: ListRouteSeats :many
+SELECT * FROM route_seats ORDER BY id;
+
+-- name: InsertRouteContext :exec
+INSERT INTO route_contexts (id, default_seat, account, has_subagents, subagent_default_seat) VALUES (?, ?, ?, ?, ?);
+
+-- name: ListRouteContexts :many
+SELECT * FROM route_contexts ORDER BY id;
+
+-- name: CountRouteContext :one
+SELECT CAST(COUNT(*) AS INTEGER) FROM route_contexts WHERE id = ?;
+
+-- name: SetRouteContextAccount :exec
+UPDATE route_contexts SET account = ? WHERE id = ?;
+
+-- name: InsertRouteBinding :exec
+INSERT INTO route_bindings (context, scope, selector, seat) VALUES (?, ?, ?, ?);
+
+-- name: ListRouteBindings :many
+SELECT * FROM route_bindings ORDER BY context, scope, selector;
+
+-- name: ListRouteAccountTokens :many
+SELECT id, token FROM llm_accounts WHERE id IN (SELECT account FROM route_contexts WHERE account <> '') ORDER BY id;

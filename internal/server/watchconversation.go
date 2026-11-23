@@ -386,13 +386,13 @@ func (w *conversationWatch) reset(path string) ([]conversation.Item, int64, erro
 }
 
 // transcriptState returns the goal and the waiting messages of the transcript at path. The waiting messages are idle
-// when pane is done.
+// when pane runs no turn (see protocol.Idle).
 func (w *conversationWatch) transcriptState(pane *v1.Pane, path string) (string, []conversation.Waiting, error) {
 	goal, err := w.panes.goals.Goal(path)
 	if err != nil {
 		return "", nil, transcriptError(err)
 	}
-	idle := pane.GetState() == string(protocol.StateDone)
+	idle := protocol.Idle(protocol.State(pane.GetState()), pane.GetHeld())
 	waiting, err := w.panes.queues.Waiting(path, idle)
 	if err != nil {
 		return "", nil, transcriptError(err)

@@ -198,8 +198,9 @@ type Config struct {
 // Interrupt while a turn runs, until that turn's end, which then sends no notice. ownerInterrupt is set by
 // OwnerInterrupt while a turn runs, until that turn's end or the process's Exited, and marks that turn's end as caused
 // by the owner (see noteTurnEndedLocked). closing is set by Close before it stops the session. The manager's lock
-// guards turning, interrupting, ownerInterrupt, closing, sending, requests, background, awaited, returned, idleSince,
-// idleTimer and idleStopped, and the pump sets exited under it too. requests holds the ids of the requests the host has
+// guards turning, interrupting, ownerInterrupt, closing, sending, requests, background, awaited, agents, held, returned,
+// idleSince, idleTimer and idleStopped, and the pump sets exited under it too. requests holds the ids of the requests the
+// host has
 // open, background is set while a background task runs, awaited while one of those tasks runs a model (see
 // awaitsTask), idleSince is when the session last became not busy (zero while it is busy), idleTimer is the function
 // that stops the timer armed for the session's idle deadline (nil while none is armed), and idleStopped is set when a
@@ -210,7 +211,10 @@ type Config struct {
 // no turn, request or background task runs and it owes no answer, and retired is set once it has. stopped is closed
 // once the stop of a retired session returns, which is once its holder has ended and its directory is removed. sending
 // counts the sends of a prompt that markSending or claimStep began and send has not ended, so a draining session is
-// not retired between the start of a send and its end.
+// not retired between the start of a send and its end. held is set when a turn of a session that is not a step ends
+// while a task that runs a model is listed (see agents and noteTurnEndedLocked): no turn runs, and the session stays
+// working, not done, until the turn claude starts when the task ends. Anything that marks a turn running clears it, and
+// so does an exit, the owner's interrupt and an idle stop; the manager's lock guards it.
 type liveSession struct {
 	id             string
 	dir            string
@@ -235,10 +239,18 @@ type liveSession struct {
 	requests       map[string]struct{}
 	background     bool
 	awaited        bool
-	returned       bool
-	idleSince      time.Time
-	idleTimer      func() bool
-	idleStopped    bool
+	// agents is set while a listed background task runs a model (see awaitsTask), which a turn's end of a session that
+	// is not a step is held by (see held).
+	agents bool
+	// bashCalls holds the top-level Bash tool calls of the running turn, by tool use id, and commandTasks the background
+	// tasks such a call started, by task id: a command run with run_in_background, which a step waits for (see awaitsCommand).
+	bashCalls    map[string]struct{}
+	commandTasks map[string]struct{}
+	held         bool
+	returned     bool
+	idleSince    time.Time
+	idleTimer    func() bool
+	idleStopped  bool
 	// order is held by the pump while it records a line, by Answer from its send until it has queued the working state, so
 	// every op an answer causes is queued after that state, and by deliver while it decides and writes a message, so the
 	// pump's turn ends and those decisions never interleave.
@@ -1126,6 +1138,7 @@ func (m *Manager) claimCron(ctx context.Context, id string, message store.Engine
 		return nil, ErrCallerQuiet
 	}
 	live.turning = true
+	live.held = false
 	live.sending++
 	m.updateIdleLocked(live)
 	return func() error { return m.send(ctx, live, message) }, nil
@@ -1301,7 +1314,8 @@ func (m *Manager) respawnStep(ctx context.Context, id string) (*liveSession, err
 	if err = checkDir(row.Dir); err != nil {
 		return nil, errors.Join(err, m.writeFailed(ctx, id, err))
 	}
-	if err = m.resolveStepAgent(StepSession{ID: id, Dir: row.Dir, Agent: step.Agent, Agents: step.Agents}); err != nil {
+	session := StepSession{ID: id, Dir: row.Dir, Agent: step.Agent, Agents: step.Agents}
+	if err = m.resolveStepAgent(ctx, session); err != nil {
 		return nil, errors.Join(err, m.writeFailed(ctx, id, err))
 	}
 	m.mu.Lock()
@@ -1413,7 +1427,8 @@ func (m *Manager) Interrupt(ctx context.Context, id string) error {
 // OwnerInterrupt is the owner's Interrupt of the live session id (see Interrupt), which also records it, and cancels the
 // owner's messages Claude has queued. The quiet is set, and the interrupt is recorded as an engine_interrupt that says
 // whether a turn runs (see recordOwnerInterrupt). A turn that runs is then marked as the owner's, so its end is recorded as
-// ownerInterrupted. The interrupt asks Claude to cancel its queue as well (cancel_queued) and waits for Claude's reply,
+// ownerInterrupted. A session that a task that runs a model held working with no turn running is recorded done once the
+// interrupt is sent (see releaseHeld). The interrupt asks Claude to cancel its queue as well (cancel_queued) and waits for Claude's reply,
 // which lists the write ids it cancelled. It returns the texts of the owner's prompts among them, in send order, so the
 // owner can take them back. A caller event's text is never among them. Nothing is stored for the cancellation: Claude's
 // cancelled lifecycle lines make each cancelled prompt answered (see the recorder). When the interrupt fails, it is
@@ -1445,7 +1460,36 @@ func (m *Manager) OwnerInterrupt(ctx context.Context, id string) ([]string, erro
 		m.recordFailedInterrupt(ctx, live)
 		return nil, err
 	}
+	if err = m.releaseHeld(ctx, live); err != nil {
+		return nil, fmt.Errorf("interrupt session %s: %w", id, err)
+	}
 	return m.ownerTexts(ctx, id, cancelled)
+}
+
+// releaseHeld records live done when a task that runs a model held it working and no turn runs: the owner's interrupt between
+// turns stops the session's background agents and workflows, and claude starts no turn after it, so no turn's end would
+// end the hold. It tells the owner the session changed, and sends no notice, as an interrupted turn's end sends none. A
+// session that is not held is left as it is. It writes under the session's order lock, as recordOwnerInterrupt does.
+func (m *Manager) releaseHeld(ctx context.Context, live *liveSession) error {
+	live.order.Lock()
+	defer live.order.Unlock()
+	m.mu.Lock()
+	held := live.held && !live.turning
+	live.held = false
+	m.mu.Unlock()
+	if !held {
+		return nil
+	}
+	done := string(protocol.StateDone)
+	if err := m.writer.Commit(
+		ctx,
+		live.id,
+		store.EngineSet{ID: live.id, Changes: store.EngineChanges{State: &done}},
+	); err != nil {
+		return fmt.Errorf("record held session done: %w", err)
+	}
+	m.changed(ctx, live.id)
+	return nil
 }
 
 // Decline is the owner's decline of the open question or permission request requestID of the live session id. It
@@ -1788,16 +1832,21 @@ func (m *Manager) register(
 }
 
 // prime builds the state of live, a re-adopted session not yet registered, from re. Its turn runs when its row is
-// working or waiting, and its background and awaited flags are the row's. Each replayed line goes through noteEvent and
-// the recorder with the ops discarded, so the requests it leaves open, its unfinished text and its reply are those the
+// waiting, or working and not held, and its held, background and awaited flags are the row's. Its agents flag is the
+// row's awaited flag too, the one record the store keeps of its listed tasks, until a replayed or later background-task
+// report sets it. Each replayed line goes through noteEvent and the recorder with the ops discarded, so the requests it
+// leaves open, its unfinished text and its reply are those the
 // replay gives. A waiting row with no request open goes working with no question. Each prompt the holder has not
 // written is sent in order, marking the turn running. It returns the reply the pump starts from.
 func (m *Manager) prime(ctx context.Context, live *liveSession, rec *recorder, re *readoption) (string, error) {
 	row := re.row
 	m.mu.Lock()
-	live.turning = row.State == string(protocol.StateWorking) || row.State == string(protocol.StateWaiting)
+	live.turning = (row.State == string(protocol.StateWorking) && !row.Held) ||
+		row.State == string(protocol.StateWaiting)
+	live.held = row.Held
 	live.background = row.Background
 	live.awaited = row.Awaited
+	live.agents = row.Awaited
 	m.updateIdleLocked(live)
 	m.mu.Unlock()
 	reply := m.replay(live, rec, re.lines)
@@ -1979,10 +2028,10 @@ func (m *Manager) idleDeadline() {
 
 // checkIdle stops each live session that has been not busy for the idle timeout by the clock, and waits for its pump to
 // end. A session is busy while a turn runs, a request is open, or a background task runs. The stop records
-// nothing, so the session's row and events stay as they were. The session is taken out of the live set under the lock
-// before it is stopped, and the lock of its host is held through the stop (see stopIdle), so a Say that finds no live session
-// waits, then resumes it from its row. A session whose deadline timer fires before it is due, or fires after it turned
-// busy, is not stopped.
+// nothing, so the session's row and events stay as they were, except for a session still held working, which is
+// recorded done (see settleIdleHeld). The session is taken out of the live set under the lock before it is stopped, and
+// the lock of its host is held through the stop (see stopIdle), so a Say that finds no live session waits, then resumes
+// it from its row. A session whose deadline timer fires before it is due, or fires after it turned busy, is not stopped.
 func (m *Manager) checkIdle(ctx context.Context) {
 	defer m.calls.enter()()
 	now := m.now()
@@ -2002,7 +2051,8 @@ func (m *Manager) checkIdle(ctx context.Context) {
 
 // stopIdle stops session id if it is still due at now, as checkIdle found it. The lock of id's host is held through the
 // stop (see lockOf), so a Say that finds no live session waits for it, then resumes the session from its row. The session is
-// taken out of the live set under the lock before it is stopped, and the stop records nothing.
+// taken out of the live set under the lock before it is stopped, and the stop records nothing, except that a session still
+// held working is recorded done (see settleIdleHeld).
 func (m *Manager) stopIdle(ctx context.Context, id string, now time.Time) {
 	lock := m.lockOf(ctx, id)
 	lock.Lock()
@@ -2014,6 +2064,8 @@ func (m *Manager) stopIdle(ctx context.Context, id string, now time.Time) {
 		return
 	}
 	live.idleStopped = true
+	held := live.held
+	live.held = false
 	delete(m.sessions, id)
 	m.disarmIdleLocked(live)
 	m.mu.Unlock()
@@ -2025,6 +2077,25 @@ func (m *Manager) stopIdle(ctx context.Context, id string, now time.Time) {
 	if err := m.waitPump(ctx, live); err != nil {
 		m.logger.WarnContext(ctx, "wait for idle session", "session", live.id, "err", err)
 	}
+	if held {
+		m.settleIdleHeld(ctx, live)
+	}
+}
+
+// settleIdleHeld records live done, a session the idle check stopped while it was still held working: the task that held
+// it ended with no turn after it, so nothing runs and no turn's end will end the hold. The owner gets the done notice that
+// turn's end would have sent, with no body. A failed write is logged and sends nothing.
+func (m *Manager) settleIdleHeld(ctx context.Context, live *liveSession) {
+	done := string(protocol.StateDone)
+	if err := m.writer.Commit(
+		ctx,
+		live.id,
+		store.EngineSet{ID: live.id, Changes: store.EngineChanges{State: &done}},
+	); err != nil {
+		m.logger.WarnContext(ctx, "record idle held session done", "session", live.id, "err", err)
+		return
+	}
+	m.notify(ctx, live.id, live.dir, string(protocol.StateDone), "")
 }
 
 // busy reports whether live has a turn running, an open request, a background task, or a hand-off the next prompt has
@@ -2098,6 +2169,7 @@ func (m *Manager) markSending(live *liveSession) bool {
 	defer m.mu.Unlock()
 	wasTurning := live.turning
 	live.turning = true
+	live.held = false
 	live.sending++
 	m.updateIdleLocked(live)
 	return wasTurning
@@ -2301,27 +2373,32 @@ func (m *Manager) pump(ctx context.Context, live *liveSession, rec *recorder, re
 }
 
 // eventOps returns the store ops that record event, as rec gives them. A turn's end that another turn follows leaves
-// the session working (see recorder.followedTurnEnd), and one the owner's interrupt caused is recorded as such.
-func eventOps(rec *recorder, event session.Event, followed, ownerInterrupted bool) []store.EngineOp {
+// the session working (see recorder.followedTurnEnd), and so does one a task that runs a model holds (see
+// recorder.heldTurnEnd);
+// one the owner's interrupt caused is recorded as such.
+func eventOps(rec *recorder, event session.Event, note noted) []store.EngineOp {
 	ended, ok := event.(session.TurnEnded)
 	switch {
 	case !ok:
 		return rec.ops(event)
-	case followed:
-		return rec.followedTurnEnd(ended, ownerInterrupted)
+	case note.followed:
+		return rec.followedTurnEnd(ended, note.ownerInterrupted)
+	case note.held:
+		return rec.heldTurnEnd(ended)
 	default:
-		return rec.turnEnd(ended, protocol.StateDone, ownerInterrupted)
+		return rec.turnEnd(ended, protocol.StateDone, note.ownerInterrupted)
 	}
 }
 
 // recordedEvent is an event of a line the pump has recorded, with what its owner notice and observer call need: the
-// reply as of that event, and the interrupted, handed, followed, opened and idle results of noteEvent for it.
+// reply as of that event, and the interrupted, handed, followed, held, opened and idle results of noteEvent for it.
 type recordedEvent struct {
 	event       session.Event
 	reply       string
 	interrupted bool
 	handed      bool
 	followed    bool
+	held        bool
 	opened      bool
 	idle        bool
 }
@@ -2368,13 +2445,13 @@ func (m *Manager) lineOps(
 		if note.opened {
 			ops = append(ops, rec.turnOpened()...)
 		}
-		ops = append(ops, eventOps(rec, event, note.followed, note.ownerInterrupted)...)
+		ops = append(ops, eventOps(rec, event, note)...)
 		if text, ok := mainText(event); ok {
 			reply = text
 		}
 		recorded = append(recorded, recordedEvent{
 			event: event, reply: reply, interrupted: note.interrupted, handed: note.handed, followed: note.followed,
-			opened: note.opened, idle: note.idle,
+			held: note.held, opened: note.opened, idle: note.idle,
 		})
 		if _, ended := event.(session.TurnEnded); ended {
 			reply = ""
@@ -2384,13 +2461,20 @@ func (m *Manager) lineOps(
 }
 
 // storeLine stores the ops of one line of live in one write, with the line's consumed offset when it holds one, and reports
-// whether the write succeeded. A line that holds a turn's end waits until the store has the ops, and the session's
-// replay-from is then set to the line's end.
+// whether the write succeeded. A line that lists the background tasks stores whether live awaits one as noteEvent judged
+// it, which knows the commands a Bash call started (see awaitsCommand). A line that holds a turn's end waits until the
+// store has the ops, and the session's replay-from is then set to the line's end.
 func (m *Manager) storeLine(ctx context.Context, live *liveSession, line session.Line, ops []store.EngineOp) bool {
 	ended := false
 	if !holdsExit(line) {
 		var consumed store.EngineConsumed
 		consumed, ended = consumedOf(live.id, line)
+		if consumed.Awaited != nil {
+			m.mu.Lock()
+			awaited := live.awaited
+			m.mu.Unlock()
+			consumed.Awaited = &awaited
+		}
 		ops = append(ops, consumed)
 	}
 	written := true
@@ -2405,15 +2489,15 @@ func (m *Manager) storeLine(ctx context.Context, live *liveSession, line session
 }
 
 // tellRecorded tells the owner of live of each recorded event when the line's write succeeded, and gives the observer
-// every one either way. A followed turn end leaves the session working, so it tells the owner nothing: the turn after it
-// does. An event that opened a turn claude started by itself first tells the owner the session changed, since it left
-// done for working.
+// every one either way. A followed or held turn end leaves the session working, so it tells the owner nothing: the turn
+// after it does. An event that opened a turn claude started by itself first tells the owner the session changed, since
+// it left done for working.
 func (m *Manager) tellRecorded(ctx context.Context, live *liveSession, recorded []recordedEvent, written bool) {
 	for _, rec := range recorded {
 		if written && rec.opened && !live.step {
 			m.changed(ctx, live.id)
 		}
-		if written && !rec.followed {
+		if written && !rec.followed && !rec.held {
 			m.tellOwner(ctx, live, rec.event, rec.reply, rec.interrupted)
 		}
 		observe(live, rec.event, rec.handed)
@@ -2495,10 +2579,13 @@ func initNamesAgent(agents []string, agent string) bool {
 	return false
 }
 
-// setTurning sets whether live has a turn running.
+// setTurning sets whether live has a turn running. A running turn clears held.
 func (m *Manager) setTurning(live *liveSession, turning bool) {
 	m.mu.Lock()
 	live.turning = turning
+	if turning {
+		live.held = false
+	}
 	m.updateIdleLocked(live)
 	m.mu.Unlock()
 }
@@ -2513,11 +2600,12 @@ func (m *Manager) setInterrupting(live *liveSession, interrupting bool) {
 
 // noted is what noteEvent reports of an event: whether the pump records it; for a turn's end, whether that turn was
 // interrupted through Interrupt, whether the owner's OwnerInterrupt caused it, whether it is handed to the step's
-// observer, and whether another turn follows it; whether the event opens a turn that claude started by itself; and
-// whether a turn's end leaves a session that is not a step with no turn running, for which the cron hook is called once
-// the end is stored (see recordLine).
+// observer, whether another turn follows it, and whether a task that runs a model holds the session working (see
+// noteTurnEndedLocked); whether the event opens a turn that claude started by itself; and whether a turn's end leaves a
+// session that is not a step with no turn running, for which the cron hook is called once the end is stored (see
+// recordLine).
 type noted struct {
-	record, interrupted, ownerInterrupted, handed, followed, opened, idle bool
+	record, interrupted, ownerInterrupted, handed, followed, held, opened, idle bool
 }
 
 // opensTurn reports whether event is one only a running turn gives: its init, its streamed or finished content, a tool
@@ -2564,11 +2652,16 @@ func (m *Manager) noteEvent(live *liveSession, event session.Event, pumping bool
 	opened := false
 	if pumping && opensTurn(event) && !live.turning {
 		live.turning = true
+		live.held = false
 		opened = true
+	}
+	if live.noteTaskEvent(event) {
+		return noted{record: true, opened: opened}
 	}
 	switch ev := event.(type) {
 	case session.Started:
 		live.turning = true
+		live.held = false
 	case session.Request:
 		if !ev.Refused && !ev.Answered {
 			live.requests[ev.RequestID] = struct{}{}
@@ -2577,17 +2670,19 @@ func (m *Manager) noteEvent(live *liveSession, event session.Event, pumping bool
 		_, open := live.requests[ev.RequestID]
 		delete(live.requests, ev.RequestID)
 		m.wakeIfNoneOpen(live, open)
-	case session.BackgroundTasks:
-		live.background = len(ev.Tasks) > 0
-		live.awaited = awaitsTask(ev.Tasks)
 	case session.TurnEnded:
+		clear(live.bashCalls)
 		return m.noteTurnEndedLocked(live, ev, pumping)
 	case session.Exited:
 		live.turning = false
+		live.held = false
 		live.ownerInterrupt = false
 		clear(live.requests)
+		clear(live.bashCalls)
+		clear(live.commandTasks)
 		live.background = false
 		live.awaited = false
+		live.agents = false
 		if live.closing || live.idleStopped || live.retired {
 			return noted{}
 		}
@@ -2598,7 +2693,10 @@ func (m *Manager) noteEvent(live *liveSession, event session.Event, pumping bool
 
 // noteTurnEndedLocked tracks the end of a turn of live, as noteEvent gives it. A turn's end that a prompt the session counts
 // as sent still follows is followed: the turn stays running, since claude runs that prompt next. Any other turn's end ends
-// the turn, hands a step's turn to its observer and retires a draining session. The caller holds the lock.
+// the turn, hands a step's turn to its observer and retires a draining session. The end of a turn of a session that is
+// not a step, while a task that runs a model is listed (see awaitsTask), is held unless an Interrupt caused it: the
+// session is left working with no turn running, since the task's end starts a turn of claude's own, and that turn's end is the one that
+// tells the owner. The caller holds the lock.
 func (m *Manager) noteTurnEndedLocked(live *liveSession, ended session.TurnEnded, pumping bool) noted {
 	hadOpen := len(live.requests) > 0
 	clear(live.requests)
@@ -2611,6 +2709,7 @@ func (m *Manager) noteTurnEndedLocked(live *liveSession, ended session.TurnEnded
 		return noted{record: true, interrupted: interrupted, ownerInterrupted: ownerInterrupted, followed: true}
 	}
 	live.turning = false
+	live.held = !live.step && live.agents && !interrupted
 	handed := false
 	if live.observer != nil && (!live.awaited || live.observer.Done(ended)) {
 		live.returned = true
@@ -2618,7 +2717,8 @@ func (m *Manager) noteTurnEndedLocked(live *liveSession, ended session.TurnEnded
 	}
 	m.retireLocked(live)
 	return noted{
-		record: true, interrupted: interrupted, ownerInterrupted: ownerInterrupted, handed: handed, idle: !live.step,
+		record: true, interrupted: interrupted, ownerInterrupted: ownerInterrupted, handed: handed, held: live.held,
+		idle: !live.step,
 	}
 }
 
@@ -2785,10 +2885,11 @@ func (m *Manager) recordStopped(ctx context.Context, live *liveSession) error {
 }
 
 // recordClosed waits for the pump of live to finish, then records live as Close leaves it: interrupted with the reason
-// when its turn was running, and otherwise in the state its turn gave it. Either way its unfinished text is removed,
-// each background task still running is recorded stopped, and each prompt claude had not started is recorded discarded.
-// An interruption notifies the owner. A session whose exit already recorded its state is left alone. Where Close only
-// detaches the session (see detaches), nothing is recorded for it. It returns the error of the wait or of the write.
+// when its turn was running or a task that runs a model held it working, since the stop ends that task, and otherwise
+// in the state its turn gave it. Either way its unfinished text is removed, each background task still running is
+// recorded stopped, and each prompt claude had not started is recorded discarded. An interruption notifies the owner. A
+// session whose exit already recorded its state is left alone. Where Close only detaches the session (see detaches),
+// nothing is recorded for it. It returns the error of the wait or of the write.
 func (m *Manager) recordClosed(ctx context.Context, live *liveSession) error {
 	if err := m.waitPump(ctx, live); err != nil {
 		return err
@@ -2797,7 +2898,7 @@ func (m *Manager) recordClosed(ctx context.Context, live *liveSession) error {
 		return nil
 	}
 	m.mu.Lock()
-	turning := live.turning
+	turning := live.turning || live.held
 	m.mu.Unlock()
 	ops := append(live.rec.stoppedTasks(), store.EngineTextClear{ID: live.id}, store.EnginePromptsDiscard{ID: live.id})
 	if turning {

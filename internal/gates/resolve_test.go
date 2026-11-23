@@ -11,6 +11,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/joshsymonds/orrery/internal/hostexec"
 )
 
 // resolveEnv returns a getenv that names a fresh HOME and XDG_CONFIG_HOME, so no machine pool file is read.
@@ -51,7 +53,7 @@ func TestResolveFindsEpicGate(t *testing.T) {
 	dir := t.TempDir()
 	gatesFile := writeFile(t, filepath.Join(dir, "gates.toml"), epicAlpha())
 
-	got, err := Resolve(context.Background(), "alpha", gatesFile, dir, resolveEnv(t))
+	got, err := Resolve(context.Background(), hostexec.NewLocal(), "alpha", gatesFile, dir, resolveEnv(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -75,7 +77,7 @@ func TestResolveFindsProjectOnlyGateFromProjectFile(t *testing.T) {
 	gatesFile := writeFile(t, filepath.Join(dir, "gates.toml"), epicAlpha())
 	pf := writeFile(t, projectPath(dir), projectBeta())
 
-	got, err := Resolve(context.Background(), "beta", gatesFile, dir, resolveEnv(t))
+	got, err := Resolve(context.Background(), hostexec.NewLocal(), "beta", gatesFile, dir, resolveEnv(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -99,7 +101,7 @@ func TestResolvePrefersGatesFileWhenBothDefineName(t *testing.T) {
 	gatesFile := writeFile(t, filepath.Join(dir, "gates.toml"), epicAlpha())
 	writeFile(t, projectPath(dir), file(table("gates.alpha", `argv = ["/opt/tools/project"]`, `limit = 60`)))
 
-	got, err := Resolve(context.Background(), "alpha", gatesFile, dir, resolveEnv(t))
+	got, err := Resolve(context.Background(), hostexec.NewLocal(), "alpha", gatesFile, dir, resolveEnv(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -115,7 +117,7 @@ func TestResolveEmptyGatesFileReadsProjectFileAlone(t *testing.T) {
 	dir := t.TempDir()
 	pf := writeFile(t, projectPath(dir), projectBeta())
 
-	got, err := Resolve(context.Background(), "beta", "", dir, resolveEnv(t))
+	got, err := Resolve(context.Background(), hostexec.NewLocal(), "beta", "", dir, resolveEnv(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -132,7 +134,7 @@ func TestResolveRefusesNameNeitherFileDefines(t *testing.T) {
 	gatesFile := writeFile(t, filepath.Join(dir, "gates.toml"), epicAlpha())
 	pf := writeFile(t, projectPath(dir), projectBeta())
 
-	got, err := Resolve(context.Background(), "gamma", gatesFile, dir, resolveEnv(t))
+	got, err := Resolve(context.Background(), hostexec.NewLocal(), "gamma", gatesFile, dir, resolveEnv(t))
 	if !errors.Is(err, ErrUnknown) {
 		t.Fatalf("Resolve error = %v, want one wrapping ErrUnknown", err)
 	}
@@ -149,7 +151,7 @@ func TestResolveRefusesNameNeitherFileDefines(t *testing.T) {
 func TestResolveRefusesNameWithNoFilesAtAll(t *testing.T) {
 	dir := t.TempDir()
 
-	_, err := Resolve(context.Background(), "gamma", "", dir, resolveEnv(t))
+	_, err := Resolve(context.Background(), hostexec.NewLocal(), "gamma", "", dir, resolveEnv(t))
 	if !errors.Is(err, ErrUnknown) {
 		t.Fatalf("Resolve error = %v, want one wrapping ErrUnknown", err)
 	}
@@ -160,7 +162,7 @@ func TestResolveRefusesMissingGatesFileEvenWhenProjectDefinesName(t *testing.T) 
 	writeFile(t, projectPath(dir), projectBeta())
 	missing := filepath.Join(dir, "missing.toml")
 
-	got, err := Resolve(context.Background(), "beta", missing, dir, resolveEnv(t))
+	got, err := Resolve(context.Background(), hostexec.NewLocal(), "beta", missing, dir, resolveEnv(t))
 	if !errors.Is(err, fs.ErrNotExist) {
 		t.Fatalf("Resolve error = %v, want the missing gates file", err)
 	}
@@ -180,7 +182,7 @@ func TestResolveReturnsGatesFileParseErrorAsIs(t *testing.T) {
 		t.Fatal("ParseFile accepted the malformed file")
 	}
 
-	_, err := Resolve(context.Background(), "alpha", gatesFile, dir, resolveEnv(t))
+	_, err := Resolve(context.Background(), hostexec.NewLocal(), "alpha", gatesFile, dir, resolveEnv(t))
 	if err == nil || err.Error() != want.Error() {
 		t.Fatalf("Resolve error = %v, want the parse error %v", err, want)
 	}
@@ -197,7 +199,7 @@ func TestResolveReturnsProjectFileParseErrorAsIs(t *testing.T) {
 		t.Fatal("ParseProject accepted the malformed file")
 	}
 
-	_, err := Resolve(context.Background(), "alpha", "", dir, resolveEnv(t))
+	_, err := Resolve(context.Background(), hostexec.NewLocal(), "alpha", "", dir, resolveEnv(t))
 	if err == nil || err.Error() != want.Error() {
 		t.Fatalf("Resolve error = %v, want the parse error %v", err, want)
 	}
@@ -211,7 +213,7 @@ func TestResolveFromGatesFileDoesNotDiscover(t *testing.T) {
 	gatesFile := writeFile(t, filepath.Join(dir, "gates.toml"), epicAlpha())
 	noEnv := func(string) string { return "" }
 
-	got, err := Resolve(context.Background(), "alpha", gatesFile, dir, noEnv)
+	got, err := Resolve(context.Background(), hostexec.NewLocal(), "alpha", gatesFile, dir, noEnv)
 	if err != nil {
 		t.Fatalf("Resolve error = %v; Discover ran though the gates file defines the name", err)
 	}
@@ -235,7 +237,9 @@ func TestResolveDefinedPrefersEpicDataOverProjectFile(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, projectPath(dir), file(table("gates.alpha", `argv = ["/opt/tools/project"]`, `limit = 60`)))
 
-	got, err := ResolveDefined(context.Background(), "alpha", []Gate{alphaGate()}, dir, resolveEnv(t))
+	got, err := ResolveDefined(
+		context.Background(), hostexec.NewLocal(), "alpha", []Gate{alphaGate()}, dir, resolveEnv(t),
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -249,7 +253,9 @@ func TestResolveDefinedDoesNotReadProjectFileForEpicGate(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, projectPath(dir), malformedToml)
 
-	got, err := ResolveDefined(context.Background(), "alpha", []Gate{alphaGate()}, dir, resolveEnv(t))
+	got, err := ResolveDefined(
+		context.Background(), hostexec.NewLocal(), "alpha", []Gate{alphaGate()}, dir, resolveEnv(t),
+	)
 	if err != nil {
 		t.Fatalf("ResolveDefined error = %v; the project file was read though the epic data defines the name", err)
 	}
@@ -263,7 +269,14 @@ func TestResolveDefinedFindsProjectOnlyGateFromProjectFile(t *testing.T) {
 	dir := t.TempDir()
 	pf := writeFile(t, projectPath(dir), projectBeta())
 
-	got, err := ResolveDefined(context.Background(), "beta", []Gate{alphaGate()}, dir, resolveEnv(t))
+	got, err := ResolveDefined(
+		context.Background(),
+		hostexec.NewLocal(),
+		"beta",
+		[]Gate{alphaGate()},
+		dir,
+		resolveEnv(t),
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -277,7 +290,14 @@ func TestResolveDefinedRefusesNameNeitherSourceDefines(t *testing.T) {
 	dir := t.TempDir()
 	pf := writeFile(t, projectPath(dir), projectBeta())
 
-	got, err := ResolveDefined(context.Background(), "gamma", []Gate{alphaGate()}, dir, resolveEnv(t))
+	got, err := ResolveDefined(
+		context.Background(),
+		hostexec.NewLocal(),
+		"gamma",
+		[]Gate{alphaGate()},
+		dir,
+		resolveEnv(t),
+	)
 	if !errors.Is(err, ErrUnknown) {
 		t.Fatalf("ResolveDefined error = %v, want one wrapping ErrUnknown", err)
 	}
@@ -309,8 +329,8 @@ func TestResolveDefinedNilDefinedBehavesAsResolveWithNoGatesFile(t *testing.T) {
 			}
 			env := resolveEnv(t)
 
-			got, err := ResolveDefined(context.Background(), tc.name, nil, dir, env)
-			want, wantErr := Resolve(context.Background(), tc.name, "", dir, env)
+			got, err := ResolveDefined(context.Background(), hostexec.NewLocal(), tc.name, nil, dir, env)
+			want, wantErr := Resolve(context.Background(), hostexec.NewLocal(), tc.name, "", dir, env)
 			if !reflect.DeepEqual(got, want) {
 				t.Fatalf("ResolveDefined = %+v, want Resolve's %+v", got, want)
 			}

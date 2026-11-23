@@ -266,6 +266,33 @@ func TestReleaseStepDoneWithListedCommitRecordsPassedBeforeNextStep(t *testing.T
 	}
 }
 
+// TestReleaseStepThatMergesPasses: a release step is the epic's step and nothing more, so one that ends done after
+// adding a merge commit, as a step that merges a moved main does, is recorded as passed, and the next step starts at
+// the merge.
+func TestReleaseStepThatMergesPasses(t *testing.T) {
+	t.Parallel()
+	w := newReleaseWorld(t, &recordingEnding{})
+	mergeRemote(t, w.repo)
+	nodeEpicBranch(t, w.repo, "epic.txt")
+	w.createEpic(runEpic, store.PhaseClean, tagStep(), publishStep())
+	w.pass()
+	start := runAt(t, w.s, releaseNodePath).Revision
+	id := w.stepID(1)
+	merge := mergeSideCommit(t, w.stepWorktree(id), start)
+	w.endStep(id, "done", "done", map[string]any{
+		"status": "done", "commits": []string{merge}, "evidence": "merged the moved main",
+	})
+	w.pass()
+
+	runs := releaseRunsOf(w.flowOf(runEpic).Releases, store.ReleasePartStep)
+	if len(runs) != 1 || !runs[0].Passed || runs[0].Reason != "" || runs[0].Head != merge {
+		t.Errorf("step runs = %+v, want one passed run with HEAD the merge %s", runs, merge)
+	}
+	if len(w.fakes.steps.calls) != 2 || w.fakes.steps.calls[1].Revision != merge {
+		t.Errorf("step starts = %+v, want the second release step started at the merge %s", w.fakes.steps.calls, merge)
+	}
+}
+
 // TestReleaseContinueWhenListedCommitsDifferFromAdded: a release step that ends done and added commits, but lists none
 // of them or lists a commit it did not add, is recorded as passed, since the judge checks the postconditions itself.
 // The release continues and the next step starts.
@@ -319,9 +346,10 @@ func TestReleaseContinueWhenListedCommitsDifferFromAdded(t *testing.T) {
 	}
 }
 
-// TestReleaseStepFailureStopsReleaseNamingIt: a release step whose end is not done, whose HEAD does not descend from
-// its start, or that added a merge, is recorded as failed with the reason named. The release stops there and the next
-// step does not start.
+// TestReleaseStepFailureStopsReleaseNamingIt: a release step whose end is not done, or whose HEAD does not descend from
+// its start, is recorded as failed with the reason named. While origin's main is in the first step's start, the
+// release stops there and the next step does not start. A first step that fails after origin's main moved past its
+// start is not recorded so, as TestReleaseMainMoved shows.
 func TestReleaseStepFailureStopsReleaseNamingIt(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
@@ -344,14 +372,6 @@ func TestReleaseStepFailureStopsReleaseNamingIt(t *testing.T) {
 				return []string{}
 			},
 			reason: "does not descend from the step's start",
-		},
-		{
-			name: "merge commit added", end: "done", status: "done",
-			do: func(t *testing.T, wt, start string) []string {
-				t.Helper()
-				return []string{mergeSideCommit(t, wt, start)}
-			},
-			reason: "added a merge commit",
 		},
 	}
 	for _, tc := range cases {
@@ -385,8 +405,8 @@ func TestReleaseStepFailureStopsReleaseNamingIt(t *testing.T) {
 }
 
 // TestReleaseStepWorktreeGoneRecordsFailure: a release step whose worktree is gone when its end is recorded is recorded
-// failed and the release stops there. A step that ended done names the worktree as gone, since its HEAD cannot be
-// read. A step that did not end done is named by its end, which needs no HEAD.
+// failed and, while origin's main is in its start, the release stops there. A step that ended done names the worktree
+// as gone, since its HEAD cannot be read. A step that did not end done is named by its end, which needs no HEAD.
 func TestReleaseStepWorktreeGoneRecordsFailure(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
@@ -660,6 +680,21 @@ func TestReleasePostconditionsShown(t *testing.T) {
 		prompt := releaseStepPrompt(tagStep(), "0123abcd", releaseThen)
 		if !strings.Contains(prompt, judgeParagraph) {
 			t.Errorf("prompt = %q, want it to hold %q", prompt, judgeParagraph)
+		}
+	})
+	t.Run("a release step's prompt does not forbid a merge the epic's step asks for", func(t *testing.T) {
+		t.Parallel()
+		prompt := releaseStepPrompt(tagStep(), "0123abcd", releaseThen)
+		if strings.Contains(strings.ToLower(prompt), "merge") {
+			t.Errorf("prompt = %q, want no rule about merging: the release is the epic's steps and nothing more",
+				prompt)
+		}
+	})
+	t.Run("a release step's prompt adds no condition of CI to the epic's step", func(t *testing.T) {
+		t.Parallel()
+		prompt := releaseStepPrompt(tagStep(), "0123abcd", releaseThen)
+		if strings.Contains(prompt, "CI") {
+			t.Errorf("prompt = %q, want no mention of CI: the release is the epic's steps and nothing more", prompt)
 		}
 	})
 }

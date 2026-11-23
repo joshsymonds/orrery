@@ -88,12 +88,12 @@ func resumeChange(resumed []string) string {
 	return change
 }
 
-// stopChange returns what epic_stop did: it paused a running turn, or it freed the release slot the epic held.
+// stopChange returns what epic_stop did: it paused a running turn, or it stopped the release, so no step starts.
 func stopChange(epic *v1.StoredEpic) string {
 	if epic.GetPaused() {
 		return "stopped its running turn and paused it"
 	}
-	return "stopped its release and freed the release slot"
+	return "stopped its release, so no further step starts"
 }
 
 // retryChange returns what epic_retry did: it reran the named node, or it ended the epic's park.

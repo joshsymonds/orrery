@@ -214,6 +214,9 @@ type Config struct {
 	// ContractCommands is orreryd's Contracts client, which Accept, SetAside and Reopen forward the owner's commands
 	// to, or nil, which answers unavailable.
 	ContractCommands enginev1connect.ContractsClient
+	// AccountCommands is orreryd's Accounts client, which Accounts.Add, Rename and Remove and Routes.Replace and
+	// SetContextAccount forward the owner's commands to, or nil, which answers unavailable.
+	AccountCommands enginev1connect.AccountsClient
 	// Evidence is orreryd's Evidence client, which Epics.Get reads each Requirement's runs from and Evidence.Artifact
 	// reads artifacts from, or nil for no runs and no artifacts.
 	Evidence EvidenceClient
@@ -271,8 +274,8 @@ func New(cfg Config) (http.Handler, error) {
 	tokens := &pickerTokens{entries: make(map[string]pickerEntry)}
 	changes := newChangeHub(cfg.Changes, cfg.NewTimer)
 	sessionsPath, sessions := newSessionsHandler(
-		cfg.Sessions, cfg.Home, now, cfg.Steps, changes, cfg.NewTimer, conversationKeepalive, sendTimeout,
-		cfg.Shutdown, cfg.HandlerOptions...,
+		cfg.Sessions, cfg.Home, now, cfg.Steps, cfg.EpicStore, changes, cfg.NewTimer, conversationKeepalive,
+		sendTimeout, cfg.Shutdown, cfg.HandlerOptions...,
 	)
 	mux.Handle(sessionsPath, sessions)
 	eventsPath, events := newEventsHandler(cfg.Sessions, changes, sendTimeout, cfg.Shutdown, cfg.HandlerOptions...)
@@ -282,6 +285,7 @@ func New(cfg Config) (http.Handler, error) {
 	)
 	mux.Handle(controlPath, control)
 	epicsPath, evidencePath, contractsPath := registerEpicServices(mux, cfg, now)
+	accountsPath, routesPath := registerAccountServices(mux, cfg)
 	stepsPath, stepsService := newStepsHandler(
 		cfg.Steps, cfg.ControlTimeout, rpcretry.SystemClock{}, cfg.HandlerOptions...,
 	)
@@ -311,7 +315,7 @@ func New(cfg Config) (http.Handler, error) {
 	}
 	connectPaths := []string{
 		sessionsPath, eventsPath, controlPath, epicsPath, evidencePath, stepsPath, poolsPath, noticesPath, panesPath,
-		hostPath, pushPath, pickerPath, presencePath, contractsPath,
+		hostPath, pushPath, pickerPath, presencePath, contractsPath, accountsPath, routesPath,
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if _, ok := allowed[r.Header.Get(HeaderLogin)]; !ok {
@@ -342,6 +346,20 @@ func registerEpicServices(mux *http.ServeMux, cfg Config, now func() time.Time) 
 	)
 	mux.Handle(contractsPath, contractsService)
 	return epicsPath, evidencePath, contractsPath
+}
+
+// registerAccountServices mounts the Accounts service and the Routes service on mux, reading the store reader of cfg and
+// forwarding their commands to cfg.AccountCommands, and returns their paths. Both time their retries on the system clock.
+func registerAccountServices(mux *http.ServeMux, cfg Config) (string, string) {
+	accountsPath, accountsService := newAccountsHandler(
+		cfg.Sessions, cfg.AccountCommands, cfg.ControlTimeout, rpcretry.SystemClock{}, cfg.HandlerOptions...,
+	)
+	mux.Handle(accountsPath, accountsService)
+	routesPath, routesService := newRoutesHandler(
+		cfg.Sessions, cfg.AccountCommands, cfg.ControlTimeout, rpcretry.SystemClock{}, cfg.HandlerOptions...,
+	)
+	mux.Handle(routesPath, routesService)
+	return accountsPath, routesPath
 }
 
 // registerNotices mounts the Notices service on mux, forwarding to cfg.Notices with each Watch send bounded by
@@ -675,7 +693,7 @@ func conversationAnswer(
 		conv.Goal, err = goals.Goal(path)
 	}
 	if err == nil {
-		conv.Waiting, err = queues.Waiting(path, pane.State == protocol.StateDone)
+		conv.Waiting, err = queues.Waiting(path, protocol.Idle(pane.State, pane.Held))
 	}
 	switch {
 	case errors.Is(err, fs.ErrNotExist):

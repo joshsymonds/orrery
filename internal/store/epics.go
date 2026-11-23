@@ -48,16 +48,13 @@ func (e *QuestionReplacedError) Error() string {
 
 // EpicRow is one epic: the head of an accepted contract and its ten ordered sections. Sections keep the order the
 // contract gave them. Times are stored at whole seconds. Seen is the time of the epic's last SeeEpic mark, zero when
-// none is stored. Synced is the commit of origin's main that the stored base last merged in a sync, "" while no sync
-// has passed, and OriginRead the epic's last read of origin's main.
+// none is stored.
 type EpicRow struct {
 	ID          string
 	Repository  string
 	Base        string
 	StoredBase  string
 	Candidate   string
-	Synced      string
-	OriginRead  OriginRead
 	Branch      string
 	Title       string
 	Approved    string
@@ -88,6 +85,7 @@ type EpicRow struct {
 	SupersededBy string
 	Summary      string
 	Steerer      string
+	Host         string
 	Report       EpicReport
 	Workflow     EpicWorkflow
 
@@ -261,7 +259,7 @@ func insertEpic(ctx context.Context, queries *sqlcgen.Queries, row EpicRow) erro
 		Approved: row.Approved, Intent: row.Intent, Care: row.Care, Approach: row.Approach,
 		ReleaseThen: row.ReleaseThen, Checks: row.Checks, Phase: row.Phase, Created: row.Created.Unix(),
 		Changed: row.Changed.Unix(), Workflow: row.Workflow.Name, WorkflowText: row.Workflow.Text,
-		WorkflowSha256: row.Workflow.SHA256, PhaseAt: row.Created.Unix(), Steerer: row.Steerer,
+		WorkflowSha256: row.Workflow.SHA256, PhaseAt: row.Created.Unix(), Steerer: row.Steerer, Host: row.Host,
 	}); err != nil {
 		return fmt.Errorf("insert epic %s: %w", row.ID, err)
 	}
@@ -498,7 +496,38 @@ func encodeStrings(items []string) (string, error) {
 // Epic returns the stored epic with id, every section in order. It returns an error matching ErrNoEpic when no epic
 // has that id.
 func (s *Store) Epic(ctx context.Context, id string) (EpicRow, error) {
-	return readEpic(ctx, sqlcgen.New(s.db), id)
+	return readEpic(ctx, sqlcgen.New(s.read), id)
+}
+
+// EpicHost returns the host the stored epic with id lives on. An unknown id is ErrNoEpic.
+func (s *Store) EpicHost(ctx context.Context, id string) (string, error) {
+	return epicHostOf(ctx, sqlcgen.New(s.read), id)
+}
+
+// epicHostOf returns the host of the stored epic with id as queries read it. An unknown id is ErrNoEpic.
+func epicHostOf(ctx context.Context, queries *sqlcgen.Queries, id string) (string, error) {
+	host, err := queries.GetEpicHost(ctx, id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", fmt.Errorf("epic %s: %w", id, ErrNoEpic)
+	}
+	if err != nil {
+		return "", fmt.Errorf("get host of epic %s: %w", id, err)
+	}
+	return host, nil
+}
+
+// AdoptHost sets the host of every epic and step row with no host to name, in one store write. A row that already names
+// a host keeps it, so a controller that opens a store adopts only the rows stored before hosts were kept.
+func (s *Store) AdoptHost(ctx context.Context, name string) error {
+	return s.write(ctx, func(queries *sqlcgen.Queries) error {
+		if err := queries.AdoptEpicHosts(ctx, name); err != nil {
+			return fmt.Errorf("adopt host of epics: %w", err)
+		}
+		if err := queries.AdoptStepHosts(ctx, name); err != nil {
+			return fmt.Errorf("adopt host of steps: %w", err)
+		}
+		return nil
+	})
 }
 
 // readEpic returns the stored epic with id as queries read it, every section in order. It returns an error matching
@@ -702,7 +731,7 @@ func loadEpicReviewers(ctx context.Context, queries *sqlcgen.Queries, row *EpicR
 // and decisions are nil. The heads, every epic's workflow nodes and every seen mark are read in one read transaction,
 // three queries whatever the number of epics.
 func (s *Store) Epics(ctx context.Context) ([]EpicRow, error) {
-	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	tx, err := s.read.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
 	if err != nil {
 		return nil, fmt.Errorf("begin epics read: %w", err)
 	}
@@ -754,7 +783,7 @@ func readEpics(ctx context.Context, queries *sqlcgen.Queries) ([]EpicRow, error)
 // heard, pause and its source, park reason and open question count. Every other field is zero, and no workflow node is read. The rows come from one
 // query.
 func (s *Store) EpicListings(ctx context.Context) ([]EpicRow, error) {
-	return readEpicListings(ctx, sqlcgen.New(s.db))
+	return readEpicListings(ctx, sqlcgen.New(s.read))
 }
 
 // readEpicListings returns every stored epic as EpicListings does, read with queries.
@@ -793,7 +822,7 @@ func epicListingOf(listed sqlcgen.ListEpicListingsRow) EpicRow {
 // UnsummarizedEpics returns every stored epic whose summary is empty, ordered by id, each read as Epic reads it. A
 // stored epic with a summary is not returned.
 func (s *Store) UnsummarizedEpics(ctx context.Context) ([]EpicRow, error) {
-	queries := sqlcgen.New(s.db)
+	queries := sqlcgen.New(s.read)
 	heads, err := queries.ListUnsummarizedEpics(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("list unsummarized epics: %w", err)
@@ -1030,7 +1059,7 @@ func endParkByAnswer(
 
 // OpenQuestions returns the open questions of epic in seq order, nil when none is open.
 func (s *Store) OpenQuestions(ctx context.Context, epic string) ([]EpicQuestion, error) {
-	rows, err := sqlcgen.New(s.db).ListOpenEpicQuestions(ctx, epic)
+	rows, err := sqlcgen.New(s.read).ListOpenEpicQuestions(ctx, epic)
 	if err != nil {
 		return nil, fmt.Errorf("list open questions of epic %s: %w", epic, err)
 	}
@@ -1200,8 +1229,6 @@ func epicHeadOf(head sqlcgen.Epic) EpicRow {
 		Base:         head.Base,
 		StoredBase:   head.StoredBase,
 		Candidate:    head.Candidate,
-		Synced:       head.Synced,
-		OriginRead:   originReadOf(head),
 		Branch:       head.Branch,
 		Title:        head.Title,
 		Approved:     head.Approved,
@@ -1222,6 +1249,7 @@ func epicHeadOf(head sqlcgen.Epic) EpicRow {
 		SupersededBy: head.SupersededBy,
 		Summary:      head.Summary,
 		Steerer:      head.Steerer,
+		Host:         head.Host,
 		Workflow: EpicWorkflow{
 			Name: head.Workflow, Text: head.WorkflowText, SHA256: head.WorkflowSha256,
 		},

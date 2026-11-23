@@ -26,13 +26,15 @@ export interface RowMore {
 
 // InboxRow draws one row of the inbox list as round 6 draws it: its dot and state glyph, its title and age, its second
 // line, and its More. A click calls onOpen and a double-click calls onSeen, each unless the press landed on a link. cursor
-// is whether the row is the cursor's; open is whether its page is open, and hover whether it is drawn hovered.
+// is whether the row is the cursor's; open is whether its page is open, hover whether it is drawn hovered, and moving
+// whether a list answer moved it into this place, which marks it until the move's time has passed.
 export function InboxRow({
   row,
   now,
   cursor,
   open = false,
   hover = false,
+  moving = false,
   more,
   onOpen,
   onSeen,
@@ -42,6 +44,7 @@ export function InboxRow({
   cursor: boolean;
   open?: boolean;
   hover?: boolean;
+  moving?: boolean;
   more: RowMore;
   onOpen: () => void;
   onSeen: () => void;
@@ -53,6 +56,7 @@ export function InboxRow({
       data-row=""
       data-key={row.key}
       data-unseen={row.unseen ? "" : undefined}
+      data-moving={moving ? "true" : undefined}
       aria-current={open ? "page" : cursor ? "true" : undefined}
       onClick={(event) => {
         if (!isLinkClick(event)) {
@@ -66,7 +70,7 @@ export function InboxRow({
       }}
     >
       <span class="dot" title={row.unseen ? "new since you looked" : undefined} />
-      <StateGlyph state={quietRow(row) ? "idle" : row.state} />
+      <StateGlyph state={glyphStateOf(row)} />
       <div class="main">
         <div class="l1">
           <span class="title">
@@ -93,11 +97,28 @@ export function quietRow(row: Row): boolean {
   return row.state === stateWaiting && !waitsOnYou(row);
 }
 
-// SecondLine draws a row's second line. A waiting row says what it asks, led by a question mark when it holds a question.
-// A working pane's line is its tool, its argument, and its clock from the tool's start. A terminal with no state says it
-// has no conversation. A session's line is its summary. Any other pane has no second line. A tile's flyout draws it too.
+// glyphStateOf is the state a row's glyph draws: broken for a failed row and for an unbound pane, idle for a quiet row,
+// and else the row's own state. The words beside it stay the row's own.
+export function glyphStateOf(row: Row): string {
+  if (row.state === "failed" || row.unbound) {
+    return "broken";
+  }
+  return quietRow(row) ? "idle" : row.state;
+}
+
+// SecondLine draws a row's second line. An unbound pane says it is not bound to a conversation and how to restart it. A
+// waiting row says what it asks, led by a question mark when it holds a question. A working pane's line is its tool, its
+// argument, and its clock from the tool's start. A session's line is its summary. Any other pane has no second line. A
+// tile's flyout draws it too.
 export function SecondLine({ row, now }: { row: Row; now: number }): JSX.Element | null {
   const line = row.unseen ? "l2" : "l2 one";
+  if (row.unbound) {
+    return (
+      <div class={line}>
+        Not bound to a conversation. Restart it with <code>claude --resume</code>.
+      </div>
+    );
+  }
   if (row.state === stateWaiting) {
     return (
       <div class={row.question !== "" && !quietRow(row) ? `${line} asks` : line}>
@@ -115,9 +136,6 @@ export function SecondLine({ row, now }: { row: Row; now: number }): JSX.Element
         {tool.start > 0 && ` · ${clockText(now - tool.start)}`}
       </div>
     );
-  }
-  if (row.kind === "pane" && row.state === "") {
-    return <div class={line}>a terminal with no conversation</div>;
   }
   if (row.kind === "session" && row.summary !== "") {
     return (

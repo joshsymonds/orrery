@@ -37,7 +37,7 @@ func restartRowID(i int) string {
 // seconds for this many rows, more than the restart under test.
 func seedRestartRows(t *testing.T, path string, count int) {
 	t.Helper()
-	db, err := sql.Open("sqlite", path)
+	db, err := sql.Open("sqlite3", path)
 	if err != nil {
 		t.Fatalf("open store: %v", err)
 	}

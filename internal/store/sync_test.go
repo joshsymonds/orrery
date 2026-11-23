@@ -385,7 +385,7 @@ func TestSyncPaneReturnsErrorWhileStoreIsWriteLocked(t *testing.T) {
 		}
 	})
 
-	other, err := sql.Open("sqlite", path)
+	other, err := sql.Open("sqlite3", path)
 	if err != nil {
 		t.Fatalf("open second connection: %v", err)
 	}

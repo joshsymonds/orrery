@@ -55,8 +55,8 @@ export interface FlyoutModel {
 
 // flyoutOf is the flyout of a project at now, in unix seconds. Its rows are what waits on you in waitOrder's order, which
 // w scoped to the project walks, then each unseen conversation not already listed, in the tree and behind the ended
-// line. The rest counts the tree's other conversation rows and hung things, none of which waits, and the conversations
-// behind the ended line.
+// line. The rest counts the tree's other conversation rows and hung or folded things, none of which waits, and the
+// conversations behind the ended line.
 export function flyoutOf(project: Project, now: number): FlyoutModel {
   const convos = [...project.convos, ...project.ended];
   const waiting = waitOrder([project]).map((key) => flyoutRow(convos, key, now));
@@ -67,7 +67,10 @@ export function flyoutOf(project: Project, now: number): FlyoutModel {
   );
   const rows = [...waiting, ...unseen];
   const shown = new Set(rows.map((row) => row.key));
-  const entries = project.convos.flatMap((convo) => [...(convo.row === null ? [] : [convo.key]), ...convo.hung.map((hung) => hung.key)]);
+  const entries = project.convos.flatMap((convo) => [
+    ...(convo.row === null ? [] : [convo.key]),
+    ...[...convo.hung, ...convo.folded].map((hung) => hung.key),
+  ]);
   const more = entries.filter((key) => !shown.has(key)).length;
   const rest = [more > 0 ? `and ${more} more, none waiting` : "", project.ended.length > 0 ? `${project.ended.length} ended` : ""];
   return {
@@ -102,12 +105,13 @@ function isLive(convo: Convo): boolean {
 }
 
 // holds says the project is the open key, or one of its conversations, in the tree or behind the ended line, is, or has
-// a hung thing that is.
+// a hung or folded thing that is.
 function holds(project: Project, open: string): boolean {
   if (project.key === open) {
     return true;
   }
   return [...project.convos, ...project.ended].some(
-    (convo) => convo.key === open || convo.hung.some((hung) => hung.key === open),
+    (convo) =>
+      convo.key === open || convo.hung.some((hung) => hung.key === open) || convo.folded.some((hung) => hung.key === open),
   );
 }

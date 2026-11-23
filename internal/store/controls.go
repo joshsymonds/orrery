@@ -121,10 +121,11 @@ func (s *Store) CloseDueResume(ctx context.Context, id string) error {
 
 // StopEpic pauses epic as its owner's, closes its due rows, and flags its running turn to stop, in one write, and
 // returns the turn's step, empty while the turn has none. The turn keeps its claimed triggers. An epic with no running
-// turn that holds its repository's release slot frees the slot in one write instead, and returns the id of its release
-// step that has no end, or "" when none runs. It neither pauses the epic nor changes its phase. Either write appends one
-// stop action made by maker at at. An unknown epic is ErrNoEpic, and an epic with no running turn that holds no slot is a
-// RefusalError.
+// turn whose release is running or stopped records the owner's stop of the release in one write instead, and returns
+// the id of its release step that has no end, or "" when none runs. An epic stopped by its release also takes the park
+// class release_owner_stop. Neither write pauses the epic or changes its phase. Either write appends one stop action
+// made by maker at at. An unknown epic is ErrNoEpic, and an epic with no running turn whose release is neither running
+// nor stopped is a RefusalError.
 func (s *Store) StopEpic(ctx context.Context, epic string, maker Maker, at time.Time) (string, error) {
 	var step string
 	err := s.write(ctx, func(queries *sqlcgen.Queries) error {
@@ -140,7 +141,7 @@ func (s *Store) StopEpic(ctx context.Context, epic string, maker Maker, at time.
 		if running {
 			err = pauseAsOwner(ctx, queries, epic)
 		} else {
-			step, err = stopReleaseSlot(ctx, queries, head)
+			step, err = stopRelease(ctx, queries, head, at)
 		}
 		if err != nil {
 			return err
@@ -350,7 +351,7 @@ func (s *Store) KickEpic(ctx context.Context, epic, text string, maker Maker, at
 // TurnStopped reports whether turn seq of epic was flagged to stop. A turn that does not exist is an error matching
 // ErrNoTurn.
 func (s *Store) TurnStopped(ctx context.Context, epic string, seq int64) (bool, error) {
-	stop, err := sqlcgen.New(s.db).GetEpicTurnStop(ctx, sqlcgen.GetEpicTurnStopParams{Epic: epic, Seq: seq})
+	stop, err := sqlcgen.New(s.read).GetEpicTurnStop(ctx, sqlcgen.GetEpicTurnStopParams{Epic: epic, Seq: seq})
 	if errors.Is(err, sql.ErrNoRows) {
 		return false, fmt.Errorf("turn %d of epic %s: %w", seq, epic, ErrNoTurn)
 	}

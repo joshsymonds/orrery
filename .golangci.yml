@@ -413,6 +413,10 @@ linters:
         - github.com/joshsymonds/orrery/internal/holderhost.Gone
         # node.Tailnet returns the WhoIs interface, which the tailscaled client satisfies, by the node package's contract.
         - github.com/joshsymonds/orrery/internal/node.WhoIs
+        # hostexec's constructors return its Host, Hosts and Held interfaces, which engine code is handed by its contract.
+        - github.com/joshsymonds/orrery/internal/hostexec.Host
+        - github.com/joshsymonds/orrery/internal/hostexec.Hosts
+        - github.com/joshsymonds/orrery/internal/hostexec.Held
 
     wrapcheck:
       ignore-sigs:
@@ -589,7 +593,7 @@ run:
   concurrency: 0
   tests: true
   modules-download-mode: readonly
-  build-tags: [measure]
+  build-tags: [measure, sqlite_preupdate_hook, libsqlite3]
   # golangci-lint takes one machine-wide lock ($TMPDIR/golangci-lint.lock). Without this, a run that cannot take it
   # within 5 s exits "parallel golangci-lint is running", which fails a concurrent worktree's `just check`. With it,
   # the run waits for the lock and then lints alone. allow-parallel-runners would skip the lock instead.

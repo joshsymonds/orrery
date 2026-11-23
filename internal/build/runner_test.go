@@ -18,6 +18,7 @@ import (
 	"github.com/joshsymonds/orrery/internal/enginehost"
 	"github.com/joshsymonds/orrery/internal/evidence"
 	"github.com/joshsymonds/orrery/internal/gates"
+	"github.com/joshsymonds/orrery/internal/hostexec"
 	"github.com/joshsymonds/orrery/internal/reviewers"
 	"github.com/joshsymonds/orrery/internal/roles"
 	"github.com/joshsymonds/orrery/internal/store"
@@ -391,7 +392,7 @@ func (f *passFixture) pendingTriggers() []string {
 func (f *passFixture) addTaskWorktree(name string) string {
 	f.t.Helper()
 	path := filepath.Join(TaskDir(f.stateDir, passEpic, 1), name)
-	if err := AddWorktree(f.ctx, f.repo, path, f.base); err != nil {
+	if err := AddWorktree(f.ctx, hostexec.NewLocal(), f.repo, path, f.base); err != nil {
 		f.t.Fatalf("AddWorktree: %v", err)
 	}
 	return path
@@ -521,7 +522,7 @@ func TestPassPausedEpicCreatesNoBranch(t *testing.T) {
 	if got := f.epic().Branch; got != "" {
 		t.Errorf("epic Branch = %q, want none while paused", got)
 	}
-	if _, exists, err := BranchTip(f.ctx, f.repo, passEpic); err != nil || exists {
+	if _, exists, err := BranchTip(f.ctx, hostexec.NewLocal(), f.repo, passEpic); err != nil || exists {
 		t.Errorf("BranchTip = exists %t, err %v, want no branch", exists, err)
 	}
 	if got := len(f.evidence.runs); got != 0 {
@@ -615,7 +616,7 @@ func TestPassRedRunOfChangedItemReadsMissing(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Marshal: %v", err)
 	}
-	db, err := sql.Open("sqlite", f.dbPath)
+	db, err := sql.Open("sqlite3", f.dbPath)
 	if err != nil {
 		t.Fatalf("open store file: %v", err)
 	}

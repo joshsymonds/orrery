@@ -63,7 +63,7 @@ Arrows point the way data moves. The store has one writer in the daemon. The ser
 
 ## CLI and hook
 
-A pane's state is read from `~/.claude/sessions/<pid>.json` and from the session's transcript, which orrery watches under inotify, so no hook event reports state. The only hook the user's settings register is `orrery hook cron`, which answers the cron tools (see [Claude Code hook settings](contract.md#claude-code-hook-settings)). Plain `orrery hook` is a no-op kept for one release: it reads its stdin to the end, prints nothing, sends no frame and exits 0.
+A pane's state is read from `~/.claude/sessions/<pid>.json` and from the session's transcript, which orrery watches under inotify, so no hook event reports state. An entry that reads `busy` after its transcript shows the turn ended is held: Claude Code keeps the entry busy while a background agent, workflow or teammate runs, so the pane stays `working` with `@orrery_held` set and no turn running, until the turn that task's end starts ends (`state.held`). The only hook the user's settings register is `orrery hook cron`, which answers the cron tools (see [Claude Code hook settings](contract.md#claude-code-hook-settings)). Plain `orrery hook` is a no-op kept for one release: it reads its stdin to the end, prints nothing, sends no frame and exits 0.
 
 [`state.ApplyWith`](../internal/state/state.go) maps each hook event to a pane state:
 
@@ -86,7 +86,7 @@ The store is one SQLite file, `orrery.db`, opened in WAL mode with a 5-second bu
 
 - The pane mirror. [`daemon.Mirror`](../internal/daemon/mirror.go) syncs each applied pane after its tmux writes, in one transaction, and mints the pane's `@orrery_id` when it has none. A tidy pass every ten seconds lists each tmux server it can read, syncs every pane it finds, and deletes the rows of panes that are gone. The tidy also prunes events older than 14 days, always keeping the newest.
 - The engine writer. [`enginehost.Writer`](../internal/enginehost/writer.go) is the one goroutine that stores headless session ops. It stores every queued op each tick, in one call, so sessions never hold the store's locks.
-- Readers. `orrery serve` opens the file read-only on each call through [`store.Reader`](../internal/store/reader.go) and holds no connection between calls. The CLI reads it read-only to find known directories for `orrery open`.
+- Readers. `orrery serve` reads the file read-only through one pool of connections, [`store.NewPooledReader`](../internal/store/reader.go), which it closes when it stops. Serve's reader holds connections to the store, so serve is stopped before the store file is replaced (a restore), orreryd closes last, and both are started after the store file is replaced. The CLI reads it read-only through [`store.NewReader`](../internal/store/reader.go), which opens a connection on each call and holds none between calls, to find known directories for `orrery open`.
 
 ## tmux panes
 
@@ -200,7 +200,7 @@ An epic is a contract that an owner accepts, a workflow that runs over it, and t
 2. **Building.** [`build.Runner`](../internal/build/build.go) runs each open task in stages: red at the base, one implementer step, green at the commit, the review gates, and the verification of each finding. [`guard.Check`](../internal/guard/git.go) refuses a task commit that weakens the tests that requirements and other tasks rely on.
 3. **Integrating.** The `integrate` node, which a plan holds, composes the accepted task commits, in order, onto the base with [`compose.Compose`](../internal/compose/compose.go). The epic's branch then moves to the candidate. The [Workflows](contract.md#workflows) section of the contract gives the full rules.
 4. **Reviewing.** The end-of-epic reviewers ([`reviewers`](../internal/reviewers/reviewers.go)) give verdicts. Their findings go into a ledger that a closure check settles. A correction loop runs at most twice.
-5. **Concluding and releasing.** The conclude node ends the epic as `clean` or `ended_with_gaps`. The release node runs the release steps while it holds its repository's release slot.
+5. **Concluding and releasing.** The conclude node ends the epic as `clean` or `ended_with_gaps`. The release node runs the release steps, and every clean epic starts its release at once.
 
 The order of these steps is a workflow, and a workflow is a file. [`workflow.Load`](../internal/workflow/load.go) reads `.orrery/workflows/<name>.yaml` from the repository, or the built-in `epic` when the file does not exist. The workflow's nodes are `plan` (holding `build` and `integrate`), `gate`, `evidence`, `owned`, `command`, `agent`, `review`, `closure`, `conclude`, `release`, and two structural forms, `loop` and `include`. The built-in `epic` runs red evidence at base, then a plan, then a review, then a correction loop of at most two rounds, then conclude and release.
 
@@ -224,7 +224,7 @@ A pool is a named set of members that a machine offers to the projects on it. [`
 
 A notice is a pane that turns `waiting` or `done`, a headless session that needs the owner, an epic that needs the owner, a usage limit, or an alert. [`route.Router`](../internal/route/route.go) decides where each notice goes, by rules in a fixed order ([Notice routing](contract.md#notice-routing)):
 
-- A `done` that comes from a turn with a background task goes nowhere.
+- A turn that ends while a background agent or workflow runs makes no `done`: the pane or headless session stays `working`, held, until the turn that task's end starts ends.
 - A notice is held while its pane is watched, that is, while a client shows its window with input in the last 30 seconds, or while `serve` has read the pane in the last 30 seconds. The router checks again every five seconds.
 - An unwatched `done` is judged first. [`donejudge.Judge`](../internal/donejudge/judge.go) asks Haiku whether the turn needs the owner. An answer of not needed sends a quiet desk notice and a silent push.
 - A needed notice goes to the desk stream and the web page when the owner's web input is within the last two minutes. It goes to the phone after five minutes unseen. Otherwise it goes to the desk and the phone at once.
@@ -276,7 +276,7 @@ Every table lives in `orrery.db`. The migrations under `internal/store/migration
 | | `epic_tasks`, `epic_task_files`, `epic_task_requirements`, `epic_task_contributes`, `epic_task_test_changes`, `epic_task_reviews`, `epic_task_findings` | Each task, its files and requirements, its build reviews and findings. |
 | | `epic_reviewers`, `epic_reviews`, `epic_review_verdicts`, `epic_ledger`, `epic_review_rounds`, `epic_closures`, `epic_review_holds` | The end-of-epic review: its reviewers, verdicts, ledger, rounds and closures. |
 | | `epic_gates`, `epic_gate_lists` | The gates an epic defines, with their argv, limit, needs and agent, and the done and review lists that name them. |
-| | `epic_release_runs`, `epic_release_slots` | Each release run's steps, and the repository's release slot. |
+| | `epic_release_runs` | Each release run's steps. |
 | Evidence | `evidence_runs`, `evidence_artifacts` | Each evidence run and the artifacts it kept. The bytes are in blob files. |
 | Contracts | `contracts`, `contract_versions`, `contract_states` | The contract record: each contract, its saved versions and its state changes. Rows only append. |
 

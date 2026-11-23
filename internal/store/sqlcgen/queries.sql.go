@@ -11,6 +11,24 @@ import (
 	"strings"
 )
 
+const adoptEpicHosts = `-- name: AdoptEpicHosts :exec
+UPDATE epics SET host = ? WHERE host = ''
+`
+
+func (q *Queries) AdoptEpicHosts(ctx context.Context, host string) error {
+	_, err := q.db.ExecContext(ctx, adoptEpicHosts, host)
+	return err
+}
+
+const adoptStepHosts = `-- name: AdoptStepHosts :exec
+UPDATE steps SET host = ? WHERE host = ''
+`
+
+func (q *Queries) AdoptStepHosts(ctx context.Context, host string) error {
+	_, err := q.db.ExecContext(ctx, adoptStepHosts, host)
+	return err
+}
+
 const applyEpicAmendment = `-- name: ApplyEpicAmendment :execrows
 UPDATE epic_amendments SET state = 'applied', settled = CASE WHEN settled = 0 THEN ?1 ELSE settled END
 WHERE epic = ?2 AND seq = ?3 AND state IN ('checking', 'capturing')
@@ -449,6 +467,17 @@ func (q *Queries) CountHolderPromptsUnanswered(ctx context.Context, id string) (
 	return count, err
 }
 
+const countLLMAccount = `-- name: CountLLMAccount :one
+SELECT CAST(COUNT(*) AS INTEGER) FROM llm_accounts WHERE id = ?
+`
+
+func (q *Queries) CountLLMAccount(ctx context.Context, id string) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countLLMAccount, id)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const countLabelledSteps = `-- name: CountLabelledSteps :many
 SELECT epic, task, COUNT(*) AS steps FROM steps WHERE epic <> '' GROUP BY epic, task
 `
@@ -538,6 +567,17 @@ SELECT CAST(COUNT(*) AS INTEGER) FROM epic_triggers WHERE epic = ? AND state = '
 
 func (q *Queries) CountPendingEpicTriggers(ctx context.Context, epic string) (int64, error) {
 	row := q.db.QueryRowContext(ctx, countPendingEpicTriggers, epic)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
+const countRouteContext = `-- name: CountRouteContext :one
+SELECT CAST(COUNT(*) AS INTEGER) FROM route_contexts WHERE id = ?
+`
+
+func (q *Queries) CountRouteContext(ctx context.Context, id string) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countRouteContext, id)
 	var column_1 int64
 	err := row.Scan(&column_1)
 	return column_1, err
@@ -798,6 +838,15 @@ func (q *Queries) DeleteHold(ctx context.Context, member string) error {
 	return err
 }
 
+const deleteLLMAccount = `-- name: DeleteLLMAccount :exec
+DELETE FROM llm_accounts WHERE id = ?
+`
+
+func (q *Queries) DeleteLLMAccount(ctx context.Context, id string) error {
+	_, err := q.db.ExecContext(ctx, deleteLLMAccount, id)
+	return err
+}
+
 const deletePendingNotice = `-- name: DeletePendingNotice :exec
 DELETE FROM pending_notices WHERE id = ?
 `
@@ -860,6 +909,42 @@ type DeletePutOffQuestionParams struct {
 
 func (q *Queries) DeletePutOffQuestion(ctx context.Context, arg DeletePutOffQuestionParams) error {
 	_, err := q.db.ExecContext(ctx, deletePutOffQuestion, arg.Kind, arg.SessionID, arg.Question)
+	return err
+}
+
+const deleteRouteBindings = `-- name: DeleteRouteBindings :exec
+DELETE FROM route_bindings
+`
+
+func (q *Queries) DeleteRouteBindings(ctx context.Context) error {
+	_, err := q.db.ExecContext(ctx, deleteRouteBindings)
+	return err
+}
+
+const deleteRouteContexts = `-- name: DeleteRouteContexts :exec
+DELETE FROM route_contexts
+`
+
+func (q *Queries) DeleteRouteContexts(ctx context.Context) error {
+	_, err := q.db.ExecContext(ctx, deleteRouteContexts)
+	return err
+}
+
+const deleteRouteRegistry = `-- name: DeleteRouteRegistry :exec
+DELETE FROM route_registry
+`
+
+func (q *Queries) DeleteRouteRegistry(ctx context.Context) error {
+	_, err := q.db.ExecContext(ctx, deleteRouteRegistry)
+	return err
+}
+
+const deleteRouteSeats = `-- name: DeleteRouteSeats :exec
+DELETE FROM route_seats
+`
+
+func (q *Queries) DeleteRouteSeats(ctx context.Context) error {
+	_, err := q.db.ExecContext(ctx, deleteRouteSeats)
 	return err
 }
 
@@ -1202,42 +1287,6 @@ func (q *Queries) FailIntegrateRound(ctx context.Context, arg FailIntegrateRound
 	return result.RowsAffected()
 }
 
-const freeEpicReleaseSlot = `-- name: FreeEpicReleaseSlot :exec
-DELETE FROM epic_release_slots WHERE epic = ? AND holder_kind = 'epic'
-`
-
-func (q *Queries) FreeEpicReleaseSlot(ctx context.Context, epic string) error {
-	_, err := q.db.ExecContext(ctx, freeEpicReleaseSlot, epic)
-	return err
-}
-
-const freeExpiredReleaseSlots = `-- name: FreeExpiredReleaseSlots :many
-DELETE FROM epic_release_slots WHERE holder_kind = 'outside' AND deadline <= ? RETURNING repository
-`
-
-func (q *Queries) FreeExpiredReleaseSlots(ctx context.Context, deadline int64) ([]string, error) {
-	rows, err := q.db.QueryContext(ctx, freeExpiredReleaseSlots, deadline)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []string
-	for rows.Next() {
-		var repository string
-		if err := rows.Scan(&repository); err != nil {
-			return nil, err
-		}
-		items = append(items, repository)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
 const freezeEpicNodeRun = `-- name: FreezeEpicNodeRun :execrows
 UPDATE epic_node_runs SET revision = ?
 WHERE epic = ? AND path = ? AND attempt = ? AND state = 'running' AND revision = ''
@@ -1492,7 +1541,7 @@ func (q *Queries) GetEngineRateLimit(ctx context.Context, sessionID string) (Eng
 }
 
 const getEngineSession = `-- name: GetEngineSession :one
-SELECT id, server, pane, state, changed, seen, question, summary, label, context, tool, claude_session, transcript, kind, dir, reason, consumed, replay_from, background, turn_output, prompts_from, title, headline, headline_at, awaited, host FROM sessions WHERE id = ? AND kind IN ('engine', 'step')
+SELECT id, server, pane, state, changed, seen, question, summary, label, context, tool, claude_session, transcript, kind, dir, reason, consumed, replay_from, background, turn_output, prompts_from, title, headline, headline_at, awaited, latest_reply, newest_reply_at, first_prompt_text, latest_request_id, held, host FROM sessions WHERE id = ? AND kind IN ('engine', 'step')
 `
 
 func (q *Queries) GetEngineSession(ctx context.Context, id string) (Session, error) {
@@ -1524,13 +1573,18 @@ func (q *Queries) GetEngineSession(ctx context.Context, id string) (Session, err
 		&i.Headline,
 		&i.HeadlineAt,
 		&i.Awaited,
+		&i.LatestReply,
+		&i.NewestReplyAt,
+		&i.FirstPromptText,
+		&i.LatestRequestID,
+		&i.Held,
 		&i.Host,
 	)
 	return i, err
 }
 
 const getEpic = `-- name: GetEpic :one
-SELECT id, repository, title, approved, intent, care, approach, release_then, checks, phase, created, changed, paused, parked, retried, base, branch, workflow, workflow_text, workflow_sha256, pause_source, stored_base, candidate, summary, phase_at, report_phase, report_shipped, report_not_shipped, report_why, closed_by, superseded_by, park_class, synced, origin_read_base, origin_read_commit, origin_read_state, origin_read_at, steerer FROM epics WHERE id = ?
+SELECT id, repository, title, approved, intent, care, approach, release_then, checks, phase, created, changed, paused, parked, retried, base, branch, workflow, workflow_text, workflow_sha256, pause_source, stored_base, candidate, summary, phase_at, report_phase, report_shipped, report_not_shipped, report_why, closed_by, superseded_by, park_class, steerer, host FROM epics WHERE id = ?
 `
 
 func (q *Queries) GetEpic(ctx context.Context, id string) (Epic, error) {
@@ -1569,12 +1623,8 @@ func (q *Queries) GetEpic(ctx context.Context, id string) (Epic, error) {
 		&i.ClosedBy,
 		&i.SupersededBy,
 		&i.ParkClass,
-		&i.Synced,
-		&i.OriginReadBase,
-		&i.OriginReadCommit,
-		&i.OriginReadState,
-		&i.OriginReadAt,
 		&i.Steerer,
+		&i.Host,
 	)
 	return i, err
 }
@@ -1640,6 +1690,17 @@ func (q *Queries) GetEpicDecisionByClientID(ctx context.Context, arg GetEpicDeci
 		&i.Recipient,
 	)
 	return i, err
+}
+
+const getEpicHost = `-- name: GetEpicHost :one
+SELECT host FROM epics WHERE id = ?
+`
+
+func (q *Queries) GetEpicHost(ctx context.Context, id string) (string, error) {
+	row := q.db.QueryRowContext(ctx, getEpicHost, id)
+	var host string
+	err := row.Scan(&host)
+	return host, err
 }
 
 const getEpicMetAtBase = `-- name: GetEpicMetAtBase :one
@@ -1777,23 +1838,6 @@ func (q *Queries) GetEpicQuestion(ctx context.Context, arg GetEpicQuestionParams
 		&i.EscalationMaker,
 		&i.EscalationSession,
 		&i.EscalationTold,
-	)
-	return i, err
-}
-
-const getEpicReleaseSlotHolder = `-- name: GetEpicReleaseSlotHolder :one
-SELECT repository, epic, holder_kind, label, deadline FROM epic_release_slots WHERE repository = ?
-`
-
-func (q *Queries) GetEpicReleaseSlotHolder(ctx context.Context, repository string) (EpicReleaseSlot, error) {
-	row := q.db.QueryRowContext(ctx, getEpicReleaseSlotHolder, repository)
-	var i EpicReleaseSlot
-	err := row.Scan(
-		&i.Repository,
-		&i.Epic,
-		&i.HolderKind,
-		&i.Label,
-		&i.Deadline,
 	)
 	return i, err
 }
@@ -2011,6 +2055,33 @@ func (q *Queries) GetHeadlineDueSession(ctx context.Context, id string) (GetHead
 	return i, err
 }
 
+const getLLMAccount = `-- name: GetLLMAccount :one
+SELECT id, name, provider, plan, fingerprint, created FROM llm_accounts WHERE id = ?
+`
+
+type GetLLMAccountRow struct {
+	ID          string
+	Name        string
+	Provider    string
+	Plan        string
+	Fingerprint string
+	Created     int64
+}
+
+func (q *Queries) GetLLMAccount(ctx context.Context, id string) (GetLLMAccountRow, error) {
+	row := q.db.QueryRowContext(ctx, getLLMAccount, id)
+	var i GetLLMAccountRow
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.Provider,
+		&i.Plan,
+		&i.Fingerprint,
+		&i.Created,
+	)
+	return i, err
+}
+
 const getLatestEndedEpicTurn = `-- name: GetLatestEndedEpicTurn :one
 SELECT epic, seq, step, state, reason, seen, outline, outcome, started, ended, told, stop, resets FROM epic_turns WHERE epic = ? AND state <> 'running' ORDER BY seq DESC LIMIT 1
 `
@@ -2153,6 +2224,17 @@ func (q *Queries) GetPromptWrite(ctx context.Context, arg GetPromptWriteParams) 
 	return i, err
 }
 
+const getRouteRegistry = `-- name: GetRouteRegistry :one
+SELECT id, default_context FROM route_registry WHERE id = 1
+`
+
+func (q *Queries) GetRouteRegistry(ctx context.Context) (RouteRegistry, error) {
+	row := q.db.QueryRowContext(ctx, getRouteRegistry)
+	var i RouteRegistry
+	err := row.Scan(&i.ID, &i.DefaultContext)
+	return i, err
+}
+
 const getRunningEpicTurn = `-- name: GetRunningEpicTurn :one
 SELECT epic, seq, step, state, reason, seen, outline, outcome, started, ended, told, stop, resets FROM epic_turns WHERE epic = ? AND state = 'running'
 `
@@ -2179,7 +2261,7 @@ func (q *Queries) GetRunningEpicTurn(ctx context.Context, epic string) (EpicTurn
 }
 
 const getSession = `-- name: GetSession :one
-SELECT id, server, pane, state, changed, seen, question, summary, label, context, tool, claude_session, transcript, kind, dir, reason, consumed, replay_from, background, turn_output, prompts_from, title, headline, headline_at, awaited, host FROM sessions WHERE id = ?
+SELECT id, server, pane, state, changed, seen, question, summary, label, context, tool, claude_session, transcript, kind, dir, reason, consumed, replay_from, background, turn_output, prompts_from, title, headline, headline_at, awaited, latest_reply, newest_reply_at, first_prompt_text, latest_request_id, held, host FROM sessions WHERE id = ?
 `
 
 func (q *Queries) GetSession(ctx context.Context, id string) (Session, error) {
@@ -2211,13 +2293,18 @@ func (q *Queries) GetSession(ctx context.Context, id string) (Session, error) {
 		&i.Headline,
 		&i.HeadlineAt,
 		&i.Awaited,
+		&i.LatestReply,
+		&i.NewestReplyAt,
+		&i.FirstPromptText,
+		&i.LatestRequestID,
+		&i.Held,
 		&i.Host,
 	)
 	return i, err
 }
 
 const getStep = `-- name: GetStep :one
-SELECT id, agent, prompt, output_schema, workspace, revision, worktree, done_value, read_only, owned, gate, gate_limit, started, checks, result, status, end_value, reason, ended, model_limit, doing, verdicts, epic, task, gate_name, gate_source, gate_needs, loop_round, loop_continues, loop_nudge, loop_owner_nudge, loop_nudged, loop_held, loop_judge_sent, loop_seq, gate_grant, gate_holder, gate_round, loop_limited, loop_limit_kind, loop_limit_resets, loop_gate_from, checkout_head, checkout_hash, loop_stage, loop_stage_from, agents, unowned, caller, lines_counted, lines_files, lines_added, lines_removed FROM steps WHERE id = ?
+SELECT id, agent, prompt, output_schema, workspace, revision, worktree, done_value, read_only, owned, gate, gate_limit, started, checks, result, status, end_value, reason, ended, model_limit, doing, verdicts, epic, task, gate_name, gate_source, gate_needs, loop_round, loop_continues, loop_nudge, loop_owner_nudge, loop_nudged, loop_held, loop_judge_sent, loop_seq, gate_grant, gate_holder, gate_round, loop_limited, loop_limit_kind, loop_limit_resets, loop_gate_from, checkout_head, checkout_hash, loop_stage, loop_stage_from, agents, unowned, caller, lines_counted, lines_files, lines_added, lines_removed, host FROM steps WHERE id = ?
 `
 
 func (q *Queries) GetStep(ctx context.Context, id string) (Step, error) {
@@ -2277,6 +2364,7 @@ func (q *Queries) GetStep(ctx context.Context, id string) (Step, error) {
 		&i.LinesFiles,
 		&i.LinesAdded,
 		&i.LinesRemoved,
+		&i.Host,
 	)
 	return i, err
 }
@@ -2342,7 +2430,7 @@ func (q *Queries) GetStepTurnEnd(ctx context.Context, id string) (GetStepTurnEnd
 }
 
 const getUnreportedEpic = `-- name: GetUnreportedEpic :one
-SELECT id, repository, title, approved, intent, care, approach, release_then, checks, phase, created, changed, paused, parked, retried, base, branch, workflow, workflow_text, workflow_sha256, pause_source, stored_base, candidate, summary, phase_at, report_phase, report_shipped, report_not_shipped, report_why, closed_by, superseded_by, park_class, synced, origin_read_base, origin_read_commit, origin_read_state, origin_read_at, steerer FROM epics
+SELECT id, repository, title, approved, intent, care, approach, release_then, checks, phase, created, changed, paused, parked, retried, base, branch, workflow, workflow_text, workflow_sha256, pause_source, stored_base, candidate, summary, phase_at, report_phase, report_shipped, report_not_shipped, report_why, closed_by, superseded_by, park_class, steerer, host FROM epics
 WHERE (phase IN ('released', 'done', 'ended_with_gaps')
        OR (phase IN ('closed_superseded', 'closed_shipped', 'closed_abandoned') AND closed_by = 'planner'))
   AND report_phase <> phase
@@ -2385,12 +2473,8 @@ func (q *Queries) GetUnreportedEpic(ctx context.Context, id string) (Epic, error
 		&i.ClosedBy,
 		&i.SupersededBy,
 		&i.ParkClass,
-		&i.Synced,
-		&i.OriginReadBase,
-		&i.OriginReadCommit,
-		&i.OriginReadState,
-		&i.OriginReadAt,
 		&i.Steerer,
+		&i.Host,
 	)
 	return i, err
 }
@@ -2420,23 +2504,6 @@ func (q *Queries) GetUntitledEngineSession(ctx context.Context, id string) (GetU
 	return i, err
 }
 
-const giveOutsideReleaseSlot = `-- name: GiveOutsideReleaseSlot :execrows
-DELETE FROM epic_release_slots WHERE repository = ? AND holder_kind = 'outside' AND label = ?
-`
-
-type GiveOutsideReleaseSlotParams struct {
-	Repository string
-	Label      string
-}
-
-func (q *Queries) GiveOutsideReleaseSlot(ctx context.Context, arg GiveOutsideReleaseSlotParams) (int64, error) {
-	result, err := q.db.ExecContext(ctx, giveOutsideReleaseSlot, arg.Repository, arg.Label)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected()
-}
-
 const grantEpicParkedLoops = `-- name: GrantEpicParkedLoops :exec
 UPDATE epic_node_runs SET state = 'running', granted = granted + 1
 WHERE epic = ? AND kind = 'loop' AND state = 'parked'
@@ -2444,23 +2511,6 @@ WHERE epic = ? AND kind = 'loop' AND state = 'parked'
 
 func (q *Queries) GrantEpicParkedLoops(ctx context.Context, epic string) error {
 	_, err := q.db.ExecContext(ctx, grantEpicParkedLoops, epic)
-	return err
-}
-
-const holdOutsideReleaseSlot = `-- name: HoldOutsideReleaseSlot :exec
-INSERT INTO epic_release_slots (repository, epic, holder_kind, label, deadline) VALUES (?, '', 'outside', ?, ?)
-ON CONFLICT (repository) DO UPDATE SET label = excluded.label, deadline = excluded.deadline
-WHERE epic_release_slots.holder_kind = 'outside' AND epic_release_slots.label = excluded.label
-`
-
-type HoldOutsideReleaseSlotParams struct {
-	Repository string
-	Label      string
-	Deadline   int64
-}
-
-func (q *Queries) HoldOutsideReleaseSlot(ctx context.Context, arg HoldOutsideReleaseSlotParams) error {
-	_, err := q.db.ExecContext(ctx, holdOutsideReleaseSlot, arg.Repository, arg.Label, arg.Deadline)
 	return err
 }
 
@@ -2727,8 +2777,8 @@ func (q *Queries) InsertEngineTurnEndedEvent(ctx context.Context, arg InsertEngi
 
 const insertEpic = `-- name: InsertEpic :exec
 INSERT INTO epics (id, repository, base, stored_base, title, approved, intent, care, approach, release_then, checks,
-    phase, created, changed, workflow, workflow_text, workflow_sha256, phase_at, steerer)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    phase, created, changed, workflow, workflow_text, workflow_sha256, phase_at, steerer, host)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `
 
 type InsertEpicParams struct {
@@ -2751,6 +2801,7 @@ type InsertEpicParams struct {
 	WorkflowSha256 string
 	PhaseAt        int64
 	Steerer        string
+	Host           string
 }
 
 func (q *Queries) InsertEpic(ctx context.Context, arg InsertEpicParams) error {
@@ -2774,6 +2825,7 @@ func (q *Queries) InsertEpic(ctx context.Context, arg InsertEpicParams) error {
 		arg.WorkflowSha256,
 		arg.PhaseAt,
 		arg.Steerer,
+		arg.Host,
 	)
 	return err
 }
@@ -3382,21 +3434,6 @@ func (q *Queries) InsertEpicReleaseRun(ctx context.Context, arg InsertEpicReleas
 		arg.Reason,
 		arg.At,
 	)
-	return err
-}
-
-const insertEpicReleaseSlot = `-- name: InsertEpicReleaseSlot :exec
-INSERT INTO epic_release_slots (repository, epic, holder_kind) VALUES (?, ?, 'epic')
-ON CONFLICT (repository) DO NOTHING
-`
-
-type InsertEpicReleaseSlotParams struct {
-	Repository string
-	Epic       string
-}
-
-func (q *Queries) InsertEpicReleaseSlot(ctx context.Context, arg InsertEpicReleaseSlotParams) error {
-	_, err := q.db.ExecContext(ctx, insertEpicReleaseSlot, arg.Repository, arg.Epic)
 	return err
 }
 
@@ -4266,6 +4303,33 @@ func (q *Queries) InsertIntegrateRound(ctx context.Context, arg InsertIntegrateR
 	return err
 }
 
+const insertLLMAccount = `-- name: InsertLLMAccount :exec
+INSERT INTO llm_accounts (id, name, provider, plan, token, fingerprint, created) VALUES (?, ?, ?, ?, ?, ?, ?)
+`
+
+type InsertLLMAccountParams struct {
+	ID          string
+	Name        string
+	Provider    string
+	Plan        string
+	Token       string
+	Fingerprint string
+	Created     int64
+}
+
+func (q *Queries) InsertLLMAccount(ctx context.Context, arg InsertLLMAccountParams) error {
+	_, err := q.db.ExecContext(ctx, insertLLMAccount,
+		arg.ID,
+		arg.Name,
+		arg.Provider,
+		arg.Plan,
+		arg.Token,
+		arg.Fingerprint,
+		arg.Created,
+	)
+	return err
+}
+
 const insertNoticeHistory = `-- name: InsertNoticeHistory :exec
 INSERT INTO notice_history (pane, session, epic, limit_key, alert, state, title, body, block, block_ref, time)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -4421,6 +4485,107 @@ func (q *Queries) InsertPromptState(ctx context.Context, arg InsertPromptStatePa
 	return result.RowsAffected()
 }
 
+const insertRouteBinding = `-- name: InsertRouteBinding :exec
+INSERT INTO route_bindings (context, scope, selector, seat) VALUES (?, ?, ?, ?)
+`
+
+type InsertRouteBindingParams struct {
+	Context  string
+	Scope    string
+	Selector string
+	Seat     string
+}
+
+func (q *Queries) InsertRouteBinding(ctx context.Context, arg InsertRouteBindingParams) error {
+	_, err := q.db.ExecContext(ctx, insertRouteBinding,
+		arg.Context,
+		arg.Scope,
+		arg.Selector,
+		arg.Seat,
+	)
+	return err
+}
+
+const insertRouteContext = `-- name: InsertRouteContext :exec
+INSERT INTO route_contexts (id, default_seat, account, has_subagents, subagent_default_seat) VALUES (?, ?, ?, ?, ?)
+`
+
+type InsertRouteContextParams struct {
+	ID                  string
+	DefaultSeat         string
+	Account             string
+	HasSubagents        int64
+	SubagentDefaultSeat string
+}
+
+func (q *Queries) InsertRouteContext(ctx context.Context, arg InsertRouteContextParams) error {
+	_, err := q.db.ExecContext(ctx, insertRouteContext,
+		arg.ID,
+		arg.DefaultSeat,
+		arg.Account,
+		arg.HasSubagents,
+		arg.SubagentDefaultSeat,
+	)
+	return err
+}
+
+const insertRouteRegistry = `-- name: InsertRouteRegistry :exec
+INSERT INTO route_registry (id, default_context) VALUES (1, ?)
+`
+
+func (q *Queries) InsertRouteRegistry(ctx context.Context, defaultContext string) error {
+	_, err := q.db.ExecContext(ctx, insertRouteRegistry, defaultContext)
+	return err
+}
+
+const insertRouteSeat = `-- name: InsertRouteSeat :exec
+INSERT INTO route_seats (id, auth_mode, upstream, model, api_key_env_file, aws_profile, aws_region, model_map_env_file,
+                         billing, speed, cache_ttl, insecure, strip_cache_control, strict_structured_output,
+                         max_input_tokens, strip_betas)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+`
+
+type InsertRouteSeatParams struct {
+	ID                     string
+	AuthMode               string
+	Upstream               string
+	Model                  string
+	ApiKeyEnvFile          string
+	AwsProfile             string
+	AwsRegion              string
+	ModelMapEnvFile        string
+	Billing                string
+	Speed                  string
+	CacheTtl               string
+	Insecure               int64
+	StripCacheControl      int64
+	StrictStructuredOutput int64
+	MaxInputTokens         int64
+	StripBetas             string
+}
+
+func (q *Queries) InsertRouteSeat(ctx context.Context, arg InsertRouteSeatParams) error {
+	_, err := q.db.ExecContext(ctx, insertRouteSeat,
+		arg.ID,
+		arg.AuthMode,
+		arg.Upstream,
+		arg.Model,
+		arg.ApiKeyEnvFile,
+		arg.AwsProfile,
+		arg.AwsRegion,
+		arg.ModelMapEnvFile,
+		arg.Billing,
+		arg.Speed,
+		arg.CacheTtl,
+		arg.Insecure,
+		arg.StripCacheControl,
+		arg.StrictStructuredOutput,
+		arg.MaxInputTokens,
+		arg.StripBetas,
+	)
+	return err
+}
+
 const insertSession = `-- name: InsertSession :exec
 INSERT INTO sessions (id, server, pane) VALUES (?, ?, ?)
 `
@@ -4440,8 +4605,8 @@ const insertStep = `-- name: InsertStep :exec
 INSERT INTO steps (id, agent, prompt, output_schema, workspace, revision, worktree, checkout_head, checkout_hash,
                    done_value, read_only, owned, unowned, gate, gate_name, gate_source, gate_needs, gate_limit,
                    model_limit, started, checks, result, status, end_value, reason, ended, doing, verdicts, epic, task,
-                   loop_stage, loop_stage_from, agents, caller)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '[]', '', '', '', '', 0, '', '[]', ?, ?, ?, ?, ?, ?)
+                   loop_stage, loop_stage_from, agents, caller, host)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '[]', '', '', '', '', 0, '', '[]', ?, ?, ?, ?, ?, ?, ?)
 `
 
 type InsertStepParams struct {
@@ -4471,6 +4636,7 @@ type InsertStepParams struct {
 	LoopStageFrom int64
 	Agents        string
 	Caller        string
+	Host          string
 }
 
 func (q *Queries) InsertStep(ctx context.Context, arg InsertStepParams) error {
@@ -4501,6 +4667,7 @@ func (q *Queries) InsertStep(ctx context.Context, arg InsertStepParams) error {
 		arg.LoopStageFrom,
 		arg.Agents,
 		arg.Caller,
+		arg.Host,
 	)
 	return err
 }
@@ -4849,7 +5016,7 @@ func (q *Queries) ListCallerStepListings(ctx context.Context, arg ListCallerStep
 }
 
 const listCallerSteps = `-- name: ListCallerSteps :many
-SELECT steps.id, steps.agent, steps.prompt, steps.output_schema, steps.workspace, steps.revision, steps.worktree, steps.done_value, steps.read_only, steps.owned, steps.gate, steps.gate_limit, steps.started, steps.checks, steps.result, steps.status, steps.end_value, steps.reason, steps.ended, steps.model_limit, steps.doing, steps.verdicts, steps.epic, steps.task, steps.gate_name, steps.gate_source, steps.gate_needs, steps.loop_round, steps.loop_continues, steps.loop_nudge, steps.loop_owner_nudge, steps.loop_nudged, steps.loop_held, steps.loop_judge_sent, steps.loop_seq, steps.gate_grant, steps.gate_holder, steps.gate_round, steps.loop_limited, steps.loop_limit_kind, steps.loop_limit_resets, steps.loop_gate_from, steps.checkout_head, steps.checkout_hash, steps.loop_stage, steps.loop_stage_from, steps.agents, steps.unowned, steps.caller, steps.lines_counted, steps.lines_files, steps.lines_added, steps.lines_removed, sessions.id AS caller_id, sessions.kind AS caller_kind, sessions.server AS caller_server,
+SELECT steps.id, steps.agent, steps.prompt, steps.output_schema, steps.workspace, steps.revision, steps.worktree, steps.done_value, steps.read_only, steps.owned, steps.gate, steps.gate_limit, steps.started, steps.checks, steps.result, steps.status, steps.end_value, steps.reason, steps.ended, steps.model_limit, steps.doing, steps.verdicts, steps.epic, steps.task, steps.gate_name, steps.gate_source, steps.gate_needs, steps.loop_round, steps.loop_continues, steps.loop_nudge, steps.loop_owner_nudge, steps.loop_nudged, steps.loop_held, steps.loop_judge_sent, steps.loop_seq, steps.gate_grant, steps.gate_holder, steps.gate_round, steps.loop_limited, steps.loop_limit_kind, steps.loop_limit_resets, steps.loop_gate_from, steps.checkout_head, steps.checkout_hash, steps.loop_stage, steps.loop_stage_from, steps.agents, steps.unowned, steps.caller, steps.lines_counted, steps.lines_files, steps.lines_added, steps.lines_removed, steps.host, sessions.id AS caller_id, sessions.kind AS caller_kind, sessions.server AS caller_server,
        sessions.pane AS caller_pane, sessions.state AS caller_state
 FROM steps
 JOIN sessions ON sessions.id = steps.caller
@@ -4933,6 +5100,7 @@ func (q *Queries) ListCallerSteps(ctx context.Context) ([]ListCallerStepsRow, er
 			&i.Step.LinesFiles,
 			&i.Step.LinesAdded,
 			&i.Step.LinesRemoved,
+			&i.Step.Host,
 			&i.CallerID,
 			&i.CallerKind,
 			&i.CallerServer,
@@ -5255,7 +5423,7 @@ func (q *Queries) ListDueResumes(ctx context.Context) ([]DueResume, error) {
 }
 
 const listEngineSessions = `-- name: ListEngineSessions :many
-SELECT id, server, pane, state, changed, seen, question, summary, label, context, tool, claude_session, transcript, kind, dir, reason, consumed, replay_from, background, turn_output, prompts_from, title, headline, headline_at, awaited, host FROM sessions WHERE kind IN ('engine', 'step') ORDER BY id
+SELECT id, server, pane, state, changed, seen, question, summary, label, context, tool, claude_session, transcript, kind, dir, reason, consumed, replay_from, background, turn_output, prompts_from, title, headline, headline_at, awaited, latest_reply, newest_reply_at, first_prompt_text, latest_request_id, held, host FROM sessions WHERE kind IN ('engine', 'step') ORDER BY id
 `
 
 func (q *Queries) ListEngineSessions(ctx context.Context) ([]Session, error) {
@@ -5293,6 +5461,11 @@ func (q *Queries) ListEngineSessions(ctx context.Context) ([]Session, error) {
 			&i.Headline,
 			&i.HeadlineAt,
 			&i.Awaited,
+			&i.LatestReply,
+			&i.NewestReplyAt,
+			&i.FirstPromptText,
+			&i.LatestRequestID,
+			&i.Held,
 			&i.Host,
 		); err != nil {
 			return nil, err
@@ -6797,7 +6970,7 @@ func (q *Queries) ListEpicStepListings(ctx context.Context, epic string) ([]Step
 }
 
 const listEpicSteps = `-- name: ListEpicSteps :many
-SELECT id, agent, prompt, output_schema, workspace, revision, worktree, done_value, read_only, owned, gate, gate_limit, started, checks, result, status, end_value, reason, ended, model_limit, doing, verdicts, epic, task, gate_name, gate_source, gate_needs, loop_round, loop_continues, loop_nudge, loop_owner_nudge, loop_nudged, loop_held, loop_judge_sent, loop_seq, gate_grant, gate_holder, gate_round, loop_limited, loop_limit_kind, loop_limit_resets, loop_gate_from, checkout_head, checkout_hash, loop_stage, loop_stage_from, agents, unowned, caller, lines_counted, lines_files, lines_added, lines_removed FROM steps WHERE epic = ?1 ORDER BY started, id
+SELECT id, agent, prompt, output_schema, workspace, revision, worktree, done_value, read_only, owned, gate, gate_limit, started, checks, result, status, end_value, reason, ended, model_limit, doing, verdicts, epic, task, gate_name, gate_source, gate_needs, loop_round, loop_continues, loop_nudge, loop_owner_nudge, loop_nudged, loop_held, loop_judge_sent, loop_seq, gate_grant, gate_holder, gate_round, loop_limited, loop_limit_kind, loop_limit_resets, loop_gate_from, checkout_head, checkout_hash, loop_stage, loop_stage_from, agents, unowned, caller, lines_counted, lines_files, lines_added, lines_removed, host FROM steps WHERE epic = ?1 ORDER BY started, id
 `
 
 func (q *Queries) ListEpicSteps(ctx context.Context, epic string) ([]Step, error) {
@@ -6863,6 +7036,7 @@ func (q *Queries) ListEpicSteps(ctx context.Context, epic string) ([]Step, error
 			&i.LinesFiles,
 			&i.LinesAdded,
 			&i.LinesRemoved,
+			&i.Host,
 		); err != nil {
 			return nil, err
 		}
@@ -7220,7 +7394,7 @@ func (q *Queries) ListEpicTaskStepListings(ctx context.Context, arg ListEpicTask
 }
 
 const listEpicTaskSteps = `-- name: ListEpicTaskSteps :many
-SELECT id, agent, prompt, output_schema, workspace, revision, worktree, done_value, read_only, owned, gate, gate_limit, started, checks, result, status, end_value, reason, ended, model_limit, doing, verdicts, epic, task, gate_name, gate_source, gate_needs, loop_round, loop_continues, loop_nudge, loop_owner_nudge, loop_nudged, loop_held, loop_judge_sent, loop_seq, gate_grant, gate_holder, gate_round, loop_limited, loop_limit_kind, loop_limit_resets, loop_gate_from, checkout_head, checkout_hash, loop_stage, loop_stage_from, agents, unowned, caller, lines_counted, lines_files, lines_added, lines_removed FROM steps WHERE epic = ?1 AND task IN (/*SLICE:tasks*/?) ORDER BY started, id
+SELECT id, agent, prompt, output_schema, workspace, revision, worktree, done_value, read_only, owned, gate, gate_limit, started, checks, result, status, end_value, reason, ended, model_limit, doing, verdicts, epic, task, gate_name, gate_source, gate_needs, loop_round, loop_continues, loop_nudge, loop_owner_nudge, loop_nudged, loop_held, loop_judge_sent, loop_seq, gate_grant, gate_holder, gate_round, loop_limited, loop_limit_kind, loop_limit_resets, loop_gate_from, checkout_head, checkout_hash, loop_stage, loop_stage_from, agents, unowned, caller, lines_counted, lines_files, lines_added, lines_removed, host FROM steps WHERE epic = ?1 AND task IN (/*SLICE:tasks*/?) ORDER BY started, id
 `
 
 type ListEpicTaskStepsParams struct {
@@ -7302,6 +7476,7 @@ func (q *Queries) ListEpicTaskSteps(ctx context.Context, arg ListEpicTaskStepsPa
 			&i.LinesFiles,
 			&i.LinesAdded,
 			&i.LinesRemoved,
+			&i.Host,
 		); err != nil {
 			return nil, err
 		}
@@ -7676,7 +7851,7 @@ func (q *Queries) ListEpicWorkflowNodes(ctx context.Context, epic string) ([]Epi
 }
 
 const listEpics = `-- name: ListEpics :many
-SELECT epics.id, epics.repository, epics.title, epics.approved, epics.intent, epics.care, epics.approach, epics.release_then, epics.checks, epics.phase, epics.created, epics.changed, epics.paused, epics.parked, epics.retried, epics.base, epics.branch, epics.workflow, epics.workflow_text, epics.workflow_sha256, epics.pause_source, epics.stored_base, epics.candidate, epics.summary, epics.phase_at, epics.report_phase, epics.report_shipped, epics.report_not_shipped, epics.report_why, epics.closed_by, epics.superseded_by, epics.park_class, epics.synced, epics.origin_read_base, epics.origin_read_commit, epics.origin_read_state, epics.origin_read_at, epics.steerer, CAST(COALESCE(epic_revisions.revision, 0) AS INTEGER) AS revision
+SELECT epics.id, epics.repository, epics.title, epics.approved, epics.intent, epics.care, epics.approach, epics.release_then, epics.checks, epics.phase, epics.created, epics.changed, epics.paused, epics.parked, epics.retried, epics.base, epics.branch, epics.workflow, epics.workflow_text, epics.workflow_sha256, epics.pause_source, epics.stored_base, epics.candidate, epics.summary, epics.phase_at, epics.report_phase, epics.report_shipped, epics.report_not_shipped, epics.report_why, epics.closed_by, epics.superseded_by, epics.park_class, epics.steerer, epics.host, CAST(COALESCE(epic_revisions.revision, 0) AS INTEGER) AS revision
 FROM epics LEFT JOIN epic_revisions ON epic_revisions.epic = epics.id
 ORDER BY epics.id
 `
@@ -7728,12 +7903,8 @@ func (q *Queries) ListEpics(ctx context.Context) ([]ListEpicsRow, error) {
 			&i.Epic.ClosedBy,
 			&i.Epic.SupersededBy,
 			&i.Epic.ParkClass,
-			&i.Epic.Synced,
-			&i.Epic.OriginReadBase,
-			&i.Epic.OriginReadCommit,
-			&i.Epic.OriginReadState,
-			&i.Epic.OriginReadAt,
 			&i.Epic.Steerer,
+			&i.Epic.Host,
 			&i.Revision,
 		); err != nil {
 			return nil, err
@@ -7750,7 +7921,7 @@ func (q *Queries) ListEpics(ctx context.Context) ([]ListEpicsRow, error) {
 }
 
 const listEpicsWithTurnsOrUntoldTells = `-- name: ListEpicsWithTurnsOrUntoldTells :many
-SELECT id, repository, title, approved, intent, care, approach, release_then, checks, phase, created, changed, paused, parked, retried, base, branch, workflow, workflow_text, workflow_sha256, pause_source, stored_base, candidate, summary, phase_at, report_phase, report_shipped, report_not_shipped, report_why, closed_by, superseded_by, park_class, synced, origin_read_base, origin_read_commit, origin_read_state, origin_read_at, steerer FROM epics
+SELECT id, repository, title, approved, intent, care, approach, release_then, checks, phase, created, changed, paused, parked, retried, base, branch, workflow, workflow_text, workflow_sha256, pause_source, stored_base, candidate, summary, phase_at, report_phase, report_shipped, report_not_shipped, report_why, closed_by, superseded_by, park_class, steerer, host FROM epics
 WHERE EXISTS (SELECT 1 FROM epic_turns WHERE epic_turns.epic = epics.id)
    OR EXISTS (SELECT 1 FROM epic_tells WHERE epic_tells.epic = epics.id AND epic_tells.told = 0)
 ORDER BY epics.id
@@ -7798,12 +7969,8 @@ func (q *Queries) ListEpicsWithTurnsOrUntoldTells(ctx context.Context) ([]Epic, 
 			&i.ClosedBy,
 			&i.SupersededBy,
 			&i.ParkClass,
-			&i.Synced,
-			&i.OriginReadBase,
-			&i.OriginReadCommit,
-			&i.OriginReadState,
-			&i.OriginReadAt,
 			&i.Steerer,
+			&i.Host,
 		); err != nil {
 			return nil, err
 		}
@@ -8049,34 +8216,10 @@ const listHeadlessSessions = `-- name: ListHeadlessSessions :many
 SELECT
     sessions.id, sessions.dir, sessions.state, sessions.changed, sessions.seen, sessions.question, sessions.reason,
     sessions.title, sessions.headline, sessions.host,
-    CAST(COALESCE((
-        SELECT json_extract(events.payload, '$.text') FROM events
-        WHERE events.session_id = sessions.id AND events.kind = 'engine_block'
-          AND json_extract(events.payload, '$.kind') = 'text'
-          AND json_extract(events.payload, '$.role') = 'assistant'
-          AND IFNULL(json_extract(events.payload, '$.parentToolUseId'), '') = ''
-        ORDER BY events.at DESC, events.seq DESC LIMIT 1
-    ), '') AS TEXT) AS reply,
-    CAST(COALESCE((
-        SELECT MAX(events.at) FROM events
-        WHERE events.session_id = sessions.id AND (
-            (events.kind = 'engine_block' AND json_extract(events.payload, '$.kind') = 'text'
-             AND json_extract(events.payload, '$.role') = 'assistant'
-             AND IFNULL(json_extract(events.payload, '$.parentToolUseId'), '') = '')
-            OR (events.kind = 'engine_request' AND json_extract(events.payload, '$.refused') IS NOT 1)
-        )
-    ), 0) AS INTEGER) AS newest_reply,
-    CAST(COALESCE((
-        SELECT json_extract(events.payload, '$.text') FROM events
-        WHERE events.session_id = sessions.id AND events.kind = 'engine_prompt'
-        ORDER BY events.seq LIMIT 1
-    ), '') AS TEXT) AS first_prompt,
-    CAST(COALESCE((
-        SELECT json_extract(events.payload, '$.requestId') FROM events
-        WHERE events.session_id = sessions.id AND events.kind = 'engine_request'
-          AND json_extract(events.payload, '$.refused') IS NOT 1
-        ORDER BY events.seq DESC LIMIT 1
-    ), '') AS TEXT) AS request_id
+    sessions.latest_reply AS reply,
+    sessions.newest_reply_at AS newest_reply,
+    sessions.first_prompt_text AS first_prompt,
+    sessions.latest_request_id AS request_id
 FROM sessions
 WHERE sessions.kind = 'engine'
   AND EXISTS (SELECT 1 FROM events WHERE events.session_id = sessions.id AND events.at >= ?1)
@@ -8290,6 +8433,76 @@ func (q *Queries) ListKnownDirs(ctx context.Context) ([]string, error) {
 	return items, nil
 }
 
+const listLLMAccountIDs = `-- name: ListLLMAccountIDs :many
+SELECT id FROM llm_accounts ORDER BY id
+`
+
+func (q *Queries) ListLLMAccountIDs(ctx context.Context) ([]string, error) {
+	rows, err := q.db.QueryContext(ctx, listLLMAccountIDs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listLLMAccounts = `-- name: ListLLMAccounts :many
+SELECT id, name, provider, plan, fingerprint, created FROM llm_accounts ORDER BY created, id
+`
+
+type ListLLMAccountsRow struct {
+	ID          string
+	Name        string
+	Provider    string
+	Plan        string
+	Fingerprint string
+	Created     int64
+}
+
+func (q *Queries) ListLLMAccounts(ctx context.Context) ([]ListLLMAccountsRow, error) {
+	rows, err := q.db.QueryContext(ctx, listLLMAccounts)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListLLMAccountsRow
+	for rows.Next() {
+		var i ListLLMAccountsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.Provider,
+			&i.Plan,
+			&i.Fingerprint,
+			&i.Created,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listLabelledStepListings = `-- name: ListLabelledStepListings :many
 SELECT id, agent, workspace, revision, worktree, read_only, started, checks, doing, verdicts, status, end_value, reason, ended, epic, task, gate_name, gate_limit, loop_limited, loop_limit_kind, loop_limit_resets, loop_stage, loop_stage_from, caller, summary FROM step_listings
 WHERE epic <> '' AND (CAST(?1 AS TEXT) = '' OR task = CAST(?1 AS TEXT))
@@ -8346,7 +8559,7 @@ func (q *Queries) ListLabelledStepListings(ctx context.Context, task string) ([]
 }
 
 const listLabelledSteps = `-- name: ListLabelledSteps :many
-SELECT id, agent, prompt, output_schema, workspace, revision, worktree, done_value, read_only, owned, gate, gate_limit, started, checks, result, status, end_value, reason, ended, model_limit, doing, verdicts, epic, task, gate_name, gate_source, gate_needs, loop_round, loop_continues, loop_nudge, loop_owner_nudge, loop_nudged, loop_held, loop_judge_sent, loop_seq, gate_grant, gate_holder, gate_round, loop_limited, loop_limit_kind, loop_limit_resets, loop_gate_from, checkout_head, checkout_hash, loop_stage, loop_stage_from, agents, unowned, caller, lines_counted, lines_files, lines_added, lines_removed FROM steps
+SELECT id, agent, prompt, output_schema, workspace, revision, worktree, done_value, read_only, owned, gate, gate_limit, started, checks, result, status, end_value, reason, ended, model_limit, doing, verdicts, epic, task, gate_name, gate_source, gate_needs, loop_round, loop_continues, loop_nudge, loop_owner_nudge, loop_nudged, loop_held, loop_judge_sent, loop_seq, gate_grant, gate_holder, gate_round, loop_limited, loop_limit_kind, loop_limit_resets, loop_gate_from, checkout_head, checkout_hash, loop_stage, loop_stage_from, agents, unowned, caller, lines_counted, lines_files, lines_added, lines_removed, host FROM steps
 WHERE epic <> '' AND (CAST(?1 AS TEXT) = '' OR task = CAST(?1 AS TEXT))
 ORDER BY started, id
 `
@@ -8414,6 +8627,7 @@ func (q *Queries) ListLabelledSteps(ctx context.Context, task string) ([]Step, e
 			&i.LinesFiles,
 			&i.LinesAdded,
 			&i.LinesRemoved,
+			&i.Host,
 		); err != nil {
 			return nil, err
 		}
@@ -8429,7 +8643,7 @@ func (q *Queries) ListLabelledSteps(ctx context.Context, task string) ([]Step, e
 }
 
 const listLimitedSteps = `-- name: ListLimitedSteps :many
-SELECT id, agent, prompt, output_schema, workspace, revision, worktree, done_value, read_only, owned, gate, gate_limit, started, checks, result, status, end_value, reason, ended, model_limit, doing, verdicts, epic, task, gate_name, gate_source, gate_needs, loop_round, loop_continues, loop_nudge, loop_owner_nudge, loop_nudged, loop_held, loop_judge_sent, loop_seq, gate_grant, gate_holder, gate_round, loop_limited, loop_limit_kind, loop_limit_resets, loop_gate_from, checkout_head, checkout_hash, loop_stage, loop_stage_from, agents, unowned, caller, lines_counted, lines_files, lines_added, lines_removed FROM steps WHERE end_value = '' AND loop_limited = 1 ORDER BY started, id
+SELECT id, agent, prompt, output_schema, workspace, revision, worktree, done_value, read_only, owned, gate, gate_limit, started, checks, result, status, end_value, reason, ended, model_limit, doing, verdicts, epic, task, gate_name, gate_source, gate_needs, loop_round, loop_continues, loop_nudge, loop_owner_nudge, loop_nudged, loop_held, loop_judge_sent, loop_seq, gate_grant, gate_holder, gate_round, loop_limited, loop_limit_kind, loop_limit_resets, loop_gate_from, checkout_head, checkout_hash, loop_stage, loop_stage_from, agents, unowned, caller, lines_counted, lines_files, lines_added, lines_removed, host FROM steps WHERE end_value = '' AND loop_limited = 1 ORDER BY started, id
 `
 
 func (q *Queries) ListLimitedSteps(ctx context.Context) ([]Step, error) {
@@ -8495,6 +8709,7 @@ func (q *Queries) ListLimitedSteps(ctx context.Context) ([]Step, error) {
 			&i.LinesFiles,
 			&i.LinesAdded,
 			&i.LinesRemoved,
+			&i.Host,
 		); err != nil {
 			return nil, err
 		}
@@ -8985,7 +9200,7 @@ func (q *Queries) ListOpenStepListings(ctx context.Context) ([]StepListing, erro
 }
 
 const listOpenSteps = `-- name: ListOpenSteps :many
-SELECT id, agent, prompt, output_schema, workspace, revision, worktree, done_value, read_only, owned, gate, gate_limit, started, checks, result, status, end_value, reason, ended, model_limit, doing, verdicts, epic, task, gate_name, gate_source, gate_needs, loop_round, loop_continues, loop_nudge, loop_owner_nudge, loop_nudged, loop_held, loop_judge_sent, loop_seq, gate_grant, gate_holder, gate_round, loop_limited, loop_limit_kind, loop_limit_resets, loop_gate_from, checkout_head, checkout_hash, loop_stage, loop_stage_from, agents, unowned, caller, lines_counted, lines_files, lines_added, lines_removed FROM steps WHERE end_value = '' ORDER BY id
+SELECT id, agent, prompt, output_schema, workspace, revision, worktree, done_value, read_only, owned, gate, gate_limit, started, checks, result, status, end_value, reason, ended, model_limit, doing, verdicts, epic, task, gate_name, gate_source, gate_needs, loop_round, loop_continues, loop_nudge, loop_owner_nudge, loop_nudged, loop_held, loop_judge_sent, loop_seq, gate_grant, gate_holder, gate_round, loop_limited, loop_limit_kind, loop_limit_resets, loop_gate_from, checkout_head, checkout_hash, loop_stage, loop_stage_from, agents, unowned, caller, lines_counted, lines_files, lines_added, lines_removed, host FROM steps WHERE end_value = '' ORDER BY id
 `
 
 func (q *Queries) ListOpenSteps(ctx context.Context) ([]Step, error) {
@@ -9051,6 +9266,7 @@ func (q *Queries) ListOpenSteps(ctx context.Context) ([]Step, error) {
 			&i.LinesFiles,
 			&i.LinesAdded,
 			&i.LinesRemoved,
+			&i.Host,
 		); err != nil {
 			return nil, err
 		}
@@ -9106,7 +9322,7 @@ func (q *Queries) ListPaneSends(ctx context.Context, arg ListPaneSendsParams) ([
 }
 
 const listPendingCallerSteps = `-- name: ListPendingCallerSteps :many
-SELECT id, agent, prompt, output_schema, workspace, revision, worktree, done_value, read_only, owned, gate, gate_limit, started, checks, result, status, end_value, reason, ended, model_limit, doing, verdicts, epic, task, gate_name, gate_source, gate_needs, loop_round, loop_continues, loop_nudge, loop_owner_nudge, loop_nudged, loop_held, loop_judge_sent, loop_seq, gate_grant, gate_holder, gate_round, loop_limited, loop_limit_kind, loop_limit_resets, loop_gate_from, checkout_head, checkout_hash, loop_stage, loop_stage_from, agents, unowned, caller, lines_counted, lines_files, lines_added, lines_removed FROM steps
+SELECT id, agent, prompt, output_schema, workspace, revision, worktree, done_value, read_only, owned, gate, gate_limit, started, checks, result, status, end_value, reason, ended, model_limit, doing, verdicts, epic, task, gate_name, gate_source, gate_needs, loop_round, loop_continues, loop_nudge, loop_owner_nudge, loop_nudged, loop_held, loop_judge_sent, loop_seq, gate_grant, gate_holder, gate_round, loop_limited, loop_limit_kind, loop_limit_resets, loop_gate_from, checkout_head, checkout_hash, loop_stage, loop_stage_from, agents, unowned, caller, lines_counted, lines_files, lines_added, lines_removed, host FROM steps
 WHERE steps.end_value <> '' AND steps.caller <> '' AND steps.caller = ?
   AND NOT EXISTS (
       SELECT 1 FROM caller_events
@@ -9178,6 +9394,7 @@ func (q *Queries) ListPendingCallerSteps(ctx context.Context, caller string) ([]
 			&i.LinesFiles,
 			&i.LinesAdded,
 			&i.LinesRemoved,
+			&i.Host,
 		); err != nil {
 			return nil, err
 		}
@@ -9635,8 +9852,176 @@ func (q *Queries) ListRecentTurns(ctx context.Context, arg ListRecentTurnsParams
 	return items, nil
 }
 
+const listRouteAccountTokens = `-- name: ListRouteAccountTokens :many
+SELECT id, token FROM llm_accounts WHERE id IN (SELECT account FROM route_contexts WHERE account <> '') ORDER BY id
+`
+
+type ListRouteAccountTokensRow struct {
+	ID    string
+	Token string
+}
+
+func (q *Queries) ListRouteAccountTokens(ctx context.Context) ([]ListRouteAccountTokensRow, error) {
+	rows, err := q.db.QueryContext(ctx, listRouteAccountTokens)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListRouteAccountTokensRow
+	for rows.Next() {
+		var i ListRouteAccountTokensRow
+		if err := rows.Scan(&i.ID, &i.Token); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listRouteBindings = `-- name: ListRouteBindings :many
+SELECT context, scope, selector, seat FROM route_bindings ORDER BY context, scope, selector
+`
+
+func (q *Queries) ListRouteBindings(ctx context.Context) ([]RouteBinding, error) {
+	rows, err := q.db.QueryContext(ctx, listRouteBindings)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []RouteBinding
+	for rows.Next() {
+		var i RouteBinding
+		if err := rows.Scan(
+			&i.Context,
+			&i.Scope,
+			&i.Selector,
+			&i.Seat,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listRouteContexts = `-- name: ListRouteContexts :many
+SELECT id, default_seat, account, has_subagents, subagent_default_seat FROM route_contexts ORDER BY id
+`
+
+func (q *Queries) ListRouteContexts(ctx context.Context) ([]RouteContext, error) {
+	rows, err := q.db.QueryContext(ctx, listRouteContexts)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []RouteContext
+	for rows.Next() {
+		var i RouteContext
+		if err := rows.Scan(
+			&i.ID,
+			&i.DefaultSeat,
+			&i.Account,
+			&i.HasSubagents,
+			&i.SubagentDefaultSeat,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listRouteContextsOfAccount = `-- name: ListRouteContextsOfAccount :many
+SELECT id FROM route_contexts WHERE account = ? AND account <> '' ORDER BY id
+`
+
+func (q *Queries) ListRouteContextsOfAccount(ctx context.Context, account string) ([]string, error) {
+	rows, err := q.db.QueryContext(ctx, listRouteContextsOfAccount, account)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listRouteSeats = `-- name: ListRouteSeats :many
+SELECT id, auth_mode, upstream, model, api_key_env_file, aws_profile, aws_region, model_map_env_file, billing, speed, cache_ttl, insecure, strip_cache_control, strict_structured_output, max_input_tokens, strip_betas FROM route_seats ORDER BY id
+`
+
+func (q *Queries) ListRouteSeats(ctx context.Context) ([]RouteSeat, error) {
+	rows, err := q.db.QueryContext(ctx, listRouteSeats)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []RouteSeat
+	for rows.Next() {
+		var i RouteSeat
+		if err := rows.Scan(
+			&i.ID,
+			&i.AuthMode,
+			&i.Upstream,
+			&i.Model,
+			&i.ApiKeyEnvFile,
+			&i.AwsProfile,
+			&i.AwsRegion,
+			&i.ModelMapEnvFile,
+			&i.Billing,
+			&i.Speed,
+			&i.CacheTtl,
+			&i.Insecure,
+			&i.StripCacheControl,
+			&i.StrictStructuredOutput,
+			&i.MaxInputTokens,
+			&i.StripBetas,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listRunningCallerSteps = `-- name: ListRunningCallerSteps :many
-SELECT id, agent, prompt, output_schema, workspace, revision, worktree, done_value, read_only, owned, gate, gate_limit, started, checks, result, status, end_value, reason, ended, model_limit, doing, verdicts, epic, task, gate_name, gate_source, gate_needs, loop_round, loop_continues, loop_nudge, loop_owner_nudge, loop_nudged, loop_held, loop_judge_sent, loop_seq, gate_grant, gate_holder, gate_round, loop_limited, loop_limit_kind, loop_limit_resets, loop_gate_from, checkout_head, checkout_hash, loop_stage, loop_stage_from, agents, unowned, caller, lines_counted, lines_files, lines_added, lines_removed FROM steps WHERE end_value = '' AND caller = ? ORDER BY started, id
+SELECT id, agent, prompt, output_schema, workspace, revision, worktree, done_value, read_only, owned, gate, gate_limit, started, checks, result, status, end_value, reason, ended, model_limit, doing, verdicts, epic, task, gate_name, gate_source, gate_needs, loop_round, loop_continues, loop_nudge, loop_owner_nudge, loop_nudged, loop_held, loop_judge_sent, loop_seq, gate_grant, gate_holder, gate_round, loop_limited, loop_limit_kind, loop_limit_resets, loop_gate_from, checkout_head, checkout_hash, loop_stage, loop_stage_from, agents, unowned, caller, lines_counted, lines_files, lines_added, lines_removed, host FROM steps WHERE end_value = '' AND caller = ? ORDER BY started, id
 `
 
 func (q *Queries) ListRunningCallerSteps(ctx context.Context, caller string) ([]Step, error) {
@@ -9702,6 +10087,7 @@ func (q *Queries) ListRunningCallerSteps(ctx context.Context, caller string) ([]
 			&i.LinesFiles,
 			&i.LinesAdded,
 			&i.LinesRemoved,
+			&i.Host,
 		); err != nil {
 			return nil, err
 		}
@@ -9758,7 +10144,7 @@ func (q *Queries) ListRunningEpicTurns(ctx context.Context) ([]EpicTurn, error) 
 }
 
 const listServerSessions = `-- name: ListServerSessions :many
-SELECT id, server, pane, state, changed, seen, question, summary, label, context, tool, claude_session, transcript, kind, dir, reason, consumed, replay_from, background, turn_output, prompts_from, title, headline, headline_at, awaited, host FROM sessions WHERE server = ? AND kind = '' ORDER BY id
+SELECT id, server, pane, state, changed, seen, question, summary, label, context, tool, claude_session, transcript, kind, dir, reason, consumed, replay_from, background, turn_output, prompts_from, title, headline, headline_at, awaited, latest_reply, newest_reply_at, first_prompt_text, latest_request_id, held, host FROM sessions WHERE server = ? AND kind = '' ORDER BY id
 `
 
 func (q *Queries) ListServerSessions(ctx context.Context, server string) ([]Session, error) {
@@ -9796,6 +10182,11 @@ func (q *Queries) ListServerSessions(ctx context.Context, server string) ([]Sess
 			&i.Headline,
 			&i.HeadlineAt,
 			&i.Awaited,
+			&i.LatestReply,
+			&i.NewestReplyAt,
+			&i.FirstPromptText,
+			&i.LatestRequestID,
+			&i.Held,
 			&i.Host,
 		); err != nil {
 			return nil, err
@@ -9958,7 +10349,7 @@ func (q *Queries) ListSessionEpicDecisions(ctx context.Context, session string) 
 }
 
 const listSessions = `-- name: ListSessions :many
-SELECT id, server, pane, state, changed, seen, question, summary, label, context, tool, claude_session, transcript, kind, dir, reason, consumed, replay_from, background, turn_output, prompts_from, title, headline, headline_at, awaited, host FROM sessions WHERE kind = '' ORDER BY id
+SELECT id, server, pane, state, changed, seen, question, summary, label, context, tool, claude_session, transcript, kind, dir, reason, consumed, replay_from, background, turn_output, prompts_from, title, headline, headline_at, awaited, latest_reply, newest_reply_at, first_prompt_text, latest_request_id, held, host FROM sessions WHERE kind = '' ORDER BY id
 `
 
 func (q *Queries) ListSessions(ctx context.Context) ([]Session, error) {
@@ -9996,6 +10387,11 @@ func (q *Queries) ListSessions(ctx context.Context) ([]Session, error) {
 			&i.Headline,
 			&i.HeadlineAt,
 			&i.Awaited,
+			&i.LatestReply,
+			&i.NewestReplyAt,
+			&i.FirstPromptText,
+			&i.LatestRequestID,
+			&i.Held,
 			&i.Host,
 		); err != nil {
 			return nil, err
@@ -10012,7 +10408,7 @@ func (q *Queries) ListSessions(ctx context.Context) ([]Session, error) {
 }
 
 const listSteeredEpics = `-- name: ListSteeredEpics :many
-SELECT id, repository, title, approved, intent, care, approach, release_then, checks, phase, created, changed, paused, parked, retried, base, branch, workflow, workflow_text, workflow_sha256, pause_source, stored_base, candidate, summary, phase_at, report_phase, report_shipped, report_not_shipped, report_why, closed_by, superseded_by, park_class, synced, origin_read_base, origin_read_commit, origin_read_state, origin_read_at, steerer FROM epics WHERE epics.steerer != '' AND epics.steerer = CAST(?1 AS TEXT) ORDER BY epics.id
+SELECT id, repository, title, approved, intent, care, approach, release_then, checks, phase, created, changed, paused, parked, retried, base, branch, workflow, workflow_text, workflow_sha256, pause_source, stored_base, candidate, summary, phase_at, report_phase, report_shipped, report_not_shipped, report_why, closed_by, superseded_by, park_class, steerer, host FROM epics WHERE epics.steerer != '' AND epics.steerer = CAST(?1 AS TEXT) ORDER BY epics.id
 `
 
 func (q *Queries) ListSteeredEpics(ctx context.Context, session string) ([]Epic, error) {
@@ -10057,12 +10453,8 @@ func (q *Queries) ListSteeredEpics(ctx context.Context, session string) ([]Epic,
 			&i.ClosedBy,
 			&i.SupersededBy,
 			&i.ParkClass,
-			&i.Synced,
-			&i.OriginReadBase,
-			&i.OriginReadCommit,
-			&i.OriginReadState,
-			&i.OriginReadAt,
 			&i.Steerer,
+			&i.Host,
 		); err != nil {
 			return nil, err
 		}
@@ -10280,7 +10672,7 @@ func (q *Queries) ListUnreadNoticeHistoryKeys(ctx context.Context) ([]ListUnread
 }
 
 const listUnreportedEpics = `-- name: ListUnreportedEpics :many
-SELECT id, repository, title, approved, intent, care, approach, release_then, checks, phase, created, changed, paused, parked, retried, base, branch, workflow, workflow_text, workflow_sha256, pause_source, stored_base, candidate, summary, phase_at, report_phase, report_shipped, report_not_shipped, report_why, closed_by, superseded_by, park_class, synced, origin_read_base, origin_read_commit, origin_read_state, origin_read_at, steerer FROM epics
+SELECT id, repository, title, approved, intent, care, approach, release_then, checks, phase, created, changed, paused, parked, retried, base, branch, workflow, workflow_text, workflow_sha256, pause_source, stored_base, candidate, summary, phase_at, report_phase, report_shipped, report_not_shipped, report_why, closed_by, superseded_by, park_class, steerer, host FROM epics
 WHERE (phase IN ('released', 'done', 'ended_with_gaps')
        OR (phase IN ('closed_superseded', 'closed_shipped', 'closed_abandoned') AND closed_by = 'planner'))
   AND report_phase <> phase
@@ -10329,12 +10721,8 @@ func (q *Queries) ListUnreportedEpics(ctx context.Context) ([]Epic, error) {
 			&i.ClosedBy,
 			&i.SupersededBy,
 			&i.ParkClass,
-			&i.Synced,
-			&i.OriginReadBase,
-			&i.OriginReadCommit,
-			&i.OriginReadState,
-			&i.OriginReadAt,
 			&i.Steerer,
+			&i.Host,
 		); err != nil {
 			return nil, err
 		}
@@ -10390,7 +10778,7 @@ func (q *Queries) ListUnresolvableOfLastTurn(ctx context.Context, epic string) (
 }
 
 const listUnsummarizedEpics = `-- name: ListUnsummarizedEpics :many
-SELECT id, repository, title, approved, intent, care, approach, release_then, checks, phase, created, changed, paused, parked, retried, base, branch, workflow, workflow_text, workflow_sha256, pause_source, stored_base, candidate, summary, phase_at, report_phase, report_shipped, report_not_shipped, report_why, closed_by, superseded_by, park_class, synced, origin_read_base, origin_read_commit, origin_read_state, origin_read_at, steerer FROM epics WHERE summary = '' ORDER BY id
+SELECT id, repository, title, approved, intent, care, approach, release_then, checks, phase, created, changed, paused, parked, retried, base, branch, workflow, workflow_text, workflow_sha256, pause_source, stored_base, candidate, summary, phase_at, report_phase, report_shipped, report_not_shipped, report_why, closed_by, superseded_by, park_class, steerer, host FROM epics WHERE summary = '' ORDER BY id
 `
 
 func (q *Queries) ListUnsummarizedEpics(ctx context.Context) ([]Epic, error) {
@@ -10435,12 +10823,8 @@ func (q *Queries) ListUnsummarizedEpics(ctx context.Context) ([]Epic, error) {
 			&i.ClosedBy,
 			&i.SupersededBy,
 			&i.ParkClass,
-			&i.Synced,
-			&i.OriginReadBase,
-			&i.OriginReadCommit,
-			&i.OriginReadState,
-			&i.OriginReadAt,
 			&i.Steerer,
+			&i.Host,
 		); err != nil {
 			return nil, err
 		}
@@ -10685,6 +11069,27 @@ func (q *Queries) MaxTurnActionPark(ctx context.Context, arg MaxTurnActionParkPa
 	return column_1, err
 }
 
+const moveEpicBase = `-- name: MoveEpicBase :execrows
+UPDATE epics SET base = ?1, stored_base = ?1
+WHERE epics.id = ?2 AND epics.base = ?3 AND epics.stored_base = ?3
+    AND epics.branch = '' AND epics.candidate = ''
+    AND NOT EXISTS (SELECT 1 FROM epic_tasks WHERE epic_tasks.epic = epics.id)
+`
+
+type MoveEpicBaseParams struct {
+	ToBase   string
+	ID       string
+	FromBase string
+}
+
+func (q *Queries) MoveEpicBase(ctx context.Context, arg MoveEpicBaseParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, moveEpicBase, arg.ToBase, arg.ID, arg.FromBase)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const moveEpicLoopRound = `-- name: MoveEpicLoopRound :exec
 UPDATE epic_node_runs SET loop_round = loop_round + 1
 WHERE epic = ? AND path = ? AND kind = 'loop' AND state = 'running' AND loop_round = ?
@@ -10780,17 +11185,6 @@ type NextEpicTaskGenerationParams struct {
 func (q *Queries) NextEpicTaskGeneration(ctx context.Context, arg NextEpicTaskGenerationParams) error {
 	_, err := q.db.ExecContext(ctx, nextEpicTaskGeneration, arg.Epic, arg.Seq)
 	return err
-}
-
-const nextOutsideReleaseSlotDeadline = `-- name: NextOutsideReleaseSlotDeadline :one
-SELECT deadline FROM epic_release_slots WHERE holder_kind = 'outside' ORDER BY deadline LIMIT 1
-`
-
-func (q *Queries) NextOutsideReleaseSlotDeadline(ctx context.Context) (int64, error) {
-	row := q.db.QueryRowContext(ctx, nextOutsideReleaseSlotDeadline)
-	var deadline int64
-	err := row.Scan(&deadline)
-	return deadline, err
 }
 
 const oldestEventSeq = `-- name: OldestEventSeq :one
@@ -11065,6 +11459,23 @@ type ReleaseEpicTriggersParams struct {
 func (q *Queries) ReleaseEpicTriggers(ctx context.Context, arg ReleaseEpicTriggersParams) error {
 	_, err := q.db.ExecContext(ctx, releaseEpicTriggers, arg.Epic, arg.Turn)
 	return err
+}
+
+const renameLLMAccount = `-- name: RenameLLMAccount :execrows
+UPDATE llm_accounts SET name = ? WHERE id = ?
+`
+
+type RenameLLMAccountParams struct {
+	Name string
+	ID   string
+}
+
+func (q *Queries) RenameLLMAccount(ctx context.Context, arg RenameLLMAccountParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, renameLLMAccount, arg.Name, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const replacedEpicTask = `-- name: ReplacedEpicTask :one
@@ -11433,32 +11844,6 @@ type SetEpicNodeCheckGrantParams struct {
 
 func (q *Queries) SetEpicNodeCheckGrant(ctx context.Context, arg SetEpicNodeCheckGrantParams) error {
 	_, err := q.db.ExecContext(ctx, setEpicNodeCheckGrant, arg.GrantID, arg.Holder, arg.ID)
-	return err
-}
-
-const setEpicOriginRead = `-- name: SetEpicOriginRead :exec
-UPDATE epics
-SET origin_read_base = ?1, origin_read_commit = ?2, origin_read_state = ?3,
-    origin_read_at = ?4
-WHERE id = ?5
-`
-
-type SetEpicOriginReadParams struct {
-	Base   string
-	Commit string
-	State  string
-	At     int64
-	ID     string
-}
-
-func (q *Queries) SetEpicOriginRead(ctx context.Context, arg SetEpicOriginReadParams) error {
-	_, err := q.db.ExecContext(ctx, setEpicOriginRead,
-		arg.Base,
-		arg.Commit,
-		arg.State,
-		arg.At,
-		arg.ID,
-	)
 	return err
 }
 
@@ -12021,6 +12406,36 @@ func (q *Queries) SetPlannerActionState(ctx context.Context, arg SetPlannerActio
 	return result.RowsAffected()
 }
 
+const setRouteContextAccount = `-- name: SetRouteContextAccount :exec
+UPDATE route_contexts SET account = ? WHERE id = ?
+`
+
+type SetRouteContextAccountParams struct {
+	Account string
+	ID      string
+}
+
+func (q *Queries) SetRouteContextAccount(ctx context.Context, arg SetRouteContextAccountParams) error {
+	_, err := q.db.ExecContext(ctx, setRouteContextAccount, arg.Account, arg.ID)
+	return err
+}
+
+const setSessionFirstPrompt = `-- name: SetSessionFirstPrompt :exec
+UPDATE sessions
+SET first_prompt_text = ?1
+WHERE id = ?2 AND first_prompt_text = ''
+`
+
+type SetSessionFirstPromptParams struct {
+	Text string
+	ID   string
+}
+
+func (q *Queries) SetSessionFirstPrompt(ctx context.Context, arg SetSessionFirstPromptParams) error {
+	_, err := q.db.ExecContext(ctx, setSessionFirstPrompt, arg.Text, arg.ID)
+	return err
+}
+
 const setSessionHeadline = `-- name: SetSessionHeadline :exec
 UPDATE sessions SET headline = ?1, headline_at = ?2
 WHERE id = ?3 AND kind = 'engine'
@@ -12034,6 +12449,42 @@ type SetSessionHeadlineParams struct {
 
 func (q *Queries) SetSessionHeadline(ctx context.Context, arg SetSessionHeadlineParams) error {
 	_, err := q.db.ExecContext(ctx, setSessionHeadline, arg.Headline, arg.HeadlineAt, arg.ID)
+	return err
+}
+
+const setSessionLatestReply = `-- name: SetSessionLatestReply :exec
+UPDATE sessions
+SET latest_reply = ?1,
+    newest_reply_at = MAX(newest_reply_at, CAST(?2 AS INTEGER))
+WHERE id = ?3
+`
+
+type SetSessionLatestReplyParams struct {
+	LatestReply string
+	At          int64
+	ID          string
+}
+
+func (q *Queries) SetSessionLatestReply(ctx context.Context, arg SetSessionLatestReplyParams) error {
+	_, err := q.db.ExecContext(ctx, setSessionLatestReply, arg.LatestReply, arg.At, arg.ID)
+	return err
+}
+
+const setSessionLatestRequest = `-- name: SetSessionLatestRequest :exec
+UPDATE sessions
+SET latest_request_id = ?1,
+    newest_reply_at = MAX(newest_reply_at, CAST(?2 AS INTEGER))
+WHERE id = ?3
+`
+
+type SetSessionLatestRequestParams struct {
+	RequestID string
+	At        int64
+	ID        string
+}
+
+func (q *Queries) SetSessionLatestRequest(ctx context.Context, arg SetSessionLatestRequestParams) error {
+	_, err := q.db.ExecContext(ctx, setSessionLatestRequest, arg.RequestID, arg.At, arg.ID)
 	return err
 }
 
@@ -12107,21 +12558,6 @@ type StopEpicReleaseParams struct {
 
 func (q *Queries) StopEpicRelease(ctx context.Context, arg StopEpicReleaseParams) error {
 	_, err := q.db.ExecContext(ctx, stopEpicRelease, arg.PhaseAt, arg.ID)
-	return err
-}
-
-const syncEpicStoredBase = `-- name: SyncEpicStoredBase :exec
-UPDATE epics SET stored_base = ?, candidate = '', synced = ? WHERE id = ?
-`
-
-type SyncEpicStoredBaseParams struct {
-	StoredBase string
-	Synced     string
-	ID         string
-}
-
-func (q *Queries) SyncEpicStoredBase(ctx context.Context, arg SyncEpicStoredBaseParams) error {
-	_, err := q.db.ExecContext(ctx, syncEpicStoredBase, arg.StoredBase, arg.Synced, arg.ID)
 	return err
 }
 
@@ -12241,7 +12677,7 @@ func (q *Queries) UpdateEngineLaunch(ctx context.Context, arg UpdateEngineLaunch
 
 const updateEngineSession = `-- name: UpdateEngineSession :execrows
 UPDATE sessions
-SET state = ?, changed = ?, seen = ?, question = ?, claude_session = ?, reason = ?
+SET state = ?, changed = ?, seen = ?, question = ?, claude_session = ?, reason = ?, held = ?
 WHERE id = ? AND kind IN ('engine', 'step')
 `
 
@@ -12252,6 +12688,7 @@ type UpdateEngineSessionParams struct {
 	Question      string
 	ClaudeSession string
 	Reason        string
+	Held          bool
 	ID            string
 }
 
@@ -12263,6 +12700,7 @@ func (q *Queries) UpdateEngineSession(ctx context.Context, arg UpdateEngineSessi
 		arg.Question,
 		arg.ClaudeSession,
 		arg.Reason,
+		arg.Held,
 		arg.ID,
 	)
 	if err != nil {

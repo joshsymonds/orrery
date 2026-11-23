@@ -6,6 +6,8 @@ import (
 	"reflect"
 	"slices"
 	"testing"
+
+	"github.com/joshsymonds/orrery/internal/hostexec"
 )
 
 // joinPrefix is the namespace the tests pin a join's merge under.
@@ -19,7 +21,7 @@ func TestJoinKeepsALineThatHoldsTheBase(t *testing.T) {
 	base := composeBase(t, dir)
 	line := composeRevision(t, dir, base, "line\n", map[string]string{"c": "sea"}, nil)
 	for _, tc := range []struct{ name, line string }{{"descendant", line}, {"the base itself", base}} {
-		got, ok, err := Join(context.Background(), dir, base, tc.line, joinPrefix)
+		got, ok, err := Join(context.Background(), hostexec.NewLocal(), dir, base, tc.line, joinPrefix)
 		if err != nil || !ok || got != tc.line {
 			t.Errorf("%s: Join = %q, %v, %v, want %q, true, nil", tc.name, got, ok, err, tc.line)
 		}
@@ -35,7 +37,7 @@ func TestJoinGivesTheBaseWhenItHoldsTheLine(t *testing.T) {
 	dir := composeRepo(t)
 	line := composeBase(t, dir)
 	base := composeRevision(t, dir, line, "base\n", map[string]string{"c": "sea"}, nil)
-	got, ok, err := Join(context.Background(), dir, base, line, joinPrefix)
+	got, ok, err := Join(context.Background(), hostexec.NewLocal(), dir, base, line, joinPrefix)
 	if err != nil || !ok || got != base {
 		t.Errorf("Join = %q, %v, %v, want %q, true, nil", got, ok, err, base)
 	}
@@ -52,7 +54,7 @@ func TestJoinMergesTheBaseIntoAForkedLine(t *testing.T) {
 	line := composeRevision(t, dir, fork, "line\n", map[string]string{"c": "sea"}, []string{"b"})
 	ctx := context.Background()
 
-	merge, ok, err := Join(ctx, dir, base, line, joinPrefix)
+	merge, ok, err := Join(ctx, hostexec.NewLocal(), dir, base, line, joinPrefix)
 	if err != nil || !ok {
 		t.Fatalf("Join = %q, %v, %v, want a merge", merge, ok, err)
 	}
@@ -70,7 +72,7 @@ func TestJoinMergesTheBaseIntoAForkedLine(t *testing.T) {
 	if got := composeGit(t, dir, nil, "", "rev-parse", joinPrefix+merge); got != merge {
 		t.Errorf("pin %s = %s, want %s", joinPrefix+merge, got, merge)
 	}
-	again, ok, err := Join(ctx, dir, base, line, joinPrefix)
+	again, ok, err := Join(ctx, hostexec.NewLocal(), dir, base, line, joinPrefix)
 	if err != nil || !ok || again != merge {
 		t.Errorf("second Join = %q, %v, %v, want the same merge %q", again, ok, err, merge)
 	}
@@ -86,7 +88,7 @@ func TestJoinRefusesAMergeThatConflicts(t *testing.T) {
 	line := composeRevision(t, dir, fork, "line\n", map[string]string{"a": "uno"}, nil)
 	before := composeGit(t, dir, nil, "", "for-each-ref")
 
-	got, ok, err := Join(context.Background(), dir, base, line, joinPrefix)
+	got, ok, err := Join(context.Background(), hostexec.NewLocal(), dir, base, line, joinPrefix)
 	if err != nil || ok || got != "" {
 		t.Errorf("Join = %q, %v, %v, want no commit, false, nil", got, ok, err)
 	}
@@ -102,7 +104,7 @@ func TestJoinRefusesAPrefixOutsideOrrery(t *testing.T) {
 	fork := composeBase(t, dir)
 	base := composeRevision(t, dir, fork, "base\n", map[string]string{"a": "won"}, nil)
 	line := composeRevision(t, dir, fork, "line\n", map[string]string{"c": "sea"}, nil)
-	if _, _, err := Join(context.Background(), dir, base, line, "refs/heads/join/"); err == nil {
+	if _, _, err := Join(context.Background(), hostexec.NewLocal(), dir, base, line, "refs/heads/join/"); err == nil {
 		t.Error("Join with a prefix under refs/heads/ = nil error, want a refusal")
 	}
 }

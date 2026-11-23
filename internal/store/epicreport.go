@@ -22,7 +22,7 @@ type EpicReport struct {
 // when its phase is released, done or ended_with_gaps, or is a closed phase its planner closed, and its stored report is
 // for another phase. An epic the owner closed needs none.
 func (s *Store) UnreportedEpics(ctx context.Context) ([]EpicRow, error) {
-	queries := sqlcgen.New(s.db)
+	queries := sqlcgen.New(s.read)
 	heads, err := queries.ListUnreportedEpics(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("list unreported epics: %w", err)
@@ -41,7 +41,7 @@ func (s *Store) UnreportedEpics(ctx context.Context) ([]EpicRow, error) {
 // UnreportedEpic returns the epic with id, read as Epic reads it, and whether UnreportedEpics lists it. An epic that is
 // not listed, or not stored, is false with no error.
 func (s *Store) UnreportedEpic(ctx context.Context, id string) (EpicRow, bool, error) {
-	queries := sqlcgen.New(s.db)
+	queries := sqlcgen.New(s.read)
 	head, err := queries.GetUnreportedEpic(ctx, id)
 	if errors.Is(err, sql.ErrNoRows) {
 		return EpicRow{}, false, nil

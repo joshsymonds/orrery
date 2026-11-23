@@ -28,7 +28,8 @@ const labelPromptRunes = 40
 const summaryRunes = 300
 
 // ListHeadless answers the headless engine sessions with an event in the last store.EventRetention, in id order.
-// Each row's label, headline and summary are derived when it is read. Store detail never reaches the client.
+// Each row's label, headline and summary are derived when it is read. A done row that a live epic steers or a running
+// step calls lists as working. Store detail never reaches the client.
 func (s sessionsServer) ListHeadless(
 	ctx context.Context,
 	_ *connect.Request[orreryv1.ListHeadlessRequest],
@@ -57,6 +58,10 @@ func (s sessionsServer) ListHeadless(
 	if err != nil {
 		return nil, err
 	}
+	reads, err := readSteered(ctx, s.epics, s.steps, s.reader)
+	if err != nil {
+		return nil, err
+	}
 	sessions := make([]*orreryv1.HeadlessSession, 0, len(rows))
 	for _, row := range rows {
 		session, convErr := headlessMessage(row)
@@ -65,10 +70,15 @@ func (s sessionsServer) ListHeadless(
 		}
 		mark := marks[archiveKey{kind: archiveKindHeadless, id: row.ID}]
 		verdict, ok := verdicts[row.ID]
-		aged := headlessAged(session.GetState(), session.GetChanged(), session.GetSeen(), now) ||
-			closureAged(verdict, ok, session.GetChanged(), session.GetSeen(), now)
+		session.Ended, session.EndedAt = endedRow(
+			session.GetState() == stateStopped, verdict, ok, session.GetChanged(), mark,
+		)
+		session.Ended, session.EndedAt = steeredEnd(reads.kept, row.ID, session.Ended, session.EndedAt)
+		aged := floorAged(session.GetChanged(), now) || endedAged(session.GetEnded(), session.GetEndedAt(), now)
 		session.Archived = archivedRow(mark, session.GetChanged(), aged)
 		session.PutOff = headlessPutOff(puts, row.ID, row.RequestID, row.State)
+		// Only the listed state takes the busy set. The fields above read the stored state.
+		session.State = busyState(reads.busy, row.ID, session.State)
 		sessions = append(sessions, session)
 	}
 	return connect.NewResponse(&orreryv1.ListHeadlessResponse{Sessions: sessions}), nil

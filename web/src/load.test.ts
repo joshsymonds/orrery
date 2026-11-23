@@ -18,6 +18,7 @@ const syntheticPane = {
   state: "waiting",
   summary: "building",
   question: "",
+  claudeSession: "claude-1",
   changed: "40",
   seen: "10",
 };

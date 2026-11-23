@@ -7,6 +7,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/joshsymonds/orrery/internal/hostexec"
 )
 
 const (
@@ -123,7 +125,7 @@ func TestCheck(t *testing.T) {
 			repo := newRepo(t)
 			base := commitFiles(t, repo, tc.base)
 			head := commitFiles(t, repo, tc.head)
-			got, err := Check(t.Context(), repo, base, head, tc.spec)
+			got, err := Check(t.Context(), hostexec.NewLocal(), repo, base, head, tc.spec)
 			if err != nil {
 				t.Fatalf("Check: %v", err)
 			}
@@ -138,7 +140,7 @@ func TestCheckUnknownBaseIsAnError(t *testing.T) {
 	t.Parallel()
 	repo := newRepo(t)
 	head := commitFiles(t, repo, map[string]string{testFile: goFile(testA1)})
-	_, err := Check(t.Context(), repo, "no-such-base", head, Spec{Guarded: []string{testFile}})
+	_, err := Check(t.Context(), hostexec.NewLocal(), repo, "no-such-base", head, Spec{Guarded: []string{testFile}})
 	if err == nil {
 		t.Error("Check with an unknown base: err = nil, want an error")
 	}

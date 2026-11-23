@@ -136,12 +136,8 @@ type Epic struct {
 	ClosedBy         string
 	SupersededBy     string
 	ParkClass        string
-	Synced           string
-	OriginReadBase   string
-	OriginReadCommit string
-	OriginReadState  string
-	OriginReadAt     int64
 	Steerer          string
+	Host             string
 }
 
 type EpicAction struct {
@@ -386,14 +382,6 @@ type EpicReleaseRun struct {
 	Passed   bool
 	Reason   string
 	At       int64
-}
-
-type EpicReleaseSlot struct {
-	Repository string
-	Epic       string
-	HolderKind string
-	Label      string
-	Deadline   int64
 }
 
 type EpicReleaseStep struct {
@@ -770,6 +758,16 @@ type IntegrateRound struct {
 	Created     int64
 }
 
+type LlmAccount struct {
+	ID          string
+	Name        string
+	Provider    string
+	Plan        string
+	Token       string
+	Fingerprint string
+	Created     int64
+}
+
 type NoticeHistory struct {
 	ID       int64
 	Pane     string
@@ -882,33 +880,77 @@ type PutOffQuestion struct {
 	PutOffAt  int64
 }
 
+type RouteBinding struct {
+	Context  string
+	Scope    string
+	Selector string
+	Seat     string
+}
+
+type RouteContext struct {
+	ID                  string
+	DefaultSeat         string
+	Account             string
+	HasSubagents        int64
+	SubagentDefaultSeat string
+}
+
+type RouteRegistry struct {
+	ID             int64
+	DefaultContext string
+}
+
+type RouteSeat struct {
+	ID                     string
+	AuthMode               string
+	Upstream               string
+	Model                  string
+	ApiKeyEnvFile          string
+	AwsProfile             string
+	AwsRegion              string
+	ModelMapEnvFile        string
+	Billing                string
+	Speed                  string
+	CacheTtl               string
+	Insecure               int64
+	StripCacheControl      int64
+	StrictStructuredOutput int64
+	MaxInputTokens         int64
+	StripBetas             string
+}
+
 type Session struct {
-	ID            string
-	Server        string
-	Pane          string
-	State         string
-	Changed       string
-	Seen          string
-	Question      string
-	Summary       string
-	Label         string
-	Context       string
-	Tool          string
-	ClaudeSession string
-	Transcript    string
-	Kind          string
-	Dir           string
-	Reason        string
-	Consumed      sql.NullInt64
-	ReplayFrom    int64
-	Background    bool
-	TurnOutput    string
-	PromptsFrom   int64
-	Title         string
-	Headline      string
-	HeadlineAt    int64
-	Awaited       bool
-	Host          string
+	ID              string
+	Server          string
+	Pane            string
+	State           string
+	Changed         string
+	Seen            string
+	Question        string
+	Summary         string
+	Label           string
+	Context         string
+	Tool            string
+	ClaudeSession   string
+	Transcript      string
+	Kind            string
+	Dir             string
+	Reason          string
+	Consumed        sql.NullInt64
+	ReplayFrom      int64
+	Background      bool
+	TurnOutput      string
+	PromptsFrom     int64
+	Title           string
+	Headline        string
+	HeadlineAt      int64
+	Awaited         bool
+	LatestReply     string
+	NewestReplyAt   int64
+	FirstPromptText string
+	LatestRequestID string
+	Held            bool
+	Host            string
 }
 
 type Step struct {
@@ -965,6 +1007,7 @@ type Step struct {
 	LinesFiles      int64
 	LinesAdded      int64
 	LinesRemoved    int64
+	Host            string
 }
 
 type StepListing struct {
