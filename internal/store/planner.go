@@ -32,6 +32,9 @@ var ErrBadDependency = errors.New("bad task dependency")
 // of the empty kind is an ordinary task.
 const TaskKindDesign = "design"
 
+// TaskSplit is the status of a task a split action split into its descendants. The descendants stand in its place.
+const TaskSplit = "split"
+
 // EpicPlanState is the planning state of one epic with pending triggers. Parked is the park reason of a question park,
 // empty when the epic is not parked or its park is a planner park, which the planner answers. PlannerPark is the park
 // reason of that planner park, empty otherwise, so a decision records the park it was made under. Running is true when
@@ -76,7 +79,7 @@ type EpicTurn struct {
 // its build holds, in the order they were recorded. Refused are the paths
 // an orchestrator decision refused on the task, which no rule grant gives the task again until a decision adds them.
 // Kind is the task's kind, "" for an ordinary task or TaskKindDesign. Revises is the seq of the design task the task
-// revises, 0 for none.
+// revises, 0 for none. SplitFrom is the seq of the task this task was split from, 0 for none.
 type EpicTask struct {
 	Seq          int64
 	Turn         int64
@@ -112,6 +115,7 @@ type EpicTask struct {
 	DependsOn []int64
 	Kind      string
 	Revises   int64
+	SplitFrom int64
 }
 
 // EpicQuestion is one question a planner turn asked, with its state. Turn is the seq of the turn that asked it. Label,
@@ -390,7 +394,7 @@ func taskOf(
 		Status: stored.Status, Build: buildOf(stored), Reviews: reviews, Batch: stored.Batch,
 		NeedsFiles: needsFiles, GateChanges: gateChanges, Notes: notes,
 		Refused: refused, Version: 1, Versions: versions, Generation: stored.Generation, DependsOn: dependsOn,
-		Kind: stored.Kind, Revises: stored.Revises,
+		Kind: stored.Kind, Revises: stored.Revises, SplitFrom: stored.SplitFrom,
 	}
 	overlayVersions(&task)
 	if task.Build.RedRun != "" {

@@ -522,7 +522,7 @@ CREATE TABLE planner_actions (
     undo_none TEXT NOT NULL DEFAULT '[]',
     reason TEXT NOT NULL,
     state TEXT NOT NULL CHECK (state IN ('pending', 'taken', 'refused')),
-    refusal TEXT NOT NULL DEFAULT '', park INTEGER NOT NULL DEFAULT 0, requirement TEXT NOT NULL DEFAULT '', item TEXT NOT NULL DEFAULT '', deliverable TEXT NOT NULL DEFAULT '', files TEXT NOT NULL DEFAULT '[]', remove_files TEXT NOT NULL DEFAULT '[]', reviewer TEXT NOT NULL DEFAULT '',
+    refusal TEXT NOT NULL DEFAULT '', park INTEGER NOT NULL DEFAULT 0, requirement TEXT NOT NULL DEFAULT '', item TEXT NOT NULL DEFAULT '', deliverable TEXT NOT NULL DEFAULT '', files TEXT NOT NULL DEFAULT '[]', remove_files TEXT NOT NULL DEFAULT '[]', reviewer TEXT NOT NULL DEFAULT '', split_tasks TEXT NOT NULL DEFAULT '[]',
     PRIMARY KEY (epic, turn, position)
 );
 CREATE INDEX planner_actions_state ON planner_actions (state, epic, turn, position);
@@ -834,7 +834,7 @@ CREATE TABLE epic_tasks (
     generation INTEGER NOT NULL DEFAULT 0,
     depends_on TEXT NOT NULL DEFAULT '',
     kind TEXT NOT NULL DEFAULT '' CHECK (kind IN ('', 'design')),
-    revises INTEGER NOT NULL DEFAULT 0,
+    revises INTEGER NOT NULL DEFAULT 0, split_from INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (epic, seq)
 );
 CREATE VIEW step_listings AS
@@ -931,11 +931,25 @@ CREATE TABLE integrate_rounds (
     created INTEGER NOT NULL,
     PRIMARY KEY (epic, path, attempt, task, round)
 );
+CREATE TABLE epic_task_test_runs (
+    epic TEXT NOT NULL,
+    task INTEGER NOT NULL,
+    generation INTEGER NOT NULL,
+    attempt INTEGER NOT NULL,
+    review INTEGER NOT NULL,
+    position INTEGER NOT NULL,
+    command TEXT NOT NULL,
+    revision TEXT NOT NULL,
+    step TEXT NOT NULL DEFAULT '',
+    output TEXT NOT NULL DEFAULT '',
+    PRIMARY KEY (epic, task, generation, attempt, review, position)
+);
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (1,0,1);
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (10,9,1);
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (100,99,1);
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (101,100,1);
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (102,101,1);
+INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (103,102,1);
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (11,10,1);
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (12,11,1);
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (13,12,1);

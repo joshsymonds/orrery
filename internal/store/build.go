@@ -67,25 +67,35 @@ type GateChange struct {
 	Reason string `json:"reason"`
 }
 
+// TaskTestRun is one run of a task's test command: its position among the runs it belongs to, the command it ran, the
+// revision it ran at, and its step and output. Step is empty while the run has no result.
+type TaskTestRun struct {
+	Position                int64
+	Command, Revision, Step string
+	Output                  string
+}
+
 // TaskFinding is one finding a review raised: its position among the review's findings, its id, the claim it makes,
 // where it is cited and located, its evidence and how to verify it. Step, Result and Reason are its verification: the
 // step that checked it, whether it is confirmed, dropped or undecided, and why. Unverified is whether it was settled
-// as confirmed without a verification.
+// as confirmed without a verification. TestRuns are the test runs that checked it, in position order.
 type TaskFinding struct {
 	Position                                          int64
 	ID, Claim, Citation, Location, Evidence, VerifyBy string
 	Step, Result, Reason                              string
 	Unverified                                        bool
+	TestRuns                                          []TaskTestRun
 }
 
 // TaskReview is one review of a task: its attempt, its position among the review gates, the gate it ran, its step,
-// its verdict, the reason it gave no holds or fails verdict when its verdict is undetermined, and the findings it raised
-// in position order.
+// its verdict, the reason it gave no holds or fails verdict when its verdict is undetermined, the findings it raised
+// in position order, and the test runs it holds in position order.
 type TaskReview struct {
 	Attempt, Position   int64
 	Gate, Step, Verdict string
 	Reason              string
 	Findings            []TaskFinding
+	TestRuns            []TaskTestRun
 }
 
 // TaskFindingResult is the verification of one finding: the attempt, the position of its review and its own
@@ -93,6 +103,13 @@ type TaskReview struct {
 type TaskFindingResult struct {
 	Attempt, Review, Position int64
 	Step, Result, Reason      string
+}
+
+// TaskTestRunResult is the result of one test run: the attempt, the position of its review and its own position, with
+// the step that ran it and its output.
+type TaskTestRunResult struct {
+	Attempt, Review, Position int64
+	Step, Output              string
 }
 
 // EpicTell is one tell an epic holds for its owner: its seq, its text, when it was written, whether the owner has been
