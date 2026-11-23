@@ -1,6 +1,7 @@
 package agents
 
 import (
+	"context"
 	"path/filepath"
 	"testing"
 
@@ -26,7 +27,7 @@ func TestResolveThroughHost(t *testing.T) {
 	recorder := hostexectest.NewRecorder(hostexec.NewLocal())
 	where.Files = recorder
 
-	if err := Resolve("p", where); err != nil {
+	if err := Resolve(context.Background(), "p", where); err != nil {
 		t.Fatalf("Resolve(p) = %v, want nil", err)
 	}
 	folder := filepath.Join(root, "home/proj/.claude/agents")

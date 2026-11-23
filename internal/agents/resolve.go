@@ -34,9 +34,9 @@ const webFetch = "web-fetch"
 // Resolve returns nil exactly when Claude Code 2.1.321 resolves --agent name for a process with where. A built-in
 // agent resolves. Otherwise the agent folders of the project, the user and the managed root are searched, then the
 // agents of the enabled plugins. A name that none of them defines returns an error wrapping ErrUnresolved that names
-// the agent and each place checked. A file or settings file that cannot be read or parsed returns its own error.
-func Resolve(name string, where Where) error {
-	ctx := context.Background()
+// the agent and each place checked. A file or settings file that cannot be read or parsed returns its own error. The
+// reads are made through where.Files under ctx.
+func Resolve(ctx context.Context, name string, where Where) error {
 	files := where.Files
 	if files == nil {
 		files = hostexec.NewLocal()

@@ -72,7 +72,7 @@ func (r EnvResolver) Judge(epic store.EpicRow, name string) error {
 		Managed:   r.managed,
 		Files:     host,
 	}
-	if err = agents.Resolve(name, where); err != nil {
+	if err = agents.Resolve(context.Background(), name, where); err != nil {
 		return fmt.Errorf("resolve judge: %w", err)
 	}
 	return nil
