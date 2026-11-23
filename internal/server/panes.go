@@ -29,8 +29,9 @@ import (
 // panesServer answers orrery.v1.Panes with the tmux client, conversation state, locks, seen and read reporters, and
 // clock it holds, the store reader its turn ends come from, and the change feed and keepalive timers its
 // WatchConversation streams run on. It also holds the PaneSends client each SendText records its send through, and the
-// writer its failed records are written to.
+// writer its failed records are written to. host is the orrery name each pane it lists names as its host.
 type panesServer struct {
+	host                  string
 	tmux                  *tmuxctl.Client
 	reader                *store.Reader
 	newest                *conversation.Newest
@@ -56,15 +57,15 @@ type panesServer struct {
 	stepped func(pane string)
 }
 
-// newPanesHandler returns the path and handler that serve Panes over the tmux client, the store reader of turn ends,
-// conversation state, locks, seen and read reporters, and clock it is given. Screen, Conversation and
-// WatchConversation report each read to readReport, dated by now. SendText records each send through paneSends, and
-// writes a failed record to paneSendErrs. WatchConversation steps when its transcript's inotify watch wakes it, and
-// when changes wakes it and the pane has changed, and sends a keepalive after conversationKeepalive without a message.
-// Its keepalive timers are armed through newTimer, or through time.NewTimer when newTimer is nil. Its sends are bounded
-// by sendTimeout, and its streams end when shutdown closes. The handler runs under withResponseWriter, so the stream
-// reaches its connection.
-func newPanesHandler(
+// newPanesServer returns the Panes server over the tmux client, the store reader of turn ends, conversation state,
+// locks, seen and read reporters, and clock it is given, naming host as the host of each pane it lists. Screen,
+// Conversation and WatchConversation report each read to readReport, dated by now. SendText records each send through
+// paneSends, and writes a failed record to paneSendErrs. WatchConversation steps when its transcript's inotify watch
+// wakes it, and when changes wakes it and the pane has changed, and sends a keepalive after conversationKeepalive
+// without a message. Its keepalive timers are armed through newTimer, or through time.NewTimer when newTimer is nil.
+// Its sends are bounded by sendTimeout, and its streams end when shutdown closes.
+func newPanesServer(
+	host string,
 	tmux *tmuxctl.Client,
 	reader *store.Reader,
 	newest *conversation.Newest,
@@ -80,12 +81,12 @@ func newPanesHandler(
 	newTimer func(time.Duration) (<-chan time.Time, func() bool),
 	conversationKeepalive, sendTimeout time.Duration,
 	shutdown <-chan struct{},
-	opts ...connect.HandlerOption,
-) (string, http.Handler) {
+) panesServer {
 	if newTimer == nil {
 		newTimer = stdTimer
 	}
-	path, handler := orreryv1connect.NewPanesHandler(panesServer{
+	return panesServer{
+		host:                  host,
 		tmux:                  tmux,
 		reader:                reader,
 		newest:                newest,
@@ -104,7 +105,13 @@ func newPanesHandler(
 		sendTimeout:           sendTimeout,
 		shutdown:              shutdown,
 		openInotify:           inotify.New,
-	}, opts...)
+	}
+}
+
+// newPanesHandler returns the path and handler that serve orrery.v1.Panes over local alone, with every call served by
+// it. The handler runs under withResponseWriter, so a stream reaches its connection.
+func newPanesHandler(local panesServer) (string, http.Handler) {
+	path, handler := orreryv1connect.NewPanesHandler(local)
 	return path, withResponseWriter(handler)
 }
 
@@ -139,7 +146,7 @@ func (s panesServer) List(
 	ctx context.Context,
 	_ *connect.Request[v1.PanesListRequest],
 ) (*connect.Response[v1.PanesListResponse], error) {
-	panes, err := listPanes(ctx, s.tmux, s.newest, s.reader)
+	panes, err := listPanes(ctx, s.tmux, s.host, s.newest, s.reader)
 	if err != nil {
 		return nil, connectError(err)
 	}
