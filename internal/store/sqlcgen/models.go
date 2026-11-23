@@ -388,14 +388,6 @@ type EpicReleaseRun struct {
 	At       int64
 }
 
-type EpicReleaseSlot struct {
-	Repository string
-	Epic       string
-	HolderKind string
-	Label      string
-	Deadline   int64
-}
-
 type EpicReleaseStep struct {
 	Epic     string
 	Position int64
