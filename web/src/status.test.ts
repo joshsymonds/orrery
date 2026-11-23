@@ -51,7 +51,7 @@ test("LiveControls: an accepted orreryd epic shows Pause and Stop, and reads pla
   const planning = detail({ epic: { ...orreryd, outcome: "accepted" } });
   assert.deepEqual(controlsOf(planning), { pause: true, resume: false, stop: true });
   assert.equal(stateOf(planning), "planning");
-  const building = detail({ epic: { ...orreryd, outcome: "accepted" }, tasks: [{ slug: "t1" }] });
+  const building = detail({ epic: { ...orreryd, outcome: "accepted" }, buildTasks: [{ id: "t1" }] });
   assert.equal(stateOf(building), "building");
 });
 

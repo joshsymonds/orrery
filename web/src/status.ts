@@ -66,9 +66,9 @@ function partOf(detail: EpicsGetResponse, phase: string): TrackPart | undefined 
   }
 }
 
-// planningOrBuilding is planning while the epic has no task, and building once it has one.
+// planningOrBuilding is planning while the epic has no build task, and building once it has one.
 function planningOrBuilding(detail: EpicsGetResponse): "planning" | "building" {
-  return detail.tasks.length === 0 && detail.buildTasks.length === 0 ? "planning" : "building";
+  return detail.buildTasks.length === 0 ? "planning" : "building";
 }
 
 // The orreryd phases an epic can be paused in: its track before clean.
