@@ -844,13 +844,12 @@ func resolveDependency(
 			return 0, fmt.Errorf("%w: names the task itself", ErrBadDependency)
 		}
 		row, err := queries.GetEpicTask(ctx, sqlcgen.GetEpicTaskParams{Epic: epic, Seq: seq})
-		if errors.Is(err, sql.ErrNoRows) {
+		switch {
+		case errors.Is(err, sql.ErrNoRows):
 			return 0, fmt.Errorf("%w: names no task of the epic", ErrBadDependency)
-		}
-		if err != nil {
+		case err != nil:
 			return 0, fmt.Errorf("read task %d of epic %s: %w", seq, epic, err)
-		}
-		if row.Status == TaskSplit {
+		case row.Status == TaskSplit:
 			return 0, fmt.Errorf("%w: names a split task", ErrBadDependency)
 		}
 		return seq, nil
