@@ -11,7 +11,7 @@ import { type EpicsView, epicsView } from "./epics";
 import { type Epic, EpicSchema, type EpicsGetResponse, EpicsGetResponseSchema } from "./gen/orrery/v1/epics_pb";
 import type { Address } from "./router";
 import type { Row } from "./rows";
-import { installTestDom, removeTestDom, teardownOnce } from "./testdom";
+import { assertNone, installTestDom, removeTestDom, teardownOnce } from "./testdom";
 
 // Each test's name carries the prefix InboxWebOnce: a conversation is drawn once in the inbox and in the Archived view,
 // and the ended epics of a conversation in the tree fold under its own row. The App is drawn over invented rows and
@@ -191,7 +191,7 @@ async function openEveryFold(container: HTMLElement): Promise<void> {
     }
     await press(next);
   }
-  assert.equal(container.querySelector(shutFold), null, "a fold stays shut after it is pressed");
+  assertNone(container.querySelector(shutFold), "a fold stays shut after it is pressed");
 }
 
 // listKeys is the data-key of each element the list draws, in order.
@@ -254,8 +254,8 @@ test("InboxWebOnce: a conversation in the tree with ended epics draws them folde
     assert.equal(fold.textContent, "2 ended", "the fold line does not read the two ended epics");
     assert.equal(fold.getAttribute("aria-expanded"), "false", "the fold is open before it is pressed");
     assert.ok(steersOf(container, treeKey).querySelector(`[data-key="${keyOf(alpha)}"]`) !== null, "the live epic is not under its row");
-    assert.equal(container.querySelector(`[data-key="${keyOf(beta)}"]`), null, "a shut fold draws its ended epic beta");
-    assert.equal(container.querySelector(`[data-key="${keyOf(gamma)}"]`), null, "a shut fold draws its ended epic gamma");
+    assertNone(container.querySelector(`[data-key="${keyOf(beta)}"]`), "a shut fold draws its ended epic beta");
+    assertNone(container.querySelector(`[data-key="${keyOf(gamma)}"]`), "a shut fold draws its ended epic gamma");
   }));
 
 test("InboxWebOnce: a folded conversation's ended epics draw under its fold line, newest first, once the fold is open", (t) =>

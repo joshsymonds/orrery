@@ -283,11 +283,14 @@ test("InboxTree ConvoRow draws a fold line and no live epic when every epic the 
   });
 });
 
-test("InboxTree ConvoRow draws no fold line when the conversation has no ended epic, whatever its fold holds", () => {
-  const convo = convoOf("pane:halyard:%22");
-  assert.equal(convo.folded.length, 0, "the fixture holds no ended epic");
-  return withConvo(
-    convo,
+test("InboxTree ConvoRow draws a fold line for a conversation with ended epics, and none for one with nothing ended, open or not", async () => {
+  await withConvo(convoOf("pane:halyard:%22", treeWithEnded(twoEnded)), (container) => {
+    assert.equal(container.querySelector(".steers > button.steers-fold")?.textContent, "2 ended", "the fold line does not read the two ended epics");
+  });
+  const plain = convoOf("pane:halyard:%22");
+  assert.equal(plain.folded.length, 0, "the fixture holds no ended epic");
+  await withConvo(
+    plain,
     (container) => {
       assertNone(container.querySelector(".steers-fold"), "a conversation with nothing ended draws a fold line");
     },
