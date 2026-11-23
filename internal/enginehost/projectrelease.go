@@ -9,6 +9,7 @@ import (
 	"github.com/BurntSushi/toml"
 
 	v1 "github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1"
+	"github.com/joshsymonds/orrery/internal/hostexec"
 )
 
 // projectReleaseKey is the top-level key of a project file's release table.
@@ -112,13 +113,13 @@ func parseReleaseStep(i int, table map[string]any) (*v1.EpicReleaseStep, error) 
 // file with no release table, leaves the contract unchanged. Otherwise the release is parsed, and a malformed one is
 // returned as its parse error, even when the contract names its own steps. A contract that names one or more steps
 // keeps its steps and its then as written. A contract that names none takes the file's steps in file order and the
-// file's then, so its steps and its then come from one source.
-func applyProjectRelease(ctx context.Context, contract *v1.EpicContract) error {
-	base, err := stepGitResolve(ctx, contract.GetRepository(), contract.GetBase())
+// file's then, so its steps and its then come from one source. The base is read through host.
+func applyProjectRelease(ctx context.Context, host hostexec.Host, contract *v1.EpicContract) error {
+	base, err := stepGitResolve(ctx, host, contract.GetRepository(), contract.GetBase())
 	if err != nil {
 		return fmt.Errorf("resolve base: %w", err)
 	}
-	data, found, err := baseReader(ctx, contract.GetRepository(), base)(projectFileRel)
+	data, found, err := baseReader(ctx, host, contract.GetRepository(), base)(projectFileRel)
 	if err != nil {
 		return err
 	}

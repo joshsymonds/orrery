@@ -5,6 +5,8 @@ import (
 	"errors"
 	"slices"
 	"testing"
+
+	"github.com/joshsymonds/orrery/internal/hostexec"
 )
 
 // errGitRefused is the error a Git that refuses every write returns.
@@ -13,23 +15,29 @@ var errGitRefused = errors.New("git refused the write")
 // refusingGit refuses every write a Runner makes to a repository.
 type refusingGit struct{}
 
-func (refusingGit) CreateBranch(context.Context, string, string, string) error { return errGitRefused }
-
-func (refusingGit) Pin(context.Context, string, string, string) error { return errGitRefused }
-
-func (refusingGit) AddTaskWorktree(context.Context, string, string, int64, string, string) error {
+func (refusingGit) CreateBranch(context.Context, hostexec.Host, string, string, string) error {
 	return errGitRefused
 }
 
-func (refusingGit) MoveTaskWorktree(context.Context, string, string, string, int64, string) error {
+func (refusingGit) Pin(context.Context, hostexec.Host, string, string, string) error {
 	return errGitRefused
 }
 
-func (refusingGit) KeepWork(context.Context, string, string, string) (string, error) {
+func (refusingGit) AddTaskWorktree(context.Context, hostexec.Host, string, string, int64, string, string) error {
+	return errGitRefused
+}
+
+func (refusingGit) MoveTaskWorktree(context.Context, hostexec.Host, string, string, string, int64, string) error {
+	return errGitRefused
+}
+
+func (refusingGit) KeepWork(context.Context, hostexec.Host, string, string, string) (string, error) {
 	return "", errGitRefused
 }
 
-func (refusingGit) RemoveWorktrees(context.Context, string, string) error { return errGitRefused }
+func (refusingGit) RemoveWorktrees(context.Context, hostexec.Host, string, string) error {
+	return errGitRefused
+}
 
 // recordingGit records each branch create it is asked for, then makes it through the package's functions.
 type recordingGit struct {
@@ -37,9 +45,9 @@ type recordingGit struct {
 	writes []string
 }
 
-func (g *recordingGit) CreateBranch(ctx context.Context, repo, epic, base string) error {
+func (g *recordingGit) CreateBranch(ctx context.Context, host hostexec.Host, repo, epic, base string) error {
 	g.writes = append(g.writes, "create "+epic+" at "+base)
-	return g.packageGit.CreateBranch(ctx, repo, epic, base)
+	return g.packageGit.CreateBranch(ctx, host, repo, epic, base)
 }
 
 // gitRunner returns a Runner over the fixture's store and fakes that makes its repository writes through git.
@@ -61,7 +69,7 @@ func TestCreateRefusedByGitParksEpicAndCreatesNoBranch(t *testing.T) {
 	if epic.Parked != reason || epic.Branch != branchCreating {
 		t.Errorf("epic Parked = %q, Branch = %q, want parked %q with branch creating", epic.Parked, epic.Branch, reason)
 	}
-	if _, found, err := BranchTip(f.ctx, f.repo, passEpic); err != nil || found {
+	if _, found, err := BranchTip(f.ctx, hostexec.NewLocal(), f.repo, passEpic); err != nil || found {
 		t.Errorf("BranchTip found = %v, err = %v, want no branch", found, err)
 	}
 }

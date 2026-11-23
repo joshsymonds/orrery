@@ -11,6 +11,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/joshsymonds/orrery/internal/hostexec"
 )
 
 // isolate points HOME at a fresh directory and keeps git from reading any configuration but a repository's own, so
@@ -72,7 +74,7 @@ func newRepo(t *testing.T) string {
 // mustDiscover returns Discover's result for dir and fails the test on error.
 func mustDiscover(t *testing.T, dir string, env func(string) string) Files {
 	t.Helper()
-	files, err := Discover(context.Background(), dir, env)
+	files, err := Discover(context.Background(), hostexec.NewLocal(), dir, env)
 	if err != nil {
 		t.Fatalf("Discover(%s): %v", dir, err)
 	}
@@ -82,7 +84,7 @@ func mustDiscover(t *testing.T, dir string, env func(string) string) Files {
 // mustLoad returns Load's result for dir and fails the test on error.
 func mustLoad(t *testing.T, dir string, env func(string) string) (string, []Pool) {
 	t.Helper()
-	project, pools, err := Load(context.Background(), dir, env)
+	project, pools, err := Load(context.Background(), hostexec.NewLocal(), dir, env)
 	if err != nil {
 		t.Fatalf("Load(%s): %v", dir, err)
 	}
@@ -232,7 +234,7 @@ func TestDiscoverRefusesProjectPathThatIsNotADirectory(t *testing.T) {
 	env := fakeEnv(map[string]string{"HOME": home})
 	dir := resolvedDir(t)
 	writeFile(t, filepath.Join(dir, ".orrery"), "not a directory")
-	if _, err := Discover(context.Background(), dir, env); err == nil {
+	if _, err := Discover(context.Background(), hostexec.NewLocal(), dir, env); err == nil {
 		t.Fatal("Discover read through a .orrery that is a file, want an error")
 	}
 }
@@ -241,7 +243,7 @@ func TestDiscoverRefusesMissingDirectory(t *testing.T) {
 	home := isolate(t)
 	env := fakeEnv(map[string]string{"HOME": home})
 	root := newRepo(t)
-	if _, err := Discover(context.Background(), filepath.Join(root, "absent"), env); err == nil {
+	if _, err := Discover(context.Background(), hostexec.NewLocal(), filepath.Join(root, "absent"), env); err == nil {
 		t.Fatal("Discover of a directory that does not exist returned no error")
 	}
 }
@@ -251,7 +253,7 @@ func TestDiscoverRefusesCanceledContext(t *testing.T) {
 	env := fakeEnv(map[string]string{"HOME": home})
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	if _, err := Discover(ctx, newRepo(t), env); err == nil {
+	if _, err := Discover(ctx, hostexec.NewLocal(), newRepo(t), env); err == nil {
 		t.Fatal("Discover with a canceled context returned no error")
 	}
 }
@@ -260,7 +262,7 @@ func TestDiscoverRefusesMissingGit(t *testing.T) {
 	isolate(t)
 	t.Setenv("PATH", t.TempDir())
 	env := fakeEnv(map[string]string{"HOME": t.TempDir()})
-	if _, err := Discover(context.Background(), resolvedDir(t), env); err == nil {
+	if _, err := Discover(context.Background(), hostexec.NewLocal(), resolvedDir(t), env); err == nil {
 		t.Fatal("Discover without a git on PATH returned no error")
 	}
 }
@@ -307,7 +309,7 @@ func TestDiscoverMachineFileEmptyWhenMissing(t *testing.T) {
 
 func TestDiscoverRefusesMissingHomeAndXDG(t *testing.T) {
 	isolate(t)
-	if _, err := Discover(context.Background(), resolvedDir(t), fakeEnv(nil)); err == nil {
+	if _, err := Discover(context.Background(), hostexec.NewLocal(), resolvedDir(t), fakeEnv(nil)); err == nil {
 		t.Fatal("Discover with neither HOME nor XDG_CONFIG_HOME returned no error")
 	}
 }
@@ -356,7 +358,7 @@ func TestLoadRefusesPoolDefinedTwice(t *testing.T) {
 	writeFile(t, filepath.Join(home, ".config", "orrery", "pools.toml"), poolText("gpu", "box-b", "g1"))
 	env := fakeEnv(map[string]string{"HOME": home})
 
-	_, _, err := Load(context.Background(), root, env)
+	_, _, err := Load(context.Background(), hostexec.NewLocal(), root, env)
 	if !errors.Is(err, ErrDefinedTwice) {
 		t.Fatalf("Load error = %v, want ErrDefinedTwice", err)
 	}
@@ -369,7 +371,7 @@ func TestLoadRefusesMemberInTwoPools(t *testing.T) {
 	writeFile(t, filepath.Join(home, ".config", "orrery", "pools.toml"), poolText("cpu", "box-a", "shared"))
 	env := fakeEnv(map[string]string{"HOME": home})
 
-	_, _, err := Load(context.Background(), root, env)
+	_, _, err := Load(context.Background(), hostexec.NewLocal(), root, env)
 	if !errors.Is(err, ErrDefinedTwice) {
 		t.Fatalf("Load error = %v, want ErrDefinedTwice", err)
 	}
@@ -382,7 +384,7 @@ func TestLoadRefusesFileThatDoesNotParse(t *testing.T) {
 	writeFile(t, projectFile, "[pools.gpu\n")
 	env := fakeEnv(map[string]string{"HOME": home})
 
-	_, _, err := Load(context.Background(), root, env)
+	_, _, err := Load(context.Background(), hostexec.NewLocal(), root, env)
 	if err == nil || !strings.Contains(err.Error(), projectFile) {
 		t.Fatalf("Load error = %v, want an error naming %s", err, projectFile)
 	}
@@ -397,7 +399,7 @@ func TestLoadRefusesUnreadableFile(t *testing.T) {
 	}
 	env := fakeEnv(map[string]string{"HOME": home})
 
-	_, _, err := Load(context.Background(), root, env)
+	_, _, err := Load(context.Background(), hostexec.NewLocal(), root, env)
 	if err == nil || !strings.Contains(err.Error(), projectFile) {
 		t.Fatalf("Load error = %v, want an error naming %s", err, projectFile)
 	}
@@ -408,7 +410,7 @@ func TestLoadWithoutFilesGivesNoPools(t *testing.T) {
 	dir := resolvedDir(t)
 	env := fakeEnv(map[string]string{"HOME": home})
 
-	project, pools, err := Load(context.Background(), dir, env)
+	project, pools, err := Load(context.Background(), hostexec.NewLocal(), dir, env)
 	if err != nil {
 		t.Fatalf("Load(%s): %v", dir, err)
 	}

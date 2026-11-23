@@ -360,7 +360,7 @@
   },
   {
     "name": "epic_stop",
-    "description": "Pause an epic by id and stop the step of its running turn. Returns a short acknowledgement, not the stored epic: the epic id, its phase and one line naming what changed. An epic with no running turn is refused, and nothing is stopped, unless it holds its repository's release slot: then the slot is freed, its open release step is stopped if one runs, and the epic is not paused. epic_release resumes a stopped release.",
+    "description": "Pause an epic by id and stop the step of its running turn. Returns a short acknowledgement, not the stored epic: the epic id, its phase and one line naming what changed. An epic with no running turn is refused, and nothing is stopped, unless it is releasing or its release is stopped: then the release's open step is stopped if one runs, no further step starts, and the epic is not paused. epic_release resumes a stopped release.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -440,7 +440,7 @@
   },
   {
     "name": "epic_close",
-    "description": "Close an epic by id as superseded, shipped by hand or abandoned, which ends it. kind names the close; superseded requires by, the epic that replaces it. The close answers the epic's open questions, ends its running turn, node runs and steps, and frees its release slot. Returns a short acknowledgement, not the stored epic: the epic id, its phase and one line naming what changed. Refused for a superseded close without by.",
+    "description": "Close an epic by id as superseded, shipped by hand or abandoned, which ends it. kind names the close; superseded requires by, the epic that replaces it. The close answers the epic's open questions, ends its running turn, node runs and steps. Returns a short acknowledgement, not the stored epic: the epic id, its phase and one line naming what changed. Refused for a superseded close without by.",
     "inputSchema": {
       "type": "object",
       "properties": {

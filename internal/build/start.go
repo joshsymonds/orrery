@@ -91,7 +91,11 @@ func (r *Runner) implementerStart(
 	if err != nil {
 		return enginehost.StepStart{}, RoleError{Err: err}
 	}
-	gate, err := ResolveGate(ctx, epic, task.Gate, r.getenv)
+	host, err := r.hostOf(epic)
+	if err != nil {
+		return enginehost.StepStart{}, err
+	}
+	gate, err := ResolveGate(ctx, host, epic, task.Gate, r.getenv)
 	if err != nil {
 		return enginehost.StepStart{}, err
 	}
@@ -99,7 +103,7 @@ func (r *Runner) implementerStart(
 		return enginehost.StepStart{}, fmt.Errorf("gate %s is an agent gate, not a command gate", task.Gate)
 	}
 	path := ImplementWorktree(r.stateDir, epic.ID, task)
-	err = r.git.AddTaskWorktree(ctx, epic.Repository, epic.ID, task.Seq, path, task.Build.Base)
+	err = r.git.AddTaskWorktree(ctx, host, epic.Repository, epic.ID, task.Seq, path, task.Build.Base)
 	if err != nil {
 		return enginehost.StepStart{}, fmt.Errorf("prepare worktree: %w", err)
 	}
@@ -182,7 +186,11 @@ func (r *Runner) reviewStart(
 	}
 	var facts []string
 	if name == reviewFloor {
-		judgments, factErr := guard.Check(ctx, epic.Repository, base, revision, guardSpec(epic, task))
+		host, hostErr := r.hostOf(epic)
+		if hostErr != nil {
+			return enginehost.StepStart{}, fmt.Errorf("guard facts of %s: %w", taskLabel(task.Seq), hostErr)
+		}
+		judgments, factErr := guard.Check(ctx, host, epic.Repository, base, revision, guardSpec(epic, task))
 		if factErr != nil {
 			return enginehost.StepStart{}, fmt.Errorf("guard facts of %s: %w", taskLabel(task.Seq), factErr)
 		}
@@ -296,11 +304,15 @@ func (r *Runner) orchestratorStart(
 	if err != nil {
 		return enginehost.StepStart{}, RoleError{Err: err}
 	}
+	host, err := r.hostOf(epic)
+	if err != nil {
+		return enginehost.StepStart{}, err
+	}
 	peers, err := r.peers(ctx, epic)
 	if err != nil {
 		return enginehost.StepStart{}, err
 	}
-	prompt, err := r.orchestratorPrompt(ctx, epic, view, peers)
+	prompt, err := r.orchestratorPrompt(ctx, host, epic, view, peers)
 	if err != nil {
 		return enginehost.StepStart{}, err
 	}

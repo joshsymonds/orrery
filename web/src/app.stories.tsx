@@ -373,11 +373,11 @@ export const Page: Stories = {
       address={inbox}
       after={async (root) => {
         await clickWhen(root, 'button.fold[aria-label="Fold orrery"]');
-        await clickWhen(root, 'section.dir[aria-label="tidepool"] button.fold-line');
+        await clickWhen(root, 'section.dir[aria-label="tidepool"] button.steers-fold');
         await nextRound();
-        // At 1600 the inbox column scrolls inside itself. The ended line opened under tidepool is brought to the column's
-        // top, and orrery's folded card, which sits below it, is then brought into view, so both show.
-        (await drawnWhen(root, 'section.dir[aria-label="tidepool"] button.fold-line')).scrollIntoView({ block: "start" });
+        // At 1600 the inbox column scrolls inside itself. The ended epic opened under tidepool's conversation is brought to
+        // the column's top, and orrery's folded card, which sits below it, is then brought into view, so both show.
+        (await drawnWhen(root, 'section.dir[aria-label="tidepool"] button.steers-fold')).scrollIntoView({ block: "start" });
         (await drawnWhen(root, 'section.dir[aria-label="orrery"]')).scrollIntoView({ block: "nearest" });
       }}
     />

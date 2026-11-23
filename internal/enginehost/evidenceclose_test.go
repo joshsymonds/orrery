@@ -41,7 +41,7 @@ func evidenceCloseEndHolder(t *testing.T, stateRoot, id string) {
 		if _, err := os.Stat(dir); err != nil {
 			return
 		}
-		if err := gateEnd(ctx, dir); err != nil {
+		if err := gateEnd(ctx, gateTestHost(), dir); err != nil {
 			t.Errorf("end gate holder %s: %v", dir, err)
 		}
 	})

@@ -65,7 +65,7 @@ CREATE TABLE steps (
     end_value TEXT NOT NULL,
     reason TEXT NOT NULL,
     ended INTEGER NOT NULL
-, model_limit INTEGER NOT NULL DEFAULT 0, doing TEXT NOT NULL DEFAULT '', verdicts TEXT NOT NULL DEFAULT '[]', epic TEXT NOT NULL DEFAULT '', task TEXT NOT NULL DEFAULT '', gate_name TEXT NOT NULL DEFAULT '', gate_source TEXT NOT NULL DEFAULT '', gate_needs TEXT NOT NULL DEFAULT '[]', loop_round INTEGER NOT NULL DEFAULT 0, loop_continues INTEGER NOT NULL DEFAULT 0, loop_nudge TEXT NOT NULL DEFAULT '', loop_owner_nudge TEXT NOT NULL DEFAULT '', loop_nudged BOOLEAN NOT NULL DEFAULT 0, loop_held BOOLEAN NOT NULL DEFAULT 0, loop_judge_sent BOOLEAN NOT NULL DEFAULT 0, loop_seq INTEGER NOT NULL DEFAULT 0, gate_grant TEXT NOT NULL DEFAULT '', gate_holder TEXT NOT NULL DEFAULT '', gate_round INTEGER NOT NULL DEFAULT 0, loop_limited BOOLEAN NOT NULL DEFAULT 0, loop_limit_kind TEXT NOT NULL DEFAULT '', loop_limit_resets INTEGER NOT NULL DEFAULT 0, loop_gate_from INTEGER NOT NULL DEFAULT 0, checkout_head TEXT NOT NULL DEFAULT '', checkout_hash TEXT NOT NULL DEFAULT '', loop_stage TEXT NOT NULL DEFAULT '', loop_stage_from INTEGER NOT NULL DEFAULT 0, agents TEXT NOT NULL DEFAULT '', unowned INTEGER NOT NULL DEFAULT 0, caller TEXT NOT NULL DEFAULT '', lines_counted INTEGER NOT NULL DEFAULT 0, lines_files INTEGER NOT NULL DEFAULT 0, lines_added INTEGER NOT NULL DEFAULT 0, lines_removed INTEGER NOT NULL DEFAULT 0);
+, model_limit INTEGER NOT NULL DEFAULT 0, doing TEXT NOT NULL DEFAULT '', verdicts TEXT NOT NULL DEFAULT '[]', epic TEXT NOT NULL DEFAULT '', task TEXT NOT NULL DEFAULT '', gate_name TEXT NOT NULL DEFAULT '', gate_source TEXT NOT NULL DEFAULT '', gate_needs TEXT NOT NULL DEFAULT '[]', loop_round INTEGER NOT NULL DEFAULT 0, loop_continues INTEGER NOT NULL DEFAULT 0, loop_nudge TEXT NOT NULL DEFAULT '', loop_owner_nudge TEXT NOT NULL DEFAULT '', loop_nudged BOOLEAN NOT NULL DEFAULT 0, loop_held BOOLEAN NOT NULL DEFAULT 0, loop_judge_sent BOOLEAN NOT NULL DEFAULT 0, loop_seq INTEGER NOT NULL DEFAULT 0, gate_grant TEXT NOT NULL DEFAULT '', gate_holder TEXT NOT NULL DEFAULT '', gate_round INTEGER NOT NULL DEFAULT 0, loop_limited BOOLEAN NOT NULL DEFAULT 0, loop_limit_kind TEXT NOT NULL DEFAULT '', loop_limit_resets INTEGER NOT NULL DEFAULT 0, loop_gate_from INTEGER NOT NULL DEFAULT 0, checkout_head TEXT NOT NULL DEFAULT '', checkout_hash TEXT NOT NULL DEFAULT '', loop_stage TEXT NOT NULL DEFAULT '', loop_stage_from INTEGER NOT NULL DEFAULT 0, agents TEXT NOT NULL DEFAULT '', unowned INTEGER NOT NULL DEFAULT 0, caller TEXT NOT NULL DEFAULT '', lines_counted INTEGER NOT NULL DEFAULT 0, lines_files INTEGER NOT NULL DEFAULT 0, lines_added INTEGER NOT NULL DEFAULT 0, lines_removed INTEGER NOT NULL DEFAULT 0, host TEXT NOT NULL DEFAULT '');
 CREATE TABLE grants (
     id TEXT PRIMARY KEY,
     project TEXT NOT NULL,
@@ -120,7 +120,7 @@ CREATE TABLE epics (
     phase TEXT NOT NULL,
     created INTEGER NOT NULL,
     changed INTEGER NOT NULL
-, paused INTEGER NOT NULL DEFAULT 0, parked TEXT NOT NULL DEFAULT '', retried INTEGER NOT NULL DEFAULT 0, base TEXT NOT NULL DEFAULT '', branch TEXT NOT NULL DEFAULT '' CHECK (branch IN ('', 'creating', 'created')), workflow TEXT NOT NULL DEFAULT '', workflow_text TEXT NOT NULL DEFAULT '', workflow_sha256 TEXT NOT NULL DEFAULT '', pause_source TEXT NOT NULL DEFAULT '' CHECK (pause_source IN ('', 'owner', 'limit')), stored_base TEXT NOT NULL DEFAULT '', candidate TEXT NOT NULL DEFAULT '', summary TEXT NOT NULL DEFAULT '', phase_at INTEGER NOT NULL DEFAULT 0, report_phase TEXT NOT NULL DEFAULT '', report_shipped TEXT NOT NULL DEFAULT '[]', report_not_shipped TEXT NOT NULL DEFAULT '[]', report_why TEXT NOT NULL DEFAULT '', closed_by TEXT NOT NULL DEFAULT '', superseded_by TEXT NOT NULL DEFAULT '', park_class TEXT NOT NULL DEFAULT '', synced TEXT NOT NULL DEFAULT '', origin_read_base TEXT NOT NULL DEFAULT '', origin_read_commit TEXT NOT NULL DEFAULT '', origin_read_state TEXT NOT NULL DEFAULT '', origin_read_at INTEGER NOT NULL DEFAULT 0, steerer TEXT NOT NULL DEFAULT '');
+, paused INTEGER NOT NULL DEFAULT 0, parked TEXT NOT NULL DEFAULT '', retried INTEGER NOT NULL DEFAULT 0, base TEXT NOT NULL DEFAULT '', branch TEXT NOT NULL DEFAULT '' CHECK (branch IN ('', 'creating', 'created')), workflow TEXT NOT NULL DEFAULT '', workflow_text TEXT NOT NULL DEFAULT '', workflow_sha256 TEXT NOT NULL DEFAULT '', pause_source TEXT NOT NULL DEFAULT '' CHECK (pause_source IN ('', 'owner', 'limit')), stored_base TEXT NOT NULL DEFAULT '', candidate TEXT NOT NULL DEFAULT '', summary TEXT NOT NULL DEFAULT '', phase_at INTEGER NOT NULL DEFAULT 0, report_phase TEXT NOT NULL DEFAULT '', report_shipped TEXT NOT NULL DEFAULT '[]', report_not_shipped TEXT NOT NULL DEFAULT '[]', report_why TEXT NOT NULL DEFAULT '', closed_by TEXT NOT NULL DEFAULT '', superseded_by TEXT NOT NULL DEFAULT '', park_class TEXT NOT NULL DEFAULT '', synced TEXT NOT NULL DEFAULT '', origin_read_base TEXT NOT NULL DEFAULT '', origin_read_commit TEXT NOT NULL DEFAULT '', origin_read_state TEXT NOT NULL DEFAULT '', origin_read_at INTEGER NOT NULL DEFAULT 0, steerer TEXT NOT NULL DEFAULT '', host TEXT NOT NULL DEFAULT '');
 CREATE TABLE epic_failures (
     epic TEXT NOT NULL,
     position INTEGER NOT NULL,
@@ -701,14 +701,6 @@ CREATE TABLE contract_states (
     at INTEGER NOT NULL, base TEXT NOT NULL DEFAULT '',
     PRIMARY KEY (contract, seq)
 );
-CREATE TABLE epic_release_slots (
-    repository TEXT PRIMARY KEY,
-    epic TEXT NOT NULL DEFAULT '',
-    holder_kind TEXT NOT NULL DEFAULT 'epic' CHECK (holder_kind IN ('epic', 'outside')),
-    label TEXT NOT NULL DEFAULT '',
-    deadline INTEGER NOT NULL DEFAULT 0
-);
-CREATE UNIQUE INDEX epic_release_slots_epic ON epic_release_slots (epic) WHERE holder_kind = 'epic';
 CREATE TABLE epic_amendments (
     epic TEXT NOT NULL,
     seq INTEGER NOT NULL,
@@ -1036,4 +1028,6 @@ INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (94,93,
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (95,94,1);
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (96,95,1);
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (97,96,1);
+INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (98,97,1);
+INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (99,98,1);
 INSERT INTO "pending_notice_ids" ("id", "high") VALUES (1,0);

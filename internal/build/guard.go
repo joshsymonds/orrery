@@ -39,7 +39,14 @@ func guardSpec(epic store.EpicRow, task store.EpicTask) guard.Spec {
 // task waits for the next pass.
 func (r *Runner) guardCommit(ctx context.Context, epic store.EpicRow, view View, action Action) bool {
 	seq, from := view.Task.Seq, view.Task.Build
-	judgments, err := guard.Check(ctx, epic.Repository, from.Base, action.Next.Revision, guardSpec(epic, view.Task))
+	host, err := r.hostOf(epic)
+	if err != nil {
+		r.report(ctx, epic.ID, seq, "guard implementer commit", err)
+		return false
+	}
+	judgments, err := guard.Check(
+		ctx, host, epic.Repository, from.Base, action.Next.Revision, guardSpec(epic, view.Task),
+	)
 	if err != nil {
 		r.report(ctx, epic.ID, seq, "guard implementer commit", err)
 		return false

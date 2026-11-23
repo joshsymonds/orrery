@@ -309,6 +309,45 @@ func TestPumpLinesBackgroundAgentTurnStoresAwaitedOn(t *testing.T) {
 	}
 }
 
+// TestPumpLinesBackgroundBashCommandStoresAwaitedOn covers a line that starts a background shell task through a Bash
+// call: the row stores awaited on, as for an agent, since the step waits for that command. The same task started by a
+// Monitor call stores awaited off, since a watch may never end.
+func TestPumpLinesBackgroundBashCommandStoresAwaitedOn(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		tool    string
+		awaited bool
+	}{
+		{tool: "Bash", awaited: true},
+		{tool: "Monitor", awaited: false},
+	} {
+		t.Run(tc.tool, func(t *testing.T) {
+			t.Parallel()
+			rig := newRecordingRig(t)
+			launchSession(t, rig)
+			live := readoptLive(t, &fakeProcess{})
+			line := session.Line{Start: 0, End: 42, Events: []session.Event{
+				session.Block{Kind: session.BlockToolCall, Role: "assistant", ToolUseID: "toolu_check", Name: tc.tool},
+				session.TaskStarted{TaskID: "task_check", ToolUseID: "toolu_check", TaskType: "local_bash"},
+				session.BackgroundTasks{Tasks: []session.BackgroundTask{
+					{TaskID: "task_check", TaskType: "local_bash"},
+				}},
+			}}
+
+			rig.manager.recordLine(t.Context(), live, newRecorder(chosenID), line, "")
+
+			row, err := rig.store.EngineSession(t.Context(), chosenID)
+			if err != nil {
+				t.Fatalf("EngineSession: %v", err)
+			}
+			if !row.Background || row.Awaited != tc.awaited {
+				t.Fatalf("background %v awaited %v, want background on and awaited %v for a %s task",
+					row.Background, row.Awaited, tc.awaited, tc.tool)
+			}
+		})
+	}
+}
+
 func TestPumpLinesTurnEndedStoresReplayFromOutputAndReachesTheSession(t *testing.T) {
 	t.Parallel()
 	rig := newRecordingRig(t)

@@ -4,6 +4,8 @@ import (
 	"maps"
 	"slices"
 	"testing"
+
+	"github.com/joshsymonds/orrery/internal/hostexec"
 )
 
 // TestOverlayTakesListedPathsFromSource checks that the overlay is the base's tree with each listed path taken from the
@@ -17,7 +19,7 @@ func TestOverlayTakesListedPathsFromSource(t *testing.T) {
 	source := composeRevision(t, dir, base, "source\n",
 		map[string]string{"a": "changed", "n": "new", "x": "unlisted"}, []string{"b"})
 
-	overlay, err := Overlay(ctx, dir, base, source, []string{"a", "b", "n"}, testRef)
+	overlay, err := Overlay(ctx, hostexec.NewLocal(), dir, base, source, []string{"a", "b", "n"}, testRef)
 	if err != nil {
 		t.Fatalf("Overlay: %v", err)
 	}
@@ -47,7 +49,7 @@ func TestOverlayIsOneCommitOnBaseWithSourceIdentity(t *testing.T) {
 	base := composeGit(t, dir, otherIdentity, "base\n", "commit-tree", tree)
 	source := composeRevision(t, dir, base, "source\n", map[string]string{"a": "changed"}, nil)
 
-	overlay, err := Overlay(ctx, dir, base, source, []string{"a"}, testRef)
+	overlay, err := Overlay(ctx, hostexec.NewLocal(), dir, base, source, []string{"a"}, testRef)
 	if err != nil {
 		t.Fatalf("Overlay: %v", err)
 	}
@@ -71,11 +73,11 @@ func TestOverlayRepeatGivesSameCommit(t *testing.T) {
 	base := composeRevision(t, dir, "", "base\n", map[string]string{"a": "one", "b": "bee"}, nil)
 	source := composeRevision(t, dir, base, "source\n", map[string]string{"a": "changed"}, []string{"b"})
 
-	first, err := Overlay(ctx, dir, base, source, []string{"a", "b"}, testRef)
+	first, err := Overlay(ctx, hostexec.NewLocal(), dir, base, source, []string{"a", "b"}, testRef)
 	if err != nil {
 		t.Fatalf("Overlay: %v", err)
 	}
-	second, err := Overlay(ctx, dir, base, source, []string{"a", "b"}, testRef)
+	second, err := Overlay(ctx, hostexec.NewLocal(), dir, base, source, []string{"a", "b"}, testRef)
 	if err != nil {
 		t.Fatalf("second Overlay refused by the pin: %v", err)
 	}
@@ -95,7 +97,7 @@ func TestOverlayPinRefusesAnotherCommit(t *testing.T) {
 	other := composeRevision(t, dir, base, "other\n", map[string]string{"z": "zed"}, nil)
 	composeGit(t, dir, nil, "", "update-ref", testRef, other)
 
-	if _, err := Overlay(ctx, dir, base, source, []string{"a"}, testRef); err == nil {
+	if _, err := Overlay(ctx, hostexec.NewLocal(), dir, base, source, []string{"a"}, testRef); err == nil {
 		t.Fatal("Overlay moved a pin that points at another commit")
 	}
 	if got := composeGit(t, dir, nil, "", "rev-parse", testRef); got != other {

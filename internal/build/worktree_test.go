@@ -9,6 +9,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/joshsymonds/orrery/internal/hostexec"
 )
 
 // testEpic names the epic the worktree tests build branches for; its branch is epic/worktree.
@@ -36,7 +38,7 @@ func TestCreateBranchCreatesAtBase(t *testing.T) {
 	ctx := context.Background()
 	dir := buildRepo(t)
 	base := buildHead(t, dir)
-	if err := CreateBranch(ctx, dir, testEpic, base); err != nil {
+	if err := CreateBranch(ctx, hostexec.NewLocal(), dir, testEpic, base); err != nil {
 		t.Fatalf("CreateBranch: %v", err)
 	}
 	if got := buildRun(t, dir, "rev-parse", BranchRef(testEpic)); got != base {
@@ -51,7 +53,7 @@ func TestCreateBranchFailsAndKeepsExistingBranch(t *testing.T) {
 	base := buildHead(t, dir)
 	tip := buildObject(t, dir, base)
 	buildRun(t, dir, "update-ref", BranchRef(testEpic), base)
-	if err := CreateBranch(ctx, dir, testEpic, tip); err == nil {
+	if err := CreateBranch(ctx, hostexec.NewLocal(), dir, testEpic, tip); err == nil {
 		t.Fatal("CreateBranch accepted a branch that already exists")
 	}
 	if got := buildRun(t, dir, "rev-parse", BranchRef(testEpic)); got != base {
@@ -62,7 +64,7 @@ func TestCreateBranchFailsAndKeepsExistingBranch(t *testing.T) {
 func TestBranchTipMissingBranchIsNotFound(t *testing.T) {
 	t.Parallel()
 	dir := buildRepo(t)
-	tip, found, err := BranchTip(context.Background(), dir, testEpic)
+	tip, found, err := BranchTip(context.Background(), hostexec.NewLocal(), dir, testEpic)
 	if err != nil {
 		t.Fatalf("BranchTip: %v", err)
 	}
@@ -76,10 +78,10 @@ func TestBranchTipReadsCreatedBranch(t *testing.T) {
 	ctx := context.Background()
 	dir := buildRepo(t)
 	base := buildHead(t, dir)
-	if err := CreateBranch(ctx, dir, testEpic, base); err != nil {
+	if err := CreateBranch(ctx, hostexec.NewLocal(), dir, testEpic, base); err != nil {
 		t.Fatalf("CreateBranch: %v", err)
 	}
-	tip, found, err := BranchTip(ctx, dir, testEpic)
+	tip, found, err := BranchTip(ctx, hostexec.NewLocal(), dir, testEpic)
 	if err != nil {
 		t.Fatalf("BranchTip: %v", err)
 	}
@@ -93,10 +95,10 @@ func TestBranchCheckedOutFollowsLinkedWorktree(t *testing.T) {
 	ctx := context.Background()
 	dir := buildRepo(t)
 	base := buildHead(t, dir)
-	if err := CreateBranch(ctx, dir, testEpic, base); err != nil {
+	if err := CreateBranch(ctx, hostexec.NewLocal(), dir, testEpic, base); err != nil {
 		t.Fatalf("CreateBranch: %v", err)
 	}
-	checked, err := BranchCheckedOut(ctx, dir, testEpic)
+	checked, err := BranchCheckedOut(ctx, hostexec.NewLocal(), dir, testEpic)
 	if err != nil {
 		t.Fatalf("BranchCheckedOut before checkout: %v", err)
 	}
@@ -106,7 +108,7 @@ func TestBranchCheckedOutFollowsLinkedWorktree(t *testing.T) {
 	// The short branch name checks the branch out; a full refs/heads/ name would add a detached worktree.
 	linked := filepath.Join(buildWorktreeRoot(t), "linked")
 	buildRun(t, dir, "worktree", "add", "-q", linked, "epic/"+Slug(testEpic))
-	checked, err = BranchCheckedOut(ctx, dir, testEpic)
+	checked, err = BranchCheckedOut(ctx, hostexec.NewLocal(), dir, testEpic)
 	if err != nil {
 		t.Fatalf("BranchCheckedOut after checkout: %v", err)
 	}
@@ -121,7 +123,7 @@ func TestAddWorktreeAddsDetachedAtBase(t *testing.T) {
 	dir := buildRepo(t)
 	base := buildHead(t, dir)
 	path := filepath.Join(buildWorktreeRoot(t), "step")
-	if err := AddWorktree(ctx, dir, path, base); err != nil {
+	if err := AddWorktree(ctx, hostexec.NewLocal(), dir, path, base); err != nil {
 		t.Fatalf("AddWorktree: %v", err)
 	}
 	if got := buildRun(t, path, "rev-parse", "HEAD"); got != base {
@@ -142,10 +144,10 @@ func TestAddWorktreeSamePathIsNoOp(t *testing.T) {
 	base := buildHead(t, dir)
 	tip := buildObject(t, dir, base)
 	path := filepath.Join(buildWorktreeRoot(t), "step")
-	if err := AddWorktree(ctx, dir, path, base); err != nil {
+	if err := AddWorktree(ctx, hostexec.NewLocal(), dir, path, base); err != nil {
 		t.Fatalf("AddWorktree: %v", err)
 	}
-	if err := AddWorktree(ctx, dir, path, tip); err != nil {
+	if err := AddWorktree(ctx, hostexec.NewLocal(), dir, path, tip); err != nil {
 		t.Fatalf("second AddWorktree on the same path: %v", err)
 	}
 	if got := buildRun(t, path, "rev-parse", "HEAD"); got != base {
@@ -163,7 +165,7 @@ func TestAddWorktreeRefusesRegistrationWithoutDirectory(t *testing.T) {
 	if err := os.RemoveAll(path); err != nil {
 		t.Fatalf("remove worktree directory: %v", err)
 	}
-	if err := AddWorktree(ctx, dir, path, base); err == nil {
+	if err := AddWorktree(ctx, hostexec.NewLocal(), dir, path, base); err == nil {
 		t.Fatal("AddWorktree reported a worktree whose directory is gone")
 	}
 }
@@ -177,7 +179,7 @@ func TestRemoveWorktreesRemovesEveryWorktreeAndDir(t *testing.T) {
 	clean := filepath.Join(taskDir, "clean")
 	dirty := filepath.Join(taskDir, "dirty")
 	for _, path := range []string{clean, dirty} {
-		if err := AddWorktree(ctx, dir, path, base); err != nil {
+		if err := AddWorktree(ctx, hostexec.NewLocal(), dir, path, base); err != nil {
 			t.Fatalf("AddWorktree %s: %v", path, err)
 		}
 	}
@@ -185,7 +187,7 @@ func TestRemoveWorktreesRemovesEveryWorktreeAndDir(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dirty, "scratch.txt"), []byte("left behind\n"), 0o600); err != nil {
 		t.Fatalf("write scratch file: %v", err)
 	}
-	if err := RemoveWorktrees(ctx, dir, taskDir); err != nil {
+	if err := RemoveWorktrees(ctx, hostexec.NewLocal(), dir, taskDir); err != nil {
 		t.Fatalf("RemoveWorktrees: %v", err)
 	}
 	if _, err := os.Stat(taskDir); !errors.Is(err, fs.ErrNotExist) {
@@ -202,7 +204,7 @@ func TestRemoveWorktreesMissingDirIsNil(t *testing.T) {
 	t.Parallel()
 	dir := buildRepo(t)
 	missing := filepath.Join(buildWorktreeRoot(t), "absent")
-	if err := RemoveWorktrees(context.Background(), dir, missing); err != nil {
+	if err := RemoveWorktrees(context.Background(), hostexec.NewLocal(), dir, missing); err != nil {
 		t.Fatalf("RemoveWorktrees of a missing directory: %v", err)
 	}
 }
@@ -211,7 +213,7 @@ func TestPinWritesOrreryRef(t *testing.T) {
 	t.Parallel()
 	dir := buildRepo(t)
 	tip := buildObject(t, dir, buildHead(t, dir))
-	if err := Pin(context.Background(), dir, "refs/orrery/demo/T1", tip); err != nil {
+	if err := Pin(context.Background(), hostexec.NewLocal(), dir, "refs/orrery/demo/T1", tip); err != nil {
 		t.Fatalf("Pin: %v", err)
 	}
 	if got := buildRun(t, dir, "rev-parse", "refs/orrery/demo/T1"); got != tip {
@@ -223,7 +225,7 @@ func TestPinRefusesRefOutsideOrrery(t *testing.T) {
 	t.Parallel()
 	dir := buildRepo(t)
 	base := buildHead(t, dir)
-	if err := Pin(context.Background(), dir, "refs/heads/x", base); err == nil {
+	if err := Pin(context.Background(), hostexec.NewLocal(), dir, "refs/heads/x", base); err == nil {
 		t.Fatal("Pin accepted refs/heads/x")
 	}
 	if got := buildRun(t, dir, "for-each-ref", "refs/heads/x"); got != "" {

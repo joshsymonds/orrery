@@ -85,6 +85,8 @@ type StepAdd struct {
 	Epic         string
 	Task         string
 	Caller       EpicCaller
+	// Host is the host the step's work lives on. A step with an epic takes its epic's host instead.
+	Host string
 }
 
 // StepWatch appends Verdict to a step's verdicts, stamped with the write time, and sets its doing line to Doing when
@@ -230,6 +232,7 @@ type StepRow struct {
 	LoopStageFrom   time.Time
 	Caller          string
 	Lines           StepLines
+	Host            string
 }
 
 func (op StepAdd) applyEngine(ctx context.Context, queries *sqlcgen.Queries, now time.Time) error {
@@ -249,6 +252,18 @@ func (op StepAdd) applyEngine(ctx context.Context, queries *sqlcgen.Queries, now
 	if err != nil {
 		return fmt.Errorf("resolve caller of step %s: %w", op.ID, err)
 	}
+	// A step takes its epic's host. A step may name an epic no store holds, since steps carry no foreign key to epics, and
+	// such a step keeps its own host.
+	host := op.Host
+	if op.Epic != "" {
+		epicHost, hostErr := epicHostOf(ctx, queries, op.Epic)
+		if hostErr != nil && !errors.Is(hostErr, ErrNoEpic) {
+			return fmt.Errorf("read host of step %s: %w", op.ID, hostErr)
+		}
+		if hostErr == nil {
+			host = epicHost
+		}
+	}
 	if err = queries.InsertStep(ctx, sqlcgen.InsertStepParams{
 		ID: op.ID, Agent: op.Agent, Prompt: op.Prompt, OutputSchema: op.Schema, Workspace: op.Workspace,
 		Revision: op.Revision, Worktree: op.Worktree, CheckoutHead: op.CheckoutHead, CheckoutHash: op.CheckoutHash,
@@ -256,7 +271,7 @@ func (op StepAdd) applyEngine(ctx context.Context, queries *sqlcgen.Queries, now
 		Owned: string(owned), Unowned: boolInt(op.Unowned), Gate: string(gate), GateName: op.GateName,
 		GateSource: op.GateSource, GateNeeds: string(gateNeeds), GateLimit: int64(op.GateLimit),
 		ModelLimit: int64(op.ModelLimit), Started: now.Unix(), Epic: op.Epic, Task: op.Task,
-		LoopStage: StepStageTurn, LoopStageFrom: now.Unix(), Agents: op.Agents, Caller: caller,
+		LoopStage: StepStageTurn, LoopStageFrom: now.Unix(), Agents: op.Agents, Caller: caller, Host: host,
 	}); err != nil {
 		return fmt.Errorf("insert step %s: %w", op.ID, err)
 	}
@@ -596,6 +611,7 @@ func toStepRow(row sqlcgen.Step) (StepRow, error) {
 		LoopStage:       row.LoopStage,
 		LoopStageFrom:   stageFrom,
 		Caller:          row.Caller,
+		Host:            row.Host,
 		Lines: StepLines{
 			Counted: row.LinesCounted != 0, Files: row.LinesFiles, Added: row.LinesAdded, Removed: row.LinesRemoved,
 		},

@@ -110,8 +110,8 @@ type EpicsClient interface {
 	// owner's decision, and names no undo-none step. It returns the stored epic.
 	ReleaseEpic(context.Context, *connect.Request[v1.ReleaseEpicRequest]) (*connect.Response[v1.ReleaseEpicResponse], error)
 	// CloseEpic closes a stored epic as superseded, shipped by hand or abandoned. It ends the epic's running turn and stops
-	// its running steps, answers its open questions and frees its release slot, and returns the stored epic. A close by the
-	// planner routes the ending report to the owner. It refuses superseded without the epic that replaces it.
+	// its running steps, answers its open questions, and returns the stored epic. A close by the planner routes the ending
+	// report to the owner. It refuses superseded without the epic that replaces it.
 	CloseEpic(context.Context, *connect.Request[v1.CloseEpicRequest]) (*connect.Response[v1.CloseEpicResponse], error)
 	// AmendEvidence asks for a Requirement of a stored epic to hold a new evidence item, which must pass the shape check a
 	// created epic's items pass. The amendment starts checking: the item replaces the Requirement's own only once a red run
@@ -414,8 +414,8 @@ type EpicsHandler interface {
 	// owner's decision, and names no undo-none step. It returns the stored epic.
 	ReleaseEpic(context.Context, *connect.Request[v1.ReleaseEpicRequest]) (*connect.Response[v1.ReleaseEpicResponse], error)
 	// CloseEpic closes a stored epic as superseded, shipped by hand or abandoned. It ends the epic's running turn and stops
-	// its running steps, answers its open questions and frees its release slot, and returns the stored epic. A close by the
-	// planner routes the ending report to the owner. It refuses superseded without the epic that replaces it.
+	// its running steps, answers its open questions, and returns the stored epic. A close by the planner routes the ending
+	// report to the owner. It refuses superseded without the epic that replaces it.
 	CloseEpic(context.Context, *connect.Request[v1.CloseEpicRequest]) (*connect.Response[v1.CloseEpicResponse], error)
 	// AmendEvidence asks for a Requirement of a stored epic to hold a new evidence item, which must pass the shape check a
 	// created epic's items pass. The amendment starts checking: the item replaces the Requirement's own only once a red run

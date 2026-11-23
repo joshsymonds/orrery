@@ -31,4 +31,6 @@ export const unnamed: Readonly<Record<string, UnnamedEntry>> = {
   "title-row/crumbs-and-state": { replacement: "TitleRow", epic: "F3" },
   "title-row/blocker": { replacement: "TitleRow", epic: "F3" },
   "title-row/with-commands": { replacement: "TitleRow", epic: "F3" },
+  // StateGlyph draws broken, a ring cracked through, for a failed row and an unbound pane: round 6 draws no such state.
+  "state-glyph/broken": { replacement: "StateGlyph", epic: "F2" },
 };

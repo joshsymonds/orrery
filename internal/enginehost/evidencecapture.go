@@ -4,15 +4,15 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"io/fs"
-	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/joshsymonds/orrery/internal/evidence"
 	"github.com/joshsymonds/orrery/internal/gates"
 	"github.com/joshsymonds/orrery/internal/grants"
+	"github.com/joshsymonds/orrery/internal/hostexec"
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
@@ -37,6 +37,9 @@ type evidenceCapture struct {
 	gateStateDir string
 	gateScope    string
 	blobs        evidenceBlobs
+	// host is the Host the capture's git, worktrees and artifact reads run on. It is set with on, and is the local host
+	// when it is not set (see hostOf).
+	host hostexec.Host
 	// logTail is the number of newest output bytes a capture keeps, and the size at which a log read back counts as
 	// cut, in place of evidenceCaptureLogTail when it is not zero. Tests set it to keep their logs small.
 	logTail int
@@ -48,6 +51,21 @@ func (c evidenceCapture) tail() int {
 		return c.logTail
 	}
 	return evidenceCaptureLogTail
+}
+
+// on returns the capture that runs its git, worktrees and artifact reads on host.
+func (c evidenceCapture) on(host hostexec.Host) evidenceCapture {
+	c.host = host
+	return c
+}
+
+// hostOf returns the Host the capture runs on: its host, or the local host when none is set, as a capture built outside
+// a runner runs.
+func (c evidenceCapture) hostOf() hostexec.Host {
+	if c.host == nil {
+		return hostexec.NewLocal()
+	}
+	return c.host
 }
 
 // run captures item at revision of repo as run id. It adds a detached worktree, runs the capture under a grant of the
@@ -62,7 +80,7 @@ func (c evidenceCapture) run(
 	started func(ctx context.Context, grant, holder string) error,
 ) (store.EvidenceCapture, error) {
 	worktree := filepath.Join(c.worktrees, id)
-	if err := addStepWorktree(ctx, repo, worktree, revision); err != nil {
+	if err := addStepWorktree(ctx, c.hostOf(), repo, worktree, revision); err != nil {
 		return c.end(ctx, repo, worktree, item, nil, captureNotStarted(err)), nil
 	}
 	req, err := c.captureRequest(ctx, worktree, id, item)
@@ -125,7 +143,7 @@ func (c evidenceCapture) readopt(
 func (c evidenceCapture) readoptRequest(
 	ctx context.Context, repo, revision, worktree, id string, item evidence.Item,
 ) (grants.Request, error) {
-	if err := captureEnsureWorktree(ctx, repo, revision, worktree); err != nil {
+	if err := captureEnsureWorktree(ctx, c.hostOf(), repo, revision, worktree); err != nil {
 		return grants.Request{}, err
 	}
 	return c.captureRequest(ctx, worktree, id, item)
@@ -139,7 +157,7 @@ func (c evidenceCapture) readoptLost(
 ) store.EvidenceCapture {
 	plan, err := planGate(c.captureGate(worktree, id, item, nil))
 	if err == nil {
-		err = gateClear(ctx, plan.dir)
+		err = gateClear(ctx, c.hostOf(), plan.dir)
 	}
 	return captureFinished(c.end(ctx, repo, worktree, item, nil, store.LostAtRestart), err)
 }
@@ -149,7 +167,7 @@ func (c evidenceCapture) captureRequest(
 	ctx context.Context, worktree, id string, item evidence.Item,
 ) (grants.Request, error) {
 	needs := []grants.Need{{Pool: gates.DefaultPool, Count: 1}}
-	return stepGrant(ctx, worktree, "evidence-"+id, item.Capture, needs, stepGetenv(c.environ))
+	return stepGrant(ctx, hostexec.NewLocal(), worktree, "evidence-"+id, item.Capture, needs, stepGetenv(c.environ))
 }
 
 // captureGate returns the gate that runs item's capture in worktree as run id. Its stdout and stderr tails are 1 MiB
@@ -164,6 +182,7 @@ func (c evidenceCapture) captureGate(
 		Dir:      worktree,
 		Limit:    time.Duration(item.Limit) * time.Second,
 		Environ:  c.environ,
+		Host:     c.hostOf(),
 		Name:     "evidence-" + id,
 		StateDir: c.gateStateDir,
 		Scope:    c.gateScope,
@@ -198,12 +217,12 @@ func (c evidenceCapture) end(
 		var logErr, stderrErr, artifactErr error
 		capture.LogHash, capture.LogBytes, logErr = c.keepLog(result.Stdout)
 		capture.StderrHash, capture.StderrBytes, stderrErr = c.keepLog(result.Stderr)
-		capture.Artifacts, artifactErr = c.keepArtifacts(worktree, item.Artifacts)
+		capture.Artifacts, artifactErr = c.keepArtifacts(ctx, worktree, item.Artifacts)
 		keepErr = errors.Join(logErr, stderrErr, artifactErr)
 	}
 	cleanErr := errors.Join(
-		removeStepWorktree(context.WithoutCancel(ctx), repo, worktree),
-		gateClear(ctx, holder),
+		removeStepWorktree(context.WithoutCancel(ctx), c.hostOf(), repo, worktree),
+		gateClear(ctx, c.hostOf(), holder),
 	)
 	capture.At = time.Now()
 	return captureFinished(capture, errors.Join(keepErr, cleanErr))
@@ -222,75 +241,95 @@ func (c evidenceCapture) keepLog(tail string) (string, int64, error) {
 	return hash, int64(len(tail)), nil
 }
 
-// keepArtifacts returns what each path left in worktree, in the order paths gives. A regular file up to the cap is kept as a
-// blob. A larger one is over_cap and not stored, and anything else is missing. A symbolic link is never followed, and the
-// reads go through an os.Root of the worktree.
-func (c evidenceCapture) keepArtifacts(worktree string, paths []string) ([]store.EvidenceArtifact, error) {
+// keepArtifacts returns what each path left in worktree, in the order paths gives, as keepArtifact keeps each one. The
+// worktree is resolved once, so each path can be checked to lie inside it.
+func (c evidenceCapture) keepArtifacts(
+	ctx context.Context, worktree string, paths []string,
+) ([]store.EvidenceArtifact, error) {
 	if len(paths) == 0 {
 		return nil, nil
 	}
-	root, err := os.OpenRoot(worktree)
+	root, err := c.hostOf().EvalSymlinks(ctx, worktree)
 	if err != nil {
 		return nil, fmt.Errorf("open worktree %s: %w", worktree, err)
 	}
 	artifacts := make([]store.EvidenceArtifact, 0, len(paths))
 	for _, path := range paths {
-		artifact, keepErr := c.keepArtifact(root, path)
+		artifact, keepErr := c.keepArtifact(ctx, worktree, root, path)
 		if keepErr != nil {
-			return nil, errors.Join(keepErr, root.Close())
+			return nil, keepErr
 		}
 		artifacts = append(artifacts, artifact)
-	}
-	if err = root.Close(); err != nil {
-		return nil, fmt.Errorf("close worktree root %s: %w", worktree, err)
 	}
 	return artifacts, nil
 }
 
-// keepArtifact returns what path left in root, as keepArtifacts describes it.
-func (c evidenceCapture) keepArtifact(root *os.Root, path string) (store.EvidenceArtifact, error) {
-	if !captureRegularFile(root, path) {
-		return store.EvidenceArtifact{Path: path, State: "missing"}, nil
+// keepArtifact returns what path left in worktree, whose resolved path is root. A regular file up to the cap is kept as a
+// blob, and a larger one is over_cap and not stored. A path that artifactFile refuses is missing, and so is one that is
+// swapped for a symbolic link between its stat and its read. The read goes through the host's ReadRooted, so it stays
+// inside worktree.
+func (c evidenceCapture) keepArtifact(
+	ctx context.Context, worktree, root, path string,
+) (store.EvidenceArtifact, error) {
+	host := c.hostOf()
+	info, ok := artifactFile(ctx, host, worktree, root, path)
+	if !ok {
+		return store.EvidenceArtifact{Path: path, State: artifactMissing}, nil
 	}
-	file, err := root.Open(path)
-	if err != nil {
-		return store.EvidenceArtifact{}, fmt.Errorf("open artifact %s: %w", path, err)
+	// A file over the cap is refused on its size before it is read, so a large one is never held in memory.
+	if info.Size() > evidenceCaptureArtifactCap {
+		return store.EvidenceArtifact{Path: path, State: artifactOverCap, Size: info.Size()}, nil
 	}
-	// The read stops one byte past the cap, so no file is read further than that, whatever its size when it was stat'ed.
-	data, err := io.ReadAll(io.LimitReader(file, evidenceCaptureArtifactCap+1))
-	info, statErr := file.Stat()
-	if err = errors.Join(err, statErr, file.Close()); err != nil {
+	data, err := host.ReadRooted(ctx, worktree, path)
+	switch {
+	case errors.Is(err, hostexec.ErrNotRegular):
+		return store.EvidenceArtifact{Path: path, State: artifactMissing}, nil
+	case err != nil:
 		return store.EvidenceArtifact{}, fmt.Errorf("read artifact %s: %w", path, err)
 	}
+	// The file may have grown since it was stat'ed, so its read is checked against the cap as well.
 	if int64(len(data)) > evidenceCaptureArtifactCap {
-		return store.EvidenceArtifact{Path: path, State: "over_cap", Size: info.Size()}, nil
+		return store.EvidenceArtifact{Path: path, State: artifactOverCap, Size: int64(len(data))}, nil
 	}
 	hash, name, err := c.blobs.put(data, evidenceExt(path))
 	if err != nil {
 		return store.EvidenceArtifact{}, err
 	}
-	return store.EvidenceArtifact{Path: path, State: "kept", Hash: hash, Blob: name, Size: int64(len(data))}, nil
+	return store.EvidenceArtifact{Path: path, State: artifactKept, Hash: hash, Blob: name, Size: int64(len(data))}, nil
 }
 
-// captureRegularFile reports whether path in root is a regular file. A symbolic link is not followed, and a path that cannot
-// be stat'ed is not a regular file.
-func captureRegularFile(root *os.Root, path string) bool {
-	info, err := root.Lstat(path)
-	return err == nil && info.Mode().IsRegular()
+// artifactFile returns the stat of path in worktree and true when path is a regular file inside worktree, whose resolved
+// path is under root. A symbolic link at path is not followed, so it is not a regular file. A path that is not local to
+// worktree, and one that cannot be stat'ed or resolved, is not a regular file inside it either. A directory on the way to
+// path may be a symbolic link out of worktree, which the read would refuse, so the resolved path is checked too.
+func artifactFile(ctx context.Context, host hostexec.Host, worktree, root, path string) (fs.FileInfo, bool) {
+	if !filepath.IsLocal(path) {
+		return nil, false
+	}
+	full := filepath.Join(worktree, path)
+	info, err := host.Lstat(ctx, full)
+	if err != nil || !info.Mode().IsRegular() {
+		return nil, false
+	}
+	resolved, err := host.EvalSymlinks(ctx, full)
+	if err != nil || !strings.HasPrefix(resolved, root+string(filepath.Separator)) {
+		return nil, false
+	}
+	return info, true
 }
 
-// captureEnsureWorktree adds the worktree at path, at revision of repo, when a restart removed it. A directory removed outside
-// git leaves git's record of the worktree, which is dropped first so the path can be added again.
-func captureEnsureWorktree(ctx context.Context, repo, revision, path string) error {
-	_, err := os.Lstat(path)
+// captureEnsureWorktree adds the worktree at path on host, at revision of repo, when a restart removed it. A directory
+// removed outside git leaves git's record of the worktree, which is dropped first so the path can be added again.
+func captureEnsureWorktree(ctx context.Context, host hostexec.Host, repo, revision, path string) error {
+	_, err := host.Lstat(ctx, path)
 	switch {
 	case err == nil:
 		return nil
 	case errors.Is(err, fs.ErrNotExist):
-		if rmErr := removeStepWorktree(ctx, repo, path); rmErr != nil {
+		if rmErr := removeStepWorktree(ctx, host, repo, path); rmErr != nil {
 			return rmErr
 		}
-		return addStepWorktree(ctx, repo, path, revision)
+		return addStepWorktree(ctx, host, repo, path, revision)
 	}
 	return fmt.Errorf("stat worktree %s: %w", path, err)
 }

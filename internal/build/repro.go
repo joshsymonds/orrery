@@ -20,7 +20,14 @@ func (r *Runner) reproduce(ctx context.Context, epic store.EpicRow, view View, a
 	}
 	item := view.Task.Evidence
 	ref := refsOrreryPrefix + Slug(epic.ID) + "/repro/" + action.ID
-	overlay, err := compose.Overlay(ctx, epic.Repository, view.Task.Build.Base, action.Revision, item.Tests, ref)
+	host, err := r.hostOf(epic)
+	if err != nil {
+		r.report(ctx, epic.ID, seq, "make reproduction overlay", err)
+		return false
+	}
+	overlay, err := compose.Overlay(
+		ctx, host, epic.Repository, view.Task.Build.Base, action.Revision, item.Tests, ref,
+	)
 	if err != nil {
 		r.report(ctx, epic.ID, seq, "make reproduction overlay", err)
 		return false

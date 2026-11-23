@@ -408,6 +408,10 @@ linters:
         - charm.land/bubbletea/v2.Model
         # paneregistry.SystemProc returns the Proc interface, the process view that tests substitute, by its contract.
         - github.com/joshsymonds/orrery/internal/paneregistry.Proc
+        # hostexec's constructors return its Host, Hosts and Held interfaces, which engine code is handed by its contract.
+        - github.com/joshsymonds/orrery/internal/hostexec.Host
+        - github.com/joshsymonds/orrery/internal/hostexec.Hosts
+        - github.com/joshsymonds/orrery/internal/hostexec.Held
 
     wrapcheck:
       ignore-sigs:

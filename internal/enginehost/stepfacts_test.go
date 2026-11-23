@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/joshsymonds/orrery/internal/engine/session"
+	"github.com/joshsymonds/orrery/internal/hostexec"
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
@@ -190,7 +191,7 @@ func TestStepEndFactsCountFailure(t *testing.T) {
 			if calls > 1 {
 				return store.StepLines{}, errors.New("boom")
 			}
-			return stepGitLines(ctx, repo, base, rev)
+			return stepGitLines(ctx, hostexec.NewLocal(), repo, base, rev)
 		}
 		var logged bytes.Buffer
 		f := stepFactsRun(t, func(cfg *stepRunConfig) {

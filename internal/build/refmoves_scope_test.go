@@ -6,6 +6,7 @@ import (
 	"slices"
 	"testing"
 
+	"github.com/joshsymonds/orrery/internal/hostexec"
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
@@ -121,7 +122,15 @@ func TestRefMovesScopeKeepsBlamableMoves(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			got, err := ScopeMoves(context.Background(), repo, passEpic, []RefMove{tc.move}, base, step)
+			got, err := ScopeMoves(
+				context.Background(),
+				hostexec.NewLocal(),
+				repo,
+				passEpic,
+				[]RefMove{tc.move},
+				base,
+				step,
+			)
 			if err != nil {
 				t.Fatalf("ScopeMoves: %v", err)
 			}
@@ -147,7 +156,7 @@ func TestRefMovesScopeCheckNodeKeepsOnlyTheEpicsOwnRefs(t *testing.T) {
 		own,
 		{Ref: headRef, From: "refs/heads/main " + base, To: "refs/heads/main " + moved, Parks: true},
 	}
-	got, err := ScopeMoves(context.Background(), repo, passEpic, moves, "", "")
+	got, err := ScopeMoves(context.Background(), hostexec.NewLocal(), repo, passEpic, moves, "", "")
 	if err != nil {
 		t.Fatalf("ScopeMoves: %v", err)
 	}

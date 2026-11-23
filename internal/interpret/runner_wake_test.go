@@ -10,12 +10,10 @@ import (
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
-// The epics of the wake tests. They share a repository, so a release slot one holds is the slot of the others.
+// The epics of the wake tests.
 const (
 	flowWakeA = "orrery-1a2b3c4/wake-a"
 	flowWakeB = "orrery-1a2b3c4/wake-b"
-	flowWakeC = "orrery-1a2b3c4/wake-c"
-	flowWakeH = "orrery-1a2b3c4/wake-holder"
 )
 
 // flowWakeClock is the runner's clock in the wake tests. The test sets it, and the runner reads it on Run's goroutine.
@@ -99,11 +97,11 @@ func newFlowWakeRig(t *testing.T, s *store.Store) *flowWakeRig {
 	return rig
 }
 
-// flowWakeCreate stores the epic id in the repository the wake tests share, at the built-in epic, in phase.
-func flowWakeCreate(t *testing.T, s *store.Store, id, phase string) {
+// flowWakeCreate stores the epic id in the repository the wake tests share, at the built-in epic, in runPhase.
+func flowWakeCreate(t *testing.T, s *store.Store, id string) {
 	t.Helper()
 	if err := s.CreateEpic(context.Background(), store.EpicRow{
-		ID: id, Repository: runRepo, Base: runBase, Title: "Wake " + id, Phase: phase,
+		ID: id, Repository: runRepo, Base: runBase, Title: "Wake " + id, Phase: runPhase,
 		Created: runClock(), Changed: runClock(), Workflow: builtinPin(t),
 	}); err != nil {
 		t.Fatalf("CreateEpic %s: %v", id, err)
@@ -211,7 +209,7 @@ func flowWakeQuiet(t *testing.T, s *store.Store, epic string, read time.Time) {
 func TestFlowWakeIdleClockPassesNothing(t *testing.T) {
 	t.Parallel()
 	s := openRunStore(t)
-	flowWakeCreate(t, s, flowWakeA, runPhase)
+	flowWakeCreate(t, s, flowWakeA)
 	rig := newFlowWakeRig(t, s)
 	rig.runner.Pass(context.Background())
 	rig.start()
@@ -231,8 +229,8 @@ func TestFlowWakeIdleClockPassesNothing(t *testing.T) {
 func TestFlowWakeStoreWritePassesOnlyItsEpic(t *testing.T) {
 	t.Parallel()
 	s := openRunStore(t)
-	flowWakeCreate(t, s, flowWakeA, runPhase)
-	flowWakeCreate(t, s, flowWakeB, runPhase)
+	flowWakeCreate(t, s, flowWakeA)
+	flowWakeCreate(t, s, flowWakeB)
 	seq := flowWakePark(t, s, flowWakeA)
 	rig := newFlowWakeRig(t, s)
 	rig.runner.Pass(context.Background())
@@ -263,8 +261,8 @@ func TestFlowWakeWriteMovingNoEpicPassesNothing(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	s := openRunStore(t)
-	flowWakeCreate(t, s, flowWakeA, runPhase)
-	flowWakeCreate(t, s, flowWakeB, runPhase)
+	flowWakeCreate(t, s, flowWakeA)
+	flowWakeCreate(t, s, flowWakeB)
 	rig := newFlowWakeRig(t, s)
 	rig.runner.Pass(ctx)
 	rig.start()
@@ -294,8 +292,8 @@ func TestFlowWakeWriteMovingNoEpicPassesNothing(t *testing.T) {
 func TestFlowWakeNamedEpicPasses(t *testing.T) {
 	t.Parallel()
 	s := openRunStore(t)
-	flowWakeCreate(t, s, flowWakeA, runPhase)
-	flowWakeCreate(t, s, flowWakeB, runPhase)
+	flowWakeCreate(t, s, flowWakeA)
+	flowWakeCreate(t, s, flowWakeB)
 	rig := newFlowWakeRig(t, s)
 	rig.runner.Pass(context.Background())
 	rig.start()
@@ -316,37 +314,6 @@ func TestFlowWakeNamedEpicPasses(t *testing.T) {
 	}
 }
 
-// TestFlowWakeFreedReleaseSlotWakesWaiter: C reads the release slot of its repository held by H, and waits on it. A
-// store write that frees H's slot wakes H, which wakes C with it, so C's flow is read again.
-func TestFlowWakeFreedReleaseSlotWakesWaiter(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	s := openRunStore(t)
-	flowWakeCreate(t, s, flowWakeH, store.PhaseClean)
-	flowWakeCreate(t, s, flowWakeC, runPhase)
-	holder, err := s.TakeReleaseSlot(ctx, flowWakeH, runClock())
-	if err != nil || holder != flowWakeH {
-		t.Fatalf("TakeReleaseSlot = %q, %v, want the slot held by %s", holder, err, flowWakeH)
-	}
-	rig := newFlowWakeRig(t, s)
-	rig.runner.Pass(ctx)
-	rig.start()
-	rig.awaitPass()
-	readsC := rig.reads.flowWakeReads(flowWakeC)
-
-	if err = s.FreeReleaseSlot(ctx, flowWakeH); err != nil {
-		t.Fatalf("FreeReleaseSlot: %v", err)
-	}
-	rig.awaitPass()
-	rig.stop()
-	if got := rig.reads.flowWakeReads(flowWakeC) - readsC; got != 1 {
-		t.Errorf("reads of C's flow = %d, want 1", got)
-	}
-	if got := rig.passCount.Load(); got != 2 {
-		t.Errorf("passes = %d, want the start pass and one pass", got)
-	}
-}
-
 // TestFlowDeadlineStaleOriginReadPassesAtItsMoment: an epic whose only pending change is a stale origin read is passed
 // at the moment its read goes stale, and not a second before it. That pass reads origin, and the read it stores wakes
 // the epic again, so the test stops the flow after the pass, and the count is the pass the deadline woke.
@@ -354,7 +321,7 @@ func TestFlowDeadlineStaleOriginReadPassesAtItsMoment(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	s := openRunStore(t)
-	flowWakeCreate(t, s, flowWakeA, runPhase)
+	flowWakeCreate(t, s, flowWakeA)
 	rig := newFlowWakeRig(t, s)
 	rig.runner.Pass(ctx)
 	flowWakeEndCost(t, s, flowWakeA)

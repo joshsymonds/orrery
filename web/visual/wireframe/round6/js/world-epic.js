@@ -157,7 +157,7 @@
     now: 'Releasing: step 2 of 3 is running.',
     release: { words: 'step 2 of 3', steps: RELEASE_STEPS, then: 'the judge reads the tag and the notes, and the epic ends released.' },
     tasks: allDone.slice(0, 4), reqs: allProven.slice(0, 4),
-    history: [{ at: '14:37', text: 'release step 1 · passed' }, { at: '14:36', text: 'The epic took the release slot for orrery' }], historyMore: 44,
+    history: [{ at: '14:37', text: 'release step 1 · passed' }, { at: '14:36', text: 'The epic began its release' }], historyMore: 44,
   };
 
   W.epic.releaseFailed = {
@@ -178,9 +178,9 @@
 
   W.epic.slot = {
     ...W.epic.releasing, dir: 'orrery', slug: 'orrery-followups', state: 'ready to release · 2m', tone: '', controls: { stop: true },
-    track: track({ ...DONE, words: '3 of 3 tasks done' }, { review: { ...DONE, words: 'clean' }, release: { state: 'now', tone: 'quiet', words: 'waiting its turn' } }),
-    now: 'Ready to release. It waits its turn: **orbit-labels** is releasing in this repository.',
-    release: { words: 'waiting for the release slot', steps: RELEASE_STEPS.map((s) => ({ ...s, state: 'waiting', evidence: undefined })) },
+    track: track({ ...DONE, words: '3 of 3 tasks done' }, { review: { ...DONE, words: 'clean' }, release: { state: 'now', tone: 'quiet', words: 'releasing' } }),
+    now: 'Releasing now. **orbit-labels** is releasing in this repository too, and the epic does not wait for it.',
+    release: { words: 'releasing', steps: RELEASE_STEPS.map((s) => ({ ...s, state: 'waiting', evidence: undefined })) },
     tasks: allDone.slice(0, 3), reqs: allProven.slice(0, 3), history: [{ at: '14:39', text: 'The review ended **clean**' }], historyMore: 27,
   };
 
