@@ -54,8 +54,8 @@ func TestSlotOutsideHoldWakeOutsideWaitersPassesWaiter(t *testing.T) {
 func TestSlotOutsideHoldWakeOutsideWaitersOnlyOutside(t *testing.T) {
 	t.Parallel()
 	runner := New(Config{Planner: &fakePlanner{}, Builder: &fakeBuilder{}, Now: runClock})
-	runner.noteRead(flowWakeC, store.EpicFlow{Slot: "outside:gambit:e1"}, runClock())
-	runner.noteRead(slotOutsideWakeD, store.EpicFlow{Slot: flowWakeH}, runClock())
+	runner.noteRead(flowWakeC, store.EpicFlow{Slot: "outside:gambit:e1"})
+	runner.noteRead(slotOutsideWakeD, store.EpicFlow{Slot: flowWakeH})
 
 	runner.WakeOutsideWaiters()
 	if got := runner.takeWoken(); !slices.Equal(got, []string{flowWakeC}) {

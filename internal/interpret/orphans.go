@@ -48,16 +48,13 @@ func (p pass) orphans() ([]Action, bool) {
 	return acts, len(runs) > 0
 }
 
-// orphan decides the orphaned run as the walk of its enclosing run would have. A sync run is decided by the sync kind
-// (decideSync). A run of a check or integrate node of the workflow whose kind is registered is decided by that kind as
-// a node of its enclosing run's body (running): a plan body's, where a failed end wakes the planner, or a loop body's
-// when the enclosing run is a loop. An integrate run's end is its batch, which wakes the planner. Any other run, a plan,
-// loop or build run, or one whose node the workflow does not hold or whose kind is not registered, has nothing that
-// decides it, so it ends with no outcome, with the runs under it.
+// orphan decides the orphaned run as the walk of its enclosing run would have. A run of a check or integrate node of
+// the workflow whose kind is registered is decided by that kind as a node of its enclosing run's body (running): a plan
+// body's, where a failed end wakes the planner, or a loop body's when the enclosing run is a loop. An integrate run's
+// end is its batch, which wakes the planner. Any other run, a plan, loop or build run, or one whose node the workflow
+// does not hold or whose kind is not registered, has nothing that decides it, so it ends with no outcome, with the runs
+// under it.
 func (p pass) orphan(run store.NodeRun) []Action {
-	if kind, ok := p.reg[kindSync]; ok && run.Kind == kindSync {
-		return p.decideSync(kind, run)
-	}
 	def, found := nodeByID(p.flow.Nodes, run.Node)
 	_, registered := p.reg[def.Kind]
 	if !found || !registered || def.Loop != nil || def.Kind != run.Kind || def.Kind == kindPlan ||
