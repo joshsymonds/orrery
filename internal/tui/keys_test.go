@@ -844,7 +844,9 @@ func (a *actionTree) start(tty string) *treeRun {
 	return run
 }
 
-// keyBytes returns the terminal bytes for a key name: a special key or one literal character.
+// keyBytes returns the terminal bytes for a key name: a special key or one literal character. esc is CSI 27 u, not a
+// lone ESC: the reader holds a lone ESC for its escape timeout and merges it with the next key, while CSI 27 u decodes
+// as esc at once.
 func keyBytes(name string) string {
 	switch name {
 	case "down":
@@ -852,7 +854,7 @@ func keyBytes(name string) string {
 	case "up":
 		return "\x1b[A"
 	case "esc":
-		return "\x1b"
+		return "\x1b[27u"
 	case "enter":
 		return "\r"
 	}
