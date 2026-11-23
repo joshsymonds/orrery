@@ -48,15 +48,52 @@ type ContractDraft struct {
 	Updated    int64
 }
 
-type ContractState struct {
+type ContractRefusal struct {
 	Contract string
 	Seq      int64
-	State    string
 	Version  int64
+	Field    string
+	Text     string
 	Session  string
-	Words    string
 	At       int64
-	Base     string
+}
+
+type ContractRowWrite struct {
+	Contract    string
+	Seq         int64
+	Version     int64
+	Row         string
+	Action      string
+	Depends     string
+	Words       string
+	Maker       string
+	Quote       string
+	MakerReason string
+	Delegation  string
+	Session     string
+	At          int64
+}
+
+type ContractShown struct {
+	Contract string
+	Version  int64
+	Row      string
+	At       int64
+}
+
+type ContractState struct {
+	Contract    string
+	Seq         int64
+	State       string
+	Version     int64
+	Session     string
+	Words       string
+	At          int64
+	Base        string
+	Maker       string
+	Quote       string
+	MakerReason string
+	Delegation  string
 }
 
 type ContractVersion struct {
@@ -73,6 +110,16 @@ type ContractVersion struct {
 	At              int64
 	ChangedRows     string
 	ChangedSections string
+}
+
+type ContractWorking struct {
+	Contract  string
+	Version   int64
+	Body      string
+	Decisions string
+	Writer    string
+	Created   int64
+	Updated   int64
 }
 
 type CronJob struct {
@@ -93,6 +140,35 @@ type Design struct {
 	Created      int64
 }
 
+type DesignApproach struct {
+	Design      string
+	Seq         int64
+	Name        string
+	Shape       string
+	Cost        string
+	Wins        string
+	Loses       string
+	Reconsider  string
+	Research    string
+	Recommended int64
+	Reason      string
+	Session     string
+	At          int64
+}
+
+type DesignApproachChoice struct {
+	Design      string
+	Seq         int64
+	Approach    int64
+	Words       string
+	Maker       string
+	Quote       string
+	MakerReason string
+	Delegation  string
+	Session     string
+	At          int64
+}
+
 type DesignClosureSkip struct {
 	Design      string
 	Reason      string
@@ -109,6 +185,23 @@ type DesignContract struct {
 	Design   string
 	Position int64
 	Added    int64
+}
+
+type DesignConversation struct {
+	Design   string
+	Seq      int64
+	Session  string
+	Previous string
+	At       int64
+}
+
+type DesignDelegation struct {
+	Design  string
+	Seq     int64
+	Kinds   string
+	Message string
+	Session string
+	At      int64
 }
 
 type DesignDisposition struct {
@@ -131,6 +224,17 @@ type DesignEdge struct {
 	Contract string
 	After    string
 	Created  int64
+}
+
+type DesignLog struct {
+	Design  string
+	Seq     int64
+	At      int64
+	Maker   string
+	Session string
+	What    string
+	Ids     string
+	Words   string
 }
 
 type DesignQuestion struct {
@@ -161,6 +265,12 @@ type DesignStep struct {
 	Revision   string
 	Delta      string
 	Created    int64
+}
+
+type DesignStepRead struct {
+	Step     string
+	Contract string
+	Version  int64
 }
 
 type DueResume struct {
