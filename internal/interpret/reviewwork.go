@@ -86,7 +86,7 @@ func (r *Runner) startReviewUnits(ctx context.Context, epic store.EpicRow, act A
 
 // reviewUnitStart returns the step of unit, a unit of the review or closure run act is, before its id and labels are set. A
 // reviewer's step is the reviewers' step at the frozen revision, which is act's run revision, over the change from the
-// epic's change base (changeBase). A verifier's step runs over the change base to that revision. A closure verifier's
+// epic's base. A verifier's step runs over the base to that revision. A closure verifier's
 // step runs over the frozen revision to the closure run's revision.
 func (r *Runner) reviewUnitStart(
 	ctx context.Context, epic store.EpicRow, act Action, unit kinds.Unit,
@@ -101,7 +101,7 @@ func (r *Runner) reviewUnitStart(
 			}
 		}
 		start, err := r.reviewers.Start(
-			ctx, epic, unit.Reviewer, changeBase(epic), act.Run.Revision, doneGates, baseCost)
+			ctx, epic, unit.Reviewer, epic.Base, act.Run.Revision, doneGates, baseCost)
 		if err != nil {
 			return enginehost.StepStart{}, fmt.Errorf("reviewer %s: %w", unit.Reviewer, err)
 		}
@@ -111,7 +111,7 @@ func (r *Runner) reviewUnitStart(
 		if err != nil {
 			return enginehost.StepStart{}, err
 		}
-		return epicVerifierStart(epic, changeBase(epic), act.Run.Revision, unit.Finding, unit.ID, agent), nil
+		return epicVerifierStart(epic, epic.Base, act.Run.Revision, unit.Finding, unit.ID, agent), nil
 	case strings.HasPrefix(unit.Part, closePart):
 		frozen, err := r.frozenRevision(ctx, epic.ID)
 		if err != nil {
@@ -129,7 +129,7 @@ func (r *Runner) reviewUnitStart(
 
 // doneGateChecks returns the checks of the Done gates that ran at revision of epic: the checks that the newest started
 // run at that revision with any ran there and that ended with a result, in the order they were created. That run is the
-// integrate or sync run that made revision the epic's stored base. A check lost at a restart, and one that exited
+// integrate run that made revision the epic's stored base. A check lost at a restart, and one that exited
 // store.EnvironmentExit, which its rerun replaces, are left out. It returns none when no run ran a check at revision.
 // It also returns the base measurement of test cost: the cost checks of the same read (store.CostChecks), so both
 // describe the same state of the epic's checks.

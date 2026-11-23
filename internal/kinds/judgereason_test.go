@@ -20,25 +20,39 @@ func judgedFailing(id string) store.EvidenceRun {
 	}
 }
 
+// greenBatch returns the integrate run that passed at the stored base base-1, and its capture of R1, which passed: R1
+// is green at the stored base.
+func greenBatch() (store.NodeRun, store.EvidenceRun) {
+	run := store.NodeRun{
+		ID: "int-run", Kind: "integrate", Attempt: 1, State: store.NodeEnded, Outcome: outcomePassed,
+		Revision: "base-1",
+	}
+	capture := store.EvidenceRun{
+		ID: store.NodeWorkID("int-run", 1, "capture R1"), State: runEnded, Verdict: evidence.VerdictHolds, Passed: true,
+	}
+	return run, capture
+}
+
+// restingRows returns the rows of an epic at rest at the stored base base-1, where R1 is green, with the checks and the
+// captures of the run being decided.
+func restingRows(checks []store.NodeCheck, captured ...store.EvidenceRun) Rows {
+	batch, green := greenBatch()
+	return Rows{
+		Epic: integrateEpic(), Runs: []store.NodeRun{batch}, Checks: checks, Evidence: append(captured, green),
+	}
+}
+
 // TestJudgeCarryRegressionNamesReason: a Requirement green at the stored base whose capture is judged fails names the
-// judge's reason in its regression, so the integrate and the sync fail with that line, and the release stops with it
-// once its last round fails.
+// judge's reason in its regression, so the integrate fails with that line, and the release stops with it once its last
+// round fails.
 func TestJudgeCarryRegressionNamesReason(t *testing.T) {
 	t.Parallel()
 	t.Run("integrate", func(t *testing.T) {
 		t.Parallel()
-		rows := syncRows(gatesPassed(), judgedFailing(workID("capture R1")), greenCapture("capture R2", true))
+		rows := restingRows(gatesPassed(), judgedFailing(workID("capture R1")), greenCapture("capture R2", true))
 		checkDecisions(t, Integrate{}, []decideCase{{
 			"regression names the reason", batchNode(testRev, composedOne, true), rows,
 			Action{Kind: ActEnd, Outcome: outcomeFailed, Output: regressedLine},
-		}})
-	})
-	t.Run("sync", func(t *testing.T) {
-		t.Parallel()
-		rows := syncRows(gatesPassed(), judgedFailing(workID("capture R1")), greenCapture("capture R2", true))
-		checkDecisions(t, Sync{}, []decideCase{{
-			"regression names the reason", syncNode("m1", syncMerged), rows,
-			syncTold(outcomeFailed, syncHead+"\n"+regressedLine),
 		}})
 	})
 	t.Run("release", func(t *testing.T) {
@@ -64,26 +78,14 @@ func TestJudgeCarryRegressionNamesReason(t *testing.T) {
 }
 
 // TestJudgeCarryHoldsWithReasonProceeds: a capture that holds and passed proceeds with its judge's reason, as one that
-// holds without one does, so the integrate and the sync advance with R1 green.
+// holds without one does, so the integrate advances with R1 green.
 func TestJudgeCarryHoldsWithReasonProceeds(t *testing.T) {
 	t.Parallel()
 	held := greenCapture("capture R1", true)
 	held.JudgeReason = "the output shows TestX passing"
-	t.Run("integrate", func(t *testing.T) {
-		t.Parallel()
-		rows := syncRows(gatesPassed(), held, greenCapture("capture R2", true))
-		checkDecisions(t, Integrate{}, []decideCase{{
-			"held capture advances", batchNode(testRev, composedOne, true), rows,
-			Action{Kind: ActAdvance, Output: "R1 green\nR2 green\nR3 not yet green"},
-		}})
-	})
-	t.Run("sync", func(t *testing.T) {
-		t.Parallel()
-		rows := syncRows(gatesPassed(), held, greenCapture("capture R2", true))
-		checkDecisions(t, Sync{}, []decideCase{{
-			"held capture advances to the merge", syncNode("m1", syncMerged), rows,
-			Action{Kind: ActAdvance, Output: "merged origin's commit o1 into the stored base base-1 as m1\n" +
-				"R1 green\nR2 green\nR3 not yet green"},
-		}})
-	})
+	rows := restingRows(gatesPassed(), held, greenCapture("capture R2", true))
+	checkDecisions(t, Integrate{}, []decideCase{{
+		"held capture advances", batchNode(testRev, composedOne, true), rows,
+		Action{Kind: ActAdvance, Output: "R1 green\nR2 green\nR3 not yet green"},
+	}})
 }
