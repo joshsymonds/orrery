@@ -43,6 +43,7 @@ import io.github.joshsymonds.orrery.api.OrreryClient
 import io.github.joshsymonds.orrery.api.Pane
 import io.github.joshsymonds.orrery.push.PushNotifier
 import io.github.joshsymonds.orrery.push.PushSetup
+import io.github.joshsymonds.orrery.ui.AccountsScreen
 import io.github.joshsymonds.orrery.ui.ContractScreen
 import io.github.joshsymonds.orrery.ui.EpicOpening
 import io.github.joshsymonds.orrery.ui.EpicScreen
@@ -339,11 +340,19 @@ class MainActivity : ComponentActivity() {
                                         SettingsScreen(
                                             settings = settings,
                                             onBack = { screen = Screen.Panes },
+                                            onOpenAccounts = { screen = Screen.Accounts },
                                             onSaved = {
                                                 client = OrreryClient(settings.serverUrl)
                                                 screen = Screen.Panes
                                             },
                                             startPushSetup = pushSetup::start,
+                                        )
+                                    }
+                                    Screen.Accounts -> {
+                                        BackHandler { screen = Screen.Settings }
+                                        AccountsScreen(
+                                            client = client,
+                                            onBack = { screen = Screen.Settings },
                                         )
                                     }
                                 }
@@ -476,9 +485,9 @@ class MainActivity : ComponentActivity() {
     }
 
     /**
-     * How deep a screen sits: the home list is 0; a project's page, the pools, the notices or the settings is 1; an epic's
-     * contract or a task's phase output is 2; a pane, a session, an epic or a step's session is one deeper than the screen
-     * it opened from.
+     * How deep a screen sits: the home list is 0; a project's page, the pools, the notices or the settings is 1; an
+     * epic's contract, a task's phase output or the accounts and routes page is 2; a pane, a session, an epic or a
+     * step's session is one deeper than the screen it opened from.
      */
     private val Screen.depth: Int
         get() = when (this) {
@@ -487,7 +496,7 @@ class MainActivity : ComponentActivity() {
             is Screen.Pane -> back.depth + 1
             is Screen.Session -> back.depth + 1
             is Screen.Epic -> back.depth + 1
-            is Screen.Contract, is Screen.Phase -> 2
+            is Screen.Contract, is Screen.Phase, Screen.Accounts -> 2
             is Screen.Step -> back.depth + 1
         }
 
@@ -497,6 +506,8 @@ class MainActivity : ComponentActivity() {
     private sealed interface Screen {
         data object Panes : Screen
         data object Settings : Screen
+        /** The accounts and routes page, reached from Settings' first row: back returns to Settings. */
+        data object Accounts : Screen
         data object Pools : Screen
         /** The notice history, reached from the bell on the home list: back returns to the home list. */
         data object Notices : Screen
