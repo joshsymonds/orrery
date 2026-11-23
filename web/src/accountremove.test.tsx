@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { type TestContext, test } from "node:test";
 
 import { create } from "@bufbuild/protobuf";
-import { Code, createRouterTransport } from "@connectrpc/connect";
+import { Code, ConnectError, createRouterTransport } from "@connectrpc/connect";
 import { render } from "preact";
 import { act } from "preact/test-utils";
 
@@ -32,7 +32,13 @@ interface Page {
 
 // withPage mounts the accounts page over a fake seeded with seed, in a fresh DOM with its timers on the fake clock, and runs
 // check. The page is unmounted and the DOM removed when check returns or throws.
-async function withPage(t: TestContext, seed: AccountsSeed, check: (page: Page) => Promise<void>): Promise<void> {
+// The page is given the clients as made, or as given changes them.
+async function withPage(
+  t: TestContext,
+  seed: AccountsSeed,
+  check: (page: Page) => Promise<void>,
+  given: (clients: ReturnType<typeof createClients>) => ReturnType<typeof createClients> = (clients) => clients,
+): Promise<void> {
   mockTimers(t, ["setTimeout"]);
   const window = installTestDom();
   const fake = accountsServe(seed);
@@ -49,7 +55,7 @@ async function withPage(t: TestContext, seed: AccountsSeed, check: (page: Page) 
   const settle = (ready: () => boolean, what: string) => until(t.signal, ready, what, { step: () => act(turn) });
   try {
     await act(() => {
-      render(<AccountsPage clients={clients} narrow={false} />, container);
+      render(<AccountsPage clients={given(clients)} narrow={false} />, container);
     });
     await settle(
       () => container.querySelector("table") !== null || container.querySelector(".page-note") !== null,
@@ -228,4 +234,32 @@ test("AccountsWebRemove: a dropped Remove re-reads the accounts and routes, draw
     assert.deepEqual(idsOf(container), ["max-1", "max-2", "max-3", "pro-1"]);
     assert.deepEqual(methodsSince(fake, before).sort(), ["Accounts.List", "Accounts.Remove", "Routes.Get"]);
   });
+});
+
+test("AccountsWebRemove: a Remove that lands but whose answer is dropped re-reads, draws the row gone, and says it could not tell", async (t) => {
+  // landsThenDrops gives the page an Accounts client whose Remove reaches the fake, which removes the account, and then fails
+  // as a deadline does, so the page has no answer.
+  const landsThenDrops = (clients: ReturnType<typeof createClients>): ReturnType<typeof createClients> => ({
+    ...clients,
+    accounts: {
+      ...clients.accounts,
+      remove: async (request) => {
+        await clients.accounts.remove(request);
+        throw new ConnectError("the answer was lost", Code.DeadlineExceeded);
+      },
+    },
+  });
+  await withPage(
+    t,
+    seed,
+    async ({ container, fake, settle }) => {
+      const before = fake.calls.length;
+      await askRemove(container, "max-3");
+      await settle(() => container.querySelector(".acc-gone-note") !== null, "the could-not-tell note");
+      assert.equal(container.querySelector(".acc-gone-note")?.textContent, couldNotTell);
+      assert.deepEqual(idsOf(container), ["max-1", "max-2", "pro-1"]);
+      assert.deepEqual(methodsSince(fake, before).sort(), ["Accounts.List", "Accounts.Remove", "Routes.Get"]);
+    },
+    landsThenDrops,
+  );
 });

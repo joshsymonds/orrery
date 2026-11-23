@@ -109,6 +109,13 @@ export function AccountsTable({ accounts, registry, clients, changeAccounts, rer
     say(account.id, { text: `Not removed: ${outcome.reason} ${nothingChanged}`, tone: "bad" });
   };
 
+  // goneNotes are the notes of rows the table no longer draws, such as a Remove that had no answer but landed, whose
+  // re-read no longer holds the account. They are drawn under the table, so what a write says is never lost with its row.
+  const goneNotes = Object.entries(notes).filter(
+    (entry): entry is [string, Note] =>
+      entry[1] !== undefined && !accounts.some((account) => account.id === entry[0]),
+  );
+
   return (
     <div class="acc-wrap">
       <table class="acc-table">
@@ -213,6 +220,11 @@ export function AccountsTable({ accounts, registry, clients, changeAccounts, rer
           })}
         </tbody>
       </table>
+      {goneNotes.map(([id, note]) => (
+        <p key={id} class="acc-note acc-gone-note" data-gone={id} data-tone={note.tone}>
+          {note.text}
+        </p>
+      ))}
     </div>
   );
 }

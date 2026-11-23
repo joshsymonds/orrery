@@ -1769,6 +1769,7 @@ button.block:hover { --ground: var(--o-surface-raised); }
 .acc-table .acc-note-row td { padding-top: 0; border-bottom: 0; white-space: normal; }
 .acc-note { margin: 0; font: var(--o-type-small); color: var(--o-ink-2); overflow-wrap: anywhere; }
 .acc-note[data-tone="bad"] { color: var(--o-role-bad); }
+.acc-gone-note { padding: var(--o-space-8) var(--o-space-12); }
 
 /* Reduced motion comes last, so it wins over the rules above: each move is one 100 ms linear step, a page drills and
    leaves by a fade, and the loops hold still. */
