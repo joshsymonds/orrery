@@ -20,7 +20,6 @@ import (
 	"github.com/joshsymonds/orrery/internal/paneregistry"
 	"github.com/joshsymonds/orrery/internal/panewatch"
 	serverapi "github.com/joshsymonds/orrery/internal/server"
-	"github.com/joshsymonds/orrery/internal/summary"
 	"github.com/joshsymonds/orrery/internal/tmuxctl"
 )
 
@@ -72,7 +71,9 @@ type Host struct {
 	servers map[string]tmuxctl.Server
 	// summarizers holds the summarizer of each tmux server that a summary ran on, keyed by its column. It is guarded by
 	// mu, but waitSummaries reads it once Run has made its last apply.
-	summarizers map[string]*summary.Summarizer
+	summarizers map[string]*serverSummarizer
+	// seen is the auto-seen check of each done transition, which runs on the tmux server the pane runs on.
+	seen daemon.Observer
 	// watchers holds each watcher that Watch has joined and not yet left.
 	watchers map[*watcher]struct{}
 }
@@ -92,13 +93,17 @@ func New(cfg Config) (*Host, error) {
 	if logger == nil {
 		logger = slog.New(slog.DiscardHandler)
 	}
+	// The auto-seen check reports no seen mark: the controller's remote path routes no seen mark for a remote pane, and
+	// the next full listing carries the mark the check wrote.
+	seen := autoseen.New(cfg.Now, logger, func(string, int64) {}, cfg.Viewer)
 	return &Host{
 		cfg:         cfg,
 		logger:      logger,
 		applier:     daemon.NewApplier(cfg.Home, cfg.Now, logger),
 		tmux:        tmux,
 		servers:     map[string]tmuxctl.Server{cfg.DefaultServer.Column(): cfg.DefaultServer},
-		summarizers: map[string]*summary.Summarizer{},
+		summarizers: map[string]*serverSummarizer{},
+		seen:        seen,
 		watchers:    map[*watcher]struct{}{},
 	}, nil
 }

@@ -4,13 +4,21 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/joshsymonds/orrery/internal/autoseen"
 	"github.com/joshsymonds/orrery/internal/daemon"
 	"github.com/joshsymonds/orrery/internal/node"
 	"github.com/joshsymonds/orrery/internal/protocol"
 	"github.com/joshsymonds/orrery/internal/summary"
 	"github.com/joshsymonds/orrery/internal/tmuxctl"
 )
+
+// serverSummarizer is the summarizer of one tmux server, as the host calls it. Its methods are held as func values, so
+// the observers, which hold a context, reach the summarizer through no static call that contextcheck would report: the
+// summarizer's forget and wait create their own contexts.
+type serverSummarizer struct {
+	request func(ctx context.Context, req summary.Request) <-chan struct{}
+	forget  func(pane string)
+	wait    func()
+}
 
 // observe runs the observers of one state change of transition, on the tmux server the pane runs on. A session's end
 // forgets the pane on its summarizer, a working or done transition requests the pane's summary, and a done transition
@@ -23,7 +31,7 @@ func (h *Host) observe(ctx context.Context, server tmuxctl.Server, transition da
 		h.summarize(ctx, server, transition)
 	}
 	if transition.To == protocol.StateDone {
-		h.markSeen(context.WithoutCancel(ctx), server, transition)
+		h.seen(transition)
 	}
 }
 
@@ -46,7 +54,7 @@ func (h *Host) summarize(ctx context.Context, server tmuxctl.Server, transition 
 		req.Stop = true
 		req.LastAssistantMessage = transition.LastMessage
 	}
-	summarizer.Request(ctx, req)
+	summarizer.request(ctx, req)
 }
 
 // forget ends pane's session on the summarizer of its server, which unsets the pane's summary and label, and then
@@ -57,23 +65,13 @@ func (h *Host) forget(ctx context.Context, server tmuxctl.Server, pane string) {
 		h.logger.ErrorContext(ctx, "create summarizer", "pane", pane, "error", err)
 		return
 	}
-	summarizer.Forget(pane)
+	summarizer.forget(pane)
 	h.publishPane(ctx, server, pane)
-}
-
-// markSeen runs the auto-seen check of transition, a done, on the tmux server its pane runs on, through autoseen's
-// observer. The observer's report runs under mu, from the same call, so it publishes the pane's snapshot as the seen
-// write leaves it, and the controller stores the seen time too. The caller holds mu.
-func (h *Host) markSeen(ctx context.Context, server tmuxctl.Server, transition daemon.Transition) {
-	observe := autoseen.New(h.cfg.Now, h.logger, func(pane string, _ int64) {
-		h.publishPane(ctx, server, pane)
-	}, h.cfg.Viewer)
-	observe(transition)
 }
 
 // summarizerFor returns the summarizer of the tmux server, created on first use. Its runs write each pane's options on
 // the server, and its OnWrite publishes the pane's snapshot once they are written. The caller holds mu.
-func (h *Host) summarizerFor(server tmuxctl.Server) (*summary.Summarizer, error) {
+func (h *Host) summarizerFor(server tmuxctl.Server) (*serverSummarizer, error) {
 	if s, ok := h.summarizers[server.Column()]; ok {
 		return s, nil
 	}
@@ -93,8 +91,9 @@ func (h *Host) summarizerFor(server tmuxctl.Server) (*summary.Summarizer, error)
 	if err != nil {
 		return nil, fmt.Errorf("summarizer: %w", err)
 	}
-	h.summarizers[server.Column()] = summarizer
-	return summarizer, nil
+	s := &serverSummarizer{request: summarizer.Request, forget: summarizer.Forget, wait: summarizer.Wait}
+	h.summarizers[server.Column()] = s
+	return s, nil
 }
 
 // paneWritten publishes the snapshot of pane on server after a summary run has written the pane's options. The run's
@@ -120,6 +119,6 @@ func (h *Host) publishPane(ctx context.Context, server tmuxctl.Server, pane stri
 // run's write takes mu to publish, and Run calls waitSummaries after its last apply, outside any hold of mu.
 func (h *Host) waitSummaries() {
 	for _, summarizer := range h.summarizers {
-		summarizer.Wait()
+		summarizer.wait()
 	}
 }
