@@ -144,9 +144,11 @@ type Session struct {
 	Transcript string `protobuf:"bytes,13,opt,name=transcript,proto3" json:"transcript,omitempty"`
 	// True while the session is archived: the owner archived it and has not unarchived it since.
 	Archived bool `protobuf:"varint,14,opt,name=archived,proto3" json:"archived,omitempty"`
-	// True once the session has ended, as an unbound update of its pane ends it.
+	// true once the conversation's turn is judged closed by a closure verdict for its current change time, or (headless)
+	// it stopped. It is false while the conversation steers a live epic or a proposed contract, and false while the owner
+	// has unarchived it since its last change.
 	Ended bool `protobuf:"varint,15,opt,name=ended,proto3" json:"ended,omitempty"`
-	// The unix seconds the session ended, or 0 while it runs or when unknown.
+	// The unix seconds the conversation ended (its change time), or 0 when it has not ended.
 	EndedAt       int64 `protobuf:"varint,16,opt,name=ended_at,json=endedAt,proto3" json:"ended_at,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -412,9 +414,11 @@ type HeadlessSession struct {
 	// true while the owner has put this question off with Control.NotNow and not brought it back; a mark covers one
 	// question, so a new request or a pane that starts waiting again reads false.
 	PutOff bool `protobuf:"varint,12,opt,name=put_off,json=putOff,proto3" json:"put_off,omitempty"`
-	// True once the headless session has ended.
+	// true once the conversation's turn is judged closed by a closure verdict for its current change time, or (headless)
+	// it stopped. It is false while the conversation steers a live epic or a proposed contract, and false while the owner
+	// has unarchived it since its last change.
 	Ended bool `protobuf:"varint,13,opt,name=ended,proto3" json:"ended,omitempty"`
-	// The unix seconds the headless session ended, or 0 while it runs or when unknown.
+	// The unix seconds the conversation ended (its change time), or 0 when it has not ended.
 	EndedAt       int64 `protobuf:"varint,14,opt,name=ended_at,json=endedAt,proto3" json:"ended_at,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -3703,7 +3707,7 @@ type Pane struct {
 	// true while the owner has put this question off with Control.NotNow and not brought it back; a mark covers one
 	// question, so a new request or a pane that starts waiting again reads false.
 	PutOff bool `protobuf:"varint,22,opt,name=put_off,json=putOff,proto3" json:"put_off,omitempty"`
-	// True while the registry no longer binds the pane, so its session has ended.
+	// true when the pane's running command is claude and no Claude session is bound to it.
 	Unbound       bool `protobuf:"varint,23,opt,name=unbound,proto3" json:"unbound,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache

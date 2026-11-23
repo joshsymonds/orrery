@@ -126,10 +126,12 @@ message Session {
   // True while the session is archived: the owner archived it and has not unarchived it since.
   bool archived = 14;
 
-  // True once the session has ended, as an unbound update of its pane ends it.
+  // true once the conversation's turn is judged closed by a closure verdict for its current change time, or (headless)
+  // it stopped. It is false while the conversation steers a live epic or a proposed contract, and false while the owner
+  // has unarchived it since its last change.
   bool ended = 15;
 
-  // The unix seconds the session ended, or 0 while it runs or when unknown.
+  // The unix seconds the conversation ended (its change time), or 0 when it has not ended.
   int64 ended_at = 16;
 }
 
@@ -188,10 +190,12 @@ message HeadlessSession {
   // question, so a new request or a pane that starts waiting again reads false.
   bool put_off = 12;
 
-  // True once the headless session has ended.
+  // true once the conversation's turn is judged closed by a closure verdict for its current change time, or (headless)
+  // it stopped. It is false while the conversation steers a live epic or a proposed contract, and false while the owner
+  // has unarchived it since its last change.
   bool ended = 13;
 
-  // The unix seconds the headless session ended, or 0 while it runs or when unknown.
+  // The unix seconds the conversation ended (its change time), or 0 when it has not ended.
   int64 ended_at = 14;
 }
 
@@ -938,7 +942,7 @@ message Pane {
   // question, so a new request or a pane that starts waiting again reads false.
   bool put_off = 22;
 
-  // True while the registry no longer binds the pane, so its session has ended.
+  // true when the pane's running command is claude and no Claude session is bound to it.
   bool unbound = 23;
 }
 

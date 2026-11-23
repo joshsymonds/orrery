@@ -160,14 +160,16 @@ export type Session = Message<"orrery.v1.Session"> & {
   archived: boolean;
 
   /**
-   * True once the session has ended, as an unbound update of its pane ends it.
+   * true once the conversation's turn is judged closed by a closure verdict for its current change time, or (headless)
+   * it stopped. It is false while the conversation steers a live epic or a proposed contract, and false while the owner
+   * has unarchived it since its last change.
    *
    * @generated from field: bool ended = 15;
    */
   ended: boolean;
 
   /**
-   * The unix seconds the session ended, or 0 while it runs or when unknown.
+   * The unix seconds the conversation ended (its change time), or 0 when it has not ended.
    *
    * @generated from field: int64 ended_at = 16;
    */
@@ -316,14 +318,16 @@ export type HeadlessSession = Message<"orrery.v1.HeadlessSession"> & {
   putOff: boolean;
 
   /**
-   * True once the headless session has ended.
+   * true once the conversation's turn is judged closed by a closure verdict for its current change time, or (headless)
+   * it stopped. It is false while the conversation steers a live epic or a proposed contract, and false while the owner
+   * has unarchived it since its last change.
    *
    * @generated from field: bool ended = 13;
    */
   ended: boolean;
 
   /**
-   * The unix seconds the headless session ended, or 0 while it runs or when unknown.
+   * The unix seconds the conversation ended (its change time), or 0 when it has not ended.
    *
    * @generated from field: int64 ended_at = 14;
    */
@@ -2190,7 +2194,7 @@ export type Pane = Message<"orrery.v1.Pane"> & {
   putOff: boolean;
 
   /**
-   * True while the registry no longer binds the pane, so its session has ended.
+   * true when the pane's running command is claude and no Claude session is bound to it.
    *
    * @generated from field: bool unbound = 23;
    */

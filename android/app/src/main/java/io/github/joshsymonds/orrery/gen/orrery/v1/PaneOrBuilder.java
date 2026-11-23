@@ -370,4 +370,14 @@ public interface PaneOrBuilder extends
    * @return The putOff.
    */
   boolean getPutOff();
+
+  /**
+   * <pre>
+   * true when the pane's running command is claude and no Claude session is bound to it.
+   * </pre>
+   *
+   * <code>bool unbound = 23 [json_name = "unbound"];</code>
+   * @return The unbound.
+   */
+  boolean getUnbound();
 }
