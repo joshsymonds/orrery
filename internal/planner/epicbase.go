@@ -84,7 +84,8 @@ func (r *Runner) boundedOriginMain(ctx context.Context, repository string) (stri
 // isAncestorCommit reports whether base is an ancestor of commit, or commit itself, in repository. A failure of git
 // other than its not-an-ancestor status is an error.
 func isAncestorCommit(ctx context.Context, repository, base, commit string) (bool, error) {
-	cmd := exec.CommandContext(ctx, "git", "-C", repository, "merge-base", "--is-ancestor", base, commit)
+	cmd := exec.CommandContext(ctx, "git")
+	cmd.Args = append(cmd.Args, "-C", repository, "merge-base", "--is-ancestor", base, commit)
 	_, err := cmd.Output()
 	if err == nil {
 		return true, nil
