@@ -1,8 +1,16 @@
 package io.github.joshsymonds.orrery.ui
 
+import androidx.compose.animation.core.Animatable
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.semantics.SemanticsPropertyKey
 import androidx.compose.ui.semantics.SemanticsPropertyReceiver
 import io.github.joshsymonds.orrery.api.Pane
+import io.github.joshsymonds.orrery.ui.theme.Move
+import io.github.joshsymonds.orrery.ui.theme.spec
 
 /**
  * The line of the inbox a conversation is drawn on: its tree under a project, the project's ended line, or the archived
@@ -64,3 +72,23 @@ internal val Moving = SemanticsPropertyKey<Boolean>("Moving")
 
 /** Whether a row or ended line carries [Moving]: it is moving to a new place. */
 internal var SemanticsPropertyReceiver.moving by Moving
+
+/**
+ * The arrival of a row or ended line that is [moving]: it fades in to full over Move.LAYOUT's spec, from the moment the mark
+ * is set. A line that is not moving is drawn in full, and clearing the mark finishes the fade at once, so a fade cut short
+ * by the mark's clearing does not leave the row faint.
+ */
+@Composable
+internal fun Modifier.arrival(moving: Boolean): Modifier {
+    val shown = remember { Animatable(1f) }
+    LaunchedEffect(moving) {
+        if (moving) {
+            shown.snapTo(0f)
+            // A mark is only set while animations are on, so the layout move always runs.
+            shown.animateTo(1f, Move.LAYOUT.spec(animated = true))
+        } else {
+            shown.snapTo(1f)
+        }
+    }
+    return graphicsLayer { alpha = shown.value }
+}

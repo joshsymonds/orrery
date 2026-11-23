@@ -212,6 +212,7 @@ private fun EndedLine(project: Project, endedOpen: Boolean, onEnded: () -> Unit,
         modifier = Modifier
             .testTag("ended:${project.key}")
             .then(if (moving) Modifier.semantics { this.moving = true } else Modifier)
+            .arrival(moving)
             .fillMaxWidth()
             .height(OrreryTokens.Size.controlTouch)
             .clickable(role = Role.Button, onClick = onEnded),

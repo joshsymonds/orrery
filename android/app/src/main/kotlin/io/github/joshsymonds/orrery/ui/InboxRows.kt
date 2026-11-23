@@ -137,6 +137,7 @@ private fun ConvoLine(
             .fillMaxWidth()
             .testTag("convo:${convo.key}")
             .then(if (moving) Modifier.semantics { this.moving = true } else Modifier)
+            .arrival(moving)
             .combinedClickable(onClick = { onOpen(convo.key) }, onLongClick = { onLongPress(SheetRow.Conversation(pane)) })
             .padding(vertical = OrreryTokens.Space.eight),
         horizontalArrangement = Arrangement.spacedBy(OrreryTokens.Space.eight),
