@@ -72,7 +72,7 @@ func accountTestServe(t *testing.T, accounts *Accounts) enginev1connect.Accounts
 func accountTestAddAccount(t *testing.T, client enginev1connect.AccountsClient) {
 	t.Helper()
 	_, err := client.AddAccount(t.Context(), connect.NewRequest(&v1.AddAccountRequest{
-		Name: "Synthetic account", Provider: "anthropic", Token: "sk-synthetic-token",
+		Name: "Synthetic account", Provider: "anthropic", Token: "sk-ant-oat01-synthetic-token",
 	}))
 	if err != nil {
 		t.Fatalf("AddAccount: %v", err)
@@ -85,7 +85,8 @@ func TestAccountServiceAddRenameRemove(t *testing.T) {
 	client := accountTestServe(t, &Accounts{Store: stored, Now: accountTestNow})
 
 	added, err := client.AddAccount(t.Context(), connect.NewRequest(&v1.AddAccountRequest{
-		Name: "Synthetic account", Provider: "anthropic", Plan: "synthetic-plan", Token: "  sk-synthetic-token \n",
+		Name: "Synthetic account", Provider: "anthropic", Plan: "synthetic-plan",
+		Token: "  sk-ant-oat01-synthetic-token \n",
 	}))
 	if err != nil {
 		t.Fatalf("AddAccount: %v", err)
@@ -97,7 +98,7 @@ func TestAccountServiceAddRenameRemove(t *testing.T) {
 	// The fingerprint is of the trimmed token, so the surrounding whitespace is gone.
 	want := &orreryv1.Account{
 		Id: account.GetId(), Name: "Synthetic account", Provider: "anthropic", Plan: "synthetic-plan",
-		Fingerprint: store.AccountFingerprint("sk-synthetic-token"), Created: accountTestNow().Unix(),
+		Fingerprint: store.AccountFingerprint("sk-ant-oat01-synthetic-token"), Created: accountTestNow().Unix(),
 	}
 	if !proto.Equal(account, want) {
 		t.Fatalf("added account = %v, want %v", account, want)
@@ -144,14 +145,20 @@ func TestAccountServiceAddRefusals(t *testing.T) {
 	refusals := []struct {
 		label, name, provider, token, message string
 	}{
-		{label: "empty name", name: "", provider: "anthropic", token: "sk-synthetic", message: "name: empty"},
-		{label: "whitespace name", name: " \t", provider: "anthropic", token: "sk-synthetic", message: "name: empty"},
 		{
-			label: "other provider", name: "Synthetic account", provider: "openai", token: "sk-synthetic",
+			label: "empty name", name: "", provider: "anthropic", token: "sk-ant-oat01-synthetic",
+			message: "name: empty",
+		},
+		{
+			label: "whitespace name", name: " \t", provider: "anthropic", token: "sk-ant-oat01-synthetic",
+			message: "name: empty",
+		},
+		{
+			label: "other provider", name: "Synthetic account", provider: "openai", token: "sk-ant-oat01-synthetic",
 			message: "provider: want anthropic",
 		},
 		{
-			label: "empty provider", name: "Synthetic account", provider: "", token: "sk-synthetic",
+			label: "empty provider", name: "Synthetic account", provider: "", token: "sk-ant-oat01-synthetic",
 			message: "provider: want anthropic",
 		},
 		{
@@ -163,7 +170,8 @@ func TestAccountServiceAddRefusals(t *testing.T) {
 			message: "token: empty or holds whitespace",
 		},
 		{
-			label: "interior whitespace", name: "Synthetic account", provider: "anthropic", token: "sk-synthetic part",
+			label: "interior whitespace", name: "Synthetic account", provider: "anthropic",
+			token:   "sk-ant-oat01-synthetic part",
 			message: "token: empty or holds whitespace",
 		},
 	}

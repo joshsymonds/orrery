@@ -25,6 +25,8 @@ const (
 	accountStoreMessage       = "account store failed"
 	accountNameMessage        = "name: empty"
 	accountProviderMessage    = "provider: want anthropic"
+	accountAPIRefusalMessage  = "That is an API key, not a setup-token. A setup-token starts sk-ant-oat."
+	accountNotSetupMessage    = "That is not a setup-token. A setup-token starts sk-ant-oat."
 	accountUnknownMessage     = "account: unknown id"
 	accountUnknownContext     = "context: unknown id"
 	accountInUseMessage       = "account: in use"
@@ -63,7 +65,8 @@ type accountService struct {
 }
 
 // AddAccount stores an account from the request's name, provider and plan, with its token trimmed of surrounding
-// whitespace, created at the clock's time. It answers the account as stored, which holds no token.
+// whitespace, created at the clock's time. The token must be a setup-token, one that starts sk-ant-oat: an API key
+// (sk-ant-api) and any other token are refused. It answers the account as stored, which holds no token.
 func (s *accountService) AddAccount(
 	ctx context.Context,
 	req *connect.Request[v1.AddAccountRequest],
@@ -80,6 +83,12 @@ func (s *accountService) AddAccount(
 	token := strings.TrimSpace(req.Msg.GetToken())
 	if token == "" || strings.ContainsFunc(token, unicode.IsSpace) {
 		return nil, refuseEpic(connect.CodeInvalidArgument, "token: empty or holds whitespace")
+	}
+	if strings.HasPrefix(token, "sk-ant-api") {
+		return nil, refuseEpic(connect.CodeInvalidArgument, accountAPIRefusalMessage)
+	}
+	if !strings.HasPrefix(token, "sk-ant-oat") {
+		return nil, refuseEpic(connect.CodeInvalidArgument, accountNotSetupMessage)
 	}
 	account, err := s.accounts.Store.AddAccount(ctx, store.NewAccount{
 		ID:       s.accounts.accountID(),
