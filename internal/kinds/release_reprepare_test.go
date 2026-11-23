@@ -191,3 +191,65 @@ func TestReleaseRepreparesRunsDoneGatesOnNewCandidate(t *testing.T) {
 	}
 	checkDecisions(t, Release{}, cases)
 }
+
+// TestReleaseGateReplanDecisions checks what a Done gate that did not pass on a candidate decides: a gate that ran and
+// failed on a candidate that merged origin's commit sends the release back to planning with its report, and once an
+// earlier replan recorded that origin commit, the same gate stops the release. A gate that did not run, timed out, or
+// failed on a candidate with no origin stops it.
+func TestReleaseGateReplanDecisions(t *testing.T) {
+	t.Parallel()
+	gated := store.EpicRow{ID: releaseEpicID, Phase: store.PhaseReleasing, DoneGates: []string{"lint"}}
+	earlier := []store.ReleaseRun{candidateRun(1, "cand-1"), staleRun(2, "cand-1")}
+	replanned := []store.ReleaseRun{
+		candidateRun(1, "cand-1"), staleRun(2, "cand-1"),
+		{Part: store.ReleasePartReplan, Attempt: 1, Head: "origin-2", Reason: "the report of the first replan"},
+	}
+	const stop = "done gate lint did not pass at cand-2"
+	// gateOf returns the Done gate check of the candidate cand-2 walks: attempt 2 under its generation 1.
+	gateOf := func(passed bool) store.NodeCheck {
+		check := doneCheck(2, 1, passed)
+		check.ID = generationWorkID(2, 1, "done 1")
+		return check
+	}
+	ran := gateOf(false)
+	notRun := gateOf(true)
+	notRun.NotRun = "the check did not start"
+	timedOut := gateOf(true)
+	timedOut.TimedOut = true
+	cases := []decideCase{
+		{
+			"gate that ran and failed on a candidate that merged origin's commit replans with its report",
+			releaseNode(2, "cand-2", `{"behind":true,"origin":"origin-2"}`),
+			Rows{Epic: gated, Checks: []store.NodeCheck{ran}, Releases: earlier},
+			Action{
+				Kind: ActReplan, Output: "Done gate lint failed on commit cand-2: it exited 1.", Reason: stop,
+				Items: []string{store.ReleasePartReplan, "origin-2"},
+			},
+		},
+		{
+			"gate that ran and failed on the origin commit an earlier replan recorded stops, since origin has not moved",
+			releaseNode(2, "cand-2", `{"behind":true,"origin":"origin-2"}`),
+			Rows{Epic: gated, Checks: []store.NodeCheck{ran}, Releases: replanned},
+			Action{Kind: ActStop, Output: stop + "; origin's main has not moved since the last replan"},
+		},
+		{
+			"gate that did not run stops without a replan",
+			releaseNode(2, "cand-2", `{"behind":true,"origin":"origin-2"}`),
+			Rows{Epic: gated, Checks: []store.NodeCheck{notRun}, Releases: earlier},
+			Action{Kind: ActStop, Output: stop},
+		},
+		{
+			"gate that timed out stops without a replan",
+			releaseNode(2, "cand-2", `{"behind":true,"origin":"origin-2"}`),
+			Rows{Epic: gated, Checks: []store.NodeCheck{timedOut}, Releases: earlier},
+			Action{Kind: ActStop, Output: stop},
+		},
+		{
+			"gate that ran and failed on a candidate with no origin stops without a replan",
+			releaseNode(2, "cand-2", `{"behind":true}`),
+			Rows{Epic: gated, Checks: []store.NodeCheck{ran}, Releases: earlier},
+			Action{Kind: ActStop, Output: stop},
+		},
+	}
+	checkDecisions(t, Release{}, cases)
+}

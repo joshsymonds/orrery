@@ -163,3 +163,53 @@ func TestReleaseIntegratorLastRoundFailureStops(t *testing.T) {
 		t.Errorf("Decide = %+v, want %+v", got, want)
 	}
 }
+
+// TestReleaseIntegratorLastRoundGateReplans: a Done gate that ran and failed on the commit of the last round sends the
+// release back to planning with its report, naming origin's commit as the replan's head. A gate that did not run stops
+// the release with the gate's reason, as it does on any round.
+func TestReleaseIntegratorLastRoundGateReplans(t *testing.T) {
+	t.Parallel()
+	gateRows := func(gate store.NodeCheck) Rows {
+		var releases []store.ReleaseRun
+		var checks []store.NodeCheck
+		for round := int64(1); round <= integratorRounds; round++ {
+			releases = append(releases, integratorRound(round, fmt.Sprintf("merge-%d", round), ""))
+			checks = append(checks, store.NodeCheck{ID: roundWorkID(round, "done 1"), State: store.NodeEnded, Exit: 1})
+		}
+		checks[integratorRounds-1] = gate
+		return integratorRows(releases, checks, nil, nil)
+	}
+	ran := store.NodeCheck{ID: roundWorkID(integratorRounds, "done 1"), State: store.NodeEnded, Exit: 1}
+	notRun := store.NodeCheck{
+		ID: roundWorkID(integratorRounds, "done 1"), State: store.NodeEnded, NotRun: "the check did not start",
+	}
+	const stop = "done gate lint did not pass at merge-3"
+	cases := []struct {
+		name string
+		rows Rows
+		want Action
+	}{
+		{
+			name: "gate that ran and failed on the last round replans with origin as the head",
+			rows: gateRows(ran),
+			want: Action{
+				Kind: ActReplan, Output: "Done gate lint failed on commit merge-3: it exited 1.", Reason: stop,
+				Items: []string{store.ReleasePartReplan, "origin-1"},
+			},
+		},
+		{
+			name: "gate that did not run on the last round stops",
+			rows: gateRows(notRun),
+			want: Action{Kind: ActStop, Output: stop},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got := (Release{}).Decide(releaseNode(1, "", integratorResult), tc.rows)
+			if !reflect.DeepEqual(got, tc.want) {
+				t.Errorf("Decide = %+v, want %+v", got, tc.want)
+			}
+		})
+	}
+}

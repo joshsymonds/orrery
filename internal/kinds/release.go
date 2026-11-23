@@ -11,12 +11,13 @@ import (
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
-// Release is the release kind. Its run begins the release of a clean epic at once, prepares and gates the
-// release candidate, has the release integrator finish a merge of origin's commit that conflicts, sends the release back
-// to planning when the integrator stopped on a change to the candidate, starts the plan that replans it for an owner's
-// correction and resumes it once that plan has ended, has its release reviewers hold the candidate before the first
-// release step, starts each release step in order, stores each end first, stops on any failure, judges the
-// postconditions, and ends the epic released, or done when it has no release steps.
+// Release is the release kind. Its run begins the release of a clean epic at once, prepares and gates the release
+// candidate, has the release integrator finish a merge of origin's commit that conflicts, sends the release back to
+// planning when the integrator stopped on a change to the candidate, or when a Done gate ran and failed on a merged
+// candidate, starts the plan that replans it for an owner's correction and resumes it once that plan has ended, has its
+// release reviewers hold the candidate before the first release step, starts each release step in order, stores each
+// end first, stops on any failure, judges the postconditions, and ends the epic released, or done when it has no
+// release steps.
 type Release struct{}
 
 // The actions a release run takes beyond the ones every kind shares.
@@ -50,9 +51,10 @@ const (
 
 // ReleaseResult is the result a release prepare writes to its run: the error that stopped it, whether the revision it
 // records is behind the target, the candidate it records and the tip the candidate was made from. A merge of origin's
-// commit into the tip that conflicts records no candidate: it records origin's commit, the branch of origin it was
-// fetched from and the paths that conflict, and the release integrator makes the candidate. The release kind reads it
-// and the executor writes and reads it, so it is defined once, here.
+// commit into the tip records origin's commit as Origin, whether it conflicts or not. A merge that conflicts records no
+// candidate: it records the branch of origin it was fetched from and the paths that conflict, and the release
+// integrator makes the candidate. The release kind reads it and the executor writes and reads it, so it is defined
+// once, here.
 type ReleaseResult struct {
 	Error     string   `json:"error"`
 	Behind    bool     `json:"behind"`
@@ -225,14 +227,14 @@ func candidateAction(run store.NodeRun, rows Rows) Action {
 		return Action{Kind: ActStop, Output: err.Error()}
 	}
 	if len(result.Conflicts) > 0 {
-		return integratorAction(run, rows)
+		return integratorAction(run, rows, result.Origin)
 	}
 	if run.Revision == "" {
 		return prepareRelease(result, rows)
 	}
 	generation := replacedCount(run.Attempt, rows.Releases)
 	if result.Behind || generation > 0 {
-		return gatesAction(run, rows, generation)
+		return gatesAction(run, rows, generation, result.Origin)
 	}
 	return Action{Kind: ActRecord, Items: []string{store.ReleasePartCandidate, run.Revision}}
 }
@@ -275,21 +277,66 @@ func prepareRelease(result ReleaseResult, rows Rows) Action {
 	return Action{Kind: ActStop, Output: result.Error}
 }
 
-// gatesAction decides a candidate held at the epic's Done gates, walked as an integrate run walks them (doneGates), under
-// the generation of the candidate. It returns the action a gate that is not decided asks for, a gate lost at a restart
-// twice stops the release with the park's reason, a gate that did not pass stops it, and the candidate is recorded once
-// every gate has passed.
-func gatesAction(run store.NodeRun, rows Rows, generation int64) Action {
-	gate, act, settled := doneGates(gatedRun(run, generation), rows)
+// gatesAction decides a candidate held at the epic's Done gates, walked as an integrate run walks them, under the
+// generation of the candidate. It returns the action a gate that is not decided asks for, a gate lost at a restart
+// twice stops the release with the park's reason, a gate that did not pass goes to gateStop with origin, the origin
+// commit the candidate merged, and the candidate is recorded once every gate has passed.
+func gatesAction(run store.NodeRun, rows Rows, generation int64, origin string) Action {
+	gated := gatedRun(run, generation)
+	gate, check, act, settled := doneGateFailure(gated, rows)
 	switch {
 	case !settled && act.Kind == ActPark:
 		return Action{Kind: ActStop, Output: act.Output}
 	case !settled:
 		return act
 	case gate != "":
-		return Action{Kind: ActStop, Output: fmt.Sprintf("done gate %s did not pass at %s", gate, run.Revision)}
+		return gateStop(gated, rows, gate, check, origin)
 	}
 	return Action{Kind: ActRecord, Items: []string{store.ReleasePartCandidate, run.Revision}}
+}
+
+// doneGateFailure walks the Done gates of run in order, as doneGates does, and returns the first gate whose check did
+// not pass, with its check. It returns settled true once every gate passed or one failed. Until then it returns the
+// action the gate that is not decided asks for.
+func doneGateFailure(run store.NodeRun, rows Rows) (string, store.NodeCheck, Action, bool) {
+	for i, gate := range rows.Epic.DoneGates {
+		check, act, decided := gateCheck(run, i, gate, rows.Checks)
+		if !decided {
+			return "", store.NodeCheck{}, act, false
+		}
+		if !checkPassed(check) {
+			return gate, check, Action{}, true
+		}
+	}
+	return "", store.NodeCheck{}, Action{}, true
+}
+
+// gateStop decides the Done gate named gate, with check, that did not pass at the revision of gated, a candidate that
+// merged origin's commit (origin is "" for a candidate that is not behind the target). A gate that ran and failed on
+// such a candidate sends the release back to planning as ActReplan: its output is the gate's report, its items name
+// origin as the replan's head, and its reason is the stop the release keeps when the workflow has no plan to make the
+// change. Once per origin tip: when an earlier replan already recorded origin, the gate stops the release with the same
+// reason and a note that origin's main has not moved since. Any other gate stops it with the reason alone.
+func gateStop(gated store.NodeRun, rows Rows, gate string, check store.NodeCheck, origin string) Action {
+	reason := fmt.Sprintf("done gate %s did not pass at %s", gate, gated.Revision)
+	if origin == "" || !gateRanAndFailed(check) {
+		return Action{Kind: ActStop, Output: reason}
+	}
+	if _, replanned := firstMatch(rows.Releases, func(r store.ReleaseRun) bool {
+		return r.Part == store.ReleasePartReplan && r.Head == origin
+	}); replanned {
+		return Action{Kind: ActStop, Output: reason + "; origin's main has not moved since the last replan"}
+	}
+	return Action{
+		Kind: ActReplan, Output: gateFailure(gated, rows), Reason: reason,
+		Items: []string{store.ReleasePartReplan, origin},
+	}
+}
+
+// gateRanAndFailed reports whether check ran to an exit that failed: it has no NotRun, did not time out, and exited
+// nonzero. A check that did not run or timed out is not one.
+func gateRanAndFailed(check store.NodeCheck) bool {
+	return check.NotRun == "" && !check.TimedOut && check.Exit != 0
 }
 
 // walkSteps decides a releasing epic whose candidate passed at candidate. Each release step in order passes at any
