@@ -1088,11 +1088,11 @@ func startSessions(
 			Hosts: hosts,
 		})
 		host.steps = steps
-		host.stage = stage.NewService(stage.Config{Store: st, Steps: steps, Now: time.Now, Getenv: getenv})
+		acceptCheck := host.wireStage(st, steps, getenv)
 		host.wireStore(st)
 		commands, stepCommands = host.manager, host.steps
 		host.epics, host.steering, host.contracts, host.accounts = st, epicSteering(host.manager, st, hosts),
-			contractsOf(st, hosts, hostName), &enginehost.Accounts{Store: st, Now: time.Now}
+			contractsOf(st, hosts, hostName, acceptCheck), &enginehost.Accounts{Store: st, Now: time.Now}
 		host.designs = &enginehost.Designs{Store: st, Now: time.Now}
 		crons = enginehost.NewCronAnswers(enginehost.CronAnswersConfig{
 			Store: st, Now: opts.cronNow, Changed: host.cron.Changed})
@@ -1189,9 +1189,11 @@ func epicSteering(manager *enginehost.Manager, st *store.Store, hosts hostexec.H
 }
 
 // contractsOf returns the contracts st serves, stamped with the process clock. Their origin is fetched on the
-// controller's host, which hosts resolves hostName to.
-func contractsOf(st *store.Store, hosts hostexec.Hosts, hostName string) *enginehost.Contracts {
-	return &enginehost.Contracts{Store: st, Now: time.Now, Hosts: hosts, Host: hostName}
+// controller's host, which hosts resolves hostName to. An accept first asks acceptCheck of the contract.
+func contractsOf(
+	st *store.Store, hosts hostexec.Hosts, hostName string, acceptCheck func(context.Context, string) error,
+) *enginehost.Contracts {
+	return &enginehost.Contracts{Store: st, Now: time.Now, Hosts: hosts, Host: hostName, AcceptCheck: acceptCheck}
 }
 
 // paneDir returns the current directory of the tmux pane on the server whose store column is server. Its error names
@@ -1551,6 +1553,16 @@ func (r *dueWakeRelay) Wake() {
 	if wake != nil {
 		wake()
 	}
+}
+
+// wireStage sets the Stage service of h to the service over st and steps, which reads getenv, and returns the service's
+// AcceptCheck, which an accept of a contract asks before it accepts the contract.
+func (h *sessionHost) wireStage(
+	st *store.Store, steps *enginehost.Steps, getenv func(string) string,
+) func(context.Context, string) error {
+	service := stage.NewService(stage.Config{Store: st, Steps: steps, Now: time.Now, Getenv: getenv})
+	h.stage = service
+	return service.AcceptCheck
 }
 
 // wireStore points st's engine liveness at the manager, and makes h.changes the change feed that st's session-events

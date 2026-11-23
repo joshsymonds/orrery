@@ -155,6 +155,20 @@ func (s *Store) Contracts(ctx context.Context) ([]ContractListing, error) {
 	return listings, nil
 }
 
+// ContractStaged reports whether the contract with id is staged, which is whether the contract stage proposed it. Each
+// contract the migration that added the staged column found reads false. It returns an error that matches ErrNoContract
+// when no contract has id.
+func (s *Store) ContractStaged(ctx context.Context, id string) (bool, error) {
+	staged, err := sqlcgen.New(s.read).GetContractStaged(ctx, id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, fmt.Errorf("contract %s: %w", id, ErrNoContract)
+	}
+	if err != nil {
+		return false, fmt.Errorf("read staged of contract %s: %w", id, err)
+	}
+	return staged != 0, nil
+}
+
 // Contract returns the contract with id as Store.Contract does, read without writing the store.
 func (r *Reader) Contract(ctx context.Context, id string) (ContractRecord, error) {
 	var record ContractRecord
