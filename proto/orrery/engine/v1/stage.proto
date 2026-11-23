@@ -26,6 +26,30 @@ service Stage {
 
   // GetStage returns the stage of one design: its steps, questions, ledger and counts.
   rpc GetStage(GetStageRequest) returns (GetStageResponse);
+
+  // Approach stores an approach a design's stage weighs, with its cost and what it wins and loses, and returns it.
+  rpc Approach(ApproachRequest) returns (ApproachResponse);
+
+  // Choose stores the approach the owner chose for a design, with the maker it came from, and returns the choice.
+  rpc Choose(ChooseRequest) returns (ChooseResponse);
+
+  // Delegate stores the owner's delegation of a design's decisions to the conversation, and returns it.
+  rpc Delegate(DelegateRequest) returns (DelegateResponse);
+
+  // WriteRow stores a write to a row of a contract's body, with the maker it came from, and returns the write.
+  rpc WriteRow(WriteRowRequest) returns (WriteRowResponse);
+
+  // Keep stores an addition a contract keeps, with the maker it came from, and returns the write.
+  rpc Keep(KeepRequest) returns (KeepResponse);
+
+  // Strike stores the striking of an addition a contract keeps, and returns the write and the rows it removed.
+  rpc Strike(StrikeRequest) returns (StrikeResponse);
+
+  // Shown stores the rows of a contract version the owner was shown, and returns the rows it stored.
+  rpc Shown(ShownRequest) returns (ShownResponse);
+
+  // ContinueDesign returns a design and the session that continues its stage.
+  rpc ContinueDesign(ContinueDesignRequest) returns (ContinueDesignResponse);
 }
 
 // StageMaker is who made a stage decision and the evidence it rests on.
@@ -152,6 +176,157 @@ message StageLedgerItem {
   string closure_note = 12;
 }
 
+// StageApproach is an approach a design's stage weighs, with its trade-offs and whether the planner recommends it.
+message StageApproach {
+  // The approach's seq, counted from 1 within its design.
+  int64 seq = 1;
+
+  // The approach's name.
+  string name = 2;
+
+  // The shape the approach takes.
+  string shape = 3;
+
+  // What the approach costs.
+  string cost = 4;
+
+  // What the approach wins.
+  string wins = 5;
+
+  // What the approach loses.
+  string loses = 6;
+
+  // What would make the planner reconsider the approach.
+  string reconsider = 7;
+
+  // The ids of the research steps the approach rests on.
+  repeated string research = 8;
+
+  // True when the planner recommends the approach.
+  bool recommended = 9;
+
+  // Why the planner recommends the approach or does not.
+  string reason = 10;
+
+  // The sessions row id of the session that stored the approach.
+  string session = 11;
+
+  // When the approach was stored, in unix seconds.
+  int64 at = 12;
+}
+
+// StageChoice is the approach the owner chose for a design, with the maker it came from.
+message StageChoice {
+  // The seq of the chosen approach.
+  int64 approach = 1;
+
+  // The owner's words the choice is made with.
+  string words = 2;
+
+  // Who made the choice and the evidence it rests on.
+  StageMaker maker = 3;
+
+  // The sessions row id of the session that stored the choice.
+  string session = 4;
+
+  // When the choice was stored, in unix seconds.
+  int64 at = 5;
+}
+
+// StageDelegation is the owner's delegation of a design's decisions to the conversation, with the decisions the
+// conversation made under it.
+message StageDelegation {
+  // The delegation's seq, counted from 1 within its design.
+  int64 seq = 1;
+
+  // The kinds of decision the delegation covers.
+  repeated string kinds = 2;
+
+  // The owner's words the delegation is given with.
+  string message = 3;
+
+  // The sessions row id of the session that stored the delegation.
+  string session = 4;
+
+  // When the delegation was stored, in unix seconds.
+  int64 at = 5;
+
+  // The decisions the conversation made under the delegation, oldest first.
+  repeated StageDecision decisions = 6;
+}
+
+// StageDecision is a decision the conversation made under a delegation.
+message StageDecision {
+  // The decision's kind.
+  string kind = 1;
+
+  // The id of the thing the decision concerns.
+  string ref = 2;
+
+  // The decision's text.
+  string text = 3;
+
+  // Why the conversation decided.
+  string reason = 4;
+
+  // When the decision was made, in unix seconds.
+  int64 at = 5;
+}
+
+// StageLogLine is one line of a design's stage log: what was done, by whom, and the ids it touched.
+message StageLogLine {
+  // The line's seq, counted from 1 within its design.
+  int64 seq = 1;
+
+  // When the line was logged, in unix seconds.
+  int64 at = 2;
+
+  // Who did the thing the line logs and the evidence it rests on.
+  StageMaker maker = 3;
+
+  // The sessions row id of the session that logged the line.
+  string session = 4;
+
+  // What was done.
+  string what = 5;
+
+  // The ids the line touched.
+  repeated string ids = 6;
+
+  // The words the line was logged with.
+  string words = 7;
+}
+
+// StageRowWrite is a write to a row of a contract's body, as a design's stage recorded it.
+message StageRowWrite {
+  // The write's seq, counted from 1 within its design.
+  int64 seq = 1;
+
+  // The number of the contract version the write made.
+  int64 version = 2;
+
+  // The F, R or P row the write concerns.
+  string row = 3;
+
+  // What the write did to the row.
+  string action = 4;
+
+  // The row the written row depends on.
+  string depends = 5;
+
+  // The owner's words the write is made with.
+  string words = 6;
+
+  // Who made the write and the evidence it rests on.
+  StageMaker maker = 7;
+
+  // The sessions row id of the session that stored the write.
+  string session = 8;
+
+  // When the write was stored, in unix seconds.
+  int64 at = 9;
+}
+
 // DesignStage is the stage of one design: the steps it started, the questions it asked, the ledger of its findings and
 // the counts of its passes.
 message DesignStage {
@@ -178,6 +353,18 @@ message DesignStage {
 
   // True when the design's closure pass has counted toward its budget.
   bool closure_counted = 8;
+
+  // The approaches the design's stage weighs, oldest first.
+  repeated StageApproach approaches = 9;
+
+  // The approach the owner chose for the design; unset until a choice is stored.
+  StageChoice choice = 10;
+
+  // The log of the design's stage, oldest first.
+  repeated StageLogLine log = 11;
+
+  // The owner's delegations of the design's decisions to the conversation, oldest first.
+  repeated StageDelegation delegations = 12;
 }
 
 // ResearchRequest asks for a scout step on a design.
@@ -334,4 +521,193 @@ message GetStageRequest {
 message GetStageResponse {
   // The design's stage.
   DesignStage stage = 1;
+}
+
+// ApproachRequest asks for an approach a design's stage weighs to be stored.
+message ApproachRequest {
+  // The design the approach belongs to.
+  string design = 1;
+
+  // The approach's name.
+  string name = 2;
+
+  // The shape the approach takes.
+  string shape = 3;
+
+  // What the approach costs.
+  string cost = 4;
+
+  // What the approach wins.
+  string wins = 5;
+
+  // What the approach loses.
+  string loses = 6;
+
+  // What would make the planner reconsider the approach.
+  string reconsider = 7;
+
+  // The ids of the research steps the approach rests on.
+  repeated string research = 8;
+
+  // True when the planner recommends the approach.
+  bool recommended = 9;
+
+  // Why the planner recommends the approach or does not.
+  string reason = 10;
+}
+
+// ApproachResponse carries the approach stored by Approach.
+message ApproachResponse {
+  // The stored approach.
+  StageApproach approach = 1;
+}
+
+// ChooseRequest asks for the approach the owner chose for a design to be stored.
+message ChooseRequest {
+  // The design the choice is made for.
+  string design = 1;
+
+  // The seq of the chosen approach.
+  int64 approach = 2;
+
+  // The owner's words the choice is made with.
+  string words = 3;
+
+  // Who made the choice and the evidence it rests on.
+  StageMaker maker = 4;
+}
+
+// ChooseResponse carries the choice stored by Choose.
+message ChooseResponse {
+  // The stored choice.
+  StageChoice choice = 1;
+}
+
+// DelegateRequest asks for the owner's delegation of a design's decisions to the conversation to be stored.
+message DelegateRequest {
+  // The design the delegation covers.
+  string design = 1;
+
+  // The kinds of decision the delegation covers.
+  repeated string kinds = 2;
+
+  // The owner's words the delegation is given with.
+  string message = 3;
+}
+
+// DelegateResponse carries the delegation stored by Delegate.
+message DelegateResponse {
+  // The stored delegation.
+  StageDelegation delegation = 1;
+}
+
+// WriteRowRequest asks for a write to a row of a contract's body to be stored.
+message WriteRowRequest {
+  // The id of the contract whose row is written.
+  string contract = 1;
+
+  // The design the contract joins, empty for none.
+  string design = 2;
+
+  // The F, R or P row the write concerns.
+  string row = 3;
+
+  // The row's value the write sets.
+  string value = 4;
+
+  // True when the write removes the row rather than setting it.
+  bool remove = 5;
+
+  // The row the written row depends on.
+  string depends = 6;
+
+  // The owner's words the write is made with.
+  string words = 7;
+
+  // Who makes the write and the evidence it rests on.
+  StageMaker maker = 8;
+}
+
+// WriteRowResponse carries the write stored by WriteRow.
+message WriteRowResponse {
+  // The stored write.
+  StageRowWrite write = 1;
+}
+
+// KeepRequest asks for an addition a contract keeps to be stored.
+message KeepRequest {
+  // The id of the contract the addition belongs to.
+  string contract = 1;
+
+  // The addition the contract keeps.
+  string addition = 2;
+
+  // The owner's words the addition is kept with.
+  string words = 3;
+
+  // Who keeps the addition and the evidence it rests on.
+  StageMaker maker = 4;
+}
+
+// KeepResponse carries the write stored by Keep.
+message KeepResponse {
+  // The stored write.
+  StageRowWrite write = 1;
+}
+
+// StrikeRequest asks for the striking of an addition a contract keeps to be stored.
+message StrikeRequest {
+  // The id of the contract the addition belongs to.
+  string contract = 1;
+
+  // The addition the contract keeps, which is struck.
+  string addition = 2;
+
+  // The owner's words the addition is struck with.
+  string words = 3;
+
+  // Who strikes the addition and the evidence it rests on.
+  StageMaker maker = 4;
+}
+
+// StrikeResponse carries the write stored by Strike and the rows it removed.
+message StrikeResponse {
+  // The stored write.
+  StageRowWrite write = 1;
+
+  // The rows the striking removed.
+  repeated string removed = 2;
+}
+
+// ShownRequest asks for the rows of a contract version the owner was shown to be stored.
+message ShownRequest {
+  // The id of the contract the rows belong to.
+  string contract = 1;
+
+  // The number of the contract version the owner was shown.
+  int64 version = 2;
+
+  // The F, R or P rows the owner was shown.
+  repeated string rows = 3;
+}
+
+// ShownResponse carries the rows stored by Shown.
+message ShownResponse {
+  // The rows stored.
+  repeated string rows = 1;
+}
+
+// ContinueDesignRequest asks for the session that continues a design's stage.
+message ContinueDesignRequest {
+  // The design whose stage continues.
+  string design = 1;
+}
+
+// ContinueDesignResponse carries the design and the session that continues its stage.
+message ContinueDesignResponse {
+  // The design's id.
+  string design = 1;
+
+  // The sessions row id of the session that continues the stage.
+  string session = 2;
 }

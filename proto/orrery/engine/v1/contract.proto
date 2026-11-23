@@ -3,6 +3,7 @@ syntax = "proto3";
 package orrery.engine.v1;
 
 import "orrery/engine/v1/epic.proto";
+import "orrery/engine/v1/stage.proto";
 
 // Contracts keeps contracts in orreryd. A contract is a record of versions and state changes that only append; its id
 // is its body's id, the id the epic made from it takes. orreryd serves it on the same private socket as Epics.
@@ -31,6 +32,9 @@ service Contracts {
   // DraftContract stores a contract's draft under its id, or replaces the draft already stored under it, and returns
   // the draft. A draft is not a contract version and has no version number.
   rpc DraftContract(DraftContractRequest) returns (DraftContractResponse);
+
+  // ProposeWorking stores a design's working copy of a contract as a new contract, and returns it with its warnings.
+  rpc ProposeWorking(ProposeWorkingRequest) returns (ProposeWorkingResponse);
 }
 
 // ContractDecision is a decision a contract version carries, with its answer once the owner gives one.
@@ -82,6 +86,9 @@ message ContractVersion {
 
   // The section names that differ from the version before; empty for version 1.
   repeated string changed_sections = 8;
+
+  // The ids of the steps that read this version, oldest first.
+  repeated string read_by = 9;
 }
 
 // ContractStateChange is one change of a contract's state, recorded when the state moved.
@@ -103,6 +110,75 @@ message ContractStateChange {
 
   // When the change was made, in unix seconds.
   int64 time = 6;
+
+  // Who made the change and the evidence it rests on; empty when the change was made by none.
+  StageMaker maker = 7;
+}
+
+// ContractWorking is the working copy of a contract a design holds, before it is proposed.
+message ContractWorking {
+  // The number of the working copy's version.
+  int64 version = 1;
+
+  // The contract body of the working copy.
+  EpicContract contract = 2;
+
+  // The decisions of the working copy.
+  repeated ContractDecision decisions = 3;
+
+  // The sessions row id of the writer of the working copy's last write.
+  string writer = 4;
+
+  // When the working copy was last written, in unix seconds.
+  int64 updated = 5;
+
+  // The F, R, P and decision ids that differ from the version before.
+  repeated string changed_rows = 6;
+}
+
+// ContractRefusal is a refusal of a write to a contract a design's stage made, with the field it refused.
+message ContractRefusal {
+  // The refusal's seq, counted from 1 within its contract.
+  int64 seq = 1;
+
+  // The number of the contract version the refused write was made against.
+  int64 version = 2;
+
+  // The field the write was refused for.
+  string field = 3;
+
+  // Why the write was refused.
+  string text = 4;
+
+  // The sessions row id of the session whose write was refused.
+  string session = 5;
+
+  // When the write was refused, in unix seconds.
+  int64 time = 6;
+}
+
+// ContractLeft is a row a contract's stage left open, with what it was left for.
+message ContractLeft {
+  // The kind of the item left open.
+  string kind = 1;
+
+  // The id of the thing left open.
+  string ref = 2;
+
+  // The text of the item left open.
+  string text = 3;
+}
+
+// ContractShown is a row of a contract version the owner was shown.
+message ContractShown {
+  // The number of the contract version the owner was shown.
+  int64 version = 1;
+
+  // The F, R or P row the owner was shown.
+  string row = 2;
+
+  // When the row was shown, in unix seconds.
+  int64 time = 3;
 }
 
 // StoredContract is a contract as orreryd keeps it, with its current state and, when read in full, its history.
@@ -142,6 +218,21 @@ message StoredContract {
 
   // Every state change, oldest first; empty in a listing.
   repeated ContractStateChange states = 12;
+
+  // The contract's working copy, unset when the design holds none.
+  ContractWorking working = 13;
+
+  // Every refusal of a write to the contract, oldest first; empty in a listing.
+  repeated ContractRefusal refusals = 14;
+
+  // The stage's row writes to the contract, oldest first; empty in a listing.
+  repeated StageRowWrite rows = 15;
+
+  // The rows the contract's stage left open, empty in a listing.
+  repeated ContractLeft left = 16;
+
+  // The rows of the contract versions the owner was shown, oldest first; empty in a listing.
+  repeated ContractShown shown = 17;
 }
 
 // ProposeContractRequest asks for a new contract with its first version.
@@ -202,6 +293,9 @@ message AcceptContractRequest {
 
   // The words the owner accepts the contract with.
   string words = 2;
+
+  // Who accepts the contract and the evidence it rests on; empty when none is given.
+  StageMaker maker = 3;
 }
 
 // AcceptContractResponse carries the contract stored by AcceptContract.
@@ -311,4 +405,22 @@ message DraftContractRequest {
 message DraftContractResponse {
   // The stored draft.
   ContractDraft draft = 1;
+}
+
+// ProposeWorkingRequest asks for a design's working copy of a contract to be proposed as a new contract.
+message ProposeWorkingRequest {
+  // The id the new contract takes.
+  string id = 1;
+
+  // The words the writer gives with the proposal.
+  string words = 2;
+}
+
+// ProposeWorkingResponse carries the contract stored by ProposeWorking and its warnings.
+message ProposeWorkingResponse {
+  // The stored contract.
+  StoredContract contract = 1;
+
+  // The warnings the contract's checks gave the proposal; empty when none.
+  repeated string warnings = 2;
 }

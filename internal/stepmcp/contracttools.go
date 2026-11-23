@@ -36,10 +36,15 @@ type contractReviseArgs struct {
 	Words string `json:"words" jsonschema:"the words the writer gives with the version"`
 }
 
-// contractAcceptArgs is the arguments of contract_accept, described for its input schema.
+// contractAcceptArgs is the arguments of contract_accept, described for its input schema. Maker, Quote, Reason and
+// Delegation name who accepts the contract, and are forwarded as the request's maker only when Maker is given.
 type contractAcceptArgs struct {
-	ID    string `json:"id"              jsonschema:"the id of the stored contract to accept"`
-	Words string `json:"words,omitempty" jsonschema:"the words the owner accepts the contract with"`
+	ID         string `json:"id"                   jsonschema:"the id of the stored contract to accept"`
+	Words      string `json:"words,omitempty"      jsonschema:"the words the owner accepts the contract with"`
+	Maker      string `json:"maker,omitempty"      jsonschema:"owner_serve, owner_conversation or conversation"`
+	Quote      string `json:"quote,omitempty"      jsonschema:"the owner's words, for owner_conversation"`
+	Reason     string `json:"reason,omitempty"     jsonschema:"why the conversation decides, for conversation"`
+	Delegation string `json:"delegation,omitempty" jsonschema:"the owner's words it decides on, for conversation"`
 }
 
 // contractSetAsideArgs is the arguments of contract_set_aside, described for its input schema.
@@ -244,11 +249,17 @@ func contractReviseHandler(contracts enginev1connect.ContractsClient) ToolHandle
 
 func contractAcceptHandler(contracts enginev1connect.ContractsClient) ToolHandler {
 	return func(ctx context.Context, call Call) (ToolResult, error) {
-		var req v1.AcceptContractRequest
-		if err := decodeProto(call.Arguments, &req); err != nil {
+		var args contractAcceptArgs
+		if err := decodeArguments(call.Arguments, &args); err != nil {
 			return ToolResult{}, err
 		}
-		accepted, err := contracts.AcceptContract(ctx, connect.NewRequest(&req))
+		req := &v1.AcceptContractRequest{Id: args.ID, Words: args.Words}
+		if args.Maker != "" {
+			req.Maker = &v1.StageMaker{
+				Kind: args.Maker, Quote: args.Quote, Reason: args.Reason, Delegation: args.Delegation,
+			}
+		}
+		accepted, err := contracts.AcceptContract(ctx, connect.NewRequest(req))
 		if err != nil {
 			return toolFailure(err), nil
 		}

@@ -71,8 +71,8 @@ func NewServer(
 
 // newServer returns the MCP server "orrery" whose step tools call steps and time their retries on clock, whose epic
 // tools call epics, whose contract tools call contracts, whose evidence tools call evidence, whose cron tools call
-// crons, whose design tools call designs and whose stage tools call stage. A tool name that two tools share is an
-// error.
+// crons, whose design tools call designs, whose stage tools call stage, and whose record tools call stage and
+// contracts. A tool name that two tools share is an error.
 func newServer(
 	steps enginev1connect.StepsClient,
 	epics enginev1connect.EpicsClient,
@@ -111,7 +111,11 @@ func newServer(
 	if err != nil {
 		return nil, fmt.Errorf("new orrery server: %w", err)
 	}
-	tools := slices.Concat(stepList, epicList, contractList, evidenceList, cronList, designList, stageList)
+	recordList, err := recordTools(stage, contracts)
+	if err != nil {
+		return nil, fmt.Errorf("new orrery server: %w", err)
+	}
+	tools := slices.Concat(stepList, epicList, contractList, evidenceList, cronList, designList, stageList, recordList)
 	names := make(map[string]bool, len(tools))
 	for _, tool := range tools {
 		if names[tool.Name] {
