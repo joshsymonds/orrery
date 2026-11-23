@@ -37,7 +37,7 @@ import {
   type KeyContext,
 } from "./keymap";
 import { listHolds, listsEpic } from "./listholds";
-import { type Move, movesBetween, type Placed, spotsOf } from "./moves";
+import { type Move, moveNotice, movesBetween, type Placed, spotsOf } from "./moves";
 import { NoticeCentre } from "./noticecentre";
 import { useNoticeLog } from "./noticelog";
 import { NoticeStack } from "./notices";
@@ -177,6 +177,10 @@ interface PendingTarget {
   id: string;
 }
 
+// The toast's notice: the row an archive under 760px just archived, which Undo unarchives, or the moves a list answer
+// made, which Show and Undo act on.
+type ToastNotice = { kind: "archived"; row: Row } | { kind: "moved"; moves: Move[] };
+
 // The note a page's More menu left under a row's title row, which names the row it is for.
 interface HeadNote {
   key: string;
@@ -207,7 +211,7 @@ const archiveFailedText = "could not change archive";
 const noAnswerText = "the server did not answer";
 // The codes a call's failure reads as the server not answering.
 const noAnswerCodes = new Set([Code.Unavailable, Code.DeadlineExceeded, Code.Unknown]);
-// How long the archive toast stays, in milliseconds on the App's clock, when Undo is not pressed first.
+// How long the toast stays, in milliseconds on the App's clock, when neither of its actions is pressed first.
 const toastMs = 5000;
 // The most entries one page of an epic's history asks for.
 const historyPageSize = 200;
@@ -392,9 +396,9 @@ export function App({
   // list no longer says working.
   const [interrupts, setInterrupts] = useState<Map<string, number>>(() => new Map());
   const [archiveError, setArchiveError] = useState("");
-  // The row an archive under 760px just archived, which the toast names and Undo unarchives. Each archive makes its own
-  // object, so a later archive replaces the toast and restarts its lifetime.
-  const [toast, setToast] = useState<{ row: Row } | null>(null);
+  // The toast's notice: the row an archive under 760px just archived, or the moves a list answer made. Each notice makes its
+  // own object, so a later one replaces the toast and restarts its lifetime.
+  const [toast, setToast] = useState<ToastNotice | null>(null);
   // The per-device store the hidden header is kept in, read once, and whether the header is hidden now. The note a More
   // menu's archive left is under the title row of the row it names.
   const [keptHead] = useState<HeadStore>(() => headStore ?? memoryHeadStore());
@@ -960,7 +964,7 @@ export function App({
       } else {
         setRowMarks((previous) => new Map(previous).set(entry.key, archived));
         if (archived && !wide) {
-          setToast({ row: entry });
+          setToast({ kind: "archived", row: entry });
         }
       }
     };
@@ -971,7 +975,7 @@ export function App({
     }
   };
 
-  // The archive toast goes five seconds after it shows, on the App's clock, and a later archive restarts that count.
+  // The toast goes toastMs after it shows, on the App's clock, and a later notice restarts that count.
   // Unmount or its replacement clears the timer.
   const toastClock = seenClock ?? realClock;
   useEffect(() => {
@@ -983,7 +987,8 @@ export function App({
   }, [toast, toastClock]);
   // A list answer is read against the last: each conversation it draws at another spot has moved, and is marked for moveMs
   // on the App's clock. The open entry the answer holds in its place does not move, and neither does a row the owner moved
-  // from this page. The first answer moves nothing.
+  // from this page. The first answer moves nothing. The moves an answer makes are one move notice, which replaces the toast
+  // or notice before it.
   useEffect(() => {
     const spots = spotsOfAnswer(rows, epics, contracts, host?.host ?? "");
     const before = lastSpots.current;
@@ -995,6 +1000,7 @@ export function App({
     if (moves.length === 0) {
       return;
     }
+    setToast({ kind: "moved", moves });
     setMoving((previous) => {
       const next = new Map(previous);
       for (const move of moves) {
@@ -1034,15 +1040,19 @@ export function App({
       timers.clear();
     };
   }, []);
-  // Undo unarchives the row the toast names, through the same call an Unarchive from its menu makes, and takes the toast
-  // away.
+  // Undo unarchives each row the toast names, through the same call an Unarchive from its menu makes, which leaves a row
+  // with no archive kind alone, and takes the toast away.
   const undoToast = () => {
     if (toast === null) {
       return;
     }
     setToast(null);
-    setArchive(toast.row, false);
+    const named = toast.kind === "archived" ? [toast.row] : toast.moves.map((move) => move.row);
+    for (const row of named) {
+      setArchive(row, false);
+    }
   };
+  const undoAction = { label: "Undo", onAction: undoToast };
 
   // archiveFromHead archives the row a page's More menu names, through Epics.Archive with the row's archive kind and id. A
   // landed call marks the row archived, as the list's archive does. A failed one puts its reason under the title row of
@@ -1573,6 +1583,26 @@ export function App({
       openPageAlone();
     }
   };
+
+  // showMove is the move notice's Show: it opens the place of a moved row and rests the cursor on the row. Archived switches
+  // the view to Archived, and the row takes the cursor once that view's list holds it. The inbox's card or ended line opens
+  // through revealKey, as waitTo opens it. Under 760px the list draws alone, so an open page or epic page closes first.
+  const showMove = navigated((move: Move) => {
+    setToast(null);
+    setProjectKey(null);
+    if (!wide) {
+      setRowOpened(false);
+      setEpicPage(closedEpicPage);
+      setOpenedContract(null);
+    }
+    if (move.to.line === "archived") {
+      setView("archived");
+      setPending({ kind: move.row.kind, id: move.row.id });
+      return;
+    }
+    setView("inbox");
+    waitTo(move.row.key);
+  });
 
   // openPageAlone opens the cursor's page under 760px, where it draws alone: a row's page, or an epic page that a Back
   // closed while the cursor stayed on it.
@@ -2829,8 +2859,15 @@ export function App({
         )}
         {wide && shownProject === null && <WorkRail groups={railGroups} lit={lit} layout="rail" onOpen={openThing} />}
       </div>
-      {toast !== null && !wide && (
-        <Toast text={`Archived “${toast.row.label}”.`} action="Undo" onAction={undoToast} />
+      {toast !== null && (toast.kind === "moved" || !wide) && (
+        <Toast
+          text={toast.kind === "moved" ? moveNotice(toast.moves) : `Archived “${toast.row.label}”.`}
+          actions={
+            toast.kind === "moved"
+              ? [{ label: "Show", onAction: () => showMove(toast.moves[0]) }, undoAction]
+              : [undoAction]
+          }
+        />
       )}
       {pickerOpen && (
         <NewPanel

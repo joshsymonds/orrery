@@ -48,6 +48,28 @@ export function movesBetween(before: ReadonlyMap<string, Placed>, after: Readonl
   return moves;
 }
 
+// moveNotice is the words of the notice a list answer's moves leave, for at least one move. One moved row names the row
+// and the place it moved to. More name their count and every row's name, in the order they moved.
+export function moveNotice(moves: readonly Move[]): string {
+  const [first] = moves;
+  if (moves.length === 1) {
+    return `Moved “${first.row.label}” to ${placeOf(first.to)}.`;
+  }
+  const names = moves.map((move) => `“${move.row.label}”`).join(", ");
+  return `Moved ${moves.length} conversations: ${names}`;
+}
+
+// placeOf is the place a Spot names: its project's name for the tree, its project's ended line, or Archived.
+function placeOf(spot: Spot): string {
+  if (spot.line === "archived") {
+    return "Archived";
+  }
+  if (spot.line === "ended") {
+    return `${spot.name}’s ended line`;
+  }
+  return spot.name;
+}
+
 // sameSpot is whether two Spots are the same place: the same project, name and line.
 function sameSpot(left: Spot, right: Spot): boolean {
   return left.project === right.project && left.name === right.name && left.line === right.line;
