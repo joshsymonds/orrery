@@ -87,15 +87,16 @@ internal fun checkAddress(address: String): AddressCheck =
 
 /**
  * Settings, in three sections: Server, with the address and its Save, then Notifications, then About, with the font
- * licence and the version. Back in the title row calls [onBack]. Save asks the typed address for its host first, and
- * only once it answers stores the address, says so, calls [startPushSetup], then [onSaved]; otherwise it changes
- * nothing and says so under the field. The font licence opens on a view of its own with its title row, and that view's
- * Back, or the system's, returns here.
+ * licence and the version. Above Server, its first row, Accounts and routes, calls [onOpenAccounts]. Back in the title
+ * row calls [onBack]. Save asks the typed address for its host first, and only once it answers stores the address,
+ * says so, calls [startPushSetup], then [onSaved]; otherwise it changes nothing and says so under the field. The font
+ * licence opens on a view of its own with its title row, and that view's Back, or the system's, returns here.
  */
 @Composable
 fun SettingsScreen(
     settings: ServerSettings,
     onBack: () -> Unit,
+    onOpenAccounts: () -> Unit,
     onSaved: () -> Unit,
     startPushSetup: () -> Unit,
     modifier: Modifier = Modifier,
@@ -132,6 +133,13 @@ fun SettingsScreen(
                     .padding(horizontal = OrreryTokens.Space.sixteen, vertical = OrreryTokens.Space.eight),
                 verticalArrangement = Arrangement.spacedBy(OrreryTokens.Space.twelve),
             ) {
+                ListItem(
+                    title = "Accounts and routes",
+                    modifier = Modifier.testTag("open-accounts"),
+                    supporting = "Claude accounts, contexts and seats",
+                    onClick = onOpenAccounts,
+                    end = { Text("›", color = OrreryTokens.Ink.three) },
+                )
                 SectionHead("Server")
                 Field(
                     value = address,
