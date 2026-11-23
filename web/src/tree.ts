@@ -147,8 +147,9 @@ export function buildTree(input: TreeInput): Project[] {
     items.push({
       row: conversation ?? null,
       place: placeOf(epic.path, epic.repository, serving),
-      // An ended epic carrying a proposed contract stays in the tree: the contract's ask is live work.
-      ended: inbox && !epic.live && contract === null,
+      // An epic hung under a drawn conversation that carries a proposed contract stays in the tree: the contract's ask is
+      // live work. An epic with no drawn conversation is its own row, ended once it is not live.
+      ended: inbox && !epic.live && (conversation === undefined || contract === null),
       hung: { kind: "epic", key: `epic:${epic.id}`, block: blockOf(epic, input.details.get(epic.id)), listed: epic, contract },
     });
   }

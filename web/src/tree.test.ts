@@ -619,6 +619,18 @@ test("InboxTree keeps an ended epic that carries a proposed contract in the tree
   assert.equal(convoWaits(app.convos[0]), true);
 });
 
+test("InboxTree places an ended epic with no drawn conversation behind the ended line, even with a proposed contract", () => {
+  const projects = buildTree(
+    inputOf([], {
+      epics: [makeEpic({ steering: "sess-gone", live: false })],
+      contracts: [makeContract({ id: "repo-a/alpha", conversation: "sess-gone" })],
+    }),
+  );
+  const app = projectAt(projects, "|/srv/app");
+  assert.deepEqual(app.convos, []);
+  assert.deepEqual(layout(app.ended), { "epic:repo-a/alpha": ["epic:repo-a/alpha"] });
+});
+
 test("WaitsOnYou: a put-off waiting conversation ranks by its state, not as waiting", () => {
   const rows = [
     makeRow({ key: "put-off", label: "put off", state: "waiting", putOff: true, changed: 10, seen: 10 }),
