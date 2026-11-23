@@ -76,10 +76,9 @@ class InboxTreeRowsTest {
 
     private fun convo(
         pane: Pane? = paneOf(),
-        standIn: StandIn = StandIn.NONE,
         hung: List<Hung> = emptyList(),
         folded: List<EpicNode> = emptyList(),
-    ) = Convo(key = CONVO_KEY, pane = pane, standIn = standIn, hung = hung, folded = folded)
+    ) = Convo(key = CONVO_KEY, pane = pane, hung = hung, folded = folded)
 
     private fun epic(steps: List<StepRow> = emptyList(), live: Boolean = true, id: String = EPIC_ID) = EpicRow(
         id = id,
@@ -193,10 +192,11 @@ class InboxTreeRowsTest {
     }
 
     @Test
-    fun aStandInDrawsItsWordsInPlaceOfARow() {
-        setRow(convo(pane = null, standIn = StandIn.UNLISTED))
+    fun aRowWithNoPaneDrawsItsOneThingAloneWithNoConversationLine() {
+        setRow(convo(pane = null, hung = listOf(contractNode())))
 
-        assertTextShown("its conversation is not listed")
+        assertTagShown("hung:contract:$CONTRACT_ID")
+        assertTextShown("tide-alerts")
         assertTagAbsent("convo:$CONVO_KEY")
     }
 

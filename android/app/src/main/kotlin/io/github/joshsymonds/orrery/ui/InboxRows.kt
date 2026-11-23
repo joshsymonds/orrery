@@ -59,8 +59,8 @@ private const val QUESTION_LEAD = "? "
  * One conversation and what hangs under it, drawn as round 6 draws the inbox tree: its row, then each epic's and
  * contract's row in order, then its folded ended epics under a fold line. The fold line is shut unless [foldOpen], and
  * a tap on it calls [onFold]; the folded epics draw only while it is open. A tap on a row or a step calls [onOpen] with
- * its key; a long press on a conversation's row or an epic's row calls [onLongPress] with the row's [SheetRow]. A
- * stand-in draws its words in place of a row.
+ * its key; a long press on a conversation's row or an epic's row calls [onLongPress] with the row's [SheetRow]. A row with
+ * no pane is the own row of a thing with no drawn conversation: that one thing draws alone, with no conversation line.
  */
 @Composable
 internal fun ConvoRowItem(
@@ -74,16 +74,7 @@ internal fun ConvoRowItem(
 ) {
     val pane = convo.pane
     Column(modifier = modifier.fillMaxWidth()) {
-        if (pane == null) {
-            Text(
-                convoLineOf(convo, now),
-                modifier = Modifier.fillMaxWidth().testTag("standin:${convo.key}").padding(vertical = OrreryTokens.Space.eight),
-                style = OrreryTokens.Type.small,
-                color = OrreryTokens.Ink.three,
-            )
-        } else {
-            ConvoLine(convo, pane, now, onOpen, onLongPress)
-        }
+        if (pane != null) ConvoLine(convo, pane, now, onOpen, onLongPress)
         if (convo.hung.isNotEmpty()) {
             Column(modifier = Modifier.fillMaxWidth()) {
                 for (hung in convo.hung) {

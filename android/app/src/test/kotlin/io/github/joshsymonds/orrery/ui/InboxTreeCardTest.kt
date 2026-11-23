@@ -45,9 +45,9 @@ class InboxTreeCardTest {
         questionHash = "",
     )
 
-    private fun row(key: String) = Convo(key, pane(key), StandIn.NONE, hung = emptyList(), folded = emptyList())
+    private fun row(key: String) = Convo(key, pane(key), hung = emptyList(), folded = emptyList())
 
-    private val standIn = Convo("standin:unlisted:k", null, StandIn.UNLISTED, hung = emptyList(), folded = emptyList())
+    private val ownRow = Convo("contract:k", null, hung = emptyList(), folded = emptyList())
 
     private fun project(host: String = "") = Project(
         key = "$host|/home/user/lighthouse",
@@ -55,7 +55,7 @@ class InboxTreeCardTest {
         name = "lighthouse",
         path = "~/lighthouse",
         host = host,
-        convos = listOf(row("a"), row("b"), standIn),
+        convos = listOf(row("a"), row("b"), ownRow),
         ended = listOf(row("c")),
     )
 
@@ -158,7 +158,7 @@ class InboxTreeCardTest {
 
         composeRule.onNodeWithTag("convo:a").assertExists()
         composeRule.onNodeWithTag("convo:b").assertExists()
-        composeRule.onNodeWithTag("convo:standin:unlisted:k").assertExists()
+        composeRule.onNodeWithTag("convo:contract:k").assertExists()
         composeRule.onNodeWithText("1 ended").assertExists()
         composeRule.onNodeWithTag("convo:c").assertDoesNotExist()
     }

@@ -96,7 +96,7 @@ internal class TreeData(
  * under it with what steers them, each conversation's ended epics folded under its row, and the project's ended line.
  * The chips narrow the tree, search narrows what the chips left, and a folded card says what waits in it. The foot
  * opens the archived tree and returns from it. A tap on a conversation calls [onOpenPane] with its pane, a tap on an epic or one of its steps calls [onOpenEpic], a tap on a contract's row calls [onOpenContract]
- * with its id and the conversation it hangs under, whose pane is null for a stand-in row, and a tap on a project's
+ * with its id and the conversation it hangs under, whose pane is null for a contract on its own row, and a tap on a project's
  * name calls [onOpenProject] with its key. A long press on a conversation or an epic opens its sheet, where the owner
  * marks it seen or archives it, and a landed change reads the tree again; a landed archive also shows the [ArchiveToast]
  * at the foot, whose Undo reads the tree again. New opens the picker as a bottom sheet; a
@@ -298,7 +298,7 @@ private fun InboxBody(
     val epicOfStep = remember(data) {
         data.epics.flatMap { epic -> epic.runningSteps.map { step -> step.id to epic.id } }.toMap()
     }
-    // Each contract row's key, with the conversation it hangs under: null for a stand-in row, which no conversation holds.
+    // Each contract row's key, with the conversation it hangs under: null for a contract on its own row, which no conversation holds.
     val conversationOfContract = remember(projects) {
         projects.flatMap { it.convos + it.ended }.flatMap { convo ->
             convo.hung.filterIsInstance<ContractNode>().map { it.key to convo.pane }

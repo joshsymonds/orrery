@@ -224,7 +224,7 @@ private fun EndedLine(project: Project, endedOpen: Boolean, onEnded: () -> Unit)
     }
 }
 
-/** A project's conversations as the card counts them: each row once, and no stand-in, which is not a conversation. */
+/** A project's conversations as the card counts them: each row once, and no own row of a thing, which is not a conversation. */
 private fun conversationCount(project: Project): Int =
     (project.convos + project.ended).filter { it.pane != null }.distinctBy { it.key }.size
 

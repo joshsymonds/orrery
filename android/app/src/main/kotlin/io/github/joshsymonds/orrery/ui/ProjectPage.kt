@@ -130,7 +130,7 @@ private fun ColumnScope.ProjectBody(
     ) {
         ProjectHead(project, now)
         Column(verticalArrangement = Arrangement.spacedBy(OrreryTokens.Space.eight)) {
-            SectionHead("Conversations", count = project.convos.size.toString())
+            SectionHead("Conversations", count = conversationsOf(project).toString())
             for (convo in project.convos) {
                 ConvoBlock(convo, now, onOpen, state.foldOpen) { state.toggleFold(it) }
             }
@@ -173,7 +173,7 @@ private fun ProjectHead(project: Project, now: Long) {
         }
         FlowRow(horizontalArrangement = Arrangement.spacedBy(OrreryTokens.Space.sixteen)) {
             Text(
-                countWords(project.convos.size, "conversation", "conversations"),
+                countWords(conversationsOf(project), "conversation", "conversations"),
                 style = OrreryTokens.Type.small,
                 color = OrreryTokens.Ink.two,
             )
@@ -198,8 +198,8 @@ private fun ProjectHead(project: Project, now: Long) {
 
 /**
  * One conversation and the epics and contracts hung under it, each a WorkCard, then its folded ended epics under a fold
- * line, which opens to them as WorkCards while [foldOpen] holds its key. A stand-in row has its words instead. A tap on
- * the fold line calls [onFold] with the conversation's key.
+ * line, which opens to them as WorkCards while [foldOpen] holds its key. A row with no pane is an own row: its one thing
+ * draws as its WorkCard alone. A tap on the fold line calls [onFold] with the conversation's key.
  */
 @Composable
 private fun ConvoBlock(
@@ -211,28 +211,7 @@ private fun ConvoBlock(
 ) {
     val pane = convo.pane
     Column(modifier = Modifier.fillMaxWidth()) {
-        if (pane == null) {
-            Row(
-                modifier = Modifier.fillMaxWidth().testTag("project-convo:${convo.key}").padding(vertical = OrreryTokens.Space.eight),
-                horizontalArrangement = Arrangement.spacedBy(OrreryTokens.Space.eight),
-            ) {
-                Text(
-                    convoLineOf(convo, now),
-                    modifier = Modifier.weight(1f),
-                    style = OrreryTokens.Type.small,
-                    color = OrreryTokens.Ink.three,
-                )
-                val changed = convo.hung.maxOfOrNull { stampOf(it) } ?: 0L
-                if (changed != 0L) {
-                    Text(
-                        ageOf((now - changed).coerceAtLeast(0L)),
-                        modifier = Modifier.testTag("project-age:${convo.key}"),
-                        style = OrreryTokens.Type.small,
-                        color = OrreryTokens.Ink.three,
-                    )
-                }
-            }
-        } else {
+        if (pane != null) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -314,6 +293,9 @@ private fun EndedLine(project: Project, unfolded: Boolean, onClick: () -> Unit) 
 }
 
 private fun countWords(count: Int, one: String, many: String): String = "$count ${if (count == 1) one else many}"
+
+/** A project's conversations as the page counts them: the rows with a pane, not the own rows of things with none. */
+private fun conversationsOf(project: Project): Int = project.convos.count { it.pane != null }
 
 private fun waitsWords(count: Int): String = if (count == 1) "1 thing waits on you" else "$count things wait on you"
 
