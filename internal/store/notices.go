@@ -17,13 +17,14 @@ type ToldMark struct {
 	Escalation bool
 }
 
-// NoticeRow is one pending notice. Exactly one of Pane, Session and Epic names what it is about. Limit names the
-// usage limit a notice is about, and is empty for every other notice. Time is the unix second the notice was
-// recorded. Due is the unix millisecond its phase timer runs out, 0 for none. Phase and SourceKind are stored as
-// given; the store does not interpret them. A non-nil Told is not stored: PutNotice applies it, and the rows Notices
-// returns carry none.
+// NoticeRow is one pending notice. Exactly one of Pane, Session and Epic names what it is about. Host is the orrery
+// name of the pane's host, set with Pane and only with Pane. Limit names the usage limit a notice is about, and is
+// empty for every other notice. Time is the unix second the notice was recorded. Due is the unix millisecond its phase
+// timer runs out, 0 for none. Phase and SourceKind are stored as given; the store does not interpret them. A non-nil
+// Told is not stored: PutNotice applies it, and the rows Notices returns carry none.
 type NoticeRow struct {
 	ID          int64
+	Host        string
 	Pane        string
 	Session     string
 	State       string
@@ -48,7 +49,7 @@ func (s *Store) PutNotice(ctx context.Context, row NoticeRow) error {
 		if err := queries.UpsertPendingNotice(ctx, sqlcgen.UpsertPendingNoticeParams{
 			ID: row.ID, Pane: row.Pane, Session: row.Session, State: row.State, Time: row.Time, Phase: row.Phase,
 			Due: row.Due, DelayServed: row.DelayServed, WatchLogged: row.WatchLogged, SourceKind: row.SourceKind,
-			Source: row.Source, Silent: row.Silent, Epic: row.Epic, LimitKey: row.Limit,
+			Source: row.Source, Silent: row.Silent, Epic: row.Epic, LimitKey: row.Limit, Host: row.Host,
 		}); err != nil {
 			return fmt.Errorf("put notice %d: %w", row.ID, err)
 		}
@@ -117,9 +118,9 @@ func (s *Store) Notices(ctx context.Context) ([]NoticeRow, error) {
 	out := make([]NoticeRow, 0, len(rows))
 	for _, row := range rows {
 		out = append(out, NoticeRow{
-			ID: row.ID, Pane: row.Pane, Session: row.Session, State: row.State, Time: row.Time, Phase: row.Phase,
-			Due: row.Due, DelayServed: row.DelayServed, WatchLogged: row.WatchLogged, SourceKind: row.SourceKind,
-			Source: row.Source, Silent: row.Silent, Epic: row.Epic, Limit: row.LimitKey,
+			ID: row.ID, Host: row.Host, Pane: row.Pane, Session: row.Session, State: row.State, Time: row.Time,
+			Phase: row.Phase, Due: row.Due, DelayServed: row.DelayServed, WatchLogged: row.WatchLogged,
+			SourceKind: row.SourceKind, Source: row.Source, Silent: row.Silent, Epic: row.Epic, Limit: row.LimitKey,
 		})
 	}
 	return out, nil

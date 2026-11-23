@@ -96,16 +96,10 @@ CREATE TABLE pending_notices (
     watch_logged BOOLEAN NOT NULL,
     source_kind TEXT NOT NULL,
     source BLOB
-, silent BOOLEAN NOT NULL DEFAULT FALSE, epic TEXT NOT NULL DEFAULT '', limit_key TEXT NOT NULL DEFAULT '');
+, silent BOOLEAN NOT NULL DEFAULT FALSE, epic TEXT NOT NULL DEFAULT '', limit_key TEXT NOT NULL DEFAULT '', host TEXT NOT NULL DEFAULT '');
 CREATE TABLE pending_notice_ids (
     id INTEGER PRIMARY KEY CHECK (id = 1),
     high INTEGER NOT NULL
-);
-CREATE TABLE pushed_notices (
-    pane TEXT NOT NULL,
-    session TEXT NOT NULL,
-    time INTEGER NOT NULL,
-    PRIMARY KEY (pane, session)
 );
 CREATE TABLE epics (
     id TEXT PRIMARY KEY,
@@ -631,9 +625,8 @@ CREATE TABLE notice_history (
     block_ref TEXT NOT NULL DEFAULT '',
     time INTEGER NOT NULL,
     read BOOLEAN NOT NULL DEFAULT 0
-);
+, host TEXT NOT NULL DEFAULT '');
 CREATE INDEX notice_history_time ON notice_history (time);
-CREATE INDEX notice_history_key ON notice_history (pane, session, epic, limit_key, alert, id);
 CREATE TABLE planner_unresolvable (
     epic TEXT NOT NULL,
     turn INTEGER NOT NULL,
@@ -931,6 +924,14 @@ CREATE TABLE integrate_rounds (
     created INTEGER NOT NULL,
     PRIMARY KEY (epic, path, attempt, task, round)
 );
+CREATE TABLE pushed_notices (
+    pane TEXT NOT NULL,
+    session TEXT NOT NULL,
+    time INTEGER NOT NULL,
+    host TEXT NOT NULL DEFAULT '',
+    PRIMARY KEY (host, pane, session)
+);
+CREATE INDEX notice_history_key ON notice_history (host, pane, session, epic, limit_key, alert, id);
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (1,0,1);
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (10,9,1);
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (100,99,1);
@@ -938,6 +939,7 @@ INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (101,10
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (102,101,1);
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (103,102,1);
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (104,103,1);
+INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (105,104,1);
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (11,10,1);
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (12,11,1);
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (13,12,1);

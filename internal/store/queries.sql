@@ -485,12 +485,15 @@ DELETE FROM holds WHERE member = ?;
 SELECT * FROM holds ORDER BY member;
 
 -- name: UpsertPendingNotice :exec
-INSERT INTO pending_notices (id, pane, session, state, time, phase, due, delay_served, watch_logged, source_kind, source, silent, epic, limit_key)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+INSERT INTO pending_notices (id, pane, session, state, time, phase, due, delay_served, watch_logged, source_kind, source, silent, epic, limit_key, host)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT (id) DO UPDATE SET pane = excluded.pane, session = excluded.session, state = excluded.state,
     time = excluded.time, phase = excluded.phase, due = excluded.due, delay_served = excluded.delay_served,
     watch_logged = excluded.watch_logged, source_kind = excluded.source_kind, source = excluded.source,
-    silent = excluded.silent, epic = excluded.epic, limit_key = excluded.limit_key;
+    silent = excluded.silent, epic = excluded.epic, limit_key = excluded.limit_key, host = excluded.host;
+
+-- name: NameUnhostedPaneNotices :execrows
+UPDATE pending_notices SET host = sqlc.arg(host) WHERE pane <> '' AND host = '';
 
 -- name: RaiseNoticeIDFloor :exec
 UPDATE pending_notice_ids SET high = MAX(high, sqlc.arg(id)) WHERE id = 1;
@@ -505,14 +508,22 @@ SELECT * FROM pending_notices ORDER BY id;
 SELECT high FROM pending_notice_ids WHERE id = 1;
 
 -- name: UpsertPushedNotice :exec
-INSERT INTO pushed_notices (pane, session, time) VALUES (?, ?, ?)
-ON CONFLICT (pane, session) DO UPDATE SET time = excluded.time;
+INSERT INTO pushed_notices (host, pane, session, time) VALUES (?, ?, ?, ?)
+ON CONFLICT (host, pane, session) DO UPDATE SET time = excluded.time;
 
 -- name: DeletePushedNotice :exec
-DELETE FROM pushed_notices WHERE pane = ? AND session = ?;
+DELETE FROM pushed_notices WHERE host = ? AND pane = ? AND session = ?;
 
 -- name: ListPushedNotices :many
-SELECT * FROM pushed_notices ORDER BY pane, session;
+SELECT * FROM pushed_notices ORDER BY host, pane, session;
+
+-- name: DeleteUnhostedPaneDuplicatePushes :exec
+DELETE FROM pushed_notices WHERE host = '' AND pane <> ''
+    AND EXISTS (SELECT 1 FROM pushed_notices AS named WHERE named.host = sqlc.arg(host)
+        AND named.pane = pushed_notices.pane AND named.session = pushed_notices.session);
+
+-- name: NameUnhostedPanePushes :execrows
+UPDATE pushed_notices SET host = sqlc.arg(host) WHERE pane <> '' AND host = '';
 
 -- name: UpsertPushedEpicNotice :exec
 INSERT INTO pushed_epic_notices (epic, time) VALUES (?, ?)
@@ -548,21 +559,25 @@ SELECT * FROM pushed_alert_notices ORDER BY alert;
 UPDATE notice_history SET state = ?, title = ?, body = ?, block = ?, block_ref = ?, time = ?
 WHERE id = (
     SELECT newest.id FROM notice_history AS newest
-    WHERE newest.pane = ? AND newest.session = ? AND newest.epic = ? AND newest.limit_key = ? AND newest.alert = ?
+    WHERE newest.host = ? AND newest.pane = ? AND newest.session = ? AND newest.epic = ? AND newest.limit_key = ?
+        AND newest.alert = ?
     ORDER BY newest.id DESC LIMIT 1
 ) AND read = 0;
 
 -- name: InsertNoticeHistory :exec
-INSERT INTO notice_history (pane, session, epic, limit_key, alert, state, title, body, block, block_ref, time)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+INSERT INTO notice_history (host, pane, session, epic, limit_key, alert, state, title, body, block, block_ref, time)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 
 -- name: MarkNoticeHistoryRead :exec
 UPDATE notice_history SET read = 1
-WHERE pane = ? AND session = ? AND epic = ? AND limit_key = ? AND alert = ? AND time <= ?;
+WHERE host = ? AND pane = ? AND session = ? AND epic = ? AND limit_key = ? AND alert = ? AND time <= ?;
 
 -- name: CountUnreadNoticeHistory :one
 SELECT COUNT(*) FROM notice_history
-WHERE pane = ? AND session = ? AND epic = ? AND limit_key = ? AND alert = ? AND read = 0;
+WHERE host = ? AND pane = ? AND session = ? AND epic = ? AND limit_key = ? AND alert = ? AND read = 0;
+
+-- name: NameUnhostedPaneHistory :execrows
+UPDATE notice_history SET host = sqlc.arg(host) WHERE pane <> '' AND host = '';
 
 -- name: MarkAllNoticeHistoryRead :exec
 UPDATE notice_history SET read = 1;
@@ -571,8 +586,8 @@ UPDATE notice_history SET read = 1;
 SELECT * FROM notice_history WHERE time >= ? ORDER BY time DESC, id DESC;
 
 -- name: ListUnreadNoticeHistoryKeys :many
-SELECT DISTINCT pane, session, epic, limit_key, alert FROM notice_history
-WHERE read = 0 ORDER BY pane, session, epic, limit_key, alert;
+SELECT DISTINCT host, pane, session, epic, limit_key, alert FROM notice_history
+WHERE read = 0 ORDER BY host, pane, session, epic, limit_key, alert;
 
 -- name: InsertToldLimitStep :exec
 INSERT INTO told_limit_steps (limit_key, step) VALUES (?, ?)

@@ -121,7 +121,7 @@ func (r *relay) paneNotice(transition daemon.Transition, summarized <-chan struc
 	}
 	failure, failed := stopFailureText(transition)
 	incoming := route.Notice{
-		Key:      notice.Key{Pane: transition.PaneID},
+		Key:      notice.Key{Pane: transition.PaneID, Host: r.orrery},
 		State:    string(transition.To),
 		Silent:   silent,
 		Watching: r.watchingFrom(transition, view),

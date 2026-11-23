@@ -199,6 +199,7 @@ func noticeKeyOf(key *v1.NoticeKey) (notice.Key, error) {
 		Epic:    key.GetEpic(),
 		Limit:   key.GetLimit(),
 		Alert:   key.GetAlert(),
+		Host:    key.GetHost(),
 	}, nil
 }
 
@@ -231,7 +232,9 @@ func changeResponse(c inapp.Change) *v1.NoticesWatchResponse {
 
 // keyMessage returns the message for key.
 func keyMessage(key notice.Key) *v1.NoticeKey {
-	return &v1.NoticeKey{Pane: key.Pane, Session: key.Session, Epic: key.Epic, Limit: key.Limit, Alert: key.Alert}
+	return &v1.NoticeKey{
+		Pane: key.Pane, Session: key.Session, Epic: key.Epic, Limit: key.Limit, Alert: key.Alert, Host: key.Host,
+	}
 }
 
 // listedNotice returns the message for the notice history row row, with the block it opens on only when it names one.

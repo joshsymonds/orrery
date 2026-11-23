@@ -363,15 +363,19 @@ func controllerHost(opts options, getenv func(string) string) (string, string, e
 	return host, host, nil
 }
 
-// nameUnhosted names the rows of st that have no host as name, once the store is open. A nil st has no rows to name.
-// The write runs on a context that ctx's cancellation does not reach: it is one short write that must finish so every
-// row reads its host, so a shutdown signal that arrives during it lets it commit rather than failing startup.
+// nameUnhosted names the rows of st that have no host as name, once the store is open: the session rows, and the
+// notice, notice history and pushed rows of a pane. A nil st has no rows to name. The writes run on a context that
+// ctx's cancellation does not reach: they are short writes that must finish so every row reads its host, so a shutdown
+// signal that arrives during them lets them commit rather than failing startup.
 func nameUnhosted(ctx context.Context, st *store.Store, name string) error {
 	if st == nil {
 		return nil
 	}
 	if _, err := st.NameUnhostedSessions(context.WithoutCancel(ctx), name); err != nil {
 		return fmt.Errorf("name the controller's rows: %w", err)
+	}
+	if err := st.NameUnhostedPaneRows(context.WithoutCancel(ctx), name); err != nil {
+		return fmt.Errorf("name the controller's pane rows: %w", err)
 	}
 	return nil
 }
@@ -558,6 +562,7 @@ func serveRelay(opts options, home string, logger *slog.Logger, mirror *daemon.M
 	return &relay{
 		claude:      opts.claude,
 		models:      opts.models,
+		orrery:      opts.orrery,
 		home:        home,
 		logger:      logger,
 		judge:       newDoneJudge(opts.claude, opts.models),
@@ -612,6 +617,7 @@ func serve(ctx context.Context, opts options, logger *slog.Logger, getenv func(s
 	pages := inapp.NewHub()
 	// The viewing tracker holds the notices of the key the web view views, and is fed by each input report.
 	viewing := newViewTracker(time.Now)
+	viewing.orrery = opts.orrery
 
 	// The mirror waits for the store that the open below attaches to it.
 	mirror := daemon.NewPendingMirror(opts.orrery, time.Now, logger)
@@ -642,9 +648,11 @@ func serve(ctx context.Context, opts options, logger *slog.Logger, getenv func(s
 		Home:          home,
 		Sessions:      opts.sessions,
 		Observers: []daemon.Observer{observe, autoseen.New(time.Now, logger, func(pane string, seen int64) {
-			router.Seen(ctx, notice.Key{Pane: pane}, seen)
+			router.Seen(ctx, notice.Key{Pane: pane, Host: opts.orrery}, seen)
 		}, hub.viewer), callerWakeOnDone(&callerWake)},
-		Seen:      func(report daemon.SeenReport) { router.Seen(ctx, notice.Key{Pane: report.PaneID}, report.Seen) },
+		Seen: func(report daemon.SeenReport) {
+			router.Seen(ctx, notice.Key{Pane: report.PaneID, Host: opts.orrery}, report.Seen)
+		},
 		Input:     desk.Input,
 		Viewing:   func(report daemon.ViewReport) { viewing.note(report.Input, report.View) },
 		Read:      func(report daemon.ReadReport) { hub.reads.note(report.PaneID, report.Read) },
@@ -1044,6 +1052,8 @@ func startSessions(
 		if err != nil {
 			return nil, err
 		}
+		questions := newPaneQuestions(questionServer(opts), router)
+		questions.orrery = opts.orrery
 		host.newWriter(opts, st, logger)
 		host.newCron(opts, st, logger)
 		host.newWakes(st, opts, router, logger)
@@ -1060,7 +1070,7 @@ func startSessions(
 			Store:       st,
 			Logger:      logger,
 			Metrics:     opts.metrics,
-			CronWake:    host.cron.Wake, PutOffs: st, Panes: newPaneQuestions(questionServer(opts), router),
+			CronWake:    host.cron.Wake, PutOffs: st, Panes: questions,
 			EventWake: host.callerEvents.Wake,
 		})
 		host.startBroker(ctx, hostName, st, logger)
@@ -2182,6 +2192,7 @@ type relay struct {
 	views       *doneViews       // each done's viewing check, handed from observe to the autoseen observer
 	now         func() time.Time // the clock the viewing checks read; nil reads time.Now
 
+	orrery   string                       // the controller's orrery name, the host of each pane notice's key
 	closures *closurejudge.Judge          // decides whether a done pane's conversation is closed
 	paneKeys paneKeyReader                // reads a pane's id and change time for its closure check; nil reads tmux
 	verdicts atomic.Pointer[verdictStore] // stores the closure verdicts, once the store opens
@@ -2331,7 +2342,7 @@ func (r *relay) observe(ctx context.Context, transition daemon.Transition) {
 		r.notify(ctx, transition, summarized, view)
 		return
 	}
-	r.router.Changed(notice.Key{Pane: transition.PaneID})
+	r.router.Changed(notice.Key{Pane: transition.PaneID, Host: r.orrery})
 }
 
 // forget ends the pane's session on the summarizer for its tmux server. The summarizer drops the pane's waiting
