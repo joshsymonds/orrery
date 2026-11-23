@@ -132,7 +132,7 @@ func seedSessionStore(t *testing.T, path string) int64 {
 		t.Fatalf("Close store: %v", err)
 	}
 
-	db, err := sql.Open("sqlite", path)
+	db, err := sql.Open("sqlite3", path)
 	if err != nil {
 		t.Fatalf("open store for seq: %v", err)
 	}
@@ -155,7 +155,7 @@ func seedSessionStore(t *testing.T, path string) int64 {
 func lockSessionStore(t *testing.T, path string) {
 	t.Helper()
 	ctx := t.Context()
-	holder, err := sql.Open("sqlite", path)
+	holder, err := sql.Open("sqlite3", path)
 	if err != nil {
 		t.Fatalf("open lock holder: %v", err)
 	}

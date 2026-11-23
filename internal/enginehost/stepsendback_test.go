@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/joshsymonds/orrery/internal/hostexec"
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
@@ -19,7 +20,7 @@ func stepSendBackOwnedLine(t *testing.T) string {
 		"other/x.go": "stray\n",
 		"other/y.go": "stray\n",
 	})
-	checks := commitChecks(context.Background(), dir, start, commit, []string{"owned/a.go"})
+	checks := commitChecks(context.Background(), hostexec.NewLocal(), dir, start, commit, []string{"owned/a.go"})
 	owned := stepGitTestCheck(t, checks, stepGitOwnedName)
 	if owned.OK {
 		t.Fatalf("owned passed though other/x.go and other/y.go are not owned: %s", owned.Detail)

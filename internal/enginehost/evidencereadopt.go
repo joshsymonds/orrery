@@ -70,11 +70,16 @@ func (e *Evidence) readoptDrive(ctx context.Context, repo string, run store.Evid
 }
 
 // readoptUnlaunched runs the capture of a run with no grant from the start. Its gate never launched, so a worktree a restart
-// found at its path is what a start stopped before the grant left, and it is removed before the capture is added again.
+// found at its path is what a start stopped before the grant left, whole or part made, and clearUnlaunchedWorktree clears
+// it before the capture is added again.
 func (e *Evidence) readoptUnlaunched(ctx context.Context, repo string, run store.EvidenceRun) {
 	if run.Source == evidence.SourceCaptured {
 		worktree := filepath.Join(e.captures.worktrees, run.ID)
-		if err := removeStepWorktree(context.WithoutCancel(ctx), repo, worktree); err != nil {
+		host, err := hostOfEpic(ctx, e.store, e.hosts, run.Epic)
+		if err == nil {
+			err = clearUnlaunchedWorktree(context.WithoutCancel(ctx), host, repo, worktree)
+		}
+		if err != nil {
 			e.logger.WarnContext(ctx, "clear worktree of unlaunched evidence run", "run", run.ID, "err", err)
 			return
 		}
@@ -82,11 +87,15 @@ func (e *Evidence) readoptUnlaunched(ctx context.Context, repo string, run store
 	e.drive(ctx, repo, run)
 }
 
-// readoptCapture readopts the capture of run, whose grant is stored, and records it as drive does: an ended capture is
-// recorded even when ctx has ended, and a judge is readopted only while ctx has not. A gate that detaches again records
-// nothing, so the next restart readopts it.
+// readoptCapture readopts the capture of run, whose grant is stored, on the host its epic lives on, and records it as drive
+// does: an ended capture is recorded even when ctx has ended, and a judge is readopted only while ctx has not. A gate that
+// detaches again records nothing, so the next restart readopts it.
 func (e *Evidence) readoptCapture(ctx context.Context, repo string, run store.EvidenceRun) {
-	capture, err := e.captures.readopt(ctx, repo, run.Revision, run.ID, run.Spec, run.Grant)
+	host, err := hostOfEpic(ctx, e.store, e.hosts, run.Epic)
+	var capture store.EvidenceCapture
+	if err == nil {
+		capture, err = e.captures.on(host).readopt(ctx, repo, run.Revision, run.ID, run.Spec, run.Grant)
+	}
 	if err != nil {
 		e.logger.InfoContext(ctx, "evidence capture left for a restart", "run", run.ID, "err", err)
 		return

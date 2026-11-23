@@ -5,13 +5,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os/exec"
 	"slices"
 	"strings"
 	"time"
 
 	"github.com/joshsymonds/orrery/internal/build"
 	"github.com/joshsymonds/orrery/internal/compose"
+	"github.com/joshsymonds/orrery/internal/hostexec"
 	"github.com/joshsymonds/orrery/internal/kinds"
 	"github.com/joshsymonds/orrery/internal/store"
 )
@@ -29,6 +29,15 @@ const (
 	syncReadLimit  = 20 * time.Second
 	syncFetchLimit = time.Minute
 )
+
+// errGitLimit is the cause a git limit ends git's context with (gitLimit), which stoppedAt reads.
+var errGitLimit = errors.New("git ran past its limit")
+
+// gitLimit returns ctx bounded by limit, which ends limit from now with errGitLimit as its cause. It is the runner's
+// limitGit, which a test replaces to end the context when git has stalled, so no test waits out a limit.
+func gitLimit(ctx context.Context, limit time.Duration) (context.Context, context.CancelFunc) {
+	return context.WithTimeoutCause(ctx, limit, errGitLimit)
+}
 
 // readOrigin reads origin's main for epic's sync (lookAtOrigin) and records the read as the epic's last, with the
 // stored base it was read for and at, in one write. A read that failed, git that ran past the read limit among it, is
@@ -56,44 +65,48 @@ func (r *Runner) readOrigin(ctx context.Context, epic store.EpicRow, at time.Tim
 // remote origin is originNone. Otherwise origin is read with git ls-remote within the read limit (originHead), which
 // fetches nothing, and the commit is placed by the repository's own commits (originState).
 func (r *Runner) lookAtOrigin(ctx context.Context, epic store.EpicRow) (string, string, error) {
-	has, err := hasOrigin(ctx, epic.Repository)
+	host, err := r.hostOf(epic)
+	if err != nil {
+		return "", "", err
+	}
+	has, err := hasOrigin(ctx, host, epic.Repository)
 	if err != nil {
 		return "", "", err
 	}
 	if !has {
 		return "", originNone, nil
 	}
-	_, commit, err := r.originHead(ctx, epic)
+	_, commit, err := r.originHead(ctx, host, epic)
 	if err != nil {
 		return "", "", err
 	}
-	state, err := originState(ctx, epic, commit)
+	state, err := originState(ctx, host, epic, commit)
 	if err != nil {
 		return "", "", err
 	}
 	return commit, state, nil
 }
 
-// originState returns what origin's commit is to epic. A commit the repository does not have is originAhead, since the
-// stored base holds only commits the repository has, and the sync's fetch brings it. A commit the stored base holds is
-// originHeld. One that does not hold the epic's change base (changeBase) is originApart, since a sync of it would end
-// skipped, and any other is originAhead.
-func originState(ctx context.Context, epic store.EpicRow, commit string) (string, error) {
-	known, err := hasCommit(ctx, epic.Repository, commit)
+// originState returns what origin's commit is to epic on host. A commit the repository does not have is originAhead,
+// since the stored base holds only commits the repository has, and the sync's fetch brings it. A commit the stored base
+// holds is originHeld. One that does not hold the epic's change base (changeBase) is originApart, since a sync of it
+// would end skipped, and any other is originAhead.
+func originState(ctx context.Context, host hostexec.Host, epic store.EpicRow, commit string) (string, error) {
+	known, err := hasCommit(ctx, host, epic.Repository, commit)
 	if err != nil {
 		return "", err
 	}
 	if !known {
 		return originAhead, nil
 	}
-	held, err := isAncestor(ctx, epic.Repository, commit, epic.StoredBase)
+	held, err := isAncestor(ctx, host, epic.Repository, commit, epic.StoredBase)
 	if err != nil {
 		return "", err
 	}
 	if held {
 		return originHeld, nil
 	}
-	holds, err := isAncestor(ctx, epic.Repository, changeBase(epic), commit)
+	holds, err := isAncestor(ctx, host, epic.Repository, changeBase(epic), commit)
 	if err != nil {
 		return "", err
 	}
@@ -103,53 +116,53 @@ func originState(ctx context.Context, epic store.EpicRow, commit string) (string
 	return originAhead, nil
 }
 
-// hasCommit reports whether repo has commit. A commit it does not have is an answer, not a failure.
-func hasCommit(ctx context.Context, repo, commit string) (bool, error) {
-	_, err := gitOutput(ctx, repo, "rev-parse", "--verify", "--quiet", "--end-of-options", commit+"^{commit}")
+// hasCommit reports whether repo on host has commit. A commit it does not have is an answer, not a failure.
+func hasCommit(ctx context.Context, host hostexec.Host, repo, commit string) (bool, error) {
+	_, err := gitOutput(ctx, host, repo, "rev-parse", "--verify", "--quiet", "--end-of-options", commit+"^{commit}")
 	if err == nil {
 		return true, nil
 	}
-	var exit *exec.ExitError
-	if errors.As(err, &exit) && exit.ExitCode() == noCommit {
+	var gitErr *hostexec.GitError
+	if errors.As(err, &gitErr) && gitErr.ExitCode == noCommit {
 		return false, nil
 	}
 	return false, err
 }
 
-// originHead reads origin of epic's repository with git ls-remote (lsRemoteHead) for at most the runner's read limit,
-// and returns origin's default branch and the commit its HEAD names. git still running at the limit is stopped, and the
+// originHead reads origin of epic's repository on host with git ls-remote (lsRemoteHead) for at most syncReadLimit, and
+// returns origin's default branch and the commit its HEAD names. git still running at the limit is stopped, and the
 // error says so (stoppedAt).
-func (r *Runner) originHead(ctx context.Context, epic store.EpicRow) (string, string, error) {
-	reading, cancel := context.WithTimeout(ctx, r.readLimit)
+func (r *Runner) originHead(ctx context.Context, host hostexec.Host, epic store.EpicRow) (string, string, error) {
+	reading, cancel := r.limitGit(ctx, syncReadLimit)
 	defer cancel()
-	branch, commit, err := lsRemoteHead(reading, epic.Repository)
+	branch, commit, err := lsRemoteHead(reading, host, epic.Repository)
 	if err != nil {
-		return "", "", stoppedAt(reading, r.readLimit, err)
+		return "", "", stoppedAt(reading, syncReadLimit, err)
 	}
 	return branch, commit, nil
 }
 
 // fetchMain reads origin's default branch within the read limit (originHead) and fetches it into the sync's origin ref
-// for at most the runner's fetch limit (fetchBranch), as a release fetches it, and returns the branch and the commit
-// the ref names. git still running at a limit is stopped, and the error says so (stoppedAt).
-func (r *Runner) fetchMain(ctx context.Context, epic store.EpicRow) (string, string, error) {
-	branch, _, err := r.originHead(ctx, epic)
+// on host for at most syncFetchLimit (fetchBranch), as a release fetches it, and returns the branch and the commit the
+// ref names. git still running at a limit is stopped, and the error says so (stoppedAt).
+func (r *Runner) fetchMain(ctx context.Context, host hostexec.Host, epic store.EpicRow) (string, string, error) {
+	branch, _, err := r.originHead(ctx, host, epic)
 	if err != nil {
 		return "", "", err
 	}
-	fetching, cancel := context.WithTimeout(ctx, r.fetchLimit)
+	fetching, cancel := r.limitGit(ctx, syncFetchLimit)
 	defer cancel()
-	commit, err := fetchBranch(fetching, epic, branch, syncRef(epic, "origin"))
+	commit, err := fetchBranch(fetching, host, epic, branch, syncRef(epic, "origin"))
 	if err != nil {
-		return "", "", stoppedAt(fetching, r.fetchLimit, err)
+		return "", "", stoppedAt(fetching, syncFetchLimit, err)
 	}
 	return branch, commit, nil
 }
 
-// stoppedAt returns err, the error of git run under ctx, which ends after limit. When ctx ended at its limit, the error
-// says git did not finish within it.
+// stoppedAt returns err, the error of git run under ctx, a context limitGit made for limit. When ctx ended at its limit,
+// which its cause errGitLimit tells, the error says git did not finish within it.
 func stoppedAt(ctx context.Context, limit time.Duration, err error) error {
-	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+	if errors.Is(context.Cause(ctx), errGitLimit) {
 		return fmt.Errorf("git did not finish within %s: %w", limit, err)
 	}
 	return err
@@ -213,7 +226,11 @@ func preparedRead(epic store.EpicRow, result kinds.SyncResult, at time.Time) sto
 // with git merge-tree --write-tree: a merge that conflicts records its conflicted paths, and one that does not is
 // committed and pinned (commitSync). It returns what kept it from reading or merging origin's main.
 func (r *Runner) mergeMain(ctx context.Context, epic store.EpicRow, act Action, result *kinds.SyncResult) error {
-	has, err := hasOrigin(ctx, epic.Repository)
+	host, err := r.hostOf(epic)
+	if err != nil {
+		return err
+	}
+	has, err := hasOrigin(ctx, host, epic.Repository)
 	if err != nil {
 		return err
 	}
@@ -221,18 +238,18 @@ func (r *Runner) mergeMain(ctx context.Context, epic store.EpicRow, act Action, 
 		result.NoOrigin = true
 		return nil
 	}
-	branch, origin, err := r.fetchMain(ctx, epic)
+	branch, origin, err := r.fetchMain(ctx, host, epic)
 	if err != nil {
 		return err
 	}
 	result.Branch, result.Origin = branch, origin
-	contained, err := isAncestor(ctx, epic.Repository, origin, epic.StoredBase)
+	contained, err := isAncestor(ctx, host, epic.Repository, origin, epic.StoredBase)
 	if err != nil || contained {
 		result.Contained = contained
 		return err
 	}
 	from := changeBase(epic)
-	held, err := isAncestor(ctx, epic.Repository, from, origin)
+	held, err := isAncestor(ctx, host, epic.Repository, from, origin)
 	if err != nil {
 		return err
 	}
@@ -244,7 +261,7 @@ func (r *Runner) mergeMain(ctx context.Context, epic store.EpicRow, act Action, 
 		result.TriedBy = act.IDs[i]
 		return nil
 	}
-	out, conflicted, err := mergeTree(ctx, epic.Repository, epic.StoredBase, origin)
+	out, conflicted, err := mergeTree(ctx, host, epic.Repository, epic.StoredBase, origin)
 	if err != nil {
 		return err
 	}
@@ -256,13 +273,13 @@ func (r *Runner) mergeMain(ctx context.Context, epic store.EpicRow, act Action, 
 		result.Conflicts = paths
 		return nil
 	}
-	result.Merge, err = commitSync(ctx, epic, origin, tree)
+	result.Merge, err = commitSync(ctx, host, epic, origin, tree)
 	return err
 }
 
-// hasOrigin reports whether repo has the remote a sync reads origin's main from.
-func hasOrigin(ctx context.Context, repo string) (bool, error) {
-	remotes, err := gitOutput(ctx, repo, "remote")
+// hasOrigin reports whether repo on host has the remote a sync reads origin's main from.
+func hasOrigin(ctx context.Context, host hostexec.Host, repo string) (bool, error) {
+	remotes, err := gitOutput(ctx, host, repo, "remote")
 	if err != nil {
 		return false, err
 	}
@@ -271,16 +288,16 @@ func hasOrigin(ctx context.Context, repo string) (bool, error) {
 
 // commitSync commits tree, the tree merge-tree wrote for the merge of origin's commit into epic's stored base, as the
 // merge of the two in epic's repository, the stored base its first parent and origin's commit its second, without a
-// checkout. It pins the merge under the sync ref named for origin's commit, and returns it.
-func commitSync(ctx context.Context, epic store.EpicRow, origin, tree string) (string, error) {
+// checkout. It pins the merge under the sync ref named for origin's commit on host, and returns it.
+func commitSync(ctx context.Context, host hostexec.Host, epic store.EpicRow, origin, tree string) (string, error) {
 	message := fmt.Sprintf("Merge origin's commit %s into stored base %s", origin, epic.StoredBase)
-	commit, err := gitOutput(ctx, epic.Repository, "commit-tree", tree, "-p", epic.StoredBase, "-p", origin, "-m",
+	commit, err := gitOutput(ctx, host, epic.Repository, "commit-tree", tree, "-p", epic.StoredBase, "-p", origin, "-m",
 		message)
 	if err != nil {
 		return "", err
 	}
 	merged := strings.TrimSpace(commit)
-	if err = build.Pin(ctx, epic.Repository, syncRef(epic, origin), merged); err != nil {
+	if err = build.Pin(ctx, host, epic.Repository, syncRef(epic, origin), merged); err != nil {
 		return "", fmt.Errorf("pin sync merge: %w", err)
 	}
 	return merged, nil
@@ -373,7 +390,7 @@ func (r *Runner) syncEnd(ctx context.Context, epic store.EpicRow, act Action) (s
 	passed := store.SyncEnd{
 		Path: act.Path, Attempt: act.Run.Attempt, Outcome: outcomePassed, Output: act.Output, Synced: result.Origin,
 	}
-	tip, err := branchHead(ctx, epic)
+	tip, err := r.branchHead(ctx, epic)
 	if err != nil {
 		return store.SyncEnd{}, err
 	}
@@ -383,7 +400,11 @@ func (r *Runner) syncEnd(ctx context.Context, epic store.EpicRow, act Action) (s
 	if act.Reason != "" {
 		return notAdvanced(act, result, act.Reason, false), nil
 	}
-	block, err := advanceBlock(ctx, epic, tip, merge)
+	host, err := r.hostOf(epic)
+	if err != nil {
+		return store.SyncEnd{}, err
+	}
+	block, err := advanceBlock(ctx, host, epic, tip, merge)
 	if err != nil {
 		return store.SyncEnd{}, err
 	}
@@ -397,7 +418,7 @@ func (r *Runner) syncEnd(ctx context.Context, epic store.EpicRow, act Action) (s
 	if moved != "" {
 		return notAdvanced(act, result, moved, false), nil
 	}
-	if err = compose.Advance(ctx, epic.Repository, build.BranchRef(epic.ID), merge, epic.StoredBase); err != nil {
+	if err = compose.Advance(ctx, host, epic.Repository, build.BranchRef(epic.ID), merge, epic.StoredBase); err != nil {
 		return store.SyncEnd{}, fmt.Errorf("advance epic %s to %s: %w", epic.ID, merge, err)
 	}
 	return passed, nil

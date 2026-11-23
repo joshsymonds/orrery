@@ -2,7 +2,6 @@ package store
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"fmt"
 	"time"
@@ -36,12 +35,12 @@ func (r *Reader) StepFacts(ctx context.Context, ids []string) (map[string]StepFa
 	if len(ids) == 0 {
 		return map[string]StepFacts{}, nil
 	}
-	db, err := sql.Open("sqlite", readOnlyDSN(r.path))
+	db, closeDB, err := r.database()
 	if err != nil {
-		return nil, fmt.Errorf("open store reader: %w", err)
+		return nil, err
 	}
 	rows, err := sqlcgen.New(db).ListStepFacts(ctx, ids)
-	if closeErr := db.Close(); closeErr != nil {
+	if closeErr := closeDB(); closeErr != nil {
 		err = errors.Join(err, fmt.Errorf("close store reader: %w", closeErr))
 	}
 	if err != nil {

@@ -81,7 +81,7 @@ func (row StepRow) Listing() StepListing {
 // StepListings returns the listings of the step rows with a non-empty epic, narrowed as LabelledSteps narrows them and in
 // its order. Only a read not narrowed to an epic reads every labeled step.
 func (s *Store) StepListings(ctx context.Context, epic, task string) ([]StepListing, error) {
-	return readStepListings(ctx, sqlcgen.New(s.db), epic, task)
+	return readStepListings(ctx, sqlcgen.New(s.read), epic, task)
 }
 
 // CallerStepListings returns the listings of the steps whose caller is the sessions row caller, labeled or not,
@@ -89,7 +89,7 @@ func (s *Store) StepListings(ctx context.Context, epic, task string) ([]StepList
 // running and the 20 that ended most recently, by end time then id, so a list holds at most 20 ended steps however many
 // the caller started.
 func (s *Store) CallerStepListings(ctx context.Context, caller, epic string) ([]StepListing, error) {
-	rows, err := sqlcgen.New(s.db).ListCallerStepListings(
+	rows, err := sqlcgen.New(s.read).ListCallerStepListings(
 		ctx,
 		sqlcgen.ListCallerStepListingsParams{Caller: caller, Epic: epic},
 	)
@@ -106,7 +106,7 @@ func (s *Store) CallerStepListings(ctx context.Context, caller, epic string) ([]
 // ended step's row is read. Both are read in one read transaction, so the counts and the listings describe one state of
 // the store.
 func (s *Store) RunningStepListings(ctx context.Context, epic, task string) ([]StepListing, map[string]int, error) {
-	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	tx, err := s.read.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
 	if err != nil {
 		return nil, nil, fmt.Errorf("begin running steps read: %w", err)
 	}

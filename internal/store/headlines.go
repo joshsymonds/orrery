@@ -22,7 +22,7 @@ type HeadlineDueSession struct {
 // HeadlineDueSessions returns the engine sessions whose newest engine_turn_ended event is later than their headline_at,
 // in id order. A session that has never been headlined has headline_at 0, so each of its turn ends makes it due.
 func (s *Store) HeadlineDueSessions(ctx context.Context) ([]HeadlineDueSession, error) {
-	rows, err := sqlcgen.New(s.db).ListHeadlineDueSessions(ctx)
+	rows, err := sqlcgen.New(s.read).ListHeadlineDueSessions(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("list headline due sessions: %w", err)
 	}
@@ -39,7 +39,7 @@ func (s *Store) HeadlineDueSessions(ctx context.Context) ([]HeadlineDueSession, 
 // returns false, and no error, when it is not: a session whose newest turn end is not later than its headline_at, a
 // step or pane session, and an unknown id.
 func (s *Store) HeadlineDueSession(ctx context.Context, id string) (HeadlineDueSession, bool, error) {
-	row, err := sqlcgen.New(s.db).GetHeadlineDueSession(ctx, id)
+	row, err := sqlcgen.New(s.read).GetHeadlineDueSession(ctx, id)
 	if errors.Is(err, sql.ErrNoRows) {
 		return HeadlineDueSession{}, false, nil
 	}
@@ -61,7 +61,7 @@ type RecentTurn struct {
 // assistant text blocks, at most items of them, oldest first. A sub-agent's block, and a block of any other kind or
 // role, is not a turn.
 func (s *Store) RecentTurns(ctx context.Context, id string, items int) ([]RecentTurn, error) {
-	rows, err := sqlcgen.New(s.db).ListRecentTurns(ctx, sqlcgen.ListRecentTurnsParams{ID: id, Items: int64(items)})
+	rows, err := sqlcgen.New(s.read).ListRecentTurns(ctx, sqlcgen.ListRecentTurnsParams{ID: id, Items: int64(items)})
 	if err != nil {
 		return nil, fmt.Errorf("list recent turns of session %s: %w", id, err)
 	}

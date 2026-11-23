@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os/exec"
 	"path"
 	"path/filepath"
 	"regexp"
@@ -13,6 +12,7 @@ import (
 	"unicode"
 
 	v1 "github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1"
+	"github.com/joshsymonds/orrery/internal/hostexec"
 )
 
 // The reasons a lint refusal gives after its field. A refused element is split into argv elements, or handed to a
@@ -27,10 +27,8 @@ const (
 
 // The reasons a release step warning gives after its field. The version reason takes the version the step names.
 const (
-	epicReasonReleaseMerge   = "says merge: a release step fast-forwards main to the release candidate; write fast-forward"
 	epicReasonReleaseVersion = "names the fixed version %s: a release step's tag is chosen when the step runs; " +
 		"name the next version above the newest tag instead"
-	epicReasonReleaseCI = `a release does not wait for CI; write "do not wait for CI"`
 )
 
 // errShellQuote is what splitShellWords returns for a quote it cannot close.
@@ -59,11 +57,11 @@ func checkContractLint(contract *v1.EpicContract) error {
 }
 
 // contractLintWarnings returns the warnings the lint gives a contract that checkEpic passes, in order: one for each go
-// test in a capture whose -run pattern matches a test at the base, then one for each release step whose text says
-// merge, names a fixed version or waits on CI. Each names its field and reason. It runs after checkContractLint, so each
-// argv element it reads has passed it. A git failure reading a go test's package is returned, so no check passes on it.
-func contractLintWarnings(ctx context.Context, contract *v1.EpicContract) ([]string, error) {
-	base, err := stepGitResolve(ctx, contract.GetRepository(), contract.GetBase())
+// test in a capture whose -run pattern matches a test at the base, then one for each release step whose text names a
+// fixed version. Each names its field and reason. It runs after checkContractLint, so each argv element it reads has
+// passed it. Its git runs on host. A git failure reading a go test's package is returned, so no check passes on it.
+func contractLintWarnings(ctx context.Context, host hostexec.Host, contract *v1.EpicContract) ([]string, error) {
+	base, err := stepGitResolve(ctx, host, contract.GetRepository(), contract.GetBase())
 	if err != nil {
 		return nil, err
 	}
@@ -78,7 +76,7 @@ func contractLintWarnings(ctx context.Context, contract *v1.EpicContract) ([]str
 		}
 		for _, args := range goTestArgs(argv, lines) {
 			var warning string
-			warning, err = goTestWarning(ctx, contract.GetRepository(), base, list, args)
+			warning, err = goTestWarning(ctx, host, contract.GetRepository(), base, list, args)
 			if err != nil {
 				return nil, err
 			}
@@ -90,17 +88,13 @@ func contractLintWarnings(ctx context.Context, contract *v1.EpicContract) ([]str
 	return append(warnings, releaseStepWarnings(contract.GetReleaseSteps())...), nil
 }
 
-// The patterns of a release step's text. The merge and CI rules match whole words; the version rule matches a
-// lowercase v with three numbers, as the contract writes a version. The phrase is removed before the CI rule reads.
+// The pattern of a release step's text: a lowercase v with three numbers, as the contract writes a version.
 var (
-	releaseMergePattern   = regexp.MustCompile(`(?i)\bmerge\b`)
 	releaseVersionPattern = regexp.MustCompile(`\bv[0-9]+\.[0-9]+\.[0-9]+`)
-	releaseWaitPattern    = regexp.MustCompile(`(?i)do not wait for CI`)
-	releaseCIPattern      = regexp.MustCompile(`\bCI\b`)
 )
 
-// releaseStepWarnings returns a warning for each release step whose text says merge, names a fixed version or waits on
-// CI, in the order of the steps.
+// releaseStepWarnings returns a warning for each release step whose text names a fixed version, in the order of the
+// steps.
 func releaseStepWarnings(steps []*v1.EpicReleaseStep) []string {
 	var warnings []string
 	for i, step := range steps {
@@ -114,14 +108,8 @@ func releaseStepWarnings(steps []*v1.EpicReleaseStep) []string {
 // releaseStepReason returns the reason a release step's text is warned, or "" when it passes. The rules run in order,
 // and the first one that matches gives the reason.
 func releaseStepReason(text string) string {
-	if releaseMergePattern.MatchString(text) {
-		return epicReasonReleaseMerge
-	}
 	if version := releaseVersionPattern.FindString(text); version != "" {
 		return fmt.Sprintf(epicReasonReleaseVersion, version)
-	}
-	if releaseCIPattern.MatchString(releaseWaitPattern.ReplaceAllString(text, "")) {
-		return epicReasonReleaseCI
 	}
 	return ""
 }
@@ -369,13 +357,15 @@ type goTestFunc struct {
 }
 
 // goTestFuncsAtBase returns the top-level Test functions that the test files of scope declare at base, in the order
-// git grep lists them. TestMain is not a test. A git grep that finds no line is not an error; any other failure of
-// git grep is returned, so no check passes on it.
-func goTestFuncsAtBase(ctx context.Context, repo, base string, scope goTestScope) ([]goTestFunc, error) {
-	out, err := stepGit(ctx, repo, "grep", "-z", "-e", "^func Test", base, "--", scope.pathspec())
+// git grep lists them, read through host. TestMain is not a test. A git grep that finds no line is not an error; any
+// other failure of git grep is returned, so no check passes on it.
+func goTestFuncsAtBase(
+	ctx context.Context, host hostexec.Host, repo, base string, scope goTestScope,
+) ([]goTestFunc, error) {
+	out, err := stepGit(ctx, host, repo, "grep", "-z", "-e", "^func Test", base, "--", scope.pathspec())
 	if err != nil {
-		var exit *exec.ExitError
-		if errors.As(err, &exit) && exit.ExitCode() == 1 {
+		var exit *hostexec.GitError
+		if errors.As(err, &exit) && exit.ExitCode == 1 {
 			return nil, nil
 		}
 		return nil, err
@@ -399,8 +389,8 @@ func goTestFuncsAtBase(ctx context.Context, repo, base string, scope goTestScope
 
 // goTestWarning returns the warning of one go test whose arguments are args, when its -run pattern matches a Test
 // function at base in the packages it names, and "" when it does not. It gives no warning when its pattern or a package
-// is not literal, or when the top-level element of the pattern does not compile.
-func goTestWarning(ctx context.Context, repo, base, list string, args []string) (string, error) {
+// is not literal, or when the top-level element of the pattern does not compile. The base is read through host.
+func goTestWarning(ctx context.Context, host hostexec.Host, repo, base, list string, args []string) (string, error) {
 	call := parseGoTestArgs(args)
 	if !call.hasRun || shellExpansion.MatchString(call.pattern) {
 		return "", nil
@@ -414,7 +404,7 @@ func goTestWarning(ctx context.Context, repo, base, list string, args []string) 
 		return "", nil
 	}
 	for _, scope := range scopes {
-		funcs, err := goTestFuncsAtBase(ctx, repo, base, scope)
+		funcs, err := goTestFuncsAtBase(ctx, host, repo, base, scope)
 		if err != nil {
 			return "", err
 		}

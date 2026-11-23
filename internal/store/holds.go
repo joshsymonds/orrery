@@ -39,7 +39,7 @@ func (s *Store) EndHold(ctx context.Context, member string) error {
 
 // Holds returns every hold ordered by member.
 func (s *Store) Holds(ctx context.Context) ([]HoldRow, error) {
-	holds, err := sqlcgen.New(s.db).ListHolds(ctx)
+	holds, err := sqlcgen.New(s.read).ListHolds(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("list holds: %w", err)
 	}

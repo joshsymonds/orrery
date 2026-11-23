@@ -175,7 +175,7 @@ func imageOf(t *testing.T, w *integrateWorld, origin, candidate string) worldIma
 // hold every committed write.
 func checkpointed(t *testing.T, path string) []byte {
 	t.Helper()
-	db, err := sql.Open("sqlite", path)
+	db, err := sql.Open("sqlite3", path)
 	if err != nil {
 		t.Fatalf("open %s: %v", path, err)
 	}
@@ -285,7 +285,7 @@ func (image worldImage) restored(t *testing.T) (*integrateWorld, string) {
 // moveRepository points the test epic of the store file at path from the repository from to the repository to.
 func moveRepository(t *testing.T, path, from, to string) {
 	t.Helper()
-	db, err := sql.Open("sqlite", path)
+	db, err := sql.Open("sqlite3", path)
 	if err != nil {
 		t.Fatalf("open %s: %v", path, err)
 	}

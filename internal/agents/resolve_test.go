@@ -1,6 +1,7 @@
 package agents
 
 import (
+	"context"
 	"errors"
 	"maps"
 	"os"
@@ -87,7 +88,7 @@ func runResolveCases(t *testing.T, tests []resolveCase) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			root, where := setUp(t, tt.files, tt.place)
-			err := Resolve(tt.agent, where)
+			err := Resolve(context.Background(), tt.agent, where)
 			if !tt.refused {
 				if err != nil {
 					t.Errorf("Resolve(%q) = %v; want nil", tt.agent, err)
@@ -371,7 +372,7 @@ func TestResolveBadWhere(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if err := Resolve("reviewer", tt.where); err == nil {
+			if err := Resolve(context.Background(), "reviewer", tt.where); err == nil {
 				t.Errorf("Resolve(reviewer) = nil; want an error")
 			}
 		})
@@ -390,12 +391,12 @@ func TestResolveReadErrors(t *testing.T) {
 	home := place{dir: "home/proj", home: "home"}
 	t.Run("unparsable settings file names the file", func(t *testing.T) {
 		root, where := setUp(t, map[string]string{"home/.claude/settings.json": "{not json"}, home)
-		assertReadError(t, Resolve("x", where), filepath.Join(root, "home/.claude/settings.json"))
+		assertReadError(t, Resolve(context.Background(), "x", where), filepath.Join(root, "home/.claude/settings.json"))
 	})
 	t.Run("unreadable agent file names the file", func(t *testing.T) {
 		root, where := setUp(t, map[string]string{"home/.claude/agents/locked.md": agentMD("x")}, home)
 		locked := filepath.Join(root, "home/.claude/agents/locked.md")
 		lock(t, locked)
-		assertReadError(t, Resolve("x", where), locked)
+		assertReadError(t, Resolve(context.Background(), "x", where), locked)
 	})
 }

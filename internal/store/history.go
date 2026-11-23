@@ -92,12 +92,12 @@ func (r *Reader) EngineEventsBefore(ctx context.Context, id string, before int64
 // connection. It never creates the file and never writes the database. An error that read returns matches
 // ErrUnavailable when the file is missing or the database is busy.
 func (r *Reader) readEngine(ctx context.Context, read func(queries *sqlcgen.Queries) error) error {
-	db, err := sql.Open("sqlite", readOnlyDSN(r.path))
+	db, closeDB, err := r.database()
 	if err != nil {
-		return fmt.Errorf("open store reader: %w", err)
+		return err
 	}
 	err = readEngineTx(ctx, db, read)
-	if closeErr := db.Close(); closeErr != nil {
+	if closeErr := closeDB(); closeErr != nil {
 		err = errors.Join(err, fmt.Errorf("close store reader: %w", closeErr))
 	}
 	if err != nil && unavailable(err) {

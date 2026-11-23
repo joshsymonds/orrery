@@ -183,7 +183,7 @@ type EpicTaskInput struct {
 
 // PlanStates returns one entry per epic with at least one pending trigger, ordered by epic id.
 func (s *Store) PlanStates(ctx context.Context) ([]EpicPlanState, error) {
-	rows, err := sqlcgen.New(s.db).ListEpicPlanStates(ctx)
+	rows, err := sqlcgen.New(s.read).ListEpicPlanStates(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("list plan states: %w", err)
 	}
@@ -201,7 +201,7 @@ func (s *Store) PlanStates(ctx context.Context) ([]EpicPlanState, error) {
 
 // RunningTurns returns every running turn of every epic, ordered by epic then seq, each with its decisions.
 func (s *Store) RunningTurns(ctx context.Context) ([]EpicTurn, error) {
-	queries := sqlcgen.New(s.db)
+	queries := sqlcgen.New(s.read)
 	rows, err := queries.ListRunningEpicTurns(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("list running turns: %w", err)
@@ -219,7 +219,7 @@ func (s *Store) RunningTurns(ctx context.Context) ([]EpicTurn, error) {
 
 // TurnTriggers returns the triggers of epic whose turn is seq, ordered by id. A turn with none is nil.
 func (s *Store) TurnTriggers(ctx context.Context, epic string, turn int64) ([]EpicTrigger, error) {
-	rows, err := sqlcgen.New(s.db).ListEpicTurnTriggers(ctx, sqlcgen.ListEpicTurnTriggersParams{
+	rows, err := sqlcgen.New(s.read).ListEpicTurnTriggers(ctx, sqlcgen.ListEpicTurnTriggersParams{
 		Epic: epic, Turn: turn,
 	})
 	if err != nil {

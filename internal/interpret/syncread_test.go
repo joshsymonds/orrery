@@ -4,10 +4,12 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -16,19 +18,29 @@ import (
 )
 
 // countedUploadPack makes origin's side of each fetch and ls-remote the test repository runs a script that counts
-// itself and then runs git upload-pack, or, for each run whose number stalls lists, sleeps a minute instead, as an
-// origin that stops answering does. It returns how many times origin has been read.
+// itself and then runs git upload-pack, or, for each run whose number stalls lists, says it stalls on a FIFO and sleeps
+// a minute instead, as an origin that stops answering does. With stalls listed, the runner's git limits end when a
+// stall is said (stopAtStall), so git is stopped as its limit would stop it and no test waits out a limit. It returns
+// how many times origin has been read.
 func (w *integrateWorld) countedUploadPack(stalls ...int) func() int {
 	w.t.Helper()
 	dir := w.t.TempDir()
 	count := filepath.Join(dir, "count")
+	fifo := filepath.Join(dir, "stalled")
+	if err := syscall.Mkfifo(fifo, 0o600); err != nil {
+		w.t.Fatalf("make the stall FIFO: %v", err)
+	}
 	listed := make([]string, 0, len(stalls))
 	for _, n := range stalls {
 		listed = append(listed, fmt.Sprint(n))
 	}
 	body := fmt.Sprintf("#!/bin/sh\necho read >> '%s'\nn=$(wc -l < '%s' | tr -d ' ')\n", count, count) +
-		fmt.Sprintf("case ' %s ' in *\" $n \"*) exec sleep 60;; esac\n", strings.Join(listed, " ")) +
+		fmt.Sprintf("case ' %s ' in *\" $n \"*) echo stalled > '%s'; exec sleep 60;; esac\n",
+			strings.Join(listed, " "), fifo) +
 		"exec git upload-pack \"$@\"\n"
+	if len(stalls) > 0 {
+		w.runner.limitGit = stopAtStall(w.t, fifo)
+	}
 	script := filepath.Join(dir, "upload-pack")
 	exectest.WriteFile(w.t, script, []byte(body), 0o700)
 	w.git("config", "remote.origin.uploadpack", script)
@@ -42,6 +54,48 @@ func (w *integrateWorld) countedUploadPack(stalls ...int) func() int {
 			w.t.Fatalf("read the upload-pack count: %v", err)
 		}
 		return strings.Count(string(data), "\n")
+	}
+}
+
+// stopAtStall returns a limitGit whose context ends, with errGitLimit as its cause, once origin's upload-pack says on
+// fifo that it has stalled, where gitLimit's would end at the limit. A limit whose git returns first stops watching.
+func stopAtStall(t *testing.T, fifo string) func(context.Context, time.Duration) (context.Context, context.CancelFunc) {
+	t.Helper()
+	stalled := make(chan struct{})
+	done := make(chan struct{})
+	go func() {
+		for {
+			// Opening the FIFO waits for the stalled upload-pack to open it to write.
+			f, err := os.OpenFile(fifo, os.O_RDONLY, 0)
+			if err != nil {
+				return
+			}
+			_, _ = io.Copy(io.Discard, f)
+			_ = f.Close()
+			select {
+			case stalled <- struct{}{}:
+			case <-done:
+				return
+			}
+		}
+	}()
+	t.Cleanup(func() {
+		close(done)
+		// A reader still waiting to open the FIFO is let through by a writer's open; with none waiting the open fails.
+		if f, err := os.OpenFile(fifo, os.O_WRONLY|syscall.O_NONBLOCK, 0); err == nil {
+			_ = f.Close()
+		}
+	})
+	return func(ctx context.Context, _ time.Duration) (context.Context, context.CancelFunc) {
+		limited, cancel := context.WithCancelCause(ctx)
+		go func() {
+			select {
+			case <-stalled:
+				cancel(errGitLimit)
+			case <-limited.Done():
+			}
+		}()
+		return limited, func() { cancel(context.Canceled) }
 	}
 }
 
@@ -160,7 +214,6 @@ func syncReadThatStallsIsStoppedAtTheReadLimitAndBacksOff(images *worldImages) f
 		w, candidate := images.syncWorld(t, atCaptured)
 		w.originCommit("origin.txt")
 		reads := w.countedUploadPack(1, 2)
-		w.runner.readLimit = time.Second
 		logs := &bytes.Buffer{}
 		w.runner.logger = slog.New(slog.NewTextHandler(logs, nil))
 		started := time.Now()
@@ -175,7 +228,7 @@ func syncReadThatStallsIsStoppedAtTheReadLimitAndBacksOff(images *worldImages) f
 		}
 		w.requireRead(candidate, "", originFailed)
 		if !strings.Contains(logs.String(), "origin's main was not read") ||
-			!strings.Contains(logs.String(), "git did not finish within 1s: git ls-remote") {
+			!strings.Contains(logs.String(), "git did not finish within 20s: git ls-remote") {
 			t.Errorf("logs = %q, want the stopped read logged with the limit", logs.String())
 		}
 
@@ -207,7 +260,6 @@ func syncFetchThatStallsIsStoppedAtTheFetchLimitAndBacksOff(images *worldImages)
 		w, candidate := images.syncWorld(t, atCaptured)
 		originHead := w.originCommit("origin.txt")
 		reads := w.countedUploadPack(3)
-		w.runner.fetchLimit = time.Second
 		logs := &bytes.Buffer{}
 		w.runner.logger = slog.New(slog.NewTextHandler(logs, nil))
 		if !w.runner.passFlow(context.Background(), epicOf(t, w.s), integrateFlow()) {
@@ -215,7 +267,7 @@ func syncFetchThatStallsIsStoppedAtTheFetchLimitAndBacksOff(images *worldImages)
 		}
 		run := runAt(t, w.s, syncFirst)
 		if run.State != store.NodeEnded || run.Outcome != "skipped" ||
-			!strings.HasPrefix(run.Output, "the sync did not run: git did not finish within 1s: git fetch ") {
+			!strings.HasPrefix(run.Output, "the sync did not run: git did not finish within 1m0s: git fetch ") {
 			t.Errorf("sync = %+v, want ended skipped on the fetch stopped at the limit", run)
 		}
 		if !strings.Contains(logs.String(), "sync of origin's main did not run") {

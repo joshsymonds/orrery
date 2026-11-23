@@ -1,15 +1,14 @@
 package guard
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"maps"
-	"os"
-	"os/exec"
 	"path"
 	"slices"
 	"strings"
+
+	"github.com/joshsymonds/orrery/internal/hostexec"
 )
 
 // Spec names what a task's commit is judged against.
@@ -26,9 +25,12 @@ type Spec struct {
 }
 
 // Check returns the judgments of the changes from base to commit under spec, in diff order: the refusals and the facts
-// (see Refusals and FactLines). It reads the changes with git, so an unknown base or commit is an error.
-func Check(ctx context.Context, repo, base, commit string, spec Spec) ([]Refusal, error) {
-	captures, err := blobPaths(ctx, repo, base, repoPaths(spec.CaptureArgs))
+// (see Refusals and FactLines). It reads the changes with git run in repo through host, so an unknown base or commit is
+// an error.
+func Check(
+	ctx context.Context, host hostexec.Host, repo, base, commit string, spec Spec,
+) ([]Refusal, error) {
+	captures, err := blobPaths(ctx, host, repo, base, repoPaths(spec.CaptureArgs))
 	if err != nil {
 		return nil, fmt.Errorf("list captures at base: %w", err)
 	}
@@ -38,16 +40,18 @@ func Check(ctx context.Context, repo, base, commit string, spec Spec) ([]Refusal
 		Own:      spec.Own,
 		Owned:    spec.Owned,
 	}
-	out, err := runGit(ctx, repo, nil, "diff", "--name-only", "-z", "--no-renames", "--end-of-options", base, commit)
+	out, err := runGit(
+		ctx, host, repo, nil, "diff", "--name-only", "-z", "--no-renames", "--end-of-options", base, commit,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("list changed paths: %w", err)
 	}
 	watched := watchedPaths(set, splitNUL(out))
-	atBase, err := readSide(ctx, repo, base, watched)
+	atBase, err := readSide(ctx, host, repo, base, watched)
 	if err != nil {
 		return nil, fmt.Errorf("read changed paths at base: %w", err)
 	}
-	atHead, err := readSide(ctx, repo, commit, watched)
+	atHead, err := readSide(ctx, host, repo, commit, watched)
 	if err != nil {
 		return nil, fmt.Errorf("read changed paths at commit: %w", err)
 	}
@@ -86,14 +90,14 @@ func repoPaths(elements []string) []string {
 // blobPaths returns the paths among paths that are blobs at rev. The paths are matched literally. ls-tree recurses into
 // a directory that leads any pathspec, so it can list entries under a path that was not asked for; only an entry named
 // exactly as asked is returned.
-func blobPaths(ctx context.Context, repo, rev string, paths []string) (map[string]bool, error) {
+func blobPaths(ctx context.Context, host hostexec.Host, repo, rev string, paths []string) (map[string]bool, error) {
 	blobs := make(map[string]bool, len(paths))
 	if len(paths) == 0 {
 		return blobs, nil
 	}
 	asked := members(paths)
 	args := append([]string{"ls-tree", "-z", "--full-tree", rev, "--"}, paths...)
-	out, err := runGit(ctx, repo, []string{"GIT_LITERAL_PATHSPECS=1"}, args...)
+	out, err := runGit(ctx, host, repo, []string{"GIT_LITERAL_PATHSPECS=1"}, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -109,15 +113,15 @@ func blobPaths(ctx context.Context, repo, rev string, paths []string) (map[strin
 
 // readSide returns the content at rev of each of paths that is a blob there, keyed by path. A path absent at rev is
 // not in the map.
-func readSide(ctx context.Context, repo, rev string, paths []string) (map[string][]byte, error) {
-	blobs, err := blobPaths(ctx, repo, rev, paths)
+func readSide(ctx context.Context, host hostexec.Host, repo, rev string, paths []string) (map[string][]byte, error) {
+	blobs, err := blobPaths(ctx, host, repo, rev, paths)
 	if err != nil {
 		return nil, err
 	}
 	content := make(map[string][]byte, len(blobs))
 	for name := range blobs {
 		var src []byte
-		if src, err = runGit(ctx, repo, nil, "cat-file", "blob", rev+":"+name); err != nil {
+		if src, err = runGit(ctx, host, repo, nil, "cat-file", "blob", rev+":"+name); err != nil {
 			return nil, err
 		}
 		content[name] = src
@@ -144,18 +148,15 @@ func splitNUL(out []byte) []string {
 	return strings.FieldsFunc(string(out), func(r rune) bool { return r == 0 })
 }
 
-// runGit runs git in repo with args and no shell. env is added to its environment. It returns git's stdout, and on
-// failure an error that carries git's stderr.
-func runGit(ctx context.Context, repo string, env []string, args ...string) ([]byte, error) {
-	cmd := exec.CommandContext(ctx, "git")
-	cmd.Args = append(cmd.Args, "-C", repo)
-	cmd.Args = append(cmd.Args, args...)
-	cmd.Env = append(os.Environ(), env...)
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
-		return nil, fmt.Errorf("git %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(stderr.String()))
+// runGit runs git in repo through host with args and no shell. env is added to its environment. It returns git's
+// stdout, and on failure an error that carries git's stderr. A git that exits non-zero fails with a
+// *hostexec.GitError.
+func runGit(
+	ctx context.Context, host hostexec.Host, repo string, env []string, args ...string,
+) ([]byte, error) {
+	out, err := host.Git(ctx, hostexec.GitCall{Dir: repo, Args: args, Env: env})
+	if err != nil {
+		return out, fmt.Errorf("run git in %s: %w", repo, err)
 	}
-	return stdout.Bytes(), nil
+	return out, nil
 }

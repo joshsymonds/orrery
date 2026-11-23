@@ -86,7 +86,7 @@ The store is one SQLite file, `orrery.db`, opened in WAL mode with a 5-second bu
 
 - The pane mirror. [`daemon.Mirror`](../internal/daemon/mirror.go) syncs each applied pane after its tmux writes, in one transaction, and mints the pane's `@orrery_id` when it has none. A tidy pass every ten seconds lists each tmux server it can read, syncs every pane it finds, and deletes the rows of panes that are gone. The tidy also prunes events older than 14 days, always keeping the newest.
 - The engine writer. [`enginehost.Writer`](../internal/enginehost/writer.go) is the one goroutine that stores headless session ops. It stores every queued op each tick, in one call, so sessions never hold the store's locks.
-- Readers. `orrery serve` opens the file read-only on each call through [`store.Reader`](../internal/store/reader.go) and holds no connection between calls. The CLI reads it read-only to find known directories for `orrery open`.
+- Readers. `orrery serve` reads the file read-only through one pool of connections, [`store.NewPooledReader`](../internal/store/reader.go), which it closes when it stops. Serve's reader holds connections to the store, so serve is stopped before the store file is replaced (a restore), orreryd closes last, and both are started after the store file is replaced. The CLI reads it read-only through [`store.NewReader`](../internal/store/reader.go), which opens a connection on each call and holds none between calls, to find known directories for `orrery open`.
 
 ## tmux panes
 

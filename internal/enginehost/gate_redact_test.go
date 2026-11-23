@@ -228,6 +228,7 @@ func TestGateRedactPEMBlockCutAtTailStartIsRedactedUpToItsEnd(t *testing.T) {
 	body := strings.Repeat("EXAMPLEKEYBODYLINE0123456789abcdefghij\n", 300)
 	pem := "-----BEGIN RSA PRIVATE KEY-----\n" + body + "-----END RSA PRIVATE KEY-----\nplain after\n"
 	result, err := runGrantedGate(t.Context(), &fakeGatePools{}, gateGrantRequest(), gateRun{
+		Host:    gateTestHost(),
 		Argv:    []string{"/bin/sh", "-c", gateRedactHeredoc(pem, false)},
 		Dir:     t.TempDir(),
 		Limit:   time.Minute,

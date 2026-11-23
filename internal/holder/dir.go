@@ -8,8 +8,6 @@ import (
 	"path/filepath"
 	"regexp"
 	"syscall"
-
-	"github.com/joshsymonds/orrery/internal/store"
 )
 
 const (
@@ -39,14 +37,17 @@ var (
 
 var sessionPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`)
 
-// HoldersDir returns the holders directory: holders inside the directory that holds the store file. It returns
-// the store path's error when neither XDG_STATE_HOME nor HOME is set.
+// HoldersDir returns the holders directory: holders inside the directory that holds the store file. It repeats the
+// directory rule of store.Path, since holder cannot import store: store imports reviewers, which reaches holder through
+// hostexec, so the import would be a cycle. It returns an error when neither XDG_STATE_HOME nor HOME is set.
 func HoldersDir(getenv func(string) string) (string, error) {
-	path, err := store.Path(getenv)
-	if err != nil {
-		return "", fmt.Errorf("holders dir: %w", err)
+	if stateHome := getenv("XDG_STATE_HOME"); stateHome != "" {
+		return filepath.Join(stateHome, "orrery", holdersName), nil
 	}
-	return filepath.Join(filepath.Dir(path), holdersName), nil
+	if home := getenv("HOME"); home != "" {
+		return filepath.Join(home, ".local", "state", "orrery", holdersName), nil
+	}
+	return "", fmt.Errorf("holders dir: no store path: set XDG_STATE_HOME or HOME")
 }
 
 // SessionDir returns the directory of one session's holder files under holders. It returns ErrBadSession when

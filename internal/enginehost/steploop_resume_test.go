@@ -38,6 +38,7 @@ func resumeGateRun(t *testing.T, stateDir, name, counter, release string) gateRu
 	t.Helper()
 	t.Cleanup(func() { _ = os.WriteFile(release, nil, 0o600) })
 	return gateRun{
+		Host: gateTestHost(),
 		Argv: []string{"/bin/sh", "-c",
 			`n=$(cat "$COUNTER" 2>/dev/null || echo 0); echo $((n + 1)) > "$COUNTER"; ` +
 				`while [ ! -e "$RELEASE" ]; do sleep 0.05; done; echo green; exit 0`},
@@ -213,7 +214,9 @@ func TestStepLoopResumeLostGateEndsEngineRestarted(t *testing.T) {
 	gate := stepDoneScript(t, fmt.Sprintf("touch %q", marker))
 	stateDir := gateShortStateDir(t)
 	pools := &fakeGatePools{}
-	plan, err := planGate(gateRun{Argv: []string{gate}, Dir: dir, Name: stepLoopID + "-gate", StateDir: stateDir})
+	plan, err := planGate(gateRun{
+		Argv: []string{gate}, Host: gateTestHost(), Dir: dir, Name: stepLoopID + "-gate", StateDir: stateDir,
+	})
 	if err != nil {
 		t.Fatalf("planGate: %v", err)
 	}

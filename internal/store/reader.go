@@ -6,9 +6,9 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"strconv"
 
-	"modernc.org/sqlite"
-	sqlite3 "modernc.org/sqlite/lib"
+	sqlite3 "github.com/mattn/go-sqlite3"
 
 	"github.com/joshsymonds/orrery/internal/store/sqlcgen"
 )
@@ -20,9 +20,6 @@ var ErrUnavailable = errors.New("store unavailable")
 // one Litestream's checkpoints take, so a reader is busy only while a connection holds the file exclusively. A reader
 // serves the orrery CLI, which reports the store unavailable at once rather than waiting out a writer's BusyTimeout.
 const readBusyTimeoutMillis = 200
-
-// primaryCodeMask strips the extended bits from a SQLite result code, leaving the primary code.
-const primaryCodeMask = 0xff
 
 // Session is one sessions row.
 type Session struct {
@@ -39,11 +36,19 @@ type Snapshot struct {
 	Seq      int64
 }
 
-// Reader reads orreryd's store without writing it. Each Snapshot opens the file at the reader's path, reads it,
-// and closes it, so the reader holds no connection between calls and never keeps the writer from being the
-// store's last connection.
+// Reader reads orreryd's store without writing it. A reader from NewReader opens the file at its path on each call,
+// reads it and closes it, so it holds no connection between calls and never keeps the writer from being the store's
+// last connection. A reader from NewPooledReader keeps one read-only pool open until Close, so its reads reuse the
+// connections an earlier read left open. Serve's reader holds connections to the store, so serve is stopped before the
+// store file is replaced (a restore), orreryd closes last, and both are started after the store file is replaced.
 type Reader struct {
 	path string
+	// pool is the read-only pool of a reader from NewPooledReader, and nil for a reader from NewReader. connector is the
+	// pool's connector, which Close waits on.
+	pool      *sql.DB
+	connector *trackedConnector
+	// poolErr is why NewPooledReader could not make its pool. Each read returns it.
+	poolErr error
 	// at, when set, runs at each point of a Snapshot or Events read (see readPoint). It is a test seam: production
 	// leaves it nil.
 	at func(readPoint)
@@ -66,6 +71,50 @@ func NewReader(path string) *Reader {
 	return &Reader{path: path}
 }
 
+// NewPooledReader returns a Reader for the store file at path whose reads share one read-only pool of at most readConns
+// connections. The pool opens its first connection for the first read, and a later read reuses a connection the pool
+// holds. The reader holds those connections until Close.
+func NewPooledReader(path string) *Reader {
+	inner := newConnector(readOnlyDSN(path))
+	connector := &trackedConnector{inner: inner, readPool: true}
+	pool := sql.OpenDB(connector)
+	pool.SetMaxOpenConns(readConns)
+	pool.SetMaxIdleConns(readConns)
+	return &Reader{path: path, pool: pool, connector: connector}
+}
+
+// Close closes a pooled reader's pool. It refuses new connections, closes the pool and returns once the connections
+// the pool made are closed. A reader from NewReader holds no connection, so Close returns nil for it.
+func (r *Reader) Close() error {
+	if r.pool == nil {
+		return nil
+	}
+	r.connector.beginClose()
+	err := r.pool.Close()
+	r.connector.wait()
+	if err != nil {
+		return fmt.Errorf("close store reader: %w", err)
+	}
+	return nil
+}
+
+// database returns the database a read runs on, and closeDB, which the read calls once it has run. A pooled reader's
+// database is its pool, and its closeDB leaves the pool open for the next read. Any other reader opens a connection for
+// the read, and its closeDB closes that connection.
+func (r *Reader) database() (*sql.DB, func() error, error) {
+	if r.poolErr != nil {
+		return nil, nil, r.poolErr
+	}
+	if r.pool != nil {
+		return r.pool, func() error { return nil }, nil
+	}
+	db, err := sql.Open("sqlite3", readOnlyDSN(r.path))
+	if err != nil {
+		return nil, nil, fmt.Errorf("open store reader: %w", err)
+	}
+	return db, db.Close, nil
+}
+
 // reach runs r.at at point when it is set.
 func (r *Reader) reach(point readPoint) {
 	if r.at != nil {
@@ -77,13 +126,13 @@ func (r *Reader) reach(point readPoint) {
 // matches ErrUnavailable when the file is missing or the database is busy. It never creates the file or its
 // directory, and it never writes the database.
 func (r *Reader) Snapshot(ctx context.Context) (Snapshot, error) {
-	db, err := sql.Open("sqlite", readOnlyDSN(r.path))
+	db, closeDB, err := r.database()
 	if err != nil {
-		return Snapshot{}, fmt.Errorf("open store reader: %w", err)
+		return Snapshot{}, err
 	}
 	r.reach(readOpened)
 	snap, err := readSnapshot(ctx, db, r.reach)
-	if closeErr := db.Close(); closeErr != nil {
+	if closeErr := closeDB(); closeErr != nil {
 		err = errors.Join(err, fmt.Errorf("close store reader: %w", closeErr))
 	}
 	if err != nil {
@@ -97,9 +146,14 @@ func (r *Reader) Snapshot(ctx context.Context) (Snapshot, error) {
 
 // readOnlyDSN opens the store file read-only, so the reader can never write it or create it.
 func readOnlyDSN(path string) string {
+	return readOnlyDSNBusy(path, readBusyTimeoutMillis)
+}
+
+// readOnlyDSNBusy is readOnlyDSN with busyTimeoutMillis as the busy timeout, in milliseconds, in place of the reader's.
+func readOnlyDSNBusy(path string, busyTimeoutMillis int64) string {
 	query := url.Values{}
 	query.Set("mode", "ro")
-	query.Add("_pragma", fmt.Sprintf("busy_timeout(%d)", readBusyTimeoutMillis))
+	query.Set("_busy_timeout", strconv.FormatInt(busyTimeoutMillis, 10))
 	return (&url.URL{Scheme: "file", Path: path, RawQuery: query.Encode()}).String()
 }
 
@@ -141,26 +195,20 @@ func readInTx(ctx context.Context, tx *sql.Tx, reach func(readPoint)) (Snapshot,
 // Busy reports whether err is a SQLite busy or locked result: a store call that waited out its busy timeout for a lock
 // another connection held. Nothing about the call was wrong, so the same call can succeed once the lock is free.
 func Busy(err error) bool {
-	var sqliteErr *sqlite.Error
+	var sqliteErr sqlite3.Error
 	if !errors.As(err, &sqliteErr) {
 		return false
 	}
-	switch sqliteErr.Code() & primaryCodeMask {
-	case sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED:
-		return true
-	default:
-		return false
-	}
+	return sqliteErr.Code == sqlite3.ErrBusy || sqliteErr.Code == sqlite3.ErrLocked
 }
 
 // unavailable reports whether err is a SQLite busy, locked or cannot-open result, which is how a busy database
 // or a missing file appears, or an fstat failure, which is how a file removed while it is open appears. Only the
 // fstat extended code counts: other I/O errors share the primary IOERR code and stay internal.
 func unavailable(err error) bool {
-	var sqliteErr *sqlite.Error
+	var sqliteErr sqlite3.Error
 	if !errors.As(err, &sqliteErr) {
 		return false
 	}
-	return Busy(err) || sqliteErr.Code() == sqlite3.SQLITE_IOERR_FSTAT ||
-		sqliteErr.Code()&primaryCodeMask == sqlite3.SQLITE_CANTOPEN
+	return Busy(err) || sqliteErr.ExtendedCode == sqlite3.ErrIoErrFstat || sqliteErr.Code == sqlite3.ErrCantOpen
 }

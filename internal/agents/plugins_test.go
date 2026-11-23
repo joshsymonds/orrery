@@ -1,10 +1,13 @@
 package agents
 
 import (
+	"context"
 	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/joshsymonds/orrery/internal/hostexec"
 )
 
 // pluginRoot writes files under a new temp root, replacing ROOT in each file's content with the root's path, and
@@ -188,7 +191,7 @@ func TestPluginAgents(t *testing.T) {
 			for i, s := range tt.settings {
 				settings[i] = filepath.Join(root, s)
 			}
-			got, err := pluginAgents(filepath.Join(root, "config"), settings)
+			got, err := pluginAgents(context.Background(), hostexec.NewLocal(), filepath.Join(root, "config"), settings)
 			if err != nil {
 				t.Fatalf("pluginAgents: %v", err)
 			}
@@ -232,7 +235,7 @@ func TestPluginAgentsErrors(t *testing.T) {
 			for i, s := range tt.settings {
 				settings[i] = filepath.Join(root, s)
 			}
-			_, err := pluginAgents(filepath.Join(root, "config"), settings)
+			_, err := pluginAgents(context.Background(), hostexec.NewLocal(), filepath.Join(root, "config"), settings)
 			if err == nil {
 				t.Fatal("pluginAgents returned no error")
 			}

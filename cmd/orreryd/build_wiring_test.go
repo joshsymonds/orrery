@@ -10,6 +10,7 @@ import (
 
 	"github.com/joshsymonds/orrery/internal/build"
 	"github.com/joshsymonds/orrery/internal/evidence"
+	"github.com/joshsymonds/orrery/internal/hostexec"
 	"github.com/joshsymonds/orrery/internal/planner"
 	"github.com/joshsymonds/orrery/internal/reviewers"
 	"github.com/joshsymonds/orrery/internal/store"
@@ -153,7 +154,7 @@ func TestSessionsHostRunsBuildAndParksWithoutRoleFile(t *testing.T) {
 	}
 
 	row := waitParked(t, st, host, buildWiringEpic)
-	tip, exists, err := build.BranchTip(ctx, repo, buildWiringEpic)
+	tip, exists, err := build.BranchTip(ctx, hostexec.NewLocal(), repo, buildWiringEpic)
 	if err != nil {
 		t.Fatalf("branch tip: %v", err)
 	}
@@ -187,7 +188,7 @@ func TestReadoptCheckComposesPlannerThenBuild(t *testing.T) {
 	if err := st.SetTurnStep(ctx, buildWiringEpic, 1, "plan-step"); err != nil {
 		t.Fatalf("set turn step: %v", err)
 	}
-	check := readoptCheck(st, planner.NewResolver(nil, t.TempDir()))
+	check := readoptCheck(st, planner.NewResolver(nil, t.TempDir(), hostexec.LocalHosts()), hostexec.LocalHosts())
 	rows := []struct {
 		name string
 		row  store.StepRow

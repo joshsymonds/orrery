@@ -360,6 +360,7 @@ func paneMessages(panes []map[string]json.RawMessage) ([]*v1.Pane, error) {
 			NewestReply:   newestReply,
 			LastTurnEnd:   lastTurnEnd,
 			OrreryId:      orreryID,
+			Unbound:       pane.Command == "claude" && claudeSession == "",
 		})
 	}
 	return out, nil
