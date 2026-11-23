@@ -152,7 +152,7 @@ func mutatingTool(name string) bool {
 		"epic_close", "epic_amend", "epic_escalate", "epic_steer",
 		"contract_propose", "contract_draft", "contract_revise", "contract_accept", "contract_set_aside",
 		"contract_reopen",
-		"design_create", "design_order", "design_research", "design_reproduce",
+		"design_create", "design_order", "design_research", "design_reproduce", "design_ask", "design_answer",
 		"evidence_run":
 		return true
 	}

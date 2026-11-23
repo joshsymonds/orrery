@@ -376,6 +376,8 @@ func TestToolsListNamesEveryStepEpicEvidenceAndContractTool(t *testing.T) {
 		"contract_set_aside",
 		"cron_delete",
 		"cron_list",
+		"design_answer",
+		"design_ask",
 		"design_create",
 		"design_get",
 		"design_list",
