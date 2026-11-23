@@ -207,7 +207,7 @@ func syncFetchThatStallsIsStoppedAtTheFetchLimitAndBacksOff(images *worldImages)
 		w, candidate := images.syncWorld(t, atCaptured)
 		originHead := w.originCommit("origin.txt")
 		reads := w.countedUploadPack(3)
-		w.runner.fetchLimit = time.Second
+		w.runner.fetchLimit = 10 * time.Second
 		logs := &bytes.Buffer{}
 		w.runner.logger = slog.New(slog.NewTextHandler(logs, nil))
 		if !w.runner.passFlow(context.Background(), epicOf(t, w.s), integrateFlow()) {
@@ -215,7 +215,7 @@ func syncFetchThatStallsIsStoppedAtTheFetchLimitAndBacksOff(images *worldImages)
 		}
 		run := runAt(t, w.s, syncFirst)
 		if run.State != store.NodeEnded || run.Outcome != "skipped" ||
-			!strings.HasPrefix(run.Output, "the sync did not run: git did not finish within 1s: git fetch ") {
+			!strings.HasPrefix(run.Output, "the sync did not run: git did not finish within 10s: git fetch ") {
 			t.Errorf("sync = %+v, want ended skipped on the fetch stopped at the limit", run)
 		}
 		if !strings.Contains(logs.String(), "sync of origin's main did not run") {
