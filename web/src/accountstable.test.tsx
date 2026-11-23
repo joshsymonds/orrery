@@ -129,8 +129,10 @@ const seed: AccountsSeed = { accounts: seedAccounts, registry: seedRegistry };
 
 test("AccountsWebTable: the table draws each account's name, plan, #hash, the contexts that use it and its added day, with Rename and Remove on each row", async (t) => {
   await withPage(t, seed, async ({ container }) => {
+    const accountsTable = container.querySelector<HTMLElement>('section[aria-label="Accounts"] table');
+    assert.ok(accountsTable !== null, "the page draws no accounts table");
     assert.deepEqual(
-      [...container.querySelectorAll("thead th")].map((head) => head.textContent),
+      [...accountsTable.querySelectorAll("thead th")].map((head) => head.textContent),
       ["name", "plan", "token", "used by", "added", ""],
     );
     assert.deepEqual(cellsOf(rowOf(container, "max-1")), ["max-1", "Claude Max", "#3f9a1c", "personal", "Nov 12"]);
