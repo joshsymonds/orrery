@@ -31,7 +31,7 @@ func inboxTidyLiveClient(t *testing.T, cases []inboxTidyLiveCase) orreryv1connec
 	for _, c := range cases {
 		stored = append(stored, storedEpicOf(c.id, c.phase, epicsAgo(time.Hour)))
 	}
-	return epicStoreServe(t, t.TempDir(), &epicsFake{}, &epicStoreFake{stored: stored})
+	return epicStoreServe(t, &epicsFake{}, &epicStoreFake{stored: stored})
 }
 
 // TestInboxTidyMetAtBaseListLiveness lists stored epics in met_at_base, ended_with_gaps and stopped: the met_at_base

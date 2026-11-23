@@ -223,7 +223,7 @@ func (f *epicCommandsFake) recordedMoveSessions() []string {
 // epicCommandServe serves newEpicsHandler over commands with the fixed clock, and returns a generated Epics client.
 func epicCommandServe(t *testing.T, commands enginev1connect.EpicsClient) orreryv1connect.EpicsClient {
 	t.Helper()
-	path, handler := newEpicsHandler(t.TempDir(), nil, nil, commands, nil, nil, 0, epicsNow, newRetryClock())
+	path, handler := newEpicsHandler(nil, nil, commands, nil, nil, 0, epicsNow, newRetryClock())
 	mux := http.NewServeMux()
 	mux.Handle(path, handler)
 	srv := httptest.NewServer(mux)

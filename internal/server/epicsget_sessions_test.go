@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	enginev1 "github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1"
 	orreryv1 "github.com/joshsymonds/orrery/internal/gen/orrery/v1"
 	orreryv1connect "github.com/joshsymonds/orrery/internal/gen/orrery/v1/orreryv1connect"
 	"github.com/joshsymonds/orrery/internal/store"
@@ -65,13 +66,14 @@ func recordSessionsCall(t *testing.T, s *store.Store, caller store.EpicCaller, c
 	}
 }
 
-// epicSessionsClient serves Epics over a record root that holds epicSessionsEpic, with reader as its store reader, and
+// epicSessionsClient serves Epics over an epics store that holds epicSessionsEpic, with reader as its store reader, and
 // returns a generated Epics client.
 func epicSessionsClient(t *testing.T, reader *store.Reader) orreryv1connect.EpicsClient {
 	t.Helper()
-	root := t.TempDir()
-	writeHead(t, root, "repoa", "shared", `{"outcome":"shipped"}`, epicsNow())
-	route, handler := newEpicsHandler(root, &epicsFake{}, nil, nil, nil, reader, 0, epicsNow, newRetryClock())
+	epics := &epicStoreFake{stored: []*enginev1.StoredEpic{
+		storedEpicOf(epicSessionsEpic, "accepted", epicsAgo(time.Hour)),
+	}}
+	route, handler := newEpicsHandler(&epicsFake{}, epics, nil, nil, reader, 0, epicsNow, newRetryClock())
 	mux := http.NewServeMux()
 	mux.Handle(route, handler)
 	srv := httptest.NewServer(mux)

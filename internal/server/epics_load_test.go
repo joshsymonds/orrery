@@ -49,26 +49,10 @@ func (c *countingEpicStore) counts() (int, int) {
 	return c.lists, c.gets
 }
 
-// loadSteps returns the labeled steps of the load tests: repoa/record, which only the records hold, runs one step and
-// ended two, and repoa/stored, which orreryd's database holds, runs one held step and ended three, one of which is a
-// writing step whose result carries red and green evidence.
+// loadSteps returns the labeled steps of the load tests: repoa/stored, which orreryd's database holds, runs one held step
+// and ended three, one of which is a writing step whose result carries red and green evidence.
 func loadSteps() []*enginev1.Step {
 	return []*enginev1.Step{
-		{Id: "rec-run", Epic: "repoa/record", Task: "t1", Started: epicsAgo(time.Hour)},
-		{
-			Id:      "rec-a",
-			Epic:    "repoa/record",
-			End:     "done",
-			Started: epicsAgo(5 * time.Hour),
-			Ended:   epicsAgo(4 * time.Hour),
-		},
-		{
-			Id:      "rec-b",
-			Epic:    "repoa/record",
-			End:     "failed",
-			Started: epicsAgo(3 * time.Hour),
-			Ended:   epicsAgo(2 * time.Hour),
-		},
 		{Id: "db-run", Epic: "repoa/stored", Held: true, Started: epicsAgo(time.Hour)},
 		{
 			Id:      "db-a",
@@ -102,13 +86,11 @@ func loadSteps() []*enginev1.Step {
 // of ended steps, the ended ones counted by orreryd.
 func TestEpicsListAsksOnlyTheRunningStepsOnce(t *testing.T) {
 	t.Parallel()
-	root := t.TempDir()
-	writeHead(t, root, "repoa", "record", `{"outcome":"shipped"}`, epicsNow().Add(-time.Hour))
 	steps := &epicsFake{steps: loadSteps()}
 	store := &countingEpicStore{inner: &epicStoreFake{stored: []*enginev1.StoredEpic{
 		storedEpicOf("repoa/stored", "accepted", epicsAgo(2*time.Hour)),
 	}}}
-	client := epicStoreServe(t, root, steps, store)
+	client := epicStoreServe(t, steps, store)
 
 	epics := epicsList(t, client)
 
@@ -123,7 +105,6 @@ func TestEpicsListAsksOnlyTheRunningStepsOnce(t *testing.T) {
 		running []string
 		ended   int32
 	}{
-		"repoa/record": {running: []string{"rec-run"}, ended: 2},
 		"repoa/stored": {running: []string{"db-run"}, ended: 3},
 	}
 	if len(epics) != len(want) {
@@ -144,13 +125,12 @@ func TestEpicsListAsksOnlyTheRunningStepsOnce(t *testing.T) {
 // from its result.
 func TestEpicsGetAsksTheStepsOfItsEpicOnce(t *testing.T) {
 	t.Parallel()
-	root := t.TempDir()
 	steps := &epicsFake{steps: loadSteps()}
 	store := &countingEpicStore{inner: &epicStoreFake{stored: []*enginev1.StoredEpic{
 		storedEpicOf("repoa/stored", "accepted", epicsAgo(2*time.Hour)),
 	}}}
 	evidence := &evidenceRunsFake{}
-	client := stepDataServe(t, root, steps, store, evidence)
+	client := stepDataServe(t, steps, store, evidence)
 
 	got := epicsGet(t, client, "repoa/stored")
 

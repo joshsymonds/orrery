@@ -60,16 +60,15 @@ func (f *evidenceRunsFake) GetEvidenceArtifact(
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("synthetic unused"))
 }
 
-// epicEvidenceServe serves newEpicsHandler over root, store and evidence, with an empty step client, the fixed
-// clock and a fake retry clock, and returns a generated Epics client.
+// epicEvidenceServe serves newEpicsHandler over store and evidence, with an empty step client, the fixed clock and a
+// fake retry clock, and returns a generated Epics client.
 func epicEvidenceServe(
 	t *testing.T,
-	root string,
 	store EpicStoreClient,
 	evidence EvidenceClient,
 ) orreryv1connect.EpicsClient {
 	t.Helper()
-	path, handler := newEpicsHandler(root, &epicsFake{}, store, nil, evidence, nil, 0, epicsNow, newRetryClock())
+	path, handler := newEpicsHandler(&epicsFake{}, store, nil, evidence, nil, 0, epicsNow, newRetryClock())
 	mux := http.NewServeMux()
 	mux.Handle(path, handler)
 	srv := httptest.NewServer(mux)
@@ -159,7 +158,7 @@ func TestEpicsGetAttachesEachRequirementsRunsInOrder(t *testing.T) {
 		evidenceRequirementOf("R2", "synthetic requirement two", "synthetic conclusion two"),
 	)}}
 	evidence := &evidenceRunsFake{runs: runs}
-	client := epicEvidenceServe(t, t.TempDir(), store, evidence)
+	client := epicEvidenceServe(t, store, evidence)
 
 	got := epicsGet(t, client, "repoa/shared").GetRequirements()
 	wantReqs := []*orreryv1.EpicRequirement{
@@ -197,7 +196,7 @@ func TestEpicsGetLegacyRequirementHasNoRuns(t *testing.T) {
 	)}}
 	// run-3a names the legacy requirement's id as its item, which a legacy requirement with no item must not attach.
 	runs = append(runs, &enginev1.EvidenceRun{Id: "run-3a", Epic: "repoa/shared", Item: "R3"})
-	client := epicEvidenceServe(t, t.TempDir(), store, &evidenceRunsFake{runs: runs})
+	client := epicEvidenceServe(t, store, &evidenceRunsFake{runs: runs})
 
 	got := epicsGet(t, client, "repoa/shared").GetRequirements()
 	if len(got) != 2 {
@@ -230,7 +229,7 @@ func TestEpicsGetAnswersEpicWithoutRunsWhenListEvidenceFails(t *testing.T) {
 		store := &epicStoreFake{stored: []*enginev1.StoredEpic{evidenceStoredEpic(
 			evidenceRequirementOf("R1", "synthetic requirement one", "synthetic conclusion one"),
 		)}}
-		client := epicEvidenceServe(t, t.TempDir(), store, evidence)
+		client := epicEvidenceServe(t, store, evidence)
 
 		got := epicsGet(t, client, "repoa/shared")
 		if got.GetEpic().GetId() != "repoa/shared" || got.GetEpic().GetSource() != "orreryd" {
@@ -258,7 +257,7 @@ func TestEpicsGetRetriesUnavailableListEvidence(t *testing.T) {
 		evidenceRequirementOf("R1", "synthetic requirement one", "synthetic conclusion one"),
 		evidenceRequirementOf("R2", "synthetic requirement two", "synthetic conclusion two"),
 	)}}
-	client := epicEvidenceServe(t, t.TempDir(), store, evidence)
+	client := epicEvidenceServe(t, store, evidence)
 
 	got := epicsGet(t, client, "repoa/shared").GetRequirements()
 	if len(got) != 2 || len(got[0].GetRuns()) != 2 || len(got[1].GetRuns()) != 1 {
@@ -277,7 +276,7 @@ func TestEpicsGetWithoutEvidenceClientAnswersRequirementsWithoutRuns(t *testing.
 	store := &epicStoreFake{stored: []*enginev1.StoredEpic{evidenceStoredEpic(
 		evidenceRequirementOf("R1", "synthetic requirement one", "synthetic conclusion one"),
 	)}}
-	client := epicEvidenceServe(t, t.TempDir(), store, nil)
+	client := epicEvidenceServe(t, store, nil)
 
 	got := epicsGet(t, client, "repoa/shared").GetRequirements()
 	if len(got) != 1 || len(got[0].GetRuns()) != 0 || got[0].GetConclusion() != "synthetic conclusion one" {

@@ -6,8 +6,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
-	"os"
-	"path/filepath"
 	"sync"
 	"testing"
 
@@ -20,7 +18,7 @@ import (
 )
 
 // epicsStepsProcedures lists the Connect procedures of the Epics service and the Steps service that serve mounts: the
-// two record reads, the three calls on one labeled step, and the read of a step's result, which an unlabeled step also
+// two epic reads, the three calls on one labeled step, and the read of a step's result, which an unlabeled step also
 // answers. None of them is a start.
 func epicsStepsProcedures() []string {
 	return []string{
@@ -135,25 +133,36 @@ func (h wiringHeaders) RoundTrip(req *http.Request) (*http.Response, error) {
 	return h.next.RoundTrip(req)
 }
 
-// TestServeAnswersEpicsListAndStepsHoldWithLoginAndClientHeader serves the whole guarded handler with a synthetic
-// record root and a labeled step, and checks that Epics.List reads the epic and Steps.Hold forwards to the step client.
+// wiringEpicStore is the epics store of the wiring test: it lists wiringEpic, in phase shipped, and answers no Get.
+type wiringEpicStore struct{}
+
+func (wiringEpicStore) ListEpics(
+	context.Context,
+	*connect.Request[enginev1.ListEpicsRequest],
+) (*connect.Response[enginev1.ListEpicsResponse], error) {
+	summary := &enginev1.EpicSummary{Id: wiringEpic, Phase: "shipped"}
+	return connect.NewResponse(&enginev1.ListEpicsResponse{Epics: []*enginev1.EpicSummary{summary}}), nil
+}
+
+func (wiringEpicStore) GetEpic(
+	context.Context,
+	*connect.Request[enginev1.GetEpicRequest],
+) (*connect.Response[enginev1.GetEpicResponse], error) {
+	return nil, connect.NewError(connect.CodeNotFound, errors.New("synthetic not found"))
+}
+
+// TestServeAnswersEpicsListAndStepsHoldWithLoginAndClientHeader serves the whole guarded handler with an epics store
+// that holds one epic and a labeled step, and checks that Epics.List answers the epic and Steps.Hold forwards to the
+// step client.
 func TestServeAnswersEpicsListAndStepsHoldWithLoginAndClientHeader(t *testing.T) {
 	t.Parallel()
-	root := t.TempDir()
-	dir := filepath.Join(root, "repoa", "epic-one")
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		t.Fatalf("mkdir record: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(dir, "state.json"), []byte(`{"outcome":"shipped"}`), 0o600); err != nil {
-		t.Fatalf("write head: %v", err)
-	}
 	steps := &wiringSteps{}
 	handler, err := server.New(server.Config{
-		Logins:  []string{allowedLogin},
-		Tmux:    newTmuxClient(t),
-		Push:    newPushStore(t),
-		Records: root,
-		Steps:   steps,
+		Logins:    []string{allowedLogin},
+		Tmux:      newTmuxClient(t),
+		Push:      newPushStore(t),
+		EpicStore: wiringEpicStore{},
+		Steps:     steps,
 	})
 	if err != nil {
 		t.Fatalf("New: %v", err)
