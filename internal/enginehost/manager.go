@@ -136,10 +136,10 @@ type Store interface {
 // Seen read and Logger reports pump errors (nil discards). HolderScope is the absolute path of systemd-run that runs
 // each session's holder in its own user scope, or empty to run holders plainly; with it set, Close detaches the
 // sessions instead of stopping them, so their holders keep running. StateDir is the state directory that holds the
-// sessions' holders, or empty for a private directory per session. ManagedDir is the managed settings root that a
-// step's agent resolves under, or empty to read none. HolderVersion is the holder wire version this manager's controller
-// speaks when it re-adopts a holder, or zero for holder.WireVersion. Metrics counts each holder lost in re-adoption, or
-// nil to count none.
+// sessions' holders, or empty for a private directory per session. A session on another host is detached by Close
+// whatever HolderScope is. ManagedDir is the managed settings root that a step's agent resolves under, or empty to read
+// none. HolderVersion is the holder wire version this manager's controller speaks when it re-adopts a holder, or zero
+// for holder.WireVersion. Metrics counts each holder lost in re-adoption, or nil to count none.
 //
 // CronWake, when set, is called with a session id after the owner's Say to that session returns nil, and after a turn's
 // end that leaves a session which is not a step with no turn running is stored. It is called with "" whenever the
@@ -1786,13 +1786,14 @@ func unwrittenPrompts(prompts []store.HolderPrompt, written []string) []store.Ho
 	return unwritten
 }
 
-// Close stops every live session and waits up to 5 s for each to record its state. With a holder scope, Close detaches
-// each session instead, so its holder and child keep running, and it records nothing for the session: the row keeps the
-// state and unfinished text its events gave it, for a later orreryd to re-adopt where its stored offsets say. Without a
-// holder scope, a session whose turn was running is recorded interrupted, and every session loses its unfinished text.
-// It then cancels any write a pump still has blocked and waits for the pumps to return, and for the stops of the
-// sessions retired before the close, whose holder directories are gone once those stops return. Start refuses from the
-// moment Close begins, and later calls to Close return at once.
+// Close stops every live session and waits up to 5 s for each to record its state. With a holder scope, or for a
+// session on another host, Close detaches each session instead, so its holder and child keep running, and it records
+// nothing for the session: the row keeps the state and unfinished text its events gave it, for a later orreryd to
+// re-adopt where its stored offsets say. Without a holder scope, a session on this host whose turn was running is
+// recorded interrupted, and every such session loses its unfinished text. It then cancels any write a pump still has
+// blocked and waits for the pumps to return, and for the stops of the sessions retired before the close, whose holder
+// directories are gone once those stops return. Start refuses from the moment Close begins, and later calls to Close
+// return at once.
 func (m *Manager) Close() {
 	defer m.calls.enter()()
 	m.mu.Lock()
@@ -1811,7 +1812,7 @@ func (m *Manager) Close() {
 
 	for _, live := range running {
 		var err error
-		if m.holderScope != "" {
+		if m.detaches(live) {
 			err = live.sess.Detach()
 		} else {
 			err = live.sess.Stop()
@@ -1847,6 +1848,12 @@ func (m *Manager) Close() {
 	for _, live := range retired {
 		<-live.stopped
 	}
+}
+
+// detaches reports whether Close detaches live's session rather than stopping it. Close always detaches a session on
+// another host, since Close never stops a holder on another machine, and under a holder scope it detaches every session.
+func (m *Manager) detaches(live *liveSession) bool {
+	return m.holderScope != "" || live.host != holderhost.Host(m.local)
 }
 
 // RunIdle stops the sessions that are idle for the idle timeout, until ctx ends. Each session's idle timer hands its
@@ -2665,15 +2672,14 @@ func (m *Manager) recordStopped(ctx context.Context, live *liveSession) error {
 
 // recordClosed waits for the pump of live to finish, then records live as Close leaves it: interrupted with the reason
 // when its turn was running, and otherwise in the state its turn gave it. Either way its unfinished text is removed,
-// each background task still running is recorded stopped, and each prompt claude had not started is recorded
-// discarded. An interruption notifies the owner. A session whose exit already recorded its state is left alone. Under
-// a holder scope Close only detaches the session, so nothing is recorded for it. It returns the error of the wait or of
-// the write.
+// each background task still running is recorded stopped, and each prompt claude had not started is recorded discarded.
+// An interruption notifies the owner. A session whose exit already recorded its state is left alone. Where Close only
+// detaches the session (see detaches), nothing is recorded for it. It returns the error of the wait or of the write.
 func (m *Manager) recordClosed(ctx context.Context, live *liveSession) error {
 	if err := m.waitPump(ctx, live); err != nil {
 		return err
 	}
-	if live.exited || m.holderScope != "" {
+	if live.exited || m.detaches(live) {
 		return nil
 	}
 	m.mu.Lock()
