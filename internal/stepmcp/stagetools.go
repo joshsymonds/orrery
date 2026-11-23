@@ -55,6 +55,20 @@ type designAnswerArgs struct {
 	Accept     bool   `json:"accept,omitempty"     jsonschema:"true to answer with the recommendation"`
 }
 
+// designDisposeArgs is the arguments of design_dispose, described for its input schema. Reason is the item's reason
+// and MakerReason the maker's, since the two are kept apart.
+type designDisposeArgs struct {
+	Design      string `json:"design"                jsonschema:"the design or contract the item belongs to"`
+	Item        string `json:"item"                  jsonschema:"the id of the ledger item, as design_stage lists it"`
+	Disposition string `json:"disposition"           jsonschema:"adopted, rejected, deferred or open before closure; revised_after_closure or accepted_as_risk after it"`
+	Reason      string `json:"reason,omitempty"      jsonschema:"why the item is rejected, or why an open item closes after closure"`
+	Boundary    string `json:"boundary,omitempty"    jsonschema:"the boundary the item is deferred to, for deferred"`
+	Maker       string `json:"maker"                 jsonschema:"owner_serve, owner_conversation or conversation"`
+	Quote       string `json:"quote,omitempty"       jsonschema:"the owner's words, for owner_conversation"`
+	MakerReason string `json:"makerReason,omitempty" jsonschema:"why the conversation decides, for conversation"`
+	Delegation  string `json:"delegation,omitempty"  jsonschema:"the owner's words it decides on, for conversation"`
+}
+
 // stageTools returns the stage tools, each calling stage. A nil stage answers each call with a tool error.
 func stageTools(stage enginev1connect.StageClient) ([]Tool, error) {
 	research, err := argumentSchema[designResearchArgs](nil)
@@ -74,6 +88,10 @@ func stageTools(stage enginev1connect.StageClient) ([]Tool, error) {
 		return nil, err
 	}
 	answer, err := argumentSchema[designAnswerArgs](nil)
+	if err != nil {
+		return nil, err
+	}
+	dispose, err := argumentSchema[designDisposeArgs](nil)
 	if err != nil {
 		return nil, err
 	}
@@ -114,6 +132,16 @@ func stageTools(stage enginev1connect.StageClient) ([]Tool, error) {
 				"its answer.",
 			InputSchema: answer,
 			Handler:     designAnswerHandler(stage),
+		},
+		{
+			Name: "design_dispose",
+			Description: "Store a disposition of a ledger item of design, with the maker it came from: owner_serve for " +
+				"the owner through serve, owner_conversation for the owner in the conversation with quote, or " +
+				"conversation for the owner with makerReason and delegation. Before closure an item is adopted, " +
+				"rejected with reason, deferred with boundary, or open; after closure an open item closes as " +
+				"revised_after_closure or accepted_as_risk, with reason. Returns the item with its disposition.",
+			InputSchema: dispose,
+			Handler:     designDisposeHandler(stage),
 		},
 	}, nil
 }
@@ -217,5 +245,27 @@ func designAnswerHandler(stage enginev1connect.StageClient) ToolHandler {
 			return toolFailure(err), nil
 		}
 		return protoResult(answered.Msg)
+	}
+}
+
+func designDisposeHandler(stage enginev1connect.StageClient) ToolHandler {
+	return func(ctx context.Context, call Call) (ToolResult, error) {
+		var args designDisposeArgs
+		if err := decodeArguments(call.Arguments, &args); err != nil {
+			return ToolResult{}, err
+		}
+		if stage == nil {
+			return stageUnavailable(), nil
+		}
+		disposed, err := stage.Dispose(ctx, connect.NewRequest(&v1.DisposeRequest{
+			Design: args.Design, Item: args.Item, Disposition: args.Disposition, Reason: args.Reason,
+			Boundary: args.Boundary, Maker: &v1.StageMaker{
+				Kind: args.Maker, Quote: args.Quote, Reason: args.MakerReason, Delegation: args.Delegation,
+			},
+		}))
+		if err != nil {
+			return toolFailure(err), nil
+		}
+		return protoResult(disposed.Msg)
 	}
 }
