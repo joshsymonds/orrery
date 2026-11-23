@@ -256,6 +256,12 @@ func (f *fakeContracts) ProposeContract(
 	return nil, errors.New("stepmcp test: ProposeContract is not expected")
 }
 
+func (f *fakeContracts) DraftContract(
+	context.Context, *connect.Request[v1.DraftContractRequest],
+) (*connect.Response[v1.DraftContractResponse], error) {
+	return nil, errors.New("stepmcp test: DraftContract is not expected")
+}
+
 func (f *fakeContracts) ReviseContract(
 	_ context.Context,
 	req *connect.Request[v1.ReviseContractRequest],

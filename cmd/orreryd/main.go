@@ -38,6 +38,7 @@ import (
 	"github.com/joshsymonds/orrery/internal/donejudge"
 	"github.com/joshsymonds/orrery/internal/enginehost"
 	"github.com/joshsymonds/orrery/internal/gates"
+	"github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1/enginev1connect"
 	"github.com/joshsymonds/orrery/internal/grants"
 	"github.com/joshsymonds/orrery/internal/holder"
 	"github.com/joshsymonds/orrery/internal/hostexec"
@@ -54,6 +55,7 @@ import (
 	"github.com/joshsymonds/orrery/internal/route"
 	"github.com/joshsymonds/orrery/internal/sdnotify"
 	"github.com/joshsymonds/orrery/internal/server"
+	"github.com/joshsymonds/orrery/internal/stage"
 	"github.com/joshsymonds/orrery/internal/stamp"
 	"github.com/joshsymonds/orrery/internal/store"
 	"github.com/joshsymonds/orrery/internal/summary"
@@ -908,6 +910,7 @@ type sessionHost struct {
 	steering   enginehost.SteeringSessions
 	contracts  *enginehost.Contracts
 	designs    *enginehost.Designs
+	stage      enginev1connect.StageHandler
 	accounts   *enginehost.Accounts
 	writer     *enginehost.Writer
 	broker     *grants.Broker
@@ -1085,6 +1088,7 @@ func startSessions(
 			Hosts: hosts,
 		})
 		host.steps = steps
+		host.stage = stage.NewService(stage.Config{Store: st, Steps: steps, Now: time.Now, Getenv: getenv})
 		host.wireStore(st)
 		commands, stepCommands = host.manager, host.steps
 		host.epics, host.steering, host.contracts, host.accounts = st, epicSteering(host.manager, st, hosts),
@@ -1168,6 +1172,7 @@ func (h *sessionHost) serveConfig(
 		Changes:   h.changes,
 		Contracts: h.contracts,
 		Designs:   h.designs,
+		Stage:     h.stage,
 		Accounts:  h.accounts,
 		PaneSends: h.paneSends,
 		Host:      hostName,

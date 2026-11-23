@@ -92,6 +92,13 @@ func (f *recordingContracts) GetContract(
 	return contractRespond(f, req.Msg, &v1.GetContractResponse{Contract: contractStored()})
 }
 
+func (f *recordingContracts) DraftContract(
+	_ context.Context,
+	req *connect.Request[v1.DraftContractRequest],
+) (*connect.Response[v1.DraftContractResponse], error) {
+	return contractRespond(f, req.Msg, &v1.DraftContractResponse{Draft: &v1.ContractDraft{Id: contractTestID}})
+}
+
 func (f *recordingContracts) ListContracts(
 	_ context.Context,
 	req *connect.Request[v1.ListContractsRequest],
