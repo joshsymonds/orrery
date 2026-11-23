@@ -140,7 +140,12 @@ func TestSyncDeclarationsStandAcrossTurns(t *testing.T) {
 		t.Fatalf("ClaimTurn of the failing turn: %v", err)
 	}
 	if err := s.fixtureQueries().InsertPlannerUnresolvable(ctx, sqlcgen.InsertPlannerUnresolvableParams{
-		Epic: id, Turn: failing.Seq, Position: 1, Gap: "sync:main-c", Reason: "a turn that failed", Recommended: "release",
+		Epic:        id,
+		Turn:        failing.Seq,
+		Position:    1,
+		Gap:         "sync:main-c",
+		Reason:      "a turn that failed",
+		Recommended: "release",
 	}); err != nil {
 		t.Fatalf("insert declaration of the failing turn: %v", err)
 	}

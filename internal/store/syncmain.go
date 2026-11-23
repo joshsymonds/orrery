@@ -114,7 +114,8 @@ func (s *Store) RewakeSync(ctx context.Context, epic string, trigger NodeTrigger
 		if stored > 0 {
 			return nil
 		}
-		if err = insertGapTurn(ctx, queries, epic, turn.Gap, turn.Turn, turn.Reason, at); err != nil {
+		err = insertGapTurn(ctx, queries, epic, turn.Gap, turn.Turn, turn.Reason, at)
+		if err != nil {
 			return err
 		}
 		if err = queries.InsertEpicTrigger(ctx, sqlcgen.InsertEpicTriggerParams{
