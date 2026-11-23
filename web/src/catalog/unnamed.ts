@@ -36,6 +36,9 @@ export const unnamed: Readonly<Record<string, UnnamedEntry>> = {
   // RouteSeats draws the seats table of the accounts and routes page, which round 6 does not draw. The inbox page stands for
   // it, as it does for AccountsPage.
   "route-seats": { replacement: "inbox-home", epic: "F2" },
+  // AccountsNarrow draws the accounts and routes page under 760px, which round 6 does not draw. The inbox page stands for it,
+  // as it does for AccountsPage.
+  "accounts-narrow": { replacement: "inbox-home", epic: "F2" },
 
   // ---- single stories of round-6 components, each the component in a state round 6 does not draw ----
 

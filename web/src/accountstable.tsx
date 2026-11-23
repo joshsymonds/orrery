@@ -1,7 +1,7 @@
 // AccountsTable draws the Accounts section of round 8's page D: each account's name, plan, token hash, the contexts that use
 // it and the day it was added, with Rename and Remove on each row. Rename turns the name into a field with Save and Cancel.
 // Remove asks in the row first. A write that is refused or has no answer re-reads the accounts and routes, and the row then
-// says what stands.
+// says what stands. renameAccount and removeAccount hold the writes, which the narrow page's sheets share.
 
 import { Code } from "@connectrpc/connect";
 import { Fragment, type VNode } from "preact";
@@ -31,9 +31,9 @@ interface Editing {
   name: string;
 }
 
-// Note is what a row says after a write: its text, and a tone of bad for a refusal or quiet for a write that could not be
-// told.
-interface Note {
+// Note is what a row or a sheet says after a write: its text, and a tone of bad for a refusal or quiet for a write that could
+// not be told.
+export interface Note {
   text: string;
   tone: "bad" | "quiet";
 }
@@ -54,6 +54,56 @@ function joinNames(names: readonly string[]): string {
   return `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
 }
 
+// renameAccount sends Accounts.Rename for account, naming name. An answer holds the account it returns, through changeAccounts,
+// and gives null. A refusal, or a write with no answer, re-reads the accounts and routes, and gives the note that says what
+// stands.
+export async function renameAccount(
+  clients: Pick<ReturnType<typeof createClients>, "accounts">,
+  account: Account,
+  name: string,
+  changeAccounts: (update: (accounts: readonly Account[]) => readonly Account[]) => void,
+  reread: () => Promise<RouteRegistry | null>,
+): Promise<Note | null> {
+  const outcome = await runWrite(() => clients.accounts.rename({ id: account.id, name }));
+  if (outcome.kind === "done" && outcome.answer.account !== undefined) {
+    const renamed = outcome.answer.account;
+    changeAccounts((held) => held.map((candidate) => (candidate.id === renamed.id ? renamed : candidate)));
+    return null;
+  }
+  await reread();
+  return outcome.kind === "refused"
+    ? { text: `Not renamed: ${outcome.reason} ${nothingChanged}`, tone: "bad" }
+    : { text: couldNotTell, tone: "quiet" };
+}
+
+// removeAccount sends Accounts.Remove for account. An answer takes the account away, through changeAccounts, and gives null.
+// A refusal as in use re-reads the accounts and routes, then names every context the fresh registry holds the account for.
+// Any other refusal re-reads and says why nothing changed. A write with no answer re-reads and says it could not tell.
+export async function removeAccount(
+  clients: Pick<ReturnType<typeof createClients>, "accounts">,
+  account: Account,
+  changeAccounts: (update: (accounts: readonly Account[]) => readonly Account[]) => void,
+  reread: () => Promise<RouteRegistry | null>,
+): Promise<Note | null> {
+  const outcome = await runWrite(() => clients.accounts.remove({ id: account.id }));
+  if (outcome.kind === "done") {
+    changeAccounts((held) => held.filter((candidate) => candidate.id !== account.id));
+    return null;
+  }
+  const fresh = await reread();
+  if (outcome.kind === "unknown") {
+    return { text: couldNotTell, tone: "quiet" };
+  }
+  const holders = fresh === null ? [] : usedBy(fresh, account.id);
+  if (outcome.code === Code.FailedPrecondition && holders.length > 0) {
+    return {
+      text: `${account.name} is in use by ${joinNames(holders)}. Move them to another account first, then remove it. ${nothingChanged}`,
+      tone: "bad",
+    };
+  }
+  return { text: `Not removed: ${outcome.reason} ${nothingChanged}`, tone: "bad" };
+}
+
 export function AccountsTable({ accounts, registry, clients, changeAccounts, reread }: AccountsTableProps): VNode {
   const [editing, setEditing] = useState<Editing | null>(null);
   const [asking, setAsking] = useState<string | null>(null);
@@ -64,49 +114,22 @@ export function AccountsTable({ accounts, registry, clients, changeAccounts, rer
     setNotes((current) => ({ ...current, [id]: note }));
   };
 
-  // rename sends Accounts.Rename for account. An answer holds the account it returns. A refusal, or a write with no answer,
-  // re-reads the accounts and routes, and the row says what stands.
+  // rename writes the name through renameAccount, and says what the write's note is, if any, on the row.
   const rename = async (account: Account, name: string) => {
     say(account.id, undefined);
-    const outcome = await runWrite(() => clients.accounts.rename({ id: account.id, name }));
-    if (outcome.kind === "done" && outcome.answer.account !== undefined) {
-      const renamed = outcome.answer.account;
-      changeAccounts((held) => held.map((candidate) => (candidate.id === renamed.id ? renamed : candidate)));
-      return;
+    const note = await renameAccount(clients, account, name, changeAccounts, reread);
+    if (note !== null) {
+      say(account.id, note);
     }
-    await reread();
-    say(
-      account.id,
-      outcome.kind === "refused"
-        ? { text: `Not renamed: ${outcome.reason} ${nothingChanged}`, tone: "bad" }
-        : { text: couldNotTell, tone: "quiet" },
-    );
   };
 
-  // remove sends Accounts.Remove for account. An answer takes its row away. A refusal as in use re-reads the accounts and
-  // routes, then names every context the fresh registry holds the account for, and the table stays as it is. Any other
-  // refusal re-reads and says why nothing changed. A write with no answer re-reads and says it could not tell.
+  // remove writes the removal through removeAccount, and says what the write's note is, if any, on the row.
   const remove = async (account: Account) => {
     say(account.id, undefined);
-    const outcome = await runWrite(() => clients.accounts.remove({ id: account.id }));
-    if (outcome.kind === "done") {
-      changeAccounts((held) => held.filter((candidate) => candidate.id !== account.id));
-      return;
+    const note = await removeAccount(clients, account, changeAccounts, reread);
+    if (note !== null) {
+      say(account.id, note);
     }
-    const fresh = await reread();
-    if (outcome.kind === "unknown") {
-      say(account.id, { text: couldNotTell, tone: "quiet" });
-      return;
-    }
-    const holders = fresh === null ? [] : usedBy(fresh, account.id);
-    if (outcome.code === Code.FailedPrecondition && holders.length > 0) {
-      say(account.id, {
-        text: `${account.name} is in use by ${joinNames(holders)}. Move them to another account first, then remove it. ${nothingChanged}`,
-        tone: "bad",
-      });
-      return;
-    }
-    say(account.id, { text: `Not removed: ${outcome.reason} ${nothingChanged}`, tone: "bad" });
   };
 
   // goneNotes are the notes of rows the table no longer draws, such as a Remove that had no answer but landed, whose

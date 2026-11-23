@@ -10,6 +10,7 @@ import { clone, create } from "@bufbuild/protobuf";
 import { Fragment, type VNode } from "preact";
 import { useState } from "preact/hooks";
 
+import type { Note } from "./accountstable";
 import { couldNotTell, nothingChanged, runWrite } from "./accountswrite";
 import type { createClients } from "./client";
 import {
@@ -32,13 +33,6 @@ export interface RouteContextsProps {
   // reread re-reads Accounts.List and Routes.Get and holds what they answer. It resolves with the registry Routes.Get
   // answered, or with null when a read fails, and the page then draws the failure instead of the section.
   reread: () => Promise<RouteRegistry | null>;
-}
-
-// Note is what a card says after a write: its text, and a tone of bad for a refusal or quiet for a write that could not be
-// told.
-interface Note {
-  text: string;
-  tone: "bad" | "quiet";
 }
 
 // Editing is the card whose Edit is open: its context's id, the seat each of its model selectors held when Edit opened, and
@@ -72,6 +66,28 @@ function subagentSeatsOf(subagents: RouteSubagents | undefined): SubagentSeat[] 
   return seats;
 }
 
+// chooseAccount sends Routes.SetContextAccount for context, naming account, and gives null when the answer's registry is
+// held through changeRegistry. A refusal gives the note that says why nothing changed. A write with no answer, or an answer
+// with no registry, re-reads the accounts and routes and gives the note that says it could not tell.
+export async function chooseAccount(
+  clients: Pick<ReturnType<typeof createClients>, "routes">,
+  context: RouteContext,
+  account: string,
+  changeRegistry: (registry: RouteRegistry) => void,
+  reread: () => Promise<RouteRegistry | null>,
+): Promise<Note | null> {
+  const outcome = await runWrite(() => clients.routes.setContextAccount({ context: context.id, account }));
+  if (outcome.kind === "done" && outcome.answer.registry !== undefined) {
+    changeRegistry(outcome.answer.registry);
+    return null;
+  }
+  if (outcome.kind === "refused") {
+    return { text: `Not set: ${outcome.reason} ${nothingChanged}`, tone: "bad" };
+  }
+  await reread();
+  return { text: couldNotTell, tone: "quiet" };
+}
+
 export function RouteContexts({ accounts, registry, clients, changeRegistry, reread }: RouteContextsProps): VNode {
   const [notes, setNotes] = useState<Readonly<Record<string, Note | undefined>>>({});
   const [editing, setEditing] = useState<Editing | null>(null);
@@ -82,23 +98,11 @@ export function RouteContexts({ accounts, registry, clients, changeRegistry, rer
     setNotes((current) => ({ ...current, [id]: note }));
   };
 
-  // choose sends Routes.SetContextAccount for context, naming account. An answer holds the registry it returns, and clears
-  // the card's note. A refusal says why nothing changed, and the select goes back to the account it stood on, which the
-  // card draws again from the registry held. A write with no answer, or an answer with no registry, re-reads the accounts
-  // and routes and says it could not tell.
+  // choose writes the account through chooseAccount, and says what the write's note is, if any, on the card. A card's note
+  // clears when the write lands.
   const choose = async (context: RouteContext, account: string) => {
-    const outcome = await runWrite(() => clients.routes.setContextAccount({ context: context.id, account }));
-    if (outcome.kind === "done" && outcome.answer.registry !== undefined) {
-      changeRegistry(outcome.answer.registry);
-      say(context.id, undefined);
-      return;
-    }
-    if (outcome.kind === "refused") {
-      say(context.id, { text: `Not set: ${outcome.reason} ${nothingChanged}`, tone: "bad" });
-      return;
-    }
-    await reread();
-    say(context.id, { text: couldNotTell, tone: "quiet" });
+    const note = await chooseAccount(clients, context, account, changeRegistry, reread);
+    say(context.id, note === null ? undefined : note);
   };
 
   // edit opens context's card for editing, with each of its model selectors' seats as the registry holds them.
