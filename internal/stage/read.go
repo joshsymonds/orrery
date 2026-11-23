@@ -17,7 +17,8 @@ const runningStatus = "running"
 
 // GetStage returns the stage of the design: the steps its design_steps rows record, oldest first, each with its step
 // row's status and report, and the questions its design_questions rows record, oldest first, each with its answer once
-// it has one. A design no step names has no steps, and one no question names has no questions.
+// it has one. It also returns the design's ledger, read as readLedger reads it, and whether the ledger is frozen. A
+// design no step names has no steps, and one no question names has no questions.
 func (s *Service) GetStage(
 	ctx context.Context,
 	req *connect.Request[v1.GetStageRequest],
@@ -43,8 +44,16 @@ func (s *Service) GetStage(
 	for _, question := range questions {
 		asked = append(asked, stageQuestionOf(question))
 	}
+	ledger, frozen, err := s.readLedger(ctx, design, rows)
+	if err != nil {
+		return nil, internalError(err)
+	}
+	var items []*v1.StageLedgerItem
+	for _, item := range ledger {
+		items = append(items, stageLedgerItemOf(item))
+	}
 	return connect.NewResponse(&v1.GetStageResponse{
-		Stage: &v1.DesignStage{Design: design, Steps: steps, Questions: asked},
+		Stage: &v1.DesignStage{Design: design, Steps: steps, Questions: asked, Ledger: items, Frozen: frozen},
 	}), nil
 }
 

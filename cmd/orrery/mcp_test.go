@@ -265,6 +265,7 @@ func TestMCPServesStepToolsOverDaemon(t *testing.T) {
 		"design_answer",
 		"design_ask",
 		"design_create",
+		"design_dispose",
 		"design_get",
 		"design_list",
 		"design_order",

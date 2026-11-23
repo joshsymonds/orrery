@@ -1065,5 +1065,57 @@
       ],
       "type": "object"
     }
+  },
+  {
+    "name": "design_dispose",
+    "description": "Store a disposition of a ledger item of design, with the maker it came from: owner_serve for the owner through serve, owner_conversation for the owner in the conversation with quote, or conversation for the owner with maker_reason and delegation. Before closure an item is adopted, rejected with reason, deferred with boundary, or open; after closure an open item closes as revised_after_closure or accepted_as_risk, with reason. Returns the item with its disposition.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "boundary": {
+          "description": "the boundary the item is deferred to, for deferred",
+          "type": "string"
+        },
+        "delegation": {
+          "description": "the owner's words it decides on, for conversation",
+          "type": "string"
+        },
+        "design": {
+          "description": "the design or contract the item belongs to",
+          "type": "string"
+        },
+        "disposition": {
+          "description": "adopted, rejected, deferred or open before closure; revised_after_closure or accepted_as_risk after it",
+          "type": "string"
+        },
+        "item": {
+          "description": "the id of the ledger item, as design_stage lists it",
+          "type": "string"
+        },
+        "maker": {
+          "description": "owner_serve, owner_conversation or conversation",
+          "type": "string"
+        },
+        "maker_reason": {
+          "description": "why the conversation decides, for conversation",
+          "type": "string"
+        },
+        "quote": {
+          "description": "the owner's words, for owner_conversation",
+          "type": "string"
+        },
+        "reason": {
+          "description": "why the item is rejected, or why an open item closes after closure",
+          "type": "string"
+        }
+      },
+      "required": [
+        "design",
+        "item",
+        "disposition",
+        "maker"
+      ],
+      "type": "object"
+    }
   }
 ]
