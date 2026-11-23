@@ -1916,6 +1916,38 @@ button.block:hover { --ground: var(--o-surface-raised); }
 .held-sheet-spine { position: absolute; top: 0; bottom: 0; left: 0; width: var(--o-space-8); background: var(--o-surface-raised); }
 .held-sheet-foot { flex: none; height: var(--o-space-8); background: var(--o-surface-raised); }
 
+/* The held move (D16, flows 10a). A card rises out of its neck, scaled about its left edge at its row's height, and folds back
+   into it; a neck grows from its row and draws back; a tab's ground fades; the chat moves between the middle and the right;
+   a move to another conversation fades the head's title and the chat in where they stand; the phone's sheet unfolds from its
+   top and folds back. Every move is inside the no-preference condition, so with reduced motion each is a plain swap. */
+@media (prefers-reduced-motion: no-preference) {
+  @keyframes held-rise { from { opacity: 0; transform: translateX(calc(-1 * var(--o-distance-drill))) scale(0.86, 0.5); } to { opacity: 1; transform: none; } }
+  @keyframes held-fold { from { opacity: 1; transform: none; } to { opacity: 0; transform: translateX(calc(-1 * var(--o-distance-drill))) scale(0.86, 0.5); } }
+  @keyframes neck-grow { from { transform: scaleX(0); } to { transform: none; } }
+  @keyframes neck-draw { from { transform: none; } to { transform: scaleX(0); } }
+  @keyframes ground-in { from { background-color: transparent; } }
+  @keyframes ground-out { to { background-color: transparent; } }
+  @keyframes chat-move { from { transform: translateX(var(--held-dx, 0)); } to { transform: none; } }
+  @keyframes sheet-unfold { from { opacity: 0; transform: translateY(calc(-1 * var(--o-distance-drill))) scaleY(0.5); } to { opacity: 1; transform: none; } }
+  @keyframes sheet-fold { from { opacity: 1; transform: none; } to { opacity: 0; transform: translateY(calc(-1 * var(--o-distance-drill))) scaleY(0.5); } }
+
+  .held-card:is([data-move="open"], [data-move="switch"], [data-move="other"]) { transform-origin: 0 var(--held-aim, 0); animation: held-rise var(--o-move-drill); }
+  .held-card:is([data-move="close"], [data-move="leave"]) { transform-origin: 0 var(--held-aim, 0); animation: held-fold var(--o-move-leave) both; }
+  .held-sheet[data-move="open"] { transform-origin: top; animation: sheet-unfold var(--o-move-drill); }
+  .held-sheet:is([data-move="close"], [data-move="leave"]) { transform-origin: top; animation: sheet-fold var(--o-move-leave) both; }
+
+  .inbox :is(.row, .design-tab)[data-held]:is([data-move="open"], [data-move="switch"], [data-move="other"])::before,
+  .rail-lineage .lmark[data-held]:is([data-move="open"], [data-move="switch"], [data-move="other"])::after { transform-origin: left; animation: neck-grow var(--o-move-state); }
+  .inbox :is(.row, .design-tab)[data-held]:is([data-move="close"], [data-move="leave"])::before,
+  .rail-lineage .lmark[data-held]:is([data-move="close"], [data-move="leave"])::after { transform-origin: left; animation: neck-draw var(--o-move-leave) both; }
+
+  .inbox .convo-block[data-held="tab"]:is([data-move="open"], [data-move="switch"], [data-move="other"]) { animation: ground-in var(--o-move-state); }
+  .inbox .convo-block[data-held="tab"]:is([data-move="close"], [data-move="leave"]) { animation: ground-out var(--o-move-leave) both; }
+
+  .read.held[data-move="open"], .read[data-move="close"] { animation: chat-move var(--o-move-layout); }
+  .read[data-move="other"] > .reader, .read[data-move="other"] .convo-head .crumbs { animation: move-fade var(--o-move-state); }
+}
+
 /* Reduced motion comes last, so it wins over the rules above: each move is one 100 ms linear step, a page drills and
    leaves by a fade, and the loops hold still. */
 @media (prefers-reduced-motion: reduce) {

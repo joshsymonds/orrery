@@ -2,7 +2,7 @@ import { type JSX, type VNode, cloneElement } from "preact";
 
 import { EpicRow } from "./epicrow";
 import { Icon } from "./glyphs";
-import type { HeldThing } from "./held";
+import type { HeldMove, HeldThing } from "./held";
 import type { Row } from "./rows";
 import type { Convo, DesignNode, Hung } from "./tree";
 
@@ -20,6 +20,8 @@ export interface ConvoRowProps {
   onSelect: (key: string) => void;
   // held is the thing held open, which the tree marks, or null when none is held.
   held?: HeldThing | null;
+  // move is the motion of the change that holds it, which the held tab and the held rows carry as data-move.
+  move?: HeldMove;
 }
 
 // designMark is a design's mark: round 8's design icon, drawn on the 16 grid as glyphs draws its icons. The held card's head
@@ -35,11 +37,13 @@ function DesignBlock({
   node,
   things,
   held,
+  move,
   onSelect,
 }: {
   node: DesignNode;
   things: VNode[];
   held: boolean;
+  move: HeldMove;
   onSelect: (key: string) => void;
 }): JSX.Element {
   const count = node.design.contracts.length;
@@ -50,6 +54,7 @@ function DesignBlock({
         role="link"
         data-key={node.key}
         data-held={held ? "open" : undefined}
+        data-move={held && move !== "" ? move : undefined}
         onClick={() => onSelect(node.key)}
       >
         <svg class="icon design-mark" viewBox="0 0 16 16" aria-hidden="true">
@@ -84,9 +89,12 @@ export function ConvoRow({
   renderRow,
   onSelect,
   held,
+  move = "",
 }: ConvoRowProps): JSX.Element {
-  // open is the key of the thing this conversation holds open, or null when it holds none.
+  // open is the key of the thing this conversation holds open, or null when it holds none. mark is the motion the held
+  // tab and rows carry, or undefined when they move by none.
   const open = held && held.convo === convo.key ? held.key : null;
+  const mark = open !== null && move !== "" ? move : undefined;
   const thing = (hung: Hung): VNode => (
     <EpicRow
       key={hung.key}
@@ -95,6 +103,7 @@ export function ConvoRow({
       current={hung.key === cursorKey}
       currentStep={cursorKey}
       held={hung.key === open}
+      move={move}
       onSelect={onSelect}
     />
   );
@@ -107,6 +116,7 @@ export function ConvoRow({
       node={node}
       things={node.hung.map(thing)}
       held={node.key === open}
+      move={move}
       onSelect={onSelect}
     />
   ));
@@ -120,12 +130,12 @@ export function ConvoRow({
   }
   const folded = convo.folded;
   const drawn = renderRow(convo.row);
-  const row = open === null ? drawn : cloneElement(drawn, { "data-held": "convo" });
+  const row = open === null ? drawn : cloneElement(drawn, { "data-held": "convo", "data-move": mark });
   if (own.length === 0 && folded.length === 0 && designs.length === 0) {
     return <>{row}</>;
   }
   return (
-    <div class="convo-block" data-held={open === null ? undefined : "tab"}>
+    <div class="convo-block" data-held={open === null ? undefined : "tab"} data-move={mark}>
       {row}
       <div class="steers" aria-label="what this conversation steers">
         {own}

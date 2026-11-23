@@ -11,9 +11,18 @@ export interface HeldThing { kind: HeldKind; key: string; convo: string }
 // for another thing in the same conversation, "other" for a thing in another conversation, and "close" for a thing let go.
 export type HeldMove = "" | "open" | "switch" | "other" | "close";
 
-// heldMove says which HeldMove a change from before to after draws. The motion task will make it return open from null to a
-// thing; close from a thing to null; switch between two keys with the same convo; other between different convos; and ""
-// for the same key, or null to null. This stub returns "" for every change.
+// heldMove says which HeldMove a change from before to after draws: open from null to a thing; close from a thing to null;
+// switch between two keys with the same convo; other between two keys of different convos; and "" for the same key, or null
+// to null.
 export function heldMove(before: HeldThing | null, after: HeldThing | null): HeldMove {
-  return "";
+  if (before === null) {
+    return after === null ? "" : "open";
+  }
+  if (after === null) {
+    return "close";
+  }
+  if (before.key === after.key) {
+    return "";
+  }
+  return before.convo === after.convo ? "switch" : "other";
 }
