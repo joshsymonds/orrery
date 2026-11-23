@@ -24,7 +24,8 @@ type ActionKind string
 // of a conclusion run, which gives each live gap a planner turn. ActRerun ends a rerun of a conclusion run's review, the
 // run that runs a reviewer again, with the verdict and findings it settled. ActRebuild starts the ended build run of an
 // open task again, as a send_back that reopens a done task needs. ActGapTask ends an open task as a gap, as its build
-// kind does when a dependency of the task is lost, so the task never starts.
+// kind does when a dependency of the task is lost, so the task never starts. ActRewakeSync re-wakes the planner of a
+// plan run whose only hold is a live sync gap, with a pending trigger and the gap's turn.
 const (
 	ActStart      ActionKind = "start"
 	ActEnd        ActionKind = "end"
@@ -45,6 +46,7 @@ const (
 	ActRun        ActionKind = "run"
 	ActRebuild    ActionKind = "rebuild"
 	ActGapTask    ActionKind = "gap_task"
+	ActRewakeSync ActionKind = "rewake_sync"
 )
 
 // Action is one thing Decide asks for. Start carries the Runs to start and, for a later plan, its Trigger. End carries
@@ -69,7 +71,8 @@ const (
 // run in Runs, a trigger per live gap in Triggers, and a gap turn per live gap in GapTurns. Rerun ends the rerun run at
 // Path, whose Attempt ended passed with Output, Verdicts and Ledger: the one verdict and the findings its reviewer's
 // walk settled. Rebuild turns the build run at Path of Task, which ended at Attempt, running at its next attempt.
-// GapTask ends the task Task, whose stored build is Build, as a gap for Reason.
+// GapTask ends the task Task, whose stored build is Build, as a gap for Reason. RewakeSync re-wakes the planner of the
+// plan run at Path: Trigger is the pending trigger it writes, and GapTurns holds the sync gap's turn it records.
 type Action struct {
 	Kind        ActionKind
 	Runs        []store.NodeRun
@@ -427,16 +430,21 @@ func (p pass) running(def workflow.Node, run store.NodeRun, at scope) []Action {
 // ends once its kind ends it, its walks have settled (settle), no sync of origin's main holds it and no run under it
 // other than a build child runs (bodyRunning). Its walks, its sync and its fan-out are decided with it. While a
 // sync holds the plan, the plan gets no run, so the planner gets no turn. The planner's pass still carries out the
-// epic's pending actions, which wait on no turn, so the hold never waits on the planner. A plan whose kind leaves it
-// waiting gives no action.
+// epic's pending actions, which wait on no turn, so the hold never waits on the planner. A sync wake of its kind is
+// carried out where an end would complete the plan, and is a run everywhere else. A plan whose kind leaves it waiting
+// gives no action.
 func (p pass) plan(def workflow.Node, run store.NodeRun, act kinds.Action) []Action {
-	if act.Kind != kinds.ActEnd && act.Kind != kinds.ActRun {
+	if act.Kind != kinds.ActEnd && act.Kind != kinds.ActRun && act.Kind != kinds.ActSyncWake {
 		return nil
 	}
 	walks, settled := p.settle(def, run)
 	synced, holds := p.syncMain(def, run, settled)
-	if act.Kind == kinds.ActEnd && settled && !holds && !p.bodyRunning(run.Path) {
+	completes := settled && !holds && !p.bodyRunning(run.Path)
+	switch {
+	case completes && act.Kind == kinds.ActEnd:
 		return p.complete(def, run, act)
+	case completes && act.Kind == kinds.ActSyncWake:
+		return []Action{p.rewakeSync(run, act)}
 	}
 	acts := walks
 	if !holds {
@@ -596,6 +604,20 @@ func (p pass) complete(def workflow.Node, run store.NodeRun, act kinds.Action) [
 	id := store.NodeRunID(p.rows.Epic.ID, run.Path, run.Round, fmt.Sprintf("unbuilt after turn %d", p.highestTurn()))
 	trigger := &store.NodeTrigger{ID: triggerPrefix + id, Cause: reason}
 	return []Action{{Kind: ActParkEpic, Reason: reason, Trigger: trigger}}
+}
+
+// rewakeSync returns the action that re-wakes the planner of the plan run for act, a sync wake of the live sync gap
+// act names. Its trigger is pending with act's cause, and its gap turn is one more than the turns the gap was given, so
+// the gap is spent after store.GapTurnBound wakes.
+func (p pass) rewakeSync(run store.NodeRun, act kinds.Action) Action {
+	gap := act.Gaps[0]
+	turn := int64(kinds.GapTurnCount(gap.Key, p.rows.GapTurns)) + 1
+	id := store.NodeRunID(p.rows.Epic.ID, run.Path, run.Round, fmt.Sprintf("rewake %s %d", gap.Key, turn))
+	return Action{
+		Kind:     ActRewakeSync,
+		Trigger:  &store.NodeTrigger{ID: kinds.SyncTriggerPrefix + id, Cause: act.Cause},
+		GapTurns: []store.GapTurn{{Gap: gap.Key, Turn: turn, Reason: gap.Reason}},
+	}
 }
 
 // settle decides the walks of a running plan run, and reports whether the plan has settled: no walk is unfinished and

@@ -17,13 +17,13 @@ const ActGapRound ActionKind = "gap_round"
 // live, the run gives a gap round, which gives each live gap a planner turn.
 type Conclude struct{}
 
-// Decide ends the epic passed, or asks for a gap round. With no gap in GapList of the review and the epic's tasks, its
-// phase is clean, with the stored base. Otherwise a gap is live unless the latest succeeded turn declared it, or it
-// has had store.GapTurnBound planner turns. While a gap is live the run gives a gap round of the live gaps, in
-// GapList order, and a paused or parked epic gives none. Once no gap is live, its phase is ended_with_gaps, and its
-// output and question are GapEnding's. Either output then names each finding an owner's answer closed (Decided).
+// Decide ends the epic passed, or asks for a gap round. With no gap in allGaps, its phase is clean, with the stored
+// base. Otherwise a gap is live unless it was declared, or it has had store.GapTurnBound planner turns. While a gap
+// is live the run gives a gap round of the live gaps, in allGaps order, and a paused or parked epic gives none. Once
+// no gap is live, its phase is ended_with_gaps, and its output and question are GapEnding's. Either output then names
+// each finding an owner's answer closed (Decided).
 func (Conclude) Decide(_ Node, rows Rows) Action {
-	gaps, decided := GapList(rows.Review, rows.Epic.Tasks), Decided(rows.Review)
+	gaps, decided := allGaps(rows), Decided(rows.Review)
 	if len(gaps) == 0 {
 		lines := append([]string{fmt.Sprintf("epic %s ended clean at %s", rows.Epic.ID, rows.Epic.StoredBase)},
 			decidedLines(decided)...)
@@ -39,12 +39,32 @@ func (Conclude) Decide(_ Node, rows Rows) Action {
 	return Action{Kind: ActEnd, Outcome: outcomePassed, Phase: phaseEndedWithGaps, Output: body, Question: question}
 }
 
-// liveGaps returns the gaps of gaps that rows leave live, in order: each gap that the latest succeeded turn did not
-// declare, and that has had fewer than store.GapTurnBound planner turns.
+// allGaps returns the gaps the epic of rows ends with: those of GapList, then the sync gap SyncGap reads, when a sync
+// at the stored base failed. GapList itself does not count the sync gap.
+func allGaps(rows Rows) []Gap {
+	gaps := GapList(rows.Review, rows.Epic.Tasks)
+	if gap, failed := SyncGap(rows); failed {
+		gaps = append(gaps, gap)
+	}
+	return gaps
+}
+
+// gapDeclarations returns the declarations gap is read against: a sync gap's are the sync declarations of rows, which
+// every succeeded turn of the epic may have made, and every other gap's are the latest succeeded turn's unresolvable
+// gaps.
+func gapDeclarations(gap Gap, rows Rows) []store.GapDeclaration {
+	if strings.HasPrefix(gap.Key, SyncTriggerPrefix) {
+		return rows.SyncDeclarations
+	}
+	return rows.Unresolvable
+}
+
+// liveGaps returns the gaps of gaps that rows leave live, in order: each gap that was not declared, and that has had
+// fewer than store.GapTurnBound planner turns.
 func liveGaps(gaps []Gap, rows Rows) []Gap {
 	var live []Gap
 	for _, gap := range gaps {
-		if _, declared := declaredBy(gap.Key, rows.Unresolvable); declared {
+		if _, declared := declaredBy(gap.Key, gapDeclarations(gap, rows)); declared {
 			continue
 		}
 		if GapTurnCount(gap.Key, rows.GapTurns) < store.GapTurnBound {
@@ -76,20 +96,20 @@ func declaredBy(key string, declarations []store.GapDeclaration) (store.GapDecla
 }
 
 // GapEnding returns the body and the gaps question of an ending with gaps. The body is EndingBody of ended_with_gaps
-// over the reason of each gap of GapList and the decided findings. The question has one entry per gap, in GapList
+// over the reason of each gap of allGaps and the decided findings. The question has one entry per gap, in allGaps
 // order: the gap's reason, then ` (` and its parts joined with `; ` and `)` when it has parts. The parts are
-// `planner: <reason>` when the latest turn declared the gap, then `turn <n>: <reason>` for each planner turn the gap
-// was given. The question recommends release when every gap is declared with release, and otherwise correct for the
-// gaps not declared with release.
+// `planner: <reason>` when the gap was declared, then `turn <n>: <reason>` for each planner turn the gap was given. The
+// question recommends release when every gap is declared with release, and otherwise correct for the gaps not declared
+// with release.
 func GapEnding(rows Rows) (string, store.GapsQuestion) {
-	gaps := GapList(rows.Review, rows.Epic.Tasks)
+	gaps := allGaps(rows)
 	question := store.GapsQuestion{
 		Recommended: store.ChoiceRelease, Why: "the planner recommends release for every gap",
 	}
 	var correct []string
 	for _, gap := range gaps {
 		question.Gaps = append(question.Gaps, gapEntry(gap, rows))
-		declaration, declared := declaredBy(gap.Key, rows.Unresolvable)
+		declaration, declared := declaredBy(gap.Key, gapDeclarations(gap, rows))
 		if !declared || declaration.Recommended != store.ChoiceRelease {
 			correct = append(correct, gap.Key)
 		}
@@ -104,7 +124,7 @@ func GapEnding(rows Rows) (string, store.GapsQuestion) {
 // gapEntry returns the entry of gap in a gaps question: its reason, then its parts in brackets when it has any.
 func gapEntry(gap Gap, rows Rows) string {
 	var parts []string
-	if declaration, declared := declaredBy(gap.Key, rows.Unresolvable); declared {
+	if declaration, declared := declaredBy(gap.Key, gapDeclarations(gap, rows)); declared {
 		parts = append(parts, "planner: "+declaration.Reason)
 	}
 	for _, turn := range rows.GapTurns {

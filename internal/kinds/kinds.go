@@ -146,7 +146,7 @@ var _ Idler = Release{}
 
 // Plan is the plan kind. Its run ends complete once the epic's last turn, above the turn the run started after, has
 // succeeded with outcome complete, and no turn runs, no task is open, no trigger is pending and no planner action is
-// pending.
+// pending. A failed sync at the stored base holds it while its sync gap is live, and re-wakes the planner with it.
 type Plan struct{}
 
 // Build is the build kind. Its run is one planned task: it runs while the task is open on an epic with a base whose phase
@@ -179,13 +179,17 @@ const (
 	taskGap = "gap"
 )
 
-// Decide returns end complete when planComplete holds, and run otherwise. A latest failed sync at the stored base, as
-// SyncFailure reads it, holds the run: planComplete returns false while it reports a failure, so Decide returns run.
+// Decide returns end complete when planComplete holds and no sync gap is live, and run otherwise. When planComplete
+// holds and the latest failed sync at the stored base leaves a live sync gap, as syncWake reads it, Decide returns that
+// sync wake instead: the plan is held while the gap is live, and the planner is re-woken with it.
 func (Plan) Decide(node Node, rows Rows) Action {
-	if planComplete(node.Run.Mark, rows) {
-		return Action{Kind: ActEnd, Outcome: outcomeComplete}
+	if !planComplete(node.Run.Mark, rows) {
+		return Action{Kind: ActRun}
 	}
-	return Action{Kind: ActRun}
+	if act, live := syncWake(rows); live {
+		return act
+	}
+	return Action{Kind: ActEnd, Outcome: outcomeComplete}
 }
 
 // planComplete reports whether a plan run started after turn mark may end complete. The epic's highest-seq turn must be
@@ -193,14 +197,10 @@ func (Plan) Decide(node Node, rows Rows) Action {
 // pending: a turn may return complete beside an action, such as a retry_node that reruns the plan's failed batch, and
 // the plan must not end before that action is carried out, or the run it reruns would run under an ended plan. No
 // evidence amendment may be under way either, neither an amend_evidence action still pending nor an amendment checking
-// or capturing, since its end decides what the plan has built and wakes the planner. Nor may the latest sync at the
-// stored base have failed: planComplete returns false while SyncFailure reports a failure, so the plan waits until a
-// later sync at that base passes and moves the stored base to its merge, or an integrate moves it.
+// or capturing, since its end decides what the plan has built and wakes the planner. A failed sync at the stored base
+// is no part of it: Plan.Decide holds the plan for that sync only while its gap is live.
 func planComplete(mark int64, rows Rows) bool {
 	if rows.Pending != 0 || rows.Actions != 0 || anyTaskOpen(rows.Epic.Tasks) || amending(rows) {
-		return false
-	}
-	if _, _, failed := SyncFailure(rows); failed {
 		return false
 	}
 	var last store.EpicTurn
