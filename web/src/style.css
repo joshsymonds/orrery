@@ -1802,6 +1802,24 @@ button.block:hover { --ground: var(--o-surface-raised); }
 .seat-table td.main { color: var(--o-ink-1); font-weight: var(--o-font-weight-bold); }
 .seat-table td.code { color: var(--o-prose-code); }
 
+/* The accounts page under 760px, as section F draws it: the head with Back and +, then the Accounts, Contexts and Seats lists.
+   Each list is a column of rows, a row's name and facts beside the button that opens its sheet. The page takes the
+   conversation's place, so it draws in the phone's gutters. */
+.accounts-page.narrow .ptitle { padding: var(--o-space-12) var(--o-layout-page-pad-phone); }
+.accounts-page.narrow .pbody { gap: var(--o-space-24); max-width: none; padding: var(--o-space-16) var(--o-layout-page-pad-phone) var(--o-space-32); }
+.accounts-page .phlist { display: grid; gap: var(--o-space-8); min-width: 0; }
+.accounts-page .phli { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: var(--o-space-12); align-items: center; min-width: 0; padding: var(--o-space-12); border-radius: var(--o-radius-3); background: var(--o-surface-well); }
+.accounts-page .phli > .a { grid-column: 1; grid-row: 1; min-width: 0; color: var(--o-ink-1); font: var(--o-type-body); font-weight: var(--o-font-weight-bold); overflow-wrap: anywhere; }
+.accounts-page .phli > .b { grid-column: 1; grid-row: 2; min-width: 0; color: var(--o-ink-3); font: var(--o-type-small); overflow-wrap: anywhere; }
+.accounts-page .phli > button { grid-column: 2; grid-row: 1 / span 2; }
+/* An account's and a context's sheets: the sheet's body holds the actions, the name field or the choice of account, and the
+   note under them. A chosen account is the one the context sends through, and is marked in ink. */
+.sheet .sure { margin: 0; color: var(--o-ink-1); font: var(--o-type-body); }
+.sheet .sheet-body .phlist { display: grid; gap: var(--o-space-4); }
+.sheet .phopt { justify-content: flex-start; width: 100%; }
+.sheet .phopt[aria-current="true"] { color: var(--o-ink-1); font-weight: var(--o-font-weight-bold); }
+.read.accounts-read { overflow-y: auto; }
+
 /* Reduced motion comes last, so it wins over the rules above: each move is one 100 ms linear step, a page drills and
    leaves by a fade, and the loops hold still. */
 @media (prefers-reduced-motion: reduce) {

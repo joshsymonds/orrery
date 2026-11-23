@@ -40,6 +40,8 @@ export interface InboxProps {
   onOpenProject?: (key: string) => void;
   // onCollapse is the foot's control that collapses the inbox to its rail. The foot draws it only when given.
   onCollapse?: () => void;
+  // onAccounts is the foot's gear, which opens the accounts and routes page. The foot draws it only when given.
+  onAccounts?: () => void;
   // moving is the projects whose ended line's button is marked as moving: a move landed behind that shut line.
   moving?: ReadonlySet<string>;
   // notes are the page's error lines, drawn above the rows, under the chips and the search field, as round 6 draws them.
@@ -76,6 +78,7 @@ export function Inbox({
   onKeys,
   onOpenProject,
   onCollapse,
+  onAccounts,
   moving,
   notes,
 }: InboxProps): JSX.Element {
@@ -193,6 +196,17 @@ export function Inbox({
             <Icon name="archive" />
             Archived
             <kbd>v</kbd>
+          </button>
+        )}
+        {onAccounts !== undefined && (
+          <button
+            type="button"
+            class="btn quiet icon-only"
+            aria-label="Accounts and routes"
+            title="Accounts and routes"
+            onClick={() => onAccounts()}
+          >
+            <Icon name="gear" />
           </button>
         )}
         {onKeys !== undefined && (

@@ -1,7 +1,8 @@
 // AccountsPage draws the accounts and routes page at #/accounts: its head, then the Accounts section, which is the accounts
 // table and, when its head's Add account is pressed, the Add account form under the table, then the Contexts section, which
-// RouteContexts draws, then the Seats section, which is the seats table. On mount it reads Accounts.List and Routes.Get and
-// holds both. A read that fails draws its reason with a Retry.
+// RouteContexts draws, then the Seats section, which is the seats table. Under 760px, narrow, the body is AccountsNarrow's
+// phone layout instead, with the Add account form in a sheet and a Back to the inbox in the head. On mount it reads
+// Accounts.List and Routes.Get and holds both. A read that fails draws its reason with a Retry.
 
 import { create } from "@bufbuild/protobuf";
 import { ConnectError } from "@connectrpc/connect";
@@ -9,6 +10,7 @@ import type { VNode } from "preact";
 import { useCallback, useEffect, useState } from "preact/hooks";
 
 import { AccountAdd } from "./accountadd";
+import { AccountsNarrow } from "./accountsnarrow";
 import { AccountsTable } from "./accountstable";
 import type { createClients } from "./client";
 import { type Account, type RouteRegistry, RouteRegistrySchema } from "./gen/orrery/v1/accounts_pb";
@@ -21,8 +23,10 @@ type Clients = Pick<ReturnType<typeof createClients>, "accounts" | "routes">;
 interface AccountsPageProps {
   // clients are the Accounts and Routes clients the page reads and writes through, as createClients makes them.
   clients: Clients;
-  // narrow is whether the page is drawn at a phone's width.
+  // narrow is whether the page is drawn at a phone's width, under 760px, in the phone layout.
   narrow: boolean;
+  // onBack is the Back a page drawn under 760px has in its head, which returns to the inbox. The wide page has none.
+  onBack?: () => void;
 }
 
 // Held is what the page holds from its last read: the accounts Accounts.List answered and the registry Routes.Get answered.
@@ -52,7 +56,7 @@ async function readBoth(clients: Clients): Promise<Read> {
   }
 }
 
-export function AccountsPage({ clients, narrow }: AccountsPageProps): VNode {
+export function AccountsPage({ clients, narrow, onBack }: AccountsPageProps): VNode {
   const [read, setRead] = useState<Read | null>(null);
   // adding is whether the Add account form is open under the table. addNote is the line drawn under the table after the form
   // closed with a write that had no answer, or null for none.
@@ -94,23 +98,33 @@ export function AccountsPage({ clients, narrow }: AccountsPageProps): VNode {
     setRead((current) => (current?.kind === "held" ? { kind: "held", held: { ...current.held, registry } } : current));
   }, []);
 
+  // openAdd raises the Add account form, with no note under the table.
+  const openAdd = () => {
+    setAddNote(null);
+    setAdding(true);
+  };
+
   return (
     <div class={narrow ? "accounts-page narrow" : "accounts-page"}>
       <div class="ptitle">
+        {narrow && onBack !== undefined && (
+          <button type="button" class="btn quiet icon-only" aria-label="Back" onClick={onBack}>
+            <Icon name="back" />
+          </button>
+        )}
         <h2>Accounts and routes</h2>
         {read?.kind === "held" ? (
           <span class="end">
-            <button
-              type="button"
-              class="btn"
-              onClick={() => {
-                setAddNote(null);
-                setAdding(true);
-              }}
-            >
-              <Icon name="plus" />
-              Add account
-            </button>
+            {narrow ? (
+              <button type="button" class="btn quiet icon-only" aria-label="Add account" onClick={openAdd}>
+                <Icon name="plus" />
+              </button>
+            ) : (
+              <button type="button" class="btn" onClick={openAdd}>
+                <Icon name="plus" />
+                Add account
+              </button>
+            )}
           </span>
         ) : null}
       </div>
@@ -123,7 +137,21 @@ export function AccountsPage({ clients, narrow }: AccountsPageProps): VNode {
             </button>
           </p>
         ) : null}
-        {read?.kind === "held" ? (
+        {read?.kind === "held" && narrow ? (
+          <AccountsNarrow
+            accounts={read.held.accounts}
+            registry={read.held.registry}
+            clients={clients}
+            changeAccounts={changeAccounts}
+            changeRegistry={changeRegistry}
+            reread={reread}
+            adding={adding}
+            addNote={addNote}
+            addAccount={addAccount}
+            closeAdd={closeAdd}
+          />
+        ) : null}
+        {read?.kind === "held" && !narrow ? (
           <>
             <section class="psec" aria-label="Accounts">
               <div class="psec-h">
@@ -150,15 +178,13 @@ export function AccountsPage({ clients, narrow }: AccountsPageProps): VNode {
               changeRegistry={changeRegistry}
               reread={reread}
             />
+            <section class="psec" aria-label="Seats">
+              <div class="psec-h">
+                <span class="lbl">Seats</span>
+              </div>
+              <RouteSeats registry={read.held.registry} />
+            </section>
           </>
-        ) : null}
-        {read?.kind === "held" ? (
-          <section class="psec" aria-label="Seats">
-            <div class="psec-h">
-              <span class="lbl">Seats</span>
-            </div>
-            <RouteSeats registry={read.held.registry} />
-          </section>
         ) : null}
       </div>
     </div>
