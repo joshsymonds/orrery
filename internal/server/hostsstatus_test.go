@@ -119,7 +119,8 @@ func refusedAddress(t *testing.T) string {
 func loadHostsFile(t *testing.T, controller string, entries []hosts.Host) hosts.File {
 	t.Helper()
 	config := t.TempDir()
-	lines := []string{fmt.Sprintf("name = %q", controller)}
+	lines := make([]string, 0, 1+4*len(entries))
+	lines = append(lines, fmt.Sprintf("name = %q", controller))
 	for _, entry := range entries {
 		lines = append(lines, "", "[[hosts]]", fmt.Sprintf("name = %q", entry.Name),
 			fmt.Sprintf("address = %q", entry.Address))

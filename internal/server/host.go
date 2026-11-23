@@ -11,6 +11,7 @@ import (
 
 	v1 "github.com/joshsymonds/orrery/internal/gen/orrery/v1"
 	orreryv1connect "github.com/joshsymonds/orrery/internal/gen/orrery/v1/orreryv1connect"
+	"github.com/joshsymonds/orrery/internal/hostload"
 	"github.com/joshsymonds/orrery/internal/hoststatus"
 	"github.com/joshsymonds/orrery/internal/node"
 )
@@ -29,7 +30,7 @@ type hostServer struct {
 }
 
 // newHostHandler returns the path and handler that serve Host over runner, naming web's page build, and listing the
-// controller as name, with its load from localLoad, and then each of hosts.
+// controller as name, with its load from localLoad (hostload.Local when nil), and then each of hosts.
 func newHostHandler(
 	runner *hoststatus.Runner,
 	web fs.FS,
@@ -38,6 +39,9 @@ func newHostHandler(
 	hosts []*node.Client,
 	opts ...connect.HandlerOption,
 ) (string, http.Handler) {
+	if localLoad == nil {
+		localLoad = hostload.Local
+	}
 	answers := hostServer{runner: runner, pageBuild: pageBuildOf(web), name: name, localLoad: localLoad, hosts: hosts}
 	return orreryv1connect.NewHostHandler(answers, opts...)
 }

@@ -27,7 +27,6 @@ import (
 	"github.com/joshsymonds/orrery/internal/conversation"
 	enginev1 "github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1"
 	enginev1connect "github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1/enginev1connect"
-	"github.com/joshsymonds/orrery/internal/hostload"
 	"github.com/joshsymonds/orrery/internal/hoststatus"
 	"github.com/joshsymonds/orrery/internal/node"
 	"github.com/joshsymonds/orrery/internal/open"
@@ -314,12 +313,8 @@ func New(cfg Config) (http.Handler, error) {
 	)
 	panesPath, panesService := newPanesRouter(local, hostName, cfg.Hosts, cfg.HandlerOptions...)
 	mux.Handle(panesPath, panesService)
-	localLoad := cfg.LocalLoad
-	if localLoad == nil {
-		localLoad = hostload.Local
-	}
 	hostPath, hostService := newHostHandler(
-		cfg.HostStatus, cfg.Web, hostName, localLoad, cfg.Hosts, cfg.HandlerOptions...,
+		cfg.HostStatus, cfg.Web, hostName, cfg.LocalLoad, cfg.Hosts, cfg.HandlerOptions...,
 	)
 	mux.Handle(hostPath, hostService)
 	presencePath := registerPresence(mux, cfg.ReportInput, now, cfg.HandlerOptions...)
