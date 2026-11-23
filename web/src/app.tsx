@@ -1,6 +1,7 @@
 import { Code, ConnectError } from "@connectrpc/connect";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "preact/hooks";
 
+import { AccountsPage } from "./accountspage";
 import * as actions from "./actions";
 import type { Clients } from "./actions";
 import { type AskTarget, conversationAsk } from "./askmodel";
@@ -343,6 +344,9 @@ export function App({
   }, [pickerOpen]);
   // The key of the project whose page is open, which a project's head or an address opens.
   const [projectKey, setProjectKey] = useState<string | null>(null);
+  // Whether the accounts and routes page is open: the gear in the inbox foot opens it, and the address #/accounts names it.
+  // It takes the conversation's place, and any navigation shuts it.
+  const [accountsOpen, setAccountsOpen] = useState(false);
   // The row the palette answered, which the cursor moves to once the loaded rows hold it: the pane Picker.Run
   // answered, or the session Control.Start started.
   const [pending, setPending] = useState<PendingTarget | null>(null);
@@ -510,6 +514,8 @@ export function App({
       arm();
       renderAddress();
       setFlyout(null);
+      // An opening leaves the accounts page, so the conversation's place is the entry's again.
+      setAccountsOpen(false);
       action(...args);
     };
   // keyMoved wraps a cursor key's move: the first cursor key after an arm pushes and disarms, and the later ones
@@ -522,6 +528,8 @@ export function App({
       engaged.current = true;
       renderAddress();
       setFlyout(null);
+      // A cursor move leaves the accounts page too, as an opening does.
+      setAccountsOpen(false);
       action(...args);
     };
   // adopt records an applied address. It reports nothing, and arms the next cursor key. Its render is the one whose
@@ -638,7 +646,8 @@ export function App({
   const steererRow = epicEntry === null || contractShown ? null : steererRowOf(rows, steering);
   const middleRow = contractShown ? contractLiveRow : (cursorRow ?? steererRow);
   // The row the seen watch rests on: the cursor's row, or while a contract is open, the conversation the middle draws.
-  const watchedRow = contractShown ? contractLiveRow : cursorRow;
+  // The accounts page covers the conversation, so the seen watch rests on no row while it is open.
+  const watchedRow = accountsOpen ? null : contractShown ? contractLiveRow : cursorRow;
   const middleKey = middleRow?.key ?? "";
   const readerKey = middleKey !== "" ? middleKey : cursorStepKey;
   // The cursor's epic entry while its ending reads unseen: the seen watch rests on it, and its write marks it seen.
@@ -672,7 +681,7 @@ export function App({
   const shownPage = pageCursor.current === cursorKey ? epicPage : openEpicPage;
   // The list panel the cursor's session row shows: a list is open only while the cursor rests on the row it is open on.
   const listShown: ListPanelKind | null =
-    shownProject === null && !contractShown && listPanel !== null && listPanel.key === cursorRowKey
+    shownProject === null && !contractShown && !accountsOpen && listPanel !== null && listPanel.key === cursorRowKey
       ? listPanel.panel
       : null;
   // A shown project page is the address, then an open contract, which no project page shows over, and otherwise the
@@ -684,9 +693,11 @@ export function App({
         ? { kind: "project", key: shownProject }
         : contract !== undefined
           ? { kind: "contract", id: contract.id }
-          : pageDrawn
-            ? shownEntry(cursorItem, shownPage, listShown)
-            : null,
+          : accountsOpen
+            ? { kind: "accounts" }
+            : pageDrawn
+              ? shownEntry(cursorItem, shownPage, listShown)
+              : null,
   };
   const shownForm = formatAddress(shownAddress);
 
@@ -1619,6 +1630,14 @@ export function App({
     setRowOpened(true);
   });
 
+  // openAccounts opens the accounts and routes page, from the inbox foot's gear. The page takes the conversation's place, so an
+  // open project page or contract shuts. It is a navigation.
+  const openAccounts = navigated(() => {
+    setProjectKey(null);
+    setOpenedContract(null);
+    setAccountsOpen(true);
+  });
+
   // openProjectItem is the press a project page's conversation or WorkCard makes. It opens what the tree opens for the
   // item key, as openEpic does, and shuts the page. A key the tree draws no entry of opens nothing, as the tree's own press
   // does. A contract's key opens the contract's panel, as the tree's press on its item does. A thing the
@@ -1726,14 +1745,17 @@ export function App({
       setProjectKey(null);
     }
     setOpenedContract(null);
-    pendingOpen.current = address.entry === null ? null : { view: address.view, entry: address.entry };
+    // The accounts page is drawn from no list, so its address is applied at once, and holds no pending entry.
+    const accountsAddress = address.entry?.kind === "accounts";
+    setAccountsOpen(accountsAddress);
+    pendingOpen.current = address.entry === null || accountsAddress ? null : { view: address.view, entry: address.entry };
     if (address.entry === null && !first && epicEntry !== null) {
       setEpicPage(closedEpicPage);
     }
     if (address.entry === null && !wide) {
       setRowOpened(false);
     }
-    if (address.entry === null) {
+    if (address.entry === null || accountsAddress) {
       adopt();
     }
   }, [addressForm]);
@@ -1780,7 +1802,8 @@ export function App({
         adopt();
         return;
       }
-    } else {
+    } else if (entry.kind !== "accounts") {
+      // The accounts page opens in the address effect, which applies its address at once, so no pending entry is one.
       const item = flat.find((candidate) => candidate.key === addressKey(entry));
       if (item !== undefined) {
         selectItem(item);
@@ -2020,6 +2043,8 @@ export function App({
     setProjectKey(null);
     setRowOpened(false);
   };
+  // closeAccounts is the accounts page's Back under 760px: the inbox draws again, as a row's page's Back does.
+  const closeAccounts = navigated(() => backToInbox());
 
   // replyBoxTarget is the row whose reply box is focused, when it is the cursor's or the pinned row's, with the row's
   // state at the press. A step's box and any other box are none.
@@ -2044,7 +2069,8 @@ export function App({
   // project page is shown, and the page is drawn: under 760px only once the entry has been opened. Its tile is the rail's
   // tile of that epic, which is lit while the panel is open, and whose tone the card takes. An epic no conversation steers
   // has no tile, so no tile is lit and the card takes the quiet tone.
-  const panelOpen = pageDrawn && epicEntry !== null && !epicPage.closed && !contractShown && shownProject === null;
+  const panelOpen =
+    pageDrawn && epicEntry !== null && !epicPage.closed && !contractShown && shownProject === null && !accountsOpen;
   // Under 760px an open epic is the page in the conversation's place: the conversation is not drawn, and the page's
   // foot bar opens the steering conversation. At the desk the epic panel lies beside the conversation, but not a worker
   // session, which takes the conversation's place (sessionAtDesk).
@@ -2193,6 +2219,7 @@ export function App({
     !wide &&
     (noticesPage ||
       shownProject !== null ||
+      accountsOpen ||
       (rowOpened && (cursorRow !== null || cursorStep !== null)) ||
       panelOpen ||
       contractPageShown);
@@ -2200,7 +2227,7 @@ export function App({
   // unless a page draws alone over it. A project page or the notice centre covers the cursor row unless the list is on
   // screen, and A, x and e do not act on a covered row.
   const listOnScreen = wide ? !collapsed : !listHides;
-  const rowCovered = (shownProject !== null || noticesOpen) && !listOnScreen;
+  const rowCovered = (shownProject !== null || noticesOpen || accountsOpen) && !listOnScreen;
 
   // The keys read this render's state and call this render's actions, so the document listener runs the latest context.
   const keyContext: KeyContext = {
@@ -2619,10 +2646,15 @@ export function App({
   // conversation over the contract. A shown project page takes the page area, so no reader draws. At 760px and wider the
   // list, the conversation and the panel or rail sit abreast.
   const readerRow =
-    pageDrawn && !noticesPage && !epicPageShown && !(contractPageShown && !sheeted) && shownProject === null
+    pageDrawn &&
+    !noticesPage &&
+    !epicPageShown &&
+    !(contractPageShown && !sheeted) &&
+    shownProject === null &&
+    !accountsOpen
       ? middleRow
       : null;
-  const readerStep = pageDrawn && !noticesPage && shownProject === null ? cursorStep : null;
+  const readerStep = pageDrawn && !noticesPage && shownProject === null && !accountsOpen ? cursorStep : null;
   // contractCalls are the middle reader's contract calls: its contract lines draw the contracts the list holds, and
   // open them.
   const contractCalls: ContractCalls = { contracts, onOpen: navigated(openContractPanel) };
@@ -2765,11 +2797,17 @@ export function App({
             onKeys={() => setHelpOpen(true)}
             onOpenProject={openProject}
             onCollapse={wide ? toggleInbox : undefined}
+            onAccounts={openAccounts}
             moving={markedLines}
             notes={notes}
           />
         </div>
         {shownProject !== null && !noticesPage && projectSection(shownProject)}
+        {accountsOpen && !noticesPage && (
+          <section class="read accounts-read" aria-label="Accounts and routes">
+            <AccountsPage clients={clients} narrow={!wide} onBack={closeAccounts} />
+          </section>
+        )}
         <Sheet open={sheeted} title={contractLiveRow?.label ?? ""} onClose={() => setTalking(false)}>
           {sessionAtDesk ? (
             <section class={`read ${pageClasses(epicPage.move)}`} aria-label="session" ref={pageRef}>
@@ -2782,6 +2820,7 @@ export function App({
         {pageDrawn &&
           !noticesPage &&
           shownProject === null &&
+          !accountsOpen &&
           epicEntry !== null &&
           !contractShown &&
           steererRow === null &&
@@ -3258,7 +3297,7 @@ function shownEntry(item: Item | null, epicPage: EpicPageState, list: ListPanelK
 }
 
 // addressKey is the key the list gives the row or step an address names, which the cursor is moved to.
-function addressKey(entry: Exclude<Entry, { kind: "epic" | "project" | "contract" }>): string {
+function addressKey(entry: Exclude<Entry, { kind: "epic" | "project" | "contract" | "accounts" }>): string {
   switch (entry.kind) {
     case "session":
       return `session:${entry.id}`;

@@ -47,11 +47,13 @@ type EngineOp interface {
 }
 
 // EngineAdd inserts a session row of Kind and appends engine_added. Kind is KindEngine or KindStep; empty is KindEngine.
+// Host is the orrery name of the host the session runs on, stored in the row's host column; empty stores "".
 type EngineAdd struct {
 	ID    string
 	Dir   string
 	State string
 	Kind  string
+	Host  string
 }
 
 // EngineChanges holds the fields an EngineSet may change. A nil field is left as it is, except Reason and Held: a State
@@ -353,7 +355,7 @@ func (op EngineAdd) applyEngine(ctx context.Context, queries *sqlcgen.Queries, n
 		kind = KindEngine
 	}
 	if err := queries.InsertEngineSession(ctx, sqlcgen.InsertEngineSessionParams{
-		ID: op.ID, Kind: kind, Dir: op.Dir, State: op.State, Changed: engineStamp(now),
+		ID: op.ID, Kind: kind, Dir: op.Dir, State: op.State, Changed: engineStamp(now), Host: op.Host,
 	}); err != nil {
 		return fmt.Errorf("insert engine session %s: %w", op.ID, err)
 	}

@@ -898,6 +898,7 @@ func (w *sessionWatch) state(
 			Seen:     seen,
 			Question: history.Question,
 			PutOff:   putOff,
+			Host:     history.Host,
 		},
 		Interrupting:      interrupting,
 		InterruptingSince: interruptingSince,

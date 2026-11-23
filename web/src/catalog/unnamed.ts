@@ -21,6 +21,24 @@ export const unnamed: Readonly<Record<string, UnnamedEntry>> = {
   "output-tails": { replacement: "epic-evidence", epic: "F4" },
   // EpicWidget draws the reader's tool-call card: the live card of an epic a tool call created, under the conversation's tool call.
   "epic-widget": { replacement: "convo-epic", epic: "F3" },
+  // AccountsPage draws the accounts and routes page at #/accounts, as App draws the pages at its addresses. The inbox page
+  // stands for it.
+  "accounts-page": { replacement: "inbox-home", epic: "F2" },
+  // AccountsTable draws the accounts table of the accounts and routes page, which round 6 does not draw. The inbox page
+  // stands for it, as it does for AccountsPage.
+  "accounts-table": { replacement: "inbox-home", epic: "F2" },
+  // AccountAdd draws the Add account form under the accounts table, which round 6 does not draw. The inbox page stands for
+  // it, as it does for AccountsPage.
+  "account-add": { replacement: "inbox-home", epic: "F2" },
+  // RouteContexts draws the contexts section of the accounts and routes page, which round 6 does not draw. The inbox page
+  // stands for it, as it does for AccountsPage.
+  "route-contexts": { replacement: "inbox-home", epic: "F2" },
+  // RouteSeats draws the seats table of the accounts and routes page, which round 6 does not draw. The inbox page stands for
+  // it, as it does for AccountsPage.
+  "route-seats": { replacement: "inbox-home", epic: "F2" },
+  // AccountsNarrow draws the accounts and routes page under 760px, which round 6 does not draw. The inbox page stands for it,
+  // as it does for AccountsPage.
+  "accounts-narrow": { replacement: "inbox-home", epic: "F2" },
 
   // ---- single stories of round-6 components, each the component in a state round 6 does not draw ----
 

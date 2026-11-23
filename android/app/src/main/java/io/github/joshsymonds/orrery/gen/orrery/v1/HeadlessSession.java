@@ -29,6 +29,7 @@ public  final class HeadlessSession extends
     summary_ = "";
     question_ = "";
     headline_ = "";
+    host_ = "";
     designs_ = emptyProtobufList();
   }
   public static final int ID_FIELD_NUMBER = 1;
@@ -793,14 +794,81 @@ public  final class HeadlessSession extends
     endedAt_ = 0L;
   }
 
-  public static final int DESIGNS_FIELD_NUMBER = 15;
+  public static final int HOST_FIELD_NUMBER = 15;
+  private java.lang.String host_;
+  /**
+   * <pre>
+   * The orrery name of the host the session runs on.
+   * </pre>
+   *
+   * <code>string host = 15 [json_name = "host"];</code>
+   * @return The host.
+   */
+  @java.lang.Override
+  public java.lang.String getHost() {
+    return host_;
+  }
+  /**
+   * <pre>
+   * The orrery name of the host the session runs on.
+   * </pre>
+   *
+   * <code>string host = 15 [json_name = "host"];</code>
+   * @return The bytes for host.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString
+      getHostBytes() {
+    return com.google.protobuf.ByteString.copyFromUtf8(host_);
+  }
+  /**
+   * <pre>
+   * The orrery name of the host the session runs on.
+   * </pre>
+   *
+   * <code>string host = 15 [json_name = "host"];</code>
+   * @param value The host to set.
+   */
+  private void setHost(
+      java.lang.String value) {
+    java.util.Objects.requireNonNull(value);
+
+    host_ = value;
+  }
+  /**
+   * <pre>
+   * The orrery name of the host the session runs on.
+   * </pre>
+   *
+   * <code>string host = 15 [json_name = "host"];</code>
+   */
+  private void clearHost() {
+
+    host_ = getDefaultInstance().getHost();
+  }
+  /**
+   * <pre>
+   * The orrery name of the host the session runs on.
+   * </pre>
+   *
+   * <code>string host = 15 [json_name = "host"];</code>
+   * @param value The bytes for host to set.
+   */
+  private void setHostBytes(
+      com.google.protobuf.ByteString value) {
+    checkByteStringIsUtf8(value);
+    host_ = value.toStringUtf8();
+
+  }
+
+  public static final int DESIGNS_FIELD_NUMBER = 16;
   private com.google.protobuf.Internal.ProtobufList<io.github.joshsymonds.orrery.gen.orrery.v1.Design> designs_;
   /**
    * <pre>
    * The designs this conversation works, each with its contracts.
    * </pre>
    *
-   * <code>repeated .orrery.v1.Design designs = 15 [json_name = "designs"];</code>
+   * <code>repeated .orrery.v1.Design designs = 16 [json_name = "designs"];</code>
    */
   @java.lang.Override
   public java.util.List<io.github.joshsymonds.orrery.gen.orrery.v1.Design> getDesignsList() {
@@ -811,7 +879,7 @@ public  final class HeadlessSession extends
    * The designs this conversation works, each with its contracts.
    * </pre>
    *
-   * <code>repeated .orrery.v1.Design designs = 15 [json_name = "designs"];</code>
+   * <code>repeated .orrery.v1.Design designs = 16 [json_name = "designs"];</code>
    */
   public java.util.List<? extends io.github.joshsymonds.orrery.gen.orrery.v1.DesignOrBuilder> 
       getDesignsOrBuilderList() {
@@ -822,7 +890,7 @@ public  final class HeadlessSession extends
    * The designs this conversation works, each with its contracts.
    * </pre>
    *
-   * <code>repeated .orrery.v1.Design designs = 15 [json_name = "designs"];</code>
+   * <code>repeated .orrery.v1.Design designs = 16 [json_name = "designs"];</code>
    */
   @java.lang.Override
   public int getDesignsCount() {
@@ -833,7 +901,7 @@ public  final class HeadlessSession extends
    * The designs this conversation works, each with its contracts.
    * </pre>
    *
-   * <code>repeated .orrery.v1.Design designs = 15 [json_name = "designs"];</code>
+   * <code>repeated .orrery.v1.Design designs = 16 [json_name = "designs"];</code>
    */
   @java.lang.Override
   public io.github.joshsymonds.orrery.gen.orrery.v1.Design getDesigns(int index) {
@@ -844,7 +912,7 @@ public  final class HeadlessSession extends
    * The designs this conversation works, each with its contracts.
    * </pre>
    *
-   * <code>repeated .orrery.v1.Design designs = 15 [json_name = "designs"];</code>
+   * <code>repeated .orrery.v1.Design designs = 16 [json_name = "designs"];</code>
    */
   public io.github.joshsymonds.orrery.gen.orrery.v1.DesignOrBuilder getDesignsOrBuilder(
       int index) {
@@ -863,7 +931,7 @@ public  final class HeadlessSession extends
    * The designs this conversation works, each with its contracts.
    * </pre>
    *
-   * <code>repeated .orrery.v1.Design designs = 15 [json_name = "designs"];</code>
+   * <code>repeated .orrery.v1.Design designs = 16 [json_name = "designs"];</code>
    */
   private void setDesigns(
       int index, io.github.joshsymonds.orrery.gen.orrery.v1.Design value) {
@@ -876,7 +944,7 @@ public  final class HeadlessSession extends
    * The designs this conversation works, each with its contracts.
    * </pre>
    *
-   * <code>repeated .orrery.v1.Design designs = 15 [json_name = "designs"];</code>
+   * <code>repeated .orrery.v1.Design designs = 16 [json_name = "designs"];</code>
    */
   private void addDesigns(io.github.joshsymonds.orrery.gen.orrery.v1.Design value) {
     java.util.Objects.requireNonNull(value);
@@ -888,7 +956,7 @@ public  final class HeadlessSession extends
    * The designs this conversation works, each with its contracts.
    * </pre>
    *
-   * <code>repeated .orrery.v1.Design designs = 15 [json_name = "designs"];</code>
+   * <code>repeated .orrery.v1.Design designs = 16 [json_name = "designs"];</code>
    */
   private void addDesigns(
       int index, io.github.joshsymonds.orrery.gen.orrery.v1.Design value) {
@@ -901,7 +969,7 @@ public  final class HeadlessSession extends
    * The designs this conversation works, each with its contracts.
    * </pre>
    *
-   * <code>repeated .orrery.v1.Design designs = 15 [json_name = "designs"];</code>
+   * <code>repeated .orrery.v1.Design designs = 16 [json_name = "designs"];</code>
    */
   private void addAllDesigns(
       java.lang.Iterable<? extends io.github.joshsymonds.orrery.gen.orrery.v1.Design> values) {
@@ -914,7 +982,7 @@ public  final class HeadlessSession extends
    * The designs this conversation works, each with its contracts.
    * </pre>
    *
-   * <code>repeated .orrery.v1.Design designs = 15 [json_name = "designs"];</code>
+   * <code>repeated .orrery.v1.Design designs = 16 [json_name = "designs"];</code>
    */
   private void clearDesigns() {
     designs_ = emptyProtobufList();
@@ -924,7 +992,7 @@ public  final class HeadlessSession extends
    * The designs this conversation works, each with its contracts.
    * </pre>
    *
-   * <code>repeated .orrery.v1.Design designs = 15 [json_name = "designs"];</code>
+   * <code>repeated .orrery.v1.Design designs = 16 [json_name = "designs"];</code>
    */
   private void removeDesigns(int index) {
     ensureDesignsIsMutable();
@@ -1827,10 +1895,79 @@ public  final class HeadlessSession extends
 
     /**
      * <pre>
+     * The orrery name of the host the session runs on.
+     * </pre>
+     *
+     * <code>string host = 15 [json_name = "host"];</code>
+     * @return The host.
+     */
+    @java.lang.Override
+    public java.lang.String getHost() {
+      return instance.getHost();
+    }
+    /**
+     * <pre>
+     * The orrery name of the host the session runs on.
+     * </pre>
+     *
+     * <code>string host = 15 [json_name = "host"];</code>
+     * @return The bytes for host.
+     */
+    @java.lang.Override
+    public com.google.protobuf.ByteString
+        getHostBytes() {
+      return instance.getHostBytes();
+    }
+    /**
+     * <pre>
+     * The orrery name of the host the session runs on.
+     * </pre>
+     *
+     * <code>string host = 15 [json_name = "host"];</code>
+     * @param value The host to set.
+     * @return This builder for chaining.
+     */
+    public Builder setHost(
+        java.lang.String value) {
+      copyOnWrite();
+      instance.setHost(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The orrery name of the host the session runs on.
+     * </pre>
+     *
+     * <code>string host = 15 [json_name = "host"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearHost() {
+      copyOnWrite();
+      instance.clearHost();
+      return this;
+    }
+    /**
+     * <pre>
+     * The orrery name of the host the session runs on.
+     * </pre>
+     *
+     * <code>string host = 15 [json_name = "host"];</code>
+     * @param value The bytes for host to set.
+     * @return This builder for chaining.
+     */
+    public Builder setHostBytes(
+        com.google.protobuf.ByteString value) {
+      copyOnWrite();
+      instance.setHostBytes(value);
+      return this;
+    }
+
+    /**
+     * <pre>
      * The designs this conversation works, each with its contracts.
      * </pre>
      *
-     * <code>repeated .orrery.v1.Design designs = 15 [json_name = "designs"];</code>
+     * <code>repeated .orrery.v1.Design designs = 16 [json_name = "designs"];</code>
      */
     @java.lang.Override
     public java.util.List<io.github.joshsymonds.orrery.gen.orrery.v1.Design> getDesignsList() {
@@ -1842,7 +1979,7 @@ public  final class HeadlessSession extends
      * The designs this conversation works, each with its contracts.
      * </pre>
      *
-     * <code>repeated .orrery.v1.Design designs = 15 [json_name = "designs"];</code>
+     * <code>repeated .orrery.v1.Design designs = 16 [json_name = "designs"];</code>
      */
     @java.lang.Override
     public int getDesignsCount() {
@@ -1852,7 +1989,7 @@ public  final class HeadlessSession extends
      * The designs this conversation works, each with its contracts.
      * </pre>
      *
-     * <code>repeated .orrery.v1.Design designs = 15 [json_name = "designs"];</code>
+     * <code>repeated .orrery.v1.Design designs = 16 [json_name = "designs"];</code>
      */
     @java.lang.Override
     public io.github.joshsymonds.orrery.gen.orrery.v1.Design getDesigns(int index) {
@@ -1863,7 +2000,7 @@ public  final class HeadlessSession extends
      * The designs this conversation works, each with its contracts.
      * </pre>
      *
-     * <code>repeated .orrery.v1.Design designs = 15 [json_name = "designs"];</code>
+     * <code>repeated .orrery.v1.Design designs = 16 [json_name = "designs"];</code>
      */
     public Builder setDesigns(
         int index, io.github.joshsymonds.orrery.gen.orrery.v1.Design value) {
@@ -1876,7 +2013,7 @@ public  final class HeadlessSession extends
      * The designs this conversation works, each with its contracts.
      * </pre>
      *
-     * <code>repeated .orrery.v1.Design designs = 15 [json_name = "designs"];</code>
+     * <code>repeated .orrery.v1.Design designs = 16 [json_name = "designs"];</code>
      */
     public Builder setDesigns(
         int index, io.github.joshsymonds.orrery.gen.orrery.v1.Design.Builder builderForValue) {
@@ -1890,7 +2027,7 @@ public  final class HeadlessSession extends
      * The designs this conversation works, each with its contracts.
      * </pre>
      *
-     * <code>repeated .orrery.v1.Design designs = 15 [json_name = "designs"];</code>
+     * <code>repeated .orrery.v1.Design designs = 16 [json_name = "designs"];</code>
      */
     public Builder addDesigns(io.github.joshsymonds.orrery.gen.orrery.v1.Design value) {
       copyOnWrite();
@@ -1902,7 +2039,7 @@ public  final class HeadlessSession extends
      * The designs this conversation works, each with its contracts.
      * </pre>
      *
-     * <code>repeated .orrery.v1.Design designs = 15 [json_name = "designs"];</code>
+     * <code>repeated .orrery.v1.Design designs = 16 [json_name = "designs"];</code>
      */
     public Builder addDesigns(
         int index, io.github.joshsymonds.orrery.gen.orrery.v1.Design value) {
@@ -1915,7 +2052,7 @@ public  final class HeadlessSession extends
      * The designs this conversation works, each with its contracts.
      * </pre>
      *
-     * <code>repeated .orrery.v1.Design designs = 15 [json_name = "designs"];</code>
+     * <code>repeated .orrery.v1.Design designs = 16 [json_name = "designs"];</code>
      */
     public Builder addDesigns(
         io.github.joshsymonds.orrery.gen.orrery.v1.Design.Builder builderForValue) {
@@ -1928,7 +2065,7 @@ public  final class HeadlessSession extends
      * The designs this conversation works, each with its contracts.
      * </pre>
      *
-     * <code>repeated .orrery.v1.Design designs = 15 [json_name = "designs"];</code>
+     * <code>repeated .orrery.v1.Design designs = 16 [json_name = "designs"];</code>
      */
     public Builder addDesigns(
         int index, io.github.joshsymonds.orrery.gen.orrery.v1.Design.Builder builderForValue) {
@@ -1942,7 +2079,7 @@ public  final class HeadlessSession extends
      * The designs this conversation works, each with its contracts.
      * </pre>
      *
-     * <code>repeated .orrery.v1.Design designs = 15 [json_name = "designs"];</code>
+     * <code>repeated .orrery.v1.Design designs = 16 [json_name = "designs"];</code>
      */
     public Builder addAllDesigns(
         java.lang.Iterable<? extends io.github.joshsymonds.orrery.gen.orrery.v1.Design> values) {
@@ -1955,7 +2092,7 @@ public  final class HeadlessSession extends
      * The designs this conversation works, each with its contracts.
      * </pre>
      *
-     * <code>repeated .orrery.v1.Design designs = 15 [json_name = "designs"];</code>
+     * <code>repeated .orrery.v1.Design designs = 16 [json_name = "designs"];</code>
      */
     public Builder clearDesigns() {
       copyOnWrite();
@@ -1967,7 +2104,7 @@ public  final class HeadlessSession extends
      * The designs this conversation works, each with its contracts.
      * </pre>
      *
-     * <code>repeated .orrery.v1.Design designs = 15 [json_name = "designs"];</code>
+     * <code>repeated .orrery.v1.Design designs = 16 [json_name = "designs"];</code>
      */
     public Builder removeDesigns(int index) {
       copyOnWrite();
@@ -2005,13 +2142,14 @@ public  final class HeadlessSession extends
             "putOff_",
             "ended_",
             "endedAt_",
+            "host_",
             "designs_",
             io.github.joshsymonds.orrery.gen.orrery.v1.Design.class,
           };
           java.lang.String info =
-              "\u0000\u000f\u0000\u0000\u0001\u000f\u000f\u0000\u0001\u0000\u0001\u0208\u0002\u0208" +
+              "\u0000\u0010\u0000\u0000\u0001\u0010\u0010\u0000\u0001\u0000\u0001\u0208\u0002\u0208" +
               "\u0003\u0208\u0004\u0208\u0005\u0002\u0006\u0002\u0007\u0208\b\u0208\t\u0002\n\u0007" +
-              "\u000b\u0208\f\u0007\r\u0007\u000e\u0002\u000f\u001b";
+              "\u000b\u0208\f\u0007\r\u0007\u000e\u0002\u000f\u0208\u0010\u001b";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

@@ -188,7 +188,7 @@ func awaitFree(lock *os.File) error {
 	}
 }
 
-// attachResult is what the exchange in attachBounded returned.
+// attachResult is what the exchange in exchangeBounded returned.
 type attachResult struct {
 	attached Frame
 	err      error
@@ -210,9 +210,23 @@ func attachBounded(
 	if err != nil {
 		return nil, Frame{}, fmt.Errorf("holder: dial %s: %w", sock, dialRanOut(ctx, err))
 	}
+	return exchangeBounded(ctx, raw, sock, replayFrom, version, due)
+}
+
+// exchangeBounded greets the holder on raw and attaches it at replayFrom, speaking version. name names the holder in
+// errors. The exchange is bounded by due and ctx. It returns the connection and the attached frame. The connection's
+// deadline is cleared, since its stream runs on. When ctx ends first, the connection is closed, which ends the exchange.
+func exchangeBounded(
+	ctx context.Context,
+	raw net.Conn,
+	name string,
+	replayFrom int64,
+	version int,
+	due time.Time,
+) (*Conn, Frame, error) {
 	conn := &Conn{conn: raw, frames: NewFrameReader(raw), controllerVersion: version}
-	if err = raw.SetDeadline(due); err != nil {
-		return nil, Frame{}, conn.closeAfter(fmt.Errorf("holder: set deadline on %s: %w", sock, err))
+	if err := raw.SetDeadline(due); err != nil {
+		return nil, Frame{}, conn.closeAfter(fmt.Errorf("holder: set deadline on %s: %w", name, err))
 	}
 	exchanged := make(chan attachResult, 1)
 	go func() {
@@ -221,13 +235,13 @@ func attachBounded(
 	}()
 	select {
 	case <-ctx.Done():
-		return nil, Frame{}, conn.closeAfter(fmt.Errorf("holder: attach to %s: %w", sock, ctx.Err()))
+		return nil, Frame{}, conn.closeAfter(fmt.Errorf("holder: attach to %s: %w", name, ctx.Err()))
 	case res := <-exchanged:
 		if res.err != nil {
 			return nil, Frame{}, res.err
 		}
-		if err = raw.SetDeadline(time.Time{}); err != nil {
-			return nil, Frame{}, conn.closeAfter(fmt.Errorf("holder: clear deadline on %s: %w", sock, err))
+		if err := raw.SetDeadline(time.Time{}); err != nil {
+			return nil, Frame{}, conn.closeAfter(fmt.Errorf("holder: clear deadline on %s: %w", name, err))
 		}
 		return conn, res.attached, nil
 	}

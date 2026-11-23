@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-// designTables returns the tables 00103_designs.sql adds.
+// designTables returns the tables 00105_designs.sql adds.
 func designTables() []string {
 	return []string{"designs", "design_contracts", "design_edges"}
 }
@@ -37,15 +37,15 @@ func columnLists(t *testing.T, s *Store) map[string][]string {
 	return lists
 }
 
-// TestDesignMigrationOnlyAdds checks 00103_designs.sql, which adds the designs, design_contracts and design_edges
-// tables. It opens a store at version 102, before the migration, and steps the migration Up, Down and Up again. After
+// TestDesignMigrationOnlyAdds checks 00105_designs.sql, which adds the designs, design_contracts and design_edges
+// tables. It opens a store at version 104, before the migration, and steps the migration Up, Down and Up again. After
 // each Up the design tables are present and empty, and after the Down they are gone. The column lists of every table
-// present at 102 read the same before and after each step, so the migration only adds.
+// present at 104 read the same before and after each step, so the migration only adds.
 func TestDesignMigrationOnlyAdds(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	s, provider := storeAtVersion(t, 102)
-	assertDesignTables(t, s, "at 102", false)
+	s, provider := storeAtVersion(t, 104)
+	assertDesignTables(t, s, "at 104", false)
 	before := columnLists(t, s)
 	// assertColumns checks that the tables other than the design tables read the same as before.
 	assertColumns := func(when string) {
@@ -60,32 +60,32 @@ func TestDesignMigrationOnlyAdds(t *testing.T) {
 	}
 
 	if _, err := provider.UpByOne(ctx); err != nil {
-		t.Fatalf("Up of 00103: %v", err)
+		t.Fatalf("Up of 00105: %v", err)
 	}
 	assertDesignTables(t, s, "after Up", true)
 	assertColumns("after Up")
 
 	if _, err := provider.Down(ctx); err != nil {
-		t.Fatalf("Down of 00103: %v", err)
+		t.Fatalf("Down of 00105: %v", err)
 	}
 	assertDesignTables(t, s, "after Down", false)
 	assertColumns("after Down")
 
 	if _, err := provider.UpByOne(ctx); err != nil {
-		t.Fatalf("Up of 00103 again: %v", err)
+		t.Fatalf("Up of 00105 again: %v", err)
 	}
 	assertDesignTables(t, s, "after second Up", true)
 	assertColumns("after second Up")
 }
 
-// TestDesignMigrationKeepsRows checks that 00103_designs.sql leaves the rows of the tables at 102 as they were. It seeds
-// version 102 with a session, a contract with a version and a state, and the seeded epic with its decision. The Up adds
+// TestDesignMigrationKeepsRows checks that 00105_designs.sql leaves the rows of the tables at 104 as they were. It seeds
+// version 104 with a session, a contract with a version and a state, and the seeded epic with its decision. The Up adds
 // the design tables empty, and a design row written into them under the migration is gone after the Down removes the
 // tables. The seeded rows read back unchanged after the Up, the Down and the second Up.
 func TestDesignMigrationKeepsRows(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	s, provider := storeAtVersion(t, 102)
+	s, provider := storeAtVersion(t, 104)
 	seedEpic(t, s.db.DB)
 	if _, err := s.fixtureExec(ctx,
 		`INSERT INTO sessions (id, server, pane) VALUES ('claude-writer', '', '%2')`); err != nil {
@@ -132,7 +132,7 @@ func TestDesignMigrationKeepsRows(t *testing.T) {
 	}
 
 	if _, err := provider.UpByOne(ctx); err != nil {
-		t.Fatalf("Up of 00103: %v", err)
+		t.Fatalf("Up of 00105: %v", err)
 	}
 	assertDesignTables(t, s, "after Up", true)
 	assertSeeded("after Up")
@@ -153,13 +153,13 @@ func TestDesignMigrationKeepsRows(t *testing.T) {
 	}
 
 	if _, err := provider.Down(ctx); err != nil {
-		t.Fatalf("Down of 00103: %v", err)
+		t.Fatalf("Down of 00105: %v", err)
 	}
 	assertDesignTables(t, s, "after Down", false)
 	assertSeeded("after Down")
 
 	if _, err := provider.UpByOne(ctx); err != nil {
-		t.Fatalf("Up of 00103 again: %v", err)
+		t.Fatalf("Up of 00105 again: %v", err)
 	}
 	assertDesignTables(t, s, "after second Up", true)
 	assertSeeded("after second Up")

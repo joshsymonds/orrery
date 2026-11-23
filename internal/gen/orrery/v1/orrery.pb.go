@@ -420,8 +420,10 @@ type HeadlessSession struct {
 	Ended bool `protobuf:"varint,13,opt,name=ended,proto3" json:"ended,omitempty"`
 	// The unix seconds the conversation ended (its change time), or 0 when it has not ended.
 	EndedAt int64 `protobuf:"varint,14,opt,name=ended_at,json=endedAt,proto3" json:"ended_at,omitempty"`
+	// The orrery name of the host the session runs on.
+	Host string `protobuf:"bytes,15,opt,name=host,proto3" json:"host,omitempty"`
 	// The designs this conversation works, each with its contracts.
-	Designs       []*Design `protobuf:"bytes,15,rep,name=designs,proto3" json:"designs,omitempty"`
+	Designs       []*Design `protobuf:"bytes,16,rep,name=designs,proto3" json:"designs,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -552,6 +554,13 @@ func (x *HeadlessSession) GetEndedAt() int64 {
 		return x.EndedAt
 	}
 	return 0
+}
+
+func (x *HeadlessSession) GetHost() string {
+	if x != nil {
+		return x.Host
+	}
+	return ""
 }
 
 func (x *HeadlessSession) GetDesigns() []*Design {
@@ -7138,7 +7147,7 @@ const file_orrery_v1_orrery_proto_rawDesc = "" +
 	"\bended_at\x18\x10 \x01(\x03R\aendedAt\"\x15\n" +
 	"\x13ListHeadlessRequest\"N\n" +
 	"\x14ListHeadlessResponse\x126\n" +
-	"\bsessions\x18\x01 \x03(\v2\x1a.orrery.v1.HeadlessSessionR\bsessions\"\x95\x03\n" +
+	"\bsessions\x18\x01 \x03(\v2\x1a.orrery.v1.HeadlessSessionR\bsessions\"\xa9\x03\n" +
 	"\x0fHeadlessSession\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x10\n" +
 	"\x03dir\x18\x02 \x01(\tR\x03dir\x12\x14\n" +
@@ -7154,8 +7163,9 @@ const file_orrery_v1_orrery_proto_rawDesc = "" +
 	"\bheadline\x18\v \x01(\tR\bheadline\x12\x17\n" +
 	"\aput_off\x18\f \x01(\bR\x06putOff\x12\x14\n" +
 	"\x05ended\x18\r \x01(\bR\x05ended\x12\x19\n" +
-	"\bended_at\x18\x0e \x01(\x03R\aendedAt\x12+\n" +
-	"\adesigns\x18\x0f \x03(\v2\x11.orrery.v1.DesignR\adesigns\"^\n" +
+	"\bended_at\x18\x0e \x01(\x03R\aendedAt\x12\x12\n" +
+	"\x04host\x18\x0f \x01(\tR\x04host\x12+\n" +
+	"\adesigns\x18\x10 \x03(\v2\x11.orrery.v1.DesignR\adesigns\"^\n" +
 	" SessionsWatchConversationRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x14\n" +
 	"\x05limit\x18\x02 \x01(\rR\x05limit\x12\x14\n" +

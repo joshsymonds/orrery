@@ -34,7 +34,10 @@ type StartRequest struct {
 	// an existing session starts nothing and returns that id.
 	Id string `protobuf:"bytes,4,opt,name=id,proto3" json:"id,omitempty"`
 	// The client that sent the request, such as orrery-android. Empty means none.
-	Client        string `protobuf:"bytes,5,opt,name=client,proto3" json:"client,omitempty"`
+	Client string `protobuf:"bytes,5,opt,name=client,proto3" json:"client,omitempty"`
+	// The orrery name of the host the session runs on, a host hosts.toml names or the controller's own. Empty means the
+	// controller's.
+	Host          string `protobuf:"bytes,6,opt,name=host,proto3" json:"host,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -100,6 +103,13 @@ func (x *StartRequest) GetId() string {
 func (x *StartRequest) GetClient() string {
 	if x != nil {
 		return x.Client
+	}
+	return ""
+}
+
+func (x *StartRequest) GetHost() string {
+	if x != nil {
+		return x.Host
 	}
 	return ""
 }
@@ -1270,13 +1280,14 @@ var File_orrery_engine_v1_engine_proto protoreflect.FileDescriptor
 
 const file_orrery_engine_v1_engine_proto_rawDesc = "" +
 	"\n" +
-	"\x1dorrery/engine/v1/engine.proto\x12\x10orrery.engine.v1\"v\n" +
+	"\x1dorrery/engine/v1/engine.proto\x12\x10orrery.engine.v1\"\x8a\x01\n" +
 	"\fStartRequest\x12\x10\n" +
 	"\x03dir\x18\x01 \x01(\tR\x03dir\x12\x16\n" +
 	"\x06prompt\x18\x02 \x01(\tR\x06prompt\x12\x14\n" +
 	"\x05model\x18\x03 \x01(\tR\x05model\x12\x0e\n" +
 	"\x02id\x18\x04 \x01(\tR\x02id\x12\x16\n" +
-	"\x06client\x18\x05 \x01(\tR\x06client\"\x1f\n" +
+	"\x06client\x18\x05 \x01(\tR\x06client\x12\x12\n" +
+	"\x04host\x18\x06 \x01(\tR\x04host\"\x1f\n" +
 	"\rStartResponse\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\"e\n" +
 	"\n" +

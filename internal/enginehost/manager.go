@@ -9,7 +9,6 @@ import (
 	"log/slog"
 	"maps"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -20,8 +19,8 @@ import (
 	"github.com/joshsymonds/orrery/internal/engine/session"
 	"github.com/joshsymonds/orrery/internal/engine/transport"
 	"github.com/joshsymonds/orrery/internal/holder"
+	"github.com/joshsymonds/orrery/internal/holderhost"
 	"github.com/joshsymonds/orrery/internal/protocol"
-	"github.com/joshsymonds/orrery/internal/stamp"
 	"github.com/joshsymonds/orrery/internal/store"
 	"github.com/joshsymonds/orrery/internal/telemetry"
 )
@@ -45,6 +44,14 @@ var ErrBadModel = errors.New("session model must be 1 to 64 letters, digits or .
 
 // ErrBadID reports a Start whose id is set but is not 32 lowercase hex digits.
 var ErrBadID = errors.New("session id must be 32 lowercase hex digits")
+
+// ErrUnknownHost reports a Start whose host is neither empty, the controller's own name, nor a name in Config.Hosts. The
+// start stores nothing.
+var ErrUnknownHost = errors.New("session host is not one this controller runs sessions on")
+
+// ErrHostUnreachable reports a command to a session whose host reads unreachable now (see holderhost.Host.Reach), or a
+// Start naming such a host. The command stores and sends nothing, and the session stays where it is.
+var ErrHostUnreachable = errors.New("session host is unreachable")
 
 // ErrBadAnswer reports an Answer that fits neither the options of the open question nor allow or deny for the open
 // permission request. The request stays open.
@@ -76,8 +83,8 @@ var ErrCallerFailed = errors.New("session failed and waits for its owner's next 
 // errManagerClosed reports a Start on a manager that Close has begun closing.
 var errManagerClosed = errors.New("session manager is closed")
 
-// permissionMode is the permission mode every session runs in.
-const permissionMode = "bypassPermissions"
+// permissionMode is the permission mode every session runs in, as holderhost.PermissionMode names it.
+const permissionMode = holderhost.PermissionMode
 
 // denyMessage is the message a permission request denied through Answer gives the session.
 const denyMessage = "The orrery host denied this request."
@@ -133,10 +140,10 @@ type Store interface {
 // Seen read and Logger reports pump errors (nil discards). HolderScope is the absolute path of systemd-run that runs
 // each session's holder in its own user scope, or empty to run holders plainly; with it set, Close detaches the
 // sessions instead of stopping them, so their holders keep running. StateDir is the state directory that holds the
-// sessions' holders, or empty for a private directory per session. ManagedDir is the managed settings root that a
-// step's agent resolves under, or empty to read none. HolderVersion is the holder wire version this manager's controller
-// speaks when it re-adopts a holder, or zero for holder.WireVersion. Metrics counts each holder lost in re-adoption, or
-// nil to count none.
+// sessions' holders, or empty for a private directory per session. A session on another host is detached by Close
+// whatever HolderScope is. ManagedDir is the managed settings root that a step's agent resolves under, or empty to read
+// none. HolderVersion is the holder wire version this manager's controller speaks when it re-adopts a holder, or zero
+// for holder.WireVersion. Metrics counts each holder lost in re-adoption, or nil to count none.
 //
 // CronWake, when set, is called with a session id after the owner's Say to that session returns nil, and after a turn's
 // end that leaves a session which is not a step with no turn running is stored. It is called with "" whenever the
@@ -169,6 +176,13 @@ type Config struct {
 	EventWake     func()
 	PutOffs       PutOffStore
 	Panes         PaneQuestions
+
+	// HostName is the orrery name of the controller's own host. A session a start names no host for runs on the
+	// controller's Local, and its row and each step's row store this name. Empty names no host.
+	HostName string
+	// Hosts holds the other hosts a start may name, by orrery name. A session that runs on one is launched through its
+	// holderhost.Host.
+	Hosts map[string]holderhost.Host
 
 	// AfterFunc arms a timer that calls the function once after the duration, and returns the function that stops the
 	// timer, as time.AfterFunc does. A nil AfterFunc wraps time.AfterFunc. The idle deadline of each session is armed
@@ -205,6 +219,7 @@ type liveSession struct {
 	id             string
 	dir            string
 	sess           *session.Session
+	host           holderhost.Host
 	rec            *recorder
 	done           chan struct{}
 	stopped        chan struct{}
@@ -245,12 +260,14 @@ type liveSession struct {
 // Manager starts, stops and tracks headless sessions. Each running session has a pump goroutine that records its
 // events through the Writer. Close stops every session and waits for the pumps.
 type Manager struct {
-	shell       string
-	claude      string
 	environ     []string
 	holderScope string
-	stateDir    string
 	managedDir  string
+	// local is the controller's own host, the sessions this machine runs and their holder directories under the state
+	// directory. hostName and hosts are Config.HostName and Config.Hosts, which resolveHost names a start's host from.
+	local    *holderhost.Local
+	hostName string
+	hosts    map[string]holderhost.Host
 	// holderVersion is the holder wire version the controller speaks when it re-adopts a holder.
 	holderVersion int
 	// attachTimeout bounds a re-adoption's attach in place of holder.AttachTimeout when it is not zero. Tests set it.
@@ -316,8 +333,17 @@ type Manager struct {
 	// two deadlines.
 	idleChecks int
 
-	// resumeMu serializes the resume of a session that is not live, so concurrent Says to one id start one process.
+	// resumeMu serializes the calls that start or stop a process on the controller's own host, and every step's respawn,
+	// so concurrent Says to one id start one process. A session on a remote host takes that host's lock instead (see
+	// hostLock), which only that host's calls hold, so a call that waits on a hung host never waits on another host.
 	resumeMu sync.Mutex
+	// hostLocks holds the lock of each remote host, by name (see hostLock). The controller's own host has none here.
+	hostLocks map[string]*sync.Mutex
+	// watching holds the cancel of each remote host's watcher, by name (see watchHost). Close cancels each, so each watcher and
+	// the reconciles it runs end. It is guarded by mu.
+	watching map[string]context.CancelFunc
+	// watchers counts the goroutines that watch hosts. Close waits for each to end once it has cancelled them.
+	watchers sync.WaitGroup
 	// attemptMu guards attempts. attempts holds the keyed calls running now, by key: a Start that names a session id, or
 	// a Say that names a prompt id. A key's attempt is removed when it ends, so a later call with that key checks the
 	// store as an unkeyed call would. An attempt that failed after it stored its record stays, with its error, so a
@@ -333,12 +359,21 @@ type Manager struct {
 // NewManager returns a Manager for cfg.
 func NewManager(cfg Config) *Manager {
 	manager := &Manager{
-		shell:         cfg.Shell,
-		claude:        cfg.Claude,
-		environ:       cfg.Environ,
-		holderScope:   cfg.HolderScope,
-		stateDir:      cfg.StateDir,
-		managedDir:    cfg.ManagedDir,
+		hostLocks:   remoteLocks(cfg.Hosts, cfg.HostName),
+		watching:    map[string]context.CancelFunc{},
+		environ:     cfg.Environ,
+		holderScope: cfg.HolderScope,
+		managedDir:  cfg.ManagedDir,
+		local: holderhost.NewLocal(holderhost.LocalConfig{
+			Shell:    cfg.Shell,
+			Claude:   cfg.Claude,
+			Environ:  cfg.Environ,
+			StateDir: cfg.StateDir,
+			Scope:    cfg.HolderScope,
+			CronHook: true,
+		}),
+		hostName:      cfg.HostName,
+		hosts:         cfg.Hosts,
 		holderVersion: cfg.HolderVersion,
 		writer:        cfg.Writer,
 		now:           cfg.Now,
@@ -375,23 +410,87 @@ func NewManager(cfg Config) *Manager {
 	return manager
 }
 
+// remoteLocks returns a new lock for each host of hosts that is not the controller's own host, own, by name. The
+// controller's own host, which sessions run on under the empty name too, has none (see hostLock).
+func remoteLocks(hosts map[string]holderhost.Host, own string) map[string]*sync.Mutex {
+	locks := make(map[string]*sync.Mutex, len(hosts))
+	for name := range hosts {
+		if name != "" && name != own {
+			locks[name] = &sync.Mutex{}
+		}
+	}
+	return locks
+}
+
+// hostLock returns the lock that serializes the process calls of the sessions on the host named name. A remote host has a
+// lock of its own, which its calls hold across that host's network I/O. The controller's own host, and any name no remote
+// host has, take resumeMu, since their calls are local.
+func (m *Manager) hostLock(name string) *sync.Mutex {
+	if lock, ok := m.hostLocks[name]; ok {
+		return lock
+	}
+	return &m.resumeMu
+}
+
+// lockOf returns the lock of the host that session id's row names (see hostLock). A row that cannot be read takes the
+// controller's own lock, so the call that reads it fails the same way it does without the lock.
+func (m *Manager) lockOf(ctx context.Context, id string) *sync.Mutex {
+	row, err := m.store.EngineSession(ctx, id)
+	if err != nil {
+		return &m.resumeMu
+	}
+	return m.hostLock(row.Host)
+}
+
+// hostReachable reports whether host reads reachable now. It only reads the host's reach, so nothing waits on the host.
+func hostReachable(host holderhost.Host) bool {
+	reachable, _ := host.Reach()
+	return reachable
+}
+
+// SessionReach is the reach of a session: the orrery name of the host its row names, and whether that host reads reachable
+// now (see holderhost.Host.Reach). A host that names no host this controller runs sessions on reads unreachable.
+type SessionReach struct {
+	Host      string
+	Reachable bool
+}
+
+// Reach returns the reach of session id: the host its row names, and whether that host reads reachable now. It reads the
+// row and the host's reach, and stores nothing, so the row is left as it is. It returns an error wrapping ErrNoSession
+// when no engine row has id.
+func (m *Manager) Reach(ctx context.Context, id string) (SessionReach, error) {
+	row, err := m.engineRow(ctx, id)
+	if err != nil {
+		return SessionReach{}, fmt.Errorf("reach of session %s: %w", id, err)
+	}
+	if place, hostErr := m.hostOf(row); hostErr == nil {
+		return SessionReach{Host: row.Host, Reachable: hostReachable(place.host)}, nil
+	}
+	return SessionReach{Host: row.Host}, nil
+}
+
 // StartRequest is what Start needs: the directory the session runs in, its first prompt, and the model alias it runs.
 // An empty Model runs claude's default. An empty ID mints a session id; a non-empty ID is the id the session takes.
-// Client is the X-Orrery-Client of the request, stored with the first prompt; empty when none was sent.
+// Client is the X-Orrery-Client of the request, stored with the first prompt; empty when none was sent. Host is the orrery
+// name of the host the session runs on: empty or the controller's own name runs it on the controller, and a name in
+// Config.Hosts runs it there (see resolveHost).
 type StartRequest struct {
 	Dir    string
 	Prompt string
 	Model  string
 	ID     string
 	Client string
+	Host   string
 }
 
 // Start starts a session as req describes and returns its id. An empty req.ID mints one. A non-empty req.ID must be 32
-// lowercase hex digits, or Start returns an error matching ErrBadID before it stores anything. A non-empty req.ID runs
-// as one attempt: while an attempt for it runs, a Start with that id waits for the attempt and returns its result, and
-// starts nothing. Once begun, the attempt finishes even if ctx ends, and a Start whose ctx ends returns ctx's error. With
-// no attempt running, a req.ID that already has an engine row returns that id and does nothing else. An attempt that
-// fails after it stores the row keeps its error, and a later Start with that id returns the error and does nothing else.
+// lowercase hex digits, or Start returns an error matching ErrBadID before it stores anything. A req.Host that names no
+// host this controller runs sessions on returns an error matching ErrUnknownHost before it stores anything. A non-empty
+// req.ID runs as one attempt: while an attempt for it runs, a Start with that id waits for the attempt and returns its
+// result, and starts nothing. Once begun, the attempt finishes even if ctx ends, and a Start whose ctx ends returns ctx's
+// error. With no attempt running, a req.ID that already has an engine row returns that id and does nothing else. An
+// attempt that fails after it stores the row keeps its error, and a later Start with that id returns the error and does
+// nothing else.
 // An attempt that fails before it stores the row frees the id. Start records the session as working before it spawns
 // the process. A spawn or prompt failure is recorded as the session's failed state with the reason, and Start returns
 // the id with no error.
@@ -485,20 +584,34 @@ func (m *Manager) execute(
 	close(at.done)
 }
 
-// start starts the session id as req describes. It checks req and that the manager is open, records the row, then
-// spawns the process and sends the first prompt.
+// start starts the session id as req describes. It checks req, the host req names, that the manager is open and that the host
+// reads reachable, then records the row with the name of its host, then spawns the process on that host and sends the first
+// prompt. A host that reads unreachable refuses the start with ErrHostUnreachable before anything is stored.
 func (m *Manager) start(ctx context.Context, id string, req StartRequest) (string, error) {
 	if err := checkStart(req); err != nil {
 		return "", err
 	}
+	place, hostErr := m.resolveHost(req.Host)
+	if hostErr != nil {
+		return "", hostErr
+	}
 	if err := m.checkOpen(); err != nil {
 		return "", err
 	}
-	add := store.EngineAdd{ID: id, Dir: req.Dir, State: string(protocol.StateWorking)}
+	if !hostReachable(place.host) {
+		return "", fmt.Errorf("start session %s on %s: %w", id, place.name, ErrHostUnreachable)
+	}
+	// The lock of the host is held from the row to the registered process, so a reconcile of the host (see
+	// reconcileSessionOnReach) never reads the new holder before its session is live.
+	lock := m.hostLock(place.name)
+	lock.Lock()
+	add := store.EngineAdd{ID: id, Dir: req.Dir, State: string(protocol.StateWorking), Host: place.name}
 	if err := m.writer.Commit(ctx, id, add); err != nil {
+		lock.Unlock()
 		return "", fmt.Errorf("record session %s: %w", id, err)
 	}
-	live, err := m.spawnLive(ctx, id, req.Dir, spawnSpec{model: req.Model})
+	live, err := m.spawnLive(ctx, id, req.Dir, spawnSpec{model: req.Model, host: place.host})
+	lock.Unlock()
 	if err != nil {
 		return id, m.recordFailed(ctx, id, req.Dir, err)
 	}
@@ -524,12 +637,13 @@ func (m *Manager) start(ctx context.Context, id string, req StartRequest) (strin
 // session is recorded stopped the same way, and leaves the drained set (see stopDrained). It returns ErrNoSession when id
 // is neither. Unless id is a step, which keeps its own cron, Stop first deletes the cron jobs of id, so none fires into
 // the stopped session, whether id is live or idle-stopped. A deletion error is joined into the error Stop returns, and
-// the stop goes on. resumeMu is held, as Release holds it, so a respawn cannot take the drained step between the lookup
-// and the stop.
+// the stop goes on. The lock of id's host is held (see lockOf), as resumeSession holds it, and as Release holds resumeMu for
+// a step, so a respawn cannot take the drained step between the lookup and the stop.
 func (m *Manager) Stop(ctx context.Context, id string) error {
 	defer m.calls.enter()()
-	m.resumeMu.Lock()
-	defer m.resumeMu.Unlock()
+	lock := m.lockOf(ctx, id)
+	lock.Lock()
+	defer lock.Unlock()
 	m.mu.Lock()
 	live := m.sessions[id]
 	drained := m.kept[id]
@@ -543,6 +657,9 @@ func (m *Manager) Stop(ctx context.Context, id string) error {
 	switch {
 	case live != nil:
 		stopErr := live.sess.Stop()
+		if stopErr == nil {
+			m.clearStopped(ctx, live)
+		}
 		recordErr := m.recordStopped(ctx, live)
 		if stopErr == nil && recordErr == nil {
 			return cronErr
@@ -674,11 +791,15 @@ func (m *Manager) promptRecorded(ctx context.Context, id, promptID string) (bool
 }
 
 // say delivers the message of req as Say does, without the check of its prompt id. A session that is not live is resumed
-// first. A session that ends between the lookup and the delivery is resumed once more, then the delivery fails.
+// first, and a live one whose host reads unreachable is refused with ErrHostUnreachable before anything is sent. A session
+// that ends between the lookup and the delivery is resumed once more, then the delivery fails.
 func (m *Manager) say(ctx context.Context, req SayRequest) error {
 	live, err := m.live(req.ID)
-	if errors.Is(err, ErrNoSession) {
+	switch {
+	case errors.Is(err, ErrNoSession):
 		live, err = m.resumeSession(ctx, req.ID, nil)
+	case err == nil && !hostReachable(live.host):
+		err = ErrHostUnreachable
 	}
 	if err != nil {
 		return fmt.Errorf("say to session %s: %w", req.ID, err)
@@ -1186,6 +1307,10 @@ func (m *Manager) respawnStep(ctx context.Context, id string) (*liveSession, err
 	if err != nil {
 		return nil, err
 	}
+	place, err := m.hostOf(row)
+	if err != nil {
+		return nil, err
+	}
 	if err = checkDir(row.Dir); err != nil {
 		return nil, errors.Join(err, m.writeFailed(ctx, id, err))
 	}
@@ -1197,7 +1322,7 @@ func (m *Manager) respawnStep(ctx context.Context, id string) (*liveSession, err
 	observer := m.stepObservers[id]
 	m.mu.Unlock()
 	live, err := m.spawnLive(ctx, id, row.Dir, spawnSpec{claudeSession: row.ClaudeSession, agent: step.Agent,
-		agents: step.Agents, schema: step.Schema, step: true, observer: observer})
+		agents: step.Agents, schema: step.Schema, step: true, observer: observer, host: place.host})
 	if err != nil {
 		return nil, errors.Join(err, m.writeFailed(ctx, id, err))
 	}
@@ -1531,14 +1656,16 @@ func (m *Manager) Live() []string {
 // the row's directory and resumes the row's claude session, when it has one. It waits for a retired session with id to
 // end (see awaitStopping), then checks that the manager is open before it reads the directory, so a closed manager refuses
 // the resume before anything is recorded. A directory that is missing or not a directory records the session failed and
-// returns an error wrapping ErrBadDir. resumeMu makes concurrent calls for one id start a single process: each call after
-// the first finds the session live. A non-nil admit sees the row under resumeMu before the process starts, and an error
-// it returns refuses the resume.
+// returns an error wrapping ErrBadDir. The lock of id's host (see lockOf) makes concurrent calls for one id start a single
+// process: each call after the first finds the session live. A remote host's lock is held across that host's I/O, and no
+// other host's call waits on it. A non-nil admit sees the row under the lock before the process starts, and an error it
+// returns refuses the resume.
 func (m *Manager) resumeSession(
 	ctx context.Context, id string, admit func(store.EngineRow) error,
 ) (*liveSession, error) {
-	m.resumeMu.Lock()
-	defer m.resumeMu.Unlock()
+	lock := m.lockOf(ctx, id)
+	lock.Lock()
+	defer lock.Unlock()
 	if live, err := m.live(id); err == nil {
 		return live, nil
 	}
@@ -1581,16 +1708,51 @@ func (m *Manager) awaitStopping(ctx context.Context, id string) error {
 	}
 }
 
-// resume starts the process of row, an engine row that is not live, and registers it live. It checks that the manager is
-// open first, then checks the row's directory. A failed check or spawn records the row failed.
+// placedHost is a host a process runs on: the orrery name a row stores for it, and the host itself.
+type placedHost struct {
+	name string
+	host holderhost.Host
+}
+
+// resolveHost returns the host that name runs a session on. An empty name, or the controller's own HostName, is the
+// controller's Local, and is stored as HostName. A name in Config.Hosts is that host. Any other name returns an error
+// matching ErrUnknownHost.
+func (m *Manager) resolveHost(name string) (placedHost, error) {
+	if name == "" || name == m.hostName {
+		return placedHost{name: m.hostName, host: m.local}, nil
+	}
+	if host, ok := m.hosts[name]; ok {
+		return placedHost{name: name, host: host}, nil
+	}
+	return placedHost{}, fmt.Errorf("%w: %s", ErrUnknownHost, name)
+}
+
+// hostOf returns the host that row's session runs on, as resolveHost names it from row's host. Every holder use of the
+// session goes through that host. It fails when row's host names no host this controller runs sessions on, and that
+// session is then never resumed or spawned anywhere else.
+func (m *Manager) hostOf(row store.EngineRow) (placedHost, error) {
+	return m.resolveHost(row.Host)
+}
+
+// resume starts the process of row, an engine row that is not live, on the host row names, and registers it live. It
+// checks that the manager is open first, then checks the row's host and directory. A row whose host this controller does
+// not run sessions on, or whose host reads unreachable, is refused before anything starts, and so is left as it is. A
+// failed directory check or spawn records the row failed.
 func (m *Manager) resume(ctx context.Context, row store.EngineRow) (*liveSession, error) {
 	if err := m.checkOpen(); err != nil {
 		return nil, err
 	}
+	place, hostErr := m.resolveHost(row.Host)
+	if hostErr != nil {
+		return nil, hostErr
+	}
+	if !hostReachable(place.host) {
+		return nil, fmt.Errorf("resume session %s on %s: %w", row.ID, place.name, ErrHostUnreachable)
+	}
 	if err := checkDir(row.Dir); err != nil {
 		return nil, errors.Join(err, m.recordFailed(ctx, row.ID, row.Dir, err))
 	}
-	live, err := m.spawnLive(ctx, row.ID, row.Dir, spawnSpec{claudeSession: row.ClaudeSession})
+	live, err := m.spawnLive(ctx, row.ID, row.Dir, spawnSpec{claudeSession: row.ClaudeSession, host: place.host})
 	if err != nil {
 		return nil, errors.Join(err, m.recordFailed(ctx, row.ID, row.Dir, err))
 	}
@@ -1640,9 +1802,9 @@ func (m *Manager) register(
 	ctx context.Context, sess *session.Session, id, dir string, sp spawnSpec, rec *recorder, re *readoption,
 ) (*liveSession, error) {
 	pumpCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
-	live := &liveSession{id: id, dir: dir, sess: sess, rec: rec, done: make(chan struct{}), cancel: cancel,
-		step: sp.step, agent: sp.agent, schema: sp.schema != "", observer: sp.observer, requests: map[string]struct{}{},
-		draining: re != nil && re.draining}
+	live := &liveSession{id: id, dir: dir, sess: sess, host: sp.host, rec: rec, done: make(chan struct{}),
+		cancel: cancel, step: sp.step, agent: sp.agent, schema: sp.schema != "", observer: sp.observer,
+		requests: map[string]struct{}{}, draining: re != nil && re.draining}
 	reply := ""
 	if re != nil {
 		var err error
@@ -1767,13 +1929,14 @@ func unwrittenPrompts(prompts []store.HolderPrompt, written []string) []store.Ho
 	return unwritten
 }
 
-// Close stops every live session and waits up to 5 s for each to record its state. With a holder scope, Close detaches
-// each session instead, so its holder and child keep running, and it records nothing for the session: the row keeps the
-// state and unfinished text its events gave it, for a later orreryd to re-adopt where its stored offsets say. Without a
-// holder scope, a session whose turn was running is recorded interrupted, and every session loses its unfinished text.
-// It then cancels any write a pump still has blocked and waits for the pumps to return, and for the stops of the
-// sessions retired before the close, whose holder directories are gone once those stops return. Start refuses from the
-// moment Close begins, and later calls to Close return at once.
+// Close stops every live session and waits up to 5 s for each to record its state. With a holder scope, or for a
+// session on another host, Close detaches each session instead, so its holder and child keep running, and it records
+// nothing for the session: the row keeps the state and unfinished text its events gave it, for a later orreryd to
+// re-adopt where its stored offsets say. Without a holder scope, a session on this host whose turn was running is
+// recorded interrupted, and every such session loses its unfinished text. It then cancels any write a pump still has
+// blocked and waits for the pumps to return, and for the stops of the sessions retired before the close, whose holder
+// directories are gone once those stops return. Start refuses from the moment Close begins, and later calls to Close
+// return at once.
 func (m *Manager) Close() {
 	defer m.calls.enter()()
 	m.mu.Lock()
@@ -1783,6 +1946,9 @@ func (m *Manager) Close() {
 	}
 	m.closed = true
 	close(m.idleQuit)
+	for _, cancel := range m.watching {
+		cancel()
+	}
 	running := make([]*liveSession, 0, len(m.sessions))
 	for _, live := range m.sessions {
 		live.closing = true
@@ -1792,7 +1958,7 @@ func (m *Manager) Close() {
 
 	for _, live := range running {
 		var err error
-		if m.holderScope != "" {
+		if m.detaches(live) {
 			err = live.sess.Detach()
 		} else {
 			err = live.sess.Stop()
@@ -1816,6 +1982,8 @@ func (m *Manager) Close() {
 		live.cancel()
 	}
 	m.pumps.Wait()
+	// Each host watcher ends at once, since Close cancelled it (see watchHost), and none starts after the close.
+	m.watchers.Wait()
 	// A session retired before the close is still being stopped on its own goroutine (stopRetired), and its holder's
 	// directory is removed only once that stop returns. Close waits for those stops too, so no stop of this manager
 	// still touches a holder directory once Close returns.
@@ -1828,6 +1996,12 @@ func (m *Manager) Close() {
 	for _, live := range retired {
 		<-live.stopped
 	}
+}
+
+// detaches reports whether Close detaches live's session rather than stopping it. Close always detaches a session on
+// another host, since Close never stops a holder on another machine, and under a holder scope it detaches every session.
+func (m *Manager) detaches(live *liveSession) bool {
+	return m.holderScope != "" || live.host != holderhost.Host(m.local)
 }
 
 // RunIdle stops the sessions that are idle for the idle timeout, until ctx ends. Each session's idle timer hands its
@@ -1855,40 +2029,56 @@ func (m *Manager) idleDeadline() {
 // checkIdle stops each live session that has been not busy for the idle timeout by the clock, and waits for its pump to
 // end. A session is busy while a turn runs, a request is open, or a background task runs. The stop records
 // nothing, so the session's row and events stay as they were, except for a session still held working, which is
-// recorded done (see settleIdleHeld). The session is taken out of the live set under the lock
-// before it is stopped, and resumeMu is held through the stop, so a Say that finds no live session waits, then resumes it
-// from its row. A session whose deadline timer fires before it is due, or fires after it turned busy, is not stopped.
+// recorded done (see settleIdleHeld). The session is taken out of the live set under the lock before it is stopped, and
+// the lock of its host is held through the stop (see stopIdle), so a Say that finds no live session waits, then resumes
+// it from its row. A session whose deadline timer fires before it is due, or fires after it turned busy, is not stopped.
 func (m *Manager) checkIdle(ctx context.Context) {
 	defer m.calls.enter()()
-	m.resumeMu.Lock()
-	defer m.resumeMu.Unlock()
 	now := m.now()
 	m.mu.Lock()
 	m.idleChecks++
-	var stopping []*liveSession
-	held := map[*liveSession]bool{}
+	var due []string
 	for id, live := range m.sessions {
-		if live.closing || live.busy() || now.Sub(live.idleSince) < defaultIdleAfter {
-			continue
+		if !live.closing && !live.busy() && now.Sub(live.idleSince) >= defaultIdleAfter {
+			due = append(due, id)
 		}
-		live.idleStopped = true
-		held[live] = live.held
-		live.held = false
-		delete(m.sessions, id)
-		m.disarmIdleLocked(live)
-		stopping = append(stopping, live)
 	}
 	m.mu.Unlock()
-	for _, live := range stopping {
-		if err := live.sess.Stop(); err != nil {
-			m.logger.WarnContext(ctx, "stop idle session", "session", live.id, "err", err)
-		}
-		if err := m.waitPump(ctx, live); err != nil {
-			m.logger.WarnContext(ctx, "wait for idle session", "session", live.id, "err", err)
-		}
-		if held[live] {
-			m.settleIdleHeld(ctx, live)
-		}
+	for _, id := range due {
+		m.stopIdle(ctx, id, now)
+	}
+}
+
+// stopIdle stops session id if it is still due at now, as checkIdle found it. The lock of id's host is held through the
+// stop (see lockOf), so a Say that finds no live session waits for it, then resumes the session from its row. The session is
+// taken out of the live set under the lock before it is stopped, and the stop records nothing, except that a session still
+// held working is recorded done (see settleIdleHeld).
+func (m *Manager) stopIdle(ctx context.Context, id string, now time.Time) {
+	lock := m.lockOf(ctx, id)
+	lock.Lock()
+	defer lock.Unlock()
+	m.mu.Lock()
+	live := m.sessions[id]
+	if live == nil || live.closing || live.busy() || now.Sub(live.idleSince) < defaultIdleAfter {
+		m.mu.Unlock()
+		return
+	}
+	live.idleStopped = true
+	held := live.held
+	live.held = false
+	delete(m.sessions, id)
+	m.disarmIdleLocked(live)
+	m.mu.Unlock()
+	if err := live.sess.Stop(); err != nil {
+		m.logger.WarnContext(ctx, "stop idle session", "session", live.id, "err", err)
+	} else {
+		m.clearStopped(ctx, live)
+	}
+	if err := m.waitPump(ctx, live); err != nil {
+		m.logger.WarnContext(ctx, "wait for idle session", "session", live.id, "err", err)
+	}
+	if held {
+		m.settleIdleHeld(ctx, live)
 	}
 }
 
@@ -2113,7 +2303,7 @@ func newWriteID() (string, error) {
 
 // spawnSpec describes the process a spawn starts: the claude session it resumes, the model it runs, and for a step the
 // agent, the JSON object of inline agents and the schema it runs with, and the observer of its hand-offs. step marks a
-// step session.
+// step session. host is the host the process starts on.
 type spawnSpec struct {
 	claudeSession string
 	model         string
@@ -2122,39 +2312,26 @@ type spawnSpec struct {
 	schema        string
 	step          bool
 	observer      StepObserver
+	host          holderhost.Host
 }
 
-// spawn resolves claude and starts the session process for id in dir as sp describes, ctx bounding its launch. The
-// prompt is not sent here. The process takes its settings from spawnSettings, and settings that cannot be read fail the
-// spawn before claude runs. The launch of id is committed before the holder starts, so a commit that fails fails the
-// spawn too.
+// spawn starts the session process for id in dir as sp describes, ctx bounding its launch. The prompt is not sent here.
+// The launch of id is committed before the holder starts, so a commit that fails fails the spawn too. The host sp names
+// starts the process (see holderhost.Local.Launch), which resolves claude and builds the process's settings, so settings
+// that cannot be read fail the spawn before claude runs.
 func (m *Manager) spawn(ctx context.Context, id, dir string, sp spawnSpec) (*session.Session, error) {
-	claude, err := exec.LookPath(m.claude)
-	if err != nil {
-		return nil, fmt.Errorf("find claude: %w", err)
-	}
-	settings, err := m.spawnSettings(dir, sp.step)
-	if err != nil {
-		return nil, fmt.Errorf("spawn session %s: %w", id, err)
-	}
-	if err = m.writer.Commit(ctx, id, store.EngineLaunch{ID: id}); err != nil {
+	if err := m.writer.Commit(ctx, id, store.EngineLaunch{ID: id}); err != nil {
 		return nil, fmt.Errorf("launch session %s: %w", id, err)
 	}
-	sess, err := session.Start(ctx, session.Config{
-		Shell:          m.shell,
-		Claude:         claude,
-		Dir:            dir,
-		PermissionMode: permissionMode,
-		Settings:       settings,
-		Resume:         sp.claudeSession,
-		Model:          sp.model,
-		Agent:          sp.agent,
-		Agents:         sp.agents,
-		Schema:         sp.schema,
-		Name:           id,
-		HolderScope:    m.holderScope,
-		StateDir:       m.stateDir,
-		Environ:        m.environ,
+	sess, err := sp.host.Launch(ctx, holderhost.Spec{
+		Session: id,
+		Dir:     dir,
+		Resume:  sp.claudeSession,
+		Model:   sp.model,
+		Agent:   sp.agent,
+		Agents:  sp.agents,
+		Schema:  sp.schema,
+		Step:    sp.step,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("spawn session %s: %w", id, err)
@@ -2162,72 +2339,10 @@ func (m *Manager) spawn(ctx context.Context, id, dir string, sp spawnSpec) (*ses
 	return sess, nil
 }
 
-// spawnSettings returns the --settings JSON of a spawn in dir. The stamp is looked up under the HOME entry of the
-// manager's environment, which must be an absolute path. A session the owner talks to, a resume included, always takes
-// stamp.HeadlessSettings: the stamp's env when one applies, and nothing otherwise, plus the PreToolUse hook that
-// carries its cron tools to orrery. The orrery that runs the hook is holder.Binary(""), and one that cannot be resolved
-// fails here, before claude runs. A step takes settings with no hook: the stamp's env when one applies, and
-// claudeMdExcludes naming the user CLAUDE.md, so a step does not load the owner's own rules. Its path is read from
-// m.environ, and a step whose path cannot be resolved fails here, before claude runs.
-func (m *Manager) spawnSettings(dir string, step bool) (string, error) {
-	home, err := stampHome(m.environ)
-	if err != nil {
-		return "", fmt.Errorf("find stamp for %s: %w", dir, err)
-	}
-	found, err := stamp.Find(home, dir)
-	if err != nil {
-		return "", fmt.Errorf("find stamp for %s: %w", dir, err)
-	}
-	if !step {
-		var orrery string
-		if orrery, err = holder.Binary(""); err != nil {
-			return "", fmt.Errorf("cron hook for %s: %w", dir, err)
-		}
-		return stamp.HeadlessSettings(found.Env, orrery), nil
-	}
-	memory, err := userMemoryOf(m.environ)
-	if err != nil {
-		return "", fmt.Errorf("step in %s: %w", dir, err)
-	}
-	return stamp.Settings(false, found.Env, []string{memory}), nil
-}
-
-// environValue returns the value of name in environ, and whether environ has it. The last entry for name wins, as it
-// does for a child process that exec starts with environ.
+// environValue returns the value of name in environ, and whether environ has it, as holderhost.EnvironValue does. The
+// last entry for name wins.
 func environValue(environ []string, name string) (string, bool) {
-	value, found := "", false
-	for _, entry := range environ {
-		key, val, ok := strings.Cut(entry, "=")
-		if ok && key == name {
-			value, found = val, true
-		}
-	}
-	return value, found
-}
-
-// stampHome returns the HOME entry of environ, the home every stamp is looked up under. It refuses a HOME that is absent,
-// empty, or not an absolute path, so no stamp is ever read below a home the lookup cannot resolve.
-func stampHome(environ []string) (string, error) {
-	home, ok := environValue(environ, "HOME")
-	if !ok {
-		return "", errors.New("HOME is not set")
-	}
-	if !filepath.IsAbs(home) {
-		return "", fmt.Errorf("HOME %q is not an absolute path", home)
-	}
-	return home, nil
-}
-
-// userMemoryOf returns the path of the user's CLAUDE.md that the claude running with environ loads: its HOME and
-// CLAUDE_CONFIG_DIR entries, read as stamp.UserMemory reads them. It fails when that path cannot be resolved.
-func userMemoryOf(environ []string) (string, error) {
-	home, _ := environValue(environ, "HOME")
-	configDir, _ := environValue(environ, "CLAUDE_CONFIG_DIR")
-	memory, err := stamp.UserMemory(home, configDir)
-	if err != nil {
-		return "", fmt.Errorf("user memory: %w", err)
-	}
-	return memory, nil
+	return holderhost.EnvironValue(environ, name)
 }
 
 // pump records the events of one running session, line by line and in order, until its lines close, and tells the owner
@@ -2772,14 +2887,14 @@ func (m *Manager) recordStopped(ctx context.Context, live *liveSession) error {
 // recordClosed waits for the pump of live to finish, then records live as Close leaves it: interrupted with the reason
 // when its turn was running or a task that runs a model held it working, since the stop ends that task, and otherwise
 // in the state its turn gave it. Either way its unfinished text is removed, each background task still running is
-// recorded stopped, and each prompt claude had not started is recorded discarded. An interruption notifies the owner. A session whose exit already recorded its state is left alone. Under
-// a holder scope Close only detaches the session, so nothing is recorded for it. It returns the error of the wait or of
-// the write.
+// recorded stopped, and each prompt claude had not started is recorded discarded. An interruption notifies the owner. A
+// session whose exit already recorded its state is left alone. Where Close only detaches the session (see detaches),
+// nothing is recorded for it. It returns the error of the wait or of the write.
 func (m *Manager) recordClosed(ctx context.Context, live *liveSession) error {
 	if err := m.waitPump(ctx, live); err != nil {
 		return err
 	}
-	if live.exited || m.holderScope != "" {
+	if live.exited || m.detaches(live) {
 		return nil
 	}
 	m.mu.Lock()

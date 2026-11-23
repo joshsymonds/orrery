@@ -111,6 +111,7 @@ func headlessMessage(row store.HeadlessRow) (*orreryv1.HeadlessSession, error) {
 		Summary:     headlessSummary(row),
 		Question:    row.Question,
 		NewestReply: row.NewestReply,
+		Host:        row.Host,
 	}, nil
 }
 

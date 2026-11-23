@@ -11,8 +11,9 @@ import (
 
 // EngineRow is one headless engine session row, copied from its sessions columns. Tracked is set when the row's
 // consumed offset is not NULL, that is, when an EngineLaunch has tracked it. Consumed, ReplayFrom, Background, Awaited
-// and TurnOutput are the re-adoption state the row holds. Held is set while the row's working state is held by a
-// background task, with no turn running (see EngineChanges).
+// and TurnOutput are the re-adoption state the row holds. Host is the orrery name of the host the session runs on, or
+// "" when none is named. Held is set while the row's working state is held by a background task, with no turn running
+// (see EngineChanges).
 type EngineRow struct {
 	ID            string
 	Dir           string
@@ -21,6 +22,7 @@ type EngineRow struct {
 	ClaudeSession string
 	Reason        string
 	Kind          string
+	Host          string
 	Tracked       bool
 	Consumed      int64
 	ReplayFrom    int64
@@ -120,7 +122,7 @@ func (s *Store) QuietSessions(ctx context.Context) ([]string, error) {
 func toEngineRow(row sqlcgen.Session) EngineRow {
 	return EngineRow{
 		ID: row.ID, Dir: row.Dir, State: row.State, Question: row.Question,
-		ClaudeSession: row.ClaudeSession, Reason: row.Reason, Kind: row.Kind,
+		ClaudeSession: row.ClaudeSession, Reason: row.Reason, Kind: row.Kind, Host: row.Host,
 		Tracked: row.Consumed.Valid, Consumed: row.Consumed.Int64, ReplayFrom: row.ReplayFrom,
 		Background: row.Background, Awaited: row.Awaited, TurnOutput: row.TurnOutput, Held: row.Held,
 	}
