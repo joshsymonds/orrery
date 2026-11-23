@@ -1,15 +1,17 @@
 // AccountsPage draws the accounts and routes page at #/accounts: its head, then the Accounts section, which is the accounts
-// table. On mount it reads Accounts.List and Routes.Get and holds both. A read that fails draws its reason with a Retry.
-// Later tasks add the Add button, the Contexts and the Seats.
+// table and, when its head's Add account is pressed, the Add account form under the table. On mount it reads Accounts.List
+// and Routes.Get and holds both. A read that fails draws its reason with a Retry. Later tasks add the Contexts and the Seats.
 
 import { create } from "@bufbuild/protobuf";
 import { ConnectError } from "@connectrpc/connect";
 import type { VNode } from "preact";
 import { useCallback, useEffect, useState } from "preact/hooks";
 
+import { AccountAdd } from "./accountadd";
 import { AccountsTable } from "./accountstable";
 import type { createClients } from "./client";
 import { type Account, type RouteRegistry, RouteRegistrySchema } from "./gen/orrery/v1/accounts_pb";
+import { Icon } from "./glyphs";
 
 type Clients = Pick<ReturnType<typeof createClients>, "accounts" | "routes">;
 
@@ -49,6 +51,10 @@ async function readBoth(clients: Clients): Promise<Read> {
 
 export function AccountsPage({ clients, narrow }: AccountsPageProps): VNode {
   const [read, setRead] = useState<Read | null>(null);
+  // adding is whether the Add account form is open under the table. addNote is the line drawn under the table after the form
+  // closed with a write that had no answer, or null for none.
+  const [adding, setAdding] = useState(false);
+  const [addNote, setAddNote] = useState<string | null>(null);
 
   // reread reads both again and holds what they answer. It resolves with the registry held, or with null when a read failed.
   const reread = useCallback(async (): Promise<RouteRegistry | null> => {
@@ -68,10 +74,37 @@ export function AccountsPage({ clients, narrow }: AccountsPageProps): VNode {
     );
   }, []);
 
+  // addAccount holds the account an answered Add returns, after the accounts held now.
+  const addAccount = useCallback(
+    (account: Account) => changeAccounts((held) => [...held, account]),
+    [changeAccounts],
+  );
+
+  // closeAdd closes the Add account form and draws note under the table, or nothing when note is null.
+  const closeAdd = useCallback((note: string | null) => {
+    setAdding(false);
+    setAddNote(note);
+  }, []);
+
   return (
     <div class={narrow ? "accounts-page narrow" : "accounts-page"}>
       <div class="ptitle">
         <h2>Accounts and routes</h2>
+        {read?.kind === "held" ? (
+          <span class="end">
+            <button
+              type="button"
+              class="btn"
+              onClick={() => {
+                setAddNote(null);
+                setAdding(true);
+              }}
+            >
+              <Icon name="plus" />
+              Add account
+            </button>
+          </span>
+        ) : null}
       </div>
       <div class="pbody">
         {read?.kind === "failed" ? (
@@ -94,6 +127,12 @@ export function AccountsPage({ clients, narrow }: AccountsPageProps): VNode {
               changeAccounts={changeAccounts}
               reread={reread}
             />
+            {adding ? <AccountAdd clients={clients} added={addAccount} close={closeAdd} reread={reread} /> : null}
+            {addNote !== null ? (
+              <p class="acc-note" data-tone="quiet">
+                {addNote}
+              </p>
+            ) : null}
           </section>
         ) : null}
       </div>
