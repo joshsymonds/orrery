@@ -45,6 +45,10 @@ var ErrBadModel = errors.New("session model must be 1 to 64 letters, digits or .
 // ErrBadID reports a Start whose id is set but is not 32 lowercase hex digits.
 var ErrBadID = errors.New("session id must be 32 lowercase hex digits")
 
+// ErrUnknownHost reports a Start whose host is neither empty, the controller's own name, nor a name in Config.Hosts. The
+// start stores nothing.
+var ErrUnknownHost = errors.New("session host is not one this controller runs sessions on")
+
 // ErrBadAnswer reports an Answer that fits neither the options of the open question nor allow or deny for the open
 // permission request. The request stays open.
 var ErrBadAnswer = errors.New("answer does not fit the open request")
@@ -169,6 +173,13 @@ type Config struct {
 	PutOffs       PutOffStore
 	Panes         PaneQuestions
 
+	// HostName is the orrery name of the controller's own host. A session a start names no host for runs on the
+	// controller's Local, and its row and each step's row store this name. Empty names no host.
+	HostName string
+	// Hosts holds the other hosts a start may name, by orrery name. A session that runs on one is launched through its
+	// holderhost.Host.
+	Hosts map[string]holderhost.Host
+
 	// AfterFunc arms a timer that calls the function once after the duration, and returns the function that stops the
 	// timer, as time.AfterFunc does. A nil AfterFunc wraps time.AfterFunc. The idle deadline of each session is armed
 	// through it.
@@ -235,9 +246,11 @@ type Manager struct {
 	environ     []string
 	holderScope string
 	managedDir  string
-	// local is the host every session's holder is reached through: the sessions this machine runs and their holder
-	// directories under the state directory.
-	local *holderhost.Local
+	// local is the controller's own host, the sessions this machine runs and their holder directories under the state
+	// directory. hostName and hosts are Config.HostName and Config.Hosts, which resolveHost names a start's host from.
+	local    *holderhost.Local
+	hostName string
+	hosts    map[string]holderhost.Host
 	// holderVersion is the holder wire version the controller speaks when it re-adopts a holder.
 	holderVersion int
 	// attachTimeout bounds a re-adoption's attach in place of holder.AttachTimeout when it is not zero. Tests set it.
@@ -331,6 +344,8 @@ func NewManager(cfg Config) *Manager {
 			Scope:    cfg.HolderScope,
 			CronHook: true,
 		}),
+		hostName:      cfg.HostName,
+		hosts:         cfg.Hosts,
 		holderVersion: cfg.HolderVersion,
 		writer:        cfg.Writer,
 		now:           cfg.Now,
@@ -369,21 +384,26 @@ func NewManager(cfg Config) *Manager {
 
 // StartRequest is what Start needs: the directory the session runs in, its first prompt, and the model alias it runs.
 // An empty Model runs claude's default. An empty ID mints a session id; a non-empty ID is the id the session takes.
-// Client is the X-Orrery-Client of the request, stored with the first prompt; empty when none was sent.
+// Client is the X-Orrery-Client of the request, stored with the first prompt; empty when none was sent. Host is the orrery
+// name of the host the session runs on: empty or the controller's own name runs it on the controller, and a name in
+// Config.Hosts runs it there (see resolveHost).
 type StartRequest struct {
 	Dir    string
 	Prompt string
 	Model  string
 	ID     string
 	Client string
+	Host   string
 }
 
 // Start starts a session as req describes and returns its id. An empty req.ID mints one. A non-empty req.ID must be 32
-// lowercase hex digits, or Start returns an error matching ErrBadID before it stores anything. A non-empty req.ID runs
-// as one attempt: while an attempt for it runs, a Start with that id waits for the attempt and returns its result, and
-// starts nothing. Once begun, the attempt finishes even if ctx ends, and a Start whose ctx ends returns ctx's error. With
-// no attempt running, a req.ID that already has an engine row returns that id and does nothing else. An attempt that
-// fails after it stores the row keeps its error, and a later Start with that id returns the error and does nothing else.
+// lowercase hex digits, or Start returns an error matching ErrBadID before it stores anything. A req.Host that names no
+// host this controller runs sessions on returns an error matching ErrUnknownHost before it stores anything. A non-empty
+// req.ID runs as one attempt: while an attempt for it runs, a Start with that id waits for the attempt and returns its
+// result, and starts nothing. Once begun, the attempt finishes even if ctx ends, and a Start whose ctx ends returns ctx's
+// error. With no attempt running, a req.ID that already has an engine row returns that id and does nothing else. An
+// attempt that fails after it stores the row keeps its error, and a later Start with that id returns the error and does
+// nothing else.
 // An attempt that fails before it stores the row frees the id. Start records the session as working before it spawns
 // the process. A spawn or prompt failure is recorded as the session's failed state with the reason, and Start returns
 // the id with no error.
@@ -477,20 +497,24 @@ func (m *Manager) execute(
 	close(at.done)
 }
 
-// start starts the session id as req describes. It checks req and that the manager is open, records the row, then
-// spawns the process and sends the first prompt.
+// start starts the session id as req describes. It checks req, the host req names and that the manager is open, records
+// the row with the name of its host, then spawns the process on that host and sends the first prompt.
 func (m *Manager) start(ctx context.Context, id string, req StartRequest) (string, error) {
 	if err := checkStart(req); err != nil {
 		return "", err
 	}
+	place, hostErr := m.resolveHost(req.Host)
+	if hostErr != nil {
+		return "", hostErr
+	}
 	if err := m.checkOpen(); err != nil {
 		return "", err
 	}
-	add := store.EngineAdd{ID: id, Dir: req.Dir, State: string(protocol.StateWorking)}
+	add := store.EngineAdd{ID: id, Dir: req.Dir, State: string(protocol.StateWorking), Host: place.name}
 	if err := m.writer.Commit(ctx, id, add); err != nil {
 		return "", fmt.Errorf("record session %s: %w", id, err)
 	}
-	live, err := m.spawnLive(ctx, id, req.Dir, spawnSpec{model: req.Model})
+	live, err := m.spawnLive(ctx, id, req.Dir, spawnSpec{model: req.Model, host: place.host})
 	if err != nil {
 		return id, m.recordFailed(ctx, id, req.Dir, err)
 	}
@@ -1187,7 +1211,7 @@ func (m *Manager) respawnStep(ctx context.Context, id string) (*liveSession, err
 	observer := m.stepObservers[id]
 	m.mu.Unlock()
 	live, err := m.spawnLive(ctx, id, row.Dir, spawnSpec{claudeSession: row.ClaudeSession, agent: step.Agent,
-		agents: step.Agents, schema: step.Schema, step: true, observer: observer})
+		agents: step.Agents, schema: step.Schema, step: true, observer: observer, host: m.local})
 	if err != nil {
 		return nil, errors.Join(err, m.writeFailed(ctx, id, err))
 	}
@@ -1541,16 +1565,41 @@ func (m *Manager) awaitStopping(ctx context.Context, id string) error {
 	}
 }
 
-// resume starts the process of row, an engine row that is not live, and registers it live. It checks that the manager is
-// open first, then checks the row's directory. A failed check or spawn records the row failed.
+// placedHost is a host a process runs on: the orrery name a row stores for it, and the host itself.
+type placedHost struct {
+	name string
+	host holderhost.Host
+}
+
+// resolveHost returns the host that name runs a session on. An empty name, or the controller's own HostName, is the
+// controller's Local, and is stored as HostName. A name in Config.Hosts is that host. Any other name returns an error
+// matching ErrUnknownHost.
+func (m *Manager) resolveHost(name string) (placedHost, error) {
+	if name == "" || name == m.hostName {
+		return placedHost{name: m.hostName, host: m.local}, nil
+	}
+	if host, ok := m.hosts[name]; ok {
+		return placedHost{name: name, host: host}, nil
+	}
+	return placedHost{}, fmt.Errorf("%w: %s", ErrUnknownHost, name)
+}
+
+// resume starts the process of row, an engine row that is not live, on the host row names, and registers it live. It
+// checks that the manager is open first, then checks the row's host and directory. A row whose host this controller does
+// not run sessions on is refused before anything starts, and so is left as it is. A failed directory check or spawn
+// records the row failed.
 func (m *Manager) resume(ctx context.Context, row store.EngineRow) (*liveSession, error) {
 	if err := m.checkOpen(); err != nil {
 		return nil, err
 	}
+	place, hostErr := m.resolveHost(row.Host)
+	if hostErr != nil {
+		return nil, hostErr
+	}
 	if err := checkDir(row.Dir); err != nil {
 		return nil, errors.Join(err, m.recordFailed(ctx, row.ID, row.Dir, err))
 	}
-	live, err := m.spawnLive(ctx, row.ID, row.Dir, spawnSpec{claudeSession: row.ClaudeSession})
+	live, err := m.spawnLive(ctx, row.ID, row.Dir, spawnSpec{claudeSession: row.ClaudeSession, host: place.host})
 	if err != nil {
 		return nil, errors.Join(err, m.recordFailed(ctx, row.ID, row.Dir, err))
 	}
@@ -2044,7 +2093,7 @@ func newWriteID() (string, error) {
 
 // spawnSpec describes the process a spawn starts: the claude session it resumes, the model it runs, and for a step the
 // agent, the JSON object of inline agents and the schema it runs with, and the observer of its hand-offs. step marks a
-// step session.
+// step session. host is the host the process starts on.
 type spawnSpec struct {
 	claudeSession string
 	model         string
@@ -2053,17 +2102,18 @@ type spawnSpec struct {
 	schema        string
 	step          bool
 	observer      StepObserver
+	host          holderhost.Host
 }
 
 // spawn starts the session process for id in dir as sp describes, ctx bounding its launch. The prompt is not sent here.
-// The launch of id is committed before the holder starts, so a commit that fails fails the spawn too. The host starts
-// the process (see holderhost.Local.Launch), which resolves claude and builds the process's settings, so settings that
-// cannot be read fail the spawn before claude runs.
+// The launch of id is committed before the holder starts, so a commit that fails fails the spawn too. The host sp names
+// starts the process (see holderhost.Local.Launch), which resolves claude and builds the process's settings, so settings
+// that cannot be read fail the spawn before claude runs.
 func (m *Manager) spawn(ctx context.Context, id, dir string, sp spawnSpec) (*session.Session, error) {
 	if err := m.writer.Commit(ctx, id, store.EngineLaunch{ID: id}); err != nil {
 		return nil, fmt.Errorf("launch session %s: %w", id, err)
 	}
-	sess, err := m.local.Launch(ctx, holderhost.Spec{
+	sess, err := sp.host.Launch(ctx, holderhost.Spec{
 		Session: id,
 		Dir:     dir,
 		Resume:  sp.claudeSession,
