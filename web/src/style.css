@@ -1770,6 +1770,12 @@ button.block:hover { --ground: var(--o-surface-raised); }
 .acc-note { margin: 0; font: var(--o-type-small); color: var(--o-ink-2); overflow-wrap: anywhere; }
 .acc-note[data-tone="bad"] { color: var(--o-role-bad); }
 .acc-gone-note { padding: var(--o-space-8) var(--o-space-12); }
+.seat-wrap { min-width: 0; overflow-x: auto; }
+.seat-table { width: 100%; border-collapse: collapse; font: var(--o-type-small); color: var(--o-ink-2); }
+.seat-table th { padding: var(--o-space-8) var(--o-space-12); border-bottom: var(--o-size-hairline) solid var(--o-line-soft); text-align: left; font: var(--o-type-label); letter-spacing: var(--o-type-label-tracking); text-transform: uppercase; color: var(--o-ink-3); }
+.seat-table td { padding: var(--o-space-8) var(--o-space-12); border-bottom: var(--o-size-hairline) solid var(--o-line-soft); vertical-align: middle; white-space: nowrap; }
+.seat-table td.main { color: var(--o-ink-1); font-weight: var(--o-font-weight-bold); }
+.seat-table td.code { color: var(--o-prose-code); }
 
 /* Reduced motion comes last, so it wins over the rules above: each move is one 100 ms linear step, a page drills and
    leaves by a fade, and the loops hold still. */

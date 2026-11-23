@@ -1,6 +1,6 @@
 // AccountsPage draws the accounts and routes page at #/accounts: its head, then the Accounts section, which is the accounts
-// table. On mount it reads Accounts.List and Routes.Get and holds both. A read that fails draws its reason with a Retry.
-// Later tasks add the Add button, the Contexts and the Seats.
+// table, then the Seats section, which is the seats table. On mount it reads Accounts.List and Routes.Get and holds both. A
+// read that fails draws its reason with a Retry. Later tasks add the Add button and the Contexts, which go before the Seats.
 
 import { create } from "@bufbuild/protobuf";
 import { ConnectError } from "@connectrpc/connect";
@@ -10,6 +10,7 @@ import { useCallback, useEffect, useState } from "preact/hooks";
 import { AccountsTable } from "./accountstable";
 import type { createClients } from "./client";
 import { type Account, type RouteRegistry, RouteRegistrySchema } from "./gen/orrery/v1/accounts_pb";
+import { RouteSeats } from "./routeseats";
 
 type Clients = Pick<ReturnType<typeof createClients>, "accounts" | "routes">;
 
@@ -94,6 +95,14 @@ export function AccountsPage({ clients, narrow }: AccountsPageProps): VNode {
               changeAccounts={changeAccounts}
               reread={reread}
             />
+          </section>
+        ) : null}
+        {read?.kind === "held" ? (
+          <section class="psec" aria-label="Seats">
+            <div class="psec-h">
+              <span class="lbl">Seats</span>
+            </div>
+            <RouteSeats registry={read.held.registry} />
           </section>
         ) : null}
       </div>
