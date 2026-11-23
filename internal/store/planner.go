@@ -267,13 +267,9 @@ func loadPlanSections(ctx context.Context, queries *sqlcgen.Queries, row *EpicRo
 	if err != nil {
 		return fmt.Errorf("list task test changes: %w", err)
 	}
-	reviews, err := queries.ListEpicTaskReviews(ctx, row.ID)
+	reviewsOf, err := storedTaskReviews(ctx, queries, row.ID)
 	if err != nil {
-		return fmt.Errorf("list task reviews: %w", err)
-	}
-	findings, err := queries.ListEpicTaskFindings(ctx, row.ID)
-	if err != nil {
-		return fmt.Errorf("list task findings: %w", err)
+		return err
 	}
 	pathsOf := groupByTask(files, func(file sqlcgen.EpicTaskFile) int64 { return file.Task },
 		func(file sqlcgen.EpicTaskFile) string { return file.Path })
@@ -285,7 +281,6 @@ func loadPlanSections(ctx context.Context, queries *sqlcgen.Queries, row *EpicRo
 	}, func(contribute sqlcgen.EpicTaskContribute) string { return contribute.Requirement })
 	testChangesOf := groupByTask(testChanges, func(change sqlcgen.EpicTaskTestChange) int64 { return change.Task },
 		func(change sqlcgen.EpicTaskTestChange) string { return change.Path })
-	reviewsOf := taskReviewsOf(reviews, findings)
 	versions, err := queries.ListEpicTaskVersions(ctx, row.ID)
 	if err != nil {
 		return fmt.Errorf("list task versions: %w", err)
@@ -310,6 +305,24 @@ func loadPlanSections(ctx context.Context, queries *sqlcgen.Queries, row *EpicRo
 	}
 
 	return loadQuestions(ctx, queries, row)
+}
+
+// storedTaskReviews returns the reviews of each task of epic, keyed by task seq, from the rows stored under epic: each
+// review with its findings and test runs, as taskReviewsOf gives them.
+func storedTaskReviews(ctx context.Context, queries *sqlcgen.Queries, epic string) (map[int64][]TaskReview, error) {
+	reviews, err := queries.ListEpicTaskReviews(ctx, epic)
+	if err != nil {
+		return nil, fmt.Errorf("list task reviews: %w", err)
+	}
+	findings, err := queries.ListEpicTaskFindings(ctx, epic)
+	if err != nil {
+		return nil, fmt.Errorf("list task findings: %w", err)
+	}
+	testRuns, err := queries.ListEpicTaskTestRuns(ctx, epic)
+	if err != nil {
+		return nil, fmt.Errorf("list task test runs: %w", err)
+	}
+	return taskReviewsOf(reviews, findings, testRuns), nil
 }
 
 // taskLadderOf returns the rungs each task of epic holds, and the files orchestrator decisions refused on each, keyed
