@@ -49,7 +49,8 @@ func TestDesignHeldEpicStoredHeld(t *testing.T) {
 			newDesign(t, s, heldDesign)
 			proposeAcceptInDesign(t, s, idleContract, "Idle contract", contractProposedAt)
 			proposeAcceptInDesign(t, s, runningContract, "Running contract", contractProposedAt+20)
-			if err := s.CreateContractEpic(ctx, contractEpicRow(runningContract, contractProposedAt+40), 1); err != nil {
+			running := contractEpicRow(runningContract, contractProposedAt+40)
+			if err := s.CreateContractEpic(ctx, running, 1); err != nil {
 				t.Fatalf("CreateContractEpic of the running predecessor: %v", err)
 			}
 			proposeAcceptInDesign(t, s, heldContract, "Held contract", contractProposedAt+60)
