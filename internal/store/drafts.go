@@ -28,7 +28,7 @@ func (s *Store) DraftContract(ctx context.Context, draft ContractDraft) error {
 			return fmt.Errorf("contract %s: %w", draft.ID, ErrContractExists)
 		}
 		if draft.Design != "" {
-			if err = requireDesign(ctx, queries, draft.Design); err != nil {
+			if err := requireDesign(ctx, queries, draft.Design); err != nil {
 				return err
 			}
 		}
