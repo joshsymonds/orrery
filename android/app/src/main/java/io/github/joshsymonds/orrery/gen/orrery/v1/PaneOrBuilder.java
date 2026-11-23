@@ -391,4 +391,15 @@ public interface PaneOrBuilder extends
    * @return The held.
    */
   boolean getHeld();
+
+  /**
+   * <pre>
+   * true when the pane's host did not answer within its bound, so the pane is listed from its stored row with only id,
+   * host, orrery_id and its mirrored options set.
+   * </pre>
+   *
+   * <code>bool unreachable = 25 [json_name = "unreachable"];</code>
+   * @return The unreachable.
+   */
+  boolean getUnreachable();
 }
