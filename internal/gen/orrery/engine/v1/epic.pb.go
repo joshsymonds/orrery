@@ -3774,9 +3774,6 @@ type StoredEpic struct {
 	// The epic's release runs in the order the store reads them: by attempt, then part, then position. Every epic RPC
 	// that returns the epic fills it.
 	Releases []*EpicReleaseRun `protobuf:"bytes,18,rep,name=releases,proto3" json:"releases,omitempty"`
-	// The epic that holds the release slot of the epic's repository, empty when the slot is free. A waiting epic shows
-	// whose release it waits on.
-	ReleaseSlot string `protobuf:"bytes,19,opt,name=release_slot,json=releaseSlot,proto3" json:"release_slot,omitempty"`
 	// The epic's summary, written once from its contract. Empty until it is written.
 	Summary string `protobuf:"bytes,20,opt,name=summary,proto3" json:"summary,omitempty"`
 	// The epic's triggers, oldest first. Only a GetEpic that asks for history fills them.
@@ -3966,13 +3963,6 @@ func (x *StoredEpic) GetReleases() []*EpicReleaseRun {
 		return x.Releases
 	}
 	return nil
-}
-
-func (x *StoredEpic) GetReleaseSlot() string {
-	if x != nil {
-		return x.ReleaseSlot
-	}
-	return ""
 }
 
 func (x *StoredEpic) GetSummary() string {
@@ -7582,7 +7572,7 @@ const file_orrery_engine_v1_epic_proto_rawDesc = "" +
 	"\x05round\x18\x01 \x01(\x03R\x05round\x12\x1a\n" +
 	"\brevision\x18\x02 \x01(\tR\brevision\x12\x14\n" +
 	"\x05tasks\x18\x03 \x03(\x03R\x05tasks\x12\x18\n" +
-	"\aoutcome\x18\x04 \x01(\tR\aoutcome\"\x9b\v\n" +
+	"\aoutcome\x18\x04 \x01(\tR\aoutcome\"\x8c\v\n" +
 	"\n" +
 	"StoredEpic\x12:\n" +
 	"\bcontract\x18\x01 \x01(\v2\x1e.orrery.engine.v1.EpicContractR\bcontract\x12\x14\n" +
@@ -7603,8 +7593,7 @@ const file_orrery_engine_v1_epic_proto_rawDesc = "" +
 	"\x06ledger\x18\x0f \x01(\v2\x1c.orrery.engine.v1.EpicLedgerR\x06ledger\x12\x16\n" +
 	"\x06frozen\x18\x10 \x01(\tR\x06frozen\x12\x14\n" +
 	"\x05clean\x18\x11 \x01(\tR\x05clean\x12<\n" +
-	"\breleases\x18\x12 \x03(\v2 .orrery.engine.v1.EpicReleaseRunR\breleases\x12!\n" +
-	"\frelease_slot\x18\x13 \x01(\tR\vreleaseSlot\x12\x18\n" +
+	"\breleases\x18\x12 \x03(\v2 .orrery.engine.v1.EpicReleaseRunR\breleases\x12\x18\n" +
 	"\asummary\x18\x14 \x01(\tR\asummary\x129\n" +
 	"\btriggers\x18\x15 \x03(\v2\x1d.orrery.engine.v1.EpicTriggerR\btriggers\x120\n" +
 	"\x05tells\x18\x16 \x03(\v2\x1a.orrery.engine.v1.EpicTellR\x05tells\x12\x19\n" +
@@ -7622,7 +7611,7 @@ const file_orrery_engine_v1_epic_proto_rawDesc = "" +
 	"\asteerer\x18\x1f \x01(\tR\asteerer\x12!\n" +
 	"\fpause_source\x18  \x01(\tR\vpauseSource\x126\n" +
 	"\aactions\x18! \x03(\v2\x1c.orrery.engine.v1.EpicActionR\aactions\x12#\n" +
-	"\rsteerer_heard\x18\" \x01(\bR\fsteererHeard\"\x94\x01\n" +
+	"\rsteerer_heard\x18\" \x01(\bR\fsteererHeardJ\x04\b\x13\x10\x14R\frelease_slot\"\x94\x01\n" +
 	"\n" +
 	"EpicAction\x12\x10\n" +
 	"\x03seq\x18\x01 \x01(\x03R\x03seq\x12\x12\n" +

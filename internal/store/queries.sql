@@ -754,20 +754,6 @@ SELECT * FROM epic_release_slots WHERE repository = ?;
 -- name: FreeEpicReleaseSlot :exec
 DELETE FROM epic_release_slots WHERE epic = ? AND holder_kind = 'epic';
 
--- name: HoldOutsideReleaseSlot :exec
-INSERT INTO epic_release_slots (repository, epic, holder_kind, label, deadline) VALUES (?, '', 'outside', ?, ?)
-ON CONFLICT (repository) DO UPDATE SET label = excluded.label, deadline = excluded.deadline
-WHERE epic_release_slots.holder_kind = 'outside' AND epic_release_slots.label = excluded.label;
-
--- name: GiveOutsideReleaseSlot :execrows
-DELETE FROM epic_release_slots WHERE repository = ? AND holder_kind = 'outside' AND label = ?;
-
--- name: FreeExpiredReleaseSlots :many
-DELETE FROM epic_release_slots WHERE holder_kind = 'outside' AND deadline <= ? RETURNING repository;
-
--- name: NextOutsideReleaseSlotDeadline :one
-SELECT deadline FROM epic_release_slots WHERE holder_kind = 'outside' ORDER BY deadline LIMIT 1;
-
 -- name: StartEpicRelease :exec
 UPDATE epics SET phase = 'releasing', phase_at = ? WHERE id = ? AND phase = 'clean';
 
