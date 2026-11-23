@@ -7,7 +7,15 @@ import { act } from "preact/test-utils";
 
 import { EpicRow } from "./epicrow";
 import { blockOf } from "./epics";
-import { type EpicStep, EpicStepSchema, EpicSchema, EpicsGetResponseSchema } from "./gen/orrery/v1/epics_pb";
+import {
+  type EpicHistoryEntry,
+  EpicHistoryEntrySchema,
+  type EpicStep,
+  EpicStepSchema,
+  EpicSchema,
+  EpicsGetResponseSchema,
+} from "./gen/orrery/v1/epics_pb";
+import { JustHappened } from "./happenings";
 import { NowSection } from "./nowsection";
 import { assertNone, installTestDom, removeTestDom } from "./testdom";
 import type { EpicNode } from "./tree";
@@ -137,6 +145,76 @@ test("StepRows: the agent profile is in neither the inbox row nor the Now row", 
       }
     },
   ));
+
+// withHistory draws JustHappened with the entries, runs check on its container, and removes it.
+async function withHistory(
+  entries: EpicHistoryEntry[],
+  check: (container: HTMLElement) => void | Promise<void>,
+): Promise<void> {
+  const window = installTestDom();
+  const container = document.createElement("div");
+  document.body.append(container);
+  try {
+    await act(() => {
+      render(<JustHappened entries={entries} steps={[]} />, container);
+    });
+    await check(container);
+  } finally {
+    await act(() => {
+      render(null, container);
+    });
+    container.remove();
+    await removeTestDom(window);
+  }
+}
+
+test("StepRows: a running step's history line reads its purpose, then its doing line", () => {
+  const purpose = "Refuse an export over an existing file";
+  const doing = "Writing the refusal test.";
+  const entries = [
+    create(EpicHistoryEntrySchema, {
+      time: 9_000n,
+      cursor: "h1",
+      sentence: `${purpose} running: ${doing}`,
+      item: { case: "step", value: step({ id: "s1", purpose, doing, end: "", agent: "builder" }) },
+    }),
+  ];
+  return withHistory(entries, (container) => {
+    const what = container.querySelector("section.happen.just .what")?.textContent ?? "";
+    assert.ok(what.includes(purpose), "the line holds the purpose");
+    assert.ok(what.includes(doing), "the line holds the doing line");
+    assert.ok(what.indexOf(purpose) < what.indexOf(doing), "the purpose comes before the doing line");
+  });
+});
+
+test("StepRows: the agent profile appears only in the step's detail", async () => {
+  const purpose = "Refuse an export over an existing file";
+  const doing = "Writing the refusal test.";
+  const entries = [
+    create(EpicHistoryEntrySchema, {
+      time: 9_000n,
+      cursor: "h2",
+      sentence: `${purpose} running: ${doing}`,
+      item: { case: "step", value: step({ id: "s1", purpose, doing, end: "", agent: "builder" }) },
+    }),
+  ];
+  await withHistory(entries, async (container) => {
+    assert.equal(
+      container.querySelector("section.happen.just .happen-line")?.textContent?.includes("builder"),
+      false,
+      "the collapsed line draws no agent profile",
+    );
+    await act(() => {
+      container.querySelector<HTMLButtonElement>("section.happen.just button.happen-line")?.click();
+    });
+    assert.equal(container.querySelector("section.happen.just .detail")?.textContent, "agent: builder");
+  });
+  await withRows([step({ purpose, doing })], ({ inbox, now: nowRows }) => {
+    for (const row of [...inbox, ...nowRows]) {
+      assert.equal(row.textContent?.includes("builder"), false, "a row draws no agent profile");
+    }
+  });
+});
 
 test("StepRows: pips draw only for a step with a task, in the inbox row and the Now row", () =>
   withRows(
