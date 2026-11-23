@@ -62,7 +62,9 @@ func (*EpicsListRequest) Descriptor() ([]byte, []int) {
 type EpicsListResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// The epics, sorted by id.
-	Epics         []*Epic `protobuf:"bytes,1,rep,name=epics,proto3" json:"epics,omitempty"`
+	Epics []*Epic `protobuf:"bytes,1,rep,name=epics,proto3" json:"epics,omitempty"`
+	// The designs, each with its contracts.
+	Designs       []*Design `protobuf:"bytes,2,rep,name=designs,proto3" json:"designs,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -100,6 +102,13 @@ func (*EpicsListResponse) Descriptor() ([]byte, []int) {
 func (x *EpicsListResponse) GetEpics() []*Epic {
 	if x != nil {
 		return x.Epics
+	}
+	return nil
+}
+
+func (x *EpicsListResponse) GetDesigns() []*Design {
+	if x != nil {
+		return x.Designs
 	}
 	return nil
 }
@@ -6080,10 +6089,11 @@ var File_orrery_v1_epics_proto protoreflect.FileDescriptor
 
 const file_orrery_v1_epics_proto_rawDesc = "" +
 	"\n" +
-	"\x15orrery/v1/epics.proto\x12\torrery.v1\"\x12\n" +
-	"\x10EpicsListRequest\":\n" +
+	"\x15orrery/v1/epics.proto\x12\torrery.v1\x1a\x17orrery/v1/designs.proto\"\x12\n" +
+	"\x10EpicsListRequest\"g\n" +
 	"\x11EpicsListResponse\x12%\n" +
-	"\x05epics\x18\x01 \x03(\v2\x0f.orrery.v1.EpicR\x05epics\"!\n" +
+	"\x05epics\x18\x01 \x03(\v2\x0f.orrery.v1.EpicR\x05epics\x12+\n" +
+	"\adesigns\x18\x02 \x03(\v2\x11.orrery.v1.DesignR\adesigns\"!\n" +
 	"\x0fEpicsGetRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\"\xd4\a\n" +
 	"\x10EpicsGetResponse\x12#\n" +
@@ -6657,98 +6667,100 @@ var file_orrery_v1_epics_proto_goTypes = []any{
 	(*StepsStopResponse)(nil),        // 74: orrery.v1.StepsStopResponse
 	(*StepsResultRequest)(nil),       // 75: orrery.v1.StepsResultRequest
 	(*StepsResultResponse)(nil),      // 76: orrery.v1.StepsResultResponse
+	(*Design)(nil),                   // 77: orrery.v1.Design
 }
 var file_orrery_v1_epics_proto_depIdxs = []int32{
 	48, // 0: orrery.v1.EpicsListResponse.epics:type_name -> orrery.v1.Epic
-	48, // 1: orrery.v1.EpicsGetResponse.epic:type_name -> orrery.v1.Epic
-	49, // 2: orrery.v1.EpicsGetResponse.tasks:type_name -> orrery.v1.EpicTask
-	59, // 3: orrery.v1.EpicsGetResponse.steps:type_name -> orrery.v1.EpicStep
-	62, // 4: orrery.v1.EpicsGetResponse.requirements:type_name -> orrery.v1.EpicRequirement
-	64, // 5: orrery.v1.EpicsGetResponse.nodes:type_name -> orrery.v1.EpicNode
-	50, // 6: orrery.v1.EpicsGetResponse.build_tasks:type_name -> orrery.v1.EpicBuildTask
-	5,  // 7: orrery.v1.EpicsGetResponse.questions:type_name -> orrery.v1.EpicQuestion
-	8,  // 8: orrery.v1.EpicsGetResponse.contract:type_name -> orrery.v1.EpicContract
-	54, // 9: orrery.v1.EpicsGetResponse.ledger:type_name -> orrery.v1.EpicLedgerFinding
-	56, // 10: orrery.v1.EpicsGetResponse.releases:type_name -> orrery.v1.EpicReleaseRun
-	53, // 11: orrery.v1.EpicsGetResponse.reviews:type_name -> orrery.v1.EpicReviewVerdict
-	4,  // 12: orrery.v1.EpicsGetResponse.sessions:type_name -> orrery.v1.EpicSession
-	57, // 13: orrery.v1.EpicsGetResponse.release_steps:type_name -> orrery.v1.EpicReleaseProof
-	58, // 14: orrery.v1.EpicsGetResponse.report:type_name -> orrery.v1.EpicReport
-	6,  // 15: orrery.v1.EpicQuestion.choices:type_name -> orrery.v1.EpicQuestionChoice
-	7,  // 16: orrery.v1.EpicQuestion.recommendation:type_name -> orrery.v1.EpicRecommendation
-	9,  // 17: orrery.v1.EpicContract.failures:type_name -> orrery.v1.EpicFailure
-	10, // 18: orrery.v1.EpicContract.additions:type_name -> orrery.v1.EpicAddition
-	11, // 19: orrery.v1.EpicContract.premises:type_name -> orrery.v1.EpicPremise
-	12, // 20: orrery.v1.EpicContract.alternatives:type_name -> orrery.v1.EpicAlternative
-	13, // 21: orrery.v1.EpicContract.release_steps:type_name -> orrery.v1.EpicReleaseStep
-	16, // 22: orrery.v1.EpicsHistoryResponse.entries:type_name -> orrery.v1.EpicHistoryEntry
-	18, // 23: orrery.v1.EpicHistoryEntry.turn:type_name -> orrery.v1.EpicTurn
-	19, // 24: orrery.v1.EpicHistoryEntry.trigger:type_name -> orrery.v1.EpicTrigger
-	59, // 25: orrery.v1.EpicHistoryEntry.step:type_name -> orrery.v1.EpicStep
-	65, // 26: orrery.v1.EpicHistoryEntry.evidence:type_name -> orrery.v1.EvidenceRun
-	20, // 27: orrery.v1.EpicHistoryEntry.decision:type_name -> orrery.v1.EpicDecision
-	21, // 28: orrery.v1.EpicHistoryEntry.tell:type_name -> orrery.v1.EpicTell
-	17, // 29: orrery.v1.EpicHistoryEntry.action:type_name -> orrery.v1.EpicAction
-	20, // 30: orrery.v1.EpicsAnswerResponse.decision:type_name -> orrery.v1.EpicDecision
-	59, // 31: orrery.v1.Epic.running_steps:type_name -> orrery.v1.EpicStep
-	65, // 32: orrery.v1.EpicBuildTask.red:type_name -> orrery.v1.EvidenceRun
-	65, // 33: orrery.v1.EpicBuildTask.green:type_name -> orrery.v1.EvidenceRun
-	51, // 34: orrery.v1.EpicBuildTask.reviews:type_name -> orrery.v1.EpicTaskReview
-	52, // 35: orrery.v1.EpicTaskReview.findings:type_name -> orrery.v1.EpicTaskFinding
-	55, // 36: orrery.v1.EpicLedgerFinding.closures:type_name -> orrery.v1.EpicClosure
-	60, // 37: orrery.v1.EpicStep.checks:type_name -> orrery.v1.EpicStepCheck
-	61, // 38: orrery.v1.EpicStep.verdicts:type_name -> orrery.v1.EpicStepVerdict
-	65, // 39: orrery.v1.EpicRequirement.runs:type_name -> orrery.v1.EvidenceRun
-	65, // 40: orrery.v1.EpicNode.runs:type_name -> orrery.v1.EvidenceRun
-	63, // 41: orrery.v1.EpicNode.check:type_name -> orrery.v1.EpicNodeCheck
-	66, // 42: orrery.v1.EvidenceRun.artifacts:type_name -> orrery.v1.EvidenceArtifact
-	0,  // 43: orrery.v1.Epics.List:input_type -> orrery.v1.EpicsListRequest
-	2,  // 44: orrery.v1.Epics.Get:input_type -> orrery.v1.EpicsGetRequest
-	14, // 45: orrery.v1.Epics.History:input_type -> orrery.v1.EpicsHistoryRequest
-	26, // 46: orrery.v1.Epics.Pause:input_type -> orrery.v1.EpicsPauseRequest
-	28, // 47: orrery.v1.Epics.Resume:input_type -> orrery.v1.EpicsResumeRequest
-	30, // 48: orrery.v1.Epics.Stop:input_type -> orrery.v1.EpicsStopRequest
-	32, // 49: orrery.v1.Epics.Retry:input_type -> orrery.v1.EpicsRetryRequest
-	34, // 50: orrery.v1.Epics.Kick:input_type -> orrery.v1.EpicsKickRequest
-	36, // 51: orrery.v1.Epics.Answer:input_type -> orrery.v1.EpicsAnswerRequest
-	38, // 52: orrery.v1.Epics.Seen:input_type -> orrery.v1.EpicsSeenRequest
-	40, // 53: orrery.v1.Epics.Archive:input_type -> orrery.v1.EpicsArchiveRequest
-	42, // 54: orrery.v1.Epics.Unarchive:input_type -> orrery.v1.EpicsUnarchiveRequest
-	44, // 55: orrery.v1.Epics.Release:input_type -> orrery.v1.EpicsReleaseRequest
-	46, // 56: orrery.v1.Epics.Close:input_type -> orrery.v1.EpicsCloseRequest
-	22, // 57: orrery.v1.Epics.Move:input_type -> orrery.v1.EpicsMoveRequest
-	24, // 58: orrery.v1.Epics.Continue:input_type -> orrery.v1.EpicsContinueRequest
-	69, // 59: orrery.v1.Steps.Hold:input_type -> orrery.v1.StepsHoldRequest
-	71, // 60: orrery.v1.Steps.Nudge:input_type -> orrery.v1.StepsNudgeRequest
-	73, // 61: orrery.v1.Steps.Stop:input_type -> orrery.v1.StepsStopRequest
-	75, // 62: orrery.v1.Steps.Result:input_type -> orrery.v1.StepsResultRequest
-	67, // 63: orrery.v1.Evidence.Artifact:input_type -> orrery.v1.EvidenceArtifactRequest
-	1,  // 64: orrery.v1.Epics.List:output_type -> orrery.v1.EpicsListResponse
-	3,  // 65: orrery.v1.Epics.Get:output_type -> orrery.v1.EpicsGetResponse
-	15, // 66: orrery.v1.Epics.History:output_type -> orrery.v1.EpicsHistoryResponse
-	27, // 67: orrery.v1.Epics.Pause:output_type -> orrery.v1.EpicsPauseResponse
-	29, // 68: orrery.v1.Epics.Resume:output_type -> orrery.v1.EpicsResumeResponse
-	31, // 69: orrery.v1.Epics.Stop:output_type -> orrery.v1.EpicsStopResponse
-	33, // 70: orrery.v1.Epics.Retry:output_type -> orrery.v1.EpicsRetryResponse
-	35, // 71: orrery.v1.Epics.Kick:output_type -> orrery.v1.EpicsKickResponse
-	37, // 72: orrery.v1.Epics.Answer:output_type -> orrery.v1.EpicsAnswerResponse
-	39, // 73: orrery.v1.Epics.Seen:output_type -> orrery.v1.EpicsSeenResponse
-	41, // 74: orrery.v1.Epics.Archive:output_type -> orrery.v1.EpicsArchiveResponse
-	43, // 75: orrery.v1.Epics.Unarchive:output_type -> orrery.v1.EpicsUnarchiveResponse
-	45, // 76: orrery.v1.Epics.Release:output_type -> orrery.v1.EpicsReleaseResponse
-	47, // 77: orrery.v1.Epics.Close:output_type -> orrery.v1.EpicsCloseResponse
-	23, // 78: orrery.v1.Epics.Move:output_type -> orrery.v1.EpicsMoveResponse
-	25, // 79: orrery.v1.Epics.Continue:output_type -> orrery.v1.EpicsContinueResponse
-	70, // 80: orrery.v1.Steps.Hold:output_type -> orrery.v1.StepsHoldResponse
-	72, // 81: orrery.v1.Steps.Nudge:output_type -> orrery.v1.StepsNudgeResponse
-	74, // 82: orrery.v1.Steps.Stop:output_type -> orrery.v1.StepsStopResponse
-	76, // 83: orrery.v1.Steps.Result:output_type -> orrery.v1.StepsResultResponse
-	68, // 84: orrery.v1.Evidence.Artifact:output_type -> orrery.v1.EvidenceArtifactResponse
-	64, // [64:85] is the sub-list for method output_type
-	43, // [43:64] is the sub-list for method input_type
-	43, // [43:43] is the sub-list for extension type_name
-	43, // [43:43] is the sub-list for extension extendee
-	0,  // [0:43] is the sub-list for field type_name
+	77, // 1: orrery.v1.EpicsListResponse.designs:type_name -> orrery.v1.Design
+	48, // 2: orrery.v1.EpicsGetResponse.epic:type_name -> orrery.v1.Epic
+	49, // 3: orrery.v1.EpicsGetResponse.tasks:type_name -> orrery.v1.EpicTask
+	59, // 4: orrery.v1.EpicsGetResponse.steps:type_name -> orrery.v1.EpicStep
+	62, // 5: orrery.v1.EpicsGetResponse.requirements:type_name -> orrery.v1.EpicRequirement
+	64, // 6: orrery.v1.EpicsGetResponse.nodes:type_name -> orrery.v1.EpicNode
+	50, // 7: orrery.v1.EpicsGetResponse.build_tasks:type_name -> orrery.v1.EpicBuildTask
+	5,  // 8: orrery.v1.EpicsGetResponse.questions:type_name -> orrery.v1.EpicQuestion
+	8,  // 9: orrery.v1.EpicsGetResponse.contract:type_name -> orrery.v1.EpicContract
+	54, // 10: orrery.v1.EpicsGetResponse.ledger:type_name -> orrery.v1.EpicLedgerFinding
+	56, // 11: orrery.v1.EpicsGetResponse.releases:type_name -> orrery.v1.EpicReleaseRun
+	53, // 12: orrery.v1.EpicsGetResponse.reviews:type_name -> orrery.v1.EpicReviewVerdict
+	4,  // 13: orrery.v1.EpicsGetResponse.sessions:type_name -> orrery.v1.EpicSession
+	57, // 14: orrery.v1.EpicsGetResponse.release_steps:type_name -> orrery.v1.EpicReleaseProof
+	58, // 15: orrery.v1.EpicsGetResponse.report:type_name -> orrery.v1.EpicReport
+	6,  // 16: orrery.v1.EpicQuestion.choices:type_name -> orrery.v1.EpicQuestionChoice
+	7,  // 17: orrery.v1.EpicQuestion.recommendation:type_name -> orrery.v1.EpicRecommendation
+	9,  // 18: orrery.v1.EpicContract.failures:type_name -> orrery.v1.EpicFailure
+	10, // 19: orrery.v1.EpicContract.additions:type_name -> orrery.v1.EpicAddition
+	11, // 20: orrery.v1.EpicContract.premises:type_name -> orrery.v1.EpicPremise
+	12, // 21: orrery.v1.EpicContract.alternatives:type_name -> orrery.v1.EpicAlternative
+	13, // 22: orrery.v1.EpicContract.release_steps:type_name -> orrery.v1.EpicReleaseStep
+	16, // 23: orrery.v1.EpicsHistoryResponse.entries:type_name -> orrery.v1.EpicHistoryEntry
+	18, // 24: orrery.v1.EpicHistoryEntry.turn:type_name -> orrery.v1.EpicTurn
+	19, // 25: orrery.v1.EpicHistoryEntry.trigger:type_name -> orrery.v1.EpicTrigger
+	59, // 26: orrery.v1.EpicHistoryEntry.step:type_name -> orrery.v1.EpicStep
+	65, // 27: orrery.v1.EpicHistoryEntry.evidence:type_name -> orrery.v1.EvidenceRun
+	20, // 28: orrery.v1.EpicHistoryEntry.decision:type_name -> orrery.v1.EpicDecision
+	21, // 29: orrery.v1.EpicHistoryEntry.tell:type_name -> orrery.v1.EpicTell
+	17, // 30: orrery.v1.EpicHistoryEntry.action:type_name -> orrery.v1.EpicAction
+	20, // 31: orrery.v1.EpicsAnswerResponse.decision:type_name -> orrery.v1.EpicDecision
+	59, // 32: orrery.v1.Epic.running_steps:type_name -> orrery.v1.EpicStep
+	65, // 33: orrery.v1.EpicBuildTask.red:type_name -> orrery.v1.EvidenceRun
+	65, // 34: orrery.v1.EpicBuildTask.green:type_name -> orrery.v1.EvidenceRun
+	51, // 35: orrery.v1.EpicBuildTask.reviews:type_name -> orrery.v1.EpicTaskReview
+	52, // 36: orrery.v1.EpicTaskReview.findings:type_name -> orrery.v1.EpicTaskFinding
+	55, // 37: orrery.v1.EpicLedgerFinding.closures:type_name -> orrery.v1.EpicClosure
+	60, // 38: orrery.v1.EpicStep.checks:type_name -> orrery.v1.EpicStepCheck
+	61, // 39: orrery.v1.EpicStep.verdicts:type_name -> orrery.v1.EpicStepVerdict
+	65, // 40: orrery.v1.EpicRequirement.runs:type_name -> orrery.v1.EvidenceRun
+	65, // 41: orrery.v1.EpicNode.runs:type_name -> orrery.v1.EvidenceRun
+	63, // 42: orrery.v1.EpicNode.check:type_name -> orrery.v1.EpicNodeCheck
+	66, // 43: orrery.v1.EvidenceRun.artifacts:type_name -> orrery.v1.EvidenceArtifact
+	0,  // 44: orrery.v1.Epics.List:input_type -> orrery.v1.EpicsListRequest
+	2,  // 45: orrery.v1.Epics.Get:input_type -> orrery.v1.EpicsGetRequest
+	14, // 46: orrery.v1.Epics.History:input_type -> orrery.v1.EpicsHistoryRequest
+	26, // 47: orrery.v1.Epics.Pause:input_type -> orrery.v1.EpicsPauseRequest
+	28, // 48: orrery.v1.Epics.Resume:input_type -> orrery.v1.EpicsResumeRequest
+	30, // 49: orrery.v1.Epics.Stop:input_type -> orrery.v1.EpicsStopRequest
+	32, // 50: orrery.v1.Epics.Retry:input_type -> orrery.v1.EpicsRetryRequest
+	34, // 51: orrery.v1.Epics.Kick:input_type -> orrery.v1.EpicsKickRequest
+	36, // 52: orrery.v1.Epics.Answer:input_type -> orrery.v1.EpicsAnswerRequest
+	38, // 53: orrery.v1.Epics.Seen:input_type -> orrery.v1.EpicsSeenRequest
+	40, // 54: orrery.v1.Epics.Archive:input_type -> orrery.v1.EpicsArchiveRequest
+	42, // 55: orrery.v1.Epics.Unarchive:input_type -> orrery.v1.EpicsUnarchiveRequest
+	44, // 56: orrery.v1.Epics.Release:input_type -> orrery.v1.EpicsReleaseRequest
+	46, // 57: orrery.v1.Epics.Close:input_type -> orrery.v1.EpicsCloseRequest
+	22, // 58: orrery.v1.Epics.Move:input_type -> orrery.v1.EpicsMoveRequest
+	24, // 59: orrery.v1.Epics.Continue:input_type -> orrery.v1.EpicsContinueRequest
+	69, // 60: orrery.v1.Steps.Hold:input_type -> orrery.v1.StepsHoldRequest
+	71, // 61: orrery.v1.Steps.Nudge:input_type -> orrery.v1.StepsNudgeRequest
+	73, // 62: orrery.v1.Steps.Stop:input_type -> orrery.v1.StepsStopRequest
+	75, // 63: orrery.v1.Steps.Result:input_type -> orrery.v1.StepsResultRequest
+	67, // 64: orrery.v1.Evidence.Artifact:input_type -> orrery.v1.EvidenceArtifactRequest
+	1,  // 65: orrery.v1.Epics.List:output_type -> orrery.v1.EpicsListResponse
+	3,  // 66: orrery.v1.Epics.Get:output_type -> orrery.v1.EpicsGetResponse
+	15, // 67: orrery.v1.Epics.History:output_type -> orrery.v1.EpicsHistoryResponse
+	27, // 68: orrery.v1.Epics.Pause:output_type -> orrery.v1.EpicsPauseResponse
+	29, // 69: orrery.v1.Epics.Resume:output_type -> orrery.v1.EpicsResumeResponse
+	31, // 70: orrery.v1.Epics.Stop:output_type -> orrery.v1.EpicsStopResponse
+	33, // 71: orrery.v1.Epics.Retry:output_type -> orrery.v1.EpicsRetryResponse
+	35, // 72: orrery.v1.Epics.Kick:output_type -> orrery.v1.EpicsKickResponse
+	37, // 73: orrery.v1.Epics.Answer:output_type -> orrery.v1.EpicsAnswerResponse
+	39, // 74: orrery.v1.Epics.Seen:output_type -> orrery.v1.EpicsSeenResponse
+	41, // 75: orrery.v1.Epics.Archive:output_type -> orrery.v1.EpicsArchiveResponse
+	43, // 76: orrery.v1.Epics.Unarchive:output_type -> orrery.v1.EpicsUnarchiveResponse
+	45, // 77: orrery.v1.Epics.Release:output_type -> orrery.v1.EpicsReleaseResponse
+	47, // 78: orrery.v1.Epics.Close:output_type -> orrery.v1.EpicsCloseResponse
+	23, // 79: orrery.v1.Epics.Move:output_type -> orrery.v1.EpicsMoveResponse
+	25, // 80: orrery.v1.Epics.Continue:output_type -> orrery.v1.EpicsContinueResponse
+	70, // 81: orrery.v1.Steps.Hold:output_type -> orrery.v1.StepsHoldResponse
+	72, // 82: orrery.v1.Steps.Nudge:output_type -> orrery.v1.StepsNudgeResponse
+	74, // 83: orrery.v1.Steps.Stop:output_type -> orrery.v1.StepsStopResponse
+	76, // 84: orrery.v1.Steps.Result:output_type -> orrery.v1.StepsResultResponse
+	68, // 85: orrery.v1.Evidence.Artifact:output_type -> orrery.v1.EvidenceArtifactResponse
+	65, // [65:86] is the sub-list for method output_type
+	44, // [44:65] is the sub-list for method input_type
+	44, // [44:44] is the sub-list for extension type_name
+	44, // [44:44] is the sub-list for extension extendee
+	0,  // [0:44] is the sub-list for field type_name
 }
 
 func init() { file_orrery_v1_epics_proto_init() }
@@ -6756,6 +6768,7 @@ func file_orrery_v1_epics_proto_init() {
 	if File_orrery_v1_epics_proto != nil {
 		return
 	}
+	file_orrery_v1_designs_proto_init()
 	file_orrery_v1_epics_proto_msgTypes[16].OneofWrappers = []any{
 		(*EpicHistoryEntry_Turn)(nil),
 		(*EpicHistoryEntry_Trigger)(nil),

@@ -1,0 +1,126 @@
+syntax = "proto3";
+
+package orrery.engine.v1;
+
+// Designs stores and reads designs: a design holds the contracts its work is split into and the order they start in.
+// orreryd serves it on the same private socket as Epics.
+service Designs {
+  // CreateDesign stores a new design with no contracts and returns it.
+  rpc CreateDesign(CreateDesignRequest) returns (CreateDesignResponse);
+
+  // GetDesign returns one stored design by its id, with its contracts.
+  rpc GetDesign(GetDesignRequest) returns (GetDesignResponse);
+
+  // ListDesigns returns every stored design, with its contracts.
+  rpc ListDesigns(ListDesignsRequest) returns (ListDesignsResponse);
+
+  // OrderDesign sets the contracts one contract of a design starts after, and returns the stored design.
+  rpc OrderDesign(OrderDesignRequest) returns (OrderDesignResponse);
+}
+
+// CreateDesignRequest asks for a new design.
+message CreateDesignRequest {
+  // The id the new design takes.
+  string id = 1;
+
+  // The design's title.
+  string title = 2;
+}
+
+// CreateDesignResponse carries the design stored by CreateDesign.
+message CreateDesignResponse {
+  // The stored design.
+  StoredDesign design = 1;
+}
+
+// GetDesignRequest names one design.
+message GetDesignRequest {
+  // The design's id.
+  string id = 1;
+}
+
+// GetDesignResponse carries the design GetDesign returns.
+message GetDesignResponse {
+  // The stored design.
+  StoredDesign design = 1;
+}
+
+// ListDesignsRequest asks for every design.
+message ListDesignsRequest {}
+
+// ListDesignsResponse carries every design.
+message ListDesignsResponse {
+  // The designs, sorted by id.
+  repeated StoredDesign designs = 1;
+}
+
+// OrderDesignRequest sets the contracts one contract of a design starts after.
+message OrderDesignRequest {
+  // The design the contract belongs to.
+  string design = 1;
+
+  // The contract whose starts-after edges are set.
+  string contract = 2;
+
+  // The contracts the contract starts after, all of the same design. They replace its earlier ones, and empty names
+  // none.
+  repeated string after = 3;
+}
+
+// OrderDesignResponse carries the design OrderDesign returns.
+message OrderDesignResponse {
+  // The stored design.
+  StoredDesign design = 1;
+}
+
+// StoredDesign is a design as stored: its contracts and the order they start in.
+message StoredDesign {
+  // The design's id.
+  string id = 1;
+
+  // The design's title.
+  string title = 2;
+
+  // The id of the conversation that works the design.
+  string conversation = 3;
+
+  // The unix seconds the design was created.
+  int64 created = 4;
+
+  // True when the design is a design of one: the contract that reads as it was proposed with no design.
+  bool of_one = 5;
+
+  // The design's state phrase, given by the server.
+  string state = 6;
+
+  // The design's contracts, in position order.
+  repeated StoredDesignContract contracts = 7;
+}
+
+// StoredDesignContract is a contract as its design holds it: its place in the start order and the contracts it starts
+// after.
+message StoredDesignContract {
+  // The contract's id.
+  string id = 1;
+
+  // The contract's title.
+  string title = 2;
+
+  // The repository the contract changes.
+  string repository = 3;
+
+  // The contract's state.
+  string state = 4;
+
+  // The contract's place in its design's start order, counted from 1.
+  int64 position = 5;
+
+  // The ids of the contracts this one starts after, all of the same design. Empty names none.
+  repeated string after = 6;
+
+  // The id of the epic made from the contract, or empty when none has been made.
+  string epic = 7;
+
+  // The phase of that epic, or empty when none has been made.
+  string epic_phase = 8;
+}

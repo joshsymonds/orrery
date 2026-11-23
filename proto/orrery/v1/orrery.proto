@@ -2,6 +2,8 @@ syntax = "proto3";
 
 package orrery.v1;
 
+import "orrery/v1/designs.proto";
+
 // Sessions reads the Claude Code sessions that orrery tracks.
 service Sessions {
   // List returns every tracked session.
@@ -197,6 +199,9 @@ message HeadlessSession {
 
   // The unix seconds the conversation ended (its change time), or 0 when it has not ended.
   int64 ended_at = 14;
+
+  // The designs this conversation works, each with its contracts.
+  repeated Design designs = 15;
 }
 
 // SessionsWatchConversationRequest asks for the conversation of one headless session. limit follows
