@@ -59,7 +59,7 @@ func TestEpicHostRoutingEpicServices(t *testing.T) {
 	t.Parallel()
 	t.Run("contract checks go to the controller host", func(t *testing.T) {
 		t.Parallel()
-		_, b, hosts := hostRoutingGatesHosts()
+		a, b, hosts := hostRoutingGatesHosts()
 		repo := stepGitTestRepo(t)
 		st := epicTestStore(t)
 		hostRoutingEpicCreate(t, st, repo, hosts, "b")
@@ -72,6 +72,9 @@ func TestEpicHostRoutingEpicServices(t *testing.T) {
 		}
 		if !hostRoutingGitCall(calls, repo, "grep") {
 			t.Errorf("host b recorded no lint read of the test functions of %s: %v", repo, calls)
+		}
+		if calls := a.Calls(); len(calls) != 0 {
+			t.Errorf("host a recorded %d calls, want none: %v", len(calls), calls)
 		}
 	})
 	t.Run("steer reads the epic repository on b", func(t *testing.T) {
@@ -100,22 +103,6 @@ func TestEpicHostRoutingEpicServices(t *testing.T) {
 		}
 		if !hostRoutingGitCall(calls, sub, commonDir...) {
 			t.Errorf("host a recorded no read of the session directory %s: %v", sub, calls)
-		}
-	})
-	t.Run("host a records nothing", func(t *testing.T) {
-		t.Parallel()
-		a, b, hosts := hostRoutingGatesHosts()
-		repo := stepGitTestRepo(t)
-		st := epicTestStore(t)
-		hostRoutingEpicCreate(t, st, repo, hosts, "b")
-		session := hostRoutingEpicSession(t, st, repo)
-		hostRoutingEpicMove(t, st, hosts, "b", epicServiceID, session)
-		// Host b must have seen the calls, so a silent run does not pass for the routing.
-		if calls := b.Calls(); len(calls) == 0 {
-			t.Errorf("host b recorded no calls, so the epic services did not run on it")
-		}
-		if calls := a.Calls(); len(calls) != 0 {
-			t.Errorf("host a recorded %d calls, want none: %v", len(calls), calls)
 		}
 	})
 }

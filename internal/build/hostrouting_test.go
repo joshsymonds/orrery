@@ -46,7 +46,7 @@ func hasGitCall(calls []hostexectest.Call, dir string, args ...string) bool {
 // call.
 func TestEpicHostRoutingBuild(t *testing.T) {
 	t.Run("branch and worktree go to b", func(t *testing.T) {
-		f, _, recB := newHostRoutingFixture(t)
+		f, recA, recB := newHostRoutingFixture(t)
 		calls := recB.Calls()
 		if !hasGitCall(calls, f.repo, "update-ref", BranchRef(passEpic)) {
 			t.Errorf("host b recorded no branch create in %s: %v", f.repo, calls)
@@ -54,9 +54,6 @@ func TestEpicHostRoutingBuild(t *testing.T) {
 		if !hasGitCall(calls, f.repo, "worktree", "add") {
 			t.Errorf("host b recorded no task worktree add in %s: %v", f.repo, calls)
 		}
-	})
-	t.Run("host a records nothing", func(t *testing.T) {
-		_, recA, _ := newHostRoutingFixture(t)
 		if calls := recA.Calls(); len(calls) != 0 {
 			t.Errorf("host a recorded %d calls, want none: %v", len(calls), calls)
 		}
