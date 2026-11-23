@@ -46,8 +46,3 @@ func Authorize(resp *apitype.WhoIsResponse, controller, login string) error {
 	}
 	return nil
 }
-
-// notImplemented is the error a stub of this package returns, naming the function or method.
-func notImplemented(name string) error {
-	return fmt.Errorf("node: %s is not implemented", name)
-}
