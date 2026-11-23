@@ -13,9 +13,9 @@ import (
 // design, one more than the highest number the design already holds. line.Seq is ignored. Rows only append, so a line
 // once stored is never changed or removed. Its IDs are stored as a JSON array.
 func (s *Store) AppendDesignLog(ctx context.Context, line DesignLogLine) error {
-	ids, err := encodeList(line.IDs)
-	if err != nil {
-		return fmt.Errorf("encode ids of a log line of design %s: %w", line.Design, err)
+	ids, encodeErr := encodeList(line.IDs)
+	if encodeErr != nil {
+		return fmt.Errorf("encode ids of a log line of design %s: %w", line.Design, encodeErr)
 	}
 	return s.write(ctx, func(queries *sqlcgen.Queries) error {
 		rows, err := queries.ListDesignLog(ctx, line.Design)

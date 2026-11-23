@@ -49,9 +49,10 @@ func (s *Service) Research(
 	if err != nil {
 		return nil, err
 	}
-	if err = s.logCall(ctx, design, loggedCall{
+	err = s.logCall(ctx, design, loggedCall{
 		Session: session, What: "research started", IDs: []string{step.GetStep()}, Words: question,
-	}); err != nil {
+	})
+	if err != nil {
 		return nil, err
 	}
 	return connect.NewResponse(&v1.ResearchResponse{Step: step}), nil
@@ -95,9 +96,10 @@ func (s *Service) Reproduce(
 	if err != nil {
 		return nil, err
 	}
-	if err = s.logCall(ctx, design, loggedCall{
+	err = s.logCall(ctx, design, loggedCall{
 		Session: session, What: "reproduce started", IDs: []string{step.GetStep()}, Words: command,
-	}); err != nil {
+	})
+	if err != nil {
 		return nil, err
 	}
 	return connect.NewResponse(&v1.ReproduceResponse{Step: step}), nil

@@ -88,9 +88,10 @@ func (s *Service) Dispose(
 	if words == "" {
 		words = boundary
 	}
-	if err = s.logCall(ctx, design, loggedCall{
+	err = s.logCall(ctx, design, loggedCall{
 		Maker: maker, Session: session, What: "disposed", IDs: []string{itemID}, Words: words,
-	}); err != nil {
+	})
+	if err != nil {
 		return nil, err
 	}
 	item.Disposition, item.Reason, item.Boundary, item.Maker = disposition, reason, boundary, maker

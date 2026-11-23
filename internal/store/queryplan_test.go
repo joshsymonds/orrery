@@ -53,9 +53,13 @@ func TestReaderQueryPlans(t *testing.T) {
 		"RoutesSnapshot": {
 			"GetRouteRegistry", "ListRouteSeats", "ListRouteContexts", "ListRouteBindings", "ListRouteAccountTokens",
 		},
-		"Design":  {},
-		"Designs": {},
-		"Close":   {},
+		"Design":    {},
+		"Designs":   {},
+		"DesignLog": {"ListDesignLog"},
+		"DesignConversation": {
+			"NewestDesignConversation", "GetDesign", "ListDesignContracts", "ListDesignEdges", "GetLoneContract",
+		},
+		"Close": {},
 	}
 	checkReaderMethodsListed(t, readerQueries)
 

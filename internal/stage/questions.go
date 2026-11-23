@@ -57,9 +57,10 @@ func (s *Service) Ask(
 	if err != nil {
 		return nil, internalError(fmt.Errorf("store question of design %s: %w", design, err))
 	}
-	if err = s.logCall(ctx, design, loggedCall{
+	err = s.logCall(ctx, design, loggedCall{
 		Session: asker, What: "asked", IDs: []string{questionID(stored.Seq)}, Words: text,
-	}); err != nil {
+	})
+	if err != nil {
 		return nil, err
 	}
 	return connect.NewResponse(&v1.AskResponse{Question: stageQuestionOf(stored)}), nil
@@ -105,9 +106,10 @@ func (s *Service) Answer(
 	case err != nil:
 		return nil, internalError(fmt.Errorf("store answer to question %d of design %s: %w", seq, design, err))
 	}
-	if err = s.logCall(ctx, design, loggedCall{
+	err = s.logCall(ctx, design, loggedCall{
 		Maker: maker, Session: answerer, What: "answered", IDs: []string{questionID(seq)}, Words: stored.Answer,
-	}); err != nil {
+	})
+	if err != nil {
 		return nil, err
 	}
 	return connect.NewResponse(&v1.StageAnswerResponse{Question: stageQuestionOf(stored)}), nil

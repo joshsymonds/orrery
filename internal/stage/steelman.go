@@ -194,9 +194,10 @@ func (s *Service) skipClosure(
 	}); err != nil {
 		return nil, internalError(fmt.Errorf("record closure skip of design %s: %w", design, err))
 	}
-	if err = s.logCall(ctx, design, loggedCall{
+	err = s.logCall(ctx, design, loggedCall{
 		Maker: maker, Session: session, What: "closure skipped", Words: req.Msg.GetReason(),
-	}); err != nil {
+	})
+	if err != nil {
 		return nil, err
 	}
 	return connect.NewResponse(&v1.SteelmanResponse{}), nil
@@ -216,9 +217,10 @@ func (s *Service) answerPass(
 	if err != nil {
 		return nil, err
 	}
-	if err = s.logCall(ctx, row.Design, loggedCall{
+	err = s.logCall(ctx, row.Design, loggedCall{
 		Session: session, What: "steelman started", IDs: []string{step.GetStep()}, Words: row.Delta,
-	}); err != nil {
+	})
+	if err != nil {
 		return nil, err
 	}
 	return connect.NewResponse(&v1.SteelmanResponse{Step: step, Pass: step.GetCounted()}), nil
