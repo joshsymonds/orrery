@@ -45,6 +45,15 @@ func (s *Service) Research(
 	if err != nil {
 		return nil, err
 	}
+	session, err := s.callerSession(ctx, start.Caller)
+	if err != nil {
+		return nil, err
+	}
+	if err = s.logCall(ctx, design, loggedCall{
+		Session: session, What: "research started", IDs: []string{step.GetStep()}, Words: question,
+	}); err != nil {
+		return nil, err
+	}
 	return connect.NewResponse(&v1.ResearchResponse{Step: step}), nil
 }
 
@@ -80,6 +89,15 @@ func (s *Service) Reproduce(
 		Design: design, Kind: store.StepReproduce, Subject: command, Repository: repository, Revision: revision,
 	})
 	if err != nil {
+		return nil, err
+	}
+	session, err := s.callerSession(ctx, start.Caller)
+	if err != nil {
+		return nil, err
+	}
+	if err = s.logCall(ctx, design, loggedCall{
+		Session: session, What: "reproduce started", IDs: []string{step.GetStep()}, Words: command,
+	}); err != nil {
 		return nil, err
 	}
 	return connect.NewResponse(&v1.ReproduceResponse{Step: step}), nil

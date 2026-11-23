@@ -194,16 +194,31 @@ func (s *Service) skipClosure(
 	}); err != nil {
 		return nil, internalError(fmt.Errorf("record closure skip of design %s: %w", design, err))
 	}
+	if err = s.logCall(ctx, design, loggedCall{
+		Maker: maker, Session: session, What: "closure skipped", Words: req.Msg.GetReason(),
+	}); err != nil {
+		return nil, err
+	}
 	return connect.NewResponse(&v1.SteelmanResponse{}), nil
 }
 
-// answerPass starts the pass start describes, stores its step on the design as row, and answers with the step and
-// whether the pass counts. A pass just started has not returned, so it does not count yet.
+// answerPass starts the pass start describes, stores its step on the design as row, logs the start on the design and
+// answers with the step and whether the pass counts. A pass just started has not returned, so it does not count yet.
+// The start's words are the row's delta, which a discovery pass does not take.
 func (s *Service) answerPass(
 	ctx context.Context, start enginehost.StepStart, row store.DesignStep,
 ) (*connect.Response[v1.SteelmanResponse], error) {
 	step, err := s.startStep(ctx, start, row)
 	if err != nil {
+		return nil, err
+	}
+	session, err := s.callerSession(ctx, start.Caller)
+	if err != nil {
+		return nil, err
+	}
+	if err = s.logCall(ctx, row.Design, loggedCall{
+		Session: session, What: "steelman started", IDs: []string{step.GetStep()}, Words: row.Delta,
+	}); err != nil {
 		return nil, err
 	}
 	return connect.NewResponse(&v1.SteelmanResponse{Step: step, Pass: step.GetCounted()}), nil
