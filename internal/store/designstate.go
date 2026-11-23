@@ -2,6 +2,9 @@ package store
 
 import "fmt"
 
+// releasedPhrase is the phrase DesignState returns for a design whose every open contract has shipped.
+const releasedPhrase = "released"
+
 // DesignState returns the phrase that says what state the design record is in, as its contracts and their epics show
 // it. It is a pure function of the record's contracts: each contract's State and EpicPhase, and the After lists for the
 // held rule. It returns the first of these phrases that applies, in this order:
@@ -31,7 +34,7 @@ func DesignState(record DesignRecord) string {
 	case tally.proposed:
 		return fmt.Sprintf("drafting: %d of %d accepted", tally.accepted, tally.open)
 	case tally.allShipped:
-		return "released"
+		return releasedPhrase
 	case tally.building:
 		return fmt.Sprintf("building: %d of %d released", tally.shipped, tally.open)
 	case tally.held > 0:
@@ -58,35 +61,47 @@ func tallyDesign(contracts []DesignContract) designTally {
 	}
 	tally := designTally{allShipped: true}
 	for _, contract := range contracts {
-		if contract.State != ContractSetAside {
-			tally.open++
-			if contract.State == ContractAccepted {
-				tally.accepted++
-			}
-			if contract.State == ContractProposed {
-				tally.proposed = true
-			}
-			if !isShippedPhase(contract.EpicPhase) {
-				tally.allShipped = false
-			}
-		}
-		if isShippedPhase(contract.EpicPhase) {
-			tally.shipped++
-		}
-		if contract.EpicPhase != "" {
-			tally.started++
-		}
-		switch {
-		case contract.EpicPhase == PhaseHeld:
-			tally.held++
-			if losesPredecessor(contract.After, byID) {
-				tally.lostPredecessor = true
-			}
-		case contract.EpicPhase != "" && !EndedPhase(contract.EpicPhase):
-			tally.building = true
-		}
+		tally.addContract(contract)
+		tally.addEpic(contract, byID)
 	}
 	return tally
+}
+
+// addContract counts a contract toward N, A and the proposed and allShipped facts, when it is not set aside.
+func (t *designTally) addContract(contract DesignContract) {
+	if contract.State == ContractSetAside {
+		return
+	}
+	t.open++
+	if contract.State == ContractAccepted {
+		t.accepted++
+	}
+	if contract.State == ContractProposed {
+		t.proposed = true
+	}
+	if !isShippedPhase(contract.EpicPhase) {
+		t.allShipped = false
+	}
+}
+
+// addEpic counts the epic of a contract, when it has one, toward R, H, E and the building and lostPredecessor facts.
+// byID holds the contracts of the design by id.
+func (t *designTally) addEpic(contract DesignContract, byID map[string]DesignContract) {
+	if isShippedPhase(contract.EpicPhase) {
+		t.shipped++
+	}
+	if contract.EpicPhase != "" {
+		t.started++
+	}
+	switch {
+	case contract.EpicPhase == PhaseHeld:
+		t.held++
+		if losesPredecessor(contract.After, byID) {
+			t.lostPredecessor = true
+		}
+	case contract.EpicPhase != "" && !EndedPhase(contract.EpicPhase):
+		t.building = true
+	}
 }
 
 // losesPredecessor reports whether one of the contracts a held epic starts after, named by after, is set aside or has
