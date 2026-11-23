@@ -211,6 +211,7 @@ type liveSession struct {
 	id             string
 	dir            string
 	sess           *session.Session
+	host           holderhost.Host
 	rec            *recorder
 	done           chan struct{}
 	stopped        chan struct{}
@@ -559,6 +560,9 @@ func (m *Manager) Stop(ctx context.Context, id string) error {
 	switch {
 	case live != nil:
 		stopErr := live.sess.Stop()
+		if stopErr == nil {
+			m.clearStopped(ctx, live)
+		}
 		recordErr := m.recordStopped(ctx, live)
 		if stopErr == nil && recordErr == nil {
 			return cronErr
@@ -1201,6 +1205,10 @@ func (m *Manager) respawnStep(ctx context.Context, id string) (*liveSession, err
 	if err != nil {
 		return nil, err
 	}
+	place, err := m.hostOf(row)
+	if err != nil {
+		return nil, err
+	}
 	if err = checkDir(row.Dir); err != nil {
 		return nil, errors.Join(err, m.writeFailed(ctx, id, err))
 	}
@@ -1211,7 +1219,7 @@ func (m *Manager) respawnStep(ctx context.Context, id string) (*liveSession, err
 	observer := m.stepObservers[id]
 	m.mu.Unlock()
 	live, err := m.spawnLive(ctx, id, row.Dir, spawnSpec{claudeSession: row.ClaudeSession, agent: step.Agent,
-		agents: step.Agents, schema: step.Schema, step: true, observer: observer, host: m.local})
+		agents: step.Agents, schema: step.Schema, step: true, observer: observer, host: place.host})
 	if err != nil {
 		return nil, errors.Join(err, m.writeFailed(ctx, id, err))
 	}
@@ -1584,6 +1592,13 @@ func (m *Manager) resolveHost(name string) (placedHost, error) {
 	return placedHost{}, fmt.Errorf("%w: %s", ErrUnknownHost, name)
 }
 
+// hostOf returns the host that row's session runs on, as resolveHost names it from row's host. Every holder use of the
+// session goes through that host. It fails when row's host names no host this controller runs sessions on, and that
+// session is then never resumed or spawned anywhere else.
+func (m *Manager) hostOf(row store.EngineRow) (placedHost, error) {
+	return m.resolveHost(row.Host)
+}
+
 // resume starts the process of row, an engine row that is not live, on the host row names, and registers it live. It
 // checks that the manager is open first, then checks the row's host and directory. A row whose host this controller does
 // not run sessions on is refused before anything starts, and so is left as it is. A failed directory check or spawn
@@ -1649,9 +1664,9 @@ func (m *Manager) register(
 	ctx context.Context, sess *session.Session, id, dir string, sp spawnSpec, rec *recorder, re *readoption,
 ) (*liveSession, error) {
 	pumpCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
-	live := &liveSession{id: id, dir: dir, sess: sess, rec: rec, done: make(chan struct{}), cancel: cancel,
-		step: sp.step, agent: sp.agent, schema: sp.schema != "", observer: sp.observer, requests: map[string]struct{}{},
-		draining: re != nil && re.draining}
+	live := &liveSession{id: id, dir: dir, sess: sess, host: sp.host, rec: rec, done: make(chan struct{}),
+		cancel: cancel, step: sp.step, agent: sp.agent, schema: sp.schema != "", observer: sp.observer,
+		requests: map[string]struct{}{}, draining: re != nil && re.draining}
 	reply := ""
 	if re != nil {
 		var err error
@@ -1882,6 +1897,8 @@ func (m *Manager) checkIdle(ctx context.Context) {
 	for _, live := range stopping {
 		if err := live.sess.Stop(); err != nil {
 			m.logger.WarnContext(ctx, "stop idle session", "session", live.id, "err", err)
+		} else {
+			m.clearStopped(ctx, live)
 		}
 		if err := m.waitPump(ctx, live); err != nil {
 			m.logger.WarnContext(ctx, "wait for idle session", "session", live.id, "err", err)
