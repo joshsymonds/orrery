@@ -51,6 +51,7 @@ class InboxDroidBrokenTest {
         const val BOUND = "%3"
         const val UNBOUND = "%4"
         const val BROKEN = "broken"
+        const val FAILED = "failed"
         const val WORKING = "working"
         const val DOCK_STATE = "dock-state"
         const val DOCK_WORD = "dock-word"
@@ -180,6 +181,11 @@ class InboxDroidBrokenTest {
                 countNodes(hasContentDescription(BROKEN) and hasAnyAncestor(hasTestTag(convoTag(UNBOUND)))),
             )
             assertEquals("only those two rows draw the broken glyph", 2, countNodes(hasContentDescription(BROKEN)))
+            assertEquals(
+                "the failed conversation draws the broken glyph, not the failed one",
+                0,
+                countNodes(hasContentDescription(FAILED)),
+            )
             assertEquals(
                 "the bound working pane keeps its own glyph",
                 1,
