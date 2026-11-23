@@ -576,13 +576,14 @@ func (r *Runner) carrySync(ctx context.Context, epic store.EpicRow, act Action, 
 		}
 		return nil
 	}
-	if err := r.store.EndSync(ctx, epic.ID, store.SyncEnd{
+	run, err := r.syncRunAt(ctx, epic.ID, act.Path, act.Attempt)
+	if err != nil {
+		return err
+	}
+	return r.endSync(ctx, epic, run, store.SyncEnd{
 		Path: act.Path, Attempt: act.Attempt, Outcome: act.Outcome, Output: act.Output, Tell: act.Reason,
 		Trigger: act.Trigger,
-	}, at); err != nil {
-		return fmt.Errorf("end sync %s: %w", act.Path, err)
-	}
-	return nil
+	}, at)
 }
 
 // carryReview writes one review action of epic to the store at at: the hold of a stopped review step, the verdicts and

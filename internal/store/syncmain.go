@@ -12,14 +12,16 @@ import (
 const syncPassed = "passed"
 
 // SyncEnd is how a sync run of origin's main ends: the path and attempt of the run, its outcome and output, the commit
-// of origin's main its merge holds when it passed, the text it tells, "" when it tells nothing, and the trigger it
-// adds, nil when it adds none. A Trigger that is set is added pending by EndSync in its own write.
+// of origin's main its merge holds when it passed, the merge the stored base moves to when it passed and that is not
+// the run's revision, the text it tells, "" when it tells nothing, and the trigger it adds, nil when it adds none. A
+// Trigger that is set is added pending by EndSync in its own write.
 type SyncEnd struct {
 	Path    string
 	Attempt int64
 	Outcome string
 	Output  string
 	Synced  string
+	Merge   string
 	Tell    string
 	Trigger *NodeTrigger
 }
@@ -82,10 +84,10 @@ func (s *Store) PrepareSync(
 }
 
 // EndSync ends the running sync run at end.Path of epic at end.Attempt with its outcome and output, in one write. A
-// passed run moves the stored base to the run's revision, clears the candidate and records end.Synced as the commit of
-// origin's main the stored base merged. A Tell that is not empty is added as a tell, cut to TurnReasonMax bytes. A
-// Trigger that is set is added pending. Output is cut to NodeOutputMax bytes. A run at another attempt and a run that
-// is not running change nothing, so a repeat moves and tells nothing.
+// passed run moves the stored base to end.Merge, or to the run's revision when end.Merge is "", clears the candidate
+// and records end.Synced as the commit of origin's main the stored base merged. A Tell that is not empty is added as a
+// tell, cut to TurnReasonMax bytes. A Trigger that is set is added pending. Output is cut to NodeOutputMax bytes. A run
+// at another attempt and a run that is not running change nothing, so a repeat moves and tells nothing.
 func (s *Store) EndSync(ctx context.Context, epic string, end SyncEnd, at time.Time) error {
 	return s.write(ctx, func(queries *sqlcgen.Queries) error {
 		ended, err := queries.EndEpicNodeRunAttempt(ctx, sqlcgen.EndEpicNodeRunAttemptParams{
@@ -149,18 +151,22 @@ func settleSync(ctx context.Context, queries *sqlcgen.Queries, epic string, end 
 	return insertTell(ctx, queries, epic, capTurnText(end.Tell), at)
 }
 
-// moveSyncedBase moves the stored base of epic to the revision of the sync run end names, clears the candidate and
-// records the commit of origin's main the run merged, in the caller's write.
+// moveSyncedBase moves the stored base of epic to end.Merge, or to the revision of the sync run end names when
+// end.Merge is "", clears the candidate and records the commit of origin's main the run merged, in the caller's write.
 func moveSyncedBase(ctx context.Context, queries *sqlcgen.Queries, epic string, end SyncEnd) error {
-	run, err := queries.GetEpicNodeRun(ctx, sqlcgen.GetEpicNodeRunParams{Epic: epic, Path: end.Path})
-	if err != nil {
-		return fmt.Errorf("read sync run %s of epic %s: %w", end.Path, epic, err)
+	merge := end.Merge
+	if merge == "" {
+		run, err := queries.GetEpicNodeRun(ctx, sqlcgen.GetEpicNodeRunParams{Epic: epic, Path: end.Path})
+		if err != nil {
+			return fmt.Errorf("read sync run %s of epic %s: %w", end.Path, epic, err)
+		}
+		merge = run.Revision
 	}
-	if run.Revision == "" {
+	if merge == "" {
 		return fmt.Errorf("sync run %s of epic %s passed with no merge", end.Path, epic)
 	}
-	if err = queries.SyncEpicStoredBase(ctx, sqlcgen.SyncEpicStoredBaseParams{
-		StoredBase: run.Revision, Synced: end.Synced, ID: epic,
+	if err := queries.SyncEpicStoredBase(ctx, sqlcgen.SyncEpicStoredBaseParams{
+		StoredBase: merge, Synced: end.Synced, ID: epic,
 	}); err != nil {
 		return fmt.Errorf("move stored base of epic %s to its sync: %w", epic, err)
 	}
