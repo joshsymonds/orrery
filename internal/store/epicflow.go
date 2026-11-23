@@ -130,11 +130,7 @@ func readEpicFlow(ctx context.Context, queries *sqlcgen.Queries, id string) (Epi
 	if err != nil {
 		return EpicFlow{}, fmt.Errorf("count pending planner actions of epic %s: %w", id, err)
 	}
-	gapTurns, unresolvable, reruns, err := readGapRecords(ctx, queries, id)
-	if err != nil {
-		return EpicFlow{}, err
-	}
-	syncDeclarations, err := readSyncDeclarations(ctx, queries, id)
+	gapTurns, unresolvable, reruns, syncDeclarations, err := readGapRecords(ctx, queries, id)
 	if err != nil {
 		return EpicFlow{}, err
 	}
@@ -162,24 +158,28 @@ func readSyncDeclarations(ctx context.Context, queries *sqlcgen.Queries, id stri
 	}), nil
 }
 
-// readGapRecords returns the gap turns, unresolvable gaps and review reruns of epic as queries read them, in one
-// read: the three helpers GapTurns, UnresolvableGaps and ReviewReruns read through.
+// readGapRecords returns the gap turns, unresolvable gaps, review reruns and sync declarations of epic as queries read
+// them, in one read: the helpers GapTurns, UnresolvableGaps, ReviewReruns and readSyncDeclarations read through.
 func readGapRecords(
 	ctx context.Context, queries *sqlcgen.Queries, id string,
-) ([]GapTurn, []GapDeclaration, []ReviewRerun, error) {
+) ([]GapTurn, []GapDeclaration, []ReviewRerun, []GapDeclaration, error) {
 	gapTurns, err := readGapTurns(ctx, queries, id)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, nil, err
 	}
 	unresolvable, err := readUnresolvable(ctx, queries, id)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, nil, err
 	}
 	reruns, err := readReviewReruns(ctx, queries, id)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, nil, err
 	}
-	return gapTurns, unresolvable, reruns, nil
+	syncDeclarations, err := readSyncDeclarations(ctx, queries, id)
+	if err != nil {
+		return nil, nil, nil, nil, err
+	}
+	return gapTurns, unresolvable, reruns, syncDeclarations, nil
 }
 
 // readEvidenceRuns returns the evidence runs of epic as queries read them, ordered by created, then id, each with its
