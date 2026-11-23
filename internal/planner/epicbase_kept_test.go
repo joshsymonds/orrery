@@ -81,10 +81,14 @@ func requireNoMoveTell(t *testing.T, s *store.Store, commit string) {
 	}
 }
 
-// TestEpicBaseKeptWithOpenTask asserts that an epic with an open task keeps its base and stored base across two planner
-// turns while origin's main moves ahead between them, and that no tell of the epic names origin's main. The first turn
-// runs while origin's main is at the base, so the epic has no task when it fetches; it plans one open task.
-func TestEpicBaseKeptWithOpenTask(t *testing.T) {
+// TestEpicBaseKeptWithOpenThenDoneTask asserts that an epic keeps its base and stored base across three planner turns
+// while origin's main moves ahead before the second and the third, and that no tell of the epic names the commit
+// origin's main moved to before the turn that reads it. The first turn runs while origin's main is at the base, and
+// plans one open task. The second turn runs with the task open. AcceptTask then marks the task done, and the third turn
+// runs with it done. The base move reads origin's main through a real git fetch and ancestry check, and the epic's base
+// is a real commit, so the turns need one invented repository with a bare origin, which newBaseStartRepo makes once for
+// all three.
+func TestEpicBaseKeptWithOpenThenDoneTask(t *testing.T) {
 	t.Parallel()
 	repo := newBaseStartRepo(t)
 	s := openRunnerStore(t)
@@ -96,42 +100,27 @@ func TestEpicBaseKeptWithOpenTask(t *testing.T) {
 	requireStartsAt(t, endKeptTurn(t, s, steps, 1, validPlan), repo.base)
 	requireOneTaskStatus(t, s, "open")
 
-	ahead := advanceOrigin(t, repo)
-	requireOriginMainAt(t, repo, ahead)
+	openAhead := advanceOrigin(t, repo)
+	requireOriginMainAt(t, repo, openAhead)
 	kickBaseStartEpic(t, s, runner)
 
 	requireStartsAt(t, endKeptTurn(t, s, steps, 2, emptyPlan), repo.base)
 	requireBaseAt(t, s, repo.base)
-	requireNoMoveTell(t, s, ahead)
-}
+	requireNoMoveTell(t, s, openAhead)
 
-// TestEpicBaseKeptWithDoneTask asserts that an epic with a done task keeps its base and stored base across two planner
-// turns while origin's main moves ahead between them, and that no tell of the epic names origin's main. The task is
-// planned by the first turn, and accepted before origin's main moves.
-func TestEpicBaseKeptWithDoneTask(t *testing.T) {
-	t.Parallel()
-	repo := newBaseStartRepo(t)
-	s := openRunnerStore(t)
-	createBaseStartEpic(t, s, repo)
-	steps := newFakeSteps()
-	steps.watchStore(s)
-	runner := startKeptRunner(t, s, steps)
-
-	requireStartsAt(t, endKeptTurn(t, s, steps, 1, validPlan), repo.base)
-	requireOneTaskStatus(t, s, "open")
 	task := baseStartRow(t, s).Tasks[0]
 	if err := s.AcceptTask(t.Context(), baseStartEpic, task.Seq, task.Build, "reviewed"); err != nil {
 		t.Fatalf("AcceptTask: %v", err)
 	}
 	requireOneTaskStatus(t, s, "done")
 
-	ahead := advanceOrigin(t, repo)
-	requireOriginMainAt(t, repo, ahead)
+	doneAhead := advanceOrigin(t, repo)
+	requireOriginMainAt(t, repo, doneAhead)
 	kickBaseStartEpic(t, s, runner)
 
-	requireStartsAt(t, endKeptTurn(t, s, steps, 2, emptyPlan), repo.base)
+	requireStartsAt(t, endKeptTurn(t, s, steps, 3, emptyPlan), repo.base)
 	requireBaseAt(t, s, repo.base)
-	requireNoMoveTell(t, s, ahead)
+	requireNoMoveTell(t, s, doneAhead)
 }
 
 // TestEpicBaseKeptWithBranch asserts that an epic with a branch keeps its base and stored base across two planner turns

@@ -72,9 +72,13 @@ func newMovedBaseFixture(t *testing.T) (*passFixture, string) {
 	}, ahead
 }
 
-// TestEpicBaseFirstTaskBuildBranchNamesMovedBase covers R2: the epic's branch, which the first build pass creates at the
-// epic's base, names the commit the base moved to, and the first task's red run starts at that commit.
-func TestEpicBaseFirstTaskBuildBranchNamesMovedBase(t *testing.T) {
+// TestEpicBaseFirstTaskBuildStartsOnMovedBase covers R2: the epic's branch, which the first build pass creates at the
+// epic's base, names the commit the base moved to; the first task's red run starts at that commit; and once that
+// run fails, the implementer step starts at that commit too, on the task's first branch, T1.1, which names it. The git
+// repositories are real because the base move reads origin's main through a real fetch and ancestry check, and the
+// build branch is a real git ref. The test makes one newMovedBaseFixture, with one invented repository and bare
+// origin, for all three checks, rather than one for each.
+func TestEpicBaseFirstTaskBuildStartsOnMovedBase(t *testing.T) {
 	t.Parallel()
 	f, moved := newMovedBaseFixture(t)
 	f.pass()
@@ -84,15 +88,6 @@ func TestEpicBaseFirstTaskBuildBranchNamesMovedBase(t *testing.T) {
 	if got := f.lastRun().revision; got != moved {
 		t.Errorf("the first task's red run starts at %s, want the moved base %s", got, moved)
 	}
-}
-
-// TestEpicBaseFirstTaskImplementerStartsOnMovedBase covers R2: the first task's implementer step, started once its red
-// run fails, starts at the moved base, and its worktree is attached to the task's first branch, T1.1, which names that
-// commit.
-func TestEpicBaseFirstTaskImplementerStartsOnMovedBase(t *testing.T) {
-	t.Parallel()
-	f, moved := newMovedBaseFixture(t)
-	f.pass()
 	f.addRun(f.lastRun().id, evidence.PhaseRed, moved, 1, evidence.VerdictFails)
 	f.pass()
 	start := f.lastStart()
