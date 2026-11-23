@@ -148,37 +148,35 @@ function epicTalk(root: HTMLElement): boolean {
   );
 }
 
-// railKinds is the kind of each group the right rail draws, in order: epic, agents or running.
-function railKinds(root: HTMLElement): string[] {
-  return [...root.querySelectorAll(".rail .rgroup")].map((group) => group.classList[1]);
+// workLinkNames are the names the title row's work links carry, in order.
+function workLinkNames(root: HTMLElement): string[] {
+  return [...root.querySelectorAll<HTMLElement>(".title-row .wlink .nm")].map((name) => name.textContent ?? "");
 }
 
-// workRail is Page/work-rail: the buoy session's rail draws its three groups, epic, agents and running, and no panel is open.
+// workRail is Page/work-rail: the buoy session's title row names its work, and its running agents and shell are drawn as
+// activity lines, three of them, with no panel open.
 function workRail(root: HTMLElement): boolean {
-  const kinds = railKinds(root);
   return (
-    kinds.length === 3 &&
-    kinds[0] === "epic" &&
-    kinds[1] === "agents" &&
-    kinds[2] === "running" &&
+    workLinkNames(root).length > 0 &&
+    root.querySelectorAll('[aria-label="running now"] .activity-line').length === 3 &&
     root.querySelector("aside.rpanel") === null
   );
 }
 
-// workRailGroup is Page/work-rail-group: pane %22's rail has its dots tile pressed, so its picker is open with four rows.
+// workRailGroup is Page/work-rail-group: pane %22's +n control is pressed, so its menu is open with a row for each of its four things.
 function workRailGroup(root: HTMLElement): boolean {
-  return root.querySelectorAll(".rail .rpick .rpick-row").length === 4;
+  return root.querySelectorAll(".title-row .menu [role='menuitem']").length === 4;
 }
 
 // orchardTitle is pane %13's line, which its reader draws once the fixture world has loaded.
 const orchardTitle = "Parser tests for nested scion grafting";
 
-// workEmpty is Page/work-empty: pane %13's conversation is drawn, and its rail with no tile in it.
+// workEmpty is Page/work-empty: pane %13's conversation is drawn, and its title names no work link and it runs nothing.
 function workEmpty(root: HTMLElement): boolean {
   return (
     root.querySelector('section[aria-label="reader"]')?.textContent.includes(orchardTitle) === true &&
-    root.querySelector("aside.rail") !== null &&
-    root.querySelectorAll(".rail .tile-w").length === 0
+    root.querySelector(".title-row .wlinks") === null &&
+    root.querySelector('[aria-label="running now"]') === null
   );
 }
 
@@ -1360,7 +1358,7 @@ test("FixtureTransport: page/epic-talk draws the epic panel over the planning co
   );
 });
 
-test("FixtureTransport: page/work-rail draws the buoy session's rail with its three groups and no panel", (t) => {
+test("FixtureTransport: page/work-rail names the buoy session's work in its title, and draws its running tasks as lines, with no panel", (t) => {
   mockTimers(t, ["setTimeout"]);
   return withStory(
     t,
@@ -1368,12 +1366,12 @@ test("FixtureTransport: page/work-rail draws the buoy session's rail with its th
     workRail,
     (root) => {
       assertNoFailure(root);
-      assert.ok(workRail(root), "the rail draws epic, agents and running, with no panel open");
+      assert.ok(workRail(root), "the title names its work, its three running tasks are lines, and no panel is open");
     },
   );
 });
 
-test("FixtureTransport: page/work-rail-group draws pane %22's picker of four, opened by its dots tile", (t) => {
+test("FixtureTransport: page/work-rail-group opens pane %22's +n menu, which lists its four things", (t) => {
   mockTimers(t, ["setTimeout"]);
   return withStory(
     t,
@@ -1381,12 +1379,12 @@ test("FixtureTransport: page/work-rail-group draws pane %22's picker of four, op
     workRailGroup,
     (root) => {
       assertNoFailure(root);
-      assert.ok(workRailGroup(root), "the picker is open with four rows");
+      assert.ok(workRailGroup(root), "the menu is open with four rows");
     },
   );
 });
 
-test("FixtureTransport: page/work-empty draws pane %13's rail with no tile", (t) => {
+test("FixtureTransport: page/work-empty draws pane %13's conversation with no work link in its title", (t) => {
   mockTimers(t, ["setTimeout"]);
   return withStory(
     t,
@@ -1394,7 +1392,7 @@ test("FixtureTransport: page/work-empty draws pane %13's rail with no tile", (t)
     workEmpty,
     (root) => {
       assertNoFailure(root);
-      assert.ok(workEmpty(root), "the rail is drawn with no tile");
+      assert.ok(workEmpty(root), "the title holds no work link, and no task runs");
     },
   );
 });
@@ -1507,11 +1505,6 @@ function lastLine(root: HTMLElement): string | null {
   return lines.length === 0 ? null : lines[lines.length - 1].textContent;
 }
 
-// railNames are the names the right rail's tiles carry, from their labels: an epic's tile is labelled with its slug.
-function railNames(root: HTMLElement): string[] {
-  return [...root.querySelectorAll<HTMLElement>(".rail .tile-w")].map((tile) => tile.getAttribute("aria-label") ?? "");
-}
-
 test("FixtureTransport: page/epic-moved draws pane %11's conversation in the middle, the epic page in the panel, and the moved line in its log", (t) => {
   mockTimers(t, ["setTimeout"]);
   return withStory(
@@ -1547,7 +1540,7 @@ test("FixtureTransport: page/epic-convo-ended draws the stopped steerer's conver
   );
 });
 
-test("FixtureTransport: page/convo-took-over ends with the took-over line, and its rail holds rota-export", (t) => {
+test("FixtureTransport: page/convo-took-over ends with the took-over line, and its title names rota-export", (t) => {
   mockTimers(t, ["setTimeout"]);
   return withStory(
     t,
@@ -1556,13 +1549,13 @@ test("FixtureTransport: page/convo-took-over ends with the took-over line, and i
     (root) => {
       assertNoFailure(root);
       assert.equal(lastLine(root), tookOverLine, "the taker's line ends the conversation");
-      assert.ok(railNames(root).some((name) => name.includes("rota-export")), "the rail holds rota-export");
+      assert.ok(workLinkNames(root).some((name) => name.includes("rota-export")), "the title names rota-export");
     },
     wideWidth,
   );
 });
 
-test("FixtureTransport: page/convo-handed-over ends with the left line naming where rota-export went, and its rail holds no rota-export tile", (t) => {
+test("FixtureTransport: page/convo-handed-over ends with the left line naming where rota-export went, and its title names no rota-export link", (t) => {
   mockTimers(t, ["setTimeout"]);
   return withStory(
     t,
@@ -1571,8 +1564,7 @@ test("FixtureTransport: page/convo-handed-over ends with the left line naming wh
     (root) => {
       assertNoFailure(root);
       assert.equal(lastLine(root), leftLine, "the left line ends the conversation");
-      assert.ok(root.querySelector("aside.rail") !== null, "the rail is drawn");
-      assert.ok(railNames(root).every((name) => !name.includes("rota-export")), "the rail holds no rota-export tile");
+      assert.ok(workLinkNames(root).every((name) => !name.includes("rota-export")), "the title names no rota-export link");
     },
     wideWidth,
   );

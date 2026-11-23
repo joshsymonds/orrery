@@ -12,8 +12,11 @@ import { App } from "./app";
 import { createClients, createTransport } from "./client";
 import { epicsView, type EpicsView, noEpics } from "./epics";
 import { Head } from "./head";
+import type { Address } from "./router";
 import type { Row } from "./rows";
+import type { SeenClock, SeenWindow } from "./seen";
 import { assertNone, assertSame, installTestDom, removeTestDom, teardownOnce } from "./testdom";
+import { turn, until } from "./testwait";
 import { type WorkLinkItem, workLinksOf } from "./work";
 import { WorkLink } from "./worklink";
 
@@ -362,3 +365,185 @@ test("WorkLink: pressing a design link brings its tab into the inbox", (t) =>
       assert.deepEqual(scrolled, [tab], "the design's tab is scrolled into view");
     },
   ));
+
+const phoneWidth = 412;
+const deskWidth = 1600;
+const sessionAddress: Address = { view: "inbox", entry: { kind: "session", id: session } };
+
+// Stream is a watch stream the App opened on the fake transport, and controller feeds it while it is open.
+interface Stream {
+  controller: ReadableStreamDefaultController<Uint8Array> | null;
+}
+
+// streamingFetch answers the app's unary calls with an empty body, and holds each watch stream open, for the check to feed.
+function streamingFetch(streams: Stream[]): (input: RequestInfo | URL, init?: RequestInit) => Promise<Response> {
+  return async (input, init) => {
+    const request = new Request(input, init);
+    if (!new URL(request.url).pathname.endsWith("/WatchConversation")) {
+      return new Response("{}", { status: 200, headers: { "content-type": "application/json" } });
+    }
+    const stream: Stream = { controller: null };
+    streams.push(stream);
+    const body = new ReadableStream<Uint8Array>({
+      start: (controller) => {
+        stream.controller = controller;
+      },
+    });
+    return new Response(body, { status: 200, headers: { "content-type": "application/connect+json" } });
+  };
+}
+
+// emit feeds one message, framed as Connect's JSON streaming frames it, to a stream the App still holds open.
+function emit(stream: Stream, message: object): void {
+  assert.ok(stream.controller !== null, "the stream is open");
+  const payload = new TextEncoder().encode(JSON.stringify(message));
+  const bytes = new Uint8Array(5 + payload.byteLength);
+  bytes[0] = 0;
+  new DataView(bytes.buffer).setUint32(1, payload.byteLength);
+  bytes.set(payload, 5);
+  stream.controller.enqueue(bytes);
+}
+
+// runningState is the session's conversation as its stream reports it: a running agent and a running shell.
+function runningState(): object {
+  return {
+    transcript: "s1.jsonl",
+    seq: "1",
+    reset: true,
+    items: [],
+    state: {
+      background: [
+        {
+          id: "agent-1",
+          type: "agent",
+          description: "Find the caller",
+          subagentType: "Explore",
+          activity: "Grep keeperFor",
+          status: "running",
+          started: String(now - 125),
+        },
+        { id: "shell-1", type: "shell", description: "just dev", status: "running", started: "0" },
+      ],
+    },
+  };
+}
+
+// sessionRow is the headless session s1, the row the page shows for the conversation the work links name.
+function sessionRow(): Row {
+  return {
+    key: `session:${session}`,
+    id: session,
+    archiveId: session,
+    kind: "session",
+    archiveKind: "session",
+    label: "notes",
+    project: "/work/api",
+    host: "",
+    state: "working",
+    summary: "",
+    question: "",
+    questionHash: "",
+    tool: "",
+    changed: 0,
+    seen: 0,
+    unseen: false,
+    archived: false,
+    putOff: false,
+  };
+}
+
+// withStreamedApp mounts App over the rows and epics at the width given, in a fresh DOM, and runs check with the container
+// and the streams it opened. App is unmounted and the DOM removed when the test ends, or as soon as signal aborts first.
+async function withStreamedApp(
+  signal: AbortSignal,
+  setup: { width: number; rows: Row[]; epics: EpicsView; address?: Address },
+  check: (container: HTMLElement, streams: Stream[]) => void | Promise<void>,
+): Promise<void> {
+  const window = installTestDom();
+  window.innerWidth = setup.width;
+  const container = document.createElement("div");
+  document.body.append(container);
+  const streams: Stream[] = [];
+  const clients = createClients(createTransport({ baseUrl: "https://orrery.test", fetch: streamingFetch(streams) }));
+  // The page's dwell clock never fires, and its window reports no input, so no seen write is made.
+  const seenClock: SeenClock = { now: () => now, setTimeout: () => null, clearTimeout: () => {} };
+  const seenWindow: SeenWindow = {
+    document: {
+      visibilityState: "visible",
+      hasFocus: () => true,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+    },
+    addEventListener: () => {},
+    removeEventListener: () => {},
+  };
+  const teardown = teardownOnce(signal, async () => {
+    await act(() => {
+      render(null, container);
+    });
+    for (const stream of streams) {
+      if (stream.controller !== null) {
+        stream.controller.close();
+        stream.controller = null;
+      }
+    }
+    container.remove();
+    await removeTestDom(window);
+  });
+  try {
+    await act(() => {
+      render(
+        <App
+          rows={setup.rows}
+          epics={setup.epics}
+          address={setup.address}
+          now={now}
+          clients={clients}
+          seenClock={seenClock}
+          seenWindow={seenWindow}
+        />,
+        container,
+      );
+    });
+    await check(container, streams);
+  } finally {
+    await teardown();
+  }
+}
+
+// untilDrawn waits until check holds, one turn of the event loop at a time, so the wait arms no timer or clock.
+function untilDrawn(signal: AbortSignal, check: () => boolean, what: string): Promise<void> {
+  return until(signal, check, what, { step: () => act(turn) });
+}
+
+// feedOpen sends the running state to the stream the App holds open last, once one is open.
+async function feedOpen(signal: AbortSignal, streams: Stream[]): Promise<void> {
+  await untilDrawn(signal, () => streams.some((stream) => stream.controller !== null), "the session's stream");
+  const open = streams.filter((stream) => stream.controller !== null).at(-1);
+  assert.ok(open !== undefined, "a stream is open");
+  emit(open, runningState());
+}
+
+test("WorkLink: at the desk the conversation has no rail beside the chat, its work link is in the title, and the activity lines sit above the composer", (t) =>
+  withStreamedApp(t.signal, { width: deskWidth, rows: [sessionRow()], epics: viewOf([makeEpic("rail")]) }, async (container, streams) => {
+    await feedOpen(t.signal, streams);
+    await untilDrawn(t.signal, () => container.querySelector('[aria-label="running now"]') !== null, "the activity lines");
+
+    assertNone(container.querySelector(".rail.end"), "no rail stands beside the chat");
+    const beside = all(container, '[aria-label="what this conversation steers"]').filter((group) => group.closest(".list") === null);
+    assert.deepEqual(beside, [], "nothing labelled as what the conversation steers stands beside the chat");
+    assert.ok(container.querySelector(".title-row .wlink") !== null, "the work link is in the title row");
+    const group = one(container, '[aria-label="running now"]');
+    const composer = one(container, '[aria-label="reader"] .send > .reply:not([hidden])');
+    assertSame(group.nextElementSibling, composer, "the activity lines sit immediately above the composer");
+  }));
+
+test("WorkLink: under 760px there is no tile strip under the band, while the work link and the activity lines are drawn", (t) =>
+  withStreamedApp(t.signal, { width: phoneWidth, rows: [sessionRow()], epics: viewOf([makeEpic("rail")]), address: sessionAddress }, async (container, streams) => {
+    await feedOpen(t.signal, streams);
+    await untilDrawn(t.signal, () => container.querySelector('[aria-label="running now"]') !== null, "the activity lines");
+
+    assertNone(container.querySelector(".tilestrip"), "no tile strip is drawn under the band");
+    assert.ok(container.querySelector(".title-row .wlink") !== null, "the work link is in the title row");
+    assert.equal(all(container, '[aria-label="running now"] .activity-line').length, 2, "both running tasks are lines");
+  }));

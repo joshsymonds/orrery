@@ -214,14 +214,9 @@ function panelHolds(container: HTMLElement, slug: string): boolean {
   return panel?.textContent?.includes(slug) === true;
 }
 
-// railTiles is each tile the right rail draws, in order.
-function railTiles(container: HTMLElement): HTMLElement[] {
-  return [...container.querySelectorAll<HTMLElement>(".rail .tile-w")];
-}
-
-// railLists is whether the rail draws an epic tile whose short name is short.
-function railLists(container: HTMLElement, short: string): boolean {
-  return railTiles(container).some((tile) => tile.querySelector(".cap")?.textContent === short);
+// linksEpic is whether the conversation's title row links the epic with the slug, its work link.
+function linksEpic(container: HTMLElement, slug: string): boolean {
+  return container.querySelector(`.title-row .wlink[title="Open ${slug}"]`) !== null;
 }
 
 // epicGetAnswer is the Get answer that names the session as the epic's steerer.
@@ -288,7 +283,7 @@ test("SteerMoved: a continue answered empty and read back as a new session puts 
   );
 });
 
-test("SteerMoved: the conversation an epic left lists the epic until a rerender's epics list names the taker as steerer, then it does not", (t) => {
+test("SteerMoved: the conversation an epic left links the epic until a rerender's epics list names the taker as steerer, then it does not", (t) => {
   const oldSteerer = sessionRow("sess-old", "old steerer");
   const taker = sessionRow("sess-new", "next steerer");
   return withSteer(
@@ -296,10 +291,10 @@ test("SteerMoved: the conversation an epic left lists the epic until a rerender'
     { rows: [oldSteerer, taker], epics: viewOf(epicOf("sess-old")), address: sessionAddress("sess-old") },
     async ({ container, rerender }) => {
       assert.equal(cursorKey(container), "session:sess-old", "the cursor rests on the conversation the epic left");
-      assert.ok(railLists(container, "first"), "the rail lists the epic while the list names the old steerer");
+      assert.ok(linksEpic(container, "first"), "the title links the epic while the list names the old steerer");
       await rerender({ rows: [oldSteerer, taker], epics: viewOf(epicOf("sess-new")), address: sessionAddress("sess-old") });
       assert.equal(cursorKey(container), "session:sess-old", "the cursor stays on the conversation the epic left");
-      assert.equal(railLists(container, "first"), false, "the rail stops listing the epic once the list names the taker");
+      assert.equal(linksEpic(container, "first"), false, "the title stops linking the epic once the list names the taker");
     },
   );
 });

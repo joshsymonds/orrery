@@ -7,12 +7,11 @@ import type { Conversation } from "./conversation";
 import type { Fold } from "./headfold";
 import type { Row } from "./rows";
 import { ContextMeter, contextFigure, PaneStrip, type StripHost } from "./strip";
-import { type ContractBandLine, foldHead, SubjectBand } from "./subjectband";
+import { type ContractBandLine, SubjectBand } from "./subjectband";
 import { lastPathElement } from "./titleparts";
 import { TitleRow } from "./titlerow";
-import type { RailGroup, Thing, WorkLinkItem } from "./work";
+import type { WorkLinkItem } from "./work";
 import { WorkLink } from "./worklink";
-import { WorkRail } from "./workrail";
 
 // HeadProps is what the conversation's Head draws: the row and its conversation, the strip's host and whether it shows,
 // the asks, the folded line's badges, the fold, and what each control does.
@@ -41,19 +40,9 @@ export interface HeadProps {
   contracts?: readonly ContractBandLine[];
   onOpenContract?: (id: string) => void;
   hereContract?: string;
-  // work is the middle conversation's groups under 760px, drawn as tiles under the band: the groups, the key of the
-  // thing open, and what a tile opens. Absent, the head draws no tiles.
-  work?: HeadWork;
   // workLinks is what the middle conversation works on, drawn in the title row after its title as links: the things, and
   // what a link opens. Absent, the head draws no links.
   workLinks?: HeadWorkLinks;
-}
-
-// HeadWork is what the strip of tiles under the band draws.
-export interface HeadWork {
-  groups: RailGroup[];
-  lit: string;
-  onOpen: (thing: Thing) => void;
 }
 
 // HeadWorkLinks is what the title row's work links draw: the things the conversation works on, and what a link opens.
@@ -100,7 +89,6 @@ export function Head({
   onHide,
   onShow,
   menu,
-  work,
   workLinks,
   here,
   contracts,
@@ -125,8 +113,6 @@ export function Head({
   // header only.
   const band = showStrip && fold === "open" && host !== null ? <PaneStrip host={host} band /> : null;
   const dirName = lastPathElement(row.project);
-  // tiles is whether the band has the strip of tiles under it, which then carries the control that hides the header.
-  const tiles = work !== undefined && work.groups.length > 0;
   // The context is the conversation's, so it sits in the title row before Find and More, open or folded. The phone
   // layout draws it bare.
   const context = conversation?.state?.context;
@@ -171,21 +157,12 @@ export function Head({
             goal={conversation?.state?.goal ?? ""}
             lines={lines}
             onOpen={onOpenEpic}
-            onHide={narrow && !tiles ? onHide : undefined}
+            onHide={narrow ? onHide : undefined}
             here={here}
             contracts={contracts}
             onOpenContract={onOpenContract}
             hereContract={hereContract}
           />
-          {work !== undefined && tiles && (
-            <WorkRail
-              groups={work.groups}
-              lit={work.lit}
-              layout="strip"
-              onOpen={work.onOpen}
-              end={narrow ? foldHead(onHide) : undefined}
-            />
-          )}
         </>
       ) : (
         <CompactHead asking={askingWords} badges={badges} onOpen={onShow} />

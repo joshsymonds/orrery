@@ -27,10 +27,11 @@ import type { Row } from "./rows";
 import { assertNone, installTestDom, removeTestDom, teardownOnce } from "./testdom";
 import { turn, until } from "./testwait";
 
-// Each test's name carries the token TileStrip. A phone is 412px wide, under the 760px the wide layout starts at, so
-// the conversation's groups draw as a strip under its header with no rail, an epic is the page with a foot bar, and the
-// picker and a list are sheets. A session's stream is a fake the test feeds, and every time is a fixture's instant, so
-// no test reads the wall clock.
+// Each test's name carries the token TileStrip, which names the phone's work: a phone is 412px wide, under the 760px the
+// wide layout starts at, so the conversation's work is its work links in the title row and its running tasks are activity
+// lines above its composer, with no rail and no strip; an epic is the page with a foot bar, and the +n menu and a list are
+// sheets or menus. A session's stream is a fake the test feeds, and every time is a fixture's instant, so no test reads
+// the wall clock.
 
 const phoneWidth = 412;
 const now = Date.parse(liveEpoch) / 1000;
@@ -290,21 +291,23 @@ async function pressEscape(element: HTMLElement): Promise<void> {
   });
 }
 
-// stripTiles is each tile the strip under the conversation's header draws, in order.
-function stripTiles(container: HTMLElement): HTMLElement[] {
-  return [...container.querySelectorAll<HTMLElement>(".tilestrip .tile-w")];
+// activityLines are the lines the conversation's activity draws above its composer, in order.
+function activityLines(container: HTMLElement): HTMLElement[] {
+  return [...container.querySelectorAll<HTMLElement>('[aria-label="running now"] .activity-line')];
 }
 
-// tileTitled is the strip's tile whose title starts with prefix: an epic's short name, or a list's key and a colon.
-function tileTitled(container: HTMLElement, prefix: string): HTMLElement {
-  const tile = stripTiles(container).find((candidate) => candidate.getAttribute("title")?.startsWith(prefix) === true);
-  assert.ok(tile !== undefined, `no strip tile titled ${prefix}`);
-  return tile;
+// lineOf is the activity line whose who is the one given, which must be drawn.
+function lineOf(container: HTMLElement, who: string): HTMLElement {
+  const line = activityLines(container).find((candidate) => candidate.querySelector(".who")?.textContent === who);
+  assert.ok(line !== undefined, `no activity line of ${who}`);
+  return line;
 }
 
-// tileName is the name a strip tile's title gives: the text before its colon.
-function tileName(tile: HTMLElement): string {
-  return (tile.getAttribute("title") ?? "").split(":")[0];
+// workLinkOf is the title row's work link with the title given, which must be drawn.
+function workLinkOf(container: HTMLElement, title: string): HTMLElement {
+  const link = container.querySelector<HTMLElement>(`.title-row .wlink[title="${title}"]`);
+  assert.ok(link !== null, `no work link titled ${title}`);
+  return link;
 }
 
 // lastReport is the address App reported last, with the mode it named.
@@ -335,48 +338,45 @@ function sheetOf(container: HTMLElement): HTMLElement | null {
   return container.querySelector<HTMLElement>('section.sheet[role="dialog"]');
 }
 
-// settleTiles waits until the strip draws the two list tiles the stream's background gives and the epic's tile.
-function settleTiles(signal: AbortSignal, container: HTMLElement): Promise<void> {
-  return settle(signal, () => stripTiles(container).length === 3, "the two list tiles and the epic's");
+// settleLinks waits until the title row links alpha and the conversation draws the three activity lines its stream gives.
+function settleLinks(signal: AbortSignal, container: HTMLElement): Promise<void> {
+  return settle(
+    signal,
+    () => container.querySelector('.title-row .wlink[title="Open alpha"]') !== null && activityLines(container).length === 3,
+    "the alpha link and the three activity lines",
+  );
+}
+
+// settleLines waits until the conversation draws the three activity lines its stream gives.
+function settleLines(signal: AbortSignal, container: HTMLElement): Promise<void> {
+  return settle(signal, () => activityLines(container).length === 3, "the three activity lines");
 }
 
 // onSession opens the conversation of s1, which alpha steers, where a phone's conversation shows its strip.
 const onSession: Setup = { rows: [steererRow()], epics: view([alpha]), address: sessionAddress };
 
-test("TileStrip: under 760px the groups draw as a strip under the band, ending in the header's hide control, with no rail and no side panel", (t) =>
+test("TileStrip: under 760px the band holds the header's hide control, with no strip, no rail and no side panel", (t) =>
   withPhone(t.signal, onSession, async ({ container, server }) => {
     await feed(t.signal, server, "s1", background);
-    await settleTiles(t.signal, container);
+    await settleLinks(t.signal, container);
     assert.equal(container.querySelector("aside.rail"), null, "no rail is drawn");
     assert.equal(container.querySelector("aside.rpanel"), null, "no side panel is drawn");
-    const strip = container.querySelector<HTMLElement>(".tilestrip");
-    assert.ok(strip !== null, "the strip is drawn");
-    assert.equal(
-      strip.parentElement?.classList.contains("convo-head"),
-      true,
-      "the strip sits in the conversation's head, under its band",
-    );
-    assert.equal(
-      strip.lastElementChild?.getAttribute("aria-label"),
-      "Hide the header",
-      "the strip ends in the header's hide control",
-    );
-    assert.equal(container.querySelectorAll(".fold-head").length, 1, "the hide control is drawn once, at the strip's end");
     const goal = container.querySelector<HTMLElement>(".subj.goal");
     assert.ok(goal !== null, "the band's goal line is drawn");
-    assertNone(goal.querySelector(".fold-head"));
+    assert.equal(goal.querySelectorAll(".fold-head").length, 1, "the hide control is drawn on the band's goal line");
+    assert.equal(container.querySelectorAll(".fold-head").length, 1, "the hide control is drawn once");
     assert.deepEqual(
-      stripTiles(container).map(tileName),
-      ["alpha", "agents", "running"],
-      "the strip draws the epic's group, then the agents and running groups",
+      activityLines(container).map((line) => line.querySelector(".who")?.textContent),
+      ["Explore", "agent", "shell"],
+      "the running agents and the shell are drawn as lines",
     );
   }));
 
-test("TileStrip: an epic tile pushes the epic's address and draws it as the page, without the conversation", (t) =>
+test("TileStrip: an epic's work link pushes the epic's address and draws it as the page, without the conversation", (t) =>
   withPhone(t.signal, onSession, async ({ container, server, reported }) => {
     await feed(t.signal, server, "s1", background);
-    await settleTiles(t.signal, container);
-    await press(tileTitled(container, "alpha:"));
+    await settleLinks(t.signal, container);
+    await press(workLinkOf(container, "Open alpha"));
     assert.deepEqual(lastReport(reported), { address: epicAddress("alpha"), mode: "push" }, "the epic is pushed");
     assert.ok(epicSection(container) !== null, "the epic is drawn as the page");
     assert.equal(conversationShown(container), null, "the conversation is not drawn");
@@ -431,34 +431,32 @@ test("TileStrip: the phone's epic page keeps its commands out of the title row, 
     );
   }));
 
-test("TileStrip: four epics' dots tile opens the picker as a sheet, and its row opens that epic", (t) => {
+test("TileStrip: four epics' +n control opens a menu of the four, and its item pushes that epic's address", (t) => {
   const four = ["alpha", "bravo", "charlie", "delta"].map((slug) => epicOf(slug, "s1"));
   const setup: Setup = { rows: [steererRow()], epics: view(four), address: sessionAddress };
   return withPhone(t.signal, setup, async ({ container, reported }) => {
-    const dots = container.querySelector<HTMLElement>(".tilestrip .tile-w.group");
-    assert.ok(dots !== null, "four epics draw one dots tile");
-    await press(dots);
-    const sheet = sheetOf(container);
-    assert.ok(sheet !== null, "the picker is drawn as a sheet");
-    assert.equal(sheet.querySelectorAll(".rpick-row").length, 4, "the sheet holds a row for each epic");
-    const rows = [...sheet.querySelectorAll<HTMLElement>(".rpick-row")];
-    const deltaRow = rows.find((candidate) => candidate.querySelector(".t")?.textContent === "delta");
-    assert.ok(deltaRow !== undefined, "the sheet has the delta row");
-    await press(deltaRow);
-    assert.deepEqual(lastReport(reported), { address: epicAddress("delta"), mode: "push" }, "the row's epic is pushed");
-    assert.equal(sheetOf(container), null, "the sheet is shut");
+    const more = container.querySelector<HTMLElement>(".title-row .wlink-more");
+    assert.ok(more !== null, "four epics draw one +n control");
+    await press(more);
+    const items = [...container.querySelectorAll<HTMLElement>(".title-row .menu [role='menuitem']")];
+    assert.equal(items.length, 4, "the menu holds an item for each epic");
+    const delta = items.find((item) => item.textContent === "delta");
+    assert.ok(delta !== undefined, "the menu has the delta item");
+    await press(delta);
+    assert.deepEqual(lastReport(reported), { address: epicAddress("delta"), mode: "push" }, "the item's epic is pushed");
+    assertNone(container.querySelector(".title-row .menu"), "the menu is shut");
   });
 });
 
-// onListSession opens the conversation of s1 with no epic, so its strip holds only the list tiles. Under 760px a
-// conversation draws only once it is opened, as its address opens it.
+// onListSession opens the conversation of s1 with no epic, so its title row links nothing and its lines are the running
+// tasks alone. Under 760px a conversation draws only once it is opened, as its address opens it.
 const onListSession: Setup = { rows: [steererRow()], address: sessionAddress };
 
-test("TileStrip: a list tile pushes the list's address and draws the list in a sheet over the conversation", (t) =>
+test("TileStrip: an activity line pushes the list's address and draws the list in a sheet over the conversation", (t) =>
   withPhone(t.signal, onListSession, async ({ container, server, reported }) => {
     await feed(t.signal, server, "s1", background);
-    await settle(t.signal, () => stripTiles(container).length === 2, "the two list tiles");
-    await press(tileTitled(container, "agents:"));
+    await settleLines(t.signal, container);
+    await press(lineOf(container, "Explore"));
     assert.deepEqual(lastReport(reported), { address: agentsAddress, mode: "push" }, "the list's address is pushed");
     const sheet = sheetOf(container);
     assert.ok(sheet !== null && sheet.getAttribute("aria-label") === "Sub-agents", "the agents are drawn in a sheet");
@@ -473,8 +471,8 @@ test("TileStrip: a list tile pushes the list's address and draws the list in a s
 test("TileStrip: Escape on a list's sheet returns to the session's address", (t) =>
   withPhone(t.signal, onListSession, async ({ container, server, reported }) => {
     await feed(t.signal, server, "s1", background);
-    await settle(t.signal, () => stripTiles(container).length === 2, "the two list tiles");
-    await press(tileTitled(container, "agents:"));
+    await settleLines(t.signal, container);
+    await press(lineOf(container, "Explore"));
     const sheet = sheetOf(container);
     assert.ok(sheet !== null, "the sheet is drawn before Escape");
     await pressEscape(sheet);
@@ -482,18 +480,23 @@ test("TileStrip: Escape on a list's sheet returns to the session's address", (t)
     assert.deepEqual(lastReport(reported), { address: sessionAddress, mode: "push" }, "the session is pushed");
   }));
 
-test("TileStrip: a pinned conversation's column draws no strip, so a tile always acts on the conversation it names", (t) =>
+test("TileStrip: a pinned conversation's column draws no work link or activity line, so a line always acts on the conversation it names", (t) =>
   withPhone(t.signal, onSession, async ({ container, server }) => {
     await feed(t.signal, server, "s1", background);
-    await settleTiles(t.signal, container);
+    await settleLinks(t.signal, container);
     await act(() => {
       document.dispatchEvent(new KeyboardEvent("keydown", { key: "|", bubbles: true }));
     });
     assert.ok(container.querySelector('section[aria-label="pinned reader"]') !== null, "the row is pinned");
     assert.equal(
-      container.querySelector('section[aria-label="pinned reader"] .tilestrip'),
+      container.querySelector('section[aria-label="pinned reader"] .wlinks'),
       null,
-      "the pinned column draws no strip",
+      "the pinned column draws no work links",
     );
-    assert.equal(container.querySelectorAll(".tilestrip").length, 1, "only the cursor's conversation draws its strip");
+    assert.equal(
+      container.querySelector('section[aria-label="pinned reader"] [aria-label="running now"]'),
+      null,
+      "the pinned column draws no activity lines",
+    );
+    assert.equal(container.querySelectorAll(".wlinks").length, 1, "only the cursor's conversation draws its links");
   }));
