@@ -37,6 +37,7 @@ import {
   type KeyContext,
 } from "./keymap";
 import { listHolds, listsEpic } from "./listholds";
+import { type Move, movesBetween, type Placed, spotsOf } from "./moves";
 import { NoticeCentre } from "./noticecentre";
 import { useNoticeLog } from "./noticelog";
 import { NoticeStack } from "./notices";
@@ -218,6 +219,12 @@ const wideQuery = "(min-width: 760px)";
 // The query of the layout at 1250px and under, where the epic panel lies over the conversation from the right, beside the
 // rail, rather than taking a track of its own.
 const overlayQuery = "(max-width: 1250px)";
+
+// The query of reduced motion, the one tokens.css's reduced block uses. While it matches, a moved row is drawn with no
+// mark, and still lands in its new place.
+const reduceQuery = "(prefers-reduced-motion: reduce)";
+// How long a moved row's mark stays, in milliseconds on the App's clock: the layout move's length in tokens.css.
+const moveMs = 280;
 // The contracts an App holds when none are given.
 const noContracts: readonly Contract[] = [];
 // The notices an App shows when none are given.
@@ -309,6 +316,17 @@ export function App({
       query.removeEventListener("change", sync);
     };
   }, []);
+  // Whether reduced motion is asked for, read at mount and followed on the query's change event. While it is, a moved row
+  // draws no mark.
+  const [reduced, setReduced] = useState(() => window.matchMedia(reduceQuery).matches);
+  useEffect(() => {
+    const query = window.matchMedia(reduceQuery);
+    const sync = () => setReduced(query.matches);
+    query.addEventListener("change", sync);
+    return () => {
+      query.removeEventListener("change", sync);
+    };
+  }, []);
   // Whether the picker palette is open.
   const [pickerOpen, setPickerOpen] = useState(false);
   // The directory the palette opens in: the project's, when New session here opened it, and none for N, ⌘K and the
@@ -389,6 +407,11 @@ export function App({
   // the list's own archived field until the next list answer, which carries that field.
   const [rowMarks, setRowMarks] = useState<Map<string, boolean>>(() => new Map());
   const [epicMarks, setEpicMarks] = useState<Map<string, boolean>>(() => new Map());
+  // The moved rows a list answer left a mark on, by row key, each with its move. A mark clears moveMs after its answer, on
+  // the App's clock, and reduced motion draws none. moveTimers holds each mark's clearing timer by row key, so a row that
+  // moves again restarts its own.
+  const [moving, setMoving] = useState<ReadonlyMap<string, Move>>(() => new Map());
+  const moveTimers = useRef(new Map<string, unknown>());
   // The projects whose cards are folded, and the projects whose ended line is open, by project key. They start unfolded
   // and shut.
   const [folded, setFolded] = useState<Set<string>>(() => new Set());
@@ -444,6 +467,9 @@ export function App({
   // The conversation row or epic the cursor rested on at the last commit, when the inbox drew it unarchived. A list answer
   // that archives it leaves it drawn while the cursor rests on it.
   const drawnOpen = useRef<Row | EpicItem | null>(null);
+  // The spots the last rows answer drew each conversation at, in the inbox and the Archived view, which the next answer's
+  // moves are read against. It is null until the first answer.
+  const lastSpots = useRef<Map<string, Placed> | null>(null);
 
   // The address App reports. lastForm is the form it last reported or applied. cause is the mode the next address change
   // takes: push for an open, a crumb return or the first cursor key after one, replace for a later cursor key. A cause
@@ -506,11 +532,11 @@ export function App({
     .toLowerCase()
     .split(/\s+/)
     .filter((word) => word !== "");
-  // The open entry the inbox keeps drawn though a list answer archived it, by key, or "" when none. The inbox reads it as
-  // unarchived; the Archived view lists it as the answer says.
+  // The open entry the inbox keeps drawn though a list answer archived or ended it, by key, or "" when none. The inbox
+  // reads it as unarchived and not ended, in its old place; the Archived view lists it as the answer says.
   const keptKey = heldOpenKey(drawnOpen.current, cursor.key, view, rows, epics, rowMarks, epicMarks);
   const shownRows = rows.map((row) =>
-    readAsSeen(withRowMark(row.key === keptKey ? { ...row, archived: false } : row, rowMarks), seenWritten),
+    readAsSeen(withRowMark(row.key === keptKey ? { ...row, archived: false, ended: false } : row, rowMarks), seenWritten),
   );
   // The epics as the local archive marks leave them, which the views draw in place of the list's.
   const marked = withEpicMarks(epics, epicMarks);
@@ -955,6 +981,59 @@ export function App({
     const timer = toastClock.setTimeout(() => setToast(null), toastMs);
     return () => toastClock.clearTimeout(timer);
   }, [toast, toastClock]);
+  // A list answer is read against the last: each conversation it draws at another spot has moved, and is marked for moveMs
+  // on the App's clock. The open entry the answer holds in its place does not move, and neither does a row the owner moved
+  // from this page. The first answer moves nothing.
+  useEffect(() => {
+    const spots = spotsOfAnswer(rows, epics, contracts, host?.host ?? "");
+    const before = lastSpots.current;
+    lastSpots.current = spots;
+    if (before === null) {
+      return;
+    }
+    const moves = movesBetween(before, spots).filter((move) => move.row.key !== keptKey && !rowMarks.has(move.row.key));
+    if (moves.length === 0) {
+      return;
+    }
+    setMoving((previous) => {
+      const next = new Map(previous);
+      for (const move of moves) {
+        next.set(move.row.key, move);
+      }
+      return next;
+    });
+    for (const move of moves) {
+      const key = move.row.key;
+      const pending = moveTimers.current.get(key);
+      if (pending !== undefined) {
+        toastClock.clearTimeout(pending);
+      }
+      moveTimers.current.set(
+        key,
+        toastClock.setTimeout(() => {
+          moveTimers.current.delete(key);
+          setMoving((previous) => {
+            if (!previous.has(key)) {
+              return previous;
+            }
+            const next = new Map(previous);
+            next.delete(key);
+            return next;
+          });
+        }, moveMs),
+      );
+    }
+  }, [rows]);
+  // Unmount clears the timers the moves left.
+  useEffect(() => {
+    const timers = moveTimers.current;
+    return () => {
+      for (const handle of timers.values()) {
+        toastClock.clearTimeout(handle);
+      }
+      timers.clear();
+    };
+  }, []);
   // Undo unarchives the row the toast names, through the same call an Unarchive from its menu makes, and takes the toast
   // away.
   const undoToast = () => {
@@ -2447,6 +2526,18 @@ export function App({
     );
   };
 
+  // The rows drawn with a mark, and the projects whose ended line's button draws one. A move into an open ended line marks
+  // its row, which is drawn; a move behind a shut one marks that line, since its row is not drawn. Reduced motion draws no
+  // mark, and the rows still land where the answer put them.
+  const markedRows: ReadonlySet<string> = reduced ? new Set() : new Set(moving.keys());
+  const markedLines: ReadonlySet<string> = reduced
+    ? new Set()
+    : new Set(
+        [...moving.values()]
+          .filter((move) => move.to.line === "ended" && !endedOpen.has(move.to.project))
+          .map((move) => move.to.project),
+      );
+
   // renderConvo draws a conversation of the tree: its row, and what hangs under it, with its fold of ended epics, which
   // its key holds open or shut.
   const renderConvo = (convo: Convo) => (
@@ -2462,6 +2553,7 @@ export function App({
           row={row}
           now={now}
           cursor={row.key === cursorRowKey}
+          moving={markedRows.has(row.key)}
           more={rowMore(row)}
           onOpen={() => {
             selectItem(row);
@@ -2643,6 +2735,7 @@ export function App({
             onKeys={() => setHelpOpen(true)}
             onOpenProject={openProject}
             onCollapse={wide ? toggleInbox : undefined}
+            moving={markedLines}
             notes={notes}
           />
         </div>
@@ -2804,10 +2897,11 @@ function readAsSeen(row: Row, written: Map<string, number>): Row {
   return row.unseen && writtenAt !== undefined && row.changed <= writtenAt ? { ...row, unseen: false } : row;
 }
 
-// heldOpenKey is the key of the open entry the inbox keeps drawn while a list answer archives it. That is the cursor's
-// conversation row or epic, drawn unarchived at the last commit, which the answer now archives with no local archive
-// mark of its own. The cursor's move to another entry ends the hold, as does any other view than the inbox. It is "" when
-// nothing is held.
+// heldOpenKey is the key of the open entry the inbox keeps drawn while a list answer archives it, or ends it while the row
+// was drawn unended. That is the cursor's conversation row or epic, drawn unarchived at the last commit, which the answer
+// now archives with no local archive mark of its own; or the cursor's conversation row, drawn unended at the last commit,
+// which the answer now ends. The cursor's move to another entry ends the hold, as does any other view than the inbox. It
+// is "" when nothing is held.
 function heldOpenKey(
   drawn: Row | EpicItem | null,
   cursorKey: string,
@@ -2823,7 +2917,22 @@ function heldOpenKey(
   if (drawn.kind === "epic") {
     return epics.listed.get(drawn.id)?.archived === true && !epicMarks.has(drawn.id) ? drawn.key : "";
   }
-  return rows.some((row) => row.key === drawn.key && row.archived) && !rowMarks.has(drawn.key) ? drawn.key : "";
+  const answered = rows.find((row) => row.key === drawn.key);
+  const held = answered !== undefined && (answered.archived || (answered.ended === true && drawn.ended !== true));
+  return held && !rowMarks.has(drawn.key) ? drawn.key : "";
+}
+
+// spotsOfAnswer is where a rows answer draws each conversation, in the inbox and the Archived view. It reads the answer's own
+// rows and epics alone: no local archive mark and no held open entry.
+function spotsOfAnswer(
+  rows: readonly Row[],
+  epics: EpicsView,
+  contracts: readonly Contract[],
+  host: string,
+): Map<string, Placed> {
+  const treeOf = (view: View) =>
+    buildTree({ rows, epics: [...epics.listed.values()], details: epics.details, contracts, host, view });
+  return spotsOf(treeOf("inbox"), treeOf("archived"));
 }
 
 // withRowMark applies the archive mark a landed call left to a row. A row with no mark is returned as it is.
