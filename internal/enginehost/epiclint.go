@@ -29,7 +29,6 @@ const (
 const (
 	epicReasonReleaseVersion = "names the fixed version %s: a release step's tag is chosen when the step runs; " +
 		"name the next version above the newest tag instead"
-	epicReasonReleaseCI = `a release does not wait for CI; write "do not wait for CI"`
 )
 
 // errShellQuote is what splitShellWords returns for a quote it cannot close.
@@ -58,9 +57,9 @@ func checkContractLint(contract *v1.EpicContract) error {
 }
 
 // contractLintWarnings returns the warnings the lint gives a contract that checkEpic passes, in order: one for each go
-// test in a capture whose -run pattern matches a test at the base, then one for each release step whose text says
-// merge, names a fixed version or waits on CI. Each names its field and reason. It runs after checkContractLint, so each
-// argv element it reads has passed it. A git failure reading a go test's package is returned, so no check passes on it.
+// test in a capture whose -run pattern matches a test at the base, then one for each release step whose text names a
+// fixed version. Each names its field and reason. It runs after checkContractLint, so each argv element it reads has
+// passed it. A git failure reading a go test's package is returned, so no check passes on it.
 func contractLintWarnings(ctx context.Context, contract *v1.EpicContract) ([]string, error) {
 	base, err := stepGitResolve(ctx, contract.GetRepository(), contract.GetBase())
 	if err != nil {
@@ -89,16 +88,13 @@ func contractLintWarnings(ctx context.Context, contract *v1.EpicContract) ([]str
 	return append(warnings, releaseStepWarnings(contract.GetReleaseSteps())...), nil
 }
 
-// The patterns of a release step's text. The CI rule matches a whole word; the version rule matches a lowercase v with
-// three numbers, as the contract writes a version. The phrase is removed before the CI rule reads.
+// The pattern of a release step's text: a lowercase v with three numbers, as the contract writes a version.
 var (
 	releaseVersionPattern = regexp.MustCompile(`\bv[0-9]+\.[0-9]+\.[0-9]+`)
-	releaseWaitPattern    = regexp.MustCompile(`(?i)do not wait for CI`)
-	releaseCIPattern      = regexp.MustCompile(`\bCI\b`)
 )
 
-// releaseStepWarnings returns a warning for each release step whose text names a fixed version or waits on CI, in the
-// order of the steps.
+// releaseStepWarnings returns a warning for each release step whose text names a fixed version, in the order of the
+// steps.
 func releaseStepWarnings(steps []*v1.EpicReleaseStep) []string {
 	var warnings []string
 	for i, step := range steps {
@@ -114,9 +110,6 @@ func releaseStepWarnings(steps []*v1.EpicReleaseStep) []string {
 func releaseStepReason(text string) string {
 	if version := releaseVersionPattern.FindString(text); version != "" {
 		return fmt.Sprintf(epicReasonReleaseVersion, version)
-	}
-	if releaseCIPattern.MatchString(releaseWaitPattern.ReplaceAllString(text, "")) {
-		return epicReasonReleaseCI
 	}
 	return ""
 }
