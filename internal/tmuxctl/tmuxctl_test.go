@@ -511,9 +511,11 @@ func TestWritePaneOptionsKeepsSemicolons(t *testing.T) {
 
 // TestWritePaneOptionsExpandsFormats writes one option with SetFormat and one with Set, both given the same format: the
 // SetFormat write stores what tmux expands it to, the pane's foreground command, and the Set write stores it as text.
-// The command is read in the same invocation as the writes, so it is the one tmux expanded while the pane starts.
+// The test waits for the pane's process to exec sleep before it writes, then reads the command in the same invocation as
+// the writes, so the command is the one the pane runs, not the shell it starts as.
 func TestWritePaneOptionsExpandsFormats(t *testing.T) {
 	client, pane := startPane(t)
+	waitForExec(t, client, pane, "sleep")
 	const format = "#{pane_current_command}"
 	writes := []tmuxctl.OptionWrite{
 		tmuxctl.SetFormat(protocol.OptionCommand, format),
