@@ -2020,3 +2020,75 @@ WHERE epic = sqlc.arg(epic) AND path = sqlc.arg(path) AND attempt = sqlc.arg(att
 
 -- name: ListEpicIntegrateRounds :many
 SELECT * FROM integrate_rounds WHERE epic = ? ORDER BY path, attempt, task, round;
+
+-- name: InsertLLMAccount :exec
+INSERT INTO llm_accounts (id, name, provider, plan, token, fingerprint, created) VALUES (?, ?, ?, ?, ?, ?, ?);
+
+-- name: GetLLMAccount :one
+SELECT id, name, provider, plan, fingerprint, created FROM llm_accounts WHERE id = ?;
+
+-- name: ListLLMAccounts :many
+SELECT id, name, provider, plan, fingerprint, created FROM llm_accounts ORDER BY created, id;
+
+-- name: ListLLMAccountIDs :many
+SELECT id FROM llm_accounts ORDER BY id;
+
+-- name: CountLLMAccount :one
+SELECT CAST(COUNT(*) AS INTEGER) FROM llm_accounts WHERE id = ?;
+
+-- name: RenameLLMAccount :execrows
+UPDATE llm_accounts SET name = ? WHERE id = ?;
+
+-- name: DeleteLLMAccount :exec
+DELETE FROM llm_accounts WHERE id = ?;
+
+-- name: ListRouteContextsOfAccount :many
+SELECT id FROM route_contexts WHERE account = ? AND account <> '' ORDER BY id;
+
+-- name: DeleteRouteBindings :exec
+DELETE FROM route_bindings;
+
+-- name: DeleteRouteContexts :exec
+DELETE FROM route_contexts;
+
+-- name: DeleteRouteSeats :exec
+DELETE FROM route_seats;
+
+-- name: DeleteRouteRegistry :exec
+DELETE FROM route_registry;
+
+-- name: InsertRouteRegistry :exec
+INSERT INTO route_registry (id, default_context) VALUES (1, ?);
+
+-- name: GetRouteRegistry :one
+SELECT * FROM route_registry WHERE id = 1;
+
+-- name: InsertRouteSeat :exec
+INSERT INTO route_seats (id, auth_mode, upstream, model, api_key_env_file, aws_profile, aws_region, model_map_env_file,
+                         billing, speed, cache_ttl, insecure, strip_cache_control, strict_structured_output,
+                         max_input_tokens, strip_betas)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+
+-- name: ListRouteSeats :many
+SELECT * FROM route_seats ORDER BY id;
+
+-- name: InsertRouteContext :exec
+INSERT INTO route_contexts (id, default_seat, account, has_subagents, subagent_default_seat) VALUES (?, ?, ?, ?, ?);
+
+-- name: ListRouteContexts :many
+SELECT * FROM route_contexts ORDER BY id;
+
+-- name: CountRouteContext :one
+SELECT CAST(COUNT(*) AS INTEGER) FROM route_contexts WHERE id = ?;
+
+-- name: SetRouteContextAccount :exec
+UPDATE route_contexts SET account = ? WHERE id = ?;
+
+-- name: InsertRouteBinding :exec
+INSERT INTO route_bindings (context, scope, selector, seat) VALUES (?, ?, ?, ?);
+
+-- name: ListRouteBindings :many
+SELECT * FROM route_bindings ORDER BY context, scope, selector;
+
+-- name: ListRouteAccountTokens :many
+SELECT id, token FROM llm_accounts WHERE id IN (SELECT account FROM route_contexts WHERE account <> '') ORDER BY id;
