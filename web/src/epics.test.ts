@@ -41,37 +41,19 @@ function makeStep(init: MessageInitShape<typeof EpicStepSchema>): EpicStep {
   return create(EpicStepSchema, { task: "", agent: "builder", doing: "", held: false, ...init });
 }
 
-// A Get response whose tasks carry the given statuses, one task per status, each integrated when its status is done or
-// integrated and planned otherwise, as the server stands a record task with no step.
+// A Get response whose build tasks carry the given statuses, one task per status, each integrated when its status is done
+// or integrated and planned otherwise, as the server stands a build task with no step.
 function detailWith(epic: Epic, statuses: string[]): EpicsGetResponse {
   return create(EpicsGetResponseSchema, {
     epic,
-    tasks: statuses.map((status, index) => ({
-      effort: 1,
-      slug: `task-${index}`,
-      subject: `Subject ${index}`,
+    buildTasks: statuses.map((status, index) => ({
+      id: `task-${index}`,
+      title: `Subject ${index}`,
       status,
       ...(["done", "integrated"].includes(status.toLowerCase())
         ? { place: "integrated", tone: "ok" }
         : { place: "planned", tone: "plan" }),
     })),
-  });
-}
-
-// A record task of a Get response: its slug and status, and where the server stands it.
-interface TaskOf {
-  slug: string;
-  status: string;
-  place?: string;
-  tone?: string;
-}
-
-// A Get response whose record tasks are tasks, each planned unless it says where it stands, and whose steps are given.
-function detailOfTasks(epic: Epic, tasks: TaskOf[], steps: EpicStep[] = []): EpicsGetResponse {
-  return create(EpicsGetResponseSchema, {
-    epic,
-    tasks: tasks.map((task) => ({ effort: 1, subject: task.slug, place: "planned", tone: "plan", ...task })),
-    steps,
   });
 }
 
@@ -107,18 +89,18 @@ test("an epic with no detail carries none, and its counts read zero", () => {
   assert.deepEqual(block.epic.strip, []);
 });
 
-test("StripAgreesOrrery: the strip gives each record task the strip tone of the tone the server stands it in, in record order", () => {
+test("StripAgreesOrrery: the strip gives each build task the strip tone of the tone the server stands it in, in task order", () => {
   const epic = makeEpic({});
   const tasks = [
-    { slug: "t0", status: "done", place: "integrated", tone: "ok" },
-    { slug: "t1", status: "gap", place: "green", tone: "bad" },
-    { slug: "t2", status: "dispatched", place: "implement", tone: "run" },
-    { slug: "t3", status: "dispatched", place: "implement", tone: "mine" },
-    { slug: "t4", status: "dispatched", place: "implement", tone: "limited" },
-    { slug: "t5", status: "gated", place: "integrate", tone: "acc" },
-    { slug: "t6", status: "pending" },
+    { id: "t0", status: "done", place: "integrated", tone: "ok" },
+    { id: "t1", status: "gap", place: "green", tone: "bad" },
+    { id: "t2", status: "dispatched", place: "implement", tone: "run" },
+    { id: "t3", status: "dispatched", place: "implement", tone: "mine" },
+    { id: "t4", status: "dispatched", place: "implement", tone: "limited" },
+    { id: "t5", status: "gated", place: "integrate", tone: "acc" },
+    { id: "t6", status: "pending" },
   ];
-  const details = new Map([[epic.id, detailOfTasks(epic, tasks)]]);
+  const details = new Map([[epic.id, detailOfBuild(epic, tasks)]]);
 
   const block = epicsView([epic], details).blocks[0];
 
@@ -127,9 +109,9 @@ test("StripAgreesOrrery: the strip gives each record task the strip tone of the 
 
 test("StripAgreesOrrery: the strip reads no step: a task the server stands running is now though its latest step ended goal_unmet", () => {
   const epic = makeEpic({});
-  const tasks = [{ slug: "t0", status: "dispatched", place: "green", tone: "run" }];
+  const tasks = [{ id: "t0", status: "dispatched", place: "green", tone: "run" }];
   const steps = [makeStep({ id: "s1", task: "t0", end: "goal_unmet" })];
-  const details = new Map([[epic.id, detailOfTasks(epic, tasks, steps)]]);
+  const details = new Map([[epic.id, detailOfBuild(epic, tasks, steps)]]);
 
   assert.deepEqual(epicsView([epic], details).blocks[0].epic.strip, ["now"]);
 });
@@ -226,26 +208,26 @@ test("a held step carries its reason", () => {
 test("a full block's tail reads its gaps, its not-started tasks and its ended steps", () => {
   const epic = makeEpic({ runningSteps: [makeStep({ id: "s1", task: "t2" })], endedSteps: 9 });
   const tasks = [
-    { slug: "t0", status: "gap", place: "implement", tone: "bad" },
-    { slug: "t1", status: "pending" },
-    { slug: "t2", status: "dispatched", place: "implement", tone: "run" },
-    { slug: "t3", status: "pending" },
+    { id: "t0", status: "gap", place: "implement", tone: "bad" },
+    { id: "t1", status: "pending" },
+    { id: "t2", status: "dispatched", place: "implement", tone: "run" },
+    { id: "t3", status: "pending" },
   ];
-  const details = new Map([[epic.id, detailOfTasks(epic, tasks)]]);
+  const details = new Map([[epic.id, detailOfBuild(epic, tasks)]]);
 
   assert.equal(epicsView([epic], details).blocks[0].tail, "1 gap · 2 not started · 9 steps ended");
 });
 
-test("StripAgreesOrrery: on an epic whose tasks are its record tasks the tail's gap count equals the errored segments", () => {
+test("StripAgreesOrrery: on an epic whose tasks are its build tasks the tail's gap count equals the errored segments", () => {
   const epic = makeEpic({ runningSteps: [makeStep({ id: "run" })] });
   const tasks = [
-    { slug: "t0", status: "gap", place: "green", tone: "bad" },
-    { slug: "t1", status: "gated", place: "integrate", tone: "acc" },
-    { slug: "t2", status: "gap", place: "implement", tone: "bad" },
-    { slug: "t3", status: "done", place: "integrated", tone: "ok" },
-    { slug: "t4", status: "pending" },
+    { id: "t0", status: "gap", place: "green", tone: "bad" },
+    { id: "t1", status: "gated", place: "integrate", tone: "acc" },
+    { id: "t2", status: "gap", place: "implement", tone: "bad" },
+    { id: "t3", status: "done", place: "integrated", tone: "ok" },
+    { id: "t4", status: "pending" },
   ];
-  const details = new Map([[epic.id, detailOfTasks(epic, tasks)]]);
+  const details = new Map([[epic.id, detailOfBuild(epic, tasks)]]);
 
   const block = epicsView([epic], details).blocks[0];
 
@@ -273,10 +255,10 @@ test("a tail leaves out each part at zero, and is empty when no part is left", (
   const nothing = makeEpic({ runningSteps: [makeStep({ id: "s1" })] });
   const unstarted = makeEpic({ runningSteps: [makeStep({ id: "s1" })] });
   const tasks = [
-    { slug: "a", status: "pending" },
-    { slug: "b", status: "pending" },
+    { id: "a", status: "pending" },
+    { id: "b", status: "pending" },
   ];
-  const details = new Map([[unstarted.id, detailOfTasks(unstarted, tasks)]]);
+  const details = new Map([[unstarted.id, detailOfBuild(unstarted, tasks)]]);
 
   assert.equal(epicsView([onlyEnded], new Map()).blocks[0].tail, "4 steps ended");
   assert.equal(epicsView([nothing], new Map()).blocks[0].tail, "");
@@ -684,7 +666,7 @@ test("a requirement with only a red run is not proven", () => {
   assert.equal(lineOf(epic, detail).count, "0 of 1 proven");
 });
 
-test("with no requirements the count is the record tasks done, out of all of them", () => {
+test("with no requirements the count is the build tasks done, out of all of them", () => {
   const epic = makeEpic({});
   const detail = detailWith(epic, ["done", "pending", "pending", "pending"]);
 

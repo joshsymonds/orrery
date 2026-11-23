@@ -2752,15 +2752,15 @@ function makeStep(id: string, init: MessageInitShape<typeof EpicStepSchema> = {}
   return create(EpicStepSchema, { id, task: id, agent: "builder", doing: "", held: false, ...init });
 }
 
-// standing is where the server stands a record task with no step, by its status.
+// standing is where the server stands a build task with no step, by its status.
 const standing: Record<string, { place: string; tone: string }> = {
   done: { place: "integrated", tone: "ok" },
   integrated: { place: "integrated", tone: "ok" },
   gap: { place: "implement", tone: "bad" },
 };
 
-// detailOf is the Get response for an epic whose tasks carry the given statuses, one task per status, each standing as
-// the server stands a task of that status with no step unless lives names where it stands, and its steps.
+// detailOf is the Get response for an epic whose build tasks carry the given statuses, one task per status, each standing
+// as the server stands a task of that status with no step unless lives names where it stands, and its steps.
 function detailOf(
   epic: Epic,
   statuses: string[],
@@ -2769,10 +2769,9 @@ function detailOf(
 ): EpicsGetResponse {
   return create(EpicsGetResponseSchema, {
     epic,
-    tasks: statuses.map((status, index) => ({
-      effort: 1,
-      slug: `task-${index}`,
-      subject: `Subject ${index}`,
+    buildTasks: statuses.map((status, index) => ({
+      id: `task-${index}`,
+      title: `Subject ${index}`,
       status,
       ...(lives[index] ?? standing[status] ?? { place: "planned", tone: "plan" }),
     })),
