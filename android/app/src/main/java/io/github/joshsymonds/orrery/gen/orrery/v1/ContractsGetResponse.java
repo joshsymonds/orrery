@@ -21,6 +21,11 @@ public  final class ContractsGetResponse extends
   private ContractsGetResponse() {
     versions_ = emptyProtobufList();
     states_ = emptyProtobufList();
+    refusals_ = emptyProtobufList();
+    rows_ = emptyProtobufList();
+    left_ = emptyProtobufList();
+    work_ = emptyProtobufList();
+    shown_ = emptyProtobufList();
   }
   private int bitField0_;
   public static final int CONTRACT_FIELD_NUMBER = 1;
@@ -364,6 +369,763 @@ public  final class ContractsGetResponse extends
   private void removeStates(int index) {
     ensureStatesIsMutable();
     states_.remove(index);
+  }
+
+  public static final int WORKING_FIELD_NUMBER = 4;
+  private io.github.joshsymonds.orrery.gen.orrery.v1.ContractWorking working_;
+  /**
+   * <pre>
+   * The contract's working copy: the body the stage is working on, with the decisions it asks and who wrote it.
+   * </pre>
+   *
+   * <code>.orrery.v1.ContractWorking working = 4 [json_name = "working"];</code>
+   */
+  @java.lang.Override
+  public boolean hasWorking() {
+    return ((bitField0_ & 0x00000002) != 0);
+  }
+  /**
+   * <pre>
+   * The contract's working copy: the body the stage is working on, with the decisions it asks and who wrote it.
+   * </pre>
+   *
+   * <code>.orrery.v1.ContractWorking working = 4 [json_name = "working"];</code>
+   */
+  @java.lang.Override
+  public io.github.joshsymonds.orrery.gen.orrery.v1.ContractWorking getWorking() {
+    return working_ == null ? io.github.joshsymonds.orrery.gen.orrery.v1.ContractWorking.getDefaultInstance() : working_;
+  }
+  /**
+   * <pre>
+   * The contract's working copy: the body the stage is working on, with the decisions it asks and who wrote it.
+   * </pre>
+   *
+   * <code>.orrery.v1.ContractWorking working = 4 [json_name = "working"];</code>
+   */
+  private void setWorking(io.github.joshsymonds.orrery.gen.orrery.v1.ContractWorking value) {
+    java.util.Objects.requireNonNull(value);
+    working_ = value;
+    bitField0_ |= 0x00000002;
+  }
+  /**
+   * <pre>
+   * The contract's working copy: the body the stage is working on, with the decisions it asks and who wrote it.
+   * </pre>
+   *
+   * <code>.orrery.v1.ContractWorking working = 4 [json_name = "working"];</code>
+   */
+  @java.lang.SuppressWarnings("ReferenceEquality")
+  private void mergeWorking(io.github.joshsymonds.orrery.gen.orrery.v1.ContractWorking value) {
+    java.util.Objects.requireNonNull(value);
+    if (working_ != null &&
+        working_ != io.github.joshsymonds.orrery.gen.orrery.v1.ContractWorking.getDefaultInstance()) {
+      working_ =
+        io.github.joshsymonds.orrery.gen.orrery.v1.ContractWorking.newBuilder(working_).mergeFrom(value).buildPartial();
+    } else {
+      working_ = value;
+    }
+    bitField0_ |= 0x00000002;
+  }
+  /**
+   * <pre>
+   * The contract's working copy: the body the stage is working on, with the decisions it asks and who wrote it.
+   * </pre>
+   *
+   * <code>.orrery.v1.ContractWorking working = 4 [json_name = "working"];</code>
+   */
+  private void clearWorking() {
+    working_ = null;
+    bitField0_ = (bitField0_ & ~0x00000002);
+  }
+
+  public static final int REFUSALS_FIELD_NUMBER = 5;
+  private com.google.protobuf.Internal.ProtobufList<io.github.joshsymonds.orrery.gen.orrery.v1.ContractRefusal> refusals_;
+  /**
+   * <pre>
+   * The refusals the contract's stage recorded, oldest first.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.ContractRefusal refusals = 5 [json_name = "refusals"];</code>
+   */
+  @java.lang.Override
+  public java.util.List<io.github.joshsymonds.orrery.gen.orrery.v1.ContractRefusal> getRefusalsList() {
+    return refusals_;
+  }
+  /**
+   * <pre>
+   * The refusals the contract's stage recorded, oldest first.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.ContractRefusal refusals = 5 [json_name = "refusals"];</code>
+   */
+  public java.util.List<? extends io.github.joshsymonds.orrery.gen.orrery.v1.ContractRefusalOrBuilder> 
+      getRefusalsOrBuilderList() {
+    return refusals_;
+  }
+  /**
+   * <pre>
+   * The refusals the contract's stage recorded, oldest first.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.ContractRefusal refusals = 5 [json_name = "refusals"];</code>
+   */
+  @java.lang.Override
+  public int getRefusalsCount() {
+    return refusals_.size();
+  }
+  /**
+   * <pre>
+   * The refusals the contract's stage recorded, oldest first.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.ContractRefusal refusals = 5 [json_name = "refusals"];</code>
+   */
+  @java.lang.Override
+  public io.github.joshsymonds.orrery.gen.orrery.v1.ContractRefusal getRefusals(int index) {
+    return refusals_.get(index);
+  }
+  /**
+   * <pre>
+   * The refusals the contract's stage recorded, oldest first.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.ContractRefusal refusals = 5 [json_name = "refusals"];</code>
+   */
+  public io.github.joshsymonds.orrery.gen.orrery.v1.ContractRefusalOrBuilder getRefusalsOrBuilder(
+      int index) {
+    return refusals_.get(index);
+  }
+  private void ensureRefusalsIsMutable() {
+    com.google.protobuf.Internal.ProtobufList<io.github.joshsymonds.orrery.gen.orrery.v1.ContractRefusal> tmp = refusals_;
+    if (!tmp.isModifiable()) {
+      refusals_ =
+          com.google.protobuf.GeneratedMessageLite.mutableCopy(tmp);
+     }
+  }
+
+  /**
+   * <pre>
+   * The refusals the contract's stage recorded, oldest first.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.ContractRefusal refusals = 5 [json_name = "refusals"];</code>
+   */
+  private void setRefusals(
+      int index, io.github.joshsymonds.orrery.gen.orrery.v1.ContractRefusal value) {
+    java.util.Objects.requireNonNull(value);
+    ensureRefusalsIsMutable();
+    refusals_.set(index, value);
+  }
+  /**
+   * <pre>
+   * The refusals the contract's stage recorded, oldest first.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.ContractRefusal refusals = 5 [json_name = "refusals"];</code>
+   */
+  private void addRefusals(io.github.joshsymonds.orrery.gen.orrery.v1.ContractRefusal value) {
+    java.util.Objects.requireNonNull(value);
+    ensureRefusalsIsMutable();
+    refusals_.add(value);
+  }
+  /**
+   * <pre>
+   * The refusals the contract's stage recorded, oldest first.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.ContractRefusal refusals = 5 [json_name = "refusals"];</code>
+   */
+  private void addRefusals(
+      int index, io.github.joshsymonds.orrery.gen.orrery.v1.ContractRefusal value) {
+    java.util.Objects.requireNonNull(value);
+    ensureRefusalsIsMutable();
+    refusals_.add(index, value);
+  }
+  /**
+   * <pre>
+   * The refusals the contract's stage recorded, oldest first.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.ContractRefusal refusals = 5 [json_name = "refusals"];</code>
+   */
+  private void addAllRefusals(
+      java.lang.Iterable<? extends io.github.joshsymonds.orrery.gen.orrery.v1.ContractRefusal> values) {
+    ensureRefusalsIsMutable();
+    com.google.protobuf.AbstractMessageLite.addAll(
+        values, refusals_);
+  }
+  /**
+   * <pre>
+   * The refusals the contract's stage recorded, oldest first.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.ContractRefusal refusals = 5 [json_name = "refusals"];</code>
+   */
+  private void clearRefusals() {
+    refusals_ = emptyProtobufList();
+  }
+  /**
+   * <pre>
+   * The refusals the contract's stage recorded, oldest first.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.ContractRefusal refusals = 5 [json_name = "refusals"];</code>
+   */
+  private void removeRefusals(int index) {
+    ensureRefusalsIsMutable();
+    refusals_.remove(index);
+  }
+
+  public static final int ROWS_FIELD_NUMBER = 6;
+  private com.google.protobuf.Internal.ProtobufList<io.github.joshsymonds.orrery.gen.orrery.v1.ContractRowWrite> rows_;
+  /**
+   * <pre>
+   * The row writes the contract's stage recorded, oldest first.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.ContractRowWrite rows = 6 [json_name = "rows"];</code>
+   */
+  @java.lang.Override
+  public java.util.List<io.github.joshsymonds.orrery.gen.orrery.v1.ContractRowWrite> getRowsList() {
+    return rows_;
+  }
+  /**
+   * <pre>
+   * The row writes the contract's stage recorded, oldest first.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.ContractRowWrite rows = 6 [json_name = "rows"];</code>
+   */
+  public java.util.List<? extends io.github.joshsymonds.orrery.gen.orrery.v1.ContractRowWriteOrBuilder> 
+      getRowsOrBuilderList() {
+    return rows_;
+  }
+  /**
+   * <pre>
+   * The row writes the contract's stage recorded, oldest first.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.ContractRowWrite rows = 6 [json_name = "rows"];</code>
+   */
+  @java.lang.Override
+  public int getRowsCount() {
+    return rows_.size();
+  }
+  /**
+   * <pre>
+   * The row writes the contract's stage recorded, oldest first.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.ContractRowWrite rows = 6 [json_name = "rows"];</code>
+   */
+  @java.lang.Override
+  public io.github.joshsymonds.orrery.gen.orrery.v1.ContractRowWrite getRows(int index) {
+    return rows_.get(index);
+  }
+  /**
+   * <pre>
+   * The row writes the contract's stage recorded, oldest first.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.ContractRowWrite rows = 6 [json_name = "rows"];</code>
+   */
+  public io.github.joshsymonds.orrery.gen.orrery.v1.ContractRowWriteOrBuilder getRowsOrBuilder(
+      int index) {
+    return rows_.get(index);
+  }
+  private void ensureRowsIsMutable() {
+    com.google.protobuf.Internal.ProtobufList<io.github.joshsymonds.orrery.gen.orrery.v1.ContractRowWrite> tmp = rows_;
+    if (!tmp.isModifiable()) {
+      rows_ =
+          com.google.protobuf.GeneratedMessageLite.mutableCopy(tmp);
+     }
+  }
+
+  /**
+   * <pre>
+   * The row writes the contract's stage recorded, oldest first.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.ContractRowWrite rows = 6 [json_name = "rows"];</code>
+   */
+  private void setRows(
+      int index, io.github.joshsymonds.orrery.gen.orrery.v1.ContractRowWrite value) {
+    java.util.Objects.requireNonNull(value);
+    ensureRowsIsMutable();
+    rows_.set(index, value);
+  }
+  /**
+   * <pre>
+   * The row writes the contract's stage recorded, oldest first.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.ContractRowWrite rows = 6 [json_name = "rows"];</code>
+   */
+  private void addRows(io.github.joshsymonds.orrery.gen.orrery.v1.ContractRowWrite value) {
+    java.util.Objects.requireNonNull(value);
+    ensureRowsIsMutable();
+    rows_.add(value);
+  }
+  /**
+   * <pre>
+   * The row writes the contract's stage recorded, oldest first.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.ContractRowWrite rows = 6 [json_name = "rows"];</code>
+   */
+  private void addRows(
+      int index, io.github.joshsymonds.orrery.gen.orrery.v1.ContractRowWrite value) {
+    java.util.Objects.requireNonNull(value);
+    ensureRowsIsMutable();
+    rows_.add(index, value);
+  }
+  /**
+   * <pre>
+   * The row writes the contract's stage recorded, oldest first.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.ContractRowWrite rows = 6 [json_name = "rows"];</code>
+   */
+  private void addAllRows(
+      java.lang.Iterable<? extends io.github.joshsymonds.orrery.gen.orrery.v1.ContractRowWrite> values) {
+    ensureRowsIsMutable();
+    com.google.protobuf.AbstractMessageLite.addAll(
+        values, rows_);
+  }
+  /**
+   * <pre>
+   * The row writes the contract's stage recorded, oldest first.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.ContractRowWrite rows = 6 [json_name = "rows"];</code>
+   */
+  private void clearRows() {
+    rows_ = emptyProtobufList();
+  }
+  /**
+   * <pre>
+   * The row writes the contract's stage recorded, oldest first.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.ContractRowWrite rows = 6 [json_name = "rows"];</code>
+   */
+  private void removeRows(int index) {
+    ensureRowsIsMutable();
+    rows_.remove(index);
+  }
+
+  public static final int LEFT_FIELD_NUMBER = 7;
+  private com.google.protobuf.Internal.ProtobufList<io.github.joshsymonds.orrery.gen.orrery.v1.ContractLeft> left_;
+  /**
+   * <pre>
+   * The left items the contract's stage recorded, oldest first.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.ContractLeft left = 7 [json_name = "left"];</code>
+   */
+  @java.lang.Override
+  public java.util.List<io.github.joshsymonds.orrery.gen.orrery.v1.ContractLeft> getLeftList() {
+    return left_;
+  }
+  /**
+   * <pre>
+   * The left items the contract's stage recorded, oldest first.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.ContractLeft left = 7 [json_name = "left"];</code>
+   */
+  public java.util.List<? extends io.github.joshsymonds.orrery.gen.orrery.v1.ContractLeftOrBuilder> 
+      getLeftOrBuilderList() {
+    return left_;
+  }
+  /**
+   * <pre>
+   * The left items the contract's stage recorded, oldest first.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.ContractLeft left = 7 [json_name = "left"];</code>
+   */
+  @java.lang.Override
+  public int getLeftCount() {
+    return left_.size();
+  }
+  /**
+   * <pre>
+   * The left items the contract's stage recorded, oldest first.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.ContractLeft left = 7 [json_name = "left"];</code>
+   */
+  @java.lang.Override
+  public io.github.joshsymonds.orrery.gen.orrery.v1.ContractLeft getLeft(int index) {
+    return left_.get(index);
+  }
+  /**
+   * <pre>
+   * The left items the contract's stage recorded, oldest first.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.ContractLeft left = 7 [json_name = "left"];</code>
+   */
+  public io.github.joshsymonds.orrery.gen.orrery.v1.ContractLeftOrBuilder getLeftOrBuilder(
+      int index) {
+    return left_.get(index);
+  }
+  private void ensureLeftIsMutable() {
+    com.google.protobuf.Internal.ProtobufList<io.github.joshsymonds.orrery.gen.orrery.v1.ContractLeft> tmp = left_;
+    if (!tmp.isModifiable()) {
+      left_ =
+          com.google.protobuf.GeneratedMessageLite.mutableCopy(tmp);
+     }
+  }
+
+  /**
+   * <pre>
+   * The left items the contract's stage recorded, oldest first.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.ContractLeft left = 7 [json_name = "left"];</code>
+   */
+  private void setLeft(
+      int index, io.github.joshsymonds.orrery.gen.orrery.v1.ContractLeft value) {
+    java.util.Objects.requireNonNull(value);
+    ensureLeftIsMutable();
+    left_.set(index, value);
+  }
+  /**
+   * <pre>
+   * The left items the contract's stage recorded, oldest first.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.ContractLeft left = 7 [json_name = "left"];</code>
+   */
+  private void addLeft(io.github.joshsymonds.orrery.gen.orrery.v1.ContractLeft value) {
+    java.util.Objects.requireNonNull(value);
+    ensureLeftIsMutable();
+    left_.add(value);
+  }
+  /**
+   * <pre>
+   * The left items the contract's stage recorded, oldest first.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.ContractLeft left = 7 [json_name = "left"];</code>
+   */
+  private void addLeft(
+      int index, io.github.joshsymonds.orrery.gen.orrery.v1.ContractLeft value) {
+    java.util.Objects.requireNonNull(value);
+    ensureLeftIsMutable();
+    left_.add(index, value);
+  }
+  /**
+   * <pre>
+   * The left items the contract's stage recorded, oldest first.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.ContractLeft left = 7 [json_name = "left"];</code>
+   */
+  private void addAllLeft(
+      java.lang.Iterable<? extends io.github.joshsymonds.orrery.gen.orrery.v1.ContractLeft> values) {
+    ensureLeftIsMutable();
+    com.google.protobuf.AbstractMessageLite.addAll(
+        values, left_);
+  }
+  /**
+   * <pre>
+   * The left items the contract's stage recorded, oldest first.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.ContractLeft left = 7 [json_name = "left"];</code>
+   */
+  private void clearLeft() {
+    left_ = emptyProtobufList();
+  }
+  /**
+   * <pre>
+   * The left items the contract's stage recorded, oldest first.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.ContractLeft left = 7 [json_name = "left"];</code>
+   */
+  private void removeLeft(int index) {
+    ensureLeftIsMutable();
+    left_.remove(index);
+  }
+
+  public static final int WORK_FIELD_NUMBER = 8;
+  private com.google.protobuf.Internal.ProtobufList<io.github.joshsymonds.orrery.gen.orrery.v1.ContractRequirementWork> work_;
+  /**
+   * <pre>
+   * The requirements' work the contract's stage recorded, one per requirement the work covers.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.ContractRequirementWork work = 8 [json_name = "work"];</code>
+   */
+  @java.lang.Override
+  public java.util.List<io.github.joshsymonds.orrery.gen.orrery.v1.ContractRequirementWork> getWorkList() {
+    return work_;
+  }
+  /**
+   * <pre>
+   * The requirements' work the contract's stage recorded, one per requirement the work covers.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.ContractRequirementWork work = 8 [json_name = "work"];</code>
+   */
+  public java.util.List<? extends io.github.joshsymonds.orrery.gen.orrery.v1.ContractRequirementWorkOrBuilder> 
+      getWorkOrBuilderList() {
+    return work_;
+  }
+  /**
+   * <pre>
+   * The requirements' work the contract's stage recorded, one per requirement the work covers.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.ContractRequirementWork work = 8 [json_name = "work"];</code>
+   */
+  @java.lang.Override
+  public int getWorkCount() {
+    return work_.size();
+  }
+  /**
+   * <pre>
+   * The requirements' work the contract's stage recorded, one per requirement the work covers.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.ContractRequirementWork work = 8 [json_name = "work"];</code>
+   */
+  @java.lang.Override
+  public io.github.joshsymonds.orrery.gen.orrery.v1.ContractRequirementWork getWork(int index) {
+    return work_.get(index);
+  }
+  /**
+   * <pre>
+   * The requirements' work the contract's stage recorded, one per requirement the work covers.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.ContractRequirementWork work = 8 [json_name = "work"];</code>
+   */
+  public io.github.joshsymonds.orrery.gen.orrery.v1.ContractRequirementWorkOrBuilder getWorkOrBuilder(
+      int index) {
+    return work_.get(index);
+  }
+  private void ensureWorkIsMutable() {
+    com.google.protobuf.Internal.ProtobufList<io.github.joshsymonds.orrery.gen.orrery.v1.ContractRequirementWork> tmp = work_;
+    if (!tmp.isModifiable()) {
+      work_ =
+          com.google.protobuf.GeneratedMessageLite.mutableCopy(tmp);
+     }
+  }
+
+  /**
+   * <pre>
+   * The requirements' work the contract's stage recorded, one per requirement the work covers.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.ContractRequirementWork work = 8 [json_name = "work"];</code>
+   */
+  private void setWork(
+      int index, io.github.joshsymonds.orrery.gen.orrery.v1.ContractRequirementWork value) {
+    java.util.Objects.requireNonNull(value);
+    ensureWorkIsMutable();
+    work_.set(index, value);
+  }
+  /**
+   * <pre>
+   * The requirements' work the contract's stage recorded, one per requirement the work covers.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.ContractRequirementWork work = 8 [json_name = "work"];</code>
+   */
+  private void addWork(io.github.joshsymonds.orrery.gen.orrery.v1.ContractRequirementWork value) {
+    java.util.Objects.requireNonNull(value);
+    ensureWorkIsMutable();
+    work_.add(value);
+  }
+  /**
+   * <pre>
+   * The requirements' work the contract's stage recorded, one per requirement the work covers.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.ContractRequirementWork work = 8 [json_name = "work"];</code>
+   */
+  private void addWork(
+      int index, io.github.joshsymonds.orrery.gen.orrery.v1.ContractRequirementWork value) {
+    java.util.Objects.requireNonNull(value);
+    ensureWorkIsMutable();
+    work_.add(index, value);
+  }
+  /**
+   * <pre>
+   * The requirements' work the contract's stage recorded, one per requirement the work covers.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.ContractRequirementWork work = 8 [json_name = "work"];</code>
+   */
+  private void addAllWork(
+      java.lang.Iterable<? extends io.github.joshsymonds.orrery.gen.orrery.v1.ContractRequirementWork> values) {
+    ensureWorkIsMutable();
+    com.google.protobuf.AbstractMessageLite.addAll(
+        values, work_);
+  }
+  /**
+   * <pre>
+   * The requirements' work the contract's stage recorded, one per requirement the work covers.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.ContractRequirementWork work = 8 [json_name = "work"];</code>
+   */
+  private void clearWork() {
+    work_ = emptyProtobufList();
+  }
+  /**
+   * <pre>
+   * The requirements' work the contract's stage recorded, one per requirement the work covers.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.ContractRequirementWork work = 8 [json_name = "work"];</code>
+   */
+  private void removeWork(int index) {
+    ensureWorkIsMutable();
+    work_.remove(index);
+  }
+
+  public static final int SHOWN_FIELD_NUMBER = 9;
+  private com.google.protobuf.Internal.ProtobufList<io.github.joshsymonds.orrery.gen.orrery.v1.ContractShown> shown_;
+  /**
+   * <pre>
+   * The rows the owner was shown, oldest first.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.ContractShown shown = 9 [json_name = "shown"];</code>
+   */
+  @java.lang.Override
+  public java.util.List<io.github.joshsymonds.orrery.gen.orrery.v1.ContractShown> getShownList() {
+    return shown_;
+  }
+  /**
+   * <pre>
+   * The rows the owner was shown, oldest first.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.ContractShown shown = 9 [json_name = "shown"];</code>
+   */
+  public java.util.List<? extends io.github.joshsymonds.orrery.gen.orrery.v1.ContractShownOrBuilder> 
+      getShownOrBuilderList() {
+    return shown_;
+  }
+  /**
+   * <pre>
+   * The rows the owner was shown, oldest first.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.ContractShown shown = 9 [json_name = "shown"];</code>
+   */
+  @java.lang.Override
+  public int getShownCount() {
+    return shown_.size();
+  }
+  /**
+   * <pre>
+   * The rows the owner was shown, oldest first.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.ContractShown shown = 9 [json_name = "shown"];</code>
+   */
+  @java.lang.Override
+  public io.github.joshsymonds.orrery.gen.orrery.v1.ContractShown getShown(int index) {
+    return shown_.get(index);
+  }
+  /**
+   * <pre>
+   * The rows the owner was shown, oldest first.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.ContractShown shown = 9 [json_name = "shown"];</code>
+   */
+  public io.github.joshsymonds.orrery.gen.orrery.v1.ContractShownOrBuilder getShownOrBuilder(
+      int index) {
+    return shown_.get(index);
+  }
+  private void ensureShownIsMutable() {
+    com.google.protobuf.Internal.ProtobufList<io.github.joshsymonds.orrery.gen.orrery.v1.ContractShown> tmp = shown_;
+    if (!tmp.isModifiable()) {
+      shown_ =
+          com.google.protobuf.GeneratedMessageLite.mutableCopy(tmp);
+     }
+  }
+
+  /**
+   * <pre>
+   * The rows the owner was shown, oldest first.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.ContractShown shown = 9 [json_name = "shown"];</code>
+   */
+  private void setShown(
+      int index, io.github.joshsymonds.orrery.gen.orrery.v1.ContractShown value) {
+    java.util.Objects.requireNonNull(value);
+    ensureShownIsMutable();
+    shown_.set(index, value);
+  }
+  /**
+   * <pre>
+   * The rows the owner was shown, oldest first.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.ContractShown shown = 9 [json_name = "shown"];</code>
+   */
+  private void addShown(io.github.joshsymonds.orrery.gen.orrery.v1.ContractShown value) {
+    java.util.Objects.requireNonNull(value);
+    ensureShownIsMutable();
+    shown_.add(value);
+  }
+  /**
+   * <pre>
+   * The rows the owner was shown, oldest first.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.ContractShown shown = 9 [json_name = "shown"];</code>
+   */
+  private void addShown(
+      int index, io.github.joshsymonds.orrery.gen.orrery.v1.ContractShown value) {
+    java.util.Objects.requireNonNull(value);
+    ensureShownIsMutable();
+    shown_.add(index, value);
+  }
+  /**
+   * <pre>
+   * The rows the owner was shown, oldest first.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.ContractShown shown = 9 [json_name = "shown"];</code>
+   */
+  private void addAllShown(
+      java.lang.Iterable<? extends io.github.joshsymonds.orrery.gen.orrery.v1.ContractShown> values) {
+    ensureShownIsMutable();
+    com.google.protobuf.AbstractMessageLite.addAll(
+        values, shown_);
+  }
+  /**
+   * <pre>
+   * The rows the owner was shown, oldest first.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.ContractShown shown = 9 [json_name = "shown"];</code>
+   */
+  private void clearShown() {
+    shown_ = emptyProtobufList();
+  }
+  /**
+   * <pre>
+   * The rows the owner was shown, oldest first.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.ContractShown shown = 9 [json_name = "shown"];</code>
+   */
+  private void removeShown(int index) {
+    ensureShownIsMutable();
+    shown_.remove(index);
   }
 
   public static io.github.joshsymonds.orrery.gen.orrery.v1.ContractsGetResponse parseFrom(
@@ -838,6 +1600,827 @@ public  final class ContractsGetResponse extends
       return this;
     }
 
+    /**
+     * <pre>
+     * The contract's working copy: the body the stage is working on, with the decisions it asks and who wrote it.
+     * </pre>
+     *
+     * <code>.orrery.v1.ContractWorking working = 4 [json_name = "working"];</code>
+     */
+    @java.lang.Override
+    public boolean hasWorking() {
+      return instance.hasWorking();
+    }
+    /**
+     * <pre>
+     * The contract's working copy: the body the stage is working on, with the decisions it asks and who wrote it.
+     * </pre>
+     *
+     * <code>.orrery.v1.ContractWorking working = 4 [json_name = "working"];</code>
+     */
+    @java.lang.Override
+    public io.github.joshsymonds.orrery.gen.orrery.v1.ContractWorking getWorking() {
+      return instance.getWorking();
+    }
+    /**
+     * <pre>
+     * The contract's working copy: the body the stage is working on, with the decisions it asks and who wrote it.
+     * </pre>
+     *
+     * <code>.orrery.v1.ContractWorking working = 4 [json_name = "working"];</code>
+     */
+    public Builder setWorking(io.github.joshsymonds.orrery.gen.orrery.v1.ContractWorking value) {
+      copyOnWrite();
+      instance.setWorking(value);
+      return this;
+      }
+    /**
+     * <pre>
+     * The contract's working copy: the body the stage is working on, with the decisions it asks and who wrote it.
+     * </pre>
+     *
+     * <code>.orrery.v1.ContractWorking working = 4 [json_name = "working"];</code>
+     */
+    public Builder setWorking(
+        io.github.joshsymonds.orrery.gen.orrery.v1.ContractWorking.Builder builderForValue) {
+      copyOnWrite();
+      instance.setWorking(builderForValue.build());
+      return this;
+    }
+    /**
+     * <pre>
+     * The contract's working copy: the body the stage is working on, with the decisions it asks and who wrote it.
+     * </pre>
+     *
+     * <code>.orrery.v1.ContractWorking working = 4 [json_name = "working"];</code>
+     */
+    public Builder mergeWorking(io.github.joshsymonds.orrery.gen.orrery.v1.ContractWorking value) {
+      copyOnWrite();
+      instance.mergeWorking(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The contract's working copy: the body the stage is working on, with the decisions it asks and who wrote it.
+     * </pre>
+     *
+     * <code>.orrery.v1.ContractWorking working = 4 [json_name = "working"];</code>
+     */
+    public Builder clearWorking() {  copyOnWrite();
+      instance.clearWorking();
+      return this;
+    }
+
+    /**
+     * <pre>
+     * The refusals the contract's stage recorded, oldest first.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.ContractRefusal refusals = 5 [json_name = "refusals"];</code>
+     */
+    @java.lang.Override
+    public java.util.List<io.github.joshsymonds.orrery.gen.orrery.v1.ContractRefusal> getRefusalsList() {
+      return java.util.Collections.unmodifiableList(
+          instance.getRefusalsList());
+    }
+    /**
+     * <pre>
+     * The refusals the contract's stage recorded, oldest first.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.ContractRefusal refusals = 5 [json_name = "refusals"];</code>
+     */
+    @java.lang.Override
+    public int getRefusalsCount() {
+      return instance.getRefusalsCount();
+    }/**
+     * <pre>
+     * The refusals the contract's stage recorded, oldest first.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.ContractRefusal refusals = 5 [json_name = "refusals"];</code>
+     */
+    @java.lang.Override
+    public io.github.joshsymonds.orrery.gen.orrery.v1.ContractRefusal getRefusals(int index) {
+      return instance.getRefusals(index);
+    }
+    /**
+     * <pre>
+     * The refusals the contract's stage recorded, oldest first.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.ContractRefusal refusals = 5 [json_name = "refusals"];</code>
+     */
+    public Builder setRefusals(
+        int index, io.github.joshsymonds.orrery.gen.orrery.v1.ContractRefusal value) {
+      copyOnWrite();
+      instance.setRefusals(index, value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The refusals the contract's stage recorded, oldest first.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.ContractRefusal refusals = 5 [json_name = "refusals"];</code>
+     */
+    public Builder setRefusals(
+        int index, io.github.joshsymonds.orrery.gen.orrery.v1.ContractRefusal.Builder builderForValue) {
+      copyOnWrite();
+      instance.setRefusals(index,
+          builderForValue.build());
+      return this;
+    }
+    /**
+     * <pre>
+     * The refusals the contract's stage recorded, oldest first.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.ContractRefusal refusals = 5 [json_name = "refusals"];</code>
+     */
+    public Builder addRefusals(io.github.joshsymonds.orrery.gen.orrery.v1.ContractRefusal value) {
+      copyOnWrite();
+      instance.addRefusals(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The refusals the contract's stage recorded, oldest first.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.ContractRefusal refusals = 5 [json_name = "refusals"];</code>
+     */
+    public Builder addRefusals(
+        int index, io.github.joshsymonds.orrery.gen.orrery.v1.ContractRefusal value) {
+      copyOnWrite();
+      instance.addRefusals(index, value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The refusals the contract's stage recorded, oldest first.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.ContractRefusal refusals = 5 [json_name = "refusals"];</code>
+     */
+    public Builder addRefusals(
+        io.github.joshsymonds.orrery.gen.orrery.v1.ContractRefusal.Builder builderForValue) {
+      copyOnWrite();
+      instance.addRefusals(builderForValue.build());
+      return this;
+    }
+    /**
+     * <pre>
+     * The refusals the contract's stage recorded, oldest first.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.ContractRefusal refusals = 5 [json_name = "refusals"];</code>
+     */
+    public Builder addRefusals(
+        int index, io.github.joshsymonds.orrery.gen.orrery.v1.ContractRefusal.Builder builderForValue) {
+      copyOnWrite();
+      instance.addRefusals(index,
+          builderForValue.build());
+      return this;
+    }
+    /**
+     * <pre>
+     * The refusals the contract's stage recorded, oldest first.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.ContractRefusal refusals = 5 [json_name = "refusals"];</code>
+     */
+    public Builder addAllRefusals(
+        java.lang.Iterable<? extends io.github.joshsymonds.orrery.gen.orrery.v1.ContractRefusal> values) {
+      copyOnWrite();
+      instance.addAllRefusals(values);
+      return this;
+    }
+    /**
+     * <pre>
+     * The refusals the contract's stage recorded, oldest first.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.ContractRefusal refusals = 5 [json_name = "refusals"];</code>
+     */
+    public Builder clearRefusals() {
+      copyOnWrite();
+      instance.clearRefusals();
+      return this;
+    }
+    /**
+     * <pre>
+     * The refusals the contract's stage recorded, oldest first.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.ContractRefusal refusals = 5 [json_name = "refusals"];</code>
+     */
+    public Builder removeRefusals(int index) {
+      copyOnWrite();
+      instance.removeRefusals(index);
+      return this;
+    }
+
+    /**
+     * <pre>
+     * The row writes the contract's stage recorded, oldest first.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.ContractRowWrite rows = 6 [json_name = "rows"];</code>
+     */
+    @java.lang.Override
+    public java.util.List<io.github.joshsymonds.orrery.gen.orrery.v1.ContractRowWrite> getRowsList() {
+      return java.util.Collections.unmodifiableList(
+          instance.getRowsList());
+    }
+    /**
+     * <pre>
+     * The row writes the contract's stage recorded, oldest first.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.ContractRowWrite rows = 6 [json_name = "rows"];</code>
+     */
+    @java.lang.Override
+    public int getRowsCount() {
+      return instance.getRowsCount();
+    }/**
+     * <pre>
+     * The row writes the contract's stage recorded, oldest first.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.ContractRowWrite rows = 6 [json_name = "rows"];</code>
+     */
+    @java.lang.Override
+    public io.github.joshsymonds.orrery.gen.orrery.v1.ContractRowWrite getRows(int index) {
+      return instance.getRows(index);
+    }
+    /**
+     * <pre>
+     * The row writes the contract's stage recorded, oldest first.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.ContractRowWrite rows = 6 [json_name = "rows"];</code>
+     */
+    public Builder setRows(
+        int index, io.github.joshsymonds.orrery.gen.orrery.v1.ContractRowWrite value) {
+      copyOnWrite();
+      instance.setRows(index, value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The row writes the contract's stage recorded, oldest first.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.ContractRowWrite rows = 6 [json_name = "rows"];</code>
+     */
+    public Builder setRows(
+        int index, io.github.joshsymonds.orrery.gen.orrery.v1.ContractRowWrite.Builder builderForValue) {
+      copyOnWrite();
+      instance.setRows(index,
+          builderForValue.build());
+      return this;
+    }
+    /**
+     * <pre>
+     * The row writes the contract's stage recorded, oldest first.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.ContractRowWrite rows = 6 [json_name = "rows"];</code>
+     */
+    public Builder addRows(io.github.joshsymonds.orrery.gen.orrery.v1.ContractRowWrite value) {
+      copyOnWrite();
+      instance.addRows(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The row writes the contract's stage recorded, oldest first.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.ContractRowWrite rows = 6 [json_name = "rows"];</code>
+     */
+    public Builder addRows(
+        int index, io.github.joshsymonds.orrery.gen.orrery.v1.ContractRowWrite value) {
+      copyOnWrite();
+      instance.addRows(index, value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The row writes the contract's stage recorded, oldest first.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.ContractRowWrite rows = 6 [json_name = "rows"];</code>
+     */
+    public Builder addRows(
+        io.github.joshsymonds.orrery.gen.orrery.v1.ContractRowWrite.Builder builderForValue) {
+      copyOnWrite();
+      instance.addRows(builderForValue.build());
+      return this;
+    }
+    /**
+     * <pre>
+     * The row writes the contract's stage recorded, oldest first.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.ContractRowWrite rows = 6 [json_name = "rows"];</code>
+     */
+    public Builder addRows(
+        int index, io.github.joshsymonds.orrery.gen.orrery.v1.ContractRowWrite.Builder builderForValue) {
+      copyOnWrite();
+      instance.addRows(index,
+          builderForValue.build());
+      return this;
+    }
+    /**
+     * <pre>
+     * The row writes the contract's stage recorded, oldest first.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.ContractRowWrite rows = 6 [json_name = "rows"];</code>
+     */
+    public Builder addAllRows(
+        java.lang.Iterable<? extends io.github.joshsymonds.orrery.gen.orrery.v1.ContractRowWrite> values) {
+      copyOnWrite();
+      instance.addAllRows(values);
+      return this;
+    }
+    /**
+     * <pre>
+     * The row writes the contract's stage recorded, oldest first.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.ContractRowWrite rows = 6 [json_name = "rows"];</code>
+     */
+    public Builder clearRows() {
+      copyOnWrite();
+      instance.clearRows();
+      return this;
+    }
+    /**
+     * <pre>
+     * The row writes the contract's stage recorded, oldest first.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.ContractRowWrite rows = 6 [json_name = "rows"];</code>
+     */
+    public Builder removeRows(int index) {
+      copyOnWrite();
+      instance.removeRows(index);
+      return this;
+    }
+
+    /**
+     * <pre>
+     * The left items the contract's stage recorded, oldest first.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.ContractLeft left = 7 [json_name = "left"];</code>
+     */
+    @java.lang.Override
+    public java.util.List<io.github.joshsymonds.orrery.gen.orrery.v1.ContractLeft> getLeftList() {
+      return java.util.Collections.unmodifiableList(
+          instance.getLeftList());
+    }
+    /**
+     * <pre>
+     * The left items the contract's stage recorded, oldest first.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.ContractLeft left = 7 [json_name = "left"];</code>
+     */
+    @java.lang.Override
+    public int getLeftCount() {
+      return instance.getLeftCount();
+    }/**
+     * <pre>
+     * The left items the contract's stage recorded, oldest first.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.ContractLeft left = 7 [json_name = "left"];</code>
+     */
+    @java.lang.Override
+    public io.github.joshsymonds.orrery.gen.orrery.v1.ContractLeft getLeft(int index) {
+      return instance.getLeft(index);
+    }
+    /**
+     * <pre>
+     * The left items the contract's stage recorded, oldest first.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.ContractLeft left = 7 [json_name = "left"];</code>
+     */
+    public Builder setLeft(
+        int index, io.github.joshsymonds.orrery.gen.orrery.v1.ContractLeft value) {
+      copyOnWrite();
+      instance.setLeft(index, value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The left items the contract's stage recorded, oldest first.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.ContractLeft left = 7 [json_name = "left"];</code>
+     */
+    public Builder setLeft(
+        int index, io.github.joshsymonds.orrery.gen.orrery.v1.ContractLeft.Builder builderForValue) {
+      copyOnWrite();
+      instance.setLeft(index,
+          builderForValue.build());
+      return this;
+    }
+    /**
+     * <pre>
+     * The left items the contract's stage recorded, oldest first.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.ContractLeft left = 7 [json_name = "left"];</code>
+     */
+    public Builder addLeft(io.github.joshsymonds.orrery.gen.orrery.v1.ContractLeft value) {
+      copyOnWrite();
+      instance.addLeft(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The left items the contract's stage recorded, oldest first.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.ContractLeft left = 7 [json_name = "left"];</code>
+     */
+    public Builder addLeft(
+        int index, io.github.joshsymonds.orrery.gen.orrery.v1.ContractLeft value) {
+      copyOnWrite();
+      instance.addLeft(index, value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The left items the contract's stage recorded, oldest first.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.ContractLeft left = 7 [json_name = "left"];</code>
+     */
+    public Builder addLeft(
+        io.github.joshsymonds.orrery.gen.orrery.v1.ContractLeft.Builder builderForValue) {
+      copyOnWrite();
+      instance.addLeft(builderForValue.build());
+      return this;
+    }
+    /**
+     * <pre>
+     * The left items the contract's stage recorded, oldest first.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.ContractLeft left = 7 [json_name = "left"];</code>
+     */
+    public Builder addLeft(
+        int index, io.github.joshsymonds.orrery.gen.orrery.v1.ContractLeft.Builder builderForValue) {
+      copyOnWrite();
+      instance.addLeft(index,
+          builderForValue.build());
+      return this;
+    }
+    /**
+     * <pre>
+     * The left items the contract's stage recorded, oldest first.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.ContractLeft left = 7 [json_name = "left"];</code>
+     */
+    public Builder addAllLeft(
+        java.lang.Iterable<? extends io.github.joshsymonds.orrery.gen.orrery.v1.ContractLeft> values) {
+      copyOnWrite();
+      instance.addAllLeft(values);
+      return this;
+    }
+    /**
+     * <pre>
+     * The left items the contract's stage recorded, oldest first.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.ContractLeft left = 7 [json_name = "left"];</code>
+     */
+    public Builder clearLeft() {
+      copyOnWrite();
+      instance.clearLeft();
+      return this;
+    }
+    /**
+     * <pre>
+     * The left items the contract's stage recorded, oldest first.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.ContractLeft left = 7 [json_name = "left"];</code>
+     */
+    public Builder removeLeft(int index) {
+      copyOnWrite();
+      instance.removeLeft(index);
+      return this;
+    }
+
+    /**
+     * <pre>
+     * The requirements' work the contract's stage recorded, one per requirement the work covers.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.ContractRequirementWork work = 8 [json_name = "work"];</code>
+     */
+    @java.lang.Override
+    public java.util.List<io.github.joshsymonds.orrery.gen.orrery.v1.ContractRequirementWork> getWorkList() {
+      return java.util.Collections.unmodifiableList(
+          instance.getWorkList());
+    }
+    /**
+     * <pre>
+     * The requirements' work the contract's stage recorded, one per requirement the work covers.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.ContractRequirementWork work = 8 [json_name = "work"];</code>
+     */
+    @java.lang.Override
+    public int getWorkCount() {
+      return instance.getWorkCount();
+    }/**
+     * <pre>
+     * The requirements' work the contract's stage recorded, one per requirement the work covers.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.ContractRequirementWork work = 8 [json_name = "work"];</code>
+     */
+    @java.lang.Override
+    public io.github.joshsymonds.orrery.gen.orrery.v1.ContractRequirementWork getWork(int index) {
+      return instance.getWork(index);
+    }
+    /**
+     * <pre>
+     * The requirements' work the contract's stage recorded, one per requirement the work covers.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.ContractRequirementWork work = 8 [json_name = "work"];</code>
+     */
+    public Builder setWork(
+        int index, io.github.joshsymonds.orrery.gen.orrery.v1.ContractRequirementWork value) {
+      copyOnWrite();
+      instance.setWork(index, value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The requirements' work the contract's stage recorded, one per requirement the work covers.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.ContractRequirementWork work = 8 [json_name = "work"];</code>
+     */
+    public Builder setWork(
+        int index, io.github.joshsymonds.orrery.gen.orrery.v1.ContractRequirementWork.Builder builderForValue) {
+      copyOnWrite();
+      instance.setWork(index,
+          builderForValue.build());
+      return this;
+    }
+    /**
+     * <pre>
+     * The requirements' work the contract's stage recorded, one per requirement the work covers.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.ContractRequirementWork work = 8 [json_name = "work"];</code>
+     */
+    public Builder addWork(io.github.joshsymonds.orrery.gen.orrery.v1.ContractRequirementWork value) {
+      copyOnWrite();
+      instance.addWork(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The requirements' work the contract's stage recorded, one per requirement the work covers.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.ContractRequirementWork work = 8 [json_name = "work"];</code>
+     */
+    public Builder addWork(
+        int index, io.github.joshsymonds.orrery.gen.orrery.v1.ContractRequirementWork value) {
+      copyOnWrite();
+      instance.addWork(index, value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The requirements' work the contract's stage recorded, one per requirement the work covers.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.ContractRequirementWork work = 8 [json_name = "work"];</code>
+     */
+    public Builder addWork(
+        io.github.joshsymonds.orrery.gen.orrery.v1.ContractRequirementWork.Builder builderForValue) {
+      copyOnWrite();
+      instance.addWork(builderForValue.build());
+      return this;
+    }
+    /**
+     * <pre>
+     * The requirements' work the contract's stage recorded, one per requirement the work covers.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.ContractRequirementWork work = 8 [json_name = "work"];</code>
+     */
+    public Builder addWork(
+        int index, io.github.joshsymonds.orrery.gen.orrery.v1.ContractRequirementWork.Builder builderForValue) {
+      copyOnWrite();
+      instance.addWork(index,
+          builderForValue.build());
+      return this;
+    }
+    /**
+     * <pre>
+     * The requirements' work the contract's stage recorded, one per requirement the work covers.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.ContractRequirementWork work = 8 [json_name = "work"];</code>
+     */
+    public Builder addAllWork(
+        java.lang.Iterable<? extends io.github.joshsymonds.orrery.gen.orrery.v1.ContractRequirementWork> values) {
+      copyOnWrite();
+      instance.addAllWork(values);
+      return this;
+    }
+    /**
+     * <pre>
+     * The requirements' work the contract's stage recorded, one per requirement the work covers.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.ContractRequirementWork work = 8 [json_name = "work"];</code>
+     */
+    public Builder clearWork() {
+      copyOnWrite();
+      instance.clearWork();
+      return this;
+    }
+    /**
+     * <pre>
+     * The requirements' work the contract's stage recorded, one per requirement the work covers.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.ContractRequirementWork work = 8 [json_name = "work"];</code>
+     */
+    public Builder removeWork(int index) {
+      copyOnWrite();
+      instance.removeWork(index);
+      return this;
+    }
+
+    /**
+     * <pre>
+     * The rows the owner was shown, oldest first.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.ContractShown shown = 9 [json_name = "shown"];</code>
+     */
+    @java.lang.Override
+    public java.util.List<io.github.joshsymonds.orrery.gen.orrery.v1.ContractShown> getShownList() {
+      return java.util.Collections.unmodifiableList(
+          instance.getShownList());
+    }
+    /**
+     * <pre>
+     * The rows the owner was shown, oldest first.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.ContractShown shown = 9 [json_name = "shown"];</code>
+     */
+    @java.lang.Override
+    public int getShownCount() {
+      return instance.getShownCount();
+    }/**
+     * <pre>
+     * The rows the owner was shown, oldest first.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.ContractShown shown = 9 [json_name = "shown"];</code>
+     */
+    @java.lang.Override
+    public io.github.joshsymonds.orrery.gen.orrery.v1.ContractShown getShown(int index) {
+      return instance.getShown(index);
+    }
+    /**
+     * <pre>
+     * The rows the owner was shown, oldest first.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.ContractShown shown = 9 [json_name = "shown"];</code>
+     */
+    public Builder setShown(
+        int index, io.github.joshsymonds.orrery.gen.orrery.v1.ContractShown value) {
+      copyOnWrite();
+      instance.setShown(index, value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The rows the owner was shown, oldest first.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.ContractShown shown = 9 [json_name = "shown"];</code>
+     */
+    public Builder setShown(
+        int index, io.github.joshsymonds.orrery.gen.orrery.v1.ContractShown.Builder builderForValue) {
+      copyOnWrite();
+      instance.setShown(index,
+          builderForValue.build());
+      return this;
+    }
+    /**
+     * <pre>
+     * The rows the owner was shown, oldest first.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.ContractShown shown = 9 [json_name = "shown"];</code>
+     */
+    public Builder addShown(io.github.joshsymonds.orrery.gen.orrery.v1.ContractShown value) {
+      copyOnWrite();
+      instance.addShown(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The rows the owner was shown, oldest first.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.ContractShown shown = 9 [json_name = "shown"];</code>
+     */
+    public Builder addShown(
+        int index, io.github.joshsymonds.orrery.gen.orrery.v1.ContractShown value) {
+      copyOnWrite();
+      instance.addShown(index, value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The rows the owner was shown, oldest first.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.ContractShown shown = 9 [json_name = "shown"];</code>
+     */
+    public Builder addShown(
+        io.github.joshsymonds.orrery.gen.orrery.v1.ContractShown.Builder builderForValue) {
+      copyOnWrite();
+      instance.addShown(builderForValue.build());
+      return this;
+    }
+    /**
+     * <pre>
+     * The rows the owner was shown, oldest first.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.ContractShown shown = 9 [json_name = "shown"];</code>
+     */
+    public Builder addShown(
+        int index, io.github.joshsymonds.orrery.gen.orrery.v1.ContractShown.Builder builderForValue) {
+      copyOnWrite();
+      instance.addShown(index,
+          builderForValue.build());
+      return this;
+    }
+    /**
+     * <pre>
+     * The rows the owner was shown, oldest first.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.ContractShown shown = 9 [json_name = "shown"];</code>
+     */
+    public Builder addAllShown(
+        java.lang.Iterable<? extends io.github.joshsymonds.orrery.gen.orrery.v1.ContractShown> values) {
+      copyOnWrite();
+      instance.addAllShown(values);
+      return this;
+    }
+    /**
+     * <pre>
+     * The rows the owner was shown, oldest first.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.ContractShown shown = 9 [json_name = "shown"];</code>
+     */
+    public Builder clearShown() {
+      copyOnWrite();
+      instance.clearShown();
+      return this;
+    }
+    /**
+     * <pre>
+     * The rows the owner was shown, oldest first.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.ContractShown shown = 9 [json_name = "shown"];</code>
+     */
+    public Builder removeShown(int index) {
+      copyOnWrite();
+      instance.removeShown(index);
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:orrery.v1.ContractsGetResponse)
   }
   @java.lang.Override
@@ -860,10 +2443,21 @@ public  final class ContractsGetResponse extends
             io.github.joshsymonds.orrery.gen.orrery.v1.ContractVersion.class,
             "states_",
             io.github.joshsymonds.orrery.gen.orrery.v1.ContractStateChange.class,
+            "working_",
+            "refusals_",
+            io.github.joshsymonds.orrery.gen.orrery.v1.ContractRefusal.class,
+            "rows_",
+            io.github.joshsymonds.orrery.gen.orrery.v1.ContractRowWrite.class,
+            "left_",
+            io.github.joshsymonds.orrery.gen.orrery.v1.ContractLeft.class,
+            "work_",
+            io.github.joshsymonds.orrery.gen.orrery.v1.ContractRequirementWork.class,
+            "shown_",
+            io.github.joshsymonds.orrery.gen.orrery.v1.ContractShown.class,
           };
           java.lang.String info =
-              "\u0000\u0003\u0000\u0001\u0001\u0003\u0003\u0000\u0002\u0000\u0001\u1009\u0000\u0002" +
-              "\u001b\u0003\u001b";
+              "\u0000\t\u0000\u0001\u0001\t\t\u0000\u0007\u0000\u0001\u1009\u0000\u0002\u001b\u0003" +
+              "\u001b\u0004\u1009\u0001\u0005\u001b\u0006\u001b\u0007\u001b\b\u001b\t\u001b";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

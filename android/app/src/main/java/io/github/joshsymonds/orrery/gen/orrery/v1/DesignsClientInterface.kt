@@ -25,4 +25,9 @@ public interface DesignsClientInterface {
    *  Answer gives the owner's answer to a question of a design's stage. serve forwards each call to orreryd.
    */
   public suspend fun answer(request: DesignsAnswerRequest, headers: Headers = emptyMap()): ResponseMessage<DesignsAnswerResponse>
+
+  /**
+   *  Continue returns a design and the session that continues its stage. serve forwards each call to orreryd.
+   */
+  public suspend fun `continue`(request: DesignsContinueRequest, headers: Headers = emptyMap()): ResponseMessage<DesignsContinueResponse>
 }

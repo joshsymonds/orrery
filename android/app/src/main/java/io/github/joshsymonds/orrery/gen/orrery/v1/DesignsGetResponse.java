@@ -7,7 +7,7 @@ package io.github.joshsymonds.orrery.gen.orrery.v1;
 
 /**
  * <pre>
- * DesignsGetResponse carries one design.
+ * DesignsGetResponse carries one design with its stage's approaches, choice, log and delegations.
  * </pre>
  *
  * Protobuf type {@code orrery.v1.DesignsGetResponse}
@@ -19,6 +19,9 @@ public  final class DesignsGetResponse extends
     // @@protoc_insertion_point(message_implements:orrery.v1.DesignsGetResponse)
     DesignsGetResponseOrBuilder {
   private DesignsGetResponse() {
+    approaches_ = emptyProtobufList();
+    log_ = emptyProtobufList();
+    delegations_ = emptyProtobufList();
   }
   private int bitField0_;
   public static final int DESIGN_FIELD_NUMBER = 1;
@@ -86,6 +89,487 @@ public  final class DesignsGetResponse extends
   private void clearDesign() {
     design_ = null;
     bitField0_ = (bitField0_ & ~0x00000001);
+  }
+
+  public static final int APPROACHES_FIELD_NUMBER = 2;
+  private com.google.protobuf.Internal.ProtobufList<io.github.joshsymonds.orrery.gen.orrery.v1.DesignApproach> approaches_;
+  /**
+   * <pre>
+   * The approaches the design's stage weighs, oldest first.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.DesignApproach approaches = 2 [json_name = "approaches"];</code>
+   */
+  @java.lang.Override
+  public java.util.List<io.github.joshsymonds.orrery.gen.orrery.v1.DesignApproach> getApproachesList() {
+    return approaches_;
+  }
+  /**
+   * <pre>
+   * The approaches the design's stage weighs, oldest first.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.DesignApproach approaches = 2 [json_name = "approaches"];</code>
+   */
+  public java.util.List<? extends io.github.joshsymonds.orrery.gen.orrery.v1.DesignApproachOrBuilder> 
+      getApproachesOrBuilderList() {
+    return approaches_;
+  }
+  /**
+   * <pre>
+   * The approaches the design's stage weighs, oldest first.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.DesignApproach approaches = 2 [json_name = "approaches"];</code>
+   */
+  @java.lang.Override
+  public int getApproachesCount() {
+    return approaches_.size();
+  }
+  /**
+   * <pre>
+   * The approaches the design's stage weighs, oldest first.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.DesignApproach approaches = 2 [json_name = "approaches"];</code>
+   */
+  @java.lang.Override
+  public io.github.joshsymonds.orrery.gen.orrery.v1.DesignApproach getApproaches(int index) {
+    return approaches_.get(index);
+  }
+  /**
+   * <pre>
+   * The approaches the design's stage weighs, oldest first.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.DesignApproach approaches = 2 [json_name = "approaches"];</code>
+   */
+  public io.github.joshsymonds.orrery.gen.orrery.v1.DesignApproachOrBuilder getApproachesOrBuilder(
+      int index) {
+    return approaches_.get(index);
+  }
+  private void ensureApproachesIsMutable() {
+    com.google.protobuf.Internal.ProtobufList<io.github.joshsymonds.orrery.gen.orrery.v1.DesignApproach> tmp = approaches_;
+    if (!tmp.isModifiable()) {
+      approaches_ =
+          com.google.protobuf.GeneratedMessageLite.mutableCopy(tmp);
+     }
+  }
+
+  /**
+   * <pre>
+   * The approaches the design's stage weighs, oldest first.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.DesignApproach approaches = 2 [json_name = "approaches"];</code>
+   */
+  private void setApproaches(
+      int index, io.github.joshsymonds.orrery.gen.orrery.v1.DesignApproach value) {
+    java.util.Objects.requireNonNull(value);
+    ensureApproachesIsMutable();
+    approaches_.set(index, value);
+  }
+  /**
+   * <pre>
+   * The approaches the design's stage weighs, oldest first.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.DesignApproach approaches = 2 [json_name = "approaches"];</code>
+   */
+  private void addApproaches(io.github.joshsymonds.orrery.gen.orrery.v1.DesignApproach value) {
+    java.util.Objects.requireNonNull(value);
+    ensureApproachesIsMutable();
+    approaches_.add(value);
+  }
+  /**
+   * <pre>
+   * The approaches the design's stage weighs, oldest first.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.DesignApproach approaches = 2 [json_name = "approaches"];</code>
+   */
+  private void addApproaches(
+      int index, io.github.joshsymonds.orrery.gen.orrery.v1.DesignApproach value) {
+    java.util.Objects.requireNonNull(value);
+    ensureApproachesIsMutable();
+    approaches_.add(index, value);
+  }
+  /**
+   * <pre>
+   * The approaches the design's stage weighs, oldest first.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.DesignApproach approaches = 2 [json_name = "approaches"];</code>
+   */
+  private void addAllApproaches(
+      java.lang.Iterable<? extends io.github.joshsymonds.orrery.gen.orrery.v1.DesignApproach> values) {
+    ensureApproachesIsMutable();
+    com.google.protobuf.AbstractMessageLite.addAll(
+        values, approaches_);
+  }
+  /**
+   * <pre>
+   * The approaches the design's stage weighs, oldest first.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.DesignApproach approaches = 2 [json_name = "approaches"];</code>
+   */
+  private void clearApproaches() {
+    approaches_ = emptyProtobufList();
+  }
+  /**
+   * <pre>
+   * The approaches the design's stage weighs, oldest first.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.DesignApproach approaches = 2 [json_name = "approaches"];</code>
+   */
+  private void removeApproaches(int index) {
+    ensureApproachesIsMutable();
+    approaches_.remove(index);
+  }
+
+  public static final int CHOICE_FIELD_NUMBER = 3;
+  private io.github.joshsymonds.orrery.gen.orrery.v1.DesignChoice choice_;
+  /**
+   * <pre>
+   * The approach the owner chose for the design; unset until a choice is stored.
+   * </pre>
+   *
+   * <code>.orrery.v1.DesignChoice choice = 3 [json_name = "choice"];</code>
+   */
+  @java.lang.Override
+  public boolean hasChoice() {
+    return ((bitField0_ & 0x00000002) != 0);
+  }
+  /**
+   * <pre>
+   * The approach the owner chose for the design; unset until a choice is stored.
+   * </pre>
+   *
+   * <code>.orrery.v1.DesignChoice choice = 3 [json_name = "choice"];</code>
+   */
+  @java.lang.Override
+  public io.github.joshsymonds.orrery.gen.orrery.v1.DesignChoice getChoice() {
+    return choice_ == null ? io.github.joshsymonds.orrery.gen.orrery.v1.DesignChoice.getDefaultInstance() : choice_;
+  }
+  /**
+   * <pre>
+   * The approach the owner chose for the design; unset until a choice is stored.
+   * </pre>
+   *
+   * <code>.orrery.v1.DesignChoice choice = 3 [json_name = "choice"];</code>
+   */
+  private void setChoice(io.github.joshsymonds.orrery.gen.orrery.v1.DesignChoice value) {
+    java.util.Objects.requireNonNull(value);
+    choice_ = value;
+    bitField0_ |= 0x00000002;
+  }
+  /**
+   * <pre>
+   * The approach the owner chose for the design; unset until a choice is stored.
+   * </pre>
+   *
+   * <code>.orrery.v1.DesignChoice choice = 3 [json_name = "choice"];</code>
+   */
+  @java.lang.SuppressWarnings("ReferenceEquality")
+  private void mergeChoice(io.github.joshsymonds.orrery.gen.orrery.v1.DesignChoice value) {
+    java.util.Objects.requireNonNull(value);
+    if (choice_ != null &&
+        choice_ != io.github.joshsymonds.orrery.gen.orrery.v1.DesignChoice.getDefaultInstance()) {
+      choice_ =
+        io.github.joshsymonds.orrery.gen.orrery.v1.DesignChoice.newBuilder(choice_).mergeFrom(value).buildPartial();
+    } else {
+      choice_ = value;
+    }
+    bitField0_ |= 0x00000002;
+  }
+  /**
+   * <pre>
+   * The approach the owner chose for the design; unset until a choice is stored.
+   * </pre>
+   *
+   * <code>.orrery.v1.DesignChoice choice = 3 [json_name = "choice"];</code>
+   */
+  private void clearChoice() {
+    choice_ = null;
+    bitField0_ = (bitField0_ & ~0x00000002);
+  }
+
+  public static final int LOG_FIELD_NUMBER = 4;
+  private com.google.protobuf.Internal.ProtobufList<io.github.joshsymonds.orrery.gen.orrery.v1.DesignLogLine> log_;
+  /**
+   * <pre>
+   * The log of the design's stage, oldest first.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.DesignLogLine log = 4 [json_name = "log"];</code>
+   */
+  @java.lang.Override
+  public java.util.List<io.github.joshsymonds.orrery.gen.orrery.v1.DesignLogLine> getLogList() {
+    return log_;
+  }
+  /**
+   * <pre>
+   * The log of the design's stage, oldest first.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.DesignLogLine log = 4 [json_name = "log"];</code>
+   */
+  public java.util.List<? extends io.github.joshsymonds.orrery.gen.orrery.v1.DesignLogLineOrBuilder> 
+      getLogOrBuilderList() {
+    return log_;
+  }
+  /**
+   * <pre>
+   * The log of the design's stage, oldest first.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.DesignLogLine log = 4 [json_name = "log"];</code>
+   */
+  @java.lang.Override
+  public int getLogCount() {
+    return log_.size();
+  }
+  /**
+   * <pre>
+   * The log of the design's stage, oldest first.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.DesignLogLine log = 4 [json_name = "log"];</code>
+   */
+  @java.lang.Override
+  public io.github.joshsymonds.orrery.gen.orrery.v1.DesignLogLine getLog(int index) {
+    return log_.get(index);
+  }
+  /**
+   * <pre>
+   * The log of the design's stage, oldest first.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.DesignLogLine log = 4 [json_name = "log"];</code>
+   */
+  public io.github.joshsymonds.orrery.gen.orrery.v1.DesignLogLineOrBuilder getLogOrBuilder(
+      int index) {
+    return log_.get(index);
+  }
+  private void ensureLogIsMutable() {
+    com.google.protobuf.Internal.ProtobufList<io.github.joshsymonds.orrery.gen.orrery.v1.DesignLogLine> tmp = log_;
+    if (!tmp.isModifiable()) {
+      log_ =
+          com.google.protobuf.GeneratedMessageLite.mutableCopy(tmp);
+     }
+  }
+
+  /**
+   * <pre>
+   * The log of the design's stage, oldest first.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.DesignLogLine log = 4 [json_name = "log"];</code>
+   */
+  private void setLog(
+      int index, io.github.joshsymonds.orrery.gen.orrery.v1.DesignLogLine value) {
+    java.util.Objects.requireNonNull(value);
+    ensureLogIsMutable();
+    log_.set(index, value);
+  }
+  /**
+   * <pre>
+   * The log of the design's stage, oldest first.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.DesignLogLine log = 4 [json_name = "log"];</code>
+   */
+  private void addLog(io.github.joshsymonds.orrery.gen.orrery.v1.DesignLogLine value) {
+    java.util.Objects.requireNonNull(value);
+    ensureLogIsMutable();
+    log_.add(value);
+  }
+  /**
+   * <pre>
+   * The log of the design's stage, oldest first.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.DesignLogLine log = 4 [json_name = "log"];</code>
+   */
+  private void addLog(
+      int index, io.github.joshsymonds.orrery.gen.orrery.v1.DesignLogLine value) {
+    java.util.Objects.requireNonNull(value);
+    ensureLogIsMutable();
+    log_.add(index, value);
+  }
+  /**
+   * <pre>
+   * The log of the design's stage, oldest first.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.DesignLogLine log = 4 [json_name = "log"];</code>
+   */
+  private void addAllLog(
+      java.lang.Iterable<? extends io.github.joshsymonds.orrery.gen.orrery.v1.DesignLogLine> values) {
+    ensureLogIsMutable();
+    com.google.protobuf.AbstractMessageLite.addAll(
+        values, log_);
+  }
+  /**
+   * <pre>
+   * The log of the design's stage, oldest first.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.DesignLogLine log = 4 [json_name = "log"];</code>
+   */
+  private void clearLog() {
+    log_ = emptyProtobufList();
+  }
+  /**
+   * <pre>
+   * The log of the design's stage, oldest first.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.DesignLogLine log = 4 [json_name = "log"];</code>
+   */
+  private void removeLog(int index) {
+    ensureLogIsMutable();
+    log_.remove(index);
+  }
+
+  public static final int DELEGATIONS_FIELD_NUMBER = 5;
+  private com.google.protobuf.Internal.ProtobufList<io.github.joshsymonds.orrery.gen.orrery.v1.DesignDelegation> delegations_;
+  /**
+   * <pre>
+   * The owner's delegations of the design's decisions to the conversation, oldest first.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.DesignDelegation delegations = 5 [json_name = "delegations"];</code>
+   */
+  @java.lang.Override
+  public java.util.List<io.github.joshsymonds.orrery.gen.orrery.v1.DesignDelegation> getDelegationsList() {
+    return delegations_;
+  }
+  /**
+   * <pre>
+   * The owner's delegations of the design's decisions to the conversation, oldest first.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.DesignDelegation delegations = 5 [json_name = "delegations"];</code>
+   */
+  public java.util.List<? extends io.github.joshsymonds.orrery.gen.orrery.v1.DesignDelegationOrBuilder> 
+      getDelegationsOrBuilderList() {
+    return delegations_;
+  }
+  /**
+   * <pre>
+   * The owner's delegations of the design's decisions to the conversation, oldest first.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.DesignDelegation delegations = 5 [json_name = "delegations"];</code>
+   */
+  @java.lang.Override
+  public int getDelegationsCount() {
+    return delegations_.size();
+  }
+  /**
+   * <pre>
+   * The owner's delegations of the design's decisions to the conversation, oldest first.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.DesignDelegation delegations = 5 [json_name = "delegations"];</code>
+   */
+  @java.lang.Override
+  public io.github.joshsymonds.orrery.gen.orrery.v1.DesignDelegation getDelegations(int index) {
+    return delegations_.get(index);
+  }
+  /**
+   * <pre>
+   * The owner's delegations of the design's decisions to the conversation, oldest first.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.DesignDelegation delegations = 5 [json_name = "delegations"];</code>
+   */
+  public io.github.joshsymonds.orrery.gen.orrery.v1.DesignDelegationOrBuilder getDelegationsOrBuilder(
+      int index) {
+    return delegations_.get(index);
+  }
+  private void ensureDelegationsIsMutable() {
+    com.google.protobuf.Internal.ProtobufList<io.github.joshsymonds.orrery.gen.orrery.v1.DesignDelegation> tmp = delegations_;
+    if (!tmp.isModifiable()) {
+      delegations_ =
+          com.google.protobuf.GeneratedMessageLite.mutableCopy(tmp);
+     }
+  }
+
+  /**
+   * <pre>
+   * The owner's delegations of the design's decisions to the conversation, oldest first.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.DesignDelegation delegations = 5 [json_name = "delegations"];</code>
+   */
+  private void setDelegations(
+      int index, io.github.joshsymonds.orrery.gen.orrery.v1.DesignDelegation value) {
+    java.util.Objects.requireNonNull(value);
+    ensureDelegationsIsMutable();
+    delegations_.set(index, value);
+  }
+  /**
+   * <pre>
+   * The owner's delegations of the design's decisions to the conversation, oldest first.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.DesignDelegation delegations = 5 [json_name = "delegations"];</code>
+   */
+  private void addDelegations(io.github.joshsymonds.orrery.gen.orrery.v1.DesignDelegation value) {
+    java.util.Objects.requireNonNull(value);
+    ensureDelegationsIsMutable();
+    delegations_.add(value);
+  }
+  /**
+   * <pre>
+   * The owner's delegations of the design's decisions to the conversation, oldest first.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.DesignDelegation delegations = 5 [json_name = "delegations"];</code>
+   */
+  private void addDelegations(
+      int index, io.github.joshsymonds.orrery.gen.orrery.v1.DesignDelegation value) {
+    java.util.Objects.requireNonNull(value);
+    ensureDelegationsIsMutable();
+    delegations_.add(index, value);
+  }
+  /**
+   * <pre>
+   * The owner's delegations of the design's decisions to the conversation, oldest first.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.DesignDelegation delegations = 5 [json_name = "delegations"];</code>
+   */
+  private void addAllDelegations(
+      java.lang.Iterable<? extends io.github.joshsymonds.orrery.gen.orrery.v1.DesignDelegation> values) {
+    ensureDelegationsIsMutable();
+    com.google.protobuf.AbstractMessageLite.addAll(
+        values, delegations_);
+  }
+  /**
+   * <pre>
+   * The owner's delegations of the design's decisions to the conversation, oldest first.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.DesignDelegation delegations = 5 [json_name = "delegations"];</code>
+   */
+  private void clearDelegations() {
+    delegations_ = emptyProtobufList();
+  }
+  /**
+   * <pre>
+   * The owner's delegations of the design's decisions to the conversation, oldest first.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.DesignDelegation delegations = 5 [json_name = "delegations"];</code>
+   */
+  private void removeDelegations(int index) {
+    ensureDelegationsIsMutable();
+    delegations_.remove(index);
   }
 
   public static io.github.joshsymonds.orrery.gen.orrery.v1.DesignsGetResponse parseFrom(
@@ -173,7 +657,7 @@ public  final class DesignsGetResponse extends
 
   /**
    * <pre>
-   * DesignsGetResponse carries one design.
+   * DesignsGetResponse carries one design with its stage's approaches, choice, log and delegations.
    * </pre>
    *
    * Protobuf type {@code orrery.v1.DesignsGetResponse}
@@ -260,6 +744,527 @@ public  final class DesignsGetResponse extends
       return this;
     }
 
+    /**
+     * <pre>
+     * The approaches the design's stage weighs, oldest first.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.DesignApproach approaches = 2 [json_name = "approaches"];</code>
+     */
+    @java.lang.Override
+    public java.util.List<io.github.joshsymonds.orrery.gen.orrery.v1.DesignApproach> getApproachesList() {
+      return java.util.Collections.unmodifiableList(
+          instance.getApproachesList());
+    }
+    /**
+     * <pre>
+     * The approaches the design's stage weighs, oldest first.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.DesignApproach approaches = 2 [json_name = "approaches"];</code>
+     */
+    @java.lang.Override
+    public int getApproachesCount() {
+      return instance.getApproachesCount();
+    }/**
+     * <pre>
+     * The approaches the design's stage weighs, oldest first.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.DesignApproach approaches = 2 [json_name = "approaches"];</code>
+     */
+    @java.lang.Override
+    public io.github.joshsymonds.orrery.gen.orrery.v1.DesignApproach getApproaches(int index) {
+      return instance.getApproaches(index);
+    }
+    /**
+     * <pre>
+     * The approaches the design's stage weighs, oldest first.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.DesignApproach approaches = 2 [json_name = "approaches"];</code>
+     */
+    public Builder setApproaches(
+        int index, io.github.joshsymonds.orrery.gen.orrery.v1.DesignApproach value) {
+      copyOnWrite();
+      instance.setApproaches(index, value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The approaches the design's stage weighs, oldest first.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.DesignApproach approaches = 2 [json_name = "approaches"];</code>
+     */
+    public Builder setApproaches(
+        int index, io.github.joshsymonds.orrery.gen.orrery.v1.DesignApproach.Builder builderForValue) {
+      copyOnWrite();
+      instance.setApproaches(index,
+          builderForValue.build());
+      return this;
+    }
+    /**
+     * <pre>
+     * The approaches the design's stage weighs, oldest first.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.DesignApproach approaches = 2 [json_name = "approaches"];</code>
+     */
+    public Builder addApproaches(io.github.joshsymonds.orrery.gen.orrery.v1.DesignApproach value) {
+      copyOnWrite();
+      instance.addApproaches(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The approaches the design's stage weighs, oldest first.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.DesignApproach approaches = 2 [json_name = "approaches"];</code>
+     */
+    public Builder addApproaches(
+        int index, io.github.joshsymonds.orrery.gen.orrery.v1.DesignApproach value) {
+      copyOnWrite();
+      instance.addApproaches(index, value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The approaches the design's stage weighs, oldest first.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.DesignApproach approaches = 2 [json_name = "approaches"];</code>
+     */
+    public Builder addApproaches(
+        io.github.joshsymonds.orrery.gen.orrery.v1.DesignApproach.Builder builderForValue) {
+      copyOnWrite();
+      instance.addApproaches(builderForValue.build());
+      return this;
+    }
+    /**
+     * <pre>
+     * The approaches the design's stage weighs, oldest first.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.DesignApproach approaches = 2 [json_name = "approaches"];</code>
+     */
+    public Builder addApproaches(
+        int index, io.github.joshsymonds.orrery.gen.orrery.v1.DesignApproach.Builder builderForValue) {
+      copyOnWrite();
+      instance.addApproaches(index,
+          builderForValue.build());
+      return this;
+    }
+    /**
+     * <pre>
+     * The approaches the design's stage weighs, oldest first.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.DesignApproach approaches = 2 [json_name = "approaches"];</code>
+     */
+    public Builder addAllApproaches(
+        java.lang.Iterable<? extends io.github.joshsymonds.orrery.gen.orrery.v1.DesignApproach> values) {
+      copyOnWrite();
+      instance.addAllApproaches(values);
+      return this;
+    }
+    /**
+     * <pre>
+     * The approaches the design's stage weighs, oldest first.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.DesignApproach approaches = 2 [json_name = "approaches"];</code>
+     */
+    public Builder clearApproaches() {
+      copyOnWrite();
+      instance.clearApproaches();
+      return this;
+    }
+    /**
+     * <pre>
+     * The approaches the design's stage weighs, oldest first.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.DesignApproach approaches = 2 [json_name = "approaches"];</code>
+     */
+    public Builder removeApproaches(int index) {
+      copyOnWrite();
+      instance.removeApproaches(index);
+      return this;
+    }
+
+    /**
+     * <pre>
+     * The approach the owner chose for the design; unset until a choice is stored.
+     * </pre>
+     *
+     * <code>.orrery.v1.DesignChoice choice = 3 [json_name = "choice"];</code>
+     */
+    @java.lang.Override
+    public boolean hasChoice() {
+      return instance.hasChoice();
+    }
+    /**
+     * <pre>
+     * The approach the owner chose for the design; unset until a choice is stored.
+     * </pre>
+     *
+     * <code>.orrery.v1.DesignChoice choice = 3 [json_name = "choice"];</code>
+     */
+    @java.lang.Override
+    public io.github.joshsymonds.orrery.gen.orrery.v1.DesignChoice getChoice() {
+      return instance.getChoice();
+    }
+    /**
+     * <pre>
+     * The approach the owner chose for the design; unset until a choice is stored.
+     * </pre>
+     *
+     * <code>.orrery.v1.DesignChoice choice = 3 [json_name = "choice"];</code>
+     */
+    public Builder setChoice(io.github.joshsymonds.orrery.gen.orrery.v1.DesignChoice value) {
+      copyOnWrite();
+      instance.setChoice(value);
+      return this;
+      }
+    /**
+     * <pre>
+     * The approach the owner chose for the design; unset until a choice is stored.
+     * </pre>
+     *
+     * <code>.orrery.v1.DesignChoice choice = 3 [json_name = "choice"];</code>
+     */
+    public Builder setChoice(
+        io.github.joshsymonds.orrery.gen.orrery.v1.DesignChoice.Builder builderForValue) {
+      copyOnWrite();
+      instance.setChoice(builderForValue.build());
+      return this;
+    }
+    /**
+     * <pre>
+     * The approach the owner chose for the design; unset until a choice is stored.
+     * </pre>
+     *
+     * <code>.orrery.v1.DesignChoice choice = 3 [json_name = "choice"];</code>
+     */
+    public Builder mergeChoice(io.github.joshsymonds.orrery.gen.orrery.v1.DesignChoice value) {
+      copyOnWrite();
+      instance.mergeChoice(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The approach the owner chose for the design; unset until a choice is stored.
+     * </pre>
+     *
+     * <code>.orrery.v1.DesignChoice choice = 3 [json_name = "choice"];</code>
+     */
+    public Builder clearChoice() {  copyOnWrite();
+      instance.clearChoice();
+      return this;
+    }
+
+    /**
+     * <pre>
+     * The log of the design's stage, oldest first.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.DesignLogLine log = 4 [json_name = "log"];</code>
+     */
+    @java.lang.Override
+    public java.util.List<io.github.joshsymonds.orrery.gen.orrery.v1.DesignLogLine> getLogList() {
+      return java.util.Collections.unmodifiableList(
+          instance.getLogList());
+    }
+    /**
+     * <pre>
+     * The log of the design's stage, oldest first.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.DesignLogLine log = 4 [json_name = "log"];</code>
+     */
+    @java.lang.Override
+    public int getLogCount() {
+      return instance.getLogCount();
+    }/**
+     * <pre>
+     * The log of the design's stage, oldest first.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.DesignLogLine log = 4 [json_name = "log"];</code>
+     */
+    @java.lang.Override
+    public io.github.joshsymonds.orrery.gen.orrery.v1.DesignLogLine getLog(int index) {
+      return instance.getLog(index);
+    }
+    /**
+     * <pre>
+     * The log of the design's stage, oldest first.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.DesignLogLine log = 4 [json_name = "log"];</code>
+     */
+    public Builder setLog(
+        int index, io.github.joshsymonds.orrery.gen.orrery.v1.DesignLogLine value) {
+      copyOnWrite();
+      instance.setLog(index, value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The log of the design's stage, oldest first.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.DesignLogLine log = 4 [json_name = "log"];</code>
+     */
+    public Builder setLog(
+        int index, io.github.joshsymonds.orrery.gen.orrery.v1.DesignLogLine.Builder builderForValue) {
+      copyOnWrite();
+      instance.setLog(index,
+          builderForValue.build());
+      return this;
+    }
+    /**
+     * <pre>
+     * The log of the design's stage, oldest first.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.DesignLogLine log = 4 [json_name = "log"];</code>
+     */
+    public Builder addLog(io.github.joshsymonds.orrery.gen.orrery.v1.DesignLogLine value) {
+      copyOnWrite();
+      instance.addLog(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The log of the design's stage, oldest first.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.DesignLogLine log = 4 [json_name = "log"];</code>
+     */
+    public Builder addLog(
+        int index, io.github.joshsymonds.orrery.gen.orrery.v1.DesignLogLine value) {
+      copyOnWrite();
+      instance.addLog(index, value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The log of the design's stage, oldest first.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.DesignLogLine log = 4 [json_name = "log"];</code>
+     */
+    public Builder addLog(
+        io.github.joshsymonds.orrery.gen.orrery.v1.DesignLogLine.Builder builderForValue) {
+      copyOnWrite();
+      instance.addLog(builderForValue.build());
+      return this;
+    }
+    /**
+     * <pre>
+     * The log of the design's stage, oldest first.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.DesignLogLine log = 4 [json_name = "log"];</code>
+     */
+    public Builder addLog(
+        int index, io.github.joshsymonds.orrery.gen.orrery.v1.DesignLogLine.Builder builderForValue) {
+      copyOnWrite();
+      instance.addLog(index,
+          builderForValue.build());
+      return this;
+    }
+    /**
+     * <pre>
+     * The log of the design's stage, oldest first.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.DesignLogLine log = 4 [json_name = "log"];</code>
+     */
+    public Builder addAllLog(
+        java.lang.Iterable<? extends io.github.joshsymonds.orrery.gen.orrery.v1.DesignLogLine> values) {
+      copyOnWrite();
+      instance.addAllLog(values);
+      return this;
+    }
+    /**
+     * <pre>
+     * The log of the design's stage, oldest first.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.DesignLogLine log = 4 [json_name = "log"];</code>
+     */
+    public Builder clearLog() {
+      copyOnWrite();
+      instance.clearLog();
+      return this;
+    }
+    /**
+     * <pre>
+     * The log of the design's stage, oldest first.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.DesignLogLine log = 4 [json_name = "log"];</code>
+     */
+    public Builder removeLog(int index) {
+      copyOnWrite();
+      instance.removeLog(index);
+      return this;
+    }
+
+    /**
+     * <pre>
+     * The owner's delegations of the design's decisions to the conversation, oldest first.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.DesignDelegation delegations = 5 [json_name = "delegations"];</code>
+     */
+    @java.lang.Override
+    public java.util.List<io.github.joshsymonds.orrery.gen.orrery.v1.DesignDelegation> getDelegationsList() {
+      return java.util.Collections.unmodifiableList(
+          instance.getDelegationsList());
+    }
+    /**
+     * <pre>
+     * The owner's delegations of the design's decisions to the conversation, oldest first.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.DesignDelegation delegations = 5 [json_name = "delegations"];</code>
+     */
+    @java.lang.Override
+    public int getDelegationsCount() {
+      return instance.getDelegationsCount();
+    }/**
+     * <pre>
+     * The owner's delegations of the design's decisions to the conversation, oldest first.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.DesignDelegation delegations = 5 [json_name = "delegations"];</code>
+     */
+    @java.lang.Override
+    public io.github.joshsymonds.orrery.gen.orrery.v1.DesignDelegation getDelegations(int index) {
+      return instance.getDelegations(index);
+    }
+    /**
+     * <pre>
+     * The owner's delegations of the design's decisions to the conversation, oldest first.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.DesignDelegation delegations = 5 [json_name = "delegations"];</code>
+     */
+    public Builder setDelegations(
+        int index, io.github.joshsymonds.orrery.gen.orrery.v1.DesignDelegation value) {
+      copyOnWrite();
+      instance.setDelegations(index, value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The owner's delegations of the design's decisions to the conversation, oldest first.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.DesignDelegation delegations = 5 [json_name = "delegations"];</code>
+     */
+    public Builder setDelegations(
+        int index, io.github.joshsymonds.orrery.gen.orrery.v1.DesignDelegation.Builder builderForValue) {
+      copyOnWrite();
+      instance.setDelegations(index,
+          builderForValue.build());
+      return this;
+    }
+    /**
+     * <pre>
+     * The owner's delegations of the design's decisions to the conversation, oldest first.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.DesignDelegation delegations = 5 [json_name = "delegations"];</code>
+     */
+    public Builder addDelegations(io.github.joshsymonds.orrery.gen.orrery.v1.DesignDelegation value) {
+      copyOnWrite();
+      instance.addDelegations(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The owner's delegations of the design's decisions to the conversation, oldest first.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.DesignDelegation delegations = 5 [json_name = "delegations"];</code>
+     */
+    public Builder addDelegations(
+        int index, io.github.joshsymonds.orrery.gen.orrery.v1.DesignDelegation value) {
+      copyOnWrite();
+      instance.addDelegations(index, value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The owner's delegations of the design's decisions to the conversation, oldest first.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.DesignDelegation delegations = 5 [json_name = "delegations"];</code>
+     */
+    public Builder addDelegations(
+        io.github.joshsymonds.orrery.gen.orrery.v1.DesignDelegation.Builder builderForValue) {
+      copyOnWrite();
+      instance.addDelegations(builderForValue.build());
+      return this;
+    }
+    /**
+     * <pre>
+     * The owner's delegations of the design's decisions to the conversation, oldest first.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.DesignDelegation delegations = 5 [json_name = "delegations"];</code>
+     */
+    public Builder addDelegations(
+        int index, io.github.joshsymonds.orrery.gen.orrery.v1.DesignDelegation.Builder builderForValue) {
+      copyOnWrite();
+      instance.addDelegations(index,
+          builderForValue.build());
+      return this;
+    }
+    /**
+     * <pre>
+     * The owner's delegations of the design's decisions to the conversation, oldest first.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.DesignDelegation delegations = 5 [json_name = "delegations"];</code>
+     */
+    public Builder addAllDelegations(
+        java.lang.Iterable<? extends io.github.joshsymonds.orrery.gen.orrery.v1.DesignDelegation> values) {
+      copyOnWrite();
+      instance.addAllDelegations(values);
+      return this;
+    }
+    /**
+     * <pre>
+     * The owner's delegations of the design's decisions to the conversation, oldest first.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.DesignDelegation delegations = 5 [json_name = "delegations"];</code>
+     */
+    public Builder clearDelegations() {
+      copyOnWrite();
+      instance.clearDelegations();
+      return this;
+    }
+    /**
+     * <pre>
+     * The owner's delegations of the design's decisions to the conversation, oldest first.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.DesignDelegation delegations = 5 [json_name = "delegations"];</code>
+     */
+    public Builder removeDelegations(int index) {
+      copyOnWrite();
+      instance.removeDelegations(index);
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:orrery.v1.DesignsGetResponse)
   }
   @java.lang.Override
@@ -278,9 +1283,17 @@ public  final class DesignsGetResponse extends
           java.lang.Object[] objects = new java.lang.Object[] {
             "bitField0_",
             "design_",
+            "approaches_",
+            io.github.joshsymonds.orrery.gen.orrery.v1.DesignApproach.class,
+            "choice_",
+            "log_",
+            io.github.joshsymonds.orrery.gen.orrery.v1.DesignLogLine.class,
+            "delegations_",
+            io.github.joshsymonds.orrery.gen.orrery.v1.DesignDelegation.class,
           };
           java.lang.String info =
-              "\u0000\u0001\u0000\u0001\u0001\u0001\u0001\u0000\u0000\u0000\u0001\u1009\u0000";
+              "\u0000\u0005\u0000\u0001\u0001\u0005\u0005\u0000\u0003\u0000\u0001\u1009\u0000\u0002" +
+              "\u001b\u0003\u1009\u0001\u0004\u001b\u0005\u001b";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

@@ -109,4 +109,23 @@ public interface ContractStateChangeOrBuilder extends
    * @return The time.
    */
   long getTime();
+
+  /**
+   * <pre>
+   * Who made the change and the evidence it rests on.
+   * </pre>
+   *
+   * <code>.orrery.v1.RecordMaker maker = 7 [json_name = "maker"];</code>
+   * @return Whether the maker field is set.
+   */
+  boolean hasMaker();
+  /**
+   * <pre>
+   * Who made the change and the evidence it rests on.
+   * </pre>
+   *
+   * <code>.orrery.v1.RecordMaker maker = 7 [json_name = "maker"];</code>
+   * @return The maker.
+   */
+  io.github.joshsymonds.orrery.gen.orrery.v1.RecordMaker getMaker();
 }

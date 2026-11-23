@@ -214,8 +214,8 @@ type Config struct {
 	// ContractCommands is orreryd's Contracts client, which Accept, SetAside and Reopen forward the owner's commands
 	// to, or nil, which answers unavailable.
 	ContractCommands enginev1connect.ContractsClient
-	// StageCommands is orreryd's Stage client, which Designs.Answer forwards the owner's answers to, or nil, which
-	// answers unavailable.
+	// StageCommands is orreryd's Stage client, which Designs.Answer and Designs.Continue forward to and Contracts.Keep,
+	// Strike and Shown forward to, or nil, which answers unavailable.
 	StageCommands enginev1connect.StageClient
 	// AccountCommands is orreryd's Accounts client, which Accounts.Add, Rename and Remove and Routes.Replace and
 	// SetContextAccount forward the owner's commands to, or nil, which answers unavailable.
@@ -336,7 +336,7 @@ func New(cfg Config) (http.Handler, error) {
 // registerEpicServices mounts the Epics service, the Evidence service, the Contracts service and the Designs service on
 // mux, all over the records, steps, epic store, epic commands, evidence client, contract commands and store reader of
 // cfg, and returns their paths. The Epics service also lists the sessions of cfg's store reader, and dates its records
-// from now. The Designs service forwards its answers to cfg's stage commands.
+// from now. The Contracts service and the Designs service forward their stage calls to cfg's stage commands.
 func registerEpicServices(mux *http.ServeMux, cfg Config, now func() time.Time) (string, string, string, string) {
 	epicsPath, epicsService := newEpicsHandler(
 		cfg.Records, cfg.Steps, cfg.EpicStore, cfg.EpicCommands, cfg.Evidence, cfg.Sessions, cfg.ControlTimeout, now,
@@ -346,7 +346,8 @@ func registerEpicServices(mux *http.ServeMux, cfg Config, now func() time.Time) 
 	evidencePath, evidenceService := newEvidenceHandler(cfg.Evidence, cfg.ControlTimeout, cfg.HandlerOptions...)
 	mux.Handle(evidencePath, evidenceService)
 	contractsPath, contractsService := newContractsHandler(
-		cfg.Sessions, cfg.ContractCommands, cfg.ControlTimeout, rpcretry.SystemClock{}, cfg.HandlerOptions...,
+		cfg.Sessions, cfg.ContractCommands, cfg.StageCommands, cfg.ControlTimeout, rpcretry.SystemClock{},
+		cfg.HandlerOptions...,
 	)
 	mux.Handle(contractsPath, contractsService)
 	designsPath, designsService := newDesignsHandler(

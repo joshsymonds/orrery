@@ -10,7 +10,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file orrery/v1/designs.proto.
  */
 export const file_orrery_v1_designs: GenFile = /*@__PURE__*/
-  fileDesc("ChdvcnJlcnkvdjEvZGVzaWducy5wcm90bxIJb3JyZXJ5LnYxIhQKEkRlc2lnbnNMaXN0UmVxdWVzdCI5ChNEZXNpZ25zTGlzdFJlc3BvbnNlEiIKB2Rlc2lnbnMYASADKAsyES5vcnJlcnkudjEuRGVzaWduIh8KEURlc2lnbnNHZXRSZXF1ZXN0EgoKAmlkGAEgASgJIjcKEkRlc2lnbnNHZXRSZXNwb25zZRIhCgZkZXNpZ24YASABKAsyES5vcnJlcnkudjEuRGVzaWduIpcBCgZEZXNpZ24SCgoCaWQYASABKAkSDQoFdGl0bGUYAiABKAkSFAoMY29udmVyc2F0aW9uGAMgASgJEg8KB2NyZWF0ZWQYBCABKAMSDgoGb2Zfb25lGAUgASgIEg0KBXN0YXRlGAYgASgJEiwKCWNvbnRyYWN0cxgHIAMoCzIZLm9ycmVyeS52MS5EZXNpZ25Db250cmFjdCKRAQoORGVzaWduQ29udHJhY3QSCgoCaWQYASABKAkSDQoFdGl0bGUYAiABKAkSEgoKcmVwb3NpdG9yeRgDIAEoCRINCgVzdGF0ZRgEIAEoCRIQCghwb3NpdGlvbhgFIAEoAxINCgVhZnRlchgGIAMoCRIMCgRlcGljGAcgASgJEhIKCmVwaWNfcGhhc2UYCCABKAkiWAoURGVzaWduc0Fuc3dlclJlcXVlc3QSDgoGZGVzaWduGAEgASgJEhAKCHF1ZXN0aW9uGAIgASgDEg4KBmFuc3dlchgDIAEoCRIOCgZhY2NlcHQYBCABKAgiJwoVRGVzaWduc0Fuc3dlclJlc3BvbnNlEg4KBmFuc3dlchgBIAEoCTLhAQoHRGVzaWducxJFCgRMaXN0Eh0ub3JyZXJ5LnYxLkRlc2lnbnNMaXN0UmVxdWVzdBoeLm9ycmVyeS52MS5EZXNpZ25zTGlzdFJlc3BvbnNlEkIKA0dldBIcLm9ycmVyeS52MS5EZXNpZ25zR2V0UmVxdWVzdBodLm9ycmVyeS52MS5EZXNpZ25zR2V0UmVzcG9uc2USSwoGQW5zd2VyEh8ub3JyZXJ5LnYxLkRlc2lnbnNBbnN3ZXJSZXF1ZXN0GiAub3JyZXJ5LnYxLkRlc2lnbnNBbnN3ZXJSZXNwb25zZWIGcHJvdG8z");
+  fileDesc("ChdvcnJlcnkvdjEvZGVzaWducy5wcm90bxIJb3JyZXJ5LnYxIhQKEkRlc2lnbnNMaXN0UmVxdWVzdCI5ChNEZXNpZ25zTGlzdFJlc3BvbnNlEiIKB2Rlc2lnbnMYASADKAsyES5vcnJlcnkudjEuRGVzaWduIh8KEURlc2lnbnNHZXRSZXF1ZXN0EgoKAmlkGAEgASgJIugBChJEZXNpZ25zR2V0UmVzcG9uc2USIQoGZGVzaWduGAEgASgLMhEub3JyZXJ5LnYxLkRlc2lnbhItCgphcHByb2FjaGVzGAIgAygLMhkub3JyZXJ5LnYxLkRlc2lnbkFwcHJvYWNoEicKBmNob2ljZRgDIAEoCzIXLm9ycmVyeS52MS5EZXNpZ25DaG9pY2USJQoDbG9nGAQgAygLMhgub3JyZXJ5LnYxLkRlc2lnbkxvZ0xpbmUSMAoLZGVsZWdhdGlvbnMYBSADKAsyGy5vcnJlcnkudjEuRGVzaWduRGVsZWdhdGlvbiJfCgtSZWNvcmRNYWtlchIMCgRraW5kGAEgASgJEg0KBXF1b3RlGAIgASgJEg4KBnJlYXNvbhgDIAEoCRISCgpkZWxlZ2F0aW9uGAQgASgJEg8KB3Nlc3Npb24YBSABKAkivgEKDkRlc2lnbkFwcHJvYWNoEgsKA3NlcRgBIAEoAxIMCgRuYW1lGAIgASgJEg0KBXNoYXBlGAMgASgJEgwKBGNvc3QYBCABKAkSDAoEd2lucxgFIAEoCRINCgVsb3NlcxgGIAEoCRISCgpyZWNvbnNpZGVyGAcgASgJEhAKCHJlc2VhcmNoGAggAygJEhMKC3JlY29tbWVuZGVkGAkgASgIEg4KBnJlYXNvbhgKIAEoCRIMCgR0aW1lGAsgASgDImQKDERlc2lnbkNob2ljZRIQCghhcHByb2FjaBgBIAEoAxINCgV3b3JkcxgCIAEoCRIlCgVtYWtlchgDIAEoCzIWLm9ycmVyeS52MS5SZWNvcmRNYWtlchIMCgR0aW1lGAQgASgDIowBCg1EZXNpZ25Mb2dMaW5lEgsKA3NlcRgBIAEoAxIMCgR0aW1lGAIgASgDEiUKBW1ha2VyGAMgASgLMhYub3JyZXJ5LnYxLlJlY29yZE1ha2VyEg8KB3Nlc3Npb24YBCABKAkSDAoEd2hhdBgFIAEoCRILCgNpZHMYBiADKAkSDQoFd29yZHMYByABKAkijAEKEERlc2lnbkRlbGVnYXRpb24SCwoDc2VxGAEgASgDEg0KBWtpbmRzGAIgAygJEg8KB21lc3NhZ2UYAyABKAkSDwoHc2Vzc2lvbhgEIAEoCRIMCgR0aW1lGAUgASgDEiwKCWRlY2lzaW9ucxgGIAMoCzIZLm9ycmVyeS52MS5EZXNpZ25EZWNpc2lvbiJXCg5EZXNpZ25EZWNpc2lvbhIMCgRraW5kGAEgASgJEgsKA3JlZhgCIAEoCRIMCgR0ZXh0GAMgASgJEg4KBnJlYXNvbhgEIAEoCRIMCgR0aW1lGAUgASgDIpcBCgZEZXNpZ24SCgoCaWQYASABKAkSDQoFdGl0bGUYAiABKAkSFAoMY29udmVyc2F0aW9uGAMgASgJEg8KB2NyZWF0ZWQYBCABKAMSDgoGb2Zfb25lGAUgASgIEg0KBXN0YXRlGAYgASgJEiwKCWNvbnRyYWN0cxgHIAMoCzIZLm9ycmVyeS52MS5EZXNpZ25Db250cmFjdCKRAQoORGVzaWduQ29udHJhY3QSCgoCaWQYASABKAkSDQoFdGl0bGUYAiABKAkSEgoKcmVwb3NpdG9yeRgDIAEoCRINCgVzdGF0ZRgEIAEoCRIQCghwb3NpdGlvbhgFIAEoAxINCgVhZnRlchgGIAMoCRIMCgRlcGljGAcgASgJEhIKCmVwaWNfcGhhc2UYCCABKAkiWAoURGVzaWduc0Fuc3dlclJlcXVlc3QSDgoGZGVzaWduGAEgASgJEhAKCHF1ZXN0aW9uGAIgASgDEg4KBmFuc3dlchgDIAEoCRIOCgZhY2NlcHQYBCABKAgiJwoVRGVzaWduc0Fuc3dlclJlc3BvbnNlEg4KBmFuc3dlchgBIAEoCSIkChZEZXNpZ25zQ29udGludWVSZXF1ZXN0EgoKAmlkGAEgASgJIk0KF0Rlc2lnbnNDb250aW51ZVJlc3BvbnNlEiEKBmRlc2lnbhgBIAEoCzIRLm9ycmVyeS52MS5EZXNpZ24SDwoHc2Vzc2lvbhgCIAEoCTK0AgoHRGVzaWducxJFCgRMaXN0Eh0ub3JyZXJ5LnYxLkRlc2lnbnNMaXN0UmVxdWVzdBoeLm9ycmVyeS52MS5EZXNpZ25zTGlzdFJlc3BvbnNlEkIKA0dldBIcLm9ycmVyeS52MS5EZXNpZ25zR2V0UmVxdWVzdBodLm9ycmVyeS52MS5EZXNpZ25zR2V0UmVzcG9uc2USSwoGQW5zd2VyEh8ub3JyZXJ5LnYxLkRlc2lnbnNBbnN3ZXJSZXF1ZXN0GiAub3JyZXJ5LnYxLkRlc2lnbnNBbnN3ZXJSZXNwb25zZRJRCghDb250aW51ZRIhLm9ycmVyeS52MS5EZXNpZ25zQ29udGludWVSZXF1ZXN0GiIub3JyZXJ5LnYxLkRlc2lnbnNDb250aW51ZVJlc3BvbnNlYgZwcm90bzM");
 
 /**
  * DesignsListRequest asks for every design.
@@ -70,7 +70,7 @@ export const DesignsGetRequestSchema: GenMessage<DesignsGetRequest> = /*@__PURE_
   messageDesc(file_orrery_v1_designs, 2);
 
 /**
- * DesignsGetResponse carries one design.
+ * DesignsGetResponse carries one design with its stage's approaches, choice, log and delegations.
  *
  * @generated from message orrery.v1.DesignsGetResponse
  */
@@ -81,6 +81,34 @@ export type DesignsGetResponse = Message<"orrery.v1.DesignsGetResponse"> & {
    * @generated from field: orrery.v1.Design design = 1;
    */
   design?: Design | undefined;
+
+  /**
+   * The approaches the design's stage weighs, oldest first.
+   *
+   * @generated from field: repeated orrery.v1.DesignApproach approaches = 2;
+   */
+  approaches: DesignApproach[];
+
+  /**
+   * The approach the owner chose for the design; unset until a choice is stored.
+   *
+   * @generated from field: orrery.v1.DesignChoice choice = 3;
+   */
+  choice?: DesignChoice | undefined;
+
+  /**
+   * The log of the design's stage, oldest first.
+   *
+   * @generated from field: repeated orrery.v1.DesignLogLine log = 4;
+   */
+  log: DesignLogLine[];
+
+  /**
+   * The owner's delegations of the design's decisions to the conversation, oldest first.
+   *
+   * @generated from field: repeated orrery.v1.DesignDelegation delegations = 5;
+   */
+  delegations: DesignDelegation[];
 };
 
 /**
@@ -89,6 +117,358 @@ export type DesignsGetResponse = Message<"orrery.v1.DesignsGetResponse"> & {
  */
 export const DesignsGetResponseSchema: GenMessage<DesignsGetResponse> = /*@__PURE__*/
   messageDesc(file_orrery_v1_designs, 3);
+
+/**
+ * RecordMaker is who made a stage record and the evidence it rests on.
+ *
+ * @generated from message orrery.v1.RecordMaker
+ */
+export type RecordMaker = Message<"orrery.v1.RecordMaker"> & {
+  /**
+   * Who made the record: owner_serve for the owner through serve's call, owner_conversation for the owner in the
+   * conversation, or conversation for the owner as the conversation decided for him.
+   *
+   * @generated from field: string kind = 1;
+   */
+  kind: string;
+
+  /**
+   * The owner's words the record quotes; set for owner_conversation.
+   *
+   * @generated from field: string quote = 2;
+   */
+  quote: string;
+
+  /**
+   * Why the conversation decided for the owner; set for conversation.
+   *
+   * @generated from field: string reason = 3;
+   */
+  reason: string;
+
+  /**
+   * The owner's words that let the conversation decide for him; set for conversation.
+   *
+   * @generated from field: string delegation = 4;
+   */
+  delegation: string;
+
+  /**
+   * The sessions row id of the session that made the record, or empty when none did.
+   *
+   * @generated from field: string session = 5;
+   */
+  session: string;
+};
+
+/**
+ * Describes the message orrery.v1.RecordMaker.
+ * Use `create(RecordMakerSchema)` to create a new message.
+ */
+export const RecordMakerSchema: GenMessage<RecordMaker> = /*@__PURE__*/
+  messageDesc(file_orrery_v1_designs, 4);
+
+/**
+ * DesignApproach is an approach a design's stage weighs, with its trade-offs and whether the planner recommends it.
+ *
+ * @generated from message orrery.v1.DesignApproach
+ */
+export type DesignApproach = Message<"orrery.v1.DesignApproach"> & {
+  /**
+   * The approach's seq, counted from 1 within its design.
+   *
+   * @generated from field: int64 seq = 1;
+   */
+  seq: bigint;
+
+  /**
+   * The approach's name.
+   *
+   * @generated from field: string name = 2;
+   */
+  name: string;
+
+  /**
+   * The shape the approach takes.
+   *
+   * @generated from field: string shape = 3;
+   */
+  shape: string;
+
+  /**
+   * What the approach costs.
+   *
+   * @generated from field: string cost = 4;
+   */
+  cost: string;
+
+  /**
+   * What the approach wins.
+   *
+   * @generated from field: string wins = 5;
+   */
+  wins: string;
+
+  /**
+   * What the approach loses.
+   *
+   * @generated from field: string loses = 6;
+   */
+  loses: string;
+
+  /**
+   * What would make the planner reconsider the approach.
+   *
+   * @generated from field: string reconsider = 7;
+   */
+  reconsider: string;
+
+  /**
+   * The ids of the research steps the approach rests on.
+   *
+   * @generated from field: repeated string research = 8;
+   */
+  research: string[];
+
+  /**
+   * True when the planner recommends the approach.
+   *
+   * @generated from field: bool recommended = 9;
+   */
+  recommended: boolean;
+
+  /**
+   * Why the planner recommends the approach or does not.
+   *
+   * @generated from field: string reason = 10;
+   */
+  reason: string;
+
+  /**
+   * When the approach was stored, in unix seconds.
+   *
+   * @generated from field: int64 time = 11;
+   */
+  time: bigint;
+};
+
+/**
+ * Describes the message orrery.v1.DesignApproach.
+ * Use `create(DesignApproachSchema)` to create a new message.
+ */
+export const DesignApproachSchema: GenMessage<DesignApproach> = /*@__PURE__*/
+  messageDesc(file_orrery_v1_designs, 5);
+
+/**
+ * DesignChoice is the approach the owner chose for a design, with the maker it came from.
+ *
+ * @generated from message orrery.v1.DesignChoice
+ */
+export type DesignChoice = Message<"orrery.v1.DesignChoice"> & {
+  /**
+   * The seq of the chosen approach.
+   *
+   * @generated from field: int64 approach = 1;
+   */
+  approach: bigint;
+
+  /**
+   * The owner's words the choice is made with.
+   *
+   * @generated from field: string words = 2;
+   */
+  words: string;
+
+  /**
+   * Who made the choice and the evidence it rests on.
+   *
+   * @generated from field: orrery.v1.RecordMaker maker = 3;
+   */
+  maker?: RecordMaker | undefined;
+
+  /**
+   * When the choice was stored, in unix seconds.
+   *
+   * @generated from field: int64 time = 4;
+   */
+  time: bigint;
+};
+
+/**
+ * Describes the message orrery.v1.DesignChoice.
+ * Use `create(DesignChoiceSchema)` to create a new message.
+ */
+export const DesignChoiceSchema: GenMessage<DesignChoice> = /*@__PURE__*/
+  messageDesc(file_orrery_v1_designs, 6);
+
+/**
+ * DesignLogLine is one line of a design's stage log: what was done, by whom, and the ids it touched.
+ *
+ * @generated from message orrery.v1.DesignLogLine
+ */
+export type DesignLogLine = Message<"orrery.v1.DesignLogLine"> & {
+  /**
+   * The line's seq, counted from 1 within its design.
+   *
+   * @generated from field: int64 seq = 1;
+   */
+  seq: bigint;
+
+  /**
+   * When the line was logged, in unix seconds.
+   *
+   * @generated from field: int64 time = 2;
+   */
+  time: bigint;
+
+  /**
+   * Who did the thing the line logs and the evidence it rests on.
+   *
+   * @generated from field: orrery.v1.RecordMaker maker = 3;
+   */
+  maker?: RecordMaker | undefined;
+
+  /**
+   * The sessions row id of the session that logged the line.
+   *
+   * @generated from field: string session = 4;
+   */
+  session: string;
+
+  /**
+   * What was done.
+   *
+   * @generated from field: string what = 5;
+   */
+  what: string;
+
+  /**
+   * The ids the line touched.
+   *
+   * @generated from field: repeated string ids = 6;
+   */
+  ids: string[];
+
+  /**
+   * The words the line was logged with.
+   *
+   * @generated from field: string words = 7;
+   */
+  words: string;
+};
+
+/**
+ * Describes the message orrery.v1.DesignLogLine.
+ * Use `create(DesignLogLineSchema)` to create a new message.
+ */
+export const DesignLogLineSchema: GenMessage<DesignLogLine> = /*@__PURE__*/
+  messageDesc(file_orrery_v1_designs, 7);
+
+/**
+ * DesignDelegation is the owner's delegation of a design's decisions to the conversation, with the decisions the
+ * conversation made under it.
+ *
+ * @generated from message orrery.v1.DesignDelegation
+ */
+export type DesignDelegation = Message<"orrery.v1.DesignDelegation"> & {
+  /**
+   * The delegation's seq, counted from 1 within its design.
+   *
+   * @generated from field: int64 seq = 1;
+   */
+  seq: bigint;
+
+  /**
+   * The kinds of decision the delegation covers.
+   *
+   * @generated from field: repeated string kinds = 2;
+   */
+  kinds: string[];
+
+  /**
+   * The owner's words the delegation is given with.
+   *
+   * @generated from field: string message = 3;
+   */
+  message: string;
+
+  /**
+   * The sessions row id of the session that stored the delegation.
+   *
+   * @generated from field: string session = 4;
+   */
+  session: string;
+
+  /**
+   * When the delegation was stored, in unix seconds.
+   *
+   * @generated from field: int64 time = 5;
+   */
+  time: bigint;
+
+  /**
+   * The decisions the conversation made under the delegation, oldest first.
+   *
+   * @generated from field: repeated orrery.v1.DesignDecision decisions = 6;
+   */
+  decisions: DesignDecision[];
+};
+
+/**
+ * Describes the message orrery.v1.DesignDelegation.
+ * Use `create(DesignDelegationSchema)` to create a new message.
+ */
+export const DesignDelegationSchema: GenMessage<DesignDelegation> = /*@__PURE__*/
+  messageDesc(file_orrery_v1_designs, 8);
+
+/**
+ * DesignDecision is a decision the conversation made under a delegation.
+ *
+ * @generated from message orrery.v1.DesignDecision
+ */
+export type DesignDecision = Message<"orrery.v1.DesignDecision"> & {
+  /**
+   * The decision's kind.
+   *
+   * @generated from field: string kind = 1;
+   */
+  kind: string;
+
+  /**
+   * The id of the thing the decision concerns.
+   *
+   * @generated from field: string ref = 2;
+   */
+  ref: string;
+
+  /**
+   * The decision's text.
+   *
+   * @generated from field: string text = 3;
+   */
+  text: string;
+
+  /**
+   * Why the conversation decided.
+   *
+   * @generated from field: string reason = 4;
+   */
+  reason: string;
+
+  /**
+   * When the decision was made, in unix seconds.
+   *
+   * @generated from field: int64 time = 5;
+   */
+  time: bigint;
+};
+
+/**
+ * Describes the message orrery.v1.DesignDecision.
+ * Use `create(DesignDecisionSchema)` to create a new message.
+ */
+export const DesignDecisionSchema: GenMessage<DesignDecision> = /*@__PURE__*/
+  messageDesc(file_orrery_v1_designs, 9);
 
 /**
  * Design is a design as the clients read it: its contracts and the order they start in.
@@ -151,7 +531,7 @@ export type Design = Message<"orrery.v1.Design"> & {
  * Use `create(DesignSchema)` to create a new message.
  */
 export const DesignSchema: GenMessage<Design> = /*@__PURE__*/
-  messageDesc(file_orrery_v1_designs, 4);
+  messageDesc(file_orrery_v1_designs, 10);
 
 /**
  * DesignContract is a contract as its design holds it: its place in the start order and the contracts it starts after.
@@ -221,7 +601,7 @@ export type DesignContract = Message<"orrery.v1.DesignContract"> & {
  * Use `create(DesignContractSchema)` to create a new message.
  */
 export const DesignContractSchema: GenMessage<DesignContract> = /*@__PURE__*/
-  messageDesc(file_orrery_v1_designs, 5);
+  messageDesc(file_orrery_v1_designs, 11);
 
 /**
  * DesignsAnswerRequest asks for the owner's answer to a question of a design's stage to be stored.
@@ -263,7 +643,7 @@ export type DesignsAnswerRequest = Message<"orrery.v1.DesignsAnswerRequest"> & {
  * Use `create(DesignsAnswerRequestSchema)` to create a new message.
  */
 export const DesignsAnswerRequestSchema: GenMessage<DesignsAnswerRequest> = /*@__PURE__*/
-  messageDesc(file_orrery_v1_designs, 6);
+  messageDesc(file_orrery_v1_designs, 12);
 
 /**
  * DesignsAnswerResponse carries the answer orreryd stored.
@@ -284,7 +664,56 @@ export type DesignsAnswerResponse = Message<"orrery.v1.DesignsAnswerResponse"> &
  * Use `create(DesignsAnswerResponseSchema)` to create a new message.
  */
 export const DesignsAnswerResponseSchema: GenMessage<DesignsAnswerResponse> = /*@__PURE__*/
-  messageDesc(file_orrery_v1_designs, 7);
+  messageDesc(file_orrery_v1_designs, 13);
+
+/**
+ * DesignsContinueRequest names the design whose stage continues.
+ *
+ * @generated from message orrery.v1.DesignsContinueRequest
+ */
+export type DesignsContinueRequest = Message<"orrery.v1.DesignsContinueRequest"> & {
+  /**
+   * The design's id, as List gave it.
+   *
+   * @generated from field: string id = 1;
+   */
+  id: string;
+};
+
+/**
+ * Describes the message orrery.v1.DesignsContinueRequest.
+ * Use `create(DesignsContinueRequestSchema)` to create a new message.
+ */
+export const DesignsContinueRequestSchema: GenMessage<DesignsContinueRequest> = /*@__PURE__*/
+  messageDesc(file_orrery_v1_designs, 14);
+
+/**
+ * DesignsContinueResponse carries the design and the session that continues its stage.
+ *
+ * @generated from message orrery.v1.DesignsContinueResponse
+ */
+export type DesignsContinueResponse = Message<"orrery.v1.DesignsContinueResponse"> & {
+  /**
+   * The design, as Get gives it.
+   *
+   * @generated from field: orrery.v1.Design design = 1;
+   */
+  design?: Design | undefined;
+
+  /**
+   * The sessions row id of the session that continues the stage.
+   *
+   * @generated from field: string session = 2;
+   */
+  session: string;
+};
+
+/**
+ * Describes the message orrery.v1.DesignsContinueResponse.
+ * Use `create(DesignsContinueResponseSchema)` to create a new message.
+ */
+export const DesignsContinueResponseSchema: GenMessage<DesignsContinueResponse> = /*@__PURE__*/
+  messageDesc(file_orrery_v1_designs, 15);
 
 /**
  * Designs reads the designs orreryd stores. serve forwards each call of the service to orreryd.
@@ -321,6 +750,16 @@ export const Designs: GenService<{
     methodKind: "unary";
     input: typeof DesignsAnswerRequestSchema;
     output: typeof DesignsAnswerResponseSchema;
+  },
+  /**
+   * Continue returns a design and the session that continues its stage. serve forwards each call to orreryd.
+   *
+   * @generated from rpc orrery.v1.Designs.Continue
+   */
+  continue: {
+    methodKind: "unary";
+    input: typeof DesignsContinueRequestSchema;
+    output: typeof DesignsContinueResponseSchema;
   },
 }> = /*@__PURE__*/
   serviceDesc(file_orrery_v1_designs, 0);

@@ -60,4 +60,19 @@ public class DesignsClient(
     ),
   )
 
+
+  /**
+   *  Continue returns a design and the session that continues its stage. serve forwards each call to orreryd.
+   */
+  override suspend fun `continue`(request: DesignsContinueRequest, headers: Headers): ResponseMessage<DesignsContinueResponse> = client.unary(
+    request,
+    headers,
+    MethodSpec(
+    "orrery.v1.Designs/Continue",
+      io.github.joshsymonds.orrery.gen.orrery.v1.DesignsContinueRequest::class,
+      io.github.joshsymonds.orrery.gen.orrery.v1.DesignsContinueResponse::class,
+      StreamType.UNARY,
+    ),
+  )
+
 }

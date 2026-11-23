@@ -27,6 +27,7 @@ public  final class BackgroundTask extends
     status_ = "";
     activity_ = "";
   }
+  private int bitField0_;
   public static final int ID_FIELD_NUMBER = 1;
   private java.lang.String id_;
   /**
@@ -570,6 +571,73 @@ public  final class BackgroundTask extends
   private void clearEnded() {
 
     ended_ = 0L;
+  }
+
+  public static final int DESIGN_FIELD_NUMBER = 10;
+  private io.github.joshsymonds.orrery.gen.orrery.v1.EngineDesign design_;
+  /**
+   * <pre>
+   * The stage record of the task, unset when the task carries none.
+   * </pre>
+   *
+   * <code>.orrery.v1.EngineDesign design = 10 [json_name = "design"];</code>
+   */
+  @java.lang.Override
+  public boolean hasDesign() {
+    return ((bitField0_ & 0x00000001) != 0);
+  }
+  /**
+   * <pre>
+   * The stage record of the task, unset when the task carries none.
+   * </pre>
+   *
+   * <code>.orrery.v1.EngineDesign design = 10 [json_name = "design"];</code>
+   */
+  @java.lang.Override
+  public io.github.joshsymonds.orrery.gen.orrery.v1.EngineDesign getDesign() {
+    return design_ == null ? io.github.joshsymonds.orrery.gen.orrery.v1.EngineDesign.getDefaultInstance() : design_;
+  }
+  /**
+   * <pre>
+   * The stage record of the task, unset when the task carries none.
+   * </pre>
+   *
+   * <code>.orrery.v1.EngineDesign design = 10 [json_name = "design"];</code>
+   */
+  private void setDesign(io.github.joshsymonds.orrery.gen.orrery.v1.EngineDesign value) {
+    java.util.Objects.requireNonNull(value);
+    design_ = value;
+    bitField0_ |= 0x00000001;
+  }
+  /**
+   * <pre>
+   * The stage record of the task, unset when the task carries none.
+   * </pre>
+   *
+   * <code>.orrery.v1.EngineDesign design = 10 [json_name = "design"];</code>
+   */
+  @java.lang.SuppressWarnings("ReferenceEquality")
+  private void mergeDesign(io.github.joshsymonds.orrery.gen.orrery.v1.EngineDesign value) {
+    java.util.Objects.requireNonNull(value);
+    if (design_ != null &&
+        design_ != io.github.joshsymonds.orrery.gen.orrery.v1.EngineDesign.getDefaultInstance()) {
+      design_ =
+        io.github.joshsymonds.orrery.gen.orrery.v1.EngineDesign.newBuilder(design_).mergeFrom(value).buildPartial();
+    } else {
+      design_ = value;
+    }
+    bitField0_ |= 0x00000001;
+  }
+  /**
+   * <pre>
+   * The stage record of the task, unset when the task carries none.
+   * </pre>
+   *
+   * <code>.orrery.v1.EngineDesign design = 10 [json_name = "design"];</code>
+   */
+  private void clearDesign() {
+    design_ = null;
+    bitField0_ = (bitField0_ & ~0x00000001);
   }
 
   public static io.github.joshsymonds.orrery.gen.orrery.v1.BackgroundTask parseFrom(
@@ -1236,6 +1304,77 @@ public  final class BackgroundTask extends
       return this;
     }
 
+    /**
+     * <pre>
+     * The stage record of the task, unset when the task carries none.
+     * </pre>
+     *
+     * <code>.orrery.v1.EngineDesign design = 10 [json_name = "design"];</code>
+     */
+    @java.lang.Override
+    public boolean hasDesign() {
+      return instance.hasDesign();
+    }
+    /**
+     * <pre>
+     * The stage record of the task, unset when the task carries none.
+     * </pre>
+     *
+     * <code>.orrery.v1.EngineDesign design = 10 [json_name = "design"];</code>
+     */
+    @java.lang.Override
+    public io.github.joshsymonds.orrery.gen.orrery.v1.EngineDesign getDesign() {
+      return instance.getDesign();
+    }
+    /**
+     * <pre>
+     * The stage record of the task, unset when the task carries none.
+     * </pre>
+     *
+     * <code>.orrery.v1.EngineDesign design = 10 [json_name = "design"];</code>
+     */
+    public Builder setDesign(io.github.joshsymonds.orrery.gen.orrery.v1.EngineDesign value) {
+      copyOnWrite();
+      instance.setDesign(value);
+      return this;
+      }
+    /**
+     * <pre>
+     * The stage record of the task, unset when the task carries none.
+     * </pre>
+     *
+     * <code>.orrery.v1.EngineDesign design = 10 [json_name = "design"];</code>
+     */
+    public Builder setDesign(
+        io.github.joshsymonds.orrery.gen.orrery.v1.EngineDesign.Builder builderForValue) {
+      copyOnWrite();
+      instance.setDesign(builderForValue.build());
+      return this;
+    }
+    /**
+     * <pre>
+     * The stage record of the task, unset when the task carries none.
+     * </pre>
+     *
+     * <code>.orrery.v1.EngineDesign design = 10 [json_name = "design"];</code>
+     */
+    public Builder mergeDesign(io.github.joshsymonds.orrery.gen.orrery.v1.EngineDesign value) {
+      copyOnWrite();
+      instance.mergeDesign(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The stage record of the task, unset when the task carries none.
+     * </pre>
+     *
+     * <code>.orrery.v1.EngineDesign design = 10 [json_name = "design"];</code>
+     */
+    public Builder clearDesign() {  copyOnWrite();
+      instance.clearDesign();
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:orrery.v1.BackgroundTask)
   }
   @java.lang.Override
@@ -1252,6 +1391,7 @@ public  final class BackgroundTask extends
       }
       case BUILD_MESSAGE_INFO: {
           java.lang.Object[] objects = new java.lang.Object[] {
+            "bitField0_",
             "id_",
             "toolUseId_",
             "description_",
@@ -1261,10 +1401,11 @@ public  final class BackgroundTask extends
             "activity_",
             "started_",
             "ended_",
+            "design_",
           };
           java.lang.String info =
-              "\u0000\t\u0000\u0000\u0001\t\t\u0000\u0000\u0000\u0001\u0208\u0002\u0208\u0003\u0208" +
-              "\u0004\u0208\u0005\u0208\u0006\u0208\u0007\u0208\b\u0002\t\u0002";
+              "\u0000\n\u0000\u0001\u0001\n\n\u0000\u0000\u0000\u0001\u0208\u0002\u0208\u0003\u0208" +
+              "\u0004\u0208\u0005\u0208\u0006\u0208\u0007\u0208\b\u0002\t\u0002\n\u1009\u0000";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {
