@@ -309,6 +309,10 @@ func TestNodeReattachSessionOutlivesDroppedLink(t *testing.T) {
 	waitHistory(t, engineOf(m), rig.path, id, "the second reply block", func(h store.EngineHistory) bool {
 		return hasBlock(t, h, "fake reply 2")
 	})
+	waitUntil(t, engineOf(m), "the second turn's end stored as the row's done state", func() bool {
+		row, err := rig.s.EngineSession(t.Context(), id)
+		return err == nil && row.State == "done"
+	})
 	requireProcessRunning(t, pid)
 	requireEngineRows(t, rig.s, map[string]restartRow{id: {state: "done"}})
 	requireBlocks(t, rig.path, id, "fake reply 1", "fake reply 2")
