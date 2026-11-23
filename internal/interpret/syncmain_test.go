@@ -970,8 +970,8 @@ func (w *integrateWorld) carryOut(action store.PlannerAction) {
 }
 
 // failedSyncRoutesNoParkAndNoSyncRunsWhileAnActionIsPending: a sync whose merge conflicts ends failed with its one
-// tell, and parks nothing: no park of either class, no question, no planner park and no trigger, so the planner is
-// woken only by the batch before it. The planner's next turn returns a retry_node of the node sync. While that action
+// tell, and parks nothing: no park of either class, no question and no planner park. Its trigger wakes the planner,
+// as the batch does. The planner's next turn returns a retry_node of the node sync. While that action
 // is pending, the quiet point that turn opens starts no sync, and the plan keeps its run. The action is refused, since
 // a sync run never parks and is no integrate run, and the failed sync is kept as it ended. Once the action is carried
 // out the quiet point starts no sync either, since origin's commit is the one the first sync tried.
@@ -988,8 +988,9 @@ func failedSyncRoutesNoParkAndNoSyncRunsWhileAnActionIsPending(images *worldImag
 			candidate)
 		failed := w.requireSyncEnded(syncFirst, outcomeFailed, output)
 		w.requireNoPark()
-		if got := w.pending(); got != pending+1 {
-			t.Errorf("pending triggers = %d, want %d: only the batch wakes the planner", got, pending+1)
+		if got := w.pending(); got != pending+2 {
+			t.Errorf("pending triggers = %d, want %d: the batch and the failed sync each wake the planner",
+				got, pending+2)
 		}
 		for _, cause := range triggerCausesOf(t, w.s, runEpic) {
 			if strings.Contains(cause, syncFirst) {

@@ -83,9 +83,9 @@ func (s *Store) PrepareSync(
 
 // EndSync ends the running sync run at end.Path of epic at end.Attempt with its outcome and output, in one write. A
 // passed run moves the stored base to the run's revision, clears the candidate and records end.Synced as the commit of
-// origin's main the stored base merged. A Tell that is not empty is added as a tell, cut to TurnReasonMax bytes. Output
-// is cut to NodeOutputMax bytes. A run at another attempt and a run that is not running change nothing, so a repeat
-// moves and tells nothing.
+// origin's main the stored base merged. A Tell that is not empty is added as a tell, cut to TurnReasonMax bytes. A
+// Trigger that is set is added pending. Output is cut to NodeOutputMax bytes. A run at another attempt and a run that
+// is not running change nothing, so a repeat moves and tells nothing.
 func (s *Store) EndSync(ctx context.Context, epic string, end SyncEnd, at time.Time) error {
 	return s.write(ctx, func(queries *sqlcgen.Queries) error {
 		ended, err := queries.EndEpicNodeRunAttempt(ctx, sqlcgen.EndEpicNodeRunAttemptParams{
@@ -127,12 +127,20 @@ func (s *Store) RewakeSync(ctx context.Context, epic string, trigger NodeTrigger
 	})
 }
 
-// settleSync moves the stored base of epic for a sync run that passed (moveSyncedBase) and adds end.Tell as a tell when
-// it is not empty, in the caller's write.
+// settleSync moves the stored base of epic for a sync run that passed (moveSyncedBase), adds end.Trigger pending when
+// it is set, and adds end.Tell as a tell when it is not empty, in the caller's write.
 func settleSync(ctx context.Context, queries *sqlcgen.Queries, epic string, end SyncEnd, at time.Time) error {
 	if end.Outcome == syncPassed {
 		if err := moveSyncedBase(ctx, queries, epic, end); err != nil {
 			return err
+		}
+	}
+	if end.Trigger != nil {
+		if err := queries.InsertEpicTrigger(ctx, sqlcgen.InsertEpicTriggerParams{
+			Epic: epic, ID: end.Trigger.ID, Cause: end.Trigger.Cause, State: triggerPending, Turn: 0,
+			Created: at.Unix(),
+		}); err != nil {
+			return fmt.Errorf("insert trigger %s of epic %s: %w", end.Trigger.ID, epic, err)
 		}
 	}
 	if end.Tell == "" {

@@ -145,7 +145,12 @@ func TestSyncPrepareAndUnmerged(t *testing.T) {
 		{
 			"a merge that conflicts ends failed with its paths, told",
 			syncNode("", `{"origin":"o1","base":"b","conflicts":["a.go","b.go"]}`), Rows{},
-			syncTold("failed", "merge of origin's commit o1 into the stored base b conflicts in a.go, b.go"),
+			Action{
+				Kind: ActEnd, Outcome: outcomeFailed, Tell: true,
+				Output: "merge of origin's commit o1 into the stored base b conflicts in a.go, b.go",
+				Cause: "sync sync:o1@b: the sync of origin's commit o1 into the stored base b failed\n" +
+					"merge of origin's commit o1 into the stored base b conflicts in a.go, b.go",
+			},
 		},
 		{
 			"a result with no merge ends skipped", syncNode("", `{"origin":"o1","base":"b"}`), Rows{},
@@ -169,7 +174,12 @@ func TestSyncChecksAtTheMerge(t *testing.T) {
 		},
 		{
 			"a failed gate ends failed, told", node, syncRows([]store.NodeCheck{failedCheck("done 1")}),
-			syncTold("failed", syncHead+"\nDone gate just check failed"),
+			Action{
+				Kind: ActEnd, Outcome: outcomeFailed, Tell: true,
+				Output: syncHead + "\nDone gate just check failed",
+				Cause: "sync sync:o1@base-1: the sync of origin's commit o1 into the stored base base-1 failed\n" +
+					syncHead + "\nDone gate just check failed on commit m1: it exited 1.",
+			},
 		},
 		{
 			"a gate lost twice ends skipped, told, and parks nothing", node,
@@ -198,7 +208,13 @@ func TestSyncChecksAtTheMerge(t *testing.T) {
 		{
 			"a capture that regressed from green ends failed, told", node,
 			syncRows(gatesPassed(), greenCapture("capture R1", false), greenCapture("capture R2", true)),
-			syncTold("failed", syncHead+"\nR1 regressed from green at the stored base base-1"),
+			Action{
+				Kind: ActEnd, Outcome: outcomeFailed, Tell: true,
+				Output: syncHead + "\nR1 regressed from green at the stored base base-1",
+				Cause: "sync sync:o1@base-1: the sync of origin's commit o1 into the stored base base-1 failed\n" +
+					syncHead + "\nR1 was green at the stored base base-1, and its capture on commit m1 exited 0 " +
+					"and was judged fails: ",
+			},
 		},
 		{
 			"passed checks advance to the merge", node, syncRows(gatesPassed(), captured...),
