@@ -41,14 +41,10 @@ const kindRerun = "rerun"
 
 // work carries out one work action of a check node run: the prepare, start, capture, repro, refs check or advance its
 // kind asks for. An integrate run's prepare claims its batch, and its advance moves the epic's branch. A review, closure
-// or rerun run's prepare and start are its own. The work of a release run is carried out by release, and that of a sync
-// run by syncWork.
+// or rerun run's prepare and start are its own. The work of a release run is carried out by release.
 func (r *Runner) work(ctx context.Context, epic store.EpicRow, act Action, at time.Time) error {
-	switch act.NodeKind {
-	case kindRelease:
+	if act.NodeKind == kindRelease {
 		return r.release(ctx, epic, act, at)
-	case kindSync:
-		return r.syncWork(ctx, epic, act, at)
 	}
 	switch act.Work {
 	case kinds.ActPrepare:
@@ -164,7 +160,7 @@ func (r *Runner) start(ctx context.Context, epic store.EpicRow, act Action) erro
 			return missingService("reviewers")
 		}
 		return r.startReviewUnits(ctx, epic, act)
-	case kindGate, kindCost, kindCommand, kindIntegrate, kindSync, kindRelease:
+	case kindGate, kindCost, kindCommand, kindIntegrate, kindRelease:
 		if r.checks == nil {
 			return missingService("checks")
 		}
@@ -192,7 +188,7 @@ func missingService(service string) error {
 }
 
 // startCheck starts the check of a gate, cost or command run under the id its action names, at the run's revision. The
-// check of an integrate, sync or release run is one of its Done gates, which the action names, and the check of a cost
+// check of an integrate or release run is one of its Done gates, which the action names, and the check of a cost
 // run is the epic's first Done gate.
 func (r *Runner) startCheck(ctx context.Context, epic store.EpicRow, act Action) error {
 	check := store.NodeCheck{ID: act.IDs[0], Epic: epic.ID, Path: act.Path, Revision: act.Run.Revision}
@@ -202,7 +198,7 @@ func (r *Runner) startCheck(ctx context.Context, epic store.EpicRow, act Action)
 		check, err = r.withGate(ctx, epic, act.Def.Settings.Gate, check)
 	case kindCost:
 		check, err = r.withCostGate(ctx, epic, check)
-	case kindIntegrate, kindSync, kindRelease:
+	case kindIntegrate, kindRelease:
 		check, err = r.withGate(ctx, epic, act.Items[0], check)
 	default:
 		check.Argv = act.Def.Settings.Argv
@@ -324,9 +320,8 @@ func refusedForGood(err error) bool {
 		errors.Is(err, agents.ErrUnresolved)
 }
 
-// recordOwned records the paths the epic's branch changes over its change base (changeBase) as a JSON array, which is []
-// when none changed. --no-renames lists a renamed path under both its names, so a rename out of an owned path is not
-// missed.
+// recordOwned records the paths the epic's branch changes over its base as a JSON array, which is [] when none changed.
+// --no-renames lists a renamed path under both its names, so a rename out of an owned path is not missed.
 func (r *Runner) recordOwned(ctx context.Context, epic store.EpicRow, act Action) error {
 	head, err := r.branchHead(ctx, epic)
 	if err != nil {
@@ -336,8 +331,7 @@ func (r *Runner) recordOwned(ctx context.Context, epic store.EpicRow, act Action
 	if err != nil {
 		return fmt.Errorf("list paths changed by epic %s: %w", epic.ID, err)
 	}
-	listing, err := gitOutput(ctx, host, epic.Repository, "diff", "--name-only", "-z", "--no-renames", changeBase(epic),
-		head)
+	listing, err := gitOutput(ctx, host, epic.Repository, "diff", "--name-only", "-z", "--no-renames", epic.Base, head)
 	if err != nil {
 		return fmt.Errorf("list paths changed by epic %s: %w", epic.ID, err)
 	}

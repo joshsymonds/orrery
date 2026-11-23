@@ -45,7 +45,8 @@ func ladderGambitTurn(t *testing.T, f *passFixture, plan store.EpicPlan) {
 
 // ladderGambitToRecarve climbs task 1 of f from its first attempt through its second and the orchestrator's own attempt
 // on rung 3, and fails that attempt onto rung 4, the change of approach. The orchestrator's attempt runs the
-// orchestrator's agent. Rung 4 starts no step until the planner's change of approach is stored.
+// implementer's agent, as the role file names no attempt. Rung 4 starts no step until the planner's change of approach
+// is stored.
 func ladderGambitToRecarve(t *testing.T, f *passFixture) {
 	t.Helper()
 	redRun := passRunID(StageRed, 1)
@@ -58,9 +59,12 @@ func ladderGambitToRecarve(t *testing.T, f *passFixture) {
 
 	f.writeRoles("orchestrator = \"" + orchAgent + "\"\nplanner = \"" + plannerAgent + "\"\n")
 	f.pass()
-	if got := f.lastStart(); got.ID != passStep(StageImplement, store.OrchestratorRung, 0) || got.Agent != orchAgent {
-		t.Fatalf("last start %s under %q, want the orchestrator's own attempt on rung %d under %q",
-			got.ID, got.Agent, store.OrchestratorRung, orchAgent)
+	// The fixture's role file names the implementer as claude-impl, and no attempt key.
+	const implementerAgent = "claude-impl"
+	wantID := passStep(StageImplement, store.OrchestratorRung, 0)
+	if got := f.lastStart(); got.ID != wantID || got.Agent != implementerAgent {
+		t.Fatalf("last start %s under %q, want the orchestrator's own attempt on rung %d under the implementer's %q",
+			got.ID, got.Agent, store.OrchestratorRung, implementerAgent)
 	}
 	ladderClimbExecute(f, Action{Kind: ActFail, Reason: "returned blocked: third cause"})
 	ladderClimbCheck(f, store.OrchestratorRung, store.MovedByUnit)

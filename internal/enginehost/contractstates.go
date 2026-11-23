@@ -237,6 +237,12 @@ func (s *contractService) originMain(ctx context.Context, repository string) (st
 	return fetchOriginMain(ctx, host, repository)
 }
 
+// FetchOriginMain fetches origin's main into refs/remotes/origin/main of repository on this machine's Host, as
+// fetchOriginMain does, and returns the full commit that ref names.
+func FetchOriginMain(ctx context.Context, repository string) (string, error) {
+	return fetchOriginMain(ctx, hostexec.NewLocal(), repository)
+}
+
 // fetchOriginMain fetches origin's main into refs/remotes/origin/main of repository on host, and returns the full
 // commit that ref names. The fetch is a remote run: git never prompts for a login (GIT_TERMINAL_PROMPT=0), so a fetch
 // that needs one fails, and the run's process group is killed whole once ctx ends, so a transport it started does not

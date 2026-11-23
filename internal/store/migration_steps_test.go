@@ -88,29 +88,35 @@ type migrationCheck struct {
 	seed func(t *testing.T, s *Store)
 	down func(t *testing.T, s *Store)
 	up   func(t *testing.T, s *Store)
+	// columnsAtEnd names the table whose columns the Down adds back at its end, the columns its Up dropped from the middle
+	// of it. SQLite places an added column after the table's last, so the table's SQL reads them after the columns that
+	// followed them at the version before. The walk then compares that table by its name, and its columns by their lines,
+	// which hold each column's type, NOT NULL flag, default and key position.
+	columnsAtEnd string
 }
 
 // migrationChecks returns the walk's checks by migration version.
 func migrationChecks() map[int64]migrationCheck {
 	return map[int64]migrationCheck{
-		13: engineReadoptDownAndUp(),
-		20: evidenceDownAndUp(),
-		21: taskBuildDownAndUp(),
-		22: workflowDownAndUp(),
-		23: checkoutTailsDownAndUp(),
-		24: turnEndIndexDownAndUp(),
-		25: dueResumesDownAndUp(),
-		26: limitToldDownAndUp(),
-		35: reviewersDownAndUp(),
-		37: assertionsDownAndUp(),
-		38: releaseDownAndUp(),
-		39: questionsDownAndUp(),
-		40: guardsDownAndUp(),
-		48: epicCloseDownAndUp(),
-		49: plannerActionsDownAndUp(),
-		50: parkClassDownAndUp(),
-		51: parkBoundDownAndUp(),
-		52: evidenceAmendmentsDownAndUp(),
+		13:  engineReadoptDownAndUp(),
+		20:  evidenceDownAndUp(),
+		21:  taskBuildDownAndUp(),
+		22:  workflowDownAndUp(),
+		23:  checkoutTailsDownAndUp(),
+		24:  turnEndIndexDownAndUp(),
+		25:  dueResumesDownAndUp(),
+		26:  limitToldDownAndUp(),
+		35:  reviewersDownAndUp(),
+		37:  assertionsDownAndUp(),
+		38:  releaseDownAndUp(),
+		39:  questionsDownAndUp(),
+		40:  guardsDownAndUp(),
+		48:  epicCloseDownAndUp(),
+		49:  plannerActionsDownAndUp(),
+		50:  parkClassDownAndUp(),
+		51:  parkBoundDownAndUp(),
+		52:  evidenceAmendmentsDownAndUp(),
+		101: {columnsAtEnd: "epics"},
 	}
 }
 
@@ -184,9 +190,13 @@ func TestEachMigrationDownAndUp(t *testing.T) {
 			if _, err := provider.Down(ctx); err != nil {
 				t.Fatalf("Down of %s: %v", names[version], err)
 			}
-			if got := schemaLines(t, s.db.DB); !slices.Equal(got, previous) {
+			got, want := schemaLines(t, s.db.DB), previous
+			if check.columnsAtEnd != "" {
+				got, want = withoutTableSQL(got, check.columnsAtEnd), withoutTableSQL(want, check.columnsAtEnd)
+			}
+			if !slices.Equal(got, want) {
 				t.Fatalf("schema after the Down of %s differs from version %d:\n%s", names[version], before,
-					lineDiff(got, previous))
+					lineDiff(got, want))
 			}
 			if check.down != nil {
 				check.down(t, s)
@@ -203,6 +213,19 @@ func TestEachMigrationDownAndUp(t *testing.T) {
 			}
 		})
 	}
+}
+
+// withoutTableSQL returns schema with the SQL of table left out of its line, so the table is compared by its name alone.
+// Its columns keep their lines in schema.
+func withoutTableSQL(schema []string, table string) []string {
+	lines := make([]string, len(schema))
+	for i, line := range schema {
+		lines[i] = line
+		if key := schemaKey(line); key == "table "+table+" on "+table {
+			lines[i] = key
+		}
+	}
+	return lines
 }
 
 // closeDB closes db, failing the test when it cannot.

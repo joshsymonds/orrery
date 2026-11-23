@@ -197,6 +197,9 @@ message HeadlessSession {
 
   // The unix seconds the conversation ended (its change time), or 0 when it has not ended.
   int64 ended_at = 14;
+
+  // The orrery name of the host the session runs on.
+  string host = 15;
 }
 
 // SessionsWatchConversationRequest asks for the conversation of one headless session. limit follows
@@ -944,6 +947,10 @@ message Pane {
 
   // true when the pane's running command is claude and no Claude session is bound to it.
   bool unbound = 23;
+
+  // true while the pane's @orrery_held option is set: its last turn ended while a background agent or workflow runs,
+  // so its state is working with no turn running, until the turn that task's end starts.
+  bool held = 24;
 }
 
 // ScreenRequest asks for the text of one pane. ansi false gives plain text, and true keeps the color escape

@@ -99,7 +99,6 @@ func startFlowWakeStepsFlow(t *testing.T, st *store.Store) *flowWakeStepsFlow {
 		Builder:   flowWakeStepsBuilder{},
 		Reviewers: interpret.NewEpicReviewers(),
 		Ending:    st,
-		NewTimer:  neverFiringTimer,
 		Passed:    func() { flow.passed <- struct{}{} },
 	})
 	go func() {

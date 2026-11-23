@@ -230,6 +230,7 @@ func (s *service) Start(
 		Model:  req.Msg.GetModel(),
 		ID:     req.Msg.GetId(),
 		Client: req.Msg.GetClient(),
+		Host:   req.Msg.GetHost(),
 	})
 	if err != nil {
 		return nil, commandError(err)
@@ -447,14 +448,14 @@ func commandError(err error) error {
 		code = connect.CodeNotFound
 	case errors.Is(err, ErrBadDir), errors.Is(err, ErrEmptyPrompt), errors.Is(err, ErrBadModel),
 		errors.Is(err, ErrBadID), errors.Is(err, ErrBadAnswer), errors.Is(err, session.ErrUnverifiedAnswer),
-		errors.Is(err, ErrBadPutOff):
+		errors.Is(err, ErrBadPutOff), errors.Is(err, ErrUnknownHost):
 		code = connect.CodeInvalidArgument
 	case errors.Is(err, ErrNotResumable), errors.Is(err, ErrUnknownPrompt), errors.Is(err, ErrQuestionNotOpen),
 		errors.Is(err, ErrPaneInMode):
 		code = connect.CodeFailedPrecondition
 	case errors.Is(err, ErrNoPane):
 		code = connect.CodeNotFound
-	case errors.Is(err, ErrPutOffUnavailable):
+	case errors.Is(err, ErrPutOffUnavailable), errors.Is(err, ErrHostUnreachable):
 		code = connect.CodeUnavailable
 	}
 	return errors.Join(connect.NewError(code, err))

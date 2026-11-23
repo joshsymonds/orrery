@@ -24,11 +24,10 @@ const remoteKillGrace = 2 * time.Second
 
 // The exit statuses that answer a question rather than fail. merge-base --is-ancestor exits notAncestor for a commit
 // that is not an ancestor, merge-tree --write-tree exits mergeConflict when the merge conflicts, with the conflicted
-// paths on its stdout, and rev-parse --verify --quiet exits noCommit for a commit the repository does not have.
+// paths on its stdout.
 const (
 	notAncestor   = 1
 	mergeConflict = 1
-	noCommit      = 1
 )
 
 // prepareRelease carries out the prepare of a release run. A run with no Result works out its candidate, records the
@@ -113,7 +112,7 @@ func (r *Runner) decideRelease(
 
 // fetchOrigin fetches origin's default branch into ref of epic's repository on host, and returns the branch and the
 // commit the ref names. The default branch is the one origin's HEAD names (lsRemoteHead). A release fetches into its
-// origin ref, and a sync of origin's main into its own, each git it runs for at most its own limit (Runner.fetchMain).
+// origin ref.
 func fetchOrigin(ctx context.Context, host hostexec.Host, epic store.EpicRow, ref string) (string, string, error) {
 	branch, _, err := lsRemoteHead(ctx, host, epic.Repository)
 	if err != nil {

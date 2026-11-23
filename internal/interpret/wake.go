@@ -3,9 +3,6 @@ package interpret
 import (
 	"maps"
 	"slices"
-	"time"
-
-	"github.com/joshsymonds/orrery/internal/store"
 )
 
 // Wake records that the epics named by epics changed, so the next pass Run makes passes them. Any goroutine may call it,
@@ -34,87 +31,4 @@ func (r *Runner) takeWoken() []string {
 	epics := slices.Sorted(maps.Keys(r.woken))
 	clear(r.woken)
 	return epics
-}
-
-// noteRead records the deadline a read of epic at now, which read holds, leaves: the moment its origin read goes stale,
-// replacing any earlier one, or none when that moment has come already.
-func (r *Runner) noteRead(epic string, read store.EpicFlow, now time.Time) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	if moment := read.Epic.OriginRead.At.Add(syncInterval); moment.After(now) {
-		r.deadlines[epic] = moment
-	} else {
-		delete(r.deadlines, epic)
-	}
-}
-
-// nextDeadline returns the earliest registered deadline, and whether there is one.
-func (r *Runner) nextDeadline() (time.Time, bool) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	var next time.Time
-	found := false
-	for _, moment := range r.deadlines {
-		if !found || moment.Before(next) {
-			next, found = moment, true
-		}
-	}
-	return next, found
-}
-
-// wakeDue wakes each epic whose deadline now has reached, and forgets the deadline.
-func (r *Runner) wakeDue(now time.Time) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	var due []string
-	for epic, moment := range r.deadlines {
-		if !now.Before(moment) {
-			due = append(due, epic)
-			delete(r.deadlines, epic)
-		}
-	}
-	r.wakeLocked(due)
-}
-
-// deadlineTimer is the one timer Run keeps. It is armed through the runner's NewTimer for the earliest deadline
-// registered, and fire is nil while it is not armed, which a select never picks.
-type deadlineTimer struct {
-	fire <-chan time.Time
-	stop func() bool
-	at   time.Time
-}
-
-// fired records that the armed timer delivered, so it is no longer armed.
-func (t *deadlineTimer) fired() {
-	t.fire, t.stop = nil, nil
-}
-
-// disarm stops the armed timer, if there is one.
-func (t *deadlineTimer) disarm() {
-	if t.stop != nil {
-		t.stop()
-	}
-	t.fired()
-}
-
-// armDeadline arms timer for the earliest registered deadline, keeping the timer already armed for it, and disarms it
-// when no deadline is registered.
-func (r *Runner) armDeadline(timer *deadlineTimer) {
-	next, ok := r.nextDeadline()
-	if !ok {
-		timer.disarm()
-		return
-	}
-	if timer.fire != nil && next.Equal(timer.at) {
-		return
-	}
-	timer.disarm()
-	timer.fire, timer.stop = r.newTimer(next.Sub(r.now()))
-	timer.at = next
-}
-
-// stdTimer is time.NewTimer as a Config.NewTimer: the channel the timer fires on, and its Stop.
-func stdTimer(d time.Duration) (<-chan time.Time, func() bool) {
-	timer := time.NewTimer(d)
-	return timer.C, timer.Stop
 }

@@ -811,6 +811,20 @@ func (q *Queries) DeleteEpicTaskRefused(ctx context.Context, arg DeleteEpicTaskR
 	return err
 }
 
+const deleteEpicTaskRequirements = `-- name: DeleteEpicTaskRequirements :exec
+DELETE FROM epic_task_requirements WHERE epic = ? AND task = ?
+`
+
+type DeleteEpicTaskRequirementsParams struct {
+	Epic string
+	Task int64
+}
+
+func (q *Queries) DeleteEpicTaskRequirements(ctx context.Context, arg DeleteEpicTaskRequirementsParams) error {
+	_, err := q.db.ExecContext(ctx, deleteEpicTaskRequirements, arg.Epic, arg.Task)
+	return err
+}
+
 const deleteGrant = `-- name: DeleteGrant :exec
 DELETE FROM grants WHERE id = ?
 `
@@ -1541,7 +1555,7 @@ func (q *Queries) GetEngineRateLimit(ctx context.Context, sessionID string) (Eng
 }
 
 const getEngineSession = `-- name: GetEngineSession :one
-SELECT id, server, pane, state, changed, seen, question, summary, label, context, tool, claude_session, transcript, kind, dir, reason, consumed, replay_from, background, turn_output, prompts_from, title, headline, headline_at, awaited, latest_reply, newest_reply_at, first_prompt_text, latest_request_id FROM sessions WHERE id = ? AND kind IN ('engine', 'step')
+SELECT id, server, pane, state, changed, seen, question, summary, label, context, tool, claude_session, transcript, kind, dir, reason, consumed, replay_from, background, turn_output, prompts_from, title, headline, headline_at, awaited, latest_reply, newest_reply_at, first_prompt_text, latest_request_id, held, host FROM sessions WHERE id = ? AND kind IN ('engine', 'step')
 `
 
 func (q *Queries) GetEngineSession(ctx context.Context, id string) (Session, error) {
@@ -1577,12 +1591,14 @@ func (q *Queries) GetEngineSession(ctx context.Context, id string) (Session, err
 		&i.NewestReplyAt,
 		&i.FirstPromptText,
 		&i.LatestRequestID,
+		&i.Held,
+		&i.Host,
 	)
 	return i, err
 }
 
 const getEpic = `-- name: GetEpic :one
-SELECT id, repository, title, approved, intent, care, approach, release_then, checks, phase, created, changed, paused, parked, retried, base, branch, workflow, workflow_text, workflow_sha256, pause_source, stored_base, candidate, summary, phase_at, report_phase, report_shipped, report_not_shipped, report_why, closed_by, superseded_by, park_class, synced, origin_read_base, origin_read_commit, origin_read_state, origin_read_at, steerer, host FROM epics WHERE id = ?
+SELECT id, repository, title, approved, intent, care, approach, release_then, checks, phase, created, changed, paused, parked, retried, base, branch, workflow, workflow_text, workflow_sha256, pause_source, stored_base, candidate, summary, phase_at, report_phase, report_shipped, report_not_shipped, report_why, closed_by, superseded_by, park_class, steerer, host FROM epics WHERE id = ?
 `
 
 func (q *Queries) GetEpic(ctx context.Context, id string) (Epic, error) {
@@ -1621,11 +1637,6 @@ func (q *Queries) GetEpic(ctx context.Context, id string) (Epic, error) {
 		&i.ClosedBy,
 		&i.SupersededBy,
 		&i.ParkClass,
-		&i.Synced,
-		&i.OriginReadBase,
-		&i.OriginReadCommit,
-		&i.OriginReadState,
-		&i.OriginReadAt,
 		&i.Steerer,
 		&i.Host,
 	)
@@ -1904,7 +1915,7 @@ func (q *Queries) GetEpicSteerer(ctx context.Context, id string) (GetEpicSteerer
 }
 
 const getEpicTask = `-- name: GetEpicTask :one
-SELECT epic, seq, turn, title, deliverable, status, gate, evidence, stage, base, attempt, rerun, no_verdict, held, step, red_run, green_run, revision, failure, review, refs, gate_pos, finding_pos, batch, guard, needs_files, decisions, after_tasks, question, gate_changes, rebriefs, notes, generation, depends_on, kind, revises FROM epic_tasks WHERE epic = ? AND seq = ?
+SELECT epic, seq, turn, title, deliverable, status, gate, evidence, stage, base, attempt, rerun, no_verdict, held, step, red_run, green_run, revision, failure, review, refs, gate_pos, finding_pos, batch, guard, needs_files, decisions, after_tasks, question, gate_changes, rebriefs, notes, generation, depends_on, kind, revises, split_from FROM epic_tasks WHERE epic = ? AND seq = ?
 `
 
 type GetEpicTaskParams struct {
@@ -1952,6 +1963,7 @@ func (q *Queries) GetEpicTask(ctx context.Context, arg GetEpicTaskParams) (EpicT
 		&i.DependsOn,
 		&i.Kind,
 		&i.Revises,
+		&i.SplitFrom,
 	)
 	return i, err
 }
@@ -2264,7 +2276,7 @@ func (q *Queries) GetRunningEpicTurn(ctx context.Context, epic string) (EpicTurn
 }
 
 const getSession = `-- name: GetSession :one
-SELECT id, server, pane, state, changed, seen, question, summary, label, context, tool, claude_session, transcript, kind, dir, reason, consumed, replay_from, background, turn_output, prompts_from, title, headline, headline_at, awaited, latest_reply, newest_reply_at, first_prompt_text, latest_request_id FROM sessions WHERE id = ?
+SELECT id, server, pane, state, changed, seen, question, summary, label, context, tool, claude_session, transcript, kind, dir, reason, consumed, replay_from, background, turn_output, prompts_from, title, headline, headline_at, awaited, latest_reply, newest_reply_at, first_prompt_text, latest_request_id, held, host FROM sessions WHERE id = ?
 `
 
 func (q *Queries) GetSession(ctx context.Context, id string) (Session, error) {
@@ -2300,6 +2312,8 @@ func (q *Queries) GetSession(ctx context.Context, id string) (Session, error) {
 		&i.NewestReplyAt,
 		&i.FirstPromptText,
 		&i.LatestRequestID,
+		&i.Held,
+		&i.Host,
 	)
 	return i, err
 }
@@ -2431,7 +2445,7 @@ func (q *Queries) GetStepTurnEnd(ctx context.Context, id string) (GetStepTurnEnd
 }
 
 const getUnreportedEpic = `-- name: GetUnreportedEpic :one
-SELECT id, repository, title, approved, intent, care, approach, release_then, checks, phase, created, changed, paused, parked, retried, base, branch, workflow, workflow_text, workflow_sha256, pause_source, stored_base, candidate, summary, phase_at, report_phase, report_shipped, report_not_shipped, report_why, closed_by, superseded_by, park_class, synced, origin_read_base, origin_read_commit, origin_read_state, origin_read_at, steerer, host FROM epics
+SELECT id, repository, title, approved, intent, care, approach, release_then, checks, phase, created, changed, paused, parked, retried, base, branch, workflow, workflow_text, workflow_sha256, pause_source, stored_base, candidate, summary, phase_at, report_phase, report_shipped, report_not_shipped, report_why, closed_by, superseded_by, park_class, steerer, host FROM epics
 WHERE (phase IN ('released', 'done', 'ended_with_gaps')
        OR (phase IN ('closed_superseded', 'closed_shipped', 'closed_abandoned') AND closed_by = 'planner'))
   AND report_phase <> phase
@@ -2474,11 +2488,6 @@ func (q *Queries) GetUnreportedEpic(ctx context.Context, id string) (Epic, error
 		&i.ClosedBy,
 		&i.SupersededBy,
 		&i.ParkClass,
-		&i.Synced,
-		&i.OriginReadBase,
-		&i.OriginReadCommit,
-		&i.OriginReadState,
-		&i.OriginReadAt,
 		&i.Steerer,
 		&i.Host,
 	)
@@ -2736,7 +2745,7 @@ func (q *Queries) InsertEnginePromptFailed(ctx context.Context, arg InsertEngine
 }
 
 const insertEngineSession = `-- name: InsertEngineSession :exec
-INSERT INTO sessions (id, server, pane, kind, dir, state, changed) VALUES (?, '', '', ?, ?, ?, ?)
+INSERT INTO sessions (id, server, pane, kind, dir, state, changed, host) VALUES (?, '', '', ?, ?, ?, ?, ?)
 `
 
 type InsertEngineSessionParams struct {
@@ -2745,6 +2754,7 @@ type InsertEngineSessionParams struct {
 	Dir     string
 	State   string
 	Changed string
+	Host    string
 }
 
 func (q *Queries) InsertEngineSession(ctx context.Context, arg InsertEngineSessionParams) error {
@@ -2754,6 +2764,7 @@ func (q *Queries) InsertEngineSession(ctx context.Context, arg InsertEngineSessi
 		arg.Dir,
 		arg.State,
 		arg.Changed,
+		arg.Host,
 	)
 	return err
 }
@@ -3942,6 +3953,38 @@ func (q *Queries) InsertEpicTaskTestChange(ctx context.Context, arg InsertEpicTa
 	return err
 }
 
+const insertEpicTaskTestRun = `-- name: InsertEpicTaskTestRun :exec
+INSERT INTO epic_task_test_runs (epic, task, generation, attempt, review, position, command, revision)
+VALUES (
+    ?1, ?2,
+    (SELECT tasks.generation FROM epic_tasks AS tasks WHERE tasks.epic = ?1 AND tasks.seq = ?2),
+    ?3, ?4, ?5, ?6, ?7
+)
+`
+
+type InsertEpicTaskTestRunParams struct {
+	Epic     string
+	Task     int64
+	Attempt  int64
+	Review   int64
+	Position int64
+	Command  string
+	Revision string
+}
+
+func (q *Queries) InsertEpicTaskTestRun(ctx context.Context, arg InsertEpicTaskTestRunParams) error {
+	_, err := q.db.ExecContext(ctx, insertEpicTaskTestRun,
+		arg.Epic,
+		arg.Task,
+		arg.Attempt,
+		arg.Review,
+		arg.Position,
+		arg.Command,
+		arg.Revision,
+	)
+	return err
+}
+
 const insertEpicTaskVersion = `-- name: InsertEpicTaskVersion :exec
 INSERT INTO epic_task_versions (
     epic, task, version, source, decision, step, reason, deliverable, files, test_changes, gate, evidence,
@@ -4394,9 +4437,9 @@ func (q *Queries) InsertPaneSend(ctx context.Context, arg InsertPaneSendParams) 
 const insertPlannerAction = `-- name: InsertPlannerAction :exec
 INSERT INTO planner_actions (
     epic, turn, position, kind, node, task, close_kind, by_epic, undo_none, reason, state, refusal, requirement, item,
-    deliverable, files, remove_files, reviewer
+    deliverable, files, remove_files, reviewer, split_tasks
 )
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', '', ?, ?, ?, ?, ?, ?)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', '', ?, ?, ?, ?, ?, ?, ?)
 `
 
 type InsertPlannerActionParams struct {
@@ -4416,6 +4459,7 @@ type InsertPlannerActionParams struct {
 	Files       string
 	RemoveFiles string
 	Reviewer    string
+	SplitTasks  string
 }
 
 func (q *Queries) InsertPlannerAction(ctx context.Context, arg InsertPlannerActionParams) error {
@@ -4436,6 +4480,7 @@ func (q *Queries) InsertPlannerAction(ctx context.Context, arg InsertPlannerActi
 		arg.Files,
 		arg.RemoveFiles,
 		arg.Reviewer,
+		arg.SplitTasks,
 	)
 	return err
 }
@@ -5427,7 +5472,7 @@ func (q *Queries) ListDueResumes(ctx context.Context) ([]DueResume, error) {
 }
 
 const listEngineSessions = `-- name: ListEngineSessions :many
-SELECT id, server, pane, state, changed, seen, question, summary, label, context, tool, claude_session, transcript, kind, dir, reason, consumed, replay_from, background, turn_output, prompts_from, title, headline, headline_at, awaited, latest_reply, newest_reply_at, first_prompt_text, latest_request_id FROM sessions WHERE kind IN ('engine', 'step') ORDER BY id
+SELECT id, server, pane, state, changed, seen, question, summary, label, context, tool, claude_session, transcript, kind, dir, reason, consumed, replay_from, background, turn_output, prompts_from, title, headline, headline_at, awaited, latest_reply, newest_reply_at, first_prompt_text, latest_request_id, held, host FROM sessions WHERE kind IN ('engine', 'step') ORDER BY id
 `
 
 func (q *Queries) ListEngineSessions(ctx context.Context) ([]Session, error) {
@@ -5469,6 +5514,8 @@ func (q *Queries) ListEngineSessions(ctx context.Context) ([]Session, error) {
 			&i.NewestReplyAt,
 			&i.FirstPromptText,
 			&i.LatestRequestID,
+			&i.Held,
+			&i.Host,
 		); err != nil {
 			return nil, err
 		}
@@ -5671,7 +5718,7 @@ func (q *Queries) ListEpicAmendments(ctx context.Context, epic string) ([]EpicAm
 }
 
 const listEpicChainActions = `-- name: ListEpicChainActions :many
-SELECT planner_actions.epic, planner_actions.turn, planner_actions.position, planner_actions.kind, planner_actions.node, planner_actions.task, planner_actions.close_kind, planner_actions.by_epic, planner_actions.undo_none, planner_actions.reason, planner_actions.state, planner_actions.refusal, planner_actions.park, planner_actions.requirement, planner_actions.item, planner_actions.deliverable, planner_actions.files, planner_actions.remove_files, planner_actions.reviewer FROM planner_actions
+SELECT planner_actions.epic, planner_actions.turn, planner_actions.position, planner_actions.kind, planner_actions.node, planner_actions.task, planner_actions.close_kind, planner_actions.by_epic, planner_actions.undo_none, planner_actions.reason, planner_actions.state, planner_actions.refusal, planner_actions.park, planner_actions.requirement, planner_actions.item, planner_actions.deliverable, planner_actions.files, planner_actions.remove_files, planner_actions.reviewer, planner_actions.split_tasks FROM planner_actions
 JOIN epic_parks ON epic_parks.epic = planner_actions.epic AND epic_parks.seq = planner_actions.park
 WHERE planner_actions.epic = ?1 AND epic_parks.chain = ?2
   AND planner_actions.state IN ('taken', 'refused')
@@ -5712,6 +5759,7 @@ func (q *Queries) ListEpicChainActions(ctx context.Context, arg ListEpicChainAct
 			&i.Files,
 			&i.RemoveFiles,
 			&i.Reviewer,
+			&i.SplitTasks,
 		); err != nil {
 			return nil, err
 		}
@@ -7525,6 +7573,48 @@ func (q *Queries) ListEpicTaskTestChanges(ctx context.Context, epic string) ([]E
 	return items, nil
 }
 
+const listEpicTaskTestRuns = `-- name: ListEpicTaskTestRuns :many
+SELECT epic, task, generation, attempt, review, position, command, revision, step, output FROM epic_task_test_runs AS runs
+WHERE runs.epic = ? AND runs.generation = (
+    SELECT tasks.generation FROM epic_tasks AS tasks WHERE tasks.epic = runs.epic AND tasks.seq = runs.task
+)
+ORDER BY runs.task, runs.attempt, runs.review, runs.position
+`
+
+func (q *Queries) ListEpicTaskTestRuns(ctx context.Context, epic string) ([]EpicTaskTestRun, error) {
+	rows, err := q.db.QueryContext(ctx, listEpicTaskTestRuns, epic)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []EpicTaskTestRun
+	for rows.Next() {
+		var i EpicTaskTestRun
+		if err := rows.Scan(
+			&i.Epic,
+			&i.Task,
+			&i.Generation,
+			&i.Attempt,
+			&i.Review,
+			&i.Position,
+			&i.Command,
+			&i.Revision,
+			&i.Step,
+			&i.Output,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listEpicTaskVersions = `-- name: ListEpicTaskVersions :many
 SELECT epic, task, version, source, decision, step, reason, deliverable, files, test_changes, gate, evidence, state, red_run, refusal, created, settled FROM epic_task_versions WHERE epic = ? ORDER BY task, version
 `
@@ -7571,7 +7661,7 @@ func (q *Queries) ListEpicTaskVersions(ctx context.Context, epic string) ([]Epic
 }
 
 const listEpicTasks = `-- name: ListEpicTasks :many
-SELECT epic, seq, turn, title, deliverable, status, gate, evidence, stage, base, attempt, rerun, no_verdict, held, step, red_run, green_run, revision, failure, review, refs, gate_pos, finding_pos, batch, guard, needs_files, decisions, after_tasks, question, gate_changes, rebriefs, notes, generation, depends_on, kind, revises FROM epic_tasks WHERE epic = ? ORDER BY seq
+SELECT epic, seq, turn, title, deliverable, status, gate, evidence, stage, base, attempt, rerun, no_verdict, held, step, red_run, green_run, revision, failure, review, refs, gate_pos, finding_pos, batch, guard, needs_files, decisions, after_tasks, question, gate_changes, rebriefs, notes, generation, depends_on, kind, revises, split_from FROM epic_tasks WHERE epic = ? ORDER BY seq
 `
 
 func (q *Queries) ListEpicTasks(ctx context.Context, epic string) ([]EpicTask, error) {
@@ -7620,6 +7710,7 @@ func (q *Queries) ListEpicTasks(ctx context.Context, epic string) ([]EpicTask, e
 			&i.DependsOn,
 			&i.Kind,
 			&i.Revises,
+			&i.SplitFrom,
 		); err != nil {
 			return nil, err
 		}
@@ -7853,7 +7944,7 @@ func (q *Queries) ListEpicWorkflowNodes(ctx context.Context, epic string) ([]Epi
 }
 
 const listEpics = `-- name: ListEpics :many
-SELECT epics.id, epics.repository, epics.title, epics.approved, epics.intent, epics.care, epics.approach, epics.release_then, epics.checks, epics.phase, epics.created, epics.changed, epics.paused, epics.parked, epics.retried, epics.base, epics.branch, epics.workflow, epics.workflow_text, epics.workflow_sha256, epics.pause_source, epics.stored_base, epics.candidate, epics.summary, epics.phase_at, epics.report_phase, epics.report_shipped, epics.report_not_shipped, epics.report_why, epics.closed_by, epics.superseded_by, epics.park_class, epics.synced, epics.origin_read_base, epics.origin_read_commit, epics.origin_read_state, epics.origin_read_at, epics.steerer, epics.host, CAST(COALESCE(epic_revisions.revision, 0) AS INTEGER) AS revision
+SELECT epics.id, epics.repository, epics.title, epics.approved, epics.intent, epics.care, epics.approach, epics.release_then, epics.checks, epics.phase, epics.created, epics.changed, epics.paused, epics.parked, epics.retried, epics.base, epics.branch, epics.workflow, epics.workflow_text, epics.workflow_sha256, epics.pause_source, epics.stored_base, epics.candidate, epics.summary, epics.phase_at, epics.report_phase, epics.report_shipped, epics.report_not_shipped, epics.report_why, epics.closed_by, epics.superseded_by, epics.park_class, epics.steerer, epics.host, CAST(COALESCE(epic_revisions.revision, 0) AS INTEGER) AS revision
 FROM epics LEFT JOIN epic_revisions ON epic_revisions.epic = epics.id
 ORDER BY epics.id
 `
@@ -7905,11 +7996,6 @@ func (q *Queries) ListEpics(ctx context.Context) ([]ListEpicsRow, error) {
 			&i.Epic.ClosedBy,
 			&i.Epic.SupersededBy,
 			&i.Epic.ParkClass,
-			&i.Epic.Synced,
-			&i.Epic.OriginReadBase,
-			&i.Epic.OriginReadCommit,
-			&i.Epic.OriginReadState,
-			&i.Epic.OriginReadAt,
 			&i.Epic.Steerer,
 			&i.Epic.Host,
 			&i.Revision,
@@ -7928,7 +8014,7 @@ func (q *Queries) ListEpics(ctx context.Context) ([]ListEpicsRow, error) {
 }
 
 const listEpicsWithTurnsOrUntoldTells = `-- name: ListEpicsWithTurnsOrUntoldTells :many
-SELECT id, repository, title, approved, intent, care, approach, release_then, checks, phase, created, changed, paused, parked, retried, base, branch, workflow, workflow_text, workflow_sha256, pause_source, stored_base, candidate, summary, phase_at, report_phase, report_shipped, report_not_shipped, report_why, closed_by, superseded_by, park_class, synced, origin_read_base, origin_read_commit, origin_read_state, origin_read_at, steerer, host FROM epics
+SELECT id, repository, title, approved, intent, care, approach, release_then, checks, phase, created, changed, paused, parked, retried, base, branch, workflow, workflow_text, workflow_sha256, pause_source, stored_base, candidate, summary, phase_at, report_phase, report_shipped, report_not_shipped, report_why, closed_by, superseded_by, park_class, steerer, host FROM epics
 WHERE EXISTS (SELECT 1 FROM epic_turns WHERE epic_turns.epic = epics.id)
    OR EXISTS (SELECT 1 FROM epic_tells WHERE epic_tells.epic = epics.id AND epic_tells.told = 0)
 ORDER BY epics.id
@@ -7976,11 +8062,6 @@ func (q *Queries) ListEpicsWithTurnsOrUntoldTells(ctx context.Context) ([]Epic, 
 			&i.ClosedBy,
 			&i.SupersededBy,
 			&i.ParkClass,
-			&i.Synced,
-			&i.OriginReadBase,
-			&i.OriginReadCommit,
-			&i.OriginReadState,
-			&i.OriginReadAt,
 			&i.Steerer,
 			&i.Host,
 		); err != nil {
@@ -8227,7 +8308,7 @@ func (q *Queries) ListGrants(ctx context.Context) ([]Grant, error) {
 const listHeadlessSessions = `-- name: ListHeadlessSessions :many
 SELECT
     sessions.id, sessions.dir, sessions.state, sessions.changed, sessions.seen, sessions.question, sessions.reason,
-    sessions.title, sessions.headline,
+    sessions.title, sessions.headline, sessions.host,
     sessions.latest_reply AS reply,
     sessions.newest_reply_at AS newest_reply,
     sessions.first_prompt_text AS first_prompt,
@@ -8248,6 +8329,7 @@ type ListHeadlessSessionsRow struct {
 	Reason      string
 	Title       string
 	Headline    string
+	Host        string
 	Reply       string
 	NewestReply int64
 	FirstPrompt string
@@ -8273,6 +8355,7 @@ func (q *Queries) ListHeadlessSessions(ctx context.Context, cutoff int64) ([]Lis
 			&i.Reason,
 			&i.Title,
 			&i.Headline,
+			&i.Host,
 			&i.Reply,
 			&i.NewestReply,
 			&i.FirstPrompt,
@@ -9462,7 +9545,7 @@ func (q *Queries) ListPendingNotices(ctx context.Context) ([]PendingNotice, erro
 }
 
 const listPendingPlannerActions = `-- name: ListPendingPlannerActions :many
-SELECT epic, turn, position, kind, node, task, close_kind, by_epic, undo_none, reason, state, refusal, park, requirement, item, deliverable, files, remove_files, reviewer FROM planner_actions WHERE state = 'pending' ORDER BY epic, turn, position
+SELECT epic, turn, position, kind, node, task, close_kind, by_epic, undo_none, reason, state, refusal, park, requirement, item, deliverable, files, remove_files, reviewer, split_tasks FROM planner_actions WHERE state = 'pending' ORDER BY epic, turn, position
 `
 
 func (q *Queries) ListPendingPlannerActions(ctx context.Context) ([]PlannerAction, error) {
@@ -9494,6 +9577,7 @@ func (q *Queries) ListPendingPlannerActions(ctx context.Context) ([]PlannerActio
 			&i.Files,
 			&i.RemoveFiles,
 			&i.Reviewer,
+			&i.SplitTasks,
 		); err != nil {
 			return nil, err
 		}
@@ -10154,7 +10238,7 @@ func (q *Queries) ListRunningEpicTurns(ctx context.Context) ([]EpicTurn, error) 
 }
 
 const listServerSessions = `-- name: ListServerSessions :many
-SELECT id, server, pane, state, changed, seen, question, summary, label, context, tool, claude_session, transcript, kind, dir, reason, consumed, replay_from, background, turn_output, prompts_from, title, headline, headline_at, awaited, latest_reply, newest_reply_at, first_prompt_text, latest_request_id FROM sessions WHERE server = ? AND kind = '' ORDER BY id
+SELECT id, server, pane, state, changed, seen, question, summary, label, context, tool, claude_session, transcript, kind, dir, reason, consumed, replay_from, background, turn_output, prompts_from, title, headline, headline_at, awaited, latest_reply, newest_reply_at, first_prompt_text, latest_request_id, held, host FROM sessions WHERE server = ? AND kind = '' ORDER BY id
 `
 
 func (q *Queries) ListServerSessions(ctx context.Context, server string) ([]Session, error) {
@@ -10196,6 +10280,8 @@ func (q *Queries) ListServerSessions(ctx context.Context, server string) ([]Sess
 			&i.NewestReplyAt,
 			&i.FirstPromptText,
 			&i.LatestRequestID,
+			&i.Held,
+			&i.Host,
 		); err != nil {
 			return nil, err
 		}
@@ -10357,7 +10443,7 @@ func (q *Queries) ListSessionEpicDecisions(ctx context.Context, session string) 
 }
 
 const listSessions = `-- name: ListSessions :many
-SELECT id, server, pane, state, changed, seen, question, summary, label, context, tool, claude_session, transcript, kind, dir, reason, consumed, replay_from, background, turn_output, prompts_from, title, headline, headline_at, awaited, latest_reply, newest_reply_at, first_prompt_text, latest_request_id FROM sessions WHERE kind = '' ORDER BY id
+SELECT id, server, pane, state, changed, seen, question, summary, label, context, tool, claude_session, transcript, kind, dir, reason, consumed, replay_from, background, turn_output, prompts_from, title, headline, headline_at, awaited, latest_reply, newest_reply_at, first_prompt_text, latest_request_id, held, host FROM sessions WHERE kind = '' ORDER BY id
 `
 
 func (q *Queries) ListSessions(ctx context.Context) ([]Session, error) {
@@ -10399,6 +10485,8 @@ func (q *Queries) ListSessions(ctx context.Context) ([]Session, error) {
 			&i.NewestReplyAt,
 			&i.FirstPromptText,
 			&i.LatestRequestID,
+			&i.Held,
+			&i.Host,
 		); err != nil {
 			return nil, err
 		}
@@ -10414,7 +10502,7 @@ func (q *Queries) ListSessions(ctx context.Context) ([]Session, error) {
 }
 
 const listSteeredEpics = `-- name: ListSteeredEpics :many
-SELECT id, repository, title, approved, intent, care, approach, release_then, checks, phase, created, changed, paused, parked, retried, base, branch, workflow, workflow_text, workflow_sha256, pause_source, stored_base, candidate, summary, phase_at, report_phase, report_shipped, report_not_shipped, report_why, closed_by, superseded_by, park_class, synced, origin_read_base, origin_read_commit, origin_read_state, origin_read_at, steerer, host FROM epics WHERE epics.steerer != '' AND epics.steerer = CAST(?1 AS TEXT) ORDER BY epics.id
+SELECT id, repository, title, approved, intent, care, approach, release_then, checks, phase, created, changed, paused, parked, retried, base, branch, workflow, workflow_text, workflow_sha256, pause_source, stored_base, candidate, summary, phase_at, report_phase, report_shipped, report_not_shipped, report_why, closed_by, superseded_by, park_class, steerer, host FROM epics WHERE epics.steerer != '' AND epics.steerer = CAST(?1 AS TEXT) ORDER BY epics.id
 `
 
 func (q *Queries) ListSteeredEpics(ctx context.Context, session string) ([]Epic, error) {
@@ -10459,11 +10547,6 @@ func (q *Queries) ListSteeredEpics(ctx context.Context, session string) ([]Epic,
 			&i.ClosedBy,
 			&i.SupersededBy,
 			&i.ParkClass,
-			&i.Synced,
-			&i.OriginReadBase,
-			&i.OriginReadCommit,
-			&i.OriginReadState,
-			&i.OriginReadAt,
 			&i.Steerer,
 			&i.Host,
 		); err != nil {
@@ -10683,7 +10766,7 @@ func (q *Queries) ListUnreadNoticeHistoryKeys(ctx context.Context) ([]ListUnread
 }
 
 const listUnreportedEpics = `-- name: ListUnreportedEpics :many
-SELECT id, repository, title, approved, intent, care, approach, release_then, checks, phase, created, changed, paused, parked, retried, base, branch, workflow, workflow_text, workflow_sha256, pause_source, stored_base, candidate, summary, phase_at, report_phase, report_shipped, report_not_shipped, report_why, closed_by, superseded_by, park_class, synced, origin_read_base, origin_read_commit, origin_read_state, origin_read_at, steerer, host FROM epics
+SELECT id, repository, title, approved, intent, care, approach, release_then, checks, phase, created, changed, paused, parked, retried, base, branch, workflow, workflow_text, workflow_sha256, pause_source, stored_base, candidate, summary, phase_at, report_phase, report_shipped, report_not_shipped, report_why, closed_by, superseded_by, park_class, steerer, host FROM epics
 WHERE (phase IN ('released', 'done', 'ended_with_gaps')
        OR (phase IN ('closed_superseded', 'closed_shipped', 'closed_abandoned') AND closed_by = 'planner'))
   AND report_phase <> phase
@@ -10732,11 +10815,6 @@ func (q *Queries) ListUnreportedEpics(ctx context.Context) ([]Epic, error) {
 			&i.ClosedBy,
 			&i.SupersededBy,
 			&i.ParkClass,
-			&i.Synced,
-			&i.OriginReadBase,
-			&i.OriginReadCommit,
-			&i.OriginReadState,
-			&i.OriginReadAt,
 			&i.Steerer,
 			&i.Host,
 		); err != nil {
@@ -10794,7 +10872,7 @@ func (q *Queries) ListUnresolvableOfLastTurn(ctx context.Context, epic string) (
 }
 
 const listUnsummarizedEpics = `-- name: ListUnsummarizedEpics :many
-SELECT id, repository, title, approved, intent, care, approach, release_then, checks, phase, created, changed, paused, parked, retried, base, branch, workflow, workflow_text, workflow_sha256, pause_source, stored_base, candidate, summary, phase_at, report_phase, report_shipped, report_not_shipped, report_why, closed_by, superseded_by, park_class, synced, origin_read_base, origin_read_commit, origin_read_state, origin_read_at, steerer, host FROM epics WHERE summary = '' ORDER BY id
+SELECT id, repository, title, approved, intent, care, approach, release_then, checks, phase, created, changed, paused, parked, retried, base, branch, workflow, workflow_text, workflow_sha256, pause_source, stored_base, candidate, summary, phase_at, report_phase, report_shipped, report_not_shipped, report_why, closed_by, superseded_by, park_class, steerer, host FROM epics WHERE summary = '' ORDER BY id
 `
 
 func (q *Queries) ListUnsummarizedEpics(ctx context.Context) ([]Epic, error) {
@@ -10839,11 +10917,6 @@ func (q *Queries) ListUnsummarizedEpics(ctx context.Context) ([]Epic, error) {
 			&i.ClosedBy,
 			&i.SupersededBy,
 			&i.ParkClass,
-			&i.Synced,
-			&i.OriginReadBase,
-			&i.OriginReadCommit,
-			&i.OriginReadState,
-			&i.OriginReadAt,
 			&i.Steerer,
 			&i.Host,
 		); err != nil {
@@ -11090,6 +11163,27 @@ func (q *Queries) MaxTurnActionPark(ctx context.Context, arg MaxTurnActionParkPa
 	return column_1, err
 }
 
+const moveEpicBase = `-- name: MoveEpicBase :execrows
+UPDATE epics SET base = ?1, stored_base = ?1
+WHERE epics.id = ?2 AND epics.base = ?3 AND epics.stored_base = ?3
+    AND epics.branch = '' AND epics.candidate = ''
+    AND NOT EXISTS (SELECT 1 FROM epic_tasks WHERE epic_tasks.epic = epics.id)
+`
+
+type MoveEpicBaseParams struct {
+	ToBase   string
+	ID       string
+	FromBase string
+}
+
+func (q *Queries) MoveEpicBase(ctx context.Context, arg MoveEpicBaseParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, moveEpicBase, arg.ToBase, arg.ID, arg.FromBase)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const moveEpicLoopRound = `-- name: MoveEpicLoopRound :exec
 UPDATE epic_node_runs SET loop_round = loop_round + 1
 WHERE epic = ? AND path = ? AND kind = 'loop' AND state = 'running' AND loop_round = ?
@@ -11128,6 +11222,18 @@ type MoveEpicStoredBaseParams struct {
 func (q *Queries) MoveEpicStoredBase(ctx context.Context, arg MoveEpicStoredBaseParams) error {
 	_, err := q.db.ExecContext(ctx, moveEpicStoredBase, arg.StoredBase, arg.ID)
 	return err
+}
+
+const nameUnhostedSessions = `-- name: NameUnhostedSessions :execrows
+UPDATE sessions SET host = ?1 WHERE host = ''
+`
+
+func (q *Queries) NameUnhostedSessions(ctx context.Context, host string) (int64, error) {
+	result, err := q.db.ExecContext(ctx, nameUnhostedSessions, host)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const newestEventSeq = `-- name: NewestEventSeq :one
@@ -11835,32 +11941,6 @@ func (q *Queries) SetEpicNodeCheckGrant(ctx context.Context, arg SetEpicNodeChec
 	return err
 }
 
-const setEpicOriginRead = `-- name: SetEpicOriginRead :exec
-UPDATE epics
-SET origin_read_base = ?1, origin_read_commit = ?2, origin_read_state = ?3,
-    origin_read_at = ?4
-WHERE id = ?5
-`
-
-type SetEpicOriginReadParams struct {
-	Base   string
-	Commit string
-	State  string
-	At     int64
-	ID     string
-}
-
-func (q *Queries) SetEpicOriginRead(ctx context.Context, arg SetEpicOriginReadParams) error {
-	_, err := q.db.ExecContext(ctx, setEpicOriginRead,
-		arg.Base,
-		arg.Commit,
-		arg.State,
-		arg.At,
-		arg.ID,
-	)
-	return err
-}
-
 const setEpicParked = `-- name: SetEpicParked :execrows
 UPDATE epics SET parked = ?, park_class = ? WHERE id = ?
 `
@@ -12162,6 +12242,21 @@ func (q *Queries) SetEpicTaskBuild(ctx context.Context, arg SetEpicTaskBuildPara
 	return result.RowsAffected()
 }
 
+const setEpicTaskDependsOn = `-- name: SetEpicTaskDependsOn :exec
+UPDATE epic_tasks SET depends_on = ?1 WHERE epic = ?2 AND seq = ?3
+`
+
+type SetEpicTaskDependsOnParams struct {
+	DependsOn string
+	Epic      string
+	Seq       int64
+}
+
+func (q *Queries) SetEpicTaskDependsOn(ctx context.Context, arg SetEpicTaskDependsOnParams) error {
+	_, err := q.db.ExecContext(ctx, setEpicTaskDependsOn, arg.DependsOn, arg.Epic, arg.Seq)
+	return err
+}
+
 const setEpicTaskFindingResult = `-- name: SetEpicTaskFindingResult :execrows
 UPDATE epic_task_findings
 SET step = ?1, result = ?2, reason = ?3
@@ -12276,6 +12371,21 @@ func (q *Queries) SetEpicTaskReviewReason(ctx context.Context, arg SetEpicTaskRe
 	return err
 }
 
+const setEpicTaskSplitFrom = `-- name: SetEpicTaskSplitFrom :exec
+UPDATE epic_tasks SET split_from = ?1 WHERE epic = ?2 AND seq = ?3
+`
+
+type SetEpicTaskSplitFromParams struct {
+	SplitFrom int64
+	Epic      string
+	Seq       int64
+}
+
+func (q *Queries) SetEpicTaskSplitFrom(ctx context.Context, arg SetEpicTaskSplitFromParams) error {
+	_, err := q.db.ExecContext(ctx, setEpicTaskSplitFrom, arg.SplitFrom, arg.Epic, arg.Seq)
+	return err
+}
+
 const setEpicTaskStatus = `-- name: SetEpicTaskStatus :exec
 UPDATE epic_tasks SET status = ?1 WHERE epic = ?2 AND seq = ?3
 `
@@ -12289,6 +12399,44 @@ type SetEpicTaskStatusParams struct {
 func (q *Queries) SetEpicTaskStatus(ctx context.Context, arg SetEpicTaskStatusParams) error {
 	_, err := q.db.ExecContext(ctx, setEpicTaskStatus, arg.Status, arg.Epic, arg.Seq)
 	return err
+}
+
+const setEpicTaskTestRunResult = `-- name: SetEpicTaskTestRunResult :execrows
+UPDATE epic_task_test_runs
+SET step = ?1, output = ?2
+WHERE epic_task_test_runs.epic = ?3 AND epic_task_test_runs.task = ?4
+  AND epic_task_test_runs.attempt = ?5 AND epic_task_test_runs.review = ?6
+  AND epic_task_test_runs.position = ?7 AND epic_task_test_runs.step = ''
+  AND epic_task_test_runs.generation = (
+      SELECT tasks.generation FROM epic_tasks AS tasks
+      WHERE tasks.epic = epic_task_test_runs.epic AND tasks.seq = epic_task_test_runs.task
+  )
+`
+
+type SetEpicTaskTestRunResultParams struct {
+	Step     string
+	Output   string
+	Epic     string
+	Task     int64
+	Attempt  int64
+	Review   int64
+	Position int64
+}
+
+func (q *Queries) SetEpicTaskTestRunResult(ctx context.Context, arg SetEpicTaskTestRunResultParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, setEpicTaskTestRunResult,
+		arg.Step,
+		arg.Output,
+		arg.Epic,
+		arg.Task,
+		arg.Attempt,
+		arg.Review,
+		arg.Position,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const setEpicTurnResets = `-- name: SetEpicTurnResets :exec
@@ -12575,21 +12723,6 @@ func (q *Queries) StopEpicRelease(ctx context.Context, arg StopEpicReleaseParams
 	return err
 }
 
-const syncEpicStoredBase = `-- name: SyncEpicStoredBase :exec
-UPDATE epics SET stored_base = ?, candidate = '', synced = ? WHERE id = ?
-`
-
-type SyncEpicStoredBaseParams struct {
-	StoredBase string
-	Synced     string
-	ID         string
-}
-
-func (q *Queries) SyncEpicStoredBase(ctx context.Context, arg SyncEpicStoredBaseParams) error {
-	_, err := q.db.ExecContext(ctx, syncEpicStoredBase, arg.StoredBase, arg.Synced, arg.ID)
-	return err
-}
-
 const unmarkEventOfWrite = `-- name: UnmarkEventOfWrite :exec
 DELETE FROM caller_events
 WHERE caller_events.session = ?1 AND caller_events.event IN (
@@ -12706,7 +12839,7 @@ func (q *Queries) UpdateEngineLaunch(ctx context.Context, arg UpdateEngineLaunch
 
 const updateEngineSession = `-- name: UpdateEngineSession :execrows
 UPDATE sessions
-SET state = ?, changed = ?, seen = ?, question = ?, claude_session = ?, reason = ?
+SET state = ?, changed = ?, seen = ?, question = ?, claude_session = ?, reason = ?, held = ?
 WHERE id = ? AND kind IN ('engine', 'step')
 `
 
@@ -12717,6 +12850,7 @@ type UpdateEngineSessionParams struct {
 	Question      string
 	ClaudeSession string
 	Reason        string
+	Held          bool
 	ID            string
 }
 
@@ -12728,6 +12862,7 @@ func (q *Queries) UpdateEngineSession(ctx context.Context, arg UpdateEngineSessi
 		arg.Question,
 		arg.ClaudeSession,
 		arg.Reason,
+		arg.Held,
 		arg.ID,
 	)
 	if err != nil {

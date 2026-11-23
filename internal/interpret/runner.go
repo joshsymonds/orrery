@@ -62,11 +62,6 @@ type Store interface {
 	) error
 	LabelledSteps(ctx context.Context, epic, task string) ([]store.StepRow, error)
 	NodeRuns(ctx context.Context, epic string) ([]store.NodeRun, error)
-	PrepareSync(
-		ctx context.Context, epic, path string, attempt int64, revision, result string, read store.OriginRead,
-	) error
-	EndSync(ctx context.Context, epic string, end store.SyncEnd, at time.Time) error
-	RecordOriginRead(ctx context.Context, epic string, read store.OriginRead) error
 	ParkEpicWaking(ctx context.Context, epic, reason string, trigger store.NodeTrigger, at time.Time) error
 	EndPlanBuilt(ctx context.Context, epic string, ends []store.NodeEnd, at time.Time) error
 	PrepareNode(ctx context.Context, epic, path string, attempt int64, revision, refs string) error
@@ -157,13 +152,12 @@ type Reviewers interface {
 	) (enginehost.StepStart, error)
 }
 
-// Config configures a Runner. A nil Now means time.Now, a nil NewTimer means time.NewTimer and a nil Getenv means
-// os.Getenv. A nil Logger discards. Checks, Evidence and Steps carry out the work of check node runs, so a Runner that
-// runs an epic with such nodes needs each of them. Reviewers and Ending carry the end-of-epic review: with both set, its
-// review and closure kinds run, and without both an epic waits at its review node. Ending also ends the epics whose
-// release is decided, so a Runner that runs a release needs it. StateDir is the state directory release steps'
-// worktrees live under, so a Runner that runs a release step needs it. NewTimer arms the one timer a Runner keeps for
-// the origin-read deadlines, which Run waits on.
+// Config configures a Runner. A nil Now means time.Now and a nil Getenv means os.Getenv. A nil Logger discards. Checks,
+// Evidence and Steps carry out the work of check node runs, so a Runner that runs an epic with such nodes needs each of
+// them. Reviewers and Ending carry the end-of-epic review: with both set, its review and closure kinds run, and without
+// both an epic waits at its review node. Ending also ends the epics whose release is decided, so a Runner that runs a
+// release needs it. StateDir is the state directory release steps' worktrees live under, so a Runner that runs a
+// release step needs it.
 type Config struct {
 	Store     Store
 	Planner   Planner
@@ -178,23 +172,20 @@ type Config struct {
 	// are given. A nil Hosts is hostexec.LocalHosts.
 	Hosts  hostexec.Hosts
 	Getenv func(string) string
-	// Ticks is a test seam: when set, Run passes at start and then once at each value it receives, and wakes and
-	// deadlines pass nothing. Production leaves it nil.
-	Ticks    <-chan time.Time
-	Now      func() time.Time
-	NewTimer func(d time.Duration) (<-chan time.Time, func() bool)
-	Logger   *slog.Logger
+	// Ticks is a test seam: when set, Run passes at start and then once at each value it receives, and wakes pass
+	// nothing. Production leaves it nil.
+	Ticks  <-chan time.Time
+	Now    func() time.Time
+	Logger *slog.Logger
 	// Passed is a test seam: when set, Run calls it after each pass. Production leaves it nil.
 	Passed func()
 }
 
 // Runner runs each epic's workflow over its node runs: it carries out the structural actions the decisions ask for,
-// hands build runs to the builder and passes the planner for the epics whose plan run is running. limitGit makes the
-// context git that reads origin runs in for a sync (see gitLimit): context.WithTimeoutCause unless a test sets it.
+// hands build runs to the builder and passes the planner for the epics whose plan run is running.
 //
 // The fields from signal down are the wakes Run passes on: mu guards them, and Wake, which any goroutine may call, sets
-// them under mu only. signal is a one-slot channel Wake fills, woken the epics to pass next, and deadlines the moment
-// each epic's origin read goes stale.
+// them under mu only. signal is a one-slot channel Wake fills, and woken the epics to pass next.
 type Runner struct {
 	store     Store
 	planner   Planner
@@ -209,16 +200,13 @@ type Runner struct {
 	getenv    func(string) string
 	ticks     <-chan time.Time
 	now       func() time.Time
-	newTimer  func(d time.Duration) (<-chan time.Time, func() bool)
 	logger    *slog.Logger
 	passed    func()
 	kinds     map[string]kinds.Kind
-	limitGit  func(ctx context.Context, limit time.Duration) (context.Context, context.CancelFunc)
 
-	mu        sync.Mutex
-	signal    chan struct{}
-	woken     map[string]struct{}
-	deadlines map[string]time.Time
+	mu     sync.Mutex
+	signal chan struct{}
+	woken  map[string]struct{}
 }
 
 // maxSteps is how many structural actions one pass carries out for an epic before the next pass continues from the
@@ -228,23 +216,20 @@ const maxSteps = 16
 // builtinEpic is the workflow an epic with no pinned text runs.
 const builtinEpic = "epic"
 
-// New returns a Runner for cfg, with the plan, build, check, integrate, sync and release kinds registered, and the
-// review, closure and conclude kinds too when cfg has both Reviewers and Ending.
+// New returns a Runner for cfg, with the plan, build, check, integrate and release kinds registered, and the review,
+// closure and conclude kinds too when cfg has both Reviewers and Ending.
 func New(cfg Config) *Runner {
 	runner := &Runner{
 		store: cfg.Store, planner: cfg.Planner, builder: cfg.Builder, checks: cfg.Checks, evidence: cfg.Evidence,
 		steps: cfg.Steps, reviewers: cfg.Reviewers, ending: cfg.Ending, stateDir: cfg.StateDir, hosts: cfg.Hosts,
-		getenv: cfg.Getenv, now: cfg.Now, newTimer: cfg.NewTimer, logger: cfg.Logger, ticks: cfg.Ticks,
-		passed:   cfg.Passed,
-		limitGit: gitLimit,
+		getenv: cfg.Getenv, now: cfg.Now, logger: cfg.Logger, ticks: cfg.Ticks, passed: cfg.Passed,
 		kinds: map[string]kinds.Kind{
 			kindPlan: kinds.Plan{}, kindBuild: kinds.Build{}, kindGate: kinds.Gate{}, kindCommand: kinds.Command{},
 			kindEvidence: kinds.Evidence{}, kindOwned: kinds.Owned{}, kindAgent: kinds.Agent{}, kindCost: kinds.Cost{},
-			kindIntegrate: kinds.Integrate{}, kindRelease: kinds.Release{}, kindSync: kinds.Sync{},
+			kindIntegrate: kinds.Integrate{}, kindRelease: kinds.Release{},
 		},
-		signal:    make(chan struct{}, 1),
-		woken:     make(map[string]struct{}),
-		deadlines: make(map[string]time.Time),
+		signal: make(chan struct{}, 1),
+		woken:  make(map[string]struct{}),
 	}
 	if cfg.Reviewers != nil && cfg.Ending != nil {
 		runner.kinds[reviewNodeKind] = kinds.Review{}
@@ -253,9 +238,6 @@ func New(cfg Config) *Runner {
 	}
 	if runner.now == nil {
 		runner.now = time.Now
-	}
-	if runner.newTimer == nil {
-		runner.newTimer = stdTimer
 	}
 	if runner.getenv == nil {
 		runner.getenv = os.Getenv
@@ -281,9 +263,8 @@ func (r *Runner) hostOf(epic store.EpicRow) (hostexec.Host, error) {
 
 // Run recovers the planner's turns a previous orreryd left running, then passes every open epic at once. With
 // Config.Ticks set, it then passes every open epic once per value it receives. Without it, it passes the epics a Wake
-// named since its last pass, each once in sorted order, and the epics whose origin-read deadline has come, and nothing
-// on a clock of its own, until ctx ends. Config.Passed is called after each pass. Run then waits for the planner's turns
-// and returns.
+// named since its last pass, each once in sorted order, and nothing on a clock of its own, until ctx ends.
+// Config.Passed is called after each pass. Run then waits for the planner's turns and returns.
 func (r *Runner) Run(ctx context.Context) {
 	r.planner.Recover(ctx)
 	// The pass below reads every open epic, so a wake that came before it is covered by it.
@@ -313,18 +294,13 @@ func (r *Runner) runTicks(ctx context.Context) {
 }
 
 // runWakes passes the epics woken since its last pass, each once, until ctx ends, and then waits for the planner's turns.
-// It waits on a wake, on the deadline timer and on ctx. A wake that arrives during a pass is passed after it, since the
-// signal it leaves is taken on the next turn of the loop. A pass never starts once ctx has ended.
+// It waits on a wake and on ctx. A wake that arrives during a pass is passed after it, since the signal it leaves is
+// taken on the next turn of the loop. A pass never starts once ctx has ended.
 func (r *Runner) runWakes(ctx context.Context) {
-	timer := &deadlineTimer{}
-	r.armDeadline(timer)
 	for {
 		select {
 		case <-ctx.Done():
 		case <-r.signal:
-		case <-timer.fire:
-			timer.fired()
-			r.wakeDue(r.now())
 		}
 		if ctx.Err() != nil {
 			r.planner.WaitTurns()
@@ -336,7 +312,6 @@ func (r *Runner) runWakes(ctx context.Context) {
 				r.passDone()
 			}
 		}
-		r.armDeadline(timer)
 	}
 }
 
@@ -427,8 +402,8 @@ func (r *Runner) parkUnloaded(ctx context.Context, epic store.EpicRow, cause err
 // passFlow carries out the actions flow asks for on epic, and reports whether epic's plan run was given its turn. Each
 // structural action is carried out and the rows read again, at most maxSteps times. Once a decision has no structural
 // action, its build runs go to the builder. An epic that the rows show closed is left with nothing carried out: a close
-// that lands while the pass carries out an action, such as a sync's prepare, ends the epic's running runs, and the walk
-// would read the plan run it ended as a node that ended and start the node after it.
+// that lands while the pass carries out an action, such as a batch's prepare, ends the epic's running runs, and the
+// walk would read the plan run it ended as a node that ended and start the node after it.
 func (r *Runner) passFlow(ctx context.Context, epic store.EpicRow, flow workflow.Workflow) bool {
 	for range maxSteps {
 		row, acts, err := r.decide(ctx, epic.ID, flow)
@@ -453,9 +428,8 @@ func (r *Runner) passFlow(ctx context.Context, epic store.EpicRow, flow workflow
 }
 
 // decide reads the rows of epic in one read. It returns the epic as read, which the actions are carried out for, and
-// the actions flow asks for on the rows, decided at the runner's clock. The read also records the wakes it leaves for
-// epic (noteRead). The stranded tasks of the epic are read only when one of its tasks waits on dependencies, since only
-// a build that waits on a dependency reads them (awaitsDependencies).
+// the actions flow asks for on the rows. The stranded tasks of the epic are read only when one of its tasks waits on
+// dependencies, since only a build that waits on a dependency reads them (awaitsDependencies).
 func (r *Runner) decide(ctx context.Context, epic string, flow workflow.Workflow) (store.EpicRow, []Action, error) {
 	read, err := r.store.EpicFlow(ctx, epic)
 	if err != nil {
@@ -477,11 +451,9 @@ func (r *Runner) decide(ctx context.Context, epic string, flow workflow.Workflow
 			return store.EpicRow{}, nil, fmt.Errorf("read stranded tasks of epic %s: %w", epic, err)
 		}
 	}
-	rows.Now = r.now()
 	if r.reviewers != nil {
 		rows.Reviewers = r.reviewers.Epic(read.Epic)
 	}
-	r.noteRead(epic, read, rows.Now)
 	return read.Epic, Decide(flow, rows, r.kinds), nil
 }
 
@@ -547,8 +519,6 @@ func (r *Runner) carry(ctx context.Context, epic store.EpicRow, act Action) erro
 		err = r.store.ParkEpicWaking(ctx, epic.ID, act.Reason, *act.Trigger, at)
 	case ActBatch:
 		err = r.endBatch(ctx, epic, act, at)
-	case ActSync, ActReadOrigin:
-		err = r.carrySync(ctx, epic, act, at)
 	case ActHold, ActReview, ActClosure, ActConclude, ActGapRound, ActRerun:
 		return r.carryReview(ctx, epic.ID, act, at)
 	case ActWork:
@@ -582,20 +552,6 @@ func (r *Runner) moveRun(ctx context.Context, epic string, act Action, at time.T
 	}
 	if err != nil {
 		return fmt.Errorf("move node run %s: %w", act.Path, err)
-	}
-	return nil
-}
-
-// carrySync carries out one sync action of epic at at: the end of a sync run, or the read of origin's main a sync is
-// due to start from.
-func (r *Runner) carrySync(ctx context.Context, epic store.EpicRow, act Action, at time.Time) error {
-	if act.Kind == ActReadOrigin {
-		return r.readOrigin(ctx, epic, at)
-	}
-	if err := r.store.EndSync(ctx, epic.ID, store.SyncEnd{
-		Path: act.Path, Attempt: act.Attempt, Outcome: act.Outcome, Output: act.Output, Tell: act.Reason,
-	}, at); err != nil {
-		return fmt.Errorf("end sync %s: %w", act.Path, err)
 	}
 	return nil
 }

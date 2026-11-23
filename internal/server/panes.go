@@ -131,6 +131,7 @@ type paneJSON struct {
 	Context  string `json:"context"`
 	Activity int64  `json:"activity"`
 	Tool     string `json:"tool"`
+	Held     bool   `json:"held"`
 }
 
 // List answers Panes.List with the panes listPanes gives.
@@ -355,6 +356,7 @@ func paneMessages(panes []map[string]json.RawMessage) ([]*v1.Pane, error) {
 			Context:       pane.Context,
 			Activity:      pane.Activity,
 			Tool:          pane.Tool,
+			Held:          pane.Held,
 			ClaudeSession: claudeSession,
 			QuestionHash:  questionHash,
 			NewestReply:   newestReply,

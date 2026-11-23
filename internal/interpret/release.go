@@ -101,15 +101,15 @@ func releaseReviewOf(act Action, at time.Time) (store.ReleaseRun, error) {
 }
 
 // startReleaseReview starts the release reviewer act names, read-only at the candidate act names, over the change from the
-// epic's change base. A reviewer or start refused for good records the review failed at once, and the release stops at it
-// on its next decision.
+// epic's base. A reviewer or start refused for good records the review failed at once, and the release stops at it on
+// its next decision.
 func (r *Runner) startReleaseReview(ctx context.Context, epic store.EpicRow, act Action, at time.Time) error {
 	run, err := releaseReviewOf(act, at)
 	if err != nil {
 		return err
 	}
 	id := act.IDs[0]
-	start, err := r.reviewers.Start(ctx, epic, run.Step, changeBase(epic), run.Head, nil, nil)
+	start, err := r.reviewers.Start(ctx, epic, run.Step, epic.Base, run.Head, nil, nil)
 	if err != nil {
 		if !refusedForGood(err) {
 			return fmt.Errorf("start release reviewer %s of epic %s: %w", run.Step, epic.ID, err)

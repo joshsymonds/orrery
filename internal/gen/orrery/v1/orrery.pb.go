@@ -419,7 +419,9 @@ type HeadlessSession struct {
 	// has unarchived it since its last change.
 	Ended bool `protobuf:"varint,13,opt,name=ended,proto3" json:"ended,omitempty"`
 	// The unix seconds the conversation ended (its change time), or 0 when it has not ended.
-	EndedAt       int64 `protobuf:"varint,14,opt,name=ended_at,json=endedAt,proto3" json:"ended_at,omitempty"`
+	EndedAt int64 `protobuf:"varint,14,opt,name=ended_at,json=endedAt,proto3" json:"ended_at,omitempty"`
+	// The orrery name of the host the session runs on.
+	Host          string `protobuf:"bytes,15,opt,name=host,proto3" json:"host,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -550,6 +552,13 @@ func (x *HeadlessSession) GetEndedAt() int64 {
 		return x.EndedAt
 	}
 	return 0
+}
+
+func (x *HeadlessSession) GetHost() string {
+	if x != nil {
+		return x.Host
+	}
+	return ""
 }
 
 // SessionsWatchConversationRequest asks for the conversation of one headless session. limit follows
@@ -3708,7 +3717,10 @@ type Pane struct {
 	// question, so a new request or a pane that starts waiting again reads false.
 	PutOff bool `protobuf:"varint,22,opt,name=put_off,json=putOff,proto3" json:"put_off,omitempty"`
 	// true when the pane's running command is claude and no Claude session is bound to it.
-	Unbound       bool `protobuf:"varint,23,opt,name=unbound,proto3" json:"unbound,omitempty"`
+	Unbound bool `protobuf:"varint,23,opt,name=unbound,proto3" json:"unbound,omitempty"`
+	// true while the pane's @orrery_held option is set: its last turn ended while a background agent or workflow runs,
+	// so its state is working with no turn running, until the turn that task's end starts.
+	Held          bool `protobuf:"varint,24,opt,name=held,proto3" json:"held,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -3900,6 +3912,13 @@ func (x *Pane) GetPutOff() bool {
 func (x *Pane) GetUnbound() bool {
 	if x != nil {
 		return x.Unbound
+	}
+	return false
+}
+
+func (x *Pane) GetHeld() bool {
+	if x != nil {
+		return x.Held
 	}
 	return false
 }
@@ -7119,7 +7138,7 @@ const file_orrery_v1_orrery_proto_rawDesc = "" +
 	"\bended_at\x18\x10 \x01(\x03R\aendedAt\"\x15\n" +
 	"\x13ListHeadlessRequest\"N\n" +
 	"\x14ListHeadlessResponse\x126\n" +
-	"\bsessions\x18\x01 \x03(\v2\x1a.orrery.v1.HeadlessSessionR\bsessions\"\xe8\x02\n" +
+	"\bsessions\x18\x01 \x03(\v2\x1a.orrery.v1.HeadlessSessionR\bsessions\"\xfc\x02\n" +
 	"\x0fHeadlessSession\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x10\n" +
 	"\x03dir\x18\x02 \x01(\tR\x03dir\x12\x14\n" +
@@ -7135,7 +7154,8 @@ const file_orrery_v1_orrery_proto_rawDesc = "" +
 	"\bheadline\x18\v \x01(\tR\bheadline\x12\x17\n" +
 	"\aput_off\x18\f \x01(\bR\x06putOff\x12\x14\n" +
 	"\x05ended\x18\r \x01(\bR\x05ended\x12\x19\n" +
-	"\bended_at\x18\x0e \x01(\x03R\aendedAt\"^\n" +
+	"\bended_at\x18\x0e \x01(\x03R\aendedAt\x12\x12\n" +
+	"\x04host\x18\x0f \x01(\tR\x04host\"^\n" +
 	" SessionsWatchConversationRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x14\n" +
 	"\x05limit\x18\x02 \x01(\rR\x05limit\x12\x14\n" +
@@ -7369,7 +7389,7 @@ const file_orrery_v1_orrery_proto_rawDesc = "" +
 	"\x04text\x18\x05 \x01(\tR\x04text\"\x12\n" +
 	"\x10PanesListRequest\":\n" +
 	"\x11PanesListResponse\x12%\n" +
-	"\x05panes\x18\x01 \x03(\v2\x0f.orrery.v1.PaneR\x05panes\"\xd9\x04\n" +
+	"\x05panes\x18\x01 \x03(\v2\x0f.orrery.v1.PaneR\x05panes\"\xed\x04\n" +
 	"\x04Pane\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04host\x18\x02 \x01(\tR\x04host\x12\x18\n" +
@@ -7394,7 +7414,8 @@ const file_orrery_v1_orrery_proto_rawDesc = "" +
 	"\rlast_turn_end\x18\x14 \x01(\x03R\vlastTurnEnd\x12\x1b\n" +
 	"\torrery_id\x18\x15 \x01(\tR\borreryId\x12\x17\n" +
 	"\aput_off\x18\x16 \x01(\bR\x06putOff\x12\x18\n" +
-	"\aunbound\x18\x17 \x01(\bR\aunbound\"Q\n" +
+	"\aunbound\x18\x17 \x01(\bR\aunbound\x12\x12\n" +
+	"\x04held\x18\x18 \x01(\bR\x04held\"Q\n" +
 	"\rScreenRequest\x12\x12\n" +
 	"\x04pane\x18\x01 \x01(\tR\x04pane\x12\x12\n" +
 	"\x04ansi\x18\x02 \x01(\bR\x04ansi\x12\x18\n" +

@@ -461,18 +461,15 @@ func TestClosureStartWithoutFrozenReviewStartsNothing(t *testing.T) {
 	}
 }
 
-// TestReviewStartReadsTheChangeFromTheSyncedCommit: an epic whose stored base merged origin's main in a sync is reviewed
-// over the change from origin's commit it synced, not from its base, so the reviewers and verifiers read the epic's own
-// change and not origin's. A closure verifier still runs over the frozen revision.
-func TestReviewStartReadsTheChangeFromTheSyncedCommit(t *testing.T) {
+// TestReviewStartReadsTheChangeFromTheEpicsBase: the reviewers and verifiers of a review run start over the change from
+// the epic's base at the frozen revision, so they read the epic's own change.
+func TestReviewStartReadsTheChangeFromTheEpicsBase(t *testing.T) {
 	t.Parallel()
-	const synced = "synced-origin"
 	ctx := context.Background()
 	s := openRunStore(t)
 	createRunEpic(t, s, store.EpicWorkflow{})
 	run := reviewWorkFrozenRun(t, s)
 	epic := epicOf(t, s)
-	epic.Synced = synced
 	reviewers := &reviewWorkReviewers{}
 	steps := &reviewWorkSteps{fakeSteps: fakeSteps{store: s}}
 	runner := reviewWorkRunner(s, steps, reviewers, reviewWorkGetenv(t))
@@ -491,21 +488,21 @@ func TestReviewStartReadsTheChangeFromTheSyncedCommit(t *testing.T) {
 		t.Fatalf("work: %v", err)
 	}
 
-	wantCalls := []reviewWorkCall{{name: "security", base: synced, revision: reviewWorkFrozen}}
+	wantCalls := []reviewWorkCall{{name: "security", base: runBase, revision: reviewWorkFrozen}}
 	if !reflect.DeepEqual(reviewers.calls, wantCalls) {
 		t.Errorf("reviewer starts = %+v, want %+v", reviewers.calls, wantCalls)
 	}
 	if len(steps.calls) != 2 {
 		t.Fatalf("step starts = %d, want 2", len(steps.calls))
 	}
-	verify := epicVerifierStart(epic, synced, reviewWorkFrozen, finding, verifyID, reviewWorkVerifierAgent)
+	verify := epicVerifierStart(epic, runBase, reviewWorkFrozen, finding, verifyID, reviewWorkVerifierAgent)
 	verify.Task = "review"
 	if got := reviewWorkComparable(steps.calls[1:]); !reflect.DeepEqual(got, reviewWorkComparable(
 		[]enginehost.StepStart{verify},
 	)) {
-		t.Errorf("verifier start = %+v, want it over the change from %s", got, synced)
+		t.Errorf("verifier start = %+v, want it over the change from %s", got, runBase)
 	}
-	if !strings.Contains(steps.calls[1].Prompt, synced) {
-		t.Errorf("verifier prompt = %q, want it to name %s", steps.calls[1].Prompt, synced)
+	if !strings.Contains(steps.calls[1].Prompt, runBase) {
+		t.Errorf("verifier prompt = %q, want it to name %s", steps.calls[1].Prompt, runBase)
 	}
 }

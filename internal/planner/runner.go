@@ -38,6 +38,8 @@ type Store interface {
 	RateLimit(ctx context.Context, session string) (store.RateLimit, bool, error)
 	Follows(ctx context.Context) ([]store.LabelFollow, error)
 	GapTurns(ctx context.Context, epic string) ([]store.GapTurn, error)
+	MoveEpicBase(ctx context.Context, epic, from, to string, at time.Time) (bool, error)
+	TellEpic(ctx context.Context, epic, text string, at time.Time) error
 }
 
 // Steps starts planner steps, subscribes to their ends and holds, and stops them. *enginehost.Steps satisfies it.
@@ -53,17 +55,21 @@ type Steps interface {
 // Resolve answers whether the gates and judges of a planned task resolve for its epic. NewTimer arms a timer that sends
 // on its channel once, after a duration, and returns the timer's stop; a nil NewTimer wraps time.NewTimer. After returns
 // the channel a record of a turn's step that the store refused as busy waits on before it is tried again, and nil is
-// time.After.
+// time.After. OriginMain returns the commit origin's main names in repository, and a nil OriginMain disables moving the
+// base of an epic with no task and no branch to it. FetchLimit bounds each call of OriginMain; a FetchLimit that is not
+// positive means one minute.
 type Config struct {
-	Store    Store
-	Steps    Steps
-	Agent    func() (string, error)
-	Retry    time.Duration
-	Now      func() time.Time
-	Logger   *slog.Logger
-	Resolve  Resolver
-	NewTimer func(time.Duration) (<-chan time.Time, func() bool)
-	After    func(time.Duration) <-chan time.Time
+	Store      Store
+	Steps      Steps
+	Agent      func() (string, error)
+	Retry      time.Duration
+	Now        func() time.Time
+	Logger     *slog.Logger
+	Resolve    Resolver
+	NewTimer   func(time.Duration) (<-chan time.Time, func() bool)
+	After      func(time.Duration) <-chan time.Time
+	OriginMain func(ctx context.Context, repository string) (string, error)
+	FetchLimit time.Duration
 }
 
 // stepRecordRetry is how long after the store refuses the record of a turn's step as busy the record is tried again.
@@ -110,6 +116,8 @@ type Runner struct {
 	logger     *slog.Logger
 	resolve    Resolver
 	newTimer   func(time.Duration) (<-chan time.Time, func() bool)
+	originMain func(ctx context.Context, repository string) (string, error)
+	fetchLimit time.Duration
 	turns      sync.WaitGroup
 }
 
@@ -118,9 +126,13 @@ func New(cfg Config) *Runner {
 	runner := &Runner{
 		store: cfg.Store, steps: cfg.Steps, agent: cfg.Agent, retryAfter: cfg.Retry, now: cfg.Now, after: cfg.After,
 		logger: cfg.Logger, resolve: cfg.Resolve, newTimer: cfg.NewTimer,
+		originMain: cfg.OriginMain, fetchLimit: cfg.FetchLimit,
 	}
 	if runner.retryAfter <= 0 {
 		runner.retryAfter = defaultRetry
+	}
+	if runner.fetchLimit <= 0 {
+		runner.fetchLimit = defaultFetchLimit
 	}
 	if runner.now == nil {
 		runner.now = time.Now
@@ -246,14 +258,16 @@ func (r *Runner) parkTurn(ctx context.Context, epic, reason, held string) {
 	r.release(ctx, epic, turn.Seq, store.TurnFree{Reason: reason, Park: reason, DecidedUnder: &held})
 }
 
-// runTurn claims a turn for epic, runs its planner step to an end and settles the turn. A turn whose context ends is
-// left running for the next start.
+// runTurn claims a turn for epic, moves the base of an epic with no task and no branch to origin's main before the
+// turn starts its step, runs the step to an end and settles the turn. A turn whose context ends is left running for the
+// next start.
 func (r *Runner) runTurn(ctx context.Context, epic, agent string) {
 	defer r.turns.Done()
 	turn, ok := r.claim(ctx, epic)
 	if !ok {
 		return
 	}
+	r.moveEpicBase(ctx, epic)
 	id, err := r.startStep(ctx, epic, turn, agent)
 	if err != nil {
 		r.refuse(ctx, epic, turn.Seq, err)
@@ -737,7 +751,7 @@ func planOf(ret Return) store.EpicPlan {
 			Kind: action.Kind, Node: action.Node, Task: action.Task, Close: action.Close, By: action.By,
 			Requirement: action.Requirement, Item: action.Item, Deliverable: action.Deliverable,
 			Files: action.Files, Remove: action.Remove, Reviewer: action.Reviewer, UndoNone: action.UndoNone,
-			Reason: action.Reason,
+			Split: splitTasksOf(action.Split), Reason: action.Reason,
 		})
 	}
 	unresolvable := make([]store.GapDeclaration, 0, len(ret.Unresolvable))
@@ -750,6 +764,23 @@ func planOf(ret Return) store.EpicPlan {
 		Decisions: ret.Decisions, Tasks: tasks, Outline: ret.Outline, Questions: questions, Outcome: ret.Outcome,
 		Actions: actions, Unresolvable: unresolvable,
 	}
+}
+
+// splitTasksOf returns the store's tasks for the descendants a split action names, in order. It returns nil for none,
+// so an action that names no descendants stores the nil list it stored before.
+func splitTasksOf(descendants []Descendant) []store.SplitTask {
+	if len(descendants) == 0 {
+		return nil
+	}
+	split := make([]store.SplitTask, 0, len(descendants))
+	for _, descendant := range descendants {
+		split = append(split, store.SplitTask{
+			Title: descendant.Title, Deliverable: descendant.Deliverable, Files: descendant.Files,
+			TestChanges: descendant.TestChanges, Claims: descendant.Claims, Contributes: descendant.Contributes,
+			Gate: descendant.Gate, Evidence: descendant.Evidence,
+		})
+	}
+	return split
 }
 
 // questionInputOf returns the store's input for a question of a planner return. A non-empty why is stored as "Catastrophe

@@ -381,6 +381,36 @@ background() {
 	turn_close
 }
 
+# bgagentself starts a background agent, streams a text block and ends the turn while the agent runs, as background does.
+# Once fakeclaude.release exists in its directory, the agent ends: claude reports it, lists no task and starts a turn by
+# itself, as the task's notification does, which streams a text block "fake agent done n" and ends with no task listed.
+# With $1 set to gone, the agent ends with no turn after it, as an agent claude stops between turns does.
+bgagentself() {
+	turn_open
+	printf '%s\n' '{"type":"system","subtype":"background_tasks_changed","tasks":[{"task_id":"task_fake_1","task_type":"local_agent","description":"fake agent"}],"session_id":"session_1","uuid":"uuid_t1"}'
+	text_block 0 "fake bgagentself $n" "fake bgagentself $n"
+	turn_close
+	while [ ! -e fakeclaude.release ]; do
+		sleep 0.05
+	done
+	status=completed
+	if [ "$1" = gone ]; then
+		status=stopped
+	fi
+	printf '%s\n' '{"type":"system","subtype":"task_notification","task_id":"task_fake_1","status":"'"$status"'","output_file":"fake.output","summary":"fake agent","session_id":"session_1","uuid":"uuid_t5"}'
+	printf '%s\n' '{"type":"system","subtype":"background_tasks_changed","tasks":[],"session_id":"session_1","uuid":"uuid_t6"}'
+	if [ "$1" = gone ]; then
+		return
+	fi
+	answered='[]'
+	answers=
+	origin='{"kind":"task-notification","producer":"session-task","runId":"run_fake"}'
+	result_index=1
+	turn_open
+	text_block 0 "fake agent done $n" "fake agent done $n"
+	turn_close
+}
+
 # bghang starts a background task, streams a text block and holds the turn open with await_interrupt, so the task stays
 # listed while the turn runs, and the turn reads stdin as hang does.
 bghang() {
@@ -815,6 +845,8 @@ while next; do
 				*DIEQUEUED*) mode=diequeued ;;
 				*DIE*) mode=die ;;
 				*BACKGROUND*) mode=background ;;
+				*BGAGENTSELF*) mode=bgagentself ;;
+				*BGAGENTGONE*) mode=bgagentgone ;;
 				*BGAGENT*) mode=bgagent ;;
 				*BGEND*) mode=bgend ;;
 				*BGDONE*) mode=bgdone ;;
@@ -860,6 +892,8 @@ while next; do
 				diequeued) diequeued ;;
 				die) die ;;
 				background) background local_bash ;;
+				bgagentself) bgagentself ;;
+				bgagentgone) bgagentself gone ;;
 				bgagent) background local_agent ;;
 				bgend) bgend ;;
 				bgdone) bgdone ;;

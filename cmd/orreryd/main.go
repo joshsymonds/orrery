@@ -41,6 +41,7 @@ import (
 	"github.com/joshsymonds/orrery/internal/grants"
 	"github.com/joshsymonds/orrery/internal/holder"
 	"github.com/joshsymonds/orrery/internal/hostexec"
+	"github.com/joshsymonds/orrery/internal/hosts"
 	"github.com/joshsymonds/orrery/internal/inapp"
 	"github.com/joshsymonds/orrery/internal/interpret"
 	"github.com/joshsymonds/orrery/internal/notice"
@@ -186,6 +187,10 @@ type options struct {
 	// host is a test seam: the host name the desk stream, the notices and the grants broker use in place of
 	// os.Hostname. Production leaves it "".
 	host string
+	// orrery is the controller's orrery name: the top-level name of hosts.toml when it is set, else host. serve sets it,
+	// and startSessions gives it to the manager as the name of the controller's own host. A test that calls
+	// startSessions directly leaves it "", which names no host.
+	orrery string
 	// flowTicks is a test seam: the path the flow appends a line to after each pass, and each SIGUSR1 starts a pass in
 	// place of the flow's five-second ticks. Production leaves it "".
 	flowTicks string
@@ -330,6 +335,45 @@ func hostName(seam string) (string, error) {
 		return "", fmt.Errorf("read the machine's host name: %w", err)
 	}
 	return host, nil
+}
+
+// controllerHost returns the controller's host name, which hostName gives, and its orrery name: the top-level name of the
+// hosts file that getenv locates when the file sets one, and the host name otherwise. A host name that is empty, or a
+// hosts file that does not load, is an error. With neither XDG_CONFIG_HOME nor HOME set there is no hosts file to
+// locate, so the controller is named by its host name, as it is without a hosts file.
+func controllerHost(opts options, getenv func(string) string) (string, string, error) {
+	host, err := hostName(opts.host)
+	if err != nil {
+		return "", "", fmt.Errorf("host name: %w", err)
+	}
+	if host == "" {
+		return "", "", errors.New("host name is empty")
+	}
+	var file hosts.File
+	if _, pathErr := hosts.Path(getenv); pathErr == nil {
+		loaded, err := hosts.Load(getenv)
+		if err != nil {
+			return "", "", fmt.Errorf("load hosts: %w", err)
+		}
+		file = loaded
+	}
+	if file.Name != "" {
+		return host, file.Name, nil
+	}
+	return host, host, nil
+}
+
+// nameUnhosted names the rows of st that have no host as name, once the store is open. A nil st has no rows to name.
+// The write runs on a context that ctx's cancellation does not reach: it is one short write that must finish so every
+// row reads its host, so a shutdown signal that arrives during it lets it commit rather than failing startup.
+func nameUnhosted(ctx context.Context, st *store.Store, name string) error {
+	if st == nil {
+		return nil
+	}
+	if _, err := st.NameUnhostedSessions(context.WithoutCancel(ctx), name); err != nil {
+		return fmt.Errorf("name the controller's rows: %w", err)
+	}
+	return nil
 }
 
 // checkClockSeams refuses a negative --due-at or --relay-at as a usage error.
@@ -532,15 +576,15 @@ func serveRelay(opts options, home string, logger *slog.Logger, mirror *daemon.M
 // serving and returns its error. Once the store is open, serve returns only after the store is closed. serve sends
 // systemd READY=1 once the sessions have started, or once the store has opened when there are no sessions. With
 // --metrics-listen, the ready time is recorded just before READY=1. With a flight recorder, a start to READY over its
-// threshold writes a start trace once READY=1 is sent.
+// threshold writes a start trace once READY=1 is sent. Once the store is open, serve names each row that reads no host
+// as the controller's orrery name, before the sessions start; a naming or sessions start that fails stops serving and
+// returns its error.
 func serve(ctx context.Context, opts options, logger *slog.Logger, getenv func(string) string) error {
-	host, err := hostName(opts.host)
+	host, orrery, err := controllerHost(opts, getenv)
 	if err != nil {
-		return fmt.Errorf("host name: %w", err)
+		return err
 	}
-	if host == "" {
-		return errors.New("host name is empty")
-	}
+	opts.orrery = orrery
 	storePath, store, pushes, err := openPushes(opts, getenv)
 	if err != nil {
 		return err
@@ -613,11 +657,13 @@ func serve(ctx context.Context, opts options, logger *slog.Logger, getenv func(s
 	})
 
 	st := openStore(ctx, getenv, logger, opts.metrics, opts.storeBusy, opts.storeRetryAfter)
+	// A row from before the host column has no host until this names it, so every row reads the host it runs on
+	// before the manager reconciles it.
+	startErr := nameUnhosted(ctx, st, opts.orrery)
 	attachStore(ctx, st, mirror, notices, router)
 	hub.attachVerdicts(st)
 	var sessions *sessionHost
-	var startErr error
-	if opts.sessions {
+	if startErr == nil && opts.sessions {
 		sessions, startErr = startSessions(ctx, opts, host, st, router, pageNotices, logger, getenv)
 	}
 	publishCallerWake(&callerWake, sessions)
@@ -1006,6 +1052,7 @@ func startSessions(
 			Claude:      opts.claude,
 			Environ:     childEnviron,
 			HolderScope: opts.holderScope,
+			HostName:    opts.orrery,
 			StateDir:    stateDir,
 			ManagedDir:  managedDir,
 			Writer:      host.writer,
@@ -1395,11 +1442,12 @@ func (h *sessionHost) startFlow(
 	logger *slog.Logger,
 ) {
 	plannerRun := planner.New(planner.Config{
-		Store:   st,
-		Steps:   h.steps,
-		Agent:   func() (string, error) { return roles.Agent(getenv, "planner") },
-		Logger:  logger,
-		Resolve: resolve,
+		Store:      st,
+		Steps:      h.steps,
+		Agent:      func() (string, error) { return roles.Agent(getenv, "planner") },
+		Logger:     logger,
+		Resolve:    resolve,
+		OriginMain: enginehost.FetchOriginMain,
 	})
 	buildRun := build.New(build.Config{
 		Store:    st,

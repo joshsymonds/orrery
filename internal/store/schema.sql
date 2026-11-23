@@ -20,7 +20,7 @@ CREATE TABLE sessions (
     tool TEXT NOT NULL DEFAULT '',
     claude_session TEXT NOT NULL DEFAULT '',
     transcript TEXT NOT NULL DEFAULT ''
-, kind TEXT NOT NULL DEFAULT '', dir TEXT NOT NULL DEFAULT '', reason TEXT NOT NULL DEFAULT '', consumed INTEGER, replay_from INTEGER NOT NULL DEFAULT 0, background BOOLEAN NOT NULL DEFAULT 0, turn_output TEXT NOT NULL DEFAULT '', prompts_from INTEGER NOT NULL DEFAULT 0, title TEXT NOT NULL DEFAULT '', headline TEXT NOT NULL DEFAULT '', headline_at INTEGER NOT NULL DEFAULT 0, awaited BOOLEAN NOT NULL DEFAULT 0, latest_reply TEXT NOT NULL DEFAULT '', newest_reply_at INTEGER NOT NULL DEFAULT 0, first_prompt_text TEXT NOT NULL DEFAULT '', latest_request_id TEXT NOT NULL DEFAULT '');
+, kind TEXT NOT NULL DEFAULT '', dir TEXT NOT NULL DEFAULT '', reason TEXT NOT NULL DEFAULT '', consumed INTEGER, replay_from INTEGER NOT NULL DEFAULT 0, background BOOLEAN NOT NULL DEFAULT 0, turn_output TEXT NOT NULL DEFAULT '', prompts_from INTEGER NOT NULL DEFAULT 0, title TEXT NOT NULL DEFAULT '', headline TEXT NOT NULL DEFAULT '', headline_at INTEGER NOT NULL DEFAULT 0, awaited BOOLEAN NOT NULL DEFAULT 0, latest_reply TEXT NOT NULL DEFAULT '', newest_reply_at INTEGER NOT NULL DEFAULT 0, first_prompt_text TEXT NOT NULL DEFAULT '', latest_request_id TEXT NOT NULL DEFAULT '', held BOOLEAN NOT NULL DEFAULT 0, host TEXT NOT NULL DEFAULT '');
 CREATE TABLE events (
     seq INTEGER PRIMARY KEY AUTOINCREMENT,
     session_id TEXT NOT NULL,
@@ -120,7 +120,7 @@ CREATE TABLE epics (
     phase TEXT NOT NULL,
     created INTEGER NOT NULL,
     changed INTEGER NOT NULL
-, paused INTEGER NOT NULL DEFAULT 0, parked TEXT NOT NULL DEFAULT '', retried INTEGER NOT NULL DEFAULT 0, base TEXT NOT NULL DEFAULT '', branch TEXT NOT NULL DEFAULT '' CHECK (branch IN ('', 'creating', 'created')), workflow TEXT NOT NULL DEFAULT '', workflow_text TEXT NOT NULL DEFAULT '', workflow_sha256 TEXT NOT NULL DEFAULT '', pause_source TEXT NOT NULL DEFAULT '' CHECK (pause_source IN ('', 'owner', 'limit')), stored_base TEXT NOT NULL DEFAULT '', candidate TEXT NOT NULL DEFAULT '', summary TEXT NOT NULL DEFAULT '', phase_at INTEGER NOT NULL DEFAULT 0, report_phase TEXT NOT NULL DEFAULT '', report_shipped TEXT NOT NULL DEFAULT '[]', report_not_shipped TEXT NOT NULL DEFAULT '[]', report_why TEXT NOT NULL DEFAULT '', closed_by TEXT NOT NULL DEFAULT '', superseded_by TEXT NOT NULL DEFAULT '', park_class TEXT NOT NULL DEFAULT '', synced TEXT NOT NULL DEFAULT '', origin_read_base TEXT NOT NULL DEFAULT '', origin_read_commit TEXT NOT NULL DEFAULT '', origin_read_state TEXT NOT NULL DEFAULT '', origin_read_at INTEGER NOT NULL DEFAULT 0, steerer TEXT NOT NULL DEFAULT '', host TEXT NOT NULL DEFAULT '');
+, paused INTEGER NOT NULL DEFAULT 0, parked TEXT NOT NULL DEFAULT '', retried INTEGER NOT NULL DEFAULT 0, base TEXT NOT NULL DEFAULT '', branch TEXT NOT NULL DEFAULT '' CHECK (branch IN ('', 'creating', 'created')), workflow TEXT NOT NULL DEFAULT '', workflow_text TEXT NOT NULL DEFAULT '', workflow_sha256 TEXT NOT NULL DEFAULT '', pause_source TEXT NOT NULL DEFAULT '' CHECK (pause_source IN ('', 'owner', 'limit')), stored_base TEXT NOT NULL DEFAULT '', candidate TEXT NOT NULL DEFAULT '', summary TEXT NOT NULL DEFAULT '', phase_at INTEGER NOT NULL DEFAULT 0, report_phase TEXT NOT NULL DEFAULT '', report_shipped TEXT NOT NULL DEFAULT '[]', report_not_shipped TEXT NOT NULL DEFAULT '[]', report_why TEXT NOT NULL DEFAULT '', closed_by TEXT NOT NULL DEFAULT '', superseded_by TEXT NOT NULL DEFAULT '', park_class TEXT NOT NULL DEFAULT '', steerer TEXT NOT NULL DEFAULT '', host TEXT NOT NULL DEFAULT '');
 CREATE TABLE epic_failures (
     epic TEXT NOT NULL,
     position INTEGER NOT NULL,
@@ -522,7 +522,7 @@ CREATE TABLE planner_actions (
     undo_none TEXT NOT NULL DEFAULT '[]',
     reason TEXT NOT NULL,
     state TEXT NOT NULL CHECK (state IN ('pending', 'taken', 'refused')),
-    refusal TEXT NOT NULL DEFAULT '', park INTEGER NOT NULL DEFAULT 0, requirement TEXT NOT NULL DEFAULT '', item TEXT NOT NULL DEFAULT '', deliverable TEXT NOT NULL DEFAULT '', files TEXT NOT NULL DEFAULT '[]', remove_files TEXT NOT NULL DEFAULT '[]', reviewer TEXT NOT NULL DEFAULT '',
+    refusal TEXT NOT NULL DEFAULT '', park INTEGER NOT NULL DEFAULT 0, requirement TEXT NOT NULL DEFAULT '', item TEXT NOT NULL DEFAULT '', deliverable TEXT NOT NULL DEFAULT '', files TEXT NOT NULL DEFAULT '[]', remove_files TEXT NOT NULL DEFAULT '[]', reviewer TEXT NOT NULL DEFAULT '', split_tasks TEXT NOT NULL DEFAULT '[]',
     PRIMARY KEY (epic, turn, position)
 );
 CREATE INDEX planner_actions_state ON planner_actions (state, epic, turn, position);
@@ -797,21 +797,6 @@ CREATE TABLE closure_verdicts (
     why TEXT NOT NULL,
     at INTEGER NOT NULL
 );
-CREATE TABLE integrate_rounds (
-    epic TEXT NOT NULL,
-    path TEXT NOT NULL,
-    attempt INTEGER NOT NULL,
-    task INTEGER NOT NULL,
-    round INTEGER NOT NULL,
-    step TEXT NOT NULL,
-    verdict TEXT NOT NULL CHECK (verdict IN ('merged', 'clash', 'ended')),
-    head TEXT NOT NULL DEFAULT '',
-    explanation TEXT NOT NULL DEFAULT '',
-    outcome TEXT NOT NULL DEFAULT '' CHECK (outcome IN ('', 'composed', 'failed')),
-    failure TEXT NOT NULL DEFAULT '',
-    created INTEGER NOT NULL,
-    PRIMARY KEY (epic, path, attempt, task, round)
-);
 CREATE TABLE epic_tasks (
     epic TEXT NOT NULL,
     seq INTEGER NOT NULL,
@@ -849,7 +834,7 @@ CREATE TABLE epic_tasks (
     generation INTEGER NOT NULL DEFAULT 0,
     depends_on TEXT NOT NULL DEFAULT '',
     kind TEXT NOT NULL DEFAULT '' CHECK (kind IN ('', 'design')),
-    revises INTEGER NOT NULL DEFAULT 0,
+    revises INTEGER NOT NULL DEFAULT 0, split_from INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (epic, seq)
 );
 CREATE VIEW step_listings AS
@@ -931,8 +916,42 @@ CREATE TABLE route_bindings (
     seat TEXT NOT NULL,
     PRIMARY KEY (context, scope, selector)
 );
+CREATE TABLE integrate_rounds (
+    epic TEXT NOT NULL,
+    path TEXT NOT NULL,
+    attempt INTEGER NOT NULL,
+    task INTEGER NOT NULL,
+    round INTEGER NOT NULL,
+    step TEXT NOT NULL,
+    verdict TEXT NOT NULL CHECK (verdict IN ('merged', 'clash', 'ended', 'blocked')),
+    head TEXT NOT NULL DEFAULT '',
+    explanation TEXT NOT NULL DEFAULT '',
+    outcome TEXT NOT NULL DEFAULT '' CHECK (outcome IN ('', 'composed', 'failed', 'passed', 'skipped')),
+    failure TEXT NOT NULL DEFAULT '',
+    created INTEGER NOT NULL,
+    PRIMARY KEY (epic, path, attempt, task, round)
+);
+CREATE TABLE epic_task_test_runs (
+    epic TEXT NOT NULL,
+    task INTEGER NOT NULL,
+    generation INTEGER NOT NULL,
+    attempt INTEGER NOT NULL,
+    review INTEGER NOT NULL,
+    position INTEGER NOT NULL,
+    command TEXT NOT NULL,
+    revision TEXT NOT NULL,
+    step TEXT NOT NULL DEFAULT '',
+    output TEXT NOT NULL DEFAULT '',
+    PRIMARY KEY (epic, task, generation, attempt, review, position)
+);
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (1,0,1);
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (10,9,1);
+INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (100,99,1);
+INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (101,100,1);
+INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (102,101,1);
+INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (103,102,1);
+INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (104,103,1);
+INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (105,104,1);
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (11,10,1);
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (12,11,1);
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (13,12,1);

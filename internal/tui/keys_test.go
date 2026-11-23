@@ -844,7 +844,9 @@ func (a *actionTree) start(tty string) *treeRun {
 	return run
 }
 
-// keyBytes returns the terminal bytes for a key name: a special key or one literal character.
+// keyBytes returns the terminal bytes for a key name: a special key or one literal character. esc is CSI 27 u, not a
+// lone ESC: the reader holds a lone ESC for its escape timeout and merges it with the next key, while CSI 27 u decodes
+// as esc at once.
 func keyBytes(name string) string {
 	switch name {
 	case "down":
@@ -852,7 +854,7 @@ func keyBytes(name string) string {
 	case "up":
 		return "\x1b[A"
 	case "esc":
-		return "\x1b"
+		return "\x1b[27u"
 	case "enter":
 		return "\r"
 	}
@@ -870,8 +872,8 @@ func (r *treeRun) send(keys ...string) {
 }
 
 // sendRendered sends key and waits until the tree has written output after it. A key the tree reads redraws the
-// frame, so the new output shows the key was read on its own, and a key sent next is not read together with it. Only
-// a key that changes the frame can be sent this way.
+// frame, but so does the reload tick, so the new output does not show the key was read on its own, and a key sent
+// next is not read together with it. Only a key that changes the frame can be sent this way.
 func (r *treeRun) sendRendered(key string) {
 	r.t.Helper()
 	mark := r.out.Len()

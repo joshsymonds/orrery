@@ -157,12 +157,12 @@ func hasLine(failures []string, prefix string) bool {
 	return slices.ContainsFunc(failures, func(line string) bool { return strings.HasPrefix(line, prefix) })
 }
 
-// TestReleaseConflictStartsIntegratorWithMergeInProgress: a merge of origin's commit that conflicts records the
+// TestEpicBaseReleaseConflictStartsIntegratorWithMergeInProgress: a merge of origin's commit that conflicts records the
 // conflict, origin's commit and its branch, and no candidate or revision, and does not stop the release. It starts the
 // release integrator as an unowned writing step, labeled with the epic and the run's path, in a worktree that holds the
 // merge in progress at the tip with zdiff3 conflicts. Its role file names no integrator, so it runs under the release
 // agent. Its prompt is the role text, then each section in order.
-func TestReleaseConflictStartsIntegratorWithMergeInProgress(t *testing.T) {
+func TestEpicBaseReleaseConflictStartsIntegratorWithMergeInProgress(t *testing.T) {
 	t.Parallel()
 	w := newConflictWorld(t)
 	w.pass()

@@ -6,15 +6,17 @@ import (
 
 	"github.com/joshsymonds/orrery/internal/hostexec"
 	"github.com/joshsymonds/orrery/internal/hostexec/hostexectest"
-	"github.com/joshsymonds/orrery/internal/kinds"
+	"github.com/joshsymonds/orrery/internal/store"
 )
 
-// newHostRoutingSync returns a sync world whose epic lives on host b, and the recorders of hosts a and b, which the
-// world's Runner resolves by those names. It drives the sync's prepare on origin's main once, so the git the sync runs
-// has been made. origin's main is the epic's stored base, so the sync finds origin's commit held.
-func newHostRoutingSync(t *testing.T) (*syncWorld, *hostexectest.Recorder, *hostexectest.Recorder) {
+// newHostRoutingRelease returns a release world whose epic lives on host b, and the recorders of hosts a and b, which
+// the world's Runner resolves by those names. It decides the release prepare of the epic once, so the git the prepare
+// runs has been made. origin's main is an ancestor of the epic's tip, so the prepare finds the tip not behind.
+func newHostRoutingRelease(t *testing.T) (*releaseWorld, *hostexectest.Recorder, *hostexectest.Recorder) {
 	t.Helper()
-	w := newSyncWorld(t)
+	w := newMergeWorld(t)
+	mergeRemote(t, w.repo)
+	tip := nodeEpicBranch(t, w.repo, "epic.txt")
 	if err := w.s.AdoptHost(t.Context(), "b"); err != nil {
 		t.Fatalf("AdoptHost: %v", err)
 	}
@@ -23,12 +25,12 @@ func newHostRoutingSync(t *testing.T) (*syncWorld, *hostexectest.Recorder, *host
 	cfg := nodeConfig(w.s, w.fakes)
 	cfg.Hosts = hostexec.Map{"a": recA, "b": recB}
 	w.runner = New(cfg)
-	var result kinds.SyncResult
-	if err := w.runner.mergeMain(t.Context(), epicOf(t, w.s), Action{}, &result); err != nil {
-		t.Fatalf("mergeMain: %v", err)
+	result, err := w.runner.decideRelease(t.Context(), epicOf(t, w.s), store.NodeRun{})
+	if err != nil {
+		t.Fatalf("decideRelease: %v", err)
 	}
-	if !result.Contained {
-		t.Fatalf("mergeMain = %+v, want origin's main held by the stored base", result)
+	if result.Behind || result.Candidate != tip {
+		t.Fatalf("decideRelease = %+v, want the tip %s, not behind origin's main", result, tip)
 	}
 	return w, recA, recB
 }
@@ -41,14 +43,15 @@ func hasGitCall(calls []hostexectest.Call, dir string, args ...string) bool {
 	})
 }
 
-// TestEpicHostRoutingInterpret covers the routing of interpret's own git to the host the epic names: a sync of origin's
-// main runs its git on host b, the host the epic lives on, and host a, which the epic does not name, sees no call.
+// TestEpicHostRoutingInterpret covers the routing of interpret's own git to the host the epic names: a release's
+// prepare reads origin's main on host b, the host the epic lives on, and host a, which the epic does not name, sees no
+// call.
 func TestEpicHostRoutingInterpret(t *testing.T) {
 	t.Run("interpret git goes to b", func(t *testing.T) {
-		w, recA, recB := newHostRoutingSync(t)
+		w, recA, recB := newHostRoutingRelease(t)
 		calls := recB.Calls()
 		for _, args := range [][]string{
-			{"remote"}, {"ls-remote"}, {"fetch"}, {"merge-base", "--is-ancestor"},
+			{"ls-remote"}, {"fetch"}, {"merge-base", "--is-ancestor"},
 		} {
 			if !hasGitCall(calls, w.repo, args...) {
 				t.Errorf("host b recorded no %v in %s: %v", args, w.repo, calls)

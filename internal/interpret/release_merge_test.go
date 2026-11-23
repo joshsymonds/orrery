@@ -94,10 +94,10 @@ func TestReleasePrepareNotBehindRecordsTipAsCandidate(t *testing.T) {
 	}
 }
 
-// TestReleasePrepareBehindPinsTwoParentMerge: origin's main has a commit the tip lacks, so the candidate is a merge of
+// TestEpicBaseReleasePrepareBehindPinsTwoParentMerge: origin's main has a commit the tip lacks, so the candidate is a merge of
 // the tip and origin's commit that holds both sides. It is pinned under the run's release ref, and no ref outside
 // refs/orrery moves: not a branch, origin's remote-tracking refs, HEAD or the checkout.
-func TestReleasePrepareBehindPinsTwoParentMerge(t *testing.T) {
+func TestEpicBaseReleasePrepareBehindPinsTwoParentMerge(t *testing.T) {
 	t.Parallel()
 	w := newMergeWorld(t)
 	repo := w.repo

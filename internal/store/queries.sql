@@ -62,7 +62,10 @@ WHERE sessions.kind = 'engine'
   AND sessions.id NOT IN (SELECT value FROM json_each(sqlc.arg(live)));
 
 -- name: InsertEngineSession :exec
-INSERT INTO sessions (id, server, pane, kind, dir, state, changed) VALUES (?, '', '', ?, ?, ?, ?);
+INSERT INTO sessions (id, server, pane, kind, dir, state, changed, host) VALUES (?, '', '', ?, ?, ?, ?, ?);
+
+-- name: NameUnhostedSessions :execrows
+UPDATE sessions SET host = sqlc.arg(host) WHERE host = '';
 
 -- name: GetEngineSession :one
 SELECT * FROM sessions WHERE id = ? AND kind IN ('engine', 'step');
@@ -169,7 +172,7 @@ ORDER BY MAX(known.at) DESC, known.dir;
 -- name: ListHeadlessSessions :many
 SELECT
     sessions.id, sessions.dir, sessions.state, sessions.changed, sessions.seen, sessions.question, sessions.reason,
-    sessions.title, sessions.headline,
+    sessions.title, sessions.headline, sessions.host,
     sessions.latest_reply AS reply,
     sessions.newest_reply_at AS newest_reply,
     sessions.first_prompt_text AS first_prompt,
@@ -181,7 +184,7 @@ ORDER BY sessions.id;
 
 -- name: UpdateEngineSession :execrows
 UPDATE sessions
-SET state = ?, changed = ?, seen = ?, question = ?, claude_session = ?, reason = ?
+SET state = ?, changed = ?, seen = ?, question = ?, claude_session = ?, reason = ?, held = ?
 WHERE id = ? AND kind IN ('engine', 'step');
 
 -- name: SetSessionLatestReply :exec
@@ -668,14 +671,11 @@ WHERE id = sqlc.arg(id) AND phase = sqlc.arg(report_phase) AND report_phase <> s
 -- name: MoveEpicStoredBase :exec
 UPDATE epics SET stored_base = ?, candidate = '' WHERE id = ?;
 
--- name: SyncEpicStoredBase :exec
-UPDATE epics SET stored_base = ?, candidate = '', synced = ? WHERE id = ?;
-
--- name: SetEpicOriginRead :exec
-UPDATE epics
-SET origin_read_base = sqlc.arg(base), origin_read_commit = sqlc.arg(commit), origin_read_state = sqlc.arg(state),
-    origin_read_at = sqlc.arg(at)
-WHERE id = sqlc.arg(id);
+-- name: MoveEpicBase :execrows
+UPDATE epics SET base = sqlc.arg(to_base), stored_base = sqlc.arg(to_base)
+WHERE epics.id = sqlc.arg(id) AND epics.base = sqlc.arg(from_base) AND epics.stored_base = sqlc.arg(from_base)
+    AND epics.branch = '' AND epics.candidate = ''
+    AND NOT EXISTS (SELECT 1 FROM epic_tasks WHERE epic_tasks.epic = epics.id);
 
 -- name: SetEpicCandidate :exec
 UPDATE epics SET candidate = ? WHERE id = ?;
@@ -1005,6 +1005,9 @@ DELETE FROM epic_task_files WHERE epic = ? AND task = ? AND path = ?;
 -- name: InsertEpicTaskRequirement :exec
 INSERT INTO epic_task_requirements (epic, task, position, requirement) VALUES (?, ?, ?, ?);
 
+-- name: DeleteEpicTaskRequirements :exec
+DELETE FROM epic_task_requirements WHERE epic = ? AND task = ?;
+
 -- name: InsertEpicTaskContribute :exec
 INSERT INTO epic_task_contributes (epic, task, position, requirement) VALUES (?, ?, ?, ?);
 
@@ -1048,6 +1051,12 @@ WHERE epic_tasks.epic = sqlc.arg(epic) AND epic_tasks.seq = sqlc.arg(seq) AND ep
     )
 );
 
+-- name: SetEpicTaskSplitFrom :exec
+UPDATE epic_tasks SET split_from = sqlc.arg(split_from) WHERE epic = sqlc.arg(epic) AND seq = sqlc.arg(seq);
+
+-- name: SetEpicTaskDependsOn :exec
+UPDATE epic_tasks SET depends_on = sqlc.arg(depends_on) WHERE epic = sqlc.arg(epic) AND seq = sqlc.arg(seq);
+
 -- name: InsertEpicTaskReview :exec
 INSERT INTO epic_task_reviews (epic, task, generation, attempt, position, gate, step, verdict)
 VALUES (
@@ -1084,6 +1093,25 @@ WHERE epic_task_findings.epic = sqlc.arg(epic) AND epic_task_findings.task = sql
   AND epic_task_findings.generation = (
       SELECT tasks.generation FROM epic_tasks AS tasks
       WHERE tasks.epic = epic_task_findings.epic AND tasks.seq = epic_task_findings.task
+  );
+
+-- name: InsertEpicTaskTestRun :exec
+INSERT INTO epic_task_test_runs (epic, task, generation, attempt, review, position, command, revision)
+VALUES (
+    sqlc.arg(epic), sqlc.arg(task),
+    (SELECT tasks.generation FROM epic_tasks AS tasks WHERE tasks.epic = sqlc.arg(epic) AND tasks.seq = sqlc.arg(task)),
+    sqlc.arg(attempt), sqlc.arg(review), sqlc.arg(position), sqlc.arg(command), sqlc.arg(revision)
+);
+
+-- name: SetEpicTaskTestRunResult :execrows
+UPDATE epic_task_test_runs
+SET step = sqlc.arg(step), output = sqlc.arg(output)
+WHERE epic_task_test_runs.epic = sqlc.arg(epic) AND epic_task_test_runs.task = sqlc.arg(task)
+  AND epic_task_test_runs.attempt = sqlc.arg(attempt) AND epic_task_test_runs.review = sqlc.arg(review)
+  AND epic_task_test_runs.position = sqlc.arg(position) AND epic_task_test_runs.step = ''
+  AND epic_task_test_runs.generation = (
+      SELECT tasks.generation FROM epic_tasks AS tasks
+      WHERE tasks.epic = epic_task_test_runs.epic AND tasks.seq = epic_task_test_runs.task
   );
 
 -- name: MaxEpicQuestionSeq :one
@@ -1167,6 +1195,13 @@ WHERE findings.epic = ? AND findings.generation = (
     SELECT tasks.generation FROM epic_tasks AS tasks WHERE tasks.epic = findings.epic AND tasks.seq = findings.task
 )
 ORDER BY findings.task, findings.attempt, findings.review, findings.position;
+
+-- name: ListEpicTaskTestRuns :many
+SELECT * FROM epic_task_test_runs AS runs
+WHERE runs.epic = ? AND runs.generation = (
+    SELECT tasks.generation FROM epic_tasks AS tasks WHERE tasks.epic = runs.epic AND tasks.seq = runs.task
+)
+ORDER BY runs.task, runs.attempt, runs.review, runs.position;
 
 -- name: InsertEpicTaskVersion :exec
 INSERT INTO epic_task_versions (
@@ -1532,9 +1567,9 @@ SELECT epic, at FROM epic_seen;
 -- name: InsertPlannerAction :exec
 INSERT INTO planner_actions (
     epic, turn, position, kind, node, task, close_kind, by_epic, undo_none, reason, state, refusal, requirement, item,
-    deliverable, files, remove_files, reviewer
+    deliverable, files, remove_files, reviewer, split_tasks
 )
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', '', ?, ?, ?, ?, ?, ?);
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', '', ?, ?, ?, ?, ?, ?, ?);
 
 -- name: ListPendingPlannerActions :many
 SELECT * FROM planner_actions WHERE state = 'pending' ORDER BY epic, turn, position;

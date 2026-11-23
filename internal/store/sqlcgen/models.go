@@ -136,11 +136,6 @@ type Epic struct {
 	ClosedBy         string
 	SupersededBy     string
 	ParkClass        string
-	Synced           string
-	OriginReadBase   string
-	OriginReadCommit string
-	OriginReadState  string
-	OriginReadAt     int64
 	Steerer          string
 	Host             string
 }
@@ -516,6 +511,7 @@ type EpicTask struct {
 	DependsOn   string
 	Kind        string
 	Revises     int64
+	SplitFrom   int64
 }
 
 type EpicTaskContribute struct {
@@ -607,6 +603,19 @@ type EpicTaskTestChange struct {
 	Task     int64
 	Position int64
 	Path     string
+}
+
+type EpicTaskTestRun struct {
+	Epic       string
+	Task       int64
+	Generation int64
+	Attempt    int64
+	Review     int64
+	Position   int64
+	Command    string
+	Revision   string
+	Step       string
+	Output     string
 }
 
 type EpicTaskVersion struct {
@@ -839,6 +848,7 @@ type PlannerAction struct {
 	Files       string
 	RemoveFiles string
 	Reviewer    string
+	SplitTasks  string
 }
 
 type PlannerUnresolvable struct {
@@ -954,6 +964,8 @@ type Session struct {
 	NewestReplyAt   int64
 	FirstPromptText string
 	LatestRequestID string
+	Held            bool
+	Host            string
 }
 
 type Step struct {

@@ -263,10 +263,10 @@ func TestReleaseRedDoneGateOnBehindCandidateStopsRelease(t *testing.T) {
 	}
 }
 
-// TestReleaseGatedCandidateIsRecordedThenStepStarts: a candidate records as a passed candidate run of its attempt, from
+// TestEpicBaseReleaseGatedCandidateIsRecordedThenStepStarts: a candidate records as a passed candidate run of its attempt, from
 // the tip it was made from. A candidate behind the target records once its Done gate has passed, with itself as its
 // commit. The release then starts its first step at the candidate.
-func TestReleaseGatedCandidateIsRecordedThenStepStarts(t *testing.T) {
+func TestEpicBaseReleaseGatedCandidateIsRecordedThenStepStarts(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
 		name   string
