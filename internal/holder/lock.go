@@ -22,7 +22,19 @@ func Lock(path string) (*os.File, error) {
 	if err != nil {
 		return nil, fmt.Errorf("holder: open lock %s: %w", path, err)
 	}
-	if err = syscall.Flock(int(file.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+	return takeLock(file, path)
+}
+
+// openLock opens the session's lock file at path without creating it. A lock file that does not exist is reported
+// as fs.ErrNotExist, so a probe that opens it never recreates a lock that is gone.
+func openLock(path string) (*os.File, error) {
+	return os.OpenFile(filepath.Clean(path), os.O_RDWR, 0)
+}
+
+// takeLock takes an exclusive, non-blocking flock on file, the open session lock at path. When another open file
+// holds the lock, takeLock closes file and returns ErrLocked. Any other failure closes file too.
+func takeLock(file *os.File, path string) (*os.File, error) {
+	if err := syscall.Flock(int(file.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
 		closeErr := file.Close()
 		if errors.Is(err, syscall.EWOULDBLOCK) {
 			return nil, errors.Join(ErrLocked, closeErr)

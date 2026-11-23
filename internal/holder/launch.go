@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -274,7 +273,8 @@ func discard(out io.ReadCloser) {
 }
 
 // Live reports whether a holder holds the session in dir, which is whether the session's lock is held. A dir that does
-// not exist has no holder.
+// not exist has no holder, and neither does a dir whose lock file is missing: Live reports it not held and never creates
+// the lock file.
 func Live(dir string) (bool, error) {
 	present, err := dirPresent(dir)
 	if err != nil || !present {
@@ -284,13 +284,10 @@ func Live(dir string) (bool, error) {
 }
 
 // Ended waits until no holder holds the session in dir, then returns the exit record the holder wrote there, and whether
-// it wrote one. A dir with no session lock has no holder, so Ended returns ErrGone for it. It gives up when ctx ends first.
+// it wrote one. A dir with no session lock has no holder, so Ended returns ErrGone for it, and so does a lock file that is
+// removed while Ended waits. Ended never creates the lock file. It gives up when ctx ends first.
 func Ended(ctx context.Context, dir string) (Exit, bool, error) {
-	path := filepath.Join(dir, LockName)
-	if _, err := os.Stat(path); errors.Is(err, fs.ErrNotExist) {
-		return Exit{}, false, ErrGone
-	}
-	lock, err := awaitLock(ctx, path)
+	lock, err := awaitExistingLock(ctx, filepath.Join(dir, LockName))
 	if err != nil {
 		return Exit{}, false, fmt.Errorf("holder: wait for %s: %w", dir, err)
 	}
