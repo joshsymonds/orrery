@@ -2038,7 +2038,16 @@ WHERE edges.contract = ?
 ORDER BY edges.after;
 
 -- name: ListHeldEpics :many
-SELECT id, repository, host FROM epics WHERE phase = 'held' ORDER BY created, id;
+SELECT epics.id, epics.repository, epics.host,
+       CAST(COALESCE((
+           SELECT held.seq FROM epic_questions AS held
+           WHERE held.epic = epics.id AND held.label = 'held' ORDER BY held.seq DESC LIMIT 1
+       ), 0) AS INTEGER) AS question,
+       CAST(COALESCE((
+           SELECT held.choice FROM epic_questions AS held
+           WHERE held.epic = epics.id AND held.label = 'held' ORDER BY held.seq DESC LIMIT 1
+       ), '') AS TEXT) AS answer
+FROM epics WHERE epics.phase = 'held' ORDER BY epics.created, epics.id;
 
 -- name: StartHeldEpic :execrows
 UPDATE epics SET base = sqlc.arg(base), stored_base = sqlc.arg(base), phase = 'accepted', phase_at = sqlc.arg(at)

@@ -939,6 +939,7 @@ func (s *Store) AnswerQuestion(
 // question. An answer to a park question for a red run judged holding at base carries out its choice, as
 // answerMetAtBase gives. An answered park question that is not final ends the park in the same write. An answer to a
 // gaps question carries out its choice in the same write, after the decision is appended, as answerGapsQuestion gives.
+// An answer to a held question carries out its choice in the same write too, as answerHeldQuestion gives.
 func recordQuestionAnswer(
 	ctx context.Context,
 	queries *sqlcgen.Queries,
@@ -980,6 +981,10 @@ func recordQuestionAnswer(
 		return EpicDecision{}, err
 	}
 	err = answerGapsQuestion(ctx, queries, epic, id, text, answered, choice, maker, at)
+	if err != nil {
+		return EpicDecision{}, err
+	}
+	err = answerHeldQuestion(ctx, queries, epic, choice, answered, at)
 	if err != nil {
 		return EpicDecision{}, err
 	}

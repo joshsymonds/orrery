@@ -39,9 +39,6 @@ var ErrDesignCycle = errors.New("starts-after edges form a cycle")
 // ErrNotHeld reports that an epic a held-epic call names is not held.
 var ErrNotHeld = errors.New("epic not held")
 
-// errNotImplemented is what each design stub returns until its implementing task fills it in.
-var errNotImplemented = errors.New("not implemented")
-
 // Design is one design as its record holds it: its id, its title, the sessions row that wrote it and when it was made.
 type Design struct {
 	ID, Title, Conversation string
@@ -462,7 +459,9 @@ func readHeldEpics(ctx context.Context, queries *sqlcgen.Queries) ([]HeldEpic, e
 		if listErr != nil {
 			return nil, fmt.Errorf("list predecessors of held epic %s: %w", row.ID, listErr)
 		}
-		epic := HeldEpic{ID: row.ID, Repository: row.Repository, Host: row.Host}
+		epic := HeldEpic{
+			ID: row.ID, Repository: row.Repository, Host: row.Host, Question: row.Question, Answer: row.Answer,
+		}
 		for _, predecessor := range predecessors {
 			epic.Predecessors = append(epic.Predecessors, HeldPredecessor{
 				Contract: predecessor.Contract, ContractState: predecessor.State, EpicPhase: predecessor.EpicPhase,
@@ -510,12 +509,4 @@ func heldEpicRefusal(ctx context.Context, queries *sqlcgen.Queries, id string) e
 		return fmt.Errorf("epic %s: %w", id, ErrNoEpic)
 	}
 	return fmt.Errorf("epic %s: %w", id, ErrNotHeld)
-}
-
-// AskHeldEpic opens, at the given time, a question of the held epic with the given text as its text, labeled HeldLabel
-// and offering ChoiceStart and ChoiceClose. This is a stub: the task that implements held epics fills it in to this
-// contract. It returns an error that matches ErrNoEpic when no epic has the id, and ErrNotHeld when the epic is not
-// held.
-func (s *Store) AskHeldEpic(_ context.Context, _, _ string, _ time.Time) error {
-	return errNotImplemented
 }
