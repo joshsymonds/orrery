@@ -231,11 +231,11 @@ class InboxTreeTest {
         assertEquals("repo:lighthouse-abc1234", project.key)
         assertEquals("lighthouse", project.name)
         assertEquals("", project.path)
-        assertEquals("standin:unlisted:repo:lighthouse-abc1234", project.convos.single().key)
+        assertEquals("epic:e1", project.convos.single().key)
     }
 
-    // R2: each epic hangs under the conversation it steers, each contract under the one that wrote it, and a stand-in
-    // row holds what has no listed conversation.
+    // R2: each epic hangs under the conversation it steers, each contract under the one that wrote it, and what has no
+    // drawn conversation draws on its own row.
 
     @Test
     fun epicHangsUnderItsSteeringConversationAndNowhereElse() {
@@ -325,15 +325,16 @@ class InboxTreeTest {
     }
 
     @Test
-    fun aProposedContractOfAnArchivedConversationHangsUnderTheArchivedStandIn() {
+    fun aProposedContractOfAnArchivedConversationDrawsOnItsOwnRow() {
         val project = tree(
             panes = listOf(tmux("%1", "o1", "/home/user/repo")),
             archivedIds = setOf("o1"),
             contracts = listOf(contract("c1", conversation = "o1")),
         ).single()
-        val convo = project.convos.single()
-        assertEquals(StandIn.ARCHIVED, convo.standIn)
-        assertEquals(listOf("contract:c1"), convo.hung.map { it.key })
+        val own = project.convos.single()
+        assertEquals("contract:c1", own.key)
+        assertEquals(null, own.pane)
+        assertEquals(listOf("contract:c1"), own.hung.map { it.key })
     }
 
     @Test
@@ -347,12 +348,12 @@ class InboxTreeTest {
     }
 
     @Test
-    fun aStandInHoldingAProposedContractRanksFirstByItsNewestHungThing() {
+    fun anOwnRowHoldingAProposedContractRanksFirstByItsNewestHungThing() {
         val project = tree(
             panes = listOf(tmux("%1", "o1", "/home/user/repo", changed = 500L)),
             contracts = listOf(contract("c1", conversation = "gone", changed = 50L)),
         ).single()
-        assertEquals(listOf("standin:unlisted:|/home/user/repo", "pane:laptop:%1"), project.convos.map { it.key })
+        assertEquals(listOf("contract:c1", "pane:laptop:%1"), project.convos.map { it.key })
     }
 
     @Test
@@ -381,39 +382,38 @@ class InboxTreeTest {
     }
 
     @Test
-    fun liveEpicWithNoSteererOrAMissingConversationHangsUnderTheUnlistedStandIn() {
-        val projects = tree(
+    fun liveEpicWithNoSteererOrAMissingConversationDrawsOnItsOwnRow() {
+        val project = tree(
             epics = listOf(epic("e1", steering = ""), epic("e2", steering = "gone")),
-        )
-        val convo = projects.single().convos.single()
-        assertEquals("standin:unlisted:|/home/user/repo", convo.key)
-        assertEquals(StandIn.UNLISTED, convo.standIn)
-        assertEquals(null, convo.pane)
-        assertEquals(listOf("epic:e1", "epic:e2"), convo.hung.map { it.key })
+        ).single()
+        assertEquals(listOf("epic:e1", "epic:e2"), project.convos.map { it.key })
+        assertTrue(project.convos.all { it.pane == null })
+        assertEquals(listOf(listOf("epic:e1"), listOf("epic:e2")), project.convos.map { convo -> convo.hung.map { it.key } })
     }
 
     @Test
-    fun contractWithNoListedConversationHangsInItsRepositoryCardUnderTheUnlistedStandIn() {
-        val projects = tree(
+    fun contractWithNoListedConversationDrawsOnItsOwnRowInItsRepositoryCard() {
+        val project = tree(
             contracts = listOf(contract("c1", conversation = "", repository = "lighthouse")),
-        )
-        val project = projects.single()
+        ).single()
         assertEquals("repo:lighthouse", project.key)
-        assertEquals(listOf("contract:c1"), project.convos.single().hung.map { it.key })
-        assertEquals(StandIn.UNLISTED, project.convos.single().standIn)
+        val own = project.convos.single()
+        assertEquals("contract:c1", own.key)
+        assertEquals(null, own.pane)
+        assertEquals(listOf("contract:c1"), own.hung.map { it.key })
     }
 
     @Test
-    fun liveEpicUnderAnArchivedConversationHangsUnderTheArchivedStandIn() {
+    fun liveEpicUnderAnArchivedConversationDrawsOnItsOwnRow() {
         val project = tree(
             panes = listOf(tmux("%1", "o1", "/home/user/repo")),
             archivedIds = setOf("o1"),
             epics = listOf(epic("e1", steering = "o1")),
         ).single()
-        val convo = project.convos.single()
-        assertEquals("standin:archived:|/home/user/repo", convo.key)
-        assertEquals(StandIn.ARCHIVED, convo.standIn)
-        assertEquals(listOf("epic:e1"), convo.hung.map { it.key })
+        val own = project.convos.single()
+        assertEquals("epic:e1", own.key)
+        assertEquals(null, own.pane)
+        assertEquals(listOf("epic:e1"), own.hung.map { it.key })
     }
 
     @Test
@@ -610,12 +610,13 @@ class InboxTreeTest {
     }
 
     @Test
-    fun endedEpicWithNoSteererSitsBehindTheEndedLineUnderTheUnlistedStandIn() {
+    fun endedEpicWithNoSteererSitsBehindTheEndedLineOnItsOwnRow() {
         val project = tree(epics = listOf(epic("e1", steering = "", live = false))).single()
         assertTrue(project.convos.isEmpty())
-        val parent = project.ended.single()
-        assertEquals(StandIn.UNLISTED, parent.standIn)
-        assertEquals(listOf("epic:e1"), parent.hung.map { it.key })
+        val own = project.ended.single()
+        assertEquals("epic:e1", own.key)
+        assertEquals(null, own.pane)
+        assertEquals(listOf("epic:e1"), own.hung.map { it.key })
     }
 
     @Test
@@ -632,14 +633,17 @@ class InboxTreeTest {
     }
 
     @Test
-    fun archivedViewDrawsAnArchivedEpicUnderItsLiveConversationAsItsParent() {
+    fun archivedViewDrawsAnArchivedEpicOnItsOwnRowNotUnderItsLiveConversation() {
         val panes = listOf(tmux("%2", "o2", "/home/user/repo"))
         val archived = tree(
             panes = panes,
             epics = listOf(epic("e3", steering = "o2", archived = true)),
             view = TreeView.ARCHIVED,
         ).single()
-        assertEquals(listOf("epic:e3"), archived.convo("pane:laptop:%2").hung.map { it.key })
+        val own = archived.convos.single()
+        assertEquals("epic:e3", own.key)
+        assertEquals(null, own.pane)
+        assertEquals(listOf("epic:e3"), own.hung.map { it.key })
         val inbox = tree(panes = panes, epics = listOf(epic("e3", steering = "o2", archived = true))).single()
         assertEquals(emptyList<Hung>(), inbox.convo("pane:laptop:%2").hung)
     }
@@ -664,18 +668,11 @@ class InboxTreeTest {
     @Test
     fun aConversationWaitsWhenItsRowWaitsOrAHungThingWaits() {
         val waitingPane = tmux("%1", "o1", "/home/user/repo", state = "waiting")
-        val waitingRow = Convo("pane:laptop:%1", waitingPane, StandIn.NONE, emptyList(), emptyList())
+        val waitingRow = Convo("pane:laptop:%1", waitingPane, emptyList(), emptyList())
         assertTrue(convoWaits(waitingRow))
-        val workingRow =
-            Convo("pane:laptop:%2", tmux("%2", "o2", "/home/user/repo"), StandIn.NONE, emptyList(), emptyList())
+        val workingRow = Convo("pane:laptop:%2", tmux("%2", "o2", "/home/user/repo"), emptyList(), emptyList())
         assertFalse(convoWaits(workingRow))
-        val standIn = Convo(
-            "standin:unlisted:|/home/user/repo",
-            null,
-            StandIn.UNLISTED,
-            listOf(ContractNode(contract("c1"))),
-            emptyList(),
-        )
-        assertTrue(convoWaits(standIn))
+        val ownRow = Convo("contract:c1", null, listOf(ContractNode(contract("c1"))), emptyList())
+        assertTrue(convoWaits(ownRow))
     }
 }

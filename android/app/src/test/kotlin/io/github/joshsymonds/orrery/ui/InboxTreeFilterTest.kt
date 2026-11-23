@@ -232,10 +232,10 @@ class InboxTreeFilterTest {
         assertEquals(0, countsOf(projects).waiting)
     }
 
-    // R2: a live epic or proposed contract whose conversation is archived hangs under the archived stand-in and counts.
+    // R2: a live epic or proposed contract whose conversation is archived draws on its own row and counts.
 
     @Test
-    fun countsWaitingCountsALiveEpicThatNeedsYouUnderAnArchivedStandIn() {
+    fun countsWaitingCountsALiveEpicThatNeedsYouOnItsOwnRowWhenItsConversationIsArchived() {
         val e = epic("e1", steering = "o1")
         val projects = tree(
             panes = listOf(pane("%1", "o1")),
@@ -243,23 +243,25 @@ class InboxTreeFilterTest {
             epics = listOf(e),
             details = mapOf("e1" to detail(e, parked = "held")),
         )
-        val convo = projects.single().convos.single()
-        assertEquals(StandIn.ARCHIVED, convo.standIn)
-        assertEquals(listOf("epic:e1"), convo.hung.map { it.key })
+        val own = projects.single().convos.single()
+        assertEquals("epic:e1", own.key)
+        assertEquals(null, own.pane)
+        assertEquals(listOf("epic:e1"), own.hung.map { it.key })
         assertEquals(1, countsOf(projects).waiting)
         assertEquals(1, projectWaiting(projects.single()))
     }
 
     @Test
-    fun countsWaitingCountsAProposedContractUnderAnArchivedStandIn() {
+    fun countsWaitingCountsAProposedContractOnItsOwnRowWhenItsConversationIsArchived() {
         val projects = tree(
             panes = listOf(pane("%1", "o1")),
             archivedIds = setOf("o1"),
             contracts = listOf(contract("c1", conversation = "o1")),
         )
-        val convo = projects.single().convos.single()
-        assertEquals(StandIn.ARCHIVED, convo.standIn)
-        assertEquals(listOf("contract:c1"), convo.hung.map { it.key })
+        val own = projects.single().convos.single()
+        assertEquals("contract:c1", own.key)
+        assertEquals(null, own.pane)
+        assertEquals(listOf("contract:c1"), own.hung.map { it.key })
         assertEquals(1, countsOf(projects).waiting)
         assertEquals(1, projectWaiting(projects.single()))
     }

@@ -46,9 +46,9 @@ internal fun epicRowWords(hung: Hung, now: Long): EpicRowWords = when (hung) {
         ?: epicWords(hung, now)
 }
 
-/** A conversation's second line at [now], in unix seconds; a stand-in row's words when it has no pane. */
+/** A conversation's second line at [now], in unix seconds; a row with no pane has none, its own row draws its thing. */
 internal fun convoLineOf(convo: Convo, now: Long): String {
-    val pane = convo.pane ?: return standInWords(convo.standIn)
+    val pane = convo.pane ?: return ""
     return when (pane.state) {
         "" -> TERMINAL_WORDS
         STATE_WAITING -> waitingLine(pane)
@@ -159,12 +159,6 @@ private fun workingLine(pane: Pane, now: Long): String {
 
 // A running tool's clock, minutes and seconds: "0:46", "12:05".
 private fun clockText(seconds: Long): String = "${seconds / 60}:${(seconds % 60).toString().padStart(2, '0')}"
-
-private fun standInWords(standIn: StandIn): String = when (standIn) {
-    StandIn.UNLISTED -> "its conversation is not listed"
-    StandIn.ARCHIVED -> "its conversation is archived"
-    StandIn.NONE -> ""
-}
 
 // An elapsed time since a stamp: "49 min" while live, "49 min ago" once ended. A stamp of zero reads none, and a clock
 // behind the stamp reads zero.
