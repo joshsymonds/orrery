@@ -15,7 +15,7 @@ import { type Epic, EpicSchema, type EpicsGetResponse, EpicsGetResponseSchema } 
 import type { Address } from "./router";
 import type { Row } from "./rows";
 import { type SeenClock, type SeenWindow } from "./seen";
-import { installTestDom, removeTestDom, teardownOnce } from "./testdom";
+import { assertNone, installTestDom, removeTestDom, teardownOnce } from "./testdom";
 import { turn, until } from "./testwait";
 
 // Each test's name carries the token ContractAddress: an address that names a contract draws the contract's conversation
@@ -297,9 +297,8 @@ test("ContractAddress: at the desk an open contract sets the panes to the held s
 test("ContractAddress: the held contract's card draws no Open in a new window link (D15)", (t) =>
   withApp(t.signal, 1600, { rows: [conversationRow()], address: contractAddress }, async ({ container }) => {
     await settle(t.signal, () => recordDrawn(container, "tide-alerts"), "the record is drawn in the card");
-    assert.equal(
-      panelOf(container, "tide-alerts")?.querySelector('a[aria-label="Open in a new window"]') ?? null,
-      null,
+    assertNone(
+      panelOf(container, "tide-alerts")?.querySelector('a[aria-label="Open in a new window"]'),
       "the card draws no link",
     );
   }));
@@ -361,7 +360,7 @@ test("ContractAddress: opening a contract moves the cursor onto its conversation
 test("ContractAddress: at a phone's width the contract is the page in the conversation's place, with no reader", (t) =>
   withApp(t.signal, 400, { rows: [conversationRow()], address: contractAddress }, async ({ container }) => {
     await settle(t.signal, () => recordDrawn(container), "the record is drawn");
-    assert.equal(panelOf(container, "tide-alerts"), null, "no panel is drawn beside the page");
+    assertNone(panelOf(container, "tide-alerts"), "no panel is drawn beside the page");
     assert.equal(readerShown(container), false, "no reader is drawn");
     await settle(t.signal, () => container.textContent?.includes(recordTitle) === true, "the record's title is drawn");
   }));

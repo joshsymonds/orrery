@@ -14,7 +14,7 @@ import type { Contract } from "./gen/orrery/v1/contracts_pb";
 import { type Epic, EpicSchema, type EpicsGetResponse, EpicsGetResponseSchema } from "./gen/orrery/v1/epics_pb";
 import type { Address } from "./router";
 import type { Row } from "./rows";
-import { installTestDom, removeTestDom, teardownOnce } from "./testdom";
+import { assertNone, installTestDom, removeTestDom, teardownOnce } from "./testdom";
 
 // Each test's name carries the token HeldLayout, FoldBack or OpenColour: HeldLayout is an opened epic or contract held as a
 // card set into its conversation, FoldBack is Fold back and the ] key, and OpenColour is the open colour the held thing and
@@ -238,7 +238,7 @@ test("HeldLayout: an opened epic is an article.held-card inside the conversation
     const children = [...held.children];
     assert.ok(children.indexOf(head) < children.indexOf(card), "the card comes after the head");
     assert.ok(children.indexOf(card) < children.indexOf(reader), "the card comes before the reader");
-    assert.equal(container.querySelector("aside.rpanel"), null, "no side panel draws the epic");
+    assertNone(container.querySelector("aside.rpanel"), "no side panel draws the epic");
   }));
 
 test("HeldLayout: a contract opens the same way, its card set into its conversation's column after the head and before the reader", (t) =>
@@ -257,7 +257,7 @@ test("HeldLayout: a contract opens the same way, its card set into its conversat
       const children = [...held.children];
       assert.ok(children.indexOf(head) < children.indexOf(card), "the card comes after the head");
       assert.ok(children.indexOf(card) < children.indexOf(reader), "the card comes before the reader");
-      assert.equal(container.querySelector("aside.rpanel"), null, "no side panel draws the contract");
+      assertNone(container.querySelector("aside.rpanel"), "no side panel draws the contract");
     },
   ));
 
@@ -272,21 +272,22 @@ test("HeldLayout: the head draws no work link while the epic is held", (t) =>
   mountApp(t.signal, desk, { rows: [steererRow()], epics: view([alpha]), address: steererAddress }, async ({ container, rerender }) => {
     assert.ok(container.querySelector(".convo-head .wlink") !== null, "before the epic is held the head names its work link");
     await rerender({ rows: [steererRow()], epics: view([alpha]), address: epicAddress("alpha") });
-    assert.equal(container.querySelector(".convo-head .wlink"), null, "held, the head names no work link");
+    assertNone(container.querySelector(".convo-head .wlink"), "held, the head names no work link");
   }));
 
 test("HeldLayout: the card's title row draws no back button, and its crumbs stay", (t) =>
   mountApp(t.signal, desk, { rows: [steererRow()], epics: view([alpha]), address: epicAddress("alpha") }, ({ container }) => {
     const titleRow = container.querySelector<HTMLElement>("article.held-card .title-row");
     assert.ok(titleRow !== null, "the card's page draws its title row");
-    assert.equal(titleRow.querySelector(".back"), null, "the title row draws no back button");
+    assertNone(titleRow.querySelector(".back"), "the title row draws no back button");
     assert.equal(titleRow.querySelector(".crumbs")?.textContent.includes("alpha"), true, "the crumbs name the epic");
   }));
 
-test("HeldLayout: between 760 and 1250 the inbox draws as its rail with the open mark, and the card is held", (t) =>
+test("HeldLayout: between 760 and 1250 the inbox draws as its rail with its neck and the open mark, and the card is held", (t) =>
   mountApp(t.signal, 1000, { rows: [steererRow()], epics: view([alpha]), address: epicAddress("alpha") }, ({ container }) => {
     assert.equal(container.querySelector(".panes")?.getAttribute("data-inbox"), "collapsed", "the inbox draws as its rail");
     assert.ok(container.querySelector("nav.rail") !== null, "the rail is drawn");
+    assert.ok(container.querySelector('.rail-lineage .lmark.lconv[data-held="convo"]') !== null, "the rail's conversation mark is its neck");
     assert.ok(container.querySelector('.rail-lineage .lmark.open[data-held="open"]') !== null, "the rail's open mark is drawn");
     assert.ok(container.querySelector('article.held-card[data-kind="epic"]') !== null, "the epic is held");
   }));
@@ -294,7 +295,7 @@ test("HeldLayout: between 760 and 1250 the inbox draws as its rail with the open
 test("FoldBack: a press on Fold back leaves the conversation alone with the cursor on its row, and no row is held", (t) =>
   mountApp(t.signal, desk, { rows: [steererRow()], epics: view([alpha]), address: epicAddress("alpha") }, async ({ container }) => {
     await press(foldBack(container));
-    assert.equal(container.querySelector("article.held-card"), null, "Fold back folds the card back");
+    assertNone(container.querySelector("article.held-card"), "Fold back folds the card back");
     assert.ok(container.querySelector(".reader") !== null, "the conversation's reader is still drawn");
     assert.equal(container.querySelector(".list .row.cur")?.getAttribute("data-key"), "session:s1", "the cursor rests on the conversation's row");
     assert.equal(container.querySelectorAll(".list [data-held]").length, 0, "no row of the tree is held");
@@ -303,7 +304,7 @@ test("FoldBack: a press on Fold back leaves the conversation alone with the curs
 test("FoldBack: ] folds the held card back, and ] again opens it", (t) =>
   mountApp(t.signal, desk, { rows: [steererRow()], epics: view([alpha]), address: epicAddress("alpha") }, async ({ container }) => {
     await pressKey("]");
-    assert.equal(container.querySelector("article.held-card"), null, "] folds the card back");
+    assertNone(container.querySelector("article.held-card"), "] folds the card back");
     await pressKey("]");
     assert.ok(container.querySelector('article.held-card[data-kind="epic"]') !== null, "] again opens the card");
   }));

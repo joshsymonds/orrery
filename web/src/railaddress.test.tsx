@@ -19,7 +19,7 @@ import {
 import { type HostStatusResponse, HostStatusResponseSchema } from "./gen/orrery/v1/orrery_pb";
 import type { Address } from "./router";
 import type { Row } from "./rows";
-import { installTestDom, removeTestDom, teardownOnce } from "./testdom";
+import { assertNone, installTestDom, removeTestDom, teardownOnce } from "./testdom";
 
 // Each test's name carries the token RailAddress, SidePanel or WorkLink: RailAddress is an epic's or a task's address
 // drawing its steerer's conversation beside the panel, SidePanel is the panel and the work link that opens it, and WorkLink
@@ -361,7 +361,7 @@ test("SidePanel: Close closes the panel and moves to the steerer's conversation,
     const close = container.querySelector<HTMLElement>('article.held-card button[aria-label="Fold back"]');
     assert.ok(close !== null, "the card has a Fold back button");
     await press(close);
-    assert.equal(panelOf(container), null, "the card is folded back");
+    assertNone(panelOf(container), "the card is folded back");
     assert.deepEqual(lastReport(probe), { address: steererAddress, mode: "push" });
   }));
 

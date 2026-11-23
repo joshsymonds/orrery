@@ -233,7 +233,7 @@ test("ContractTile: pressing the contract's work link opens its panel, with its 
     { rows: [conversationRow()], contracts: [makeContract(contractId)], address: steererAddress, width: 1600 },
     async (container, probe) => {
       await settle(t.signal, () => workLinkNames(container).length === 1, "the contract's work link is drawn");
-      assert.equal(panelOf(container, "tide-alerts"), null, "no panel before the press");
+      assertNone(panelOf(container, "tide-alerts"), "no panel before the press");
       await press(contractLink(container));
       await settle(
         t.signal,
@@ -259,7 +259,7 @@ test("ContractTile: Close shuts the contract panel, with the steerer's address p
       );
       assert.ok(close !== null && close !== undefined, "the contract panel has a Close button");
       await press(close);
-      assert.equal(panelOf(container, "tide-alerts"), null, "the panel is closed");
+      assertNone(panelOf(container, "tide-alerts"), "the panel is closed");
       assert.deepEqual(lastReport(probe), { address: steererAddress, mode: "push" });
     },
   ));

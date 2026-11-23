@@ -3934,9 +3934,8 @@ test("EpicCommands: an epic whose read has not answered reads loading the epic, 
       assert.equal(epicPageDrawn(container), false, "no epic page is drawn before the answer");
       assert.equal(epicReadText(container), "loading the epic…");
       assert.equal(epicTitleSlug(container), "first", "the title row names the listed epic above the line");
-      assert.equal(
+      assertNone(
         container.querySelector('section.page[aria-label="epic"] .title-row .back'),
-        null,
         "the held card's title row draws no back button",
       );
       assert.deepEqual(epicPageButtons(container), [], "no button while the epic loads");
@@ -4266,7 +4265,7 @@ test("WorkerSession: at the desk, opening a step's session draws it in the middl
   withApp(t.signal, { epics: phaseEpic() }, async (container) => {
     await openSessionFromRecord(container);
     assert.ok(container.querySelector(`${deskSession} .worker-session`), "the session is drawn in the middle column");
-    assert.equal(container.querySelector("article.held-card"), null, "no epic card is drawn");
+    assertNone(container.querySelector("article.held-card"), "no epic card is drawn");
     assert.equal(container.querySelector(".panes")?.getAttribute("data-side"), "rail", "the layout has no panel beside it");
   }, 1600));
 
@@ -4300,7 +4299,7 @@ test("WorkerSession: under 760px the session is the page, and no session is draw
     await clickPhaseHead(container, "implement");
     await clickButton(container, phaseBody, "Open the session›");
     assert.equal(container.querySelector(deskSession), null, "no session is drawn in the middle column");
-    assert.equal(container.querySelector("article.held-card"), null, "no epic card is drawn");
+    assertNone(container.querySelector("article.held-card"), "no epic card is drawn");
     assert.equal(sessionPageShown(container), true, "the session is the epic page");
   }, 400));
 

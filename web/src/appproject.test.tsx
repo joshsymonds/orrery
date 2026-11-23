@@ -300,7 +300,7 @@ test("ProjectPage: a press on a contract's card opens the contract's panel, as t
     undefined,
     async ({ container, reports }) => {
       await press(headOf(container, "api"));
-      assert.equal(container.querySelector('article.held-card[data-kind="contract"][aria-label="orphan"]'), null, "no panel before the press");
+      assertNone(container.querySelector('article.held-card[data-kind="contract"][aria-label="orphan"]'), "no panel before the press");
       await press(one(container, 'section[aria-label="project"] .wcard[data-key="contract:api/orphan"]'));
       assert.ok(projectPage(container) === null, "the page closes");
       assert.ok(
