@@ -259,6 +259,7 @@ class PhoneSheetTest {
             composeRule.onNodeWithTag(EPIC_LINK_TAG).performClick()
 
             awaitTag(PHONE_SHEET_TAG)
+            assertSheetUnderHeadTitle()
             composeRule.onNodeWithTag(SHEET_NAME_TAG, useUnmergedTree = true).assertTextEquals(EPIC_SLUG)
             awaitTag("epic-section:now")
             assertBodyHolds("sheet-body:epic:$EPIC_ID", "epic-section:now")
@@ -278,6 +279,7 @@ class PhoneSheetTest {
             composeRule.onNodeWithTag(CONTRACT_LINK_TAG).performClick()
 
             awaitTag(PHONE_SHEET_TAG)
+            assertSheetUnderHeadTitle()
             composeRule.onNodeWithTag(SHEET_NAME_TAG, useUnmergedTree = true).assertTextEquals(CONTRACT_NAME)
             assertBodyHolds("sheet-body:contract:$CONTRACT_ID", "contract-screen")
             composeRule.onAllNodesWithTag("title-back", useUnmergedTree = true).assertCountEquals(0)
