@@ -61,9 +61,9 @@ func syncCapturesPassed(round int64) []store.EvidenceRun {
 	return []store.EvidenceRun{passed("R1"), passed("R2")}
 }
 
-// syncLost returns the Done gate part of round at its commit, lost at a restart.
-func syncLost(round int64, part string) store.NodeCheck {
-	return store.NodeCheck{ID: syncRoundWork(round, part), State: store.NodeEnded, NotRun: store.LostAtRestart}
+// syncLost returns the part of round 1 at its commit, lost at a restart.
+func syncLost(part string) store.NodeCheck {
+	return store.NodeCheck{ID: syncRoundWork(1, part), State: store.NodeEnded, NotRun: store.LostAtRestart}
 }
 
 // TestSyncIntegratorRounds: a conflicting sync's round with no record starts, or is recorded once its step ended, and a
@@ -152,7 +152,7 @@ func TestSyncIntegratorRounds(t *testing.T) {
 		},
 		{
 			"passed captures start the reproductions at the round's commit", node,
-			reproRound(syncGatesPassed(1), syncReproCaptured(1)),
+			reproRound(syncGatesPassed(1), syncReproCaptured()),
 			Action{
 				Kind: ActRepro, IDs: []string{syncRoundWork(1, "repro R1"), syncRoundWork(1, "repro R3")},
 				Items: []string{"R1", "R3"}, Revision: "m1",
@@ -160,20 +160,20 @@ func TestSyncIntegratorRounds(t *testing.T) {
 		},
 		{
 			"a running reproduction waits at the round's commit", node,
-			reproRound(append(syncGatesPassed(1), syncReproCheck(1, "repro R1", store.NodeRunning),
-				syncReproCheck(1, "repro R3", store.NodeEnded)), syncReproCaptured(1)),
+			reproRound(append(syncGatesPassed(1), syncReproCheck("repro R1", store.NodeRunning),
+				syncReproCheck("repro R3", store.NodeEnded)), syncReproCaptured()),
 			Action{Kind: ActNone, Revision: "m1"},
 		},
 		{
 			"a reproduction lost twice ends the sync skipped, told", node,
-			reproRound(append(syncGatesPassed(1), syncLost(1, "repro R1"), syncLost(1, "repro R1 rerun"),
-				syncReproCheck(1, "repro R3", store.NodeEnded)), syncReproCaptured(1)),
+			reproRound(append(syncGatesPassed(1), syncLost("repro R1"), syncLost("repro R1 rerun"),
+				syncReproCheck("repro R3", store.NodeEnded)), syncReproCaptured()),
 			syncTold(outcomeSkipped, conflictedLine+"\nsync plan/M1: reproduction R1 lost at a restart twice"),
 		},
 		{
 			"passed reproductions advance to the round's commit", node,
-			reproRound(append(syncGatesPassed(1), syncReproCheck(1, "repro R1", store.NodeEnded),
-				syncReproCheck(1, "repro R3", store.NodeEnded)), syncReproCaptured(1)),
+			reproRound(append(syncGatesPassed(1), syncReproCheck("repro R1", store.NodeEnded),
+				syncReproCheck("repro R3", store.NodeEnded)), syncReproCaptured()),
 			Action{
 				Kind: ActAdvance, Output: "merged origin's commit o1 into the stored base base-1 as m1", Revision: "m1",
 			},
@@ -181,18 +181,18 @@ func TestSyncIntegratorRounds(t *testing.T) {
 	})
 }
 
-// syncReproCaptured returns the captures of R1, R2 and R3 of round at its commit, all passed. reproEpic's test items
+// syncReproCaptured returns the captures of R1, R2 and R3 of round 1 at its commit, all passed. reproEpic's test items
 // are R1 and R3, so their reproductions run after these.
-func syncReproCaptured(round int64) []store.EvidenceRun {
-	return append(syncCapturesPassed(round), store.EvidenceRun{
-		ID: syncRoundWork(round, "capture R3"), Phase: evidence.PhaseGreen, State: runEnded,
+func syncReproCaptured() []store.EvidenceRun {
+	return append(syncCapturesPassed(1), store.EvidenceRun{
+		ID: syncRoundWork(1, "capture R3"), Phase: evidence.PhaseGreen, State: runEnded,
 		Verdict: evidence.VerdictHolds, Passed: true,
 	})
 }
 
-// syncReproCheck returns the reproduction of the test item part of round at its commit, in state.
-func syncReproCheck(round int64, part, state string) store.NodeCheck {
-	return store.NodeCheck{ID: syncRoundWork(round, part), State: state}
+// syncReproCheck returns the reproduction of the test item part of round 1 at its commit, in state.
+func syncReproCheck(part, state string) store.NodeCheck {
+	return store.NodeCheck{ID: syncRoundWork(1, part), State: state}
 }
 
 // reproRound returns the rows of a sync whose round 1 passed at m1, of reproEpic, with the Done gates and the reproductions
@@ -278,7 +278,7 @@ func TestSyncIntegratorRoundsEnd(t *testing.T) {
 			"a park of a round's gates ends the sync skipped, told", node,
 			syncRoundRows(
 				[]store.IntegrateRound{syncRound(1, "m1", outcomePassed, "", "")},
-				[]store.NodeCheck{syncLost(1, "done 1"), syncLost(1, "done 1 rerun")}, nil, nil,
+				[]store.NodeCheck{syncLost("done 1"), syncLost("done 1 rerun")}, nil, nil,
 			),
 			syncTold(outcomeSkipped, conflictedLine+"\nsync plan/M1: Done gate just check lost at a restart twice"),
 		},
