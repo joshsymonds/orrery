@@ -51,8 +51,8 @@ func briefJudgeSetUp(t *testing.T, st *store.Store, repo, base string, requireme
 	t.Helper()
 	created := time.Unix(1700000000, 0)
 	if err := st.CreateEpic(t.Context(), store.EpicRow{
-		ID: captureTestEpic, Repository: repo, Base: base, Title: "Synthetic brief judge epic", Intent: "Synthetic intent.",
-		Care: "serious", Phase: "accepted", Created: created, Changed: created,
+		ID: captureTestEpic, Repository: repo, Base: base, Title: "Synthetic brief judge epic",
+		Intent: "Synthetic intent.", Care: "serious", Phase: "accepted", Created: created, Changed: created,
 		Requirements: []store.EpicRequirement{{
 			ID: "R1", Text: "Synthetic requirement.", Evidence: "Synthetic evidence.", Kind: "test", Item: requirement,
 		}},
@@ -96,7 +96,11 @@ func briefJudgeEarlier(t *testing.T, st *store.Store, revision string, item evid
 	}); err != nil {
 		t.Fatalf("AddEvidenceRun %s: %v", id, err)
 	}
-	if err := st.RecordEvidenceCapture(t.Context(), id, store.EvidenceCapture{At: time.Unix(1699999001, 0)}); err != nil {
+	if err := st.RecordEvidenceCapture(
+		t.Context(),
+		id,
+		store.EvidenceCapture{At: time.Unix(1699999001, 0)},
+	); err != nil {
 		t.Fatalf("RecordEvidenceCapture %s: %v", id, err)
 	}
 	if err := st.RecordEvidenceVerdict(t.Context(), id, store.EvidenceVerdict{
@@ -254,7 +258,11 @@ func TestBriefJudgePromptNamesTheCapture(t *testing.T) {
 func TestBriefJudgeCaptureLinesNameLocalWhenNoRunnerIsNamed(t *testing.T) {
 	t.Parallel()
 	lines, err := judgeCaptureLines(store.EvidenceRun{ID: briefJudgeBriefID}, store.Capture{
-		ID: "capture-1", Argv: []string{"/bin/sh", "-c", "cat marker"}, Commit: "abc", Step: "step-1", Role: captureRoleStep,
+		ID:     "capture-1",
+		Argv:   []string{"/bin/sh", "-c", "cat marker"},
+		Commit: "abc",
+		Step:   "step-1",
+		Role:   captureRoleStep,
 	})
 	if err != nil {
 		t.Fatalf("judgeCaptureLines: %v", err)
@@ -359,9 +367,17 @@ func TestBriefJudgeTaskRunPromptHasVersionLines(t *testing.T) {
 	}, time.Unix(1700000600, 0)); err != nil {
 		t.Fatalf("RerunTask: %v", err)
 	}
-	if err := st.SettleTaskVersion(ctx, captureTestEpic, 1, store.TaskBuild{}, store.TaskBuild{}, store.TaskVersionSettle{
-		Version: 2, State: store.VersionApplied,
-	}, time.Unix(1700000700, 0)); err != nil {
+	if err := st.SettleTaskVersion(
+		ctx,
+		captureTestEpic,
+		1,
+		store.TaskBuild{},
+		store.TaskBuild{},
+		store.TaskVersionSettle{
+			Version: 2, State: store.VersionApplied,
+		},
+		time.Unix(1700000700, 0),
+	); err != nil {
 		t.Fatalf("SettleTaskVersion: %v", err)
 	}
 	row, err := st.Epic(ctx, captureTestEpic)
