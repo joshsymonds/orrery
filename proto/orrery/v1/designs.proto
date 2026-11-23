@@ -12,6 +12,9 @@ service Designs {
 
   // Answer gives the owner's answer to a question of a design's stage. serve forwards each call to orreryd.
   rpc Answer(DesignsAnswerRequest) returns (DesignsAnswerResponse);
+
+  // Continue returns a design and the session that continues its stage. serve forwards each call to orreryd.
+  rpc Continue(DesignsContinueRequest) returns (DesignsContinueResponse);
 }
 
 // DesignsListRequest asks for every design.
@@ -29,10 +32,156 @@ message DesignsGetRequest {
   string id = 1;
 }
 
-// DesignsGetResponse carries one design.
+// DesignsGetResponse carries one design with its stage's approaches, choice, log and delegations.
 message DesignsGetResponse {
   // The design.
   Design design = 1;
+
+  // The approaches the design's stage weighs, oldest first.
+  repeated DesignApproach approaches = 2;
+
+  // The approach the owner chose for the design; unset until a choice is stored.
+  DesignChoice choice = 3;
+
+  // The log of the design's stage, oldest first.
+  repeated DesignLogLine log = 4;
+
+  // The owner's delegations of the design's decisions to the conversation, oldest first.
+  repeated DesignDelegation delegations = 5;
+}
+
+// RecordMaker is who made a stage record and the evidence it rests on.
+message RecordMaker {
+  // Who made the record: owner_serve for the owner through serve's call, owner_conversation for the owner in the
+  // conversation, or conversation for the owner as the conversation decided for him.
+  string kind = 1;
+
+  // The owner's words the record quotes; set for owner_conversation.
+  string quote = 2;
+
+  // Why the conversation decided for the owner; set for conversation.
+  string reason = 3;
+
+  // The owner's words that let the conversation decide for him; set for conversation.
+  string delegation = 4;
+
+  // The sessions row id of the session that made the record, or empty when none did.
+  string session = 5;
+}
+
+// DesignApproach is an approach a design's stage weighs, with its trade-offs and whether the planner recommends it.
+message DesignApproach {
+  // The approach's seq, counted from 1 within its design.
+  int64 seq = 1;
+
+  // The approach's name.
+  string name = 2;
+
+  // The shape the approach takes.
+  string shape = 3;
+
+  // What the approach costs.
+  string cost = 4;
+
+  // What the approach wins.
+  string wins = 5;
+
+  // What the approach loses.
+  string loses = 6;
+
+  // What would make the planner reconsider the approach.
+  string reconsider = 7;
+
+  // The ids of the research steps the approach rests on.
+  repeated string research = 8;
+
+  // True when the planner recommends the approach.
+  bool recommended = 9;
+
+  // Why the planner recommends the approach or does not.
+  string reason = 10;
+
+  // When the approach was stored, in unix seconds.
+  int64 time = 11;
+}
+
+// DesignChoice is the approach the owner chose for a design, with the maker it came from.
+message DesignChoice {
+  // The seq of the chosen approach.
+  int64 approach = 1;
+
+  // The owner's words the choice is made with.
+  string words = 2;
+
+  // Who made the choice and the evidence it rests on.
+  RecordMaker maker = 3;
+
+  // When the choice was stored, in unix seconds.
+  int64 time = 4;
+}
+
+// DesignLogLine is one line of a design's stage log: what was done, by whom, and the ids it touched.
+message DesignLogLine {
+  // The line's seq, counted from 1 within its design.
+  int64 seq = 1;
+
+  // When the line was logged, in unix seconds.
+  int64 time = 2;
+
+  // Who did the thing the line logs and the evidence it rests on.
+  RecordMaker maker = 3;
+
+  // The sessions row id of the session that logged the line.
+  string session = 4;
+
+  // What was done.
+  string what = 5;
+
+  // The ids the line touched.
+  repeated string ids = 6;
+
+  // The words the line was logged with.
+  string words = 7;
+}
+
+// DesignDelegation is the owner's delegation of a design's decisions to the conversation, with the decisions the
+// conversation made under it.
+message DesignDelegation {
+  // The delegation's seq, counted from 1 within its design.
+  int64 seq = 1;
+
+  // The kinds of decision the delegation covers.
+  repeated string kinds = 2;
+
+  // The owner's words the delegation is given with.
+  string message = 3;
+
+  // The sessions row id of the session that stored the delegation.
+  string session = 4;
+
+  // When the delegation was stored, in unix seconds.
+  int64 time = 5;
+
+  // The decisions the conversation made under the delegation, oldest first.
+  repeated DesignDecision decisions = 6;
+}
+
+// DesignDecision is a decision the conversation made under a delegation.
+message DesignDecision {
+  // The decision's kind.
+  string kind = 1;
+
+  // The id of the thing the decision concerns.
+  string ref = 2;
+
+  // The decision's text.
+  string text = 3;
+
+  // Why the conversation decided.
+  string reason = 4;
+
+  // When the decision was made, in unix seconds.
+  int64 time = 5;
 }
 
 // Design is a design as the clients read it: its contracts and the order they start in.
@@ -105,4 +254,19 @@ message DesignsAnswerRequest {
 message DesignsAnswerResponse {
   // The answer's words, as orreryd stored them.
   string answer = 1;
+}
+
+// DesignsContinueRequest names the design whose stage continues.
+message DesignsContinueRequest {
+  // The design's id, as List gave it.
+  string id = 1;
+}
+
+// DesignsContinueResponse carries the design and the session that continues its stage.
+message DesignsContinueResponse {
+  // The design, as Get gives it.
+  Design design = 1;
+
+  // The sessions row id of the session that continues the stage.
+  string session = 2;
 }

@@ -784,6 +784,73 @@ public  final class PendingEvent extends
     bitField0_ = (bitField0_ & ~0x00000001);
   }
 
+  public static final int DESIGN_FIELD_NUMBER = 14;
+  private io.github.joshsymonds.orrery.gen.orrery.v1.EngineDesign design_;
+  /**
+   * <pre>
+   * The stage record of the event, unset when the event carries none.
+   * </pre>
+   *
+   * <code>.orrery.v1.EngineDesign design = 14 [json_name = "design"];</code>
+   */
+  @java.lang.Override
+  public boolean hasDesign() {
+    return ((bitField0_ & 0x00000002) != 0);
+  }
+  /**
+   * <pre>
+   * The stage record of the event, unset when the event carries none.
+   * </pre>
+   *
+   * <code>.orrery.v1.EngineDesign design = 14 [json_name = "design"];</code>
+   */
+  @java.lang.Override
+  public io.github.joshsymonds.orrery.gen.orrery.v1.EngineDesign getDesign() {
+    return design_ == null ? io.github.joshsymonds.orrery.gen.orrery.v1.EngineDesign.getDefaultInstance() : design_;
+  }
+  /**
+   * <pre>
+   * The stage record of the event, unset when the event carries none.
+   * </pre>
+   *
+   * <code>.orrery.v1.EngineDesign design = 14 [json_name = "design"];</code>
+   */
+  private void setDesign(io.github.joshsymonds.orrery.gen.orrery.v1.EngineDesign value) {
+    java.util.Objects.requireNonNull(value);
+    design_ = value;
+    bitField0_ |= 0x00000002;
+  }
+  /**
+   * <pre>
+   * The stage record of the event, unset when the event carries none.
+   * </pre>
+   *
+   * <code>.orrery.v1.EngineDesign design = 14 [json_name = "design"];</code>
+   */
+  @java.lang.SuppressWarnings("ReferenceEquality")
+  private void mergeDesign(io.github.joshsymonds.orrery.gen.orrery.v1.EngineDesign value) {
+    java.util.Objects.requireNonNull(value);
+    if (design_ != null &&
+        design_ != io.github.joshsymonds.orrery.gen.orrery.v1.EngineDesign.getDefaultInstance()) {
+      design_ =
+        io.github.joshsymonds.orrery.gen.orrery.v1.EngineDesign.newBuilder(design_).mergeFrom(value).buildPartial();
+    } else {
+      design_ = value;
+    }
+    bitField0_ |= 0x00000002;
+  }
+  /**
+   * <pre>
+   * The stage record of the event, unset when the event carries none.
+   * </pre>
+   *
+   * <code>.orrery.v1.EngineDesign design = 14 [json_name = "design"];</code>
+   */
+  private void clearDesign() {
+    design_ = null;
+    bitField0_ = (bitField0_ & ~0x00000002);
+  }
+
   public static io.github.joshsymonds.orrery.gen.orrery.v1.PendingEvent parseFrom(
       java.nio.ByteBuffer data)
       throws com.google.protobuf.InvalidProtocolBufferException {
@@ -1662,6 +1729,77 @@ public  final class PendingEvent extends
       return this;
     }
 
+    /**
+     * <pre>
+     * The stage record of the event, unset when the event carries none.
+     * </pre>
+     *
+     * <code>.orrery.v1.EngineDesign design = 14 [json_name = "design"];</code>
+     */
+    @java.lang.Override
+    public boolean hasDesign() {
+      return instance.hasDesign();
+    }
+    /**
+     * <pre>
+     * The stage record of the event, unset when the event carries none.
+     * </pre>
+     *
+     * <code>.orrery.v1.EngineDesign design = 14 [json_name = "design"];</code>
+     */
+    @java.lang.Override
+    public io.github.joshsymonds.orrery.gen.orrery.v1.EngineDesign getDesign() {
+      return instance.getDesign();
+    }
+    /**
+     * <pre>
+     * The stage record of the event, unset when the event carries none.
+     * </pre>
+     *
+     * <code>.orrery.v1.EngineDesign design = 14 [json_name = "design"];</code>
+     */
+    public Builder setDesign(io.github.joshsymonds.orrery.gen.orrery.v1.EngineDesign value) {
+      copyOnWrite();
+      instance.setDesign(value);
+      return this;
+      }
+    /**
+     * <pre>
+     * The stage record of the event, unset when the event carries none.
+     * </pre>
+     *
+     * <code>.orrery.v1.EngineDesign design = 14 [json_name = "design"];</code>
+     */
+    public Builder setDesign(
+        io.github.joshsymonds.orrery.gen.orrery.v1.EngineDesign.Builder builderForValue) {
+      copyOnWrite();
+      instance.setDesign(builderForValue.build());
+      return this;
+    }
+    /**
+     * <pre>
+     * The stage record of the event, unset when the event carries none.
+     * </pre>
+     *
+     * <code>.orrery.v1.EngineDesign design = 14 [json_name = "design"];</code>
+     */
+    public Builder mergeDesign(io.github.joshsymonds.orrery.gen.orrery.v1.EngineDesign value) {
+      copyOnWrite();
+      instance.mergeDesign(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The stage record of the event, unset when the event carries none.
+     * </pre>
+     *
+     * <code>.orrery.v1.EngineDesign design = 14 [json_name = "design"];</code>
+     */
+    public Builder clearDesign() {  copyOnWrite();
+      instance.clearDesign();
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:orrery.v1.PendingEvent)
   }
   @java.lang.Override
@@ -1690,11 +1828,12 @@ public  final class PendingEvent extends
             "title_",
             "waits_",
             "stepFacts_",
+            "design_",
           };
           java.lang.String info =
-              "\u0000\u000b\u0000\u0001\u0001\r\u000b\u0000\u0000\u0000\u0001\u0208\u0002\u0208" +
-              "\u0003\u0208\u0004\u0208\u0005\u0208\u0006\u0208\b\u0208\t\u0208\n\u0208\u000b\u0208" +
-              "\r\u1009\u0000";
+              "\u0000\f\u0000\u0001\u0001\u000e\f\u0000\u0000\u0000\u0001\u0208\u0002\u0208\u0003" +
+              "\u0208\u0004\u0208\u0005\u0208\u0006\u0208\b\u0208\t\u0208\n\u0208\u000b\u0208\r" +
+              "\u1009\u0000\u000e\u1009\u0001";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

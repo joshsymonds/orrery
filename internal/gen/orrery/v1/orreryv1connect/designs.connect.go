@@ -39,6 +39,8 @@ const (
 	DesignsGetProcedure = "/orrery.v1.Designs/Get"
 	// DesignsAnswerProcedure is the fully-qualified name of the Designs's Answer RPC.
 	DesignsAnswerProcedure = "/orrery.v1.Designs/Answer"
+	// DesignsContinueProcedure is the fully-qualified name of the Designs's Continue RPC.
+	DesignsContinueProcedure = "/orrery.v1.Designs/Continue"
 )
 
 // DesignsClient is a client for the orrery.v1.Designs service.
@@ -49,6 +51,8 @@ type DesignsClient interface {
 	Get(context.Context, *connect.Request[v1.DesignsGetRequest]) (*connect.Response[v1.DesignsGetResponse], error)
 	// Answer gives the owner's answer to a question of a design's stage. serve forwards each call to orreryd.
 	Answer(context.Context, *connect.Request[v1.DesignsAnswerRequest]) (*connect.Response[v1.DesignsAnswerResponse], error)
+	// Continue returns a design and the session that continues its stage. serve forwards each call to orreryd.
+	Continue(context.Context, *connect.Request[v1.DesignsContinueRequest]) (*connect.Response[v1.DesignsContinueResponse], error)
 }
 
 // NewDesignsClient constructs a client for the orrery.v1.Designs service. By default, it uses the
@@ -80,14 +84,21 @@ func NewDesignsClient(httpClient connect.HTTPClient, baseURL string, opts ...con
 			connect.WithSchema(designsMethods.ByName("Answer")),
 			connect.WithClientOptions(opts...),
 		),
+		_continue: connect.NewClient[v1.DesignsContinueRequest, v1.DesignsContinueResponse](
+			httpClient,
+			baseURL+DesignsContinueProcedure,
+			connect.WithSchema(designsMethods.ByName("Continue")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
 // designsClient implements DesignsClient.
 type designsClient struct {
-	list   *connect.Client[v1.DesignsListRequest, v1.DesignsListResponse]
-	get    *connect.Client[v1.DesignsGetRequest, v1.DesignsGetResponse]
-	answer *connect.Client[v1.DesignsAnswerRequest, v1.DesignsAnswerResponse]
+	list      *connect.Client[v1.DesignsListRequest, v1.DesignsListResponse]
+	get       *connect.Client[v1.DesignsGetRequest, v1.DesignsGetResponse]
+	answer    *connect.Client[v1.DesignsAnswerRequest, v1.DesignsAnswerResponse]
+	_continue *connect.Client[v1.DesignsContinueRequest, v1.DesignsContinueResponse]
 }
 
 // List calls orrery.v1.Designs.List.
@@ -105,6 +116,11 @@ func (c *designsClient) Answer(ctx context.Context, req *connect.Request[v1.Desi
 	return c.answer.CallUnary(ctx, req)
 }
 
+// Continue calls orrery.v1.Designs.Continue.
+func (c *designsClient) Continue(ctx context.Context, req *connect.Request[v1.DesignsContinueRequest]) (*connect.Response[v1.DesignsContinueResponse], error) {
+	return c._continue.CallUnary(ctx, req)
+}
+
 // DesignsHandler is an implementation of the orrery.v1.Designs service.
 type DesignsHandler interface {
 	// List returns every design, with its contracts.
@@ -113,6 +129,8 @@ type DesignsHandler interface {
 	Get(context.Context, *connect.Request[v1.DesignsGetRequest]) (*connect.Response[v1.DesignsGetResponse], error)
 	// Answer gives the owner's answer to a question of a design's stage. serve forwards each call to orreryd.
 	Answer(context.Context, *connect.Request[v1.DesignsAnswerRequest]) (*connect.Response[v1.DesignsAnswerResponse], error)
+	// Continue returns a design and the session that continues its stage. serve forwards each call to orreryd.
+	Continue(context.Context, *connect.Request[v1.DesignsContinueRequest]) (*connect.Response[v1.DesignsContinueResponse], error)
 }
 
 // NewDesignsHandler builds an HTTP handler from the service implementation. It returns the path on
@@ -140,6 +158,12 @@ func NewDesignsHandler(svc DesignsHandler, opts ...connect.HandlerOption) (strin
 		connect.WithSchema(designsMethods.ByName("Answer")),
 		connect.WithHandlerOptions(opts...),
 	)
+	designsContinueHandler := connect.NewUnaryHandler(
+		DesignsContinueProcedure,
+		svc.Continue,
+		connect.WithSchema(designsMethods.ByName("Continue")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/orrery.v1.Designs/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case DesignsListProcedure:
@@ -148,6 +172,8 @@ func NewDesignsHandler(svc DesignsHandler, opts ...connect.HandlerOption) (strin
 			designsGetHandler.ServeHTTP(w, r)
 		case DesignsAnswerProcedure:
 			designsAnswerHandler.ServeHTTP(w, r)
+		case DesignsContinueProcedure:
+			designsContinueHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -167,4 +193,8 @@ func (UnimplementedDesignsHandler) Get(context.Context, *connect.Request[v1.Desi
 
 func (UnimplementedDesignsHandler) Answer(context.Context, *connect.Request[v1.DesignsAnswerRequest]) (*connect.Response[v1.DesignsAnswerResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orrery.v1.Designs.Answer is not implemented"))
+}
+
+func (UnimplementedDesignsHandler) Continue(context.Context, *connect.Request[v1.DesignsContinueRequest]) (*connect.Response[v1.DesignsContinueResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orrery.v1.Designs.Continue is not implemented"))
 }

@@ -25,6 +25,7 @@ public  final class ContractVersion extends
     writer_ = "";
     changedRows_ = emptyProtobufList();
     changedSections_ = emptyProtobufList();
+    readBy_ = emptyProtobufList();
   }
   private int bitField0_;
   public static final int VERSION_FIELD_NUMBER = 1;
@@ -836,6 +837,135 @@ public  final class ContractVersion extends
     checkByteStringIsUtf8(value);
     ensureChangedSectionsIsMutable();
     changedSections_.add(value.toStringUtf8());
+  }
+
+  public static final int READ_BY_FIELD_NUMBER = 10;
+  private com.google.protobuf.Internal.ProtobufList<java.lang.String> readBy_;
+  /**
+   * <pre>
+   * The ids of the steps that read this version, oldest first.
+   * </pre>
+   *
+   * <code>repeated string read_by = 10 [json_name = "readBy"];</code>
+   * @return A list containing the readBy.
+   */
+  @java.lang.Override
+  public java.util.List<java.lang.String> getReadByList() {
+    return readBy_;
+  }
+  /**
+   * <pre>
+   * The ids of the steps that read this version, oldest first.
+   * </pre>
+   *
+   * <code>repeated string read_by = 10 [json_name = "readBy"];</code>
+   * @return The count of readBy.
+   */
+  @java.lang.Override
+  public int getReadByCount() {
+    return readBy_.size();
+  }
+  /**
+   * <pre>
+   * The ids of the steps that read this version, oldest first.
+   * </pre>
+   *
+   * <code>repeated string read_by = 10 [json_name = "readBy"];</code>
+   * @param index The index of the element to return.
+   * @return The readBy at the given index.
+   */
+  @java.lang.Override
+  public java.lang.String getReadBy(int index) {
+    return readBy_.get(index);
+  }
+  /**
+   * <pre>
+   * The ids of the steps that read this version, oldest first.
+   * </pre>
+   *
+   * <code>repeated string read_by = 10 [json_name = "readBy"];</code>
+   * @param index The index of the value to return.
+   * @return The bytes of the readBy at the given index.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString
+      getReadByBytes(int index) {
+    return com.google.protobuf.ByteString.copyFromUtf8(
+        readBy_.get(index));
+  }
+  private void ensureReadByIsMutable() {
+    com.google.protobuf.Internal.ProtobufList<java.lang.String> tmp =
+        readBy_;  if (!tmp.isModifiable()) {
+      readBy_ =
+          com.google.protobuf.GeneratedMessageLite.mutableCopy(tmp);
+     }
+  }
+  /**
+   * <pre>
+   * The ids of the steps that read this version, oldest first.
+   * </pre>
+   *
+   * <code>repeated string read_by = 10 [json_name = "readBy"];</code>
+   * @param index The index to set the value at.
+   * @param value The readBy to set.
+   */
+  private void setReadBy(
+      int index, java.lang.String value) {
+    java.util.Objects.requireNonNull(value);
+    ensureReadByIsMutable();
+    readBy_.set(index, value);
+  }
+  /**
+   * <pre>
+   * The ids of the steps that read this version, oldest first.
+   * </pre>
+   *
+   * <code>repeated string read_by = 10 [json_name = "readBy"];</code>
+   * @param value The readBy to add.
+   */
+  private void addReadBy(
+      java.lang.String value) {
+    java.util.Objects.requireNonNull(value);
+    ensureReadByIsMutable();
+    readBy_.add(value);
+  }
+  /**
+   * <pre>
+   * The ids of the steps that read this version, oldest first.
+   * </pre>
+   *
+   * <code>repeated string read_by = 10 [json_name = "readBy"];</code>
+   * @param values The readBy to add.
+   */
+  private void addAllReadBy(
+      java.lang.Iterable<java.lang.String> values) {
+    ensureReadByIsMutable();
+    com.google.protobuf.AbstractMessageLite.addAll(
+        values, readBy_);
+  }
+  /**
+   * <pre>
+   * The ids of the steps that read this version, oldest first.
+   * </pre>
+   *
+   * <code>repeated string read_by = 10 [json_name = "readBy"];</code>
+   */
+  private void clearReadBy() {
+    readBy_ = emptyProtobufList();
+  }
+  /**
+   * <pre>
+   * The ids of the steps that read this version, oldest first.
+   * </pre>
+   *
+   * <code>repeated string read_by = 10 [json_name = "readBy"];</code>
+   * @param value The bytes of the readBy to add.
+   */
+  private void addReadByBytes(
+      com.google.protobuf.ByteString value) {
+    checkByteStringIsUtf8(value);
+    ensureReadByIsMutable();
+    readBy_.add(value.toStringUtf8());
   }
 
   public static io.github.joshsymonds.orrery.gen.orrery.v1.ContractVersion parseFrom(
@@ -1784,6 +1914,134 @@ public  final class ContractVersion extends
       return this;
     }
 
+    /**
+     * <pre>
+     * The ids of the steps that read this version, oldest first.
+     * </pre>
+     *
+     * <code>repeated string read_by = 10 [json_name = "readBy"];</code>
+     * @return A list containing the readBy.
+     */
+    @java.lang.Override
+    public java.util.List<java.lang.String>
+        getReadByList() {
+      return java.util.Collections.unmodifiableList(
+          instance.getReadByList());
+    }
+    /**
+     * <pre>
+     * The ids of the steps that read this version, oldest first.
+     * </pre>
+     *
+     * <code>repeated string read_by = 10 [json_name = "readBy"];</code>
+     * @return The count of readBy.
+     */
+    @java.lang.Override
+    public int getReadByCount() {
+      return instance.getReadByCount();
+    }
+    /**
+     * <pre>
+     * The ids of the steps that read this version, oldest first.
+     * </pre>
+     *
+     * <code>repeated string read_by = 10 [json_name = "readBy"];</code>
+     * @param index The index of the element to return.
+     * @return The readBy at the given index.
+     */
+    @java.lang.Override
+    public java.lang.String getReadBy(int index) {
+      return instance.getReadBy(index);
+    }
+    /**
+     * <pre>
+     * The ids of the steps that read this version, oldest first.
+     * </pre>
+     *
+     * <code>repeated string read_by = 10 [json_name = "readBy"];</code>
+     * @param index The index of the value to return.
+     * @return The bytes of the readBy at the given index.
+     */
+    @java.lang.Override
+    public com.google.protobuf.ByteString
+        getReadByBytes(int index) {
+      return instance.getReadByBytes(index);
+    }
+    /**
+     * <pre>
+     * The ids of the steps that read this version, oldest first.
+     * </pre>
+     *
+     * <code>repeated string read_by = 10 [json_name = "readBy"];</code>
+     * @param index The index to set the value at.
+     * @param value The readBy to set.
+     * @return This builder for chaining.
+     */
+    public Builder setReadBy(
+        int index, java.lang.String value) {
+      copyOnWrite();
+      instance.setReadBy(index, value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The ids of the steps that read this version, oldest first.
+     * </pre>
+     *
+     * <code>repeated string read_by = 10 [json_name = "readBy"];</code>
+     * @param value The readBy to add.
+     * @return This builder for chaining.
+     */
+    public Builder addReadBy(
+        java.lang.String value) {
+      copyOnWrite();
+      instance.addReadBy(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The ids of the steps that read this version, oldest first.
+     * </pre>
+     *
+     * <code>repeated string read_by = 10 [json_name = "readBy"];</code>
+     * @param values The readBy to add.
+     * @return This builder for chaining.
+     */
+    public Builder addAllReadBy(
+        java.lang.Iterable<java.lang.String> values) {
+      copyOnWrite();
+      instance.addAllReadBy(values);
+      return this;
+    }
+    /**
+     * <pre>
+     * The ids of the steps that read this version, oldest first.
+     * </pre>
+     *
+     * <code>repeated string read_by = 10 [json_name = "readBy"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearReadBy() {
+      copyOnWrite();
+      instance.clearReadBy();
+      return this;
+    }
+    /**
+     * <pre>
+     * The ids of the steps that read this version, oldest first.
+     * </pre>
+     *
+     * <code>repeated string read_by = 10 [json_name = "readBy"];</code>
+     * @param value The bytes of the readBy to add.
+     * @return This builder for chaining.
+     */
+    public Builder addReadByBytes(
+        com.google.protobuf.ByteString value) {
+      copyOnWrite();
+      instance.addReadByBytes(value);
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:orrery.v1.ContractVersion)
   }
   @java.lang.Override
@@ -1812,10 +2070,11 @@ public  final class ContractVersion extends
             "time_",
             "changedRows_",
             "changedSections_",
+            "readBy_",
           };
           java.lang.String info =
-              "\u0000\t\u0000\u0001\u0001\t\t\u0000\u0004\u0000\u0001\u0002\u0002\u1009\u0000\u0003" +
-              "\u001b\u0004\u001b\u0005\u0208\u0006\u0208\u0007\u0002\b\u021a\t\u021a";
+              "\u0000\n\u0000\u0001\u0001\n\n\u0000\u0005\u0000\u0001\u0002\u0002\u1009\u0000\u0003" +
+              "\u001b\u0004\u001b\u0005\u0208\u0006\u0208\u0007\u0002\b\u021a\t\u021a\n\u021a";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

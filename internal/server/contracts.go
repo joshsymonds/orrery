@@ -27,6 +27,9 @@ const contractStoreUnavailable = "contract store unavailable"
 // contractCommandsUnavailable is the fixed message for a contract command when serve has no contract command client.
 const contractCommandsUnavailable = "contract command service unavailable"
 
+// contractStageUnavailable is the fixed message for a contract's keep, strike or shown when serve has no stage client.
+const contractStageUnavailable = "contract stage service unavailable"
+
 // The by names a state change of a contract carries: the owner, or a session.
 const (
 	contractByOwner   = "owner"
@@ -35,11 +38,14 @@ const (
 
 // contractsServer answers orrery.v1.Contracts. List and Get read the store reader. A nil reader answers them
 // unavailable. Accept, SetAside and Reopen forward to commands with no caller headers, so orreryd records the owner as
-// the one who made each change. A nil commands answers them unavailable. Each forwarded call runs under timeout and
+// the one who made each change. A nil commands answers them unavailable. Keep and Strike forward to stage with no
+// caller headers, as the owner's writes, and answer the contract read from the reader; Shown forwards to stage and
+// answers the rows orreryd marked. A nil stage answers them unavailable. Each forwarded call runs under timeout and
 // is retried only while rpcretry.NeverConnected accepts its error, as the epic commands are.
 type contractsServer struct {
 	reader   *store.Reader
 	commands enginev1connect.ContractsClient
+	stage    enginev1connect.StageClient
 	timeout  time.Duration
 	clock    rpcretry.Clock
 }
@@ -164,6 +170,113 @@ func (c contractsServer) Reopen(
 	}), nil
 }
 
+// Keep forwards the owner's addition to the named contract to orreryd as the owner's, and answers the contract as the
+// reader holds it after the write.
+func (c contractsServer) Keep(
+	ctx context.Context,
+	req *connect.Request[orreryv1.ContractsKeepRequest],
+) (*connect.Response[orreryv1.ContractsKeepResponse], error) {
+	id, addition, words := req.Msg.GetId(), req.Msg.GetAddition(), req.Msg.GetWords()
+	err := c.forwardStage(ctx, func(ctx context.Context, stage enginev1connect.StageClient) error {
+		_, err := stage.Keep(ctx, connect.NewRequest(&enginev1.KeepRequest{
+			Contract: id, Addition: addition, Words: words,
+			Maker: &enginev1.StageMaker{Kind: store.StageMakerOwnerServe},
+		}))
+		return wrapEngine("keep", err)
+	})
+	if err != nil {
+		return nil, err
+	}
+	contract, err := c.readListing(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&orreryv1.ContractsKeepResponse{Contract: contract}), nil
+}
+
+// Strike forwards the owner's striking of an addition the named contract keeps to orreryd as the owner's, and answers
+// the contract as the reader holds it after the write, with the rows the striking removed.
+func (c contractsServer) Strike(
+	ctx context.Context,
+	req *connect.Request[orreryv1.ContractsStrikeRequest],
+) (*connect.Response[orreryv1.ContractsStrikeResponse], error) {
+	id, addition, words := req.Msg.GetId(), req.Msg.GetAddition(), req.Msg.GetWords()
+	var reply *connect.Response[enginev1.StrikeResponse]
+	err := c.forwardStage(ctx, func(ctx context.Context, stage enginev1connect.StageClient) error {
+		var err error
+		reply, err = stage.Strike(ctx, connect.NewRequest(&enginev1.StrikeRequest{
+			Contract: id, Addition: addition, Words: words,
+			Maker: &enginev1.StageMaker{Kind: store.StageMakerOwnerServe},
+		}))
+		return wrapEngine("strike", err)
+	})
+	if err != nil {
+		return nil, err
+	}
+	contract, err := c.readListing(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&orreryv1.ContractsStrikeResponse{
+		Contract: contract,
+		Removed:  reply.Msg.GetRemoved(),
+	}), nil
+}
+
+// Shown forwards the rows of a contract version the owner was shown to orreryd, and answers the rows orreryd marked.
+func (c contractsServer) Shown(
+	ctx context.Context,
+	req *connect.Request[orreryv1.ContractsShownRequest],
+) (*connect.Response[orreryv1.ContractsShownResponse], error) {
+	id, version, rows := req.Msg.GetId(), req.Msg.GetVersion(), req.Msg.GetRows()
+	var reply *connect.Response[enginev1.ShownResponse]
+	err := c.forwardStage(ctx, func(ctx context.Context, stage enginev1connect.StageClient) error {
+		var err error
+		reply, err = stage.Shown(ctx, connect.NewRequest(&enginev1.ShownRequest{
+			Contract: id, Version: version, Rows: rows,
+		}))
+		return wrapEngine("shown", err)
+	})
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&orreryv1.ContractsShownResponse{Rows: reply.Msg.GetRows()}), nil
+}
+
+// forwardStage runs call against the stage client. A nil client answers unavailable. A call whose connection was never
+// made is retried while rpcretry.NeverConnected accepts its error. Any other error answers as translateError does.
+func (c contractsServer) forwardStage(
+	ctx context.Context,
+	call func(context.Context, enginev1connect.StageClient) error,
+) error {
+	if c.stage == nil {
+		return listError(connect.CodeUnavailable, contractStageUnavailable)
+	}
+	err := retryUnder(ctx, c.clock, c.timeout, rpcretry.NeverConnected, func(ctx context.Context) error {
+		return call(ctx, c.stage)
+	})
+	if err != nil {
+		return translateError(err)
+	}
+	return nil
+}
+
+// readListing answers the listing of the contract of id as the reader holds it. A nil reader answers unavailable, and
+// an id no contract holds answers not_found.
+func (c contractsServer) readListing(ctx context.Context, id string) (*orreryv1.Contract, error) {
+	if c.reader == nil {
+		return nil, listError(connect.CodeUnavailable, contractStoreUnavailable)
+	}
+	record, err := c.reader.Contract(ctx, id)
+	if errors.Is(err, store.ErrNoContract) {
+		return nil, listError(connect.CodeNotFound, contractNotFound)
+	}
+	if err != nil {
+		return nil, contractReadError(err, "read contract")
+	}
+	return contractListingMessage(record.ContractListing), nil
+}
+
 // forwardCommand runs call against the contract command client. A nil client answers unavailable. A call whose
 // connection was never made is retried while rpcretry.NeverConnected accepts its error. Any other error answers as
 // translateError does.
@@ -278,12 +391,13 @@ func contractStateMessage(state store.ContractStateChange) *orreryv1.ContractSta
 	}
 }
 
-// newContractsHandler returns the path and handler of the Contracts service, reading contracts from reader and forwarding
-// its commands to commands, both as contractsServer does. A zero timeout is defaultControlTimeout. Each request reads at
-// most maxControlBody bytes.
+// newContractsHandler returns the path and handler of the Contracts service, reading contracts from reader, forwarding
+// its commands to commands and its keeps, strikes and shown rows to stage, all as contractsServer does. A zero timeout
+// is defaultControlTimeout. Each request reads at most maxControlBody bytes.
 func newContractsHandler(
 	reader *store.Reader,
 	commands enginev1connect.ContractsClient,
+	stage enginev1connect.StageClient,
 	timeout time.Duration,
 	clock rpcretry.Clock,
 	opts ...connect.HandlerOption,
@@ -293,7 +407,7 @@ func newContractsHandler(
 	}
 	options := append([]connect.HandlerOption{connect.WithReadMaxBytes(maxControlBody)}, opts...)
 	return orreryv1connect.NewContractsHandler(
-		contractsServer{reader: reader, commands: commands, timeout: timeout, clock: clock},
+		contractsServer{reader: reader, commands: commands, stage: stage, timeout: timeout, clock: clock},
 		options...,
 	)
 }

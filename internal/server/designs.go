@@ -27,8 +27,9 @@ const designStageUnavailable = "design stage service unavailable"
 
 // designsServer answers orrery.v1.Designs. List and Get read the store reader. A nil reader answers them unavailable.
 // Answer forwards to stage with no caller headers, so orreryd records the owner as the maker, and answers the answer
-// orreryd stored. A nil stage answers Answer unavailable. Each forwarded call runs under timeout and is retried only
-// while rpcretry.NeverConnected accepts its error, as the contract commands are.
+// orreryd stored. Continue forwards to stage with no caller headers, and answers the design read from the reader with
+// the session orreryd names. A nil stage answers Answer and Continue unavailable. Each forwarded call runs under
+// timeout and is retried only while rpcretry.NeverConnected accepts its error, as the contract commands are.
 type designsServer struct {
 	orreryv1connect.UnimplementedDesignsHandler
 	reader  *store.Reader
@@ -59,6 +60,38 @@ func (d designsServer) Answer(
 	}
 	return connect.NewResponse(&orreryv1.DesignsAnswerResponse{
 		Answer: reply.Msg.GetQuestion().GetAnswer(),
+	}), nil
+}
+
+// Continue forwards the continuation of a design's stage to orreryd, and answers the design read from the reader with
+// the session orreryd names as continuing the stage.
+func (d designsServer) Continue(
+	ctx context.Context,
+	req *connect.Request[orreryv1.DesignsContinueRequest],
+) (*connect.Response[orreryv1.DesignsContinueResponse], error) {
+	id := req.Msg.GetId()
+	var reply *connect.Response[enginev1.ContinueDesignResponse]
+	err := d.forwardStage(ctx, func(ctx context.Context, stage enginev1connect.StageClient) error {
+		var err error
+		reply, err = stage.ContinueDesign(ctx, connect.NewRequest(&enginev1.ContinueDesignRequest{Design: id}))
+		return wrapEngine("continue", err)
+	})
+	if err != nil {
+		return nil, err
+	}
+	if d.reader == nil {
+		return nil, listError(connect.CodeUnavailable, designStoreUnavailable)
+	}
+	record, err := d.reader.Design(ctx, id)
+	if errors.Is(err, store.ErrNoDesign) {
+		return nil, listError(connect.CodeNotFound, designNotFound)
+	}
+	if err != nil {
+		return nil, designReadError(err, "read design")
+	}
+	return connect.NewResponse(&orreryv1.DesignsContinueResponse{
+		Design:  designMessage(record),
+		Session: reply.Msg.GetSession(),
 	}), nil
 }
 

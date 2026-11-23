@@ -4,7 +4,9 @@
 
 import type { GenFile, GenMessage, GenService } from "@bufbuild/protobuf/codegenv2";
 import { fileDesc, messageDesc, serviceDesc } from "@bufbuild/protobuf/codegenv2";
-import type { EpicContract, EpicRequirement } from "./epics_pb";
+import type { RecordMaker } from "./designs_pb";
+import { file_orrery_v1_designs } from "./designs_pb";
+import type { EpicContract, EpicRequirement, EvidenceRun } from "./epics_pb";
 import { file_orrery_v1_epics } from "./epics_pb";
 import type { Message } from "@bufbuild/protobuf";
 
@@ -12,7 +14,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file orrery/v1/contracts.proto.
  */
 export const file_orrery_v1_contracts: GenFile = /*@__PURE__*/
-  fileDesc("ChlvcnJlcnkvdjEvY29udHJhY3RzLnByb3RvEglvcnJlcnkudjEitwEKCENvbnRyYWN0EgoKAmlkGAEgASgJEhIKCnJlcG9zaXRvcnkYAiABKAkSDQoFdGl0bGUYAyABKAkSDAoEY2FyZRgEIAEoCRINCgVzdGF0ZRgFIAEoCRIPCgd2ZXJzaW9uGAYgASgDEhYKDm9wZW5fZGVjaXNpb25zGAcgASgDEhQKDGNvbnZlcnNhdGlvbhgIIAEoCRIPCgdjcmVhdGVkGAkgASgDEg8KB2NoYW5nZWQYCiABKAMihgEKEENvbnRyYWN0RGVjaXNpb24SCgoCaWQYASABKAkSEAoIcXVlc3Rpb24YAiABKAkSDwoHb3B0aW9ucxgDIAMoCRIWCg5yZWNvbW1lbmRhdGlvbhgEIAEoCRIOCgZyZWFzb24YBSABKAkSCwoDcm93GAYgASgJEg4KBmFuc3dlchgHIAEoCSKMAgoPQ29udHJhY3RWZXJzaW9uEg8KB3ZlcnNpb24YASABKAMSKQoIY29udHJhY3QYAiABKAsyFy5vcnJlcnkudjEuRXBpY0NvbnRyYWN0EjAKDHJlcXVpcmVtZW50cxgDIAMoCzIaLm9ycmVyeS52MS5FcGljUmVxdWlyZW1lbnQSLgoJZGVjaXNpb25zGAQgAygLMhsub3JyZXJ5LnYxLkNvbnRyYWN0RGVjaXNpb24SDQoFd29yZHMYBSABKAkSDgoGd3JpdGVyGAYgASgJEgwKBHRpbWUYByABKAMSFAoMY2hhbmdlZF9yb3dzGAggAygJEhgKEGNoYW5nZWRfc2VjdGlvbnMYCSADKAkibwoTQ29udHJhY3RTdGF0ZUNoYW5nZRINCgVzdGF0ZRgBIAEoCRIPCgd2ZXJzaW9uGAIgASgDEgoKAmJ5GAMgASgJEg8KB3Nlc3Npb24YBCABKAkSDQoFd29yZHMYBSABKAkSDAoEdGltZRgGIAEoAyIWChRDb250cmFjdHNMaXN0UmVxdWVzdCI/ChVDb250cmFjdHNMaXN0UmVzcG9uc2USJgoJY29udHJhY3RzGAEgAygLMhMub3JyZXJ5LnYxLkNvbnRyYWN0IiEKE0NvbnRyYWN0c0dldFJlcXVlc3QSCgoCaWQYASABKAkimwEKFENvbnRyYWN0c0dldFJlc3BvbnNlEiUKCGNvbnRyYWN0GAEgASgLMhMub3JyZXJ5LnYxLkNvbnRyYWN0EiwKCHZlcnNpb25zGAIgAygLMhoub3JyZXJ5LnYxLkNvbnRyYWN0VmVyc2lvbhIuCgZzdGF0ZXMYAyADKAsyHi5vcnJlcnkudjEuQ29udHJhY3RTdGF0ZUNoYW5nZSIzChZDb250cmFjdHNBY2NlcHRSZXF1ZXN0EgoKAmlkGAEgASgJEg0KBXdvcmRzGAIgASgJIkAKF0NvbnRyYWN0c0FjY2VwdFJlc3BvbnNlEiUKCGNvbnRyYWN0GAEgASgLMhMub3JyZXJ5LnYxLkNvbnRyYWN0IjUKGENvbnRyYWN0c1NldEFzaWRlUmVxdWVzdBIKCgJpZBgBIAEoCRINCgV3b3JkcxgCIAEoCSJCChlDb250cmFjdHNTZXRBc2lkZVJlc3BvbnNlEiUKCGNvbnRyYWN0GAEgASgLMhMub3JyZXJ5LnYxLkNvbnRyYWN0IjMKFkNvbnRyYWN0c1Jlb3BlblJlcXVlc3QSCgoCaWQYASABKAkSDQoFd29yZHMYAiABKAkiQAoXQ29udHJhY3RzUmVvcGVuUmVzcG9uc2USJQoIY29udHJhY3QYASABKAsyEy5vcnJlcnkudjEuQ29udHJhY3QylwMKCUNvbnRyYWN0cxJJCgRMaXN0Eh8ub3JyZXJ5LnYxLkNvbnRyYWN0c0xpc3RSZXF1ZXN0GiAub3JyZXJ5LnYxLkNvbnRyYWN0c0xpc3RSZXNwb25zZRJGCgNHZXQSHi5vcnJlcnkudjEuQ29udHJhY3RzR2V0UmVxdWVzdBofLm9ycmVyeS52MS5Db250cmFjdHNHZXRSZXNwb25zZRJPCgZBY2NlcHQSIS5vcnJlcnkudjEuQ29udHJhY3RzQWNjZXB0UmVxdWVzdBoiLm9ycmVyeS52MS5Db250cmFjdHNBY2NlcHRSZXNwb25zZRJVCghTZXRBc2lkZRIjLm9ycmVyeS52MS5Db250cmFjdHNTZXRBc2lkZVJlcXVlc3QaJC5vcnJlcnkudjEuQ29udHJhY3RzU2V0QXNpZGVSZXNwb25zZRJPCgZSZW9wZW4SIS5vcnJlcnkudjEuQ29udHJhY3RzUmVvcGVuUmVxdWVzdBoiLm9ycmVyeS52MS5Db250cmFjdHNSZW9wZW5SZXNwb25zZWIGcHJvdG8z", [file_orrery_v1_epics]);
+  fileDesc("ChlvcnJlcnkvdjEvY29udHJhY3RzLnByb3RvEglvcnJlcnkudjEitwEKCENvbnRyYWN0EgoKAmlkGAEgASgJEhIKCnJlcG9zaXRvcnkYAiABKAkSDQoFdGl0bGUYAyABKAkSDAoEY2FyZRgEIAEoCRINCgVzdGF0ZRgFIAEoCRIPCgd2ZXJzaW9uGAYgASgDEhYKDm9wZW5fZGVjaXNpb25zGAcgASgDEhQKDGNvbnZlcnNhdGlvbhgIIAEoCRIPCgdjcmVhdGVkGAkgASgDEg8KB2NoYW5nZWQYCiABKAMihgEKEENvbnRyYWN0RGVjaXNpb24SCgoCaWQYASABKAkSEAoIcXVlc3Rpb24YAiABKAkSDwoHb3B0aW9ucxgDIAMoCRIWCg5yZWNvbW1lbmRhdGlvbhgEIAEoCRIOCgZyZWFzb24YBSABKAkSCwoDcm93GAYgASgJEg4KBmFuc3dlchgHIAEoCSKdAgoPQ29udHJhY3RWZXJzaW9uEg8KB3ZlcnNpb24YASABKAMSKQoIY29udHJhY3QYAiABKAsyFy5vcnJlcnkudjEuRXBpY0NvbnRyYWN0EjAKDHJlcXVpcmVtZW50cxgDIAMoCzIaLm9ycmVyeS52MS5FcGljUmVxdWlyZW1lbnQSLgoJZGVjaXNpb25zGAQgAygLMhsub3JyZXJ5LnYxLkNvbnRyYWN0RGVjaXNpb24SDQoFd29yZHMYBSABKAkSDgoGd3JpdGVyGAYgASgJEgwKBHRpbWUYByABKAMSFAoMY2hhbmdlZF9yb3dzGAggAygJEhgKEGNoYW5nZWRfc2VjdGlvbnMYCSADKAkSDwoHcmVhZF9ieRgKIAMoCSKWAQoTQ29udHJhY3RTdGF0ZUNoYW5nZRINCgVzdGF0ZRgBIAEoCRIPCgd2ZXJzaW9uGAIgASgDEgoKAmJ5GAMgASgJEg8KB3Nlc3Npb24YBCABKAkSDQoFd29yZHMYBSABKAkSDAoEdGltZRgGIAEoAxIlCgVtYWtlchgHIAEoCzIWLm9ycmVyeS52MS5SZWNvcmRNYWtlciIWChRDb250cmFjdHNMaXN0UmVxdWVzdCI/ChVDb250cmFjdHNMaXN0UmVzcG9uc2USJgoJY29udHJhY3RzGAEgAygLMhMub3JyZXJ5LnYxLkNvbnRyYWN0IiEKE0NvbnRyYWN0c0dldFJlcXVlc3QSCgoCaWQYASABKAkiowMKFENvbnRyYWN0c0dldFJlc3BvbnNlEiUKCGNvbnRyYWN0GAEgASgLMhMub3JyZXJ5LnYxLkNvbnRyYWN0EiwKCHZlcnNpb25zGAIgAygLMhoub3JyZXJ5LnYxLkNvbnRyYWN0VmVyc2lvbhIuCgZzdGF0ZXMYAyADKAsyHi5vcnJlcnkudjEuQ29udHJhY3RTdGF0ZUNoYW5nZRIrCgd3b3JraW5nGAQgASgLMhoub3JyZXJ5LnYxLkNvbnRyYWN0V29ya2luZxIsCghyZWZ1c2FscxgFIAMoCzIaLm9ycmVyeS52MS5Db250cmFjdFJlZnVzYWwSKQoEcm93cxgGIAMoCzIbLm9ycmVyeS52MS5Db250cmFjdFJvd1dyaXRlEiUKBGxlZnQYByADKAsyFy5vcnJlcnkudjEuQ29udHJhY3RMZWZ0EjAKBHdvcmsYCCADKAsyIi5vcnJlcnkudjEuQ29udHJhY3RSZXF1aXJlbWVudFdvcmsSJwoFc2hvd24YCSADKAsyGC5vcnJlcnkudjEuQ29udHJhY3RTaG93biLmAQoPQ29udHJhY3RXb3JraW5nEg8KB3ZlcnNpb24YASABKAMSKQoIY29udHJhY3QYAiABKAsyFy5vcnJlcnkudjEuRXBpY0NvbnRyYWN0EjAKDHJlcXVpcmVtZW50cxgDIAMoCzIaLm9ycmVyeS52MS5FcGljUmVxdWlyZW1lbnQSLgoJZGVjaXNpb25zGAQgAygLMhsub3JyZXJ5LnYxLkNvbnRyYWN0RGVjaXNpb24SDgoGd3JpdGVyGAUgASgJEg8KB3VwZGF0ZWQYBiABKAMSFAoMY2hhbmdlZF9yb3dzGAcgAygJImsKD0NvbnRyYWN0UmVmdXNhbBILCgNzZXEYASABKAMSDwoHdmVyc2lvbhgCIAEoAxINCgVmaWVsZBgDIAEoCRIMCgR0ZXh0GAQgASgJEg8KB3Nlc3Npb24YBSABKAkSDAoEdGltZRgGIAEoAyKiAQoQQ29udHJhY3RSb3dXcml0ZRILCgNzZXEYASABKAMSDwoHdmVyc2lvbhgCIAEoAxILCgNyb3cYAyABKAkSDgoGYWN0aW9uGAQgASgJEg8KB2RlcGVuZHMYBSABKAkSDQoFd29yZHMYBiABKAkSJQoFbWFrZXIYByABKAsyFi5vcnJlcnkudjEuUmVjb3JkTWFrZXISDAoEdGltZRgIIAEoAyI3CgxDb250cmFjdExlZnQSDAoEa2luZBgBIAEoCRILCgNyZWYYAiABKAkSDAoEdGV4dBgDIAEoCSI7Cg1Db250cmFjdFNob3duEg8KB3ZlcnNpb24YASABKAMSCwoDcm93GAIgASgJEgwKBHRpbWUYAyABKAMinAEKF0NvbnRyYWN0UmVxdWlyZW1lbnRXb3JrEgoKAmlkGAEgASgJEgwKBHRleHQYAiABKAkSDQoFc3RhdGUYAyABKAkSMQoFdGFza3MYBCADKAsyIi5vcnJlcnkudjEuQ29udHJhY3RSZXF1aXJlbWVudFRhc2sSJQoFcHJvb2YYBSABKAsyFi5vcnJlcnkudjEuRXZpZGVuY2VSdW4iUwoXQ29udHJhY3RSZXF1aXJlbWVudFRhc2sSCgoCaWQYASABKAkSDQoFdGl0bGUYAiABKAkSDgoGc3RhdHVzGAMgASgJEg0KBXBsYWNlGAQgASgJIjMKFkNvbnRyYWN0c0FjY2VwdFJlcXVlc3QSCgoCaWQYASABKAkSDQoFd29yZHMYAiABKAkiQAoXQ29udHJhY3RzQWNjZXB0UmVzcG9uc2USJQoIY29udHJhY3QYASABKAsyEy5vcnJlcnkudjEuQ29udHJhY3QiNQoYQ29udHJhY3RzU2V0QXNpZGVSZXF1ZXN0EgoKAmlkGAEgASgJEg0KBXdvcmRzGAIgASgJIkIKGUNvbnRyYWN0c1NldEFzaWRlUmVzcG9uc2USJQoIY29udHJhY3QYASABKAsyEy5vcnJlcnkudjEuQ29udHJhY3QiMwoWQ29udHJhY3RzUmVvcGVuUmVxdWVzdBIKCgJpZBgBIAEoCRINCgV3b3JkcxgCIAEoCSJAChdDb250cmFjdHNSZW9wZW5SZXNwb25zZRIlCghjb250cmFjdBgBIAEoCzITLm9ycmVyeS52MS5Db250cmFjdCJDChRDb250cmFjdHNLZWVwUmVxdWVzdBIKCgJpZBgBIAEoCRIQCghhZGRpdGlvbhgCIAEoCRINCgV3b3JkcxgDIAEoCSI+ChVDb250cmFjdHNLZWVwUmVzcG9uc2USJQoIY29udHJhY3QYASABKAsyEy5vcnJlcnkudjEuQ29udHJhY3QiRQoWQ29udHJhY3RzU3RyaWtlUmVxdWVzdBIKCgJpZBgBIAEoCRIQCghhZGRpdGlvbhgCIAEoCRINCgV3b3JkcxgDIAEoCSJRChdDb250cmFjdHNTdHJpa2VSZXNwb25zZRIlCghjb250cmFjdBgBIAEoCzITLm9ycmVyeS52MS5Db250cmFjdBIPCgdyZW1vdmVkGAIgAygJIkIKFUNvbnRyYWN0c1Nob3duUmVxdWVzdBIKCgJpZBgBIAEoCRIPCgd2ZXJzaW9uGAIgASgDEgwKBHJvd3MYAyADKAkiJgoWQ29udHJhY3RzU2hvd25SZXNwb25zZRIMCgRyb3dzGAEgAygJMoEFCglDb250cmFjdHMSSQoETGlzdBIfLm9ycmVyeS52MS5Db250cmFjdHNMaXN0UmVxdWVzdBogLm9ycmVyeS52MS5Db250cmFjdHNMaXN0UmVzcG9uc2USRgoDR2V0Eh4ub3JyZXJ5LnYxLkNvbnRyYWN0c0dldFJlcXVlc3QaHy5vcnJlcnkudjEuQ29udHJhY3RzR2V0UmVzcG9uc2USTwoGQWNjZXB0EiEub3JyZXJ5LnYxLkNvbnRyYWN0c0FjY2VwdFJlcXVlc3QaIi5vcnJlcnkudjEuQ29udHJhY3RzQWNjZXB0UmVzcG9uc2USVQoIU2V0QXNpZGUSIy5vcnJlcnkudjEuQ29udHJhY3RzU2V0QXNpZGVSZXF1ZXN0GiQub3JyZXJ5LnYxLkNvbnRyYWN0c1NldEFzaWRlUmVzcG9uc2USTwoGUmVvcGVuEiEub3JyZXJ5LnYxLkNvbnRyYWN0c1Jlb3BlblJlcXVlc3QaIi5vcnJlcnkudjEuQ29udHJhY3RzUmVvcGVuUmVzcG9uc2USSQoES2VlcBIfLm9ycmVyeS52MS5Db250cmFjdHNLZWVwUmVxdWVzdBogLm9ycmVyeS52MS5Db250cmFjdHNLZWVwUmVzcG9uc2USTwoGU3RyaWtlEiEub3JyZXJ5LnYxLkNvbnRyYWN0c1N0cmlrZVJlcXVlc3QaIi5vcnJlcnkudjEuQ29udHJhY3RzU3RyaWtlUmVzcG9uc2USTAoFU2hvd24SIC5vcnJlcnkudjEuQ29udHJhY3RzU2hvd25SZXF1ZXN0GiEub3JyZXJ5LnYxLkNvbnRyYWN0c1Nob3duUmVzcG9uc2ViBnByb3RvMw", [file_orrery_v1_designs, file_orrery_v1_epics]);
 
 /**
  * Contract is one contract as List gives it.
@@ -229,6 +231,13 @@ export type ContractVersion = Message<"orrery.v1.ContractVersion"> & {
    * @generated from field: repeated string changed_sections = 9;
    */
   changedSections: string[];
+
+  /**
+   * The ids of the steps that read this version, oldest first.
+   *
+   * @generated from field: repeated string read_by = 10;
+   */
+  readBy: string[];
 };
 
 /**
@@ -285,6 +294,13 @@ export type ContractStateChange = Message<"orrery.v1.ContractStateChange"> & {
    * @generated from field: int64 time = 6;
    */
   time: bigint;
+
+  /**
+   * Who made the change and the evidence it rests on.
+   *
+   * @generated from field: orrery.v1.RecordMaker maker = 7;
+   */
+  maker?: RecordMaker | undefined;
 };
 
 /**
@@ -377,6 +393,48 @@ export type ContractsGetResponse = Message<"orrery.v1.ContractsGetResponse"> & {
    * @generated from field: repeated orrery.v1.ContractStateChange states = 3;
    */
   states: ContractStateChange[];
+
+  /**
+   * The contract's working copy: the body the stage is working on, with the decisions it asks and who wrote it.
+   *
+   * @generated from field: orrery.v1.ContractWorking working = 4;
+   */
+  working?: ContractWorking | undefined;
+
+  /**
+   * The refusals the contract's stage recorded, oldest first.
+   *
+   * @generated from field: repeated orrery.v1.ContractRefusal refusals = 5;
+   */
+  refusals: ContractRefusal[];
+
+  /**
+   * The row writes the contract's stage recorded, oldest first.
+   *
+   * @generated from field: repeated orrery.v1.ContractRowWrite rows = 6;
+   */
+  rows: ContractRowWrite[];
+
+  /**
+   * The left items the contract's stage recorded, oldest first.
+   *
+   * @generated from field: repeated orrery.v1.ContractLeft left = 7;
+   */
+  left: ContractLeft[];
+
+  /**
+   * The requirements' work the contract's stage recorded, one per requirement the work covers.
+   *
+   * @generated from field: repeated orrery.v1.ContractRequirementWork work = 8;
+   */
+  work: ContractRequirementWork[];
+
+  /**
+   * The rows the owner was shown, oldest first.
+   *
+   * @generated from field: repeated orrery.v1.ContractShown shown = 9;
+   */
+  shown: ContractShown[];
 };
 
 /**
@@ -385,6 +443,358 @@ export type ContractsGetResponse = Message<"orrery.v1.ContractsGetResponse"> & {
  */
 export const ContractsGetResponseSchema: GenMessage<ContractsGetResponse> = /*@__PURE__*/
   messageDesc(file_orrery_v1_contracts, 7);
+
+/**
+ * ContractWorking is a contract's working copy: the body its stage works on, with the decisions it asks the owner to
+ * answer.
+ *
+ * @generated from message orrery.v1.ContractWorking
+ */
+export type ContractWorking = Message<"orrery.v1.ContractWorking"> & {
+  /**
+   * The working copy's version number, counted from 1.
+   *
+   * @generated from field: int64 version = 1;
+   */
+  version: bigint;
+
+  /**
+   * The body's sections.
+   *
+   * @generated from field: orrery.v1.EpicContract contract = 2;
+   */
+  contract?: EpicContract | undefined;
+
+  /**
+   * The body's requirements in order.
+   *
+   * @generated from field: repeated orrery.v1.EpicRequirement requirements = 3;
+   */
+  requirements: EpicRequirement[];
+
+  /**
+   * The decisions the working copy asks the owner to answer.
+   *
+   * @generated from field: repeated orrery.v1.ContractDecision decisions = 4;
+   */
+  decisions: ContractDecision[];
+
+  /**
+   * The sessions row id of the session that wrote the working copy.
+   *
+   * @generated from field: string writer = 5;
+   */
+  writer: string;
+
+  /**
+   * When the working copy was last updated, in unix seconds.
+   *
+   * @generated from field: int64 updated = 6;
+   */
+  updated: bigint;
+
+  /**
+   * The F, R, P and decision ids whose text differs from the version before.
+   *
+   * @generated from field: repeated string changed_rows = 7;
+   */
+  changedRows: string[];
+};
+
+/**
+ * Describes the message orrery.v1.ContractWorking.
+ * Use `create(ContractWorkingSchema)` to create a new message.
+ */
+export const ContractWorkingSchema: GenMessage<ContractWorking> = /*@__PURE__*/
+  messageDesc(file_orrery_v1_contracts, 8);
+
+/**
+ * ContractRefusal is a refusal the contract's stage recorded for a field of its body.
+ *
+ * @generated from message orrery.v1.ContractRefusal
+ */
+export type ContractRefusal = Message<"orrery.v1.ContractRefusal"> & {
+  /**
+   * The refusal's seq, counted from 1 within its contract.
+   *
+   * @generated from field: int64 seq = 1;
+   */
+  seq: bigint;
+
+  /**
+   * The number of the contract version the refusal concerns.
+   *
+   * @generated from field: int64 version = 2;
+   */
+  version: bigint;
+
+  /**
+   * The field the refusal concerns.
+   *
+   * @generated from field: string field = 3;
+   */
+  field: string;
+
+  /**
+   * The refusal's text.
+   *
+   * @generated from field: string text = 4;
+   */
+  text: string;
+
+  /**
+   * The sessions row id of the session that recorded the refusal.
+   *
+   * @generated from field: string session = 5;
+   */
+  session: string;
+
+  /**
+   * When the refusal was recorded, in unix seconds.
+   *
+   * @generated from field: int64 time = 6;
+   */
+  time: bigint;
+};
+
+/**
+ * Describes the message orrery.v1.ContractRefusal.
+ * Use `create(ContractRefusalSchema)` to create a new message.
+ */
+export const ContractRefusalSchema: GenMessage<ContractRefusal> = /*@__PURE__*/
+  messageDesc(file_orrery_v1_contracts, 9);
+
+/**
+ * ContractRowWrite is a write to a row of a contract's body, as its stage recorded it.
+ *
+ * @generated from message orrery.v1.ContractRowWrite
+ */
+export type ContractRowWrite = Message<"orrery.v1.ContractRowWrite"> & {
+  /**
+   * The write's seq, counted from 1 within its contract.
+   *
+   * @generated from field: int64 seq = 1;
+   */
+  seq: bigint;
+
+  /**
+   * The number of the contract version the write made.
+   *
+   * @generated from field: int64 version = 2;
+   */
+  version: bigint;
+
+  /**
+   * The F, R or P row the write concerns.
+   *
+   * @generated from field: string row = 3;
+   */
+  row: string;
+
+  /**
+   * What the write did to the row.
+   *
+   * @generated from field: string action = 4;
+   */
+  action: string;
+
+  /**
+   * The row the written row depends on.
+   *
+   * @generated from field: string depends = 5;
+   */
+  depends: string;
+
+  /**
+   * The owner's words the write is made with.
+   *
+   * @generated from field: string words = 6;
+   */
+  words: string;
+
+  /**
+   * Who made the write and the evidence it rests on.
+   *
+   * @generated from field: orrery.v1.RecordMaker maker = 7;
+   */
+  maker?: RecordMaker | undefined;
+
+  /**
+   * When the write was stored, in unix seconds.
+   *
+   * @generated from field: int64 time = 8;
+   */
+  time: bigint;
+};
+
+/**
+ * Describes the message orrery.v1.ContractRowWrite.
+ * Use `create(ContractRowWriteSchema)` to create a new message.
+ */
+export const ContractRowWriteSchema: GenMessage<ContractRowWrite> = /*@__PURE__*/
+  messageDesc(file_orrery_v1_contracts, 10);
+
+/**
+ * ContractLeft is an item the contract's stage left, with the kind of item and the id it refers to.
+ *
+ * @generated from message orrery.v1.ContractLeft
+ */
+export type ContractLeft = Message<"orrery.v1.ContractLeft"> & {
+  /**
+   * The kind of item left.
+   *
+   * @generated from field: string kind = 1;
+   */
+  kind: string;
+
+  /**
+   * The id of the item left.
+   *
+   * @generated from field: string ref = 2;
+   */
+  ref: string;
+
+  /**
+   * The item's text.
+   *
+   * @generated from field: string text = 3;
+   */
+  text: string;
+};
+
+/**
+ * Describes the message orrery.v1.ContractLeft.
+ * Use `create(ContractLeftSchema)` to create a new message.
+ */
+export const ContractLeftSchema: GenMessage<ContractLeft> = /*@__PURE__*/
+  messageDesc(file_orrery_v1_contracts, 11);
+
+/**
+ * ContractShown is a row of a contract version the owner was shown.
+ *
+ * @generated from message orrery.v1.ContractShown
+ */
+export type ContractShown = Message<"orrery.v1.ContractShown"> & {
+  /**
+   * The number of the contract version the owner was shown.
+   *
+   * @generated from field: int64 version = 1;
+   */
+  version: bigint;
+
+  /**
+   * The F, R or P row the owner was shown.
+   *
+   * @generated from field: string row = 2;
+   */
+  row: string;
+
+  /**
+   * When the owner was shown the row, in unix seconds.
+   *
+   * @generated from field: int64 time = 3;
+   */
+  time: bigint;
+};
+
+/**
+ * Describes the message orrery.v1.ContractShown.
+ * Use `create(ContractShownSchema)` to create a new message.
+ */
+export const ContractShownSchema: GenMessage<ContractShown> = /*@__PURE__*/
+  messageDesc(file_orrery_v1_contracts, 12);
+
+/**
+ * ContractRequirementWork is the work done on one requirement of a contract: its tasks and the evidence run that proves
+ * it.
+ *
+ * @generated from message orrery.v1.ContractRequirementWork
+ */
+export type ContractRequirementWork = Message<"orrery.v1.ContractRequirementWork"> & {
+  /**
+   * The requirement's id, R<n>.
+   *
+   * @generated from field: string id = 1;
+   */
+  id: string;
+
+  /**
+   * The requirement's text.
+   *
+   * @generated from field: string text = 2;
+   */
+  text: string;
+
+  /**
+   * The requirement's state.
+   *
+   * @generated from field: string state = 3;
+   */
+  state: string;
+
+  /**
+   * The tasks that cover the requirement.
+   *
+   * @generated from field: repeated orrery.v1.ContractRequirementTask tasks = 4;
+   */
+  tasks: ContractRequirementTask[];
+
+  /**
+   * The evidence run that proves the requirement.
+   *
+   * @generated from field: orrery.v1.EvidenceRun proof = 5;
+   */
+  proof?: EvidenceRun | undefined;
+};
+
+/**
+ * Describes the message orrery.v1.ContractRequirementWork.
+ * Use `create(ContractRequirementWorkSchema)` to create a new message.
+ */
+export const ContractRequirementWorkSchema: GenMessage<ContractRequirementWork> = /*@__PURE__*/
+  messageDesc(file_orrery_v1_contracts, 13);
+
+/**
+ * ContractRequirementTask is a task that covers a requirement of a contract.
+ *
+ * @generated from message orrery.v1.ContractRequirementTask
+ */
+export type ContractRequirementTask = Message<"orrery.v1.ContractRequirementTask"> & {
+  /**
+   * The task's id.
+   *
+   * @generated from field: string id = 1;
+   */
+  id: string;
+
+  /**
+   * The task's title.
+   *
+   * @generated from field: string title = 2;
+   */
+  title: string;
+
+  /**
+   * The task's status.
+   *
+   * @generated from field: string status = 3;
+   */
+  status: string;
+
+  /**
+   * The task's place in the build order.
+   *
+   * @generated from field: string place = 4;
+   */
+  place: string;
+};
+
+/**
+ * Describes the message orrery.v1.ContractRequirementTask.
+ * Use `create(ContractRequirementTaskSchema)` to create a new message.
+ */
+export const ContractRequirementTaskSchema: GenMessage<ContractRequirementTask> = /*@__PURE__*/
+  messageDesc(file_orrery_v1_contracts, 14);
 
 /**
  * ContractsAcceptRequest names the contract the owner accepts.
@@ -412,7 +822,7 @@ export type ContractsAcceptRequest = Message<"orrery.v1.ContractsAcceptRequest">
  * Use `create(ContractsAcceptRequestSchema)` to create a new message.
  */
 export const ContractsAcceptRequestSchema: GenMessage<ContractsAcceptRequest> = /*@__PURE__*/
-  messageDesc(file_orrery_v1_contracts, 8);
+  messageDesc(file_orrery_v1_contracts, 15);
 
 /**
  * ContractsAcceptResponse carries the contract as it stands after the acceptance.
@@ -433,7 +843,7 @@ export type ContractsAcceptResponse = Message<"orrery.v1.ContractsAcceptResponse
  * Use `create(ContractsAcceptResponseSchema)` to create a new message.
  */
 export const ContractsAcceptResponseSchema: GenMessage<ContractsAcceptResponse> = /*@__PURE__*/
-  messageDesc(file_orrery_v1_contracts, 9);
+  messageDesc(file_orrery_v1_contracts, 16);
 
 /**
  * ContractsSetAsideRequest names the contract the owner sets aside.
@@ -461,7 +871,7 @@ export type ContractsSetAsideRequest = Message<"orrery.v1.ContractsSetAsideReque
  * Use `create(ContractsSetAsideRequestSchema)` to create a new message.
  */
 export const ContractsSetAsideRequestSchema: GenMessage<ContractsSetAsideRequest> = /*@__PURE__*/
-  messageDesc(file_orrery_v1_contracts, 10);
+  messageDesc(file_orrery_v1_contracts, 17);
 
 /**
  * ContractsSetAsideResponse carries the contract as it stands after it was set aside.
@@ -482,7 +892,7 @@ export type ContractsSetAsideResponse = Message<"orrery.v1.ContractsSetAsideResp
  * Use `create(ContractsSetAsideResponseSchema)` to create a new message.
  */
 export const ContractsSetAsideResponseSchema: GenMessage<ContractsSetAsideResponse> = /*@__PURE__*/
-  messageDesc(file_orrery_v1_contracts, 11);
+  messageDesc(file_orrery_v1_contracts, 18);
 
 /**
  * ContractsReopenRequest names the contract the owner reopens.
@@ -510,7 +920,7 @@ export type ContractsReopenRequest = Message<"orrery.v1.ContractsReopenRequest">
  * Use `create(ContractsReopenRequestSchema)` to create a new message.
  */
 export const ContractsReopenRequestSchema: GenMessage<ContractsReopenRequest> = /*@__PURE__*/
-  messageDesc(file_orrery_v1_contracts, 12);
+  messageDesc(file_orrery_v1_contracts, 19);
 
 /**
  * ContractsReopenResponse carries the contract as it stands after it was reopened.
@@ -531,7 +941,182 @@ export type ContractsReopenResponse = Message<"orrery.v1.ContractsReopenResponse
  * Use `create(ContractsReopenResponseSchema)` to create a new message.
  */
 export const ContractsReopenResponseSchema: GenMessage<ContractsReopenResponse> = /*@__PURE__*/
-  messageDesc(file_orrery_v1_contracts, 13);
+  messageDesc(file_orrery_v1_contracts, 20);
+
+/**
+ * ContractsKeepRequest names the contract and the addition the owner keeps.
+ *
+ * @generated from message orrery.v1.ContractsKeepRequest
+ */
+export type ContractsKeepRequest = Message<"orrery.v1.ContractsKeepRequest"> & {
+  /**
+   * The contract's id, as List gave it.
+   *
+   * @generated from field: string id = 1;
+   */
+  id: string;
+
+  /**
+   * The addition the contract keeps.
+   *
+   * @generated from field: string addition = 2;
+   */
+  addition: string;
+
+  /**
+   * The words the owner keeps the addition with; may be empty.
+   *
+   * @generated from field: string words = 3;
+   */
+  words: string;
+};
+
+/**
+ * Describes the message orrery.v1.ContractsKeepRequest.
+ * Use `create(ContractsKeepRequestSchema)` to create a new message.
+ */
+export const ContractsKeepRequestSchema: GenMessage<ContractsKeepRequest> = /*@__PURE__*/
+  messageDesc(file_orrery_v1_contracts, 21);
+
+/**
+ * ContractsKeepResponse carries the contract as it stands after the addition was kept.
+ *
+ * @generated from message orrery.v1.ContractsKeepResponse
+ */
+export type ContractsKeepResponse = Message<"orrery.v1.ContractsKeepResponse"> & {
+  /**
+   * The contract.
+   *
+   * @generated from field: orrery.v1.Contract contract = 1;
+   */
+  contract?: Contract | undefined;
+};
+
+/**
+ * Describes the message orrery.v1.ContractsKeepResponse.
+ * Use `create(ContractsKeepResponseSchema)` to create a new message.
+ */
+export const ContractsKeepResponseSchema: GenMessage<ContractsKeepResponse> = /*@__PURE__*/
+  messageDesc(file_orrery_v1_contracts, 22);
+
+/**
+ * ContractsStrikeRequest names the contract and the addition the owner strikes.
+ *
+ * @generated from message orrery.v1.ContractsStrikeRequest
+ */
+export type ContractsStrikeRequest = Message<"orrery.v1.ContractsStrikeRequest"> & {
+  /**
+   * The contract's id, as List gave it.
+   *
+   * @generated from field: string id = 1;
+   */
+  id: string;
+
+  /**
+   * The addition the contract keeps, which the owner strikes.
+   *
+   * @generated from field: string addition = 2;
+   */
+  addition: string;
+
+  /**
+   * The words the owner strikes the addition with; may be empty.
+   *
+   * @generated from field: string words = 3;
+   */
+  words: string;
+};
+
+/**
+ * Describes the message orrery.v1.ContractsStrikeRequest.
+ * Use `create(ContractsStrikeRequestSchema)` to create a new message.
+ */
+export const ContractsStrikeRequestSchema: GenMessage<ContractsStrikeRequest> = /*@__PURE__*/
+  messageDesc(file_orrery_v1_contracts, 23);
+
+/**
+ * ContractsStrikeResponse carries the contract as it stands after the striking, and the rows the striking removed.
+ *
+ * @generated from message orrery.v1.ContractsStrikeResponse
+ */
+export type ContractsStrikeResponse = Message<"orrery.v1.ContractsStrikeResponse"> & {
+  /**
+   * The contract.
+   *
+   * @generated from field: orrery.v1.Contract contract = 1;
+   */
+  contract?: Contract | undefined;
+
+  /**
+   * The rows the striking removed.
+   *
+   * @generated from field: repeated string removed = 2;
+   */
+  removed: string[];
+};
+
+/**
+ * Describes the message orrery.v1.ContractsStrikeResponse.
+ * Use `create(ContractsStrikeResponseSchema)` to create a new message.
+ */
+export const ContractsStrikeResponseSchema: GenMessage<ContractsStrikeResponse> = /*@__PURE__*/
+  messageDesc(file_orrery_v1_contracts, 24);
+
+/**
+ * ContractsShownRequest names the contract version the owner was shown and the rows the owner was shown.
+ *
+ * @generated from message orrery.v1.ContractsShownRequest
+ */
+export type ContractsShownRequest = Message<"orrery.v1.ContractsShownRequest"> & {
+  /**
+   * The contract's id, as List gave it.
+   *
+   * @generated from field: string id = 1;
+   */
+  id: string;
+
+  /**
+   * The number of the contract version the owner was shown.
+   *
+   * @generated from field: int64 version = 2;
+   */
+  version: bigint;
+
+  /**
+   * The F, R or P rows the owner was shown.
+   *
+   * @generated from field: repeated string rows = 3;
+   */
+  rows: string[];
+};
+
+/**
+ * Describes the message orrery.v1.ContractsShownRequest.
+ * Use `create(ContractsShownRequestSchema)` to create a new message.
+ */
+export const ContractsShownRequestSchema: GenMessage<ContractsShownRequest> = /*@__PURE__*/
+  messageDesc(file_orrery_v1_contracts, 25);
+
+/**
+ * ContractsShownResponse carries the rows orreryd marked as shown.
+ *
+ * @generated from message orrery.v1.ContractsShownResponse
+ */
+export type ContractsShownResponse = Message<"orrery.v1.ContractsShownResponse"> & {
+  /**
+   * The rows orreryd marked.
+   *
+   * @generated from field: repeated string rows = 1;
+   */
+  rows: string[];
+};
+
+/**
+ * Describes the message orrery.v1.ContractsShownResponse.
+ * Use `create(ContractsShownResponseSchema)` to create a new message.
+ */
+export const ContractsShownResponseSchema: GenMessage<ContractsShownResponse> = /*@__PURE__*/
+  messageDesc(file_orrery_v1_contracts, 26);
 
 /**
  * Contracts reads the contracts orreryd keeps, from the store, and forwards the owner's accept, set aside and reopen to
@@ -589,6 +1174,38 @@ export const Contracts: GenService<{
     methodKind: "unary";
     input: typeof ContractsReopenRequestSchema;
     output: typeof ContractsReopenResponseSchema;
+  },
+  /**
+   * Keep forwards the owner's keeping of an addition to the named contract to orreryd and returns the contract as it
+   * stands.
+   *
+   * @generated from rpc orrery.v1.Contracts.Keep
+   */
+  keep: {
+    methodKind: "unary";
+    input: typeof ContractsKeepRequestSchema;
+    output: typeof ContractsKeepResponseSchema;
+  },
+  /**
+   * Strike forwards the owner's striking of an addition the named contract keeps to orreryd and returns the contract as
+   * it stands, with the rows the striking removed.
+   *
+   * @generated from rpc orrery.v1.Contracts.Strike
+   */
+  strike: {
+    methodKind: "unary";
+    input: typeof ContractsStrikeRequestSchema;
+    output: typeof ContractsStrikeResponseSchema;
+  },
+  /**
+   * Shown forwards the rows of a contract version the owner was shown to orreryd and returns the rows it marked.
+   *
+   * @generated from rpc orrery.v1.Contracts.Shown
+   */
+  shown: {
+    methodKind: "unary";
+    input: typeof ContractsShownRequestSchema;
+    output: typeof ContractsShownResponseSchema;
   },
 }> = /*@__PURE__*/
   serviceDesc(file_orrery_v1_contracts, 0);

@@ -150,11 +150,19 @@ func (x *DesignsGetRequest) GetId() string {
 	return ""
 }
 
-// DesignsGetResponse carries one design.
+// DesignsGetResponse carries one design with its stage's approaches, choice, log and delegations.
 type DesignsGetResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// The design.
-	Design        *Design `protobuf:"bytes,1,opt,name=design,proto3" json:"design,omitempty"`
+	Design *Design `protobuf:"bytes,1,opt,name=design,proto3" json:"design,omitempty"`
+	// The approaches the design's stage weighs, oldest first.
+	Approaches []*DesignApproach `protobuf:"bytes,2,rep,name=approaches,proto3" json:"approaches,omitempty"`
+	// The approach the owner chose for the design; unset until a choice is stored.
+	Choice *DesignChoice `protobuf:"bytes,3,opt,name=choice,proto3" json:"choice,omitempty"`
+	// The log of the design's stage, oldest first.
+	Log []*DesignLogLine `protobuf:"bytes,4,rep,name=log,proto3" json:"log,omitempty"`
+	// The owner's delegations of the design's decisions to the conversation, oldest first.
+	Delegations   []*DesignDelegation `protobuf:"bytes,5,rep,name=delegations,proto3" json:"delegations,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -196,6 +204,600 @@ func (x *DesignsGetResponse) GetDesign() *Design {
 	return nil
 }
 
+func (x *DesignsGetResponse) GetApproaches() []*DesignApproach {
+	if x != nil {
+		return x.Approaches
+	}
+	return nil
+}
+
+func (x *DesignsGetResponse) GetChoice() *DesignChoice {
+	if x != nil {
+		return x.Choice
+	}
+	return nil
+}
+
+func (x *DesignsGetResponse) GetLog() []*DesignLogLine {
+	if x != nil {
+		return x.Log
+	}
+	return nil
+}
+
+func (x *DesignsGetResponse) GetDelegations() []*DesignDelegation {
+	if x != nil {
+		return x.Delegations
+	}
+	return nil
+}
+
+// RecordMaker is who made a stage record and the evidence it rests on.
+type RecordMaker struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Who made the record: owner_serve for the owner through serve's call, owner_conversation for the owner in the
+	// conversation, or conversation for the owner as the conversation decided for him.
+	Kind string `protobuf:"bytes,1,opt,name=kind,proto3" json:"kind,omitempty"`
+	// The owner's words the record quotes; set for owner_conversation.
+	Quote string `protobuf:"bytes,2,opt,name=quote,proto3" json:"quote,omitempty"`
+	// Why the conversation decided for the owner; set for conversation.
+	Reason string `protobuf:"bytes,3,opt,name=reason,proto3" json:"reason,omitempty"`
+	// The owner's words that let the conversation decide for him; set for conversation.
+	Delegation string `protobuf:"bytes,4,opt,name=delegation,proto3" json:"delegation,omitempty"`
+	// The sessions row id of the session that made the record, or empty when none did.
+	Session       string `protobuf:"bytes,5,opt,name=session,proto3" json:"session,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RecordMaker) Reset() {
+	*x = RecordMaker{}
+	mi := &file_orrery_v1_designs_proto_msgTypes[4]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RecordMaker) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RecordMaker) ProtoMessage() {}
+
+func (x *RecordMaker) ProtoReflect() protoreflect.Message {
+	mi := &file_orrery_v1_designs_proto_msgTypes[4]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RecordMaker.ProtoReflect.Descriptor instead.
+func (*RecordMaker) Descriptor() ([]byte, []int) {
+	return file_orrery_v1_designs_proto_rawDescGZIP(), []int{4}
+}
+
+func (x *RecordMaker) GetKind() string {
+	if x != nil {
+		return x.Kind
+	}
+	return ""
+}
+
+func (x *RecordMaker) GetQuote() string {
+	if x != nil {
+		return x.Quote
+	}
+	return ""
+}
+
+func (x *RecordMaker) GetReason() string {
+	if x != nil {
+		return x.Reason
+	}
+	return ""
+}
+
+func (x *RecordMaker) GetDelegation() string {
+	if x != nil {
+		return x.Delegation
+	}
+	return ""
+}
+
+func (x *RecordMaker) GetSession() string {
+	if x != nil {
+		return x.Session
+	}
+	return ""
+}
+
+// DesignApproach is an approach a design's stage weighs, with its trade-offs and whether the planner recommends it.
+type DesignApproach struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The approach's seq, counted from 1 within its design.
+	Seq int64 `protobuf:"varint,1,opt,name=seq,proto3" json:"seq,omitempty"`
+	// The approach's name.
+	Name string `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	// The shape the approach takes.
+	Shape string `protobuf:"bytes,3,opt,name=shape,proto3" json:"shape,omitempty"`
+	// What the approach costs.
+	Cost string `protobuf:"bytes,4,opt,name=cost,proto3" json:"cost,omitempty"`
+	// What the approach wins.
+	Wins string `protobuf:"bytes,5,opt,name=wins,proto3" json:"wins,omitempty"`
+	// What the approach loses.
+	Loses string `protobuf:"bytes,6,opt,name=loses,proto3" json:"loses,omitempty"`
+	// What would make the planner reconsider the approach.
+	Reconsider string `protobuf:"bytes,7,opt,name=reconsider,proto3" json:"reconsider,omitempty"`
+	// The ids of the research steps the approach rests on.
+	Research []string `protobuf:"bytes,8,rep,name=research,proto3" json:"research,omitempty"`
+	// True when the planner recommends the approach.
+	Recommended bool `protobuf:"varint,9,opt,name=recommended,proto3" json:"recommended,omitempty"`
+	// Why the planner recommends the approach or does not.
+	Reason string `protobuf:"bytes,10,opt,name=reason,proto3" json:"reason,omitempty"`
+	// When the approach was stored, in unix seconds.
+	Time          int64 `protobuf:"varint,11,opt,name=time,proto3" json:"time,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DesignApproach) Reset() {
+	*x = DesignApproach{}
+	mi := &file_orrery_v1_designs_proto_msgTypes[5]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DesignApproach) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DesignApproach) ProtoMessage() {}
+
+func (x *DesignApproach) ProtoReflect() protoreflect.Message {
+	mi := &file_orrery_v1_designs_proto_msgTypes[5]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DesignApproach.ProtoReflect.Descriptor instead.
+func (*DesignApproach) Descriptor() ([]byte, []int) {
+	return file_orrery_v1_designs_proto_rawDescGZIP(), []int{5}
+}
+
+func (x *DesignApproach) GetSeq() int64 {
+	if x != nil {
+		return x.Seq
+	}
+	return 0
+}
+
+func (x *DesignApproach) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *DesignApproach) GetShape() string {
+	if x != nil {
+		return x.Shape
+	}
+	return ""
+}
+
+func (x *DesignApproach) GetCost() string {
+	if x != nil {
+		return x.Cost
+	}
+	return ""
+}
+
+func (x *DesignApproach) GetWins() string {
+	if x != nil {
+		return x.Wins
+	}
+	return ""
+}
+
+func (x *DesignApproach) GetLoses() string {
+	if x != nil {
+		return x.Loses
+	}
+	return ""
+}
+
+func (x *DesignApproach) GetReconsider() string {
+	if x != nil {
+		return x.Reconsider
+	}
+	return ""
+}
+
+func (x *DesignApproach) GetResearch() []string {
+	if x != nil {
+		return x.Research
+	}
+	return nil
+}
+
+func (x *DesignApproach) GetRecommended() bool {
+	if x != nil {
+		return x.Recommended
+	}
+	return false
+}
+
+func (x *DesignApproach) GetReason() string {
+	if x != nil {
+		return x.Reason
+	}
+	return ""
+}
+
+func (x *DesignApproach) GetTime() int64 {
+	if x != nil {
+		return x.Time
+	}
+	return 0
+}
+
+// DesignChoice is the approach the owner chose for a design, with the maker it came from.
+type DesignChoice struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The seq of the chosen approach.
+	Approach int64 `protobuf:"varint,1,opt,name=approach,proto3" json:"approach,omitempty"`
+	// The owner's words the choice is made with.
+	Words string `protobuf:"bytes,2,opt,name=words,proto3" json:"words,omitempty"`
+	// Who made the choice and the evidence it rests on.
+	Maker *RecordMaker `protobuf:"bytes,3,opt,name=maker,proto3" json:"maker,omitempty"`
+	// When the choice was stored, in unix seconds.
+	Time          int64 `protobuf:"varint,4,opt,name=time,proto3" json:"time,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DesignChoice) Reset() {
+	*x = DesignChoice{}
+	mi := &file_orrery_v1_designs_proto_msgTypes[6]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DesignChoice) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DesignChoice) ProtoMessage() {}
+
+func (x *DesignChoice) ProtoReflect() protoreflect.Message {
+	mi := &file_orrery_v1_designs_proto_msgTypes[6]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DesignChoice.ProtoReflect.Descriptor instead.
+func (*DesignChoice) Descriptor() ([]byte, []int) {
+	return file_orrery_v1_designs_proto_rawDescGZIP(), []int{6}
+}
+
+func (x *DesignChoice) GetApproach() int64 {
+	if x != nil {
+		return x.Approach
+	}
+	return 0
+}
+
+func (x *DesignChoice) GetWords() string {
+	if x != nil {
+		return x.Words
+	}
+	return ""
+}
+
+func (x *DesignChoice) GetMaker() *RecordMaker {
+	if x != nil {
+		return x.Maker
+	}
+	return nil
+}
+
+func (x *DesignChoice) GetTime() int64 {
+	if x != nil {
+		return x.Time
+	}
+	return 0
+}
+
+// DesignLogLine is one line of a design's stage log: what was done, by whom, and the ids it touched.
+type DesignLogLine struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The line's seq, counted from 1 within its design.
+	Seq int64 `protobuf:"varint,1,opt,name=seq,proto3" json:"seq,omitempty"`
+	// When the line was logged, in unix seconds.
+	Time int64 `protobuf:"varint,2,opt,name=time,proto3" json:"time,omitempty"`
+	// Who did the thing the line logs and the evidence it rests on.
+	Maker *RecordMaker `protobuf:"bytes,3,opt,name=maker,proto3" json:"maker,omitempty"`
+	// The sessions row id of the session that logged the line.
+	Session string `protobuf:"bytes,4,opt,name=session,proto3" json:"session,omitempty"`
+	// What was done.
+	What string `protobuf:"bytes,5,opt,name=what,proto3" json:"what,omitempty"`
+	// The ids the line touched.
+	Ids []string `protobuf:"bytes,6,rep,name=ids,proto3" json:"ids,omitempty"`
+	// The words the line was logged with.
+	Words         string `protobuf:"bytes,7,opt,name=words,proto3" json:"words,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DesignLogLine) Reset() {
+	*x = DesignLogLine{}
+	mi := &file_orrery_v1_designs_proto_msgTypes[7]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DesignLogLine) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DesignLogLine) ProtoMessage() {}
+
+func (x *DesignLogLine) ProtoReflect() protoreflect.Message {
+	mi := &file_orrery_v1_designs_proto_msgTypes[7]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DesignLogLine.ProtoReflect.Descriptor instead.
+func (*DesignLogLine) Descriptor() ([]byte, []int) {
+	return file_orrery_v1_designs_proto_rawDescGZIP(), []int{7}
+}
+
+func (x *DesignLogLine) GetSeq() int64 {
+	if x != nil {
+		return x.Seq
+	}
+	return 0
+}
+
+func (x *DesignLogLine) GetTime() int64 {
+	if x != nil {
+		return x.Time
+	}
+	return 0
+}
+
+func (x *DesignLogLine) GetMaker() *RecordMaker {
+	if x != nil {
+		return x.Maker
+	}
+	return nil
+}
+
+func (x *DesignLogLine) GetSession() string {
+	if x != nil {
+		return x.Session
+	}
+	return ""
+}
+
+func (x *DesignLogLine) GetWhat() string {
+	if x != nil {
+		return x.What
+	}
+	return ""
+}
+
+func (x *DesignLogLine) GetIds() []string {
+	if x != nil {
+		return x.Ids
+	}
+	return nil
+}
+
+func (x *DesignLogLine) GetWords() string {
+	if x != nil {
+		return x.Words
+	}
+	return ""
+}
+
+// DesignDelegation is the owner's delegation of a design's decisions to the conversation, with the decisions the
+// conversation made under it.
+type DesignDelegation struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The delegation's seq, counted from 1 within its design.
+	Seq int64 `protobuf:"varint,1,opt,name=seq,proto3" json:"seq,omitempty"`
+	// The kinds of decision the delegation covers.
+	Kinds []string `protobuf:"bytes,2,rep,name=kinds,proto3" json:"kinds,omitempty"`
+	// The owner's words the delegation is given with.
+	Message string `protobuf:"bytes,3,opt,name=message,proto3" json:"message,omitempty"`
+	// The sessions row id of the session that stored the delegation.
+	Session string `protobuf:"bytes,4,opt,name=session,proto3" json:"session,omitempty"`
+	// When the delegation was stored, in unix seconds.
+	Time int64 `protobuf:"varint,5,opt,name=time,proto3" json:"time,omitempty"`
+	// The decisions the conversation made under the delegation, oldest first.
+	Decisions     []*DesignDecision `protobuf:"bytes,6,rep,name=decisions,proto3" json:"decisions,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DesignDelegation) Reset() {
+	*x = DesignDelegation{}
+	mi := &file_orrery_v1_designs_proto_msgTypes[8]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DesignDelegation) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DesignDelegation) ProtoMessage() {}
+
+func (x *DesignDelegation) ProtoReflect() protoreflect.Message {
+	mi := &file_orrery_v1_designs_proto_msgTypes[8]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DesignDelegation.ProtoReflect.Descriptor instead.
+func (*DesignDelegation) Descriptor() ([]byte, []int) {
+	return file_orrery_v1_designs_proto_rawDescGZIP(), []int{8}
+}
+
+func (x *DesignDelegation) GetSeq() int64 {
+	if x != nil {
+		return x.Seq
+	}
+	return 0
+}
+
+func (x *DesignDelegation) GetKinds() []string {
+	if x != nil {
+		return x.Kinds
+	}
+	return nil
+}
+
+func (x *DesignDelegation) GetMessage() string {
+	if x != nil {
+		return x.Message
+	}
+	return ""
+}
+
+func (x *DesignDelegation) GetSession() string {
+	if x != nil {
+		return x.Session
+	}
+	return ""
+}
+
+func (x *DesignDelegation) GetTime() int64 {
+	if x != nil {
+		return x.Time
+	}
+	return 0
+}
+
+func (x *DesignDelegation) GetDecisions() []*DesignDecision {
+	if x != nil {
+		return x.Decisions
+	}
+	return nil
+}
+
+// DesignDecision is a decision the conversation made under a delegation.
+type DesignDecision struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The decision's kind.
+	Kind string `protobuf:"bytes,1,opt,name=kind,proto3" json:"kind,omitempty"`
+	// The id of the thing the decision concerns.
+	Ref string `protobuf:"bytes,2,opt,name=ref,proto3" json:"ref,omitempty"`
+	// The decision's text.
+	Text string `protobuf:"bytes,3,opt,name=text,proto3" json:"text,omitempty"`
+	// Why the conversation decided.
+	Reason string `protobuf:"bytes,4,opt,name=reason,proto3" json:"reason,omitempty"`
+	// When the decision was made, in unix seconds.
+	Time          int64 `protobuf:"varint,5,opt,name=time,proto3" json:"time,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DesignDecision) Reset() {
+	*x = DesignDecision{}
+	mi := &file_orrery_v1_designs_proto_msgTypes[9]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DesignDecision) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DesignDecision) ProtoMessage() {}
+
+func (x *DesignDecision) ProtoReflect() protoreflect.Message {
+	mi := &file_orrery_v1_designs_proto_msgTypes[9]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DesignDecision.ProtoReflect.Descriptor instead.
+func (*DesignDecision) Descriptor() ([]byte, []int) {
+	return file_orrery_v1_designs_proto_rawDescGZIP(), []int{9}
+}
+
+func (x *DesignDecision) GetKind() string {
+	if x != nil {
+		return x.Kind
+	}
+	return ""
+}
+
+func (x *DesignDecision) GetRef() string {
+	if x != nil {
+		return x.Ref
+	}
+	return ""
+}
+
+func (x *DesignDecision) GetText() string {
+	if x != nil {
+		return x.Text
+	}
+	return ""
+}
+
+func (x *DesignDecision) GetReason() string {
+	if x != nil {
+		return x.Reason
+	}
+	return ""
+}
+
+func (x *DesignDecision) GetTime() int64 {
+	if x != nil {
+		return x.Time
+	}
+	return 0
+}
+
 // Design is a design as the clients read it: its contracts and the order they start in.
 type Design struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -219,7 +821,7 @@ type Design struct {
 
 func (x *Design) Reset() {
 	*x = Design{}
-	mi := &file_orrery_v1_designs_proto_msgTypes[4]
+	mi := &file_orrery_v1_designs_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -231,7 +833,7 @@ func (x *Design) String() string {
 func (*Design) ProtoMessage() {}
 
 func (x *Design) ProtoReflect() protoreflect.Message {
-	mi := &file_orrery_v1_designs_proto_msgTypes[4]
+	mi := &file_orrery_v1_designs_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -244,7 +846,7 @@ func (x *Design) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Design.ProtoReflect.Descriptor instead.
 func (*Design) Descriptor() ([]byte, []int) {
-	return file_orrery_v1_designs_proto_rawDescGZIP(), []int{4}
+	return file_orrery_v1_designs_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *Design) GetId() string {
@@ -321,7 +923,7 @@ type DesignContract struct {
 
 func (x *DesignContract) Reset() {
 	*x = DesignContract{}
-	mi := &file_orrery_v1_designs_proto_msgTypes[5]
+	mi := &file_orrery_v1_designs_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -333,7 +935,7 @@ func (x *DesignContract) String() string {
 func (*DesignContract) ProtoMessage() {}
 
 func (x *DesignContract) ProtoReflect() protoreflect.Message {
-	mi := &file_orrery_v1_designs_proto_msgTypes[5]
+	mi := &file_orrery_v1_designs_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -346,7 +948,7 @@ func (x *DesignContract) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DesignContract.ProtoReflect.Descriptor instead.
 func (*DesignContract) Descriptor() ([]byte, []int) {
-	return file_orrery_v1_designs_proto_rawDescGZIP(), []int{5}
+	return file_orrery_v1_designs_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *DesignContract) GetId() string {
@@ -422,7 +1024,7 @@ type DesignsAnswerRequest struct {
 
 func (x *DesignsAnswerRequest) Reset() {
 	*x = DesignsAnswerRequest{}
-	mi := &file_orrery_v1_designs_proto_msgTypes[6]
+	mi := &file_orrery_v1_designs_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -434,7 +1036,7 @@ func (x *DesignsAnswerRequest) String() string {
 func (*DesignsAnswerRequest) ProtoMessage() {}
 
 func (x *DesignsAnswerRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_orrery_v1_designs_proto_msgTypes[6]
+	mi := &file_orrery_v1_designs_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -447,7 +1049,7 @@ func (x *DesignsAnswerRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DesignsAnswerRequest.ProtoReflect.Descriptor instead.
 func (*DesignsAnswerRequest) Descriptor() ([]byte, []int) {
-	return file_orrery_v1_designs_proto_rawDescGZIP(), []int{6}
+	return file_orrery_v1_designs_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *DesignsAnswerRequest) GetDesign() string {
@@ -489,7 +1091,7 @@ type DesignsAnswerResponse struct {
 
 func (x *DesignsAnswerResponse) Reset() {
 	*x = DesignsAnswerResponse{}
-	mi := &file_orrery_v1_designs_proto_msgTypes[7]
+	mi := &file_orrery_v1_designs_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -501,7 +1103,7 @@ func (x *DesignsAnswerResponse) String() string {
 func (*DesignsAnswerResponse) ProtoMessage() {}
 
 func (x *DesignsAnswerResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_orrery_v1_designs_proto_msgTypes[7]
+	mi := &file_orrery_v1_designs_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -514,12 +1116,113 @@ func (x *DesignsAnswerResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DesignsAnswerResponse.ProtoReflect.Descriptor instead.
 func (*DesignsAnswerResponse) Descriptor() ([]byte, []int) {
-	return file_orrery_v1_designs_proto_rawDescGZIP(), []int{7}
+	return file_orrery_v1_designs_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *DesignsAnswerResponse) GetAnswer() string {
 	if x != nil {
 		return x.Answer
+	}
+	return ""
+}
+
+// DesignsContinueRequest names the design whose stage continues.
+type DesignsContinueRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The design's id, as List gave it.
+	Id            string `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DesignsContinueRequest) Reset() {
+	*x = DesignsContinueRequest{}
+	mi := &file_orrery_v1_designs_proto_msgTypes[14]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DesignsContinueRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DesignsContinueRequest) ProtoMessage() {}
+
+func (x *DesignsContinueRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_orrery_v1_designs_proto_msgTypes[14]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DesignsContinueRequest.ProtoReflect.Descriptor instead.
+func (*DesignsContinueRequest) Descriptor() ([]byte, []int) {
+	return file_orrery_v1_designs_proto_rawDescGZIP(), []int{14}
+}
+
+func (x *DesignsContinueRequest) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+// DesignsContinueResponse carries the design and the session that continues its stage.
+type DesignsContinueResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The design, as Get gives it.
+	Design *Design `protobuf:"bytes,1,opt,name=design,proto3" json:"design,omitempty"`
+	// The sessions row id of the session that continues the stage.
+	Session       string `protobuf:"bytes,2,opt,name=session,proto3" json:"session,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DesignsContinueResponse) Reset() {
+	*x = DesignsContinueResponse{}
+	mi := &file_orrery_v1_designs_proto_msgTypes[15]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DesignsContinueResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DesignsContinueResponse) ProtoMessage() {}
+
+func (x *DesignsContinueResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_orrery_v1_designs_proto_msgTypes[15]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DesignsContinueResponse.ProtoReflect.Descriptor instead.
+func (*DesignsContinueResponse) Descriptor() ([]byte, []int) {
+	return file_orrery_v1_designs_proto_rawDescGZIP(), []int{15}
+}
+
+func (x *DesignsContinueResponse) GetDesign() *Design {
+	if x != nil {
+		return x.Design
+	}
+	return nil
+}
+
+func (x *DesignsContinueResponse) GetSession() string {
+	if x != nil {
+		return x.Session
 	}
 	return ""
 }
@@ -533,9 +1236,64 @@ const file_orrery_v1_designs_proto_rawDesc = "" +
 	"\x13DesignsListResponse\x12+\n" +
 	"\adesigns\x18\x01 \x03(\v2\x11.orrery.v1.DesignR\adesigns\"#\n" +
 	"\x11DesignsGetRequest\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\tR\x02id\"?\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\"\x96\x02\n" +
 	"\x12DesignsGetResponse\x12)\n" +
-	"\x06design\x18\x01 \x01(\v2\x11.orrery.v1.DesignR\x06design\"\xd2\x01\n" +
+	"\x06design\x18\x01 \x01(\v2\x11.orrery.v1.DesignR\x06design\x129\n" +
+	"\n" +
+	"approaches\x18\x02 \x03(\v2\x19.orrery.v1.DesignApproachR\n" +
+	"approaches\x12/\n" +
+	"\x06choice\x18\x03 \x01(\v2\x17.orrery.v1.DesignChoiceR\x06choice\x12*\n" +
+	"\x03log\x18\x04 \x03(\v2\x18.orrery.v1.DesignLogLineR\x03log\x12=\n" +
+	"\vdelegations\x18\x05 \x03(\v2\x1b.orrery.v1.DesignDelegationR\vdelegations\"\x89\x01\n" +
+	"\vRecordMaker\x12\x12\n" +
+	"\x04kind\x18\x01 \x01(\tR\x04kind\x12\x14\n" +
+	"\x05quote\x18\x02 \x01(\tR\x05quote\x12\x16\n" +
+	"\x06reason\x18\x03 \x01(\tR\x06reason\x12\x1e\n" +
+	"\n" +
+	"delegation\x18\x04 \x01(\tR\n" +
+	"delegation\x12\x18\n" +
+	"\asession\x18\x05 \x01(\tR\asession\"\x94\x02\n" +
+	"\x0eDesignApproach\x12\x10\n" +
+	"\x03seq\x18\x01 \x01(\x03R\x03seq\x12\x12\n" +
+	"\x04name\x18\x02 \x01(\tR\x04name\x12\x14\n" +
+	"\x05shape\x18\x03 \x01(\tR\x05shape\x12\x12\n" +
+	"\x04cost\x18\x04 \x01(\tR\x04cost\x12\x12\n" +
+	"\x04wins\x18\x05 \x01(\tR\x04wins\x12\x14\n" +
+	"\x05loses\x18\x06 \x01(\tR\x05loses\x12\x1e\n" +
+	"\n" +
+	"reconsider\x18\a \x01(\tR\n" +
+	"reconsider\x12\x1a\n" +
+	"\bresearch\x18\b \x03(\tR\bresearch\x12 \n" +
+	"\vrecommended\x18\t \x01(\bR\vrecommended\x12\x16\n" +
+	"\x06reason\x18\n" +
+	" \x01(\tR\x06reason\x12\x12\n" +
+	"\x04time\x18\v \x01(\x03R\x04time\"\x82\x01\n" +
+	"\fDesignChoice\x12\x1a\n" +
+	"\bapproach\x18\x01 \x01(\x03R\bapproach\x12\x14\n" +
+	"\x05words\x18\x02 \x01(\tR\x05words\x12,\n" +
+	"\x05maker\x18\x03 \x01(\v2\x16.orrery.v1.RecordMakerR\x05maker\x12\x12\n" +
+	"\x04time\x18\x04 \x01(\x03R\x04time\"\xb9\x01\n" +
+	"\rDesignLogLine\x12\x10\n" +
+	"\x03seq\x18\x01 \x01(\x03R\x03seq\x12\x12\n" +
+	"\x04time\x18\x02 \x01(\x03R\x04time\x12,\n" +
+	"\x05maker\x18\x03 \x01(\v2\x16.orrery.v1.RecordMakerR\x05maker\x12\x18\n" +
+	"\asession\x18\x04 \x01(\tR\asession\x12\x12\n" +
+	"\x04what\x18\x05 \x01(\tR\x04what\x12\x10\n" +
+	"\x03ids\x18\x06 \x03(\tR\x03ids\x12\x14\n" +
+	"\x05words\x18\a \x01(\tR\x05words\"\xbb\x01\n" +
+	"\x10DesignDelegation\x12\x10\n" +
+	"\x03seq\x18\x01 \x01(\x03R\x03seq\x12\x14\n" +
+	"\x05kinds\x18\x02 \x03(\tR\x05kinds\x12\x18\n" +
+	"\amessage\x18\x03 \x01(\tR\amessage\x12\x18\n" +
+	"\asession\x18\x04 \x01(\tR\asession\x12\x12\n" +
+	"\x04time\x18\x05 \x01(\x03R\x04time\x127\n" +
+	"\tdecisions\x18\x06 \x03(\v2\x19.orrery.v1.DesignDecisionR\tdecisions\"v\n" +
+	"\x0eDesignDecision\x12\x12\n" +
+	"\x04kind\x18\x01 \x01(\tR\x04kind\x12\x10\n" +
+	"\x03ref\x18\x02 \x01(\tR\x03ref\x12\x12\n" +
+	"\x04text\x18\x03 \x01(\tR\x04text\x12\x16\n" +
+	"\x06reason\x18\x04 \x01(\tR\x06reason\x12\x12\n" +
+	"\x04time\x18\x05 \x01(\x03R\x04time\"\xd2\x01\n" +
 	"\x06Design\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x14\n" +
 	"\x05title\x18\x02 \x01(\tR\x05title\x12\"\n" +
@@ -562,11 +1320,17 @@ const file_orrery_v1_designs_proto_rawDesc = "" +
 	"\x06answer\x18\x03 \x01(\tR\x06answer\x12\x16\n" +
 	"\x06accept\x18\x04 \x01(\bR\x06accept\"/\n" +
 	"\x15DesignsAnswerResponse\x12\x16\n" +
-	"\x06answer\x18\x01 \x01(\tR\x06answer2\xe1\x01\n" +
+	"\x06answer\x18\x01 \x01(\tR\x06answer\"(\n" +
+	"\x16DesignsContinueRequest\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\"^\n" +
+	"\x17DesignsContinueResponse\x12)\n" +
+	"\x06design\x18\x01 \x01(\v2\x11.orrery.v1.DesignR\x06design\x12\x18\n" +
+	"\asession\x18\x02 \x01(\tR\asession2\xb4\x02\n" +
 	"\aDesigns\x12E\n" +
 	"\x04List\x12\x1d.orrery.v1.DesignsListRequest\x1a\x1e.orrery.v1.DesignsListResponse\x12B\n" +
 	"\x03Get\x12\x1c.orrery.v1.DesignsGetRequest\x1a\x1d.orrery.v1.DesignsGetResponse\x12K\n" +
-	"\x06Answer\x12\x1f.orrery.v1.DesignsAnswerRequest\x1a .orrery.v1.DesignsAnswerResponseB\xa1\x01\n" +
+	"\x06Answer\x12\x1f.orrery.v1.DesignsAnswerRequest\x1a .orrery.v1.DesignsAnswerResponse\x12Q\n" +
+	"\bContinue\x12!.orrery.v1.DesignsContinueRequest\x1a\".orrery.v1.DesignsContinueResponseB\xa1\x01\n" +
 	"\rcom.orrery.v1B\fDesignsProtoP\x01Z=github.com/joshsymonds/orrery/internal/gen/orrery/v1;orreryv1\xa2\x02\x03OXX\xaa\x02\tOrrery.V1\xca\x02\tOrrery\\V1\xe2\x02\x15Orrery\\V1\\GPBMetadata\xea\x02\n" +
 	"Orrery::V1b\x06proto3"
 
@@ -582,32 +1346,50 @@ func file_orrery_v1_designs_proto_rawDescGZIP() []byte {
 	return file_orrery_v1_designs_proto_rawDescData
 }
 
-var file_orrery_v1_designs_proto_msgTypes = make([]protoimpl.MessageInfo, 8)
+var file_orrery_v1_designs_proto_msgTypes = make([]protoimpl.MessageInfo, 16)
 var file_orrery_v1_designs_proto_goTypes = []any{
-	(*DesignsListRequest)(nil),    // 0: orrery.v1.DesignsListRequest
-	(*DesignsListResponse)(nil),   // 1: orrery.v1.DesignsListResponse
-	(*DesignsGetRequest)(nil),     // 2: orrery.v1.DesignsGetRequest
-	(*DesignsGetResponse)(nil),    // 3: orrery.v1.DesignsGetResponse
-	(*Design)(nil),                // 4: orrery.v1.Design
-	(*DesignContract)(nil),        // 5: orrery.v1.DesignContract
-	(*DesignsAnswerRequest)(nil),  // 6: orrery.v1.DesignsAnswerRequest
-	(*DesignsAnswerResponse)(nil), // 7: orrery.v1.DesignsAnswerResponse
+	(*DesignsListRequest)(nil),      // 0: orrery.v1.DesignsListRequest
+	(*DesignsListResponse)(nil),     // 1: orrery.v1.DesignsListResponse
+	(*DesignsGetRequest)(nil),       // 2: orrery.v1.DesignsGetRequest
+	(*DesignsGetResponse)(nil),      // 3: orrery.v1.DesignsGetResponse
+	(*RecordMaker)(nil),             // 4: orrery.v1.RecordMaker
+	(*DesignApproach)(nil),          // 5: orrery.v1.DesignApproach
+	(*DesignChoice)(nil),            // 6: orrery.v1.DesignChoice
+	(*DesignLogLine)(nil),           // 7: orrery.v1.DesignLogLine
+	(*DesignDelegation)(nil),        // 8: orrery.v1.DesignDelegation
+	(*DesignDecision)(nil),          // 9: orrery.v1.DesignDecision
+	(*Design)(nil),                  // 10: orrery.v1.Design
+	(*DesignContract)(nil),          // 11: orrery.v1.DesignContract
+	(*DesignsAnswerRequest)(nil),    // 12: orrery.v1.DesignsAnswerRequest
+	(*DesignsAnswerResponse)(nil),   // 13: orrery.v1.DesignsAnswerResponse
+	(*DesignsContinueRequest)(nil),  // 14: orrery.v1.DesignsContinueRequest
+	(*DesignsContinueResponse)(nil), // 15: orrery.v1.DesignsContinueResponse
 }
 var file_orrery_v1_designs_proto_depIdxs = []int32{
-	4, // 0: orrery.v1.DesignsListResponse.designs:type_name -> orrery.v1.Design
-	4, // 1: orrery.v1.DesignsGetResponse.design:type_name -> orrery.v1.Design
-	5, // 2: orrery.v1.Design.contracts:type_name -> orrery.v1.DesignContract
-	0, // 3: orrery.v1.Designs.List:input_type -> orrery.v1.DesignsListRequest
-	2, // 4: orrery.v1.Designs.Get:input_type -> orrery.v1.DesignsGetRequest
-	6, // 5: orrery.v1.Designs.Answer:input_type -> orrery.v1.DesignsAnswerRequest
-	1, // 6: orrery.v1.Designs.List:output_type -> orrery.v1.DesignsListResponse
-	3, // 7: orrery.v1.Designs.Get:output_type -> orrery.v1.DesignsGetResponse
-	7, // 8: orrery.v1.Designs.Answer:output_type -> orrery.v1.DesignsAnswerResponse
-	6, // [6:9] is the sub-list for method output_type
-	3, // [3:6] is the sub-list for method input_type
-	3, // [3:3] is the sub-list for extension type_name
-	3, // [3:3] is the sub-list for extension extendee
-	0, // [0:3] is the sub-list for field type_name
+	10, // 0: orrery.v1.DesignsListResponse.designs:type_name -> orrery.v1.Design
+	10, // 1: orrery.v1.DesignsGetResponse.design:type_name -> orrery.v1.Design
+	5,  // 2: orrery.v1.DesignsGetResponse.approaches:type_name -> orrery.v1.DesignApproach
+	6,  // 3: orrery.v1.DesignsGetResponse.choice:type_name -> orrery.v1.DesignChoice
+	7,  // 4: orrery.v1.DesignsGetResponse.log:type_name -> orrery.v1.DesignLogLine
+	8,  // 5: orrery.v1.DesignsGetResponse.delegations:type_name -> orrery.v1.DesignDelegation
+	4,  // 6: orrery.v1.DesignChoice.maker:type_name -> orrery.v1.RecordMaker
+	4,  // 7: orrery.v1.DesignLogLine.maker:type_name -> orrery.v1.RecordMaker
+	9,  // 8: orrery.v1.DesignDelegation.decisions:type_name -> orrery.v1.DesignDecision
+	11, // 9: orrery.v1.Design.contracts:type_name -> orrery.v1.DesignContract
+	10, // 10: orrery.v1.DesignsContinueResponse.design:type_name -> orrery.v1.Design
+	0,  // 11: orrery.v1.Designs.List:input_type -> orrery.v1.DesignsListRequest
+	2,  // 12: orrery.v1.Designs.Get:input_type -> orrery.v1.DesignsGetRequest
+	12, // 13: orrery.v1.Designs.Answer:input_type -> orrery.v1.DesignsAnswerRequest
+	14, // 14: orrery.v1.Designs.Continue:input_type -> orrery.v1.DesignsContinueRequest
+	1,  // 15: orrery.v1.Designs.List:output_type -> orrery.v1.DesignsListResponse
+	3,  // 16: orrery.v1.Designs.Get:output_type -> orrery.v1.DesignsGetResponse
+	13, // 17: orrery.v1.Designs.Answer:output_type -> orrery.v1.DesignsAnswerResponse
+	15, // 18: orrery.v1.Designs.Continue:output_type -> orrery.v1.DesignsContinueResponse
+	15, // [15:19] is the sub-list for method output_type
+	11, // [11:15] is the sub-list for method input_type
+	11, // [11:11] is the sub-list for extension type_name
+	11, // [11:11] is the sub-list for extension extendee
+	0,  // [0:11] is the sub-list for field type_name
 }
 
 func init() { file_orrery_v1_designs_proto_init() }
@@ -621,7 +1403,7 @@ func file_orrery_v1_designs_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_orrery_v1_designs_proto_rawDesc), len(file_orrery_v1_designs_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   8,
+			NumMessages:   16,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

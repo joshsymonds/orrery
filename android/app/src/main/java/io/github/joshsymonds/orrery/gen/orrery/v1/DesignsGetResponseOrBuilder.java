@@ -28,4 +28,101 @@ public interface DesignsGetResponseOrBuilder extends
    * @return The design.
    */
   io.github.joshsymonds.orrery.gen.orrery.v1.Design getDesign();
+
+  /**
+   * <pre>
+   * The approaches the design's stage weighs, oldest first.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.DesignApproach approaches = 2 [json_name = "approaches"];</code>
+   */
+  java.util.List<io.github.joshsymonds.orrery.gen.orrery.v1.DesignApproach> 
+      getApproachesList();
+  /**
+   * <pre>
+   * The approaches the design's stage weighs, oldest first.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.DesignApproach approaches = 2 [json_name = "approaches"];</code>
+   */
+  io.github.joshsymonds.orrery.gen.orrery.v1.DesignApproach getApproaches(int index);
+  /**
+   * <pre>
+   * The approaches the design's stage weighs, oldest first.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.DesignApproach approaches = 2 [json_name = "approaches"];</code>
+   */
+  int getApproachesCount();
+
+  /**
+   * <pre>
+   * The approach the owner chose for the design; unset until a choice is stored.
+   * </pre>
+   *
+   * <code>.orrery.v1.DesignChoice choice = 3 [json_name = "choice"];</code>
+   * @return Whether the choice field is set.
+   */
+  boolean hasChoice();
+  /**
+   * <pre>
+   * The approach the owner chose for the design; unset until a choice is stored.
+   * </pre>
+   *
+   * <code>.orrery.v1.DesignChoice choice = 3 [json_name = "choice"];</code>
+   * @return The choice.
+   */
+  io.github.joshsymonds.orrery.gen.orrery.v1.DesignChoice getChoice();
+
+  /**
+   * <pre>
+   * The log of the design's stage, oldest first.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.DesignLogLine log = 4 [json_name = "log"];</code>
+   */
+  java.util.List<io.github.joshsymonds.orrery.gen.orrery.v1.DesignLogLine> 
+      getLogList();
+  /**
+   * <pre>
+   * The log of the design's stage, oldest first.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.DesignLogLine log = 4 [json_name = "log"];</code>
+   */
+  io.github.joshsymonds.orrery.gen.orrery.v1.DesignLogLine getLog(int index);
+  /**
+   * <pre>
+   * The log of the design's stage, oldest first.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.DesignLogLine log = 4 [json_name = "log"];</code>
+   */
+  int getLogCount();
+
+  /**
+   * <pre>
+   * The owner's delegations of the design's decisions to the conversation, oldest first.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.DesignDelegation delegations = 5 [json_name = "delegations"];</code>
+   */
+  java.util.List<io.github.joshsymonds.orrery.gen.orrery.v1.DesignDelegation> 
+      getDelegationsList();
+  /**
+   * <pre>
+   * The owner's delegations of the design's decisions to the conversation, oldest first.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.DesignDelegation delegations = 5 [json_name = "delegations"];</code>
+   */
+  io.github.joshsymonds.orrery.gen.orrery.v1.DesignDelegation getDelegations(int index);
+  /**
+   * <pre>
+   * The owner's delegations of the design's decisions to the conversation, oldest first.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.DesignDelegation delegations = 5 [json_name = "delegations"];</code>
+   */
+  int getDelegationsCount();
 }
