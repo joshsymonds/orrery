@@ -58,16 +58,21 @@ func (r EnvResolver) Gate(ctx context.Context, epic store.EpicRow, name string) 
 	return nil
 }
 
-// Judge returns nil when claude would resolve the agent name for epic's repository under the environment. An
-// unresolved name wraps agents.ErrUnresolved.
+// Judge returns nil when claude would resolve the agent name for epic's repository under the environment, reading its
+// agent files on the epic's host. An unresolved name wraps agents.ErrUnresolved.
 func (r EnvResolver) Judge(epic store.EpicRow, name string) error {
+	host, err := r.hosts.Host(epic.Host)
+	if err != nil {
+		return fmt.Errorf("resolve judge: %w", err)
+	}
 	where := agents.Where{
 		Dir:       epic.Repository,
 		Home:      r.getenv("HOME"),
 		ConfigDir: r.getenv("CLAUDE_CONFIG_DIR"),
 		Managed:   r.managed,
+		Files:     host,
 	}
-	if err := agents.Resolve(name, where); err != nil {
+	if err = agents.Resolve(name, where); err != nil {
 		return fmt.Errorf("resolve judge: %w", err)
 	}
 	return nil

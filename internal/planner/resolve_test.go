@@ -11,6 +11,8 @@ import (
 
 	"github.com/joshsymonds/orrery/internal/agents"
 	"github.com/joshsymonds/orrery/internal/gates"
+	"github.com/joshsymonds/orrery/internal/hostexec"
+	"github.com/joshsymonds/orrery/internal/hostexec/hostexectest"
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
@@ -133,5 +135,34 @@ func TestResolverJudgeUnknownWrapsErrUnresolved(t *testing.T) {
 	err := NewResolver(environ, "", nil).Judge(epic, "nobody")
 	if !errors.Is(err, agents.ErrUnresolved) {
 		t.Fatalf("Judge(nobody) = %v, want an error wrapping agents.ErrUnresolved", err)
+	}
+}
+
+func TestResolverJudgeReadsAgentsThroughEpicHost(t *testing.T) {
+	t.Parallel()
+	epic, environ := scratchEpic(t)
+	epic.Host = "remote"
+	agentFile := filepath.Join(epic.Repository, ".claude", "agents", "reviewer.md")
+	writeScratchFile(t, agentFile, agentDefinition("reviewer"))
+	recorder := hostexectest.NewRecorder(hostexec.NewLocal())
+	hosts := hostexec.Map{"remote": recorder}
+	if err := NewResolver(environ, "", hosts).Judge(epic, "reviewer"); err != nil {
+		t.Fatalf("Judge(reviewer) = %v, want nil", err)
+	}
+	for _, call := range recorder.Calls() {
+		if call.Op == "ReadFile" && call.Path == agentFile {
+			return
+		}
+	}
+	t.Fatalf("Judge(reviewer) did not read %s through the epic's host; calls = %+v", agentFile, recorder.Calls())
+}
+
+func TestResolverJudgeUnknownHostWrapsErrUnknownHost(t *testing.T) {
+	t.Parallel()
+	epic, environ := scratchEpic(t)
+	epic.Host = "missing"
+	err := NewResolver(environ, "", hostexec.Map{}).Judge(epic, "general-purpose")
+	if !errors.Is(err, hostexec.ErrUnknownHost) {
+		t.Fatalf("Judge(general-purpose) = %v, want an error wrapping hostexec.ErrUnknownHost", err)
 	}
 }
