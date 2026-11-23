@@ -4,9 +4,29 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 
 	"github.com/joshsymonds/orrery/internal/store/sqlcgen"
 )
+
+// HostServers returns the tmux servers that the pane rows stored under host run on, each once, in column order. Engine
+// and step rows are left out. It reads on the store's read pool, so it sees every committed write.
+func (s *Store) HostServers(ctx context.Context, host string) ([]string, error) {
+	rows, err := sqlcgen.New(s.read).ListHostSessions(ctx, host)
+	if err != nil {
+		return nil, fmt.Errorf("list the servers of host %s: %w", host, err)
+	}
+	seen := make(map[string]bool, len(rows))
+	servers := make([]string, 0, len(rows))
+	for _, row := range rows {
+		if !seen[row.Server] {
+			seen[row.Server] = true
+			servers = append(servers, row.Server)
+		}
+	}
+	slices.Sort(servers)
+	return servers, nil
+}
 
 // HostPanes returns the pane rows stored under host, in id order: each row's id, the tmux server it runs on, its tmux
 // pane id and its fields. Engine and step rows are left out. It answers in one query, on a connection it opens and
