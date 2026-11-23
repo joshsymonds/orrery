@@ -143,13 +143,10 @@ func TestSyncPrepareAndUnmerged(t *testing.T) {
 			syncSkipped("origin's commit o1 was tried by plan/M0"),
 		},
 		{
-			"a merge that conflicts ends failed with its paths, told",
+			"a merge that conflicts starts round 1",
 			syncNode("", `{"origin":"o1","base":"b","conflicts":["a.go","b.go"]}`), Rows{},
 			Action{
-				Kind: ActEnd, Outcome: outcomeFailed, Tell: true,
-				Output: "merge of origin's commit o1 into the stored base b conflicts in a.go, b.go",
-				Cause: "sync sync:o1@b: the sync of origin's commit o1 into the stored base b failed\n" +
-					"merge of origin's commit o1 into the stored base b conflicts in a.go, b.go",
+				Kind: ActIntegrator, IDs: []string{workID("integrator 1")}, Items: []string{SyncRoundStart, "1", ""},
 			},
 		},
 		{

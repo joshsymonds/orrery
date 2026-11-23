@@ -531,7 +531,7 @@ func (p pass) runningSync(path string) (store.NodeRun, bool) {
 }
 
 // decideSync decides a running sync run with kind. An end ends the run, telling its output when the kind tells it. The
-// prepare, the checks at the merge and the advance are its work.
+// prepare, the checks at the merge, the advance and the rounds of its integrator are its work.
 func (p pass) decideSync(kind kinds.Kind, run store.NodeRun) []Action {
 	def := workflow.Node{ID: syncNode, Kind: kindSync}
 	act := kind.Decide(kinds.Node{Def: def, Run: run}, p.rows)
@@ -546,7 +546,8 @@ func (p pass) decideSync(kind kinds.Kind, run store.NodeRun) []Action {
 			end.Trigger = &store.NodeTrigger{ID: kinds.SyncTriggerPrefix + id, Cause: act.Cause}
 		}
 		return []Action{end}
-	case kinds.ActPrepare, kinds.ActStart, kinds.ActCapture, kinds.ActRepro, kinds.ActAdvance, kinds.ActTaskIntegrator:
+	case kinds.ActPrepare, kinds.ActStart, kinds.ActCapture, kinds.ActRepro, kinds.ActAdvance, kinds.ActTaskIntegrator,
+		kinds.ActIntegrator:
 		return []Action{p.work(def, run, act)}
 	default:
 		return nil

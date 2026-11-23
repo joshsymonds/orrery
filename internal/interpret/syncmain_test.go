@@ -290,12 +290,20 @@ func syncMergesOriginMainAtAQuietPoint(images *worldImages) func(t *testing.T) {
 	}
 }
 
+// noRoleOutput returns the output of a sync whose merge conflicts, line naming the conflict, and whose round 1 of its
+// integrator does not start: the world configures no integrator role, and its environment names neither XDG_CONFIG_HOME
+// nor HOME, so the round is recorded failed with the line and the error, and the sync ends with the line and that
+// failure.
+func noRoleOutput(line string) string {
+	return line + "\n" + line + ": neither XDG_CONFIG_HOME nor HOME is set"
+}
+
 // syncConflictTellsOnceAndIsNotTriedAgain: origin's main adds a path a task added too, so the merge conflicts. The
-// sync ends failed and tells the paths once, the branch and stored base stay, nothing is pinned, and the planner gets
-// its turn in the same pass. At the next quiet point origin's main has not moved, but the stored base has: the commit
-// the first sync tried at the old stored base is not tried at the new one, so a sync of it is stored at syncSecond,
-// merges into the new stored base, conflicts in b.go there and is told once more. The branch and stored base stay at
-// the new stored base.
+// sync's round 1 does not start, so the sync ends failed and tells the paths and that failure once, the branch and
+// stored base stay, nothing is pinned, and the planner gets its turn in the same pass. At the next quiet point origin's
+// main has not moved, but the stored base has: the commit the first sync tried at the old stored base is not tried at
+// the new one, so a sync of it is stored at syncSecond, merges into the new stored base, conflicts in b.go there and is
+// told once more. The branch and stored base stay at the new stored base.
 func syncConflictTellsOnceAndIsNotTriedAgain(images *worldImages) func(t *testing.T) {
 	return func(t *testing.T) {
 		t.Parallel()
@@ -305,11 +313,11 @@ func syncConflictTellsOnceAndIsNotTriedAgain(images *worldImages) func(t *testin
 			t.Error("the planner got no turn after the sync conflicted")
 		}
 
-		output := fmt.Sprintf(
+		output := noRoleOutput(fmt.Sprintf(
 			"merge of origin's commit %s into the stored base %s conflicts in b.go",
 			originHead,
 			candidate,
-		)
+		))
 		run := w.requireSyncEnded(syncFirst, outcomeFailed, output)
 		if run.Revision != "" {
 			t.Errorf("sync revision = %q, want none for a merge that conflicts", run.Revision)
@@ -328,11 +336,11 @@ func syncConflictTellsOnceAndIsNotTriedAgain(images *worldImages) func(t *testin
 		if !w.passed() {
 			t.Error("the planner got no turn after the second sync conflicted")
 		}
-		again := fmt.Sprintf(
+		again := noRoleOutput(fmt.Sprintf(
 			"merge of origin's commit %s into the stored base %s conflicts in b.go",
 			originHead,
 			next,
-		)
+		))
 		w.requireSyncEnded(syncSecond, outcomeFailed, again)
 		w.requireUnmoved(next)
 		w.requireRead(next, originHead, originTaken)
@@ -970,7 +978,8 @@ func (w *integrateWorld) carryOut(action store.PlannerAction) {
 }
 
 // failedSyncRoutesNoParkAndNoSyncRunsWhileAnActionIsPending: a sync whose merge conflicts ends failed with its one
-// tell, and parks nothing: no park of either class, no question and no planner park. Its trigger wakes the planner,
+// tell, its round 1 not started for want of a role, and parks nothing: no park of either class, no question and no
+// planner park. Its trigger wakes the planner,
 // as the batch does. The planner's next turn returns a retry_node of the node sync. While that action
 // is pending, the quiet point that turn opens starts no sync, and the plan keeps its run. The action is refused, since
 // a sync run never parks and is no integrate run, and the failed sync is kept as it ended. Once the action is carried
@@ -984,8 +993,8 @@ func failedSyncRoutesNoParkAndNoSyncRunsWhileAnActionIsPending(images *worldImag
 		if !w.passed() {
 			t.Error("the planner got no turn after the sync failed")
 		}
-		output := fmt.Sprintf("merge of origin's commit %s into the stored base %s conflicts in b.go", originHead,
-			candidate)
+		output := noRoleOutput(fmt.Sprintf("merge of origin's commit %s into the stored base %s conflicts in b.go",
+			originHead, candidate))
 		failed := w.requireSyncEnded(syncFirst, outcomeFailed, output)
 		w.requireNoPark()
 		if got := w.pending(); got != pending+2 {
