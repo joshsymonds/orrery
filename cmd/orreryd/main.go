@@ -614,7 +614,7 @@ func serve(ctx context.Context, opts options, logger *slog.Logger, getenv func(s
 	viewing := newViewTracker(time.Now)
 
 	// The mirror waits for the store that the open below attaches to it.
-	mirror := daemon.NewPendingMirror(time.Now, logger)
+	mirror := daemon.NewPendingMirror(opts.orrery, time.Now, logger)
 	home := getenv("HOME")
 	hub := newRelay(routeConfig(serveRouteInputs{
 		Host:       host,

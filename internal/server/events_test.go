@@ -121,7 +121,7 @@ func seedEvents(t *testing.T, s *store.Store, count int) {
 // writeStateEvents writes the events seedEvents describes and returns the first write's error.
 func writeStateEvents(ctx context.Context, s *store.Store, count int) error {
 	pane := store.Pane{ID: eventPane, Pane: "%1"}
-	if err := s.SyncServer(ctx, "-L a", []store.Pane{pane}, time.Unix(eventAt, 0)); err != nil {
+	if err := s.SyncServer(ctx, "", "-L a", []store.Pane{pane}, time.Unix(eventAt, 0)); err != nil {
 		return fmt.Errorf("SyncServer: %w", err)
 	}
 	for i := 1; i <= count; i++ {
@@ -319,7 +319,7 @@ func TestWatchRefusesCursorOlderThanPrunedLog(t *testing.T) {
 	// A sync a retention period and an hour later prunes every event written at eventAt.
 	later := time.Unix(eventAt, 0).Add(store.EventRetention + time.Hour)
 	pane := store.Pane{ID: eventPane, Pane: "%1", Fields: store.Fields{State: "fresh"}}
-	if err := s.SyncServer(t.Context(), "-L a", []store.Pane{pane}, later); err != nil {
+	if err := s.SyncServer(t.Context(), "", "-L a", []store.Pane{pane}, later); err != nil {
 		t.Fatalf("SyncServer after retention: %v", err)
 	}
 	events := orreryv1connect.NewEventsClient(guardedHTTPClient(), startServer(t, path, nil))
@@ -334,7 +334,7 @@ func TestWatchDecodesEachKind(t *testing.T) {
 	s := openEventStore(t, path)
 	ctx := t.Context()
 	at := time.Unix(eventAt, 0)
-	if err := s.SyncServer(ctx, "-L a", []store.Pane{{ID: eventPane, Pane: "%1"}}, at); err != nil {
+	if err := s.SyncServer(ctx, "", "-L a", []store.Pane{{ID: eventPane, Pane: "%1"}}, at); err != nil {
 		t.Fatalf("SyncServer added: %v", err)
 	}
 	if err := s.SyncPane(ctx, "-L a", store.Pane{
@@ -352,7 +352,7 @@ func TestWatchDecodesEachKind(t *testing.T) {
 	}, at); err != nil {
 		t.Fatalf("SyncPane label cleared: %v", err)
 	}
-	if err := s.SyncServer(ctx, "-L a", nil, at); err != nil {
+	if err := s.SyncServer(ctx, "", "-L a", nil, at); err != nil {
 		t.Fatalf("SyncServer removed: %v", err)
 	}
 	events := orreryv1connect.NewEventsClient(guardedHTTPClient(), startServer(t, path, nil))

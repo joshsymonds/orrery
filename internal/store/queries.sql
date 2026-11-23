@@ -5,10 +5,13 @@ SELECT * FROM sessions WHERE id = ?;
 SELECT * FROM sessions WHERE kind = '' ORDER BY id;
 
 -- name: ListServerSessions :many
-SELECT * FROM sessions WHERE server = ? AND kind = '' ORDER BY id;
+SELECT * FROM sessions WHERE host = sqlc.arg(host) AND server = sqlc.arg(server) AND kind = '' ORDER BY id;
+
+-- name: ListHostSessions :many
+SELECT * FROM sessions WHERE host = ? AND kind = '' ORDER BY id;
 
 -- name: InsertSession :exec
-INSERT INTO sessions (id, server, pane) VALUES (?, ?, ?);
+INSERT INTO sessions (id, server, pane, host) VALUES (?, ?, ?, ?);
 
 -- name: UpdateSessionFields :exec
 UPDATE sessions

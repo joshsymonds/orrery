@@ -201,7 +201,7 @@ func TestReplayRebuildsSessionsAfterMixedSequence(t *testing.T) {
 	s := openSyncStore(t)
 	t0 := time.Unix(1_700_000_000, 0)
 
-	if err := s.SyncServer(ctx, "-L a", []Pane{
+	if err := s.SyncServer(ctx, "", "-L a", []Pane{
 		{ID: "orrery-1", Pane: "%1", Fields: Fields{State: "working"}},
 		{ID: "orrery-2", Pane: "%2", Fields: Fields{Label: "web", Seen: "yes"}},
 	}, t0); err != nil {
@@ -211,12 +211,12 @@ func TestReplayRebuildsSessionsAfterMixedSequence(t *testing.T) {
 		Fields: Fields{State: "waiting", Summary: "done"}}, t0.Add(time.Second)); err != nil {
 		t.Fatalf("SyncPane: %v", err)
 	}
-	if err := s.SyncServer(ctx, "-L b", []Pane{
+	if err := s.SyncServer(ctx, "", "-L b", []Pane{
 		{ID: "orrery-9", Pane: "%9", Fields: Fields{Tool: "bash", ClaudeSession: "abc", Transcript: "/t"}},
 	}, t0.Add(2*time.Second)); err != nil {
 		t.Fatalf("SyncServer -L b: %v", err)
 	}
-	if err := s.SyncServer(ctx, "-L a", []Pane{
+	if err := s.SyncServer(ctx, "", "-L a", []Pane{
 		{ID: "orrery-1", Pane: "%1", Fields: Fields{State: "waiting", Context: "ctx"}},
 	}, t0.Add(3*time.Second)); err != nil {
 		t.Fatalf("SyncServer -L a removing orrery-2: %v", err)
@@ -228,7 +228,7 @@ func TestReplayRebuildsSessionsAfterMixedSequence(t *testing.T) {
 		Fields: Fields{Label: "x"}}, t0.Add(5*time.Second)); err != nil {
 		t.Fatalf("SyncPane label: %v", err)
 	}
-	if err := s.SyncServer(ctx, "-L b", nil, t0.Add(6*time.Second)); err != nil {
+	if err := s.SyncServer(ctx, "", "-L b", nil, t0.Add(6*time.Second)); err != nil {
 		t.Fatalf("SyncServer -L b removing orrery-9: %v", err)
 	}
 
@@ -253,18 +253,18 @@ func TestSyncServerRemovesOnlyAbsentRowsOfItsServer(t *testing.T) {
 	s := openSyncStore(t)
 	t0 := time.Unix(1_700_000_000, 0)
 
-	if err := s.SyncServer(ctx, "-L a", []Pane{
+	if err := s.SyncServer(ctx, "", "-L a", []Pane{
 		{ID: "orrery-1", Pane: "%1", Fields: Fields{State: "working"}},
 		{ID: "orrery-2", Pane: "%2"},
 	}, t0); err != nil {
 		t.Fatalf("SyncServer -L a: %v", err)
 	}
-	if err := s.SyncServer(ctx, "-L b", []Pane{
+	if err := s.SyncServer(ctx, "", "-L b", []Pane{
 		{ID: "orrery-9", Pane: "%9", Fields: Fields{Label: "q"}},
 	}, t0.Add(time.Second)); err != nil {
 		t.Fatalf("SyncServer -L b: %v", err)
 	}
-	if err := s.SyncServer(ctx, "-L a", []Pane{
+	if err := s.SyncServer(ctx, "", "-L a", []Pane{
 		{ID: "orrery-1", Pane: "%1", Fields: Fields{State: "working"}},
 	}, t0.Add(2*time.Second)); err != nil {
 		t.Fatalf("SyncServer -L a without orrery-2: %v", err)
@@ -303,10 +303,10 @@ func TestSyncServerLeavesEngineRowsOfTheDefaultServer(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("InsertEvent: %v", err)
 	}
-	if err := s.SyncServer(ctx, "", nil, t0.Add(time.Second)); err != nil {
+	if err := s.SyncServer(ctx, "", "", nil, t0.Add(time.Second)); err != nil {
 		t.Fatalf("SyncServer with no panes: %v", err)
 	}
-	if err := s.SyncServer(ctx, "", []Pane{
+	if err := s.SyncServer(ctx, "", "", []Pane{
 		{ID: "orrery-9", Pane: "%9"},
 	}, t0.Add(2*time.Second)); err != nil {
 		t.Fatalf("SyncServer with an unrelated pane: %v", err)
@@ -348,7 +348,7 @@ func TestSyncServerPrunesEventsOlderThanRetention(t *testing.T) {
 		Fields: Fields{State: "working"}}, recent); err != nil {
 		t.Fatalf("SyncPane recent: %v", err)
 	}
-	if err := s.SyncServer(ctx, "-L a", []Pane{
+	if err := s.SyncServer(ctx, "", "-L a", []Pane{
 		{ID: "orrery-edge", Pane: "%2", Fields: Fields{State: "working"}},
 		{ID: "orrery-new", Pane: "%3", Fields: Fields{State: "working"}},
 	}, now); err != nil {

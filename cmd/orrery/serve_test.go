@@ -72,7 +72,7 @@ func TestServeEndsOpenStreamAtShutdown(t *testing.T) {
 		}
 	})
 	at := time.Unix(1_700_000_000, 0)
-	if err := writer.SyncServer(ctx, "-L a", []store.Pane{{ID: serveTestEvent, Pane: "%1"}}, at); err != nil {
+	if err := writer.SyncServer(ctx, "", "-L a", []store.Pane{{ID: serveTestEvent, Pane: "%1"}}, at); err != nil {
 		t.Fatalf("SyncServer: %v", err)
 	}
 	busy := store.Pane{ID: serveTestEvent, Pane: "%1", Fields: store.Fields{State: "busy"}}

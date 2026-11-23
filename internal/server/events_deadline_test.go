@@ -150,7 +150,7 @@ func deadlineSummary(i int) string {
 // events whose summaries are deadlineSummaryBytes long, and returns the first write's error.
 func writeBigEvents(ctx context.Context, s *store.Store, count int) error {
 	rows := []store.Pane{{ID: eventPane, Pane: "%1"}}
-	if err := s.SyncServer(ctx, "-L a", rows, time.Unix(eventAt, 0)); err != nil {
+	if err := s.SyncServer(ctx, "", "-L a", rows, time.Unix(eventAt, 0)); err != nil {
 		return fmt.Errorf("SyncServer: %w", err)
 	}
 	for i := 1; i <= count; i++ {

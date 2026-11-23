@@ -29,7 +29,7 @@ func TestSeedFilledFillsOnceAndSeedsEveryPath(t *testing.T) {
 	var fills atomic.Int32
 	fill := func(ctx context.Context, s *store.Store) error {
 		fills.Add(1)
-		return s.SyncServer(ctx, "-L a", []store.Pane{{ID: "orrery-1", Pane: "%1"}}, time.Unix(1_700_000_000, 0))
+		return s.SyncServer(ctx, "", "-L a", []store.Pane{{ID: "orrery-1", Pane: "%1"}}, time.Unix(1_700_000_000, 0))
 	}
 	for _, name := range []string{"first", "second"} {
 		path := filepath.Join(t.TempDir(), name, "orrery.db")
