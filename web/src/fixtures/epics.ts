@@ -348,8 +348,8 @@ const rotaContract: ContractInit = {
 
 const rotaEpic: Plain<EpicInit> = {
   id: "lighthouse/rota-export", repository: "lighthouse", path: "/home/owner/code/lighthouse", slug: "rota-export", steering: "sess-rota-14", outcome: "accepted", changed: at("@14:40"),
-  live: true, runningSteps: [rotaT2Impl, rotaT1Impl], endedSteps: 5, problem: "", source: "orreryd",
-  outcomeDetail: "", waiting: false, phaseAt: at("@13:52"), seen: 0n,
+  live: true, runningSteps: [rotaT2Impl, rotaT1Impl], endedSteps: 5, source: "orreryd",
+  phaseAt: at("@13:52"), seen: 0n,
 };
 
 const rotaHistory: HistoryInit[] = [
@@ -469,7 +469,7 @@ const followupsGet: EpicsGetResponse = create(EpicsGetResponseSchema, {
   epic: {
     id: "orrery/orrery-followups", repository: "orrery", path: "/home/owner/code/orrery", slug: "orrery-followups", steering: "sess-follow-22", outcome: "accepted",
     changed: at("@14:40"), live: true, runningSteps: [followupsT1Impl, followupsT2Review], endedSteps: 1,
-    problem: "", source: "orreryd", outcomeDetail: "", waiting: false, phaseAt: at("@14:21"), seen: 0n,
+    source: "orreryd", phaseAt: at("@14:21"), seen: 0n,
   },
   repository: "/home/owner/Personal/orrery",
   requirements: [
@@ -553,8 +553,8 @@ const holderReleaseStep1 =
 const holderGet: EpicsGetResponse = create(EpicsGetResponseSchema, {
   epic: {
     id: "orrery/holder-scopes", repository: "orrery", path: "/home/owner/code/orrery", slug: "holder-scopes", steering: "sess-holder-19", outcome: "released",
-    changed: at("@09:52"), live: false, runningSteps: [], endedSteps: 4, problem: "", source: "orreryd",
-    outcomeDetail: "", waiting: false, phaseAt: at("@09:52"), seen: at("@09:55"),
+    changed: at("@09:52"), live: false, runningSteps: [], endedSteps: 4, source: "orreryd",
+    phaseAt: at("@09:52"), seen: at("@09:55"),
   },
   repository: "/home/owner/Personal/orrery",
   summary:
@@ -668,8 +668,8 @@ const nbsp = " ";
 const tideGet: EpicsGetResponse = create(EpicsGetResponseSchema, {
   epic: {
     id: "tidepool/tide-alerts", repository: "tidepool", path: "/home/owner/code/tidepool", slug: "tide-alerts", steering: "sess-tide-16", outcome: "contract written",
-    changed: at("@14:15"), live: true, runningSteps: [], endedSteps: 0, problem: "", source: "orreryd",
-    outcomeDetail: "", waiting: false, phaseAt: at("@14:15"), seen: 0n,
+    changed: at("@14:15"), live: true, runningSteps: [], endedSteps: 0, source: "orreryd",
+    phaseAt: at("@14:15"), seen: 0n,
   },
   repository: "/home/owner/code/tidepool",
   summary:
@@ -738,8 +738,8 @@ function greenRun(id: string, review: boolean): RunInit {
 const offlineGet: EpicsGetResponse = create(EpicsGetResponseSchema, {
   epic: {
     id: "tidepool/offline-tables", repository: "tidepool", path: "/home/owner/code/tidepool", slug: "offline-tables", steering: "sess-offline-17", outcome: "stopped",
-    changed: at("@14:32"), live: true, runningSteps: [], endedSteps: 0, problem: "", source: "orreryd",
-    outcomeDetail: "", waiting: false, phaseAt: at("@14:32"), seen: 0n,
+    changed: at("@14:32"), live: true, runningSteps: [], endedSteps: 0, source: "orreryd",
+    phaseAt: at("@14:32"), seen: 0n,
   },
   repository: "/home/owner/code/tidepool",
   requirements: [
@@ -774,8 +774,8 @@ const offlineGet: EpicsGetResponse = create(EpicsGetResponseSchema, {
 const orbitGet: EpicsGetResponse = create(EpicsGetResponseSchema, {
   epic: {
     id: "orrery/orbit-labels", repository: "orrery", path: "/home/owner/code/orrery", slug: "orbit-labels", steering: "sess-follow-22", outcome: "releasing",
-    changed: at("@14:40"), live: true, runningSteps: [], endedSteps: 0, problem: "", source: "orreryd",
-    outcomeDetail: "", waiting: false, phaseAt: at("@14:37"), seen: 0n,
+    changed: at("@14:40"), live: true, runningSteps: [], endedSteps: 0, source: "orreryd",
+    phaseAt: at("@14:37"), seen: 0n,
   },
   repository: "/home/owner/Personal/orrery",
   requirements: [
@@ -808,8 +808,8 @@ const noticesR5Red = run("ev-notices-r5-red", "", { phase: "red", exit: 0, verdi
 const noticesGet: EpicsGetResponse = create(EpicsGetResponseSchema, {
   epic: {
     id: "orrery/notices-usable", repository: "orrery", path: "/home/owner/code/orrery", slug: "notices-usable", steering: "sess-follow-22", outcome: "accepted",
-    changed: at("@-1d 09:41"), live: true, runningSteps: [], endedSteps: 0, problem: "", source: "orreryd",
-    outcomeDetail: "", waiting: false, phaseAt: at("@-1d 09:41"), seen: 0n,
+    changed: at("@-1d 09:41"), live: true, runningSteps: [], endedSteps: 0, source: "orreryd",
+    phaseAt: at("@-1d 09:41"), seen: 0n,
   },
   repository: "/home/owner/Personal/orrery",
   summary:
@@ -865,8 +865,8 @@ const harbourTask = (
 const harbourGet: EpicsGetResponse = create(EpicsGetResponseSchema, {
   epic: {
     id: "orrery/harbour-map", repository: "orrery", path: "/home/owner/code/orrery", slug: "harbour-map", steering: "sess-follow-22", outcome: "accepted",
-    changed: at("@11:41"), live: true, runningSteps: [], endedSteps: 0, problem: "", source: "orreryd",
-    outcomeDetail: "", waiting: false, phaseAt: at("@11:41"), seen: 0n,
+    changed: at("@11:41"), live: true, runningSteps: [], endedSteps: 0, source: "orreryd",
+    phaseAt: at("@11:41"), seen: 0n,
   },
   repository: "/home/owner/Personal/orrery",
   paused: true,
@@ -905,8 +905,8 @@ const harbourGet: EpicsGetResponse = create(EpicsGetResponseSchema, {
 const buoyGet: EpicsGetResponse = create(EpicsGetResponseSchema, {
   epic: {
     id: "tidepool/buoy-feeds", repository: "tidepool", path: "/home/owner/code/tidepool", slug: "buoy-feeds", steering: "6c2f9e14-3a7b-4d58-9b0e-2f7a1c8d4e55", outcome: "accepted",
-    changed: at("@14:38"), live: true, runningSteps: [], endedSteps: 0, problem: "", source: "orreryd",
-    outcomeDetail: "", waiting: false, phaseAt: at("@14:38"), seen: 0n,
+    changed: at("@14:38"), live: true, runningSteps: [], endedSteps: 0, source: "orreryd",
+    phaseAt: at("@14:38"), seen: 0n,
   },
   repository: "/home/owner/code/tidepool",
   questions: [{
@@ -940,8 +940,8 @@ const buoyGet: EpicsGetResponse = create(EpicsGetResponseSchema, {
 
 const tidecacheEpic: EpicRow = {
   id: "tidepool/tide-cache", repository: "tidepool", path: "/home/owner/code/tidepool", slug: "tide-cache", steering: "sess-cache-20", outcome: "closed_superseded",
-  changed: at("@-4d 09:12"), live: false, runningSteps: [], endedSteps: 2, problem: "", source: "orreryd",
-  outcomeDetail: "", waiting: false, phaseAt: at("@-4d 09:12"), seen: at("@-4d 09:30"),
+  changed: at("@-4d 09:12"), live: false, runningSteps: [], endedSteps: 2, source: "orreryd",
+  phaseAt: at("@-4d 09:12"), seen: at("@-4d 09:30"),
 };
 const tidecacheGetInit: Plain<MessageInitShape<typeof EpicsGetResponseSchema>> = {
   epic: tidecacheEpic,
@@ -972,8 +972,8 @@ const tidecacheGet: EpicsGetResponse = create(EpicsGetResponseSchema, tidecacheG
 
 const moonRoundingEpic: EpicInit = {
   id: "almanac/moon-rounding", repository: "almanac", path: "/home/owner/code/almanac", slug: "moon-rounding", steering: "e7c4b2a1-5d9f-4e3a-9b61-2a8f0c4d7e13", outcome: "released",
-  changed: at("@-9d 14:00"), live: false, runningSteps: [], endedSteps: 0, problem: "", source: "orreryd",
-  outcomeDetail: "", waiting: false, phaseAt: at("@-9d 14:00"), seen: at("@-9d 14:30"), archived: true,
+  changed: at("@-9d 14:00"), live: false, runningSteps: [], endedSteps: 0, source: "orreryd",
+  phaseAt: at("@-9d 14:00"), seen: at("@-9d 14:30"), archived: true,
 };
 
 const moonRoundingGet: EpicsGetResponse = create(EpicsGetResponseSchema, {
@@ -996,8 +996,8 @@ const moonRoundingGet: EpicsGetResponse = create(EpicsGetResponseSchema, {
 
 const tideWarmupEpic: EpicInit = {
   id: "tidepool/tide-warmup", repository: "tidepool", path: "/home/owner/code/tidepool", slug: "tide-warmup", steering: "9b5e1a47-2c0d-4e8f-8a31-6d7c0f5b2e90", outcome: "stopped",
-  changed: at("@-2d 14:41"), live: false, runningSteps: [], endedSteps: 0, problem: "", source: "orreryd",
-  outcomeDetail: "", waiting: false, phaseAt: at("@-2d 14:41"), seen: at("@-2d 14:42"), archived: true,
+  changed: at("@-2d 14:41"), live: false, runningSteps: [], endedSteps: 0, source: "orreryd",
+  phaseAt: at("@-2d 14:41"), seen: at("@-2d 14:42"), archived: true,
 };
 
 const tideWarmupGet: EpicsGetResponse = create(EpicsGetResponseSchema, {
@@ -1018,53 +1018,53 @@ const tideWarmupGet: EpicsGetResponse = create(EpicsGetResponseSchema, {
 const epicRows: EpicInit[] = [
   {
     id: "orrery/orrery-followups", repository: "orrery", path: "/home/owner/code/orrery", slug: "orrery-followups", steering: "sess-follow-22", outcome: "accepted", changed: at("@14:40"),
-    live: true, runningSteps: [followupsT1Impl, followupsT2Review], endedSteps: 1, problem: "", source: "orreryd",
-    outcomeDetail: "", waiting: false, phaseAt: at("@14:21"), seen: 0n,
+    live: true, runningSteps: [followupsT1Impl, followupsT2Review], endedSteps: 1, source: "orreryd",
+    phaseAt: at("@14:21"), seen: 0n,
   },
   {
     id: "lighthouse/rota-export", repository: "lighthouse", path: "/home/owner/code/lighthouse", slug: "rota-export", steering: "sess-rota-14", outcome: "accepted", changed: at("@14:40"),
-    live: true, runningSteps: [rotaT2Impl, rotaT1Impl], endedSteps: 5, problem: "", source: "orreryd",
-    outcomeDetail: "", waiting: false, phaseAt: at("@13:52"), seen: 0n,
+    live: true, runningSteps: [rotaT2Impl, rotaT1Impl], endedSteps: 5, source: "orreryd",
+    phaseAt: at("@13:52"), seen: 0n,
   },
   {
     id: "tidepool/tide-alerts", repository: "tidepool", path: "/home/owner/code/tidepool", slug: "tide-alerts", steering: "sess-tide-16", outcome: "contract written",
-    changed: at("@14:15"), live: true, runningSteps: [], endedSteps: 0, problem: "", source: "orreryd",
-    outcomeDetail: "", waiting: false, phaseAt: at("@14:15"), seen: 0n,
+    changed: at("@14:15"), live: true, runningSteps: [], endedSteps: 0, source: "orreryd",
+    phaseAt: at("@14:15"), seen: 0n,
   },
   {
     id: "tidepool/offline-tables", repository: "tidepool", path: "/home/owner/code/tidepool", slug: "offline-tables", steering: "sess-offline-17", outcome: "stopped",
-    changed: at("@14:32"), live: true, runningSteps: [], endedSteps: 0, problem: "", source: "orreryd",
-    outcomeDetail: "", waiting: false, phaseAt: at("@14:32"), seen: 0n,
+    changed: at("@14:32"), live: true, runningSteps: [], endedSteps: 0, source: "orreryd",
+    phaseAt: at("@14:32"), seen: 0n,
   },
   {
     id: "orrery/orbit-labels", repository: "orrery", path: "/home/owner/code/orrery", slug: "orbit-labels", steering: "sess-follow-22", outcome: "releasing", changed: at("@14:40"),
-    live: true, runningSteps: [], endedSteps: 0, problem: "", source: "orreryd", outcomeDetail: "", waiting: false,
+    live: true, runningSteps: [], endedSteps: 0, source: "orreryd",
     phaseAt: at("@14:37"), seen: 0n,
   },
   {
     id: "orrery/notices-usable", repository: "orrery", path: "/home/owner/code/orrery", slug: "notices-usable", steering: "sess-follow-22", outcome: "accepted", changed: at("@-1d 09:41"),
-    live: true, runningSteps: [], endedSteps: 0, problem: "", source: "orreryd", outcomeDetail: "", waiting: false,
+    live: true, runningSteps: [], endedSteps: 0, source: "orreryd",
     phaseAt: at("@-1d 09:41"), seen: 0n, parked: "R5 is already met at the epic’s base",
   },
   {
     id: "orrery/harbour-map", repository: "orrery", path: "/home/owner/code/orrery", slug: "harbour-map", steering: "sess-follow-22", outcome: "accepted", changed: at("@11:41"),
-    live: true, runningSteps: [], endedSteps: 0, problem: "", source: "orreryd", outcomeDetail: "", waiting: false,
+    live: true, runningSteps: [], endedSteps: 0, source: "orreryd",
     phaseAt: at("@11:41"), seen: 0n, paused: true, pauseSource: "owner",
   },
   {
     id: "tidepool/buoy-feeds", repository: "tidepool", path: "/home/owner/code/tidepool", slug: "buoy-feeds", steering: "6c2f9e14-3a7b-4d58-9b0e-2f7a1c8d4e55", outcome: "accepted", changed: at("@14:38"),
-    live: true, runningSteps: [], endedSteps: 0, problem: "", source: "orreryd", outcomeDetail: "", waiting: false,
+    live: true, runningSteps: [], endedSteps: 0, source: "orreryd",
     phaseAt: at("@14:38"), seen: 0n,
   },
   {
     id: "orrery/holder-scopes", repository: "orrery", path: "/home/owner/code/orrery", slug: "holder-scopes", steering: "sess-holder-19", outcome: "released", changed: at("@09:52"),
-    live: false, runningSteps: [], endedSteps: 4, problem: "", source: "orreryd", outcomeDetail: "", waiting: false,
+    live: false, runningSteps: [], endedSteps: 4, source: "orreryd",
     phaseAt: at("@09:52"), seen: at("@09:55"),
   },
   {
     id: "tidepool/tide-cache", repository: "tidepool", path: "/home/owner/code/tidepool", slug: "tide-cache", steering: "sess-cache-20", outcome: "closed_superseded",
-    changed: at("@-4d 09:12"), live: false, runningSteps: [], endedSteps: 2, problem: "", source: "orreryd",
-    outcomeDetail: "", waiting: false, phaseAt: at("@-4d 09:12"), seen: at("@-4d 09:30"),
+    changed: at("@-4d 09:12"), live: false, runningSteps: [], endedSteps: 2, source: "orreryd",
+    phaseAt: at("@-4d 09:12"), seen: at("@-4d 09:30"),
   },
   moonRoundingEpic,
   tideWarmupEpic,
@@ -1188,9 +1188,6 @@ const rotaPlannerHistory: HistoryInit[] = [
   },
 ];
 
-// rotaProblemText is the engine's own problem with the epic: its workflow file did not load.
-const rotaProblemText = "The epic’s workflow file did not load: workflow.yaml line 14, unknown node kind “gatee”.";
-
 // The rota-export states: the list row and the Epics.Get answer each reads, and the history it shows.
 export const rotaBuilding = {
   row: rotaStateEpic(rotaBuildingSteps),
@@ -1206,11 +1203,6 @@ export const rotaPlanner = {
   row: rotaStateEpic(rotaBuildingSteps),
   get: rotaStateGet(rotaBuildingSteps, rotaRunningTones, {}, { parked: "workflow node gate failed", plannerParked: true }),
   history: create(EpicsHistoryResponseSchema, { entries: rotaPlannerHistory, next: "" }),
-};
-export const rotaProblem = {
-  row: rotaStateEpic(rotaBuildingSteps, { problem: rotaProblemText }),
-  get: rotaStateGet(rotaBuildingSteps, rotaRunningTones, { problem: rotaProblemText }),
-  history: create(EpicsHistoryResponseSchema, { entries: rotaBuildingHistory, next: "" }),
 };
 
 // rotaEvidenceRequirements are rota-export's requirements with R4's green run judging, as the evidence scenario draws R4.
@@ -1401,8 +1393,8 @@ export const denseSteering = "sess-deck-21";
 export const denseEpic: Plain<EpicInit> = {
   id: "commonframe/deck-pipeline", repository: "commonframe", path: "/home/owner/work/commonframe", slug: "deck-pipeline",
   steering: denseSteering, outcome: "accepted",
-  changed: at("@14:40"), live: true, runningSteps: denseRunning, endedSteps: 1, problem: "", source: "orreryd",
-  outcomeDetail: "", waiting: false, phaseAt: at("@08:29"), seen: 0n,
+  changed: at("@14:40"), live: true, runningSteps: denseRunning, endedSteps: 1, source: "orreryd",
+  phaseAt: at("@08:29"), seen: 0n,
 };
 export const denseGet: EpicsGetResponse = create(EpicsGetResponseSchema, {
   epic: denseEpic,

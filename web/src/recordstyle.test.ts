@@ -187,11 +187,6 @@ test("EpicWords: at phone width Just happened sets its time apart from its text"
   assert.equal(declaredValue(phone, ".epic-page .happen .at", "margin-right"), "var(--o-space-12)");
 });
 
-test("EpicWords: at phone width the problem line wraps and does not ellipsis", () => {
-  assert.equal(declaredValue(phone, ".problem", "white-space"), "normal");
-  assert.equal(declaredValue(phone, ".problem", "text-overflow"), "clip");
-});
-
 test("EpicWords: at phone width the track's stages take the full column, so a name reads whole", () => {
   assert.equal(declaredValue(phone, ".epic-page .stage", "padding-right"), "0");
 });

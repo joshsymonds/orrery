@@ -5,12 +5,7 @@ import type { Row } from "./rows";
 
 // listsEpic reports whether the view holds the epic under id in any of its lines, open or shut.
 export function listsEpic(view: EpicsView, id: string): boolean {
-  const held = [
-    ...view.blocks.map((block) => block.epic),
-    ...view.waiting,
-    ...view.justEnded,
-    ...view.endedEarlier,
-  ];
+  const held = [...view.blocks.map((block) => block.epic), ...view.justEnded, ...view.endedEarlier];
   return held.some((item) => item.id === id);
 }
 

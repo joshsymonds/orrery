@@ -1558,8 +1558,6 @@ button.tr:hover { background: var(--o-surface-well); }
   .tbl > .fold-line { min-height: var(--o-size-control-touch); }
   /* Just happened sets its time apart from its words, with no gutter column on the phone. */
   .epic-page .happen .at { margin-right: var(--o-space-12); }
-  /* The problem line is read whole: it wraps, and the .error rule's cut at its edge does not apply. */
-  .problem { white-space: normal; text-overflow: clip; overflow-wrap: anywhere; }
 }
 /* A closed sheet draws its children in its two elements with no box of their own, so the page lays them out as its own. */
 .sheet-off { display: contents; }

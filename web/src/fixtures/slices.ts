@@ -54,7 +54,6 @@ import {
   rotaEvidence,
   rotaLimited,
   rotaPlanner,
-  rotaProblem,
   rotaReviewing,
   tidecacheGaps,
   tidecacheGapsRow,
@@ -163,7 +162,6 @@ export type EpicScenario =
   | "limited"
   | "plannerParked"
   | "commandError"
-  | "problem"
   | "unavailable"
   | "planning"
   | "dense"
@@ -227,7 +225,6 @@ export const epicScenarios: Record<EpicScenario, Slices> = {
     ...withEpic(rotaId, rotaBuilding),
     failingEpicCommands: new Map<"pause" | "resume" | "stop" | "retry", string>([["pause", "the server did not answer"]]),
   },
-  problem: withEpic(rotaId, rotaProblem),
   unavailable: {
     ...withEpic(rotaId, rotaBuilding),
     gets: new Map<string, EpicsGetResponse>([...gets].filter(([id]) => id !== rotaId)),

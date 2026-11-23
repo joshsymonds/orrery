@@ -20,33 +20,18 @@ test("a missing epic gives an empty state", () => {
   assert.equal(stateOf(detail({ paused: true, parked: "budget" })), "");
 });
 
-test("an outcome is the state as written, ahead of every other state", () => {
-  const d = detail({ epic: { ...alpha, outcome: "released", live: true, waiting: true }, paused: true, parked: "budget" });
-  assert.equal(stateOf(d), "released");
+test("a phase off the track is the state as written", () => {
+  assert.equal(stateOf(detail({ epic: { ...alpha, outcome: "released", live: true } })), "released");
 });
 
-test("paused is ahead of parked, waiting and live", () => {
-  const d = detail({ epic: { ...alpha, live: true, waiting: true }, paused: true, parked: "budget" });
+test("paused is ahead of parked and live", () => {
+  const d = detail({ epic: { ...alpha, live: true }, paused: true, parked: "budget" });
   assert.equal(stateOf(d), "paused");
 });
 
-test("parked is ahead of waiting and live", () => {
-  const d = detail({ epic: { ...alpha, live: true, waiting: true }, parked: "budget" });
+test("parked is ahead of live", () => {
+  const d = detail({ epic: { ...alpha, live: true }, parked: "budget" });
   assert.equal(stateOf(d), "parked");
-});
-
-test("waiting is ahead of live", () => {
-  const d = detail({ epic: { ...alpha, live: true, waiting: true } });
-  assert.equal(stateOf(d), "waiting");
-});
-
-test("a live epic with no tasks and no build tasks is planning", () => {
-  assert.equal(stateOf(detail({ epic: { ...alpha, live: true } })), "planning");
-});
-
-test("a live epic with a task or a planned build task is building", () => {
-  assert.equal(stateOf(detail({ epic: { ...alpha, live: true }, tasks: [{ slug: "t1" }] })), "building");
-  assert.equal(stateOf(detail({ epic: { ...alpha, live: true }, buildTasks: [{ id: "b1" }] })), "building");
 });
 
 test("an epic that is not live and has no other state is empty", () => {
@@ -56,11 +41,10 @@ test("an epic that is not live and has no other state is empty", () => {
 // An orreryd epic: its outcome is its phase.
 const orreryd = { ...alpha, source: "orreryd", live: true };
 
-test("an orreryd epic reads paused, then parked, then waiting, ahead of its track", () => {
-  const waiting = { ...orreryd, outcome: "built", waiting: true };
-  assert.equal(stateOf(detail({ epic: waiting, paused: true, parked: "budget" })), "paused");
-  assert.equal(stateOf(detail({ epic: waiting, parked: "budget" })), "parked");
-  assert.equal(stateOf(detail({ epic: waiting })), "waiting");
+test("an orreryd epic reads paused, then parked, ahead of its track", () => {
+  const built = { ...orreryd, outcome: "built" };
+  assert.equal(stateOf(detail({ epic: built, paused: true, parked: "budget" })), "paused");
+  assert.equal(stateOf(detail({ epic: built, parked: "budget" })), "parked");
 });
 
 test("LiveControls: an accepted orreryd epic shows Pause and Stop, and reads planning until it has a task, then building", () => {
@@ -69,6 +53,10 @@ test("LiveControls: an accepted orreryd epic shows Pause and Stop, and reads pla
   assert.equal(stateOf(planning), "planning");
   const building = detail({ epic: { ...orreryd, outcome: "accepted" }, tasks: [{ slug: "t1" }] });
   assert.equal(stateOf(building), "building");
+});
+
+test("an accepted orreryd epic with a planned build task reads building", () => {
+  assert.equal(stateOf(detail({ epic: { ...orreryd, outcome: "accepted" }, buildTasks: [{ id: "b1" }] })), "building");
 });
 
 test("LiveControls: a paused orreryd epic shows Resume and Stop, and reads paused", () => {
@@ -132,18 +120,10 @@ test("an orreryd epic's state word is its track part in each track phase, and it
   }
 });
 
-test("LiveControls: a record epic with an empty outcome shows Pause and Stop, Resume when paused, and none with an outcome", () => {
-  assert.deepEqual(controlsOf(detail({ epic: { ...alpha, live: true } })), { pause: true, resume: false, stop: true });
-  assert.deepEqual(controlsOf(detail({ epic: { ...alpha, live: true }, paused: true })), {
-    pause: false,
-    resume: true,
-    stop: true,
-  });
-  assert.deepEqual(controlsOf(detail({ epic: { ...alpha, live: true, outcome: "released" } })), {
-    pause: false,
-    resume: false,
-    stop: false,
-  });
+test("LiveControls: an epic off its track shows no command, and Resume once it is paused", () => {
+  const released = { ...alpha, live: true, outcome: "released" };
+  assert.deepEqual(controlsOf(detail({ epic: released })), { pause: false, resume: false, stop: false });
+  assert.deepEqual(controlsOf(detail({ epic: released, paused: true })), { pause: false, resume: true, stop: false });
 });
 
 test("an epic with no question, park, or held or limited step has no blocker", () => {

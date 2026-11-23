@@ -79,9 +79,9 @@ export function conversationEnded(rows: readonly Row[], steering: string): boole
   );
 }
 
-// steersLive is whether an epic is a live orreryd epic, which a conversation can steer by a move.
+// steersLive is whether an epic is live, which a conversation can steer by a move.
 export function steersLive(detail: EpicsGetResponse | undefined): boolean {
-  return detail?.epic?.live === true && detail.epic.source === "orreryd";
+  return detail?.epic?.live === true;
 }
 
 export type SteerFailure = { kind: "refused"; reason: string } | { kind: "unanswered" };

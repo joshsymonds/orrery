@@ -70,7 +70,6 @@ export interface EpicBlock {
 
 export interface EpicsView {
   blocks: EpicBlock[];
-  waiting: EpicItem[];
   live: number;
   justEnded: EpicItem[];
   endedEarlier: EpicItem[];
@@ -89,7 +88,6 @@ const hexSuffix = /-[0-9a-f]{7}$/;
 
 export const noEpics: EpicsView = {
   blocks: [],
-  waiting: [],
   live: 0,
   justEnded: [],
   endedEarlier: [],
@@ -98,15 +96,13 @@ export const noEpics: EpicsView = {
   listed: new Map(),
 };
 
-// Blocks every live epic that is not waiting, busy ones first and each group in input order, and collects the live
-// epics waiting to start in input order. Each epic that is not live has ended: it sorts into justEnded while it is
-// unseen, else into endedEarlier, both newest ending first. A record epic has no phase time, so it is never unseen. An
-// archived epic, live or not, goes into archived in input order and into none of the other lists, nor the live count.
-// An epic with no detail carries no detail, and its counts read zero.
+// Blocks every live epic, busy ones first and each group in input order. Each epic that is not live has ended: it sorts
+// into justEnded while it is unseen, else into endedEarlier, both newest ending first. An epic with no phase time is
+// never unseen. An archived epic, live or not, goes into archived in input order and into none of the other lists, nor
+// the live count. An epic with no detail carries no detail, and its counts read zero.
 export function epicsView(epics: Epic[], details: Map<string, EpicsGetResponse>): EpicsView {
   const busy: EpicBlock[] = [];
   const quiet: EpicBlock[] = [];
-  const waiting: EpicItem[] = [];
   const justEnded: EpicItem[] = [];
   const endedEarlier: EpicItem[] = [];
   const archived: EpicItem[] = [];
@@ -127,9 +123,7 @@ export function epicsView(epics: Epic[], details: Map<string, EpicsGetResponse>)
     }
     live++;
     const block = blockOf(epic, details.get(epic.id));
-    if (epic.waiting) {
-      waiting.push(block.epic);
-    } else if (block.full) {
+    if (block.full) {
       busy.push(block);
     } else {
       quiet.push(block);
@@ -137,7 +131,6 @@ export function epicsView(epics: Epic[], details: Map<string, EpicsGetResponse>)
   }
   return {
     blocks: [...busy, ...quiet],
-    waiting,
     live,
     justEnded: newestFirst(justEnded),
     endedEarlier: newestFirst(endedEarlier),

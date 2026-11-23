@@ -345,7 +345,7 @@ test("TaskBand: the epic pin names the epic, its state and its tasks done, and p
   const calls: string[] = [];
   await withPage(pageProps(detailOf(false), "T1", calls), async (container) => {
     assert.equal(elementOf(container, ".epic-pin .slug").textContent, "orrery-style");
-    assert.equal(elementOf(container, ".epic-pin .words").textContent, "accepted · 1 of 3 tasks done");
+    assert.equal(elementOf(container, ".epic-pin .words").textContent, "building · 1 of 3 tasks done");
     await click(elementOf(container, ".epic-pin"));
     assert.equal(calls.join(","), "epic");
   });

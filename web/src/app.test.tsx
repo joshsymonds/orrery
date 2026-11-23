@@ -4441,7 +4441,7 @@ test("a nudge in the session calls Steps.Nudge with the step's id and the text",
   }));
 
 test("EpicCommands: Pause sends one Epics.Pause with the epic's id", (t) =>
-  withApp(t.signal, { epics: pageEpic() }, async (container, fake) => {
+  withApp(t.signal, { epics: pageEpic({}, 0n, true) }, async (container, fake) => {
     await press("j");
     await clickButton(container, ".epic-page .title-row .acts", "Pause");
     await until(t.signal, () => fake.callsTo(pauseEpicPath).length === 1, "the Pause call");
@@ -4461,7 +4461,7 @@ test("EpicCommands: Resume sends one Epics.Resume with the epic's id on a paused
   }));
 
 test("EpicCommands: Stop asks first, Keep it running sends no Epics.Stop, and the confirm sends one", (t) =>
-  withApp(t.signal, { epics: pageEpic() }, async (container, fake) => {
+  withApp(t.signal, { epics: pageEpic({}, 0n, true) }, async (container, fake) => {
     await press("j");
     await clickButton(container, ".epic-page .title-row .acts", "Stop…");
     await clickButton(container, ".epic-page .title-row .acts", "Keep it running");
@@ -4476,8 +4476,8 @@ test("EpicCommands: Stop asks first, Keep it running sends no Epics.Stop, and th
   }));
 
 test("EpicCommands: a Stop… confirm open on one epic does not carry over to the next epic", (t) => {
-  const first = makeEpic(widgetsRepo, "first");
-  const second = makeEpic(gadgetsRepo, "second");
+  const first = makeEpic(widgetsRepo, "first", { outcome: "accepted" });
+  const second = makeEpic(gadgetsRepo, "second", { outcome: "accepted" });
   const epics = epicsView(
     [first, second],
     new Map([
@@ -4603,7 +4603,7 @@ test("a digit typed in the Something else box selects no card", (t) =>
   }));
 
 test("a command that fails shows its did-not-land line under the title row, and one that lands clears it", (t) =>
-  withApp(t.signal, { epics: pageEpic() }, async (container, fake) => {
+  withApp(t.signal, { epics: pageEpic({}, 0n, true) }, async (container, fake) => {
     const noteText = () => container.querySelector('section.page[aria-label="epic"] .title-row + .page-note')?.textContent ?? "";
     fake.failNext.add(pauseEpicPath);
     await press("j");

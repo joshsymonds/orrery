@@ -1947,18 +1947,6 @@ test("FixtureTransport: page/epic-command-error at 412 wide draws the same line,
   );
 });
 
-test("FixtureTransport: page/epic-problem draws the engine's problem in red above the summary", (t) => {
-  mockTimers(t, ["setTimeout"]);
-  return withStory(
-    t,
-    Page["epic-problem"],
-    (root) => root.querySelector("p.problem")?.textContent.includes("workflow.yaml line 14") === true,
-    (root) => {
-      assertNoFailure(root);
-    },
-  );
-});
-
 test("FixtureTransport: page/epic-loading draws loading the epic, with no button", (t) => {
   mockTimers(t, ["setTimeout"]);
   return withStory(
@@ -2089,7 +2077,7 @@ test("FixtureTransport: page/notices-page at 412 wide draws the Notices page, wi
   );
 });
 
-test("FixtureTransport: page's keys are exactly the 107 catalog names of its scenario states", () => {
+test("FixtureTransport: page's keys are exactly the 106 catalog names of its scenario states", () => {
   assert.deepEqual(Object.keys(Page).map((state) => storyName("Page", state)).sort(), [
     "page/ask-answered",
     "page/ask-decline",
@@ -2149,7 +2137,6 @@ test("FixtureTransport: page's keys are exactly the 107 catalog names of its sce
     "page/epic-paused",
     "page/epic-planner-parked",
     "page/epic-planning",
-    "page/epic-problem",
     "page/epic-question",
     "page/epic-question-other",
     "page/epic-release-failed",
