@@ -89,7 +89,7 @@ func (f *taskSplitSteps) Status(_ context.Context, id string) (store.StepRow, er
 	return store.StepRow{}, store.ErrNoStep
 }
 
-// startsOf returns the steps started for the task labelled task, in the order they started.
+// startsOf returns the steps started for the task labeled task, in the order they started.
 func (f *taskSplitSteps) startsOf(task string) []enginehost.StepStart {
 	var starts []enginehost.StepStart
 	for _, start := range f.starts {
@@ -130,17 +130,17 @@ func (e taskSplitEvidence) RunTask(
 		ID: id, Epic: epic, Revision: revision, Phase: phase, Source: "captured", Spec: task.Evidence,
 		Created: runClock(),
 	}
-	if err = e.s.AddEvidenceRun(ctx, run); err != nil {
+	if err := e.s.AddEvidenceRun(ctx, run); err != nil {
 		return store.EvidenceRun{}, err
 	}
-	if err = e.s.RecordEvidenceCapture(ctx, id, store.EvidenceCapture{At: runClock(), Exit: 1}); err != nil {
+	if err := e.s.RecordEvidenceCapture(ctx, id, store.EvidenceCapture{At: runClock(), Exit: 1}); err != nil {
 		return store.EvidenceRun{}, err
 	}
 	verdict := store.EvidenceVerdict{
 		Verdict: evidence.VerdictFails, Passed: evidence.Passed(evidence.PhaseRed, "", 0, evidence.VerdictFails),
 		At: runClock(),
 	}
-	if err = e.s.RecordEvidenceVerdict(ctx, id, verdict); err != nil {
+	if err := e.s.RecordEvidenceVerdict(ctx, id, verdict); err != nil {
 		return store.EvidenceRun{}, err
 	}
 	return run, nil
