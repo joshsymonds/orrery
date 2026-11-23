@@ -1,10 +1,12 @@
 package server
 
 import (
+	"io"
 	"net/http"
+	"sync"
 	"time"
 
-	orreryv1connect "github.com/joshsymonds/orrery/internal/gen/orrery/v1/orreryv1connect"
+	"github.com/joshsymonds/orrery/internal/conversation"
 	"github.com/joshsymonds/orrery/internal/tmuxctl"
 )
 
@@ -22,8 +24,20 @@ type HostPanesConfig struct {
 }
 
 // HostPanesHandler returns the path and handler that serve orrery.v1.Panes over one machine's own tmux and transcripts.
-// It has no login guard, no store reader, and no seen, read or pane-send reporter, which is what an agent serves behind
-// node.v1's admission. Until the pane tasks fill in its methods, every RPC of the handler answers CodeUnimplemented.
-func HostPanesHandler(_ HostPanesConfig) (string, http.Handler) {
-	return orreryv1connect.NewPanesHandler(orreryv1connect.UnimplementedPanesHandler{})
+// Every call acts on this machine's panes. The controller has already routed each call here by its host, so the host
+// a call names is not checked. The handler has no login guard, no store reader, and no seen, read or pane-send
+// reporter, which is what an agent serves behind node.v1's admission. Its streams have no change feed, so they step on
+// their transcript's watch and on their keepalive.
+func HostPanesHandler(cfg HostPanesConfig) (string, http.Handler) {
+	now := cfg.Now
+	if now == nil {
+		now = time.Now
+	}
+	local := newPanesServer(
+		cfg.Host, cfg.Tmux, nil, conversation.NewNewest(), conversation.NewGoals(), conversation.NewQueues(),
+		&paneLocks{locks: make(map[string]*sync.Mutex)}, &paneLocks{locks: make(map[string]*sync.Mutex)},
+		nil, nil, nil, io.Discard, now, newChangeHub(nil, cfg.NewTimer), cfg.NewTimer,
+		defaultConversationKeepalive, defaultEventSendTimeout, nil,
+	)
+	return newPanesHandler(local)
 }

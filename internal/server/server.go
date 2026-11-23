@@ -28,6 +28,7 @@ import (
 	enginev1 "github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1"
 	enginev1connect "github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1/enginev1connect"
 	"github.com/joshsymonds/orrery/internal/hoststatus"
+	"github.com/joshsymonds/orrery/internal/node"
 	"github.com/joshsymonds/orrery/internal/open"
 	"github.com/joshsymonds/orrery/internal/protocol"
 	"github.com/joshsymonds/orrery/internal/push"
@@ -159,6 +160,12 @@ type InputReporter func(input int64, view protocol.ViewKey)
 type Config struct {
 	// Logins lists the Tailscale logins admitted by the guard, matched exactly.
 	Logins []string
+	// HostName is the controller's orrery name. Each pane call that names it is served by this controller's own panes,
+	// and each pane it lists names it as its host. Empty takes os.Hostname.
+	HostName string
+	// Hosts holds the agent of each hosts.toml host, in file order. A pane call that names one of them is forwarded to
+	// that agent. While Hosts is empty, a pane call that names no host is served by this controller's own panes.
+	Hosts []*node.Client
 	// Tmux runs the tmux commands behind the phone services.
 	Tmux *tmuxctl.Client
 	// Push holds the push subscriptions Push.Register and Push.Unregister write.
@@ -252,6 +259,13 @@ func New(cfg Config) (http.Handler, error) {
 	if err != nil {
 		return nil, err
 	}
+	hostName := cfg.HostName
+	if hostName == "" {
+		hostName, err = os.Hostname()
+		if err != nil {
+			return nil, fmt.Errorf("server: host name: %w", err)
+		}
+	}
 	sendTimeout := cfg.EventSendTimeout
 	if sendTimeout == 0 {
 		sendTimeout = defaultEventSendTimeout
@@ -297,11 +311,11 @@ func New(cfg Config) (http.Handler, error) {
 	if paneSendErrs == nil {
 		paneSendErrs = os.Stderr
 	}
-	panesPath, panesService := newPanesHandler(
-		cfg.Tmux, cfg.Sessions, newest, goals, queues, textLocks, seenLocks, cfg.ReportSeen, cfg.ReportRead,
+	local := newPanesServer(
+		hostName, cfg.Tmux, cfg.Sessions, newest, goals, queues, textLocks, seenLocks, cfg.ReportSeen, cfg.ReportRead,
 		cfg.PaneSends, paneSendErrs, now, changes, cfg.NewTimer, conversationKeepalive, sendTimeout, cfg.Shutdown,
-		cfg.HandlerOptions...,
 	)
+	panesPath, panesService := newPanesRouter(local, hostName, cfg.Hosts, cfg.HandlerOptions...)
 	mux.Handle(panesPath, panesService)
 	hostPath, hostService := newHostHandler(cfg.HostStatus, cfg.Web, cfg.HandlerOptions...)
 	mux.Handle(hostPath, hostService)
@@ -419,6 +433,11 @@ func checkConfig(cfg Config) (map[string]struct{}, error) {
 		}
 		allowed[login] = struct{}{}
 	}
+	for _, agent := range cfg.Hosts {
+		if agent == nil {
+			return nil, errors.New("server: nil host agent configured")
+		}
+	}
 	if cfg.ConversationKeepalive < 0 {
 		return nil, fmt.Errorf("server: negative conversation keepalive interval %v", cfg.ConversationKeepalive)
 	}
@@ -433,14 +452,15 @@ func checkConfig(cfg Config) (map[string]struct{}, error) {
 // paneTurnEnd gives it. Working and waiting panes whose transcripts show an interruption after their turn started are
 // ended first, by endInterruptedTurns, so the listing shows them as done. newest keeps each transcript's newest time across
 // requests, and reader is the store the turn ends are read from once per listing. With no running server the listing
-// is empty. Any failure is a routeError with status 500.
+// is empty. Any failure is a routeError with status 500. Each pane names host as its host.
 func listPanes(
 	ctx context.Context,
 	tmux *tmuxctl.Client,
+	host string,
 	newest *conversation.Newest,
 	reader *store.Reader,
 ) ([]listedPane, error) {
-	panes, err := listedPanes(ctx, tmux)
+	panes, err := listedPanes(ctx, tmux, host)
 	if err != nil {
 		return nil, internalError()
 	}
@@ -449,7 +469,7 @@ func listPanes(
 		return nil, internalError()
 	}
 	if ended {
-		panes, err = listedPanes(ctx, tmux)
+		panes, err = listedPanes(ctx, tmux, host)
 		if err != nil {
 			return nil, internalError()
 		}
@@ -483,14 +503,16 @@ type listedPane struct {
 	listed tmuxctl.Listed
 }
 
-// listedPanes returns the panes of one cli.Panes listing for tmux, each with the JSON object cli.List writes for it.
-func listedPanes(ctx context.Context, tmux *tmuxctl.Client) ([]listedPane, error) {
+// listedPanes returns the panes of one cli.Panes listing for tmux, each naming host as its host, with the JSON object
+// cli.List writes for it.
+func listedPanes(ctx context.Context, tmux *tmuxctl.Client, host string) ([]listedPane, error) {
 	listed, err := cli.Panes(ctx, tmux)
 	if err != nil {
 		return nil, fmt.Errorf("server: list panes: %w", err)
 	}
 	panes := make([]listedPane, 0, len(listed))
 	for _, entry := range listed {
+		entry.Host = host
 		var fields map[string]json.RawMessage
 		if fields, err = paneObject(entry.Pane); err != nil {
 			return nil, err
