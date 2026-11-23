@@ -136,8 +136,8 @@ func (s *evidenceService) GetEvidenceArtifact(
 }
 
 // CaptureEvidence refuses as unavailable when there is no capture service. Otherwise it runs the command for the caller
-// session, the session in the Orrery-Session header, and returns the id of the capture it made. A refused request is
-// InvalidArgument with its reason.
+// session, the session in the Orrery-Session header, and returns the id of the capture it made. A caller that is not a
+// running step is FailedPrecondition, and any other refused request is InvalidArgument, each with its reason.
 func (s *evidenceService) CaptureEvidence(
 	ctx context.Context,
 	req *connect.Request[v1.CaptureEvidenceRequest],
@@ -153,6 +153,8 @@ func (s *evidenceService) CaptureEvidence(
 		Files:  req.Msg.GetFiles(),
 	})
 	switch {
+	case errors.Is(err, ErrCaptureNotStep):
+		return nil, evidenceServiceRefuse(connect.CodeFailedPrecondition, err.Error())
 	case errors.Is(err, ErrCaptureRefused):
 		return nil, evidenceServiceRefuse(connect.CodeInvalidArgument, err.Error())
 	case err != nil:
