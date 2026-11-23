@@ -30,8 +30,10 @@ const (
 	retireRecord = "repo-record/epic-record"
 )
 
-// retireNow is the fixed clock of the record-retirement tests, so no test reads the real time.
-var retireNow = time.Date(2026, time.November, 23, 12, 0, 0, 0, time.UTC)
+// retireNow returns the fixed clock of the record-retirement tests, so no test reads the real time.
+func retireNow() time.Time {
+	return time.Date(2026, time.November, 23, 12, 0, 0, 0, time.UTC)
+}
 
 // retireStore is the epics store of the record-retirement tests. It holds retireEpic alone: ListEpics lists it, GetEpic
 // answers it, and GetEpic answers not_found for any other id.
@@ -41,7 +43,7 @@ func (retireStore) ListEpics(
 	context.Context,
 	*connect.Request[enginev1.ListEpicsRequest],
 ) (*connect.Response[enginev1.ListEpicsResponse], error) {
-	summary := &enginev1.EpicSummary{Id: retireEpic, Phase: "accepted", Changed: retireNow.Add(-time.Hour).Unix()}
+	summary := &enginev1.EpicSummary{Id: retireEpic, Phase: "accepted", Changed: retireNow().Add(-time.Hour).Unix()}
 	return connect.NewResponse(&enginev1.ListEpicsResponse{Epics: []*enginev1.EpicSummary{summary}}), nil
 }
 
@@ -55,7 +57,7 @@ func (retireStore) GetEpic(
 	epic := &enginev1.StoredEpic{
 		Contract: &enginev1.EpicContract{Id: retireEpic, Title: "store epic"},
 		Phase:    "accepted",
-		Changed:  retireNow.Add(-time.Hour).Unix(),
+		Changed:  retireNow().Add(-time.Hour).Unix(),
 	}
 	return connect.NewResponse(&enginev1.GetEpicResponse{Epic: epic}), nil
 }
@@ -120,7 +122,7 @@ func TestRetireNoGambitRecordsListsTheStoreAlone(t *testing.T) {
 		EpicStore: retireStore{},
 		Steps:     retireSteps{},
 		Home:      home,
-		Now:       func() time.Time { return retireNow },
+		Now:       retireNow,
 	})
 	if err != nil {
 		t.Fatalf("New: %v", err)
@@ -170,17 +172,14 @@ func TestRetireNoGambitRecordsServeRecordsFilesGone(t *testing.T) {
 	}
 }
 
-// recordMarkers are the names the record-only client code used. None may appear in a web or Kotlin source.
-var recordMarkers = []string{"outcomeDetail", "EpicTaskRow", "recordTaskOf", "isOrreryd"}
-
 // orrerydCompared matches a source compared with "orreryd" in either order, as TypeScript or Kotlin writes it.
 var orrerydCompared = regexp.MustCompile(
 	`(?i:source)(\(\))?\s*[!=]=+\s*"orreryd"|"orreryd"\s*[!=]=+\s*[\w.()]*(?i:source)`,
 )
 
-// recordHitsUnder walks root and returns each file whose text holds a record marker or compares a source with
+// recordHitsUnder walks root and returns each file whose text holds one of markers or compares a source with
 // "orreryd". It reads only files whose extension is in exts, and skips every directory named gen, the generated code.
-func recordHitsUnder(t *testing.T, root string, exts []string) []string {
+func recordHitsUnder(t *testing.T, root string, exts, markers []string) []string {
 	t.Helper()
 	var hits []string
 	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
@@ -201,7 +200,7 @@ func recordHitsUnder(t *testing.T, root string, exts []string) []string {
 			return err
 		}
 		text := string(body)
-		for _, marker := range recordMarkers {
+		for _, marker := range markers {
 			if strings.Contains(text, marker) {
 				hits = append(hits, path+": "+marker)
 			}
@@ -236,9 +235,26 @@ func TestRetireNoGambitRecordsClientsCarryNoRecordFields(t *testing.T) {
 		t.Errorf("orrery/v1/epics.proto has message EpicTask, want it deleted")
 	}
 
-	web := recordHitsUnder(t, filepath.Join("..", "..", "web", "src"), []string{".ts", ".tsx", ".js", ".jsx", ".mjs"})
-	kotlin := recordHitsUnder(t, filepath.Join("..", "..", "android", "app", "src", "main", "kotlin"), []string{".kt"})
-	tests := recordHitsUnder(t, filepath.Join("..", "..", "android", "app", "src", "test", "kotlin"), []string{".kt"})
+	// markers are the names the record-only client code used. None may appear in a web or Kotlin source.
+	markers := []string{"outcomeDetail", "EpicTaskRow", "recordTaskOf", "isOrreryd"}
+	web := recordHitsUnder(
+		t,
+		filepath.Join("..", "..", "web", "src"),
+		[]string{".ts", ".tsx", ".js", ".jsx", ".mjs"},
+		markers,
+	)
+	kotlin := recordHitsUnder(
+		t,
+		filepath.Join("..", "..", "android", "app", "src", "main", "kotlin"),
+		[]string{".kt"},
+		markers,
+	)
+	tests := recordHitsUnder(
+		t,
+		filepath.Join("..", "..", "android", "app", "src", "test", "kotlin"),
+		[]string{".kt"},
+		markers,
+	)
 	for _, hit := range slices.Concat(web, kotlin, tests) {
 		t.Errorf("record-only code remains: %s", hit)
 	}
