@@ -10,7 +10,7 @@ import { createClients, createTransport } from "./client";
 import { type Contract, ContractSchema } from "./gen/orrery/v1/contracts_pb";
 import { formatAddress, type Address } from "./router";
 import type { Row } from "./rows";
-import { installTestDom, removeTestDom, teardownOnce } from "./testdom";
+import { assertNone, installTestDom, removeTestDom, teardownOnce } from "./testdom";
 import { projectOf } from "./tree";
 
 const now = 1000;
@@ -286,7 +286,7 @@ test("ProjectPage: a press on a contract with no listed conversation, drawn as i
       await press(headOf(container, "api"));
       const own = one(container, '.pc-row[data-key="contract:api/orphan"]');
       assert.equal(one(own, ".t").textContent, "orphan", "the row names the contract");
-      assert.equal(container.querySelector('aside[aria-label="orphan contract"]'), null, "no panel before the press");
+      assertNone(container.querySelector('aside[aria-label="orphan contract"]'), "no panel before the press");
       await press(own);
       assert.ok(projectPage(container) === null, "the page closes");
       assert.ok(container.querySelector('aside[aria-label="orphan contract"]') !== null, "the contract's panel is drawn");

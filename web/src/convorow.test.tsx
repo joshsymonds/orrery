@@ -7,7 +7,7 @@ import { ConvoRow } from "./convorow";
 import { liveEpoch } from "./fixtures/clock";
 import { shippedSlices } from "./fixtures/slices";
 import { rowsFrom, type Row } from "./rows";
-import { installTestDom, removeTestDom } from "./testdom";
+import { assertNone, installTestDom, removeTestDom } from "./testdom";
 import { buildTree, type Convo, type EpicNode, type Hung } from "./tree";
 
 // Each test's name carries the words InboxTree ConvoRow: the conversation's row with what it steers under it.
@@ -127,8 +127,8 @@ test("InboxTree ConvoRow draws a conversation with no row of its own as its one 
       const first = container.firstElementChild;
       assert.equal(first?.getAttribute("data-key"), convo.key, "the thing's EpicRow is drawn first, at the top level");
       assert.equal(first?.classList.contains("epic"), true, "the first row is an epic row");
-      assert.equal(container.querySelector(".steers"), null, "no .steers wraps the thing");
-      assert.equal(container.querySelector(".standin"), null, "no stand-in line is drawn");
+      assertNone(container.querySelector(".steers"), "no .steers wraps the thing");
+      assertNone(container.querySelector(".standin"), "no stand-in line is drawn");
       assert.equal(container.textContent.includes("Its conversation"), false, "no stand-in words are drawn");
       assert.equal(rowsDrawn, 0, "the caller's row is not drawn for a conversation with no row");
     },
@@ -192,7 +192,7 @@ test("InboxTree ConvoRow draws the Archived view's tide warm-up epic, whose conv
   assert.equal(convo.row, null, "no conversation is drawn above it, since its conversation is not archived");
   return withConvo(convo, (container) => {
     assert.equal(container.firstElementChild?.getAttribute("data-key"), "epic:tidepool/tide-warmup", "its EpicRow is drawn first");
-    assert.equal(container.querySelector(".steers"), null, "no .steers wraps it");
-    assert.equal(container.querySelector('.row[data-key="session:9b5e1a47-2c0d-4e8f-8a31-6d7c0f5b2e90"]'), null, "its conversation is not drawn");
+    assertNone(container.querySelector(".steers"), "no .steers wraps it");
+    assertNone(container.querySelector('.row[data-key="session:9b5e1a47-2c0d-4e8f-8a31-6d7c0f5b2e90"]'), "its conversation is not drawn");
   });
 });

@@ -9,7 +9,7 @@ import { type Contract, ContractSchema } from "./gen/orrery/v1/contracts_pb";
 import { type Epic, EpicSchema } from "./gen/orrery/v1/epics_pb";
 import { ProjectPage } from "./projectpage";
 import type { Row } from "./rows";
-import { installTestDom, removeTestDom } from "./testdom";
+import { assertNone, installTestDom, removeTestDom } from "./testdom";
 import { buildTree, type Project } from "./tree";
 
 // withDom gives the check a container on the document, and removes the container and the DOM however the check ends.
@@ -207,7 +207,7 @@ test("ProjectPage draws every conversation of the project, an epic with no liste
     assert.equal(working.querySelector(".said.asked"), null, "a working pane asks nothing");
     assert.equal(one(own, ".t").textContent, "gamma", "the row names the epic it holds");
     assert.equal(one(own, "svg.glyph").getAttribute("data-state"), "working", "the row reads the epic's state");
-    assert.equal(own.querySelector(".said"), null, "the row says nothing it last said");
+    assertNone(own.querySelector(".said"), "the row says nothing it last said");
     assert.equal(one(own, ".end .id").textContent, "5m");
     assert.equal(container.querySelector(".pconv .ctx"), null, "no row draws a context meter (DL-G5)");
     own.click();

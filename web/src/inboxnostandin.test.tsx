@@ -12,7 +12,7 @@ import { type Epic, EpicSchema } from "./gen/orrery/v1/epics_pb";
 import { epicsView } from "./epics";
 import type { Address } from "./router";
 import type { Row } from "./rows";
-import { installTestDom, removeTestDom, teardownOnce } from "./testdom";
+import { assertNone, installTestDom, removeTestDom, teardownOnce } from "./testdom";
 
 // Each test's name carries the prefix InboxWebNoStandIn: a thing with no drawn conversation is its own row in its
 // project, and no line says that a conversation is not listed or is archived.
@@ -175,16 +175,16 @@ test("InboxWebNoStandIn: an epic and a proposed contract whose conversation is n
     assert.equal(one(epic, ".title").textContent, "alpha", "the epic draws under its own name");
     const contract = one(project, '.dir-kids > .row.epic.contract[data-key="contract:repo-a/delta"]');
     assert.equal(one(contract, ".title").textContent, "delta", "the contract draws under its own name");
-    assert.equal(project.querySelector(".steers"), null, "neither hangs under a conversation's row");
+    assertNone(project.querySelector(".steers"), "neither hangs under a conversation's row");
   }));
 
 test("InboxWebNoStandIn: the inbox and the Archived view each draw no line that says a conversation is not listed or archived, and no .standin element", (t) =>
   withApp(t.signal, async ({ container, show }) => {
     assert.deepEqual(standInLines(container), [], "the inbox draws no stand-in line");
-    assert.equal(container.querySelector(".standin"), null, "the inbox has no .standin element");
+    assertNone(container.querySelector(".standin"), "the inbox has no .standin element");
     await show({ view: "archived", entry: null });
     assert.deepEqual(standInLines(container), [], "the Archived view draws no stand-in line");
-    assert.equal(container.querySelector(".standin"), null, "the Archived view has no .standin element");
+    assertNone(container.querySelector(".standin"), "the Archived view has no .standin element");
   }));
 
 test("InboxWebNoStandIn: the Archived view draws an archived epic whose conversation is listed as its own row, and the epic of an archived conversation under that conversation", (t) =>
@@ -193,5 +193,5 @@ test("InboxWebNoStandIn: the Archived view draws an archived epic whose conversa
     const project = one(container, 'section.dir[aria-label="api"]');
     one(project, '.dir-kids > .row.epic[data-key="epic:repo-a/gamma"]');
     one(project, '.dir-kids > .row[data-key="archived"] + .steers > .row.epic[data-key="epic:repo-a/beta"]');
-    assert.equal(project.querySelector('[data-key="epic:repo-a/alpha"]'), null, "a live epic with no archived conversation is not drawn");
+    assertNone(project.querySelector('[data-key="epic:repo-a/alpha"]'), "a live epic with no archived conversation is not drawn");
   }));
