@@ -868,6 +868,7 @@ type sessionHost struct {
 	broker     *grants.Broker
 	pools      enginehost.PoolCommands
 	evidence   *enginehost.Evidence
+	captures   *enginehost.Captures // the capture runner over the store, the steps and the pools, nil without a store
 	checks     *enginehost.NodeChecks
 	stopWriter context.CancelFunc
 	writerDone chan struct{}
@@ -1113,6 +1114,10 @@ func (h *sessionHost) serveConfig(
 	if h.releaseSlots != nil {
 		cfg.ReleaseSlots = h.releaseSlots
 	}
+	// A nil *Captures in the interface would not refuse CaptureEvidence as unavailable, so it stays unset without a store.
+	if h.captures != nil {
+		cfg.Captures = h.captures
+	}
 	return cfg
 }
 
@@ -1303,7 +1308,7 @@ func sessionState(getenv func(string) string) (string, []string, error) {
 // startEvidence builds the evidence runner over st, the steps and the pools, with its blobs and capture worktrees under
 // stateDir and its gates under stateDir/gates, and takes up the open evidence runs a previous run left. A failure to take
 // them up is logged and serving goes on. Its gates run in environ, under the holder scope and its memory cap that opts
-// name.
+// name. Beside it, startCaptures builds the capture runner and takes up its captures.
 func (h *sessionHost) startEvidence(
 	ctx context.Context,
 	st *store.Store,
@@ -1324,6 +1329,35 @@ func (h *sessionHost) startEvidence(
 	})
 	if err := h.evidence.Resume(ctx); err != nil {
 		logger.ErrorContext(ctx, "resume evidence runs, serving anyway", "error", err)
+	}
+	h.startCaptures(ctx, st, stateDir, opts, environ, logger)
+}
+
+// startCaptures builds the capture runner over st, the steps and the pools, with its blobs and capture worktrees under stateDir
+// and its gates under stateDir/gates, and takes up the captures a previous run left. A failure to take them up is logged and
+// serving goes on. Its gates run in environ, under the holder scope that opts names, and its ended captures are delivered to
+// the steps that asked for them through the steps' DeliverChildEnd.
+func (h *sessionHost) startCaptures(
+	ctx context.Context,
+	st *store.Store,
+	stateDir string,
+	opts options,
+	environ []string,
+	logger *slog.Logger,
+) {
+	h.captures = enginehost.NewCaptures(enginehost.CapturesConfig{
+		Store:        st,
+		Steps:        h.steps,
+		Deliver:      h.steps.DeliverChildEnd,
+		Pools:        h.pools,
+		Environ:      environ,
+		StateDir:     stateDir,
+		GateStateDir: filepath.Join(stateDir, "gates"),
+		GateScope:    opts.holderScope,
+		Logger:       logger,
+	})
+	if err := h.captures.Resume(ctx); err != nil {
+		logger.ErrorContext(ctx, "resume captures, serving anyway", "error", err)
 	}
 }
 
@@ -1961,8 +1995,8 @@ func (h *sessionHost) startReports(
 // shutdown stops the broker, stops the idle check, stops the flow and waits for it to return, which waits for the
 // planner's turns, stops the limit notices and waits for the attention loop, the limit loop, the due pass, the epic
 // summaries, the session titles, the session headlines, the session closures and the epic reports to return, stops
-// the caller-event delivery and waits for it to return, closes the node checks and the evidence runner and waits for
-// their drives, ends every
+// the caller-event delivery and waits for it to return, closes the captures and waits for their drives, closes the node
+// checks and the evidence runner and waits for their drives, ends every
 // step loop, stops every live session, and ends the writer after its last flush. The notices the sessions started are
 // waited on in serve. Without a broker, manager and writer it does nothing.
 func (h *sessionHost) shutdown() {
@@ -2021,6 +2055,7 @@ func (h *sessionHost) shutdown() {
 			h.stopCallerEvents()
 			<-h.callerEventsDone
 		})
+		h.phase("captures", h.captures.Close)
 		h.phase("steps", h.steps.Close)
 		h.phase("sessions", h.manager.Close)
 	}

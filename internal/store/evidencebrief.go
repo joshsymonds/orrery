@@ -2,9 +2,12 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"time"
+
+	"github.com/joshsymonds/orrery/internal/store/sqlcgen"
 )
 
 // The states a brief run waits and gathers in before a capture is attached to it. A waiting run has no gatherer and no
@@ -22,9 +25,11 @@ var ErrNoCapture = errors.New("no capture")
 var ErrGathererRunning = errors.New("epic has a running gatherer")
 
 // Capture is one command orreryd ran for evidence: the command, the repository files it keeps, the evidence runs it
-// answers, and what it left. Argv, Files and Briefs keep their order, Briefs holding the ids of the runs. Limit is the
+// answers, and what it left. Argv and Files keep their order. Briefs holds the ids of the runs, which the store returns
+// in id order. Limit is the
 // time limit in seconds. State is running until the capture ends, and Grant and Holder name the pool grant and holder it
-// runs under. Artifacts are the files it kept, in order, and Delivered is set once its briefs have been told it ended.
+// runs under. Artifacts are the files it kept, in order, and Delivered is set once the step that asked for it has been told
+// it ended.
 // Times are stored at whole seconds, and Ended is zero while the capture runs.
 type Capture struct {
 	ID          string
@@ -77,42 +82,201 @@ func unsupported[T any](method string) (T, error) {
 }
 
 // AddCapture stores c as a running capture in one write, with its files and briefs in the order given.
-func (s *Store) AddCapture(_ context.Context, _ Capture) error {
-	return unsupportedError("AddCapture")
+func (s *Store) AddCapture(ctx context.Context, capture Capture) error {
+	return s.write(ctx, func(queries *sqlcgen.Queries) error {
+		argv, err := encodeStrings(capture.Argv)
+		if err != nil {
+			return fmt.Errorf("argv of capture %s: %w", capture.ID, err)
+		}
+		files, err := encodeStrings(capture.Files)
+		if err != nil {
+			return fmt.Errorf("files of capture %s: %w", capture.ID, err)
+		}
+		if err = queries.InsertEvidenceCapture(ctx, sqlcgen.InsertEvidenceCaptureParams{
+			ID: capture.ID, Epic: capture.Epic, Repository: capture.Repository, Step: capture.Step,
+			Role: capture.Role, Runner: capture.Runner, CommitSha: capture.Commit, Argv: argv, Files: files,
+			LimitSeconds: capture.Limit, State: captureRunning, Created: capture.Created.Unix(),
+		}); err != nil {
+			return fmt.Errorf("insert capture %s: %w", capture.ID, err)
+		}
+		for _, run := range capture.Briefs {
+			if err = queries.InsertEvidenceCaptureBrief(ctx, sqlcgen.InsertEvidenceCaptureBriefParams{
+				Capture: capture.ID, Run: run,
+			}); err != nil {
+				return fmt.Errorf("brief %s of capture %s: %w", run, capture.ID, err)
+			}
+		}
+		return nil
+	})
 }
 
 // SetCaptureGrant records the pool grant and holder that a running capture runs under. A capture in any other state is
 // ErrEvidenceState, and an unknown capture is ErrNoCapture.
-func (s *Store) SetCaptureGrant(_ context.Context, _, _, _ string) error {
-	return unsupportedError("SetCaptureGrant")
+func (s *Store) SetCaptureGrant(ctx context.Context, id, grant, holder string) error {
+	return s.write(ctx, func(queries *sqlcgen.Queries) error {
+		if err := requireCaptureState(ctx, queries, id, captureRunning); err != nil {
+			return err
+		}
+		if err := queries.SetEvidenceCaptureGrant(ctx, sqlcgen.SetEvidenceCaptureGrantParams{
+			GrantID: grant, Holder: holder, ID: id,
+		}); err != nil {
+			return fmt.Errorf("set grant of capture %s: %w", id, err)
+		}
+		return nil
+	})
 }
 
 // RecordCaptureEnd stores what a running capture left in one write, with its files in the order given, and ends it at
 // end.At. A capture in any other state is ErrEvidenceState and changes nothing.
-func (s *Store) RecordCaptureEnd(_ context.Context, _ string, _ EvidenceCapture) error {
-	return unsupportedError("RecordCaptureEnd")
+func (s *Store) RecordCaptureEnd(ctx context.Context, id string, end EvidenceCapture) error {
+	return s.write(ctx, func(queries *sqlcgen.Queries) error {
+		if err := requireCaptureState(ctx, queries, id, captureRunning); err != nil {
+			return err
+		}
+		if err := queries.RecordEvidenceCaptureEnd(ctx, sqlcgen.RecordEvidenceCaptureEndParams{
+			Exit: int64(end.Exit), TimedOut: boolInt(end.TimedOut), NotCaptured: end.NotCaptured, LogHash: end.LogHash,
+			LogBytes: end.LogBytes, StderrHash: end.StderrHash, StderrBytes: end.StderrBytes, Ended: end.At.Unix(),
+			ID: id,
+		}); err != nil {
+			return fmt.Errorf("record end of capture %s: %w", id, err)
+		}
+		if err := insertInOrder(end.Artifacts, func(position int64, a EvidenceArtifact) error {
+			return queries.InsertEvidenceCaptureFile(ctx, sqlcgen.InsertEvidenceCaptureFileParams{
+				Capture: id, Position: position, Path: a.Path, State: a.State, Hash: a.Hash, Blob: a.Blob, Size: a.Size,
+			})
+		}); err != nil {
+			return fmt.Errorf("files of capture %s: %w", id, err)
+		}
+		return nil
+	})
 }
 
-// MarkCaptureDelivered records that the briefs of an ended capture have been told it ended, so UndeliveredCaptures no
-// longer returns it. An unknown capture is ErrNoCapture.
-func (s *Store) MarkCaptureDelivered(_ context.Context, _ string) error {
-	return unsupportedError("MarkCaptureDelivered")
+// MarkCaptureDelivered records that the step that asked for an ended capture has been told it ended, so UndeliveredCaptures
+// no longer returns it. An unknown capture is ErrNoCapture.
+func (s *Store) MarkCaptureDelivered(ctx context.Context, id string) error {
+	return s.write(ctx, func(queries *sqlcgen.Queries) error {
+		if _, err := captureState(ctx, queries, id); err != nil {
+			return err
+		}
+		if err := queries.MarkEvidenceCaptureDelivered(ctx, id); err != nil {
+			return fmt.Errorf("mark capture %s delivered: %w", id, err)
+		}
+		return nil
+	})
 }
 
 // Capture returns the stored capture with id, its files and briefs loaded. It returns an error matching ErrNoCapture
 // when no capture has that id.
-func (s *Store) Capture(_ context.Context, _ string) (Capture, error) {
-	return unsupported[Capture]("Capture")
+func (s *Store) Capture(ctx context.Context, id string) (Capture, error) {
+	queries := sqlcgen.New(s.read)
+	stored, err := queries.GetEvidenceCapture(ctx, id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return Capture{}, fmt.Errorf("capture %s: %w", id, ErrNoCapture)
+	}
+	if err != nil {
+		return Capture{}, fmt.Errorf("get capture %s: %w", id, err)
+	}
+	return captureOf(ctx, queries, stored)
 }
 
 // RunningCaptures returns the captures that are running, ordered by created, then id.
-func (s *Store) RunningCaptures(_ context.Context) ([]Capture, error) {
-	return unsupported[[]Capture]("RunningCaptures")
+func (s *Store) RunningCaptures(ctx context.Context) ([]Capture, error) {
+	queries := sqlcgen.New(s.read)
+	stored, err := queries.ListRunningEvidenceCaptures(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list running captures: %w", err)
+	}
+	return capturesOf(ctx, queries, stored)
 }
 
-// UndeliveredCaptures returns the ended captures whose briefs have not been told they ended, ordered by end, then id.
-func (s *Store) UndeliveredCaptures(_ context.Context) ([]Capture, error) {
-	return unsupported[[]Capture]("UndeliveredCaptures")
+// UndeliveredCaptures returns the ended captures whose asking step has not been told they ended, ordered by end, then id.
+func (s *Store) UndeliveredCaptures(ctx context.Context) ([]Capture, error) {
+	queries := sqlcgen.New(s.read)
+	stored, err := queries.ListUndeliveredEvidenceCaptures(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list undelivered captures: %w", err)
+	}
+	return capturesOf(ctx, queries, stored)
+}
+
+// captureRunning is the state of a capture that has not ended. RecordCaptureEnd ends it.
+const captureRunning = "running"
+
+// requireCaptureState returns an error matching ErrNoCapture when no capture has id, and one matching ErrEvidenceState when
+// the capture is not in state want.
+func requireCaptureState(ctx context.Context, queries *sqlcgen.Queries, id, want string) error {
+	state, err := captureState(ctx, queries, id)
+	if err != nil {
+		return err
+	}
+	if state != want {
+		return fmt.Errorf("capture %s is %s, not %s: %w", id, state, want, ErrEvidenceState)
+	}
+	return nil
+}
+
+// captureState returns the state of the capture with id, or an error matching ErrNoCapture when no capture has that id.
+func captureState(ctx context.Context, queries *sqlcgen.Queries, id string) (string, error) {
+	state, err := queries.GetEvidenceCaptureState(ctx, id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", fmt.Errorf("capture %s: %w", id, ErrNoCapture)
+	}
+	if err != nil {
+		return "", fmt.Errorf("read state of capture %s: %w", id, err)
+	}
+	return state, nil
+}
+
+// capturesOf returns the captures of the stored rows in order, each with its files and briefs loaded.
+func capturesOf(ctx context.Context, queries *sqlcgen.Queries, stored []sqlcgen.EvidenceCapture) ([]Capture, error) {
+	return convertInOrder(stored, func(row sqlcgen.EvidenceCapture) (Capture, error) {
+		return captureOf(ctx, queries, row)
+	})
+}
+
+// captureOf returns the capture a stored row holds, with its files and briefs loaded.
+func captureOf(ctx context.Context, queries *sqlcgen.Queries, stored sqlcgen.EvidenceCapture) (Capture, error) {
+	files, err := queries.ListEvidenceCaptureFiles(ctx, stored.ID)
+	if err != nil {
+		return Capture{}, fmt.Errorf("list files of capture %s: %w", stored.ID, err)
+	}
+	briefs, err := queries.ListEvidenceCaptureBriefs(ctx, stored.ID)
+	if err != nil {
+		return Capture{}, fmt.Errorf("list briefs of capture %s: %w", stored.ID, err)
+	}
+	return captureWith(stored, files, briefs)
+}
+
+// captureWith returns the capture a stored row holds, with its files as the artifacts it left and its briefs as given.
+func captureWith(
+	stored sqlcgen.EvidenceCapture, files []sqlcgen.EvidenceCaptureFile, briefs []string,
+) (Capture, error) {
+	argv, err := decodeStrings(stored.Argv)
+	if err != nil {
+		return Capture{}, fmt.Errorf("argv of capture %s: %w", stored.ID, err)
+	}
+	paths, err := decodeStrings(stored.Files)
+	if err != nil {
+		return Capture{}, fmt.Errorf("files of capture %s: %w", stored.ID, err)
+	}
+	capture := Capture{
+		ID: stored.ID, Epic: stored.Epic, Repository: stored.Repository, Step: stored.Step, Role: stored.Role,
+		Runner: stored.Runner, Commit: stored.CommitSha, Argv: argv, Files: paths, Briefs: briefs,
+		Limit: stored.LimitSeconds, State: stored.State, Grant: stored.GrantID, Holder: stored.Holder,
+		Exit: int(stored.Exit), TimedOut: stored.TimedOut != 0, NotCaptured: stored.NotCaptured,
+		LogHash: stored.LogHash, LogBytes: stored.LogBytes, StderrHash: stored.StderrHash,
+		StderrBytes: stored.StderrBytes, Artifacts: mapInOrder(files, captureArtifactOf),
+		Delivered: stored.Delivered != 0, Created: time.Unix(stored.Created, 0),
+	}
+	if stored.Ended != 0 {
+		capture.Ended = time.Unix(stored.Ended, 0)
+	}
+	return capture, nil
+}
+
+// captureArtifactOf returns the artifact a stored file row holds.
+func captureArtifactOf(file sqlcgen.EvidenceCaptureFile) EvidenceArtifact {
+	return EvidenceArtifact{Path: file.Path, State: file.State, Hash: file.Hash, Blob: file.Blob, Size: file.Size}
 }
 
 // CapturesAt returns the captures of repository at commit, ordered by created, then id.
