@@ -30,6 +30,10 @@ import java.io.IOException
 
 private const val LOG_NOT_AVAILABLE = "The log is not available."
 
+/** What a run reads while it waits for the gatherer, and while the gatherer gathers its evidence. */
+internal const val WAITING_FOR_GATHERER = "waiting for the gatherer"
+internal const val BEING_GATHERED = "being gathered"
+
 /**
  * Fetches an artifact of a run by its path, or one of the run's logs when the name is empty: its stderr log when
  * [stderr] is set, its stdout log otherwise. Null when the server has none.
@@ -144,6 +148,8 @@ private fun RunLogFold(position: String, run: EvidenceRunRow, loadArtifact: Arti
 private fun sentenceOf(run: EvidenceRunRow): String {
     val phase = run.phase.replaceFirstChar { it.uppercase() }
     return when {
+        run.state == "waiting" -> "$phase run: $WAITING_FOR_GATHERER…"
+        run.state == "gathering" -> "$phase run: $BEING_GATHERED…"
         run.state == "capturing" -> "$phase run: capturing the output…"
         run.state == "judging" -> "$phase run: a judge is reading the output…"
         run.notCaptured.isNotEmpty() -> "$phase run: the output was not captured: ${run.notCaptured}."
@@ -155,10 +161,12 @@ private fun sentenceOf(run: EvidenceRunRow): String {
 }
 
 /**
- * The verdict chip of a run and its tone: its state while it captures or is judged, else its verdict, else no verdict with
- * the judge's reason when the judge gave one.
+ * The verdict chip of a run and its tone: its state while it waits for the gatherer, is gathered, captures or is
+ * judged, else its verdict, else no verdict with the judge's reason when the judge gave one.
  */
 private fun verdictOf(run: EvidenceRunRow): Pair<String, ChipTone> = when (run.state) {
+    "waiting" -> WAITING_FOR_GATHERER to ChipTone.Live
+    "gathering" -> BEING_GATHERED to ChipTone.Live
     "capturing" -> "capturing" to ChipTone.Live
     "judging" -> "judging" to ChipTone.Live
     else -> when (run.verdict) {
