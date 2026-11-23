@@ -2,11 +2,16 @@ package io.github.joshsymonds.orrery.ui
 
 import androidx.compose.foundation.layout.Column
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.SemanticsMatcher
+import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.hasAnyAncestor
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
+import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.performClick
 import io.github.joshsymonds.orrery.api.EpicDetail
+import io.github.joshsymonds.orrery.api.EpicHistoryRow
 import io.github.joshsymonds.orrery.api.EpicRow
 import io.github.joshsymonds.orrery.api.Pane
 import io.github.joshsymonds.orrery.api.StepRow
@@ -30,6 +35,10 @@ class StepRowsTest {
         const val EPIC_ID = "lighthouse/rota-export"
         const val CONVO_KEY = "session:s1"
         const val REPO = "/home/user/lighthouse"
+        const val AGENT = "builder"
+        const val PURPOSE = "Refuse an export over an existing file"
+        const val DOING = "Writing the refusal test."
+        const val SENTENCE = "$PURPOSE running: $DOING"
     }
 
     @get:Rule
@@ -91,8 +100,19 @@ class StepRowsTest {
         phaseAt = NOW - 49 * 60,
     )
 
-    // The steps in one composition: the epic's inbox row under its conversation, then the epic's Now rows.
-    private fun setRows(steps: List<StepRow>) {
+    // A history line for one step, as the epic's Just happened draws it. Time 0 draws no clock, so the line's text is
+    // its sentence alone.
+    private fun stepEntry(row: StepRow) = EpicHistoryRow(
+        time = 0L,
+        cursor = row.id,
+        kind = "step",
+        sentence = SENTENCE,
+        step = row,
+    )
+
+    // The steps in one composition: the epic's inbox row under its conversation, then the epic's Now rows, then the
+    // epic's Just happened lines when there are any.
+    private fun setRows(steps: List<StepRow>, history: List<EpicHistoryRow> = emptyList()) {
         val epic = epic(steps)
         val detail = EpicDetail(
             epic = epic,
@@ -113,6 +133,9 @@ class StepRowsTest {
                 Column {
                     ConvoRowItem(convo = convo, now = NOW, onOpen = {}, onLongPress = {})
                     StepRows(lines = stepLinesOf(detail), tasks = emptyList(), now = NOW)
+                    if (history.isNotEmpty()) {
+                        JustHappened(entries = history, steps = steps, onOpenStep = {})
+                    }
                 }
             }
         }
@@ -120,6 +143,9 @@ class StepRowsTest {
 
     private fun countIn(row: String, matcher: SemanticsMatcher): Int =
         composeRule.onAllNodes(matcher and hasAnyAncestor(hasTestTag(row)), useUnmergedTree = true).fetchSemanticsNodes().size
+
+    private fun countAnywhere(matcher: SemanticsMatcher): Int =
+        composeRule.onAllNodes(matcher, useUnmergedTree = true).fetchSemanticsNodes().size
 
     private fun topOf(row: String, text: String): Float =
         composeRule.onNode(hasText(text) and hasAnyAncestor(hasTestTag(row)), useUnmergedTree = true)
@@ -187,6 +213,34 @@ class StepRowsTest {
         }
         for (row in listOf("step:s2", "step-row:s2")) {
             assertEquals("$row draws no pips without a task", 0, countIn(row, hasTestTag("pips")))
+        }
+    }
+
+    @Test
+    fun theStepRowsHistoryLineReadsPurposeThenDoing() {
+        val running = step("s1", purpose = PURPOSE, agent = AGENT, doing = DOING)
+        setRows(listOf(running), history = listOf(stepEntry(running)))
+
+        composeRule.onNodeWithTag("happened:0").assertTextEquals("", SENTENCE)
+        val drawn = composeRule.onNodeWithTag("happened:0").fetchSemanticsNode().config[SemanticsProperties.Text]
+            .joinToString("") { it.text }
+        val purposeAt = drawn.indexOf(PURPOSE)
+        assertTrue("the line reads its purpose before its doing", purposeAt in 0 until drawn.indexOf(DOING))
+    }
+
+    @Test
+    fun theStepRowsShowTheAgentOnlyInTheStepDetail() {
+        val running = step("s1", purpose = PURPOSE, agent = AGENT, doing = DOING)
+        setRows(listOf(running), history = listOf(stepEntry(running)))
+
+        assertEquals("no line names the agent before the tap", 0, countAnywhere(hasText(AGENT, substring = true)))
+        assertEquals("no detail shows the agent before the tap", 0, countAnywhere(hasTestTag("happened-agent:0")))
+
+        composeRule.onNodeWithTag("happened:0").performClick()
+
+        composeRule.onNodeWithTag("happened-agent:0", useUnmergedTree = true).assertTextEquals("agent: $AGENT")
+        for (row in listOf("step:s1", "step-row:s1")) {
+            assertEquals("$row names no agent", 0, countIn(row, hasText(AGENT, substring = true)))
         }
     }
 }
