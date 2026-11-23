@@ -9,7 +9,7 @@ import { createClients, createTransport } from "./client";
 import { epicsView } from "./epics";
 import type { Address } from "./router";
 import type { Row } from "./rows";
-import { installTestDom, removeTestDom, teardownOnce } from "./testdom";
+import { assertNone, installTestDom, removeTestDom, teardownOnce } from "./testdom";
 
 // InboxWebPlace: the web inbox places each conversation from serve's fields on its row. A row serve reports ended draws
 // behind its project's ended line, a row serve reports archived draws only in the Archived view, and any other draws in
@@ -146,7 +146,7 @@ test("InboxWebPlace: a row serve reports neither ended nor archived is drawn in 
   withApp(t.signal, { rows: [live], address: inboxAddress }, (container) => {
     const card = cardNamed(container, "widgets");
     assert.deepEqual(placed(card), { tree: [live.key], behind: [] }, "the live row is not in the project's tree");
-    assert.equal(card.querySelector(".fold-line"), null, "a project with no ended row draws an ended line");
+    assertNone(card.querySelector(".fold-line"), "a project with no ended row draws an ended line");
   }));
 
 // stopped is a headless session of the gadgets directory, which serve reports neither ended nor archived though its state
@@ -167,7 +167,7 @@ test("InboxWebPlace: a headless session serve reports neither ended nor archived
   withApp(t.signal, { rows: [stopped], address: inboxAddress }, (container) => {
     const card = cardNamed(container, "gadgets");
     assert.deepEqual(placed(card), { tree: [stopped.key], behind: [] }, "the stopped session is not in the project's tree");
-    assert.equal(card.querySelector(".fold-line"), null, "a project with no ended row draws an ended line");
+    assertNone(card.querySelector(".fold-line"), "a project with no ended row draws an ended line");
   }));
 
 test("InboxWebPlace: a row serve reports ended is behind its project's ended line and not in the tree", (t) => {
@@ -176,7 +176,7 @@ test("InboxWebPlace: a row serve reports ended is behind its project's ended lin
     assert.deepEqual(
       placed(cardNamed(container, "widgets")),
       { tree: [live.key], behind: [] },
-      "the ended row is drawn in the tree or behind a line that is shut",
+      "the ended row is not in the tree, and its line is shut",
     );
     const line = cardNamed(container, "widgets").querySelector<HTMLElement>(".fold-line");
     assert.ok(line !== null, "the project draws no ended line");
@@ -194,7 +194,7 @@ test("InboxWebPlace: a row serve reports archived is drawn only in the Archived 
   const archived = row({ key: "pane:box:%3", label: "Old chat", archived: true, ended: true });
   return withApp(t.signal, { rows: [live, archived], address: inboxAddress }, async (container, rerender) => {
     assert.deepEqual(rowKeysIn(container), [live.key], "the inbox draws the archived row in a place");
-    assert.equal(container.querySelector(".fold-line"), null, "an archived row gives its project an ended line");
+    assertNone(container.querySelector(".fold-line"), "an archived row gives its project an ended line");
     await rerender(archivedAddress);
     assert.equal(container.querySelector(".inbox-rows")?.getAttribute("data-list"), "archived", "the Archived view is not shown");
     assert.deepEqual(rowKeysIn(container), [archived.key], "the Archived view does not draw the archived row");
