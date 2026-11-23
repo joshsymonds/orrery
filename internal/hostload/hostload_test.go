@@ -9,7 +9,8 @@ import (
 
 // meminfo returns a meminfo file with MemTotal and MemAvailable set, in kB, and the other lines a real file has.
 func meminfo(total, available int) string {
-	return fmt.Sprintf("MemTotal:       %d kB\nMemFree:        %d kB\nMemAvailable:   %d kB\nHugePages_Total:       0\n",
+	return fmt.Sprintf(
+		"MemTotal:       %d kB\nMemFree:        %d kB\nMemAvailable:   %d kB\nHugePages_Total:       0\n",
 		total, total/2, available)
 }
 
