@@ -279,9 +279,17 @@ func captureArtifactOf(file sqlcgen.EvidenceCaptureFile) EvidenceArtifact {
 	return EvidenceArtifact{Path: file.Path, State: file.State, Hash: file.Hash, Blob: file.Blob, Size: file.Size}
 }
 
-// CapturesAt returns the captures of repository at commit, ordered by created, then id.
-func (s *Store) CapturesAt(_ context.Context, _, _ string) ([]Capture, error) {
-	return unsupported[[]Capture]("CapturesAt")
+// CapturesAt returns the captures of repository at commit, ordered by created, then id, each with its files and briefs
+// loaded.
+func (s *Store) CapturesAt(ctx context.Context, repository, commit string) ([]Capture, error) {
+	queries := sqlcgen.New(s.read)
+	stored, err := queries.ListEvidenceCapturesAt(ctx, sqlcgen.ListEvidenceCapturesAtParams{
+		Repository: repository, CommitSha: commit,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("list captures at %s: %w", commit, err)
+	}
+	return capturesOf(ctx, queries, stored)
 }
 
 // AttachCapture attaches capture to each of runs that is waiting or gathering, in one write. Each attached run takes the
@@ -292,26 +300,91 @@ func (s *Store) AttachCapture(_ context.Context, _ string, _ []string, _ time.Ti
 }
 
 // OpenBriefs returns the runs of epic that are waiting or gathering, ordered by created, then id, each with its
-// artifacts.
-func (s *Store) OpenBriefs(_ context.Context, _ string) ([]EvidenceRun, error) {
-	return unsupported[[]EvidenceRun]("OpenBriefs")
+// artifacts. It reads the runs in one query and the artifacts of the epic in another.
+func (s *Store) OpenBriefs(ctx context.Context, epic string) ([]EvidenceRun, error) {
+	queries := sqlcgen.New(s.read)
+	stored, err := queries.ListOpenEvidenceBriefs(ctx, epic)
+	if err != nil {
+		return nil, fmt.Errorf("list open briefs of epic %s: %w", epic, err)
+	}
+	artifacts, err := queries.ListEpicEvidenceArtifacts(ctx, epic)
+	if err != nil {
+		return nil, fmt.Errorf("list evidence artifacts of epic %s: %w", epic, err)
+	}
+	return evidenceRunsOf(stored, artifacts)
 }
 
 // EpicsWithWaitingBriefs returns the ids of the epics that hold a waiting run, ordered by id.
-func (s *Store) EpicsWithWaitingBriefs(_ context.Context) ([]string, error) {
-	return unsupported[[]string]("EpicsWithWaitingBriefs")
+func (s *Store) EpicsWithWaitingBriefs(ctx context.Context) ([]string, error) {
+	epics, err := sqlcgen.New(s.read).ListEpicsWithWaitingBriefs(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list epics with waiting briefs: %w", err)
+	}
+	return epics, nil
 }
 
 // StartEvidenceGatherer records step as the next gatherer of epic, started at at, in one write. It numbers the gatherer
-// after the epic's last one. An epic with a running gatherer is ErrGathererRunning and records nothing.
-func (s *Store) StartEvidenceGatherer(_ context.Context, _, _ string, _ time.Time) (EvidenceGatherer, error) {
-	return unsupported[EvidenceGatherer]("StartEvidenceGatherer")
+// after the epic's last one. An epic with a running gatherer is ErrGathererRunning and records nothing. Every waiting
+// run of the epic moves to gathering, held by step.
+func (s *Store) StartEvidenceGatherer(ctx context.Context, epic, step string, at time.Time) (EvidenceGatherer, error) {
+	var gatherer EvidenceGatherer
+	err := s.write(ctx, func(queries *sqlcgen.Queries) error {
+		_, err := queries.GetRunningEvidenceGatherer(ctx, epic)
+		if err == nil {
+			return fmt.Errorf("start gatherer %s of epic %s: %w", step, epic, ErrGathererRunning)
+		}
+		if !errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("read running gatherer of epic %s: %w", epic, err)
+		}
+		stored, err := queries.StartEvidenceGatherer(ctx, sqlcgen.StartEvidenceGathererParams{
+			Epic: epic, Step: step, Started: at.Unix(),
+		})
+		if err != nil {
+			return fmt.Errorf("insert gatherer %s of epic %s: %w", step, epic, err)
+		}
+		gatherer = gathererOf(stored)
+		open, err := queries.ListOpenEvidenceBriefs(ctx, epic)
+		if err != nil {
+			return fmt.Errorf("list open briefs of epic %s: %w", epic, err)
+		}
+		for _, run := range open {
+			if run.State != RunWaiting {
+				continue
+			}
+			if takeErr := takeBrief(ctx, queries, run.ID, step); takeErr != nil {
+				return takeErr
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return EvidenceGatherer{}, err
+	}
+	return gatherer, nil
 }
 
 // TakeEvidenceBrief makes step the gatherer of the waiting run, which moves to gathering. A run that is not waiting is
 // ErrEvidenceState, and an unknown run is ErrNoEvidenceRun.
-func (s *Store) TakeEvidenceBrief(_ context.Context, _, _ string) error {
-	return unsupportedError("TakeEvidenceBrief")
+func (s *Store) TakeEvidenceBrief(ctx context.Context, run, step string) error {
+	return s.write(ctx, func(queries *sqlcgen.Queries) error {
+		if err := requireRunState(ctx, queries, run, RunWaiting); err != nil {
+			return err
+		}
+		return takeBrief(ctx, queries, run, step)
+	})
+}
+
+// takeBrief moves the waiting run id to gathering, held by step. The run must be waiting: a run that is not is
+// ErrEvidenceState.
+func takeBrief(ctx context.Context, queries *sqlcgen.Queries, id, step string) error {
+	taken, err := queries.TakeEvidenceBrief(ctx, sqlcgen.TakeEvidenceBriefParams{Gatherer: step, ID: id})
+	if err != nil {
+		return fmt.Errorf("take brief %s: %w", id, err)
+	}
+	if taken != 1 {
+		return fmt.Errorf("take brief %s: %w", id, ErrEvidenceState)
+	}
+	return nil
 }
 
 // EndEvidenceGatherer ends the running gatherer step of epic at at, in one write. Each brief step holds goes back to
@@ -324,18 +397,45 @@ func (s *Store) EndEvidenceGatherer(
 }
 
 // RunningEvidenceGatherer returns the running gatherer of epic, and whether the epic has one.
-func (s *Store) RunningEvidenceGatherer(_ context.Context, _ string) (EvidenceGatherer, bool, error) {
-	gatherer, err := unsupported[EvidenceGatherer]("RunningEvidenceGatherer")
-	return gatherer, false, err
+func (s *Store) RunningEvidenceGatherer(ctx context.Context, epic string) (EvidenceGatherer, bool, error) {
+	stored, err := sqlcgen.New(s.read).GetRunningEvidenceGatherer(ctx, epic)
+	if errors.Is(err, sql.ErrNoRows) {
+		return EvidenceGatherer{}, false, nil
+	}
+	if err != nil {
+		return EvidenceGatherer{}, false, fmt.Errorf("get running gatherer of epic %s: %w", epic, err)
+	}
+	return gathererOf(stored), true, nil
 }
 
 // RunningEvidenceGatherers returns the running gatherers of every epic, ordered by epic, then seq.
-func (s *Store) RunningEvidenceGatherers(_ context.Context) ([]EvidenceGatherer, error) {
-	return unsupported[[]EvidenceGatherer]("RunningEvidenceGatherers")
+func (s *Store) RunningEvidenceGatherers(ctx context.Context) ([]EvidenceGatherer, error) {
+	stored, err := sqlcgen.New(s.read).ListRunningEvidenceGatherers(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list running gatherers: %w", err)
+	}
+	return mapInOrder(stored, gathererOf), nil
 }
 
 // EvidenceGathererOf returns the gatherer whose step is step, and whether one has that step.
-func (s *Store) EvidenceGathererOf(_ context.Context, _ string) (EvidenceGatherer, bool, error) {
-	gatherer, err := unsupported[EvidenceGatherer]("EvidenceGathererOf")
-	return gatherer, false, err
+func (s *Store) EvidenceGathererOf(ctx context.Context, step string) (EvidenceGatherer, bool, error) {
+	stored, err := sqlcgen.New(s.read).GetEvidenceGathererOf(ctx, step)
+	if errors.Is(err, sql.ErrNoRows) {
+		return EvidenceGatherer{}, false, nil
+	}
+	if err != nil {
+		return EvidenceGatherer{}, false, fmt.Errorf("get gatherer of step %s: %w", step, err)
+	}
+	return gathererOf(stored), true, nil
+}
+
+// gathererOf returns the gatherer a stored row holds. Ended is zero while the gatherer runs.
+func gathererOf(stored sqlcgen.EvidenceGatherer) EvidenceGatherer {
+	gatherer := EvidenceGatherer{
+		Epic: stored.Epic, Seq: stored.Seq, Step: stored.Step, Started: time.Unix(stored.Started, 0),
+	}
+	if stored.Ended != 0 {
+		gatherer.Ended = time.Unix(stored.Ended, 0)
+	}
+	return gatherer
 }
