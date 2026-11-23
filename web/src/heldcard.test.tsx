@@ -8,7 +8,7 @@ import type { GaugeShare } from "./epicrow";
 import { Gauge, Icon } from "./glyphs";
 import type { HeldThing } from "./held";
 import { HeldCard, HeldSheet } from "./heldcard";
-import { installTestDom, removeTestDom } from "./testdom";
+import { assertNone, assertSame, installTestDom, removeTestDom } from "./testdom";
 import { styleDeclaration } from "./teststyle";
 
 // Each test renders HeldCard or HeldSheet on its own, into a container on a fresh DOM, and checks the DOM it draws. Colours
@@ -159,8 +159,8 @@ test("HeldLayout: the phone's sheet heads with its mark, kind and title, keeps i
     assert.equal(one(head, ".held-title").textContent, "Invented epic");
     const close = one(head, "button.held-close");
     assert.equal(close.getAttribute("aria-label"), "Close");
-    assert.equal(head.lastElementChild, close);
-    assert.equal(container.querySelector(".fold-back"), null);
+    assertSame(head.lastElementChild, close, "the X is the head's last part");
+    assertNone(container.querySelector(".fold-back"), "the sheet has no Fold back");
     close.click();
     assert.equal(closes, 1);
   }));
