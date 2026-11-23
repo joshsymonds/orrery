@@ -2,7 +2,6 @@ package store
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"time"
 
@@ -106,8 +105,25 @@ func (s *Store) EndSync(ctx context.Context, epic string, end SyncEnd, at time.T
 // RewakeSync stores, in one write, trigger as a pending trigger of epic at at and turn as a gap turn of epic, so that a
 // sync whose gap is live wakes the planner again. A trigger id already stored writes nothing. A gap with GapTurnBound
 // turns is an error wrapping ErrGapSpent, and writes nothing.
-func (s *Store) RewakeSync(_ context.Context, _ string, _ NodeTrigger, _ GapTurn, _ time.Time) error {
-	return errors.New("RewakeSync is not implemented")
+func (s *Store) RewakeSync(ctx context.Context, epic string, trigger NodeTrigger, turn GapTurn, at time.Time) error {
+	return s.write(ctx, func(queries *sqlcgen.Queries) error {
+		stored, err := queries.CountEpicTrigger(ctx, sqlcgen.CountEpicTriggerParams{Epic: epic, ID: trigger.ID})
+		if err != nil {
+			return fmt.Errorf("count trigger %s of epic %s: %w", trigger.ID, epic, err)
+		}
+		if stored > 0 {
+			return nil
+		}
+		if err = insertGapTurn(ctx, queries, epic, turn.Gap, turn.Turn, turn.Reason, at); err != nil {
+			return err
+		}
+		if err = queries.InsertEpicTrigger(ctx, sqlcgen.InsertEpicTriggerParams{
+			Epic: epic, ID: trigger.ID, Cause: trigger.Cause, State: triggerPending, Turn: 0, Created: at.Unix(),
+		}); err != nil {
+			return fmt.Errorf("insert trigger %s of epic %s: %w", trigger.ID, epic, err)
+		}
+		return nil
+	})
 }
 
 // settleSync moves the stored base of epic for a sync run that passed (moveSyncedBase) and adds end.Tell as a tell when
