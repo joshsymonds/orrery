@@ -20,6 +20,15 @@ type contractProposeArgs struct {
 	Design string `json:"design,omitempty" jsonschema:"the id of the design the contract joins, as design_create made it; empty joins no design, so the contract reads as a design of one"`
 }
 
+// contractDraftArgs is the arguments of contract_draft, described for its input schema as contractProposeArgs is. Path
+// names the contract file that holds the contract body and its decisions, read as contract_propose reads it.
+type contractDraftArgs struct {
+	ID     string `json:"id"               jsonschema:"the id the draft takes, the id the contract takes when it is proposed"`
+	Path   string `json:"path"             jsonschema:"the contract file: one JSON object holding the contract in protobuf JSON field names, plus an optional decisions array of decisions in protobuf JSON field names"`
+	Words  string `json:"words"            jsonschema:"the words the writer gives with the draft"`
+	Design string `json:"design,omitempty" jsonschema:"the id of the design the draft joins, as design_create made it; empty joins no design"`
+}
+
 // contractReviseArgs is the arguments of contract_revise, described for its input schema as contractProposeArgs is.
 type contractReviseArgs struct {
 	ID    string `json:"id"    jsonschema:"the id of the stored contract to revise"`
@@ -59,6 +68,10 @@ func contractTools(contracts enginev1connect.ContractsClient) ([]Tool, error) {
 	if err != nil {
 		return nil, err
 	}
+	draft, err := argumentSchema[contractDraftArgs](nil)
+	if err != nil {
+		return nil, err
+	}
 	revise, err := argumentSchema[contractReviseArgs](nil)
 	if err != nil {
 		return nil, err
@@ -92,6 +105,16 @@ func contractTools(contracts enginev1connect.ContractsClient) ([]Tool, error) {
 				"versions and states. A file that does not read is refused, naming the path.",
 			InputSchema: propose,
 			Handler:     contractProposeHandler(contracts),
+		},
+		{
+			Name: "contract_draft",
+			Description: "Draft a contract before it is proposed: store the contract in the file at path as a draft " +
+				"under id, with the words and the file's decisions, in the design named by design when it is given. " +
+				"The file has the shape contract_propose reads. A draft has no versions and is not a contract until " +
+				"contract_propose proposes it under the same id. Returns the stored draft. A file that does not read " +
+				"is refused, naming the path.",
+			InputSchema: draft,
+			Handler:     contractDraftHandler(contracts),
 		},
 		{
 			Name: "contract_revise",
@@ -176,6 +199,26 @@ func contractProposeHandler(contracts enginev1connect.ContractsClient) ToolHandl
 			return toolFailure(err), nil
 		}
 		return protoResult(proposed.Msg)
+	}
+}
+
+func contractDraftHandler(contracts enginev1connect.ContractsClient) ToolHandler {
+	return func(ctx context.Context, call Call) (ToolResult, error) {
+		var args contractDraftArgs
+		if err := decodeArguments(call.Arguments, &args); err != nil {
+			return ToolResult{}, err
+		}
+		contract, decisions, err := readContractFile(args.Path)
+		if err != nil {
+			return toolFailure(err), nil
+		}
+		drafted, err := contracts.DraftContract(ctx, connect.NewRequest(&v1.DraftContractRequest{
+			Id: args.ID, Contract: contract, Decisions: decisions, Words: args.Words, Design: args.Design,
+		}))
+		if err != nil {
+			return toolFailure(err), nil
+		}
+		return protoResult(drafted.Msg)
 	}
 }
 

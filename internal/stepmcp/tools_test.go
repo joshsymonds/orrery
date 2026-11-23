@@ -367,6 +367,7 @@ func TestToolsListNamesEveryStepEpicEvidenceAndContractTool(t *testing.T) {
 	}
 	want := []string{
 		"contract_accept",
+		"contract_draft",
 		"contract_get",
 		"contract_list",
 		"contract_propose",
