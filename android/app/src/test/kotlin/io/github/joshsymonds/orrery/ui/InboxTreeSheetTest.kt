@@ -114,7 +114,6 @@ class InboxTreeSheetTest {
         live = true,
         runningSteps = emptyList(),
         endedSteps = 0,
-        problem = "",
         archived = archived,
     )
 

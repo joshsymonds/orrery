@@ -13,25 +13,20 @@ import org.junit.Test
 class EpicStatusTest {
     @Test
     fun outcomeIsTheStateAsWrittenAheadOfEveryOtherState() {
-        val d = detail(epic = epic(outcome = "released", live = true, waiting = true), paused = true, parked = "budget")
+        val d = detail(epic = epic(outcome = "released", live = true), paused = true, parked = "budget")
         assertEquals("released", epicStateOf(d))
     }
 
     @Test
-    fun pausedIsAheadOfParkedWaitingAndLive() {
-        val d = detail(epic = epic(live = true, waiting = true), paused = true, parked = "budget")
+    fun pausedIsAheadOfParkedAndLive() {
+        val d = detail(epic = epic(live = true), paused = true, parked = "budget")
         assertEquals("paused", epicStateOf(d))
     }
 
     @Test
-    fun parkedIsAheadOfWaitingAndLive() {
-        val d = detail(epic = epic(live = true, waiting = true), parked = "budget")
+    fun parkedIsAheadOfLive() {
+        val d = detail(epic = epic(live = true), parked = "budget")
         assertEquals("parked", epicStateOf(d))
-    }
-
-    @Test
-    fun waitingIsAheadOfLive() {
-        assertEquals("waiting", epicStateOf(detail(epic = epic(live = true, waiting = true))))
     }
 
     @Test
@@ -172,17 +167,15 @@ class EpicStatusTest {
         assertEquals("t-b held", blockerOf(d)?.text)
     }
 
-    private fun epic(outcome: String = "", live: Boolean = false, waiting: Boolean = false) = EpicRow(
+    private fun epic(outcome: String = "", live: Boolean = false) = EpicRow(
         id = "repo-a/alpha",
         repository = "repo-a",
         slug = "alpha",
         outcome = outcome,
         changed = 0L,
         live = live,
-        waiting = waiting,
         runningSteps = emptyList(),
         endedSteps = 0,
-        problem = "",
     )
 
     private fun step(

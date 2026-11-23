@@ -24,7 +24,6 @@ class EpicLineTest {
         live = live,
         runningSteps = emptyList(),
         endedSteps = 0,
-        problem = "",
         phaseAt = phaseAt,
     )
 

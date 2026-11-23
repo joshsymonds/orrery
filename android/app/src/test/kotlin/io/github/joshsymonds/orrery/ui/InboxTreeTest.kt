@@ -86,7 +86,6 @@ class InboxTreeTest {
         live = live,
         runningSteps = emptyList(),
         endedSteps = 0,
-        problem = "",
         archived = archived,
         steering = steering,
         path = path,

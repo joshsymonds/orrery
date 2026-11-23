@@ -56,7 +56,6 @@ class AskAnswerEpicTest {
         live = true,
         runningSteps = emptyList(),
         endedSteps = 0,
-        problem = "",
         path = "/home/user/example-repo",
     )
 

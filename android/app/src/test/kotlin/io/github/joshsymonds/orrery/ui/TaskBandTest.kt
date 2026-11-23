@@ -176,8 +176,6 @@ class TaskBandTest {
             live = true,
             runningSteps = emptyList(),
             endedSteps = 0,
-            problem = "",
-            source = "orreryd",
         ),
         tasks = emptyList(),
         steps = emptyList(),

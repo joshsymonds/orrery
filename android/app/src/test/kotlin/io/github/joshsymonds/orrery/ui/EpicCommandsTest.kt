@@ -55,8 +55,8 @@ class EpicCommandsTest {
     }
 
     /**
-     * An epic the record keeps, steered by [steering]: no conversation can take it, so the foot reads nothing and its
-     * More holds only the commands it is given.
+     * An ended epic steered by [steering]: no conversation can take it, so the foot reads nothing and its More holds
+     * only the commands it is given.
      */
     private fun detail(steering: String): EpicDetail = EpicDetail(
         epic = EpicRow(
@@ -65,11 +65,9 @@ class EpicCommandsTest {
             slug = SLUG,
             outcome = "",
             changed = 0L,
-            live = true,
+            live = false,
             runningSteps = emptyList(),
             endedSteps = 0,
-            problem = "",
-            source = "record",
             steering = steering,
         ),
         tasks = emptyList(),

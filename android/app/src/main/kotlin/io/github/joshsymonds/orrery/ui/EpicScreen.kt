@@ -74,10 +74,9 @@ private const val TAG = "EpicScreen"
 class EpicOpening(val section: String)
 
 /**
- * One epic as the record draws it: one scrolling list whose sections are drawn only when the epic reaches them. A
- * problem is one red line at the top. The summary carries the contract and steered doors; the track, Now (its sentence,
- * what asks, and its running steps), what just happened, the tasks (chart then table), the requirements, the review, the
- * release and the report follow. The
+ * One epic as the record draws it: one scrolling list whose sections are drawn only when the epic reaches them. The
+ * summary carries the contract and steered doors; the track, Now (its sentence, what asks, and its running steps), what
+ * just happened, the tasks (chart then table), the requirements, the review, the release and the report follow. The
  * title shows the state and the blocker pills, with no commands. A command is in the foot's More sheet, and Stop asks
  * first; the sheet also steers a live orreryd epic from another conversation, and the foot is the ended bar while its
  * steering has ended. A command that did not land shows one line under the title until a command lands. [onTalk] is
@@ -314,29 +313,25 @@ private fun noticeOf(verb: String, answer: String, call: () -> StepCallResult): 
 }
 
 // controlsOf is which commands an epic allows, by the rule web/src/status.ts shares between its page and its card: nothing
-// once the epic is not live; an orreryd epic pauses while it is not paused in a pausable phase, resumes whenever it is
-// paused, and stops in a track phase; a record epic pauses, resumes and stops only while it has no outcome. An owner's
-// park offers no pause, since nothing runs until the owner answers; the park's Stop stays.
+// once the epic is not live; an epic pauses while it is not paused in a pausable phase, resumes whenever it is paused,
+// and stops in a track phase. An owner's park offers no pause, since nothing runs until the owner answers; the park's
+// Stop stays.
 private data class Controls(val pause: Boolean, val resume: Boolean, val stop: Boolean)
 
 private fun controlsOf(detail: EpicDetail): Controls {
     val epic = detail.epic
     if (!epic.live) return Controls(pause = false, resume = false, stop = false)
     val pausable = !ownerParked(detail)
-    if (epic.source == "orreryd") {
-        return Controls(
-            pause = pausable && !detail.paused && epic.outcome in PAUSABLE_PHASES,
-            resume = detail.paused,
-            stop = epic.outcome in TRACK_PHASES,
-        )
-    }
-    val open = epic.outcome.isEmpty()
-    return Controls(pause = pausable && open && !detail.paused, resume = open && detail.paused, stop = open)
+    return Controls(
+        pause = pausable && !detail.paused && epic.outcome in PAUSABLE_PHASES,
+        resume = detail.paused,
+        stop = epic.outcome in TRACK_PHASES,
+    )
 }
 
-// unseenEndingAt is the phase an orreryd epic ended at, when the owner has not seen it since: the ending the dwell marks.
-// 0 for a live epic, a record epic, or one seen since it ended.
-private fun EpicRow.unseenEndingAt(): Long = if (source == "orreryd" && !live && seen < phaseAt) phaseAt else 0L
+// unseenEndingAt is the phase an epic ended at, when the owner has not seen it since: the ending the dwell marks. 0 for
+// a live epic, or one seen since it ended.
+private fun EpicRow.unseenEndingAt(): Long = if (!live && seen < phaseAt) phaseAt else 0L
 
 // markSeen tells orreryd the owner saw the epic. A mark that does not land is logged: no control on the screen asked for
 // it, so nothing shows it.
@@ -398,7 +393,6 @@ private fun EpicBody(
     val release = remember(detail) { releaseOf(detail) }
     val report = remember(detail) { reportOf(detail) }
     val drawn = listOfNotNull(
-        "problem".takeIf { detail.epic.problem.isNotEmpty() },
         "summary".takeIf { reached.summary },
         "track".takeIf { reached.track },
         "now",
@@ -419,17 +413,6 @@ private fun EpicBody(
         }
     }
     LazyColumn(modifier = modifier.fillMaxWidth(), state = listState) {
-        if (detail.epic.problem.isNotEmpty()) {
-            section("problem") {
-                Text(
-                    detail.epic.problem,
-                    color = OrreryTokens.Role.bad,
-                    modifier = Modifier
-                        .testTag("epic-problem")
-                        .padding(horizontal = OrreryTokens.Space.sixteen, vertical = OrreryTokens.Space.four),
-                )
-            }
-        }
         if (reached.summary) {
             section("summary") {
                 Summary(detail, onOpenContract = onOpenContract, onTalk = onTalk, listedSteerer = listedSteerer)

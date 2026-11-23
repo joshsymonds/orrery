@@ -16,6 +16,7 @@ import androidx.compose.ui.test.performTextReplacement
 import io.github.joshsymonds.orrery.api.EpicDetail
 import io.github.joshsymonds.orrery.api.EpicQuestionRow
 import io.github.joshsymonds.orrery.api.EpicRow
+import io.github.joshsymonds.orrery.api.EpicTaskRow
 import io.github.joshsymonds.orrery.api.FakeOrreryServer
 import io.github.joshsymonds.orrery.api.OrreryClient
 import io.github.joshsymonds.orrery.api.StepRow
@@ -57,6 +58,7 @@ private fun step(
 
 private fun detail(
     steps: List<StepRow> = emptyList(),
+    tasks: List<EpicTaskRow> = emptyList(),
     questions: List<EpicQuestionRow> = emptyList(),
     parked: String = "",
     plannerParked: Boolean = false,
@@ -71,9 +73,8 @@ private fun detail(
         live = true,
         runningSteps = emptyList(),
         endedSteps = 0,
-        problem = "",
     ),
-    tasks = emptyList(),
+    tasks = tasks,
     steps = steps,
     questions = questions,
     parked = parked,
@@ -349,7 +350,10 @@ class EpicAskTest {
         composeRule.setContent {
             MaterialTheme {
                 NowAsk(
-                    detail = detail(steps = listOf(step())),
+                    detail = detail(
+                        steps = listOf(step()),
+                        tasks = listOf(EpicTaskRow(effort = 1, slug = "T1", subject = "Example task", status = "open")),
+                    ),
                     now = BASE,
                     onAnswer = { _, _, _ -> },
                     onRetry = {},

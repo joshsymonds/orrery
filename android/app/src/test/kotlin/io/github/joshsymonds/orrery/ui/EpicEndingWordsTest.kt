@@ -58,11 +58,6 @@ class EpicEndingWordsTest {
     }
 
     @Test
-    fun aRecordEpicHasNoReview() {
-        assertNull(reviewOf(detail(source = "", outcome = "reviewing")))
-    }
-
-    @Test
     fun theReviewCountWordsPluralizeReviewersAndFindings() {
         val view = reviewOf(
             detail(
@@ -619,12 +614,6 @@ class EpicEndingWordsTest {
     }
 
     @Test
-    fun aRecordEpicHasNoReleaseAndNoReport() {
-        assertNull(releaseOf(detail(source = "record", outcome = "releasing", releaseProof = listOf(proof(1L, "running")))))
-        assertNull(reportOf(detail(source = "record", outcome = "released", report = report("released"))))
-    }
-
-    @Test
     fun aReportSetOnAnEpicThatIsNotClosedReachesTheReport() {
         assertEquals("Released.", reportOf(detail(outcome = "released", report = report("released")))?.sentence)
     }
@@ -638,8 +627,6 @@ class EpicEndingWordsTest {
         live = false,
         runningSteps = emptyList(),
         endedSteps = 0,
-        problem = "",
-        source = "orreryd",
         path = path,
     )
 
@@ -725,7 +712,6 @@ class EpicEndingWordsTest {
     ) = EpicReportRow(outcome = outcome, shipped = shipped, notShipped = notShipped, why = why)
 
     private fun detail(
-        source: String = "orreryd",
         outcome: String,
         path: String = "/example/repo",
         reviews: List<EpicReviewVerdictRow> = emptyList(),
@@ -745,8 +731,6 @@ class EpicEndingWordsTest {
             live = true,
             runningSteps = emptyList(),
             endedSteps = 0,
-            problem = "",
-            source = source,
             path = path,
         ),
         tasks = emptyList(),

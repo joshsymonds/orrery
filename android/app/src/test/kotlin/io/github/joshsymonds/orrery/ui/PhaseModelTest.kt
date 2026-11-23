@@ -72,7 +72,6 @@ class PhaseModelTest {
             live = true,
             runningSteps = emptyList(),
             endedSteps = 0,
-            problem = "",
         ),
         tasks = tasks,
         steps = steps,

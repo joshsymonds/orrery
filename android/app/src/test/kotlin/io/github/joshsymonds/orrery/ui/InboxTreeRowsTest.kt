@@ -81,7 +81,6 @@ class InboxTreeRowsTest {
         live = true,
         runningSteps = steps,
         endedSteps = 0,
-        problem = "",
         phaseAt = NOW - 49 * 60,
     )
 

@@ -359,7 +359,6 @@ class TaskBandRecordTest {
             live = true,
             runningSteps = emptyList(),
             endedSteps = 0,
-            problem = "",
         ),
         tasks = emptyList(),
         steps = steps,
