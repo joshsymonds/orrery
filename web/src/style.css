@@ -187,7 +187,7 @@ button.link.notices-more { justify-self: end; padding: 0 var(--o-space-12); colo
 .inbox-head .end { display: inline-flex; align-items: center; gap: var(--o-space-4); margin-left: auto; }
 .inbox-attn { display: flex; flex-wrap: wrap; gap: var(--o-space-8); flex: none; padding: 0 var(--o-space-12) var(--o-space-8) var(--o-space-16); }
 .inbox-search { flex: none; padding: 0 var(--o-space-12) var(--o-space-8); }
-.inbox-rows { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 0 var(--o-space-8) var(--o-space-16); }
+.inbox-rows { flex: 1 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden; padding: 0 var(--o-space-8) var(--o-space-16); }
 .inbox-foot { display: flex; align-items: center; gap: var(--o-space-4); flex: none; padding: var(--o-space-4) var(--o-space-8); border-top: var(--o-size-hairline) solid var(--o-line-soft); }
 .inbox-foot > :first-child { margin-right: auto; }
 .inbox .inote { padding: var(--o-space-4) var(--o-space-16); }
@@ -377,6 +377,22 @@ button.link.notices-more { justify-self: end; padding: 0 var(--o-space-12); colo
 .inbox .row.step.held .doing { color: var(--o-role-attention); }
 .inbox .dir-kids .steers .row.step { grid-template-columns: var(--o-size-glyph) minmax(0, max-content) auto minmax(0, 1fr); margin-left: var(--o-space-16); }
 .inbox .steers .row.step .label { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+
+/* The held layout (round 8, D12 to D14). A conversation that holds what it opened is its block, the tab, on the bracket's
+   ground, running to the inbox's right edge past the list's padding. Two rows are necks: the conversation's row, on the
+   page's ground, and the open thing's row, in the open colour, each running right out of its row to the edge, which the
+   scrolling list clips. A neck takes its row's ground as --held-ground, and a small curve above and below it opens it into
+   the row. The open thing's row is the open colour, and its words are ink-1; under the pointer it is the hover colour. */
+.inbox .convo-block[data-held="tab"] { margin-right: calc(-1 * var(--o-space-8)); border-radius: var(--o-radius-3) 0 0 var(--o-radius-3); background: var(--o-surface-raised); }
+.inbox .row[data-held="convo"] { background: var(--o-surface-page); --held-ground: var(--o-surface-page); }
+.inbox .row[data-held="open"] { background: var(--o-ground-open); --held-ground: var(--o-ground-open); color: var(--o-ink-1); }
+.inbox .row[data-held="open"]:hover { background: var(--o-ground-open-hover); --held-ground: var(--o-ground-open-hover); }
+.inbox .row[data-held="open"] .l2, .inbox .row[data-held="open"] .age { color: var(--o-ink-1); }
+.inbox .row[data-held]::before { content: ""; position: absolute; top: calc(-1 * var(--o-space-8)); bottom: calc(-1 * var(--o-space-8)); left: 100%; width: 100vw; pointer-events: none; background: radial-gradient(circle at 100% 0, transparent var(--o-space-8), var(--held-ground) var(--o-space-8)) 0 0 / var(--o-space-8) var(--o-space-8) no-repeat, radial-gradient(circle at 100% 100%, transparent var(--o-space-8), var(--held-ground) var(--o-space-8)) 0 100% / var(--o-space-8) var(--o-space-8) no-repeat, var(--held-ground) 0 var(--o-space-8) / 100% calc(100% - 2 * var(--o-space-8)) no-repeat; }
+/* A design's tab is the open row when the design is held: its neck runs out of the tab the same way. */
+.inbox .design-tab[data-held="open"] { background: var(--o-ground-open); --held-ground: var(--o-ground-open); }
+.inbox .design-tab[data-held="open"]:hover { background: var(--o-ground-open-hover); --held-ground: var(--o-ground-open-hover); }
+.inbox .design-tab[data-held]::before { content: ""; position: absolute; top: calc(-1 * var(--o-space-8)); bottom: calc(-1 * var(--o-space-8)); left: 100%; width: 100vw; pointer-events: none; background: radial-gradient(circle at 100% 0, transparent var(--o-space-8), var(--held-ground) var(--o-space-8)) 0 0 / var(--o-space-8) var(--o-space-8) no-repeat, radial-gradient(circle at 100% 100%, transparent var(--o-space-8), var(--held-ground) var(--o-space-8)) 0 100% / var(--o-space-8) var(--o-space-8) no-repeat, var(--held-ground) 0 var(--o-space-8) / 100% calc(100% - 2 * var(--o-space-8)) no-repeat; }
 
 @media (min-width: 760px) {
   .inbox .row .row-menu .more { display: none; }

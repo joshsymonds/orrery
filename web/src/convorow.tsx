@@ -1,4 +1,4 @@
-import type { JSX, VNode } from "preact";
+import { type JSX, type VNode, cloneElement } from "preact";
 
 import { EpicRow } from "./epicrow";
 import { Icon } from "./glyphs";
@@ -29,12 +29,29 @@ export const designMark =
 
 // DesignBlock draws a design as a block of its own: its tab, which holds the mark and the bold name, then, directly under the
 // tab with no gap, the well, which is the design's page. The page's first line is the design's state, and then come the
-// things it owns, as the caller drew them. The count of its contracts is beside the tab, on the block's ground.
-function DesignBlock({ node, things }: { node: DesignNode; things: VNode[] }): JSX.Element {
+// things it owns, as the caller drew them. The count of its contracts is beside the tab, on the block's ground. A press on
+// the tab calls onSelect with the design's key. held is whether the design is the thing held open, which the tab marks.
+function DesignBlock({
+  node,
+  things,
+  held,
+  onSelect,
+}: {
+  node: DesignNode;
+  things: VNode[];
+  held: boolean;
+  onSelect: (key: string) => void;
+}): JSX.Element {
   const count = node.design.contracts.length;
   return (
     <div class="design-block">
-      <div class="design-tab" data-key={node.key}>
+      <div
+        class="design-tab"
+        role="link"
+        data-key={node.key}
+        data-held={held ? "open" : undefined}
+        onClick={() => onSelect(node.key)}
+      >
         <svg class="icon design-mark" viewBox="0 0 16 16" aria-hidden="true">
           <path d={designMark} />
         </svg>
@@ -55,8 +72,21 @@ function DesignBlock({ node, things }: { node: DesignNode; things: VNode[] }): J
 // is open, an EpicRow for each folded epic. A conversation with nothing of its own draws its row alone. A conversation with
 // no row is its one thing, drawn as that thing's EpicRow at the top level, and a design with no row is its DesignBlock at the
 // top level. The cursor's key marks its EpicRow current, and its step current when it is a step's key. A press on a thing
-// calls onSelect with its key.
-export function ConvoRow({ convo, now, cursorKey, endedOpen, onEnded, renderRow, onSelect }: ConvoRowProps): JSX.Element {
+// calls onSelect with its key. When held names this conversation, it holds the thing held open: the block is the tab, the
+// conversation's row is marked convo, and the open thing's row, or its design's tab, is marked open. A conversation with no
+// row holds its open thing with no tab.
+export function ConvoRow({
+  convo,
+  now,
+  cursorKey,
+  endedOpen,
+  onEnded,
+  renderRow,
+  onSelect,
+  held,
+}: ConvoRowProps): JSX.Element {
+  // open is the key of the thing this conversation holds open, or null when it holds none.
+  const open = held && held.convo === convo.key ? held.key : null;
   const thing = (hung: Hung): VNode => (
     <EpicRow
       key={hung.key}
@@ -64,13 +94,22 @@ export function ConvoRow({ convo, now, cursorKey, endedOpen, onEnded, renderRow,
       now={now}
       current={hung.key === cursorKey}
       currentStep={cursorKey}
+      held={hung.key === open}
       onSelect={onSelect}
     />
   );
   const designs = convo.designs ?? [];
   const designed = new Set(designs.flatMap((node) => node.hung.map((hung) => hung.key)));
   const own = convo.hung.filter((hung) => !designed.has(hung.key)).map(thing);
-  const blocks = designs.map((node) => <DesignBlock key={node.key} node={node} things={node.hung.map(thing)} />);
+  const blocks = designs.map((node) => (
+    <DesignBlock
+      key={node.key}
+      node={node}
+      things={node.hung.map(thing)}
+      held={node.key === open}
+      onSelect={onSelect}
+    />
+  ));
   if (convo.row === null) {
     return (
       <>
@@ -80,12 +119,13 @@ export function ConvoRow({ convo, now, cursorKey, endedOpen, onEnded, renderRow,
     );
   }
   const folded = convo.folded;
-  const row = renderRow(convo.row);
+  const drawn = renderRow(convo.row);
+  const row = open === null ? drawn : cloneElement(drawn, { "data-held": "convo" });
   if (own.length === 0 && folded.length === 0 && designs.length === 0) {
     return <>{row}</>;
   }
   return (
-    <div class="convo-block">
+    <div class="convo-block" data-held={open === null ? undefined : "tab"}>
       {row}
       <div class="steers" aria-label="what this conversation steers">
         {own}

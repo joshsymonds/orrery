@@ -66,4 +66,7 @@ export const unnamed: Readonly<Record<string, UnnamedEntry>> = {
   "title-row/with-commands": { replacement: "TitleRow", epic: "F3" },
   // StateGlyph draws broken, a ring cracked through, for a failed row and an unbound pane: round 6 draws no such state.
   "state-glyph/broken": { replacement: "StateGlyph", epic: "F2" },
+  // ConvoRow draws a conversation that holds what it opened, its block the tab and its row and the open row necks: round 6
+  // draws a conversation's row and what it steers, and no held thing.
+  "convo-row/held": { replacement: "ConvoRow", epic: "F4" },
 };

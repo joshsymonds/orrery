@@ -179,19 +179,19 @@ function stepState(step: StepItem): string {
 // contract hung there, with the contract's mark. Its gauge, name, count, words and blocker are epicRowWords'. An epic's
 // row draws each running step, then a line for the steps past the shown ones and the block's tail. A press on the row
 // calls onSelect with its key, and a press on a step with the step's key. currentStep is the key of the step the cursor
-// is on. The row draws no command.
+// is on. held is whether this row's thing is the one held open, which the row marks open. The row draws no command.
 export function EpicRow({
   hung,
   now,
   current,
   currentStep,
+  held = false,
   onSelect,
 }: {
   hung: Hung;
   now: number;
   current: boolean;
   currentStep?: string;
-  // held is whether this row's thing is the one held open.
   held?: boolean;
   onSelect: (key: string) => void;
 }): JSX.Element {
@@ -210,6 +210,7 @@ export function EpicRow({
         class={classes.join(" ")}
         role="link"
         data-key={hung.key}
+        data-held={held ? "open" : undefined}
         aria-current={current ? "true" : undefined}
         onClick={() => onSelect(hung.key)}
       >
