@@ -350,10 +350,38 @@ func (r *Runner) syncUnfinished(ctx context.Context, epic store.EpicRow, act Act
 		output = result.MergeLine() + "\n" + output
 	}
 	end := store.SyncEnd{Path: act.Path, Attempt: act.Run.Attempt, Outcome: outcomeSkipped, Output: output}
-	if err := r.store.EndSync(ctx, epic.ID, end, at); err != nil {
-		return errors.Join(cause, fmt.Errorf("end sync %s: %w", act.Path, err))
+	if err := r.endSync(ctx, epic, act.Run, end, at); err != nil {
+		return errors.Join(cause, err)
 	}
 	return nil
+}
+
+// endSync removes the integrator worktree of the sync run, when its result conflicts (removeSyncIntegrator), and then
+// writes end, in that order. A removal that fails leaves the run running, so the next pass decides its end again and
+// removes the worktree again.
+func (r *Runner) endSync(
+	ctx context.Context, epic store.EpicRow, run store.NodeRun, end store.SyncEnd, at time.Time,
+) error {
+	if err := r.removeSyncIntegrator(ctx, epic, run); err != nil {
+		return err
+	}
+	if err := r.store.EndSync(ctx, epic.ID, end, at); err != nil {
+		return fmt.Errorf("end sync %s: %w", end.Path, err)
+	}
+	return nil
+}
+
+// syncRunAt returns the sync run at path of epic at attempt, as the store holds it.
+func (r *Runner) syncRunAt(ctx context.Context, epic, path string, attempt int64) (store.NodeRun, error) {
+	runs, err := r.store.NodeRuns(ctx, epic)
+	if err != nil {
+		return store.NodeRun{}, fmt.Errorf("list node runs of epic %s: %w", epic, err)
+	}
+	i := slices.IndexFunc(runs, func(run store.NodeRun) bool { return run.Path == path && run.Attempt == attempt })
+	if i < 0 {
+		return store.NodeRun{}, fmt.Errorf("sync run %s of epic %s at attempt %d is not stored", path, epic, attempt)
+	}
+	return runs[i], nil
 }
 
 // advanceSync ends a sync run whose checks all passed at its merge (syncEnd), and writes the end. A passed end moves
@@ -365,10 +393,7 @@ func (r *Runner) advanceSync(ctx context.Context, epic store.EpicRow, act Action
 	if err != nil {
 		return r.syncUnfinished(ctx, epic, act, err, at)
 	}
-	if err = r.store.EndSync(ctx, epic.ID, end, at); err != nil {
-		return fmt.Errorf("end sync %s: %w", act.Path, err)
-	}
-	return nil
+	return r.endSync(ctx, epic, act.Run, end, at)
 }
 
 // syncEnd moves the epic's branch from the stored base to the merge of the sync run of act, with the same
@@ -389,6 +414,7 @@ func (r *Runner) syncEnd(ctx context.Context, epic store.EpicRow, act Action) (s
 	merge := act.Run.Revision
 	passed := store.SyncEnd{
 		Path: act.Path, Attempt: act.Run.Attempt, Outcome: outcomePassed, Output: act.Output, Synced: result.Origin,
+		Merge: merge,
 	}
 	tip, err := branchHead(ctx, epic)
 	if err != nil {

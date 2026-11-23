@@ -300,3 +300,27 @@ func (r *Runner) failSyncRound(
 	}
 	return nil
 }
+
+// removeSyncIntegrator removes the integrator worktree of the sync run, whose Result names the merge it finished, as
+// removeIntegrator removes a release's. A Result whose merge did not conflict ran no integrator, and a runner with no
+// state directory added no worktree, so neither has one to remove.
+func (r *Runner) removeSyncIntegrator(ctx context.Context, epic store.EpicRow, run store.NodeRun) error {
+	if !syncConflicted(run) || r.stateDir == "" {
+		return nil
+	}
+	dir, err := r.integratorDir(run)
+	if err != nil {
+		return err
+	}
+	if err = build.RemoveWorktrees(ctx, epic.Repository, dir); err != nil {
+		return fmt.Errorf("remove sync integrator worktree of epic %s: %w", epic.ID, err)
+	}
+	return nil
+}
+
+// syncConflicted reports whether run's Result records a merge of origin's commit that conflicts. A Result that does not
+// decode records none: the sync kind stops the run on it.
+func syncConflicted(run store.NodeRun) bool {
+	result, err := kinds.ParseSyncResult(run.Result)
+	return err == nil && len(result.Conflicts) > 0
+}
