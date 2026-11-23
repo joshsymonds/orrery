@@ -186,12 +186,18 @@ test("InboxTree: the Archived view holds Moon phase rounding, archived, in alman
   assert.deepEqual(convo.hung.map((thing) => thing.key), ["epic:almanac/moon-rounding"]);
 });
 
-test("InboxTree: the Archived view draws Tide table cache warm-up, which is not archived, with the archived tide-warmup epic under it", () => {
-  const convo = drawnConvo(archivedTree, `session:${warmupSession}`);
-  const project = archivedTree.find((candidate) => candidate.convos.includes(convo));
-  assert.equal(convo.row?.archived, false, "the conversation stays listed");
-  assert.equal(project?.dir, "/home/owner/code/tidepool", "the conversation sits in tidepool");
-  assert.deepEqual(convo.hung.map((thing) => thing.key), ["epic:tidepool/tide-warmup"]);
+test("InboxTree: the Archived view draws the archived tide-warmup epic as a row of its own, since Tide table cache warm-up stays listed", () => {
+  const own = archivedTree.flatMap((project) => project.convos).find((convo) => convo.key === "epic:tidepool/tide-warmup");
+  assert.ok(own !== undefined, "the Archived view draws the tide-warmup epic as a row of its own");
+  const project = archivedTree.find((candidate) => candidate.convos.includes(own));
+  assert.equal(own.row, null, "no conversation is drawn above it");
+  assert.equal(project?.dir, "/home/owner/code/tidepool", "the epic sits in tidepool");
+  assert.deepEqual(own.hung.map((thing) => thing.key), ["epic:tidepool/tide-warmup"]);
+  assert.equal(
+    archivedTree.some((candidate) => candidate.convos.some((convo) => convo.row?.key === `session:${warmupSession}`)),
+    false,
+    "the conversation is not drawn in the Archived view, since it is not archived",
+  );
 });
 
 test("InboxTree: the inbox draws neither archived epic under any conversation", () => {

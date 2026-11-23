@@ -1503,8 +1503,8 @@ export function App({
   });
 
   // openProjectItem is the press a project page's conversation or WorkCard makes. It opens what the tree opens for the
-  // item key, as openEpic does, and shuts the page. A key the tree draws no entry of, a stand-in's, opens nothing, as the
-  // tree's own press does. A contract's key opens the contract's panel, as the tree's press on its item does. A thing the
+  // item key, as openEpic does, and shuts the page. A key the tree draws no entry of opens nothing, as the tree's own press
+  // does. A contract's key opens the contract's panel, as the tree's press on its item does. A thing the
   // chip or the search keeps out of the list is let back in first, by clearing them, so the cursor rests on the thing
   // pressed and not on a neighbour.
   const openProjectItem = navigated((key: string) => {

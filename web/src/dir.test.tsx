@@ -22,7 +22,7 @@ if (first === undefined || second === undefined || third === undefined) {
 
 // convo is a conversation of row, drawn in a project; again marks a conversation drawn a second time behind the ended line.
 function convo(row: Row, again = false): Convo {
-  return { key: row.key, row, standIn: "", again, hung: [] };
+  return { key: row.key, row, again, hung: [] };
 }
 
 // makeProject is the lighthouse project with the conversations and ended conversations given.

@@ -98,7 +98,7 @@ test("InboxRail makes a tile quiet when nothing in its project waits on you and 
   assert.equal(tileOf(tiles, "|/srv/ended").quiet, false, "an unseen row behind the ended line is new");
 });
 
-test("InboxRail counts a project's waiting things as the tree does, including an epic under a stand-in", () => {
+test("InboxRail counts a project's waiting things as the tree does, including an epic with no listed conversation", () => {
   const rows = [
     makeRow({ key: "w", label: "w", archiveId: "sess-w", project: "/srv/app", state: "waiting" }),
     makeRow({ key: "q", label: "q", archiveId: "sess-q", project: "/srv/quiet", state: "done" }),

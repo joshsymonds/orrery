@@ -57,8 +57,8 @@ function project(hung: Hung[] = [], ended: Hung[] = []): Project {
     name: "orrery",
     path: "~/code/orrery",
     host: "",
-    convos: [{ key: "convo", row: null, standIn: "", again: false, hung }],
-    ended: [{ key: "ended", row: null, standIn: "", again: false, hung: ended }],
+    convos: [{ key: "convo", row: null, again: false, hung }],
+    ended: [{ key: "ended", row: null, again: false, hung: ended }],
   };
 }
 

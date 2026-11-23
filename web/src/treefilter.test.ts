@@ -140,7 +140,7 @@ test("InboxTree never counts an archived conversation or an archived epic as wai
   assert.equal(countsOf(projects).waiting, 0);
 });
 
-test("InboxTree counts a live epic and a proposed contract hung under an archived stand-in, each once, in countsOf and projectWaiting", () => {
+test("InboxTree counts a live epic and a proposed contract under an archived conversation, each once, as rows of their own, in countsOf and projectWaiting", () => {
   const rows = [
     makeRow({ key: "a", label: "a", archiveId: "sess-a", project: "/srv/app", archived: true }),
     makeRow({ key: "b", label: "b", archiveId: "sess-b", project: "/srv/app", state: "done" }),
@@ -154,7 +154,8 @@ test("InboxTree counts a live epic and a proposed contract hung under an archive
   );
   assert.deepEqual(layout(projectAt(projects, "|/srv/app").convos), {
     b: [],
-    "standin:archived:|/srv/app": ["epic:repo-a/alpha", "contract:repo-a/beta"],
+    "epic:repo-a/alpha": ["epic:repo-a/alpha"],
+    "contract:repo-a/beta": ["contract:repo-a/beta"],
   });
   assert.equal(countsOf(projects).waiting, 2);
   assert.equal(projectWaiting(projectAt(projects, "|/srv/app")), 2);

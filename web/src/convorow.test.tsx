@@ -7,7 +7,7 @@ import { ConvoRow } from "./convorow";
 import { liveEpoch } from "./fixtures/clock";
 import { shippedSlices } from "./fixtures/slices";
 import { rowsFrom, type Row } from "./rows";
-import { installTestDom, removeTestDom } from "./testdom";
+import { assertNone, installTestDom, removeTestDom } from "./testdom";
 import { buildTree, type Convo, type EpicNode, type Hung } from "./tree";
 
 // Each test's name carries the words InboxTree ConvoRow: the conversation's row with what it steers under it.
@@ -73,9 +73,20 @@ async function withConvo(
   }
 }
 
-// standInOf is a stand-in conversation holding the hung things, as the tree draws a thing with no listed conversation.
-function standInOf(standIn: "unlisted" | "archived", hung: Hung[]): Convo {
-  return { key: `standin:${standIn}:|/home/owner/code/tidepool`, row: null, standIn, again: false, hung };
+// ownOf is the conversation the tree draws for a thing with no drawn conversation, as its own row, which the fixtures must
+// hold under the thing's key.
+function ownOf(thingKey: string, drawn: readonly { convos: Convo[] }[] = tree): Convo {
+  const convo = drawn.flatMap((project) => project.convos).find((candidate) => candidate.key === thingKey);
+  if (convo === undefined) {
+    throw new Error(`the fixture tree draws no own row for ${thingKey}`);
+  }
+  return convo;
+}
+
+// ownConvoOf is a conversation with no row of its own holding the one thing, as the tree draws a thing with no drawn
+// conversation.
+function ownConvoOf(hung: Hung): Convo {
+  return { key: hung.key, row: null, again: false, hung: [hung] };
 }
 
 test("InboxTree ConvoRow draws the caller's row first, then each epic it steers in order inside .steers", () => {
@@ -107,18 +118,19 @@ test("InboxTree ConvoRow draws no .steers when nothing hangs under the conversat
   });
 });
 
-test("InboxTree ConvoRow draws an archived stand-in's words and no row of its own", () => {
-  const convo = standInOf("archived", convoOf("pane:halyard:%14").hung);
+test("InboxTree ConvoRow draws a conversation with no row of its own as its one EpicRow at the top level, with no stand-in line", () => {
+  const convo = ownConvoOf(convoOf("pane:halyard:%14").hung[0]);
   let rowsDrawn = 0;
   return withConvo(
     convo,
     (container) => {
-      const line = container.querySelector(".row.standin");
-      assert.equal(line?.textContent, "Its conversation is archived", "the stand-in says its conversation is archived");
-      assert.equal(line?.getAttribute("data-key"), convo.key, "the stand-in line carries its convo key");
-      assert.equal(rowsDrawn, 0, "the caller's row is not drawn for a stand-in");
-      assert.equal(container.querySelector("p.caller"), null, "no conversation row is drawn");
-      assert.equal(container.querySelectorAll(".steers > .row.epic").length, 1, "the epic it holds hangs under it");
+      const first = container.firstElementChild;
+      assert.equal(first?.getAttribute("data-key"), convo.key, "the thing's EpicRow is drawn first, at the top level");
+      assert.equal(first?.classList.contains("epic"), true, "the first row is an epic row");
+      assertNone(container.querySelector(".steers"), "no .steers wraps the thing");
+      assertNone(container.querySelector(".standin"), "no stand-in line is drawn");
+      assert.equal(container.textContent.includes("Its conversation"), false, "no stand-in words are drawn");
+      assert.equal(rowsDrawn, 0, "the caller's row is not drawn for a conversation with no row");
     },
     {
       renderRow: (row) => {
@@ -127,14 +139,6 @@ test("InboxTree ConvoRow draws an archived stand-in's words and no row of its ow
       },
     },
   );
-});
-
-test("InboxTree ConvoRow draws an unlisted stand-in's words and no row of its own", () => {
-  const convo = standInOf("unlisted", convoOf("pane:halyard:%14").hung);
-  return withConvo(convo, (container) => {
-    assert.equal(container.querySelector(".row.standin")?.textContent, "Its conversation is not listed");
-    assert.equal(container.querySelector("p.caller"), null, "no conversation row is drawn");
-  });
 });
 
 test("InboxTree ConvoRow marks the cursor's EpicRow current, and only that one", () => {
@@ -182,14 +186,13 @@ test("InboxTree ConvoRow presses call onSelect with the pressed epic's key, and 
   );
 });
 
-test("InboxTree ConvoRow draws the Archived view's tide warm-up, which is not archived, with its archived epic under .steers", () => {
-  const convo = convoOf("session:9b5e1a47-2c0d-4e8f-8a31-6d7c0f5b2e90", archivedTree);
-  assert.deepEqual(keysOf(convo.hung), ["epic:tidepool/tide-warmup"], "the archived epic hangs under the live conversation");
+test("InboxTree ConvoRow draws the Archived view's tide warm-up epic, whose conversation is not archived, as its own row at the top level", () => {
+  const convo = ownOf("epic:tidepool/tide-warmup", archivedTree);
+  assert.deepEqual(keysOf(convo.hung), ["epic:tidepool/tide-warmup"], "the archived epic is the only thing it holds");
+  assert.equal(convo.row, null, "no conversation is drawn above it, since its conversation is not archived");
   return withConvo(convo, (container) => {
-    assert.equal(container.firstElementChild?.getAttribute("data-key"), "session:9b5e1a47-2c0d-4e8f-8a31-6d7c0f5b2e90");
-    const steers = container.querySelector(".steers");
-    assert.ok(steers, "the archived epic hangs in .steers");
-    const drawn = [...steers.querySelectorAll(":scope > .row.epic")].map((row) => row.getAttribute("data-key"));
-    assert.deepEqual(drawn, ["epic:tidepool/tide-warmup"], "its EpicRow is drawn under the conversation");
+    assert.equal(container.firstElementChild?.getAttribute("data-key"), "epic:tidepool/tide-warmup", "its EpicRow is drawn first");
+    assertNone(container.querySelector(".steers"), "no .steers wraps it");
+    assertNone(container.querySelector('.row[data-key="session:9b5e1a47-2c0d-4e8f-8a31-6d7c0f5b2e90"]'), "its conversation is not drawn");
   });
 });
