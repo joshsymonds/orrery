@@ -54,23 +54,20 @@ func Listen(socketPath string) (net.Listener, error) {
 }
 
 // ServeConfig is what ServeWith serves. Each field but PaneSends and Accounts is one of the services Serve takes, and
-// the nil rules are Serve's. PaneSends and Accounts are served by ServeWith alone.
-
-
-// Options apply to each handler.
+// the nil rules are Serve's. PaneSends and Accounts are served by ServeWith alone. Options apply to each handler.
 type ServeConfig struct {
-	Commands     Commands
-	Steps        StepCommands
-	Epics        EpicCommands
-	Steering     SteeringSessions
-	Pools        PoolCommands
-	Evidence     EvidenceCommands
-	Notices      NoticeSource
-	Crons        CronCommands
-	Changes      *ChangeFeed
-	Contracts    *Contracts
-	PaneSends    PaneSendRecorder
-	Accounts     *Accounts
+	Commands  Commands
+	Steps     StepCommands
+	Epics     EpicCommands
+	Steering  SteeringSessions
+	Pools     PoolCommands
+	Evidence  EvidenceCommands
+	Notices   NoticeSource
+	Crons     CronCommands
+	Changes   *ChangeFeed
+	Contracts *Contracts
+	PaneSends PaneSendRecorder
+	Accounts  *Accounts
 	// Host is the name of the controller's host: each epic the Epics service creates is stamped with it, and its
 	// create checks run on the Host that Hosts resolves it to.
 	Host string
