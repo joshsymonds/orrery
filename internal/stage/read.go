@@ -2,6 +2,7 @@ package stage
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"connectrpc.com/connect"
@@ -81,5 +82,5 @@ func reportOf(kind, result string) string {
 
 // internalError returns err as the internal error a Stage RPC answers with when the store fails.
 func internalError(err error) error {
-	return connect.NewError(connect.CodeInternal, err)
+	return errors.Join(connect.NewError(connect.CodeInternal, err))
 }

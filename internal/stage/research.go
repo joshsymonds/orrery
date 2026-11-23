@@ -36,7 +36,7 @@ func (s *Service) Research(
 	}
 	start, err := ScoutStart(s.cfg.Getenv, repository, revision, question)
 	if err != nil {
-		return nil, connect.NewError(connect.CodeFailedPrecondition, err)
+		return nil, errors.Join(connect.NewError(connect.CodeFailedPrecondition, err))
 	}
 	start.Caller = callerOf(req.Header())
 	step, err := s.startStep(ctx, start, store.DesignStep{
@@ -73,7 +73,7 @@ func (s *Service) Reproduce(
 		s.cfg.Getenv, repository, "", testrunner.Request{Command: command, Revision: revision}, "", "",
 	)
 	if err != nil {
-		return nil, connect.NewError(connect.CodeFailedPrecondition, err)
+		return nil, errors.Join(connect.NewError(connect.CodeFailedPrecondition, err))
 	}
 	start.Caller = callerOf(req.Header())
 	step, err := s.startStep(ctx, start, store.DesignStep{
@@ -93,7 +93,7 @@ func (s *Service) startStep(
 ) (*v1.StageStep, error) {
 	id, err := s.cfg.Steps.Start(ctx, start)
 	if err != nil {
-		return nil, connect.NewError(connect.CodeFailedPrecondition, err)
+		return nil, errors.Join(connect.NewError(connect.CodeFailedPrecondition, err))
 	}
 	row.Step, row.Created = id, s.cfg.Now()
 	if err = s.cfg.Store.AddDesignStep(ctx, row); err != nil {
@@ -111,7 +111,7 @@ func (s *Service) startStep(
 func (s *Service) requireDesign(ctx context.Context, design string) error {
 	_, err := s.cfg.Store.Design(ctx, design)
 	if errors.Is(err, store.ErrNoDesign) {
-		return connect.NewError(connect.CodeNotFound, err)
+		return errors.Join(connect.NewError(connect.CodeNotFound, err))
 	}
 	if err != nil {
 		return internalError(err)
@@ -122,7 +122,7 @@ func (s *Service) requireDesign(ctx context.Context, design string) error {
 // requireField returns an error that the Stage RPC answers as an invalid argument when value is blank, naming field.
 func requireField(field, value string) error {
 	if strings.TrimSpace(value) == "" {
-		return connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("%s is required", field))
+		return errors.Join(connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("%s is required", field)))
 	}
 	return nil
 }
