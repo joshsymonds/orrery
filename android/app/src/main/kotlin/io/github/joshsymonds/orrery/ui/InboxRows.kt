@@ -48,6 +48,7 @@ private const val GAUGE_INNER_STROKE = 1.5f
 private const val GAUGE_RADIUS = 9f
 
 private const val STATE_WAITING = "waiting"
+private const val STATE_BROKEN = "broken"
 private const val UNSEEN_WORDS = "new since you looked"
 private const val CONTRACT_WORDS = "contract"
 private const val QUESTION_LEAD = "? "
@@ -100,7 +101,7 @@ private fun ConvoLine(convo: Convo, pane: Pane, now: Long, onOpen: (String) -> U
         verticalAlignment = Alignment.Top,
     ) {
         NewDot(unseen)
-        StateGlyph(pane.state, Modifier.padding(top = OrreryTokens.Space.four))
+        StateGlyph(glyphOfRow(pane), Modifier.padding(top = OrreryTokens.Space.four))
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 pane.label,
@@ -128,6 +129,9 @@ private fun ConvoLine(convo: Convo, pane: Pane, now: Long, onOpen: (String) -> U
         }
     }
 }
+
+// A conversation's glyph: broken for a session that failed or a pane with no Claude session bound to it, else its state's.
+private fun glyphOfRow(pane: Pane): String = if (pane.state == "failed" || pane.unbound) STATE_BROKEN else pane.state
 
 // The new dot: drawn only for a row unseen since its owner last looked, else a gap of the same width.
 @Composable
@@ -269,7 +273,7 @@ private fun glyphColorOf(state: String): Color = when (state) {
     "done" -> OrreryTokens.State.done
     "interrupted" -> OrreryTokens.State.interrupted
     "interrupting" -> OrreryTokens.State.interrupting
-    "failed" -> OrreryTokens.State.failed
+    "failed", STATE_BROKEN -> OrreryTokens.State.failed
     "stopped" -> OrreryTokens.State.stopped
     else -> OrreryTokens.State.idle
 }
@@ -283,6 +287,7 @@ internal fun glyphWordOf(state: String): String = when (state) {
     "interrupted" -> "cut off"
     "interrupting" -> "interrupting"
     "failed" -> "failed"
+    STATE_BROKEN -> STATE_BROKEN
     "stopped" -> "stopped"
     else -> "idle"
 }
@@ -343,6 +348,29 @@ private fun DrawScope.drawGlyph(state: String, color: Color) {
             ring(color)
             glyphLine(color, 5.8f, 5.8f, 10.2f, 10.2f, stroke.width)
             glyphLine(color, 10.2f, 5.8f, 5.8f, 10.2f, stroke.width)
+        }
+        STATE_BROKEN -> {
+            // The ring is open at its top, and a jagged line runs across the inside where a crack would.
+            drawArc(
+                color = color,
+                startAngle = -80f,
+                sweepAngle = 320f,
+                useCenter = false,
+                topLeft = Offset(centre.x - radius, centre.y - radius),
+                size = Size(radius * 2, radius * 2),
+                style = stroke,
+            )
+            drawPath(
+                Path().apply {
+                    moveTo(glyphPx(5f), glyphPx(8f))
+                    lineTo(glyphPx(6.5f), glyphPx(6.2f))
+                    lineTo(glyphPx(7.9f), glyphPx(9.8f))
+                    lineTo(glyphPx(9.4f), glyphPx(6.2f))
+                    lineTo(glyphPx(11f), glyphPx(8f))
+                },
+                color,
+                style = stroke,
+            )
         }
         "stopped" -> {
             ring(color)
