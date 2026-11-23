@@ -180,9 +180,6 @@ func TestEpicGetShowsReleaseRunsAndSlotHolder(t *testing.T) {
 			Reason: "publish rejected", At: turnFreed,
 		},
 	})
-	if slot := stopped.GetReleaseSlot(); slot != epicServiceID {
-		t.Fatalf("release_slot = %q in GetEpic, want the holder %s", slot, epicServiceID)
-	}
 	wantProtos(t, "GetEpic release proof", stopped.GetReleaseProof(), []*v1.EpicReleaseProof{
 		{
 			Position: 1, Step: "push tag", Target: "origin", Undo: "delete tag", State: store.ReleasePassed,
@@ -202,9 +199,6 @@ func TestEpicGetShowsReleaseRunsAndSlotHolder(t *testing.T) {
 	waiting, err := client.GetEpic(ctx, connect.NewRequest(&v1.GetEpicRequest{Id: waitingID}))
 	if err != nil {
 		t.Fatalf("GetEpic %s: %v", waitingID, err)
-	}
-	if slot := waiting.Msg.GetEpic().GetReleaseSlot(); slot != epicServiceID {
-		t.Fatalf("release_slot of waiting %s = %q, want the holder %s", waitingID, slot, epicServiceID)
 	}
 	if runs := waiting.Msg.GetEpic().GetReleases(); len(runs) != 0 {
 		t.Fatalf("releases of waiting %s = %d runs, want none", waitingID, len(runs))

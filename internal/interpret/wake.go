@@ -3,7 +3,6 @@ package interpret
 import (
 	"maps"
 	"slices"
-	"strings"
 	"time"
 
 	"github.com/joshsymonds/orrery/internal/store"
@@ -15,28 +14,6 @@ import (
 func (r *Runner) Wake(epics []string) {
 	r.mu.Lock()
 	r.wakeLocked(epics)
-	r.mu.Unlock()
-	select {
-	case r.signal <- struct{}{}:
-	default:
-	}
-}
-
-// WakeOutsideWaiters wakes the epics that waited on an outside hold of a release slot, which an outside releaser's hold
-// being given back or expiring calls. Each such holder is forgotten, and the epics waiting on it are woken, so a waiter
-// that still waits records itself again on its next pass. The holder names no epic, so it is not woken. Any goroutine
-// may call it, it never blocks, and it takes only the runner's own mutex.
-func (r *Runner) WakeOutsideWaiters() {
-	r.mu.Lock()
-	for holder, waiters := range r.waiters {
-		if !strings.HasPrefix(holder, store.ReleaseSlotOutsidePrefix) {
-			continue
-		}
-		for waiter := range waiters {
-			r.woken[waiter] = struct{}{}
-		}
-		delete(r.waiters, holder)
-	}
 	r.mu.Unlock()
 	select {
 	case r.signal <- struct{}{}:

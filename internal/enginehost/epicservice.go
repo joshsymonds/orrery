@@ -431,7 +431,6 @@ func (s *epicService) storedEpic(ctx context.Context, id string) (*v1.StoredEpic
 	message.Frozen = flow.Review.Frozen
 	message.Clean = flow.Review.Clean
 	message.Releases = epicMap(flow.Releases, releaseRunMessage)
-	message.ReleaseSlot = flow.Slot
 	message.ReleaseProof = epicMap(store.ReleaseProofs(flow), releaseProofMessage)
 	return message, nil
 }
