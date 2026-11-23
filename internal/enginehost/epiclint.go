@@ -27,7 +27,6 @@ const (
 
 // The reasons a release step warning gives after its field. The version reason takes the version the step names.
 const (
-	epicReasonReleaseMerge   = "says merge: a release step fast-forwards main to the release candidate; write fast-forward"
 	epicReasonReleaseVersion = "names the fixed version %s: a release step's tag is chosen when the step runs; " +
 		"name the next version above the newest tag instead"
 	epicReasonReleaseCI = `a release does not wait for CI; write "do not wait for CI"`
@@ -90,17 +89,16 @@ func contractLintWarnings(ctx context.Context, contract *v1.EpicContract) ([]str
 	return append(warnings, releaseStepWarnings(contract.GetReleaseSteps())...), nil
 }
 
-// The patterns of a release step's text. The merge and CI rules match whole words; the version rule matches a
-// lowercase v with three numbers, as the contract writes a version. The phrase is removed before the CI rule reads.
+// The patterns of a release step's text. The CI rule matches a whole word; the version rule matches a lowercase v with
+// three numbers, as the contract writes a version. The phrase is removed before the CI rule reads.
 var (
-	releaseMergePattern   = regexp.MustCompile(`(?i)\bmerge\b`)
 	releaseVersionPattern = regexp.MustCompile(`\bv[0-9]+\.[0-9]+\.[0-9]+`)
 	releaseWaitPattern    = regexp.MustCompile(`(?i)do not wait for CI`)
 	releaseCIPattern      = regexp.MustCompile(`\bCI\b`)
 )
 
-// releaseStepWarnings returns a warning for each release step whose text says merge, names a fixed version or waits on
-// CI, in the order of the steps.
+// releaseStepWarnings returns a warning for each release step whose text names a fixed version or waits on CI, in the
+// order of the steps.
 func releaseStepWarnings(steps []*v1.EpicReleaseStep) []string {
 	var warnings []string
 	for i, step := range steps {
@@ -114,9 +112,6 @@ func releaseStepWarnings(steps []*v1.EpicReleaseStep) []string {
 // releaseStepReason returns the reason a release step's text is warned, or "" when it passes. The rules run in order,
 // and the first one that matches gives the reason.
 func releaseStepReason(text string) string {
-	if releaseMergePattern.MatchString(text) {
-		return epicReasonReleaseMerge
-	}
 	if version := releaseVersionPattern.FindString(text); version != "" {
 		return fmt.Sprintf(epicReasonReleaseVersion, version)
 	}

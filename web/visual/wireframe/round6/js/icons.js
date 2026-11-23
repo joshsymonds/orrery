@@ -57,8 +57,9 @@
   };
   O.iconNames = Object.keys(PATHS);
 
-  // The ten states of a session or a step, one drawing each. Held and limited share a drawing and differ in colour:
-  // held waits on you, limited waits on a usage limit and asks nothing. The colour is the state's, set by the data-state rule.
+  // The eleven states of a session or a step, one drawing each. Held and limited share a drawing and differ in colour:
+  // held waits on you, limited waits on a usage limit and asks nothing. Unreachable is a dashed ring, not stopped's
+  // square: its host does not answer, so nothing was stopped. The colour is the state's, set by the data-state rule.
   const RING = '<circle cx="8" cy="8" r="6.25"/>';
   const GLYPHS = {
     working: '<circle class="track" cx="8" cy="8" r="6.25"/><path class="arc" d="M8 1.75a6.25 6.25 0 0 1 6.25 6.25"/>',
@@ -70,12 +71,13 @@
     interrupting: `${RING}<path d="M8 4.6v4.2M8 11.1v.3"/>`,
     failed: `${RING}<path d="M5.8 5.8l4.4 4.4M10.2 5.8l-4.4 4.4"/>`,
     stopped: `${RING}<rect class="solid" x="5.75" y="5.75" width="4.5" height="4.5" rx=".5"/>`,
+    unreachable: '<circle cx="8" cy="8" r="6.25" stroke-dasharray="2.45 2.45"/>',
     idle: RING,
   };
   O.STATES = Object.keys(GLYPHS);
   O.STATE_WORDS = {
     working: 'working', waiting: 'waiting on you', held: 'held', limited: 'waiting on a limit', done: 'done', interrupted: 'cut off',
-    interrupting: 'interrupting', failed: 'failed', stopped: 'stopped', idle: 'idle',
+    interrupting: 'interrupting', failed: 'failed', stopped: 'stopped', unreachable: 'unreachable', idle: 'idle',
   };
 
   // stateGlyph draws a state. Its word is its accessible name, so a glyph is never the only way to learn the state.
