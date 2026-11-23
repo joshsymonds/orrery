@@ -48,7 +48,11 @@ func TestProjectRunner_ParsesValidFile(t *testing.T) {
 	}
 	want := []ProjectRunner{
 		{Name: "box", Argv: []string{"scripts/gate-remote.sh"}, Note: "Use box for module-wide Go tests."},
-		{Name: "mirror_two", Argv: []string{"/opt/tools/run", "--mirror", "two"}, Note: "Use mirror_two for the second mirror."},
+		{
+			Name: "mirror_two",
+			Argv: []string{"/opt/tools/run", "--mirror", "two"},
+			Note: "Use mirror_two for the second mirror.",
+		},
 	}
 	if !slices.EqualFunc(runners, want, func(a, b ProjectRunner) bool {
 		return a.Name == b.Name && a.Note == b.Note && slices.Equal(a.Argv, b.Argv)

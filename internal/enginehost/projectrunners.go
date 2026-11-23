@@ -29,7 +29,9 @@ const localRunnerName = "local"
 var runnerNamePattern = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
 
 // runnerKeys lists the keys a runner table holds. Any other key is refused.
-var runnerKeys = []string{"name", "argv", "note"}
+func runnerKeys() []string {
+	return []string{"name", "argv", "note"}
+}
 
 // ParseProjectRunners returns the runners that a project's runners file in data names, in the order the file lists
 // them. A file with no release table, or a release table with no runners, names none. Each runner is a table under
@@ -105,7 +107,10 @@ func runnerTables(value any) ([]map[string]any, error) {
 	}
 	tables, isTables := value.([]map[string]any)
 	if !isTables {
-		return nil, &epicFieldError{field: projectReleaseKey + "." + projectRunnersKey, reason: "not an array of tables"}
+		return nil, &epicFieldError{
+			field:  projectReleaseKey + "." + projectRunnersKey,
+			reason: "not an array of tables",
+		}
 	}
 	return tables, nil
 }
@@ -115,8 +120,8 @@ func runnerTables(value any) ([]map[string]any, error) {
 func parseProjectRunner(i int, table map[string]any) (ProjectRunner, error) {
 	path := runnerPath(i)
 	for _, key := range slices.Sorted(maps.Keys(table)) {
-		if !slices.Contains(runnerKeys, key) {
-			return ProjectRunner{}, &epicFieldError{field: path + "." + key, reason: "unknown key"}
+		if !slices.Contains(runnerKeys(), key) {
+			return ProjectRunner{}, &epicFieldError{field: path + "." + key, reason: reasonUnknownKey}
 		}
 	}
 	name, err := runnerText(path, table, "name")
@@ -150,7 +155,7 @@ func runnerText(path string, table map[string]any, key string) (string, error) {
 	}
 	text, isString := raw.(string)
 	if !isString {
-		return "", &epicFieldError{field: field, reason: "not a string"}
+		return "", &epicFieldError{field: field, reason: reasonNotString}
 	}
 	if isBlank(text) {
 		return "", &epicFieldError{field: field, reason: epicReasonEmpty}
@@ -177,7 +182,7 @@ func runnerArgv(path string, table map[string]any) ([]string, error) {
 	for j, item := range list {
 		text, isString := item.(string)
 		if !isString {
-			return nil, &epicFieldError{field: fmt.Sprintf("%s[%d]", field, j), reason: "not a string"}
+			return nil, &epicFieldError{field: fmt.Sprintf("%s[%d]", field, j), reason: reasonNotString}
 		}
 		if isBlank(text) {
 			return nil, &epicFieldError{field: fmt.Sprintf("%s[%d]", field, j), reason: epicReasonEmpty}

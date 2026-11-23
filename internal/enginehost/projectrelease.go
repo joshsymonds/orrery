@@ -17,6 +17,13 @@ const projectReleaseKey = "release"
 // projectFileRel is the path of the project file in a repository, relative to its root.
 const projectFileRel = ".orrery/project.toml"
 
+// reasonNotString and reasonUnknownKey are the reasons a project file refuses a value of the wrong type, and a key the
+// format does not define.
+const (
+	reasonNotString  = "not a string"
+	reasonUnknownKey = "unknown key"
+)
+
 // parseProjectRelease reads the [release] table of a project file: an optional then, and the steps of the release in
 // file order. The other top-level keys belong to their own readers and are ignored, and so is the runners key under
 // release, which ParseProjectRunners reads. found reports whether the file has a release key; it is false, with a nil
@@ -49,11 +56,11 @@ func parseProjectRelease(data []byte) (steps []*v1.EpicReleaseStep, then string,
 		case "then":
 			text, isString := table[key].(string)
 			if !isString {
-				return nil, "", true, &epicFieldError{field: projectReleaseKey + ".then", reason: "not a string"}
+				return nil, "", true, &epicFieldError{field: projectReleaseKey + ".then", reason: reasonNotString}
 			}
 			then = text
 		default:
-			return nil, "", true, &epicFieldError{field: projectReleaseKey + "." + key, reason: "unknown key"}
+			return nil, "", true, &epicFieldError{field: projectReleaseKey + "." + key, reason: reasonUnknownKey}
 		}
 	}
 	if _, has := table["steps"]; !has {
@@ -93,11 +100,11 @@ func parseReleaseStep(i int, table map[string]any) (*v1.EpicReleaseStep, error) 
 		field := path + "." + key
 		dst, known := fields[key]
 		if !known {
-			return nil, &epicFieldError{field: field, reason: "unknown key"}
+			return nil, &epicFieldError{field: field, reason: reasonUnknownKey}
 		}
 		text, isString := table[key].(string)
 		if !isString {
-			return nil, &epicFieldError{field: field, reason: "not a string"}
+			return nil, &epicFieldError{field: field, reason: reasonNotString}
 		}
 		*dst = text
 	}
