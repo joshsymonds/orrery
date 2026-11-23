@@ -188,21 +188,46 @@ func TestDecideRunningSyncIsDecidedAndHoldsThePlan(t *testing.T) {
 	}
 }
 
+// TestDecideSyncConflictStartsRoundOne: a sync run whose prepare found a merge that conflicts, with no round of its
+// integrator recorded, starts round 1 as a work action of the sync kind. Round 1 has no output, since no round came
+// before it.
+func TestDecideSyncConflictStartsRoundOne(t *testing.T) {
+	t.Parallel()
+	run := syncRun(store.NodeRunning)
+	run.Result = `{"origin":"o1","base":"c1","conflicts":["a.go","b.go"]}`
+	rows := quietRows()
+	rows.Runs = append(rows.Runs, run)
+	want := []Action{{
+		Kind: ActWork, Work: kinds.ActIntegrator, Path: syncPathOne, NodeKind: kindSync,
+		Def: workflow.Node{ID: "sync", Kind: "sync"}, Run: run,
+		IDs:   []string{store.NodeWorkID(run.ID, run.Attempt, "integrator 1")},
+		Items: []string{kinds.SyncRoundStart, "1", ""},
+	}}
+	if got := Decide(syncFlow(), rows, syncKinds()); !reflect.DeepEqual(got, want) {
+		t.Errorf("Decide() = %+v, want %+v", got, want)
+	}
+}
+
 // TestDecideSyncEndTellsWhatTheKindTells: a sync run that ends failed ends with its output told, and one that ends
 // skipped with nothing to tell tells nothing. A run that ends failed also writes a trigger with its cause, which wakes
-// the planner; one that ends skipped writes none.
+// the planner; one that ends skipped writes none. A conflicting merge ends failed once its round 1 is recorded failed,
+// with the conflict line and the round's failure.
 func TestDecideSyncEndTellsWhatTheKindTells(t *testing.T) {
 	t.Parallel()
+	const (
+		line    = "merge of origin's commit o1 into the stored base c1 conflicts in a.go, b.go"
+		failure = line + ": neither XDG_CONFIG_HOME nor HOME is set"
+	)
 	cases := []struct {
-		name, result, outcome, output, tell, cause string
+		name, result, outcome, output, tell, cause, failure string
 	}{
 		{
 			name: "conflict", result: `{"origin":"o1","base":"c1","conflicts":["a.go","b.go"]}`, outcome: "failed",
-			output: "merge of origin's commit o1 into the stored base c1 conflicts in a.go, b.go",
-			tell: "workflow node plan/M1 failed: merge of origin's commit o1 into the stored base c1 conflicts in " +
-				"a.go, b.go",
+			output: line + "\n" + failure,
+			tell:   "workflow node plan/M1 failed: " + line + "\n" + failure,
 			cause: "sync sync:o1@c1: the sync of origin's commit o1 into the stored base c1 failed\n" +
-				"merge of origin's commit o1 into the stored base c1 conflicts in a.go, b.go",
+				line + "\n" + failure,
+			failure: failure,
 		},
 		{
 			name: "contained", result: `{"origin":"o1","base":"c1","contained":true}`, outcome: "skipped",
@@ -216,6 +241,11 @@ func TestDecideSyncEndTellsWhatTheKindTells(t *testing.T) {
 			run.Result = tc.result
 			rows := quietRows()
 			rows.Runs = append(rows.Runs, run)
+			if tc.failure != "" {
+				rows.Rounds = []store.IntegrateRound{{
+					Path: syncPathOne, Round: 1, Outcome: outcomeFailed, Failure: tc.failure,
+				}}
+			}
 			want := []Action{{
 				Kind: ActSync, Path: syncPathOne, Outcome: tc.outcome, Output: tc.output, Reason: tc.tell,
 			}}

@@ -23,7 +23,7 @@ const (
 // commit. When one fails, the next round starts with that failure, and a failure of the last round ends the sync
 // failed, told, with its last report.
 func syncIntegrator(run store.NodeRun, rows Rows, result SyncResult) Action {
-	line := conflictLine(result)
+	line := result.ConflictLine()
 	var head, previous string
 	var last store.IntegrateRound
 	for round := int64(1); round <= integratorRounds; round++ {
@@ -56,11 +56,11 @@ func syncIntegrator(run store.NodeRun, rows Rows, result SyncResult) Action {
 	return syncIntegratorFailed(result, []string{line, previous, "last report: " + last.Explanation})
 }
 
-// conflictLine returns the line that names the paths the merge of origin's commit into the stored base conflicts in.
-func conflictLine(result SyncResult) string {
+// ConflictLine is the line that names the paths the merge of origin's commit into the stored base conflicts in.
+func (r SyncResult) ConflictLine() string {
 	return fmt.Sprintf(
 		"merge of origin's commit %s into the stored base %s conflicts in %s",
-		result.Origin, result.Base, strings.Join(result.Conflicts, ", "),
+		r.Origin, r.Base, strings.Join(r.Conflicts, ", "),
 	)
 }
 

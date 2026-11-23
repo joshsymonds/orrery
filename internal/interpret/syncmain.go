@@ -302,9 +302,10 @@ func syncRef(epic store.EpicRow, name string) string {
 }
 
 // syncWork carries out one work action of a sync run: its prepare, the start of a Done gate's check, its captures, its
-// reproductions or its advance. A start, a capture or a reproduction that fails ends the run skipped with why
-// (syncUnfinished), which ends the hold the run puts on the plan, so the epic is not held by work that fails on every
-// pass. The prepare records its own failures as its result, and the advance ends the run itself (advanceSync).
+// reproductions, its advance or a step of its integrator's round. A start, a capture, a reproduction or a round that
+// fails ends the run skipped with why (syncUnfinished), which ends the hold the run puts on the plan, so the epic is
+// not held by work that fails on every pass. The prepare records its own failures as its result, and the advance ends
+// the run itself (advanceSync).
 func (r *Runner) syncWork(ctx context.Context, epic store.EpicRow, act Action, at time.Time) error {
 	var err error
 	switch act.Work {
@@ -318,6 +319,8 @@ func (r *Runner) syncWork(ctx context.Context, epic store.EpicRow, act Action, a
 		err = r.capture(ctx, epic, act)
 	case kinds.ActRepro:
 		err = r.repro(ctx, epic, act)
+	case kinds.ActIntegrator:
+		err = r.syncIntegrator(ctx, epic, act, at)
 	default:
 		return fmt.Errorf("work %s is not one the executor carries out for a sync", act.Work)
 	}
