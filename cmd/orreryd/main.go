@@ -340,17 +340,36 @@ func hostName(seam string) (string, error) {
 	return host, nil
 }
 
-// controllerName is the controller's orrery name: the top-level name of the hosts file that getenv locates, when the
-// file sets one, and host, the controller's host name, otherwise. A hosts file that does not load is an error.
-func controllerName(getenv func(string) string, host string) (string, error) {
+// controllerHost returns the controller's host name, which hostName gives, and its orrery name: the top-level name of the
+// hosts file that getenv locates when the file sets one, and the host name otherwise. A host name that is empty, or a
+// hosts file that does not load, is an error.
+func controllerHost(opts options, getenv func(string) string) (string, string, error) {
+	host, err := hostName(opts.host)
+	if err != nil {
+		return "", "", fmt.Errorf("host name: %w", err)
+	}
+	if host == "" {
+		return "", "", errors.New("host name is empty")
+	}
 	file, err := hosts.Load(getenv)
 	if err != nil {
-		return "", fmt.Errorf("load hosts: %w", err)
+		return "", "", fmt.Errorf("load hosts: %w", err)
 	}
 	if file.Name != "" {
-		return file.Name, nil
+		return host, file.Name, nil
 	}
-	return host, nil
+	return host, host, nil
+}
+
+// nameUnhosted names the rows of st that have no host as name, once the store is open. A nil st has no rows to name.
+func nameUnhosted(ctx context.Context, st *store.Store, name string) error {
+	if st == nil {
+		return nil
+	}
+	if _, err := st.NameUnhostedSessions(ctx, name); err != nil {
+		return fmt.Errorf("name the controller's rows: %w", err)
+	}
+	return nil
 }
 
 // checkClockSeams refuses a negative --due-at or --relay-at as a usage error.
@@ -557,18 +576,11 @@ func serveRelay(opts options, home string, logger *slog.Logger, mirror *daemon.M
 // as the controller's orrery name, before the sessions start; a naming or sessions start that fails stops serving and
 // returns its error.
 func serve(ctx context.Context, opts options, logger *slog.Logger, getenv func(string) string) error {
-	host, err := hostName(opts.host)
-	if err != nil {
-		return fmt.Errorf("host name: %w", err)
-	}
-	if host == "" {
-		return errors.New("host name is empty")
-	}
-	name, err := controllerName(getenv, host)
+	host, orrery, err := controllerHost(opts, getenv)
 	if err != nil {
 		return err
 	}
-	opts.orrery = name
+	opts.orrery = orrery
 	storePath, store, pushes, err := openPushes(opts, getenv)
 	if err != nil {
 		return err
@@ -643,10 +655,7 @@ func serve(ctx context.Context, opts options, logger *slog.Logger, getenv func(s
 	st := openStore(ctx, getenv, logger, opts.metrics, opts.storeBusy, opts.storeRetryAfter)
 	// A row from before the host column has no host until this names it, so every row reads the host it runs on
 	// before the manager reconciles it.
-	var startErr error
-	if st != nil {
-		_, startErr = st.NameUnhostedSessions(ctx, opts.orrery)
-	}
+	startErr := nameUnhosted(ctx, st, opts.orrery)
 	attachStore(ctx, st, mirror, notices, router)
 	hub.attachVerdicts(st)
 	var sessions *sessionHost
