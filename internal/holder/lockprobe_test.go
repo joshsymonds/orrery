@@ -27,8 +27,9 @@ func TestLockProbeLiveCreatesNoLock(t *testing.T) {
 	}
 }
 
-// TestLockProbeEndedTreatsRemovedLockAsGone checks that Ended, waiting on a held lock, returns ErrGone once the lock file
-// is removed and released, and that it leaves the removed lock file absent.
+// TestLockProbeEndedTreatsRemovedLockAsGone checks that Ended, already waiting on a held lock, returns ErrGone once the
+// lock file is removed and released, and that it leaves the removed lock file absent. The fake clock arms Ended's retry
+// timer only once Ended has opened the lock and found it held, so the removal lands inside the wait.
 func TestLockProbeEndedTreatsRemovedLockAsGone(t *testing.T) {
 	t.Parallel()
 
@@ -43,17 +44,30 @@ func TestLockProbeEndedTreatsRemovedLockAsGone(t *testing.T) {
 		found bool
 		err   error
 	}
+	clock := newFakeClock()
 	done := make(chan endedResult, 1)
 	go func() {
-		exit, found, endErr := Ended(t.Context(), dir)
+		exit, found, endErr := endedOn(t.Context(), dir, clock)
 		done <- endedResult{exit: exit, found: found, err: endErr}
 	}()
+	waiting := make(chan struct{})
+	go func() {
+		clock.waitArmed(t, 1)
+		close(waiting)
+	}()
+	select {
+	case got := <-done:
+		t.Fatalf("Ended returned before it waited on the held lock: exit %+v, found %v, err %v",
+			got.exit, got.found, got.err)
+	case <-waiting:
+	}
 	if err = os.Remove(path); err != nil {
 		t.Fatalf("remove lock %s: %v", path, err)
 	}
 	if err = lock.Close(); err != nil {
 		t.Fatalf("release lock %s: %v", path, err)
 	}
+	clock.Advance(clearLockRetry)
 	got := <-done
 	if !errors.Is(got.err, ErrGone) {
 		t.Fatalf("Ended of a removed lock = %v, want ErrGone", got.err)

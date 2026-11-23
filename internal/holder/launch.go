@@ -287,7 +287,13 @@ func Live(dir string) (bool, error) {
 // it wrote one. A dir with no session lock has no holder, so Ended returns ErrGone for it, and so does a lock file that is
 // removed while Ended waits. Ended never creates the lock file. It gives up when ctx ends first.
 func Ended(ctx context.Context, dir string) (Exit, bool, error) {
-	lock, err := awaitExistingLock(ctx, filepath.Join(dir, LockName))
+	return endedOn(ctx, dir, SystemClock{})
+}
+
+// endedOn is Ended, with the clock its retry wait is timed on. A test drives that wait through a fake clock, so it can
+// see Ended waiting on a held lock before it removes the lock file.
+func endedOn(ctx context.Context, dir string, clock Clock) (Exit, bool, error) {
+	lock, err := awaitExistingLock(ctx, filepath.Join(dir, LockName), clock)
 	if err != nil {
 		return Exit{}, false, fmt.Errorf("holder: wait for %s: %w", dir, err)
 	}

@@ -226,9 +226,9 @@ func awaitLock(ctx context.Context, path string) (*os.File, error) {
 
 // awaitExistingLock takes the session lock at path without creating its file, so a wait on a holder's end never
 // recreates a lock that is gone. A lock file that does not exist is ErrGone, and so is one removed while it waits.
-// While another holder still holds the lock, awaitExistingLock retries every clearLockRetry. When ctx ends first, it
-// returns the last ErrLocked error.
-func awaitExistingLock(ctx context.Context, path string) (*os.File, error) {
+// While another holder still holds the lock, awaitExistingLock retries every clearLockRetry on clock. When ctx ends
+// first, it returns the last ErrLocked error.
+func awaitExistingLock(ctx context.Context, path string, clock Clock) (*os.File, error) {
 	for {
 		file, err := openLock(path)
 		if errors.Is(err, fs.ErrNotExist) {
@@ -242,7 +242,7 @@ func awaitExistingLock(ctx context.Context, path string) (*os.File, error) {
 			select {
 			case <-ctx.Done():
 				return nil, err
-			case <-SystemClock{}.After(clearLockRetry):
+			case <-clock.After(clearLockRetry):
 			}
 			continue
 		}
