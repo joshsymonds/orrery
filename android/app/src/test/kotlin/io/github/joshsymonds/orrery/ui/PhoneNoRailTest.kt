@@ -1,5 +1,10 @@
 package io.github.joshsymonds.orrery.ui
 
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.width
+import androidx.compose.runtime.MutableState
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.test.SemanticsMatcher
@@ -8,6 +13,8 @@ import androidx.compose.ui.test.hasAnyAncestor
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
 import io.github.joshsymonds.orrery.api.FakeOrreryServer
 import io.github.joshsymonds.orrery.api.OrreryClient
 import io.github.joshsymonds.orrery.awaitUntil
@@ -30,7 +37,8 @@ import org.robolectric.annotation.Config
 
 // The phone's inbox draws every design in full at every width: each design's tab and well, and every kid row under the
 // well, with no collapsed rail or rail tab (round 8 draws the rail only on the web, and the phone is unchanged). Drawn from
-// invented rows at a fixed clock, and read through the semantics tree alone.
+// invented rows at a fixed clock, and read through the semantics tree alone. The one test steps the inbox through the
+// five widths (320, 411, 600, 891 and 1280 dp) on one server and one composition, and holds the same checks at each.
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35])
 class PhoneNoRailTest {
@@ -153,19 +161,21 @@ class PhoneNoRailTest {
         )
     }
 
-    /** The whole phone inbox, at the width the test's qualifiers set, at the fixed clock [NOW]. */
-    private fun setScreen(server: FakeOrreryServer) {
+    /** The whole phone inbox, laid out at the width [width] holds, at the fixed clock [NOW]. */
+    private fun setScreen(server: FakeOrreryServer, width: MutableState<Dp>) {
         // Made once, outside the composition, so a recomposition does not hand the screen a new client.
         val client = OrreryClient(server.baseUrl)
         composeRule.setContent {
-            PaneListScreen(
-                client = client,
-                onOpenPane = {},
-                onOpenPaneId = {},
-                onStartedSession = {},
-                onOpenSettings = {},
-                now = { NOW },
-            )
+            Box(modifier = Modifier.width(width.value)) {
+                PaneListScreen(
+                    client = client,
+                    onOpenPane = {},
+                    onOpenPaneId = {},
+                    onStartedSession = {},
+                    onOpenSettings = {},
+                    now = { NOW },
+                )
+            }
         }
     }
 
@@ -198,44 +208,41 @@ class PhoneNoRailTest {
             ("RailTab" in tag || "rail-tab" in tag || tag.startsWith("inbox-rail") || tag.startsWith("collapsed-rail"))
     }
 
-    /** Draws the two designs at the test's width, then holds each one in full and no rail anywhere in the tree. */
-    private fun assertInboxDrawnInFullWithNoRail(server: FakeOrreryServer) {
-        serveTwoDesigns(server)
-        setScreen(server)
-        awaitNode(hasTestTag("design-well:$DESIGN_B"))
-
+    /** Holds each design in full, and no rail anywhere in the tree, at the width the screen is laid out at. */
+    private fun assertInboxDrawnInFullWithNoRail() {
         assertDesignDrawnInFull(DESIGN_A, TITLE_A, listOf("contract:$CONTRACT_A"))
         assertDesignDrawnInFull(DESIGN_B, TITLE_B, listOf("contract:$CONTRACT_B", "epic:$EPIC_ID"))
         composeRule.onAllNodes(railTag(), useUnmergedTree = true).assertCountEquals(0)
     }
 
-    @Test
-    @Config(sdk = [35], qualifiers = "w320dp-h640dp")
-    fun phoneNoRailAtW320dpDrawsEveryDesignInFull() {
-        FakeOrreryServer().use { server -> assertInboxDrawnInFullWithNoRail(server) }
+    /** Runs [checks] at [width], and names that width in any assertion they fail. */
+    private fun atWidth(width: Dp, checks: () -> Unit) {
+        try {
+            checks()
+        } catch (failure: AssertionError) {
+            throw AssertionError("at ${width.value.toInt()}dp: ${failure.message}", failure)
+        }
     }
 
-    @Test
-    @Config(sdk = [35], qualifiers = "w411dp-h891dp")
-    fun phoneNoRailAtW411dpDrawsEveryDesignInFull() {
-        FakeOrreryServer().use { server -> assertInboxDrawnInFullWithNoRail(server) }
-    }
-
-    @Test
-    @Config(sdk = [35], qualifiers = "w600dp-h960dp")
-    fun phoneNoRailAtW600dpDrawsEveryDesignInFull() {
-        FakeOrreryServer().use { server -> assertInboxDrawnInFullWithNoRail(server) }
-    }
-
-    @Test
-    @Config(sdk = [35], qualifiers = "w891dp-h411dp-land")
-    fun phoneNoRailAtW891dpLandscapeDrawsEveryDesignInFull() {
-        FakeOrreryServer().use { server -> assertInboxDrawnInFullWithNoRail(server) }
-    }
-
+    /**
+     * Draws the two designs once, then steps the inbox through each width, waiting for the screen to settle at each one
+     * before holding it to the same checks: each design in full and no rail in the tree.
+     */
     @Test
     @Config(sdk = [35], qualifiers = "w1280dp-h800dp")
-    fun phoneNoRailAtW1280dpDrawsEveryDesignInFull() {
-        FakeOrreryServer().use { server -> assertInboxDrawnInFullWithNoRail(server) }
+    fun phoneNoRailDrawsEveryDesignInFullAtEveryWidth() {
+        val widths = listOf(320.dp, 411.dp, 600.dp, 891.dp, 1280.dp)
+        val width = mutableStateOf(widths.first())
+        FakeOrreryServer().use { server ->
+            serveTwoDesigns(server)
+            setScreen(server, width)
+            awaitNode(hasTestTag("design-well:$DESIGN_B"))
+
+            for (next in widths) {
+                composeRule.runOnIdle { width.value = next }
+                composeRule.waitForIdle()
+                atWidth(next) { assertInboxDrawnInFullWithNoRail() }
+            }
+        }
     }
 }
