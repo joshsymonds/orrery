@@ -1939,7 +1939,7 @@ UPDATE epic_tasks SET generation = generation + 1 WHERE epic = sqlc.arg(epic) AN
 SELECT CAST(COUNT(*) AS INTEGER) FROM contracts WHERE id = ?;
 
 -- name: InsertContract :exec
-INSERT INTO contracts (id, created) VALUES (?, ?);
+INSERT INTO contracts (id, created, staged) VALUES (?, ?, 1);
 
 -- name: InsertContractVersion :exec
 INSERT INTO contract_versions (contract, version, repository, title, care, body, decisions, open_decisions, words,
@@ -2235,3 +2235,66 @@ SELECT * FROM route_bindings ORDER BY context, scope, selector;
 
 -- name: ListRouteAccountTokens :many
 SELECT id, token FROM llm_accounts WHERE id IN (SELECT account FROM route_contexts WHERE account <> '') ORDER BY id;
+
+-- name: GetContractStaged :one
+SELECT staged FROM contracts WHERE id = ?;
+
+-- name: UpsertContractDraft :exec
+INSERT INTO contract_drafts (id, design, repository, title, body, decisions, words, writer, created, updated)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT (id) DO UPDATE SET design = excluded.design, repository = excluded.repository, title = excluded.title,
+    body = excluded.body, decisions = excluded.decisions, words = excluded.words, writer = excluded.writer,
+    updated = excluded.updated;
+
+-- name: GetContractDraft :one
+SELECT * FROM contract_drafts WHERE id = ?;
+
+-- name: ListDesignDrafts :many
+SELECT * FROM contract_drafts WHERE design = ? ORDER BY created, id;
+
+-- name: DeleteContractDraft :exec
+DELETE FROM contract_drafts WHERE id = ?;
+
+-- name: InsertDesignStep :exec
+INSERT INTO design_steps (step, design, kind, subject, repository, revision, delta, created)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?);
+
+-- name: ListDesignSteps :many
+SELECT * FROM design_steps WHERE design = ? ORDER BY created, step;
+
+-- name: InsertDesignQuestion :exec
+INSERT INTO design_questions (design, seq, contract, text, options, recommendation, asker, asked)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?);
+
+-- name: NextDesignQuestionSeq :one
+SELECT CAST(COALESCE(MAX(seq), 0) + 1 AS INTEGER) FROM design_questions WHERE design = ?;
+
+-- name: AnswerDesignQuestion :execrows
+UPDATE design_questions SET answer = sqlc.arg(answer), accepted = sqlc.arg(accepted), maker = sqlc.arg(maker),
+    quote = sqlc.arg(quote), maker_reason = sqlc.arg(maker_reason), delegation = sqlc.arg(delegation),
+    answerer = sqlc.arg(answerer), answered = sqlc.arg(answered)
+WHERE design = sqlc.arg(design) AND seq = sqlc.arg(seq) AND answered = 0;
+
+-- name: GetDesignQuestion :one
+SELECT * FROM design_questions WHERE design = ? AND seq = ?;
+
+-- name: ListDesignQuestions :many
+SELECT * FROM design_questions WHERE design = ? ORDER BY seq;
+
+-- name: InsertDesignDisposition :exec
+INSERT INTO design_dispositions (design, seq, item, disposition, reason, boundary, maker, quote, maker_reason,
+                                 delegation, session, at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+
+-- name: NextDesignDispositionSeq :one
+SELECT CAST(COALESCE(MAX(seq), 0) + 1 AS INTEGER) FROM design_dispositions WHERE design = ?;
+
+-- name: ListDesignDispositions :many
+SELECT * FROM design_dispositions WHERE design = ? ORDER BY seq;
+
+-- name: InsertDesignClosureSkip :exec
+INSERT INTO design_closure_skips (design, reason, maker, quote, maker_reason, delegation, session, at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?);
+
+-- name: GetDesignClosureSkip :one
+SELECT * FROM design_closure_skips WHERE design = ?;

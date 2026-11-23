@@ -29,6 +29,45 @@ func (q *Queries) AdoptStepHosts(ctx context.Context, host string) error {
 	return err
 }
 
+const answerDesignQuestion = `-- name: AnswerDesignQuestion :execrows
+UPDATE design_questions SET answer = ?1, accepted = ?2, maker = ?3,
+    quote = ?4, maker_reason = ?5, delegation = ?6,
+    answerer = ?7, answered = ?8
+WHERE design = ?9 AND seq = ?10 AND answered = 0
+`
+
+type AnswerDesignQuestionParams struct {
+	Answer      string
+	Accepted    int64
+	Maker       string
+	Quote       string
+	MakerReason string
+	Delegation  string
+	Answerer    string
+	Answered    int64
+	Design      string
+	Seq         int64
+}
+
+func (q *Queries) AnswerDesignQuestion(ctx context.Context, arg AnswerDesignQuestionParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, answerDesignQuestion,
+		arg.Answer,
+		arg.Accepted,
+		arg.Maker,
+		arg.Quote,
+		arg.MakerReason,
+		arg.Delegation,
+		arg.Answerer,
+		arg.Answered,
+		arg.Design,
+		arg.Seq,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const applyEpicAmendment = `-- name: ApplyEpicAmendment :execrows
 UPDATE epic_amendments SET state = 'applied', settled = CASE WHEN settled = 0 THEN ?1 ELSE settled END
 WHERE epic = ?2 AND seq = ?3 AND state IN ('checking', 'capturing')
@@ -694,6 +733,15 @@ func (q *Queries) CountWorkingEvidenceNodeRuns(ctx context.Context, epic string)
 	var count int64
 	err := row.Scan(&count)
 	return count, err
+}
+
+const deleteContractDraft = `-- name: DeleteContractDraft :exec
+DELETE FROM contract_drafts WHERE id = ?
+`
+
+func (q *Queries) DeleteContractDraft(ctx context.Context, id string) error {
+	_, err := q.db.ExecContext(ctx, deleteContractDraft, id)
+	return err
 }
 
 const deleteCronJob = `-- name: DeleteCronJob :execrows
@@ -1402,6 +1450,28 @@ func (q *Queries) GetContractDesign(ctx context.Context, contract string) (strin
 	return design, err
 }
 
+const getContractDraft = `-- name: GetContractDraft :one
+SELECT id, design, repository, title, body, decisions, words, writer, created, updated FROM contract_drafts WHERE id = ?
+`
+
+func (q *Queries) GetContractDraft(ctx context.Context, id string) (ContractDraft, error) {
+	row := q.db.QueryRowContext(ctx, getContractDraft, id)
+	var i ContractDraft
+	err := row.Scan(
+		&i.ID,
+		&i.Design,
+		&i.Repository,
+		&i.Title,
+		&i.Body,
+		&i.Decisions,
+		&i.Words,
+		&i.Writer,
+		&i.Created,
+		&i.Updated,
+	)
+	return i, err
+}
+
 const getContractListing = `-- name: GetContractListing :one
 SELECT contracts.id, contracts.created,
        newest.repository, newest.title, newest.care, newest.version, newest.open_decisions,
@@ -1453,6 +1523,17 @@ func (q *Queries) GetContractListing(ctx context.Context, id string) (GetContrac
 		&i.Changed,
 	)
 	return i, err
+}
+
+const getContractStaged = `-- name: GetContractStaged :one
+SELECT staged FROM contracts WHERE id = ?
+`
+
+func (q *Queries) GetContractStaged(ctx context.Context, id string) (int64, error) {
+	row := q.db.QueryRowContext(ctx, getContractStaged, id)
+	var staged int64
+	err := row.Scan(&staged)
+	return staged, err
 }
 
 const getContractVersion = `-- name: GetContractVersion :one
@@ -1522,6 +1603,59 @@ func (q *Queries) GetDesign(ctx context.Context, id string) (Design, error) {
 		&i.Title,
 		&i.Conversation,
 		&i.Created,
+	)
+	return i, err
+}
+
+const getDesignClosureSkip = `-- name: GetDesignClosureSkip :one
+SELECT design, reason, maker, quote, maker_reason, delegation, session, at FROM design_closure_skips WHERE design = ?
+`
+
+func (q *Queries) GetDesignClosureSkip(ctx context.Context, design string) (DesignClosureSkip, error) {
+	row := q.db.QueryRowContext(ctx, getDesignClosureSkip, design)
+	var i DesignClosureSkip
+	err := row.Scan(
+		&i.Design,
+		&i.Reason,
+		&i.Maker,
+		&i.Quote,
+		&i.MakerReason,
+		&i.Delegation,
+		&i.Session,
+		&i.At,
+	)
+	return i, err
+}
+
+const getDesignQuestion = `-- name: GetDesignQuestion :one
+SELECT design, seq, contract, text, options, recommendation, asker, asked, answer, accepted, maker, quote, maker_reason, delegation, answerer, answered FROM design_questions WHERE design = ? AND seq = ?
+`
+
+type GetDesignQuestionParams struct {
+	Design string
+	Seq    int64
+}
+
+func (q *Queries) GetDesignQuestion(ctx context.Context, arg GetDesignQuestionParams) (DesignQuestion, error) {
+	row := q.db.QueryRowContext(ctx, getDesignQuestion, arg.Design, arg.Seq)
+	var i DesignQuestion
+	err := row.Scan(
+		&i.Design,
+		&i.Seq,
+		&i.Contract,
+		&i.Text,
+		&i.Options,
+		&i.Recommendation,
+		&i.Asker,
+		&i.Asked,
+		&i.Answer,
+		&i.Accepted,
+		&i.Maker,
+		&i.Quote,
+		&i.MakerReason,
+		&i.Delegation,
+		&i.Answerer,
+		&i.Answered,
 	)
 	return i, err
 }
@@ -2651,7 +2785,7 @@ func (q *Queries) InsertCallerEvent(ctx context.Context, arg InsertCallerEventPa
 }
 
 const insertContract = `-- name: InsertContract :exec
-INSERT INTO contracts (id, created) VALUES (?, ?)
+INSERT INTO contracts (id, created, staged) VALUES (?, ?, 1)
 `
 
 type InsertContractParams struct {
@@ -2789,6 +2923,36 @@ func (q *Queries) InsertDesign(ctx context.Context, arg InsertDesignParams) erro
 	return err
 }
 
+const insertDesignClosureSkip = `-- name: InsertDesignClosureSkip :exec
+INSERT INTO design_closure_skips (design, reason, maker, quote, maker_reason, delegation, session, at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+`
+
+type InsertDesignClosureSkipParams struct {
+	Design      string
+	Reason      string
+	Maker       string
+	Quote       string
+	MakerReason string
+	Delegation  string
+	Session     string
+	At          int64
+}
+
+func (q *Queries) InsertDesignClosureSkip(ctx context.Context, arg InsertDesignClosureSkipParams) error {
+	_, err := q.db.ExecContext(ctx, insertDesignClosureSkip,
+		arg.Design,
+		arg.Reason,
+		arg.Maker,
+		arg.Quote,
+		arg.MakerReason,
+		arg.Delegation,
+		arg.Session,
+		arg.At,
+	)
+	return err
+}
+
 const insertDesignContract = `-- name: InsertDesignContract :exec
 INSERT INTO design_contracts (contract, design, position, added) VALUES (?, ?, ?, ?)
 `
@@ -2810,6 +2974,45 @@ func (q *Queries) InsertDesignContract(ctx context.Context, arg InsertDesignCont
 	return err
 }
 
+const insertDesignDisposition = `-- name: InsertDesignDisposition :exec
+INSERT INTO design_dispositions (design, seq, item, disposition, reason, boundary, maker, quote, maker_reason,
+                                 delegation, session, at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+`
+
+type InsertDesignDispositionParams struct {
+	Design      string
+	Seq         int64
+	Item        string
+	Disposition string
+	Reason      string
+	Boundary    string
+	Maker       string
+	Quote       string
+	MakerReason string
+	Delegation  string
+	Session     string
+	At          int64
+}
+
+func (q *Queries) InsertDesignDisposition(ctx context.Context, arg InsertDesignDispositionParams) error {
+	_, err := q.db.ExecContext(ctx, insertDesignDisposition,
+		arg.Design,
+		arg.Seq,
+		arg.Item,
+		arg.Disposition,
+		arg.Reason,
+		arg.Boundary,
+		arg.Maker,
+		arg.Quote,
+		arg.MakerReason,
+		arg.Delegation,
+		arg.Session,
+		arg.At,
+	)
+	return err
+}
+
 const insertDesignEdge = `-- name: InsertDesignEdge :exec
 INSERT INTO design_edges (design, contract, after, created) VALUES (?, ?, ?, ?)
 `
@@ -2826,6 +3029,66 @@ func (q *Queries) InsertDesignEdge(ctx context.Context, arg InsertDesignEdgePara
 		arg.Design,
 		arg.Contract,
 		arg.After,
+		arg.Created,
+	)
+	return err
+}
+
+const insertDesignQuestion = `-- name: InsertDesignQuestion :exec
+INSERT INTO design_questions (design, seq, contract, text, options, recommendation, asker, asked)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+`
+
+type InsertDesignQuestionParams struct {
+	Design         string
+	Seq            int64
+	Contract       string
+	Text           string
+	Options        string
+	Recommendation string
+	Asker          string
+	Asked          int64
+}
+
+func (q *Queries) InsertDesignQuestion(ctx context.Context, arg InsertDesignQuestionParams) error {
+	_, err := q.db.ExecContext(ctx, insertDesignQuestion,
+		arg.Design,
+		arg.Seq,
+		arg.Contract,
+		arg.Text,
+		arg.Options,
+		arg.Recommendation,
+		arg.Asker,
+		arg.Asked,
+	)
+	return err
+}
+
+const insertDesignStep = `-- name: InsertDesignStep :exec
+INSERT INTO design_steps (step, design, kind, subject, repository, revision, delta, created)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+`
+
+type InsertDesignStepParams struct {
+	Step       string
+	Design     string
+	Kind       string
+	Subject    string
+	Repository string
+	Revision   string
+	Delta      string
+	Created    int64
+}
+
+func (q *Queries) InsertDesignStep(ctx context.Context, arg InsertDesignStepParams) error {
+	_, err := q.db.ExecContext(ctx, insertDesignStep,
+		arg.Step,
+		arg.Design,
+		arg.Kind,
+		arg.Subject,
+		arg.Repository,
+		arg.Revision,
+		arg.Delta,
 		arg.Created,
 	)
 	return err
@@ -5678,6 +5941,84 @@ func (q *Queries) ListDesignContracts(ctx context.Context, design string) ([]Lis
 	return items, nil
 }
 
+const listDesignDispositions = `-- name: ListDesignDispositions :many
+SELECT design, seq, item, disposition, reason, boundary, maker, quote, maker_reason, delegation, session, at FROM design_dispositions WHERE design = ? ORDER BY seq
+`
+
+func (q *Queries) ListDesignDispositions(ctx context.Context, design string) ([]DesignDisposition, error) {
+	rows, err := q.db.QueryContext(ctx, listDesignDispositions, design)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []DesignDisposition
+	for rows.Next() {
+		var i DesignDisposition
+		if err := rows.Scan(
+			&i.Design,
+			&i.Seq,
+			&i.Item,
+			&i.Disposition,
+			&i.Reason,
+			&i.Boundary,
+			&i.Maker,
+			&i.Quote,
+			&i.MakerReason,
+			&i.Delegation,
+			&i.Session,
+			&i.At,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listDesignDrafts = `-- name: ListDesignDrafts :many
+SELECT id, design, repository, title, body, decisions, words, writer, created, updated FROM contract_drafts WHERE design = ? ORDER BY created, id
+`
+
+func (q *Queries) ListDesignDrafts(ctx context.Context, design string) ([]ContractDraft, error) {
+	rows, err := q.db.QueryContext(ctx, listDesignDrafts, design)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ContractDraft
+	for rows.Next() {
+		var i ContractDraft
+		if err := rows.Scan(
+			&i.ID,
+			&i.Design,
+			&i.Repository,
+			&i.Title,
+			&i.Body,
+			&i.Decisions,
+			&i.Words,
+			&i.Writer,
+			&i.Created,
+			&i.Updated,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listDesignEdges = `-- name: ListDesignEdges :many
 SELECT design, contract, "after", created FROM design_edges WHERE design = ? ORDER BY created, contract, after
 `
@@ -5695,6 +6036,86 @@ func (q *Queries) ListDesignEdges(ctx context.Context, design string) ([]DesignE
 			&i.Design,
 			&i.Contract,
 			&i.After,
+			&i.Created,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listDesignQuestions = `-- name: ListDesignQuestions :many
+SELECT design, seq, contract, text, options, recommendation, asker, asked, answer, accepted, maker, quote, maker_reason, delegation, answerer, answered FROM design_questions WHERE design = ? ORDER BY seq
+`
+
+func (q *Queries) ListDesignQuestions(ctx context.Context, design string) ([]DesignQuestion, error) {
+	rows, err := q.db.QueryContext(ctx, listDesignQuestions, design)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []DesignQuestion
+	for rows.Next() {
+		var i DesignQuestion
+		if err := rows.Scan(
+			&i.Design,
+			&i.Seq,
+			&i.Contract,
+			&i.Text,
+			&i.Options,
+			&i.Recommendation,
+			&i.Asker,
+			&i.Asked,
+			&i.Answer,
+			&i.Accepted,
+			&i.Maker,
+			&i.Quote,
+			&i.MakerReason,
+			&i.Delegation,
+			&i.Answerer,
+			&i.Answered,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listDesignSteps = `-- name: ListDesignSteps :many
+SELECT step, design, kind, subject, repository, revision, delta, created FROM design_steps WHERE design = ? ORDER BY created, step
+`
+
+func (q *Queries) ListDesignSteps(ctx context.Context, design string) ([]DesignStep, error) {
+	rows, err := q.db.QueryContext(ctx, listDesignSteps, design)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []DesignStep
+	for rows.Next() {
+		var i DesignStep
+		if err := rows.Scan(
+			&i.Step,
+			&i.Design,
+			&i.Kind,
+			&i.Subject,
+			&i.Repository,
+			&i.Revision,
+			&i.Delta,
 			&i.Created,
 		); err != nil {
 			return nil, err
@@ -11721,6 +12142,28 @@ func (q *Queries) NewestEventSeq(ctx context.Context) (int64, error) {
 	return seq, err
 }
 
+const nextDesignDispositionSeq = `-- name: NextDesignDispositionSeq :one
+SELECT CAST(COALESCE(MAX(seq), 0) + 1 AS INTEGER) FROM design_dispositions WHERE design = ?
+`
+
+func (q *Queries) NextDesignDispositionSeq(ctx context.Context, design string) (int64, error) {
+	row := q.db.QueryRowContext(ctx, nextDesignDispositionSeq, design)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
+const nextDesignQuestionSeq = `-- name: NextDesignQuestionSeq :one
+SELECT CAST(COALESCE(MAX(seq), 0) + 1 AS INTEGER) FROM design_questions WHERE design = ?
+`
+
+func (q *Queries) NextDesignQuestionSeq(ctx context.Context, design string) (int64, error) {
+	row := q.db.QueryRowContext(ctx, nextDesignQuestionSeq, design)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const nextEpicNodeRunAttempt = `-- name: NextEpicNodeRunAttempt :execrows
 UPDATE epic_node_runs SET attempt = attempt + 1, outcome = '', output = '', revision = '', refs = '', refs_checked = 0,
     result = '', ended = 0
@@ -13641,6 +14084,43 @@ func (q *Queries) UpsertClosureVerdict(ctx context.Context, arg UpsertClosureVer
 		arg.Closed,
 		arg.Why,
 		arg.At,
+	)
+	return err
+}
+
+const upsertContractDraft = `-- name: UpsertContractDraft :exec
+INSERT INTO contract_drafts (id, design, repository, title, body, decisions, words, writer, created, updated)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT (id) DO UPDATE SET design = excluded.design, repository = excluded.repository, title = excluded.title,
+    body = excluded.body, decisions = excluded.decisions, words = excluded.words, writer = excluded.writer,
+    updated = excluded.updated
+`
+
+type UpsertContractDraftParams struct {
+	ID         string
+	Design     string
+	Repository string
+	Title      string
+	Body       string
+	Decisions  string
+	Words      string
+	Writer     string
+	Created    int64
+	Updated    int64
+}
+
+func (q *Queries) UpsertContractDraft(ctx context.Context, arg UpsertContractDraftParams) error {
+	_, err := q.db.ExecContext(ctx, upsertContractDraft,
+		arg.ID,
+		arg.Design,
+		arg.Repository,
+		arg.Title,
+		arg.Body,
+		arg.Decisions,
+		arg.Words,
+		arg.Writer,
+		arg.Created,
+		arg.Updated,
 	)
 	return err
 }
