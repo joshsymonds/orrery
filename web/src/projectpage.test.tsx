@@ -90,9 +90,9 @@ function makeContract(init: ContractInit): Contract {
   return create(ContractSchema, { repository: directory, title: "Beta", care: "serious", state: "proposed", ...init });
 }
 
-// projectOfTree is the project of the directory the fixture tree draws. Its conversations, stand-ins included, are:
-// a waiting pane with a proposed contract, a working pane with a live epic, and an unlisted conversation's live epic
-// under a stand-in. Its ended line holds one done session with an ended epic.
+// projectOfTree is the project of the directory the fixture tree draws. Its conversations are: a waiting pane with a
+// proposed contract, a working pane with a live epic, and the live epic of a conversation that is not listed, drawn as
+// its own row. Its ended line holds one done session with an ended epic.
 function projectOfTree(): Project {
   const rows = [
     makeRow({
@@ -188,7 +188,7 @@ test("ProjectPage counts its conversations, its epics, what waits on you and its
   });
 });
 
-test("ProjectPage draws every conversation of the project, stand-ins included, each opening on a click", async () => {
+test("ProjectPage draws every conversation of the project, an epic with no listed conversation as its own row, each opening on a click", async () => {
   await withDom((container) => {
     const calls: string[] = [];
     const project = projectOfTree();
@@ -198,17 +198,19 @@ test("ProjectPage draws every conversation of the project, stand-ins included, e
       rows.map((row) => row.getAttribute("data-key")),
       project.convos.map((convo) => convo.key),
     );
-    const [waiting, working, standIn] = rows;
+    const [waiting, working, own] = rows;
     assert.equal(one(waiting, ".t").textContent, "Tide table");
     assert.equal(one(waiting, "svg.glyph").getAttribute("data-state"), "waiting");
     assert.equal(one(waiting, ".said.asked").textContent, "Which branch should I merge?");
     assert.equal(one(waiting, ".end .id").textContent, "1m");
     assert.equal(one(working, ".said").textContent, "step_start alpha · 1:40");
     assert.equal(working.querySelector(".said.asked"), null, "a working pane asks nothing");
-    assert.equal(one(standIn, ".t").textContent, "Its conversation is not listed");
-    assert.equal(one(standIn, ".end .id").textContent, "5m");
+    assert.equal(one(own, ".t").textContent, "gamma", "the row names the epic it holds");
+    assert.equal(one(own, "svg.glyph").getAttribute("data-state"), "working", "the row reads the epic's state");
+    assert.equal(own.querySelector(".said"), null, "the row says nothing it last said");
+    assert.equal(one(own, ".end .id").textContent, "5m");
     assert.equal(container.querySelector(".pconv .ctx"), null, "no row draws a context meter (DL-G5)");
-    standIn.click();
+    own.click();
     assert.deepEqual(calls, [`open:${project.convos[2].key}`]);
   });
 });

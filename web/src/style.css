@@ -326,8 +326,6 @@ button.link.notices-more { justify-self: end; padding: 0 var(--o-space-12); colo
 .inbox .row-menu { position: relative; flex: none; margin: 0 0 0 var(--o-space-4); }
 .inbox .row-menu .more { min-height: var(--o-space-24); padding: 0 var(--o-space-4); border: 0; border-radius: var(--o-radius-2); background: none; cursor: pointer; font: var(--o-type-small); color: var(--o-ink-3); appearance: none; -webkit-appearance: none; }
 .inbox .row-menu-list { position: absolute; top: calc(100% + var(--o-space-4)); right: 0; z-index: var(--o-z-menu); }
-/* A stand-in line is a row's second line: its conversation is not listed, or is archived. */
-.inbox .row.standin { display: block; padding-left: calc(var(--o-space-8) + var(--o-size-dot) + var(--o-space-8) + var(--o-size-glyph) + var(--o-space-8)); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--o-ink-3); font: var(--o-type-small); }
 
 /* What a conversation steers hangs from a line under its row: its epics with their running steps, and a contract not yet
    accepted, led by the contract's mark. */

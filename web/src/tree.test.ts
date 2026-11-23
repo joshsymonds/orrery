@@ -293,7 +293,7 @@ test("InboxTree hangs a contract under its conversation when proposed, or accept
   });
 });
 
-test("InboxTree stands an epic with no listed conversation under its project's unlisted stand-in, and no empty id matches a row", () => {
+test("InboxTree draws each epic with no listed conversation as its own row, and no empty id matches a row", () => {
   const rows = [
     makeRow({ key: "a", label: "a", archiveId: "sess-a", project: "/srv/app" }),
     makeRow({ key: "pane", label: "pane", archiveId: "", project: "/srv/app" }),
@@ -307,9 +307,14 @@ test("InboxTree stands an epic with no listed conversation under its project's u
   assert.deepEqual(layout(app.convos), {
     a: [],
     pane: [],
-    "standin:unlisted:|/srv/app": ["epic:repo-a/alpha", "epic:repo-a/beta"],
+    "epic:repo-a/alpha": ["epic:repo-a/alpha"],
+    "epic:repo-a/beta": ["epic:repo-a/beta"],
   });
-  assert.equal(app.convos.find((convo) => convo.standIn === "unlisted")?.row, null);
+  assert.deepEqual(
+    app.convos.filter((convo) => convo.row === null).map((convo) => convo.key).sort(),
+    ["epic:repo-a/alpha", "epic:repo-a/beta"],
+    "each epic with no listed conversation is a row with no conversation above it",
+  );
 });
 
 test("InboxTree hangs an epic whose path is not absolute in a card named by its repository", () => {
@@ -321,10 +326,10 @@ test("InboxTree hangs an epic whose path is not absolute in a card named by its 
     { name: card.name, dir: card.dir, path: card.path, host: card.host },
     { name: "lighthouse", dir: "", path: "", host: "" },
   );
-  assert.deepEqual(layout(card.convos), { "standin:unlisted:repo:lighthouse": ["epic:lighthouse/beta"] });
+  assert.deepEqual(layout(card.convos), { "epic:lighthouse/beta": ["epic:lighthouse/beta"] });
 });
 
-test("InboxTree stands a contract with no listed conversation under its repository's stand-in, or a repository card", () => {
+test("InboxTree draws a contract with no listed conversation as its own row, in its repository's project or a repository card", () => {
   const projects = buildTree(
     inputOf([], {
       contracts: [
@@ -333,13 +338,13 @@ test("InboxTree stands a contract with no listed conversation under its reposito
       ],
     }),
   );
-  assert.deepEqual(layout(projectAt(projects, "|/srv/app").convos), { "standin:unlisted:|/srv/app": ["contract:repo-c/one"] });
+  assert.deepEqual(layout(projectAt(projects, "|/srv/app").convos), { "contract:repo-c/one": ["contract:repo-c/one"] });
   assert.deepEqual(layout(projectAt(projects, "repo:lighthouse").convos), {
-    "standin:unlisted:repo:lighthouse": ["contract:lighthouse/two"],
+    "contract:lighthouse/two": ["contract:lighthouse/two"],
   });
 });
 
-test("InboxTree puts what steers an archived conversation under its project's archived stand-in, out of the tree's rows", () => {
+test("InboxTree draws what steers an archived conversation as its own rows, and leaves the archived conversation out of the tree", () => {
   const rows = [
     makeRow({ key: "a", label: "a", archiveId: "sess-a", project: "/srv/app", archived: true }),
     makeRow({ key: "b", label: "b", archiveId: "sess-b", project: "/srv/app" }),
@@ -352,7 +357,8 @@ test("InboxTree puts what steers an archived conversation under its project's ar
   );
   assert.deepEqual(layout(projectAt(projects, "|/srv/app").convos), {
     b: [],
-    "standin:archived:|/srv/app": ["epic:repo-a/alpha", "contract:repo-a/beta"],
+    "epic:repo-a/alpha": ["epic:repo-a/alpha"],
+    "contract:repo-a/beta": ["contract:repo-a/beta"],
   });
 });
 
@@ -507,7 +513,7 @@ test("InboxTree counts a live epic with an open question and a proposed contract
   );
 });
 
-test("InboxTree archived view hangs each archived conversation's epics and contracts under it, and an archived epic under its live conversation", () => {
+test("InboxTree archived view hangs each archived conversation's epics and contracts under it, and an archived epic whose conversation is live as its own row", () => {
   const rows = [
     makeRow({ key: "a", label: "a", archiveId: "sess-a", project: "/srv/app", archived: true }),
     makeRow({ key: "b", label: "b", archiveId: "sess-b", project: "/srv/app" }),
@@ -527,13 +533,13 @@ test("InboxTree archived view hangs each archived conversation's epics and contr
   const app = projectAt(projects, "|/srv/app");
   assert.deepEqual(layout(app.convos), {
     a: ["epic:repo-a/alpha", "contract:repo-a/one"],
-    b: ["epic:repo-a/beta"],
-    "standin:unlisted:|/srv/app": ["epic:repo-a/gamma"],
+    "epic:repo-a/beta": ["epic:repo-a/beta"],
+    "epic:repo-a/gamma": ["epic:repo-a/gamma"],
   });
   assert.deepEqual(app.ended, []);
 });
 
-test("InboxTree puts an ended epic with no listed conversation behind the ended line, under its stand-in", () => {
+test("InboxTree puts an ended epic with no drawn conversation behind the ended line, as its own row", () => {
   const rows = [
     makeRow({ key: "a", label: "a", archiveId: "sess-a", project: "/srv/app", state: "working" }),
     makeRow({ key: "z", label: "z", archiveId: "sess-z", project: "/srv/app", archived: true }),
@@ -547,8 +553,8 @@ test("InboxTree puts an ended epic with no listed conversation behind the ended 
     }),
   );
   assert.deepEqual(layout(projectAt(projects, "|/srv/app").ended), {
-    "standin:unlisted:|/srv/app": ["epic:repo-a/alpha"],
-    "standin:archived:|/srv/app": ["epic:repo-a/beta"],
+    "epic:repo-a/alpha": ["epic:repo-a/alpha"],
+    "epic:repo-a/beta": ["epic:repo-a/beta"],
   });
 });
 

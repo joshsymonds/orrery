@@ -103,7 +103,7 @@ export function Dir({
 }
 
 // conversationCount is how many conversations a project holds: each row once, however many times it is drawn, and no
-// stand-in, which is what steers with no conversation of its own.
+// thing drawn as its own row, which has no conversation of its own.
 function conversationCount(project: Project): number {
   const keys = new Set<string>();
   for (const convo of [...project.convos, ...project.ended]) {
