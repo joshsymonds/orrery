@@ -65,6 +65,7 @@ type EvidenceBriefs interface {
 	AttachCapture(ctx context.Context, capture string, runs []string, at time.Time) ([]store.EvidenceRun, error)
 	Capture(ctx context.Context, id string) (store.Capture, error)
 	OpenBriefs(ctx context.Context, epic string) ([]store.EvidenceRun, error)
+	RunningEvidenceGatherer(ctx context.Context, epic string) (store.EvidenceGatherer, bool, error)
 }
 
 // EvidenceGatherers is woken for an epic whose briefs wait for a gatherer. *Gatherers satisfies it.

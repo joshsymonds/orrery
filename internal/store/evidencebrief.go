@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/joshsymonds/orrery/internal/store/sqlcgen"
@@ -206,8 +207,18 @@ func (s *Store) UndeliveredCaptures(ctx context.Context) ([]Capture, error) {
 	return capturesOf(ctx, queries, stored)
 }
 
-// captureRunning is the state of a capture that has not ended. RecordCaptureEnd ends it.
-const captureRunning = "running"
+// The states a capture is in: running until RecordCaptureEnd ends it, and ended after.
+const (
+	captureRunning = "running"
+	captureEnded   = "ended"
+)
+
+// notCapturedKilled is the NotCaptured of a capture that timed out, and of a run attached to one. It is the reason the
+// capture's end gives it.
+const notCapturedKilled = "killed at its limit"
+
+// artifactMissing is the state of an artifact a run names that its capture kept no file of.
+const artifactMissing = "missing"
 
 // requireCaptureState returns an error matching ErrNoCapture when no capture has id, and one matching ErrEvidenceState when
 // the capture is not in state want.
@@ -299,11 +310,137 @@ func (s *Store) CapturesAt(ctx context.Context, repository, commit string) ([]Ca
 	return capturesOf(ctx, queries, stored)
 }
 
-// AttachCapture attaches capture to each of runs that is waiting or gathering, in one write. Each attached run takes the
-// capture and moves to judging, and the runs are returned as stored. A run that is in another state, or that names no
-// stored run, is refused and changes nothing. at is when the capture was attached.
-func (s *Store) AttachCapture(_ context.Context, _ string, _ []string, _ time.Time) ([]EvidenceRun, error) {
-	return unsupported[[]EvidenceRun]("AttachCapture")
+// AttachCapture attaches the ended capture to each of runs, in one write, and returns the runs as stored, in the order
+// given. Each run that is waiting or gathering takes the capture's id, its exit, timeout and logs, and the artifacts its
+// item names: the capture's file of each path, or a missing file when the capture kept none. A run whose capture timed out
+// or exited EnvironmentExit ends not captured, and a run whose capture has another reason ends with that reason (see
+// attachNotCaptured). Any other run moves to judging. A capture that is not ended is ErrEvidenceState, and one that does
+// not exist ErrNoCapture. A run that names no stored run is ErrNoEvidenceRun, and one that is not waiting or gathering
+// ErrEvidenceState. Any refusal changes nothing. at is when the capture was attached, and the time each run it ends not
+// captured ends.
+func (s *Store) AttachCapture(ctx context.Context, capture string, runs []string, at time.Time) ([]EvidenceRun, error) {
+	var attached []EvidenceRun
+	err := s.write(ctx, func(queries *sqlcgen.Queries) error {
+		if err := requireCaptureState(ctx, queries, capture, captureEnded); err != nil {
+			return err
+		}
+		stored, err := queries.GetEvidenceCapture(ctx, capture)
+		if err != nil {
+			return fmt.Errorf("get capture %s: %w", capture, err)
+		}
+		ended, err := captureOf(ctx, queries, stored)
+		if err != nil {
+			return err
+		}
+		attached = make([]EvidenceRun, 0, len(runs))
+		for _, id := range runs {
+			run, attachErr := attachRun(ctx, queries, ended, id, at)
+			if attachErr != nil {
+				return attachErr
+			}
+			attached = append(attached, run)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return attached, nil
+}
+
+// attachRun attaches the ended capture to the run with id, as AttachCapture describes, and returns the run as stored. A run
+// that is not waiting or gathering is ErrEvidenceState, and an unknown run is ErrNoEvidenceRun.
+func attachRun(
+	ctx context.Context, queries *sqlcgen.Queries, capture Capture, id string, at time.Time,
+) (EvidenceRun, error) {
+	state, err := queries.GetEvidenceRunState(ctx, id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return EvidenceRun{}, fmt.Errorf("evidence run %s: %w", id, ErrNoEvidenceRun)
+	}
+	if err != nil {
+		return EvidenceRun{}, fmt.Errorf("read state of evidence run %s: %w", id, err)
+	}
+	if state != RunWaiting && state != RunGathering {
+		return EvidenceRun{}, fmt.Errorf(
+			"evidence run %s is %s, not waiting or gathering: %w",
+			id,
+			state,
+			ErrEvidenceState,
+		)
+	}
+	row, err := queries.GetEvidenceRun(ctx, id)
+	if err != nil {
+		return EvidenceRun{}, fmt.Errorf("get evidence run %s: %w", id, err)
+	}
+	spec, err := decodeItem(row.Spec)
+	if err != nil {
+		return EvidenceRun{}, fmt.Errorf("spec of evidence run %s: %w", id, err)
+	}
+	taken, err := queries.AttachEvidenceRunCapture(
+		ctx,
+		sqlcgen.AttachEvidenceRunCaptureParams{Capture: capture.ID, ID: id},
+	)
+	if err != nil {
+		return EvidenceRun{}, fmt.Errorf("attach capture %s to evidence run %s: %w", capture.ID, id, err)
+	}
+	if taken != 1 {
+		return EvidenceRun{}, fmt.Errorf("attach capture %s to evidence run %s: %w", capture.ID, id, ErrEvidenceState)
+	}
+	notCaptured := attachNotCaptured(capture)
+	next, ended := runJudging, int64(0)
+	if notCaptured != "" {
+		next, ended = runEnded, at.Unix()
+	}
+	if err = queries.RecordEvidenceRunCapture(ctx, sqlcgen.RecordEvidenceRunCaptureParams{
+		Exit: int64(capture.Exit), TimedOut: boolInt(capture.TimedOut), NotCaptured: notCaptured,
+		LogHash: capture.LogHash, LogBytes: capture.LogBytes, StderrHash: capture.StderrHash,
+		StderrBytes: capture.StderrBytes, State: next, Ended: ended, ID: id,
+	}); err != nil {
+		return EvidenceRun{}, fmt.Errorf("record capture of evidence run %s: %w", id, err)
+	}
+	if err = insertInOrder(
+		attachArtifacts(capture.Artifacts, spec.Artifacts),
+		func(position int64, a EvidenceArtifact) error {
+			return queries.InsertEvidenceArtifact(ctx, sqlcgen.InsertEvidenceArtifactParams{
+				Run: id, Position: position, Path: a.Path, State: a.State, Hash: a.Hash, Blob: a.Blob, Size: a.Size,
+			})
+		},
+	); err != nil {
+		return EvidenceRun{}, fmt.Errorf("artifacts of evidence run %s: %w", id, err)
+	}
+	row, err = queries.GetEvidenceRun(ctx, id)
+	if err != nil {
+		return EvidenceRun{}, fmt.Errorf("read evidence run %s: %w", id, err)
+	}
+	return evidenceRunOf(ctx, queries, row)
+}
+
+// attachNotCaptured returns the reason a run attached to capture captured nothing, as evidenceCapture.end gives it: a capture
+// that timed out was killed at its limit, and one that exited EnvironmentExit failed in its environment. Any other capture
+// keeps the reason it has, which is empty when it captured.
+func attachNotCaptured(capture Capture) string {
+	switch {
+	case capture.TimedOut:
+		return notCapturedKilled
+	case capture.Exit == EnvironmentExit:
+		return NotCapturedEnvironment
+	}
+	return capture.NotCaptured
+}
+
+// attachArtifacts returns the artifacts of a run whose item names paths, in the order given: the capture's file of each
+// path, or a missing file when the capture kept none of that path.
+func attachArtifacts(files []EvidenceArtifact, paths []string) []EvidenceArtifact {
+	artifacts := make([]EvidenceArtifact, 0, len(paths))
+	for _, path := range paths {
+		i := slices.IndexFunc(files, func(file EvidenceArtifact) bool { return file.Path == path })
+		if i < 0 {
+			artifacts = append(artifacts, EvidenceArtifact{Path: path, State: artifactMissing})
+			continue
+		}
+		artifacts = append(artifacts, files[i])
+	}
+	return artifacts
 }
 
 // OpenBriefs returns the runs of epic that are waiting or gathering, ordered by created, then id, each with its
