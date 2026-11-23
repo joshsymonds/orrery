@@ -17,8 +17,9 @@ const clients = createFixtureTransport().clients;
 // oatToken is an invented setup-token, which the form takes.
 const oatToken = "sk-ant-oat01-invented-story-token";
 
-// apiKeyToken is an invented API key, which orreryd refuses as a setup-token.
-const apiKeyToken = "sk-ant-api03-invented-story-token";
+// refusedToken is an invented setup-token the refusing fake answers with orreryd's refusal for an API key. The fake refuses by
+// its queued answer, not by the token's text, so the token starts sk-ant-oat01- as every story's token does.
+const refusedToken = "sk-ant-oat01-invented-refused-story-token";
 
 // apiKeyRefusal is what orreryd says when an API key is pasted for a setup-token.
 const apiKeyRefusal = "That is an API key, not a setup-token. A setup-token starts sk-ant-oat.";
@@ -81,7 +82,7 @@ function Filled({ clients, name, token, pressAdd }: FilledProps): VNode {
 // Refused is the form whose Add the server refuses for an API key: it types a name and the key, and presses Add.
 function Refused(): VNode {
   const [refusing] = useState(refusingClients);
-  return <Filled clients={refusing} name="max-4" token={apiKeyToken} pressAdd />;
+  return <Filled clients={refusing} name="max-4" token={refusedToken} pressAdd />;
 }
 
 export const AccountAdd: Stories = {
