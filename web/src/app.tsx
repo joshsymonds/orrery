@@ -4,6 +4,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { AccountsPage } from "./accountspage";
 import * as actions from "./actions";
 import type { Clients } from "./actions";
+import { ActivityLines } from "./activitylines";
 import { type AskTarget, conversationAsk } from "./askmodel";
 import { askingWords, askLines, headBadges, ownAsks, steeredEpics } from "./asks";
 import { type AskState, askKey, observe, press, settle } from "./askstate";
@@ -76,7 +77,7 @@ import { TitleRow } from "./titlerow";
 import { Toast } from "./toast";
 import { buildTree, type Convo, type Hung, type Project } from "./tree";
 import { countsOf, type Narrow, narrow as narrowTree, projectWaiting, search as searchTree, waitOrder } from "./treefilter";
-import { type ListThing, type Thing, type WorkConversation, workOf } from "./work";
+import { activityOf, type ListThing, type Thing, type WorkConversation, workOf } from "./work";
 import { WorkerSessionPage } from "./workersession";
 import { WorkRail } from "./workrail";
 
@@ -2186,6 +2187,15 @@ export function App({
     }
     navigated(openList)(middleKey, thing.kind);
   };
+  // openActivity is a press on an activity line above the composer: it opens the list panel of the line's kind on the
+  // middle conversation's row, or shuts that panel when it is the one open, as a rail tile does.
+  const openActivity = (kind: ListPanelKind) => {
+    if (listShown === kind) {
+      closeList();
+      return;
+    }
+    navigated(openList)(middleKey, kind);
+  };
   // togglePanel is ]: it shuts the open panel, or with none open reopens the thing the panel held last, as long as the
   // list still holds it.
   const togglePanel = () => {
@@ -2664,6 +2674,8 @@ export function App({
   // contractCalls are the middle reader's contract calls: its contract lines draw the contracts the list holds, and
   // open them.
   const contractCalls: ContractCalls = { contracts, onOpen: navigated(openContractPanel) };
+  // activityLines are what runs under the middle conversation, drawn above its composer while its reader is drawn.
+  const activityLines = activityOf(readerRow === null ? null : railConversation);
   const middleColumn = (
     <ReaderColumn
       column="cursor"
@@ -2708,6 +2720,7 @@ export function App({
       steps={visitedSteps}
       stepInputs={stepInputs}
       ended={endedBarOf}
+      activity={<ActivityLines lines={activityLines} now={now} open={listShown} onOpen={openActivity} />}
     />
   );
 
