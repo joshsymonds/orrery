@@ -18,17 +18,30 @@ func schemaKey(line string) string {
 	return line
 }
 
+// rebuiltTable is the table 00097_sync_integrate_rounds.sql rebuilds to allow its new outcomes and verdict, whose SQL
+// changes with that migration.
+const rebuiltTable = "integrate_rounds"
+
+// withoutRebuiltSQL returns lines without the line of rebuiltTable's SQL, which 00097_sync_integrate_rounds.sql
+// changes. Its columns are kept, since that migration leaves them as they were.
+func withoutRebuiltSQL(lines []string) []string {
+	return slices.DeleteFunc(lines, func(line string) bool {
+		return strings.HasPrefix(line, "table "+rebuiltTable+" ")
+	})
+}
+
 // TestAccountsMigrationAddsOnlyTables checks that 00096_llm_accounts.sql creates the five tables of the LLM accounts
 // and routes and changes no table that exists at version 95. It reads the schema of a store at version 95, then of
 // the same store after Open migrates it: every line of the first is in the second unchanged, and the lines that are
-// new are exactly the five tables and their columns.
+// new are exactly the five tables and their columns. The SQL of integrate_rounds is left out of the comparison, since
+// 00097_sync_integrate_rounds.sql rebuilds that table by design.
 func TestAccountsMigrationAddsOnlyTables(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "orrery.db")
 
 	fixture := openStoreAtVersion(t, path, 95)
-	before := schemaLines(t, fixture)
+	before := withoutRebuiltSQL(schemaLines(t, fixture))
 	closeDB(t, fixture)
 
 	s, err := Open(ctx, path, noSync())
@@ -36,7 +49,7 @@ func TestAccountsMigrationAddsOnlyTables(t *testing.T) {
 		t.Fatalf("Open at version 95: %v", err)
 	}
 	defer s.Close()
-	after := schemaLines(t, s.db.DB)
+	after := withoutRebuiltSQL(schemaLines(t, s.db.DB))
 
 	for _, line := range before {
 		if !slices.Contains(after, line) {
