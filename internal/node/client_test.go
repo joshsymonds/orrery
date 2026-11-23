@@ -170,6 +170,12 @@ func TestNodeClientRunsSessionOverAgent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("launch: %v", err)
 	}
+	// A holder refuses an attach at an offset past the output it has retained, so the reattach below waits until the
+	// launched session has read the fake claude's first line. The session reads each line only once the holder has
+	// retained it, so that line's Line is the signal.
+	if first := <-launched.Lines(); first.End != int64(len(firstLine)) {
+		t.Fatalf("first line of the launched session ends at %d, want %d", first.End, len(firstLine))
+	}
 	// The launch's controller is detached, so that the reattach below is the holder's one controller.
 	if err = launched.Detach(); err != nil {
 		t.Fatalf("detach the launched session: %v", err)
