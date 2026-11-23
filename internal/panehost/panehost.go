@@ -112,7 +112,9 @@ func (h *Host) Run(ctx context.Context) error {
 		case err := <-registry:
 			return err
 		case update := <-updates:
-			h.applyAndPublish(ctx, update)
+			// An update that has begun applies to its end, as the daemon's applyUpdates does, so a shutdown leaves no
+			// pane half-written.
+			h.applyAndPublish(context.WithoutCancel(ctx), update)
 		case <-ticks:
 			h.broadcastListing(ctx)
 		}
