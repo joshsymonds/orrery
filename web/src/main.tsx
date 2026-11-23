@@ -207,7 +207,7 @@ export function start(
 
   // listAnswered reports whether the list an entry is in has answered its first load: the rows for a session or a pane,
   // the epics for a step or an epic, and both for a contract, whose panel rests on the cursor's row, and for a project,
-  // whose page is drawn from the tree of both.
+  // whose page is drawn from the tree of both. The accounts page is drawn from no list, so it has answered at once.
   const listAnswered = (entry: Entry): boolean => {
     switch (entry.kind) {
       case "session":
@@ -219,6 +219,8 @@ export function start(
       case "step":
       case "epic":
         return epicsAnswered;
+      case "accounts":
+        return true;
     }
   };
 

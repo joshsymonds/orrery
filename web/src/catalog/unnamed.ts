@@ -21,6 +21,9 @@ export const unnamed: Readonly<Record<string, UnnamedEntry>> = {
   "output-tails": { replacement: "epic-evidence", epic: "F4" },
   // EpicWidget draws the reader's tool-call card: the live card of an epic a tool call created, under the conversation's tool call.
   "epic-widget": { replacement: "convo-epic", epic: "F3" },
+  // AccountsPage draws the accounts and routes page at #/accounts, as App draws the pages at its addresses. The inbox page
+  // stands for it.
+  "accounts-page": { replacement: "inbox-home", epic: "F2" },
 
   // ---- single stories of round-6 components, each the component in a state round 6 does not draw ----
 
