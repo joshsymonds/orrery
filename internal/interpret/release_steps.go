@@ -219,11 +219,11 @@ func (r *Runner) recordReleaseStep(ctx context.Context, epic store.EpicRow, act 
 		return err
 	}
 	if position == 1 && reason != "" {
-		moved, checkErr := candidateContainsOrigin(ctx, epic, start)
+		contained, checkErr := candidateContainsOrigin(ctx, epic, start)
 		switch {
 		case checkErr != nil:
 			reason += "; origin's main could not be checked against the step's start: " + checkErr.Error()
-		case !moved:
+		case !contained:
 			return r.redoCandidate(ctx, epic, act, start, dir, reason, at)
 		}
 	}

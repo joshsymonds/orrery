@@ -52,7 +52,11 @@ func TestReleaseRepreparesCandidateOriginMainIsNotIn(t *testing.T) {
 					candidateRun(2, "cand-2"),
 				},
 			},
-			Action{Kind: ActStep, IDs: []string{attemptWorkID(2, "release 1")}, Items: []string{"release 1", "cand-2"}},
+			Action{
+				Kind:  ActStep,
+				IDs:   []string{store.NodeWorkID(store.ReleaseGatedID(testRunID, 1), 2, "release 1")},
+				Items: []string{"release 1", "cand-2"},
+			},
 		},
 		{
 			"latest candidate that origin's main is not in at this attempt is prepared again",
@@ -101,7 +105,11 @@ func TestReleaseRepreparesCandidateOriginMainIsNotIn(t *testing.T) {
 				Epic:     releasingEpic(steps...),
 				Releases: []store.ReleaseRun{candidateRun(1, "cand-1"), staleRun(2, "cand-0")},
 			},
-			Action{Kind: ActStep, IDs: []string{attemptWorkID(2, "release 1")}, Items: []string{"release 1", "cand-1"}},
+			Action{
+				Kind:  ActStep,
+				IDs:   []string{store.NodeWorkID(store.ReleaseGatedID(testRunID, 1), 2, "release 1")},
+				Items: []string{"release 1", "cand-1"},
+			},
 		},
 	}
 	checkDecisions(t, Release{}, cases)
