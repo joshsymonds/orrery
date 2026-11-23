@@ -1434,6 +1434,17 @@ button.act:active, .back:active, .crumb:active { transform: scale(.97); backgrou
 .lmark.open { background: var(--open); color: var(--o-ink-1); }
 .lmark.open:hover { background: var(--open-hover); }
 
+/* Held under 1250 (D12, D14, flows 10a): the rail is the inbox's tree in small, and two of its marks are necks. The held
+   conversation's mark is on the page's ground and the open mark a lozenge in the open ground; each runs from its mark out
+   to the rail's edge, the rail's tiles clipping it there, with a rounded end at the mark. */
+.lconv[data-held="convo"] { position: relative; border-radius: var(--o-radius-round) 0 0 var(--o-radius-round); background: var(--o-surface-page); color: var(--o-ink-1); }
+.lconv[data-held="convo"]:hover { background: var(--o-surface-page); }
+.lconv[data-held="convo"]::after { content: ""; position: absolute; top: 0; bottom: 0; left: 100%; width: var(--o-layout-rail-width); background: var(--o-surface-page); }
+.lmark.open[data-held="open"] { position: relative; border-radius: var(--o-radius-round) 0 0 var(--o-radius-round); background: var(--o-ground-open); color: var(--o-ink-1); }
+.lmark.open[data-held="open"]:hover { background: var(--o-ground-open-hover); }
+.lmark.open[data-held="open"]::after { content: ""; position: absolute; top: 0; bottom: 0; left: 100%; width: var(--o-layout-rail-width); background: var(--o-ground-open); }
+.lmark.open[data-held="open"]:hover::after { background: var(--o-ground-open-hover); }
+
 /* A project's flyout, beside the rail over the page: its head with the project's name, counts and path, its rows that wait
    and then its new rows, which scroll when they are long, the line that counts the rest, and its foot. App sets its top
    level with its tile's. Its ::before bridges the gap to the rail, so the pointer crossing it stays in the flyout. */

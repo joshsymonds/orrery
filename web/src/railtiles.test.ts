@@ -332,6 +332,8 @@ test("RailLineage lists each conversation that works a design, with its design a
   assert.deepEqual(railLineage(lineageProject(), ""), [
     {
       key: "a",
+      held: false,
+      own: [],
       designs: [
         {
           key: "design:design-x",
