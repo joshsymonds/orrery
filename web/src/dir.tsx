@@ -5,8 +5,9 @@ import type { Project } from "./tree";
 
 // DirProps are a project's card: the project; whether it is folded; the waiting count a folded head says; whether the
 // ended line is open; the presses; the conversations that hang under the head, which the caller draws; the ended
-// conversations, which the caller draws and the card shows only while the ended line is open; and, when given, the press
-// that opens the project's page from its head.
+// conversations, which the caller draws and the card shows only while the ended line is open; whether the ended line's
+// button is marked as moving, when a move landed behind it; and, when given, the press that opens the project's page from
+// its head.
 export interface DirProps {
   project: Project;
   folded: boolean;
@@ -15,6 +16,7 @@ export interface DirProps {
   onFold: () => void;
   onEnded: () => void;
   onOpen?: (key: string) => void;
+  moving?: boolean;
   children: ComponentChildren;
   ended: ComponentChildren;
 }
@@ -32,6 +34,7 @@ export function Dir({
   onFold,
   onEnded,
   onOpen,
+  moving = false,
   children,
   ended,
 }: DirProps): JSX.Element {
@@ -91,7 +94,13 @@ export function Dir({
       <div class="dir-kids">
         {children}
         {hasEnded && (
-          <button type="button" class="fold-line" aria-expanded={endedOpen} onClick={() => onEnded()}>
+          <button
+            type="button"
+            class="fold-line"
+            aria-expanded={endedOpen}
+            data-moving={moving ? "true" : undefined}
+            onClick={() => onEnded()}
+          >
             <Icon name={endedOpen ? "chevronDown" : "chevronRight"} />
             <span>{project.ended.length} ended</span>
           </button>

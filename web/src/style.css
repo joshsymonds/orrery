@@ -8,6 +8,7 @@
 @keyframes move-drill { from { opacity: 0; transform: translateX(var(--o-distance-drill)); } to { opacity: 1; transform: none; } }
 @keyframes move-leave { from { opacity: 0; transform: translateX(calc(-1 * var(--o-distance-drill))); } to { opacity: 1; transform: none; } }
 @keyframes move-fade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes move-land { from { opacity: 0; transform: translateY(calc(-1 * var(--o-space-8))); } to { opacity: 1; transform: none; } }
 * { box-sizing: border-box; }
 html { background: var(--o-surface-page); color-scheme: dark; font: var(--o-type-body); }
 body { margin: 0; font: var(--o-type-body); color: var(--o-ink-1); background: var(--o-surface-page); }
@@ -300,6 +301,9 @@ button.link.notices-more { justify-self: end; padding: 0 var(--o-space-12); colo
 .fold-line { display: flex; align-items: center; gap: var(--o-space-8); width: 100%; padding: var(--o-space-4) var(--o-space-8); border: 0; border-radius: var(--o-radius-2); background: none; color: var(--o-ink-3); font: var(--o-type-small); }
 .fold-line:hover { background: var(--o-surface-page); color: var(--o-ink-2); }
 .fold-line .icon { color: var(--o-ink-4); }
+/* A row a list answer moved lands in its place over the layout move, and a move behind a shut ended line marks that line's
+   button the same way. Reduced motion draws no mark, so these do not run then. */
+.inbox [data-moving="true"] { animation: move-land var(--o-move-layout); }
 
 /* InboxRow: a session. Its unseen dot and state glyph, its title and age, then its second line: what it has been doing,
    its last words, or what it asks. */
