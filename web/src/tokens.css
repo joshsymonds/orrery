@@ -215,6 +215,10 @@
   --o-elevation-side-end: -8px 0px 24px color-mix(in srgb, #11111b 60%, transparent);
   --o-scrim: color-mix(in srgb, var(--o-palette-crust) 60%, transparent);
 
+  /* ground: a tint at its alpha over its surface, drawn behind a thing */
+  --o-ground-open: color-mix(in srgb, var(--o-role-focus) 35%, var(--o-surface-side));
+  --o-ground-open-hover: color-mix(in srgb, var(--o-role-focus) 45%, var(--o-surface-side));
+
   /* layers, low to high */
   --o-z-page: 0;
   --o-z-sticky: 5;
