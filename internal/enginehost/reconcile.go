@@ -36,8 +36,9 @@ const resumedBody = "orreryd restarted during the turn; resumed it"
 // it settles the engine rows that have no process in this manager, as a restart leaves them. A re-adopted session is
 // live, so its row is left as its replay gave it, except that a session re-adopted from a holder one version older is
 // stopped once it is not busy, at its turn's end or at once (see retireLocked), and that stop records nothing. A step's
-// stop keeps it in the drained set, and the step stays held (see StepLive). A drained row is settled by its drain. Each
-// other row loses its unfinished text. A row whose turn was running, working or waiting, is recorded interrupted with
+// stop keeps it in the drained set, and the step stays held (see StepLive). A drained row is settled by its drain. A
+// row whose host's holders could not be listed is left as it is, since its holder may still run there. Each other row
+// loses its unfinished text. A row whose turn was running, working or waiting, is recorded interrupted with
 // restartedReason and no question. A working turn of an engine row whose session has a Claude id is then resumed with
 // resumePrompt, unless its session is quiet, its last prompt is resumePrompt already, or the read of the quiet sessions
 // failed, and the owner is told of the resume in place of the interruption (see resumable). A step row is settled
@@ -49,7 +50,7 @@ func (m *Manager) Reconcile(ctx context.Context) error {
 	defer m.calls.enter()()
 	quietErr := m.readQuiet(ctx)
 	defer m.clearQuietUnread()
-	settled, err := m.reconcileHolders(ctx)
+	settled, unlisted, err := m.reconcileHolders(ctx)
 	if err != nil {
 		return errors.Join(quietErr, fmt.Errorf("reconcile sessions: %w", err))
 	}
@@ -66,7 +67,7 @@ func (m *Manager) Reconcile(ctx context.Context) error {
 	if textErr != nil {
 		firstErr = errors.Join(firstErr, fmt.Errorf("read unfinished text: %w", textErr))
 	}
-	pending := m.pendingRows(rows, pumped, settled, text, textErr)
+	pending := m.pendingRows(rows, pumped, settled, unlisted, text, textErr)
 	groups := make([]SessionOps, len(pending))
 	for i, row := range pending {
 		groups[i] = SessionOps{ID: row.ID, Ops: settleOps(row)}
@@ -110,14 +111,15 @@ func (m *Manager) clearQuietUnread() {
 }
 
 // pendingRows returns the rows Reconcile settles: each row that had no pump in this manager when pumped was taken and
-// that the holder pass did not settle, and that has a running turn or unfinished text in text. A failed text read,
-// textErr, makes every row count as holding text.
+// that the holder pass did not settle, and that has a running turn or unfinished text in text. A row placed on a host
+// in unlisted is not settled, since its holder may still run there. A failed text read, textErr, makes every row count
+// as holding text.
 func (m *Manager) pendingRows(
-	rows []store.EngineRow, pumped, settled, text map[string]bool, textErr error,
+	rows []store.EngineRow, pumped, settled, unlisted, text map[string]bool, textErr error,
 ) []store.EngineRow {
 	var pending []store.EngineRow
 	for _, row := range rows {
-		if pumped[row.ID] || settled[row.ID] {
+		if pumped[row.ID] || settled[row.ID] || m.onUnlisted(row, unlisted) {
 			continue
 		}
 		if turnRunning(row) || textErr != nil || text[row.ID] {
@@ -147,20 +149,22 @@ func (m *Manager) notifySettled(ctx context.Context, rows []store.EngineRow, err
 // holder of each session with no pump in this manager is re-adopted from the host its row names when its row allows it
 // (see readoptable), and drained when it has ended, or stopped and drained when it is live but cannot be attached. Each
 // holder's row is read on its own, so the pass reads only the rows of the holders it finds, however many rows the store
-// holds. A holder whose row names another host, or no host this controller runs sessions on, is left as it is. A
-// step's holder is never drained or stopped. Every other holder is cleared, as is one that fails to re-adopt, to stop
-// or to drain, and one whose row cannot be read. A drained holder is cleared by its drain's settle (see reconcileRow),
-// since a resume there starts a new holder in the same directory. It returns the ids of the sessions whose holder was
-// drained, and whose row the drain settled, and the first error reading a row other than its absence. A host whose
-// holders cannot be listed is logged and passed over. A missing holders directory, or an empty state directory, has
-// nothing to go through.
-func (m *Manager) reconcileHolders(ctx context.Context) (map[string]bool, error) {
+// holds. A holder whose row names another host, or no host this controller runs sessions on, is left as it is. A step's
+// holder is never drained or stopped. Every other holder is cleared, as is one that fails to re-adopt, to stop or to
+// drain, and one whose row cannot be read. A drained holder is cleared by its drain's settle (see reconcileRow), since
+// a resume there starts a new holder in the same directory. It returns the ids of the sessions whose holder was
+// drained, and whose row the drain settled, the names of the hosts whose holders could not be listed, and the first
+// error reading a row other than its absence. A host whose holders cannot be listed is logged and passed over, and its
+// holders are not visited. A missing holders directory, or an empty state directory, has nothing to go through.
+func (m *Manager) reconcileHolders(ctx context.Context) (map[string]bool, map[string]bool, error) {
 	settled := map[string]bool{}
+	unlisted := map[string]bool{}
 	var readErr error
 	for _, held := range m.holderHosts() {
 		ids, err := held.host.Sessions(ctx)
 		if err != nil {
 			m.logger.WarnContext(ctx, "read holders dir", "host", held.name, "err", err)
+			unlisted[held.name] = true
 			continue
 		}
 		for _, id := range ids {
@@ -176,7 +180,14 @@ func (m *Manager) reconcileHolders(ctx context.Context) (map[string]bool, error)
 			}
 		}
 	}
-	return settled, readErr
+	return settled, unlisted, readErr
+}
+
+// onUnlisted reports whether row runs on a host in unlisted, whose holders reconcileHolders could not list. A row whose
+// host names no host this controller runs sessions on is not on one.
+func (m *Manager) onUnlisted(row store.EngineRow, unlisted map[string]bool) bool {
+	place, err := m.hostOf(row)
+	return err == nil && unlisted[place.name]
 }
 
 // reconcileHolder reconciles the holder of session id, found on held, as reconcileHolders describes. It reports whether
