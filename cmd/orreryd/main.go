@@ -651,12 +651,10 @@ func serve(ctx context.Context, opts options, logger *slog.Logger, getenv func(s
 		Observers: []daemon.Observer{observe, autoseen.New(time.Now, logger, func(pane string, seen int64) {
 			router.Seen(ctx, notice.Key{Pane: pane, Host: opts.orrery}, seen)
 		}, hub.viewer), callerWakeOnDone(&callerWake)},
-		Seen: func(report daemon.SeenReport) {
-			router.Seen(ctx, notice.Key{Pane: report.PaneID, Host: opts.orrery}, report.Seen)
-		},
+		Seen:      hookSeen(ctx, router, opts.orrery),
 		Input:     desk.Input,
 		Viewing:   func(report daemon.ViewReport) { viewing.note(report.Input, report.View) },
-		Read:      func(report daemon.ReadReport) { hub.reads.note(report.PaneID, report.Read) },
+		Read:      hookRead(hub.reads, opts.orrery),
 		Logger:    logger,
 		Mirror:    mirror,
 		TidyStart: tidyStart,
@@ -672,7 +670,7 @@ func serve(ctx context.Context, opts options, logger *slog.Logger, getenv func(s
 	attachStore(ctx, st, mirror, notices, router)
 	hub.attachVerdicts(st)
 	// The host follows write each hosts.toml host's panes into the open store, and stop before the store closes.
-	stopFollows := startHostFollows(ctx, st, getenv, logger)
+	stopFollows := startHostFollows(ctx, st, getenv, logger, hub)
 	var sessions *sessionHost
 	if startErr == nil && opts.sessions {
 		sessions, startErr = startSessions(ctx, opts, host, st, router, pageNotices, logger, getenv)
@@ -2292,40 +2290,56 @@ func (r *relay) viewDone(ctx context.Context, transition daemon.Transition) done
 	return doneView{viewing: viewing}
 }
 
-// readTimes keeps each pane's newest read time. Read reports arrive on connection goroutines and watching checks run
-// on the router's, so it is safe for concurrent use.
+// readTimes keeps each pane's newest read time, keyed by the pane's notice key, so a read of one host's pane never reads
+// as another's. Read reports arrive on connection goroutines and watching checks run on the router's, so it is safe for
+// concurrent use.
 type readTimes struct {
 	mu    sync.Mutex
-	times map[string]int64
+	times map[notice.Key]int64
 }
 
 // newReadTimes returns an empty readTimes.
 func newReadTimes() *readTimes {
-	return &readTimes{times: make(map[string]int64)}
+	return &readTimes{times: make(map[notice.Key]int64)}
 }
 
-// note keeps read as pane's read time when it is newer than the one kept.
-func (rt *readTimes) note(pane string, read int64) {
+// note keeps read as key's read time when it is newer than the one kept.
+func (rt *readTimes) note(key notice.Key, read int64) {
 	rt.mu.Lock()
 	defer rt.mu.Unlock()
-	if read > rt.times[pane] {
-		rt.times[pane] = read
+	if read > rt.times[key] {
+		rt.times[key] = read
 	}
 }
 
-// recent reports whether pane was read within readWindow before now.
-func (rt *readTimes) recent(pane string, now time.Time) bool {
+// recent reports whether key was read within readWindow before now.
+func (rt *readTimes) recent(key notice.Key, now time.Time) bool {
 	rt.mu.Lock()
 	defer rt.mu.Unlock()
-	read, ok := rt.times[pane]
+	read, ok := rt.times[key]
 	return ok && now.Sub(time.Unix(read, 0)) <= readWindow
 }
 
-// forget drops pane's read time when its session ends.
-func (rt *readTimes) forget(pane string) {
+// forget drops key's read time when its session ends.
+func (rt *readTimes) forget(key notice.Key) {
 	rt.mu.Lock()
 	defer rt.mu.Unlock()
-	delete(rt.times, pane)
+	delete(rt.times, key)
+}
+
+// hookSeen returns the Seen callback of the hook socket. A hook frame names a pane alone, and each hook runs on this
+// controller's own tmux, so the report is keyed with orrery, the controller's host, and never with another host's pane.
+func hookSeen(ctx context.Context, router *route.Router, orrery string) func(daemon.SeenReport) {
+	return func(report daemon.SeenReport) {
+		router.Seen(ctx, notice.Key{Pane: report.PaneID, Host: orrery}, report.Seen)
+	}
+}
+
+// hookRead returns the Read callback of the hook socket, which keys each read time with orrery, as hookSeen does.
+func hookRead(reads *readTimes, orrery string) func(daemon.ReadReport) {
+	return func(report daemon.ReadReport) {
+		reads.note(notice.Key{Pane: report.PaneID, Host: orrery}, report.Read)
+	}
 }
 
 // observe requests a summary for a pane that starts working or finishes, hands the notice for a pane that waits for
@@ -2334,7 +2348,7 @@ func (rt *readTimes) forget(pane string) {
 func (r *relay) observe(ctx context.Context, transition daemon.Transition) {
 	if transition.To == "" {
 		r.forget(ctx, transition)
-		r.reads.forget(transition.PaneID)
+		r.reads.forget(notice.Key{Pane: transition.PaneID, Host: r.orrery})
 	}
 	r.checkClosure(ctx, transition)
 	var summarized <-chan struct{}
@@ -2527,7 +2541,7 @@ func (r *relay) judgeDone(transition daemon.Transition) func(context.Context) (r
 // its tmux server shows it with recent input.
 func (r *relay) watching(ctx context.Context, transition daemon.Transition) (bool, error) {
 	now := r.clock()
-	if r.reads.recent(transition.PaneID, now) {
+	if r.reads.recent(notice.Key{Pane: transition.PaneID, Host: r.orrery}, now) {
 		return true, nil
 	}
 	client, err := tmuxClient(transition.Server)
