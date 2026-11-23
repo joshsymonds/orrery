@@ -71,91 +71,101 @@ func listEndedSessions(
 	return endedStates(listSessionRows(t, sessions)), endedStates(listHeadlessRows(t, sessions))
 }
 
-func TestInboxStatesEndedClosedAtCurrentChange(t *testing.T) {
+// TestInboxStatesEndedClosedVerdicts checks the closure verdicts of a pane and a headless session, at the fixed clock
+// closureStart. The cases write the closure ids and their verdicts, which would leak between cases, so each writes its
+// own store.
+func TestInboxStatesEndedClosedVerdicts(t *testing.T) {
 	t.Parallel()
-	path := archiveStorePath(t)
-	clock := &closureClock{now: closureStart()}
-	changed := clock.now.Add(-10 * time.Minute)
-	applyHeadlessAt(t, path, changed, store.EngineAdd{ID: closureHeadlessID, Dir: "/work/ended", State: "done"})
-	syncClosurePane(t, path, stamp(changed), "", changed)
-	setClosureVerdict(t, path, closureVerdictOf(closureHeadlessID, changed, true), clock.now)
-	setClosureVerdict(t, path, closureVerdictOf(closurePaneID, changed, true), clock.now)
+	t.Run("ClosedAtCurrentChange", func(t *testing.T) {
+		t.Parallel()
+		path := archiveStorePath(t)
+		clock := &closureClock{now: closureStart()}
+		changed := clock.now.Add(-10 * time.Minute)
+		applyHeadlessAt(t, path, changed, store.EngineAdd{ID: closureHeadlessID, Dir: "/work/ended", State: "done"})
+		syncClosurePane(t, path, stamp(changed), "", changed)
+		setClosureVerdict(t, path, closureVerdictOf(closureHeadlessID, changed, true), clock.now)
+		setClosureVerdict(t, path, closureVerdictOf(closurePaneID, changed, true), clock.now)
 
-	panes, headless := listEndedSessions(t, path, clock.Now)
-	want := endedRowState{ended: true, endedAt: changed.Unix()}
-	expectEnded(t, "Sessions.List", panes, map[string]endedRowState{closurePaneID: want})
-	expectEnded(t, "ListHeadless", headless, map[string]endedRowState{closureHeadlessID: want})
-}
-
-func TestInboxStatesEndedStoppedHeadless(t *testing.T) {
-	t.Parallel()
-	path := archiveStorePath(t)
-	clock := &closureClock{now: closureStart()}
-	changed := clock.now.Add(-10 * time.Minute)
-	applyHeadlessAt(t, path, changed, store.EngineAdd{ID: closureHeadlessID, Dir: "/work/stopped", State: "stopped"})
-
-	_, headless := listEndedSessions(t, path, clock.Now)
-	want := endedRowState{ended: true, endedAt: changed.Unix()}
-	expectEnded(t, "ListHeadless", headless, map[string]endedRowState{closureHeadlessID: want})
-}
-
-func TestInboxStatesEndedVerdictForEarlierChange(t *testing.T) {
-	t.Parallel()
-	path := archiveStorePath(t)
-	clock := &closureClock{now: closureStart()}
-	closedAt := clock.now.Add(-2 * time.Hour)
-	laterAt := clock.now.Add(-10 * time.Minute)
-	applyHeadlessAt(t, path, closedAt, store.EngineAdd{ID: closureHeadlessID, Dir: "/work/earlier", State: "idle"})
-	syncClosurePane(t, path, stamp(closedAt), "", closedAt)
-	setClosureVerdict(t, path, closureVerdictOf(closureHeadlessID, closedAt, true), closedAt)
-	setClosureVerdict(t, path, closureVerdictOf(closurePaneID, closedAt, true), closedAt)
-	applyHeadlessAt(t, path, laterAt, store.EngineSet{
-		ID: closureHeadlessID, Changes: store.EngineChanges{State: new("working")},
+		panes, headless := listEndedSessions(t, path, clock.Now)
+		want := endedRowState{ended: true, endedAt: changed.Unix()}
+		expectEnded(t, "Sessions.List", panes, map[string]endedRowState{closurePaneID: want})
+		expectEnded(t, "ListHeadless", headless, map[string]endedRowState{closureHeadlessID: want})
 	})
-	syncClosurePane(t, path, stamp(laterAt), "", laterAt)
+	t.Run("VerdictForEarlierChange", func(t *testing.T) {
+		t.Parallel()
+		path := archiveStorePath(t)
+		clock := &closureClock{now: closureStart()}
+		closedAt := clock.now.Add(-2 * time.Hour)
+		laterAt := clock.now.Add(-10 * time.Minute)
+		applyHeadlessAt(t, path, closedAt, store.EngineAdd{ID: closureHeadlessID, Dir: "/work/earlier", State: "idle"})
+		syncClosurePane(t, path, stamp(closedAt), "", closedAt)
+		setClosureVerdict(t, path, closureVerdictOf(closureHeadlessID, closedAt, true), closedAt)
+		setClosureVerdict(t, path, closureVerdictOf(closurePaneID, closedAt, true), closedAt)
+		applyHeadlessAt(t, path, laterAt, store.EngineSet{
+			ID: closureHeadlessID, Changes: store.EngineChanges{State: new("working")},
+		})
+		syncClosurePane(t, path, stamp(laterAt), "", laterAt)
 
-	panes, headless := listEndedSessions(t, path, clock.Now)
-	want := endedRowState{}
-	expectEnded(t, "Sessions.List", panes, map[string]endedRowState{closurePaneID: want})
-	expectEnded(t, "ListHeadless", headless, map[string]endedRowState{closureHeadlessID: want})
-}
-
-func TestInboxStatesEndedNotClosedVerdict(t *testing.T) {
-	t.Parallel()
-	path := archiveStorePath(t)
-	clock := &closureClock{now: closureStart()}
-	changed := clock.now.Add(-10 * time.Minute)
-	applyHeadlessAt(t, path, changed, store.EngineAdd{ID: closureHeadlessID, Dir: "/work/open", State: "idle"})
-	syncClosurePane(t, path, stamp(changed), "", changed)
-	setClosureVerdict(t, path, closureVerdictOf(closureHeadlessID, changed, false), clock.now)
-	setClosureVerdict(t, path, closureVerdictOf(closurePaneID, changed, false), clock.now)
-
-	panes, headless := listEndedSessions(t, path, clock.Now)
-	want := endedRowState{}
-	expectEnded(t, "Sessions.List", panes, map[string]endedRowState{closurePaneID: want})
-	expectEnded(t, "ListHeadless", headless, map[string]endedRowState{closureHeadlessID: want})
-}
-
-func TestInboxStatesEndedOpenStatesWithoutVerdict(t *testing.T) {
-	t.Parallel()
-	path := archiveStorePath(t)
-	clock := &closureClock{now: closureStart()}
-	changed := clock.now.Add(-10 * time.Minute)
-	for id, state := range map[string]string{
-		endedWorkingID: "working", endedWaitingID: "waiting", endedDoneID: "done", endedFailedID: "failed",
-	} {
-		applyHeadlessAt(t, path, changed, store.EngineAdd{ID: id, Dir: "/work/" + state, State: state})
-	}
-	for id, state := range map[string]string{endedPaneWork: "working", endedPaneWait: "waiting", endedPaneDone: "done"} {
-		syncEndedPane(t, path, id, state, changed)
-	}
-
-	panes, headless := listEndedSessions(t, path, clock.Now)
-	none := endedRowState{}
-	expectEnded(t, "Sessions.List", panes, map[string]endedRowState{
-		endedPaneWork: none, endedPaneWait: none, endedPaneDone: none,
+		panes, headless := listEndedSessions(t, path, clock.Now)
+		want := endedRowState{}
+		expectEnded(t, "Sessions.List", panes, map[string]endedRowState{closurePaneID: want})
+		expectEnded(t, "ListHeadless", headless, map[string]endedRowState{closureHeadlessID: want})
 	})
-	expectEnded(t, "ListHeadless", headless, map[string]endedRowState{
-		endedWorkingID: none, endedWaitingID: none, endedDoneID: none, endedFailedID: none,
+	t.Run("NotClosedVerdict", func(t *testing.T) {
+		t.Parallel()
+		path := archiveStorePath(t)
+		clock := &closureClock{now: closureStart()}
+		changed := clock.now.Add(-10 * time.Minute)
+		applyHeadlessAt(t, path, changed, store.EngineAdd{ID: closureHeadlessID, Dir: "/work/open", State: "idle"})
+		syncClosurePane(t, path, stamp(changed), "", changed)
+		setClosureVerdict(t, path, closureVerdictOf(closureHeadlessID, changed, false), clock.now)
+		setClosureVerdict(t, path, closureVerdictOf(closurePaneID, changed, false), clock.now)
+
+		panes, headless := listEndedSessions(t, path, clock.Now)
+		want := endedRowState{}
+		expectEnded(t, "Sessions.List", panes, map[string]endedRowState{closurePaneID: want})
+		expectEnded(t, "ListHeadless", headless, map[string]endedRowState{closureHeadlessID: want})
+	})
+}
+
+// TestInboxStatesEndedWithoutVerdicts checks the states that list ended without a verdict, and the open states that
+// list it false, at the fixed clock closureStart. Neither case writes a verdict, so they share one store and one
+// Sessions client, and each checks its own rows.
+func TestInboxStatesEndedWithoutVerdicts(t *testing.T) {
+	t.Parallel()
+	path := archiveStorePath(t)
+	clock := &closureClock{now: closureStart()}
+	changed := clock.now.Add(-10 * time.Minute)
+	applyHeadlessAt(t, path, changed,
+		store.EngineAdd{ID: closureHeadlessID, Dir: "/work/stopped", State: "stopped"},
+		store.EngineAdd{ID: endedWorkingID, Dir: "/work/working", State: "working"},
+		store.EngineAdd{ID: endedWaitingID, Dir: "/work/waiting", State: "waiting"},
+		store.EngineAdd{ID: endedDoneID, Dir: "/work/done", State: "done"},
+		store.EngineAdd{ID: endedFailedID, Dir: "/work/failed", State: "failed"},
+	)
+	syncEndedPane(t, path, endedPaneWork, "working", changed)
+	syncEndedPane(t, path, endedPaneWait, "waiting", changed)
+	syncEndedPane(t, path, endedPaneDone, "done", changed)
+	sessions := sessionsClientAt(t, pooledReader(t, path), clock.Now)
+
+	t.Run("StoppedHeadless", func(t *testing.T) {
+		t.Parallel()
+		headless := endedStates(listHeadlessRows(t, sessions))
+		want := endedRowState{ended: true, endedAt: changed.Unix()}
+		expectEnded(t, "ListHeadless",
+			restrictTo(headless, map[string]endedRowState{closureHeadlessID: want}),
+			map[string]endedRowState{closureHeadlessID: want})
+	})
+	t.Run("OpenStatesWithoutVerdict", func(t *testing.T) {
+		t.Parallel()
+		panes := endedStates(listSessionRows(t, sessions))
+		headless := endedStates(listHeadlessRows(t, sessions))
+		none := endedRowState{}
+		wantPanes := map[string]endedRowState{endedPaneWork: none, endedPaneWait: none, endedPaneDone: none}
+		expectEnded(t, "Sessions.List", restrictTo(panes, wantPanes), wantPanes)
+		wantHeadless := map[string]endedRowState{
+			endedWorkingID: none, endedWaitingID: none, endedDoneID: none, endedFailedID: none,
+		}
+		expectEnded(t, "ListHeadless", restrictTo(headless, wantHeadless), wantHeadless)
 	})
 }
