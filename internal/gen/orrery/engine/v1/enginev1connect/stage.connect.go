@@ -47,6 +47,22 @@ const (
 	StageDisposeProcedure = "/orrery.engine.v1.Stage/Dispose"
 	// StageGetStageProcedure is the fully-qualified name of the Stage's GetStage RPC.
 	StageGetStageProcedure = "/orrery.engine.v1.Stage/GetStage"
+	// StageApproachProcedure is the fully-qualified name of the Stage's Approach RPC.
+	StageApproachProcedure = "/orrery.engine.v1.Stage/Approach"
+	// StageChooseProcedure is the fully-qualified name of the Stage's Choose RPC.
+	StageChooseProcedure = "/orrery.engine.v1.Stage/Choose"
+	// StageDelegateProcedure is the fully-qualified name of the Stage's Delegate RPC.
+	StageDelegateProcedure = "/orrery.engine.v1.Stage/Delegate"
+	// StageWriteRowProcedure is the fully-qualified name of the Stage's WriteRow RPC.
+	StageWriteRowProcedure = "/orrery.engine.v1.Stage/WriteRow"
+	// StageKeepProcedure is the fully-qualified name of the Stage's Keep RPC.
+	StageKeepProcedure = "/orrery.engine.v1.Stage/Keep"
+	// StageStrikeProcedure is the fully-qualified name of the Stage's Strike RPC.
+	StageStrikeProcedure = "/orrery.engine.v1.Stage/Strike"
+	// StageShownProcedure is the fully-qualified name of the Stage's Shown RPC.
+	StageShownProcedure = "/orrery.engine.v1.Stage/Shown"
+	// StageContinueDesignProcedure is the fully-qualified name of the Stage's ContinueDesign RPC.
+	StageContinueDesignProcedure = "/orrery.engine.v1.Stage/ContinueDesign"
 )
 
 // StageClient is a client for the orrery.engine.v1.Stage service.
@@ -65,6 +81,23 @@ type StageClient interface {
 	Dispose(context.Context, *connect.Request[v1.DisposeRequest]) (*connect.Response[v1.DisposeResponse], error)
 	// GetStage returns the stage of one design: its steps, questions, ledger and counts.
 	GetStage(context.Context, *connect.Request[v1.GetStageRequest]) (*connect.Response[v1.GetStageResponse], error)
+	// Approach stores an approach a design's stage weighs, with its cost and what it wins and loses, and returns it.
+	Approach(context.Context, *connect.Request[v1.ApproachRequest]) (*connect.Response[v1.ApproachResponse], error)
+	// Choose stores the approach the owner chose for a design, with the maker it came from, and returns the choice.
+	Choose(context.Context, *connect.Request[v1.ChooseRequest]) (*connect.Response[v1.ChooseResponse], error)
+	// Delegate stores the owner's delegation of a design's decisions to the conversation, and returns it.
+	Delegate(context.Context, *connect.Request[v1.DelegateRequest]) (*connect.Response[v1.DelegateResponse], error)
+	// WriteRow stores a write to a row of a contract's body, with the maker it came from, and returns the write.
+	WriteRow(context.Context, *connect.Request[v1.WriteRowRequest]) (*connect.Response[v1.WriteRowResponse], error)
+	// Keep stores an addition a contract keeps, with the maker it came from, and returns the write.
+	Keep(context.Context, *connect.Request[v1.KeepRequest]) (*connect.Response[v1.KeepResponse], error)
+	// Strike stores the striking of an addition a contract keeps, with the maker it came from, and returns the write
+	// and the rows it removed.
+	Strike(context.Context, *connect.Request[v1.StrikeRequest]) (*connect.Response[v1.StrikeResponse], error)
+	// Shown stores the rows of a contract version the owner was shown, and returns the rows it stored.
+	Shown(context.Context, *connect.Request[v1.ShownRequest]) (*connect.Response[v1.ShownResponse], error)
+	// ContinueDesign returns a design and the session that continues its stage.
+	ContinueDesign(context.Context, *connect.Request[v1.ContinueDesignRequest]) (*connect.Response[v1.ContinueDesignResponse], error)
 }
 
 // NewStageClient constructs a client for the orrery.engine.v1.Stage service. By default, it uses
@@ -120,18 +153,74 @@ func NewStageClient(httpClient connect.HTTPClient, baseURL string, opts ...conne
 			connect.WithSchema(stageMethods.ByName("GetStage")),
 			connect.WithClientOptions(opts...),
 		),
+		approach: connect.NewClient[v1.ApproachRequest, v1.ApproachResponse](
+			httpClient,
+			baseURL+StageApproachProcedure,
+			connect.WithSchema(stageMethods.ByName("Approach")),
+			connect.WithClientOptions(opts...),
+		),
+		choose: connect.NewClient[v1.ChooseRequest, v1.ChooseResponse](
+			httpClient,
+			baseURL+StageChooseProcedure,
+			connect.WithSchema(stageMethods.ByName("Choose")),
+			connect.WithClientOptions(opts...),
+		),
+		delegate: connect.NewClient[v1.DelegateRequest, v1.DelegateResponse](
+			httpClient,
+			baseURL+StageDelegateProcedure,
+			connect.WithSchema(stageMethods.ByName("Delegate")),
+			connect.WithClientOptions(opts...),
+		),
+		writeRow: connect.NewClient[v1.WriteRowRequest, v1.WriteRowResponse](
+			httpClient,
+			baseURL+StageWriteRowProcedure,
+			connect.WithSchema(stageMethods.ByName("WriteRow")),
+			connect.WithClientOptions(opts...),
+		),
+		keep: connect.NewClient[v1.KeepRequest, v1.KeepResponse](
+			httpClient,
+			baseURL+StageKeepProcedure,
+			connect.WithSchema(stageMethods.ByName("Keep")),
+			connect.WithClientOptions(opts...),
+		),
+		strike: connect.NewClient[v1.StrikeRequest, v1.StrikeResponse](
+			httpClient,
+			baseURL+StageStrikeProcedure,
+			connect.WithSchema(stageMethods.ByName("Strike")),
+			connect.WithClientOptions(opts...),
+		),
+		shown: connect.NewClient[v1.ShownRequest, v1.ShownResponse](
+			httpClient,
+			baseURL+StageShownProcedure,
+			connect.WithSchema(stageMethods.ByName("Shown")),
+			connect.WithClientOptions(opts...),
+		),
+		continueDesign: connect.NewClient[v1.ContinueDesignRequest, v1.ContinueDesignResponse](
+			httpClient,
+			baseURL+StageContinueDesignProcedure,
+			connect.WithSchema(stageMethods.ByName("ContinueDesign")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
 // stageClient implements StageClient.
 type stageClient struct {
-	research  *connect.Client[v1.ResearchRequest, v1.ResearchResponse]
-	reproduce *connect.Client[v1.ReproduceRequest, v1.ReproduceResponse]
-	steelman  *connect.Client[v1.SteelmanRequest, v1.SteelmanResponse]
-	ask       *connect.Client[v1.AskRequest, v1.AskResponse]
-	answer    *connect.Client[v1.StageAnswerRequest, v1.StageAnswerResponse]
-	dispose   *connect.Client[v1.DisposeRequest, v1.DisposeResponse]
-	getStage  *connect.Client[v1.GetStageRequest, v1.GetStageResponse]
+	research       *connect.Client[v1.ResearchRequest, v1.ResearchResponse]
+	reproduce      *connect.Client[v1.ReproduceRequest, v1.ReproduceResponse]
+	steelman       *connect.Client[v1.SteelmanRequest, v1.SteelmanResponse]
+	ask            *connect.Client[v1.AskRequest, v1.AskResponse]
+	answer         *connect.Client[v1.StageAnswerRequest, v1.StageAnswerResponse]
+	dispose        *connect.Client[v1.DisposeRequest, v1.DisposeResponse]
+	getStage       *connect.Client[v1.GetStageRequest, v1.GetStageResponse]
+	approach       *connect.Client[v1.ApproachRequest, v1.ApproachResponse]
+	choose         *connect.Client[v1.ChooseRequest, v1.ChooseResponse]
+	delegate       *connect.Client[v1.DelegateRequest, v1.DelegateResponse]
+	writeRow       *connect.Client[v1.WriteRowRequest, v1.WriteRowResponse]
+	keep           *connect.Client[v1.KeepRequest, v1.KeepResponse]
+	strike         *connect.Client[v1.StrikeRequest, v1.StrikeResponse]
+	shown          *connect.Client[v1.ShownRequest, v1.ShownResponse]
+	continueDesign *connect.Client[v1.ContinueDesignRequest, v1.ContinueDesignResponse]
 }
 
 // Research calls orrery.engine.v1.Stage.Research.
@@ -169,6 +258,46 @@ func (c *stageClient) GetStage(ctx context.Context, req *connect.Request[v1.GetS
 	return c.getStage.CallUnary(ctx, req)
 }
 
+// Approach calls orrery.engine.v1.Stage.Approach.
+func (c *stageClient) Approach(ctx context.Context, req *connect.Request[v1.ApproachRequest]) (*connect.Response[v1.ApproachResponse], error) {
+	return c.approach.CallUnary(ctx, req)
+}
+
+// Choose calls orrery.engine.v1.Stage.Choose.
+func (c *stageClient) Choose(ctx context.Context, req *connect.Request[v1.ChooseRequest]) (*connect.Response[v1.ChooseResponse], error) {
+	return c.choose.CallUnary(ctx, req)
+}
+
+// Delegate calls orrery.engine.v1.Stage.Delegate.
+func (c *stageClient) Delegate(ctx context.Context, req *connect.Request[v1.DelegateRequest]) (*connect.Response[v1.DelegateResponse], error) {
+	return c.delegate.CallUnary(ctx, req)
+}
+
+// WriteRow calls orrery.engine.v1.Stage.WriteRow.
+func (c *stageClient) WriteRow(ctx context.Context, req *connect.Request[v1.WriteRowRequest]) (*connect.Response[v1.WriteRowResponse], error) {
+	return c.writeRow.CallUnary(ctx, req)
+}
+
+// Keep calls orrery.engine.v1.Stage.Keep.
+func (c *stageClient) Keep(ctx context.Context, req *connect.Request[v1.KeepRequest]) (*connect.Response[v1.KeepResponse], error) {
+	return c.keep.CallUnary(ctx, req)
+}
+
+// Strike calls orrery.engine.v1.Stage.Strike.
+func (c *stageClient) Strike(ctx context.Context, req *connect.Request[v1.StrikeRequest]) (*connect.Response[v1.StrikeResponse], error) {
+	return c.strike.CallUnary(ctx, req)
+}
+
+// Shown calls orrery.engine.v1.Stage.Shown.
+func (c *stageClient) Shown(ctx context.Context, req *connect.Request[v1.ShownRequest]) (*connect.Response[v1.ShownResponse], error) {
+	return c.shown.CallUnary(ctx, req)
+}
+
+// ContinueDesign calls orrery.engine.v1.Stage.ContinueDesign.
+func (c *stageClient) ContinueDesign(ctx context.Context, req *connect.Request[v1.ContinueDesignRequest]) (*connect.Response[v1.ContinueDesignResponse], error) {
+	return c.continueDesign.CallUnary(ctx, req)
+}
+
 // StageHandler is an implementation of the orrery.engine.v1.Stage service.
 type StageHandler interface {
 	// Research starts a read-only scout step on a design and stores its report on the design.
@@ -185,6 +314,23 @@ type StageHandler interface {
 	Dispose(context.Context, *connect.Request[v1.DisposeRequest]) (*connect.Response[v1.DisposeResponse], error)
 	// GetStage returns the stage of one design: its steps, questions, ledger and counts.
 	GetStage(context.Context, *connect.Request[v1.GetStageRequest]) (*connect.Response[v1.GetStageResponse], error)
+	// Approach stores an approach a design's stage weighs, with its cost and what it wins and loses, and returns it.
+	Approach(context.Context, *connect.Request[v1.ApproachRequest]) (*connect.Response[v1.ApproachResponse], error)
+	// Choose stores the approach the owner chose for a design, with the maker it came from, and returns the choice.
+	Choose(context.Context, *connect.Request[v1.ChooseRequest]) (*connect.Response[v1.ChooseResponse], error)
+	// Delegate stores the owner's delegation of a design's decisions to the conversation, and returns it.
+	Delegate(context.Context, *connect.Request[v1.DelegateRequest]) (*connect.Response[v1.DelegateResponse], error)
+	// WriteRow stores a write to a row of a contract's body, with the maker it came from, and returns the write.
+	WriteRow(context.Context, *connect.Request[v1.WriteRowRequest]) (*connect.Response[v1.WriteRowResponse], error)
+	// Keep stores an addition a contract keeps, with the maker it came from, and returns the write.
+	Keep(context.Context, *connect.Request[v1.KeepRequest]) (*connect.Response[v1.KeepResponse], error)
+	// Strike stores the striking of an addition a contract keeps, with the maker it came from, and returns the write
+	// and the rows it removed.
+	Strike(context.Context, *connect.Request[v1.StrikeRequest]) (*connect.Response[v1.StrikeResponse], error)
+	// Shown stores the rows of a contract version the owner was shown, and returns the rows it stored.
+	Shown(context.Context, *connect.Request[v1.ShownRequest]) (*connect.Response[v1.ShownResponse], error)
+	// ContinueDesign returns a design and the session that continues its stage.
+	ContinueDesign(context.Context, *connect.Request[v1.ContinueDesignRequest]) (*connect.Response[v1.ContinueDesignResponse], error)
 }
 
 // NewStageHandler builds an HTTP handler from the service implementation. It returns the path on
@@ -236,6 +382,54 @@ func NewStageHandler(svc StageHandler, opts ...connect.HandlerOption) (string, h
 		connect.WithSchema(stageMethods.ByName("GetStage")),
 		connect.WithHandlerOptions(opts...),
 	)
+	stageApproachHandler := connect.NewUnaryHandler(
+		StageApproachProcedure,
+		svc.Approach,
+		connect.WithSchema(stageMethods.ByName("Approach")),
+		connect.WithHandlerOptions(opts...),
+	)
+	stageChooseHandler := connect.NewUnaryHandler(
+		StageChooseProcedure,
+		svc.Choose,
+		connect.WithSchema(stageMethods.ByName("Choose")),
+		connect.WithHandlerOptions(opts...),
+	)
+	stageDelegateHandler := connect.NewUnaryHandler(
+		StageDelegateProcedure,
+		svc.Delegate,
+		connect.WithSchema(stageMethods.ByName("Delegate")),
+		connect.WithHandlerOptions(opts...),
+	)
+	stageWriteRowHandler := connect.NewUnaryHandler(
+		StageWriteRowProcedure,
+		svc.WriteRow,
+		connect.WithSchema(stageMethods.ByName("WriteRow")),
+		connect.WithHandlerOptions(opts...),
+	)
+	stageKeepHandler := connect.NewUnaryHandler(
+		StageKeepProcedure,
+		svc.Keep,
+		connect.WithSchema(stageMethods.ByName("Keep")),
+		connect.WithHandlerOptions(opts...),
+	)
+	stageStrikeHandler := connect.NewUnaryHandler(
+		StageStrikeProcedure,
+		svc.Strike,
+		connect.WithSchema(stageMethods.ByName("Strike")),
+		connect.WithHandlerOptions(opts...),
+	)
+	stageShownHandler := connect.NewUnaryHandler(
+		StageShownProcedure,
+		svc.Shown,
+		connect.WithSchema(stageMethods.ByName("Shown")),
+		connect.WithHandlerOptions(opts...),
+	)
+	stageContinueDesignHandler := connect.NewUnaryHandler(
+		StageContinueDesignProcedure,
+		svc.ContinueDesign,
+		connect.WithSchema(stageMethods.ByName("ContinueDesign")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/orrery.engine.v1.Stage/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case StageResearchProcedure:
@@ -252,6 +446,22 @@ func NewStageHandler(svc StageHandler, opts ...connect.HandlerOption) (string, h
 			stageDisposeHandler.ServeHTTP(w, r)
 		case StageGetStageProcedure:
 			stageGetStageHandler.ServeHTTP(w, r)
+		case StageApproachProcedure:
+			stageApproachHandler.ServeHTTP(w, r)
+		case StageChooseProcedure:
+			stageChooseHandler.ServeHTTP(w, r)
+		case StageDelegateProcedure:
+			stageDelegateHandler.ServeHTTP(w, r)
+		case StageWriteRowProcedure:
+			stageWriteRowHandler.ServeHTTP(w, r)
+		case StageKeepProcedure:
+			stageKeepHandler.ServeHTTP(w, r)
+		case StageStrikeProcedure:
+			stageStrikeHandler.ServeHTTP(w, r)
+		case StageShownProcedure:
+			stageShownHandler.ServeHTTP(w, r)
+		case StageContinueDesignProcedure:
+			stageContinueDesignHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -287,4 +497,36 @@ func (UnimplementedStageHandler) Dispose(context.Context, *connect.Request[v1.Di
 
 func (UnimplementedStageHandler) GetStage(context.Context, *connect.Request[v1.GetStageRequest]) (*connect.Response[v1.GetStageResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orrery.engine.v1.Stage.GetStage is not implemented"))
+}
+
+func (UnimplementedStageHandler) Approach(context.Context, *connect.Request[v1.ApproachRequest]) (*connect.Response[v1.ApproachResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orrery.engine.v1.Stage.Approach is not implemented"))
+}
+
+func (UnimplementedStageHandler) Choose(context.Context, *connect.Request[v1.ChooseRequest]) (*connect.Response[v1.ChooseResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orrery.engine.v1.Stage.Choose is not implemented"))
+}
+
+func (UnimplementedStageHandler) Delegate(context.Context, *connect.Request[v1.DelegateRequest]) (*connect.Response[v1.DelegateResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orrery.engine.v1.Stage.Delegate is not implemented"))
+}
+
+func (UnimplementedStageHandler) WriteRow(context.Context, *connect.Request[v1.WriteRowRequest]) (*connect.Response[v1.WriteRowResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orrery.engine.v1.Stage.WriteRow is not implemented"))
+}
+
+func (UnimplementedStageHandler) Keep(context.Context, *connect.Request[v1.KeepRequest]) (*connect.Response[v1.KeepResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orrery.engine.v1.Stage.Keep is not implemented"))
+}
+
+func (UnimplementedStageHandler) Strike(context.Context, *connect.Request[v1.StrikeRequest]) (*connect.Response[v1.StrikeResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orrery.engine.v1.Stage.Strike is not implemented"))
+}
+
+func (UnimplementedStageHandler) Shown(context.Context, *connect.Request[v1.ShownRequest]) (*connect.Response[v1.ShownResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orrery.engine.v1.Stage.Shown is not implemented"))
+}
+
+func (UnimplementedStageHandler) ContinueDesign(context.Context, *connect.Request[v1.ContinueDesignRequest]) (*connect.Response[v1.ContinueDesignResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orrery.engine.v1.Stage.ContinueDesign is not implemented"))
 }
