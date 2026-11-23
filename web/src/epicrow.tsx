@@ -245,7 +245,7 @@ function EpicSteps({
           >
             <StateGlyph state={state} />
             <span class="label">{step.label}</span>
-            {step.pips.length > 0 && <Pips cells={step.pips.map((kind) => pipTone[kind])} />}
+            {step.step.task !== "" && <Pips cells={step.pips.map((kind) => pipTone[kind])} />}
             <span class="doing">{step.doing}</span>
           </div>
         );
