@@ -36,6 +36,27 @@ type evidenceGetArgs struct {
 	Match  string `json:"match,omitempty"  jsonschema:"return only lines that contain this text"`
 }
 
+// evidenceCaptureArgs is the arguments of evidence_capture, described for its input schema. The handler decodes the
+// arguments with protojson, which refuses an unknown key, so the struct is never decoded into.
+type evidenceCaptureArgs struct {
+	Commit string   `json:"commit"            jsonschema:"the commit the command runs at"`
+	Argv   []string `json:"argv"              jsonschema:"the command to run, as its argv; at least one element"`
+	Runner string   `json:"runner,omitempty"  jsonschema:"the project runner the command runs under, or local"`
+	Briefs []string `json:"briefs"            jsonschema:"the ids of the evidence runs the capture is for; at least one"`
+	Files  []string `json:"files,omitempty"   jsonschema:"repository-relative paths of the files to keep"`
+}
+
+// evidenceAttachArgs is the arguments of evidence_attach, described for its input schema as evidenceCaptureArgs is.
+type evidenceAttachArgs struct {
+	Capture string   `json:"capture" jsonschema:"the id of the capture to attach"`
+	Briefs  []string `json:"briefs"  jsonschema:"the ids of the evidence runs to attach the capture to; at least one"`
+}
+
+// captureNext is the next of evidence_capture's result: what the caller does with the started capture. Its end arrives
+// as an event, so the caller does not poll.
+const captureNext = "The capture runs in the background. Its end arrives in this conversation as an orrery-event, " +
+	"so do not poll for it."
+
 // evidenceTools returns the evidence tools, each calling evidence.
 func evidenceTools(evidence enginev1connect.EvidenceClient) ([]Tool, error) {
 	runInput, err := argumentSchema[evidenceRunArgs](nil)
@@ -47,6 +68,14 @@ func evidenceTools(evidence enginev1connect.EvidenceClient) ([]Tool, error) {
 		return nil, err
 	}
 	getInput, err := argumentSchema[evidenceGetArgs](nil)
+	if err != nil {
+		return nil, err
+	}
+	captureInput, err := argumentSchema[evidenceCaptureArgs](nil)
+	if err != nil {
+		return nil, err
+	}
+	attachInput, err := argumentSchema[evidenceAttachArgs](nil)
 	if err != nil {
 		return nil, err
 	}
@@ -72,6 +101,19 @@ func evidenceTools(evidence enginev1connect.EvidenceClient) ([]Tool, error) {
 				"Other bytes come back as base64.",
 			InputSchema: getInput,
 			Handler:     evidenceGetHandler(evidence),
+		},
+		{
+			Name: "evidence_capture",
+			Description: "Run a command at a commit under a project runner, as a capture of the evidence runs in briefs. " +
+				"Returns the capture id and says its end arrives as an event.",
+			InputSchema: captureInput,
+			Handler:     evidenceCaptureHandler(evidence),
+		},
+		{
+			Name:        "evidence_attach",
+			Description: "Attach a capture to the evidence runs in briefs. Returns the runs it moved.",
+			InputSchema: attachInput,
+			Handler:     evidenceAttachHandler(evidence),
 		},
 	}, nil
 }
@@ -128,4 +170,59 @@ func evidenceGetHandler(evidence enginev1connect.EvidenceClient) ToolHandler {
 		}
 		return ToolResult{Content: []Content{{Type: textContentType, Text: evidenceGetText(args, got.Msg)}}}, nil
 	}
+}
+
+// evidenceCaptureHandler answers evidence_capture. It refuses a missing commit, argv or briefs before the capture is
+// asked for, and answers with the capture id and captureNext.
+func evidenceCaptureHandler(evidence enginev1connect.EvidenceClient) ToolHandler {
+	return func(ctx context.Context, call Call) (ToolResult, error) {
+		var req v1.CaptureEvidenceRequest
+		if err := decodeProto(call.Arguments, &req); err != nil {
+			return ToolResult{}, err
+		}
+		if err := requireString("commit", req.GetCommit()); err != nil {
+			return ToolResult{}, err
+		}
+		if err := requireList("argv", req.GetArgv()); err != nil {
+			return ToolResult{}, err
+		}
+		if err := requireList("briefs", req.GetBriefs()); err != nil {
+			return ToolResult{}, err
+		}
+		captured, err := evidence.CaptureEvidence(ctx, connect.NewRequest(&req))
+		if err != nil {
+			return toolFailure(err), nil
+		}
+		return textResult(map[string]string{"capture": captured.Msg.GetCapture(), "next": captureNext})
+	}
+}
+
+// evidenceAttachHandler answers evidence_attach. It refuses a missing capture or briefs before the attach is asked for,
+// and answers with the runs the attach moved.
+func evidenceAttachHandler(evidence enginev1connect.EvidenceClient) ToolHandler {
+	return func(ctx context.Context, call Call) (ToolResult, error) {
+		var req v1.AttachEvidenceRequest
+		if err := decodeProto(call.Arguments, &req); err != nil {
+			return ToolResult{}, err
+		}
+		if err := requireString("capture", req.GetCapture()); err != nil {
+			return ToolResult{}, err
+		}
+		if err := requireList("briefs", req.GetBriefs()); err != nil {
+			return ToolResult{}, err
+		}
+		attached, err := evidence.AttachEvidence(ctx, connect.NewRequest(&req))
+		if err != nil {
+			return toolFailure(err), nil
+		}
+		return protoResult(attached.Msg)
+	}
+}
+
+// requireList reports an error naming field when values is empty.
+func requireList(field string, values []string) error {
+	if len(values) == 0 {
+		return errors.New(field + " is required")
+	}
+	return nil
 }
