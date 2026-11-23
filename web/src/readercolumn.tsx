@@ -206,6 +206,7 @@ export function ReaderColumn({
   stepInputs,
   ended,
   activity,
+  held,
 }: ReaderColumnProps): JSX.Element {
   const names = columnNames[column];
   const rowKey = row?.key ?? "";
@@ -248,7 +249,12 @@ export function ReaderColumn({
     }
   };
   return (
-    <section ref={section} class={names.section} aria-label={names.label} hidden={row === null && step === null}>
+    <section
+      ref={section}
+      class={held === undefined ? names.section : `${names.section} held`}
+      aria-label={names.label}
+      hidden={row === null && step === null}
+    >
       {row !== null && !bare && (
         <Head
           {...head(row, conversation)}
@@ -267,6 +273,7 @@ export function ReaderColumn({
           onOpenEpic={onOpenEpic}
         />
       )}
+      {held}
       {finding !== null && (
         <FindBar
           query={finding.query}

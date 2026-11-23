@@ -356,7 +356,9 @@ test("EndedBar: an ended epic and a record epic with no steerer draw the no-conv
       assert.ok(middle !== null, "the middle section is drawn");
       assert.equal(middle.textContent?.includes("No conversation steers this epic."), true, "the no-conversation line is drawn");
       assert.equal(middle.querySelector(".ended-bar"), null, "no bar is drawn");
-      assert.equal(middle.querySelectorAll("button").length, 0, "no control is drawn");
+      const own = [...middle.querySelectorAll("button")].filter((control) => control.closest("article.held-card") === null);
+      assert.equal(own.length, 0, "the middle draws no control of its own beside the card");
+      assert.ok(middle.querySelector('article.held-card button[aria-label="Fold back"]') !== null, "the card draws its Fold back");
     });
   }
 });

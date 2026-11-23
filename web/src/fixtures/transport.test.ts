@@ -139,11 +139,11 @@ function epicHandover(root: HTMLElement): boolean {
   return root.querySelector(".steer-menu") !== null;
 }
 
-// epicTalk is Page/epic-talk: under 1250px the epic panel lies over the conversation, and the conversation's reader holds
-// the planning prompt beneath it.
+// epicTalk is Page/epic-talk: under 1250px the epic's held card is drawn in the overlaid layout, and the conversation's
+// reader holds the planning prompt beside it.
 function epicTalk(root: HTMLElement): boolean {
   return (
-    root.querySelector(".panes.overlay aside.rpanel") !== null &&
+    root.querySelector(".panes.overlay .held-card") !== null &&
     root.querySelector('section[aria-label="reader"]')?.textContent.includes(rotaPrompt) === true
   );
 }
@@ -1514,7 +1514,7 @@ test("FixtureTransport: page/epic-moved draws pane %11's conversation in the mid
     (root) => {
       assertNoFailure(root);
       assert.equal(root.querySelector('section[aria-label="reader"]')?.textContent.includes(lampFragment), true, "pane %11's conversation is in the middle");
-      assert.ok(root.querySelector("aside.rpanel .epic-page") !== null, "the epic page is in the panel");
+      assert.ok(root.querySelector("article.held-card .epic-page") !== null, "the epic page is in the held card");
       assert.ok(logTexts(root).includes(movedLog), "the log holds the owner's move");
     },
   );

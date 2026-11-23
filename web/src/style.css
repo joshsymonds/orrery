@@ -1246,10 +1246,10 @@ button.act:active, .back:active, .crumb:active { transform: scale(.97); backgrou
 .epic-page .happen.just li { transition: opacity var(--o-move-layout), transform var(--o-move-layout); }
 @starting-style { .epic-page .happen.just li { opacity: 0; transform: translateY(calc(-1 * var(--o-space-4))); } }
 /* At the desk a line's clock sits in a right-aligned gutter, a gap before its words, as the happenings draw it. In the
-   panel the title row stays pinned at the card's top edge, across the scroller's padding and under the panel's own
-   controls, while the record under it scrolls. */
+   held card the title row stays pinned at the card's top edge, across the body's padding, while the record under it
+   scrolls. */
 @media (min-width: 760px) {
-  .rcard > section.page > .epic-page > .title-row {
+  .held-card > .held-body > section.page > .epic-page > .title-row {
     position: sticky; top: calc(-1 * var(--o-space-16)); z-index: var(--o-z-sticky);
     margin-top: calc(-1 * var(--o-space-16)); padding-top: var(--o-space-16); background: var(--o-surface-side);
   }
@@ -1946,6 +1946,22 @@ button.block:hover { --ground: var(--o-surface-raised); }
 
   .read.held[data-move="open"], .read[data-move="close"] { animation: chat-move var(--o-move-layout); }
   .read[data-move="other"] > .reader, .read[data-move="other"] .convo-head .crumbs { animation: move-fade var(--o-move-state); }
+}
+
+/* The held layout at the desk (D11, D12): the conversation is the ground, and what it holds is set into it. Its head runs across
+   the top; the card sits under the head on the left, three parts of the room to the chat's two; the reader and the send box
+   are the chat on the right. The chat lays out as the phone does: no gutter of times, and the machine's band in one row. A
+   card with no conversation fills its middle alone. */
+@media (min-width: 760px) {
+  .read > .held-card { grid-column: 1 / -1; grid-row: 2 / -1; }
+  .read.held { grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); background: var(--o-surface-page); }
+  .read.held > .convo-head { grid-column: 1 / -1; grid-row: 1; }
+  .read.held > .held-card { grid-column: 1; grid-row: 2 / -1; margin: 0 var(--o-space-8) var(--o-space-8) var(--o-layout-page-pad-desk); }
+  .read.held > .find, .read.held > .reader, .read.held > .send { grid-column: 2; }
+  .read.held .reader .t { grid-template-columns: minmax(0, 1fr); }
+  .read.held .reader .t > .gut { display: none; }
+  .read.held .reader [data-shape="block"] > .head .at { display: inline; }
+  .read.held .convo-head .pane-strip { flex-wrap: nowrap; overflow: hidden; }
 }
 
 /* Reduced motion comes last, so it wins over the rules above: each move is one 100 ms linear step, a page drills and
