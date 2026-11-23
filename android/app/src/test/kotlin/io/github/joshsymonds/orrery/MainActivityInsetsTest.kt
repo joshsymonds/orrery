@@ -152,6 +152,7 @@ class MainActivityInsetsTest {
                     .setPane(0)
                     .setCwd("/home/user/alpha")
                     .setCommand("claude")
+                    .setClaudeSession("synthetic-claude")
                     .setState("working")
                     .setSummary("Synthetic summary.")
                     .setOrreryId(PANE_ORRERY_ID)

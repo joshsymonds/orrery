@@ -256,7 +256,8 @@ internal fun inboxTree(
     host: String,
     view: TreeView,
 ): List<Project> {
-    val conversations = panes.filterNot { it.session.startsWith(SHELL_SESSION_PREFIX) }.map { pane ->
+    val drawn = panes.filterNot { it.session.startsWith(SHELL_SESSION_PREFIX) }.filter { drawsAsConversation(it) }
+    val conversations = drawn.map { pane ->
         val archived = archivedOf(pane, archivedIds)
         // The convo's pane carries the archived flag a tmux pane takes from Sessions.List, so readers of the tree need no
         // archivedIds of their own.
@@ -279,6 +280,12 @@ internal fun waits(hung: Hung): Boolean = when (hung) {
     }
     is ContractNode -> hung.contract.state == CONTRACT_PROPOSED
 }
+
+/**
+ * Whether a pane draws as a conversation: a headless session always does, and a tmux pane only while a Claude session is
+ * bound to it or claude runs in it unbound. A plain terminal draws no row.
+ */
+internal fun drawsAsConversation(pane: Pane): Boolean = pane.headless || pane.claudeSession.isNotEmpty() || pane.unbound
 
 /** Whether a pane is archived: a headless session by its own flag, a tmux pane by its orrery_id's place in [archivedIds]. */
 internal fun archivedOf(pane: Pane, archivedIds: Set<String>): Boolean =

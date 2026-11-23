@@ -23,6 +23,7 @@ class InboxTreeTest {
         seen: Long = 0L,
         session: String = "work",
         ended: Boolean = false,
+        claudeSession: String = "synthetic-claude",
     ) = Pane(
         id = paneId,
         host = host,
@@ -41,6 +42,7 @@ class InboxTreeTest {
         newestReply = newestReply,
         orreryId = orreryId,
         ended = ended,
+        claudeSession = claudeSession,
     )
 
     private fun headless(
@@ -448,9 +450,18 @@ class InboxTreeTest {
 
     @Test
     fun terminalPaneIsARowWithNothingUnderIt() {
-        val convo = tree(panes = listOf(tmux("%1", "o1", "/home/user/repo", state = ""))).single().convos.single()
+        val panes = listOf(tmux("%1", "o1", "/home/user/repo", state = "", claudeSession = "claude-1"))
+        val convo = tree(panes = panes).single().convos.single()
         assertEquals("pane:laptop:%1", convo.key)
         assertEquals(emptyList<Hung>(), convo.hung)
+    }
+
+    @Test
+    fun aTmuxPaneWithNoClaudeSessionDrawsNoRow() {
+        assertEquals(
+            emptyList<Project>(),
+            tree(panes = listOf(tmux("%1", "o1", "/home/user/repo", state = "", claudeSession = ""))),
+        )
     }
 
     // R3: rank within a project, the ended line and its parents, and the archived view.

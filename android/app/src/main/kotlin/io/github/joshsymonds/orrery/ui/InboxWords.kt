@@ -46,9 +46,14 @@ internal fun epicRowWords(hung: Hung, now: Long): EpicRowWords = when (hung) {
         ?: epicWords(hung, now)
 }
 
+/** The words an unbound pane's row says, with the command the owner runs to bind it again. */
+internal const val UNBOUND_COMMAND = "claude --resume"
+internal const val UNBOUND_LINE = "Not bound to a conversation. Restart it with $UNBOUND_COMMAND."
+
 /** A conversation's second line at [now], in unix seconds; a row with no pane has none, its own row draws its thing. */
 internal fun convoLineOf(convo: Convo, now: Long): String {
     val pane = convo.pane ?: return ""
+    if (pane.unbound) return UNBOUND_LINE
     return when (pane.state) {
         "" -> TERMINAL_WORDS
         STATE_WAITING -> waitingLine(pane)

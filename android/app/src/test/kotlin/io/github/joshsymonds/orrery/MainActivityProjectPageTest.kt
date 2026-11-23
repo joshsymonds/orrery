@@ -80,6 +80,7 @@ class MainActivityProjectPageTest {
         .setPane(0)
         .setCwd(PROJECT_DIR)
         .setCommand("claude")
+        .setClaudeSession("synthetic-claude")
         .setState("working")
         .setSummary("Synthetic summary.")
         .setLabel(label)
