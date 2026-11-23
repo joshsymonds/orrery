@@ -284,7 +284,7 @@ func New(cfg Config) (http.Handler, error) {
 		cfg.Engine, cfg.ControlTimeout, cfg.Home, cfg.Steps, cfg.HandlerOptions...,
 	)
 	mux.Handle(controlPath, control)
-	epicsPath, evidencePath, contractsPath := registerEpicServices(mux, cfg, now)
+	epicsPath, evidencePath, contractsPath, designsPath := registerEpicServices(mux, cfg, now)
 	accountsPath, routesPath := registerAccountServices(mux, cfg)
 	stepsPath, stepsService := newStepsHandler(
 		cfg.Steps, cfg.ControlTimeout, rpcretry.SystemClock{}, cfg.HandlerOptions...,
@@ -315,7 +315,7 @@ func New(cfg Config) (http.Handler, error) {
 	}
 	connectPaths := []string{
 		sessionsPath, eventsPath, controlPath, epicsPath, evidencePath, stepsPath, poolsPath, noticesPath, panesPath,
-		hostPath, pushPath, pickerPath, presencePath, contractsPath, accountsPath, routesPath,
+		hostPath, pushPath, pickerPath, presencePath, contractsPath, designsPath, accountsPath, routesPath,
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if _, ok := allowed[r.Header.Get(HeaderLogin)]; !ok {
@@ -330,10 +330,11 @@ func New(cfg Config) (http.Handler, error) {
 	}), nil
 }
 
-// registerEpicServices mounts the Epics service, the Evidence service and the Contracts service on mux, all over the
-// records, steps, epic store, epic commands, evidence client, contract commands and store reader of cfg, and returns
-// their paths. The Epics service also lists the sessions of cfg's store reader, and dates its records from now.
-func registerEpicServices(mux *http.ServeMux, cfg Config, now func() time.Time) (string, string, string) {
+// registerEpicServices mounts the Epics service, the Evidence service, the Contracts service and the Designs service on
+// mux, all over the records, steps, epic store, epic commands, evidence client, contract commands and store reader of
+// cfg, and returns their paths. The Epics service also lists the sessions of cfg's store reader, and dates its records
+// from now.
+func registerEpicServices(mux *http.ServeMux, cfg Config, now func() time.Time) (string, string, string, string) {
 	epicsPath, epicsService := newEpicsHandler(
 		cfg.Records, cfg.Steps, cfg.EpicStore, cfg.EpicCommands, cfg.Evidence, cfg.Sessions, cfg.ControlTimeout, now,
 		rpcretry.SystemClock{}, cfg.HandlerOptions...,
@@ -345,7 +346,9 @@ func registerEpicServices(mux *http.ServeMux, cfg Config, now func() time.Time) 
 		cfg.Sessions, cfg.ContractCommands, cfg.ControlTimeout, rpcretry.SystemClock{}, cfg.HandlerOptions...,
 	)
 	mux.Handle(contractsPath, contractsService)
-	return epicsPath, evidencePath, contractsPath
+	designsPath, designsService := newDesignsHandler(cfg.Sessions, cfg.HandlerOptions...)
+	mux.Handle(designsPath, designsService)
+	return epicsPath, evidencePath, contractsPath, designsPath
 }
 
 // registerAccountServices mounts the Accounts service and the Routes service on mux, reading the store reader of cfg and
