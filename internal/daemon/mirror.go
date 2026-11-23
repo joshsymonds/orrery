@@ -396,38 +396,71 @@ func (m *Mirror) sync(ctx context.Context, server tmuxctl.Server, pane string) e
 // has none, writes the snapshot to its row, and sets @orrery_id only after the store write commits. The caller holds
 // m.lock.
 func (m *Mirror) syncOut(ctx context.Context, server tmuxctl.Server, pane, out string) error {
-	values := strings.Split(strings.TrimSuffix(out, "\n"), mirrorSeparator)
-	if len(values) != mirrorFieldCount {
-		return fmt.Errorf("read pane %s options: got %d fields, want %d", pane, len(values), mirrorFieldCount)
+	id, fields, err := parsePaneRead(out)
+	if err != nil {
+		return fmt.Errorf("read pane %s options: %w", pane, err)
 	}
-
-	id := values[0]
 	minted := id == ""
 	if minted {
-		var err error
-		if id, err = mintID(); err != nil {
+		if id, err = MintID(); err != nil {
 			return err
 		}
 	}
-	if err := m.store.SyncPane(ctx, server.Column(), store.Pane{
-		Host: m.orrery, ID: id, Pane: pane, Fields: fieldsOf(values[1:]),
+	if err = m.store.SyncPane(ctx, server.Column(), store.Pane{
+		Host: m.orrery, ID: id, Pane: pane, Fields: fields,
 	}, m.now()); err != nil {
 		return fmt.Errorf("sync pane %s: %w", pane, err)
 	}
-	if minted {
-		client, err := tmuxctl.New(server)
-		if err != nil {
-			return fmt.Errorf("resolve tmux server: %w", err)
-		}
-		if err = client.SetPaneOption(ctx, pane, protocol.OptionID, id); err != nil {
-			return fmt.Errorf("set pane %s id: %w", pane, err)
-		}
+	if !minted {
+		return nil
+	}
+	return SetPaneID(ctx, server, pane, id)
+}
+
+// parsePaneRead decodes the output of mirrorReadCommand: the pane's @orrery_id, which is "" when it has none, and its
+// mirrored options.
+func parsePaneRead(out string) (string, store.Fields, error) {
+	values := strings.Split(strings.TrimSuffix(out, "\n"), mirrorSeparator)
+	if len(values) != mirrorFieldCount {
+		return "", store.Fields{}, fmt.Errorf("got %d fields, want %d", len(values), mirrorFieldCount)
+	}
+	return values[0], fieldsOf(values[1:]), nil
+}
+
+// SetPaneID sets the @orrery_id of pane on server to id. The mirror sets one only after its row is stored, and a host
+// sets the one it mints for a pane that has none.
+func SetPaneID(ctx context.Context, server tmuxctl.Server, pane, id string) error {
+	client, err := tmuxctl.New(server)
+	if err != nil {
+		return fmt.Errorf("resolve tmux server: %w", err)
+	}
+	if err = client.SetPaneOption(ctx, pane, protocol.OptionID, id); err != nil {
+		return fmt.Errorf("set pane %s id: %w", pane, err)
 	}
 	return nil
 }
 
-// mintID returns 128 random bits from crypto/rand in lowercase hex.
-func mintID() (string, error) {
+// ListPanes returns every pane of server, read with the mirror's list-panes format: each pane's tmux id, its
+// @orrery_id, which is "" when it has none, and its mirrored fields. It mints nothing.
+func ListPanes(ctx context.Context, server tmuxctl.Server) ([]store.Pane, error) {
+	client, err := tmuxctl.New(server)
+	if err != nil {
+		return nil, fmt.Errorf("resolve tmux server: %w", err)
+	}
+	out, err := client.Run(ctx, listPanesArgs()...)
+	if err != nil {
+		return nil, fmt.Errorf("list panes: %w", err)
+	}
+	return parseTidyPanes(out)
+}
+
+// listPanesArgs returns the list-panes command that reads every pane of a server with tidyFormat.
+func listPanesArgs() []string {
+	return []string{"list-panes", "-a", "-F", tidyFormat}
+}
+
+// MintID returns 128 random bits from crypto/rand in lowercase hex.
+func MintID() (string, error) {
 	var raw [16]byte
 	if _, err := rand.Read(raw[:]); err != nil {
 		return "", fmt.Errorf("mint pane id: %w", err)
@@ -485,7 +518,7 @@ func (m *Mirror) tidyLocked(ctx context.Context, server tmuxctl.Server) {
 			"error", fmt.Errorf("resolve tmux server: %w", err))
 		return
 	}
-	out, err := client.Run(ctx, "list-panes", "-a", "-F", tidyFormat)
+	out, err := client.Run(ctx, listPanesArgs()...)
 	m.noteListPanes(ctx, server, err)
 	if err != nil {
 		return
@@ -513,7 +546,7 @@ func (m *Mirror) tidy(ctx context.Context, server tmuxctl.Server, client *tmuxct
 		if panes[i].ID != "" {
 			continue
 		}
-		if panes[i].ID, err = mintID(); err != nil {
+		if panes[i].ID, err = MintID(); err != nil {
 			return err
 		}
 		minted = append(minted, panes[i])
