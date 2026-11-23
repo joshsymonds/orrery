@@ -221,8 +221,14 @@ fun PaneListScreen(
  */
 internal suspend fun readTree(client: OrreryClient, held: TreeData?): TreeData? = withContext(Dispatchers.IO) {
     try {
-        val panes = client.panes() + client.headless()
-        val archived = client.archivedSessions()
+        val tmux = client.panes()
+        val headless = client.headless()
+        val marks = client.sessionMarks()
+        val byId = marks.associateBy { it.id }
+        val panes = tmux.map { pane ->
+            byId[pane.orreryId]?.let { pane.copy(ended = it.ended, endedAt = it.endedAt) } ?: pane
+        } + headless
+        val archived = marks.filter { it.archived }.map { it.id }.toSet()
         val epics = client.epics()
         val details = detailsOf(client, epics)
         val contracts = try {
