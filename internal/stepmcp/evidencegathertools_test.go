@@ -138,14 +138,26 @@ func TestCaptureToolMissingArgumentsAreToolErrors(t *testing.T) {
 		missing   string
 	}{
 		{name: "no commit", arguments: `{"argv":["go"],"briefs":["run-1"]}`, missing: "commit is required"},
-		{name: "empty commit", arguments: `{"commit":"","argv":["go"],"briefs":["run-1"]}`, missing: "commit is required"},
-		{name: "no argv", arguments: `{"commit":"` + captureCommit + `","briefs":["run-1"]}`, missing: "argv is required"},
+		{
+			name:      "empty commit",
+			arguments: `{"commit":"","argv":["go"],"briefs":["run-1"]}`,
+			missing:   "commit is required",
+		},
+		{
+			name:      "no argv",
+			arguments: `{"commit":"` + captureCommit + `","briefs":["run-1"]}`,
+			missing:   "argv is required",
+		},
 		{
 			name:      "empty argv",
 			arguments: `{"commit":"` + captureCommit + `","argv":[],"briefs":["run-1"]}`,
 			missing:   "argv is required",
 		},
-		{name: "no briefs", arguments: `{"commit":"` + captureCommit + `","argv":["go"]}`, missing: "briefs is required"},
+		{
+			name:      "no briefs",
+			arguments: `{"commit":"` + captureCommit + `","argv":["go"]}`,
+			missing:   "briefs is required",
+		},
 		{
 			name:      "empty briefs",
 			arguments: `{"commit":"` + captureCommit + `","argv":["go"],"briefs":[]}`,

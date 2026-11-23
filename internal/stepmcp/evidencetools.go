@@ -39,11 +39,11 @@ type evidenceGetArgs struct {
 // evidenceCaptureArgs is the arguments of evidence_capture, described for its input schema. The handler decodes the
 // arguments with protojson, which refuses an unknown key, so the struct is never decoded into.
 type evidenceCaptureArgs struct {
-	Commit string   `json:"commit"            jsonschema:"the commit the command runs at"`
-	Argv   []string `json:"argv"              jsonschema:"the command to run, as its argv; at least one element"`
-	Runner string   `json:"runner,omitempty"  jsonschema:"the project runner the command runs under, or local"`
-	Briefs []string `json:"briefs"            jsonschema:"the ids of the evidence runs the capture is for; at least one"`
-	Files  []string `json:"files,omitempty"   jsonschema:"repository-relative paths of the files to keep"`
+	Commit string   `json:"commit"           jsonschema:"the commit the command runs at"`
+	Argv   []string `json:"argv"             jsonschema:"the command to run, as its argv; at least one element"`
+	Runner string   `json:"runner,omitempty" jsonschema:"the project runner the command runs under, or local"`
+	Briefs []string `json:"briefs"           jsonschema:"the ids of the evidence runs the capture is for; at least one"`
+	Files  []string `json:"files,omitempty"  jsonschema:"repository-relative paths of the files to keep"`
 }
 
 // evidenceAttachArgs is the arguments of evidence_attach, described for its input schema as evidenceCaptureArgs is.
