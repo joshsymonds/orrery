@@ -59,7 +59,9 @@ function row(line: Row): VNode {
 
 // convo draws the conversation with key, and what it steers under it, in the inbox column, with the cursor on no thing.
 function convo(key: string): VNode {
-  return inboxColumn(<ConvoRowView convo={convoOf(key)} now={now} cursorKey="" renderRow={row} onSelect={noop} />);
+  return inboxColumn(
+    <ConvoRowView convo={convoOf(key)} now={now} cursorKey="" endedOpen={false} onEnded={noop} renderRow={row} onSelect={noop} />,
+  );
 }
 
 export const ConvoRow: Stories = {

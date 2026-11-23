@@ -227,11 +227,18 @@ function layout(convos: Convo[]): Record<string, string[]> {
   return Object.fromEntries(convos.map((convo) => [convo.key, convo.hung.map((hung) => hung.key)]));
 }
 
-// keysOf is every key the tree draws, in the tree and behind the ended lines.
+// keysOf is every key the tree draws, in the tree and behind the ended lines, the ended epics folded under a conversation
+// included.
 function keysOf(projects: Project[]): string[] {
   return projects
     .flatMap((project) => [...project.convos, ...project.ended])
-    .flatMap((convo) => convo.hung.map((hung) => hung.key));
+    .flatMap((convo) => [...convo.hung, ...convo.folded].map((hung) => hung.key));
+}
+
+// foldedKeysOf is the keys of the ended epics folded under a conversation, in order.
+function foldedKeysOf(convo: Convo | undefined): string[] {
+  assert.ok(convo !== undefined, "the tree draws the conversation");
+  return convo.folded.map((hung) => hung.key);
 }
 
 // rowConvo is the conversation in the tree of the row with the label, or undefined.
@@ -380,7 +387,7 @@ test("InboxTree leaves archived epics and archived conversations out of the inbo
   assert.deepEqual(layout(projectAt(projects, "|/srv/app").convos), { a: [] });
 });
 
-test("InboxTree draws an ended epic behind the ended line, and its conversation again as the parent when it stays in the tree", () => {
+test("InboxTree folds an ended epic under its conversation in the tree, and draws nothing of that conversation behind the ended line", () => {
   const rows = [makeRow({ key: "a", label: "a", archiveId: "sess-a", project: "/srv/app", state: "working" })];
   const projects = buildTree(
     inputOf(rows, {
@@ -392,8 +399,32 @@ test("InboxTree draws an ended epic behind the ended line, and its conversation 
   );
   const app = projectAt(projects, "|/srv/app");
   assert.deepEqual(layout(app.convos), { a: ["epic:repo-a/alpha"] });
-  assert.deepEqual(layout(app.ended), { a: ["epic:repo-a/beta"] });
-  assert.equal(app.ended[0].again, true);
+  assert.deepEqual(app.ended, []);
+  assert.deepEqual(foldedKeysOf(rowConvo(projects, "a")), ["epic:repo-a/beta"]);
+});
+
+test("InboxTree folds a conversation's ended epics newest first, and keeps its live epics in hung", () => {
+  const rows = [makeRow({ key: "a", label: "a", archiveId: "sess-a", project: "/srv/app", state: "working" })];
+  const projects = buildTree(
+    inputOf(rows, {
+      epics: [
+        makeEpic({ id: "repo-a/alpha", steering: "sess-a", changed: 50n }),
+        makeEpic({ id: "repo-a/beta", steering: "sess-a", live: false, changed: 10n }),
+        makeEpic({ id: "repo-a/gamma", steering: "sess-a", live: false, changed: 30n }),
+      ],
+    }),
+  );
+  const convo = rowConvo(projects, "a");
+  assert.deepEqual(convo?.hung.map((hung) => hung.key), ["epic:repo-a/alpha"]);
+  assert.deepEqual(foldedKeysOf(convo), ["epic:repo-a/gamma", "epic:repo-a/beta"]);
+});
+
+test("InboxTree keeps the ended epics of a conversation behind the ended line in hung, with nothing folded", () => {
+  const rows = [makeRow({ key: "d", label: "d", archiveId: "sess-d", project: "/srv/app", state: "done", ended: true })];
+  const projects = buildTree(inputOf(rows, { epics: [makeEpic({ id: "repo-a/beta", steering: "sess-d", live: false })] }));
+  const behind = projectAt(projects, "|/srv/app").ended;
+  assert.deepEqual(behind.map((convo) => convo.hung.map((hung) => hung.key)), [["epic:repo-a/beta"]]);
+  assert.deepEqual(behind.map((convo) => convo.folded), [[]]);
 });
 
 test("InboxTree moves a conversation serve reports ended behind the line with the ended epics it steers, and keeps one that steers a live epic", () => {

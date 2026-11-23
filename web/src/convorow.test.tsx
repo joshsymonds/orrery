@@ -6,9 +6,10 @@ import { type JSX, type VNode, render } from "preact";
 import { ConvoRow } from "./convorow";
 import { liveEpoch } from "./fixtures/clock";
 import { shippedSlices } from "./fixtures/slices";
+import type { Epic } from "./gen/orrery/v1/epics_pb";
 import { rowsFrom, type Row } from "./rows";
 import { assertNone, installTestDom, removeTestDom } from "./testdom";
-import { buildTree, type Convo, type EpicNode, type Hung } from "./tree";
+import { buildTree, type Convo, type EpicNode, type Hung, type Project } from "./tree";
 
 // Each test's name carries the words InboxTree ConvoRow: the conversation's row with what it steers under it.
 
@@ -27,6 +28,12 @@ const treeInput = {
 // tree is the inbox tree of the fixtures, and archivedTree the Archived view of them.
 const tree = buildTree({ ...treeInput, view: "inbox" });
 const archivedTree = buildTree({ ...treeInput, view: "archived" });
+
+// treeWithEnded is the inbox tree of the fixtures with the epics of ids ended, as the list holds them once they have ended.
+function treeWithEnded(ids: readonly string[]): Project[] {
+  const epics: Epic[] = shippedSlices.epics.epics.map((epic) => (ids.includes(epic.id) ? { ...epic, live: false } : epic));
+  return buildTree({ ...treeInput, epics, view: "inbox" });
+}
 
 // convoOf is the conversation the tree draws for the row key, which the fixtures must hold.
 function convoOf(rowKey: string, drawn: readonly { convos: Convo[] }[] = tree): Convo {
@@ -51,7 +58,13 @@ function callerRow(row: Row): VNode {
 async function withConvo(
   convo: Convo,
   check: (container: HTMLElement) => void | Promise<void>,
-  options: { cursorKey?: string; onSelect?: (key: string) => void; renderRow?: (row: Row) => VNode } = {},
+  options: {
+    cursorKey?: string;
+    endedOpen?: boolean;
+    onEnded?: () => void;
+    onSelect?: (key: string) => void;
+    renderRow?: (row: Row) => VNode;
+  } = {},
 ): Promise<void> {
   const window = installTestDom();
   const container = document.createElement("div");
@@ -60,6 +73,8 @@ async function withConvo(
       convo={convo}
       now={now}
       cursorKey={options.cursorKey ?? ""}
+      endedOpen={options.endedOpen ?? false}
+      onEnded={options.onEnded ?? (() => {})}
       renderRow={options.renderRow ?? callerRow}
       onSelect={options.onSelect ?? (() => {})}
     />
@@ -86,7 +101,7 @@ function ownOf(thingKey: string, drawn: readonly { convos: Convo[] }[] = tree): 
 // ownConvoOf is a conversation with no row of its own holding the one thing, as the tree draws a thing with no drawn
 // conversation.
 function ownConvoOf(hung: Hung): Convo {
-  return { key: hung.key, row: null, again: false, hung: [hung] };
+  return { key: hung.key, row: null, hung: [hung], folded: [] };
 }
 
 test("InboxTree ConvoRow draws the caller's row first, then each epic it steers in order inside .steers", () => {
@@ -195,4 +210,87 @@ test("InboxTree ConvoRow draws the Archived view's tide warm-up epic, whose conv
     assertNone(container.querySelector(".steers"), "no .steers wraps it");
     assertNone(container.querySelector('.row[data-key="session:9b5e1a47-2c0d-4e8f-8a31-6d7c0f5b2e90"]'), "its conversation is not drawn");
   });
+});
+
+// drawnKeys is the key of each EpicRow drawn directly under .steers, in order.
+function drawnKeys(container: HTMLElement): (string | null)[] {
+  return [...container.querySelectorAll(".steers > .row.epic")].map((row) => row.getAttribute("data-key"));
+}
+
+// twoEnded are two of the four epics the follow-ups conversation steers: ended, the tree folds them under it, and the
+// other two stay live.
+const twoEnded = ["orrery/notices-usable", "orrery/harbour-map"];
+
+test("InboxTree ConvoRow folds a conversation's ended epics under a fold line that reads their count, shut, and draws none of them while it is shut", () => {
+  const convo = convoOf("pane:halyard:%22", treeWithEnded(twoEnded));
+  assert.deepEqual(keysOf(convo.hung), ["epic:orrery/orrery-followups", "epic:orrery/orbit-labels"], "the live epics stay in the tree");
+  assert.deepEqual(keysOf(convo.folded).sort(), ["epic:orrery/harbour-map", "epic:orrery/notices-usable"], "the ended epics are folded");
+  return withConvo(convo, (container) => {
+    const fold = container.querySelector<HTMLButtonElement>(".steers > button.steers-fold");
+    assert.equal(fold?.textContent, "2 ended", "the fold line does not read the count of ended epics");
+    assert.equal(fold?.getAttribute("aria-expanded"), "false", "the fold line is open while its fold is shut");
+    assert.deepEqual(drawnKeys(container), keysOf(convo.hung), "a shut fold draws its folded epics");
+  });
+});
+
+test("InboxTree ConvoRow draws a conversation's folded epics after its fold line, in their order, while the fold is open", () => {
+  const convo = convoOf("pane:halyard:%22", treeWithEnded(twoEnded));
+  return withConvo(
+    convo,
+    (container) => {
+      const fold = container.querySelector<HTMLButtonElement>(".steers > button.steers-fold");
+      assert.equal(fold?.getAttribute("aria-expanded"), "true", "the fold line is shut while its fold is open");
+      assert.equal(fold?.nextElementSibling?.getAttribute("data-key"), keysOf(convo.folded)[0], "the first folded epic follows the fold line");
+      assert.deepEqual(drawnKeys(container), [...keysOf(convo.hung), ...keysOf(convo.folded)], "each folded epic draws one EpicRow");
+    },
+    { endedOpen: true },
+  );
+});
+
+test("InboxTree ConvoRow presses the fold line once per press, calling onEnded", () => {
+  const convo = convoOf("pane:halyard:%22", treeWithEnded(twoEnded));
+  let presses = 0;
+  return withConvo(
+    convo,
+    (container) => {
+      container.querySelector<HTMLButtonElement>(".steers > button.steers-fold")?.dispatchEvent(new Event("click"));
+      assert.equal(presses, 1, "a press on the fold line does not call onEnded once");
+    },
+    { onEnded: () => { presses += 1; } },
+  );
+});
+
+test("InboxTree ConvoRow marks the cursor's folded epic current once its fold is open", () => {
+  const convo = convoOf("pane:halyard:%22", treeWithEnded(twoEnded));
+  const folded = keysOf(convo.folded)[0];
+  return withConvo(
+    convo,
+    (container) => {
+      const current = container.querySelectorAll(".row.cur");
+      assert.equal(current.length, 1, "one row is current");
+      assert.equal(current[0].getAttribute("data-key"), folded, "the cursor's folded epic is current");
+    },
+    { cursorKey: folded, endedOpen: true },
+  );
+});
+
+test("InboxTree ConvoRow draws a fold line and no live epic when every epic the conversation steers has ended", () => {
+  const convo = convoOf("pane:halyard:%22", treeWithEnded(["orrery/orrery-followups", "orrery/orbit-labels", ...twoEnded]));
+  assert.equal(convo.hung.length, 0, "no live epic is left in the tree");
+  return withConvo(convo, (container) => {
+    assert.equal(container.querySelector(".steers > button.steers-fold")?.textContent, "4 ended", "the fold line reads all four");
+    assertNone(container.querySelector(".row.epic"), "a shut fold draws a live epic");
+  });
+});
+
+test("InboxTree ConvoRow draws no fold line when the conversation has no ended epic, whatever its fold holds", () => {
+  const convo = convoOf("pane:halyard:%22");
+  assert.equal(convo.folded.length, 0, "the fixture holds no ended epic");
+  return withConvo(
+    convo,
+    (container) => {
+      assertNone(container.querySelector(".steers-fold"), "a conversation with nothing ended draws a fold line");
+    },
+    { endedOpen: true },
+  );
 });
