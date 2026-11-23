@@ -80,6 +80,10 @@ func (e epicsServer) List(
 	if err != nil {
 		return nil, err
 	}
+	records, err := readListDesigns(ctx, e.sessions)
+	if err != nil {
+		return nil, err
+	}
 	byEpic := stepsByEpic(listed.GetSteps())
 	ended := listed.GetEnded()
 	now := e.now()
@@ -109,7 +113,7 @@ func (e epicsServer) List(
 	}
 	markEpics(epics, marks, now)
 	sort.Slice(epics, func(i, j int) bool { return epics[i].GetId() < epics[j].GetId() })
-	return connect.NewResponse(&orreryv1.EpicsListResponse{Epics: epics}), nil
+	return connect.NewResponse(&orreryv1.EpicsListResponse{Epics: epics, Designs: designMessages(records)}), nil
 }
 
 // Get answers one epic by the id List gave it, with its tasks, each with its place and tone, and its labeled steps

@@ -86,6 +86,43 @@ func designMessage(record store.DesignRecord) *orreryv1.Design {
 	}
 }
 
+// readListDesigns returns every design the store reader gives, in the order it gives them, for a list to carry. A nil
+// reader gives none. It fails as the list's other store reads fail: unavailable when the store is, and internal
+// otherwise.
+func readListDesigns(ctx context.Context, reader *store.Reader) ([]store.DesignRecord, error) {
+	if reader == nil {
+		return []store.DesignRecord{}, nil
+	}
+	records, err := reader.Designs(ctx)
+	if errors.Is(err, store.ErrUnavailable) {
+		return nil, listError(connect.CodeUnavailable, "store unavailable")
+	}
+	if err != nil {
+		return nil, listError(connect.CodeInternal, "read designs")
+	}
+	return records, nil
+}
+
+// designMessages converts each design record to its Design, in the order given.
+func designMessages(records []store.DesignRecord) []*orreryv1.Design {
+	designs := make([]*orreryv1.Design, 0, len(records))
+	for _, record := range records {
+		designs = append(designs, designMessage(record))
+	}
+	return designs
+}
+
+// conversationDesigns returns the designs whose conversation is conversation, in the order of designs.
+func conversationDesigns(designs []*orreryv1.Design, conversation string) []*orreryv1.Design {
+	var own []*orreryv1.Design
+	for _, design := range designs {
+		if design.GetConversation() == conversation {
+			own = append(own, design)
+		}
+	}
+	return own
+}
+
 // designContractMessage converts a contract of a design to its DesignContract, copying every field.
 func designContractMessage(contract store.DesignContract) *orreryv1.DesignContract {
 	return &orreryv1.DesignContract{
