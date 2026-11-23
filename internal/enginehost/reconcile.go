@@ -45,7 +45,9 @@ const resumedBody = "orreryd restarted during the turn; resumed it"
 // without a notice. A row in any other state keeps its state. No row is removed. A holder that fails to re-adopt, to
 // stop, to drain or to clear is logged and its session is cleared, and the rows are settled anyway. The rows that need
 // a write are settled in one store transaction, so a row that needs nothing, with no text and no turn running, is not
-// written. A write that fails stops no other row. It returns the first read or write error.
+// written. A write that fails stops no other row. A host that reads unreachable is passed over as one whose holders cannot
+// be listed is: its holders are not asked for, and none of its rows is settled, until its reach changes to reachable, when
+// each of its sessions is reconciled (see watchHost). It returns the first read or write error.
 func (m *Manager) Reconcile(ctx context.Context) error {
 	defer m.calls.enter()()
 	quietErr := m.readQuiet(ctx)
@@ -111,15 +113,15 @@ func (m *Manager) clearQuietUnread() {
 }
 
 // pendingRows returns the rows Reconcile settles: each row that had no pump in this manager when pumped was taken and
-// that the holder pass did not settle, and that has a running turn or unfinished text in text. A row placed on a host
-// in unlisted is not settled, since its holder may still run there. A failed text read, textErr, makes every row count
-// as holding text.
+// that the holder pass did not settle, and that has a running turn or unfinished text in text. A row that leftAlone
+// leaves, one placed on a host in unlisted or on no host this controller runs sessions on, is not settled. A failed text
+// read, textErr, makes every row count as holding text.
 func (m *Manager) pendingRows(
 	rows []store.EngineRow, pumped, settled, unlisted, text map[string]bool, textErr error,
 ) []store.EngineRow {
 	var pending []store.EngineRow
 	for _, row := range rows {
-		if pumped[row.ID] || settled[row.ID] || m.onUnlisted(row, unlisted) {
+		if pumped[row.ID] || settled[row.ID] || m.leftAlone(row, unlisted) {
 			continue
 		}
 		if turnRunning(row) || textErr != nil || text[row.ID] {
@@ -155,16 +157,27 @@ func (m *Manager) notifySettled(ctx context.Context, rows []store.EngineRow, err
 // a resume there starts a new holder in the same directory. It returns the ids of the sessions whose holder was
 // drained, and whose row the drain settled, the names of the hosts whose holders could not be listed, and the first
 // error reading a row other than its absence. A host whose holders cannot be listed is logged and passed over, and its
-// holders are not visited. A missing holders directory, or an empty state directory, has nothing to go through.
+// holders are not visited. A host that reads unreachable is passed over the same way, without being asked, and its reach
+// is watched (see watchHost). A missing holders directory, or an empty state directory, has nothing to go through.
 func (m *Manager) reconcileHolders(ctx context.Context) (map[string]bool, map[string]bool, error) {
 	settled := map[string]bool{}
 	unlisted := map[string]bool{}
 	var readErr error
 	for _, held := range m.holderHosts() {
+		// A host that reads unreachable is not asked for its holders, so this pass does not wait on it. Its reach is
+		// watched instead, and its sessions are reconciled once it reads reachable again (see watchHost).
+		reachable, changed := held.host.Reach()
+		if !reachable {
+			m.logger.WarnContext(ctx, "host unreachable; its sessions are left as they are", "host", held.name)
+			unlisted[held.name] = true
+			m.watchHost(ctx, held, changed)
+			continue
+		}
 		ids, err := held.host.Sessions(ctx)
 		if err != nil {
 			m.logger.WarnContext(ctx, "read holders dir", "host", held.name, "err", err)
 			unlisted[held.name] = true
+			m.watchHost(ctx, held, changed)
 			continue
 		}
 		for _, id := range ids {
@@ -183,11 +196,154 @@ func (m *Manager) reconcileHolders(ctx context.Context) (map[string]bool, map[st
 	return settled, unlisted, readErr
 }
 
-// onUnlisted reports whether row runs on a host in unlisted, whose holders reconcileHolders could not list. A row whose
-// host names no host this controller runs sessions on is not on one.
-func (m *Manager) onUnlisted(row store.EngineRow, unlisted map[string]bool) bool {
+// leftAlone reports whether a pass leaves row as it is. That is so when row's host names no host this controller runs
+// sessions on, or when row runs on a host in unlisted, whose holders reconcileHolders could not list: the row's holder may
+// still run there, so nothing is settled for it.
+func (m *Manager) leftAlone(row store.EngineRow, unlisted map[string]bool) bool {
 	place, err := m.hostOf(row)
-	return err == nil && unlisted[place.name]
+	return err != nil || unlisted[place.name]
+}
+
+// resumeQueue holds the rows a pass settles while it holds a host's lock. Each row's resume or notice takes that lock itself
+// (see resumeSession), so the pass runs them once it has released the lock.
+type resumeQueue struct {
+	rows []store.EngineRow
+}
+
+// resumeQueueKey is the context key a resumeQueue is carried under.
+type resumeQueueKey struct{}
+
+// deferResumes returns a context that carries a new resumeQueue, and the queue itself.
+func deferResumes(ctx context.Context) (context.Context, *resumeQueue) {
+	queue := &resumeQueue{}
+	return context.WithValue(ctx, resumeQueueKey{}, queue), queue
+}
+
+// watchHost starts the goroutine that watches held's host for its reach to change, and reconciles the host each time it
+// reads reachable (see watchReach). changed closes at the next change of the host's reach, as the Reach that read the host
+// unreachable or unlisted returned it. A host has one watcher, and no watcher starts once Close has begun. Close cancels
+// each watcher, and so each reconcile it runs. The watcher keeps ctx's values, not its cancellation, since it outlives the
+// call that starts it.
+func (m *Manager) watchHost(ctx context.Context, held placedHost, changed <-chan struct{}) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if _, watched := m.watching[held.name]; m.closed || watched {
+		return
+	}
+	ctx, cancel := context.WithCancel(context.WithoutCancel(ctx))
+	m.watching[held.name] = cancel
+	m.watchers.Add(1)
+	go m.watchReach(ctx, held, changed)
+}
+
+// watchReach waits for each change of held's reach, and reconciles the host whenever it reads reachable. It ends when ctx
+// ends.
+func (m *Manager) watchReach(ctx context.Context, held placedHost, changed <-chan struct{}) {
+	defer m.watchers.Done()
+	for {
+		select {
+		case <-changed:
+		case <-ctx.Done():
+			return
+		}
+		var reachable bool
+		reachable, changed = held.host.Reach()
+		if reachable {
+			m.reconcileReachable(ctx, held)
+		}
+	}
+}
+
+// reconcileReachable settles held's sessions once its host reads reachable again. It lists the holders the host has, then
+// handles each session that has a holder there, and each row that runs on the host, one at a time (see
+// reconcileSessionOnReach). A host whose holders cannot be listed is left for the next change of its reach. It stops once
+// the manager has closed.
+func (m *Manager) reconcileReachable(ctx context.Context, held placedHost) {
+	ids, err := held.host.Sessions(ctx)
+	if err != nil {
+		m.logger.WarnContext(ctx, "read holders dir", "host", held.name, "err", err)
+		return
+	}
+	rows, err := m.store.EngineSessions(ctx)
+	if err != nil {
+		m.logger.WarnContext(ctx, "read engine rows", "host", held.name, "err", err)
+		return
+	}
+	text, err := m.store.EngineTextSessions(ctx)
+	if err != nil {
+		m.logger.WarnContext(ctx, "read unfinished text", "host", held.name, "err", err)
+		return
+	}
+	holders := make(map[string]bool, len(ids))
+	for _, id := range ids {
+		holders[id] = true
+	}
+	handled := maps.Clone(holders)
+	for _, row := range rows {
+		if m.runsOn(row, held) {
+			handled[row.ID] = true
+		}
+	}
+	for _, id := range slices.Sorted(maps.Keys(handled)) {
+		if m.checkOpen() != nil {
+			return
+		}
+		m.reconcileSessionOnReach(ctx, held, id, holders[id], text)
+	}
+}
+
+// reconcileSessionOnReach settles session id on held, as Reconcile does, under the lock of held's host (see hostLock). That
+// is the lock a resume of the session takes, so the pass and a resume never start the session's process together. holder
+// reports whether held lists a holder for id, and text holds the sessions with unfinished text. The rows the pass settles
+// are resumed or noticed once the lock is released, since a resume takes the lock.
+func (m *Manager) reconcileSessionOnReach(
+	ctx context.Context, held placedHost, id string, holder bool, text map[string]bool,
+) {
+	passCtx, queue := deferResumes(ctx)
+	lock := m.hostLock(held.name)
+	lock.Lock()
+	m.settleOnReach(passCtx, queue, held, id, holder, text)
+	lock.Unlock()
+	for _, row := range queue.rows {
+		m.resumeOrNotify(ctx, row)
+	}
+}
+
+// settleOnReach is the work of reconcileSessionOnReach under the lock. A session with a pump is left to it. A holder listed
+// for id is re-adopted, drained or cleared as reconcileHolder does, and a drain queues its row. Then a row that still has a
+// running turn or unfinished text is settled as Reconcile settles it, and queued for its resume or notice.
+func (m *Manager) settleOnReach(
+	ctx context.Context, queue *resumeQueue, held placedHost, id string, holder bool, text map[string]bool,
+) {
+	if m.pumping(id) {
+		return
+	}
+	if holder {
+		drained, err := m.reconcileHolder(ctx, held, id)
+		if err != nil {
+			m.logger.WarnContext(ctx, "reconcile session", "session", id, "err", err)
+			return
+		}
+		if drained || m.pumping(id) {
+			return
+		}
+	}
+	row, err := m.store.EngineSession(ctx, id)
+	switch {
+	case errors.Is(err, store.ErrNoEngineSession):
+		return
+	case err != nil:
+		m.logger.WarnContext(ctx, "read engine row", "session", id, "err", err)
+		return
+	}
+	if !m.runsOn(row, held) || (!turnRunning(row) && !text[id]) {
+		return
+	}
+	if commitErr := m.writer.Commit(ctx, id, settleOps(row)...); commitErr != nil {
+		m.logger.WarnContext(ctx, "reconcile session", "session", id, "err", commitErr)
+		return
+	}
+	queue.rows = append(queue.rows, row)
 }
 
 // reconcileHolder reconciles the holder of session id, found on held, as reconcileHolders describes. It reports whether
@@ -481,13 +637,18 @@ func (m *Manager) StepLive(id string) bool {
 
 // reconcileRow settles row in one write as a restart leaves it (see settleOps). The drain of its holder on host has
 // read that holder to its end, so the holder directory is cleared on host next, before a resume starts a new holder in
-// it. Then the owner is told of the row's interruption, or the row is resumed (see resumeOrNotify). It returns the
-// error of the write.
+// it. Then the owner is told of the row's interruption, or the row is resumed (see resumeOrNotify). A pass that carries a
+// resumeQueue has the row queued instead, since its resume takes the lock the pass holds (see reconcileSessionOnReach). It
+// returns the error of the write.
 func (m *Manager) reconcileRow(ctx context.Context, host holderhost.Host, row store.EngineRow) error {
 	if err := m.writer.Commit(ctx, row.ID, settleOps(row)...); err != nil {
 		return fmt.Errorf("reconcile session %s: %w", row.ID, err)
 	}
 	m.clearHolder(ctx, host, row.ID)
+	if queue, ok := ctx.Value(resumeQueueKey{}).(*resumeQueue); ok {
+		queue.rows = append(queue.rows, row)
+		return nil
+	}
 	m.resumeOrNotify(ctx, row)
 	return nil
 }
