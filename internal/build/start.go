@@ -10,6 +10,7 @@ import (
 	"github.com/joshsymonds/orrery/internal/reviewers"
 	"github.com/joshsymonds/orrery/internal/roles"
 	"github.com/joshsymonds/orrery/internal/store"
+	"github.com/joshsymonds/orrery/internal/testrunner"
 )
 
 // The roles in the role file the implementer and verifier steps run under. The attempt role is the agent of the
@@ -37,9 +38,10 @@ func (e RoleError) Unwrap() error { return e.Err }
 // startStep starts the step of action, under the id it carries, for the task of view in epic, and returns the id the
 // engine started it under. An implement step runs the implementer's agent in its own worktree; a review step runs the
 // task-stage reviewer its review gate names, read-only; a verify step runs the verifier's agent read-only on one
-// finding; a design step runs the design judge read-only at the task's revision; an orchestrate step runs the
-// orchestrator's agent read-only on the implementer's request. An error the engine returns on start is wrapped, so
-// errors.Is still matches it.
+// finding; a test run step runs its command read-only in a scratch worktree at its revision (testRunStart); a design
+// step runs the design judge read-only at the task's revision; an orchestrate step runs the orchestrator's agent
+// read-only on the implementer's request. An error the engine returns on start is wrapped, so errors.Is still matches
+// it.
 func (r *Runner) startStep(ctx context.Context, epic store.EpicRow, view View, action Action) (string, error) {
 	var (
 		start enginehost.StepStart
@@ -52,6 +54,8 @@ func (r *Runner) startStep(ctx context.Context, epic store.EpicRow, view View, a
 		start, err = r.reviewStart(ctx, epic, view.Task, action.ID)
 	case StageVerify:
 		start, err = r.verifierStart(epic, view, action.ID)
+	case unitTestRun:
+		start, err = r.testRunStart(epic, view.Task, action.TestRun, action.ID)
 	case StageDesign:
 		start, err = r.designJudgeStart(epic, view, action.ID)
 	case StageOrchestrate:
@@ -252,6 +256,21 @@ func (r *Runner) readBaseCost(ctx context.Context, epic string) map[string]float
 		outputs = append(outputs, check.Stdout, check.Stderr)
 	}
 	return reviewers.Costs(outputs...)
+}
+
+// testRunStart returns the start of the test run step id that runs run's command at run's revision, for task of epic.
+// The step is the test runner role's step (testrunner.Start): read-only and scratch in the epic's repository, so its
+// writes never reach the task's branch or implement worktree. The role's agent is the only thing that can fail the
+// start, so any error it gives is a RoleError.
+func (r *Runner) testRunStart(
+	epic store.EpicRow, task store.EpicTask, run store.TaskTestRun, id string,
+) (enginehost.StepStart, error) {
+	req := testrunner.Request{Command: run.Command, Revision: run.Revision}
+	start, err := testrunner.Start(r.getenv, epic.Repository, id, req, epic.ID, taskLabel(task.Seq))
+	if err != nil {
+		return enginehost.StepStart{}, RoleError{Err: err}
+	}
+	return start, nil
 }
 
 // verifierStart returns the start of the verifier step id for the finding at the task's finding position in the
