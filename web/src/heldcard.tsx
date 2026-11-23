@@ -37,7 +37,7 @@ function heldMark(kind: HeldKind, gauge: GaugeShare | null): JSX.Element {
 // HeldCard draws the held card at the desk: the held thing as a rounded card set into its conversation on the right, joined
 // by necks to its inbox row, with Fold back at its left in place of Close. Its head begins with Fold back, on the spine that
 // runs down its left edge, then the mark and the kind word of its row and its title. Its body is the children, and scrolls on
-// its own. The card task will draw the card's motion for move, which data-move names. A press on Fold back calls onFoldBack.
+// its own. data-move names move, whose motion style.css draws. A press on Fold back calls onFoldBack.
 export function HeldCard(props: HeldCardProps): JSX.Element {
   const { thing, title, move, gauge, onFoldBack, children } = props;
   return (
@@ -73,12 +73,12 @@ export interface HeldSheetProps {
 
 // HeldSheet draws the held thing where the desk's card does not fit: a sheet over the conversation, closed by its Close
 // press, with the thing's record in it. Its head holds the thing's mark, its kind word and its title, and at the right its X.
-// Its spine and its foot are the bracket's ground (D5, D6). The sheet has no Fold back, as D15 leaves it unchanged. The card
-// task will draw the sheet's motion for move. This stub draws the section only.
+// Its spine and its foot are the bracket's ground (D5, D6). The sheet has no Fold back, as D15 leaves it unchanged. data-move
+// names move, whose motion style.css draws.
 export function HeldSheet(props: HeldSheetProps): JSX.Element {
-  const { thing, title, gauge, onClose, children } = props;
+  const { thing, title, move, gauge, onClose, children } = props;
   return (
-    <section class="held-sheet" data-kind={thing.kind} aria-label={title}>
+    <section class="held-sheet" data-kind={thing.kind} data-move={move === "" ? undefined : move} aria-label={title}>
       <span class="held-sheet-spine" aria-hidden="true" />
       <header class="held-head">
         <span class="held-mark" aria-hidden="true">
