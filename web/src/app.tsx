@@ -20,6 +20,7 @@ import { type EpicItem, type EpicsView, epicsView, noEpics, type StepItem } from
 import { findMatches } from "./find";
 import { type Followed, follow } from "./follow";
 import type { Contract } from "./gen/orrery/v1/contracts_pb";
+import type { Design } from "./gen/orrery/v1/designs_pb";
 import type { Epic, EpicHistoryEntry, EpicsGetResponse } from "./gen/orrery/v1/epics_pb";
 import type { InAppNotice, NoticeKey } from "./gen/orrery/v1/notice_pb";
 import type { HostStatusResponse } from "./gen/orrery/v1/orrery_pb";
@@ -232,6 +233,8 @@ const reduceQuery = "(prefers-reduced-motion: reduce)";
 const moveMs = 280;
 // The contracts an App holds when none are given.
 const noContracts: readonly Contract[] = [];
+// The designs an App holds when none are given.
+const noDesigns: readonly Design[] = [];
 // The notices an App shows when none are given.
 const noNotices: InAppNotice[] = [];
 
@@ -246,6 +249,7 @@ export function App({
   seenWindow,
   epics = noEpics,
   contracts = noContracts,
+  designs = noDesigns,
   notices = noNotices,
   host = null,
   onViewing,
@@ -266,6 +270,7 @@ export function App({
   seenWindow?: SeenWindow;
   epics?: EpicsView;
   contracts?: readonly Contract[];
+  designs?: readonly Design[];
   notices?: InAppNotice[];
   host?: HostStatusResponse | null;
   onViewing?: (viewing: Viewing) => void;
@@ -567,6 +572,7 @@ export function App({
       epics: treeEpics,
       details: epics.details,
       contracts,
+      designs,
       host: host?.host ?? "",
       view: shown,
     });
@@ -1001,7 +1007,7 @@ export function App({
   // from this page. The first answer moves nothing. The moves an answer makes are one move notice, which replaces the toast
   // or notice before it.
   useEffect(() => {
-    const spots = spotsOfAnswer(rows, epics, contracts, host?.host ?? "");
+    const spots = spotsOfAnswer(rows, epics, contracts, designs, host?.host ?? "");
     const before = lastSpots.current;
     lastSpots.current = spots;
     if (before === null) {
@@ -3004,10 +3010,11 @@ function spotsOfAnswer(
   rows: readonly Row[],
   epics: EpicsView,
   contracts: readonly Contract[],
+  designs: readonly Design[],
   host: string,
 ): Map<string, Placed> {
   const treeOf = (view: View) =>
-    buildTree({ rows, epics: [...epics.listed.values()], details: epics.details, contracts, host, view });
+    buildTree({ rows, epics: [...epics.listed.values()], details: epics.details, contracts, designs, host, view });
   return spotsOf(treeOf("inbox"), treeOf("archived"));
 }
 

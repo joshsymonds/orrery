@@ -4,6 +4,7 @@ import { test } from "node:test";
 import { create, type MessageInitShape } from "@bufbuild/protobuf";
 
 import { type Contract, ContractSchema } from "./gen/orrery/v1/contracts_pb";
+import { type Design, DesignSchema } from "./gen/orrery/v1/designs_pb";
 import { type Epic, EpicSchema, type EpicsGetResponse, EpicsGetResponseSchema } from "./gen/orrery/v1/epics_pb";
 import { buildTree, convoWaits, type Convo, projectOf, type Project, type TreeInput, type View, waits } from "./tree";
 import { type Row } from "./rows";
@@ -678,4 +679,145 @@ test("WaitsOnYou: an archived waiting conversation ranks by its state in the arc
     makeRow({ key: "rest", label: "rest", archiveId: "sess-r", state: "done", archived: true, changed: 40, seen: 40 }),
   ];
   assert.deepEqual(labelsOf(treeOf(rows, "archived")[0]), ["working", "rest", "waiting"]);
+});
+
+type DesignInit = MessageInitShape<typeof DesignSchema>;
+
+// makeDesign is a design of two or more contracts worked by sess-a, unless the init says otherwise.
+function makeDesign(init: DesignInit): Design {
+  return create(DesignSchema, { id: "design", title: "Design", conversation: "sess-a", created: 10n, ...init });
+}
+
+// designLayout maps each DesignNode of a conversation to the keys of the things that hang under it.
+function designLayout(convo: Convo | undefined): Record<string, string[]> {
+  assert.ok(convo !== undefined, "the tree draws the conversation");
+  return Object.fromEntries((convo.designs ?? []).map((node) => [node.key, node.hung.map((hung) => hung.key)]));
+}
+
+test("DesignTree a conversation working two designs gets two DesignNodes, in created order, each holding its contracts and epics in position order", () => {
+  const rows = [makeRow({ key: "a", label: "a", archiveId: "sess-a", project: "/srv/app", state: "working" })];
+  const projects = buildTree(
+    inputOf(rows, {
+      epics: [makeEpic({ id: "repo-a/alpha", steering: "sess-a" }), makeEpic({ id: "repo-a/gamma", steering: "sess-a" })],
+      contracts: [makeContract({ id: "repo-a/beta", conversation: "sess-a" })],
+      designs: [
+        makeDesign({ id: "design-late", created: 30n, contracts: [{ id: "repo-a/delta", position: 1n, epic: "repo-a/gamma" }] }),
+        makeDesign({
+          id: "design-early",
+          created: 10n,
+          contracts: [
+            { id: "repo-a/beta", position: 2n },
+            { id: "repo-a/alpha", position: 1n },
+          ],
+        }),
+      ],
+    }),
+  );
+  const convo = rowConvo(projects, "a");
+  assert.deepEqual(convo?.designs?.map((node) => node.key), ["design:design-early", "design:design-late"]);
+  assert.deepEqual(designLayout(convo), {
+    "design:design-early": ["epic:repo-a/alpha", "contract:repo-a/beta"],
+    "design:design-late": ["epic:repo-a/gamma"],
+  });
+  assert.deepEqual(convo?.hung.map((hung) => hung.key), ["epic:repo-a/alpha", "contract:repo-a/beta", "epic:repo-a/gamma"]);
+});
+
+test("DesignTree a designless epic of the same conversation comes first in hung, and is in no DesignNode", () => {
+  const rows = [makeRow({ key: "a", label: "a", archiveId: "sess-a", project: "/srv/app", state: "working" })];
+  const projects = buildTree(
+    inputOf(rows, {
+      epics: [makeEpic({ id: "repo-a/alpha", steering: "sess-a" }), makeEpic({ id: "repo-a/delta", steering: "sess-a" })],
+      designs: [makeDesign({ id: "design-x", contracts: [{ id: "repo-a/alpha", position: 1n }] })],
+    }),
+  );
+  const convo = rowConvo(projects, "a");
+  assert.deepEqual(convo?.hung.map((hung) => hung.key), ["epic:repo-a/delta", "epic:repo-a/alpha"]);
+  assert.deepEqual(designLayout(convo), { "design:design-x": ["epic:repo-a/alpha"] });
+});
+
+test("DesignTree a design of one draws no DesignNode, and its things hang in the conversation as they did", () => {
+  const rows = [makeRow({ key: "a", label: "a", archiveId: "sess-a", project: "/srv/app", state: "working" })];
+  const projects = buildTree(
+    inputOf(rows, {
+      epics: [makeEpic({ id: "repo-a/alpha", steering: "sess-a" })],
+      contracts: [makeContract({ id: "repo-a/beta", conversation: "sess-a" })],
+      designs: [
+        makeDesign({ id: "design-one", ofOne: true, contracts: [{ id: "repo-a/alpha", position: 1n }] }),
+        makeDesign({ id: "design-two", contracts: [{ id: "repo-a/beta", position: 1n }] }),
+      ],
+    }),
+  );
+  const convo = rowConvo(projects, "a");
+  assert.deepEqual(convo?.designs?.map((node) => node.key), ["design:design-two"]);
+  assert.deepEqual(convo?.hung.map((hung) => hung.key), ["epic:repo-a/alpha", "contract:repo-a/beta"]);
+});
+
+test("DesignTree a design's ended epic stays among its children, and is not folded under the conversation", () => {
+  const rows = [makeRow({ key: "a", label: "a", archiveId: "sess-a", project: "/srv/app", state: "working" })];
+  const projects = buildTree(
+    inputOf(rows, {
+      epics: [
+        makeEpic({ id: "repo-a/alpha", steering: "sess-a", live: false }),
+        makeEpic({ id: "repo-a/gamma", steering: "sess-a", live: false }),
+      ],
+      designs: [makeDesign({ id: "design-d", contracts: [{ id: "repo-a/alpha", position: 1n }] })],
+    }),
+  );
+  const convo = rowConvo(projects, "a");
+  assert.deepEqual(convo?.hung.map((hung) => hung.key), ["epic:repo-a/alpha"]);
+  assert.deepEqual(foldedKeysOf(convo), ["epic:repo-a/gamma"]);
+  assert.deepEqual(designLayout(convo), { "design:design-d": ["epic:repo-a/alpha"] });
+});
+
+test("DesignTree a design with no drawn conversation is its own row, in the project of its first child", () => {
+  const projects = buildTree(
+    inputOf([], {
+      epics: [makeEpic({ id: "repo-a/alpha", steering: "" })],
+      designs: [makeDesign({ id: "design-gone", conversation: "sess-gone", contracts: [{ id: "repo-a/alpha", position: 1n }] })],
+    }),
+  );
+  const app = projectAt(projects, "|/srv/app");
+  assert.deepEqual(layout(app.convos), { "design:design-gone": ["epic:repo-a/alpha"] });
+  assert.equal(app.convos[0].row, null);
+  assert.deepEqual(app.convos[0].designs?.map((node) => node.key), ["design:design-gone"]);
+});
+
+test("DesignTree a design with no drawn conversation goes behind the ended line only once every child has ended", () => {
+  const projects = buildTree(
+    inputOf([], {
+      epics: [
+        makeEpic({ id: "repo-a/alpha", steering: "", live: false }),
+        makeEpic({ id: "repo-a/beta", steering: "" }),
+        makeEpic({ id: "repo-a/gamma", steering: "", live: false }),
+      ],
+      designs: [
+        makeDesign({ id: "design-done", conversation: "sess-gone", contracts: [{ id: "repo-a/alpha", position: 1n }] }),
+        makeDesign({
+          id: "design-mixed",
+          conversation: "sess-gone",
+          contracts: [
+            { id: "repo-a/beta", position: 1n },
+            { id: "repo-a/gamma", position: 2n },
+          ],
+        }),
+      ],
+    }),
+  );
+  const app = projectAt(projects, "|/srv/app");
+  assert.deepEqual(layout(app.convos), { "design:design-mixed": ["epic:repo-a/beta", "epic:repo-a/gamma"] });
+  assert.deepEqual(layout(app.ended), { "design:design-done": ["epic:repo-a/alpha"] });
+});
+
+test("DesignTree a drawn conversation that works a design with no drawn child gets its DesignNode, with nothing hung", () => {
+  const rows = [makeRow({ key: "a", label: "a", archiveId: "sess-a", project: "/srv/app", state: "working" })];
+  const projects = buildTree(
+    inputOf(rows, {
+      epics: [makeEpic({ id: "repo-a/alpha", steering: "sess-a" })],
+      designs: [makeDesign({ id: "design-idle", contracts: [{ id: "repo-a/omega", position: 1n }] })],
+    }),
+  );
+  const convo = rowConvo(projects, "a");
+  assert.deepEqual(convo?.designs?.map((node) => node.key), ["design:design-idle"]);
+  assert.deepEqual(designLayout(convo), { "design:design-idle": [] });
+  assert.deepEqual(convo?.hung.map((hung) => hung.key), ["epic:repo-a/alpha"]);
 });

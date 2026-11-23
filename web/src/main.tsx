@@ -5,6 +5,7 @@ import { App } from "./app";
 import { createClients, createTransport } from "./client";
 import { type EpicsView, epicsView, noEpics } from "./epics";
 import type { Contract } from "./gen/orrery/v1/contracts_pb";
+import type { Design } from "./gen/orrery/v1/designs_pb";
 import type { InAppNotice } from "./gen/orrery/v1/notice_pb";
 import type { HostStatusResponse, Pane, WatchResponse } from "./gen/orrery/v1/orrery_pb";
 import { localHeadStore } from "./headfold";
@@ -39,6 +40,7 @@ interface Loaded {
   epics: EpicsView;
   epicsError: string;
   contracts: Contract[];
+  designs: Design[];
 }
 
 // PageBuild is the build the page was bundled with and how it reloads itself.
@@ -146,7 +148,7 @@ export function start(
   win: SeenWindow = window,
   page: PageBuild = bundledPage,
 ): () => void {
-  let loaded: Loaded = { rows: [], error: "", epics: noEpics, epicsError: "", contracts: [] };
+  let loaded: Loaded = { rows: [], error: "", epics: noEpics, epicsError: "", contracts: [], designs: [] };
   let notices: InAppNotice[] = [];
   let host: HostStatusResponse | null = null;
   let now = 0;
@@ -192,6 +194,7 @@ export function start(
         onRetry={retryLists}
         epics={loaded.epics}
         contracts={loaded.contracts}
+        designs={loaded.designs}
         now={now}
         clients={clients}
         notices={notices}
@@ -305,7 +308,13 @@ export function start(
     }
     held = next.held;
     steps = stepSessions(next.epics, next.details);
-    loaded = { ...loaded, epics: epicsView(next.epics, next.details), epicsError: next.error, contracts: next.contracts };
+    loaded = {
+      ...loaded,
+      epics: epicsView(next.epics, next.details),
+      epicsError: next.error,
+      contracts: next.contracts,
+      designs: next.designs,
+    };
     epicsAnswered = true;
     settleAddress();
     now = Math.floor(Date.now() / 1000);
