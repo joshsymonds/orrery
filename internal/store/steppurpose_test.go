@@ -68,65 +68,36 @@ func TestStepPurposeWritesOnlyWhileEmpty(t *testing.T) {
 	}
 }
 
-// TestStepPurposeMigrationDownAndUp checks the migration that adds the purpose column. Its Down drops the column, and
-// step_listings reads on without it, and its Up adds the column back empty, so a purpose does not survive a Down.
-func TestStepPurposeMigrationDownAndUp(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	s, provider := storeAtVersion(t, 95)
-	purposed := stepAddOf("s1")
-	purposed.Purpose = "Review the diff of T3."
-	if err := s.ApplyEngine(ctx, []EngineOp{purposed}, engineNowAt()); err != nil {
-		t.Fatalf("ApplyEngine: %v", err)
+// stepPurposeDownAndUp is the walk's check of 00095_step_purpose.sql: a step stored with a purpose stays listed when the
+// Down drops the purpose column, and its Up adds the column back empty, so a purpose does not survive a Down.
+func stepPurposeDownAndUp() migrationCheck {
+	return migrationCheck{
+		seed: func(t *testing.T, s *Store) {
+			t.Helper()
+			purposed := stepAddOf("s1")
+			purposed.Purpose = "Review the diff of T3."
+			if err := s.ApplyEngine(context.Background(), []EngineOp{purposed}, engineNowAt()); err != nil {
+				t.Fatalf("ApplyEngine: %v", err)
+			}
+		},
+		down: func(t *testing.T, s *Store) {
+			t.Helper()
+			var listed int
+			if err := s.db.DB.QueryRow(`SELECT COUNT(*) FROM step_listings`).Scan(&listed); err != nil || listed != 1 {
+				t.Fatalf("step_listings after Down counts %d (err %v), want the one step", listed, err)
+			}
+		},
+		up: func(t *testing.T, s *Store) {
+			t.Helper()
+			var purpose string
+			if err := s.db.DB.QueryRow(`SELECT purpose FROM step_listings WHERE id = 's1'`).Scan(&purpose); err != nil {
+				t.Fatalf("read purpose after Up: %v", err)
+			}
+			if purpose != "" {
+				t.Errorf("purpose after Down and Up = %q, want empty", purpose)
+			}
+		},
 	}
-
-	if _, err := provider.Down(ctx); err != nil {
-		t.Fatalf("Down of 00095: %v", err)
-	}
-	if stepPurposeColumn(t, s, "steps") || stepPurposeColumn(t, s, "step_listings") {
-		t.Errorf("purpose column after Down: present in steps or step_listings, want absent from both")
-	}
-	var listed int
-	if err := s.db.DB.QueryRow(`SELECT COUNT(*) FROM step_listings`).Scan(&listed); err != nil || listed != 1 {
-		t.Fatalf("step_listings after Down counts %d (err %v), want the one step", listed, err)
-	}
-
-	if _, err := provider.UpByOne(ctx); err != nil {
-		t.Fatalf("Up of 00095: %v", err)
-	}
-	if !stepPurposeColumn(t, s, "steps") || !stepPurposeColumn(t, s, "step_listings") {
-		t.Fatalf("purpose column after Up: absent from steps or step_listings, want present in both")
-	}
-	var purpose string
-	if err := s.db.DB.QueryRow(`SELECT purpose FROM step_listings WHERE id = 's1'`).Scan(&purpose); err != nil {
-		t.Fatalf("read purpose after Up: %v", err)
-	}
-	if purpose != "" {
-		t.Errorf("purpose after Down and Up = %q, want empty", purpose)
-	}
-}
-
-// stepPurposeColumn reports whether table has a purpose column.
-func stepPurposeColumn(t *testing.T, s *Store, table string) bool {
-	t.Helper()
-	rows, err := s.db.DB.Query(`SELECT name FROM pragma_table_info(?)`, table)
-	if err != nil {
-		t.Fatalf("list columns of %s: %v", table, err)
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var name string
-		if err := rows.Scan(&name); err != nil {
-			t.Fatalf("scan column of %s: %v", table, err)
-		}
-		if name == "purpose" {
-			return true
-		}
-	}
-	if err := rows.Err(); err != nil {
-		t.Fatalf("iterate columns of %s: %v", table, err)
-	}
-	return false
 }
 
 // TestStepPurposeUnknownStepIsErrNoStep checks that a purpose for a step no row holds is refused with ErrNoStep.
