@@ -407,7 +407,7 @@ func (s *epicService) fillHistory(ctx context.Context, id string, message *v1.St
 }
 
 // storedEpic returns the StoredEpic message of the epic with id with its workflow node runs, whether each task is
-// integrated, its review, its release runs, its release proof and the holder of its repository's release slot, all
+// integrated, its review, its release runs and its release proof, all
 // read in one read of the store, so every reply that carries the epic shows the same state. It returns an error
 // matching store.ErrNoEpic when no epic has that id.
 func (s *epicService) storedEpic(ctx context.Context, id string) (*v1.StoredEpic, error) {

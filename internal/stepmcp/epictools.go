@@ -284,7 +284,7 @@ func epicControlTools(epics enginev1connect.EpicsClient, in epicInputs) []Tool {
 			Name: "epic_close",
 			Description: "Close an epic by id as superseded, shipped by hand or abandoned, which ends it. kind names the " +
 				"close; superseded requires by, the epic that replaces it. The close answers the epic's open questions, " +
-				"ends its running turn, node runs and steps, and frees its release slot. Returns a short " +
+				"ends its running turn, node runs and steps. Returns a short " +
 				"acknowledgement, not the stored epic: the epic id, its phase and one line naming what changed. " +
 				"Refused for a superseded close without by.",
 			InputSchema: in.close,
