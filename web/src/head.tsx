@@ -10,7 +10,8 @@ import { ContextMeter, contextFigure, PaneStrip, type StripHost } from "./strip"
 import { type ContractBandLine, foldHead, SubjectBand } from "./subjectband";
 import { lastPathElement } from "./titleparts";
 import { TitleRow } from "./titlerow";
-import type { RailGroup, Thing } from "./work";
+import type { RailGroup, Thing, WorkLinkItem } from "./work";
+import { WorkLink } from "./worklink";
 import { WorkRail } from "./workrail";
 
 // HeadProps is what the conversation's Head draws: the row and its conversation, the strip's host and whether it shows,
@@ -43,6 +44,9 @@ export interface HeadProps {
   // work is the middle conversation's groups under 760px, drawn as tiles under the band: the groups, the key of the
   // thing open, and what a tile opens. Absent, the head draws no tiles.
   work?: HeadWork;
+  // workLinks is what the middle conversation works on, drawn in the title row after its title as links: the things, and
+  // what a link opens. Absent, the head draws no links.
+  workLinks?: HeadWorkLinks;
 }
 
 // HeadWork is what the strip of tiles under the band draws.
@@ -50,6 +54,12 @@ export interface HeadWork {
   groups: RailGroup[];
   lit: string;
   onOpen: (thing: Thing) => void;
+}
+
+// HeadWorkLinks is what the title row's work links draw: the things the conversation works on, and what a link opens.
+export interface HeadWorkLinks {
+  items: readonly WorkLinkItem[];
+  onOpen: (item: WorkLinkItem) => void;
 }
 
 // HeadMenu is what the More menu's items do.
@@ -68,10 +78,10 @@ interface MenuItem {
   run: () => void;
 }
 
-// Head is a conversation's header: its title row with the context, the find control and the More menu, then either the
-// machine band and the band of what it is for and what waits on it, or, when folded, the one folded line. The machine
-// band is drawn with the open header only. The hide control on the band and the Hide the header item are drawn only in
-// the narrow layout.
+// Head is a conversation's header: its title row, with the work links after the title when given, the context, the find
+// control and the More menu, then either the machine band and the band of what it is for and what waits on it, or, when
+// folded, the one folded line. The machine band is drawn with the open header only. The hide control on the band and the
+// Hide the header item are drawn only in the narrow layout.
 export function Head({
   row,
   conversation,
@@ -91,6 +101,7 @@ export function Head({
   onShow,
   menu,
   work,
+  workLinks,
   here,
   contracts,
   onOpenContract,
@@ -127,6 +138,7 @@ export function Head({
         onBack={onBack}
         note={note}
       >
+        {workLinks !== undefined && <WorkLink items={workLinks.items} narrow={narrow} onOpen={workLinks.onOpen} />}
         {context !== undefined && figure !== null && <ContextMeter context={context} figure={figure} />}
         <button type="button" class="icon find" aria-label="Find in this conversation" title="Find  /" onClick={() => onFind()}>
           <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 3a4 4 0 1 0 0 8 4 4 0 0 0 0-8zM10 10l3.5 3.5" /></svg>

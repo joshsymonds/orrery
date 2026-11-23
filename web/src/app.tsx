@@ -77,7 +77,7 @@ import { TitleRow } from "./titlerow";
 import { Toast } from "./toast";
 import { buildTree, type Convo, type Hung, type Project } from "./tree";
 import { countsOf, type Narrow, narrow as narrowTree, projectWaiting, search as searchTree, waitOrder } from "./treefilter";
-import { activityOf, type ListThing, type Thing, type WorkConversation, workOf } from "./work";
+import { activityOf, type ListThing, type Thing, type WorkConversation, type WorkLinkItem, workLinksOf, workOf } from "./work";
 import { WorkerSessionPage } from "./workersession";
 import { WorkRail } from "./workrail";
 
@@ -2009,6 +2009,12 @@ export function App({
         middle && !wide
           ? { groups: workOf(workConversation(row, conversation), railEpics, now, contracts), lit, onOpen: openThing }
           : undefined,
+      workLinks: middle
+        ? {
+            items: workLinksOf(workConversation(row, conversation).session, designs, railEpics, contracts),
+            onOpen: openWorkLink,
+          }
+        : undefined,
       note: headNote.key === row.key ? headNote.text : "",
       menu: {
         stripsShown,
@@ -2043,6 +2049,19 @@ export function App({
     }
     document.querySelector<HTMLElement>(".row.cur")?.focus();
   };
+  // tabToShow is the design tab a design link last asked to show, by its key. The layout effect after the render that draws
+  // it scrolls the tab into view and clears it, so each press shows its tab, even one that changes nothing else.
+  const [tabToShow, setTabToShow] = useState("");
+  useLayoutEffect(() => {
+    if (tabToShow === "") {
+      return;
+    }
+    const tab = Array.from(document.querySelectorAll<HTMLElement>(".design-tab")).find(
+      (candidate) => candidate.dataset.key === tabToShow,
+    );
+    tab?.scrollIntoView({ block: "nearest" });
+    setTabToShow("");
+  }, [tabToShow]);
   // backToInbox is a row's page's Back under 760px: the inbox draws again, and the row takes the focus once the render
   // that draws the list has run.
   const backToInbox = () => {
@@ -2186,6 +2205,35 @@ export function App({
       return;
     }
     navigated(openList)(middleKey, thing.kind);
+  };
+  // openDesign is a press on a design link: the design's tab shows in the inbox, where the tree draws it under its
+  // conversation. At the desk a collapsed inbox expands, and the tab scrolls into view once it is drawn. Under 760px the
+  // page and the panels shut, so the inbox list draws with the tab in view.
+  const openDesign = (id: string) => {
+    revealKey(`design:${id}`);
+    setView("inbox");
+    setProjectKey(null);
+    if (wide) {
+      if (collapsed) {
+        expandInbox();
+      }
+    } else {
+      setRowOpened(false);
+      setEpicPage(closedEpicPage);
+      setOpenedContract(null);
+    }
+    setTabToShow(`design:${id}`);
+  };
+  // openWorkLink is a press on a work link in the title row: an epic's opens its panel, a contract's opens its contract, as
+  // the rail's tiles do, and a design's shows its tab in the inbox.
+  const openWorkLink = (item: WorkLinkItem) => {
+    if (item.kind === "epic") {
+      navigated(openEpic)(item.id);
+    } else if (item.kind === "contract") {
+      navigated(openContractPanel)(item.id);
+    } else {
+      navigated(openDesign)(item.id);
+    }
   };
   // openActivity is a press on an activity line above the composer: it opens the list panel of the line's kind on the
   // middle conversation's row, or shuts that panel when it is the one open, as a rail tile does.
@@ -3437,10 +3485,13 @@ function treeEntries(
   return entries;
 }
 
-// holdsKey says whether a conversation draws the entry under key: its row, or a thing hung or folded under it, or a step
-// of an epic hung or folded under it.
+// holdsKey says whether a conversation draws the entry under key: its row, its design's tab, or a thing hung or folded under
+// it, or a step of an epic hung or folded under it.
 function holdsKey(convo: Convo, key: string): boolean {
   if (convo.row !== null && convo.row.key === key) {
+    return true;
+  }
+  if ((convo.designs ?? []).some((node) => node.key === key)) {
     return true;
   }
   return [...convo.hung, ...convo.folded].some((hung) => holdsThing(hung, key));

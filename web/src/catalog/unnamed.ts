@@ -42,6 +42,9 @@ export const unnamed: Readonly<Record<string, UnnamedEntry>> = {
   // ActivityLines draws what runs under a conversation as lines above its composer, with a count past three. Round 6
   // draws each running thing as a task line in the transcript, and no line above the composer.
   "activity-lines": { replacement: "TaskLine", epic: "F3" },
+  // WorkLink draws what a conversation is working on as plain links in its title row, after the title, with a "+n" control
+  // for the rest. Round 6 names what a conversation steers in its rail's tiles, and no link in the title row.
+  "work-link": { replacement: "TitleRow", epic: "F3" },
 
   // ---- single stories of round-6 components, each the component in a state round 6 does not draw ----
 

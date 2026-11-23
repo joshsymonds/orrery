@@ -36,7 +36,8 @@ interface Reading {
 }
 
 // ColumnHead is what App gives a column's head for its row and conversation: the strip, the asks, the note, the More
-// menu, under 760px the middle column's tiles, and the epic open in the panel beside the middle column. The column adds the fold, which it reads from its own reader.
+// menu, under 760px the middle column's tiles, the middle column's work links, and the epic open in the panel beside the
+// middle column. The column adds the fold, which it reads from its own reader.
 export type ColumnHead = Pick<
   HeadProps,
   | "host"
@@ -47,6 +48,7 @@ export type ColumnHead = Pick<
   | "note"
   | "menu"
   | "work"
+  | "workLinks"
   | "here"
   | "contracts"
   | "onOpenContract"
