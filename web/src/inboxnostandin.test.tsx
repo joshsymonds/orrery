@@ -192,6 +192,6 @@ test("InboxWebNoStandIn: the Archived view draws an archived epic whose conversa
     await show({ view: "archived", entry: null });
     const project = one(container, 'section.dir[aria-label="api"]');
     one(project, '.dir-kids > .row.epic[data-key="epic:repo-a/gamma"]');
-    one(project, '.dir-kids > .row[data-key="archived"] + .steers > .row.epic[data-key="epic:repo-a/beta"]');
+    one(project, '.dir-kids > .convo-block > .row[data-key="archived"] + .steers > .row.epic[data-key="epic:repo-a/beta"]');
     assertNone(project.querySelector('[data-key="epic:repo-a/alpha"]'), "a live epic with no archived conversation is not drawn");
   }));
