@@ -338,7 +338,7 @@ func (g *Gatherers) awaitResume(ctx context.Context, epic string) (store.EpicRow
 // watch follows gatherer until it ends or ctx ends. The briefs inPrompt holds are the ones its prompt gave it, so they
 // are not delivered again. Every other brief the gatherer holds, and every brief that waits, is delivered to it as an
 // event, and a delivery refused as busy is tried again each gathererBriefRetry. The end of the gatherer is recorded
-// when its step ends.
+// when its step ends, and the loop then reads the epic again, so a gatherer starts for the briefs the end left waiting.
 func (g *Gatherers) watch(
 	ctx context.Context, epic string, loop *gathererLoop, gatherer store.EvidenceGatherer, inPrompt map[string]bool,
 ) {
@@ -369,6 +369,7 @@ func (g *Gatherers) watch(
 		case <-sub.Ready():
 			if row, ok := judgeEndRow(sub.Take()); ok {
 				g.recordEnd(ctx, epic, gatherer.Step, row)
+				loop.signal()
 				return
 			}
 		case <-loop.kick:
