@@ -23,7 +23,8 @@ export type Entry =
   | { kind: "step"; id: string }
   | { kind: "epic"; id: string; page: PageView }
   | { kind: "project"; key: string }
-  | { kind: "contract"; id: string };
+  | { kind: "contract"; id: string }
+  | { kind: "accounts" };
 
 export interface Address {
   view: View;
@@ -147,6 +148,10 @@ export function parseAddress(hash: string): Address {
     return inbox();
   }
   const [viewSegment, ...rest] = path.slice(1).split("/");
+  // The accounts page is one address with no segment after it, and it opens over the inbox.
+  if (viewSegment === "accounts") {
+    return rest.length === 0 ? { view: "inbox", entry: { kind: "accounts" } } : inbox();
+  }
   const view = viewOf(viewSegment);
   if (view === undefined) {
     return inbox();
@@ -177,10 +182,13 @@ function formatPage(page: PageView): string[] {
 }
 
 // formatAddress writes an address as its hash, with the leading '#'. parseAddress reads the result back to the same
-// address.
+// address. The accounts page is written as '#/accounts' whatever the view it is over.
 export function formatAddress(address: Address): string {
-  const segments: string[] = [address.view];
   const entry = address.entry;
+  if (entry?.kind === "accounts") {
+    return "#/accounts";
+  }
+  const segments: string[] = [address.view];
   if (entry !== null) {
     switch (entry.kind) {
       case "session":

@@ -1780,7 +1780,8 @@ export function App({
         adopt();
         return;
       }
-    } else {
+    } else if (entry.kind !== "accounts") {
+      // The accounts page is drawn by a later task, so its address opens no row and falls through to be dropped.
       const item = flat.find((candidate) => candidate.key === addressKey(entry));
       if (item !== undefined) {
         selectItem(item);
@@ -3258,7 +3259,7 @@ function shownEntry(item: Item | null, epicPage: EpicPageState, list: ListPanelK
 }
 
 // addressKey is the key the list gives the row or step an address names, which the cursor is moved to.
-function addressKey(entry: Exclude<Entry, { kind: "epic" | "project" | "contract" }>): string {
+function addressKey(entry: Exclude<Entry, { kind: "epic" | "project" | "contract" | "accounts" }>): string {
   switch (entry.kind) {
     case "session":
       return `session:${entry.id}`;
