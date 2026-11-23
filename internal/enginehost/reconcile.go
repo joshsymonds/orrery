@@ -4,9 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io/fs"
-	"os"
-	"path/filepath"
 	"time"
 
 	"github.com/joshsymonds/orrery/internal/engine/session"
@@ -17,10 +14,6 @@ import (
 
 // restartedReason is the reason a session whose turn was running when orreryd restarted is recorded interrupted with.
 const restartedReason = "orreryd restarted during the turn"
-
-// holdersSubdir is the subdirectory of the state directory that holds each session's holder directory. It is the
-// holder package's holders directory.
-const holdersSubdir = "holders"
 
 // clearTimeout bounds the re-adoption, or the holder.Clear, of one session's holder directory in Reconcile.
 const clearTimeout = 10 * time.Second
@@ -158,30 +151,22 @@ func (m *Manager) notifySettled(ctx context.Context, rows []store.EngineRow, err
 // go through.
 func (m *Manager) reconcileHolders(ctx context.Context) (map[string]bool, error) {
 	settled := map[string]bool{}
-	if m.stateDir == "" {
-		return settled, nil
-	}
-	holders := filepath.Join(m.stateDir, holdersSubdir)
-	entries, err := os.ReadDir(holders)
+	ids, err := m.local.Sessions(ctx)
 	if err != nil {
-		if !errors.Is(err, fs.ErrNotExist) {
-			m.logger.WarnContext(ctx, "read holders dir", "dir", holders, "err", err)
-		}
+		m.logger.WarnContext(ctx, "read holders dir", "err", err)
 		return settled, nil
 	}
 	var readErr error
-	for _, entry := range entries {
-		id := entry.Name()
+	for _, id := range ids {
 		if m.pumping(id) {
 			continue
 		}
-		dir := m.holderDirOf(id)
 		row, rowErr := m.store.EngineSession(ctx, id)
 		if rowErr != nil && !errors.Is(rowErr, store.ErrNoEngineSession) && readErr == nil {
 			readErr = rowErr
 		}
 		if rowErr == nil && m.readoptable(row) {
-			readopted, drained := m.readoptHolder(ctx, row, dir)
+			readopted, drained := m.readoptHolder(ctx, row)
 			if readopted {
 				continue
 			}
@@ -190,14 +175,9 @@ func (m *Manager) reconcileHolders(ctx context.Context) (map[string]bool, error)
 				continue
 			}
 		}
-		m.clearHolder(ctx, id, dir)
+		m.clearHolder(ctx, id)
 	}
 	return settled, readErr
-}
-
-// holderDirOf returns the holder directory of session id under the state directory.
-func (m *Manager) holderDirOf(id string) string {
-	return filepath.Join(m.stateDir, holdersSubdir, id)
 }
 
 // readoptable reports whether the holder of row's session may be re-adopted. Row must be tracked by a launch and be neither
@@ -216,16 +196,16 @@ func (m *Manager) readoptable(row store.EngineRow) bool {
 	return false
 }
 
-// readoptHolder re-adopts the session of row from its holder in dir, bounded by clearTimeout. When the holder has ended, it
-// drains the session instead. A live holder that cannot be attached is stopped, then drained. A step's holder that has
-// ended or cannot be attached is left for the caller to clear, neither drained nor stopped; one that gave no answer
-// (holder.ErrNoAnswer) is killed first, so the clear does not ask it to stop and wait out the same silence again. A failure is logged, and the
-// holder is left for the caller to clear. A holder that has ended or cannot be attached counts one holder loss. It
-// reports whether the session was re-adopted, and whether it was drained and its row settled.
-func (m *Manager) readoptHolder(ctx context.Context, row store.EngineRow, dir string) (readopted, drained bool) {
+// readoptHolder re-adopts the session of row from its holder on this machine, bounded by clearTimeout. When the holder has
+// ended, it drains the session instead. A live holder that cannot be attached is stopped, then drained. A step's holder
+// that has ended or cannot be attached is left for the caller to clear, neither drained nor stopped; one that gave no
+// answer (holder.ErrNoAnswer) is killed first, so the clear does not ask it to stop and wait out the same silence again. A
+// failure is logged, and the holder is left for the caller to clear. A holder that has ended or cannot be attached counts
+// one holder loss. It reports whether the session was re-adopted, and whether it was drained and its row settled.
+func (m *Manager) readoptHolder(ctx context.Context, row store.EngineRow) (readopted, drained bool) {
 	readoptCtx, cancel := context.WithTimeout(ctx, clearTimeout)
 	defer cancel()
-	err := m.readopt(readoptCtx, row, dir)
+	err := m.readopt(readoptCtx, row)
 	if errors.Is(err, holder.ErrGone) || errors.Is(err, holder.ErrUnattachable) {
 		m.metrics.HolderLost(ctx)
 	}
@@ -233,65 +213,63 @@ func (m *Manager) readoptHolder(ctx context.Context, row store.EngineRow, dir st
 	case err == nil:
 		return true, false
 	case row.Kind == store.KindStep && errors.Is(err, holder.ErrNoAnswer):
-		m.killUnanswered(ctx, row.ID, dir)
+		m.killUnanswered(ctx, row.ID)
 		return false, false
 	case row.Kind == store.KindStep && (errors.Is(err, holder.ErrGone) || errors.Is(err, holder.ErrUnattachable)):
 		return false, false
 	case errors.Is(err, holder.ErrGone):
-		return false, m.drainGone(ctx, row, dir)
+		return false, m.drainGone(ctx, row)
 	case errors.Is(err, holder.ErrUnattachable):
-		return false, m.stopThenDrain(ctx, row, dir, err)
+		return false, m.stopThenDrain(ctx, row, err)
 	default:
 		m.logger.WarnContext(ctx, "re-adopt session", "session", row.ID, "err", err)
 		return false, false
 	}
 }
 
-// stopThenDrain stops the live holder in dir that could not be attached, bounded by clearTimeout of its own, then drains
-// the session as a gone holder. attachErr is why the attach failed. A holder that gave no answer (holder.ErrNoAnswer) is
-// killed at once with holder.Kill, since asking it to stop would only wait out the same silence again; any other holder
-// is asked with holder.Stop, which kills it when it does not answer. A failed stop is logged, and the holder is left for
-// the caller to clear. It reports whether the row was settled by the drain.
-func (m *Manager) stopThenDrain(ctx context.Context, row store.EngineRow, dir string, attachErr error) bool {
+// stopThenDrain stops the live holder on this machine that could not be attached, bounded by clearTimeout of its own,
+// then drains the session as a gone holder. attachErr is why the attach failed. A holder that gave no answer
+// (holder.ErrNoAnswer) is killed at once with the host's Kill, since asking it to stop would only wait out the same
+// silence again; any other holder is asked with the host's Stop, which kills it when it does not answer. A failed stop is
+// logged, and the holder is left for the caller to clear. It reports whether the row was settled by the drain.
+func (m *Manager) stopThenDrain(ctx context.Context, row store.EngineRow, attachErr error) bool {
 	stopCtx, cancel := context.WithTimeout(ctx, clearTimeout)
 	defer cancel()
-	stop := holder.Stop
+	stop := m.local.Stop
 	if errors.Is(attachErr, holder.ErrNoAnswer) {
-		stop = holder.Kill
+		stop = m.local.Kill
 	}
-	if err := stop(stopCtx, dir); err != nil {
+	if err := stop(stopCtx, row.ID); err != nil {
 		m.logger.WarnContext(ctx, "stop unattachable holder", "session", row.ID, "err", err)
 		return false
 	}
-	return m.drainGone(ctx, row, dir)
+	return m.drainGone(ctx, row)
 }
 
-// drainGone drains the session of row from its ended holder in dir. A failure is logged. It reports whether the row was
-// settled by the drain.
-func (m *Manager) drainGone(ctx context.Context, row store.EngineRow, dir string) bool {
-	if err := m.drain(ctx, row, dir); err != nil {
+// drainGone drains the session of row from its ended holder on this machine. A failure is logged. It reports whether the
+// row was settled by the drain.
+func (m *Manager) drainGone(ctx context.Context, row store.EngineRow) bool {
+	if err := m.drain(ctx, row); err != nil {
 		m.logger.WarnContext(ctx, "drain session", "session", row.ID, "err", err)
 		return false
 	}
 	return true
 }
 
-// readopt re-adopts the session of row from its holder in dir. It reads the spec the session is registered with, attaches
-// the holder at row's replay-from, replays the stdout from there to row's consumed offset, and registers the session live,
-// primed from that replay (see prime). It owes the session the prompts the previous controller left unanswered (see
-// owedPrompts). A holder one version older than the controller's is re-adopted as well, but its session is draining, so it
-// is retired once no turn runs (see retireLocked); a step is retired at its hand-off and enters the drained set. A failure
-// after the holder is attached ends the session with Detach, which leaves the holder running for the caller to clear.
-func (m *Manager) readopt(ctx context.Context, row store.EngineRow, dir string) error {
+// readopt re-adopts the session of row from its holder on this machine. It reads the spec the session is registered with,
+// attaches the holder at row's replay-from, replays the stdout from there to row's consumed offset, and registers the
+// session live, primed from that replay (see prime). It owes the session the prompts the previous controller left
+// unanswered (see owedPrompts). A holder one version older than the controller's is re-adopted as well, but its session
+// is draining, so it is retired once no turn runs (see retireLocked); a step is retired at its hand-off and enters the
+// drained set. A failure after the holder is attached ends the session with Detach, which leaves the holder running for
+// the caller to clear. The attach bound is the manager's attachTimeout, when it is not zero.
+func (m *Manager) readopt(ctx context.Context, row store.EngineRow) error {
 	sp, err := m.readoptSpec(ctx, row)
 	if err != nil {
 		return err
 	}
-	opts := []holder.ReattachOption{holder.WithScope(m.holderScope)}
-	if m.attachTimeout != 0 {
-		opts = append(opts, holder.WithAttachTimeout(m.attachTimeout))
-	}
-	process, written, err := holder.Reattach(ctx, dir, row.ReplayFrom, m.holderVersion, opts...)
+	m.local.SetAttachTimeout(m.attachTimeout)
+	process, written, err := m.local.Reattach(ctx, row.ID, row.ReplayFrom, m.holderVersion)
 	if err != nil {
 		return fmt.Errorf("attach holder of session %s: %w", row.ID, err)
 	}
@@ -353,22 +331,22 @@ func (m *Manager) expectsStep(id string) bool {
 	return m.stepObservers[id] != nil
 }
 
-// killUnanswered kills the holder in dir of session id, which gave no answer to its attach, bounded by clearTimeout. A
-// failed kill is logged, and the clear that follows stops the holder as it stops any other.
-func (m *Manager) killUnanswered(ctx context.Context, id, dir string) {
+// killUnanswered kills the holder of session id on this machine, which gave no answer to its attach, bounded by
+// clearTimeout. A failed kill is logged, and the clear that follows stops the holder as it stops any other.
+func (m *Manager) killUnanswered(ctx context.Context, id string) {
 	killCtx, cancel := context.WithTimeout(ctx, clearTimeout)
 	defer cancel()
-	if err := holder.Kill(killCtx, dir); err != nil {
+	if err := m.local.Kill(killCtx, id); err != nil {
 		m.logger.WarnContext(ctx, "kill unanswering holder", "session", id, "err", err)
 	}
 }
 
-// clearHolder clears the holder directory dir of session id, bounded by clearTimeout. A failed clear is logged with the
-// session's name.
-func (m *Manager) clearHolder(ctx context.Context, id, dir string) {
+// clearHolder clears the holder directory of session id on this machine, bounded by clearTimeout. A failed clear is
+// logged with the session's name.
+func (m *Manager) clearHolder(ctx context.Context, id string) {
 	clearCtx, cancel := context.WithTimeout(ctx, clearTimeout)
 	defer cancel()
-	if err := holder.Clear(clearCtx, dir); err != nil {
+	if err := m.local.Clear(clearCtx, id); err != nil {
 		m.logger.WarnContext(ctx, "clear holder", "session", id, "err", err)
 	}
 }
@@ -423,7 +401,7 @@ func (m *Manager) reconcileRow(ctx context.Context, row store.EngineRow) error {
 	if err := m.writer.Commit(ctx, row.ID, settleOps(row)...); err != nil {
 		return fmt.Errorf("reconcile session %s: %w", row.ID, err)
 	}
-	m.clearHolder(ctx, row.ID, m.holderDirOf(row.ID))
+	m.clearHolder(ctx, row.ID)
 	m.resumeOrNotify(ctx, row)
 	return nil
 }
