@@ -1955,13 +1955,15 @@ button.block:hover { --ground: var(--o-surface-raised); }
   .inbox :is(.row, .design-tab)[data-held]:is([data-move="close"], [data-move="leave"])::before,
   .rail-lineage .lmark[data-held]:is([data-move="close"], [data-move="leave"])::after { transform-origin: left; animation: neck-draw var(--o-move-leave) both; }
 
-  .inbox .convo-block[data-held="tab"]:is([data-move="open"], [data-move="switch"], [data-move="other"]) { animation: ground-in var(--o-move-state); }
+  .inbox .convo-block[data-held="tab"]:is([data-move="open"], [data-move="other"]) { animation: ground-in var(--o-move-state); }
   .inbox .convo-block[data-held="tab"]:is([data-move="close"], [data-move="leave"]) { animation: ground-out var(--o-move-leave) both; }
 
   .read.held[data-move="open"], .read[data-move="close"] { animation: chat-move var(--o-move-layout); }
   .read[data-move="other"] > .reader, .read[data-move="other"] .convo-head .crumbs { animation: move-fade var(--o-move-state); }
 }
 
+/* A card or sheet folding away takes no press: its controls belong to the thing it was, and it is gone at its animationend. */
+.held-card[data-move="leave"], .held-sheet[data-move="leave"] { pointer-events: none; }
 /* The held layout at the desk (D11, D12): the conversation is the ground, and what it holds is set into it. Its head runs across
    the top; the card sits under the head on the left, three parts of the room to the chat's two; the reader and the send box
    are the chat on the right. The chat lays out as the phone does: no gutter of times, and the machine's band in one row. A

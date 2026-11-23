@@ -37,6 +37,7 @@ export function InboxRow({
   hover = false,
   moving = false,
   "data-held": held,
+  "data-move": move,
   more,
   onOpen,
   onSeen,
@@ -48,6 +49,7 @@ export function InboxRow({
   hover?: boolean;
   moving?: boolean;
   "data-held"?: string;
+  "data-move"?: string;
   more: RowMore;
   onOpen: () => void;
   onSeen: () => void;
@@ -61,6 +63,7 @@ export function InboxRow({
       data-unseen={row.unseen ? "" : undefined}
       data-moving={moving ? "true" : undefined}
       data-held={held}
+      data-move={move}
       aria-current={open ? "page" : cursor ? "true" : undefined}
       onClick={(event) => {
         if (!isLinkClick(event)) {

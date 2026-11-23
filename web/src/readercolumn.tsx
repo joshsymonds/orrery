@@ -15,6 +15,7 @@ import type { StepItem } from "./epics";
 import { FindBar, type Match } from "./find";
 import { Head, type HeadProps } from "./head";
 import { foldOf } from "./headfold";
+import type { HeldMove } from "./held";
 import { type ContractCalls, Reader, type ReaderHandle } from "./reader";
 import type { Row } from "./rows";
 import type { Sending, SentText } from "./sending";
@@ -108,6 +109,9 @@ export interface ReaderColumnProps {
   // sheet is what the column draws under its head in place of its reader and find bar, on the phone: the open thing held as
   // the sheet, which takes the conversation's place under its head. Its send box is hidden, not unmounted, so a draft holds.
   sheet?: ComponentChildren;
+  // move is the held layout's motion of the change that holds the thing, which the column carries as data-move while it draws
+  // (D16). Nothing is drawn for "" or without it.
+  move?: HeldMove;
   // head is what the column's head draws for its row and conversation.
   head: (row: Row, conversation: Conversation | null) => ColumnHead;
   // narrow is the phone layout, where the head folds. hidden is the owner's hide, which holds across conversations.
@@ -212,6 +216,7 @@ export function ReaderColumn({
   activity,
   held,
   sheet,
+  move = "",
 }: ReaderColumnProps): JSX.Element {
   const names = columnNames[column];
   const rowKey = row?.key ?? "";
@@ -257,6 +262,7 @@ export function ReaderColumn({
     <section
       ref={section}
       class={held === undefined ? names.section : `${names.section} held`}
+      data-move={move === "" ? undefined : move}
       aria-label={names.label}
       hidden={row === null && step === null}
     >
