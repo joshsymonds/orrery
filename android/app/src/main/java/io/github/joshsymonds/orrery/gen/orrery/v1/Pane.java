@@ -1280,6 +1280,44 @@ public  final class Pane extends
     putOff_ = false;
   }
 
+  public static final int UNBOUND_FIELD_NUMBER = 23;
+  private boolean unbound_;
+  /**
+   * <pre>
+   * true when the pane's running command is claude and no Claude session is bound to it.
+   * </pre>
+   *
+   * <code>bool unbound = 23 [json_name = "unbound"];</code>
+   * @return The unbound.
+   */
+  @java.lang.Override
+  public boolean getUnbound() {
+    return unbound_;
+  }
+  /**
+   * <pre>
+   * true when the pane's running command is claude and no Claude session is bound to it.
+   * </pre>
+   *
+   * <code>bool unbound = 23 [json_name = "unbound"];</code>
+   * @param value The unbound to set.
+   */
+  private void setUnbound(boolean value) {
+    
+    unbound_ = value;
+  }
+  /**
+   * <pre>
+   * true when the pane's running command is claude and no Claude session is bound to it.
+   * </pre>
+   *
+   * <code>bool unbound = 23 [json_name = "unbound"];</code>
+   */
+  private void clearUnbound() {
+
+    unbound_ = false;
+  }
+
   public static io.github.joshsymonds.orrery.gen.orrery.v1.Pane parseFrom(
       java.nio.ByteBuffer data)
       throws com.google.protobuf.InvalidProtocolBufferException {
@@ -2671,6 +2709,46 @@ public  final class Pane extends
       return this;
     }
 
+    /**
+     * <pre>
+     * true when the pane's running command is claude and no Claude session is bound to it.
+     * </pre>
+     *
+     * <code>bool unbound = 23 [json_name = "unbound"];</code>
+     * @return The unbound.
+     */
+    @java.lang.Override
+    public boolean getUnbound() {
+      return instance.getUnbound();
+    }
+    /**
+     * <pre>
+     * true when the pane's running command is claude and no Claude session is bound to it.
+     * </pre>
+     *
+     * <code>bool unbound = 23 [json_name = "unbound"];</code>
+     * @param value The unbound to set.
+     * @return This builder for chaining.
+     */
+    public Builder setUnbound(boolean value) {
+      copyOnWrite();
+      instance.setUnbound(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * true when the pane's running command is claude and no Claude session is bound to it.
+     * </pre>
+     *
+     * <code>bool unbound = 23 [json_name = "unbound"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearUnbound() {
+      copyOnWrite();
+      instance.clearUnbound();
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:orrery.v1.Pane)
   }
   @java.lang.Override
@@ -2709,12 +2787,13 @@ public  final class Pane extends
             "lastTurnEnd_",
             "orreryId_",
             "putOff_",
+            "unbound_",
           };
           java.lang.String info =
-              "\u0000\u0016\u0000\u0000\u0001\u0016\u0016\u0000\u0000\u0000\u0001\u0208\u0002\u0208" +
+              "\u0000\u0017\u0000\u0000\u0001\u0017\u0017\u0000\u0000\u0000\u0001\u0208\u0002\u0208" +
               "\u0003\u0208\u0004\u0004\u0005\u0004\u0006\u0208\u0007\u0208\b\u0208\t\u0208\n\u0208" +
               "\u000b\u0002\f\u0002\r\u0208\u000e\u0208\u000f\u0002\u0010\u0208\u0011\u0208\u0012" +
-              "\u0208\u0013\u0002\u0014\u0002\u0015\u0208\u0016\u0007";
+              "\u0208\u0013\u0002\u0014\u0002\u0015\u0208\u0016\u0007\u0017\u0007";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {
