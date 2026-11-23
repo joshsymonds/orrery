@@ -12,14 +12,19 @@ import (
 	"github.com/joshsymonds/orrery/internal/waittest"
 )
 
-// briefOpenNow is the time the brief tests' gatherers are recorded at.
-var briefOpenNow = time.Unix(1700000005, 0)
+// briefOpenRunID is the id of the brief the brief tests file.
+const briefOpenRunID = "brief-1"
 
 // briefOpenEnded is the state of a run that has ended, as the store names it.
 const briefOpenEnded = "ended"
 
 // briefOpenUnattached is the reason a brief ends not captured once three gatherers have left it unattached.
 const briefOpenUnattached = "left unattached by 3 gatherers"
+
+// briefOpenNow returns the time the brief tests' gatherers are recorded at.
+func briefOpenNow() time.Time {
+	return time.Unix(1700000005, 0)
+}
 
 // briefOpenSteps is the EvidenceSteps of the brief tests. Start records each start, and the briefs the store holds open
 // as the start begins, so a test sees what the store held when the next gatherer started. Subscribe keeps each step's
@@ -93,7 +98,7 @@ func briefOpenSetup(t *testing.T, briefs ...string) (*store.Store, *briefOpenSte
 	g := NewGatherers(GatherersConfig{
 		Store: st, Steps: steps, Deliver: (&captureTestDeliveries{}).deliver,
 		Getenv: gathererTestGetenv(t, gathererTestRoles),
-		Now:    func() time.Time { return briefOpenNow },
+		Now:    briefOpenNow,
 		After:  func(time.Duration) <-chan time.Time { return nil },
 		NewTimer: func(time.Duration) (<-chan time.Time, func() bool) {
 			return nil, func() bool { return true }
@@ -122,12 +127,12 @@ func briefOpenEnd(t *testing.T, steps *briefOpenSteps, step, note string) {
 	})
 }
 
-// briefOpenRun returns the stored run with id, and fails the test when it cannot be read.
-func briefOpenRun(t *testing.T, st *store.Store, id string) store.EvidenceRun {
+// briefOpenRun returns the stored brief of the brief tests, and fails the test when it cannot be read.
+func briefOpenRun(t *testing.T, st *store.Store) store.EvidenceRun {
 	t.Helper()
-	run, err := st.EvidenceRun(t.Context(), id)
+	run, err := st.EvidenceRun(t.Context(), briefOpenRunID)
 	if err != nil {
-		t.Fatalf("EvidenceRun %s: %v", id, err)
+		t.Fatalf("EvidenceRun %s: %v", briefOpenRunID, err)
 	}
 	return run
 }
@@ -137,24 +142,24 @@ func briefOpenRun(t *testing.T, st *store.Store, id string) store.EvidenceRun {
 // is recorded as ended.
 func TestBriefOpenStaysWaitingWhenGathererEnds(t *testing.T) {
 	t.Parallel()
-	st, steps, g := briefOpenSetup(t, "brief-1")
+	st, steps, g := briefOpenSetup(t, briefOpenRunID)
 	g.Wake(t.Context(), gathererTestEpic)
 	first := briefOpenAwaitStart(t, steps, 1)
 	briefOpenEnd(t, steps, first.ID, "nothing attached")
 	briefOpenAwaitStart(t, steps, 2)
 
 	open := steps.openAt(2)
-	if len(open) != 1 || open[0].ID != "brief-1" || open[0].State != store.RunWaiting ||
+	if len(open) != 1 || open[0].ID != briefOpenRunID || open[0].State != store.RunWaiting ||
 		open[0].Gatherer != "" || open[0].Gatherers != 1 {
-		t.Fatalf("briefs open when the second gatherer starts = %+v, want brief-1 waiting with no gatherer, left by one",
+		t.Fatalf("briefs open at the second start = %+v, want the brief waiting with no gatherer, left by one",
 			open)
 	}
 	ended, found, err := st.EvidenceGathererOf(t.Context(), first.ID)
 	if err != nil || !found {
 		t.Fatalf("EvidenceGathererOf %s = found %t, err %v", first.ID, found, err)
 	}
-	if !ended.Ended.Equal(briefOpenNow) {
-		t.Fatalf("first gatherer ended at %v, want %v", ended.Ended, briefOpenNow)
+	if !ended.Ended.Equal(briefOpenNow()) {
+		t.Fatalf("first gatherer ended at %v, want %v", ended.Ended, briefOpenNow())
 	}
 }
 
@@ -162,39 +167,40 @@ func TestBriefOpenStaysWaitingWhenGathererEnds(t *testing.T) {
 // gatherer takes the brief: it is gathering, held by that gatherer, with one gatherer counted against it.
 func TestBriefOpenLaterGathererTakesTheBriefsLeft(t *testing.T) {
 	t.Parallel()
-	st, steps, g := briefOpenSetup(t, "brief-1")
+	st, steps, g := briefOpenSetup(t, briefOpenRunID)
 	g.Wake(t.Context(), gathererTestEpic)
 	first := briefOpenAwaitStart(t, steps, 1)
 	briefOpenEnd(t, steps, first.ID, "nothing attached")
 	second := briefOpenAwaitStart(t, steps, 2)
-	waittest.Until(t, nil, "the second gatherer takes brief-1", func() bool {
-		run := briefOpenRun(t, st, "brief-1")
+	waittest.Until(t, nil, "the second gatherer takes the brief", func() bool {
+		run := briefOpenRun(t, st)
 		return run.State == store.RunGathering && run.Gatherer == second.ID
 	})
 
-	run := briefOpenRun(t, st, "brief-1")
+	run := briefOpenRun(t, st)
 	if run.Gatherers != 1 {
-		t.Fatalf("brief-1 counts %d gatherers, want 1", run.Gatherers)
+		t.Fatalf("brief counts %d gatherers, want 1", run.Gatherers)
 	}
 	running, found, err := st.RunningEvidenceGatherer(t.Context(), gathererTestEpic)
 	if err != nil || !found || running.Step != second.ID || running.Seq != 2 {
-		t.Fatalf("running gatherer = %+v found %t err %v, want step %s as gatherer 2", running, found, err, second.ID)
+		t.Fatalf("running gatherer = %+v found %t err %v, want step %s as gatherer 2",
+			running, found, err, second.ID)
 	}
 }
 
-// TestBriefOpenThirdGathererLeavesBriefNotCaptured ends three gatherers, each of which leaves brief-1 unattached. The
+// TestBriefOpenThirdGathererLeavesBriefNotCaptured ends three gatherers, each of which leaves the brief unattached. The
 // third ends the brief as not captured, with the reason that three gatherers left it, and no judge starts for it: no
 // fourth gatherer starts, and no step is started for anything else.
 func TestBriefOpenThirdGathererLeavesBriefNotCaptured(t *testing.T) {
 	t.Parallel()
-	st, steps, g := briefOpenSetup(t, "brief-1")
+	st, steps, g := briefOpenSetup(t, briefOpenRunID)
 	g.Wake(t.Context(), gathererTestEpic)
 	for n := 1; n <= 3; n++ {
 		step := briefOpenAwaitStart(t, steps, n)
 		briefOpenEnd(t, steps, step.ID, "nothing attached")
 	}
-	waittest.Until(t, nil, "brief-1 ends not captured", func() bool {
-		return briefOpenRun(t, st, "brief-1").State == briefOpenEnded
+	waittest.Until(t, nil, "the brief ends not captured", func() bool {
+		return briefOpenRun(t, st).State == briefOpenEnded
 	})
 	waittest.Until(t, nil, "the gatherer loop ends", g.idle)
 
@@ -207,12 +213,13 @@ func TestBriefOpenThirdGathererLeavesBriefNotCaptured(t *testing.T) {
 			t.Fatalf("started a step of task %q, want only gatherers", start.Task)
 		}
 	}
-	run := briefOpenRun(t, st, "brief-1")
-	if run.NotCaptured != briefOpenUnattached || run.Gatherers != 3 || !run.Ended.Equal(briefOpenNow) {
-		t.Fatalf("brief-1 = not captured %q, gatherers %d, ended %v; want %q, 3, %v",
-			run.NotCaptured, run.Gatherers, run.Ended, briefOpenUnattached, briefOpenNow)
+	run := briefOpenRun(t, st)
+	if run.NotCaptured != briefOpenUnattached || run.Gatherers != 3 || !run.Ended.Equal(briefOpenNow()) {
+		t.Fatalf("brief = not captured %q, gatherers %d, ended %v; want %q, 3, %v",
+			run.NotCaptured, run.Gatherers, run.Ended, briefOpenUnattached, briefOpenNow())
 	}
 	if run.JudgeStep != "" || run.Judges != 0 || run.Gatherer != "" {
-		t.Fatalf("brief-1 has judge step %q, %d judges, gatherer %q; want none", run.JudgeStep, run.Judges, run.Gatherer)
+		t.Fatalf("brief has judge step %q, %d judges, gatherer %q; want none",
+			run.JudgeStep, run.Judges, run.Gatherer)
 	}
 }
