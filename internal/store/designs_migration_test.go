@@ -6,14 +6,16 @@ import (
 	"testing"
 )
 
-// designTables are the tables 00103_designs.sql adds.
-var designTables = []string{"designs", "design_contracts", "design_edges"}
+// designTables returns the tables 00103_designs.sql adds.
+func designTables() []string {
+	return []string{"designs", "design_contracts", "design_edges"}
+}
 
 // assertDesignTables checks that each design table is present and empty when want is true, or absent when want is false.
 func assertDesignTables(t *testing.T, s *Store, when string, want bool) {
 	t.Helper()
 	names := tableNames(t, s)
-	for _, table := range designTables {
+	for _, table := range designTables() {
 		if names[table] != want {
 			t.Fatalf("%s: table %s present = %t, want %t", when, table, names[table], want)
 		}
@@ -49,7 +51,7 @@ func TestDesignMigrationOnlyAdds(t *testing.T) {
 	assertColumns := func(when string) {
 		t.Helper()
 		got := columnLists(t, s)
-		for _, table := range designTables {
+		for _, table := range designTables() {
 			delete(got, table)
 		}
 		if !reflect.DeepEqual(got, before) {
