@@ -10,6 +10,7 @@ import (
 	"io/fs"
 	"log/slog"
 	"net"
+	"net/http"
 	"os"
 	"path/filepath"
 	"sync"
@@ -25,6 +26,10 @@ const whoIsTimeout = 10 * time.Second
 
 // holdersName is the subdirectory of the state directory that holds each session's holder directory.
 const holdersName = "holders"
+
+// panesHeaderTimeout bounds how long a pane connection waits for the controller's HTTP request headers, as the other
+// servers of this repository bound theirs.
+const panesHeaderTimeout = 5 * time.Second
 
 // AgentConfig configures an Agent: the controller it admits, the WhoIs that names each peer, the holders of this machine
 // that it serves, the state directory those holders live in, the scope they run in, and its logger.
@@ -187,8 +192,8 @@ func (a *Agent) admit(ctx context.Context, conn net.Conn, login string) error {
 
 // dispatch answers req, which an admitted peer sent on conn. Its version is checked first. Attach splices conn onto
 // the session's holder, gone streams the holder's spool after its Response, and end answers once the holder has ended.
-// Panes and watch-panes are the pane ops: each is answered by panesRefused until the pane tasks serve the agent's
-// HostPanes on them. Every other op is answered with one Response, as answer gives it.
+// Panes serves the agent's HostPanes over HTTP on conn, and watch-panes streams its events, as servePanes and
+// watchPanes describe. Every other op is answered with one Response, as answer gives it.
 func (a *Agent) dispatch(ctx context.Context, conn net.Conn, reader *bufio.Reader, req Request) {
 	if req.Version != Version {
 		a.reply(ctx, conn, Response{
@@ -204,8 +209,10 @@ func (a *Agent) dispatch(ctx context.Context, conn net.Conn, reader *bufio.Reade
 		a.gone(ctx, conn, req)
 	case OpEnd:
 		a.end(ctx, conn, reader, req.Session)
-	case OpPanes, OpWatchPanes:
-		a.reply(ctx, conn, a.panesRefused())
+	case OpPanes:
+		a.servePanes(ctx, conn, reader)
+	case OpWatchPanes:
+		a.watchPanes(ctx, conn, reader)
 	default:
 		a.reply(ctx, conn, a.answer(ctx, req))
 	}
@@ -224,20 +231,142 @@ func (a *Agent) answer(ctx context.Context, req Request) Response {
 	case OpStop, OpKill, OpClear, OpStopOrphan:
 		return a.act(ctx, req.Op, req.Session)
 	case OpLoad:
-		return a.panesRefused()
+		return a.load(ctx)
 	default:
 		return Response{Code: CodeFailed, Message: fmt.Sprintf("node: agent does not serve op %s", req.Op)}
 	}
 }
 
-// panesRefused returns the Response that a pane op gets while the pane ops are not implemented. An agent with no
-// HostPanes answers CodeFailed "agent serves no panes". An agent with one answers CodeFailed "not implemented" until
-// the pane tasks serve its panes.
-func (a *Agent) panesRefused() Response {
+// noPanes returns the Response that a pane op gets from an agent with no HostPanes.
+func noPanes() Response {
+	return Response{Code: CodeFailed, Message: "agent serves no panes"}
+}
+
+// load answers with the host's Load, as the agent's HostPanes gives it.
+func (a *Agent) load(ctx context.Context) Response {
 	if a.cfg.Panes == nil {
-		return Response{Code: CodeFailed, Message: "agent serves no panes"}
+		return noPanes()
 	}
-	return Response{Code: CodeFailed, Message: "not implemented"}
+	load, err := a.cfg.Panes.Load(ctx)
+	if err != nil {
+		return failed(err)
+	}
+	return Response{Load: &load}
+}
+
+// servePanes answers an OpPanes Request with no Code, then serves conn as HTTP/1.1 over the agent's Panes handler until
+// either side closes. The bytes after the Request line, which reader holds, are the start of the controller's HTTP.
+func (a *Agent) servePanes(ctx context.Context, conn net.Conn, reader *bufio.Reader) {
+	if a.cfg.Panes == nil {
+		a.reply(ctx, conn, noPanes())
+		return
+	}
+	if !a.reply(ctx, conn, Response{}) {
+		return
+	}
+	ln := newOneConnListener(bufferedConn{Reader: reader, rawConn: rawConn{Conn: conn}})
+	srv := &http.Server{
+		Handler:           a.cfg.Panes.Handler(),
+		ReadHeaderTimeout: panesHeaderTimeout,
+		// The server closes the connection once the controller closes it or a response ends it, so the connection has
+		// ended when the server reports it closed, and the listener then accepts nothing more and Serve returns.
+		ConnState: func(_ net.Conn, state http.ConnState) {
+			if state == http.StateClosed {
+				ln.finish()
+			}
+		},
+	}
+	if err := srv.Serve(ln); !errors.Is(err, net.ErrClosed) {
+		a.cfg.Logger.WarnContext(ctx, "node: serve panes", "remote", conn.RemoteAddr().String(), "err", err)
+	}
+}
+
+// watchPanes answers an OpWatchPanes Request with no Code, then writes each event of the agent's HostPanes watch as one
+// JSON line, until ctx ends or the controller disconnects. The controller sends nothing after its Request, so its
+// disconnect ends what reader reads, and that cancels the watch.
+func (a *Agent) watchPanes(ctx context.Context, conn net.Conn, reader *bufio.Reader) {
+	if a.cfg.Panes == nil {
+		a.reply(ctx, conn, noPanes())
+		return
+	}
+	if !a.reply(ctx, conn, Response{}) {
+		return
+	}
+	watchCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	go func() {
+		defer cancel()
+		if _, copyErr := io.Copy(io.Discard, reader); copyErr != nil {
+			a.cfg.Logger.DebugContext(ctx, "node: watch-panes' controller",
+				"remote", conn.RemoteAddr().String(), "err", copyErr)
+		}
+	}()
+	enc := json.NewEncoder(conn)
+	err := a.cfg.Panes.Watch(watchCtx, func(event PaneEvent) error {
+		if encErr := enc.Encode(event); encErr != nil {
+			return fmt.Errorf("write a pane event: %w", encErr)
+		}
+		return nil
+	})
+	if err != nil {
+		a.cfg.Logger.DebugContext(ctx, "node: pane watch ended", "remote", conn.RemoteAddr().String(), "err", err)
+	}
+}
+
+// bufferedConn is a connection whose reads return first the bytes that its reader holds, and then the connection's own.
+// The reader is embedded above the connection, so its Read is the one bufferedConn has, and the connection's other
+// methods are promoted from the connection beneath it. A read error is returned as the reader returns it, since
+// net/http compares a read's io.EOF with ==.
+type bufferedConn struct {
+	*bufio.Reader
+	rawConn
+}
+
+// rawConn is the connection that a bufferedConn reads after its reader's bytes.
+type rawConn struct {
+	net.Conn
+}
+
+// oneConnListener is a net.Listener that accepts its one connection, and then accepts nothing until it is finished. Its
+// Serve therefore serves that connection alone.
+type oneConnListener struct {
+	conn net.Conn
+	// taken reports whether Accept has returned conn. Only Serve calls Accept, so it needs no lock.
+	taken bool
+	// ended closes when the listener is finished, which ends each Accept that waits.
+	ended    chan struct{}
+	endsOnce sync.Once
+}
+
+// newOneConnListener returns a oneConnListener of conn.
+func newOneConnListener(conn net.Conn) *oneConnListener {
+	return &oneConnListener{conn: conn, ended: make(chan struct{})}
+}
+
+// Accept returns the listener's connection the first time, and net.ErrClosed once the listener is finished.
+func (l *oneConnListener) Accept() (net.Conn, error) {
+	if !l.taken {
+		l.taken = true
+		return l.conn, nil
+	}
+	<-l.ended
+	return nil, net.ErrClosed
+}
+
+// Close finishes the listener, which Serve also does when it returns.
+func (l *oneConnListener) Close() error {
+	l.finish()
+	return nil
+}
+
+// Addr returns the address of the listener's connection.
+func (l *oneConnListener) Addr() net.Addr {
+	return l.conn.LocalAddr()
+}
+
+// finish ends the listener, so that its waiting Accept returns net.ErrClosed. A second finish does nothing.
+func (l *oneConnListener) finish() {
+	l.endsOnce.Do(func() { close(l.ended) })
 }
 
 // sessions answers with the ids of the sessions that have a holder directory on this machine.

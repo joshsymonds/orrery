@@ -27,16 +27,16 @@ const removedPayload = "{}"
 
 // Fields holds the mirrored pane options. The empty string means the option is unset.
 type Fields struct {
-	State         string
-	Changed       string
-	Seen          string
-	Question      string
-	Summary       string
-	Label         string
-	Context       string
-	Tool          string
-	ClaudeSession string
-	Transcript    string
+	State         string `json:"state"`
+	Changed       string `json:"changed"`
+	Seen          string `json:"seen"`
+	Question      string `json:"question"`
+	Summary       string `json:"summary"`
+	Label         string `json:"label"`
+	Context       string `json:"context"`
+	Tool          string `json:"tool"`
+	ClaudeSession string `json:"claudeSession"`
+	Transcript    string `json:"transcript"`
 }
 
 // Pane is one tmux pane's snapshot. Host is the orrery name of the host the pane runs on, and ID is the row id (the
