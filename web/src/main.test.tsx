@@ -42,6 +42,7 @@ function paneOf(id: string, dir: string) {
     state: "waiting",
     summary: dir,
     question: "",
+    claudeSession: "claude-1",
     changed: "40",
     seen: "10",
   };

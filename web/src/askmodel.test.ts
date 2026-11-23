@@ -28,7 +28,7 @@ import { rowsFrom, type Row } from "./rows";
 const secondsPerDay = 86400;
 
 function makePane(init: MessageInitShape<typeof PaneSchema>): Pane {
-  return create(PaneSchema, { host: "box", session: "work", cwd: "/work/api", ...init });
+  return create(PaneSchema, { host: "box", session: "work", cwd: "/work/api", claudeSession: "claude-1", ...init });
 }
 
 function makeHeadless(init: MessageInitShape<typeof HeadlessSessionSchema>): HeadlessSession {

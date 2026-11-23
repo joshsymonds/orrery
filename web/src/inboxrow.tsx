@@ -102,11 +102,19 @@ export function glyphStateOf(row: Row): string {
   return quietRow(row) ? "idle" : row.state;
 }
 
-// SecondLine draws a row's second line. A waiting row says what it asks, led by a question mark when it holds a question.
-// A working pane's line is its tool, its argument, and its clock from the tool's start. A terminal with no state says it
-// has no conversation. A session's line is its summary. Any other pane has no second line. A tile's flyout draws it too.
+// SecondLine draws a row's second line. An unbound pane says it is not bound to a conversation and how to restart it. A
+// waiting row says what it asks, led by a question mark when it holds a question. A working pane's line is its tool, its
+// argument, and its clock from the tool's start. A session's line is its summary. Any other pane has no second line. A
+// tile's flyout draws it too.
 export function SecondLine({ row, now }: { row: Row; now: number }): JSX.Element | null {
   const line = row.unseen ? "l2" : "l2 one";
+  if (row.unbound) {
+    return (
+      <div class={line}>
+        Not bound to a conversation. Restart it with <code>claude --resume</code>.
+      </div>
+    );
+  }
   if (row.state === stateWaiting) {
     return (
       <div class={row.question !== "" && !quietRow(row) ? `${line} asks` : line}>
@@ -124,9 +132,6 @@ export function SecondLine({ row, now }: { row: Row; now: number }): JSX.Element
         {tool.start > 0 && ` · ${clockText(now - tool.start)}`}
       </div>
     );
-  }
-  if (row.kind === "pane" && row.state === "") {
-    return <div class={line}>a terminal with no conversation</div>;
   }
   if (row.kind === "session" && row.summary !== "") {
     return (
