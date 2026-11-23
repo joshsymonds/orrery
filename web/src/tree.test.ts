@@ -396,9 +396,9 @@ test("InboxTree draws an ended epic behind the ended line, and its conversation 
   assert.equal(app.ended[0].again, true);
 });
 
-test("InboxTree moves a finished conversation that steers only ended epics behind the line, and keeps one that steers a live epic", () => {
+test("InboxTree moves a conversation serve reports ended behind the line with the ended epics it steers, and keeps one that steers a live epic", () => {
   const rows = [
-    makeRow({ key: "d", label: "d1", archiveId: "sess-d", project: "/srv/app", state: "done", changed: 10 }),
+    makeRow({ key: "d", label: "d1", archiveId: "sess-d", project: "/srv/app", state: "done", changed: 10, ended: true }),
     makeRow({ key: "l", label: "l1", archiveId: "sess-l", project: "/srv/app", state: "done", changed: 20 }),
     makeRow({
       key: "h",
@@ -409,6 +409,7 @@ test("InboxTree moves a finished conversation that steers only ended epics behin
       kind: "session",
       archiveKind: "headless",
       state: "stopped",
+      ended: true,
     }),
   ];
   const projects = buildTree(
@@ -422,7 +423,7 @@ test("InboxTree moves a finished conversation that steers only ended epics behin
   assert.deepEqual(layout(projectAt(projects, "nodir").ended), { h: [] });
 });
 
-test("InboxTree keeps a headless session that failed unseen in the tree, and ends one that failed seen or stopped, newest first", () => {
+test("InboxTree places a headless session by serve's ended and not its state: one serve reports ended is behind the line, newest first, and the rest stay in the tree", () => {
   const rows = [
     makeRow({
       key: "h1",
@@ -446,6 +447,7 @@ test("InboxTree keeps a headless session that failed unseen in the tree, and end
       archiveKind: "headless",
       state: "failed",
       changed: 30,
+      ended: true,
     }),
     makeRow({
       key: "h3",
@@ -457,10 +459,22 @@ test("InboxTree keeps a headless session that failed unseen in the tree, and end
       archiveKind: "headless",
       state: "stopped",
       changed: 20,
+      ended: true,
+    }),
+    makeRow({
+      key: "h4",
+      label: "h4",
+      archiveId: "sess-4",
+      project: "",
+      host: "",
+      kind: "session",
+      archiveKind: "headless",
+      state: "stopped",
+      changed: 5,
     }),
   ];
   const nodir = projectAt(buildTree(inputOf(rows)), "nodir");
-  assert.deepEqual(nodir.convos.map((convo) => convo.row?.label), ["h1"]);
+  assert.deepEqual(nodir.convos.map((convo) => convo.row?.label), ["h1", "h4"]);
   assert.deepEqual(nodir.ended.map((convo) => convo.row?.label), ["h2", "h3"]);
 });
 
@@ -486,7 +500,7 @@ test("InboxTree ranks a conversation that waits through a proposed contract it w
 test("InboxTree counts a live epic with an open question and a proposed contract as waiting, and an ended epic as not", () => {
   const rows = [
     makeRow({ key: "a", label: "a", archiveId: "sess-a", project: "/srv/app", state: "done" }),
-    makeRow({ key: "b", label: "b", archiveId: "sess-b", project: "/srv/app", state: "done" }),
+    makeRow({ key: "b", label: "b", archiveId: "sess-b", project: "/srv/app", state: "done", ended: true }),
     makeRow({ key: "w", label: "w", archiveId: "sess-w", project: "/srv/app", state: "waiting" }),
     makeRow({ key: "x", label: "x", archiveId: "sess-x", project: "/srv/app", state: "done" }),
   ];
@@ -603,6 +617,18 @@ test("InboxTree keeps an ended epic that carries a proposed contract in the tree
   assert.deepEqual(layout(app.convos), { a: ["epic:repo-a/alpha"] });
   assert.deepEqual(app.ended, []);
   assert.equal(convoWaits(app.convos[0]), true);
+});
+
+test("InboxTree places an ended epic with no drawn conversation behind the ended line, even with a proposed contract", () => {
+  const projects = buildTree(
+    inputOf([], {
+      epics: [makeEpic({ steering: "sess-gone", live: false })],
+      contracts: [makeContract({ id: "repo-a/alpha", conversation: "sess-gone" })],
+    }),
+  );
+  const app = projectAt(projects, "|/srv/app");
+  assert.deepEqual(app.convos, []);
+  assert.deepEqual(layout(app.ended), { "epic:repo-a/alpha": ["epic:repo-a/alpha"] });
 });
 
 test("WaitsOnYou: a put-off waiting conversation ranks by its state, not as waiting", () => {

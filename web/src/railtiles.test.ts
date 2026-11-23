@@ -89,7 +89,7 @@ test("InboxRail makes a tile quiet when nothing in its project waits on you and 
     makeRow({ key: "w", label: "w", project: "/srv/waiting", state: "waiting" }),
     makeRow({ key: "u", label: "u", project: "/srv/new", state: "done", unseen: true }),
     makeRow({ key: "r", label: "r", project: "/srv/rest", state: "working" }),
-    makeRow({ key: "e", label: "e", project: "/srv/ended", state: "stopped", archiveKind: "headless", unseen: true }),
+    makeRow({ key: "e", label: "e", project: "/srv/ended", state: "stopped", archiveKind: "headless", unseen: true, ended: true }),
   ];
   const tiles = railTiles(buildTree(inputOf(rows)), "");
   assert.equal(tileOf(tiles, "|/srv/waiting").quiet, false, "a project with a row that waits is not quiet");
@@ -189,8 +189,8 @@ test("InboxRail titles a tile with its name, and with its waiting count when one
 // flyoutProject is one project of each kind of row a flyout draws, at /srv/app on the serving host:
 // - w-old and w-new wait on you, changed at 100 and 300, and w-new is also unseen;
 // - the epic alpha, steered by the seen done row d, is parked, so it waits on you, changed at 200;
-// - u is a done row, unseen; e is an unseen headless row that stopped, so it is behind the ended line;
-// - s is a seen done row, and ended-seen is a seen stopped headless row behind the ended line.
+// - u is a done row, unseen; e is an unseen headless row serve reports ended, so it is behind the ended line;
+// - s is a seen done row, and ended-seen is a seen headless row serve reports ended, behind the ended line.
 function flyoutProject(): Project {
   const rows = [
     makeRow({ key: "w-old", label: "old ask", archiveId: "sess-wo", state: "waiting", changed: 100 }),
@@ -198,8 +198,8 @@ function flyoutProject(): Project {
     makeRow({ key: "d", label: "steers alpha", archiveId: "sess-d", state: "done", changed: 50 }),
     makeRow({ key: "u", label: "fresh", archiveId: "sess-u", state: "done", changed: 400, unseen: true }),
     makeRow({ key: "s", label: "seen", archiveId: "sess-s", state: "done", changed: 20 }),
-    makeRow({ key: "e", label: "ended fresh", archiveId: "sess-e", state: "stopped", archiveKind: "headless", changed: 10, unseen: true }),
-    makeRow({ key: "ended-seen", label: "ended seen", archiveId: "sess-x", state: "stopped", archiveKind: "headless", changed: 5 }),
+    makeRow({ key: "e", label: "ended fresh", archiveId: "sess-e", state: "stopped", archiveKind: "headless", changed: 10, unseen: true, ended: true }),
+    makeRow({ key: "ended-seen", label: "ended seen", archiveId: "sess-x", state: "stopped", archiveKind: "headless", changed: 5, ended: true }),
   ];
   const projects = buildTree(
     inputOf(rows, {
@@ -263,7 +263,7 @@ test("ProjectFlyout's rest line drops a zero part, and is empty when there is no
   const ended = buildTree(
     inputOf([
       makeRow({ key: "w", label: "w", state: "waiting" }),
-      makeRow({ key: "e", label: "e", state: "stopped", archiveKind: "headless" }),
+      makeRow({ key: "e", label: "e", state: "stopped", archiveKind: "headless", ended: true }),
     ]),
   )[0];
   assert.equal(flyoutOf(ended, 1000).rest, "1 ended");

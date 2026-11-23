@@ -147,8 +147,9 @@ export function buildTree(input: TreeInput): Project[] {
     items.push({
       row: conversation ?? null,
       place: placeOf(epic.path, epic.repository, serving),
-      // An ended epic carrying a proposed contract stays in the tree: the contract's ask is live work.
-      ended: inbox && !epic.live && contract === null,
+      // An epic hung under a drawn conversation that carries a proposed contract stays in the tree: the contract's ask is
+      // live work. An epic with no drawn conversation is its own row, ended once it is not live.
+      ended: inbox && !epic.live && (conversation === undefined || contract === null),
       hung: { kind: "epic", key: `epic:${epic.id}`, block: blockOf(epic, input.details.get(epic.id)), listed: epic, contract },
     });
   }
@@ -170,14 +171,6 @@ export function buildTree(input: TreeInput): Project[] {
   }
 
   const anchoredTo = (row: Row): Item[] => items.filter((item) => item.row === row);
-  // A conversation stays in the tree while it steers a live epic or a shown contract, so an ended one is drawn behind the
-  // line only when nothing live or waiting hangs under it.
-  const keeps = (row: Row): boolean =>
-    anchoredTo(row).some((item) => !item.ended) || shown.some((contract) => rowByConvo.get(contract.conversation) === row);
-  const behindLine = (row: Row): boolean =>
-    !keeps(row) &&
-    ((row.archiveKind === "headless" && (row.state === "stopped" || (row.state === "failed" && !row.unseen))) ||
-      (row.state === "done" && anchoredTo(row).some((item) => item.ended)));
 
   const projects = new Map<string, Project>();
   const projectAt = (place: Place): Project => {
@@ -197,17 +190,20 @@ export function buildTree(input: TreeInput): Project[] {
       drawn.add(item.row);
     }
   }
+  // A drawn conversation is placed by serve's fields: the Archived view draws each one it holds in the tree; the inbox
+  // draws one that serve reports ended behind its project's ended line, with everything hung under it, and any other in the
+  // tree, with its ended epics again behind the line.
   for (const row of drawn) {
     const own = anchoredTo(row);
     const project = projectAt(placeOfRow(row));
     const convo = (hung: Hung[], again: boolean): Convo => ({ key: row.key, row, again, hung });
-    const live = own.filter((item) => !item.ended).map((item) => item.hung);
-    const finished = own.filter((item) => item.ended).map((item) => item.hung);
     if (!inbox) {
       project.convos.push(convo(own.map((item) => item.hung), false));
-    } else if (behindLine(row)) {
-      project.ended.push(convo(finished, false));
+    } else if (row.ended === true) {
+      project.ended.push(convo(own.map((item) => item.hung), false));
     } else {
+      const live = own.filter((item) => !item.ended).map((item) => item.hung);
+      const finished = own.filter((item) => item.ended).map((item) => item.hung);
       project.convos.push(convo(live, false));
       if (finished.length > 0) {
         project.ended.push(convo(finished, true));

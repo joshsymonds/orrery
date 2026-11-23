@@ -92,7 +92,7 @@ function makeContract(init: ContractInit): Contract {
 
 // projectOfTree is the project of the directory the fixture tree draws. Its conversations are: a waiting pane with a
 // proposed contract, a working pane with a live epic, and the live epic of a conversation that is not listed, drawn as
-// its own row. Its ended line holds one done session with an ended epic.
+// its own row. Its ended line holds one done session that serve reports ended, with an ended epic.
 function projectOfTree(): Project {
   const rows = [
     makeRow({
@@ -121,6 +121,7 @@ function projectOfTree(): Project {
       label: "Old thread",
       state: "done",
       changed: 300,
+      ended: true,
     }),
   ];
   const epics = [
