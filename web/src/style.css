@@ -297,7 +297,7 @@ button.link.notices-more { justify-self: end; padding: 0 var(--o-space-12); colo
 .dir-head .end { display: inline-flex; align-items: center; gap: var(--o-space-8); margin-left: auto; flex: none; color: var(--o-ink-3); }
 .dir-head .end .is-attention { color: var(--o-role-attention); font-weight: var(--o-font-weight-bold); }
 /* What a project holds hangs from a line under its head: its sessions, then its epics, then what has ended. */
-.dir-kids { display: grid; grid-template-columns: minmax(0, 1fr); margin: 0 var(--o-space-4) var(--o-space-8) var(--o-space-16); padding-left: var(--o-space-4); border-left: var(--o-size-hairline) solid var(--o-line-firm); }
+.dir-kids { display: grid; grid-template-columns: minmax(0, 1fr); margin: 0 var(--o-space-4) var(--o-space-8) var(--o-space-16); padding-left: var(--o-space-4); }
 .fold-line { display: flex; align-items: center; gap: var(--o-space-8); width: 100%; padding: var(--o-space-4) var(--o-space-8); border: 0; border-radius: var(--o-radius-2); background: none; color: var(--o-ink-3); font: var(--o-type-small); }
 .fold-line:hover { background: var(--o-surface-page); color: var(--o-ink-2); }
 .fold-line .icon { color: var(--o-ink-4); }
@@ -332,14 +332,34 @@ button.link.notices-more { justify-self: end; padding: 0 var(--o-space-12); colo
 .inbox .row-menu .more { min-height: var(--o-space-24); padding: 0 var(--o-space-4); border: 0; border-radius: var(--o-radius-2); background: none; cursor: pointer; font: var(--o-type-small); color: var(--o-ink-3); appearance: none; -webkit-appearance: none; }
 .inbox .row-menu-list { position: absolute; top: calc(100% + var(--o-space-4)); right: 0; z-index: var(--o-z-menu); }
 
-/* What a conversation steers hangs from a line under its row: its epics with their running steps, and a contract not yet
-   accepted, led by the contract's mark. */
-.inbox .steers { display: grid; grid-template-columns: minmax(0, 1fr); margin: 0 0 var(--o-space-4) var(--o-space-24); padding-left: var(--o-space-4); border-left: var(--o-size-hairline) solid var(--o-line-firm); }
+/* A conversation with anything of its own is a block on the surface side, headed by its row (D13). Inside it, a step in, is
+   what it steers: its epics with their running steps, a contract not yet accepted, led by the contract's mark, and each
+   design it works. No line joins a child to its parent. */
+.inbox .convo-block { margin: 0 0 var(--o-space-4); padding: var(--o-space-4); border-radius: var(--o-radius-3); background: var(--o-surface-side); }
+.inbox .steers { display: grid; grid-template-columns: minmax(0, 1fr); margin: 0 0 var(--o-space-4) var(--o-space-24); padding-left: var(--o-space-4); }
 .inbox .steers .row.epic .title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* A conversation's fold of ended epics: a line under its live things that reads how many there are, and opens them. */
 .inbox .steers .steers-fold { display: flex; align-items: center; gap: var(--o-space-8); width: 100%; padding: var(--o-space-4) var(--o-space-8); border: 0; border-radius: var(--o-radius-2); background: none; color: var(--o-ink-3); font: var(--o-type-small); }
 .inbox .steers .steers-fold:hover { background: var(--o-surface-page); color: var(--o-ink-2); }
 .inbox .steers .steers-fold .icon { color: var(--o-ink-4); }
+/* A design is a block of its own inside its conversation's, a step in, on the well's ground (D13). */
+.inbox .design-block { position: relative; margin: var(--o-space-4) 0; padding: var(--o-space-4); border-radius: var(--o-radius-2); background: var(--o-surface-well); }
+/* The tab: the design's mark and its bold name, on the page's ground, no wider than three fifths of the row, its long name cut
+   with an ellipsis. Its foot is the well's top, with no gap between them (D18). */
+.inbox .design-tab { position: relative; display: flex; align-items: center; gap: var(--o-space-8); width: fit-content; max-width: 60%; min-width: 0; padding: var(--o-space-4) var(--o-space-12) var(--o-space-4) var(--o-space-4); border-radius: var(--o-radius-2) var(--o-radius-2) 0 0; background: var(--o-surface-side); color: var(--o-ink-1); font: var(--o-type-body); }
+/* The tab's foot opens into the page by a small curve, on the block's ground. */
+.inbox .design-tab::after { content: ""; position: absolute; bottom: 0; left: 100%; width: var(--o-space-8); height: var(--o-space-8); background: radial-gradient(circle at 100% 0, transparent var(--o-space-8), var(--o-surface-side) var(--o-space-8)); }
+.inbox .design-tab .design-mark { flex: none; width: var(--o-size-glyph); height: var(--o-size-glyph); color: var(--o-ink-2); }
+.inbox .design-tab .design-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: var(--o-font-weight-bold); }
+/* The count of the design's contracts, beside the tab on the block's ground. */
+.inbox .design-count { position: absolute; top: calc(var(--o-space-8) + var(--o-space-2)); right: calc(var(--o-space-4) + var(--o-space-8)); color: var(--o-ink-3); font: var(--o-type-small); white-space: nowrap; }
+/* The well is the design's page, on the tab's ground under the tab. Its first line is the design's state; each child's
+   leading edge is under the design's name: the tab's left padding, the mark and the gap after it. */
+.inbox .design-well { padding: 0 var(--o-space-8) var(--o-space-8) calc(var(--o-space-4) + var(--o-size-glyph) + var(--o-space-8)); border-radius: 0 0 var(--o-radius-2) var(--o-radius-2); background: var(--o-surface-side); }
+.inbox .design-state { margin: 0; padding: var(--o-space-4) 0; color: var(--o-ink-3); font: var(--o-type-small); }
+/* A child of a design is closer set than the tree's rows, and its name is in regular weight: the design's is the only bold. */
+.inbox .design-well > .row.epic { padding: var(--o-space-4) 0; }
+.inbox .design-well > .row.epic .title { font-weight: var(--o-font-weight-regular); }
 
 /* EpicRow: an epic. Its gauge, its name and count; then its state in words; then what blocks it, in attention. */
 .inbox .row.epic { grid-template-columns: var(--o-size-gauge) minmax(0, 1fr) auto; align-items: start; }
