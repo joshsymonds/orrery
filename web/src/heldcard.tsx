@@ -1,22 +1,25 @@
 import type { ComponentChildren, JSX } from "preact";
 
 import { designMark } from "./convorow";
+import type { GaugeShare } from "./epicrow";
 import { Gauge, Icon } from "./glyphs";
 import type { HeldKind, HeldMove, HeldThing } from "./held";
 
 // HeldCardProps are the held thing a desk's card draws, its title, the motion of the change that holds it, the press that
-// folds the card back, and what the card holds.
+// folds the card back, the epic's gauge, and what the card holds. gauge is the gauge EpicRow draws for the epic, the share
+// epicGaugeOf reads, and null for a design or a contract, whose marks need no counts.
 export interface HeldCardProps {
   thing: HeldThing;
   title: string;
   move: HeldMove;
+  gauge: GaugeShare | null;
   onFoldBack: () => void;
   children?: ComponentChildren;
 }
 
-// heldMark draws the mark a thing's row has in the inbox's tree: a design's mark, a contract's doc, and an epic's gauge. The
-// held thing carries no counts, so the epic's gauge draws with none.
-function heldMark(kind: HeldKind): JSX.Element {
+// heldMark draws the mark a thing's row has in the inbox's tree: a design's mark, a contract's doc, and an epic's gauge, which
+// EpicRow draws from the epic's share. An epic with no share draws the gauge with no counts.
+function heldMark(kind: HeldKind, gauge: GaugeShare | null): JSX.Element {
   switch (kind) {
     case "design":
       return (
@@ -27,7 +30,7 @@ function heldMark(kind: HeldKind): JSX.Element {
     case "contract":
       return <Icon name="doc" />;
     case "epic":
-      return <Gauge />;
+      return gauge === null ? <Gauge /> : <Gauge {...gauge} />;
   }
 }
 
@@ -36,7 +39,7 @@ function heldMark(kind: HeldKind): JSX.Element {
 // runs down its left edge, then the mark and the kind word of its row and its title. Its body is the children, and scrolls on
 // its own. The card task will draw the card's motion for move, which data-move names. A press on Fold back calls onFoldBack.
 export function HeldCard(props: HeldCardProps): JSX.Element {
-  const { thing, title, move, onFoldBack, children } = props;
+  const { thing, title, move, gauge, onFoldBack, children } = props;
   return (
     <article class="held-card" data-kind={thing.kind} data-move={move === "" ? undefined : move} aria-label={title}>
       <span class="held-spine" aria-hidden="true" />
@@ -47,7 +50,7 @@ export function HeldCard(props: HeldCardProps): JSX.Element {
           <kbd>]</kbd>
         </button>
         <span class="held-mark" aria-hidden="true">
-          {heldMark(thing.kind)}
+          {heldMark(thing.kind, gauge)}
         </span>
         <span class="held-kind">{thing.kind}</span>
         <span class="held-title">{title}</span>
@@ -58,11 +61,12 @@ export function HeldCard(props: HeldCardProps): JSX.Element {
 }
 
 // HeldSheetProps are the held thing a narrow layout's sheet draws, its title, the motion of the change that holds it, the
-// press that closes the sheet, and what the sheet holds.
+// epic's gauge, the press that closes the sheet, and what the sheet holds.
 export interface HeldSheetProps {
   thing: HeldThing;
   title: string;
   move: HeldMove;
+  gauge: GaugeShare | null;
   onClose: () => void;
   children?: ComponentChildren;
 }
@@ -72,13 +76,13 @@ export interface HeldSheetProps {
 // Its spine and its foot are the bracket's ground (D5, D6). The sheet has no Fold back, as D15 leaves it unchanged. The card
 // task will draw the sheet's motion for move. This stub draws the section only.
 export function HeldSheet(props: HeldSheetProps): JSX.Element {
-  const { thing, title, onClose, children } = props;
+  const { thing, title, gauge, onClose, children } = props;
   return (
     <section class="held-sheet" data-kind={thing.kind} aria-label={title}>
       <span class="held-sheet-spine" aria-hidden="true" />
       <header class="held-head">
         <span class="held-mark" aria-hidden="true">
-          {heldMark(thing.kind)}
+          {heldMark(thing.kind, gauge)}
         </span>
         <span class="held-kind">{thing.kind}</span>
         <span class="held-title">{title}</span>

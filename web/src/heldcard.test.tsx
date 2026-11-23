@@ -4,7 +4,8 @@ import { test } from "node:test";
 import { render } from "preact";
 
 import { designMark } from "./convorow";
-import { Icon } from "./glyphs";
+import type { GaugeShare } from "./epicrow";
+import { Gauge, Icon } from "./glyphs";
 import type { HeldThing } from "./held";
 import { HeldCard, HeldSheet } from "./heldcard";
 import { installTestDom, removeTestDom } from "./testdom";
@@ -16,6 +17,9 @@ import { styleDeclaration } from "./teststyle";
 const design: HeldThing = { kind: "design", key: "design:invented-design", convo: "convo:invented-conversation" };
 const contract: HeldThing = { kind: "contract", key: "contract:invented-contract", convo: "convo:invented-conversation" };
 const epic: HeldThing = { kind: "epic", key: "epic:invented-epic", convo: "convo:invented-conversation" };
+
+// epicGauge is the share of the invented epic: two of four tasks done, live.
+const epicGauge: GaugeShare = { done: 2, total: 4, tone: "live", inner: "dot" };
 
 const noop = () => undefined;
 
@@ -45,10 +49,14 @@ function all(root: ParentNode, selector: string): HTMLElement[] {
   return Array.from(root.querySelectorAll<HTMLElement>(selector));
 }
 
-// card draws a HeldCard of thing into the container, with a record in its body and onFoldBack as its fold press.
-function card(container: HTMLElement, thing: HeldThing, onFoldBack: () => void = noop): void {
+// card draws a HeldCard of thing into the container, with a record in its body, the epic's gauge and onFoldBack as its press.
+function card(
+  container: HTMLElement,
+  thing: HeldThing,
+  { gauge = null, onFoldBack = noop }: { gauge?: GaugeShare | null; onFoldBack?: () => void } = {},
+): void {
   render(
-    <HeldCard thing={thing} title={`Invented ${thing.kind}`} move="" onFoldBack={onFoldBack}>
+    <HeldCard thing={thing} title={`Invented ${thing.kind}`} move="" gauge={gauge} onFoldBack={onFoldBack}>
       <p>the record</p>
     </HeldCard>,
     container,
@@ -57,7 +65,7 @@ function card(container: HTMLElement, thing: HeldThing, onFoldBack: () => void =
 
 test("HeldCard FoldBack: the head's first element is Fold back, with its arrow, its words and its ] key", () =>
   withDom((container) => {
-    card(container, epic);
+    card(container, epic, { gauge: epicGauge });
     const first = one(container, ".held-head").firstElementChild;
     assert.ok(first !== null && first.matches("button.fold-back"), "the head's first element is the Fold back button");
     assert.equal(first.getAttribute("aria-label"), "Fold back");
@@ -69,8 +77,10 @@ test("HeldCard FoldBack: the head's first element is Fold back, with its arrow, 
 test("HeldCard FoldBack: a press on Fold back calls onFoldBack once", () =>
   withDom((container) => {
     let presses = 0;
-    card(container, design, () => {
-      presses += 1;
+    card(container, design, {
+      onFoldBack: () => {
+        presses += 1;
+      },
     });
     one(container, "button.fold-back").click();
     assert.equal(presses, 1);
@@ -104,14 +114,17 @@ test("HeldCard FoldBack: the card draws the kind word and the mark of a design, 
     assert.equal(one(container, ".held-mark").innerHTML, docMark.innerHTML);
     render(null, docMark);
 
-    card(container, epic);
+    card(container, epic, { gauge: epicGauge });
     assert.equal(one(container, ".held-kind").textContent, "epic");
-    assert.ok(one(container, ".held-mark").querySelector("svg.gauge") !== null, "an epic's mark is its gauge");
+    const gaugeMark = document.createElement("div");
+    render(<Gauge {...epicGauge} />, gaugeMark);
+    assert.equal(one(container, ".held-mark").innerHTML, gaugeMark.innerHTML);
+    render(null, gaugeMark);
   }));
 
 test("HeldCard OpenColour: the spine and Fold back are on var(--o-ground-open), and Fold back's hover is on var(--o-ground-open-hover)", () =>
   withDom((container) => {
-    card(container, epic);
+    card(container, epic, { gauge: epicGauge });
     one(container, ".held-card > .held-spine");
     one(container, ".held-head > button.fold-back");
     assert.equal(styleDeclaration(".held-spine", "background"), "var(--o-ground-open)");
@@ -127,6 +140,7 @@ test("HeldLayout: the phone's sheet heads with its mark, kind and title, keeps i
         thing={epic}
         title="Invented epic"
         move=""
+        gauge={epicGauge}
         onClose={() => {
           closes += 1;
         }}
@@ -140,7 +154,7 @@ test("HeldLayout: the phone's sheet heads with its mark, kind and title, keeps i
       Array.from(head.children).map((part) => part.className),
       ["held-mark", "held-kind", "held-title", "held-close"],
     );
-    assert.ok(one(head, ".held-mark").querySelector("svg.gauge") !== null, "the sheet's mark is an epic's gauge");
+    assert.equal(one(head, ".held-mark svg.gauge").getAttribute("data-tone"), "live");
     assert.equal(one(head, ".held-kind").textContent, "epic");
     assert.equal(one(head, ".held-title").textContent, "Invented epic");
     const close = one(head, "button.held-close");
