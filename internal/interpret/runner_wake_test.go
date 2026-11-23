@@ -97,11 +97,11 @@ func newFlowWakeRig(t *testing.T, s *store.Store) *flowWakeRig {
 	return rig
 }
 
-// flowWakeCreate stores the epic id in the repository the wake tests share, at the built-in epic, in phase.
-func flowWakeCreate(t *testing.T, s *store.Store, id, phase string) {
+// flowWakeCreate stores the epic id in the repository the wake tests share, at the built-in epic, in runPhase.
+func flowWakeCreate(t *testing.T, s *store.Store, id string) {
 	t.Helper()
 	if err := s.CreateEpic(context.Background(), store.EpicRow{
-		ID: id, Repository: runRepo, Base: runBase, Title: "Wake " + id, Phase: phase,
+		ID: id, Repository: runRepo, Base: runBase, Title: "Wake " + id, Phase: runPhase,
 		Created: runClock(), Changed: runClock(), Workflow: builtinPin(t),
 	}); err != nil {
 		t.Fatalf("CreateEpic %s: %v", id, err)
@@ -209,7 +209,7 @@ func flowWakeQuiet(t *testing.T, s *store.Store, epic string, read time.Time) {
 func TestFlowWakeIdleClockPassesNothing(t *testing.T) {
 	t.Parallel()
 	s := openRunStore(t)
-	flowWakeCreate(t, s, flowWakeA, runPhase)
+	flowWakeCreate(t, s, flowWakeA)
 	rig := newFlowWakeRig(t, s)
 	rig.runner.Pass(context.Background())
 	rig.start()
@@ -229,8 +229,8 @@ func TestFlowWakeIdleClockPassesNothing(t *testing.T) {
 func TestFlowWakeStoreWritePassesOnlyItsEpic(t *testing.T) {
 	t.Parallel()
 	s := openRunStore(t)
-	flowWakeCreate(t, s, flowWakeA, runPhase)
-	flowWakeCreate(t, s, flowWakeB, runPhase)
+	flowWakeCreate(t, s, flowWakeA)
+	flowWakeCreate(t, s, flowWakeB)
 	seq := flowWakePark(t, s, flowWakeA)
 	rig := newFlowWakeRig(t, s)
 	rig.runner.Pass(context.Background())
@@ -261,8 +261,8 @@ func TestFlowWakeWriteMovingNoEpicPassesNothing(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	s := openRunStore(t)
-	flowWakeCreate(t, s, flowWakeA, runPhase)
-	flowWakeCreate(t, s, flowWakeB, runPhase)
+	flowWakeCreate(t, s, flowWakeA)
+	flowWakeCreate(t, s, flowWakeB)
 	rig := newFlowWakeRig(t, s)
 	rig.runner.Pass(ctx)
 	rig.start()
@@ -292,8 +292,8 @@ func TestFlowWakeWriteMovingNoEpicPassesNothing(t *testing.T) {
 func TestFlowWakeNamedEpicPasses(t *testing.T) {
 	t.Parallel()
 	s := openRunStore(t)
-	flowWakeCreate(t, s, flowWakeA, runPhase)
-	flowWakeCreate(t, s, flowWakeB, runPhase)
+	flowWakeCreate(t, s, flowWakeA)
+	flowWakeCreate(t, s, flowWakeB)
 	rig := newFlowWakeRig(t, s)
 	rig.runner.Pass(context.Background())
 	rig.start()
@@ -321,7 +321,7 @@ func TestFlowDeadlineStaleOriginReadPassesAtItsMoment(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	s := openRunStore(t)
-	flowWakeCreate(t, s, flowWakeA, runPhase)
+	flowWakeCreate(t, s, flowWakeA)
 	rig := newFlowWakeRig(t, s)
 	rig.runner.Pass(ctx)
 	flowWakeEndCost(t, s, flowWakeA)
