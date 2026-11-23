@@ -29,6 +29,7 @@ const (
 	reasonSharedTitle    = "names a title two tasks of the return share"
 	reasonFailedTask     = "names a failed task"
 	reasonGapTask        = "names a gap task"
+	reasonSplitTask      = "names a split task; name its descendants"
 	reasonCycle          = "is part of a cycle of depends_on"
 	reasonNotStringArray = "not a JSON array of strings"
 )
@@ -778,8 +779,8 @@ func (g taskGraph) dependsOnRefusals(i int) []string {
 }
 
 // dependsOnReason returns the reason the depends_on entry name of return task i is refused, or "" when it passes. A
-// T<n> must name an epic task that is neither failed nor a gap. Any other name must be the title of exactly one task of
-// the return, and the entry must not be part of a cycle of depends_on, a self-reference included.
+// T<n> must name an epic task that is neither failed, a gap nor split. Any other name must be the title of exactly one
+// task of the return, and the entry must not be part of a cycle of depends_on, a self-reference included.
 func (g taskGraph) dependsOnReason(i int, name string) string {
 	if isTName(name) {
 		task, ok := g.epic[name]
@@ -790,6 +791,8 @@ func (g taskGraph) dependsOnReason(i int, name string) string {
 			return reasonFailedTask
 		case task.Status == store.TaskGap:
 			return reasonGapTask
+		case task.Status == store.TaskSplit:
+			return reasonSplitTask
 		}
 		return ""
 	}

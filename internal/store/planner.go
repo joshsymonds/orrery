@@ -822,8 +822,10 @@ func resolveDependencies(
 }
 
 // resolveDependency returns the seq of the task entry names, from task i of tasks. An entry of the form T<n> names the
-// task of epic with seq n, which must be stored already. Any other entry names the one task of tasks with that exact
-// title. An entry that names no such task, a title two tasks of tasks share, or the task itself is ErrBadDependency.
+// task of epic with seq n, which must be stored already and must not be split: a split task never integrates, so a
+// task that waits for it would wait forever. Any other entry names the one task of tasks with that exact title. An
+// entry that names no such task, a split task, a title two tasks of tasks share, or the task itself is
+// ErrBadDependency.
 func resolveDependency(
 	ctx context.Context,
 	queries *sqlcgen.Queries,
@@ -841,12 +843,15 @@ func resolveDependency(
 		if seq == highest+int64(i)+1 {
 			return 0, fmt.Errorf("%w: names the task itself", ErrBadDependency)
 		}
-		_, err = queries.GetEpicTask(ctx, sqlcgen.GetEpicTaskParams{Epic: epic, Seq: seq})
+		row, err := queries.GetEpicTask(ctx, sqlcgen.GetEpicTaskParams{Epic: epic, Seq: seq})
 		if errors.Is(err, sql.ErrNoRows) {
 			return 0, fmt.Errorf("%w: names no task of the epic", ErrBadDependency)
 		}
 		if err != nil {
 			return 0, fmt.Errorf("read task %d of epic %s: %w", seq, epic, err)
+		}
+		if row.Status == TaskSplit {
+			return 0, fmt.Errorf("%w: names a split task", ErrBadDependency)
 		}
 		return seq, nil
 	}
