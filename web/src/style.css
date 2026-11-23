@@ -200,9 +200,6 @@ button.link.notices-more { justify-self: end; padding: 0 var(--o-space-12); colo
 .sec { --hue: var(--o-ink-3); display: flex; align-items: baseline; gap: var(--o-space-8); color: var(--o-ink-3); }
 .sec .name { color: var(--hue); font: var(--o-type-label); letter-spacing: var(--o-type-label-tracking); text-transform: uppercase; }
 .sec .n { font: var(--o-type-small); }
-/* A section's mark is its icon in the head's hue, as round 6 draws it: data-hue 1 is series 1. */
-.sec[data-hue="1"] { --hue: var(--o-series-1); }
-.sec > .icon { align-self: center; color: var(--hue); }
 
 /* Button. Quiet has no fill; Default is raised; Primary is the one action a form exists for. */
 .btn { display: inline-flex; align-items: center; justify-content: center; gap: var(--o-space-8); flex: none; height: var(--o-size-control-desk); padding: 0 var(--o-space-12); border: 0; border-radius: var(--o-radius-2); background: var(--o-surface-raised); color: var(--o-ink-1); font: var(--o-type-small); white-space: nowrap; transition: background var(--o-move-press), transform var(--o-move-press); }
@@ -350,7 +347,7 @@ button.link.notices-more { justify-self: end; padding: 0 var(--o-space-12); colo
 .inbox .row.epic .l2, .inbox .row.epic .l3 { grid-column: 2 / -1; }
 .inbox .row.epic .l3 { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--o-role-attention); font: var(--o-type-small); }
 .inbox .row.epic.ended .title { color: var(--o-ink-2); font-weight: var(--o-font-weight-regular); }
-.inbox .row.epic.contract .cmark { display: grid; place-items: center; grid-row: 1 / span 2; width: var(--o-size-mark); height: var(--o-size-mark); color: var(--o-role-attention); }
+.inbox .row.epic.contract .cmark { display: grid; place-items: center; grid-row: 1 / span 2; width: var(--o-size-gauge); height: var(--o-size-gauge); color: var(--o-role-attention); }
 
 /* StepRow: a running step, under its epic. */
 .inbox .row.step { grid-template-columns: var(--o-size-glyph) auto auto minmax(0, 1fr); align-items: center; margin-left: var(--o-space-32); width: auto; padding: var(--o-space-4) var(--o-space-8); font: var(--o-type-small); }
@@ -1199,6 +1196,9 @@ button.act:active, .back:active, .crumb:active { transform: scale(.97); backgrou
 .epic-page .happen .detail { display: grid; gap: var(--o-space-4); padding: var(--o-space-4) var(--o-space-12); white-space: normal; overflow-wrap: anywhere; color: var(--o-ink-2); }
 .epic-page .happen .detail p { margin: 0; }
 .epic-page .happen .open-step { justify-self: start; min-height: var(--o-space-24); padding: 0; border: 0; background: none; cursor: pointer; font: var(--o-type-small); color: var(--o-role-ref); appearance: none; -webkit-appearance: none; }
+/* Just happened's head is round 6's .sec head: its mark is its icon in the head's hue, data-hue 1 being series 1. */
+.happen.just > .sec[data-hue="1"] { --hue: var(--o-series-1); }
+.happen.just > .sec > .icon { align-self: center; color: var(--hue); }
 /* An evidence run is one line: its sentence, its verdict chip, its meta, and its log toggle at the end. The log and the
    artifacts fold under it. */
 .run-line { display: flex; flex-wrap: wrap; align-items: center; gap: var(--o-space-4) var(--o-space-8); min-width: 0; padding: var(--o-space-4) var(--o-space-12); border-left: var(--o-size-hairline) solid var(--o-line-firm); color: var(--o-ink-2); font: var(--o-type-small); }

@@ -274,8 +274,11 @@ test("HistorySentences: the section's head is round 6's .sec head, with the retr
     const icon = head.querySelector("svg.icon");
     assert.ok(icon, "the head draws an icon");
     assert.equal(icon.querySelector("path")?.getAttribute("d"), "M3.2 8a4.8 4.8 0 1 0 1.5-3.5M3 3v3.2h3.2");
-    assert.equal(styleDeclaration('.sec[data-hue="1"]', "--hue"), "var(--o-series-1)");
-    assert.equal(styleDeclaration(".sec > .icon", "color"), "var(--hue)");
+    assert.equal(styleDeclaration('.happen.just > .sec[data-hue="1"]', "--hue"), "var(--o-series-1)");
+    assert.equal(styleDeclaration(".happen.just > .sec > .icon", "color"), "var(--hue)");
+    const sheet = readFileSync(join(process.cwd(), "web/src/style.css"), "utf8");
+    assert.doesNotMatch(sheet, /^\.sec\[data-hue/m, "no base .sec rule takes the head's hue, so no other section is tinted");
+    assert.doesNotMatch(sheet, /^\.sec > \.icon/m, "no base .sec rule colours an icon, so no other section's icon is tinted");
   });
 });
 
