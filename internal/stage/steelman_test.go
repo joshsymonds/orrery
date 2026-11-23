@@ -169,7 +169,7 @@ func TestStageSteelmanContractOfOneIsItsOwnPacket(t *testing.T) {
 	}
 	want := steelmanContract + "Pass: discovery\n\n" + contracttext.Render(lone, nil)
 	if len(fx.starter.starts) != 1 || fx.starter.starts[0].Prompt != want {
-		t.Fatalf("starts = %+v, want one discovery start whose prompt is the contract of one's packet", fx.starter.starts)
+		t.Fatalf("starts = %+v, want one discovery start with the contract's packet", fx.starter.starts)
 	}
 }
 
