@@ -220,6 +220,7 @@ func TestStoreDesignsReadBack(t *testing.T) {
 		Design: store.Design{
 			ID: design, Title: "Synthetic design", Conversation: contractWriter, Created: time.Unix(designCreatedAt, 0),
 		},
+		State: "drafting: 1 of 2 accepted",
 		Contracts: []store.DesignContract{
 			{
 				ID: member, Title: "Local contract", Repository: "/work/synthetic-repo", State: store.ContractAccepted,
@@ -237,6 +238,7 @@ func TestStoreDesignsReadBack(t *testing.T) {
 			Created: time.Unix(contractProposedAt+30, 0),
 		},
 		OfOne: true,
+		State: "drafting: 0 of 1 accepted",
 		Contracts: []store.DesignContract{
 			{
 				ID:         lone,

@@ -104,9 +104,9 @@ func (s *Store) CreateDesign(ctx context.Context, design Design) error {
 	})
 }
 
-// Design returns the design with the given id, with its contracts in position order. Its State is "" until DesignState
-// is filled in. A contract in no design reads as a design of one. It returns an error that matches ErrNoDesign when
-// neither a design nor a contract in no design has the id.
+// Design returns the design with the given id, with its contracts in position order and its State as DesignState
+// derives it from them. A contract in no design reads as a design of one. It returns an error that matches ErrNoDesign
+// when neither a design nor a contract in no design has the id.
 func (s *Store) Design(ctx context.Context, id string) (DesignRecord, error) {
 	tx, err := s.read.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
 	if err != nil {
@@ -371,7 +371,7 @@ func readDesigns(ctx context.Context, queries *sqlcgen.Queries) ([]DesignRecord,
 }
 
 // readDesignRows returns the design row with its contracts in position order, each with the contracts it starts after,
-// read with queries.
+// and its State as DesignState derives it, read with queries.
 func readDesignRows(ctx context.Context, queries *sqlcgen.Queries, row sqlcgen.Design) (DesignRecord, error) {
 	members, err := queries.ListDesignContracts(ctx, row.ID)
 	if err != nil {
@@ -397,12 +397,16 @@ func readDesignRows(ctx context.Context, queries *sqlcgen.Queries, row sqlcgen.D
 			Position: member.Position, After: afters[member.Contract], Epic: member.Epic, EpicPhase: member.EpicPhase,
 		})
 	}
+	record.State = DesignState(record)
 	return record, nil
 }
 
-// designOfOne returns the design of one of the design and its only contract, at position 1.
+// designOfOne returns the design of one of the design and its only contract, at position 1, with its State as
+// DesignState derives it.
 func designOfOne(design Design, contract DesignContract) DesignRecord {
-	return DesignRecord{Design: design, OfOne: true, Contracts: []DesignContract{contract}}
+	record := DesignRecord{Design: design, OfOne: true, Contracts: []DesignContract{contract}}
+	record.State = DesignState(record)
+	return record
 }
 
 // HeldEpics returns every held epic, oldest first and ties by id, each with its predecessors and its held question.
