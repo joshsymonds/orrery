@@ -1870,6 +1870,16 @@ WHERE planner_unresolvable.epic = sqlc.arg(epic)
   )
 ORDER BY planner_unresolvable.position;
 
+-- name: ListSyncUnresolvable :many
+SELECT * FROM planner_unresolvable
+WHERE planner_unresolvable.epic = sqlc.arg(epic)
+  AND planner_unresolvable.gap GLOB 'sync:*'
+  AND planner_unresolvable.turn IN (
+      SELECT epic_turns.seq FROM epic_turns
+      WHERE epic_turns.epic = sqlc.arg(epic) AND epic_turns.state = 'succeeded'
+  )
+ORDER BY planner_unresolvable.turn, planner_unresolvable.position;
+
 -- name: ListEpicGapTurnsOf :many
 SELECT * FROM epic_gap_turns WHERE epic = ? AND gap = ? ORDER BY turn;
 

@@ -475,6 +475,7 @@ func flowRows(read store.EpicFlow) kinds.Rows {
 		Epic: read.Epic, Runs: read.Runs, Checks: read.Checks, Evidence: read.Evidence, Steps: read.Steps,
 		Pending: read.Pending, Actions: read.Actions, Releases: read.Releases, Slot: read.Slot, Review: read.Review,
 		GapTurns: read.GapTurns, Unresolvable: read.Unresolvable, Reruns: read.Reruns, Rounds: read.Rounds,
+		SyncDeclarations: read.SyncDeclarations,
 	}
 }
 

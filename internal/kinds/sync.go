@@ -19,6 +19,9 @@ const (
 // checks or its advance did not finish.
 const outcomeSkipped = "skipped"
 
+// SyncTriggerPrefix is the prefix of every trigger a failed sync or a sync re-wake writes.
+const SyncTriggerPrefix = "sync:"
+
 // Sync is the kind of the sync of origin's main. The interpreter adds a sync run under a running plan run at a quiet
 // point of its epic and decides it with this kind. Its prepare fetches origin's main and records the merge of it into
 // the stored base. At that merge the run walks the epic's Done gates, the captures of its Requirements and the
@@ -47,6 +50,39 @@ type SyncResult struct {
 // MergeLine is the line that names the merge a sync made: the merge, origin's commit and the stored base.
 func (r SyncResult) MergeLine() string {
 	return fmt.Sprintf("merge %s of origin's commit %s into the stored base %s", r.Merge, r.Origin, r.Base)
+}
+
+// SyncGapKey returns the key of the gap a sync of result's origin's commit into its stored base leaves: the sync
+// trigger prefix, origin's commit and the stored base, joined by an @.
+func SyncGapKey(result SyncResult) string {
+	return SyncTriggerPrefix + result.Origin + "@" + result.Base
+}
+
+// SyncCause returns the cause of a failed sync of result, with causes. Its first line names the sync's gap key and
+// that origin's commit failed to sync into the stored base. Then comes the line of the merge, when it made one, and
+// then each of causes, one to a line.
+func SyncCause(result SyncResult, causes []string) string {
+	lines := []string{fmt.Sprintf(
+		"sync %s: the sync of origin's commit %s into the stored base %s failed",
+		SyncGapKey(result), result.Origin, result.Base,
+	)}
+	if result.Merge != "" {
+		lines = append(lines, result.MergeLine())
+	}
+	return strings.Join(append(lines, causes...), "\n")
+}
+
+// SyncFailure returns, among the ended sync runs whose decoded result Base is rows.Epic.StoredBase and that tried
+// origin's commit (triedOrigin), the one with the latest Ended, with its result and true when its outcome is failed. It
+// returns false otherwise.
+func SyncFailure(_ Rows) (store.NodeRun, SyncResult, bool) {
+	return store.NodeRun{}, SyncResult{}, false
+}
+
+// SyncGap returns the gap of SyncFailure's run, keyed SyncGapKey, with a reason naming origin's commit, the stored base
+// and the run's failure, and true when SyncFailure found a failed run. It returns false otherwise.
+func SyncGap(_ Rows) (Gap, bool) {
+	return Gap{}, false
 }
 
 // ParseSyncResult decodes the result of a sync run. A result that is not a JSON object is an error.

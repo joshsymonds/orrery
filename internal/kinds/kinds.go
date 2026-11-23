@@ -51,6 +51,9 @@ type Rows struct {
 	// Stranded holds, in seq order, the done tasks whose work a failed batch composed and the base a fresh task starts
 	// on does not hold, as interpret reads them. nil reads as none.
 	Stranded []int64
+	// SyncDeclarations holds every sync gap a succeeded planner turn declared it cannot resolve without the owner, as
+	// store.EpicFlow reads them.
+	SyncDeclarations []store.GapDeclaration
 }
 
 // Reviewer is an enabled epic-stage reviewer: its name and whether its findings are verified.
@@ -74,7 +77,8 @@ type ActionKind string
 // ActAdvance moves the epic's branch to the run's candidate, and ActPark parks the run. ActHold pauses the epic once
 // for a review step its owner stopped. ActGap gives a build that waits for a lost dependency, whose Reason names it.
 // ActTaskIntegrator carries out one step of a conflicting task's integrator round of an integrate run, as the first of
-// its Items says: TaskStart, TaskRecord, TaskCompose or TaskFail.
+// its Items says: TaskStart, TaskRecord, TaskCompose or TaskFail. ActSyncWake re-wakes the planner of a plan whose only
+// hold is a live sync gap, with Gaps holding that gap and Cause the cause of its trigger.
 const (
 	ActNone           ActionKind = "none"
 	ActRun            ActionKind = "run"
@@ -89,6 +93,7 @@ const (
 	ActHold           ActionKind = "hold"
 	ActGap            ActionKind = "gap"
 	ActTaskIntegrator ActionKind = "task_integrator"
+	ActSyncWake       ActionKind = "sync_wake"
 )
 
 // Action is a kind's decision for its node run. Outcome is the outcome an end reports and empty when it reports none,
@@ -100,7 +105,8 @@ const (
 // the work runs at in place of the run's own: a release run walks the Done gates and captures of a merge the release
 // integrator committed, and records it as the candidate, at that commit. Reason, on a sync run's advance, is why the
 // epic is no longer at the quiet point the sync started at, and empty while it is. Tell, on a sync run's end, reports
-// whether its output is told to the owner.
+// whether its output is told to the owner. Cause, on a sync run's end, is the cause of the sync: the trigger a failed
+// sync's end writes, and empty for an end that wakes no one.
 type Action struct {
 	Kind     ActionKind
 	Outcome  string
@@ -116,6 +122,7 @@ type Action struct {
 	Phase    string
 	Revision string
 	Reason   string
+	Cause    string
 	Tell     bool
 	Gaps     []Gap
 	Question store.GapsQuestion

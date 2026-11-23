@@ -33,7 +33,8 @@ const (
 // their Item, its steps, its release runs as ReleaseRuns returns them, the holder of its repository's release slot, how
 // many of its triggers and of its amend_evidence actions are pending, and how many of its planner actions are pending.
 // GapTurns, Unresolvable and Reruns hold its gap turns, its unresolvable gaps and its review reruns as GapTurns,
-// UnresolvableGaps and ReviewReruns return them. Rounds holds its integrate rounds as readIntegrateRounds reads them.
+// UnresolvableGaps and ReviewReruns return them. SyncDeclarations holds the sync gaps its succeeded turns declared
+// unresolvable as ListSyncUnresolvable reads them. Rounds holds its integrate rounds as readIntegrateRounds reads them.
 // Steps holds the steps its agent and release node runs ran under as Step returns them, for the runs that have them,
 // then every step labeled with the epic and the path of one of its review, closure or release node runs, in the order
 // of the runs.
@@ -54,7 +55,9 @@ type EpicFlow struct {
 	GapTurns     []GapTurn
 	Unresolvable []GapDeclaration
 	Reruns       []ReviewRerun
-	Rounds       []IntegrateRound
+	// SyncDeclarations holds the sync gaps each succeeded planner turn declared it cannot resolve without the owner.
+	SyncDeclarations []GapDeclaration
+	Rounds           []IntegrateRound
 }
 
 // EpicFlow returns the stored epic with id with its review, node runs, checks, evidence runs, steps, release runs,
@@ -131,6 +134,10 @@ func readEpicFlow(ctx context.Context, queries *sqlcgen.Queries, id string) (Epi
 	if err != nil {
 		return EpicFlow{}, err
 	}
+	syncDeclarations, err := readSyncDeclarations(ctx, queries, id)
+	if err != nil {
+		return EpicFlow{}, err
+	}
 	rounds, err := readIntegrateRounds(ctx, queries, id)
 	if err != nil {
 		return EpicFlow{}, err
@@ -138,8 +145,21 @@ func readEpicFlow(ctx context.Context, queries *sqlcgen.Queries, id string) (Epi
 	return EpicFlow{
 		Epic: epic, Review: review, Runs: runs, Checks: checks, Evidence: currentRuns(stored, epic), Steps: steps,
 		Releases: releases, Slot: slot, Pending: int(pending), AmendActions: int(amends), Actions: int(actions),
-		GapTurns: gapTurns, Unresolvable: unresolvable, Reruns: reruns, Rounds: rounds,
+		GapTurns: gapTurns, Unresolvable: unresolvable, Reruns: reruns, SyncDeclarations: syncDeclarations,
+		Rounds: rounds,
 	}, nil
+}
+
+// readSyncDeclarations returns the sync gaps each succeeded planner turn of epic declared it cannot resolve without the
+// owner, as queries read them, in turn then position order.
+func readSyncDeclarations(ctx context.Context, queries *sqlcgen.Queries, id string) ([]GapDeclaration, error) {
+	rows, err := queries.ListSyncUnresolvable(ctx, id)
+	if err != nil {
+		return nil, fmt.Errorf("list sync gaps of epic %s: %w", id, err)
+	}
+	return mapInOrder(rows, func(row sqlcgen.PlannerUnresolvable) GapDeclaration {
+		return GapDeclaration{Gap: row.Gap, Reason: row.Reason, Recommended: row.Recommended}
+	}), nil
 }
 
 // readGapRecords returns the gap turns, unresolvable gaps and review reruns of epic as queries read them, in one
