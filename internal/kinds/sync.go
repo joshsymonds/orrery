@@ -52,6 +52,11 @@ func (r SyncResult) MergeLine() string {
 	return fmt.Sprintf("merge %s of origin's commit %s into the stored base %s", r.Merge, r.Origin, r.Base)
 }
 
+// advancedLine is the line that names the merge a sync advanced the stored base to: origin's commit merged as merge.
+func advancedLine(result SyncResult, merge string) string {
+	return fmt.Sprintf("merged origin's commit %s into the stored base %s as %s", result.Origin, result.Base, merge)
+}
+
 // SyncGapKey returns the key of the gap a sync of result's origin's commit into its stored base leaves: the sync
 // trigger prefix, origin's commit and the stored base, joined by an @.
 func SyncGapKey(result SyncResult) string {
@@ -146,9 +151,9 @@ func ParseSyncResult(result string) (SyncResult, error) {
 
 // Decide decides a sync run. With no result it prepares, unless the epic is paused or parked, naming the commits of
 // origin's main the epic's other sync runs tried (syncTries). With one it ends on what the prepare found when the
-// prepare made no merge. Otherwise it walks the Done gates, the captures and the reproductions at the merge, ends
-// failed when one fails, ends skipped when one cannot be decided, and advances to the merge once all pass, with why
-// when the epic moved while they ran.
+// prepare made no merge. A merge that conflicts walks its integrator rounds (syncIntegrator). Otherwise it walks the
+// Done gates, the captures and the reproductions at the merge, ends failed when one fails, ends skipped when one cannot
+// be decided, and advances to the merge once all pass, with why when the epic moved while they ran.
 func (Sync) Decide(node Node, rows Rows) Action {
 	run := node.Run
 	if run.Result == "" {
@@ -164,6 +169,9 @@ func (Sync) Decide(node Node, rows Rows) Action {
 	}
 	if act, ended := syncUnmerged(result); ended {
 		return act
+	}
+	if len(result.Conflicts) > 0 {
+		return syncIntegrator(run, rows, result)
 	}
 	return syncChecks(run, rows, result)
 }
@@ -217,8 +225,8 @@ func SyncTriedBy(rows Rows, origin string) string {
 
 // syncUnmerged ends a sync run whose prepare made no merge, and reports whether it did. A repository with no remote
 // origin, an error, origin's commit already in the stored base, a commit that does not hold the epic's change base and
-// a commit an earlier sync tried end it skipped. A merge that conflicts ends it failed, naming the paths, and is told,
-// its Cause naming the paths too.
+// a commit an earlier sync tried end it skipped. A merge that conflicts is not ended here: its integrator rounds decide
+// it (syncIntegrator).
 func syncUnmerged(result SyncResult) (Action, bool) {
 	switch {
 	case result.NoOrigin:
@@ -238,13 +246,7 @@ func syncUnmerged(result SyncResult) (Action, bool) {
 			"origin's commit %s was tried by %s", result.Origin, result.TriedBy,
 		)), true
 	case len(result.Conflicts) > 0:
-		line := fmt.Sprintf(
-			"merge of origin's commit %s into the stored base %s conflicts in %s",
-			result.Origin, result.Base, strings.Join(result.Conflicts, ", "),
-		)
-		act := syncTold(outcomeFailed, line)
-		act.Cause = SyncCause(result, []string{line})
-		return act, true
+		return Action{}, false
 	case result.Merge == "":
 		return syncSkipped("the sync result names no merge"), true
 	}
@@ -263,36 +265,35 @@ func syncUnmerged(result SyncResult) (Action, bool) {
 func syncChecks(run store.NodeRun, rows Rows, result SyncResult) Action {
 	gate, act, settled := doneGates(run, rows)
 	if !settled {
-		return syncWait(act, result)
+		return syncWait(act, result.MergeLine())
 	}
 	if gate != "" {
 		return syncFailed(result, []string{"Done gate " + gate + " failed"}, []string{gateFailure(run, rows)})
 	}
 	captured, act, settled := captures(run, rows)
 	if !settled {
-		return syncWait(act, result)
+		return syncWait(act, result.MergeLine())
 	}
 	if act, settled = reproductions(run, rows); !settled {
-		return syncWait(act, result)
+		return syncWait(act, result.MergeLine())
 	}
 	if causes := captureCauses(rows, captured); len(causes) > 0 {
 		failures := strings.Split(captureFailures(run.Revision, rows, captured), "\n")
 		return syncFailed(result, causes, failures)
 	}
-	merged := fmt.Sprintf("merged origin's commit %s into the stored base %s as %s", result.Origin, result.Base,
-		result.Merge)
 	return Action{
-		Kind: ActAdvance, Output: outputOf([]string{merged}, requirementLines(rows, captured)),
+		Kind:   ActAdvance,
+		Output: outputOf([]string{advancedLine(result, result.Merge)}, requirementLines(rows, captured)),
 		Reason: SyncMoved(rows, result),
 	}
 }
 
-// syncWait returns act, what a check of the sync that is not decided asks for. A park ends the run skipped and told
-// instead, its output the merge's line and the park's reason: a sync never parks, and a check it could not decide
-// decides nothing of origin's commit, so a later sync may try that commit again.
-func syncWait(act Action, result SyncResult) Action {
+// syncWait returns act, what a check of the sync that is not decided asks for, whose merge is named by line. A park
+// ends the run skipped and told instead, its output line and the park's reason: a sync never parks, and a check it
+// could not decide decides nothing of origin's commit, so a later sync may try that commit again.
+func syncWait(act Action, line string) Action {
 	if act.Kind == ActPark {
-		return syncTold(outcomeSkipped, outputOf([]string{result.MergeLine()}, []string{act.Output}))
+		return syncTold(outcomeSkipped, outputOf([]string{line}, []string{act.Output}))
 	}
 	return act
 }
