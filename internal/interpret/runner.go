@@ -102,6 +102,8 @@ type Store interface {
 	SettleAmendment(ctx context.Context, epic string, seq int64, at time.Time) error
 	StopAmendment(ctx context.Context, epic string, seq int64, reason string, at time.Time) error
 	NodeCheck(ctx context.Context, id string) (store.NodeCheck, error)
+	HeldEpics(ctx context.Context) ([]store.HeldEpic, error)
+	StartHeldEpic(ctx context.Context, epic, base string, at time.Time) error
 }
 
 // Checks runs the check of a gate or command node run under a holder, once per id. *enginehost.NodeChecks satisfies it.
@@ -170,8 +172,14 @@ type Config struct {
 	StateDir  string
 	// Hosts resolves each epic's Host to the host its repository work runs on, which the build functions the Runner calls
 	// are given. A nil Hosts is hostexec.LocalHosts.
-	Hosts  hostexec.Hosts
-	Getenv func(string) string
+	Hosts hostexec.Hosts
+	// OriginMain returns the commit origin's main names in repository, fetched on host, the host the held epic lives on.
+	// A nil OriginMain is enginehost.FetchOriginMainOn. A held epic starts from the commit it returns.
+	OriginMain func(ctx context.Context, host hostexec.Host, repository string) (string, error)
+	// HeldRetry is how long after a fetch or start of a held epic fails the Runner wakes to try that epic again. Zero means
+	// one minute.
+	HeldRetry time.Duration
+	Getenv    func(string) string
 	// Ticks is a test seam: when set, Run passes at start and then once at each value it receives, and wakes pass
 	// nothing. Production leaves it nil.
 	Ticks  <-chan time.Time
@@ -187,22 +195,24 @@ type Config struct {
 // The fields from signal down are the wakes Run passes on: mu guards them, and Wake, which any goroutine may call, sets
 // them under mu only. signal is a one-slot channel Wake fills, and woken the epics to pass next.
 type Runner struct {
-	store     Store
-	planner   Planner
-	builder   Builder
-	checks    Checks
-	evidence  Evidence
-	steps     Steps
-	reviewers Reviewers
-	ending    Ending
-	stateDir  string
-	hosts     hostexec.Hosts
-	getenv    func(string) string
-	ticks     <-chan time.Time
-	now       func() time.Time
-	logger    *slog.Logger
-	passed    func()
-	kinds     map[string]kinds.Kind
+	store      Store
+	planner    Planner
+	builder    Builder
+	checks     Checks
+	evidence   Evidence
+	steps      Steps
+	reviewers  Reviewers
+	ending     Ending
+	stateDir   string
+	hosts      hostexec.Hosts
+	originMain func(ctx context.Context, host hostexec.Host, repository string) (string, error)
+	heldRetry  time.Duration
+	getenv     func(string) string
+	ticks      <-chan time.Time
+	now        func() time.Time
+	logger     *slog.Logger
+	passed     func()
+	kinds      map[string]kinds.Kind
 
 	mu     sync.Mutex
 	signal chan struct{}
@@ -222,6 +232,7 @@ func New(cfg Config) *Runner {
 	runner := &Runner{
 		store: cfg.Store, planner: cfg.Planner, builder: cfg.Builder, checks: cfg.Checks, evidence: cfg.Evidence,
 		steps: cfg.Steps, reviewers: cfg.Reviewers, ending: cfg.Ending, stateDir: cfg.StateDir, hosts: cfg.Hosts,
+		originMain: cfg.OriginMain, heldRetry: cfg.HeldRetry,
 		getenv: cfg.Getenv, now: cfg.Now, logger: cfg.Logger, ticks: cfg.Ticks, passed: cfg.Passed,
 		kinds: map[string]kinds.Kind{
 			kindPlan: kinds.Plan{}, kindBuild: kinds.Build{}, kindGate: kinds.Gate{}, kindCommand: kinds.Command{},
@@ -244,6 +255,12 @@ func New(cfg Config) *Runner {
 	}
 	if runner.hosts == nil {
 		runner.hosts = hostexec.LocalHosts()
+	}
+	if runner.originMain == nil {
+		runner.originMain = enginehost.FetchOriginMainOn
+	}
+	if runner.heldRetry == 0 {
+		runner.heldRetry = defaultHeldRetry
 	}
 	if runner.logger == nil {
 		runner.logger = slog.New(slog.DiscardHandler)
@@ -307,10 +324,10 @@ func (r *Runner) runWakes(ctx context.Context) {
 			return
 		}
 		if woken := r.takeWoken(); len(woken) > 0 {
-			if open := r.openWoken(ctx, woken); len(open) > 0 {
-				r.passEpics(ctx, open)
-				r.passDone()
-			}
+			// The held pass runs on every wake, so a wake that names only closed epics still passes: the close of a
+			// predecessor is what starts a held epic.
+			r.passEpics(ctx, r.openWoken(ctx, woken))
+			r.passDone()
 		}
 	}
 }
@@ -357,10 +374,12 @@ func (r *Runner) openWoken(ctx context.Context, woken []string) []store.EpicRow 
 	return open
 }
 
-// passEpics runs one pass over epics: their amendments, then their flows, then the planner for those given a plan turn
-// or planner-parked. Pass passes every listed epic, and a wake passes the open epics it names. A closed epic and a held
-// epic are passed over: neither has a flow decision or a planner pass.
+// passEpics runs one pass over epics: the held pass first (see passHeld), then their amendments, their flows, and the
+// planner for those given a plan turn or planner-parked. Pass passes every listed epic, and a wake passes the open epics
+// it names. A closed epic and a held epic are passed over: neither has a flow decision or a planner pass, and an epic the
+// held pass starts is passed as the store holds it then.
 func (r *Runner) passEpics(ctx context.Context, epics []store.EpicRow) {
+	epics = r.passHeld(ctx, epics)
 	r.passAmendments(ctx, epics)
 	states, statesErr := r.store.OpenNodeRunStates(ctx)
 	if statesErr != nil {

@@ -8633,6 +8633,39 @@ func (q *Queries) ListHeadlineDueSessions(ctx context.Context) ([]ListHeadlineDu
 	return items, nil
 }
 
+const listHeldEpics = `-- name: ListHeldEpics :many
+SELECT id, repository, host FROM epics WHERE phase = 'held' ORDER BY created, id
+`
+
+type ListHeldEpicsRow struct {
+	ID         string
+	Repository string
+	Host       string
+}
+
+func (q *Queries) ListHeldEpics(ctx context.Context) ([]ListHeldEpicsRow, error) {
+	rows, err := q.db.QueryContext(ctx, listHeldEpics)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListHeldEpicsRow
+	for rows.Next() {
+		var i ListHeldEpicsRow
+		if err := rows.Scan(&i.ID, &i.Repository, &i.Host); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listHolderPrompts = `-- name: ListHolderPrompts :many
 SELECT events.write_id, CAST(json_extract(events.payload, '$.text') AS TEXT) AS text FROM events
 WHERE events.session_id = ?1 AND events.kind = 'engine_prompt' AND events.write_id <> ''
@@ -9849,6 +9882,48 @@ func (q *Queries) ListPendingPlannerActions(ctx context.Context) ([]PlannerActio
 			&i.RemoveFiles,
 			&i.Reviewer,
 		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listPredecessorStates = `-- name: ListPredecessorStates :many
+SELECT edges.after AS contract,
+       CAST(COALESCE((
+           SELECT newest.state FROM contract_states AS newest
+           WHERE newest.contract = edges.after ORDER BY newest.seq DESC LIMIT 1
+       ), '') AS TEXT) AS state,
+       CAST(COALESCE(after_epics.phase, '') AS TEXT) AS epic_phase
+FROM design_edges AS edges
+LEFT JOIN epics AS after_epics ON after_epics.id = edges.after
+WHERE edges.contract = ?
+ORDER BY edges.after
+`
+
+type ListPredecessorStatesRow struct {
+	Contract  string
+	State     string
+	EpicPhase string
+}
+
+func (q *Queries) ListPredecessorStates(ctx context.Context, contract string) ([]ListPredecessorStatesRow, error) {
+	rows, err := q.db.QueryContext(ctx, listPredecessorStates, contract)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListPredecessorStatesRow
+	for rows.Next() {
+		var i ListPredecessorStatesRow
+		if err := rows.Scan(&i.Contract, &i.State, &i.EpicPhase); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -12906,6 +12981,25 @@ type StartEpicReleaseParams struct {
 func (q *Queries) StartEpicRelease(ctx context.Context, arg StartEpicReleaseParams) error {
 	_, err := q.db.ExecContext(ctx, startEpicRelease, arg.PhaseAt, arg.ID)
 	return err
+}
+
+const startHeldEpic = `-- name: StartHeldEpic :execrows
+UPDATE epics SET base = ?1, stored_base = ?1, phase = 'accepted', phase_at = ?2
+WHERE id = ?3 AND phase = 'held'
+`
+
+type StartHeldEpicParams struct {
+	Base string
+	At   int64
+	ID   string
+}
+
+func (q *Queries) StartHeldEpic(ctx context.Context, arg StartHeldEpicParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, startHeldEpic, arg.Base, arg.At, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const stopEpicRelease = `-- name: StopEpicRelease :exec

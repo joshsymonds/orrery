@@ -433,18 +433,83 @@ func designOfOne(design Design, contract DesignContract) DesignRecord {
 	return record
 }
 
-// HeldEpics returns every held epic, oldest first and ties by id, each with its predecessors and its held question.
-// This is a stub: the task that implements held epics fills it in to this contract.
-func (s *Store) HeldEpics(_ context.Context) ([]HeldEpic, error) {
-	return nil, errNotImplemented
+// HeldEpics returns every held epic, oldest first and ties by id, each with its repository, its host and each
+// predecessor's contract state and epic phase. Question is 0 and Answer "" until a held question is asked.
+func (s *Store) HeldEpics(ctx context.Context) ([]HeldEpic, error) {
+	tx, err := s.read.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		return nil, fmt.Errorf("begin held epics read: %w", err)
+	}
+	held, err := readHeldEpics(ctx, sqlcgen.New(tx))
+	if err != nil {
+		return nil, errors.Join(err, tx.Rollback())
+	}
+	if err = tx.Commit(); err != nil {
+		return nil, fmt.Errorf("end held epics read: %w", err)
+	}
+	return held, nil
 }
 
-// StartHeldEpic starts the held epic at the given base, at the given time, so that it no longer holds. This is a stub:
-// the task that implements held epics fills it in to this contract. It starts the epic by the path an epic with no
-// predecessor starts by, and changes nothing in that path. It returns an error that matches ErrNoEpic when no epic has
-// the id, and ErrNotHeld when the epic is not held.
-func (s *Store) StartHeldEpic(_ context.Context, _, _ string, _ time.Time) error {
-	return errNotImplemented
+// readHeldEpics returns every held epic with its predecessors, read with queries.
+func readHeldEpics(ctx context.Context, queries *sqlcgen.Queries) ([]HeldEpic, error) {
+	rows, err := queries.ListHeldEpics(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list held epics: %w", err)
+	}
+	held := make([]HeldEpic, 0, len(rows))
+	for _, row := range rows {
+		predecessors, listErr := queries.ListPredecessorStates(ctx, row.ID)
+		if listErr != nil {
+			return nil, fmt.Errorf("list predecessors of held epic %s: %w", row.ID, listErr)
+		}
+		epic := HeldEpic{ID: row.ID, Repository: row.Repository, Host: row.Host}
+		for _, predecessor := range predecessors {
+			epic.Predecessors = append(epic.Predecessors, HeldPredecessor{
+				Contract: predecessor.Contract, ContractState: predecessor.State, EpicPhase: predecessor.EpicPhase,
+			})
+		}
+		held = append(held, epic)
+	}
+	return held, nil
+}
+
+// heldStartDecision is the id of the decision StartHeldEpic appends to a held epic it starts.
+const heldStartDecision = "held-start"
+
+// StartHeldEpic starts the held epic id at base, at at, in one write: its base and stored base become base, its phase
+// becomes accepted at at, and orreryd appends a decision, held-start, whose text names base as origin main, the commit
+// the epic starts from once its last predecessor shipped. It returns an error that matches ErrNoEpic when no epic has
+// the id, and ErrNotHeld when the epic is not held. It stores nothing on an error.
+func (s *Store) StartHeldEpic(ctx context.Context, id, base string, at time.Time) error {
+	return s.write(ctx, func(queries *sqlcgen.Queries) error {
+		started, err := queries.StartHeldEpic(ctx, sqlcgen.StartHeldEpicParams{Base: base, At: at.Unix(), ID: id})
+		if err != nil {
+			return fmt.Errorf("start held epic %s: %w", id, err)
+		}
+		if started == 0 {
+			return heldEpicRefusal(ctx, queries, id)
+		}
+		text := fmt.Sprintf("Started at base %s, origin main, once its last predecessor shipped.", base)
+		if _, err = appendDecision(
+			ctx, queries, id, heldStartDecision, text, 0, Maker{By: MakerOrreryd}, "", at,
+		); err != nil {
+			return fmt.Errorf("record start of held epic %s: %w", id, err)
+		}
+		return nil
+	})
+}
+
+// heldEpicRefusal returns the error StartHeldEpic returns for id when it started nothing: one that matches ErrNoEpic
+// when no epic has id, and ErrNotHeld otherwise. Read with queries.
+func heldEpicRefusal(ctx context.Context, queries *sqlcgen.Queries, id string) error {
+	count, err := queries.CountEpic(ctx, id)
+	if err != nil {
+		return fmt.Errorf("count epic %s: %w", id, err)
+	}
+	if count == 0 {
+		return fmt.Errorf("epic %s: %w", id, ErrNoEpic)
+	}
+	return fmt.Errorf("epic %s: %w", id, ErrNotHeld)
 }
 
 // AskHeldEpic opens, at the given time, a question of the held epic with the given text as its text, labeled HeldLabel
