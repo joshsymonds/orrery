@@ -18,7 +18,7 @@ import {
 } from "./fixtures/accounts";
 import { RouteRegistrySchema } from "./gen/orrery/v1/accounts_pb";
 import { mockTimers } from "./testclock";
-import { installTestDom, removeTestDom, teardownOnce } from "./testdom";
+import { assertNone, installTestDom, removeTestDom, teardownOnce } from "./testdom";
 import { turn, until } from "./testwait";
 
 // Page is the accounts page drawn over a fake of the accounts and routes. fake is the fake, clients the clients the page is
@@ -135,7 +135,7 @@ test("AccountsWebRemove: Keep closes the ask in the row and calls nothing", asyn
     await press(buttonIn(rowOf(container, "max-3"), "Remove"));
     await press(buttonIn(rowOf(container, "max-3"), "Keep"));
     assert.deepEqual(buttonsOf(rowOf(container, "max-3")), ["Rename", "Remove"]);
-    assert.equal(rowOf(container, "max-3").querySelector(".sure"), null);
+    assertNone(rowOf(container, "max-3").querySelector(".sure"));
     assert.deepEqual(methodsSince(fake, before), []);
   });
 });

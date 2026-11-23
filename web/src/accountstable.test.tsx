@@ -18,7 +18,7 @@ import {
 } from "./fixtures/accounts";
 import { RouteRegistrySchema } from "./gen/orrery/v1/accounts_pb";
 import { mockTimers } from "./testclock";
-import { installTestDom, removeTestDom, teardownOnce } from "./testdom";
+import { assertNone, installTestDom, removeTestDom, teardownOnce } from "./testdom";
 import { turn, until } from "./testwait";
 
 // Page is the accounts page drawn over a fake of the accounts and routes. fake is the fake, container the DOM the page draws
@@ -166,7 +166,7 @@ test("AccountsWebTable: a rename saved shows the name the answer returns, and cl
     await press(buttonIn(rowOf(container, "max-2"), "Save"));
     await settle(() => cellsOf(rowOf(container, "max-2"))[0] === "team-max", "the renamed row");
     assert.deepEqual(methodsSince(fake, before), ["Accounts.Rename"]);
-    assert.equal(rowOf(container, "max-2").querySelector("input"), null);
+    assertNone(rowOf(container, "max-2").querySelector("input"));
     assert.equal(noteOf(container, "max-2"), null);
   });
 });
@@ -204,7 +204,7 @@ test("AccountsWebTable: Cancel closes the rename field, keeps the name, and send
     await press(buttonIn(rowOf(container, "max-2"), "Rename"));
     assert.equal(fieldIn(rowOf(container, "max-2")).value, "max-2");
     await press(buttonIn(rowOf(container, "max-2"), "Cancel"));
-    assert.equal(rowOf(container, "max-2").querySelector("input"), null);
+    assertNone(rowOf(container, "max-2").querySelector("input"));
     assert.equal(cellsOf(rowOf(container, "max-2"))[0], "max-2");
     assert.deepEqual(methodsSince(fake, before), []);
   });
@@ -218,7 +218,7 @@ test("AccountsWebTable: a failed read draws its reason with a Retry, and Retry r
       const failure = container.querySelector<HTMLElement>(".page-note");
       assert.ok(failure !== null, "the page draws no failure");
       assert.equal(failure.textContent, "Could not read the accounts and routes: the account store is down Retry");
-      assert.equal(container.querySelector("table"), null);
+      assertNone(container.querySelector("table"));
       const before = fake.calls.length;
       await press(buttonIn(failure, "Retry"));
       await settle(() => container.querySelector("table") !== null, "the table after Retry");
