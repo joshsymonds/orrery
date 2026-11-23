@@ -1036,4 +1036,5 @@ INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (94,93,
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (95,94,1);
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (96,95,1);
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (97,96,1);
+INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (98,97,1);
 INSERT INTO "pending_notice_ids" ("id", "high") VALUES (1,0);
