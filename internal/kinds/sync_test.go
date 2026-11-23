@@ -61,7 +61,7 @@ func syncTried(path, outcome, result string) store.NodeRun {
 func TestSyncTriesAreTheDecidedCommits(t *testing.T) {
 	t.Parallel()
 	merged := func(origin string) string { return `{"origin":"` + origin + `","base":"b","merge":"m-` + origin + `"}` }
-	rows := Rows{Runs: []store.NodeRun{
+	rows := Rows{Epic: store.EpicRow{StoredBase: "b"}, Runs: []store.NodeRun{
 		syncTried("plan/M0", "failed", `{"origin":"o0","base":"b","conflicts":["a.go"]}`),
 		syncTried("plan/M1", "failed", merged("o1")),
 		syncTried("plan/M2", "passed", merged("o2")),
@@ -97,7 +97,7 @@ func TestSyncTriesAreTheDecidedCommits(t *testing.T) {
 
 func TestSyncPrepareAndUnmerged(t *testing.T) {
 	t.Parallel()
-	tried := Rows{Runs: []store.NodeRun{
+	tried := Rows{Epic: store.EpicRow{StoredBase: "b"}, Runs: []store.NodeRun{
 		syncTried("plan/M0", "failed", `{"origin":"o0","base":"b","conflicts":["a.go"]}`),
 		syncTried("plan/M2", "skipped", `{"origin":"o2","base":"b","contained":true}`),
 		syncTried("plan/M6", "skipped", `{"origin":"o6","base":"b","changeBase":"l1"}`),

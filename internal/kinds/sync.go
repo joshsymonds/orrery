@@ -118,15 +118,16 @@ func (Sync) Decide(node Node, rows Rows) Action {
 	return syncChecks(run, rows, result)
 }
 
-// syncTries returns the path of each sync run of rows but the one at path that tried origin's commit (triedOrigin),
-// with that commit, in the order of the runs.
+// syncTries returns the path of each sync run of rows but the one at path that tried origin's commit at the stored
+// base (triedOrigin), with that commit, in the order of the runs. A try is keyed on origin's commit and the stored
+// base, so a commit is tried again once the stored base moves.
 func syncTries(rows Rows, path string) ([]string, []string) {
 	var paths, origins []string
 	for _, run := range rows.Runs {
 		if run.Kind != kindSync || run.Path == path {
 			continue
 		}
-		if origin, tried := triedOrigin(run); tried {
+		if origin, tried := triedOrigin(run, rows.Epic.StoredBase); tried {
 			paths = append(paths, run.Path)
 			origins = append(origins, origin)
 		}
@@ -134,25 +135,28 @@ func syncTries(rows Rows, path string) ([]string, []string) {
 	return paths, origins
 }
 
-// triedOrigin returns origin's commit the sync run tried, and whether it tried one. A sync tried origin's commit when
-// it decided it: its merge conflicted, or a Done gate or a capture failed at its merge, each of which ends it failed,
-// or its merge passed every check and advanced, which ends it passed. A sync that ended skipped decided nothing,
-// whatever kept it from deciding: its prepare made no merge or found no origin, git or a write failed, a check was lost
-// at a restart twice or its environment failed, or its advance was not taken. Nor did a sync that a close ended, with
-// no outcome, or one still running. A commit a sync tried is never tried again.
-func triedOrigin(run store.NodeRun) (string, bool) {
+// triedOrigin returns origin's commit the sync run tried at base, and whether it tried one at base. A sync tried
+// origin's commit when it decided it: its merge conflicted, or a Done gate or a capture failed at its merge, each of
+// which ends it failed, or its merge passed every check and advanced, which ends it passed. A sync that ended skipped
+// decided nothing, whatever kept it from deciding: its prepare made no merge or found no origin, git or a write failed,
+// a check was lost at a restart twice or its environment failed, or its advance was not taken. Nor did a sync that a
+// close ended, with no outcome, or one still running. A try is keyed on origin's commit and the stored base its merge
+// was made into, so a sync tried at another base decided nothing at base: once the stored base moves, the commit is
+// tried again.
+func triedOrigin(run store.NodeRun, base string) (string, bool) {
 	if run.State != store.NodeEnded || (run.Outcome != outcomePassed && run.Outcome != outcomeFailed) {
 		return "", false
 	}
 	result, err := ParseSyncResult(run.Result)
-	if err != nil || (result.Merge == "" && len(result.Conflicts) == 0) {
+	if err != nil || result.Base != base || (result.Merge == "" && len(result.Conflicts) == 0) {
 		return "", false
 	}
 	return result.Origin, true
 }
 
-// SyncTriedBy returns the path of the sync run of rows that tried origin's commit origin (triedOrigin), "" when none
-// did.
+// SyncTriedBy returns the path of the sync run of rows that tried origin's commit origin at the stored base
+// (triedOrigin), "" when none did. A try is keyed on origin's commit and the stored base, so the commit is not counted
+// as tried once the stored base has moved.
 func SyncTriedBy(rows Rows, origin string) string {
 	paths, origins := syncTries(rows, "")
 	if i := slices.Index(origins, origin); i >= 0 {

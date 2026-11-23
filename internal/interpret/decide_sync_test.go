@@ -119,12 +119,12 @@ func TestDecideSyncReadsOriginWhenTheReadIsStale(t *testing.T) {
 
 // TestDecideSyncStartsOnlyOnAReadAhead: a read that stands and found origin's commit in the stored base, lacking the
 // change base, with no origin, failed, or taken by a sync's prepare starts no sync and stores no run, and the plan
-// keeps its run. Nor does a read ahead whose commit an earlier sync tried. A commit an earlier sync skipped is tried
-// again.
+// keeps its run. Nor does a read ahead whose commit an earlier sync tried at the stored base. A commit an earlier sync
+// skipped is tried again.
 func TestDecideSyncStartsOnlyOnAReadAhead(t *testing.T) {
 	t.Parallel()
 	tried := ended(store.NodeRun{Path: "plan/M0", Kind: "sync"}, outcomeFailed)
-	tried.Result = `{"origin":"o1","base":"c0","conflicts":["a.go"]}`
+	tried.Result = `{"origin":"o1","base":"c1","conflicts":["a.go"]}`
 	skipped := ended(store.NodeRun{Path: "plan/M0", Kind: "sync"}, "skipped")
 	skipped.Result = `{"origin":"o1","base":"c1","merge":"m1"}`
 	cases := []struct {
@@ -170,7 +170,7 @@ func TestDecideSyncStartsOnlyOnAReadAhead(t *testing.T) {
 func TestDecideRunningSyncIsDecidedAndHoldsThePlan(t *testing.T) {
 	t.Parallel()
 	tried := ended(store.NodeRun{Path: "plan/M0", Kind: "sync"}, outcomeFailed)
-	tried.Result = `{"origin":"o1","base":"c0","conflicts":["a.go"]}`
+	tried.Result = `{"origin":"o1","base":"c1","conflicts":["a.go"]}`
 	rows := quietRows()
 	rows.Runs = append(rows.Runs, tried, syncRun(store.NodeRunning))
 	def := workflow.Node{ID: "sync", Kind: "sync"}
