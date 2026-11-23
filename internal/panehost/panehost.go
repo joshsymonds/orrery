@@ -1,6 +1,7 @@
 // Package panehost serves one machine's panes to the controllers that watch it. A Host runs the machine's session
 // registry watch, applies each registry update to its own tmux as the daemon does, and publishes each applied update as
-// a node.PaneEvent. Each watcher first gets a full listing of the panes the host lists, then every event, and a fresh
+// a node.PaneEvent. It also summarizes its panes and marks them seen on its own tmux, and publishes each summary or
+// label it writes. Each watcher first gets a full listing of the panes the host lists, then every event, and a fresh
 // full listing on each tick.
 package panehost
 
@@ -13,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/joshsymonds/orrery/internal/autoseen"
 	"github.com/joshsymonds/orrery/internal/daemon"
 	"github.com/joshsymonds/orrery/internal/node"
 	"github.com/joshsymonds/orrery/internal/paneregistry"
@@ -41,6 +43,13 @@ type Config struct {
 	Ticks <-chan time.Time
 	// Load reads the host's load. Production takes hostload.Local.
 	Load func() (node.Load, error)
+	// Claude is the path of the claude binary that runs each summary of the host's panes.
+	Claude string
+	// Models maps each proxy context name to its summary model, as summary.Config.Models does.
+	Models map[string]string
+	// Viewer reports whether a client of a pane's tmux server shows the pane, for the auto-seen check of a done pane. Nil
+	// takes autoseen.Viewing.
+	Viewer autoseen.Viewer
 	// Now is the clock that stamps each state change. Nil takes time.Now.
 	Now func() time.Time
 	// Logger receives what the host does beyond its events. Nil discards it.
@@ -60,6 +69,11 @@ type Host struct {
 	// servers holds each tmux server that a listing covers, keyed by its column: DefaultServer, and each server an
 	// update named.
 	servers map[string]tmuxctl.Server
+	// summarizers holds the summarizer of each tmux server that a summary ran on, keyed by its column. It is guarded by
+	// mu, but waitSummaries reads it once Run has made its last apply.
+	summarizers map[string]*serverSummarizer
+	// seen is the auto-seen check of each done transition, which runs on the tmux server the pane runs on.
+	seen daemon.Observer
 	// watchers holds each watcher that Watch has joined and not yet left.
 	watchers map[*watcher]struct{}
 }
@@ -79,20 +93,29 @@ func New(cfg Config) (*Host, error) {
 	if logger == nil {
 		logger = slog.New(slog.DiscardHandler)
 	}
+	// The auto-seen check reports no seen mark: the controller's remote path routes no seen mark for a remote pane, and
+	// the next full listing carries the mark the check wrote.
+	seen := autoseen.New(cfg.Now, logger, func(string, int64) {}, cfg.Viewer)
 	return &Host{
-		cfg:      cfg,
-		logger:   logger,
-		applier:  daemon.NewApplier(cfg.Home, cfg.Now, logger),
-		tmux:     tmux,
-		servers:  map[string]tmuxctl.Server{cfg.DefaultServer.Column(): cfg.DefaultServer},
-		watchers: map[*watcher]struct{}{},
+		cfg:         cfg,
+		logger:      logger,
+		applier:     daemon.NewApplier(cfg.Home, cfg.Now, logger),
+		tmux:        tmux,
+		servers:     map[string]tmuxctl.Server{cfg.DefaultServer.Column(): cfg.DefaultServer},
+		summarizers: map[string]*serverSummarizer{},
+		seen:        seen,
+		watchers:    map[*watcher]struct{}{},
 	}, nil
 }
 
-// Run runs the host until ctx ends. It runs the registry's pane watch, applies each update to tmux and publishes its
-// event, and sends a fresh full listing to every watcher on each tick. It returns nil once ctx ends, and otherwise the
-// error that ended the registry watch. Run is called once.
+// Run runs the host until ctx ends. It runs the registry's pane watch, applies each update to tmux, publishes its event
+// and runs its observers, and sends a fresh full listing to every watcher on each tick. It returns nil once ctx ends,
+// and otherwise the error that ended the registry watch. Run is called once. It returns only once every summary run has
+// finished, and the runs end with it.
 func (h *Host) Run(ctx context.Context) error {
+	runCtx, cancelRuns := context.WithCancel(ctx)
+	defer h.waitSummaries()
+	defer cancelRuns()
 	watchCtx, stopWatch := context.WithCancel(ctx)
 	defer stopWatch()
 	updates := make(chan daemon.PaneUpdate)
@@ -112,9 +135,7 @@ func (h *Host) Run(ctx context.Context) error {
 		case err := <-registry:
 			return err
 		case update := <-updates:
-			// An update that has begun applies to its end, as the daemon's applyUpdates does, so a shutdown leaves no
-			// pane half-written.
-			h.applyAndPublish(context.WithoutCancel(ctx), update)
+			h.applyAndPublish(runCtx, update)
 		case <-ticks:
 			h.broadcastListing(ctx)
 		}
@@ -159,21 +180,24 @@ func (h *Host) watchConfig(updates chan<- daemon.PaneUpdate) panewatch.Config {
 }
 
 // applyAndPublish applies update to tmux, and queues its event for every watcher: the pane's snapshot, and its
-// transition when the update changed the state. It holds mu throughout, so the event falls in order with the listings.
+// transition when the update changed the state. Then, when it changed the state, it runs the observers of that
+// change. It holds mu throughout, so the events fall in order with the listings. The apply runs to its end even when
+// ctx is done, as the daemon's applyUpdates does, so a shutdown leaves no pane half-written.
 func (h *Host) applyAndPublish(ctx context.Context, update daemon.PaneUpdate) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	applyCtx := context.WithoutCancel(ctx)
 	server := daemon.ServerOf(update.Tmux)
 	h.servers[server.Column()] = server
-	applied, err := h.applier.Apply(ctx, update)
+	applied, err := h.applier.Apply(applyCtx, update)
 	if err != nil {
-		h.logger.ErrorContext(ctx, "apply pane update", "pane", update.PaneID, "error", err)
+		h.logger.ErrorContext(applyCtx, "apply pane update", "pane", update.PaneID, "error", err)
 		return
 	}
 	pane := node.PaneSnapshot{
 		Server: server.Column(),
 		Pane:   update.PaneID,
-		ID:     h.ensureID(ctx, server, update.PaneID, applied.ID),
+		ID:     h.ensureID(applyCtx, server, update.PaneID, applied.ID),
 		Fields: applied.Fields,
 	}
 	event := node.PaneEvent{Pane: &pane}
@@ -181,6 +205,9 @@ func (h *Host) applyAndPublish(ctx context.Context, update daemon.PaneUpdate) {
 		event.Transition = transitionOf(applied.Transition)
 	}
 	h.publish(event)
+	if applied.Changed {
+		h.observe(ctx, server, applied.Transition)
+	}
 }
 
 // ensureID returns id, the @orrery_id of pane on server, or else a minted id set on the pane. A minted id that cannot
