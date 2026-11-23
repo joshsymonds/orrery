@@ -1975,6 +1975,94 @@ JOIN contract_versions AS opening ON opening.contract = states.contract AND open
 WHERE states.session <> opening.writer
 ORDER BY states.at, states.contract, states.seq;
 
+-- name: CountDesign :one
+SELECT CAST(COUNT(*) AS INTEGER) FROM designs WHERE id = ?;
+
+-- name: InsertDesign :exec
+INSERT INTO designs (id, title, conversation, created) VALUES (?, ?, ?, ?);
+
+-- name: GetDesign :one
+SELECT * FROM designs WHERE id = ?;
+
+-- name: ListDesigns :many
+SELECT * FROM designs ORDER BY created, id;
+
+-- name: MaxDesignPosition :one
+SELECT CAST(COALESCE(MAX(position), 0) AS INTEGER) FROM design_contracts WHERE design = ?;
+
+-- name: InsertDesignContract :exec
+INSERT INTO design_contracts (contract, design, position, added) VALUES (?, ?, ?, ?);
+
+-- name: GetContractDesign :one
+SELECT design FROM design_contracts WHERE contract = ?;
+
+-- name: ListDesignContracts :many
+SELECT members.contract, members.position, newest.repository, newest.title,
+       CAST((
+           SELECT newest_state.state FROM contract_states AS newest_state
+           WHERE newest_state.contract = members.contract ORDER BY newest_state.seq DESC LIMIT 1
+       ) AS TEXT) AS state,
+       CAST(COALESCE(epics.id, '') AS TEXT) AS epic,
+       CAST(COALESCE(epics.phase, '') AS TEXT) AS epic_phase
+FROM design_contracts AS members
+JOIN contract_versions AS newest ON newest.contract = members.contract
+LEFT JOIN epics ON epics.id = members.contract
+WHERE members.design = ? AND newest.version = (
+    SELECT MAX(versions.version) FROM contract_versions AS versions WHERE versions.contract = members.contract
+)
+ORDER BY members.position;
+
+-- name: ListDesignEdges :many
+SELECT * FROM design_edges WHERE design = ? ORDER BY created, contract, after;
+
+-- name: InsertDesignEdge :exec
+INSERT INTO design_edges (design, contract, after, created) VALUES (?, ?, ?, ?);
+
+-- name: GetLoneContract :one
+SELECT contracts.id, contracts.created,
+       newest.repository, newest.title,
+       CAST(COALESCE((
+           SELECT opening.writer FROM contract_versions AS opening
+           WHERE opening.contract = contracts.id AND opening.version = 1
+       ), '') AS TEXT) AS conversation,
+       CAST((
+           SELECT newest_state.state FROM contract_states AS newest_state
+           WHERE newest_state.contract = contracts.id ORDER BY newest_state.seq DESC LIMIT 1
+       ) AS TEXT) AS state,
+       CAST(COALESCE(epics.id, '') AS TEXT) AS epic,
+       CAST(COALESCE(epics.phase, '') AS TEXT) AS epic_phase
+FROM contracts
+JOIN contract_versions AS newest ON newest.contract = contracts.id
+LEFT JOIN epics ON epics.id = contracts.id
+WHERE contracts.id = ? AND NOT EXISTS (
+    SELECT 1 FROM design_contracts AS members WHERE members.contract = contracts.id
+) AND newest.version = (
+    SELECT MAX(versions.version) FROM contract_versions AS versions WHERE versions.contract = contracts.id
+);
+
+-- name: ListLoneContracts :many
+SELECT contracts.id, contracts.created,
+       newest.repository, newest.title,
+       CAST(COALESCE((
+           SELECT opening.writer FROM contract_versions AS opening
+           WHERE opening.contract = contracts.id AND opening.version = 1
+       ), '') AS TEXT) AS conversation,
+       CAST((
+           SELECT newest_state.state FROM contract_states AS newest_state
+           WHERE newest_state.contract = contracts.id ORDER BY newest_state.seq DESC LIMIT 1
+       ) AS TEXT) AS state,
+       CAST(COALESCE(epics.id, '') AS TEXT) AS epic,
+       CAST(COALESCE(epics.phase, '') AS TEXT) AS epic_phase
+FROM contracts
+JOIN contract_versions AS newest ON newest.contract = contracts.id
+LEFT JOIN epics ON epics.id = contracts.id
+WHERE NOT EXISTS (
+    SELECT 1 FROM design_contracts AS members WHERE members.contract = contracts.id
+) AND newest.version = (
+    SELECT MAX(versions.version) FROM contract_versions AS versions WHERE versions.contract = contracts.id
+)
+ORDER BY contracts.created, contracts.id;
+
 -- name: InsertIntegrateRound :exec
 INSERT INTO integrate_rounds (epic, path, attempt, task, round, step, verdict, head, explanation, outcome, failure, created)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)

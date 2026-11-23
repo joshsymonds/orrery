@@ -362,6 +362,17 @@ func (q *Queries) CountContractStates(ctx context.Context, contract string) (int
 	return column_1, err
 }
 
+const countDesign = `-- name: CountDesign :one
+SELECT CAST(COUNT(*) AS INTEGER) FROM designs WHERE id = ?
+`
+
+func (q *Queries) CountDesign(ctx context.Context, id string) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countDesign, id)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const countEnginePrompts = `-- name: CountEnginePrompts :one
 SELECT COUNT(*) FROM events AS prompts
 WHERE prompts.session_id = ?1 AND prompts.kind = 'engine_prompt'
@@ -1366,6 +1377,17 @@ func (q *Queries) GetClosureEngineSession(ctx context.Context, id string) (GetCl
 	return i, err
 }
 
+const getContractDesign = `-- name: GetContractDesign :one
+SELECT design FROM design_contracts WHERE contract = ?
+`
+
+func (q *Queries) GetContractDesign(ctx context.Context, contract string) (string, error) {
+	row := q.db.QueryRowContext(ctx, getContractDesign, contract)
+	var design string
+	err := row.Scan(&design)
+	return design, err
+}
+
 const getContractListing = `-- name: GetContractListing :one
 SELECT contracts.id, contracts.created,
        newest.repository, newest.title, newest.care, newest.version, newest.open_decisions,
@@ -1470,6 +1492,22 @@ func (q *Queries) GetCronJobByToolUse(ctx context.Context, arg GetCronJobByToolU
 		&i.Recurring,
 		&i.CreatedAt,
 		&i.LastFireAt,
+	)
+	return i, err
+}
+
+const getDesign = `-- name: GetDesign :one
+SELECT id, title, conversation, created FROM designs WHERE id = ?
+`
+
+func (q *Queries) GetDesign(ctx context.Context, id string) (Design, error) {
+	row := q.db.QueryRowContext(ctx, getDesign, id)
+	var i Design
+	err := row.Scan(
+		&i.ID,
+		&i.Title,
+		&i.Conversation,
+		&i.Created,
 	)
 	return i, err
 }
@@ -2151,6 +2189,56 @@ func (q *Queries) GetLatestEpicParkOf(ctx context.Context, arg GetLatestEpicPark
 	return i, err
 }
 
+const getLoneContract = `-- name: GetLoneContract :one
+SELECT contracts.id, contracts.created,
+       newest.repository, newest.title,
+       CAST(COALESCE((
+           SELECT opening.writer FROM contract_versions AS opening
+           WHERE opening.contract = contracts.id AND opening.version = 1
+       ), '') AS TEXT) AS conversation,
+       CAST((
+           SELECT newest_state.state FROM contract_states AS newest_state
+           WHERE newest_state.contract = contracts.id ORDER BY newest_state.seq DESC LIMIT 1
+       ) AS TEXT) AS state,
+       CAST(COALESCE(epics.id, '') AS TEXT) AS epic,
+       CAST(COALESCE(epics.phase, '') AS TEXT) AS epic_phase
+FROM contracts
+JOIN contract_versions AS newest ON newest.contract = contracts.id
+LEFT JOIN epics ON epics.id = contracts.id
+WHERE contracts.id = ? AND NOT EXISTS (
+    SELECT 1 FROM design_contracts AS members WHERE members.contract = contracts.id
+) AND newest.version = (
+    SELECT MAX(versions.version) FROM contract_versions AS versions WHERE versions.contract = contracts.id
+)
+`
+
+type GetLoneContractRow struct {
+	ID           string
+	Created      int64
+	Repository   string
+	Title        string
+	Conversation string
+	State        string
+	Epic         string
+	EpicPhase    string
+}
+
+func (q *Queries) GetLoneContract(ctx context.Context, id string) (GetLoneContractRow, error) {
+	row := q.db.QueryRowContext(ctx, getLoneContract, id)
+	var i GetLoneContractRow
+	err := row.Scan(
+		&i.ID,
+		&i.Created,
+		&i.Repository,
+		&i.Title,
+		&i.Conversation,
+		&i.State,
+		&i.Epic,
+		&i.EpicPhase,
+	)
+	return i, err
+}
+
 const getNoticeIDFloor = `-- name: GetNoticeIDFloor :one
 SELECT high FROM pending_notice_ids WHERE id = 1
 `
@@ -2661,6 +2749,69 @@ func (q *Queries) InsertCronJob(ctx context.Context, arg InsertCronJobParams) (i
 		return 0, err
 	}
 	return result.RowsAffected()
+}
+
+const insertDesign = `-- name: InsertDesign :exec
+INSERT INTO designs (id, title, conversation, created) VALUES (?, ?, ?, ?)
+`
+
+type InsertDesignParams struct {
+	ID           string
+	Title        string
+	Conversation string
+	Created      int64
+}
+
+func (q *Queries) InsertDesign(ctx context.Context, arg InsertDesignParams) error {
+	_, err := q.db.ExecContext(ctx, insertDesign,
+		arg.ID,
+		arg.Title,
+		arg.Conversation,
+		arg.Created,
+	)
+	return err
+}
+
+const insertDesignContract = `-- name: InsertDesignContract :exec
+INSERT INTO design_contracts (contract, design, position, added) VALUES (?, ?, ?, ?)
+`
+
+type InsertDesignContractParams struct {
+	Contract string
+	Design   string
+	Position int64
+	Added    int64
+}
+
+func (q *Queries) InsertDesignContract(ctx context.Context, arg InsertDesignContractParams) error {
+	_, err := q.db.ExecContext(ctx, insertDesignContract,
+		arg.Contract,
+		arg.Design,
+		arg.Position,
+		arg.Added,
+	)
+	return err
+}
+
+const insertDesignEdge = `-- name: InsertDesignEdge :exec
+INSERT INTO design_edges (design, contract, after, created) VALUES (?, ?, ?, ?)
+`
+
+type InsertDesignEdgeParams struct {
+	Design   string
+	Contract string
+	After    string
+	Created  int64
+}
+
+func (q *Queries) InsertDesignEdge(ctx context.Context, arg InsertDesignEdgeParams) error {
+	_, err := q.db.ExecContext(ctx, insertDesignEdge,
+		arg.Design,
+		arg.Contract,
+		arg.After,
+		arg.Created,
+	)
+	return err
 }
 
 const insertDueResume = `-- name: InsertDueResume :exec
@@ -5371,6 +5522,128 @@ func (q *Queries) ListCronJobs(ctx context.Context) ([]CronJob, error) {
 			&i.Recurring,
 			&i.CreatedAt,
 			&i.LastFireAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listDesignContracts = `-- name: ListDesignContracts :many
+SELECT members.contract, members.position, newest.repository, newest.title,
+       CAST((
+           SELECT newest_state.state FROM contract_states AS newest_state
+           WHERE newest_state.contract = members.contract ORDER BY newest_state.seq DESC LIMIT 1
+       ) AS TEXT) AS state,
+       CAST(COALESCE(epics.id, '') AS TEXT) AS epic,
+       CAST(COALESCE(epics.phase, '') AS TEXT) AS epic_phase
+FROM design_contracts AS members
+JOIN contract_versions AS newest ON newest.contract = members.contract
+LEFT JOIN epics ON epics.id = members.contract
+WHERE members.design = ? AND newest.version = (
+    SELECT MAX(versions.version) FROM contract_versions AS versions WHERE versions.contract = members.contract
+)
+ORDER BY members.position
+`
+
+type ListDesignContractsRow struct {
+	Contract   string
+	Position   int64
+	Repository string
+	Title      string
+	State      string
+	Epic       string
+	EpicPhase  string
+}
+
+func (q *Queries) ListDesignContracts(ctx context.Context, design string) ([]ListDesignContractsRow, error) {
+	rows, err := q.db.QueryContext(ctx, listDesignContracts, design)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListDesignContractsRow
+	for rows.Next() {
+		var i ListDesignContractsRow
+		if err := rows.Scan(
+			&i.Contract,
+			&i.Position,
+			&i.Repository,
+			&i.Title,
+			&i.State,
+			&i.Epic,
+			&i.EpicPhase,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listDesignEdges = `-- name: ListDesignEdges :many
+SELECT design, contract, "after", created FROM design_edges WHERE design = ? ORDER BY created, contract, after
+`
+
+func (q *Queries) ListDesignEdges(ctx context.Context, design string) ([]DesignEdge, error) {
+	rows, err := q.db.QueryContext(ctx, listDesignEdges, design)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []DesignEdge
+	for rows.Next() {
+		var i DesignEdge
+		if err := rows.Scan(
+			&i.Design,
+			&i.Contract,
+			&i.After,
+			&i.Created,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listDesigns = `-- name: ListDesigns :many
+SELECT id, title, conversation, created FROM designs ORDER BY created, id
+`
+
+func (q *Queries) ListDesigns(ctx context.Context) ([]Design, error) {
+	rows, err := q.db.QueryContext(ctx, listDesigns)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Design
+	for rows.Next() {
+		var i Design
+		if err := rows.Scan(
+			&i.ID,
+			&i.Title,
+			&i.Conversation,
+			&i.Created,
 		); err != nil {
 			return nil, err
 		}
@@ -8717,6 +8990,73 @@ func (q *Queries) ListLimitedSteps(ctx context.Context) ([]Step, error) {
 	return items, nil
 }
 
+const listLoneContracts = `-- name: ListLoneContracts :many
+SELECT contracts.id, contracts.created,
+       newest.repository, newest.title,
+       CAST(COALESCE((
+           SELECT opening.writer FROM contract_versions AS opening
+           WHERE opening.contract = contracts.id AND opening.version = 1
+       ), '') AS TEXT) AS conversation,
+       CAST((
+           SELECT newest_state.state FROM contract_states AS newest_state
+           WHERE newest_state.contract = contracts.id ORDER BY newest_state.seq DESC LIMIT 1
+       ) AS TEXT) AS state,
+       CAST(COALESCE(epics.id, '') AS TEXT) AS epic,
+       CAST(COALESCE(epics.phase, '') AS TEXT) AS epic_phase
+FROM contracts
+JOIN contract_versions AS newest ON newest.contract = contracts.id
+LEFT JOIN epics ON epics.id = contracts.id
+WHERE NOT EXISTS (
+    SELECT 1 FROM design_contracts AS members WHERE members.contract = contracts.id
+) AND newest.version = (
+    SELECT MAX(versions.version) FROM contract_versions AS versions WHERE versions.contract = contracts.id
+)
+ORDER BY contracts.created, contracts.id
+`
+
+type ListLoneContractsRow struct {
+	ID           string
+	Created      int64
+	Repository   string
+	Title        string
+	Conversation string
+	State        string
+	Epic         string
+	EpicPhase    string
+}
+
+func (q *Queries) ListLoneContracts(ctx context.Context) ([]ListLoneContractsRow, error) {
+	rows, err := q.db.QueryContext(ctx, listLoneContracts)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListLoneContractsRow
+	for rows.Next() {
+		var i ListLoneContractsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Created,
+			&i.Repository,
+			&i.Title,
+			&i.Conversation,
+			&i.State,
+			&i.Epic,
+			&i.EpicPhase,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listNoticeHistorySince = `-- name: ListNoticeHistorySince :many
 SELECT id, pane, session, epic, limit_key, alert, state, title, body, block, block_ref, time, read FROM notice_history WHERE time >= ? ORDER BY time DESC, id DESC
 `
@@ -10938,6 +11278,17 @@ func (q *Queries) MarkNoticeHistoryRead(ctx context.Context, arg MarkNoticeHisto
 		arg.Time,
 	)
 	return err
+}
+
+const maxDesignPosition = `-- name: MaxDesignPosition :one
+SELECT CAST(COALESCE(MAX(position), 0) AS INTEGER) FROM design_contracts WHERE design = ?
+`
+
+func (q *Queries) MaxDesignPosition(ctx context.Context, design string) (int64, error) {
+	row := q.db.QueryRowContext(ctx, maxDesignPosition, design)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
 }
 
 const maxEpicActionSeq = `-- name: MaxEpicActionSeq :one

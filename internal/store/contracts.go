@@ -12,8 +12,8 @@ import (
 // ErrNoContract reports that no contract has the id asked for.
 var ErrNoContract = errors.New("no contract")
 
-// ErrContractExists reports that a contract or an epic already holds the id a contract was proposed under.
-var ErrContractExists = errors.New("contract id already held by a contract or an epic")
+// ErrContractExists reports that a contract, an epic or a design already holds the id a contract was proposed under.
+var ErrContractExists = errors.New("contract id already held by a contract, an epic or a design")
 
 // ContractProposed is the state a contract is in when it is first stored.
 const ContractProposed = "proposed"
@@ -74,30 +74,40 @@ type ContractRecord struct {
 // ProposeContract stores id as a new contract. proposal is stored as version 1, whatever its Version says, with no
 // changed rows or sections, and the contract enters state proposed at version 1 by proposal.Writer with
 // proposal.Words at proposal.At. It returns an error that matches ErrContractExists, and stores nothing, when a
-// contract or an epic already has id.
+// contract, an epic or a design already has id.
 func (s *Store) ProposeContract(ctx context.Context, id string, proposal ContractVersion) error {
 	return s.write(ctx, func(queries *sqlcgen.Queries) error {
-		held, err := queries.CountContract(ctx, id)
-		if err != nil {
-			return fmt.Errorf("count contract %s: %w", id, err)
-		}
-		epics, err := queries.CountEpic(ctx, id)
-		if err != nil {
-			return fmt.Errorf("count epic %s: %w", id, err)
-		}
-		if held > 0 || epics > 0 {
-			return fmt.Errorf("contract %s: %w", id, ErrContractExists)
-		}
-		if err = queries.InsertContract(ctx, sqlcgen.InsertContractParams{ID: id, Created: proposal.At}); err != nil {
-			return fmt.Errorf("insert contract %s: %w", id, err)
-		}
-		proposal.Version, proposal.ChangedRows, proposal.ChangedSections = 1, nil, nil
-		if versionErr := insertContractVersion(ctx, queries, id, proposal); versionErr != nil {
-			return versionErr
-		}
-		change := ContractChange{Session: proposal.Writer, Words: proposal.Words, At: proposal.At}
-		return appendContractState(ctx, queries, id, ContractProposed, 1, change)
+		return proposeContract(ctx, queries, id, proposal)
 	})
+}
+
+// proposeContract stores id as a new contract as ProposeContract does, with queries. It returns an error that matches
+// ErrContractExists when a contract, an epic or a design already has id.
+func proposeContract(ctx context.Context, queries *sqlcgen.Queries, id string, proposal ContractVersion) error {
+	held, err := queries.CountContract(ctx, id)
+	if err != nil {
+		return fmt.Errorf("count contract %s: %w", id, err)
+	}
+	epics, err := queries.CountEpic(ctx, id)
+	if err != nil {
+		return fmt.Errorf("count epic %s: %w", id, err)
+	}
+	designs, err := queries.CountDesign(ctx, id)
+	if err != nil {
+		return fmt.Errorf("count design %s: %w", id, err)
+	}
+	if held > 0 || epics > 0 || designs > 0 {
+		return fmt.Errorf("contract %s: %w", id, ErrContractExists)
+	}
+	if err = queries.InsertContract(ctx, sqlcgen.InsertContractParams{ID: id, Created: proposal.At}); err != nil {
+		return fmt.Errorf("insert contract %s: %w", id, err)
+	}
+	proposal.Version, proposal.ChangedRows, proposal.ChangedSections = 1, nil, nil
+	if versionErr := insertContractVersion(ctx, queries, id, proposal); versionErr != nil {
+		return versionErr
+	}
+	change := ContractChange{Session: proposal.Writer, Words: proposal.Words, At: proposal.At}
+	return appendContractState(ctx, queries, id, ContractProposed, 1, change)
 }
 
 // Contract returns the contract with id, its listing with its versions and states. Both are read in one read

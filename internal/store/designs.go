@@ -2,8 +2,13 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"errors"
+	"fmt"
+	"strings"
 	"time"
+
+	"github.com/joshsymonds/orrery/internal/store/sqlcgen"
 )
 
 // PhaseHeld is the phase of an epic that holds. A held epic waits for the contracts it starts after to end, and it
@@ -78,53 +83,326 @@ type HeldEpic struct {
 	Answer               string
 }
 
-// CreateDesign stores the design as a new design. This is a stub: the task that implements designs fills it in to this
-// contract. It stores the design's ID, Title, Conversation and Created, and returns an error that matches
-// ErrDesignExists, and stores nothing, when a design already has the design's ID.
-func (s *Store) CreateDesign(_ context.Context, _ Design) error {
-	return errNotImplemented
+// CreateDesign stores the design as a new design. It stores the design's ID, Title, Conversation and Created, and
+// returns an error that matches ErrDesignExists, and stores nothing, when a design or a contract already has the
+// design's ID.
+func (s *Store) CreateDesign(ctx context.Context, design Design) error {
+	return s.write(ctx, func(queries *sqlcgen.Queries) error {
+		held, err := designIDHeld(ctx, queries, design.ID)
+		if err != nil {
+			return err
+		}
+		if held {
+			return fmt.Errorf("design %s: %w", design.ID, ErrDesignExists)
+		}
+		if err = queries.InsertDesign(ctx, sqlcgen.InsertDesignParams{
+			ID: design.ID, Title: design.Title, Conversation: design.Conversation, Created: design.Created.Unix(),
+		}); err != nil {
+			return fmt.Errorf("insert design %s: %w", design.ID, err)
+		}
+		return nil
+	})
 }
 
-// Design returns the design with the given id, with its contracts in position order and its state. This is a stub: the
-// task that implements designs fills it in to this contract. It returns an error that matches ErrNoDesign when no
-// design has the id.
-func (s *Store) Design(_ context.Context, _ string) (DesignRecord, error) {
-	return DesignRecord{}, errNotImplemented
+// Design returns the design with the given id, with its contracts in position order. Its State is "" until DesignState
+// is filled in. A contract in no design reads as a design of one. It returns an error that matches ErrNoDesign when
+// neither a design nor a contract in no design has the id.
+func (s *Store) Design(ctx context.Context, id string) (DesignRecord, error) {
+	tx, err := s.read.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		return DesignRecord{}, fmt.Errorf("begin design read: %w", err)
+	}
+	record, err := readDesign(ctx, sqlcgen.New(tx), id)
+	if err != nil {
+		return DesignRecord{}, errors.Join(err, tx.Rollback())
+	}
+	if err = tx.Commit(); err != nil {
+		return DesignRecord{}, fmt.Errorf("end design read: %w", err)
+	}
+	return record, nil
 }
 
-// Designs returns every design, oldest first and ties by id, each as Design returns it. This is a stub: the task that
-// implements designs fills it in to this contract.
-func (s *Store) Designs(_ context.Context) ([]DesignRecord, error) {
-	return nil, errNotImplemented
+// Designs returns every design: the real designs by created and then id, then each contract in no design as a design
+// of one, by the contract's created and then id. Each is read as Design returns it.
+func (s *Store) Designs(ctx context.Context) ([]DesignRecord, error) {
+	tx, err := s.read.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		return nil, fmt.Errorf("begin designs read: %w", err)
+	}
+	records, err := readDesigns(ctx, sqlcgen.New(tx))
+	if err != nil {
+		return nil, errors.Join(err, tx.Rollback())
+	}
+	if err = tx.Commit(); err != nil {
+		return nil, fmt.Errorf("end designs read: %w", err)
+	}
+	return records, nil
 }
 
-// Design returns the design with the given id as Store.Design does, read through the Reader. This is a stub: the task
-// that implements designs fills it in to this contract.
-func (r *Reader) Design(_ context.Context, _ string) (DesignRecord, error) {
-	return DesignRecord{}, errNotImplemented
+// Design returns the design with the given id as Store.Design does, read through the Reader.
+func (r *Reader) Design(ctx context.Context, id string) (DesignRecord, error) {
+	var record DesignRecord
+	err := r.readEngine(ctx, func(queries *sqlcgen.Queries) error {
+		var readErr error
+		record, readErr = readDesign(ctx, queries, id)
+		return readErr
+	})
+	return record, err
 }
 
-// Designs returns every design as Store.Designs does, read through the Reader. This is a stub: the task that
-// implements designs fills it in to this contract.
-func (r *Reader) Designs(_ context.Context) ([]DesignRecord, error) {
-	return nil, errNotImplemented
+// Designs returns every design as Store.Designs does, read through the Reader.
+func (r *Reader) Designs(ctx context.Context) ([]DesignRecord, error) {
+	var records []DesignRecord
+	err := r.readEngine(ctx, func(queries *sqlcgen.Queries) error {
+		var readErr error
+		records, readErr = readDesigns(ctx, queries)
+		return readErr
+	})
+	return records, err
 }
 
 // ProposeContractInDesign proposes the contract id as ProposeContract does, and adds it to the design at the end of
-// the design's order. This is a stub: the task that implements designs fills it in to this contract. It returns an
-// error that matches ErrNoDesign when no design has the design id, and the error ProposeContract returns when it
-// returns one. It stores nothing on an error.
-func (s *Store) ProposeContractInDesign(_ context.Context, _, _ string, _ ContractVersion) error {
-	return errNotImplemented
+// the design's order, at the position after the design's highest. It returns an error that matches ErrNoDesign when no
+// design has the design id, and the error ProposeContract returns when it returns one. It stores nothing on an error.
+func (s *Store) ProposeContractInDesign(ctx context.Context, designID, id string, proposal ContractVersion) error {
+	return s.write(ctx, func(queries *sqlcgen.Queries) error {
+		if err := requireDesign(ctx, queries, designID); err != nil {
+			return err
+		}
+		if err := proposeContract(ctx, queries, id, proposal); err != nil {
+			return err
+		}
+		highest, err := queries.MaxDesignPosition(ctx, designID)
+		if err != nil {
+			return fmt.Errorf("read highest position of design %s: %w", designID, err)
+		}
+		if err = queries.InsertDesignContract(ctx, sqlcgen.InsertDesignContractParams{
+			Contract: id, Design: designID, Position: highest + 1, Added: proposal.At,
+		}); err != nil {
+			return fmt.Errorf("add contract %s to design %s: %w", id, designID, err)
+		}
+		return nil
+	})
 }
 
-// AddDesignEdge records at the given time that a contract starts after another, both contracts of one design. This is
-// a stub: the task that implements designs fills it in to this contract. It returns an error that matches ErrNoDesign
-// when no design has the design id, ErrDesignAcross when the after contract belongs to another design,
-// ErrDesignMember when the contract or the after contract is not a contract of the design, and ErrDesignCycle when the
-// edge would close a cycle of starts-after edges. It stores nothing on an error.
-func (s *Store) AddDesignEdge(_ context.Context, _, _, _ string, _ time.Time) error {
-	return errNotImplemented
+// AddDesignEdge records at the given time that a contract starts after another, both contracts of one design. It
+// returns an error that matches ErrNoDesign when no design has the design id, ErrDesignMember when the contract is not
+// in the design or the after contract is in no design, ErrDesignAcross when the after contract is in another design,
+// and ErrDesignCycle when the edge would close a cycle of starts-after edges, a self edge included. An edge already
+// stored writes nothing and returns nil. It stores nothing on an error.
+func (s *Store) AddDesignEdge(ctx context.Context, designID, contract, after string, at time.Time) error {
+	return s.write(ctx, func(queries *sqlcgen.Queries) error {
+		if err := requireDesign(ctx, queries, designID); err != nil {
+			return err
+		}
+		own, err := contractDesignOf(ctx, queries, contract)
+		if err != nil {
+			return err
+		}
+		if own != designID {
+			return fmt.Errorf("contract %s is not in design %s: %w", contract, designID, ErrDesignMember)
+		}
+		owner, err := contractDesignOf(ctx, queries, after)
+		if err != nil {
+			return err
+		}
+		if owner == "" {
+			return fmt.Errorf("contract %s is not in design %s: %w", after, designID, ErrDesignMember)
+		}
+		if owner != designID {
+			return fmt.Errorf(
+				"contract %s of design %s starts after contract %s of design %s: %w",
+				contract, designID, after, owner, ErrDesignAcross,
+			)
+		}
+		edges, err := queries.ListDesignEdges(ctx, designID)
+		if err != nil {
+			return fmt.Errorf("list edges of design %s: %w", designID, err)
+		}
+		if hasDesignEdge(edges, contract, after) {
+			return nil
+		}
+		if path := startsAfterPath(edges, after, contract); path != nil {
+			cycle := append([]string{contract}, path...)
+			return fmt.Errorf("design %s: %s: %w", designID, strings.Join(cycle, " -> "), ErrDesignCycle)
+		}
+		if err = queries.InsertDesignEdge(ctx, sqlcgen.InsertDesignEdgeParams{
+			Design: designID, Contract: contract, After: after, Created: at.Unix(),
+		}); err != nil {
+			return fmt.Errorf("insert edge of contract %s in design %s: %w", contract, designID, err)
+		}
+		return nil
+	})
+}
+
+// designIDHeld reports whether a design or a contract already holds id, read with queries.
+func designIDHeld(ctx context.Context, queries *sqlcgen.Queries, id string) (bool, error) {
+	designs, err := queries.CountDesign(ctx, id)
+	if err != nil {
+		return false, fmt.Errorf("count design %s: %w", id, err)
+	}
+	contracts, err := queries.CountContract(ctx, id)
+	if err != nil {
+		return false, fmt.Errorf("count contract %s: %w", id, err)
+	}
+	return designs > 0 || contracts > 0, nil
+}
+
+// requireDesign returns an error that matches ErrNoDesign when no design has id, read with queries.
+func requireDesign(ctx context.Context, queries *sqlcgen.Queries, id string) error {
+	count, err := queries.CountDesign(ctx, id)
+	if err != nil {
+		return fmt.Errorf("count design %s: %w", id, err)
+	}
+	if count == 0 {
+		return fmt.Errorf("design %s: %w", id, ErrNoDesign)
+	}
+	return nil
+}
+
+// contractDesignOf returns the id of the design the contract is in, or "" when it is in none, read with queries.
+func contractDesignOf(ctx context.Context, queries *sqlcgen.Queries, contract string) (string, error) {
+	design, err := queries.GetContractDesign(ctx, contract)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("read design of contract %s: %w", contract, err)
+	}
+	return design, nil
+}
+
+// hasDesignEdge reports whether edges holds the edge that contract starts after after.
+func hasDesignEdge(edges []sqlcgen.DesignEdge, contract, after string) bool {
+	for _, edge := range edges {
+		if edge.Contract == contract && edge.After == after {
+			return true
+		}
+	}
+	return false
+}
+
+// startsAfterPath returns the contracts of a path of starts-after edges from the contract from to the contract to, both
+// ends included, or nil when no path joins them. A contract from reaches to when from is to, so its path is [from].
+func startsAfterPath(edges []sqlcgen.DesignEdge, from, to string) []string {
+	afters := make(map[string][]string)
+	for _, edge := range edges {
+		afters[edge.Contract] = append(afters[edge.Contract], edge.After)
+	}
+	parent := map[string]string{from: from}
+	queue := []string{from}
+	for len(queue) > 0 {
+		node := queue[0]
+		queue = queue[1:]
+		if node == to {
+			var path []string
+			for at := to; ; at = parent[at] {
+				path = append([]string{at}, path...)
+				if at == from {
+					return path
+				}
+			}
+		}
+		for _, after := range afters[node] {
+			if _, seen := parent[after]; seen {
+				continue
+			}
+			parent[after] = node
+			queue = append(queue, after)
+		}
+	}
+	return nil
+}
+
+// readDesign returns the design with id, read with queries. A contract in no design with id reads as a design of one.
+// It returns an error that matches ErrNoDesign when neither has id.
+func readDesign(ctx context.Context, queries *sqlcgen.Queries, id string) (DesignRecord, error) {
+	row, err := queries.GetDesign(ctx, id)
+	if err == nil {
+		return readDesignRows(ctx, queries, row)
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return DesignRecord{}, fmt.Errorf("read design %s: %w", id, err)
+	}
+	lone, err := queries.GetLoneContract(ctx, id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return DesignRecord{}, fmt.Errorf("design %s: %w", id, ErrNoDesign)
+	}
+	if err != nil {
+		return DesignRecord{}, fmt.Errorf("read contract %s: %w", id, err)
+	}
+	return designOfOne(
+		Design{ID: lone.ID, Title: lone.Title, Conversation: lone.Conversation, Created: time.Unix(lone.Created, 0)},
+		DesignContract{
+			ID: lone.ID, Title: lone.Title, Repository: lone.Repository, State: lone.State, Position: 1,
+			Epic: lone.Epic, EpicPhase: lone.EpicPhase,
+		},
+	), nil
+}
+
+// readDesigns returns every design as Store.Designs does, read with queries.
+func readDesigns(ctx context.Context, queries *sqlcgen.Queries) ([]DesignRecord, error) {
+	rows, err := queries.ListDesigns(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list designs: %w", err)
+	}
+	records := make([]DesignRecord, 0, len(rows))
+	for _, row := range rows {
+		record, readErr := readDesignRows(ctx, queries, row)
+		if readErr != nil {
+			return nil, readErr
+		}
+		records = append(records, record)
+	}
+	lone, err := queries.ListLoneContracts(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list contracts in no design: %w", err)
+	}
+	for _, row := range lone {
+		records = append(records, designOfOne(
+			Design{ID: row.ID, Title: row.Title, Conversation: row.Conversation, Created: time.Unix(row.Created, 0)},
+			DesignContract{
+				ID: row.ID, Title: row.Title, Repository: row.Repository, State: row.State, Position: 1,
+				Epic: row.Epic, EpicPhase: row.EpicPhase,
+			},
+		))
+	}
+	return records, nil
+}
+
+// readDesignRows returns the design row with its contracts in position order, each with the contracts it starts after,
+// read with queries.
+func readDesignRows(ctx context.Context, queries *sqlcgen.Queries, row sqlcgen.Design) (DesignRecord, error) {
+	members, err := queries.ListDesignContracts(ctx, row.ID)
+	if err != nil {
+		return DesignRecord{}, fmt.Errorf("list contracts of design %s: %w", row.ID, err)
+	}
+	edges, err := queries.ListDesignEdges(ctx, row.ID)
+	if err != nil {
+		return DesignRecord{}, fmt.Errorf("list edges of design %s: %w", row.ID, err)
+	}
+	afters := make(map[string][]string)
+	for _, edge := range edges {
+		afters[edge.Contract] = append(afters[edge.Contract], edge.After)
+	}
+	record := DesignRecord{
+		Design: Design{
+			ID: row.ID, Title: row.Title, Conversation: row.Conversation, Created: time.Unix(row.Created, 0),
+		},
+		OfOne: len(members) == 1,
+	}
+	for _, member := range members {
+		record.Contracts = append(record.Contracts, DesignContract{
+			ID: member.Contract, Title: member.Title, Repository: member.Repository, State: member.State,
+			Position: member.Position, After: afters[member.Contract], Epic: member.Epic, EpicPhase: member.EpicPhase,
+		})
+	}
+	return record, nil
+}
+
+// designOfOne returns the design of one of the design and its only contract, at position 1.
+func designOfOne(design Design, contract DesignContract) DesignRecord {
+	return DesignRecord{Design: design, OfOne: true, Contracts: []DesignContract{contract}}
 }
 
 // HeldEpics returns every held epic, oldest first and ties by id, each with its predecessors and its held question.
