@@ -62,6 +62,11 @@ func (s sessionsServer) ListHeadless(
 	if err != nil {
 		return nil, err
 	}
+	records, err := readListDesigns(ctx, s.reader)
+	if err != nil {
+		return nil, err
+	}
+	designs := designMessages(records)
 	sessions := make([]*orreryv1.HeadlessSession, 0, len(rows))
 	for _, row := range rows {
 		session, convErr := headlessMessage(row)
@@ -79,6 +84,7 @@ func (s sessionsServer) ListHeadless(
 		session.PutOff = headlessPutOff(puts, row.ID, row.RequestID, row.State)
 		// Only the listed state takes the busy set. The fields above read the stored state.
 		session.State = busyState(reads.busy, row.ID, session.State)
+		session.Designs = conversationDesigns(designs, row.ID)
 		sessions = append(sessions, session)
 	}
 	return connect.NewResponse(&orreryv1.ListHeadlessResponse{Sessions: sessions}), nil
