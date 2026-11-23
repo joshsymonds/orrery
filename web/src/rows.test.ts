@@ -14,7 +14,7 @@ import {
 import { rowsFrom, waitsOnYou, type Row } from "./rows";
 
 function makePane(init: MessageInitShape<typeof PaneSchema>): Pane {
-  return create(PaneSchema, { host: "box", session: "work", cwd: "/work/app", ...init });
+  return create(PaneSchema, { host: "box", session: "work", cwd: "/work/app", claudeSession: "claude-1", ...init });
 }
 
 function makeSession(init: MessageInitShape<typeof SessionSchema>): Session {
@@ -265,6 +265,14 @@ test("ArchivePaneRow: a pane with an orrery_id archives as the session that id n
 test("panes in shell sessions are dropped", () => {
   const rows = rowsFrom([makePane({ id: "%9", session: "_orrery-shell-1" })], []);
   assert.deepEqual(rows, []);
+});
+
+test("a pane with no claudeSession makes no row unless it is unbound, and an unbound pane makes one", () => {
+  const rows = rowsFrom(
+    [makePane({ id: "%5", claudeSession: "" }), makePane({ id: "%6", claudeSession: "", unbound: true })],
+    [],
+  );
+  assert.deepEqual(rows.map((row) => [row.id, row.unbound]), [["%6", true]]);
 });
 
 test("a session entry that names a pane is dropped, since Panes.List already lists that pane", () => {

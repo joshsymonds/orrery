@@ -54,8 +54,9 @@ const shellSessionPrefix = "_orrery-shell-";
 // A Sessions.List row with no label reads this word as its line.
 const sessionLabel = "session";
 
-// rowsFrom makes a row of each pane outside orrery's own shells, of each session that names no pane, and of each headless
-// session. A row's project is its directory and its label is its line: a pane's summary, a headless session's served
+// rowsFrom makes a row of each pane outside orrery's own shells that has a conversation or is unbound, of each session
+// that names no pane, and of each headless session. A pane with no claudeSession and not unbound is a plain shell and
+// makes no row. A row's project is its directory and its label is its line: a pane's summary, a headless session's served
 // headline, or a Sessions.List row's label. A session row is driven by its id, through the session row path,
 // Sessions.WatchConversation and Control.
 export function rowsFrom(panes: Pane[], sessions: Session[], headless: HeadlessSession[] = []): Row[] {
@@ -64,6 +65,9 @@ export function rowsFrom(panes: Pane[], sessions: Session[], headless: HeadlessS
   const rows: Row[] = [];
   for (const pane of panes) {
     if (pane.session.startsWith(shellSessionPrefix)) {
+      continue;
+    }
+    if (pane.claudeSession === "" && !pane.unbound) {
       continue;
     }
     const changed = Number(pane.changed);
