@@ -114,10 +114,12 @@ proto-breaking:
     git archive "$previous" proto | tar -x -C "$dir"
     cd proto && buf breaking --against "$dir/proto"
 
-# Regenerate the store's typed queries (internal/store/sqlcgen), the typed API (internal/gen), and the app's typed
-# client (android/app/src/main/java, orrery.v1 only) from proto/.
+# Regenerate the store's typed queries (internal/store/sqlcgen) and its fresh schema (internal/store/schema.sql, from the
+# migrations), the typed API (internal/gen), and the app's typed client (android/app/src/main/java, orrery.v1 only) from
+# proto/.
 generate:
     sqlc generate
+    ORRERY_WRITE_FRESH_SCHEMA=1 go test -count=1 -run '^TestStoreFreshSchemaMatchesMigrations$' ./internal/store/
     cd proto && buf generate
     rm -rf android/app/src/main/java/io/github/joshsymonds/orrery/gen
     cd proto && buf generate --template buf.gen.android.yaml --path orrery/v1
@@ -130,7 +132,7 @@ sqlc-diff:
 
 # Fail when the generated API code drifts from proto/ (regenerates, then diffs).
 gen-diff: generate
-    git diff --exit-code -- internal/gen
+    git diff --exit-code -- internal/gen internal/store/schema.sql
     git diff --exit-code HEAD -- android/app/src/main/java
     untracked=$(git ls-files --others --exclude-standard -- android/app/src/main/java); [ -z "$untracked" ] || { echo "generated app files not committed:" >&2; echo "$untracked" >&2; exit 1; }
     git diff --exit-code HEAD -- web/src/gen

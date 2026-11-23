@@ -143,7 +143,7 @@ func TestOrrerydServesHooksWithTooNewStore(t *testing.T) {
 	t.Parallel()
 	f := newStoreFixture(t)
 	prepareStore(t, f.dbPath)
-	db, err := sql.Open("sqlite", f.dbPath)
+	db, err := sql.Open("sqlite3", f.dbPath)
 	if err != nil {
 		t.Fatalf("open store to age it: %v", err)
 	}

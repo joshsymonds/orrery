@@ -129,7 +129,7 @@ func (f *storeFixture) waitForRow(t *testing.T, db *sql.DB, pane string) {
 // openStoreForInspection opens the store file at path with its own connection, closed at cleanup.
 func openStoreForInspection(t *testing.T, path string) *sql.DB {
 	t.Helper()
-	db, err := sql.Open("sqlite", path)
+	db, err := sql.Open("sqlite3", path)
 	if err != nil {
 		t.Fatalf("open store for inspection: %v", err)
 	}

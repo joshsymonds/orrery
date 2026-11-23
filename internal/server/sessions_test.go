@@ -113,7 +113,7 @@ func writeStore(t *testing.T, path string) int64 {
 		t.Fatalf("Close store: %v", err)
 	}
 
-	db, err := sql.Open("sqlite", path)
+	db, err := sql.Open("sqlite3", path)
 	if err != nil {
 		t.Fatalf("open store for seq: %v", err)
 	}
@@ -169,7 +169,7 @@ func TestListReturnsUnavailableWhileStoreIsWriteLocked(t *testing.T) {
 	writeStore(t, path)
 
 	// An exclusive-locking connection holds the write lock, so the reader cannot read the file.
-	holder, err := sql.Open("sqlite", path)
+	holder, err := sql.Open("sqlite3", path)
 	if err != nil {
 		t.Fatalf("open lock holder: %v", err)
 	}

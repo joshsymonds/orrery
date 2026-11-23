@@ -584,7 +584,7 @@ run:
   concurrency: 0
   tests: true
   modules-download-mode: readonly
-  build-tags: [measure]
+  build-tags: [measure, sqlite_preupdate_hook]
   # golangci-lint takes one machine-wide lock ($TMPDIR/golangci-lint.lock). Without this, a run that cannot take it
   # within 5 s exits "parallel golangci-lint is running", which fails a concurrent worktree's `just check`. With it,
   # the run waits for the lock and then lints alone. allow-parallel-runners would skip the lock instead.

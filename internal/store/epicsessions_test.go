@@ -44,7 +44,7 @@ func openEpicCallStore(t *testing.T) (*store.Store, string) {
 // epicSessionRowCount returns the number of rows of epic_sessions in the store file at path.
 func epicSessionRowCount(t *testing.T, path string) int {
 	t.Helper()
-	raw, err := sql.Open("sqlite", path)
+	raw, err := sql.Open("sqlite3", path)
 	if err != nil {
 		t.Fatalf("open raw handle: %v", err)
 	}

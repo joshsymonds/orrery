@@ -240,6 +240,9 @@ func syncFetchThatStallsIsStoppedAtTheFetchLimitAndBacksOff(images *worldImages)
 				logs.String(),
 			)
 		}
+		// The stalled fetch is behind, and the next one is meant to finish: under the 1-second limit a loaded host can
+		// stop a healthy fetch too, so it runs under the runner's own limit.
+		w.runner.fetchLimit = syncFetchLimit
 		w.laterBy(syncInterval)
 		if w.runner.passFlow(context.Background(), epicOf(t, w.s), integrateFlow()) {
 			t.Error("the planner got a turn while the sync after the interval runs")

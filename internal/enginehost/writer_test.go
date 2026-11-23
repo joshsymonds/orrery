@@ -19,8 +19,8 @@ import (
 	"github.com/joshsymonds/orrery/internal/storetest"
 	"github.com/joshsymonds/orrery/internal/waittest"
 
-	// The blank import registers the pure-Go "sqlite" driver the lock test opens a second connection with.
-	_ "modernc.org/sqlite"
+	// The blank import registers the "sqlite3" driver the lock test opens a second connection with.
+	_ "github.com/mattn/go-sqlite3"
 )
 
 // recordingApplier forwards to a real store and records every ApplyEngine call, failed ones included.
@@ -138,7 +138,7 @@ func promptTexts(t *testing.T, path, id string) []string {
 // lockWrites holds the store's write lock from a second connection until the returned release is called.
 func lockWrites(t *testing.T, path string) (release func()) {
 	t.Helper()
-	other, err := sql.Open("sqlite", path)
+	other, err := sql.Open("sqlite3", path)
 	if err != nil {
 		t.Fatalf("open second connection: %v", err)
 	}

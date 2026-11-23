@@ -178,7 +178,7 @@ func TestMirrorWaitDropsASyncTheStoreStillRefuses(t *testing.T) {
 	bm.m.SyncPane(t.Context(), ms.server, ms.pane)
 	<-bm.armed
 	bm.m.Wait()
-	if n := bm.logs.count("mirror sync dropped", "SQLITE_BUSY"); n != 1 {
+	if n := bm.logs.count("mirror sync dropped", "database is locked"); n != 1 {
 		t.Fatalf("dropped syncs logged at Wait = %d, want 1", n)
 	}
 	if rows := mirrorRows(t, bm.db); len(rows) != 0 {
@@ -186,7 +186,7 @@ func TestMirrorWaitDropsASyncTheStoreStillRefuses(t *testing.T) {
 	}
 
 	bm.m.SyncPane(t.Context(), ms.server, ms.pane)
-	if n := bm.logs.count("mirror sync dropped", "SQLITE_BUSY"); n != 2 {
+	if n := bm.logs.count("mirror sync dropped", "database is locked"); n != 2 {
 		t.Fatalf("dropped syncs logged after Wait = %d, want 2: a busy sync is no longer deferred", n)
 	}
 }

@@ -56,11 +56,14 @@
             version = "0.0.0";
             src = ./.;
             go = pkgs.go_1_26;
-            vendorHash = "sha256-oHPo8UvX5R+zXkB7tLhbH8REWrPqli6psMNCeq5P1Fo=";
+            vendorHash = "sha256-JxHznozd7R0IsC/bTUz+5WERj1ihux3CwWtwvkdHOto=";
             subPackages = [
               "cmd/orrery"
               "cmd/orreryd"
             ];
+            # The store's SQLite driver builds the pre-update hook it records epic writes with only under this tag
+            # (internal/store/needs_preupdate_hook.go).
+            tags = [ "sqlite_preupdate_hook" ];
             nativeBuildInputs = [ pkgs.esbuild ];
             nativeCheckInputs = [
               pkgs.git
@@ -72,8 +75,10 @@
               bash scripts/build-web.sh web/build/page
               cp -r web/build/page/. internal/webui/dist/
             '';
+            # The tests build orrery themselves (cmd/orreryd's TestMain), and that go build reads the tag from GOFLAGS.
             preCheck = ''
               export TMUX_TMPDIR="$TMPDIR"
+              export GOFLAGS="$GOFLAGS -tags=sqlite_preupdate_hook"
             '';
             # The default check covers only subPackages, so the webui tests run here against the embedded page.
             postCheck = ''

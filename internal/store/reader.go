@@ -6,9 +6,9 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"strconv"
 
-	"modernc.org/sqlite"
-	sqlite3 "modernc.org/sqlite/lib"
+	sqlite3 "github.com/mattn/go-sqlite3"
 
 	"github.com/joshsymonds/orrery/internal/store/sqlcgen"
 )
@@ -20,9 +20,6 @@ var ErrUnavailable = errors.New("store unavailable")
 // one Litestream's checkpoints take, so a reader is busy only while a connection holds the file exclusively. A reader
 // serves the orrery CLI, which reports the store unavailable at once rather than waiting out a writer's BusyTimeout.
 const readBusyTimeoutMillis = 200
-
-// primaryCodeMask strips the extended bits from a SQLite result code, leaving the primary code.
-const primaryCodeMask = 0xff
 
 // Session is one sessions row.
 type Session struct {
@@ -78,10 +75,7 @@ func NewReader(path string) *Reader {
 // connections. The pool opens its first connection for the first read, and a later read reuses a connection the pool
 // holds. The reader holds those connections until Close.
 func NewPooledReader(path string) *Reader {
-	inner, err := sqlite.NewConnector(readOnlyDSN(path))
-	if err != nil {
-		return &Reader{path: path, poolErr: fmt.Errorf("open store reader: %w", err)}
-	}
+	inner := newConnector(readOnlyDSN(path))
 	connector := &trackedConnector{inner: inner, readPool: true}
 	pool := sql.OpenDB(connector)
 	pool.SetMaxOpenConns(readConns)
@@ -114,7 +108,7 @@ func (r *Reader) database() (*sql.DB, func() error, error) {
 	if r.pool != nil {
 		return r.pool, func() error { return nil }, nil
 	}
-	db, err := sql.Open("sqlite", readOnlyDSN(r.path))
+	db, err := sql.Open("sqlite3", readOnlyDSN(r.path))
 	if err != nil {
 		return nil, nil, fmt.Errorf("open store reader: %w", err)
 	}
@@ -159,7 +153,7 @@ func readOnlyDSN(path string) string {
 func readOnlyDSNBusy(path string, busyTimeoutMillis int64) string {
 	query := url.Values{}
 	query.Set("mode", "ro")
-	query.Add("_pragma", fmt.Sprintf("busy_timeout(%d)", busyTimeoutMillis))
+	query.Set("_busy_timeout", strconv.FormatInt(busyTimeoutMillis, 10))
 	return (&url.URL{Scheme: "file", Path: path, RawQuery: query.Encode()}).String()
 }
 
@@ -201,26 +195,20 @@ func readInTx(ctx context.Context, tx *sql.Tx, reach func(readPoint)) (Snapshot,
 // Busy reports whether err is a SQLite busy or locked result: a store call that waited out its busy timeout for a lock
 // another connection held. Nothing about the call was wrong, so the same call can succeed once the lock is free.
 func Busy(err error) bool {
-	var sqliteErr *sqlite.Error
+	var sqliteErr sqlite3.Error
 	if !errors.As(err, &sqliteErr) {
 		return false
 	}
-	switch sqliteErr.Code() & primaryCodeMask {
-	case sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED:
-		return true
-	default:
-		return false
-	}
+	return sqliteErr.Code == sqlite3.ErrBusy || sqliteErr.Code == sqlite3.ErrLocked
 }
 
 // unavailable reports whether err is a SQLite busy, locked or cannot-open result, which is how a busy database
 // or a missing file appears, or an fstat failure, which is how a file removed while it is open appears. Only the
 // fstat extended code counts: other I/O errors share the primary IOERR code and stay internal.
 func unavailable(err error) bool {
-	var sqliteErr *sqlite.Error
+	var sqliteErr sqlite3.Error
 	if !errors.As(err, &sqliteErr) {
 		return false
 	}
-	return Busy(err) || sqliteErr.Code() == sqlite3.SQLITE_IOERR_FSTAT ||
-		sqliteErr.Code()&primaryCodeMask == sqlite3.SQLITE_CANTOPEN
+	return Busy(err) || sqliteErr.ExtendedCode == sqlite3.ErrIoErrFstat || sqliteErr.Code == sqlite3.ErrCantOpen
 }

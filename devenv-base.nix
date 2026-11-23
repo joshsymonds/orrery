@@ -48,6 +48,11 @@ in
   env.GOMODCACHE = "${builtins.getEnv "HOME"}/.cache/orrery/mod";
   env.GOCACHE = "${builtins.getEnv "HOME"}/.cache/orrery/build";
 
+  # The store's SQLite driver, mattn/go-sqlite3, builds its pre-update hook, which records the epics each write moves,
+  # only under this tag; without it the hook is a no-op, and internal/store refuses to compile (see
+  # internal/store/needs_preupdate_hook.go). Every go build, test and lint in the shell takes it from GOFLAGS.
+  env.GOFLAGS = "-tags=sqlite_preupdate_hook";
+
   # golangci-lint's cache keys analysis results by package import path, which
   # is identical across worktrees. A shared cache would replay one worktree's
   # results and file paths inside another, so keep it per checkout.
