@@ -182,32 +182,30 @@ type Config struct {
 }
 
 // Runner runs each epic's workflow over its node runs: it carries out the structural actions the decisions ask for,
-// hands build runs to the builder and passes the planner for the epics whose plan run is running. readLimit bounds each
-// git ls-remote a sync runs against origin, syncReadLimit unless a test sets it, and fetchLimit a sync's fetch of
-// origin's main, syncFetchLimit unless a test sets it.
+// hands build runs to the builder and passes the planner for the epics whose plan run is running. limitGit makes the
+// context git that reads origin runs in for a sync (see gitLimit): context.WithTimeoutCause unless a test sets it.
 //
 // The fields from signal down are the wakes Run passes on: mu guards them, and Wake, which any goroutine may call, sets
 // them under mu only. signal is a one-slot channel Wake fills, woken the epics to pass next, waiters the epics that
 // waited on each holder of a release slot, and deadlines the moment each epic's origin read goes stale.
 type Runner struct {
-	store      Store
-	planner    Planner
-	builder    Builder
-	checks     Checks
-	evidence   Evidence
-	steps      Steps
-	reviewers  Reviewers
-	ending     Ending
-	stateDir   string
-	getenv     func(string) string
-	ticks      <-chan time.Time
-	now        func() time.Time
-	newTimer   func(d time.Duration) (<-chan time.Time, func() bool)
-	logger     *slog.Logger
-	passed     func()
-	kinds      map[string]kinds.Kind
-	readLimit  time.Duration
-	fetchLimit time.Duration
+	store     Store
+	planner   Planner
+	builder   Builder
+	checks    Checks
+	evidence  Evidence
+	steps     Steps
+	reviewers Reviewers
+	ending    Ending
+	stateDir  string
+	getenv    func(string) string
+	ticks     <-chan time.Time
+	now       func() time.Time
+	newTimer  func(d time.Duration) (<-chan time.Time, func() bool)
+	logger    *slog.Logger
+	passed    func()
+	kinds     map[string]kinds.Kind
+	limitGit  func(ctx context.Context, limit time.Duration) (context.Context, context.CancelFunc)
 
 	mu        sync.Mutex
 	signal    chan struct{}
@@ -230,7 +228,7 @@ func New(cfg Config) *Runner {
 		store: cfg.Store, planner: cfg.Planner, builder: cfg.Builder, checks: cfg.Checks, evidence: cfg.Evidence,
 		steps: cfg.Steps, reviewers: cfg.Reviewers, ending: cfg.Ending, stateDir: cfg.StateDir, getenv: cfg.Getenv,
 		now: cfg.Now, newTimer: cfg.NewTimer, logger: cfg.Logger, ticks: cfg.Ticks, passed: cfg.Passed,
-		readLimit: syncReadLimit, fetchLimit: syncFetchLimit,
+		limitGit: gitLimit,
 		kinds: map[string]kinds.Kind{
 			kindPlan: kinds.Plan{}, kindBuild: kinds.Build{}, kindGate: kinds.Gate{}, kindCommand: kinds.Command{},
 			kindEvidence: kinds.Evidence{}, kindOwned: kinds.Owned{}, kindAgent: kinds.Agent{}, kindCost: kinds.Cost{},

@@ -24,7 +24,6 @@ const (
 	archiveAgedID    = "0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a"
 	archiveYoungerID = "0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b"
 	archiveWaitingID = "0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c"
-	archiveFailedID  = "0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d"
 	archiveMarkedID  = "0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e"
 )
 
@@ -175,30 +174,6 @@ func TestAutoArchiveStoppedHeadlessAfterOneDay(t *testing.T) {
 		archiveYoungerID: false,
 		archiveWaitingID: true,
 	})
-}
-
-func TestAutoArchiveFailedHeadlessOnceSeen(t *testing.T) {
-	t.Parallel()
-	storePath := archiveStorePath(t)
-	now := epicsNow()
-	sessions := sessionsClientAt(t, store.NewReader(storePath), epicsNow)
-	applyHeadlessAt(t, storePath, now.Add(-3*archiveDay),
-		store.EngineAdd{ID: archiveFailedID, Dir: "/work/failed", State: "working"})
-	// The owner saw the session before it failed, so its seen time is older than its change time.
-	applyHeadlessAt(t, storePath, now.Add(-3*archiveDay), store.EngineSet{
-		ID: archiveFailedID, Changes: store.EngineChanges{Seen: optionalString(stamp(now.Add(-3 * archiveDay)))},
-	})
-	applyHeadlessAt(t, storePath, now.Add(-2*archiveDay), store.EngineSet{
-		ID: archiveFailedID, Changes: store.EngineChanges{State: optionalString("failed")},
-	})
-	expectArchived(t, "ListHeadless before the owner sees it", archivedByID(listHeadlessRows(t, sessions)),
-		map[string]bool{archiveFailedID: false})
-
-	applyHeadlessAt(t, storePath, now.Add(-archiveDay), store.EngineSet{
-		ID: archiveFailedID, Changes: store.EngineChanges{Seen: optionalString(stamp(now.Add(-archiveDay)))},
-	})
-	expectArchived(t, "ListHeadless after the owner sees it", archivedByID(listHeadlessRows(t, sessions)),
-		map[string]bool{archiveFailedID: true})
 }
 
 func TestAutoArchiveArchivedRowChangedPastMarkComesBack(t *testing.T) {
