@@ -336,10 +336,8 @@ func TestPumpLinesBackgroundBashCommandStoresAwaitedOn(t *testing.T) {
 
 			rig.manager.recordLine(t.Context(), live, newRecorder(chosenID), line, "")
 
-			row, err := rig.store.EngineSession(t.Context(), chosenID)
-			if err != nil {
-				t.Fatalf("EngineSession: %v", err)
-			}
+			// A line that ends no turn is stored through the writer's asynchronous Put, so the read waits for it.
+			row := waitConsumed(t, rig, line.End)
 			if !row.Background || row.Awaited != tc.awaited {
 				t.Fatalf("background %v awaited %v, want background on and awaited %v for a %s task",
 					row.Background, row.Awaited, tc.awaited, tc.tool)
