@@ -48,6 +48,7 @@ class InboxTreeFilterTest {
         newestReply: Long = 0L,
         seen: Long = 0L,
         archived: Boolean = false,
+        ended: Boolean = false,
     ) = Pane(
         id = id,
         host = "",
@@ -66,6 +67,7 @@ class InboxTreeFilterTest {
         newestReply = newestReply,
         headless = true,
         archived = archived,
+        ended = ended,
     )
 
     private fun epic(
@@ -270,7 +272,7 @@ class InboxTreeFilterTest {
             panes = listOf(
                 pane("%1", "o1", newestReply = 5L),
                 pane("%2", "o2", newestReply = 5L, seen = 5L),
-                headless("h1", state = "stopped", newestReply = 5L),
+                headless("h1", state = "stopped", newestReply = 5L, ended = true),
             ),
             epics = listOf(epic("x", steering = "o1", live = false)),
         )
@@ -331,7 +333,7 @@ class InboxTreeFilterTest {
             panes = listOf(
                 pane("%1", "o1", newestReply = 5L),
                 pane("%2", "o2", newestReply = 5L, seen = 5L),
-                headless("h1", state = "stopped", newestReply = 5L),
+                headless("h1", state = "stopped", newestReply = 5L, ended = true),
             ),
             epics = listOf(epic("e1", steering = "o1")),
         )
@@ -427,8 +429,8 @@ class InboxTreeFilterTest {
     fun searchKeepsAMatchingConversationBehindTheEndedLine() {
         val projects = tree(
             panes = listOf(
-                headless("h1", state = "stopped", label = "tide cleanup"),
-                headless("h2", state = "stopped", label = "billing"),
+                headless("h1", state = "stopped", label = "tide cleanup", ended = true),
+                headless("h2", state = "stopped", label = "billing", ended = true),
             ),
         )
         assertEquals(setOf("session:h1"), keysOf(search(projects, "tide").single().ended))

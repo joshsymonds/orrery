@@ -65,9 +65,6 @@ internal fun Pane.unread(): Boolean = newestReply > seen
 private const val SHELL_SESSION_PREFIX = "_orrery-shell-"
 private const val STATE_WAITING = "waiting"
 private const val STATE_WORKING = "working"
-private const val STATE_DONE = "done"
-private const val STATE_STOPPED = "stopped"
-private const val STATE_FAILED = "failed"
 private const val CONTRACT_PROPOSED = "proposed"
 private const val CONTRACT_ACCEPTED = "accepted"
 private const val NO_DIRECTORY_KEY = "nodir"
@@ -184,19 +181,9 @@ private fun placeInbox(index: Index, slots: Slots) {
     val carried = (liveShown + endedShown).map { it.id }.toSet()
     val contractItems = index.shownContracts.filterNot { it.id in carried }
 
-    fun ended(conversation: Conversation): Boolean {
-        val pane = conversation.pane
-        if (liveShown.any { steers(conversation, it.steering) }) return false
-        if (index.shownContracts.any { steers(conversation, it.conversation) }) {
-            return false
-        }
-        val steersEnded = endedShown.any { steers(conversation, it.steering) }
-        val headlessEnded = pane.headless &&
-            (pane.state == STATE_STOPPED || (pane.state == STATE_FAILED && !pane.unread()))
-        return headlessEnded || (pane.state == STATE_DONE && steersEnded)
-    }
-
-    val behind = index.conversations.filter { !it.archived && ended(it) }.toSet()
+    // Serve decides the ended line: an archived conversation draws only in the archived view, and one serve marks ended
+    // draws behind its project's ended line.
+    val behind = index.conversations.filter { !it.archived && it.pane.ended }.toSet()
     val inTree = index.conversations.filter { !it.archived && it !in behind }
     for (conversation in inTree) slots.conversation(conversation, ended = false, again = false)
     for (conversation in behind) slots.conversation(conversation, ended = true, again = false)
@@ -264,10 +251,6 @@ private fun placeArchived(index: Index, slots: Slots) {
         slots.conversation(target, ended = false, again = false).hung.add(ContractNode(contract))
     }
 }
-
-/** Whether a conversation's id is the one an epic or contract names. An empty id names nothing. */
-private fun steers(conversation: Conversation, id: String): Boolean =
-    conversation.id.isNotEmpty() && conversation.id == id
 
 /**
  * The tree the inbox or the archived view draws from the rows and epics: conversations grouped by project, with what

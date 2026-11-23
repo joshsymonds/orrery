@@ -123,7 +123,14 @@ class InboxTreeScreenTest {
     private fun panesOf(vararg panes: PaneProto): PanesListResponse =
         PanesListResponse.newBuilder().addAllPanes(panes.toList()).build()
 
-    private fun headless(id: String, dir: String, state: String, changed: Long, seen: Long): HeadlessSession =
+    private fun headless(
+        id: String,
+        dir: String,
+        state: String,
+        changed: Long,
+        seen: Long,
+        ended: Boolean = false,
+    ): HeadlessSession =
         HeadlessSession.newBuilder()
             .setId(id)
             .setDir(dir)
@@ -133,6 +140,7 @@ class InboxTreeScreenTest {
             .setSeen(seen)
             .setSummary("Synthetic $state session.")
             .setNewestReply(changed)
+            .setEnded(ended)
             .build()
 
     private fun liveEpic(steering: String, vararg steps: EpicStep): Epic = Epic.newBuilder()
@@ -407,7 +415,7 @@ class InboxTreeScreenTest {
             server.respond(
                 LIST_HEADLESS,
                 ListHeadlessResponse.newBuilder()
-                    .addSessions(headless(ENDED_SESSION, ALPHA, "stopped", NOW - 900, 0))
+                    .addSessions(headless(ENDED_SESSION, ALPHA, "stopped", NOW - 900, 0, ended = true))
                     .build(),
             )
             setScreen(server)
