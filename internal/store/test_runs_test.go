@@ -87,7 +87,9 @@ func TestTestRunnerRequestsResultStoredOnce(t *testing.T) {
 	if err := s.SetTestRunResult(ctx, buildEpic, 1, verifyBuildOf(), resultBuild, first); err != nil {
 		t.Fatalf("SetTestRunResult: %v", err)
 	}
-	wantRun := [][]any{{int64(0), int64(1), int64(0), int64(0), "go test ./internal/store", "abc1234", "test-1-0-0", "ok"}}
+	wantRun := [][]any{
+		{int64(0), int64(1), int64(0), int64(0), "go test ./internal/store", "abc1234", "test-1-0-0", "ok"},
+	}
 	storedRun := rawRows(
 		t,
 		raw,

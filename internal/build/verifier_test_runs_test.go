@@ -12,7 +12,10 @@ import (
 func verifierFindingWithRuns() store.TaskFinding {
 	finding := verifierFinding()
 	finding.TestRuns = []store.TaskTestRun{
-		{Position: 0, Command: "go test ./internal/build -run Brief", Revision: "rev222", Step: "test-1", Output: "PASS\nok"},
+		{
+			Position: 0, Command: "go test ./internal/build -run Brief", Revision: "rev222", Step: "test-1",
+			Output: "PASS\nok",
+		},
 		{Position: 1, Command: "go vet ./internal/build", Revision: "rev222"},
 	}
 	return finding

@@ -163,16 +163,16 @@ func taskReviewsOf(
 		})
 	}
 	out := make(map[int64][]TaskReview)
-	for _, r := range reviews {
-		key := findingsKey{task: r.Task, attempt: r.Attempt, review: r.Position}
+	for _, review := range reviews {
+		key := findingsKey{task: review.Task, attempt: review.Attempt, review: review.Position}
 		testRuns := runsOf[key]
 		reviewFindings := findingsOf[key]
 		for i := range reviewFindings {
 			reviewFindings[i].TestRuns = testRuns
 		}
-		out[r.Task] = append(out[r.Task], TaskReview{
-			Attempt: r.Attempt, Position: r.Position, Gate: r.Gate, Step: r.Step, Verdict: r.Verdict,
-			Reason:   r.Reason,
+		out[review.Task] = append(out[review.Task], TaskReview{
+			Attempt: review.Attempt, Position: review.Position, Gate: review.Gate, Step: review.Step,
+			Verdict: review.Verdict, Reason: review.Reason,
 			Findings: reviewFindings,
 			TestRuns: testRuns,
 		})
