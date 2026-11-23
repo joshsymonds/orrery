@@ -138,7 +138,7 @@ class InboxTreeWordsTest {
     )
 
     private fun convo(pane: Pane? = null, standIn: StandIn = StandIn.NONE) =
-        Convo(key = "k", pane = pane, standIn = standIn, again = false, hung = emptyList())
+        Convo(key = "k", pane = pane, standIn = standIn, hung = emptyList(), folded = emptyList())
 
     private fun epicWords(node: EpicNode): EpicRowWords = epicRowWords(node, now)
 

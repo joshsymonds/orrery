@@ -321,8 +321,10 @@ class InboxTreeFilterTest {
             panes = listOf(pane("%1", "o1", state = "waiting")),
             epics = listOf(epic("x", steering = "o1", live = false)),
         )
-        assertTrue(projects.single().ended.isNotEmpty())
-        assertEquals(emptyList<Convo>(), narrow(projects, Narrow.WAITING).single().ended)
+        assertEquals(listOf("epic:x"), projects.single().convo("pane:laptop:%1").folded.map { it.key })
+        val kept = narrow(projects, Narrow.WAITING).single()
+        assertEquals(emptyList<Convo>(), kept.ended)
+        assertEquals(emptyList<EpicNode>(), kept.convo("pane:laptop:%1").folded)
     }
 
     // R4: the new chip narrows to unseen rows, each with nothing hung under it.
@@ -409,6 +411,20 @@ class InboxTreeFilterTest {
         val kept = search(projects, "rewrite").single()
         assertEquals(setOf("pane:laptop:%1"), keysOf(kept.convos))
         assertEquals(setOf("contract:c1"), kept.convo("pane:laptop:%1").hung.map { it.key }.toSet())
+    }
+
+    @Test
+    fun searchKeepsAMatchingEndedEpicFoldedUnderItsConversationAndDropsTheRest() {
+        val projects = tree(
+            panes = listOf(pane("%1", "o1", label = "notes")),
+            epics = listOf(
+                epic("e1", steering = "o1", slug = "tide-alerts", live = false),
+                epic("e2", steering = "o1", slug = "cleanup", live = false),
+            ),
+        )
+        val kept = search(projects, "tide").single()
+        assertEquals(listOf("epic:e1"), kept.convo("pane:laptop:%1").folded.map { it.key })
+        assertEquals(emptyList<Hung>(), kept.convo("pane:laptop:%1").hung)
     }
 
     @Test

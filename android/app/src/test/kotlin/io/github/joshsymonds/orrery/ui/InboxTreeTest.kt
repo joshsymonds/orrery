@@ -545,7 +545,6 @@ class InboxTreeTest {
         assertTrue(project.convos.isEmpty())
         val parent = project.ended.single()
         assertEquals("pane:laptop:%5", parent.key)
-        assertFalse(parent.again)
         assertEquals(listOf("epic:e5"), parent.hung.map { it.key })
     }
 
@@ -568,16 +567,46 @@ class InboxTreeTest {
     }
 
     @Test
-    fun endedEpicOfAConversationInTheTreeIsDrawnAgainBehindTheLine() {
+    fun endedEpicOfAConversationInTheTreeFoldsUnderItsRowAndIsNotDrawnBehindTheLine() {
         val project = tree(
             panes = listOf(tmux("%6", "o6", "/home/user/repo")),
             epics = listOf(epic("e1", steering = "o6"), epic("e2", steering = "o6", live = false)),
         ).single()
-        assertEquals(listOf("epic:e1"), project.convo("pane:laptop:%6").hung.map { it.key })
-        val again = project.ended.single()
-        assertEquals("pane:laptop:%6", again.key)
-        assertTrue(again.again)
-        assertEquals(listOf("epic:e2"), again.hung.map { it.key })
+        val convo = project.convo("pane:laptop:%6")
+        assertEquals(listOf("epic:e1"), convo.hung.map { it.key })
+        assertEquals(listOf("epic:e2"), convo.folded.map { it.key })
+        assertEquals(emptyList<Convo>(), project.ended)
+    }
+
+    @Test
+    fun foldedEpicsOfAConversationInTheTreeAreNewestFirst() {
+        val project = tree(
+            panes = listOf(tmux("%6", "o6", "/home/user/repo")),
+            epics = listOf(
+                epic("older", steering = "o6", live = false, changed = 100L),
+                epic("newer", steering = "o6", live = false, changed = 300L),
+                epic("middle", steering = "o6", live = false, changed = 200L),
+            ),
+        ).single()
+        val folded = project.convo("pane:laptop:%6").folded.map { it.key }
+        assertEquals(listOf("epic:newer", "epic:middle", "epic:older"), folded)
+    }
+
+    @Test
+    fun endedEpicsSplitByWhereTheirConversationDraws() {
+        val project = tree(
+            panes = listOf(
+                tmux("%5", "o5", "/home/user/repo", state = "done", ended = true),
+                tmux("%6", "o6", "/home/user/repo"),
+            ),
+            epics = listOf(epic("e5", steering = "o5", live = false), epic("e6", steering = "o6", live = false)),
+        ).single()
+        assertEquals(listOf("pane:laptop:%6"), project.convos.map { it.key })
+        assertEquals(listOf("epic:e6"), project.convo("pane:laptop:%6").folded.map { it.key })
+        val behind = project.ended.single()
+        assertEquals("pane:laptop:%5", behind.key)
+        assertEquals(listOf("epic:e5"), behind.hung.map { it.key })
+        assertEquals(emptyList<EpicNode>(), behind.folded)
     }
 
     @Test
@@ -635,16 +664,17 @@ class InboxTreeTest {
     @Test
     fun aConversationWaitsWhenItsRowWaitsOrAHungThingWaits() {
         val waitingPane = tmux("%1", "o1", "/home/user/repo", state = "waiting")
-        val waitingRow = Convo("pane:laptop:%1", waitingPane, StandIn.NONE, false, emptyList())
+        val waitingRow = Convo("pane:laptop:%1", waitingPane, StandIn.NONE, emptyList(), emptyList())
         assertTrue(convoWaits(waitingRow))
-        val workingRow = Convo("pane:laptop:%2", tmux("%2", "o2", "/home/user/repo"), StandIn.NONE, false, emptyList())
+        val workingRow =
+            Convo("pane:laptop:%2", tmux("%2", "o2", "/home/user/repo"), StandIn.NONE, emptyList(), emptyList())
         assertFalse(convoWaits(workingRow))
         val standIn = Convo(
             "standin:unlisted:|/home/user/repo",
             null,
             StandIn.UNLISTED,
-            false,
             listOf(ContractNode(contract("c1"))),
+            emptyList(),
         )
         assertTrue(convoWaits(standIn))
     }
