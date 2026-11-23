@@ -868,7 +868,8 @@ type sessionHost struct {
 	broker     *grants.Broker
 	pools      enginehost.PoolCommands
 	evidence   *enginehost.Evidence
-	captures   *enginehost.Captures // the capture runner over the store, the steps and the pools, nil without a store
+	captures   *enginehost.Captures  // the capture runner over the store, the steps and the pools, nil without a store
+	gatherers  *enginehost.Gatherers // the gatherer runner over the store and the steps, nil without a store
 	checks     *enginehost.NodeChecks
 	stopWriter context.CancelFunc
 	writerDone chan struct{}
@@ -1308,7 +1309,9 @@ func sessionState(getenv func(string) string) (string, []string, error) {
 // startEvidence builds the evidence runner over st, the steps and the pools, with its blobs and capture worktrees under
 // stateDir and its gates under stateDir/gates, and takes up the open evidence runs a previous run left. A failure to take
 // them up is logged and serving goes on. Its gates run in environ, under the holder scope and its memory cap that opts
-// name. Beside it, startCaptures builds the capture runner and takes up its captures.
+// name. Beside it, startCaptures builds the capture runner and takes up its captures. The gatherer runner is built
+// over the store and the steps, and takes up the gatherers a previous run left; the evidence runner wakes it for the
+// epics whose briefs wait.
 func (h *sessionHost) startEvidence(
 	ctx context.Context,
 	st *store.Store,
@@ -1317,6 +1320,13 @@ func (h *sessionHost) startEvidence(
 	environ []string,
 	logger *slog.Logger,
 ) {
+	h.gatherers = enginehost.NewGatherers(enginehost.GatherersConfig{
+		Store:   st,
+		Steps:   h.steps,
+		Deliver: h.steps.DeliverChildEnd,
+		Getenv:  os.Getenv,
+		Logger:  logger,
+	})
 	h.evidence = enginehost.NewEvidence(enginehost.EvidenceConfig{
 		Store:        st,
 		Steps:        h.steps,
@@ -1326,11 +1336,15 @@ func (h *sessionHost) startEvidence(
 		GateStateDir: filepath.Join(stateDir, "gates"),
 		GateScope:    opts.holderScope,
 		Logger:       logger,
+		Gatherers:    h.gatherers,
 	})
 	if err := h.evidence.Resume(ctx); err != nil {
 		logger.ErrorContext(ctx, "resume evidence runs, serving anyway", "error", err)
 	}
 	h.startCaptures(ctx, st, stateDir, opts, environ, logger)
+	if err := h.gatherers.Resume(ctx); err != nil {
+		logger.ErrorContext(ctx, "resume gatherers, serving anyway", "error", err)
+	}
 }
 
 // startCaptures builds the capture runner over st, the steps and the pools, with its blobs and capture worktrees under stateDir
@@ -1996,7 +2010,7 @@ func (h *sessionHost) startReports(
 // planner's turns, stops the limit notices and waits for the attention loop, the limit loop, the due pass, the epic
 // summaries, the session titles, the session headlines, the session closures and the epic reports to return, stops
 // the caller-event delivery and waits for it to return, closes the captures and waits for their drives, closes the node
-// checks and the evidence runner and waits for their drives, ends every
+// checks, the evidence runner and the gatherers and waits for their drives, ends every
 // step loop, stops every live session, and ends the writer after its last flush. The notices the sessions started are
 // waited on in serve. Without a broker, manager and writer it does nothing.
 func (h *sessionHost) shutdown() {
@@ -2012,6 +2026,7 @@ func (h *sessionHost) shutdown() {
 		})
 		h.phase("node checks", h.checks.Close)
 		h.phase("evidence", h.evidence.Close)
+		h.phase("gatherers", h.gatherers.Close)
 		if h.attentionDone != nil {
 			h.phase("attention", func() { <-h.attentionDone })
 		}
