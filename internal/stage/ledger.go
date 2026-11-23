@@ -21,14 +21,17 @@ const (
 // blockedVerdict is the verdict of a steelman return that did not run, which does not count toward a design's budget.
 const blockedVerdict = "BLOCKED"
 
-// beforeClosureDispositions are the dispositions an item takes before the ledger freezes, and afterClosureDispositions
-// the ones it takes after.
-var (
-	beforeClosureDispositions = []string{
+// beforeClosureDispositions returns the dispositions an item takes before the ledger freezes, and
+// afterClosureDispositions the ones it takes after.
+func beforeClosureDispositions() []string {
+	return []string{
 		store.DispositionAdopted, store.DispositionRejected, store.DispositionDeferred, store.DispositionOpen,
 	}
-	afterClosureDispositions = []string{store.DispositionRevisedAfterClosure, store.DispositionAcceptedAsRisk}
-)
+}
+
+func afterClosureDispositions() []string {
+	return []string{store.DispositionRevisedAfterClosure, store.DispositionAcceptedAsRisk}
+}
 
 // ledgerItem is one item of a design's ledger. Its disposition is open until a disposition is stored for it, and the
 // Reason, Boundary and Maker are those of the newest stored disposition. Impact holds a discovery finding's impact or a
@@ -69,10 +72,8 @@ func (s *Service) Dispose(
 	if err != nil {
 		return nil, err
 	}
-	if err = requireField("disposition", disposition); err != nil {
-		return nil, err
-	}
-	if err = checkDisposition(item, frozen, disposition, reason, boundary); err != nil {
+	err = checkDisposition(item, frozen, disposition, reason, boundary)
+	if err != nil {
 		return nil, err
 	}
 	stored := store.DesignDisposition{
@@ -91,8 +92,11 @@ func (s *Service) Dispose(
 // afterClosureDispositions, the item must be open, and the reason is required. A refusal of the rule is a failed
 // precondition, and a missing field an invalid argument.
 func checkDisposition(item ledgerItem, frozen bool, disposition, reason, boundary string) error {
+	if err := requireField("disposition", disposition); err != nil {
+		return err
+	}
 	if frozen {
-		if !slices.Contains(afterClosureDispositions, disposition) {
+		if !slices.Contains(afterClosureDispositions(), disposition) {
 			return refuse(connect.CodeFailedPrecondition, fmt.Sprintf(
 				"disposition: %s is refused after closure; after closure only %s and %s are taken",
 				disposition, store.DispositionRevisedAfterClosure, store.DispositionAcceptedAsRisk))
@@ -104,7 +108,7 @@ func checkDisposition(item ledgerItem, frozen bool, disposition, reason, boundar
 		}
 		return requireField("reason", reason)
 	}
-	if !slices.Contains(beforeClosureDispositions, disposition) {
+	if !slices.Contains(beforeClosureDispositions(), disposition) {
 		return refuse(connect.CodeFailedPrecondition, fmt.Sprintf(
 			"disposition: %s is refused before closure; before closure only %s, %s, %s and %s are taken",
 			disposition, store.DispositionAdopted, store.DispositionRejected, store.DispositionDeferred,
@@ -124,17 +128,17 @@ func checkDisposition(item ledgerItem, frozen bool, disposition, reason, boundar
 func (s *Service) ledgerOf(ctx context.Context, design string) ([]ledgerItem, bool, error) {
 	steps, err := s.cfg.Store.DesignSteps(ctx, design)
 	if err != nil {
-		return nil, false, err
+		return nil, false, fmt.Errorf("list steps of design %s: %w", design, err)
 	}
 	return s.readLedger(ctx, design, steps)
 }
 
 // readLedger returns the ledger of the design whose steps are steps, and whether the ledger is frozen. The items are
 // the findings of the counted discovery return, oldest first, then the concerns of the counted closure return, each
-// with origin closure. A pass counts when its step ended with a kept return whose verdict is not BLOCKED, and the first such
-// pass of each kind is the one counted, since the budget admits one. The ledger is frozen once a closure step exists or
-// a closure skip is recorded. Each item's disposition is the newest stored disposition of its id, and open when none is
-// stored; closure's ledger entry with the item's id gives its closure word and note.
+// with origin closure. A pass counts when its step ended with a kept return whose verdict is not BLOCKED, and the
+// first such pass of each kind is the one counted, since the budget admits one. The ledger is frozen once a closure
+// step exists or a closure skip is recorded. Each item's disposition is the newest stored disposition of its id, and
+// open when none is stored; closure's ledger entry with the item's id gives its closure word and note.
 func (s *Service) readLedger(
 	ctx context.Context, design string, steps []store.DesignStep,
 ) ([]ledgerItem, bool, error) {
@@ -150,11 +154,11 @@ func (s *Service) readLedger(
 	} else if !errors.Is(err, store.ErrNoClosureSkip) {
 		return nil, false, fmt.Errorf("read closure skip of design %s: %w", design, err)
 	}
-	discovery, _, err := s.countedSteelman(ctx, steps, store.StepDiscovery)
+	discovery, err := s.countedSteelman(ctx, steps, store.StepDiscovery)
 	if err != nil {
 		return nil, false, err
 	}
-	closure, _, err := s.countedSteelman(ctx, steps, store.StepClosure)
+	closure, err := s.countedSteelman(ctx, steps, store.StepClosure)
 	if err != nil {
 		return nil, false, err
 	}
@@ -196,32 +200,30 @@ func (s *Service) readLedger(
 }
 
 // countedSteelman returns the decoded return of the first step of kind among steps that counts: its step ended with a
-// kept return whose verdict is not BLOCKED. It returns false, and no error, when no step counts. A kept return that
-// does not decode is an error.
-func (s *Service) countedSteelman(
-	ctx context.Context, steps []store.DesignStep, kind string,
-) (SteelmanReturn, bool, error) {
+// kept return whose verdict is not BLOCKED. It returns the zero return, and no error, when no step counts. A kept return
+// that does not decode is an error.
+func (s *Service) countedSteelman(ctx context.Context, steps []store.DesignStep, kind string) (SteelmanReturn, error) {
 	for _, step := range steps {
 		if step.Kind != kind {
 			continue
 		}
 		row, err := s.cfg.Store.Step(ctx, step.Step)
 		if err != nil {
-			return SteelmanReturn{}, false, fmt.Errorf("read step %s of design %s: %w", step.Step, step.Design, err)
+			return SteelmanReturn{}, fmt.Errorf("read step %s of design %s: %w", step.Step, step.Design, err)
 		}
 		if row.End == "" || row.Result == "" {
 			continue
 		}
 		ret, err := DecodeSteelman(row.Result)
 		if err != nil {
-			return SteelmanReturn{}, false, fmt.Errorf("decode return of %s step %s: %w", kind, step.Step, err)
+			return SteelmanReturn{}, fmt.Errorf("decode return of %s step %s: %w", kind, step.Step, err)
 		}
 		if ret.Verdict == blockedVerdict {
 			continue
 		}
-		return ret, true, nil
+		return ret, nil
 	}
-	return SteelmanReturn{}, false, nil
+	return SteelmanReturn{}, nil
 }
 
 // findLedgerItem returns the item of ledger with the id, and whether there is one.

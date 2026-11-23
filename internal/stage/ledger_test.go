@@ -258,7 +258,8 @@ func TestStageLedgerChangesDispositionUntilClosure(t *testing.T) {
 	}
 
 	stage := ledgerStage(t, fx)
-	if got := stage.GetLedger()[0]; got.GetDisposition() != store.DispositionRejected || got.GetReason() != "not needed" {
+	got := stage.GetLedger()[0]
+	if got.GetDisposition() != store.DispositionRejected || got.GetReason() != "not needed" {
 		t.Fatalf("ledger item S1 = %v, want rejected for not needed", got)
 	}
 	if stage.GetFrozen() {
@@ -268,7 +269,7 @@ func TestStageLedgerChangesDispositionUntilClosure(t *testing.T) {
 	if err != nil {
 		t.Fatalf("DesignDispositions: %v", err)
 	}
-	var sequence []string
+	sequence := make([]string, 0, len(stored))
 	for _, row := range stored {
 		sequence = append(sequence, row.Item+":"+row.Disposition)
 	}
