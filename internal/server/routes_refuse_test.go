@@ -93,8 +93,8 @@ func assertStoreUnchanged(
 func TestRoutesRefuseLeavesStoreUnchanged(t *testing.T) {
 	t.Parallel()
 	h := newAccountsHarness(t)
-	alpha := addSyntheticAccount(t, h, "Synthetic alpha", "synthetic-token-alpha")
-	addSyntheticAccount(t, h, "Synthetic beta", "synthetic-token-beta")
+	alpha := addSyntheticAccount(t, h, "Synthetic alpha", "sk-ant-oat01-alpha")
+	addSyntheticAccount(t, h, "Synthetic beta", "sk-ant-oat01-beta")
 
 	valid := validRouteRegistry(alpha.GetId())
 	if _, err := h.Routes.Replace(t.Context(), connect.NewRequest(&orreryv1.RoutesReplaceRequest{

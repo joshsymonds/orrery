@@ -108,7 +108,7 @@ func listAccountsOf(t *testing.T, h accountsHarness) *orreryv1.AccountsListRespo
 func TestAccountsRoundTripThroughServe(t *testing.T) {
 	t.Parallel()
 	h := newAccountsHarness(t)
-	const token = "synthetic-token-roundtrip"
+	const token = "sk-ant-oat01-roundtrip"
 	added, err := h.Accounts.Add(t.Context(), connect.NewRequest(&orreryv1.AccountsAddRequest{
 		Name: "Synthetic account", Provider: "anthropic", Plan: "synthetic-plan", Token: token,
 	}))
