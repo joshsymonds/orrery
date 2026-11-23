@@ -40,13 +40,6 @@ type Request struct {
 	Revision string
 }
 
-// returned is a test runner return as it decodes.
-type returned struct {
-	ExitCode int    `json:"exit_code"`
-	Output   string `json:"output"`
-	Summary  string `json:"summary"`
-}
-
 // Prompt returns the prompt of a test runner step: Contract, then the command and the revision.
 func Prompt(req Request) string {
 	return Contract + "\nCommand: " + req.Command + "\nRevision: " + req.Revision + "\n"
@@ -55,18 +48,22 @@ func Prompt(req Request) string {
 // Agent returns the agent the test runner role runs under: the agent the role file names for Role, or the agent it
 // names for the implementer when the role file has no Role key.
 func Agent(getenv func(string) string) (string, error) {
-	return roles.AgentOr(getenv, Role, fallbackRole)
+	agent, err := roles.AgentOr(getenv, Role, fallbackRole)
+	if err != nil {
+		return "", fmt.Errorf("test runner role: %w", err)
+	}
+	return agent, nil
 }
 
 // Start returns the start of the test runner step id that runs req in repository. The step is read-only and scratch,
 // at req.Revision, with Schema and the done value "done", and runs under the agent Agent resolves. It carries epic and
-// task as its labels. A role error is returned wrapped.
+// task as its labels. A role error is returned wrapped, as Agent wraps it.
 func Start(
 	getenv func(string) string, repository, id string, req Request, epic, task string,
 ) (enginehost.StepStart, error) {
 	agent, err := Agent(getenv)
 	if err != nil {
-		return enginehost.StepStart{}, fmt.Errorf("test runner role: %w", err)
+		return enginehost.StepStart{}, err
 	}
 	return enginehost.StepStart{
 		ID:        id,
@@ -87,11 +84,40 @@ func Start(
 // at 64 KiB keeping the tail. A return that does not decode renders as the unreadable prefix followed by its raw text,
 // also capped.
 func Output(result string) string {
-	var ret returned
-	if err := json.Unmarshal([]byte(result), &ret); err != nil {
+	code, summary, output, err := decodeReturn(result)
+	if err != nil {
 		return tail(unreadablePrefix + result)
 	}
-	return tail(fmt.Sprintf("exit %d: %s\n%s", ret.ExitCode, ret.Summary, ret.Output))
+	return tail(fmt.Sprintf("exit %d: %s\n%s", code, summary, output))
+}
+
+// decodeReturn decodes a test runner return's exit code, summary and output from its JSON object. A field the object
+// lacks keeps its zero value, as a struct decode leaves it. Text that is not a JSON object, or a field of the wrong
+// type, is an error. Fields are read by their schema names, not struct tags, because the repository's tag rule is
+// camelCase and the schema's names are snake_case.
+func decodeReturn(result string) (int, string, string, error) {
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(result), &fields); err != nil {
+		return 0, "", "", fmt.Errorf("decode return: %w", err)
+	}
+	var (
+		code            int
+		summary, output string
+	)
+	targets := []struct {
+		name string
+		dst  any
+	}{{"exit_code", &code}, {"summary", &summary}, {"output", &output}}
+	for _, target := range targets {
+		raw, ok := fields[target.name]
+		if !ok {
+			continue
+		}
+		if err := json.Unmarshal(raw, target.dst); err != nil {
+			return 0, "", "", fmt.Errorf("decode return field %s: %w", target.name, err)
+		}
+	}
+	return code, summary, output, nil
 }
 
 // tail returns the last maxOutput bytes of text, or text when it is no longer than that. The cut moves forward past
@@ -101,7 +127,7 @@ func tail(text string) string {
 		return text
 	}
 	text = text[len(text)-maxOutput:]
-	for len(text) > 0 && !utf8.RuneStart(text[0]) {
+	for text != "" && !utf8.RuneStart(text[0]) {
 		text = text[1:]
 	}
 	return text
