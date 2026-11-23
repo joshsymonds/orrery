@@ -9,7 +9,7 @@ import { App } from "./app";
 import { createClients, createTransport } from "./client";
 import { type Pane, PaneSchema } from "./gen/orrery/v1/orrery_pb";
 import { rowsFrom } from "./rows";
-import { installTestDom, removeTestDom, teardownOnce } from "./testdom";
+import { assertNone, installTestDom, removeTestDom, teardownOnce } from "./testdom";
 
 // Each test's name carries the token InboxWebPanes: a pane with neither a bound conversation nor an unbound mark draws no
 // row, and an unbound pane draws the broken icon and the line that says how to restart it. The panes are invented, rowsFrom
@@ -85,7 +85,7 @@ test("InboxWebPanes: a pane with neither a bound conversation nor an unbound mar
     ],
     (container) => {
       assert.deepEqual(rowKeys(container), ["pane:box:%3"], "only the bound pane draws a row");
-      assert.equal(container.querySelector('[data-key="pane:box:%23"]'), null, "the pane with no conversation draws no row");
+      assertNone(container.querySelector('[data-key="pane:box:%23"]'), "the pane with no conversation draws no row");
     },
   ));
 

@@ -7,7 +7,7 @@ import { act } from "preact/test-utils";
 import { InboxRow, type RowMore } from "./inboxrow";
 import type { MenuEntry } from "./menu";
 import type { Row } from "./rows";
-import { installTestDom, removeTestDom } from "./testdom";
+import { assertNone, installTestDom, removeTestDom } from "./testdom";
 
 // Each test's name carries the words InboxTree: the inbox row renders on its own, outside App.
 
@@ -130,7 +130,7 @@ test("InboxTree: a working pane draws its tool, its argument and a clock from th
 test("InboxTree: a terminal pane with no state draws the idle glyph and no second line", () =>
   withRow(idleLine(terminalRow()), (container) => {
     assert.equal(container.querySelector("svg.glyph")?.getAttribute("data-state"), "idle");
-    assert.equal(container.querySelector(".l2"), null, "the row draws no second line");
+    assertNone(container.querySelector(".l2"), "the row draws no second line");
   }));
 
 test("InboxTree: a session row's title is its label alone, and its second line is its summary", () =>
