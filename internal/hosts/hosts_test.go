@@ -90,8 +90,8 @@ func TestHostsFileRefusesUnknownKey(t *testing.T) {
 [[hosts]]
 name = "workstation"
 address = "workstation.example.ts.net:7443"
-adres = "workstation.example.ts.net:7443"
-`, "adres")
+location = "laptop"
+`, "location")
 }
 
 func TestHostsFileRefusesDuplicateName(t *testing.T) {

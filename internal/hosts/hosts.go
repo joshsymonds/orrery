@@ -80,7 +80,8 @@ func Load(getenv func(string) string) (File, error) {
 		}
 		return File{}, fmt.Errorf("hosts file %s: unknown key %s", path, strings.Join(keys, ", "))
 	}
-	if err := validate(path, meta, file); err != nil {
+	err = validate(path, meta, file)
+	if err != nil {
 		return File{}, err
 	}
 	return file, nil
@@ -133,7 +134,8 @@ func checkAddress(address string) error {
 	if host == "" {
 		return fmt.Errorf("address %q has no host", address)
 	}
-	if n, err := strconv.ParseUint(port, 10, 16); err != nil || n == 0 {
+	n, err := strconv.ParseUint(port, 10, 16)
+	if err != nil || n == 0 {
 		return fmt.Errorf("address %q: port %q is not a number from 1 to 65535", address, port)
 	}
 	return nil
