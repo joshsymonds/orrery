@@ -595,7 +595,8 @@ test("an engine_added on the open stream adds the new headless session's row wit
 const childEnv = "ORRERY_MAIN_TEST_CHILD";
 const childPrefix = "child run: ";
 // childTimeoutMs is the child run's --test-timeout, short, as testwait's is: its first test can only end by timing out,
-// and its second, a page's first load against a fake server, takes milliseconds.
+// and its second carries its own longer timeout, because a page's first load against a fake server can take longer
+// than 300 ms under load.
 const childTimeoutMs = 300;
 
 if (process.env[childEnv] === "1") {
@@ -605,7 +606,7 @@ if (process.env[childEnv] === "1") {
       await until(t.signal, () => false, "a state that never comes");
     }));
 
-  test(`${childPrefix}a page that loads after it`, (t) =>
+  test(`${childPrefix}a page that loads after it`, { timeout: 10_000 }, (t) =>
     withPage(t.signal, async (root, start) => {
       start(root, clientsFor(fakeServer("api")), longPollMs);
       await until(t.signal, () => labels(root).includes("api"), "the first load");
