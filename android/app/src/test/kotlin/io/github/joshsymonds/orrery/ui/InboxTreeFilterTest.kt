@@ -22,6 +22,7 @@ class InboxTreeFilterTest {
         summary: String = "",
         newestReply: Long = 0L,
         seen: Long = 0L,
+        claudeSession: String = "synthetic-claude",
     ) = Pane(
         id = id,
         host = serving,
@@ -39,6 +40,7 @@ class InboxTreeFilterTest {
         questionHash = "",
         newestReply = newestReply,
         orreryId = orreryId,
+        claudeSession = claudeSession,
     )
 
     private fun headless(

@@ -32,10 +32,14 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.style.TextOverflow
 import io.github.joshsymonds.orrery.api.EpicRow
 import io.github.joshsymonds.orrery.api.Pane
 import io.github.joshsymonds.orrery.api.StepRow
+import io.github.joshsymonds.orrery.ui.theme.OrreryMono
 import io.github.joshsymonds.orrery.ui.theme.OrreryTokens
 
 /** Most running step rows one epic shows; the rest fold into one "more" line. */
@@ -141,7 +145,7 @@ private fun ConvoLine(convo: Convo, pane: Pane, now: Long, onOpen: (String) -> U
                 overflow = TextOverflow.Ellipsis,
             )
             Text(
-                convoLineOf(convo, now),
+                convoLineText(convo, now),
                 style = OrreryTokens.Type.small,
                 color = if (pane.state == STATE_WAITING) OrreryTokens.Role.attention else OrreryTokens.Ink.three,
                 maxLines = 1,
@@ -155,6 +159,16 @@ private fun ConvoLine(convo: Convo, pane: Pane, now: Long, onOpen: (String) -> U
                 color = if (unseen) OrreryTokens.Role.new else OrreryTokens.Ink.three,
             )
         }
+    }
+}
+
+// A conversation's second line; an unbound pane's command is set in the mono family.
+private fun convoLineText(convo: Convo, now: Long): AnnotatedString {
+    val line = convoLineOf(convo, now)
+    val command = if (convo.pane?.unbound == true) line.indexOf(UNBOUND_COMMAND) else -1
+    return buildAnnotatedString {
+        append(line)
+        if (command >= 0) addStyle(SpanStyle(fontFamily = OrreryMono), command, command + UNBOUND_COMMAND.length)
     }
 }
 

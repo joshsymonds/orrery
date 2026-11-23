@@ -100,6 +100,7 @@ class ArchiveToastTest {
             .setPane(0)
             .setCwd(ALPHA)
             .setCommand("claude")
+            .setClaudeSession("synthetic-claude")
             .setState("working")
             .setSummary("Synthetic summary.")
             .setLabel("label-$id")
