@@ -2,44 +2,26 @@ package interpret
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"strings"
 	"testing"
+
+	"github.com/joshsymonds/orrery/internal/store"
 )
 
-// storedTrigger is a trigger of the test epic as the store holds it.
-type storedTrigger struct {
-	id, state, cause string
-	turn             int64
-}
-
-// syncTriggers returns the triggers of the test epic whose ids start with the sync trigger prefix, as stored.
-func syncTriggers(t *testing.T, w *syncWorld) []storedTrigger {
+// syncTriggers returns the triggers of the test epic whose ids start with the sync trigger prefix, as the store holds
+// them.
+func syncTriggers(t *testing.T, w *syncWorld) []store.EpicTrigger {
 	t.Helper()
-	db, err := sql.Open("sqlite3", w.path)
+	history, err := w.s.EpicHistory(context.Background(), runEpic)
 	if err != nil {
-		t.Fatalf("open %s: %v", w.path, err)
+		t.Fatalf("EpicHistory of %s: %v", runEpic, err)
 	}
-	defer db.Close()
-	rows, err := db.QueryContext(context.Background(),
-		`SELECT id, state, turn, cause FROM epic_triggers WHERE epic = ? ORDER BY id`, runEpic)
-	if err != nil {
-		t.Fatalf("query triggers of epic %s: %v", runEpic, err)
-	}
-	defer rows.Close()
-	var triggers []storedTrigger
-	for rows.Next() {
-		var trigger storedTrigger
-		if err := rows.Scan(&trigger.id, &trigger.state, &trigger.turn, &trigger.cause); err != nil {
-			t.Fatalf("scan trigger of epic %s: %v", runEpic, err)
-		}
-		if strings.HasPrefix(trigger.id, "sync:") {
+	var triggers []store.EpicTrigger
+	for _, trigger := range history.Triggers {
+		if strings.HasPrefix(trigger.ID, "sync:") {
 			triggers = append(triggers, trigger)
 		}
-	}
-	if err := rows.Err(); err != nil {
-		t.Fatalf("read triggers of epic %s: %v", runEpic, err)
 	}
 	return triggers
 }
@@ -61,7 +43,7 @@ func syncFailCause(origin, base, merge string, causes ...string) string {
 func requireSyncWake(t *testing.T, w *syncWorld, cause string) {
 	t.Helper()
 	triggers := syncTriggers(t, w)
-	if len(triggers) != 1 || triggers[0].state != "pending" || triggers[0].cause != cause {
+	if len(triggers) != 1 || triggers[0].State != "pending" || triggers[0].Cause != cause {
 		t.Fatalf("sync triggers = %+v, want one pending with cause %q", triggers, cause)
 	}
 	turn := w.claimTurn()
@@ -69,8 +51,8 @@ func requireSyncWake(t *testing.T, w *syncWorld, cause string) {
 	if len(claimed) != 1 {
 		t.Fatalf("sync triggers after the planner's claim = %+v, want one claimed by turn %d", claimed, turn)
 	}
-	if got := claimed[0]; got.id != triggers[0].id || got.state != "claimed" || got.turn != turn {
-		t.Errorf("sync trigger after the planner's claim = %+v, want %s claimed by turn %d", got, triggers[0].id, turn)
+	if got := claimed[0]; got.ID != triggers[0].ID || got.State != "claimed" || got.Turn != turn {
+		t.Errorf("sync trigger after the planner's claim = %+v, want %s claimed by turn %d", got, triggers[0].ID, turn)
 	}
 }
 
