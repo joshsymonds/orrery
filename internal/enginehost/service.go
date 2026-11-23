@@ -449,7 +449,7 @@ func commandError(err error) error {
 		code = connect.CodeFailedPrecondition
 	case errors.Is(err, ErrNoPane):
 		code = connect.CodeNotFound
-	case errors.Is(err, ErrPutOffUnavailable):
+	case errors.Is(err, ErrPutOffUnavailable), errors.Is(err, ErrHostUnreachable):
 		code = connect.CodeUnavailable
 	}
 	return errors.Join(connect.NewError(code, err))

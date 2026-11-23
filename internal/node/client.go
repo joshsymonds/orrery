@@ -174,10 +174,18 @@ func (c *Client) Sessions(ctx context.Context) ([]string, error) {
 // Reach reports whether the agent has answered a ping within Bound, and returns a channel that closes at the next change
 // of that. The first call starts the pings, which run until the process ends.
 func (c *Client) Reach() (bool, <-chan struct{}) {
-	c.pinging.Do(func() { go c.pingLoop() })
+	c.pinging.Do(c.startPings)
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return !c.unreachable, c.changed
+}
+
+// startPings arms the timers of the pings that Reach reads, then starts the ping loop on them. The timers are armed here,
+// on the call of Reach, so the clock passes Bound from that call rather than from when the loop goroutine first runs.
+func (c *Client) startPings() {
+	tick := c.cfg.Clock.After(c.cfg.Bound / pingsPerBound)
+	expiry := c.cfg.Clock.After(c.cfg.Bound)
+	go c.pingLoop(tick, expiry)
 }
 
 // act sends the op that acts on session id, which answers with no value.
@@ -323,12 +331,10 @@ func readLine(conn net.Conn) ([]byte, error) {
 	}
 }
 
-// pingLoop pings the agent each Bound/pingsPerBound on the clock. It reads the host unreachable once Bound has passed on
-// the clock with no ping answered, and reachable again at the next answer.
-func (c *Client) pingLoop() {
+// pingLoop pings the agent at each tick, which is set each Bound/pingsPerBound on the clock. It reads the host unreachable
+// when expiry fires, which is Bound on the clock after the last answer, and reachable again at the next answer.
+func (c *Client) pingLoop(tick, expiry <-chan time.Time) {
 	answers := make(chan struct{})
-	tick := c.cfg.Clock.After(c.cfg.Bound / pingsPerBound)
-	expiry := c.cfg.Clock.After(c.cfg.Bound)
 	for {
 		select {
 		case <-tick:
