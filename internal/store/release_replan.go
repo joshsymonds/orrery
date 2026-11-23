@@ -63,25 +63,59 @@ func (s *Store) ReplanRelease(
 	at time.Time,
 ) error {
 	return s.write(ctx, func(queries *sqlcgen.Queries) error {
-		running, err := runningAt(ctx, queries, epic, path, attempt)
-		if err != nil || !running {
+		_, err := replanInWrite(ctx, queries, epic, path, attempt, plan, trigger, tell, at)
+		return err
+	})
+}
+
+// ReplanGate sends the release of epic back to planning for a Done gate that ran and failed on a candidate that merged
+// origin's commit, in one write. It does what ReplanRelease does, and when the release moves it also stores replan, a
+// replan release run of the attempt of the running release node run at path, with the origin commit as its head and
+// the gate's report as its reason. Its part, step and time are set here. A release that does not move changes nothing,
+// so a repeat is a no-op.
+func (s *Store) ReplanGate(
+	ctx context.Context, epic, path string, replan ReleaseRun, plan NodeRun, trigger NodeTrigger, tell string,
+	at time.Time,
+) error {
+	return s.write(ctx, func(queries *sqlcgen.Queries) error {
+		sent, err := replanInWrite(ctx, queries, epic, path, replan.Attempt, plan, trigger, tell, at)
+		if err != nil || !sent {
 			return err
 		}
-		moved, err := queries.ReplanEpicRelease(ctx, sqlcgen.ReplanEpicReleaseParams{PhaseAt: at.Unix(), ID: epic})
-		if err != nil {
-			return fmt.Errorf("move epic %s back to planning: %w", epic, err)
-		}
-		if moved == 0 {
-			return nil
-		}
-		if startErr := insertNodeRuns(ctx, queries, epic, []NodeRun{plan}, at); startErr != nil {
-			return startErr
-		}
-		if triggerErr := insertNodeTrigger(ctx, queries, epic, trigger, at); triggerErr != nil {
-			return triggerErr
-		}
-		return insertTell(ctx, queries, epic, capTurnText(tell), at)
+		replan.Part, replan.Step, replan.At = ReleasePartReplan, replanStepName, at
+		return recordRelease(ctx, queries, epic, replan)
 	})
+}
+
+// replanInWrite sends the release of epic at path and attempt back to planning, in the caller's write: the epic moves
+// from releasing or stopped to correcting, plan is started, and trigger and tell are added, as ReplanRelease does. It
+// reports whether the epic moved. A release node run that is not running at attempt, or an epic in another phase,
+// changes nothing.
+func replanInWrite(
+	ctx context.Context, queries *sqlcgen.Queries, epic, path string, attempt int64, plan NodeRun,
+	trigger NodeTrigger, tell string, at time.Time,
+) (bool, error) {
+	running, err := runningAt(ctx, queries, epic, path, attempt)
+	if err != nil || !running {
+		return false, err
+	}
+	moved, err := queries.ReplanEpicRelease(ctx, sqlcgen.ReplanEpicReleaseParams{PhaseAt: at.Unix(), ID: epic})
+	if err != nil {
+		return false, fmt.Errorf("move epic %s back to planning: %w", epic, err)
+	}
+	if moved == 0 {
+		return false, nil
+	}
+	if startErr := insertNodeRuns(ctx, queries, epic, []NodeRun{plan}, at); startErr != nil {
+		return false, startErr
+	}
+	if triggerErr := insertNodeTrigger(ctx, queries, epic, trigger, at); triggerErr != nil {
+		return false, triggerErr
+	}
+	if tellErr := insertTell(ctx, queries, epic, capTurnText(tell), at); tellErr != nil {
+		return false, tellErr
+	}
+	return true, nil
 }
 
 // runningAt reports whether the node run of epic at path is running at attempt.

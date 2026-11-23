@@ -20,6 +20,7 @@ type mergeWire struct {
 	Behind    bool   `json:"behind"`
 	Candidate string `json:"candidate"`
 	Tip       string `json:"tip"`
+	Origin    string `json:"origin"`
 }
 
 // mergeRepo makes a scratch repository on main, with the identity the release's merge commit is written under.
