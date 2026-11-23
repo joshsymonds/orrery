@@ -47,11 +47,12 @@ func syncTriggers(t *testing.T, w *syncWorld) []storedTrigger {
 // syncFailCause returns the cause of a sync of origin's commit origin into the stored base base, merged as merge, that
 // ended failed: the sync's gap and the merge, then causes, one to a line.
 func syncFailCause(origin, base, merge string, causes ...string) string {
-	lines := []string{
+	lines := make([]string, 0, 2+len(causes))
+	lines = append(lines,
 		fmt.Sprintf("sync sync:%s@%s: the sync of origin's commit %s into the stored base %s failed", origin, base,
 			origin, base),
 		fmt.Sprintf("merge %s of origin's commit %s into the stored base %s", merge, origin, base),
-	}
+	)
 	return strings.Join(append(lines, causes...), "\n")
 }
 
@@ -65,7 +66,8 @@ func requireSyncWake(t *testing.T, w *syncWorld, cause string) {
 	}
 	turn := w.claimTurn()
 	claimed := syncTriggers(t, w)
-	if len(claimed) != 1 || claimed[0].id != triggers[0].id || claimed[0].state != "claimed" || claimed[0].turn != turn {
+	if len(claimed) != 1 || claimed[0].id != triggers[0].id || claimed[0].state != "claimed" ||
+			claimed[0].turn != turn {
 		t.Errorf("sync triggers after the planner's claim = %+v, want %s claimed by turn %d", claimed,
 			triggers[0].id, turn)
 	}
@@ -100,8 +102,8 @@ func TestSyncFailWakes(t *testing.T) {
 			t.Error("the planner got no turn after the sync's capture regressed")
 		}
 		requireSyncWake(t, w, syncFailCause(originHead, candidate, sync.Revision,
-			fmt.Sprintf("R1 was green at the stored base %s, and its capture on commit %s exited 0 and was judged fails: "+
-				"the runner stopped", candidate, sync.Revision),
+			fmt.Sprintf("R1 was green at the stored base %s, and its capture on commit %s exited 0 "+
+				"and was judged fails: the runner stopped", candidate, sync.Revision),
 		))
 	})
 	t.Run("skipped", func(t *testing.T) {
