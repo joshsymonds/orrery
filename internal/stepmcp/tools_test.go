@@ -386,6 +386,7 @@ func TestToolsListNamesEveryStepEpicEvidenceAndContractTool(t *testing.T) {
 		"design_reproduce",
 		"design_research",
 		"design_stage",
+		"design_steelman",
 		"epic_amend",
 		"epic_answer",
 		"epic_close",
