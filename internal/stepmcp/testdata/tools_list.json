@@ -1162,5 +1162,15 @@
       ],
       "type": "object"
     }
+  },
+  {
+    "name": "design_guide",
+    "description": "Return the contract stage's rules as text: how to research, ask and answer questions, draft and propose a contract, run the steelman's passes and dispose of their items, what contract_accept refuses, the contract's sections and the Quality Bar. Read it before the stage. It takes no arguments and changes nothing.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {},
+      "required": [],
+      "type": "object"
+    }
   }
 ]
