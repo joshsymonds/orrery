@@ -210,3 +210,56 @@ func TestDependsOnClimbToGap(t *testing.T) {
 		t.Errorf("triggers:\n got %+v\nwant %+v", history.Triggers, wantTriggers)
 	}
 }
+
+// TestDependsOnRefusesSplitTask checks that CompleteTurn refuses a task whose dependency names a task a split action
+// split, with ErrBadDependency naming the task's position and the entry. The refused turn stores no task and stays
+// running.
+func TestDependsOnRefusesSplitTask(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s := openEpicStore(t)
+	const id = claimEpic
+	createEpic(t, s, fullEpic(id))
+	addPendingTrigger(t, s)
+	if _, err := s.ClaimTurn(ctx, id, claimedAt()); err != nil {
+		t.Fatalf("first ClaimTurn: %v", err)
+	}
+	first := EpicPlan{Tasks: []EpicTaskInput{dependsOnTask("Index the store")}, Outcome: "work"}
+	if err := s.CompleteTurn(ctx, id, 1, first, completedAt()); err != nil {
+		t.Fatalf("first CompleteTurn: %v", err)
+	}
+	if _, err := s.fixtureExec(ctx, `UPDATE epic_tasks SET status = ? WHERE epic = ? AND seq = 1`,
+		TaskSplit, id); err != nil {
+		t.Fatalf("split task 1: %v", err)
+	}
+	if err := s.fixtureQueries().InsertEpicTrigger(ctx, sqlcgen.InsertEpicTriggerParams{
+		Epic: id, ID: "t3", Cause: "later trigger", State: "pending", Turn: 0, Created: epicCreated().Unix(),
+	}); err != nil {
+		t.Fatalf("insert trigger t3: %v", err)
+	}
+	turn, err := s.ClaimTurn(ctx, id, claimedAt().Add(time.Minute))
+	if err != nil {
+		t.Fatalf("second ClaimTurn: %v", err)
+	}
+
+	second := EpicPlan{Tasks: []EpicTaskInput{dependsOnTask("Expose the index", "T1")}, Outcome: "work"}
+	err = s.CompleteTurn(ctx, id, turn.Seq, second, completedAt().Add(time.Minute))
+	if !errors.Is(err, ErrBadDependency) {
+		t.Fatalf("second CompleteTurn err = %v, want ErrBadDependency", err)
+	}
+	const named = `task at position 1 depends on "T1"`
+	if !strings.Contains(err.Error(), named) || !strings.Contains(err.Error(), "names a split task") {
+		t.Errorf("second CompleteTurn err = %q, want it to name %q as a split task", err, named)
+	}
+
+	row, err := s.Epic(ctx, id)
+	if err != nil {
+		t.Fatalf("Epic: %v", err)
+	}
+	if len(row.Turns) != 2 || row.Turns[1].State != "running" {
+		t.Errorf("turns = %+v, want the second turn still running", row.Turns)
+	}
+	if len(row.Tasks) != 1 || row.Tasks[0].Seq != 1 {
+		t.Errorf("tasks = %+v, want only task 1 stored", row.Tasks)
+	}
+}
