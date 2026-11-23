@@ -2,16 +2,22 @@ package io.github.joshsymonds.orrery.ui
 
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertTextEquals
+import androidx.compose.ui.test.hasAnyAncestor
+import androidx.compose.ui.test.hasTestTag
+import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.text.TextLayoutResult
 import io.github.joshsymonds.orrery.api.BackgroundTask
 import io.github.joshsymonds.orrery.mainThreadComposeRule
+import io.github.joshsymonds.orrery.ui.theme.OrreryTokens
 import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
@@ -87,9 +93,9 @@ class ActivityLinesTest {
         )
 
         composeRule.onAllNodesWithTag("activity-lines").assertCountEquals(1)
-        assertEquals(listOf("Explore", "Map the rail", "reading files", "2:05"), textsOf("activity:a1"))
+        assertEquals(listOf("Explore", "Map the rail", "2:05"), textsOf("activity:a1"))
         assertEquals(listOf("shell", "npm run dev", "0:30"), textsOf("activity:s1"))
-        assertEquals(listOf("shell", "vite preview", "listening on 3000", "10:00"), textsOf("activity:s2"))
+        assertEquals(listOf("shell", "vite preview", "10:00"), textsOf("activity:s2"))
         assertEquals(listOf("working"), contentDescriptionsOf("activity:a1"))
         assertEquals(listOf("idle"), contentDescriptionsOf("activity:s1"))
     }
@@ -98,7 +104,59 @@ class ActivityLinesTest {
     fun anAgentWithNoSubagentTypeIsNamedAgent() {
         setLines(listOf(task("a2", "Check the build", now - 10, activity = "running tests")))
 
-        assertEquals(listOf("agent", "Check the build", "running tests", "0:10"), textsOf("activity:a2"))
+        assertEquals(listOf("agent", "Check the build", "0:10"), textsOf("activity:a2"))
+    }
+
+    @Test
+    fun aLineNeverDrawsItsDoingWordsOnTouch() {
+        setLines(
+            listOf(task("a1", "Map the rail", now - 125, subagentType = "Explore", activity = "reading files")),
+        )
+
+        composeRule.onAllNodesWithTag("activity:a1").assertCountEquals(1)
+        composeRule.onAllNodes(hasText("reading files", substring = true)).assertCountEquals(0)
+        composeRule.onAllNodes(hasText("reading files", substring = true), useUnmergedTree = true)
+            .assertCountEquals(0)
+    }
+
+    @Test
+    fun eachLineAndTheMoreLineEndWithAChevron() {
+        setLines(
+            listOf(
+                task("r1", "one", now - 10),
+                task("r2", "two", now - 500),
+                task("r3", "three", now - 300),
+                task("r4", "four", now - 50),
+                task("r5", "five", now - 100),
+            ),
+        )
+
+        composeRule.onAllNodesWithTag("activity-chevron", useUnmergedTree = true).assertCountEquals(4)
+        listOf("activity:r2", "activity:r3", "activity:r5", "activity-more").forEach { parent ->
+            composeRule.onAllNodes(
+                hasTestTag("activity-chevron") and hasAnyAncestor(hasTestTag(parent)),
+                useUnmergedTree = true,
+            ).assertCountEquals(1)
+        }
+    }
+
+    @Test
+    fun theWhoIsBoldInTheFirstInk() {
+        setLines(listOf(task("a1", "Map the rail", now - 125, subagentType = "Explore")))
+
+        val who = composeRule.onNode(
+            hasText("Explore") and hasAnyAncestor(hasTestTag("activity:a1")),
+            useUnmergedTree = true,
+        ).fetchSemanticsNode()
+        val layouts = composeRule.runOnIdle {
+            val found = mutableListOf<TextLayoutResult>()
+            requireNotNull(who.config[SemanticsActions.GetTextLayoutResult].action).invoke(found)
+            found
+        }
+        val style = layouts.single().layoutInput.style
+
+        assertEquals(OrreryTokens.Font.Weight.bold, style.fontWeight)
+        assertEquals(OrreryTokens.Ink.one, style.color)
     }
 
     @Test

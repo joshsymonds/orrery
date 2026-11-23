@@ -1,15 +1,19 @@
 package io.github.joshsymonds.orrery.ui
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.semantics
@@ -21,9 +25,9 @@ import io.github.joshsymonds.orrery.ui.theme.OrreryTokens
 private const val LINE_CAP = 3
 
 /**
- * The lines above the composer: one for each task that is running, in the order they started, saying who it is, what
- * it is doing and for how long. Tapping a line calls [onOpen] with its task; tapping the count past [LINE_CAP] calls
- * [onMore]. Nothing running draws nothing, and an ended, failed or stopped task has no line.
+ * The lines above the composer: one for each task that is running, in the order they started, naming who it is, what it
+ * is for and how long, as round 8 draws it on touch. Tapping a line calls [onOpen] with its task; tapping the count
+ * past [LINE_CAP] calls [onMore]. Nothing running draws nothing, and an ended, failed or stopped task has no line.
  */
 @Composable
 internal fun ActivityLines(
@@ -45,11 +49,14 @@ internal fun ActivityLines(
 private fun ActivityLine(task: BackgroundTask, now: Long, onOpen: (BackgroundTask) -> Unit) {
     val agent = task.type == "agent"
     val who = if (agent) task.subagentType.ifEmpty { "agent" } else "shell"
-    val doing = if (!agent && task.activity == "shell") "" else task.activity
+    val ground = RoundedCornerShape(OrreryTokens.Radius.two)
     Row(
         Modifier
             .fillMaxWidth()
-            .padding(vertical = OrreryTokens.Space.eight)
+            .heightIn(min = OrreryTokens.Size.controlTouch)
+            .clip(ground)
+            .background(OrreryTokens.Surface.well, ground)
+            .padding(horizontal = OrreryTokens.Space.eight)
             .testTag("activity:${task.id}")
             .clickable(role = Role.Button, onClick = { onOpen(task) })
             .semantics(mergeDescendants = true) {},
@@ -60,7 +67,8 @@ private fun ActivityLine(task: BackgroundTask, now: Long, onOpen: (BackgroundTas
         Text(
             text = who,
             style = OrreryTokens.Type.small,
-            color = OrreryTokens.Ink.two,
+            color = OrreryTokens.Ink.one,
+            fontWeight = OrreryTokens.Font.Weight.bold,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
@@ -72,29 +80,27 @@ private fun ActivityLine(task: BackgroundTask, now: Long, onOpen: (BackgroundTas
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f),
         )
-        if (doing.isNotEmpty()) {
-            Text(
-                text = doing,
-                style = OrreryTokens.Type.small,
-                color = OrreryTokens.Ink.three,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-        }
         Text(text = clock(now - task.started), style = OrreryTokens.Type.small, color = OrreryTokens.Ink.four)
+        GlyphIcon(Glyph.CHEVRON_RIGHT, OrreryTokens.Ink.four, Modifier.testTag("activity-chevron"))
     }
 }
 
 @Composable
 private fun ActivityMore(count: Int, onMore: () -> Unit) {
-    Text(
-        text = "and $count more running",
-        style = OrreryTokens.Type.small,
-        color = OrreryTokens.Ink.three,
-        modifier = Modifier
+    Row(
+        Modifier
             .fillMaxWidth()
             .padding(vertical = OrreryTokens.Space.eight)
             .testTag("activity-more")
             .clickable(role = Role.Button, onClick = onMore),
-    )
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(OrreryTokens.Space.eight),
+    ) {
+        Text(
+            text = "and $count more running",
+            style = OrreryTokens.Type.small,
+            color = OrreryTokens.Ink.three,
+        )
+        GlyphIcon(Glyph.CHEVRON_RIGHT, OrreryTokens.Ink.four, Modifier.testTag("activity-chevron"))
+    }
 }
