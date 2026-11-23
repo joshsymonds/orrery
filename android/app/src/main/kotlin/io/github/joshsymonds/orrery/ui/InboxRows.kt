@@ -28,8 +28,10 @@ import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.style.TextOverflow
 import io.github.joshsymonds.orrery.api.EpicRow
 import io.github.joshsymonds.orrery.api.Pane
@@ -55,13 +57,17 @@ private const val QUESTION_LEAD = "? "
 
 /**
  * One conversation and what hangs under it, drawn as round 6 draws the inbox tree: its row, then each epic's and
- * contract's row in order. A tap on a row or a step calls [onOpen] with its key; a long press on a conversation's row or
- * an epic's row calls [onLongPress] with the row's [SheetRow]. A stand-in draws its words in place of a row.
+ * contract's row in order, then its folded ended epics under a fold line. The fold line is shut unless [foldOpen], and
+ * a tap on it calls [onFold]; the folded epics draw only while it is open. A tap on a row or a step calls [onOpen] with
+ * its key; a long press on a conversation's row or an epic's row calls [onLongPress] with the row's [SheetRow]. A
+ * stand-in draws its words in place of a row.
  */
 @Composable
 internal fun ConvoRowItem(
     convo: Convo,
     now: Long,
+    foldOpen: Boolean,
+    onFold: () -> Unit,
     onOpen: (String) -> Unit,
     onLongPress: (SheetRow) -> Unit,
     modifier: Modifier = Modifier,
@@ -85,6 +91,37 @@ internal fun ConvoRowItem(
                 }
             }
         }
+        if (convo.folded.isNotEmpty()) {
+            FoldLine(convo, foldOpen, onFold)
+            if (foldOpen) {
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    for (epic in convo.folded) {
+                        HungRow(epic, now, onOpen, onLongPress)
+                    }
+                }
+            }
+        }
+    }
+}
+
+private const val FOLD_OPEN = "open"
+private const val FOLD_SHUT = "shut"
+
+/**
+ * The fold line of a conversation's folded ended epics: their count in words, as a button whose state is open or shut.
+ * A tap calls [onFold]. The epics it folds draw under the row, so the line itself is not indented.
+ */
+@Composable
+internal fun FoldLine(convo: Convo, open: Boolean, onFold: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("fold:${convo.key}")
+            .semantics { stateDescription = if (open) FOLD_OPEN else FOLD_SHUT }
+            .clickable(role = Role.Button, onClick = onFold)
+            .padding(vertical = OrreryTokens.Space.four),
+    ) {
+        Text("${convo.folded.size} ended", style = OrreryTokens.Type.small, color = OrreryTokens.Ink.three)
     }
 }
 

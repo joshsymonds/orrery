@@ -40,8 +40,10 @@ import io.github.joshsymonds.orrery.ui.theme.OrreryTokens
  * A project's card: a head with the fold control, the folder, the name, the path with home as ~, and a host chip only
  * for another host. Folded, the head also says how many things wait on you (only when [waiting] is not zero) and how
  * many conversations the project holds, and nothing else is drawn. Open, its conversations hang under a line, then the
- * ended line, which shows the count of ended conversations and opens to them. Each conversation is drawn by [convo].
- * A tap on the folder, the name or the path calls [onOpenProject] with the project's key; the chevron only folds.
+ * ended line, which shows the count of ended conversations and opens to them. Each conversation is drawn by [convo],
+ * with whether its fold is open (its key is in [foldOpen]) and the press that folds it, which calls [onConvoFold] with
+ * its key. A tap on the folder, the name or the path calls [onOpenProject] with the project's key; the chevron only
+ * folds.
  */
 @Composable
 internal fun ProjectCard(
@@ -51,7 +53,9 @@ internal fun ProjectCard(
     endedOpen: Boolean,
     onFold: () -> Unit,
     onEnded: () -> Unit,
-    convo: @Composable (Convo) -> Unit,
+    foldOpen: Set<String>,
+    onConvoFold: (String) -> Unit,
+    convo: @Composable (Convo, Boolean, () -> Unit) -> Unit,
     modifier: Modifier = Modifier,
     onOpenProject: (String) -> Unit = {},
 ) {
@@ -64,7 +68,7 @@ internal fun ProjectCard(
     ) {
         ProjectHead(project, folded, waiting, onFold, onOpenProject)
         if (!folded) {
-            ProjectConversations(project, endedOpen, onEnded, convo)
+            ProjectConversations(project, endedOpen, onEnded, foldOpen, onConvoFold, convo)
         }
     }
 }
@@ -164,7 +168,9 @@ private fun ProjectConversations(
     project: Project,
     endedOpen: Boolean,
     onEnded: () -> Unit,
-    convo: @Composable (Convo) -> Unit,
+    foldOpen: Set<String>,
+    onConvoFold: (String) -> Unit,
+    convo: @Composable (Convo, Boolean, () -> Unit) -> Unit,
 ) {
     Row(
         modifier = Modifier
@@ -184,13 +190,13 @@ private fun ProjectConversations(
         )
         Column(modifier = Modifier.weight(1f).padding(start = OrreryTokens.Space.four)) {
             for (c in project.convos) {
-                convo(c)
+                convo(c, c.key in foldOpen) { onConvoFold(c.key) }
             }
             if (project.ended.isNotEmpty()) {
                 EndedLine(project, endedOpen, onEnded)
                 if (endedOpen) {
                     for (c in project.ended) {
-                        convo(c)
+                        convo(c, c.key in foldOpen) { onConvoFold(c.key) }
                     }
                 }
             }

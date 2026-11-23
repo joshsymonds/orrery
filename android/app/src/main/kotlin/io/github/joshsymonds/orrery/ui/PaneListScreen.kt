@@ -50,14 +50,16 @@ internal const val RETRY_DELAY_MILLIS = 5_000L
 
 /**
  * The inbox's state: the chip on, the search words (null while the search is closed), the folded projects, the projects
- * whose ended line is open, the view (the inbox or the archived tree), and the tree of the last read that answered. The caller keeps one above the screens it
- * switches between, so all of it survives opening a conversation and coming back.
+ * whose ended line is open, the conversations whose ended epics are open, the view (the inbox or the archived tree), and
+ * the tree of the last read that answered. The caller keeps one above the screens it switches between, so all of it
+ * survives opening a conversation and coming back.
  */
 class PaneListState {
     internal var narrow by mutableStateOf(Narrow.NONE)
     internal var search by mutableStateOf<String?>(null)
     internal var folded by mutableStateOf(emptySet<String>())
     internal var endedOpen by mutableStateOf(emptySet<String>())
+    internal var foldOpen by mutableStateOf(emptySet<String>())
     internal var view by mutableStateOf(TreeView.INBOX)
     internal var held: TreeData? = null
 
@@ -67,6 +69,10 @@ class PaneListState {
 
     internal fun toggleEnded(key: String) {
         endedOpen = if (key in endedOpen) endedOpen - key else endedOpen + key
+    }
+
+    internal fun toggleFold(key: String) {
+        foldOpen = if (key in foldOpen) foldOpen - key else foldOpen + key
     }
 }
 
@@ -86,10 +92,10 @@ internal class TreeData(
 
 /**
  * The inbox: the [InboxHead], round 6's phone head of the Orrery mark, Search, the Notices bell, Pools, Settings and
- * New; then, while search is open, its field; then the two chips and each project as a card, its conversations hanging under it with what steers
- * them, and its ended line. The chips narrow the tree, search narrows what the chips left, and a folded card says what
- * waits in it. The foot opens the archived tree and returns from it. A tap on a conversation calls [onOpenPane] with
- * its pane, a tap on an epic or one of its steps calls [onOpenEpic], a tap on a contract's row calls [onOpenContract]
+ * New; then, while search is open, its field; then the two chips and each project as a card, its conversations hanging
+ * under it with what steers them, each conversation's ended epics folded under its row, and the project's ended line.
+ * The chips narrow the tree, search narrows what the chips left, and a folded card says what waits in it. The foot
+ * opens the archived tree and returns from it. A tap on a conversation calls [onOpenPane] with its pane, a tap on an epic or one of its steps calls [onOpenEpic], a tap on a contract's row calls [onOpenContract]
  * with its id and the conversation it hangs under, whose pane is null for a stand-in row, and a tap on a project's
  * name calls [onOpenProject] with its key. A long press on a conversation or an epic opens its sheet, where the owner
  * marks it seen or archives it, and a landed change reads the tree again; a landed archive also shows the [ArchiveToast]
@@ -333,7 +339,18 @@ private fun InboxBody(
                         endedOpen = project.key in state.endedOpen,
                         onFold = { state.toggleFolded(project.key) },
                         onEnded = { state.toggleEnded(project.key) },
-                        convo = { convo -> ConvoRowItem(convo = convo, now = now, onOpen = onOpen, onLongPress = onLongPress) },
+                        foldOpen = state.foldOpen,
+                        onConvoFold = { state.toggleFold(it) },
+                        convo = { convo, open, onFold ->
+                            ConvoRowItem(
+                                convo = convo,
+                                now = now,
+                                foldOpen = open,
+                                onFold = onFold,
+                                onOpen = onOpen,
+                                onLongPress = onLongPress,
+                            )
+                        },
                         modifier = Modifier.padding(horizontal = OrreryTokens.Space.sixteen, vertical = OrreryTokens.Space.four),
                         onOpenProject = onOpenProject,
                     )

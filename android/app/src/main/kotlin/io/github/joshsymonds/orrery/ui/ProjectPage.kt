@@ -35,8 +35,9 @@ private const val STATE_WAITING = "waiting"
 /**
  * One project of the inbox tree as a page: its name in the title row with Back, its path and host, its counts, then its
  * Conversations, each with its state, title, what it last said or asks, and age, and under each the epics and contracts
- * it steers as WorkCards. The ended line unfolds the ended conversations, shared with the inbox's own ended line. A foot
- * bar starts a session in the project's directory, and is absent when the project has none.
+ * it steers as WorkCards, with its ended epics folded under a line. The ended line unfolds the ended conversations,
+ * shared with the inbox's own ended line. A foot bar starts a session in the project's directory, and is absent when the
+ * project has none.
  *
  * The page shows the tree [state] holds at once, reads the tree once at launch and keeps the answer in [state]. A tap on
  * a conversation opens its pane, and a WorkCard opens what the inbox opens for its item key: an epic through
@@ -131,7 +132,7 @@ private fun ColumnScope.ProjectBody(
         Column(verticalArrangement = Arrangement.spacedBy(OrreryTokens.Space.eight)) {
             SectionHead("Conversations", count = project.convos.size.toString())
             for (convo in project.convos) {
-                ConvoBlock(convo, now, onOpen)
+                ConvoBlock(convo, now, onOpen, state.foldOpen) { state.toggleFold(it) }
             }
         }
         if (project.ended.isNotEmpty()) {
@@ -139,7 +140,7 @@ private fun ColumnScope.ProjectBody(
             EndedLine(project, unfolded, onClick = { state.toggleEnded(project.key) })
             if (unfolded) {
                 for (convo in project.ended) {
-                    ConvoBlock(convo, now, onOpen)
+                    ConvoBlock(convo, now, onOpen, state.foldOpen) { state.toggleFold(it) }
                 }
             }
         }
@@ -195,9 +196,19 @@ private fun ProjectHead(project: Project, now: Long) {
     }
 }
 
-/** One conversation and the epics and contracts hung under it, each a WorkCard. A stand-in row has its words instead. */
+/**
+ * One conversation and the epics and contracts hung under it, each a WorkCard, then its folded ended epics under a fold
+ * line, which opens to them as WorkCards while [foldOpen] holds its key. A stand-in row has its words instead. A tap on
+ * the fold line calls [onFold] with the conversation's key.
+ */
 @Composable
-private fun ConvoBlock(convo: Convo, now: Long, onOpen: (String) -> Unit) {
+private fun ConvoBlock(
+    convo: Convo,
+    now: Long,
+    onOpen: (String) -> Unit,
+    foldOpen: Set<String>,
+    onFold: (String) -> Unit,
+) {
     val pane = convo.pane
     Column(modifier = Modifier.fillMaxWidth()) {
         if (pane == null) {
@@ -257,7 +268,7 @@ private fun ConvoBlock(convo: Convo, now: Long, onOpen: (String) -> Unit) {
                 }
             }
         }
-        if (convo.hung.isNotEmpty()) {
+        if (convo.hung.isNotEmpty() || convo.folded.isNotEmpty()) {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -266,6 +277,15 @@ private fun ConvoBlock(convo: Convo, now: Long, onOpen: (String) -> Unit) {
             ) {
                 for (hung in convo.hung) {
                     WorkCard(card = workCardOf(hung, now), onOpen = onOpen)
+                }
+                if (convo.folded.isNotEmpty()) {
+                    val open = convo.key in foldOpen
+                    FoldLine(convo, open, onFold = { onFold(convo.key) })
+                    if (open) {
+                        for (epic in convo.folded) {
+                            WorkCard(card = workCardOf(epic, now), onOpen = onOpen)
+                        }
+                    }
                 }
             }
         }

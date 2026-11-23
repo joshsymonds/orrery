@@ -30,16 +30,16 @@ internal data class ContractNode(val contract: ContractRow) : Hung {
 internal enum class StandIn { NONE, UNLISTED, ARCHIVED }
 
 /**
- * One row of a project. [pane] is the conversation's pane or headless session, null for a stand-in. [again] is true for
- * a conversation drawn a second time behind the ended line as the parent of its ended epics. [hung] is what hangs under
- * the row.
+ * One row of a project. [pane] is the conversation's pane or headless session, null for a stand-in. [hung] is what hangs
+ * under the row. [folded] is the ended epics of a conversation in the tree, newest first, which fold under the row; a
+ * conversation behind the ended line keeps its ended epics in [hung] and has none folded.
  */
 internal data class Convo(
     val key: String,
     val pane: Pane?,
     val standIn: StandIn,
-    val again: Boolean,
     val hung: List<Hung>,
+    val folded: List<EpicNode>,
 )
 
 /**
@@ -92,12 +92,12 @@ private class Slot(
     val key: String,
     val pane: Pane?,
     val standIn: StandIn,
-    val again: Boolean,
     val ended: Boolean,
 ) {
     val hung = mutableListOf<Hung>()
+    val folded = mutableListOf<EpicNode>()
 
-    fun toConvo(): Convo = Convo(key, pane, standIn, again, hung.toList())
+    fun toConvo(): Convo = Convo(key, pane, standIn, hung.toList(), folded.sortedByDescending { it.epic.changed })
 }
 
 private class Ranked(val project: Project, val best: Int, val newest: Long)
@@ -106,14 +106,14 @@ private class Ranked(val project: Project, val best: Int, val newest: Long)
 private class Slots {
     private val rows = LinkedHashMap<Triple<Boolean, String, String>, Slot>()
 
-    fun conversation(conversation: Conversation, ended: Boolean, again: Boolean): Slot =
+    fun conversation(conversation: Conversation, ended: Boolean): Slot =
         rows.getOrPut(Triple(ended, conversation.place.key, conversation.key)) {
-            Slot(conversation.place, conversation.key, conversation.pane, StandIn.NONE, again, ended)
+            Slot(conversation.place, conversation.key, conversation.pane, StandIn.NONE, ended)
         }
 
     fun standIn(place: CardPlace, standIn: StandIn, ended: Boolean): Slot {
         val key = "standin:${standIn.name.lowercase()}:${place.key}"
-        return rows.getOrPut(Triple(ended, place.key, key)) { Slot(place, key, null, standIn, false, ended) }
+        return rows.getOrPut(Triple(ended, place.key, key)) { Slot(place, key, null, standIn, ended) }
     }
 
     fun projects(): List<Project> {
@@ -185,8 +185,8 @@ private fun placeInbox(index: Index, slots: Slots) {
     // draws behind its project's ended line.
     val behind = index.conversations.filter { !it.archived && it.pane.ended }.toSet()
     val inTree = index.conversations.filter { !it.archived && it !in behind }
-    for (conversation in inTree) slots.conversation(conversation, ended = false, again = false)
-    for (conversation in behind) slots.conversation(conversation, ended = true, again = false)
+    for (conversation in inTree) slots.conversation(conversation, ended = false)
+    for (conversation in behind) slots.conversation(conversation, ended = true)
 
     for (epic in liveShown) {
         val target = index.target(epic.steering)
@@ -197,20 +197,21 @@ private fun placeInbox(index: Index, slots: Slots) {
                 ended = false,
             )
         } else {
-            slots.conversation(target, ended = false, again = false)
+            slots.conversation(target, ended = false)
         }
         slot.hung.add(index.node(epic))
     }
 
+    // An ended epic of a conversation in the tree folds under that row; one behind the ended line stays in its hung.
     for (epic in endedShown) {
         val target = index.target(epic.steering)
-        val slot = when {
-            target == null -> slots.standIn(index.placeOfEpic(epic), StandIn.UNLISTED, ended = true)
-            target.archived -> slots.standIn(index.placeOfEpic(epic), StandIn.ARCHIVED, ended = true)
-            target in behind -> slots.conversation(target, ended = true, again = false)
-            else -> slots.conversation(target, ended = true, again = true)
+        val node = index.node(epic)
+        when {
+            target == null -> slots.standIn(index.placeOfEpic(epic), StandIn.UNLISTED, ended = true).hung.add(node)
+            target.archived -> slots.standIn(index.placeOfEpic(epic), StandIn.ARCHIVED, ended = true).hung.add(node)
+            target in behind -> slots.conversation(target, ended = true).hung.add(node)
+            else -> slots.conversation(target, ended = false).folded.add(node)
         }
-        slot.hung.add(index.node(epic))
     }
 
     for (contract in contractItems) {
@@ -218,7 +219,7 @@ private fun placeInbox(index: Index, slots: Slots) {
         val slot = when {
             target == null -> slots.standIn(index.placeOfContract(contract), StandIn.UNLISTED, ended = false)
             target.archived -> slots.standIn(index.placeOfContract(contract), StandIn.ARCHIVED, ended = false)
-            else -> slots.conversation(target, ended = false, again = false)
+            else -> slots.conversation(target, ended = false)
         }
         slot.hung.add(ContractNode(contract))
     }
@@ -230,7 +231,7 @@ private fun placeInbox(index: Index, slots: Slots) {
  */
 private fun placeArchived(index: Index, slots: Slots) {
     val archivedConversations = index.conversations.filter { it.archived }
-    for (conversation in archivedConversations) slots.conversation(conversation, ended = false, again = false)
+    for (conversation in archivedConversations) slots.conversation(conversation, ended = false)
 
     val visible = index.epics.filter { epic -> index.target(epic.steering)?.archived == true || epic.archived }
     for (epic in visible) {
@@ -238,7 +239,7 @@ private fun placeArchived(index: Index, slots: Slots) {
         val slot = if (target == null) {
             slots.standIn(index.placeOfEpic(epic), StandIn.UNLISTED, ended = false)
         } else {
-            slots.conversation(target, ended = false, again = false)
+            slots.conversation(target, ended = false)
         }
         slot.hung.add(index.node(epic))
     }
@@ -248,7 +249,7 @@ private fun placeArchived(index: Index, slots: Slots) {
         if (contract.id in carried) continue
         val target = index.target(contract.conversation) ?: continue
         if (!target.archived) continue
-        slots.conversation(target, ended = false, again = false).hung.add(ContractNode(contract))
+        slots.conversation(target, ended = false).hung.add(ContractNode(contract))
     }
 }
 
