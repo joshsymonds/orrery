@@ -51,7 +51,8 @@ func legacyEpicRows(runs ...store.NodeRun) kinds.Rows {
 // unbuilt when that sync's capture of R1 is missing.
 func TestEpicBaseLegacyPlanEndsBuiltWhenNoSyncHoldsIt(t *testing.T) {
 	t.Parallel()
-	flow := append([]workflow.Node{baseEvidence("red")}, planWithChecks(batchNode())...)
+	redNode := workflow.Node{ID: "red", Kind: "evidence", Settings: &workflow.Settings{At: "base"}}
+	flow := append([]workflow.Node{redNode}, planWithChecks(batchNode())...)
 	red := ended(startOf("red", "red", "evidence", 0), "passed")
 	reg := integrateKinds(scripted{})
 	skipped := ended(attempted(startOf("plan/M0", "sync", "sync", 0), 1), "skipped")
