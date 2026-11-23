@@ -136,8 +136,8 @@ private fun stepOf(entry: EpicHistoryRow, steps: List<StepRow>): StepRow? =
 private fun judgeStepOf(run: EvidenceRunRow, steps: List<StepRow>): StepRow? =
     if (run.judgeStep.isEmpty()) null else steps.find { it.id == run.judgeStep }
 
-// HappenedDetail is a line's detail, under the line: a turn's outline and decisions, a step's checks and its door, and
-// each run an evidence line groups, with its results, its judge and the door to its judge step.
+// HappenedDetail is a line's detail, under the line: a turn's outline and decisions, a step's agent, checks and its
+// door, and each run an evidence line groups, with its results, its judge and the door to its judge step.
 @Composable
 private fun HappenedDetail(index: Int, entry: EpicHistoryRow, steps: List<StepRow>, onOpenStep: (StepRow) -> Unit) {
     Column(
@@ -167,9 +167,17 @@ private fun TurnDetail(index: Int, turn: EpicTurnRow) {
     }
 }
 
-// StepDetail is a step's checks, then the door to the step's page.
+// StepDetail is a step's agent, when it has one, then its checks, then the door to the step's page. The agent shows
+// only here: the collapsed line never names it.
 @Composable
 private fun StepDetail(index: Int, step: StepRow, onOpenStep: (StepRow) -> Unit) {
+    if (step.agent.isNotEmpty()) {
+        Text(
+            "agent: ${step.agent}",
+            modifier = Modifier.testTag("happened-agent:$index"),
+            style = OrreryTokens.Type.small,
+        )
+    }
     step.checks.forEach { check -> CheckDetail(index, check) }
     TextButton(onClick = { onOpenStep(step) }, modifier = Modifier.testTag("happened-open:$index")) {
         Text("Open the step")
