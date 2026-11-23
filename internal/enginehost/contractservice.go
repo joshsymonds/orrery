@@ -33,6 +33,8 @@ type ContractStore interface {
 	CallerSession(ctx context.Context, caller store.EpicCaller) (string, bool, error)
 	ProposeContract(ctx context.Context, id string, v store.ContractVersion) error
 	ProposeContractInDesign(ctx context.Context, designID, id string, v store.ContractVersion) error
+	DraftContract(ctx context.Context, draft store.ContractDraft) error
+	ContractDraft(ctx context.Context, id string) (store.ContractDraft, error)
 	ReviseContract(ctx context.Context, id string, v store.ContractVersion) error
 	AcceptContract(ctx context.Context, id string, c store.ContractChange) error
 	SetAsideContract(ctx context.Context, id string, c store.ContractChange) error
@@ -99,7 +101,10 @@ func (s *contractService) ProposeContract(
 	if err != nil {
 		return nil, err
 	}
-	design := req.Msg.GetDesign()
+	design, err := s.proposeDesign(ctx, id, req.Msg.GetDesign())
+	if err != nil {
+		return nil, err
+	}
 	if design == "" {
 		err = s.contracts.Store.ProposeContract(ctx, id, version)
 	} else {
