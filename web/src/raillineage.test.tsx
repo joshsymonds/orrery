@@ -105,6 +105,8 @@ function tileOf(lineage: LineageConvo[]): RailTileModel {
 const oneDesign: LineageConvo[] = [
   {
     key: "sess-tide",
+    held: false,
+    own: [],
     designs: [
       {
         key: "design:tide",
@@ -123,6 +125,8 @@ const oneDesign: LineageConvo[] = [
 const twoDesigns: LineageConvo[] = [
   {
     key: "sess-tide",
+    held: false,
+    own: [],
     designs: [
       {
         key: "design:tide",
@@ -170,6 +174,8 @@ test("RailLineage: the open epic's mark has class open, and the open class's gro
   const openEpic: LineageConvo[] = [
     {
       key: "sess-tide",
+      held: true,
+      own: [],
       designs: [
         {
           ...oneDesign[0].designs[0],
