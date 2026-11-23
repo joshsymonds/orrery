@@ -315,6 +315,12 @@ func (f *fakeContracts) ListContracts(
 	return nil, errors.New("stepmcp test: ListContracts is not expected")
 }
 
+func (f *fakeContracts) ProposeWorking(
+	context.Context, *connect.Request[v1.ProposeWorkingRequest],
+) (*connect.Response[v1.ProposeWorkingResponse], error) {
+	return nil, errors.New("stepmcp test: ProposeWorking is not expected")
+}
+
 // fakeContractCalls is a copy of what the fake recorded.
 type fakeContractCalls struct {
 	revises   []*v1.ReviseContractRequest

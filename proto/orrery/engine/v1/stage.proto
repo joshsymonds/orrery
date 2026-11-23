@@ -42,8 +42,7 @@ service Stage {
   // Keep stores an addition a contract keeps, with the maker it came from, and returns the write.
   rpc Keep(KeepRequest) returns (KeepResponse);
 
-  // Strike stores the striking of an addition a contract keeps, with the maker it came from, and returns the write
-  // and the rows it removed.
+  // Strike stores the striking of an addition a contract keeps, and returns the write and the rows it removed.
   rpc Strike(StrikeRequest) returns (StrikeResponse);
 
   // Shown stores the rows of a contract version the owner was shown, and returns the rows it stored.

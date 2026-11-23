@@ -106,6 +106,13 @@ func (f *recordingContracts) ListContracts(
 	return contractRespond(f, req.Msg, &v1.ListContractsResponse{Contracts: []*v1.StoredContract{contractStored()}})
 }
 
+func (f *recordingContracts) ProposeWorking(
+	_ context.Context,
+	req *connect.Request[v1.ProposeWorkingRequest],
+) (*connect.Response[v1.ProposeWorkingResponse], error) {
+	return contractRespond(f, req.Msg, &v1.ProposeWorkingResponse{Contract: contractStored()})
+}
+
 // recorded returns the requests the fake received, under its lock.
 func (f *recordingContracts) recorded() []proto.Message {
 	f.mu.Lock()

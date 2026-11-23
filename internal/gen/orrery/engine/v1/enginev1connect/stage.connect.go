@@ -91,8 +91,7 @@ type StageClient interface {
 	WriteRow(context.Context, *connect.Request[v1.WriteRowRequest]) (*connect.Response[v1.WriteRowResponse], error)
 	// Keep stores an addition a contract keeps, with the maker it came from, and returns the write.
 	Keep(context.Context, *connect.Request[v1.KeepRequest]) (*connect.Response[v1.KeepResponse], error)
-	// Strike stores the striking of an addition a contract keeps, with the maker it came from, and returns the write
-	// and the rows it removed.
+	// Strike stores the striking of an addition a contract keeps, and returns the write and the rows it removed.
 	Strike(context.Context, *connect.Request[v1.StrikeRequest]) (*connect.Response[v1.StrikeResponse], error)
 	// Shown stores the rows of a contract version the owner was shown, and returns the rows it stored.
 	Shown(context.Context, *connect.Request[v1.ShownRequest]) (*connect.Response[v1.ShownResponse], error)
@@ -324,8 +323,7 @@ type StageHandler interface {
 	WriteRow(context.Context, *connect.Request[v1.WriteRowRequest]) (*connect.Response[v1.WriteRowResponse], error)
 	// Keep stores an addition a contract keeps, with the maker it came from, and returns the write.
 	Keep(context.Context, *connect.Request[v1.KeepRequest]) (*connect.Response[v1.KeepResponse], error)
-	// Strike stores the striking of an addition a contract keeps, with the maker it came from, and returns the write
-	// and the rows it removed.
+	// Strike stores the striking of an addition a contract keeps, and returns the write and the rows it removed.
 	Strike(context.Context, *connect.Request[v1.StrikeRequest]) (*connect.Response[v1.StrikeResponse], error)
 	// Shown stores the rows of a contract version the owner was shown, and returns the rows it stored.
 	Shown(context.Context, *connect.Request[v1.ShownRequest]) (*connect.Response[v1.ShownResponse], error)
