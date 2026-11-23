@@ -105,7 +105,7 @@ func TestEvidenceSuppliedReadRecordedWhenCtxEndsBeforeItsRecord(t *testing.T) {
 }
 
 // TestEvidenceSuppliedReadCutShortIsLeftForARestart drives a supplied run whose context has ended before its files are read.
-// Nothing is read, so nothing is recorded: the run stays capturing, and a Resume reads the files and judges them.
+// Nothing is read, so nothing is recorded: the run stays waiting, and a Resume reads the files and judges them.
 func TestEvidenceSuppliedReadCutShortIsLeftForARestart(t *testing.T) {
 	t.Parallel()
 	repo := stepGitTestRepo(t)
@@ -122,9 +122,9 @@ func TestEvidenceSuppliedReadCutShortIsLeftForARestart(t *testing.T) {
 	ev.drive(ctx, repo, evidenceRecordStored(t, st))
 
 	got := evidenceRecordStored(t, st)
-	if got.State != "capturing" || got.NotCaptured != "" || len(got.Artifacts) != 0 {
+	if got.State != store.RunWaiting || got.NotCaptured != "" || len(got.Artifacts) != 0 {
 		t.Fatalf(
-			"run after a cut-short read = state %q not captured %q artifacts %d, want capturing with nothing recorded",
+			"run after a cut-short read = state %q not captured %q artifacts %d, want waiting with nothing recorded",
 			got.State, got.NotCaptured, len(got.Artifacts),
 		)
 	}

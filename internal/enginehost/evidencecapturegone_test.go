@@ -9,9 +9,10 @@ import (
 	"github.com/joshsymonds/orrery/internal/waittest"
 )
 
-// TestCaptureGoneFilingAddsNoWorktreeOrCapture files a captured item by each entry point that files a brief, RunItem, RunTask
-// and RunAmendment among them. The brief starts nothing: no worktree is added under the capture worktrees, and no capture is
-// recorded at the commit, so no gate starts and no grant is taken. A gate runs only in a worktree, of a capture the store holds.
+// TestCaptureGoneFilingAddsNoWorktreeOrCapture files a captured item by each entry point that files a brief: Run, RunItem,
+// RunTask and RunAmendment. The brief starts nothing: no worktree is added under the capture worktrees, and no capture is
+// recorded at the commit, so no gate starts and no grant is taken. A gate runs only in a worktree of a capture the store
+// holds.
 func TestCaptureGoneFilingAddsNoWorktreeOrCapture(t *testing.T) {
 	t.Parallel()
 	amended := evidenceRunItem()
@@ -33,15 +34,17 @@ func TestCaptureGoneFilingAddsNoWorktreeOrCapture(t *testing.T) {
 				t.Fatalf("CapturesAt: %v", err)
 			}
 			if len(captures) != 0 {
-				t.Fatalf("%s recorded %d captures at %s, want none, so no grant is taken", filing.name, len(captures), head)
+				t.Fatalf("%s recorded %d captures at %s, want none, so no grant is taken",
+					filing.name, len(captures), head)
 			}
 		})
 	}
 }
 
-// TestCaptureGoneCaptureThroughCapturesAddsItsWorktreeAndTakesItsGrant asks for a capture of a captured brief through Captures,
-// and holds its gate until the test releases it. While the gate runs, the capture's worktree is under the capture worktrees and
-// its grant is stored, so a capture started through Captures is the path that adds a worktree and takes a grant.
+// TestCaptureGoneCaptureThroughCapturesAddsItsWorktreeAndTakesItsGrant asks for a capture of a captured brief through
+// Captures, and holds its gate until the test releases it. While the gate runs, the capture's worktree is under the capture
+// worktrees and its grant is stored, so a capture started through Captures is the path that adds a worktree and takes a
+// grant.
 func TestCaptureGoneCaptureThroughCapturesAddsItsWorktreeAndTakesItsGrant(t *testing.T) {
 	t.Parallel()
 	repo, head := captureTestRepo(t)

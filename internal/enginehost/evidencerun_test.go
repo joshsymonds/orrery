@@ -201,20 +201,16 @@ func evidenceRunOnce(
 }
 
 // evidenceRunWantStarted fails the test unless started, the run a request returned, is stored with the item, revision, phase and
-// source its request named, in the state its source files it in: a supplied run is capturing, and a captured one is a brief
-// waiting for its gatherer.
+// source its request named, waiting: a supplied run waits until its capture is recorded, and a captured one is a brief waiting
+// for its gatherer.
 func evidenceRunWantStarted(t *testing.T, started store.EvidenceRun, item, revision, phase, source string) {
 	t.Helper()
-	state := "capturing"
-	if source == evidence.SourceCaptured {
-		state = store.RunWaiting
-	}
 	if started.Item != item || started.Revision != revision || started.Phase != phase || started.Source != source ||
-		started.State != state {
+		started.State != store.RunWaiting {
 		t.Fatalf(
 			"started run = item %q revision %q phase %q source %q state %q, want %q %q %q %q %q",
 			started.Item, started.Revision, started.Phase, started.Source, started.State,
-			item, revision, phase, source, state,
+			item, revision, phase, source, store.RunWaiting,
 		)
 	}
 }

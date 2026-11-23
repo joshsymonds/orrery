@@ -105,7 +105,7 @@ func evidenceBriefFilings(amended evidence.Item) []evidenceBriefFiling {
 }
 
 // evidenceBriefWantFiled fails the test unless started, the brief a filing returned, is stored waiting with the item, commit, phase
-// and caller's id the filing named, the spec it holds, and nothing recorded for a capture, grant or judge. The brief is open for
+// and caller's id the filing named, the spec it holds, and nothing recorded for a capture or judge. The brief is open for
 // gatherers.
 func evidenceBriefWantFiled(
 	t *testing.T, st *store.Store, started store.EvidenceRun, filing evidenceBriefFiling, head, phase string,
@@ -124,10 +124,9 @@ func evidenceBriefWantFiled(
 		t.Fatalf("stored brief = epic %q state %q spec %+v, want epic %s waiting with spec %+v",
 			stored.Epic, stored.State, stored.Spec, evidenceRunEpic, filing.spec)
 	}
-	if stored.Grant != "" || stored.Capture != "" || stored.JudgeStep != "" || stored.LogHash != "" ||
-		len(stored.Artifacts) != 0 {
-		t.Fatalf("stored brief records a grant %q, capture %q, judge %q, log %q and %d artifacts, want none",
-			stored.Grant, stored.Capture, stored.JudgeStep, stored.LogHash, len(stored.Artifacts))
+	if stored.Capture != "" || stored.JudgeStep != "" || stored.LogHash != "" || len(stored.Artifacts) != 0 {
+		t.Fatalf("stored brief records a capture %q, judge %q, log %q and %d artifacts, want none",
+			stored.Capture, stored.JudgeStep, stored.LogHash, len(stored.Artifacts))
 	}
 	open, err := st.OpenBriefs(t.Context(), evidenceRunEpic)
 	if err != nil {

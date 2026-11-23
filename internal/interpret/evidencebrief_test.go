@@ -52,7 +52,7 @@ func briefRunner(s *store.Store, ev Evidence) *Runner {
 }
 
 // briefWantFiled fails the test unless the run with id is stored as a captured brief of R1 of runEpic, waiting for its gatherer,
-// at revision in phase, with no grant and no capture.
+// at revision in phase, with no capture.
 func briefWantFiled(t *testing.T, s *store.Store, id, revision, phase string) {
 	t.Helper()
 	run, err := s.EvidenceRun(t.Context(), id)
@@ -60,11 +60,11 @@ func briefWantFiled(t *testing.T, s *store.Store, id, revision, phase string) {
 		t.Fatalf("read brief %s: %v", id, err)
 	}
 	if run.Epic != runEpic || run.Item != "R1" || run.Revision != revision || run.Phase != phase ||
-		run.Source != evidence.SourceCaptured || run.State != store.RunWaiting || run.Grant != "" || run.Capture != "" {
+		run.Source != evidence.SourceCaptured || run.State != store.RunWaiting || run.Capture != "" {
 		t.Fatalf(
-			"brief %s = epic %q item %q revision %q phase %q source %q state %q grant %q capture %q, "+
+			"brief %s = epic %q item %q revision %q phase %q source %q state %q capture %q, "+
 				"want a waiting brief of R1 at %s in %s",
-			id, run.Epic, run.Item, run.Revision, run.Phase, run.Source, run.State, run.Grant, run.Capture,
+			id, run.Epic, run.Item, run.Revision, run.Phase, run.Source, run.State, run.Capture,
 			revision, phase,
 		)
 	}
