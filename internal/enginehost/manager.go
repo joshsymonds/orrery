@@ -9,7 +9,6 @@ import (
 	"log/slog"
 	"maps"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -20,8 +19,8 @@ import (
 	"github.com/joshsymonds/orrery/internal/engine/session"
 	"github.com/joshsymonds/orrery/internal/engine/transport"
 	"github.com/joshsymonds/orrery/internal/holder"
+	"github.com/joshsymonds/orrery/internal/holderhost"
 	"github.com/joshsymonds/orrery/internal/protocol"
-	"github.com/joshsymonds/orrery/internal/stamp"
 	"github.com/joshsymonds/orrery/internal/store"
 	"github.com/joshsymonds/orrery/internal/telemetry"
 )
@@ -76,8 +75,8 @@ var ErrCallerFailed = errors.New("session failed and waits for its owner's next 
 // errManagerClosed reports a Start on a manager that Close has begun closing.
 var errManagerClosed = errors.New("session manager is closed")
 
-// permissionMode is the permission mode every session runs in.
-const permissionMode = "bypassPermissions"
+// permissionMode is the permission mode every session runs in, as holderhost.PermissionMode names it.
+const permissionMode = holderhost.PermissionMode
 
 // denyMessage is the message a permission request denied through Answer gives the session.
 const denyMessage = "The orrery host denied this request."
@@ -233,12 +232,12 @@ type liveSession struct {
 // Manager starts, stops and tracks headless sessions. Each running session has a pump goroutine that records its
 // events through the Writer. Close stops every session and waits for the pumps.
 type Manager struct {
-	shell       string
-	claude      string
 	environ     []string
 	holderScope string
-	stateDir    string
 	managedDir  string
+	// local is the host every session's holder is reached through: the sessions this machine runs and their holder
+	// directories under the state directory.
+	local *holderhost.Local
 	// holderVersion is the holder wire version the controller speaks when it re-adopts a holder.
 	holderVersion int
 	// attachTimeout bounds a re-adoption's attach in place of holder.AttachTimeout when it is not zero. Tests set it.
@@ -321,12 +320,17 @@ type Manager struct {
 // NewManager returns a Manager for cfg.
 func NewManager(cfg Config) *Manager {
 	manager := &Manager{
-		shell:         cfg.Shell,
-		claude:        cfg.Claude,
-		environ:       cfg.Environ,
-		holderScope:   cfg.HolderScope,
-		stateDir:      cfg.StateDir,
-		managedDir:    cfg.ManagedDir,
+		environ:     cfg.Environ,
+		holderScope: cfg.HolderScope,
+		managedDir:  cfg.ManagedDir,
+		local: holderhost.NewLocal(holderhost.LocalConfig{
+			Shell:    cfg.Shell,
+			Claude:   cfg.Claude,
+			Environ:  cfg.Environ,
+			StateDir: cfg.StateDir,
+			Scope:    cfg.HolderScope,
+			CronHook: true,
+		}),
 		holderVersion: cfg.HolderVersion,
 		writer:        cfg.Writer,
 		now:           cfg.Now,
@@ -2051,37 +2055,23 @@ type spawnSpec struct {
 	observer      StepObserver
 }
 
-// spawn resolves claude and starts the session process for id in dir as sp describes, ctx bounding its launch. The
-// prompt is not sent here. The process takes its settings from spawnSettings, and settings that cannot be read fail the
-// spawn before claude runs. The launch of id is committed before the holder starts, so a commit that fails fails the
-// spawn too.
+// spawn starts the session process for id in dir as sp describes, ctx bounding its launch. The prompt is not sent here.
+// The launch of id is committed before the holder starts, so a commit that fails fails the spawn too. The host starts
+// the process (see holderhost.Local.Launch), which resolves claude and builds the process's settings, so settings that
+// cannot be read fail the spawn before claude runs.
 func (m *Manager) spawn(ctx context.Context, id, dir string, sp spawnSpec) (*session.Session, error) {
-	claude, err := exec.LookPath(m.claude)
-	if err != nil {
-		return nil, fmt.Errorf("find claude: %w", err)
-	}
-	settings, err := m.spawnSettings(dir, sp.step)
-	if err != nil {
-		return nil, fmt.Errorf("spawn session %s: %w", id, err)
-	}
-	if err = m.writer.Commit(ctx, id, store.EngineLaunch{ID: id}); err != nil {
+	if err := m.writer.Commit(ctx, id, store.EngineLaunch{ID: id}); err != nil {
 		return nil, fmt.Errorf("launch session %s: %w", id, err)
 	}
-	sess, err := session.Start(ctx, session.Config{
-		Shell:          m.shell,
-		Claude:         claude,
-		Dir:            dir,
-		PermissionMode: permissionMode,
-		Settings:       settings,
-		Resume:         sp.claudeSession,
-		Model:          sp.model,
-		Agent:          sp.agent,
-		Agents:         sp.agents,
-		Schema:         sp.schema,
-		Name:           id,
-		HolderScope:    m.holderScope,
-		StateDir:       m.stateDir,
-		Environ:        m.environ,
+	sess, err := m.local.Launch(ctx, holderhost.Spec{
+		Session: id,
+		Dir:     dir,
+		Resume:  sp.claudeSession,
+		Model:   sp.model,
+		Agent:   sp.agent,
+		Agents:  sp.agents,
+		Schema:  sp.schema,
+		Step:    sp.step,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("spawn session %s: %w", id, err)
@@ -2089,72 +2079,10 @@ func (m *Manager) spawn(ctx context.Context, id, dir string, sp spawnSpec) (*ses
 	return sess, nil
 }
 
-// spawnSettings returns the --settings JSON of a spawn in dir. The stamp is looked up under the HOME entry of the
-// manager's environment, which must be an absolute path. A session the owner talks to, a resume included, always takes
-// stamp.HeadlessSettings: the stamp's env when one applies, and nothing otherwise, plus the PreToolUse hook that
-// carries its cron tools to orrery. The orrery that runs the hook is holder.Binary(""), and one that cannot be resolved
-// fails here, before claude runs. A step takes settings with no hook: the stamp's env when one applies, and
-// claudeMdExcludes naming the user CLAUDE.md, so a step does not load the owner's own rules. Its path is read from
-// m.environ, and a step whose path cannot be resolved fails here, before claude runs.
-func (m *Manager) spawnSettings(dir string, step bool) (string, error) {
-	home, err := stampHome(m.environ)
-	if err != nil {
-		return "", fmt.Errorf("find stamp for %s: %w", dir, err)
-	}
-	found, err := stamp.Find(home, dir)
-	if err != nil {
-		return "", fmt.Errorf("find stamp for %s: %w", dir, err)
-	}
-	if !step {
-		var orrery string
-		if orrery, err = holder.Binary(""); err != nil {
-			return "", fmt.Errorf("cron hook for %s: %w", dir, err)
-		}
-		return stamp.HeadlessSettings(found.Env, orrery), nil
-	}
-	memory, err := userMemoryOf(m.environ)
-	if err != nil {
-		return "", fmt.Errorf("step in %s: %w", dir, err)
-	}
-	return stamp.Settings(false, found.Env, []string{memory}), nil
-}
-
-// environValue returns the value of name in environ, and whether environ has it. The last entry for name wins, as it
-// does for a child process that exec starts with environ.
+// environValue returns the value of name in environ, and whether environ has it, as holderhost.EnvironValue does. The
+// last entry for name wins.
 func environValue(environ []string, name string) (string, bool) {
-	value, found := "", false
-	for _, entry := range environ {
-		key, val, ok := strings.Cut(entry, "=")
-		if ok && key == name {
-			value, found = val, true
-		}
-	}
-	return value, found
-}
-
-// stampHome returns the HOME entry of environ, the home every stamp is looked up under. It refuses a HOME that is absent,
-// empty, or not an absolute path, so no stamp is ever read below a home the lookup cannot resolve.
-func stampHome(environ []string) (string, error) {
-	home, ok := environValue(environ, "HOME")
-	if !ok {
-		return "", errors.New("HOME is not set")
-	}
-	if !filepath.IsAbs(home) {
-		return "", fmt.Errorf("HOME %q is not an absolute path", home)
-	}
-	return home, nil
-}
-
-// userMemoryOf returns the path of the user's CLAUDE.md that the claude running with environ loads: its HOME and
-// CLAUDE_CONFIG_DIR entries, read as stamp.UserMemory reads them. It fails when that path cannot be resolved.
-func userMemoryOf(environ []string) (string, error) {
-	home, _ := environValue(environ, "HOME")
-	configDir, _ := environValue(environ, "CLAUDE_CONFIG_DIR")
-	memory, err := stamp.UserMemory(home, configDir)
-	if err != nil {
-		return "", fmt.Errorf("user memory: %w", err)
-	}
-	return memory, nil
+	return holderhost.EnvironValue(environ, name)
 }
 
 // pump records the events of one running session, line by line and in order, until its lines close, and tells the owner
