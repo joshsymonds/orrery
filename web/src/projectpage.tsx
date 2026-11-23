@@ -3,7 +3,7 @@ import { useState } from "preact/hooks";
 
 import { hungName } from "./epicrow";
 import { Icon, StateGlyph } from "./glyphs";
-import { ageText, clockText, parseTool, quietRow, shortName, stateWaiting, waitingText } from "./inboxrow";
+import { ageText, clockText, glyphStateOf, parseTool, quietRow, shortName, stateWaiting, waitingText } from "./inboxrow";
 import type { Row } from "./rows";
 import { TitleRow } from "./titlerow";
 import { type Convo, changedOf, type Hung, type Project } from "./tree";
@@ -121,14 +121,15 @@ function NewHereButton({ grow, onClick }: { grow: boolean; onClick: () => void }
 // ConvoLine draws one conversation of the page: a button that opens it, with its state's glyph, its title, what it last
 // said or asks, and its age, and under it a WorkCard for each thing the tree hung under it. A conversation with no row of
 // its own is its one thing: its title is that thing's name, its glyph is the state its card reads, and it says nothing it
-// last said. A quiet row, waiting but put off or archived, draws the idle glyph, as the inbox row does.
+// last said. A quiet row, waiting but put off or archived, draws the idle glyph, as the inbox row does, and a failed row or
+// an unbound pane draws the broken glyph.
 function ConvoLine({ convo, now, onOpen }: { convo: Convo; now: number; onOpen: (key: string) => void }): JSX.Element {
   const row = convo.row;
   const [thing] = convo.hung;
   return (
     <div class="pconv">
       <button type="button" class="pc-row" data-key={convo.key} onClick={() => onOpen(convo.key)}>
-        <StateGlyph state={row === null ? ownState(thing, now) : quietRow(row) ? "idle" : row.state} />
+        <StateGlyph state={row === null ? ownState(thing, now) : glyphStateOf(row)} />
         <span class="t">{row !== null ? row.label : hungName(thing)}</span>
         {row !== null && <Said row={row} now={now} />}
         <span class="end">

@@ -66,7 +66,7 @@ export function InboxRow({
       }}
     >
       <span class="dot" title={row.unseen ? "new since you looked" : undefined} />
-      <StateGlyph state={quietRow(row) ? "idle" : row.state} />
+      <StateGlyph state={glyphStateOf(row)} />
       <div class="main">
         <div class="l1">
           <span class="title">
@@ -91,6 +91,15 @@ function rowClass(cursor: boolean, open: boolean, hover: boolean, menuOpen: bool
 // owner put it off. It draws the idle glyph and its second line without the asks style, and its words stay as they are.
 export function quietRow(row: Row): boolean {
   return row.state === stateWaiting && !waitsOnYou(row);
+}
+
+// glyphStateOf is the state a row's glyph draws: broken for a failed row and for an unbound pane, idle for a quiet row,
+// and else the row's own state. The words beside it stay the row's own.
+export function glyphStateOf(row: Row): string {
+  if (row.state === "failed" || row.unbound) {
+    return "broken";
+  }
+  return quietRow(row) ? "idle" : row.state;
 }
 
 // SecondLine draws a row's second line. A waiting row says what it asks, led by a question mark when it holds a question.

@@ -259,6 +259,7 @@ button.link.notices-more { justify-self: end; padding: 0 var(--o-space-12); colo
 .glyph[data-state="interrupted"] { color: var(--o-state-interrupted); }
 .glyph[data-state="interrupting"] { color: var(--o-state-interrupting); animation: pulse var(--o-loop-pulse) ease-in-out infinite; }
 .glyph[data-state="failed"] { color: var(--o-state-failed); }
+.glyph[data-state="broken"] { color: var(--o-state-failed); }
 .glyph[data-state="stopped"] { color: var(--o-state-stopped); }
 
 /* Pips: a task's phases, one cell each, in the cell's tone. */
