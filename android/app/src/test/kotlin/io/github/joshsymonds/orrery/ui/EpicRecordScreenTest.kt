@@ -42,7 +42,6 @@ import io.github.joshsymonds.orrery.gen.orrery.v1.EpicHistoryEntry
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicQuestion
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicRequirement
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicStep
-import io.github.joshsymonds.orrery.gen.orrery.v1.EpicTask
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsGetResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsHistoryResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsPauseRequest
@@ -135,7 +134,6 @@ class EpicRecordScreenTest {
         plannerParked: Boolean = false,
         phaseAt: Long = 0L,
         buildTasks: List<EpicBuildTask> = emptyList(),
-        tasks: List<EpicTask> = emptyList(),
         steering: String = "",
     ): EpicsGetResponse {
         val epic = Epic.newBuilder()
@@ -157,7 +155,6 @@ class EpicRecordScreenTest {
             .addAllRequirements(requirements)
             .addAllQuestions(questions)
             .addAllBuildTasks(buildTasks)
-            .addAllTasks(tasks)
             .setSummary(summary)
             .setPaused(paused)
             .setParked(parked)
