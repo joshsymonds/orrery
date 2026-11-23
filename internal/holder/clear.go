@@ -190,7 +190,7 @@ func lockHeld(path string) (bool, error) {
 		return false, nil
 	}
 	if err != nil {
-		return false, fmt.Errorf("holder: open lock %s: %w", path, err)
+		return false, err
 	}
 	lock, err := takeLock(file, path)
 	if errors.Is(err, ErrLocked) {
@@ -235,7 +235,7 @@ func awaitExistingLock(ctx context.Context, path string) (*os.File, error) {
 			return nil, ErrGone
 		}
 		if err != nil {
-			return nil, fmt.Errorf("holder: open lock %s: %w", path, err)
+			return nil, err
 		}
 		lock, err := takeLock(file, path)
 		if errors.Is(err, ErrLocked) {

@@ -28,7 +28,11 @@ func Lock(path string) (*os.File, error) {
 // openLock opens the session's lock file at path without creating it. A lock file that does not exist is reported
 // as fs.ErrNotExist, so a probe that opens it never recreates a lock that is gone.
 func openLock(path string) (*os.File, error) {
-	return os.OpenFile(filepath.Clean(path), os.O_RDWR, 0)
+	file, err := os.OpenFile(filepath.Clean(path), os.O_RDWR, 0)
+	if err != nil {
+		return nil, fmt.Errorf("holder: open lock %s: %w", path, err)
+	}
+	return file, nil
 }
 
 // takeLock takes an exclusive, non-blocking flock on file, the open session lock at path. When another open file
