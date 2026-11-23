@@ -22,8 +22,9 @@ export interface ConvoRowProps {
   held?: HeldThing | null;
 }
 
-// designMark is a design's mark: round 8's design icon, drawn on the 16 grid as glyphs draws its icons.
-const designMark =
+// designMark is a design's mark: round 8's design icon, drawn on the 16 grid as glyphs draws its icons. The held card's head
+// draws the same mark.
+export const designMark =
   "M3.5 2.5a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3zM3.5 10.5a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3zM12.5 6.5a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3zM5 4h1.5c2 0 2 4 4.5 4M5 12h1.5c2 0 2-4 4.5-4";
 
 // DesignBlock draws a design as a block of its own: its tab, which holds the mark and the bold name, then, directly under the

@@ -1882,6 +1882,24 @@ button.block:hover { --ground: var(--o-surface-raised); }
 .sheet .phopt[aria-current="true"] { color: var(--o-ink-1); font-weight: var(--o-font-weight-bold); }
 .read.accounts-read { overflow-y: auto; }
 
+/* The held card (D12, D14, D15): a card on the side's ground, set into the conversation, with a spine of the open colour down
+   its left edge. Fold back sits at the card's left on that spine, in the same colour, and its head reads the mark, the kind
+   and the title of the thing it holds. The body scrolls on its own. The phone's sheet (D5, D6, D15) is on the side's ground,
+   with a spine and a foot of the bracket's ground. */
+.held-card { position: relative; display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; border-radius: var(--o-radius-3); background: var(--o-surface-side); }
+.held-spine { position: absolute; top: 0; bottom: 0; left: 0; width: var(--o-space-8); background: var(--o-ground-open); }
+.held-head { display: flex; align-items: center; gap: var(--o-space-8); flex: none; min-width: 0; padding: var(--o-space-8) var(--o-space-12) var(--o-space-8) var(--o-space-8); }
+.held-head .held-mark { display: grid; flex: none; color: var(--o-ink-2); }
+.held-kind { flex: none; color: var(--o-ink-2); font: var(--o-type-small); }
+.held-title { min-width: 0; overflow: hidden; color: var(--o-ink-1); font: var(--o-type-body); font-weight: var(--o-font-weight-bold); text-overflow: ellipsis; white-space: nowrap; }
+.fold-back { display: inline-flex; align-items: center; gap: var(--o-space-8); flex: none; height: var(--o-size-control-desk); margin-left: calc(-1 * var(--o-space-8)); padding: 0 var(--o-space-12) 0 var(--o-space-8); border: 0; border-radius: 0 var(--o-radius-2) var(--o-radius-2) 0; background: var(--o-ground-open); color: var(--o-ink-1); font: var(--o-type-small); white-space: nowrap; }
+.fold-back:hover { background: var(--o-ground-open-hover); }
+.held-close { display: grid; flex: none; place-items: center; width: var(--o-size-control-desk); height: var(--o-size-control-desk); margin-left: auto; padding: 0; }
+.held-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
+.held-sheet { position: relative; display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; border-radius: var(--o-radius-3); background: var(--o-surface-side); }
+.held-sheet-spine { position: absolute; top: 0; bottom: 0; left: 0; width: var(--o-space-8); background: var(--o-surface-raised); }
+.held-sheet-foot { flex: none; height: var(--o-space-8); background: var(--o-surface-raised); }
+
 /* Reduced motion comes last, so it wins over the rules above: each move is one 100 ms linear step, a page drills and
    leaves by a fade, and the loops hold still. */
 @media (prefers-reduced-motion: reduce) {
