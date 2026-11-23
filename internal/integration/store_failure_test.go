@@ -51,7 +51,7 @@ func (f *storeFixture) assertHooksStillReach(t *testing.T, daemon *orreryProcess
 // next start's tidy repairs that pane, and the locked store is what the write-locked tests are about.
 func lockedDrop(stderr string) string {
 	for line := range strings.SplitSeq(stderr, "\n") {
-		if strings.Contains(line, mirrorDroppedLog) && strings.Contains(line, "SQLITE_BUSY") {
+		if strings.Contains(line, mirrorDroppedLog) && strings.Contains(line, "database is locked") {
 			return line
 		}
 	}

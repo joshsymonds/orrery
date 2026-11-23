@@ -894,6 +894,51 @@ SELECT
         LIMIT 1
     ), '') ELSE '' END AS TEXT) AS summary
 FROM steps;
+CREATE TABLE llm_accounts (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    provider TEXT NOT NULL,
+    plan TEXT NOT NULL DEFAULT '',
+    token TEXT NOT NULL,
+    fingerprint TEXT NOT NULL,
+    created INTEGER NOT NULL
+);
+CREATE TABLE route_registry (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    default_context TEXT NOT NULL
+);
+CREATE TABLE route_seats (
+    id TEXT PRIMARY KEY,
+    auth_mode TEXT NOT NULL CHECK (auth_mode IN ('forward', 'inject', 'sigv4')),
+    upstream TEXT NOT NULL DEFAULT '',
+    model TEXT NOT NULL DEFAULT '',
+    api_key_env_file TEXT NOT NULL DEFAULT '',
+    aws_profile TEXT NOT NULL DEFAULT '',
+    aws_region TEXT NOT NULL DEFAULT '',
+    model_map_env_file TEXT NOT NULL DEFAULT '',
+    billing TEXT NOT NULL DEFAULT '',
+    speed TEXT NOT NULL DEFAULT '',
+    cache_ttl TEXT NOT NULL DEFAULT '',
+    insecure INTEGER NOT NULL DEFAULT 0 CHECK (insecure IN (0, 1)),
+    strip_cache_control INTEGER NOT NULL DEFAULT 0 CHECK (strip_cache_control IN (0, 1)),
+    strict_structured_output INTEGER NOT NULL DEFAULT 0 CHECK (strict_structured_output IN (0, 1)),
+    max_input_tokens INTEGER NOT NULL DEFAULT 0,
+    strip_betas TEXT NOT NULL DEFAULT '[]'
+);
+CREATE TABLE route_contexts (
+    id TEXT PRIMARY KEY,
+    default_seat TEXT NOT NULL,
+    account TEXT NOT NULL DEFAULT '',
+    has_subagents INTEGER NOT NULL DEFAULT 0 CHECK (has_subagents IN (0, 1)),
+    subagent_default_seat TEXT NOT NULL DEFAULT ''
+);
+CREATE TABLE route_bindings (
+    context TEXT NOT NULL,
+    scope TEXT NOT NULL CHECK (scope IN ('model', 'subagent_agent_type', 'subagent_model')),
+    selector TEXT NOT NULL,
+    seat TEXT NOT NULL,
+    PRIMARY KEY (context, scope, selector)
+);
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (1,0,1);
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (10,9,1);
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (11,10,1);
@@ -990,4 +1035,5 @@ INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (93,92,
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (94,93,1);
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (95,94,1);
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (96,95,1);
+INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (97,96,1);
 INSERT INTO "pending_notice_ids" ("id", "high") VALUES (1,0);
