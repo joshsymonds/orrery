@@ -2,6 +2,7 @@ package stepmcp
 
 import (
 	"context"
+	_ "embed"
 	"errors"
 
 	"connectrpc.com/connect"
@@ -12,6 +13,14 @@ import (
 
 // stageUnavailableText is the text of the tool error every stage tool answers with when there is no Stage client.
 const stageUnavailableText = "orrery stage tools have no orreryd connection"
+
+// stageGuide is the contract stage's rules, served as the text of design_guide.
+//
+//go:embed stage_guide.md
+var stageGuide string
+
+// designGuideArgs is the arguments of design_guide, which takes none.
+type designGuideArgs struct{}
 
 // designResearchArgs is the arguments of design_research, described for its input schema.
 type designResearchArgs struct {
@@ -84,6 +93,10 @@ type designSteelmanArgs struct {
 
 // stageTools returns the stage tools, each calling stage. A nil stage answers each call with a tool error.
 func stageTools(stage enginev1connect.StageClient) ([]Tool, error) {
+	guide, err := argumentSchema[designGuideArgs](nil)
+	if err != nil {
+		return nil, err
+	}
 	research, err := argumentSchema[designResearchArgs](nil)
 	if err != nil {
 		return nil, err
@@ -113,6 +126,15 @@ func stageTools(stage enginev1connect.StageClient) ([]Tool, error) {
 		return nil, err
 	}
 	return []Tool{
+		{
+			Name: "design_guide",
+			Description: "Return the contract stage's rules as text: how to research, ask and answer questions, draft and " +
+				"propose a contract, run the steelman's passes and dispose of their items, what contract_accept refuses, " +
+				"the contract's sections and the Quality Bar. Read it before the stage. It takes no arguments and changes " +
+				"nothing.",
+			InputSchema: guide,
+			Handler:     designGuideHandler(),
+		},
 		{
 			Name: "design_research",
 			Description: "Start a read-only scout step that answers question about repository at revision, for design, " +
@@ -175,6 +197,18 @@ func stageTools(stage enginev1connect.StageClient) ([]Tool, error) {
 // stageUnavailable is the tool error a stage tool answers with when there is no Stage client.
 func stageUnavailable() ToolResult {
 	return toolFailure(errors.New(stageUnavailableText))
+}
+
+// designGuideHandler answers design_guide with the contract stage's rules. The rules need no Stage client, so the
+// handler answers without one.
+func designGuideHandler() ToolHandler {
+	return func(_ context.Context, call Call) (ToolResult, error) {
+		var args designGuideArgs
+		if err := decodeArguments(call.Arguments, &args); err != nil {
+			return ToolResult{}, err
+		}
+		return ToolResult{Content: []Content{{Type: textContentType, Text: stageGuide}}}, nil
+	}
 }
 
 func designResearchHandler(stage enginev1connect.StageClient) ToolHandler {
