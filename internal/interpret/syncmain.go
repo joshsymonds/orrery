@@ -282,9 +282,8 @@ func hasOrigin(ctx context.Context, repo string) (bool, error) {
 // merge of the two in epic's repository, the stored base its first parent and origin's commit its second, without a
 // checkout. It pins the merge under the sync ref named for origin's commit, and returns it.
 func commitSync(ctx context.Context, epic store.EpicRow, origin, tree string) (string, error) {
-	message := fmt.Sprintf("Merge origin's commit %s into stored base %s", origin, epic.StoredBase)
 	commit, err := gitOutput(ctx, epic.Repository, "commit-tree", tree, "-p", epic.StoredBase, "-p", origin, "-m",
-		message)
+		syncMergeMessage(origin, epic.StoredBase))
 	if err != nil {
 		return "", err
 	}
@@ -293,6 +292,12 @@ func commitSync(ctx context.Context, epic store.EpicRow, origin, tree string) (s
 		return "", fmt.Errorf("pin sync merge: %w", err)
 	}
 	return merged, nil
+}
+
+// syncMergeMessage is the message of the merge a sync makes of origin's commit into the stored base base, which commitSync
+// writes and a sync's integrator commits under the same words.
+func syncMergeMessage(origin, base string) string {
+	return fmt.Sprintf("Merge origin's commit %s into stored base %s", origin, base)
 }
 
 // syncRef returns the ref under epic's sync namespace named name: the ref origin's main is fetched into, or the pin of

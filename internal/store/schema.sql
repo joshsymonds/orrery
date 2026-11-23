@@ -805,21 +805,6 @@ CREATE TABLE closure_verdicts (
     why TEXT NOT NULL,
     at INTEGER NOT NULL
 );
-CREATE TABLE integrate_rounds (
-    epic TEXT NOT NULL,
-    path TEXT NOT NULL,
-    attempt INTEGER NOT NULL,
-    task INTEGER NOT NULL,
-    round INTEGER NOT NULL,
-    step TEXT NOT NULL,
-    verdict TEXT NOT NULL CHECK (verdict IN ('merged', 'clash', 'ended')),
-    head TEXT NOT NULL DEFAULT '',
-    explanation TEXT NOT NULL DEFAULT '',
-    outcome TEXT NOT NULL DEFAULT '' CHECK (outcome IN ('', 'composed', 'failed')),
-    failure TEXT NOT NULL DEFAULT '',
-    created INTEGER NOT NULL,
-    PRIMARY KEY (epic, path, attempt, task, round)
-);
 CREATE TABLE epic_tasks (
     epic TEXT NOT NULL,
     seq INTEGER NOT NULL,
@@ -939,6 +924,21 @@ CREATE TABLE route_bindings (
     seat TEXT NOT NULL,
     PRIMARY KEY (context, scope, selector)
 );
+CREATE TABLE integrate_rounds (
+    epic TEXT NOT NULL,
+    path TEXT NOT NULL,
+    attempt INTEGER NOT NULL,
+    task INTEGER NOT NULL,
+    round INTEGER NOT NULL,
+    step TEXT NOT NULL,
+    verdict TEXT NOT NULL CHECK (verdict IN ('merged', 'clash', 'ended', 'blocked')),
+    head TEXT NOT NULL DEFAULT '',
+    explanation TEXT NOT NULL DEFAULT '',
+    outcome TEXT NOT NULL DEFAULT '' CHECK (outcome IN ('', 'composed', 'failed', 'passed', 'skipped')),
+    failure TEXT NOT NULL DEFAULT '',
+    created INTEGER NOT NULL,
+    PRIMARY KEY (epic, path, attempt, task, round)
+);
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (1,0,1);
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (10,9,1);
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (11,10,1);
@@ -1036,4 +1036,5 @@ INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (94,93,
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (95,94,1);
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (96,95,1);
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (97,96,1);
+INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (98,97,1);
 INSERT INTO "pending_notice_ids" ("id", "high") VALUES (1,0);

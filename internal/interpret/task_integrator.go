@@ -443,13 +443,13 @@ func (r *Runner) taskStep(ctx context.Context, epic, path, id string) (store.Ste
 	return labeled[i], nil
 }
 
-// roundSteps returns the steps of the task integrator rounds of the running integrate runs among runs. EpicFlow reads no
-// step of an integrate run, and a round's step is labeled with its integrate run's path, so each running integrate run's
-// labeled steps are read here for the rows its rounds are decided on.
+// roundSteps returns the steps of the integrator rounds of the running integrate and sync runs among runs. EpicFlow reads
+// no step of an integrate or sync run, and a round's step is labeled with its run's path, so each running integrate or
+// sync run's labeled steps are read here for the rows its rounds are decided on.
 func (r *Runner) roundSteps(ctx context.Context, epic string, runs []store.NodeRun) ([]store.StepRow, error) {
 	var steps []store.StepRow
 	for _, run := range runs {
-		if run.Kind != kindIntegrate || run.State != store.NodeRunning {
+		if (run.Kind != kindIntegrate && run.Kind != kindSync) || run.State != store.NodeRunning {
 			continue
 		}
 		labeled, err := r.store.LabelledSteps(ctx, epic, run.Path)

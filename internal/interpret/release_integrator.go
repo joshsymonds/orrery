@@ -173,10 +173,21 @@ func candidateSide(ret integratorReturn) bool {
 }
 
 // integratorMerge is the merge a release integrator finishes: the repository, the worktree the merge is in, the release
-// tip, origin's commit and the paths that conflict.
+// tip, origin's commit and the paths that conflict. stored is set for a sync's merge, whose tip is the epic's stored base
+// rather than a release tip.
 type integratorMerge struct {
 	repo, worktree, tip, origin string
 	conflicts                   []string
+	stored                      bool
+}
+
+// tipLabel returns what the merge's tip is called in its failure lines: the release tip, or the stored base for a sync's
+// merge.
+func (merge integratorMerge) tipLabel() string {
+	if merge.stored {
+		return "stored base"
+	}
+	return "release tip"
 }
 
 // The limits of what the prompt of a release integrator lists: the commits of each side, and the commits of each side
@@ -549,8 +560,8 @@ func parentsFailure(ctx context.Context, merge integratorMerge, commit, _ string
 		return ""
 	}
 	return fmt.Sprintf(
-		"parents: commit %s has parents [%s], want exactly the release tip %s and then origin's commit %s, in one "+
-			"commit and no other", commit, strings.Join(parents, " "), merge.tip, merge.origin)
+		"parents: commit %s has parents [%s], want exactly the %s %s and then origin's commit %s, in one "+
+			"commit and no other", commit, strings.Join(parents, " "), merge.tipLabel(), merge.tip, merge.origin)
 }
 
 // unmergedFailure names the paths git ls-files -u lists in the worktree.
@@ -670,8 +681,8 @@ func listPaths(paths []string) string {
 // park keeps: each path gets an equal share of what the merge's line leaves, at least minShare bytes, cut at its end,
 // and the paths no share is left for are counted in a last line that room is always kept for.
 func blockedReason(merge integratorMerge, ret integratorReturn) string {
-	head := fmt.Sprintf("the release integrator stopped the merge of origin's commit %s into release tip %s",
-		merge.origin, merge.tip)
+	head := fmt.Sprintf("the release integrator stopped the merge of origin's commit %s into %s %s",
+		merge.origin, merge.tipLabel(), merge.tip)
 	entries := make([]string, 0, len(ret.Unresolved))
 	for _, path := range ret.Unresolved {
 		entries = append(entries, fmt.Sprintf("\n- %s: side: %s; decision: %s; candidate: %s; origin: %s",
