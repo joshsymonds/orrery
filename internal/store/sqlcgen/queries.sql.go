@@ -11143,6 +11143,27 @@ func (q *Queries) MaxTurnActionPark(ctx context.Context, arg MaxTurnActionParkPa
 	return column_1, err
 }
 
+const moveEpicBase = `-- name: MoveEpicBase :execrows
+UPDATE epics SET base = ?1, stored_base = ?1
+WHERE epics.id = ?2 AND epics.base = ?3 AND epics.stored_base = ?3
+    AND epics.branch = '' AND epics.candidate = ''
+    AND NOT EXISTS (SELECT 1 FROM epic_tasks WHERE epic_tasks.epic = epics.id)
+`
+
+type MoveEpicBaseParams struct {
+	ToBase   string
+	ID       string
+	FromBase string
+}
+
+func (q *Queries) MoveEpicBase(ctx context.Context, arg MoveEpicBaseParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, moveEpicBase, arg.ToBase, arg.ID, arg.FromBase)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const moveEpicLoopRound = `-- name: MoveEpicLoopRound :exec
 UPDATE epic_node_runs SET loop_round = loop_round + 1
 WHERE epic = ? AND path = ? AND kind = 'loop' AND state = 'running' AND loop_round = ?

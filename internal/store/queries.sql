@@ -662,6 +662,12 @@ UPDATE epics SET stored_base = ?, candidate = '' WHERE id = ?;
 -- name: SyncEpicStoredBase :exec
 UPDATE epics SET stored_base = ?, candidate = '', synced = ? WHERE id = ?;
 
+-- name: MoveEpicBase :execrows
+UPDATE epics SET base = sqlc.arg(to_base), stored_base = sqlc.arg(to_base)
+WHERE epics.id = sqlc.arg(id) AND epics.base = sqlc.arg(from_base) AND epics.stored_base = sqlc.arg(from_base)
+    AND epics.branch = '' AND epics.candidate = ''
+    AND NOT EXISTS (SELECT 1 FROM epic_tasks WHERE epic_tasks.epic = epics.id);
+
 -- name: SetEpicOriginRead :exec
 UPDATE epics
 SET origin_read_base = sqlc.arg(base), origin_read_commit = sqlc.arg(commit), origin_read_state = sqlc.arg(state),
