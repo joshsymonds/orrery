@@ -43,7 +43,6 @@ const evidencePauseRecheck = 5 * time.Second
 type EvidenceStore interface {
 	Epic(ctx context.Context, id string) (store.EpicRow, error)
 	AddEvidenceRun(ctx context.Context, run store.EvidenceRun) error
-	SetEvidenceGrant(ctx context.Context, id, grant, holder string) error
 	RecordEvidenceCapture(ctx context.Context, id string, capture store.EvidenceCapture) error
 	SetEvidenceJudge(ctx context.Context, id, step string) error
 	RecordEvidenceVerdict(ctx context.Context, id string, verdict store.EvidenceVerdict) error
@@ -73,31 +72,28 @@ type EvidenceGatherers interface {
 	Wake(ctx context.Context, epic string)
 }
 
-// EvidenceConfig configures an Evidence. Store records the runs, Steps runs the judges, and Pools, Environ, GateStateDir,
-// GateScope run each captured item's gate as a capture does. StateDir holds the blobs and the capture worktrees.
-// NewTimer arms a timer that sends on its channel once, after a duration, and returns the timer's stop; a nil NewTimer wraps
+// EvidenceConfig configures an Evidence. Store records the runs and Steps runs the judges. StateDir holds the blobs. NewTimer
+// arms a timer that sends on its channel once, after a duration, and returns the timer's stop; a nil NewTimer wraps
 // time.NewTimer. A nil Now is time.Now, and a nil Logger discards. After returns the channel a failed store write of a run
 // waits on before it is tried again (see retryStore), and that a judge of a paused epic waits on before it reads the epic
 // again, and nil is time.After. Briefs reads and attaches captures to the runs they answer, and Gatherers is woken for an
 // epic whose briefs wait; both may be nil.
 type EvidenceConfig struct {
-	Store        EvidenceStore
-	Steps        EvidenceSteps
-	Pools        PoolCommands
-	Environ      []string
-	StateDir     string
-	GateStateDir string
-	GateScope    string
-	Now          func() time.Time
-	Logger       *slog.Logger
-	NewTimer     func(time.Duration) (<-chan time.Time, func() bool)
-	After        func(time.Duration) <-chan time.Time
-	Briefs       EvidenceBriefs
-	Gatherers    EvidenceGatherers
+	Store     EvidenceStore
+	Steps     EvidenceSteps
+	StateDir  string
+	Now       func() time.Time
+	Logger    *slog.Logger
+	NewTimer  func(time.Duration) (<-chan time.Time, func() bool)
+	After     func(time.Duration) <-chan time.Time
+	Briefs    EvidenceBriefs
+	Gatherers EvidenceGatherers
 }
 
-// Evidence runs evidence items. Each run is stored, captured or read, judged, and recorded once, by a drive that Run starts
-// in the background. cancels holds the cancel of each drive still under way, by run id, and Close cancels them all.
+// Evidence runs evidence items. A captured item is filed as a brief for the epic's gatherers, which capture it and attach the
+// capture (see Captures and Attach). A supplied item is stored and read by a drive that Run starts in the background. Each
+// run is judged and recorded once. cancels holds the cancel of each drive still under way, by run id, and Close cancels them
+// all.
 type Evidence struct {
 	store     EvidenceStore
 	steps     EvidenceSteps
@@ -118,8 +114,7 @@ type Evidence struct {
 	calls callsInFlight
 }
 
-// NewEvidence returns an Evidence for cfg. Its blobs are kept under StateDir/evidence/blobs, and its capture worktrees under
-// StateDir/evidence-worktrees.
+// NewEvidence returns an Evidence for cfg. Its blobs are kept under StateDir/evidence/blobs.
 func NewEvidence(cfg EvidenceConfig) *Evidence {
 	logger := cfg.Logger
 	if logger == nil {
@@ -142,16 +137,9 @@ func NewEvidence(cfg EvidenceConfig) *Evidence {
 	}
 	blobs := evidenceBlobs{dir: filepath.Join(cfg.StateDir, "evidence", "blobs")}
 	return &Evidence{
-		store: cfg.Store,
-		steps: cfg.Steps,
-		captures: evidenceCapture{
-			pools:        cfg.Pools,
-			environ:      cfg.Environ,
-			worktrees:    filepath.Join(cfg.StateDir, "evidence-worktrees"),
-			gateStateDir: cfg.GateStateDir,
-			gateScope:    cfg.GateScope,
-			blobs:        blobs,
-		},
+		store:     cfg.Store,
+		steps:     cfg.Steps,
+		captures:  evidenceCapture{blobs: blobs},
 		blobs:     blobs,
 		now:       now,
 		newTimer:  newTimer,
@@ -165,8 +153,9 @@ func NewEvidence(cfg EvidenceConfig) *Evidence {
 
 // Run runs the item named item of epic at revision, in phase red or green. item is a Requirement's R<n>, whose item must
 // be set. Run refuses a bad request with an error matching ErrEvidenceRefused, and an epic that does not exist with the
-// store's error. It stores the run in state capturing with its item, revision and phase before anything runs, then drives
-// it in the background and returns the stored run.
+// store's error. A captured item is filed as a brief: it is stored waiting with its item, revision and phase, its epic's
+// gatherer is woken, and nothing starts. A supplied item is stored capturing, then driven in the background. Either way Run
+// returns the stored run.
 func (e *Evidence) Run(ctx context.Context, epic, item, revision, phase string) (store.EvidenceRun, error) {
 	defer e.calls.enter()()
 	row, err := e.store.Epic(ctx, epic)
@@ -194,18 +183,49 @@ func (e *Evidence) Run(ctx context.Context, epic, item, revision, phase string) 
 		ID: id, Epic: epic, Item: item, Revision: commit, Phase: phase, Source: evidenceRunSource(spec),
 		Spec: spec, Created: e.now(),
 	}
-	if err = e.store.AddEvidenceRun(ctx, run); err != nil {
-		return store.EvidenceRun{}, fmt.Errorf("add evidence run %s: %w", id, err)
+	return e.file(ctx, row.Repository, run)
+}
+
+// file files run, a new run of its epic, and returns it as stored. A captured run is filed as a brief: it is stored waiting, and
+// the gatherer of its epic is woken, so nothing starts for it here. A supplied run is stored capturing, and driven in the
+// background (see start). A runner that is closed refuses either with errEvidenceClosed, and the run stays stored for a
+// restart to take up.
+func (e *Evidence) file(ctx context.Context, repo string, run store.EvidenceRun) (store.EvidenceRun, error) {
+	captured := run.Source == evidence.SourceCaptured
+	if captured {
+		run.State = store.RunWaiting
 	}
-	stored, err := e.store.EvidenceRun(ctx, id)
-	if err != nil {
-		return store.EvidenceRun{}, fmt.Errorf("read evidence run %s: %w", id, err)
+	if err := e.store.AddEvidenceRun(ctx, run); err != nil {
+		return store.EvidenceRun{}, fmt.Errorf("add evidence run %s: %w", run.ID, err)
 	}
-	err = e.start(ctx, row.Repository, stored)
+	stored, err := e.store.EvidenceRun(ctx, run.ID)
 	if err != nil {
-		return store.EvidenceRun{}, err
+		return store.EvidenceRun{}, fmt.Errorf("read evidence run %s: %w", run.ID, err)
+	}
+	if captured {
+		if wakeErr := e.wake(ctx, run.Epic); wakeErr != nil {
+			return store.EvidenceRun{}, wakeErr
+		}
+		return stored, nil
+	}
+	if startErr := e.start(ctx, repo, stored); startErr != nil {
+		return store.EvidenceRun{}, startErr
 	}
 	return stored, nil
+}
+
+// wake wakes the gatherer of epic for the brief just filed. It returns errEvidenceClosed once Close has been called, and a nil
+// gatherers wakes nobody.
+func (e *Evidence) wake(ctx context.Context, epic string) error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.closed {
+		return errEvidenceClosed
+	}
+	if e.gatherers != nil {
+		e.gatherers.Wake(ctx, epic)
+	}
+	return nil
 }
 
 // Runs returns the runs of epic in the order the store gives them.
@@ -274,21 +294,16 @@ func (e *Evidence) readLog(run store.EvidenceRun, hash string) ([]byte, string, 
 	return data, hex.EncodeToString(sum[:]), nil
 }
 
-// Close cancels every drive and waits for each to return. Under a gate scope each drive is canceled with errGateDetach,
-// which leaves its capture's gate running under its holder for a restarted orreryd to re-adopt. Without one the cancel
-// kills the gate. A capture that has ended is recorded even so, but a canceled drive starts no judge, so its run is left
-// judging with no judge step for a restart's Resume to give the verdict. A capture cut short before its gate launched is
-// recorded as nothing, so its run stays capturing for a restart to run it. Run returns an error from then on.
+// Close cancels every drive and waits for each to return. A supplied run whose read has ended is recorded even so, but a
+// canceled drive starts no judge, so its run is left judging with no judge step for a restart's Resume to give the verdict. A
+// read cut short is recorded as nothing, so its run stays capturing for a restart to read it again. Run returns an error from
+// then on.
 func (e *Evidence) Close() {
 	defer e.calls.enter()()
 	e.mu.Lock()
 	e.closed = true
-	var cause error
-	if e.captures.gateScope != "" {
-		cause = errGateDetach
-	}
 	for _, cancel := range e.cancels {
-		cancel(cause)
+		cancel(nil)
 	}
 	e.mu.Unlock()
 	e.drives.Wait()
@@ -342,9 +357,8 @@ func evidenceRunFile(run store.EvidenceRun, name string) (string, string, error)
 	return "", "", fmt.Errorf("artifact %s of evidence run %s: %w", name, run.ID, ErrNoEvidenceArtifact)
 }
 
-// start drives run at repo in the background, under a context that Close cancels, with errGateDetach under a gate scope, and
-// that finish cancels with nil. It returns an error when the runner is closed, and the run then stays as it was stored for a
-// restart to resume.
+// start drives run at repo in the background, under a context that Close cancels, and that finish cancels with nil. It returns
+// an error when the runner is closed, and the run then stays as it was stored for a restart to resume.
 func (e *Evidence) start(ctx context.Context, repo string, run store.EvidenceRun) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -370,11 +384,10 @@ func (e *Evidence) finish(id string) {
 	}
 }
 
-// drive runs run to its verdict. A captured run's capture, or a supplied run's reading of its files, is recorded (see
-// recordCapture), even when ctx has ended, and a run whose capture captured nothing ends there. A drive whose ctx has ended
-// then stops before judging, and a Resume gives the judge. Otherwise its judge gives the verdict. A capture whose gate
-// detaches records nothing, so the next restart re-adopts it, and so does one cut short before its gate launched or a
-// supplied read cut short.
+// drive runs the supplied run to its verdict. Its reading of its files is recorded (see recordCapture), even when ctx has
+// ended, and a run whose reading captured nothing ends there. A drive whose ctx has ended then stops before judging, and a
+// Resume gives the judge. Otherwise its judge gives the verdict. A read cut short records nothing, so the next restart reads
+// the files again.
 func (e *Evidence) drive(ctx context.Context, repo string, run store.EvidenceRun) {
 	capture, err := e.capture(ctx, repo, run)
 	if err != nil {
@@ -414,36 +427,14 @@ func (e *Evidence) recordJudge(ctx context.Context, id, step string) error {
 	return nil
 }
 
-// capture captures run at repo's revision, or reads its supplied files. A captured run's grant and holder are recorded when
-// its grant holds, before its gate launches. It returns an error when the gate detaches, and when ctx ends before the capture
-// has ended: before its gate launched, or before its supplied files were read. Nothing ran then, so nothing is recorded.
+// capture reads the supplied files of run at repo's revision. A read that ctx cut short has not ended, so it returns an error
+// and a restart reads the files again rather than recording the cut.
 func (e *Evidence) capture(ctx context.Context, repo string, run store.EvidenceRun) (store.EvidenceCapture, error) {
-	if run.Source == evidence.SourceSupplied {
-		capture := readSupplied(ctx, repo, run.Revision, run.Spec.Supplied, e.blobs)
-		// A read that ctx cut short has not ended, so a restart reads the files again rather than recording the cut.
-		if capture.NotCaptured != "" && ctx.Err() != nil {
-			return store.EvidenceCapture{}, fmt.Errorf("read evidence run %s: %w", run.ID, ctx.Err())
-		}
-		return capture, nil
+	capture := readSupplied(ctx, repo, run.Revision, run.Spec.Supplied, e.blobs)
+	if capture.NotCaptured != "" && ctx.Err() != nil {
+		return store.EvidenceCapture{}, fmt.Errorf("read evidence run %s: %w", run.ID, ctx.Err())
 	}
-	launched := false
-	started := func(startCtx context.Context, grant, holder string) error {
-		// A refused record is tried again until it lands, since a gate whose grant is unrecorded does not launch. Each try
-		// runs on startCtx, so a cut ends the record unmade and the run is left for a restart.
-		if err := e.retry(startCtx, "evidence grant", run.ID,
-			func(context.Context) error { return e.store.SetEvidenceGrant(startCtx, run.ID, grant, holder) },
-		); err != nil {
-			return fmt.Errorf("record grant of evidence run %s: %w", run.ID, err)
-		}
-		launched = true
-		return nil
-	}
-	capture, err := e.captures.run(ctx, repo, run.Revision, run.ID, run.Spec, started)
-	// A capture that ctx cut short before its gate launched has not ended, so a restart runs it rather than recording the cut.
-	if err == nil && !launched && ctx.Err() != nil {
-		return store.EvidenceCapture{}, fmt.Errorf("capture evidence run %s: %w", run.ID, ctx.Err())
-	}
-	return capture, err
+	return capture, nil
 }
 
 // evidenceRunCaptured returns run with the exit, timeout, logs and artifacts its capture left, which the judge reads.

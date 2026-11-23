@@ -104,6 +104,7 @@ func featureReadEvidence(t *testing.T, st *store.Store, steps EvidenceSteps) *Ev
 		Steps:    steps,
 		StateDir: t.TempDir(),
 		Now:      featureReadNow,
+		Briefs:   st,
 		After: func(time.Duration) <-chan time.Time {
 			fired := make(chan time.Time, 1)
 			fired <- featureReadNow()

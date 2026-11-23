@@ -2,7 +2,6 @@ package enginehost
 
 import (
 	"fmt"
-	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -116,17 +115,12 @@ func briefJudgeNew(
 	t *testing.T, st *store.Store, steps EvidenceSteps, after func(time.Duration) <-chan time.Time,
 ) *Evidence {
 	t.Helper()
-	home := t.TempDir()
-	stepGateWriteFile(t, filepath.Join(home, "orrery", "pools.toml"), stepGatePoolsText("gate"))
 	ev := NewEvidence(EvidenceConfig{
-		Store:        st,
-		Steps:        steps,
-		Pools:        &fakeGatePools{},
-		Environ:      gateEnv("XDG_CONFIG_HOME=" + home),
-		StateDir:     t.TempDir(),
-		GateStateDir: gateShortStateDir(t),
-		After:        after,
-		Briefs:       st,
+		Store:    st,
+		Steps:    steps,
+		StateDir: t.TempDir(),
+		After:    after,
+		Briefs:   st,
 	})
 	t.Cleanup(ev.Close)
 	return ev
@@ -138,7 +132,7 @@ func briefJudgeAttach(t *testing.T, st *store.Store, ev *Evidence, brief briefJu
 	t.Helper()
 	briefJudgeAddBrief(t, st, brief)
 	evidenceAttachGather(t, st)
-	rig, captures := evidenceAttachCaptures(t, st)
+	rig, captures := evidenceAttachCaptures(t, st, ev)
 	capture := evidenceAttachGathererCapture(t, rig, captures, brief.revision, []string{brief.id})
 	if _, err := ev.Attach(t.Context(), captureTestGatherer, capture.ID, []string{brief.id}); err != nil {
 		t.Fatalf("Attach capture %s: %v", capture.ID, err)
@@ -236,7 +230,7 @@ func TestBriefJudgeAttachStartsOneJudgePerBrief(t *testing.T) {
 		})
 	}
 	evidenceAttachGather(t, st)
-	rig, captures := evidenceAttachCaptures(t, st)
+	rig, captures := evidenceAttachCaptures(t, st, ev)
 	capture := evidenceAttachGathererCapture(t, rig, captures, base, briefs)
 	if _, err := ev.Attach(t.Context(), captureTestGatherer, capture.ID, briefs); err != nil {
 		t.Fatalf("Attach capture %s: %v", capture.ID, err)

@@ -1310,12 +1310,10 @@ func sessionState(getenv func(string) string) (string, []string, error) {
 	return stateDir, environ, nil
 }
 
-// startEvidence builds the evidence runner over st, the steps and the pools, with its blobs and capture worktrees under
-// stateDir and its gates under stateDir/gates, and takes up the open evidence runs a previous run left. A failure to take
-// them up is logged and serving goes on. Its gates run in environ, under the holder scope and its memory cap that opts
-// name. Beside it, startCaptures builds the capture runner and takes up its captures. The gatherer runner is built
-// over the store and the steps, and takes up the gatherers a previous run left; the evidence runner wakes it for the
-// epics whose briefs wait.
+// startEvidence builds the evidence runner over st and the steps, with its blobs under stateDir, and takes up the open
+// evidence runs a previous run left. A failure to take them up is logged and serving goes on. Captured items are filed as
+// briefs for the gatherers, which startCaptures' captures answer, and the gatherer runner is built over the store and the
+// steps, and takes up the gatherers a previous run left. The evidence runner wakes it for the epics whose briefs wait.
 func (h *sessionHost) startEvidence(
 	ctx context.Context,
 	st *store.Store,
@@ -1332,16 +1330,12 @@ func (h *sessionHost) startEvidence(
 		Logger:  logger,
 	})
 	h.evidence = enginehost.NewEvidence(enginehost.EvidenceConfig{
-		Store:        st,
-		Steps:        h.steps,
-		Pools:        h.pools,
-		Environ:      environ,
-		StateDir:     stateDir,
-		GateStateDir: filepath.Join(stateDir, "gates"),
-		GateScope:    opts.holderScope,
-		Logger:       logger,
-		Briefs:       st,
-		Gatherers:    h.gatherers,
+		Store:     st,
+		Steps:     h.steps,
+		StateDir:  stateDir,
+		Logger:    logger,
+		Briefs:    st,
+		Gatherers: h.gatherers,
 	})
 	if err := h.evidence.Resume(ctx); err != nil {
 		logger.ErrorContext(ctx, "resume evidence runs, serving anyway", "error", err)

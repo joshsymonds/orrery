@@ -3,7 +3,6 @@ package enginehost
 import (
 	"errors"
 	"fmt"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -23,20 +22,15 @@ func evidenceAttachCat() []string {
 	return []string{"/bin/sh", "-c", "cat marker"}
 }
 
-// evidenceAttachNew returns an Evidence over st and steps that attaches the briefs of st, under scratch state directories
-// with fake pools. Close runs when the test ends.
+// evidenceAttachNew returns an Evidence over st and steps that attaches the briefs of st, under a scratch state directory.
+// Close runs when the test ends.
 func evidenceAttachNew(t *testing.T, st *store.Store, steps EvidenceSteps) *Evidence {
 	t.Helper()
-	home := t.TempDir()
-	stepGateWriteFile(t, filepath.Join(home, "orrery", "pools.toml"), stepGatePoolsText("gate"))
 	ev := NewEvidence(EvidenceConfig{
-		Store:        st,
-		Steps:        steps,
-		Pools:        &fakeGatePools{},
-		Environ:      gateEnv("XDG_CONFIG_HOME=" + home),
-		StateDir:     t.TempDir(),
-		GateStateDir: gateShortStateDir(t),
-		Briefs:       st,
+		Store:    st,
+		Steps:    steps,
+		StateDir: t.TempDir(),
+		Briefs:   st,
 	})
 	t.Cleanup(ev.Close)
 	return ev
@@ -100,10 +94,12 @@ func evidenceAttachGather(t *testing.T, st *store.Store) {
 }
 
 // evidenceAttachCaptures returns a rig over st and the Captures of it, where captureTestGatherer is a running step as well as
-// captureTestStep, so either may ask for a capture.
-func evidenceAttachCaptures(t *testing.T, st *store.Store) (captureTestRig, *Captures) {
+// captureTestStep, so either may ask for a capture. The rig keeps its blobs under the state directory of ev, which judges the
+// briefs the captures answer and reads their logs there.
+func evidenceAttachCaptures(t *testing.T, st *store.Store, ev *Evidence) (captureTestRig, *Captures) {
 	t.Helper()
 	rig := captureTestNewRig(t, captureTestStore{Store: st, gatherer: captureTestGatherer}, "")
+	rig.stateDir = evidenceRunStateDir(ev)
 	rig.steps[captureTestGatherer] = store.StepRow{ID: captureTestGatherer}
 	return rig, rig.captures(t)
 }
@@ -194,10 +190,10 @@ func TestEvidenceAttachOneCaptureAttachesToTwoBriefs(t *testing.T) {
 	st := epicTestStore(t)
 	briefs := evidenceAttachSeed(t, st, repo, base, 2)
 	evidenceAttachGather(t, st)
-	rig, captures := evidenceAttachCaptures(t, st)
-	capture := evidenceAttachGathererCapture(t, rig, captures, base, briefs)
 	steps := &evidenceRunSteps{judges: []evidenceRunJudge{evidenceRunHolds(), evidenceRunHolds()}}
 	ev := evidenceAttachNew(t, st, steps)
+	rig, captures := evidenceAttachCaptures(t, st, ev)
+	capture := evidenceAttachGathererCapture(t, rig, captures, base, briefs)
 
 	attached, err := ev.Attach(t.Context(), captureTestGatherer, capture.ID, briefs)
 	if err != nil {
@@ -236,11 +232,11 @@ func TestEvidenceAttachEarlierCaptureAttachesToABrief(t *testing.T) {
 	evidenceAttachAddEpic(t, st, evidenceAttachOtherEpic, repo, base)
 	evidenceAttachAddBrief(t, st, evidenceAttachOtherEpic, "other-brief", base)
 	evidenceAttachGather(t, st)
-	rig, captures := evidenceAttachCaptures(t, st)
-	earlier := evidenceAttachAsk(t, rig, captures, captureTestStep, base, evidenceAttachCat(),
-		[]string{"other-brief"}, []string{"marker"})
 	steps := &evidenceRunSteps{judges: []evidenceRunJudge{evidenceRunHolds()}}
 	ev := evidenceAttachNew(t, st, steps)
+	rig, captures := evidenceAttachCaptures(t, st, ev)
+	earlier := evidenceAttachAsk(t, rig, captures, captureTestStep, base, evidenceAttachCat(),
+		[]string{"other-brief"}, []string{"marker"})
 
 	if _, err := ev.Attach(t.Context(), captureTestGatherer, earlier.ID, briefs); err != nil {
 		t.Fatalf("Attach earlier capture %s: %v", earlier.ID, err)
@@ -264,10 +260,10 @@ func TestEvidenceAttachRefusesACallerThatIsNotTheRunningGatherer(t *testing.T) {
 	st := epicTestStore(t)
 	briefs := evidenceAttachSeed(t, st, repo, base, 1)
 	evidenceAttachGather(t, st)
-	rig, captures := evidenceAttachCaptures(t, st)
-	capture := evidenceAttachGathererCapture(t, rig, captures, base, briefs)
 	steps := &evidenceRunSteps{}
 	ev := evidenceAttachNew(t, st, steps)
+	rig, captures := evidenceAttachCaptures(t, st, ev)
+	capture := evidenceAttachGathererCapture(t, rig, captures, base, briefs)
 
 	for _, caller := range []string{captureTestStep, "no-such-step"} {
 		_, err := ev.Attach(t.Context(), caller, capture.ID, briefs)
@@ -290,10 +286,10 @@ func TestEvidenceAttachRefusesACaptureAtAnotherCommit(t *testing.T) {
 	st := epicTestStore(t)
 	briefs := evidenceAttachSeed(t, st, repo, base, 1)
 	evidenceAttachGather(t, st)
-	rig, captures := evidenceAttachCaptures(t, st)
-	capture := evidenceAttachGathererCapture(t, rig, captures, newer, briefs)
 	steps := &evidenceRunSteps{}
 	ev := evidenceAttachNew(t, st, steps)
+	rig, captures := evidenceAttachCaptures(t, st, ev)
+	capture := evidenceAttachGathererCapture(t, rig, captures, newer, briefs)
 
 	_, err := ev.Attach(t.Context(), captureTestGatherer, capture.ID, briefs)
 	if !errors.Is(err, ErrAttachRefused) {
