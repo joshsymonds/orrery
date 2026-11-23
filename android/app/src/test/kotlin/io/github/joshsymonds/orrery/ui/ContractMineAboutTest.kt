@@ -21,6 +21,9 @@ import io.github.joshsymonds.orrery.awaitUntil
 import io.github.joshsymonds.orrery.gen.orrery.v1.Contract
 import io.github.joshsymonds.orrery.gen.orrery.v1.ContractsListResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.ConversationState
+import io.github.joshsymonds.orrery.gen.orrery.v1.Design
+import io.github.joshsymonds.orrery.gen.orrery.v1.DesignContract
+import io.github.joshsymonds.orrery.gen.orrery.v1.DesignsListResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsListResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.HeadlessSession
 import io.github.joshsymonds.orrery.gen.orrery.v1.SayRequest
@@ -45,6 +48,8 @@ private const val SAY_PATH = "/orrery.v1.Control/Say"
 private const val EPICS_LIST_PATH = "/orrery.v1.Epics/List"
 private const val CONTRACTS_LIST_PATH = "/orrery.v1.Contracts/List"
 private const val CONTRACT_GET_PATH = "/orrery.v1.Contracts/Get"
+private const val DESIGNS_LIST_PATH = "/orrery.v1.Designs/List"
+private const val DESIGN_ID = "synthetic-design"
 private const val ABOUT_ROW = "R1"
 private const val ABOUT_TEXT = "Synthetic requirement text"
 private const val DRAFT = "Synthetic draft"
@@ -69,6 +74,7 @@ class ContractMineAboutTest {
         server.respond(CONTRACTS_LIST_PATH, ContractsListResponse.newBuilder().addContracts(listed()).build())
         server.respond(CONTRACT_GET_PATH, contractRecordProto(state = "proposed", versions = listOf(contractVersionProto(1))))
         server.respond(SAY_PATH, SayResponse.getDefaultInstance())
+        server.respond(DESIGNS_LIST_PATH, DesignsListResponse.newBuilder().addDesigns(ofOneDesign()).build())
         serveSession()
     }
 
@@ -86,6 +92,27 @@ class ContractMineAboutTest {
         .setState("proposed")
         .setVersion(1L)
         .setConversation(CONTRACT_SESSION)
+        .build()
+
+    /**
+     * A design of one the conversation works: its one contract, [RECORD_ID], with no epic made from it, so the design's
+     * work link opens the contract.
+     */
+    private fun ofOneDesign(): Design = Design.newBuilder()
+        .setId(DESIGN_ID)
+        .setTitle("Synthetic design")
+        .setConversation(CONTRACT_SESSION)
+        .setCreated(NOW - 120)
+        .setOfOne(true)
+        .setState("proposed")
+        .addContracts(
+            DesignContract.newBuilder()
+                .setId(RECORD_ID)
+                .setTitle("Synthetic contract title")
+                .setRepository("synthetic-owner")
+                .setState("proposed")
+                .setPosition(1L),
+        )
         .build()
 
     /** Streams the live headless session [CONTRACT_SESSION]. */
@@ -137,8 +164,8 @@ class ContractMineAboutTest {
 
     /** Opens the live contract from its tile, then presses the row control of [ABOUT_ROW], which returns to the conversation. */
     private fun pressRowControlFromTheContract() {
-        awaitNode(hasTestTag("tile:contract:$RECORD_ID"))
-        composeRule.onNodeWithTag("tile:contract:$RECORD_ID").performClick()
+        awaitNode(hasTestTag("work-link:contract:$RECORD_ID"))
+        composeRule.onNodeWithTag("work-link:contract:$RECORD_ID").performClick()
         awaitNode(hasTestTag("contract-talk:$ABOUT_ROW"))
         composeRule.onNodeWithTag("contract-talk:$ABOUT_ROW").performClick()
         awaitNode(hasTestTag("dock-about"))

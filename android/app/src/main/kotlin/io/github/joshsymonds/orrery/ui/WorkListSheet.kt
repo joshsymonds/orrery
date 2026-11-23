@@ -1,6 +1,5 @@
 package io.github.joshsymonds.orrery.ui
 
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -17,9 +16,6 @@ import androidx.compose.ui.text.withStyle
 import io.github.joshsymonds.orrery.api.BackgroundTask
 import io.github.joshsymonds.orrery.ui.theme.OrreryTokens
 import io.github.joshsymonds.orrery.ui.theme.inLabelCase
-
-/** One epic in the rail's picker: its [state], and whether it [asks] the phone a question. */
-data class PickerRow(val id: String, val slug: String, val state: String, val asks: Boolean)
 
 /**
  * The sub-agents or the shells left running for a conversation, one row per task. [now] and each task's
@@ -50,51 +46,6 @@ fun WorkListSheet(agents: Boolean, tasks: List<BackgroundTask>, now: Long, onDis
                 modifier = Modifier.testTag("list-lead"),
             )
             tasks.forEach { task -> WorkRow(task, now) }
-        }
-    }
-}
-
-/**
- * The picker a dots tile opens: a head of the epic count and [label], then one row per epic. An epic that asks
- * the phone a question names its state in the attention tone. Tapping a row calls [onOpen] with its id, then
- * [onDismiss].
- */
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun RailPickerSheet(label: String, rows: List<PickerRow>, onOpen: (String) -> Unit, onDismiss: () -> Unit) {
-    ModalBottomSheet(onDismissRequest = onDismiss) {
-        Column(
-            Modifier.fillMaxWidth()
-                .padding(horizontal = OrreryTokens.Space.sixteen, vertical = OrreryTokens.Space.eight),
-        ) {
-            Text(
-                text = "${rows.size} $label".inLabelCase(),
-                style = OrreryTokens.Type.label,
-                color = OrreryTokens.Ink.two,
-                modifier = Modifier.testTag("picker-head"),
-            )
-            rows.forEach { row ->
-                val tone = if (row.asks) OrreryTokens.Role.attention else OrreryTokens.Ink.two
-                Column(
-                    Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = OrreryTokens.Space.eight)
-                        .clickable {
-                            onOpen(row.id)
-                            onDismiss()
-                        }
-                        .testTag("picker-row:${row.id}")
-                        .semantics(mergeDescendants = true) {},
-                ) {
-                    Text(text = row.slug, style = OrreryTokens.Type.small, color = OrreryTokens.Ink.one)
-                    Text(
-                        text = buildAnnotatedString {
-                            withStyle(SpanStyle(color = tone)) { append(row.state) }
-                        },
-                        style = OrreryTokens.Type.small,
-                    )
-                }
-            }
         }
     }
 }
