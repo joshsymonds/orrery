@@ -1,5 +1,5 @@
-// The stories of AccountsPage: the page at the wide width and at the narrow one. The page is drawn over the fixture's
-// accounts and routes, which the stub does not read yet.
+// The stories of AccountsPage: the page at the wide width and at the narrow one. The page reads the fixture's accounts and
+// routes on mount, and draws them.
 
 import { AccountsPage as AccountsPageView } from "./accountspage";
 import type { Stories } from "./catalog/story";
