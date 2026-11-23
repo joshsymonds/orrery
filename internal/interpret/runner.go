@@ -208,6 +208,7 @@ type Runner struct {
 	hosts      hostexec.Hosts
 	originMain func(ctx context.Context, host hostexec.Host, repository string) (string, error)
 	heldRetry  time.Duration
+	afterFunc  func(time.Duration, func())
 	getenv     func(string) string
 	ticks      <-chan time.Time
 	now        func() time.Time
@@ -218,6 +219,11 @@ type Runner struct {
 	mu     sync.Mutex
 	signal chan struct{}
 	woken  map[string]struct{}
+
+	// heldMu guards heldPending, the held epics with a retry armed (retryHeld) that has not fired yet. The timer that
+	// clears an epic's mark runs on its own goroutine.
+	heldMu      sync.Mutex
+	heldPending map[string]struct{}
 }
 
 // maxSteps is how many structural actions one pass carries out for an epic before the next pass continues from the
@@ -240,8 +246,9 @@ func New(cfg Config) *Runner {
 			kindEvidence: kinds.Evidence{}, kindOwned: kinds.Owned{}, kindAgent: kinds.Agent{}, kindCost: kinds.Cost{},
 			kindIntegrate: kinds.Integrate{}, kindRelease: kinds.Release{},
 		},
-		signal: make(chan struct{}, 1),
-		woken:  make(map[string]struct{}),
+		signal:      make(chan struct{}, 1),
+		woken:       make(map[string]struct{}),
+		heldPending: make(map[string]struct{}),
 	}
 	if cfg.Reviewers != nil && cfg.Ending != nil {
 		runner.kinds[reviewNodeKind] = kinds.Review{}
@@ -262,6 +269,9 @@ func New(cfg Config) *Runner {
 	}
 	if runner.heldRetry == 0 {
 		runner.heldRetry = defaultHeldRetry
+	}
+	runner.afterFunc = func(d time.Duration, f func()) {
+		time.AfterFunc(d, f)
 	}
 	if runner.logger == nil {
 		runner.logger = slog.New(slog.DiscardHandler)
