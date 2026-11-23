@@ -32,6 +32,10 @@ func (s *contractService) ReviseContract(
 	if err := s.checkContract(ctx, id, contract, decisions); err != nil {
 		return nil, err
 	}
+	warnings, err := s.contractLengthWarnings(contract, decisions)
+	if err != nil {
+		return nil, err
+	}
 	if req.Msg.GetWords() == "" {
 		return nil, refuseEpic(connect.CodeInvalidArgument, "words: empty")
 	}
@@ -67,7 +71,7 @@ func (s *contractService) ReviseContract(
 	if err != nil {
 		return nil, err
 	}
-	return connect.NewResponse(&v1.ReviseContractResponse{Contract: stored}), nil
+	return connect.NewResponse(&v1.ReviseContractResponse{Contract: stored, Warnings: warnings}), nil
 }
 
 // reviseRefusal returns the refusal a store revise of the contract id gets.
