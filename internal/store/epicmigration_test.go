@@ -1053,8 +1053,8 @@ func limitToldDownAndUp() migrationCheck {
 	}
 }
 
-// releaseDownAndUp is the walk's check of 00038_release.sql: its Down removes the release run table, and its Up restores
-// it.
+// releaseDownAndUp is the walk's check of 00038_release.sql: its Down removes the release run table, and its Up
+// restores it.
 func releaseDownAndUp() migrationCheck {
 	return migrationCheck{
 		down: func(t *testing.T, s *Store) {

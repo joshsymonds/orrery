@@ -8,10 +8,10 @@ import (
 	"time"
 )
 
-// This file checks migration 00097_drop_release_slots.sql, which drops epic_release_slots and changes no other table. A
-// store at version 95 holds epics in each release phase, each with a release run, and the slot rows of an epic and of
-// an outside label. Open migrates it to the newest version: the table is gone, and every epic reads back with the phase,
-// park and release run it had.
+// This file checks migration 00097_drop_release_slots.sql, which drops epic_release_slots and changes no other table.
+// A store at version 95 holds epics in each release phase, each with a release run, and the slot rows of an epic and
+// of an outside label. Open migrates it to the newest version: the table is gone, and every epic reads back with the
+// phase, park and release run it had.
 
 // dropSeed is an epic TestReleaseSlotsDropKeepsEpics seeds at version 95, with the phase, park and release run it reads
 // back with after the migration.
