@@ -37,7 +37,7 @@ const ladderRoleRungsSentence = "Rungs 1 and 2 are its two attempts, rung 3 one 
 // ladderRoleApproachTriggerSentence is the sentence on the trigger a task climbing onto rung 4 wakes the planner with,
 // and on when it returns split in place of change_approach.
 const ladderRoleApproachTriggerSentence = "A task that climbs onto rung 4 wakes you with the trigger T<n>-approach: " +
-	"return split in place of change_approach when the task's failures show it is two or more separable behaviours " +
+	"return split in place of change_approach when the task's failures show it is two or more separable behaviors " +
 	"whose files part cleanly, and otherwise return one change_approach action for it, written from its rungs, its " +
 	"versions and its failure, and plan no task in its place."
 
