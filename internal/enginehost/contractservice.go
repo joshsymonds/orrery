@@ -11,9 +11,11 @@ import (
 	"connectrpc.com/connect"
 	"google.golang.org/protobuf/encoding/protojson"
 
+	"github.com/joshsymonds/orrery/internal/contracttext"
 	v1 "github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1"
 	"github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1/enginev1connect"
 	"github.com/joshsymonds/orrery/internal/hostexec"
+	"github.com/joshsymonds/orrery/internal/settings"
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
@@ -84,6 +86,10 @@ func (s *contractService) ProposeContract(
 	if err := s.checkContract(ctx, id, contract, req.Msg.GetDecisions()); err != nil {
 		return nil, err
 	}
+	warnings, err := s.contractLengthWarnings(contract, req.Msg.GetDecisions())
+	if err != nil {
+		return nil, err
+	}
 	writer, err := s.contractWriter(ctx, req.Header())
 	if err != nil {
 		return nil, err
@@ -115,7 +121,7 @@ func (s *contractService) ProposeContract(
 	if err != nil {
 		return nil, err
 	}
-	return connect.NewResponse(&v1.ProposeContractResponse{Contract: stored}), nil
+	return connect.NewResponse(&v1.ProposeContractResponse{Contract: stored, Warnings: warnings}), nil
 }
 
 // controllerHost returns the Host that runs a contract's git before its epic exists: the controller's, which Hosts
@@ -139,21 +145,58 @@ func (s *contractService) checkContract(
 	if id != contract.GetId() {
 		return refuseEpic(connect.CodeInvalidArgument, "id: differs from the contract's id")
 	}
-	getenv := s.contracts.Getenv
-	if getenv == nil {
-		getenv = os.Getenv
-	}
 	host, err := s.controllerHost()
 	if err != nil {
 		return epicStoreError(err)
 	}
-	if err = checkContractBody(ctx, host, contract, getenv); err != nil {
+	if err = checkContractBody(ctx, host, contract, s.contractGetenv()); err != nil {
 		return refuseEpic(connect.CodeInvalidArgument, err.Error())
+	}
+	if !contracttext.QualityBarLine(contract.GetChecks()) {
+		return refuseEpic(connect.CodeInvalidArgument, "checks: the Quality Bar line is not verbatim")
 	}
 	if err = checkContractDecisions(decisions); err != nil {
 		return refuseEpic(connect.CodeInvalidArgument, err.Error())
 	}
 	return nil
+}
+
+// contractGetenv returns the environment a contract's checks and settings resolve in: the Contracts' Getenv, or the
+// process environment when it has none.
+func (s *contractService) contractGetenv() func(string) string {
+	if s.contracts.Getenv == nil {
+		return os.Getenv
+	}
+	return s.contracts.Getenv
+}
+
+// contractLengthWarnings returns the length warning a contract with decisions gives, at the thresholds the settings
+// file sets. Lines above the checks from strong_warn_lines up give one stronger warning, which tells the writer to
+// cut or split; from warn_lines below strong_warn_lines they give one warning; below warn_lines they give none.
+// Length never refuses. A settings file that does not read is the only refusal, and it is returned as the error.
+func (s *contractService) contractLengthWarnings(
+	contract *v1.EpicContract,
+	decisions []*v1.ContractDecision,
+) ([]string, error) {
+	lengths, err := settings.ContractLengths(s.contractGetenv())
+	if err != nil {
+		return nil, epicStoreError(err)
+	}
+	lines := contracttext.LinesAboveChecks(contract, decisions)
+	switch {
+	case lines >= lengths.StrongWarnLines:
+		return []string{fmt.Sprintf(
+			"contract: %d lines above the checks, at or past the strong warning of %d lines: cut or split it",
+			lines, lengths.StrongWarnLines,
+		)}, nil
+	case lines >= lengths.WarnLines:
+		return []string{fmt.Sprintf(
+			"contract: %d lines above the checks, at or past the warning of %d lines",
+			lines, lengths.WarnLines,
+		)}, nil
+	default:
+		return nil, nil
+	}
 }
 
 // callerSession returns the sessions row the call's caller resolves to, and whether it resolves to one.

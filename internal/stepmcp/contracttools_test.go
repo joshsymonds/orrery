@@ -17,6 +17,7 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	"github.com/joshsymonds/orrery/internal/cli"
+	"github.com/joshsymonds/orrery/internal/contracttext"
 	"github.com/joshsymonds/orrery/internal/enginehost"
 	v1 "github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1"
 	"github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1/enginev1connect"
@@ -177,7 +178,7 @@ func contractTestBody(repo, base string) map[string]any {
 			{"step": "Synthetic release one.", "target": "Synthetic target one.", "undo": "Synthetic undo one."},
 		},
 		"releaseThen": "Synthetic release line.",
-		"checks":      "go test ./...",
+		"checks":      "go test ./...\nQuality Bar: " + contracttext.QualityBar,
 		"base":        base,
 		"gates": []map[string]any{
 			{"name": "check", "argv": []string{"scripts/check"}, "limit": 60},
