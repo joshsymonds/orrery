@@ -872,8 +872,8 @@ func (r *treeRun) send(keys ...string) {
 }
 
 // sendRendered sends key and waits until the tree has written output after it. A key the tree reads redraws the
-// frame, so the new output shows the key was read on its own, and a key sent next is not read together with it. Only
-// a key that changes the frame can be sent this way.
+// frame, but so does the reload tick, so the new output does not show the key was read on its own, and a key sent
+// next is not read together with it. Only a key that changes the frame can be sent this way.
 func (r *treeRun) sendRendered(key string) {
 	r.t.Helper()
 	mark := r.out.Len()
