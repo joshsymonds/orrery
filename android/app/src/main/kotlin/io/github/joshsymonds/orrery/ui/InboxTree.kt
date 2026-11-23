@@ -1,6 +1,7 @@
 package io.github.joshsymonds.orrery.ui
 
 import io.github.joshsymonds.orrery.api.ContractRow
+import io.github.joshsymonds.orrery.api.DesignRow
 import io.github.joshsymonds.orrery.api.EpicDetail
 import io.github.joshsymonds.orrery.api.EpicRow
 import io.github.joshsymonds.orrery.api.Pane
@@ -24,6 +25,14 @@ internal data class ContractNode(val contract: ContractRow) : Hung {
 }
 
 /**
+ * A design drawn in the tree: its [design] row and the [kids] hung under it. Not a [Hung]: a design is a block of its
+ * own, not a row that hangs under a conversation.
+ */
+internal data class DesignBlock(val design: DesignRow, val kids: List<Hung>) {
+    val key: String = "design:${design.id}"
+}
+
+/**
  * Which row a [Convo] is: [NONE] for a conversation's own row, [UNLISTED] for what steers with no listed conversation,
  * and [ARCHIVED] for what steers with an archived conversation.
  */
@@ -32,7 +41,7 @@ internal enum class StandIn { NONE, UNLISTED, ARCHIVED }
 /**
  * One row of a project. [pane] is the conversation's pane or headless session, null for a stand-in. [again] is true for
  * a conversation drawn a second time behind the ended line as the parent of its ended epics. [hung] is what hangs under
- * the row.
+ * the row. [designs] are the designs the row's conversation works, drawn under it, none by default.
  */
 internal data class Convo(
     val key: String,
@@ -40,6 +49,7 @@ internal data class Convo(
     val standIn: StandIn,
     val again: Boolean,
     val hung: List<Hung>,
+    val designs: List<DesignBlock> = emptyList(),
 )
 
 /**
