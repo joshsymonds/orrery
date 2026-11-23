@@ -155,7 +155,7 @@ func TestListHeadlessAnswersRecentEngineRows(t *testing.T) {
 // event in the retention window.
 func insertStepEvent(t *testing.T, path, id string, at time.Time) {
 	t.Helper()
-	db, err := sql.Open("sqlite", path)
+	db, err := sql.Open("sqlite3", path)
 	if err != nil {
 		t.Fatalf("open store for step event: %v", err)
 	}
@@ -247,7 +247,7 @@ func TestListHeadlessReturnsInternalWhenStampDoesNotParse(t *testing.T) {
 	if err := s.Close(); err != nil {
 		t.Fatalf("Close store: %v", err)
 	}
-	db, err := sql.Open("sqlite", path)
+	db, err := sql.Open("sqlite3", path)
 	if err != nil {
 		t.Fatalf("open store to corrupt changed: %v", err)
 	}

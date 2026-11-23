@@ -128,7 +128,7 @@ func seedVerdict(t *testing.T, path, id string, verdict store.ReviewVerdict) {
 // execStoreFile runs query with args against the store file at path.
 func execStoreFile(t *testing.T, path, query string, args ...any) {
 	t.Helper()
-	db, err := sql.Open("sqlite", path)
+	db, err := sql.Open("sqlite3", path)
 	if err != nil {
 		t.Fatalf("open store file: %v", err)
 	}

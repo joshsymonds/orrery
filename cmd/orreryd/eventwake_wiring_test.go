@@ -278,7 +278,7 @@ func recordWakeCreator(t *testing.T, st *store.Store, session string) {
 func steerWakeEpic(t *testing.T, path, session string) {
 	t.Helper()
 	dsn := (&url.URL{Scheme: "file", Path: path, RawQuery: "_busy_timeout=5000"}).String()
-	db, err := sql.Open("sqlite", dsn)
+	db, err := sql.Open("sqlite3", dsn)
 	if err != nil {
 		t.Fatalf("open %s: %v", path, err)
 	}

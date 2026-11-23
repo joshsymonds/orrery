@@ -209,7 +209,7 @@ func TestSnapshotReturnsUnavailableWhileStoreIsWriteLocked(t *testing.T) {
 	}
 
 	// An exclusive-locking connection holds the file against other connections, so readers cannot read it.
-	holder, err := sql.Open("sqlite", path)
+	holder, err := sql.Open("sqlite3", path)
 	if err != nil {
 		t.Fatalf("open lock holder: %v", err)
 	}
@@ -358,7 +358,7 @@ func TestReaderOpenRejectsWrites(t *testing.T) {
 	}
 	eventsBefore := eventsOf(t, s)
 
-	db, err := sql.Open("sqlite", readOnlyDSN(path))
+	db, err := sql.Open("sqlite3", readOnlyDSN(path))
 	if err != nil {
 		t.Fatalf("open reader database: %v", err)
 	}

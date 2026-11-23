@@ -893,7 +893,7 @@ func (w *integrateWorld) requireNoPark() {
 		w.t.Errorf("epic parked %q as %q with questions %+v, want no park", epic.Parked, epic.ParkClass,
 			epic.Questions)
 	}
-	db, err := sql.Open("sqlite", w.path)
+	db, err := sql.Open("sqlite3", w.path)
 	if err != nil {
 		w.t.Fatalf("open store file: %v", err)
 	}
