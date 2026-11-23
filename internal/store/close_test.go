@@ -2,7 +2,6 @@ package store
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"testing"
 	"time"
@@ -153,24 +152,24 @@ func TestCloseEpicEndsTheRunningTurnNodeRunsAndTriggers(t *testing.T) {
 	}
 }
 
-// TestCloseEpicFreesTheHeldReleaseSlot closes an epic that holds its repository's release slot, and checks that the slot
-// is free afterwards.
-func TestCloseEpicFreesTheHeldReleaseSlot(t *testing.T) {
+// TestCloseEpicOfAReleasingEpicLeavesItsRepositoryFree closes an epic that is releasing, and checks that it is closed
+// and that a clean epic of its repository starts its release at once afterwards.
+func TestCloseEpicOfAReleasingEpicLeavesItsRepositoryFree(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
+	const sibling = "orrery-1a2b3c4/epic-sibling"
 	s := openEpicStore(t)
 	row := fullEpic(claimEpic)
 	row.Phase = PhaseClean
 	createEpic(t, s, row)
-	if _, err := s.TakeReleaseSlot(ctx, claimEpic, claimedAt()); err != nil {
-		t.Fatalf("TakeReleaseSlot: %v", err)
-	}
-	slot, err := s.fixtureQueries().GetEpicReleaseSlotHolder(ctx, row.Repository)
-	if err != nil || slot.Epic != claimEpic {
-		t.Fatalf("slot holder before the close = %q, %v; want %s", slot.Epic, err, claimEpic)
+	other := fullEpic(sibling)
+	other.Phase = PhaseClean
+	createEpic(t, s, other)
+	if err := s.StartRelease(ctx, claimEpic, claimedAt()); err != nil {
+		t.Fatalf("StartRelease: %v", err)
 	}
 
-	if _, err = s.CloseEpic(
+	if _, err := s.CloseEpic(
 		ctx,
 		claimEpic,
 		"abandoned",
@@ -181,8 +180,14 @@ func TestCloseEpicFreesTheHeldReleaseSlot(t *testing.T) {
 	); err != nil {
 		t.Fatalf("CloseEpic: %v", err)
 	}
-	if _, err = s.fixtureQueries().GetEpicReleaseSlotHolder(ctx, row.Repository); !errors.Is(err, sql.ErrNoRows) {
-		t.Errorf("slot holder after the close: err %v, want no holder", err)
+	if got := closeRow(t, s, claimEpic).Phase; got != PhaseClosedAbandoned {
+		t.Errorf("phase of the closed epic = %q, want %q", got, PhaseClosedAbandoned)
+	}
+	if err := s.StartRelease(ctx, sibling, closeAt()); err != nil {
+		t.Fatalf("StartRelease of %s: %v", sibling, err)
+	}
+	if got := closeRow(t, s, sibling).Phase; got != PhaseReleasing {
+		t.Errorf("phase of %s = %q, want %q", sibling, got, PhaseReleasing)
 	}
 }
 

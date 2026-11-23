@@ -17,7 +17,8 @@
 # foreground Bash tool call that never ends (see leftover), BGSELFHELD plays BGSELF but
 # holds the turn it starts by itself, after that turn's text block, until fakeclaude.open exists, BGSELFMID plays BGSELF's
 # background task, but the turn claude starts by itself reads the next line from stdin during a Bash tool call and takes it
-# in with the call's result (see bgselfmid), PAIR answers with one
+# in with the call's result (see bgselfmid), BGBASH and BGMONITOR start a background
+# shell task through a Bash or a Monitor tool call and play BGSELF's release (see bgtool), PAIR answers with one
 # assistant line that carries two finished text blocks, "fake pair n.1" and "fake pair n.2", SUBAGENT launches a
 # subagent in the background and ends its turn, then, once fakeclaude.release exists, streams the subagent's content with
 # no turn open and reads stdin again, SUBAGENTSELF plays SUBAGENT and then starts a turn by itself once fakeclaude.open
@@ -460,6 +461,35 @@ bgself() {
 	turn_close
 }
 
+# bgtool TOOL starts a background shell task through a TOOL tool call, Bash with run_in_background or Monitor, as
+# claude does: the tool_use, the task_started line that names its tool_use_id, the task listed, and the call's result.
+# It ends the turn with a not-done return while the task runs. Once fakeclaude.release exists in its directory, the task
+# completes and claude starts a turn by itself, as the task's notification does, which ends with a done return.
+bgtool() {
+	turn_open
+	assistant_line '{"type":"tool_use","id":"toolu_bgtool_'"$n"'","name":"'"$1"'","input":{"command":"fake long check","run_in_background":true}}'
+	printf '%s\n' '{"type":"system","subtype":"task_started","task_id":"task_fake_bgtool","tool_use_id":"toolu_bgtool_'"$n"'","description":"fake long check","task_type":"local_bash","session_id":"session_1","uuid":"uuid_t1"}'
+	printf '%s\n' '{"type":"system","subtype":"background_tasks_changed","tasks":[{"task_id":"task_fake_bgtool","task_type":"local_bash","description":"fake long check"}],"session_id":"session_1","uuid":"uuid_t2"}'
+	printf '%s\n' '{"type":"user","message":{"role":"user","content":[{"type":"tool_result","content":"running in the background","tool_use_id":"toolu_bgtool_'"$n"'"}]},"parent_tool_use_id":null,"session_id":"session_1","uuid":"uuid_27","timestamp":"redacted"}'
+	text_block 0 "fake bgtool $n" "fake bgtool $n"
+	structured='{"status":"blocked","summary":"fake check still running"}'
+	turn_close
+	while [ ! -e fakeclaude.release ]; do
+		sleep 0.05
+	done
+	printf '%s\n' '{"type":"system","subtype":"task_updated","task_id":"task_fake_bgtool","patch":{"status":"completed","end_time":0},"session_id":"session_1","uuid":"uuid_t4"}'
+	printf '%s\n' '{"type":"system","subtype":"task_notification","task_id":"task_fake_bgtool","status":"completed","output_file":"fake.output","summary":"fake long check","session_id":"session_1","uuid":"uuid_t5"}'
+	printf '%s\n' '{"type":"system","subtype":"background_tasks_changed","tasks":[],"session_id":"session_1","uuid":"uuid_t6"}'
+	answered='[]'
+	answers=
+	turn_open
+	text_block 0 "fake self $n" "fake self $n"
+	structured='{"status":"done","summary":"fake done"}'
+	origin='{"kind":"task-notification","producer":"session-task","runId":"run_fake"}'
+	result_index=1
+	turn_close
+}
+
 # bgselfmid starts a background task, streams a text block and ends the turn while the task runs, as background does. Once
 # fakeclaude.release exists in its directory, the task ends and claude starts a turn by itself, as the task's notification
 # does, with no prompt. That turn makes a Bash tool call and reads the next line from stdin while the call runs, then ends
@@ -788,6 +818,8 @@ while next; do
 				*BGAGENT*) mode=bgagent ;;
 				*BGEND*) mode=bgend ;;
 				*BGDONE*) mode=bgdone ;;
+				*BGBASH*) mode=bgbash ;;
+				*BGMONITOR*) mode=bgmonitor ;;
 				*BGSELFHELD*) mode=bgselfheld ;;
 				*BGSELFMID*) mode=bgselfmid ;;
 				*BGSELF*) mode=bgself ;;
@@ -831,6 +863,8 @@ while next; do
 				bgagent) background local_agent ;;
 				bgend) bgend ;;
 				bgdone) bgdone ;;
+				bgbash) bgtool Bash ;;
+				bgmonitor) bgtool Monitor ;;
 				bgselfheld) bgself held ;;
 				bgselfmid) bgselfmid ;;
 				bgself) bgself ;;

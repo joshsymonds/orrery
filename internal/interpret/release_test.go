@@ -21,8 +21,12 @@ const releaseNodePath = "release"
 // releaseFlow is the workflow the release tests pin: one release node at the top level.
 const releaseFlow = "name: release\nnodes:\n  - id: release\n    kind: release\n"
 
-// releaseSecondEpic is the epic of the test repository that waits behind runEpic for the release slot.
-const releaseSecondEpic = "orrery-1a2b3c4/epic-second"
+// releaseSecondEpic is the second epic of the test repository, beside runEpic, and releaseSecondBranch the branch its
+// work is committed to.
+const (
+	releaseSecondEpic   = "orrery-1a2b3c4/epic-second"
+	releaseSecondBranch = "epic/epic-second"
+)
 
 // releaseThen is the release promise the release tests' epics carry, which the judge is asked to check.
 const releaseThen = "The tag is on main."
@@ -77,8 +81,7 @@ func newReleaseWorldIn(t *testing.T, ending Ending, repo string) *releaseWorld {
 }
 
 // createEpic stores the epic id in phase, pinned to the release flow, with steps as its release steps, the world's
-// Requirements, and a frozen review at its base, as an epic that ended clean has. The epics of a world are all in its
-// repository, so they share its release slot.
+// Requirements, and a frozen review at its base, as an epic that ended clean has.
 func (w *releaseWorld) createEpic(id, phase string, steps ...store.EpicReleaseStep) {
 	w.t.Helper()
 	w.createEpicOn(releaseFlow, runBase, id, phase, steps...)
@@ -187,31 +190,20 @@ func TestReleaseCleanEpicWithoutStepsEndsDone(t *testing.T) {
 	}
 }
 
-// TestReleaseCleanEpicTakesSlotAndWaitsBehindHolder: a clean epic with release steps takes the release slot of its
-// repository and moves to releasing, and its prepare makes the candidate at the tip. A second epic of the repository
-// waits while the slot is held, and shows the holder.
-func TestReleaseCleanEpicTakesSlotAndWaitsBehindHolder(t *testing.T) {
+// TestReleaseCleanEpicBeginsItsReleaseAtOnce: a clean epic with release steps moves to releasing in the pass that reaches
+// its release, and its release run then prepares the candidate.
+func TestReleaseCleanEpicBeginsItsReleaseAtOnce(t *testing.T) {
 	t.Parallel()
 	w := newReleaseWorld(t, &recordingEnding{})
 	mergeRemote(t, w.repo)
 	nodeEpicBranch(t, w.repo, "epic.txt")
 	w.createEpic(runEpic, store.PhaseClean, tagStep())
 	w.pass()
-	holder := w.flowOf(runEpic)
-	if holder.Epic.Phase != store.PhaseReleasing || holder.Slot != runEpic {
-		t.Fatalf("epic phase = %q and slot = %q, want releasing holding its slot", holder.Epic.Phase, holder.Slot)
+	if phase := w.flowOf(runEpic).Epic.Phase; phase != store.PhaseReleasing {
+		t.Fatalf("epic phase = %q, want releasing", phase)
 	}
-
-	w.createEpic(releaseSecondEpic, store.PhaseClean, tagStep())
-	w.pass()
-	second := w.flowOf(releaseSecondEpic)
-	if second.Epic.Phase != store.PhaseClean || second.Slot != runEpic {
-		t.Errorf("second epic phase = %q and slot = %q, want clean, waiting on %s",
-			second.Epic.Phase, second.Slot, runEpic)
-	}
-	if len(second.Releases) != 0 || len(second.Runs) != 1 || second.Runs[0].State != store.NodeRunning {
-		t.Errorf("second epic runs = %+v and releases = %+v, want its release run running, no release",
-			second.Runs, second.Releases)
+	if run := runAt(t, w.s, releaseNodePath); run.Revision == "" {
+		t.Errorf("release run = %+v, want its candidate prepared at once", run)
 	}
 }
 
@@ -324,29 +316,6 @@ func TestEpicBaseReleaseGatedCandidateIsRecordedThenStepStarts(t *testing.T) {
 				)
 			}
 		})
-	}
-}
-
-// TestReleaseFreeGivesUpSlot: the free action frees the release slot the epic holds. A released or done epic is the one
-// that holds the slot when the decision frees it, and the Ending that moves an epic to either phase is a later task, so
-// this drives the action the decision hands over.
-func TestReleaseFreeGivesUpSlot(t *testing.T) {
-	t.Parallel()
-	w := newReleaseWorldIn(t, nil, filepath.Join(t.TempDir(), "no-repository"))
-	w.createEpic(runEpic, store.PhaseStopped)
-	if _, err := w.s.TakeReleaseSlot(w.t.Context(), runEpic, runClock()); err != nil {
-		t.Fatalf("TakeReleaseSlot: %v", err)
-	}
-	if slot := w.flowOf(runEpic).Slot; slot != runEpic {
-		t.Fatalf("slot = %q before the free, want %q", slot, runEpic)
-	}
-
-	act := Action{Kind: ActWork, Work: kinds.ActFree, NodeKind: kindRelease, Path: releaseNodePath}
-	if err := w.runner.work(w.t.Context(), epicOf(t, w.s), act, runClock()); err != nil {
-		t.Fatalf("work: %v", err)
-	}
-	if slot := w.flowOf(runEpic).Slot; slot != "" {
-		t.Errorf("slot = %q after the free, want it free", slot)
 	}
 }
 

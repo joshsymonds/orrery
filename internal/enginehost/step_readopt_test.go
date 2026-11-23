@@ -204,7 +204,7 @@ func (f *stepCtlFixture) startScopedGate(t *testing.T, steps *Steps, root string
 		if _, err := os.Stat(dir); err != nil {
 			return
 		}
-		if err := gateEnd(ctx, dir); err != nil {
+		if err := gateEnd(ctx, gateTestHost(), dir); err != nil {
 			t.Errorf("end gate holder %s: %v", dir, err)
 		}
 	})

@@ -52,6 +52,31 @@ test("Glyphs: a StateGlyph of a state it does not know draws idle", () =>
     assert.equal(glyph.getAttribute("aria-label"), "idle");
   }));
 
+// shapes is a glyph's drawing: the markup of each shape it draws, without its title.
+function shapes(glyph: Element): string {
+  return [...glyph.children]
+    .filter((child) => child.localName !== "title")
+    .map((child) => child.outerHTML)
+    .join("");
+}
+
+test("Glyphs: a StateGlyph of a broken state names it broken and draws its own drawing, apart from failed's cross and idle's ring", async () => {
+  let brokenShapes = "";
+  await drawn(<StateGlyph state="broken" />, (container) => {
+    const glyph = one(container, "svg.glyph");
+    assert.equal(glyph.getAttribute("data-state"), "broken");
+    assert.equal(glyph.getAttribute("aria-label"), "broken");
+    assert.equal(one(glyph, "title").textContent, "broken");
+    brokenShapes = shapes(glyph);
+  });
+  await drawn(<StateGlyph state="failed" />, (container) => {
+    assert.notEqual(shapes(one(container, "svg.glyph")), brokenShapes, "failed keeps its own drawing");
+  });
+  await drawn(<StateGlyph state="idle" />, (container) => {
+    assert.notEqual(shapes(one(container, "svg.glyph")), brokenShapes, "broken is not the idle ring");
+  });
+});
+
 test("Glyphs: a Gauge names its done of total tasks, carries its tone, its arcs and its inner mark", () =>
   drawn(<Gauge done={2} started={3} total={7} tone="attention" inner="dot" />, (container) => {
     const gauge = one(container, "svg.gauge");

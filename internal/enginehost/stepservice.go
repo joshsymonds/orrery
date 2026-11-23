@@ -150,7 +150,11 @@ func (s *stepService) ReadStepCheck(
 	if kept, ok := s.steps.(keptGateLogs); ok {
 		logs = kept
 	}
-	resp, err := readStepCheck(row, req.Msg, logs)
+	host, err := rowHostOf(s.steps, row)
+	if err != nil {
+		return nil, stepCommandError(err)
+	}
+	resp, err := readStepCheck(ctx, host, row, req.Msg, logs)
 	if err != nil {
 		return nil, stepCommandError(err)
 	}

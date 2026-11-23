@@ -21,8 +21,7 @@ type Node struct {
 // Rows is what a kind reads of an epic: the epic with its turns, tasks and Requirements, its node runs, its node
 // checks, its evidence runs and its agent steps, how many of its triggers and amend_evidence actions are pending, how
 // many of the actions its planner returned are pending, its end-of-epic review, the epic-stage reviewers enabled for it
-// in merged order, its release runs, the epic that holds the release slot of its repository, which is "" when the
-// slot is free, and its integrate rounds, the rounds of each conflicting task's integrator.
+// in merged order, its release runs, and its integrate rounds, the rounds of each conflicting task's integrator.
 type Rows struct {
 	Epic     store.EpicRow
 	Runs     []store.NodeRun
@@ -44,7 +43,6 @@ type Rows struct {
 	Review       store.Review
 	Reviewers    []Reviewer
 	Releases     []store.ReleaseRun
-	Slot         string
 	// Stranded holds, in seq order, the done tasks whose work a failed batch composed and the base a fresh task starts
 	// on does not hold, as interpret reads them. nil reads as none.
 	Stranded []int64

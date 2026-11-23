@@ -10,6 +10,7 @@ import (
 	"github.com/joshsymonds/orrery/internal/evidence"
 	"github.com/joshsymonds/orrery/internal/gates"
 	v1 "github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1"
+	"github.com/joshsymonds/orrery/internal/hostexec"
 )
 
 // epicIDMaxBytes caps the length of a contract's id.
@@ -44,18 +45,22 @@ type epicFieldError struct {
 func (e *epicFieldError) Error() string { return e.field + ": " + e.reason }
 
 // checkEpic returns the first refusal of contract with its seed decisions, checked in the order E1-D5 lists them, or nil
-// when they pass. It runs git in the contract's repository, reads the project file for the repository through getenv,
-// and does not check the database.
+// when they pass. It runs git in the contract's repository on host, reads the project file for the repository through
+// getenv, and does not check the database.
 func checkEpic(
-	ctx context.Context, contract *v1.EpicContract, decisions []*v1.EpicDecisionInput, getenv func(string) string,
+	ctx context.Context,
+	host hostexec.Host,
+	contract *v1.EpicContract,
+	decisions []*v1.EpicDecisionInput,
+	getenv func(string) string,
 ) error {
-	if err := checkEpicHead(ctx, contract); err != nil {
+	if err := checkEpicHead(ctx, host, contract); err != nil {
 		return err
 	}
-	if err := checkEpicBase(ctx, contract); err != nil {
+	if err := checkEpicBase(ctx, host, contract); err != nil {
 		return err
 	}
-	if err := checkEpicGateDefs(ctx, contract, getenv); err != nil {
+	if err := checkEpicGateDefs(ctx, host, contract, getenv); err != nil {
 		return err
 	}
 	if err := checkEpicSections(contract); err != nil {
@@ -69,13 +74,15 @@ func checkEpic(
 
 // checkContractBody returns the first refusal of a contract's body, the checks propose and revise share with
 // CreateEpic: checkEpic's checks but its base and decisions, in checkEpic's order, then checkContractLint, then the
-// merge of the contract's reviewers. It never reads the contract's base. The merge's error is returned as epicReviewers
-// gives it.
-func checkContractBody(ctx context.Context, contract *v1.EpicContract, getenv func(string) string) error {
-	if err := checkEpicHead(ctx, contract); err != nil {
+// merge of the contract's reviewers. It never reads the contract's base. Its git runs on host. The merge's error is
+// returned as epicReviewers gives it.
+func checkContractBody(
+	ctx context.Context, host hostexec.Host, contract *v1.EpicContract, getenv func(string) string,
+) error {
+	if err := checkEpicHead(ctx, host, contract); err != nil {
 		return err
 	}
-	if err := checkEpicGateDefs(ctx, contract, getenv); err != nil {
+	if err := checkEpicGateDefs(ctx, host, contract, getenv); err != nil {
 		return err
 	}
 	if err := checkEpicSections(contract); err != nil {
@@ -84,29 +91,32 @@ func checkContractBody(ctx context.Context, contract *v1.EpicContract, getenv fu
 	if err := checkContractLint(contract); err != nil {
 		return err
 	}
-	_, err := epicReviewers(ctx, contract, getenv)
+	_, err := epicReviewers(ctx, host, contract, getenv)
 	return err
 }
 
 // checkEpicGateDefs refuses the contract's gates, then the done gates that name them and a contract that sets review
-// gates.
-func checkEpicGateDefs(ctx context.Context, contract *v1.EpicContract, getenv func(string) string) error {
+// gates. Its done gates resolve on host.
+func checkEpicGateDefs(
+	ctx context.Context, host hostexec.Host, contract *v1.EpicContract, getenv func(string) string,
+) error {
 	defined, err := checkEpicGates(contract.GetGates())
 	if err != nil {
 		return err
 	}
-	return checkEpicGateRefs(ctx, contract, defined, getenv)
+	return checkEpicGateRefs(ctx, host, contract, defined, getenv)
 }
 
-// checkEpicBase refuses a base that is blank or names no commit of the contract's repository. git exits non-zero for
-// a name it cannot resolve, so any failure of the check means the base is not a commit there.
-func checkEpicBase(ctx context.Context, contract *v1.EpicContract) error {
+// checkEpicBase refuses a base that is blank or names no commit of the contract's repository on host. git exits
+// non-zero for a name it cannot resolve, so any failure of the check means the base is not a commit there.
+func checkEpicBase(ctx context.Context, host hostexec.Host, contract *v1.EpicContract) error {
 	base := contract.GetBase()
 	if isBlank(base) {
 		return &epicFieldError{field: "base", reason: epicReasonEmpty}
 	}
 	_, err := stepGit(
-		ctx, contract.GetRepository(), "rev-parse", "--verify", "--quiet", "--end-of-options", base+"^{commit}",
+		ctx, host, contract.GetRepository(),
+		"rev-parse", "--verify", "--quiet", "--end-of-options", base+"^{commit}",
 	)
 	if err != nil {
 		return &epicFieldError{field: "base", reason: "not a commit in the repository"}
@@ -153,12 +163,13 @@ func epicGateNeeds(needs []*v1.EpicGateNeed) []gates.Need {
 // contract's gates, else from the repository's project file.
 func checkEpicGateRefs(
 	ctx context.Context,
+	host hostexec.Host,
 	contract *v1.EpicContract,
 	defined []gates.Gate,
 	getenv func(string) string,
 ) error {
 	resolve := func(name string) (gates.Resolved, error) {
-		return gates.ResolveDefined(ctx, name, defined, contract.GetRepository(), getenv)
+		return gates.ResolveDefined(ctx, host, name, defined, contract.GetRepository(), getenv)
 	}
 	for i, name := range contract.GetDoneGates() {
 		resolved, err := resolve(name)
@@ -176,8 +187,8 @@ func checkEpicGateRefs(
 	return nil
 }
 
-// checkEpicHead refuses the contract's id, repository, intent and care.
-func checkEpicHead(ctx context.Context, contract *v1.EpicContract) error {
+// checkEpicHead refuses the contract's id, repository, intent and care. The repository is checked on host.
+func checkEpicHead(ctx context.Context, host hostexec.Host, contract *v1.EpicContract) error {
 	id := contract.GetId()
 	if !epicIDPattern.MatchString(id) {
 		return &epicFieldError{field: "id", reason: "bad form, want <repo-id>-<7 hex>/<slug>"}
@@ -185,7 +196,7 @@ func checkEpicHead(ctx context.Context, contract *v1.EpicContract) error {
 	if len(id) > epicIDMaxBytes {
 		return &epicFieldError{field: "id", reason: fmt.Sprintf("over %d bytes", epicIDMaxBytes)}
 	}
-	if err := checkEpicRepository(ctx, contract.GetRepository()); err != nil {
+	if err := checkEpicRepository(ctx, host, contract.GetRepository()); err != nil {
 		return err
 	}
 	if isBlank(contract.GetIntent()) {
@@ -197,13 +208,13 @@ func checkEpicHead(ctx context.Context, contract *v1.EpicContract) error {
 	return nil
 }
 
-// checkEpicRepository refuses a repository that is not an absolute path inside a git work tree. git exits non-zero
-// outside a work tree, so any failure of the check means the directory is not one.
-func checkEpicRepository(ctx context.Context, repository string) error {
+// checkEpicRepository refuses a repository that is not an absolute path inside a git work tree on host. git exits
+// non-zero outside a work tree, so any failure of the check means the directory is not one.
+func checkEpicRepository(ctx context.Context, host hostexec.Host, repository string) error {
 	if !filepath.IsAbs(repository) {
 		return &epicFieldError{field: "repository", reason: "not absolute"}
 	}
-	inside, err := stepGit(ctx, repository, "rev-parse", "--is-inside-work-tree")
+	inside, err := stepGit(ctx, host, repository, "rev-parse", "--is-inside-work-tree")
 	if err != nil || inside != "true" {
 		return &epicFieldError{field: "repository", reason: "not inside a git work tree"}
 	}

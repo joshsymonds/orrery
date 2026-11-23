@@ -13,6 +13,7 @@ import (
 
 	"github.com/joshsymonds/orrery/internal/build"
 	"github.com/joshsymonds/orrery/internal/enginehost"
+	"github.com/joshsymonds/orrery/internal/hostexec"
 	"github.com/joshsymonds/orrery/internal/roles"
 	"github.com/joshsymonds/orrery/internal/store"
 )
@@ -119,13 +120,18 @@ func (r *Runner) startReleaseStep(ctx context.Context, epic store.EpicRow, act A
 	if err != nil {
 		return r.failReleaseStep(ctx, epic, act, position, step, at, err)
 	}
+	host, err := r.hostOf(epic)
+	if err != nil {
+		return r.failReleaseStep(ctx, epic, act, position, step, at, err)
+	}
 	wt := filepath.Join(dir, releaseWorktree)
-	if err = build.AddWorktree(ctx, epic.Repository, wt, start); err != nil {
+	if err = build.AddWorktree(ctx, host, epic.Repository, wt, start); err != nil {
 		return r.failReleaseStep(ctx, epic, act, position, step, at, err)
 	}
 	_, err = r.steps.Start(ctx, enginehost.StepStart{
 		ID: id, Agent: agent, Prompt: releaseStepPrompt(step, start, epic.ReleaseThen), Schema: releaseStepSchema,
 		Workspace: wt, Revision: start, Unowned: true, DoneValue: releaseDone, Epic: epic.ID,
+		Task: releaseStepTask(act, position, id),
 	})
 	if err == nil {
 		return nil
@@ -135,8 +141,20 @@ func (r *Runner) startReleaseStep(ctx context.Context, epic store.EpicRow, act A
 	}
 	return errors.Join(
 		r.failReleaseStep(ctx, epic, act, position, step, at, err),
-		build.RemoveWorktrees(ctx, epic.Repository, dir),
+		build.RemoveWorktrees(ctx, host, epic.Repository, dir),
 	)
+}
+
+// releaseStepTask returns the task the start of the release step at position, under id, carries. The rows of a release
+// read a step under its run's id, so a step under any other id, such as the first step of a candidate prepared again,
+// carries the release run's path as its task, as the release reviewer's start does, and is read under that path. Any
+// other step carries no task.
+func releaseStepTask(act Action, position int64, id string) string {
+	own := store.NodeWorkID(act.Run.ID, act.Run.Attempt, fmt.Sprintf("%s%d", releaseStepLabel, position))
+	if id == own {
+		return ""
+	}
+	return act.Path
 }
 
 // failReleaseStep records the release step act names as a failed run of its attempt, with the reason it did not start.
@@ -174,7 +192,10 @@ func releaseStepPrompt(step store.EpicReleaseStep, start, then string) string {
 }
 
 // recordReleaseStep records the release step act names once its end is stored. The step passes only when it ended done
-// and HEAD descends from its start. Otherwise it is recorded failed with the reason named. Its worktree is removed once the run is recorded.
+// and HEAD descends from its start. Otherwise it is recorded failed with the reason named. Its worktree is removed once
+// the run is recorded. The first step's failure is not recorded when origin's main has moved past the candidate it
+// started from, since that is no failure of the release: redoCandidate marks the candidate stale instead. A check of
+// origin's main that errors records the failure with the error named, and the release stops.
 func (r *Runner) recordReleaseStep(ctx context.Context, epic store.EpicRow, act Action, at time.Time) error {
 	position, ok := releaseStepPosition(act.Items[0])
 	if !ok {
@@ -193,11 +214,24 @@ func (r *Runner) recordReleaseStep(ctx context.Context, epic store.EpicRow, act 
 	if err != nil {
 		return err
 	}
-	wt := filepath.Join(dir, releaseWorktree)
-	result, decodeReason := decodeReturn[releaseStepResult](row.Result)
-	head, reason, err := releaseStepEnd(ctx, wt, start, row, decodeReason)
+	host, err := r.hostOf(epic)
 	if err != nil {
 		return err
+	}
+	wt := filepath.Join(dir, releaseWorktree)
+	result, decodeReason := decodeReturn[releaseStepResult](row.Result)
+	head, reason, err := releaseStepEnd(ctx, host, wt, start, row, decodeReason)
+	if err != nil {
+		return err
+	}
+	if position == 1 && reason != "" {
+		contained, checkErr := candidateContainsOrigin(ctx, host, epic, start)
+		switch {
+		case checkErr != nil:
+			reason += "; origin's main could not be checked against the step's start: " + checkErr.Error()
+		case !contained:
+			return r.redoCandidate(ctx, host, epic, act, start, dir, reason, at)
+		}
 	}
 	run := store.ReleaseRun{
 		Part:     store.ReleasePartStep,
@@ -216,38 +250,55 @@ func (r *Runner) recordReleaseStep(ctx context.Context, epic store.EpicRow, act 
 	if err = r.store.RecordRelease(ctx, epic.ID, run); err != nil {
 		return fmt.Errorf("record release step %d of epic %s: %w", position, epic.ID, err)
 	}
-	if err = build.RemoveWorktrees(ctx, epic.Repository, dir); err != nil {
+	if err = build.RemoveWorktrees(ctx, host, epic.Repository, dir); err != nil {
 		return fmt.Errorf("remove worktree of release step %s: %w", id, err)
 	}
 	return nil
 }
 
-// releaseStepEnd returns the HEAD of the release step whose row is row, which ran in worktree wt from start, and why it
-// did not pass, or "" when it did. A step that did not end done is named by its end, and its HEAD is not read. A step
-// that ended done whose worktree cannot be read is named as lost, with HEAD "".
+// redoCandidate handles the first release step act names, which failed for reason after origin's main moved past the
+// candidate start it started from. No failed run is recorded for it, since the failure is no failure of the release.
+// The candidate is marked stale at act's attempt, so the release prepares it again, merged with origin's main, gates,
+// reviews and starts its first step under a new generation. The step's worktree in dir is then removed.
+func (r *Runner) redoCandidate(
+	ctx context.Context, host hostexec.Host, epic store.EpicRow, act Action, start, dir, reason string, at time.Time,
+) error {
+	stale := fmt.Sprintf("release step 1 failed after origin's main moved past candidate %s: %s", start, reason)
+	if err := r.store.MarkCandidateStale(ctx, epic.ID, act.Path, act.Run.Attempt, start, stale, at); err != nil {
+		return fmt.Errorf("mark candidate %s of epic %s stale: %w", start, epic.ID, err)
+	}
+	if err := build.RemoveWorktrees(ctx, host, epic.Repository, dir); err != nil {
+		return fmt.Errorf("remove worktree of release step %s: %w", act.IDs[0], err)
+	}
+	return nil
+}
+
+// releaseStepEnd returns the HEAD of the release step whose row is row, which ran in worktree wt on host from start, and
+// why it did not pass, or "" when it did. A step that did not end done is named by its end, and its HEAD is not read. A
+// step that ended done whose worktree cannot be read is named as lost, with HEAD "".
 func releaseStepEnd(
-	ctx context.Context, wt, start string, row store.StepRow, decodeReason string,
+	ctx context.Context, host hostexec.Host, wt, start string, row store.StepRow, decodeReason string,
 ) (string, string, error) {
 	if row.End != releaseDone {
 		return "", releaseEndReason("step", row), nil
 	}
-	head, err := gitOutput(ctx, wt, "rev-parse", "--verify", "HEAD^{commit}")
+	head, err := gitOutput(ctx, host, wt, "rev-parse", "--verify", "HEAD^{commit}")
 	if err != nil {
 		return "", fmt.Sprintf("step ended done, but its worktree is gone, so HEAD cannot be read: %v", err), nil
 	}
 	head = strings.TrimSpace(head)
-	reason, err := releaseStepReason(ctx, wt, start, head, decodeReason)
+	reason, err := releaseStepReason(ctx, host, wt, start, head, decodeReason)
 	return head, reason, err
 }
 
-// releaseStepReason returns why the release step that ended done, ran in worktree wt from start and has HEAD head did
-// not pass. decodeReason says why its return did not decode, or is "" when it did. It returns "" when the step passed.
-// Otherwise the first check it fails is named.
-func releaseStepReason(ctx context.Context, wt, start, head, decodeReason string) (string, error) {
+// releaseStepReason returns why the release step that ended done, ran in worktree wt on host from start and has HEAD
+// head did not pass. decodeReason says why its return did not decode, or is "" when it did. It returns "" when the step
+// passed. Otherwise the first check it fails is named.
+func releaseStepReason(ctx context.Context, host hostexec.Host, wt, start, head, decodeReason string) (string, error) {
 	if decodeReason != "" {
 		return decodeReason, nil
 	}
-	descends, err := isAncestor(ctx, wt, start, head)
+	descends, err := isAncestor(ctx, host, wt, start, head)
 	if err != nil {
 		return "", err
 	}

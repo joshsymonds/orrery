@@ -66,12 +66,79 @@ func taskKind(taskType, subagentType string) string {
 
 // awaitedTaskType reports whether a background task of taskType runs a model: an agent, a workflow or a teammate. A
 // step waits for such a task, since its end starts a turn of claude's own whose return is the one that counts. A shell
-// task, which a Monitor's watch is too, is not waited for: a step whose turn returns while only shell tasks are listed has
-// returned, and its stop ends them.
+// task is waited for only when a Bash call started it (see awaitsCommand): a Monitor's watch, which may never end, is not,
+// so a step whose turn returns while only such tasks are listed has returned, and its stop ends them.
 func awaitedTaskType(taskType string) bool {
 	return strings.HasSuffix(taskType, "agent") || strings.HasSuffix(taskType, "workflow") ||
 		strings.HasSuffix(taskType, "teammate")
 }
+
+// noteTaskEvent tracks, for an event that reports them, the Bash calls of the running turn, the commands they start in
+// the background and the live background tasks of live, and whether one of those tasks is awaited. It reports whether
+// event was such an event. The caller holds the manager's lock.
+func (live *liveSession) noteTaskEvent(event session.Event) bool {
+	switch ev := event.(type) {
+	case session.ToolCallStarted:
+		live.noteToolCall(ev.ParentToolUseID, ev.ToolUseID, ev.Name)
+	case session.Block:
+		if ev.Kind == session.BlockToolCall {
+			live.noteToolCall(ev.ParentToolUseID, ev.ToolUseID, ev.Name)
+		}
+	case session.TaskStarted:
+		live.noteTaskStarted(ev)
+	case session.BackgroundTasks:
+		live.background = len(ev.Tasks) > 0
+		live.awaited = awaitsTask(ev.Tasks) || live.awaitsCommand(ev.Tasks)
+	default:
+		return false
+	}
+	return true
+}
+
+// noteToolCall records a top-level Bash tool call of the running turn by its tool use id, so a background task it starts
+// is known as a command (see noteTaskStarted). A subagent's call, or any other tool's, records nothing.
+func (live *liveSession) noteToolCall(parentToolUseID, toolUseID, name string) {
+	if parentToolUseID != "" || toolUseID == "" || name != bashToolName {
+		return
+	}
+	if live.bashCalls == nil {
+		live.bashCalls = map[string]struct{}{}
+	}
+	live.bashCalls[toolUseID] = struct{}{}
+}
+
+// noteTaskStarted records a background shell task that a top-level Bash call of the turn started: a command run with
+// run_in_background, such as a build or a check, whose end starts a turn of claude's own.
+func (live *liveSession) noteTaskStarted(started session.TaskStarted) {
+	if _, bash := live.bashCalls[started.ToolUseID]; !bash || started.TaskType != shellTaskType {
+		return
+	}
+	if live.commandTasks == nil {
+		live.commandTasks = map[string]struct{}{}
+	}
+	live.commandTasks[started.TaskID] = struct{}{}
+}
+
+// awaitsCommand reports whether tasks lists a command a Bash call started (see noteTaskStarted), and forgets each
+// command tasks no longer lists, since it has ended. A step waits for such a task as it waits for one that runs a model.
+func (live *liveSession) awaitsCommand(tasks []session.BackgroundTask) bool {
+	listed := false
+	kept := make(map[string]struct{}, len(live.commandTasks))
+	for _, task := range tasks {
+		if _, command := live.commandTasks[task.TaskID]; command {
+			kept[task.TaskID] = struct{}{}
+			listed = true
+		}
+	}
+	live.commandTasks = kept
+	return listed
+}
+
+// The tool name of a Bash call and the task type of the background shell task it starts, as the wire gives them.
+const (
+	bashToolName  = "Bash"
+	shellTaskType = "local_bash"
+)
 
 // awaitsTask reports whether tasks lists a task that runs a model (see awaitedTaskType).
 func awaitsTask(tasks []session.BackgroundTask) bool {

@@ -1,6 +1,6 @@
 -- +goose Up
 -- The sync of origin's main is removed, so nothing reads the commit it merged, the epic's last read of origin's main,
--- or the state and time of that read. 00097_epic_base_legacy_sync.sql has folded synced into base first.
+-- or the state and time of that read. 00100_epic_base_legacy_sync.sql has folded synced into base first.
 ALTER TABLE epics DROP COLUMN synced;
 ALTER TABLE epics DROP COLUMN origin_read_base;
 ALTER TABLE epics DROP COLUMN origin_read_commit;

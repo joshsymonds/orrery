@@ -12,7 +12,7 @@ type ParkClass string
 const (
 	// ParkClassReleaseUndoNone is a release that stopped at a release step with undo none that failed.
 	ParkClassReleaseUndoNone ParkClass = "release_undo_none"
-	// ParkClassReleaseOwnerStop is a release the owner stopped: the epic no longer holds its release slot.
+	// ParkClassReleaseOwnerStop is a release the owner stopped: the stop is recorded at the attempt it stopped at.
 	ParkClassReleaseOwnerStop ParkClass = "release_owner_stop"
 	// ParkClassBranch is an epic branch that exists, is gone, has moved or is checked out elsewhere.
 	ParkClassBranch ParkClass = "branch"

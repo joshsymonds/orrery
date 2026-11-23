@@ -11,6 +11,7 @@ import (
 	"github.com/joshsymonds/orrery/internal/build"
 	"github.com/joshsymonds/orrery/internal/compose"
 	"github.com/joshsymonds/orrery/internal/evidence"
+	"github.com/joshsymonds/orrery/internal/hostexec"
 	"github.com/joshsymonds/orrery/internal/kinds"
 	"github.com/joshsymonds/orrery/internal/store"
 )
@@ -46,7 +47,11 @@ type batchLeftOut struct {
 // of the batch: the tasks act names, and each stranded task, whose claim on its failed batch the claim moves to this
 // one, so a failed batch never holds a task that a later batch composed.
 func (r *Runner) prepareBatch(ctx context.Context, epic store.EpicRow, act Action) error {
-	base, err := batchBase(ctx, epic)
+	host, err := r.hostOf(epic)
+	if err != nil {
+		return err
+	}
+	base, err := batchBase(ctx, host, epic)
 	if err != nil {
 		return err
 	}
@@ -54,7 +59,7 @@ func (r *Runner) prepareBatch(ctx context.Context, epic store.EpicRow, act Actio
 	if err != nil {
 		return fmt.Errorf("read node runs of epic %s: %w", epic.ID, err)
 	}
-	stranded, err := strandedTasks(ctx, epic, runs, act.Path, base)
+	stranded, err := strandedTasks(ctx, host, epic, runs, act.Path, base)
 	if err != nil {
 		return err
 	}
@@ -69,7 +74,7 @@ func (r *Runner) prepareBatch(ctx context.Context, epic store.EpicRow, act Actio
 	if err != nil {
 		return err
 	}
-	result, err := compose.Compose(ctx, epic.Repository, base, tasks, candidateRef(epic, act.Run))
+	result, err := compose.Compose(ctx, host, epic.Repository, base, tasks, candidateRef(epic, act.Run))
 	if err != nil {
 		return fmt.Errorf("compose batch of node %s: %w", act.Path, err)
 	}
@@ -94,11 +99,11 @@ func (r *Runner) prepareBatch(ctx context.Context, epic store.EpicRow, act Actio
 // which is the candidate when it builds on the stored base and the merge of the stored base into it when it does not.
 // A candidate that does not merge with the stored base gives the stored base, and the work of the candidate's tasks
 // that the stored base lacks is then composed again (strandedTasks).
-func batchBase(ctx context.Context, epic store.EpicRow) (string, error) {
+func batchBase(ctx context.Context, host hostexec.Host, epic store.EpicRow) (string, error) {
 	if epic.Candidate == "" {
 		return epic.StoredBase, nil
 	}
-	joined, ok, err := compose.Join(ctx, epic.Repository, epic.StoredBase, epic.Candidate, joinPrefix(epic))
+	joined, ok, err := compose.Join(ctx, host, epic.Repository, epic.StoredBase, epic.Candidate, joinPrefix(epic))
 	if err != nil {
 		return "", fmt.Errorf(
 			"join candidate %s of epic %s with its stored base %s: %w", epic.Candidate, epic.ID, epic.StoredBase, err,
@@ -117,7 +122,7 @@ func batchBase(ctx context.Context, epic store.EpicRow) (string, error) {
 // revision did not join the stored base, or whose candidate a passed batch cleared without holding it, leaves such
 // tasks. The integrate run at path, the one being prepared, is not read.
 func strandedTasks(
-	ctx context.Context, epic store.EpicRow, runs []store.NodeRun, path, base string,
+	ctx context.Context, host hostexec.Host, epic store.EpicRow, runs []store.NodeRun, path, base string,
 ) ([]int64, error) {
 	batches := readBatches(runs, path)
 	var stranded []int64
@@ -126,7 +131,7 @@ func strandedTasks(
 		if !ok {
 			continue
 		}
-		held, err := holdsAny(ctx, epic.Repository, base, commits)
+		held, err := holdsAny(ctx, host, epic.Repository, base, commits)
 		if err != nil {
 			return nil, err
 		}
@@ -140,9 +145,9 @@ func strandedTasks(
 // startStranded returns, in seq order, the done tasks of epic whose work a failed batch composed and the base a fresh
 // task starts on does not hold (strandedTasks). That base is the epic's candidate when it has one, and otherwise the
 // branch tip, as decideFresh starts a task. No run is skipped. An epic with no branch returns none, since no task starts
-// without one.
-func startStranded(ctx context.Context, epic store.EpicRow, runs []store.NodeRun) ([]int64, error) {
-	tip, ok, err := build.BranchTip(ctx, epic.Repository, epic.ID)
+// without one. The branch is read on host, the host the epic lives on.
+func startStranded(ctx context.Context, host hostexec.Host, epic store.EpicRow, runs []store.NodeRun) ([]int64, error) {
+	tip, ok, err := build.BranchTip(ctx, host, epic.Repository, epic.ID)
 	if err != nil {
 		return nil, fmt.Errorf("read branch of epic %s: %w", epic.ID, err)
 	}
@@ -153,7 +158,7 @@ func startStranded(ctx context.Context, epic store.EpicRow, runs []store.NodeRun
 	if base == "" {
 		base = tip
 	}
-	return strandedTasks(ctx, epic, runs, "", base)
+	return strandedTasks(ctx, host, epic, runs, "", base)
 }
 
 // batches is what strandedTasks reads of an epic's integrate runs: each run by its path, the commits the runs composed
@@ -232,10 +237,10 @@ func (b batches) failedWork(task store.EpicTask) ([]string, bool) {
 	return commits, true
 }
 
-// holdsAny reports whether one of commits is base or an ancestor of it.
-func holdsAny(ctx context.Context, repo, base string, commits []string) (bool, error) {
+// holdsAny reports whether one of commits is base or an ancestor of it, in repo on host.
+func holdsAny(ctx context.Context, host hostexec.Host, repo, base string, commits []string) (bool, error) {
 	for _, commit := range commits {
-		held, err := isAncestor(ctx, repo, commit, base)
+		held, err := isAncestor(ctx, host, repo, commit, base)
 		if err != nil {
 			return false, fmt.Errorf("check that %s holds %s: %w", base, commit, err)
 		}
@@ -432,6 +437,10 @@ func (r *Runner) batchSendBacks(ctx context.Context, epic store.EpicRow, act Act
 	}
 	rows := kinds.Rows{Rounds: flow.Rounds, Steps: steps}
 	conflicts := conflictsOf(act.Run.Result)
+	host, err := r.hostOf(epic)
+	if err != nil {
+		return nil, err
+	}
 	for i, send := range sends {
 		ending := kinds.TaskEnding(rows, act.Run, send.Seq)
 		if ending == "" {
@@ -442,7 +451,7 @@ func (r *Runner) batchSendBacks(ctx context.Context, epic store.EpicRow, act Act
 			return nil, fmt.Errorf("task %d of epic %s is not stored", send.Seq, epic.ID)
 		}
 		base, change, diffErr := candidateChange(
-			ctx, epic.Repository, act.Run.Revision, task.Build.Revision, conflicts[send.Seq],
+			ctx, host, epic.Repository, act.Run.Revision, task.Build.Revision, conflicts[send.Seq],
 		)
 		if diffErr != nil {
 			return nil, diffErr
@@ -467,9 +476,12 @@ func conflictsOf(result string) map[int64][]string {
 }
 
 // candidateChange returns the merge base of candidate and revision, the commit a merge of revision into candidate starts
-// from, and the change candidate makes to paths since that base, as git diff prints it. It is the side a task's merge met.
-func candidateChange(ctx context.Context, repo, candidate, revision string, paths []string) (string, string, error) {
-	out, err := gitOutput(ctx, repo, "merge-base", candidate, revision)
+// from, and the change candidate makes to paths since that base, as git diff prints it, both read in repo on host. It is
+// the side a task's merge met.
+func candidateChange(
+	ctx context.Context, host hostexec.Host, repo, candidate, revision string, paths []string,
+) (string, string, error) {
+	out, err := gitOutput(ctx, host, repo, "merge-base", candidate, revision)
 	if err != nil {
 		return "", "", fmt.Errorf("find the merge base of %s and %s: %w", candidate, revision, err)
 	}
@@ -477,7 +489,7 @@ func candidateChange(ctx context.Context, repo, candidate, revision string, path
 	args := make([]string, 0, len(paths)+7)
 	args = append(args, "--literal-pathspecs", "diff", "--no-color", "--no-ext-diff", base, candidate, "--")
 	args = append(args, paths...)
-	change, err := gitOutput(ctx, repo, args...)
+	change, err := gitOutput(ctx, host, repo, args...)
 	if err != nil {
 		return "", "", fmt.Errorf("diff candidate %s against its merge base %s: %w", candidate, base, err)
 	}
@@ -513,7 +525,11 @@ func (r *Runner) endBatch(ctx context.Context, epic store.EpicRow, act Action, a
 		SendBacks: sends,
 	}
 	if act.Outcome == outcomeFailed && composedAny(act.Run.Result) {
-		joined, ok, err := compose.Join(ctx, epic.Repository, epic.StoredBase, act.Run.Revision, joinPrefix(epic))
+		host, err := r.hostOf(epic)
+		if err != nil {
+			return err
+		}
+		joined, ok, err := compose.Join(ctx, host, epic.Repository, epic.StoredBase, act.Run.Revision, joinPrefix(epic))
 		if err != nil {
 			return fmt.Errorf("join batch %s with the stored base %s: %w", act.Path, epic.StoredBase, err)
 		}
@@ -543,7 +559,11 @@ func (r *Runner) capture(ctx context.Context, epic store.EpicRow, act Action) er
 // (compose.Join), so its work is kept on a candidate that builds on the stored base. One that does not merge with the
 // revision is cleared, and the next batch composes its tasks again (strandedTasks).
 func (r *Runner) advance(ctx context.Context, epic store.EpicRow, act Action, at time.Time) error {
-	tip, ok, err := build.BranchTip(ctx, epic.Repository, epic.ID)
+	host, err := r.hostOf(epic)
+	if err != nil {
+		return fmt.Errorf("read branch of epic %s: %w", epic.ID, err)
+	}
+	tip, ok, err := build.BranchTip(ctx, host, epic.Repository, epic.ID)
 	if err != nil {
 		return fmt.Errorf("read branch of epic %s: %w", epic.ID, err)
 	}
@@ -551,7 +571,7 @@ func (r *Runner) advance(ctx context.Context, epic store.EpicRow, act Action, at
 		return fmt.Errorf("epic %s has no branch", epic.ID)
 	}
 	if tip != act.Run.Revision {
-		reason, blockErr := advanceBlock(ctx, epic, tip, act.Run.Revision)
+		reason, blockErr := advanceBlock(ctx, host, epic, tip, act.Run.Revision)
 		if blockErr != nil {
 			return blockErr
 		}
@@ -559,7 +579,7 @@ func (r *Runner) advance(ctx context.Context, epic store.EpicRow, act Action, at
 			return r.parkBatch(ctx, epic, act, reason, at)
 		}
 		if err = compose.Advance(
-			ctx, epic.Repository, build.BranchRef(epic.ID), act.Run.Revision, epic.StoredBase,
+			ctx, host, epic.Repository, build.BranchRef(epic.ID), act.Run.Revision, epic.StoredBase,
 		); err != nil {
 			return fmt.Errorf("advance epic %s to %s: %w", epic.ID, act.Run.Revision, err)
 		}
@@ -574,7 +594,7 @@ func (r *Runner) advance(ctx context.Context, epic store.EpicRow, act Action, at
 	}
 	if epic.Candidate != "" {
 		joined, joins, joinErr := compose.Join(
-			ctx, epic.Repository, act.Run.Revision, epic.Candidate, joinPrefix(epic),
+			ctx, host, epic.Repository, act.Run.Revision, epic.Candidate, joinPrefix(epic),
 		)
 		if joinErr != nil {
 			return fmt.Errorf("join candidate %s of epic %s with %s: %w", epic.Candidate, epic.ID,
@@ -591,14 +611,16 @@ func (r *Runner) advance(ctx context.Context, epic store.EpicRow, act Action, at
 }
 
 // advanceBlock returns why the epic's branch, at tip, may not move to candidate: it is not at the stored base, candidate
-// does not build on it, so the move would drop what the branch holds, or it is checked out in a worktree. It returns ""
-// when the branch may move.
-func advanceBlock(ctx context.Context, epic store.EpicRow, tip, candidate string) (string, error) {
+// does not build on it, so the move would drop what the branch holds, or it is checked out in a worktree on host. It
+// returns "" when the branch may move.
+func advanceBlock(
+	ctx context.Context, host hostexec.Host, epic store.EpicRow, tip, candidate string,
+) (string, error) {
 	slug := build.Slug(epic.ID)
 	if tip != epic.StoredBase {
 		return fmt.Sprintf("epic/%s moved: at %s, not the stored base %s", slug, tip, epic.StoredBase), nil
 	}
-	builds, err := isAncestor(ctx, epic.Repository, tip, candidate)
+	builds, err := isAncestor(ctx, host, epic.Repository, tip, candidate)
 	if err != nil {
 		return "", fmt.Errorf("compare candidate %s with epic/%s: %w", candidate, slug, err)
 	}
@@ -606,7 +628,7 @@ func advanceBlock(ctx context.Context, epic store.EpicRow, tip, candidate string
 		return fmt.Sprintf("epic/%s is at %s, which the candidate %s does not build on, so it was not moved", slug, tip,
 			candidate), nil
 	}
-	checked, err := build.BranchCheckedOut(ctx, epic.Repository, epic.ID)
+	checked, err := build.BranchCheckedOut(ctx, host, epic.Repository, epic.ID)
 	if err != nil {
 		return "", fmt.Errorf("read worktrees of epic %s: %w", epic.ID, err)
 	}

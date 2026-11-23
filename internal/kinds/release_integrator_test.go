@@ -13,7 +13,7 @@ import (
 const integratorResult = `{"error":"","behind":true,"candidate":"","tip":"tip-1","origin":"origin-1",` +
 	`"branch":"refs/heads/main","conflicts":["README"]}`
 
-// integratorRows returns the rows of a releasing epic that holds the release slot, with one Done gate and one
+// integratorRows returns the rows of a releasing epic, with one Done gate and one
 // Requirement whose item captures, and the release runs, checks, evidence runs and steps given.
 func integratorRows(
 	releases []store.ReleaseRun, checks []store.NodeCheck, runs []store.EvidenceRun, steps []store.StepRow,
@@ -22,7 +22,7 @@ func integratorRows(
 	epic.DoneGates = []string{"lint"}
 	epic.Requirements = []store.EpicRequirement{{ID: "R1", Item: evidence.Item{Capture: []string{"scripts/check"}}}}
 	return Rows{
-		Epic: epic, Slot: releaseEpicID, Releases: releases, Checks: checks, Evidence: runs, Steps: steps,
+		Epic: epic, Releases: releases, Checks: checks, Evidence: runs, Steps: steps,
 	}
 }
 
@@ -41,7 +41,7 @@ func roundWorkID(round int64, part string) string {
 }
 
 // TestReleaseIntegratorDecisions checks the release integrator's walk over its rounds: a conflicting merge starts the
-// first round while the epic holds the slot and is not paused, records a round whose step ended, stops on a failed
+// first round while the epic is not paused, records a round whose step ended, stops on a failed
 // round, walks a passed round's commit through the Done gate and then the capture, at that commit, sends a capture's
 // failure back to the next round, and records the commit as the candidate once both pass.
 func TestReleaseIntegratorDecisions(t *testing.T) {
@@ -58,8 +58,8 @@ func TestReleaseIntegratorDecisions(t *testing.T) {
 	passedCapture.NotCaptured, passedCapture.Verdict, passedCapture.Passed = "", evidence.VerdictHolds, true
 	paused := integratorRows(nil, nil, nil, nil)
 	paused.Epic.Paused = true
-	unheld := integratorRows(nil, nil, nil, nil)
-	unheld.Slot = releaseOtherEpicID
+	stop := store.ReleaseRun{Part: store.ReleasePartStop, Attempt: 1, Reason: "owner stopped the release"}
+	stopped := integratorRows([]store.ReleaseRun{stop}, nil, nil, nil)
 	cases := []struct {
 		name string
 		rows Rows
@@ -72,10 +72,10 @@ func TestReleaseIntegratorDecisions(t *testing.T) {
 		},
 		{name: "paused epic waits", rows: paused, want: Action{Kind: ActNone}},
 		{
-			name: "slot not held stops",
-			rows: unheld,
+			name: "owner stop stops before the round starts",
+			rows: stopped,
 			want: Action{
-				Kind: ActStop, Output: "the release integrator did not start: this epic does not hold the release slot",
+				Kind: ActStop, Output: "the release integrator did not start: the owner stopped the release",
 			},
 		},
 		{
@@ -161,5 +161,55 @@ func TestReleaseIntegratorLastRoundFailureStops(t *testing.T) {
 	want := Action{Kind: ActStop, Output: "R1 capture failed at merge-1"}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("Decide = %+v, want %+v", got, want)
+	}
+}
+
+// TestReleaseIntegratorLastRoundGateReplans: a Done gate that ran and failed on the commit of the last round sends the
+// release back to planning with its report, naming origin's commit as the replan's head. A gate that did not run stops
+// the release with the gate's reason, as it does on any round.
+func TestReleaseIntegratorLastRoundGateReplans(t *testing.T) {
+	t.Parallel()
+	gateRows := func(gate store.NodeCheck) Rows {
+		var releases []store.ReleaseRun
+		var checks []store.NodeCheck
+		for round := int64(1); round <= integratorRounds; round++ {
+			releases = append(releases, integratorRound(round, fmt.Sprintf("merge-%d", round), ""))
+			checks = append(checks, store.NodeCheck{ID: roundWorkID(round, "done 1"), State: store.NodeEnded, Exit: 1})
+		}
+		checks[integratorRounds-1] = gate
+		return integratorRows(releases, checks, nil, nil)
+	}
+	ran := store.NodeCheck{ID: roundWorkID(integratorRounds, "done 1"), State: store.NodeEnded, Exit: 1}
+	notRun := store.NodeCheck{
+		ID: roundWorkID(integratorRounds, "done 1"), State: store.NodeEnded, NotRun: "the check did not start",
+	}
+	const stop = "done gate lint did not pass at merge-3"
+	cases := []struct {
+		name string
+		rows Rows
+		want Action
+	}{
+		{
+			name: "gate that ran and failed on the last round replans with origin as the head",
+			rows: gateRows(ran),
+			want: Action{
+				Kind: ActReplan, Output: "Done gate lint failed on commit merge-3: it exited 1.", Reason: stop,
+				Items: []string{store.ReleasePartReplan, "origin-1"},
+			},
+		},
+		{
+			name: "gate that did not run on the last round stops",
+			rows: gateRows(notRun),
+			want: Action{Kind: ActStop, Output: stop},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got := (Release{}).Decide(releaseNode(1, "", integratorResult), tc.rows)
+			if !reflect.DeepEqual(got, tc.want) {
+				t.Errorf("Decide = %+v, want %+v", got, tc.want)
+			}
+		})
 	}
 }

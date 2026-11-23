@@ -196,7 +196,7 @@ func TestEpicByPartWritesReturnAnAcknowledgement(t *testing.T) {
 		outcome := p.tool("epic_stop", `{"id":"`+testEpicID+`"}`)
 
 		assertAcknowledgement(t, "epic_stop", outcome,
-			head+"stopped its release and freed the release slot", epic)
+			head+"stopped its release, so no further step starts", epic)
 	})
 	t.Run("epic_close", func(t *testing.T) {
 		t.Parallel()

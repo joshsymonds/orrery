@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/joshsymonds/orrery/internal/hostexec"
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
@@ -150,7 +151,9 @@ func TestOrchestratorReadsTheDeclaredGateChangesAndNeverFailsATaskForOne(t *test
 		},
 	}
 	runner := &Runner{getenv: func(string) string { return "" }}
-	got, err := runner.requestTaskLines(context.Background(), store.EpicRow{Repository: t.TempDir()}, task)
+	got, err := runner.requestTaskLines(
+		context.Background(), hostexec.NewLocal(), store.EpicRow{Repository: t.TempDir()}, task,
+	)
 	if err != nil {
 		t.Fatalf("requestTaskLines: %v", err)
 	}

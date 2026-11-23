@@ -1,17 +1,16 @@
 package enginehost
 
 import (
-	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"os/exec"
 	"slices"
 	"strconv"
 	"strings"
 
+	"github.com/joshsymonds/orrery/internal/hostexec"
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
@@ -43,50 +42,50 @@ type stepCheckout struct {
 	hash string
 }
 
-// stepGit runs git in dir and returns its trimmed stdout. On failure the error carries git's stderr. Like proc and
-// the gate runner, it builds the argument vector itself: git runs with argv and no shell.
-func stepGit(ctx context.Context, dir string, args ...string) (string, error) {
-	cmd := exec.CommandContext(ctx, "git")
-	cmd.Args = append(cmd.Args, args...)
-	cmd.Dir = dir
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-	out, err := cmd.Output()
+// stepGit runs git in dir on host and returns its trimmed stdout. On failure the error is the host's, which carries
+// git's stderr. Like proc and the gate runner, it builds the argument vector itself: git runs with argv and no shell.
+func stepGit(ctx context.Context, host hostexec.Host, dir string, args ...string) (string, error) {
+	out, err := host.Git(ctx, hostexec.GitCall{Dir: dir, Args: args})
 	if err != nil {
-		return "", fmt.Errorf("git %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(stderr.String()))
+		return "", fmt.Errorf("git in %s: %w", dir, err)
 	}
 	return strings.TrimSpace(string(out)), nil
 }
 
-// stepGitResolve returns the full commit id rev names. The end-of-options marker keeps a rev that starts with
+// stepGitResolve returns the full commit id rev names on host. The end-of-options marker keeps a rev that starts with
 // a dash from being read as a git option.
-func stepGitResolve(ctx context.Context, dir, rev string) (string, error) {
-	return stepGit(ctx, dir, "rev-parse", "--verify", "--end-of-options", rev+"^{commit}")
+func stepGitResolve(ctx context.Context, host hostexec.Host, dir, rev string) (string, error) {
+	return stepGit(ctx, host, dir, "rev-parse", "--verify", "--end-of-options", rev+"^{commit}")
 }
 
 // commitChecks returns the four checks on a done return, in order: head, ancestry, clean, owned. Each check only
-// reads the repository.
-func commitChecks(ctx context.Context, dir, start, commit string, owned []string) []stepCheck {
-	return append(commitChecksWithoutOwned(ctx, dir, start, commit), stepGitOwnedCheck(ctx, dir, start, commit, owned))
+// reads the repository on host.
+func commitChecks(
+	ctx context.Context, host hostexec.Host, dir, start, commit string, owned []string,
+) []stepCheck {
+	return append(
+		commitChecksWithoutOwned(ctx, host, dir, start, commit),
+		stepGitOwnedCheck(ctx, host, dir, start, commit, owned),
+	)
 }
 
 // commitChecksWithoutOwned returns the head, ancestry and clean checks on a done return, in order. An unowned writing
 // step's done return runs these alone, since its owned check is skipped.
-func commitChecksWithoutOwned(ctx context.Context, dir, start, commit string) []stepCheck {
+func commitChecksWithoutOwned(ctx context.Context, host hostexec.Host, dir, start, commit string) []stepCheck {
 	return []stepCheck{
-		stepGitHeadCheck(ctx, dir, commit),
-		stepGitAncestryCheck(ctx, dir, start),
-		stepGitCleanCheck(ctx, dir),
+		stepGitHeadCheck(ctx, host, dir, commit),
+		stepGitAncestryCheck(ctx, host, dir, start),
+		stepGitCleanCheck(ctx, host, dir),
 	}
 }
 
 // stepGitHeadCheck passes when HEAD is the commit that commit resolves to.
-func stepGitHeadCheck(ctx context.Context, dir, commit string) stepCheck {
-	want, err := stepGitResolve(ctx, dir, commit)
+func stepGitHeadCheck(ctx context.Context, host hostexec.Host, dir, commit string) stepCheck {
+	want, err := stepGitResolve(ctx, host, dir, commit)
 	if err != nil {
 		return stepCheck{Name: stepGitHeadName, Detail: fmt.Sprintf("commit %q does not resolve: %v", commit, err)}
 	}
-	got, err := stepGitResolve(ctx, dir, "HEAD")
+	got, err := stepGitResolve(ctx, host, dir, "HEAD")
 	if err != nil {
 		return stepCheck{Name: stepGitHeadName, Detail: fmt.Sprintf("HEAD does not resolve: %v", err)}
 	}
@@ -97,12 +96,12 @@ func stepGitHeadCheck(ctx context.Context, dir, commit string) stepCheck {
 }
 
 // stepGitAncestryCheck passes when start is an ancestor of HEAD.
-func stepGitAncestryCheck(ctx context.Context, dir, start string) stepCheck {
-	base, err := stepGitResolve(ctx, dir, start)
+func stepGitAncestryCheck(ctx context.Context, host hostexec.Host, dir, start string) stepCheck {
+	base, err := stepGitResolve(ctx, host, dir, start)
 	if err != nil {
 		return stepCheck{Name: stepGitAncestryName, Detail: fmt.Sprintf("start %q does not resolve: %v", start, err)}
 	}
-	if _, err = stepGit(ctx, dir, "merge-base", "--is-ancestor", base, "HEAD"); err != nil {
+	if _, err = stepGit(ctx, host, dir, "merge-base", "--is-ancestor", base, "HEAD"); err != nil {
 		detail := fmt.Sprintf("start %s is not an ancestor of HEAD: %v", base, err)
 		return stepCheck{Name: stepGitAncestryName, Detail: detail}
 	}
@@ -111,9 +110,10 @@ func stepGitAncestryCheck(ctx context.Context, dir, start string) stepCheck {
 
 // stepGitCleanCheck passes when no tracked change, staged or unstaged, and no untracked non-ignored file exists. It takes
 // no optional lock, so git does not refresh the index of the step's worktree.
-func stepGitCleanCheck(ctx context.Context, dir string) stepCheck {
+func stepGitCleanCheck(ctx context.Context, host hostexec.Host, dir string) stepCheck {
 	out, err := stepGit(
 		ctx,
+		host,
 		dir,
 		"--no-optional-locks",
 		"status",
@@ -142,16 +142,18 @@ func stepGitCleanCheck(ctx context.Context, dir string) stepCheck {
 // stepGitOwnedCheck passes when every path changed from start to commit is owned: equal to an entry of owned, or under
 // an entry that ends in "/", which owns every path below that directory. An entry without the slash owns that exact path
 // only. Without rename detection git reports both the old and the new side of a rename, so both are checked.
-func stepGitOwnedCheck(ctx context.Context, dir, start, commit string, owned []string) stepCheck {
-	from, err := stepGitResolve(ctx, dir, start)
+func stepGitOwnedCheck(
+	ctx context.Context, host hostexec.Host, dir, start, commit string, owned []string,
+) stepCheck {
+	from, err := stepGitResolve(ctx, host, dir, start)
 	if err != nil {
 		return stepCheck{Name: stepGitOwnedName, Detail: fmt.Sprintf("start %q does not resolve: %v", start, err)}
 	}
-	to, err := stepGitResolve(ctx, dir, commit)
+	to, err := stepGitResolve(ctx, host, dir, commit)
 	if err != nil {
 		return stepCheck{Name: stepGitOwnedName, Detail: fmt.Sprintf("commit %q does not resolve: %v", commit, err)}
 	}
-	out, err := stepGit(ctx, dir, "diff", "--name-only", "-z", "--no-renames", from, to)
+	out, err := stepGit(ctx, host, dir, "diff", "--name-only", "-z", "--no-renames", from, to)
 	if err != nil {
 		return stepCheck{Name: stepGitOwnedName, Detail: fmt.Sprintf("diff %s %s: %v", from, to, err)}
 	}
@@ -205,13 +207,14 @@ func stepGitListPaths(prefix string, entries []string) string {
 
 // stepGitCheckout returns the state of the checkout at dir. It reads with no optional locks, so git does not refresh the
 // index of the step's worktree.
-func stepGitCheckout(ctx context.Context, dir string) (stepCheckout, error) {
-	head, err := stepGitResolve(ctx, dir, "HEAD")
+func stepGitCheckout(ctx context.Context, host hostexec.Host, dir string) (stepCheckout, error) {
+	head, err := stepGitResolve(ctx, host, dir, "HEAD")
 	if err != nil {
 		return stepCheckout{}, err
 	}
 	status, err := stepGit(
 		ctx,
+		host,
 		dir,
 		"--no-optional-locks",
 		"status",
@@ -223,7 +226,7 @@ func stepGitCheckout(ctx context.Context, dir string) (stepCheckout, error) {
 	if err != nil {
 		return stepCheckout{}, err
 	}
-	diff, err := stepGit(ctx, dir, "--no-optional-locks", "diff", "HEAD")
+	diff, err := stepGit(ctx, host, dir, "--no-optional-locks", "diff", "HEAD")
 	if err != nil {
 		return stepCheckout{}, err
 	}
@@ -233,15 +236,15 @@ func stepGitCheckout(ctx context.Context, dir string) (stepCheckout, error) {
 
 // stepGitCheckoutCheck returns the checkout check of a read-only step's return. It passes when the checkout at dir is still
 // the state before records. Otherwise it fails with a detail that names the move, and a git error fails it closed.
-func stepGitCheckoutCheck(ctx context.Context, dir string, before stepCheckout) stepCheck {
-	now, err := stepGitCheckout(ctx, dir)
+func stepGitCheckoutCheck(ctx context.Context, host hostexec.Host, dir string, before stepCheckout) stepCheck {
+	now, err := stepGitCheckout(ctx, host, dir)
 	if err != nil {
 		return stepCheck{Name: stepGitCheckoutName, Detail: fmt.Sprintf("read the checkout: %v", err)}
 	}
 	if now == before {
 		return stepCheck{Name: stepGitCheckoutName, OK: true, Detail: "checkout is as the step started it"}
 	}
-	detail, err := stepGitCheckoutMove(ctx, dir, before, now)
+	detail, err := stepGitCheckoutMove(ctx, host, dir, before, now)
 	if err != nil {
 		return stepCheck{Name: stepGitCheckoutName, Detail: fmt.Sprintf("read the checkout: %v", err)}
 	}
@@ -251,21 +254,23 @@ func stepGitCheckoutCheck(ctx context.Context, dir string, before stepCheckout) 
 // stepGitCheckoutMove returns the detail of a checkout at dir that moved from before to now: HEAD's move when HEAD moved,
 // and the paths changed since before. Those are the paths the commits since before changed and the paths that differ from
 // HEAD now, sorted and capped by stepGitListPaths.
-func stepGitCheckoutMove(ctx context.Context, dir string, before, now stepCheckout) (string, error) {
+func stepGitCheckoutMove(
+	ctx context.Context, host hostexec.Host, dir string, before, now stepCheckout,
+) (string, error) {
 	var parts, paths []string
 	if now.head != before.head {
 		parts = append(parts, fmt.Sprintf("HEAD moved from %s to %s", before.head, now.head))
-		committed, err := stepGit(ctx, dir, "diff", "--name-only", "-z", "--no-renames", before.head, now.head)
+		committed, err := stepGit(ctx, host, dir, "diff", "--name-only", "-z", "--no-renames", before.head, now.head)
 		if err != nil {
 			return "", err
 		}
 		paths = append(paths, stepGitNULRecords(committed)...)
 	}
-	tracked, err := stepGit(ctx, dir, "--no-optional-locks", "diff", "--name-only", "-z", "--no-renames", "HEAD")
+	tracked, err := stepGit(ctx, host, dir, "--no-optional-locks", "diff", "--name-only", "-z", "--no-renames", "HEAD")
 	if err != nil {
 		return "", err
 	}
-	untracked, err := stepGit(ctx, dir, "--no-optional-locks", "ls-files", "--others", "--exclude-standard", "-z")
+	untracked, err := stepGit(ctx, host, dir, "--no-optional-locks", "ls-files", "--others", "--exclude-standard", "-z")
 	if err != nil {
 		return "", err
 	}
@@ -297,19 +302,19 @@ func stepGitNULRecords(out string) []string {
 // adds and removes. Each NUL-terminated numstat record is one file, and a binary file's record, with - for both counts,
 // is a file with no lines. start and commit resolve as stepGitOwnedCheck resolves them. An empty or unresolvable commit
 // is an error, and so is a malformed record.
-func stepGitLines(ctx context.Context, dir, start, commit string) (store.StepLines, error) {
+func stepGitLines(ctx context.Context, host hostexec.Host, dir, start, commit string) (store.StepLines, error) {
 	if commit == "" {
 		return store.StepLines{}, errors.New("commit is empty")
 	}
-	from, err := stepGitResolve(ctx, dir, start)
+	from, err := stepGitResolve(ctx, host, dir, start)
 	if err != nil {
 		return store.StepLines{}, fmt.Errorf("start %q does not resolve: %w", start, err)
 	}
-	to, err := stepGitResolve(ctx, dir, commit)
+	to, err := stepGitResolve(ctx, host, dir, commit)
 	if err != nil {
 		return store.StepLines{}, fmt.Errorf("commit %q does not resolve: %w", commit, err)
 	}
-	out, err := stepGit(ctx, dir, "diff", "--numstat", "-z", "--no-renames", from, to)
+	out, err := stepGit(ctx, host, dir, "diff", "--numstat", "-z", "--no-renames", from, to)
 	if err != nil {
 		return store.StepLines{}, fmt.Errorf("diff %s %s: %w", from, to, err)
 	}

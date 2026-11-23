@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	v1 "github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1"
+	"github.com/joshsymonds/orrery/internal/hostexec"
 	"github.com/joshsymonds/orrery/internal/reviewers"
 )
 
@@ -17,7 +18,7 @@ func runContractBodyRefusals(t *testing.T, repo string, refusals []epicRefusal) 
 			t.Parallel()
 			req := epicTestRequest(repo)
 			tc.mutate(req)
-			err := checkContractBody(t.Context(), req.Contract, epicTestGetenv)
+			err := checkContractBody(t.Context(), hostexec.NewLocal(), req.Contract, epicTestGetenv)
 			if err == nil {
 				t.Fatalf("checkContractBody accepted the contract, want refusal %q", tc.want)
 			}
@@ -80,7 +81,7 @@ func TestContractRecordBodyRefusesReviewer(t *testing.T) {
 	repo := stepGitTestRepo(t)
 	req := epicTestRequest(repo)
 	req.Contract.Reviewers = []*v1.EpicReviewer{{Name: "floor", Limit: new(int64(0))}}
-	err := checkContractBody(t.Context(), req.Contract, epicTestGetenv)
+	err := checkContractBody(t.Context(), hostexec.NewLocal(), req.Contract, epicTestGetenv)
 	var refusal *reviewers.Error
 	if !errors.As(err, &refusal) {
 		t.Fatalf("checkContractBody error = %v (%T), want *reviewers.Error", err, err)
@@ -123,7 +124,7 @@ func TestContractRecordBodyAcceptsBodies(t *testing.T) {
 			t.Parallel()
 			req := epicTestRequest(repo)
 			tc.mutate(req)
-			if err := checkContractBody(t.Context(), req.Contract, epicTestGetenv); err != nil {
+			if err := checkContractBody(t.Context(), hostexec.NewLocal(), req.Contract, epicTestGetenv); err != nil {
 				t.Fatalf("checkContractBody refused a valid body: %v", err)
 			}
 			t.Logf("checkContractBody accepted the body: %s", tc.name)

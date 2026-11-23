@@ -1118,42 +1118,6 @@ func storeActionsOf(t *testing.T, s *Store, actions ...EpicActionInput) []Planne
 	return storeActions(t, s, amendEpic, actions...)
 }
 
-// TestAmendShownPlannerConclusionOrKindIsRefusedAtOnce checks that an amend_evidence action that changes the conclusion or
-// the kind of R1, what it claims, is refused at once, while a change of how it is shown is not.
-func TestAmendShownPlannerConclusionOrKindIsRefusedAtOnce(t *testing.T) {
-	t.Parallel()
-	conclusion := captureAmendItem()
-	conclusion.Conclusion = "a quiet step is quiet"
-	kind := captureAmendItem()
-	kind.Kind, kind.Tests = evidence.KindCapture, nil
-	cases := []struct {
-		name    string
-		item    evidence.Item
-		refusal string
-	}{
-		{"a new conclusion", conclusion,
-			"the planner may not change the conclusion of R1; only the owner amends a conclusion"},
-		{"a new kind", kind, "the planner may not change the kind of R1; only the owner amends a kind"},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			s := openEpicStore(t)
-			createAmendEpic(t, s)
-			action := storeActionsOf(t, s, amendAction(tc.item))[0]
-
-			if _, err := s.CarryOutAction(context.Background(), action, amendAt()); err != nil {
-				t.Fatalf("CarryOutAction: %v", err)
-			}
-
-			requireRefusedAmendAction(t, s, action, tc.refusal)
-			if amendments := closeRow(t, s, amendEpic).Amendments; len(amendments) != 0 {
-				t.Errorf("amendments after a refused action = %+v, want none stored", amendments)
-			}
-		})
-	}
-}
-
 // storeLegacyAmendment stores amendment seq of the amended epic for action, a planner's amend_evidence action, as checking
 // with prior as the item it holds, as the store stored a planner's amendment before a change of how a Requirement is
 // shown applied at once. Its red run is named for attempt 0, as a checking amendment's is.

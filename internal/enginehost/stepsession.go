@@ -66,7 +66,7 @@ func (m *Manager) StartStep(ctx context.Context, step StepSession) error {
 	if err := checkStep(step); err != nil {
 		return stepRefusedError{err}
 	}
-	if err := m.resolveStepAgent(step); err != nil {
+	if err := m.resolveStepAgent(ctx, step); err != nil {
 		return stepRefusedError{err}
 	}
 	if err := m.checkOpen(); err != nil {
@@ -154,7 +154,7 @@ func checkStep(step StepSession) error {
 // under the managed root. An unset CLAUDE_CONFIG_DIR is "" and takes the default, and an unset HOME is "", which Resolve
 // refuses. The error names the agent and each place checked, and an Agents that is not a JSON object of definitions is
 // refused with an error matching ErrBadAgents.
-func (m *Manager) resolveStepAgent(step StepSession) error {
+func (m *Manager) resolveStepAgent(ctx context.Context, step StepSession) error {
 	defined, err := inlineAgents(step.Agents)
 	if err != nil {
 		return fmt.Errorf("resolve agent of step %s: %w", step.ID, err)
@@ -165,7 +165,7 @@ func (m *Manager) resolveStepAgent(step StepSession) error {
 	home, _ := environValue(m.environ, "HOME")
 	configDir, _ := environValue(m.environ, "CLAUDE_CONFIG_DIR")
 	where := agents.Where{Dir: step.Dir, Home: home, ConfigDir: configDir, Managed: m.managedDir}
-	if err = agents.Resolve(step.Agent, where); err != nil {
+	if err = agents.Resolve(ctx, step.Agent, where); err != nil {
 		return fmt.Errorf("resolve agent of step %s: %w", step.ID, err)
 	}
 	return nil

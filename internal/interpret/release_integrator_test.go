@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/joshsymonds/orrery/internal/enginehost"
+	"github.com/joshsymonds/orrery/internal/hostexec"
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
@@ -574,20 +575,24 @@ func TestReleaseIntegratorChecksFailedStopsWithConflict(t *testing.T) {
 }
 
 // TestReleaseCleanMergeStartsNoIntegrator: a merge of origin's commit that does not conflict is the candidate as it
-// always was: its Result names no conflict, it is held at the Done gate, and no release integrator starts.
+// always was: its Result names no conflict and no branch, but the origin commit it merged, it is held at the Done gate,
+// and no release integrator starts.
 func TestReleaseCleanMergeStartsNoIntegrator(t *testing.T) {
 	t.Parallel()
 	w := newMergeWorld(t)
 	origin := mergeRemote(t, w.repo)
 	nodeEpicBranch(t, w.repo, "epic.txt")
-	mergeOriginCommit(t, origin, "origin.txt")
+	originHead := mergeOriginCommit(t, origin, "origin.txt")
 	w.pass()
 
 	run := runAt(t, w.s, releaseNodePath)
-	for _, key := range []string{`"conflicts"`, `"origin"`, `"branch"`} {
+	for _, key := range []string{`"conflicts"`, `"branch"`} {
 		if strings.Contains(run.Result, key) {
 			t.Errorf("Result = %s, want no %s key for a clean merge", run.Result, key)
 		}
+	}
+	if got := decodeMerge(t, run.Result); got.Origin != originHead {
+		t.Errorf("Result origin = %q, want origin's commit %q", got.Origin, originHead)
 	}
 	if run.Revision == "" {
 		t.Errorf("revision is empty, want the clean merge")
@@ -623,7 +628,7 @@ func TestReleaseIntegratorRestartFindsStepByID(t *testing.T) {
 	if err != nil {
 		t.Fatalf("stored integrator step: %v", err)
 	}
-	check, err := ReadoptCheck(w.s)(t.Context(), row)
+	check, err := ReadoptCheck(w.s, hostexec.LocalHosts())(t.Context(), row)
 	if err != nil || check == nil {
 		t.Fatalf("ReadoptCheck = %v, %v, want the integrator's check", check != nil, err)
 	}
@@ -647,7 +652,7 @@ func TestReleaseIntegratorRestartFindsStepByID(t *testing.T) {
 	}
 
 	row.Schema = wantReleaseStepSchema
-	if other, otherErr := ReadoptCheck(w.s)(t.Context(), row); other != nil || otherErr != nil {
+	if other, otherErr := ReadoptCheck(w.s, hostexec.LocalHosts())(t.Context(), row); other != nil || otherErr != nil {
 		t.Errorf("ReadoptCheck of another step = %v, %v, want no check", other != nil, otherErr)
 	}
 }
@@ -690,7 +695,9 @@ func TestSameChangeLinesPairsEqualPatchesAndDatedSubjects(t *testing.T) {
 	redone := commit("b.txt", "b\n", "T5: tune the cache", "2026-01-03T00:00:00Z")
 	origin := nodeGit(t, repo, "rev-parse", "HEAD")
 
-	got, err := sameChangeLines(t.Context(), repo, base, integratorMerge{repo: repo, tip: tip, origin: origin})
+	got, err := sameChangeLines(
+		t.Context(), hostexec.NewLocal(), repo, base, integratorMerge{repo: repo, tip: tip, origin: origin},
+	)
 	if err != nil {
 		t.Fatalf("sameChangeLines: %v", err)
 	}
@@ -717,7 +724,7 @@ func TestConflictStatusCodesByStage(t *testing.T) {
 		return nodeGit(t, repo, "rev-parse", "HEAD")
 	}
 	tip, origin := side("tip\n"), side("origin\n")
-	got, err := conflictStatus(t.Context(), integratorMerge{repo: repo, tip: tip, origin: origin})
+	got, err := conflictStatus(t.Context(), hostexec.NewLocal(), integratorMerge{repo: repo, tip: tip, origin: origin})
 	if err != nil {
 		t.Fatalf("conflictStatus: %v", err)
 	}
