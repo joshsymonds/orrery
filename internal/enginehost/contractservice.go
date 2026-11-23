@@ -30,6 +30,7 @@ const (
 type ContractStore interface {
 	CallerSession(ctx context.Context, caller store.EpicCaller) (string, bool, error)
 	ProposeContract(ctx context.Context, id string, v store.ContractVersion) error
+	ProposeContractInDesign(ctx context.Context, designID, id string, v store.ContractVersion) error
 	ReviseContract(ctx context.Context, id string, v store.ContractVersion) error
 	AcceptContract(ctx context.Context, id string, c store.ContractChange) error
 	SetAsideContract(ctx context.Context, id string, c store.ContractChange) error
@@ -92,12 +93,21 @@ func (s *contractService) ProposeContract(
 	if err != nil {
 		return nil, err
 	}
-	if err = s.contracts.Store.ProposeContract(ctx, id, version); err != nil {
+	design := req.Msg.GetDesign()
+	if design == "" {
+		err = s.contracts.Store.ProposeContract(ctx, id, version)
+	} else {
+		err = s.contracts.Store.ProposeContractInDesign(ctx, design, id, version)
+	}
+	if err != nil {
 		if errors.Is(err, store.ErrContractExists) {
 			return nil, refuseEpic(
 				connect.CodeAlreadyExists,
 				fmt.Sprintf("id: %s is already held by a contract or an epic", id),
 			)
+		}
+		if errors.Is(err, store.ErrNoDesign) {
+			return nil, refuseEpic(connect.CodeNotFound, fmt.Sprintf("design: %s not found", design))
 		}
 		return nil, epicStoreError(err)
 	}
