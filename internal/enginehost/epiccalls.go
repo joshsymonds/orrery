@@ -111,6 +111,11 @@ func epicNamedBy(msg any) string {
 	return ""
 }
 
+// CallerOf returns the caller header holds, as epicCallerOf does: a session or a pane, and false when it holds neither.
+func CallerOf(header http.Header) (store.EpicCaller, bool) {
+	return epicCallerOf(header)
+}
+
 // epicCallerOf returns the caller header holds, and false when it holds none. A session names itself. A pane names the
 // tmux socket, the part of TMUX before its first comma, and its TMUX_PANE, as the server column of a pane row does.
 func epicCallerOf(header http.Header) (store.EpicCaller, bool) {

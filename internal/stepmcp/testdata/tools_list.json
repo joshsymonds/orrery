@@ -868,5 +868,85 @@
       ],
       "type": "object"
     }
+  },
+  {
+    "name": "design_research",
+    "description": "Start a read-only scout step that answers question about repository at revision, for design, and store the step on the design. Returns the step; its report is in design_stage once the step returns.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "design": {
+          "description": "the id of the design or contract the step researches for",
+          "type": "string"
+        },
+        "question": {
+          "description": "the question the scout answers",
+          "type": "string"
+        },
+        "repository": {
+          "description": "the absolute path of the git repository the scout reads",
+          "type": "string"
+        },
+        "revision": {
+          "description": "the committed revision the scout reads at, empty for HEAD",
+          "type": "string"
+        }
+      },
+      "required": [
+        "design",
+        "repository",
+        "question"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "name": "design_reproduce",
+    "description": "Run command in repository at revision through a read-only test runner step, and store the step on design. Returns the step; its output is in design_stage once the step returns.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "command": {
+          "description": "the command to run",
+          "type": "string"
+        },
+        "design": {
+          "description": "the id of the design or contract the output is stored on",
+          "type": "string"
+        },
+        "repository": {
+          "description": "the absolute path of the git repository the command runs in",
+          "type": "string"
+        },
+        "revision": {
+          "description": "the committed revision the command runs at",
+          "type": "string"
+        }
+      },
+      "required": [
+        "design",
+        "repository",
+        "revision",
+        "command"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "name": "design_stage",
+    "description": "Return the contract stage of a design: the research and reproduction steps it started, each with its status and its report once it returns.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "design": {
+          "description": "the id of the design or contract whose stage to read",
+          "type": "string"
+        }
+      },
+      "required": [
+        "design"
+      ],
+      "type": "object"
+    }
   }
 ]
