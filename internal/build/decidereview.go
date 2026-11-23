@@ -8,6 +8,7 @@ import (
 
 	"github.com/joshsymonds/orrery/internal/evidence"
 	"github.com/joshsymonds/orrery/internal/store"
+	"github.com/joshsymonds/orrery/internal/testrunner"
 )
 
 // The ends of a step that decideReview and decideVerify read. A step with no end is still open.
@@ -162,11 +163,11 @@ func reproNoted(view View, outcome string) (Action, bool) {
 }
 
 // decideReview returns the action for the review of the build's gate, once its step has ended. A done review holds
-// and moves to the next gate. A failed review with findings stores them and moves to their verification, or with
-// verify off stores them settled as confirmed and unverified. Any other end gives no verdict: its first reruns the
-// gate, and its second stores the review undetermined, with the reason it ended so, and moves to the next gate. Past
-// the last gate a design task moves to its design judge (decideDesign), and any other task is accepted as reviewed, or
-// as unreviewed when the epic has no review gates.
+// and moves to the next gate. A failed review with findings stores them, with the test runs its return requests when
+// verify is on, and moves to their verification, or with verify off stores them settled as confirmed and unverified.
+// Any other end gives no verdict: its first reruns the gate, and its second stores the review undetermined, with the
+// reason it ended so, and moves to the next gate. Past the last gate a design task moves to its design judge
+// (decideDesign), and any other task is accepted as reviewed, or as unreviewed when the epic has no review gates.
 func decideReview(view View) Action {
 	build := view.Task.Build
 	if build.GatePos >= int64(len(view.ReviewGates)) {
@@ -216,7 +217,7 @@ func decideReview(view View) Action {
 		build.NoVerdict = 0
 		return Action{Kind: ActReview, Review: review, Next: build}
 	case endGateFailed:
-		if findings, ok := raisedFindings(step.Result); ok {
+		if findings, runs, ok := raisedReview(step.Result, build.Revision); ok {
 			review := store.TaskReview{
 				Attempt: build.Attempt, Position: build.GatePos, Gate: gate, Step: step.ID, Verdict: verdictFails,
 				Findings: findings,
@@ -225,9 +226,11 @@ func decideReview(view View) Action {
 			build.FindingPos = 0
 			if view.NoVerify {
 				// Verify off settles the findings here, so the verify unit has none left to verify and spends the
-				// attempt with them.
+				// attempt with them. No verifier reads test runs, so none are stored.
 				review.Findings = settleUnverified(findings, step.ID)
 				build.FindingPos = int64(len(findings))
+			} else {
+				review.TestRuns = runs
 			}
 			build.Rerun = 0
 			build.NoVerdict = 0
@@ -247,12 +250,16 @@ func decideReview(view View) Action {
 	return Action{Kind: ActReview, Review: review, Next: build}
 }
 
-// decideVerify returns the action for the verifier of the build's finding, once its step has ended. A done or returned
-// verifier stores the finding's result. Once every finding of the review is verified, a confirmed one spends the
-// attempt, and otherwise the build moves to the next gate. Any other end gives no verdict: its first reruns the
-// verifier, and its second stores the finding undecided, with the reason it ended so.
+// decideVerify returns the action for the verifier of the build's finding, once its step has ended. Before the first
+// verifier, each test run of the review that has no step runs first (decideTestRun). A done or returned verifier
+// stores the finding's result. Once every finding of the review is verified, a confirmed one spends the attempt, and
+// otherwise the build moves to the next gate. Any other end gives no verdict: its first reruns the verifier, and its
+// second stores the finding undecided, with the reason it ended so.
 func decideVerify(view View) Action {
 	build := view.Task.Build
+	if run, ok := pendingTestRun(view.Task); ok {
+		return decideTestRun(view, run)
+	}
 	findings := reviewFindings(view)
 	if build.FindingPos >= int64(len(findings)) {
 		return settledFindings(view, findings)
@@ -294,6 +301,78 @@ func decideVerify(view View) Action {
 		return action
 	}
 	return verifiedAction(view, step.ID, resultUndecided, endText(step))
+}
+
+// decideTestRun returns the action for run, the first test run of the build's review with no step. Its step is started
+// under its derived id, and once the step has ended its output is stored as the run's result: a done run's return as
+// testrunner.Output renders it, and a returned run as blocked with its reason. A run that is stopped holds the build,
+// and one the engine restarted reruns the unit. Any other end gives no verdict: its first reruns the unit, and its
+// second stores how it ended as the run's output.
+func decideTestRun(view View, run store.TaskTestRun) Action {
+	build := view.Task.Build
+	step := view.TestRunStep
+	if step == nil {
+		if view.Paused || view.Parked {
+			return Action{Kind: ActNone}
+		}
+		return Action{
+			Kind: ActStartStep, Unit: unitTestRun, TestRun: run,
+			ID: testRunID(unitScope(view.Epic, view.Task), view.Task.Seq, build, run.Position),
+		}
+	}
+	result := store.TaskTestRunResult{
+		Attempt: build.Attempt, Review: build.GatePos, Position: run.Position, Step: step.ID,
+	}
+	switch step.End {
+	case "":
+		return Action{Kind: ActNone}
+	case endStopped:
+		return holdStopped(build)
+	case endEngineRestarted:
+		return restartUnit(build)
+	case endDone:
+		result.Output = testrunner.Output(step.Result)
+		return storedTestRun(build, result)
+	case endReturned:
+		result.Output = "blocked: " + step.Reason
+		return storedTestRun(build, result)
+	}
+	if action, again := silentRerun(view); again {
+		return action
+	}
+	result.Output = endText(step)
+	return storedTestRun(build, result)
+}
+
+// storedTestRun returns the action that stores result as the result of a test run of the build's review. The build
+// stays at verify with its rerun and no-verdict count reset, as a stored verifier leaves it.
+func storedTestRun(build store.TaskBuild, result store.TaskTestRunResult) Action {
+	build.Rerun = 0
+	build.NoVerdict = 0
+	return Action{Kind: ActTestRun, Next: build, TestResult: result}
+}
+
+// pendingTestRun returns the first test run of the current review of task, the review of the build's attempt and gate,
+// that has no step, in position order. It reports false when every run of the review has one, or the task has no
+// current review.
+func pendingTestRun(task store.EpicTask) (store.TaskTestRun, bool) {
+	for _, review := range task.Reviews {
+		if review.Attempt != task.Build.Attempt || review.Position != task.Build.GatePos {
+			continue
+		}
+		for _, run := range review.TestRuns {
+			if run.Step == "" {
+				return run, true
+			}
+		}
+	}
+	return store.TaskTestRun{}, false
+}
+
+// testRunID returns the derived id of the step of test run position of the review at the build's gate, under the
+// build's attempt and rerun, in scope, as StepID's scope describes.
+func testRunID(scope string, seq int64, build store.TaskBuild, position int64) string {
+	return StepID(scope, seq, unitTestRun, build.Attempt, build.Rerun, build.GatePos, position)
 }
 
 // UnverifiedFindings returns the findings a failed review step raised in result, each settled as confirmed and
@@ -348,6 +427,57 @@ func failedWithFindings(ret gateReturn) bool {
 		}
 	}
 	return true
+}
+
+// testRunnerRequestsKey is the key of the test runner requests a review's return carries.
+const testRunnerRequestsKey = "test_runner_requests"
+
+// testRunnerRequest is one test run a review's return requests: the command to run, and the revision to run it at.
+type testRunnerRequest struct {
+	Command  string `json:"command"`
+	Revision string `json:"revision"`
+}
+
+// raisedReview returns the findings and the test runs a failed review's kept return raised, as raisedFindings and
+// raisedTestRuns give them. It reports false when result is not a failed review with findings, or its requests do not
+// decode.
+func raisedReview(result, revision string) ([]store.TaskFinding, []store.TaskTestRun, bool) {
+	findings, ok := raisedFindings(result)
+	if !ok {
+		return nil, nil, false
+	}
+	runs, ok := raisedTestRuns(result, revision)
+	return findings, runs, ok
+}
+
+// raisedTestRuns returns the test runs a failed review's kept return requests, in position order, each at its revision,
+// or at revision when the request names none. It reports false when the return's requests do not decode, and none when
+// the return has no requests.
+func raisedTestRuns(result, revision string) ([]store.TaskTestRun, bool) {
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(result), &fields); err != nil {
+		return nil, false
+	}
+	raw, ok := fields[testRunnerRequestsKey]
+	if !ok {
+		return nil, true
+	}
+	var requests []testRunnerRequest
+	if err := json.Unmarshal(raw, &requests); err != nil {
+		return nil, false
+	}
+	if len(requests) == 0 {
+		return nil, true
+	}
+	runs := make([]store.TaskTestRun, 0, len(requests))
+	for i, request := range requests {
+		rev := request.Revision
+		if rev == "" {
+			rev = revision
+		}
+		runs = append(runs, store.TaskTestRun{Position: int64(i), Command: request.Command, Revision: rev})
+	}
+	return runs, true
 }
 
 // parseGateReturn decodes a review step's kept return. It reports false when the return is not a gate return.
