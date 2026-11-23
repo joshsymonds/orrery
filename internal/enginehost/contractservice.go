@@ -48,14 +48,17 @@ type ContractStore interface {
 // origin's main names in a contract's repository, which an accept stores as the contract's base; nil fetches origin's
 // main with git. Hosts resolves host names to the Hosts that run a contract's git, and Host names the controller's
 // host: a contract's checks and its origin's fetch run on the Host that Hosts resolves Host to. A nil Hosts resolves
-// every name to this machine.
+// every name to this machine. AcceptCheck is what an accept asks of the contract's id after it reads the contract and
+// before it fetches origin's main: a refusal it returns stops the accept and stores nothing. A nil AcceptCheck checks
+// nothing.
 type Contracts struct {
-	Store      ContractStore
-	Now        func() time.Time
-	Getenv     func(string) string
-	OriginMain func(ctx context.Context, repository string) (string, error)
-	Hosts      hostexec.Hosts
-	Host       string
+	Store       ContractStore
+	Now         func() time.Time
+	Getenv      func(string) string
+	OriginMain  func(ctx context.Context, repository string) (string, error)
+	Hosts       hostexec.Hosts
+	Host        string
+	AcceptCheck func(ctx context.Context, contract string) error
 }
 
 // contractService implements the Contracts RPCs over contracts. A nil contracts answers the RPCs it serves as
