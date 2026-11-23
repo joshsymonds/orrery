@@ -37,7 +37,7 @@ func syncIntegrator(run store.NodeRun, rows Rows, result SyncResult) Action {
 		checked := run
 		checked.ID = fmt.Sprintf("%s-integrator-%d", run.ID, round)
 		checked.Revision = record.Head
-		failure, detail, act, settled := mergedChecks(checked, rows)
+		failure, detail, act, settled := walkMerged(checked, rows, true)
 		switch {
 		case !settled:
 			act.Revision = record.Head

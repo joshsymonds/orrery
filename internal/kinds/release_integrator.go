@@ -107,6 +107,12 @@ func integratorStart(rows Rows, id string, position int64, head, previous string
 // A capture fails as an integrate run's does (captureCauses): it was not captured or not judged, or its Requirement was
 // green at the stored base and its capture does not pass at the commit.
 func mergedChecks(checked store.NodeRun, rows Rows) (string, string, Action, bool) {
+	return walkMerged(checked, rows, false)
+}
+
+// walkMerged is mergedChecks, which also walks the reproductions of the epic's test items at checked's revision, once
+// the captures settle, when reproduce is set, as syncChecks walks them at a merge.
+func walkMerged(checked store.NodeRun, rows Rows, reproduce bool) (string, string, Action, bool) {
 	gate, act, settled := doneGates(checked, rows)
 	if !settled {
 		return "", "", act, false
@@ -118,6 +124,11 @@ func mergedChecks(checked store.NodeRun, rows Rows) (string, string, Action, boo
 	captured, act, settled := captures(checked, rows)
 	if !settled {
 		return "", "", act, false
+	}
+	if reproduce {
+		if act, settled = reproductions(checked, rows); !settled {
+			return "", "", act, false
+		}
 	}
 	causes := captureCauses(rows, captured)
 	if len(causes) == 0 {
