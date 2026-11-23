@@ -142,7 +142,7 @@ class MainActivityTest {
     private fun titled(label: String): SemanticsMatcher = hasTestTag("head-text").and(hasText(label))
 
     /** A headless session as the list and the watch stream report it. */
-    private fun headlessSession(id: String, label: String, state: String = "working"): HeadlessSession =
+    private fun headlessSession(id: String, label: String, state: String = "working", ended: Boolean = false): HeadlessSession =
         HeadlessSession.newBuilder()
             .setId(id)
             .setDir("/home/user/alpha")
@@ -150,6 +150,7 @@ class MainActivityTest {
             .setState(state)
             .setChanged(NOW - 30)
             .setSeen(NOW - 10)
+            .setEnded(ended)
             .build()
 
     /** Lists [sessions] as the headless sessions, and streams each one's state when its screen opens. */
@@ -297,7 +298,7 @@ class MainActivityTest {
 
     @Test
     fun theOpenedEndedLineSurvivesOpeningAConversation() {
-        serveSessions(headlessSession(SESSION_ENDED, "ended-build", state = "stopped"))
+        serveSessions(headlessSession(SESSION_ENDED, "ended-build", state = "stopped", ended = true))
         val controller = launch()
         awaitNode(hasTestTag("convo:pane:example-host:%1"))
         composeRule.onNodeWithTag("ended:|/home/user/alpha").performClick()

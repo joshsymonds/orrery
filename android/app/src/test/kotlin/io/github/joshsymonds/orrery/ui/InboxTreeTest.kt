@@ -22,6 +22,7 @@ class InboxTreeTest {
         newestReply: Long = 0L,
         seen: Long = 0L,
         session: String = "work",
+        ended: Boolean = false,
     ) = Pane(
         id = paneId,
         host = host,
@@ -39,6 +40,7 @@ class InboxTreeTest {
         questionHash = "",
         newestReply = newestReply,
         orreryId = orreryId,
+        ended = ended,
     )
 
     private fun headless(
@@ -49,6 +51,7 @@ class InboxTreeTest {
         newestReply: Long = 0L,
         seen: Long = 0L,
         archived: Boolean = false,
+        ended: Boolean = false,
     ) = Pane(
         id = id,
         host = "",
@@ -67,6 +70,7 @@ class InboxTreeTest {
         newestReply = newestReply,
         headless = true,
         archived = archived,
+        ended = ended,
     )
 
     private fun epic(
@@ -428,6 +432,15 @@ class InboxTreeTest {
     }
 
     @Test
+    fun anArchivedEndedConversationDrawsOnlyInTheArchivedView() {
+        val panes = listOf(headless("h1", "/home/user/repo", state = "stopped", archived = true, ended = true))
+        assertTrue(tree(panes = panes).isEmpty())
+        val archived = tree(panes = panes, view = TreeView.ARCHIVED).single()
+        assertEquals(listOf("session:h1"), archived.convos.map { it.key })
+        assertTrue(archived.ended.isEmpty())
+    }
+
+    @Test
     fun shellSessionPanesAreNeverConversations() {
         val projects = tree(panes = listOf(tmux("%1", "o1", "/home/user/repo", session = "_orrery-shell-1")))
         assertTrue(projects.isEmpty())
@@ -490,11 +503,20 @@ class InboxTreeTest {
     }
 
     @Test
-    fun stoppedHeadlessSessionsGoBehindTheEndedLineNewestFirst() {
+    fun aStoppedSessionServeDoesNotMarkEndedStaysInTheTree() {
+        val project = tree(
+            panes = listOf(headless("h1", "/home/user/repo", state = "stopped")),
+        ).single()
+        assertEquals(listOf("session:h1"), project.convos.map { it.key })
+        assertTrue(project.ended.isEmpty())
+    }
+
+    @Test
+    fun endedHeadlessSessionsGoBehindTheEndedLineNewestFirst() {
         val project = tree(
             panes = listOf(
-                headless("h1", "/home/user/repo", state = "stopped", changed = 10L),
-                headless("h4", "/home/user/repo", state = "stopped", changed = 20L),
+                headless("h1", "/home/user/repo", state = "stopped", changed = 10L, ended = true),
+                headless("h4", "/home/user/repo", state = "stopped", changed = 20L, ended = true),
             ),
         ).single()
         assertTrue(project.convos.isEmpty())
@@ -502,10 +524,10 @@ class InboxTreeTest {
     }
 
     @Test
-    fun failedHeadlessSessionEndsOnlyOnceSeen() {
+    fun failedHeadlessSessionsGoBehindTheLineOnlyWhenServeMarksThemEnded() {
         val project = tree(
             panes = listOf(
-                headless("h2", "/home/user/repo", state = "failed", newestReply = 0L, seen = 0L),
+                headless("h2", "/home/user/repo", state = "failed", newestReply = 0L, seen = 0L, ended = true),
                 headless("h3", "/home/user/repo", state = "failed", newestReply = 50L, seen = 10L),
             ),
         ).single()
@@ -514,10 +536,10 @@ class InboxTreeTest {
     }
 
     @Test
-    fun doneConversationSteeringOnlyEndedEpicsGoesBehindTheLineWithThem() {
+    fun endedConversationSteeringOnlyEndedEpicsGoesBehindTheLineWithThem() {
         val ended = epic("e5", steering = "o5", live = false)
         val project = tree(
-            panes = listOf(tmux("%5", "o5", "/home/user/repo", state = "done")),
+            panes = listOf(tmux("%5", "o5", "/home/user/repo", state = "done", ended = true)),
             epics = listOf(ended),
         ).single()
         assertTrue(project.convos.isEmpty())
