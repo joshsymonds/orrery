@@ -1378,11 +1378,12 @@ func (h *sessionHost) startFlow(
 	logger *slog.Logger,
 ) {
 	plannerRun := planner.New(planner.Config{
-		Store:   st,
-		Steps:   h.steps,
-		Agent:   func() (string, error) { return roles.Agent(getenv, "planner") },
-		Logger:  logger,
-		Resolve: resolve,
+		Store:      st,
+		Steps:      h.steps,
+		Agent:      func() (string, error) { return roles.Agent(getenv, "planner") },
+		Logger:     logger,
+		Resolve:    resolve,
+		OriginMain: enginehost.FetchOriginMain,
 	})
 	buildRun := build.New(build.Config{
 		Store:    st,
