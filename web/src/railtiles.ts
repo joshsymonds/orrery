@@ -14,10 +14,12 @@ export interface RailTileModel {
   quiet: boolean;  // nothing waits on you and nothing is new: n is 0 and fresh is false
   cur: boolean;    // the project holds the open page
   title: string;   // "<name>" or "<name>: <n> wait on you" ("waits" when n is 1)
+  lineage?: LineageConvo[]; // railLineage of the project; absent reads as none
 }
 
 // railTiles is a tile per project, in the tree's order. open is the open page's item key or project key, "" for none.
-export function railTiles(projects: readonly Project[], open: string): RailTileModel[] {
+// thing is the open epic or contract's tree key, "" for none, which the lineage marks as open.
+export function railTiles(projects: readonly Project[], open: string, thing = ""): RailTileModel[] {
   return projects.map((project) => {
     const n = projectWaiting(project);
     const fresh = countsOf([project]).fresh > 0;
@@ -30,6 +32,7 @@ export function railTiles(projects: readonly Project[], open: string): RailTileM
       quiet: n === 0 && !fresh,
       cur: holds(project, open),
       title: n === 0 ? project.name : `${project.name}: ${n} ${n === 1 ? "waits" : "wait"} on you`,
+      lineage: railLineage(project, thing),
     };
   });
 }
@@ -58,10 +61,25 @@ export interface LineageConvo {
   designs: LineageDesign[];
 }
 
-// railLineage is the rail's lineage of a project: its conversations in the tree's order, each with the designs it works
-// and the marks of each design, with open the open thing's tree key ("" for none).
+// railLineage is the rail's lineage of a project: its conversations in the tree's order that work a design, each with the
+// designs it works and the marks of each design, with open the open thing's tree key ("" for none).
 export function railLineage(project: Project, open: string): LineageConvo[] {
-  return [];
+  return project.convos
+    .filter((convo) => (convo.designs ?? []).length > 0)
+    .map((convo) => ({
+      key: convo.key,
+      designs: (convo.designs ?? []).map((node) => ({
+        key: node.key,
+        name: node.design.title,
+        open: node.key === open,
+        marks: node.hung.map((hung) => ({
+          key: hung.key,
+          kind: hung.kind,
+          name: hungName(hung),
+          open: hung.key === open,
+        })),
+      })),
+    }));
 }
 
 // FlyoutRow is one row of a tile's flyout: a conversation's row, which waits on you or is new, or a hung epic or contract

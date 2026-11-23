@@ -13,6 +13,9 @@ export const unnamed: Readonly<Record<string, UnnamedEntry>> = {
   app: { replacement: "inbox-home", epic: "F2" },
   // Mark draws the Orrery mark, the symbol the rail and the title row open on.
   mark: { replacement: "Tile", epic: "F2" },
+  // RailLineage draws a project's lineage under its tile on the collapsed inbox's rail: a pill per conversation, a pill per design,
+  // and a mark for each contract or epic. The rail's tiles stand for it.
+  "rail-lineage": { replacement: "Tile", epic: "F2" },
   // ReaderHead draws a conversation's head, titled, or with where.
   "reader-head": { replacement: "TitleRow", epic: "F3" },
   // TitleParts draws a title's directory and line, with either alone, and a line that holds a link.

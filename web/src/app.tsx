@@ -624,7 +624,6 @@ export function App({
   const shownProject = pageDrawn ? projectKey : null;
   // The collapsed inbox's rail draws a tile per project of the inbox, whatever the view, and the tile of the project that
   // holds the open page is current. The flyout is drawn only while the inbox is collapsed, on a project the rail draws.
-  const tiles = railTiles(railTree, shownProject ?? cursorKey);
   const flyoutProject = collapsed && flyout !== null ? railTree.find((project) => project.key === flyout.key) : undefined;
   const flyoutModel = flyoutProject === undefined ? null : flyoutOf(flyoutProject, now);
   // The contract the address opened is open while the cursor rests on the entry it opened over and no project page is
@@ -1942,6 +1941,26 @@ export function App({
       openFlyoutItem(item);
     }
   }, [view]);
+  // pendingTab is the design whose tab a press on the rail's lineage brings into view, once the inbox is drawn expanded.
+  const pendingTab = useRef<string | null>(null);
+  useEffect(() => {
+    const key = pendingTab.current;
+    if (key !== null && !collapsed) {
+      pendingTab.current = null;
+      document.querySelector(`.list [data-key="${CSS.escape(key)}"]`)?.scrollIntoView({ block: "nearest" });
+    }
+  }, [collapsed]);
+  // openLineage is a press on a mark of the rail's lineage. A design's mark expands the inbox and brings the design's tab
+  // into view. An epic's or a contract's mark opens it as a flyout row does; openFlyoutItem reads only the item's key and kind,
+  // so the rest of the row is left empty.
+  const openLineage = (key: string) => {
+    if (key.startsWith("design:")) {
+      pendingTab.current = key;
+      expandInbox();
+      return;
+    }
+    openFlyoutItem({ kind: "hung", key, name: "", ask: "", changed: 0 });
+  };
   // goToProject is a click on a project's tile, and ⏎ in its flyout: it opens the flyout's cursor row, which is the
   // project's oldest row that waits on you, else its first new row, and with neither it opens the project's page.
   const goToProject = (key: string) => {
@@ -2077,6 +2096,11 @@ export function App({
   // has no tile, so no tile is lit and the card takes the quiet tone.
   const panelOpen =
     pageDrawn && epicEntry !== null && !epicPage.closed && !contractShown && shownProject === null && !accountsOpen;
+  // The rail's tiles, and the lineage the tiles hang under them. The lineage marks open the contract whose panel is open, else
+  // the epic whose panel is open (panelOpen), and nothing while a project page is shown or no panel is open.
+  const lineageThing =
+    contract !== undefined ? `contract:${contract.id}` : panelOpen && epicEntry !== null ? `epic:${epicEntry.id}` : "";
+  const tiles = railTiles(railTree, shownProject ?? cursorKey, lineageThing);
   // Under 760px an open epic is the page in the conversation's place: the conversation is not drawn, and the page's
   // foot bar opens the steering conversation. At the desk the epic panel lies beside the conversation, but not a worker
   // session, which takes the conversation's place (sessionAtDesk).
@@ -2729,6 +2753,7 @@ export function App({
             onHoverOff={hoverOff}
             onFlyoutRow={openFlyoutItem}
             onFlyoutPage={openProject}
+            onLineage={openLineage}
             onNew={() => setPickerOpen(true)}
             onSearch={() => {
               expandInbox();

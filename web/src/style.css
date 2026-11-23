@@ -1349,6 +1349,36 @@ button.act:active, .back:active, .crumb:active { transform: scale(.97); backgrou
 .vtile .vdots i.live { background: var(--o-role-live); }
 .vtile .vdots i.new { background: var(--o-role-new); }
 
+/* The rail's lineage, round 8 (D13, D18): under a project's tile, a block of pills, one for each conversation that works a
+   design. The conversation's pill holds its mark; inside it each design is a pill whose head is the design's mark, with a
+   rounded top, touching a smaller pill under it that holds a mark for each contract or epic in order. The open mark is in
+   the open colour (D14): --open is the focus role at 35 in 100 on the rail's ground, --open-hover the same at 45 under the
+   pointer, each a token of tokens.json's ground, since a sheet names no colour mix. */
+.rail-lineage {
+  --open: var(--o-ground-open);
+  --open-hover: var(--o-ground-open-hover);
+  display: flex; flex-direction: column; align-items: center; gap: var(--o-space-4); flex: none; width: calc(var(--o-space-32) + var(--o-space-8));
+  padding: var(--o-space-4); border-radius: var(--o-radius-2); background: var(--o-surface-well);
+}
+.lconvo {
+  display: flex; flex-direction: column; align-items: center; gap: var(--o-space-4); width: 100%; min-width: 0;
+  padding: var(--o-space-4); border-radius: var(--o-radius-3); background: var(--o-surface-side);
+}
+.ldesign { display: flex; flex-direction: column; width: 100%; padding: var(--o-space-2); border-radius: var(--o-radius-2); background: var(--o-surface-well); }
+.lwell {
+  display: flex; flex-direction: column; align-items: center; gap: var(--o-space-2); padding: var(--o-space-2) 0;
+  border-radius: 0 0 var(--o-radius-2) var(--o-radius-2); background: var(--o-surface-side);
+}
+.lmark {
+  display: grid; place-items: center; flex: none; width: var(--o-space-24); height: var(--o-space-24); padding: 0; border: 0;
+  border-radius: var(--o-radius-2); background: none; color: var(--o-ink-3); cursor: pointer; appearance: none; -webkit-appearance: none;
+}
+.lmark:hover { background: var(--o-surface-raised); color: var(--o-ink-1); }
+.lconv { cursor: default; }
+.ldesign > .lmark { width: 100%; border-radius: var(--o-radius-2) var(--o-radius-2) 0 0; background: var(--o-surface-side); color: var(--o-ink-1); }
+.lmark.open { background: var(--open); color: var(--o-ink-1); }
+.lmark.open:hover { background: var(--open-hover); }
+
 /* A project's flyout, beside the rail over the page: its head with the project's name, counts and path, its rows that wait
    and then its new rows, which scroll when they are long, the line that counts the rest, and its foot. App sets its top
    level with its tile's. Its ::before bridges the gap to the rail, so the pointer crossing it stays in the flyout. */
