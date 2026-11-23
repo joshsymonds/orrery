@@ -488,14 +488,12 @@ test("TileStrip: a pinned conversation's column draws no work link or activity l
       document.dispatchEvent(new KeyboardEvent("keydown", { key: "|", bubbles: true }));
     });
     assert.ok(container.querySelector('section[aria-label="pinned reader"]') !== null, "the row is pinned");
-    assert.equal(
+    assertNone(
       container.querySelector('section[aria-label="pinned reader"] .wlinks'),
-      null,
       "the pinned column draws no work links",
     );
-    assert.equal(
+    assertNone(
       container.querySelector('section[aria-label="pinned reader"] [aria-label="running now"]'),
-      null,
       "the pinned column draws no activity lines",
     );
     assert.equal(container.querySelectorAll(".wlinks").length, 1, "only the cursor's conversation draws its links");

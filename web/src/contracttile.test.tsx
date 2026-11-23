@@ -11,7 +11,7 @@ import { tideProposed } from "./fixtures/contractrecords";
 import { type Contract, ContractSchema, ContractsGetResponseSchema } from "./gen/orrery/v1/contracts_pb";
 import type { Address } from "./router";
 import type { Row } from "./rows";
-import { installTestDom, removeTestDom, teardownOnce } from "./testdom";
+import { assertNone, installTestDom, removeTestDom, teardownOnce } from "./testdom";
 import { turn, until } from "./testwait";
 
 // Each test's name carries the token ContractTile: a proposed contract of the middle conversation is a work link in its
@@ -203,7 +203,7 @@ test("ContractTile: under 760px the contract is the title row's one work link, a
     },
     async (container) => {
       await settle(t.signal, () => workLinkNames(container).length === 1, "the contract's work link is drawn");
-      assert.equal(container.querySelector(".title-row .wlink-more"), null, "no +n control is drawn for one link");
+      assertNone(container.querySelector(".title-row .wlink-more"), "no +n control is drawn for one link");
     },
   ));
 

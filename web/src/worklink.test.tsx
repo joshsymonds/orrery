@@ -524,7 +524,7 @@ async function feedOpen(signal: AbortSignal, streams: Stream[]): Promise<void> {
   emit(open, runningState());
 }
 
-test("WorkLink: at the desk the conversation has no rail beside the chat, its work link is in the title, and the activity lines sit above the composer", (t) =>
+test("WorkLink: at the desk no action bar stands beside the chat, the work link is in the title, and the activity lines sit above the composer", (t) =>
   withStreamedApp(t.signal, { width: deskWidth, rows: [sessionRow()], epics: viewOf([makeEpic("rail")]) }, async (container, streams) => {
     await feedOpen(t.signal, streams);
     await untilDrawn(t.signal, () => container.querySelector('[aria-label="running now"]') !== null, "the activity lines");
@@ -538,7 +538,7 @@ test("WorkLink: at the desk the conversation has no rail beside the chat, its wo
     assertSame(group.nextElementSibling, composer, "the activity lines sit immediately above the composer");
   }));
 
-test("WorkLink: under 760px there is no tile strip under the band, while the work link and the activity lines are drawn", (t) =>
+test("WorkLink: under 760px no tile strip sits under the band, while the work link and the activity lines are drawn", (t) =>
   withStreamedApp(t.signal, { width: phoneWidth, rows: [sessionRow()], epics: viewOf([makeEpic("rail")]), address: sessionAddress }, async (container, streams) => {
     await feedOpen(t.signal, streams);
     await untilDrawn(t.signal, () => container.querySelector('[aria-label="running now"]') !== null, "the activity lines");
