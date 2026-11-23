@@ -14,6 +14,7 @@ import (
 	"github.com/joshsymonds/orrery/internal/engine/session"
 	v1 "github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1"
 	"github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1/enginev1connect"
+	"github.com/joshsymonds/orrery/internal/hostexec"
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
@@ -67,8 +68,11 @@ type ServeConfig struct {
 	Contracts    *Contracts
 	ReleaseSlots ReleaseSlotCommands
 	PaneSends    PaneSendRecorder
-	// Host is the host name each epic the Epics service creates is stamped with.
-	Host    string
+	// Host is the name of the controller's host: each epic the Epics service creates is stamped with it, and its
+	// create checks run on the Host that Hosts resolves it to.
+	Host string
+	// Hosts resolves host names to the Hosts that run epic git. Nil resolves every name to this machine.
+	Hosts   hostexec.Hosts
 	Options []connect.HandlerOption
 }
 
@@ -129,7 +133,9 @@ func ServeWith(ctx context.Context, ln net.Listener, cfg ServeConfig) error {
 		&stepService{steps: cfg.Steps},
 		opts...)
 	epicsPath, epicsHandler := enginev1connect.NewEpicsHandler(
-		&epicService{epics: cfg.Epics, steps: cfg.Steps, steering: cfg.Steering, host: cfg.Host}, opts...)
+		&epicService{
+			epics: cfg.Epics, steps: cfg.Steps, steering: cfg.Steering, hosts: cfg.Hosts, host: cfg.Host,
+		}, opts...)
 	poolsPath, poolsHandler := enginev1connect.NewPoolsHandler(&poolService{pools: cfg.Pools}, opts...)
 	evidencePath, evidenceHandler := enginev1connect.NewEvidenceHandler(
 		&evidenceService{evidence: cfg.Evidence}, opts...)

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/joshsymonds/orrery/internal/hostexec"
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
@@ -22,12 +23,14 @@ type steeringSessions interface {
 // EpicSteeringConfig configures EpicSteering. Manager starts and stops the steering sessions. Sessions reads the row
 // of a session once it is started, so Start can tell a session whose spawn failed. Render returns the contract and log
 // lines of an epic, which Start puts in the session's first prompt. PaneDir returns the current directory of a tmux
-// pane, given the store column of its server and its id.
+// pane, given the store column of its server and its id. Hosts resolves host names to the Hosts that run an epic's git,
+// as ServeConfig's does; nil resolves every name to this machine.
 type EpicSteeringConfig struct {
 	Manager  *Manager
 	Sessions steeringSessions
 	Render   func(store.EpicRow) ([]string, error)
 	PaneDir  func(ctx context.Context, server, pane string) (string, error)
+	Hosts    hostexec.Hosts
 }
 
 // EpicSteering starts and stops the steering session of an epic: the one headless session that answers the epic's

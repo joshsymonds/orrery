@@ -61,9 +61,10 @@ func checkContractLint(contract *v1.EpicContract) error {
 // contractLintWarnings returns the warnings the lint gives a contract that checkEpic passes, in order: one for each go
 // test in a capture whose -run pattern matches a test at the base, then one for each release step whose text says
 // merge, names a fixed version or waits on CI. Each names its field and reason. It runs after checkContractLint, so each
-// argv element it reads has passed it. A git failure reading a go test's package is returned, so no check passes on it.
-func contractLintWarnings(ctx context.Context, contract *v1.EpicContract) ([]string, error) {
-	base, err := stepGitResolve(ctx, hostexec.NewLocal(), contract.GetRepository(), contract.GetBase())
+// argv element it reads has passed it. Its git runs on host. A git failure reading a go test's package is returned, so
+// no check passes on it.
+func contractLintWarnings(ctx context.Context, host hostexec.Host, contract *v1.EpicContract) ([]string, error) {
+	base, err := stepGitResolve(ctx, host, contract.GetRepository(), contract.GetBase())
 	if err != nil {
 		return nil, err
 	}
@@ -78,7 +79,7 @@ func contractLintWarnings(ctx context.Context, contract *v1.EpicContract) ([]str
 		}
 		for _, args := range goTestArgs(argv, lines) {
 			var warning string
-			warning, err = goTestWarning(ctx, contract.GetRepository(), base, list, args)
+			warning, err = goTestWarning(ctx, host, contract.GetRepository(), base, list, args)
 			if err != nil {
 				return nil, err
 			}
@@ -369,10 +370,12 @@ type goTestFunc struct {
 }
 
 // goTestFuncsAtBase returns the top-level Test functions that the test files of scope declare at base, in the order
-// git grep lists them. TestMain is not a test. A git grep that finds no line is not an error; any other failure of
-// git grep is returned, so no check passes on it.
-func goTestFuncsAtBase(ctx context.Context, repo, base string, scope goTestScope) ([]goTestFunc, error) {
-	out, err := stepGit(ctx, hostexec.NewLocal(), repo, "grep", "-z", "-e", "^func Test", base, "--", scope.pathspec())
+// git grep lists them, read through host. TestMain is not a test. A git grep that finds no line is not an error; any
+// other failure of git grep is returned, so no check passes on it.
+func goTestFuncsAtBase(
+	ctx context.Context, host hostexec.Host, repo, base string, scope goTestScope,
+) ([]goTestFunc, error) {
+	out, err := stepGit(ctx, host, repo, "grep", "-z", "-e", "^func Test", base, "--", scope.pathspec())
 	if err != nil {
 		var exit *hostexec.GitError
 		if errors.As(err, &exit) && exit.ExitCode == 1 {
@@ -399,8 +402,8 @@ func goTestFuncsAtBase(ctx context.Context, repo, base string, scope goTestScope
 
 // goTestWarning returns the warning of one go test whose arguments are args, when its -run pattern matches a Test
 // function at base in the packages it names, and "" when it does not. It gives no warning when its pattern or a package
-// is not literal, or when the top-level element of the pattern does not compile.
-func goTestWarning(ctx context.Context, repo, base, list string, args []string) (string, error) {
+// is not literal, or when the top-level element of the pattern does not compile. The base is read through host.
+func goTestWarning(ctx context.Context, host hostexec.Host, repo, base, list string, args []string) (string, error) {
 	call := parseGoTestArgs(args)
 	if !call.hasRun || shellExpansion.MatchString(call.pattern) {
 		return "", nil
@@ -414,7 +417,7 @@ func goTestWarning(ctx context.Context, repo, base, list string, args []string) 
 		return "", nil
 	}
 	for _, scope := range scopes {
-		funcs, err := goTestFuncsAtBase(ctx, repo, base, scope)
+		funcs, err := goTestFuncsAtBase(ctx, host, repo, base, scope)
 		if err != nil {
 			return "", err
 		}

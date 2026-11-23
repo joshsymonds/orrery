@@ -15,13 +15,15 @@ const epicCreateSource = "epic_create"
 // epicReviewers returns the reviewers an epic runs. It merges three layers by name: orrery's defaults, the repository's
 // project file, then the contract's reviewers. It then generates the contract's assertions from its exclusions. An
 // entry no layer can hold is refused with a *reviewers.Error naming its file or epic_create, its index and its key.
-// getenv reads the environment for the machine's pool file, as checkEpicGateRefs does.
+// getenv reads the environment for the machine's pool file, as checkEpicGateRefs does. The repository's project file is
+// read through host.
 func epicReviewers(
 	ctx context.Context,
+	host hostexec.Host,
 	contract *v1.EpicContract,
 	getenv func(string) string,
 ) ([]reviewers.Reviewer, error) {
-	project, err := reviewers.Project(ctx, hostexec.NewLocal(), contract.GetRepository(), getenv)
+	project, err := reviewers.Project(ctx, host, contract.GetRepository(), getenv)
 	if err != nil {
 		return nil, fmt.Errorf("read the reviewers of %s: %w", contract.GetRepository(), err)
 	}

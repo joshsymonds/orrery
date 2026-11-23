@@ -1005,6 +1005,9 @@ func startSessions(
 	var stepCommands enginehost.StepCommands
 	var evidence enginehost.EvidenceCommands
 	var crons enginehost.CronCommands
+	// The controller's host is the one this machine runs as hostName, and every epic and contract the controller serves
+	// resolves its host through hosts.
+	hosts := hostexec.Map{hostName: hostexec.NewLocal()}
 	if st != nil {
 		stateDir, childEnviron, err := adoptSessionState(ctx, st, hostName, getenv)
 		if err != nil {
@@ -1030,7 +1033,6 @@ func startSessions(
 		})
 		host.startBroker(ctx, hostName, st, logger)
 		// host.pools is nil when the broker's restore failed, which leaves the gates no pools to run under.
-		hosts := hostexec.Map{hostName: hostexec.NewLocal()}
 		haiku := enginehost.NewHaiku(enginehost.HaikuConfig{Claude: opts.claude, Environ: os.Environ()})
 		steps := enginehost.NewSteps(enginehost.StepsConfig{
 			Sessions:     host.manager,
@@ -1052,7 +1054,8 @@ func startSessions(
 		host.steps = steps
 		host.wireStore(st)
 		commands, stepCommands = host.manager, host.steps
-		host.epics, host.steering, host.contracts = st, epicSteering(host.manager, st), contractsOf(st)
+		host.epics, host.steering, host.contracts = st, epicSteering(host.manager, st, hosts),
+			contractsOf(st, hosts, hostName)
 		crons = enginehost.NewCronAnswers(enginehost.CronAnswersConfig{
 			Store: st, Now: opts.cronNow, Changed: host.cron.Changed})
 		host.newReleaseSlots(opts, st, logger)
@@ -1085,7 +1088,7 @@ func startSessions(
 	serveCtx, host.stopServe = context.WithCancel(ctx)
 	// The session socket also serves the release slots, through serveConfig's ReleaseSlots.
 	cfg := host.serveConfig(
-		commands, stepCommands, evidence, notices, crons, hostName, serveOpts(opts, st, logger))
+		commands, stepCommands, evidence, notices, crons, hostName, hosts, serveOpts(opts, st, logger))
 	go func() {
 		host.serveDone <- enginehost.ServeWith(serveCtx, ln, cfg)
 	}()
@@ -1121,6 +1124,7 @@ func (h *sessionHost) serveConfig(
 	notices enginehost.NoticeSource,
 	crons enginehost.CronCommands,
 	hostName string,
+	hosts hostexec.Hosts,
 	handlerOpts []connect.HandlerOption,
 ) enginehost.ServeConfig {
 	cfg := enginehost.ServeConfig{
@@ -1136,6 +1140,7 @@ func (h *sessionHost) serveConfig(
 		Contracts: h.contracts,
 		PaneSends: h.paneSends,
 		Host:      hostName,
+		Hosts:     hosts,
 		Options:   handlerOpts,
 	}
 	if h.releaseSlots != nil {
@@ -1145,15 +1150,16 @@ func (h *sessionHost) serveConfig(
 }
 
 // epicSteering returns the steering sessions of the epics st serves, which manager starts.
-func epicSteering(manager *enginehost.Manager, st *store.Store) *enginehost.EpicSteering {
+func epicSteering(manager *enginehost.Manager, st *store.Store, hosts hostexec.Hosts) *enginehost.EpicSteering {
 	return enginehost.NewEpicSteering(enginehost.EpicSteeringConfig{
-		Manager: manager, Sessions: st, Render: planner.SteeringLines, PaneDir: paneDir,
+		Manager: manager, Sessions: st, Render: planner.SteeringLines, PaneDir: paneDir, Hosts: hosts,
 	})
 }
 
-// contractsOf returns the contracts st serves, stamped with the process clock.
-func contractsOf(st *store.Store) *enginehost.Contracts {
-	return &enginehost.Contracts{Store: st, Now: time.Now}
+// contractsOf returns the contracts st serves, stamped with the process clock. Their origin is fetched on the
+// controller's host, which hosts resolves hostName to.
+func contractsOf(st *store.Store, hosts hostexec.Hosts, hostName string) *enginehost.Contracts {
+	return &enginehost.Contracts{Store: st, Now: time.Now, Hosts: hosts, Host: hostName}
 }
 
 // paneDir returns the current directory of the tmux pane on the server whose store column is server. Its error names

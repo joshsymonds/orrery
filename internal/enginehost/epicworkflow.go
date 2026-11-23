@@ -25,16 +25,17 @@ const workflowNodeLoop = "loop"
 
 // pinWorkflow loads the workflow name as the base commit of repository holds it, and returns it in the store form. An
 // empty name pins the built-in epic. A workflow file the base commits under .orrery/workflows replaces the built-in.
-// The working tree is never read, so neither an uncommitted edit nor a later commit can change what an epic pins.
-func pinWorkflow(ctx context.Context, repository, base, name string) (store.EpicWorkflow, error) {
+// The working tree is never read, so neither an uncommitted edit nor a later commit can change what an epic pins. Git
+// runs on host.
+func pinWorkflow(ctx context.Context, host hostexec.Host, repository, base, name string) (store.EpicWorkflow, error) {
 	if name == "" {
 		name = defaultWorkflowName
 	}
-	commit, err := stepGitResolve(ctx, hostexec.NewLocal(), repository, base)
+	commit, err := stepGitResolve(ctx, host, repository, base)
 	if err != nil {
 		return store.EpicWorkflow{}, fmt.Errorf("resolve base: %w", err)
 	}
-	pinned, err := workflow.Load(name, baseReader(ctx, repository, commit))
+	pinned, err := workflow.Load(name, baseReader(ctx, host, repository, commit))
 	if err != nil {
 		return store.EpicWorkflow{}, fmt.Errorf("at base %s: %w", commit, err)
 	}
@@ -43,9 +44,10 @@ func pinWorkflow(ctx context.Context, repository, base, name string) (store.Epic
 
 // baseReader returns the workflow.Reader that reads paths at commit. A path the commit does not hold is not found. A
 // path it holds as anything but a regular file is refused, and a regular file's exact bytes are read from the commit.
-func baseReader(ctx context.Context, repository, commit string) workflow.Reader {
+// The commit is read through host.
+func baseReader(ctx context.Context, host hostexec.Host, repository, commit string) workflow.Reader {
 	return func(path string) ([]byte, bool, error) {
-		entry, err := stepGit(ctx, hostexec.NewLocal(), repository, "ls-tree", "--full-tree", commit, "--", path)
+		entry, err := stepGit(ctx, host, repository, "ls-tree", "--full-tree", commit, "--", path)
 		if err != nil {
 			return nil, false, err
 		}
@@ -58,7 +60,7 @@ func baseReader(ctx context.Context, repository, commit string) workflow.Reader 
 			return nil, false, fmt.Errorf("not a regular file (mode %s)", mode)
 		}
 		// The object is commit:path, which suppliedBlob reads as the exact bytes of a blob.
-		text, err := suppliedBlob(ctx, hostexec.NewLocal(), repository, commit+":"+path)
+		text, err := suppliedBlob(ctx, host, repository, commit+":"+path)
 		if err != nil {
 			return nil, false, err
 		}
