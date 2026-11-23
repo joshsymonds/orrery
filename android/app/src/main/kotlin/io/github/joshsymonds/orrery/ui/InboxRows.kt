@@ -472,7 +472,7 @@ private fun toneColorOf(tone: GaugeTone): Color = when (tone) {
 
 // A contract's mark: a sheet of paper in attention, with three lines of text.
 @Composable
-private fun ContractMark(key: String) {
+internal fun ContractMark(key: String) {
     Canvas(
         modifier = Modifier
             .size(OrreryTokens.Size.gauge)

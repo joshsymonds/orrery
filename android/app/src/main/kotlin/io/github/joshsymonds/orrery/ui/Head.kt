@@ -19,7 +19,7 @@ import io.github.joshsymonds.orrery.api.HostStat
  * [bandHides] false leaves the hide control off the band, for the strip of tiles under it carries it.
  */
 @Composable
-fun Head(
+internal fun Head(
     dir: String,
     host: String,
     title: String,
@@ -42,6 +42,10 @@ fun Head(
     hereContract: String = "",
     onOpenContract: (String) -> Unit = {},
     onFind: () -> Unit = {},
+    work: List<WorkLink> = emptyList(),
+    workLit: String? = null,
+    onOpenWork: (WorkLink) -> Unit = {},
+    onAllWork: () -> Unit = {},
 ) {
     var moreOpen by remember { mutableStateOf(false) }
     Column(
@@ -60,6 +64,10 @@ fun Head(
             onDismissMore = { moreOpen = false },
             onFind = onFind,
             onHideHeader = onHide,
+            work = work,
+            workLit = workLit,
+            onOpenWork = onOpenWork,
+            onAllWork = onAllWork,
         )
         if (fold == HeadFold.OPEN) {
             MachineBand(host = host, stats = stats, otherHost = otherHost)
