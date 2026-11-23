@@ -143,7 +143,11 @@ type Session struct {
 	// The pane's @orrery_transcript option.
 	Transcript string `protobuf:"bytes,13,opt,name=transcript,proto3" json:"transcript,omitempty"`
 	// True while the session is archived: the owner archived it and has not unarchived it since.
-	Archived      bool `protobuf:"varint,14,opt,name=archived,proto3" json:"archived,omitempty"`
+	Archived bool `protobuf:"varint,14,opt,name=archived,proto3" json:"archived,omitempty"`
+	// True once the session has ended, as an unbound update of its pane ends it.
+	Ended bool `protobuf:"varint,15,opt,name=ended,proto3" json:"ended,omitempty"`
+	// The unix seconds the session ended, or 0 while it runs or when unknown.
+	EndedAt       int64 `protobuf:"varint,16,opt,name=ended_at,json=endedAt,proto3" json:"ended_at,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -276,6 +280,20 @@ func (x *Session) GetArchived() bool {
 	return false
 }
 
+func (x *Session) GetEnded() bool {
+	if x != nil {
+		return x.Ended
+	}
+	return false
+}
+
+func (x *Session) GetEndedAt() int64 {
+	if x != nil {
+		return x.EndedAt
+	}
+	return 0
+}
+
 // ListHeadlessRequest asks for the headless sessions of the last 14 days. It has no fields.
 type ListHeadlessRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -393,7 +411,11 @@ type HeadlessSession struct {
 	Headline string `protobuf:"bytes,11,opt,name=headline,proto3" json:"headline,omitempty"`
 	// true while the owner has put this question off with Control.NotNow and not brought it back; a mark covers one
 	// question, so a new request or a pane that starts waiting again reads false.
-	PutOff        bool `protobuf:"varint,12,opt,name=put_off,json=putOff,proto3" json:"put_off,omitempty"`
+	PutOff bool `protobuf:"varint,12,opt,name=put_off,json=putOff,proto3" json:"put_off,omitempty"`
+	// True once the headless session has ended.
+	Ended bool `protobuf:"varint,13,opt,name=ended,proto3" json:"ended,omitempty"`
+	// The unix seconds the headless session ended, or 0 while it runs or when unknown.
+	EndedAt       int64 `protobuf:"varint,14,opt,name=ended_at,json=endedAt,proto3" json:"ended_at,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -510,6 +532,20 @@ func (x *HeadlessSession) GetPutOff() bool {
 		return x.PutOff
 	}
 	return false
+}
+
+func (x *HeadlessSession) GetEnded() bool {
+	if x != nil {
+		return x.Ended
+	}
+	return false
+}
+
+func (x *HeadlessSession) GetEndedAt() int64 {
+	if x != nil {
+		return x.EndedAt
+	}
+	return 0
 }
 
 // SessionsWatchConversationRequest asks for the conversation of one headless session. limit follows
@@ -3666,7 +3702,9 @@ type Pane struct {
 	OrreryId string `protobuf:"bytes,21,opt,name=orrery_id,json=orreryId,proto3" json:"orrery_id,omitempty"`
 	// true while the owner has put this question off with Control.NotNow and not brought it back; a mark covers one
 	// question, so a new request or a pane that starts waiting again reads false.
-	PutOff        bool `protobuf:"varint,22,opt,name=put_off,json=putOff,proto3" json:"put_off,omitempty"`
+	PutOff bool `protobuf:"varint,22,opt,name=put_off,json=putOff,proto3" json:"put_off,omitempty"`
+	// True while the registry no longer binds the pane, so its session has ended.
+	Unbound       bool `protobuf:"varint,23,opt,name=unbound,proto3" json:"unbound,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -3851,6 +3889,13 @@ func (x *Pane) GetOrreryId() string {
 func (x *Pane) GetPutOff() bool {
 	if x != nil {
 		return x.PutOff
+	}
+	return false
+}
+
+func (x *Pane) GetUnbound() bool {
+	if x != nil {
+		return x.Unbound
 	}
 	return false
 }
@@ -7047,7 +7092,7 @@ const file_orrery_v1_orrery_proto_rawDesc = "" +
 	"\vListRequest\"P\n" +
 	"\fListResponse\x12.\n" +
 	"\bsessions\x18\x01 \x03(\v2\x12.orrery.v1.SessionR\bsessions\x12\x10\n" +
-	"\x03seq\x18\x02 \x01(\x03R\x03seq\"\xe6\x02\n" +
+	"\x03seq\x18\x02 \x01(\x03R\x03seq\"\x97\x03\n" +
 	"\aSession\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x16\n" +
 	"\x06server\x18\x02 \x01(\tR\x06server\x12\x12\n" +
@@ -7065,10 +7110,12 @@ const file_orrery_v1_orrery_proto_rawDesc = "" +
 	"\n" +
 	"transcript\x18\r \x01(\tR\n" +
 	"transcript\x12\x1a\n" +
-	"\barchived\x18\x0e \x01(\bR\barchived\"\x15\n" +
+	"\barchived\x18\x0e \x01(\bR\barchived\x12\x14\n" +
+	"\x05ended\x18\x0f \x01(\bR\x05ended\x12\x19\n" +
+	"\bended_at\x18\x10 \x01(\x03R\aendedAt\"\x15\n" +
 	"\x13ListHeadlessRequest\"N\n" +
 	"\x14ListHeadlessResponse\x126\n" +
-	"\bsessions\x18\x01 \x03(\v2\x1a.orrery.v1.HeadlessSessionR\bsessions\"\xb7\x02\n" +
+	"\bsessions\x18\x01 \x03(\v2\x1a.orrery.v1.HeadlessSessionR\bsessions\"\xe8\x02\n" +
 	"\x0fHeadlessSession\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x10\n" +
 	"\x03dir\x18\x02 \x01(\tR\x03dir\x12\x14\n" +
@@ -7082,7 +7129,9 @@ const file_orrery_v1_orrery_proto_rawDesc = "" +
 	"\barchived\x18\n" +
 	" \x01(\bR\barchived\x12\x1a\n" +
 	"\bheadline\x18\v \x01(\tR\bheadline\x12\x17\n" +
-	"\aput_off\x18\f \x01(\bR\x06putOff\"^\n" +
+	"\aput_off\x18\f \x01(\bR\x06putOff\x12\x14\n" +
+	"\x05ended\x18\r \x01(\bR\x05ended\x12\x19\n" +
+	"\bended_at\x18\x0e \x01(\x03R\aendedAt\"^\n" +
 	" SessionsWatchConversationRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x14\n" +
 	"\x05limit\x18\x02 \x01(\rR\x05limit\x12\x14\n" +
@@ -7316,7 +7365,7 @@ const file_orrery_v1_orrery_proto_rawDesc = "" +
 	"\x04text\x18\x05 \x01(\tR\x04text\"\x12\n" +
 	"\x10PanesListRequest\":\n" +
 	"\x11PanesListResponse\x12%\n" +
-	"\x05panes\x18\x01 \x03(\v2\x0f.orrery.v1.PaneR\x05panes\"\xbf\x04\n" +
+	"\x05panes\x18\x01 \x03(\v2\x0f.orrery.v1.PaneR\x05panes\"\xd9\x04\n" +
 	"\x04Pane\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04host\x18\x02 \x01(\tR\x04host\x12\x18\n" +
@@ -7340,7 +7389,8 @@ const file_orrery_v1_orrery_proto_rawDesc = "" +
 	"\fnewest_reply\x18\x13 \x01(\x03R\vnewestReply\x12\"\n" +
 	"\rlast_turn_end\x18\x14 \x01(\x03R\vlastTurnEnd\x12\x1b\n" +
 	"\torrery_id\x18\x15 \x01(\tR\borreryId\x12\x17\n" +
-	"\aput_off\x18\x16 \x01(\bR\x06putOff\"Q\n" +
+	"\aput_off\x18\x16 \x01(\bR\x06putOff\x12\x18\n" +
+	"\aunbound\x18\x17 \x01(\bR\aunbound\"Q\n" +
 	"\rScreenRequest\x12\x12\n" +
 	"\x04pane\x18\x01 \x01(\tR\x04pane\x12\x12\n" +
 	"\x04ansi\x18\x02 \x01(\bR\x04ansi\x12\x18\n" +
