@@ -548,16 +548,24 @@ func (e *Evidence) judgeOnce(
 }
 
 // startJudge starts judge number judge of run at repo under the id evidenceJudgeID derives for it. It returns the step's id, or
-// the reason the step did not start: its prompt could not be built, its task could not be read, or Start refused it. A run of a
-// task (T<seq>) reads the task from its epic, and its prompt opens with the lines judgeSpecLines gives for the task, then a blank
-// line; a green run that is not a task's reads its epic's runs and its prompt ends with the lines judgeCarryLines gives, after
-// a blank line; a red run that is not a task's reads nothing and its prompt is judgePrompt's alone. Start returns the id of a
-// step whose StartStep failed after its row was written, with that row ended failed, so such a judge returns its id and its end
-// gives the reason; the start's error is that end's reason.
+// the reason the step did not start: its prompt could not be built, its capture or task could not be read, or Start refused
+// it. A run of a task (T<seq>) reads the task from its epic, and its prompt opens with the lines judgeSpecLines gives for the
+// task, then a blank line. A run with a capture reads the capture, and its prompt has the lines judgeCaptureLines gives after
+// judgePrompt's, after a blank line. A green run that is not a task's reads its epic's runs, and its prompt ends with the lines
+// judgeCarryLines gives, after a blank line. A red run that is not a task's, with no capture, reads nothing, and its prompt is
+// judgePrompt's alone. Start returns the id of a step whose StartStep failed after its row was written, with that row ended
+// failed, so such a judge returns its id and its end gives the reason; the start's error is that end's reason.
 func (e *Evidence) startJudge(ctx context.Context, repo string, run store.EvidenceRun, judge int) (string, string) {
 	prompt, err := judgePrompt(run, e.blobs)
 	if err != nil {
 		return "", err.Error()
+	}
+	captureLines, err := e.judgeCapture(ctx, run)
+	if err != nil {
+		return "", err.Error()
+	}
+	if len(captureLines) > 0 {
+		prompt += "\n\n" + strings.Join(captureLines, "\n")
 	}
 	lines, err := e.judgeTaskLines(ctx, run)
 	if err != nil {
@@ -580,6 +588,23 @@ func (e *Evidence) startJudge(ctx context.Context, repo string, run store.Eviden
 		return "", err.Error()
 	}
 	return step, ""
+}
+
+// judgeCapture returns the lines judgeCaptureLines gives for run when run has a capture, which it reads from the briefs
+// store, and nil for a run with none, which reads nothing. It returns an error when there is no briefs store to read the
+// capture from, or the capture cannot be read.
+func (e *Evidence) judgeCapture(ctx context.Context, run store.EvidenceRun) ([]string, error) {
+	if run.Capture == "" {
+		return nil, nil
+	}
+	if e.briefs == nil {
+		return nil, fmt.Errorf("capture %s of evidence run %s: no briefs store", run.Capture, run.ID)
+	}
+	capture, err := e.briefs.Capture(ctx, run.Capture)
+	if err != nil {
+		return nil, fmt.Errorf("capture of evidence run %s: %w", run.ID, err)
+	}
+	return judgeCaptureLines(run, capture)
 }
 
 // judgeTaskLines returns the lines judgeSpecLines gives for run when run is a task's run, which its Item names as T<seq>, and
