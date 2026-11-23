@@ -163,7 +163,8 @@ func SyncTriedBy(rows Rows, origin string) string {
 
 // syncUnmerged ends a sync run whose prepare made no merge, and reports whether it did. A repository with no remote
 // origin, an error, origin's commit already in the stored base, a commit that does not hold the epic's change base and
-// a commit an earlier sync tried end it skipped. A merge that conflicts ends it failed, naming the paths, and is told.
+// a commit an earlier sync tried end it skipped. A merge that conflicts ends it failed, naming the paths, and is told,
+// its Cause naming the paths too.
 func syncUnmerged(result SyncResult) (Action, bool) {
 	switch {
 	case result.NoOrigin:
@@ -183,10 +184,13 @@ func syncUnmerged(result SyncResult) (Action, bool) {
 			"origin's commit %s was tried by %s", result.Origin, result.TriedBy,
 		)), true
 	case len(result.Conflicts) > 0:
-		return syncTold(outcomeFailed, fmt.Sprintf(
+		line := fmt.Sprintf(
 			"merge of origin's commit %s into the stored base %s conflicts in %s",
 			result.Origin, result.Base, strings.Join(result.Conflicts, ", "),
-		)), true
+		)
+		act := syncTold(outcomeFailed, line)
+		act.Cause = SyncCause(result, []string{line})
+		return act, true
 	case result.Merge == "":
 		return syncSkipped("the sync result names no merge"), true
 	}
@@ -196,7 +200,8 @@ func syncUnmerged(result SyncResult) (Action, bool) {
 // syncChecks decides a sync run at its merge. It walks the Done gates, then the captures and the reproductions, as an
 // integrate run does, and returns the action the first one that is not decided asks for. A gate that failed and a
 // capture that failed or regressed from green at the stored base end the run failed, told, its output the merge's line
-// and then one line per cause. A check lost at a restart twice or exiting store.EnvironmentExit on its last run cannot
+// and then one line per cause, and its Cause names the failure: the gate's (gateFailure) or each capture's line
+// (captureFailures). A check lost at a restart twice or exiting store.EnvironmentExit on its last run cannot
 // be decided, so it ends the run skipped, told, its output the merge's line and the park reason of the walk (syncWait).
 // Once every check has passed, the run advances to the merge, its output the line of what it merged and one line per
 // Requirement, and its Reason why the epic moved while the checks ran (SyncMoved), empty when it did not. The executor
@@ -207,7 +212,7 @@ func syncChecks(run store.NodeRun, rows Rows, result SyncResult) Action {
 		return syncWait(act, result)
 	}
 	if gate != "" {
-		return syncFailed(result, []string{"Done gate " + gate + " failed"})
+		return syncFailed(result, []string{"Done gate " + gate + " failed"}, []string{gateFailure(run, rows)})
 	}
 	captured, act, settled := captures(run, rows)
 	if !settled {
@@ -217,7 +222,8 @@ func syncChecks(run store.NodeRun, rows Rows, result SyncResult) Action {
 		return syncWait(act, result)
 	}
 	if causes := captureCauses(rows, captured); len(causes) > 0 {
-		return syncFailed(result, causes)
+		failures := strings.Split(captureFailures(run.Revision, rows, captured), "\n")
+		return syncFailed(result, causes, failures)
 	}
 	merged := fmt.Sprintf("merged origin's commit %s into the stored base %s as %s", result.Origin, result.Base,
 		result.Merge)
@@ -237,9 +243,12 @@ func syncWait(act Action, result SyncResult) Action {
 	return act
 }
 
-// syncFailed ends a sync run failed and told, with the line of its merge and then causes, one to a line.
-func syncFailed(result SyncResult, causes []string) Action {
-	return syncTold(outcomeFailed, outputOf([]string{result.MergeLine()}, causes))
+// syncFailed ends a sync run failed and told, with the line of its merge and then output, one to a line. Its Cause is
+// SyncCause of result with causes, one to a line, which names the failure to the planner's wake.
+func syncFailed(result SyncResult, output, causes []string) Action {
+	act := syncTold(outcomeFailed, outputOf([]string{result.MergeLine()}, output))
+	act.Cause = SyncCause(result, causes)
+	return act
 }
 
 // syncSkipped ends a sync run skipped with output, told to no one.

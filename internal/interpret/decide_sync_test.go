@@ -189,17 +189,20 @@ func TestDecideRunningSyncIsDecidedAndHoldsThePlan(t *testing.T) {
 }
 
 // TestDecideSyncEndTellsWhatTheKindTells: a sync run that ends failed ends with its output told, and one that ends
-// skipped with nothing to tell tells nothing. Neither writes a trigger, so neither wakes the planner a second time.
+// skipped with nothing to tell tells nothing. A run that ends failed also writes a trigger with its cause, which wakes
+// the planner; one that ends skipped writes none.
 func TestDecideSyncEndTellsWhatTheKindTells(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
-		name, result, outcome, output, tell string
+		name, result, outcome, output, tell, cause string
 	}{
 		{
 			name: "conflict", result: `{"origin":"o1","base":"c1","conflicts":["a.go","b.go"]}`, outcome: "failed",
 			output: "merge of origin's commit o1 into the stored base c1 conflicts in a.go, b.go",
 			tell: "workflow node plan/M1 failed: merge of origin's commit o1 into the stored base c1 conflicts in " +
 				"a.go, b.go",
+			cause: "sync sync:o1@c1: the sync of origin's commit o1 into the stored base c1 failed\n" +
+				"merge of origin's commit o1 into the stored base c1 conflicts in a.go, b.go",
 		},
 		{
 			name: "contained", result: `{"origin":"o1","base":"c1","contained":true}`, outcome: "skipped",
@@ -216,6 +219,12 @@ func TestDecideSyncEndTellsWhatTheKindTells(t *testing.T) {
 			want := []Action{{
 				Kind: ActSync, Path: syncPathOne, Outcome: tc.outcome, Output: tc.output, Reason: tc.tell,
 			}}
+			if tc.cause != "" {
+				want[0].Trigger = &store.NodeTrigger{
+					ID:    kinds.SyncTriggerPrefix + store.NodeRunID(decideEpic, syncPathOne, 0, "failed attempt 0"),
+					Cause: tc.cause,
+				}
+			}
 			if got := Decide(syncFlow(), rows, syncKinds()); !reflect.DeepEqual(got, want) {
 				t.Errorf("Decide() = %+v, want %+v", got, want)
 			}

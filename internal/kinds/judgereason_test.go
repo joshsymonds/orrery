@@ -38,7 +38,12 @@ func TestJudgeCarryRegressionNamesReason(t *testing.T) {
 		rows := syncRows(gatesPassed(), judgedFailing(workID("capture R1")), greenCapture("capture R2", true))
 		checkDecisions(t, Sync{}, []decideCase{{
 			"regression names the reason", syncNode("m1", syncMerged), rows,
-			syncTold(outcomeFailed, syncHead+"\n"+regressedLine),
+			Action{
+				Kind: ActEnd, Outcome: outcomeFailed, Tell: true, Output: syncHead + "\n" + regressedLine,
+				Cause: "sync sync:o1@base-1: the sync of origin's commit o1 into the stored base base-1 failed\n" +
+					syncHead + "\nR1 was green at the stored base base-1, and its capture on commit m1 exited 0 " +
+					"and was judged fails: the output shows TestX failing",
+			},
 		}})
 	})
 	t.Run("release", func(t *testing.T) {

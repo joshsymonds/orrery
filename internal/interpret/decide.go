@@ -54,8 +54,9 @@ const (
 // that carries Tell also tells the owner it, as an evidence node at base does when it found Requirements met at the
 // base and ends passed, so the epic goes on. Batch ends the integrate run Run at Path, whose Attempt ended with Outcome
 // and Output, with Trigger. Sync ends the sync run at Path, whose Attempt ended with Outcome and Output, and tells
-// Reason when it is set. ParkEpic parks the epic for Reason, with Trigger. Work carries a check, sync or release node
-// run's work: Work is the kind's action, prepare, start, capture, repro, refs, advance, take, integrator, step, judge,
+// Reason when it is set, and adds Trigger, pending, when it is set. ParkEpic parks the epic for Reason, with Trigger.
+// Work carries a check, sync or release node run's work: Work is the kind's action, prepare, start, capture, repro,
+// refs, advance, take, integrator, step, judge,
 // record, stop, ending, free, replan or resume, and Def, Run, IDs, Items, Tasks and Units are what it is for. An
 // advance and a stop carry their Output, an ending its Outcome, an integrator the failure its round mends as its
 // Output, an integrate run's advance the Trigger its passed batch writes, a replan the plan run it starts as its Runs,
@@ -529,6 +530,10 @@ func (p pass) decideSync(kind kinds.Kind, run store.NodeRun) []Action {
 		end := Action{Kind: ActSync, Path: run.Path, Attempt: run.Attempt, Outcome: act.Outcome, Output: act.Output}
 		if act.Tell {
 			end.Reason = syncTell(run.Path, act.Outcome, act.Output)
+		}
+		if act.Cause != "" {
+			id := store.NodeRunID(p.rows.Epic.ID, run.Path, run.Round, fmt.Sprintf("failed attempt %d", run.Attempt))
+			end.Trigger = &store.NodeTrigger{ID: kinds.SyncTriggerPrefix + id, Cause: act.Cause}
 		}
 		return []Action{end}
 	case kinds.ActPrepare, kinds.ActStart, kinds.ActCapture, kinds.ActRepro, kinds.ActAdvance, kinds.ActTaskIntegrator:

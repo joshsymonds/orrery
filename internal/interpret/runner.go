@@ -571,6 +571,7 @@ func (r *Runner) carrySync(ctx context.Context, epic store.EpicRow, act Action, 
 	}
 	if err := r.store.EndSync(ctx, epic.ID, store.SyncEnd{
 		Path: act.Path, Attempt: act.Attempt, Outcome: act.Outcome, Output: act.Output, Tell: act.Reason,
+		Trigger: act.Trigger,
 	}, at); err != nil {
 		return fmt.Errorf("end sync %s: %w", act.Path, err)
 	}
