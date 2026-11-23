@@ -11,9 +11,10 @@ import (
 	"github.com/joshsymonds/orrery/internal/store/sqlcgen"
 )
 
-// The states a brief run waits and gathers in before a capture is attached to it. A waiting run has no gatherer and no
-// capture yet; a gathering run is held by the gatherer step that took it, and goes back to waiting when that gatherer
-// ends without attaching a capture.
+// The states a captured brief waits and gathers in before a capture is attached to it. A waiting brief has no gatherer and
+// no capture yet; a gathering brief is held by the gatherer step that took it, and goes back to waiting when that gatherer
+// ends without attaching a capture. A supplied run is waiting too, but no gatherer takes it: its capture is recorded by
+// the engine (see RecordEvidenceCapture).
 const (
 	RunWaiting   = "waiting"
 	RunGathering = "gathering"
@@ -431,7 +432,7 @@ func attachArtifacts(files []EvidenceArtifact, paths []string) []EvidenceArtifac
 	return artifacts
 }
 
-// OpenBriefs returns the runs of epic that are waiting or gathering, ordered by created, then id, each with its
+// OpenBriefs returns the captured runs of epic that are waiting or gathering, ordered by created, then id, each with its
 // artifacts. It reads the runs in one query and the artifacts of the epic in another.
 func (s *Store) OpenBriefs(ctx context.Context, epic string) ([]EvidenceRun, error) {
 	queries := sqlcgen.New(s.read)
@@ -446,7 +447,7 @@ func (s *Store) OpenBriefs(ctx context.Context, epic string) ([]EvidenceRun, err
 	return evidenceRunsOf(stored, artifacts)
 }
 
-// EpicsWithWaitingBriefs returns the ids of the epics that hold a waiting run, ordered by id.
+// EpicsWithWaitingBriefs returns the ids of the epics that hold a waiting captured run, ordered by id.
 func (s *Store) EpicsWithWaitingBriefs(ctx context.Context) ([]string, error) {
 	epics, err := sqlcgen.New(s.read).ListEpicsWithWaitingBriefs(ctx)
 	if err != nil {

@@ -4338,7 +4338,7 @@ func (q *Queries) InsertEvidenceCaptureFile(ctx context.Context, arg InsertEvide
 const insertEvidenceRun = `-- name: InsertEvidenceRun :exec
 INSERT INTO evidence_runs (id, epic, item, revision, phase, source, state, spec, created)
 VALUES (?1, ?2, ?3, ?4, ?5, ?6,
-    COALESCE(NULLIF(CAST(?7 AS TEXT), ''), 'capturing'), ?8, ?9)
+    COALESCE(NULLIF(CAST(?7 AS TEXT), ''), 'waiting'), ?8, ?9)
 `
 
 type InsertEvidenceRunParams struct {
@@ -8028,7 +8028,7 @@ func (q *Queries) ListEpicsWithTurnsOrUntoldTells(ctx context.Context) ([]Epic, 
 }
 
 const listEpicsWithWaitingBriefs = `-- name: ListEpicsWithWaitingBriefs :many
-SELECT DISTINCT epic FROM evidence_runs WHERE state = 'waiting' ORDER BY epic
+SELECT DISTINCT epic FROM evidence_runs WHERE state = 'waiting' AND source = 'captured' ORDER BY epic
 `
 
 func (q *Queries) ListEpicsWithWaitingBriefs(ctx context.Context) ([]string, error) {
@@ -9266,7 +9266,8 @@ func (q *Queries) ListOpenEvidenceArtifacts(ctx context.Context) ([]EvidenceArti
 }
 
 const listOpenEvidenceBriefs = `-- name: ListOpenEvidenceBriefs :many
-SELECT id, epic, item, revision, phase, source, state, spec, grant_id, holder, exit, timed_out, not_captured, log_hash, log_bytes, judge_step, judges, verdict, judge_reason, passed, created, ended, stderr_hash, stderr_bytes, capture, gatherer, gatherers FROM evidence_runs WHERE epic = ? AND state IN ('waiting', 'gathering') ORDER BY created, id
+SELECT id, epic, item, revision, phase, source, state, spec, grant_id, holder, exit, timed_out, not_captured, log_hash, log_bytes, judge_step, judges, verdict, judge_reason, passed, created, ended, stderr_hash, stderr_bytes, capture, gatherer, gatherers FROM evidence_runs
+WHERE epic = ? AND state IN ('waiting', 'gathering') AND source = 'captured' ORDER BY created, id
 `
 
 func (q *Queries) ListOpenEvidenceBriefs(ctx context.Context, epic string) ([]EvidenceRun, error) {
@@ -12576,21 +12577,6 @@ type SetEvidenceCaptureGrantParams struct {
 
 func (q *Queries) SetEvidenceCaptureGrant(ctx context.Context, arg SetEvidenceCaptureGrantParams) error {
 	_, err := q.db.ExecContext(ctx, setEvidenceCaptureGrant, arg.GrantID, arg.Holder, arg.ID)
-	return err
-}
-
-const setEvidenceRunGrant = `-- name: SetEvidenceRunGrant :exec
-UPDATE evidence_runs SET grant_id = ?, holder = ? WHERE id = ?
-`
-
-type SetEvidenceRunGrantParams struct {
-	GrantID string
-	Holder  string
-	ID      string
-}
-
-func (q *Queries) SetEvidenceRunGrant(ctx context.Context, arg SetEvidenceRunGrantParams) error {
-	_, err := q.db.ExecContext(ctx, setEvidenceRunGrant, arg.GrantID, arg.Holder, arg.ID)
 	return err
 }
 

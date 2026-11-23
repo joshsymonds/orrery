@@ -9,7 +9,7 @@ import (
 	"github.com/joshsymonds/orrery/internal/store/sqlcgen"
 )
 
-// seedArtifactRuns stores count runs of runEpic: every third is still capturing and has no artifacts, every third is
+// seedArtifactRuns stores count runs of runEpic: every third is still waiting and has no artifacts, every third is
 // judging with runCapture's three artifacts, and the rest ended after laterCapture's one artifact. It also stores a
 // run of another epic with artifacts, which no read of runEpic may take.
 func seedArtifactRuns(t *testing.T, s *Store, count int) []string {
@@ -21,7 +21,7 @@ func seedArtifactRuns(t *testing.T, s *Store, count int) []string {
 		ids = append(ids, id)
 		switch i % 3 {
 		case 0:
-			runAt(t, s, id, runCapturing)
+			runAt(t, s, id, RunWaiting)
 		case 1:
 			runAt(t, s, id, runJudging)
 		default:
@@ -86,7 +86,7 @@ func TestEvidenceRunsReadEveryRunsArtifactsInOneQuery(t *testing.T) {
 	}
 }
 
-// TestOpenEvidenceRunsReadEveryRunsArtifactsInOneQuery checks that the open runs, capturing and judging, of every epic
+// TestOpenEvidenceRunsReadEveryRunsArtifactsInOneQuery checks that the open runs, waiting and judging, of every epic
 // come back each with its own artifacts, as each reads alone.
 func TestOpenEvidenceRunsReadEveryRunsArtifactsInOneQuery(t *testing.T) {
 	t.Parallel()

@@ -21,19 +21,19 @@ var ErrEvidenceState = errors.New("evidence run is in another state")
 // judged, and the kinds that read its exit run it again.
 const NotCapturedEnvironment = "exited 75 for its environment"
 
-// The states an evidence run moves through in order: capturing, then judging, then ended. A brief run may wait and gather
-// before it is attached and judged (see RunWaiting and RunGathering).
+// The states an evidence run moves through in order: waiting, then judging, then ended. A captured run waits as a brief and
+// may gather before a capture is attached to it (see RunWaiting and RunGathering), and a supplied run waits until its
+// capture is recorded.
 const (
-	runCapturing = "capturing"
-	runJudging   = "judging"
-	runEnded     = "ended"
+	runJudging = "judging"
+	runEnded   = "ended"
 )
 
 // EvidenceRun is one run of an evidence item: a capture or supplied files that show a Requirement or task holds at
-// one revision in one phase. Spec is the item as the run was added, Grant and Holder name the pool grant and holder
-// the capture ran under, and Artifacts keep the order the capture gave them. Capture is the id of the capture attached
-// to the run, Gatherer the gatherer step holding its brief, and Gatherers the count of gatherers that ended leaving it
-// unattached. Times are stored at whole seconds, and Ended is zero until the run ends.
+// one revision in one phase. Spec is the item as the run was added, and Artifacts keep the order the capture gave them.
+// Capture is the id of the capture attached to the run, Gatherer the gatherer step holding its brief, and Gatherers the
+// count of gatherers that ended leaving it unattached. Times are stored at whole seconds, and Ended is zero until the
+// run ends.
 type EvidenceRun struct {
 	ID          string
 	Epic        string
@@ -43,8 +43,6 @@ type EvidenceRun struct {
 	Source      string
 	State       string
 	Spec        evidence.Item
-	Grant       string
-	Holder      string
 	Exit        int
 	TimedOut    bool
 	NotCaptured string
@@ -98,9 +96,9 @@ type EvidenceVerdict struct {
 	At      time.Time
 }
 
-// AddEvidenceRun stores run as one write, in run.State or in state capturing when run.State is empty. Spec is stored as
-// JSON and Created at whole seconds. The grant, capture and verdict fields keep their zero values until later writes set
-// them. An id already stored is refused by the primary key and changes nothing.
+// AddEvidenceRun stores run as one write, in run.State or in state waiting when run.State is empty. Spec is stored as
+// JSON and Created at whole seconds. The capture and verdict fields keep their zero values until later writes set them.
+// An id already stored is refused by the primary key and changes nothing.
 func (s *Store) AddEvidenceRun(ctx context.Context, run EvidenceRun) error {
 	return s.write(ctx, func(queries *sqlcgen.Queries) error {
 		spec, err := encodeItem(run.Spec)
@@ -109,7 +107,7 @@ func (s *Store) AddEvidenceRun(ctx context.Context, run EvidenceRun) error {
 		}
 		state := run.State
 		if state == "" {
-			state = runCapturing
+			state = RunWaiting
 		}
 		if err = queries.InsertEvidenceRun(ctx, sqlcgen.InsertEvidenceRunParams{
 			ID: run.ID, Epic: run.Epic, Item: run.Item, Revision: run.Revision, Phase: run.Phase, Source: run.Source,
@@ -121,28 +119,12 @@ func (s *Store) AddEvidenceRun(ctx context.Context, run EvidenceRun) error {
 	})
 }
 
-// SetEvidenceGrant records the pool grant and holder that a capturing run runs under, in one write. A run in any
-// other state is ErrEvidenceState, and an unknown run is ErrNoEvidenceRun.
-func (s *Store) SetEvidenceGrant(ctx context.Context, id, grant, holder string) error {
-	return s.write(ctx, func(queries *sqlcgen.Queries) error {
-		if err := requireRunState(ctx, queries, id, runCapturing); err != nil {
-			return err
-		}
-		if err := queries.SetEvidenceRunGrant(ctx, sqlcgen.SetEvidenceRunGrantParams{
-			GrantID: grant, Holder: holder, ID: id,
-		}); err != nil {
-			return fmt.Errorf("set grant of evidence run %s: %w", id, err)
-		}
-		return nil
-	})
-}
-
-// RecordEvidenceCapture stores the capture of a capturing run in one write: its exit, timeout, reason for capturing
+// RecordEvidenceCapture stores the capture of a waiting run in one write: its exit, timeout, reason for capturing
 // nothing, log, and artifacts in the order given. The run moves to judging, or to ended at capture.At when the capture
 // captured nothing. A run in any other state is ErrEvidenceState and changes nothing.
 func (s *Store) RecordEvidenceCapture(ctx context.Context, id string, capture EvidenceCapture) error {
 	return s.write(ctx, func(queries *sqlcgen.Queries) error {
-		if err := requireRunState(ctx, queries, id, runCapturing); err != nil {
+		if err := requireRunState(ctx, queries, id, RunWaiting); err != nil {
 			return err
 		}
 		state, ended := runJudging, int64(0)
@@ -221,7 +203,7 @@ func (s *Store) EvidenceRuns(ctx context.Context, epic string) ([]EvidenceRun, e
 	return readEvidenceRuns(ctx, sqlcgen.New(s.read), epic)
 }
 
-// OpenEvidenceRuns returns every run that is capturing or judging, ordered by created, then id, each with its
+// OpenEvidenceRuns returns every run that is waiting, gathering or judging, ordered by created, then id, each with its
 // artifacts. It reads the runs in one query and the artifacts of all of them in another.
 func (s *Store) OpenEvidenceRuns(ctx context.Context) ([]EvidenceRun, error) {
 	queries := sqlcgen.New(s.read)
@@ -282,7 +264,7 @@ func evidenceRunWith(stored sqlcgen.EvidenceRun, artifacts []sqlcgen.EvidenceArt
 	}
 	run := EvidenceRun{
 		ID: stored.ID, Epic: stored.Epic, Item: stored.Item, Revision: stored.Revision, Phase: stored.Phase,
-		Source: stored.Source, State: stored.State, Spec: spec, Grant: stored.GrantID, Holder: stored.Holder,
+		Source: stored.Source, State: stored.State, Spec: spec,
 		Exit: int(stored.Exit), TimedOut: stored.TimedOut != 0, NotCaptured: stored.NotCaptured,
 		LogHash: stored.LogHash, LogBytes: stored.LogBytes, StderrHash: stored.StderrHash,
 		StderrBytes: stored.StderrBytes,

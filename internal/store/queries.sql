@@ -1347,13 +1347,10 @@ WHERE engine_rate_limits.session_id = sqlc.arg(id) AND engine_rate_limits.status
 -- name: InsertEvidenceRun :exec
 INSERT INTO evidence_runs (id, epic, item, revision, phase, source, state, spec, created)
 VALUES (sqlc.arg(id), sqlc.arg(epic), sqlc.arg(item), sqlc.arg(revision), sqlc.arg(phase), sqlc.arg(source),
-    COALESCE(NULLIF(CAST(sqlc.arg(state) AS TEXT), ''), 'capturing'), sqlc.arg(spec), sqlc.arg(created));
+    COALESCE(NULLIF(CAST(sqlc.arg(state) AS TEXT), ''), 'waiting'), sqlc.arg(spec), sqlc.arg(created));
 
 -- name: GetEvidenceRunState :one
 SELECT state FROM evidence_runs WHERE id = ?;
-
--- name: SetEvidenceRunGrant :exec
-UPDATE evidence_runs SET grant_id = ?, holder = ? WHERE id = ?;
 
 -- name: RecordEvidenceRunCapture :exec
 UPDATE evidence_runs SET exit = ?, timed_out = ?, not_captured = ?, log_hash = ?, log_bytes = ?, stderr_hash = ?,
@@ -1438,10 +1435,11 @@ SELECT run FROM evidence_capture_briefs WHERE capture = ? ORDER BY run;
 UPDATE evidence_runs SET capture = ?, state = 'judging' WHERE id = ? AND state IN ('waiting', 'gathering');
 
 -- name: ListOpenEvidenceBriefs :many
-SELECT * FROM evidence_runs WHERE epic = ? AND state IN ('waiting', 'gathering') ORDER BY created, id;
+SELECT * FROM evidence_runs
+WHERE epic = ? AND state IN ('waiting', 'gathering') AND source = 'captured' ORDER BY created, id;
 
 -- name: ListEpicsWithWaitingBriefs :many
-SELECT DISTINCT epic FROM evidence_runs WHERE state = 'waiting' ORDER BY epic;
+SELECT DISTINCT epic FROM evidence_runs WHERE state = 'waiting' AND source = 'captured' ORDER BY epic;
 
 -- name: TakeEvidenceBrief :execrows
 UPDATE evidence_runs SET gatherer = ?, state = 'gathering' WHERE id = ? AND state = 'waiting';
