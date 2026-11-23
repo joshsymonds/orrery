@@ -14,9 +14,10 @@ const (
 	// OpLaunch starts the session that the request's Launch describes under a holder, as holderhost.Host.Launch does.
 	// Its Response comes once the holder serves its socket.
 	OpLaunch Op = "launch"
-	// OpAttach takes over the session's holder, as holder.Reattach does, at the request's Offset and speaking the
-	// request's WireVersion. Once its Response carries no Code, the connection is a byte splice onto the holder's
-	// socket, and the holder's frames run over it unchanged.
+	// OpAttach splices the connection, byte for byte, onto the session's holder socket. Once its Response carries no
+	// Code, the controller speaks the holder wire over the connection itself: its hello and attach, at the offset it
+	// chooses, and every frame after them. The holder's frames run back unchanged. A Response with a Code means the
+	// splice did not start.
 	OpAttach Op = "attach"
 	// OpStop ends the session's holder, as holder.Stop does.
 	OpStop Op = "stop"
@@ -31,8 +32,8 @@ const (
 	OpGone Op = "gone"
 	// OpSessions answers with the ids of the sessions that have a holder directory on the agent's machine.
 	OpSessions Op = "sessions"
-	// OpEnd waits until the session's holder has ended, then answers with its exit record, as holder.Link's Done and
-	// Exit report it.
+	// OpEnd waits until the session's holder has ended, then answers with its exit record. The record is absent when the
+	// holder wrote none, as after a kill.
 	OpEnd Op = "end"
 	// OpPing answers at once, so a controller learns that the agent is reachable.
 	OpPing Op = "ping"
@@ -47,10 +48,8 @@ type Request struct {
 	Session string `json:"session,omitempty"`
 	// Launch is the launch that the launch op starts.
 	Launch *LaunchSpec `json:"launch,omitempty"`
-	// Offset is the stdout offset that an attach replays from, and the offset that a gone op streams from.
+	// Offset is the stdout offset that a gone op streams from.
 	Offset int64 `json:"offset,omitempty"`
-	// WireVersion is the holder wire version that an attach speaks.
-	WireVersion int `json:"wireVersion,omitempty"`
 }
 
 // LaunchSpec is the launch that a launch op starts: a holderhost.Spec without its session, which the Request names.
