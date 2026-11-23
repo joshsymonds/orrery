@@ -11685,6 +11685,52 @@ func (q *Queries) ListRunningCallerSteps(ctx context.Context, caller string) ([]
 	return items, nil
 }
 
+const listRunningDesignSteps = `-- name: ListRunningDesignSteps :many
+SELECT design_steps.step, design_steps.design, design_steps.kind, design_steps.subject, design_steps.repository, design_steps.revision, design_steps.delta, design_steps.created FROM design_steps
+JOIN steps ON steps.id = design_steps.step
+WHERE steps.end_value = '' AND CAST(COALESCE(
+    (SELECT newest.session FROM design_conversations AS newest WHERE newest.design = design_steps.design
+     ORDER BY newest.seq DESC LIMIT 1),
+    (SELECT designs.conversation FROM designs WHERE designs.id = design_steps.design),
+    (SELECT opening.writer FROM contract_versions AS opening
+     WHERE opening.contract = design_steps.design AND opening.version = 1 AND NOT EXISTS (
+         SELECT 1 FROM design_contracts AS members WHERE members.contract = opening.contract))
+) AS TEXT) = CAST(?1 AS TEXT)
+ORDER BY design_steps.created, design_steps.step
+`
+
+func (q *Queries) ListRunningDesignSteps(ctx context.Context, session string) ([]DesignStep, error) {
+	rows, err := q.db.QueryContext(ctx, listRunningDesignSteps, session)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []DesignStep
+	for rows.Next() {
+		var i DesignStep
+		if err := rows.Scan(
+			&i.Step,
+			&i.Design,
+			&i.Kind,
+			&i.Subject,
+			&i.Repository,
+			&i.Revision,
+			&i.Delta,
+			&i.Created,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listRunningEpicTurns = `-- name: ListRunningEpicTurns :many
 SELECT epic, seq, step, state, reason, seen, outline, outcome, started, ended, told, stop, resets FROM epic_turns WHERE state = 'running' ORDER BY epic, seq
 `

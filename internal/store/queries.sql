@@ -2262,6 +2262,19 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?);
 -- name: ListDesignSteps :many
 SELECT * FROM design_steps WHERE design = ? ORDER BY created, step;
 
+-- name: ListRunningDesignSteps :many
+SELECT design_steps.* FROM design_steps
+JOIN steps ON steps.id = design_steps.step
+WHERE steps.end_value = '' AND CAST(COALESCE(
+    (SELECT newest.session FROM design_conversations AS newest WHERE newest.design = design_steps.design
+     ORDER BY newest.seq DESC LIMIT 1),
+    (SELECT designs.conversation FROM designs WHERE designs.id = design_steps.design),
+    (SELECT opening.writer FROM contract_versions AS opening
+     WHERE opening.contract = design_steps.design AND opening.version = 1 AND NOT EXISTS (
+         SELECT 1 FROM design_contracts AS members WHERE members.contract = opening.contract))
+) AS TEXT) = CAST(sqlc.arg(session) AS TEXT)
+ORDER BY design_steps.created, design_steps.step;
+
 -- name: InsertDesignQuestion :exec
 INSERT INTO design_questions (design, seq, contract, text, options, recommendation, asker, asked)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?);

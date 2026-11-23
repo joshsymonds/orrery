@@ -252,6 +252,9 @@ type sessionWatch struct {
 	// withheld holds the ids of the owner prompts whose newest state is canceled or discarded (see readPrompts).
 	prompts  []store.PromptState
 	withheld map[string]bool
+	// designSteps is the running design steps of the session's designs, as the step's read found them (see
+	// readDesignSteps).
+	designSteps []store.DesignStep
 }
 
 // step reads the session once. It returns the message for the read, and true when the message is a delta: the first
@@ -331,6 +334,17 @@ func (w *sessionWatch) readPrompts(ctx context.Context) error {
 			w.withheld[prompt.PromptID] = true
 		}
 	}
+	return nil
+}
+
+// readDesignSteps reads the running design steps whose design the session works, as store.Reader.RunningDesignSteps
+// reads them, and sets designSteps to them. A failed read is answered as a failed session read is.
+func (w *sessionWatch) readDesignSteps(ctx context.Context) error {
+	steps, err := w.reader.RunningDesignSteps(ctx, w.id)
+	if err != nil {
+		return sessionReadError(err)
+	}
+	w.designSteps = steps
 	return nil
 }
 
@@ -588,21 +602,54 @@ func (t *backgroundTask) row() *orreryv1.BackgroundTask {
 	}
 }
 
-// backgroundRows returns the background tasks the state carries at now, oldest start first: each task that shows at now
-// (see shows).
+// backgroundRows returns the background rows the state carries at now, oldest start first: each task that shows at
+// now (see shows), and each running design step of the session (see designStepRow). A task and a step that start in
+// the same second keep the task first.
 func (w *sessionWatch) backgroundRows(now int64) []*orreryv1.BackgroundTask {
-	shown := make([]*backgroundTask, 0, len(w.taskOrder))
+	rows := make([]*orreryv1.BackgroundTask, 0, len(w.taskOrder)+len(w.designSteps))
 	for _, task := range w.taskOrder {
 		if task.shows(now) {
-			shown = append(shown, task)
+			rows = append(rows, task.row())
 		}
 	}
-	slices.SortStableFunc(shown, func(a, b *backgroundTask) int { return cmp.Compare(a.started, b.started) })
-	rows := make([]*orreryv1.BackgroundTask, 0, len(shown))
-	for _, task := range shown {
-		rows = append(rows, task.row())
+	for _, step := range w.designSteps {
+		rows = append(rows, designStepRow(step))
 	}
+	slices.SortStableFunc(rows, func(a, b *orreryv1.BackgroundTask) int {
+		return cmp.Compare(a.GetStarted(), b.GetStarted())
+	})
 	return rows
+}
+
+// taskStep is the type of the background row of a design step.
+const taskStep = "step"
+
+// designStepRow returns the background row of a running design step: its step id, its design, its start, and the words
+// for what it is for (see designStepWords). The step runs, so its row has no end and no activity.
+func designStepRow(step store.DesignStep) *orreryv1.BackgroundTask {
+	return &orreryv1.BackgroundTask{
+		Id:          step.Step,
+		Description: designStepWords(step),
+		Type:        taskStep,
+		Status:      taskRunning,
+		Started:     step.Created.Unix(),
+		Design:      &orreryv1.EngineDesign{Design: step.Design},
+	}
+}
+
+// designStepWords returns the words for what a design step is for. A research question and a reproduce command give
+// the first line of their subject. A discovery and a closure give their kind's name, then " · ", then the first line
+// of their subject.
+func designStepWords(step store.DesignStep) string {
+	line, _, _ := strings.Cut(step.Subject, "\n")
+	switch step.Kind {
+	case store.StepDiscovery:
+		return "discovery · " + line
+	case store.StepClosure:
+		return "closure · " + line
+	default:
+		return line
+	}
 }
 
 // keptItem is a main-thread item a read keeps, with the seq of the event it came from.
@@ -616,7 +663,8 @@ type keptItem struct {
 // The first read scans from seq 0, so it sees the whole history: the origin and the newest request. It keeps the newest
 // limit items when the client asked for a reset, and the items above its seq otherwise. Later reads scan from the seq
 // the stream has reached and keep every item they read. Each read also reads the prompt states (see readPrompts), and
-// it keeps no item that withholds reports. The items it returns carry their step facts (see withStepFacts).
+// it keeps no item that withholds reports. The items it returns carry their step facts (see withStepFacts). Each read
+// also reads the running design steps (see readDesignSteps).
 func (w *sessionWatch) read(
 	ctx context.Context,
 	first bool,
@@ -625,6 +673,9 @@ func (w *sessionWatch) read(
 		return nil, 0, store.EngineHistory{}, listError(connect.CodeUnavailable, "store unavailable")
 	}
 	if err := w.readPrompts(ctx); err != nil {
+		return nil, 0, store.EngineHistory{}, err
+	}
+	if err := w.readDesignSteps(ctx); err != nil {
 		return nil, 0, store.EngineHistory{}, err
 	}
 	reset := first && w.after == 0
