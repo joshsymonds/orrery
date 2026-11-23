@@ -61,8 +61,11 @@ func TestReleaseSlotsDropKeepsEpics(t *testing.T) {
 		fixture.Close()
 		t.Fatalf("seed epic slot row: %v", err)
 	}
-	if _, err := fixture.ExecContext(ctx, `INSERT INTO epic_release_slots (repository, epic, holder_kind, label, deadline)
-		VALUES ('/work/outside', '', 'outside', 'nightly', 1700009000)`); err != nil {
+	if _, err := fixture.ExecContext(
+		ctx,
+		`INSERT INTO epic_release_slots (repository, epic, holder_kind, label, deadline)
+		VALUES ('/work/outside', '', 'outside', 'nightly', 1700009000)`,
+	); err != nil {
 		fixture.Close()
 		t.Fatalf("seed outside slot row: %v", err)
 	}
@@ -94,11 +97,22 @@ func TestReleaseSlotsDropKeepsEpics(t *testing.T) {
 		if err != nil {
 			t.Fatalf("release runs of %s: %v", seed.id, err)
 		}
-		want := []ReleaseRun{{
-			Part: "release", Position: 1, Attempt: 1, Step: "tag", Start: "start-sha", Head: "head-sha", End: "finish-sha",
-			Commits: []string{"abc1234"}, Evidence: "evidence line", Passed: seed.passed, Reason: "reason line",
-			At: time.Unix(1700000600, 0),
-		}}
+		want := []ReleaseRun{
+			{
+				Part:     "release",
+				Position: 1,
+				Attempt:  1,
+				Step:     "tag",
+				Start:    "start-sha",
+				Head:     "head-sha",
+				End:      "finish-sha",
+				Commits:  []string{"abc1234"},
+				Evidence: "evidence line",
+				Passed:   seed.passed,
+				Reason:   "reason line",
+				At:       time.Unix(1700000600, 0),
+			},
+		}
 		if !reflect.DeepEqual(runs, want) {
 			t.Errorf("release runs of %s = %+v, want %+v", seed.id, runs, want)
 		}
