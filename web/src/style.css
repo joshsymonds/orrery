@@ -1019,6 +1019,21 @@ section.page.leave { animation: move-leave var(--o-move-leave); }
 .title-row .head-menu button { display: flex; align-items: center; gap: var(--o-space-12); height: var(--o-size-control-desk); padding: 0 var(--o-space-12); border: 0; border-radius: var(--o-radius-2); background: none; color: var(--o-ink-1); font: var(--o-type-small); white-space: nowrap; text-align: left; cursor: pointer; appearance: none; -webkit-appearance: none; }
 .title-row .head-menu button:hover { background: var(--o-surface-raised); }
 .title-row .head-menu kbd { margin-left: auto; }
+/* At the desk the conversation's controls take the rest of the title row, so its work links sit right after its title, and
+   the margin pushes the controls to the row's end. Under 760px the controls stay at the end, as they are. */
+@media (min-width: 760px) {
+  .convo-head > .title-row .acts { flex: 1 1 auto; justify-content: flex-end; margin-left: 0; }
+}
+/* The work links: a conversation's things as plain links, each its mark and its name, with no pill, chevron or state. Their
+   icons are the title row's own, reset to the mark's size, and the "+n" control opens its menu under the links. */
+.wlinks { position: relative; display: flex; align-items: center; gap: var(--o-space-4); min-width: 0; margin-right: auto; }
+.title-row .wlinks .icon { width: var(--o-size-icon); height: var(--o-size-icon); min-height: 0; padding: 0; border: 0; background: none; color: var(--o-ink-3); cursor: default; }
+.wlink { display: inline-flex; align-items: center; gap: var(--o-space-4); min-width: 0; min-height: 0; max-width: calc(var(--o-space-48) * 4); padding: 0 var(--o-space-4); border: 0; background: none; color: var(--o-ink-2); font: var(--o-type-small); white-space: nowrap; cursor: pointer; appearance: none; -webkit-appearance: none; }
+.wlink .nm { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.wlink:hover, .wlink:hover .icon { color: var(--o-ink-1); }
+.wlink-more { flex: none; min-height: 0; padding: 0 var(--o-space-4); border: 0; background: none; color: var(--o-ink-3); font: var(--o-type-small); white-space: nowrap; cursor: pointer; appearance: none; -webkit-appearance: none; }
+.wlink-more:hover, .wlink-more[aria-expanded="true"] { color: var(--o-ink-1); }
+.wlinks .menu { position: absolute; top: calc(100% + var(--o-space-4)); left: 0; z-index: var(--o-z-menu); }
 /* A command's error under the title row: an alert in the bad role's tint. */
 .page-note { margin: 0; padding: var(--o-space-4) var(--o-space-24); border-bottom: var(--o-size-hairline) solid var(--o-line-soft); background: var(--o-role-bad-fill); color: var(--o-role-bad); font: var(--o-type-small); overflow-wrap: anywhere; }
 /* The strip is the title row's own line under its controls: the host's name, each meter, then the context. A meter is its

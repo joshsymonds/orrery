@@ -60,23 +60,52 @@ export interface WorkConversation {
   background: BackgroundTask[];
 }
 
-// WorkLinkItem is one thing a conversation's work links to: a design, an epic or a contract, keyed by its tree key, with
+// WorkLinkItem is one thing a conversation's work links to: a design, an epic or a contract, with its tree key, its id and
 // its name.
 export interface WorkLinkItem {
   kind: "design" | "epic" | "contract";
   key: string;  // design:<id>, epic:<id> or contract:<id>
-  name: string;
+  id: string;
+  name: string;  // a design's title, an epic's or a contract's slug
 }
 
-// workLinksOf is the work links of a session: the designs, epics and contracts that link to it, each with its tree key
-// and name.
+// workLinksOf is the work links of a session: first each design whose conversation is the session and which is not of
+// one, by when it was created, then each epic the session steers and each proposed contract of the session that no such
+// design holds, in the order the epics come in the rail and then the contracts in the order they come. An empty session
+// has none.
 export function workLinksOf(
   session: string,
   designs: readonly Design[],
   epics: EpicsView,
   contracts: readonly Contract[],
 ): WorkLinkItem[] {
-  return [];
+  if (session === "") {
+    return [];
+  }
+  const own = designs
+    .filter((design) => design.conversation === session && !design.ofOne)
+    .sort((left, right) => Number(left.created - right.created) || left.id.localeCompare(right.id));
+  // held is whether a design of the session holds the thing with this id, as one of its contracts' id or epic.
+  const held = (id: string): boolean =>
+    own.some((design) => design.contracts.some((contract) => contract.id === id || contract.epic === id));
+  const designLinks = own.map(
+    (design): WorkLinkItem => ({ kind: "design", key: `design:${design.id}`, id: design.id, name: design.title }),
+  );
+  const steered = [...epics.blocks.map((block) => block.epic), ...epics.waiting, ...epics.justEnded, ...epics.endedEarlier];
+  const epicLinks = steered
+    .filter((item) => epics.listed.get(item.id)?.steering === session && !held(item.id))
+    .map((item): WorkLinkItem => ({ kind: "epic", key: item.key, id: item.id, name: item.slug }));
+  const contractLinks = contracts
+    .filter((contract) => contract.state === "proposed" && contract.conversation === session && !held(contract.id))
+    .map(
+      (contract): WorkLinkItem => ({
+        kind: "contract",
+        key: `contract:${contract.id}`,
+        id: contract.id,
+        name: contractSlug(contract.id),
+      }),
+    );
+  return [...designLinks, ...epicLinks, ...contractLinks];
 }
 
 // ActivityLine is one line of a conversation's activity: a background task, an agent or a shell, with who runs it, what it
