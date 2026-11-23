@@ -2027,7 +2027,7 @@ A requeued request is kept in memory only. A restart of `orreryd` ends it, and a
 - `List` answers the notice history: each notice orreryd showed at the desk or sent away with its desk text built (see [Notice history in the store](#notice-history-in-the-store)). It holds the notices timed within the last 14 days at orreryd's clock, newest first, each as a `ListedNotice` with its `key`, `state`, `title`, `body`, `block` (unset when the notice opens the epic view), `time` in unix seconds when the router delivered it, and its `read` mark. The window is the 14 days before orreryd's clock (`enginehost.PageNotices.List`, `enginehost.noticesService.List`), and the rows come from `route.Router.History`. With no notice history, `List` answers `unavailable`.
 - `ReadAll` marks every notice in the history read (`enginehost.PageNotices.ReadAll`, `enginehost.noticesService.ReadAll`, `route.Router.ReadAll`). With no notice history, `ReadAll` answers `unavailable`.
 
-A `NoticeKey` (`proto/orrery/engine/v1/notice.proto: NoticeKey`) sets one of five fields: `pane`, `session`, `epic`, `limit`, or `alert`, the name of an alert (see [Alert intake](#alert-intake)). `Seen` takes exactly one. `serve` copies the key field for field (`server.noticeKeyMessage`, `server.engineNoticeKey`), and the page keys each notice by all five fields (`web/src/notices.tsx: noticeKey`). A key also has `host` (`proto/orrery/engine/v1/notice.proto: NoticeKey.host`, and `proto/orrery/v1/notice.proto: NoticeKey.host` in `orrery.v1`), the orrery name of the pane's host. It is set with `pane` and only with `pane`, and it is not one of the five fields, so it does not count toward the one that `Seen` takes.
+A `NoticeKey` (`proto/orrery/engine/v1/notice.proto: NoticeKey`) sets one of five fields: `pane`, `session`, `epic`, `limit`, or `alert`, the name of an alert (see [Alert intake](#alert-intake)). `Seen` takes exactly one. `serve` copies the key field for field (`server.noticeKeyMessage`, `server.engineNoticeKey`), and the page keys each notice by all five fields (`web/src/notices.tsx: noticeKey`). A key also has `host` (`proto/orrery/engine/v1/notice.proto: NoticeKey.host`, and `proto/orrery/v1/notice.proto: NoticeKey.host` in `orrery.v1`), the orrery name of the pane's host. It is set with `pane` and only with `pane`, and it is not one of the five fields, so it does not count toward the one that `Seen` takes. `enginehost.noticeKeyOf` and `enginehost.keyMessage` carry `host` both ways, and so do `server.noticeKeyMessage` and `server.engineNoticeKey`. In `notice.Key`, `Host` is the orrery name of a pane's host, set with `Pane` and only with `Pane`. A push for a pane key names `Key.Host` as the notification's `host` and as its clear's `host`, and a pane key with no host names the `Notices`' own host (`notice.Notices.hostOf`). Every pane key orreryd builds has `Host` set to its own orrery name: the relay's notices and autoseen, the hook-socket seen report, the pane questions and the viewing check (`cmd/orreryd`'s `serve`, `relay.paneNotice`, `paneQuestions.PaneSeen`, `viewTracker.note`). A hook-socket seen or read report names a pane alone, so it reaches the controller's own pane only.
 
 ### Metrics
 
@@ -2909,6 +2909,7 @@ The `pending_notices` table (migration `00010_pending_notices.sql`) has one row 
 | `silent` | `INTEGER` | `1` when the push handed off was silent, else `0`; always `0` for a session or epic notice. Added by migration `00011_pending_notice_silent.sql` |
 | `epic` | `TEXT` | the epic's id, for an epic notice; `""` otherwise. Added by migration `00019_planner_controls.sql` |
 | `limit_key` | `TEXT` | the usage limit's key, `<kind>@<reset>`, for a usage-limit notice; `""` otherwise. Added by migration `00026_limit_told.sql` |
+| `host` | `TEXT` | the orrery name of the pane's host, for a pane notice; `""` otherwise. Added by migration `00104_notice_host.sql` (`store.NoticeRow.Host`) |
 
 The `pending_notice_ids` table has one row, whose `high` is the highest `id` the table has ever stored. Deleting rows does not lower it, so ids keep rising.
 
@@ -2925,6 +2926,7 @@ The `notice_history` table (migration `00076_notice_history.sql`) keeps one row 
 | Column | Type | Meaning |
 |---|---|---|
 | `id` | `INTEGER`, primary key | the row's id. `AUTOINCREMENT`, so an id is never reused |
+| `host` | `TEXT` | the orrery name of the pane's host; `""` for a notice of another key. Added by migration `00104_notice_host.sql` |
 | `pane` | `TEXT` | the notice's pane; `""` for a notice of another key |
 | `session` | `TEXT` | the notice's session id; `""` for a notice of another key |
 | `epic` | `TEXT` | the epic's id; `""` for a notice of another key |
@@ -2938,7 +2940,7 @@ The `notice_history` table (migration `00076_notice_history.sql`) keeps one row 
 | `time` | `INTEGER` | unix seconds when the router delivered the notice |
 | `read` | `BOOLEAN` | `0` until a client reads the row, then `1` |
 
-Exactly one of `pane`, `session`, `epic`, `limit_key` and `alert` is set on a row, as the notice's key is. The migration indexes the table by `time` (`notice_history_time`) and by the key fields and `id` (`notice_history_key`).
+Exactly one of `pane`, `session`, `epic`, `limit_key` and `alert` is set on a row, as the notice's key is, and `host` is set with `pane` and only with it (`store.NoticeHistoryKey.Host`). Migration `00104_notice_host.sql` adds `host` and rebuilds `notice_history_key` to lead with it: the index covers `host`, the key fields and `id`. Migration `00076_notice_history.sql` indexes the table by `time` (`notice_history_time`). Each key is written, marked read and counted by all its fields, `host` included (`store.Store.RecordNoticeHistory`, `store.Store.MarkNoticeHistoryRead`), so two hosts' panes with one id keep their own rows.
 
 The newest row of a key is the one with the highest `id`. A later notice under a key whose newest row is unread replaces that row's `state`, `title`, `body`, `block`, `block_ref` and `time` in one write, so a key holds at most one unread row. A later notice under a key whose newest row is read adds a new unread row, and the read row stays as a record of what was told (`store.Store.RecordNoticeHistory`).
 
@@ -2948,15 +2950,20 @@ No row is pruned: a row is never deleted, so the table keeps every notice the ro
 
 #### Pushed notices in the store
 
-The `pushed_notices` table (migration `00012_pushed_notices.sql`) has one row per kept push time (see [orreryd](#orreryd)):
+The `pushed_notices` table (migration `00012_pushed_notices.sql`, rebuilt by migration `00104_notice_host.sql`) has one row per kept push time (see [orreryd](#orreryd)):
 
 | Column | Type | Meaning |
 |---|---|---|
-| `pane` | `TEXT`, primary key with `session` | the pane whose push is kept; `""` for a session |
-| `session` | `TEXT`, primary key with `pane` | the session id whose push is kept; `""` for a pane |
+| `host` | `TEXT`, primary key with `pane` and `session` | the orrery name of the pane's host, for a pane's push; `""` for a session, and for a row stored before the column existed |
+| `pane` | `TEXT`, primary key with `host` and `session` | the pane whose push is kept; `""` for a session |
+| `session` | `TEXT`, primary key with `host` and `pane` | the session id whose push is kept; `""` for a pane |
 | `time` | `INTEGER` | unix seconds of the kept push |
 
+Migration `00104_notice_host.sql` rebuilds the table with `host` in its primary key, and copies each row with host `""`, so a push kept before the migration stays kept under `""` (`store.Store.PutPushed`, `store.Store.Pushed`). Two hosts' panes with one id keep two rows, and `store.Store.DeletePushed` deletes by host, pane and session.
+
 Before each push is published, `orreryd` writes the row of its pane or session with the push's time, so a newer push replaces the row. The clear that ends a kept push removes its row (see [Clear payload](#clear-payload)).
+
+At start, before the push rows are read, `orreryd` names each row whose pane is set and whose host is `""`, in `pending_notices`, `notice_history` and `pushed_notices`, with the controller's orrery name (`cmd/orreryd`'s `nameUnhosted`, `store.Store.NameUnhostedPaneRows`). A pushed row whose pane and session already hold a row named with that name is the duplicate of it, so the unnamed row is dropped and the named one keeps the key.
 
 The `pushed_epic_notices` table (migration `00019_planner_controls.sql`) has one row per epic whose push is kept:
 
@@ -4346,3 +4353,5 @@ orrery Haiku housekeeping calls retried, and this change is not additive: a sess
 orrery release slot removed, and this change is not additive: every clean epic with release steps begins its release at once, with no slot to take, hold or give, so no release waits for another epic's. `StopEpic` of an epic with no running turn whose release is releasing or stopped records the owner's stop of the release as a release run of part `stop`, and a planner's `resume_release` refuses a release the owner stopped. The `orrery.engine.v1.ReleaseSlots` service and its `Hold`, `HoldWait`, `Give` and `Show` calls, with their messages, the `orrery release-slot` verb with its `hold`, `give` and `show` forms, and the outside holds that the service carried are removed. The `release_slot` field of `StoredEpic` (field 19) is reserved, by number and by name, and `GetEpic` no longer carries it. Migration 00097 drops the table that held each repository's slot, and its down step recreates that table empty, with its partial unique index. No other table changes.
 
 orrery host surfaces protos added, additively: the `host` field of the requests `ScreenRequest` (4), `ConversationRequest` (3), `SendTextRequest` (3), `SendKeysRequest` (4), `MarkSeenRequest` (3), `PullQueuedRequest` (2), `WatchConversationRequest` (5) and `OlderRequest` (5) in `orrery.v1`, which names the host a pane runs on (see [Phone API](#phone-api)); the `unreachable` field (25) of `orrery.v1.Pane`; the `HostEntry` message, with its `name` (1), `load_percent` (2), `memory_percent` (3) and `reachable` (4) fields, and the `hosts` field (4) of `HostStatusResponse` in `orrery.v1` (see [Phone API](#phone-api)); and the `host` field (6) of `NoticeKey` in `orrery.v1` and in `orrery.engine.v1` (see [Notices](#notices)). No existing name or value changes.
+
+orrery pane host in notice keys added, additively: `host` in the `pushed_notices` primary key, and in `pending_notices` and `notice_history`, by migration `00104_notice_host.sql` (see [Pushed notices in the store](#pushed-notices-in-the-store), [Notice history in the store](#notice-history-in-the-store)); the `host` of a pane's push and clear, which is now the controller's orrery name, where it was the machine's host name; the two are the same unless `hosts.toml` names the controller (see [Notices](#notices)). No existing name changes.

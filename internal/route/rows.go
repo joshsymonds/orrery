@@ -230,7 +230,7 @@ func (r *Router) dueLocked(ent *entry, run func()) {
 
 // keyOf is the key of the notice row describes.
 func keyOf(row store.NoticeRow) notice.Key {
-	return notice.Key{Pane: row.Pane, Session: row.Session, Epic: row.Epic, Limit: row.Limit}
+	return notice.Key{Host: row.Host, Pane: row.Pane, Session: row.Session, Epic: row.Epic, Limit: row.Limit}
 }
 
 // rowLocked writes ent's row. A notice without a source, and a Router without a store, have no row. The first write
@@ -355,6 +355,7 @@ func (r *Router) dueIn(d time.Duration) int64 {
 func rowOf(ent *entry) store.NoticeRow {
 	return store.NoticeRow{
 		ID:          ent.row,
+		Host:        ent.n.Key.Host,
 		Pane:        ent.n.Key.Pane,
 		Session:     ent.n.Key.Session,
 		Epic:        ent.n.Key.Epic,

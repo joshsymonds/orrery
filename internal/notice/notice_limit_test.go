@@ -21,9 +21,9 @@ type deleteRecorder struct {
 	deleted []string
 }
 
-func (r *deleteRecorder) DeletePushed(ctx context.Context, pane, session string) error {
+func (r *deleteRecorder) DeletePushed(ctx context.Context, host, pane, session string) error {
 	r.deleted = append(r.deleted, "pane "+pane+" session "+session)
-	return r.Store.DeletePushed(ctx, pane, session)
+	return r.Store.DeletePushed(ctx, host, pane, session)
 }
 
 func (r *deleteRecorder) DeletePushedLimit(ctx context.Context, limit string) error {

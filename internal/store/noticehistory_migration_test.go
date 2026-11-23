@@ -8,43 +8,43 @@ import (
 
 // TestNoticeHistoryMigration checks the migration that adds notice_history. Its Down drops the table and leaves the
 // pending notices and the pushed rows as they were, and its Up restores an empty table with those rows unchanged. The
-// seeded rows are written under the migration, between the Up and the Down, as a store that has run them would hold.
+// seeded rows are written with SQL at version 76, before 00104_notice_host.sql adds the host column the store's own
+// writes and reads of the pending and pushed tables name, so each table is compared as rowsOf reads it.
 func TestNoticeHistoryMigration(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	s, provider := storeAtVersion(t, 76)
-	pane := NoticeHistoryKey{Pane: "%3", Session: "session-a"}
-	for _, row := range []NoticeRow{
-		{ID: 1, Pane: "%3", Session: "session-a", State: "waiting", Time: 1_700_000_000, Phase: "delayed",
-			Due: 1_700_000_090_000, DelayServed: true, SourceKind: "session", Source: []byte(`{"event":"stop"}`)},
-		{ID: 2, Limit: "weekly", State: "waiting", Time: 1_700_000_010, Phase: "held"},
+	for _, seed := range []struct {
+		stmt string
+		args []any
+	}{
+		{`INSERT INTO pending_notices
+			(id, pane, session, state, time, phase, due, delay_served, watch_logged, source_kind, source)
+			VALUES (1, '%3', 'session-a', 'waiting', 1700000000, 'delayed', 1700000090000, 1, 0, 'session', ?)`,
+			[]any{[]byte(`{"event":"stop"}`)}},
+		{`INSERT INTO pending_notices
+			(id, pane, session, state, time, phase, due, delay_served, watch_logged, source_kind, limit_key)
+			VALUES (2, '', '', 'waiting', 1700000010, 'held', 0, 0, 0, '', 'weekly')`, nil},
+		{`INSERT INTO pushed_notices (pane, session, time) VALUES ('%3', 'session-a', 1700000000)`, nil},
+		{`INSERT INTO pushed_alert_notices (alert, time) VALUES ('usage-warning', 1700000020)`, nil},
+		{`INSERT INTO notice_history
+			(pane, session, state, title, body, block, block_ref, time)
+			VALUES ('%3', 'session-a', 'waiting', 'Claude is waiting', 'the session has been idle', 'step-7',
+				'orrery-0123456/epic-one', 1700000000)`, nil},
 	} {
-		if err := s.PutNotice(ctx, row); err != nil {
-			t.Fatalf("PutNotice %d: %v", row.ID, err)
+		if _, err := s.db.DB.ExecContext(ctx, seed.stmt, seed.args...); err != nil {
+			t.Fatalf("seed %s: %v", seed.stmt, err)
 		}
 	}
-	for _, row := range []PushedRow{
-		{Pane: "%3", Session: "session-a", Time: 1_700_000_000},
-		{Alert: "usage-warning", Time: 1_700_000_020},
-	} {
-		if err := s.PutPushed(ctx, row); err != nil {
-			t.Fatalf("PutPushed %+v: %v", row, err)
+	// noticeRows reads the pending notices and the pushed rows, each table as rowsOf reads it.
+	noticeRows := func() map[string][][]any {
+		return map[string][][]any{
+			"pending_notices":      rowsOf(t, s.db.DB, "pending_notices"),
+			"pushed_notices":       rowsOf(t, s.db.DB, "pushed_notices"),
+			"pushed_alert_notices": rowsOf(t, s.db.DB, "pushed_alert_notices"),
 		}
 	}
-	if err := s.RecordNoticeHistory(ctx, NoticeHistoryRow{
-		Key: pane, State: "waiting", Title: "Claude is waiting", Body: "the session has been idle",
-		Block: "step-7", BlockRef: "orrery-0123456/epic-one", Time: 1_700_000_000,
-	}); err != nil {
-		t.Fatalf("RecordNoticeHistory: %v", err)
-	}
-	notices, err := s.Notices(ctx)
-	if err != nil {
-		t.Fatalf("Notices before Down: %v", err)
-	}
-	pushed, err := s.Pushed(ctx)
-	if err != nil {
-		t.Fatalf("Pushed before Down: %v", err)
-	}
+	before := noticeRows()
 
 	if _, err := provider.Down(ctx); err != nil {
 		t.Fatalf("Down of 00076: %v", err)
@@ -52,11 +52,8 @@ func TestNoticeHistoryMigration(t *testing.T) {
 	if tableNames(t, s)["notice_history"] {
 		t.Errorf("notice_history after Down: present, want absent")
 	}
-	if got, err := s.Notices(ctx); err != nil || !reflect.DeepEqual(got, notices) {
-		t.Errorf("pending notices after Down = %+v (err %v), want %+v", got, err, notices)
-	}
-	if got, err := s.Pushed(ctx); err != nil || !reflect.DeepEqual(got, pushed) {
-		t.Errorf("pushed rows after Down = %+v (err %v), want %+v", got, err, pushed)
+	if got := noticeRows(); !reflect.DeepEqual(got, before) {
+		t.Errorf("notice rows after Down = %v, want %v", got, before)
 	}
 
 	if _, err := provider.UpByOne(ctx); err != nil {
@@ -68,10 +65,7 @@ func TestNoticeHistoryMigration(t *testing.T) {
 	if got := rowsOf(t, s.db.DB, "notice_history"); len(got) != 0 {
 		t.Errorf("notice_history after Up = %v, want none", got)
 	}
-	if got, err := s.Notices(ctx); err != nil || !reflect.DeepEqual(got, notices) {
-		t.Errorf("pending notices after Up = %+v (err %v), want %+v", got, err, notices)
-	}
-	if got, err := s.Pushed(ctx); err != nil || !reflect.DeepEqual(got, pushed) {
-		t.Errorf("pushed rows after Up = %+v (err %v), want %+v", got, err, pushed)
+	if got := noticeRows(); !reflect.DeepEqual(got, before) {
+		t.Errorf("notice rows after Up = %v, want %v", got, before)
 	}
 }

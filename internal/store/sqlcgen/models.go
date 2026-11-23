@@ -782,6 +782,7 @@ type NoticeHistory struct {
 	BlockRef string
 	Time     int64
 	Read     bool
+	Host     string
 }
 
 type PaneSend struct {
@@ -807,6 +808,7 @@ type PendingNotice struct {
 	Silent      bool
 	Epic        string
 	LimitKey    string
+	Host        string
 }
 
 type PendingNoticeID struct {
@@ -871,6 +873,7 @@ type PushedNotice struct {
 	Pane    string
 	Session string
 	Time    int64
+	Host    string
 }
 
 type PutOffQuestion struct {

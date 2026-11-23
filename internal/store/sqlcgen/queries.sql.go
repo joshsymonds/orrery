@@ -623,10 +623,11 @@ func (q *Queries) CountSessionPrompts(ctx context.Context, sessionID string) (in
 
 const countUnreadNoticeHistory = `-- name: CountUnreadNoticeHistory :one
 SELECT COUNT(*) FROM notice_history
-WHERE pane = ? AND session = ? AND epic = ? AND limit_key = ? AND alert = ? AND read = 0
+WHERE host = ? AND pane = ? AND session = ? AND epic = ? AND limit_key = ? AND alert = ? AND read = 0
 `
 
 type CountUnreadNoticeHistoryParams struct {
+	Host     string
 	Pane     string
 	Session  string
 	Epic     string
@@ -636,6 +637,7 @@ type CountUnreadNoticeHistoryParams struct {
 
 func (q *Queries) CountUnreadNoticeHistory(ctx context.Context, arg CountUnreadNoticeHistoryParams) (int64, error) {
 	row := q.db.QueryRowContext(ctx, countUnreadNoticeHistory,
+		arg.Host,
 		arg.Pane,
 		arg.Session,
 		arg.Epic,
@@ -884,16 +886,17 @@ func (q *Queries) DeletePushedLimitNotice(ctx context.Context, limitKey string) 
 }
 
 const deletePushedNotice = `-- name: DeletePushedNotice :exec
-DELETE FROM pushed_notices WHERE pane = ? AND session = ?
+DELETE FROM pushed_notices WHERE host = ? AND pane = ? AND session = ?
 `
 
 type DeletePushedNoticeParams struct {
+	Host    string
 	Pane    string
 	Session string
 }
 
 func (q *Queries) DeletePushedNotice(ctx context.Context, arg DeletePushedNoticeParams) error {
-	_, err := q.db.ExecContext(ctx, deletePushedNotice, arg.Pane, arg.Session)
+	_, err := q.db.ExecContext(ctx, deletePushedNotice, arg.Host, arg.Pane, arg.Session)
 	return err
 }
 
@@ -1032,6 +1035,17 @@ DELETE FROM told_limit_steps WHERE limit_key = ?
 
 func (q *Queries) DeleteToldLimit(ctx context.Context, limitKey string) error {
 	_, err := q.db.ExecContext(ctx, deleteToldLimit, limitKey)
+	return err
+}
+
+const deleteUnhostedPaneDuplicatePushes = `-- name: DeleteUnhostedPaneDuplicatePushes :exec
+DELETE FROM pushed_notices WHERE host = '' AND pane <> ''
+    AND EXISTS (SELECT 1 FROM pushed_notices AS named WHERE named.host = ?1
+        AND named.pane = pushed_notices.pane AND named.session = pushed_notices.session)
+`
+
+func (q *Queries) DeleteUnhostedPaneDuplicatePushes(ctx context.Context, host string) error {
+	_, err := q.db.ExecContext(ctx, deleteUnhostedPaneDuplicatePushes, host)
 	return err
 }
 
@@ -4331,11 +4345,12 @@ func (q *Queries) InsertLLMAccount(ctx context.Context, arg InsertLLMAccountPara
 }
 
 const insertNoticeHistory = `-- name: InsertNoticeHistory :exec
-INSERT INTO notice_history (pane, session, epic, limit_key, alert, state, title, body, block, block_ref, time)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+INSERT INTO notice_history (host, pane, session, epic, limit_key, alert, state, title, body, block, block_ref, time)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `
 
 type InsertNoticeHistoryParams struct {
+	Host     string
 	Pane     string
 	Session  string
 	Epic     string
@@ -4351,6 +4366,7 @@ type InsertNoticeHistoryParams struct {
 
 func (q *Queries) InsertNoticeHistory(ctx context.Context, arg InsertNoticeHistoryParams) error {
 	_, err := q.db.ExecContext(ctx, insertNoticeHistory,
+		arg.Host,
 		arg.Pane,
 		arg.Session,
 		arg.Epic,
@@ -8725,7 +8741,7 @@ func (q *Queries) ListLimitedSteps(ctx context.Context) ([]Step, error) {
 }
 
 const listNoticeHistorySince = `-- name: ListNoticeHistorySince :many
-SELECT id, pane, session, epic, limit_key, alert, state, title, body, block, block_ref, time, read FROM notice_history WHERE time >= ? ORDER BY time DESC, id DESC
+SELECT id, pane, session, epic, limit_key, alert, state, title, body, block, block_ref, time, read, host FROM notice_history WHERE time >= ? ORDER BY time DESC, id DESC
 `
 
 func (q *Queries) ListNoticeHistorySince(ctx context.Context, time int64) ([]NoticeHistory, error) {
@@ -8751,6 +8767,7 @@ func (q *Queries) ListNoticeHistorySince(ctx context.Context, time int64) ([]Not
 			&i.BlockRef,
 			&i.Time,
 			&i.Read,
+			&i.Host,
 		); err != nil {
 			return nil, err
 		}
@@ -9410,7 +9427,7 @@ func (q *Queries) ListPendingCallerSteps(ctx context.Context, caller string) ([]
 }
 
 const listPendingNotices = `-- name: ListPendingNotices :many
-SELECT id, pane, session, state, time, phase, due, delay_served, watch_logged, source_kind, source, silent, epic, limit_key FROM pending_notices ORDER BY id
+SELECT id, pane, session, state, time, phase, due, delay_served, watch_logged, source_kind, source, silent, epic, limit_key, host FROM pending_notices ORDER BY id
 `
 
 func (q *Queries) ListPendingNotices(ctx context.Context) ([]PendingNotice, error) {
@@ -9437,6 +9454,7 @@ func (q *Queries) ListPendingNotices(ctx context.Context) ([]PendingNotice, erro
 			&i.Silent,
 			&i.Epic,
 			&i.LimitKey,
+			&i.Host,
 		); err != nil {
 			return nil, err
 		}
@@ -9679,7 +9697,7 @@ func (q *Queries) ListPushedLimitNotices(ctx context.Context) ([]PushedLimitNoti
 }
 
 const listPushedNotices = `-- name: ListPushedNotices :many
-SELECT pane, session, time FROM pushed_notices ORDER BY pane, session
+SELECT pane, session, time, host FROM pushed_notices ORDER BY host, pane, session
 `
 
 func (q *Queries) ListPushedNotices(ctx context.Context) ([]PushedNotice, error) {
@@ -9691,7 +9709,12 @@ func (q *Queries) ListPushedNotices(ctx context.Context) ([]PushedNotice, error)
 	var items []PushedNotice
 	for rows.Next() {
 		var i PushedNotice
-		if err := rows.Scan(&i.Pane, &i.Session, &i.Time); err != nil {
+		if err := rows.Scan(
+			&i.Pane,
+			&i.Session,
+			&i.Time,
+			&i.Host,
+		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -10630,11 +10653,12 @@ func (q *Queries) ListUnfinishedEngineText(ctx context.Context) ([]EngineText, e
 }
 
 const listUnreadNoticeHistoryKeys = `-- name: ListUnreadNoticeHistoryKeys :many
-SELECT DISTINCT pane, session, epic, limit_key, alert FROM notice_history
-WHERE read = 0 ORDER BY pane, session, epic, limit_key, alert
+SELECT DISTINCT host, pane, session, epic, limit_key, alert FROM notice_history
+WHERE read = 0 ORDER BY host, pane, session, epic, limit_key, alert
 `
 
 type ListUnreadNoticeHistoryKeysRow struct {
+	Host     string
 	Pane     string
 	Session  string
 	Epic     string
@@ -10652,6 +10676,7 @@ func (q *Queries) ListUnreadNoticeHistoryKeys(ctx context.Context) ([]ListUnread
 	for rows.Next() {
 		var i ListUnreadNoticeHistoryKeysRow
 		if err := rows.Scan(
+			&i.Host,
 			&i.Pane,
 			&i.Session,
 			&i.Epic,
@@ -10925,10 +10950,11 @@ func (q *Queries) MarkEpicTurnTold(ctx context.Context, arg MarkEpicTurnToldPara
 
 const markNoticeHistoryRead = `-- name: MarkNoticeHistoryRead :exec
 UPDATE notice_history SET read = 1
-WHERE pane = ? AND session = ? AND epic = ? AND limit_key = ? AND alert = ? AND time <= ?
+WHERE host = ? AND pane = ? AND session = ? AND epic = ? AND limit_key = ? AND alert = ? AND time <= ?
 `
 
 type MarkNoticeHistoryReadParams struct {
+	Host     string
 	Pane     string
 	Session  string
 	Epic     string
@@ -10939,6 +10965,7 @@ type MarkNoticeHistoryReadParams struct {
 
 func (q *Queries) MarkNoticeHistoryRead(ctx context.Context, arg MarkNoticeHistoryReadParams) error {
 	_, err := q.db.ExecContext(ctx, markNoticeHistoryRead,
+		arg.Host,
 		arg.Pane,
 		arg.Session,
 		arg.Epic,
@@ -11128,6 +11155,42 @@ type MoveEpicStoredBaseParams struct {
 func (q *Queries) MoveEpicStoredBase(ctx context.Context, arg MoveEpicStoredBaseParams) error {
 	_, err := q.db.ExecContext(ctx, moveEpicStoredBase, arg.StoredBase, arg.ID)
 	return err
+}
+
+const nameUnhostedPaneHistory = `-- name: NameUnhostedPaneHistory :execrows
+UPDATE notice_history SET host = ?1 WHERE pane <> '' AND host = ''
+`
+
+func (q *Queries) NameUnhostedPaneHistory(ctx context.Context, host string) (int64, error) {
+	result, err := q.db.ExecContext(ctx, nameUnhostedPaneHistory, host)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const nameUnhostedPaneNotices = `-- name: NameUnhostedPaneNotices :execrows
+UPDATE pending_notices SET host = ?1 WHERE pane <> '' AND host = ''
+`
+
+func (q *Queries) NameUnhostedPaneNotices(ctx context.Context, host string) (int64, error) {
+	result, err := q.db.ExecContext(ctx, nameUnhostedPaneNotices, host)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const nameUnhostedPanePushes = `-- name: NameUnhostedPanePushes :execrows
+UPDATE pushed_notices SET host = ?1 WHERE pane <> '' AND host = ''
+`
+
+func (q *Queries) NameUnhostedPanePushes(ctx context.Context, host string) (int64, error) {
+	result, err := q.db.ExecContext(ctx, nameUnhostedPanePushes, host)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const nameUnhostedSessions = `-- name: NameUnhostedSessions :execrows
@@ -12911,7 +12974,8 @@ const updateUnreadNoticeHistory = `-- name: UpdateUnreadNoticeHistory :execrows
 UPDATE notice_history SET state = ?, title = ?, body = ?, block = ?, block_ref = ?, time = ?
 WHERE id = (
     SELECT newest.id FROM notice_history AS newest
-    WHERE newest.pane = ? AND newest.session = ? AND newest.epic = ? AND newest.limit_key = ? AND newest.alert = ?
+    WHERE newest.host = ? AND newest.pane = ? AND newest.session = ? AND newest.epic = ? AND newest.limit_key = ?
+        AND newest.alert = ?
     ORDER BY newest.id DESC LIMIT 1
 ) AND read = 0
 `
@@ -12923,6 +12987,7 @@ type UpdateUnreadNoticeHistoryParams struct {
 	Block    string
 	BlockRef string
 	Time     int64
+	Host     string
 	Pane     string
 	Session  string
 	Epic     string
@@ -12938,6 +13003,7 @@ func (q *Queries) UpdateUnreadNoticeHistory(ctx context.Context, arg UpdateUnrea
 		arg.Block,
 		arg.BlockRef,
 		arg.Time,
+		arg.Host,
 		arg.Pane,
 		arg.Session,
 		arg.Epic,
@@ -13084,12 +13150,12 @@ func (q *Queries) UpsertEpicSession(ctx context.Context, arg UpsertEpicSessionPa
 }
 
 const upsertPendingNotice = `-- name: UpsertPendingNotice :exec
-INSERT INTO pending_notices (id, pane, session, state, time, phase, due, delay_served, watch_logged, source_kind, source, silent, epic, limit_key)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+INSERT INTO pending_notices (id, pane, session, state, time, phase, due, delay_served, watch_logged, source_kind, source, silent, epic, limit_key, host)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT (id) DO UPDATE SET pane = excluded.pane, session = excluded.session, state = excluded.state,
     time = excluded.time, phase = excluded.phase, due = excluded.due, delay_served = excluded.delay_served,
     watch_logged = excluded.watch_logged, source_kind = excluded.source_kind, source = excluded.source,
-    silent = excluded.silent, epic = excluded.epic, limit_key = excluded.limit_key
+    silent = excluded.silent, epic = excluded.epic, limit_key = excluded.limit_key, host = excluded.host
 `
 
 type UpsertPendingNoticeParams struct {
@@ -13107,6 +13173,7 @@ type UpsertPendingNoticeParams struct {
 	Silent      bool
 	Epic        string
 	LimitKey    string
+	Host        string
 }
 
 func (q *Queries) UpsertPendingNotice(ctx context.Context, arg UpsertPendingNoticeParams) error {
@@ -13125,6 +13192,7 @@ func (q *Queries) UpsertPendingNotice(ctx context.Context, arg UpsertPendingNoti
 		arg.Silent,
 		arg.Epic,
 		arg.LimitKey,
+		arg.Host,
 	)
 	return err
 }
@@ -13175,18 +13243,24 @@ func (q *Queries) UpsertPushedLimitNotice(ctx context.Context, arg UpsertPushedL
 }
 
 const upsertPushedNotice = `-- name: UpsertPushedNotice :exec
-INSERT INTO pushed_notices (pane, session, time) VALUES (?, ?, ?)
-ON CONFLICT (pane, session) DO UPDATE SET time = excluded.time
+INSERT INTO pushed_notices (host, pane, session, time) VALUES (?, ?, ?, ?)
+ON CONFLICT (host, pane, session) DO UPDATE SET time = excluded.time
 `
 
 type UpsertPushedNoticeParams struct {
+	Host    string
 	Pane    string
 	Session string
 	Time    int64
 }
 
 func (q *Queries) UpsertPushedNotice(ctx context.Context, arg UpsertPushedNoticeParams) error {
-	_, err := q.db.ExecContext(ctx, upsertPushedNotice, arg.Pane, arg.Session, arg.Time)
+	_, err := q.db.ExecContext(ctx, upsertPushedNotice,
+		arg.Host,
+		arg.Pane,
+		arg.Session,
+		arg.Time,
+	)
 	return err
 }
 

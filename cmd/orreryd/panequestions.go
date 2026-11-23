@@ -19,6 +19,7 @@ import (
 type paneQuestions struct {
 	server tmuxctl.Server
 	router enginehost.Router
+	orrery string // the controller's orrery name, the host of each pane's notice key
 }
 
 // questionServer returns the tmux server the pane questions read: the server opts names, or the default socket the
@@ -91,5 +92,5 @@ func (p *paneQuestions) PaneSeen(ctx context.Context, pane string, seen time.Tim
 	if p.router == nil {
 		return
 	}
-	p.router.Seen(ctx, notice.Key{Pane: pane}, seen.Unix())
+	p.router.Seen(ctx, notice.Key{Pane: pane, Host: p.orrery}, seen.Unix())
 }
