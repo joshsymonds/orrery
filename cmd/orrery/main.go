@@ -123,8 +123,9 @@ subcommands:
   epic pause ID                                 pause an epic, so the planner starts no turn for it
   epic resume ID                                clear an epic's pause
   epic stop ID                                  pause an epic and stop the step of its running turn; an epic
-                                                holding its repository's release slot frees the slot and stops
-                                                its open release step instead, and is not paused
+                                                with no running turn, whose release is releasing or stopped,
+                                                records the owner's stop of the release, so no further step
+                                                starts, and is not paused
   epic steer ID                                 move an epic's steering to this conversation, which takes it over
   epic kick ID TEXT                             record TEXT as your decision on an idle epic and wake its planner
                                                 with it at the epic's next plan run; refused for a paused, parked
@@ -157,10 +158,6 @@ subcommands:
   hold [--off] MEMBER                           place an owner hold on MEMBER through orreryd, or free it with --off
   step resume ID                                resume a step a usage limit holds, through orreryd
   step status ID                                print a step as one line of JSON, through orreryd
-  release-slot hold REPO --holder LABEL --limit DURATION [--wait]
-                                                hold REPO's slot for LABEL up to DURATION, at most 2h; --wait waits
-  release-slot give REPO --holder LABEL         give back LABEL's hold on REPO's release slot
-  release-slot show REPO                        print who holds REPO's release slot, or that it is free
   evidence run EPIC ITEM REVISION PHASE         run an item's evidence at a revision for one phase, red or green
   evidence list EPIC                            list an epic's evidence runs and the artifacts each kept
   evidence get RUN [NAME]                       write an artifact's bytes to stdout, or the run's log without NAME
@@ -298,7 +295,7 @@ func dispatch(ctx context.Context, opts globals, rest []string, stdin *os.File, 
 		return contractOrCron(ctx, opts, name, args, stdout, getenv)
 	case "run", "gate", "evidence":
 		return orreryCommand(ctx, opts, name, args, stdin, stdout, stderr, getenv)
-	case "hold", "step", "release-slot":
+	case "hold", "step":
 		return runOwnerAction(ctx, opts, name, args, stdout, stderr, getenv)
 	case "holder":
 		return runHolder(ctx, args, stderr, getenv)
@@ -331,14 +328,10 @@ func contractOrCron(ctx context.Context, opts globals, name string, args []strin
 	return runContract(ctx, opts, args, stdout, getenv)
 }
 
-// runOwnerAction runs `orrery hold`, `orrery step` or `orrery release-slot`, the owner's commands that orreryd answers
-// over the session socket. hold and step retry a call orreryd answers Unavailable, and release-slot makes each call
-// once. Only step and release-slot write to stdout.
+// runOwnerAction runs `orrery hold` or `orrery step`, the owner's commands that orreryd answers over the session socket.
+// Both retry a call orreryd answers Unavailable. Only step writes to stdout.
 func runOwnerAction(ctx context.Context, opts globals, name string, args []string, stdout, stderr io.Writer,
 	getenv func(string) string) error {
-	if name == "release-slot" {
-		return runReleaseSlot(ctx, opts, args, stdout, stderr, getenv)
-	}
 	if name == "step" {
 		return runStep(ctx, opts, args, stdout, stderr, getenv)
 	}

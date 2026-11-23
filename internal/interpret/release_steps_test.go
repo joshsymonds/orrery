@@ -347,8 +347,9 @@ func TestReleaseContinueWhenListedCommitsDifferFromAdded(t *testing.T) {
 }
 
 // TestReleaseStepFailureStopsReleaseNamingIt: a release step whose end is not done, or whose HEAD does not descend from
-// its start, is recorded as failed with the reason named. The release stops there and the next
-// step does not start.
+// its start, is recorded as failed with the reason named. While origin's main is in the first step's start, the
+// release stops there and the next step does not start. A first step that fails after origin's main moved past its
+// start is not recorded so, as TestReleaseMainMoved shows.
 func TestReleaseStepFailureStopsReleaseNamingIt(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
@@ -404,8 +405,8 @@ func TestReleaseStepFailureStopsReleaseNamingIt(t *testing.T) {
 }
 
 // TestReleaseStepWorktreeGoneRecordsFailure: a release step whose worktree is gone when its end is recorded is recorded
-// failed and the release stops there. A step that ended done names the worktree as gone, since its HEAD cannot be
-// read. A step that did not end done is named by its end, which needs no HEAD.
+// failed and, while origin's main is in its start, the release stops there. A step that ended done names the worktree
+// as gone, since its HEAD cannot be read. A step that did not end done is named by its end, which needs no HEAD.
 func TestReleaseStepWorktreeGoneRecordsFailure(t *testing.T) {
 	t.Parallel()
 	cases := []struct {

@@ -1287,42 +1287,6 @@ func (q *Queries) FailIntegrateRound(ctx context.Context, arg FailIntegrateRound
 	return result.RowsAffected()
 }
 
-const freeEpicReleaseSlot = `-- name: FreeEpicReleaseSlot :exec
-DELETE FROM epic_release_slots WHERE epic = ? AND holder_kind = 'epic'
-`
-
-func (q *Queries) FreeEpicReleaseSlot(ctx context.Context, epic string) error {
-	_, err := q.db.ExecContext(ctx, freeEpicReleaseSlot, epic)
-	return err
-}
-
-const freeExpiredReleaseSlots = `-- name: FreeExpiredReleaseSlots :many
-DELETE FROM epic_release_slots WHERE holder_kind = 'outside' AND deadline <= ? RETURNING repository
-`
-
-func (q *Queries) FreeExpiredReleaseSlots(ctx context.Context, deadline int64) ([]string, error) {
-	rows, err := q.db.QueryContext(ctx, freeExpiredReleaseSlots, deadline)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []string
-	for rows.Next() {
-		var repository string
-		if err := rows.Scan(&repository); err != nil {
-			return nil, err
-		}
-		items = append(items, repository)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
 const freezeEpicNodeRun = `-- name: FreezeEpicNodeRun :execrows
 UPDATE epic_node_runs SET revision = ?
 WHERE epic = ? AND path = ? AND attempt = ? AND state = 'running' AND revision = ''
@@ -1877,23 +1841,6 @@ func (q *Queries) GetEpicQuestion(ctx context.Context, arg GetEpicQuestionParams
 		&i.EscalationMaker,
 		&i.EscalationSession,
 		&i.EscalationTold,
-	)
-	return i, err
-}
-
-const getEpicReleaseSlotHolder = `-- name: GetEpicReleaseSlotHolder :one
-SELECT repository, epic, holder_kind, label, deadline FROM epic_release_slots WHERE repository = ?
-`
-
-func (q *Queries) GetEpicReleaseSlotHolder(ctx context.Context, repository string) (EpicReleaseSlot, error) {
-	row := q.db.QueryRowContext(ctx, getEpicReleaseSlotHolder, repository)
-	var i EpicReleaseSlot
-	err := row.Scan(
-		&i.Repository,
-		&i.Epic,
-		&i.HolderKind,
-		&i.Label,
-		&i.Deadline,
 	)
 	return i, err
 }
@@ -2563,23 +2510,6 @@ func (q *Queries) GetUntitledEngineSession(ctx context.Context, id string) (GetU
 	return i, err
 }
 
-const giveOutsideReleaseSlot = `-- name: GiveOutsideReleaseSlot :execrows
-DELETE FROM epic_release_slots WHERE repository = ? AND holder_kind = 'outside' AND label = ?
-`
-
-type GiveOutsideReleaseSlotParams struct {
-	Repository string
-	Label      string
-}
-
-func (q *Queries) GiveOutsideReleaseSlot(ctx context.Context, arg GiveOutsideReleaseSlotParams) (int64, error) {
-	result, err := q.db.ExecContext(ctx, giveOutsideReleaseSlot, arg.Repository, arg.Label)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected()
-}
-
 const grantEpicParkedLoops = `-- name: GrantEpicParkedLoops :exec
 UPDATE epic_node_runs SET state = 'running', granted = granted + 1
 WHERE epic = ? AND kind = 'loop' AND state = 'parked'
@@ -2587,23 +2517,6 @@ WHERE epic = ? AND kind = 'loop' AND state = 'parked'
 
 func (q *Queries) GrantEpicParkedLoops(ctx context.Context, epic string) error {
 	_, err := q.db.ExecContext(ctx, grantEpicParkedLoops, epic)
-	return err
-}
-
-const holdOutsideReleaseSlot = `-- name: HoldOutsideReleaseSlot :exec
-INSERT INTO epic_release_slots (repository, epic, holder_kind, label, deadline) VALUES (?, '', 'outside', ?, ?)
-ON CONFLICT (repository) DO UPDATE SET label = excluded.label, deadline = excluded.deadline
-WHERE epic_release_slots.holder_kind = 'outside' AND epic_release_slots.label = excluded.label
-`
-
-type HoldOutsideReleaseSlotParams struct {
-	Repository string
-	Label      string
-	Deadline   int64
-}
-
-func (q *Queries) HoldOutsideReleaseSlot(ctx context.Context, arg HoldOutsideReleaseSlotParams) error {
-	_, err := q.db.ExecContext(ctx, holdOutsideReleaseSlot, arg.Repository, arg.Label, arg.Deadline)
 	return err
 }
 
@@ -3525,21 +3438,6 @@ func (q *Queries) InsertEpicReleaseRun(ctx context.Context, arg InsertEpicReleas
 		arg.Reason,
 		arg.At,
 	)
-	return err
-}
-
-const insertEpicReleaseSlot = `-- name: InsertEpicReleaseSlot :exec
-INSERT INTO epic_release_slots (repository, epic, holder_kind) VALUES (?, ?, 'epic')
-ON CONFLICT (repository) DO NOTHING
-`
-
-type InsertEpicReleaseSlotParams struct {
-	Repository string
-	Epic       string
-}
-
-func (q *Queries) InsertEpicReleaseSlot(ctx context.Context, arg InsertEpicReleaseSlotParams) error {
-	_, err := q.db.ExecContext(ctx, insertEpicReleaseSlot, arg.Repository, arg.Epic)
 	return err
 }
 
@@ -11275,17 +11173,6 @@ type NextEpicTaskGenerationParams struct {
 func (q *Queries) NextEpicTaskGeneration(ctx context.Context, arg NextEpicTaskGenerationParams) error {
 	_, err := q.db.ExecContext(ctx, nextEpicTaskGeneration, arg.Epic, arg.Seq)
 	return err
-}
-
-const nextOutsideReleaseSlotDeadline = `-- name: NextOutsideReleaseSlotDeadline :one
-SELECT deadline FROM epic_release_slots WHERE holder_kind = 'outside' ORDER BY deadline LIMIT 1
-`
-
-func (q *Queries) NextOutsideReleaseSlotDeadline(ctx context.Context) (int64, error) {
-	row := q.db.QueryRowContext(ctx, nextOutsideReleaseSlotDeadline)
-	var deadline int64
-	err := row.Scan(&deadline)
-	return deadline, err
 }
 
 const oldestEventSeq = `-- name: OldestEventSeq :one

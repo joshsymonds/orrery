@@ -8,8 +8,8 @@ import (
 	"testing"
 )
 
-// startRelease creates claimEpic clean with the release steps given, takes its repository's release slot and starts its
-// release node run, so the release runs and holds the slot.
+// startRelease creates claimEpic clean with the release steps given, starts its release and starts its release node
+// run, so the release runs.
 func startRelease(t *testing.T, s *Store, steps []EpicReleaseStep) {
 	t.Helper()
 	ctx := context.Background()
@@ -17,8 +17,8 @@ func startRelease(t *testing.T, s *Store, steps []EpicReleaseStep) {
 	row.Phase = PhaseClean
 	row.ReleaseSteps = steps
 	createEpic(t, s, row)
-	if _, err := s.TakeReleaseSlot(ctx, claimEpic, claimedAt()); err != nil {
-		t.Fatalf("TakeReleaseSlot: %v", err)
+	if err := s.StartRelease(ctx, claimEpic, claimedAt()); err != nil {
+		t.Fatalf("StartRelease: %v", err)
 	}
 	runs := []NodeRun{{Path: "release", ID: "id-release", Node: "release", Kind: "release", Attempt: 1}}
 	if err := s.StartNodes(ctx, claimEpic, runs, nil, claimedAt()); err != nil {
@@ -45,8 +45,8 @@ func releaseUndoNoneStops(t *testing.T, s *Store, park string) {
 	}
 }
 
-// releaseOwnerStops stops the release of claimEpic after the epic no longer holds its release slot, as an owner stop
-// leaves it. ClaimTurn then claims no turn for the epic, so the park wakes no planner turn.
+// releaseOwnerStops stops the release of claimEpic as an owner stop leaves it. ClaimTurn then claims no turn for the
+// epic, so the park wakes no planner turn.
 func releaseOwnerStops(t *testing.T, s *Store, park string) {
 	t.Helper()
 	ctx := context.Background()
@@ -54,8 +54,8 @@ func releaseOwnerStops(t *testing.T, s *Store, park string) {
 		{Step: "push tag", Target: "origin", Undo: "delete tag"},
 		{Step: "publish", Target: "registry", Undo: "none"},
 	})
-	if err := s.FreeReleaseSlot(ctx, claimEpic); err != nil {
-		t.Fatalf("FreeReleaseSlot: %v", err)
+	if _, err := s.StopEpic(ctx, claimEpic, Maker{By: MakerOwner}, claimedAt()); err != nil {
+		t.Fatalf("StopEpic: %v", err)
 	}
 	if err := s.StopRelease(ctx, claimEpic, "release", 1, park, claimedAt()); err != nil {
 		t.Fatalf("StopRelease: %v", err)

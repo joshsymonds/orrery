@@ -701,14 +701,6 @@ CREATE TABLE contract_states (
     at INTEGER NOT NULL, base TEXT NOT NULL DEFAULT '',
     PRIMARY KEY (contract, seq)
 );
-CREATE TABLE epic_release_slots (
-    repository TEXT PRIMARY KEY,
-    epic TEXT NOT NULL DEFAULT '',
-    holder_kind TEXT NOT NULL DEFAULT 'epic' CHECK (holder_kind IN ('epic', 'outside')),
-    label TEXT NOT NULL DEFAULT '',
-    deadline INTEGER NOT NULL DEFAULT 0
-);
-CREATE UNIQUE INDEX epic_release_slots_epic ON epic_release_slots (epic) WHERE holder_kind = 'epic';
 CREATE TABLE epic_amendments (
     epic TEXT NOT NULL,
     seq INTEGER NOT NULL,
@@ -1037,4 +1029,5 @@ INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (95,94,
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (96,95,1);
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (97,96,1);
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (98,97,1);
+INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (99,98,1);
 INSERT INTO "pending_notice_ids" ("id", "high") VALUES (1,0);

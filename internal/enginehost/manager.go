@@ -220,10 +220,14 @@ type liveSession struct {
 	requests       map[string]struct{}
 	background     bool
 	awaited        bool
-	returned       bool
-	idleSince      time.Time
-	idleTimer      func() bool
-	idleStopped    bool
+	// bashCalls holds the top-level Bash tool calls of the running turn, by tool use id, and commandTasks the background
+	// tasks such a call started, by task id: a command run with run_in_background, which a step waits for (see awaitsCommand).
+	bashCalls    map[string]struct{}
+	commandTasks map[string]struct{}
+	returned     bool
+	idleSince    time.Time
+	idleTimer    func() bool
+	idleStopped  bool
 	// order is held by the pump while it records a line, by Answer from its send until it has queued the working state, so
 	// every op an answer causes is queued after that state, and by deliver while it decides and writes a message, so the
 	// pump's turn ends and those decisions never interleave.
@@ -2269,13 +2273,20 @@ func (m *Manager) lineOps(
 }
 
 // storeLine stores the ops of one line of live in one write, with the line's consumed offset when it holds one, and reports
-// whether the write succeeded. A line that holds a turn's end waits until the store has the ops, and the session's
-// replay-from is then set to the line's end.
+// whether the write succeeded. A line that lists the background tasks stores whether live awaits one as noteEvent judged
+// it, which knows the commands a Bash call started (see awaitsCommand). A line that holds a turn's end waits until the
+// store has the ops, and the session's replay-from is then set to the line's end.
 func (m *Manager) storeLine(ctx context.Context, live *liveSession, line session.Line, ops []store.EngineOp) bool {
 	ended := false
 	if !holdsExit(line) {
 		var consumed store.EngineConsumed
 		consumed, ended = consumedOf(live.id, line)
+		if consumed.Awaited != nil {
+			m.mu.Lock()
+			awaited := live.awaited
+			m.mu.Unlock()
+			consumed.Awaited = &awaited
+		}
 		ops = append(ops, consumed)
 	}
 	written := true
@@ -2451,6 +2462,9 @@ func (m *Manager) noteEvent(live *liveSession, event session.Event, pumping bool
 		live.turning = true
 		opened = true
 	}
+	if live.noteTaskEvent(event) {
+		return noted{record: true, opened: opened}
+	}
 	switch ev := event.(type) {
 	case session.Started:
 		live.turning = true
@@ -2462,15 +2476,15 @@ func (m *Manager) noteEvent(live *liveSession, event session.Event, pumping bool
 		_, open := live.requests[ev.RequestID]
 		delete(live.requests, ev.RequestID)
 		m.wakeIfNoneOpen(live, open)
-	case session.BackgroundTasks:
-		live.background = len(ev.Tasks) > 0
-		live.awaited = awaitsTask(ev.Tasks)
 	case session.TurnEnded:
+		clear(live.bashCalls)
 		return m.noteTurnEndedLocked(live, ev, pumping)
 	case session.Exited:
 		live.turning = false
 		live.ownerInterrupt = false
 		clear(live.requests)
+		clear(live.bashCalls)
+		clear(live.commandTasks)
 		live.background = false
 		live.awaited = false
 		if live.closing || live.idleStopped || live.retired {

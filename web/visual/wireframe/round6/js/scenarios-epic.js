@@ -45,7 +45,7 @@
 
   epic('epic-release-failed', 'A release that stopped at a step with no undo', `Only you can say the failed step is safe to pass. ${NEEDS_SERVER}`, E.releaseFailed);
 
-  epic('epic-slot', 'Waiting its turn to release', 'One epic releases at a time in a repository. Waiting is grey and says who holds the slot.', E.slot);
+  epic('epic-slot', 'Releasing beside another epic', 'Every clean epic releases at once, so this one does not wait for orbit-labels, which is releasing in the same repository. The summary says so, and nothing is asked.', E.slot);
 
   epic('epic-shipped', 'A released epic', 'An ended epic is the same page with the Report filled in, opened at the Report.', E.shipped);
 

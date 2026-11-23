@@ -178,8 +178,7 @@ func passReleaseUntil(t *testing.T, daemon *orreryProcess, ack, what string, don
 
 // TestReleaseRunsStepsThroughRealOrreryd proves that orreryd runs a clean epic's release through real steps. Its release
 // step is an unowned writing step in a worktree under the state directory. The store holds the step's end and its one
-// commit before the judge starts, the judge's end is done, and the epic then ends released with one tell and frees its
-// slot.
+// commit before the judge starts, the judge's end is done, and the epic then ends released with one tell.
 func TestReleaseRunsStepsThroughRealOrreryd(t *testing.T) {
 	r := newReleaseRig(t)
 	seedReleaseEpic(t, r, store.EpicReleaseStep{Step: releaseStepText, Target: "main", Undo: "none"})
@@ -247,10 +246,9 @@ func TestReleaseRunsStepsThroughRealOrreryd(t *testing.T) {
 		t.Fatalf("judge run %+v, want ended done and passed", judged)
 	}
 
-	// orreryd's Ending is the store's EndEpic: the passed judge ends the epic released with one tell that names no gap,
-	// and the next pass frees the slot it held.
-	passReleaseUntil(t, daemon, ack, "the released epic to free its slot", func() bool {
-		return r.releaseEpic(t).GetReleaseSlot() == ""
+	// orreryd's Ending is the store's EndEpic: the passed judge ends the epic released with one tell that names no gap.
+	passReleaseUntil(t, daemon, ack, "the judge's ending to release the epic", func() bool {
+		return r.releaseEpic(t).GetPhase() == releasedPhase
 	})
 	released := r.releaseEpic(t)
 	if released.GetPhase() != releasedPhase {

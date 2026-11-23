@@ -64,8 +64,8 @@ func (r *Runner) prepareRelease(ctx context.Context, epic store.EpicRow, act Act
 }
 
 // decideRelease works out the Result of a release run's prepare. The candidate is the epic's branch tip, or, when
-// origin's commit is not an ancestor of the tip, the merge of origin's commit into the tip. A merge that conflicts has
-// no candidate: its Result names origin's commit, the branch of origin it was fetched from and the conflicted paths. A
+// origin's commit is not an ancestor of the tip, the merge of origin's commit into the tip. A merge that merges cleanly
+// names origin's commit as its Origin too. A merge that conflicts has no candidate: its Result names origin's commit, the branch of origin it was fetched from and the conflicted paths. A
 // merge that conflicts in no path git names is an error. Nothing is checked out, and the only ref written is the
 // release's own ref for origin and the run's pin.
 func (r *Runner) decideRelease(
@@ -108,7 +108,7 @@ func (r *Runner) decideRelease(
 	if err != nil {
 		return kinds.ReleaseResult{}, err
 	}
-	return kinds.ReleaseResult{Behind: true, Candidate: merged, Tip: tip}, nil
+	return kinds.ReleaseResult{Behind: true, Candidate: merged, Tip: tip, Origin: origin}, nil
 }
 
 // fetchOrigin fetches origin's default branch into ref of epic's repository on host, and returns the branch and the

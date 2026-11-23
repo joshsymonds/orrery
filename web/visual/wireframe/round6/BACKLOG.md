@@ -2,7 +2,7 @@
 
 Round 6 (`DECISIONS.md`, `flows.md`, `../../system/SYSTEM.md`) is built as two tracks of epics, one epic at a time in
 each. The server track changes what Orrery does; the frontend track changes what the clients draw. The tracks own
-different files and run side by side; only releases queue for the repository's slot.
+different files and run side by side.
 
 Every decision in `DECISIONS.md` and every row of its "Needs the server" table is assigned below to exactly one epic, or
 marked done or not planned. Each epic is judged against the round-6 scenarios it names.
@@ -190,5 +190,4 @@ track, in this order, each after the epics it names; `~/.gambit/orrery-0668c87/w
 | F4 | | `orrery-right-rail`, `orrery-epic-record`, `orrery-epic-steering`, `orrery-task-record`, `orrery-epic-ending`, `orrery-contract-panel` |
 | F6 | | `orrery-android-only`, `orrery-android-touch` (quick keys, the keyboard fold and the toast on Android) |
 
-Not drawn by any epic: `epic-slot` (public Get does not serve the release-slot holder) and Drop on a park (no public
-call).
+Not drawn by any epic: Drop on a park (no public call).

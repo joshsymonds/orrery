@@ -575,20 +575,24 @@ func TestReleaseIntegratorChecksFailedStopsWithConflict(t *testing.T) {
 }
 
 // TestReleaseCleanMergeStartsNoIntegrator: a merge of origin's commit that does not conflict is the candidate as it
-// always was: its Result names no conflict, it is held at the Done gate, and no release integrator starts.
+// always was: its Result names no conflict and no branch, but the origin commit it merged, it is held at the Done gate,
+// and no release integrator starts.
 func TestReleaseCleanMergeStartsNoIntegrator(t *testing.T) {
 	t.Parallel()
 	w := newMergeWorld(t)
 	origin := mergeRemote(t, w.repo)
 	nodeEpicBranch(t, w.repo, "epic.txt")
-	mergeOriginCommit(t, origin, "origin.txt")
+	originHead := mergeOriginCommit(t, origin, "origin.txt")
 	w.pass()
 
 	run := runAt(t, w.s, releaseNodePath)
-	for _, key := range []string{`"conflicts"`, `"origin"`, `"branch"`} {
+	for _, key := range []string{`"conflicts"`, `"branch"`} {
 		if strings.Contains(run.Result, key) {
 			t.Errorf("Result = %s, want no %s key for a clean merge", run.Result, key)
 		}
+	}
+	if got := decodeMerge(t, run.Result); got.Origin != originHead {
+		t.Errorf("Result origin = %q, want origin's commit %q", got.Origin, originHead)
 	}
 	if run.Revision == "" {
 		t.Errorf("revision is empty, want the clean merge")
