@@ -2025,6 +2025,25 @@ LEFT JOIN epics ON epics.id = edges.after
 WHERE edges.contract = ?
 ORDER BY edges.after;
 
+-- name: ListPredecessorStates :many
+SELECT edges.after AS contract,
+       CAST(COALESCE((
+           SELECT newest.state FROM contract_states AS newest
+           WHERE newest.contract = edges.after ORDER BY newest.seq DESC LIMIT 1
+       ), '') AS TEXT) AS state,
+       CAST(COALESCE(after_epics.phase, '') AS TEXT) AS epic_phase
+FROM design_edges AS edges
+LEFT JOIN epics AS after_epics ON after_epics.id = edges.after
+WHERE edges.contract = ?
+ORDER BY edges.after;
+
+-- name: ListHeldEpics :many
+SELECT id, repository, host FROM epics WHERE phase = 'held' ORDER BY created, id;
+
+-- name: StartHeldEpic :execrows
+UPDATE epics SET base = sqlc.arg(base), stored_base = sqlc.arg(base), phase = 'accepted', phase_at = sqlc.arg(at)
+WHERE id = sqlc.arg(id) AND phase = 'held';
+
 -- name: GetLoneContract :one
 SELECT contracts.id, contracts.created,
        newest.repository, newest.title,
