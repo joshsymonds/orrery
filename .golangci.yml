@@ -408,6 +408,11 @@ linters:
         - charm.land/bubbletea/v2.Model
         # paneregistry.SystemProc returns the Proc interface, the process view that tests substitute, by its contract.
         - github.com/joshsymonds/orrery/internal/paneregistry.Proc
+        # holderhost.Host's OpenGone returns the Gone interface, the gone session's view that a holder on any host
+        # satisfies, by the Host contract.
+        - github.com/joshsymonds/orrery/internal/holderhost.Gone
+        # node.Tailnet returns the WhoIs interface, which the tailscaled client satisfies, by the node package's contract.
+        - github.com/joshsymonds/orrery/internal/node.WhoIs
 
     wrapcheck:
       ignore-sigs:
