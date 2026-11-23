@@ -17,7 +17,7 @@ import {
 } from "./fixtures/accounts";
 import type { AccountsAddRequest } from "./gen/orrery/v1/accounts_pb";
 import { mockTimers } from "./testclock";
-import { installTestDom, removeTestDom, teardownOnce } from "./testdom";
+import { assertNone, installTestDom, removeTestDom, teardownOnce } from "./testdom";
 import { turn, until } from "./testwait";
 
 // Page is the accounts page drawn over a fake of the accounts and routes. fake is the fake, container the DOM the page draws
@@ -191,7 +191,7 @@ function addsSince(fake: AccountsServe, start: number): AccountsAddRequest[] {
 
 test("AccountsWebAdd: Add account in the page head opens the form under the Accounts table, after the table", async (t) => {
   await withPage(t, seed, async ({ container }) => {
-    assert.equal(formOf(container), null, "the form is drawn before Add account is pressed");
+    assertNone(formOf(container), "the form is drawn before Add account is pressed");
     await press(headAddButton(container));
     const form = openedForm(container);
     assert.equal(form.previousElementSibling?.classList.contains("acc-wrap"), true, "the form does not follow the table");
@@ -316,7 +316,7 @@ test("AccountsWebAdd: Cancel closes the form, empties every field and sends noth
     await chooseIn(form, "Plan", "Claude Pro");
     const before = fake.calls.length;
     await press(buttonIn(form, "Cancel"));
-    assert.equal(formOf(container), null, "the form is still drawn after Cancel");
+    assertNone(formOf(container), "the form is still drawn after Cancel");
     assert.deepEqual(methodsSince(fake, before), []);
     await press(headAddButton(container));
     const reopened = openedForm(container);
@@ -344,7 +344,7 @@ test("AccountsWebAdd: an Add refused for an invented API key draws Not added wit
     const token = controlIn<HTMLInputElement>(kept, "Token", "input");
     assert.equal(token.value, apiKeyToken);
     assert.equal(token.getAttribute("type"), "password", "the token is drawn masked");
-    assert.notEqual(token.closest(".field.error"), null, "the refused token's field is not drawn as refused");
+    assert.ok(token.closest(".field.error") !== null, "the refused token's field is not drawn as refused");
     assert.deepEqual(methodsSince(fake, before), ["Accounts.Add"], "a refused Add re-reads nothing");
     assert.deepEqual(idsOf(container), ["max-1", "max-2", "max-3", "pro-1"]);
   });
@@ -377,7 +377,7 @@ test("AccountsWebAdd: an Add with no answer closes the form, empties its token, 
       () => addNoteOf(container) === couldNotTell && methodsSince(fake, before).length === 3,
       "the could-not-tell note and the re-read",
     );
-    assert.equal(formOf(container), null, "the form is still drawn after the write had no answer");
+    assertNone(formOf(container), "the form is still drawn after the write had no answer");
     assert.deepEqual(methodsSince(fake, before).sort(), ["Accounts.Add", "Accounts.List", "Routes.Get"]);
     assert.deepEqual(idsOf(container), ["max-1", "max-2", "max-3", "pro-1"]);
     await press(headAddButton(container));
