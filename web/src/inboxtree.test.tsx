@@ -13,7 +13,7 @@ import { type Design, DesignSchema } from "./gen/orrery/v1/designs_pb";
 import { type Epic, EpicSchema } from "./gen/orrery/v1/epics_pb";
 import type { Row } from "./rows";
 import { styleDeclaration } from "./teststyle";
-import { assertNone, installTestDom, removeTestDom, teardownOnce } from "./testdom";
+import { assertNone, assertSame, installTestDom, removeTestDom, teardownOnce } from "./testdom";
 
 // Each test's name carries the prefix InboxTree: a design is a tab and a well in its conversation's block, and the tree's
 // containers draw no line to their children (round 8, D13, D18).
@@ -210,7 +210,7 @@ test("InboxTree the block begins with the tab holding the design's mark and bold
   withApp(t.signal, ({ container }) => {
     const tab = tabOf(container, "design-a");
     const block = one(container, ".design-block");
-    assert.equal(block.firstElementChild, tab, "the block begins with the tab");
+    assertSame(block.firstElementChild, tab, "the block begins with the tab");
     assert.ok(tab.querySelector("svg.design-mark") !== null, "the tab holds the design's mark");
     assert.equal(one(tab, ".design-name").textContent, "Tide alerts", "the tab holds the design's name");
     assert.equal(styleDeclaration(".inbox .design-tab .design-name", "font-weight"), "var(--o-font-weight-bold)", "the name is bold");
@@ -235,7 +235,7 @@ test("InboxTree a designless epic is a row of the conversation's block outside a
     const convo = one(container, ".convo-block");
     const alpha = one(container, '[data-key="epic:repo-a/alpha"]');
     assert.equal(alpha.parentElement?.classList.contains("steers"), true, "the epic is a row under the steers");
-    assert.equal(alpha.closest(".convo-block"), convo, "the epic is in the conversation's block");
+    assertSame(alpha.closest(".convo-block"), convo, "the epic is in the conversation's block");
     assertNone(alpha.closest(".design-block"), "the epic is in no design's block");
   }));
 
