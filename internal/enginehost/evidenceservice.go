@@ -165,7 +165,7 @@ func (s *evidenceService) CaptureEvidence(
 
 // AttachEvidence refuses as unavailable when there is no attacher. Otherwise it attaches the capture to the briefs for
 // the caller session, the session in the Orrery-Session header, and returns the runs it attached it to. A refused
-// request is InvalidArgument with its reason.
+// request is FailedPrecondition with its reason.
 func (s *evidenceService) AttachEvidence(
 	ctx context.Context,
 	req *connect.Request[v1.AttachEvidenceRequest],
@@ -178,7 +178,7 @@ func (s *evidenceService) AttachEvidence(
 	)
 	switch {
 	case errors.Is(err, ErrAttachRefused):
-		return nil, evidenceServiceRefuse(connect.CodeInvalidArgument, err.Error())
+		return nil, evidenceServiceRefuse(connect.CodeFailedPrecondition, err.Error())
 	case err != nil:
 		return nil, evidenceServiceStoreError(err)
 	}

@@ -1119,6 +1119,10 @@ func (h *sessionHost) serveConfig(
 	if h.captures != nil {
 		cfg.Captures = h.captures
 	}
+	// A nil *Evidence in the interface would not refuse AttachEvidence as unavailable, so it stays unset without a store.
+	if h.evidence != nil {
+		cfg.Attacher = h.evidence
+	}
 	return cfg
 }
 
@@ -1336,6 +1340,7 @@ func (h *sessionHost) startEvidence(
 		GateStateDir: filepath.Join(stateDir, "gates"),
 		GateScope:    opts.holderScope,
 		Logger:       logger,
+		Briefs:       st,
 		Gatherers:    h.gatherers,
 	})
 	if err := h.evidence.Resume(ctx); err != nil {
