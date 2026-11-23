@@ -1176,7 +1176,8 @@ func (m *Manager) respawnStep(ctx context.Context, id string) (*liveSession, err
 	if err = checkDir(row.Dir); err != nil {
 		return nil, errors.Join(err, m.writeFailed(ctx, id, err))
 	}
-	if err = m.resolveStepAgent(ctx, StepSession{ID: id, Dir: row.Dir, Agent: step.Agent, Agents: step.Agents}); err != nil {
+	session := StepSession{ID: id, Dir: row.Dir, Agent: step.Agent, Agents: step.Agents}
+	if err = m.resolveStepAgent(ctx, session); err != nil {
 		return nil, errors.Join(err, m.writeFailed(ctx, id, err))
 	}
 	m.mu.Lock()
