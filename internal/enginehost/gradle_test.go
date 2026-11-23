@@ -68,7 +68,7 @@ func gradleEnviron(t *testing.T, stateDir string, daemonless bool) []string {
 	return environ
 }
 
-// newGradleManager returns a manager with two slots whose sessions run their holders under the test's fake scope with
+// newGradleManager returns a manager whose sessions run their holders under the test's fake scope with
 // state dir root, in environ.
 func newGradleManager(t *testing.T, root string, environ []string) (*Manager, string) {
 	t.Helper()
@@ -83,7 +83,6 @@ func newGradleManager(t *testing.T, root string, environ []string) (*Manager, st
 		Shell:       sh,
 		Claude:      fakeClaudePath(t),
 		Environ:     environ,
-		Cap:         2,
 		Writer:      writer,
 		Now:         fixedClock,
 		Store:       s,

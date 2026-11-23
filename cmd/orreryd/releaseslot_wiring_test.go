@@ -75,8 +75,6 @@ func slotOutsideWiringStart(
 	t.Helper()
 	opts := options{
 		socket:         filepath.Join(t.TempDir(), "orreryd.sock"),
-		sessionCap:     defaultSessionCap,
-		stepCap:        defaultStepCap,
 		releaseSlotNow: clock.now,
 		releaseSlotTimers: func(d time.Duration) enginehost.CronTimer {
 			timer := &cronWiringTimer{c: make(chan time.Time, 1), d: d}

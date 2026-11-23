@@ -29,16 +29,14 @@ const evidenceCaptureKilled = "killed at its limit"
 // evidenceCapture runs an evidence item's capture at a revision in a detached worktree, under the holder and the pool
 // grant its gate queues for, and keeps what the capture leaves. worktrees is the directory the worktrees are added under,
 // one per run id. gateStateDir is the state directory the holder directories live under, gateScope the systemd-run
-// scope the holders run in when it is set, and gateScopeMemory that scope's memory cap in bytes, zero for
-// holder.DefaultScopeMemory. blobs keeps the bytes.
+// scope the holders run in when it is set. blobs keeps the bytes.
 type evidenceCapture struct {
-	pools           PoolCommands
-	environ         []string
-	worktrees       string
-	gateStateDir    string
-	gateScope       string
-	gateScopeMemory int64
-	blobs           evidenceBlobs
+	pools        PoolCommands
+	environ      []string
+	worktrees    string
+	gateStateDir string
+	gateScope    string
+	blobs        evidenceBlobs
 	// logTail is the number of newest output bytes a capture keeps, and the size at which a log read back counts as
 	// cut, in place of evidenceCaptureLogTail when it is not zero. Tests set it to keep their logs small.
 	logTail int
@@ -162,16 +160,15 @@ func (c evidenceCapture) captureGate(
 	started func(ctx context.Context, grant, holder string) error,
 ) gateRun {
 	return gateRun{
-		Argv:        item.Capture,
-		Dir:         worktree,
-		Limit:       time.Duration(item.Limit) * time.Second,
-		Environ:     c.environ,
-		Name:        "evidence-" + id,
-		StateDir:    c.gateStateDir,
-		Scope:       c.gateScope,
-		ScopeMemory: c.gateScopeMemory,
-		Started:     started,
-		Tail:        c.tail(),
+		Argv:     item.Capture,
+		Dir:      worktree,
+		Limit:    time.Duration(item.Limit) * time.Second,
+		Environ:  c.environ,
+		Name:     "evidence-" + id,
+		StateDir: c.gateStateDir,
+		Scope:    c.gateScope,
+		Started:  started,
+		Tail:     c.tail(),
 	}
 }
 

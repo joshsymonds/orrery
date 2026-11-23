@@ -160,7 +160,7 @@ func (l *lostMark) MarkCallerEvent(ctx context.Context, event, session string, a
 
 func TestCallerEventStepDeliveredOnceWhileTurnRuns(t *testing.T) {
 	t.Parallel()
-	m, path := newTestManager(t, 1, fakeClaudePath(t))
+	m, path := newTestManager(t, fakeClaudePath(t))
 	s := storeOf(t, m)
 	dir := t.TempDir()
 	// WAITOPEN holds the turn open until fakeclaude.open exists, so the turn ends by itself and not by the owner's
@@ -219,7 +219,7 @@ func TestCallerEventStepDeliveredOnceWhileTurnRuns(t *testing.T) {
 
 func TestCallerEventStepLostMarkNotDeliveredAgain(t *testing.T) {
 	t.Parallel()
-	m, path := newTestManager(t, 1, fakeClaudePath(t))
+	m, path := newTestManager(t, fakeClaudePath(t))
 	s := storeOf(t, m)
 	id, err := m.Start(t.Context(), StartRequest{Dir: t.TempDir(), Prompt: "hi"})
 	if err != nil {
@@ -256,7 +256,7 @@ func TestCallerEventStepLostMarkNotDeliveredAgain(t *testing.T) {
 
 func TestCallerEventStepReadStepSendsNothing(t *testing.T) {
 	t.Parallel()
-	m, path := newTestManager(t, 1, fakeClaudePath(t))
+	m, path := newTestManager(t, fakeClaudePath(t))
 	s := storeOf(t, m)
 	id, err := m.Start(t.Context(), StartRequest{Dir: t.TempDir(), Prompt: "hi"})
 	if err != nil {
@@ -279,7 +279,7 @@ func TestCallerEventStepReadStepSendsNothing(t *testing.T) {
 
 func TestCallerEventStepStepCallerReceivesNothing(t *testing.T) {
 	t.Parallel()
-	m, _ := newTestManager(t, 1, fakeClaudePath(t))
+	m, _ := newTestManager(t, fakeClaudePath(t))
 	s := storeOf(t, m)
 	stepCaller := store.EngineAdd{ID: "step-caller", Dir: t.TempDir(), State: "working", Kind: store.KindStep}
 	if err := s.ApplyEngine(t.Context(), []store.EngineOp{stepCaller}, fixedClock()); err != nil {
@@ -296,7 +296,7 @@ func TestCallerEventStepStepCallerReceivesNothing(t *testing.T) {
 
 func TestCallerEventStepIdleStoppedCallerResumed(t *testing.T) {
 	t.Parallel()
-	m, path, clock := newIdleManager(t, 1)
+	m, path, clock := newIdleManager(t)
 	s := storeOf(t, m)
 	id, err := m.Start(t.Context(), StartRequest{Dir: t.TempDir(), Prompt: "hi"})
 	if err != nil {
@@ -327,7 +327,7 @@ func TestCallerEventStepIdleStoppedCallerResumed(t *testing.T) {
 
 func TestCallerEventStepOwnerStoppedCallerNotRestarted(t *testing.T) {
 	t.Parallel()
-	m, path := newTestManager(t, 1, fakeClaudePath(t))
+	m, path := newTestManager(t, fakeClaudePath(t))
 	s := storeOf(t, m)
 	dir := t.TempDir()
 	id, err := m.Start(t.Context(), StartRequest{Dir: dir, Prompt: "hi"})

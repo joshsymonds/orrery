@@ -71,7 +71,7 @@ func nodeHash(namespace string, parts ...string) string {
 
 // NodeRuns returns the node runs of epic ordered by path, each with every field it stores.
 func (s *Store) NodeRuns(ctx context.Context, epic string) ([]NodeRun, error) {
-	return readNodeRuns(ctx, sqlcgen.New(s.db), epic)
+	return readNodeRuns(ctx, sqlcgen.New(s.read), epic)
 }
 
 // OpenNodeRunStates returns, keyed by epic, the node runs of every epic that is not in a closed phase (IsClosedPhase),
@@ -79,7 +79,7 @@ func (s *Store) NodeRuns(ctx context.Context, epic string) ([]NodeRun, error) {
 // fields that say where an epic's workflow stands without its work, which the interpreter reads for every epic on
 // every pass. An epic with no node run has no entry.
 func (s *Store) OpenNodeRunStates(ctx context.Context) (map[string][]NodeRun, error) {
-	rows, err := sqlcgen.New(s.db).ListOpenEpicNodeRunStates(ctx)
+	rows, err := sqlcgen.New(s.read).ListOpenEpicNodeRunStates(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("list node run states: %w", err)
 	}

@@ -40,7 +40,7 @@
   // fchip draws a FilterChip: a word and a count that narrow a list.
   O.fchip = (label, n, variant = '', on = false, go = '') => `<a class="${cls('fchip', variant, on && 'on')}"${attrs({ href: go ? O.go(go) : undefined })} role="button" aria-pressed="${on}"><b>${esc(n)}</b>${esc(label)}</a>`;
 
-  // pill draws a Pill. tone: '' | 'live' | 'attention' | 'ok' | 'bad' | 'halt' | 'engine'. o.state adds its glyph.
+  // pill draws a Pill. tone: '' | 'live' | 'attention' | 'ok' | 'bad' | 'halt' | 'engine' | 'unreachable' (grey). o.state adds its glyph.
   O.pill = (text, tone = '', o = {}) => `<span class="pill"${attrs({ 'data-tone': tone })}>${when(o.state, () => O.stateGlyph(o.state))}${esc(text)}${o.trail || ''}</span>`;
 
   // meter draws a Meter. m: { name, value, pct, level }. Without pct there is no bar.
@@ -68,6 +68,27 @@
 
   // idc draws an IdChip: a row's short id (R4, F2, P1), coloured by its kind.
   O.idc = (id) => `<span class="idc" data-k="${esc(String(id)[0])}">${esc(id)}</span>`;
+
+  // hostLabel draws a HostLabel: the host a pane, a session, an epic or a step runs on, with the host icon. o.heading
+  // draws it on a card's heading, once for the rows under it, which all run on that host; inline it sits on its own row.
+  // o.down: the host does not answer, so the word unreachable sits beside it.
+  O.hostLabel = (name, o = {}) => `<span class="${cls('host-label', o.heading && 'heading')}">${icon('host')}<span class="name">${esc(name)}</span></span>`
+    + when(o.down, '<span class="unreach">unreachable</span>');
+  // HOST_FROM names where each kind of host a drawing shows comes from: the server field, and the epic that gives it.
+  O.HOST_FROM = {
+    pane: 'a pane’s host is Pane.host (orrery-host-surfaces)',
+    session: 'a headless session’s host is its session row’s host (orrery-first-class-hosts)',
+    epic: 'an epic’s host is Epic.host (orrery-host-relay)',
+    step: 'a step’s host is EpicStep.host (orrery-host-relay)',
+    paneDown: 'a pane listed unreachable from stored rows is marked so: Pane.unreachable (orrery-host-surfaces R3, unchecked)',
+    sessionDown: 'a session on a host that does not answer reads state unreachable: its session row’s state (orrery-first-class-hosts R4, unchecked)',
+    hostDown: 'a host that does not answer reads not reachable: Host.Status’s reachable for it (orrery-host-surfaces R4, unchecked)',
+    hosts: 'Host.Status lists every host with load percent, memory percent and reachable (orrery-host-surfaces R4, unchecked)',
+    proposal: 'a Starter proposal’s host and folder come from the ranked proposals call beside Picker.Ask, over reachable hosts only (orrery-host-relay R5, unchecked)',
+    start: 'the host a new session starts on is the host Control.Start takes (orrery-host-relay R4, unchecked)',
+  };
+  // hostsNote is the sentence a scenario's note ends with when its drawing shows a host; none when it shows none.
+  O.hostsNote = (kinds) => (kinds.length ? ` Hosts: ${kinds.map((k) => O.HOST_FROM[k]).join('; ')}.` : '');
 
   // ctl draws a Ctl: a control inside a line. o.tone: '' | 'bad' | 'go'. o.only: the icon alone, its label its name.
   O.ctl = (label, iconName, o = {}) => `<button class="${cls('ctl', o.tone, o.only && 'only')}"${attrs({ 'aria-label': o.only ? label : undefined, title: o.tip || (o.only ? label : undefined), disabled: o.disabled })}>${when(iconName, () => icon(iconName))}${o.only ? '' : `<span>${esc(label)}</span>`}${when(o.kbd && !O.touch(), () => O.kbd(o.kbd))}</button>`;

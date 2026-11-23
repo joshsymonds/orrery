@@ -103,7 +103,7 @@ func (s *Store) ProposeContract(ctx context.Context, id string, proposal Contrac
 // Contract returns the contract with id, its listing with its versions and states. Both are read in one read
 // transaction. It returns an error that matches ErrNoContract when no contract has id.
 func (s *Store) Contract(ctx context.Context, id string) (ContractRecord, error) {
-	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	tx, err := s.read.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
 	if err != nil {
 		return ContractRecord{}, fmt.Errorf("begin contract read: %w", err)
 	}
@@ -119,7 +119,7 @@ func (s *Store) Contract(ctx context.Context, id string) (ContractRecord, error)
 
 // Contracts returns the listing of every contract, oldest first and ties by id.
 func (s *Store) Contracts(ctx context.Context) ([]ContractListing, error) {
-	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	tx, err := s.read.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
 	if err != nil {
 		return nil, fmt.Errorf("begin contracts read: %w", err)
 	}

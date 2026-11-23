@@ -71,7 +71,7 @@ type PlannerAction struct {
 
 // PendingActions returns the pending actions of every epic, ordered by epic, then turn, then position.
 func (s *Store) PendingActions(ctx context.Context) ([]PlannerAction, error) {
-	rows, err := sqlcgen.New(s.db).ListPendingPlannerActions(ctx)
+	rows, err := sqlcgen.New(s.read).ListPendingPlannerActions(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("list pending planner actions: %w", err)
 	}

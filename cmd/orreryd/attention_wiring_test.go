@@ -143,8 +143,6 @@ func TestSessionsHostRoutesParkedEpicNotice(t *testing.T) {
 	written, epicWrites := newEpicWritesSeam()
 	opts := options{
 		socket:         filepath.Join(t.TempDir(), "orreryd.sock"),
-		sessionCap:     defaultSessionCap,
-		stepCap:        defaultStepCap,
 		attentionTicks: ticks,
 		epicWrites:     epicWrites,
 	}

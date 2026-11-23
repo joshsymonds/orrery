@@ -162,9 +162,7 @@ func releaseStepPrompt(step store.EpicReleaseStep, start, then string) string {
 		"Its target is %s, and its undo is %s.\n\n"+
 		"The release promises: %s\n\n"+
 		"This worktree is checked out detached at %s, the commit the step starts from.\n\n"+
-		"Do only this step. Do not carry out any other release step, and do not merge anything into this "+
-		"worktree. If CI goes red on the commit you made, you may rerun it once on that same commit; do not "+
-		"change the commit to make it green.\n\n"+
+		"Do only this step. Do not carry out any other release step.\n\n"+
 		"When the step is carried out, return status done. Return commits as the full id of every commit you "+
 		"added on top of %s, and an empty list when you added none. Return commit as the full id of HEAD. "+
 		"Return evidence showing the effect of the step: what changed and where it can be seen. If you cannot "+
@@ -175,9 +173,8 @@ func releaseStepPrompt(step store.EpicReleaseStep, start, then string) string {
 		step.Step, step.Target, step.Undo, then, start, start)
 }
 
-// recordReleaseStep records the release step act names once its end is stored. The step passes only when it ended done,
-// HEAD descends from its start and it added no merge. Otherwise
-// it is recorded failed with the reason named. Its worktree is removed once the run is recorded.
+// recordReleaseStep records the release step act names once its end is stored. The step passes only when it ended done
+// and HEAD descends from its start. Otherwise it is recorded failed with the reason named. Its worktree is removed once the run is recorded.
 func (r *Runner) recordReleaseStep(ctx context.Context, epic store.EpicRow, act Action, at time.Time) error {
 	position, ok := releaseStepPosition(act.Items[0])
 	if !ok {
@@ -256,13 +253,6 @@ func releaseStepReason(ctx context.Context, wt, start, head, decodeReason string
 	}
 	if !descends {
 		return fmt.Sprintf("HEAD %s does not descend from the step's start %s", head, start), nil
-	}
-	merges, err := gitOutput(ctx, wt, "rev-list", "--merges", start+".."+head)
-	if err != nil {
-		return "", err
-	}
-	if merged := strings.Fields(merges); len(merged) > 0 {
-		return "the step added a merge commit: " + strings.Join(merged, ", "), nil
 	}
 	return "", nil
 }

@@ -28,7 +28,7 @@ func requireDueWakeWiringCount(t *testing.T, rec *dueWakeWiringRecorder, want in
 }
 
 // TestOrrerydDueDeadlineWakes checks that each wake that can move a due row wakes the due pass once the relay is set:
-// the steps' Stored, a freed step slot with epics and with none, and a store write that moves an epic. Before the relay
+// the steps' Stored and a store write that moves an epic. Before the relay
 // is set, each does nothing and does not block.
 func TestOrrerydDueDeadlineWakes(t *testing.T) {
 	t.Parallel()
@@ -41,8 +41,6 @@ func TestOrrerydDueDeadlineWakes(t *testing.T) {
 	host.subscribeFlowWake(st, func([]string) {})
 
 	host.stepStored()
-	host.stepFreedWake(nil)
-	host.stepFreedWake([]string{attentionWiringEpic})
 	if err := st.ParkEpic(
 		ctx, attentionWiringEpic, store.ParkClassBranch, "synthetic reason", time.Unix(attentionWiringStamp, 0),
 	); err != nil {
@@ -53,12 +51,8 @@ func TestOrrerydDueDeadlineWakes(t *testing.T) {
 	host.dueWake.set(rec.wake)
 	host.stepStored()
 	requireDueWakeWiringCount(t, &rec, 1)
-	host.stepFreedWake(nil)
-	requireDueWakeWiringCount(t, &rec, 2)
-	host.stepFreedWake([]string{attentionWiringEpic})
-	requireDueWakeWiringCount(t, &rec, 3)
 	if err := st.SetEpicBranch(ctx, attentionWiringEpic, flowWakeWiringBranch); err != nil {
 		t.Fatalf("set branch of epic %s: %v", attentionWiringEpic, err)
 	}
-	requireDueWakeWiringCount(t, &rec, 4)
+	requireDueWakeWiringCount(t, &rec, 2)
 }

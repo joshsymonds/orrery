@@ -2350,13 +2350,11 @@ func (x *EpicsResumeRequest) GetId() string {
 	return ""
 }
 
-// EpicsResumeResponse carries the limited steps a resume resumed and those a full step cap left limited.
+// EpicsResumeResponse carries the limited steps a resume resumed.
 type EpicsResumeResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// The ids of the limited steps the resume resumed, oldest first.
-	Resumed []string `protobuf:"bytes,1,rep,name=resumed,proto3" json:"resumed,omitempty"`
-	// The ids of the limited steps the resume left limited because the step cap was full, oldest first.
-	StillLimited  []string `protobuf:"bytes,2,rep,name=still_limited,json=stillLimited,proto3" json:"still_limited,omitempty"`
+	Resumed       []string `protobuf:"bytes,1,rep,name=resumed,proto3" json:"resumed,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2394,13 +2392,6 @@ func (*EpicsResumeResponse) Descriptor() ([]byte, []int) {
 func (x *EpicsResumeResponse) GetResumed() []string {
 	if x != nil {
 		return x.Resumed
-	}
-	return nil
-}
-
-func (x *EpicsResumeResponse) GetStillLimited() []string {
-	if x != nil {
-		return x.StillLimited
 	}
 	return nil
 }
@@ -6262,10 +6253,9 @@ const file_orrery_v1_epics_proto_rawDesc = "" +
 	"\x02id\x18\x01 \x01(\tR\x02id\"\x14\n" +
 	"\x12EpicsPauseResponse\"$\n" +
 	"\x12EpicsResumeRequest\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\tR\x02id\"T\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\"D\n" +
 	"\x13EpicsResumeResponse\x12\x18\n" +
-	"\aresumed\x18\x01 \x03(\tR\aresumed\x12#\n" +
-	"\rstill_limited\x18\x02 \x03(\tR\fstillLimited\"\"\n" +
+	"\aresumed\x18\x01 \x03(\tR\aresumedJ\x04\b\x02\x10\x03R\rstill_limited\"\"\n" +
 	"\x10EpicsStopRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\"\x13\n" +
 	"\x11EpicsStopResponse\"7\n" +

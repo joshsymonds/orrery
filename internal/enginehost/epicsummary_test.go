@@ -176,9 +176,9 @@ func TestEpicSummaryFillsAnEpicCreatedAfterStartAtTheNextTick(t *testing.T) {
 	}
 }
 
-// TestEpicSummaryFailedOrInvalidCallLeavesTheSummaryEmptyForTheStart covers R4: a failed or invalid call leaves the
-// summary empty, and no later wake of the same start calls for it again.
-func TestEpicSummaryFailedOrInvalidCallLeavesTheSummaryEmptyForTheStart(t *testing.T) {
+// TestEpicSummaryFailedOrInvalidCallLeavesTheSummaryEmptyUntilItsDeadline covers R4: a failed or invalid call leaves the
+// summary empty, and a wake before the epic's deadline fires calls for it no more (see callRetries).
+func TestEpicSummaryFailedOrInvalidCallLeavesTheSummaryEmptyUntilItsDeadline(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
 		name   string
@@ -214,8 +214,8 @@ func TestEpicSummaryFailedOrInvalidCallLeavesTheSummaryEmptyForTheStart(t *testi
 	}
 }
 
-// TestEpicSummarySecondStartRetriesAnEmptyEpicOnce covers R4: a start retries an epic that a failed call left empty,
-// and a wake of that start calls for it no more.
+// TestEpicSummarySecondStartRetriesAnEmptyEpicOnce covers R4: a start calls at once for an epic that a failed call left
+// empty, and once that call succeeds a wake calls for it no more.
 func TestEpicSummarySecondStartRetriesAnEmptyEpicOnce(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()

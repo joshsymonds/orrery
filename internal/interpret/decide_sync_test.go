@@ -345,10 +345,10 @@ func TestDecideSyncKeyIsTheHighestTurn(t *testing.T) {
 	}
 }
 
-// TestDecideSyncKeyIsTheHighestTurnThatIsNotFree: turns that ended free, as a full step cap's refusals and a restart's
-// cut turns end, key no sync of their own, so the quiet point after them is still that of turn 1, whose sync is stored,
-// and nothing starts or reads origin's main while the planner's turns keep being freed. A turn that failed is a turn
-// the planner ran, and keys a sync of its own.
+// TestDecideSyncKeyIsTheHighestTurnThatIsNotFree: turns that ended free, as a restart's cut turns end, key no sync of
+// their own, so the quiet point after them is still that of turn 1, whose sync is stored, and nothing starts or reads
+// origin's main while the planner's turns keep being freed. A turn that failed is a turn the planner ran, and keys a
+// sync of its own.
 func TestDecideSyncKeyIsTheHighestTurnThatIsNotFree(t *testing.T) {
 	t.Parallel()
 	rows := quietRows()

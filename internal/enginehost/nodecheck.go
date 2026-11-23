@@ -28,36 +28,34 @@ type NodeCheckStore interface {
 	EndNodeCheck(ctx context.Context, id string, end store.NodeCheckEnd, at time.Time) error
 }
 
-// NodeChecksConfig configures a NodeChecks. Store records the checks, and Pools, Environ, GateStateDir, GateScope and
-// GateScopeMemory run each check's command as an evidence capture runs its gate. StateDir holds the check worktrees. A nil Now is time.Now, and a
+// NodeChecksConfig configures a NodeChecks. Store records the checks, and Pools, Environ, GateStateDir and GateScope
+// run each check's command as an evidence capture runs its gate. StateDir holds the check worktrees. A nil Now is time.Now, and a
 // nil Logger discards. After returns the channel a failed write of a check's end waits on before it is tried again, and
 // nil is time.After.
 type NodeChecksConfig struct {
-	Store           NodeCheckStore
-	Pools           PoolCommands
-	Environ         []string
-	StateDir        string
-	GateStateDir    string
-	GateScope       string
-	GateScopeMemory int64
-	Now             func() time.Time
-	Logger          *slog.Logger
-	After           func(time.Duration) <-chan time.Time
+	Store        NodeCheckStore
+	Pools        PoolCommands
+	Environ      []string
+	StateDir     string
+	GateStateDir string
+	GateScope    string
+	Now          func() time.Time
+	Logger       *slog.Logger
+	After        func(time.Duration) <-chan time.Time
 }
 
 // NodeChecks runs gate and command checks. Each check is stored once under its id, then driven in the background by a
 // drive that Run starts. cancels holds the cancel of each drive still under way, by check id, and Close cancels them all.
 type NodeChecks struct {
-	store           NodeCheckStore
-	pools           PoolCommands
-	environ         []string
-	worktrees       string
-	gateStateDir    string
-	gateScope       string
-	gateScopeMemory int64
-	now             func() time.Time
-	logger          *slog.Logger
-	after           func(time.Duration) <-chan time.Time
+	store        NodeCheckStore
+	pools        PoolCommands
+	environ      []string
+	worktrees    string
+	gateStateDir string
+	gateScope    string
+	now          func() time.Time
+	logger       *slog.Logger
+	after        func(time.Duration) <-chan time.Time
 
 	mu      sync.Mutex
 	closed  bool
@@ -82,17 +80,16 @@ func NewNodeChecks(cfg NodeChecksConfig) *NodeChecks {
 		after = time.After
 	}
 	return &NodeChecks{
-		store:           cfg.Store,
-		pools:           cfg.Pools,
-		environ:         cfg.Environ,
-		worktrees:       filepath.Join(cfg.StateDir, "node-check-worktrees"),
-		gateStateDir:    cfg.GateStateDir,
-		gateScope:       cfg.GateScope,
-		gateScopeMemory: cfg.GateScopeMemory,
-		now:             now,
-		logger:          logger,
-		after:           after,
-		cancels:         map[string]context.CancelCauseFunc{},
+		store:        cfg.Store,
+		pools:        cfg.Pools,
+		environ:      cfg.Environ,
+		worktrees:    filepath.Join(cfg.StateDir, "node-check-worktrees"),
+		gateStateDir: cfg.GateStateDir,
+		gateScope:    cfg.GateScope,
+		now:          now,
+		logger:       logger,
+		after:        after,
+		cancels:      map[string]context.CancelCauseFunc{},
 	}
 }
 
@@ -265,16 +262,15 @@ func (n *NodeChecks) gate(
 	worktree string, check store.NodeCheck, started func(ctx context.Context, grant, holder string) error,
 ) gateRun {
 	return gateRun{
-		Argv:        check.Argv,
-		Dir:         worktree,
-		Limit:       time.Duration(check.Limit) * time.Second,
-		Environ:     n.environ,
-		Name:        "node-check-" + check.ID,
-		StateDir:    n.gateStateDir,
-		Scope:       n.gateScope,
-		ScopeMemory: n.gateScopeMemory,
-		Started:     started,
-		Tail:        store.NodeOutputMax,
+		Argv:     check.Argv,
+		Dir:      worktree,
+		Limit:    time.Duration(check.Limit) * time.Second,
+		Environ:  n.environ,
+		Name:     "node-check-" + check.ID,
+		StateDir: n.gateStateDir,
+		Scope:    n.gateScope,
+		Started:  started,
+		Tail:     store.NodeOutputMax,
 	}
 }
 

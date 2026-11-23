@@ -246,59 +246,6 @@ func TestStepsAutoResumeOfStepNotLimitedRefuses(t *testing.T) {
 	}
 }
 
-// TestStepsAutoResumeWithStepCapFullLeavesRowDue covers R3 and R1: with the step cap full by another live step, the
-// automatic resume returns ErrCapReached, the step stays limited and its due row stays due. Once the slot frees, the
-// automatic resume succeeds and closes the row.
-func TestStepsAutoResumeWithStepCapFullLeavesRowDue(t *testing.T) {
-	t.Parallel()
-	rig := newStepsRig(t, nil)
-	repo := stepGitTestRepo(t)
-	revision := stepGitTestRun(t, repo, "rev-parse", "HEAD")
-	id := startLimitProbe(t, rig, repo, revision, "LIMIT")
-	dir := filepath.Join(rig.worktrees, id)
-	pid := fakePID(t, dir)
-	waitUntil(
-		t,
-		engineOf(rig.manager, rig.steps),
-		"step limited",
-		func() bool { return stepRowOf(t, rig.steps, id).LoopLimited },
-	)
-	requireGone(t, pid)
-	writeResumeFiles(t, dir)
-	holder := startLimitProbe(t, rig, repo, revision, "STEPDONE")
-	reset := time.Unix(probeResetUnix, 0)
-
-	err := rig.steps.AutoResume(t.Context(), id, reset)
-	if !errors.Is(err, ErrCapReached) {
-		t.Fatalf("AutoResume with the step cap full = %v, want ErrCapReached", err)
-	}
-	if row := stepRowOf(t, rig.steps, id); !row.LoopLimited || row.End != "" {
-		t.Fatalf("limited %t, end %q after the refused resume, want limited and open", row.LoopLimited, row.End)
-	}
-	if got := dueResumesOf(t, rig, id); len(got) != 1 {
-		t.Fatalf("due rows after the refused resume = %+v, want the row still due", got)
-	}
-
-	if err := rig.steps.Stop(t.Context(), holder); err != nil {
-		t.Fatalf("Stop of the step holding the slot: %v", err)
-	}
-	if err := rig.steps.AutoResume(t.Context(), id, reset); err != nil {
-		t.Fatalf("AutoResume once the slot frees: %v", err)
-	}
-	if got := dueResumesOf(t, rig, id); len(got) != 0 {
-		t.Fatalf("due rows after the automatic resume = %+v, want none", got)
-	}
-	waitUntil(
-		t,
-		engineOf(rig.manager, rig.steps),
-		"resumed step done",
-		func() bool { return stepRowOf(t, rig.steps, id).End != "" },
-	)
-	if row := stepRowOf(t, rig.steps, id); row.End != stepLoopEndDone {
-		t.Fatalf("End = %q reason %q, want %q", row.End, row.Reason, stepLoopEndDone)
-	}
-}
-
 // TestStepsResumeClosesDueRowAndSendsUnkeyedPrompt covers R1 and R3: the owner's Resume sends the owner's resume prompt
 // without a PromptID, and its clear-limit write closes the step's due row.
 func TestStepsResumeClosesDueRowAndSendsUnkeyedPrompt(t *testing.T) {

@@ -62,7 +62,7 @@ func (s *Store) Attention(ctx context.Context) ([]EpicAttention, error) {
 // attention is Attention with afterLatest called after each epic's latest-turn read. Tests use it to put a write
 // between the reads.
 func (s *Store) attention(ctx context.Context, afterLatest func(epic string)) ([]EpicAttention, error) {
-	queries := sqlcgen.New(s.db)
+	queries := sqlcgen.New(s.read)
 	epics, err := queries.ListEpicsWithTurnsOrUntoldTells(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("list epics with turns or untold tells: %w", err)

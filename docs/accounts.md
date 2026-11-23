@@ -25,7 +25,7 @@ It does not define how the gateway handles a request, how the screens look, or h
 | Public accounts | `proto/orrery/v1/accounts.proto: Accounts`, with `Add`, `List`, `Rename` and `Remove` | clients of `orrery serve`, through the accounts screen |
 | Public routes | `proto/orrery/v1/accounts.proto: Routes`, with `Get`, `Replace` and `SetContextAccount` | clients of `orrery serve`, through the routes screen and the switch |
 | Writer | `proto/orrery/engine/v1/accounts.proto: Accounts`, with `AddAccount`, `RenameAccount`, `RemoveAccount`, `ReplaceRoutes` and `SetContextAccount` | `orrery serve` only, on orreryd's session socket; never on the public orrery serve API |
-| Tables | `internal/store/migrations/00095_llm_accounts.sql`: `llm_accounts`, `route_registry`, `route_seats`, `route_contexts`, `route_bindings` | orreryd writes them; `store.Reader` reads them |
+| Tables | `internal/store/migrations/00096_llm_accounts.sql`: `llm_accounts`, `route_registry`, `route_seats`, `route_contexts`, `route_bindings` | orreryd writes them; `store.Reader` reads them |
 | Token read | `store.Reader.RoutesSnapshot` | the gateway |
 
 The engine service has no read rpc. Reads come from the store, and writes go to orreryd.

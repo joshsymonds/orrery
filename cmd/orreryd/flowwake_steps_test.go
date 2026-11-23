@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"errors"
 	"log/slog"
 	"path/filepath"
 	"sync"
@@ -19,7 +18,6 @@ import (
 const (
 	flowWakeStepsEpicA = "orrery-9e0f1a2/steps-a"
 	flowWakeStepsEpicB = "orrery-9e0f1a2/steps-b"
-	flowWakeStepsEpicC = "orrery-9e0f1a2/steps-c"
 	// flowWakeStepsAgent is the agent the steps run, defined inline so claude resolves it with no agent file. Its JSON
 	// has no spaces, so it stays one field of the fake claude's argument line.
 	flowWakeStepsAgent  = "reviewer"
@@ -124,18 +122,16 @@ func (f *flowWakeStepsFlow) stop() {
 	<-f.done
 }
 
-// startFlowWakeStepsHost starts a --sessions host over st, with the step cap stepCap, whose steps run the fake claude.
+// startFlowWakeStepsHost starts a --sessions host over st whose steps run the fake claude.
 // Its own interpreter passes only at its start, which flowTicks makes the only pass. The host stops at cleanup.
 func startFlowWakeStepsHost(
-	t *testing.T, st *store.Store, getenv func(string) string, path string, stepCap int,
+	t *testing.T, st *store.Store, getenv func(string) string, path string,
 ) *sessionHost {
 	t.Helper()
 	opts := options{
 		socket:           filepath.Join(filepath.Dir(path), "orreryd.sock"),
 		claude:           eventWakeClaude(t),
 		sessionShell:     eventWakeShell(t),
-		sessionCap:       defaultSessionCap,
-		stepCap:          stepCap,
 		flowTicks:        filepath.Join(t.TempDir(), "flow-passes"),
 		callerEventTimer: neverFiringTimer,
 	}
@@ -175,7 +171,7 @@ func TestOrrerydFlowWakeLabeledStepEndPassesItsEpic(t *testing.T) {
 		createFlowWiringEpic(t, st, epic, flowWiringRepo, "", created)
 		endFlowWiringPlan(t, st, epic, created)
 	}
-	host := startFlowWakeStepsHost(t, st, getenv, path, defaultStepCap)
+	host := startFlowWakeStepsHost(t, st, getenv, path)
 	flow := startFlowWakeStepsFlow(t, st)
 	host.flowWake.set(flow.runner.Wake)
 	readsA := flow.counts.readsOf(flowWakeStepsEpicA)
@@ -199,51 +195,5 @@ func TestOrrerydFlowWakeLabeledStepEndPassesItsEpic(t *testing.T) {
 	}
 	if got := flow.counts.readsOf(flowWakeStepsEpicA) - readsA; got != 0 {
 		t.Errorf("reads of epic %s's flow = %d, want none", flowWakeStepsEpicA, got)
-	}
-}
-
-// TestOrrerydFlowWakeCapRefusedStartRetriedWhenAnotherStepEnds checks that a start the step cap refuses, labeled with
-// an epic, is handed to the interpreter once another step's end frees a slot, so the interpreter's pass that reads the
-// refused epic's flow can retry the start and have it succeed.
-func TestOrrerydFlowWakeCapRefusedStartRetriedWhenAnotherStepEnds(t *testing.T) {
-	st, getenv, path := openEventWakeStore(t)
-	repo, _ := buildWiringRepo(t)
-	created := time.Unix(plannerWiringStamp, 0)
-	for _, epic := range []string{flowWakeStepsEpicA, flowWakeStepsEpicC} {
-		createFlowWiringEpic(t, st, epic, flowWiringRepo, "", created)
-		endFlowWiringPlan(t, st, epic, created)
-	}
-	host := startFlowWakeStepsHost(t, st, getenv, path, 1)
-	flow := startFlowWakeStepsFlow(t, st)
-	host.flowWake.set(flow.runner.Wake)
-
-	idA, err := host.steps.Start(t.Context(), flowWakeStepsStepOf(repo, flowWakeStepsEpicA))
-	if err != nil {
-		t.Fatalf("start step labeled %s: %v", flowWakeStepsEpicA, err)
-	}
-	_, err = host.steps.Start(t.Context(), flowWakeStepsStepOf(repo, flowWakeStepsEpicC))
-	if !errors.Is(err, enginehost.ErrCapReached) {
-		t.Fatalf("start step labeled %s past the step cap: %v, want %v", flowWakeStepsEpicC, err,
-			enginehost.ErrCapReached)
-	}
-	readsC := flow.counts.readsOf(flowWakeStepsEpicC)
-	if err := host.steps.Stop(t.Context(), idA); err != nil {
-		t.Fatalf("stop step %s: %v", idA, err)
-	}
-
-	// The end of A's step wakes epic A, and the slot it frees hands epic C on. Those wakes may make one pass or two, so
-	// the test waits on the passes until the one that reads C's flow has reported.
-	for flow.counts.readsOf(flowWakeStepsEpicC) == readsC {
-		flow.awaitPass()
-	}
-	if got := flow.counts.readsOf(flowWakeStepsEpicC) - readsC; got != 1 {
-		t.Fatalf("reads of epic %s's flow = %d, want 1", flowWakeStepsEpicC, got)
-	}
-	idC, err := host.steps.Start(t.Context(), flowWakeStepsStepOf(repo, flowWakeStepsEpicC))
-	if err != nil {
-		t.Fatalf("retry start of step labeled %s: %v", flowWakeStepsEpicC, err)
-	}
-	if err := host.steps.Stop(t.Context(), idC); err != nil {
-		t.Fatalf("stop step %s: %v", idC, err)
 	}
 }

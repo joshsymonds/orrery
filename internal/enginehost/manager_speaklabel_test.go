@@ -13,7 +13,7 @@ import (
 // is written at once, so its prompt is stored with the owner as its sender and with its prompt id.
 func TestSpeakLabelSayWrittenAtOnceStoresOwnerSender(t *testing.T) {
 	t.Parallel()
-	m, path := newTestManager(t, 1, fakeClaudePath(t))
+	m, path := newTestManager(t, fakeClaudePath(t))
 	id, err := m.Start(t.Context(), StartRequest{Dir: t.TempDir(), Prompt: "start"})
 	if err != nil {
 		t.Fatalf("Start: %v", err)
@@ -46,7 +46,7 @@ func TestSpeakLabelSayWrittenAtOnceStoresOwnerSender(t *testing.T) {
 // still runs. Once the turn ends, claude answers the message as the turn after it.
 func TestSpeakLabelSayDuringTurnIsWrittenAtOnceStoresOwnerSender(t *testing.T) {
 	t.Parallel()
-	m, path := newTestManager(t, 1, fakeClaudePath(t))
+	m, path := newTestManager(t, fakeClaudePath(t))
 	dir := t.TempDir()
 	id, err := m.Start(t.Context(), StartRequest{Dir: dir, Prompt: "TRICKLEHELD"})
 	if err != nil {

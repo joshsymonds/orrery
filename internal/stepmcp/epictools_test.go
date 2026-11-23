@@ -595,7 +595,7 @@ func TestContractEpicCreateRefusesAContractKey(t *testing.T) {
 func TestEpicCreatePrintsEachWarningLine(t *testing.T) {
 	warnings := []string{
 		"requirements[0].item.capture: -run pattern \"X\" matches TestX in ./pkg at the base: name a new top-level test",
-		"release_steps[1].step: says merge: a release step fast-forwards main to the release candidate; write fast-forward",
+		`release_steps[1].step: a release does not wait for CI; write "do not wait for CI"`,
 	}
 	fake := &fakeEpics{createReply: &v1.CreateEpicResponse{Epic: storedEpicOf(fullContract()), Warnings: warnings}}
 	p := newPeer(t, nil, fake)
@@ -1108,33 +1108,31 @@ func TestEpicReleasePassesTheIDAndPositionsInOneCall(t *testing.T) {
 	}
 }
 
-func TestEpicResumeResultCarriesEpicResumedAndStillLimited(t *testing.T) {
+func TestEpicResumeResultCarriesEpicAndResumed(t *testing.T) {
 	t.Parallel()
 	stored := storedEpicOf(fullContract())
 	cases := []struct {
-		name         string
-		resumed      []string
-		stillLimited []string
-		want         string
+		name    string
+		resumed []string
+		want    string
 	}{
 		{
 			name: "every limited step resumed", resumed: []string{"step-a", "step-b"},
 			want: "epic " + testEpicID + ": phase accepted\n" +
-				"resumed 2 limited steps: step-a, step-b; 0 left limited by the step cap",
+				"resumed 2 limited steps: step-a, step-b",
 		},
 		{
-			name: "one left limited by the cap", resumed: []string{"step-b"}, stillLimited: []string{"step-a"},
+			name: "none resumed", resumed: nil,
 			want: "epic " + testEpicID + ": phase accepted\n" +
-				"resumed 1 limited steps: step-b; 1 left limited by the step cap: step-a",
+				"resumed 0 limited steps",
 		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			fake := &fakeEpics{resumeReply: &v1.ResumeEpicResponse{
-				Epic:         stored,
-				Resumed:      tc.resumed,
-				StillLimited: tc.stillLimited,
+				Epic:    stored,
+				Resumed: tc.resumed,
 			}}
 			p := newPeer(t, nil, fake)
 

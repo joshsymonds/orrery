@@ -46,7 +46,7 @@ func (g *matchGate) open() {
 	g.openOnce.Do(func() { close(g.release) })
 }
 
-// gatedManager returns a manager with a cap of one whose writer stores through a matchGate that holds the first batch
+// gatedManager returns a manager whose writer stores through a matchGate that holds the first batch
 // with an op match accepts. The gate opens at the end of the test, before the manager closes, so a held write cannot
 // block Close.
 func gatedManager(t *testing.T, match func(store.EngineOp) bool) (*Manager, *matchGate, string) {
@@ -63,7 +63,6 @@ func gatedManager(t *testing.T, match func(store.EngineOp) bool) (*Manager, *mat
 		Shell:   sh,
 		Claude:  fakeClaudePath(t),
 		Environ: []string{"PATH=" + os.Getenv("PATH"), "HOME=" + t.TempDir()},
-		Cap:     1,
 		Writer:  writer,
 		Now:     fixedClock,
 		Store:   s,
@@ -244,7 +243,7 @@ func TestRetryWhileAttemptHeldWaitsForItsResult(t *testing.T) {
 // the same prompt id returns that error and does nothing else, and a Say with a new prompt id resumes the session.
 func TestRetryOfSayFailedAfterStoringReturnsItsError(t *testing.T) {
 	t.Parallel()
-	m, path := newTestManager(t, 1, fakeClaudePath(t))
+	m, path := newTestManager(t, fakeClaudePath(t))
 	dir := t.TempDir()
 	id, err := m.Start(t.Context(), StartRequest{Dir: dir, Prompt: "hi"})
 	if err != nil {
@@ -326,7 +325,6 @@ func TestRetryOfSayFailedBeforeRestartReturnsItsReason(t *testing.T) {
 		Shell:   sh,
 		Claude:  fakeClaudePath(t),
 		Environ: []string{"PATH=" + os.Getenv("PATH"), "HOME=" + t.TempDir()},
-		Cap:     1,
 		Writer:  writer,
 		Now:     fixedClock,
 		Store:   s,
@@ -409,7 +407,7 @@ func TestRetryOfSayFailedBeforeRestartReturnsItsReason(t *testing.T) {
 // Once the directory exists, the retry with the same id starts the session and gets its first reply.
 func TestStartRefusedBeforeStoringFreesItsKey(t *testing.T) {
 	t.Parallel()
-	m, path := newTestManager(t, 1, fakeClaudePath(t))
+	m, path := newTestManager(t, fakeClaudePath(t))
 	dir := filepath.Join(t.TempDir(), "later")
 	if _, err := m.Start(t.Context(), StartRequest{ID: chosenID, Dir: dir, Prompt: "hi"}); !errors.Is(err, ErrBadDir) {
 		t.Fatalf("Start into a missing directory: got %v, want ErrBadDir", err)

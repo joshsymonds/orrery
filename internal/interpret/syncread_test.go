@@ -45,12 +45,12 @@ func (w *integrateWorld) countedUploadPack(stalls ...int) func() int {
 	}
 }
 
-// freeTurn starts the test epic's next planner turn and ends it free, as a turn a full step cap refused ends, and
-// returns its seq.
+// freeTurn starts the test epic's next planner turn and ends it free, as a turn a restart cut ends, and returns its
+// seq.
 func (w *integrateWorld) freeTurn() int64 {
 	w.t.Helper()
 	seq := w.claimTurn()
-	free := store.TurnFree{Reason: "the step cap is full"}
+	free := store.TurnFree{Reason: "engine_restarted"}
 	if err := w.s.FreeTurn(context.Background(), runEpic, seq, free, w.runner.now()); err != nil {
 		w.t.Fatalf("FreeTurn %d: %v", seq, err)
 	}

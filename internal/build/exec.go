@@ -115,9 +115,8 @@ func (r *Runner) startRun(ctx context.Context, epic store.EpicRow, view View, ac
 }
 
 // startUnit starts the step action names and records its id as the build's step. An orchestrate unit records nothing,
-// since its build's step is the implementer step it decides, and its own step is found by its derived id. A start the
-// cap refuses changes nothing, so the next pass retries it. A role error parks the task held parked. Any other start
-// error is handled as DecideStartError decides.
+// since its build's step is the implementer step it decides, and its own step is found by its derived id. A role error
+// parks the task held parked. Any other start error is handled as DecideStartError decides.
 func (r *Runner) startUnit(ctx context.Context, epic store.EpicRow, view View, action Action) bool {
 	seq, from := view.Task.Seq, view.Task.Build
 	id, err := r.startStep(ctx, epic, view, action)
@@ -129,8 +128,6 @@ func (r *Runner) startUnit(ctx context.Context, epic store.EpicRow, view View, a
 		next := from
 		next.Step = id
 		return r.written(ctx, epic.ID, seq, "record step", r.store.SetTaskBuild(ctx, epic.ID, seq, from, next))
-	case errors.Is(err, enginehost.ErrCapReached):
-		return false
 	case errors.As(err, &roleErr):
 		next := from
 		next.Held = HeldParked

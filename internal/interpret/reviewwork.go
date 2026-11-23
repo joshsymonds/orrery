@@ -2,7 +2,6 @@ package interpret
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -70,8 +69,7 @@ func storedBaseOf(epic store.EpicRow) (string, error) {
 }
 
 // startReviewUnits starts each unit act asks for under its id, labeled with the epic and the path of act's run, in the
-// order of the units. A start the step cap refuses ends the pass's starts with no error, and the next pass starts the
-// rest. Any other start error is returned, and the units after it wait for a later pass.
+// order of the units. A start error is returned, and the units after it wait for a later pass.
 func (r *Runner) startReviewUnits(ctx context.Context, epic store.EpicRow, act Action) error {
 	for _, unit := range act.Units {
 		start, err := r.reviewUnitStart(ctx, epic, act, unit)
@@ -80,9 +78,6 @@ func (r *Runner) startReviewUnits(ctx context.Context, epic store.EpicRow, act A
 		}
 		start.ID, start.Epic, start.Task = unit.ID, epic.ID, act.Path
 		if _, err = r.steps.Start(ctx, start); err != nil {
-			if errors.Is(err, enginehost.ErrCapReached) {
-				return nil
-			}
 			return fmt.Errorf("start step %s: %w", unit.ID, err)
 		}
 	}

@@ -67,7 +67,7 @@ func (s *Store) SetContextAccount(ctx context.Context, context, account string) 
 // Routes returns the route registry: its default context, its seats and its contexts, the seats and the contexts in id
 // order. It reads them in one read transaction. An empty store gives the zero Registry.
 func (s *Store) Routes(ctx context.Context) (llmroutes.Registry, error) {
-	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	tx, err := s.read.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
 	if err != nil {
 		return llmroutes.Registry{}, fmt.Errorf("begin routes read: %w", err)
 	}

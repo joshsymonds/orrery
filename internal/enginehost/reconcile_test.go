@@ -67,7 +67,6 @@ func newReconcileManager(t *testing.T, s Store, writer *Writer, sink NoticeSink)
 		Shell:    sh,
 		Claude:   fakeClaudePath(t),
 		Environ:  []string{"PATH=" + os.Getenv("PATH"), "HOME=" + t.TempDir()},
-		Cap:      1,
 		Writer:   writer,
 		Now:      fixedClock,
 		Notifier: sink,

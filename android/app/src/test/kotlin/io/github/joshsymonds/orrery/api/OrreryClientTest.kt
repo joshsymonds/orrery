@@ -529,14 +529,14 @@ class OrreryClientTest {
     @Test
     fun sayResourceExhaustedSurfacesCallExceptionCarryingCode() {
         FakeOrreryServer().use { server ->
-            server.fail(CONTROL_SAY, Code.RESOURCE_EXHAUSTED, "cap reached")
+            server.fail(CONTROL_SAY, Code.RESOURCE_EXHAUSTED, "request body over 1 MiB")
 
             val error = assertThrows(OrreryCallException::class.java) {
                 OrreryClient(server.baseUrl).say("session-1", "echo hi", "prompt-1")
             }
 
             assertEquals(Code.RESOURCE_EXHAUSTED, error.code)
-            assertEquals("cap reached", error.message)
+            assertEquals("request body over 1 MiB", error.message)
         }
     }
 
@@ -580,14 +580,14 @@ class OrreryClientTest {
     @Test
     fun startServerErrorSurfacesCallExceptionCarryingCodeAndMessage() {
         FakeOrreryServer().use { server ->
-            server.fail(CONTROL_START, Code.RESOURCE_EXHAUSTED, "cap reached")
+            server.fail(CONTROL_START, Code.RESOURCE_EXHAUSTED, "request body over 1 MiB")
 
             val error = assertThrows(OrreryCallException::class.java) {
                 OrreryClient(server.baseUrl).start("/home/user/project", "echo hi", SESSION_ID)
             }
 
             assertEquals(Code.RESOURCE_EXHAUSTED, error.code)
-            assertEquals("cap reached", error.message)
+            assertEquals("request body over 1 MiB", error.message)
         }
     }
 

@@ -123,7 +123,7 @@ func (droppingApplier) ApplyEngine(_ context.Context, _ []store.EngineOp, _ time
 	return &store.EngineOpError{Index: 0, Err: store.ErrNoEngineSession}
 }
 
-// newNoticeManager returns a manager with a cap of one session, like newTestManager, that runs the claude at claude and
+// newNoticeManager returns a manager like newTestManager that runs the claude at claude and
 // sends its notices to sink through Config.Notifier.
 func newNoticeManager(t *testing.T, claude string, sink NoticeSink) (*Manager, string) {
 	t.Helper()
@@ -138,7 +138,6 @@ func newNoticeManager(t *testing.T, claude string, sink NoticeSink) (*Manager, s
 		Shell:    sh,
 		Claude:   claude,
 		Environ:  []string{"PATH=" + os.Getenv("PATH"), "HOME=" + t.TempDir()},
-		Cap:      1,
 		Writer:   writer,
 		Now:      fixedClock,
 		Notifier: sink,

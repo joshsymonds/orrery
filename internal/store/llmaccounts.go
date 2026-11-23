@@ -127,7 +127,7 @@ func (s *Store) RemoveAccount(ctx context.Context, id string) error {
 
 // Accounts returns every account, oldest first and ties by id. It never returns an account's token.
 func (s *Store) Accounts(ctx context.Context) ([]Account, error) {
-	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	tx, err := s.read.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
 	if err != nil {
 		return nil, fmt.Errorf("begin accounts read: %w", err)
 	}

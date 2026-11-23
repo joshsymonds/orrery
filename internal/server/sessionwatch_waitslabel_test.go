@@ -64,7 +64,6 @@ func startWaitsRun(t *testing.T, prompt string) waitsRun {
 		Shell:    sh,
 		Claude:   claude,
 		Environ:  []string{"PATH=" + os.Getenv("PATH"), "HOME=" + t.TempDir()},
-		Cap:      1,
 		Writer:   writer,
 		Now:      speakFixedClock,
 		Notifier: sink,

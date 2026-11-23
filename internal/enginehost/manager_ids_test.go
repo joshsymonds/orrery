@@ -54,7 +54,7 @@ func fakeStdinUserLines(t *testing.T, dir string) int {
 // at offset 0, and the prompt stored with its write id. Then the turn runs and its prompt reaches the fake once.
 func TestStartTracksRowAtZeroAndStoresPromptWithItsWriteID(t *testing.T) {
 	t.Parallel()
-	m, path := newTestManager(t, 1, fakeClaudePath(t))
+	m, path := newTestManager(t, fakeClaudePath(t))
 	s := openTestStore(t, path)
 	dir := t.TempDir()
 
@@ -91,7 +91,7 @@ func TestStartTracksRowAtZeroAndStoresPromptWithItsWriteID(t *testing.T) {
 
 func TestSayStoresEachPromptWithItsOwnWriteID(t *testing.T) {
 	t.Parallel()
-	m, path := newTestManager(t, 1, fakeClaudePath(t))
+	m, path := newTestManager(t, fakeClaudePath(t))
 	s := openTestStore(t, path)
 	dir := t.TempDir()
 
@@ -124,7 +124,7 @@ func TestSayStoresEachPromptWithItsOwnWriteID(t *testing.T) {
 
 func TestStartStepStoresPromptWithItsWriteIDAndSendsItOnce(t *testing.T) {
 	t.Parallel()
-	m, path := newStepManager(t, 1, fakeClaudePath(t), &fakeSink{})
+	m, path := newStepManager(t, fakeClaudePath(t), &fakeSink{})
 	s := openTestStore(t, path)
 	dir := t.TempDir()
 

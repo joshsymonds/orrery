@@ -1,6 +1,7 @@
 package enginehost
 
 import (
+	"fmt"
 	"slices"
 	"testing"
 
@@ -136,9 +137,9 @@ func TestCreateEpic_ProjectReleaseSteps_CopiedStepWarnsAndIsStored(t *testing.T)
 	client := newEpicsClient(t, startEpicServer(t, st))
 	repo := stepGitTestRepo(t)
 	stepGitTestCommit(t, repo, map[string]string{".orrery/project.toml": "[release]\n" +
-		"then = \"Synthetic merge line.\"\n\n" +
+		"then = \"Synthetic tag line.\"\n\n" +
 		"[[release.steps]]\n" +
-		"step = \"Merge the synthetic release candidate into main.\"\n" +
+		"step = \"Tag v0.86.3 at the synthetic release candidate.\"\n" +
 		"target = \"Synthetic target.\"\n" +
 		"undo = \"Synthetic undo.\"\n"})
 	req := noReleaseEpicCreate(repo)
@@ -148,17 +149,17 @@ func TestCreateEpic_ProjectReleaseSteps_CopiedStepWarnsAndIsStored(t *testing.T)
 	if err != nil {
 		t.Fatalf("CreateEpic: %v", err)
 	}
-	wantWarnings := []string{"release_steps[0].step: " + epicReasonReleaseMerge}
+	wantWarnings := []string{"release_steps[0].step: " + fmt.Sprintf(epicReasonReleaseVersion, "v0.86.3")}
 	if got := created.Msg.GetWarnings(); !slices.Equal(got, wantWarnings) {
 		t.Fatalf("CreateEpic warnings = %q, want %q", got, wantWarnings)
 	}
 	want := &v1.EpicContract{
 		ReleaseSteps: []*v1.EpicReleaseStep{{
-			Step:   "Merge the synthetic release candidate into main.",
+			Step:   "Tag v0.86.3 at the synthetic release candidate.",
 			Target: "Synthetic target.",
 			Undo:   "Synthetic undo.",
 		}},
-		ReleaseThen: "Synthetic merge line.",
+		ReleaseThen: "Synthetic tag line.",
 	}
 	if got := releaseOf(getEpicOK(t, client).GetContract()); !proto.Equal(got, want) {
 		t.Fatalf("GetEpic release = %v, want %v", got, want)

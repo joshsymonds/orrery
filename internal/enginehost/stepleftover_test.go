@@ -152,7 +152,7 @@ func awaitStepEnd(t *testing.T, steps *Steps, id string) store.StepRow {
 // background agent is: the turn end is handed to the observer at once, since the step does not wait on a shell task.
 func TestStepTurnWithOnlyAShellTaskListedIsHanded(t *testing.T) {
 	t.Parallel()
-	m, _, _ := newHandOffManager(t, 1, &fakeSink{})
+	m, _, _ := newHandOffManager(t, &fakeSink{})
 	obs := newSignalObserver()
 	if err := m.StartStep(t.Context(), StepSession{
 		ID: stepA, Dir: t.TempDir(), Prompt: "BACKGROUND", Agent: "reviewer", Observer: obs,

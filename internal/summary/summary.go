@@ -27,7 +27,6 @@ const DefaultTimeout = 60 * time.Second
 // Scheduling limits for Request.
 const (
 	Throttle   = 60 * time.Second // minimum gap between runs for one pane on working events
-	MaxRuns    = 2                // summary runs in flight at once
 	LabelEvery = 4                // exchanges between label refreshes
 )
 
@@ -234,7 +233,7 @@ func (s *Summarizer) Forget(pane string) {
 
 // Request triggers a summary for req.PaneID and returns without waiting for the run. A working request is dropped
 // when the pane's last run started less than Throttle ago. Otherwise the request starts at once when its pane has
-// no run in flight and fewer than MaxRuns runs are in flight; if not, it replaces the pane's waiting request.
+// no run in flight; if it has one, the request replaces the pane's waiting request.
 // ctx bounds the runs that Request starts, including the waiting requests they start in turn.
 //
 // The returned channel closes once the request has settled: its run, or the run of a later request that replaced it,
@@ -252,7 +251,7 @@ func (s *Summarizer) Request(ctx context.Context, req Request) <-chan struct{} {
 			return settled
 		}
 	}
-	if s.running[req.PaneID] || len(s.running) >= MaxRuns {
+	if s.running[req.PaneID] {
 		p := s.waiting[req.PaneID]
 		s.waiting[req.PaneID] = pending{req: req, settled: append(p.settled, settled)}
 		return settled
@@ -289,7 +288,7 @@ func (s *Summarizer) startLocked(ctx context.Context, req Request, settled []cha
 }
 
 // execute runs req, whose pane had Forget count epoch when req started, and closes settled once the run has written
-// or failed. It then starts each waiting request whose pane is free while a run slot is open.
+// or failed. It then starts the waiting request of its pane, if there is one.
 func (s *Summarizer) execute(ctx context.Context, req Request, epoch int, settled []chan struct{}) {
 	defer s.runs.Done()
 	s.summarizeRequest(ctx, req, epoch)
@@ -298,14 +297,8 @@ func (s *Summarizer) execute(ctx context.Context, req Request, epoch int, settle
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	delete(s.running, req.PaneID)
-	for pane, next := range s.waiting {
-		if len(s.running) >= MaxRuns {
-			break
-		}
-		if s.running[pane] {
-			continue
-		}
-		delete(s.waiting, pane)
+	if next, ok := s.waiting[req.PaneID]; ok {
+		delete(s.waiting, req.PaneID)
 		s.startLocked(ctx, next.req, next.settled, s.now())
 	}
 }

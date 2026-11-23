@@ -85,9 +85,6 @@ const (
 // rateLimitRejected is the status of a rate limit that refused a session's request.
 const rateLimitRejected = "rejected"
 
-// stepCapFull is the reason a turn is freed with when the step cap refuses its step.
-const stepCapFull = "step cap full"
-
 // taskOpen is the status of a task that is not yet accepted or failed.
 const taskOpen = "open"
 
@@ -596,13 +593,10 @@ func endedRow(rows []store.StepRow) (store.StepRow, bool) {
 	return store.StepRow{}, false
 }
 
-// refuse settles turn seq of epic whose planner step did not start, by the error of its start. A refusal for the step
-// cap frees the turn to rerun. An agent that does not resolve, or is not a valid agent name, frees the turn and parks
+// refuse settles turn seq of epic whose planner step did not start, by the error of its start. An agent that does not resolve, or is not a valid agent name, frees the turn and parks
 // the epic with the error text. Any other error fails the turn with its text.
 func (r *Runner) refuse(ctx context.Context, epic string, seq int64, err error) {
 	switch {
-	case errors.Is(err, enginehost.ErrCapReached):
-		r.release(ctx, epic, seq, store.TurnFree{Reason: stepCapFull})
 	case errors.Is(err, agents.ErrUnresolved), errors.Is(err, enginehost.ErrBadAgent):
 		r.release(ctx, epic, seq, store.TurnFree{Reason: err.Error(), Park: err.Error()})
 	default:

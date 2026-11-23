@@ -46,9 +46,7 @@ func startNoticesHost(
 ) (*sessionHost, string) {
 	t.Helper()
 	opts := options{
-		socket:     filepath.Join(t.TempDir(), "orreryd.sock"),
-		sessionCap: defaultSessionCap,
-		stepCap:    defaultStepCap,
+		socket: filepath.Join(t.TempDir(), "orreryd.sock"),
 	}
 	host, err := startSessions(
 		t.Context(), opts, noticesWiringHost, st, router, notices, slog.New(slog.DiscardHandler), getenv,

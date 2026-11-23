@@ -40,8 +40,6 @@ func startHousekeepHost(t *testing.T, st *store.Store, getenv func(string) strin
 		socket:       filepath.Join(t.TempDir(), "orreryd.sock"),
 		claude:       claude,
 		sessionShell: eventWakeShell(t),
-		sessionCap:   defaultSessionCap,
-		stepCap:      defaultStepCap,
 	}
 	host, err := startSessions(
 		t.Context(), opts, housekeepWakeHost, st, newRecordingRouter(), nil, slog.New(slog.DiscardHandler), getenv,

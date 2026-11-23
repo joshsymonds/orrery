@@ -18,8 +18,8 @@ func schemaKey(line string) string {
 	return line
 }
 
-// TestAccountsMigrationAddsOnlyTables checks that 00095_llm_accounts.sql creates the five tables of the LLM accounts
-// and routes and changes no table that exists at version 94. It reads the schema of a store at version 94, then of
+// TestAccountsMigrationAddsOnlyTables checks that 00096_llm_accounts.sql creates the five tables of the LLM accounts
+// and routes and changes no table that exists at version 95. It reads the schema of a store at version 95, then of
 // the same store after Open migrates it: every line of the first is in the second unchanged, and the lines that are
 // new are exactly the five tables and their columns.
 func TestAccountsMigrationAddsOnlyTables(t *testing.T) {
@@ -27,20 +27,20 @@ func TestAccountsMigrationAddsOnlyTables(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "orrery.db")
 
-	fixture := openStoreAtVersion(t, path, 94)
+	fixture := openStoreAtVersion(t, path, 95)
 	before := schemaLines(t, fixture)
 	closeDB(t, fixture)
 
 	s, err := Open(ctx, path, noSync())
 	if err != nil {
-		t.Fatalf("Open at version 94: %v", err)
+		t.Fatalf("Open at version 95: %v", err)
 	}
 	defer s.Close()
 	after := schemaLines(t, s.db.DB)
 
 	for _, line := range before {
 		if !slices.Contains(after, line) {
-			t.Errorf("line at version 94 is missing or changed after Open: %s", line)
+			t.Errorf("line at version 95 is missing or changed after Open: %s", line)
 		}
 	}
 
@@ -94,6 +94,6 @@ func TestAccountsMigrationAddsOnlyTables(t *testing.T) {
 	}
 	slices.Sort(want)
 	if !slices.Equal(added, want) {
-		t.Fatalf("lines 00095 adds differ from the five tables and their columns:\n%s", lineDiff(added, want))
+		t.Fatalf("lines 00096 adds differ from the five tables and their columns:\n%s", lineDiff(added, want))
 	}
 }

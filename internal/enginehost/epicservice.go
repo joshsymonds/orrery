@@ -337,16 +337,13 @@ func (s *epicService) steererOf(ctx context.Context, row store.EpicRow, conversa
 }
 
 // startSteering starts the steering session of row through the steering sessions and returns its id. With no steering
-// sessions, or a start the session cap refuses or a session that fails to spawn, it returns the refusal and no id.
+// sessions, or a session that fails to start or spawn, it returns the refusal and no id.
 func (s *epicService) startSteering(ctx context.Context, row store.EpicRow) (string, error) {
 	if s.steering == nil {
 		return "", refuseEpic(connect.CodeUnavailable, steeringUnavailableMessage)
 	}
 	id, err := s.steering.Start(ctx, row)
-	switch {
-	case errors.Is(err, ErrCapReached):
-		return "", refuseEpic(connect.CodeResourceExhausted, err.Error())
-	case err != nil:
+	if err != nil {
 		return "", refuseEpic(connect.CodeUnavailable, err.Error())
 	}
 	return id, nil
@@ -646,8 +643,7 @@ func (s *epicService) PauseEpic(
 }
 
 // ResumeEpic clears the pause of the epic when it is paused, resumes each limited step of the epic that has a task, and
-// returns the epic read back with the steps resumed and the steps a full step cap left limited. An epic that is not
-// paused and holds no such step is refused.
+// returns the epic read back with the steps resumed. An epic that is not paused and holds no such step is refused.
 func (s *epicService) ResumeEpic(
 	ctx context.Context,
 	req *connect.Request[v1.ResumeEpicRequest],
@@ -677,16 +673,14 @@ func (s *epicService) ResumeEpic(
 	if err = s.recordResume(ctx, id, head.Paused, len(limited) > 0, maker); err != nil {
 		return nil, epicControlError(id, err)
 	}
-	var resumed, stillLimited []string
+	var resumed []string
 	for _, row := range limited {
 		err = s.steps.Resume(ctx, row.ID)
 		switch {
 		case err == nil:
 			resumed = append(resumed, row.ID)
-		case errors.Is(err, ErrCapReached):
-			stillLimited = append(stillLimited, row.ID)
 		case errors.Is(err, ErrStepNotLimited), errors.Is(err, ErrStepNotRunning):
-			// The step was resumed or ended after the list, so it is neither resumed nor still limited.
+			// The step was resumed or ended after the list, so it is not resumed here.
 		default:
 			return nil, epicStoreError(err)
 		}
@@ -696,9 +690,8 @@ func (s *epicService) ResumeEpic(
 		return nil, epicStoreError(err)
 	}
 	return connect.NewResponse(&v1.ResumeEpicResponse{
-		Epic:         message,
-		Resumed:      resumed,
-		StillLimited: stillLimited,
+		Epic:    message,
+		Resumed: resumed,
 	}), nil
 }
 

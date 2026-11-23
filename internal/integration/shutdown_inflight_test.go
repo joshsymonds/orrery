@@ -30,8 +30,7 @@ const (
 // append a line with their pid and argv, its newlines made spaces, to print.pids beside it and then become a sleep that
 // only a signal ends, as a slow real run is when systemd stops orreryd. Every other run, a session's and a session
 // title's or headline's among them, is the engine's fake claude, which the script's one argument names: a title or
-// headline run held too would take the engine's haiku call slots the step judge needs, and its schema would pass for
-// a judge's.
+// headline run held too has a schema that would pass for a judge's.
 const printHeldScript = `#!/bin/sh
 D=$(dirname "$0")
 case " $* " in

@@ -34,20 +34,19 @@ var errGateNoCommand = errors.New("enginehost: gate names no command")
 // gateRun describes one gate: the command, where it runs, how long it may run, and the complete environment it runs in.
 // Name is the session the gate's holder serves, and a fresh session when empty. StateDir is the state directory the holder
 // directory lives under, and a directory under os.TempDir when empty. Scope, when set, is the systemd-run scope the holder
-// runs in, and ScopeMemory its memory cap in bytes, zero for holder.DefaultScopeMemory. Started, when set, is called once the grant holds, with the grant's id and the holder directory, before the gate
+// runs in. Started, when set, is called once the grant holds, with the grant's id and the holder directory, before the gate
 // launches; its error releases the grant and launches nothing. Tail is the number of newest bytes the gate keeps of each
 // of its stdout and stderr, and zero keeps gateTailDefault.
 type gateRun struct {
-	Argv        []string
-	Dir         string
-	Limit       time.Duration
-	Environ     []string
-	Name        string
-	StateDir    string
-	Scope       string
-	ScopeMemory int64
-	Started     func(ctx context.Context, grantID, dir string) error
-	Tail        int
+	Argv     []string
+	Dir      string
+	Limit    time.Duration
+	Environ  []string
+	Name     string
+	StateDir string
+	Scope    string
+	Started  func(ctx context.Context, grantID, dir string) error
+	Tail     int
 	// launched is a test seam: when set, it runs once Launch has attached the gate's holder, just before the gate is
 	// watched, so a test acts on the watched gate. Production leaves it nil.
 	launched func()
@@ -287,10 +286,9 @@ func gateHeld(
 	})
 	defer stopLaunch()
 	process, err := holder.Launch(launchCtx, holder.LaunchConfig{
-		Scope:       run.Scope,
-		ScopeMemory: run.ScopeMemory,
-		StateDir:    plan.stateDir,
-		Session:     plan.session,
+		Scope:    run.Scope,
+		StateDir: plan.stateDir,
+		Session:  plan.session,
 		Child: proc.Config{
 			Path: plan.program, Args: run.Argv[1:], Dir: run.Dir, Env: gateEnviron(run.Environ),
 		},

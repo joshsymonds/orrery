@@ -15,7 +15,7 @@ import (
 // delivers the pending event.
 func TestOwnerInterruptQuietsCallerEventsUntilHisSay(t *testing.T) {
 	t.Parallel()
-	m, path := newTestManager(t, 1, fakeClaudePath(t))
+	m, path := newTestManager(t, fakeClaudePath(t))
 	s := storeOf(t, m)
 	id, err := m.Start(t.Context(), StartRequest{Dir: t.TempDir(), Prompt: "HANG"})
 	if err != nil {
@@ -75,7 +75,7 @@ func TestOwnerInterruptQuietsCallerEventsUntilHisSay(t *testing.T) {
 // Say resumes the session and runs as a turn, and once it ends the pass delivers the pending event.
 func TestOwnerInterruptQuietOutlivesIdleStop(t *testing.T) {
 	t.Parallel()
-	m, path, clock := newIdleManager(t, 1)
+	m, path, clock := newIdleManager(t)
 	s := storeOf(t, m)
 	dir := t.TempDir()
 	id, err := m.Start(t.Context(), StartRequest{Dir: dir, Prompt: "HANG"})
@@ -146,7 +146,7 @@ func TestOwnerInterruptQuietOutlivesIdleStop(t *testing.T) {
 // step-end pass delivers a pending event.
 func TestOwnerPreemptLeavesCallerEventsOpen(t *testing.T) {
 	t.Parallel()
-	m, path := newTestManager(t, 1, fakeClaudePath(t))
+	m, path := newTestManager(t, fakeClaudePath(t))
 	s := storeOf(t, m)
 	dir := t.TempDir()
 	id, err := m.Start(t.Context(), StartRequest{Dir: dir, Prompt: "start"})

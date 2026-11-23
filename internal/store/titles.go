@@ -19,7 +19,7 @@ type UntitledSession struct {
 // and has a prompt. It returns false, and no error, when it is not: a titled session, a session with no prompt, a step
 // or pane session, and an unknown id.
 func (s *Store) UntitledSession(ctx context.Context, id string) (UntitledSession, bool, error) {
-	row, err := sqlcgen.New(s.db).GetUntitledEngineSession(ctx, id)
+	row, err := sqlcgen.New(s.read).GetUntitledEngineSession(ctx, id)
 	if errors.Is(err, sql.ErrNoRows) {
 		return UntitledSession{}, false, nil
 	}
@@ -31,7 +31,7 @@ func (s *Store) UntitledSession(ctx context.Context, id string) (UntitledSession
 
 // UntitledSessions returns the engine sessions with no stored title that have an engine_prompt event, in id order.
 func (s *Store) UntitledSessions(ctx context.Context) ([]UntitledSession, error) {
-	rows, err := sqlcgen.New(s.db).ListUntitledEngineSessions(ctx)
+	rows, err := sqlcgen.New(s.read).ListUntitledEngineSessions(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("list untitled engine sessions: %w", err)
 	}

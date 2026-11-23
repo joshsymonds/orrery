@@ -106,7 +106,7 @@ func (s *Store) ReadAllNoticeHistory(ctx context.Context) error {
 // NoticeHistory returns the rows whose time is at or after since, newest first: by time descending, then by id
 // descending.
 func (s *Store) NoticeHistory(ctx context.Context, since int64) ([]NoticeHistoryRow, error) {
-	rows, err := sqlcgen.New(s.db).ListNoticeHistorySince(ctx, since)
+	rows, err := sqlcgen.New(s.read).ListNoticeHistorySince(ctx, since)
 	if err != nil {
 		return nil, fmt.Errorf("list notice history since %d: %w", since, err)
 	}
@@ -127,7 +127,7 @@ func (s *Store) NoticeHistory(ctx context.Context, since int64) ([]NoticeHistory
 // UnreadNoticeHistoryKeys returns each key that has an unread row, once, ordered by pane, session, epic, limit and
 // alert.
 func (s *Store) UnreadNoticeHistoryKeys(ctx context.Context) ([]NoticeHistoryKey, error) {
-	rows, err := sqlcgen.New(s.db).ListUnreadNoticeHistoryKeys(ctx)
+	rows, err := sqlcgen.New(s.read).ListUnreadNoticeHistoryKeys(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("list unread notice history keys: %w", err)
 	}

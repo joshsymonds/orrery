@@ -101,8 +101,7 @@ const apiErrorRateLimit = "rate_limit"
 // runs holding the members of grant that pools grants, and its check records gateName and gateSource; a nil pools fails
 // the gate. countLines counts the lines a done return's commit changes from start in dir, and newStepRun makes it
 // stepGitLines when nil. stateDir and scope are the state directory and the systemd-run scope the gate's holder runs
-// under, and
-// scopeMemory is the scope's memory cap in bytes, zero for holder.DefaultScopeMemory. A read-only
+// under. A read-only
 // step runs in dir too, and each of its returns is compared with checkout, the state its checkout was in at its start; a
 // moved checkout ends it checks_failed. A read-only step's done return passes on its schema check alone. A nil cleanup
 // has nothing to run. The watch reads now as its clock, time.Now when now is nil, and allows the step modelLimit of model
@@ -134,23 +133,22 @@ type stepRunConfig struct {
 	publish     func(ctx context.Context, id string)
 	wake        func()
 
-	writing     bool
-	dir         string
-	checkout    stepCheckout
-	start       string
-	owned       []string
-	unowned     bool
-	countLines  func(ctx context.Context, dir, start, commit string) (store.StepLines, error)
-	gate        []string
-	gateLimit   time.Duration
-	environ     []string
-	pools       PoolCommands
-	grant       grants.Request
-	gateName    string
-	gateSource  string
-	stateDir    string
-	scope       string
-	scopeMemory int64
+	writing    bool
+	dir        string
+	checkout   stepCheckout
+	start      string
+	owned      []string
+	unowned    bool
+	countLines func(ctx context.Context, dir, start, commit string) (store.StepLines, error)
+	gate       []string
+	gateLimit  time.Duration
+	environ    []string
+	pools      PoolCommands
+	grant      grants.Request
+	gateName   string
+	gateSource string
+	stateDir   string
+	scope      string
 
 	// restore, when set, is the state a re-adopted step resumes from. run takes it up before it takes any return or
 	// exit.
@@ -595,7 +593,7 @@ func (r *stepRun) turnEnded(ctx context.Context, ended session.TurnEnded) bool {
 // limitTurn checks whether the turn that has just ended ended on a usage limit: the rate limit the store holds for the
 // step, or the rate limit error the session handed the run since the previous turn end. A limited turn drops the pending
 // nudges and the hold, stores the loop state with its limit, publishes the held step, and releases the step's process,
-// so the step stays open and its slot is free. It reports whether the turn was limited and, when it was, whether the run
+// so the step stays open with no process running. It reports whether the turn was limited and, when it was, whether the run
 // goes on. A failed read, store or release ends the step failed.
 func (r *stepRun) limitTurn(ctx context.Context) (limited, goOn bool) {
 	errored := r.rateLimit.Swap(false)
@@ -1075,7 +1073,7 @@ func (r *stepRun) gateAttemptOf(round int) (int, error) {
 func (r *stepRun) runGateAttempt(ctx context.Context, round, attempt int, prev string) (gateResult, error) {
 	run := gateRun{
 		Argv: r.gate, Dir: r.dir, Limit: r.gateLimit, Environ: r.environ,
-		Name: stepGateSession(r.id, attempt), StateDir: r.stateDir, Scope: r.scope, ScopeMemory: r.scopeMemory,
+		Name: stepGateSession(r.id, attempt), StateDir: r.stateDir, Scope: r.scope,
 		Tail: stepGateLogTail,
 	}
 	if restored := r.resumeGate; restored.Holder != "" && restored.Round == round {
