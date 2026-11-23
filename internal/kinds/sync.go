@@ -99,8 +99,40 @@ func SyncFailure(rows Rows) (store.NodeRun, SyncResult, bool) {
 
 // SyncGap returns the gap of SyncFailure's run, keyed SyncGapKey, with a reason naming origin's commit, the stored base
 // and the run's failure, and true when SyncFailure found a failed run. It returns false otherwise.
-func SyncGap(_ Rows) (Gap, bool) {
-	return Gap{}, false
+func SyncGap(rows Rows) (Gap, bool) {
+	run, result, failed := SyncFailure(rows)
+	if !failed {
+		return Gap{}, false
+	}
+	return syncGapOf(run, result), true
+}
+
+// syncGapOf returns the gap the failed sync run leaves, whose result is result: keyed SyncGapKey, and with a reason
+// whose first line names origin's commit and the stored base, then the lines of the run's output after its first.
+func syncGapOf(run store.NodeRun, result SyncResult) Gap {
+	reason := fmt.Sprintf("the sync of origin's commit %s into the stored base %s failed", result.Origin, result.Base)
+	if _, rest, found := strings.Cut(run.Output, "\n"); found && rest != "" {
+		reason += "\n" + rest
+	}
+	return Gap{Key: SyncGapKey(result), Reason: reason}
+}
+
+// syncWake returns the action that re-wakes the planner of a plan whose only hold is rows' live sync gap, and true when
+// there is one. The gap is SyncGap's. The cause is SyncCause of the failed sync's result, with two more causes: a line
+// that says the sync is still failed and this is re-wake n of store.GapTurnBound, where n is one more than the turns
+// the gap was given, and the run's output.
+func syncWake(rows Rows) (Action, bool) {
+	run, result, failed := SyncFailure(rows)
+	if !failed {
+		return Action{}, false
+	}
+	gap := syncGapOf(run, result)
+	if len(liveGaps([]Gap{gap}, rows)) == 0 {
+		return Action{}, false
+	}
+	n := GapTurnCount(gap.Key, rows.GapTurns) + 1
+	line := fmt.Sprintf("the sync is still failed: re-wake %d of %d", n, store.GapTurnBound)
+	return Action{Kind: ActSyncWake, Gaps: []Gap{gap}, Cause: SyncCause(result, []string{line, run.Output})}, true
 }
 
 // ParseSyncResult decodes the result of a sync run. A result that is not a JSON object is an error.

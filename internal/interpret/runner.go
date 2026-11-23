@@ -66,6 +66,7 @@ type Store interface {
 	) error
 	EndSync(ctx context.Context, epic string, end store.SyncEnd, at time.Time) error
 	RecordOriginRead(ctx context.Context, epic string, read store.OriginRead) error
+	RewakeSync(ctx context.Context, epic string, trigger store.NodeTrigger, turn store.GapTurn, at time.Time) error
 	ParkEpicWaking(ctx context.Context, epic, reason string, trigger store.NodeTrigger, at time.Time) error
 	EndPlanBuilt(ctx context.Context, epic string, ends []store.NodeEnd, at time.Time) error
 	PrepareNode(ctx context.Context, epic, path string, attempt int64, revision, refs string) error
@@ -524,7 +525,7 @@ func (r *Runner) carry(ctx context.Context, epic store.EpicRow, act Action) erro
 		err = r.store.ParkEpicWaking(ctx, epic.ID, act.Reason, *act.Trigger, at)
 	case ActBatch:
 		err = r.endBatch(ctx, epic, act, at)
-	case ActSync, ActReadOrigin:
+	case ActSync, ActReadOrigin, ActRewakeSync:
 		err = r.carrySync(ctx, epic, act, at)
 	case ActHold, ActReview, ActClosure, ActConclude, ActGapRound, ActRerun:
 		return r.carryReview(ctx, epic.ID, act, at)
@@ -563,11 +564,17 @@ func (r *Runner) moveRun(ctx context.Context, epic string, act Action, at time.T
 	return nil
 }
 
-// carrySync carries out one sync action of epic at at: the end of a sync run, or the read of origin's main a sync is
-// due to start from.
+// carrySync carries out one sync action of epic at at: the end of a sync run, the read of origin's main a sync is due
+// to start from, or the re-wake of the planner for a live sync gap.
 func (r *Runner) carrySync(ctx context.Context, epic store.EpicRow, act Action, at time.Time) error {
 	if act.Kind == ActReadOrigin {
 		return r.readOrigin(ctx, epic, at)
+	}
+	if act.Kind == ActRewakeSync {
+		if err := r.store.RewakeSync(ctx, epic.ID, *act.Trigger, act.GapTurns[0], at); err != nil {
+			return fmt.Errorf("re-wake the planner for sync gap %s: %w", act.GapTurns[0].Gap, err)
+		}
+		return nil
 	}
 	if err := r.store.EndSync(ctx, epic.ID, store.SyncEnd{
 		Path: act.Path, Attempt: act.Attempt, Outcome: act.Outcome, Output: act.Output, Tell: act.Reason,
