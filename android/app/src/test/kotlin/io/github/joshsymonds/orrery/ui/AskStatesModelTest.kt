@@ -67,7 +67,6 @@ private val epic = EpicRow(
     live = true,
     runningSteps = emptyList(),
     endedSteps = 0,
-    problem = "",
     path = "/home/user/repo-a",
     phaseAt = NOW - 500,
 )

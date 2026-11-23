@@ -33,7 +33,6 @@ private fun epicRow(
     live = live,
     runningSteps = emptyList(),
     endedSteps = 0,
-    problem = "",
     phaseAt = NOW - 2940,
     parked = parked,
 )

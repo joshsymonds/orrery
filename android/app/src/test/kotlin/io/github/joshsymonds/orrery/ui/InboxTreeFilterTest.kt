@@ -84,7 +84,6 @@ class InboxTreeFilterTest {
         live = live,
         runningSteps = emptyList(),
         endedSteps = 0,
-        problem = "",
         archived = archived,
         steering = steering,
         path = "/home/user/repo",

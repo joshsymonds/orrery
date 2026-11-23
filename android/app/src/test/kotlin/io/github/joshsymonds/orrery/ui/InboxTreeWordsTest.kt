@@ -32,7 +32,6 @@ class InboxTreeWordsTest {
         live = live,
         runningSteps = emptyList(),
         endedSteps = 0,
-        problem = "",
         phaseAt = phaseAt,
         paused = paused,
         pauseSource = pauseSource,

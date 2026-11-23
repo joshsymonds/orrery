@@ -105,7 +105,6 @@ class OrreryClientEpicsTest {
         live = true,
         runningSteps = listOf(runningStepRow),
         endedSteps = 3,
-        problem = "efforts/1/state.json: does not parse",
         seen = 1700000500L,
     )
 
@@ -233,7 +232,7 @@ class OrreryClientEpicsTest {
 
             val epics = OrreryClient(server.baseUrl).epics()
 
-            assertEquals(listOf(epicRow.copy(waiting = true)), epics)
+            assertEquals(listOf(epicRow), epics)
             assertConnectRequest(EPICS_LIST, server.requests.single())
         }
     }
@@ -515,51 +514,19 @@ class OrreryClientEpicsTest {
     }
 
     @Test
-    fun recordEpicMapsNoRequirementsAndItsSource() {
+    fun epicWithNoRequirementsOrContractMapsEmptyAndNull() {
         FakeOrreryServer().use { server ->
             server.respond(
                 EPICS_GET,
                 EpicsGetResponse.newBuilder()
-                    .setEpic(epicProto.toBuilder().setSource("record"))
+                    .setEpic(epicProto)
                     .build(),
             )
 
             val detail = OrreryClient(server.baseUrl).epic("example-repo/example-epic")
 
             assertEquals(emptyList<EpicRequirementRow>(), detail?.requirements)
-            assertEquals("record", detail?.epic?.source)
             assertNull(detail?.contract)
-        }
-    }
-
-    @Test
-    fun epicsAndEpicMapEachEpicsSource() {
-        FakeOrreryServer().use { server ->
-            server.respond(
-                EPICS_LIST,
-                EpicsListResponse.newBuilder()
-                    .addEpics(epicProto.toBuilder().setSource("orreryd"))
-                    .addEpics(
-                        epicProto.toBuilder()
-                            .setId("example-repo/example-record")
-                            .setSlug("example-record")
-                            .setSource("record"),
-                    )
-                    .build(),
-            )
-            server.respond(
-                EPICS_GET,
-                EpicsGetResponse.newBuilder()
-                    .setEpic(epicProto.toBuilder().setSource("orreryd"))
-                    .build(),
-            )
-            val client = OrreryClient(server.baseUrl)
-
-            assertEquals(
-                listOf("orreryd", "record"),
-                client.epics().map { it.source },
-            )
-            assertEquals("orreryd", client.epic("example-repo/example-epic")?.epic?.source)
         }
     }
 

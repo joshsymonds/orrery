@@ -41,7 +41,6 @@ class OrreryClientInboxTest {
         live = true,
         runningSteps = emptyList(),
         endedSteps = 3,
-        problem = "efforts/1/state.json: does not parse",
         seen = 1700000500L,
     )
 

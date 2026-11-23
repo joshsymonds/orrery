@@ -18,7 +18,6 @@ private fun epic(id: String, slug: String, steering: String = "", live: Boolean 
     live = live,
     runningSteps = emptyList(),
     endedSteps = 0,
-    problem = "",
     steering = steering,
 )
 

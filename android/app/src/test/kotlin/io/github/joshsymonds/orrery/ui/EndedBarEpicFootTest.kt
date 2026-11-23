@@ -70,7 +70,7 @@ class EndedBarEpicFootTest {
     /** The steerings the foot reported through onSteered, in order. */
     private val steered = CopyOnWriteArrayList<String>()
 
-    private fun epicRow(steering: String, live: Boolean = true, source: String = "orreryd"): EpicRow = EpicRow(
+    private fun epicRow(steering: String, live: Boolean = true): EpicRow = EpicRow(
         id = EPIC,
         repository = REPO,
         slug = SLUG,
@@ -79,13 +79,11 @@ class EndedBarEpicFootTest {
         live = live,
         runningSteps = emptyList(),
         endedSteps = 0,
-        problem = "",
-        source = source,
         steering = steering,
     )
 
-    private fun detail(steering: String, live: Boolean = true, source: String = "orreryd"): EpicDetail = EpicDetail(
-        epic = epicRow(steering, live, source),
+    private fun detail(steering: String, live: Boolean = true): EpicDetail = EpicDetail(
+        epic = epicRow(steering, live),
         tasks = emptyList(),
         steps = emptyList(),
         repository = REPO,
@@ -175,9 +173,9 @@ class EndedBarEpicFootTest {
     }
 
     @Test
-    fun anEpicNoConversationCanTakeWithNoCommandDrawsNoMore() {
+    fun anEndedEpicNoConversationCanTakeWithNoCommandDrawsNoMore() {
         FakeOrreryServer().use { server ->
-            setFoot(server, detail(steering = "", source = "record"))
+            setFoot(server, detail(steering = "", live = false))
 
             composeRule.awaitExactlyOne(hasTestTag(NONE_TAG))
             assertFalse(nodeExists(MORE_TAG))
@@ -250,19 +248,6 @@ class EndedBarEpicFootTest {
     fun anEndedOrreryEpicWithNoSteererDrawsTheNoConversationLineAndNoBarOrButton() {
         FakeOrreryServer().use { server ->
             setFoot(server, detail(steering = "", live = false))
-
-            composeRule.awaitExactlyOne(hasTestTag(NONE_TAG))
-            assertFalse(nodeExists(BAR_TAG))
-            assertFalse(nodeExists(CONTINUE_TAG))
-            assertFalse(nodeExists(STEER_TAG))
-            assertFalse(nodeExists(TALK_TAG))
-        }
-    }
-
-    @Test
-    fun aRecordEpicWithNoSteererDrawsTheNoConversationLineAndNoBarOrButton() {
-        FakeOrreryServer().use { server ->
-            setFoot(server, detail(steering = "", source = "record"))
 
             composeRule.awaitExactlyOne(hasTestTag(NONE_TAG))
             assertFalse(nodeExists(BAR_TAG))

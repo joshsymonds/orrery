@@ -78,7 +78,6 @@ class AskNotNowTest {
         live = true,
         runningSteps = emptyList(),
         endedSteps = 0,
-        problem = "",
         path = "/home/user/example-repo",
         phaseAt = NOW - 60,
     )

@@ -527,14 +527,12 @@ data class StepRow(
 )
 
 /**
- * One epic, from the record root or orreryd's database. [runningSteps] are the epic's steps with no end yet, held ones
- * included. [waiting] is true for a live epic accepted and waiting to start. [source] is "orreryd" for an epic
- * orreryd's database holds, "record" for an epic read from records only. [phaseAt] is when the epic's phase was last set,
- * in unix seconds; 0 when unknown and for a record epic. [seen] is when the owner last saw the epic, in unix seconds, from
- * its latest seen call; 0 when the owner has not seen it. [archived] is true while the owner has archived the epic.
- * [steering] is the id of the conversation that steers the epic, empty when none; [path] is the absolute repository path,
- * empty for a record epic. [paused] and [pauseSource] say whether, and why, the epic is paused. [parked] is why the epic
- * is parked, empty when it is not. [openQuestions] counts the questions still open.
+ * One epic from orreryd. [runningSteps] are the epic's steps with no end yet, held ones included. [phaseAt] is when the
+ * epic's phase was last set, in unix seconds; 0 when unknown. [seen] is when the owner last saw the epic, in unix
+ * seconds, from its latest seen call; 0 when the owner has not seen it. [archived] is true while the owner has archived
+ * the epic. [steering] is the id of the conversation that steers the epic, empty when none; [path] is the absolute
+ * repository path. [paused] and [pauseSource] say whether, and why, the epic is paused. [parked] is why the epic is
+ * parked, empty when it is not. [openQuestions] counts the questions still open.
  */
 data class EpicRow(
     val id: String,
@@ -543,11 +541,8 @@ data class EpicRow(
     val outcome: String,
     val changed: Long,
     val live: Boolean,
-    val waiting: Boolean = false,
     val runningSteps: List<StepRow>,
     val endedSteps: Int,
-    val problem: String,
-    val source: String = "",
     val phaseAt: Long = 0L,
     val seen: Long = 0L,
     val archived: Boolean = false,
@@ -1794,11 +1789,8 @@ class OrreryClient(
             outcome = outcome,
             changed = changed,
             live = live,
-            waiting = waiting,
             runningSteps = runningStepsList.map { it.toStepRow() },
             endedSteps = endedSteps,
-            problem = problem,
-            source = source,
             phaseAt = phaseAt,
             seen = seen,
             archived = archived,

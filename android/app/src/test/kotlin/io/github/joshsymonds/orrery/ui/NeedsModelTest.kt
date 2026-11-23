@@ -19,7 +19,6 @@ private val alpha = EpicRow(
     live = true,
     runningSteps = emptyList(),
     endedSteps = 0,
-    problem = "",
 )
 
 private fun detail(

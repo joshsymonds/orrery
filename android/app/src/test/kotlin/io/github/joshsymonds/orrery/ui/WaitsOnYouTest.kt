@@ -68,7 +68,6 @@ class WaitsOnYouTest {
         live = true,
         runningSteps = emptyList(),
         endedSteps = 0,
-        problem = "",
         archived = false,
         steering = steering,
         path = "/home/user/repo",
