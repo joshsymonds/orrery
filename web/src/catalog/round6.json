@@ -164,6 +164,15 @@
       "Matches",
       "NoMatch"
     ],
+    "Gauge": [
+      "AsksYou",
+      "Building",
+      "EndedShort",
+      "NoTasks",
+      "Paused",
+      "Releasing",
+      "Shipped"
+    ],
     "HappeningList": [
       "Default",
       "WithTail"
