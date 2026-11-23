@@ -30,6 +30,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
+import io.github.joshsymonds.orrery.api.EpicDetail
 import io.github.joshsymonds.orrery.api.EpicRow
 import io.github.joshsymonds.orrery.api.Pane
 import io.github.joshsymonds.orrery.api.StepRow
@@ -194,18 +195,20 @@ private fun HungRow(hung: Hung, now: Long, onOpen: (String) -> Unit, onLongPress
             }
         }
         if (hung is EpicNode) {
-            EpicSteps(hung.epic, onOpen)
+            EpicSteps(hung.epic, hung.detail, onOpen)
         }
     }
 }
 
-// An epic's running steps, at most MAX_STEP_ROWS, then one line for the rest.
+// An epic's running steps, at most MAX_STEP_ROWS, then one line for the rest. A step's pips are its task's cells in the
+// epic's record, when the record is known.
 @Composable
-private fun EpicSteps(epic: EpicRow, onOpen: (String) -> Unit) {
+private fun EpicSteps(epic: EpicRow, detail: EpicDetail?, onOpen: (String) -> Unit) {
     val shown = epic.runningSteps.take(MAX_STEP_ROWS)
     val more = epic.runningSteps.size - shown.size
+    val tasks = detail?.let { recordTasksOf(it) }.orEmpty()
     for (step in shown) {
-        StepLine(step, onOpen)
+        StepLine(step, stepCellsOf(step.task, tasks), onOpen)
     }
     if (more > 0) {
         Text(
@@ -216,8 +219,10 @@ private fun EpicSteps(epic: EpicRow, onOpen: (String) -> Unit) {
     }
 }
 
+// A step reads as the Now rows do: its purpose, else its task, else its role, then what it is doing, then the pips of its
+// task when it has one.
 @Composable
-private fun StepLine(step: StepRow, onOpen: (String) -> Unit) {
+private fun StepLine(step: StepRow, cells: List<CellTone>, onOpen: (String) -> Unit) {
     val key = "step:${step.id}"
     Row(
         modifier = Modifier
@@ -231,19 +236,22 @@ private fun StepLine(step: StepRow, onOpen: (String) -> Unit) {
         StateGlyph(if (step.held) "held" else "working", Modifier.padding(top = OrreryTokens.Space.two))
         Column(modifier = Modifier.weight(1f)) {
             Text(
-                step.task,
+                stepHeadlineOf(step),
                 style = OrreryTokens.Type.small.copy(fontWeight = OrreryTokens.Font.Weight.bold),
                 color = OrreryTokens.Ink.one,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
             Text(
-                step.doing,
+                doingOf(step),
                 style = OrreryTokens.Type.small,
                 color = if (step.held) OrreryTokens.Role.attention else OrreryTokens.Ink.three,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
+        }
+        if (step.task.isNotEmpty()) {
+            Pips(cells = cells)
         }
     }
 }
