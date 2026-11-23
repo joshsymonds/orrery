@@ -18,7 +18,7 @@ func inboxStatesEpicsClient(
 ) orreryv1connect.EpicsClient {
 	t.Helper()
 	path, handler := newEpicsHandler(
-		root, &epicsFake{}, stored, nil, nil, store.NewReader(storePath), 0, now, newRetryClock(),
+		root, &epicsFake{}, stored, nil, nil, pooledReader(t, storePath), 0, now, newRetryClock(),
 	)
 	mux := http.NewServeMux()
 	mux.Handle(path, handler)
@@ -56,7 +56,7 @@ func TestInboxStatesArchiveEnded(t *testing.T) {
 		clock := &closureClock{now: closureStart()}
 		endedAt := clock.now
 		endConversations(t, path, endedAt, time.Time{})
-		sessions := sessionsClientAt(t, store.NewReader(path), clock.Now)
+		sessions := sessionsClientAt(t, pooledReader(t, path), clock.Now)
 
 		clock.now = endedAt.Add(archiveDay - time.Hour)
 		expectClosureArchived(t, sessions, "23 hours after it ended", false, false)
@@ -71,7 +71,7 @@ func TestInboxStatesArchiveEnded(t *testing.T) {
 		clock := &closureClock{now: closureStart()}
 		endedAt := clock.now
 		endConversations(t, path, endedAt, endedAt.Add(time.Hour))
-		sessions := sessionsClientAt(t, store.NewReader(path), clock.Now)
+		sessions := sessionsClientAt(t, pooledReader(t, path), clock.Now)
 
 		clock.now = endedAt.Add(archiveDay - time.Hour)
 		expectClosureArchived(t, sessions, "23 hours after it ended", false, false)

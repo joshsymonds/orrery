@@ -36,7 +36,7 @@ func TestInboxStatesFailed(t *testing.T) {
 		failedAt := epicsNow()
 		writeExitedFailing(t, path, failedAt.Add(-time.Hour), failedAt)
 
-		sessions := sessionsClientAt(t, store.NewReader(path), epicsNow)
+		sessions := sessionsClientAt(t, pooledReader(t, path), epicsNow)
 		rows := listHeadlessRows(t, sessions)
 		if len(rows) != 1 {
 			t.Fatalf("ListHeadless rows = %d, want 1", len(rows))
@@ -65,7 +65,7 @@ func TestInboxStatesFailed(t *testing.T) {
 		}})
 
 		now := failedAt.Add(2 * archiveDay)
-		sessions := sessionsClientAt(t, store.NewReader(path), func() time.Time { return now })
+		sessions := sessionsClientAt(t, pooledReader(t, path), func() time.Time { return now })
 		rows := listHeadlessRows(t, sessions)
 		if len(rows) != 1 {
 			t.Fatalf("ListHeadless rows = %d, want 1", len(rows))

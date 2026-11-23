@@ -34,6 +34,19 @@ func writeFailedHeadless(t *testing.T, path, id string, changed, seen time.Time)
 	}})
 }
 
+// pooledReader returns a pooled reader of the store at path, which the test closes when it ends. A pooled reader keeps
+// its connections between reads, as the server's reader does, where a plain reader opens one for every read.
+func pooledReader(t *testing.T, path string) *store.Reader {
+	t.Helper()
+	reader := store.NewPooledReader(path)
+	t.Cleanup(func() {
+		if err := reader.Close(); err != nil {
+			t.Errorf("Close store reader: %v", err)
+		}
+	})
+	return reader
+}
+
 // restrictTo keeps the flags of the ids in want. A case that shares a store with others lists their rows too, so it
 // checks its own rows here, and each other case checks its rows in its own subtest.
 func restrictTo[V any](flags, want map[string]V) map[string]V {
@@ -80,12 +93,16 @@ func TestInboxStatesNoTimer(t *testing.T) {
 		store.EngineAdd{ID: noTimerSevenHeadlessSeenID, Dir: "/work/" + noTimerSevenHeadlessSeenID, State: "done"},
 		store.EngineSet{ID: noTimerSevenHeadlessSeenID, Changes: store.EngineChanges{Seen: new(stamp(week))}},
 		store.EngineAdd{ID: noTimerSevenHeadlessUnseenID, Dir: "/work/" + noTimerSevenHeadlessUnseenID, State: "done"},
+		store.EngineAdd{ID: noTimerSevenFailedID, Dir: "/work/" + noTimerSevenFailedID, State: "failed"},
 	)
 	writeDonePane(t, path, noTimerSevenPaneSeenID, week, week)
 	writeDonePane(t, path, noTimerSevenPaneUnseenID, week, time.Time{})
-	writeFailedHeadless(t, path, noTimerSevenFailedID, week, now.Add(-6*archiveDay))
+	seenFailed := now.Add(-6 * archiveDay)
+	applyHeadlessAt(t, path, seenFailed, store.EngineSet{ID: noTimerSevenFailedID, Changes: store.EngineChanges{
+		Seen: new(stamp(seenFailed)),
+	}})
 
-	sessions := sessionsClientAt(t, store.NewReader(path), epicsNow)
+	sessions := sessionsClientAt(t, pooledReader(t, path), epicsNow)
 	t.Run("DoneSixDaysTwentyThreeHoursStaysUnarchived", func(t *testing.T) {
 		t.Parallel()
 		expectNoTimerLists(t, sessions,

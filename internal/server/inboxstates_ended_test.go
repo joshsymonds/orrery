@@ -129,8 +129,8 @@ func TestInboxStatesEndedClosedVerdicts(t *testing.T) {
 }
 
 // TestInboxStatesEndedWithoutVerdicts checks the states that list ended without a verdict, and the open states that
-// list it false, at the fixed clock closureStart. Neither case writes a verdict, so they share one store, and each
-// checks its own rows.
+// list it false, at the fixed clock closureStart. Neither case writes a verdict, so they share one store and one
+// Sessions client, and each checks its own rows.
 func TestInboxStatesEndedWithoutVerdicts(t *testing.T) {
 	t.Parallel()
 	path := archiveStorePath(t)
@@ -146,10 +146,11 @@ func TestInboxStatesEndedWithoutVerdicts(t *testing.T) {
 	syncEndedPane(t, path, endedPaneWork, "working", changed)
 	syncEndedPane(t, path, endedPaneWait, "waiting", changed)
 	syncEndedPane(t, path, endedPaneDone, "done", changed)
+	sessions := sessionsClientAt(t, pooledReader(t, path), clock.Now)
 
 	t.Run("StoppedHeadless", func(t *testing.T) {
 		t.Parallel()
-		_, headless := listEndedSessions(t, path, clock.Now)
+		headless := endedStates(listHeadlessRows(t, sessions))
 		want := endedRowState{ended: true, endedAt: changed.Unix()}
 		expectEnded(t, "ListHeadless",
 			restrictTo(headless, map[string]endedRowState{closureHeadlessID: want}),
@@ -157,7 +158,8 @@ func TestInboxStatesEndedWithoutVerdicts(t *testing.T) {
 	})
 	t.Run("OpenStatesWithoutVerdict", func(t *testing.T) {
 		t.Parallel()
-		panes, headless := listEndedSessions(t, path, clock.Now)
+		panes := endedStates(listSessionRows(t, sessions))
+		headless := endedStates(listHeadlessRows(t, sessions))
 		none := endedRowState{}
 		wantPanes := map[string]endedRowState{endedPaneWork: none, endedPaneWait: none, endedPaneDone: none}
 		expectEnded(t, "Sessions.List", restrictTo(panes, wantPanes), wantPanes)
