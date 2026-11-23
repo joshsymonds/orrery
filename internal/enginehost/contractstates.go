@@ -1,19 +1,15 @@
 package enginehost
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
-	"os"
-	"os/exec"
-	"strings"
-	"syscall"
 	"time"
 
 	"connectrpc.com/connect"
 
 	v1 "github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1"
+	"github.com/joshsymonds/orrery/internal/hostexec"
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
@@ -229,29 +225,31 @@ func (s *contractService) contractChange(session, words string) store.ContractCh
 }
 
 // originMain returns the commit origin's main names in repository: what OriginMain returns when the Contracts sets it,
-// and otherwise the commit fetchOriginMain fetches.
+// and otherwise the commit fetchOriginMain fetches on the controller's Host.
 func (s *contractService) originMain(ctx context.Context, repository string) (string, error) {
 	if s.contracts.OriginMain != nil {
 		return s.contracts.OriginMain(ctx, repository)
 	}
-	return fetchOriginMain(ctx, repository)
+	host, err := s.controllerHost()
+	if err != nil {
+		return "", err
+	}
+	return fetchOriginMain(ctx, host, repository)
 }
 
-// fetchOriginMain fetches origin's main into refs/remotes/origin/main of repository, and returns the full commit that ref
-// names. git never prompts for a login (GIT_TERMINAL_PROMPT=0), so a fetch that needs one fails. The fetch runs in a
-// process group of its own, which ctx's end kills whole, so a transport it started does not outlive the accept.
-func fetchOriginMain(ctx context.Context, repository string) (string, error) {
-	cmd := exec.CommandContext(ctx, "git")
-	cmd.Args = append(cmd.Args,
-		"-C", repository, "fetch", "--no-tags", "origin", "+refs/heads/main:refs/remotes/origin/main")
-	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
-	cmd.WaitDelay = originFetchGrace
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
-		return "", fmt.Errorf("git fetch origin: %w: %s", err, strings.TrimSpace(stderr.String()))
+// fetchOriginMain fetches origin's main into refs/remotes/origin/main of repository on host, and returns the full
+// commit that ref names. The fetch is a remote run: git never prompts for a login (GIT_TERMINAL_PROMPT=0), so a fetch
+// that needs one fails, and the run's process group is killed whole once ctx ends, so a transport it started does not
+// outlive the accept.
+func fetchOriginMain(ctx context.Context, host hostexec.Host, repository string) (string, error) {
+	_, err := host.Git(ctx, hostexec.GitCall{
+		Dir:       repository,
+		Args:      []string{"fetch", "--no-tags", "origin", "+refs/heads/main:refs/remotes/origin/main"},
+		Remote:    true,
+		WaitDelay: originFetchGrace,
+	})
+	if err != nil {
+		return "", fmt.Errorf("git fetch origin: %w", err)
 	}
-	return stepGitResolve(ctx, repository, "refs/remotes/origin/main")
+	return stepGitResolve(ctx, host, repository, "refs/remotes/origin/main")
 }

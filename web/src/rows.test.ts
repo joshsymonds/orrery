@@ -14,7 +14,7 @@ import {
 import { rowsFrom, waitsOnYou, type Row } from "./rows";
 
 function makePane(init: MessageInitShape<typeof PaneSchema>): Pane {
-  return create(PaneSchema, { host: "box", session: "work", cwd: "/work/app", ...init });
+  return create(PaneSchema, { host: "box", session: "work", cwd: "/work/app", claudeSession: "claude-1", ...init });
 }
 
 function makeSession(init: MessageInitShape<typeof SessionSchema>): Session {
@@ -64,6 +64,9 @@ test("a pane row takes its label, project, host, state, text, and times from the
       tool: "",
       putOff: false,
       archiveKind: "none",
+      ended: false,
+      endedAt: 0,
+      unbound: false,
     },
   ]);
 });
@@ -142,6 +145,9 @@ test("a session row is keyed by its id, reads 'session' as its line when it has 
       tool: "",
       putOff: false,
       archiveKind: "session",
+      ended: false,
+      endedAt: 0,
+      unbound: false,
     },
   ]);
 });
@@ -156,6 +162,27 @@ test("a session row reads a label when one is set and treats non-numeric times a
   assert.equal(row?.changed, 7);
   assert.equal(row?.seen, 0);
   assert.equal(row?.unseen, true);
+});
+
+test("a row carries serve's ended and endedAt from its session, and a pane's unbound, with false and zero when a pane has no owner", () => {
+  const rows = rowsFrom(
+    [
+      makePane({ id: "%20", orreryId: "sess-owned", unbound: true }),
+      makePane({ id: "%21", orreryId: "sess-missing" }),
+    ],
+    [makeSession({ id: "sess-owned", pane: "", ended: true, endedAt: 1781000500n })],
+    [makeHeadless({ id: "head-2", ended: true, endedAt: 1781000700n })],
+  );
+
+  assert.deepEqual(
+    rows.map((row) => [row.key, row.ended, row.endedAt, row.unbound]),
+    [
+      ["pane:box:%20", true, 1781000500, true],
+      ["pane:box:%21", false, 0, false],
+      ["session:sess-owned", true, 1781000500, false],
+      ["session:head-2", true, 1781000700, false],
+    ],
+  );
 });
 
 test("TitleParts: a headless row's line is its served headline and its project its directory, with no id in either, and an empty headline leaves the line empty", () => {
@@ -238,6 +265,14 @@ test("ArchivePaneRow: a pane with an orrery_id archives as the session that id n
 test("panes in shell sessions are dropped", () => {
   const rows = rowsFrom([makePane({ id: "%9", session: "_orrery-shell-1" })], []);
   assert.deepEqual(rows, []);
+});
+
+test("a pane with no claudeSession makes no row unless it is unbound, and an unbound pane makes one", () => {
+  const rows = rowsFrom(
+    [makePane({ id: "%5", claudeSession: "" }), makePane({ id: "%6", claudeSession: "", unbound: true })],
+    [],
+  );
+  assert.deepEqual(rows.map((row) => [row.id, row.unbound]), [["%6", true]]);
 });
 
 test("a session entry that names a pane is dropped, since Panes.List already lists that pane", () => {

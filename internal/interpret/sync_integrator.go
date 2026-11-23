@@ -11,6 +11,7 @@ import (
 
 	"github.com/joshsymonds/orrery/internal/build"
 	"github.com/joshsymonds/orrery/internal/enginehost"
+	"github.com/joshsymonds/orrery/internal/hostexec"
 	"github.com/joshsymonds/orrery/internal/kinds"
 	"github.com/joshsymonds/orrery/internal/planner"
 	"github.com/joshsymonds/orrery/internal/roles"
@@ -126,19 +127,23 @@ func (r *Runner) startSyncRound(
 		return fail(err)
 	}
 	merge := syncMerge(epic, result, filepath.Join(dir, releaseWorktree))
+	host, err := r.hostOf(epic)
+	if err != nil {
+		return fail(err)
+	}
 	if head == "" {
-		err = startMerge(ctx, merge, dir)
+		err = startMerge(ctx, host, merge, dir)
 	} else {
-		err = keptMerge(ctx, merge, head)
+		err = keptMerge(ctx, host, merge, head)
 	}
 	if err != nil {
 		return fail(err)
 	}
-	prompt, err := r.syncIntegratorPrompt(ctx, epic, merge, result.Branch, head, act.Output)
+	prompt, err := r.syncIntegratorPrompt(ctx, host, epic, merge, result.Branch, head, act.Output)
 	if err != nil {
 		return fail(err)
 	}
-	check, err := integratorCheck(ctx, merge)
+	check, err := integratorCheck(ctx, host, merge)
 	if err != nil {
 		return fail(err)
 	}
@@ -183,7 +188,7 @@ func (r *Runner) recordSyncRound(
 	}
 	switch {
 	case row.End == releaseDone && decodeReason == "":
-		head, failures, checkErr := integratorCommit(ctx, merge, ret)
+		head, failures, checkErr := r.syncRoundHead(ctx, epic, merge, ret)
 		if checkErr != nil {
 			return checkErr
 		}
@@ -191,9 +196,6 @@ func (r *Runner) recordSyncRound(
 		if len(failures) > 0 {
 			record.Failure = "the sync integrator's commit was refused: " + strings.Join(failures, "; ")
 			break
-		}
-		if err = build.Pin(ctx, epic.Repository, syncRef(epic, result.Origin), head); err != nil {
-			return fmt.Errorf("pin sync integrator merge: %w", err)
 		}
 		record.Outcome, record.Verdict, record.Head = outcomePassed, kinds.RoundMerged, head
 	case row.End == stepReturned && ret.Status == releaseBlocked && decodeReason == "":
@@ -212,6 +214,25 @@ func (r *Runner) recordSyncRound(
 	return nil
 }
 
+// syncRoundHead is integratorCommit on the host the epic lives on, for the done return ret of a sync integrator round
+// that finishes merge. A commit that passes the engine's checks is pinned under the sync's ref for origin's commit.
+func (r *Runner) syncRoundHead(
+	ctx context.Context, epic store.EpicRow, merge integratorMerge, ret integratorReturn,
+) (string, []string, error) {
+	host, err := r.hostOf(epic)
+	if err != nil {
+		return "", nil, fmt.Errorf("check the sync integrator's commit: %w", err)
+	}
+	head, failures, err := integratorCommit(ctx, host, merge, ret)
+	if err != nil || len(failures) > 0 {
+		return head, failures, err
+	}
+	if err = build.Pin(ctx, host, epic.Repository, syncRef(epic, merge.origin), head); err != nil {
+		return "", nil, fmt.Errorf("pin sync integrator merge: %w", err)
+	}
+	return head, nil, nil
+}
+
 // syncMerge returns the merge a sync's integrator round finishes in worktree: origin's commit into the stored base of
 // result, which is the merge's tip, with the paths result conflicts in.
 func syncMerge(epic store.EpicRow, result kinds.SyncResult, worktree string) integratorMerge {
@@ -227,9 +248,9 @@ func syncMerge(epic store.EpicRow, result kinds.SyncResult, worktree string) int
 // (planner.WriteSection). head is the merge commit the round before made, "" for the first round, and previous the failure
 // that commit met.
 func (r *Runner) syncIntegratorPrompt(
-	ctx context.Context, epic store.EpicRow, merge integratorMerge, branch, head, previous string,
+	ctx context.Context, host hostexec.Host, epic store.EpicRow, merge integratorMerge, branch, head, previous string,
 ) (string, error) {
-	base, err := gitOutput(ctx, merge.repo, "merge-base", merge.tip, merge.origin)
+	base, err := gitOutput(ctx, host, merge.repo, "merge-base", merge.tip, merge.origin)
 	if err != nil {
 		return "", err
 	}
@@ -238,11 +259,11 @@ func (r *Runner) syncIntegratorPrompt(
 	if err != nil {
 		return "", err
 	}
-	conflicted, err := conflictedLines(ctx, merge, base)
+	conflicted, err := conflictedLines(ctx, host, merge, base)
 	if err != nil {
 		return "", err
 	}
-	same, err := sameChangeLines(ctx, merge.repo, base, merge)
+	same, err := sameChangeLines(ctx, host, merge.repo, base, merge)
 	if err != nil {
 		return "", err
 	}
@@ -312,7 +333,11 @@ func (r *Runner) removeSyncIntegrator(ctx context.Context, epic store.EpicRow, r
 	if err != nil {
 		return err
 	}
-	if err = build.RemoveWorktrees(ctx, epic.Repository, dir); err != nil {
+	host, err := r.hostOf(epic)
+	if err != nil {
+		return err
+	}
+	if err = build.RemoveWorktrees(ctx, host, epic.Repository, dir); err != nil {
 		return fmt.Errorf("remove sync integrator worktree of epic %s: %w", epic.ID, err)
 	}
 	return nil

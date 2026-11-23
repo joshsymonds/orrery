@@ -22,8 +22,9 @@ import (
 // `item.<field>: <reason>` line per refusal joined with `; `.
 // An unknown epic is NotFound. A call from a step of the epic, the planner's turn included, is FailedPrecondition and
 // stores nothing (see ownerCaller): the planner amends through its amend_evidence action, which counts toward its park's
-// bound and may not change the conclusion. An amendment the store refuses is FailedPrecondition with its text (see
-// store.Store.AmendEvidence).
+// bound and may not change the conclusion or kind. The owner's call and the call of the conversation that steers the
+// epic may change the conclusion and kind, and a conversation that does not steer the epic is refused (see controlMaker).
+// An amendment the store refuses is FailedPrecondition with its text (see store.Store.AmendEvidence).
 func (s *epicService) AmendEvidence(
 	ctx context.Context,
 	req *connect.Request[v1.AmendEvidenceRequest],
@@ -82,7 +83,7 @@ func (s *epicService) ownerCaller(ctx context.Context, epic string, header http.
 	if stepOfEpic {
 		return refuseEpic(connect.CodeFailedPrecondition, fmt.Sprintf(
 			"step %s of epic %s may not amend its evidence; the planner amends through its amend_evidence action, "+
-				"and the owner through this call", session, epic))
+				"and the owner and the conversation that steers the epic through this call", session, epic))
 	}
 	return nil
 }

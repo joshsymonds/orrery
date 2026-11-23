@@ -9,6 +9,7 @@ import (
 	"connectrpc.com/connect"
 
 	v1 "github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1"
+	"github.com/joshsymonds/orrery/internal/hostexec"
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
@@ -72,7 +73,9 @@ func TestContractLintArgvAcceptsLineAfterDashC(t *testing.T) {
 			t.Parallel()
 			req := epicTestRequest(repo)
 			req.Contract.Requirements[0].Item.Capture = tc.capture
-			if err := checkEpic(t.Context(), req.Contract, req.Decisions, epicTestGetenv); err != nil {
+			if err := checkEpic(
+				t.Context(), hostexec.NewLocal(), req.Contract, req.Decisions, epicTestGetenv,
+			); err != nil {
 				t.Fatalf("checkEpic refused %q: %v", tc.capture, err)
 			}
 			t.Logf("checkEpic accepted capture %q", tc.capture)
@@ -138,10 +141,10 @@ type epicWarningCase struct {
 // stores. It fails the test when checkEpic refuses req or the lint returns an error.
 func epicWarnings(t *testing.T, req *epicCreate) []string {
 	t.Helper()
-	if err := checkEpic(t.Context(), req.Contract, req.Decisions, epicTestGetenv); err != nil {
+	if err := checkEpic(t.Context(), hostexec.NewLocal(), req.Contract, req.Decisions, epicTestGetenv); err != nil {
 		t.Fatalf("checkEpic refused the contract: %v", err)
 	}
-	warnings, err := contractLintWarnings(t.Context(), req.GetContract())
+	warnings, err := contractLintWarnings(t.Context(), hostexec.NewLocal(), req.GetContract())
 	if err != nil {
 		t.Fatalf("contractLintWarnings: %v", err)
 	}
@@ -303,7 +306,7 @@ func TestContractLintRunReturnsGitFailure(t *testing.T) {
 	repo := contractLintRunRepo(t)
 	req := epicTestRequest(repo)
 	req.Contract.Requirements[0].Item.Capture = []string{"/usr/bin/env", "go", "test", "-run", "X", "./../outside/"}
-	_, err := contractLintWarnings(t.Context(), req.GetContract())
+	_, err := contractLintWarnings(t.Context(), hostexec.NewLocal(), req.GetContract())
 	if err == nil {
 		t.Fatal("contractLintWarnings passed a go test whose package git grep cannot read")
 	}

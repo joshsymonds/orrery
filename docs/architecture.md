@@ -200,7 +200,7 @@ An epic is a contract that an owner accepts, a workflow that runs over it, and t
 2. **Building.** [`build.Runner`](../internal/build/build.go) runs each open task in stages: red at the base, one implementer step, green at the commit, the review gates, and the verification of each finding. [`guard.Check`](../internal/guard/git.go) refuses a task commit that weakens the tests that requirements and other tasks rely on.
 3. **Integrating.** The `integrate` node, which a plan holds, composes the accepted task commits, in order, onto the base with [`compose.Compose`](../internal/compose/compose.go). The epic's branch then moves to the candidate. The [Workflows](contract.md#workflows) section of the contract gives the full rules.
 4. **Reviewing.** The end-of-epic reviewers ([`reviewers`](../internal/reviewers/reviewers.go)) give verdicts. Their findings go into a ledger that a closure check settles. A correction loop runs at most twice.
-5. **Concluding and releasing.** The conclude node ends the epic as `clean` or `ended_with_gaps`. The release node runs the release steps while it holds its repository's release slot.
+5. **Concluding and releasing.** The conclude node ends the epic as `clean` or `ended_with_gaps`. The release node runs the release steps, and every clean epic starts its release at once.
 
 The order of these steps is a workflow, and a workflow is a file. [`workflow.Load`](../internal/workflow/load.go) reads `.orrery/workflows/<name>.yaml` from the repository, or the built-in `epic` when the file does not exist. The workflow's nodes are `plan` (holding `build` and `integrate`), `gate`, `evidence`, `owned`, `command`, `agent`, `review`, `closure`, `conclude`, `release`, and two structural forms, `loop` and `include`. The built-in `epic` runs red evidence at base, then a plan, then a review, then a correction loop of at most two rounds, then conclude and release.
 
@@ -276,7 +276,7 @@ Every table lives in `orrery.db`. The migrations under `internal/store/migration
 | | `epic_tasks`, `epic_task_files`, `epic_task_requirements`, `epic_task_contributes`, `epic_task_test_changes`, `epic_task_reviews`, `epic_task_findings` | Each task, its files and requirements, its build reviews and findings. |
 | | `epic_reviewers`, `epic_reviews`, `epic_review_verdicts`, `epic_ledger`, `epic_review_rounds`, `epic_closures`, `epic_review_holds` | The end-of-epic review: its reviewers, verdicts, ledger, rounds and closures. |
 | | `epic_gates`, `epic_gate_lists` | The gates an epic defines, with their argv, limit, needs and agent, and the done and review lists that name them. |
-| | `epic_release_runs`, `epic_release_slots` | Each release run's steps, and the repository's release slot. |
+| | `epic_release_runs` | Each release run's steps. |
 | Evidence | `evidence_runs`, `evidence_artifacts` | Each evidence run and the artifacts it kept. The bytes are in blob files. |
 | Contracts | `contracts`, `contract_versions`, `contract_states` | The contract record: each contract, its saved versions and its state changes. Rows only append. |
 

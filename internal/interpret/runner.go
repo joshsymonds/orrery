@@ -14,6 +14,7 @@ import (
 
 	"github.com/joshsymonds/orrery/internal/enginehost"
 	"github.com/joshsymonds/orrery/internal/evidence"
+	"github.com/joshsymonds/orrery/internal/hostexec"
 	"github.com/joshsymonds/orrery/internal/kinds"
 	"github.com/joshsymonds/orrery/internal/store"
 	"github.com/joshsymonds/orrery/internal/workflow"
@@ -72,12 +73,15 @@ type Store interface {
 	PrepareNode(ctx context.Context, epic, path string, attempt int64, revision, refs string) error
 	RecordNodeResult(ctx context.Context, epic, path string, attempt int64, result string) error
 	CheckNodeRefs(ctx context.Context, epic, path string, attempt int64, tells []string, at time.Time) error
-	TakeReleaseSlot(ctx context.Context, epic string, at time.Time) (string, error)
-	FreeReleaseSlot(ctx context.Context, epic string) error
+	StartRelease(ctx context.Context, epic string, at time.Time) error
 	StopRelease(ctx context.Context, epic, path string, attempt int64, reason string, at time.Time) error
 	ReplanRelease(
 		ctx context.Context, epic, path string, attempt int64, plan store.NodeRun, trigger store.NodeTrigger,
 		tell string, at time.Time,
+	) error
+	ReplanGate(
+		ctx context.Context, epic, path string, replan store.ReleaseRun, plan store.NodeRun,
+		trigger store.NodeTrigger, tell string, at time.Time,
 	) error
 	ResumeReplannedRelease(ctx context.Context, epic, path string, attempt int64, at time.Time) error
 	RecordRelease(ctx context.Context, epic string, run store.ReleaseRun) error
@@ -171,7 +175,10 @@ type Config struct {
 	Reviewers Reviewers
 	Ending    Ending
 	StateDir  string
-	Getenv    func(string) string
+	// Hosts resolves each epic's Host to the host its repository work runs on, which the build functions the Runner calls
+	// are given. A nil Hosts is hostexec.LocalHosts.
+	Hosts  hostexec.Hosts
+	Getenv func(string) string
 	// Ticks is a test seam: when set, Run passes at start and then once at each value it receives, and wakes and
 	// deadlines pass nothing. Production leaves it nil.
 	Ticks    <-chan time.Time
@@ -187,8 +194,8 @@ type Config struct {
 // context git that reads origin runs in for a sync (see gitLimit): context.WithTimeoutCause unless a test sets it.
 //
 // The fields from signal down are the wakes Run passes on: mu guards them, and Wake, which any goroutine may call, sets
-// them under mu only. signal is a one-slot channel Wake fills, woken the epics to pass next, waiters the epics that
-// waited on each holder of a release slot, and deadlines the moment each epic's origin read goes stale.
+// them under mu only. signal is a one-slot channel Wake fills, woken the epics to pass next, and deadlines the moment
+// each epic's origin read goes stale.
 type Runner struct {
 	store     Store
 	planner   Planner
@@ -199,6 +206,7 @@ type Runner struct {
 	reviewers Reviewers
 	ending    Ending
 	stateDir  string
+	hosts     hostexec.Hosts
 	getenv    func(string) string
 	ticks     <-chan time.Time
 	now       func() time.Time
@@ -211,7 +219,6 @@ type Runner struct {
 	mu        sync.Mutex
 	signal    chan struct{}
 	woken     map[string]struct{}
-	waiters   map[string]map[string]struct{}
 	deadlines map[string]time.Time
 }
 
@@ -227,8 +234,9 @@ const builtinEpic = "epic"
 func New(cfg Config) *Runner {
 	runner := &Runner{
 		store: cfg.Store, planner: cfg.Planner, builder: cfg.Builder, checks: cfg.Checks, evidence: cfg.Evidence,
-		steps: cfg.Steps, reviewers: cfg.Reviewers, ending: cfg.Ending, stateDir: cfg.StateDir, getenv: cfg.Getenv,
-		now: cfg.Now, newTimer: cfg.NewTimer, logger: cfg.Logger, ticks: cfg.Ticks, passed: cfg.Passed,
+		steps: cfg.Steps, reviewers: cfg.Reviewers, ending: cfg.Ending, stateDir: cfg.StateDir, hosts: cfg.Hosts,
+		getenv: cfg.Getenv, now: cfg.Now, newTimer: cfg.NewTimer, logger: cfg.Logger, ticks: cfg.Ticks,
+		passed:   cfg.Passed,
 		limitGit: gitLimit,
 		kinds: map[string]kinds.Kind{
 			kindPlan: kinds.Plan{}, kindBuild: kinds.Build{}, kindGate: kinds.Gate{}, kindCommand: kinds.Command{},
@@ -237,7 +245,6 @@ func New(cfg Config) *Runner {
 		},
 		signal:    make(chan struct{}, 1),
 		woken:     make(map[string]struct{}),
-		waiters:   make(map[string]map[string]struct{}),
 		deadlines: make(map[string]time.Time),
 	}
 	if cfg.Reviewers != nil && cfg.Ending != nil {
@@ -254,10 +261,23 @@ func New(cfg Config) *Runner {
 	if runner.getenv == nil {
 		runner.getenv = os.Getenv
 	}
+	if runner.hosts == nil {
+		runner.hosts = hostexec.LocalHosts()
+	}
 	if runner.logger == nil {
 		runner.logger = slog.New(slog.DiscardHandler)
 	}
 	return runner
+}
+
+// hostOf returns the Host epic lives on, which the Runner's hosts resolves by the epic's Host. A name that resolves to
+// no Host is an error that names the epic.
+func (r *Runner) hostOf(epic store.EpicRow) (hostexec.Host, error) {
+	host, err := r.hosts.Host(epic.Host)
+	if err != nil {
+		return nil, fmt.Errorf("host of epic %s: %w", epic.ID, err)
+	}
+	return host, nil
 }
 
 // Run recovers the planner's turns a previous orreryd left running, then passes every open epic at once. With
@@ -449,7 +469,11 @@ func (r *Runner) decide(ctx context.Context, epic string, flow workflow.Workflow
 	}
 	rows.Steps = append(rows.Steps, roundSteps...)
 	if awaitsDependencies(read.Epic.Tasks) {
-		rows.Stranded, err = startStranded(ctx, read.Epic, read.Runs)
+		host, hostErr := r.hostOf(read.Epic)
+		if hostErr != nil {
+			return store.EpicRow{}, nil, fmt.Errorf("read stranded tasks of epic %s: %w", epic, hostErr)
+		}
+		rows.Stranded, err = startStranded(ctx, host, read.Epic, read.Runs)
 		if err != nil {
 			return store.EpicRow{}, nil, fmt.Errorf("read stranded tasks of epic %s: %w", epic, err)
 		}
@@ -474,7 +498,7 @@ func awaitsDependencies(tasks []store.EpicTask) bool {
 func flowRows(read store.EpicFlow) kinds.Rows {
 	return kinds.Rows{
 		Epic: read.Epic, Runs: read.Runs, Checks: read.Checks, Evidence: read.Evidence, Steps: read.Steps,
-		Pending: read.Pending, Actions: read.Actions, Releases: read.Releases, Slot: read.Slot, Review: read.Review,
+		Pending: read.Pending, Actions: read.Actions, Releases: read.Releases, Review: read.Review,
 		GapTurns: read.GapTurns, Unresolvable: read.Unresolvable, Reruns: read.Reruns, Rounds: read.Rounds,
 		SyncDeclarations: read.SyncDeclarations,
 	}

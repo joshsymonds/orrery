@@ -149,7 +149,7 @@ func TestOrrerydServesHooksWithTooNewStore(t *testing.T) {
 	}
 	// A store written by a newer binary records a migration this binary does not embed.
 	if _, err = db.ExecContext(t.Context(),
-		`INSERT INTO goose_db_version (version_id, is_applied) VALUES (99, 1)`); err != nil {
+		`INSERT INTO goose_db_version (version_id, is_applied) VALUES (999, 1)`); err != nil {
 		db.Close()
 		t.Fatalf("record newer migration: %v", err)
 	}

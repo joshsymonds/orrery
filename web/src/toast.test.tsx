@@ -19,7 +19,7 @@ async function withToast(
   const window = installTestDom();
   const container = document.createElement("div");
   try {
-    render(<Toast text={text} action={actionLabel} onAction={onAction} />, container);
+    render(<Toast text={text} actions={[{ label: actionLabel, onAction }]} />, container);
     await check(container);
   } finally {
     render(null, container);
@@ -40,6 +40,33 @@ test("InboxTree Toast: the text is drawn in a status region, and the action is o
       assert.ok(status.contains(buttons[0]), "the action button is not in the status region");
     },
   ));
+
+test("InboxTree Toast: each action is a button after the text, in its order, and presses only its own onAction", async () => {
+  const window = installTestDom();
+  const container = document.createElement("div");
+  const calls: string[] = [];
+  try {
+    render(
+      <Toast
+        text={text}
+        actions={[
+          { label: "Show", onAction: () => calls.push("Show") },
+          { label: "Undo", onAction: () => calls.push("Undo") },
+        ]}
+      />,
+      container,
+    );
+    const labels = [...container.querySelectorAll("button")].map((button) => button.textContent);
+    assert.deepEqual(labels, ["Show", "Undo"], "the buttons are not the actions, in order");
+    await act(() => {
+      container.querySelectorAll("button")[1].dispatchEvent(new Event("click"));
+    });
+    assert.deepEqual(calls, ["Undo"], "pressing Undo did not call only its own onAction");
+  } finally {
+    render(null, container);
+    await removeTestDom(window);
+  }
+});
 
 test("InboxTree Toast: pressing the action calls onAction once, and drawing the toast calls it not at all", async () => {
   let calls = 0;

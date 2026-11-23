@@ -54,11 +54,12 @@ function subjectOf(key: NoticeKey | undefined): NoticeSubject {
   return key?.limit ? "limit" : "alert";
 }
 
-// epicNodeOf finds the listed epic whose id is id, among the conversations in the tree and behind the ended lines.
+// epicNodeOf finds the listed epic whose id is id, among the conversations in the tree, with the ended epics folded under
+// them, and behind the ended lines.
 function epicNodeOf(projects: readonly Project[], id: string): EpicNode | undefined {
   return projects
     .flatMap((project) => [...project.convos, ...project.ended])
-    .flatMap((convo) => convo.hung)
+    .flatMap((convo) => [...convo.hung, ...convo.folded])
     .find((hung): hung is EpicNode => hung.kind === "epic" && hung.block.epic.id === id);
 }
 

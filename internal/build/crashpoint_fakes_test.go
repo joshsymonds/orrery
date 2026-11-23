@@ -12,6 +12,8 @@ import (
 	"github.com/joshsymonds/orrery/internal/deskstream"
 	"github.com/joshsymonds/orrery/internal/enginehost"
 	"github.com/joshsymonds/orrery/internal/evidence"
+	"github.com/joshsymonds/orrery/internal/hostexec"
+	"github.com/joshsymonds/orrery/internal/hostexec/hostexectest"
 	"github.com/joshsymonds/orrery/internal/notice"
 	"github.com/joshsymonds/orrery/internal/push"
 	"github.com/joshsymonds/orrery/internal/route"
@@ -40,6 +42,9 @@ type crashWorld struct {
 	base     string
 	stateDir string
 	getenv   func(string) string
+
+	// host is the fake Host the epic's repository writes run on. It records each call and delegates it to the local Host.
+	host *hostexectest.Recorder
 
 	mu      sync.Mutex
 	gate    *gate
@@ -195,15 +200,16 @@ func (w *crashWorld) implementerCommit(ctx context.Context) (string, error) {
 		"GIT_AUTHOR_NAME=Test", "GIT_AUTHOR_EMAIL=test@example.invalid", "GIT_AUTHOR_DATE=1700000000 +0000",
 		"GIT_COMMITTER_NAME=Test", "GIT_COMMITTER_EMAIL=test@example.invalid", "GIT_COMMITTER_DATE=1700000000 +0000",
 	}
-	commit, err := runGitEnv(ctx, w.repo, identity, "commit-tree", w.base+"^{tree}", "-m", "implementer")
+	host := hostexec.NewLocal()
+	commit, err := runGitEnv(ctx, host, w.repo, identity, "commit-tree", w.base+"^{tree}", "-m", "implementer")
 	if err != nil {
 		return "", err
 	}
 	worktree := ImplementWorktree(w.stateDir, crashEpic, store.EpicTask{Seq: 1})
-	if _, err = runGit(ctx, worktree, "checkout", "-q", "--detach", commit); err != nil {
+	if _, err = runGit(ctx, host, worktree, "checkout", "-q", "--detach", commit); err != nil {
 		return "", err
 	}
-	if _, err = runGit(ctx, w.repo, "update-ref", implementerRef, commit); err != nil {
+	if _, err = runGit(ctx, host, w.repo, "update-ref", implementerRef, commit); err != nil {
 		return "", err
 	}
 	return commit, nil
@@ -490,43 +496,47 @@ func (e crashEvidence) StderrLog(_ context.Context, _ string) ([]byte, string, e
 // crashGit is the Git the build runner writes repository refs and worktrees through, one action per write.
 type crashGit struct{ w *crashWorld }
 
-func (g crashGit) CreateBranch(ctx context.Context, repo, epic, base string) error {
+func (g crashGit) CreateBranch(ctx context.Context, host hostexec.Host, repo, epic, base string) error {
 	return g.w.act("git branch create", func() error {
-		return wrapErr("create branch", CreateBranch(ctx, repo, epic, base))
+		return wrapErr("create branch", CreateBranch(ctx, host, repo, epic, base))
 	})
 }
 
-func (g crashGit) Pin(ctx context.Context, repo, ref, commit string) error {
+func (g crashGit) Pin(ctx context.Context, host hostexec.Host, repo, ref, commit string) error {
 	return g.w.act("git ref pin", func() error {
-		return wrapErr("pin "+ref, Pin(ctx, repo, ref, commit))
+		return wrapErr("pin "+ref, Pin(ctx, host, repo, ref, commit))
 	})
 }
 
-func (g crashGit) AddTaskWorktree(ctx context.Context, repo, epic string, seq int64, path, base string) error {
+func (g crashGit) AddTaskWorktree(
+	ctx context.Context, host hostexec.Host, repo, epic string, seq int64, path, base string,
+) error {
 	return g.w.act("git worktree add", func() error {
-		return wrapErr("add worktree", AddTaskWorktree(ctx, repo, epic, seq, path, base))
+		return wrapErr("add worktree", AddTaskWorktree(ctx, host, repo, epic, seq, path, base))
 	})
 }
 
-func (g crashGit) MoveTaskWorktree(ctx context.Context, path, wip, epic string, seq int64, to string) error {
+func (g crashGit) MoveTaskWorktree(
+	ctx context.Context, host hostexec.Host, path, wip, epic string, seq int64, to string,
+) error {
 	return g.w.act("git worktree move", func() error {
-		return wrapErr("move worktree", MoveTaskWorktree(ctx, path, wip, epic, seq, to))
+		return wrapErr("move worktree", MoveTaskWorktree(ctx, host, path, wip, epic, seq, to))
 	})
 }
 
-func (g crashGit) KeepWork(ctx context.Context, path, wip, ref string) (string, error) {
+func (g crashGit) KeepWork(ctx context.Context, host hostexec.Host, path, wip, ref string) (string, error) {
 	var commit string
 	err := g.w.act("keep work", func() error {
 		var keepErr error
-		commit, keepErr = KeepWork(ctx, path, wip, ref)
+		commit, keepErr = KeepWork(ctx, host, path, wip, ref)
 		return wrapErr("keep work", keepErr)
 	})
 	return commit, err
 }
 
-func (g crashGit) RemoveWorktrees(ctx context.Context, repo, dir string) error {
+func (g crashGit) RemoveWorktrees(ctx context.Context, host hostexec.Host, repo, dir string) error {
 	return g.w.act("git worktree remove", func() error {
-		return wrapErr("remove worktrees", RemoveWorktrees(ctx, repo, dir))
+		return wrapErr("remove worktrees", RemoveWorktrees(ctx, host, repo, dir))
 	})
 }
 

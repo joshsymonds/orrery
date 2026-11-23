@@ -40,6 +40,7 @@ import (
 	"github.com/joshsymonds/orrery/internal/gates"
 	"github.com/joshsymonds/orrery/internal/grants"
 	"github.com/joshsymonds/orrery/internal/holder"
+	"github.com/joshsymonds/orrery/internal/hostexec"
 	"github.com/joshsymonds/orrery/internal/inapp"
 	"github.com/joshsymonds/orrery/internal/interpret"
 	"github.com/joshsymonds/orrery/internal/notice"
@@ -182,10 +183,6 @@ type options struct {
 	// cronDeliver is a test seam: the delivery the cron scheduler calls in place of Manager.DeliverCron. Production
 	// leaves it nil.
 	cronDeliver func(context.Context, enginehost.DeliverRequest) error
-	// releaseSlotNow is a test seam: the clock the release slots read as now. Production leaves it nil, which is time.Now.
-	releaseSlotNow func() time.Time
-	// releaseSlotTimers is a test seam: the timers the release slots arm in place of time.NewTimer. Production leaves it nil.
-	releaseSlotTimers func(time.Duration) enginehost.CronTimer
 	// host is a test seam: the host name the desk stream, the notices and the grants broker use in place of
 	// os.Hostname. Production leaves it "".
 	host string
@@ -908,9 +905,6 @@ type sessionHost struct {
 	// dueWake is the relay the steps' Stored and the epic writes wake the due pass through. startDue sets it to the due
 	// pass's Wake.
 	dueWake dueWakeRelay
-	// outsideWake is the relay the release slots' frees wake the epics that waited on an outside holder through.
-	// startFlow sets it to the interpreter's WakeOutsideWaiters.
-	outsideWake outsideWakeRelay
 	// changes is the change feed the Changes service serves, nil without a store. wireStore sets it.
 	changes *enginehost.ChangeFeed
 	// epicWrites is the test seam options.epicWrites, which subscribeFlowWake's hook calls. Production leaves it nil.
@@ -918,11 +912,6 @@ type sessionHost struct {
 	// limits tells the usage limits. Its Wake is part of the Steps engine's stored wake (see storedWake). stopLimits
 	// cancels its Run, which closes limitsDone when it returns.
 	limits *enginehost.LimitNotices
-	// releaseSlots holds the repositories' release slots for outside releasers. stopReleaseSlots cancels its Run, which
-	// closes releaseSlotsDone when it returns.
-	releaseSlots     *enginehost.ReleaseSlots
-	stopReleaseSlots context.CancelFunc
-	releaseSlotsDone chan struct{}
 	// paneSends records the texts sent to panes, nil without a store. The PaneSends service on the session socket
 	// serves it.
 	paneSends enginehost.PaneSendRecorder
@@ -958,8 +947,6 @@ func newSessionHost(logger *slog.Logger) *sessionHost {
 		summariesDone: make(chan struct{}),
 		reportsDone:   make(chan struct{}),
 		serveDone:     make(chan error, 1),
-
-		releaseSlotsDone: make(chan struct{}),
 	}
 }
 
@@ -982,9 +969,7 @@ func newSessionHost(logger *slog.Logger) *sessionHost {
 // step's caller when the step ends, and each epic's steerer of its events, on its start, on each wake, and once more
 // after a failed round, until stop (startCallerEvents);
 // and the cron scheduler fires each cron job of a headless session when it is due, through the manager's DeliverCron,
-// from one timer for the next due fire until stop (startCron); and the release slots free each outside hold at its
-// deadline from one timer, wake their waiting holds on each epic write, and wake the flow's epics that waited on a hold
-// when it ends, until stop (startReleaseSlots). A readopt, reconcile, restore or resume failure is
+// from one timer for the next due fire until stop (startCron). A readopt, reconcile, restore or resume failure is
 // logged and serving goes on; a failed restore serves no Pools, which refuse as unavailable, and the gates fail for
 // want of pools. The Notices service on it answers from notices, and refuses as unavailable when notices is nil. With
 // st open, each call of the Epics service on it that names an epic records its session in st. The Changes service on it
@@ -1005,8 +990,11 @@ func startSessions(
 	var stepCommands enginehost.StepCommands
 	var evidence enginehost.EvidenceCommands
 	var crons enginehost.CronCommands
+	// The controller's host is the one this machine runs as hostName, and every epic and contract the controller serves
+	// resolves its host through hosts.
+	hosts := hostexec.Map{hostName: hostexec.NewLocal()}
 	if st != nil {
-		stateDir, childEnviron, err := sessionState(getenv)
+		stateDir, childEnviron, err := adoptSessionState(ctx, st, hostName, getenv)
 		if err != nil {
 			return nil, err
 		}
@@ -1030,7 +1018,6 @@ func startSessions(
 		})
 		host.startBroker(ctx, hostName, st, logger)
 		// host.pools is nil when the broker's restore failed, which leaves the gates no pools to run under.
-		resolve := planner.NewResolver(os.Environ(), managedDir)
 		haiku := enginehost.NewHaiku(enginehost.HaikuConfig{Claude: opts.claude, Environ: os.Environ()})
 		steps := enginehost.NewSteps(enginehost.StepsConfig{
 			Sessions:     host.manager,
@@ -1043,27 +1030,30 @@ func startSessions(
 			Haiku:        haiku,
 			GateStateDir: filepath.Join(stateDir, "gates"),
 			GateScope:    opts.holderScope,
-			ReadoptCheck: readoptCheck(st, resolve),
+			ReadoptCheck: readoptCheck(st, planner.NewResolver(os.Environ(), managedDir, hosts), hosts),
 			ReadoptGate:  readoptGate(st),
 			Stored:       host.storedWake, EpicWake: host.stepEpicWake,
+			Host:  hostName,
+			Hosts: hosts,
 		})
 		host.steps = steps
 		host.wireStore(st)
 		commands, stepCommands = host.manager, host.steps
-		host.epics, host.steering, host.contracts, host.accounts = st, epicSteering(host.manager, st),
-			contractsOf(st), &enginehost.Accounts{Store: st, Now: time.Now}
+		host.epics, host.steering, host.contracts, host.accounts = st, epicSteering(host.manager, st, hosts),
+			contractsOf(st, hosts, hostName), &enginehost.Accounts{Store: st, Now: time.Now}
 		crons = enginehost.NewCronAnswers(enginehost.CronAnswersConfig{
 			Store: st, Now: opts.cronNow, Changed: host.cron.Changed})
-		host.newReleaseSlots(opts, st, logger)
 		host.startWriter(ctx)
 		host.reconcile(ctx, logger, opts.holdReconcile, opts.flight, opts.flightNow)
 		host.startCallerEvents(ctx)
 		host.startCron(ctx)
-		host.startEvidence(ctx, st, stateDir, opts, childEnviron, logger)
+		host.startEvidence(ctx, st, stateDir, opts, childEnviron, hosts, logger)
 		evidence = host.evidence
-		host.startNodeChecks(ctx, st, stateDir, opts, childEnviron, logger)
-		host.startFlow(ctx, st, router, opts.attentionTicks, opts.flowTicks, getenv, resolve, stateDir, logger)
-		host.startReleaseSlots(ctx)
+		host.startNodeChecks(ctx, st, stateDir, opts, childEnviron, hosts, logger)
+		host.startFlow(
+			ctx, st, router, opts.attentionTicks, opts.flowTicks, getenv,
+			planner.NewResolver(os.Environ(), managedDir, hosts), stateDir, hosts, logger,
+		)
 		host.startLimits(ctx)
 		host.startSummaries(ctx, st, haiku, logger)
 		host.startTitles(ctx, st, haiku, logger)
@@ -1079,26 +1069,45 @@ func startSessions(
 	}
 	var serveCtx context.Context
 	serveCtx, host.stopServe = context.WithCancel(ctx)
-	// The session socket also serves the release slots, through serveConfig's ReleaseSlots.
-	cfg := host.serveConfig(commands, stepCommands, evidence, notices, crons, serveOpts(opts, st, logger))
+	cfg := host.serveConfig(
+		commands, stepCommands, evidence, notices, crons, hostName, hosts, serveOpts(opts, st, logger))
 	go func() {
 		host.serveDone <- enginehost.ServeWith(serveCtx, ln, cfg)
 	}()
 	return host, nil
 }
 
+// adoptSessionState returns sessionState's state directory and child environ, after st adopts hostName for the rows
+// stored before hosts, so the sessions start with each epic and step naming its host. It returns the error either gives.
+func adoptSessionState(
+	ctx context.Context,
+	st *store.Store,
+	hostName string,
+	getenv func(string) string,
+) (string, []string, error) {
+	stateDir, childEnviron, err := sessionState(ctx, getenv)
+	if err != nil {
+		return "", nil, err
+	}
+	if err = st.AdoptHost(ctx, hostName); err != nil {
+		return "", nil, fmt.Errorf("adopt host: %w", err)
+	}
+	return stateDir, childEnviron, nil
+}
+
 // serveConfig returns what the session socket serves: the services the host holds, and the given commands, evidence,
-// notices and crons, with handlerOpts on each handler. ReleaseSlots is set only when the host has release slots, since a
-// nil *ReleaseSlots in the interface would not refuse as unavailable, so it stays unset without a store.
+// notices and crons, with handlerOpts on each handler and hostName as the host each epic is stamped with.
 func (h *sessionHost) serveConfig(
 	commands enginehost.Commands,
 	steps enginehost.StepCommands,
 	evidence enginehost.EvidenceCommands,
 	notices enginehost.NoticeSource,
 	crons enginehost.CronCommands,
+	hostName string,
+	hosts hostexec.Hosts,
 	handlerOpts []connect.HandlerOption,
 ) enginehost.ServeConfig {
-	cfg := enginehost.ServeConfig{
+	return enginehost.ServeConfig{
 		Commands:  commands,
 		Steps:     steps,
 		Epics:     h.epics,
@@ -1111,24 +1120,23 @@ func (h *sessionHost) serveConfig(
 		Contracts: h.contracts,
 		Accounts:  h.accounts,
 		PaneSends: h.paneSends,
+		Host:      hostName,
+		Hosts:     hosts,
 		Options:   handlerOpts,
 	}
-	if h.releaseSlots != nil {
-		cfg.ReleaseSlots = h.releaseSlots
-	}
-	return cfg
 }
 
 // epicSteering returns the steering sessions of the epics st serves, which manager starts.
-func epicSteering(manager *enginehost.Manager, st *store.Store) *enginehost.EpicSteering {
+func epicSteering(manager *enginehost.Manager, st *store.Store, hosts hostexec.Hosts) *enginehost.EpicSteering {
 	return enginehost.NewEpicSteering(enginehost.EpicSteeringConfig{
-		Manager: manager, Sessions: st, Render: planner.SteeringLines, PaneDir: paneDir,
+		Manager: manager, Sessions: st, Render: planner.SteeringLines, PaneDir: paneDir, Hosts: hosts,
 	})
 }
 
-// contractsOf returns the contracts st serves, stamped with the process clock.
-func contractsOf(st *store.Store) *enginehost.Contracts {
-	return &enginehost.Contracts{Store: st, Now: time.Now}
+// contractsOf returns the contracts st serves, stamped with the process clock. Their origin is fetched on the
+// controller's host, which hosts resolves hostName to.
+func contractsOf(st *store.Store, hosts hostexec.Hosts, hostName string) *enginehost.Contracts {
+	return &enginehost.Contracts{Store: st, Now: time.Now, Hosts: hosts, Host: hostName}
 }
 
 // paneDir returns the current directory of the tmux pane on the server whose store column is server. Its error names
@@ -1161,14 +1169,16 @@ func serveOpts(opts options, st *store.Store, logger *slog.Logger) []connect.Han
 
 // readoptCheck is the ReadoptCheck of the steps. A re-adopted row gets the planner's return check when it is the step of a
 // running planner turn, and when that check is nil, the release integrator's check when it is a release integrator
-// step, and then the build's verifier or orchestrator check. An error from any of them is returned.
+// step, and then the build's verifier or orchestrator check, which reads the epic's tasks on the host that hosts
+// resolves the epic to. An error from any of them is returned.
 func readoptCheck(
 	st *store.Store,
 	resolve planner.Resolver,
+	hosts hostexec.Hosts,
 ) func(ctx context.Context, row store.StepRow) (func(value json.RawMessage) []string, error) {
 	plan := planner.ReadoptCheck(st, resolve)
-	integrate := interpret.ReadoptCheck(st)
-	verify := build.ReadoptCheck(st)
+	integrate := interpret.ReadoptCheck(st, hosts)
+	verify := build.ReadoptCheck(st, hosts)
 	return func(ctx context.Context, row store.StepRow) (func(value json.RawMessage) []string, error) {
 		check, err := plan(ctx, row)
 		if err != nil || check != nil {
@@ -1291,12 +1301,13 @@ func (h *sessionHost) stop() error {
 // sessionState returns the state directory getenv names and the environment of every child a holder runs: sessions,
 // steps and gates alike build with Gradle daemonless (enginehost.GradleEnviron), since a holder's scope is stopped when
 // the holder ends, which would end a daemon another step's build runs in.
-func sessionState(getenv func(string) string) (string, []string, error) {
+func sessionState(ctx context.Context, getenv func(string) string) (string, []string, error) {
 	stateDir, err := stateDirOf(getenv)
 	if err != nil {
 		return "", nil, fmt.Errorf("step worktrees: %w", err)
 	}
-	environ, err := enginehost.GradleEnviron(os.Environ(), stateDir, enginehost.UserGradleHome(os.Getenv))
+	environ, err := enginehost.GradleEnviron(
+		ctx, hostexec.NewLocal(), os.Environ(), stateDir, enginehost.UserGradleHome(os.Getenv))
 	if err != nil {
 		return "", nil, fmt.Errorf("session environment: %w", err)
 	}
@@ -1306,18 +1317,20 @@ func sessionState(getenv func(string) string) (string, []string, error) {
 // startEvidence builds the evidence runner over st, the steps and the pools, with its blobs and capture worktrees under
 // stateDir and its gates under stateDir/gates, and takes up the open evidence runs a previous run left. A failure to take
 // them up is logged and serving goes on. Its gates run in environ, under the holder scope and its memory cap that opts
-// name.
+// name. Its runs run on the hosts of their epics, which hosts resolves.
 func (h *sessionHost) startEvidence(
 	ctx context.Context,
 	st *store.Store,
 	stateDir string,
 	opts options,
 	environ []string,
+	hosts hostexec.Hosts,
 	logger *slog.Logger,
 ) {
 	h.evidence = enginehost.NewEvidence(enginehost.EvidenceConfig{
 		Store:        st,
 		Steps:        h.steps,
+		Hosts:        hosts,
 		Pools:        h.pools,
 		Environ:      environ,
 		StateDir:     stateDir,
@@ -1332,17 +1345,20 @@ func (h *sessionHost) startEvidence(
 
 // startNodeChecks builds the node checks runner over st and the pools, with its check worktrees under stateDir and its
 // gates under stateDir/gates, and takes up the open checks a previous run left. A failure to take them up is logged and
-// serving goes on. Its gates run in environ, under the holder scope and its memory cap that opts name.
+// serving goes on. Its gates run in environ, under the holder scope and its memory cap that opts name. Its checks run on
+// the hosts of their epics, which hosts resolves.
 func (h *sessionHost) startNodeChecks(
 	ctx context.Context,
 	st *store.Store,
 	stateDir string,
 	opts options,
 	environ []string,
+	hosts hostexec.Hosts,
 	logger *slog.Logger,
 ) {
 	h.checks = enginehost.NewNodeChecks(enginehost.NodeChecksConfig{
 		Store:        st,
+		Hosts:        hosts,
 		Pools:        h.pools,
 		Environ:      environ,
 		StateDir:     stateDir,
@@ -1375,6 +1391,7 @@ func (h *sessionHost) startFlow(
 	getenv func(string) string,
 	resolve planner.Resolver,
 	stateDir string,
+	hosts hostexec.Hosts,
 	logger *slog.Logger,
 ) {
 	plannerRun := planner.New(planner.Config{
@@ -1391,6 +1408,7 @@ func (h *sessionHost) startFlow(
 		Checks:   h.checks,
 		Getenv:   getenv,
 		StateDir: stateDir,
+		Hosts:    hosts,
 		Logger:   logger,
 	})
 	var flowCtx context.Context
@@ -1406,13 +1424,13 @@ func (h *sessionHost) startFlow(
 		Reviewers: interpret.NewEpicReviewers(),
 		Ending:    st,
 		StateDir:  stateDir,
+		Hosts:     hosts,
 		Getenv:    getenv,
 		Logger:    logger,
 		Ticks:     ticks,
 		Passed:    passed,
 	})
 	h.subscribeFlowWake(st, flow.Wake)
-	h.outsideWake.set(flow.WakeOutsideWaiters)
 	go func() {
 		flow.Run(flowCtx)
 		close(h.flowDone)
@@ -1455,31 +1473,6 @@ func (r *flowWakeRelay) Wake(epics []string) {
 	}
 }
 
-// outsideWakeRelay wakes the epics that waited on an outside hold, through the function startFlow sets it to. Until then a
-// wake does nothing: the flow's first pass, which covers every epic, makes up for it. It is safe from any goroutine, never
-// blocks, and takes only its own lock.
-type outsideWakeRelay struct {
-	mu   sync.Mutex
-	wake func()
-}
-
-// set makes wake the function that Wake calls.
-func (r *outsideWakeRelay) set(wake func()) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.wake = wake
-}
-
-// Wake calls the function set makes, or does nothing while none is set. The function is called outside the lock.
-func (r *outsideWakeRelay) Wake() {
-	r.mu.Lock()
-	wake := r.wake
-	r.mu.Unlock()
-	if wake != nil {
-		wake()
-	}
-}
-
 // dueWakeRelay wakes the due pass that startDue sets it to. Until then a wake does nothing: the due pass's first pass,
 // which covers every row, makes up for it. It is safe from any goroutine, never blocks, and takes only its own lock.
 type dueWakeRelay struct {
@@ -1515,16 +1508,12 @@ func (h *sessionHost) wireStore(st *store.Store) {
 
 // subscribeFlowWake makes wake the flow's wake: the relay the steps and the manager hand epics to, and the store's
 // epics-changed hook, which calls it on each write that moves an epic and then wakes the due pass. The due pass wakes on
-// an epic write too, since a limit's due row for an epic is stored with the epic's pause, which moves its revision. The
-// hook also wakes the release slots' HoldWaits, since an epic write may be the one that frees a slot they wait on.
+// an epic write too, since a limit's due row for an epic is stored with the epic's pause, which moves its revision.
 func (h *sessionHost) subscribeFlowWake(st *store.Store, wake func(epics []string)) {
 	h.flowWake.set(wake)
 	st.OnEpicsChanged(func(epics []string) {
 		wake(epics)
 		h.dueWake.Wake()
-		if h.releaseSlots != nil {
-			h.releaseSlots.Changed()
-		}
 		if h.epicWrites != nil {
 			h.epicWrites(epics)
 		}
@@ -1763,26 +1752,6 @@ func (h *sessionHost) startCron(ctx context.Context) {
 	}()
 }
 
-// newReleaseSlots builds the release slots over st, which free each outside hold at its deadline and wake the flow's
-// outside waiters when a hold ends, with the test seams of opts for the clock and the timers.
-func (h *sessionHost) newReleaseSlots(opts options, st *store.Store, logger *slog.Logger) {
-	h.releaseSlots = enginehost.NewReleaseSlots(enginehost.ReleaseSlotsConfig{
-		Store: st, Now: opts.releaseSlotNow, NewTimer: opts.releaseSlotTimers, Freed: h.outsideWake.Wake,
-		Logger: logger,
-	})
-}
-
-// startReleaseSlots runs the release slots until stop, on its own cancel, and closes releaseSlotsDone when its Run
-// returns.
-func (h *sessionHost) startReleaseSlots(ctx context.Context) {
-	var slotsCtx context.Context
-	slotsCtx, h.stopReleaseSlots = context.WithCancel(ctx)
-	go func() {
-		defer close(h.releaseSlotsDone)
-		h.releaseSlots.Run(slotsCtx)
-	}()
-}
-
 // startIdle runs the manager's stop of idle sessions until stop.
 func (h *sessionHost) startIdle(ctx context.Context) {
 	var idleCtx context.Context
@@ -1995,10 +1964,6 @@ func (h *sessionHost) shutdown() {
 		h.phase("cron fires", func() {
 			h.stopCron()
 			<-h.cronDone
-		})
-		h.phase("release slots", func() {
-			h.stopReleaseSlots()
-			<-h.releaseSlotsDone
 		})
 		h.phase("epic summaries", func() {
 			h.stopSummaries()

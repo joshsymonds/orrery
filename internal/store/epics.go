@@ -88,6 +88,7 @@ type EpicRow struct {
 	SupersededBy string
 	Summary      string
 	Steerer      string
+	Host         string
 	Report       EpicReport
 	Workflow     EpicWorkflow
 
@@ -261,7 +262,7 @@ func insertEpic(ctx context.Context, queries *sqlcgen.Queries, row EpicRow) erro
 		Approved: row.Approved, Intent: row.Intent, Care: row.Care, Approach: row.Approach,
 		ReleaseThen: row.ReleaseThen, Checks: row.Checks, Phase: row.Phase, Created: row.Created.Unix(),
 		Changed: row.Changed.Unix(), Workflow: row.Workflow.Name, WorkflowText: row.Workflow.Text,
-		WorkflowSha256: row.Workflow.SHA256, PhaseAt: row.Created.Unix(), Steerer: row.Steerer,
+		WorkflowSha256: row.Workflow.SHA256, PhaseAt: row.Created.Unix(), Steerer: row.Steerer, Host: row.Host,
 	}); err != nil {
 		return fmt.Errorf("insert epic %s: %w", row.ID, err)
 	}
@@ -499,6 +500,37 @@ func encodeStrings(items []string) (string, error) {
 // has that id.
 func (s *Store) Epic(ctx context.Context, id string) (EpicRow, error) {
 	return readEpic(ctx, sqlcgen.New(s.read), id)
+}
+
+// EpicHost returns the host the stored epic with id lives on. An unknown id is ErrNoEpic.
+func (s *Store) EpicHost(ctx context.Context, id string) (string, error) {
+	return epicHostOf(ctx, sqlcgen.New(s.read), id)
+}
+
+// epicHostOf returns the host of the stored epic with id as queries read it. An unknown id is ErrNoEpic.
+func epicHostOf(ctx context.Context, queries *sqlcgen.Queries, id string) (string, error) {
+	host, err := queries.GetEpicHost(ctx, id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", fmt.Errorf("epic %s: %w", id, ErrNoEpic)
+	}
+	if err != nil {
+		return "", fmt.Errorf("get host of epic %s: %w", id, err)
+	}
+	return host, nil
+}
+
+// AdoptHost sets the host of every epic and step row with no host to name, in one store write. A row that already names
+// a host keeps it, so a controller that opens a store adopts only the rows stored before hosts were kept.
+func (s *Store) AdoptHost(ctx context.Context, name string) error {
+	return s.write(ctx, func(queries *sqlcgen.Queries) error {
+		if err := queries.AdoptEpicHosts(ctx, name); err != nil {
+			return fmt.Errorf("adopt host of epics: %w", err)
+		}
+		if err := queries.AdoptStepHosts(ctx, name); err != nil {
+			return fmt.Errorf("adopt host of steps: %w", err)
+		}
+		return nil
+	})
 }
 
 // readEpic returns the stored epic with id as queries read it, every section in order. It returns an error matching
@@ -1222,6 +1254,7 @@ func epicHeadOf(head sqlcgen.Epic) EpicRow {
 		SupersededBy: head.SupersededBy,
 		Summary:      head.Summary,
 		Steerer:      head.Steerer,
+		Host:         head.Host,
 		Workflow: EpicWorkflow{
 			Name: head.Workflow, Text: head.WorkflowText, SHA256: head.WorkflowSha256,
 		},

@@ -18,6 +18,7 @@ import (
 
 	"github.com/joshsymonds/orrery/internal/evidence"
 	v1 "github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1"
+	"github.com/joshsymonds/orrery/internal/hostexec"
 	"github.com/joshsymonds/orrery/internal/kinds"
 	"github.com/joshsymonds/orrery/internal/protocol"
 	"github.com/joshsymonds/orrery/internal/reviewers"
@@ -95,12 +96,43 @@ type SteeringSessions interface {
 // epicService implements the Epics RPCs over epics. getenv reads the environment a contract's gates resolve in; nil
 // reads the process environment. steps is the step store StopEpic stops the turn's step through; it is nil when Serve
 // has no step engine, and StopEpic then stops no step. steering starts the steering session of an epic that no
-// conversation creates; it is nil when Serve has no steering, and a create that needs a start is then refused.
+// conversation creates; it is nil when Serve has no steering, and a create that needs a start is then refused. hosts
+// resolves host names to the Hosts that run an epic's git; nil resolves every name to this machine. host names the
+// controller's Host: each epic CreateEpic makes is stamped with it, and its create checks run on it.
 type epicService struct {
 	epics    EpicCommands
 	steps    StepCommands
 	steering SteeringSessions
 	getenv   func(string) string
+	hosts    hostexec.Hosts
+	host     string
+}
+
+// resolveHost returns the Host name resolves to under hosts. A nil hosts resolves every name to this machine, as
+// hostexec.LocalHosts does, and a name hosts lacks is an error.
+func resolveHost(hosts hostexec.Hosts, name string) (hostexec.Host, error) {
+	if hosts == nil {
+		hosts = hostexec.LocalHosts()
+	}
+	host, err := hosts.Host(name)
+	if err != nil {
+		return nil, fmt.Errorf("resolve host: %w", err)
+	}
+	return host, nil
+}
+
+// createEnv returns the Host a create's checks run on, the controller's, and the environment the contract's gates
+// resolve in: the service's getenv, or the process environment when it has none.
+func (s *epicService) createEnv() (hostexec.Host, func(string) string, error) {
+	getenv := s.getenv
+	if getenv == nil {
+		getenv = os.Getenv
+	}
+	host, err := resolveHost(s.hosts, s.host)
+	if err != nil {
+		return nil, nil, epicStoreError(fmt.Errorf("controller host: %w", err))
+	}
+	return host, getenv, nil
 }
 
 // ready returns the refusal every epic RPC gets when there is no epic store.
@@ -172,33 +204,33 @@ func (s *epicService) CreateEpic(
 	if err := s.ready(); err != nil {
 		return nil, err
 	}
-	getenv := s.getenv
-	if getenv == nil {
-		getenv = os.Getenv
+	host, getenv, err := s.createEnv()
+	if err != nil {
+		return nil, err
 	}
 	contract, conversation, version, stored, err := s.acceptedContract(ctx, req.Msg.GetId(), req.Msg.GetBase())
 	if err != nil {
 		return nil, err
 	}
-	if err = checkEpic(ctx, contract, req.Msg.GetDecisions(), getenv); err != nil {
+	if err = checkEpic(ctx, host, contract, req.Msg.GetDecisions(), getenv); err != nil {
 		return nil, refuseEpic(connect.CodeInvalidArgument, err.Error())
 	}
-	if err = applyProjectRelease(ctx, contract); err != nil {
+	if err = applyProjectRelease(ctx, host, contract); err != nil {
 		return nil, refuseEpic(connect.CodeInvalidArgument, ".orrery/project.toml: "+err.Error())
 	}
-	warnings, err := contractLintWarnings(ctx, contract)
+	warnings, err := contractLintWarnings(ctx, host, contract)
 	if err != nil {
 		return nil, refuseEpic(connect.CodeInvalidArgument, err.Error())
 	}
-	merged, err := epicReviewers(ctx, contract, getenv)
+	merged, err := epicReviewers(ctx, host, contract, getenv)
 	if err != nil {
 		return nil, refuseEpic(connect.CodeInvalidArgument, err.Error())
 	}
-	base, err := stepGitResolve(ctx, contract.GetRepository(), contract.GetBase())
+	base, err := stepGitResolve(ctx, host, contract.GetRepository(), contract.GetBase())
 	if err != nil {
 		return nil, epicStoreError(fmt.Errorf("resolve base: %w", err))
 	}
-	workflow, err := pinWorkflow(ctx, contract.GetRepository(), base, req.Msg.GetWorkflow())
+	workflow, err := pinWorkflow(ctx, host, contract.GetRepository(), base, req.Msg.GetWorkflow())
 	if err != nil {
 		return nil, refuseEpic(connect.CodeInvalidArgument, "workflow: "+err.Error())
 	}
@@ -218,6 +250,7 @@ func (s *epicService) CreateEpic(
 		return nil, err
 	}
 	row.Steerer = steerer
+	row.Host = s.host
 	if err = s.epics.CreateContractEpic(ctx, row, version); err != nil {
 		return nil, s.refuseCreate(ctx, row.ID, started, err)
 	}
@@ -407,7 +440,7 @@ func (s *epicService) fillHistory(ctx context.Context, id string, message *v1.St
 }
 
 // storedEpic returns the StoredEpic message of the epic with id with its workflow node runs, whether each task is
-// integrated, its review, its release runs, its release proof and the holder of its repository's release slot, all
+// integrated, its review, its release runs and its release proof, all
 // read in one read of the store, so every reply that carries the epic shows the same state. It returns an error
 // matching store.ErrNoEpic when no epic has that id.
 func (s *epicService) storedEpic(ctx context.Context, id string) (*v1.StoredEpic, error) {
@@ -431,7 +464,6 @@ func (s *epicService) storedEpic(ctx context.Context, id string) (*v1.StoredEpic
 	message.Frozen = flow.Review.Frozen
 	message.Clean = flow.Review.Clean
 	message.Releases = epicMap(flow.Releases, releaseRunMessage)
-	message.ReleaseSlot = flow.Slot
 	message.ReleaseProof = epicMap(store.ReleaseProofs(flow), releaseProofMessage)
 	return message, nil
 }

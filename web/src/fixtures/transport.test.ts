@@ -2427,7 +2427,7 @@ test("InboxTree page/inbox-row-menu draws pane %12's row with its More menu open
 
 test("InboxTree page/inbox-folded folds the orrery directory and opens tidepool's ended line", (t) => {
   mockTimers(t, ["setTimeout"]);
-  const tidepoolEnded = 'section.dir[aria-label="tidepool"] button.fold-line';
+  const tidepoolEnded = 'section.dir[aria-label="tidepool"] button.steers-fold';
   return withStory(
     t,
     Page["inbox-folded"],

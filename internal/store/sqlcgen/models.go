@@ -142,6 +142,7 @@ type Epic struct {
 	OriginReadState  string
 	OriginReadAt     int64
 	Steerer          string
+	Host             string
 }
 
 type EpicAction struct {
@@ -386,14 +387,6 @@ type EpicReleaseRun struct {
 	Passed   bool
 	Reason   string
 	At       int64
-}
-
-type EpicReleaseSlot struct {
-	Repository string
-	Epic       string
-	HolderKind string
-	Label      string
-	Deadline   int64
 }
 
 type EpicReleaseStep struct {
@@ -1017,6 +1010,7 @@ type Step struct {
 	LinesFiles      int64
 	LinesAdded      int64
 	LinesRemoved    int64
+	Host            string
 }
 
 type StepListing struct {

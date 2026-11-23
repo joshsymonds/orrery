@@ -5,20 +5,22 @@ import (
 	"fmt"
 
 	"github.com/joshsymonds/orrery/internal/gates"
+	"github.com/joshsymonds/orrery/internal/hostexec"
 	"github.com/joshsymonds/orrery/internal/planner"
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
 // ResolveGate returns the gate named name for epic the way the plan check resolves it: from the epic's gates, else from
-// the repository's project file. A name neither defines is an error that names the gate and wraps gates.ErrUnknown.
+// the repository's project file, which is read on host. A name neither defines is an error that names the gate and
+// wraps gates.ErrUnknown.
 func ResolveGate(
-	ctx context.Context, epic store.EpicRow, name string, getenv func(string) string,
+	ctx context.Context, host hostexec.Host, epic store.EpicRow, name string, getenv func(string) string,
 ) (gates.Gate, error) {
 	defined, err := planner.DefineEpicGates(epic.Gates)
 	if err != nil {
 		return gates.Gate{}, fmt.Errorf("resolve gate %s: %w", name, err)
 	}
-	resolved, err := gates.ResolveDefined(ctx, name, defined, epic.Repository, getenv)
+	resolved, err := gates.ResolveDefined(ctx, host, name, defined, epic.Repository, getenv)
 	if err != nil {
 		return gates.Gate{}, fmt.Errorf("resolve gate %s: %w", name, err)
 	}

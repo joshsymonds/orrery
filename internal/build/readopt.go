@@ -8,6 +8,7 @@ import (
 	"slices"
 
 	"github.com/joshsymonds/orrery/internal/gates"
+	"github.com/joshsymonds/orrery/internal/hostexec"
 	"github.com/joshsymonds/orrery/internal/reviewers"
 	"github.com/joshsymonds/orrery/internal/store"
 )
@@ -18,31 +19,38 @@ var taskLabelPattern = regexp.MustCompile(`^T[1-9][0-9]*$`)
 // ReadoptCheck returns the StepsConfig.ReadoptCheck of the build's steps: the return check a re-adopted step row is
 // restored with is VerifierCheck for a verifier step, OrchestratorCheck for an orchestrator step, rebuilt from the
 // tasks of the row's epic as they stand now, and nil for any other row. An epic or node runs that do not read, and an
-// orchestrator row naming no task of its epic, are errors.
+// orchestrator row naming no task of its epic, are errors. The tasks of an orchestrator row are read on the host its
+// epic names in hosts, which a nil hosts resolves as hostexec.LocalHosts does.
 func ReadoptCheck(
 	epics interface {
 		Epic(ctx context.Context, id string) (store.EpicRow, error)
 		NodeRuns(ctx context.Context, epic string) ([]store.NodeRun, error)
 	},
+	hosts hostexec.Hosts,
 ) func(ctx context.Context, row store.StepRow) (func(json.RawMessage) []string, error) {
+	if hosts == nil {
+		hosts = hostexec.LocalHosts()
+	}
 	return func(ctx context.Context, row store.StepRow) (func(json.RawMessage) []string, error) {
 		switch row.Schema {
 		case VerifierSchema:
 			return VerifierCheck, nil
 		case OrchestratorSchema:
-			return readoptOrchestratorCheck(ctx, epics, row)
+			return readoptOrchestratorCheck(ctx, epics, hosts, row)
 		}
 		return nil, nil
 	}
 }
 
-// readoptOrchestratorCheck returns the return check of the orchestrator step row, rebuilt from its epic's tasks now.
+// readoptOrchestratorCheck returns the return check of the orchestrator step row, rebuilt from its epic's tasks now and
+// read on the epic's host.
 func readoptOrchestratorCheck(
 	ctx context.Context,
 	epics interface {
 		Epic(ctx context.Context, id string) (store.EpicRow, error)
 		NodeRuns(ctx context.Context, epic string) ([]store.NodeRun, error)
 	},
+	hosts hostexec.Hosts,
 	row store.StepRow,
 ) (func(json.RawMessage) []string, error) {
 	epic, err := epics.Epic(ctx, row.Epic)
@@ -53,11 +61,15 @@ func readoptOrchestratorCheck(
 	if i < 0 {
 		return nil, fmt.Errorf("epic %s has no task %s", row.Epic, row.Task)
 	}
+	host, err := hosts.Host(epic.Host)
+	if err != nil {
+		return nil, fmt.Errorf("host of epic %s: %w", row.Epic, err)
+	}
 	runs, err := epics.NodeRuns(ctx, row.Epic)
 	if err != nil {
 		return nil, fmt.Errorf("read node runs of epic %s: %w", row.Epic, err)
 	}
-	peers, err := peersOf(ctx, epic, runs)
+	peers, err := peersOf(ctx, host, epic, runs)
 	if err != nil {
 		return nil, err
 	}

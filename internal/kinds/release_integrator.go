@@ -26,16 +26,17 @@ func integratorPosition(generation, round int64) int64 {
 	return generation*integratorRounds + round
 }
 
-// integratorAction decides a releasing epic whose prepare found the merge of origin's commit into the tip conflicting.
-// The release integrator finishes that merge, in rounds walked in order at the generation of the run's candidate. A
-// round with no release run is recorded once its step ends, waits while its step runs, or starts (integratorStart). A
-// round recorded as failed stops the release with its reason, unless a replan release run of the attempt was recorded
-// with it: then the release goes back to planning with that run's reason (replanAction). A round recorded as passed
-// holds its commit at the epic's
-// Done gates and then at its captures (mergedChecks), walked under an id of the round's own at that commit. When they
-// all pass, the commit is recorded as the candidate. When one fails, the next round starts with the failure, so the
-// integrator mends its merge, and a failure in the last round stops the release with it.
-func integratorAction(run store.NodeRun, rows Rows) Action {
+// integratorAction decides a releasing epic whose prepare found the merge of origin's commit into the tip conflicting,
+// origin being that commit. The release integrator finishes that merge, in rounds walked in order at the generation of
+// the run's candidate. A round with no release run is recorded once its step ends, waits while its step runs, or starts
+// (integratorStart). A round recorded as failed stops the release with its reason, unless a replan release run of the
+// attempt was recorded with it: then the release goes back to planning with that run's reason (replanAction). A round
+// recorded as passed holds its commit at the epic's Done gates and then at its captures (mergedChecks), walked under an
+// id of the round's own at that commit. When they all pass, the commit is recorded as the candidate. When one fails,
+// the next round starts with the failure, so the integrator mends its merge. A Done gate that fails in the last round
+// goes to gateStop, which may send the release back to planning, and a capture that fails in the last round stops the
+// release.
+func integratorAction(run store.NodeRun, rows Rows, origin string) Action {
 	generation := replacedCount(run.Attempt, rows.Releases)
 	gated := gatedRun(run, generation)
 	var head, failure, previous string
@@ -46,7 +47,7 @@ func integratorAction(run store.NodeRun, rows Rows) Action {
 			return r.Part == store.ReleasePartIntegrator && r.Attempt == run.Attempt && r.Position == position
 		})
 		if !ok {
-			return integratorStart(rows, id, position, head, previous)
+			return integratorStart(rows, run.Attempt, id, position, head, previous)
 		}
 		if !recorded.Passed {
 			if act := replanAction(run, rows); act.Kind == ActReplan {
@@ -71,6 +72,11 @@ func integratorAction(run store.NodeRun, rows Rows) Action {
 				Kind: ActRecord, Items: []string{store.ReleasePartCandidate, recorded.Head}, Revision: recorded.Head,
 			}
 		}
+		if round == integratorRounds {
+			if gate, check, _, _ := doneGateFailure(checked, rows); gate != "" {
+				return gateStop(checked, rows, gate, check, origin)
+			}
+		}
 		head = recorded.Head
 	}
 	return Action{Kind: ActStop, Output: failure}
@@ -78,16 +84,16 @@ func integratorAction(run store.NodeRun, rows Rows) Action {
 
 // integratorStart decides the round of the release integrator whose step is id and whose release run is at position,
 // which has no release run. It records the step once its end is stored, and waits while it runs. With no step, it
-// stops the release when the epic does not hold the release slot, waits while the epic is paused or parked, and starts
-// the round otherwise. A round after the first starts from head, the commit of the round before it, with previous, the
-// failure that round's commit met, as its Output.
-func integratorStart(rows Rows, id string, position int64, head, previous string) Action {
+// stops the release when the owner stopped it at the run's attempt, waits while the epic is paused or parked, and
+// starts the round otherwise. A round after the first starts from head, the commit of the round before it, with
+// previous, the failure that round's commit met, as its Output.
+func integratorStart(rows Rows, attempt int64, id string, position int64, head, previous string) Action {
 	if row, found := firstMatch(rows.Steps, func(s store.StepRow) bool { return s.ID == id }); found {
 		return recordAction(row, []string{store.ReleasePartIntegrator, strconv.FormatInt(position, 10)})
 	}
-	if !holdsSlot(rows) {
+	if ownerStopped(rows, attempt) {
 		return Action{
-			Kind: ActStop, Output: "the release integrator did not start: this epic does not hold the release slot",
+			Kind: ActStop, Output: "the release integrator did not start: the owner stopped the release",
 		}
 	}
 	if rows.Epic.Paused || rows.Epic.Parked != "" {
@@ -113,7 +119,7 @@ func mergedChecks(checked store.NodeRun, rows Rows) (string, string, Action, boo
 // walkMerged is mergedChecks, which also walks the reproductions of the epic's test items at checked's revision, once
 // the captures settle, when reproduce is set, as syncChecks walks them at a merge.
 func walkMerged(checked store.NodeRun, rows Rows, reproduce bool) (string, string, Action, bool) {
-	gate, act, settled := doneGates(checked, rows)
+	gate, _, act, settled := doneGateFailure(checked, rows)
 	if !settled {
 		return "", "", act, false
 	}

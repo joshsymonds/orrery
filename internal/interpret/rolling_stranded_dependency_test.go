@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/joshsymonds/orrery/internal/build"
+	"github.com/joshsymonds/orrery/internal/hostexec"
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
@@ -46,7 +47,7 @@ func strandedRead(t *testing.T, repo, base, candidate, composed string) ([]int64
 		ID: "batch-1", Path: rollingBatchPath, Kind: kindIntegrate, State: store.NodeEnded, Outcome: outcomeFailed,
 		Result: result, Started: runClock(),
 	}
-	stranded, err := startStranded(context.Background(), epic, []store.NodeRun{batch})
+	stranded, err := startStranded(context.Background(), hostexec.NewLocal(), epic, []store.NodeRun{batch})
 	if err != nil {
 		t.Fatalf("startStranded: %v", err)
 	}

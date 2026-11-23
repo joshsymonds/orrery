@@ -41,15 +41,16 @@ service Epics {
   rpc ReleaseEpic(ReleaseEpicRequest) returns (ReleaseEpicResponse);
 
   // CloseEpic closes a stored epic as superseded, shipped by hand or abandoned. It ends the epic's running turn and stops
-  // its running steps, answers its open questions and frees its release slot, and returns the stored epic. A close by the
-  // planner routes the ending report to the owner. It refuses superseded without the epic that replaces it.
+  // its running steps, answers its open questions, and returns the stored epic. A close by the planner routes the ending
+  // report to the owner. It refuses superseded without the epic that replaces it.
   rpc CloseEpic(CloseEpicRequest) returns (CloseEpicResponse);
 
   // AmendEvidence asks for a Requirement of a stored epic to hold a new evidence item, which must pass the shape check a
   // created epic's items pass. The amendment starts checking: the item replaces the Requirement's own only once a red run
   // of it at the epic's base is judged not to hold there, and a red that holds refuses it. It returns the stored
-  // amendment and the stored epic. A call from the step of the epic's running turn amends as the planner, which may not
-  // change the conclusion; any other call amends as the owner, who may.
+  // amendment and the stored epic. The owner and the conversation that steers the epic may change the conclusion and
+  // kind, and a conversation that does not steer the epic is refused. The planner amends through its action and may not
+  // change either, so a call from a step of the epic is refused.
   rpc AmendEvidence(AmendEvidenceRequest) returns (AmendEvidenceResponse);
 
   // EscalateEpic marks question Q<n> of a stored epic escalated, with its reason, and returns the question read back. The
@@ -1025,6 +1026,9 @@ message EpicReviewRound {
 
 // StoredEpic is a stored epic with its contract, phase, times, decisions and planner state.
 message StoredEpic {
+  reserved 19;
+  reserved "release_slot";
+
   // The epic's contract as created.
   EpicContract contract = 1;
 
@@ -1082,10 +1086,6 @@ message StoredEpic {
   // The epic's release runs in the order the store reads them: by attempt, then part, then position. Every epic RPC
   // that returns the epic fills it.
   repeated EpicReleaseRun releases = 18;
-
-  // The epic that holds the release slot of the epic's repository, empty when the slot is free. A waiting epic shows
-  // whose release it waits on.
-  string release_slot = 19;
 
   // The epic's summary, written once from its contract. Empty until it is written.
   string summary = 20;

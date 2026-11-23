@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/joshsymonds/orrery/internal/grants"
+	"github.com/joshsymonds/orrery/internal/hostexec"
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
@@ -26,7 +27,9 @@ func nodeCheckReadoptScript(started, release string) []string {
 // nodeCheckHolderDir returns the holder directory of check's gate, which the gate serves under the check's name.
 func nodeCheckHolderDir(t *testing.T, checks *NodeChecks, check store.NodeCheck) string {
 	t.Helper()
-	plan, err := planGate(checks.gate(filepath.Join(checks.worktrees, check.ID), check, nil))
+	run := checks.gate(filepath.Join(checks.worktrees, check.ID), check, nil)
+	run.Host = gateTestHost()
+	plan, err := planGate(run)
 	if err != nil {
 		t.Fatalf("plan the gate of node check %s: %v", check.ID, err)
 	}
@@ -53,7 +56,7 @@ func TestNodeChecksResumeEndsADetachedGateWithItsExitOnce(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		_, runErr = f.checks.run(ctx, f.repo, check)
+		_, runErr = f.checks.run(ctx, hostexec.NewLocal(), f.repo, check)
 	}()
 	gateWaitFile(t, started, done)
 	cancel(errGateDetach)
@@ -143,7 +146,7 @@ func TestNodeChecksResumeRunsAnUngrantedCheckFromTheStart(t *testing.T) {
 		t.Fatalf("store AddNodeCheck: %v", err)
 	}
 	left := filepath.Join(f.checks.worktrees, nodeCheckID)
-	if err := addStepWorktree(t.Context(), f.repo, left, f.head); err != nil {
+	if err := addStepWorktree(t.Context(), hostexec.NewLocal(), f.repo, left, f.head); err != nil {
 		t.Fatalf("add the worktree a stop left: %v", err)
 	}
 

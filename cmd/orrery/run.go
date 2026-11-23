@@ -18,6 +18,7 @@ import (
 	"github.com/joshsymonds/orrery/internal/cli"
 	v1 "github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1"
 	"github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1/enginev1connect"
+	"github.com/joshsymonds/orrery/internal/hostexec"
 	"github.com/joshsymonds/orrery/internal/pools"
 	"github.com/joshsymonds/orrery/internal/protocol"
 )
@@ -45,7 +46,7 @@ func runCommand(
 	if err != nil {
 		return err
 	}
-	project, defined, err := pools.Load(ctx, ".", getenv)
+	project, defined, err := pools.Load(ctx, hostexec.NewLocal(), ".", getenv)
 	if err != nil {
 		return refuseRun(stderr, err)
 	}

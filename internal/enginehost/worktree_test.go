@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/joshsymonds/orrery/internal/hostexec"
 )
 
 // stepWorktreeTestWorktrees returns the output of git worktree list --porcelain in dir.
@@ -32,7 +34,7 @@ func TestCheckWritingWorkspaceRefusesNonGitDirectory(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
 
-	err := checkWritingWorkspace(context.Background(), dir)
+	err := checkWritingWorkspace(context.Background(), hostexec.NewLocal(), dir)
 	if !errors.Is(err, ErrNotGit) {
 		t.Fatalf("checkWritingWorkspace(non-git %s) = %v, want ErrNotGit", dir, err)
 	}
@@ -47,7 +49,7 @@ func TestCheckWritingWorkspaceRefusesMainWorkingTree(t *testing.T) {
 	}
 
 	for _, dir := range []string{repo, sub} {
-		err := checkWritingWorkspace(context.Background(), dir)
+		err := checkWritingWorkspace(context.Background(), hostexec.NewLocal(), dir)
 		if !errors.Is(err, ErrMainWorktree) {
 			t.Fatalf("checkWritingWorkspace(main tree dir %s) = %v, want ErrMainWorktree", dir, err)
 		}
@@ -64,7 +66,7 @@ func TestCheckWritingWorkspaceAcceptsLinkedWorktree(t *testing.T) {
 	}
 
 	for _, dir := range []string{linked, sub} {
-		if err := checkWritingWorkspace(context.Background(), dir); err != nil {
+		if err := checkWritingWorkspace(context.Background(), hostexec.NewLocal(), dir); err != nil {
 			t.Fatalf("checkWritingWorkspace(linked worktree dir %s) = %v, want nil", dir, err)
 		}
 	}
@@ -78,7 +80,7 @@ func TestAddStepWorktreeDetachesAtRevisionAndLeavesMainBranch(t *testing.T) {
 	mainHead := stepGitTestRun(t, repo, "rev-parse", "HEAD")
 	path := filepath.Join(t.TempDir(), "step")
 
-	if err := addStepWorktree(context.Background(), repo, path, revision); err != nil {
+	if err := addStepWorktree(context.Background(), hostexec.NewLocal(), repo, path, revision); err != nil {
 		t.Fatalf("addStepWorktree: %v", err)
 	}
 
@@ -101,7 +103,7 @@ func TestRemoveStepWorktreeRemovesDirtyWorktreeAndIsIdempotent(t *testing.T) {
 	repo := stepGitTestRepo(t)
 	revision := stepGitTestRun(t, repo, "rev-parse", "HEAD")
 	path := filepath.Join(t.TempDir(), "step")
-	if err := addStepWorktree(context.Background(), repo, path, revision); err != nil {
+	if err := addStepWorktree(context.Background(), hostexec.NewLocal(), repo, path, revision); err != nil {
 		t.Fatalf("addStepWorktree: %v", err)
 	}
 	resolved, err := filepath.EvalSymlinks(path)
@@ -110,7 +112,7 @@ func TestRemoveStepWorktreeRemovesDirtyWorktreeAndIsIdempotent(t *testing.T) {
 	}
 	stepGitTestWrite(t, path, "uncommitted.txt", "dirty\n")
 
-	if err := removeStepWorktree(context.Background(), repo, path); err != nil {
+	if err := removeStepWorktree(context.Background(), hostexec.NewLocal(), repo, path); err != nil {
 		t.Fatalf("removeStepWorktree: %v", err)
 	}
 	if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
@@ -119,7 +121,7 @@ func TestRemoveStepWorktreeRemovesDirtyWorktreeAndIsIdempotent(t *testing.T) {
 	if list := stepWorktreeTestWorktrees(t, repo); strings.Contains(list, resolved) {
 		t.Fatalf("git worktree list still names %s:\n%s", resolved, list)
 	}
-	if err := removeStepWorktree(context.Background(), repo, path); err != nil {
+	if err := removeStepWorktree(context.Background(), hostexec.NewLocal(), repo, path); err != nil {
 		t.Fatalf("second removeStepWorktree = %v, want nil", err)
 	}
 }
@@ -130,14 +132,14 @@ func TestRemoveStepWorktreeLeavesMainTreeAndUnregisteredDirectory(t *testing.T) 
 	unregistered := t.TempDir()
 	stepGitTestWrite(t, unregistered, "keep.txt", "keep\n")
 
-	if err := removeStepWorktree(context.Background(), repo, repo); err == nil {
+	if err := removeStepWorktree(context.Background(), hostexec.NewLocal(), repo, repo); err == nil {
 		t.Fatal("removeStepWorktree(main tree) = nil, want error")
 	}
 	if _, err := os.Stat(filepath.Join(repo, "README")); err != nil {
 		t.Fatalf("main tree was touched: %v", err)
 	}
 
-	if err := removeStepWorktree(context.Background(), repo, unregistered); err == nil {
+	if err := removeStepWorktree(context.Background(), hostexec.NewLocal(), repo, unregistered); err == nil {
 		t.Fatal("removeStepWorktree(unregistered dir) = nil, want error")
 	}
 	if _, err := os.Stat(filepath.Join(unregistered, "keep.txt")); err != nil {
@@ -159,10 +161,10 @@ func TestClearUnlaunchedWorktreeRemovesAHalfMadeWorktree(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "run")
 	stepWorktreeTestHalfMade(t, path)
 
-	if err := removeStepWorktree(context.Background(), repo, path); err == nil {
+	if err := removeStepWorktree(context.Background(), hostexec.NewLocal(), repo, path); err == nil {
 		t.Fatal("removeStepWorktree(half-made worktree) = nil, want git's refusal")
 	}
-	if err := clearUnlaunchedWorktree(context.Background(), repo, path); err != nil {
+	if err := clearUnlaunchedWorktree(context.Background(), hostexec.NewLocal(), repo, path); err != nil {
 		t.Fatalf("clearUnlaunchedWorktree: %v", err)
 	}
 	if _, err := os.Lstat(path); !errors.Is(err, os.ErrNotExist) {
@@ -176,7 +178,7 @@ func TestClearUnlaunchedWorktreeRemovesARegisteredWorktreeAndNothing(t *testing.
 	path := stepWorktreeTestAddLinked(t, repo)
 	stepGitTestWrite(t, path, "uncommitted.txt", "dirty\n")
 
-	if err := clearUnlaunchedWorktree(context.Background(), repo, path); err != nil {
+	if err := clearUnlaunchedWorktree(context.Background(), hostexec.NewLocal(), repo, path); err != nil {
 		t.Fatalf("clearUnlaunchedWorktree(registered): %v", err)
 	}
 	if _, err := os.Lstat(path); !errors.Is(err, os.ErrNotExist) {
@@ -185,7 +187,7 @@ func TestClearUnlaunchedWorktreeRemovesARegisteredWorktreeAndNothing(t *testing.
 	if list := stepWorktreeTestWorktrees(t, repo); strings.Contains(list, path) {
 		t.Fatalf("git worktree list still names %s:\n%s", path, list)
 	}
-	if err := clearUnlaunchedWorktree(context.Background(), repo, path); err != nil {
+	if err := clearUnlaunchedWorktree(context.Background(), hostexec.NewLocal(), repo, path); err != nil {
 		t.Fatalf("clearUnlaunchedWorktree(nothing at path) = %v, want nil", err)
 	}
 }
@@ -200,7 +202,7 @@ func TestClearUnlaunchedWorktreeLeavesAnUnregisteredDirectoryWithAGitEntry(t *te
 	stepGitTestWrite(t, path, ".git", "gitdir: /nowhere\n")
 	stepGitTestWrite(t, path, "keep.txt", "keep\n")
 
-	if err := clearUnlaunchedWorktree(context.Background(), repo, path); err == nil {
+	if err := clearUnlaunchedWorktree(context.Background(), hostexec.NewLocal(), repo, path); err == nil {
 		t.Fatal("clearUnlaunchedWorktree(directory with a .git entry) = nil, want an error")
 	}
 	if _, err := os.Stat(filepath.Join(path, "keep.txt")); err != nil {
@@ -218,7 +220,7 @@ func TestClearUnlaunchedWorktreeLeavesASymbolicLink(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := clearUnlaunchedWorktree(context.Background(), repo, path); err == nil {
+	if err := clearUnlaunchedWorktree(context.Background(), hostexec.NewLocal(), repo, path); err == nil {
 		t.Fatal("clearUnlaunchedWorktree(symbolic link) = nil, want an error")
 	}
 	if _, err := os.Stat(filepath.Join(target, "keep.txt")); err != nil {

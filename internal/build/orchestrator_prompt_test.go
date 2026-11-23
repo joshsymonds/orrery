@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/joshsymonds/orrery/internal/hostexec"
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
@@ -28,8 +29,10 @@ func TestRequestedLinesNameEachPathOnceWithItsHolder(t *testing.T) {
 	base := commitOff(t, repo, setup.base, "present.go", "package present\n")
 	task := store.EpicTask{Seq: 1, Files: []string{"mine.go"}, Status: taskOpen, Build: store.TaskBuild{Base: base}}
 	peers := []Peer{{Task: task}, openPeer(2, "owned.go"), acceptedPeer(3, "changed.go")}
-	got := requestedLines(context.Background(), repo, task, []string{"present.go", "owned.go", ".git/x"},
-		[]string{"mine.go", "changed.go", "present.go"}, peers)
+	got := requestedLines(
+		context.Background(), hostexec.NewLocal(), repo, task, []string{"present.go", "owned.go", ".git/x"},
+		[]string{"mine.go", "changed.go", "present.go"}, peers,
+	)
 	want := []string{
 		"- present.go: asked for; exists at the base; free",
 		"- owned.go: asked for; new at the base; owned by open T2 (implement)",
@@ -58,7 +61,13 @@ func TestPeerLinesListOpenPendingIntegratedSinceTheBaseAndFailedTasks(t *testing
 	failed := Peer{Task: store.EpicTask{
 		Seq: 6, Status: taskFailed, Title: "Broke", Build: store.TaskBuild{Failure: "it broke"},
 	}, State: Lost}
-	got := peerLines(context.Background(), repo, task, []Peer{{Task: task}, waiter, pending, old, recent, failed})
+	got := peerLines(
+		context.Background(),
+		hostexec.NewLocal(),
+		repo,
+		task,
+		[]Peer{{Task: task}, waiter, pending, old, recent, failed},
+	)
 	want := []string{
 		"- T2 [open, implement, waiting] Wait", "  deliverable: waits", "  files: w.go", "  waits for: T3",
 		"- T3 [accepted, not yet integrated] Pending", "  deliverable: ", "  changed: p.go",
@@ -136,7 +145,7 @@ func TestReturnLinesCarryTheWholeReturnAndEachSendBack(t *testing.T) {
 func TestReadWorktreeOfAMissingPathSaysItCouldNotBeRead(t *testing.T) {
 	t.Parallel()
 	path := filepath.Join(t.TempDir(), "gone")
-	lines := readWorktree(context.Background(), path, "base").lines()
+	lines := readWorktree(context.Background(), hostexec.NewLocal(), path, "base").lines()
 	if len(lines) != 2 || lines[0] != "Path: "+path ||
 		!strings.HasPrefix(lines[1], "The worktree could not be read: ") {
 		t.Errorf("lines = %q, want the path and why it could not be read", lines)
@@ -147,13 +156,19 @@ func TestReadWorktreeShowsUncommittedAndUntrackedWork(t *testing.T) {
 	t.Parallel()
 	setup := newStartSetup(t)
 	path := filepath.Join(t.TempDir(), "implement")
-	if err := AddWorktree(context.Background(), setup.epic.Repository, path, setup.base); err != nil {
+	if err := AddWorktree(
+		context.Background(),
+		hostexec.NewLocal(),
+		setup.epic.Repository,
+		path,
+		setup.base,
+	); err != nil {
 		t.Fatal(err)
 	}
 	writeFile(t, filepath.Join(path, "tracked.go"), "package tracked\n")
 	buildRun(t, path, "add", "tracked.go")
 	writeFile(t, filepath.Join(path, "untracked.go"), "package untracked\n")
-	tree := readWorktree(context.Background(), path, setup.base)
+	tree := readWorktree(context.Background(), hostexec.NewLocal(), path, setup.base)
 	if !slices.Equal(tree.changed, []string{"tracked.go", "untracked.go"}) {
 		t.Errorf("changed = %v, want the staged and the untracked file", tree.changed)
 	}

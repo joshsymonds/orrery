@@ -279,8 +279,8 @@ func TestDecideSyncAdvanceCarriesNoTrigger(t *testing.T) {
 
 // TestDecideNoSyncAwayFromAQuietPoint: the plan starts no sync, and keeps its run, while anything of the epic moves or
 // waits, an action a planner turn returned and an evidence amendment under way among it, while the epic is paused or
-// parked, an owner's park or a planner's, while it has ended or is closed, its review froze or it holds the release
-// slot, before any batch under the plan passed, and once the sync of the highest turn is stored.
+// parked, an owner's park or a planner's, while it has ended or is closed, its review froze or it is releasing, before
+// any batch under the plan passed, and once the sync of the highest turn is stored.
 func TestDecideNoSyncAwayFromAQuietPoint(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
@@ -324,7 +324,7 @@ func TestDecideNoSyncAwayFromAQuietPoint(t *testing.T) {
 		{"the epic has ended", func(rows *kinds.Rows) { rows.Epic.Phase = store.PhaseStopped }},
 		{"the epic has a candidate", func(rows *kinds.Rows) { rows.Epic.Candidate = "c2" }},
 		{"the review froze", func(rows *kinds.Rows) { rows.Review.Frozen = "c1" }},
-		{"the epic holds the release slot", func(rows *kinds.Rows) { rows.Slot = decideEpic }},
+		{"the epic is releasing", func(rows *kinds.Rows) { rows.Epic.Phase = store.PhaseReleasing }},
 		{"no batch under the plan passed", func(rows *kinds.Rows) {
 			rows.Runs = []store.NodeRun{runningPlan(0)}
 		}},

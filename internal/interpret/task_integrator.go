@@ -14,6 +14,7 @@ import (
 
 	"github.com/joshsymonds/orrery/internal/build"
 	"github.com/joshsymonds/orrery/internal/enginehost"
+	"github.com/joshsymonds/orrery/internal/hostexec"
 	"github.com/joshsymonds/orrery/internal/kinds"
 	"github.com/joshsymonds/orrery/internal/roles"
 	"github.com/joshsymonds/orrery/internal/store"
@@ -105,21 +106,23 @@ func taskMerge(repo, dir, candidate, revision string) integratorMerge {
 	return integratorMerge{repo: repo, worktree: filepath.Join(dir, taskWorktree), tip: candidate, origin: revision}
 }
 
-// startTaskMerge makes the worktree of merge afresh under dir, detached at the candidate, and merges the task's
+// startTaskMerge makes the worktree of merge afresh under dir on host, detached at the candidate, and merges the task's
 // revision into it without a commit (startMerge). The conflicts stay in place: it returns the paths they leave unmerged.
-func startTaskMerge(ctx context.Context, merge integratorMerge, dir string) ([]string, error) {
-	if err := startMerge(ctx, merge, dir); err != nil {
+func startTaskMerge(ctx context.Context, host hostexec.Host, merge integratorMerge, dir string) ([]string, error) {
+	if err := startMerge(ctx, host, merge, dir); err != nil {
 		return nil, fmt.Errorf("merge the task's revision %s into %s: %w", merge.origin, merge.tip, err)
 	}
-	return unmergedPaths(ctx, merge.worktree)
+	return unmergedPaths(ctx, host, merge.worktree)
 }
 
 // taskIntegratorCheck returns the return check of a task integrator step that finishes merge. A merged return's commit
 // is checked by the checks a release integrator's commit meets (integratorFailures), with its other_changes as the
 // changes listed outside the conflicts. A clash return is checked by clashFailures, and any other verdict fails. The
 // tree git's own merge writes is computed once, here.
-func taskIntegratorCheck(ctx context.Context, merge integratorMerge) (func(json.RawMessage) []string, error) {
-	tree, err := mergeTreeOf(ctx, merge)
+func taskIntegratorCheck(
+	ctx context.Context, host hostexec.Host, merge integratorMerge,
+) (func(json.RawMessage) []string, error) {
+	tree, err := mergeTreeOf(ctx, host, merge)
 	if err != nil {
 		return nil, err
 	}
@@ -131,7 +134,7 @@ func taskIntegratorCheck(ctx context.Context, merge integratorMerge) (func(json.
 		}
 		switch ret.Verdict {
 		case verdictMerged:
-			return integratorFailures(checkCtx, merge, tree, mergedAsIntegrator(ret))
+			return integratorFailures(checkCtx, host, merge, tree, mergedAsIntegrator(ret))
 		case verdictClash:
 			return clashFailures(ret)
 		default:
@@ -242,16 +245,20 @@ func (r *Runner) taskRoundStart(
 		return enginehost.StepStart{}, fmt.Errorf("task %d of epic %s is not stored", act.Tasks[0], epic.ID)
 	}
 	merge := taskMerge(epic.Repository, dir, act.Items[2], act.Items[3])
-	conflicts, err := startTaskMerge(ctx, merge, dir)
+	host, err := r.hostOf(epic)
+	if err != nil {
+		return enginehost.StepStart{}, err
+	}
+	conflicts, err := startTaskMerge(ctx, host, merge, dir)
 	if err != nil {
 		return enginehost.StepStart{}, err
 	}
 	merge.conflicts = conflicts
-	prompt, err := taskIntegratorPrompt(ctx, merge, epic.Tasks, task, act.Output)
+	prompt, err := taskIntegratorPrompt(ctx, host, merge, epic.Tasks, task, act.Output)
 	if err != nil {
 		return enginehost.StepStart{}, err
 	}
-	check, err := taskIntegratorCheck(ctx, merge)
+	check, err := taskIntegratorCheck(ctx, host, merge)
 	if err != nil {
 		return enginehost.StepStart{}, err
 	}
@@ -280,7 +287,11 @@ func (r *Runner) recordTaskRound(ctx context.Context, epic store.EpicRow, act Ac
 		return err
 	}
 	if verdict.verdict == verdictMerged {
-		if err = build.Pin(ctx, epic.Repository, taskPin(epic, act.Run, seq, round), verdict.head); err != nil {
+		host, hostErr := r.hostOf(epic)
+		if hostErr != nil {
+			return fmt.Errorf("pin the task integrator merge of node %s: %w", act.Path, hostErr)
+		}
+		if err = build.Pin(ctx, host, epic.Repository, taskPin(epic, act.Run, seq, round), verdict.head); err != nil {
 			return fmt.Errorf("pin the task integrator merge of node %s: %w", act.Path, err)
 		}
 	}
@@ -325,14 +336,18 @@ func (r *Runner) judgeTaskRound(
 	merge := integratorMerge{
 		repo: epic.Repository, worktree: row.Workspace, tip: row.Revision, origin: task.Build.Revision,
 	}
-	conflicts, err := taskConflicts(ctx, merge)
+	host, err := r.hostOf(epic)
+	if err != nil {
+		return roundVerdict{}, err
+	}
+	conflicts, err := taskConflicts(ctx, host, merge)
 	if err != nil {
 		return roundVerdict{}, err
 	}
 	merge.conflicts = conflicts
 	switch ret.Verdict {
 	case verdictMerged:
-		return judgeMerged(ctx, merge, ret)
+		return judgeMerged(ctx, host, merge, ret)
 	case verdictClash:
 		if failures := clashFailures(ret); len(failures) > 0 {
 			return roundVerdict{
@@ -351,8 +366,10 @@ func (r *Runner) judgeTaskRound(
 
 // judgeMerged returns the verdict of a merged return ret: merged with the commit it names when the commit passes the
 // engine's checks, and ended with each check it fails otherwise.
-func judgeMerged(ctx context.Context, merge integratorMerge, ret taskIntegratorReturn) (roundVerdict, error) {
-	head, failures, err := integratorCommit(ctx, merge, mergedAsIntegrator(ret))
+func judgeMerged(
+	ctx context.Context, host hostexec.Host, merge integratorMerge, ret taskIntegratorReturn,
+) (roundVerdict, error) {
+	head, failures, err := integratorCommit(ctx, host, merge, mergedAsIntegrator(ret))
 	if err != nil {
 		return roundVerdict{}, err
 	}
@@ -417,7 +434,11 @@ func (r *Runner) storeRound(
 	if dir == "" {
 		return nil
 	}
-	if err := build.RemoveWorktrees(ctx, epic.Repository, dir); err != nil {
+	host, err := r.hostOf(epic)
+	if err != nil {
+		return fmt.Errorf("remove the worktree of task integrator %s: %w", record.Step, err)
+	}
+	if err = build.RemoveWorktrees(ctx, host, epic.Repository, dir); err != nil {
 		return fmt.Errorf("remove the worktree of task integrator %s: %w", record.Step, err)
 	}
 	return nil
@@ -461,10 +482,10 @@ func (r *Runner) roundSteps(ctx context.Context, epic string, runs []store.NodeR
 	return steps, nil
 }
 
-// taskConflicts returns the paths git's merge of the task's revision into the candidate conflicts at, as git's merge tree
-// names them.
-func taskConflicts(ctx context.Context, merge integratorMerge) ([]string, error) {
-	out, _, err := mergeTree(ctx, merge.repo, merge.tip, merge.origin)
+// taskConflicts returns the paths git's merge of the task's revision into the candidate conflicts at on host, as git's
+// merge tree names them.
+func taskConflicts(ctx context.Context, host hostexec.Host, merge integratorMerge) ([]string, error) {
+	out, _, err := mergeTree(ctx, host, merge.repo, merge.tip, merge.origin)
 	if err != nil {
 		return nil, err
 	}
