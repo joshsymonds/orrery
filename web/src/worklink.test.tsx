@@ -363,7 +363,7 @@ test("WorkLink: pressing a design link brings its tab into the inbox", (t) =>
       act(() => {
         one(container, '.wlink[title="Open Round 8 links"]').click();
       });
-      assertSame(container.querySelector(".panes")?.getAttribute("data-inbox"), "expanded", "the press expands the inbox");
+      assert.ok(container.querySelector('article.held-card[data-kind="design"]') !== null, "the press holds the design's card");
       const tab = one(container, '.design-tab[data-key="design:d1"]');
       assert.deepEqual(scrolled, [tab], "the design's tab is scrolled into view");
     },

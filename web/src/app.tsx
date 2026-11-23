@@ -16,6 +16,7 @@ import { bandText, contractSlug, leftOf, type RowAbout, readKey, statePill } fro
 import { endedLead, EndedBar, unsteeredLead } from "./endedbar";
 import { type Conversation, shownConversation } from "./conversation";
 import { ConvoRow } from "./convorow";
+import { DesignCard } from "./designcard";
 import { type EpicCommands, EpicPage, type Landing, type SessionTarget, type SteerSheet } from "./epicpage";
 import { epicGaugeOf } from "./epicrow";
 import { type EpicItem, type EpicsView, epicsView, noEpics, type StepItem } from "./epics";
@@ -160,6 +161,13 @@ interface OpenedContract {
   cursor: string;
 }
 
+// The design a press on its tab, its title link or its rail mark opened, with the cursor key it opened over: its card is
+// held while the cursor rests there.
+interface OpenedDesign {
+  id: string;
+  cursor: string;
+}
+
 // A pending open is the entry an opened address names, with the view it names. The entry is decided only in a pass whose
 // view is that view.
 interface PendingOpen {
@@ -173,9 +181,13 @@ interface ListOpen {
   panel: ListPanelKind;
 }
 
-// What a panel held, which ] reopens once no panel is open: an epic or a contract by its id, or a session's list by its open
-// state.
-type Held = { kind: "epic"; id: string } | { kind: "contract"; id: string } | { kind: "list"; open: ListOpen };
+// What a panel held, which ] reopens once no panel is open: a design, an epic or a contract by its id, or a session's list by
+// its open state.
+type Held =
+  | { kind: "design"; id: string }
+  | { kind: "epic"; id: string }
+  | { kind: "contract"; id: string }
+  | { kind: "list"; open: ListOpen };
 
 // The row the palette answered: the pane Picker.Run answered, or the session Control.Start started, by its kind and id.
 interface PendingTarget {
@@ -456,6 +468,8 @@ export function App({
   const [opened, setOpened] = useState<OpenedEpic | null>(null);
   // The contract an opened address names, and the read set of the contract records, which the page keeps for its life.
   const [openedContract, setOpenedContract] = useState<OpenedContract | null>(null);
+  // The design an opened press named, and whose card is held while the cursor rests on the entry it opened over.
+  const [openedDesign, setOpenedDesign] = useState<OpenedDesign | null>(null);
   const [contractRead, setContractRead] = useState<ReadonlySet<string>>(() => new Set());
   // The About the middle dock holds, set by a row's control on an open contract's record, and whether the phone's sheet
   // holds the conversation over the record.
@@ -639,6 +653,14 @@ export function App({
   const contractRow = contract === undefined ? null : steererRowOf(shownRows, contract.conversation);
   const contractLiveRow =
     contractRow !== null && !contractRow.archived && !endedStates.includes(contractRow.state) ? contractRow : null;
+  // The design whose card is held: the one an opened press named, while the cursor rests on the entry it opened over and no
+  // project page is shown, at the desk. Its conversation is the middle while that row is live, as a contract's is.
+  const openedDesignId = wide && shownProject === null && openedDesign?.cursor === cursorKey ? openedDesign.id : "";
+  const design = openedDesignId === "" ? undefined : designs.find((candidate) => candidate.id === openedDesignId);
+  const designShown = design !== undefined;
+  const designRow = design === undefined ? null : steererRowOf(shownRows, design.conversation);
+  const designLiveRow =
+    designRow !== null && !designRow.archived && !endedStates.includes(designRow.state) ? designRow : null;
   // The About and the talk belong to the open contract: closing it, opening another, or moving the cursor off its entry
   // clears them.
   const shownContractId = contract?.id ?? "";
@@ -651,11 +673,11 @@ export function App({
     steered !== null && epicEntry !== null && steered.epic === epicEntry.id && steered.listed === listedSteering
       ? steered.session
       : listedSteering;
-  const steererRow = epicEntry === null || contractShown ? null : steererRowOf(rows, steering);
-  const middleRow = contractShown ? contractLiveRow : (cursorRow ?? steererRow);
+  const steererRow = epicEntry === null || contractShown || designShown ? null : steererRowOf(rows, steering);
+  const middleRow = designShown ? designLiveRow : contractShown ? contractLiveRow : (cursorRow ?? steererRow);
   // The row the seen watch rests on: the cursor's row, or while a contract is open, the conversation the middle draws.
   // The accounts page covers the conversation, so the seen watch rests on no row while it is open.
-  const watchedRow = accountsOpen ? null : contractShown ? contractLiveRow : cursorRow;
+  const watchedRow = accountsOpen ? null : designShown ? designLiveRow : contractShown ? contractLiveRow : cursorRow;
   const middleKey = middleRow?.key ?? "";
   const readerKey = middleKey !== "" ? middleKey : cursorStepKey;
   // The cursor's epic entry while its ending reads unseen: the seen watch rests on it, and its write marks it seen.
@@ -689,7 +711,12 @@ export function App({
   const shownPage = pageCursor.current === cursorKey ? epicPage : openEpicPage;
   // The list panel the cursor's session row shows: a list is open only while the cursor rests on the row it is open on.
   const listShown: ListPanelKind | null =
-    shownProject === null && !contractShown && !accountsOpen && listPanel !== null && listPanel.key === cursorRowKey
+    shownProject === null &&
+    !contractShown &&
+    !designShown &&
+    !accountsOpen &&
+    listPanel !== null &&
+    listPanel.key === cursorRowKey
       ? listPanel.panel
       : null;
   // A shown project page is the address, then an open contract, which no project page shows over, and otherwise the
@@ -732,6 +759,13 @@ export function App({
       setOpenedContract(null);
     }
   }, [openedContract, cursorKey]);
+
+  // The design card shuts once the cursor leaves the entry it opened over, as the contract panel does.
+  useEffect(() => {
+    if (openedDesign !== null && openedDesign.cursor !== cursorKey) {
+      setOpenedDesign(null);
+    }
+  }, [openedDesign, cursorKey]);
 
   // The middle row, or the cursor's step, is followed while the cursor rests on it: a move to another entry, or an unmount,
   // stops the stream. A step is followed as its session, by its id.
@@ -1631,18 +1665,20 @@ export function App({
   };
 
   // openProject opens a project's page from its head or its address: the address names the project, and the page draws
-  // in the page area. An open contract's panel shuts, since the page takes its place. It is a navigation.
+  // in the page area. An open contract's panel or design's card shuts, since the page takes its place. It is a navigation.
   const openProject = navigated((key: string) => {
     setOpenedContract(null);
+    setOpenedDesign(null);
     setProjectKey(key);
     setRowOpened(true);
   });
 
   // openAccounts opens the accounts and routes page, from the inbox foot's gear. The page takes the conversation's place, so an
-  // open project page or contract shuts. It is a navigation.
+  // open project page, contract or design card shuts. It is a navigation.
   const openAccounts = navigated(() => {
     setProjectKey(null);
     setOpenedContract(null);
+    setOpenedDesign(null);
     setAccountsOpen(true);
   });
 
@@ -1680,8 +1716,15 @@ export function App({
   };
 
   // selectKey moves the cursor to the entry drawn under key, as a press on that entry does. A press on an epic or a step
-  // under 760px opens it, as a press on a row does. A press on a contract opens its panel, as its work link does.
+  // under 760px opens it, as a press on a row does. A press on a contract opens its panel, as its work link does. A press on
+  // a design's tab opens its card at the desk, and under 760px does nothing, as it did before the card.
   const selectKey = (key: string) => {
+    if (key.startsWith("design:")) {
+      if (wide) {
+        navigated(openDesign)(key.slice("design:".length));
+      }
+      return;
+    }
     const item = flat.find((candidate) => candidate.key === key);
     if (item === undefined) {
       return;
@@ -1725,6 +1768,7 @@ export function App({
       selectItem(conversationItem);
     }
     setOpenedContract({ id, cursor: conversationItem?.key ?? cursorKey });
+    setOpenedDesign(null);
     setRowOpened(true);
   };
 
@@ -1753,6 +1797,7 @@ export function App({
       setProjectKey(null);
     }
     setOpenedContract(null);
+    setOpenedDesign(null);
     // The accounts page is drawn from no list, so its address is applied at once, and holds no pending entry.
     const accountsAddress = address.entry?.kind === "accounts";
     setAccountsOpen(accountsAddress);
@@ -1944,22 +1989,12 @@ export function App({
       openFlyoutItem(item);
     }
   }, [view]);
-  // pendingTab is the design whose tab a press on the rail's lineage brings into view, once the inbox is drawn expanded.
-  const pendingTab = useRef<string | null>(null);
-  useEffect(() => {
-    const key = pendingTab.current;
-    if (key !== null && !collapsed) {
-      pendingTab.current = null;
-      document.querySelector(`.list [data-key="${CSS.escape(key)}"]`)?.scrollIntoView({ block: "nearest" });
-    }
-  }, [collapsed]);
-  // openLineage is a press on a mark of the rail's lineage. A design's mark expands the inbox and brings the design's tab
-  // into view. An epic's or a contract's mark opens it as a flyout row does; openFlyoutItem reads only the item's key and kind,
-  // so the rest of the row is left empty.
+  // openLineage is a press on a mark of the rail's lineage. A design's mark opens its card, as its tab does. An epic's or a
+  // contract's mark opens it as a flyout row does; openFlyoutItem reads only the item's key and kind, so the rest of the row
+  // is left empty.
   const openLineage = (key: string) => {
     if (key.startsWith("design:")) {
-      pendingTab.current = key;
-      expandInbox();
+      navigated(openDesign)(key.slice("design:".length));
       return;
     }
     openFlyoutItem({ kind: "hung", key, name: "", ask: "", changed: 0 });
@@ -2114,11 +2149,24 @@ export function App({
   // project page is shown, and the page is drawn: under 760px only once the entry has been opened. Its card takes the
   // tone of the epic among the middle conversation's things, so an epic no conversation steers takes the quiet tone.
   const panelOpen =
-    pageDrawn && epicEntry !== null && !epicPage.closed && !contractShown && shownProject === null && !accountsOpen;
-  // The rail's tiles, and the lineage the tiles hang under them. The lineage marks open the contract whose panel is open, else
-  // the epic whose panel is open (panelOpen), and nothing while a project page is shown or no panel is open.
+    pageDrawn &&
+    epicEntry !== null &&
+    !epicPage.closed &&
+    !contractShown &&
+    !designShown &&
+    shownProject === null &&
+    !accountsOpen;
+  // The rail's tiles, and the lineage the tiles hang under them. The lineage marks open the design whose card is held, else
+  // the contract whose panel is open, else the epic whose panel is open (panelOpen), and nothing while a project page is
+  // shown or no panel is open.
   const lineageThing =
-    contract !== undefined ? `contract:${contract.id}` : panelOpen && epicEntry !== null ? `epic:${epicEntry.id}` : "";
+    design !== undefined
+      ? `design:${design.id}`
+      : contract !== undefined
+        ? `contract:${contract.id}`
+        : panelOpen && epicEntry !== null
+          ? `epic:${epicEntry.id}`
+          : "";
   const tiles = railTiles(railTree, shownProject ?? cursorKey, lineageThing);
   // Under 760px an open epic is the page in the conversation's place: the conversation is not drawn, and the page's
   // foot bar opens the steering conversation. At the desk the epic panel lies beside the conversation, but not a worker
@@ -2136,16 +2184,18 @@ export function App({
   const epicBeside = panelOpen && !sessionAtDesk;
   // Under 760px an open contract is the page in the conversation's place too, and the reader is not drawn.
   const contractPageShown = !wide && contractShown;
-  // heldThing is the thing the desk holds open beside its conversation, as a card set into the conversation: an epic whose
-  // panel is open, or an open contract, with the key of the middle conversation's row ("" when none). Under 760px nothing
-  // is held, since the page takes the conversation's place.
+  // heldThing is the thing the desk holds open beside its conversation, as a card set into the conversation: a design whose
+  // card is held, an epic whose panel is open, or an open contract, with the key of the middle conversation's row ("" when
+  // none). Under 760px nothing is held, since the page takes the conversation's place.
   const heldThing: HeldThing | null = !wide
     ? null
-    : contract !== undefined
-      ? { kind: "contract", key: `contract:${contract.id}`, convo: middleKey }
-      : epicBeside && epicEntry !== null
-        ? { kind: "epic", key: `epic:${epicEntry.id}`, convo: middleKey }
-        : null;
+    : design !== undefined
+      ? { kind: "design", key: `design:${design.id}`, convo: middleKey }
+      : contract !== undefined
+        ? { kind: "contract", key: `contract:${contract.id}`, convo: middleKey }
+        : epicBeside && epicEntry !== null
+          ? { kind: "epic", key: `epic:${epicEntry.id}`, convo: middleKey }
+          : null;
   // The list panel's tone comes from its row's tasks, and its rows are the middle conversation's running tasks of its kind,
   // which are empty once none runs.
   const listThing = workThings.find(
@@ -2153,24 +2203,28 @@ export function App({
   );
   const listTone = listThing?.tone ?? "quiet";
   const listTasks = listThing?.tasks ?? [];
-  // What the panel holds while it is open: ] reopens it once it shuts. An open contract is held while it is open, an epic
-  // while its panel is open, and a list while its panel is open on its row.
+  // What the panel holds while it is open: ] reopens it once it shuts. A design is held while its card is held, a contract
+  // while its panel is open, an epic while its panel is open, and a list while its panel is open on its row.
   const openHeld: Held | null =
-    contract !== undefined
-      ? { kind: "contract", id: contract.id }
-      : panelOpen && epicEntry !== null
-        ? { kind: "epic", id: epicEntry.id }
-        : listShown === null
-          ? null
-          : { kind: "list", open: { key: cursorRowKey, panel: listShown } };
+    design !== undefined
+      ? { kind: "design", id: design.id }
+      : contract !== undefined
+        ? { kind: "contract", id: contract.id }
+        : panelOpen && epicEntry !== null
+          ? { kind: "epic", id: epicEntry.id }
+          : listShown === null
+            ? null
+            : { kind: "list", open: { key: cursorRowKey, panel: listShown } };
   const heldKey =
     openHeld === null
       ? ""
-      : openHeld.kind === "epic"
-        ? `epic:${openHeld.id}`
-        : openHeld.kind === "contract"
-          ? `contract:${openHeld.id}`
-          : `list:${openHeld.open.key}:${openHeld.open.panel}`;
+      : openHeld.kind === "design"
+        ? `design:${openHeld.id}`
+        : openHeld.kind === "epic"
+          ? `epic:${openHeld.id}`
+          : openHeld.kind === "contract"
+            ? `contract:${openHeld.id}`
+            : `list:${openHeld.open.key}:${openHeld.open.panel}`;
   useEffect(() => {
     if (openHeld !== null) {
       setHeld(openHeld);
@@ -2206,26 +2260,42 @@ export function App({
   // closeContract shuts the contract panel, from its Fold back or ]. The address is the
   // cursor's entry again.
   const closeContract = navigated(() => setOpenedContract(null));
-  // openDesign is a press on a design link: the design's tab shows in the inbox, where the tree draws it under its
-  // conversation. At the desk a collapsed inbox expands, and the tab scrolls into view once it is drawn. Under 760px the
-  // page and the panels shut, so the inbox list draws with the tab in view.
+  // closeDesign folds the held design card back, from its Fold back or ]. The cursor stays on the conversation's row, so the
+  // address is the conversation's own.
+  const closeDesign = navigated(() => setOpenedDesign(null));
+  // openDesign is a press on a design's tab, its link in the title or its mark on the rail. At the desk the design's card is
+  // held beside its conversation, which takes the cursor, and an open contract's panel shuts. The design's tab shows in the
+  // inbox, where the tree draws it under its conversation: a collapsed inbox expands, and the tab scrolls into view once it
+  // is drawn. Under 760px the page and the panels shut, so the inbox list draws with the tab in view, and no card is held.
   const openDesign = (id: string) => {
     revealKey(`design:${id}`);
     setView("inbox");
     setProjectKey(null);
-    if (wide) {
-      if (collapsed) {
-        expandInbox();
-      }
-    } else {
+    setTabToShow(`design:${id}`);
+    if (!wide) {
       setRowOpened(false);
       setEpicPage(closedEpicPage);
       setOpenedContract(null);
+      return;
     }
-    setTabToShow(`design:${id}`);
+    if (collapsed) {
+      expandInbox();
+    }
+    const pressed = designs.find((candidate) => candidate.id === id);
+    if (pressed === undefined) {
+      return;
+    }
+    const conversation = steererRowOf(shownRows, pressed.conversation);
+    const conversationItem =
+      conversation === null ? undefined : flat.find((candidate) => candidate.key === conversation.key);
+    setOpenedContract(null);
+    if (conversationItem !== undefined) {
+      selectItem(conversationItem);
+    }
+    setOpenedDesign({ id, cursor: conversationItem?.key ?? cursorKey });
   };
   // openWorkLink is a press on a work link in the title row: an epic's opens its panel, a contract's opens its contract,
-  // and a design's shows its tab in the inbox.
+  // and a design's opens its card.
   const openWorkLink = (item: WorkLinkItem) => {
     if (item.kind === "epic") {
       navigated(openEpic)(item.id);
@@ -2247,6 +2317,10 @@ export function App({
   // togglePanel is ]: it folds the held card back, or shuts the open panel, or with none open reopens the thing the panel
   // held last, as long as the list still holds it.
   const togglePanel = () => {
+    if (design !== undefined) {
+      closeDesign();
+      return;
+    }
     if (contract !== undefined) {
       closeContract();
       return;
@@ -2260,6 +2334,12 @@ export function App({
       return;
     }
     if (held === null) {
+      return;
+    }
+    if (held.kind === "design") {
+      if (designs.some((candidate) => candidate.id === held.id)) {
+        navigated(openDesign)(held.id);
+      }
       return;
     }
     if (held.kind === "contract") {
@@ -2463,6 +2543,19 @@ export function App({
       setTalking(true);
     }
   };
+  // designPage draws the design the card holds: its state and its contracts in position order. A press on a contract holds
+  // that contract instead, when the contracts the list holds include it.
+  const designPage =
+    design === undefined ? null : (
+      <DesignCard
+        design={design}
+        onOpenContract={(id) => {
+          if (contracts.some((candidate) => candidate.id === id)) {
+            navigated(openContractPanel)(id);
+          }
+        }}
+      />
+    );
   const contractPage =
     contract === undefined ? null : (
       <div>
@@ -2738,9 +2831,10 @@ export function App({
   const contractCalls: ContractCalls = { contracts, onOpen: navigated(openContractPanel) };
   // activityLines are what runs under the middle conversation, drawn above its composer while its reader is drawn.
   const activityLines = activityOf(readerRow === null ? null : railConversation);
-  // heldCard is the held thing's card at the desk: its title is the epic's or contract's slug, its body the page the panel drew,
-  // and its Fold back is closePanel for an epic and closeContract for a contract, which leave the conversation alone with the
-  // cursor on its row. An epic's gauge is the one its tree row draws, and a contract's mark needs none.
+  // heldCard is the held thing's card at the desk: its title is the design's title, the epic's slug or the contract's slug, its
+  // body the page the card or panel drew, and its Fold back is closeDesign, closeContract or closePanel, which leave the
+  // conversation alone with the cursor on its row. An epic's gauge is the one its tree row draws, and a design's or a
+  // contract's mark needs none.
   const heldGauge =
     heldThing?.kind === "epic" && epicEntry !== null && epicDetail !== undefined
       ? epicGaugeOf(epics.listed.get(epicEntry.id) ?? epicDetail.epic, epicDetail, now)
@@ -2748,16 +2842,24 @@ export function App({
   // columnHolds is whether the middle column draws, and so holds the card; with no row or step to draw, the column is hidden
   // and the card sits in the no-conversation middle instead.
   const columnHolds = readerRow !== null || readerStep !== null;
+  const heldTitle =
+    design !== undefined ? design.title : contract !== undefined ? contractSlug(contract.id) : (epicEntry?.slug ?? "");
   const heldCard =
     heldThing === null ? undefined : (
       <HeldCard
         thing={heldThing}
-        title={contract !== undefined ? contractSlug(contract.id) : (epicEntry?.slug ?? "")}
+        title={heldTitle}
         move=""
         gauge={heldGauge}
-        onFoldBack={contract !== undefined ? closeContract : closePanel}
+        onFoldBack={design !== undefined ? closeDesign : contract !== undefined ? closeContract : closePanel}
       >
-        {contract !== undefined ? contractPage : epicEntry !== null ? epicPageSection(epicEntry, epicDetail) : null}
+        {design !== undefined
+          ? designPage
+          : contract !== undefined
+            ? contractPage
+            : epicEntry !== null
+              ? epicPageSection(epicEntry, epicDetail)
+              : null}
       </HeldCard>
     );
   const middleColumn = (
@@ -2931,6 +3033,7 @@ export function App({
           !accountsOpen &&
           epicEntry !== null &&
           !contractShown &&
+          !designShown &&
           steererRow === null &&
           !epicPageShown &&
           !sessionAtDesk && (
@@ -2940,6 +3043,9 @@ export function App({
             </section>
           )}
         {contractShown && contractLiveRow === null && !contractPageShown && (
+          <section class="read" aria-label="no conversation">{!columnHolds && heldCard}</section>
+        )}
+        {designShown && designLiveRow === null && (
           <section class="read" aria-label="no conversation">{!columnHolds && heldCard}</section>
         )}
         <ReaderColumn
