@@ -112,10 +112,12 @@ func unreachableHandler(t *testing.T, tmux *tmuxctl.Client, storePath string, cl
 		Tmux:       tmux,
 		Push:       newPushStore(t),
 		HostStatus: hoststatus.New(writeHostStatusScript(t, "[]", 0), statusNow),
-		LocalLoad:  statusLocal(statusLocalLoad, statusLocalMemory),
-		Sessions:   store.NewReader(storePath),
-		Hosts:      clients,
-		NewTimer:   neverTimer,
+		LocalLoad: func() (node.Load, error) {
+			return node.Load{LoadPercent: statusLocalLoad, MemoryPercent: statusLocalMemory}, nil
+		},
+		Sessions: store.NewReader(storePath),
+		Hosts:    clients,
+		NewTimer: neverTimer,
 	})
 	if err != nil {
 		t.Fatalf("New: %v", err)
