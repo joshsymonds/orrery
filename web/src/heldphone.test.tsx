@@ -15,7 +15,7 @@ import { type Epic, EpicSchema, type EpicsGetResponse, EpicsGetResponseSchema } 
 import type { Address } from "./router";
 import type { Row } from "./rows";
 import type { SeenClock } from "./seen";
-import { assertNone, installTestDom, removeTestDom, teardownOnce } from "./testdom";
+import { assertNone, assertSame, installTestDom, removeTestDom, teardownOnce } from "./testdom";
 
 // Each test's name carries the token HeldLayout: under 760px an opened epic, contract or design is the phone's sheet, set under
 // its conversation's head, and the head's work link for it is lit. The checks read the DOM only, and each test mounts App at
@@ -253,9 +253,9 @@ function cursorKeyOf(container: HTMLElement): string {
 // them, and that no reader is drawn in the column.
 function checkUnderHead(container: HTMLElement, sheet: HTMLElement): void {
   const column = required(container, 'section[aria-label="reader"]');
-  assert.equal(sheet.parentElement, column, "the sheet is set into the conversation's column");
+  assertSame(sheet.parentElement, column, "the sheet is set into the conversation's column");
   const head = required(column, ":scope > .convo-head");
-  assert.equal(head.nextElementSibling, sheet, "the sheet comes directly after the conversation's head");
+  assertSame(head.nextElementSibling, sheet, "the sheet comes directly after the conversation's head");
   assert.ok(head.lastElementChild?.classList.contains("head-band"), "a band of the sheet's ground runs under the head");
   assertNone(container.querySelector(".reader"), "the conversation's reader is not drawn");
 }
