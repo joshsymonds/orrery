@@ -34,6 +34,27 @@ type designStageArgs struct {
 	Design string `json:"design" jsonschema:"the id of the design or contract whose stage to read"`
 }
 
+// designAskArgs is the arguments of design_ask, described for its input schema.
+type designAskArgs struct {
+	Design         string   `json:"design"             jsonschema:"the design or contract the question is on"`
+	Contract       string   `json:"contract,omitempty" jsonschema:"the contract the question concerns, or empty"`
+	Text           string   `json:"text"               jsonschema:"the question's text"`
+	Options        []string `json:"options"            jsonschema:"the options the owner may choose between"`
+	Recommendation string   `json:"recommendation"     jsonschema:"the option the planner recommends"`
+}
+
+// designAnswerArgs is the arguments of design_answer, described for its input schema.
+type designAnswerArgs struct {
+	Design     string `json:"design"               jsonschema:"the design or contract the question is on"`
+	Question   int64  `json:"question"             jsonschema:"the question id design_ask gave"`
+	Maker      string `json:"maker"                jsonschema:"owner_serve, owner_conversation or conversation"`
+	Quote      string `json:"quote,omitempty"      jsonschema:"the owner's words, for owner_conversation"`
+	Reason     string `json:"reason,omitempty"     jsonschema:"why the conversation decides, for conversation"`
+	Delegation string `json:"delegation,omitempty" jsonschema:"the owner's words it decides on, for conversation"`
+	Answer     string `json:"answer,omitempty"     jsonschema:"the answer's words; empty with accept"`
+	Accept     bool   `json:"accept,omitempty"     jsonschema:"true to answer with the recommendation"`
+}
+
 // stageTools returns the stage tools, each calling stage. A nil stage answers each call with a tool error.
 func stageTools(stage enginev1connect.StageClient) ([]Tool, error) {
 	research, err := argumentSchema[designResearchArgs](nil)
@@ -45,6 +66,14 @@ func stageTools(stage enginev1connect.StageClient) ([]Tool, error) {
 		return nil, err
 	}
 	read, err := argumentSchema[designStageArgs](nil)
+	if err != nil {
+		return nil, err
+	}
+	ask, err := argumentSchema[designAskArgs](nil)
+	if err != nil {
+		return nil, err
+	}
+	answer, err := argumentSchema[designAnswerArgs](nil)
 	if err != nil {
 		return nil, err
 	}
@@ -69,6 +98,22 @@ func stageTools(stage enginev1connect.StageClient) ([]Tool, error) {
 				"with its status and its report once it returns.",
 			InputSchema: read,
 			Handler:     designStageHandler(stage),
+		},
+		{
+			Name: "design_ask",
+			Description: "Store a question on design, about contract or about none, with its options and the option the " +
+				"planner recommends. Returns the question, unanswered; design_answer answers it.",
+			InputSchema: ask,
+			Handler:     designAskHandler(stage),
+		},
+		{
+			Name: "design_answer",
+			Description: "Store an answer to a question of design, with the maker it came from: owner_serve for the owner " +
+				"through serve, owner_conversation for the owner in the conversation with quote, or conversation for " +
+				"the owner with reason and delegation. accept answers with the recommendation. Returns the question with " +
+				"its answer.",
+			InputSchema: answer,
+			Handler:     designAnswerHandler(stage),
 		},
 	}, nil
 }
@@ -130,5 +175,47 @@ func designStageHandler(stage enginev1connect.StageClient) ToolHandler {
 			return toolFailure(err), nil
 		}
 		return protoResult(got.Msg)
+	}
+}
+
+func designAskHandler(stage enginev1connect.StageClient) ToolHandler {
+	return func(ctx context.Context, call Call) (ToolResult, error) {
+		var args designAskArgs
+		if err := decodeArguments(call.Arguments, &args); err != nil {
+			return ToolResult{}, err
+		}
+		if stage == nil {
+			return stageUnavailable(), nil
+		}
+		asked, err := stage.Ask(ctx, connect.NewRequest(&v1.AskRequest{
+			Design: args.Design, Contract: args.Contract, Text: args.Text, Options: args.Options,
+			Recommendation: args.Recommendation,
+		}))
+		if err != nil {
+			return toolFailure(err), nil
+		}
+		return protoResult(asked.Msg)
+	}
+}
+
+func designAnswerHandler(stage enginev1connect.StageClient) ToolHandler {
+	return func(ctx context.Context, call Call) (ToolResult, error) {
+		var args designAnswerArgs
+		if err := decodeArguments(call.Arguments, &args); err != nil {
+			return ToolResult{}, err
+		}
+		if stage == nil {
+			return stageUnavailable(), nil
+		}
+		answered, err := stage.Answer(ctx, connect.NewRequest(&v1.StageAnswerRequest{
+			Design: args.Design, Question: args.Question, Answer: args.Answer, Accept: args.Accept,
+			Maker: &v1.StageMaker{
+				Kind: args.Maker, Quote: args.Quote, Reason: args.Reason, Delegation: args.Delegation,
+			},
+		}))
+		if err != nil {
+			return toolFailure(err), nil
+		}
+		return protoResult(answered.Msg)
 	}
 }

@@ -16,7 +16,8 @@ import (
 const runningStatus = "running"
 
 // GetStage returns the stage of the design: the steps its design_steps rows record, oldest first, each with its step
-// row's status and report. A design no step names has no steps.
+// row's status and report, and the questions its design_questions rows record, oldest first, each with its answer once
+// it has one. A design no step names has no steps, and one no question names has no questions.
 func (s *Service) GetStage(
 	ctx context.Context,
 	req *connect.Request[v1.GetStageRequest],
@@ -34,8 +35,16 @@ func (s *Service) GetStage(
 		}
 		steps = append(steps, step)
 	}
+	questions, err := s.cfg.Store.DesignQuestions(ctx, design)
+	if err != nil {
+		return nil, internalError(err)
+	}
+	var asked []*v1.StageQuestion
+	for _, question := range questions {
+		asked = append(asked, stageQuestionOf(question))
+	}
 	return connect.NewResponse(&v1.GetStageResponse{
-		Stage: &v1.DesignStage{Design: design, Steps: steps},
+		Stage: &v1.DesignStage{Design: design, Steps: steps, Questions: asked},
 	}), nil
 }
 

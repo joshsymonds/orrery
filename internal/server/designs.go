@@ -4,11 +4,15 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"time"
 
 	"connectrpc.com/connect"
 
+	enginev1 "github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1"
+	enginev1connect "github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1/enginev1connect"
 	orreryv1 "github.com/joshsymonds/orrery/internal/gen/orrery/v1"
 	"github.com/joshsymonds/orrery/internal/gen/orrery/v1/orreryv1connect"
+	"github.com/joshsymonds/orrery/internal/rpcretry"
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
@@ -18,11 +22,62 @@ const designNotFound = "design not found"
 // designStoreUnavailable is the fixed message for a design read the store cannot answer.
 const designStoreUnavailable = "design store unavailable"
 
+// designStageUnavailable is the fixed message for a design answer when serve has no stage command client.
+const designStageUnavailable = "design stage service unavailable"
+
 // designsServer answers orrery.v1.Designs. List and Get read the store reader. A nil reader answers them unavailable.
-// Answer is not served here yet, so it answers unimplemented.
+// Answer forwards to stage with no caller headers, so orreryd records the owner as the maker, and answers the answer
+// orreryd stored. A nil stage answers Answer unavailable. Each forwarded call runs under timeout and is retried only
+// while rpcretry.NeverConnected accepts its error, as the contract commands are.
 type designsServer struct {
 	orreryv1connect.UnimplementedDesignsHandler
-	reader *store.Reader
+	reader  *store.Reader
+	stage   enginev1connect.StageClient
+	timeout time.Duration
+	clock   rpcretry.Clock
+}
+
+// Answer forwards the owner's answer to a question of a design to orreryd, as the owner through serve, and answers the
+// answer orreryd stored.
+func (d designsServer) Answer(
+	ctx context.Context,
+	req *connect.Request[orreryv1.DesignsAnswerRequest],
+) (*connect.Response[orreryv1.DesignsAnswerResponse], error) {
+	design, question, answer, accept := req.Msg.GetDesign(), req.Msg.GetQuestion(), req.Msg.GetAnswer(),
+		req.Msg.GetAccept()
+	var reply *connect.Response[enginev1.StageAnswerResponse]
+	err := d.forwardStage(ctx, func(ctx context.Context, stage enginev1connect.StageClient) error {
+		var err error
+		reply, err = stage.Answer(ctx, connect.NewRequest(&enginev1.StageAnswerRequest{
+			Design: design, Question: question, Answer: answer, Accept: accept,
+			Maker: &enginev1.StageMaker{Kind: store.StageMakerOwnerServe},
+		}))
+		return wrapEngine("answer", err)
+	})
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&orreryv1.DesignsAnswerResponse{
+		Answer: reply.Msg.GetQuestion().GetAnswer(),
+	}), nil
+}
+
+// forwardStage calls the stage client under the server's timeout and retry rules. A nil stage client answers
+// unavailable, and an engine error answers as the control forwards do.
+func (d designsServer) forwardStage(
+	ctx context.Context,
+	call func(context.Context, enginev1connect.StageClient) error,
+) error {
+	if d.stage == nil {
+		return listError(connect.CodeUnavailable, designStageUnavailable)
+	}
+	err := retryUnder(ctx, d.clock, d.timeout, rpcretry.NeverConnected, func(ctx context.Context) error {
+		return call(ctx, d.stage)
+	})
+	if err != nil {
+		return translateError(err)
+	}
+	return nil
 }
 
 // List answers every design the store reader gives, in the order it gives them.
@@ -139,8 +194,20 @@ func designContractMessage(contract store.DesignContract) *orreryv1.DesignContra
 	}
 }
 
-// newDesignsHandler returns the path and handler of the Designs service, reading designs from reader as designsServer
-// does.
-func newDesignsHandler(reader *store.Reader, opts ...connect.HandlerOption) (string, http.Handler) {
-	return orreryv1connect.NewDesignsHandler(designsServer{reader: reader}, opts...)
+// newDesignsHandler returns the path and handler of the Designs service, reading designs from reader and forwarding
+// answers to stage, both as designsServer does. A zero timeout is defaultControlTimeout.
+func newDesignsHandler(
+	reader *store.Reader,
+	stage enginev1connect.StageClient,
+	timeout time.Duration,
+	clock rpcretry.Clock,
+	opts ...connect.HandlerOption,
+) (string, http.Handler) {
+	if timeout == 0 {
+		timeout = defaultControlTimeout
+	}
+	return orreryv1connect.NewDesignsHandler(
+		designsServer{reader: reader, stage: stage, timeout: timeout, clock: clock},
+		opts...,
+	)
 }

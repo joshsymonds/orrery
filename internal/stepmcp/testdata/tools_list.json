@@ -979,5 +979,91 @@
       ],
       "type": "object"
     }
+  },
+  {
+    "name": "design_ask",
+    "description": "Store a question on design, about contract or about none, with its options and the option the planner recommends. Returns the question, unanswered; design_answer answers it.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "contract": {
+          "description": "the contract the question concerns, or empty",
+          "type": "string"
+        },
+        "design": {
+          "description": "the design or contract the question is on",
+          "type": "string"
+        },
+        "options": {
+          "description": "the options the owner may choose between",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "recommendation": {
+          "description": "the option the planner recommends",
+          "type": "string"
+        },
+        "text": {
+          "description": "the question's text",
+          "type": "string"
+        }
+      },
+      "required": [
+        "design",
+        "text",
+        "options",
+        "recommendation"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "name": "design_answer",
+    "description": "Store an answer to a question of design, with the maker it came from: owner_serve for the owner through serve, owner_conversation for the owner in the conversation with quote, or conversation for the owner with reason and delegation. accept answers with the recommendation. Returns the question with its answer.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "accept": {
+          "description": "true to answer with the recommendation",
+          "type": "boolean"
+        },
+        "answer": {
+          "description": "the answer's words; empty with accept",
+          "type": "string"
+        },
+        "delegation": {
+          "description": "the owner's words it decides on, for conversation",
+          "type": "string"
+        },
+        "design": {
+          "description": "the design or contract the question is on",
+          "type": "string"
+        },
+        "maker": {
+          "description": "owner_serve, owner_conversation or conversation",
+          "type": "string"
+        },
+        "question": {
+          "description": "the question id design_ask gave",
+          "type": "integer"
+        },
+        "quote": {
+          "description": "the owner's words, for owner_conversation",
+          "type": "string"
+        },
+        "reason": {
+          "description": "why the conversation decides, for conversation",
+          "type": "string"
+        }
+      },
+      "required": [
+        "design",
+        "question",
+        "maker"
+      ],
+      "type": "object"
+    }
   }
 ]
