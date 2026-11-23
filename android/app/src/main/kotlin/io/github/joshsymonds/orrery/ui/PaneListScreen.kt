@@ -29,9 +29,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.repeatOnLifecycle
 import io.github.joshsymonds.orrery.api.ContractRow
 import io.github.joshsymonds.orrery.api.EpicDetail
 import io.github.joshsymonds.orrery.api.EpicRow
@@ -46,11 +49,16 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.io.IOException
 
 /** The fixed delay the inbox waits before it reads again after a read that did not answer. */
 internal const val RETRY_DELAY_MILLIS = 5_000L
+
+/** The fixed delay between the inbox's re-reads of its three row lists while it is started. */
+internal const val TICK_MILLIS = 5_000L
 
 /**
  * The inbox's state: the chip on, the search words (null while the search is closed), the folded projects, the projects
@@ -146,6 +154,12 @@ internal class TreeData(
  * Until the first answer the inbox says it is loading. A read that fails, the panes, a headless or archived list, or an
  * epic or its detail, shows that the server did not answer, and reads again after [RETRY_DELAY_MILLIS] or at once on
  * Try now. A failed contracts read keeps the contracts last read, and a failed host read keeps the host last read.
+ *
+ * While the inbox is at least started, it also re-reads its three row lists every [TICK_MILLIS] once an answer has
+ * landed. A tick keeps the epics, details, contracts and host of the held answer, and its answer goes through the same
+ * moves and notice as a full read. A tick that does not answer keeps what is drawn and waits for the next tick, and it
+ * does not show the server did not answer. The ticks stop when the lifecycle drops below started, and start again when
+ * it is started again.
  */
 @Composable
 fun PaneListScreen(
@@ -174,30 +188,51 @@ fun PaneListScreen(
     val scope = rememberCoroutineScope()
     val animated = animationsOn()
     val toast = rememberArchiveToast()
+    // The reads take turns, so an answer that began earlier never lands after one that began later.
+    val reads = remember(client) { Mutex() }
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
+
+    // Takes [read] as the answer the inbox draws: an answer that moved rows shows its move notice and marks the moved rows.
+    val land: (TreeData) -> Unit = { read ->
+        val moved = state.answered(spotsOfRead(read))
+        // An answer that moved rows shows its one notice in the foot's slot, in place of any toast or earlier notice.
+        if (state.moves.isNotEmpty()) toast.showMoves(state.moves)
+        // Reduced motion marks nothing; the rows still land where the answer put them.
+        if (animated) {
+            for (move in moved.filter { it.key != state.heldKey }) {
+                marking = marking + (move.key to move)
+                scope.launch {
+                    delay(Move.LAYOUT.millis.toLong())
+                    if (marking[move.key] === move) marking = marking - move.key
+                }
+            }
+        }
+        data = read
+        state.held = read
+        failed = false
+    }
 
     LaunchedEffect(client, generation) {
-        val read = readTree(client, state.held)
+        val read = reads.withLock { readTree(client, state.held) }
         if (read == null) {
             failed = true
             delay(RETRY_DELAY_MILLIS)
             generation++
         } else {
-            val moved = state.answered(spotsOfRead(read))
-            // An answer that moved rows shows its one notice in the foot's slot, in place of any toast or earlier notice.
-            if (state.moves.isNotEmpty()) toast.showMoves(state.moves)
-            // Reduced motion marks nothing; the rows still land where the answer put them.
-            if (animated) {
-                for (move in moved.filter { it.key != state.heldKey }) {
-                    marking = marking + (move.key to move)
-                    scope.launch {
-                        delay(Move.LAYOUT.millis.toLong())
-                        if (marking[move.key] === move) marking = marking - move.key
-                    }
+            land(read)
+        }
+    }
+
+    LaunchedEffect(client, lifecycle) {
+        lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            while (true) {
+                delay(TICK_MILLIS)
+                reads.withLock {
+                    // A tick keeps the held answer's epics, details, contracts and host, so it waits for the first answer.
+                    val held = state.held ?: return@withLock
+                    readRows(client, held)?.let(land)
                 }
             }
-            data = read
-            state.held = read
-            failed = false
         }
     }
 
@@ -290,14 +325,7 @@ fun PaneListScreen(
  */
 internal suspend fun readTree(client: OrreryClient, held: TreeData?): TreeData? = withContext(Dispatchers.IO) {
     try {
-        val tmux = client.panes()
-        val headless = client.headless()
-        val marks = client.sessionMarks()
-        val byId = marks.associateBy { it.id }
-        val panes = tmux.map { pane ->
-            byId[pane.orreryId]?.let { pane.copy(ended = it.ended, endedAt = it.endedAt) } ?: pane
-        } + headless
-        val archived = marks.filter { it.archived }.map { it.id }.toSet()
+        val rows = readRowLists(client)
         val epics = client.epics()
         val details = detailsOf(client, epics)
         val contracts = try {
@@ -310,10 +338,39 @@ internal suspend fun readTree(client: OrreryClient, held: TreeData?): TreeData? 
         } catch (error: IOException) {
             held?.host ?: ""
         }
-        TreeData(panes, archived, epics, details, contracts, host)
+        TreeData(rows.panes, rows.archived, epics, details, contracts, host)
     } catch (error: IOException) {
         null
     }
+}
+
+/**
+ * Reads only the three row lists, and keeps the epics, details, contracts and host of [held]. Null when a list did not
+ * answer.
+ */
+private suspend fun readRows(client: OrreryClient, held: TreeData): TreeData? = withContext(Dispatchers.IO) {
+    try {
+        val rows = readRowLists(client)
+        TreeData(rows.panes, rows.archived, held.epics, held.details, held.contracts, held.host)
+    } catch (error: IOException) {
+        null
+    }
+}
+
+/** The rows the three lists answered with: the panes with their sessions' ended marks, and the archived sessions. */
+private class RowLists(val panes: List<Pane>, val archived: Set<String>)
+
+/** Reads the panes, the headless sessions and the session marks. Throws [IOException] when one of them did not answer. */
+private fun readRowLists(client: OrreryClient): RowLists {
+    val tmux = client.panes()
+    val headless = client.headless()
+    val marks = client.sessionMarks()
+    val byId = marks.associateBy { it.id }
+    val panes = tmux.map { pane ->
+        byId[pane.orreryId]?.let { pane.copy(ended = it.ended, endedAt = it.endedAt) } ?: pane
+    } + headless
+    val archived = marks.filter { it.archived }.map { it.id }.toSet()
+    return RowLists(panes, archived)
 }
 
 /** Where a read draws each conversation, in the inbox and in the archived view, without the open entry's hold. */
