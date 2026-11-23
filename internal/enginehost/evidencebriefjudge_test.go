@@ -218,6 +218,40 @@ func TestBriefJudgeAttachStartsExactlyOneJudge(t *testing.T) {
 	}
 }
 
+// TestBriefJudgeAttachStartsOneJudgePerBrief attaches one capture to two briefs of the same revision. Each brief is judged once,
+// so two judges start, and each brief holds.
+func TestBriefJudgeAttachStartsOneJudgePerBrief(t *testing.T) {
+	t.Parallel()
+	repo, base := captureTestRepo(t)
+	st := epicTestStore(t)
+	item := briefJudgeItem()
+	briefJudgeSetUp(t, st, repo, base, item, item)
+	steps := &evidenceRunSteps{judges: []evidenceRunJudge{evidenceRunHolds(), evidenceRunHolds()}}
+	ev := briefJudgeNew(t, st, steps, nil)
+
+	briefs := []string{briefJudgeBriefID, "brief-2"}
+	for _, id := range briefs {
+		briefJudgeAddBrief(t, st, briefJudgeBrief{
+			id: id, name: "R1", phase: evidence.PhaseGreen, revision: base, item: item,
+		})
+	}
+	evidenceAttachGather(t, st)
+	rig, captures := evidenceAttachCaptures(t, st)
+	capture := evidenceAttachGathererCapture(t, rig, captures, base, briefs)
+	if _, err := ev.Attach(t.Context(), captureTestGatherer, capture.ID, briefs); err != nil {
+		t.Fatalf("Attach capture %s: %v", capture.ID, err)
+	}
+	for _, id := range briefs {
+		run := evidenceRunSettled(t, engineOf(ev), st, id)
+		if run.Judges != 1 || run.Verdict != evidence.VerdictHolds {
+			t.Fatalf("brief %s = judges %d verdict %q, want one judge and holds", id, run.Judges, run.Verdict)
+		}
+	}
+	if n := steps.startCount(); n != len(briefs) {
+		t.Fatalf("%d judge steps started, want one per brief, %d", n, len(briefs))
+	}
+}
+
 // TestBriefJudgePromptNamesTheCapture attaches a capture the running gatherer made for a brief. The judge's prompt names the
 // capture's id, argv, commit and runner, and the step that asked for it with its role.
 func TestBriefJudgePromptNamesTheCapture(t *testing.T) {
