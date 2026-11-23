@@ -124,7 +124,7 @@ private fun WorkRow(task: BackgroundTask, now: Long) {
 }
 
 /** Elapsed seconds as m:ss. */
-private fun clock(seconds: Long): String {
+internal fun clock(seconds: Long): String {
     val total = seconds.coerceAtLeast(0L)
     return "%d:%02d".format(total / 60, total % 60)
 }
