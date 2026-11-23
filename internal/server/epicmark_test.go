@@ -1,8 +1,6 @@
 package server
 
 import (
-	"net/http"
-	"net/http/httptest"
 	"path/filepath"
 	"testing"
 	"time"
@@ -11,29 +9,10 @@ import (
 
 	enginev1 "github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1"
 	orreryv1 "github.com/joshsymonds/orrery/internal/gen/orrery/v1"
-	orreryv1connect "github.com/joshsymonds/orrery/internal/gen/orrery/v1/orreryv1connect"
 )
 
 // epicMarkID is the id of the orreryd epic the derivation tests read.
 const epicMarkID = "repoa/shared"
-
-// epicMarkServe serves newEpicsHandler over root, steps, store and evidence with the fixed clock and a fake retry
-// clock, and returns a generated Epics client.
-func epicMarkServe(
-	t *testing.T,
-	root string,
-	steps StepClient,
-	store EpicStoreClient,
-	evidence EvidenceClient,
-) orreryv1connect.EpicsClient {
-	t.Helper()
-	path, handler := newEpicsHandler(root, steps, store, nil, evidence, nil, 0, epicsNow, newRetryClock())
-	mux := http.NewServeMux()
-	mux.Handle(path, handler)
-	srv := httptest.NewServer(mux)
-	t.Cleanup(srv.Close)
-	return orreryv1connect.NewEpicsClient(srv.Client(), srv.URL)
-}
 
 // epicMarkStored returns an orreryd epic of epicMarkID in phase, whose contract names the Requirements ids, in order.
 func epicMarkStored(phase string, ids ...string) *enginev1.StoredEpic {
@@ -53,7 +32,7 @@ func epicMarkGet(
 ) *orreryv1.EpicsGetResponse {
 	t.Helper()
 	store := &epicStoreFake{stored: []*enginev1.StoredEpic{stored}}
-	client := epicMarkServe(t, t.TempDir(), &epicsFake{steps: steps}, store, &evidenceRunsFake{runs: runs})
+	client := stepDataServe(t, t.TempDir(), &epicsFake{steps: steps}, store, &evidenceRunsFake{runs: runs})
 	return epicsGet(t, client, epicMarkID)
 }
 
