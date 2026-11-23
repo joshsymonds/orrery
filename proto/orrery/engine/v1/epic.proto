@@ -1318,7 +1318,7 @@ message CreateEpicResponse {
   StoredEpic epic = 1;
 
   // One warning for each lint finding that does not refuse the contract: a go test whose -run pattern matches a test at
-  // the base, or a release step that says merge, names a fixed version or waits on CI. Each names its field and reason.
+  // the base, or a release step that names a fixed version or waits on CI. Each names its field and reason.
   repeated string warnings = 2;
 }
 
