@@ -43,10 +43,11 @@ type ledgerItem struct {
 }
 
 // Dispose stores a disposition of a ledger item of a design, with the maker it came from, and returns the item with
-// its new disposition. The design must exist and the item must be an item of its ledger. The maker is checked first,
-// as checkMaker checks it. Until the ledger freezes, only adopted, rejected (with a reason), deferred (with a boundary)
-// and open are taken. Once it freezes, only revised_after_closure and accepted_as_risk are taken, each with a reason and
-// only for an item whose disposition is open. Any other disposition is a failed precondition that names the rule.
+// its new disposition. The design must exist, the item must be an item of its ledger, and the maker must pass
+// checkMaker, in that order. Until the ledger freezes, only adopted, rejected (with a reason), deferred (with a
+// boundary) and open are taken. Once it freezes, only revised_after_closure and accepted_as_risk are taken, each with a
+// reason and only for an item whose disposition is open. Any other disposition is a failed precondition that names the
+// rule.
 func (s *Service) Dispose(
 	ctx context.Context,
 	req *connect.Request[v1.DisposeRequest],
@@ -128,9 +129,9 @@ func (s *Service) ledgerOf(ctx context.Context, design string) ([]ledgerItem, bo
 	return s.readLedger(ctx, design, steps)
 }
 
-// readLedger returns the ledger of the design whose steps are steps, and whether the ledger is frozen. The items are the
-// findings of the counted discovery return, oldest first, then the concerns of the counted closure return, each with
-// origin closure. A pass counts when its step ended with a kept return whose verdict is not BLOCKED, and the first such
+// readLedger returns the ledger of the design whose steps are steps, and whether the ledger is frozen. The items are
+// the findings of the counted discovery return, oldest first, then the concerns of the counted closure return, each
+// with origin closure. A pass counts when its step ended with a kept return whose verdict is not BLOCKED, and the first such
 // pass of each kind is the one counted, since the budget admits one. The ledger is frozen once a closure step exists or
 // a closure skip is recorded. Each item's disposition is the newest stored disposition of its id, and open when none is
 // stored; closure's ledger entry with the item's id gives its closure word and note.
@@ -195,8 +196,8 @@ func (s *Service) readLedger(
 }
 
 // countedSteelman returns the decoded return of the first step of kind among steps that counts: its step ended with a
-// kept return whose verdict is not BLOCKED. It returns false, and no error, when no step counts. A kept return that does
-// not decode is an error.
+// kept return whose verdict is not BLOCKED. It returns false, and no error, when no step counts. A kept return that
+// does not decode is an error.
 func (s *Service) countedSteelman(
 	ctx context.Context, steps []store.DesignStep, kind string,
 ) (SteelmanReturn, bool, error) {
