@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -12,7 +13,8 @@ import (
 const syncPassed = "passed"
 
 // SyncEnd is how a sync run of origin's main ends: the path and attempt of the run, its outcome and output, the commit
-// of origin's main its merge holds when it passed, and the text it tells, "" when it tells nothing.
+// of origin's main its merge holds when it passed, the text it tells, "" when it tells nothing, and the trigger it
+// adds, nil when it adds none. A Trigger that is set is added pending by EndSync in its own write.
 type SyncEnd struct {
 	Path    string
 	Attempt int64
@@ -20,6 +22,7 @@ type SyncEnd struct {
 	Output  string
 	Synced  string
 	Tell    string
+	Trigger *NodeTrigger
 }
 
 // OriginRead is an epic's last read of origin's main, which a sync of origin's main starts from: the stored base it was
@@ -98,6 +101,13 @@ func (s *Store) EndSync(ctx context.Context, epic string, end SyncEnd, at time.T
 		}
 		return settleSync(ctx, queries, epic, end, at)
 	})
+}
+
+// RewakeSync stores, in one write, trigger as a pending trigger of epic at at and turn as a gap turn of epic, so that a
+// sync whose gap is live wakes the planner again. A trigger id already stored writes nothing. A gap with GapTurnBound
+// turns is an error wrapping ErrGapSpent, and writes nothing.
+func (s *Store) RewakeSync(_ context.Context, _ string, _ NodeTrigger, _ GapTurn, _ time.Time) error {
+	return errors.New("RewakeSync is not implemented")
 }
 
 // settleSync moves the stored base of epic for a sync run that passed (moveSyncedBase) and adds end.Tell as a tell when

@@ -10633,6 +10633,47 @@ func (q *Queries) ListStepFacts(ctx context.Context, ids []string) ([]ListStepFa
 	return items, nil
 }
 
+const listSyncUnresolvable = `-- name: ListSyncUnresolvable :many
+SELECT epic, turn, position, gap, reason, recommended FROM planner_unresolvable
+WHERE planner_unresolvable.epic = ?1
+  AND planner_unresolvable.gap GLOB 'sync:*'
+  AND planner_unresolvable.turn IN (
+      SELECT epic_turns.seq FROM epic_turns
+      WHERE epic_turns.epic = ?1 AND epic_turns.state = 'succeeded'
+  )
+ORDER BY planner_unresolvable.turn, planner_unresolvable.position
+`
+
+func (q *Queries) ListSyncUnresolvable(ctx context.Context, epic string) ([]PlannerUnresolvable, error) {
+	rows, err := q.db.QueryContext(ctx, listSyncUnresolvable, epic)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []PlannerUnresolvable
+	for rows.Next() {
+		var i PlannerUnresolvable
+		if err := rows.Scan(
+			&i.Epic,
+			&i.Turn,
+			&i.Position,
+			&i.Gap,
+			&i.Reason,
+			&i.Recommended,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listToldLimitSteps = `-- name: ListToldLimitSteps :many
 SELECT limit_key, step FROM told_limit_steps ORDER BY limit_key, step
 `
