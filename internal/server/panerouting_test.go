@@ -110,18 +110,18 @@ type routingHolders struct {
 	holderhost.Host
 }
 
-// startRoutingAgent serves an agent for host, whose panes are the panes of the tmux server tmux, on a loopback listener
-// until the test ends. It returns the client that a controller reaches the agent through.
-func startRoutingAgent(t *testing.T, host string, tmux *tmuxctl.Client) *node.Client {
+// startRoutingAgent serves an agent for routingHost, whose panes are the panes of the tmux server tmux, on a loopback
+// listener until the test ends. It returns the client that a controller reaches the agent through.
+func startRoutingAgent(t *testing.T, tmux *tmuxctl.Client) *node.Client {
 	t.Helper()
 	ln, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("listen: %v", err)
 	}
-	_, handler := server.HostPanesHandler(server.HostPanesConfig{Tmux: tmux, Host: host, NewTimer: neverTimer})
+	_, handler := server.HostPanesHandler(server.HostPanesConfig{Tmux: tmux, Host: routingHost, NewTimer: neverTimer})
 	agent, err := node.NewAgent(node.AgentConfig{
 		Controller: routingController,
-		WhoIs:      routingWhoIs{own: ln.Addr().String(), host: host},
+		WhoIs:      routingWhoIs{own: ln.Addr().String(), host: routingHost},
 		Holders:    routingHolders{},
 		Panes:      routingPanes{handler: handler},
 	})
@@ -134,11 +134,11 @@ func startRoutingAgent(t *testing.T, host string, tmux *tmuxctl.Client) *node.Cl
 	t.Cleanup(func() {
 		cancel()
 		if serveErr := <-served; serveErr != nil {
-			t.Errorf("serve the agent of %s: %v", host, serveErr)
+			t.Errorf("serve the agent of %s: %v", routingHost, serveErr)
 		}
 	})
 	return node.NewClient(node.ClientConfig{
-		Name:    host,
+		Name:    routingHost,
 		Address: ln.Addr().String(),
 		Dial:    (&net.Dialer{}).DialContext,
 		Clock:   quietClock{},
@@ -409,7 +409,7 @@ func TestPaneRoutingReachesHost(t *testing.T) {
 	aScreen := routedScreenOf(t, a, aPane)
 
 	reports := &reportCalls{}
-	agent := startRoutingAgent(t, routingHost, b)
+	agent := startRoutingAgent(t, b)
 	client := routingClient(t, a, server.Config{
 		Hosts:      []*node.Client{agent},
 		ReportSeen: func(pane string, _ int64) error { reports.note("seen " + pane); return nil },
@@ -559,7 +559,7 @@ func TestPaneRoutingUnknownHost(t *testing.T) {
 	b := newTmuxServer(t)
 	startRoutingPane(t, a, routingController)
 	startRoutingPane(t, b, routingHost)
-	agent := startRoutingAgent(t, routingHost, b)
+	agent := startRoutingAgent(t, b)
 	const unknown = "c"
 
 	for _, hosts := range []struct {
@@ -631,7 +631,7 @@ func TestPaneRoutingNoHost(t *testing.T) {
 		}
 	}
 
-	agent := startRoutingAgent(t, routingHost, b)
+	agent := startRoutingAgent(t, b)
 	withAgent := routingClient(t, a, server.Config{Hosts: []*node.Client{agent}})
 	for _, call := range routedCalls() {
 		err := call.call(ctx, withAgent, "")

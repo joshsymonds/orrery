@@ -234,7 +234,8 @@ func (r *relay) watchingFrom(transition daemon.Transition, view *doneView) func(
 	first.Store(view)
 	return func(ctx context.Context) (bool, error) {
 		if checked := first.Swap(nil); checked != nil && checked.err == nil {
-			return checked.viewing || r.reads.recent(transition.PaneID, time.Now()), nil
+			return checked.viewing ||
+				r.reads.recent(notice.Key{Pane: transition.PaneID, Host: r.orrery}, time.Now()), nil
 		}
 		return r.watching(ctx, transition)
 	}

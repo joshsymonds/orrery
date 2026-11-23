@@ -17,10 +17,12 @@ import (
 
 // startHostFollows starts one hostfollow.Follow for each host of the hosts file that getenv locates, once st is open,
 // and returns the func that stops them all and returns once each has returned. Each host's agent is reached by a client
-// that dials with net.Dialer and keeps the default bound. With no store, or no hosts file, nothing starts and the func
-// does nothing. A hosts file that does not load is logged, and nothing starts, since controllerHost has already refused
-// the same file.
-func startHostFollows(ctx context.Context, st *store.Store, getenv func(string) string, logger *slog.Logger) func() {
+// that dials with net.Dialer and keeps the default bound. Each follow's transitions are routed by hub as that host's
+// pane notices (relay.observeRemote). With no store, or no hosts file, nothing starts and the func does nothing. A hosts
+// file that does not load is logged, and nothing starts, since controllerHost has already refused the same file.
+func startHostFollows(
+	ctx context.Context, st *store.Store, getenv func(string) string, logger *slog.Logger, hub *relay,
+) func() {
 	if st == nil {
 		return func() {}
 	}
@@ -41,6 +43,7 @@ func startHostFollows(ctx context.Context, st *store.Store, getenv func(string) 
 			defer follows.Done()
 			hostfollow.Follow(followCtx, hostfollow.Config{
 				Host: host.Name, Client: client, Store: st, Now: time.Now, Retry: holder.SystemClock{}, Logger: logger,
+				Transitions: func(name string, event node.PaneEvent) { hub.observeRemote(followCtx, name, event) },
 			})
 		}()
 	}
