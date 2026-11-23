@@ -15,6 +15,7 @@ import (
 
 	"github.com/joshsymonds/orrery/internal/gates"
 	"github.com/joshsymonds/orrery/internal/grants"
+	"github.com/joshsymonds/orrery/internal/holderhost"
 	"github.com/joshsymonds/orrery/internal/hostexec"
 	"github.com/joshsymonds/orrery/internal/pools"
 	"github.com/joshsymonds/orrery/internal/stamp"
@@ -499,7 +500,7 @@ func (s *Steps) bindHaiku(cfg *stepRunConfig, folder string) error {
 	if s.haiku == nil {
 		return nil
 	}
-	home, err := stampHome(s.environ)
+	home, err := holderhost.StampHome(s.environ)
 	if err != nil {
 		return fmt.Errorf("find step stamp: %w", err)
 	}

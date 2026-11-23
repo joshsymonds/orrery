@@ -182,9 +182,17 @@ func killUnattachable(ctx context.Context, dir string) error {
 	return StopOrphan(ctx, dir)
 }
 
-// lockHeld reports whether the session lock at path is held. A lock that is free is taken and released again.
+// lockHeld reports whether the session lock at path is held. A lock that is free is taken and released again. A lock
+// file that does not exist is no holder: lockHeld reports it not held and never creates it.
 func lockHeld(path string) (bool, error) {
-	lock, err := Lock(path)
+	file, err := openLock(path)
+	if errors.Is(err, fs.ErrNotExist) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	lock, err := takeLock(file, path)
 	if errors.Is(err, ErrLocked) {
 		return true, nil
 	}
@@ -214,4 +222,60 @@ func awaitLock(ctx context.Context, path string) (*os.File, error) {
 		case <-SystemClock{}.After(clearLockRetry):
 		}
 	}
+}
+
+// awaitExistingLock takes the session lock at path without creating its file, so a wait on a holder's end never
+// recreates a lock that is gone. A lock file that does not exist is ErrGone, and so is one removed while it waits.
+// While another holder still holds the lock, awaitExistingLock retries every clearLockRetry on clock. When ctx ends
+// first, it returns the last ErrLocked error.
+func awaitExistingLock(ctx context.Context, path string, clock Clock) (*os.File, error) {
+	for {
+		file, err := openLock(path)
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil, ErrGone
+		}
+		if err != nil {
+			return nil, err
+		}
+		lock, err := takeLock(file, path)
+		if errors.Is(err, ErrLocked) {
+			select {
+			case <-ctx.Done():
+				return nil, err
+			case <-clock.After(clearLockRetry):
+			}
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		named, err := namesLock(path, lock)
+		if err != nil {
+			return nil, errors.Join(err, lock.Close())
+		}
+		if named {
+			return lock, nil
+		}
+		// The lock was removed, or a newer lock file took its place, while this wait ran. Open the path again: a
+		// missing file is ErrGone, and a newer lock is waited on in turn.
+		if closeErr := lock.Close(); closeErr != nil {
+			return nil, fmt.Errorf("holder: release lock %s: %w", path, closeErr)
+		}
+	}
+}
+
+// namesLock reports whether path still names the file that lock has open. A path that does not exist names no file.
+func namesLock(path string, lock *os.File) (bool, error) {
+	held, err := lock.Stat()
+	if err != nil {
+		return false, fmt.Errorf("holder: inspect lock %s: %w", path, err)
+	}
+	current, err := os.Stat(path)
+	if errors.Is(err, fs.ErrNotExist) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("holder: inspect lock %s: %w", path, err)
+	}
+	return os.SameFile(held, current), nil
 }

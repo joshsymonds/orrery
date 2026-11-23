@@ -22,7 +22,7 @@ in
     pkgs.delve
     pkgs.esbuild
     pkgs.git
-    pkgs.go_1_26
+    pkgs.go_1_27
     pkgs.golangci-lint
     pkgs.goose
     pkgs.gopls

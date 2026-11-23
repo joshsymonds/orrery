@@ -964,6 +964,8 @@ type Session struct {
 	NewestReplyAt   int64
 	FirstPromptText string
 	LatestRequestID string
+	Held            bool
+	Host            string
 }
 
 type Step struct {

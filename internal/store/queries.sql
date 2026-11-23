@@ -62,7 +62,10 @@ WHERE sessions.kind = 'engine'
   AND sessions.id NOT IN (SELECT value FROM json_each(sqlc.arg(live)));
 
 -- name: InsertEngineSession :exec
-INSERT INTO sessions (id, server, pane, kind, dir, state, changed) VALUES (?, '', '', ?, ?, ?, ?);
+INSERT INTO sessions (id, server, pane, kind, dir, state, changed, host) VALUES (?, '', '', ?, ?, ?, ?, ?);
+
+-- name: NameUnhostedSessions :execrows
+UPDATE sessions SET host = sqlc.arg(host) WHERE host = '';
 
 -- name: GetEngineSession :one
 SELECT * FROM sessions WHERE id = ? AND kind IN ('engine', 'step');
@@ -169,7 +172,7 @@ ORDER BY MAX(known.at) DESC, known.dir;
 -- name: ListHeadlessSessions :many
 SELECT
     sessions.id, sessions.dir, sessions.state, sessions.changed, sessions.seen, sessions.question, sessions.reason,
-    sessions.title, sessions.headline,
+    sessions.title, sessions.headline, sessions.host,
     sessions.latest_reply AS reply,
     sessions.newest_reply_at AS newest_reply,
     sessions.first_prompt_text AS first_prompt,
@@ -181,7 +184,7 @@ ORDER BY sessions.id;
 
 -- name: UpdateEngineSession :execrows
 UPDATE sessions
-SET state = ?, changed = ?, seen = ?, question = ?, claude_session = ?, reason = ?
+SET state = ?, changed = ?, seen = ?, question = ?, claude_session = ?, reason = ?, held = ?
 WHERE id = ? AND kind IN ('engine', 'step');
 
 -- name: SetSessionLatestReply :exec
