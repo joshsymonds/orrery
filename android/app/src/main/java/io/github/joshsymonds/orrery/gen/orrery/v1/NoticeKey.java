@@ -7,7 +7,8 @@ package io.github.joshsymonds.orrery.gen.orrery.v1;
 
 /**
  * <pre>
- * NoticeKey names what a notice is about. Exactly one field is set.
+ * NoticeKey names what a notice is about. Exactly one of pane, session, epic, limit and alert is set. host is set with
+ * pane and only with pane.
  * </pre>
  *
  * Protobuf type {@code orrery.v1.NoticeKey}
@@ -24,6 +25,7 @@ public  final class NoticeKey extends
     epic_ = "";
     limit_ = "";
     alert_ = "";
+    host_ = "";
   }
   public static final int PANE_FIELD_NUMBER = 1;
   private java.lang.String pane_;
@@ -360,6 +362,73 @@ public  final class NoticeKey extends
 
   }
 
+  public static final int HOST_FIELD_NUMBER = 6;
+  private java.lang.String host_;
+  /**
+   * <pre>
+   * The orrery name of the pane's host. It is set with pane and only with pane.
+   * </pre>
+   *
+   * <code>string host = 6 [json_name = "host"];</code>
+   * @return The host.
+   */
+  @java.lang.Override
+  public java.lang.String getHost() {
+    return host_;
+  }
+  /**
+   * <pre>
+   * The orrery name of the pane's host. It is set with pane and only with pane.
+   * </pre>
+   *
+   * <code>string host = 6 [json_name = "host"];</code>
+   * @return The bytes for host.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString
+      getHostBytes() {
+    return com.google.protobuf.ByteString.copyFromUtf8(host_);
+  }
+  /**
+   * <pre>
+   * The orrery name of the pane's host. It is set with pane and only with pane.
+   * </pre>
+   *
+   * <code>string host = 6 [json_name = "host"];</code>
+   * @param value The host to set.
+   */
+  private void setHost(
+      java.lang.String value) {
+    java.util.Objects.requireNonNull(value);
+
+    host_ = value;
+  }
+  /**
+   * <pre>
+   * The orrery name of the pane's host. It is set with pane and only with pane.
+   * </pre>
+   *
+   * <code>string host = 6 [json_name = "host"];</code>
+   */
+  private void clearHost() {
+
+    host_ = getDefaultInstance().getHost();
+  }
+  /**
+   * <pre>
+   * The orrery name of the pane's host. It is set with pane and only with pane.
+   * </pre>
+   *
+   * <code>string host = 6 [json_name = "host"];</code>
+   * @param value The bytes for host to set.
+   */
+  private void setHostBytes(
+      com.google.protobuf.ByteString value) {
+    checkByteStringIsUtf8(value);
+    host_ = value.toStringUtf8();
+
+  }
+
   public static io.github.joshsymonds.orrery.gen.orrery.v1.NoticeKey parseFrom(
       java.nio.ByteBuffer data)
       throws com.google.protobuf.InvalidProtocolBufferException {
@@ -445,7 +514,8 @@ public  final class NoticeKey extends
 
   /**
    * <pre>
-   * NoticeKey names what a notice is about. Exactly one field is set.
+   * NoticeKey names what a notice is about. Exactly one of pane, session, epic, limit and alert is set. host is set with
+   * pane and only with pane.
    * </pre>
    *
    * Protobuf type {@code orrery.v1.NoticeKey}
@@ -806,6 +876,75 @@ public  final class NoticeKey extends
       return this;
     }
 
+    /**
+     * <pre>
+     * The orrery name of the pane's host. It is set with pane and only with pane.
+     * </pre>
+     *
+     * <code>string host = 6 [json_name = "host"];</code>
+     * @return The host.
+     */
+    @java.lang.Override
+    public java.lang.String getHost() {
+      return instance.getHost();
+    }
+    /**
+     * <pre>
+     * The orrery name of the pane's host. It is set with pane and only with pane.
+     * </pre>
+     *
+     * <code>string host = 6 [json_name = "host"];</code>
+     * @return The bytes for host.
+     */
+    @java.lang.Override
+    public com.google.protobuf.ByteString
+        getHostBytes() {
+      return instance.getHostBytes();
+    }
+    /**
+     * <pre>
+     * The orrery name of the pane's host. It is set with pane and only with pane.
+     * </pre>
+     *
+     * <code>string host = 6 [json_name = "host"];</code>
+     * @param value The host to set.
+     * @return This builder for chaining.
+     */
+    public Builder setHost(
+        java.lang.String value) {
+      copyOnWrite();
+      instance.setHost(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The orrery name of the pane's host. It is set with pane and only with pane.
+     * </pre>
+     *
+     * <code>string host = 6 [json_name = "host"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearHost() {
+      copyOnWrite();
+      instance.clearHost();
+      return this;
+    }
+    /**
+     * <pre>
+     * The orrery name of the pane's host. It is set with pane and only with pane.
+     * </pre>
+     *
+     * <code>string host = 6 [json_name = "host"];</code>
+     * @param value The bytes for host to set.
+     * @return This builder for chaining.
+     */
+    public Builder setHostBytes(
+        com.google.protobuf.ByteString value) {
+      copyOnWrite();
+      instance.setHostBytes(value);
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:orrery.v1.NoticeKey)
   }
   @java.lang.Override
@@ -827,10 +966,11 @@ public  final class NoticeKey extends
             "epic_",
             "limit_",
             "alert_",
+            "host_",
           };
           java.lang.String info =
-              "\u0000\u0005\u0000\u0000\u0001\u0005\u0005\u0000\u0000\u0000\u0001\u0208\u0002\u0208" +
-              "\u0003\u0208\u0004\u0208\u0005\u0208";
+              "\u0000\u0006\u0000\u0000\u0001\u0006\u0006\u0000\u0000\u0000\u0001\u0208\u0002\u0208" +
+              "\u0003\u0208\u0004\u0208\u0005\u0208\u0006\u0208";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

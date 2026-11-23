@@ -951,6 +951,10 @@ message Pane {
   // true while the pane's @orrery_held option is set: its last turn ended while a background agent or workflow runs,
   // so its state is working with no turn running, until the turn that task's end starts.
   bool held = 24;
+
+  // true when the pane's host did not answer within its bound, so the pane is listed from its stored row with only id,
+  // host, orrery_id and its mirrored options set.
+  bool unreachable = 25;
 }
 
 // ScreenRequest asks for the text of one pane. ansi false gives plain text, and true keeps the color escape
@@ -965,6 +969,11 @@ message ScreenRequest {
 
   // The scrollback lines to add above the visible screen.
   uint32 history = 3;
+
+  // The orrery name of the host the pane runs on: the controller's, or a hosts.toml host's. Empty names the
+  // controller's host while hosts.toml lists no other host, and is invalid_argument once one does. A name with no
+  // agent is not_found. A host whose agent does not answer within its bound is unavailable.
+  string host = 4;
 }
 
 // ScreenResponse carries the text of one pane.
@@ -981,6 +990,11 @@ message ConversationRequest {
 
   // The number of newest items to answer with.
   uint32 limit = 2;
+
+  // The orrery name of the host the pane runs on: the controller's, or a hosts.toml host's. Empty names the
+  // controller's host while hosts.toml lists no other host, and is invalid_argument once one does. A name with no
+  // agent is not_found. A host whose agent does not answer within its bound is unavailable.
+  string host = 3;
 }
 
 // ConversationResponse carries the conversation of one pane's Claude transcript.
@@ -1103,6 +1117,11 @@ message WatchConversationRequest {
 
   // The seq the client holds for that transcript: the stream answers with the deltas after it.
   int64 after = 4;
+
+  // The orrery name of the host the pane runs on: the controller's, or a hosts.toml host's. Empty names the
+  // controller's host while hosts.toml lists no other host, and is invalid_argument once one does. A name with no
+  // agent is not_found. A host whose agent does not answer within its bound is unavailable.
+  string host = 5;
 }
 
 // WatchConversationResponse is one step of a WatchConversation stream. A delta with only transcript and seq set is a
@@ -1149,6 +1168,11 @@ message OlderRequest {
   // The number of items to answer with, at most. A page takes whole lines and stops before a line that would take it
   // past limit, so it holds at most limit items unless its newest line alone holds more.
   uint32 limit = 4;
+
+  // The orrery name of the host the pane runs on: the controller's, or a hosts.toml host's. Empty names the
+  // controller's host while hosts.toml lists no other host, and is invalid_argument once one does. A name with no
+  // agent is not_found. A host whose agent does not answer within its bound is unavailable.
+  string host = 5;
 }
 
 // OlderResponse is one page of a pane's conversation, older than the line start the request gave.
@@ -1308,6 +1332,11 @@ message SendTextRequest {
 
   // The text to send.
   string text = 2;
+
+  // The orrery name of the host the pane runs on: the controller's, or a hosts.toml host's. Empty names the
+  // controller's host while hosts.toml lists no other host, and is invalid_argument once one does. A name with no
+  // agent is not_found. A host whose agent does not answer within its bound is unavailable.
+  string host = 3;
 }
 
 // SendTextResponse is the reply to a SendText. It has no fields.
@@ -1324,6 +1353,11 @@ message SendKeysRequest {
 
   // The question the keys answer. When set, the keys are sent only while the pane shows that question.
   optional string expect_question = 3;
+
+  // The orrery name of the host the pane runs on: the controller's, or a hosts.toml host's. Empty names the
+  // controller's host while hosts.toml lists no other host, and is invalid_argument once one does. A name with no
+  // agent is not_found. A host whose agent does not answer within its bound is unavailable.
+  string host = 4;
 }
 
 // SendKeysResponse is the reply to a SendKeys. It has no fields.
@@ -1337,6 +1371,11 @@ message MarkSeenRequest {
 
   // The unix seconds the user has read up to, or absent for now.
   optional int64 read_up_to = 2;
+
+  // The orrery name of the host the pane runs on: the controller's, or a hosts.toml host's. Empty names the
+  // controller's host while hosts.toml lists no other host, and is invalid_argument once one does. A name with no
+  // agent is not_found. A host whose agent does not answer within its bound is unavailable.
+  string host = 3;
 }
 
 // MarkSeenResponse is the reply to a MarkSeen. It has no fields.
@@ -1346,6 +1385,11 @@ message MarkSeenResponse {}
 message PullQueuedRequest {
   // The pane's id, % followed by digits.
   string pane = 1;
+
+  // The orrery name of the host the pane runs on: the controller's, or a hosts.toml host's. Empty names the
+  // controller's host while hosts.toml lists no other host, and is invalid_argument once one does. A name with no
+  // agent is not_found. A host whose agent does not answer within its bound is unavailable.
+  string host = 2;
 }
 
 // PullQueuedResponse is the reply to a PullQueued.
@@ -1368,6 +1412,9 @@ message HostStatusResponse {
   // The build of the web page serve holds: the build.txt the page's bundle was written with, empty when serve holds no
   // page or its page has no build.txt. A page whose own build differs is a page an earlier serve sent, and reloads.
   string page_build = 3;
+
+  // The status of each host: the controller first, then each hosts.toml host in file order.
+  repeated HostEntry hosts = 4;
 }
 
 // HostStat is one stat of the host.
@@ -1383,6 +1430,21 @@ message HostStat {
 
   // The stat's level.
   string level = 4;
+}
+
+// HostEntry is the status of one host.
+message HostEntry {
+  // The orrery name of the host: the controller's, or a hosts.toml host's.
+  string name = 1;
+
+  // The one-minute load average over the host's online CPUs, times 100. It is not capped.
+  double load_percent = 2;
+
+  // The host's memory in use, (MemTotal - MemAvailable) / MemTotal, times 100.
+  double memory_percent = 3;
+
+  // Whether the host's agent answered within its bound. It is false, with both percents 0, when it did not.
+  bool reachable = 4;
 }
 
 // RegisterRequest asks for a push subscription to be stored.
