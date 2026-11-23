@@ -849,8 +849,8 @@ func shutdownServe(
 }
 
 // sessionHost is the engine session service of a --sessions orreryd. The manager runs the sessions, the writer stores
-// their events, and the listener answers the Engine, Steps, Pools, Evidence, Contracts and Accounts services on
-// sessions.sock. Without a store the manager, writer and broker are nil and every RPC is refused. The broker is closed
+// their events, and the listener answers the Engine, Steps, Pools, Evidence, Contracts, Designs and Accounts services
+// on sessions.sock. Without a store the manager, writer and broker are nil and every RPC is refused. The broker is closed
 // before the listener stops, so a grant that a blocked Acquire holds stays stored for the next orreryd. pools is the
 // broker when its restore succeeded, and nil otherwise, so no Pools are served. evidence is the evidence runner over
 // the store, the steps and the pools, and nil without a store. checks is the node checks runner over the store and the
@@ -861,6 +861,7 @@ type sessionHost struct {
 	epics      enginehost.EpicCommands
 	steering   enginehost.SteeringSessions
 	contracts  *enginehost.Contracts
+	designs    *enginehost.Designs
 	accounts   *enginehost.Accounts
 	writer     *enginehost.Writer
 	broker     *grants.Broker
@@ -1041,6 +1042,7 @@ func startSessions(
 		commands, stepCommands = host.manager, host.steps
 		host.epics, host.steering, host.contracts, host.accounts = st, epicSteering(host.manager, st, hosts),
 			contractsOf(st, hosts, hostName), &enginehost.Accounts{Store: st, Now: time.Now}
+		host.designs = &enginehost.Designs{Store: st, Now: time.Now}
 		crons = enginehost.NewCronAnswers(enginehost.CronAnswersConfig{
 			Store: st, Now: opts.cronNow, Changed: host.cron.Changed})
 		host.startWriter(ctx)
@@ -1118,6 +1120,7 @@ func (h *sessionHost) serveConfig(
 		Crons:     crons,
 		Changes:   h.changes,
 		Contracts: h.contracts,
+		Designs:   h.designs,
 		Accounts:  h.accounts,
 		PaneSends: h.paneSends,
 		Host:      hostName,
