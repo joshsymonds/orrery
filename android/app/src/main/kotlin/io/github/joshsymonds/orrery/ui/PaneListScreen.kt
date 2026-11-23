@@ -22,6 +22,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -36,12 +37,15 @@ import io.github.joshsymonds.orrery.api.EpicDetail
 import io.github.joshsymonds.orrery.api.EpicRow
 import io.github.joshsymonds.orrery.api.OrreryClient
 import io.github.joshsymonds.orrery.api.Pane
+import io.github.joshsymonds.orrery.ui.theme.Move
 import io.github.joshsymonds.orrery.ui.theme.OrreryTokens
+import io.github.joshsymonds.orrery.ui.theme.animationsOn
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.IOException
 
@@ -62,6 +66,40 @@ class PaneListState {
     internal var foldOpen by mutableStateOf(emptySet<String>())
     internal var view by mutableStateOf(TreeView.INBOX)
     internal var held: TreeData? = null
+
+    /** Where the last answered read drew each conversation, null until the first answer. */
+    internal var spots: Map<String, Placed>? = null
+
+    /** The moves the latest answer made, which the move notice reads. */
+    internal var moves: List<Moved> = emptyList()
+
+    /** The key of the entry the owner last opened from the inbox, which any later open replaces. */
+    internal var opened: String? = null
+
+    /** The conversation the open entry hold keeps drawn in its tree place, or null when no entry is held. */
+    internal var heldKey: String? = null
+
+    /** The conversations the owner moved by hand from the inbox since the last answer, which are not moves. */
+    internal var handMoved: Set<String> = emptySet()
+
+    /**
+     * Takes [answer]'s spots as the last answer: its moves are the rows that moved since the last answer, less those the
+     * owner moved by hand, and the first answer moves nothing. The open entry is held when this answer moves it out of
+     * the tree, and stays held until the owner opens another entry. Returns the moves.
+     */
+    internal fun answered(answer: Map<String, Placed>): List<Moved> {
+        val before = spots
+        val moved = if (before == null) emptyList() else movesBetween(before, answer).filter { it.key !in handMoved }
+        val open = opened
+        val line = open?.let { answer[it]?.spot?.line }
+        val away = line == RowLine.ENDED || line == RowLine.ARCHIVED
+        val wasInTree = open != null && before?.get(open)?.spot?.line == RowLine.TREE
+        heldKey = if (open != null && away && (wasInTree || heldKey == open)) open else null
+        spots = answer
+        moves = moved
+        handMoved = emptySet()
+        return moved
+    }
 
     internal fun toggleFolded(key: String) {
         folded = if (key in folded) folded - key else folded + key
@@ -130,6 +168,10 @@ fun PaneListScreen(
     var generation by remember(client) { mutableIntStateOf(0) }
     var picking by remember { mutableStateOf(false) }
     var sheet by remember { mutableStateOf<SheetRow?>(null) }
+    // The moves marked for Move.LAYOUT's length, by row key. A mark clears only while it is still the move that set it.
+    var marking by remember { mutableStateOf(emptyMap<String, Moved>()) }
+    val scope = rememberCoroutineScope()
+    val animated = animationsOn()
     val toast = rememberArchiveToast()
 
     LaunchedEffect(client, generation) {
@@ -139,6 +181,17 @@ fun PaneListScreen(
             delay(RETRY_DELAY_MILLIS)
             generation++
         } else {
+            val moved = state.answered(spotsOfRead(read))
+            // Reduced motion marks nothing; the rows still land where the answer put them.
+            if (animated) {
+                for (move in moved.filter { it.key != state.heldKey }) {
+                    marking = marking + (move.key to move)
+                    scope.launch {
+                        delay(Move.LAYOUT.millis.toLong())
+                        if (marking[move.key] === move) marking = marking - move.key
+                    }
+                }
+            }
             data = read
             state.held = read
             failed = false
@@ -185,6 +238,8 @@ fun PaneListScreen(
                     client = client,
                     onArchived = { title, kind, id -> toast.show(title, kind, id) },
                     onLanded = {
+                        // A row the owner archived or marked here is not a move: the next answer leaves it out.
+                        (row as? SheetRow.Conversation)?.let { state.handMoved = state.handMoved + convoKeyOf(it.pane) }
                         sheet = null
                         generation++
                     },
@@ -202,6 +257,7 @@ fun PaneListScreen(
                 else -> InboxBody(
                     data = loaded,
                     state = state,
+                    marking = marking,
                     now = now(),
                     onOpenPane = onOpenPane,
                     onOpenEpic = onOpenEpic,
@@ -253,6 +309,38 @@ internal suspend fun readTree(client: OrreryClient, held: TreeData?): TreeData? 
     }
 }
 
+/** Where a read draws each conversation, in the inbox and in the archived view, without the open entry's hold. */
+private fun spotsOfRead(data: TreeData): Map<String, Placed> = spotsOf(
+    inboxTree(data.panes, data.archived, data.epics, data.details, data.contracts, data.host, TreeView.INBOX),
+    inboxTree(data.panes, data.archived, data.epics, data.details, data.contracts, data.host, TreeView.ARCHIVED),
+)
+
+/**
+ * The read with [held]'s conversation drawn in its tree place: unarchived and not ended, as it was before the answer
+ * moved it out of the tree. The read itself is not changed.
+ */
+private fun TreeData.holding(held: String?): TreeData {
+    val pane = held?.let { key -> panes.firstOrNull { convoKeyOf(it) == key } } ?: return this
+    return TreeData(
+        panes = panes.map { if (it === pane) it.copy(ended = false, archived = false) else it },
+        archived = archived - pane.orreryId,
+        epics = epics,
+        details = details,
+        contracts = contracts,
+        host = host,
+    )
+}
+
+/**
+ * Whether a row drawn at [spot] is drawn on the screen now: a tree row in the inbox, a row behind an open ended line in
+ * the inbox, or an archived row in the archived view.
+ */
+private fun drawnAt(spot: Spot, state: PaneListState): Boolean = when (spot.line) {
+    RowLine.TREE -> state.view == TreeView.INBOX
+    RowLine.ENDED -> state.view == TreeView.INBOX && spot.project in state.endedOpen
+    RowLine.ARCHIVED -> state.view == TreeView.ARCHIVED
+}
+
 /** The detail of every live epic, each read at once. A detail whose read fails fails the whole read. */
 private suspend fun detailsOf(client: OrreryClient, epics: List<EpicRow>): Map<String, EpicDetail> = coroutineScope {
     val reads = epics.filter { it.live }.map { epic ->
@@ -269,6 +357,7 @@ private suspend fun detailsOf(client: OrreryClient, epics: List<EpicRow>): Map<S
 private fun InboxBody(
     data: TreeData,
     state: PaneListState,
+    marking: Map<String, Moved>,
     now: Long,
     onOpenPane: (Pane) -> Unit,
     onOpenEpic: (String) -> Unit,
@@ -277,9 +366,15 @@ private fun InboxBody(
     onNew: () -> Unit,
     onLongPress: (SheetRow) -> Unit,
 ) {
-    val projects = remember(data, state.view) {
-        inboxTree(data.panes, data.archived, data.epics, data.details, data.contracts, data.host, state.view)
+    val projects = remember(data, state.view, state.heldKey) {
+        val drawn = if (state.view == TreeView.INBOX) data.holding(state.heldKey) else data
+        inboxTree(drawn.panes, drawn.archived, drawn.epics, drawn.details, drawn.contracts, drawn.host, state.view)
     }
+    // The rows and ended lines drawn with a mark: a move lands in a place drawn here, or behind a shut ended line.
+    val markedRows = marking.values.filter { drawnAt(it.to, state) }.mapTo(HashSet()) { it.key }
+    val markedLines = marking.values
+        .filter { it.to.line == RowLine.ENDED && state.view == TreeView.INBOX && it.to.project !in state.endedOpen }
+        .mapTo(HashSet()) { it.to.project }
     val query = state.search.orEmpty()
     val counts = remember(projects) { countsOf(projects) }
     val waitingOf = remember(projects) { projects.associate { it.key to projectWaiting(it) } }
@@ -305,6 +400,7 @@ private fun InboxBody(
         }.toMap()
     }
     val onOpen: (String) -> Unit = { key ->
+        state.opened = key
         when {
             key.startsWith(EPIC_KEY_PREFIX) -> onOpenEpic(key.removePrefix(EPIC_KEY_PREFIX))
             key.startsWith(STEP_KEY_PREFIX) -> epicOfStep[key.removePrefix(STEP_KEY_PREFIX)]?.let(onOpenEpic)
@@ -349,10 +445,12 @@ private fun InboxBody(
                                 onFold = onFold,
                                 onOpen = onOpen,
                                 onLongPress = onLongPress,
+                                moving = convo.key in markedRows,
                             )
                         },
                         modifier = Modifier.padding(horizontal = OrreryTokens.Space.sixteen, vertical = OrreryTokens.Space.four),
                         onOpenProject = onOpenProject,
+                        endedMoving = project.key in markedLines,
                     )
                 }
             }

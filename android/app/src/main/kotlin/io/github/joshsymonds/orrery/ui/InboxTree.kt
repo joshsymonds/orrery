@@ -71,10 +71,14 @@ private val HOME_PARENTS = setOf("home", "Users")
 private val WORKTREE_SUFFIXES = listOf(".worktrees", "-worktrees")
 private val HEX_SUFFIX = Regex("-[0-9a-f]{7}$")
 
+/** The key a conversation is drawn and named by: its headless session's id, or its tmux pane's host and id. */
+internal fun convoKeyOf(pane: Pane): String =
+    if (pane.headless) "session:${pane.id}" else "pane:${pane.host}:${pane.id}"
+
 /** A conversation: a tmux pane or a headless session, with the id that epics and contracts name it by. */
 private class Conversation(val pane: Pane, val archived: Boolean, val place: CardPlace) {
     val id: String = if (pane.headless) pane.id else pane.orreryId
-    val key: String = if (pane.headless) "session:${pane.id}" else "pane:${pane.host}:${pane.id}"
+    val key: String = convoKeyOf(pane)
 }
 
 /** Where a card sits: its key, absolute directory, name, shown path, and the host when it is not the serving one. */

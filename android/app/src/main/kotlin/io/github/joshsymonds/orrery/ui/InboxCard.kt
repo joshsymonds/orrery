@@ -58,6 +58,7 @@ internal fun ProjectCard(
     convo: @Composable (Convo, Boolean, () -> Unit) -> Unit,
     modifier: Modifier = Modifier,
     onOpenProject: (String) -> Unit = {},
+    endedMoving: Boolean = false,
 ) {
     Column(
         modifier = modifier
@@ -68,7 +69,7 @@ internal fun ProjectCard(
     ) {
         ProjectHead(project, folded, waiting, onFold, onOpenProject)
         if (!folded) {
-            ProjectConversations(project, endedOpen, onEnded, foldOpen, onConvoFold, convo)
+            ProjectConversations(project, endedOpen, onEnded, foldOpen, onConvoFold, convo, endedMoving)
         }
     }
 }
@@ -171,6 +172,7 @@ private fun ProjectConversations(
     foldOpen: Set<String>,
     onConvoFold: (String) -> Unit,
     convo: @Composable (Convo, Boolean, () -> Unit) -> Unit,
+    endedMoving: Boolean,
 ) {
     Row(
         modifier = Modifier
@@ -193,7 +195,7 @@ private fun ProjectConversations(
                 convo(c, c.key in foldOpen) { onConvoFold(c.key) }
             }
             if (project.ended.isNotEmpty()) {
-                EndedLine(project, endedOpen, onEnded)
+                EndedLine(project, endedOpen, onEnded, endedMoving)
                 if (endedOpen) {
                     for (c in project.ended) {
                         convo(c, c.key in foldOpen) { onConvoFold(c.key) }
@@ -205,10 +207,11 @@ private fun ProjectConversations(
 }
 
 @Composable
-private fun EndedLine(project: Project, endedOpen: Boolean, onEnded: () -> Unit) {
+private fun EndedLine(project: Project, endedOpen: Boolean, onEnded: () -> Unit, moving: Boolean) {
     Row(
         modifier = Modifier
             .testTag("ended:${project.key}")
+            .then(if (moving) Modifier.semantics { this.moving = true } else Modifier)
             .fillMaxWidth()
             .height(OrreryTokens.Size.controlTouch)
             .clickable(role = Role.Button, onClick = onEnded),

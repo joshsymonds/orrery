@@ -27,13 +27,34 @@ internal data class Moved(val key: String, val pane: Pane, val from: Spot, val t
  * of its project, or on the ended line; one in [archived] is on the archived line. Stand-in rows and conversations with
  * no pane are left out.
  */
-internal fun spotsOf(inbox: List<Project>, archived: List<Project>): Map<String, Placed> = emptyMap()
+internal fun spotsOf(inbox: List<Project>, archived: List<Project>): Map<String, Placed> {
+    val spots = LinkedHashMap<String, Placed>()
+    fun place(project: Project, convos: List<Convo>, line: RowLine) {
+        for (convo in convos) {
+            val pane = convo.pane ?: continue
+            spots[convo.key] = Placed(pane, Spot(project.key, project.name, line))
+        }
+    }
+    for (project in inbox) {
+        place(project, project.convos, RowLine.TREE)
+        place(project, project.ended, RowLine.ENDED)
+    }
+    for (project in archived) {
+        place(project, project.convos, RowLine.ARCHIVED)
+    }
+    return spots
+}
 
 /**
  * The rows found in both [before] and [after] whose spot differs, in [after]'s order. A row found in only one of the two
  * maps is not a move.
  */
-internal fun movesBetween(before: Map<String, Placed>, after: Map<String, Placed>): List<Moved> = emptyList()
+internal fun movesBetween(before: Map<String, Placed>, after: Map<String, Placed>): List<Moved> = buildList {
+    for ((key, placed) in after) {
+        val previous = before[key] ?: continue
+        if (previous.spot != placed.spot) add(Moved(key, placed.pane, previous.spot, placed.spot))
+    }
+}
 
 /** The line the move notice shows for [moves]. */
 internal fun moveNoticeText(moves: List<Moved>): String = ""

@@ -65,6 +65,7 @@ private const val QUESTION_LEAD = "? "
  * a tap on it calls [onFold]; the folded epics draw only while it is open. A tap on a row or a step calls [onOpen] with
  * its key; a long press on a conversation's row or an epic's row calls [onLongPress] with the row's [SheetRow]. A row with
  * no pane is the own row of a thing with no drawn conversation: that one thing draws alone, with no conversation line.
+ * [moving] marks the conversation's row as moving to a new place, which is what its line carries.
  */
 @Composable
 internal fun ConvoRowItem(
@@ -75,10 +76,11 @@ internal fun ConvoRowItem(
     onOpen: (String) -> Unit,
     onLongPress: (SheetRow) -> Unit,
     modifier: Modifier = Modifier,
+    moving: Boolean = false,
 ) {
     val pane = convo.pane
     Column(modifier = modifier.fillMaxWidth()) {
-        if (pane != null) ConvoLine(convo, pane, now, onOpen, onLongPress)
+        if (pane != null) ConvoLine(convo, pane, now, onOpen, onLongPress, moving)
         if (convo.hung.isNotEmpty()) {
             Column(modifier = Modifier.fillMaxWidth()) {
                 for (hung in convo.hung) {
@@ -121,12 +123,20 @@ internal fun FoldLine(convo: Convo, open: Boolean, onFold: () -> Unit) {
 }
 
 @Composable
-private fun ConvoLine(convo: Convo, pane: Pane, now: Long, onOpen: (String) -> Unit, onLongPress: (SheetRow) -> Unit) {
+private fun ConvoLine(
+    convo: Convo,
+    pane: Pane,
+    now: Long,
+    onOpen: (String) -> Unit,
+    onLongPress: (SheetRow) -> Unit,
+    moving: Boolean,
+) {
     val unseen = pane.unread()
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .testTag("convo:${convo.key}")
+            .then(if (moving) Modifier.semantics { this.moving = true } else Modifier)
             .combinedClickable(onClick = { onOpen(convo.key) }, onLongClick = { onLongPress(SheetRow.Conversation(pane)) })
             .padding(vertical = OrreryTokens.Space.eight),
         horizontalArrangement = Arrangement.spacedBy(OrreryTokens.Space.eight),
