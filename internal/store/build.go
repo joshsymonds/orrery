@@ -133,14 +133,19 @@ func buildOf(stored sqlcgen.EpicTask) TaskBuild {
 	}
 }
 
-// findingsKey names the review a finding belongs to: its task, its attempt and its review's position.
+// findingsKey names the review a finding or a test run belongs to: its task, its attempt and its review's position.
 type findingsKey struct {
 	task, attempt, review int64
 }
 
-// taskReviewsOf returns the reviews of every task keyed by task seq, each task's in attempt then position order, and
-// each review's findings in position order. The rows come in the order the review and finding queries give.
-func taskReviewsOf(reviews []sqlcgen.EpicTaskReview, findings []sqlcgen.EpicTaskFinding) map[int64][]TaskReview {
+// taskReviewsOf returns the reviews of every task keyed by task seq, each task's in attempt then position order, each
+// review's findings in position order, and each review's test runs in position order. Every finding of a review holds
+// the review's test runs. The rows come in the order the review, finding and test run queries give.
+func taskReviewsOf(
+	reviews []sqlcgen.EpicTaskReview,
+	findings []sqlcgen.EpicTaskFinding,
+	runs []sqlcgen.EpicTaskTestRun,
+) map[int64][]TaskReview {
 	findingsOf := make(map[findingsKey][]TaskFinding)
 	for _, f := range findings {
 		key := findingsKey{task: f.Task, attempt: f.Attempt, review: f.Review}
@@ -150,12 +155,26 @@ func taskReviewsOf(reviews []sqlcgen.EpicTaskReview, findings []sqlcgen.EpicTask
 			Unverified: f.Unverified != 0,
 		})
 	}
+	runsOf := make(map[findingsKey][]TaskTestRun)
+	for _, run := range runs {
+		key := findingsKey{task: run.Task, attempt: run.Attempt, review: run.Review}
+		runsOf[key] = append(runsOf[key], TaskTestRun{
+			Position: run.Position, Command: run.Command, Revision: run.Revision, Step: run.Step, Output: run.Output,
+		})
+	}
 	out := make(map[int64][]TaskReview)
 	for _, r := range reviews {
+		key := findingsKey{task: r.Task, attempt: r.Attempt, review: r.Position}
+		testRuns := runsOf[key]
+		reviewFindings := findingsOf[key]
+		for i := range reviewFindings {
+			reviewFindings[i].TestRuns = testRuns
+		}
 		out[r.Task] = append(out[r.Task], TaskReview{
 			Attempt: r.Attempt, Position: r.Position, Gate: r.Gate, Step: r.Step, Verdict: r.Verdict,
 			Reason:   r.Reason,
-			Findings: findingsOf[findingsKey{task: r.Task, attempt: r.Attempt, review: r.Position}],
+			Findings: reviewFindings,
+			TestRuns: testRuns,
 		})
 	}
 	return out

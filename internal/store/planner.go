@@ -275,6 +275,10 @@ func loadPlanSections(ctx context.Context, queries *sqlcgen.Queries, row *EpicRo
 	if err != nil {
 		return fmt.Errorf("list task findings: %w", err)
 	}
+	testRuns, err := queries.ListEpicTaskTestRuns(ctx, row.ID)
+	if err != nil {
+		return fmt.Errorf("list task test runs: %w", err)
+	}
 	pathsOf := groupByTask(files, func(file sqlcgen.EpicTaskFile) int64 { return file.Task },
 		func(file sqlcgen.EpicTaskFile) string { return file.Path })
 	requirementsOf := groupByTask(requirements, func(requirement sqlcgen.EpicTaskRequirement) int64 {
@@ -285,7 +289,7 @@ func loadPlanSections(ctx context.Context, queries *sqlcgen.Queries, row *EpicRo
 	}, func(contribute sqlcgen.EpicTaskContribute) string { return contribute.Requirement })
 	testChangesOf := groupByTask(testChanges, func(change sqlcgen.EpicTaskTestChange) int64 { return change.Task },
 		func(change sqlcgen.EpicTaskTestChange) string { return change.Path })
-	reviewsOf := taskReviewsOf(reviews, findings)
+	reviewsOf := taskReviewsOf(reviews, findings, testRuns)
 	versions, err := queries.ListEpicTaskVersions(ctx, row.ID)
 	if err != nil {
 		return fmt.Errorf("list task versions: %w", err)
