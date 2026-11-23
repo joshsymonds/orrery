@@ -40,6 +40,7 @@ import (
 	"github.com/joshsymonds/orrery/internal/gates"
 	"github.com/joshsymonds/orrery/internal/grants"
 	"github.com/joshsymonds/orrery/internal/holder"
+	"github.com/joshsymonds/orrery/internal/hosts"
 	"github.com/joshsymonds/orrery/internal/inapp"
 	"github.com/joshsymonds/orrery/internal/interpret"
 	"github.com/joshsymonds/orrery/internal/notice"
@@ -189,6 +190,10 @@ type options struct {
 	// host is a test seam: the host name the desk stream, the notices and the grants broker use in place of
 	// os.Hostname. Production leaves it "".
 	host string
+	// orrery is the controller's orrery name: the top-level name of hosts.toml when it is set, else host. serve sets it,
+	// and startSessions gives it to the manager as the name of the controller's own host. A test that calls
+	// startSessions directly leaves it "", which names no host.
+	orrery string
 	// flowTicks is a test seam: the path the flow appends a line to after each pass, and each SIGUSR1 starts a pass in
 	// place of the flow's five-second ticks. Production leaves it "".
 	flowTicks string
@@ -331,6 +336,19 @@ func hostName(seam string) (string, error) {
 	host, err := os.Hostname()
 	if err != nil {
 		return "", fmt.Errorf("read the machine's host name: %w", err)
+	}
+	return host, nil
+}
+
+// controllerName is the controller's orrery name: the top-level name of the hosts file that getenv locates, when the
+// file sets one, and host, the controller's host name, otherwise. A hosts file that does not load is an error.
+func controllerName(getenv func(string) string, host string) (string, error) {
+	file, err := hosts.Load(getenv)
+	if err != nil {
+		return "", fmt.Errorf("load hosts: %w", err)
+	}
+	if file.Name != "" {
+		return file.Name, nil
 	}
 	return host, nil
 }
@@ -535,7 +553,9 @@ func serveRelay(opts options, home string, logger *slog.Logger, mirror *daemon.M
 // serving and returns its error. Once the store is open, serve returns only after the store is closed. serve sends
 // systemd READY=1 once the sessions have started, or once the store has opened when there are no sessions. With
 // --metrics-listen, the ready time is recorded just before READY=1. With a flight recorder, a start to READY over its
-// threshold writes a start trace once READY=1 is sent.
+// threshold writes a start trace once READY=1 is sent. Once the store is open, serve names each row that reads no host
+// as the controller's orrery name, before the sessions start; a naming or sessions start that fails stops serving and
+// returns its error.
 func serve(ctx context.Context, opts options, logger *slog.Logger, getenv func(string) string) error {
 	host, err := hostName(opts.host)
 	if err != nil {
@@ -544,6 +564,11 @@ func serve(ctx context.Context, opts options, logger *slog.Logger, getenv func(s
 	if host == "" {
 		return errors.New("host name is empty")
 	}
+	name, err := controllerName(getenv, host)
+	if err != nil {
+		return err
+	}
+	opts.orrery = name
 	storePath, store, pushes, err := openPushes(opts, getenv)
 	if err != nil {
 		return err
@@ -616,11 +641,16 @@ func serve(ctx context.Context, opts options, logger *slog.Logger, getenv func(s
 	})
 
 	st := openStore(ctx, getenv, logger, opts.metrics, opts.storeBusy, opts.storeRetryAfter)
+	// A row from before the host column has no host until this names it, so every row reads the host it runs on
+	// before the manager reconciles it.
+	var startErr error
+	if st != nil {
+		_, startErr = st.NameUnhostedSessions(ctx, opts.orrery)
+	}
 	attachStore(ctx, st, mirror, notices, router)
 	hub.attachVerdicts(st)
 	var sessions *sessionHost
-	var startErr error
-	if opts.sessions {
+	if startErr == nil && opts.sessions {
 		sessions, startErr = startSessions(ctx, opts, host, st, router, pageNotices, logger, getenv)
 	}
 	publishCallerWake(&callerWake, sessions)
@@ -1017,6 +1047,7 @@ func startSessions(
 			Claude:      opts.claude,
 			Environ:     childEnviron,
 			HolderScope: opts.holderScope,
+			HostName:    opts.orrery,
 			StateDir:    stateDir,
 			ManagedDir:  managedDir,
 			Writer:      host.writer,
