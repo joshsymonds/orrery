@@ -46,8 +46,10 @@ import io.github.joshsymonds.orrery.api.HostStat
 import io.github.joshsymonds.orrery.api.OrreryCallException
 import io.github.joshsymonds.orrery.api.OrreryClient
 import io.github.joshsymonds.orrery.api.Pane
+import io.github.joshsymonds.orrery.api.StepRow
 import io.github.joshsymonds.orrery.ui.theme.Move
 import io.github.joshsymonds.orrery.ui.theme.OrreryTokens
+import io.github.joshsymonds.orrery.ui.theme.animationsOn
 import io.github.joshsymonds.orrery.ui.theme.spec
 import java.io.IOException
 import kotlinx.coroutines.Dispatchers
@@ -155,6 +157,11 @@ internal fun otherHostOf(paneHost: String, servingHost: String): String? =
  * the software keyboard is up the head folds away entirely, and the draft field is capped at a third of the screen
  * above the keyboard, so the conversation keeps the room between them. The quick keys
  * hide while the draft has text, so a reply in progress is one row above the keyboard.
+ *
+ * A work link opens its design, contract or epic as the phone sheet under the head, which covers the chat and the dock
+ * and the quick keys while it is open; "+N" opens every design's block with the loose epics it steers. The sheet's epic
+ * and contract bodies open a step, a task's phase or a contract through [onOpenStep], [onOpenPhase] and [onOpenContract],
+ * steer through [onSteered], and set the conversation's About through [onAbout].
  */
 @Composable
 fun PaneScreen(
@@ -167,6 +174,11 @@ fun PaneScreen(
     onClearAbout: () -> Unit = {},
     onOpenContract: (id: String, live: Boolean) -> Unit = { _, _ -> },
     clock: () -> Long = { System.currentTimeMillis() / 1000 },
+    onAbout: (RowAbout) -> Unit = {},
+    onOpenStep: (epic: String, step: StepRow) -> Unit = { _, _ -> },
+    onOpenPhase: (epic: String, task: String, phase: Phase) -> Unit = { _, _, _ -> },
+    listedSteerer: (steering: String) -> Pane? = { _ -> null },
+    onSteered: (String) -> Unit = {},
 ) {
     var pane by remember(paneId) { mutableStateOf<Pane?>(null) }
     var conversation by remember(paneId) { mutableStateOf<Conversation?>(null) }
@@ -176,8 +188,8 @@ fun PaneScreen(
     var contracts by remember(paneId) { mutableStateOf<List<ContractRow>>(emptyList()) }
     // The designs the pane's conversation works, as Designs.List serves them while the screen is started.
     var designs by remember(paneId) { mutableStateOf<List<DesignRow>>(emptyList()) }
-    // The work sheet a work link opened: the link's key, or WORK_ALL for every design's block and the loose epics.
-    var workOpen by remember(paneId) { mutableStateOf<String?>(null) }
+    // The phone sheet a work link opened: the thing it is open on, or All for the list "+N" opens. Null while it is closed.
+    var sheet by remember(paneId) { mutableStateOf<SheetSubject?>(null) }
     var nowSeconds by remember(paneId) { mutableLongStateOf(0L) }
     var refreshFailed by remember(paneId) { mutableStateOf(false) }
     var seenAtOpen by remember(paneId) { mutableStateOf<Long?>(null) }
@@ -356,17 +368,26 @@ fun PaneScreen(
     val openTranscriptContract: (String) -> Unit = { id ->
         onOpenContract(id, live && contracts.any { it.id == id && it.conversation == conversationId })
     }
-    // The work links of the conversation, and the sheet one of them opened: it is lit while the sheet is open.
+    // The work links of the conversation, and the phone sheet one of them opened: the link it lights is lit while it is open.
     val work = workLinksOf(conversationId, designs, steered)
-    val workSheet = workSheetOf(workOpen, conversationId, designs, headEpics, contracts)
-    val workLit = if (workSheet != null) workOpen else null
-    val openWork: (WorkLink) -> Unit = { link ->
-        when (link.kind) {
-            WorkKind.DESIGN -> { workOpen = link.key }
-            WorkKind.EPIC -> onOpenEpic(link.id)
-            WorkKind.CONTRACT -> openContract(link.id)
-        }
-    }
+    val record = SheetRecord(client, conversationId, work, designs, headEpics, contracts, nowSeconds)
+    val view = sheetViewOf(sheet, record)
+    val workLit = workLitOf(view, work)
+    val openWork: (WorkLink) -> Unit = { link -> sheet = if (workLit == link.key) null else SheetSubject.Thing(link) }
+    val openAllWork: () -> Unit = { sheet = if (workLit == WORK_ALL) null else SheetSubject.All }
+    val onUp: (() -> Unit)? = view?.up?.let { up -> { sheet = SheetSubject.Thing(up) } }
+    val actions = SheetActions(
+        show = { sheet = it },
+        fold = { sheet = null },
+        live = live,
+        onOpenStep = onOpenStep,
+        onOpenPhase = onOpenPhase,
+        onOpenContract = onOpenContract,
+        listedSteerer = listedSteerer,
+        onSteered = onSteered,
+        onAbout = onAbout,
+    )
+    val animated = animationsOn()
 
     Column(modifier = modifier.fillMaxSize().onSizeChanged { screenHeightPx = it.height }) {
         if (refreshFailed && current == null) {
@@ -436,6 +457,20 @@ fun PaneScreen(
                     )
                 }
             }
+            // The sheet sits under the head, from the head's bottom down over the chat, and the head draws over it.
+            view?.let { shown ->
+                PhoneSheet(
+                    subject = shown.subject,
+                    head = shown.head,
+                    animated = animated,
+                    onClose = { sheet = null },
+                    onUp = onUp,
+                    modifier = Modifier
+                        .align(Alignment.TopCenter)
+                        .fillMaxSize()
+                        .padding(top = with(density) { headHeightPx.toDp() }),
+                ) { subject -> SheetBody(subject, record, actions) }
+            }
             current?.let { shown ->
                 Column(
                     modifier = Modifier
@@ -479,7 +514,7 @@ fun PaneScreen(
                             work = work,
                             workLit = workLit,
                             onOpenWork = openWork,
-                            onAllWork = { workOpen = WORK_ALL },
+                            onAllWork = openAllWork,
                             modifier = Modifier.fillMaxWidth().background(OrreryTokens.Surface.page),
                         )
                         }
@@ -494,68 +529,53 @@ fun PaneScreen(
                 modifier = Modifier.align(Alignment.BottomCenter),
             )
         }
-        workSheet?.let { content ->
-            WorkSheet(
-                designs = content.designs,
-                loose = content.loose,
-                now = nowSeconds,
-                onOpen = { key ->
-                    workOpen = null
-                    (content.designs.flatMap { it.kids } + content.loose).firstOrNull { it.key == key }?.let { kid ->
-                        when (kid) {
-                            is EpicNode -> onOpenEpic(kid.epic.id)
-                            is ContractNode -> openContract(kid.contract.id)
-                        }
-                    }
-                },
-                onDismiss = { workOpen = null },
-            )
-        }
-        finding?.let { session ->
-            FindBar(
-                query = session.query,
-                count = found.size,
-                current = foundCurrent,
-                onQuery = { finding = FindSession(query = it, step = session.step + 1) },
-                onNext = { finding = session.copy(current = stepFind(foundCurrent, found.size, 1), step = session.step + 1) },
-                onPrevious = { finding = session.copy(current = stepFind(foundCurrent, found.size, -1), step = session.step + 1) },
-                onClose = { finding = null },
-                modifier = Modifier.padding(horizontal = OrreryTokens.Space.twelve, vertical = OrreryTokens.Space.four),
-            )
-        }
         val draft = rememberDockDraft(paneId)
         JoinKeptReplies(draft = draft, host = current?.host.orEmpty().ifEmpty { servingHost }, kind = "pane", id = paneId)
-        Dock(
-            facts = dockFactsOf(
-                kind = if (current?.state.orEmpty().isEmpty()) DockKind.SHELL else DockKind.PANE,
-                name = current?.cwd.orEmpty().trimEnd('/').substringAfterLast('/'),
-                pane = current,
-                streamed = held,
-            ),
-            nowSeconds = nowSeconds,
-            client = client,
-            draft = draft,
-            send = { text ->
-                val sent = about?.let { aboutMessage(it.id, it.text, text) } ?: text
-                val after = conversation?.items?.lastOrNull()
-                client.sendComposed(paneId, sent)
-                scope.launch { sentTexts = sentTexts + SentText(sent, after) }
-                if (about != null) onClearAbout()
-            },
-            paneId = paneId,
-            about = about?.let { "${it.id} ${it.text}" },
-            onClearAbout = onClearAbout,
-            waiting = conversation?.waiting.orEmpty(),
-            maxFieldHeight = composeCap,
-            onDraftPresent = { draftPresent = it },
-            onSend = { endRequests++ },
-        )
-        QuickKeys(
-            paneId,
-            client,
-            state = current?.state.orEmpty(),
-            changed = current?.changed ?: 0L,
-            draftPresent = draftPresent,
-        )
+        if (view == null) {
+            finding?.let { session ->
+                FindBar(
+                    query = session.query,
+                    count = found.size,
+                    current = foundCurrent,
+                    onQuery = { finding = FindSession(query = it, step = session.step + 1) },
+                    onNext = { finding = session.copy(current = stepFind(foundCurrent, found.size, 1), step = session.step + 1) },
+                    onPrevious = { finding = session.copy(current = stepFind(foundCurrent, found.size, -1), step = session.step + 1) },
+                    onClose = { finding = null },
+                    modifier = Modifier.padding(horizontal = OrreryTokens.Space.twelve, vertical = OrreryTokens.Space.four),
+                )
+            }
+            Dock(
+                facts = dockFactsOf(
+                    kind = if (current?.state.orEmpty().isEmpty()) DockKind.SHELL else DockKind.PANE,
+                    name = current?.cwd.orEmpty().trimEnd('/').substringAfterLast('/'),
+                    pane = current,
+                    streamed = held,
+                ),
+                nowSeconds = nowSeconds,
+                client = client,
+                draft = draft,
+                send = { text ->
+                    val sent = about?.let { aboutMessage(it.id, it.text, text) } ?: text
+                    val after = conversation?.items?.lastOrNull()
+                    client.sendComposed(paneId, sent)
+                    scope.launch { sentTexts = sentTexts + SentText(sent, after) }
+                    if (about != null) onClearAbout()
+                },
+                paneId = paneId,
+                about = about?.let { "${it.id} ${it.text}" },
+                onClearAbout = onClearAbout,
+                waiting = conversation?.waiting.orEmpty(),
+                maxFieldHeight = composeCap,
+                onDraftPresent = { draftPresent = it },
+                onSend = { endRequests++ },
+            )
+            QuickKeys(
+                paneId,
+                client,
+                state = current?.state.orEmpty(),
+                changed = current?.changed ?: 0L,
+                draftPresent = draftPresent,
+            )
+        }
     }
 }
