@@ -64,7 +64,15 @@ func (s *epicService) moveTo(ctx context.Context, epic store.EpicRow, session st
 	if err != nil {
 		return err
 	}
-	err = checkInRepository(ctx, epic, session, dir)
+	epicHost, err := resolveHost(s.hosts, epic.Host)
+	if err != nil {
+		return epicStoreError(fmt.Errorf("host of epic %s: %w", epic.ID, err))
+	}
+	controller, err := resolveHost(s.hosts, s.host)
+	if err != nil {
+		return epicStoreError(fmt.Errorf("controller host: %w", err))
+	}
+	err = checkInRepository(ctx, epicHost, controller, epic, session, dir)
 	if err != nil {
 		return err
 	}
@@ -109,17 +117,20 @@ func (s *epicService) moveTargetDir(ctx context.Context, session string) (string
 
 // checkInRepository refuses a move of epic to session whose directory dir is not in the epic's repository. The two must
 // share a git common directory, so a subdirectory of the repository and a linked worktree of it both pass. An empty dir
-// is refused, since git would read the server's own directory for it.
-func checkInRepository(ctx context.Context, epic store.EpicRow, session, dir string) error {
+// is refused, since git would read the server's own directory for it. The epic's repository is read through epicHost,
+// the epic's own host, and dir through controller, since sessions run on the controller and are not routed by host.
+func checkInRepository(
+	ctx context.Context, epicHost, controller hostexec.Host, epic store.EpicRow, session, dir string,
+) error {
 	common, err := stepGit(
-		ctx, hostexec.NewLocal(), epic.Repository, "rev-parse", "--path-format=absolute", "--git-common-dir",
+		ctx, epicHost, epic.Repository, "rev-parse", "--path-format=absolute", "--git-common-dir",
 	)
 	if err != nil {
 		return epicStoreError(fmt.Errorf("resolve repository of epic %s: %w", epic.ID, err))
 	}
 	if dir != "" {
 		target, dirErr := stepGit(
-			ctx, hostexec.NewLocal(), dir, "rev-parse", "--path-format=absolute", "--git-common-dir",
+			ctx, controller, dir, "rev-parse", "--path-format=absolute", "--git-common-dir",
 		)
 		if dirErr == nil && target == common {
 			return nil

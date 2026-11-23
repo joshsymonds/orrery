@@ -10,6 +10,7 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	v1 "github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1"
+	"github.com/joshsymonds/orrery/internal/hostexec"
 	"github.com/joshsymonds/orrery/internal/reviewers"
 )
 
@@ -46,7 +47,7 @@ func TestEpicReviewersDefaultsAlone(t *testing.T) {
 	t.Parallel()
 	repo := stepGitTestRepo(t)
 	contract := epicReviewerTestContract(repo, nil, []string{"Synthetic exclusion."})
-	rs, err := epicReviewers(t.Context(), contract, epicTestGetenv)
+	rs, err := epicReviewers(t.Context(), hostexec.NewLocal(), contract, epicTestGetenv)
 	if err != nil {
 		t.Fatalf("epicReviewers refused the defaults: %v", err)
 	}
@@ -67,7 +68,7 @@ func TestEpicReviewersDefaultsAlone(t *testing.T) {
 func TestReleaseReviewerIsADefaultOfEveryEpic(t *testing.T) {
 	t.Parallel()
 	repo := stepGitTestRepo(t)
-	rs, err := epicReviewers(t.Context(), epicReviewerTestContract(repo, nil, nil), epicTestGetenv)
+	rs, err := epicReviewers(t.Context(), hostexec.NewLocal(), epicReviewerTestContract(repo, nil, nil), epicTestGetenv)
 	if err != nil {
 		t.Fatalf("epicReviewers refused the defaults: %v", err)
 	}
@@ -81,7 +82,9 @@ func TestReleaseReviewerIsADefaultOfEveryEpic(t *testing.T) {
 		)
 	}
 	disabled := []*v1.EpicReviewer{{Name: "release", Enabled: new(false)}}
-	rs, err = epicReviewers(t.Context(), epicReviewerTestContract(repo, disabled, nil), epicTestGetenv)
+	rs, err = epicReviewers(
+		t.Context(), hostexec.NewLocal(), epicReviewerTestContract(repo, disabled, nil), epicTestGetenv,
+	)
 	if err != nil {
 		t.Fatalf("epicReviewers refused the contract's disabled release reviewer: %v", err)
 	}
@@ -110,7 +113,7 @@ func TestEpicReviewersProjectOverridesAndAdds(t *testing.T) {
 		`must = ["Synthetic statement holds."]`,
 		"",
 	}, "\n"))
-	rs, err := epicReviewers(t.Context(), epicReviewerTestContract(repo, nil, nil), epicTestGetenv)
+	rs, err := epicReviewers(t.Context(), hostexec.NewLocal(), epicReviewerTestContract(repo, nil, nil), epicTestGetenv)
 	if err != nil {
 		t.Fatalf("epicReviewers refused the project file: %v", err)
 	}
@@ -140,7 +143,9 @@ func TestEpicReviewersContractOverridesAndDisables(t *testing.T) {
 		{Name: "floor", Limit: new(int64(300)), Tools: []string{}},
 		{Name: "security", Enabled: new(false)},
 	}
-	rs, err := epicReviewers(t.Context(), epicReviewerTestContract(repo, declared, nil), epicTestGetenv)
+	rs, err := epicReviewers(
+		t.Context(), hostexec.NewLocal(), epicReviewerTestContract(repo, declared, nil), epicTestGetenv,
+	)
 	if err != nil {
 		t.Fatalf("epicReviewers refused the contract's reviewers: %v", err)
 	}
@@ -162,7 +167,7 @@ func TestEpicReviewersRefusesBadProjectEntry(t *testing.T) {
 	t.Parallel()
 	repo := stepGitTestRepo(t)
 	stepGitTestWrite(t, repo, ".orrery/project.toml", "[[reviewers]]\nname = \"floor\"\nlimit = \"soon\"\n")
-	_, err := epicReviewers(t.Context(), epicReviewerTestContract(repo, nil, nil), epicTestGetenv)
+	_, err := epicReviewers(t.Context(), hostexec.NewLocal(), epicReviewerTestContract(repo, nil, nil), epicTestGetenv)
 	var refusal *reviewers.Error
 	if !errors.As(err, &refusal) {
 		t.Fatalf("epicReviewers error = %v (%T), want *reviewers.Error", err, err)
@@ -182,7 +187,9 @@ func TestEpicReviewersRefusesBadContractEntry(t *testing.T) {
 	t.Parallel()
 	repo := stepGitTestRepo(t)
 	declared := []*v1.EpicReviewer{{Name: "floor", Limit: new(int64(0))}}
-	_, err := epicReviewers(t.Context(), epicReviewerTestContract(repo, declared, nil), epicTestGetenv)
+	_, err := epicReviewers(
+		t.Context(), hostexec.NewLocal(), epicReviewerTestContract(repo, declared, nil), epicTestGetenv,
+	)
 	var refusal *reviewers.Error
 	if !errors.As(err, &refusal) {
 		t.Fatalf("epicReviewers error = %v (%T), want *reviewers.Error", err, err)

@@ -109,7 +109,7 @@ func runEpicRefusals(t *testing.T, repo string, refusals []epicRefusal) {
 			t.Parallel()
 			req := epicTestRequest(repo)
 			tc.mutate(req)
-			err := checkEpic(t.Context(), req.Contract, req.Decisions, epicTestGetenv)
+			err := checkEpic(t.Context(), hostexec.NewLocal(), req.Contract, req.Decisions, epicTestGetenv)
 			if err == nil {
 				t.Fatalf("checkEpic accepted the contract, want refusal %q", tc.want)
 			}
@@ -130,7 +130,7 @@ func TestCheckEpicAcceptsValidContract(t *testing.T) {
 	t.Parallel()
 	repo := stepGitTestRepo(t)
 	req := epicTestRequest(repo)
-	if err := checkEpic(t.Context(), req.Contract, req.Decisions, epicTestGetenv); err != nil {
+	if err := checkEpic(t.Context(), hostexec.NewLocal(), req.Contract, req.Decisions, epicTestGetenv); err != nil {
 		t.Fatalf("checkEpic refused a valid contract: %v", err)
 	}
 }
@@ -143,7 +143,7 @@ func TestCheckEpicResolvesDoneGateFromProjectFile(t *testing.T) {
 	stepGitTestWrite(t, repo, ".orrery/project.toml", "[gates.project_check]\nargv = [\"scripts/check\"]\nlimit = 60\n")
 	req := epicTestRequest(repo)
 	req.Contract.DoneGates = []string{"project_check"}
-	if err := checkEpic(t.Context(), req.Contract, req.Decisions, epicTestGetenv); err != nil {
+	if err := checkEpic(t.Context(), hostexec.NewLocal(), req.Contract, req.Decisions, epicTestGetenv); err != nil {
 		t.Fatalf("checkEpic refused a done gate the project file defines: %v", err)
 	}
 }

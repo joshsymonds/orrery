@@ -13,6 +13,7 @@ import (
 
 	v1 "github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1"
 	"github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1/enginev1connect"
+	"github.com/joshsymonds/orrery/internal/hostexec"
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
@@ -40,12 +41,16 @@ type ContractStore interface {
 // Contracts is what orreryd's Contracts service answers with. Now is the clock every stored time is read from. Getenv
 // is the environment a contract's checks resolve in; nil reads the process environment. OriginMain returns the commit
 // origin's main names in a contract's repository, which an accept stores as the contract's base; nil fetches origin's
-// main with git.
+// main with git. Hosts resolves host names to the Hosts that run a contract's git, and Host names the controller's
+// host: a contract's checks and its origin's fetch run on the Host that Hosts resolves Host to. A nil Hosts resolves
+// every name to this machine.
 type Contracts struct {
 	Store      ContractStore
 	Now        func() time.Time
 	Getenv     func(string) string
 	OriginMain func(ctx context.Context, repository string) (string, error)
+	Hosts      hostexec.Hosts
+	Host       string
 }
 
 // contractService implements the Contracts RPCs over contracts. A nil contracts answers the RPCs it serves as
@@ -103,8 +108,18 @@ func (s *contractService) ProposeContract(
 	return connect.NewResponse(&v1.ProposeContractResponse{Contract: stored}), nil
 }
 
+// controllerHost returns the Host that runs a contract's git before its epic exists: the controller's, which Hosts
+// resolves Host to.
+func (s *contractService) controllerHost() (hostexec.Host, error) {
+	host, err := resolveHost(s.contracts.Hosts, s.contracts.Host)
+	if err != nil {
+		return nil, fmt.Errorf("controller host: %w", err)
+	}
+	return host, nil
+}
+
 // checkContract refuses a contract whose id is not id, whose body fails the checks of a contract, or whose decisions are
-// malformed. Propose and revise both check their requests this way.
+// malformed. Propose and revise both check their requests this way. The body's git runs on the controller's host.
 func (s *contractService) checkContract(
 	ctx context.Context,
 	id string,
@@ -118,10 +133,14 @@ func (s *contractService) checkContract(
 	if getenv == nil {
 		getenv = os.Getenv
 	}
-	if err := checkContractBody(ctx, contract, getenv); err != nil {
+	host, err := s.controllerHost()
+	if err != nil {
+		return epicStoreError(err)
+	}
+	if err = checkContractBody(ctx, host, contract, getenv); err != nil {
 		return refuseEpic(connect.CodeInvalidArgument, err.Error())
 	}
-	if err := checkContractDecisions(decisions); err != nil {
+	if err = checkContractDecisions(decisions); err != nil {
 		return refuseEpic(connect.CodeInvalidArgument, err.Error())
 	}
 	return nil
