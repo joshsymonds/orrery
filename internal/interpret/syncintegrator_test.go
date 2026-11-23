@@ -19,18 +19,24 @@ import (
 // syncIntegratorRoundLimit is how many rounds a sync's integrator runs before its sync ends failed, as kinds allows.
 const syncIntegratorRoundLimit = 3
 
-// syncIntegratorDir returns the directory the integrator worktree of the sync run at path is under, which is removed
+// syncIntegratorDir returns the directory the integrator worktree of the sync at syncFirst is under, which is removed
 // with the worktree once the sync ends.
-func syncIntegratorDir(t *testing.T, w *syncWorld, path string) string {
+func syncIntegratorDir(t *testing.T, w *syncWorld) string {
 	t.Helper()
-	return filepath.Join(w.runner.stateDir, releaseWorktrees, workID(t, w.s, path, integratorPart))
+	return filepath.Join(w.runner.stateDir, releaseWorktrees, workID(t, w.s, syncFirst, integratorPart))
 }
 
-// requireIntegratorRemoved fails unless the integrator worktree directory of the sync run at path is gone.
-func requireIntegratorRemoved(t *testing.T, w *syncWorld, path string) {
+// syncRoundWorktree returns the worktree the sync at syncFirst's integrator rounds run in.
+func syncRoundWorktree(t *testing.T, w *syncWorld) string {
 	t.Helper()
-	if _, err := os.Stat(syncIntegratorDir(t, w, path)); !errors.Is(err, fs.ErrNotExist) {
-		t.Errorf("integrator worktree of sync %s: stat = %v, want it removed when the sync ended", path, err)
+	return filepath.Join(syncIntegratorDir(t, w), releaseWorktree)
+}
+
+// requireIntegratorRemoved fails unless the integrator worktree directory of the sync at syncFirst is gone.
+func requireIntegratorRemoved(t *testing.T, w *syncWorld) {
+	t.Helper()
+	if _, err := os.Stat(syncIntegratorDir(t, w)); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("integrator worktree of sync %s: stat = %v, want it removed when the sync ended", syncFirst, err)
 	}
 }
 
@@ -111,7 +117,7 @@ func syncResolvedEndsPassedAtItsHead(t *testing.T) {
 	t.Parallel()
 	w, candidate, originHead := newSyncStepWorld(t, true)
 	w.pass()
-	wt := syncWorktree(w, syncFirst)
+	wt := syncRoundWorktree(t, w)
 	if starts := syncIntegratorStarts(w); len(starts) != 1 || starts[0].Workspace != wt ||
 		starts[0].Revision != candidate {
 		t.Fatalf("integrator starts = %+v, want round 1 alone in %s at %s", starts, wt, candidate)
@@ -147,7 +153,7 @@ func syncResolvedEndsPassedAtItsHead(t *testing.T) {
 	if tip := w.git("rev-parse", integrateBranch); tip != head {
 		t.Errorf("branch = %s, want the round's head %s", tip, head)
 	}
-	requireIntegratorRemoved(t, w, syncFirst)
+	requireIntegratorRemoved(t, w)
 }
 
 // syncGateFailureStartsRoundTwo: a round whose head fails its Done gate leaves the stored base unmoved, and starts
@@ -156,7 +162,7 @@ func syncGateFailureStartsRoundTwo(t *testing.T) {
 	t.Parallel()
 	w, candidate, originHead := newSyncStepWorld(t, true)
 	w.pass()
-	wt := syncWorktree(w, syncFirst)
+	wt := syncRoundWorktree(t, w)
 	head := commitRound(t, wt, candidate, originHead, "two\norigin\n", false)
 	endSyncStep(t, w.s, roundStep(t, w, 1), "done", "done", syncDoneReturn(head))
 	w.pass()
@@ -176,7 +182,7 @@ func syncGateFailureStartsRoundTwo(t *testing.T) {
 	if run := runAt(t, w.s, syncFirst); run.State != store.NodeRunning {
 		t.Errorf("sync run = %+v, want it still running while round 2 runs", run)
 	}
-	if _, err := os.Stat(syncIntegratorDir(t, w, syncFirst)); err != nil {
+	if _, err := os.Stat(syncIntegratorDir(t, w)); err != nil {
 		t.Errorf("integrator worktree of a running sync: %v, want it kept", err)
 	}
 }
@@ -205,7 +211,7 @@ func syncBlockedEndsFailedAtOnce(t *testing.T) {
 	if len(triggers) != 1 || !strings.Contains(triggers[0].cause, report) {
 		t.Errorf("sync triggers = %+v, want one holding the report %q", triggers, report)
 	}
-	requireIntegratorRemoved(t, w, syncFirst)
+	requireIntegratorRemoved(t, w)
 }
 
 // syncThirdRoundGateFailureEndsFailed: each round's head fails its Done gate, so the sync runs its three rounds and
@@ -215,7 +221,7 @@ func syncThirdRoundGateFailureEndsFailed(t *testing.T) {
 	t.Parallel()
 	w, candidate, originHead := newSyncStepWorld(t, true)
 	w.pass()
-	wt := syncWorktree(w, syncFirst)
+	wt := syncRoundWorktree(t, w)
 	var head string
 	for round := int64(1); round <= syncIntegratorRoundLimit; round++ {
 		head = commitRound(t, wt, candidate, originHead, fmt.Sprintf("two\norigin %d\n", round), round > 1)
@@ -238,7 +244,7 @@ func syncThirdRoundGateFailureEndsFailed(t *testing.T) {
 		t.Errorf("sync triggers = %+v, want one holding %q and the last report", triggers, failure)
 	}
 	w.requireUnmoved(candidate)
-	requireIntegratorRemoved(t, w, syncFirst)
+	requireIntegratorRemoved(t, w)
 }
 
 // syncRestartEndsSkipped: a round whose step ended engine_restarted ends the sync skipped and untold, with the stored
@@ -261,7 +267,7 @@ func syncRestartEndsSkipped(t *testing.T) {
 		t.Errorf("SyncTriedBy(%s) = %q, want no try of origin's commit", originHead, tried)
 	}
 	w.requireUnmoved(candidate)
-	requireIntegratorRemoved(t, w, syncFirst)
+	requireIntegratorRemoved(t, w)
 }
 
 // TestSyncFailWakesOnAnUnresolvedConflict: a conflicted sync whose integrator returns blocked leaves one pending sync
