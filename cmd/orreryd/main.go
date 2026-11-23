@@ -342,7 +342,8 @@ func hostName(seam string) (string, error) {
 
 // controllerHost returns the controller's host name, which hostName gives, and its orrery name: the top-level name of the
 // hosts file that getenv locates when the file sets one, and the host name otherwise. A host name that is empty, or a
-// hosts file that does not load, is an error.
+// hosts file that does not load, is an error. With neither XDG_CONFIG_HOME nor HOME set there is no hosts file to
+// locate, so the controller is named by its host name, as it is without a hosts file.
 func controllerHost(opts options, getenv func(string) string) (string, string, error) {
 	host, err := hostName(opts.host)
 	if err != nil {
@@ -351,9 +352,13 @@ func controllerHost(opts options, getenv func(string) string) (string, string, e
 	if host == "" {
 		return "", "", errors.New("host name is empty")
 	}
-	file, err := hosts.Load(getenv)
-	if err != nil {
-		return "", "", fmt.Errorf("load hosts: %w", err)
+	var file hosts.File
+	if _, pathErr := hosts.Path(getenv); pathErr == nil {
+		loaded, err := hosts.Load(getenv)
+		if err != nil {
+			return "", "", fmt.Errorf("load hosts: %w", err)
+		}
+		file = loaded
 	}
 	if file.Name != "" {
 		return host, file.Name, nil
