@@ -7,23 +7,21 @@ import { act } from "preact/test-utils";
 
 import { App } from "./app";
 import { createClients, createTransport } from "./client";
-import { type EpicsView, epicsView } from "./epics";
 import { tideProposed } from "./fixtures/contractrecords";
 import { type Contract, ContractSchema, ContractsGetResponseSchema } from "./gen/orrery/v1/contracts_pb";
-import { type Epic, EpicSchema, type EpicsGetResponse, EpicsGetResponseSchema } from "./gen/orrery/v1/epics_pb";
 import type { Address } from "./router";
 import type { Row } from "./rows";
-import { installTestDom, removeTestDom, teardownOnce } from "./testdom";
+import { assertNone, installTestDom, removeTestDom, teardownOnce } from "./testdom";
 import { turn, until } from "./testwait";
 
-// Each test's name carries the token ContractTile: a proposed contract of the middle conversation heads the rail and
-// the phone's strip as a tile, and pressing it opens the contract panel, which its lit tile closes. Each test mounts
-// App at a window width of its own, since the layout reads the width when App mounts.
+// Each test's name carries the token ContractTile: a proposed contract of the middle conversation is a work link in its
+// title row, named by its slug, and pressing it opens the contract panel, which its Close shuts. Each test mounts App at a
+// window width of its own, since the layout reads the width when App mounts.
 
 const now = 1000;
 const contractId = "tidepool/tide-alerts";
 const conversation = "sess-tide-16";
-const contractLabel = "tide-alerts: a contract waits for you";
+const contractName = "tide-alerts";
 
 const steererAddress: Address = { view: "inbox", entry: { kind: "session", id: conversation } };
 const contractAddress: Address = { view: "inbox", entry: { kind: "contract", id: contractId } };
@@ -96,23 +94,9 @@ function makeContract(id: string, init: MessageInitShape<typeof ContractSchema> 
   });
 }
 
-// epicsOf is the epics view of one epic, the contract's own, steered by the conversation.
-function epicsOf(): EpicsView {
-  const epic: Epic = create(EpicSchema, {
-    id: contractId,
-    repository: "/home/owner/code/tidepool",
-    slug: "tide-alerts",
-    live: true,
-    steering: conversation,
-  });
-  const detail: EpicsGetResponse = create(EpicsGetResponseSchema, { epic, summary: "Ship the alerts" });
-  return epicsView([epic], new Map([[contractId, detail]]));
-}
-
 interface Setup {
   rows: Row[];
   contracts: Contract[];
-  epics?: EpicsView;
   address: Address;
   width: number;
 }
@@ -144,7 +128,6 @@ async function withApp(
           rows={setup.rows}
           now={now}
           clients={clients}
-          epics={setup.epics}
           contracts={setup.contracts}
           address={setup.address}
           onAddress={(address, mode) => probe.reported.push({ address, mode })}
@@ -163,19 +146,16 @@ function settle(signal: AbortSignal, check: () => boolean, what: string): Promis
   return until(signal, check, what, { step: () => act(turn) });
 }
 
-// railTiles is each tile the right rail draws, in order.
-function railTiles(container: HTMLElement): HTMLElement[] {
-  return [...container.querySelectorAll<HTMLElement>(".rail .tile-w")];
+// workLinkNames are the names the title row's work links carry, in order.
+function workLinkNames(container: HTMLElement): string[] {
+  return [...container.querySelectorAll<HTMLElement>(".title-row .wlink .nm")].map((name) => name.textContent ?? "");
 }
 
-// contractTiles is each contract tile the rail draws, in order.
-function contractTiles(container: HTMLElement): HTMLElement[] {
-  return [...container.querySelectorAll<HTMLElement>(".rail .rgroup.contract .tile-w")];
-}
-
-// litTile is the rail's one lit tile, or null when none is lit.
-function litTile(container: HTMLElement): HTMLElement | null {
-  return container.querySelector<HTMLElement>(".rail .tile-w.on");
+// contractLink is the work link of the contract, which the title row must draw.
+function contractLink(container: HTMLElement): HTMLElement {
+  const link = container.querySelector<HTMLElement>(`.title-row .wlink[title="Open ${contractName}"]`);
+  assert.ok(link !== null, `no work link opens ${contractName}`);
+  return link;
 }
 
 // panelOf is the panel labelled as given, or null when none is drawn.
@@ -197,50 +177,37 @@ function lastReport(probe: Probe): { address: Address; mode: string } {
   return report;
 }
 
-test("ContractTile: the contract group heads the rail, ahead of the epic, its tile named by slug and title", (t) =>
+test("ContractTile: the proposed contract is a work link in the title row, named by its slug", (t) =>
   withApp(
     t.signal,
     {
       rows: [conversationRow()],
       contracts: [makeContract(contractId)],
-      epics: epicsOf(),
       address: steererAddress,
       width: 1600,
     },
     async (container) => {
-      await settle(t.signal, () => contractTiles(container).length === 1, "the contract tile is drawn");
-      const groups = [...container.querySelectorAll<HTMLElement>("aside.rail .rgroup")];
-      assert.deepEqual(
-        groups.map((group) => group.className),
-        ["rgroup contract", "rgroup epic"],
-      );
-      assert.equal(contractTiles(container)[0].getAttribute("aria-label"), contractLabel);
+      await settle(t.signal, () => workLinkNames(container).length === 1, "the contract's work link is drawn");
+      assert.deepEqual(workLinkNames(container), [contractName], "the title names the contract by its slug");
     },
   ));
 
-test("ContractTile: the phone's strip heads with the contract group, drawn as a tile", (t) =>
+test("ContractTile: under 760px the contract is the title row's one work link, and no more links are drawn", (t) =>
   withApp(
     t.signal,
     {
       rows: [conversationRow()],
       contracts: [makeContract(contractId)],
-      epics: epicsOf(),
       address: steererAddress,
       width: 400,
     },
     async (container) => {
-      await settle(
-        t.signal,
-        () => container.querySelector("nav.tilestrip .rgroup.contract") !== null,
-        "the strip draws the contract group",
-      );
-      const first = container.querySelector("nav.tilestrip .rgroup");
-      assert.equal(first?.className, "rgroup contract");
-      assert.equal(first?.querySelector(".tile-w")?.getAttribute("aria-label"), contractLabel);
+      await settle(t.signal, () => workLinkNames(container).length === 1, "the contract's work link is drawn");
+      assertNone(container.querySelector(".title-row .wlink-more"), "no +n control is drawn for one link");
     },
   ));
 
-test("ContractTile: a contract another conversation proposed, or one accepted or set aside, has no tile", (t) =>
+test("ContractTile: a contract another conversation proposed, or one accepted or set aside, has no work link", (t) =>
   withApp(
     t.signal,
     {
@@ -255,33 +222,29 @@ test("ContractTile: a contract another conversation proposed, or one accepted or
       width: 1600,
     },
     async (container) => {
-      await settle(t.signal, () => contractTiles(container).length > 0, "the contract tile is drawn");
-      assert.deepEqual(
-        contractTiles(container).map((tile) => tile.getAttribute("aria-label")),
-        [contractLabel],
-      );
+      await settle(t.signal, () => workLinkNames(container).length > 0, "the contract's work link is drawn");
+      assert.deepEqual(workLinkNames(container), [contractName]);
     },
   ));
 
-test("ContractTile: pressing the contract tile opens its panel, with its address pushed, and lights the tile", (t) =>
+test("ContractTile: pressing the contract's work link opens its panel, with its address pushed", (t) =>
   withApp(
     t.signal,
     { rows: [conversationRow()], contracts: [makeContract(contractId)], address: steererAddress, width: 1600 },
     async (container, probe) => {
-      await settle(t.signal, () => contractTiles(container).length === 1, "the contract tile is drawn");
+      await settle(t.signal, () => workLinkNames(container).length === 1, "the contract's work link is drawn");
       assert.equal(panelOf(container, "tide-alerts contract"), null, "no panel before the press");
-      await press(contractTiles(container)[0]);
+      await press(contractLink(container));
       await settle(
         t.signal,
         () => panelOf(container, "tide-alerts contract")?.querySelector(".contract-record") != null,
         "the record is drawn in the panel",
       );
-      assert.equal(litTile(container), contractTiles(container)[0], "the contract's tile is lit");
       assert.deepEqual(lastReport(probe), { address: contractAddress, mode: "push" });
     },
   ));
 
-test("ContractTile: pressing the lit contract tile closes its panel, with the steerer's address pushed", (t) =>
+test("ContractTile: Close shuts the contract panel, with the steerer's address pushed", (t) =>
   withApp(
     t.signal,
     { rows: [conversationRow()], contracts: [makeContract(contractId)], address: contractAddress, width: 1600 },
@@ -291,10 +254,12 @@ test("ContractTile: pressing the lit contract tile closes its panel, with the st
         () => panelOf(container, "tide-alerts contract")?.querySelector(".contract-record") != null,
         "the record is drawn in the panel",
       );
-      assert.equal(litTile(container), contractTiles(container)[0], "the contract's tile is lit before the press");
-      await press(contractTiles(container)[0]);
+      const close = panelOf(container, "tide-alerts contract")?.querySelector<HTMLElement>(
+        '.panel-ctl button[aria-label="Close the panel"]',
+      );
+      assert.ok(close !== null && close !== undefined, "the contract panel has a Close button");
+      await press(close);
       assert.equal(panelOf(container, "tide-alerts contract"), null, "the panel is closed");
-      assert.equal(litTile(container), null, "no tile is lit");
       assert.deepEqual(lastReport(probe), { address: steererAddress, mode: "push" });
     },
   ));

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { AccountsPage } from "./accountspage";
 import * as actions from "./actions";
 import type { Clients } from "./actions";
+import { ActivityLines } from "./activitylines";
 import { type AskTarget, conversationAsk } from "./askmodel";
 import { askingWords, askLines, headBadges, ownAsks, steeredEpics } from "./asks";
 import { type AskState, askKey, observe, press, settle } from "./askstate";
@@ -20,6 +21,7 @@ import { type EpicItem, type EpicsView, epicsView, noEpics, type StepItem } from
 import { findMatches } from "./find";
 import { type Followed, follow } from "./follow";
 import type { Contract } from "./gen/orrery/v1/contracts_pb";
+import type { Design } from "./gen/orrery/v1/designs_pb";
 import type { Epic, EpicHistoryEntry, EpicsGetResponse } from "./gen/orrery/v1/epics_pb";
 import type { InAppNotice, NoticeKey } from "./gen/orrery/v1/notice_pb";
 import type { HostStatusResponse } from "./gen/orrery/v1/orrery_pb";
@@ -75,9 +77,8 @@ import { TitleRow } from "./titlerow";
 import { Toast } from "./toast";
 import { buildTree, type Convo, type Hung, type Project } from "./tree";
 import { countsOf, type Narrow, narrow as narrowTree, projectWaiting, search as searchTree, waitOrder } from "./treefilter";
-import { type ListThing, type Thing, type WorkConversation, workOf } from "./work";
+import { activityOf, type ListThing, type WorkConversation, type WorkLinkItem, workLinksOf, workOf } from "./work";
 import { WorkerSessionPage } from "./workersession";
-import { WorkRail } from "./workrail";
 
 // A project's flyout beside the collapsed inbox's rail: the project's key, and whether the pointer or a key opened it. The
 // pointer leaving the rail closes only a flyout the pointer opened.
@@ -232,6 +233,8 @@ const reduceQuery = "(prefers-reduced-motion: reduce)";
 const moveMs = 280;
 // The contracts an App holds when none are given.
 const noContracts: readonly Contract[] = [];
+// The designs an App holds when none are given.
+const noDesigns: readonly Design[] = [];
 // The notices an App shows when none are given.
 const noNotices: InAppNotice[] = [];
 
@@ -246,6 +249,7 @@ export function App({
   seenWindow,
   epics = noEpics,
   contracts = noContracts,
+  designs = noDesigns,
   notices = noNotices,
   host = null,
   onViewing,
@@ -266,6 +270,7 @@ export function App({
   seenWindow?: SeenWindow;
   epics?: EpicsView;
   contracts?: readonly Contract[];
+  designs?: readonly Design[];
   notices?: InAppNotice[];
   host?: HostStatusResponse | null;
   onViewing?: (viewing: Viewing) => void;
@@ -567,6 +572,7 @@ export function App({
       epics: treeEpics,
       details: epics.details,
       contracts,
+      designs,
       host: host?.host ?? "",
       view: shown,
     });
@@ -608,17 +614,16 @@ export function App({
   // The cursor's epic entry, which the epic panel draws beside the conversation. A step entry is no epic entry: its reader
   // shows alone.
   const epicEntry = cursorItem?.kind === "epic" ? cursorItem : null;
-  // The epic's steerer: the row of the session that steers it, as the rail names it. The middle row is the row the
+  // The epic's steerer: the row of the session that steers it, as the epics list names it. The middle row is the row the
   // reader column draws: the cursor's row, or for an epic entry its steerer's row. The entry the reader follows is the
   // middle row, or else the cursor's step. Its stream is kept under this key, so a stream never shows under another entry.
   // Under 760px the cursor's entry is the address only once it is opened, so the inbox's address names no row.
   const pageDrawn = wide || rowOpened;
   // The project whose page is open, while a page is drawn. The project page takes the page area, so the cursor's panels
-  // and rail do not draw while it is shown, and neither does a contract's.
+  // do not draw while it is shown, and neither does a contract's.
   const shownProject = pageDrawn ? projectKey : null;
   // The collapsed inbox's rail draws a tile per project of the inbox, whatever the view, and the tile of the project that
   // holds the open page is current. The flyout is drawn only while the inbox is collapsed, on a project the rail draws.
-  const tiles = railTiles(railTree, shownProject ?? cursorKey);
   const flyoutProject = collapsed && flyout !== null ? railTree.find((project) => project.key === flyout.key) : undefined;
   const flyoutModel = flyoutProject === undefined ? null : flyoutOf(flyoutProject, now);
   // The contract the address opened is open while the cursor rests on the entry it opened over and no project page is
@@ -1001,7 +1006,7 @@ export function App({
   // from this page. The first answer moves nothing. The moves an answer makes are one move notice, which replaces the toast
   // or notice before it.
   useEffect(() => {
-    const spots = spotsOfAnswer(rows, epics, contracts, host?.host ?? "");
+    const spots = spotsOfAnswer(rows, epics, contracts, designs, host?.host ?? "");
     const before = lastSpots.current;
     lastSpots.current = spots;
     if (before === null) {
@@ -1672,7 +1677,7 @@ export function App({
   };
 
   // selectKey moves the cursor to the entry drawn under key, as a press on that entry does. A press on an epic or a step
-  // under 760px opens it, as a press on a row does. A press on a contract opens its panel, as its rail tile does.
+  // under 760px opens it, as a press on a row does. A press on a contract opens its panel, as its work link does.
   const selectKey = (key: string) => {
     const item = flat.find((candidate) => candidate.key === key);
     if (item === undefined) {
@@ -1936,6 +1941,26 @@ export function App({
       openFlyoutItem(item);
     }
   }, [view]);
+  // pendingTab is the design whose tab a press on the rail's lineage brings into view, once the inbox is drawn expanded.
+  const pendingTab = useRef<string | null>(null);
+  useEffect(() => {
+    const key = pendingTab.current;
+    if (key !== null && !collapsed) {
+      pendingTab.current = null;
+      document.querySelector(`.list [data-key="${CSS.escape(key)}"]`)?.scrollIntoView({ block: "nearest" });
+    }
+  }, [collapsed]);
+  // openLineage is a press on a mark of the rail's lineage. A design's mark expands the inbox and brings the design's tab
+  // into view. An epic's or a contract's mark opens it as a flyout row does; openFlyoutItem reads only the item's key and kind,
+  // so the rest of the row is left empty.
+  const openLineage = (key: string) => {
+    if (key.startsWith("design:")) {
+      pendingTab.current = key;
+      expandInbox();
+      return;
+    }
+    openFlyoutItem({ kind: "hung", key, name: "", ask: "", changed: 0 });
+  };
   // goToProject is a click on a project's tile, and ⏎ in its flyout: it opens the flyout's cursor row, which is the
   // project's oldest row that waits on you, else its first new row, and with neither it opens the project's page.
   const goToProject = (key: string) => {
@@ -1963,9 +1988,8 @@ export function App({
 
   // headOf is what a row's head draws: the strip's host, the asks its conversation draws, the note the More menu's archive
   // left for it, and the More menu's items for it. The asks are the epics steered by the row's id, and the row's own
-  // question asks while the row waits and its pane or session is not put off. Under 760px the middle conversation's head
-  // also draws its groups as tiles, since the desk's rail that draws them is not drawn; only the middle column's head
-  // does, since the tiles act on the middle conversation.
+  // question asks while the row waits and its pane or session is not put off. Only the middle column's head draws the
+  // work links, since they act on the middle conversation.
   // bandContractsOf gives the band's contract lines for the contracts a session proposed that wait on the owner: each
   // with the words of what is left to settle, and whether its irreversible section is read.
   const bandContractsOf = (session: string): ContractBandLine[] =>
@@ -1998,10 +2022,12 @@ export function App({
       contracts: middle ? bandContractsOf(workConversation(row, conversation).session) : undefined,
       onOpenContract: navigated(openContractPanel),
       hereContract: middle && contract !== undefined ? contract.id : undefined,
-      work:
-        middle && !wide
-          ? { groups: workOf(workConversation(row, conversation), railEpics, now, contracts), lit, onOpen: openThing }
-          : undefined,
+      workLinks: middle
+        ? {
+            items: workLinksOf(workConversation(row, conversation).session, designs, railEpics, contracts),
+            onOpen: openWorkLink,
+          }
+        : undefined,
       note: headNote.key === row.key ? headNote.text : "",
       menu: {
         stripsShown,
@@ -2036,6 +2062,19 @@ export function App({
     }
     document.querySelector<HTMLElement>(".row.cur")?.focus();
   };
+  // tabToShow is the design tab a design link last asked to show, by its key. The layout effect after the render that draws
+  // it scrolls the tab into view and clears it, so each press shows its tab, even one that changes nothing else.
+  const [tabToShow, setTabToShow] = useState("");
+  useLayoutEffect(() => {
+    if (tabToShow === "") {
+      return;
+    }
+    const tab = Array.from(document.querySelectorAll<HTMLElement>(".design-tab")).find(
+      (candidate) => candidate.dataset.key === tabToShow,
+    );
+    tab?.scrollIntoView({ block: "nearest" });
+    setTabToShow("");
+  }, [tabToShow]);
   // backToInbox is a row's page's Back under 760px: the inbox draws again, and the row takes the focus once the render
   // that draws the list has run.
   const backToInbox = () => {
@@ -2058,19 +2097,24 @@ export function App({
     return null;
   };
 
-  // The rail's conversation is the middle row, with its session, whether it is a pane, and the background tasks its stream
-  // holds. Its groups are what it steers, from the epics the list shows, read as the landed seen writes leave them, with
-  // the cursor's epic kept among the just ended so its tile stays while the cursor rests on it.
+  // The middle conversation is the row with its session, whether it is a pane, and the background tasks its stream holds.
+  // Its things are what its side panels take their tones and tasks from: the epics it steers, read as the landed seen
+  // writes leave them, with the cursor's epic kept among the just ended so its tone stays while the cursor rests on it,
+  // and its running lists.
   const railEpics = railEpicsOf(marked, seenEpics, epicEntry?.id ?? "");
   const railConversation: WorkConversation | null =
     middleRow === null ? null : workConversation(middleRow, cursorConversation);
-  const railGroups = workOf(railConversation, railEpics, now, contracts);
+  const workThings = workOf(railConversation, railEpics);
   // The epic panel is open while the cursor rests on an epic entry, its page is not closed, no contract is open, no
-  // project page is shown, and the page is drawn: under 760px only once the entry has been opened. Its tile is the rail's
-  // tile of that epic, which is lit while the panel is open, and whose tone the card takes. An epic no conversation steers
-  // has no tile, so no tile is lit and the card takes the quiet tone.
+  // project page is shown, and the page is drawn: under 760px only once the entry has been opened. Its card takes the
+  // tone of the epic among the middle conversation's things, so an epic no conversation steers takes the quiet tone.
   const panelOpen =
     pageDrawn && epicEntry !== null && !epicPage.closed && !contractShown && shownProject === null && !accountsOpen;
+  // The rail's tiles, and the lineage the tiles hang under them. The lineage marks open the contract whose panel is open, else
+  // the epic whose panel is open (panelOpen), and nothing while a project page is shown or no panel is open.
+  const lineageThing =
+    contract !== undefined ? `contract:${contract.id}` : panelOpen && epicEntry !== null ? `epic:${epicEntry.id}` : "";
+  const tiles = railTiles(railTree, shownProject ?? cursorKey, lineageThing);
   // Under 760px an open epic is the page in the conversation's place: the conversation is not drawn, and the page's
   // foot bar opens the steering conversation. At the desk the epic panel lies beside the conversation, but not a worker
   // session, which takes the conversation's place (sessionAtDesk).
@@ -2087,24 +2131,14 @@ export function App({
   const epicBeside = panelOpen && !sessionAtDesk;
   // Under 760px an open contract is the page in the conversation's place too, and the reader is not drawn.
   const contractPageShown = !wide && contractShown;
-  const panelThing =
-    epicEntry === null
-      ? undefined
-      : railGroups.flatMap((group) => group.things).find((thing) => thing.key === epicEntry.key);
-  // An open contract's tile is lit under the key of its thing, contract:<id>.
-  const litContract = contract === undefined ? "" : `contract:${contract.id}`;
-  const lit =
-    contract !== undefined ? litContract : panelOpen && panelThing !== undefined ? panelThing.key : (listShown ?? "");
+  const panelThing = epicEntry === null ? undefined : workThings.find((thing) => thing.key === epicEntry.key);
   const panelTone = panelThing?.tone ?? "quiet";
-  // The one panel open beside the conversation is an epic's, a contract's or a list's. A list's card takes its tile's
-  // tone, and its rows are the tile's tasks, which are empty once the tile is gone.
+  // The one panel open beside the conversation is an epic's, a contract's or a list's. A list's card takes its tone, and
+  // its rows are the middle conversation's running tasks of its kind, which are empty once none runs.
   const panelShown = epicBeside || contractShown || listShown !== null;
-  const listThing = railGroups
-    .flatMap((group) => group.things)
-    .find(
-      (thing): thing is ListThing =>
-        (thing.kind === "agents" || thing.kind === "running") && thing.key === listShown,
-    );
+  const listThing = workThings.find(
+    (thing): thing is ListThing => (thing.kind === "agents" || thing.kind === "running") && thing.key === listShown,
+  );
   const listTone = listThing?.tone ?? "quiet";
   const listTasks = listThing?.tasks ?? [];
   // What the panel holds while it is open: ] reopens it once it shuts. An epic is held while its panel is open, and a
@@ -2126,7 +2160,7 @@ export function App({
       setHeld(openHeld);
     }
   }, [heldKey]);
-  // closePanel shuts the epic panel, from its lit tile or its Close. It moves the cursor to the steerer's row, as an open,
+  // closePanel shuts the epic panel, from its Close or ]. It moves the cursor to the steerer's row, as an open,
   // when the list shows that row; with no such row in the list, it closes the epic page instead, which under 760px
   // returns to the inbox.
   const closePanel = navigated(() => {
@@ -2150,35 +2184,49 @@ export function App({
     moveTo(target);
     setListPanel({ key, panel });
   };
-  // closeList shuts the list panel, from its lit tile or its Close. The cursor stays on the session's row, so the
-  // address is the session's own.
+  // closeList shuts the list panel, from its Close or a press on its activity line. The cursor stays on the session's row,
+  // so the address is the session's own.
   const closeList = navigated(() => setListPanel(null));
-  // closeContract shuts the contract panel, from its Close, its title row's back or its lit tile. The address is the
+  // closeContract shuts the contract panel, from its Close or its title row's back. The address is the
   // cursor's entry again.
   const closeContract = navigated(() => setOpenedContract(null));
-  // openThing is a press on a rail tile. The lit tile shuts its panel, whether it is an epic's, a contract's or a
-  // list's. Another epic's tile opens that epic as an open, a contract's tile opens its panel, and a list's tile opens
-  // the list on the session row the rail reads.
-  const openThing = (thing: Thing) => {
-    if (thing.key === lit) {
-      if (thing.kind === "epic") {
-        closePanel();
-      } else if (thing.kind === "contract") {
-        closeContract();
-      } else {
-        closeList();
+  // openDesign is a press on a design link: the design's tab shows in the inbox, where the tree draws it under its
+  // conversation. At the desk a collapsed inbox expands, and the tab scrolls into view once it is drawn. Under 760px the
+  // page and the panels shut, so the inbox list draws with the tab in view.
+  const openDesign = (id: string) => {
+    revealKey(`design:${id}`);
+    setView("inbox");
+    setProjectKey(null);
+    if (wide) {
+      if (collapsed) {
+        expandInbox();
       }
+    } else {
+      setRowOpened(false);
+      setEpicPage(closedEpicPage);
+      setOpenedContract(null);
+    }
+    setTabToShow(`design:${id}`);
+  };
+  // openWorkLink is a press on a work link in the title row: an epic's opens its panel, a contract's opens its contract,
+  // and a design's shows its tab in the inbox.
+  const openWorkLink = (item: WorkLinkItem) => {
+    if (item.kind === "epic") {
+      navigated(openEpic)(item.id);
+    } else if (item.kind === "contract") {
+      navigated(openContractPanel)(item.id);
+    } else {
+      navigated(openDesign)(item.id);
+    }
+  };
+  // openActivity is a press on an activity line above the composer: it opens the list panel of the line's kind on the
+  // middle conversation's row, or shuts that panel when it is the one open, as a press on the lit line does.
+  const openActivity = (kind: ListPanelKind) => {
+    if (listShown === kind) {
+      closeList();
       return;
     }
-    if (thing.kind === "epic") {
-      navigated(openEpic)(thing.id);
-      return;
-    }
-    if (thing.kind === "contract") {
-      navigated(openContractPanel)(thing.id);
-      return;
-    }
-    navigated(openList)(middleKey, thing.kind);
+    navigated(openList)(middleKey, kind);
   };
   // togglePanel is ]: it shuts the open panel, or with none open reopens the thing the panel held last, as long as the
   // list still holds it.
@@ -2644,7 +2692,7 @@ export function App({
   // inbox is the home page until then. The list hides while the opened row's, step's, epic's, contract's or project's
   // page draws alone, and an open epic's or contract's page takes the conversation's place, unless the sheet holds the
   // conversation over the contract. A shown project page takes the page area, so no reader draws. At 760px and wider the
-  // list, the conversation and the panel or rail sit abreast.
+  // list, the conversation and the panel sit abreast.
   const readerRow =
     pageDrawn &&
     !noticesPage &&
@@ -2658,6 +2706,8 @@ export function App({
   // contractCalls are the middle reader's contract calls: its contract lines draw the contracts the list holds, and
   // open them.
   const contractCalls: ContractCalls = { contracts, onOpen: navigated(openContractPanel) };
+  // activityLines are what runs under the middle conversation, drawn above its composer while its reader is drawn.
+  const activityLines = activityOf(readerRow === null ? null : railConversation);
   const middleColumn = (
     <ReaderColumn
       column="cursor"
@@ -2702,6 +2752,7 @@ export function App({
       steps={visitedSteps}
       stepInputs={stepInputs}
       ended={endedBarOf}
+      activity={<ActivityLines lines={activityLines} now={now} open={listShown} onOpen={openActivity} />}
     />
   );
 
@@ -2723,6 +2774,7 @@ export function App({
             onHoverOff={hoverOff}
             onFlyoutRow={openFlyoutItem}
             onFlyoutPage={openProject}
+            onLineage={openLineage}
             onNew={() => setPickerOpen(true)}
             onSearch={() => {
               expandInbox();
@@ -2896,7 +2948,6 @@ export function App({
             <ListPanel kind={listShown} tasks={listTasks} now={now} headless />
           </Sheet>
         )}
-        {wide && shownProject === null && <WorkRail groups={railGroups} lit={lit} layout="rail" onOpen={openThing} />}
       </div>
       {toast !== null && (toast.kind === "moved" || !wide) && (
         <Toast
@@ -3004,10 +3055,11 @@ function spotsOfAnswer(
   rows: readonly Row[],
   epics: EpicsView,
   contracts: readonly Contract[],
+  designs: readonly Design[],
   host: string,
 ): Map<string, Placed> {
   const treeOf = (view: View) =>
-    buildTree({ rows, epics: [...epics.listed.values()], details: epics.details, contracts, host, view });
+    buildTree({ rows, epics: [...epics.listed.values()], details: epics.details, contracts, designs, host, view });
   return spotsOf(treeOf("inbox"), treeOf("archived"));
 }
 
@@ -3265,8 +3317,8 @@ function noticeEntry(items: Item[], key: NoticeKey | undefined): Item | undefine
   });
 }
 
-// workConversation is what a row's groups are drawn from: its session, whether it is a pane, and the background tasks
-// its stream holds.
+// workConversation is what a row's work is drawn from: its session, whether it is a pane, and the background tasks its
+// stream holds.
 function workConversation(row: Row, conversation: Conversation | null): WorkConversation {
   return {
     session: row.archiveKind === "none" ? "" : row.archiveId,
@@ -3417,10 +3469,13 @@ function treeEntries(
   return entries;
 }
 
-// holdsKey says whether a conversation draws the entry under key: its row, or a thing hung or folded under it, or a step
-// of an epic hung or folded under it.
+// holdsKey says whether a conversation draws the entry under key: its row, its design's tab, or a thing hung or folded under
+// it, or a step of an epic hung or folded under it.
 function holdsKey(convo: Convo, key: string): boolean {
   if (convo.row !== null && convo.row.key === key) {
+    return true;
+  }
+  if ((convo.designs ?? []).some((node) => node.key === key)) {
     return true;
   }
   return [...convo.hung, ...convo.folded].some((hung) => holdsThing(hung, key));

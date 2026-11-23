@@ -36,6 +36,10 @@ import io.github.joshsymonds.orrery.gen.orrery.v1.ConversationItem as Conversati
 import io.github.joshsymonds.orrery.gen.orrery.v1.ConversationRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.ConversationState as ConversationStateProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.DeclineRequest
+import io.github.joshsymonds.orrery.gen.orrery.v1.Design as DesignProto
+import io.github.joshsymonds.orrery.gen.orrery.v1.DesignContract as DesignContractProto
+import io.github.joshsymonds.orrery.gen.orrery.v1.DesignsClient
+import io.github.joshsymonds.orrery.gen.orrery.v1.DesignsListRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.EngineText as EngineTextProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.Epic as EpicProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicAddition as EpicAdditionProto
@@ -593,6 +597,37 @@ data class ContractRow(
     val changed: Long,
 )
 
+/**
+ * One contract of a design, as Designs.List serves it: its [position] in the design's start order, counted from 1,
+ * the ids of the contracts it starts [after], and the [epic] made from it with that epic's [epicPhase], both "" when
+ * none has been made.
+ */
+data class DesignContractRow(
+    val id: String,
+    val title: String,
+    val repository: String,
+    val state: String,
+    val position: Long,
+    val after: List<String>,
+    val epic: String,
+    val epicPhase: String,
+)
+
+/**
+ * One design as Designs.List serves it: its [conversation] that works it, its [created] time in unix seconds, its
+ * [state] phrase, and its [contracts] in the order served. [ofOne] is true for a design of one: the contract that reads
+ * as it was proposed with no design.
+ */
+data class DesignRow(
+    val id: String,
+    val title: String,
+    val conversation: String,
+    val created: Long,
+    val ofOne: Boolean,
+    val state: String,
+    val contracts: List<DesignContractRow>,
+)
+
 /** One decision a contract's version asks the owner to answer. [answer] is "" while the decision is open. */
 data class ContractDecisionRow(
     val id: String,
@@ -1017,6 +1052,7 @@ class OrreryClient(
         val sessions = SessionsClient(protocol)
         val contracts = ContractsClient(protocol)
         val epics = EpicsClient(protocol)
+        val designs = DesignsClient(protocol)
         val evidence = EvidenceClient(protocol)
         val notices = NoticesClient(protocol)
         val steps = StepsClient(protocol)
@@ -1085,6 +1121,16 @@ class OrreryClient(
         absentAsEmpty(CONTRACTS_ABSENT) {
             call(write = false) { standard.contracts.list(ContractsListRequest.getDefaultInstance(), CLIENT_HEADERS) }
                 .contractsList.map { it.toContractRow() }
+        }
+
+    /**
+     * Every design, with its contracts in the order the server served them. A server that answers unavailable,
+     * unimplemented or not_found has no designs to list, so it gives an empty list; any other failure throws.
+     */
+    fun designs(): List<DesignRow> =
+        absentAsEmpty {
+            call(write = false) { standard.designs.list(DesignsListRequest.getDefaultInstance(), CLIENT_HEADERS) }
+                .designsList.map { it.toDesignRow() }
         }
 
     fun conversation(paneId: String): Conversation? {
@@ -1776,6 +1822,29 @@ class OrreryClient(
             conversation = conversation,
             created = created,
             changed = changed,
+        )
+
+    private fun DesignProto.toDesignRow(): DesignRow =
+        DesignRow(
+            id = id,
+            title = title,
+            conversation = conversation,
+            created = created,
+            ofOne = ofOne,
+            state = state,
+            contracts = contractsList.map { it.toDesignContractRow() },
+        )
+
+    private fun DesignContractProto.toDesignContractRow(): DesignContractRow =
+        DesignContractRow(
+            id = id,
+            title = title,
+            repository = repository,
+            state = state,
+            position = position,
+            after = afterList.toList(),
+            epic = epic,
+            epicPhase = epicPhase,
         )
 
     private fun ContractVersionProto.toContractVersionRow(): ContractVersionRow =

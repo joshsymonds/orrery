@@ -32,6 +32,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import io.github.joshsymonds.orrery.api.ContractRow
+import io.github.joshsymonds.orrery.api.DesignRow
 import io.github.joshsymonds.orrery.api.EpicDetail
 import io.github.joshsymonds.orrery.api.EpicRow
 import io.github.joshsymonds.orrery.api.OrreryClient
@@ -74,7 +75,7 @@ class PaneListState {
 @Composable
 internal fun rememberPaneListState(): PaneListState = remember { PaneListState() }
 
-/** What one read of the lists, the epics and their details, the contracts and the host answered with. */
+/** What one read of the lists, the epics and their details, the contracts, the host and the designs answered with. */
 internal class TreeData(
     val panes: List<Pane>,
     val archived: Set<String>,
@@ -82,6 +83,7 @@ internal class TreeData(
     val details: Map<String, EpicDetail>,
     val contracts: List<ContractRow>,
     val host: String,
+    val designs: List<DesignRow> = emptyList(),
 )
 
 /**
@@ -216,8 +218,9 @@ fun PaneListScreen(
 }
 
 /**
- * Reads the lists, every live epic's detail, the contracts and the host. Null when a list or an epic did not answer. A
- * contracts read that fails keeps the contracts of [held], and a host read that fails keeps its host.
+ * Reads the lists, every live epic's detail, the contracts, the host and the designs. Null when a list or an epic did not
+ * answer. A contracts read that fails keeps the contracts of [held], a host read that fails keeps its host, and a designs
+ * read that fails keeps the designs of [held].
  */
 internal suspend fun readTree(client: OrreryClient, held: TreeData?): TreeData? = withContext(Dispatchers.IO) {
     try {
@@ -235,7 +238,12 @@ internal suspend fun readTree(client: OrreryClient, held: TreeData?): TreeData? 
         } catch (error: IOException) {
             held?.host ?: ""
         }
-        TreeData(panes, archived, epics, details, contracts, host)
+        val designs = try {
+            client.designs()
+        } catch (error: IOException) {
+            held?.designs ?: emptyList()
+        }
+        TreeData(panes, archived, epics, details, contracts, host, designs)
     } catch (error: IOException) {
         null
     }
@@ -266,7 +274,7 @@ private fun InboxBody(
     onLongPress: (SheetRow) -> Unit,
 ) {
     val projects = remember(data, state.view) {
-        inboxTree(data.panes, data.archived, data.epics, data.details, data.contracts, data.host, state.view)
+        inboxTree(data.panes, data.archived, data.epics, data.details, data.contracts, data.host, state.view, data.designs)
     }
     val query = state.search.orEmpty()
     val counts = remember(projects) { countsOf(projects) }

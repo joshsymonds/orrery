@@ -1,6 +1,7 @@
 package io.github.joshsymonds.orrery.ui
 
 import io.github.joshsymonds.orrery.api.ContractRow
+import io.github.joshsymonds.orrery.api.DesignRow
 import io.github.joshsymonds.orrery.api.EpicDetail
 import io.github.joshsymonds.orrery.api.EpicRow
 import io.github.joshsymonds.orrery.api.Pane
@@ -45,6 +46,16 @@ internal fun epicRowWords(hung: Hung, now: Long): EpicRowWords = when (hung) {
     is EpicNode -> hung.contract?.takeIf { it.state == CONTRACT_PROPOSED }?.let { contractWords(it, now) }
         ?: epicWords(hung, now)
 }
+
+/** A design's name as its tab draws it: its title, or its id when the title is blank. */
+internal fun designNameOf(design: DesignRow): String = design.title.ifBlank { design.id }
+
+/** A design's count beside its tab: "1 contract", or "N contracts" for any other number. */
+internal fun designCountOf(design: DesignRow): String =
+    if (design.contracts.size == 1) "1 contract" else "${design.contracts.size} contracts"
+
+/** A design's first line in its well: "design · " and its state as served. */
+internal fun designStateLineOf(design: DesignRow): String = "design · ${design.state}"
 
 /** A conversation's second line at [now], in unix seconds; a stand-in row's words when it has no pane. */
 internal fun convoLineOf(convo: Convo, now: Long): String {
