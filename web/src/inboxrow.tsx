@@ -27,7 +27,8 @@ export interface RowMore {
 // InboxRow draws one row of the inbox list as round 6 draws it: its dot and state glyph, its title and age, its second
 // line, and its More. A click calls onOpen and a double-click calls onSeen, each unless the press landed on a link. cursor
 // is whether the row is the cursor's; open is whether its page is open, hover whether it is drawn hovered, and moving
-// whether a list answer moved it into this place, which marks it until the move's time has passed.
+// whether a list answer moved it into this place, which marks it until the move's time has passed. data-held is the held
+// mark a conversation's row carries when it holds what it opened, drawn as its attribute.
 export function InboxRow({
   row,
   now,
@@ -35,6 +36,7 @@ export function InboxRow({
   open = false,
   hover = false,
   moving = false,
+  "data-held": held,
   more,
   onOpen,
   onSeen,
@@ -45,6 +47,7 @@ export function InboxRow({
   open?: boolean;
   hover?: boolean;
   moving?: boolean;
+  "data-held"?: string;
   more: RowMore;
   onOpen: () => void;
   onSeen: () => void;
@@ -57,6 +60,7 @@ export function InboxRow({
       data-key={row.key}
       data-unseen={row.unseen ? "" : undefined}
       data-moving={moving ? "true" : undefined}
+      data-held={held}
       aria-current={open ? "page" : cursor ? "true" : undefined}
       onClick={(event) => {
         if (!isLinkClick(event)) {
