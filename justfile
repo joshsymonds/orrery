@@ -36,6 +36,13 @@ cover:
     dir=$(mktemp -d /tmp/orrery-tmux.XXXXXX)
     trap 'rm -rf "$dir"' EXIT
     rc=0
+    # The budget is a hang guard for the tests, and compiling every package under -race and coverage, which a cold build
+    # cache does, is no hang, so the test binaries are compiled before it starts, with the flags the run below uses, and
+    # the run then links from the build cache. -c takes only packages that have tests. The orrery and orreryd the tests
+    # build themselves (cmd/orreryd's TestMain, internal/integration) are compiled the same way.
+    mapfile -t pkgs < <(go list -f '{{"{{"}}if or .TestGoFiles .XTestGoFiles{{"}}"}}{{"{{"}}.ImportPath{{"}}"}}{{"{{"}}end{{"}}"}}' ./... | grep -v '^$')
+    go test -c -o "$dir/bin/" -race -covermode=atomic -coverpkg=./... "${pkgs[@]}"
+    go build -o "$dir/bin/" ./cmd/orrery ./cmd/orreryd
     # Each test binary runs with -test.timeout set to what is left until 10 s before the budget ends
     # (scripts/test-deadline.sh), so a package still running then panics listing its running tests, which go test
     # prints, instead of ending without a word when timeout kills go test. A failure at or past that deadline is the

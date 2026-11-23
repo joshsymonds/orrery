@@ -61,9 +61,14 @@
               "cmd/orrery"
               "cmd/orreryd"
             ];
-            # The store's SQLite driver builds the pre-update hook it records epic writes with only under this tag
-            # (internal/store/needs_preupdate_hook.go).
-            tags = [ "sqlite_preupdate_hook" ];
+            # The store's SQLite driver builds the pre-update hook it records epic writes with only under
+            # sqlite_preupdate_hook (internal/store/needs_preupdate_hook.go), and libsqlite3 links nixpkgs' SQLite, which
+            # is built with that hook, in place of the amalgamation the driver bundles.
+            tags = [
+              "sqlite_preupdate_hook"
+              "libsqlite3"
+            ];
+            buildInputs = [ pkgs.sqlite ];
             nativeBuildInputs = [ pkgs.esbuild ];
             nativeCheckInputs = [
               pkgs.git
@@ -78,7 +83,7 @@
             # The tests build orrery themselves (cmd/orreryd's TestMain), and that go build reads the tag from GOFLAGS.
             preCheck = ''
               export TMUX_TMPDIR="$TMPDIR"
-              export GOFLAGS="$GOFLAGS -tags=sqlite_preupdate_hook"
+              export GOFLAGS="$GOFLAGS -tags=sqlite_preupdate_hook,libsqlite3"
             '';
             # The default check covers only subPackages, so the webui tests run here against the embedded page.
             postCheck = ''

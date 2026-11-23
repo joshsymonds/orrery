@@ -10,7 +10,8 @@ import (
 
 // sqliteConnector opens connections to the database dsn names through mattn's SQLite driver, which calls the SQLite C
 // library through cgo. The pre-update hook the store records epic writes with needs the build tag
-// sqlite_preupdate_hook, which builds SQLite with SQLITE_ENABLE_PREUPDATE_HOOK.
+// sqlite_preupdate_hook. The tag libsqlite3 links the system's SQLite, which must be built with
+// SQLITE_ENABLE_PREUPDATE_HOOK, as nixpkgs' is, in place of the amalgamation the driver bundles.
 type sqliteConnector struct {
 	dsn    string
 	driver *sqlite3.SQLiteDriver
