@@ -10,12 +10,10 @@ import (
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
-// The epics of the wake tests. They share a repository, so a release slot one holds is the slot of the others.
+// The epics of the wake tests.
 const (
 	flowWakeA = "orrery-1a2b3c4/wake-a"
 	flowWakeB = "orrery-1a2b3c4/wake-b"
-	flowWakeC = "orrery-1a2b3c4/wake-c"
-	flowWakeH = "orrery-1a2b3c4/wake-holder"
 )
 
 // flowWakeClock is the runner's clock in the wake tests. The test sets it, and the runner reads it on Run's goroutine.
@@ -310,37 +308,6 @@ func TestFlowWakeNamedEpicPasses(t *testing.T) {
 	}
 	if got := rig.reads.flowWakeReads(flowWakeB) - readsB; got != 1 {
 		t.Errorf("reads of B's flow = %d, want 1", got)
-	}
-	if got := rig.passCount.Load(); got != 2 {
-		t.Errorf("passes = %d, want the start pass and one pass", got)
-	}
-}
-
-// TestFlowWakeFreedReleaseSlotWakesWaiter: C reads the release slot of its repository held by H, and waits on it. A
-// store write that frees H's slot wakes H, which wakes C with it, so C's flow is read again.
-func TestFlowWakeFreedReleaseSlotWakesWaiter(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	s := openRunStore(t)
-	flowWakeCreate(t, s, flowWakeH, store.PhaseClean)
-	flowWakeCreate(t, s, flowWakeC, runPhase)
-	holder, err := s.TakeReleaseSlot(ctx, flowWakeH, runClock())
-	if err != nil || holder != flowWakeH {
-		t.Fatalf("TakeReleaseSlot = %q, %v, want the slot held by %s", holder, err, flowWakeH)
-	}
-	rig := newFlowWakeRig(t, s)
-	rig.runner.Pass(ctx)
-	rig.start()
-	rig.awaitPass()
-	readsC := rig.reads.flowWakeReads(flowWakeC)
-
-	if err = s.FreeReleaseSlot(ctx, flowWakeH); err != nil {
-		t.Fatalf("FreeReleaseSlot: %v", err)
-	}
-	rig.awaitPass()
-	rig.stop()
-	if got := rig.reads.flowWakeReads(flowWakeC) - readsC; got != 1 {
-		t.Errorf("reads of C's flow = %d, want 1", got)
 	}
 	if got := rig.passCount.Load(); got != 2 {
 		t.Errorf("passes = %d, want the start pass and one pass", got)

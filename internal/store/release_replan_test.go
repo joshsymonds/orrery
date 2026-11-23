@@ -83,7 +83,7 @@ func sameReleaseRun(a, b store.ReleaseRun) bool {
 
 // TestRetryOfReleaseStoppedByIntegratorEndsTheStop: retry on a release its integrator stopped with a blocked round stores
 // a replan of the round, turns the release node run running at the same attempt, ends the park and leaves the epic
-// stopped for the release kind to replan; the release slot stays as it was.
+// stopped for the release kind to replan.
 func TestRetryOfReleaseStoppedByIntegratorEndsTheStop(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -98,9 +98,6 @@ func TestRetryOfReleaseStoppedByIntegratorEndsTheStop(t *testing.T) {
 	if flow.Epic.Parked != "" || flow.Epic.ParkClass != "" || flow.Epic.Phase != store.PhaseStopped {
 		t.Errorf("epic parked %q class %q phase %q, want unparked and still stopped",
 			flow.Epic.Parked, flow.Epic.ParkClass, flow.Epic.Phase)
-	}
-	if flow.Slot != resumeEpic {
-		t.Errorf("slot = %q, want %s still holding it", flow.Slot, resumeEpic)
 	}
 	i := slices.IndexFunc(flow.Runs, func(run store.NodeRun) bool { return run.Path == "release" })
 	if i < 0 || flow.Runs[i].State != store.NodeRunning || flow.Runs[i].Attempt != 1 || flow.Runs[i].Output != "" {
@@ -146,15 +143,15 @@ func TestRetryOfOtherStoppedReleaseIsRefused(t *testing.T) {
 	}
 }
 
-// TestReplanReleaseThenResume: ReplanRelease moves a releasing epic to correcting, frees its slot, starts the plan run,
-// and adds the trigger and the tell, once; ResumeReplannedRelease then moves the release run to its next attempt with its
-// result cleared and the epic to clean, once. A replan of a run at another attempt changes nothing.
+// TestReplanReleaseThenResume: ReplanRelease moves a releasing epic to correcting, starts the plan run, and adds the
+// trigger and the tell, once; ResumeReplannedRelease then moves the release run to its next attempt with its result
+// cleared and the epic to clean, once. A replan of a run at another attempt changes nothing.
 func TestReplanReleaseThenResume(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	s, _ := openReleaseStore(t, resumeEpicIn(resumeEpic, store.PhaseClean))
-	if _, err := s.TakeReleaseSlot(ctx, resumeEpic, resumeAt()); err != nil {
-		t.Fatalf("TakeReleaseSlot: %v", err)
+	if err := s.StartRelease(ctx, resumeEpic, resumeAt()); err != nil {
+		t.Fatalf("StartRelease: %v", err)
 	}
 	release := store.NodeRun{Path: "release", ID: "id-resume", Node: "release", Kind: "release", Attempt: 1}
 	if err := s.StartNodes(ctx, resumeEpic, []store.NodeRun{release}, nil, releaseRunAt()); err != nil {
@@ -178,10 +175,9 @@ func TestReplanReleaseThenResume(t *testing.T) {
 	if err != nil {
 		t.Fatalf("EpicFlow: %v", err)
 	}
-	if flow.Epic.Phase != "correcting" || flow.Slot != "" || flow.Pending != 2 {
-		t.Errorf("epic phase %q slot %q pending %d, want correcting, the slot free, and the replan's trigger pending "+
-			"beside the created one",
-			flow.Epic.Phase, flow.Slot, flow.Pending)
+	if flow.Epic.Phase != "correcting" || flow.Pending != 2 {
+		t.Errorf("epic phase %q pending %d, want correcting, and the replan's trigger pending beside the created one",
+			flow.Epic.Phase, flow.Pending)
 	}
 	i := slices.IndexFunc(flow.Runs, func(run store.NodeRun) bool { return run.Path == plan.Path })
 	if i < 0 || flow.Runs[i].State != store.NodeRunning || flow.Runs[i].Mark != 3 || flow.Runs[i].Kind != "plan" {

@@ -55,10 +55,9 @@ func recordReplan(ctx context.Context, queries *sqlcgen.Queries, epic string, ro
 
 // ReplanRelease sends the release of epic back to planning, in one write, for the replan release run of the running
 // release node run at path and attempt. It moves epic from releasing, or from stopped when a retry ended the stop, to
-// correcting, frees the release slot epic holds, starts plan, the plan run that plans and integrates the change to the
-// candidate, adds trigger, which wakes the planner with the integrator's report, and adds tell, cut to TurnReasonMax
-// bytes. An epic in another phase, or whose release node run is not running at attempt, changes nothing, so a repeat is a
-// no-op.
+// correcting, starts plan, the plan run that plans and integrates the change to the candidate, adds trigger, which wakes
+// the planner with the integrator's report, and adds tell, cut to TurnReasonMax bytes. An epic in another phase, or
+// whose release node run is not running at attempt, changes nothing, so a repeat is a no-op.
 func (s *Store) ReplanRelease(
 	ctx context.Context, epic, path string, attempt int64, plan NodeRun, trigger NodeTrigger, tell string,
 	at time.Time,
@@ -74,9 +73,6 @@ func (s *Store) ReplanRelease(
 		}
 		if moved == 0 {
 			return nil
-		}
-		if freeErr := queries.FreeEpicReleaseSlot(ctx, epic); freeErr != nil {
-			return fmt.Errorf("free release slot of epic %s: %w", epic, freeErr)
 		}
 		if startErr := insertNodeRuns(ctx, queries, epic, []NodeRun{plan}, at); startErr != nil {
 			return startErr
@@ -103,8 +99,7 @@ func runningAt(ctx context.Context, queries *sqlcgen.Queries, epic, path string,
 // ResumeReplannedRelease resumes the release of epic once its replan has ended, in one write. The running release node
 // run at path and attempt moves to its next attempt with its outcome, output, revision, refs, refs checked, result and
 // end cleared, so it prepares its candidate again from the epic's branch tip, and epic moves from correcting to clean, so
-// the release takes its repository's release slot again. A release node run that is not running at attempt changes
-// nothing, so a repeat is a no-op.
+// the release starts again. A release node run that is not running at attempt changes nothing, so a repeat is a no-op.
 func (s *Store) ResumeReplannedRelease(ctx context.Context, epic, path string, attempt int64, at time.Time) error {
 	return s.write(ctx, func(queries *sqlcgen.Queries) error {
 		moved, err := queries.NextEpicNodeRunAttempt(ctx, sqlcgen.NextEpicNodeRunAttemptParams{

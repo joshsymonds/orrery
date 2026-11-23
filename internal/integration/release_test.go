@@ -2,10 +2,7 @@ package integration_test
 
 import (
 	"database/sql"
-	"errors"
 	"fmt"
-	"math"
-	"net/url"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -16,7 +13,6 @@ import (
 	"github.com/joshsymonds/orrery/internal/build"
 	v1 "github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1"
 	"github.com/joshsymonds/orrery/internal/store"
-	"github.com/joshsymonds/orrery/internal/store/sqlcgen"
 	"github.com/joshsymonds/orrery/internal/storetest"
 	"github.com/joshsymonds/orrery/internal/waittest"
 )
@@ -145,32 +141,6 @@ func freezeReviewRow(t *testing.T, path, id, revision string) {
 	}
 }
 
-// releaseSlotHeld reports whether a row holds the release slot of repository in the store file at path. The Epics service
-// no longer reports the slot, so the test reads the store file as nodeRuns does: through a read-only handle that is
-// closed at once, with the largest busy timeout SQLite takes, so a read waits out any lock orreryd holds.
-func releaseSlotHeld(t *testing.T, path, repository string) bool {
-	t.Helper()
-	query := url.Values{}
-	query.Set("mode", "ro")
-	query.Add("_pragma", fmt.Sprintf("busy_timeout(%d)", math.MaxInt32))
-	dsn := (&url.URL{Scheme: "file", Path: path, RawQuery: query.Encode()}).String()
-	db, err := sql.Open("sqlite", dsn)
-	if err != nil {
-		t.Fatalf("open store read-only: %v", err)
-	}
-	_, readErr := sqlcgen.New(db).GetEpicReleaseSlotHolder(t.Context(), repository)
-	if closeErr := db.Close(); closeErr != nil {
-		t.Fatalf("close store read-only: %v", closeErr)
-	}
-	if errors.Is(readErr, sql.ErrNoRows) {
-		return false
-	}
-	if readErr != nil {
-		t.Fatalf("read release slot of %s: %v", repository, readErr)
-	}
-	return true
-}
-
 // releaseEpic returns the rig's epic as the Epics service reports it, with its release runs and its tells.
 func (r *buildRig) releaseEpic(t *testing.T) *v1.StoredEpic {
 	t.Helper()
@@ -208,8 +178,7 @@ func passReleaseUntil(t *testing.T, daemon *orreryProcess, ack, what string, don
 
 // TestReleaseRunsStepsThroughRealOrreryd proves that orreryd runs a clean epic's release through real steps. Its release
 // step is an unowned writing step in a worktree under the state directory. The store holds the step's end and its one
-// commit before the judge starts, the judge's end is done, and the epic then ends released with one tell and frees its
-// slot.
+// commit before the judge starts, the judge's end is done, and the epic then ends released with one tell.
 func TestReleaseRunsStepsThroughRealOrreryd(t *testing.T) {
 	r := newReleaseRig(t)
 	seedReleaseEpic(t, r, store.EpicReleaseStep{Step: releaseStepText, Target: "main", Undo: "none"})
@@ -277,10 +246,9 @@ func TestReleaseRunsStepsThroughRealOrreryd(t *testing.T) {
 		t.Fatalf("judge run %+v, want ended done and passed", judged)
 	}
 
-	// orreryd's Ending is the store's EndEpic: the passed judge ends the epic released with one tell that names no gap,
-	// and the next pass frees the slot it held.
-	passReleaseUntil(t, daemon, ack, "the released epic to free its slot", func() bool {
-		return !releaseSlotHeld(t, r.f.dbPath, r.repo)
+	// orreryd's Ending is the store's EndEpic: the passed judge ends the epic released with one tell that names no gap.
+	passReleaseUntil(t, daemon, ack, "the judge's ending to release the epic", func() bool {
+		return r.releaseEpic(t).GetPhase() == releasedPhase
 	})
 	released := r.releaseEpic(t)
 	if released.GetPhase() != releasedPhase {

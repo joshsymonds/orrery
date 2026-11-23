@@ -9,8 +9,7 @@ import (
 )
 
 // Wake records that the epics named by epics changed, so the next pass Run makes passes them. Any goroutine may call it,
-// it never blocks, and it takes only the runner's own mutex. Each epic a Wake names also wakes the epics waiting on its
-// release slot (wakeLocked).
+// it never blocks, and it takes only the runner's own mutex.
 func (r *Runner) Wake(epics []string) {
 	r.mu.Lock()
 	r.wakeLocked(epics)
@@ -21,15 +20,10 @@ func (r *Runner) Wake(epics []string) {
 	}
 }
 
-// wakeLocked adds each of epics to the woken set, with the epics that waited on its release slot, which are forgotten
-// here: a waiter that still waits records itself again on its next pass. The caller holds r.mu.
+// wakeLocked adds each of epics to the woken set. The caller holds r.mu.
 func (r *Runner) wakeLocked(epics []string) {
 	for _, epic := range epics {
 		r.woken[epic] = struct{}{}
-		for waiter := range r.waiters[epic] {
-			r.woken[waiter] = struct{}{}
-		}
-		delete(r.waiters, epic)
 	}
 }
 
@@ -42,18 +36,11 @@ func (r *Runner) takeWoken() []string {
 	return epics
 }
 
-// noteRead records the wakes a read of epic at now, which read holds, leaves: when the repository's release slot is held
-// by another epic, epic waits on that holder, and the moment its origin read goes stale is its deadline, replacing any
-// earlier one, or none when that moment has come already.
+// noteRead records the deadline a read of epic at now, which read holds, leaves: the moment its origin read goes stale,
+// replacing any earlier one, or none when that moment has come already.
 func (r *Runner) noteRead(epic string, read store.EpicFlow, now time.Time) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if holder := read.Slot; holder != "" && holder != epic {
-		if r.waiters[holder] == nil {
-			r.waiters[holder] = make(map[string]struct{})
-		}
-		r.waiters[holder][epic] = struct{}{}
-	}
 	if moment := read.Epic.OriginRead.At.Add(syncInterval); moment.After(now) {
 		r.deadlines[epic] = moment
 	} else {
@@ -75,7 +62,7 @@ func (r *Runner) nextDeadline() (time.Time, bool) {
 	return next, found
 }
 
-// wakeDue wakes each epic whose deadline now has reached, with the epics waiting on it, and forgets the deadline.
+// wakeDue wakes each epic whose deadline now has reached, and forgets the deadline.
 func (r *Runner) wakeDue(now time.Time) {
 	r.mu.Lock()
 	defer r.mu.Unlock()

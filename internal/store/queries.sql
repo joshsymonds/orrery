@@ -744,16 +744,6 @@ ON CONFLICT (epic, part, position, attempt) DO NOTHING;
 -- name: ListEpicReleaseRuns :many
 SELECT * FROM epic_release_runs WHERE epic = ? ORDER BY attempt, part, position;
 
--- name: InsertEpicReleaseSlot :exec
-INSERT INTO epic_release_slots (repository, epic, holder_kind) VALUES (?, ?, 'epic')
-ON CONFLICT (repository) DO NOTHING;
-
--- name: GetEpicReleaseSlotHolder :one
-SELECT * FROM epic_release_slots WHERE repository = ?;
-
--- name: FreeEpicReleaseSlot :exec
-DELETE FROM epic_release_slots WHERE epic = ? AND holder_kind = 'epic';
-
 -- name: StartEpicRelease :exec
 UPDATE epics SET phase = 'releasing', phase_at = ? WHERE id = ? AND phase = 'clean';
 

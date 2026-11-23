@@ -11,7 +11,7 @@ import (
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
-// Release is the release kind. Its run takes the repository's release slot or waits for it, prepares and gates the
+// Release is the release kind. Its run begins the release of a clean epic at once, prepares and gates the
 // release candidate, has the release integrator finish a merge of origin's commit that conflicts, sends the release back
 // to planning when the integrator stopped on a change to the candidate, starts the plan that replans it for an owner's
 // correction and resumes it once that plan has ended, has its release reviewers hold the candidate before the first
@@ -21,14 +21,13 @@ type Release struct{}
 
 // The actions a release run takes beyond the ones every kind shares.
 const (
-	ActTake       ActionKind = "take"
+	ActBegin      ActionKind = "begin"
 	ActIntegrator ActionKind = "integrator"
 	ActStep       ActionKind = "step"
 	ActJudge      ActionKind = "judge"
 	ActRecord     ActionKind = "record"
 	ActStop       ActionKind = "stop"
 	ActEnding     ActionKind = "ending"
-	ActFree       ActionKind = "free"
 	ActReplan     ActionKind = "replan"
 	ActResume     ActionKind = "resume"
 )
@@ -64,11 +63,11 @@ type ReleaseResult struct {
 	Conflicts []string `json:"conflicts,omitempty"`
 }
 
-// Decide decides a release run from its epic, the release slot and the epic's release runs. A released or done epic
-// frees the slot it holds and otherwise ends passed, a clean epic ends done or takes the slot, a releasing epic goes on
-// with its candidate, its release steps and its judge, a stopped epic whose run a retry turned running is sent back to
-// planning (replanAction), a correcting epic starts its release's replan plan when none has started and resumes the
-// release once that plan has ended (resumeAction), and any other phase gives none (Idle).
+// Decide decides a release run from its epic and the epic's release runs. A released or done epic ends passed, a clean
+// epic ends done or begins its release, a releasing epic goes on with its candidate, its release steps and its judge, a
+// stopped epic whose run a retry turned running is sent back to planning (replanAction), a correcting epic starts its
+// release's replan plan when none has started and resumes the release once that plan has ended (resumeAction), and any
+// other phase gives none (Idle).
 func (Release) Decide(node Node, rows Rows) Action {
 	decide, ok := releaseDecision(rows.Epic.Phase)
 	if !ok {
@@ -89,7 +88,7 @@ func (Release) Idle(phase string) bool {
 func releaseDecision(phase string) (func(store.NodeRun, Rows) Action, bool) {
 	switch phase {
 	case phaseReleased, phaseDone:
-		return func(_ store.NodeRun, rows Rows) Action { return releaseEnded(rows) }, true
+		return releaseEnded, true
 	case store.PhaseClean:
 		return func(_ store.NodeRun, rows Rows) Action { return releaseClean(rows) }, true
 	case store.PhaseReleasing:
@@ -133,11 +132,8 @@ func resumeAction(run store.NodeRun, rows Rows) Action {
 	}
 }
 
-// releaseEnded frees the release slot an epic that is released or done holds, and ends it passed otherwise.
-func releaseEnded(rows Rows) Action {
-	if holdsSlot(rows) {
-		return Action{Kind: ActFree}
-	}
+// releaseEnded ends a released or done epic's release passed.
+func releaseEnded(store.NodeRun, Rows) Action {
 	return Action{Kind: ActEnd, Outcome: outcomePassed}
 }
 
@@ -149,21 +145,12 @@ func endingAction(outcome string, rows Rows) Action {
 	}
 }
 
-// releaseClean ends a clean epic with no release steps done, gives none while another epic holds the release slot, and
-// takes the slot otherwise.
+// releaseClean ends a clean epic with no release steps done, and otherwise begins its release at once.
 func releaseClean(rows Rows) Action {
 	if len(rows.Epic.ReleaseSteps) == 0 {
 		return endingAction(outcomeDone, rows)
 	}
-	if rows.Slot != "" && !holdsSlot(rows) {
-		return Action{Kind: ActNone}
-	}
-	return Action{Kind: ActTake}
-}
-
-// holdsSlot reports whether the epic holds the release slot of its repository.
-func holdsSlot(rows Rows) bool {
-	return rows.Slot == rows.Epic.ID
+	return Action{Kind: ActBegin}
 }
 
 // ownerStopped reports whether the owner stopped the release at attempt: a stop release run of that attempt is stored.

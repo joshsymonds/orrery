@@ -11,12 +11,8 @@ import (
 
 var _ Kind = Release{}
 
-// releaseEpicID is the id of the epic the release tests decide, which holds the repository's release slot in the
-// tests that say so, and releaseOtherEpicID the epic that holds it in the tests where another epic does.
-const (
-	releaseEpicID      = "epic-1"
-	releaseOtherEpicID = "epic-2"
-)
+// releaseEpicID is the id of the epic the release tests decide.
+const releaseEpicID = "epic-1"
 
 // releaseFrozen returns the review of a clean release epic: it froze and holds no verdict, ledger or round, so it names
 // no gap.
@@ -77,50 +73,28 @@ func doneCheck(attempt int64, i int, passed bool) store.NodeCheck {
 	return check
 }
 
-// TestReleasePhases checks the decisions that come before any release run: a released or done epic frees the slot or
-// ends, a clean epic ends done with no steps or takes the slot, and any other phase but releasing gives none.
+// TestReleasePhases checks the decisions that come before any release run: a released or done epic ends passed, a clean
+// epic ends done with no steps or begins its release, and any other phase but releasing gives none.
 func TestReleasePhases(t *testing.T) {
 	t.Parallel()
 	steps := []store.EpicReleaseStep{releaseStep("tag the release", "none")}
 	cases := []decideCase{
 		{
-			"released epic holding the slot frees it",
-			releaseNode(1, "", ""),
-			Rows{Epic: store.EpicRow{ID: releaseEpicID, Phase: phaseReleased}, Slot: releaseEpicID},
-			Action{Kind: ActFree},
-		},
-		{
-			"done epic holding the slot frees it",
-			releaseNode(1, "", ""),
-			Rows{Epic: store.EpicRow{ID: releaseEpicID, Phase: phaseDone}, Slot: releaseEpicID},
-			Action{Kind: ActFree},
-		},
-		{
-			"released epic whose slot is free ends passed",
+			"released epic ends passed",
 			releaseNode(1, "", ""),
 			Rows{Epic: store.EpicRow{ID: releaseEpicID, Phase: phaseReleased}},
 			Action{Kind: ActEnd, Outcome: outcomePassed},
 		},
 		{
-			"done epic whose slot another epic holds ends passed",
+			"done epic ends passed",
 			releaseNode(1, "", ""),
-			Rows{Epic: store.EpicRow{ID: releaseEpicID, Phase: phaseDone}, Slot: releaseOtherEpicID},
+			Rows{Epic: store.EpicRow{ID: releaseEpicID, Phase: phaseDone}},
 			Action{Kind: ActEnd, Outcome: outcomePassed},
 		},
 		{
 			"clean epic with no release steps ends done with no gaps",
 			releaseNode(1, "", ""),
 			Rows{Epic: store.EpicRow{ID: releaseEpicID, Phase: store.PhaseClean}, Review: releaseFrozen()},
-			Action{Kind: ActEnding, Outcome: outcomeDone, Output: EndingBody(phaseDone, nil, nil)},
-		},
-		{
-			"clean epic with no release steps ends done whoever holds the slot",
-			releaseNode(1, "", ""),
-			Rows{
-				Epic:   store.EpicRow{ID: releaseEpicID, Phase: store.PhaseClean},
-				Slot:   releaseOtherEpicID,
-				Review: releaseFrozen(),
-			},
 			Action{Kind: ActEnding, Outcome: outcomeDone, Output: EndingBody(phaseDone, nil, nil)},
 		},
 		{
@@ -138,36 +112,15 @@ func TestReleasePhases(t *testing.T) {
 			},
 		},
 		{
-			"clean epic whose slot another epic holds gives none",
-			releaseNode(1, "", ""),
-			Rows{
-				Epic: store.EpicRow{ID: releaseEpicID, Phase: store.PhaseClean, ReleaseSteps: steps},
-				Slot: releaseOtherEpicID,
-			},
-			Action{Kind: ActNone},
-		},
-		{
-			"clean epic with the slot free takes it",
+			"clean epic with release steps begins its release at once",
 			releaseNode(1, "", ""),
 			Rows{Epic: store.EpicRow{ID: releaseEpicID, Phase: store.PhaseClean, ReleaseSteps: steps}},
-			Action{Kind: ActTake},
-		},
-		{
-			"clean epic that holds the slot takes it",
-			releaseNode(1, "", ""),
-			Rows{
-				Epic: store.EpicRow{ID: releaseEpicID, Phase: store.PhaseClean, ReleaseSteps: steps},
-				Slot: releaseEpicID,
-			},
-			Action{Kind: ActTake},
+			Action{Kind: ActBegin},
 		},
 		{
 			"stopped epic gives none",
 			releaseNode(1, "", ""),
-			Rows{
-				Epic: store.EpicRow{ID: releaseEpicID, Phase: store.PhaseStopped, ReleaseSteps: steps},
-				Slot: releaseEpicID,
-			},
+			Rows{Epic: store.EpicRow{ID: releaseEpicID, Phase: store.PhaseStopped, ReleaseSteps: steps}},
 			Action{Kind: ActNone},
 		},
 		{
@@ -182,8 +135,8 @@ func TestReleasePhases(t *testing.T) {
 
 // TestReleaseIdlePhases checks the phases a release run waits in: Idle holds for the phases Decide gives no action in
 // whatever the rows, ended_with_gaps and met_at_base among them, and for no phase Decide acts in. Each idle phase is
-// decided over rows that would act in every other phase: the slot held, release steps, a replan of the run's attempt and
-// an ended replan plan.
+// decided over rows that would act in every other phase: release steps, a replan of the run's attempt and an ended
+// replan plan.
 func TestReleaseIdlePhases(t *testing.T) {
 	t.Parallel()
 	steps := []store.EpicReleaseStep{releaseStep("tag the release", "none")}
@@ -191,7 +144,6 @@ func TestReleaseIdlePhases(t *testing.T) {
 	busy := func(phase string) Rows {
 		return Rows{
 			Epic: store.EpicRow{ID: releaseEpicID, Phase: phase, ReleaseSteps: steps},
-			Slot: releaseEpicID,
 			Releases: []store.ReleaseRun{
 				{Part: store.ReleasePartReplan, Attempt: run.Run.Attempt, Reason: "the candidate needs a change"},
 			},
@@ -237,7 +189,6 @@ func TestReleaseCandidate(t *testing.T) {
 			releaseNode(2, "", ""),
 			Rows{
 				Epic:     releasingEpic(steps...),
-				Slot:     releaseEpicID,
 				Releases: []store.ReleaseRun{candidateRun(1, "cand-1")},
 			},
 			Action{Kind: ActStep, IDs: []string{attemptWorkID(2, "release 1")}, Items: []string{"release 1", "cand-1"}},
@@ -422,7 +373,7 @@ func TestReleaseSteps(t *testing.T) {
 		{
 			"first step with no row starts from the candidate head",
 			releaseNode(1, "", ""),
-			Rows{Epic: releasingEpic(steps...), Slot: releaseEpicID, Releases: []store.ReleaseRun{candidate}},
+			Rows{Epic: releasingEpic(steps...), Releases: []store.ReleaseRun{candidate}},
 			Action{Kind: ActStep, IDs: []string{attemptWorkID(1, "release 1")}, Items: []string{"release 1", "cand-1"}},
 		},
 		{
@@ -430,7 +381,6 @@ func TestReleaseSteps(t *testing.T) {
 			releaseNode(1, "", ""),
 			Rows{
 				Epic: releasingEpic(steps...),
-				Slot: releaseEpicID,
 				Releases: []store.ReleaseRun{
 					candidate,
 					store.ReleaseRun{
@@ -449,7 +399,6 @@ func TestReleaseSteps(t *testing.T) {
 			releaseNode(2, "", ""),
 			Rows{
 				Epic: releasingEpic(steps...),
-				Slot: releaseEpicID,
 				Releases: []store.ReleaseRun{
 					candidate,
 					store.ReleaseRun{
@@ -468,7 +417,6 @@ func TestReleaseSteps(t *testing.T) {
 			releaseNode(1, "", ""),
 			Rows{
 				Epic:     releasingEpic(steps...),
-				Slot:     releaseEpicID,
 				Releases: []store.ReleaseRun{candidate, failedFirst},
 			},
 			Action{Kind: ActStop, Output: "release step 1 (build the image) failed: push rejected"},
@@ -478,7 +426,6 @@ func TestReleaseSteps(t *testing.T) {
 			releaseNode(1, "", ""),
 			Rows{
 				Epic: releasingEpic(steps...),
-				Slot: releaseEpicID,
 				Releases: []store.ReleaseRun{
 					candidate,
 					store.ReleaseRun{
@@ -498,7 +445,6 @@ func TestReleaseSteps(t *testing.T) {
 			releaseNode(1, "", ""),
 			Rows{
 				Epic:     releasingEpic(steps...),
-				Slot:     releaseEpicID,
 				Releases: []store.ReleaseRun{candidate},
 				Steps:    []store.StepRow{{ID: attemptWorkID(1, "release 1")}},
 			},
@@ -509,7 +455,6 @@ func TestReleaseSteps(t *testing.T) {
 			releaseNode(1, "", ""),
 			Rows{
 				Epic:     releasingEpic(steps...),
-				Slot:     releaseEpicID,
 				Releases: []store.ReleaseRun{candidate},
 				Steps:    []store.StepRow{{ID: attemptWorkID(1, "release 1"), End: "done"}},
 			},
@@ -529,12 +474,6 @@ func TestReleaseSteps(t *testing.T) {
 			},
 		},
 		{
-			"step with no row starts while another epic holds the slot",
-			releaseNode(1, "", ""),
-			Rows{Epic: releasingEpic(steps...), Slot: releaseOtherEpicID, Releases: []store.ReleaseRun{candidate}},
-			Action{Kind: ActStep, IDs: []string{attemptWorkID(1, "release 1")}, Items: []string{"release 1", "cand-1"}},
-		},
-		{
 			"owner stop of an earlier attempt does not stop the step",
 			releaseNode(2, "", ""),
 			Rows{Epic: releasingEpic(steps...), Releases: []store.ReleaseRun{candidate, ownerStop}},
@@ -545,7 +484,6 @@ func TestReleaseSteps(t *testing.T) {
 			releaseNode(1, "", ""),
 			Rows{
 				Epic:     releasingEpicPaused(releasingEpic(steps...)),
-				Slot:     releaseEpicID,
 				Releases: []store.ReleaseRun{candidate},
 			},
 			Action{Kind: ActNone},
@@ -555,7 +493,6 @@ func TestReleaseSteps(t *testing.T) {
 			releaseNode(2, "", ""),
 			Rows{
 				Epic:     releasingEpic(undoNone...),
-				Slot:     releaseEpicID,
 				Releases: []store.ReleaseRun{candidate, failedFirst},
 			},
 			Action{Kind: ActStop, Output: undoNoneStop},
@@ -565,7 +502,6 @@ func TestReleaseSteps(t *testing.T) {
 			releaseNode(2, "", ""),
 			Rows{
 				Epic:     releasingEpic(releaseStep("build the image", "  NONE ")),
-				Slot:     releaseEpicID,
 				Releases: []store.ReleaseRun{candidate, failedFirst},
 			},
 			Action{Kind: ActStop, Output: undoNoneStop},
@@ -575,7 +511,6 @@ func TestReleaseSteps(t *testing.T) {
 			releaseNode(2, "", ""),
 			Rows{
 				Epic: releasingEpic(undoNone...),
-				Slot: releaseEpicID,
 				Releases: []store.ReleaseRun{
 					candidate,
 					failedFirst,
@@ -589,7 +524,6 @@ func TestReleaseSteps(t *testing.T) {
 			releaseNode(2, "", ""),
 			Rows{
 				Epic: releasingEpic(undoNone...),
-				Slot: releaseEpicID,
 				Releases: []store.ReleaseRun{
 					candidate,
 					failedFirst,
@@ -601,7 +535,7 @@ func TestReleaseSteps(t *testing.T) {
 		{
 			"undo none with no earlier failure starts",
 			releaseNode(1, "", ""),
-			Rows{Epic: releasingEpic(undoNone...), Slot: releaseEpicID, Releases: []store.ReleaseRun{candidate}},
+			Rows{Epic: releasingEpic(undoNone...), Releases: []store.ReleaseRun{candidate}},
 			Action{Kind: ActStep, IDs: []string{attemptWorkID(1, "release 1")}, Items: []string{"release 1", "cand-1"}},
 		},
 		{
@@ -609,7 +543,6 @@ func TestReleaseSteps(t *testing.T) {
 			releaseNode(2, "", ""),
 			Rows{
 				Epic:     releasingEpic(steps...),
-				Slot:     releaseEpicID,
 				Releases: []store.ReleaseRun{candidate, failedFirst},
 			},
 			Action{Kind: ActStep, IDs: []string{attemptWorkID(2, "release 1")}, Items: []string{"release 1", "cand-1"}},
@@ -619,7 +552,6 @@ func TestReleaseSteps(t *testing.T) {
 			releaseNode(1, "", ""),
 			Rows{
 				Epic:     releasingEpic(steps...),
-				Slot:     releaseEpicID,
 				Releases: []store.ReleaseRun{candidate},
 				Steps:    []store.StepRow{{ID: attemptWorkID(2, "release 1"), End: "done"}},
 			},
@@ -640,13 +572,13 @@ func TestReleaseJudge(t *testing.T) {
 		{
 			"judge after the last step starts with the candidate",
 			releaseNode(1, "", ""),
-			Rows{Epic: epic, Slot: releaseEpicID, Releases: []store.ReleaseRun{candidate, passedStep}},
+			Rows{Epic: epic, Releases: []store.ReleaseRun{candidate, passedStep}},
 			Action{Kind: ActJudge, IDs: []string{attemptWorkID(1, "judge")}, Items: []string{"judge", "cand-1"}},
 		},
 		{
 			"release with no steps judges the candidate",
 			releaseNode(1, "", ""),
-			Rows{Epic: releasingEpic(), Slot: releaseEpicID, Releases: []store.ReleaseRun{candidate}},
+			Rows{Epic: releasingEpic(), Releases: []store.ReleaseRun{candidate}},
 			Action{Kind: ActJudge, IDs: []string{attemptWorkID(1, "judge")}, Items: []string{"judge", "cand-1"}},
 		},
 		{
@@ -654,7 +586,6 @@ func TestReleaseJudge(t *testing.T) {
 			releaseNode(1, "", ""),
 			Rows{
 				Epic:     epic,
-				Slot:     releaseEpicID,
 				Releases: []store.ReleaseRun{candidate, passedStep, judgeRun(true, "")},
 				Review:   releaseFrozen(),
 			},
@@ -665,7 +596,6 @@ func TestReleaseJudge(t *testing.T) {
 			releaseNode(1, "", ""),
 			Rows{
 				Epic:     epic,
-				Slot:     releaseEpicID,
 				Releases: []store.ReleaseRun{candidate, passedStep, judgeRun(true, "")},
 				Review:   releaseGapped(),
 			},
@@ -684,7 +614,6 @@ func TestReleaseJudge(t *testing.T) {
 			releaseNode(1, "", ""),
 			Rows{
 				Epic:     epic,
-				Slot:     releaseEpicID,
 				Releases: []store.ReleaseRun{candidate, passedStep, judgeRun(false, "the tag is missing")},
 			},
 			Action{Kind: ActStop, Output: "the tag is missing"},
@@ -694,7 +623,6 @@ func TestReleaseJudge(t *testing.T) {
 			releaseNode(2, "", ""),
 			Rows{
 				Epic:     epic,
-				Slot:     releaseEpicID,
 				Releases: []store.ReleaseRun{candidate, passedStep, judgeRun(true, "")},
 			},
 			Action{Kind: ActJudge, IDs: []string{attemptWorkID(2, "judge")}, Items: []string{"judge", "cand-1"}},
@@ -716,7 +644,6 @@ func TestReleaseJudge(t *testing.T) {
 			releaseNode(1, "", ""),
 			Rows{
 				Epic:     releasingEpicPaused(epic),
-				Slot:     releaseEpicID,
 				Releases: []store.ReleaseRun{candidate, passedStep},
 			},
 			Action{Kind: ActNone},
@@ -726,7 +653,6 @@ func TestReleaseJudge(t *testing.T) {
 			releaseNode(1, "", ""),
 			Rows{
 				Epic:     epic,
-				Slot:     releaseEpicID,
 				Releases: []store.ReleaseRun{candidate, passedStep},
 				Steps:    []store.StepRow{{ID: attemptWorkID(1, "judge")}},
 			},
@@ -737,7 +663,6 @@ func TestReleaseJudge(t *testing.T) {
 			releaseNode(1, "", ""),
 			Rows{
 				Epic:     epic,
-				Slot:     releaseEpicID,
 				Releases: []store.ReleaseRun{candidate, passedStep},
 				Steps:    []store.StepRow{{ID: attemptWorkID(1, "judge"), End: "done"}},
 			},
@@ -791,7 +716,7 @@ func TestReleaseReviewerGatesTheFirstStep(t *testing.T) {
 		{
 			"candidate with an enabled release reviewer and no row starts the reviewer at the candidate",
 			releaseNode(1, "", ""),
-			Rows{Epic: releaseReviewed(true, steps...), Slot: releaseEpicID, Releases: []store.ReleaseRun{candidate}},
+			Rows{Epic: releaseReviewed(true, steps...), Releases: []store.ReleaseRun{candidate}},
 			Action{Kind: ActStep, IDs: []string{review}, Items: reviewItems},
 		},
 		{
@@ -799,7 +724,6 @@ func TestReleaseReviewerGatesTheFirstStep(t *testing.T) {
 			releaseNode(1, "", ""),
 			Rows{
 				Epic:     releaseReviewed(true, steps...),
-				Slot:     releaseEpicID,
 				Releases: []store.ReleaseRun{candidate},
 				Steps:    []store.StepRow{{ID: review}},
 			},
@@ -810,7 +734,6 @@ func TestReleaseReviewerGatesTheFirstStep(t *testing.T) {
 			releaseNode(1, "", ""),
 			Rows{
 				Epic:     releaseReviewed(true, steps...),
-				Slot:     releaseEpicID,
 				Releases: []store.ReleaseRun{candidate},
 				Steps:    []store.StepRow{{ID: review, End: "gate_failed"}},
 			},
@@ -821,7 +744,6 @@ func TestReleaseReviewerGatesTheFirstStep(t *testing.T) {
 			releaseNode(1, "", ""),
 			Rows{
 				Epic:     releaseReviewed(true, steps...),
-				Slot:     releaseEpicID,
 				Releases: []store.ReleaseRun{candidate, releaseReviewRun(true, "")},
 			},
 			firstStep,
@@ -831,7 +753,6 @@ func TestReleaseReviewerGatesTheFirstStep(t *testing.T) {
 			releaseNode(1, "", ""),
 			Rows{
 				Epic:     releaseReviewed(true, steps...),
-				Slot:     releaseEpicID,
 				Releases: []store.ReleaseRun{candidate, releaseReviewRun(false, refusal)},
 			},
 			Action{Kind: ActStop, Output: refusal},
@@ -841,7 +762,6 @@ func TestReleaseReviewerGatesTheFirstStep(t *testing.T) {
 			releaseNode(2, "", ""),
 			Rows{
 				Epic:     releaseReviewed(true, steps...),
-				Slot:     releaseEpicID,
 				Releases: []store.ReleaseRun{candidate, releaseReviewRun(true, "")},
 			},
 			Action{
@@ -855,7 +775,6 @@ func TestReleaseReviewerGatesTheFirstStep(t *testing.T) {
 			releaseNode(1, "", ""),
 			Rows{
 				Epic: releaseReviewed(true, steps...),
-				Slot: releaseEpicID,
 				Releases: []store.ReleaseRun{
 					candidateRun(1, "cand-1"),
 					{Part: store.ReleasePartVerify, Attempt: 1, Head: "cand-1"},
@@ -874,7 +793,6 @@ func TestReleaseReviewerGatesTheFirstStep(t *testing.T) {
 			releaseNode(1, "", ""),
 			Rows{
 				Epic:     releasingEpicPaused(releaseReviewed(true, steps...)),
-				Slot:     releaseEpicID,
 				Releases: []store.ReleaseRun{candidate},
 			},
 			Action{Kind: ActNone},
@@ -882,7 +800,7 @@ func TestReleaseReviewerGatesTheFirstStep(t *testing.T) {
 		{
 			"first step starts ungated when the release reviewer is disabled",
 			releaseNode(1, "", ""),
-			Rows{Epic: releaseReviewed(false, steps...), Slot: releaseEpicID, Releases: []store.ReleaseRun{candidate}},
+			Rows{Epic: releaseReviewed(false, steps...), Releases: []store.ReleaseRun{candidate}},
 			firstStep,
 		},
 		{
@@ -891,7 +809,6 @@ func TestReleaseReviewerGatesTheFirstStep(t *testing.T) {
 			Rows{
 				Epic: releaseReviewed(true,
 					releaseStep("build the image", "rollback"), releaseStep("push the tag", "rollback")),
-				Slot: releaseEpicID,
 				Releases: []store.ReleaseRun{
 					candidate,
 					releaseReviewRun(true, ""),

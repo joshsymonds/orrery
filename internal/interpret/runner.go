@@ -71,8 +71,7 @@ type Store interface {
 	PrepareNode(ctx context.Context, epic, path string, attempt int64, revision, refs string) error
 	RecordNodeResult(ctx context.Context, epic, path string, attempt int64, result string) error
 	CheckNodeRefs(ctx context.Context, epic, path string, attempt int64, tells []string, at time.Time) error
-	TakeReleaseSlot(ctx context.Context, epic string, at time.Time) (string, error)
-	FreeReleaseSlot(ctx context.Context, epic string) error
+	StartRelease(ctx context.Context, epic string, at time.Time) error
 	StopRelease(ctx context.Context, epic, path string, attempt int64, reason string, at time.Time) error
 	ReplanRelease(
 		ctx context.Context, epic, path string, attempt int64, plan store.NodeRun, trigger store.NodeTrigger,
@@ -187,8 +186,8 @@ type Config struct {
 // origin's main, syncFetchLimit unless a test sets it.
 //
 // The fields from signal down are the wakes Run passes on: mu guards them, and Wake, which any goroutine may call, sets
-// them under mu only. signal is a one-slot channel Wake fills, woken the epics to pass next, waiters the epics that
-// waited on each holder of a release slot, and deadlines the moment each epic's origin read goes stale.
+// them under mu only. signal is a one-slot channel Wake fills, woken the epics to pass next, and deadlines the moment
+// each epic's origin read goes stale.
 type Runner struct {
 	store      Store
 	planner    Planner
@@ -212,7 +211,6 @@ type Runner struct {
 	mu        sync.Mutex
 	signal    chan struct{}
 	woken     map[string]struct{}
-	waiters   map[string]map[string]struct{}
 	deadlines map[string]time.Time
 }
 
@@ -238,7 +236,6 @@ func New(cfg Config) *Runner {
 		},
 		signal:    make(chan struct{}, 1),
 		woken:     make(map[string]struct{}),
-		waiters:   make(map[string]map[string]struct{}),
 		deadlines: make(map[string]time.Time),
 	}
 	if cfg.Reviewers != nil && cfg.Ending != nil {
@@ -475,7 +472,7 @@ func awaitsDependencies(tasks []store.EpicTask) bool {
 func flowRows(read store.EpicFlow) kinds.Rows {
 	return kinds.Rows{
 		Epic: read.Epic, Runs: read.Runs, Checks: read.Checks, Evidence: read.Evidence, Steps: read.Steps,
-		Pending: read.Pending, Actions: read.Actions, Releases: read.Releases, Slot: read.Slot, Review: read.Review,
+		Pending: read.Pending, Actions: read.Actions, Releases: read.Releases, Review: read.Review,
 		GapTurns: read.GapTurns, Unresolvable: read.Unresolvable, Reruns: read.Reruns, Rounds: read.Rounds,
 	}
 }

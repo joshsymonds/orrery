@@ -28,7 +28,6 @@ func TestReleaseRepreparesCandidateOriginMainIsNotIn(t *testing.T) {
 			releaseNode(2, "", ""),
 			Rows{
 				Epic:     releasingEpic(steps...),
-				Slot:     releaseEpicID,
 				Releases: []store.ReleaseRun{candidateRun(1, "cand-1"), staleRun(2, "cand-1")},
 			},
 			Action{Kind: ActPrepare},
@@ -38,7 +37,6 @@ func TestReleaseRepreparesCandidateOriginMainIsNotIn(t *testing.T) {
 			releaseNode(2, "", ""),
 			Rows{
 				Epic:     releasingEpicPaused(releasingEpic(steps...)),
-				Slot:     releaseEpicID,
 				Releases: []store.ReleaseRun{candidateRun(1, "cand-1"), staleRun(2, "cand-1")},
 			},
 			Action{Kind: ActNone},
@@ -48,7 +46,6 @@ func TestReleaseRepreparesCandidateOriginMainIsNotIn(t *testing.T) {
 			releaseNode(2, "cand-2", `{"behind":false}`),
 			Rows{
 				Epic: releasingEpic(steps...),
-				Slot: releaseEpicID,
 				Releases: []store.ReleaseRun{
 					candidateRun(1, "cand-1"),
 					staleRun(2, "cand-1"),
@@ -62,7 +59,6 @@ func TestReleaseRepreparesCandidateOriginMainIsNotIn(t *testing.T) {
 			releaseNode(3, "", ""),
 			Rows{
 				Epic: releasingEpic(steps...),
-				Slot: releaseEpicID,
 				Releases: []store.ReleaseRun{
 					candidateRun(1, "cand-1"),
 					candidateRun(2, "cand-2"),
@@ -76,7 +72,6 @@ func TestReleaseRepreparesCandidateOriginMainIsNotIn(t *testing.T) {
 			releaseNode(2, "", ""),
 			Rows{
 				Epic:     releasingEpic(steps...),
-				Slot:     releaseEpicID,
 				Releases: []store.ReleaseRun{candidateRun(2, "cand-1"), staleRun(2, "cand-1")},
 			},
 			Action{Kind: ActPrepare},
@@ -86,7 +81,6 @@ func TestReleaseRepreparesCandidateOriginMainIsNotIn(t *testing.T) {
 			releaseNode(2, "", ""),
 			Rows{
 				Epic:     releasingEpic(steps...),
-				Slot:     releaseEpicID,
 				Releases: []store.ReleaseRun{candidateRun(2, "cand-1")},
 			},
 			Action{Kind: ActStep, IDs: []string{attemptWorkID(2, "release 1")}, Items: []string{"release 1", "cand-1"}},
@@ -96,7 +90,6 @@ func TestReleaseRepreparesCandidateOriginMainIsNotIn(t *testing.T) {
 			releaseNode(2, "", ""),
 			Rows{
 				Epic:     releasingEpic(steps...),
-				Slot:     releaseEpicID,
 				Releases: []store.ReleaseRun{candidateRun(1, "cand-1"), staleRun(1, "cand-1")},
 			},
 			Action{Kind: ActStep, IDs: []string{attemptWorkID(2, "release 1")}, Items: []string{"release 1", "cand-1"}},
@@ -106,7 +99,6 @@ func TestReleaseRepreparesCandidateOriginMainIsNotIn(t *testing.T) {
 			releaseNode(2, "", ""),
 			Rows{
 				Epic:     releasingEpic(steps...),
-				Slot:     releaseEpicID,
 				Releases: []store.ReleaseRun{candidateRun(1, "cand-1"), staleRun(2, "cand-0")},
 			},
 			Action{Kind: ActStep, IDs: []string{attemptWorkID(2, "release 1")}, Items: []string{"release 1", "cand-1"}},

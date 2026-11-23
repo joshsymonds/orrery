@@ -401,8 +401,8 @@ func (p pass) running(def workflow.Node, run store.NodeRun, at scope) []Action {
 	case kinds.ActEnd:
 		return p.end(def, run, act, at)
 	case kinds.ActPrepare, kinds.ActStart, kinds.ActCapture, kinds.ActRepro, kinds.ActRefs, kinds.ActAdvance,
-		kinds.ActTake, kinds.ActIntegrator, kinds.ActStep, kinds.ActJudge, kinds.ActRecord, kinds.ActStop,
-		kinds.ActEnding, kinds.ActFree, kinds.ActResume, kinds.ActTaskIntegrator:
+		kinds.ActBegin, kinds.ActIntegrator, kinds.ActStep, kinds.ActJudge, kinds.ActRecord, kinds.ActStop,
+		kinds.ActEnding, kinds.ActResume, kinds.ActTaskIntegrator:
 		return []Action{p.work(def, run, act)}
 	case kinds.ActReplan:
 		return []Action{p.replan(def, run, act)}
@@ -545,14 +545,15 @@ func syncTell(path, outcome, output string) string {
 
 // quiet reports whether the epic is at a quiet point of the plan run of def: the plan's body holds an integrate node, a
 // batch under the plan run has passed and moved the stored base, the epic has not ended and is not closed
-// (kinds.Ended), it is neither paused nor parked, whatever the class of its park, its review has not frozen, it does
-// not hold its repository's release slot, and its work is at rest (kinds.Busy), which no pending planner action leaves
-// it. The review compares revisions against a frozen one, so no sync runs once it froze.
+// (kinds.Ended), it is neither paused nor parked, whatever the class of its park, its review has not frozen, it is
+// neither releasing nor stopped, and its work is at rest (kinds.Busy), which no pending planner action leaves it. The
+// review compares revisions against a frozen one, so no sync runs once it froze.
 func (p pass) quiet(def workflow.Node, run store.NodeRun) bool {
 	epic := p.rows.Epic
 	switch {
 	case !slices.ContainsFunc(def.Body, func(node workflow.Node) bool { return node.Kind == kindIntegrate }),
-		kinds.Ended(epic.Phase), epic.Paused, epic.Parked != "", p.rows.Review.Frozen != "", p.rows.Slot == epic.ID,
+		kinds.Ended(epic.Phase), epic.Paused, epic.Parked != "", p.rows.Review.Frozen != "",
+		epic.Phase == store.PhaseReleasing, epic.Phase == store.PhaseStopped,
 		kinds.Busy(p.rows) != "":
 		return false
 	}
