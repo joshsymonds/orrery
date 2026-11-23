@@ -97,8 +97,7 @@ func TestDesignHeldEpicRetryArmsOneTimer(t *testing.T) {
 	run.stop()
 
 	if n := origin.calls.Load(); n != 1 {
-		t.Errorf("origin main calls over the start pass and 10 passes = %d, want 1: a held epic with a retry pending is "+
-			"not fetched again", n)
+		t.Errorf("origin main calls = %d, want 1: a held epic with a retry pending is not fetched", n)
 	}
 	durations, funcs := timers.snapshot()
 	if len(funcs) != 1 {
