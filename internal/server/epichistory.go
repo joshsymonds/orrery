@@ -103,11 +103,10 @@ func historyEntryOf(key historyKey, entry *orreryv1.EpicHistoryEntry) historyEnt
 }
 
 // History answers one page of an epic's history, oldest first: the turns, triggers, decisions, tells and actions that
-// orreryd's epic holds, the epic's labeled steps and its evidence runs. An epic the store holds is asked with its history and its
-// runs are listed; a record-only epic holds its labeled steps alone. The page holds the entries strictly after the
+// orreryd's epic holds, the epic's labeled steps and its evidence runs. The page holds the entries strictly after the
 // request's cursor, at most 50 for a limit of 0 and at most 200. Its next cursor is the last entry's, and empty when no
-// entry follows. A cursor that does not parse answers invalid_argument. An id that neither the store nor the record root
-// lists answers not_found, and the id is never joined into a path.
+// entry follows. A cursor that does not parse answers invalid_argument. An id the store does not hold answers not_found,
+// and the id is never joined into a path.
 func (e epicsServer) History(
 	ctx context.Context,
 	req *connect.Request[orreryv1.EpicsHistoryRequest],
@@ -125,11 +124,7 @@ func (e epicsServer) History(
 	if err != nil {
 		return nil, err
 	}
-	_, found, err := findEpic(e.root, id, e.heads)
-	if err != nil {
-		return nil, listError(connect.CodeInternal, epicsFailed)
-	}
-	if !inStore && !found {
+	if !inStore {
 		return nil, listError(connect.CodeNotFound, epicNotFound)
 	}
 	listed, err := e.listSteps(ctx, &enginev1.ListStepsRequest{Epic: id})
@@ -137,12 +132,9 @@ func (e epicsServer) History(
 		return nil, err
 	}
 	labeled := epicStepMessages(stepsByEpic(listed.GetSteps())[id])
-	var entries []historyEntry
-	if inStore {
-		runs := e.listEvidence(ctx, id)
-		applyStoredRoles(labeled, storedStepRoles(stored, runs))
-		entries = append(storedHistoryEntries(stored), runHistoryEntries(runs)...)
-	}
+	runs := e.listEvidence(ctx, id)
+	applyStoredRoles(labeled, storedStepRoles(stored, runs))
+	entries := append(storedHistoryEntries(stored), runHistoryEntries(runs)...)
 	entries = append(entries, stepHistoryEntries(labeled)...)
 	sort.Slice(entries, func(i, j int) bool { return entries[i].key.before(entries[j].key) })
 	page, next := historyPage(entries, after, req.Msg.GetLimit())
@@ -151,8 +143,8 @@ func (e epicsServer) History(
 
 // getStoredHistory asks the epic store for the epic of id with its history, which is what getStored asks without. It
 // reports false, with no error, when there is no store or the store answers not_found or unimplemented, so that the
-// record answers. An unavailable answer is retried as listSteps retries it. Any other failure answers unavailable. Each
-// attempt runs under the timeout.
+// epic is not found. An unavailable answer is retried as listSteps retries it. Any other failure answers unavailable.
+// Each attempt runs under the timeout.
 func (e epicsServer) getStoredHistory(ctx context.Context, id string) (*enginev1.StoredEpic, bool, error) {
 	if e.store == nil {
 		return nil, false, nil

@@ -635,20 +635,14 @@ func runServe(ctx context.Context, opts globals, args []string, getenv func(stri
 	// on every return below, so a serve that fails before it listens closes it too, and its error joins the result.
 	defer func() { err = errors.Join(err, sessions.Close()) }()
 	cfg := serveSessionConfig(opts, getenv)
-	// Without a HOME the record root stays empty: os.DirFS refuses an empty root, so Epics fails its reads rather than
-	// reading the working directory's .gambit.
-	var records string
 	home := getenv("HOME")
-	if home != "" {
-		records = filepath.Join(home, ".gambit")
-	}
 	metrics, handlerOptions, err := serveMetrics(*metricsListen)
 	if err != nil {
 		return err
 	}
 	shutdown := make(chan struct{})
 	cfg.HandlerOptions, cfg.Logins, cfg.Tmux, cfg.Push, cfg.HostStatus = handlerOptions, logins, tmux, pushStore, hostStatus
-	cfg.Sessions, cfg.Shutdown, cfg.Records, cfg.Home = sessions, shutdown, records, home
+	cfg.Sessions, cfg.Shutdown, cfg.Home = sessions, shutdown, home
 	cfg.Picker = servePickerConfig(tmux, getenv)
 	cfg.ReportSeen = seenReporter(opts.daemonSocket, getenv)
 	cfg.ReportRead = readReporter(opts.daemonSocket, getenv)

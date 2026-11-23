@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
-	"path/filepath"
 	"sync"
 	"testing"
 	"time"
@@ -194,7 +193,7 @@ func TestEpicsHistoryAnswersEveryKindOldestFirst(t *testing.T) {
 	t.Parallel()
 	stored, steps, runs := historyFixture()
 	store := &epicStoreFake{stored: []*enginev1.StoredEpic{stored}}
-	client := stepDataServe(t, t.TempDir(), &epicsFake{steps: steps}, store, &evidenceRunsFake{runs: runs})
+	client := stepDataServe(t, &epicsFake{steps: steps}, store, &evidenceRunsFake{runs: runs})
 
 	got := epicsHistory(t, client, "repoa/shared", "", 0)
 	requireHistoryEntries(t, got.GetEntries(), historyFixtureWant())
@@ -207,7 +206,7 @@ func TestEpicsHistoryPagesWalkEveryEntryOnce(t *testing.T) {
 	t.Parallel()
 	stored, steps, runs := historyFixture()
 	store := &epicStoreFake{stored: []*enginev1.StoredEpic{stored}}
-	client := stepDataServe(t, t.TempDir(), &epicsFake{steps: steps}, store, &evidenceRunsFake{runs: runs})
+	client := stepDataServe(t, &epicsFake{steps: steps}, store, &evidenceRunsFake{runs: runs})
 	want := historyFixtureWant()
 
 	var entries []*orreryv1.EpicHistoryEntry
@@ -236,17 +235,18 @@ func TestEpicsHistoryPagesWalkEveryEntryOnce(t *testing.T) {
 
 func TestEpicsHistoryLimitDefaultsAndCaps(t *testing.T) {
 	t.Parallel()
-	root := t.TempDir()
-	writeHead(t, root, "repoa", "shared", `{"outcome":"shipped"}`, epicsNow())
 	steps := make([]*enginev1.Step, 0, 260)
 	for i := range 260 {
 		steps = append(steps, &enginev1.Step{
-			Id: fmt.Sprintf("step-%03d", i), Epic: "repoa/shared", ReadOnly: true, Started: historyAt(int64(i)),
+			Id: fmt.Sprintf("step-%03d", i), Epic: "repoa/limit", ReadOnly: true, Started: historyAt(int64(i)),
 		})
 	}
-	client := stepDataServe(t, root, &epicsFake{steps: steps}, nil, nil)
+	store := &epicStoreFake{stored: []*enginev1.StoredEpic{
+		storedEpicOf("repoa/limit", "accepted", epicsAgo(time.Hour)),
+	}}
+	client := stepDataServe(t, &epicsFake{steps: steps}, store, nil)
 
-	first := epicsHistory(t, client, "repoa/shared", "", 0)
+	first := epicsHistory(t, client, "repoa/limit", "", 0)
 	if n := len(first.GetEntries()); n != 50 {
 		t.Fatalf("limit 0 entries = %d, want 50", n)
 	}
@@ -257,7 +257,7 @@ func TestEpicsHistoryLimitDefaultsAndCaps(t *testing.T) {
 		t.Fatalf("limit 0 next is empty, want a cursor: 210 entries follow")
 	}
 
-	second := epicsHistory(t, client, "repoa/shared", first.GetNext(), 500)
+	second := epicsHistory(t, client, "repoa/limit", first.GetNext(), 500)
 	if n := len(second.GetEntries()); n != 200 {
 		t.Fatalf("limit 500 entries = %d, want the cap of 200", n)
 	}
@@ -273,7 +273,7 @@ func TestEpicsHistoryAsksGetEpicWithHistory(t *testing.T) {
 	t.Parallel()
 	stored, steps, runs := historyFixture()
 	store := &historyStoreFake{epicStoreFake: &epicStoreFake{stored: []*enginev1.StoredEpic{stored}}}
-	client := stepDataServe(t, t.TempDir(), &epicsFake{steps: steps}, store, &evidenceRunsFake{runs: runs})
+	client := stepDataServe(t, &epicsFake{steps: steps}, store, &evidenceRunsFake{runs: runs})
 
 	epicsHistory(t, client, "repoa/shared", "", 0)
 	asked := store.requests()
@@ -282,45 +282,13 @@ func TestEpicsHistoryAsksGetEpicWithHistory(t *testing.T) {
 	}
 }
 
-func TestEpicsHistoryRecordOnlyEpicAnswersItsSteps(t *testing.T) {
-	t.Parallel()
-	root := t.TempDir()
-	writeHead(t, root, "repoa", "record", `{"outcome":"shipped"}`, epicsNow())
-	store := &epicStoreFake{stored: []*enginev1.StoredEpic{
-		storedEpicOf("repoa/elsewhere", "accepted", epicsAgo(time.Hour)),
-	}}
-	steps := &epicsFake{steps: []*enginev1.Step{
-		{Id: "rec-b", Epic: "repoa/record", End: "done", Started: historyAt(120), Ended: historyAt(180)},
-		{Id: "rec-a", Epic: "repoa/record", Started: historyAt(60)},
-		{Id: "elsewhere", Epic: "repoa/elsewhere", Started: historyAt(90)},
-		{Id: "unlabelled", Started: historyAt(90)},
-	}}
-	client := stepDataServe(t, root, steps, store, nil)
-
-	got := epicsHistory(t, client, "repoa/record", "", 0)
-	requireHistoryEntries(t, got.GetEntries(), []historyWant{
-		{historyAt(60), &orreryv1.EpicStep{Id: "rec-a", Role: "implementer", Started: historyAt(60)}},
-		{historyAt(120), &orreryv1.EpicStep{
-			Id: "rec-b", Role: "implementer", End: "done", Started: historyAt(120), Ended: historyAt(180),
-		}},
-	})
-	if got.GetNext() != "" {
-		t.Errorf("next = %q, want empty for two steps", got.GetNext())
-	}
-}
-
 func TestEpicsHistoryUnknownIDAnswersNotFound(t *testing.T) {
 	t.Parallel()
-	parent := t.TempDir()
-	root := filepath.Join(parent, "records")
-	writeHead(t, root, "repo", "epic", `{"outcome":"shipped"}`, epicsNow())
-	// A head outside the record root that "../x" would reach if the id were joined into a path.
-	writeHead(t, root, "..", "x", `{"outcome":"shipped"}`, epicsNow())
 	steps := &epicsFake{steps: []*enginev1.Step{{Id: "missing", Epic: "repo/missing", Started: historyAt(0)}}}
 	store := &epicStoreFake{
 		stored: []*enginev1.StoredEpic{storedEpicOf("repoa/shared", "accepted", epicsAgo(time.Hour))},
 	}
-	client := stepDataServe(t, root, steps, store, nil)
+	client := stepDataServe(t, steps, store, nil)
 
 	for _, id := range []string{"repo/missing", "../x", ""} {
 		_, err := client.History(context.Background(), connect.NewRequest(&orreryv1.EpicsHistoryRequest{Id: id}))
@@ -330,9 +298,7 @@ func TestEpicsHistoryUnknownIDAnswersNotFound(t *testing.T) {
 
 func TestEpicsHistoryBadCursorAnswersInvalidArgument(t *testing.T) {
 	t.Parallel()
-	root := t.TempDir()
-	writeHead(t, root, "repo", "epic", `{"outcome":"shipped"}`, epicsNow())
-	client := stepDataServe(t, root, &epicsFake{}, nil, nil)
+	client := stepDataServe(t, &epicsFake{}, nil, nil)
 	cases := []struct {
 		name   string
 		cursor string

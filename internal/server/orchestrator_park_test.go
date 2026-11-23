@@ -44,7 +44,7 @@ func TestEpicsGetOrchestratorParkGivesNeedsYouNoQuestionAndThePlannerMarkForAPla
 			if err := st.ParkEpic(t.Context(), syntheticEpicID, tt.class, tt.reason, at); err != nil {
 				t.Fatalf("ParkEpic: %v", err)
 			}
-			client := epicStoreServe(t, t.TempDir(), &epicsFake{}, serveEngineEpics(t, st))
+			client := epicStoreServe(t, &epicsFake{}, serveEngineEpics(t, st))
 
 			got := epicsGet(t, client, syntheticEpicID)
 			if got.GetPlannerParked() != tt.wantPlanner {
