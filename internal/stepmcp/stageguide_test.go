@@ -9,32 +9,10 @@ import (
 	"github.com/joshsymonds/orrery/internal/contracttext"
 )
 
-// stageToolNames are the contract stage's nine tools: the ones the instructions name, each of which tools/list lists.
-var stageToolNames = []string{
-	"design_guide", "design_research", "design_reproduce", "design_stage", "design_ask", "design_answer",
-	"design_steelman", "design_dispose", "contract_draft",
-}
-
 // stagePassage is one passage of the contract stage's rules, with the phrases that show the passage is stated.
 type stagePassage struct {
 	name    string
 	phrases []string
-}
-
-// stageGuideSections are the contract's sections in the order contracttext.Render lays them out, each named by its
-// heading in the guide.
-var stageGuideSections = []string{
-	"The title and its Approved line.",
-	"What you asked for.",
-	"What could go wrong, and how much we care",
-	"Things you did not ask for",
-	"What will be true when done",
-	"What I'm assuming",
-	"What we won't do",
-	"How, and why not the other ways",
-	"What leaves this machine or can't be undone",
-	"Decisions I need from you",
-	"Checks the machines run",
 }
 
 // listedToolNames returns the names tools/list lists on p. It fails the test when the reply is an error.
@@ -68,6 +46,12 @@ func TestStageGuideInstructionsNameTheStageAndItsTools(t *testing.T) {
 		t.Fatalf("NewServer: %v", err)
 	}
 	p, _ := servePipes(t, server)
+
+	// stageToolNames are the contract stage's nine tools: the ones the instructions name, each of which tools/list lists.
+	stageToolNames := []string{
+		"design_guide", "design_research", "design_reproduce", "design_stage", "design_ask", "design_answer",
+		"design_steelman", "design_dispose", "contract_draft",
+	}
 
 	reply := p.call("initialize", map[string]any{
 		"protocolVersion": "2025-11-25",
@@ -156,6 +140,22 @@ func TestStageGuideDesignGuideStatesTheRules(t *testing.T) {
 
 	if !strings.Contains(guide, contracttext.QualityBar) {
 		t.Errorf("design_guide does not carry the Quality Bar verbatim")
+	}
+
+	// stageGuideSections are the contract's sections in the order contracttext.Render lays them out, each named by its
+	// heading in the guide.
+	stageGuideSections := []string{
+		"The title and its Approved line.",
+		"What you asked for.",
+		"What could go wrong, and how much we care",
+		"Things you did not ask for",
+		"What will be true when done",
+		"What I'm assuming",
+		"What we won't do",
+		"How, and why not the other ways",
+		"What leaves this machine or can't be undone",
+		"Decisions I need from you",
+		"Checks the machines run",
 	}
 
 	last := -1
