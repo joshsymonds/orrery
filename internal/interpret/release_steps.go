@@ -168,6 +168,8 @@ func releaseStepPrompt(step store.EpicReleaseStep, start, then string) string {
 		"added on top of %s, and an empty list when you added none. Return commit as the full id of HEAD. "+
 		"Return evidence showing the effect of the step: what changed and where it can be seen. If you cannot "+
 		"carry out the step, return status blocked with evidence of why.\n\n"+
+		"A refused push returns blocked: if a push this step makes is refused, the step returns status blocked with "+
+		"the refusal as evidence, and it never merges, rebases or forces to get past the refusal.\n\n"+
 		"A judge then decides whether the release met its postconditions from the evidence its steps return and "+
 		"read-only checks of its own. So the evidence this step returns should show each postcondition this step "+
 		"affects, with the output that proves it, such as the command this step ran and that command's output.",
