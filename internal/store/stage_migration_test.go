@@ -51,7 +51,8 @@ func TestStageSchema(t *testing.T) {
 		if err != nil {
 			t.Fatalf("read staged of the contract proposed after 00106: %v", err)
 		}
-		t.Logf("contract stored before 00106 reads staged %d; contract proposed after it reads staged %d", before, after)
+		t.Logf("contract stored before 00106 reads staged %d; contract proposed after it reads staged %d",
+			before, after)
 		if before != 0 {
 			t.Fatalf("staged of the contract stored before 00106 = %d, want 0", before)
 		}
@@ -164,7 +165,8 @@ func TestStageSchema(t *testing.T) {
 		if err != nil {
 			t.Fatalf("read question: %v", err)
 		}
-		if got.Answer != "sqlite" || got.Accepted != 1 || got.Maker != StageMakerOwnerServe || got.Answered != 1700000700 {
+		if got.Answer != "sqlite" || got.Accepted != 1 || got.Maker != StageMakerOwnerServe ||
+			got.Answered != 1700000700 {
 			t.Fatalf("question after answer = %+v, want answer sqlite, accepted, owner_serve, answered 1700000700", got)
 		}
 		listed, err := q.ListDesignQuestions(ctx, "design-one")
@@ -206,8 +208,14 @@ func TestStageSchema(t *testing.T) {
 		ctx := t.Context()
 		q := stageStoreUp(t).fixtureQueries()
 		if err := q.InsertDesignClosureSkip(ctx, sqlcgen.InsertDesignClosureSkipParams{
-			Design: "design-one", Reason: "Nothing to close", Maker: StageMakerOwnerConversation, Quote: "skip the closure",
-			MakerReason: "no evidence", Delegation: "", Session: "claude-writer", At: 1700000900,
+			Design:      "design-one",
+			Reason:      "Nothing to close",
+			Maker:       StageMakerOwnerConversation,
+			Quote:       "skip the closure",
+			MakerReason: "no evidence",
+			Delegation:  "",
+			Session:     "claude-writer",
+			At:          1700000900,
 		}); err != nil {
 			t.Fatalf("insert closure skip: %v", err)
 		}
