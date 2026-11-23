@@ -2,6 +2,7 @@ import { equals } from "@bufbuild/protobuf";
 
 import type { createClients } from "./client";
 import type { Contract } from "./gen/orrery/v1/contracts_pb";
+import type { Design } from "./gen/orrery/v1/designs_pb";
 import { type Epic, EpicSchema, type EpicsGetResponse } from "./gen/orrery/v1/epics_pb";
 
 // The fixed message shown when Epics.List fails. It never carries server text.
@@ -19,6 +20,7 @@ interface EpicsLoad {
   details: Map<string, EpicsGetResponse>;
   held: ReadonlyMap<string, HeldEpic>;
   contracts: Contract[];
+  designs: Design[];
   error: string;
 }
 
@@ -48,7 +50,7 @@ export async function loadEpics(
   ]);
   const listedContracts = contractsAnswer.status === "fulfilled" ? contractsAnswer.value.contracts : [...contracts];
   if (epicsAnswer.status === "rejected") {
-    return { epics: [], details: new Map(), held, contracts: listedContracts, error: epicsUnavailable };
+    return { epics: [], details: new Map(), held, contracts: listedContracts, designs: [], error: epicsUnavailable };
   }
   const { epics } = epicsAnswer.value;
 
@@ -73,7 +75,7 @@ export async function loadEpics(
       details.set(epic.id, entry.detail);
     }
   }
-  return { epics, details, held: next, contracts: listedContracts, error: "" };
+  return { epics, details, held: next, contracts: listedContracts, designs: [], error: "" };
 }
 
 // unchanged reports whether a live epic holds a detail fetched against a listed message equal to listed.

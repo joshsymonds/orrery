@@ -1,4 +1,5 @@
 import type { Contract } from "./gen/orrery/v1/contracts_pb";
+import type { Design } from "./gen/orrery/v1/designs_pb";
 import type { Epic, EpicsGetResponse } from "./gen/orrery/v1/epics_pb";
 import { blockOf, type EpicBlock, repositoryName } from "./epics";
 import { epicNeeds } from "./needs";
@@ -10,6 +11,9 @@ export interface EpicNode { kind: "epic"; key: string /* `epic:${id}` */; block:
 // ContractItem is a contract hung under its conversation: proposed, or accepted while no listed epic has its id.
 export interface ContractItem { kind: "contract"; key: string /* `contract:${id}` */; contract: Contract }
 export type Hung = EpicNode | ContractItem;
+// DesignNode is a design hung under its conversation, keyed `design:${id}`. hung is the design's children in its
+// contracts' position order, and they are the same Hung objects the conversation's hung holds.
+export interface DesignNode { kind: "design"; key: string /* `design:${id}` */; design: Design; hung: Hung[] }
 
 export interface Convo {
   key: string;        // row.key; a thing with no drawn conversation is its own row, keyed by the thing's key
@@ -18,6 +22,9 @@ export interface Convo {
                       // behind the ended line: its ended epics
   folded: Hung[];     // in the tree: its ended epics, newest first, drawn under its row only while its fold is open;
                       // behind the ended line: none
+  // designs: the designs hung under this conversation. Absent reads as none. convo.hung still holds every thing: things in
+  // no design first, then each design's children in design order.
+  designs?: DesignNode[];
 }
 
 export interface Project {
@@ -36,6 +43,7 @@ export interface TreeInput {
   epics: readonly Epic[];                         // Epics.List, archived ones included
   details: ReadonlyMap<string, EpicsGetResponse>; // Epics.Get answers by id
   contracts: readonly Contract[];                 // Contracts.List
+  designs?: readonly Design[];                    // the designs; absent reads as none
   host: string;                                   // the serving host, "" when unknown
   view: View;
 }
