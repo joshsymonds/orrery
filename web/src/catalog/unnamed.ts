@@ -30,6 +30,9 @@ export const unnamed: Readonly<Record<string, UnnamedEntry>> = {
   // AccountAdd draws the Add account form under the accounts table, which round 6 does not draw. The inbox page stands for
   // it, as it does for AccountsPage.
   "account-add": { replacement: "inbox-home", epic: "F2" },
+  // RouteContexts draws the contexts section of the accounts and routes page, which round 6 does not draw. The inbox page
+  // stands for it, as it does for AccountsPage.
+  "route-contexts": { replacement: "inbox-home", epic: "F2" },
 
   // ---- single stories of round-6 components, each the component in a state round 6 does not draw ----
 
