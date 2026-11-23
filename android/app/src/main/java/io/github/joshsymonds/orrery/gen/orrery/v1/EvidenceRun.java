@@ -236,7 +236,7 @@ public  final class EvidenceRun extends
   private java.lang.String state_;
   /**
    * <pre>
-   * The run's state: capturing, judging or ended.
+   * The run's state: capturing, waiting, gathering, judging or ended.
    * </pre>
    *
    * <code>string state = 4 [json_name = "state"];</code>
@@ -248,7 +248,7 @@ public  final class EvidenceRun extends
   }
   /**
    * <pre>
-   * The run's state: capturing, judging or ended.
+   * The run's state: capturing, waiting, gathering, judging or ended.
    * </pre>
    *
    * <code>string state = 4 [json_name = "state"];</code>
@@ -261,7 +261,7 @@ public  final class EvidenceRun extends
   }
   /**
    * <pre>
-   * The run's state: capturing, judging or ended.
+   * The run's state: capturing, waiting, gathering, judging or ended.
    * </pre>
    *
    * <code>string state = 4 [json_name = "state"];</code>
@@ -275,7 +275,7 @@ public  final class EvidenceRun extends
   }
   /**
    * <pre>
-   * The run's state: capturing, judging or ended.
+   * The run's state: capturing, waiting, gathering, judging or ended.
    * </pre>
    *
    * <code>string state = 4 [json_name = "state"];</code>
@@ -286,7 +286,7 @@ public  final class EvidenceRun extends
   }
   /**
    * <pre>
-   * The run's state: capturing, judging or ended.
+   * The run's state: capturing, waiting, gathering, judging or ended.
    * </pre>
    *
    * <code>string state = 4 [json_name = "state"];</code>
@@ -1354,7 +1354,7 @@ public  final class EvidenceRun extends
 
     /**
      * <pre>
-     * The run's state: capturing, judging or ended.
+     * The run's state: capturing, waiting, gathering, judging or ended.
      * </pre>
      *
      * <code>string state = 4 [json_name = "state"];</code>
@@ -1366,7 +1366,7 @@ public  final class EvidenceRun extends
     }
     /**
      * <pre>
-     * The run's state: capturing, judging or ended.
+     * The run's state: capturing, waiting, gathering, judging or ended.
      * </pre>
      *
      * <code>string state = 4 [json_name = "state"];</code>
@@ -1379,7 +1379,7 @@ public  final class EvidenceRun extends
     }
     /**
      * <pre>
-     * The run's state: capturing, judging or ended.
+     * The run's state: capturing, waiting, gathering, judging or ended.
      * </pre>
      *
      * <code>string state = 4 [json_name = "state"];</code>
@@ -1394,7 +1394,7 @@ public  final class EvidenceRun extends
     }
     /**
      * <pre>
-     * The run's state: capturing, judging or ended.
+     * The run's state: capturing, waiting, gathering, judging or ended.
      * </pre>
      *
      * <code>string state = 4 [json_name = "state"];</code>
@@ -1407,7 +1407,7 @@ public  final class EvidenceRun extends
     }
     /**
      * <pre>
-     * The run's state: capturing, judging or ended.
+     * The run's state: capturing, waiting, gathering, judging or ended.
      * </pre>
      *
      * <code>string state = 4 [json_name = "state"];</code>

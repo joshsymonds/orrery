@@ -72,7 +72,7 @@ public interface EvidenceRunOrBuilder extends
 
   /**
    * <pre>
-   * The run's state: capturing, judging or ended.
+   * The run's state: capturing, waiting, gathering, judging or ended.
    * </pre>
    *
    * <code>string state = 4 [json_name = "state"];</code>
@@ -81,7 +81,7 @@ public interface EvidenceRunOrBuilder extends
   java.lang.String getState();
   /**
    * <pre>
-   * The run's state: capturing, judging or ended.
+   * The run's state: capturing, waiting, gathering, judging or ended.
    * </pre>
    *
    * <code>string state = 4 [json_name = "state"];</code>

@@ -68,6 +68,22 @@ func (f *fakeEvidence) GetEvidenceArtifact(
 	return connect.NewResponse(f.getReply), nil
 }
 
+// CaptureEvidence answers every capture as unimplemented: the step tools never capture evidence.
+func (f *fakeEvidence) CaptureEvidence(
+	_ context.Context,
+	_ *connect.Request[v1.CaptureEvidenceRequest],
+) (*connect.Response[v1.CaptureEvidenceResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("capture is not served to the step tools"))
+}
+
+// AttachEvidence answers every attach as unimplemented: the step tools never attach captures.
+func (f *fakeEvidence) AttachEvidence(
+	_ context.Context,
+	_ *connect.Request[v1.AttachEvidenceRequest],
+) (*connect.Response[v1.AttachEvidenceResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("attach is not served to the step tools"))
+}
+
 // evidenceCalls is a copy of the requests the fake received.
 type evidenceCalls struct {
 	runs  []*v1.RunEvidenceRequest

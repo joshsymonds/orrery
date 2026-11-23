@@ -5352,7 +5352,7 @@ type EvidenceRun struct {
 	Phase string `protobuf:"bytes,2,opt,name=phase,proto3" json:"phase,omitempty"`
 	// How the evidence was produced: captured or supplied.
 	Source string `protobuf:"bytes,3,opt,name=source,proto3" json:"source,omitempty"`
-	// The run's state: capturing, judging or ended.
+	// The run's state: capturing, waiting, gathering, judging or ended.
 	State string `protobuf:"bytes,4,opt,name=state,proto3" json:"state,omitempty"`
 	// The capture's exit code; for a supplied run, 0 when every file is kept and 1 otherwise.
 	Exit int32 `protobuf:"varint,5,opt,name=exit,proto3" json:"exit,omitempty"`
