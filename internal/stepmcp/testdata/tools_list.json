@@ -1117,5 +1117,50 @@
       ],
       "type": "object"
     }
+  },
+  {
+    "name": "design_steelman",
+    "description": "Run one steelman pass on design. With no counted discovery it is the discovery pass; with one it is the closure pass on delta against the frozen ledger, or with skipClosure and reason the closure is recorded skipped. Returns the step; its verdict is in design_stage once it returns. A pass whose verdict is BLOCKED, or that returns nothing, does not count.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "delegation": {
+          "description": "the owner's words it decides on, for conversation",
+          "type": "string"
+        },
+        "delta": {
+          "description": "what the revision changed since discovery, for the closure pass",
+          "type": "string"
+        },
+        "design": {
+          "description": "the design or contract the pass checks",
+          "type": "string"
+        },
+        "maker": {
+          "description": "owner_serve, owner_conversation or conversation, for skipClosure",
+          "type": "string"
+        },
+        "makerReason": {
+          "description": "why the conversation decides, for conversation",
+          "type": "string"
+        },
+        "quote": {
+          "description": "the owner's words, for owner_conversation",
+          "type": "string"
+        },
+        "reason": {
+          "description": "why the closure is skipped, for skipClosure",
+          "type": "string"
+        },
+        "skipClosure": {
+          "description": "true to record the closure as skipped rather than run it",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "design"
+      ],
+      "type": "object"
+    }
   }
 ]

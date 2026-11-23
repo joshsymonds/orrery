@@ -69,6 +69,19 @@ type designDisposeArgs struct {
 	Delegation  string `json:"delegation,omitempty"  jsonschema:"the owner's words it decides on, for conversation"`
 }
 
+// designSteelmanArgs is the arguments of design_steelman, described for its input schema. Reason is the skipped
+// closure's reason and MakerReason the maker's, since the two are kept apart.
+type designSteelmanArgs struct {
+	Design      string `json:"design"                jsonschema:"the design or contract the pass checks"`
+	Delta       string `json:"delta,omitempty"       jsonschema:"what the revision changed since discovery, for the closure pass"`
+	SkipClosure bool   `json:"skipClosure,omitempty" jsonschema:"true to record the closure as skipped rather than run it"`
+	Reason      string `json:"reason,omitempty"      jsonschema:"why the closure is skipped, for skipClosure"`
+	Maker       string `json:"maker,omitempty"       jsonschema:"owner_serve, owner_conversation or conversation, for skipClosure"`
+	Quote       string `json:"quote,omitempty"       jsonschema:"the owner's words, for owner_conversation"`
+	MakerReason string `json:"makerReason,omitempty" jsonschema:"why the conversation decides, for conversation"`
+	Delegation  string `json:"delegation,omitempty"  jsonschema:"the owner's words it decides on, for conversation"`
+}
+
 // stageTools returns the stage tools, each calling stage. A nil stage answers each call with a tool error.
 func stageTools(stage enginev1connect.StageClient) ([]Tool, error) {
 	research, err := argumentSchema[designResearchArgs](nil)
@@ -92,6 +105,10 @@ func stageTools(stage enginev1connect.StageClient) ([]Tool, error) {
 		return nil, err
 	}
 	dispose, err := argumentSchema[designDisposeArgs](nil)
+	if err != nil {
+		return nil, err
+	}
+	steelman, err := argumentSchema[designSteelmanArgs](nil)
 	if err != nil {
 		return nil, err
 	}
@@ -142,6 +159,15 @@ func stageTools(stage enginev1connect.StageClient) ([]Tool, error) {
 				"revised_after_closure or accepted_as_risk, with reason. Returns the item with its disposition.",
 			InputSchema: dispose,
 			Handler:     designDisposeHandler(stage),
+		},
+		{
+			Name: "design_steelman",
+			Description: "Run one steelman pass on design. With no counted discovery it is the discovery pass; with one " +
+				"it is the closure pass on delta against the frozen ledger, or with skipClosure and reason the closure " +
+				"is recorded skipped. Returns the step; its verdict is in design_stage once it returns. A pass whose " +
+				"verdict is BLOCKED, or that returns nothing, does not count.",
+			InputSchema: steelman,
+			Handler:     designSteelmanHandler(stage),
 		},
 	}, nil
 }
@@ -267,5 +293,27 @@ func designDisposeHandler(stage enginev1connect.StageClient) ToolHandler {
 			return toolFailure(err), nil
 		}
 		return protoResult(disposed.Msg)
+	}
+}
+
+func designSteelmanHandler(stage enginev1connect.StageClient) ToolHandler {
+	return func(ctx context.Context, call Call) (ToolResult, error) {
+		var args designSteelmanArgs
+		if err := decodeArguments(call.Arguments, &args); err != nil {
+			return ToolResult{}, err
+		}
+		if stage == nil {
+			return stageUnavailable(), nil
+		}
+		steelman, err := stage.Steelman(ctx, connect.NewRequest(&v1.SteelmanRequest{
+			Design: args.Design, Delta: args.Delta, SkipClosure: args.SkipClosure, Reason: args.Reason,
+			Maker: &v1.StageMaker{
+				Kind: args.Maker, Quote: args.Quote, Reason: args.MakerReason, Delegation: args.Delegation,
+			},
+		}))
+		if err != nil {
+			return toolFailure(err), nil
+		}
+		return protoResult(steelman.Msg)
 	}
 }

@@ -17,8 +17,10 @@ const runningStatus = "running"
 
 // GetStage returns the stage of the design: the steps its design_steps rows record, oldest first, each with its step
 // row's status and report, and the questions its design_questions rows record, oldest first, each with its answer once
-// it has one. It also returns the design's ledger, read as readLedger reads it, and whether the ledger is frozen. A
-// design no step names has no steps, and one no question names has no questions.
+// it has one. A steelman step carries its pass's verdict and whether the pass counts. It also returns the design's
+// ledger, read as readLedger reads it, whether the ledger is frozen, and whether the discovery and closure passes
+// counted and whether the closure was skipped. A design no step names has no steps, and one no question names has no
+// questions.
 func (s *Service) GetStage(
 	ctx context.Context,
 	req *connect.Request[v1.GetStageRequest],
@@ -52,18 +54,53 @@ func (s *Service) GetStage(
 	for _, item := range ledger {
 		items = append(items, stageLedgerItemOf(item))
 	}
+	discoveryCounted, closureCounted := countedPasses(steps)
+	skipped, err := s.closureSkipped(ctx, design)
+	if err != nil {
+		return nil, internalError(err)
+	}
 	return connect.NewResponse(&v1.GetStageResponse{
-		Stage: &v1.DesignStage{Design: design, Steps: steps, Questions: asked, Ledger: items, Frozen: frozen},
+		Stage: &v1.DesignStage{
+			Design: design, Steps: steps, Questions: asked, Ledger: items, Frozen: frozen,
+			ClosureSkipped: skipped, DiscoveryCounted: discoveryCounted, ClosureCounted: closureCounted,
+		},
 	}), nil
 }
 
-// readStageStep returns the StageStep of row, the design step row, read with its step row from the store.
+// countedPasses reports whether a counted discovery step and whether a counted closure step are among steps.
+func countedPasses(steps []*v1.StageStep) (bool, bool) {
+	var discovery, closure bool
+	for _, step := range steps {
+		if !step.GetCounted() {
+			continue
+		}
+		switch step.GetKind() {
+		case store.StepDiscovery:
+			discovery = true
+		case store.StepClosure:
+			closure = true
+		}
+	}
+	return discovery, closure
+}
+
+// readStageStep returns the StageStep of row, the design step row, read with its step row from the store. A steelman
+// step's verdict and whether it counts come from its kept return.
 func (s *Service) readStageStep(ctx context.Context, row store.DesignStep) (*v1.StageStep, error) {
 	step, err := s.cfg.Store.Step(ctx, row.Step)
 	if err != nil {
 		return nil, fmt.Errorf("read step %s of design %s: %w", row.Step, row.Design, err)
 	}
-	return stageStepOf(row, step), nil
+	message := stageStepOf(row, step)
+	if row.Kind == store.StepDiscovery || row.Kind == store.StepClosure {
+		verdict, counted, passErr := passOf(step)
+		if passErr != nil {
+			return nil, fmt.Errorf("decode return of %s step %s of design %s: %w",
+				row.Kind, row.Step, row.Design, passErr)
+		}
+		message.Verdict, message.Counted = verdict, counted
+	}
+	return message, nil
 }
 
 // stageStepOf returns the StageStep of the design step row and its step row. The step is running while it has not
