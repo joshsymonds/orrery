@@ -54,8 +54,8 @@ func (f *fakeCaptureEvidence) AttachEvidence(
 	return connect.NewResponse(f.attachReply), nil
 }
 
-// captureRequests returns the capture and attach requests the fake received.
-func (f *fakeCaptureEvidence) captureRequests() ([]*v1.CaptureEvidenceRequest, []*v1.AttachEvidenceRequest) {
+// received returns the capture and attach requests the fake received.
+func (f *fakeCaptureEvidence) received() ([]*v1.CaptureEvidenceRequest, []*v1.AttachEvidenceRequest) {
 	f.captureMu.Lock()
 	defer f.captureMu.Unlock()
 	return f.captures, f.attaches
@@ -81,7 +81,7 @@ func TestCaptureToolSendsArgumentsUnchangedAndReturnsCaptureID(t *testing.T) {
 	if outcome.isError {
 		t.Fatalf("evidence_capture returned an error: %s", outcome.text)
 	}
-	captures, _ := fake.captureRequests()
+	captures, _ := fake.received()
 	want := &v1.CaptureEvidenceRequest{
 		Commit: captureCommit,
 		Argv:   []string{"go", "test", "./..."},
@@ -126,7 +126,7 @@ func TestCaptureToolRefusalIsToolError(t *testing.T) {
 	if want := "invalid_argument: " + refusal; outcome.text != want {
 		t.Fatalf("evidence_capture error text = %q, want %q", outcome.text, want)
 	}
-	if captures, _ := fake.captureRequests(); len(captures) != 1 {
+	if captures, _ := fake.received(); len(captures) != 1 {
 		t.Fatalf("CaptureEvidence was called %d times, want once", len(captures))
 	}
 }
@@ -177,7 +177,7 @@ func TestCaptureToolMissingArgumentsAreToolErrors(t *testing.T) {
 			if outcome.text != tc.missing {
 				t.Fatalf("evidence_capture error text = %q, want %q", outcome.text, tc.missing)
 			}
-			if captures, _ := fake.captureRequests(); len(captures) != 0 {
+			if captures, _ := fake.received(); len(captures) != 0 {
 				t.Fatalf("CaptureEvidence was called %d times, want none", len(captures))
 			}
 		})
@@ -195,7 +195,7 @@ func TestEvidenceAttachSendsArgumentsUnchangedAndReturnsRuns(t *testing.T) {
 	if outcome.isError {
 		t.Fatalf("evidence_attach returned an error: %s", outcome.text)
 	}
-	_, attaches := fake.captureRequests()
+	_, attaches := fake.received()
 	want := &v1.AttachEvidenceRequest{Capture: "capture-7", Briefs: []string{"run-1", "run-2"}}
 	if len(attaches) != 1 || !proto.Equal(attaches[0], want) {
 		t.Fatalf("AttachEvidence requests = %v, want %v", attaches, want)
@@ -221,7 +221,7 @@ func TestEvidenceAttachRefusalIsToolError(t *testing.T) {
 	if want := "invalid_argument: " + refusal; outcome.text != want {
 		t.Fatalf("evidence_attach error text = %q, want %q", outcome.text, want)
 	}
-	if _, attaches := fake.captureRequests(); len(attaches) != 1 {
+	if _, attaches := fake.received(); len(attaches) != 1 {
 		t.Fatalf("AttachEvidence was called %d times, want once", len(attaches))
 	}
 }
@@ -250,7 +250,7 @@ func TestEvidenceAttachMissingArgumentsAreToolErrors(t *testing.T) {
 			if outcome.text != tc.missing {
 				t.Fatalf("evidence_attach error text = %q, want %q", outcome.text, tc.missing)
 			}
-			if _, attaches := fake.captureRequests(); len(attaches) != 0 {
+			if _, attaches := fake.received(); len(attaches) != 0 {
 				t.Fatalf("AttachEvidence was called %d times, want none", len(attaches))
 			}
 		})

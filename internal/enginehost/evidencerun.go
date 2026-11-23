@@ -154,7 +154,7 @@ func NewEvidence(cfg EvidenceConfig) *Evidence {
 // Run runs the item named item of epic at revision, in phase red or green. item is a Requirement's R<n>, whose item must
 // be set. Run refuses a bad request with an error matching ErrEvidenceRefused, and an epic that does not exist with the
 // store's error. A captured item is filed as a brief: it is stored waiting with its item, revision and phase, its epic's
-// gatherer is woken, and nothing starts. A supplied item is stored capturing, then driven in the background. Either way Run
+// gatherer is woken, and nothing starts. A supplied item is stored waiting, then driven in the background. Either way Run
 // returns the stored run.
 func (e *Evidence) Run(ctx context.Context, epic, item, revision, phase string) (store.EvidenceRun, error) {
 	defer e.calls.enter()()
@@ -186,15 +186,12 @@ func (e *Evidence) Run(ctx context.Context, epic, item, revision, phase string) 
 	return e.file(ctx, row.Repository, run)
 }
 
-// file files run, a new run of its epic, and returns it as stored. A captured run is filed as a brief: it is stored waiting, and
-// the gatherer of its epic is woken, so nothing starts for it here. A supplied run is stored capturing, and driven in the
-// background (see start). A runner that is closed refuses either with errEvidenceClosed, and the run stays stored for a
-// restart to take up.
+// file files run, a new run of its epic, and returns it as stored. Every run is stored waiting. A captured run is filed as a
+// brief: its epic's gatherer is woken, so nothing starts for it here. A supplied run is driven in the background (see
+// start). A runner that is closed refuses either with errEvidenceClosed, and the run stays stored for a restart to take up.
 func (e *Evidence) file(ctx context.Context, repo string, run store.EvidenceRun) (store.EvidenceRun, error) {
 	captured := run.Source == evidence.SourceCaptured
-	if captured {
-		run.State = store.RunWaiting
-	}
+	run.State = store.RunWaiting
 	if err := e.store.AddEvidenceRun(ctx, run); err != nil {
 		return store.EvidenceRun{}, fmt.Errorf("add evidence run %s: %w", run.ID, err)
 	}
@@ -296,7 +293,7 @@ func (e *Evidence) readLog(run store.EvidenceRun, hash string) ([]byte, string, 
 
 // Close cancels every drive and waits for each to return. A supplied run whose read has ended is recorded even so, but a
 // canceled drive starts no judge, so its run is left judging with no judge step for a restart's Resume to give the verdict. A
-// read cut short is recorded as nothing, so its run stays capturing for a restart to read it again. Run returns an error from
+// read cut short is recorded as nothing, so its run stays waiting for a restart to read it again. Run returns an error from
 // then on.
 func (e *Evidence) Close() {
 	defer e.calls.enter()()
@@ -404,8 +401,8 @@ func (e *Evidence) drive(ctx context.Context, repo string, run store.EvidenceRun
 }
 
 // recordCapture stores capture as the capture of the run with id, retrying a write the store refuses until it lands (see
-// retryStore), since nothing drives a run the store keeps capturing. Only the end of ctx, which Close cancels, stops the
-// retries: the run is then left capturing for a restart's Resume, and recordCapture reports false.
+// retryStore), since nothing drives a run the store keeps waiting. Only the end of ctx, which Close cancels, stops the
+// retries: the run is then left waiting for a restart's Resume, and recordCapture reports false.
 func (e *Evidence) recordCapture(ctx context.Context, id string, capture store.EvidenceCapture) bool {
 	err := e.retry(ctx, "evidence capture", id,
 		func(storeCtx context.Context) error { return e.store.RecordEvidenceCapture(storeCtx, id, capture) })
