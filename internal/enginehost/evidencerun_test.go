@@ -70,8 +70,8 @@ func evidenceRunSeed(t *testing.T, st *store.Store, repo string, requirement, ta
 	}
 }
 
-// evidenceRunNew returns an Evidence over st and steps that captures under scratch state directories with fake pools.
-// Close runs when the test ends.
+// evidenceRunNew returns an Evidence over st and steps whose blobs live under a scratch state directory, and which files its
+// briefs in st. Close runs when the test ends.
 func evidenceRunNew(t *testing.T, st *store.Store, steps EvidenceSteps) *Evidence {
 	t.Helper()
 	return evidenceRunNewAfter(t, st, steps, nil)
@@ -82,19 +82,48 @@ func evidenceRunNewAfter(
 	t *testing.T, st *store.Store, steps EvidenceSteps, after func(time.Duration) <-chan time.Time,
 ) *Evidence {
 	t.Helper()
-	home := t.TempDir()
-	stepGateWriteFile(t, filepath.Join(home, "orrery", "pools.toml"), stepGatePoolsText("gate"))
 	ev := NewEvidence(EvidenceConfig{
-		Store:        st,
-		Steps:        steps,
-		Pools:        &fakeGatePools{},
-		Environ:      gateEnv("XDG_CONFIG_HOME=" + home),
-		StateDir:     t.TempDir(),
-		GateStateDir: gateShortStateDir(t),
-		After:        after,
+		Store:    st,
+		Steps:    steps,
+		StateDir: t.TempDir(),
+		After:    after,
+		Briefs:   st,
 	})
 	t.Cleanup(ev.Close)
 	return ev
+}
+
+// evidenceRunStateDir returns the state directory ev keeps its blobs under. A capture that gathers for ev is kept there too, so
+// ev reads the logs and artifacts it keeps.
+func evidenceRunStateDir(ev *Evidence) string {
+	return filepath.Dir(filepath.Dir(ev.blobs.dir))
+}
+
+// evidenceRunAttach gathers started, a brief ev filed, as its epic's gatherer does: it starts the epic's gatherer when none runs,
+// has the gatherer capture the brief's command at its revision, and attaches that capture to the brief through ev, which judges
+// it. It returns once the capture is attached.
+func evidenceRunAttach(t *testing.T, ev *Evidence, st *store.Store, started store.EvidenceRun) {
+	t.Helper()
+	ctx := t.Context()
+	_, running, err := st.RunningEvidenceGatherer(ctx, started.Epic)
+	if err != nil {
+		t.Fatalf("RunningEvidenceGatherer %s: %v", started.Epic, err)
+	}
+	if !running {
+		if _, err = st.StartEvidenceGatherer(
+			ctx, started.Epic, captureTestGatherer, time.Unix(1700000000, 0),
+		); err != nil {
+			t.Fatalf("StartEvidenceGatherer %s: %v", captureTestGatherer, err)
+		}
+	}
+	rig, captures := evidenceAttachCaptures(t, st, ev)
+	capture := evidenceAttachAsk(
+		t, rig, captures, captureTestGatherer, started.Revision, started.Spec.Capture,
+		[]string{started.ID}, started.Spec.Artifacts,
+	)
+	if _, err = ev.Attach(ctx, captureTestGatherer, capture.ID, []string{started.ID}); err != nil {
+		t.Fatalf("Attach capture %s to brief %s: %v", capture.ID, started.ID, err)
+	}
 }
 
 // evidenceRunWaits is the After of a runner under test. Each wait is announced, and then ends on a tick the test sends, so
@@ -155,8 +184,8 @@ func evidenceRunSettled(t *testing.T, eng engine, st *store.Store, id string) st
 	return run
 }
 
-// evidenceRunOnce starts a run of Requirement R1 at revision in phase through ev. It returns the run Run stored and the
-// run once it ended.
+// evidenceRunOnce starts a run of Requirement R1 at revision in phase through ev. A captured run is gathered (see
+// evidenceRunAttach). It returns the run Run stored and the run once it ended.
 func evidenceRunOnce(
 	t *testing.T, ev *Evidence, st *store.Store, revision, phase string,
 ) (store.EvidenceRun, store.EvidenceRun) {
@@ -165,18 +194,27 @@ func evidenceRunOnce(
 	if err != nil {
 		t.Fatalf("Run(R1, %s, %s): %v", revision, phase, err)
 	}
+	if started.Source == evidence.SourceCaptured {
+		evidenceRunAttach(t, ev, st, started)
+	}
 	return started, evidenceRunSettled(t, engineOf(ev), st, started.ID)
 }
 
-// evidenceRunWantStarted fails the test unless started, the run Run returned, is stored in state capturing with the item,
-// revision, phase and source its request named.
+// evidenceRunWantStarted fails the test unless started, the run a request returned, is stored with the item, revision, phase and
+// source its request named, in the state its source files it in: a supplied run is capturing, and a captured one is a brief
+// waiting for its gatherer.
 func evidenceRunWantStarted(t *testing.T, started store.EvidenceRun, item, revision, phase, source string) {
 	t.Helper()
+	state := "capturing"
+	if source == evidence.SourceCaptured {
+		state = store.RunWaiting
+	}
 	if started.Item != item || started.Revision != revision || started.Phase != phase || started.Source != source ||
-		started.State != "capturing" {
+		started.State != state {
 		t.Fatalf(
-			"started run = item %q revision %q phase %q source %q state %q, want %q %q %q %q capturing",
-			started.Item, started.Revision, started.Phase, started.Source, started.State, item, revision, phase, source,
+			"started run = item %q revision %q phase %q source %q state %q, want %q %q %q %q %q",
+			started.Item, started.Revision, started.Phase, started.Source, started.State,
+			item, revision, phase, source, state,
 		)
 	}
 }
@@ -299,8 +337,12 @@ func TestEvidenceRunRedJudgeFailsPasses(t *testing.T) {
 			got.Verdict, got.Passed, got.Judges,
 		)
 	}
-	if got.Grant == "" || got.Holder == "" {
-		t.Fatalf("run grant %q holder %q, want the capture's grant and holder kept", got.Grant, got.Holder)
+	capture, err := st.Capture(t.Context(), got.Capture)
+	if err != nil {
+		t.Fatalf("read capture %s: %v", got.Capture, err)
+	}
+	if capture.Grant == "" || capture.Holder == "" {
+		t.Fatalf("capture grant %q holder %q, want the capture's grant and holder kept", capture.Grant, capture.Holder)
 	}
 }
 
@@ -433,6 +475,7 @@ func TestEvidenceRunJudgeStoppedByPauseStartsAgainOnResume(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Run(R1): %v", err)
 	}
+	evidenceRunAttach(t, ev, st, started)
 	eng := engineOf(ev)
 	evidenceRunResumeEpic(t, eng, st, waits)
 	got := evidenceRunSettled(t, eng, st, started.ID)
@@ -463,6 +506,7 @@ func TestEvidenceRunPausedStopSpendsNoTry(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Run(R1): %v", err)
 	}
+	evidenceRunAttach(t, ev, st, started)
 	eng := engineOf(ev)
 	evidenceRunResumeEpic(t, eng, st, waits)
 	got := evidenceRunSettled(t, eng, st, started.ID)
@@ -631,6 +675,7 @@ func TestEvidenceRunCloseRecordsNothingMore(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
+	evidenceRunAttach(t, ev, st, started)
 	evidenceRunEventually(t, engineOf(ev), "the judge step is recorded", func() bool {
 		run, readErr := st.EvidenceRun(t.Context(), started.ID)
 		if readErr != nil {

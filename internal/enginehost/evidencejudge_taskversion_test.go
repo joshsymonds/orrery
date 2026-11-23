@@ -166,6 +166,7 @@ func TestTaskVersionJudgeStartsOnTheCurrentVersionsConclusion(t *testing.T) {
 	if err != nil {
 		t.Fatalf("green RunTask: %v", err)
 	}
+	evidenceRunAttach(t, ev, st, started)
 	run := evidenceRunSettled(t, engineOf(ev), st, started.ID)
 
 	starts := steps.recorded()
@@ -177,9 +178,17 @@ func TestTaskVersionJudgeStartsOnTheCurrentVersionsConclusion(t *testing.T) {
 	if err != nil {
 		t.Fatalf("judgePrompt: %v", err)
 	}
+	capture, err := st.Capture(ctx, run.Capture)
+	if err != nil {
+		t.Fatalf("Capture %s: %v", run.Capture, err)
+	}
+	captureLines, err := judgeCaptureLines(run, capture)
+	if err != nil {
+		t.Fatalf("judgeCaptureLines: %v", err)
+	}
 	wantLines := append(taskspec.Lines(task), "Conclusion: the conclusion you judge is version 2's evidence item, "+
 		"the task's current spec, which governs where it differs from earlier versions.")
-	want := strings.Join(wantLines, "\n") + "\n\n" + judged
+	want := strings.Join(wantLines, "\n") + "\n\n" + judged + "\n\n" + strings.Join(captureLines, "\n")
 	if start.Prompt != want {
 		t.Errorf("judge prompt = %q, want %q", start.Prompt, want)
 	}

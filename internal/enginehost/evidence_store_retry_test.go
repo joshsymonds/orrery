@@ -60,19 +60,20 @@ func (s *evidenceRefusingStore) RecordEvidenceVerdict(
 	return s.EvidenceStore.RecordEvidenceVerdict(ctx, id, verdict)
 }
 
-// TestEvidenceRetriesEachRefusedWriteOfARun drives a captured run whose capture, judge and verdict writes the store each
+// TestEvidenceRetriesEachRefusedWriteOfARun drives a supplied run whose capture, judge and verdict writes the store each
 // refuses once. Each refused write waits storeRetry and is tried again, the run stays where the store has it until the
 // write lands, and the drive ends with the run judged once and its verdict stored.
 func TestEvidenceRetriesEachRefusedWriteOfARun(t *testing.T) {
 	t.Parallel()
-	repo, head := evidenceRunRepo(t, evidenceRecordEndsAtOnceScript)
+	repo := stepGitTestRepo(t)
+	head := stepGitTestCommit(t, repo, map[string]string{"out.txt": "kept\n"})
 	st := epicTestStore(t)
-	item := evidenceRunItem("out.txt")
+	item := evidence.Item{Supplied: []string{"out.txt"}, Conclusion: "the build passes", Judge: "reviewer"}
 	evidenceRunSeed(t, st, repo, item, item)
 	evidenceReadoptAdd(t, st, evidenceRecordRun, head, evidence.PhaseGreen, item)
 	refusing := &evidenceRefusingStore{EvidenceStore: st, refused: make(chan string, 4), seen: map[string]bool{}}
 	judges := &evidenceRunSteps{judges: []evidenceRunJudge{evidenceRunHolds()}}
-	ev := evidenceRecordNew(t, refusing, judges, t.TempDir(), &fakeGatePools{})
+	ev := evidenceRecordNew(t, refusing, judges, t.TempDir())
 	clock := endRetryClock{waits: make(chan time.Duration, 4), tick: make(chan time.Time)}
 	ev.after = clock.after
 

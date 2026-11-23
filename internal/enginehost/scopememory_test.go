@@ -46,8 +46,8 @@ func TestNodeChecksGateRunsUnderTheConfiguredScope(t *testing.T) {
 
 func TestEvidenceCaptureGateRunsUnderTheConfiguredScope(t *testing.T) {
 	t.Parallel()
-	ev := NewEvidence(EvidenceConfig{StateDir: t.TempDir(), GateScope: "/run/systemd-run"})
-	run := ev.captures.captureGate(t.TempDir(), "r", evidence.Item{Capture: []string{"/bin/true"}, Limit: 1}, nil)
+	captures := NewCaptures(CapturesConfig{StateDir: t.TempDir(), GateScope: "/run/systemd-run"})
+	run := captures.captures.captureGate(t.TempDir(), "r", evidence.Item{Capture: []string{"/bin/true"}, Limit: 1}, nil)
 	if run.Scope != "/run/systemd-run" {
 		t.Fatalf("capture scope %q, want /run/systemd-run", run.Scope)
 	}

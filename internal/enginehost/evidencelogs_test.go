@@ -63,7 +63,7 @@ func evidenceLogsPath(t *testing.T, ev *Evidence, hash string) string {
 	return path
 }
 
-// evidenceLogsStartRun stores a green run of R1 at revision, capturing, and returns it as Run returns it.
+// evidenceLogsStartRun stores a green run of R1 at revision, capturing, and returns it as stored.
 func evidenceLogsStartRun(t *testing.T, st *store.Store, id, revision string) store.EvidenceRun {
 	t.Helper()
 	run := store.EvidenceRun{
