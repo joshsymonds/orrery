@@ -241,22 +241,14 @@ func candidateAction(run store.NodeRun, rows Rows) Action {
 // that did not pass. Each one is a candidate the attempt has prepared again, so it is the generation of the candidate
 // the run has now.
 func replacedCount(attempt int64, runs []store.ReleaseRun) int64 {
-	var count int64
-	for _, run := range runs {
-		if run.Part == store.ReleasePartVerify && !run.Passed && run.Attempt == attempt {
-			count++
-		}
-	}
-	return count
+	return store.ReleaseGeneration(runs, attempt)
 }
 
 // gatedRun returns run as the Done gates of its candidate are walked under, at generation. The first candidate of an
 // attempt is walked under the run's own id. A candidate prepared again is walked under an id that carries its generation,
 // so the checks the attempt ran for the candidate it replaces cannot decide its gates.
 func gatedRun(run store.NodeRun, generation int64) store.NodeRun {
-	if generation > 0 {
-		run.ID = fmt.Sprintf("%s-generation-%d", run.ID, generation)
-	}
+	run.ID = store.ReleaseGatedID(run.ID, generation)
 	return run
 }
 
@@ -332,7 +324,7 @@ func stepAction(run store.NodeRun, rows Rows, position int64, step store.EpicRel
 		}
 	}
 	label := fmt.Sprintf("release %d", position)
-	id := store.NodeWorkID(run.ID, run.Attempt, label)
+	id := store.ReleaseStepWorkID(run, rows.Releases, position)
 	if row, found := firstMatch(rows.Steps, func(s store.StepRow) bool { return s.ID == id }); found {
 		return recordAction(row, []string{label, start})
 	}

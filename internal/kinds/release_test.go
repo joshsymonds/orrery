@@ -697,6 +697,69 @@ func releaseReviewRun(passed bool, reason string) store.ReleaseRun {
 	}
 }
 
+// TestReleaseStepOneRunsUnderItsGeneration: the first release step of a candidate prepared again is walked under the id
+// of that candidate's generation, so the step row of the candidate it replaces, under the run's own id, cannot decide
+// it. The other steps are walked under the run's own id.
+func TestReleaseStepOneRunsUnderItsGeneration(t *testing.T) {
+	t.Parallel()
+	steps := []store.EpicReleaseStep{
+		releaseStep("build the image", "rollback"),
+		releaseStep("push the tag", "rollback"),
+	}
+	replaced := []store.ReleaseRun{
+		candidateRun(1, "cand-1"),
+		{Part: store.ReleasePartVerify, Attempt: 1, Head: "cand-1"},
+		candidateRun(1, "cand-2"),
+	}
+	gated := store.NodeWorkID(store.ReleaseGatedID(testRunID, 1), 1, "release 1")
+	items := []string{"release 1", "cand-2"}
+	cases := []decideCase{
+		{
+			"first step of a candidate prepared again starts under its generation's id",
+			releaseNode(1, "", ""),
+			Rows{Epic: releasingEpic(steps...), Releases: replaced},
+			Action{Kind: ActStep, IDs: []string{gated}, Items: items},
+		},
+		{
+			"step row under the run's own id, of the candidate replaced, does not decide the first step",
+			releaseNode(1, "", ""),
+			Rows{
+				Epic:     releasingEpic(steps...),
+				Releases: replaced,
+				Steps:    []store.StepRow{{ID: attemptWorkID(1, "release 1"), End: "returned"}},
+			},
+			Action{Kind: ActStep, IDs: []string{gated}, Items: items},
+		},
+		{
+			"running first step under its generation's id gives none",
+			releaseNode(1, "", ""),
+			Rows{Epic: releasingEpic(steps...), Releases: replaced, Steps: []store.StepRow{{ID: gated}}},
+			Action{Kind: ActNone},
+		},
+		{
+			"ended first step under its generation's id is recorded with the candidate it started from",
+			releaseNode(1, "", ""),
+			Rows{Epic: releasingEpic(steps...), Releases: replaced, Steps: []store.StepRow{{ID: gated, End: "done"}}},
+			Action{Kind: ActRecord, IDs: []string{gated}, Items: items},
+		},
+		{
+			"second step of a candidate prepared again stays under the run's own id",
+			releaseNode(1, "", ""),
+			Rows{
+				Epic: releasingEpic(steps...),
+				Releases: []store.ReleaseRun{
+					candidateRun(1, "cand-1"),
+					{Part: store.ReleasePartVerify, Attempt: 1, Head: "cand-1"},
+					candidateRun(1, "cand-2"),
+					{Part: store.ReleasePartStep, Position: 1, Attempt: 1, Head: "step-1", Passed: true},
+				},
+			},
+			Action{Kind: ActStep, IDs: []string{attemptWorkID(1, "release 2")}, Items: []string{"release 2", "step-1"}},
+		},
+	}
+	checkDecisions(t, Release{}, cases)
+}
+
 // TestReleaseReviewerGatesTheFirstStep: the enabled release reviewers review the candidate once before the first release
 // step starts from it. The first step starts only once every one has held the candidate, a refusal stops the release
 // with its reason, and no review gates a later step or an epic with no enabled release reviewer.

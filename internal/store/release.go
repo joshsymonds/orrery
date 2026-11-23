@@ -279,8 +279,8 @@ type ReleaseProof struct {
 // ReleaseProofs returns each contract release step of flow's epic in contract order, with the state its release runs
 // give it. For a position p, the step passed when a release run of part `release` at p passed, the latest passed run
 // deciding. Otherwise it is running when the running release node run has a work step for `release p` with no end. Its
-// work step is the one under the run's id, attempt and part. Otherwise it failed when a release run at p did not pass,
-// the highest-attempt run deciding. Otherwise it is waiting.
+// work step is the one ReleaseStepWorkID names for the run and p. Otherwise it failed when a release run at p did not
+// pass, the highest-attempt run deciding. Otherwise it is waiting.
 func ReleaseProofs(flow EpicFlow) []ReleaseProof {
 	proofs := make([]ReleaseProof, 0, len(flow.Epic.ReleaseSteps))
 	for i, step := range flow.Epic.ReleaseSteps {
@@ -331,15 +331,48 @@ func highestAttempt(runs []ReleaseRun, keep func(ReleaseRun) bool) (ReleaseRun, 
 	return best, found
 }
 
+// ReleaseGatedID returns the id the work of the release node run runID is walked under at generation: runID itself at
+// generation 0, and an id that carries the generation after it at any later one, so the checks and steps of a candidate
+// prepared again cannot decide the candidate it replaces.
+func ReleaseGatedID(runID string, generation int64) string {
+	if generation > 0 {
+		return fmt.Sprintf("%s-generation-%d", runID, generation)
+	}
+	return runID
+}
+
+// ReleaseGeneration returns the generation of the candidate attempt holds: how many candidates of attempt origin's main
+// was found not in, each a verify run of attempt that did not pass. Each is a candidate the attempt has prepared again.
+func ReleaseGeneration(runs []ReleaseRun, attempt int64) int64 {
+	var count int64
+	for _, run := range runs {
+		if run.Part == ReleasePartVerify && !run.Passed && run.Attempt == attempt {
+			count++
+		}
+	}
+	return count
+}
+
+// ReleaseStepWorkID returns the id the release step at position is recorded under, for the release node run run whose
+// release runs are runs. Step 1 is recorded under the run's id at generation 0, and under the id ReleaseGatedID gives
+// the run at the generation of its candidate once that candidate was prepared again. Every other step is recorded under
+// the run's id.
+func ReleaseStepWorkID(run NodeRun, runs []ReleaseRun, position int64) string {
+	id := run.ID
+	if position == 1 {
+		id = ReleaseGatedID(run.ID, ReleaseGeneration(runs, run.Attempt))
+	}
+	return NodeWorkID(id, run.Attempt, fmt.Sprintf("release %d", position))
+}
+
 // runningStep reports whether a running release node run of flow's epic has the work step for `release position` at
 // its attempt, and that step has no end yet.
 func runningStep(flow EpicFlow, position int64) bool {
-	label := fmt.Sprintf("release %d", position)
 	for _, run := range flow.Runs {
 		if run.Kind != releaseKind || run.State != NodeRunning {
 			continue
 		}
-		id := NodeWorkID(run.ID, run.Attempt, label)
+		id := ReleaseStepWorkID(run, flow.Releases, position)
 		for _, step := range flow.Steps {
 			if step.ID == id && step.End == "" {
 				return true

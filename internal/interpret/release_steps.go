@@ -126,6 +126,7 @@ func (r *Runner) startReleaseStep(ctx context.Context, epic store.EpicRow, act A
 	_, err = r.steps.Start(ctx, enginehost.StepStart{
 		ID: id, Agent: agent, Prompt: releaseStepPrompt(step, start, epic.ReleaseThen), Schema: releaseStepSchema,
 		Workspace: wt, Revision: start, Unowned: true, DoneValue: releaseDone, Epic: epic.ID,
+		Task: releaseStepTask(act, position, id),
 	})
 	if err == nil {
 		return nil
@@ -137,6 +138,18 @@ func (r *Runner) startReleaseStep(ctx context.Context, epic store.EpicRow, act A
 		r.failReleaseStep(ctx, epic, act, position, step, at, err),
 		build.RemoveWorktrees(ctx, epic.Repository, dir),
 	)
+}
+
+// releaseStepTask returns the task the start of the release step at position, under id, carries. The rows of a release
+// read a step under its run's id, so a step under any other id, such as the first step of a candidate prepared again,
+// carries the release run's path as its task, as the release reviewer's start does, and is read under that path. Any
+// other step carries no task.
+func releaseStepTask(act Action, position int64, id string) string {
+	own := store.NodeWorkID(act.Run.ID, act.Run.Attempt, fmt.Sprintf("%s%d", releaseStepLabel, position))
+	if id == own {
+		return ""
+	}
+	return act.Path
 }
 
 // failReleaseStep records the release step act names as a failed run of its attempt, with the reason it did not start.
@@ -177,8 +190,10 @@ func releaseStepPrompt(step store.EpicReleaseStep, start, then string) string {
 }
 
 // recordReleaseStep records the release step act names once its end is stored. The step passes only when it ended done,
-// HEAD descends from its start and it added no merge. Otherwise
-// it is recorded failed with the reason named. Its worktree is removed once the run is recorded.
+// HEAD descends from its start and it added no merge. Otherwise it is recorded failed with the reason named. Its
+// worktree is removed once the run is recorded. The first step's failure is not recorded when origin's main has moved
+// past the candidate it started from, since that is no failure of the release: redoCandidate marks the candidate stale
+// instead. A check of origin's main that errors records the failure with the error named, and the release stops.
 func (r *Runner) recordReleaseStep(ctx context.Context, epic store.EpicRow, act Action, at time.Time) error {
 	position, ok := releaseStepPosition(act.Items[0])
 	if !ok {
@@ -203,6 +218,15 @@ func (r *Runner) recordReleaseStep(ctx context.Context, epic store.EpicRow, act 
 	if err != nil {
 		return err
 	}
+	if position == 1 && reason != "" {
+		moved, checkErr := candidateContainsOrigin(ctx, epic, start)
+		switch {
+		case checkErr != nil:
+			reason += "; origin's main could not be checked against the step's start: " + checkErr.Error()
+		case !moved:
+			return r.redoCandidate(ctx, epic, act, start, dir, reason, at)
+		}
+	}
 	run := store.ReleaseRun{
 		Part:     store.ReleasePartStep,
 		Position: position,
@@ -222,6 +246,23 @@ func (r *Runner) recordReleaseStep(ctx context.Context, epic store.EpicRow, act 
 	}
 	if err = build.RemoveWorktrees(ctx, epic.Repository, dir); err != nil {
 		return fmt.Errorf("remove worktree of release step %s: %w", id, err)
+	}
+	return nil
+}
+
+// redoCandidate handles the first release step act names, which failed for reason after origin's main moved past the
+// candidate start it started from. No failed run is recorded for it, since the failure is no failure of the release.
+// The candidate is marked stale at act's attempt, so the release prepares it again, merged with origin's main, gates,
+// reviews and starts its first step under a new generation. The step's worktree in dir is then removed.
+func (r *Runner) redoCandidate(
+	ctx context.Context, epic store.EpicRow, act Action, start, dir, reason string, at time.Time,
+) error {
+	stale := fmt.Sprintf("release step 1 failed after origin's main moved past candidate %s: %s", start, reason)
+	if err := r.store.MarkCandidateStale(ctx, epic.ID, act.Path, act.Run.Attempt, start, stale, at); err != nil {
+		return fmt.Errorf("mark candidate %s of epic %s stale: %w", start, epic.ID, err)
+	}
+	if err := build.RemoveWorktrees(ctx, epic.Repository, dir); err != nil {
+		return fmt.Errorf("remove worktree of release step %s: %w", act.IDs[0], err)
 	}
 	return nil
 }
