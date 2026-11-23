@@ -18,9 +18,10 @@ const projectReleaseKey = "release"
 const projectFileRel = ".orrery/project.toml"
 
 // parseProjectRelease reads the [release] table of a project file: an optional then, and the steps of the release in
-// file order. The other top-level keys belong to their own readers and are ignored. found reports whether the file
-// has a release key; it is false, with a nil error, when it does not. A file that is not TOML comes back wrapped. A
-// release table that is malformed is refused with an *epicFieldError naming the field.
+// file order. The other top-level keys belong to their own readers and are ignored, and so is the runners key under
+// release, which ParseProjectRunners reads. found reports whether the file has a release key; it is false, with a nil
+// error, when it does not. A file that is not TOML comes back wrapped. A release table that is malformed is refused
+// with an *epicFieldError naming the field.
 func parseProjectRelease(data []byte) (steps []*v1.EpicReleaseStep, then string, found bool, err error) {
 	var doc map[string]any
 	if _, decodeErr := toml.Decode(string(data), &doc); decodeErr != nil {
@@ -38,6 +39,8 @@ func parseProjectRelease(data []byte) (steps []*v1.EpicReleaseStep, then string,
 	var tables []map[string]any
 	for _, key := range slices.Sorted(maps.Keys(table)) {
 		switch key {
+		case projectRunnersKey:
+			// The runners belong to ParseProjectRunners, so the steps and the then parse the same without them.
 		case "steps":
 			tables, err = releaseStepTables(table[key])
 			if err != nil {
