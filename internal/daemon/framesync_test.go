@@ -36,7 +36,7 @@ func openFrameStore(t *testing.T, opts ...store.Option) (*store.Store, *sql.DB) 
 		}
 	})
 	dsn := (&url.URL{Scheme: "file", Path: path, RawQuery: "_busy_timeout=200&_journal_mode=WAL"}).String()
-	db, err := sql.Open("sqlite", dsn)
+	db, err := sql.Open("sqlite3", dsn)
 	if err != nil {
 		t.Fatalf("sql.Open: %v", err)
 	}

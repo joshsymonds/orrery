@@ -514,7 +514,7 @@ func openStoreAtVersion(t *testing.T, path string, version int64) *sql.DB {
 		t.Fatalf("write store at version %d: %v", version, err)
 	}
 	// The fixture is a throwaway file, so it skips the fsyncs, as noSync's stores do.
-	db, err := sql.Open("sqlite", path+"?_synchronous=OFF")
+	db, err := sql.Open("sqlite3", path+"?_synchronous=OFF")
 	if err != nil {
 		t.Fatalf("open fixture: %v", err)
 	}

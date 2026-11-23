@@ -167,7 +167,7 @@ func seedContractSession(t *testing.T, st *store.Store, id string) {
 // loses its row.
 func deleteContractSessionRow(t *testing.T, path, id string) {
 	t.Helper()
-	raw, err := sql.Open("sqlite", path)
+	raw, err := sql.Open("sqlite3", path)
 	if err != nil {
 		t.Fatalf("open raw handle: %v", err)
 	}

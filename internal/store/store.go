@@ -20,11 +20,17 @@ import (
 	"time"
 
 	"github.com/pressly/goose/v3"
-	"modernc.org/sqlite"
 )
 
 //go:embed migrations/*.sql
 var migrationFS embed.FS
+
+// freshSchema is the database the embedded migrations make from an empty file: each schema object in the order the
+// migrations left it, the rows they insert, and goose's record of every migration applied. schema.sql is generated from
+// the migrations (`just generate`), and TestStoreFreshSchemaMatchesMigrations fails when it no longer matches them.
+//
+//go:embed schema.sql
+var freshSchema string
 
 // ErrTooNew reports a database whose recorded migration version is above the newest migration embedded in
 // this binary. Open returns it without migrating the database.
@@ -219,6 +225,14 @@ type openConfig struct {
 	closeWaiting func()
 	// callClock is the clock store calls are timed on. It is for tests, and time.Now otherwise.
 	callClock func() time.Time
+	// migrationsOnly makes an empty database through the migrations, one at a time, in place of freshSchema. It is for
+	// the test that checks freshSchema against the migrations, and false otherwise.
+	migrationsOnly bool
+}
+
+// withMigrationsOnly makes Open build an empty database through the migrations rather than from freshSchema.
+func withMigrationsOnly() Option {
+	return func(c *openConfig) { c.migrationsOnly = true }
 }
 
 // WithLogger sets the logger the store warns on for each call that takes longer than 100 ms, from the call until the
@@ -247,7 +261,7 @@ func WithBusyTimeout(d time.Duration) Option {
 	return func(c *openConfig) { c.busyTimeout = d }
 }
 
-// WithSynchronous sets the connection's synchronous mode in place of SQLite's default, FULL. It is for tests: OFF
+// WithSynchronous sets the connection's synchronous mode in place of the store's default, FULL. It is for tests: OFF
 // skips the fsync each commit and checkpoint costs, which a test's throwaway store does not need. orreryd never
 // passes it, because restart and re-adoption rely on committed rows surviving an OS crash or power loss.
 func WithSynchronous(mode Synchronous) Option {
@@ -255,10 +269,12 @@ func WithSynchronous(mode Synchronous) Option {
 }
 
 // Open creates the store's directory (0700) and file (0600) when absent, opens the database in WAL mode with a
-// BusyTimeout busy timeout, and applies the embedded migrations. Its writer is the one connection writes run on, and
-// its read pool opens the file read-only, with the same busy timeout, for every read. It returns ErrTooNew, without
-// migrating, when the database records a newer migration than this binary embeds. A file it cannot use is left
-// untouched.
+// BusyTimeout busy timeout, and applies the embedded migrations. A database that holds no schema object yet is made from
+// freshSchema in one transaction, which is the database the migrations would make, so the migrations then find each of
+// themselves applied: applying the migrations one at a time reparses the schema at each change. Its writer is the one
+// connection writes run on, and its read pool opens the file read-only, with the same busy timeout, for every read. It
+// returns ErrTooNew, without migrating, when the database records a newer migration than this binary embeds. A file it
+// cannot use is left untouched.
 func Open(ctx context.Context, path string, opts ...Option) (*Store, error) {
 	cfg := openConfig{busyTimeout: BusyTimeout}
 	for _, opt := range opts {
@@ -268,8 +284,11 @@ func Open(ctx context.Context, path string, opts ...Option) (*Store, error) {
 		return nil, fmt.Errorf("open store: negative busy timeout %v", cfg.busyTimeout)
 	}
 	query := "_busy_timeout=" + strconv.FormatInt(cfg.busyTimeout.Milliseconds(), 10) + "&_journal_mode=WAL"
+	// The driver sets synchronous NORMAL when the DSN names none, so the default, FULL, is named here.
+	if cfg.synchronous == "" {
+		cfg.synchronous = SynchronousFull
+	}
 	switch cfg.synchronous {
-	case "":
 	case SynchronousOff, SynchronousNormal, SynchronousFull:
 		query += "&_synchronous=" + string(cfg.synchronous)
 	default:
@@ -289,14 +308,8 @@ func Open(ctx context.Context, path string, opts ...Option) (*Store, error) {
 	}
 
 	dsn := (&url.URL{Scheme: "file", Path: clean, RawQuery: query}).String()
-	inner, err := sqlite.NewConnector(dsn)
-	if err != nil {
-		return nil, fmt.Errorf("open store: %w", err)
-	}
-	readInner, err := sqlite.NewConnector(readOnlyDSNBusy(clean, cfg.busyTimeout.Milliseconds()))
-	if err != nil {
-		return nil, fmt.Errorf("open store: %w", err)
-	}
+	inner := newConnector(dsn)
+	readInner := newConnector(readOnlyDSNBusy(clean, cfg.busyTimeout.Milliseconds()))
 	connector := &trackedConnector{inner: inner, gate: cfg.connectGate, waiting: cfg.closeWaiting}
 	db := sql.OpenDB(connector)
 	db.SetMaxOpenConns(1)
@@ -316,6 +329,11 @@ func Open(ctx context.Context, path string, opts ...Option) (*Store, error) {
 		connector:     connector,
 		read:          &pool{DB: readDB, slow: slow},
 		readConnector: readConnector,
+	}
+	if !cfg.migrationsOnly {
+		if err = opened.makeFresh(ctx); err != nil {
+			return nil, errors.Join(err, opened.Close())
+		}
 	}
 	if err = opened.migrate(ctx); err != nil {
 		return nil, errors.Join(err, opened.Close())
@@ -351,6 +369,29 @@ func (s *Store) Close() error {
 		err = errors.Join(err, fmt.Errorf("%w: %s", ErrEpicWriteOutsideWrite, outside))
 	}
 	return err
+}
+
+// makeFresh makes the database from freshSchema, in one transaction, when it holds no schema object, and does nothing
+// otherwise.
+func (s *Store) makeFresh(ctx context.Context) error {
+	var objects int
+	if err := s.db.DB.QueryRowContext(ctx, "SELECT count(*) FROM sqlite_master").Scan(&objects); err != nil {
+		return fmt.Errorf("read store schema: %w", err)
+	}
+	if objects > 0 {
+		return nil
+	}
+	tx, err := s.db.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin fresh store schema: %w", err)
+	}
+	if _, err = tx.ExecContext(ctx, freshSchema); err != nil {
+		return errors.Join(fmt.Errorf("make fresh store schema: %w", err), tx.Rollback())
+	}
+	if err = tx.Commit(); err != nil {
+		return fmt.Errorf("commit fresh store schema: %w", err)
+	}
+	return nil
 }
 
 func (s *Store) migrate(ctx context.Context) error {
