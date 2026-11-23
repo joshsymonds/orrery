@@ -28,14 +28,14 @@ export function projectWaiting(project: Project): number {
 
 // narrow keeps what the chip names: the projects with a counted thing, each keeping its waiting conversations and only
 // the hung things that wait; or the projects with an unseen row, each keeping its unseen conversations with nothing hung.
-// Either way no ended line is kept. "" keeps every project as it is.
+// Either way no ended line is kept, and no ended epic folded under a conversation. "" keeps every project as it is.
 export function narrow(projects: readonly Project[], by: Narrow): Project[] {
   if (by === "") {
     return [...projects];
   }
   const kept: Project[] = [];
   for (const project of projects) {
-    const convos = by === "waiting" ? waitingConvos(project) : freshConvos(project).map((convo) => ({ ...convo, again: false, hung: [] }));
+    const convos = by === "waiting" ? waitingConvos(project) : freshConvos(project).map((convo) => ({ ...convo, folded: [], hung: [] }));
     if (convos.length > 0) {
       kept.push({ ...project, convos, ended: [] });
     }
@@ -52,8 +52,8 @@ export function waitOrder(projects: readonly Project[]): string[] {
 }
 
 // search keeps the projects with a conversation or a hung thing that holds every word, ignoring case. A conversation
-// that matches itself keeps all its hung things; otherwise it keeps only the ones that match. Ended conversations are
-// searched the same way.
+// that matches itself keeps all its hung and folded things; otherwise it keeps only the ones that match. Ended
+// conversations are searched the same way.
 export function search(projects: readonly Project[], words: readonly string[]): Project[] {
   const needles = words.map((word) => word.toLowerCase());
   const kept: Project[] = [];
@@ -114,11 +114,12 @@ export function freshConvos(project: Project): Convo[] {
   });
 }
 
-// waitingConvos is each conversation of a project that has a counted thing, keeping only the hung things that wait.
+// waitingConvos is each conversation of a project that has a counted thing, keeping only the hung things that wait, and
+// none of the ended epics folded under it.
 function waitingConvos(project: Project): Convo[] {
   return project.convos
     .filter((convo) => countedOf(convo).length > 0)
-    .map((convo) => ({ ...convo, hung: convo.hung.filter((hung) => waits(hung)) }));
+    .map((convo) => ({ ...convo, folded: [], hung: convo.hung.filter((hung) => waits(hung)) }));
 }
 
 function byOldest(left: Counted, right: Counted): number {
@@ -131,12 +132,15 @@ function byOldest(left: Counted, right: Counted): number {
   return left.key < right.key ? -1 : 1;
 }
 
-// searchConvos keeps each conversation that matches itself or has a hung thing that matches, with the things it keeps.
+// searchConvos keeps each conversation that matches itself or has a hung or folded thing that matches, with the things it
+// keeps, the hung ones and the folded ones alike.
 function searchConvos(convos: readonly Convo[], place: string[], needles: string[]): Convo[] {
   return convos.flatMap((convo) => {
     const self = convo.row !== null && matches([convo.row.label, convo.row.state, convo.row.host, ...place], needles);
-    const hung = self ? convo.hung : convo.hung.filter((item) => matches(textOf(item, place), needles));
-    return self || hung.length > 0 ? [{ ...convo, hung }] : [];
+    const keeps = (item: Hung) => matches(textOf(item, place), needles);
+    const hung = self ? convo.hung : convo.hung.filter(keeps);
+    const folded = self ? convo.folded : convo.folded.filter(keeps);
+    return self || hung.length > 0 || folded.length > 0 ? [{ ...convo, folded, hung }] : [];
   });
 }
 
