@@ -206,7 +206,8 @@ type Config struct {
 	Steps StepClient
 	// Records is the gambit record root the Epics service reads, or empty to list nothing.
 	Records string
-	// EpicStore is orreryd's Epics client, which List and Get merge with the records, or nil for no orreryd epics.
+	// EpicStore is orreryd's Epics client, which List and Get merge with the records and Contracts.Get reads each
+	// accepted contract's work from, or nil for no orreryd epics.
 	EpicStore EpicStoreClient
 	// EpicCommands is orreryd's Epics client, which Pause, Resume, Stop, Retry and Answer forward the owner's commands
 	// to, or nil, which answers unavailable.
@@ -220,8 +221,8 @@ type Config struct {
 	// AccountCommands is orreryd's Accounts client, which Accounts.Add, Rename and Remove and Routes.Replace and
 	// SetContextAccount forward the owner's commands to, or nil, which answers unavailable.
 	AccountCommands enginev1connect.AccountsClient
-	// Evidence is orreryd's Evidence client, which Epics.Get reads each Requirement's runs from and Evidence.Artifact
-	// reads artifacts from, or nil for no runs and no artifacts.
+	// Evidence is orreryd's Evidence client, which Epics.Get and Contracts.Get read each Requirement's runs from and
+	// Evidence.Artifact reads artifacts from, or nil for no runs and no artifacts.
 	Evidence EvidenceClient
 	// Home is the home directory a Control start must name a directory under, after symlinks resolve. An empty,
 	// relative or root Home, or one that does not exist, refuses every start.
@@ -336,7 +337,8 @@ func New(cfg Config) (http.Handler, error) {
 // registerEpicServices mounts the Epics service, the Evidence service, the Contracts service and the Designs service on
 // mux, all over the records, steps, epic store, epic commands, evidence client, contract commands and store reader of
 // cfg, and returns their paths. The Epics service also lists the sessions of cfg's store reader, and dates its records
-// from now. The Contracts service and the Designs service forward their stage calls to cfg's stage commands.
+// from now. The Contracts service reads each accepted contract's work from cfg's epic store and evidence client. The
+// Contracts service and the Designs service forward their stage calls to cfg's stage commands.
 func registerEpicServices(mux *http.ServeMux, cfg Config, now func() time.Time) (string, string, string, string) {
 	epicsPath, epicsService := newEpicsHandler(
 		cfg.Records, cfg.Steps, cfg.EpicStore, cfg.EpicCommands, cfg.Evidence, cfg.Sessions, cfg.ControlTimeout, now,
@@ -346,8 +348,8 @@ func registerEpicServices(mux *http.ServeMux, cfg Config, now func() time.Time) 
 	evidencePath, evidenceService := newEvidenceHandler(cfg.Evidence, cfg.ControlTimeout, cfg.HandlerOptions...)
 	mux.Handle(evidencePath, evidenceService)
 	contractsPath, contractsService := newContractsHandler(
-		cfg.Sessions, cfg.ContractCommands, cfg.StageCommands, cfg.ControlTimeout, rpcretry.SystemClock{},
-		cfg.HandlerOptions...,
+		cfg.Sessions, cfg.EpicStore, cfg.Evidence, cfg.ContractCommands, cfg.StageCommands, cfg.ControlTimeout,
+		rpcretry.SystemClock{}, cfg.HandlerOptions...,
 	)
 	mux.Handle(contractsPath, contractsService)
 	designsPath, designsService := newDesignsHandler(

@@ -37,13 +37,17 @@ const (
 )
 
 // contractsServer answers orrery.v1.Contracts. List and Get read the store reader. A nil reader answers them
-// unavailable. Accept, SetAside and Reopen forward to commands with no caller headers, so orreryd records the owner as
-// the one who made each change. A nil commands answers them unavailable. Keep and Strike forward to stage with no
-// caller headers, as the owner's writes, and answer the contract read from the reader; Shown forwards to stage and
-// answers the rows orreryd marked. A nil stage answers them unavailable. Each forwarded call runs under timeout and
-// is retried only while rpcretry.NeverConnected accepts its error, as the epic commands are.
+// unavailable. Get reads the work of an accepted contract's requirements from store and evidence, as Epics.Get reads
+// its epic: a nil store holds no epic, and a nil evidence attaches no runs. Accept, SetAside and Reopen forward to
+// commands with no caller headers, so orreryd records the owner as the one who made each change. A nil commands answers
+// them unavailable. Keep and Strike forward to stage with no caller headers, as the owner's writes, and answer the
+// contract read from the reader; Shown forwards to stage and answers the rows orreryd marked. A nil stage answers them
+// unavailable. Each forwarded call runs under timeout and is retried only while rpcretry.NeverConnected accepts its
+// error, as the epic commands are.
 type contractsServer struct {
 	reader   *store.Reader
+	store    EpicStoreClient
+	evidence EvidenceClient
 	commands enginev1connect.ContractsClient
 	stage    enginev1connect.StageClient
 	timeout  time.Duration
@@ -69,8 +73,8 @@ func (c contractsServer) List(
 	return connect.NewResponse(&orreryv1.ContractsListResponse{Contracts: contracts}), nil
 }
 
-// Get answers the contract of the id List gave it, with every version oldest first and the state history. An id no
-// contract holds answers not_found.
+// Get answers the contract of the id List gave it, with every version oldest first, the state history and the work of
+// each requirement (contractWork). An id no contract holds answers not_found.
 func (c contractsServer) Get(
 	ctx context.Context,
 	req *connect.Request[orreryv1.ContractsGetRequest],
@@ -97,10 +101,15 @@ func (c contractsServer) Get(
 	for _, state := range record.States {
 		states = append(states, contractStateMessage(state))
 	}
+	work, err := c.contractWork(ctx, record.ContractListing, versions)
+	if err != nil {
+		return nil, err
+	}
 	return connect.NewResponse(&orreryv1.ContractsGetResponse{
 		Contract: contractListingMessage(record.ContractListing),
 		Versions: versions,
 		States:   states,
+		Work:     work,
 	}), nil
 }
 
@@ -391,11 +400,14 @@ func contractStateMessage(state store.ContractStateChange) *orreryv1.ContractSta
 	}
 }
 
-// newContractsHandler returns the path and handler of the Contracts service, reading contracts from reader, forwarding
-// its commands to commands and its keeps, strikes and shown rows to stage, all as contractsServer does. A zero timeout
-// is defaultControlTimeout. Each request reads at most maxControlBody bytes.
+// newContractsHandler returns the path and handler of the Contracts service, reading contracts from reader, reading
+// each accepted contract's work from epicStore and evidence, forwarding its commands to commands and its keeps, strikes
+// and shown rows to stage, all as contractsServer does. A zero timeout is defaultControlTimeout. Each request reads at
+// most maxControlBody bytes.
 func newContractsHandler(
 	reader *store.Reader,
+	epicStore EpicStoreClient,
+	evidence EvidenceClient,
 	commands enginev1connect.ContractsClient,
 	stage enginev1connect.StageClient,
 	timeout time.Duration,
@@ -407,7 +419,10 @@ func newContractsHandler(
 	}
 	options := append([]connect.HandlerOption{connect.WithReadMaxBytes(maxControlBody)}, opts...)
 	return orreryv1connect.NewContractsHandler(
-		contractsServer{reader: reader, commands: commands, stage: stage, timeout: timeout, clock: clock},
+		contractsServer{
+			reader: reader, store: epicStore, evidence: evidence, commands: commands, stage: stage, timeout: timeout,
+			clock: clock,
+		},
 		options...,
 	)
 }
