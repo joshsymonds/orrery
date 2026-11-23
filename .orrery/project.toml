@@ -1,24 +1,24 @@
 # orrery's own project file. An epic whose contract names no release steps releases by these, read at its base.
 
 [release]
-then = "origin main and the new tag name the released commit, nix-config pins the tag, and orreryd and orrery-serve run it."
+then = "origin main and a tag that contains the released commit name it, nix-config pins that tag or a newer one, and orreryd and orrery-serve run it."
 
 [[release.steps]]
-step = "1 Fast-forward main to the epic's release candidate and push main to origin, so main holds the change; do not wait for CI."
+step = "1 Fast-forward main to the epic's release candidate and push main to origin, so main holds the change; do not wait for CI. If origin refuses the push of main, the step returns status blocked with the refusal as evidence and never merges, rebases or force-pushes."
 target = "github.com/joshsymonds/orrery, branch main"
 undo = "Push a revert of the change to main."
 
 [[release.steps]]
-step = "2 Create a signed annotated tag at that main commit, named the next patch version above the newest v* tag on origin when this step runs, its message one sentence naming the change, and push it."
+step = "2 Create a signed annotated tag at that main commit, named the next patch version above the newest v* tag on origin when this step runs, its message one sentence naming the change, and push it. If that tag already exists locally or on origin, take the next free patch above it instead. Never move or delete a tag this step did not create. If origin already has a newer v* tag whose commit contains this release's main commit, skip the tag and return done with evidence naming that newer tag."
 target = "github.com/joshsymonds/orrery, the new tag"
 undo = "git push --delete origin <tag> and delete the local tag."
 
 [[release.steps]]
-step = "3 In ~/nix-config set flake.nix's orrery input url to the new tag, run `nix flake update orrery`, and commit only flake.nix and flake.lock with a message naming the tag."
+step = "3 In ~/nix-config set flake.nix's orrery input url to the new tag, run `nix flake update orrery`, and commit only flake.nix and flake.lock with a message naming the tag. If origin already has a newer v* tag whose commit contains this release's main commit, skip the pin and return done with evidence naming that newer tag."
 target = "~/nix-config"
 undo = "Commit flake.nix and flake.lock back to the previous tag."
 
 [[release.steps]]
-step = "4 Run `update` in ~/nix-config and confirm orreryd and orrery-serve run the new store path and the store is at the tag's newest migration."
+step = "4 Run `update` in ~/nix-config and confirm orreryd and orrery-serve run the new store path and the store is at the tag's newest migration. If origin already has a newer v* tag whose commit contains this release's main commit, skip `update` and return done with evidence naming that newer tag, and read the confirmation as met by that tag: origin main and a tag that contains the released commit name it, nix-config pins that tag or a newer one, and orreryd and orrery-serve run it."
 target = "vermissian user services and the orrery store"
 undo = "Undo step 3, then run `update`; when the tag added a store migration, fix forward with a new release instead, since an older orreryd refuses the migrated store."
