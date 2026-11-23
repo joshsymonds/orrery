@@ -292,8 +292,10 @@ func syncMergesOriginMainAtAQuietPoint(images *worldImages) func(t *testing.T) {
 
 // syncConflictTellsOnceAndIsNotTriedAgain: origin's main adds a path a task added too, so the merge conflicts. The
 // sync ends failed and tells the paths once, the branch and stored base stay, nothing is pinned, and the planner gets
-// its turn in the same pass. At the next quiet point origin's main has not moved, so its read finds the commit the
-// first sync tried, no sync starts and no run is stored, and nothing more is told.
+// its turn in the same pass. At the next quiet point origin's main has not moved, but the stored base has: the commit
+// the first sync tried at the old stored base is not tried at the new one, so a sync of it is stored at syncSecond,
+// merges into the new stored base, conflicts in b.go there and is told once more. The branch and stored base stay at
+// the new stored base.
 func syncConflictTellsOnceAndIsNotTriedAgain(images *worldImages) func(t *testing.T) {
 	return func(t *testing.T) {
 		t.Parallel()
@@ -324,22 +326,28 @@ func syncConflictTellsOnceAndIsNotTriedAgain(images *worldImages) func(t *testin
 		w.nextTurn(candidate, 3, 4, integrateNextBatch)
 		next := w.candidate(integrateNextBatch)
 		if !w.passed() {
-			t.Error("the planner got no turn at a quiet point whose origin commit a sync tried")
+			t.Error("the planner got no turn after the second sync conflicted")
 		}
-		if w.hasRunAt(syncSecond) {
-			t.Errorf("sync %s stored for origin's commit the first sync tried", syncSecond)
-		}
-		w.requireRead(next, originHead, originAhead)
+		again := fmt.Sprintf(
+			"merge of origin's commit %s into the stored base %s conflicts in b.go",
+			originHead,
+			next,
+		)
+		w.requireSyncEnded(syncSecond, outcomeFailed, again)
 		w.requireUnmoved(next)
-		if tells := w.syncTells(); !reflect.DeepEqual(tells, want) {
-			t.Errorf("tells after the second quiet point = %q, want only the first %q", tells, want)
+		w.requireRead(next, originHead, originTaken)
+		both := []string{"workflow node plan/M1 failed: " + output, "workflow node plan/M2 failed: " + again}
+		if tells := w.syncTells(); !reflect.DeepEqual(tells, both) {
+			t.Errorf("tells after the second quiet point = %q, want the first and the second %q", tells, both)
 		}
 	}
 }
 
 // syncGateFailureTellsAndALaterMainIsTried: a Done gate that fails at the merge ends the sync failed and tells it,
-// and the branch does not move. The same origin commit is not tried at the next quiet point: no sync run is stored and
-// no gate runs for it. Once origin's main moves, the next quiet point merges the new commit and advances to it.
+// and the branch does not move. The same origin commit is tried again once the stored base moves: at the next quiet
+// point a sync of it is stored at syncSecond, merges into the new stored base and runs its Done gate there, which
+// fails too, so that sync ends failed and is told as well. Once origin's main moves, the next quiet point merges the
+// new commit and advances to it.
 func syncGateFailureTellsAndALaterMainIsTried(images *worldImages) func(t *testing.T) {
 	return func(t *testing.T) {
 		t.Parallel()
@@ -366,11 +374,29 @@ func syncGateFailureTellsAndALaterMainIsTried(images *worldImages) func(t *testi
 		second := w.candidate(integrateNextBatch)
 		checks++ // The second batch's own Done gate.
 		w.pass()
-		if w.hasRunAt(syncSecond) {
-			t.Errorf("sync %s stored for origin's commit the first sync tried", syncSecond)
+		checks++ // The second sync's Done gate, at the new stored base.
+		if !w.hasRunAt(syncSecond) {
+			t.Errorf("sync %s not stored for origin's commit at the new stored base", syncSecond)
 		}
 		if got := len(w.fakes.checks.calls); got != checks {
-			t.Errorf("%d checks run, want %d: the tried commit runs no gate again", got, checks)
+			t.Errorf("%d checks run, want %d: the sync's Done gate runs at the new stored base", got, checks)
+		}
+		w.endGate(syncSecond, 1, "lint failed")
+		if !w.passed() {
+			t.Error("the planner got no turn after the second sync's gate failed")
+		}
+		retry := runAt(t, w.s, syncSecond)
+		again := fmt.Sprintf(
+			"merge %s of origin's commit %s into the stored base %s\nDone gate lint failed",
+			retry.Revision,
+			originHead,
+			second,
+		)
+		w.requireSyncEnded(syncSecond, outcomeFailed, again)
+		w.requireUnmoved(second)
+		both := []string{"workflow node plan/M1 failed: " + output, "workflow node plan/M2 failed: " + again}
+		if tells := w.syncTells(); !reflect.DeepEqual(tells, both) {
+			t.Errorf("tells = %q, want the first and the second gate failure %q", tells, both)
 		}
 
 		later := w.originCommit("later.txt")

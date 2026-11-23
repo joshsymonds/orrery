@@ -451,8 +451,10 @@ func (p pass) plan(def workflow.Node, run store.NodeRun, act kinds.Action) []Act
 // path>/M<turn>, where <turn> is the epic's highest turn that is not free (syncTurn): one sync is tried for each such
 // turn. A due sync reads origin's main first when the epic's last read is stale (originStale), which holds the plan
 // while it reads. A sync run starts at that path only when the last read found origin's commit ahead of the stored base
-// and no earlier sync tried that commit (kinds.SyncTriedBy), and it holds the plan too. Any other read starts nothing,
-// so a turn whose origin's main has not moved stores no run. An interpreter that registers no sync kind starts none.
+// and no earlier sync tried that commit at the stored base (kinds.SyncTriedBy), a try being keyed on origin's commit
+// and the stored base, so a commit an earlier sync tried at a base the stored base has since moved from is tried again.
+// It holds the plan too. Any other read starts nothing, so a turn whose origin's main has not moved stores no run. An
+// interpreter that registers no sync kind starts none.
 func (p pass) syncMain(def workflow.Node, run store.NodeRun, settled bool) ([]Action, bool) {
 	kind, ok := p.reg[kindSync]
 	if !ok {
