@@ -139,12 +139,41 @@ function ArtifactImage(props: { run: string; path: string; loadArtifact: LoadArt
   return <img class="artifact-image" src={src} alt={path} />;
 }
 
+// liveSentenceOf is what a run that has not ended is doing, in its sentence: waiting for the gatherer, being gathered, or
+// a judge reading its output. Any other state reads as capturing, which a server that has not been upgraded sends.
+function liveSentenceOf(state: string): string {
+  switch (state) {
+    case "waiting":
+      return "waiting for the gatherer";
+    case "gathering":
+      return "being gathered";
+    case "judging":
+      return "a judge is reading the output";
+    default:
+      return "capturing the output";
+  }
+}
+
+// liveWordOf is a run's chip word while it has not ended: the state of its sentence, in a word.
+function liveWordOf(state: string): string {
+  switch (state) {
+    case "waiting":
+      return "waiting for the gatherer";
+    case "gathering":
+      return "being gathered";
+    case "judging":
+      return "judging";
+    default:
+      return "capturing";
+  }
+}
+
 // sentenceOf is a run's one sentence: what its capture is doing while it goes, why its output is missing, or whether
 // the test failed as it should, or passed on the change, once it has ended.
 function sentenceOf(run: EvidenceRun): string {
   const phase = run.phase === "red" ? "Red" : "Green";
   if (run.state !== "ended") {
-    return `${phase} run: ${run.state === "judging" ? "a judge is reading the output" : "capturing the output"}…`;
+    return `${phase} run: ${liveSentenceOf(run.state)}…`;
   }
   if (run.notCaptured !== "") {
     return `${phase} run: the output was not captured: ${run.notCaptured}.`;
@@ -161,7 +190,7 @@ function sentenceOf(run: EvidenceRun): string {
 // reason after it. The tone names the chip's class, and the glyph its mark.
 function chipOf(run: EvidenceRun): { tone: string; glyph: string; word: string } {
   if (run.state !== "ended") {
-    return { tone: "live", glyph: "", word: run.state === "judging" ? "judging" : "capturing" };
+    return { tone: "live", glyph: "", word: liveWordOf(run.state) };
   }
   if (run.verdict === "holds") {
     return { tone: "ok", glyph: "✓", word: "holds" };
