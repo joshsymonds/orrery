@@ -364,6 +364,10 @@ func TestContractRecordGetGivesVersionsAndStates(t *testing.T) {
 				Time: contractTimeB},
 			{State: "accepted", Version: 2, By: "owner", Words: "Synthetic accept.", Time: contractTimeBAcc},
 		},
+		// The contract is accepted and orreryd holds no epic for it, so its one requirement is not started.
+		Work: []*orreryv1.ContractRequirementWork{
+			{Id: "R1", Text: "Synthetic requirement.", State: "not started"},
+		},
 	}
 	if !proto.Equal(reply.Msg, want) {
 		t.Fatalf("Get = %v, want %v", reply.Msg, want)
