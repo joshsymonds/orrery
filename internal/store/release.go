@@ -29,9 +29,9 @@ const (
 	ReleasePartStop       = "stop"
 )
 
-// The phases an epic's release moves through: clean until it takes the release slot, releasing while it holds the
-// slot, and stopped when a release step stops it. Clean is also the phase an epic whose frozen review found it clean
-// ends in, and EndEpic stores the epic's stored base as its review's clean revision then.
+// The phases an epic's release moves through: clean until its release starts, releasing while its release runs, and
+// stopped when a release step stops it. Clean is also the phase an epic whose frozen review found it clean ends in, and
+// EndEpic stores the epic's stored base as its review's clean revision then.
 const (
 	PhaseClean     = "clean"
 	PhaseReleasing = "releasing"
@@ -135,69 +135,20 @@ func appendRelease(ctx context.Context, queries *sqlcgen.Queries, epic string, r
 	return recordRelease(ctx, queries, epic, run)
 }
 
-// TakeReleaseSlot takes the release slot of epic's repository for epic, in one write, and returns the slot's holder
-// after the write. An epic in clean, releasing or stopped takes the slot when it is free, or keeps it when it already
-// holds it, and only a clean epic that holds it moves to releasing. When another epic holds the slot nothing changes
-// and that epic is returned. An epic in any other phase takes nothing. It returns an error matching ErrNoEpic when no
-// epic has the id.
-func (s *Store) TakeReleaseSlot(ctx context.Context, epic string, at time.Time) (string, error) {
-	var holder string
-	err := s.write(ctx, func(queries *sqlcgen.Queries) error {
-		row, err := queries.GetEpic(ctx, epic)
-		if errors.Is(err, sql.ErrNoRows) {
+// StartRelease moves epic from clean to releasing, in one write, so its release runs at once. An epic in any other
+// phase is left as it is. It returns an error matching ErrNoEpic when no epic has the id.
+func (s *Store) StartRelease(ctx context.Context, epic string, at time.Time) error {
+	return s.write(ctx, func(queries *sqlcgen.Queries) error {
+		if _, err := queries.GetEpic(ctx, epic); errors.Is(err, sql.ErrNoRows) {
 			return fmt.Errorf("epic %s: %w", epic, ErrNoEpic)
-		}
-		if err != nil {
+		} else if err != nil {
 			return fmt.Errorf("get epic %s: %w", epic, err)
 		}
-		if takesReleaseSlot(row.Phase) {
-			if err = queries.InsertEpicReleaseSlot(ctx, sqlcgen.InsertEpicReleaseSlotParams{
-				Repository: row.Repository, Epic: epic,
-			}); err != nil {
-				return fmt.Errorf("take release slot of epic %s: %w", epic, err)
-			}
-		}
-		if holder, err = releaseSlotHolder(ctx, queries, row.Repository); err != nil {
-			return err
-		}
-		if holder == epic && row.Phase == PhaseClean {
-			if err = queries.StartEpicRelease(
-				ctx,
-				sqlcgen.StartEpicReleaseParams{PhaseAt: at.Unix(), ID: epic},
-			); err != nil {
-				return fmt.Errorf("start release of epic %s: %w", epic, err)
-			}
-		}
-		return nil
-	})
-	if err != nil {
-		return "", err
-	}
-	return holder, nil
-}
-
-// takesReleaseSlot reports whether an epic in phase may take the release slot of its repository.
-func takesReleaseSlot(phase string) bool {
-	return phase == PhaseClean || phase == PhaseReleasing || phase == PhaseStopped
-}
-
-// releaseSlotHolder returns the epic that holds the release slot of repository, or "" when the slot is free.
-func releaseSlotHolder(ctx context.Context, queries *sqlcgen.Queries, repository string) (string, error) {
-	row, err := queries.GetEpicReleaseSlotHolder(ctx, repository)
-	if errors.Is(err, sql.ErrNoRows) {
-		return "", nil
-	}
-	if err != nil {
-		return "", fmt.Errorf("read release slot of %s: %w", repository, err)
-	}
-	return row.Epic, nil
-}
-
-// FreeReleaseSlot frees the release slot epic holds, in one write. A slot another epic holds is left as it is.
-func (s *Store) FreeReleaseSlot(ctx context.Context, epic string) error {
-	return s.write(ctx, func(queries *sqlcgen.Queries) error {
-		if err := queries.FreeEpicReleaseSlot(ctx, epic); err != nil {
-			return fmt.Errorf("free release slot of epic %s: %w", epic, err)
+		if err := queries.StartEpicRelease(
+			ctx,
+			sqlcgen.StartEpicReleaseParams{PhaseAt: at.Unix(), ID: epic},
+		); err != nil {
+			return fmt.Errorf("start release of epic %s: %w", epic, err)
 		}
 		return nil
 	})

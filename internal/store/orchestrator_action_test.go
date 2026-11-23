@@ -10,8 +10,8 @@ import (
 	"github.com/joshsymonds/orrery/internal/store/sqlcgen"
 )
 
-// actionEpic is the epic the action tests stop, resume and close, and actionOther is the epic of the release tests that
-// holds no release slot. Both are in the repository of fullEpic, so one of them holds that repository's slot at a time.
+// actionEpic is the epic the action tests stop, resume and close, and actionOther is another epic of the repository of
+// fullEpic.
 const (
 	actionEpic  = "orrery-1a2b3c4/epic-actions"
 	actionOther = "orrery-1a2b3c4/epic-unslotted"
@@ -69,8 +69,8 @@ func triggerRow(t *testing.T, s *Store, epic, id string) (state, cause string) {
 	return state, cause
 }
 
-// createStoppedRelease stores epic as a release stopped at its first release step, which failed. epic takes its
-// repository's release slot while clean, and its release stops it, so it holds the slot.
+// createStoppedRelease stores epic as a release stopped at its first release step, which failed. epic starts its
+// release while clean, and its release stops it.
 func createStoppedRelease(t *testing.T, s *Store, epic string) {
 	t.Helper()
 	ctx := context.Background()
@@ -83,8 +83,8 @@ func createStoppedRelease(t *testing.T, s *Store, epic string) {
 	run := NodeRun{Path: "release", ID: "id-" + epic, Node: "release", Kind: "release", Attempt: 1}
 	row.Phase = PhaseClean
 	createEpic(t, s, row)
-	if _, err := s.TakeReleaseSlot(ctx, epic, at); err != nil {
-		t.Fatalf("TakeReleaseSlot of epic %s: %v", epic, err)
+	if err := s.StartRelease(ctx, epic, at); err != nil {
+		t.Fatalf("StartRelease of epic %s: %v", epic, err)
 	}
 	if err := s.StartNodes(ctx, epic, []NodeRun{run}, nil, at); err != nil {
 		t.Fatalf("StartNodes of epic %s: %v", epic, err)
@@ -332,10 +332,10 @@ func TestOrchestratorActionFailTaskClimbsTheOpenTask(t *testing.T) {
 	}
 }
 
-// TestOrchestratorActionResumeReleaseResumesAStoppedReleaseHoldingItsSlot checks that a resume_release action resumes a
-// release stopped at a failed step that can be undone, with no undo-none step named, and records it as a decision that
-// holds its reason.
-func TestOrchestratorActionResumeReleaseResumesAStoppedReleaseHoldingItsSlot(t *testing.T) {
+// TestOrchestratorActionResumeReleaseResumesAStoppedRelease checks that a resume_release action resumes a release
+// stopped at a failed step that can be undone, with no undo-none step named, and records it as a decision that holds
+// its reason.
+func TestOrchestratorActionResumeReleaseResumesAStoppedRelease(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	s := openEpicStore(t)

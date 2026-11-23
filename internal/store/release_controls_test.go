@@ -15,8 +15,7 @@ import (
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
-// resumeEpic holds the release slot of resumeRepo once its release is stopped, and resumeOther is a second epic of that
-// repository, stopped by a release of its own, which must not take the slot.
+// resumeEpic is the epic a stopped release resumes, and resumeOther a second epic of its repository, resumeRepo.
 const (
 	resumeEpic       = "orrery-7e8f9a0/epic-resume"
 	resumeOther      = "orrery-7e8f9a0/epic-resume-other"
@@ -85,7 +84,7 @@ func namedPublishDecision() store.EpicDecision {
 	}
 }
 
-// stoppedRelease returns a store with resumeEpic stopped by its release. resumeEpic is clean, takes the release slot,
+// stoppedRelease returns a store with resumeEpic stopped by its release. resumeEpic is clean, starts its release,
 // starts its release node run at attempt 1, records runs under it, and is stopped at that run with resumeStopReason.
 func stoppedRelease(t *testing.T, runs ...store.ReleaseRun) (*store.Store, *sql.DB) {
 	t.Helper()
@@ -97,8 +96,8 @@ func stoppedReleaseOf(t *testing.T, row store.EpicRow, runs ...store.ReleaseRun)
 	t.Helper()
 	ctx := context.Background()
 	s, raw := openReleaseStore(t, row)
-	if _, err := s.TakeReleaseSlot(ctx, resumeEpic, resumeAt()); err != nil {
-		t.Fatalf("TakeReleaseSlot of %s: %v", resumeEpic, err)
+	if err := s.StartRelease(ctx, resumeEpic, resumeAt()); err != nil {
+		t.Fatalf("StartRelease of %s: %v", resumeEpic, err)
 	}
 	run := store.NodeRun{Path: "release", ID: "id-resume", Node: "release", Kind: "release", Attempt: 1}
 	if err := s.StartNodes(ctx, resumeEpic, []store.NodeRun{run}, nil, releaseRunAt()); err != nil {
@@ -129,32 +128,6 @@ func stoppedAtPublishNone(t *testing.T) (*store.Store, *sql.DB) {
 	row := resumeEpicIn(resumeEpic, store.PhaseClean)
 	row.ReleaseSteps[1].Undo = " None "
 	return stoppedReleaseOf(t, row, releasedStep(1, true), releasedStep(2, false))
-}
-
-// parkOther creates resumeOther stopped with a parked release run, so it holds no slot but is stopped by a release.
-func parkOther(t *testing.T, s *store.Store) {
-	t.Helper()
-	ctx := context.Background()
-	if err := s.CreateEpic(ctx, resumeEpicIn(resumeOther, store.PhaseStopped)); err != nil {
-		t.Fatalf("CreateEpic %s: %v", resumeOther, err)
-	}
-	run := store.NodeRun{Path: "release", ID: "id-other", Node: "release", Kind: "release", Attempt: 1}
-	if err := s.StartNodes(ctx, resumeOther, []store.NodeRun{run}, nil, releaseRunAt()); err != nil {
-		t.Fatalf("StartNodes of %s: %v", resumeOther, err)
-	}
-	if err := s.ParkNode(
-		ctx,
-		resumeOther,
-		"release",
-		1,
-		"failed",
-		"rejected",
-		store.ParkClassReleaseOwnerStop,
-		"other stopped",
-		releaseRunAt(),
-	); err != nil {
-		t.Fatalf("ParkNode of %s: %v", resumeOther, err)
-	}
 }
 
 // releaseRowsOf returns the rows of each table a release control writes, as text, so a test can check that a refused
@@ -249,17 +222,6 @@ func TestReleaseEpicRefusesWhatItMustNotResume(t *testing.T) {
 			epic: resumeEpic,
 			undo: []int64{2},
 			want: "epic " + resumeEpic + " has not started a release; name no undo-none step",
-		},
-		{
-			name: "another epic holds the release slot",
-			setup: func(t *testing.T) (*store.Store, *sql.DB) {
-				t.Helper()
-				s, raw := stoppedAtPublish(t)
-				parkOther(t, s)
-				return s, raw
-			},
-			epic: resumeOther,
-			want: fmt.Sprintf("epic %s holds the release slot of %s", resumeEpic, resumeRepo),
 		},
 		{
 			name:  "a named step has an undo",
@@ -379,15 +341,14 @@ func TestReleaseEpicResumesAtTheFirstUnfinishedStep(t *testing.T) {
 			}
 			requireReleaseRuns(t, s, resumeEpic, inReadOrder(slices.Concat(c.runs, c.wantNamed)))
 			requireDecisions(t, s, resumeEpic, c.wantDecisions)
-			requireSlot(t, s, resumeEpic, resumeEpic)
 			requirePhase(t, s, resumeEpic, store.PhaseReleasing)
 		})
 	}
 }
 
-// TestReleaseEpicReleasesAnEndedWithGapsEpic checks that ReleaseEpic of an epic that ended with gaps records the owner's
-// decision and moves the epic to clean in one write, with no tell, that the clean epic then takes its repository's
-// release slot, and that a second call is refused as not stopped and writes nothing.
+// TestReleaseEpicReleasesAnEndedWithGapsEpic checks that ReleaseEpic of an epic that ended with gaps records the
+// owner's decision and moves the epic to clean in one write, with no tell, that the clean epic then starts its release,
+// and that a second call is refused as not stopped and writes nothing.
 func TestReleaseEpicReleasesAnEndedWithGapsEpic(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -405,25 +366,29 @@ func TestReleaseEpicReleasesAnEndedWithGapsEpic(t *testing.T) {
 		t.Errorf("tells of epic %s after ReleaseEpic = %q, want %q", resumeEpic, got, tells)
 	}
 	requireRefusedResume(t, s, raw, resumeEpic, nil, "epic "+resumeEpic+" is not stopped")
-	if _, err := s.TakeReleaseSlot(ctx, resumeEpic, resumeAt()); err != nil {
-		t.Fatalf("TakeReleaseSlot of %s: %v", resumeEpic, err)
+	if err := s.StartRelease(ctx, resumeEpic, resumeAt()); err != nil {
+		t.Fatalf("StartRelease of %s: %v", resumeEpic, err)
 	}
-	requireSlot(t, s, resumeEpic, resumeEpic)
+	requirePhase(t, s, resumeEpic, store.PhaseReleasing)
 }
 
-// TestReleaseEpicTakesAFreeSlot checks that a stopped release whose slot is free takes the slot on resume.
-func TestReleaseEpicTakesAFreeSlot(t *testing.T) {
+// TestReleaseEpicResumesWhileAnotherEpicOfItsRepositoryReleases checks that a stopped release resumes at once although
+// another epic of its repository is releasing.
+func TestReleaseEpicResumesWhileAnotherEpicOfItsRepositoryReleases(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	s, _ := stoppedRelease(t, releasedStep(1, true))
-	if err := s.FreeReleaseSlot(ctx, resumeEpic); err != nil {
-		t.Fatalf("FreeReleaseSlot of %s: %v", resumeEpic, err)
+	if err := s.CreateEpic(ctx, resumeEpicIn(resumeOther, store.PhaseClean)); err != nil {
+		t.Fatalf("CreateEpic %s: %v", resumeOther, err)
 	}
-	requireSlot(t, s, resumeEpic, "")
+	if err := s.StartRelease(ctx, resumeOther, resumeAt()); err != nil {
+		t.Fatalf("StartRelease of %s: %v", resumeOther, err)
+	}
 	if err := s.ReleaseEpic(ctx, resumeEpic, nil, store.Maker{}, resumeAt()); err != nil {
-		t.Fatalf("ReleaseEpic: %v", err)
+		t.Fatalf("ReleaseEpic of %s: %v", resumeEpic, err)
 	}
-	requireSlot(t, s, resumeEpic, resumeEpic)
+	requirePhase(t, s, resumeEpic, store.PhaseReleasing)
+	requirePhase(t, s, resumeOther, store.PhaseReleasing)
 }
 
 // TestRetryNodeRefusesTheReleaseNode checks that RetryNode of a stopped release's node is refused, pointing to orrery
@@ -462,7 +427,7 @@ func TestReleaseEpicNamesAnUndoNoneStepWrittenNone(t *testing.T) {
 
 // TestStopEpicReleaseStopsTheReleaseAndReturnsTheOpenStep checks that StopEpic of a releasing epic with no running turn
 // records the owner's stop of its release at the attempt of its running release run, returns the release step of that
-// attempt that has no end, or "" when none does, and neither pauses the epic, changes its phase nor frees its slot.
+// attempt that has no end, or "" when none does, and neither pauses the epic nor changes its phase.
 func TestStopEpicReleaseStopsTheReleaseAndReturnsTheOpenStep(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
@@ -486,8 +451,8 @@ func TestStopEpicReleaseStopsTheReleaseAndReturnsTheOpenStep(t *testing.T) {
 			t.Parallel()
 			ctx := context.Background()
 			s, raw := openReleaseStore(t, resumeEpicIn(resumeEpic, store.PhaseClean))
-			if _, err := s.TakeReleaseSlot(ctx, resumeEpic, resumeAt()); err != nil {
-				t.Fatalf("TakeReleaseSlot of %s: %v", resumeEpic, err)
+			if err := s.StartRelease(ctx, resumeEpic, resumeAt()); err != nil {
+				t.Fatalf("StartRelease of %s: %v", resumeEpic, err)
 			}
 			addReleaseSteps(t, s, resumeEpic)
 			for _, part := range c.ended {
@@ -509,7 +474,6 @@ func TestStopEpicReleaseStopsTheReleaseAndReturnsTheOpenStep(t *testing.T) {
 			if step != c.want {
 				t.Errorf("StopEpic step = %q, want %q", step, c.want)
 			}
-			requireSlot(t, s, resumeEpic, resumeEpic)
 			requirePhase(t, s, resumeEpic, store.PhaseReleasing)
 			requireReleaseRuns(t, s, resumeEpic, []store.ReleaseRun{{
 				Part: store.ReleasePartStop, Attempt: 1, Reason: "owner stopped the release",
@@ -559,17 +523,17 @@ func TestStopEpicStoppedReleaseTakesTheOwnerStopClass(t *testing.T) {
 	}
 }
 
-// TestStopEpicReleaseRefusesAnEpicThatHoldsNoSlot checks that StopEpic of an epic with no running turn that holds no
-// slot is refused as before, writes nothing, and leaves the slot its holder took as it is.
-func TestStopEpicReleaseRefusesAnEpicThatHoldsNoSlot(t *testing.T) {
+// TestStopEpicReleaseRefusesAnEpicWithNoRunningTurn checks that StopEpic of an epic with no running turn is refused as
+// before and writes nothing, while another epic of its repository is releasing.
+func TestStopEpicReleaseRefusesAnEpicWithNoRunningTurn(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	s, raw := openReleaseStore(t,
 		resumeEpicIn(resumeEpic, store.PhaseClean),
 		resumeEpicIn(resumeOther, store.PhaseClean),
 	)
-	if _, err := s.TakeReleaseSlot(ctx, resumeEpic, resumeAt()); err != nil {
-		t.Fatalf("TakeReleaseSlot of %s: %v", resumeEpic, err)
+	if err := s.StartRelease(ctx, resumeEpic, resumeAt()); err != nil {
+		t.Fatalf("StartRelease of %s: %v", resumeEpic, err)
 	}
 	before := releaseRowsOf(t, raw)
 
@@ -578,5 +542,5 @@ func TestStopEpicReleaseRefusesAnEpicThatHoldsNoSlot(t *testing.T) {
 	if got := releaseRowsOf(t, raw); got != before {
 		t.Errorf("rows after refused StopEpic = %s, want %s", got, before)
 	}
-	requireSlot(t, s, resumeEpic, resumeEpic)
+	requirePhase(t, s, resumeEpic, store.PhaseReleasing)
 }

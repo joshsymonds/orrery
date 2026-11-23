@@ -185,7 +185,7 @@ func TestReleasePrepareRepeatChangesNothing(t *testing.T) {
 // TestReleasePrepareResultSetPreparesRecordedCandidate: a run whose Result is recorded and whose revision is not, as a
 // crash between the two writes leaves it, is prepared at the candidate its Result names. Origin has moved past the tip
 // since the Result was recorded, so a prepare that read git again would pin a merge that contains origin's main. The
-// epic is paused for the first pass, so the run starts and takes the slot but does not prepare.
+// epic is paused for the first pass, so the run starts but does not prepare.
 //
 // This test used to assert that the recorded candidate stayed and that no ref moved. Its assertions changed because
 // the candidate is now checked before the first step starts, whether an attempt recorded it or an earlier one did: the

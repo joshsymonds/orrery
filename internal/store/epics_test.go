@@ -455,12 +455,8 @@ func TestPhaseAtFollowsEachPhaseWrite(t *testing.T) {
 	}
 	requirePhaseAt(t, s, "clean", 1700002600)
 
-	holder, err := s.TakeReleaseSlot(ctx, integrateEpic, time.Unix(1700002700, 0))
-	if err != nil {
-		t.Fatalf("TakeReleaseSlot: %v", err)
-	}
-	if holder != integrateEpic {
-		t.Errorf("slot holder = %q, want %q", holder, integrateEpic)
+	if err := s.StartRelease(ctx, integrateEpic, time.Unix(1700002700, 0)); err != nil {
+		t.Fatalf("StartRelease: %v", err)
 	}
 	requirePhaseAt(t, s, "releasing", 1700002700)
 

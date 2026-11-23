@@ -108,11 +108,11 @@ func (p pass) replan(def workflow.Node, run store.NodeRun, act kinds.Action) Act
 }
 
 // replanRelease carries out the replan of act's run. An act with a trigger sends the release back to planning in one
-// write (store.Store.ReplanRelease): the epic moves to correcting and frees its release slot, and the replan's plan run
-// starts with its trigger and tell. An act with no trigger is the replan of a correcting epic, whose owner's correction
-// already woke the planner, so only the plan run starts, marked below the turn that claimed the correction so that
-// turn's tasks build (store.Store.StartCorrectionPlan). Either way the run's release integrator worktree, when it has
-// one, is removed first, as a stop removes it.
+// write (store.Store.ReplanRelease): the epic moves to correcting, and the replan's plan run starts with its trigger
+// and tell. An act with no trigger is the replan of a correcting epic, whose owner's correction already woke the
+// planner, so only the plan run starts, marked below the turn that claimed the correction so that turn's tasks build
+// (store.Store.StartCorrectionPlan). Either way the run's release integrator worktree, when it has one, is removed
+// first, as a stop removes it.
 func (r *Runner) replanRelease(ctx context.Context, epic store.EpicRow, act Action, at time.Time) error {
 	if len(act.Runs) != 1 {
 		return releaseRefused(act)
@@ -135,7 +135,7 @@ func (r *Runner) replanRelease(ctx context.Context, epic store.EpicRow, act Acti
 }
 
 // resumeReplanned resumes the release of act's run once its replan plan has ended: the run moves to its next attempt
-// and the epic back to clean, so the release takes the slot and prepares its candidate from the new branch tip.
+// and the epic back to clean, so the release begins again and prepares its candidate from the new branch tip.
 func (r *Runner) resumeReplanned(ctx context.Context, epic store.EpicRow, act Action, at time.Time) error {
 	if err := r.store.ResumeReplannedRelease(ctx, epic.ID, act.Path, act.Run.Attempt, at); err != nil {
 		return fmt.Errorf("resume replanned release of epic %s: %w", epic.ID, err)

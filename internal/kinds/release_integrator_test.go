@@ -13,7 +13,7 @@ import (
 const integratorResult = `{"error":"","behind":true,"candidate":"","tip":"tip-1","origin":"origin-1",` +
 	`"branch":"refs/heads/main","conflicts":["README"]}`
 
-// integratorRows returns the rows of a releasing epic that holds the release slot, with one Done gate and one
+// integratorRows returns the rows of a releasing epic, with one Done gate and one
 // Requirement whose item captures, and the release runs, checks, evidence runs and steps given.
 func integratorRows(
 	releases []store.ReleaseRun, checks []store.NodeCheck, runs []store.EvidenceRun, steps []store.StepRow,
@@ -22,7 +22,7 @@ func integratorRows(
 	epic.DoneGates = []string{"lint"}
 	epic.Requirements = []store.EpicRequirement{{ID: "R1", Item: evidence.Item{Capture: []string{"scripts/check"}}}}
 	return Rows{
-		Epic: epic, Slot: releaseEpicID, Releases: releases, Checks: checks, Evidence: runs, Steps: steps,
+		Epic: epic, Releases: releases, Checks: checks, Evidence: runs, Steps: steps,
 	}
 }
 
@@ -41,7 +41,7 @@ func roundWorkID(round int64, part string) string {
 }
 
 // TestReleaseIntegratorDecisions checks the release integrator's walk over its rounds: a conflicting merge starts the
-// first round while the epic holds the slot and is not paused, records a round whose step ended, stops on a failed
+// first round while the epic is not paused, records a round whose step ended, stops on a failed
 // round, walks a passed round's commit through the Done gate and then the capture, at that commit, sends a capture's
 // failure back to the next round, and records the commit as the candidate once both pass.
 func TestReleaseIntegratorDecisions(t *testing.T) {
