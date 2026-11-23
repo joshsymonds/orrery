@@ -3823,9 +3823,9 @@ test("an epic entry shows the epic page beside the list, and no epic column rema
     assert.equal(
       container.querySelector('aside.rpanel section.page[aria-label="epic"]') !== null,
       true,
-      "the page sits in the panel beside the rail",
+      "the page sits in the panel beside the conversation",
     );
-    assert.equal(container.querySelector("aside.rail") !== null, true, "the rail is drawn");
+    assert.equal(container.querySelector("aside.rail") === null, true, "no rail is drawn");
     assert.equal(pageSlug(container), "first", "the page names the epic");
   }));
 

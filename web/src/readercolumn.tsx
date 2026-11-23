@@ -36,7 +36,8 @@ interface Reading {
 }
 
 // ColumnHead is what App gives a column's head for its row and conversation: the strip, the asks, the note, the More
-// menu, under 760px the middle column's tiles, and the epic open in the panel beside the middle column. The column adds the fold, which it reads from its own reader.
+// menu, the middle column's work links, and the epic open in the panel beside the middle column. The column adds the
+// fold, which it reads from its own reader.
 export type ColumnHead = Pick<
   HeadProps,
   | "host"
@@ -46,7 +47,7 @@ export type ColumnHead = Pick<
   | "badges"
   | "note"
   | "menu"
-  | "work"
+  | "workLinks"
   | "here"
   | "contracts"
   | "onOpenContract"
@@ -151,6 +152,9 @@ export interface ReaderColumnProps {
   stepInputs?: { current: Map<string, HTMLTextAreaElement> };
   // ended is what stands in place of a kept row's dock, when it gives a node for the row; null keeps the dock.
   ended?: (row: Row) => ComponentChildren | null;
+  // activity is what runs under the conversation, drawn above its composer: the activity lines of its running things.
+  // Nothing is drawn without it.
+  activity?: ComponentChildren;
 }
 
 // ReaderColumn draws one reader column: the cursor's, or the pinned row's beside the list. It draws the row's head, the
@@ -199,6 +203,7 @@ export function ReaderColumn({
   steps = [],
   stepInputs,
   ended,
+  activity,
 }: ReaderColumnProps): JSX.Element {
   const names = columnNames[column];
   const rowKey = row?.key ?? "";
@@ -329,6 +334,7 @@ export function ReaderColumn({
         />
       )}
       <div class="send">
+        {activity}
         {dockRows(rows, row).map((entry) => (
           <div key={entry.key} class={names.reply} hidden={entry.key !== rowKey}>
             {ended?.(entry) ?? (

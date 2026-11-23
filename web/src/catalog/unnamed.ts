@@ -13,6 +13,9 @@ export const unnamed: Readonly<Record<string, UnnamedEntry>> = {
   app: { replacement: "inbox-home", epic: "F2" },
   // Mark draws the Orrery mark, the symbol the rail and the title row open on.
   mark: { replacement: "Tile", epic: "F2" },
+  // RailLineage draws a project's lineage under its tile on the collapsed inbox's rail: a pill per conversation, a pill per design,
+  // and a mark for each contract or epic. The rail's tiles stand for it.
+  "rail-lineage": { replacement: "Tile", epic: "F2" },
   // ReaderHead draws a conversation's head, titled, or with where.
   "reader-head": { replacement: "TitleRow", epic: "F3" },
   // TitleParts draws a title's directory and line, with either alone, and a line that holds a link.
@@ -39,6 +42,12 @@ export const unnamed: Readonly<Record<string, UnnamedEntry>> = {
   // AccountsNarrow draws the accounts and routes page under 760px, which round 6 does not draw. The inbox page stands for it,
   // as it does for AccountsPage.
   "accounts-narrow": { replacement: "inbox-home", epic: "F2" },
+  // ActivityLines draws what runs under a conversation as lines above its composer, with a count past three. Round 6
+  // draws each running thing as a task line in the transcript, and no line above the composer.
+  "activity-lines": { replacement: "TaskLine", epic: "F3" },
+  // WorkLink draws what a conversation is working on as plain links in its title row, after the title, with a "+n" control
+  // for the rest. Round 6 names what a conversation steers in its rail's tiles, and no link in the title row.
+  "work-link": { replacement: "TitleRow", epic: "F3" },
 
   // ---- single stories of round-6 components, each the component in a state round 6 does not draw ----
 

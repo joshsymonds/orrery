@@ -94,6 +94,10 @@ function cssText(head) {
   }
   put('scrim', `color-mix(in srgb, var(--o-palette-crust) ${pct(tokens.alpha.scrim)}, transparent)`);
 
+  // A ground is its tint at its alpha mixed over its surface, so a component names the ground and never the mix.
+  group('ground: a tint at its alpha over its surface, drawn behind a thing');
+  for (const [name, g] of Object.entries(tokens.ground)) put(`ground-${name}`, `color-mix(in srgb, ${cssRef(g.tint)} ${pct(g.alpha)}, ${cssRef(g.over)})`);
+
   group('layers, low to high');
   for (const [name, z] of Object.entries(tokens.z)) put(`z-${name}`, z);
 
@@ -141,6 +145,13 @@ const colour = (value) => {
   const hex = resolve(value);
   if (!/^#[0-9a-fA-F]{6}$/.test(hex)) throw new Error(`tokens.json: ${value} is not a #rrggbb colour`);
   return `Color(0xFF${hex.slice(1).toUpperCase()})`;
+};
+// A ground is the colour the stylesheet mixes: each channel of its tint at its alpha, over its surface's, in sRGB.
+const channels = (hex) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
+const mixed = (g) => {
+  const a = resolve(g.alpha);
+  const over = channels(resolve(g.over));
+  return '#' + channels(resolve(g.tint)).map((c, i) => Math.round(a * c + (1 - a) * over[i]).toString(16).padStart(2, '0')).join('');
 };
 const float = (n) => `${n}f`;
 const dp = (n) => (n < 0 ? `(${n}).dp` : `${n}.dp`);
@@ -211,6 +222,7 @@ function kotlinText() {
       ]),
     ]),
     block('object Alpha', floats(tokens.alpha)),
+    block('object Ground', Object.entries(tokens.ground).map(([k, g]) => `val ${name(k)}: Color = ${colour(mixed(g))}`)),
     block('object Font', [
       `val mono: String = ${JSON.stringify(tokens.font.mono)}`,
       ...block('object Weight', Object.entries(tokens.font.weight).map(([k, v]) => `val ${name(k)}: FontWeight = FontWeight(${v})`)),
