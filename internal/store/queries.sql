@@ -181,7 +181,7 @@ ORDER BY sessions.id;
 
 -- name: UpdateEngineSession :execrows
 UPDATE sessions
-SET state = ?, changed = ?, seen = ?, question = ?, claude_session = ?, reason = ?
+SET state = ?, changed = ?, seen = ?, question = ?, claude_session = ?, reason = ?, held = ?
 WHERE id = ? AND kind IN ('engine', 'step');
 
 -- name: SetSessionLatestReply :exec

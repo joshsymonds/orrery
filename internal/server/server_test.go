@@ -884,6 +884,7 @@ func connectPaneObject(t *testing.T, pane *orreryv1.Pane) map[string]any {
 		"context":        pane.GetContext(),
 		"activity":       pane.GetActivity(),
 		"tool":           pane.GetTool(),
+		"held":           pane.GetHeld(),
 		"claude_session": pane.GetClaudeSession(),
 	}
 	data, err := json.Marshal(fields)

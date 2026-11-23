@@ -115,7 +115,7 @@ func TestOrrerydRouteAwayPushesAndLogs(t *testing.T) {
 	assertNoticeLog(t, noticeLogPath(stateHome), since, pane, loggedNotice{"waiting", route.DeskPhone, "away"})
 }
 
-func TestOrrerydRouteSilencesBackgroundWorkStop(t *testing.T) {
+func TestOrrerydRouteSendsNothingForHeldPane(t *testing.T) {
 	t.Parallel()
 	client, name := newServer(t)
 	pane := startPane(t, client, "sleep 300")
@@ -128,9 +128,11 @@ func TestOrrerydRouteSilencesBackgroundWorkStop(t *testing.T) {
 	since := time.Now().Unix()
 
 	// The turn ends with its reply, but a subagent it started still runs, so Claude keeps the entry busy. The pane reads
-	// working, and no done notice is made for it.
+	// working and held, and no done notice is made for it.
 	session.submitPrompt(t)
-	session.appendTranscript(t, assistantTextLine(t, exampleLastMessage))
+	ended := time.Unix(1700000000, 0)
+	session.holdTurn(t, exampleLastMessage, ended)
+	waitForOption(t, daemon, client, pane, protocol.OptionHeld, strconv.FormatInt(ended.Unix(), 10))
 	waitForOption(t, daemon, client, pane, protocol.OptionState, string(protocol.StateWorking))
 	wantExit(t, daemon.stop(t), 0)
 
@@ -138,6 +140,45 @@ func TestOrrerydRouteSilencesBackgroundWorkStop(t *testing.T) {
 		t.Fatalf("%d push requests for a pane still busy with background work, want none", extra)
 	}
 	assertNoticeLog(t, noticeLogPath(stateHome), since, pane)
+}
+
+// TestOrrerydHeldPaneNotifiesAtTheTaskTurnsEnd holds a pane whose turn ended while a subagent runs, then plays the
+// subagent's end: its notification starts a turn, which ends the hold, and that turn's end with nothing left running
+// reads the pane done and pushes its one done notification.
+func TestOrrerydHeldPaneNotifiesAtTheTaskTurnsEnd(t *testing.T) {
+	t.Parallel()
+	client, name := newServer(t)
+	pane := startPane(t, client, "sleep 300")
+	dir := t.TempDir()
+	stateHome := filepath.Join(dir, "state")
+	endpoint := newPushEndpoint(t)
+	registerPush(t, stateHome, endpoint)
+	daemon, _ := startPushDaemon(t, name, dir, stateHome, endpoint)
+	session := startClaudeSession(t, client, dir, pane, dir)
+
+	session.submitPrompt(t)
+	ended := time.Unix(1700000000, 0)
+	session.holdTurn(t, "The agent runs.", ended)
+	waitForOption(t, daemon, client, pane, protocol.OptionHeld, strconv.FormatInt(ended.Unix(), 10))
+
+	session.appendTranscript(t, transcriptLine(t, map[string]any{
+		"type":      "user",
+		"timestamp": ended.Add(time.Minute).UTC().Format(time.RFC3339),
+		"message": map[string]any{
+			"role":    "user",
+			"content": "<task-notification><task-id>a1</task-id><status>completed</status></task-notification>",
+		},
+	}))
+	waitForOption(t, daemon, client, pane, protocol.OptionHeld, "")
+	requireOption(t, client, pane, protocol.OptionState, string(protocol.StateWorking))
+
+	session.finishTurn(t, exampleLastMessage)
+	waitForOption(t, daemon, client, pane, protocol.OptionState, string(protocol.StateDone))
+	assertPushed(t, endpoint, pane, protocol.StateDone)
+	wantExit(t, daemon.stop(t), 0)
+	if extra := len(endpoint.requests); extra != 0 {
+		t.Fatalf("%d push requests beyond the one done, want none", extra)
+	}
 }
 
 func TestOrrerydRouteHoldsWatchedPane(t *testing.T) {

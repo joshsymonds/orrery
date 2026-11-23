@@ -20,7 +20,7 @@ CREATE TABLE sessions (
     tool TEXT NOT NULL DEFAULT '',
     claude_session TEXT NOT NULL DEFAULT '',
     transcript TEXT NOT NULL DEFAULT ''
-, kind TEXT NOT NULL DEFAULT '', dir TEXT NOT NULL DEFAULT '', reason TEXT NOT NULL DEFAULT '', consumed INTEGER, replay_from INTEGER NOT NULL DEFAULT 0, background BOOLEAN NOT NULL DEFAULT 0, turn_output TEXT NOT NULL DEFAULT '', prompts_from INTEGER NOT NULL DEFAULT 0, title TEXT NOT NULL DEFAULT '', headline TEXT NOT NULL DEFAULT '', headline_at INTEGER NOT NULL DEFAULT 0, awaited BOOLEAN NOT NULL DEFAULT 0, latest_reply TEXT NOT NULL DEFAULT '', newest_reply_at INTEGER NOT NULL DEFAULT 0, first_prompt_text TEXT NOT NULL DEFAULT '', latest_request_id TEXT NOT NULL DEFAULT '');
+, kind TEXT NOT NULL DEFAULT '', dir TEXT NOT NULL DEFAULT '', reason TEXT NOT NULL DEFAULT '', consumed INTEGER, replay_from INTEGER NOT NULL DEFAULT 0, background BOOLEAN NOT NULL DEFAULT 0, turn_output TEXT NOT NULL DEFAULT '', prompts_from INTEGER NOT NULL DEFAULT 0, title TEXT NOT NULL DEFAULT '', headline TEXT NOT NULL DEFAULT '', headline_at INTEGER NOT NULL DEFAULT 0, awaited BOOLEAN NOT NULL DEFAULT 0, latest_reply TEXT NOT NULL DEFAULT '', newest_reply_at INTEGER NOT NULL DEFAULT 0, first_prompt_text TEXT NOT NULL DEFAULT '', latest_request_id TEXT NOT NULL DEFAULT '', held BOOLEAN NOT NULL DEFAULT 0);
 CREATE TABLE events (
     seq INTEGER PRIMARY KEY AUTOINCREMENT,
     session_id TEXT NOT NULL,
@@ -936,6 +936,7 @@ INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (10,9,1
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (100,99,1);
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (101,100,1);
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (102,101,1);
+INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (103,102,1);
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (11,10,1);
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (12,11,1);
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (13,12,1);

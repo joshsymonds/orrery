@@ -63,7 +63,7 @@ Arrows point the way data moves. The store has one writer in the daemon. The ser
 
 ## CLI and hook
 
-A pane's state is read from `~/.claude/sessions/<pid>.json` and from the session's transcript, which orrery watches under inotify, so no hook event reports state. The only hook the user's settings register is `orrery hook cron`, which answers the cron tools (see [Claude Code hook settings](contract.md#claude-code-hook-settings)). Plain `orrery hook` is a no-op kept for one release: it reads its stdin to the end, prints nothing, sends no frame and exits 0.
+A pane's state is read from `~/.claude/sessions/<pid>.json` and from the session's transcript, which orrery watches under inotify, so no hook event reports state. An entry that reads `busy` after its transcript shows the turn ended is held: Claude Code keeps the entry busy while a background agent, workflow or teammate runs, so the pane stays `working` with `@orrery_held` set and no turn running, until the turn that task's end starts ends (`state.held`). The only hook the user's settings register is `orrery hook cron`, which answers the cron tools (see [Claude Code hook settings](contract.md#claude-code-hook-settings)). Plain `orrery hook` is a no-op kept for one release: it reads its stdin to the end, prints nothing, sends no frame and exits 0.
 
 [`state.ApplyWith`](../internal/state/state.go) maps each hook event to a pane state:
 
@@ -224,7 +224,7 @@ A pool is a named set of members that a machine offers to the projects on it. [`
 
 A notice is a pane that turns `waiting` or `done`, a headless session that needs the owner, an epic that needs the owner, a usage limit, or an alert. [`route.Router`](../internal/route/route.go) decides where each notice goes, by rules in a fixed order ([Notice routing](contract.md#notice-routing)):
 
-- A `done` that comes from a turn with a background task goes nowhere.
+- A turn that ends while a background agent or workflow runs makes no `done`: the pane or headless session stays `working`, held, until the turn that task's end starts ends.
 - A notice is held while its pane is watched, that is, while a client shows its window with input in the last 30 seconds, or while `serve` has read the pane in the last 30 seconds. The router checks again every five seconds.
 - An unwatched `done` is judged first. [`donejudge.Judge`](../internal/donejudge/judge.go) asks Haiku whether the turn needs the owner. An answer of not needed sends a quiet desk notice and a silent push.
 - A needed notice goes to the desk stream and the web page when the owner's web input is within the last two minutes. It goes to the phone after five minutes unseen. Otherwise it goes to the desk and the phone at once.

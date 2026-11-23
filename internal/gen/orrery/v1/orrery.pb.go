@@ -3708,7 +3708,10 @@ type Pane struct {
 	// question, so a new request or a pane that starts waiting again reads false.
 	PutOff bool `protobuf:"varint,22,opt,name=put_off,json=putOff,proto3" json:"put_off,omitempty"`
 	// true when the pane's running command is claude and no Claude session is bound to it.
-	Unbound       bool `protobuf:"varint,23,opt,name=unbound,proto3" json:"unbound,omitempty"`
+	Unbound bool `protobuf:"varint,23,opt,name=unbound,proto3" json:"unbound,omitempty"`
+	// true while the pane's @orrery_held option is set: its last turn ended while a background agent or workflow runs,
+	// so its state is working with no turn running, until the turn that task's end starts.
+	Held          bool `protobuf:"varint,24,opt,name=held,proto3" json:"held,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -3900,6 +3903,13 @@ func (x *Pane) GetPutOff() bool {
 func (x *Pane) GetUnbound() bool {
 	if x != nil {
 		return x.Unbound
+	}
+	return false
+}
+
+func (x *Pane) GetHeld() bool {
+	if x != nil {
+		return x.Held
 	}
 	return false
 }
@@ -7369,7 +7379,7 @@ const file_orrery_v1_orrery_proto_rawDesc = "" +
 	"\x04text\x18\x05 \x01(\tR\x04text\"\x12\n" +
 	"\x10PanesListRequest\":\n" +
 	"\x11PanesListResponse\x12%\n" +
-	"\x05panes\x18\x01 \x03(\v2\x0f.orrery.v1.PaneR\x05panes\"\xd9\x04\n" +
+	"\x05panes\x18\x01 \x03(\v2\x0f.orrery.v1.PaneR\x05panes\"\xed\x04\n" +
 	"\x04Pane\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04host\x18\x02 \x01(\tR\x04host\x12\x18\n" +
@@ -7394,7 +7404,8 @@ const file_orrery_v1_orrery_proto_rawDesc = "" +
 	"\rlast_turn_end\x18\x14 \x01(\x03R\vlastTurnEnd\x12\x1b\n" +
 	"\torrery_id\x18\x15 \x01(\tR\borreryId\x12\x17\n" +
 	"\aput_off\x18\x16 \x01(\bR\x06putOff\x12\x18\n" +
-	"\aunbound\x18\x17 \x01(\bR\aunbound\"Q\n" +
+	"\aunbound\x18\x17 \x01(\bR\aunbound\x12\x12\n" +
+	"\x04held\x18\x18 \x01(\bR\x04held\"Q\n" +
 	"\rScreenRequest\x12\x12\n" +
 	"\x04pane\x18\x01 \x01(\tR\x04pane\x12\x12\n" +
 	"\x04ansi\x18\x02 \x01(\bR\x04ansi\x12\x18\n" +

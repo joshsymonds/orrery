@@ -693,7 +693,7 @@ func conversationAnswer(
 		conv.Goal, err = goals.Goal(path)
 	}
 	if err == nil {
-		conv.Waiting, err = queues.Waiting(path, pane.State == protocol.StateDone)
+		conv.Waiting, err = queues.Waiting(path, protocol.Idle(pane.State, pane.Held))
 	}
 	switch {
 	case errors.Is(err, fs.ErrNotExist):

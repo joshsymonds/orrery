@@ -54,14 +54,18 @@ type EngineAdd struct {
 	Kind  string
 }
 
-// EngineChanges holds the fields an EngineSet may change. A nil field is left as it is, except Reason: a State with a nil
-// Reason clears a reason the row has, since the reason belongs to the state change that set it.
+// EngineChanges holds the fields an EngineSet may change. A nil field is left as it is, except Reason and Held: a State
+// with a nil Reason clears a reason the row has, since the reason belongs to the state change that set it, and a State
+// clears the row's held flag unless Held is true. Held is read only beside a State: it marks the working state that a
+// turn's end writes while a background task that runs a model is listed, so the session is working with no turn
+// running. Held is not a field of the engine_changed event.
 type EngineChanges struct {
 	State         *string
 	Seen          *string
 	Question      *string
 	ClaudeSession *string
 	Reason        *string
+	Held          *bool
 }
 
 // EngineSet updates the set fields of an engine session and appends one engine_changed naming them.
@@ -367,7 +371,7 @@ func (op EngineSet) applyEngine(ctx context.Context, queries *sqlcgen.Queries, n
 	}
 	params := sqlcgen.UpdateEngineSessionParams{
 		State: row.State, Changed: row.Changed, Seen: row.Seen, Question: row.Question,
-		ClaudeSession: row.ClaudeSession, Reason: row.Reason, ID: op.ID,
+		ClaudeSession: row.ClaudeSession, Reason: row.Reason, Held: row.Held, ID: op.ID,
 	}
 	fields := map[string]string{}
 	set := func(name string, value *string, target *string) {
@@ -379,6 +383,7 @@ func (op EngineSet) applyEngine(ctx context.Context, queries *sqlcgen.Queries, n
 	if op.Changes.State != nil {
 		params.Changed = engineStamp(now)
 		fields["changed"] = params.Changed
+		params.Held = op.Changes.Held != nil && *op.Changes.Held
 	}
 	set("state", op.Changes.State, &params.State)
 	set("seen", op.Changes.Seen, &params.Seen)

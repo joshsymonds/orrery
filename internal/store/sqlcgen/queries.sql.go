@@ -1541,7 +1541,7 @@ func (q *Queries) GetEngineRateLimit(ctx context.Context, sessionID string) (Eng
 }
 
 const getEngineSession = `-- name: GetEngineSession :one
-SELECT id, server, pane, state, changed, seen, question, summary, label, context, tool, claude_session, transcript, kind, dir, reason, consumed, replay_from, background, turn_output, prompts_from, title, headline, headline_at, awaited, latest_reply, newest_reply_at, first_prompt_text, latest_request_id FROM sessions WHERE id = ? AND kind IN ('engine', 'step')
+SELECT id, server, pane, state, changed, seen, question, summary, label, context, tool, claude_session, transcript, kind, dir, reason, consumed, replay_from, background, turn_output, prompts_from, title, headline, headline_at, awaited, latest_reply, newest_reply_at, first_prompt_text, latest_request_id, held FROM sessions WHERE id = ? AND kind IN ('engine', 'step')
 `
 
 func (q *Queries) GetEngineSession(ctx context.Context, id string) (Session, error) {
@@ -1577,6 +1577,7 @@ func (q *Queries) GetEngineSession(ctx context.Context, id string) (Session, err
 		&i.NewestReplyAt,
 		&i.FirstPromptText,
 		&i.LatestRequestID,
+		&i.Held,
 	)
 	return i, err
 }
@@ -2259,7 +2260,7 @@ func (q *Queries) GetRunningEpicTurn(ctx context.Context, epic string) (EpicTurn
 }
 
 const getSession = `-- name: GetSession :one
-SELECT id, server, pane, state, changed, seen, question, summary, label, context, tool, claude_session, transcript, kind, dir, reason, consumed, replay_from, background, turn_output, prompts_from, title, headline, headline_at, awaited, latest_reply, newest_reply_at, first_prompt_text, latest_request_id FROM sessions WHERE id = ?
+SELECT id, server, pane, state, changed, seen, question, summary, label, context, tool, claude_session, transcript, kind, dir, reason, consumed, replay_from, background, turn_output, prompts_from, title, headline, headline_at, awaited, latest_reply, newest_reply_at, first_prompt_text, latest_request_id, held FROM sessions WHERE id = ?
 `
 
 func (q *Queries) GetSession(ctx context.Context, id string) (Session, error) {
@@ -2295,6 +2296,7 @@ func (q *Queries) GetSession(ctx context.Context, id string) (Session, error) {
 		&i.NewestReplyAt,
 		&i.FirstPromptText,
 		&i.LatestRequestID,
+		&i.Held,
 	)
 	return i, err
 }
@@ -5417,7 +5419,7 @@ func (q *Queries) ListDueResumes(ctx context.Context) ([]DueResume, error) {
 }
 
 const listEngineSessions = `-- name: ListEngineSessions :many
-SELECT id, server, pane, state, changed, seen, question, summary, label, context, tool, claude_session, transcript, kind, dir, reason, consumed, replay_from, background, turn_output, prompts_from, title, headline, headline_at, awaited, latest_reply, newest_reply_at, first_prompt_text, latest_request_id FROM sessions WHERE kind IN ('engine', 'step') ORDER BY id
+SELECT id, server, pane, state, changed, seen, question, summary, label, context, tool, claude_session, transcript, kind, dir, reason, consumed, replay_from, background, turn_output, prompts_from, title, headline, headline_at, awaited, latest_reply, newest_reply_at, first_prompt_text, latest_request_id, held FROM sessions WHERE kind IN ('engine', 'step') ORDER BY id
 `
 
 func (q *Queries) ListEngineSessions(ctx context.Context) ([]Session, error) {
@@ -5459,6 +5461,7 @@ func (q *Queries) ListEngineSessions(ctx context.Context) ([]Session, error) {
 			&i.NewestReplyAt,
 			&i.FirstPromptText,
 			&i.LatestRequestID,
+			&i.Held,
 		); err != nil {
 			return nil, err
 		}
@@ -10134,7 +10137,7 @@ func (q *Queries) ListRunningEpicTurns(ctx context.Context) ([]EpicTurn, error) 
 }
 
 const listServerSessions = `-- name: ListServerSessions :many
-SELECT id, server, pane, state, changed, seen, question, summary, label, context, tool, claude_session, transcript, kind, dir, reason, consumed, replay_from, background, turn_output, prompts_from, title, headline, headline_at, awaited, latest_reply, newest_reply_at, first_prompt_text, latest_request_id FROM sessions WHERE server = ? AND kind = '' ORDER BY id
+SELECT id, server, pane, state, changed, seen, question, summary, label, context, tool, claude_session, transcript, kind, dir, reason, consumed, replay_from, background, turn_output, prompts_from, title, headline, headline_at, awaited, latest_reply, newest_reply_at, first_prompt_text, latest_request_id, held FROM sessions WHERE server = ? AND kind = '' ORDER BY id
 `
 
 func (q *Queries) ListServerSessions(ctx context.Context, server string) ([]Session, error) {
@@ -10176,6 +10179,7 @@ func (q *Queries) ListServerSessions(ctx context.Context, server string) ([]Sess
 			&i.NewestReplyAt,
 			&i.FirstPromptText,
 			&i.LatestRequestID,
+			&i.Held,
 		); err != nil {
 			return nil, err
 		}
@@ -10337,7 +10341,7 @@ func (q *Queries) ListSessionEpicDecisions(ctx context.Context, session string) 
 }
 
 const listSessions = `-- name: ListSessions :many
-SELECT id, server, pane, state, changed, seen, question, summary, label, context, tool, claude_session, transcript, kind, dir, reason, consumed, replay_from, background, turn_output, prompts_from, title, headline, headline_at, awaited, latest_reply, newest_reply_at, first_prompt_text, latest_request_id FROM sessions WHERE kind = '' ORDER BY id
+SELECT id, server, pane, state, changed, seen, question, summary, label, context, tool, claude_session, transcript, kind, dir, reason, consumed, replay_from, background, turn_output, prompts_from, title, headline, headline_at, awaited, latest_reply, newest_reply_at, first_prompt_text, latest_request_id, held FROM sessions WHERE kind = '' ORDER BY id
 `
 
 func (q *Queries) ListSessions(ctx context.Context) ([]Session, error) {
@@ -10379,6 +10383,7 @@ func (q *Queries) ListSessions(ctx context.Context) ([]Session, error) {
 			&i.NewestReplyAt,
 			&i.FirstPromptText,
 			&i.LatestRequestID,
+			&i.Held,
 		); err != nil {
 			return nil, err
 		}
@@ -12651,7 +12656,7 @@ func (q *Queries) UpdateEngineLaunch(ctx context.Context, arg UpdateEngineLaunch
 
 const updateEngineSession = `-- name: UpdateEngineSession :execrows
 UPDATE sessions
-SET state = ?, changed = ?, seen = ?, question = ?, claude_session = ?, reason = ?
+SET state = ?, changed = ?, seen = ?, question = ?, claude_session = ?, reason = ?, held = ?
 WHERE id = ? AND kind IN ('engine', 'step')
 `
 
@@ -12662,6 +12667,7 @@ type UpdateEngineSessionParams struct {
 	Question      string
 	ClaudeSession string
 	Reason        string
+	Held          bool
 	ID            string
 }
 
@@ -12673,6 +12679,7 @@ func (q *Queries) UpdateEngineSession(ctx context.Context, arg UpdateEngineSessi
 		arg.Question,
 		arg.ClaudeSession,
 		arg.Reason,
+		arg.Held,
 		arg.ID,
 	)
 	if err != nil {
