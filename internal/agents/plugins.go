@@ -2,15 +2,17 @@ package agents
 
 import (
 	"cmp"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
-	"os"
 	"path"
 	"path/filepath"
 	"slices"
 	"strings"
+
+	"github.com/joshsymonds/orrery/internal/hostexec"
 )
 
 // installedPlugins is the shape of <config>/plugins/installed_plugins.json, which lists each plugin key, name@marketplace,
@@ -43,14 +45,14 @@ type decision struct {
 // is enabled by the first settings file, in settings order, that names its key in enabledPlugins. A plugin that no file
 // names is disabled, and a missing settings file is skipped. Plugins are listed by the index of the file that decides
 // them, then by key. Each plugin's agents are the .md files under its install's agents folder, named by frontmatter name
-// or else by filename, and prefixed by the plugin and its subfolders: <plugin>:<sub>:<name>. An unparsable file is an
-// error that names it.
-func pluginAgents(config string, settings []string) ([]string, error) {
+// or else by filename, and prefixed by the plugin and its subfolders: <plugin>:<sub>:<name>. The files are read through
+// files. An unparsable file is an error that names it.
+func pluginAgents(ctx context.Context, files hostexec.Files, config string, settings []string) ([]string, error) {
 	var installed installedPlugins
-	if err := readJSON(filepath.Join(config, "plugins", "installed_plugins.json"), &installed); err != nil {
+	if err := readJSON(ctx, files, filepath.Join(config, "plugins", "installed_plugins.json"), &installed); err != nil {
 		return nil, err
 	}
-	decided, err := decide(settings)
+	decided, err := decide(ctx, files, settings)
 	if err != nil {
 		return nil, err
 	}
@@ -74,7 +76,7 @@ func pluginAgents(config string, settings []string) ([]string, error) {
 				continue
 			}
 			var found []string
-			found, err = pluginDirAgents(plugin, filepath.Join(install.InstallPath, "agents"))
+			found, err = pluginDirAgents(ctx, files, plugin, filepath.Join(install.InstallPath, "agents"))
 			if err != nil {
 				return nil, err
 			}
@@ -85,12 +87,12 @@ func pluginAgents(config string, settings []string) ([]string, error) {
 }
 
 // decide returns, for each plugin key that a settings file names, the decision of the first file in settings that names
-// it.
-func decide(settings []string) (map[string]decision, error) {
+// it. The settings files are read through files.
+func decide(ctx context.Context, files hostexec.Files, settings []string) (map[string]decision, error) {
 	decided := make(map[string]decision)
 	for i, file := range settings {
 		var enabled enabledFile
-		if err := readJSON(file, &enabled); err != nil {
+		if err := readJSON(ctx, files, file, &enabled); err != nil {
 			return nil, err
 		}
 		for key, on := range enabled.EnabledPlugins {
@@ -104,10 +106,10 @@ func decide(settings []string) (map[string]decision, error) {
 
 // pluginDirAgents returns the scoped names of the agents in dir, the agents folder of plugin. A .md file is named by its
 // frontmatter name, or else by its filename without .md, and is prefixed by plugin and by the folders between dir and
-// the file.
-func pluginDirAgents(plugin, dir string) ([]string, error) {
+// the file. The files are read through files.
+func pluginDirAgents(ctx context.Context, files hostexec.Files, plugin, dir string) ([]string, error) {
 	var names []string
-	err := walkMarkdown(dir, func(rel string, data []byte) error {
+	err := walkMarkdown(ctx, files, dir, func(rel string, data []byte) error {
 		name, _ := frontmatter(data)
 		if name == "" {
 			name = strings.TrimSuffix(path.Base(rel), ".md")
@@ -125,10 +127,10 @@ func pluginDirAgents(plugin, dir string) ([]string, error) {
 	return names, nil
 }
 
-// readJSON decodes the JSON file into target. A file that does not exist leaves target as it was and is not an error.
-// Any other read or parse failure is an error that names the file.
-func readJSON(file string, target any) error {
-	data, err := os.ReadFile(filepath.Clean(file))
+// readJSON decodes the JSON file, read through files, into target. A file that does not exist leaves target as it was
+// and is not an error. Any other read or parse failure is an error that names the file.
+func readJSON(ctx context.Context, files hostexec.Files, file string, target any) error {
+	data, err := files.ReadFile(ctx, filepath.Clean(file))
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil
 	}

@@ -78,7 +78,8 @@
       "Folded",
       "FoldedWaiting",
       "Open",
-      "OtherHost"
+      "OtherHost",
+      "Unreachable"
     ],
     "Dock": [
       "About",
@@ -127,7 +128,8 @@
       "Planning",
       "ReleaseFailed",
       "Releasing",
-      "Shipped"
+      "Shipped",
+      "StepsOnTwoHosts"
     ],
     "EventBlock": [
       "Default"
@@ -169,6 +171,15 @@
       "Default",
       "WithTail"
     ],
+    "HostLabel": [
+      "CardHeading",
+      "Inline"
+    ],
+    "HostsView": [
+      "AllReachable",
+      "OneUnreachable",
+      "UnderLoad"
+    ],
     "IconButton": [
       "Back",
       "Close",
@@ -192,6 +203,7 @@
       "Open",
       "OpenAndCursor",
       "Stopped",
+      "Unreachable",
       "Unseen",
       "WaitingQuestion",
       "Working"
@@ -308,6 +320,14 @@
       "Confirm",
       "Menu"
     ],
+    "Starter": [
+      "Failed",
+      "Loading",
+      "None",
+      "Prompt",
+      "Several",
+      "TypedFolder"
+    ],
     "StateGlyph": [
       "Done",
       "Failed",
@@ -317,6 +337,7 @@
       "Interrupting",
       "Limited",
       "Stopped",
+      "Unreachable",
       "Waiting",
       "Working"
     ],
@@ -366,7 +387,9 @@
       "Conversation",
       "Epic",
       "InboxHidden",
+      "Pane",
       "Subpage",
+      "UnreachablePane",
       "WithError"
     ],
     "Toast": [
@@ -667,6 +690,10 @@
       "desk",
       "phone"
     ],
+    "epic-hosts": [
+      "desk",
+      "phone"
+    ],
     "epic-limited": [
       "desk",
       "phone"
@@ -739,6 +766,14 @@
       "desk",
       "phone"
     ],
+    "hosts": [
+      "desk",
+      "phone"
+    ],
+    "hosts-unreachable": [
+      "desk",
+      "phone"
+    ],
     "inbox-archived": [
       "desk",
       "phone"
@@ -759,6 +794,14 @@
       "phone"
     ],
     "inbox-home": [
+      "desk",
+      "phone"
+    ],
+    "inbox-host-unreachable": [
+      "desk",
+      "phone"
+    ],
+    "inbox-hosts": [
       "desk",
       "phone"
     ],
@@ -832,6 +875,10 @@
     "notices-page": [
       "phone"
     ],
+    "pane-host-unreachable": [
+      "desk",
+      "phone"
+    ],
     "phase-green": [
       "desk",
       "phone"
@@ -863,6 +910,30 @@
       "phone"
     ],
     "project": [
+      "desk",
+      "phone"
+    ],
+    "start-failed": [
+      "desk",
+      "phone"
+    ],
+    "start-loading": [
+      "desk",
+      "phone"
+    ],
+    "start-none": [
+      "desk",
+      "phone"
+    ],
+    "start-prompt": [
+      "desk",
+      "phone"
+    ],
+    "start-proposals": [
+      "desk",
+      "phone"
+    ],
+    "start-typed-folder": [
       "desk",
       "phone"
     ],

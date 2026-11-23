@@ -321,8 +321,8 @@ SELECT reason FROM engine_prompt_failed WHERE session_id = ? AND prompt_id = ?;
 INSERT INTO steps (id, agent, prompt, output_schema, workspace, revision, worktree, checkout_head, checkout_hash,
                    done_value, read_only, owned, unowned, gate, gate_name, gate_source, gate_needs, gate_limit,
                    model_limit, started, checks, result, status, end_value, reason, ended, doing, verdicts, epic, task,
-                   loop_stage, loop_stage_from, agents, caller)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '[]', '', '', '', '', 0, '', '[]', ?, ?, ?, ?, ?, ?);
+                   loop_stage, loop_stage_from, agents, caller, host)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '[]', '', '', '', '', 0, '', '[]', ?, ?, ?, ?, ?, ?, ?);
 
 -- name: GetStep :one
 SELECT * FROM steps WHERE id = ?;
@@ -580,14 +580,23 @@ SELECT * FROM told_limit_steps ORDER BY limit_key, step;
 
 -- name: InsertEpic :exec
 INSERT INTO epics (id, repository, base, stored_base, title, approved, intent, care, approach, release_then, checks,
-    phase, created, changed, workflow, workflow_text, workflow_sha256, phase_at, steerer)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+    phase, created, changed, workflow, workflow_text, workflow_sha256, phase_at, steerer, host)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 
 -- name: CountEpic :one
 SELECT COUNT(*) FROM epics WHERE id = ?;
 
 -- name: GetEpic :one
 SELECT * FROM epics WHERE id = ?;
+
+-- name: GetEpicHost :one
+SELECT host FROM epics WHERE id = ?;
+
+-- name: AdoptEpicHosts :exec
+UPDATE epics SET host = ? WHERE host = '';
+
+-- name: AdoptStepHosts :exec
+UPDATE steps SET host = ? WHERE host = '';
 
 -- name: ListEpics :many
 SELECT sqlc.embed(epics), CAST(COALESCE(epic_revisions.revision, 0) AS INTEGER) AS revision
@@ -1996,3 +2005,75 @@ WHERE epic = sqlc.arg(epic) AND path = sqlc.arg(path) AND attempt = sqlc.arg(att
 
 -- name: ListEpicIntegrateRounds :many
 SELECT * FROM integrate_rounds WHERE epic = ? ORDER BY path, attempt, task, round;
+
+-- name: InsertLLMAccount :exec
+INSERT INTO llm_accounts (id, name, provider, plan, token, fingerprint, created) VALUES (?, ?, ?, ?, ?, ?, ?);
+
+-- name: GetLLMAccount :one
+SELECT id, name, provider, plan, fingerprint, created FROM llm_accounts WHERE id = ?;
+
+-- name: ListLLMAccounts :many
+SELECT id, name, provider, plan, fingerprint, created FROM llm_accounts ORDER BY created, id;
+
+-- name: ListLLMAccountIDs :many
+SELECT id FROM llm_accounts ORDER BY id;
+
+-- name: CountLLMAccount :one
+SELECT CAST(COUNT(*) AS INTEGER) FROM llm_accounts WHERE id = ?;
+
+-- name: RenameLLMAccount :execrows
+UPDATE llm_accounts SET name = ? WHERE id = ?;
+
+-- name: DeleteLLMAccount :exec
+DELETE FROM llm_accounts WHERE id = ?;
+
+-- name: ListRouteContextsOfAccount :many
+SELECT id FROM route_contexts WHERE account = ? AND account <> '' ORDER BY id;
+
+-- name: DeleteRouteBindings :exec
+DELETE FROM route_bindings;
+
+-- name: DeleteRouteContexts :exec
+DELETE FROM route_contexts;
+
+-- name: DeleteRouteSeats :exec
+DELETE FROM route_seats;
+
+-- name: DeleteRouteRegistry :exec
+DELETE FROM route_registry;
+
+-- name: InsertRouteRegistry :exec
+INSERT INTO route_registry (id, default_context) VALUES (1, ?);
+
+-- name: GetRouteRegistry :one
+SELECT * FROM route_registry WHERE id = 1;
+
+-- name: InsertRouteSeat :exec
+INSERT INTO route_seats (id, auth_mode, upstream, model, api_key_env_file, aws_profile, aws_region, model_map_env_file,
+                         billing, speed, cache_ttl, insecure, strip_cache_control, strict_structured_output,
+                         max_input_tokens, strip_betas)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+
+-- name: ListRouteSeats :many
+SELECT * FROM route_seats ORDER BY id;
+
+-- name: InsertRouteContext :exec
+INSERT INTO route_contexts (id, default_seat, account, has_subagents, subagent_default_seat) VALUES (?, ?, ?, ?, ?);
+
+-- name: ListRouteContexts :many
+SELECT * FROM route_contexts ORDER BY id;
+
+-- name: CountRouteContext :one
+SELECT CAST(COUNT(*) AS INTEGER) FROM route_contexts WHERE id = ?;
+
+-- name: SetRouteContextAccount :exec
+UPDATE route_contexts SET account = ? WHERE id = ?;
+
+-- name: InsertRouteBinding :exec
+INSERT INTO route_bindings (context, scope, selector, seat) VALUES (?, ?, ?, ?);
+
+-- name: ListRouteBindings :many
+SELECT * FROM route_bindings ORDER BY context, scope, selector;
+
+-- name: ListRouteAccountTokens :many
+SELECT id, token FROM llm_accounts WHERE id IN (SELECT account FROM route_contexts WHERE account <> '') ORDER BY id;

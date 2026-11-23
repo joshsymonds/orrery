@@ -9,7 +9,7 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"modernc.org/sqlite"
+	sqlite3 "github.com/mattn/go-sqlite3"
 )
 
 // errStoreClosing is what a connection the store's pool asks for once Close has begun gets. database/sql opens a
@@ -17,8 +17,9 @@ import (
 // wait for that open, so the store refuses new connections and waits out the ones already made.
 var errStoreClosing = errors.New("store is closing")
 
-// sqliteConn is the part of the sqlite driver's connection that database/sql uses: the context forms of each call,
-// the session reset, and the validity check that discards an interrupted connection.
+// sqliteConn is the part of the sqlite driver's connection that database/sql uses: the context forms of each call. A
+// call its context cancels interrupts the statement it runs and leaves the connection usable, so the connection needs
+// no validity check.
 type sqliteConn interface {
 	driver.Conn
 	driver.ConnBeginTx
@@ -26,8 +27,6 @@ type sqliteConn interface {
 	driver.ExecerContext
 	driver.QueryerContext
 	driver.Pinger
-	driver.SessionResetter
-	driver.Validator
 }
 
 // trackedConnector opens the store's connections and counts each one from the start of its open to its Close, so the
@@ -97,7 +96,7 @@ func (c *trackedConnector) Connect(ctx context.Context) (driver.Conn, error) {
 	}
 	conn, ok := raw.(sqliteConn)
 	hooked, hooks := raw.(interface {
-		RegisterPreUpdateHook(fn sqlite.PreUpdateHookFn)
+		RegisterPreUpdateHook(fn func(sqlite3.SQLitePreUpdateData))
 	})
 	if !ok || !hooks {
 		closeErr := raw.Close()

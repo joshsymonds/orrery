@@ -75,6 +75,7 @@ func gateReadoptRun(t *testing.T, stateDir, name, counter, release string) gateR
 	t.Helper()
 	t.Cleanup(func() { _ = os.WriteFile(release, nil, 0o600) })
 	return gateRun{
+		Host: gateTestHost(),
 		Argv: []string{"/bin/sh", "-c",
 			`n=$(cat "$COUNTER" 2>/dev/null || echo 0); echo $((n + 1)) > "$COUNTER"; ` +
 				`while [ ! -e "$RELEASE" ]; do sleep 0.05; done; echo done; exit 3`},
@@ -222,6 +223,7 @@ func TestGateReadoptOfStoppedGateRunsItOnce(t *testing.T) {
 	counter := filepath.Join(t.TempDir(), "counter")
 	pools := &fakeGatePools{}
 	run := gateRun{
+		Host: gateTestHost(),
 		Argv: []string{"/bin/sh", "-c",
 			`n=$(cat "$COUNTER" 2>/dev/null || echo 0); n=$((n + 1)); echo $n > "$COUNTER"; ` +
 				`if [ $n -eq 1 ]; then sleep 60; fi; echo done; exit 3`},
@@ -263,6 +265,7 @@ func TestGateReadoptWithoutExitRecordIsLostAndRunsNothing(t *testing.T) {
 	pools := &fakeGatePools{}
 
 	_, err := readoptGrantedGate(t.Context(), pools, gateGrantRequest(), gateRun{
+		Host:     gateTestHost(),
 		Argv:     []string{"/bin/sh", "-c", `touch "$MARKER"`},
 		Dir:      t.TempDir(),
 		Limit:    time.Minute,
@@ -391,6 +394,7 @@ func TestGateReadoptOfIdleHolderIsLost(t *testing.T) {
 	marker := filepath.Join(t.TempDir(), "started")
 	pools := &fakeGatePools{}
 	run := gateRun{
+		Host:     gateTestHost(),
 		Argv:     []string{"/bin/sh", "-c", `touch "$MARKER"`},
 		Dir:      t.TempDir(),
 		Limit:    time.Minute,
@@ -436,6 +440,7 @@ func TestGateReadoptOfGateKilledAtItsLimitReturnsTimedOut(t *testing.T) {
 	pools := &fakeGatePools{}
 	limit := gateLimitFIFO(t)
 	run := gateRun{
+		Host:        gateTestHost(),
 		Argv:        []string{"/bin/sh", "-c", `echo 1 > "$COUNTER"; sleep 60`},
 		Dir:         t.TempDir(),
 		Limit:       time.Hour,
@@ -478,6 +483,7 @@ func TestGateReadoptErrorsWithoutPools(t *testing.T) {
 	marker := filepath.Join(t.TempDir(), "started")
 
 	_, err := readoptGrantedGate(t.Context(), nil, gateGrantRequest(), gateRun{
+		Host:     gateTestHost(),
 		Argv:     []string{"/bin/sh", "-c", `touch "$MARKER"`},
 		Dir:      t.TempDir(),
 		Limit:    time.Minute,

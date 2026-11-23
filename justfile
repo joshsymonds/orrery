@@ -36,6 +36,13 @@ cover:
     dir=$(mktemp -d /tmp/orrery-tmux.XXXXXX)
     trap 'rm -rf "$dir"' EXIT
     rc=0
+    # The budget is a hang guard for the tests, and compiling every package under -race and coverage, which a cold build
+    # cache does, is no hang, so the test binaries are compiled before it starts, with the flags the run below uses, and
+    # the run then links from the build cache. -c takes only packages that have tests. The orrery and orreryd the tests
+    # build themselves (cmd/orreryd's TestMain, internal/integration) are compiled the same way.
+    mapfile -t pkgs < <(go list -f '{{"{{"}}if or .TestGoFiles .XTestGoFiles{{"}}"}}{{"{{"}}.ImportPath{{"}}"}}{{"{{"}}end{{"}}"}}' ./... | grep -v '^$')
+    go test -c -o "$dir/bin/" -race -covermode=atomic -coverpkg=./... "${pkgs[@]}"
+    go build -o "$dir/bin/" ./cmd/orrery ./cmd/orreryd
     # Each test binary runs with -test.timeout set to what is left until 10 s before the budget ends
     # (scripts/test-deadline.sh), so a package still running then panics listing its running tests, which go test
     # prints, instead of ending without a word when timeout kills go test. A failure at or past that deadline is the
@@ -114,10 +121,12 @@ proto-breaking:
     git archive "$previous" proto | tar -x -C "$dir"
     cd proto && buf breaking --against "$dir/proto"
 
-# Regenerate the store's typed queries (internal/store/sqlcgen), the typed API (internal/gen), and the app's typed
-# client (android/app/src/main/java, orrery.v1 only) from proto/.
+# Regenerate the store's typed queries (internal/store/sqlcgen) and its fresh schema (internal/store/schema.sql, from the
+# migrations), the typed API (internal/gen), and the app's typed client (android/app/src/main/java, orrery.v1 only) from
+# proto/.
 generate:
     sqlc generate
+    ORRERY_WRITE_FRESH_SCHEMA=1 go test -count=1 -run '^TestStoreFreshSchemaMatchesMigrations$' ./internal/store/
     cd proto && buf generate
     rm -rf android/app/src/main/java/io/github/joshsymonds/orrery/gen
     cd proto && buf generate --template buf.gen.android.yaml --path orrery/v1
@@ -130,7 +139,7 @@ sqlc-diff:
 
 # Fail when the generated API code drifts from proto/ (regenerates, then diffs).
 gen-diff: generate
-    git diff --exit-code -- internal/gen
+    git diff --exit-code -- internal/gen internal/store/schema.sql
     git diff --exit-code HEAD -- android/app/src/main/java
     untracked=$(git ls-files --others --exclude-standard -- android/app/src/main/java); [ -z "$untracked" ] || { echo "generated app files not committed:" >&2; echo "$untracked" >&2; exit 1; }
     git diff --exit-code HEAD -- web/src/gen

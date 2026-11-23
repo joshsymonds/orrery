@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/pressly/goose/v3"
-	"modernc.org/sqlite"
 )
 
 // storeImages are the store files the tests start from, each made once per test binary on first use. Migrating a
@@ -61,7 +60,7 @@ func versionImages() (map[int64][]byte, error) {
 	}
 	defer os.RemoveAll(dir)
 	path := filepath.Join(dir, "orrery.db")
-	db, err := sql.Open("sqlite", path+"?_synchronous=OFF")
+	db, err := sql.Open("sqlite3", path+"?_synchronous=OFF")
 	if err != nil {
 		return nil, err
 	}
@@ -147,10 +146,7 @@ func storeAtVersion(t *testing.T, version int64) (*Store, *goose.Provider) {
 	}
 	// The store runs over the store's own connector, so its writes run as Open's do, but reads no epic tables: the
 	// schema at version may hold no epic_revisions, so its writes move no revision.
-	inner, err := sqlite.NewConnector(path + "?_synchronous=OFF")
-	if err != nil {
-		t.Fatalf("open store at version %d: %v", version, err)
-	}
+	inner := newConnector(path + "?_synchronous=OFF")
 	connector := &trackedConnector{inner: inner}
 	db := sql.OpenDB(connector)
 	db.SetMaxOpenConns(1)
@@ -160,10 +156,7 @@ func storeAtVersion(t *testing.T, version int64) (*Store, *goose.Provider) {
 		}
 	})
 	// The read pool opens the file as Open's does, so a read of the store at version sees each committed write.
-	readInner, err := sqlite.NewConnector(readOnlyDSNBusy(path, BusyTimeout.Milliseconds()))
-	if err != nil {
-		t.Fatalf("open read pool at version %d: %v", version, err)
-	}
+	readInner := newConnector(readOnlyDSNBusy(path, BusyTimeout.Milliseconds()))
 	readConnector := &trackedConnector{inner: readInner, readPool: true}
 	readDB := sql.OpenDB(readConnector)
 	readDB.SetMaxOpenConns(readConns)

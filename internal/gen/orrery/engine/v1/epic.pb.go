@@ -4761,7 +4761,7 @@ type CreateEpicResponse struct {
 	// The stored epic.
 	Epic *StoredEpic `protobuf:"bytes,1,opt,name=epic,proto3" json:"epic,omitempty"`
 	// One warning for each lint finding that does not refuse the contract: a go test whose -run pattern matches a test at
-	// the base, or a release step that says merge, names a fixed version or waits on CI. Each names its field and reason.
+	// the base, or a release step that names a fixed version. Each names its field and reason.
 	Warnings      []string `protobuf:"bytes,2,rep,name=warnings,proto3" json:"warnings,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache

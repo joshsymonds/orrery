@@ -41,7 +41,7 @@
   const allProven = REQS.map((r) => ({ ...r, red: r.red === 'review' ? 'review' : 'holds', green: r.red === 'review' ? 'review' : 'passes', proven: true }));
 
   const BASE = {
-    dir: 'lighthouse', slug: 'rota-export', summary: SUMMARY,
+    dir: 'lighthouse', slug: 'rota-export', host: 'halyard', summary: SUMMARY,
     contract: 'accepted 13:50 · serious care · 6 requirements', conversation: 'lighthouse · Planned the rota export, and steers its epic',
     controls: { pause: true, stop: true }, asOf: 'as of 14:41',
   };
@@ -53,9 +53,9 @@
     track: track({ state: 'now', words: '2 of 7 tasks done' }),
     now: 'Three tasks are being worked on.',
     running: [
-      { label: 'export-cli', pips: P.run3, doing: 'implement · gate just check', time: '2:41' },
-      { label: 'tz-fixtures', pips: ['run', '', '', '', ''], doing: 'red · capturing the failing test', time: '6m' },
-      { label: 'csv-writer', pips: P.acc, doing: 'accepted · waits to integrate', time: '2m' },
+      { label: 'export-cli', host: 'halyard', pips: P.run3, doing: 'implement · gate just check', time: '2:41' },
+      { label: 'tz-fixtures', host: 'halyard', pips: ['run', '', '', '', ''], doing: 'red · capturing the failing test', time: '6m' },
+      { label: 'csv-writer', host: 'halyard', pips: P.acc, doing: 'accepted · waits to integrate', time: '2m' },
     ],
     next: 'audit-log and readme start when tz-fixtures is done.',
     history: HISTORY.slice(1), historyMore: 9,
@@ -68,8 +68,8 @@
     now: 'Two tasks are being worked on, and one waits on you.',
     ask: W.rotaAsk,
     running: [
-      { label: 'export-cli', pips: P.run3, doing: 'implement · gate just check', time: '2:41' },
-      { label: 'tz-fixtures', held: true, pips: P.held2, doing: 'held · waits on your answer', time: '2m' },
+      { label: 'export-cli', host: 'halyard', pips: P.run3, doing: 'implement · gate just check', time: '2:41' },
+      { label: 'tz-fixtures', host: 'halyard', held: true, pips: P.held2, doing: 'held · waits on your answer', time: '2m' },
     ],
     next: 'audit-log and readme start when tz-fixtures is done.',
     history: HISTORY, historyMore: 9, tasks: TASKS, reqs: REQS, hl: 'tz-fixtures',
@@ -109,8 +109,8 @@
     now: 'Two steps wait on the weekly usage limit, which resets at 15:10. They resume on their own a minute after.',
     nowExtra: `<div class="doors">${O.btn('Resume now', { icon: 'play', tip: 'Try before the reset. A step still over the limit stays held.', tipSide: 'right' })}</div>`,
     running: [
-      { label: 'export-cli', limited: true, pips: P.limit3, doing: 'waits on the weekly limit · resets 15:10', time: '23m' },
-      { label: 'tz-fixtures', limited: true, pips: P.limit2, doing: 'waits on the weekly limit · resets 15:10', time: '23m' },
+      { label: 'export-cli', host: 'halyard', limited: true, pips: P.limit3, doing: 'waits on the weekly limit · resets 15:10', time: '23m' },
+      { label: 'tz-fixtures', host: 'halyard', limited: true, pips: P.limit2, doing: 'waits on the weekly limit · resets 15:10', time: '23m' },
     ],
     tasks: TASKS.map((t) => (t.name === 'export-cli' || t.name === 'tz-fixtures' ? { ...t, tone: 'plan', words: 'waits on the weekly limit', time: '23m' } : t)), hl: undefined,
   };
@@ -230,6 +230,32 @@
     ] } : r)),
     scrollTo: '[aria-label="Requirements"]',
   };
+
+  // hosts: an epic whose steps run on two hosts. The epic runs on sextant, where its poller runs beside the feeds; its gap
+  // check runs on lantern, where the harbour page is served. Each step names its own host; the epic names its one.
+  W.epic.hosts = {
+    ...BASE, dir: 'buoys', slug: 'buoy-alerts', host: 'sextant', state: 'building · 6m', tone: 'live',
+    summary: 'A buoy’s feed is read once a minute, and a gap longer than five minutes is alerted on the harbour page. The poller runs beside the feeds; the gap check runs where the page is served.',
+    contract: 'accepted 14:20 · limited care · 3 requirements', conversation: 'buoys · Poll the buoy feeds once a minute', conversationGo: 'epic-hosts',
+    track: track({ state: 'now', words: '1 of 3 tasks done' }),
+    now: 'Two steps are running, on two hosts.',
+    running: [
+      { label: 'poll-feeds', host: 'sextant', pips: P.run2, doing: 'implement · gate just check', time: '2:41' },
+      { label: 'gap-alerts', host: 'lantern', pips: P.run2, doing: 'implement · round 2 after a send-back', time: '4m' },
+    ],
+    next: 'the harbour page starts when both are integrated.',
+    history: [{ at: '14:31', text: '**gap-alerts** · checks failed once, then passed' }, { at: '14:20', text: 'The epic was created from the accepted contract' }], historyMore: 4,
+    tasks: [], reqs: REQS.slice(0, 3).map((r, i) => ({ ...r, proven: i === 0, green: i === 0 ? 'passes' : 'running' })),
+  };
+  // The conversation that steers buoy-alerts, on the epic's host, and the rail card for the epic it steers.
+  W.buoyTalk = [
+    { k: 'you', at: '14:02', text: ['Read each buoy feed once a minute, and flag any gap longer than five minutes on the harbour page.'] },
+    { k: 'reply', at: '14:09', md: ['Two steps: the poller runs beside the feeds on sextant, and the gap check runs where the harbour page is served, on lantern.'] },
+  ];
+  W.workBuoy = { epics: [{
+    slug: 'buoy-alerts', host: 'sextant', gauge: W.epics.buoy.gauge, tone: 'live', state: 'building · 6m', pill: 'live', track: ['done', 'now', '', '', ''],
+    now: 'Two steps are running, on two hosts.', count: '1 of 3 proven · 1 of 3 tasks', go: 'epic-hosts', steps: W.epic.hosts.running,
+  }] };
 
   W.epic.all = W.epic;
   W.epicTasks = TASKS;

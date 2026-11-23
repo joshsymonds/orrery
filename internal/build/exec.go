@@ -78,7 +78,12 @@ func (r *Runner) record(ctx context.Context, epic store.EpicRow, view View, acti
 // snapshotRefs stores the refs snapshot the implementer's step is checked against.
 func (r *Runner) snapshotRefs(ctx context.Context, epic store.EpicRow, view View) bool {
 	seq, from := view.Task.Seq, view.Task.Build
-	snap, err := snapshotOf(ctx, r.store, epic)
+	host, err := r.hostOf(epic)
+	if err != nil {
+		r.report(ctx, epic.ID, seq, "snapshot refs", err)
+		return false
+	}
+	snap, err := snapshotOf(ctx, host, r.store, epic)
 	if err != nil {
 		r.report(ctx, epic.ID, seq, "snapshot refs", err)
 		return false
@@ -195,14 +200,19 @@ func (r *Runner) carry(
 	if newBase == "" || newBase == from.Base {
 		return next, nil, true
 	}
+	host, err := r.hostOf(epic)
+	if err != nil {
+		r.report(ctx, epic.ID, seq, "carry work", err)
+		return next, nil, false
+	}
 	path, wip := ImplementWorktree(r.stateDir, epic.ID, view.Task), WipRef(epic.ID, seq)
-	moveErr := r.git.MoveTaskWorktree(ctx, path, wip, epic.ID, seq, newBase)
+	moveErr := r.git.MoveTaskWorktree(ctx, host, path, wip, epic.ID, seq, newBase)
 	if moveErr == nil {
 		next.Base = newBase
 		return next, nil, true
 	}
 	ref := CarryRef(epic.ID, seq, next.Attempt)
-	commit, keepErr := r.git.KeepWork(ctx, path, wip, ref)
+	commit, keepErr := r.git.KeepWork(ctx, host, path, wip, ref)
 	if keepErr != nil {
 		r.report(ctx, epic.ID, seq, "keep work", keepErr)
 		return next, nil, false
@@ -260,7 +270,11 @@ func (r *Runner) ask(ctx context.Context, epic store.EpicRow, view View, action 
 func (r *Runner) resume(ctx context.Context, epic store.EpicRow, view View, action Action) bool {
 	seq, from := view.Task.Seq, view.Task.Build
 	path := ImplementWorktree(r.stateDir, epic.ID, view.Task)
-	if err := r.git.MoveTaskWorktree(ctx, path, WipRef(epic.ID, seq), epic.ID, seq, action.Revision); err != nil {
+	host, err := r.hostOf(epic)
+	if err == nil {
+		err = r.git.MoveTaskWorktree(ctx, host, path, WipRef(epic.ID, seq), epic.ID, seq, action.Revision)
+	}
+	if err != nil {
 		reason := fmt.Sprintf("%s could not move onto the new base %s: %v", taskLabel(seq), action.Revision, err)
 		return r.fail(ctx, epic, view, Action{Kind: ActFail, Reason: reason})
 	}
@@ -271,11 +285,15 @@ func (r *Runner) resume(ctx context.Context, epic store.EpicRow, view View, acti
 func (r *Runner) accept(ctx context.Context, epic store.EpicRow, view View, action Action) bool {
 	seq, from := view.Task.Seq, view.Task.Build
 	ref := refsOrreryPrefix + Slug(epic.ID) + "/" + taskLabel(seq)
-	if err := r.git.Pin(ctx, epic.Repository, ref, from.Revision); err != nil {
+	host, err := r.hostOf(epic)
+	if err == nil {
+		err = r.git.Pin(ctx, host, epic.Repository, ref, from.Revision)
+	}
+	if err != nil {
 		r.report(ctx, epic.ID, seq, "pin accepted task", err)
 		return false
 	}
-	err := r.store.AcceptTask(ctx, epic.ID, seq, from, action.Reason)
+	err = r.store.AcceptTask(ctx, epic.ID, seq, from, action.Reason)
 	if !r.written(ctx, epic.ID, seq, "accept task", err) {
 		return false
 	}
@@ -286,7 +304,10 @@ func (r *Runner) accept(ctx context.Context, epic store.EpicRow, view View, acti
 // removeWorktrees removes the worktrees of task seq. The task's state is stored before this runs, so a failure is
 // logged and the task stays as it is.
 func (r *Runner) removeWorktrees(ctx context.Context, epic store.EpicRow, seq int64) {
-	err := r.git.RemoveWorktrees(ctx, epic.Repository, TaskDir(r.stateDir, epic.ID, seq))
+	host, err := r.hostOf(epic)
+	if err == nil {
+		err = r.git.RemoveWorktrees(ctx, host, epic.Repository, TaskDir(r.stateDir, epic.ID, seq))
+	}
 	r.report(ctx, epic.ID, seq, "remove task worktrees", err)
 }
 

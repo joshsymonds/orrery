@@ -17,6 +17,7 @@ import (
 
 	"github.com/joshsymonds/orrery/internal/evidence"
 	"github.com/joshsymonds/orrery/internal/exectest"
+	"github.com/joshsymonds/orrery/internal/hostexec"
 	"github.com/joshsymonds/orrery/internal/store"
 	"github.com/joshsymonds/orrery/internal/workflow"
 )
@@ -506,7 +507,7 @@ func TestFetchOriginNeverPrompts(t *testing.T) {
 	nodeGit(t, repo, "config", "remote.origin.uploadpack", script)
 	epic := store.EpicRow{ID: runEpic, Repository: repo}
 
-	branch, commit, err := fetchOrigin(context.Background(), epic, syncRef(epic, "origin"))
+	branch, commit, err := fetchOrigin(context.Background(), hostexec.NewLocal(), epic, syncRef(epic, "origin"))
 	if err != nil {
 		t.Fatalf("fetchOrigin: %v", err)
 	}
@@ -893,7 +894,7 @@ func (w *integrateWorld) requireNoPark() {
 		w.t.Errorf("epic parked %q as %q with questions %+v, want no park", epic.Parked, epic.ParkClass,
 			epic.Questions)
 	}
-	db, err := sql.Open("sqlite", w.path)
+	db, err := sql.Open("sqlite3", w.path)
 	if err != nil {
 		w.t.Fatalf("open store file: %v", err)
 	}

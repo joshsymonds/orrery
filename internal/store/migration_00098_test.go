@@ -8,12 +8,12 @@ import (
 	"time"
 )
 
-// This file checks migration 00097_drop_release_slots.sql, which drops epic_release_slots and changes no other table.
-// A store at version 95 holds epics in each release phase, each with a release run, and the slot rows of an epic and
+// This file checks migration 00098_drop_release_slots.sql, which drops epic_release_slots and changes no other table.
+// A store at version 97 holds epics in each release phase, each with a release run, and the slot rows of an epic and
 // of an outside label. Open migrates it to the newest version: the table is gone, and every epic reads back with the
 // phase, park and release run it had.
 
-// dropSeed is an epic TestReleaseSlotsDropKeepsEpics seeds at version 95, with the phase, park and release run it reads
+// dropSeed is an epic TestReleaseSlotsDropKeepsEpics seeds at version 97, with the phase, park and release run it reads
 // back with after the migration.
 type dropSeed struct {
 	id        string
@@ -37,7 +37,7 @@ func TestReleaseSlotsDropKeepsEpics(t *testing.T) {
 		},
 		{id: "orrery-0123456/clean", phase: PhaseClean, phaseAt: 1700000500, passed: true},
 	}
-	fixture := openStoreAtVersion(t, path, 95)
+	fixture := openStoreAtVersion(t, path, 97)
 	for _, seed := range seeds {
 		if _, err := fixture.ExecContext(ctx, `INSERT INTO epics
 			(id, repository, title, approved, intent, care, approach, release_then, checks, phase, created, changed,
@@ -75,7 +75,7 @@ func TestReleaseSlotsDropKeepsEpics(t *testing.T) {
 
 	s, err := Open(ctx, path, noSync())
 	if err != nil {
-		t.Fatalf("Open at version 95: %v", err)
+		t.Fatalf("Open at version 97: %v", err)
 	}
 	defer s.Close()
 

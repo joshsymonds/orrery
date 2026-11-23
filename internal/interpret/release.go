@@ -235,7 +235,11 @@ func (r *Runner) recordCandidate(ctx context.Context, epic store.EpicRow, act Ac
 func (r *Runner) verifyCandidate(
 	ctx context.Context, epic store.EpicRow, act Action, head string, at time.Time,
 ) (bool, error) {
-	contained, err := candidateContainsOrigin(ctx, epic, head)
+	host, err := r.hostOf(epic)
+	if err != nil {
+		return false, fmt.Errorf("check candidate %s of epic %s: %w", head, epic.ID, err)
+	}
+	contained, err := candidateContainsOrigin(ctx, host, epic, head)
 	if err != nil {
 		reason := fmt.Sprintf("candidate %s could not be checked against origin's main: %v", head, err)
 		if stopErr := r.store.StopRelease(ctx, epic.ID, act.Path, act.Run.Attempt, reason, at); stopErr != nil {

@@ -493,7 +493,7 @@ func triggerCausesOf(t *testing.T, s *store.Store, epic string) []string {
 // epics that have a turn, so the file is read.
 func nodeTells(t *testing.T, path string) []string {
 	t.Helper()
-	db, err := sql.Open("sqlite", path)
+	db, err := sql.Open("sqlite3", path)
 	if err != nil {
 		t.Fatalf("open store file: %v", err)
 	}

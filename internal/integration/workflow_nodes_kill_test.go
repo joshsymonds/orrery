@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"syscall"
 	"testing"
@@ -228,9 +229,9 @@ func (r *buildRig) openReadOnlyStore(t *testing.T) *sql.DB {
 	t.Helper()
 	query := url.Values{}
 	query.Set("mode", "ro")
-	query.Add("_pragma", fmt.Sprintf("busy_timeout(%d)", math.MaxInt32))
+	query.Set("_busy_timeout", strconv.Itoa(math.MaxInt32))
 	dsn := (&url.URL{Scheme: "file", Path: r.f.dbPath, RawQuery: query.Encode()}).String()
-	db, err := sql.Open("sqlite", dsn)
+	db, err := sql.Open("sqlite3", dsn)
 	if err != nil {
 		t.Fatalf("open store read-only: %v", err)
 	}

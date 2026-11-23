@@ -139,15 +139,14 @@ func TestInboxTidyStalePaneSevenDaysArchives(t *testing.T) {
 }
 
 // TestInboxTidyStalePaneSixDaysTwentyThreeHoursFollowsOtherRules lists each pane row unchanged 6 days 23 hours. A
-// working or waiting row has no rule of its own, so it lists unarchived. A done row follows the done rule, which
-// archives an unseen done row at three days, so it lists archived.
+// working, waiting or done row has no rule that ages it short of the seven-day floor, so each lists unarchived.
 func TestInboxTidyStalePaneSixDaysTwentyThreeHoursFollowsOtherRules(t *testing.T) {
 	t.Parallel()
 	changed := epicsNow().Add(-staleShortAge)
 	expectStaleRows(t, stalePane(), epicsNow, []staleRow{
 		{id: "stale-pane-working-short", state: "working", changed: changed},
 		{id: "stale-pane-waiting-short", state: "waiting", changed: changed},
-		{id: "stale-pane-done-short", state: "done", changed: changed, archived: true},
+		{id: "stale-pane-done-short", state: "done", changed: changed},
 	})
 }
 
@@ -164,15 +163,15 @@ func TestInboxTidyStaleHeadlessSevenDaysArchives(t *testing.T) {
 }
 
 // TestInboxTidyStaleHeadlessSixDaysTwentyThreeHoursFollowsOtherRules lists each headless session unchanged 6 days 23
-// hours. A working or waiting session has no rule of its own, so it lists unarchived. A done session follows the done
-// rule, which archives an unseen done session at three days, so it lists archived.
+// hours. A working, waiting or done session has no rule that ages it short of the seven-day floor, so each lists
+// unarchived.
 func TestInboxTidyStaleHeadlessSixDaysTwentyThreeHoursFollowsOtherRules(t *testing.T) {
 	t.Parallel()
 	changed := epicsNow().Add(-staleShortAge)
 	expectStaleRows(t, staleHeadless(), epicsNow, []staleRow{
 		{id: staleHeadlessWorkingShortID, state: "working", changed: changed},
 		{id: staleHeadlessWaitingShortID, state: "waiting", changed: changed},
-		{id: staleHeadlessDoneShortID, state: "done", changed: changed, archived: true},
+		{id: staleHeadlessDoneShortID, state: "done", changed: changed},
 	})
 }
 

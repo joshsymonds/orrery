@@ -126,7 +126,7 @@ func seedReleaseEpic(t *testing.T, r *buildRig, steps ...store.EpicReleaseStep) 
 // reviewing, which the release epic is not in.
 func freezeReviewRow(t *testing.T, path, id, revision string) {
 	t.Helper()
-	db, err := sql.Open("sqlite", path)
+	db, err := sql.Open("sqlite3", path)
 	if err != nil {
 		t.Fatalf("open store file: %v", err)
 	}

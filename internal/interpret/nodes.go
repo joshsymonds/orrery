@@ -1,12 +1,10 @@
 package interpret
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os/exec"
 	"strings"
 	"time"
 
@@ -15,6 +13,7 @@ import (
 	"github.com/joshsymonds/orrery/internal/enginehost"
 	"github.com/joshsymonds/orrery/internal/evidence"
 	"github.com/joshsymonds/orrery/internal/gates"
+	"github.com/joshsymonds/orrery/internal/hostexec"
 	"github.com/joshsymonds/orrery/internal/kinds"
 	"github.com/joshsymonds/orrery/internal/store"
 	"github.com/joshsymonds/orrery/internal/workflow"
@@ -82,7 +81,7 @@ func (r *Runner) work(ctx context.Context, epic store.EpicRow, act Action, at ti
 // prepare records the revision a check node run's work runs at. A gate, command or evidence run also records the refs it
 // is checked against, and an agent run none, since no ref compare applies to it.
 func (r *Runner) prepare(ctx context.Context, epic store.EpicRow, act Action) error {
-	revision, err := revisionOf(ctx, epic, act.Def.Settings.At)
+	revision, err := r.revisionOf(ctx, epic, act.Def.Settings.At)
 	if err != nil {
 		return err
 	}
@@ -100,19 +99,24 @@ func (r *Runner) prepare(ctx context.Context, epic store.EpicRow, act Action) er
 
 // revisionOf returns the revision a node names with at: the epic's base for base, and the head of the epic's branch for
 // head.
-func revisionOf(ctx context.Context, epic store.EpicRow, at string) (string, error) {
+func (r *Runner) revisionOf(ctx context.Context, epic store.EpicRow, at string) (string, error) {
 	if at == atBase {
 		if epic.Base == "" {
 			return "", fmt.Errorf("epic %s has no base to run at", epic.ID)
 		}
 		return epic.Base, nil
 	}
-	return branchHead(ctx, epic)
+	return r.branchHead(ctx, epic)
 }
 
-// branchHead returns the commit of the epic's branch. A branch that does not exist is an error.
-func branchHead(ctx context.Context, epic store.EpicRow) (string, error) {
-	tip, ok, err := build.BranchTip(ctx, epic.Repository, epic.ID)
+// branchHead returns the commit of the epic's branch, read on the host the epic lives on. A branch that does not exist
+// is an error.
+func (r *Runner) branchHead(ctx context.Context, epic store.EpicRow) (string, error) {
+	host, err := r.hostOf(epic)
+	if err != nil {
+		return "", fmt.Errorf("read branch of epic %s: %w", epic.ID, err)
+	}
+	tip, ok, err := build.BranchTip(ctx, host, epic.Repository, epic.ID)
 	if err != nil {
 		return "", fmt.Errorf("read branch of epic %s: %w", epic.ID, err)
 	}
@@ -136,7 +140,11 @@ func (r *Runner) refSnapshot(ctx context.Context, epic store.EpicRow) (string, e
 			exclude = append(exclude, build.BranchRef(other.ID))
 		}
 	}
-	snapshot, err := build.Snapshot(ctx, epic.Repository, exclude)
+	host, err := r.hostOf(epic)
+	if err != nil {
+		return "", fmt.Errorf("snapshot refs of epic %s: %w", epic.ID, err)
+	}
+	snapshot, err := build.Snapshot(ctx, host, epic.Repository, exclude)
 	if err != nil {
 		return "", fmt.Errorf("snapshot refs of epic %s: %w", epic.ID, err)
 	}
@@ -225,7 +233,11 @@ func (r *Runner) withCostGate(ctx context.Context, epic store.EpicRow, check sto
 func (r *Runner) withGate(
 	ctx context.Context, epic store.EpicRow, name string, check store.NodeCheck,
 ) (store.NodeCheck, error) {
-	gate, err := build.ResolveGate(ctx, epic, name, r.getenv)
+	host, err := r.hostOf(epic)
+	if err != nil {
+		return store.NodeCheck{}, fmt.Errorf("check %s: %w", check.ID, err)
+	}
+	gate, err := build.ResolveGate(ctx, host, epic, name, r.getenv)
 	switch {
 	case errors.Is(err, gates.ErrUnknown):
 		check.NotRun = err.Error()
@@ -316,11 +328,16 @@ func refusedForGood(err error) bool {
 // when none changed. --no-renames lists a renamed path under both its names, so a rename out of an owned path is not
 // missed.
 func (r *Runner) recordOwned(ctx context.Context, epic store.EpicRow, act Action) error {
-	head, err := branchHead(ctx, epic)
+	head, err := r.branchHead(ctx, epic)
 	if err != nil {
 		return err
 	}
-	listing, err := gitOutput(ctx, epic.Repository, "diff", "--name-only", "-z", "--no-renames", changeBase(epic), head)
+	host, err := r.hostOf(epic)
+	if err != nil {
+		return fmt.Errorf("list paths changed by epic %s: %w", epic.ID, err)
+	}
+	listing, err := gitOutput(ctx, host, epic.Repository, "diff", "--name-only", "-z", "--no-renames", changeBase(epic),
+		head)
 	if err != nil {
 		return fmt.Errorf("list paths changed by epic %s: %w", epic.ID, err)
 	}
@@ -351,7 +368,11 @@ func (r *Runner) checkRefs(ctx context.Context, epic store.EpicRow, act Action, 
 	if err != nil {
 		return fmt.Errorf("compare refs of node %s: %w", act.Path, err)
 	}
-	moves, err = build.ScopeMoves(ctx, epic.Repository, epic.ID, moves, "", "")
+	host, err := r.hostOf(epic)
+	if err != nil {
+		return fmt.Errorf("scope refs of node %s: %w", act.Path, err)
+	}
+	moves, err = build.ScopeMoves(ctx, host, epic.Repository, epic.ID, moves, "", "")
 	if err != nil {
 		return fmt.Errorf("scope refs of node %s: %w", act.Path, err)
 	}
@@ -368,31 +389,12 @@ func (r *Runner) checkRefs(ctx context.Context, epic store.EpicRow, act Action, 
 	return nil
 }
 
-// gitOutput runs git in dir and returns its stdout as git wrote it. On failure the error carries git's stderr.
-func gitOutput(ctx context.Context, dir string, args ...string) (string, error) {
-	return gitRun(gitCommand(ctx, dir, args), args)
-}
-
-// gitCommand returns the command that runs git in dir with args, which ctx's end stops.
-func gitCommand(ctx context.Context, dir string, args []string) *exec.Cmd {
-	cmd := exec.CommandContext(ctx, "git")
-	cmd.Args = append(cmd.Args, "-C", dir)
-	cmd.Args = append(cmd.Args, args...)
-	return cmd
-}
-
-// gitRun runs cmd, git with args, and returns its stdout as git wrote it. On failure the error carries git's stderr,
-// when git wrote any.
-func gitRun(cmd *exec.Cmd, args []string) (string, error) {
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-	out, err := cmd.Output()
+// gitOutput runs git in dir on host and returns its stdout as git wrote it, untrimmed. A git that ran and failed returns
+// its *hostexec.GitError, whose text carries git's command and stderr, so the error reads as it always has.
+func gitOutput(ctx context.Context, host hostexec.Host, dir string, args ...string) (string, error) {
+	out, err := host.Git(ctx, hostexec.GitCall{Dir: dir, Args: args})
 	if err != nil {
-		err = fmt.Errorf("git %s: %w", strings.Join(args, " "), err)
-		if detail := strings.TrimSpace(stderr.String()); detail != "" {
-			err = fmt.Errorf("%w: %s", err, detail)
-		}
-		return "", err
+		return "", fmt.Errorf("%w", err)
 	}
 	return string(out), nil
 }

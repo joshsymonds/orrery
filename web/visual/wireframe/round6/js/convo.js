@@ -255,6 +255,12 @@
   O.dock = (d) => {
     const touch = O.touch();
     const state = d.state || 'idle';
+    // A host that does not answer leaves its conversation nothing to act on: the dock says so, and has no input, no
+    // queue and no control, so nothing it offers would reach the pane.
+    if (state === 'unreachable') {
+      return `<div class="dock"><div class="col"><div class="dock-box" data-state="unreachable">`
+        + `${O.stateBar({ state, word: `unreachable: ${d.host} does not answer`, what: d.what, controls: '' })}</div></div></div>`;
+    }
     const controls = d.controls !== undefined ? d.controls
       : state === 'working' ? O.ctl('Interrupt', 'stop', { tone: 'bad', kbd: 'esc', tip: 'Stop this turn. Queued messages come back to the box.' })
         : state === 'interrupting' ? O.ctl('Interrupting…', '', { disabled: true })
