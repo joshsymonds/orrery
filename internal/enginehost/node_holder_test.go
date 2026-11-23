@@ -8,6 +8,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -24,6 +27,13 @@ const nodeController = "controller"
 
 // nodeLogin is the login that the controller's node and the agent's node are both signed in as.
 const nodeLogin = "owner@example.com"
+
+// nodePrompt is the prompt the Start test sends to b, which the fake claude on b must read.
+const nodePrompt = "prompt for the agent of b"
+
+// nodeEnvB is the environment entry only the agent of b gives its sessions, so a child that runs under b's environment
+// has it, and one that runs under the controller's does not.
+const nodeEnvB = "ORRERY_TEST_NODE=b"
 
 // nodeWhoIs answers WhoIs as tailscaled does for the rig: the address own is the agent's own node, and every other
 // address is the controller's node. Both are signed in as nodeLogin.
@@ -78,7 +88,7 @@ func newNodeRig(t *testing.T) nodeRig {
 	local := holderhost.NewLocal(holderhost.LocalConfig{
 		Shell:    sh,
 		Claude:   fakeClaudePath(t),
-		Environ:  []string{"PATH=" + os.Getenv("PATH"), "HOME=" + t.TempDir()},
+		Environ:  []string{"PATH=" + os.Getenv("PATH"), "HOME=" + t.TempDir(), nodeEnvB},
 		StateDir: stateB,
 	})
 	agent, err := node.NewAgent(node.AgentConfig{
@@ -134,11 +144,23 @@ func serveAgent(t *testing.T, agent *node.Agent, ln net.Listener) {
 	})
 }
 
+// requireEnviron checks that the process pid runs with the environment entry want.
+func requireEnviron(t *testing.T, pid int, want string) {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join("/proc", strconv.Itoa(pid), "environ"))
+	if err != nil {
+		t.Fatalf("environment of process %d: %v", pid, err)
+	}
+	if !slices.Contains(strings.Split(string(data), "\x00"), want) {
+		t.Fatalf("environment of process %d lacks %q", pid, want)
+	}
+}
+
 func TestNodeHolderStartRunsSessionOnAgent(t *testing.T) {
 	t.Parallel()
 	rig := newNodeRig(t)
 	dir := t.TempDir()
-	id, err := rig.m.Start(t.Context(), StartRequest{Dir: dir, Prompt: "hi", Host: "b"})
+	id, err := rig.m.Start(t.Context(), StartRequest{Dir: dir, Prompt: nodePrompt, Host: "b"})
 	if err != nil {
 		t.Fatalf("Start on b: %v", err)
 	}
@@ -151,6 +173,15 @@ func TestNodeHolderStartRunsSessionOnAgent(t *testing.T) {
 	waitHistory(t, engineOf(rig.m), rig.path, id, "the first reply block", func(h store.EngineHistory) bool {
 		return hasBlock(t, h, "fake reply 1")
 	})
+	// The fake claude appends each line it reads from stdin to fakeclaude.stdin in its directory, before it replies.
+	stdin, err := os.ReadFile(filepath.Join(dir, "fakeclaude.stdin"))
+	if err != nil {
+		t.Fatalf("prompts the child on b read: %v", err)
+	}
+	if !strings.Contains(string(stdin), nodePrompt) {
+		t.Fatalf("prompts the child on b read = %q, want the prompt %q", stdin, nodePrompt)
+	}
+	requireEnviron(t, fakePID(t, dir), nodeEnvB)
 	if host := historyOf(t, rig.path, id).Host; host != "b" {
 		t.Fatalf("row host = %q, want b", host)
 	}
