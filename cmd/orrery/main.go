@@ -123,7 +123,7 @@ subcommands:
   epic pause ID                                 pause an epic, so the planner starts no turn for it
   epic resume ID                                clear an epic's pause
   epic stop ID                                  pause an epic and stop the step of its running turn; an epic
-                                                with no running turn, whose release is running or stopped,
+                                                with no running turn, whose release is releasing or stopped,
                                                 records the owner's stop of the release, so no further step
                                                 starts, and is not paused
   epic steer ID                                 move an epic's steering to this conversation, which takes it over
