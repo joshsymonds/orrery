@@ -671,6 +671,10 @@
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
+        "design": {
+          "description": "the id of the design the contract joins, as design_create made it; empty joins no design, so the contract reads as a design of one",
+          "type": "string"
+        },
         "id": {
           "description": "the id the new contract takes: the id of the contract in the file",
           "type": "string"
@@ -785,6 +789,82 @@
       },
       "required": [
         "id"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "name": "design_create",
+    "description": "Create a design under id with title. A design holds the contracts one conversation works, in the order they start, and starts with none: contract_propose adds one with its design argument. Returns the design with its contracts and state.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "description": "the id the new design takes: no contract or design may hold it",
+          "type": "string"
+        },
+        "title": {
+          "description": "the design's title, on one line",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "title"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "name": "design_get",
+    "description": "Return a design by id, with its contracts, the contracts each starts after and its state. The id of a contract returns the design of one that holds it, a contract proposed with no design.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "description": "the id of the design to read, or the id of a contract to read the design of one it is in",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "name": "design_list",
+    "description": "List every design, with its contracts, sorted by id. A contract proposed with no design is listed as a design of one.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {},
+      "required": [],
+      "type": "object"
+    }
+  },
+  {
+    "name": "design_order",
+    "description": "Record that a contract of a design starts after another contract of the same design, given as contract and after. The edge takes effect when the contract's epic is created, and no tool removes an edge. Returns the design with the edge.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "after": {
+          "description": "the id of the contract that the contract starts after",
+          "type": "string"
+        },
+        "contract": {
+          "description": "the id of the contract that starts after the other",
+          "type": "string"
+        },
+        "design": {
+          "description": "the id of the design both contracts belong to",
+          "type": "string"
+        }
+      },
+      "required": [
+        "design",
+        "contract",
+        "after"
       ],
       "type": "object"
     }

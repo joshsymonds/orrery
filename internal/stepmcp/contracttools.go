@@ -14,9 +14,10 @@ import (
 // contractProposeArgs is the arguments of contract_propose, described for its input schema. Path names the contract file
 // that holds the contract body and its decisions.
 type contractProposeArgs struct {
-	ID    string `json:"id"    jsonschema:"the id the new contract takes: the id of the contract in the file"`
-	Path  string `json:"path"  jsonschema:"the contract file: one JSON object holding the contract in protobuf JSON field names, plus an optional decisions array of decisions in protobuf JSON field names"`
-	Words string `json:"words" jsonschema:"the words the writer gives with the version"`
+	ID     string `json:"id"               jsonschema:"the id the new contract takes: the id of the contract in the file"`
+	Path   string `json:"path"             jsonschema:"the contract file: one JSON object holding the contract in protobuf JSON field names, plus an optional decisions array of decisions in protobuf JSON field names"`
+	Words  string `json:"words"            jsonschema:"the words the writer gives with the version"`
+	Design string `json:"design,omitempty" jsonschema:"the id of the design the contract joins, as design_create made it; empty joins no design, so the contract reads as a design of one"`
 }
 
 // contractReviseArgs is the arguments of contract_revise, described for its input schema as contractProposeArgs is.
@@ -169,7 +170,7 @@ func contractProposeHandler(contracts enginev1connect.ContractsClient) ToolHandl
 			return toolFailure(err), nil
 		}
 		proposed, err := contracts.ProposeContract(ctx, connect.NewRequest(&v1.ProposeContractRequest{
-			Id: args.ID, Contract: contract, Decisions: decisions, Words: args.Words,
+			Id: args.ID, Contract: contract, Decisions: decisions, Words: args.Words, Design: args.Design,
 		}))
 		if err != nil {
 			return toolFailure(err), nil
