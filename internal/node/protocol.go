@@ -37,6 +37,14 @@ const (
 	OpEnd Op = "end"
 	// OpPing answers at once, so a controller learns that the agent is reachable.
 	OpPing Op = "ping"
+	// OpPanes carries the agent's Panes service to the controller. Once its Response carries no Code, the connection
+	// carries HTTP/1.1 requests to the agent's Panes handler until either side closes. The agent's HostPanes serves it.
+	OpPanes Op = "panes"
+	// OpWatchPanes streams the agent's pane events. After its Response, the agent writes one JSON PaneEvent per line
+	// until the controller disconnects or the agent stops.
+	OpWatchPanes Op = "watch-panes"
+	// OpLoad answers with the host's Load, which the Response's Load carries.
+	OpLoad Op = "load"
 )
 
 // Request is the one line a controller sends first on a connection. Version names the protocol and Op the operation.
@@ -72,6 +80,8 @@ type Response struct {
 	Sessions []string `json:"sessions,omitempty"`
 	// Exit is the holder's exit record, which an end or gone op answers with when the holder wrote one.
 	Exit *holder.Exit `json:"exit,omitempty"`
+	// Load is the host's Load, which a load op answers with.
+	Load *Load `json:"load,omitempty"`
 }
 
 // Code classifies a failed op, so that the controller returns the error the holder package returns for it.

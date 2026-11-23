@@ -42,6 +42,9 @@ type AgentConfig struct {
 	// Scope is the absolute path of systemd-run that runs each holder in its own user scope, as holderhost.LocalConfig.Scope
 	// names it. Empty when the holders run plainly.
 	Scope string
+	// Panes is this machine's panes, which the pane ops serve. Nil means the agent serves no panes, and each pane op
+	// answers CodeFailed.
+	Panes HostPanes
 	// Logger receives the agent's diagnostics. Nil discards them.
 	Logger *slog.Logger
 }
@@ -182,9 +185,10 @@ func (a *Agent) admit(ctx context.Context, conn net.Conn, login string) error {
 	return Authorize(resp, a.cfg.Controller, login)
 }
 
-// dispatch answers req, which an admitted peer sent on conn. Its version is checked first. Attach splices conn onto the
-// session's holder, gone streams the holder's spool after its Response, and end answers once the holder has ended. Every
-// other op is answered with one Response, as answer gives it.
+// dispatch answers req, which an admitted peer sent on conn. Its version is checked first. Attach splices conn onto
+// the session's holder, gone streams the holder's spool after its Response, and end answers once the holder has ended.
+// Panes and watch-panes are the pane ops: each is answered by panesRefused until the pane tasks serve the agent's
+// HostPanes on them. Every other op is answered with one Response, as answer gives it.
 func (a *Agent) dispatch(ctx context.Context, conn net.Conn, reader *bufio.Reader, req Request) {
 	if req.Version != Version {
 		a.reply(ctx, conn, Response{
@@ -200,13 +204,15 @@ func (a *Agent) dispatch(ctx context.Context, conn net.Conn, reader *bufio.Reade
 		a.gone(ctx, conn, req)
 	case OpEnd:
 		a.end(ctx, conn, reader, req.Session)
+	case OpPanes, OpWatchPanes:
+		a.reply(ctx, conn, a.panesRefused())
 	default:
 		a.reply(ctx, conn, a.answer(ctx, req))
 	}
 }
 
-// answer returns the one Response to req, for the ops that carry no stream. An op this agent does not serve gets a failure
-// that says so.
+// answer returns the one Response to req, for the ops that carry no stream. An op this agent does not serve gets a
+// failure that says so.
 func (a *Agent) answer(ctx context.Context, req Request) Response {
 	switch req.Op {
 	case OpPing:
@@ -217,9 +223,21 @@ func (a *Agent) answer(ctx context.Context, req Request) Response {
 		return a.launch(ctx, req)
 	case OpStop, OpKill, OpClear, OpStopOrphan:
 		return a.act(ctx, req.Op, req.Session)
+	case OpLoad:
+		return a.panesRefused()
 	default:
 		return Response{Code: CodeFailed, Message: fmt.Sprintf("node: agent does not serve op %s", req.Op)}
 	}
+}
+
+// panesRefused returns the Response that a pane op gets while the pane ops are not implemented. An agent with no
+// HostPanes answers CodeFailed "agent serves no panes". An agent with one answers CodeFailed "not implemented" until
+// the pane tasks serve its panes.
+func (a *Agent) panesRefused() Response {
+	if a.cfg.Panes == nil {
+		return Response{Code: CodeFailed, Message: "agent serves no panes"}
+	}
+	return Response{Code: CodeFailed, Message: "not implemented"}
 }
 
 // sessions answers with the ids of the sessions that have a holder directory on this machine.
