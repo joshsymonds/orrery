@@ -48,7 +48,7 @@ const otherWords = "Vendor the Lisbon rule as a fixture file; do not touch go.mo
 // panesList is the procedure the inbox's rows wait on: held, it leaves the inbox loading; failed, it leaves the inbox
 // saying the server did not answer.
 const panesList = "orrery.v1.Panes/List";
-// phoneWidth is the width under which the layout is the phone's: the groups are a strip and the epic is a page.
+// phoneWidth is the width under which the layout is the phone's: the work is in the title row and the epic is a page.
 const phoneWidth = 760;
 
 const inbox: Address = { view: "inbox", entry: null };
@@ -539,7 +539,7 @@ export const Page: Stories = {
   ),
   "work-rail": () => <PageStory address={sessionAt(buoySession)} />,
   "work-rail-group": () => (
-    <PageStory address={paneAt("%22")} after={(root) => clickWhen(root, "button.tile-w.group")} />
+    <PageStory address={paneAt("%22")} after={(root) => clickWhen(root, ".title-row .wlink-more")} />
   ),
   "work-empty": () => <PageStory address={paneAt("%13")} />,
   "dock-running": () => <PageStory address={sessionAt(buoySession, "agents")} />,

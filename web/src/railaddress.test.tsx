@@ -21,10 +21,10 @@ import type { Address } from "./router";
 import type { Row } from "./rows";
 import { installTestDom, removeTestDom, teardownOnce } from "./testdom";
 
-// Each test's name carries the token RailAddress, SidePanel or WorkRail: RailAddress is an epic's or a task's address
-// drawing its steerer's conversation beside the panel, SidePanel is the panel and its tile, and WorkRail is the rail the
-// conversation's things are drawn in. Each test mounts App at a window width of its own, since the rail and the layout
-// read the width when App mounts.
+// Each test's name carries the token RailAddress, SidePanel or WorkLink: RailAddress is an epic's or a task's address
+// drawing its steerer's conversation beside the panel, SidePanel is the panel and the work link that opens it, and WorkLink
+// is the conversation's work links in its title row. Each test mounts App at a window width of its own, since the layout
+// reads the width when App mounts.
 
 const now = 1000;
 const repository = "widgets-5d0c1a7";
@@ -219,21 +219,16 @@ async function withRail(
   }
 }
 
-// railTiles is each tile the right rail draws, in order.
-function railTiles(container: HTMLElement): HTMLElement[] {
-  return [...container.querySelectorAll<HTMLElement>(".rail .tile-w")];
+// workLinks are the work links the title row draws, in order.
+function workLinks(container: HTMLElement): HTMLElement[] {
+  return [...container.querySelectorAll<HTMLElement>(".title-row .wlink")];
 }
 
-// tileNamed is the rail's tile whose name is short.
-function tileNamed(container: HTMLElement, short: string): HTMLElement {
-  const tile = railTiles(container).find((candidate) => candidate.querySelector(".cap")?.textContent === short);
-  assert.ok(tile !== undefined, `no rail tile named ${short}`);
-  return tile;
-}
-
-// litTile is the rail's one lit tile, or null when none is lit.
-function litTile(container: HTMLElement): HTMLElement | null {
-  return container.querySelector<HTMLElement>(".rail .tile-w.on");
+// epicLink is the work link of the epic with the slug, which the title row must draw.
+function epicLink(container: HTMLElement, slug: string): HTMLElement {
+  const link = container.querySelector<HTMLElement>(`.title-row .wlink[title="Open ${slug}"]`);
+  assert.ok(link !== null, `no work link opens ${slug}`);
+  return link;
 }
 
 // panelOf is the epic panel, or null when none is drawn.
@@ -287,14 +282,13 @@ function lastReport(probe: Probe): { address: Address; mode: string } {
 const alpha = epicOf("alpha", "s1");
 const beta = epicOf("beta", "s1");
 
-test("RailAddress: an epic's address draws the conversation that steers it in the middle, the epic in the panel, and its tile lit", (t) =>
+test("RailAddress: an epic's address draws the conversation that steers it in the middle, and the epic in the panel", (t) =>
   withRail(t.signal, 1600, { rows: [steererRow()], epics: view([alpha]), address: epicAddress("alpha") }, async (mount) => {
     const { container, probe } = mount;
     await followed(probe, "s1");
     assert.equal(readerShown(container), true, "the steerer's conversation is drawn in the middle");
     assert.ok(panelOf(container) !== null, "the epic is drawn in aside.rpanel");
     assert.equal(panelHolds(container, "alpha"), true, "the panel holds the epic");
-    assert.equal(litTile(container)?.querySelector(".cap")?.textContent, "alpha", "the epic's tile is lit");
   }));
 
 test("RailAddress: a task's address draws its steerer's conversation in the middle, with the phase page in the panel", (t) => {
@@ -323,7 +317,6 @@ test("RailAddress: a task's address draws its steerer's conversation in the midd
       assert.equal(crumbs.includes("alpha"), true, "the panel's crumbs name the epic");
       assert.equal(crumbs.includes("Parser"), true, "the panel's crumbs name the task");
       assert.ok(panelOf(container)?.querySelector(".epic-page") === null, "the epic record is not drawn in the panel");
-      assert.equal(litTile(container)?.querySelector(".cap")?.textContent, "alpha", "the epic's tile is lit");
     },
   );
 });
@@ -341,33 +334,22 @@ test("RailAddress: an epic no conversation steers draws the no-conversation line
     },
   ));
 
-test("SidePanel: pressing an epic tile opens its panel, with the address of that epic pushed", (t) =>
+test("SidePanel: pressing an epic's work link opens its panel, with the address of that epic pushed", (t) =>
   withRail(t.signal, 1600, { rows: [steererRow()], epics: view([alpha, beta]), address: steererAddress }, async (mount) => {
     const { container, probe } = mount;
     assert.equal(panelOf(container), null, "no panel before the press");
-    await press(tileNamed(container, "alpha"));
+    await press(epicLink(container, "alpha"));
     assert.equal(panelHolds(container, "alpha"), true, "the panel holds alpha");
     assert.deepEqual(lastReport(probe), { address: epicAddress("alpha"), mode: "push" });
   }));
 
-test("SidePanel: pressing another epic's tile switches the panel to that epic, with its address pushed", (t) =>
+test("SidePanel: pressing another epic's work link switches the panel to that epic, with its address pushed", (t) =>
   withRail(t.signal, 1600, { rows: [steererRow()], epics: view([alpha, beta]), address: epicAddress("alpha") }, async (mount) => {
     const { container, probe } = mount;
-    await press(tileNamed(container, "beta"));
+    await press(epicLink(container, "beta"));
     assert.equal(panelHolds(container, "beta"), true, "the panel holds beta");
     assert.equal(panelHolds(container, "alpha"), false, "the panel no longer holds alpha");
-    assert.equal(litTile(container)?.querySelector(".cap")?.textContent, "beta", "beta's tile is lit");
     assert.deepEqual(lastReport(probe), { address: epicAddress("beta"), mode: "push" });
-  }));
-
-test("SidePanel: pressing the lit tile closes the panel and moves to the steerer's conversation, with the address pushed", (t) =>
-  withRail(t.signal, 1600, { rows: [steererRow()], epics: view([alpha]), address: epicAddress("alpha") }, async (mount) => {
-    const { container, probe } = mount;
-    assert.ok(panelOf(container) !== null, "the panel is open before the press");
-    await press(tileNamed(container, "alpha"));
-    assert.equal(panelOf(container), null, "the panel is closed");
-    assert.equal(litTile(container), null, "no tile is lit");
-    assert.deepEqual(lastReport(probe), { address: steererAddress, mode: "push" });
   }));
 
 test("SidePanel: Close closes the panel and moves to the steerer's conversation, with the address pushed", (t) =>
@@ -380,7 +362,7 @@ test("SidePanel: Close closes the panel and moves to the steerer's conversation,
     assert.deepEqual(lastReport(probe), { address: steererAddress, mode: "push" });
   }));
 
-test("SidePanel: the panel holds the lit tile's epic, and its card takes the tile's tone", (t) =>
+test("SidePanel: the panel's card takes the epic's tone", (t) =>
   withRail(
     t.signal,
     1600,
@@ -391,8 +373,7 @@ test("SidePanel: the panel holds the lit tile's epic, and its card takes the til
     },
     (mount) => {
       const { container } = mount;
-      assert.equal(litTile(container)?.querySelector(".tile")?.classList.contains("attention"), true, "the tile asks");
-      assert.equal(container.querySelector("aside.rpanel .rcard")?.classList.contains("attention"), true, "the card asks too");
+      assert.equal(container.querySelector("aside.rpanel .rcard")?.classList.contains("attention"), true, "the card asks");
     },
   ));
 
@@ -426,13 +407,13 @@ test("SidePanel: a remount at the epic's address draws the panel again", (t) =>
     assert.equal(panelHolds(container, "alpha"), true, "the panel is drawn again");
   }));
 
-test("WorkRail: an epic the conversation steers that the epics prop adds becomes a tile in the rail", (t) =>
+test("WorkLink: an epic the conversation steers that the epics prop adds becomes a link in the title row", (t) =>
   withRail(t.signal, 1600, { rows: [steererRow()], epics: view([alpha]), address: steererAddress }, async (mount) => {
     const { container, rerender } = mount;
-    assert.equal(railTiles(container).length, 1, "one epic is one tile");
+    assert.equal(workLinks(container).length, 1, "one epic is one link");
     await rerender({ rows: [steererRow()], epics: view([alpha, beta]), address: steererAddress });
-    assert.equal(railTiles(container).length, 2, "the added epic is a tile");
-    assert.equal(tileNamed(container, "beta").querySelector(".cap")?.textContent, "beta", "the added tile is beta");
+    assert.equal(workLinks(container).length, 2, "the added epic is a link");
+    assert.equal(epicLink(container, "beta").textContent, "beta", "the added link is beta");
   }));
 
 test("SidePanel: a digit with an epic's question open in the panel answers nothing in the steering conversation", (t) => {
@@ -503,7 +484,7 @@ test("RailAddress: at 1000 the overlaid panel starts one rail width past the inb
     );
   }));
 
-test("RailAddress: at a phone's width the conversation's meters draw above its tile strip", (t) =>
+test("RailAddress: at a phone's width the conversation's meters draw in the band under its title row", (t) =>
   withRail(
     t.signal,
     412,
@@ -515,13 +496,13 @@ test("RailAddress: at a phone's width the conversation's meters draw above its t
     },
     (mount) => {
       const meters = mount.container.querySelector(".pane-strip");
-      const strip = mount.container.querySelector(".tilestrip");
+      const titleRow = mount.container.querySelector(".title-row");
       assert.ok(meters !== null, "the meters are drawn");
-      assert.ok(strip !== null, "the tile strip is drawn");
+      assert.ok(titleRow !== null, "the title row is drawn");
       assert.equal(
-        (meters.compareDocumentPosition(strip) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0,
+        (titleRow.compareDocumentPosition(meters) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0,
         true,
-        "the meters come before the tile strip",
+        "the meters come after the title row",
       );
     },
   ));
@@ -533,13 +514,3 @@ test("RailAddress: a list's sheet names the list once, in its title, and draws n
     assert.equal(sheet.getAttribute("aria-label"), "Sub-agents", "the sheet is titled with the list");
     assert.ok(sheet.querySelector(".plist h2") === null, "the list draws no head of its own");
   }));
-
-test("WorkRail: a list tile's icon is sized and stroked as round 6's icon, from the tokens", () => {
-  const rule = cssDeclarations(".tile > .icon");
-  assert.equal(declared(rule, "width"), "var(--o-size-icon)", "the icon is the icon size wide");
-  assert.equal(declared(rule, "height"), "var(--o-size-icon)", "the icon is the icon size high");
-  assert.equal(declared(rule, "fill"), "none", "the icon is not filled");
-  assert.equal(declared(rule, "stroke"), "currentColor", "the icon is stroked in the current colour");
-  assert.equal(declared(rule, "stroke-linecap"), "round", "the stroke's ends are round");
-  assert.equal(declared(rule, "stroke-linejoin"), "round", "the stroke's joins are round");
-});

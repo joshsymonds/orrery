@@ -27,9 +27,9 @@ import type { Row } from "./rows";
 import { installTestDom, removeTestDom, teardownOnce } from "./testdom";
 import { turn, until } from "./testwait";
 
-// Each test's name carries the token WorkLists or SidePanel: WorkLists is the agents and running tiles a session's stream
-// gives the rail and the rows each list's panel holds, and SidePanel is the list's panel, its address and the keys that
-// shut and reopen it. A session's stream is a fake the test feeds, and every time is a fixture's instant, so no test reads
+// Each test's name carries the token WorkLists or SidePanel: WorkLists is the agents and running lines a session's stream
+// gives the conversation and the rows each list's panel holds, and SidePanel is the list's panel, its address and the keys
+// that shut and reopen it. A session's stream is a fake the test feeds, and every time is a fixture's instant, so no test reads
 // the wall clock. Each test mounts App at a window width of its own.
 
 const now = Date.parse(liveEpoch) / 1000;
@@ -291,28 +291,28 @@ async function pressKey(key: string): Promise<void> {
   });
 }
 
-// railTiles is each tile the right rail draws, in order.
-function railTiles(container: HTMLElement): HTMLElement[] {
-  return [...container.querySelectorAll<HTMLElement>(".rail .tile-w")];
+// activityLines are the lines the conversation's activity draws above its composer, in order.
+function activityLines(container: HTMLElement): HTMLElement[] {
+  return [...container.querySelectorAll<HTMLElement>('[aria-label="running now"] .activity-line')];
 }
 
-// tileTitled is the rail's tile whose title starts with prefix: an epic's short name, or a list's key and a colon.
-function tileTitled(container: HTMLElement, prefix: string): HTMLElement {
-  const tile = railTiles(container).find((candidate) => candidate.getAttribute("title")?.startsWith(prefix) === true);
-  assert.ok(tile !== undefined, `no rail tile titled ${prefix}`);
-  return tile;
+// linesWho is the name each activity line gives, in order.
+function linesWho(container: HTMLElement): string[] {
+  return activityLines(container).map((line) => line.querySelector(".who")?.textContent ?? "");
 }
 
-// litTitles are the titles of the rail's lit tiles, in order.
-function litTitles(container: HTMLElement): string[] {
-  return [...container.querySelectorAll<HTMLElement>(".rail .tile-w.on")].map((tile) => tile.getAttribute("title") ?? "");
+// listLine is the activity line of a list's kind: the first agent's line for the agents, the shell's for the running list.
+function listLine(container: HTMLElement, kind: "agents" | "running"): HTMLElement {
+  const line = activityLines(container).find(
+    (candidate) => (candidate.querySelector(".who")?.textContent === "shell") === (kind === "running"),
+  );
+  assert.ok(line !== undefined, `no activity line of the ${kind} list`);
+  return line;
 }
 
-// litOnly asserts that exactly one rail tile is lit, and that its title starts with prefix.
-function litOnly(container: HTMLElement, prefix: string): void {
-  const lit = litTitles(container);
-  assert.equal(lit.length, 1, `one lit tile, not ${lit.length}`);
-  assert.ok(lit[0].startsWith(prefix), `the lit tile is ${prefix}, not ${lit[0]}`);
+// epicLink is the epic's work link in the title row, or null when none is drawn.
+function epicLink(container: HTMLElement, slug: string): HTMLElement | null {
+  return container.querySelector<HTMLElement>(`.title-row .wlink[title="Open ${slug}"]`);
 }
 
 // listPanelOf is the list panel named label, or null when it is not drawn.
@@ -347,50 +347,41 @@ function lastReport(reported: Report[]): Report {
   return report;
 }
 
-// listTile is the rail's tile of a list, which is lit while its panel is open.
-function listTile(container: HTMLElement, kind: "agents" | "running"): HTMLElement {
-  return tileTitled(container, `${kind}:`);
+// settleLines waits until the conversation draws the three activity lines the stream's background gives.
+function settleLines(signal: AbortSignal, container: HTMLElement): Promise<void> {
+  return settle(signal, () => activityLines(container).length === 3, "the three activity lines");
 }
 
-// settleTiles waits until the rail draws the two list tiles the stream's background gives.
-function settleTiles(signal: AbortSignal, container: HTMLElement): Promise<void> {
-  return settle(signal, () => railTiles(container).length === 2, "the two list tiles");
-}
-
-test("WorkLists: a session's agents and running tiles come from its stream, one tile each, with the running count and no ended task", (t) =>
+test("WorkLists: a session's agents and running shells come from its stream as one activity line each, with no ended task", (t) =>
   withLists(t.signal, 1600, { rows: [steererRow()] }, async ({ container, server }) => {
     await feed(t.signal, server, "s1", background);
-    await settleTiles(t.signal, container);
-    assert.deepEqual(
-      railTiles(container).map((tile) => tile.getAttribute("title")),
-      ["agents: 2 running", "running: 1 left running"],
-      "the agents tile counts the running agents, and the running tile the running shell",
-    );
+    await settleLines(t.signal, container);
+    assert.deepEqual(linesWho(container), ["Explore", "agent", "shell"], "the agents' lines come first, then the shell's");
   }));
 
 test("WorkLists: a list's panel holds its running tasks, with the ended and failed ones absent", (t) =>
   withLists(t.signal, 1600, { rows: [steererRow()] }, async ({ container, server }) => {
     await feed(t.signal, server, "s1", background);
-    await settleTiles(t.signal, container);
-    await press(listTile(container, "agents"));
+    await settleLines(t.signal, container);
+    await press(listLine(container, "agents"));
     assert.deepEqual(panelRows(container), ["Map the rota", "Check the holds"], "the agents panel lists its two running agents");
-    await press(listTile(container, "running"));
+    await press(listLine(container, "running"));
     assert.deepEqual(panelRows(container), ["Watch the build"], "the running panel lists its one running shell");
   }));
 
-test("WorkLists: a pane's rail draws neither group, though its stream holds running tasks", (t) =>
+test("WorkLists: a pane's conversation draws no activity line, though its stream holds running tasks", (t) =>
   withLists(t.signal, 1600, { rows: [row({ key: "pane:box:%3", id: "%3", kind: "pane" })] }, async ({ container, server }) => {
     await feed(t.signal, server, "%3", background);
     await settle(t.signal, () => container.textContent?.includes(promptText) === true, "the pane's stream arrives");
-    assert.equal(railTiles(container).length, 0, "a pane draws no list tile");
+    assert.equal(activityLines(container).length, 0, "a pane draws no activity line");
   }));
 
-test("SidePanel: pressing a list's tile opens its panel, with the address pushed to the session's list segment", (t) =>
+test("SidePanel: pressing a list's activity line opens its panel, with the address pushed to the session's list segment", (t) =>
   withLists(t.signal, 1600, { rows: [steererRow()] }, async ({ container, server, reported }) => {
     await feed(t.signal, server, "s1", background);
-    await settleTiles(t.signal, container);
+    await settleLines(t.signal, container);
     assert.ok(listPanelOf(container, "Sub-agents") === null, "no panel before the press");
-    await press(listTile(container, "agents"));
+    await press(listLine(container, "agents"));
     assert.ok(listPanelOf(container, "Sub-agents") !== null, "the agents panel is drawn");
     assert.deepEqual(lastReport(reported), { address: agentsAddress, mode: "push" });
   }));
@@ -398,23 +389,23 @@ test("SidePanel: pressing a list's tile opens its panel, with the address pushed
 test("SidePanel: a list's panel draws in the epic panel's frame, and its card takes the live tone of agents", (t) =>
   withLists(t.signal, 1600, { rows: [steererRow()], epics: view([alpha]), address: epicAddress("alpha") }, async ({ container, server }) => {
     await feed(t.signal, server, "s1", background);
-    await settle(t.signal, () => railTiles(container).length === 3, "the two list tiles and the epic's");
+    await settleLines(t.signal, container);
     const epicPanel = epicPanelOf(container);
     assert.ok(epicPanel !== null, "the epic panel is drawn");
-    await press(listTile(container, "agents"));
+    await press(listLine(container, "agents"));
     const listPanel = listPanelOf(container, "Sub-agents");
     assert.ok(listPanel !== null, "the agents panel is drawn");
     assert.equal(frameClasses(listPanel), frameClasses(epicPanel), "the two panels draw in the same frame");
     assert.equal(listPanel.querySelector(".rcard")?.classList.contains("live"), true, "agents take the live tone");
   }));
 
-test("SidePanel: the lit tile shuts the list panel, and the address goes back to the session's own", (t) =>
+test("SidePanel: a press on the lit line shuts the list panel, and the address goes back to the session's own", (t) =>
   withLists(t.signal, 1600, { rows: [steererRow()] }, async ({ container, server, reported }) => {
     await feed(t.signal, server, "s1", background);
-    await settleTiles(t.signal, container);
-    await press(listTile(container, "agents"));
-    assert.equal(listTile(container, "agents").classList.contains("on"), true, "the agents tile is lit");
-    await press(listTile(container, "agents"));
+    await settleLines(t.signal, container);
+    await press(listLine(container, "agents"));
+    assert.equal(listLine(container, "agents").classList.contains("on"), true, "the agents' line is lit");
+    await press(listLine(container, "agents"));
     assert.ok(listPanelOf(container, "Sub-agents") === null, "the panel is shut");
     assert.deepEqual(lastReport(reported), { address: sessionAddress, mode: "push" });
   }));
@@ -422,8 +413,8 @@ test("SidePanel: the lit tile shuts the list panel, and the address goes back to
 test("SidePanel: Close shuts the list panel, and the address goes back to the session's own", (t) =>
   withLists(t.signal, 1600, { rows: [steererRow()] }, async ({ container, server, reported }) => {
     await feed(t.signal, server, "s1", background);
-    await settleTiles(t.signal, container);
-    await press(listTile(container, "running"));
+    await settleLines(t.signal, container);
+    await press(listLine(container, "running"));
     const close = container.querySelector<HTMLElement>('aside.rpanel .panel-ctl button[aria-label="Close the panel"]');
     assert.ok(close !== null, "the panel has a Close button");
     await press(close);
@@ -434,8 +425,8 @@ test("SidePanel: Close shuts the list panel, and the address goes back to the se
 test("SidePanel: ] shuts an open list panel, and with none open reopens the list it held", (t) =>
   withLists(t.signal, 1600, { rows: [steererRow()] }, async ({ container, server, reported }) => {
     await feed(t.signal, server, "s1", background);
-    await settleTiles(t.signal, container);
-    await press(listTile(container, "agents"));
+    await settleLines(t.signal, container);
+    await press(listLine(container, "agents"));
     await pressKey("]");
     assert.ok(listPanelOf(container, "Sub-agents") === null, "] shuts the panel");
     assert.deepEqual(lastReport(reported), { address: sessionAddress, mode: "push" });
@@ -458,8 +449,8 @@ test("SidePanel: ] with the epic panel open shuts it, and with none open reopens
 test("SidePanel: Back, the address moved to the session's own, shuts the list panel", (t) =>
   withLists(t.signal, 1600, { rows: [steererRow()] }, async ({ container, server, rerender }) => {
     await feed(t.signal, server, "s1", background);
-    await settleTiles(t.signal, container);
-    await press(listTile(container, "agents"));
+    await settleLines(t.signal, container);
+    await press(listLine(container, "agents"));
     assert.ok(listPanelOf(container, "Sub-agents") !== null, "the panel is open before Back");
     await rerender({ rows: [steererRow()], address: sessionAddress });
     assert.ok(listPanelOf(container, "Sub-agents") === null, "the panel is shut");
@@ -476,22 +467,21 @@ test("SidePanel: a remount at the list's address draws its panel again", (t) =>
     assert.ok(listPanelOf(container, "Sub-agents") !== null, "the agents panel is drawn again");
   }));
 
-test("SidePanel: an epic tile press while a list is open switches the panel to the epic, and a list's tile switches back", (t) =>
+test("SidePanel: an epic's work link while a list is open switches the panel to the epic, and a list's line switches back", (t) =>
   withLists(t.signal, 1600, { rows: [steererRow()], epics: view([alpha]), address: epicAddress("alpha") }, async ({ container, server, reported }) => {
     await feed(t.signal, server, "s1", background);
-    await settle(t.signal, () => railTiles(container).length === 3, "the two list tiles and the epic's");
-    await press(listTile(container, "agents"));
+    await settleLines(t.signal, container);
+    await press(listLine(container, "agents"));
     assert.ok(epicPanelOf(container) === null, "the epic panel is shut while the list is open");
-    litOnly(container, "agents:");
-    await press(tileTitled(container, "alpha:"));
+    const link = epicLink(container, "alpha");
+    assert.ok(link !== null, "the title row links alpha");
+    await press(link);
     assert.ok(listPanelOf(container, "Sub-agents") === null, "the list panel is shut for the epic");
     assert.ok(epicPanelOf(container) !== null, "the epic panel is open");
-    litOnly(container, "alpha:");
     assert.deepEqual(lastReport(reported), { address: epicAddress("alpha"), mode: "push" });
-    await press(listTile(container, "agents"));
+    await press(listLine(container, "agents"));
     assert.ok(epicPanelOf(container) === null, "the epic panel is shut for the list");
     assert.ok(listPanelOf(container, "Sub-agents") !== null, "the agents panel is open again");
-    litOnly(container, "agents:");
     assert.deepEqual(lastReport(reported), { address: agentsAddress, mode: "push" });
   }));
 
