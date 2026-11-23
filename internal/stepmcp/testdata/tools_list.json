@@ -618,6 +618,75 @@
     }
   },
   {
+    "name": "evidence_capture",
+    "description": "Run a command at a commit under a project runner, as a capture of the evidence runs in briefs. Returns the capture id and says its end arrives as an event.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "commit": {
+          "type": "string",
+          "description": "the commit the command runs at"
+        },
+        "argv": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "the command to run, as its argv; at least one element"
+        },
+        "runner": {
+          "type": "string",
+          "description": "the project runner the command runs under, or local"
+        },
+        "briefs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "the ids of the evidence runs the capture is for; at least one"
+        },
+        "files": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "repository-relative paths of the files to keep"
+        }
+      },
+      "required": [
+        "commit",
+        "argv",
+        "briefs"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "evidence_attach",
+    "description": "Attach a capture to the evidence runs in briefs. Returns the runs it moved.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "capture": {
+          "type": "string",
+          "description": "the id of the capture to attach"
+        },
+        "briefs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "the ids of the evidence runs to attach the capture to; at least one"
+        }
+      },
+      "required": [
+        "capture",
+        "briefs"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
     "name": "contract_accept",
     "description": "Accept a stored contract by id, with the owner's words. Returns the stored contract with its versions and states.",
     "inputSchema": {
