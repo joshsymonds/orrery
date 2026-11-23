@@ -357,11 +357,12 @@ test("ContractAddress: opening a contract moves the cursor onto its conversation
     },
   ));
 
-test("ContractAddress: at a phone's width the contract is the page in the conversation's place, with no reader", (t) =>
+test("ContractAddress: at a phone's width the contract is the sheet under the conversation's head, with no reader", (t) =>
   withApp(t.signal, 400, { rows: [conversationRow()], address: contractAddress }, async ({ container }) => {
     await settle(t.signal, () => recordDrawn(container), "the record is drawn");
     assertNone(panelOf(container, "tide-alerts"), "no panel is drawn beside the page");
-    assert.equal(readerShown(container), false, "no reader is drawn");
+    assert.ok(container.querySelector("section.held-sheet") !== null, "the contract is held as the sheet");
+    assert.equal(container.querySelector(".reader"), null, "no reader is drawn");
     await settle(t.signal, () => container.textContent?.includes(recordTitle) === true, "the record's title is drawn");
   }));
 

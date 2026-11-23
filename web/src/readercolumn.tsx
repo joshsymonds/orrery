@@ -36,8 +36,8 @@ interface Reading {
 }
 
 // ColumnHead is what App gives a column's head for its row and conversation: the strip, the asks, the note, the More
-// menu, the middle column's work links, and the epic open in the panel beside the middle column. The column adds the
-// fold, which it reads from its own reader.
+// menu, the middle column's work links, the thing the sheet holds under the head, and the epic open in the panel beside the
+// middle column. The column adds the fold, which it reads from its own reader.
 export type ColumnHead = Pick<
   HeadProps,
   | "host"
@@ -48,6 +48,7 @@ export type ColumnHead = Pick<
   | "note"
   | "menu"
   | "workLinks"
+  | "sheetKey"
   | "here"
   | "contracts"
   | "onOpenContract"
@@ -104,6 +105,9 @@ export interface ReaderColumnProps {
   pageStrip: (row: Row | null, conversation: Conversation | null) => ComponentChildren;
   // held is what the column draws under its head and beside the chat: the thing held open at the desk, as App gives it.
   held?: ComponentChildren;
+  // sheet is what the column draws under its head in place of its reader and find bar, on the phone: the open thing held as
+  // the sheet, which takes the conversation's place under its head. Its send box is hidden, not unmounted, so a draft holds.
+  sheet?: ComponentChildren;
   // head is what the column's head draws for its row and conversation.
   head: (row: Row, conversation: Conversation | null) => ColumnHead;
   // narrow is the phone layout, where the head folds. hidden is the owner's hide, which holds across conversations.
@@ -207,6 +211,7 @@ export function ReaderColumn({
   ended,
   activity,
   held,
+  sheet,
 }: ReaderColumnProps): JSX.Element {
   const names = columnNames[column];
   const rowKey = row?.key ?? "";
@@ -274,7 +279,8 @@ export function ReaderColumn({
         />
       )}
       {held}
-      {finding !== null && (
+      {sheet}
+      {sheet === undefined && finding !== null && (
         <FindBar
           query={finding.query}
           matches={matches.length}
@@ -289,14 +295,14 @@ export function ReaderColumn({
           }}
         />
       )}
-      {step !== null && (
+      {sheet === undefined && step !== null && (
         <TitleRow
           crumbs={[{ label: stepWhere(step) }, { label: step.label }]}
           onBack={onBack}
           strip={pageStrip(null, null)}
         />
       )}
-      {row !== null && (
+      {sheet === undefined && row !== null && (
         <Reader
           conversation={shown}
           seenAt={row.seen}
@@ -328,7 +334,7 @@ export function ReaderColumn({
           hint={shellPane ? shellHint : undefined}
         />
       )}
-      {step !== null && (
+      {sheet === undefined && step !== null && (
         <Reader
           conversation={shown}
           seenAt={stepSeenAt}
@@ -342,7 +348,7 @@ export function ReaderColumn({
           }}
         />
       )}
-      <div class="send">
+      <div class="send" hidden={sheet !== undefined}>
         {activity}
         {dockRows(rows, row).map((entry) => (
           <div key={entry.key} class={names.reply} hidden={entry.key !== rowKey}>
