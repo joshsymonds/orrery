@@ -20,6 +20,7 @@ public  final class EpicsListResponse extends
     EpicsListResponseOrBuilder {
   private EpicsListResponse() {
     epics_ = emptyProtobufList();
+    designs_ = emptyProtobufList();
   }
   public static final int EPICS_FIELD_NUMBER = 1;
   private com.google.protobuf.Internal.ProtobufList<io.github.joshsymonds.orrery.gen.orrery.v1.Epic> epics_;
@@ -157,6 +158,144 @@ public  final class EpicsListResponse extends
   private void removeEpics(int index) {
     ensureEpicsIsMutable();
     epics_.remove(index);
+  }
+
+  public static final int DESIGNS_FIELD_NUMBER = 2;
+  private com.google.protobuf.Internal.ProtobufList<io.github.joshsymonds.orrery.gen.orrery.v1.Design> designs_;
+  /**
+   * <pre>
+   * The designs, each with its contracts.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.Design designs = 2 [json_name = "designs"];</code>
+   */
+  @java.lang.Override
+  public java.util.List<io.github.joshsymonds.orrery.gen.orrery.v1.Design> getDesignsList() {
+    return designs_;
+  }
+  /**
+   * <pre>
+   * The designs, each with its contracts.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.Design designs = 2 [json_name = "designs"];</code>
+   */
+  public java.util.List<? extends io.github.joshsymonds.orrery.gen.orrery.v1.DesignOrBuilder> 
+      getDesignsOrBuilderList() {
+    return designs_;
+  }
+  /**
+   * <pre>
+   * The designs, each with its contracts.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.Design designs = 2 [json_name = "designs"];</code>
+   */
+  @java.lang.Override
+  public int getDesignsCount() {
+    return designs_.size();
+  }
+  /**
+   * <pre>
+   * The designs, each with its contracts.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.Design designs = 2 [json_name = "designs"];</code>
+   */
+  @java.lang.Override
+  public io.github.joshsymonds.orrery.gen.orrery.v1.Design getDesigns(int index) {
+    return designs_.get(index);
+  }
+  /**
+   * <pre>
+   * The designs, each with its contracts.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.Design designs = 2 [json_name = "designs"];</code>
+   */
+  public io.github.joshsymonds.orrery.gen.orrery.v1.DesignOrBuilder getDesignsOrBuilder(
+      int index) {
+    return designs_.get(index);
+  }
+  private void ensureDesignsIsMutable() {
+    com.google.protobuf.Internal.ProtobufList<io.github.joshsymonds.orrery.gen.orrery.v1.Design> tmp = designs_;
+    if (!tmp.isModifiable()) {
+      designs_ =
+          com.google.protobuf.GeneratedMessageLite.mutableCopy(tmp);
+     }
+  }
+
+  /**
+   * <pre>
+   * The designs, each with its contracts.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.Design designs = 2 [json_name = "designs"];</code>
+   */
+  private void setDesigns(
+      int index, io.github.joshsymonds.orrery.gen.orrery.v1.Design value) {
+    java.util.Objects.requireNonNull(value);
+    ensureDesignsIsMutable();
+    designs_.set(index, value);
+  }
+  /**
+   * <pre>
+   * The designs, each with its contracts.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.Design designs = 2 [json_name = "designs"];</code>
+   */
+  private void addDesigns(io.github.joshsymonds.orrery.gen.orrery.v1.Design value) {
+    java.util.Objects.requireNonNull(value);
+    ensureDesignsIsMutable();
+    designs_.add(value);
+  }
+  /**
+   * <pre>
+   * The designs, each with its contracts.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.Design designs = 2 [json_name = "designs"];</code>
+   */
+  private void addDesigns(
+      int index, io.github.joshsymonds.orrery.gen.orrery.v1.Design value) {
+    java.util.Objects.requireNonNull(value);
+    ensureDesignsIsMutable();
+    designs_.add(index, value);
+  }
+  /**
+   * <pre>
+   * The designs, each with its contracts.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.Design designs = 2 [json_name = "designs"];</code>
+   */
+  private void addAllDesigns(
+      java.lang.Iterable<? extends io.github.joshsymonds.orrery.gen.orrery.v1.Design> values) {
+    ensureDesignsIsMutable();
+    com.google.protobuf.AbstractMessageLite.addAll(
+        values, designs_);
+  }
+  /**
+   * <pre>
+   * The designs, each with its contracts.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.Design designs = 2 [json_name = "designs"];</code>
+   */
+  private void clearDesigns() {
+    designs_ = emptyProtobufList();
+  }
+  /**
+   * <pre>
+   * The designs, each with its contracts.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.Design designs = 2 [json_name = "designs"];</code>
+   */
+  private void removeDesigns(int index) {
+    ensureDesignsIsMutable();
+    designs_.remove(index);
   }
 
   public static io.github.joshsymonds.orrery.gen.orrery.v1.EpicsListResponse parseFrom(
@@ -410,6 +549,156 @@ public  final class EpicsListResponse extends
       return this;
     }
 
+    /**
+     * <pre>
+     * The designs, each with its contracts.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.Design designs = 2 [json_name = "designs"];</code>
+     */
+    @java.lang.Override
+    public java.util.List<io.github.joshsymonds.orrery.gen.orrery.v1.Design> getDesignsList() {
+      return java.util.Collections.unmodifiableList(
+          instance.getDesignsList());
+    }
+    /**
+     * <pre>
+     * The designs, each with its contracts.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.Design designs = 2 [json_name = "designs"];</code>
+     */
+    @java.lang.Override
+    public int getDesignsCount() {
+      return instance.getDesignsCount();
+    }/**
+     * <pre>
+     * The designs, each with its contracts.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.Design designs = 2 [json_name = "designs"];</code>
+     */
+    @java.lang.Override
+    public io.github.joshsymonds.orrery.gen.orrery.v1.Design getDesigns(int index) {
+      return instance.getDesigns(index);
+    }
+    /**
+     * <pre>
+     * The designs, each with its contracts.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.Design designs = 2 [json_name = "designs"];</code>
+     */
+    public Builder setDesigns(
+        int index, io.github.joshsymonds.orrery.gen.orrery.v1.Design value) {
+      copyOnWrite();
+      instance.setDesigns(index, value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The designs, each with its contracts.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.Design designs = 2 [json_name = "designs"];</code>
+     */
+    public Builder setDesigns(
+        int index, io.github.joshsymonds.orrery.gen.orrery.v1.Design.Builder builderForValue) {
+      copyOnWrite();
+      instance.setDesigns(index,
+          builderForValue.build());
+      return this;
+    }
+    /**
+     * <pre>
+     * The designs, each with its contracts.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.Design designs = 2 [json_name = "designs"];</code>
+     */
+    public Builder addDesigns(io.github.joshsymonds.orrery.gen.orrery.v1.Design value) {
+      copyOnWrite();
+      instance.addDesigns(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The designs, each with its contracts.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.Design designs = 2 [json_name = "designs"];</code>
+     */
+    public Builder addDesigns(
+        int index, io.github.joshsymonds.orrery.gen.orrery.v1.Design value) {
+      copyOnWrite();
+      instance.addDesigns(index, value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The designs, each with its contracts.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.Design designs = 2 [json_name = "designs"];</code>
+     */
+    public Builder addDesigns(
+        io.github.joshsymonds.orrery.gen.orrery.v1.Design.Builder builderForValue) {
+      copyOnWrite();
+      instance.addDesigns(builderForValue.build());
+      return this;
+    }
+    /**
+     * <pre>
+     * The designs, each with its contracts.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.Design designs = 2 [json_name = "designs"];</code>
+     */
+    public Builder addDesigns(
+        int index, io.github.joshsymonds.orrery.gen.orrery.v1.Design.Builder builderForValue) {
+      copyOnWrite();
+      instance.addDesigns(index,
+          builderForValue.build());
+      return this;
+    }
+    /**
+     * <pre>
+     * The designs, each with its contracts.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.Design designs = 2 [json_name = "designs"];</code>
+     */
+    public Builder addAllDesigns(
+        java.lang.Iterable<? extends io.github.joshsymonds.orrery.gen.orrery.v1.Design> values) {
+      copyOnWrite();
+      instance.addAllDesigns(values);
+      return this;
+    }
+    /**
+     * <pre>
+     * The designs, each with its contracts.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.Design designs = 2 [json_name = "designs"];</code>
+     */
+    public Builder clearDesigns() {
+      copyOnWrite();
+      instance.clearDesigns();
+      return this;
+    }
+    /**
+     * <pre>
+     * The designs, each with its contracts.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.Design designs = 2 [json_name = "designs"];</code>
+     */
+    public Builder removeDesigns(int index) {
+      copyOnWrite();
+      instance.removeDesigns(index);
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:orrery.v1.EpicsListResponse)
   }
   @java.lang.Override
@@ -428,9 +717,12 @@ public  final class EpicsListResponse extends
           java.lang.Object[] objects = new java.lang.Object[] {
             "epics_",
             io.github.joshsymonds.orrery.gen.orrery.v1.Epic.class,
+            "designs_",
+            io.github.joshsymonds.orrery.gen.orrery.v1.Design.class,
           };
           java.lang.String info =
-              "\u0000\u0001\u0000\u0000\u0001\u0001\u0001\u0000\u0001\u0000\u0001\u001b";
+              "\u0000\u0002\u0000\u0000\u0001\u0002\u0002\u0000\u0002\u0000\u0001\u001b\u0002\u001b" +
+              "";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

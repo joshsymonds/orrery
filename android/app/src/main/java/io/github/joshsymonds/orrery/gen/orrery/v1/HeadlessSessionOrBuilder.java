@@ -229,4 +229,30 @@ public interface HeadlessSessionOrBuilder extends
    * @return The endedAt.
    */
   long getEndedAt();
+
+  /**
+   * <pre>
+   * The designs this conversation works, each with its contracts.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.Design designs = 15 [json_name = "designs"];</code>
+   */
+  java.util.List<io.github.joshsymonds.orrery.gen.orrery.v1.Design> 
+      getDesignsList();
+  /**
+   * <pre>
+   * The designs this conversation works, each with its contracts.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.Design designs = 15 [json_name = "designs"];</code>
+   */
+  io.github.joshsymonds.orrery.gen.orrery.v1.Design getDesigns(int index);
+  /**
+   * <pre>
+   * The designs this conversation works, each with its contracts.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.Design designs = 15 [json_name = "designs"];</code>
+   */
+  int getDesignsCount();
 }

@@ -2,6 +2,8 @@ syntax = "proto3";
 
 package orrery.v1;
 
+import "orrery/v1/designs.proto";
+
 // Epics reads the epics under the gambit record root and the epics orreryd's database holds.
 service Epics {
   // List returns every epic under the record root and in orreryd's database, one per id, live or folded.
@@ -85,6 +87,9 @@ message EpicsListRequest {}
 message EpicsListResponse {
   // The epics, sorted by id.
   repeated Epic epics = 1;
+
+  // The designs, each with its contracts.
+  repeated Design designs = 2;
 }
 
 // EpicsGetRequest names one epic.

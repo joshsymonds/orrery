@@ -153,6 +153,9 @@ message ProposeContractRequest {
 
   // The words the writer gives with the version.
   string words = 4;
+
+  // The design the contract joins, empty for none.
+  string design = 5;
 }
 
 // ProposeContractResponse carries the contract stored by ProposeContract.

@@ -476,7 +476,9 @@ type ProposeContractRequest struct {
 	// The decisions of the first version.
 	Decisions []*ContractDecision `protobuf:"bytes,3,rep,name=decisions,proto3" json:"decisions,omitempty"`
 	// The words the writer gives with the version.
-	Words         string `protobuf:"bytes,4,opt,name=words,proto3" json:"words,omitempty"`
+	Words string `protobuf:"bytes,4,opt,name=words,proto3" json:"words,omitempty"`
+	// The design the contract joins, empty for none.
+	Design        string `protobuf:"bytes,5,opt,name=design,proto3" json:"design,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -535,6 +537,13 @@ func (x *ProposeContractRequest) GetDecisions() []*ContractDecision {
 func (x *ProposeContractRequest) GetWords() string {
 	if x != nil {
 		return x.Words
+	}
+	return ""
+}
+
+func (x *ProposeContractRequest) GetDesign() string {
+	if x != nil {
+		return x.Design
 	}
 	return ""
 }
@@ -1226,12 +1235,13 @@ const file_orrery_engine_v1_contract_proto_rawDesc = "" +
 	"\achanged\x18\n" +
 	" \x01(\x03R\achanged\x12=\n" +
 	"\bversions\x18\v \x03(\v2!.orrery.engine.v1.ContractVersionR\bversions\x12=\n" +
-	"\x06states\x18\f \x03(\v2%.orrery.engine.v1.ContractStateChangeR\x06states\"\xbc\x01\n" +
+	"\x06states\x18\f \x03(\v2%.orrery.engine.v1.ContractStateChangeR\x06states\"\xd4\x01\n" +
 	"\x16ProposeContractRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12:\n" +
 	"\bcontract\x18\x02 \x01(\v2\x1e.orrery.engine.v1.EpicContractR\bcontract\x12@\n" +
 	"\tdecisions\x18\x03 \x03(\v2\".orrery.engine.v1.ContractDecisionR\tdecisions\x12\x14\n" +
-	"\x05words\x18\x04 \x01(\tR\x05words\"W\n" +
+	"\x05words\x18\x04 \x01(\tR\x05words\x12\x16\n" +
+	"\x06design\x18\x05 \x01(\tR\x06design\"W\n" +
 	"\x17ProposeContractResponse\x12<\n" +
 	"\bcontract\x18\x01 \x01(\v2 .orrery.engine.v1.StoredContractR\bcontract\"\xbb\x01\n" +
 	"\x15ReviseContractRequest\x12\x0e\n" +
