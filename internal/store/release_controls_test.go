@@ -460,10 +460,10 @@ func TestReleaseEpicNamesAnUndoNoneStepWrittenNone(t *testing.T) {
 	}))
 }
 
-// TestStopEpicReleaseFreesTheSlotAndReturnsTheOpenStep checks that StopEpic of an epic with no running turn that holds
-// its repository's slot frees the slot, returns the release step of its current attempt that has no end, or "" when
-// none does, and neither pauses the epic nor changes its phase.
-func TestStopEpicReleaseFreesTheSlotAndReturnsTheOpenStep(t *testing.T) {
+// TestStopEpicReleaseStopsTheReleaseAndReturnsTheOpenStep checks that StopEpic of a releasing epic with no running turn
+// records the owner's stop of its release at the attempt of its running release run, returns the release step of that
+// attempt that has no end, or "" when none does, and neither pauses the epic, changes its phase nor frees its slot.
+func TestStopEpicReleaseStopsTheReleaseAndReturnsTheOpenStep(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
 		name  string
@@ -509,8 +509,12 @@ func TestStopEpicReleaseFreesTheSlotAndReturnsTheOpenStep(t *testing.T) {
 			if step != c.want {
 				t.Errorf("StopEpic step = %q, want %q", step, c.want)
 			}
-			requireSlot(t, s, resumeEpic, "")
+			requireSlot(t, s, resumeEpic, resumeEpic)
 			requirePhase(t, s, resumeEpic, store.PhaseReleasing)
+			requireReleaseRuns(t, s, resumeEpic, []store.ReleaseRun{{
+				Part: store.ReleasePartStop, Attempt: 1, Reason: "owner stopped the release",
+				At: time.Unix(1700000000, 0),
+			}})
 			var paused int64
 			if err = raw.QueryRow(`SELECT paused FROM epics WHERE id = ?`, resumeEpic).Scan(&paused); err != nil {
 				t.Fatalf("read paused of epic %s: %v", resumeEpic, err)
@@ -522,6 +526,36 @@ func TestStopEpicReleaseFreesTheSlotAndReturnsTheOpenStep(t *testing.T) {
 				t.Errorf("parked after StopEpic = %q, want none", got)
 			}
 		})
+	}
+}
+
+// TestStopEpicStoppedReleaseTakesTheOwnerStopClass checks that StopEpic of an epic in phase stopped, whose release node
+// run is parked, records the owner's stop at the parked run's attempt, returns no step, and moves the park class to
+// release_owner_stop while the park keeps its reason.
+func TestStopEpicStoppedReleaseTakesTheOwnerStopClass(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s, _ := stoppedAtPublish(t)
+	at := time.Unix(1700000000, 0)
+	step, err := s.StopEpic(ctx, resumeEpic, store.Maker{By: store.MakerOwner}, at)
+	if err != nil {
+		t.Fatalf("StopEpic: %v", err)
+	}
+	if step != "" {
+		t.Errorf("StopEpic step = %q, want none: the stopped release has no open step", step)
+	}
+	requireReleaseRuns(t, s, resumeEpic, inReadOrder([]store.ReleaseRun{
+		releasedStep(1, true), releasedStep(2, false),
+		{Part: store.ReleasePartStop, Attempt: 1, Reason: "owner stopped the release", At: at},
+	}))
+	row, err := s.Epic(ctx, resumeEpic)
+	if err != nil {
+		t.Fatalf("Epic %s: %v", resumeEpic, err)
+	}
+	if row.Phase != store.PhaseStopped || row.ParkClass != store.ParkClassReleaseOwnerStop ||
+		row.Parked != resumeStopReason {
+		t.Errorf("epic phase = %q, park class = %q and parked = %q, want stopped, %q and %q",
+			row.Phase, row.ParkClass, row.Parked, store.ParkClassReleaseOwnerStop, resumeStopReason)
 	}
 }
 

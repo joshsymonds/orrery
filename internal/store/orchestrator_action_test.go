@@ -517,7 +517,7 @@ func TestOrchestratorActionRefusalIsRecordedWithItsTrigger(t *testing.T) {
 			refusal: "epic " + actionEpic + ": a planner resume names no undo-none step; only the owner names one",
 		},
 		{
-			name: "resume of a stopped epic whose owner stop freed its release slot",
+			name: "resume of a stopped epic whose owner stopped its release",
 			epic: actionOther,
 			setup: func(t *testing.T, s *Store) {
 				t.Helper()
@@ -535,7 +535,7 @@ func TestOrchestratorActionRefusalIsRecordedWithItsTrigger(t *testing.T) {
 				Kind: ActionResumeRelease, Reason: "the push tag can be undone and run again",
 			},
 			summary: "resume release",
-			refusal: "epic " + actionOther + " does not hold the release slot of /work/synthetic-repo",
+			refusal: "epic " + actionOther + ": its owner stopped the release; only the owner resumes it",
 		},
 		{
 			name: "close on a closed epic",

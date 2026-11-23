@@ -246,9 +246,9 @@ func epicControlTools(epics enginev1connect.EpicsClient, in epicInputs) []Tool {
 			Name: "epic_stop",
 			Description: "Pause an epic by id and stop the step of its running turn. Returns a short " +
 				"acknowledgement, not the stored epic: the epic id, its phase and one line naming what changed. " +
-				"An epic with no running turn is refused, and nothing is stopped, unless it holds its repository's " +
-				"release slot: then the slot is freed, its open release step is stopped if one runs, and the epic " +
-				"is not paused. epic_release resumes a stopped release.",
+				"An epic with no running turn is refused, and nothing is stopped, unless it is releasing or its " +
+				"release is stopped: then the release's open step is stopped if one runs, no further step starts, " +
+				"and the epic is not paused. epic_release resumes a stopped release.",
 			InputSchema: in.id,
 			Handler:     epicStopHandler(epics),
 		},

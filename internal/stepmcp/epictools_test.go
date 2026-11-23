@@ -979,7 +979,7 @@ func TestEpicControlSendsOneCallAndReturnsTheEpic(t *testing.T) {
 		},
 		{
 			tool: "epic_stop", ids: func(c epicCalls) []string { return requestIDs(c.stops) },
-			want: "epic " + testEpicID + ": phase accepted\nstopped its release and freed the release slot",
+			want: "epic " + testEpicID + ": phase accepted\nstopped its release, so no further step starts",
 		},
 		{
 			tool: "epic_retry", ids: func(c epicCalls) []string { return requestIDs(c.retries) },
