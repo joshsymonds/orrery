@@ -12,8 +12,10 @@ import (
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
-// The roles in the role file the implementer and verifier steps run under.
+// The roles in the role file the implementer and verifier steps run under. The attempt role is the agent of the
+// orchestrator's own attempt on rung 3, which the implementer's agent stands in for when the role file names none.
 const (
+	roleAttempt     = "attempt"
 	roleImplementer = "implementer"
 	roleVerifier    = "verifier"
 )
@@ -74,8 +76,9 @@ func (r *Runner) startStep(ctx context.Context, epic store.EpicRow, view View, a
 // the task's base when it does not exist and kept as it is when it does, so a later attempt or rerun continues from the
 // earlier work on its branch. The step is checked from the task's base, with the brief, the task's files, and the
 // command gate the epic names for the task. A gate that is an agent gate is an error. Rung 3 (store.OrchestratorRung)
-// is the orchestrator's own writing attempt under the task's files, gate and reviews, so it runs the orchestrator's
-// agent, or the planner's when the role file has no orchestrator key; no other rung changes the agent.
+// is the orchestrator's own writing attempt under the task's files, gate and reviews, so it runs the attempt agent, or
+// the implementer's when the role file has no attempt key; it never runs the orchestrator's or the planner's agent. No
+// other rung changes the agent.
 func (r *Runner) implementerStart(
 	ctx context.Context, epic store.EpicRow, task store.EpicTask, id string,
 ) (enginehost.StepStart, error) {
@@ -84,7 +87,7 @@ func (r *Runner) implementerStart(
 		err   error
 	)
 	if task.Build.Attempt == store.OrchestratorRung {
-		agent, err = roles.AgentOr(r.getenv, roleOrchestrator, rolePlanner)
+		agent, err = roles.AgentOr(r.getenv, roleAttempt, roleImplementer)
 	} else {
 		agent, err = roles.Agent(r.getenv, roleImplementer)
 	}
