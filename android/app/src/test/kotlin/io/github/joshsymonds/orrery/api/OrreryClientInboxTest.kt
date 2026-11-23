@@ -28,7 +28,6 @@ class OrreryClientInboxTest {
         .setChanged(4102444800L)
         .setLive(true)
         .setEndedSteps(3)
-        .setProblem("efforts/1/state.json: does not parse")
         .setSeen(1700000500L)
         .build()
 

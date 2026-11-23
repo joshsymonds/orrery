@@ -91,7 +91,6 @@ class OrreryClientEpicsTest {
         .setLive(true)
         .addRunningSteps(runningStepProto)
         .setEndedSteps(3)
-        .setProblem("efforts/1/state.json: does not parse")
         .setSeen(1700000500L)
         .build()
 
@@ -226,7 +225,7 @@ class OrreryClientEpicsTest {
         FakeOrreryServer().use { server ->
             server.respond(
                 EPICS_LIST,
-                EpicsListResponse.newBuilder().addEpics(epicProto.toBuilder().setWaiting(true)).build(),
+                EpicsListResponse.newBuilder().addEpics(epicProto).build(),
             )
 
             val epics = OrreryClient(server.baseUrl).epics()

@@ -390,7 +390,6 @@ class WorkerSessionTest {
         .setLive(true)
         .setSource("orreryd")
         .setEndedSteps(0)
-        .setProblem("")
         .build()
 
     private fun nodeTop(tag: String): Float = topOf(hasTestTag(tag))
