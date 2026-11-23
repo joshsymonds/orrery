@@ -583,7 +583,8 @@ func serveRelay(opts options, home string, logger *slog.Logger, mirror *daemon.M
 // --metrics-listen, the ready time is recorded just before READY=1. With a flight recorder, a start to READY over its
 // threshold writes a start trace once READY=1 is sent. Once the store is open, serve names each row that reads no host
 // as the controller's orrery name, before the sessions start; a naming or sessions start that fails stops serving and
-// returns its error.
+// returns its error. Once the store is open, serve also follows each hosts.toml host's panes into it (startHostFollows),
+// and stops the follows before the store closes.
 func serve(ctx context.Context, opts options, logger *slog.Logger, getenv func(string) string) error {
 	host, orrery, err := controllerHost(opts, getenv)
 	if err != nil {
@@ -670,6 +671,8 @@ func serve(ctx context.Context, opts options, logger *slog.Logger, getenv func(s
 	startErr := nameUnhosted(ctx, st, opts.orrery)
 	attachStore(ctx, st, mirror, notices, router)
 	hub.attachVerdicts(st)
+	// The host follows write each hosts.toml host's panes into the open store, and stop before the store closes.
+	stopFollows := startHostFollows(ctx, st, getenv, logger)
 	var sessions *sessionHost
 	if startErr == nil && opts.sessions {
 		sessions, startErr = startSessions(ctx, opts, host, st, router, pageNotices, logger, getenv)
@@ -681,12 +684,10 @@ func serve(ctx context.Context, opts options, logger *slog.Logger, getenv func(s
 		close(tidyStart)
 		notifyReady(ctx, logger, opts)
 	}
-	serveErr := awaitServe(ctx, logger, serveDone, watch)
+	serveErr := serveError(awaitServe(ctx, logger, serveDone, watch))
 	shutdownPhase(logger, "metrics listener", opts.stopMetricsListener)
+	shutdownPhase(logger, "host follows", stopFollows)
 	sessionErr := shutdownServe(ctx, logger, pages, st, hub, sessions, router, notices)
-	if serveErr != nil {
-		serveErr = fmt.Errorf("serve: %w", serveErr)
-	}
 	return errors.Join(startErr, serveErr, sessionErr)
 }
 
@@ -721,6 +722,14 @@ func awaitServe(ctx context.Context, logger *slog.Logger, serveDone <-chan error
 	var err error
 	shutdownPhase(logger, "hook socket", func() { err = <-serveDone })
 	return err
+}
+
+// serveError wraps err, the error that awaitServe returned, as serve's error. It returns nil when err is nil.
+func serveError(err error) error {
+	if err == nil {
+		return nil
+	}
+	return fmt.Errorf("serve: %w", err)
 }
 
 // stacksDir returns the flight traces directory beside the store, which a slow shutdown writes its goroutine stacks
