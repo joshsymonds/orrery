@@ -465,7 +465,7 @@
   },
   {
     "name": "epic_amend",
-    "description": "Amend the evidence item of a Requirement of an epic by id: requirement names it and item is the whole item it should hold, which must pass the shape check a created epic's items pass. The amendment starts checking: orreryd runs the new item's red at the epic's base and applies the item only when that red is judged not to hold there; a red that holds refuses it and the old item stays. The owner may change the conclusion. Returns a short acknowledgement, not the stored epic: the epic id, its phase and one line naming what changed.",
+    "description": "Amend the evidence item of a Requirement of an epic by id: requirement names it and item is the whole item it should hold, which must pass the shape check a created epic's items pass. The amendment starts checking: orreryd runs the new item's red at the epic's base and applies the item only when that red is judged not to hold there; a red that holds refuses it and the old item stays. The owner and the epic's steering conversation may change the conclusion and kind. Returns a short acknowledgement, not the stored epic: the epic id, its phase and one line naming what changed.",
     "inputSchema": {
       "type": "object",
       "properties": {
