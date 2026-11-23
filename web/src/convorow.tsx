@@ -2,6 +2,7 @@ import type { JSX, VNode } from "preact";
 
 import { EpicRow } from "./epicrow";
 import { Icon } from "./glyphs";
+import type { HeldThing } from "./held";
 import type { Row } from "./rows";
 import type { Convo, DesignNode, Hung } from "./tree";
 
@@ -17,6 +18,8 @@ export interface ConvoRowProps {
   onEnded: () => void;
   renderRow: (row: Row) => VNode;
   onSelect: (key: string) => void;
+  // held is the thing held open, which the tree marks, or null when none is held.
+  held?: HeldThing | null;
 }
 
 // designMark is a design's mark: round 8's design icon, drawn on the 16 grid as glyphs draws its icons.
