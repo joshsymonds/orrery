@@ -100,15 +100,18 @@ function checksOf(id: string, steps: EpicStep[]): EpicStepCheck[] {
   return steps.find((candidate) => candidate.id === id)?.checks ?? [];
 }
 
-// StepDetail is a step's checks and the door to the step's page.
+// StepDetail is a step's agent profile, its checks, and the door to the step's page. The agent line is drawn only when
+// the step names one.
 function StepDetail(props: {
   id: string;
+  agent: string;
   checks: EpicStepCheck[];
   onOpenStep: ((step: string) => void) | undefined;
 }): JSX.Element {
-  const { id, checks, onOpenStep } = props;
+  const { id, agent, checks, onOpenStep } = props;
   return (
     <>
+      {agent !== "" && <p class="agent">{`agent: ${agent}`}</p>}
       {checks.map((check) => (
         <CheckDetail key={`${check.round}-${check.name}`} check={check} />
       ))}
@@ -147,9 +150,9 @@ function RunDetail(props: { run: EvidenceRun; onOpenStep: ((step: string) => voi
 }
 
 // detailOf is an entry's detail, which its line opens to: a turn's outline and decisions, each run an evidence line
-// groups, and a step's checks with its door. A decision, tell, trigger or action has no detail past its sentence, and
-// neither has a turn with no outline or decisions, an evidence line with no runs, or a step with no checks when nothing
-// opens it. Such a line does not open, so detailOf is null for those.
+// groups, and a step's agent profile, checks and door. A decision, tell, trigger or action has no detail past its
+// sentence, and neither has a turn with no outline or decisions, an evidence line with no runs, or a step with no agent,
+// no checks and nothing to open it. Such a line does not open, so detailOf is null for those.
 function detailOf(
   entry: EpicHistoryEntry,
   steps: EpicStep[],
@@ -161,8 +164,9 @@ function detailOf(
       return item.value.outline === "" && item.value.decisions.length === 0 ? null : <TurnDetail turn={item.value} />;
     case "step": {
       const checks = checksOf(item.value.id, steps);
-      return checks.length === 0 && onOpenStep === undefined ? null : (
-        <StepDetail id={item.value.id} checks={checks} onOpenStep={onOpenStep} />
+      const { agent } = item.value;
+      return checks.length === 0 && onOpenStep === undefined && agent === "" ? null : (
+        <StepDetail id={item.value.id} agent={agent} checks={checks} onOpenStep={onOpenStep} />
       );
     }
     case "evidence":
