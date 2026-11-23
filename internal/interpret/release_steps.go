@@ -163,8 +163,7 @@ func releaseStepPrompt(step store.EpicReleaseStep, start, then string) string {
 		"The release promises: %s\n\n"+
 		"This worktree is checked out detached at %s, the commit the step starts from.\n\n"+
 		"Do only this step. Do not carry out any other release step, and do not merge anything into this "+
-		"worktree. If CI goes red on the commit you made, you may rerun it once on that same commit; do not "+
-		"change the commit to make it green.\n\n"+
+		"worktree.\n\n"+
 		"When the step is carried out, return status done. Return commits as the full id of every commit you "+
 		"added on top of %s, and an empty list when you added none. Return commit as the full id of HEAD. "+
 		"Return evidence showing the effect of the step: what changed and where it can be seen. If you cannot "+
