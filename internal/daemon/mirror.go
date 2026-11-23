@@ -63,6 +63,8 @@ type Mirror struct {
 	// store is set by Attach before opened closes, so it is read only after a receive from opened.
 	store  *store.Store
 	opened chan struct{}
+	// orrery is the controller's orrery name, the host of every pane the mirror syncs and of every tidy's rows.
+	orrery string
 	now    func() time.Time
 	logger *slog.Logger
 	lock   chan struct{}
@@ -104,19 +106,21 @@ type paneRef struct {
 
 // NewMirror returns a Mirror that writes to st and stamps events with now. A nil logger discards.
 func NewMirror(st *store.Store, now func() time.Time, logger *slog.Logger) *Mirror {
-	m := NewPendingMirror(now, logger)
+	m := NewPendingMirror("", now, logger)
 	m.Attach(st)
 	return m
 }
 
-// NewPendingMirror returns a Mirror whose store is still opening. Until Attach, a sync or tidy waits at most
-// mirrorLockWait for it, and one that waits longer runs after Attach. A nil logger discards.
-func NewPendingMirror(now func() time.Time, logger *slog.Logger) *Mirror {
+// NewPendingMirror returns a Mirror whose store is still opening, for the controller named orrery, the host of the rows
+// it writes. Until Attach, a sync or tidy waits at most mirrorLockWait for it, and one that waits longer runs after
+// Attach. A nil logger discards.
+func NewPendingMirror(orrery string, now func() time.Time, logger *slog.Logger) *Mirror {
 	if logger == nil {
 		logger = slog.New(slog.DiscardHandler)
 	}
 	return &Mirror{
 		opened:      make(chan struct{}),
+		orrery:      orrery,
 		now:         now,
 		logger:      logger,
 		lock:        make(chan struct{}, 1),
@@ -406,7 +410,7 @@ func (m *Mirror) syncOut(ctx context.Context, server tmuxctl.Server, pane, out s
 		}
 	}
 	if err := m.store.SyncPane(ctx, server.Column(), store.Pane{
-		ID: id, Pane: pane, Fields: fieldsOf(values[1:]),
+		Host: m.orrery, ID: id, Pane: pane, Fields: fieldsOf(values[1:]),
 	}, m.now()); err != nil {
 		return fmt.Errorf("sync pane %s: %w", pane, err)
 	}
@@ -514,7 +518,7 @@ func (m *Mirror) tidy(ctx context.Context, server tmuxctl.Server, client *tmuxct
 		}
 		minted = append(minted, panes[i])
 	}
-	if err = m.store.SyncServer(ctx, server.Column(), panes, m.now()); err != nil {
+	if err = m.store.SyncServer(ctx, m.orrery, server.Column(), panes, m.now()); err != nil {
 		return fmt.Errorf("sync server %s: %w", server.Column(), err)
 	}
 

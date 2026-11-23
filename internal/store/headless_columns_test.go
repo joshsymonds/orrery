@@ -147,7 +147,7 @@ func TestHeadlessColumnsWrittenKeptAfterEventPrune(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	if err := s.SyncServer(ctx, "-L a", nil, t0.Add(EventRetention+time.Hour)); err != nil {
+	if err := s.SyncServer(ctx, "", "-L a", nil, t0.Add(EventRetention+time.Hour)); err != nil {
 		t.Fatalf("SyncServer: %v", err)
 	}
 	if n := eventsAt(t, s, id, t0.Unix()); n != 0 {

@@ -4587,17 +4587,23 @@ func (q *Queries) InsertRouteSeat(ctx context.Context, arg InsertRouteSeatParams
 }
 
 const insertSession = `-- name: InsertSession :exec
-INSERT INTO sessions (id, server, pane) VALUES (?, ?, ?)
+INSERT INTO sessions (id, server, pane, host) VALUES (?, ?, ?, ?)
 `
 
 type InsertSessionParams struct {
 	ID     string
 	Server string
 	Pane   string
+	Host   string
 }
 
 func (q *Queries) InsertSession(ctx context.Context, arg InsertSessionParams) error {
-	_, err := q.db.ExecContext(ctx, insertSession, arg.ID, arg.Server, arg.Pane)
+	_, err := q.db.ExecContext(ctx, insertSession,
+		arg.ID,
+		arg.Server,
+		arg.Pane,
+		arg.Host,
+	)
 	return err
 }
 
@@ -8398,6 +8404,65 @@ func (q *Queries) ListHolds(ctx context.Context) ([]Hold, error) {
 	return items, nil
 }
 
+const listHostSessions = `-- name: ListHostSessions :many
+SELECT id, server, pane, state, changed, seen, question, summary, label, context, tool, claude_session, transcript, kind, dir, reason, consumed, replay_from, background, turn_output, prompts_from, title, headline, headline_at, awaited, latest_reply, newest_reply_at, first_prompt_text, latest_request_id, held, host FROM sessions WHERE host = ? AND kind = '' ORDER BY id
+`
+
+func (q *Queries) ListHostSessions(ctx context.Context, host string) ([]Session, error) {
+	rows, err := q.db.QueryContext(ctx, listHostSessions, host)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Session
+	for rows.Next() {
+		var i Session
+		if err := rows.Scan(
+			&i.ID,
+			&i.Server,
+			&i.Pane,
+			&i.State,
+			&i.Changed,
+			&i.Seen,
+			&i.Question,
+			&i.Summary,
+			&i.Label,
+			&i.Context,
+			&i.Tool,
+			&i.ClaudeSession,
+			&i.Transcript,
+			&i.Kind,
+			&i.Dir,
+			&i.Reason,
+			&i.Consumed,
+			&i.ReplayFrom,
+			&i.Background,
+			&i.TurnOutput,
+			&i.PromptsFrom,
+			&i.Title,
+			&i.Headline,
+			&i.HeadlineAt,
+			&i.Awaited,
+			&i.LatestReply,
+			&i.NewestReplyAt,
+			&i.FirstPromptText,
+			&i.LatestRequestID,
+			&i.Held,
+			&i.Host,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listKnownDirs = `-- name: ListKnownDirs :many
 SELECT known.dir FROM (
     SELECT sessions.dir AS dir, CAST(sessions.changed AS INTEGER) AS at FROM sessions
@@ -10144,11 +10209,16 @@ func (q *Queries) ListRunningEpicTurns(ctx context.Context) ([]EpicTurn, error) 
 }
 
 const listServerSessions = `-- name: ListServerSessions :many
-SELECT id, server, pane, state, changed, seen, question, summary, label, context, tool, claude_session, transcript, kind, dir, reason, consumed, replay_from, background, turn_output, prompts_from, title, headline, headline_at, awaited, latest_reply, newest_reply_at, first_prompt_text, latest_request_id, held, host FROM sessions WHERE server = ? AND kind = '' ORDER BY id
+SELECT id, server, pane, state, changed, seen, question, summary, label, context, tool, claude_session, transcript, kind, dir, reason, consumed, replay_from, background, turn_output, prompts_from, title, headline, headline_at, awaited, latest_reply, newest_reply_at, first_prompt_text, latest_request_id, held, host FROM sessions WHERE host = ?1 AND server = ?2 AND kind = '' ORDER BY id
 `
 
-func (q *Queries) ListServerSessions(ctx context.Context, server string) ([]Session, error) {
-	rows, err := q.db.QueryContext(ctx, listServerSessions, server)
+type ListServerSessionsParams struct {
+	Host   string
+	Server string
+}
+
+func (q *Queries) ListServerSessions(ctx context.Context, arg ListServerSessionsParams) ([]Session, error) {
+	rows, err := q.db.QueryContext(ctx, listServerSessions, arg.Host, arg.Server)
 	if err != nil {
 		return nil, err
 	}

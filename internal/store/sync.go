@@ -39,8 +39,10 @@ type Fields struct {
 	Transcript    string
 }
 
-// Pane is one tmux pane's snapshot. ID is the row id (the pane's @orrery_id) and Pane is the tmux pane id.
+// Pane is one tmux pane's snapshot. Host is the orrery name of the host the pane runs on, and ID is the row id (the
+// pane's @orrery_id) and Pane is the tmux pane id.
 type Pane struct {
+	Host   string
 	ID     string
 	Pane   string
 	Fields Fields
@@ -105,21 +107,22 @@ func (s *Store) SyncPane(ctx context.Context, server string, pane Pane, now time
 	})
 }
 
-// SyncServer syncs every pane of one tmux server, removes the server's rows whose id is absent from panes,
-// prunes events older than EventRetention, except the newest event, and removes each engine session that has
-// no event at or after the same cutoff, with its unfinished text. A live engine session, as SetEngineLive
-// reports, is kept with its text. The removal appends no event.
-func (s *Store) SyncServer(ctx context.Context, server string, panes []Pane, now time.Time) error {
+// SyncServer syncs every pane of one tmux server under host, removes the rows of host on that server whose id is
+// absent from panes, prunes events older than EventRetention, except the newest event, and removes each engine session
+// that has no event at or after the same cutoff, with its unfinished text. A live engine session, as SetEngineLive
+// reports, is kept with its text. The removal appends no event. Rows of other hosts, and of other servers, are kept.
+func (s *Store) SyncServer(ctx context.Context, host, server string, panes []Pane, now time.Time) error {
 	live := s.engineLiveIDs()
 	return s.write(ctx, func(queries *sqlcgen.Queries) error {
 		present := make(map[string]bool, len(panes))
 		for _, pane := range panes {
+			pane.Host = host
 			if err := syncPane(ctx, queries, server, pane, now); err != nil {
 				return err
 			}
 			present[pane.ID] = true
 		}
-		rows, err := queries.ListServerSessions(ctx, server)
+		rows, err := queries.ListServerSessions(ctx, sqlcgen.ListServerSessionsParams{Host: host, Server: server})
 		if err != nil {
 			return fmt.Errorf("list sessions of server %q: %w", server, err)
 		}
@@ -187,7 +190,7 @@ func syncPane(ctx context.Context, queries *sqlcgen.Queries, server string, pane
 
 	if !exists {
 		if err = queries.InsertSession(ctx, sqlcgen.InsertSessionParams{
-			ID: pane.ID, Server: server, Pane: pane.Pane,
+			ID: pane.ID, Server: server, Pane: pane.Pane, Host: pane.Host,
 		}); err != nil {
 			return fmt.Errorf("insert session %s: %w", pane.ID, err)
 		}
