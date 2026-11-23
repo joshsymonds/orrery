@@ -18,7 +18,6 @@ import {
   type EpicStep,
 } from "./gen/orrery/v1/epics_pb";
 import { clock } from "./reader";
-import { stateOf } from "./status";
 import {
   allLimited,
   askingOf,
@@ -44,7 +43,6 @@ function detail(init: DetailInit): EpicsGetResponse {
 
 // Synthetic epic identity and clock. Every test passes now, so no test reads the wall clock.
 const alpha = { id: "repo-a/alpha", repository: "repo-a", slug: "alpha", source: "orreryd" };
-const record = { id: "repo-a/notes", repository: "repo-a", slug: "notes", source: "record" };
 const now = 10_000;
 const acceptedAt = 1_700_000_000n;
 const resetsAt = 1_700_018_000n;
@@ -110,10 +108,6 @@ test("EpicRecord: a released epic's track ends at Report now, released", () => {
   ]);
 });
 
-test("EpicRecord: a record epic has no track", () => {
-  assert.deepEqual(trackOf(detail({ epic: record, tasks: [] })), []);
-});
-
 test("EpicRecord: a building epic reaches every section", () => {
   const d = orrerydIn("built", {
     summary: "The parser reads a file.",
@@ -145,31 +139,13 @@ test("EpicRecord: a planning epic reaches its summary, track, now and requiremen
   });
 });
 
-test("EpicRecord: a record epic reaches only its now and its tasks", () => {
-  const d = detail({
-    epic: record,
-    summary: "A summary the record never draws.",
-    requirements: [create(EpicRequirementSchema, { id: "R1", text: "It parses." })],
-    tasks: [{ slug: "t1", subject: "Parse", status: "pending", requirements: [], effort: 1 }],
-  });
-  const history = [create(EpicHistoryEntrySchema, { time: 1n, cursor: "c1" })];
-  assert.deepEqual(reachedOf(d, history), {
-    summary: false,
-    track: false,
-    now: true,
-    history: false,
-    tasks: true,
-    requirements: false,
-  });
-});
-
 test("EpicRecord: the contract door reads accepted, care and the requirement count, and is empty with no contract", () => {
   assert.equal(contractDoorOf(orrerydIn("accepted", { requirements: [] })), `accepted ${clock(acceptedAt)} · serious care · 0 requirements`);
   const withTwo = orrerydIn("accepted", {
     requirements: [create(EpicRequirementSchema, { id: "R1" }), create(EpicRequirementSchema, { id: "R2" })],
   });
   assert.equal(contractDoorOf(withTwo), `accepted ${clock(acceptedAt)} · serious care · 2 requirements`);
-  assert.equal(contractDoorOf(detail({ epic: record })), "");
+  assert.equal(contractDoorOf(detail({ epic: alpha })), "");
 });
 
 test("EpicWords: each state pill has its SPEC 8 word and tone", () => {
@@ -521,12 +497,6 @@ test("EpicRecord: a contract accepted at zero reads accepted with no time, in th
   });
   assert.deepEqual(trackOf(d)[0], stage("Contract", "done", "ok", "accepted"));
   assert.equal(contractDoorOf(d), "accepted · serious care · 0 requirements");
-});
-
-test("EpicWords: a record epic's state pill is the state word of status.ts stateOf, quiet", () => {
-  const d = detail({ epic: { ...record, outcome: "released" } });
-  assert.equal(stateOf(d), "released");
-  assert.deepEqual(statePillOf(d, now), { word: stateOf(d), tone: "quiet" });
 });
 
 // A release step at its position, in the given state, with the undo it was given.

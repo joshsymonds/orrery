@@ -22,8 +22,8 @@ type Props = Parameters<typeof EpicPage>[0];
 // now is the clock the page measures its times against, in unix seconds.
 const now = 10_000;
 
-// liveEpic is a live epic with no outcome, named demo-epic. It is a record epic.
-const liveEpic = { id: "e1", slug: "demo-epic", repository: "demo-repo", outcome: "", live: true };
+// liveEpic is a live epic accepted in its phase, named demo-epic.
+const liveEpic = { id: "e1", slug: "demo-epic", repository: "demo-repo", outcome: "accepted", live: true };
 
 // orrerydEpic is a live orreryd epic in accepted: its outcome is its phase. Each test names the phase it changes.
 const orrerydEpic = { ...liveEpic, source: "orreryd", outcome: "accepted" };
@@ -232,7 +232,7 @@ test("EpicRecord: an orreryd epic draws its sections in order, and none it has n
   await withPage(
     detail({
       ...build,
-      epic: { ...orrerydEpic, problem: "state.json: unexpected end of input" },
+      epic: orrerydEpic,
       summary: "Ship the demo",
       contract,
       nodes: [{ path: "build", node: "build", kind: "build", state: "running", round: 1n }],
@@ -242,7 +242,6 @@ test("EpicRecord: an orreryd epic draws its sections in order, and none it has n
     (container) => {
       assert.deepEqual(labelsOf(container, ".epic-page"), [
         "title-row",
-        "problem error",
         "summary",
         "track",
         "now",
@@ -291,28 +290,6 @@ test("AskAnswer: the blocker's question is the page's Ask, aged from the page's 
     },
     { commands },
   );
-});
-
-test("EpicRecord: a record epic draws only its Now and its Tasks", async () => {
-  await withPage(
-    detail({
-      ...build,
-      summary: "Ship the demo",
-      contract,
-      requirements: [{ id: "R1", text: "A user signs in", runs: [greenRun] }],
-      report: { outcome: "released", shipped: ["R1"], notShipped: [], why: "" },
-    }),
-    (container) => {
-      assert.deepEqual(labelsOf(container, ".epic-page"), ["title-row", "now", "tasks"]);
-    },
-    { history },
-  );
-});
-
-test("EpicRecord: no problem line draws when the epic's problem is empty", async () => {
-  await withPage(detail({ ...build, epic: { ...orrerydEpic, problem: "" } }), (container) => {
-    assert.equal(has(container, ".problem"), false);
-  });
 });
 
 test("EpicRecord: the Tasks head counts the integrated tasks, and the chart and the table draw each task", async () => {
@@ -400,7 +377,7 @@ test("EpicRecord: a building page's Now draws its step rows, one for each runnin
   });
 });
 
-test("EpicRecord: a record epic's page draws its running steps' rows", async () => {
+test("EpicRecord: the epic page draws its running steps' rows", async () => {
   await withPage(detail({ ...build }), (container) => {
     assert.deepEqual(textsOf(container, ".now .tbl.steps .tr .doing"), ["writing the login"]);
   });
@@ -486,12 +463,6 @@ test("EpicCommands: the Steered from door draws whenever the epic names its stee
     },
     { rows: [steererRow] },
   );
-});
-
-test("EpicCommands: the problem line reads the epic's problem", async () => {
-  await withPage(detail({ ...build, epic: { ...orrerydEpic, problem: "state.json: unexpected end of input" } }), (container) => {
-    assert.equal(textOf(container, ".problem"), "state.json: unexpected end of input");
-  });
 });
 
 test("EpicWords: a page whose runs and history carry 40-character revisions shows no revision in its text", async () => {
@@ -594,7 +565,7 @@ test("EpicAsk: an open question draws its Ask in Now, under the sentence", async
   await withPage(
     detail({ ...build, questions: [{ id: "Q1", text: "Which branch?", asked: 9_880n }] }),
     (container) => {
-      assert.deepEqual(labelsOf(container, ".now"), ["h3", "now-sentence", "ask", "tbl steps"]);
+      assert.deepEqual(labelsOf(container, "section.now"), ["h3", "now-sentence", "ask", "tbl steps"]);
       assert.equal(textOf(container, ".now .ask .q"), "Which branch?");
       assert.equal(textOf(container, ".now-sentence"), "One task is being worked on, and one waits on you.");
     },

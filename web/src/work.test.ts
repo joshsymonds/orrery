@@ -58,11 +58,11 @@ test("WorkThings: no conversation, and one that steers nothing, give no things",
   assert.deepEqual(workOf(conversation("s2"), view), []);
 });
 
-test("WorkThings: the epics come in blocks, waiting, then just ended order, ahead of the lists", () => {
+test("WorkThings: the epics come in blocks, busy then quiet, then just ended order, ahead of the lists", () => {
   const view = epicsView(
     [
       makeEpic("ended", { live: false, phaseAt: 50n, seen: 0n }),
-      makeEpic("waiting", { waiting: true }),
+      makeEpic("quiet"),
       makeEpic("busy", { runningSteps: [makeStep("r1")] }),
     ],
     new Map(),
@@ -70,7 +70,12 @@ test("WorkThings: the epics come in blocks, waiting, then just ended order, ahea
 
   const things = workOf(conversation("s1", [task("agent", "running", "a1")]), view);
 
-  assert.deepEqual(keysOf(things), [`epic:${repository}/busy`, `epic:${repository}/waiting`, `epic:${repository}/ended`, "agents"]);
+  assert.deepEqual(keysOf(things), [
+    `epic:${repository}/busy`,
+    `epic:${repository}/quiet`,
+    `epic:${repository}/ended`,
+    "agents",
+  ]);
 });
 
 test("WorkThings: an epic steered by another session is absent", () => {

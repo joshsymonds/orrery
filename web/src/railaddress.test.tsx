@@ -325,7 +325,7 @@ test("RailAddress: an epic no conversation steers draws the no-conversation line
   withRail(
     t.signal,
     1600,
-    { rows: [steererRow()], epics: view([epicOf("alpha", "s9")]), address: epicAddress("alpha") },
+    { rows: [steererRow()], epics: view([epicOf("alpha", "s9", { live: false })]), address: epicAddress("alpha") },
     (mount) => {
       const { container } = mount;
       assert.equal(readerShown(container), false, "no reader is drawn");

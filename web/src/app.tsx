@@ -2482,20 +2482,20 @@ export function App({
     />
   );
 
-  // endedBarOf is the ended bar in place of a stopped or failed headless conversation's dock, when a live orreryd epic
+  // endedBarOf is the ended bar in place of a stopped or failed headless conversation's dock, when a live epic
   // that conversation steers is listed. Its lead says the conversation ended, and the bar continues the epic.
   const endedBarOf = (row: Row) => {
     if (row.archiveKind !== "headless" || (row.state !== "stopped" && row.state !== "failed")) {
       return null;
     }
     const epic = [...epics.listed.values()].find(
-      (listed) => listed.live && listed.source === "orreryd" && listed.steering === row.archiveId,
+      (listed) => listed.live && listed.steering === row.archiveId,
     );
     return epic === undefined ? null : steeredBar(epic, epic.steering, endedLead(epic.slug));
   };
 
-  // unsteeredBar is the ended bar of an epic entry whose steerer has no listed row, when the epic is a live orreryd one:
-  // its lead names the epic's steering, unsteered when it has none, else its conversation ended. Any other epic has none.
+  // unsteeredBar is the ended bar of an epic entry whose steerer has no listed row, when the epic is live: its lead
+  // names the epic's steering, unsteered when it has none, else its conversation ended. An ended epic has none.
   const unsteeredBar = (detail: EpicsGetResponse | undefined) => {
     if (detail?.epic === undefined || !steersLive(detail)) {
       return null;
@@ -3080,12 +3080,10 @@ function withEpicMarks(view: EpicsView, marks: Map<string, boolean>): EpicsView 
   const archivedNow = (item: EpicItem) => marks.get(item.id) ?? item.archived;
   const archive = (item: EpicItem): EpicItem => ({ ...item, archived: true });
   const blocks = view.blocks.filter((block) => !archivedNow(block.epic));
-  const waiting = view.waiting.filter((item) => !archivedNow(item));
   const justEnded = view.justEnded.filter((item) => !archivedNow(item));
   const endedEarlier = view.endedEarlier.filter((item) => !archivedNow(item));
   const archived = [
     ...view.blocks.filter((block) => archivedNow(block.epic)).map((block) => archive(block.epic)),
-    ...view.waiting.filter(archivedNow).map(archive),
     ...view.justEnded.filter(archivedNow).map(archive),
     ...view.endedEarlier.filter(archivedNow).map(archive),
     ...view.archived.filter(archivedNow),
@@ -3101,14 +3099,12 @@ function withEpicMarks(view: EpicsView, marks: Map<string, boolean>): EpicsView 
     }
     const placed = epicsView([{ ...detail.epic, archived: false }], new Map([[detail.epic.id, detail]]));
     blocks.push(...placed.blocks);
-    waiting.push(...placed.waiting);
     justEnded.push(...placed.justEnded);
     endedEarlier.push(...placed.endedEarlier);
   }
   return {
     blocks: [...blocks.filter((block) => block.full), ...blocks.filter((block) => !block.full)],
-    waiting,
-    live: blocks.length + waiting.length,
+    live: blocks.length,
     justEnded: justEnded.sort(newestEnding),
     endedEarlier: endedEarlier.sort(newestEnding),
     archived,

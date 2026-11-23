@@ -382,8 +382,12 @@ test("TileStrip: an epic's work link pushes the epic's address and draws it as t
     assert.equal(conversationShown(container), null, "the conversation is not drawn");
   }));
 
-// onEpic opens alpha's page with its steerer's conversation under it.
-const onEpic: Setup = { rows: [steererRow()], epics: view([alpha]), address: epicAddress("alpha") };
+// onEpic opens alpha's page, an accepted orreryd epic, with its steerer's conversation under it.
+const onEpic: Setup = {
+  rows: [steererRow()],
+  epics: view([{ ...alpha, source: "orreryd", outcome: "accepted" }]),
+  address: epicAddress("alpha"),
+};
 
 // unsteered opens beta's page, which no conversation steers.
 const unsteered: Setup = { rows: [], epics: view([epicOf("beta", "")]), address: epicAddress("beta") };

@@ -608,7 +608,6 @@ export const Page: Stories = {
       }}
     />
   ),
-  "epic-problem": () => epicScenario(epicAt(rota, { kind: "epic" }), "problem"),
   "epic-loading": () => epicScenario(epicAt(tideCache, { kind: "epic" }), "loading"),
   "epic-unavailable": () => epicScenario(epicAt(rota, { kind: "epic" }), "unavailable"),
   "convo-working": () => <PageStory address={convoWorkingAt} fixture={createFixtureTransport(convoWorkingSlices)} />,

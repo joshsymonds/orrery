@@ -323,11 +323,6 @@ test("FixtureScenarios: plannerParked draws rota-export under the planner's park
   assert.equal(detail.questions.length, 0, "no question is open");
 });
 
-test("FixtureScenarios: problem draws rota-export with the engine's problem on the epic it reads", () => {
-  const detail = scenarioDetail("problem", "rota-export");
-  assert.notEqual(detail.epic?.problem, "", "the epic has a problem");
-});
-
 test("FixtureScenarios: unavailable draws rota-export with no Epics.Get answer, so the read fails", async () => {
   const { clients } = createFixtureTransport(epicScenarios.unavailable);
   const id = epicOf("rota-export").id;

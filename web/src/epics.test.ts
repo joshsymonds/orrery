@@ -32,7 +32,7 @@ function makeEpic(init: MessageInitShape<typeof EpicSchema>): Epic {
     slug: "first",
     outcome: "",
     live: true,
-    source: "record",
+    source: "orreryd",
     ...init,
   });
 }
@@ -430,7 +430,7 @@ test("live epics become blocks in input order, and each epic that is not live is
   assert.equal(view.live, 2);
 });
 
-test("a released record epic is listed among the ended, and the live epics around it are not", () => {
+test("a released epic is listed among the ended, and the live epics around it are not", () => {
   const quiet = ["a", "b", "c", "d", "e", "f", "g"].map((slug) => makeEpic({ id: `widgets-5d0c1a7/${slug}`, slug }));
   const released = makeEpic({
     id: "gadgets-0e1f2a3/old",
@@ -439,40 +439,16 @@ test("a released record epic is listed among the ended, and the live epics aroun
     outcome: "released",
     live: false,
   });
-  const waiting = makeEpic({ id: "gadgets-0e1f2a3/next", repository: "gadgets-0e1f2a3", slug: "next", waiting: true });
 
-  const view = epicsView([...quiet.slice(0, 3), released, ...quiet.slice(3), waiting], new Map());
+  const view = epicsView([...quiet.slice(0, 3), released, ...quiet.slice(3)], new Map());
 
   assert.deepEqual(
     view.endedEarlier.map((item) => item.slug),
     ["old"],
-    "the released record epic is among the ended, and no live epic is",
+    "the released epic is among the ended, and no live epic is",
   );
   assert.equal(view.endedEarlier[0].outcome, "released");
   assert.equal(view.endedEarlier[0].detail === undefined, true, "an ended epic carries no detail it was not given");
-  assert.deepEqual(
-    view.waiting.map((item) => item.slug),
-    ["next"],
-  );
-});
-
-test("waiting epics leave the blocks for their own list, in input order, and are neither drawn nor ended", () => {
-  const epics = [
-    makeEpic({ id: "widgets-5d0c1a7/first" }),
-    makeEpic({ id: "widgets-5d0c1a7/waiting-one", slug: "waiting-one", waiting: true }),
-    makeEpic({ id: "gadgets-0e1f2a3/old", repository: "gadgets-0e1f2a3", live: false }),
-    makeEpic({ id: "gadgets-0e1f2a3/waiting-two", repository: "gadgets-0e1f2a3", slug: "waiting-two", waiting: true }),
-  ];
-
-  const view = epicsView(epics, new Map());
-
-  assert.deepEqual(blockIds(view.blocks), ["widgets-5d0c1a7/first"]);
-  assert.deepEqual(
-    view.waiting.map((item) => item.slug),
-    ["waiting-one", "waiting-two"],
-  );
-  assert.equal(view.live, 3);
-  assert.deepEqual(itemIds(view.endedEarlier), ["gadgets-0e1f2a3/old"]);
 });
 
 test("ArchiveView: archived epics, live or ended, leave every default list and the live count, and are listed as archived in input order", () => {
@@ -481,10 +457,9 @@ test("ArchiveView: archived epics, live or ended, leave every default list and t
       makeEpic({ id: "widgets-5d0c1a7/archived-live", slug: "archived-live", archived: true }),
       makeEpic({ id: "widgets-5d0c1a7/first" }),
       makeEpic({
-        id: "gadgets-0e1f2a3/archived-waiting",
+        id: "gadgets-0e1f2a3/archived-quiet",
         repository: "gadgets-0e1f2a3",
-        slug: "archived-waiting",
-        waiting: true,
+        slug: "archived-quiet",
         archived: true,
       }),
       makeEpic({
@@ -507,13 +482,12 @@ test("ArchiveView: archived epics, live or ended, leave every default list and t
   );
 
   assert.deepEqual(blockIds(view.blocks), ["widgets-5d0c1a7/first"]);
-  assert.deepEqual(view.waiting, []);
   assert.deepEqual(view.justEnded, [], "the archived ended epic is not unseen in Just ended");
   assert.deepEqual(itemIds(view.endedEarlier), ["gadgets-0e1f2a3/quiet"]);
   assert.equal(view.live, 1);
   assert.deepEqual(itemIds(view.archived), [
     "widgets-5d0c1a7/archived-live",
-    "gadgets-0e1f2a3/archived-waiting",
+    "gadgets-0e1f2a3/archived-quiet",
     "widgets-5d0c1a7/archived-ended",
   ]);
   assert.deepEqual(
@@ -523,7 +497,7 @@ test("ArchiveView: archived epics, live or ended, leave every default list and t
   assert.equal(view.blocks[0].epic.archived, false);
 });
 
-test("ArchiveView: every live unarchived epic is listed, busy, quiet or waiting, and the archived one between them is not", () => {
+test("ArchiveView: every live unarchived epic is listed, busy or quiet, and the archived one between them is not", () => {
   const view = epicsView(
     [
       makeEpic({ id: "widgets-5d0c1a7/a", slug: "a" }),
@@ -534,17 +508,18 @@ test("ArchiveView: every live unarchived epic is listed, busy, quiet or waiting,
         slug: "b",
         runningSteps: [makeStep({ id: "s1" })],
       }),
-      makeEpic({ id: "widgets-5d0c1a7/c", slug: "c", waiting: true }),
+      makeEpic({ id: "widgets-5d0c1a7/c", slug: "c" }),
       makeEpic({ id: "widgets-5d0c1a7/d", slug: "d" }),
     ],
     new Map(),
   );
 
-  assert.deepEqual(blockIds(view.blocks), ["gadgets-0e1f2a3/b", "widgets-5d0c1a7/a", "widgets-5d0c1a7/d"]);
-  assert.deepEqual(
-    view.waiting.map((item) => item.slug),
-    ["c"],
-  );
+  assert.deepEqual(blockIds(view.blocks), [
+    "gadgets-0e1f2a3/b",
+    "widgets-5d0c1a7/a",
+    "widgets-5d0c1a7/c",
+    "widgets-5d0c1a7/d",
+  ]);
   assert.equal(view.live, 4);
 });
 
@@ -581,12 +556,11 @@ test("an orreryd epic seen at or after it ended is in endedEarlier, and one with
   );
 });
 
-test("a record epic that went quiet is listed among the ended, in endedEarlier, as it has no phase time", () => {
+test("an epic that went quiet with no phase time is listed in endedEarlier, never in justEnded", () => {
   const quiet = makeEpic({
     id: "gadgets-0e1f2a3/quiet",
     repository: "gadgets-0e1f2a3",
     slug: "quiet",
-    source: "record",
     live: false,
     outcome: "released",
   });
@@ -667,7 +641,6 @@ test("two running epics and six quiet ones draw all eight, running first, then t
 
 test("no epics is an empty view", () => {
   assert.deepEqual(noEpics.blocks, []);
-  assert.deepEqual(noEpics.waiting, []);
   assert.deepEqual(noEpics.archived, []);
   assert.equal(noEpics.details.size, 0);
 });
@@ -719,14 +692,14 @@ test("with no requirements the count is the record tasks done, out of all of the
 });
 
 test("the state is the state phrase with its time, then the units integrated", () => {
-  const epic = makeEpic({ phaseAt: 97060n });
+  const epic = makeEpic({ phaseAt: 97060n, outcome: "accepted" });
   const detail = detailWith(epic, ["done", "done", "pending", "pending", "pending", "pending", "pending"]);
 
   assert.equal(lineOf(epic, detail).state, "building · 49 min · 2 of 7 units integrated");
 });
 
 test("a state with no units has no units clause", () => {
-  const epic = makeEpic({ phaseAt: 97060n });
+  const epic = makeEpic({ phaseAt: 97060n, outcome: "accepted" });
   const detail = create(EpicsGetResponseSchema, { epic });
 
   assert.equal(lineOf(epic, detail).state, "planning · 49 min");
@@ -749,8 +722,8 @@ test("the blocker of an open question is its wait with its time", () => {
   assert.equal(lineOf(epic, detail).blocker, "waits on your answer · 2 min");
 });
 
-test("an epic with an open question never has an empty blocker, even when paused and waiting", () => {
-  const epic = makeEpic({ waiting: true });
+test("an epic with an open question never has an empty blocker, even when paused", () => {
+  const epic = makeEpic({});
   const detail = create(EpicsGetResponseSchema, {
     epic,
     paused: true,
@@ -770,7 +743,7 @@ const lineNow = 100000;
 function lineOf(epic: Epic, detail: EpicsGetResponse | undefined): EpicLine {
   const details = detail === undefined ? new Map() : new Map([[epic.id, detail]]);
   const view = epicsView([epic], details);
-  const item = [...view.blocks.map((block) => block.epic), ...view.waiting, ...view.justEnded, ...view.endedEarlier][0];
+  const item = [...view.blocks.map((block) => block.epic), ...view.justEnded, ...view.endedEarlier][0];
   return epicLine(item, lineNow);
 }
 

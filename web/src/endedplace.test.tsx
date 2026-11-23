@@ -347,18 +347,19 @@ test("EndedBar: at 412, an epic with no steering draws the bar in the narrow foo
     assert.ok(continueButton(foot) !== null, "the bar's Continue button is drawn");
   }));
 
-test("EndedBar: an ended epic and a record epic with no steerer draw the no-conversation line and no bar, at the desk", async (t) => {
+test("EndedBar: an ended epic with no steerer draws the no-conversation line and no bar, at the desk", async (t) => {
   const ended = rota("sess-gone", { live: false });
-  const record = epicOf("rota", "", { source: "record", live: true });
-  for (const epic of [ended, record]) {
-    await withApp(t.signal, 1600, { rows: [], epics: view([epic]), address: epicAddress("rota") }, ({ container }) => {
-      const middle = noConversation(container);
-      assert.ok(middle !== null, "the middle section is drawn");
-      assert.equal(middle.textContent?.includes("No conversation steers this epic."), true, "the no-conversation line is drawn");
-      assert.equal(middle.querySelector(".ended-bar"), null, "no bar is drawn");
-      assert.equal(middle.querySelectorAll("button").length, 0, "no control is drawn");
-    });
-  }
+  await withApp(t.signal, 1600, { rows: [], epics: view([ended]), address: epicAddress("rota") }, ({ container }) => {
+    const middle = noConversation(container);
+    assert.ok(middle !== null, "the middle section is drawn");
+    assert.equal(
+      middle.textContent?.includes("No conversation steers this epic."),
+      true,
+      "the no-conversation line is drawn",
+    );
+    assert.equal(middle.querySelector(".ended-bar"), null, "no bar is drawn");
+    assert.equal(middle.querySelectorAll("button").length, 0, "no control is drawn");
+  });
 });
 
 // readingNaming is the epic as Epics.Get answers it, steered by the session given.

@@ -64,7 +64,7 @@ export function workLinksOf(
   const designLinks = own.map(
     (design): WorkLinkItem => ({ kind: "design", key: `design:${design.id}`, id: design.id, name: design.title }),
   );
-  const steered = [...epics.blocks.map((block) => block.epic), ...epics.waiting, ...epics.justEnded, ...epics.endedEarlier];
+  const steered = [...epics.blocks.map((block) => block.epic), ...epics.justEnded, ...epics.endedEarlier];
   const epicLinks = steered
     .filter((item) => epics.listed.get(item.id)?.steering === session && !held(item.id))
     .map((item): WorkLinkItem => ({ kind: "epic", key: item.key, id: item.id, name: item.slug }));
@@ -125,15 +125,15 @@ function startedOrder(tasks: BackgroundTask[]): BackgroundTask[] {
 }
 
 // workOf gives the things a conversation's side panels take their tones and tasks from, in order: the epics it steers, in
-// the order the epics list gives them (the blocks, the waiting, then the just ended), and its running sub-agents and its
-// running shells. An epic is steered when its record names the conversation's session, and a session that is empty steers
+// the order the epics list gives them (the blocks, then the just ended), and its running sub-agents and its running
+// shells. An epic is steered when its record names the conversation's session, and a session that is empty steers
 // none. A pane has no lists.
 export function workOf(conversation: WorkConversation | null, epics: EpicsView): Thing[] {
   if (conversation === null) {
     return [];
   }
   const things: Thing[] = [];
-  const items = [...epics.blocks.map((block) => block.epic), ...epics.waiting, ...epics.justEnded];
+  const items = [...epics.blocks.map((block) => block.epic), ...epics.justEnded];
   for (const item of items) {
     const listed = epics.listed.get(item.id);
     if (listed !== undefined && conversation.session !== "" && listed.steering === conversation.session) {
