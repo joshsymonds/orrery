@@ -360,7 +360,6 @@ class TaskBandRecordTest {
             runningSteps = emptyList(),
             endedSteps = 0,
         ),
-        tasks = emptyList(),
         steps = steps,
         requirements = requirements,
         buildTasks = buildTasks,

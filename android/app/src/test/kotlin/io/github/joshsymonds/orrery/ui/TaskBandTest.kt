@@ -177,7 +177,6 @@ class TaskBandTest {
             runningSteps = emptyList(),
             endedSteps = 0,
         ),
-        tasks = emptyList(),
         steps = emptyList(),
         buildTasks = listOf(
             buildTask(DONE_TASK, place = "integrated", tone = "ok"),

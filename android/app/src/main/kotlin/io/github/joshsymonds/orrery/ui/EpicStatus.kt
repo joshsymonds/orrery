@@ -33,7 +33,7 @@ fun epicStateOf(detail: EpicDetail): String {
         epic.outcome.isNotEmpty() -> epic.outcome
         detail.paused -> "paused"
         detail.parked.isNotEmpty() -> "parked"
-        epic.live -> if (detail.tasks.isEmpty() && detail.buildTasks.isEmpty()) "planning" else "building"
+        epic.live -> if (detail.buildTasks.isEmpty()) "planning" else "building"
         else -> ""
     }
 }

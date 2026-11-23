@@ -4,7 +4,6 @@ import io.github.joshsymonds.orrery.api.EpicBuildTaskRow
 import io.github.joshsymonds.orrery.api.EpicDetail
 import io.github.joshsymonds.orrery.api.EpicQuestionRow
 import io.github.joshsymonds.orrery.api.EpicRow
-import io.github.joshsymonds.orrery.api.EpicTaskRow
 import io.github.joshsymonds.orrery.api.StepRow
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -36,8 +35,6 @@ class EpicStatusTest {
 
     @Test
     fun aLiveEpicWithATaskOrAPlannedBuildTaskIsBuilding() {
-        val withTask = detail(epic = epic(live = true), tasks = listOf(EpicTaskRow(1, "t1", "", "")))
-        assertEquals("building", epicStateOf(withTask))
         val withBuildTask = detail(epic = epic(live = true), buildTasks = listOf(buildTask("b1")))
         assertEquals("building", epicStateOf(withBuildTask))
     }
@@ -219,7 +216,6 @@ class EpicStatusTest {
 
     private fun detail(
         epic: EpicRow = epic(),
-        tasks: List<EpicTaskRow> = emptyList(),
         buildTasks: List<EpicBuildTaskRow> = emptyList(),
         steps: List<StepRow> = emptyList(),
         questions: List<EpicQuestionRow> = emptyList(),
@@ -227,7 +223,6 @@ class EpicStatusTest {
         parked: String = "",
     ) = EpicDetail(
         epic = epic,
-        tasks = tasks,
         steps = steps,
         buildTasks = buildTasks,
         questions = questions,

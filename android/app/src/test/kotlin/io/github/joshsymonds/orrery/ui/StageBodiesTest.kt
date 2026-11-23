@@ -566,7 +566,6 @@ class StageBodiesTest {
             runningSteps = emptyList(),
             endedSteps = 0,
         ),
-        tasks = emptyList(),
         steps = steps,
         buildTasks = buildTasks,
     )

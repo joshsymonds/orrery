@@ -13,10 +13,10 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextReplacement
+import io.github.joshsymonds.orrery.api.EpicBuildTaskRow
 import io.github.joshsymonds.orrery.api.EpicDetail
 import io.github.joshsymonds.orrery.api.EpicQuestionRow
 import io.github.joshsymonds.orrery.api.EpicRow
-import io.github.joshsymonds.orrery.api.EpicTaskRow
 import io.github.joshsymonds.orrery.api.FakeOrreryServer
 import io.github.joshsymonds.orrery.api.OrreryClient
 import io.github.joshsymonds.orrery.api.StepRow
@@ -58,7 +58,7 @@ private fun step(
 
 private fun detail(
     steps: List<StepRow> = emptyList(),
-    tasks: List<EpicTaskRow> = emptyList(),
+    buildTasks: List<EpicBuildTaskRow> = emptyList(),
     questions: List<EpicQuestionRow> = emptyList(),
     parked: String = "",
     plannerParked: Boolean = false,
@@ -74,7 +74,7 @@ private fun detail(
         runningSteps = emptyList(),
         endedSteps = 0,
     ),
-    tasks = tasks,
+    buildTasks = buildTasks,
     steps = steps,
     questions = questions,
     parked = parked,
@@ -352,7 +352,16 @@ class EpicAskTest {
                 NowAsk(
                     detail = detail(
                         steps = listOf(step()),
-                        tasks = listOf(EpicTaskRow(effort = 1, slug = "T1", subject = "Example task", status = "open")),
+                        buildTasks = listOf(
+                            EpicBuildTaskRow(
+                                id = "T1",
+                                title = "Example task",
+                                status = "open",
+                                stage = "",
+                                red = null,
+                                green = null,
+                            ),
+                        ),
                     ),
                     now = BASE,
                     onAnswer = { _, _, _ -> },

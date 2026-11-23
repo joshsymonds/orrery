@@ -13,7 +13,6 @@ import androidx.test.core.app.ApplicationProvider
 import io.github.joshsymonds.orrery.api.EpicBuildTaskRow
 import io.github.joshsymonds.orrery.api.EpicDetail
 import io.github.joshsymonds.orrery.api.EpicRow
-import io.github.joshsymonds.orrery.api.EpicTaskRow
 import io.github.joshsymonds.orrery.api.EvidenceRunRow
 import io.github.joshsymonds.orrery.api.StepRow
 import io.github.joshsymonds.orrery.mainThreadAndroidComposeRule
@@ -122,7 +121,6 @@ class EpicOrreryModelTest {
 
     private fun detail(
         buildTasks: List<EpicBuildTaskRow> = emptyList(),
-        tasks: List<EpicTaskRow> = emptyList(),
         steps: List<StepRow> = emptyList(),
     ): EpicDetail = EpicDetail(
         epic = EpicRow(
@@ -135,7 +133,6 @@ class EpicOrreryModelTest {
             runningSteps = emptyList(),
             endedSteps = 0,
         ),
-        tasks = tasks,
         steps = steps,
         buildTasks = buildTasks,
     )
@@ -352,44 +349,12 @@ class EpicOrreryModelTest {
     }
 
     @Test
-    fun aRecordTasksStepIsTheOneItsSlugLabels() {
-        val tasks = recordTasksOf(
-            detail(tasks = listOf(EpicTaskRow(effort = 1, slug = "first", subject = "First", status = "open"))),
-        )
-        assertEquals("first", tasks.taskOfStep("first")?.task)
-        assertEquals(null, tasks.taskOfStep("evidence-first"))
-    }
-
-    @Test
     fun recordTasksAreTheTasksWedgesOfPicksWithTheirTitlesRequirementsAndStates() {
-        val built = detail(
-            buildTasks = listOf(buildTask("planned", "plan")),
-            tasks = listOf(EpicTaskRow(effort = 1, slug = "old", subject = "Old", status = "done", place = "integrated", tone = "ok")),
-        )
+        val built = detail(buildTasks = listOf(buildTask("planned", "plan")))
         assertEquals(wedgesOf(built).map { it.task }, recordTasksOf(built).map { it.task })
         assertEquals(listOf("T1"), recordTasksOf(built).map { it.task })
         assertEquals("Parser", recordTasksOf(built)[0].title)
         assertEquals(listOf("R1"), recordTasksOf(built)[0].requirements)
-
-        val record = detail(
-            tasks = listOf(
-                EpicTaskRow(
-                    effort = 1,
-                    slug = "first",
-                    subject = "First task",
-                    status = "done",
-                    requirements = listOf("R2", "R3"),
-                    place = "integrated",
-                    tone = "ok",
-                ),
-                EpicTaskRow(effort = 1, slug = "second", subject = "Second", status = "pending", place = "planned", tone = "plan"),
-            ),
-        )
-        assertEquals(wedgesOf(record).map { it.task }, recordTasksOf(record).map { it.task })
-        assertEquals(listOf("First task", "Second"), recordTasksOf(record).map { it.title })
-        assertEquals(listOf("R2", "R3"), recordTasksOf(record)[0].requirements)
-        assertEquals(listOf(RingPlace.INTEGRATE, null), recordTasksOf(record).map { it.place })
-        assertEquals(listOf(true, false), recordTasksOf(record).map { it.integrated })
     }
 
     @Test
