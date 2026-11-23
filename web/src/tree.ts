@@ -1,5 +1,5 @@
 import type { Contract } from "./gen/orrery/v1/contracts_pb";
-import type { Design } from "./gen/orrery/v1/designs_pb";
+import type { Design, DesignContract } from "./gen/orrery/v1/designs_pb";
 import type { Epic, EpicsGetResponse } from "./gen/orrery/v1/epics_pb";
 import { blockOf, type EpicBlock, repositoryName } from "./epics";
 import { epicNeeds } from "./needs";
@@ -107,6 +107,41 @@ function repoOf(name: string): string | null {
 // project it sits in; whether its epic has ended; and the thing itself.
 interface Item { row: Row | null; place: Place; ended: boolean; hung: Hung }
 
+// A design placed in a view: the drawn conversation it hangs under, or null when it is a conversation of its own, and the
+// items it takes, in position order.
+interface DesignPlace { design: Design; row: Row | null; children: Item[] }
+
+// idOf is the id of a hung thing: its epic's, or its contract's.
+function idOf(hung: Hung): string {
+  return hung.kind === "epic" ? hung.listed.id : hung.contract.id;
+}
+
+// byCreated orders designs by when they were created, then by id.
+function byCreated(left: Design, right: Design): number {
+  return Number(left.created - right.created) || left.id.localeCompare(right.id);
+}
+
+// byPosition orders a design's contracts by their place in its start order.
+function byPosition(left: DesignContract, right: DesignContract): number {
+  return Number(left.position - right.position);
+}
+
+// designChildren are the unclaimed items a design takes: each whose id is a contract's id or its non-empty epic, in the
+// order of the contracts' positions.
+function designChildren(design: Design, items: readonly Item[], claimed: ReadonlySet<Item>): Item[] {
+  const children: Item[] = [];
+  for (const contract of [...design.contracts].sort(byPosition)) {
+    for (const id of [contract.id, contract.epic]) {
+      for (const item of items) {
+        if (id !== "" && idOf(item.hung) === id && !claimed.has(item) && !children.includes(item)) {
+          children.push(item);
+        }
+      }
+    }
+  }
+  return children;
+}
+
 // placeOf is the project a thing sits in: the project of its absolute path at the serving host, or else a card named by
 // its repository.
 function placeOf(path: string, repository: string, serving: string): Place {
@@ -178,7 +213,31 @@ export function buildTree(input: TreeInput): Project[] {
     });
   }
 
-  const anchoredTo = (row: Row): Item[] => items.filter((item) => item.row === row);
+  // A design that is not of one is placed where its conversation is drawn: under that row, or in the inbox as a conversation
+  // of its own when no drawn conversation works it but a thing it holds is drawn. Its children are the items its contracts
+  // name, by id or by epic, in position order. A thing one design takes is no other design's child. The Archived view leaves
+  // out a design with no drawn conversation, so its things stay as they are, ungrouped.
+  const claimed = new Set<Item>();
+  const placed: DesignPlace[] = [];
+  for (const design of (input.designs ?? []).filter((candidate) => !candidate.ofOne).sort(byCreated)) {
+    const conversation = drawnRow(rowByConvo.get(design.conversation));
+    const children = designChildren(design, items, claimed);
+    if (conversation === undefined && (!inbox || children.length === 0)) {
+      continue;
+    }
+    for (const child of children) {
+      claimed.add(child);
+    }
+    placed.push({ design, row: conversation ?? null, children });
+  }
+  const nodeOf = (place: DesignPlace): DesignNode => ({
+    kind: "design",
+    key: `design:${place.design.id}`,
+    design: place.design,
+    hung: place.children.map((child) => child.hung),
+  });
+
+  const anchoredTo = (row: Row): Item[] => items.filter((item) => item.row === row && !claimed.has(item));
 
   const projects = new Map<string, Project>();
   const projectAt = (place: Place): Project => {
@@ -204,7 +263,16 @@ export function buildTree(input: TreeInput): Project[] {
   for (const row of drawn) {
     const own = anchoredTo(row);
     const project = projectAt(placeOfRow(row));
-    const convo = (hung: Hung[], folded: Hung[]): Convo => ({ key: row.key, row, hung, folded });
+    const nodes = placed.filter((place) => place.row === row).map(nodeOf);
+    const designHung = nodes.flatMap((node) => node.hung);
+    // A design's children follow the row's own things, and are never folded: an ended one stays under its design.
+    const convo = (hung: Hung[], folded: Hung[]): Convo => ({
+      key: row.key,
+      row,
+      hung: [...hung, ...designHung],
+      folded,
+      designs: nodes,
+    });
     if (!inbox) {
       project.convos.push(convo(own.map((item) => item.hung), []));
     } else if (row.ended === true) {
@@ -222,12 +290,29 @@ export function buildTree(input: TreeInput): Project[] {
   // A thing with no drawn conversation is its own row, holding just that thing, in its project: in the tree, or behind
   // the ended line once it has ended.
   for (const item of items) {
-    if (item.row !== null) {
+    if (item.row !== null || claimed.has(item)) {
       continue;
     }
     const convo: Convo = { key: item.hung.key, row: null, hung: [item.hung], folded: [] };
     const project = projectAt(item.place);
     if (item.ended) {
+      project.ended.push(convo);
+    } else {
+      project.convos.push(convo);
+    }
+  }
+
+  // A design with no drawn conversation is a conversation of its own, holding its children, in the project of the first of
+  // them. It is behind the ended line only when every child has ended.
+  for (const place of placed) {
+    if (place.row !== null) {
+      continue;
+    }
+    const node = nodeOf(place);
+    const convo: Convo = { key: node.key, row: null, hung: node.hung, folded: [], designs: [node] };
+    const [first] = place.children;
+    const project = projectAt(first.place);
+    if (place.children.every((child) => child.ended)) {
       project.ended.push(convo);
     } else {
       project.convos.push(convo);
