@@ -3,10 +3,10 @@
 // and what the write says decides the form. An answer closes the form and holds the account the page adds to its table. A
 // refusal keeps the form as it was and says why nothing changed, in the hint's place. No answer closes the form, empties the
 // token, and hands the page the line that says it could not tell, after the page re-reads what stands. Cancel closes the
-// form. The token is held only by this form, so it goes when the form closes.
+// form, and so does Escape from anywhere on the page. The token is held only by this form, so it goes when the form closes.
 
 import type { VNode } from "preact";
-import { useState } from "preact/hooks";
+import { useEffect, useState } from "preact/hooks";
 
 import { couldNotTell, nothingChanged, runWrite } from "./accountswrite";
 import type { createClients } from "./client";
@@ -60,6 +60,20 @@ export function AccountAdd({ clients, added, close, reread }: AccountAddProps): 
     close(couldNotTell);
     await reread();
   };
+
+  // Escape closes the form from anywhere on the page. The window's capture listener runs before the page's own key handler,
+  // and it stops the key there, so the page never acts on it, as the rail's picker's Escape does. A narrow form's sheet
+  // handles Escape too, but this listener runs first and stops the key, so the sheet sees it only once.
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.stopPropagation();
+        close(null);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => window.removeEventListener("keydown", onKeyDown, true);
+  }, [close]);
 
   return (
     <div class="acc-add" role="group" aria-label="Add account">
