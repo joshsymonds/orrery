@@ -931,12 +931,33 @@ CREATE TABLE integrate_rounds (
     created INTEGER NOT NULL,
     PRIMARY KEY (epic, path, attempt, task, round)
 );
+CREATE TABLE designs (
+    id TEXT PRIMARY KEY,
+    title TEXT NOT NULL,
+    conversation TEXT NOT NULL,    -- a sessions row id; no reference to sessions
+    created INTEGER NOT NULL
+);
+CREATE TABLE design_contracts (
+    contract TEXT PRIMARY KEY REFERENCES contracts (id),
+    design TEXT NOT NULL REFERENCES designs (id),
+    position INTEGER NOT NULL,
+    added INTEGER NOT NULL,
+    UNIQUE (design, position)
+);
+CREATE TABLE design_edges (
+    design TEXT NOT NULL REFERENCES designs (id),
+    contract TEXT NOT NULL,
+    after TEXT NOT NULL,
+    created INTEGER NOT NULL,
+    PRIMARY KEY (contract, after)
+);
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (1,0,1);
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (10,9,1);
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (100,99,1);
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (101,100,1);
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (102,101,1);
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (103,102,1);
+INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (104,103,1);
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (11,10,1);
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (12,11,1);
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (13,12,1);

@@ -72,6 +72,27 @@ type CronJob struct {
 	LastFireAt int64
 }
 
+type Design struct {
+	ID           string
+	Title        string
+	Conversation string
+	Created      int64
+}
+
+type DesignContract struct {
+	Contract string
+	Design   string
+	Position int64
+	Added    int64
+}
+
+type DesignEdge struct {
+	Design   string
+	Contract string
+	After    string
+	Created  int64
+}
+
 type DueResume struct {
 	ID     string
 	Kind   string
