@@ -116,7 +116,8 @@ func TestEpicBaseReleaseConflictGoesToIntegrator(t *testing.T) {
 	}
 
 	start := w.started(w.integratorID(1))
-	if start.Schema != IntegratorSchema || start.Revision != w.tip || !start.Unowned || start.Workspace != w.worktree() {
+	if start.Schema != IntegratorSchema || start.Revision != w.tip || !start.Unowned ||
+		start.Workspace != w.worktree() {
 		t.Errorf("integrator start = %+v, want an unowned integrator at the tip %s in %s", start, w.tip, w.worktree())
 	}
 	if mergeHead := nodeGit(t, w.worktree(), "rev-parse", "MERGE_HEAD"); mergeHead != w.origin {
