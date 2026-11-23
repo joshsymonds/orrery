@@ -35,9 +35,9 @@ func TestEpicBaseNoSyncOriginAheadStartsNoSync(t *testing.T) {
 	for range 3 {
 		noSyncPass(t, w)
 	}
-	if epic := epicOf(t, w.s); epic.StoredBase != candidate || epic.Synced != "" {
-		t.Errorf("stored base %s and synced %q at the quiet point, want %s and none: origin's commit %s was merged",
-			epic.StoredBase, epic.Synced, candidate, originHead)
+	if epic := epicOf(t, w.s); epic.StoredBase != candidate {
+		t.Errorf("stored base %s at the quiet point, want %s: origin's commit %s was merged",
+			epic.StoredBase, candidate, originHead)
 	}
 
 	one := w.commit(candidate, "t3.go", "one\n")
@@ -53,9 +53,6 @@ func TestEpicBaseNoSyncOriginAheadStartsNoSync(t *testing.T) {
 	next := w.candidate(integrateNextBatch)
 	if got := epicOf(t, w.s).StoredBase; got != next {
 		t.Errorf("stored base = %s after the next batch passes, want its candidate %s", got, next)
-	}
-	if epic := epicOf(t, w.s); epic.Synced != "" {
-		t.Errorf("synced = %q, want none: no sync ran", epic.Synced)
 	}
 }
 

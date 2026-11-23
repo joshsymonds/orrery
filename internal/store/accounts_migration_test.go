@@ -1,7 +1,6 @@
 package store
 
 import (
-	"context"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -20,23 +19,20 @@ func schemaKey(line string) string {
 
 // TestAccountsMigrationAddsOnlyTables checks that 00096_llm_accounts.sql creates the five tables of the LLM accounts
 // and routes and changes no table that exists at version 95. It reads the schema of a store at version 95, then of
-// the same store after Open migrates it: every line of the first is in the second unchanged, and the lines that are
-// new are exactly the five tables and their columns.
+// the store at version 96, not after Open migrates it, since a later migration changes epics, which 00096 leaves alone:
+// every line of the first is in the second unchanged, and the lines that are new are exactly the five tables and their
+// columns.
 func TestAccountsMigrationAddsOnlyTables(t *testing.T) {
 	t.Parallel()
-	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "orrery.db")
 
 	fixture := openStoreAtVersion(t, path, 95)
 	before := schemaLines(t, fixture)
 	closeDB(t, fixture)
 
-	s, err := Open(ctx, path, noSync())
-	if err != nil {
-		t.Fatalf("Open at version 95: %v", err)
-	}
-	defer s.Close()
-	after := schemaLines(t, s.db.DB)
+	fixture = openStoreAtVersion(t, path, 96)
+	after := schemaLines(t, fixture)
+	closeDB(t, fixture)
 
 	for _, line := range before {
 		if !slices.Contains(after, line) {

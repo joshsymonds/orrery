@@ -120,7 +120,7 @@ CREATE TABLE epics (
     phase TEXT NOT NULL,
     created INTEGER NOT NULL,
     changed INTEGER NOT NULL
-, paused INTEGER NOT NULL DEFAULT 0, parked TEXT NOT NULL DEFAULT '', retried INTEGER NOT NULL DEFAULT 0, base TEXT NOT NULL DEFAULT '', branch TEXT NOT NULL DEFAULT '' CHECK (branch IN ('', 'creating', 'created')), workflow TEXT NOT NULL DEFAULT '', workflow_text TEXT NOT NULL DEFAULT '', workflow_sha256 TEXT NOT NULL DEFAULT '', pause_source TEXT NOT NULL DEFAULT '' CHECK (pause_source IN ('', 'owner', 'limit')), stored_base TEXT NOT NULL DEFAULT '', candidate TEXT NOT NULL DEFAULT '', summary TEXT NOT NULL DEFAULT '', phase_at INTEGER NOT NULL DEFAULT 0, report_phase TEXT NOT NULL DEFAULT '', report_shipped TEXT NOT NULL DEFAULT '[]', report_not_shipped TEXT NOT NULL DEFAULT '[]', report_why TEXT NOT NULL DEFAULT '', closed_by TEXT NOT NULL DEFAULT '', superseded_by TEXT NOT NULL DEFAULT '', park_class TEXT NOT NULL DEFAULT '', synced TEXT NOT NULL DEFAULT '', origin_read_base TEXT NOT NULL DEFAULT '', origin_read_commit TEXT NOT NULL DEFAULT '', origin_read_state TEXT NOT NULL DEFAULT '', origin_read_at INTEGER NOT NULL DEFAULT 0, steerer TEXT NOT NULL DEFAULT '');
+, paused INTEGER NOT NULL DEFAULT 0, parked TEXT NOT NULL DEFAULT '', retried INTEGER NOT NULL DEFAULT 0, base TEXT NOT NULL DEFAULT '', branch TEXT NOT NULL DEFAULT '' CHECK (branch IN ('', 'creating', 'created')), workflow TEXT NOT NULL DEFAULT '', workflow_text TEXT NOT NULL DEFAULT '', workflow_sha256 TEXT NOT NULL DEFAULT '', pause_source TEXT NOT NULL DEFAULT '' CHECK (pause_source IN ('', 'owner', 'limit')), stored_base TEXT NOT NULL DEFAULT '', candidate TEXT NOT NULL DEFAULT '', summary TEXT NOT NULL DEFAULT '', phase_at INTEGER NOT NULL DEFAULT 0, report_phase TEXT NOT NULL DEFAULT '', report_shipped TEXT NOT NULL DEFAULT '[]', report_not_shipped TEXT NOT NULL DEFAULT '[]', report_why TEXT NOT NULL DEFAULT '', closed_by TEXT NOT NULL DEFAULT '', superseded_by TEXT NOT NULL DEFAULT '', park_class TEXT NOT NULL DEFAULT '', steerer TEXT NOT NULL DEFAULT '');
 CREATE TABLE epic_failures (
     epic TEXT NOT NULL,
     position INTEGER NOT NULL,
@@ -1037,4 +1037,5 @@ INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (95,94,
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (96,95,1);
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (97,96,1);
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (98,97,1);
+INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (99,98,1);
 INSERT INTO "pending_notice_ids" ("id", "high") VALUES (1,0);
