@@ -311,10 +311,21 @@ test("five running steps show four, count one more, keep a held mark, and leave 
     agent: "reviewer",
     started: 0,
     round: 1,
-    pips: [],
+    pips: ["track", "track", "track", "track", "track"],
     reason: "",
     step: epic.runningSteps[1],
   });
+});
+
+test("a step with no task carries the five pips of a step whose task no slice names", () => {
+  const epic = makeEpic({
+    runningSteps: [makeStep({ id: "s1", task: "t1" }), makeStep({ id: "s2", task: "" })],
+  });
+
+  const [named, untasked] = epicsView([epic], new Map()).blocks[0].steps;
+
+  assert.equal(untasked.pips.length, 5);
+  assert.deepEqual(untasked.pips, named.pips);
 });
 
 test("a step carries the running EpicStep it is made from, with its checks", () => {

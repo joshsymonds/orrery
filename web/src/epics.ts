@@ -269,12 +269,9 @@ function stepOf(epic: Epic, step: EpicStep, slices: EpicSlice[]): StepItem {
   };
 }
 
-// A step's five cells: none for a step with no task, else the cells of the slice that names its task, or five track
-// when no slice does.
+// A step's five cells: the cells of the slice that names its task, or five track when no slice does. A step with no
+// task names no slice, so it gets the five track too; the row draws its pips only for a step with a task.
 export function pipsOf(task: string, slices: EpicSlice[]): CellKind[] {
-  if (task === "") {
-    return [];
-  }
   const slice = slices.find((candidate) => candidate.task === task);
   return RINGS.map((_, index) => (slice ? cellKind(slice, index + 1) : "track"));
 }
