@@ -17,7 +17,7 @@ const defaultHeldRetry = time.Minute
 // answered start, or when its predecessors have all shipped. A held epic that has a predecessor which will not ship is
 // asked about it, once, and stays held. It runs first in every pass, so a held epic starts on the pass that sees its
 // last predecessor ship. A held epic whose fetch or start fails is logged, stays held, and is tried again after the
-// held retry.
+// held retry: until that retry fires, no pass fetches, starts or asks about it (retryHeld).
 func (r *Runner) passHeld(ctx context.Context, epics []store.EpicRow) []store.EpicRow {
 	held, err := r.store.HeldEpics(ctx)
 	if err != nil {
@@ -26,6 +26,9 @@ func (r *Runner) passHeld(ctx context.Context, epics []store.EpicRow) []store.Ep
 	}
 	var started []string
 	for _, epic := range held {
+		if r.retryPending(epic.ID) {
+			continue
+		}
 		if !startsHeld(epic) {
 			r.askLostPredecessor(ctx, epic)
 			continue
@@ -122,10 +125,31 @@ func (r *Runner) startHeldEpic(ctx context.Context, epic store.HeldEpic) error {
 	return nil
 }
 
-// retryHeld wakes the runner for epic once the held retry has passed, so a held epic whose fetch or start failed is tried
-// again. The wait runs on a timer of its own, so no pass waits on it.
+// retryHeld arms the retry of held epic after its fetch, start or ask failed: a timer that wakes the runner for epic once
+// the held retry has passed. Epic is marked pending, and an epic already pending arms nothing, so each held epic has at
+// most one timer and is tried at most once per held retry. The timer clears the mark before it wakes the runner. The
+// wait runs on a timer of its own, so no pass waits on it.
 func (r *Runner) retryHeld(epic string) {
-	time.AfterFunc(r.heldRetry, func() { r.Wake([]string{epic}) })
+	r.heldMu.Lock()
+	defer r.heldMu.Unlock()
+	if _, pending := r.heldPending[epic]; pending {
+		return
+	}
+	r.heldPending[epic] = struct{}{}
+	r.afterFunc(r.heldRetry, func() {
+		r.heldMu.Lock()
+		delete(r.heldPending, epic)
+		r.heldMu.Unlock()
+		r.Wake([]string{epic})
+	})
+}
+
+// retryPending reports whether held epic has a retry armed by retryHeld that has not fired yet.
+func (r *Runner) retryPending(epic string) bool {
+	r.heldMu.Lock()
+	defer r.heldMu.Unlock()
+	_, pending := r.heldPending[epic]
+	return pending
 }
 
 // replaceEpics returns epics with each epic named by started replaced by its row as the store holds it now. An epic
