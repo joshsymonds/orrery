@@ -132,7 +132,8 @@ func (d designsServer) List(
 	return connect.NewResponse(&orreryv1.DesignsListResponse{Designs: designs}), nil
 }
 
-// Get answers the design of the id List gave it. An id no design holds answers not_found.
+// Get answers the design of the id List gave it, with the design's log oldest first. An id no design holds answers
+// not_found.
 func (d designsServer) Get(
 	ctx context.Context,
 	req *connect.Request[orreryv1.DesignsGetRequest],
@@ -147,7 +148,31 @@ func (d designsServer) Get(
 	if err != nil {
 		return nil, designReadError(err, "read design")
 	}
-	return connect.NewResponse(&orreryv1.DesignsGetResponse{Design: designMessage(record)}), nil
+	lines, err := d.reader.DesignLog(ctx, req.Msg.GetId())
+	if err != nil {
+		return nil, designReadError(err, "read design log")
+	}
+	return connect.NewResponse(&orreryv1.DesignsGetResponse{
+		Design: designMessage(record),
+		Log:    designLogMessages(lines),
+	}), nil
+}
+
+// designLogMessages converts each line of a design's log to its DesignLogLine, in the order given.
+func designLogMessages(lines []store.DesignLogLine) []*orreryv1.DesignLogLine {
+	messages := make([]*orreryv1.DesignLogLine, 0, len(lines))
+	for _, line := range lines {
+		messages = append(messages, &orreryv1.DesignLogLine{
+			Seq:     line.Seq,
+			Time:    line.At,
+			Maker:   &orreryv1.RecordMaker{Kind: line.Maker},
+			Session: line.Session,
+			What:    line.What,
+			Ids:     line.IDs,
+			Words:   line.Words,
+		})
+	}
+	return messages
 }
 
 // designReadError returns the error a design read answers with for err: unavailable when the store is, and internal

@@ -46,6 +46,11 @@ func (s *contractService) DraftContract(
 	}); err != nil {
 		return nil, draftRefusal(err, id, design)
 	}
+	if design != "" {
+		if err = s.logContractIn(ctx, design, id, "drafted", writer, req.Msg.GetWords()); err != nil {
+			return nil, err
+		}
+	}
 	stored, err := s.contracts.Store.ContractDraft(ctx, id)
 	if err != nil {
 		return nil, epicStoreError(err)
