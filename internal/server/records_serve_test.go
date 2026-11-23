@@ -244,7 +244,9 @@ func TestRecordsServeWithoutStageAnswersUnavailable(t *testing.T) {
 			return err
 		},
 		"Strike": func() error {
-			_, err := contracts.Strike(t.Context(), connect.NewRequest(&orreryv1.ContractsStrikeRequest{Id: contractIDB}))
+			_, err := contracts.Strike(t.Context(), connect.NewRequest(&orreryv1.ContractsStrikeRequest{
+				Id: contractIDB,
+			}))
 			return err
 		},
 		"Shown": func() error {
