@@ -191,6 +191,8 @@ export function EpicRow({
   now: number;
   current: boolean;
   currentStep?: string;
+  // held is whether this row's thing is the one held open.
+  held?: boolean;
   onSelect: (key: string) => void;
 }): JSX.Element {
   const words = epicRowWords(hung, now);

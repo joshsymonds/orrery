@@ -48,6 +48,12 @@ export const unnamed: Readonly<Record<string, UnnamedEntry>> = {
   // WorkLink draws what a conversation is working on as plain links in its title row, after the title, with a "+n" control
   // for the rest. Round 6 names what a conversation steers in its rail's tiles, and no link in the title row.
   "work-link": { replacement: "TitleRow", epic: "F3" },
+  // HeldCard draws the held card at the desk: the design, contract or epic held open, as a rounded card set into its
+  // conversation on the right. Round 6 draws a conversation's epics and contract as its Work cards.
+  "held-card": { replacement: "WorkCard", epic: "F4" },
+  // HeldSheet draws the held thing where the desk's card does not fit, as a sheet over the conversation. Round 6 draws a
+  // panel for a thing as a sheet.
+  "held-sheet": { replacement: "Sheet", epic: "F4" },
 
   // ---- single stories of round-6 components, each the component in a state round 6 does not draw ----
 

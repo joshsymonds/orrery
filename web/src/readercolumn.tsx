@@ -102,6 +102,8 @@ export interface ReaderColumnProps {
   interrupts: Pick<ReadonlyMap<string, number>, "has">;
   // pageStrip draws the strip under a step's title row, or under no row.
   pageStrip: (row: Row | null, conversation: Conversation | null) => ComponentChildren;
+  // held is what the column draws under its head and beside the chat: the thing held open at the desk, as App gives it.
+  held?: ComponentChildren;
   // head is what the column's head draws for its row and conversation.
   head: (row: Row, conversation: Conversation | null) => ColumnHead;
   // narrow is the phone layout, where the head folds. hidden is the owner's hide, which holds across conversations.
