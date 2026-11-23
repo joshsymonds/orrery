@@ -303,7 +303,9 @@ func routedCalls() []routedCall {
 			return err
 		}},
 		{"PullQueued", func(ctx context.Context, panes orreryv1connect.PanesClient, host string) error {
-			_, err := panes.PullQueued(ctx, connect.NewRequest(&orreryv1.PullQueuedRequest{Pane: routingPane, Host: host}))
+			_, err := panes.PullQueued(ctx, connect.NewRequest(&orreryv1.PullQueuedRequest{
+				Pane: routingPane, Host: host,
+			}))
 			return err
 		}},
 		{"Older", func(ctx context.Context, panes orreryv1connect.PanesClient, host string) error {
@@ -312,9 +314,7 @@ func routedCalls() []routedCall {
 			}))
 			return err
 		}},
-		{"WatchConversation", func(ctx context.Context, panes orreryv1connect.PanesClient, host string) error {
-			return routedWatchError(ctx, panes, host)
-		}},
+		{"WatchConversation", routedWatchError},
 	}
 }
 

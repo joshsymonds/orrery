@@ -122,6 +122,14 @@ func (s panesServer) Older(
 	ctx context.Context,
 	req *connect.Request[v1.OlderRequest],
 ) (*connect.Response[v1.OlderResponse], error) {
+	return s.older(ctx, req)
+}
+
+// older is Older, which the pane router calls for a call it serves locally.
+func (s panesServer) older(
+	ctx context.Context,
+	req *connect.Request[v1.OlderRequest],
+) (*connect.Response[v1.OlderResponse], error) {
 	query := url.Values{}
 	if req.Msg.GetLimit() != 0 {
 		query.Set(queryLimit, strconv.FormatUint(uint64(req.Msg.GetLimit()), 10))

@@ -255,16 +255,9 @@ type Config struct {
 // a Connect path must carry the HeaderClient header, and a POST there one of the Connect content types. Requests
 // that pass the guard reach the Connect services or, when cfg.Web is set, the page, and every other path answers 404.
 func New(cfg Config) (http.Handler, error) {
-	allowed, err := checkConfig(cfg)
+	allowed, hostName, err := checkConfig(cfg)
 	if err != nil {
 		return nil, err
-	}
-	hostName := cfg.HostName
-	if hostName == "" {
-		hostName, err = os.Hostname()
-		if err != nil {
-			return nil, fmt.Errorf("server: host name: %w", err)
-		}
 	}
 	sendTimeout := cfg.EventSendTimeout
 	if sendTimeout == 0 {
@@ -415,36 +408,45 @@ func newPageHandler(web fs.FS) http.Handler {
 	})
 }
 
-// checkConfig refuses a Config New cannot serve, and returns its allowed logins as a set.
-func checkConfig(cfg Config) (map[string]struct{}, error) {
+// checkConfig refuses a Config New cannot serve. It returns its allowed logins as a set, and its controller's host
+// name: cfg.HostName, or os.Hostname when cfg names none.
+func checkConfig(cfg Config) (map[string]struct{}, string, error) {
 	if len(cfg.Logins) == 0 {
-		return nil, errors.New("server: no allowed logins configured")
+		return nil, "", errors.New("server: no allowed logins configured")
 	}
 	if cfg.Tmux == nil {
-		return nil, errors.New("server: no tmux client configured")
+		return nil, "", errors.New("server: no tmux client configured")
 	}
 	if cfg.Push == nil {
-		return nil, errors.New("server: no push store configured")
+		return nil, "", errors.New("server: no push store configured")
 	}
 	allowed := make(map[string]struct{}, len(cfg.Logins))
 	for _, login := range cfg.Logins {
 		if login == "" {
-			return nil, errors.New("server: empty allowed login")
+			return nil, "", errors.New("server: empty allowed login")
 		}
 		allowed[login] = struct{}{}
 	}
 	for _, agent := range cfg.Hosts {
 		if agent == nil {
-			return nil, errors.New("server: nil host agent configured")
+			return nil, "", errors.New("server: nil host agent configured")
 		}
 	}
 	if cfg.ConversationKeepalive < 0 {
-		return nil, fmt.Errorf("server: negative conversation keepalive interval %v", cfg.ConversationKeepalive)
+		return nil, "", fmt.Errorf("server: negative conversation keepalive interval %v", cfg.ConversationKeepalive)
 	}
 	if cfg.ControlTimeout < 0 {
-		return nil, fmt.Errorf("server: negative control timeout %v", cfg.ControlTimeout)
+		return nil, "", fmt.Errorf("server: negative control timeout %v", cfg.ControlTimeout)
 	}
-	return allowed, nil
+	hostName := cfg.HostName
+	if hostName == "" {
+		name, err := os.Hostname()
+		if err != nil {
+			return nil, "", fmt.Errorf("server: host name: %w", err)
+		}
+		hostName = name
+	}
+	return allowed, hostName, nil
 }
 
 // listPanes returns the panes cli.List writes for tmux, each carrying the question_hash of its question, the

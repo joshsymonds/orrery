@@ -641,14 +641,12 @@ func runServe(ctx context.Context, opts globals, args []string, getenv func(stri
 	if err != nil {
 		return err
 	}
-	hostName, agents, err := serveHosts(getenv)
-	if err != nil {
-		return err
-	}
 	shutdown := make(chan struct{})
 	cfg.HandlerOptions, cfg.Logins, cfg.Tmux, cfg.Push, cfg.HostStatus = handlerOptions, logins, tmux, pushStore, hostStatus
 	cfg.Sessions, cfg.Shutdown, cfg.Records, cfg.Home = sessions, shutdown, records, home
-	cfg.HostName, cfg.Hosts = hostName, agents
+	if err := setServeHosts(&cfg, getenv); err != nil {
+		return err
+	}
 	cfg.Picker = servePickerConfig(tmux, getenv)
 	cfg.ReportSeen = seenReporter(opts.daemonSocket, getenv)
 	cfg.ReportRead = readReporter(opts.daemonSocket, getenv)

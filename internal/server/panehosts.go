@@ -49,11 +49,11 @@ func (r panesRouter) route(host string) (*node.Client, bool, error) {
 	case host == r.hostName, host == "" && len(r.agents) == 0:
 		return nil, false, nil
 	case host == "":
-		return nil, false, connect.NewError(connect.CodeInvalidArgument, errors.New("pane call names no host"))
+		return nil, false, connectError(routeError{status: http.StatusBadRequest, message: "pane call names no host"})
 	}
 	agent, ok := r.agents[host]
 	if !ok {
-		return nil, false, connect.NewError(connect.CodeNotFound, fmt.Errorf("no agent for host %s", host))
+		return nil, false, connectError(routeError{status: http.StatusNotFound, message: "no agent for host " + host})
 	}
 	return agent, true, nil
 }
@@ -62,13 +62,13 @@ func (r panesRouter) route(host string) (*node.Client, bool, error) {
 // and by the Panes client of host's agent otherwise, with the request's message sent again.
 func forwardUnary[Req, Resp any](
 	ctx context.Context,
-	r panesRouter,
+	router panesRouter,
 	host string,
 	req *connect.Request[Req],
 	local func(context.Context, *connect.Request[Req]) (*connect.Response[Resp], error),
 	remote func(orreryv1connect.PanesClient, context.Context, *connect.Request[Req]) (*connect.Response[Resp], error),
 ) (*connect.Response[Resp], error) {
-	agent, forwarded, err := r.route(host)
+	agent, forwarded, err := router.route(host)
 	if err != nil {
 		return nil, err
 	}
@@ -83,7 +83,7 @@ func forwardUnary[Req, Resp any](
 // holderhost.ErrUnreachable becomes unavailable instead, since the agent did not answer within its bound.
 func forwardError(err error) error {
 	if errors.Is(err, holderhost.ErrUnreachable) && connect.CodeOf(err) != connect.CodeUnavailable {
-		return connect.NewError(connect.CodeUnavailable, err)
+		return connectError(routeError{status: http.StatusBadGateway, message: err.Error()})
 	}
 	return err
 }
@@ -146,12 +146,24 @@ func (r panesRouter) PullQueued(
 	return forwardUnary(ctx, r, req.Msg.GetHost(), req, r.local.PullQueued, orreryv1connect.PanesClient.PullQueued)
 }
 
-// Older answers Panes.Older, as the router serves the host the request names.
+// Older answers Panes.Older, as the router serves the host the request names. A forwarded call goes to the agent's
+// Older procedure over the agent's own HTTP client, the same connection and path that the agent's Panes client uses.
 func (r panesRouter) Older(
 	ctx context.Context,
 	req *connect.Request[v1.OlderRequest],
 ) (*connect.Response[v1.OlderResponse], error) {
-	return forwardUnary(ctx, r, req.Msg.GetHost(), req, r.local.Older, orreryv1connect.PanesClient.Older)
+	agent, forwarded, err := r.route(req.Msg.GetHost())
+	if err != nil {
+		return nil, err
+	}
+	if !forwarded {
+		return r.local.older(ctx, req)
+	}
+	older := connect.NewClient[v1.OlderRequest, v1.OlderResponse](
+		agent.HTTPClient(), "http://"+agent.Name()+orreryv1connect.PanesOlderProcedure,
+	)
+	resp, err := older.CallUnary(ctx, connect.NewRequest(req.Msg))
+	return resp, forwardError(err)
 }
 
 // WatchConversation answers Panes.WatchConversation, as the router serves the host the request names. A stream of an
