@@ -405,6 +405,125 @@ func (x *DesignContract) GetEpicPhase() string {
 	return ""
 }
 
+// DesignsAnswerRequest asks for the owner's answer to a question of a design's stage to be stored.
+type DesignsAnswerRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The design the question belongs to.
+	Design string `protobuf:"bytes,1,opt,name=design,proto3" json:"design,omitempty"`
+	// The id of the question, as the stage gave it.
+	Question int64 `protobuf:"varint,2,opt,name=question,proto3" json:"question,omitempty"`
+	// The owner's answer's words.
+	Answer string `protobuf:"bytes,3,opt,name=answer,proto3" json:"answer,omitempty"`
+	// True when the owner accepts the question's recommendation as the answer.
+	Accept        bool `protobuf:"varint,4,opt,name=accept,proto3" json:"accept,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DesignsAnswerRequest) Reset() {
+	*x = DesignsAnswerRequest{}
+	mi := &file_orrery_v1_designs_proto_msgTypes[6]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DesignsAnswerRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DesignsAnswerRequest) ProtoMessage() {}
+
+func (x *DesignsAnswerRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_orrery_v1_designs_proto_msgTypes[6]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DesignsAnswerRequest.ProtoReflect.Descriptor instead.
+func (*DesignsAnswerRequest) Descriptor() ([]byte, []int) {
+	return file_orrery_v1_designs_proto_rawDescGZIP(), []int{6}
+}
+
+func (x *DesignsAnswerRequest) GetDesign() string {
+	if x != nil {
+		return x.Design
+	}
+	return ""
+}
+
+func (x *DesignsAnswerRequest) GetQuestion() int64 {
+	if x != nil {
+		return x.Question
+	}
+	return 0
+}
+
+func (x *DesignsAnswerRequest) GetAnswer() string {
+	if x != nil {
+		return x.Answer
+	}
+	return ""
+}
+
+func (x *DesignsAnswerRequest) GetAccept() bool {
+	if x != nil {
+		return x.Accept
+	}
+	return false
+}
+
+// DesignsAnswerResponse carries the answer orreryd stored.
+type DesignsAnswerResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The answer's words, as orreryd stored them.
+	Answer        string `protobuf:"bytes,1,opt,name=answer,proto3" json:"answer,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DesignsAnswerResponse) Reset() {
+	*x = DesignsAnswerResponse{}
+	mi := &file_orrery_v1_designs_proto_msgTypes[7]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DesignsAnswerResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DesignsAnswerResponse) ProtoMessage() {}
+
+func (x *DesignsAnswerResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_orrery_v1_designs_proto_msgTypes[7]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DesignsAnswerResponse.ProtoReflect.Descriptor instead.
+func (*DesignsAnswerResponse) Descriptor() ([]byte, []int) {
+	return file_orrery_v1_designs_proto_rawDescGZIP(), []int{7}
+}
+
+func (x *DesignsAnswerResponse) GetAnswer() string {
+	if x != nil {
+		return x.Answer
+	}
+	return ""
+}
+
 var File_orrery_v1_designs_proto protoreflect.FileDescriptor
 
 const file_orrery_v1_designs_proto_rawDesc = "" +
@@ -436,10 +555,18 @@ const file_orrery_v1_designs_proto_rawDesc = "" +
 	"\x05after\x18\x06 \x03(\tR\x05after\x12\x12\n" +
 	"\x04epic\x18\a \x01(\tR\x04epic\x12\x1d\n" +
 	"\n" +
-	"epic_phase\x18\b \x01(\tR\tepicPhase2\x94\x01\n" +
+	"epic_phase\x18\b \x01(\tR\tepicPhase\"z\n" +
+	"\x14DesignsAnswerRequest\x12\x16\n" +
+	"\x06design\x18\x01 \x01(\tR\x06design\x12\x1a\n" +
+	"\bquestion\x18\x02 \x01(\x03R\bquestion\x12\x16\n" +
+	"\x06answer\x18\x03 \x01(\tR\x06answer\x12\x16\n" +
+	"\x06accept\x18\x04 \x01(\bR\x06accept\"/\n" +
+	"\x15DesignsAnswerResponse\x12\x16\n" +
+	"\x06answer\x18\x01 \x01(\tR\x06answer2\xe1\x01\n" +
 	"\aDesigns\x12E\n" +
 	"\x04List\x12\x1d.orrery.v1.DesignsListRequest\x1a\x1e.orrery.v1.DesignsListResponse\x12B\n" +
-	"\x03Get\x12\x1c.orrery.v1.DesignsGetRequest\x1a\x1d.orrery.v1.DesignsGetResponseB\xa1\x01\n" +
+	"\x03Get\x12\x1c.orrery.v1.DesignsGetRequest\x1a\x1d.orrery.v1.DesignsGetResponse\x12K\n" +
+	"\x06Answer\x12\x1f.orrery.v1.DesignsAnswerRequest\x1a .orrery.v1.DesignsAnswerResponseB\xa1\x01\n" +
 	"\rcom.orrery.v1B\fDesignsProtoP\x01Z=github.com/joshsymonds/orrery/internal/gen/orrery/v1;orreryv1\xa2\x02\x03OXX\xaa\x02\tOrrery.V1\xca\x02\tOrrery\\V1\xe2\x02\x15Orrery\\V1\\GPBMetadata\xea\x02\n" +
 	"Orrery::V1b\x06proto3"
 
@@ -455,14 +582,16 @@ func file_orrery_v1_designs_proto_rawDescGZIP() []byte {
 	return file_orrery_v1_designs_proto_rawDescData
 }
 
-var file_orrery_v1_designs_proto_msgTypes = make([]protoimpl.MessageInfo, 6)
+var file_orrery_v1_designs_proto_msgTypes = make([]protoimpl.MessageInfo, 8)
 var file_orrery_v1_designs_proto_goTypes = []any{
-	(*DesignsListRequest)(nil),  // 0: orrery.v1.DesignsListRequest
-	(*DesignsListResponse)(nil), // 1: orrery.v1.DesignsListResponse
-	(*DesignsGetRequest)(nil),   // 2: orrery.v1.DesignsGetRequest
-	(*DesignsGetResponse)(nil),  // 3: orrery.v1.DesignsGetResponse
-	(*Design)(nil),              // 4: orrery.v1.Design
-	(*DesignContract)(nil),      // 5: orrery.v1.DesignContract
+	(*DesignsListRequest)(nil),    // 0: orrery.v1.DesignsListRequest
+	(*DesignsListResponse)(nil),   // 1: orrery.v1.DesignsListResponse
+	(*DesignsGetRequest)(nil),     // 2: orrery.v1.DesignsGetRequest
+	(*DesignsGetResponse)(nil),    // 3: orrery.v1.DesignsGetResponse
+	(*Design)(nil),                // 4: orrery.v1.Design
+	(*DesignContract)(nil),        // 5: orrery.v1.DesignContract
+	(*DesignsAnswerRequest)(nil),  // 6: orrery.v1.DesignsAnswerRequest
+	(*DesignsAnswerResponse)(nil), // 7: orrery.v1.DesignsAnswerResponse
 }
 var file_orrery_v1_designs_proto_depIdxs = []int32{
 	4, // 0: orrery.v1.DesignsListResponse.designs:type_name -> orrery.v1.Design
@@ -470,10 +599,12 @@ var file_orrery_v1_designs_proto_depIdxs = []int32{
 	5, // 2: orrery.v1.Design.contracts:type_name -> orrery.v1.DesignContract
 	0, // 3: orrery.v1.Designs.List:input_type -> orrery.v1.DesignsListRequest
 	2, // 4: orrery.v1.Designs.Get:input_type -> orrery.v1.DesignsGetRequest
-	1, // 5: orrery.v1.Designs.List:output_type -> orrery.v1.DesignsListResponse
-	3, // 6: orrery.v1.Designs.Get:output_type -> orrery.v1.DesignsGetResponse
-	5, // [5:7] is the sub-list for method output_type
-	3, // [3:5] is the sub-list for method input_type
+	6, // 5: orrery.v1.Designs.Answer:input_type -> orrery.v1.DesignsAnswerRequest
+	1, // 6: orrery.v1.Designs.List:output_type -> orrery.v1.DesignsListResponse
+	3, // 7: orrery.v1.Designs.Get:output_type -> orrery.v1.DesignsGetResponse
+	7, // 8: orrery.v1.Designs.Answer:output_type -> orrery.v1.DesignsAnswerResponse
+	6, // [6:9] is the sub-list for method output_type
+	3, // [3:6] is the sub-list for method input_type
 	3, // [3:3] is the sub-list for extension type_name
 	3, // [3:3] is the sub-list for extension extendee
 	0, // [0:3] is the sub-list for field type_name
@@ -490,7 +621,7 @@ func file_orrery_v1_designs_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_orrery_v1_designs_proto_rawDesc), len(file_orrery_v1_designs_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   6,
+			NumMessages:   8,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

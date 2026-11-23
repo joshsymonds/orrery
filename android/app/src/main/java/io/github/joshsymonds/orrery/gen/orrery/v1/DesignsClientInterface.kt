@@ -20,4 +20,9 @@ public interface DesignsClientInterface {
    *  Get returns one design by the id List gave it.
    */
   public suspend fun `get`(request: DesignsGetRequest, headers: Headers = emptyMap()): ResponseMessage<DesignsGetResponse>
+
+  /**
+   *  Answer gives the owner's answer to a question of a design's stage. serve forwards each call to orreryd.
+   */
+  public suspend fun answer(request: DesignsAnswerRequest, headers: Headers = emptyMap()): ResponseMessage<DesignsAnswerResponse>
 }

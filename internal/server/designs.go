@@ -19,7 +19,9 @@ const designNotFound = "design not found"
 const designStoreUnavailable = "design store unavailable"
 
 // designsServer answers orrery.v1.Designs. List and Get read the store reader. A nil reader answers them unavailable.
+// Answer is not served here yet, so it answers unimplemented.
 type designsServer struct {
+	orreryv1connect.UnimplementedDesignsHandler
 	reader *store.Reader
 }
 

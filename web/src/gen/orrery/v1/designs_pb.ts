@@ -10,7 +10,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file orrery/v1/designs.proto.
  */
 export const file_orrery_v1_designs: GenFile = /*@__PURE__*/
-  fileDesc("ChdvcnJlcnkvdjEvZGVzaWducy5wcm90bxIJb3JyZXJ5LnYxIhQKEkRlc2lnbnNMaXN0UmVxdWVzdCI5ChNEZXNpZ25zTGlzdFJlc3BvbnNlEiIKB2Rlc2lnbnMYASADKAsyES5vcnJlcnkudjEuRGVzaWduIh8KEURlc2lnbnNHZXRSZXF1ZXN0EgoKAmlkGAEgASgJIjcKEkRlc2lnbnNHZXRSZXNwb25zZRIhCgZkZXNpZ24YASABKAsyES5vcnJlcnkudjEuRGVzaWduIpcBCgZEZXNpZ24SCgoCaWQYASABKAkSDQoFdGl0bGUYAiABKAkSFAoMY29udmVyc2F0aW9uGAMgASgJEg8KB2NyZWF0ZWQYBCABKAMSDgoGb2Zfb25lGAUgASgIEg0KBXN0YXRlGAYgASgJEiwKCWNvbnRyYWN0cxgHIAMoCzIZLm9ycmVyeS52MS5EZXNpZ25Db250cmFjdCKRAQoORGVzaWduQ29udHJhY3QSCgoCaWQYASABKAkSDQoFdGl0bGUYAiABKAkSEgoKcmVwb3NpdG9yeRgDIAEoCRINCgVzdGF0ZRgEIAEoCRIQCghwb3NpdGlvbhgFIAEoAxINCgVhZnRlchgGIAMoCRIMCgRlcGljGAcgASgJEhIKCmVwaWNfcGhhc2UYCCABKAkylAEKB0Rlc2lnbnMSRQoETGlzdBIdLm9ycmVyeS52MS5EZXNpZ25zTGlzdFJlcXVlc3QaHi5vcnJlcnkudjEuRGVzaWduc0xpc3RSZXNwb25zZRJCCgNHZXQSHC5vcnJlcnkudjEuRGVzaWduc0dldFJlcXVlc3QaHS5vcnJlcnkudjEuRGVzaWduc0dldFJlc3BvbnNlYgZwcm90bzM");
+  fileDesc("ChdvcnJlcnkvdjEvZGVzaWducy5wcm90bxIJb3JyZXJ5LnYxIhQKEkRlc2lnbnNMaXN0UmVxdWVzdCI5ChNEZXNpZ25zTGlzdFJlc3BvbnNlEiIKB2Rlc2lnbnMYASADKAsyES5vcnJlcnkudjEuRGVzaWduIh8KEURlc2lnbnNHZXRSZXF1ZXN0EgoKAmlkGAEgASgJIjcKEkRlc2lnbnNHZXRSZXNwb25zZRIhCgZkZXNpZ24YASABKAsyES5vcnJlcnkudjEuRGVzaWduIpcBCgZEZXNpZ24SCgoCaWQYASABKAkSDQoFdGl0bGUYAiABKAkSFAoMY29udmVyc2F0aW9uGAMgASgJEg8KB2NyZWF0ZWQYBCABKAMSDgoGb2Zfb25lGAUgASgIEg0KBXN0YXRlGAYgASgJEiwKCWNvbnRyYWN0cxgHIAMoCzIZLm9ycmVyeS52MS5EZXNpZ25Db250cmFjdCKRAQoORGVzaWduQ29udHJhY3QSCgoCaWQYASABKAkSDQoFdGl0bGUYAiABKAkSEgoKcmVwb3NpdG9yeRgDIAEoCRINCgVzdGF0ZRgEIAEoCRIQCghwb3NpdGlvbhgFIAEoAxINCgVhZnRlchgGIAMoCRIMCgRlcGljGAcgASgJEhIKCmVwaWNfcGhhc2UYCCABKAkiWAoURGVzaWduc0Fuc3dlclJlcXVlc3QSDgoGZGVzaWduGAEgASgJEhAKCHF1ZXN0aW9uGAIgASgDEg4KBmFuc3dlchgDIAEoCRIOCgZhY2NlcHQYBCABKAgiJwoVRGVzaWduc0Fuc3dlclJlc3BvbnNlEg4KBmFuc3dlchgBIAEoCTLhAQoHRGVzaWducxJFCgRMaXN0Eh0ub3JyZXJ5LnYxLkRlc2lnbnNMaXN0UmVxdWVzdBoeLm9ycmVyeS52MS5EZXNpZ25zTGlzdFJlc3BvbnNlEkIKA0dldBIcLm9ycmVyeS52MS5EZXNpZ25zR2V0UmVxdWVzdBodLm9ycmVyeS52MS5EZXNpZ25zR2V0UmVzcG9uc2USSwoGQW5zd2VyEh8ub3JyZXJ5LnYxLkRlc2lnbnNBbnN3ZXJSZXF1ZXN0GiAub3JyZXJ5LnYxLkRlc2lnbnNBbnN3ZXJSZXNwb25zZWIGcHJvdG8z");
 
 /**
  * DesignsListRequest asks for every design.
@@ -224,6 +224,69 @@ export const DesignContractSchema: GenMessage<DesignContract> = /*@__PURE__*/
   messageDesc(file_orrery_v1_designs, 5);
 
 /**
+ * DesignsAnswerRequest asks for the owner's answer to a question of a design's stage to be stored.
+ *
+ * @generated from message orrery.v1.DesignsAnswerRequest
+ */
+export type DesignsAnswerRequest = Message<"orrery.v1.DesignsAnswerRequest"> & {
+  /**
+   * The design the question belongs to.
+   *
+   * @generated from field: string design = 1;
+   */
+  design: string;
+
+  /**
+   * The id of the question, as the stage gave it.
+   *
+   * @generated from field: int64 question = 2;
+   */
+  question: bigint;
+
+  /**
+   * The owner's answer's words.
+   *
+   * @generated from field: string answer = 3;
+   */
+  answer: string;
+
+  /**
+   * True when the owner accepts the question's recommendation as the answer.
+   *
+   * @generated from field: bool accept = 4;
+   */
+  accept: boolean;
+};
+
+/**
+ * Describes the message orrery.v1.DesignsAnswerRequest.
+ * Use `create(DesignsAnswerRequestSchema)` to create a new message.
+ */
+export const DesignsAnswerRequestSchema: GenMessage<DesignsAnswerRequest> = /*@__PURE__*/
+  messageDesc(file_orrery_v1_designs, 6);
+
+/**
+ * DesignsAnswerResponse carries the answer orreryd stored.
+ *
+ * @generated from message orrery.v1.DesignsAnswerResponse
+ */
+export type DesignsAnswerResponse = Message<"orrery.v1.DesignsAnswerResponse"> & {
+  /**
+   * The answer's words, as orreryd stored them.
+   *
+   * @generated from field: string answer = 1;
+   */
+  answer: string;
+};
+
+/**
+ * Describes the message orrery.v1.DesignsAnswerResponse.
+ * Use `create(DesignsAnswerResponseSchema)` to create a new message.
+ */
+export const DesignsAnswerResponseSchema: GenMessage<DesignsAnswerResponse> = /*@__PURE__*/
+  messageDesc(file_orrery_v1_designs, 7);
+
+/**
  * Designs reads the designs orreryd stores. serve forwards each call of the service to orreryd.
  *
  * @generated from service orrery.v1.Designs
@@ -248,6 +311,16 @@ export const Designs: GenService<{
     methodKind: "unary";
     input: typeof DesignsGetRequestSchema;
     output: typeof DesignsGetResponseSchema;
+  },
+  /**
+   * Answer gives the owner's answer to a question of a design's stage. serve forwards each call to orreryd.
+   *
+   * @generated from rpc orrery.v1.Designs.Answer
+   */
+  answer: {
+    methodKind: "unary";
+    input: typeof DesignsAnswerRequestSchema;
+    output: typeof DesignsAnswerResponseSchema;
   },
 }> = /*@__PURE__*/
   serviceDesc(file_orrery_v1_designs, 0);

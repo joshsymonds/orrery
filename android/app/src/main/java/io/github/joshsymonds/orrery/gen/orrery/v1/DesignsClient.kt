@@ -45,4 +45,19 @@ public class DesignsClient(
     ),
   )
 
+
+  /**
+   *  Answer gives the owner's answer to a question of a design's stage. serve forwards each call to orreryd.
+   */
+  override suspend fun answer(request: DesignsAnswerRequest, headers: Headers): ResponseMessage<DesignsAnswerResponse> = client.unary(
+    request,
+    headers,
+    MethodSpec(
+    "orrery.v1.Designs/Answer",
+      io.github.joshsymonds.orrery.gen.orrery.v1.DesignsAnswerRequest::class,
+      io.github.joshsymonds.orrery.gen.orrery.v1.DesignsAnswerResponse::class,
+      StreamType.UNARY,
+    ),
+  )
+
 }

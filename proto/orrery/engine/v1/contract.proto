@@ -27,6 +27,10 @@ service Contracts {
 
   // ListContracts returns a summary of every stored contract.
   rpc ListContracts(ListContractsRequest) returns (ListContractsResponse);
+
+  // DraftContract stores a contract's draft under its id, or replaces the draft already stored under it, and returns
+  // the draft. A draft is not a contract version and has no version number.
+  rpc DraftContract(DraftContractRequest) returns (DraftContractResponse);
 }
 
 // ContractDecision is a decision a contract version carries, with its answer once the owner gives one.
@@ -162,6 +166,9 @@ message ProposeContractRequest {
 message ProposeContractResponse {
   // The stored contract.
   StoredContract contract = 1;
+
+  // The warnings the contract's checks gave the version; empty when none.
+  repeated string warnings = 2;
 }
 
 // ReviseContractRequest asks for a new version of a stored contract.
@@ -183,6 +190,9 @@ message ReviseContractRequest {
 message ReviseContractResponse {
   // The stored contract.
   StoredContract contract = 1;
+
+  // The warnings the contract's checks gave the version; empty when none.
+  repeated string warnings = 2;
 }
 
 // AcceptContractRequest asks for a stored contract to be accepted.
@@ -249,4 +259,56 @@ message ListContractsRequest {}
 message ListContractsResponse {
   // The stored contracts, created ascending and then by id; they carry no versions or state changes.
   repeated StoredContract contracts = 1;
+}
+
+// ContractDraft is a contract stored as a draft: its body and decisions as its last write gave them. A draft has no
+// versions and no state changes.
+message ContractDraft {
+  // The draft's id, the id the contract takes when it is proposed.
+  string id = 1;
+
+  // The design the draft joins, empty for none.
+  string design = 2;
+
+  // The contract body of the draft.
+  EpicContract contract = 3;
+
+  // The decisions of the draft.
+  repeated ContractDecision decisions = 4;
+
+  // The words the writer gave with the draft's last write.
+  string words = 5;
+
+  // The sessions row id of the writer of the draft's last write.
+  string writer = 6;
+
+  // When the draft was first stored, in unix seconds.
+  int64 created = 7;
+
+  // When the draft was last written, in unix seconds.
+  int64 updated = 8;
+}
+
+// DraftContractRequest asks for a contract's draft to be stored, or the draft stored under its id to be replaced.
+message DraftContractRequest {
+  // The id the draft takes, the id the contract takes when it is proposed.
+  string id = 1;
+
+  // The contract body of the draft.
+  EpicContract contract = 2;
+
+  // The decisions of the draft.
+  repeated ContractDecision decisions = 3;
+
+  // The words the writer gives with the draft.
+  string words = 4;
+
+  // The design the draft joins, empty for none.
+  string design = 5;
+}
+
+// DraftContractResponse carries the draft stored by DraftContract.
+message DraftContractResponse {
+  // The stored draft.
+  ContractDraft draft = 1;
 }
