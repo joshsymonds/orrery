@@ -93,6 +93,22 @@ func (f *fakeEvidence) GetEvidenceArtifact(
 	return connect.NewResponse(&v1.GetEvidenceArtifactResponse{Data: f.data}), nil
 }
 
+// CaptureEvidence implements enginev1connect.EvidenceHandler. The fake answers every capture as unimplemented.
+func (f *fakeEvidence) CaptureEvidence(
+	_ context.Context,
+	_ *connect.Request[v1.CaptureEvidenceRequest],
+) (*connect.Response[v1.CaptureEvidenceResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New(fakeRefusal))
+}
+
+// AttachEvidence implements enginev1connect.EvidenceHandler. The fake answers every attach as unimplemented.
+func (f *fakeEvidence) AttachEvidence(
+	_ context.Context,
+	_ *connect.Request[v1.AttachEvidenceRequest],
+) (*connect.Response[v1.AttachEvidenceResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New(fakeRefusal))
+}
+
 // serveEvidence serves fake as Evidence on the session socket beside a daemon socket in a temporary directory. It
 // returns the daemon socket path that `--socket` names. The server is closed at cleanup.
 func serveEvidence(t *testing.T, fake *fakeEvidence) string {

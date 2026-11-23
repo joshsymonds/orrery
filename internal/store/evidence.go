@@ -21,7 +21,8 @@ var ErrEvidenceState = errors.New("evidence run is in another state")
 // judged, and the kinds that read its exit run it again.
 const NotCapturedEnvironment = "exited 75 for its environment"
 
-// The states an evidence run moves through in order: capturing, then judging, then ended.
+// The states an evidence run moves through in order: capturing, then judging, then ended. A brief run may wait and gather
+// before it is attached and judged (see RunWaiting and RunGathering).
 const (
 	runCapturing = "capturing"
 	runJudging   = "judging"
@@ -30,8 +31,9 @@ const (
 
 // EvidenceRun is one run of an evidence item: a capture or supplied files that show a Requirement or task holds at
 // one revision in one phase. Spec is the item as the run was added, Grant and Holder name the pool grant and holder
-// the capture ran under, and Artifacts keep the order the capture gave them. Times are stored at whole seconds, and
-// Ended is zero until the run ends.
+// the capture ran under, and Artifacts keep the order the capture gave them. Capture is the id of the capture attached
+// to the run, Gatherer the gatherer step holding its brief, and Gatherers the count of gatherers that ended leaving it
+// unattached. Times are stored at whole seconds, and Ended is zero until the run ends.
 type EvidenceRun struct {
 	ID          string
 	Epic        string
@@ -56,6 +58,9 @@ type EvidenceRun struct {
 	Verdict     string
 	JudgeReason string
 	Passed      bool
+	Capture     string
+	Gatherer    string
+	Gatherers   int
 	Created     time.Time
 	Ended       time.Time
 }
@@ -93,18 +98,22 @@ type EvidenceVerdict struct {
 	At      time.Time
 }
 
-// AddEvidenceRun stores run in state capturing as one write. Spec is stored as JSON and Created at whole seconds.
-// The grant, capture and verdict fields keep their zero values until later writes set them. An id already stored is
-// refused by the primary key and changes nothing.
+// AddEvidenceRun stores run as one write, in run.State or in state capturing when run.State is empty. Spec is stored as
+// JSON and Created at whole seconds. The grant, capture and verdict fields keep their zero values until later writes set
+// them. An id already stored is refused by the primary key and changes nothing.
 func (s *Store) AddEvidenceRun(ctx context.Context, run EvidenceRun) error {
 	return s.write(ctx, func(queries *sqlcgen.Queries) error {
 		spec, err := encodeItem(run.Spec)
 		if err != nil {
 			return fmt.Errorf("spec of evidence run %s: %w", run.ID, err)
 		}
+		state := run.State
+		if state == "" {
+			state = runCapturing
+		}
 		if err = queries.InsertEvidenceRun(ctx, sqlcgen.InsertEvidenceRunParams{
 			ID: run.ID, Epic: run.Epic, Item: run.Item, Revision: run.Revision, Phase: run.Phase, Source: run.Source,
-			Spec: spec, Created: run.Created.Unix(),
+			State: state, Spec: spec, Created: run.Created.Unix(),
 		}); err != nil {
 			return fmt.Errorf("insert evidence run %s: %w", run.ID, err)
 		}
@@ -279,7 +288,8 @@ func evidenceRunWith(stored sqlcgen.EvidenceRun, artifacts []sqlcgen.EvidenceArt
 		StderrBytes: stored.StderrBytes,
 		Artifacts:   mapInOrder(artifacts, evidenceArtifactOf),
 		JudgeStep:   stored.JudgeStep, Judges: int(stored.Judges), Verdict: stored.Verdict,
-		JudgeReason: stored.JudgeReason, Passed: stored.Passed != 0, Created: time.Unix(stored.Created, 0),
+		JudgeReason: stored.JudgeReason, Passed: stored.Passed != 0, Capture: stored.Capture,
+		Gatherer: stored.Gatherer, Gatherers: int(stored.Gatherers), Created: time.Unix(stored.Created, 0),
 	}
 	if stored.Ended != 0 {
 		run.Ended = time.Unix(stored.Ended, 0)

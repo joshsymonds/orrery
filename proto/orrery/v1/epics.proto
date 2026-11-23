@@ -1273,7 +1273,7 @@ message EvidenceRun {
   // How the evidence was produced: captured or supplied.
   string source = 3;
 
-  // The run's state: capturing, judging or ended.
+  // The run's state: capturing, waiting, gathering, judging or ended.
   string state = 4;
 
   // The capture's exit code; for a supplied run, 0 when every file is kept and 1 otherwise.

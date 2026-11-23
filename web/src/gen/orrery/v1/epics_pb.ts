@@ -3198,7 +3198,7 @@ export type EvidenceRun = Message<"orrery.v1.EvidenceRun"> & {
   source: string;
 
   /**
-   * The run's state: capturing, judging or ended.
+   * The run's state: capturing, waiting, gathering, judging or ended.
    *
    * @generated from field: string state = 4;
    */

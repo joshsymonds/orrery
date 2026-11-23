@@ -61,6 +61,8 @@ type ServeConfig struct {
 	Steering     SteeringSessions
 	Pools        PoolCommands
 	Evidence     EvidenceCommands
+	Captures     CaptureCommands
+	Attacher     AttachCommands
 	Notices      NoticeSource
 	Crons        CronCommands
 	Changes      *ChangeFeed
@@ -118,7 +120,8 @@ func Serve(
 // ServeWith answers the services that cfg describes on ln until ctx ends, as Serve does, and also answers the release
 // slots service with cfg.ReleaseSlots and the PaneSends service with cfg.PaneSends. It then shuts down within
 // shutdownWait and returns nil. A nil cfg.ReleaseSlots refuses every ReleaseSlots RPC as unavailable, and a nil
-// cfg.PaneSends refuses every PaneSends RPC as unavailable. The other fields keep Serve's nil rules, and cfg.Options
+// cfg.PaneSends refuses every PaneSends RPC as unavailable. A nil cfg.Captures refuses CaptureEvidence as unavailable,
+// and a nil cfg.Attacher refuses AttachEvidence as unavailable. The other fields keep Serve's nil rules, and cfg.Options
 // apply to each handler.
 func ServeWith(ctx context.Context, ln net.Listener, cfg ServeConfig) error {
 	opts := cfg.Options
@@ -130,7 +133,7 @@ func ServeWith(ctx context.Context, ln net.Listener, cfg ServeConfig) error {
 		&epicService{epics: cfg.Epics, steps: cfg.Steps, steering: cfg.Steering}, opts...)
 	poolsPath, poolsHandler := enginev1connect.NewPoolsHandler(&poolService{pools: cfg.Pools}, opts...)
 	evidencePath, evidenceHandler := enginev1connect.NewEvidenceHandler(
-		&evidenceService{evidence: cfg.Evidence}, opts...)
+		&evidenceService{evidence: cfg.Evidence, captures: cfg.Captures, attacher: cfg.Attacher}, opts...)
 	noticesPath, noticesHandler := enginev1connect.NewNoticesHandler(&noticesService{notices: cfg.Notices}, opts...)
 	cronsPath, cronsHandler := enginev1connect.NewCronsHandler(cronService{crons: cfg.Crons}, opts...)
 	changesPath, changesHandler := NewChangesHandler(cfg.Changes, opts...)

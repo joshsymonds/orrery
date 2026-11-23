@@ -1346,7 +1346,8 @@ WHERE engine_rate_limits.session_id = sqlc.arg(id) AND engine_rate_limits.status
 
 -- name: InsertEvidenceRun :exec
 INSERT INTO evidence_runs (id, epic, item, revision, phase, source, state, spec, created)
-VALUES (?, ?, ?, ?, ?, ?, 'capturing', ?, ?);
+VALUES (sqlc.arg(id), sqlc.arg(epic), sqlc.arg(item), sqlc.arg(revision), sqlc.arg(phase), sqlc.arg(source),
+    COALESCE(NULLIF(CAST(sqlc.arg(state) AS TEXT), ''), 'capturing'), sqlc.arg(spec), sqlc.arg(created));
 
 -- name: GetEvidenceRunState :one
 SELECT state FROM evidence_runs WHERE id = ?;
@@ -1389,6 +1390,88 @@ SELECT * FROM evidence_runs WHERE epic = ? ORDER BY created, id;
 
 -- name: ListOpenEvidenceRuns :many
 SELECT * FROM evidence_runs WHERE state <> 'ended' ORDER BY created, id;
+
+-- name: InsertEvidenceCapture :exec
+INSERT INTO evidence_captures (id, epic, repository, step, role, runner, commit_sha, argv, files, limit_seconds,
+    state, created)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+
+-- name: InsertEvidenceCaptureFile :exec
+INSERT INTO evidence_capture_files (capture, position, path, state, hash, blob, size) VALUES (?, ?, ?, ?, ?, ?, ?);
+
+-- name: InsertEvidenceCaptureBrief :exec
+INSERT INTO evidence_capture_briefs (capture, run) VALUES (?, ?);
+
+-- name: GetEvidenceCapture :one
+SELECT * FROM evidence_captures WHERE id = ?;
+
+-- name: GetEvidenceCaptureState :one
+SELECT state FROM evidence_captures WHERE id = ?;
+
+-- name: SetEvidenceCaptureGrant :exec
+UPDATE evidence_captures SET grant_id = ?, holder = ? WHERE id = ?;
+
+-- name: RecordEvidenceCaptureEnd :exec
+UPDATE evidence_captures SET exit = ?, timed_out = ?, not_captured = ?, log_hash = ?, log_bytes = ?, stderr_hash = ?,
+    stderr_bytes = ?, state = 'ended', ended = ?
+WHERE id = ?;
+
+-- name: MarkEvidenceCaptureDelivered :exec
+UPDATE evidence_captures SET delivered = 1 WHERE id = ?;
+
+-- name: ListRunningEvidenceCaptures :many
+SELECT * FROM evidence_captures WHERE state = 'running' ORDER BY created, id;
+
+-- name: ListUndeliveredEvidenceCaptures :many
+SELECT * FROM evidence_captures WHERE state = 'ended' AND delivered = 0 ORDER BY ended, id;
+
+-- name: ListEvidenceCapturesAt :many
+SELECT * FROM evidence_captures WHERE repository = ? AND commit_sha = ? ORDER BY created, id;
+
+-- name: ListEvidenceCaptureFiles :many
+SELECT * FROM evidence_capture_files WHERE capture = ? ORDER BY position;
+
+-- name: ListEvidenceCaptureBriefs :many
+SELECT run FROM evidence_capture_briefs WHERE capture = ? ORDER BY run;
+
+-- name: AttachEvidenceRunCapture :execrows
+UPDATE evidence_runs SET capture = ?, state = 'judging' WHERE id = ? AND state IN ('waiting', 'gathering');
+
+-- name: ListOpenEvidenceBriefs :many
+SELECT * FROM evidence_runs WHERE epic = ? AND state IN ('waiting', 'gathering') ORDER BY created, id;
+
+-- name: ListEpicsWithWaitingBriefs :many
+SELECT DISTINCT epic FROM evidence_runs WHERE state = 'waiting' ORDER BY epic;
+
+-- name: TakeEvidenceBrief :execrows
+UPDATE evidence_runs SET gatherer = ?, state = 'gathering' WHERE id = ? AND state = 'waiting';
+
+-- name: ListEvidenceBriefsOfGatherer :many
+SELECT * FROM evidence_runs WHERE gatherer = ? AND state = 'gathering' ORDER BY created, id;
+
+-- name: ReleaseEvidenceBriefs :exec
+UPDATE evidence_runs SET gatherer = '', state = 'waiting', gatherers = gatherers + 1
+WHERE gatherer = ? AND state = 'gathering';
+
+-- name: StartEvidenceGatherer :one
+INSERT INTO evidence_gatherers (epic, seq, step, started)
+VALUES (sqlc.arg(epic),
+    (SELECT COALESCE(MAX(seq), 0) + 1 FROM evidence_gatherers WHERE epic = sqlc.arg(epic)),
+    sqlc.arg(step), sqlc.arg(started))
+RETURNING *;
+
+-- name: EndEvidenceGatherer :execrows
+UPDATE evidence_gatherers SET ended = sqlc.arg(ended)
+WHERE epic = sqlc.arg(epic) AND step = sqlc.arg(step) AND ended = 0;
+
+-- name: GetRunningEvidenceGatherer :one
+SELECT * FROM evidence_gatherers WHERE epic = ? AND ended = 0;
+
+-- name: ListRunningEvidenceGatherers :many
+SELECT * FROM evidence_gatherers WHERE ended = 0 ORDER BY epic, seq;
+
+-- name: GetEvidenceGathererOf :one
+SELECT * FROM evidence_gatherers WHERE step = ?;
 
 -- name: InsertDueResume :exec
 INSERT INTO due_resumes (id, kind, target, resets, state)

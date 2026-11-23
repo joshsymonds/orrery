@@ -59,12 +59,26 @@ type EvidenceSteps interface {
 	Subscribe(ctx context.Context, ids []string) (*StepSubscription, error)
 }
 
+// EvidenceBriefs is the set of brief operations that Attach and the judge read and write evidence runs with.
+// *store.Store satisfies it.
+type EvidenceBriefs interface {
+	AttachCapture(ctx context.Context, capture string, runs []string, at time.Time) ([]store.EvidenceRun, error)
+	Capture(ctx context.Context, id string) (store.Capture, error)
+	OpenBriefs(ctx context.Context, epic string) ([]store.EvidenceRun, error)
+}
+
+// EvidenceGatherers is woken for an epic whose briefs wait for a gatherer. *Gatherers satisfies it.
+type EvidenceGatherers interface {
+	Wake(ctx context.Context, epic string)
+}
+
 // EvidenceConfig configures an Evidence. Store records the runs, Steps runs the judges, and Pools, Environ, GateStateDir,
 // GateScope run each captured item's gate as a capture does. StateDir holds the blobs and the capture worktrees.
 // NewTimer arms a timer that sends on its channel once, after a duration, and returns the timer's stop; a nil NewTimer wraps
 // time.NewTimer. A nil Now is time.Now, and a nil Logger discards. After returns the channel a failed store write of a run
 // waits on before it is tried again (see retryStore), and that a judge of a paused epic waits on before it reads the epic
-// again, and nil is time.After.
+// again, and nil is time.After. Briefs reads and attaches captures to the runs they answer, and Gatherers is woken for an
+// epic whose briefs wait; both may be nil.
 type EvidenceConfig struct {
 	Store        EvidenceStore
 	Steps        EvidenceSteps
@@ -77,19 +91,23 @@ type EvidenceConfig struct {
 	Logger       *slog.Logger
 	NewTimer     func(time.Duration) (<-chan time.Time, func() bool)
 	After        func(time.Duration) <-chan time.Time
+	Briefs       EvidenceBriefs
+	Gatherers    EvidenceGatherers
 }
 
 // Evidence runs evidence items. Each run is stored, captured or read, judged, and recorded once, by a drive that Run starts
 // in the background. cancels holds the cancel of each drive still under way, by run id, and Close cancels them all.
 type Evidence struct {
-	store    EvidenceStore
-	steps    EvidenceSteps
-	captures evidenceCapture
-	blobs    evidenceBlobs
-	now      func() time.Time
-	newTimer func(time.Duration) (<-chan time.Time, func() bool)
-	logger   *slog.Logger
-	after    func(time.Duration) <-chan time.Time
+	store     EvidenceStore
+	steps     EvidenceSteps
+	captures  evidenceCapture
+	blobs     evidenceBlobs
+	now       func() time.Time
+	newTimer  func(time.Duration) (<-chan time.Time, func() bool)
+	logger    *slog.Logger
+	after     func(time.Duration) <-chan time.Time
+	briefs    EvidenceBriefs
+	gatherers EvidenceGatherers
 
 	mu      sync.Mutex
 	closed  bool
@@ -133,12 +151,14 @@ func NewEvidence(cfg EvidenceConfig) *Evidence {
 			gateScope:    cfg.GateScope,
 			blobs:        blobs,
 		},
-		blobs:    blobs,
-		now:      now,
-		newTimer: newTimer,
-		logger:   logger,
-		after:    after,
-		cancels:  map[string]context.CancelCauseFunc{},
+		blobs:     blobs,
+		now:       now,
+		newTimer:  newTimer,
+		logger:    logger,
+		after:     after,
+		briefs:    cfg.Briefs,
+		gatherers: cfg.Gatherers,
+		cancels:   map[string]context.CancelCauseFunc{},
 	}
 }
 
