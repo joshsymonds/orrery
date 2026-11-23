@@ -20,9 +20,10 @@ func TestAmendNotSteererRefusedBeforeAnyWrite(t *testing.T) {
 	item.Kind = "capture"
 	item.Tests = nil
 
-	_, err := client.AmendEvidence(t.Context(), steerOnlyRequest(sessionHeader(steerOnlyOther), &v1.AmendEvidenceRequest{
+	req := steerOnlyRequest(sessionHeader(steerOnlyOther), &v1.AmendEvidenceRequest{
 		Id: epicServiceID, Requirement: "R1", Item: item, Reason: "Synthetic reason.",
-	}))
+	})
+	_, err := client.AmendEvidence(t.Context(), req)
 	wantConnectError(t, err, connect.CodeFailedPrecondition,
 		"session "+steerOnlyOther+" does not steer epic "+epicServiceID+": session "+steerOnlySteerer+
 			" steers it; epic_steer makes this conversation the steerer")
