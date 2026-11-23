@@ -257,7 +257,6 @@ class EpicRecordTrackTest {
         steps: List<StepRow> = emptyList(),
     ) = EpicDetail(
         epic = epic,
-        tasks = emptyList(),
         steps = steps,
         requirements = emptyList(),
         buildTasks = buildTasks,

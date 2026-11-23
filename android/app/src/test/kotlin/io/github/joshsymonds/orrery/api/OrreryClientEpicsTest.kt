@@ -16,7 +16,6 @@ import io.github.joshsymonds.orrery.gen.orrery.v1.EpicReleaseStep
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicRequirement
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicStep
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicStepCheck
-import io.github.joshsymonds.orrery.gen.orrery.v1.EpicTask
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicTell
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicTrigger
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicTurn
@@ -264,11 +263,10 @@ class OrreryClientEpicsTest {
                 EPICS_GET,
                 EpicsGetResponse.newBuilder()
                     .setEpic(epicProto)
-                    .addTasks(
-                        EpicTask.newBuilder()
-                            .setEffort(1)
-                            .setSlug("example-task")
-                            .setSubject("Example subject")
+                    .addBuildTasks(
+                        EpicBuildTask.newBuilder()
+                            .setId("example-task")
+                            .setTitle("Example subject")
                             .setStatus("DONE?  as written ")
                             .setPlace("integrated")
                             .setTone("ok"),
@@ -283,12 +281,14 @@ class OrreryClientEpicsTest {
             assertEquals(
                 EpicDetail(
                     epic = epicRow,
-                    tasks = listOf(
-                        EpicTaskRow(
-                            effort = 1,
-                            slug = "example-task",
-                            subject = "Example subject",
+                    buildTasks = listOf(
+                        EpicBuildTaskRow(
+                            id = "example-task",
+                            title = "Example subject",
                             status = "DONE?  as written ",
+                            stage = "",
+                            red = null,
+                            green = null,
                             place = "integrated",
                             tone = "ok",
                         ),
@@ -333,23 +333,6 @@ class OrreryClientEpicsTest {
                 EPICS_GET,
                 EpicsGetResponse.newBuilder()
                     .setEpic(epicProto)
-                    .addTasks(
-                        EpicTask.newBuilder()
-                            .setEffort(1)
-                            .setSlug("example-task-a")
-                            .setStatus("gated")
-                            .setPlace("integrate")
-                            .setTone("acc"),
-                    )
-                    .addTasks(
-                        EpicTask.newBuilder()
-                            .setEffort(1)
-                            .setSlug("example-task-b")
-                            .setStatus("gap")
-                            .setPlace("green")
-                            .setTone("bad"),
-                    )
-                    .addTasks(EpicTask.newBuilder().setEffort(2).setSlug("example-task-c").setStatus("planned"))
                     .addBuildTasks(
                         EpicBuildTask.newBuilder()
                             .setId("T1")
@@ -363,10 +346,6 @@ class OrreryClientEpicsTest {
 
             val detail = OrreryClient(server.baseUrl).epic("example-repo/example-epic")
 
-            assertEquals(
-                listOf("integrate" to "acc", "green" to "bad", "" to ""),
-                detail?.tasks?.map { it.place to it.tone },
-            )
             assertEquals(listOf("review" to "limited"), detail?.buildTasks?.map { it.place to it.tone })
         }
     }
@@ -696,15 +675,6 @@ class OrreryClientEpicsTest {
                 EPICS_GET,
                 EpicsGetResponse.newBuilder()
                     .setEpic(epicProto.toBuilder().setSource("orreryd"))
-                    .addTasks(
-                        EpicTask.newBuilder()
-                            .setEffort(1)
-                            .setSlug("example-task")
-                            .setSubject("Example subject")
-                            .setStatus("DONE")
-                            .addRequirements("R1")
-                            .addRequirements("R3"),
-                    )
                     .addBuildTasks(
                         EpicBuildTask.newBuilder()
                             .setId("T1")
@@ -718,7 +688,6 @@ class OrreryClientEpicsTest {
 
             val detail = OrreryClient(server.baseUrl).epic("example-repo/example-epic")
 
-            assertEquals(listOf("R1", "R3"), detail?.tasks?.single()?.requirements)
             assertEquals(listOf("R2", "R4"), detail?.buildTasks?.single()?.requirements)
         }
     }

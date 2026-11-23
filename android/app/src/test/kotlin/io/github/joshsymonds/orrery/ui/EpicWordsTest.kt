@@ -8,7 +8,6 @@ import io.github.joshsymonds.orrery.api.EpicQuestionRow
 import io.github.joshsymonds.orrery.api.EpicReleaseProofRow
 import io.github.joshsymonds.orrery.api.EpicRequirementRow
 import io.github.joshsymonds.orrery.api.EpicRow
-import io.github.joshsymonds.orrery.api.EpicTaskRow
 import io.github.joshsymonds.orrery.api.StepRow
 import java.time.Instant
 import java.time.ZoneId
@@ -771,7 +770,6 @@ class EpicWordsTest {
 
     private fun detail(
         epic: EpicRow = epic(),
-        tasks: List<EpicTaskRow> = emptyList(),
         buildTasks: List<EpicBuildTaskRow> = emptyList(),
         steps: List<StepRow> = emptyList(),
         questions: List<EpicQuestionRow> = emptyList(),
@@ -785,7 +783,6 @@ class EpicWordsTest {
         releaseProof: List<EpicReleaseProofRow> = emptyList(),
     ) = EpicDetail(
         epic = epic,
-        tasks = tasks,
         steps = steps,
         requirements = requirements,
         buildTasks = buildTasks,

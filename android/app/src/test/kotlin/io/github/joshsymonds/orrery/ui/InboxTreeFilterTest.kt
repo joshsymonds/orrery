@@ -114,7 +114,6 @@ class InboxTreeFilterTest {
         questions: List<EpicQuestionRow> = emptyList(),
     ) = EpicDetail(
         epic = epic,
-        tasks = emptyList(),
         steps = emptyList(),
         questions = questions,
         parked = parked,

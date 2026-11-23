@@ -74,7 +74,6 @@ class AskAnswerEpicTest {
 
     private fun detailOf(questions: List<EpicQuestionRow> = emptyList(), parked: String = ""): EpicDetail = EpicDetail(
         epic = epicOf(),
-        tasks = emptyList(),
         steps = emptyList(),
         questions = questions,
         parked = parked,

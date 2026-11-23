@@ -30,7 +30,6 @@ private fun detail(
     steererParked: Boolean = false,
 ) = EpicDetail(
     epic = alpha,
-    tasks = emptyList(),
     steps = steps,
     questions = questions,
     parked = parked,

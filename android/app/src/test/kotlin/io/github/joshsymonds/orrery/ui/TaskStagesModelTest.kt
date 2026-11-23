@@ -116,7 +116,6 @@ class TaskStagesModelTest {
             runningSteps = emptyList(),
             endedSteps = 0,
         ),
-        tasks = emptyList(),
         steps = steps,
         buildTasks = listOf(build),
     )

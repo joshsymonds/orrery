@@ -111,7 +111,7 @@ private fun stateWordOf(listed: EpicRow, detail: EpicDetail?): String {
 // The track part a phase is in: planning or building while accepted, building while built, reviewing or correcting,
 // releasing while clean, releasing or stopped, and report once released or closed. Null for any other phase.
 internal fun trackPartOf(phase: String, detail: EpicDetail): String? = when (phase) {
-    "accepted" -> if (detail.tasks.isEmpty() && detail.buildTasks.isEmpty()) "planning" else "building"
+    "accepted" -> if (detail.buildTasks.isEmpty()) "planning" else "building"
     "built", "reviewing", "correcting" -> "building"
     "clean", "releasing", "stopped" -> RELEASING
     "released", "done", "met_at_base", "ended_with_gaps", "closed_superseded", "closed_shipped", "closed_abandoned" ->
@@ -136,7 +136,7 @@ private fun blockerWordsOf(listed: EpicRow, detail: EpicDetail?, now: Long): Str
 // A gauge: a check in ok when an ended epic shipped, a dash when it ended short, a dot in attention when blocked, no
 // tone when paused, engine while releasing, and live otherwise. Its share is the done tasks out of all of them.
 private fun gaugeOf(listed: EpicRow, detail: EpicDetail?, state: String, blocker: String): GaugeShare {
-    val tasks = detail?.tasks.orEmpty()
+    val tasks = detail?.buildTasks.orEmpty()
     val done = tasks.count { it.status.lowercase() in DONE_STATUSES }
     val total = tasks.size
     return when {

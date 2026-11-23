@@ -71,7 +71,6 @@ private fun detail(
     steps: List<StepRow> = emptyList(),
 ): EpicDetail = EpicDetail(
     epic = epicOf(),
-    tasks = emptyList(),
     steps = steps,
     questions = questions,
     parked = parked,
