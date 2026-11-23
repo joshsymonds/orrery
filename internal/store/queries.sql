@@ -1002,6 +1002,9 @@ DELETE FROM epic_task_files WHERE epic = ? AND task = ? AND path = ?;
 -- name: InsertEpicTaskRequirement :exec
 INSERT INTO epic_task_requirements (epic, task, position, requirement) VALUES (?, ?, ?, ?);
 
+-- name: DeleteEpicTaskRequirements :exec
+DELETE FROM epic_task_requirements WHERE epic = ? AND task = ?;
+
 -- name: InsertEpicTaskContribute :exec
 INSERT INTO epic_task_contributes (epic, task, position, requirement) VALUES (?, ?, ?, ?);
 
@@ -1047,6 +1050,9 @@ WHERE epic_tasks.epic = sqlc.arg(epic) AND epic_tasks.seq = sqlc.arg(seq) AND ep
 
 -- name: SetEpicTaskSplitFrom :exec
 UPDATE epic_tasks SET split_from = sqlc.arg(split_from) WHERE epic = sqlc.arg(epic) AND seq = sqlc.arg(seq);
+
+-- name: SetEpicTaskDependsOn :exec
+UPDATE epic_tasks SET depends_on = sqlc.arg(depends_on) WHERE epic = sqlc.arg(epic) AND seq = sqlc.arg(seq);
 
 -- name: InsertEpicTaskReview :exec
 INSERT INTO epic_task_reviews (epic, task, generation, attempt, position, gate, step, verdict)

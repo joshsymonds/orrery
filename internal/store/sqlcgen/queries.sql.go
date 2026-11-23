@@ -811,6 +811,20 @@ func (q *Queries) DeleteEpicTaskRefused(ctx context.Context, arg DeleteEpicTaskR
 	return err
 }
 
+const deleteEpicTaskRequirements = `-- name: DeleteEpicTaskRequirements :exec
+DELETE FROM epic_task_requirements WHERE epic = ? AND task = ?
+`
+
+type DeleteEpicTaskRequirementsParams struct {
+	Epic string
+	Task int64
+}
+
+func (q *Queries) DeleteEpicTaskRequirements(ctx context.Context, arg DeleteEpicTaskRequirementsParams) error {
+	_, err := q.db.ExecContext(ctx, deleteEpicTaskRequirements, arg.Epic, arg.Task)
+	return err
+}
+
 const deleteGrant = `-- name: DeleteGrant :exec
 DELETE FROM grants WHERE id = ?
 `
@@ -12200,6 +12214,21 @@ func (q *Queries) SetEpicTaskBuild(ctx context.Context, arg SetEpicTaskBuildPara
 		return 0, err
 	}
 	return result.RowsAffected()
+}
+
+const setEpicTaskDependsOn = `-- name: SetEpicTaskDependsOn :exec
+UPDATE epic_tasks SET depends_on = ?1 WHERE epic = ?2 AND seq = ?3
+`
+
+type SetEpicTaskDependsOnParams struct {
+	DependsOn string
+	Epic      string
+	Seq       int64
+}
+
+func (q *Queries) SetEpicTaskDependsOn(ctx context.Context, arg SetEpicTaskDependsOnParams) error {
+	_, err := q.db.ExecContext(ctx, setEpicTaskDependsOn, arg.DependsOn, arg.Epic, arg.Seq)
+	return err
 }
 
 const setEpicTaskFindingResult = `-- name: SetEpicTaskFindingResult :execrows

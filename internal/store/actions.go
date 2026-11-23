@@ -139,7 +139,8 @@ func plannerActionOf(row sqlcgen.PlannerAction) (PlannerAction, error) {
 // stores the task's change-of-approach version from the action's deliverable and evidence item, as changeApproach does,
 // send_back reopens the task at implement on rung 1 with the reason as its failure, as sendBack does, rerun_review
 // records a rerun of the epic's review for the action's reviewer, as rerunReview does, and reopen_design adds the design
-// task that revises the action's task, as reopenDesign does.
+// task that revises the action's task, as reopenDesign does, and split divides the action's task into its descendants,
+// as splitTask does.
 //
 // A close returns the step of the turn it ended and each step of the epic with no end. A fail_task and a send_back
 // return the open steps of the task they move. Every other action returns none.
@@ -239,7 +240,8 @@ func takeAction(ctx context.Context, queries *sqlcgen.Queries, action PlannerAct
 }
 
 // sendBack sends the task action names back to implement in the caller's write, as CarryOutAction describes. The task may
-// be open, done or ended as a gap, from any rung. It is refused while an integrate run that claims it or composes it has
+// be open, done or ended as a gap, from any rung. A split task is a RefusalError. It is refused while an integrate run
+// that claims it or composes it has
 // not ended, running or parked, and on an epic in an ended phase, and writes nothing then. Otherwise the task is reopened: its status is open
 // and its build is a fresh build on implement at attempt 1, built on the stored base, with the action's reason as its
 // failure (sentBackBuild). Its batch claim is cleared, so the next batch claims it once it is done again. The epic's
@@ -257,6 +259,10 @@ func sendBack(ctx context.Context, queries *sqlcgen.Queries, action PlannerActio
 	}
 	if err != nil {
 		return nil, fmt.Errorf("read task %d of epic %s: %w", action.Task, action.Epic, err)
+	}
+	if task.Status == TaskSplit {
+		return nil, RefusalError(fmt.Sprintf(
+			"task %d of epic %s was split into its descendants", action.Task, action.Epic))
 	}
 	head, err := epicHead(ctx, queries, action.Epic)
 	if err != nil {
@@ -347,15 +353,6 @@ func carryOutAction(
 	return nil, RefusalError(fmt.Sprintf("%q is not a planner action", action.Kind))
 }
 
-// splitTask splits the task action names into the descendants action holds, in the caller's write, as CarryOutAction
-// describes. The split is not carried out yet, so it is a RefusalError and writes nothing.
-func splitTask(
-	_ context.Context, _ *sqlcgen.Queries, action PlannerAction, _ time.Time,
-) ([]string, error) {
-	return nil, RefusalError(fmt.Sprintf(
-		"split of task %d of epic %s is not carried out yet", action.Task, action.Epic))
-}
-
 // taskFailed is the status of a task whose build failed. A reopen refuses a failed task, as it refuses a gap.
 const taskFailed = "failed"
 
@@ -364,7 +361,7 @@ const taskFailed = "failed"
 // action's turn. Its title is Revise T<n>: and the reopened task's title, its deliverable is the action's, and it copies
 // the files, gate, test changes and evidence item of the reopened task's current version. It has no depends_on. The
 // reopened task is not written, so it keeps its status and history. A task that does not exist, a task that is not a
-// design task, and a task that has failed or ended as a gap are RefusalErrors, and write nothing.
+// design task, and a task that has failed, ended as a gap or been split are RefusalErrors, and write nothing.
 func reopenDesign(ctx context.Context, queries *sqlcgen.Queries, action PlannerAction) error {
 	stored, err := queries.GetEpicTask(ctx, sqlcgen.GetEpicTaskParams{Epic: action.Epic, Seq: action.Task})
 	if errors.Is(err, sql.ErrNoRows) {
@@ -381,6 +378,8 @@ func reopenDesign(ctx context.Context, queries *sqlcgen.Queries, action PlannerA
 		return RefusalError(fmt.Sprintf("task %d of epic %s has failed", action.Task, action.Epic))
 	case TaskGap:
 		return RefusalError(fmt.Sprintf("task %d of epic %s ended as a gap", action.Task, action.Epic))
+	case TaskSplit:
+		return RefusalError(fmt.Sprintf("task %d of epic %s was split into its descendants", action.Task, action.Epic))
 	}
 	spec, err := currentSpecOf(ctx, queries, action.Epic, stored)
 	if err != nil {
