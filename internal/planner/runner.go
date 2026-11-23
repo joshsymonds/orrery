@@ -751,7 +751,7 @@ func planOf(ret Return) store.EpicPlan {
 			Kind: action.Kind, Node: action.Node, Task: action.Task, Close: action.Close, By: action.By,
 			Requirement: action.Requirement, Item: action.Item, Deliverable: action.Deliverable,
 			Files: action.Files, Remove: action.Remove, Reviewer: action.Reviewer, UndoNone: action.UndoNone,
-			Reason: action.Reason,
+			Split: splitTasksOf(action.Split), Reason: action.Reason,
 		})
 	}
 	unresolvable := make([]store.GapDeclaration, 0, len(ret.Unresolvable))
@@ -764,6 +764,23 @@ func planOf(ret Return) store.EpicPlan {
 		Decisions: ret.Decisions, Tasks: tasks, Outline: ret.Outline, Questions: questions, Outcome: ret.Outcome,
 		Actions: actions, Unresolvable: unresolvable,
 	}
+}
+
+// splitTasksOf returns the store's tasks for the descendants a split action names, in order. It returns nil for none,
+// so an action that names no descendants stores the nil list it stored before.
+func splitTasksOf(descendants []Descendant) []store.SplitTask {
+	if len(descendants) == 0 {
+		return nil
+	}
+	split := make([]store.SplitTask, 0, len(descendants))
+	for _, descendant := range descendants {
+		split = append(split, store.SplitTask{
+			Title: descendant.Title, Deliverable: descendant.Deliverable, Files: descendant.Files,
+			TestChanges: descendant.TestChanges, Claims: descendant.Claims, Contributes: descendant.Contributes,
+			Gate: descendant.Gate, Evidence: descendant.Evidence,
+		})
+	}
+	return split
 }
 
 // questionInputOf returns the store's input for a question of a planner return. A non-empty why is stored as "Catastrophe
