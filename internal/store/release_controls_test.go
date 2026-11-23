@@ -136,8 +136,7 @@ func releaseRowsOf(t *testing.T, raw *sql.DB) string {
 	t.Helper()
 	var out strings.Builder
 	tables := []string{
-		"epics", "epic_turns", "epic_triggers", "epic_node_runs", "epic_release_runs", "epic_release_slots",
-		"epic_decisions", "epic_tells",
+		"epics", "epic_turns", "epic_triggers", "epic_node_runs", "epic_release_runs", "epic_decisions", "epic_tells",
 	}
 	for _, table := range tables {
 		for _, row := range rawRows(t, raw, `SELECT * FROM `+table+` ORDER BY rowid`) {
