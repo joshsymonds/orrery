@@ -208,7 +208,7 @@ func syncBlockedEndsFailedAtOnce(t *testing.T) {
 		originHead, candidate,
 	)
 	triggers := syncTriggers(t, w)
-	if len(triggers) != 1 || !strings.Contains(triggers[0].cause, report) {
+	if len(triggers) != 1 || !strings.Contains(triggers[0].Cause, report) {
 		t.Errorf("sync triggers = %+v, want one holding the report %q", triggers, report)
 	}
 	requireIntegratorRemoved(t, w)
@@ -239,8 +239,8 @@ func syncThirdRoundGateFailureEndsFailed(t *testing.T) {
 	}
 	triggers := syncTriggers(t, w)
 	failure := fmt.Sprintf("Done gate lint failed on commit %s: it exited 1.", head)
-	if len(triggers) != 1 || !strings.Contains(triggers[0].cause, failure) ||
-		!strings.Contains(triggers[0].cause, "last report: b.go keeps both lines") {
+	if len(triggers) != 1 || !strings.Contains(triggers[0].Cause, failure) ||
+		!strings.Contains(triggers[0].Cause, "last report: b.go keeps both lines") {
 		t.Errorf("sync triggers = %+v, want one holding %q and the last report", triggers, failure)
 	}
 	w.requireUnmoved(candidate)
