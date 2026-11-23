@@ -16,7 +16,6 @@ import io.github.joshsymonds.orrery.api.HostStat
 /**
  * The conversation's header on a phone. The title row always draws. When the header is open it adds the machine band
  * and the band; when folded (reading or hidden) it adds the compact line, with the words that ask the reader.
- * [bandHides] false leaves the hide control off the band, for the strip of tiles under it carries it.
  */
 @Composable
 internal fun Head(
@@ -37,7 +36,6 @@ internal fun Head(
     onHide: () -> Unit,
     onShow: () -> Unit,
     modifier: Modifier = Modifier,
-    bandHides: Boolean = true,
     contracts: List<ContractBandLine> = emptyList(),
     hereContract: String = "",
     onOpenContract: (String) -> Unit = {},
@@ -75,7 +73,7 @@ internal fun Head(
                 goal = goal,
                 lines = lines,
                 onOpen = onOpenEpic,
-                onHide = onHide.takeIf { bandHides },
+                onHide = onHide,
                 contracts = contracts,
                 hereContract = hereContract,
                 onOpenContract = onOpenContract,
