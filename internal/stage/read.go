@@ -19,8 +19,8 @@ const runningStatus = "running"
 // row's status and report, and the questions its design_questions rows record, oldest first, each with its answer once
 // it has one. A steelman step carries its pass's verdict and whether the pass counts. It also returns the design's
 // ledger, read as readLedger reads it, whether the ledger is frozen, and whether the discovery and closure passes
-// counted and whether the closure was skipped. A design no step names has no steps, and one no question names has no
-// questions.
+// counted and whether the closure was skipped. It also returns the design's log, oldest first. A design no step names
+// has no steps, one no question names has no questions, and one no line names has no log.
 func (s *Service) GetStage(
 	ctx context.Context,
 	req *connect.Request[v1.GetStageRequest],
@@ -59,10 +59,19 @@ func (s *Service) GetStage(
 	if err != nil {
 		return nil, internalError(err)
 	}
+	lines, err := s.cfg.Store.DesignLog(ctx, design)
+	if err != nil {
+		return nil, internalError(err)
+	}
+	var logged []*v1.StageLogLine
+	for _, line := range lines {
+		logged = append(logged, stageLogLineOf(line))
+	}
 	return connect.NewResponse(&v1.GetStageResponse{
 		Stage: &v1.DesignStage{
 			Design: design, Steps: steps, Questions: asked, Ledger: items, Frozen: frozen,
 			ClosureSkipped: skipped, DiscoveryCounted: discoveryCounted, ClosureCounted: closureCounted,
+			Log: logged,
 		},
 	}), nil
 }

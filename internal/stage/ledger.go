@@ -83,6 +83,17 @@ func (s *Service) Dispose(
 	if err = s.cfg.Store.AddDesignDisposition(ctx, stored); err != nil {
 		return nil, internalError(fmt.Errorf("store disposition of item %s of design %s: %w", itemID, design, err))
 	}
+	// A deferred item takes a boundary and no reason, so its words are the boundary.
+	words := reason
+	if words == "" {
+		words = boundary
+	}
+	err = s.logCall(ctx, design, loggedCall{
+		Maker: maker, Session: session, What: "disposed", IDs: []string{itemID}, Words: words,
+	})
+	if err != nil {
+		return nil, err
+	}
 	item.Disposition, item.Reason, item.Boundary, item.Maker = disposition, reason, boundary, maker
 	return connect.NewResponse(&v1.DisposeResponse{Item: stageLedgerItemOf(item)}), nil
 }

@@ -255,6 +255,10 @@ func TestNodeReattachSessionOutlivesControllerRestart(t *testing.T) {
 		return hasBlock(t, h, "fake reply 1")
 	})
 	pid := fakePID(t, dir)
+	waitUntil(t, engineOf(first), "the first turn's end stored as the row's done state", func() bool {
+		row, err := rig.s.EngineSession(t.Context(), id)
+		return err == nil && row.State == "done"
+	})
 
 	first.Close()
 

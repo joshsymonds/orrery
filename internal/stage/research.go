@@ -45,6 +45,16 @@ func (s *Service) Research(
 	if err != nil {
 		return nil, err
 	}
+	session, err := s.callerSession(ctx, start.Caller)
+	if err != nil {
+		return nil, err
+	}
+	err = s.logCall(ctx, design, loggedCall{
+		Session: session, What: "research started", IDs: []string{step.GetStep()}, Words: question,
+	})
+	if err != nil {
+		return nil, err
+	}
 	return connect.NewResponse(&v1.ResearchResponse{Step: step}), nil
 }
 
@@ -78,6 +88,16 @@ func (s *Service) Reproduce(
 	start.Caller = callerOf(req.Header())
 	step, err := s.startStep(ctx, start, store.DesignStep{
 		Design: design, Kind: store.StepReproduce, Subject: command, Repository: repository, Revision: revision,
+	})
+	if err != nil {
+		return nil, err
+	}
+	session, err := s.callerSession(ctx, start.Caller)
+	if err != nil {
+		return nil, err
+	}
+	err = s.logCall(ctx, design, loggedCall{
+		Session: session, What: "reproduce started", IDs: []string{step.GetStep()}, Words: command,
 	})
 	if err != nil {
 		return nil, err
