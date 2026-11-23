@@ -512,8 +512,8 @@ func (l *listFlag) Set(value string) error {
 	return nil
 }
 
-// openServeStores returns the push store that registration writes and the reader of orreryd's store file that
-// List reads. Both resolve their paths from getenv.
+// openServeStores returns the push store that registration writes and the pooled reader of orreryd's store file that
+// List reads. Both resolve their paths from getenv. The caller closes the reader.
 func openServeStores(getenv func(string) string, pushHosts []string) (*push.Store, *store.Reader, error) {
 	storePath, err := push.DefaultStorePath(getenv)
 	if err != nil {
@@ -527,7 +527,7 @@ func openServeStores(getenv func(string) string, pushHosts []string) (*push.Stor
 	if err != nil {
 		return nil, nil, fmt.Errorf("store: %w", err)
 	}
-	return pushStore, store.NewReader(dbPath), nil
+	return pushStore, store.NewPooledReader(dbPath), nil
 }
 
 // runMCP runs `orrery mcp`. It serves the step, epic, contract, evidence and cron tools over MCP on stdin and stdout
@@ -592,7 +592,8 @@ func runContract(ctx context.Context, opts globals, args []string, stdout io.Wri
 // runServe runs `orrery serve`. It serves the HTTP API for the tmux server named by opts on the loopback address
 // --listen until SIGINT or SIGTERM, then shuts down and returns nil. With --metrics-listen it also serves /metrics on
 // that loopback address.
-func runServe(ctx context.Context, opts globals, args []string, getenv func(string) string, stderr io.Writer) error {
+func runServe(ctx context.Context, opts globals, args []string, getenv func(string) string,
+	stderr io.Writer) (err error) {
 	flags := flag.NewFlagSet("orrery serve", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	listen := flags.String("listen", "", "loopback address to serve on")
@@ -632,6 +633,9 @@ func runServe(ctx context.Context, opts globals, args []string, getenv func(stri
 	if err != nil {
 		return err
 	}
+	// The reader holds connections to the store until it is closed, so it closes once serve has stopped. The close runs
+	// on every return below, so a serve that fails before it listens closes it too, and its error joins the result.
+	defer func() { err = errors.Join(err, sessions.Close()) }()
 	cfg := serveSessionConfig(opts, getenv)
 	// Without a HOME the record root stays empty: os.DirFS refuses an empty root, so Epics fails its reads rather than
 	// reading the working directory's .gambit.
@@ -662,9 +666,9 @@ func runServe(ctx context.Context, opts globals, args []string, getenv func(stri
 
 // serveSessionConfig returns a server.Config holding only the clients of orreryd's services on the session socket
 // beside the daemon socket opts names: Engine, Steps, Pools, Notices, Changes, PaneSends, the Epics client as both
-// EpicStore and EpicCommands, Evidence and ContractCommands. None carries a caller header, so a command serve forwards
-// is the owner's. A daemon socket that does not resolve leaves them all nil, and each service they back answers
-// unavailable.
+// EpicStore and EpicCommands, Evidence, ContractCommands and AccountCommands. None carries a caller header, so a command
+// serve forwards is the owner's. A daemon socket that does not resolve leaves them all nil, and each service they back
+// answers unavailable.
 func serveSessionConfig(opts globals, getenv func(string) string) server.Config {
 	daemonSocket, err := protocol.SocketPath(opts.daemonSocket, getenv)
 	if err != nil {
@@ -683,6 +687,7 @@ func serveSessionConfig(opts globals, getenv func(string) string) server.Config 
 		EpicCommands:     epics,
 		Evidence:         enginev1connect.NewEvidenceClient(sessionClient, cli.SessionBaseURL),
 		ContractCommands: enginev1connect.NewContractsClient(sessionClient, cli.SessionBaseURL),
+		AccountCommands:  enginev1connect.NewAccountsClient(sessionClient, cli.SessionBaseURL),
 	}
 }
 

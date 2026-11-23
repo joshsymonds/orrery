@@ -52,7 +52,7 @@ func (w *integrateWorld) file(revision, path string) string {
 // checked against the stored base could hold one.
 func (w *integrateWorld) plantCandidate(candidate string) {
 	w.t.Helper()
-	db, err := sql.Open("sqlite", w.path)
+	db, err := sql.Open("sqlite3", w.path)
 	if err != nil {
 		w.t.Fatalf("open store file: %v", err)
 	}

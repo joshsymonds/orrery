@@ -176,7 +176,7 @@ func BusyError(t *testing.T) error {
 			t.Errorf("close store: %v", closeErr)
 		}
 	})
-	db, err := sql.Open("sqlite", path)
+	db, err := sql.Open("sqlite3", path)
 	if err != nil {
 		t.Fatalf("open lock connection: %v", err)
 	}

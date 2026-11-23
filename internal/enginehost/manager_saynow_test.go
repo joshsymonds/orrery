@@ -55,7 +55,7 @@ func interruptsWritten(t *testing.T, dir string) int {
 // openStoreDB opens the store at path on a connection of its own, which the test closes when it ends.
 func openStoreDB(t *testing.T, path string) *sql.DB {
 	t.Helper()
-	db, err := sql.Open("sqlite", path)
+	db, err := sql.Open("sqlite3", path)
 	if err != nil {
 		t.Fatalf("open store: %v", err)
 	}

@@ -30,6 +30,15 @@ const (
 	syncFetchLimit = time.Minute
 )
 
+// errGitLimit is the cause a git limit ends git's context with (gitLimit), which stoppedAt reads.
+var errGitLimit = errors.New("git ran past its limit")
+
+// gitLimit returns ctx bounded by limit, which ends limit from now with errGitLimit as its cause. It is the runner's
+// limitGit, which a test replaces to end the context when git has stalled, so no test waits out a limit.
+func gitLimit(ctx context.Context, limit time.Duration) (context.Context, context.CancelFunc) {
+	return context.WithTimeoutCause(ctx, limit, errGitLimit)
+}
+
 // readOrigin reads origin's main for epic's sync (lookAtOrigin) and records the read as the epic's last, with the
 // stored base it was read for and at, in one write. A read that failed, git that ran past the read limit among it, is
 // recorded failed and logged, so no sync starts, and origin's main is read again only once syncInterval has passed or
@@ -120,40 +129,40 @@ func hasCommit(ctx context.Context, host hostexec.Host, repo, commit string) (bo
 	return false, err
 }
 
-// originHead reads origin of epic's repository on host with git ls-remote (lsRemoteHead) for at most the runner's read
-// limit, and returns origin's default branch and the commit its HEAD names. git still running at the limit is stopped,
-// and the error says so (stoppedAt).
+// originHead reads origin of epic's repository on host with git ls-remote (lsRemoteHead) for at most syncReadLimit, and
+// returns origin's default branch and the commit its HEAD names. git still running at the limit is stopped, and the
+// error says so (stoppedAt).
 func (r *Runner) originHead(ctx context.Context, host hostexec.Host, epic store.EpicRow) (string, string, error) {
-	reading, cancel := context.WithTimeout(ctx, r.readLimit)
+	reading, cancel := r.limitGit(ctx, syncReadLimit)
 	defer cancel()
 	branch, commit, err := lsRemoteHead(reading, host, epic.Repository)
 	if err != nil {
-		return "", "", stoppedAt(reading, r.readLimit, err)
+		return "", "", stoppedAt(reading, syncReadLimit, err)
 	}
 	return branch, commit, nil
 }
 
 // fetchMain reads origin's default branch within the read limit (originHead) and fetches it into the sync's origin ref
-// on host for at most the runner's fetch limit (fetchBranch), as a release fetches it, and returns the branch and the
-// commit the ref names. git still running at a limit is stopped, and the error says so (stoppedAt).
+// on host for at most syncFetchLimit (fetchBranch), as a release fetches it, and returns the branch and the commit the
+// ref names. git still running at a limit is stopped, and the error says so (stoppedAt).
 func (r *Runner) fetchMain(ctx context.Context, host hostexec.Host, epic store.EpicRow) (string, string, error) {
 	branch, _, err := r.originHead(ctx, host, epic)
 	if err != nil {
 		return "", "", err
 	}
-	fetching, cancel := context.WithTimeout(ctx, r.fetchLimit)
+	fetching, cancel := r.limitGit(ctx, syncFetchLimit)
 	defer cancel()
 	commit, err := fetchBranch(fetching, host, epic, branch, syncRef(epic, "origin"))
 	if err != nil {
-		return "", "", stoppedAt(fetching, r.fetchLimit, err)
+		return "", "", stoppedAt(fetching, syncFetchLimit, err)
 	}
 	return branch, commit, nil
 }
 
-// stoppedAt returns err, the error of git run under ctx, which ends after limit. When ctx ended at its limit, the error
-// says git did not finish within it.
+// stoppedAt returns err, the error of git run under ctx, a context limitGit made for limit. When ctx ended at its limit,
+// which its cause errGitLimit tells, the error says git did not finish within it.
 func stoppedAt(ctx context.Context, limit time.Duration, err error) error {
-	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+	if errors.Is(context.Cause(ctx), errGitLimit) {
 		return fmt.Errorf("git did not finish within %s: %w", limit, err)
 	}
 	return err

@@ -340,39 +340,13 @@ func contractLintReleaseWarning(reason string) string {
 	return "release_steps[1].step: " + reason
 }
 
-// TestContractLintReleaseWarnsSteps asserts that a release step whose text says merge, names a fixed version or waits
-// on CI gets a warning under its field, with the reason that gives the accepted wording. Each warned step is the
+// TestContractLintReleaseWarnsSteps asserts that a release step whose text names a fixed version gets a warning under
+// its field, with the reason that gives the accepted wording. Each warned step is the
 // second, so the field is release_steps[1].step. Where a step breaks two rules, the earlier rule gives the reason.
 func TestContractLintReleaseWarnsSteps(t *testing.T) {
 	t.Parallel()
 	repo := stepGitTestRepo(t)
 	runEpicWarnings(t, repo, []epicWarningCase{
-		{
-			name: "lowercase merge",
-			mutate: func(req *epicCreate) {
-				req.Contract.ReleaseSteps = contractLintReleaseSteps(
-					"Push main to origin, then merge the release branch.",
-				)
-			},
-			want: []string{contractLintReleaseWarning(
-				"says merge: a release step fast-forwards main to the release candidate; write fast-forward")},
-		},
-		{
-			name: "capitalised Merge",
-			mutate: func(req *epicCreate) {
-				req.Contract.ReleaseSteps = contractLintReleaseSteps("Merge the release candidate into main.")
-			},
-			want: []string{contractLintReleaseWarning(
-				"says merge: a release step fast-forwards main to the release candidate; write fast-forward")},
-		},
-		{
-			name: "negated merge",
-			mutate: func(req *epicCreate) {
-				req.Contract.ReleaseSteps = contractLintReleaseSteps("Fast-forward main; do not merge.")
-			},
-			want: []string{contractLintReleaseWarning(
-				"says merge: a release step fast-forwards main to the release candidate; write fast-forward")},
-		},
 		{
 			name: "fixed version v0.86.3",
 			mutate: func(req *epicCreate) {
@@ -394,20 +368,13 @@ func TestContractLintReleaseWarnsSteps(t *testing.T) {
 					"name the next version above the newest tag instead")},
 		},
 		{
-			name: "so CI runs",
-			mutate: func(req *epicCreate) {
-				req.Contract.ReleaseSteps = contractLintReleaseSteps("Push main to origin, so CI runs.")
-			},
-			want: []string{contractLintReleaseWarning(
-				`a release does not wait for CI; write "do not wait for CI"`)},
-		},
-		{
 			name: "Merge, v0.86.3 and so CI runs",
 			mutate: func(req *epicCreate) {
 				req.Contract.ReleaseSteps = contractLintReleaseSteps("Merge v0.86.3 into main, so CI runs.")
 			},
 			want: []string{contractLintReleaseWarning(
-				"says merge: a release step fast-forwards main to the release candidate; write fast-forward")},
+				"names the fixed version v0.86.3: a release step's tag is chosen when the step runs; " +
+					"name the next version above the newest tag instead")},
 		},
 		{
 			name: "tag v0.86.3 and so CI runs",
@@ -422,21 +389,23 @@ func TestContractLintReleaseWarnsSteps(t *testing.T) {
 			name: "two steps each warned",
 			mutate: func(req *epicCreate) {
 				req.Contract.ReleaseSteps = []*v1.EpicReleaseStep{
-					{Step: "Merge the release candidate into main.", Target: "origin", Undo: "Synthetic undo."},
-					{Step: "Push main to origin, so CI runs.", Target: "origin", Undo: "Synthetic undo."},
+					{Step: "Tag v0.86.3 at the release candidate.", Target: "origin", Undo: "Synthetic undo."},
+					{Step: "Push rel/v0.86.2 to origin.", Target: "origin", Undo: "Synthetic undo."},
 				}
 			},
 			want: []string{
-				"release_steps[0].step: says merge: a release step fast-forwards main to the release candidate; " +
-					"write fast-forward",
-				`release_steps[1].step: a release does not wait for CI; write "do not wait for CI"`,
+				"release_steps[0].step: names the fixed version v0.86.3: a release step's tag is chosen when the " +
+					"step runs; name the next version above the newest tag instead",
+				"release_steps[1].step: names the fixed version v0.86.2: a release step's tag is chosen when the " +
+					"step runs; name the next version above the newest tag instead",
 			},
 		},
 	})
 }
 
 // TestContractLintReleaseAcceptsSteps asserts that the contract's own two release steps, verbatim, get no warning. It
-// also asserts that the rules leave alone merged, merges and merging, a ci inside a path, and the phrase in capitals.
+// also asserts that the rules leave alone a step that merges or names CI, in any wording: a release step may merge or
+// wait on CI, since the release is the epic's steps and nothing more.
 func TestContractLintReleaseAcceptsSteps(t *testing.T) {
 	t.Parallel()
 	repo := stepGitTestRepo(t)
@@ -451,6 +420,11 @@ func TestContractLintReleaseAcceptsSteps(t *testing.T) {
 			step: "Fast-forward main to the release candidate; the notes list what is merged, merges and merging.",
 		},
 		{name: "ci in a path and Do not wait for CI", step: "Push main to origin/ci-circle; Do not wait for CI."},
+		{name: "merge", step: "Merge a moved origin/main in, rerun check, fast-forward, push."},
+		{name: "capitalised Merge", step: "Merge the release candidate into main."},
+		{name: "negated merge", step: "Fast-forward main; do not merge."},
+		{name: "so CI runs", step: "Push main to origin, so CI runs."},
+		{name: "waits for CI", step: "Push main to origin, then wait for CI to go green."},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
@@ -491,29 +465,17 @@ func TestEpicCreateReleaseContinueStoresRunPatternWarning(t *testing.T) {
 }
 
 // TestEpicCreateReleaseContinueStoresReleaseStepWarning asserts that CreateEpic stores a contract whose release step
-// says merge, names a fixed version, or waits on CI without "do not wait for CI", and returns the finding as a warning
-// under the step's field.
+// names a fixed version, and returns the finding as a warning under the step's field.
 func TestEpicCreateReleaseContinueStoresReleaseStepWarning(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {
 		name, step, want string
 	}{
 		{
-			name: "says merge",
-			step: "Merge the release candidate into main.",
-			want: "release_steps[0].step: says merge: a release step fast-forwards main to the release candidate; " +
-				"write fast-forward",
-		},
-		{
 			name: "names a fixed version",
 			step: "Tag v0.86.3 at the release candidate, then push it.",
 			want: "release_steps[0].step: names the fixed version v0.86.3: a release step's tag is chosen when the " +
 				"step runs; name the next version above the newest tag instead",
-		},
-		{
-			name: "waits on CI",
-			step: "Push main to origin, so CI runs.",
-			want: `release_steps[0].step: a release does not wait for CI; write "do not wait for CI"`,
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

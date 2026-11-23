@@ -413,7 +413,7 @@ func runText(run *store.EvidenceRun) string {
 // dueRows returns the due rows of the store, done or not, read from the store's file.
 func (w *crashWorld) dueRows(t *testing.T) []string {
 	t.Helper()
-	db, err := sql.Open("sqlite", w.dbPath)
+	db, err := sql.Open("sqlite3", w.dbPath)
 	if err != nil {
 		t.Fatalf("open store file: %v", err)
 	}

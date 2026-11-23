@@ -87,7 +87,7 @@ func openPlannerStore(t *testing.T) (*store.Store, string) {
 func execStoreFile(t *testing.T, path, query string, args ...any) {
 	t.Helper()
 	dsn := (&url.URL{Scheme: "file", Path: path, RawQuery: "_busy_timeout=200&_journal_mode=WAL"}).String()
-	db, err := sql.Open("sqlite", dsn)
+	db, err := sql.Open("sqlite3", dsn)
 	if err != nil {
 		t.Fatalf("open store file: %v", err)
 	}

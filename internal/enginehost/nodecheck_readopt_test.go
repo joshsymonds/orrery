@@ -167,6 +167,32 @@ func TestNodeChecksResumeRunsAnUngrantedCheckFromTheStart(t *testing.T) {
 	}
 }
 
+// TestNodeChecksResumeRunsAnUngrantedCheckWhoseWorktreeIsHalfMade stores a running check with no grant whose start
+// stopped inside git worktree add, leaving checked out files at its path and no .git entry. Resume clears the directory,
+// runs the check once, and ends it with its exit and output.
+func TestNodeChecksResumeRunsAnUngrantedCheckWhoseWorktreeIsHalfMade(t *testing.T) {
+	t.Parallel()
+	f := nodeCheckSetup(t)
+	check := nodeCheckOf(f.head, 60, "/bin/sh", "-c", "echo out; exit 0")
+	if err := f.st.AddNodeCheck(t.Context(), check, time.Unix(1700000000, 0)); err != nil {
+		t.Fatalf("store AddNodeCheck: %v", err)
+	}
+	left := filepath.Join(f.checks.worktrees, nodeCheckID)
+	stepWorktreeTestHalfMade(t, left)
+
+	if err := f.checks.Resume(t.Context()); err != nil {
+		t.Fatalf("Resume: %v", err)
+	}
+	nodeCheckEnded(t, f.ended)
+	got := nodeCheckStored(t, f.st)
+	if got.State != store.NodeEnded || got.Exit != 0 || got.NotRun != "" || got.Stdout != "out\n" {
+		t.Fatalf("stored check = %+v, want ended with exit 0 and stdout %q", got, "out\n")
+	}
+	if n := len(f.pools.requested()); n != 1 {
+		t.Fatalf("grant requests = %d, want 1", n)
+	}
+}
+
 // TestNodeChecksResumeLeavesACheckItDrivesAlone resumes a check with no grant whose gate waits for its release. The
 // second Resume finds the check driven already, so it requests no grant, and the gate runs once and its end is recorded
 // once.

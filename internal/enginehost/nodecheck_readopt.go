@@ -79,10 +79,11 @@ func (n *NodeChecks) readoptDrive(ctx context.Context, repo string, check store.
 }
 
 // readoptUnlaunched runs check from the start when no grant is stored, so its gate never launched. A worktree a restart
-// found at its path is what a start stopped before the grant left, so it is removed on host before the check runs again.
+// found at its path is what a start stopped before the grant left, whole or part made, so clearUnlaunchedWorktree clears it
+// on host before the check runs again.
 func (n *NodeChecks) readoptUnlaunched(ctx context.Context, host hostexec.Host, repo string, check store.NodeCheck) {
 	worktree := filepath.Join(n.worktrees, check.ID)
-	if err := removeStepWorktree(context.WithoutCancel(ctx), host, repo, worktree); err != nil {
+	if err := clearUnlaunchedWorktree(context.WithoutCancel(ctx), host, repo, worktree); err != nil {
 		n.logger.WarnContext(ctx, "clear worktree of unlaunched node check", "check", check.ID, "err", err)
 		return
 	}

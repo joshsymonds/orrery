@@ -37,7 +37,7 @@ func epicTableColumns() map[string][]string {
 			"origin_read_base", "origin_read_commit", "origin_read_state", "origin_read_at",
 			// steerer, the session that steers the epic, is 00080_epic_steerer.sql.
 			"steerer",
-			// host, the host the epic's work lives on, is 00095_engine_hosts.sql.
+			// host, the host the epic's work lives on, is 00097_engine_hosts.sql.
 			"host",
 		},
 		// Each epic's revision, which 00072_epic_revisions_table.sql moves out of epics.
@@ -516,7 +516,7 @@ func openStoreAtVersion(t *testing.T, path string, version int64) *sql.DB {
 		t.Fatalf("write store at version %d: %v", version, err)
 	}
 	// The fixture is a throwaway file, so it skips the fsyncs, as noSync's stores do.
-	db, err := sql.Open("sqlite", path+"?_synchronous=OFF")
+	db, err := sql.Open("sqlite3", path+"?_synchronous=OFF")
 	if err != nil {
 		t.Fatalf("open fixture: %v", err)
 	}
@@ -582,8 +582,10 @@ func TestEpicMigrationKeepsExistingRows(t *testing.T) {
 		`SELECT COALESCE(MAX(version_id), 0) FROM goose_db_version WHERE is_applied = 1`).Scan(&version); err != nil {
 		t.Fatalf("read store version: %v", err)
 	}
-	// Open applies 00014_epics.sql and every migration after it: 00095_engine_hosts.sql is the newest.
-	// The newest was 00094_step_listings_no_evidence.sql before the engine hosts migration added 00095,
+	// Open applies 00014_epics.sql and every migration after it: 00097_engine_hosts.sql is the newest.
+	// The newest was 00096_llm_accounts.sql before the engine hosts migration added 00097,
+	// 00095_headless_columns.sql before the LLM accounts migration added 00096_llm_accounts.sql,
+	// 00094_step_listings_no_evidence.sql before the headless columns migration added 00095,
 	// 00093_design_stage.sql before the step listings lost their evidence in 00094,
 	// 00092_integrate_rounds.sql before the design stage migration added 00093,
 	// 00091_task_kind.sql before the integrate rounds migration added 00092,
@@ -609,8 +611,8 @@ func TestEpicMigrationKeepsExistingRows(t *testing.T) {
 	// added 00065, 00063_task_versions.sql before the step indexes added 00064, 00062_drop_engine_held.sql before the
 	// task versions added 00063, 00061_prompt_states.sql before the drop of engine_held added 00062, and
 	// 00060_cron_jobs.sql before the prompt states added 00061.
-	if version != 95 {
-		t.Fatalf("store version after Open = %d, want 95", version)
+	if version != 97 {
+		t.Fatalf("store version after Open = %d, want 97", version)
 	}
 
 	// A later migration may add columns at the end of an existing table, as 00015_step_readopt.sql adds to steps and

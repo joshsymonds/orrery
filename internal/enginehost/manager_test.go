@@ -18,8 +18,8 @@ import (
 	"github.com/joshsymonds/orrery/internal/store"
 	"github.com/joshsymonds/orrery/internal/waittest"
 
-	// The blank import registers the pure-Go "sqlite" driver the empty-store check opens the file with.
-	_ "modernc.org/sqlite"
+	// The blank import registers the "sqlite3" driver the empty-store check opens the file with.
+	_ "github.com/mattn/go-sqlite3"
 )
 
 // fixedClock is the clock the manager tests give the manager, so the seen timestamp is known.
@@ -183,7 +183,7 @@ func requireSessionID(t *testing.T, id string) {
 // countRows returns the number of rows of table in the store at path, read on a separate connection.
 func countRows(t *testing.T, path, table string) int {
 	t.Helper()
-	db, err := sql.Open("sqlite", path)
+	db, err := sql.Open("sqlite3", path)
 	if err != nil {
 		t.Fatalf("open store: %v", err)
 	}

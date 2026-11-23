@@ -125,6 +125,14 @@ message Session {
 
   // True while the session is archived: the owner archived it and has not unarchived it since.
   bool archived = 14;
+
+  // true once the conversation's turn is judged closed by a closure verdict for its current change time, or (headless)
+  // it stopped. It is false while the conversation steers a live epic or a proposed contract, and false while the owner
+  // has unarchived it since its last change.
+  bool ended = 15;
+
+  // The unix seconds the conversation ended (its change time), or 0 when it has not ended.
+  int64 ended_at = 16;
 }
 
 // ListHeadlessRequest asks for the headless sessions of the last 14 days. It has no fields.
@@ -181,6 +189,14 @@ message HeadlessSession {
   // true while the owner has put this question off with Control.NotNow and not brought it back; a mark covers one
   // question, so a new request or a pane that starts waiting again reads false.
   bool put_off = 12;
+
+  // true once the conversation's turn is judged closed by a closure verdict for its current change time, or (headless)
+  // it stopped. It is false while the conversation steers a live epic or a proposed contract, and false while the owner
+  // has unarchived it since its last change.
+  bool ended = 13;
+
+  // The unix seconds the conversation ended (its change time), or 0 when it has not ended.
+  int64 ended_at = 14;
 }
 
 // SessionsWatchConversationRequest asks for the conversation of one headless session. limit follows
@@ -925,6 +941,9 @@ message Pane {
   // true while the owner has put this question off with Control.NotNow and not brought it back; a mark covers one
   // question, so a new request or a pane that starts waiting again reads false.
   bool put_off = 22;
+
+  // true when the pane's running command is claude and no Claude session is bound to it.
+  bool unbound = 23;
 }
 
 // ScreenRequest asks for the text of one pane. ansi false gives plain text, and true keeps the color escape

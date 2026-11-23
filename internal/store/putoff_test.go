@@ -37,9 +37,11 @@ func TestNotNowMigrationStepsDownAndUp(t *testing.T) {
 	ctx := context.Background()
 	s, provider := storeAtVersion(t, 66)
 	at := time.Unix(1700000000, 0)
+	// The block is a subagent's reply, which writes no session column: the store is at version 66, before the columns.
 	if err := s.ApplyEngine(ctx, []EngineOp{
 		EngineAdd{ID: "e-1", Dir: "/d", State: "idle"},
-		EngineBlock{ID: "e-1", Kind: "text", Role: "assistant", MessageID: "m1", Text: "reply"},
+		EngineBlock{ID: "e-1", Kind: "text", Role: "assistant", MessageID: "m1",
+			ParentToolUseID: "toolu_sub", Text: "reply"},
 	}, at); err != nil {
 		t.Fatalf("ApplyEngine: %v", err)
 	}

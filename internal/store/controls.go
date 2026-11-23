@@ -350,7 +350,7 @@ func (s *Store) KickEpic(ctx context.Context, epic, text string, maker Maker, at
 // TurnStopped reports whether turn seq of epic was flagged to stop. A turn that does not exist is an error matching
 // ErrNoTurn.
 func (s *Store) TurnStopped(ctx context.Context, epic string, seq int64) (bool, error) {
-	stop, err := sqlcgen.New(s.db).GetEpicTurnStop(ctx, sqlcgen.GetEpicTurnStopParams{Epic: epic, Seq: seq})
+	stop, err := sqlcgen.New(s.read).GetEpicTurnStop(ctx, sqlcgen.GetEpicTurnStopParams{Epic: epic, Seq: seq})
 	if errors.Is(err, sql.ErrNoRows) {
 		return false, fmt.Errorf("turn %d of epic %s: %w", seq, epic, ErrNoTurn)
 	}

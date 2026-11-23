@@ -94,7 +94,7 @@ func TestContractRecordBodyRefusesReviewer(t *testing.T) {
 
 // TestContractRecordBodyAcceptsBodies asserts that a body passes whose base is empty or names no commit, since the
 // body never reads the base; whose capture runs a go test whose -run pattern matches a test at the base, since the go
-// test check belongs to CreateEpic; and whose release step says merge, which CreateEpic warns of and does not refuse.
+// test check belongs to CreateEpic; and whose release step says merge, which a release step may do.
 func TestContractRecordBodyAcceptsBodies(t *testing.T) {
 	t.Parallel()
 	repo := contractLintRunRepo(t)

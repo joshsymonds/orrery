@@ -82,9 +82,13 @@ func TestMetricsServeBeforeReconcile(t *testing.T) {
 func TestMetricsScrapeHoldsEveryRuleSeries(t *testing.T) {
 	t.Parallel()
 	before := time.Now()
-	addr, _, _ := metricsWiringHeld(t, "")
+	addr, _, _, logged := metricsWiringHeldLogged(t, "")
 	families := metricsWiringFamilies(t, addr)
 	after := time.Now()
+	// The slow-call counter counts store calls longer than 100 ms of real time, so it depends on the machine's load. It is
+	// exempt from the zero check, and bounded instead by the slow store call records the logger received: the store logs a
+	// slow call before it counts it, so a scrape never counts more calls than the logger has seen by the time it returns.
+	const slowCalls = "orrery_store_slow_calls_total"
 
 	for _, name := range metricsWiringRuleSeries(t) {
 		if _, ok := families[name]; !ok {
@@ -101,7 +105,7 @@ func TestMetricsScrapeHoldsEveryRuleSeries(t *testing.T) {
 		t.Errorf("%s = %v, want the start time between %v and %v", metricsWiringStart, start, low, high)
 	}
 	for name, family := range families {
-		if !strings.HasPrefix(name, "orrery_") || name == metricsWiringStart {
+		if !strings.HasPrefix(name, "orrery_") || name == metricsWiringStart || name == slowCalls {
 			continue
 		}
 		for _, m := range family.GetMetric() {
@@ -109,6 +113,12 @@ func TestMetricsScrapeHoldsEveryRuleSeries(t *testing.T) {
 				t.Errorf("%s = %v with no events, want 0", name, got)
 			}
 		}
+	}
+	slowCount := metricsWiringValue(t, families, slowCalls, nil)
+	records := logged.slowCallRecords()
+	if slowCount > float64(records) {
+		t.Errorf("%s = %v with no events, want at most the %d slow store call records the logger received",
+			slowCalls, slowCount, records)
 	}
 }
 
@@ -280,6 +290,13 @@ func metricsWiringScrapeValue(t *testing.T, provider *telemetry.Provider, name s
 // serve sends READY=1 to, or "" for none.
 func metricsWiringHeld(t *testing.T, notify string) (string, string, chan struct{}) {
 	t.Helper()
+	addr, socket, release, _ := metricsWiringHeldLogged(t, notify)
+	return addr, socket, release
+}
+
+// metricsWiringHeldLogged is metricsWiringHeld, and also returns the handler that keeps the records orreryd logs.
+func metricsWiringHeldLogged(t *testing.T, notify string) (string, string, chan struct{}, *boundAddrHandler) {
+	t.Helper()
 	getenv := metricsWiringEnv(t)
 	storePath, err := store.Path(getenv)
 	if err != nil {
@@ -305,18 +322,18 @@ func metricsWiringHeld(t *testing.T, notify string) (string, string, chan struct
 		case <-ctx.Done():
 		}
 	}
-	addr := metricsWiringServe(t, opts, getenv)
+	bound := &boundAddrHandler{}
+	addr := metricsWiringServe(t, opts, getenv, bound)
 	<-reached
-	return addr, socket, release
+	return addr, socket, release, bound
 }
 
 // metricsWiringServe starts the metrics listener and then serve in the background, as run does, and returns the
-// address the metrics listener bound, from startMetrics's log line. When the test ends it cancels serve and checks that
-// serve returned no error.
-func metricsWiringServe(t *testing.T, opts options, getenv func(string) string) string {
+// address the metrics listener bound, from startMetrics's log line. bound receives every record serve logs. When the
+// test ends it cancels serve and checks that serve returned no error.
+func metricsWiringServe(t *testing.T, opts options, getenv func(string) string, bound *boundAddrHandler) string {
 	t.Helper()
 	ctx, cancel := context.WithCancel(t.Context())
-	bound := &boundAddrHandler{}
 	logger := slog.New(bound)
 	if err := startMetrics(ctx, &opts, time.Now(), logger); err != nil {
 		cancel()
@@ -339,18 +356,25 @@ func metricsWiringServe(t *testing.T, opts options, getenv func(string) string) 
 	return addr
 }
 
-// boundAddrHandler is a slog handler that keeps the addr of startMetrics's metricsListeningMessage line and drops every
-// other record.
+// boundAddrHandler is a slog handler that keeps the addr of startMetrics's metricsListeningMessage line, counts the
+// "slow store call" records the store logs, and drops every other record.
 type boundAddrHandler struct {
 	mu    sync.Mutex
 	bound string
+	slow  int
 }
 
 // Enabled takes every level, so the info line reaches Handle.
 func (h *boundAddrHandler) Enabled(context.Context, slog.Level) bool { return true }
 
-// Handle keeps the addr attribute of a metricsListeningMessage record.
+// Handle keeps the addr attribute of a metricsListeningMessage record, and counts a slow store call record.
 func (h *boundAddrHandler) Handle(_ context.Context, record slog.Record) error {
+	if record.Message == "slow store call" {
+		h.mu.Lock()
+		h.slow++
+		h.mu.Unlock()
+		return nil
+	}
 	if record.Message != metricsListeningMessage {
 		return nil
 	}
@@ -376,6 +400,13 @@ func (h *boundAddrHandler) addr() string {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	return h.bound
+}
+
+// slowCallRecords returns how many "slow store call" records the handler has received.
+func (h *boundAddrHandler) slowCallRecords() int {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.slow
 }
 
 // metricsWiringEnv returns a getenv over fresh state, config and tmux directories, so the store, the push store, the

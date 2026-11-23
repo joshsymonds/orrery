@@ -53,8 +53,9 @@ func Listen(socketPath string) (net.Listener, error) {
 	return ln, nil
 }
 
-// ServeConfig is what ServeWith serves. Each field is one of the services Serve takes, and the nil rules are
-// Serve's. Options apply to each handler.
+// ServeConfig is what ServeWith serves. Each field but ReleaseSlots, PaneSends and Accounts is one of the services
+// Serve takes, and the nil rules are Serve's. ReleaseSlots, PaneSends and Accounts are served by ServeWith alone.
+// Options apply to each handler.
 type ServeConfig struct {
 	Commands     Commands
 	Steps        StepCommands
@@ -68,6 +69,7 @@ type ServeConfig struct {
 	Contracts    *Contracts
 	ReleaseSlots ReleaseSlotCommands
 	PaneSends    PaneSendRecorder
+	Accounts     *Accounts
 	// Host is the name of the controller's host: each epic the Epics service creates is stamped with it, and its
 	// create checks run on the Host that Hosts resolves it to.
 	Host string
@@ -90,7 +92,7 @@ type ServeConfig struct {
 // and BringBack on a headless step id, since a step is driven only through the Steps service. opts apply to each of the
 // ten handlers. Serve serves no release slots: it is ServeWith with ReleaseSlots nil, so the ReleaseSlots service is
 // served and refuses every RPC as unavailable. Likewise it serves no pane sends, so the PaneSends service refuses every
-// RPC as unavailable.
+// RPC as unavailable, and no accounts, so the Accounts service refuses every RPC as unavailable.
 func Serve(
 	ctx context.Context,
 	ln net.Listener,
@@ -122,9 +124,10 @@ func Serve(
 }
 
 // ServeWith answers the services that cfg describes on ln until ctx ends, as Serve does, and also answers the release
-// slots service with cfg.ReleaseSlots and the PaneSends service with cfg.PaneSends. It then shuts down within
-// shutdownWait and returns nil. A nil cfg.ReleaseSlots refuses every ReleaseSlots RPC as unavailable, and a nil
-// cfg.PaneSends refuses every PaneSends RPC as unavailable. The other fields keep Serve's nil rules, and cfg.Options
+// slots service with cfg.ReleaseSlots, the PaneSends service with cfg.PaneSends and the Accounts service with
+// cfg.Accounts. It then shuts down within shutdownWait and returns nil. A nil cfg.ReleaseSlots refuses every
+// ReleaseSlots RPC as unavailable, a nil cfg.PaneSends refuses every PaneSends RPC as unavailable, and a nil
+// cfg.Accounts refuses every Accounts RPC as unavailable. The other fields keep Serve's nil rules, and cfg.Options
 // apply to each handler.
 func ServeWith(ctx context.Context, ln net.Listener, cfg ServeConfig) error {
 	opts := cfg.Options
@@ -148,6 +151,8 @@ func ServeWith(ctx context.Context, ln net.Listener, cfg ServeConfig) error {
 		releaseSlotService{slots: cfg.ReleaseSlots}, opts...)
 	paneSendsPath, paneSendsHandler := enginev1connect.NewPaneSendsHandler(
 		paneSendService{sends: cfg.PaneSends, now: time.Now}, opts...)
+	accountsPath, accountsHandler := enginev1connect.NewAccountsHandler(
+		&accountService{accounts: cfg.Accounts}, opts...)
 	mux := http.NewServeMux()
 	mux.Handle(path, handler)
 	mux.Handle(stepsPath, stepsHandler)
@@ -160,6 +165,7 @@ func ServeWith(ctx context.Context, ln net.Listener, cfg ServeConfig) error {
 	mux.Handle(contractsPath, contractsHandler)
 	mux.Handle(releaseSlotsPath, releaseSlotsHandler)
 	mux.Handle(paneSendsPath, paneSendsHandler)
+	mux.Handle(accountsPath, accountsHandler)
 	srv := &http.Server{Handler: mux, ReadHeaderTimeout: readHeaderTimeout}
 
 	done := make(chan error, 1)

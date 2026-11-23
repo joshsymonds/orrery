@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"path/filepath"
 	"strings"
 
 	"github.com/joshsymonds/orrery/internal/hostexec"
@@ -66,6 +67,49 @@ func removeStepWorktree(ctx context.Context, host hostexec.Host, repoDir, path s
 		return nil
 	}
 	return fmt.Errorf("remove step worktree %s: %w", path, err)
+}
+
+// clearUnlaunchedWorktree clears path on host, the worktree orrery names for one run or check under its own worktrees
+// directory, before a restart starts that run again. A registered worktree, or nothing at path, is cleared as
+// removeStepWorktree clears it. A start stopped inside git worktree add can leave a directory git does not list and
+// that holds no .git entry, part of a checkout no git command can remove; only that start wrote it, so it is removed
+// whole. Any other directory git does not list is refused, as removeStepWorktree refuses it.
+func clearUnlaunchedWorktree(ctx context.Context, host hostexec.Host, repoDir, path string) error {
+	err := removeStepWorktree(ctx, host, repoDir, path)
+	if err == nil {
+		return nil
+	}
+	half, checkErr := halfMadeWorktree(ctx, host, path)
+	if checkErr != nil {
+		return errors.Join(err, checkErr)
+	}
+	if !half {
+		return err
+	}
+	if rmErr := host.RemoveAll(ctx, path); rmErr != nil {
+		return fmt.Errorf("remove half-made worktree %s: %w", path, rmErr)
+	}
+	return nil
+}
+
+// halfMadeWorktree reports whether path on host is a directory, not a symbolic link, with no .git entry: what a git
+// worktree add stopped part way through its checkout leaves.
+func halfMadeWorktree(ctx context.Context, host hostexec.Host, path string) (bool, error) {
+	info, err := host.Lstat(ctx, path)
+	if err != nil {
+		return false, fmt.Errorf("inspect %s: %w", path, err)
+	}
+	if !info.IsDir() {
+		return false, nil
+	}
+	_, err = host.Lstat(ctx, filepath.Join(path, ".git"))
+	if errors.Is(err, fs.ErrNotExist) {
+		return true, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("inspect %s: %w", filepath.Join(path, ".git"), err)
+	}
+	return false, nil
 }
 
 // stepPathAbsent reports whether nothing is at path on host, not even a symbolic link. It asks the host to Lstat path,

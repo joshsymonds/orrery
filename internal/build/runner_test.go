@@ -616,7 +616,7 @@ func TestPassRedRunOfChangedItemReadsMissing(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Marshal: %v", err)
 	}
-	db, err := sql.Open("sqlite", f.dbPath)
+	db, err := sql.Open("sqlite3", f.dbPath)
 	if err != nil {
 		t.Fatalf("open store file: %v", err)
 	}

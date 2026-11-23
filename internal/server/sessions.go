@@ -10,7 +10,6 @@ import (
 
 	orreryv1 "github.com/joshsymonds/orrery/internal/gen/orrery/v1"
 	"github.com/joshsymonds/orrery/internal/gen/orrery/v1/orreryv1connect"
-	"github.com/joshsymonds/orrery/internal/protocol"
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
@@ -22,6 +21,9 @@ import (
 // each of its sends, and closing shutdown ends its streams. A nil shutdown never closes. now is the clock ListHeadless
 // dates its retention window and its aging by, the clock Sessions.List ages its panes by, and the clock
 // WatchConversation reads a background window against.
+// epics is the client whose ListEpics names the sessions that steer a live epic, which List and ListHeadless keep
+// unended and list as working while done, and a nil epics names none. List and ListHeadless also read steps' running
+// steps, whose callers list as working while done, and a nil steps names none.
 // stepped, when set, is called with the session id of each WatchConversation step before the step reads the session. A
 // test sets it to count the reads of its streams. It is nil in production.
 type sessionsServer struct {
@@ -29,6 +31,7 @@ type sessionsServer struct {
 	home        string
 	now         func() time.Time
 	steps       StepClient
+	epics       EpicStoreClient
 	changes     *changeHub
 	newTimer    func(time.Duration) (<-chan time.Time, func() bool)
 	keepalive   time.Duration
@@ -61,24 +64,28 @@ func (s sessionsServer) List(
 	if err != nil {
 		return nil, err
 	}
+	reads, err := readSteered(ctx, s.epics, s.steps, s.reader)
+	if err != nil {
+		return nil, err
+	}
 	sessions := make([]*orreryv1.Session, 0, len(snap.Sessions))
 	for _, row := range snap.Sessions {
 		session := sessionMessage(row)
 		mark := marks[archiveKey{kind: archiveKindSession, id: row.ID}]
 		changed := sessionChanged(row.Fields.Changed)
-		// A pane row ages by the seven-day floor in any state, once it is done by the done rule, and by a closed verdict
-		// for its current change time, all at s.now(). A row with no change time, changed 0, never ages. A server with
-		// no clock ages none.
+		// A pane row ages by the seven-day floor in any state, and once it has ended for endedAge, whether or not it was
+		// seen, all at s.now(). A row with no change time, changed 0, never ages. A server with no clock ages none.
 		verdict, ok := verdicts[row.ID]
+		session.Ended, session.EndedAt = endedRow(false, verdict, ok, changed, mark)
+		session.Ended, session.EndedAt = steeredEnd(reads.kept, row.ID, session.Ended, session.EndedAt)
 		aged := false
 		if changed != 0 && s.now != nil {
 			now := s.now()
-			seen := sessionSeen(row.Fields.Seen)
-			aged = floorAged(changed, now) ||
-				(row.Fields.State == string(protocol.StateDone) && doneAged(changed, seen, now)) ||
-				closureAged(verdict, ok, changed, seen, now)
+			aged = floorAged(changed, now) || endedAged(session.Ended, session.EndedAt, now)
 		}
 		session.Archived = archivedRow(mark, changed, aged)
+		// Only the listed state takes the busy set. The fields above read the stored state.
+		session.State = busyState(reads.busy, row.ID, session.State)
 		sessions = append(sessions, session)
 	}
 	return connect.NewResponse(&orreryv1.ListResponse{Sessions: sessions, Seq: snap.Seq}), nil
@@ -108,16 +115,17 @@ func sessionMessage(row store.Session) *orreryv1.Session {
 	}
 }
 
-// newSessionsHandler returns the path and handler that serve Sessions over reader and steps, with home, the clock now,
-// the change hub changes, and the keepalive and send timings and shutdown signal of sessionsServer. WatchConversation
-// steps when changes wakes its stream, and its keepalive and background timers are armed through newTimer, or through
-// time.NewTimer when newTimer is nil. The handler runs under withResponseWriter, so WatchConversation can reach its
-// connection.
+// newSessionsHandler returns the path and handler that serve Sessions over reader and steps, with epics naming the
+// sessions that steer a live epic, home, the clock now, the change hub changes, and the keepalive and send timings and
+// shutdown signal of sessionsServer. WatchConversation steps when changes wakes its stream, and its keepalive and
+// background timers are armed through newTimer, or through time.NewTimer when newTimer is nil. The handler runs under
+// withResponseWriter, so WatchConversation can reach its connection.
 func newSessionsHandler(
 	reader *store.Reader,
 	home string,
 	now func() time.Time,
 	steps StepClient,
+	epics EpicStoreClient,
 	changes *changeHub,
 	newTimer func(time.Duration) (<-chan time.Time, func() bool),
 	keepalive, sendTimeout time.Duration,
@@ -128,7 +136,7 @@ func newSessionsHandler(
 		newTimer = stdTimer
 	}
 	service := sessionsServer{
-		reader: reader, home: home, now: now, steps: steps, changes: changes, newTimer: newTimer,
+		reader: reader, home: home, now: now, steps: steps, epics: epics, changes: changes, newTimer: newTimer,
 		keepalive: keepalive, sendTimeout: sendTimeout, shutdown: shutdown,
 	}
 	path, handler := orreryv1connect.NewSessionsHandler(service, opts...)

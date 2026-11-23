@@ -170,7 +170,7 @@ func failRunnerTask(t *testing.T, s *store.Store, path string, turn, seq int64) 
 	}, claimedAt()); err != nil {
 		t.Fatalf("CompleteTurn %d: %v", turn, err)
 	}
-	db, err := sql.Open("sqlite", path)
+	db, err := sql.Open("sqlite3", path)
 	if err != nil {
 		t.Fatalf("open %s: %v", path, err)
 	}
