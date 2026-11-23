@@ -71,7 +71,7 @@ import { PaneStrip, type StripHost } from "./strip";
 import { lastPathElement } from "./titleparts";
 import { TitleRow } from "./titlerow";
 import { Toast } from "./toast";
-import { buildTree, type Convo, type Project } from "./tree";
+import { buildTree, type Convo, type Hung, type Project } from "./tree";
 import { countsOf, type Narrow, narrow as narrowTree, projectWaiting, search as searchTree, waitOrder } from "./treefilter";
 import { type ListThing, type Thing, type WorkConversation, workOf } from "./work";
 import { WorkerSessionPage } from "./workersession";
@@ -393,6 +393,8 @@ export function App({
   // and shut.
   const [folded, setFolded] = useState<Set<string>>(() => new Set());
   const [endedOpen, setEndedOpen] = useState<Set<string>>(() => new Set());
+  // The conversations whose ended epics are folded under their rows, open, by conversation key. They start shut.
+  const [convoEndedOpen, setConvoEndedOpen] = useState<Set<string>>(() => new Set());
   // The detail each epic the poll did not load answers with when its page opens. An epic is asked for once, so the
   // answers are kept here and the asked ids in a ref.
   const [askedDetails, setAskedDetails] = useState<Map<string, EpicsGetResponse>>(() => new Map());
@@ -552,7 +554,7 @@ export function App({
   // The Archived head's count: the archived conversations and the archived epics.
   const archivedCount =
     shownRows.filter((row) => row.archived).length + marked.archived.filter((item) => item.key !== keptKey).length;
-  const flat = treeEntries(projects, folded, endedOpen);
+  const flat = treeEntries(projects, folded, endedOpen, convoEndedOpen);
   // The open ⋯ menu's entry, when the list draws it: a menu whose entry is not drawn counts as closed.
   const menuDrawn = menuKey !== null && flat.some((item) => item.key === menuKey);
   const openMenu = menuDrawn ? menuKey : null;
@@ -1454,8 +1456,9 @@ export function App({
     }
   }, [pending, rows, flat]);
 
-  // revealKey opens what hides the entry under key: its project's card when the card is folded, and its ended line when
-  // the entry sits behind that line. Then the entry is drawn, so the cursor can rest on it.
+  // revealKey opens what hides the entry under key: its project's card when the card is folded, its ended line when the
+  // entry sits behind that line, and its conversation's ended fold when the entry is one of its folded epics. Then the
+  // entry is drawn, so the cursor can rest on it.
   const revealKey = (key: string) => {
     for (const project of tree) {
       const behind = project.ended.some((convo) => holdsKey(convo, key));
@@ -1464,6 +1467,11 @@ export function App({
       }
       if (behind) {
         setEndedOpen((previous) => withMember(previous, project.key, true));
+      }
+      for (const convo of project.convos) {
+        if (convo.folded.some((hung) => holdsThing(hung, key))) {
+          setConvoEndedOpen((previous) => withMember(previous, convo.key, true));
+        }
       }
     }
   };
@@ -1512,7 +1520,7 @@ export function App({
     if (!convos.some((convo) => holdsKey(convo, key))) {
       return;
     }
-    const hung = convos.flatMap((convo) => convo.hung).find((candidate) => candidate.key === key);
+    const hung = convos.flatMap((convo) => [...convo.hung, ...convo.folded]).find((candidate) => candidate.key === key);
     if (hung?.kind === "contract") {
       openContractPanel(hung.contract.id);
       return;
@@ -2439,19 +2447,21 @@ export function App({
     );
   };
 
-  // renderConvo draws a conversation of the tree: its row, and what hangs under it. A row drawn again behind the ended line
-  // is the parent of its ended things, and draws no cursor.
+  // renderConvo draws a conversation of the tree: its row, and what hangs under it, with its fold of ended epics, which
+  // its key holds open or shut.
   const renderConvo = (convo: Convo) => (
     <ConvoRow
       convo={convo}
       now={now}
       cursorKey={cursorKey}
+      endedOpen={convoEndedOpen.has(convo.key)}
+      onEnded={() => setConvoEndedOpen((previous) => withMember(previous, convo.key, !previous.has(convo.key)))}
       renderRow={(row) => (
         <InboxRow
           key={row.key}
           row={row}
           now={now}
-          cursor={!convo.again && row.key === cursorRowKey}
+          cursor={row.key === cursorRowKey}
           more={rowMore(row)}
           onOpen={() => {
             selectItem(row);
@@ -3184,20 +3194,30 @@ function findCurrent(stored: number, matches: number): number {
 }
 
 // treeEntries lists the entries the tree draws, in the order it draws them: each project not folded, its conversations,
-// then, while its ended line is open, its ended conversations. A conversation's row is an entry unless it is drawn again,
-// and each thing hung under a conversation is one: an epic, which is followed by its running steps, or a contract.
-function treeEntries(projects: readonly Project[], folded: ReadonlySet<string>, endedOpen: ReadonlySet<string>): Item[] {
+// then, while its ended line is open, its ended conversations. A conversation's row is an entry, then each thing hung
+// under it, and then, while its fold of ended epics is open, each folded epic. A thing is an entry: an epic, which is
+// followed by its running steps, or a contract.
+function treeEntries(
+  projects: readonly Project[],
+  folded: ReadonlySet<string>,
+  endedOpen: ReadonlySet<string>,
+  convoEndedOpen: ReadonlySet<string>,
+): Item[] {
   const entries: Item[] = [];
+  const addThing = (hung: Hung) => {
+    if (hung.kind === "epic") {
+      entries.push(hung.block.epic, ...hung.block.steps);
+    } else {
+      entries.push(hung);
+    }
+  };
   const addConvo = (convo: Convo) => {
-    if (convo.row !== null && !convo.again) {
+    if (convo.row !== null) {
       entries.push(convo.row);
     }
-    for (const hung of convo.hung) {
-      if (hung.kind === "epic") {
-        entries.push(hung.block.epic, ...hung.block.steps);
-      } else {
-        entries.push(hung);
-      }
+    convo.hung.forEach(addThing);
+    if (convoEndedOpen.has(convo.key)) {
+      convo.folded.forEach(addThing);
     }
   };
   for (const project of projects) {
@@ -3212,15 +3232,18 @@ function treeEntries(projects: readonly Project[], folded: ReadonlySet<string>, 
   return entries;
 }
 
-// holdsKey says whether a conversation draws the entry under key: its row, or a thing hung under it, or a step of an epic
-// hung under it.
+// holdsKey says whether a conversation draws the entry under key: its row, or a thing hung or folded under it, or a step
+// of an epic hung or folded under it.
 function holdsKey(convo: Convo, key: string): boolean {
   if (convo.row !== null && convo.row.key === key) {
     return true;
   }
-  return convo.hung.some(
-    (hung) => hung.key === key || (hung.kind === "epic" && hung.block.steps.some((step) => step.key === key)),
-  );
+  return [...convo.hung, ...convo.folded].some((hung) => holdsThing(hung, key));
+}
+
+// holdsThing says whether a thing is the entry under key, or one of an epic's steps.
+function holdsThing(hung: Hung, key: string): boolean {
+  return hung.key === key || (hung.kind === "epic" && hung.block.steps.some((step) => step.key === key));
 }
 
 // withMember is the set with key in it when member, or out of it, and previous itself when it already is.

@@ -332,6 +332,10 @@ button.link.notices-more { justify-self: end; padding: 0 var(--o-space-12); colo
    accepted, led by the contract's mark. */
 .inbox .steers { display: grid; grid-template-columns: minmax(0, 1fr); margin: 0 0 var(--o-space-4) var(--o-space-24); padding-left: var(--o-space-4); border-left: var(--o-size-hairline) solid var(--o-line-firm); }
 .inbox .steers .row.epic .title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* A conversation's fold of ended epics: a line under its live things that reads how many there are, and opens them. */
+.inbox .steers .steers-fold { display: flex; align-items: center; gap: var(--o-space-8); width: 100%; padding: var(--o-space-4) var(--o-space-8); border: 0; border-radius: var(--o-radius-2); background: none; color: var(--o-ink-3); font: var(--o-type-small); }
+.inbox .steers .steers-fold:hover { background: var(--o-surface-page); color: var(--o-ink-2); }
+.inbox .steers .steers-fold .icon { color: var(--o-ink-4); }
 
 /* EpicRow: an epic. Its gauge, its name and count; then its state in words; then what blocks it, in attention. */
 .inbox .row.epic { grid-template-columns: var(--o-size-gauge) minmax(0, 1fr) auto; align-items: start; }
@@ -368,6 +372,7 @@ button.link.notices-more { justify-self: end; padding: 0 var(--o-space-12); colo
   .inbox .row { padding: var(--o-space-12) var(--o-space-8); }
   .inbox .row.step { min-height: var(--o-size-control-touch); }
   .dir-head, .fold-line { min-height: var(--o-size-control-touch); }
+  .inbox .steers .steers-fold { min-height: var(--o-size-control-touch); }
   .dir-head .fold { width: var(--o-space-32); height: var(--o-size-control-touch); }
   .inbox kbd, .sheet kbd { display: none; }
 }

@@ -14,10 +14,10 @@ export type Hung = EpicNode | ContractItem;
 export interface Convo {
   key: string;        // row.key; a thing with no drawn conversation is its own row, keyed by the thing's key
   row: Row | null;    // null for a thing drawn as its own row, with no conversation drawn above it
-  again: boolean;     // true when this is a conversation drawn a second time, behind the ended line, as the parent of
-                      // its ended epics while it is still in the tree above
   hung: Hung[];       // in the tree: its live epics (Epics.List order), then its contracts (Contracts.List order);
                       // behind the ended line: its ended epics
+  folded: Hung[];     // in the tree: its ended epics, newest first, drawn under its row only while its fold is open;
+                      // behind the ended line: none
 }
 
 export interface Project {
@@ -191,23 +191,23 @@ export function buildTree(input: TreeInput): Project[] {
     }
   }
   // A drawn conversation is placed by serve's fields: the Archived view draws each one it holds in the tree; the inbox
-  // draws one that serve reports ended behind its project's ended line, with everything hung under it, and any other in the
-  // tree, with its ended epics again behind the line.
+  // draws one that serve reports ended behind its project's ended line, with everything hung under it, and any other in
+  // the tree, with its ended epics folded under it, newest first, and nothing of it behind the line.
   for (const row of drawn) {
     const own = anchoredTo(row);
     const project = projectAt(placeOfRow(row));
-    const convo = (hung: Hung[], again: boolean): Convo => ({ key: row.key, row, again, hung });
+    const convo = (hung: Hung[], folded: Hung[]): Convo => ({ key: row.key, row, hung, folded });
     if (!inbox) {
-      project.convos.push(convo(own.map((item) => item.hung), false));
+      project.convos.push(convo(own.map((item) => item.hung), []));
     } else if (row.ended === true) {
-      project.ended.push(convo(own.map((item) => item.hung), false));
+      project.ended.push(convo(own.map((item) => item.hung), []));
     } else {
       const live = own.filter((item) => !item.ended).map((item) => item.hung);
-      const finished = own.filter((item) => item.ended).map((item) => item.hung);
-      project.convos.push(convo(live, false));
-      if (finished.length > 0) {
-        project.ended.push(convo(finished, true));
-      }
+      const folded = own
+        .filter((item) => item.ended)
+        .map((item) => item.hung)
+        .sort((left, right) => changedThing(right) - changedThing(left));
+      project.convos.push(convo(live, folded));
     }
   }
 
@@ -217,7 +217,7 @@ export function buildTree(input: TreeInput): Project[] {
     if (item.row !== null) {
       continue;
     }
-    const convo: Convo = { key: item.hung.key, row: null, again: false, hung: [item.hung] };
+    const convo: Convo = { key: item.hung.key, row: null, hung: [item.hung], folded: [] };
     const project = projectAt(item.place);
     if (item.ended) {
       project.ended.push(convo);
@@ -279,7 +279,12 @@ export function changedOf(convo: Convo): number {
   if (convo.row !== null) {
     return convo.row.changed;
   }
-  return Math.max(...convo.hung.map((hung) => Number(hung.kind === "epic" ? hung.listed.changed : hung.contract.changed)));
+  return Math.max(...convo.hung.map((hung) => changedThing(hung)));
+}
+
+// changedThing is when a hung thing last changed: its epic's listed change, or its contract's.
+function changedThing(hung: Hung): number {
+  return Number(hung.kind === "epic" ? hung.listed.changed : hung.contract.changed);
 }
 
 // bestOf is a project's best conversation's rank, after every rank when it has none in the tree.

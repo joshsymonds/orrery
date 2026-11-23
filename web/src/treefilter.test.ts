@@ -77,6 +77,11 @@ function layout(convos: Convo[]): Record<string, string[]> {
   return Object.fromEntries(convos.map((convo) => [convo.key, convo.hung.map((hung) => hung.key)]));
 }
 
+// folds maps each conversation of a list to the keys of the ended epics folded under it.
+function folds(convos: Convo[]): Record<string, string[]> {
+  return Object.fromEntries(convos.map((convo) => [convo.key, convo.folded.map((hung) => hung.key)]));
+}
+
 test("InboxTree counts an epic with three questions once, and its waiting conversation once", () => {
   const details = new Map([["repo-a/alpha", threeQuestions]]);
   const epics = [makeEpic({ steering: "sess-a" })];
@@ -222,11 +227,12 @@ test("InboxTree narrows to what waits, keeping each waiting conversation as the 
       details: new Map([["repo-a/alpha", threeQuestions]]),
     }),
   );
-  assert.equal(projectAt(projects, "|/srv/app").ended.length, 2);
+  assert.deepEqual(folds(projectAt(projects, "|/srv/app").convos), { w: [], d: ["epic:repo-a/beta"], n: ["epic:repo-a/gamma"] });
   const waiting = narrow(projects, "waiting");
   assert.deepEqual(waiting.map((project) => project.name), ["app"]);
   const app = waiting[0];
   assert.deepEqual(layout(app.convos), { w: [], d: ["epic:repo-a/alpha"] });
+  assert.deepEqual(folds(app.convos), { w: [], d: [] });
   assert.deepEqual(app.ended, []);
 });
 
@@ -256,6 +262,7 @@ test("InboxTree narrows to unseen rows, each with nothing hung under it and no e
   const keys = fresh.flatMap((project) => project.convos.map((convo) => convo.key));
   assert.deepEqual(keys.sort(), ["h", "u1", "x"]);
   assert.deepEqual(fresh.flatMap((project) => project.convos.flatMap((convo) => convo.hung)), []);
+  assert.deepEqual(fresh.flatMap((project) => project.convos.flatMap((convo) => convo.folded)), []);
   assert.deepEqual(fresh.flatMap((project) => project.ended), []);
 });
 
@@ -305,6 +312,23 @@ test("InboxTree search keeps all of a conversation's things when the conversatio
   assert.deepEqual(layout(projectAt(projects, "|/home/owner/code/lighthouse").convos), {
     a: ["epic:repo-a/alpha", "epic:repo-a/beta"],
   });
+});
+
+test("InboxTree search keeps only the folded epics that match under their conversation, and all of them when it matches", () => {
+  const rows = [makeRow({ key: "a", label: "alpha convo", archiveId: "sess-a", project: "/home/owner/code/lighthouse", host: "halyard" })];
+  const projects = buildTree(
+    inputOf(rows, {
+      epics: [
+        makeEpic({ id: "repo-a/alpha", steering: "sess-a", live: false, slug: "alpha-work", outcome: "shipping", changed: 20n }),
+        makeEpic({ id: "repo-a/beta", steering: "sess-a", live: false, slug: "beta-work", outcome: "planning", changed: 10n }),
+      ],
+    }),
+  );
+  const shipping = search(projects, ["shipping"]);
+  assert.deepEqual(layout(projectAt(shipping, "|/home/owner/code/lighthouse").convos), { a: [] });
+  assert.deepEqual(folds(projectAt(shipping, "|/home/owner/code/lighthouse").convos), { a: ["epic:repo-a/alpha"] });
+  const convo = search(projects, ["convo"]);
+  assert.deepEqual(folds(projectAt(convo, "|/home/owner/code/lighthouse").convos), { a: ["epic:repo-a/alpha", "epic:repo-a/beta"] });
 });
 
 test("InboxTree search finds a contract by its title, a conversation by its state, and a project by its path", () => {

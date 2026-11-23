@@ -49,16 +49,17 @@ function epicNode(id: string): EpicNode {
   return { kind: "epic", key: `epic:${id}`, block: blockOf(listed, gets.get(id)), listed, contract: null };
 }
 
-// project holds the given hung items under one conversation in the tree and the ended ones behind the ended line.
-function project(hung: Hung[] = [], ended: Hung[] = []): Project {
+// project holds the given hung items under one conversation in the tree, the folded ones as its ended epics, and the ended
+// ones behind the ended line.
+function project(hung: Hung[] = [], ended: Hung[] = [], folded: Hung[] = []): Project {
   return {
     key: "host|/home/owner/code/orrery",
     dir: "/home/owner/code/orrery",
     name: "orrery",
     path: "~/code/orrery",
     host: "",
-    convos: [{ key: "convo", row: null, again: false, hung }],
-    ended: [{ key: "ended", row: null, again: false, hung: ended }],
+    convos: [{ key: "convo", row: null, hung, folded }],
+    ended: [{ key: "ended", row: null, hung: ended, folded: [] }],
   };
 }
 
@@ -143,6 +144,21 @@ test("NoticeStack: an epic under a project's ended line is found as listed and l
   const head = noticeHead(
     notice({ key: noticeKeyOf({ epic: node.listed.id }), block: block("report") }),
     [project([], [node])],
+    [],
+    now,
+  );
+  assert.deepEqual(head, {
+    lead: { kind: "gauge", gauge: epicRowWords(node, now).gauge },
+    dir: "",
+    what: "holder-scopes finished",
+  });
+});
+
+test("NoticeStack: an epic folded under a conversation in the tree is found as listed and leads with its gauge", () => {
+  const node = epicNode("orrery/holder-scopes");
+  const head = noticeHead(
+    notice({ key: noticeKeyOf({ epic: node.listed.id }), block: block("report") }),
+    [project([], [], [node])],
     [],
     now,
   );
