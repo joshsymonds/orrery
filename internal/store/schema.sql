@@ -20,7 +20,7 @@ CREATE TABLE sessions (
     tool TEXT NOT NULL DEFAULT '',
     claude_session TEXT NOT NULL DEFAULT '',
     transcript TEXT NOT NULL DEFAULT ''
-, kind TEXT NOT NULL DEFAULT '', dir TEXT NOT NULL DEFAULT '', reason TEXT NOT NULL DEFAULT '', consumed INTEGER, replay_from INTEGER NOT NULL DEFAULT 0, background BOOLEAN NOT NULL DEFAULT 0, turn_output TEXT NOT NULL DEFAULT '', prompts_from INTEGER NOT NULL DEFAULT 0, title TEXT NOT NULL DEFAULT '', headline TEXT NOT NULL DEFAULT '', headline_at INTEGER NOT NULL DEFAULT 0, awaited BOOLEAN NOT NULL DEFAULT 0);
+, kind TEXT NOT NULL DEFAULT '', dir TEXT NOT NULL DEFAULT '', reason TEXT NOT NULL DEFAULT '', consumed INTEGER, replay_from INTEGER NOT NULL DEFAULT 0, background BOOLEAN NOT NULL DEFAULT 0, turn_output TEXT NOT NULL DEFAULT '', prompts_from INTEGER NOT NULL DEFAULT 0, title TEXT NOT NULL DEFAULT '', headline TEXT NOT NULL DEFAULT '', headline_at INTEGER NOT NULL DEFAULT 0, awaited BOOLEAN NOT NULL DEFAULT 0, latest_reply TEXT NOT NULL DEFAULT '', newest_reply_at INTEGER NOT NULL DEFAULT 0, first_prompt_text TEXT NOT NULL DEFAULT '', latest_request_id TEXT NOT NULL DEFAULT '');
 CREATE TABLE events (
     seq INTEGER PRIMARY KEY AUTOINCREMENT,
     session_id TEXT NOT NULL,
@@ -989,4 +989,5 @@ INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (92,91,
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (93,92,1);
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (94,93,1);
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (95,94,1);
+INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (96,95,1);
 INSERT INTO "pending_notice_ids" ("id", "high") VALUES (1,0);
