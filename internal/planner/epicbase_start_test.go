@@ -38,14 +38,16 @@ func newBaseStartRepo(t *testing.T) baseStartRepo {
 	return repo
 }
 
-// advanceOrigin pushes a commit on top of base to origin's main, from a clone of origin, and returns the commit.
-// origin's main is then ahead of the epic's base, and the checkout has not fetched it.
+// advanceOrigin pushes a commit on top of origin's main, from a clone of origin, and returns the commit. The commit's
+// content names its parent, so a second call makes a commit with a tree of its own. origin's main is then ahead of the
+// epic's base, and the checkout has not fetched it.
 func advanceOrigin(t *testing.T, repo baseStartRepo) string {
 	t.Helper()
 	dir := t.TempDir()
 	clone := filepath.Join(dir, "clone")
 	featureGit(t, dir, "clone", "-q", repo.origin, clone)
-	ahead := featureCommit(t, clone, "epic.txt", "ahead\n", "origin's main moves on")
+	parent := featureGit(t, clone, "rev-parse", "HEAD")
+	ahead := featureCommit(t, clone, "epic.txt", "ahead of "+parent+"\n", "origin's main moves on")
 	featureGit(t, clone, "push", "-q", "origin", "main")
 	return ahead
 }
@@ -185,11 +187,12 @@ func TestEpicBaseStartKeepsBaseWhenOriginMainDoesNotContainIt(t *testing.T) {
 }
 
 // TestEpicBaseStartKeepsBaseWhenFetchFails asserts that a planner turn of an epic with no task and no branch keeps its
-// base when the fetch of origin's main fails, and that one tell says the base stays and names the fetch error.
+// base when the fetch of origin's main fails, and that one tell says the base stays and names the fetch error. The
+// fetch is faked and never reads origin, so origin is not moved. The checkout is still a real repository, made by
+// newBaseStartRepo, because the epic's repository and base are that checkout and its first commit.
 func TestEpicBaseStartKeepsBaseWhenFetchFails(t *testing.T) {
 	t.Parallel()
 	repo := newBaseStartRepo(t)
-	advanceOrigin(t, repo)
 	s := openRunnerStore(t)
 	createBaseStartEpic(t, s, repo)
 	refused := func(context.Context, string) (string, error) {
@@ -206,11 +209,12 @@ func TestEpicBaseStartKeepsBaseWhenFetchFails(t *testing.T) {
 // TestEpicBaseStartKeepsBaseWhenFetchPassesItsBound asserts that a planner turn of an epic with no task and no branch
 // keeps its base when the fetch of origin's main passes its time bound, and that one tell says the bound was passed.
 // The fetch is handed a bounded context: a fetch that is not bounded fails the tell's text instead, so the tell can
-// only say the bound was passed when the runner bounds the fetch.
+// only say the bound was passed when the runner bounds the fetch. The fetch is faked and never reads origin, so origin
+// is not moved. The checkout is still a real repository, made by newBaseStartRepo, because the epic's repository and
+// base are that checkout and its first commit.
 func TestEpicBaseStartKeepsBaseWhenFetchPassesItsBound(t *testing.T) {
 	t.Parallel()
 	repo := newBaseStartRepo(t)
-	advanceOrigin(t, repo)
 	s := openRunnerStore(t)
 	createBaseStartEpic(t, s, repo)
 	passed := func(ctx context.Context, _ string) (string, error) {
