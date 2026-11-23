@@ -367,11 +367,13 @@ func controllerHost(opts options, getenv func(string) string) (string, string, e
 }
 
 // nameUnhosted names the rows of st that have no host as name, once the store is open. A nil st has no rows to name.
+// The write runs on a context that ctx's cancellation does not reach: it is one short write that must finish so every
+// row reads its host, so a shutdown signal that arrives during it lets it commit rather than failing startup.
 func nameUnhosted(ctx context.Context, st *store.Store, name string) error {
 	if st == nil {
 		return nil
 	}
-	if _, err := st.NameUnhostedSessions(ctx, name); err != nil {
+	if _, err := st.NameUnhostedSessions(context.WithoutCancel(ctx), name); err != nil {
 		return fmt.Errorf("name the controller's rows: %w", err)
 	}
 	return nil
