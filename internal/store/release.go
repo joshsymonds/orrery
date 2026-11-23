@@ -14,8 +14,9 @@ import (
 // The parts a release run records: the candidate the release starts from, a release step, the judge's verdict, a named
 // position the owner set, a verify run, which records that origin's main was not in a candidate and so the candidate
 // was prepared again, a round of the release integrator, which finished a merge of origin's commit that conflicted, a
-// replan, which sends the release back to planning for a change to its candidate that a blocked round asked for, and a
-// review, which records whether a release reviewer held the candidate before the first release step started from it.
+// replan, which sends the release back to planning for a change to its candidate that a blocked round asked for, a
+// review, which records whether a release reviewer held the candidate before the first release step started from it,
+// and a stop, which records that the owner stopped the release at an attempt, so no further step of it starts.
 const (
 	ReleasePartCandidate  = "candidate"
 	ReleasePartStep       = "release"
@@ -25,6 +26,7 @@ const (
 	ReleasePartIntegrator = "integrator"
 	ReleasePartReplan     = "replan"
 	ReleasePartReview     = "review"
+	ReleasePartStop       = "stop"
 )
 
 // The phases an epic's release moves through: clean until it takes the release slot, releasing while it holds the
@@ -229,23 +231,15 @@ func (s *Store) StopRelease(ctx context.Context, epic, path string, attempt int6
 }
 
 // releaseStopClass returns the class of the park a release of epic stopped at attempt takes, from the store's rows. It is
-// release_owner_stop when epic holds no release slot or a release reviewer refused its candidate at attempt,
-// release_undo_none when the release step that failed at attempt has undo none, and release_step otherwise.
+// release_owner_stop when the owner stopped the release at attempt or a release reviewer refused its candidate at
+// attempt, release_undo_none when the release step that failed at attempt has undo none, and release_step otherwise.
 func releaseStopClass(ctx context.Context, queries *sqlcgen.Queries, epic string, attempt int64) (ParkClass, error) {
-	head, err := epicHead(ctx, queries, epic)
-	if err != nil {
-		return "", err
-	}
-	holder, err := releaseSlotHolder(ctx, queries, head.Repository)
-	if err != nil {
-		return "", err
-	}
-	if holder != epic {
-		return ParkClassReleaseOwnerStop, nil
-	}
 	runs, err := readReleaseRuns(ctx, queries, epic)
 	if err != nil {
 		return "", err
+	}
+	if ownerStoppedAt(runs, attempt) {
+		return ParkClassReleaseOwnerStop, nil
 	}
 	if slices.ContainsFunc(runs, func(run ReleaseRun) bool {
 		return run.Part == ReleasePartReview && run.Attempt == attempt && !run.Passed
@@ -268,6 +262,13 @@ func releaseStopClass(ctx context.Context, queries *sqlcgen.Queries, epic string
 		}
 	}
 	return ParkClassReleaseStep, nil
+}
+
+// ownerStoppedAt reports whether runs hold the owner's stop of the release at attempt: a stop run of that attempt.
+func ownerStoppedAt(runs []ReleaseRun, attempt int64) bool {
+	return slices.ContainsFunc(runs, func(run ReleaseRun) bool {
+		return run.Part == ReleasePartStop && run.Attempt == attempt
+	})
 }
 
 // releaseParkSubject is the subject of the park a stopped release makes: the release, whatever its node path.

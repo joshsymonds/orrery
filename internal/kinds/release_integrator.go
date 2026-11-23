@@ -46,7 +46,7 @@ func integratorAction(run store.NodeRun, rows Rows) Action {
 			return r.Part == store.ReleasePartIntegrator && r.Attempt == run.Attempt && r.Position == position
 		})
 		if !ok {
-			return integratorStart(rows, id, position, head, previous)
+			return integratorStart(rows, run.Attempt, id, position, head, previous)
 		}
 		if !recorded.Passed {
 			if act := replanAction(run, rows); act.Kind == ActReplan {
@@ -78,16 +78,16 @@ func integratorAction(run store.NodeRun, rows Rows) Action {
 
 // integratorStart decides the round of the release integrator whose step is id and whose release run is at position,
 // which has no release run. It records the step once its end is stored, and waits while it runs. With no step, it
-// stops the release when the epic does not hold the release slot, waits while the epic is paused or parked, and starts
-// the round otherwise. A round after the first starts from head, the commit of the round before it, with previous, the
-// failure that round's commit met, as its Output.
-func integratorStart(rows Rows, id string, position int64, head, previous string) Action {
+// stops the release when the owner stopped it at the run's attempt, waits while the epic is paused or parked, and
+// starts the round otherwise. A round after the first starts from head, the commit of the round before it, with
+// previous, the failure that round's commit met, as its Output.
+func integratorStart(rows Rows, attempt int64, id string, position int64, head, previous string) Action {
 	if row, found := firstMatch(rows.Steps, func(s store.StepRow) bool { return s.ID == id }); found {
 		return recordAction(row, []string{store.ReleasePartIntegrator, strconv.FormatInt(position, 10)})
 	}
-	if !holdsSlot(rows) {
+	if ownerStopped(rows, attempt) {
 		return Action{
-			Kind: ActStop, Output: "the release integrator did not start: this epic does not hold the release slot",
+			Kind: ActStop, Output: "the release integrator did not start: the owner stopped the release",
 		}
 	}
 	if rows.Epic.Paused || rows.Epic.Parked != "" {

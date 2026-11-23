@@ -166,6 +166,14 @@ func holdsSlot(rows Rows) bool {
 	return rows.Slot == rows.Epic.ID
 }
 
+// ownerStopped reports whether the owner stopped the release at attempt: a stop release run of that attempt is stored.
+func ownerStopped(rows Rows, attempt int64) bool {
+	_, ok := firstMatch(rows.Releases, func(r store.ReleaseRun) bool {
+		return r.Part == store.ReleasePartStop && r.Attempt == attempt
+	})
+	return ok
+}
+
 // releaseRun decides a releasing epic's run. Its candidate comes first, then its release steps in order, the first of
 // them gated by its release reviewers, then its judge.
 func releaseRun(run store.NodeRun, rows Rows) Action {
@@ -324,8 +332,8 @@ func walkSteps(run store.NodeRun, rows Rows, candidate string) Action {
 
 // stepAction decides release step position, which has not passed, from start. It stops on a step that failed at this
 // attempt, and records a step whose end is stored. Otherwise it waits while the step runs, or starts it when it has no
-// row, unless the epic does not hold the slot, is paused, the step's undo is none after an earlier failure, or the first
-// step's candidate is not yet held by the release reviewers (releaseReviewGate).
+// row, unless the owner stopped the release at this attempt, is paused, the step's undo is none after an earlier
+// failure, or the first step's candidate is not yet held by the release reviewers (releaseReviewGate).
 func stepAction(run store.NodeRun, rows Rows, position int64, step store.EpicReleaseStep, start string) Action {
 	failed, ok := firstMatch(rows.Releases, func(r store.ReleaseRun) bool {
 		return r.Part == store.ReleasePartStep && r.Position == position && !r.Passed && r.Attempt == run.Attempt
@@ -341,11 +349,11 @@ func stepAction(run store.NodeRun, rows Rows, position int64, step store.EpicRel
 	if row, found := firstMatch(rows.Steps, func(s store.StepRow) bool { return s.ID == id }); found {
 		return recordAction(row, []string{label, start})
 	}
-	if !holdsSlot(rows) {
+	if ownerStopped(rows, run.Attempt) {
 		return Action{
 			Kind: ActStop,
 			Output: fmt.Sprintf(
-				"release step %d (%s) did not start: this epic does not hold the release slot",
+				"release step %d (%s) did not start: the owner stopped the release",
 				position, step.Step,
 			),
 		}
@@ -443,7 +451,8 @@ func undoNoneStopped(run store.NodeRun, rows Rows, position int64, step store.Ep
 }
 
 // judgeAction decides the judge after the last release step, from the candidate. It ends released when the judge of this
-// attempt passed, stops on one that failed, and otherwise starts the judge, waits while it runs, or records it.
+// attempt passed, stops on one that failed, and otherwise starts the judge, waits while it runs, or records it. It
+// stops without starting the judge when the owner stopped the release at this attempt.
 func judgeAction(run store.NodeRun, rows Rows, candidate string) Action {
 	judged, ok := firstMatch(rows.Releases, func(r store.ReleaseRun) bool {
 		return r.Part == store.ReleasePartJudge && r.Attempt == run.Attempt
@@ -459,8 +468,8 @@ func judgeAction(run store.NodeRun, rows Rows, candidate string) Action {
 	if row, found := firstMatch(rows.Steps, func(s store.StepRow) bool { return s.ID == id }); found {
 		return recordAction(row, items)
 	}
-	if !holdsSlot(rows) {
-		return Action{Kind: ActStop, Output: "the judge did not start: this epic does not hold the release slot"}
+	if ownerStopped(rows, run.Attempt) {
+		return Action{Kind: ActStop, Output: "the judge did not start: the owner stopped the release"}
 	}
 	if rows.Epic.Paused {
 		return Action{Kind: ActNone}

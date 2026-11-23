@@ -54,8 +54,8 @@ func releaseOwnerStops(t *testing.T, s *Store, park string) {
 		{Step: "push tag", Target: "origin", Undo: "delete tag"},
 		{Step: "publish", Target: "registry", Undo: "none"},
 	})
-	if err := s.FreeReleaseSlot(ctx, claimEpic); err != nil {
-		t.Fatalf("FreeReleaseSlot: %v", err)
+	if _, err := s.StopEpic(ctx, claimEpic, Maker{By: MakerOwner}, claimedAt()); err != nil {
+		t.Fatalf("StopEpic: %v", err)
 	}
 	if err := s.StopRelease(ctx, claimEpic, "release", 1, park, claimedAt()); err != nil {
 		t.Fatalf("StopRelease: %v", err)

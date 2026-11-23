@@ -416,6 +416,7 @@ func TestReleaseSteps(t *testing.T) {
 	failedFirst := store.ReleaseRun{
 		Part: store.ReleasePartStep, Position: 1, Attempt: 1, Reason: "push rejected",
 	}
+	ownerStop := store.ReleaseRun{Part: store.ReleasePartStop, Attempt: 1, Reason: "owner stopped the release"}
 	undoNoneStop := "release step 1 (build the image) failed at an earlier attempt with undo none, so it runs again only when named"
 	cases := []decideCase{
 		{
@@ -519,22 +520,25 @@ func TestReleaseSteps(t *testing.T) {
 			},
 		},
 		{
-			"step with no row stops when another epic holds the slot",
+			"step with no row stops when the owner stopped the release",
 			releaseNode(1, "", ""),
-			Rows{Epic: releasingEpic(steps...), Slot: releaseOtherEpicID, Releases: []store.ReleaseRun{candidate}},
+			Rows{Epic: releasingEpic(steps...), Releases: []store.ReleaseRun{candidate, ownerStop}},
 			Action{
 				Kind:   ActStop,
-				Output: "release step 1 (build the image) did not start: this epic does not hold the release slot",
+				Output: "release step 1 (build the image) did not start: the owner stopped the release",
 			},
 		},
 		{
-			"step with no row stops when the slot is free",
+			"step with no row starts while another epic holds the slot",
 			releaseNode(1, "", ""),
-			Rows{Epic: releasingEpic(steps...), Releases: []store.ReleaseRun{candidate}},
-			Action{
-				Kind:   ActStop,
-				Output: "release step 1 (build the image) did not start: this epic does not hold the release slot",
-			},
+			Rows{Epic: releasingEpic(steps...), Slot: releaseOtherEpicID, Releases: []store.ReleaseRun{candidate}},
+			Action{Kind: ActStep, IDs: []string{attemptWorkID(1, "release 1")}, Items: []string{"release 1", "cand-1"}},
+		},
+		{
+			"owner stop of an earlier attempt does not stop the step",
+			releaseNode(2, "", ""),
+			Rows{Epic: releasingEpic(steps...), Releases: []store.ReleaseRun{candidate, ownerStop}},
+			Action{Kind: ActStep, IDs: []string{attemptWorkID(2, "release 1")}, Items: []string{"release 1", "cand-1"}},
 		},
 		{
 			"step with no row gives none while paused",
@@ -696,10 +700,16 @@ func TestReleaseJudge(t *testing.T) {
 			Action{Kind: ActJudge, IDs: []string{attemptWorkID(2, "judge")}, Items: []string{"judge", "cand-1"}},
 		},
 		{
-			"judge with no row stops when another epic holds the slot",
+			"judge with no row stops when the owner stopped the release",
 			releaseNode(1, "", ""),
-			Rows{Epic: epic, Slot: releaseOtherEpicID, Releases: []store.ReleaseRun{candidate, passedStep}},
-			Action{Kind: ActStop, Output: "the judge did not start: this epic does not hold the release slot"},
+			Rows{
+				Epic: epic,
+				Releases: []store.ReleaseRun{
+					candidate, passedStep,
+					{Part: store.ReleasePartStop, Attempt: 1, Reason: "owner stopped the release"},
+				},
+			},
+			Action{Kind: ActStop, Output: "the judge did not start: the owner stopped the release"},
 		},
 		{
 			"judge with no row gives none while paused",

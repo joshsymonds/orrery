@@ -58,8 +58,8 @@ func TestReleaseIntegratorDecisions(t *testing.T) {
 	passedCapture.NotCaptured, passedCapture.Verdict, passedCapture.Passed = "", evidence.VerdictHolds, true
 	paused := integratorRows(nil, nil, nil, nil)
 	paused.Epic.Paused = true
-	unheld := integratorRows(nil, nil, nil, nil)
-	unheld.Slot = releaseOtherEpicID
+	stop := store.ReleaseRun{Part: store.ReleasePartStop, Attempt: 1, Reason: "owner stopped the release"}
+	stopped := integratorRows([]store.ReleaseRun{stop}, nil, nil, nil)
 	cases := []struct {
 		name string
 		rows Rows
@@ -72,10 +72,10 @@ func TestReleaseIntegratorDecisions(t *testing.T) {
 		},
 		{name: "paused epic waits", rows: paused, want: Action{Kind: ActNone}},
 		{
-			name: "slot not held stops",
-			rows: unheld,
+			name: "owner stop stops before the round starts",
+			rows: stopped,
 			want: Action{
-				Kind: ActStop, Output: "the release integrator did not start: this epic does not hold the release slot",
+				Kind: ActStop, Output: "the release integrator did not start: the owner stopped the release",
 			},
 		},
 		{
