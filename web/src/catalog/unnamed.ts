@@ -54,6 +54,9 @@ export const unnamed: Readonly<Record<string, UnnamedEntry>> = {
   // HeldSheet draws the held thing where the desk's card does not fit, as a sheet over the conversation. Round 6 draws a
   // panel for a thing as a sheet.
   "held-sheet": { replacement: "Sheet", epic: "F4" },
+  // DesignCard draws a design held at the desk: its state, then its contracts in position order, each with its state. Round 6
+  // draws a design's contracts as Work cards, and no design's record.
+  "design-card": { replacement: "WorkCard", epic: "F4" },
 
   // ---- single stories of round-6 components, each the component in a state round 6 does not draw ----
 
