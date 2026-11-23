@@ -81,6 +81,8 @@ func epicTableColumns() map[string][]string {
 			// The task's kind and the seq of the design task it revises, from 00091_task_kind.sql.
 			"kind",
 			"revises",
+			// The seq of the task this task was split from, from 00102_task_split_test_runs.sql.
+			"split_from",
 		},
 		"epic_task_files":        {"epic", "task", "position", "path"},
 		"epic_task_requirements": {"epic", "task", "position", "requirement"},
@@ -99,6 +101,10 @@ func epicTableColumns() map[string][]string {
 		"epic_task_findings": {
 			"epic", "task", "generation", "attempt", "review", "position", "id", "claim", "citation", "location",
 			"evidence", "verify_by", "step", "result", "reason", "unverified",
+		},
+		// The test runs of a task's attempts and reviews, from 00102_task_split_test_runs.sql.
+		"epic_task_test_runs": {
+			"epic", "task", "generation", "attempt", "review", "position", "command", "revision", "step", "output",
 		},
 		// The task ladder's rungs and their outcomes, from 00070_task_ladder.sql.
 		"epic_task_rungs": {
@@ -154,6 +160,8 @@ func epicTableColumns() map[string][]string {
 		"planner_actions": {
 			"epic", "turn", "position", "kind", "node", "task", "close_kind", "by_epic", "undo_none", "reason", "state",
 			"refusal", "park", "requirement", "item", "deliverable", "files", "remove_files", "reviewer",
+			// The tasks a split action's descendants are, from 00102_task_split_test_runs.sql.
+			"split_tasks",
 		},
 		// The gaps a planner turn declared it cannot resolve without the owner, from 00079_gap_reconcile.sql.
 		"planner_unresolvable": {"epic", "turn", "position", "gap", "reason", "recommended"},
@@ -577,8 +585,9 @@ func TestEpicMigrationKeepsExistingRows(t *testing.T) {
 		`SELECT COALESCE(MAX(version_id), 0) FROM goose_db_version WHERE is_applied = 1`).Scan(&version); err != nil {
 		t.Fatalf("read store version: %v", err)
 	}
-	// Open applies 00014_epics.sql and every migration after it: 00101_drop_sync_columns.sql is the newest.
-	// The newest was 00100_epic_base_legacy_sync.sql before the sync columns' drop added 00101_drop_sync_columns.sql,
+	// Open applies 00014_epics.sql and every migration after it: 00102_task_split_test_runs.sql is the newest.
+	// The newest was 00101_drop_sync_columns.sql before the task split migration added 00102_task_split_test_runs.sql,
+	// 00100_epic_base_legacy_sync.sql before the sync columns' drop added 00101_drop_sync_columns.sql,
 	// 00099_sync_integrate_rounds.sql before the epic base migration added 00100_epic_base_legacy_sync.sql,
 	// 00098_drop_release_slots.sql before the sync integrate rounds migration added 00099,
 	// 00097_engine_hosts.sql before the release slots' drop added 00098,
@@ -610,8 +619,8 @@ func TestEpicMigrationKeepsExistingRows(t *testing.T) {
 	// added 00065, 00063_task_versions.sql before the step indexes added 00064, 00062_drop_engine_held.sql before the
 	// task versions added 00063, 00061_prompt_states.sql before the drop of engine_held added 00062, and
 	// 00060_cron_jobs.sql before the prompt states added 00061.
-	if version != 101 {
-		t.Fatalf("store version after Open = %d, want 101", version)
+	if version != 102 {
+		t.Fatalf("store version after Open = %d, want 102", version)
 	}
 
 	// A later migration may add columns at the end of an existing table, as 00015_step_readopt.sql adds to steps and

@@ -48,6 +48,20 @@ func (s *Store) AddTaskReview(
 	})
 }
 
+// SetTestRunResult stores result, with its step and output, on one test run of task seq of epic and stores to as the
+// task's build, in one write, when the stored build is from. It is not implemented yet: it returns an error and writes
+// nothing.
+func (s *Store) SetTestRunResult(
+	_ context.Context,
+	epic string,
+	seq int64,
+	_, _ TaskBuild,
+	result TaskTestRunResult,
+) error {
+	return fmt.Errorf("set result of test run %d of task %d of epic %s: not implemented yet",
+		result.Position, seq, epic)
+}
+
 // SetFindingResult stores result, with its step and reason, on one finding of task seq of epic and stores to as the
 // task's build, in one write, when the stored build is from. A result with no outcome is refused and writes nothing. A
 // task that is not open, or whose stored build is not from, is ErrTaskMoved and writes nothing. A finding that is not

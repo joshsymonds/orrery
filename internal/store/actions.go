@@ -29,6 +29,7 @@ const (
 	ActionSendBack       = "send_back"
 	ActionRerunReview    = "rerun_review"
 	ActionReopenDesign   = "reopen_design"
+	ActionSplit          = "split"
 )
 
 // The states a planner action leaves its pending state in, once: taken, or refused. The state is stored as text, so
@@ -42,8 +43,8 @@ const (
 var errActionSettled = errors.New("action is not pending")
 
 // EpicActionInput is one action of a planner return: its kind, the node, task, close kind, replacing epic, Requirement,
-// evidence item, deliverable and reviewer it names where its kind uses them, the undo-none positions it names, and the
-// planner's reason.
+// evidence item, deliverable and reviewer it names where its kind uses them, the undo-none positions it names, the
+// descendants a split names, and the planner's reason.
 type EpicActionInput struct {
 	Kind        string
 	Node        string
@@ -57,7 +58,21 @@ type EpicActionInput struct {
 	Remove      []string
 	Reviewer    string
 	UndoNone    []int64
+	Split       []SplitTask
 	Reason      string
+}
+
+// SplitTask is one task a split action gives in place of the task it splits: its title and deliverable, the files it
+// touches, the test files it changes, the Requirements it claims and contributes to, its gate and its evidence item.
+type SplitTask struct {
+	Title       string        `json:"title"`
+	Deliverable string        `json:"deliverable"`
+	Files       []string      `json:"files"`
+	TestChanges []string      `json:"testChanges"`
+	Claims      []string      `json:"claims"`
+	Contributes []string      `json:"contributes"`
+	Gate        string        `json:"gate"`
+	Evidence    evidence.Item `json:"evidence"`
 }
 
 // PlannerAction is a stored action of a planner turn: the epic and turn that returned it, its 1-based position in the
@@ -100,13 +115,18 @@ func plannerActionOf(row sqlcgen.PlannerAction) (PlannerAction, error) {
 		return PlannerAction{}, fmt.Errorf("remove files of action %d of turn %d of epic %s: %w",
 			row.Position, row.Turn, row.Epic, err)
 	}
+	split, err := decodeList[SplitTask](row.SplitTasks)
+	if err != nil {
+		return PlannerAction{}, fmt.Errorf("split tasks of action %d of turn %d of epic %s: %w",
+			row.Position, row.Turn, row.Epic, err)
+	}
 	return PlannerAction{
 		Epic: row.Epic, Turn: row.Turn, Position: row.Position,
 		EpicActionInput: EpicActionInput{
 			Kind: row.Kind, Node: row.Node, Task: row.Task, Close: row.CloseKind, By: row.ByEpic,
 			Requirement: row.Requirement, Item: item, Deliverable: row.Deliverable, Files: files, Remove: remove,
 			Reviewer: row.Reviewer,
-			UndoNone: undo, Reason: row.Reason,
+			UndoNone: undo, Split: split, Reason: row.Reason,
 		},
 	}, nil
 }
@@ -321,8 +341,19 @@ func carryOutAction(
 		return nil, rerunReview(ctx, queries, action, at)
 	case ActionReopenDesign:
 		return nil, reopenDesign(ctx, queries, action)
+	case ActionSplit:
+		return splitTask(ctx, queries, action, at)
 	}
 	return nil, RefusalError(fmt.Sprintf("%q is not a planner action", action.Kind))
+}
+
+// splitTask splits the task action names into the descendants action holds, in the caller's write, as CarryOutAction
+// describes. The split is not carried out yet, so it is a RefusalError and writes nothing.
+func splitTask(
+	_ context.Context, _ *sqlcgen.Queries, action PlannerAction, _ time.Time,
+) ([]string, error) {
+	return nil, RefusalError(fmt.Sprintf(
+		"split of task %d of epic %s is not carried out yet", action.Task, action.Epic))
 }
 
 // taskFailed is the status of a task whose build failed. A reopen refuses a failed task, as it refuses a gap.
@@ -677,11 +708,15 @@ func insertActions(
 		if err != nil {
 			return fmt.Errorf("remove files of action %d of turn %d of epic %s: %w", position, turn, epic, err)
 		}
+		split, err := encodeList(action.Split)
+		if err != nil {
+			return fmt.Errorf("split tasks of action %d of turn %d of epic %s: %w", position, turn, epic, err)
+		}
 		return queries.InsertPlannerAction(ctx, sqlcgen.InsertPlannerActionParams{
 			Epic: epic, Turn: turn, Position: position, Kind: action.Kind, Node: action.Node, Task: action.Task,
 			CloseKind: action.Close, ByEpic: action.By, UndoNone: string(encoded), Reason: action.Reason,
 			Requirement: action.Requirement, Item: item, Deliverable: action.Deliverable, Files: files,
-			RemoveFiles: remove, Reviewer: action.Reviewer,
+			RemoveFiles: remove, Reviewer: action.Reviewer, SplitTasks: split,
 		})
 	})
 }
