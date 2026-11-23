@@ -422,8 +422,9 @@ func TestCaptureToolEndIsDeliveredWithItsTailsAndKeptFiles(t *testing.T) {
 	}
 }
 
-// TestCaptureToolTimedOutEndIsDeliveredAsKilled runs a capture that prints, keeps a file and sleeps past its one-second limit.
-// Its end is delivered with the timeout and the reason it captured nothing, and it keeps the output it made before it was killed.
+// TestCaptureToolTimedOutEndIsDeliveredAsKilled delivers a stored timed-out end. The end is stored as a capture that timed out at
+// its limit, with the stdout it made and a kept file, and Resume delivers it: the one block the asking step is told says it timed
+// out, was killed at its limit, and keeps the output and the file it made. No command runs and no clock is waited on.
 func TestCaptureToolTimedOutEndIsDeliveredAsKilled(t *testing.T) {
 	t.Parallel()
 	repo, head := captureTestRepo(t)
@@ -432,11 +433,27 @@ func TestCaptureToolTimedOutEndIsDeliveredAsKilled(t *testing.T) {
 	rig := captureTestNewRig(t, st, "")
 	c := rig.captures(t)
 
-	if _, err := c.Capture(t.Context(), captureTestStep, CaptureArgs{
-		Commit: head, Argv: []string{"/bin/sh", "-c", "printf 'out line\\n'; printf kept > small.txt; sleep 30"},
-		Briefs: briefs, Files: []string{"small.txt"},
+	const id = "timed-out-end"
+	stdout := "out line\n"
+	if err := st.AddCapture(t.Context(), store.Capture{
+		ID: id, Epic: captureTestEpic, Repository: repo, Step: captureTestStep, Role: captureRoleStep,
+		Runner: localRunnerName, Commit: head, Argv: []string{"/bin/sh", "-c", "printf 'out line\\n'"},
+		Files: []string{"small.txt"}, Briefs: briefs, Limit: 1, Created: time.Unix(1700000000, 0),
 	}); err != nil {
-		t.Fatalf("Capture: %v", err)
+		t.Fatalf("AddCapture %s: %v", id, err)
+	}
+	logHash, _, err := rig.blobs().put([]byte(stdout), ".log")
+	if err != nil {
+		t.Fatalf("store stdout log: %v", err)
+	}
+	if err := st.RecordCaptureEnd(t.Context(), id, store.EvidenceCapture{
+		TimedOut: true, NotCaptured: evidenceCaptureKilled, LogHash: logHash, LogBytes: int64(len(stdout)),
+		Artifacts: []store.EvidenceArtifact{{Path: "small.txt", State: "kept"}}, At: time.Unix(1700000001, 0),
+	}); err != nil {
+		t.Fatalf("RecordCaptureEnd %s: %v", id, err)
+	}
+	if err := c.Resume(t.Context()); err != nil {
+		t.Fatalf("Resume: %v", err)
 	}
 	got := captureTestDelivered(t, c, rig.deliveries, 1)
 	for _, want := range []string{"timed out: true\n", "not captured: killed at its limit\n",
