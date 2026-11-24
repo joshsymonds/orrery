@@ -5718,7 +5718,7 @@ func (q *Queries) ListBuildEpics(ctx context.Context) ([]string, error) {
 }
 
 const listCallerStepListings = `-- name: ListCallerStepListings :many
-SELECT id, agent, workspace, revision, worktree, read_only, started, checks, doing, verdicts, status, end_value, reason, ended, epic, task, gate_name, gate_limit, loop_limited, loop_limit_kind, loop_limit_resets, loop_stage, loop_stage_from, caller, summary FROM step_listings
+SELECT id, agent, workspace, revision, worktree, read_only, started, checks, doing, verdicts, status, end_value, reason, ended, epic, task, gate_name, gate_limit, loop_limited, loop_limit_kind, loop_limit_resets, loop_stage, loop_stage_from, caller, summary, host FROM step_listings
 WHERE step_listings.caller = ?1
   AND (CAST(?2 AS TEXT) = '' OR step_listings.epic = CAST(?2 AS TEXT))
   AND (step_listings.end_value = '' OR step_listings.id IN (
@@ -5770,6 +5770,7 @@ func (q *Queries) ListCallerStepListings(ctx context.Context, arg ListCallerStep
 			&i.LoopStageFrom,
 			&i.Caller,
 			&i.Summary,
+			&i.Host,
 		); err != nil {
 			return nil, err
 		}
@@ -7590,7 +7591,7 @@ func (q *Queries) ListEpicLedger(ctx context.Context, epic string) ([]EpicLedger
 }
 
 const listEpicListings = `-- name: ListEpicListings :many
-SELECT epics.id, epics.repository, epics.title, epics.phase, epics.phase_at, epics.created, epics.changed,
+SELECT epics.id, epics.repository, epics.host, epics.title, epics.phase, epics.phase_at, epics.created, epics.changed,
     epics.steerer, epics.paused, epics.pause_source, epics.parked,
     CAST(COALESCE(epic_revisions.revision, 0) AS INTEGER) AS revision, epic_seen.at AS seen_at,
     CAST((SELECT COUNT(*) FROM epic_questions WHERE epic_questions.epic = epics.id AND epic_questions.state = 'open')
@@ -7606,6 +7607,7 @@ ORDER BY epics.id
 type ListEpicListingsRow struct {
 	ID            string
 	Repository    string
+	Host          string
 	Title         string
 	Phase         string
 	PhaseAt       int64
@@ -7633,6 +7635,7 @@ func (q *Queries) ListEpicListings(ctx context.Context) ([]ListEpicListingsRow, 
 		if err := rows.Scan(
 			&i.ID,
 			&i.Repository,
+			&i.Host,
 			&i.Title,
 			&i.Phase,
 			&i.PhaseAt,
@@ -8319,7 +8322,7 @@ func (q *Queries) ListEpicSessions(ctx context.Context, epic string) ([]ListEpic
 }
 
 const listEpicStepListings = `-- name: ListEpicStepListings :many
-SELECT id, agent, workspace, revision, worktree, read_only, started, checks, doing, verdicts, status, end_value, reason, ended, epic, task, gate_name, gate_limit, loop_limited, loop_limit_kind, loop_limit_resets, loop_stage, loop_stage_from, caller, summary FROM step_listings WHERE epic = ?1 ORDER BY started, id
+SELECT id, agent, workspace, revision, worktree, read_only, started, checks, doing, verdicts, status, end_value, reason, ended, epic, task, gate_name, gate_limit, loop_limited, loop_limit_kind, loop_limit_resets, loop_stage, loop_stage_from, caller, summary, host FROM step_listings WHERE epic = ?1 ORDER BY started, id
 `
 
 func (q *Queries) ListEpicStepListings(ctx context.Context, epic string) ([]StepListing, error) {
@@ -8357,6 +8360,7 @@ func (q *Queries) ListEpicStepListings(ctx context.Context, epic string) ([]Step
 			&i.LoopStageFrom,
 			&i.Caller,
 			&i.Summary,
+			&i.Host,
 		); err != nil {
 			return nil, err
 		}
@@ -8738,7 +8742,7 @@ func (q *Queries) ListEpicTaskRungs(ctx context.Context, epic string) ([]ListEpi
 }
 
 const listEpicTaskStepListings = `-- name: ListEpicTaskStepListings :many
-SELECT id, agent, workspace, revision, worktree, read_only, started, checks, doing, verdicts, status, end_value, reason, ended, epic, task, gate_name, gate_limit, loop_limited, loop_limit_kind, loop_limit_resets, loop_stage, loop_stage_from, caller, summary FROM step_listings WHERE epic = ?1 AND task = ?2 ORDER BY started, id
+SELECT id, agent, workspace, revision, worktree, read_only, started, checks, doing, verdicts, status, end_value, reason, ended, epic, task, gate_name, gate_limit, loop_limited, loop_limit_kind, loop_limit_resets, loop_stage, loop_stage_from, caller, summary, host FROM step_listings WHERE epic = ?1 AND task = ?2 ORDER BY started, id
 `
 
 type ListEpicTaskStepListingsParams struct {
@@ -8781,6 +8785,7 @@ func (q *Queries) ListEpicTaskStepListings(ctx context.Context, arg ListEpicTask
 			&i.LoopStageFrom,
 			&i.Caller,
 			&i.Summary,
+			&i.Host,
 		); err != nil {
 			return nil, err
 		}
@@ -10058,7 +10063,7 @@ func (q *Queries) ListLLMAccounts(ctx context.Context) ([]ListLLMAccountsRow, er
 }
 
 const listLabelledStepListings = `-- name: ListLabelledStepListings :many
-SELECT id, agent, workspace, revision, worktree, read_only, started, checks, doing, verdicts, status, end_value, reason, ended, epic, task, gate_name, gate_limit, loop_limited, loop_limit_kind, loop_limit_resets, loop_stage, loop_stage_from, caller, summary FROM step_listings
+SELECT id, agent, workspace, revision, worktree, read_only, started, checks, doing, verdicts, status, end_value, reason, ended, epic, task, gate_name, gate_limit, loop_limited, loop_limit_kind, loop_limit_resets, loop_stage, loop_stage_from, caller, summary, host FROM step_listings
 WHERE epic <> '' AND (CAST(?1 AS TEXT) = '' OR task = CAST(?1 AS TEXT))
 ORDER BY started, id
 `
@@ -10098,6 +10103,7 @@ func (q *Queries) ListLabelledStepListings(ctx context.Context, task string) ([]
 			&i.LoopStageFrom,
 			&i.Caller,
 			&i.Summary,
+			&i.Host,
 		); err != nil {
 			return nil, err
 		}
@@ -10769,7 +10775,7 @@ func (q *Queries) ListOpenEvidenceRuns(ctx context.Context) ([]EvidenceRun, erro
 }
 
 const listOpenStepListings = `-- name: ListOpenStepListings :many
-SELECT id, agent, workspace, revision, worktree, read_only, started, checks, doing, verdicts, status, end_value, reason, ended, epic, task, gate_name, gate_limit, loop_limited, loop_limit_kind, loop_limit_resets, loop_stage, loop_stage_from, caller, summary FROM step_listings WHERE end_value = '' AND epic <> '' ORDER BY started, id
+SELECT id, agent, workspace, revision, worktree, read_only, started, checks, doing, verdicts, status, end_value, reason, ended, epic, task, gate_name, gate_limit, loop_limited, loop_limit_kind, loop_limit_resets, loop_stage, loop_stage_from, caller, summary, host FROM step_listings WHERE end_value = '' AND epic <> '' ORDER BY started, id
 `
 
 func (q *Queries) ListOpenStepListings(ctx context.Context) ([]StepListing, error) {
@@ -10807,6 +10813,7 @@ func (q *Queries) ListOpenStepListings(ctx context.Context) ([]StepListing, erro
 			&i.LoopStageFrom,
 			&i.Caller,
 			&i.Summary,
+			&i.Host,
 		); err != nil {
 			return nil, err
 		}

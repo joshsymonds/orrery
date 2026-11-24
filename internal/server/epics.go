@@ -295,6 +295,7 @@ type storedHead interface {
 	GetPaused() bool
 	GetPauseSource() string
 	GetParked() string
+	GetHost() string
 }
 
 // storedPhaseLive reports whether an orreryd epic in phase is live: it is not met_at_base, released or done, which end an
@@ -306,9 +307,9 @@ func storedPhaseLive(phase string) bool {
 // storedEpicMessage returns the Epic of an epic orreryd's database holds, from its head: its outcome is the phase,
 // which for a closed epic is the closed phase of its kind, its phase time, changed time, seen time and revision are the
 // database's, and it is live unless the phase is met_at_base, released or done, which end an epic, or a closed phase,
-// which a close ends it in; ended_with_gaps and stopped stay live. Its steering and whether it is heard, paused, pause
-// source and park are the head's, its path is the repository path given and its open questions are the count given,
-// since the two heads answer them differently. Its running steps and its count of ended steps are counts'.
+// which a close ends it in; ended_with_gaps and stopped stay live. Its host, steering and whether it is heard, paused,
+// pause source and park are the head's, its path is the repository path given and its open questions are the count
+// given, since the two heads answer them differently. Its running steps and its count of ended steps are counts'.
 func storedEpicMessage(
 	id string,
 	head storedHead,
@@ -338,6 +339,7 @@ func storedEpicMessage(
 		Parked:        head.GetParked(),
 		OpenQuestions: openQuestions,
 		SteererHeard:  head.GetSteererHeard(),
+		Host:          head.GetHost(),
 	}
 }
 
@@ -681,8 +683,9 @@ func epicStepMessages(steps []*enginev1.Step) []*orreryv1.EpicStep {
 
 // epicStepMessage converts step to its EpicStep. Each check's detail and its two tails are carried, redacted. Stdout and
 // stderr are carried only for a failed gate check, and a check that is not a gate check carries none of the four. The
-// summary is the latest result's string summary. The verdicts are the step's judge verdicts. The role is implementer
-// for a writing step; a read-only step's role comes from its stored epic, through applyStoredRoles.
+// summary is the latest result's string summary. The verdicts are the step's judge verdicts, and its host is the
+// step's. The role is implementer for a writing step; a read-only step's role comes from its stored epic, through
+// applyStoredRoles.
 func epicStepMessage(step *enginev1.Step) *orreryv1.EpicStep {
 	checks := make([]*orreryv1.EpicStepCheck, 0, len(step.GetChecks()))
 	for _, check := range step.GetChecks() {
@@ -727,6 +730,7 @@ func epicStepMessage(step *enginev1.Step) *orreryv1.EpicStep {
 		Role:         role,
 		Summary:      redact.Text(step.GetSummary()),
 		Verdicts:     epicStepVerdictMessages(step.GetVerdicts()),
+		Host:         step.GetHost(),
 	}
 }
 

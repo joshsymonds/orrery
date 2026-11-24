@@ -43,6 +43,7 @@ type StepListing struct {
 	LoopStageFrom   time.Time
 	Caller          string
 	Summary         string
+	Host            string
 }
 
 // Listing returns the listing of row, as step_listings reads it from the stored row. The result is read as a JSON
@@ -75,6 +76,7 @@ func (row StepRow) Listing() StepListing {
 		LoopStageFrom:   row.LoopStageFrom,
 		Caller:          row.Caller,
 		Summary:         resultString(stepResultFields(row.Result), "summary"),
+		Host:            row.Host,
 	}
 }
 
@@ -216,6 +218,7 @@ func stepListingOf(row sqlcgen.StepListing) (StepListing, error) {
 		LoopStage:     row.LoopStage,
 		Caller:        row.Caller,
 		Summary:       row.Summary,
+		Host:          row.Host,
 	}
 	if row.EndValue != "" {
 		listing.Ended = time.Unix(row.Ended, 0)
