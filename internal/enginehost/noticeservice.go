@@ -38,12 +38,40 @@ type PageNotices struct {
 	route   Router
 	history NoticeHistory
 	now     func() time.Time
+	// panes is the rule WithControllerPanes sets for a pane key that names no host, or nil when no rule is set.
+	panes *controllerPanes
+}
+
+// controllerPanes is the rule for a pane key that names no host: it is the controller's own pane, named by orrery,
+// while othersListed is false, and it is dropped once othersListed is true.
+type controllerPanes struct {
+	orrery       string
+	othersListed bool
+}
+
+// PageNoticesOption sets one optional behavior of the PageNotices that NewPageNotices returns.
+type PageNoticesOption func(*PageNotices)
+
+// WithControllerPanes sets the rule for a pane key that names no host. Such a key is the controller's own pane while
+// the hosts file lists no other host, so Seen names orrery as its host. Once the hosts file lists one, Seen drops the
+// key and reports nothing to the router.
+func WithControllerPanes(orrery string, othersListed bool) PageNoticesOption {
+	return func(s *PageNotices) {
+		s.panes = &controllerPanes{orrery: orrery, othersListed: othersListed}
+	}
 }
 
 // NewPageNotices returns a PageNotices that watches pages, reports each seen notice to route at now's time, and lists
-// and marks read the notice history of history. A nil history answers List and ReadAll with route.ErrNoHistory.
-func NewPageNotices(pages *inapp.Hub, route Router, history NoticeHistory, now func() time.Time) *PageNotices {
-	return &PageNotices{pages: pages, route: route, history: history, now: now}
+// and marks read the notice history of history. A nil history answers List and ReadAll with route.ErrNoHistory. opts
+// set the optional behavior of the PageNotices, and without them Seen reports every key as it is given.
+func NewPageNotices(
+	pages *inapp.Hub, route Router, history NoticeHistory, now func() time.Time, opts ...PageNoticesOption,
+) *PageNotices {
+	s := &PageNotices{pages: pages, route: route, history: history, now: now}
+	for _, opt := range opts {
+		opt(s)
+	}
+	return s
 }
 
 // Watch returns the notices showing in pages and the changes to them after that. See inapp.Hub.Watch.
@@ -51,8 +79,16 @@ func (s *PageNotices) Watch() ([]inapp.Notice, <-chan inapp.Change, func()) {
 	return s.pages.Watch()
 }
 
-// Seen reports to route that the owner saw the notice under key, at now's time in unix seconds.
+// Seen reports to route that the owner saw the notice under key, at now's time in unix seconds. Under
+// WithControllerPanes, a pane key that names no host is the controller's pane and takes its orrery name as its host, or
+// is dropped and reported to nothing once the hosts file lists another host.
 func (s *PageNotices) Seen(ctx context.Context, key notice.Key) {
+	if s.panes != nil && key.Pane != "" && key.Host == "" {
+		if s.panes.othersListed {
+			return
+		}
+		key.Host = s.panes.orrery
+	}
 	s.route.Seen(ctx, key, s.now().Unix())
 }
 

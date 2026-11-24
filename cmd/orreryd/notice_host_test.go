@@ -2,12 +2,16 @@ package main
 
 import (
 	"log/slog"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/joshsymonds/orrery/internal/daemon"
 	"github.com/joshsymonds/orrery/internal/deskstream"
+	"github.com/joshsymonds/orrery/internal/inapp"
 	"github.com/joshsymonds/orrery/internal/node"
 	"github.com/joshsymonds/orrery/internal/notice"
 	"github.com/joshsymonds/orrery/internal/protocol"
@@ -221,4 +225,205 @@ func TestNoticeHostPaneOnlyReports(t *testing.T) {
 	if hub.reads.recent(hostA, now) {
 		t.Errorf("the read report of %s was kept for host %s's %s", noticeHostPane, noticeHostA, noticeHostPane)
 	}
+}
+
+// noticeHostsWithA is a hosts file that lists one other host, noticeHostA.
+const noticeHostsWithA = `[[hosts]]
+name = "` + noticeHostA + `"
+address = "synthetic-host-a.example:7443"
+`
+
+// noticeHostEnv returns the getenv that locates a hosts file under a temp dir: a file holding contents, or no file when
+// contents is empty.
+func noticeHostEnv(t *testing.T, contents string) func(string) string {
+	t.Helper()
+	config := t.TempDir()
+	if contents != "" {
+		dir := filepath.Join(config, "orrery")
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			t.Fatalf("make hosts directory: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "hosts.toml"), []byte(contents), 0o600); err != nil {
+			t.Fatalf("write hosts file: %v", err)
+		}
+	}
+	return func(key string) string {
+		if key == "XDG_CONFIG_HOME" {
+			return config
+		}
+		return ""
+	}
+}
+
+// hostlessRelay returns the controller's relay for the hostless tests: a real Notices that sends through a
+// recordSender, and a router, both attached to st as serve attaches them. The clock is sinks'.
+func hostlessRelay(t *testing.T, sinks *paneSinks, st *store.Store) (*relay, *notice.Notices, *recordSender) {
+	t.Helper()
+	ctx := t.Context()
+	sender := &recordSender{}
+	notices := notice.New(
+		noticeHostController, sender, sinks.Now, slog.New(slog.DiscardHandler),
+		notice.WithStoreDeadline(testStoreDeadline),
+	)
+	hub := newNoticeHostRelay(t, sinks, notices)
+	notices.Attach(ctx, st)
+	hub.router.Attach(ctx, st)
+	return hub, notices, sender
+}
+
+// wantPushedRows asserts the pushed rows st holds, in the order the store lists them.
+func wantPushedRows(t *testing.T, st *store.Store, want ...store.PushedRow) {
+	t.Helper()
+	got, err := st.Pushed(t.Context())
+	if err != nil {
+		t.Fatalf("list pushed: %v", err)
+	}
+	if !slices.Equal(got, want) {
+		t.Errorf("pushed rows = %+v, want %+v", got, want)
+	}
+}
+
+// wantHistoryRead asserts that key has at least one notice history row, and that each of its rows reads as read.
+func wantHistoryRead(t *testing.T, st *store.Store, key notice.Key, read bool) {
+	t.Helper()
+	rows, err := st.NoticeHistory(t.Context(), 0)
+	if err != nil {
+		t.Fatalf("list notice history: %v", err)
+	}
+	want := store.NoticeHistoryKey(key)
+	found := 0
+	for _, row := range rows {
+		if row.Key != want {
+			continue
+		}
+		found++
+		if row.Read != read {
+			t.Errorf("history row %d of %+v reads %t, want %t", row.ID, key, row.Read, read)
+		}
+	}
+	if found == 0 {
+		t.Errorf("notice history holds no row of %+v", key)
+	}
+}
+
+// TestNoticeHostHostlessSeenNoHostsFile checks that a seen report naming the pane %3 and no host is the controller's
+// own pane, while the hosts file lists no other host. It ends the controller's pending notice, clears its push,
+// deletes its pushed row and marks its history read. It checks a missing hosts file and one that lists no host alike.
+func TestNoticeHostHostlessSeenNoHostsFile(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct{ name, hostsFile string }{
+		{name: "no hosts.toml"},
+		{name: "a hosts.toml that lists no host", hostsFile: `name = "` + noticeHostController + `"` + "\n"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			ctx := t.Context()
+			sinks := newPaneSinks(noticeHostStart, true)
+			st := openPaneStore(t, filepath.Join(t.TempDir(), "orrery.db"))
+			hub, notices, sender := hostlessRelay(t, sinks, st)
+			controller := notice.Key{Pane: noticeHostPane, Host: noticeHostController}
+
+			// The controller's %3 is pushed once, so its push row is stored. It then waits again, held at the desk.
+			hub.router.Notify(ctx, viewNotice(controller))
+			hub.router.Wait()
+			sinks.fire(t, route.Escalation)
+			hub.router.Wait()
+			notices.Wait()
+			hub.router.Notify(ctx, viewNotice(controller))
+			hub.router.Wait()
+			if got := sinks.activeTimers(route.Escalation); got != 1 {
+				t.Fatalf("escalations waiting = %d, want 1: the controller's pending notice", got)
+			}
+			wantHistoryRead(t, st, controller, false)
+
+			pageNotices, err := controllerPageNotices(
+				inapp.NewHub(), hub.router, noticeHostController, sinks.Now, noticeHostEnv(t, tc.hostsFile),
+			)
+			if err != nil {
+				t.Fatalf("page notices: %v", err)
+			}
+			seen := sinks.Now().Unix()
+			pageNotices.Seen(ctx, notice.Key{Pane: noticeHostPane})
+			notices.Wait()
+
+			if got := sinks.activeTimers(route.Escalation); got != 0 {
+				t.Errorf("escalations waiting after the seen = %d, want 0: the pending notice ends", got)
+			}
+			sender.mu.Lock()
+			clears := slices.Clone(sender.clears)
+			sender.mu.Unlock()
+			wantClears := []push.Clear{{Host: noticeHostController, Pane: noticeHostPane, Seen: seen}}
+			if !slices.Equal(clears, wantClears) {
+				t.Errorf("clears = %+v, want %+v", clears, wantClears)
+			}
+			wantPushedRows(t, st)
+			wantHistoryRead(t, st, controller, true)
+		})
+	}
+}
+
+// TestNoticeHostHostlessSeenOtherHostListed checks that a seen report naming the pane %3 and no host is dropped once
+// the hosts file lists another host. The controller's %3 and host a's %3 both hold notices, and the report leaves both
+// pending, clears nothing, and keeps both pushed rows and unread history. A notice under the bare key %3 is a probe:
+// were the report passed on as it came, it would end that notice.
+func TestNoticeHostHostlessSeenOtherHostListed(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	sinks := newPaneSinks(noticeHostStart, true)
+	st := openPaneStore(t, filepath.Join(t.TempDir(), "orrery.db"))
+	hub, notices, sender := hostlessRelay(t, sinks, st)
+	controller := notice.Key{Pane: noticeHostPane, Host: noticeHostController}
+	hostA := notice.Key{Pane: noticeHostPane, Host: noticeHostA}
+	probe := notice.Key{Pane: noticeHostPane}
+	// escalated is how many seconds one escalation takes to fire on the sinks' clock.
+	escalated := int64(route.Escalation / time.Second)
+
+	// Each of the controller's and host a's notices is pushed once, so each push row is stored, as the clock moves on.
+	hub.router.Notify(ctx, viewNotice(controller))
+	hub.router.Wait()
+	sinks.fire(t, route.Escalation)
+	hub.router.Wait()
+	notices.Wait()
+	hub.observeRemote(ctx, noticeHostA, remoteEvent(noticeHostA, protocol.StateWorking, protocol.StateWaiting))
+	hub.router.Wait()
+	sinks.fire(t, route.Escalation)
+	hub.router.Wait()
+	notices.Wait()
+
+	// The controller's %3, host a's %3 and the probe each wait at the desk.
+	hub.router.Notify(ctx, viewNotice(controller))
+	hub.observeRemote(ctx, noticeHostA, remoteEvent(noticeHostA, protocol.StateWorking, protocol.StateWaiting))
+	hub.router.Notify(ctx, viewNotice(probe))
+	hub.router.Wait()
+	if got := sinks.activeTimers(route.Escalation); got != 3 {
+		t.Fatalf("escalations waiting = %d, want 3: the controller's, host a's and the probe's notices", got)
+	}
+	wantHistoryRead(t, st, controller, false)
+	wantHistoryRead(t, st, hostA, false)
+
+	pageNotices, err := controllerPageNotices(
+		inapp.NewHub(), hub.router, noticeHostController, sinks.Now, noticeHostEnv(t, noticeHostsWithA),
+	)
+	if err != nil {
+		t.Fatalf("page notices: %v", err)
+	}
+	pageNotices.Seen(ctx, notice.Key{Pane: noticeHostPane})
+	notices.Wait()
+
+	if got := sinks.activeTimers(route.Escalation); got != 3 {
+		t.Errorf("escalations waiting after the seen = %d, want 3: every notice still pending", got)
+	}
+	sender.mu.Lock()
+	clears := slices.Clone(sender.clears)
+	sender.mu.Unlock()
+	if len(clears) != 0 {
+		t.Errorf("clears = %+v, want none", clears)
+	}
+	wantPushedRows(t, st,
+		store.PushedRow{Host: noticeHostController, Pane: noticeHostPane, Time: noticeHostStart + escalated},
+		store.PushedRow{Host: noticeHostA, Pane: noticeHostPane, Time: noticeHostStart + 2*escalated},
+	)
+	wantHistoryRead(t, st, controller, false)
+	wantHistoryRead(t, st, hostA, false)
+	wantHistoryRead(t, st, probe, false)
 }

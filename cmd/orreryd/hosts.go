@@ -8,10 +8,13 @@ import (
 	"sync"
 	"time"
 
+	"github.com/joshsymonds/orrery/internal/enginehost"
 	"github.com/joshsymonds/orrery/internal/holder"
 	"github.com/joshsymonds/orrery/internal/hostfollow"
 	"github.com/joshsymonds/orrery/internal/hosts"
+	"github.com/joshsymonds/orrery/internal/inapp"
 	"github.com/joshsymonds/orrery/internal/node"
+	"github.com/joshsymonds/orrery/internal/route"
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
@@ -66,4 +69,20 @@ func loadHostsFile(getenv func(string) string) (hosts.File, error) {
 		file = loaded
 	}
 	return file, nil
+}
+
+// controllerPageNotices returns the PageNotices serve answers the Notices service with: it watches pages, reports each
+// seen notice to router at now's time, and lists and marks read router's notice history. A pane key that names no host
+// is the controller's own pane, named orrery, while the hosts file that getenv locates lists no other host, and is
+// dropped once it lists one. A hosts file that does not load is an error.
+func controllerPageNotices(
+	pages *inapp.Hub, router *route.Router, orrery string, now func() time.Time, getenv func(string) string,
+) (*enginehost.PageNotices, error) {
+	file, err := loadHostsFile(getenv)
+	if err != nil {
+		return nil, err
+	}
+	return enginehost.NewPageNotices(
+		pages, router, router, now, enginehost.WithControllerPanes(orrery, len(file.Hosts) > 0),
+	), nil
 }
