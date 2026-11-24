@@ -82,7 +82,7 @@ func steerRunnerByPane(t *testing.T, s *store.Store) {
 // removeRunnerPanes takes every pane off the server of the runner's steerer, so its sessions row is removed.
 func removeRunnerPanes(t *testing.T, s *store.Store) {
 	t.Helper()
-	if err := s.SyncServer(context.Background(), "-L orrery", nil, claimedAt().Add(time.Minute)); err != nil {
+	if err := s.SyncServer(context.Background(), "", "-L orrery", nil, claimedAt().Add(time.Minute)); err != nil {
 		t.Fatalf("SyncServer: %v", err)
 	}
 }

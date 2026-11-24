@@ -3,7 +3,7 @@ import type { JSX } from "preact";
 import { useEffect, useRef, useState } from "preact/hooks";
 
 import type { createClients } from "./client";
-import { ContractBody, type DocMarks } from "./contract";
+import { type AdditionDecision, type AdditionKeeping, ContractBody, type ContractDesign, type DocMarks } from "./contract";
 import {
   acceptable,
   acceptStep,
@@ -17,9 +17,11 @@ import {
   recordLine,
   type RowAbout,
 } from "./contracts";
+import { ContractWork } from "./contractwork";
 import type { EpicContract } from "./gen/orrery/v1/epics_pb";
-import type { Contract, ContractsGetResponse, ContractVersion } from "./gen/orrery/v1/contracts_pb";
+import type { Contract, ContractRowWrite, ContractsGetResponse, ContractVersion } from "./gen/orrery/v1/contracts_pb";
 import { clock } from "./reader";
+import { whoOfMaker } from "./stagewho";
 
 // ContractRecordProps are what the contract panel gives the record of one contract: its id, the client that reads and
 // settles it, the writer's name for a session, and what the page allows the record to do.
@@ -38,6 +40,9 @@ export interface ContractRecordProps {
   onTalk?: () => void;
   // onOpenEpic opens the contract's epic, which the record links once the contract is accepted and has one.
   onOpenEpic?: (id: string) => void;
+  // design is the design the contract belongs to, from its record. The questions of it that concern this contract draw
+  // under its decisions.
+  design?: ContractDesign;
 }
 
 // Version is a version the record draws: one that holds its contract, which the record's body is drawn from.
@@ -51,6 +56,12 @@ interface View {
   versions: Version[];
   drawn: Version;
   newest: Version;
+}
+
+// concerning is the design with only the questions that concern the contract id: the ones the record draws under the
+// contract's decisions.
+function concerning(design: ContractDesign, id: string): ContractDesign {
+  return { ...design, questions: design.questions.filter((question) => question.contract === id) };
 }
 
 // newerNote is what the record says when Accept finds a newer version than the one drawn.
@@ -84,15 +95,60 @@ function leftOfView(view: View, read: ReadonlySet<string>): Left {
   return leftOf(openDecisions(view.drawn.decisions), view.contract.care, shown);
 }
 
+// decisionsOfAdditions is what the record holds of each addition of the version drawn, which has count additions. It reads
+// the row writes made at the version's number: an addition's newest write on its row A<n>, kept or struck, and for a
+// struck addition the removals that name it. An addition with no such write is open, and undefined.
+function decisionsOfAdditions(
+  rows: readonly ContractRowWrite[],
+  version: bigint,
+  count: number,
+): (AdditionDecision | undefined)[] {
+  const written = rows.filter((write) => write.version === version);
+  return Array.from({ length: count }, (_, index): AdditionDecision | undefined => {
+    const row = `A${index + 1}`;
+    const newest = written.filter((write) => write.row === row).at(-1);
+    if (newest?.action === "keep") {
+      return { kind: "kept", who: whoOfMaker(newest.maker) };
+    }
+    if (newest?.action === "strike") {
+      const removed = written
+        .filter((write) => write.action === "remove" && write.depends === row)
+        .map((write) => write.row);
+      return { kind: "struck", who: whoOfMaker(newest.maker), words: newest.words, removed };
+    }
+    return undefined;
+  });
+}
+
 // ContractRecord is a contract drawn as the contract document, read from Contracts.Get. Its newest version is drawn unless
 // the viewer picks an older one, which is read-only. Accept, Set aside and Reopen each send one call, and a refusal's
-// reason is shown in place of nothing looking done. The irreversible section is marked read once it is on screen.
+// reason is shown in place of nothing looking done. Keep and Strike each send one call for an addition, and the record
+// reads again once it answers, with a refusal drawn in that addition's row. The irreversible section is marked read once
+// it is on screen.
+//
+// An accepted contract whose Get carries work opens on the work by requirement, and the document follows it on the same
+// page.
 export function ContractRecord(props: ContractRecordProps): JSX.Element {
-  const { id, clients, writer, hasEpic, read, onRead, live, onAbout, aboutId, onChanged, onTalk, onOpenEpic } = props;
+  const {
+    id,
+    clients,
+    writer,
+    hasEpic,
+    read,
+    onRead,
+    live,
+    onAbout,
+    aboutId,
+    onChanged,
+    onTalk,
+    onOpenEpic,
+    design,
+  } = props;
   const [loaded, setLoaded] = useState<View | undefined>(undefined);
   const [loadError, setLoadError] = useState("");
   const [sending, setSending] = useState(false);
   const [refusal, setRefusal] = useState("");
+  const [additionRefusal, setAdditionRefusal] = useState<{ index: number; text: string } | undefined>(undefined);
   const [note, setNote] = useState("");
   const [versionsOpen, setVersionsOpen] = useState(false);
   const [setAsideOpen, setSetAsideOpen] = useState(false);
@@ -106,6 +162,7 @@ export function ContractRecord(props: ContractRecordProps): JSX.Element {
     setLoaded(undefined);
     setLoadError("");
     setRefusal("");
+    setAdditionRefusal(undefined);
     setNote("");
     setVersionsOpen(false);
     setSetAsideOpen(false);
@@ -181,14 +238,47 @@ export function ContractRecord(props: ContractRecordProps): JSX.Element {
     setLoaded(viewOf(await clients.contracts.get({ id })));
   };
 
+  // decide sends one Keep or Strike for the addition at index, named by its position as A<n>, then reads the record
+  // again. A refusal is drawn in that addition's row, and nothing shows done until the call answers.
+  const decide = async (index: number, call: (addition: string) => Promise<unknown>): Promise<void> => {
+    setSending(true);
+    setRefusal("");
+    setNote("");
+    setAdditionRefusal(undefined);
+    try {
+      await call(`A${index + 1}`);
+      await reload();
+    } catch (error) {
+      setAdditionRefusal({ index, text: ConnectError.from(error).rawMessage });
+    } finally {
+      setSending(false);
+    }
+  };
+
   const { get, contract, versions, drawn, newest } = view;
   const isNewest = drawn.version === newest.version;
   const proposed = contract.state === "proposed";
   const left = leftOfView(view, read);
-  const acceptOk = acceptable(get, drawn.version, read, sending);
+  // additionDecisions is what the drawn version's row writes hold for each addition. While the newest version holds a
+  // struck addition, Accept waits for the next version, which the Director writes without it.
+  const additionDecisions = decisionsOfAdditions(get.rows, drawn.version, drawn.contract.additions.length);
+  const waitsForNext = proposed && isNewest && additionDecisions.some((decision) => decision?.kind === "struck");
+  const acceptOk = acceptable(get, drawn.version, read, sending) && !waitsForNext;
   const canSetAside = isNewest && (proposed || (contract.state === "accepted" && !hasEpic));
   const canReopen = isNewest && contract.state === "set_aside";
   const talking = live && proposed && isNewest ? onAbout : undefined;
+  const keeping: AdditionKeeping | undefined =
+    live && proposed && isNewest
+      ? {
+          sending,
+          refusal: additionRefusal,
+          onKeep: (index) => void decide(index, (addition) => clients.contracts.keep({ id, addition })),
+          onStrike: (index) => void decide(index, (addition) => clients.contracts.strike({ id, addition })),
+        }
+      : undefined;
+  // An accepted contract with work opens on the work, whose door is the epic the page can open.
+  const showWork = contract.state === "accepted" && get.work.length > 0;
+  const workEpic = hasEpic && onOpenEpic !== undefined ? { id, onOpen: () => onOpenEpic(id) } : null;
 
   // accept re-reads the contract at the press. While it is still proposed at the version drawn, it sends one Accept
   // with no words. Otherwise it sends nothing and draws the newer answer with its note.
@@ -278,6 +368,7 @@ export function ContractRecord(props: ContractRecordProps): JSX.Element {
 
   return (
     <div class="contract-record">
+      {showWork && <ContractWork work={get.work} epic={workEpic} />}
       {!isNewest && (
         <p class="inote banner">
           <span>{`v${drawn.version} of ${newest.version} · not the newest`}</span>{" "}
@@ -290,6 +381,9 @@ export function ContractRecord(props: ContractRecordProps): JSX.Element {
         contract={drawn.contract}
         requirements={drawn.requirements}
         decisions={drawn.decisions}
+        additionDecisions={additionDecisions}
+        keeping={keeping}
+        design={design === undefined ? undefined : concerning(design, id)}
         record={recordLine(get)}
         facts={facts}
         marks={marks}
@@ -302,6 +396,11 @@ export function ContractRecord(props: ContractRecordProps): JSX.Element {
         <p class="inote">
           <span>{proposed ? footText(left) : recordLine(get)}</span>
         </p>
+        {waitsForNext && (
+          <p class="inote">
+            <span>Accept waits for the next version, which leaves the struck addition out.</span>
+          </p>
+        )}
         <span class="end">
           {onTalk !== undefined && (
             <button type="button" class="btn" onClick={onTalk}>

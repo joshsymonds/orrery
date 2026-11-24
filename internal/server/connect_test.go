@@ -122,7 +122,7 @@ func seedSessionStore(t *testing.T, path string) int64 {
 		t.Fatalf("store.Open: %v", err)
 	}
 	now := time.Unix(1_700_000_000, 0)
-	if err = s.SyncServer(ctx, "-L a", []store.Pane{
+	if err = s.SyncServer(ctx, "", "-L a", []store.Pane{
 		{ID: "orrery-1", Pane: "%1", Fields: sessionFields("orrery-1")},
 		{ID: "orrery-2", Pane: "%2", Fields: sessionFields("orrery-2")},
 	}, now); err != nil {

@@ -147,7 +147,7 @@ func TestHeadlessColumnsWrittenKeptAfterEventPrune(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	if err := s.SyncServer(ctx, "-L a", nil, t0.Add(EventRetention+time.Hour)); err != nil {
+	if err := s.SyncServer(ctx, "", "-L a", nil, t0.Add(EventRetention+time.Hour)); err != nil {
 		t.Fatalf("SyncServer: %v", err)
 	}
 	if n := eventsAt(t, s, id, t0.Unix()); n != 0 {
@@ -230,8 +230,8 @@ func TestHeadlessColumnsWrittenBackfilledFromVersion94(t *testing.T) {
 		`SELECT COALESCE(MAX(version_id), 0) FROM goose_db_version WHERE is_applied = 1`).Scan(&version); err != nil {
 		t.Fatalf("read store version: %v", err)
 	}
-	if version != 107 {
-		t.Fatalf("store version after Open = %d, want 107", version)
+	if version != 108 {
+		t.Fatalf("store version after Open = %d, want 108", version)
 	}
 
 	listing, err := s.fixtureQueries().ListHeadlessSessions(ctx, 0)

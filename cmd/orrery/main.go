@@ -605,7 +605,7 @@ func runServe(ctx context.Context, opts globals, args []string, getenv func(stri
 		if !filepath.IsAbs(value) {
 			return errors.New("host status command must be an absolute path")
 		}
-		hostStatus = hoststatus.New(value, time.Now)
+		hostStatus = hoststatus.New(value, time.Now, hoststatus.CommandLimit)
 		return nil
 	})
 	if err := flags.Parse(args); err != nil {
@@ -643,6 +643,9 @@ func runServe(ctx context.Context, opts globals, args []string, getenv func(stri
 	shutdown := make(chan struct{})
 	cfg.HandlerOptions, cfg.Logins, cfg.Tmux, cfg.Push, cfg.HostStatus = handlerOptions, logins, tmux, pushStore, hostStatus
 	cfg.Sessions, cfg.Shutdown, cfg.Home = sessions, shutdown, home
+	if err := setServeHosts(&cfg, getenv); err != nil {
+		return err
+	}
 	cfg.Picker = servePickerConfig(tmux, getenv)
 	cfg.ReportSeen = seenReporter(opts.daemonSocket, getenv)
 	cfg.ReportRead = readReporter(opts.daemonSocket, getenv)

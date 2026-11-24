@@ -161,9 +161,9 @@ func (s *Store) StopEpic(ctx context.Context, epic string, maker Maker, at time.
 // running at its next attempt, and each open park question of epic is answered retry, in the same write. The write
 // appends one retry action made by maker at at. An unknown epic is ErrNoEpic, an epic that is not parked is a
 // RefusalError, and an epic in phase met_at_base, which the owner ended, is a RefusalError that changes nothing. An epic
-// in phase stopped is retried only when its release integrator stopped it, which sends its release back to planning
-// (retryStoppedRelease); any other stopped epic is a RefusalError that changes nothing, since retry does not end its
-// release park.
+// in phase stopped is retried only when its release integrator or a release reviewer stopped it, which sends its release
+// back to planning (retryStoppedRelease); any other stopped epic is a RefusalError that changes nothing, since retry does
+// not end its release park.
 func (s *Store) RetryEpic(ctx context.Context, epic string, maker Maker, at time.Time) error {
 	return s.write(ctx, func(queries *sqlcgen.Queries) error {
 		if err := retryEpicIn(ctx, queries, epic); err != nil {

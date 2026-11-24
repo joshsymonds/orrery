@@ -22,7 +22,7 @@ func headlineStore(t *testing.T) (*Store, string) {
 	t0 := engineNowAt().Unix()
 	at := func(offset int64) time.Time { return time.Unix(t0+offset, 0) }
 
-	if err := s.SyncServer(ctx, "-L a", []Pane{
+	if err := s.SyncServer(ctx, "", "-L a", []Pane{
 		{ID: "orrery-1", Pane: "%1", Fields: Fields{State: "idle"}},
 	}, at(0)); err != nil {
 		t.Fatalf("SyncServer: %v", err)

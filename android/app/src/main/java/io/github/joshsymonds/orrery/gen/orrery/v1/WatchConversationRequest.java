@@ -22,6 +22,7 @@ public  final class WatchConversationRequest extends
   private WatchConversationRequest() {
     pane_ = "";
     transcript_ = "";
+    host_ = "";
   }
   public static final int PANE_FIELD_NUMBER = 1;
   private java.lang.String pane_;
@@ -231,6 +232,83 @@ public  final class WatchConversationRequest extends
   private void clearAfter() {
 
     after_ = 0L;
+  }
+
+  public static final int HOST_FIELD_NUMBER = 5;
+  private java.lang.String host_;
+  /**
+   * <pre>
+   * The orrery name of the host the pane runs on: the controller's, or a hosts.toml host's. Empty names the
+   * controller's host while hosts.toml lists no other host, and is invalid_argument once one does. A name with no
+   * agent is not_found. A host whose agent does not answer within its bound is unavailable.
+   * </pre>
+   *
+   * <code>string host = 5 [json_name = "host"];</code>
+   * @return The host.
+   */
+  @java.lang.Override
+  public java.lang.String getHost() {
+    return host_;
+  }
+  /**
+   * <pre>
+   * The orrery name of the host the pane runs on: the controller's, or a hosts.toml host's. Empty names the
+   * controller's host while hosts.toml lists no other host, and is invalid_argument once one does. A name with no
+   * agent is not_found. A host whose agent does not answer within its bound is unavailable.
+   * </pre>
+   *
+   * <code>string host = 5 [json_name = "host"];</code>
+   * @return The bytes for host.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString
+      getHostBytes() {
+    return com.google.protobuf.ByteString.copyFromUtf8(host_);
+  }
+  /**
+   * <pre>
+   * The orrery name of the host the pane runs on: the controller's, or a hosts.toml host's. Empty names the
+   * controller's host while hosts.toml lists no other host, and is invalid_argument once one does. A name with no
+   * agent is not_found. A host whose agent does not answer within its bound is unavailable.
+   * </pre>
+   *
+   * <code>string host = 5 [json_name = "host"];</code>
+   * @param value The host to set.
+   */
+  private void setHost(
+      java.lang.String value) {
+    java.util.Objects.requireNonNull(value);
+
+    host_ = value;
+  }
+  /**
+   * <pre>
+   * The orrery name of the host the pane runs on: the controller's, or a hosts.toml host's. Empty names the
+   * controller's host while hosts.toml lists no other host, and is invalid_argument once one does. A name with no
+   * agent is not_found. A host whose agent does not answer within its bound is unavailable.
+   * </pre>
+   *
+   * <code>string host = 5 [json_name = "host"];</code>
+   */
+  private void clearHost() {
+
+    host_ = getDefaultInstance().getHost();
+  }
+  /**
+   * <pre>
+   * The orrery name of the host the pane runs on: the controller's, or a hosts.toml host's. Empty names the
+   * controller's host while hosts.toml lists no other host, and is invalid_argument once one does. A name with no
+   * agent is not_found. A host whose agent does not answer within its bound is unavailable.
+   * </pre>
+   *
+   * <code>string host = 5 [json_name = "host"];</code>
+   * @param value The bytes for host to set.
+   */
+  private void setHostBytes(
+      com.google.protobuf.ByteString value) {
+    checkByteStringIsUtf8(value);
+    host_ = value.toStringUtf8();
+
   }
 
   public static io.github.joshsymonds.orrery.gen.orrery.v1.WatchConversationRequest parseFrom(
@@ -553,6 +631,85 @@ public  final class WatchConversationRequest extends
       return this;
     }
 
+    /**
+     * <pre>
+     * The orrery name of the host the pane runs on: the controller's, or a hosts.toml host's. Empty names the
+     * controller's host while hosts.toml lists no other host, and is invalid_argument once one does. A name with no
+     * agent is not_found. A host whose agent does not answer within its bound is unavailable.
+     * </pre>
+     *
+     * <code>string host = 5 [json_name = "host"];</code>
+     * @return The host.
+     */
+    @java.lang.Override
+    public java.lang.String getHost() {
+      return instance.getHost();
+    }
+    /**
+     * <pre>
+     * The orrery name of the host the pane runs on: the controller's, or a hosts.toml host's. Empty names the
+     * controller's host while hosts.toml lists no other host, and is invalid_argument once one does. A name with no
+     * agent is not_found. A host whose agent does not answer within its bound is unavailable.
+     * </pre>
+     *
+     * <code>string host = 5 [json_name = "host"];</code>
+     * @return The bytes for host.
+     */
+    @java.lang.Override
+    public com.google.protobuf.ByteString
+        getHostBytes() {
+      return instance.getHostBytes();
+    }
+    /**
+     * <pre>
+     * The orrery name of the host the pane runs on: the controller's, or a hosts.toml host's. Empty names the
+     * controller's host while hosts.toml lists no other host, and is invalid_argument once one does. A name with no
+     * agent is not_found. A host whose agent does not answer within its bound is unavailable.
+     * </pre>
+     *
+     * <code>string host = 5 [json_name = "host"];</code>
+     * @param value The host to set.
+     * @return This builder for chaining.
+     */
+    public Builder setHost(
+        java.lang.String value) {
+      copyOnWrite();
+      instance.setHost(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The orrery name of the host the pane runs on: the controller's, or a hosts.toml host's. Empty names the
+     * controller's host while hosts.toml lists no other host, and is invalid_argument once one does. A name with no
+     * agent is not_found. A host whose agent does not answer within its bound is unavailable.
+     * </pre>
+     *
+     * <code>string host = 5 [json_name = "host"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearHost() {
+      copyOnWrite();
+      instance.clearHost();
+      return this;
+    }
+    /**
+     * <pre>
+     * The orrery name of the host the pane runs on: the controller's, or a hosts.toml host's. Empty names the
+     * controller's host while hosts.toml lists no other host, and is invalid_argument once one does. A name with no
+     * agent is not_found. A host whose agent does not answer within its bound is unavailable.
+     * </pre>
+     *
+     * <code>string host = 5 [json_name = "host"];</code>
+     * @param value The bytes for host to set.
+     * @return This builder for chaining.
+     */
+    public Builder setHostBytes(
+        com.google.protobuf.ByteString value) {
+      copyOnWrite();
+      instance.setHostBytes(value);
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:orrery.v1.WatchConversationRequest)
   }
   @java.lang.Override
@@ -573,10 +730,11 @@ public  final class WatchConversationRequest extends
             "limit_",
             "transcript_",
             "after_",
+            "host_",
           };
           java.lang.String info =
-              "\u0000\u0004\u0000\u0000\u0001\u0004\u0004\u0000\u0000\u0000\u0001\u0208\u0002\u000b" +
-              "\u0003\u0208\u0004\u0002";
+              "\u0000\u0005\u0000\u0000\u0001\u0005\u0005\u0000\u0000\u0000\u0001\u0208\u0002\u000b" +
+              "\u0003\u0208\u0004\u0002\u0005\u0208";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

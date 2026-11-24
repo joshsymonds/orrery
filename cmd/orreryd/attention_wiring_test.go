@@ -209,7 +209,7 @@ func TestRouterRestoresEpicNotice(t *testing.T) {
 	sender := &recordSender{}
 	sinks := newPaneSinks(attachResentAt, false)
 	notices := notice.New(attachHost, sender, sinks.Now, logger, notice.WithStoreDeadline(testStoreDeadline))
-	attachStore(ctx, s, daemon.NewPendingMirror(time.Now, logger), notices, attachRouter(notices, sinks))
+	attachStore(ctx, s, daemon.NewPendingMirror("", time.Now, logger), notices, attachRouter(notices, sinks))
 	// Wait orders every send before the reads below.
 	notices.Wait()
 

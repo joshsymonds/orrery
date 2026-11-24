@@ -36,6 +36,7 @@ func TestReaderQueryPlans(t *testing.T) {
 		"HeadlessSessions":   {"ListHeadlessSessions"},
 		"LastTurnEnds":       {"LastTurnEnds"},
 		"Dirs":               {"ListKnownDirs"},
+		"HostPanes":          {"ListHostSessions"},
 		"EpicSessions":       {"ListEpicSessions"},
 		"PromptStates":       {"ListPromptStates"},
 		"ArchivedRows":       {"ListArchivedRows"},

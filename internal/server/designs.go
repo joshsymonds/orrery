@@ -26,12 +26,10 @@ const designStoreUnavailable = "design store unavailable"
 const designStageUnavailable = "design stage service unavailable"
 
 // designsServer answers orrery.v1.Designs. List and Get read the store reader. A nil reader answers them unavailable.
-// Get also forwards the read of the design's stage to stage, and answers the stage orreryd reports, or leaves the stage
-// unset when stage is nil. Answer forwards to stage with no caller headers, so orreryd records the owner as the maker,
-// and answers the answer orreryd stored. Continue forwards to stage with no caller headers, and answers the design
-// read from the reader with the session orreryd names. A nil stage answers Answer and Continue unavailable. Each
-// forwarded call runs under timeout and is retried only while rpcretry.NeverConnected accepts its error, as the
-// contract commands are.
+// Answer forwards to stage with no caller headers, so orreryd records the owner as the maker, and answers the answer
+// orreryd stored. Continue forwards to stage with no caller headers, and answers the design read from the reader with
+// the session orreryd names. A nil stage answers Answer and Continue unavailable. Each forwarded call runs under
+// timeout and is retried only while rpcretry.NeverConnected accepts its error, as the contract commands are.
 type designsServer struct {
 	orreryv1connect.UnimplementedDesignsHandler
 	reader  *store.Reader
@@ -135,8 +133,8 @@ func (d designsServer) List(
 }
 
 // Get answers the design of the id List gave it, with the approaches the design's stage weighs, the choice of one
-// unset until one is stored, the design's log, its delegations with the decisions made under each, each oldest first,
-// and its stage's steps, questions, ledger and counts, which is unset when no stage client is set. An id no design
+// unset until one is stored, the design's log, and its delegations with the decisions made under each, each oldest
+// first. When serve has a stage client, it also answers the design's stage, read from the stage client. An id no design
 // holds answers not_found.
 func (d designsServer) Get(
 	ctx context.Context,
@@ -174,7 +172,7 @@ func (d designsServer) Get(
 	}
 	var stage *orreryv1.DesignStage
 	if d.stage != nil {
-		stage, err = d.readDesignStage(ctx, req.Msg.GetId())
+		stage, err = d.designStage(ctx, req.Msg.GetId())
 		if err != nil {
 			return nil, err
 		}
@@ -189,9 +187,9 @@ func (d designsServer) Get(
 	}), nil
 }
 
-// readDesignStage forwards the read of the stage of the design id to stage, under the rules forwardStage gives, and
-// returns the stage as the design message carries it.
-func (d designsServer) readDesignStage(ctx context.Context, id string) (*orreryv1.DesignStage, error) {
+// designStage returns the stage of the design id as the Stage service gives it. A failed call answers as forwardStage
+// answers its errors.
+func (d designsServer) designStage(ctx context.Context, id string) (*orreryv1.DesignStage, error) {
 	var reply *connect.Response[enginev1.GetStageResponse]
 	err := d.forwardStage(ctx, func(ctx context.Context, stage enginev1connect.StageClient) error {
 		var err error
@@ -204,13 +202,13 @@ func (d designsServer) readDesignStage(ctx context.Context, id string) (*orreryv
 	return designStageMessage(reply.Msg.GetStage()), nil
 }
 
-// designStageMessage converts the stage of a design to its DesignStage, with its steps, questions and ledger in the
-// order given and its counts copied.
+// designStageMessage converts the stage of a design to its DesignStage: its steps, questions and ledger in the order
+// given, and its flags as they are.
 func designStageMessage(stage *enginev1.DesignStage) *orreryv1.DesignStage {
 	return &orreryv1.DesignStage{
 		Steps:            designStepMessages(stage.GetSteps()),
 		Questions:        designQuestionMessages(stage.GetQuestions()),
-		Ledger:           designLedgerItemMessages(stage.GetLedger()),
+		Ledger:           designLedgerMessages(stage.GetLedger()),
 		Frozen:           stage.GetFrozen(),
 		ClosureSkipped:   stage.GetClosureSkipped(),
 		DiscoveryCounted: stage.GetDiscoveryCounted(),
@@ -218,7 +216,7 @@ func designStageMessage(stage *enginev1.DesignStage) *orreryv1.DesignStage {
 	}
 }
 
-// designStepMessages converts each step a design's stage started to its DesignStep, in the order given.
+// designStepMessages converts each step of a design's stage to its DesignStep, in the order given.
 func designStepMessages(steps []*enginev1.StageStep) []*orreryv1.DesignStep {
 	messages := make([]*orreryv1.DesignStep, 0, len(steps))
 	for _, step := range steps {
@@ -226,17 +224,17 @@ func designStepMessages(steps []*enginev1.StageStep) []*orreryv1.DesignStep {
 			Step:    step.GetStep(),
 			Kind:    step.GetKind(),
 			Subject: step.GetSubject(),
-			Created: step.GetCreated(),
 			Status:  step.GetStatus(),
 			Report:  step.GetReport(),
 			Verdict: step.GetVerdict(),
 			Counted: step.GetCounted(),
+			Created: step.GetCreated(),
 		})
 	}
 	return messages
 }
 
-// designQuestionMessages converts each question a design's stage asked to its DesignQuestion, in the order given.
+// designQuestionMessages converts each question of a design's stage to its DesignQuestion, in the order given.
 func designQuestionMessages(questions []*enginev1.StageQuestion) []*orreryv1.DesignQuestion {
 	messages := make([]*orreryv1.DesignQuestion, 0, len(questions))
 	for _, question := range questions {
@@ -256,8 +254,8 @@ func designQuestionMessages(questions []*enginev1.StageQuestion) []*orreryv1.Des
 	return messages
 }
 
-// designLedgerItemMessages converts each item of a design's ledger to its DesignLedgerItem, in the order given.
-func designLedgerItemMessages(items []*enginev1.StageLedgerItem) []*orreryv1.DesignLedgerItem {
+// designLedgerMessages converts each item of a design's ledger to its DesignLedgerItem, in the order given.
+func designLedgerMessages(items []*enginev1.StageLedgerItem) []*orreryv1.DesignLedgerItem {
 	messages := make([]*orreryv1.DesignLedgerItem, 0, len(items))
 	for _, item := range items {
 		messages = append(messages, &orreryv1.DesignLedgerItem{
@@ -278,10 +276,10 @@ func designLedgerItemMessages(items []*enginev1.StageLedgerItem) []*orreryv1.Des
 	return messages
 }
 
-// designRecordMaker converts the maker of a stage record to the RecordMaker a design message carries, with the same
-// kind, quote, reason and delegation. A maker that holds none of them, or no maker, is nil.
+// designRecordMaker converts the maker of a stage record to its RecordMaker, with its kind, quote, reason and
+// delegation. A record with no maker has none.
 func designRecordMaker(maker *enginev1.StageMaker) *orreryv1.RecordMaker {
-	if maker.GetKind() == "" && maker.GetQuote() == "" && maker.GetReason() == "" && maker.GetDelegation() == "" {
+	if maker == nil {
 		return nil
 	}
 	return &orreryv1.RecordMaker{

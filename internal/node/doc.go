@@ -11,6 +11,10 @@
 //     agent address, and each op waits for the agent's answer no longer than its bound.
 //   - Authorize admits a peer whose WhoIs answer names the controller and its login.
 //   - Tailnet returns the WhoIs of this machine's tailscaled, which Serve asks about each peer.
+//   - HostPanes is the panes of one host, which an AgentConfig serves through the panes, watch-panes and load
+//     ops. Load, PaneSnapshot, PaneTransition and PaneEvent are the values it reports.
+//   - Client's Name, HTTPClient, Panes, WatchPanes and Load reach a remote host's HostPanes through those ops, and
+//     PaneWatch is the stream of PaneEvents that WatchPanes opens.
 //
 // A session is never relaunched on another host, and internal/node never imports internal/enginehost.
 package node

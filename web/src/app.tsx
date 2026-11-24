@@ -1,3 +1,4 @@
+import { toJsonString } from "@bufbuild/protobuf";
 import { Code, ConnectError } from "@connectrpc/connect";
 import type { JSX } from "preact";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "preact/hooks";
@@ -11,20 +12,21 @@ import { askingWords, askLines, headBadges, ownAsks, steeredEpics } from "./asks
 import { type AskState, askKey, observe, press, settle } from "./askstate";
 import { epicCallsOf } from "./card";
 import type { DockHandle } from "./dock";
-import { ContractBody } from "./contract";
+import { ContractBody, type ContractDesign } from "./contract";
 import { ContractRecord } from "./contractrecord";
 import { bandText, contractSlug, leftOf, type RowAbout, readKey, statePill } from "./contracts";
 import { endedLead, EndedBar, unsteeredLead } from "./endedbar";
 import { type Conversation, shownConversation } from "./conversation";
 import { ConvoRow } from "./convorow";
-import { DesignCard } from "./designcard";
+import { DesignPage } from "./designpage";
+import { designCountsOf, type DesignRecord, designRefetch } from "./designrecords";
 import { type EpicCommands, EpicPage, type Landing, type SessionTarget, type SteerSheet } from "./epicpage";
 import { epicGaugeOf, type GaugeShare } from "./epicrow";
 import { type EpicItem, type EpicsView, epicsView, noEpics, type StepItem } from "./epics";
 import { findMatches } from "./find";
 import { type Followed, follow } from "./follow";
 import type { Contract } from "./gen/orrery/v1/contracts_pb";
-import type { Design } from "./gen/orrery/v1/designs_pb";
+import { type Design, DesignSchema } from "./gen/orrery/v1/designs_pb";
 import type { Epic, EpicHistoryEntry, EpicsGetResponse } from "./gen/orrery/v1/epics_pb";
 import type { InAppNotice, NoticeKey } from "./gen/orrery/v1/notice_pb";
 import type { HostStatusResponse } from "./gen/orrery/v1/orrery_pb";
@@ -56,7 +58,8 @@ import type { Phase } from "./phases";
 import { NewPanel } from "./picker";
 import { type Viewing, viewingOf } from "./presence";
 import { ProjectPage } from "./projectpage";
-import { type ContractCalls, newestItemKey, type ReaderHandle } from "./reader";
+import type { QuestionAnswer } from "./questionthread";
+import { type ContractCalls, type DesignCalls, newestItemKey, type ReaderHandle, withDesignCalls } from "./reader";
 import { flyoutOf, type FlyoutRow, railTiles } from "./railtiles";
 import { type Address, type Entry, formatAddress, type ListPanelKind, type PageView, type View } from "./router";
 import type { Row } from "./rows";
@@ -454,6 +457,13 @@ export function App({
   const askedEpics = useRef(new Set<string>());
   // The epics whose read failed. An epic in neither the poll's detail nor the answers is still loading.
   const [failedEpicReads, setFailedEpicReads] = useState<Set<string>>(() => new Set());
+  // The design records, by design id: each the newest Designs.Get answer or error of its design, which the held design's page
+  // draws. A read keeps its record through setDesignRecords only when no later read of the same design has begun.
+  const [designRecords, setDesignRecords] = useState<ReadonlyMap<string, DesignRecord>>(() => new Map());
+  const refetchDesign = useMemo(
+    () => designRefetch(clients, (id, record) => setDesignRecords((previous) => new Map(previous).set(id, record))),
+    [clients],
+  );
   // The epic page's own command line: the last page command that did not land, under its title row.
   const [epicCommandLine, setEpicCommandLine] = useState("");
   const [epicHistory, setEpicHistory] = useState<EpicHistory>({ id: "", entries: [] });
@@ -2575,17 +2585,78 @@ export function App({
       setTalking(true);
     }
   };
-  // designPage draws the design the card holds: its state and its contracts in position order. A press on a contract holds
-  // that contract instead, when the contracts the list holds include it.
+  // The held design's record is read when its card is held, and again when its listed entry changes. Until a read answers,
+  // the page draws the record the design held before, or the loading line.
+  const heldDesignId = design?.id ?? "";
+  const heldDesignListing = design === undefined ? "" : toJsonString(DesignSchema, design);
+  useEffect(() => {
+    if (heldDesignId !== "") {
+      void refetchDesign(heldDesignId);
+    }
+  }, [heldDesignId, heldDesignListing, refetchDesign]);
+  // answerDesign sends the owner's answer to a question of a design, from the design's page or from a conversation's thread:
+  // Accept sends accept, and the question's box its words. A refused answer rejects, so the question's thread shows the
+  // refusal. An answer that lands reads the design again.
+  const answerDesign = useCallback(
+    async (designId: string, question: bigint, answer: QuestionAnswer): Promise<void> => {
+      await clients.designs.answer(
+        "words" in answer
+          ? { design: designId, question, answer: answer.words }
+          : { design: designId, question, accept: true },
+      );
+      await refetchDesign(designId);
+    },
+    [clients, refetchDesign],
+  );
+  // designCalls is what the readers draw a conversation's design items through: the design records and the answer above. It
+  // is made again only when a record changes, so the readers it reaches do not draw again for a render that moves nothing.
+  const designCalls = useMemo<DesignCalls>(
+    () => ({ records: designRecords, answer: answerDesign }),
+    [designRecords, answerDesign],
+  );
+  // contractDesignOf is the design whose contracts include the contract id, as its record holds it: its questions and log,
+  // and the answer its questions take, which is the design page's own. It is absent when no design holds the contract, or
+  // the design's record has no stage yet.
+  const contractDesignOf = (contractId: string): ContractDesign | undefined => {
+    const holder = designs.find((candidate) => candidate.contracts.some((listed) => listed.id === contractId));
+    const record = holder === undefined ? undefined : designRecords.get(holder.id)?.get;
+    if (holder === undefined || record?.stage === undefined) {
+      return undefined;
+    }
+    return {
+      questions: record.stage.questions,
+      log: record.log,
+      onAnswer: (question, answer) => answerDesign(holder.id, question, answer),
+    };
+  };
+  // The design of the open contract is read when the contract opens, so the questions it carries can draw, and again when
+  // its listed entry changes, as the held design's is.
+  const contractDesign =
+    contract === undefined
+      ? undefined
+      : designs.find((candidate) => candidate.contracts.some((listed) => listed.id === contract.id));
+  const contractDesignId = contractDesign?.id ?? "";
+  const contractDesignListing = contractDesign === undefined ? "" : toJsonString(DesignSchema, contractDesign);
+  useEffect(() => {
+    if (contractDesignId !== "") {
+      void refetchDesign(contractDesignId);
+    }
+  }, [contractDesignId, contractDesignListing, refetchDesign]);
+  // designPage draws the design the card holds: its record's stage strip, steelman, questions, research and log, and its
+  // contracts in position order. A press on a contract holds that contract instead, when the contracts the list holds
+  // include it.
   const designPage =
     design === undefined ? null : (
-      <DesignCard
+      <DesignPage
         design={design}
+        get={designRecords.get(design.id)?.get ?? null}
+        error={designRecords.get(design.id)?.error ?? ""}
         onOpenContract={(id) => {
           if (contracts.some((candidate) => candidate.id === id)) {
             navigated(openContractPanel)(id);
           }
         }}
+        onAnswer={(question, answer) => answerDesign(design.id, question, answer)}
       />
     );
   const contractPage =
@@ -2612,6 +2683,7 @@ export function App({
             wide || contractLiveRow === null || contract.state !== "proposed" ? undefined : () => setTalking(true)
           }
           onOpenEpic={navigated(openEpic)}
+          design={contractDesignOf(contract.id)}
         />
       </div>
     );
@@ -2684,6 +2756,7 @@ export function App({
               read={contractRead}
               onRead={readContract}
               live={false}
+              design={contractDesignOf(listed.id)}
             />
           </div>
         );
@@ -2865,6 +2938,21 @@ export function App({
       ? middleRow
       : null;
   const readerStep = pageDrawn && !noticesPage && shownProject === null && !accountsOpen ? cursorStep : null;
+  // The design records a drawn conversation needs: each design its items name is read once, and read again when a new design
+  // item for it arrives, since the count of its items moves then. A conversation that is not drawn names none.
+  const drawnDesigns = useMemo(
+    () => designCountsOf([readerRow === null ? null : cursorConversation, pinnedConversation]),
+    [readerRow, cursorConversation, pinnedConversation],
+  );
+  const readDesigns = useRef(new Map<string, number>());
+  useEffect(() => {
+    for (const [id, count] of drawnDesigns) {
+      if (readDesigns.current.get(id) !== count) {
+        readDesigns.current.set(id, count);
+        void refetchDesign(id);
+      }
+    }
+  }, [drawnDesigns, refetchDesign]);
   // contractCalls are the middle reader's contract calls: its contract lines draw the contracts the list holds, and
   // open them.
   const contractCalls: ContractCalls = { contracts, onOpen: navigated(openContractPanel) };
@@ -3192,7 +3280,7 @@ export function App({
               {pageNode(epicEntry, epicDetail)}
             </section>
           ) : (
-            middleColumn
+            withDesignCalls(designCalls, middleColumn)
           )}
         </Sheet>
         {pageDrawn &&
@@ -3216,40 +3304,43 @@ export function App({
         {designShown && designLiveRow === null && (
           <section class="read" aria-label="no conversation">{!columnHolds && deskCards}</section>
         )}
-        <ReaderColumn
-          column="pinned"
-          clients={clients}
-          now={now}
-          row={pinned}
-          conversation={pinnedConversation}
-          rows={pinnedRows}
-          interrupts={interrupts}
-          pageStrip={pageStrip}
-          head={headOf}
-          narrow={!wide}
-          hidden={headHidden}
-          onHide={hideHeader}
-          onShow={showHeader}
-          onOpenEpic={navigated(openEpic)}
-          onBack={closePin}
-          finding={pinnedFinding}
-          matches={pinnedMatches}
-          current={pinnedCurrent}
-          onFind={setPinnedFind}
-          inputs={pinnedInputs}
-          handles={pinnedHandles}
-          reader={pinnedReader}
-          older={pinnedOlder}
-          sending={pinnedSending}
-          epicCalls={epicCalls}
-          addSending={addSending}
-          retractSending={retractSending}
-          open={false}
-          interrupt={interruptRow}
-          onInterrupt={(row) =>
-            void escapeRow({ row, column: "pinned", state: headState(row, pinnedConversation) }, null)
-          }
-        />
+        {withDesignCalls(
+          designCalls,
+          <ReaderColumn
+            column="pinned"
+            clients={clients}
+            now={now}
+            row={pinned}
+            conversation={pinnedConversation}
+            rows={pinnedRows}
+            interrupts={interrupts}
+            pageStrip={pageStrip}
+            head={headOf}
+            narrow={!wide}
+            hidden={headHidden}
+            onHide={hideHeader}
+            onShow={showHeader}
+            onOpenEpic={navigated(openEpic)}
+            onBack={closePin}
+            finding={pinnedFinding}
+            matches={pinnedMatches}
+            current={pinnedCurrent}
+            onFind={setPinnedFind}
+            inputs={pinnedInputs}
+            handles={pinnedHandles}
+            reader={pinnedReader}
+            older={pinnedOlder}
+            sending={pinnedSending}
+            epicCalls={epicCalls}
+            addSending={addSending}
+            retractSending={retractSending}
+            open={false}
+            interrupt={interruptRow}
+            onInterrupt={(row) =>
+              void escapeRow({ row, column: "pinned", state: headState(row, pinnedConversation) }, null)
+            }
+          />,
+        )}
         {epicEntry !== null && panelOpen && !wide && !noticesPage && !sheetHeld && (
           <div class="epic-read">{epicPageSection(epicEntry, epicDetail)}</div>
         )}

@@ -761,7 +761,8 @@ func TestReleaseStepOneRunsUnderItsGeneration(t *testing.T) {
 }
 
 // TestReleaseReviewerGatesTheFirstStep: the enabled release reviewers review the candidate once before the first release
-// step starts from it. The first step starts only once every one has held the candidate, a refusal stops the release
+// step starts from it. The first step starts only once every one has held the candidate, a refusal with findings sends
+// the release back to planning once per branch tip the candidate was made from, any other failed review stops the release
 // with its reason, and no review gates a later step or an epic with no enabled release reviewer.
 func TestReleaseReviewerGatesTheFirstStep(t *testing.T) {
 	t.Parallel()
@@ -775,6 +776,9 @@ func TestReleaseReviewerGatesTheFirstStep(t *testing.T) {
 		Items: []string{"release 1", "cand-1"},
 	}
 	const refusal = "the release reviewer refused the candidate: a tag would overwrite a published release"
+	tipped := candidateRun(1, "cand-1")
+	tipped.Start = "tip-1"
+	refusedReview := store.StepRow{ID: review, End: "gate_failed", Result: reviewOneFindingReturn}
 	cases := []decideCase{
 		{
 			"candidate with an enabled release reviewer and no row starts the reviewer at the candidate",
@@ -812,13 +816,52 @@ func TestReleaseReviewerGatesTheFirstStep(t *testing.T) {
 			firstStep,
 		},
 		{
-			"release reviewer that refused the candidate stops naming its reason",
+			"release reviewer that refused the candidate with findings replans naming the tip it was made from",
 			releaseNode(1, "", ""),
 			Rows{
 				Epic:     releaseReviewed(true, steps...),
-				Releases: []store.ReleaseRun{candidate, releaseReviewRun(false, refusal)},
+				Releases: []store.ReleaseRun{tipped, releaseReviewRun(false, refusal)},
+				Steps:    []store.StepRow{refusedReview},
 			},
-			Action{Kind: ActStop, Output: refusal},
+			Action{Kind: ActReplan, Output: refusal, Reason: refusal, Items: []string{"replan", "tip-1"}},
+		},
+		{
+			"release reviewer that refused a candidate made from a tip an earlier replan moved past replans",
+			releaseNode(1, "", ""),
+			Rows{
+				Epic: releaseReviewed(true, steps...),
+				Releases: []store.ReleaseRun{
+					{Part: store.ReleasePartReplan, Attempt: 0, Head: "tip-0"},
+					tipped,
+					releaseReviewRun(false, refusal),
+				},
+				Steps: []store.StepRow{refusedReview},
+			},
+			Action{Kind: ActReplan, Output: refusal, Reason: refusal, Items: []string{"replan", "tip-1"}},
+		},
+		{
+			"release reviewer that refused a candidate made from the tip an earlier replan recorded stops",
+			releaseNode(1, "", ""),
+			Rows{
+				Epic: releaseReviewed(true, steps...),
+				Releases: []store.ReleaseRun{
+					{Part: store.ReleasePartReplan, Attempt: 0, Head: "tip-1"},
+					tipped,
+					releaseReviewRun(false, refusal),
+				},
+				Steps: []store.StepRow{refusedReview},
+			},
+			Action{Kind: ActStop, Output: refusal + "; the epic's branch has not moved since the last replan"},
+		},
+		{
+			"release reviewer whose failed review is not a refusal with findings stops naming its reason",
+			releaseNode(1, "", ""),
+			Rows{
+				Epic:     releaseReviewed(true, steps...),
+				Releases: []store.ReleaseRun{tipped, releaseReviewRun(false, "review ended stopped")},
+				Steps:    []store.StepRow{{ID: review, End: "stopped"}},
+			},
+			Action{Kind: ActStop, Output: "review ended stopped"},
 		},
 		{
 			"release reviewer that held an earlier attempt does not count",
