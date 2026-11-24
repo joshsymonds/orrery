@@ -102,6 +102,7 @@ func TestStoreEpicUsageSessions(t *testing.T) {
 	t.Parallel()
 
 	t.Run("steerer and two steps, a step with an epic_sessions row listed once", func(t *testing.T) {
+		t.Parallel()
 		raw, path := openUsageStore(t)
 		insertUsageEpic(t, raw, usageEpic, "steer-1")
 		insertUsageSession(t, raw, "steer-1", "", "claude-steer")
@@ -119,6 +120,7 @@ func TestStoreEpicUsageSessions(t *testing.T) {
 	})
 
 	t.Run("a session linked only by epic_get is absent", func(t *testing.T) {
+		t.Parallel()
 		raw, path := openUsageStore(t)
 		insertUsageEpic(t, raw, usageEpic, "")
 		insertUsageSession(t, raw, "step-a", "step", "claude-a")
@@ -132,6 +134,7 @@ func TestStoreEpicUsageSessions(t *testing.T) {
 	})
 
 	t.Run("a steerer that steers two epics is shared in both", func(t *testing.T) {
+		t.Parallel()
 		raw, path := openUsageStore(t)
 		insertUsageEpic(t, raw, usageEpic, "steer-1")
 		insertUsageEpic(t, raw, usageOther, "steer-1")
@@ -152,6 +155,7 @@ func TestStoreEpicUsageSessions(t *testing.T) {
 	})
 
 	t.Run("a steerer that is also a step is listed once, as a step", func(t *testing.T) {
+		t.Parallel()
 		raw, path := openUsageStore(t)
 		insertUsageEpic(t, raw, usageEpic, "step-a")
 		insertUsageSession(t, raw, "step-a", "step", "claude-a")
@@ -166,6 +170,7 @@ func TestStoreEpicUsageSessions(t *testing.T) {
 	})
 
 	t.Run("a record epic's callers of its steps are listed shared", func(t *testing.T) {
+		t.Parallel()
 		raw, path := openUsageStore(t)
 		// usageEpic has no epics row, so it is a record epic. step-q's caller is step-r, one of the epic's own steps,
 		// so step-r is listed as a step and not as a caller.
@@ -186,6 +191,7 @@ func TestStoreEpicUsageSessions(t *testing.T) {
 	})
 
 	t.Run("an epic with an empty steerer lists its callers shared", func(t *testing.T) {
+		t.Parallel()
 		raw, path := openUsageStore(t)
 		insertUsageEpic(t, raw, usageEpic, "")
 		insertUsageSession(t, raw, "caller-c", "", "claude-c")
@@ -199,6 +205,7 @@ func TestStoreEpicUsageSessions(t *testing.T) {
 	})
 
 	t.Run("another epic's steps are absent", func(t *testing.T) {
+		t.Parallel()
 		raw, path := openUsageStore(t)
 		insertUsageSession(t, raw, "step-1", "step", "claude-1")
 		insertUsageSession(t, raw, "step-2", "step", "claude-2")
@@ -212,6 +219,7 @@ func TestStoreEpicUsageSessions(t *testing.T) {
 	})
 
 	t.Run("a step with no sessions row has an empty Claude session", func(t *testing.T) {
+		t.Parallel()
 		raw, path := openUsageStore(t)
 		insertUsageStep(t, raw, "step-1", usageEpic, "")
 
@@ -221,6 +229,7 @@ func TestStoreEpicUsageSessions(t *testing.T) {
 	})
 
 	t.Run("an epic nothing names is empty", func(t *testing.T) {
+		t.Parallel()
 		raw, path := openUsageStore(t)
 		insertUsageEpic(t, raw, usageOther, "steer-2")
 		insertUsageSession(t, raw, "steer-2", "", "claude-steer")
@@ -245,6 +254,7 @@ func TestStoreSessionClaude(t *testing.T) {
 	t.Parallel()
 
 	t.Run("a pane session is found with its Claude session", func(t *testing.T) {
+		t.Parallel()
 		raw, path := openUsageStore(t)
 		insertUsageSession(t, raw, "pane-1", "", "claude-pane")
 
@@ -255,6 +265,7 @@ func TestStoreSessionClaude(t *testing.T) {
 	})
 
 	t.Run("an engine session is found with its Claude session", func(t *testing.T) {
+		t.Parallel()
 		raw, path := openUsageStore(t)
 		insertUsageSession(t, raw, "engine-1", store.KindEngine, "claude-engine")
 
@@ -265,6 +276,7 @@ func TestStoreSessionClaude(t *testing.T) {
 	})
 
 	t.Run("a step session is found with its Claude session", func(t *testing.T) {
+		t.Parallel()
 		raw, path := openUsageStore(t)
 		insertUsageSession(t, raw, "step-1", store.KindStep, "claude-step")
 
@@ -275,6 +287,7 @@ func TestStoreSessionClaude(t *testing.T) {
 	})
 
 	t.Run("a session with no Claude session is found with an empty one", func(t *testing.T) {
+		t.Parallel()
 		raw, path := openUsageStore(t)
 		insertUsageSession(t, raw, "pane-1", "", "")
 
@@ -285,6 +298,7 @@ func TestStoreSessionClaude(t *testing.T) {
 	})
 
 	t.Run("an unknown id is not found", func(t *testing.T) {
+		t.Parallel()
 		raw, path := openUsageStore(t)
 		insertUsageSession(t, raw, "pane-1", "", "claude-pane")
 

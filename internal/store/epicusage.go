@@ -129,7 +129,9 @@ func epicSharedSessions(ctx context.Context, queries *sqlcgen.Queries, epic stri
 	}
 	shared := make([]EpicUsageSession, 0, len(callers))
 	for _, caller := range callers {
-		shared = append(shared, EpicUsageSession{Session: caller.Session, ClaudeSession: caller.ClaudeSession, Shared: true})
+		shared = append(shared, EpicUsageSession{
+			Session: caller.Session, ClaudeSession: caller.ClaudeSession, Shared: true,
+		})
 	}
 	return shared, nil
 }
