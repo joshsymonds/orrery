@@ -19,7 +19,7 @@ import { endedLead, EndedBar, unsteeredLead } from "./endedbar";
 import { type Conversation, shownConversation } from "./conversation";
 import { ConvoRow } from "./convorow";
 import { DesignPage } from "./designpage";
-import { type DesignRecord, designRefetch } from "./designrecords";
+import { designCountsOf, type DesignRecord, designRefetch } from "./designrecords";
 import { type EpicCommands, EpicPage, type Landing, type SessionTarget, type SteerSheet } from "./epicpage";
 import { epicGaugeOf, type GaugeShare } from "./epicrow";
 import { type EpicItem, type EpicsView, epicsView, noEpics, type StepItem } from "./epics";
@@ -59,7 +59,7 @@ import { NewPanel } from "./picker";
 import { type Viewing, viewingOf } from "./presence";
 import { ProjectPage } from "./projectpage";
 import type { QuestionAnswer } from "./questionthread";
-import { type ContractCalls, newestItemKey, type ReaderHandle } from "./reader";
+import { type ContractCalls, type DesignCalls, newestItemKey, type ReaderHandle, withDesignCalls } from "./reader";
 import { flyoutOf, type FlyoutRow, railTiles } from "./railtiles";
 import { type Address, type Entry, formatAddress, type ListPanelKind, type PageView, type View } from "./router";
 import type { Row } from "./rows";
@@ -2594,18 +2594,26 @@ export function App({
       void refetchDesign(heldDesignId);
     }
   }, [heldDesignId, heldDesignListing, refetchDesign]);
-  // answerDesignQuestion sends the owner's answer to a question of a design: Accept sends accept, and the question's box its
-  // words. A refused answer rejects, so the question's thread shows the refusal. An answer that lands reads the design again.
-  const answerDesignQuestion =
-    (designId: string) =>
-    async (question: bigint, answer: QuestionAnswer): Promise<void> => {
+  // answerDesign sends the owner's answer to a question of a design, from the design's page or from a conversation's thread:
+  // Accept sends accept, and the question's box its words. A refused answer rejects, so the question's thread shows the
+  // refusal. An answer that lands reads the design again.
+  const answerDesign = useCallback(
+    async (designId: string, question: bigint, answer: QuestionAnswer): Promise<void> => {
       await clients.designs.answer(
         "words" in answer
           ? { design: designId, question, answer: answer.words }
           : { design: designId, question, accept: true },
       );
       await refetchDesign(designId);
-    };
+    },
+    [clients, refetchDesign],
+  );
+  // designCalls is what the readers draw a conversation's design items through: the design records and the answer above. It
+  // is made again only when a record changes, so the readers it reaches do not draw again for a render that moves nothing.
+  const designCalls = useMemo<DesignCalls>(
+    () => ({ records: designRecords, answer: answerDesign }),
+    [designRecords, answerDesign],
+  );
   // designPage draws the design the card holds: its record's stage strip, steelman, questions, research and log, and its
   // contracts in position order. A press on a contract holds that contract instead, when the contracts the list holds
   // include it.
@@ -2620,7 +2628,7 @@ export function App({
             navigated(openContractPanel)(id);
           }
         }}
-        onAnswer={answerDesignQuestion(design.id)}
+        onAnswer={(question, answer) => answerDesign(design.id, question, answer)}
       />
     );
   const contractPage =
@@ -2900,6 +2908,21 @@ export function App({
       ? middleRow
       : null;
   const readerStep = pageDrawn && !noticesPage && shownProject === null && !accountsOpen ? cursorStep : null;
+  // The design records a drawn conversation needs: each design its items name is read once, and read again when a new design
+  // item for it arrives, since the count of its items moves then. A conversation that is not drawn names none.
+  const drawnDesigns = useMemo(
+    () => designCountsOf([readerRow === null ? null : cursorConversation, pinnedConversation]),
+    [readerRow, cursorConversation, pinnedConversation],
+  );
+  const readDesigns = useRef(new Map<string, number>());
+  useEffect(() => {
+    for (const [id, count] of drawnDesigns) {
+      if (readDesigns.current.get(id) !== count) {
+        readDesigns.current.set(id, count);
+        void refetchDesign(id);
+      }
+    }
+  }, [drawnDesigns, refetchDesign]);
   // contractCalls are the middle reader's contract calls: its contract lines draw the contracts the list holds, and
   // open them.
   const contractCalls: ContractCalls = { contracts, onOpen: navigated(openContractPanel) };
@@ -3227,7 +3250,7 @@ export function App({
               {pageNode(epicEntry, epicDetail)}
             </section>
           ) : (
-            middleColumn
+            withDesignCalls(designCalls, middleColumn)
           )}
         </Sheet>
         {pageDrawn &&
@@ -3251,40 +3274,43 @@ export function App({
         {designShown && designLiveRow === null && (
           <section class="read" aria-label="no conversation">{!columnHolds && deskCards}</section>
         )}
-        <ReaderColumn
-          column="pinned"
-          clients={clients}
-          now={now}
-          row={pinned}
-          conversation={pinnedConversation}
-          rows={pinnedRows}
-          interrupts={interrupts}
-          pageStrip={pageStrip}
-          head={headOf}
-          narrow={!wide}
-          hidden={headHidden}
-          onHide={hideHeader}
-          onShow={showHeader}
-          onOpenEpic={navigated(openEpic)}
-          onBack={closePin}
-          finding={pinnedFinding}
-          matches={pinnedMatches}
-          current={pinnedCurrent}
-          onFind={setPinnedFind}
-          inputs={pinnedInputs}
-          handles={pinnedHandles}
-          reader={pinnedReader}
-          older={pinnedOlder}
-          sending={pinnedSending}
-          epicCalls={epicCalls}
-          addSending={addSending}
-          retractSending={retractSending}
-          open={false}
-          interrupt={interruptRow}
-          onInterrupt={(row) =>
-            void escapeRow({ row, column: "pinned", state: headState(row, pinnedConversation) }, null)
-          }
-        />
+        {withDesignCalls(
+          designCalls,
+          <ReaderColumn
+            column="pinned"
+            clients={clients}
+            now={now}
+            row={pinned}
+            conversation={pinnedConversation}
+            rows={pinnedRows}
+            interrupts={interrupts}
+            pageStrip={pageStrip}
+            head={headOf}
+            narrow={!wide}
+            hidden={headHidden}
+            onHide={hideHeader}
+            onShow={showHeader}
+            onOpenEpic={navigated(openEpic)}
+            onBack={closePin}
+            finding={pinnedFinding}
+            matches={pinnedMatches}
+            current={pinnedCurrent}
+            onFind={setPinnedFind}
+            inputs={pinnedInputs}
+            handles={pinnedHandles}
+            reader={pinnedReader}
+            older={pinnedOlder}
+            sending={pinnedSending}
+            epicCalls={epicCalls}
+            addSending={addSending}
+            retractSending={retractSending}
+            open={false}
+            interrupt={interruptRow}
+            onInterrupt={(row) =>
+              void escapeRow({ row, column: "pinned", state: headState(row, pinnedConversation) }, null)
+            }
+          />,
+        )}
         {epicEntry !== null && panelOpen && !wide && !noticesPage && !sheetHeld && (
           <div class="epic-read">{epicPageSection(epicEntry, epicDetail)}</div>
         )}

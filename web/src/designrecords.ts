@@ -1,3 +1,4 @@
+import type { Conversation } from "./conversation";
 import type { createClients } from "./client";
 import type { DesignsGetResponse } from "./gen/orrery/v1/designs_pb";
 
@@ -19,6 +20,22 @@ async function readDesign(clients: ReturnType<typeof createClients>, id: string)
   } catch {
     return { get: null, error: designUnavailable };
   }
+}
+
+// designCountsOf counts, for each design, the design items the conversations given hold that name it, and a conversation
+// that is not drawn is given as null. App reads the record of each design a drawn conversation names, and reads it again
+// when that count moves, which is when a new design item for it arrives.
+export function designCountsOf(conversations: ReadonlyArray<Conversation | null>): Map<string, number> {
+  const counts = new Map<string, number>();
+  for (const conversation of conversations) {
+    for (const item of conversation?.items ?? []) {
+      const design = item.kind === "design" ? (item.design?.design ?? "") : "";
+      if (design !== "") {
+        counts.set(design, (counts.get(design) ?? 0) + 1);
+      }
+    }
+  }
+  return counts;
 }
 
 // designRefetch returns the refetch of a design by its id: it reads Designs.Get with clients.designs and hands the record it
