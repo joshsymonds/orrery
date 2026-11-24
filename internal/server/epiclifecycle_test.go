@@ -1,7 +1,6 @@
 package server
 
 import (
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -37,7 +36,6 @@ func lifeOf(
 	}
 	client := epicStoreServe(
 		t,
-		t.TempDir(),
 		&epicsFake{steps: steps},
 		&epicStoreFake{stored: []*enginev1.StoredEpic{epic}},
 	)
@@ -230,60 +228,5 @@ func TestEpicsGetOpenTaskOfAnEndedEpic(t *testing.T) {
 	climbed := &enginev1.EpicTask{Id: "T7", Status: "open", Stage: "red", Failure: "synthetic cause"}
 	if place, tone := lifeOf(t, "stopped", climbed, nil); place != "red" || tone != "bad" {
 		t.Errorf("T7 climbed in stopped = %s %s, want red bad", place, tone)
-	}
-}
-
-// TestEpicsGetRecordTaskLifecycle proves a record task's place and tone, read from its status and the steps its slug
-// labels.
-func TestEpicsGetRecordTaskLifecycle(t *testing.T) {
-	t.Parallel()
-	root := t.TempDir()
-	writeHead(t, root, "repoa", "life", `{"outcome":"active"}`, epicsNow())
-	writeEffortState(t, filepath.Join(root, "repoa", "life"), "1", `{"tasks":[
-		{"slug":"done","subject":"S","status":"Done"},
-		{"slug":"gap","subject":"S","status":"gap"},
-		{"slug":"running","subject":"S","status":"dispatched"},
-		{"slug":"reviewing","subject":"S","status":"dispatched"},
-		{"slug":"gated","subject":"S","status":"gated"},
-		{"slug":"accepted","subject":"S","status":"dispatched"},
-		{"slug":"reviewed","subject":"S","status":"dispatched"},
-		{"slug":"retrying","subject":"S","status":"dispatched"},
-		{"slug":"dispatched","subject":"S","status":"dispatched"},
-		{"slug":"pending","subject":"S","status":"pending"}
-	]}`)
-	reviewing := lifeStep("rev", "reviewing", "", 5)
-	reviewing.ReadOnly = true
-	reviewed := lifeStep("rev-done", "reviewed", "done", 10)
-	reviewed.ReadOnly = true
-	steps := []*enginev1.Step{
-		lifeStep("gap", "gap", "goal_unmet", 30),
-		lifeStep("run", "running", "", 5),
-		reviewing,
-		lifeStep("acc", "accepted", "done", 20),
-		lifeStep("returned", "reviewed", "returned", 30),
-		reviewed,
-		lifeStep("retry", "retrying", "checks_failed", 20),
-	}
-	client := epicsServe(t, root, &epicsFake{steps: steps})
-	want := map[string][2]string{
-		"done":       {"integrated", "ok"},
-		"gap":        {"green", "bad"},
-		"running":    {"implement", "run"},
-		"reviewing":  {"review", "run"},
-		"gated":      {"integrate", "acc"},
-		"accepted":   {"integrate", "acc"},
-		"reviewed":   {"integrate", "acc"},
-		"retrying":   {"green", "run"},
-		"dispatched": {"implement", "run"},
-		"pending":    {"planned", "plan"},
-	}
-	got := epicsGet(t, client, "repoa/life").GetTasks()
-	if len(got) != len(want) {
-		t.Fatalf("tasks = %v, want %d", got, len(want))
-	}
-	for _, task := range got {
-		if w := want[task.GetSlug()]; task.GetPlace() != w[0] || task.GetTone() != w[1] {
-			t.Errorf("%s = %s %s, want %s %s", task.GetSlug(), task.GetPlace(), task.GetTone(), w[0], w[1])
-		}
 	}
 }

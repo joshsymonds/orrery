@@ -71,9 +71,10 @@ func (p pass) replanRun(run store.NodeRun) (workflow.Node, store.NodeRun, bool) 
 }
 
 // replan returns the work that starts the replan of the release run, for act, the replan its kind decided. The work
-// starts replanPlan's plan at the release's replan prefix, with the epic's highest turn as its mark. While the epic is
-// correcting, the owner's correction already holds the trigger that wakes the planner, so the work carries no trigger
-// and no reason, and the store marks that plan below the turn that claimed the correction, so that turn's tasks build
+// starts replanPlan's plan at the release's replan prefix, with the mark kinds.PlanMark gives, so a task a turn planned
+// while the release was stopped and no plan ran builds under it. While the epic is correcting, the owner's correction
+// already holds the trigger that wakes the planner, so the work carries no trigger and no reason, and the store marks
+// that plan below the turn that claimed the correction when that is lower still, so that turn's tasks build
 // (store.Store.StartCorrectionPlan). Otherwise the replan sends the release back to planning: the work carries the
 // trigger that wakes the planner with the report, whose id is derived from the plan's path and round, and the same text
 // as the tell, and the report as its Output. A workflow with no plan whose body holds an integrate node cannot plan the
@@ -89,7 +90,7 @@ func (p pass) replan(def workflow.Node, run store.NodeRun, act kinds.Action) Act
 	out := p.work(def, run, act)
 	out.Runs = []store.NodeRun{{
 		Path: path, ID: store.NodeRunID(epic, path, run.Round, "start"), Node: plan.ID, Kind: kindPlan,
-		Round: run.Round, Mark: p.highestTurn(),
+		Round: run.Round, Mark: kinds.PlanMark(p.rows),
 	}}
 	if p.rows.Epic.Phase == ledgerPhase {
 		return out

@@ -73,6 +73,22 @@ func (w replanWorld) block(side string) {
 	}
 }
 
+// pathlessEvidence is the evidence of a blocked return that names no path.
+const pathlessEvidence = "the worktree is not as the role text describes it"
+
+// blockWithoutPaths ends the first round of the release integrator blocked with evidence and no unresolved path, which
+// stops the release, and passes.
+func (w replanWorld) blockWithoutPaths() {
+	w.t.Helper()
+	w.endStep(w.integratorID(1), "returned", "blocked", map[string]any{
+		"status": "blocked", "commit": "", "resolutions": []map[string]any{}, "other_changes": []map[string]any{},
+		"checks": []map[string]any{}, "unresolved": []map[string]any{}, "evidence": pathlessEvidence,
+	})
+	if logged := w.pass(); logged != "" {
+		w.t.Fatalf("pass logged: %s", logged)
+	}
+}
+
 // report is the report the blocked round on side records.
 func (w replanWorld) report(side string) string {
 	return fmt.Sprintf("the release integrator stopped the merge of origin's commit %s into release tip %s:\n"+
@@ -235,41 +251,26 @@ func TestReleaseIntegratorCandidateSideReplansThenReleasesFromNewCandidate(t *te
 	}
 }
 
-// TestReleaseIntegratorMergeSideStopsAsBefore: a round that returns blocked on a decision on the merge's side stops the
-// release with its report as it did before replans, even with a plan the release could run again: the epic parks
-// stopped with the report, and no replan or plan run is recorded.
-func TestReleaseIntegratorMergeSideStopsAsBefore(t *testing.T) {
+// TestReleaseIntegratorMergeSideReplans: a round of the release integrator that returns blocked on a decision on the
+// merge's side, such as which side's behavior holds, does not stop the release either. It goes back to planning with
+// the integrator's report, as a round blocked on the candidate's side does, so the epic's planner settles the decision
+// as tasks.
+func TestReleaseIntegratorMergeSideReplans(t *testing.T) {
 	t.Parallel()
 	w := newReplanWorld(t)
 	w.pass()
 	w.block("merge")
-
-	flow := w.flowOf(runEpic)
-	report := w.report("merge")
-	if flow.Epic.Phase != store.PhaseStopped || flow.Epic.Parked != report ||
-		flow.Epic.ParkClass != store.ParkClassReleaseStep {
-		t.Errorf("epic phase %q parked %q class %q, want stopped on the report and a release_step park",
-			flow.Epic.Phase, flow.Epic.Parked, flow.Epic.ParkClass)
-	}
-	if run := runAt(t, w.s, releaseNodePath); run.State != store.NodeParked || run.Output != report {
-		t.Errorf("release run = %+v, want parked with the report", run)
-	}
-	if slices.ContainsFunc(flow.Releases, func(r store.ReleaseRun) bool { return r.Part == store.ReleasePartReplan }) {
-		t.Errorf("release runs = %+v, want no replan", flow.Releases)
-	}
-	if slices.ContainsFunc(flow.Runs, func(r store.NodeRun) bool { return strings.HasPrefix(r.Path, "release/") }) {
-		t.Errorf("runs = %+v, want none under the release", flow.Runs)
-	}
+	w.requireReplanned(w.report("merge"))
 }
 
-// TestRetryOfIntegratorStoppedReleaseReplans: a release its integrator stopped, as one stopped before the integrator
-// named a side, is moved on by the owner's retry: the next pass sends it back to planning with the stopped round's
-// report, exactly as a candidate-side block does.
+// TestRetryOfIntegratorStoppedReleaseReplans: a release its integrator stopped, as one blocked without naming a path
+// stops, is moved on by the owner's retry: the next pass sends it back to planning with the stopped round's report,
+// exactly as a blocked return that names a path does.
 func TestRetryOfIntegratorStoppedReleaseReplans(t *testing.T) {
 	t.Parallel()
 	w := newReplanWorld(t)
 	w.pass()
-	w.block("")
+	w.blockWithoutPaths()
 	if phase := w.flowOf(runEpic).Epic.Phase; phase != store.PhaseStopped {
 		t.Fatalf("epic phase = %q, want stopped", phase)
 	}
@@ -284,5 +285,8 @@ func TestRetryOfIntegratorStoppedReleaseReplans(t *testing.T) {
 	if logged := w.pass(); logged != "" {
 		t.Fatalf("pass logged: %s", logged)
 	}
-	w.requireReplanned(w.report(""))
+	w.requireReplanned(fmt.Sprintf(
+		"the release integrator stopped the merge of origin's commit %s into release tip %s: %s",
+		w.origin, w.tip, pathlessEvidence,
+	))
 }

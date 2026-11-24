@@ -269,8 +269,10 @@ type ContractVersion struct {
 	ChangedRows []string `protobuf:"bytes,8,rep,name=changed_rows,json=changedRows,proto3" json:"changed_rows,omitempty"`
 	// The section names whose values differ from the version before; empty for version 1.
 	ChangedSections []string `protobuf:"bytes,9,rep,name=changed_sections,json=changedSections,proto3" json:"changed_sections,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	// The ids of the steps that read this version, oldest first.
+	ReadBy        []string `protobuf:"bytes,10,rep,name=read_by,json=readBy,proto3" json:"read_by,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *ContractVersion) Reset() {
@@ -366,6 +368,13 @@ func (x *ContractVersion) GetChangedSections() []string {
 	return nil
 }
 
+func (x *ContractVersion) GetReadBy() []string {
+	if x != nil {
+		return x.ReadBy
+	}
+	return nil
+}
+
 // ContractStateChange is one change of a contract's state.
 type ContractStateChange struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -380,7 +389,9 @@ type ContractStateChange struct {
 	// The words the change was made with.
 	Words string `protobuf:"bytes,5,opt,name=words,proto3" json:"words,omitempty"`
 	// When the change was made, in unix seconds.
-	Time          int64 `protobuf:"varint,6,opt,name=time,proto3" json:"time,omitempty"`
+	Time int64 `protobuf:"varint,6,opt,name=time,proto3" json:"time,omitempty"`
+	// Who made the change and the evidence it rests on.
+	Maker         *RecordMaker `protobuf:"bytes,7,opt,name=maker,proto3" json:"maker,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -455,6 +466,13 @@ func (x *ContractStateChange) GetTime() int64 {
 		return x.Time
 	}
 	return 0
+}
+
+func (x *ContractStateChange) GetMaker() *RecordMaker {
+	if x != nil {
+		return x.Maker
+	}
+	return nil
 }
 
 // ContractsListRequest asks for every contract.
@@ -594,7 +612,23 @@ type ContractsGetResponse struct {
 	// The contract's versions, oldest first.
 	Versions []*ContractVersion `protobuf:"bytes,2,rep,name=versions,proto3" json:"versions,omitempty"`
 	// The contract's state changes, oldest first.
-	States        []*ContractStateChange `protobuf:"bytes,3,rep,name=states,proto3" json:"states,omitempty"`
+	States []*ContractStateChange `protobuf:"bytes,3,rep,name=states,proto3" json:"states,omitempty"`
+	// The contract's working copy: the body the stage is working on, with the decisions it asks and who wrote it.
+	Working *ContractWorking `protobuf:"bytes,4,opt,name=working,proto3" json:"working,omitempty"`
+	// The refusals the contract's stage recorded, oldest first.
+	Refusals []*ContractRefusal `protobuf:"bytes,5,rep,name=refusals,proto3" json:"refusals,omitempty"`
+	// The row writes the contract's stage recorded, oldest first.
+	Rows []*ContractRowWrite `protobuf:"bytes,6,rep,name=rows,proto3" json:"rows,omitempty"`
+	// The left items the contract's stage recorded, oldest first.
+	Left []*ContractLeft `protobuf:"bytes,7,rep,name=left,proto3" json:"left,omitempty"`
+	// The requirements' work the contract's stage recorded, one per requirement the work covers.
+	Work []*ContractRequirementWork `protobuf:"bytes,8,rep,name=work,proto3" json:"work,omitempty"`
+	// The rows the owner was shown, oldest first.
+	Shown []*ContractShown `protobuf:"bytes,9,rep,name=shown,proto3" json:"shown,omitempty"`
+	// The contract's length: the lines above its checks in the body the page draws, which is the working copy's when the
+	// contract has one and the newest version's otherwise. Unset when that body is not counted, as when the settings file
+	// does not read.
+	Length        *ContractLength `protobuf:"bytes,10,opt,name=length,proto3" json:"length,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -650,6 +684,705 @@ func (x *ContractsGetResponse) GetStates() []*ContractStateChange {
 	return nil
 }
 
+func (x *ContractsGetResponse) GetWorking() *ContractWorking {
+	if x != nil {
+		return x.Working
+	}
+	return nil
+}
+
+func (x *ContractsGetResponse) GetRefusals() []*ContractRefusal {
+	if x != nil {
+		return x.Refusals
+	}
+	return nil
+}
+
+func (x *ContractsGetResponse) GetRows() []*ContractRowWrite {
+	if x != nil {
+		return x.Rows
+	}
+	return nil
+}
+
+func (x *ContractsGetResponse) GetLeft() []*ContractLeft {
+	if x != nil {
+		return x.Left
+	}
+	return nil
+}
+
+func (x *ContractsGetResponse) GetWork() []*ContractRequirementWork {
+	if x != nil {
+		return x.Work
+	}
+	return nil
+}
+
+func (x *ContractsGetResponse) GetShown() []*ContractShown {
+	if x != nil {
+		return x.Shown
+	}
+	return nil
+}
+
+func (x *ContractsGetResponse) GetLength() *ContractLength {
+	if x != nil {
+		return x.Length
+	}
+	return nil
+}
+
+// ContractLength is a contract's length, counted in lines above its checks, against the thresholds the settings file
+// sets.
+type ContractLength struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The lines above the checks.
+	Lines int64 `protobuf:"varint,1,opt,name=lines,proto3" json:"lines,omitempty"`
+	// The warning threshold: lines at or past it warn.
+	Warn int64 `protobuf:"varint,2,opt,name=warn,proto3" json:"warn,omitempty"`
+	// The strong warning threshold: lines at or past it warn strongly, to cut or split the contract.
+	Strong        int64 `protobuf:"varint,3,opt,name=strong,proto3" json:"strong,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ContractLength) Reset() {
+	*x = ContractLength{}
+	mi := &file_orrery_v1_contracts_proto_msgTypes[8]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ContractLength) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ContractLength) ProtoMessage() {}
+
+func (x *ContractLength) ProtoReflect() protoreflect.Message {
+	mi := &file_orrery_v1_contracts_proto_msgTypes[8]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ContractLength.ProtoReflect.Descriptor instead.
+func (*ContractLength) Descriptor() ([]byte, []int) {
+	return file_orrery_v1_contracts_proto_rawDescGZIP(), []int{8}
+}
+
+func (x *ContractLength) GetLines() int64 {
+	if x != nil {
+		return x.Lines
+	}
+	return 0
+}
+
+func (x *ContractLength) GetWarn() int64 {
+	if x != nil {
+		return x.Warn
+	}
+	return 0
+}
+
+func (x *ContractLength) GetStrong() int64 {
+	if x != nil {
+		return x.Strong
+	}
+	return 0
+}
+
+// ContractWorking is a contract's working copy: the body its stage works on, with the decisions it asks the owner to
+// answer.
+type ContractWorking struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The working copy's version number, counted from 1.
+	Version int64 `protobuf:"varint,1,opt,name=version,proto3" json:"version,omitempty"`
+	// The body's sections.
+	Contract *EpicContract `protobuf:"bytes,2,opt,name=contract,proto3" json:"contract,omitempty"`
+	// The body's requirements in order.
+	Requirements []*EpicRequirement `protobuf:"bytes,3,rep,name=requirements,proto3" json:"requirements,omitempty"`
+	// The decisions the working copy asks the owner to answer.
+	Decisions []*ContractDecision `protobuf:"bytes,4,rep,name=decisions,proto3" json:"decisions,omitempty"`
+	// The sessions row id of the session that wrote the working copy.
+	Writer string `protobuf:"bytes,5,opt,name=writer,proto3" json:"writer,omitempty"`
+	// When the working copy was last updated, in unix seconds.
+	Updated int64 `protobuf:"varint,6,opt,name=updated,proto3" json:"updated,omitempty"`
+	// The F, R, P and decision ids whose text differs from the version before.
+	ChangedRows   []string `protobuf:"bytes,7,rep,name=changed_rows,json=changedRows,proto3" json:"changed_rows,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ContractWorking) Reset() {
+	*x = ContractWorking{}
+	mi := &file_orrery_v1_contracts_proto_msgTypes[9]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ContractWorking) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ContractWorking) ProtoMessage() {}
+
+func (x *ContractWorking) ProtoReflect() protoreflect.Message {
+	mi := &file_orrery_v1_contracts_proto_msgTypes[9]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ContractWorking.ProtoReflect.Descriptor instead.
+func (*ContractWorking) Descriptor() ([]byte, []int) {
+	return file_orrery_v1_contracts_proto_rawDescGZIP(), []int{9}
+}
+
+func (x *ContractWorking) GetVersion() int64 {
+	if x != nil {
+		return x.Version
+	}
+	return 0
+}
+
+func (x *ContractWorking) GetContract() *EpicContract {
+	if x != nil {
+		return x.Contract
+	}
+	return nil
+}
+
+func (x *ContractWorking) GetRequirements() []*EpicRequirement {
+	if x != nil {
+		return x.Requirements
+	}
+	return nil
+}
+
+func (x *ContractWorking) GetDecisions() []*ContractDecision {
+	if x != nil {
+		return x.Decisions
+	}
+	return nil
+}
+
+func (x *ContractWorking) GetWriter() string {
+	if x != nil {
+		return x.Writer
+	}
+	return ""
+}
+
+func (x *ContractWorking) GetUpdated() int64 {
+	if x != nil {
+		return x.Updated
+	}
+	return 0
+}
+
+func (x *ContractWorking) GetChangedRows() []string {
+	if x != nil {
+		return x.ChangedRows
+	}
+	return nil
+}
+
+// ContractRefusal is a refusal the contract's stage recorded for a field of its body.
+type ContractRefusal struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The refusal's seq, counted from 1 within its contract.
+	Seq int64 `protobuf:"varint,1,opt,name=seq,proto3" json:"seq,omitempty"`
+	// The number of the contract version the refusal concerns.
+	Version int64 `protobuf:"varint,2,opt,name=version,proto3" json:"version,omitempty"`
+	// The field the refusal concerns.
+	Field string `protobuf:"bytes,3,opt,name=field,proto3" json:"field,omitempty"`
+	// The refusal's text.
+	Text string `protobuf:"bytes,4,opt,name=text,proto3" json:"text,omitempty"`
+	// The sessions row id of the session that recorded the refusal.
+	Session string `protobuf:"bytes,5,opt,name=session,proto3" json:"session,omitempty"`
+	// When the refusal was recorded, in unix seconds.
+	Time          int64 `protobuf:"varint,6,opt,name=time,proto3" json:"time,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ContractRefusal) Reset() {
+	*x = ContractRefusal{}
+	mi := &file_orrery_v1_contracts_proto_msgTypes[10]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ContractRefusal) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ContractRefusal) ProtoMessage() {}
+
+func (x *ContractRefusal) ProtoReflect() protoreflect.Message {
+	mi := &file_orrery_v1_contracts_proto_msgTypes[10]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ContractRefusal.ProtoReflect.Descriptor instead.
+func (*ContractRefusal) Descriptor() ([]byte, []int) {
+	return file_orrery_v1_contracts_proto_rawDescGZIP(), []int{10}
+}
+
+func (x *ContractRefusal) GetSeq() int64 {
+	if x != nil {
+		return x.Seq
+	}
+	return 0
+}
+
+func (x *ContractRefusal) GetVersion() int64 {
+	if x != nil {
+		return x.Version
+	}
+	return 0
+}
+
+func (x *ContractRefusal) GetField() string {
+	if x != nil {
+		return x.Field
+	}
+	return ""
+}
+
+func (x *ContractRefusal) GetText() string {
+	if x != nil {
+		return x.Text
+	}
+	return ""
+}
+
+func (x *ContractRefusal) GetSession() string {
+	if x != nil {
+		return x.Session
+	}
+	return ""
+}
+
+func (x *ContractRefusal) GetTime() int64 {
+	if x != nil {
+		return x.Time
+	}
+	return 0
+}
+
+// ContractRowWrite is a write to a row of a contract's body, as its stage recorded it.
+type ContractRowWrite struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The write's seq, counted from 1 within its contract.
+	Seq int64 `protobuf:"varint,1,opt,name=seq,proto3" json:"seq,omitempty"`
+	// The number of the contract version the write made.
+	Version int64 `protobuf:"varint,2,opt,name=version,proto3" json:"version,omitempty"`
+	// The F, R or P row the write concerns.
+	Row string `protobuf:"bytes,3,opt,name=row,proto3" json:"row,omitempty"`
+	// What the write did to the row.
+	Action string `protobuf:"bytes,4,opt,name=action,proto3" json:"action,omitempty"`
+	// The row the written row depends on.
+	Depends string `protobuf:"bytes,5,opt,name=depends,proto3" json:"depends,omitempty"`
+	// The owner's words the write is made with.
+	Words string `protobuf:"bytes,6,opt,name=words,proto3" json:"words,omitempty"`
+	// Who made the write and the evidence it rests on.
+	Maker *RecordMaker `protobuf:"bytes,7,opt,name=maker,proto3" json:"maker,omitempty"`
+	// When the write was stored, in unix seconds.
+	Time          int64 `protobuf:"varint,8,opt,name=time,proto3" json:"time,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ContractRowWrite) Reset() {
+	*x = ContractRowWrite{}
+	mi := &file_orrery_v1_contracts_proto_msgTypes[11]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ContractRowWrite) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ContractRowWrite) ProtoMessage() {}
+
+func (x *ContractRowWrite) ProtoReflect() protoreflect.Message {
+	mi := &file_orrery_v1_contracts_proto_msgTypes[11]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ContractRowWrite.ProtoReflect.Descriptor instead.
+func (*ContractRowWrite) Descriptor() ([]byte, []int) {
+	return file_orrery_v1_contracts_proto_rawDescGZIP(), []int{11}
+}
+
+func (x *ContractRowWrite) GetSeq() int64 {
+	if x != nil {
+		return x.Seq
+	}
+	return 0
+}
+
+func (x *ContractRowWrite) GetVersion() int64 {
+	if x != nil {
+		return x.Version
+	}
+	return 0
+}
+
+func (x *ContractRowWrite) GetRow() string {
+	if x != nil {
+		return x.Row
+	}
+	return ""
+}
+
+func (x *ContractRowWrite) GetAction() string {
+	if x != nil {
+		return x.Action
+	}
+	return ""
+}
+
+func (x *ContractRowWrite) GetDepends() string {
+	if x != nil {
+		return x.Depends
+	}
+	return ""
+}
+
+func (x *ContractRowWrite) GetWords() string {
+	if x != nil {
+		return x.Words
+	}
+	return ""
+}
+
+func (x *ContractRowWrite) GetMaker() *RecordMaker {
+	if x != nil {
+		return x.Maker
+	}
+	return nil
+}
+
+func (x *ContractRowWrite) GetTime() int64 {
+	if x != nil {
+		return x.Time
+	}
+	return 0
+}
+
+// ContractLeft is an item the contract's stage left, with the kind of item and the id it refers to.
+type ContractLeft struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The kind of item left.
+	Kind string `protobuf:"bytes,1,opt,name=kind,proto3" json:"kind,omitempty"`
+	// The id of the item left.
+	Ref string `protobuf:"bytes,2,opt,name=ref,proto3" json:"ref,omitempty"`
+	// The item's text.
+	Text          string `protobuf:"bytes,3,opt,name=text,proto3" json:"text,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ContractLeft) Reset() {
+	*x = ContractLeft{}
+	mi := &file_orrery_v1_contracts_proto_msgTypes[12]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ContractLeft) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ContractLeft) ProtoMessage() {}
+
+func (x *ContractLeft) ProtoReflect() protoreflect.Message {
+	mi := &file_orrery_v1_contracts_proto_msgTypes[12]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ContractLeft.ProtoReflect.Descriptor instead.
+func (*ContractLeft) Descriptor() ([]byte, []int) {
+	return file_orrery_v1_contracts_proto_rawDescGZIP(), []int{12}
+}
+
+func (x *ContractLeft) GetKind() string {
+	if x != nil {
+		return x.Kind
+	}
+	return ""
+}
+
+func (x *ContractLeft) GetRef() string {
+	if x != nil {
+		return x.Ref
+	}
+	return ""
+}
+
+func (x *ContractLeft) GetText() string {
+	if x != nil {
+		return x.Text
+	}
+	return ""
+}
+
+// ContractShown is a row of a contract version the owner was shown.
+type ContractShown struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The number of the contract version the owner was shown.
+	Version int64 `protobuf:"varint,1,opt,name=version,proto3" json:"version,omitempty"`
+	// The F, R or P row the owner was shown.
+	Row string `protobuf:"bytes,2,opt,name=row,proto3" json:"row,omitempty"`
+	// When the owner was shown the row, in unix seconds.
+	Time          int64 `protobuf:"varint,3,opt,name=time,proto3" json:"time,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ContractShown) Reset() {
+	*x = ContractShown{}
+	mi := &file_orrery_v1_contracts_proto_msgTypes[13]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ContractShown) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ContractShown) ProtoMessage() {}
+
+func (x *ContractShown) ProtoReflect() protoreflect.Message {
+	mi := &file_orrery_v1_contracts_proto_msgTypes[13]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ContractShown.ProtoReflect.Descriptor instead.
+func (*ContractShown) Descriptor() ([]byte, []int) {
+	return file_orrery_v1_contracts_proto_rawDescGZIP(), []int{13}
+}
+
+func (x *ContractShown) GetVersion() int64 {
+	if x != nil {
+		return x.Version
+	}
+	return 0
+}
+
+func (x *ContractShown) GetRow() string {
+	if x != nil {
+		return x.Row
+	}
+	return ""
+}
+
+func (x *ContractShown) GetTime() int64 {
+	if x != nil {
+		return x.Time
+	}
+	return 0
+}
+
+// ContractRequirementWork is the work done on one requirement of a contract: its tasks and the evidence run that proves
+// it.
+type ContractRequirementWork struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The requirement's id, R<n>.
+	Id string `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	// The requirement's text.
+	Text string `protobuf:"bytes,2,opt,name=text,proto3" json:"text,omitempty"`
+	// The requirement's state.
+	State string `protobuf:"bytes,3,opt,name=state,proto3" json:"state,omitempty"`
+	// The tasks that cover the requirement.
+	Tasks []*ContractRequirementTask `protobuf:"bytes,4,rep,name=tasks,proto3" json:"tasks,omitempty"`
+	// The evidence run that proves the requirement.
+	Proof         *EvidenceRun `protobuf:"bytes,5,opt,name=proof,proto3" json:"proof,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ContractRequirementWork) Reset() {
+	*x = ContractRequirementWork{}
+	mi := &file_orrery_v1_contracts_proto_msgTypes[14]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ContractRequirementWork) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ContractRequirementWork) ProtoMessage() {}
+
+func (x *ContractRequirementWork) ProtoReflect() protoreflect.Message {
+	mi := &file_orrery_v1_contracts_proto_msgTypes[14]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ContractRequirementWork.ProtoReflect.Descriptor instead.
+func (*ContractRequirementWork) Descriptor() ([]byte, []int) {
+	return file_orrery_v1_contracts_proto_rawDescGZIP(), []int{14}
+}
+
+func (x *ContractRequirementWork) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *ContractRequirementWork) GetText() string {
+	if x != nil {
+		return x.Text
+	}
+	return ""
+}
+
+func (x *ContractRequirementWork) GetState() string {
+	if x != nil {
+		return x.State
+	}
+	return ""
+}
+
+func (x *ContractRequirementWork) GetTasks() []*ContractRequirementTask {
+	if x != nil {
+		return x.Tasks
+	}
+	return nil
+}
+
+func (x *ContractRequirementWork) GetProof() *EvidenceRun {
+	if x != nil {
+		return x.Proof
+	}
+	return nil
+}
+
+// ContractRequirementTask is a task that covers a requirement of a contract.
+type ContractRequirementTask struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The task's id.
+	Id string `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	// The task's title.
+	Title string `protobuf:"bytes,2,opt,name=title,proto3" json:"title,omitempty"`
+	// The task's status.
+	Status string `protobuf:"bytes,3,opt,name=status,proto3" json:"status,omitempty"`
+	// The task's place in the build order.
+	Place         string `protobuf:"bytes,4,opt,name=place,proto3" json:"place,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ContractRequirementTask) Reset() {
+	*x = ContractRequirementTask{}
+	mi := &file_orrery_v1_contracts_proto_msgTypes[15]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ContractRequirementTask) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ContractRequirementTask) ProtoMessage() {}
+
+func (x *ContractRequirementTask) ProtoReflect() protoreflect.Message {
+	mi := &file_orrery_v1_contracts_proto_msgTypes[15]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ContractRequirementTask.ProtoReflect.Descriptor instead.
+func (*ContractRequirementTask) Descriptor() ([]byte, []int) {
+	return file_orrery_v1_contracts_proto_rawDescGZIP(), []int{15}
+}
+
+func (x *ContractRequirementTask) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *ContractRequirementTask) GetTitle() string {
+	if x != nil {
+		return x.Title
+	}
+	return ""
+}
+
+func (x *ContractRequirementTask) GetStatus() string {
+	if x != nil {
+		return x.Status
+	}
+	return ""
+}
+
+func (x *ContractRequirementTask) GetPlace() string {
+	if x != nil {
+		return x.Place
+	}
+	return ""
+}
+
 // ContractsAcceptRequest names the contract the owner accepts.
 type ContractsAcceptRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -663,7 +1396,7 @@ type ContractsAcceptRequest struct {
 
 func (x *ContractsAcceptRequest) Reset() {
 	*x = ContractsAcceptRequest{}
-	mi := &file_orrery_v1_contracts_proto_msgTypes[8]
+	mi := &file_orrery_v1_contracts_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -675,7 +1408,7 @@ func (x *ContractsAcceptRequest) String() string {
 func (*ContractsAcceptRequest) ProtoMessage() {}
 
 func (x *ContractsAcceptRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_orrery_v1_contracts_proto_msgTypes[8]
+	mi := &file_orrery_v1_contracts_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -688,7 +1421,7 @@ func (x *ContractsAcceptRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ContractsAcceptRequest.ProtoReflect.Descriptor instead.
 func (*ContractsAcceptRequest) Descriptor() ([]byte, []int) {
-	return file_orrery_v1_contracts_proto_rawDescGZIP(), []int{8}
+	return file_orrery_v1_contracts_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *ContractsAcceptRequest) GetId() string {
@@ -716,7 +1449,7 @@ type ContractsAcceptResponse struct {
 
 func (x *ContractsAcceptResponse) Reset() {
 	*x = ContractsAcceptResponse{}
-	mi := &file_orrery_v1_contracts_proto_msgTypes[9]
+	mi := &file_orrery_v1_contracts_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -728,7 +1461,7 @@ func (x *ContractsAcceptResponse) String() string {
 func (*ContractsAcceptResponse) ProtoMessage() {}
 
 func (x *ContractsAcceptResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_orrery_v1_contracts_proto_msgTypes[9]
+	mi := &file_orrery_v1_contracts_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -741,7 +1474,7 @@ func (x *ContractsAcceptResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ContractsAcceptResponse.ProtoReflect.Descriptor instead.
 func (*ContractsAcceptResponse) Descriptor() ([]byte, []int) {
-	return file_orrery_v1_contracts_proto_rawDescGZIP(), []int{9}
+	return file_orrery_v1_contracts_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *ContractsAcceptResponse) GetContract() *Contract {
@@ -764,7 +1497,7 @@ type ContractsSetAsideRequest struct {
 
 func (x *ContractsSetAsideRequest) Reset() {
 	*x = ContractsSetAsideRequest{}
-	mi := &file_orrery_v1_contracts_proto_msgTypes[10]
+	mi := &file_orrery_v1_contracts_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -776,7 +1509,7 @@ func (x *ContractsSetAsideRequest) String() string {
 func (*ContractsSetAsideRequest) ProtoMessage() {}
 
 func (x *ContractsSetAsideRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_orrery_v1_contracts_proto_msgTypes[10]
+	mi := &file_orrery_v1_contracts_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -789,7 +1522,7 @@ func (x *ContractsSetAsideRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ContractsSetAsideRequest.ProtoReflect.Descriptor instead.
 func (*ContractsSetAsideRequest) Descriptor() ([]byte, []int) {
-	return file_orrery_v1_contracts_proto_rawDescGZIP(), []int{10}
+	return file_orrery_v1_contracts_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *ContractsSetAsideRequest) GetId() string {
@@ -817,7 +1550,7 @@ type ContractsSetAsideResponse struct {
 
 func (x *ContractsSetAsideResponse) Reset() {
 	*x = ContractsSetAsideResponse{}
-	mi := &file_orrery_v1_contracts_proto_msgTypes[11]
+	mi := &file_orrery_v1_contracts_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -829,7 +1562,7 @@ func (x *ContractsSetAsideResponse) String() string {
 func (*ContractsSetAsideResponse) ProtoMessage() {}
 
 func (x *ContractsSetAsideResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_orrery_v1_contracts_proto_msgTypes[11]
+	mi := &file_orrery_v1_contracts_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -842,7 +1575,7 @@ func (x *ContractsSetAsideResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ContractsSetAsideResponse.ProtoReflect.Descriptor instead.
 func (*ContractsSetAsideResponse) Descriptor() ([]byte, []int) {
-	return file_orrery_v1_contracts_proto_rawDescGZIP(), []int{11}
+	return file_orrery_v1_contracts_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *ContractsSetAsideResponse) GetContract() *Contract {
@@ -865,7 +1598,7 @@ type ContractsReopenRequest struct {
 
 func (x *ContractsReopenRequest) Reset() {
 	*x = ContractsReopenRequest{}
-	mi := &file_orrery_v1_contracts_proto_msgTypes[12]
+	mi := &file_orrery_v1_contracts_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -877,7 +1610,7 @@ func (x *ContractsReopenRequest) String() string {
 func (*ContractsReopenRequest) ProtoMessage() {}
 
 func (x *ContractsReopenRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_orrery_v1_contracts_proto_msgTypes[12]
+	mi := &file_orrery_v1_contracts_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -890,7 +1623,7 @@ func (x *ContractsReopenRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ContractsReopenRequest.ProtoReflect.Descriptor instead.
 func (*ContractsReopenRequest) Descriptor() ([]byte, []int) {
-	return file_orrery_v1_contracts_proto_rawDescGZIP(), []int{12}
+	return file_orrery_v1_contracts_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *ContractsReopenRequest) GetId() string {
@@ -918,7 +1651,7 @@ type ContractsReopenResponse struct {
 
 func (x *ContractsReopenResponse) Reset() {
 	*x = ContractsReopenResponse{}
-	mi := &file_orrery_v1_contracts_proto_msgTypes[13]
+	mi := &file_orrery_v1_contracts_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -930,7 +1663,7 @@ func (x *ContractsReopenResponse) String() string {
 func (*ContractsReopenResponse) ProtoMessage() {}
 
 func (x *ContractsReopenResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_orrery_v1_contracts_proto_msgTypes[13]
+	mi := &file_orrery_v1_contracts_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -943,7 +1676,7 @@ func (x *ContractsReopenResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ContractsReopenResponse.ProtoReflect.Descriptor instead.
 func (*ContractsReopenResponse) Descriptor() ([]byte, []int) {
-	return file_orrery_v1_contracts_proto_rawDescGZIP(), []int{13}
+	return file_orrery_v1_contracts_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *ContractsReopenResponse) GetContract() *Contract {
@@ -953,11 +1686,350 @@ func (x *ContractsReopenResponse) GetContract() *Contract {
 	return nil
 }
 
+// ContractsKeepRequest names the contract and the addition the owner keeps.
+type ContractsKeepRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The contract's id, as List gave it.
+	Id string `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	// The addition the contract keeps.
+	Addition string `protobuf:"bytes,2,opt,name=addition,proto3" json:"addition,omitempty"`
+	// The words the owner keeps the addition with; may be empty.
+	Words         string `protobuf:"bytes,3,opt,name=words,proto3" json:"words,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ContractsKeepRequest) Reset() {
+	*x = ContractsKeepRequest{}
+	mi := &file_orrery_v1_contracts_proto_msgTypes[22]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ContractsKeepRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ContractsKeepRequest) ProtoMessage() {}
+
+func (x *ContractsKeepRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_orrery_v1_contracts_proto_msgTypes[22]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ContractsKeepRequest.ProtoReflect.Descriptor instead.
+func (*ContractsKeepRequest) Descriptor() ([]byte, []int) {
+	return file_orrery_v1_contracts_proto_rawDescGZIP(), []int{22}
+}
+
+func (x *ContractsKeepRequest) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *ContractsKeepRequest) GetAddition() string {
+	if x != nil {
+		return x.Addition
+	}
+	return ""
+}
+
+func (x *ContractsKeepRequest) GetWords() string {
+	if x != nil {
+		return x.Words
+	}
+	return ""
+}
+
+// ContractsKeepResponse carries the contract as it stands after the addition was kept.
+type ContractsKeepResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The contract.
+	Contract      *Contract `protobuf:"bytes,1,opt,name=contract,proto3" json:"contract,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ContractsKeepResponse) Reset() {
+	*x = ContractsKeepResponse{}
+	mi := &file_orrery_v1_contracts_proto_msgTypes[23]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ContractsKeepResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ContractsKeepResponse) ProtoMessage() {}
+
+func (x *ContractsKeepResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_orrery_v1_contracts_proto_msgTypes[23]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ContractsKeepResponse.ProtoReflect.Descriptor instead.
+func (*ContractsKeepResponse) Descriptor() ([]byte, []int) {
+	return file_orrery_v1_contracts_proto_rawDescGZIP(), []int{23}
+}
+
+func (x *ContractsKeepResponse) GetContract() *Contract {
+	if x != nil {
+		return x.Contract
+	}
+	return nil
+}
+
+// ContractsStrikeRequest names the contract and the addition the owner strikes.
+type ContractsStrikeRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The contract's id, as List gave it.
+	Id string `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	// The addition the contract keeps, which the owner strikes.
+	Addition string `protobuf:"bytes,2,opt,name=addition,proto3" json:"addition,omitempty"`
+	// The words the owner strikes the addition with; may be empty.
+	Words         string `protobuf:"bytes,3,opt,name=words,proto3" json:"words,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ContractsStrikeRequest) Reset() {
+	*x = ContractsStrikeRequest{}
+	mi := &file_orrery_v1_contracts_proto_msgTypes[24]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ContractsStrikeRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ContractsStrikeRequest) ProtoMessage() {}
+
+func (x *ContractsStrikeRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_orrery_v1_contracts_proto_msgTypes[24]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ContractsStrikeRequest.ProtoReflect.Descriptor instead.
+func (*ContractsStrikeRequest) Descriptor() ([]byte, []int) {
+	return file_orrery_v1_contracts_proto_rawDescGZIP(), []int{24}
+}
+
+func (x *ContractsStrikeRequest) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *ContractsStrikeRequest) GetAddition() string {
+	if x != nil {
+		return x.Addition
+	}
+	return ""
+}
+
+func (x *ContractsStrikeRequest) GetWords() string {
+	if x != nil {
+		return x.Words
+	}
+	return ""
+}
+
+// ContractsStrikeResponse carries the contract as it stands after the striking, and the rows the striking removed.
+type ContractsStrikeResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The contract.
+	Contract *Contract `protobuf:"bytes,1,opt,name=contract,proto3" json:"contract,omitempty"`
+	// The rows the striking removed.
+	Removed       []string `protobuf:"bytes,2,rep,name=removed,proto3" json:"removed,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ContractsStrikeResponse) Reset() {
+	*x = ContractsStrikeResponse{}
+	mi := &file_orrery_v1_contracts_proto_msgTypes[25]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ContractsStrikeResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ContractsStrikeResponse) ProtoMessage() {}
+
+func (x *ContractsStrikeResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_orrery_v1_contracts_proto_msgTypes[25]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ContractsStrikeResponse.ProtoReflect.Descriptor instead.
+func (*ContractsStrikeResponse) Descriptor() ([]byte, []int) {
+	return file_orrery_v1_contracts_proto_rawDescGZIP(), []int{25}
+}
+
+func (x *ContractsStrikeResponse) GetContract() *Contract {
+	if x != nil {
+		return x.Contract
+	}
+	return nil
+}
+
+func (x *ContractsStrikeResponse) GetRemoved() []string {
+	if x != nil {
+		return x.Removed
+	}
+	return nil
+}
+
+// ContractsShownRequest names the contract version the owner was shown and the rows the owner was shown.
+type ContractsShownRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The contract's id, as List gave it.
+	Id string `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	// The number of the contract version the owner was shown.
+	Version int64 `protobuf:"varint,2,opt,name=version,proto3" json:"version,omitempty"`
+	// The F, R or P rows the owner was shown.
+	Rows          []string `protobuf:"bytes,3,rep,name=rows,proto3" json:"rows,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ContractsShownRequest) Reset() {
+	*x = ContractsShownRequest{}
+	mi := &file_orrery_v1_contracts_proto_msgTypes[26]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ContractsShownRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ContractsShownRequest) ProtoMessage() {}
+
+func (x *ContractsShownRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_orrery_v1_contracts_proto_msgTypes[26]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ContractsShownRequest.ProtoReflect.Descriptor instead.
+func (*ContractsShownRequest) Descriptor() ([]byte, []int) {
+	return file_orrery_v1_contracts_proto_rawDescGZIP(), []int{26}
+}
+
+func (x *ContractsShownRequest) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *ContractsShownRequest) GetVersion() int64 {
+	if x != nil {
+		return x.Version
+	}
+	return 0
+}
+
+func (x *ContractsShownRequest) GetRows() []string {
+	if x != nil {
+		return x.Rows
+	}
+	return nil
+}
+
+// ContractsShownResponse carries the rows orreryd marked as shown.
+type ContractsShownResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The rows orreryd marked.
+	Rows          []string `protobuf:"bytes,1,rep,name=rows,proto3" json:"rows,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ContractsShownResponse) Reset() {
+	*x = ContractsShownResponse{}
+	mi := &file_orrery_v1_contracts_proto_msgTypes[27]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ContractsShownResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ContractsShownResponse) ProtoMessage() {}
+
+func (x *ContractsShownResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_orrery_v1_contracts_proto_msgTypes[27]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ContractsShownResponse.ProtoReflect.Descriptor instead.
+func (*ContractsShownResponse) Descriptor() ([]byte, []int) {
+	return file_orrery_v1_contracts_proto_rawDescGZIP(), []int{27}
+}
+
+func (x *ContractsShownResponse) GetRows() []string {
+	if x != nil {
+		return x.Rows
+	}
+	return nil
+}
+
 var File_orrery_v1_contracts_proto protoreflect.FileDescriptor
 
 const file_orrery_v1_contracts_proto_rawDesc = "" +
 	"\n" +
-	"\x19orrery/v1/contracts.proto\x12\torrery.v1\x1a\x15orrery/v1/epics.proto\"\x93\x02\n" +
+	"\x19orrery/v1/contracts.proto\x12\torrery.v1\x1a\x17orrery/v1/designs.proto\x1a\x15orrery/v1/epics.proto\"\x93\x02\n" +
 	"\bContract\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1e\n" +
 	"\n" +
@@ -979,7 +2051,7 @@ const file_orrery_v1_contracts_proto_rawDesc = "" +
 	"\x0erecommendation\x18\x04 \x01(\tR\x0erecommendation\x12\x16\n" +
 	"\x06reason\x18\x05 \x01(\tR\x06reason\x12\x10\n" +
 	"\x03row\x18\x06 \x01(\tR\x03row\x12\x16\n" +
-	"\x06answer\x18\a \x01(\tR\x06answer\"\xeb\x02\n" +
+	"\x06answer\x18\a \x01(\tR\x06answer\"\x84\x03\n" +
 	"\x0fContractVersion\x12\x18\n" +
 	"\aversion\x18\x01 \x01(\x03R\aversion\x123\n" +
 	"\bcontract\x18\x02 \x01(\v2\x17.orrery.v1.EpicContractR\bcontract\x12>\n" +
@@ -989,23 +2061,81 @@ const file_orrery_v1_contracts_proto_rawDesc = "" +
 	"\x06writer\x18\x06 \x01(\tR\x06writer\x12\x12\n" +
 	"\x04time\x18\a \x01(\x03R\x04time\x12!\n" +
 	"\fchanged_rows\x18\b \x03(\tR\vchangedRows\x12)\n" +
-	"\x10changed_sections\x18\t \x03(\tR\x0fchangedSections\"\x99\x01\n" +
+	"\x10changed_sections\x18\t \x03(\tR\x0fchangedSections\x12\x17\n" +
+	"\aread_by\x18\n" +
+	" \x03(\tR\x06readBy\"\xc7\x01\n" +
 	"\x13ContractStateChange\x12\x14\n" +
 	"\x05state\x18\x01 \x01(\tR\x05state\x12\x18\n" +
 	"\aversion\x18\x02 \x01(\x03R\aversion\x12\x0e\n" +
 	"\x02by\x18\x03 \x01(\tR\x02by\x12\x18\n" +
 	"\asession\x18\x04 \x01(\tR\asession\x12\x14\n" +
 	"\x05words\x18\x05 \x01(\tR\x05words\x12\x12\n" +
-	"\x04time\x18\x06 \x01(\x03R\x04time\"\x16\n" +
+	"\x04time\x18\x06 \x01(\x03R\x04time\x12,\n" +
+	"\x05maker\x18\a \x01(\v2\x16.orrery.v1.RecordMakerR\x05maker\"\x16\n" +
 	"\x14ContractsListRequest\"J\n" +
 	"\x15ContractsListResponse\x121\n" +
 	"\tcontracts\x18\x01 \x03(\v2\x13.orrery.v1.ContractR\tcontracts\"%\n" +
 	"\x13ContractsGetRequest\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\tR\x02id\"\xb7\x01\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\"\x9e\x04\n" +
 	"\x14ContractsGetResponse\x12/\n" +
 	"\bcontract\x18\x01 \x01(\v2\x13.orrery.v1.ContractR\bcontract\x126\n" +
 	"\bversions\x18\x02 \x03(\v2\x1a.orrery.v1.ContractVersionR\bversions\x126\n" +
-	"\x06states\x18\x03 \x03(\v2\x1e.orrery.v1.ContractStateChangeR\x06states\">\n" +
+	"\x06states\x18\x03 \x03(\v2\x1e.orrery.v1.ContractStateChangeR\x06states\x124\n" +
+	"\aworking\x18\x04 \x01(\v2\x1a.orrery.v1.ContractWorkingR\aworking\x126\n" +
+	"\brefusals\x18\x05 \x03(\v2\x1a.orrery.v1.ContractRefusalR\brefusals\x12/\n" +
+	"\x04rows\x18\x06 \x03(\v2\x1b.orrery.v1.ContractRowWriteR\x04rows\x12+\n" +
+	"\x04left\x18\a \x03(\v2\x17.orrery.v1.ContractLeftR\x04left\x126\n" +
+	"\x04work\x18\b \x03(\v2\".orrery.v1.ContractRequirementWorkR\x04work\x12.\n" +
+	"\x05shown\x18\t \x03(\v2\x18.orrery.v1.ContractShownR\x05shown\x121\n" +
+	"\x06length\x18\n" +
+	" \x01(\v2\x19.orrery.v1.ContractLengthR\x06length\"R\n" +
+	"\x0eContractLength\x12\x14\n" +
+	"\x05lines\x18\x01 \x01(\x03R\x05lines\x12\x12\n" +
+	"\x04warn\x18\x02 \x01(\x03R\x04warn\x12\x16\n" +
+	"\x06strong\x18\x03 \x01(\x03R\x06strong\"\xb0\x02\n" +
+	"\x0fContractWorking\x12\x18\n" +
+	"\aversion\x18\x01 \x01(\x03R\aversion\x123\n" +
+	"\bcontract\x18\x02 \x01(\v2\x17.orrery.v1.EpicContractR\bcontract\x12>\n" +
+	"\frequirements\x18\x03 \x03(\v2\x1a.orrery.v1.EpicRequirementR\frequirements\x129\n" +
+	"\tdecisions\x18\x04 \x03(\v2\x1b.orrery.v1.ContractDecisionR\tdecisions\x12\x16\n" +
+	"\x06writer\x18\x05 \x01(\tR\x06writer\x12\x18\n" +
+	"\aupdated\x18\x06 \x01(\x03R\aupdated\x12!\n" +
+	"\fchanged_rows\x18\a \x03(\tR\vchangedRows\"\x95\x01\n" +
+	"\x0fContractRefusal\x12\x10\n" +
+	"\x03seq\x18\x01 \x01(\x03R\x03seq\x12\x18\n" +
+	"\aversion\x18\x02 \x01(\x03R\aversion\x12\x14\n" +
+	"\x05field\x18\x03 \x01(\tR\x05field\x12\x12\n" +
+	"\x04text\x18\x04 \x01(\tR\x04text\x12\x18\n" +
+	"\asession\x18\x05 \x01(\tR\asession\x12\x12\n" +
+	"\x04time\x18\x06 \x01(\x03R\x04time\"\xda\x01\n" +
+	"\x10ContractRowWrite\x12\x10\n" +
+	"\x03seq\x18\x01 \x01(\x03R\x03seq\x12\x18\n" +
+	"\aversion\x18\x02 \x01(\x03R\aversion\x12\x10\n" +
+	"\x03row\x18\x03 \x01(\tR\x03row\x12\x16\n" +
+	"\x06action\x18\x04 \x01(\tR\x06action\x12\x18\n" +
+	"\adepends\x18\x05 \x01(\tR\adepends\x12\x14\n" +
+	"\x05words\x18\x06 \x01(\tR\x05words\x12,\n" +
+	"\x05maker\x18\a \x01(\v2\x16.orrery.v1.RecordMakerR\x05maker\x12\x12\n" +
+	"\x04time\x18\b \x01(\x03R\x04time\"H\n" +
+	"\fContractLeft\x12\x12\n" +
+	"\x04kind\x18\x01 \x01(\tR\x04kind\x12\x10\n" +
+	"\x03ref\x18\x02 \x01(\tR\x03ref\x12\x12\n" +
+	"\x04text\x18\x03 \x01(\tR\x04text\"O\n" +
+	"\rContractShown\x12\x18\n" +
+	"\aversion\x18\x01 \x01(\x03R\aversion\x12\x10\n" +
+	"\x03row\x18\x02 \x01(\tR\x03row\x12\x12\n" +
+	"\x04time\x18\x03 \x01(\x03R\x04time\"\xbb\x01\n" +
+	"\x17ContractRequirementWork\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
+	"\x04text\x18\x02 \x01(\tR\x04text\x12\x14\n" +
+	"\x05state\x18\x03 \x01(\tR\x05state\x128\n" +
+	"\x05tasks\x18\x04 \x03(\v2\".orrery.v1.ContractRequirementTaskR\x05tasks\x12,\n" +
+	"\x05proof\x18\x05 \x01(\v2\x16.orrery.v1.EvidenceRunR\x05proof\"m\n" +
+	"\x17ContractRequirementTask\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12\x14\n" +
+	"\x05title\x18\x02 \x01(\tR\x05title\x12\x16\n" +
+	"\x06status\x18\x03 \x01(\tR\x06status\x12\x14\n" +
+	"\x05place\x18\x04 \x01(\tR\x05place\">\n" +
 	"\x16ContractsAcceptRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x14\n" +
 	"\x05words\x18\x02 \x01(\tR\x05words\"J\n" +
@@ -1020,13 +2150,35 @@ const file_orrery_v1_contracts_proto_rawDesc = "" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x14\n" +
 	"\x05words\x18\x02 \x01(\tR\x05words\"J\n" +
 	"\x17ContractsReopenResponse\x12/\n" +
-	"\bcontract\x18\x01 \x01(\v2\x13.orrery.v1.ContractR\bcontract2\x97\x03\n" +
+	"\bcontract\x18\x01 \x01(\v2\x13.orrery.v1.ContractR\bcontract\"X\n" +
+	"\x14ContractsKeepRequest\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1a\n" +
+	"\baddition\x18\x02 \x01(\tR\baddition\x12\x14\n" +
+	"\x05words\x18\x03 \x01(\tR\x05words\"H\n" +
+	"\x15ContractsKeepResponse\x12/\n" +
+	"\bcontract\x18\x01 \x01(\v2\x13.orrery.v1.ContractR\bcontract\"Z\n" +
+	"\x16ContractsStrikeRequest\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1a\n" +
+	"\baddition\x18\x02 \x01(\tR\baddition\x12\x14\n" +
+	"\x05words\x18\x03 \x01(\tR\x05words\"d\n" +
+	"\x17ContractsStrikeResponse\x12/\n" +
+	"\bcontract\x18\x01 \x01(\v2\x13.orrery.v1.ContractR\bcontract\x12\x18\n" +
+	"\aremoved\x18\x02 \x03(\tR\aremoved\"U\n" +
+	"\x15ContractsShownRequest\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12\x18\n" +
+	"\aversion\x18\x02 \x01(\x03R\aversion\x12\x12\n" +
+	"\x04rows\x18\x03 \x03(\tR\x04rows\",\n" +
+	"\x16ContractsShownResponse\x12\x12\n" +
+	"\x04rows\x18\x01 \x03(\tR\x04rows2\x81\x05\n" +
 	"\tContracts\x12I\n" +
 	"\x04List\x12\x1f.orrery.v1.ContractsListRequest\x1a .orrery.v1.ContractsListResponse\x12F\n" +
 	"\x03Get\x12\x1e.orrery.v1.ContractsGetRequest\x1a\x1f.orrery.v1.ContractsGetResponse\x12O\n" +
 	"\x06Accept\x12!.orrery.v1.ContractsAcceptRequest\x1a\".orrery.v1.ContractsAcceptResponse\x12U\n" +
 	"\bSetAside\x12#.orrery.v1.ContractsSetAsideRequest\x1a$.orrery.v1.ContractsSetAsideResponse\x12O\n" +
-	"\x06Reopen\x12!.orrery.v1.ContractsReopenRequest\x1a\".orrery.v1.ContractsReopenResponseB\xa3\x01\n" +
+	"\x06Reopen\x12!.orrery.v1.ContractsReopenRequest\x1a\".orrery.v1.ContractsReopenResponse\x12I\n" +
+	"\x04Keep\x12\x1f.orrery.v1.ContractsKeepRequest\x1a .orrery.v1.ContractsKeepResponse\x12O\n" +
+	"\x06Strike\x12!.orrery.v1.ContractsStrikeRequest\x1a\".orrery.v1.ContractsStrikeResponse\x12L\n" +
+	"\x05Shown\x12 .orrery.v1.ContractsShownRequest\x1a!.orrery.v1.ContractsShownResponseB\xa3\x01\n" +
 	"\rcom.orrery.v1B\x0eContractsProtoP\x01Z=github.com/joshsymonds/orrery/internal/gen/orrery/v1;orreryv1\xa2\x02\x03OXX\xaa\x02\tOrrery.V1\xca\x02\tOrrery\\V1\xe2\x02\x15Orrery\\V1\\GPBMetadata\xea\x02\n" +
 	"Orrery::V1b\x06proto3"
 
@@ -1042,7 +2194,7 @@ func file_orrery_v1_contracts_proto_rawDescGZIP() []byte {
 	return file_orrery_v1_contracts_proto_rawDescData
 }
 
-var file_orrery_v1_contracts_proto_msgTypes = make([]protoimpl.MessageInfo, 14)
+var file_orrery_v1_contracts_proto_msgTypes = make([]protoimpl.MessageInfo, 28)
 var file_orrery_v1_contracts_proto_goTypes = []any{
 	(*Contract)(nil),                  // 0: orrery.v1.Contract
 	(*ContractDecision)(nil),          // 1: orrery.v1.ContractDecision
@@ -1052,41 +2204,79 @@ var file_orrery_v1_contracts_proto_goTypes = []any{
 	(*ContractsListResponse)(nil),     // 5: orrery.v1.ContractsListResponse
 	(*ContractsGetRequest)(nil),       // 6: orrery.v1.ContractsGetRequest
 	(*ContractsGetResponse)(nil),      // 7: orrery.v1.ContractsGetResponse
-	(*ContractsAcceptRequest)(nil),    // 8: orrery.v1.ContractsAcceptRequest
-	(*ContractsAcceptResponse)(nil),   // 9: orrery.v1.ContractsAcceptResponse
-	(*ContractsSetAsideRequest)(nil),  // 10: orrery.v1.ContractsSetAsideRequest
-	(*ContractsSetAsideResponse)(nil), // 11: orrery.v1.ContractsSetAsideResponse
-	(*ContractsReopenRequest)(nil),    // 12: orrery.v1.ContractsReopenRequest
-	(*ContractsReopenResponse)(nil),   // 13: orrery.v1.ContractsReopenResponse
-	(*EpicContract)(nil),              // 14: orrery.v1.EpicContract
-	(*EpicRequirement)(nil),           // 15: orrery.v1.EpicRequirement
+	(*ContractLength)(nil),            // 8: orrery.v1.ContractLength
+	(*ContractWorking)(nil),           // 9: orrery.v1.ContractWorking
+	(*ContractRefusal)(nil),           // 10: orrery.v1.ContractRefusal
+	(*ContractRowWrite)(nil),          // 11: orrery.v1.ContractRowWrite
+	(*ContractLeft)(nil),              // 12: orrery.v1.ContractLeft
+	(*ContractShown)(nil),             // 13: orrery.v1.ContractShown
+	(*ContractRequirementWork)(nil),   // 14: orrery.v1.ContractRequirementWork
+	(*ContractRequirementTask)(nil),   // 15: orrery.v1.ContractRequirementTask
+	(*ContractsAcceptRequest)(nil),    // 16: orrery.v1.ContractsAcceptRequest
+	(*ContractsAcceptResponse)(nil),   // 17: orrery.v1.ContractsAcceptResponse
+	(*ContractsSetAsideRequest)(nil),  // 18: orrery.v1.ContractsSetAsideRequest
+	(*ContractsSetAsideResponse)(nil), // 19: orrery.v1.ContractsSetAsideResponse
+	(*ContractsReopenRequest)(nil),    // 20: orrery.v1.ContractsReopenRequest
+	(*ContractsReopenResponse)(nil),   // 21: orrery.v1.ContractsReopenResponse
+	(*ContractsKeepRequest)(nil),      // 22: orrery.v1.ContractsKeepRequest
+	(*ContractsKeepResponse)(nil),     // 23: orrery.v1.ContractsKeepResponse
+	(*ContractsStrikeRequest)(nil),    // 24: orrery.v1.ContractsStrikeRequest
+	(*ContractsStrikeResponse)(nil),   // 25: orrery.v1.ContractsStrikeResponse
+	(*ContractsShownRequest)(nil),     // 26: orrery.v1.ContractsShownRequest
+	(*ContractsShownResponse)(nil),    // 27: orrery.v1.ContractsShownResponse
+	(*EpicContract)(nil),              // 28: orrery.v1.EpicContract
+	(*EpicRequirement)(nil),           // 29: orrery.v1.EpicRequirement
+	(*RecordMaker)(nil),               // 30: orrery.v1.RecordMaker
+	(*EvidenceRun)(nil),               // 31: orrery.v1.EvidenceRun
 }
 var file_orrery_v1_contracts_proto_depIdxs = []int32{
-	14, // 0: orrery.v1.ContractVersion.contract:type_name -> orrery.v1.EpicContract
-	15, // 1: orrery.v1.ContractVersion.requirements:type_name -> orrery.v1.EpicRequirement
+	28, // 0: orrery.v1.ContractVersion.contract:type_name -> orrery.v1.EpicContract
+	29, // 1: orrery.v1.ContractVersion.requirements:type_name -> orrery.v1.EpicRequirement
 	1,  // 2: orrery.v1.ContractVersion.decisions:type_name -> orrery.v1.ContractDecision
-	0,  // 3: orrery.v1.ContractsListResponse.contracts:type_name -> orrery.v1.Contract
-	0,  // 4: orrery.v1.ContractsGetResponse.contract:type_name -> orrery.v1.Contract
-	2,  // 5: orrery.v1.ContractsGetResponse.versions:type_name -> orrery.v1.ContractVersion
-	3,  // 6: orrery.v1.ContractsGetResponse.states:type_name -> orrery.v1.ContractStateChange
-	0,  // 7: orrery.v1.ContractsAcceptResponse.contract:type_name -> orrery.v1.Contract
-	0,  // 8: orrery.v1.ContractsSetAsideResponse.contract:type_name -> orrery.v1.Contract
-	0,  // 9: orrery.v1.ContractsReopenResponse.contract:type_name -> orrery.v1.Contract
-	4,  // 10: orrery.v1.Contracts.List:input_type -> orrery.v1.ContractsListRequest
-	6,  // 11: orrery.v1.Contracts.Get:input_type -> orrery.v1.ContractsGetRequest
-	8,  // 12: orrery.v1.Contracts.Accept:input_type -> orrery.v1.ContractsAcceptRequest
-	10, // 13: orrery.v1.Contracts.SetAside:input_type -> orrery.v1.ContractsSetAsideRequest
-	12, // 14: orrery.v1.Contracts.Reopen:input_type -> orrery.v1.ContractsReopenRequest
-	5,  // 15: orrery.v1.Contracts.List:output_type -> orrery.v1.ContractsListResponse
-	7,  // 16: orrery.v1.Contracts.Get:output_type -> orrery.v1.ContractsGetResponse
-	9,  // 17: orrery.v1.Contracts.Accept:output_type -> orrery.v1.ContractsAcceptResponse
-	11, // 18: orrery.v1.Contracts.SetAside:output_type -> orrery.v1.ContractsSetAsideResponse
-	13, // 19: orrery.v1.Contracts.Reopen:output_type -> orrery.v1.ContractsReopenResponse
-	15, // [15:20] is the sub-list for method output_type
-	10, // [10:15] is the sub-list for method input_type
-	10, // [10:10] is the sub-list for extension type_name
-	10, // [10:10] is the sub-list for extension extendee
-	0,  // [0:10] is the sub-list for field type_name
+	30, // 3: orrery.v1.ContractStateChange.maker:type_name -> orrery.v1.RecordMaker
+	0,  // 4: orrery.v1.ContractsListResponse.contracts:type_name -> orrery.v1.Contract
+	0,  // 5: orrery.v1.ContractsGetResponse.contract:type_name -> orrery.v1.Contract
+	2,  // 6: orrery.v1.ContractsGetResponse.versions:type_name -> orrery.v1.ContractVersion
+	3,  // 7: orrery.v1.ContractsGetResponse.states:type_name -> orrery.v1.ContractStateChange
+	9,  // 8: orrery.v1.ContractsGetResponse.working:type_name -> orrery.v1.ContractWorking
+	10, // 9: orrery.v1.ContractsGetResponse.refusals:type_name -> orrery.v1.ContractRefusal
+	11, // 10: orrery.v1.ContractsGetResponse.rows:type_name -> orrery.v1.ContractRowWrite
+	12, // 11: orrery.v1.ContractsGetResponse.left:type_name -> orrery.v1.ContractLeft
+	14, // 12: orrery.v1.ContractsGetResponse.work:type_name -> orrery.v1.ContractRequirementWork
+	13, // 13: orrery.v1.ContractsGetResponse.shown:type_name -> orrery.v1.ContractShown
+	8,  // 14: orrery.v1.ContractsGetResponse.length:type_name -> orrery.v1.ContractLength
+	28, // 15: orrery.v1.ContractWorking.contract:type_name -> orrery.v1.EpicContract
+	29, // 16: orrery.v1.ContractWorking.requirements:type_name -> orrery.v1.EpicRequirement
+	1,  // 17: orrery.v1.ContractWorking.decisions:type_name -> orrery.v1.ContractDecision
+	30, // 18: orrery.v1.ContractRowWrite.maker:type_name -> orrery.v1.RecordMaker
+	15, // 19: orrery.v1.ContractRequirementWork.tasks:type_name -> orrery.v1.ContractRequirementTask
+	31, // 20: orrery.v1.ContractRequirementWork.proof:type_name -> orrery.v1.EvidenceRun
+	0,  // 21: orrery.v1.ContractsAcceptResponse.contract:type_name -> orrery.v1.Contract
+	0,  // 22: orrery.v1.ContractsSetAsideResponse.contract:type_name -> orrery.v1.Contract
+	0,  // 23: orrery.v1.ContractsReopenResponse.contract:type_name -> orrery.v1.Contract
+	0,  // 24: orrery.v1.ContractsKeepResponse.contract:type_name -> orrery.v1.Contract
+	0,  // 25: orrery.v1.ContractsStrikeResponse.contract:type_name -> orrery.v1.Contract
+	4,  // 26: orrery.v1.Contracts.List:input_type -> orrery.v1.ContractsListRequest
+	6,  // 27: orrery.v1.Contracts.Get:input_type -> orrery.v1.ContractsGetRequest
+	16, // 28: orrery.v1.Contracts.Accept:input_type -> orrery.v1.ContractsAcceptRequest
+	18, // 29: orrery.v1.Contracts.SetAside:input_type -> orrery.v1.ContractsSetAsideRequest
+	20, // 30: orrery.v1.Contracts.Reopen:input_type -> orrery.v1.ContractsReopenRequest
+	22, // 31: orrery.v1.Contracts.Keep:input_type -> orrery.v1.ContractsKeepRequest
+	24, // 32: orrery.v1.Contracts.Strike:input_type -> orrery.v1.ContractsStrikeRequest
+	26, // 33: orrery.v1.Contracts.Shown:input_type -> orrery.v1.ContractsShownRequest
+	5,  // 34: orrery.v1.Contracts.List:output_type -> orrery.v1.ContractsListResponse
+	7,  // 35: orrery.v1.Contracts.Get:output_type -> orrery.v1.ContractsGetResponse
+	17, // 36: orrery.v1.Contracts.Accept:output_type -> orrery.v1.ContractsAcceptResponse
+	19, // 37: orrery.v1.Contracts.SetAside:output_type -> orrery.v1.ContractsSetAsideResponse
+	21, // 38: orrery.v1.Contracts.Reopen:output_type -> orrery.v1.ContractsReopenResponse
+	23, // 39: orrery.v1.Contracts.Keep:output_type -> orrery.v1.ContractsKeepResponse
+	25, // 40: orrery.v1.Contracts.Strike:output_type -> orrery.v1.ContractsStrikeResponse
+	27, // 41: orrery.v1.Contracts.Shown:output_type -> orrery.v1.ContractsShownResponse
+	34, // [34:42] is the sub-list for method output_type
+	26, // [26:34] is the sub-list for method input_type
+	26, // [26:26] is the sub-list for extension type_name
+	26, // [26:26] is the sub-list for extension extendee
+	0,  // [0:26] is the sub-list for field type_name
 }
 
 func init() { file_orrery_v1_contracts_proto_init() }
@@ -1094,6 +2284,7 @@ func file_orrery_v1_contracts_proto_init() {
 	if File_orrery_v1_contracts_proto != nil {
 		return
 	}
+	file_orrery_v1_designs_proto_init()
 	file_orrery_v1_epics_proto_init()
 	type x struct{}
 	out := protoimpl.TypeBuilder{
@@ -1101,7 +2292,7 @@ func file_orrery_v1_contracts_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_orrery_v1_contracts_proto_rawDesc), len(file_orrery_v1_contracts_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   14,
+			NumMessages:   28,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

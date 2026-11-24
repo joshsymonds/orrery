@@ -229,4 +229,50 @@ public interface HeadlessSessionOrBuilder extends
    * @return The endedAt.
    */
   long getEndedAt();
+
+  /**
+   * <pre>
+   * The orrery name of the host the session runs on.
+   * </pre>
+   *
+   * <code>string host = 15 [json_name = "host"];</code>
+   * @return The host.
+   */
+  java.lang.String getHost();
+  /**
+   * <pre>
+   * The orrery name of the host the session runs on.
+   * </pre>
+   *
+   * <code>string host = 15 [json_name = "host"];</code>
+   * @return The bytes for host.
+   */
+  com.google.protobuf.ByteString
+      getHostBytes();
+
+  /**
+   * <pre>
+   * The designs this conversation works, each with its contracts.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.Design designs = 16 [json_name = "designs"];</code>
+   */
+  java.util.List<io.github.joshsymonds.orrery.gen.orrery.v1.Design> 
+      getDesignsList();
+  /**
+   * <pre>
+   * The designs this conversation works, each with its contracts.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.Design designs = 16 [json_name = "designs"];</code>
+   */
+  io.github.joshsymonds.orrery.gen.orrery.v1.Design getDesigns(int index);
+  /**
+   * <pre>
+   * The designs this conversation works, each with its contracts.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.Design designs = 16 [json_name = "designs"];</code>
+   */
+  int getDesignsCount();
 }

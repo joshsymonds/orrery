@@ -1,0 +1,31 @@
+{
+  "title": "Scout return",
+  "description": "The scout's one return. Set status to blocked when a required action was not performed.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["status", "answer", "evidence", "not_inspected"],
+  "properties": {
+    "status": {
+      "type": "string",
+      "enum": ["done", "blocked"]
+    },
+    "answer": {
+      "type": "string"
+    },
+    "evidence": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "not_inspected": {
+      "type": "string"
+    },
+    "bug_reproduction": {
+      "type": "string"
+    },
+    "root_cause": {
+      "type": "string"
+    }
+  }
+}

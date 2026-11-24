@@ -1,0 +1,192 @@
+// AccountsPage draws the accounts and routes page at #/accounts: its head, then the Accounts section, which is the accounts
+// table and, when its head's Add account is pressed, the Add account form under the table, then the Contexts section, which
+// RouteContexts draws, then the Seats section, which is the seats table. Under 760px, narrow, the body is AccountsNarrow's
+// phone layout instead, with the Add account form in a sheet and a Back to the inbox in the head. On mount it reads
+// Accounts.List and Routes.Get and holds both. A read that fails draws its reason with a Retry.
+
+import { create } from "@bufbuild/protobuf";
+import { ConnectError } from "@connectrpc/connect";
+import type { VNode } from "preact";
+import { useCallback, useEffect, useState } from "preact/hooks";
+
+import { AccountAdd } from "./accountadd";
+import { AccountsNarrow } from "./accountsnarrow";
+import { AccountsTable } from "./accountstable";
+import type { createClients } from "./client";
+import { type Account, type RouteRegistry, RouteRegistrySchema } from "./gen/orrery/v1/accounts_pb";
+import { Icon } from "./glyphs";
+import { RouteContexts } from "./routecontexts";
+import { RouteSeats } from "./routeseats";
+
+type Clients = Pick<ReturnType<typeof createClients>, "accounts" | "routes">;
+
+interface AccountsPageProps {
+  // clients are the Accounts and Routes clients the page reads and writes through, as createClients makes them.
+  clients: Clients;
+  // narrow is whether the page is drawn at a phone's width, under 760px, in the phone layout.
+  narrow: boolean;
+  // onBack is the Back a page drawn under 760px has in its head, which returns to the inbox. The wide page has none.
+  onBack?: () => void;
+}
+
+// Held is what the page holds from its last read: the accounts Accounts.List answered and the registry Routes.Get answered.
+interface Held {
+  accounts: readonly Account[];
+  registry: RouteRegistry;
+}
+
+// Read is the page's last read: what it holds, or the reason the read failed.
+type Read = { kind: "held"; held: Held } | { kind: "failed"; reason: string };
+
+// reasonOf is the reason a failed read gives: a Connect error's message as the server wrote it, else the error's own.
+function reasonOf(error: unknown): string {
+  if (error instanceof ConnectError) {
+    return error.rawMessage;
+  }
+  return error instanceof Error ? error.message : String(error);
+}
+
+// readBoth reads Accounts.List and Routes.Get together. It holds what both answer, or the reason one of them failed.
+async function readBoth(clients: Clients): Promise<Read> {
+  try {
+    const [listed, got] = await Promise.all([clients.accounts.list({}), clients.routes.get({})]);
+    return { kind: "held", held: { accounts: listed.accounts, registry: got.registry ?? create(RouteRegistrySchema) } };
+  } catch (error) {
+    return { kind: "failed", reason: reasonOf(error) };
+  }
+}
+
+export function AccountsPage({ clients, narrow, onBack }: AccountsPageProps): VNode {
+  const [read, setRead] = useState<Read | null>(null);
+  // adding is whether the Add account form is open under the table. addNote is the line drawn under the table after the form
+  // closed with a write that had no answer, or null for none.
+  const [adding, setAdding] = useState(false);
+  const [addNote, setAddNote] = useState<string | null>(null);
+
+  // reread reads both again and holds what they answer. It resolves with the registry held, or with null when a read failed.
+  const reread = useCallback(async (): Promise<RouteRegistry | null> => {
+    const next = await readBoth(clients);
+    setRead(next);
+    return next.kind === "held" ? next.held.registry : null;
+  }, [clients]);
+
+  useEffect(() => {
+    void reread();
+  }, [reread]);
+
+  // changeAccounts holds the accounts update returns, from the accounts held now. The registry held stays as it is.
+  const changeAccounts = useCallback((update: (accounts: readonly Account[]) => readonly Account[]) => {
+    setRead((current) =>
+      current?.kind === "held" ? { kind: "held", held: { ...current.held, accounts: update(current.held.accounts) } } : current,
+    );
+  }, []);
+
+  // addAccount holds the account an answered Add returns, after the accounts held now.
+  const addAccount = useCallback(
+    (account: Account) => changeAccounts((held) => [...held, account]),
+    [changeAccounts],
+  );
+
+  // closeAdd closes the Add account form and draws note under the table, or nothing when note is null.
+  const closeAdd = useCallback((note: string | null) => {
+    setAdding(false);
+    setAddNote(note);
+  }, []);
+
+  // changeRegistry holds the registry a write's answer returns. The accounts held stay as they are.
+  const changeRegistry = useCallback((registry: RouteRegistry) => {
+    setRead((current) => (current?.kind === "held" ? { kind: "held", held: { ...current.held, registry } } : current));
+  }, []);
+
+  // openAdd raises the Add account form, with no note under the table.
+  const openAdd = () => {
+    setAddNote(null);
+    setAdding(true);
+  };
+
+  return (
+    <div class={narrow ? "accounts-page narrow" : "accounts-page"}>
+      <div class="ptitle">
+        {narrow && onBack !== undefined && (
+          <button type="button" class="btn quiet icon-only" aria-label="Back" onClick={onBack}>
+            <Icon name="back" />
+          </button>
+        )}
+        <h2>Accounts and routes</h2>
+        {read?.kind === "held" ? (
+          <span class="end">
+            {narrow ? (
+              <button type="button" class="btn quiet icon-only" aria-label="Add account" onClick={openAdd}>
+                <Icon name="plus" />
+              </button>
+            ) : (
+              <button type="button" class="btn" onClick={openAdd}>
+                <Icon name="plus" />
+                Add account
+              </button>
+            )}
+          </span>
+        ) : null}
+      </div>
+      <div class="pbody">
+        {read?.kind === "failed" ? (
+          <p class="page-note">
+            {`Could not read the accounts and routes: ${read.reason}`}{" "}
+            <button type="button" class="btn quiet" onClick={() => void reread()}>
+              Retry
+            </button>
+          </p>
+        ) : null}
+        {read?.kind === "held" && narrow ? (
+          <AccountsNarrow
+            accounts={read.held.accounts}
+            registry={read.held.registry}
+            clients={clients}
+            changeAccounts={changeAccounts}
+            changeRegistry={changeRegistry}
+            reread={reread}
+            adding={adding}
+            addNote={addNote}
+            addAccount={addAccount}
+            closeAdd={closeAdd}
+          />
+        ) : null}
+        {read?.kind === "held" && !narrow ? (
+          <>
+            <section class="psec" aria-label="Accounts">
+              <div class="psec-h">
+                <span class="lbl">Accounts</span>
+              </div>
+              <AccountsTable
+                accounts={read.held.accounts}
+                registry={read.held.registry}
+                clients={clients}
+                changeAccounts={changeAccounts}
+                reread={reread}
+              />
+              {adding ? <AccountAdd clients={clients} added={addAccount} close={closeAdd} reread={reread} /> : null}
+              {addNote !== null ? (
+                <p class="acc-note" data-tone="quiet">
+                  {addNote}
+                </p>
+              ) : null}
+            </section>
+            <RouteContexts
+              accounts={read.held.accounts}
+              registry={read.held.registry}
+              clients={clients}
+              changeRegistry={changeRegistry}
+              reread={reread}
+            />
+            <section class="psec" aria-label="Seats">
+              <div class="psec-h">
+                <span class="lbl">Seats</span>
+              </div>
+              <RouteSeats registry={read.held.registry} />
+            </section>
+          </>
+        ) : null}
+      </div>
+    </div>
+  );
+}

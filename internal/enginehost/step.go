@@ -15,6 +15,7 @@ import (
 
 	"github.com/joshsymonds/orrery/internal/gates"
 	"github.com/joshsymonds/orrery/internal/grants"
+	"github.com/joshsymonds/orrery/internal/holderhost"
 	"github.com/joshsymonds/orrery/internal/hostexec"
 	"github.com/joshsymonds/orrery/internal/pools"
 	"github.com/joshsymonds/orrery/internal/stamp"
@@ -90,6 +91,11 @@ const stepDefaultModelLimit = 60 * time.Minute
 // head, ancestry and clean checks and its gate run as they do for an owned step. The row stores it, so a re-adopted
 // step skips the check too.
 //
+// Scratch, set on a read-only start, runs the step as a read-only step does, in a detached worktree at Revision that is
+// removed when the step ends, except that the worktree takes no checkout fingerprint. The agent may therefore write in
+// it without its return failing the checkout check, and nothing it writes reaches a branch or the Workspace. A writing
+// start that sets Scratch is refused with an error matching ErrBadOwned, and nothing is stored.
+//
 // ReturnCheck, when set, runs on every schema-valid return of the step. Its failure lines are stored as the failed
 // check named return and sent back to the session, and a step with a ReturnCheck is never judged by Haiku. It is
 // Go-only: the Steps proto does not carry it, so only an in-process caller sets it.
@@ -102,6 +108,7 @@ type StepStart struct {
 	Workspace   string
 	Revision    string
 	ReadOnly    bool
+	Scratch     bool
 	Owned       []string
 	Unowned     bool
 	GateName    string
@@ -359,9 +366,9 @@ func (s *Steps) Start(ctx context.Context, start StepStart) (string, error) {
 }
 
 // addReadOnlyStep adds the detached worktree of the read-only step id on host at commit, under the worktrees directory.
-// It records the checkout's state in add, and sets cfg to run in the worktree and to remove it when the step ends.
-// cfg's cleanup is set only once the worktree exists, so a caller that refuses the start on the error removes exactly
-// what was added.
+// It records the checkout's state in add, and sets cfg to run in the worktree and to remove it when the step ends. A
+// scratch step records no state, so its checkout is never compared. cfg's cleanup is set only once the worktree exists,
+// so a caller that refuses the start on the error removes exactly what was added.
 func (s *Steps) addReadOnlyStep(
 	ctx context.Context, host hostexec.Host, start StepStart, id, commit string, add *store.StepAdd, cfg *stepRunConfig,
 ) error {
@@ -374,6 +381,9 @@ func (s *Steps) addReadOnlyStep(
 		return removeStepWorktree(ctx, host, start.Workspace, wt)
 	}
 	cfg.dir = wt
+	if start.Scratch {
+		return nil
+	}
 	checkout, err := stepGitCheckout(ctx, host, wt)
 	if err != nil {
 		return fmt.Errorf("fingerprint worktree %s: %w", wt, err)
@@ -490,7 +500,7 @@ func (s *Steps) bindHaiku(cfg *stepRunConfig, folder string) error {
 	if s.haiku == nil {
 		return nil
 	}
-	home, err := stampHome(s.environ)
+	home, err := holderhost.StampHome(s.environ)
 	if err != nil {
 		return fmt.Errorf("find step stamp: %w", err)
 	}
@@ -591,6 +601,9 @@ func checkStepStart(start StepStart) error {
 	}
 	if !start.ReadOnly && !start.Unowned && len(start.Owned) == 0 {
 		return fmt.Errorf("%w: a writing step needs owned_paths", ErrBadOwned)
+	}
+	if start.Scratch && !start.ReadOnly {
+		return fmt.Errorf("%w: a scratch step must be read-only", ErrBadOwned)
 	}
 	for _, path := range start.Owned {
 		if !filepath.IsLocal(path) {

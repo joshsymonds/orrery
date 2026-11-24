@@ -10,21 +10,13 @@ import (
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
-// TestEpicsListAnswersTheSameEpicsWhileNothingChanges lists the epics three times over a record root and orreryd's
-// Epics service on a real store, with nothing written between the lists, and requires every epic to be answered the
-// same each time. The page asks Epics.Get for a live epic only when its listed message differs from the one it last
-// fetched the epic against, so a field that moved on its own here would make every list refetch the epic. The record
-// epic is live by its running steps, holds tasks and an unreadable effort, and so carries a problem; the stored epic
-// has asked a question and runs a step.
+// TestEpicsListAnswersTheSameEpicsWhileNothingChanges lists the epics three times over orreryd's Epics service on a real
+// store, with nothing written between the lists, and requires every epic to be answered the same each time. The page
+// asks Epics.Get for a live epic only when its listed message differs from the one it last fetched the epic against, so
+// a field that moved on its own here would make every list refetch the epic. The stored epic has asked a question and
+// runs steps, one of them held, one of them with its checks and verdicts, and one ended.
 func TestEpicsListAnswersTheSameEpicsWhileNothingChanges(t *testing.T) {
 	t.Parallel()
-	root := t.TempDir()
-	writeHead(t, root, "repoa", "record", `{"outcome":""}`, epicsNow().Add(-2*time.Hour))
-	recordDir := root + "/repoa/record"
-	writeEffortState(t, recordDir, "1", `{"tasks":[{"slug":"one","subject":"One","status":"done"},`+
-		`{"slug":"two","subject":"Two","status":"in_progress"}]}`)
-	writeEffortState(t, recordDir, "2", `{not json`)
-
 	st := openEpicAnswerStore(t)
 	turn, err := st.ClaimTurn(t.Context(), syntheticEpicID, time.Unix(1_700_000_100, 0))
 	if err != nil {
@@ -59,22 +51,22 @@ func TestEpicsListAnswersTheSameEpicsWhileNothingChanges(t *testing.T) {
 	}
 	steps := &epicsFake{steps: []*enginev1.Step{
 		{
-			Id: "rec-b", Epic: "repoa/record", Task: "two", Agent: "implementer", Started: epicsAgo(time.Hour),
+			Id: "run-b", Epic: syntheticEpicID, Task: "two", Agent: "implementer", Started: epicsAgo(time.Hour),
 			Doing: "synthetic doing", Stage: "checks", StageStarted: epicsAgo(time.Minute), Checks: gateFailed,
 			Verdicts: []*enginev1.StepVerdict{{Round: 1, Kind: "judge", Verdict: "unmet", Detail: "synthetic"}},
 		},
-		{Id: "rec-a", Epic: "repoa/record", Task: "one", Started: epicsAgo(time.Hour), Held: true},
+		{Id: "run-a", Epic: syntheticEpicID, Task: "one", Started: epicsAgo(time.Hour), Held: true},
 		{
-			Id: "rec-old", Epic: "repoa/record", Task: "one", End: "done", Started: epicsAgo(3 * time.Hour),
+			Id: "run-old", Epic: syntheticEpicID, Task: "one", End: "done", Started: epicsAgo(3 * time.Hour),
 			Ended: epicsAgo(2 * time.Hour), Result: `{"summary":"synthetic","red_evidence":"red"}`,
 		},
 		{Id: "db-run", Epic: syntheticEpicID, Stage: "turn", Started: epicsAgo(time.Hour), ReadOnly: true},
 	}}
-	client := epicStoreServe(t, root, steps, serveEngineEpics(t, st))
+	client := epicStoreServe(t, steps, serveEngineEpics(t, st))
 
 	first := epicsList(t, client)
-	if len(first) != 2 {
-		t.Fatalf("epics = %v, want the record epic and the stored epic", epicIDs(first))
+	if len(first) != 1 {
+		t.Fatalf("epics = %v, want the stored epic alone", epicIDs(first))
 	}
 	for _, epic := range first {
 		if !epic.GetLive() {

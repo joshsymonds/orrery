@@ -1213,6 +1213,7 @@ func storedEpicMessage(row store.EpicRow) (*v1.StoredEpic, error) {
 		Reviewers:    epicMap(row.Reviewers, epicReviewerMessage),
 		Steerer:      row.Steerer,
 		SteererHeard: row.SteererHeard,
+		Host:         row.Host,
 		Paused:       row.Paused,
 		PauseSource:  row.PauseSource,
 		Parked:       row.Parked,
@@ -1800,6 +1801,7 @@ func summaryMessage(row store.EpicRow) (*v1.EpicSummary, error) {
 		PauseSource:   row.PauseSource,
 		Parked:        row.Parked,
 		OpenQuestions: open,
+		Host:          row.Host,
 	}, nil
 }
 

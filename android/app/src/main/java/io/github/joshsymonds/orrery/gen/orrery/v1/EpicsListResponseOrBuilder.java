@@ -35,4 +35,30 @@ public interface EpicsListResponseOrBuilder extends
    * <code>repeated .orrery.v1.Epic epics = 1 [json_name = "epics"];</code>
    */
   int getEpicsCount();
+
+  /**
+   * <pre>
+   * The designs, each with its contracts.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.Design designs = 2 [json_name = "designs"];</code>
+   */
+  java.util.List<io.github.joshsymonds.orrery.gen.orrery.v1.Design> 
+      getDesignsList();
+  /**
+   * <pre>
+   * The designs, each with its contracts.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.Design designs = 2 [json_name = "designs"];</code>
+   */
+  io.github.joshsymonds.orrery.gen.orrery.v1.Design getDesigns(int index);
+  /**
+   * <pre>
+   * The designs, each with its contracts.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.Design designs = 2 [json_name = "designs"];</code>
+   */
+  int getDesignsCount();
 }

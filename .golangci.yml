@@ -408,6 +408,11 @@ linters:
         - charm.land/bubbletea/v2.Model
         # paneregistry.SystemProc returns the Proc interface, the process view that tests substitute, by its contract.
         - github.com/joshsymonds/orrery/internal/paneregistry.Proc
+        # holderhost.Host's OpenGone returns the Gone interface, the gone session's view that a holder on any host
+        # satisfies, by the Host contract.
+        - github.com/joshsymonds/orrery/internal/holderhost.Gone
+        # node.Tailnet returns the WhoIs interface, which the tailscaled client satisfies, by the node package's contract.
+        - github.com/joshsymonds/orrery/internal/node.WhoIs
         # hostexec's constructors return its Host, Hosts and Held interfaces, which engine code is handed by its contract.
         - github.com/joshsymonds/orrery/internal/hostexec.Host
         - github.com/joshsymonds/orrery/internal/hostexec.Hosts
@@ -574,6 +579,13 @@ linters:
         linters:
           - gosec
         text: 'G204'
+
+      # Listen returns a nil Relay and a nil error, and opens no socket, when hosts.toml names no agent: the relay
+      # listener's contract, so nilnil's finding on that one return is the intended design.
+      - path: 'internal/hostrelay/hostrelay\.go'
+        linters:
+          - nilnil
+        text: 'return both a `nil` error and an invalid value'
 
       # A desk link runs its caller-supplied stream command (ssh with the host after --, or the
       # configured orrery) with argv and no shell; granted by the Director in orrery-desk-notices

@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/joshsymonds/orrery/internal/kinds"
+	"github.com/joshsymonds/orrery/internal/reviewers"
 	"github.com/joshsymonds/orrery/internal/store"
 	"github.com/joshsymonds/orrery/internal/workflow"
 )
@@ -49,6 +50,7 @@ type releaseWorld struct {
 	runner       *Runner
 	logs         *bytes.Buffer
 	requirements []store.EpicRequirement
+	reviewerList []reviewers.Reviewer
 }
 
 // newReleaseWorld returns a world with no epic stored, over a scratch repository on main, and a runner that ends epics
@@ -101,7 +103,7 @@ func (w *releaseWorld) createEpicOn(flow, base, id, phase string, steps ...store
 	if err = w.s.CreateEpic(w.t.Context(), store.EpicRow{
 		ID: id, Repository: w.repo, Base: base, Title: "Release the epic", Phase: phase, Created: runClock(),
 		Changed: runClock(), Gates: nodeGates(), DoneGates: []string{integrateDoneGate}, ReleaseSteps: steps,
-		ReleaseThen: releaseThen, Requirements: w.requirements,
+		ReleaseThen: releaseThen, Requirements: w.requirements, Reviewers: w.reviewerList,
 		Workflow: store.EpicWorkflow{
 			Name: pinned.Name, Text: pinned.Text, SHA256: pinned.SHA256, Nodes: pinnedNodes(pinned.Workflow.Nodes, ""),
 		},

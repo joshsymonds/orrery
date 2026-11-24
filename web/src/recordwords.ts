@@ -3,7 +3,6 @@ import { releaseOf } from "./ending";
 import { durationText, tasksOf } from "./phases";
 import { recordTasksOf } from "./record";
 import { clock } from "./reader";
-import { stateOf } from "./status";
 
 // The words and tones of an epic's record: its track, its state and blocker pills, its contract door, the sections it
 // has reached, and Now's sentence, what asks, and its running rows. A component draws these and decides nothing.
@@ -72,10 +71,6 @@ function stageIndexOf(phase: string): number {
 }
 
 const reportIndex = stageIndexOf("released");
-
-function isOrreryd(detail: EpicsGetResponse): boolean {
-  return detail.epic?.source === "orreryd";
-}
 
 function phaseOf(detail: EpicsGetResponse): string {
   return detail.epic?.outcome ?? "";
@@ -182,11 +177,8 @@ function orrerydPill(detail: EpicsGetResponse): Pill {
   }
 }
 
-// The track of an orreryd epic: five stages, the one its phase is in, and the words of each. A record epic has none.
+// The track of an epic: five stages, the one its phase is in, and the words of each.
 export function trackOf(detail: EpicsGetResponse): Stage[] {
-  if (!isOrreryd(detail)) {
-    return [];
-  }
   const phase = phaseOf(detail);
   const now = stageIndexOf(phase);
   return stageNames.map((name, index) => {
@@ -281,7 +273,7 @@ function reportStage(detail: EpicsGetResponse): Stage {
 
 // The state pill: the epic's state word and tone, with its time since the phase began once it has begun.
 export function statePillOf(detail: EpicsGetResponse, now: number): Pill {
-  const pill = isOrreryd(detail) ? orrerydPill(detail) : { word: stateOf(detail), tone: "quiet" as const };
+  const pill = orrerydPill(detail);
   const phaseAt = Number(detail.epic?.phaseAt ?? 0);
   if (pill.word === "" || phaseAt <= 0) {
     return pill;
@@ -328,9 +320,6 @@ function askedWord(word: string, question: EpicQuestion, now: number): string {
 // The blocker pill of an orreryd epic that waits on the owner's release or close: a stopped release's step with no undo,
 // or an epic that ended with gaps. Null for every other epic.
 function endingPillOf(detail: EpicsGetResponse): Pill | null {
-  if (!isOrreryd(detail)) {
-    return null;
-  }
   const release = releaseOf(detail);
   if (release !== null && release.offer !== 0) {
     return { word: `step ${release.offer} failed and cannot be undone`, tone: "attention" };
@@ -355,12 +344,10 @@ function summaryText(detail: EpicsGetResponse): string {
   return detail.summary !== "" ? detail.summary : (detail.contract?.title ?? "");
 }
 
-// The sections an epic has reached. A record epic reaches its Now and its tasks only.
+// The sections an epic has reached. Its track and its Now always show; its summary, history, tasks and requirements
+// show once it has any.
 export function reachedOf(detail: EpicsGetResponse, history: EpicHistoryEntry[]): Reached {
   const tasks = tasksOf(detail).length > 0;
-  if (!isOrreryd(detail)) {
-    return { summary: false, track: false, now: true, history: false, tasks, requirements: false };
-  }
   return {
     summary: summaryText(detail) !== "",
     track: true,
@@ -373,9 +360,6 @@ export function reachedOf(detail: EpicsGetResponse, history: EpicHistoryEntry[])
 
 // The Now sentence of a releasing or stopped orreryd epic, or null for any other epic.
 function releaseSentenceOf(detail: EpicsGetResponse): string | null {
-  if (!isOrreryd(detail)) {
-    return null;
-  }
   const steps = detail.releaseSteps;
   switch (phaseOf(detail)) {
     case "releasing": {
@@ -440,10 +424,10 @@ export function nowSentenceOf(detail: EpicsGetResponse): string {
   if (release !== null) {
     return release;
   }
-  if (isOrreryd(detail) && stageIndexOf(phaseOf(detail)) === reportIndex) {
+  if (stageIndexOf(phaseOf(detail)) === reportIndex) {
     return `It ended: ${orrerydPill(detail).word}.`;
   }
-  if (isOrreryd(detail) && tasksOf(detail).length === 0) {
+  if (tasksOf(detail).length === 0) {
     return "The planner is reading the contract and outlining tasks. No task has started.";
   }
   if (tasks === 0) {

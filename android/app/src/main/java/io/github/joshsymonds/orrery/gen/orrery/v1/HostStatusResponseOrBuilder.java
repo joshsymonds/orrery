@@ -77,4 +77,30 @@ public interface HostStatusResponseOrBuilder extends
    */
   com.google.protobuf.ByteString
       getPageBuildBytes();
+
+  /**
+   * <pre>
+   * The status of each host: the controller first, then each hosts.toml host in file order.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.HostEntry hosts = 4 [json_name = "hosts"];</code>
+   */
+  java.util.List<io.github.joshsymonds.orrery.gen.orrery.v1.HostEntry> 
+      getHostsList();
+  /**
+   * <pre>
+   * The status of each host: the controller first, then each hosts.toml host in file order.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.HostEntry hosts = 4 [json_name = "hosts"];</code>
+   */
+  io.github.joshsymonds.orrery.gen.orrery.v1.HostEntry getHosts(int index);
+  /**
+   * <pre>
+   * The status of each host: the controller first, then each hosts.toml host in file order.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.HostEntry hosts = 4 [json_name = "hosts"];</code>
+   */
+  int getHostsCount();
 }

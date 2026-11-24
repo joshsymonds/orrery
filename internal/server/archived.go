@@ -83,21 +83,15 @@ const (
 )
 
 // epicFinal reports whether an epic from source with outcome has a final outcome. An orreryd epic is final in released,
-// done, closed_superseded, closed_shipped, closed_abandoned or met_at_base. A record epic is final when its outcome's
-// leading letters, read as epicLive reads them, are released or retired.
+// done, closed_superseded, closed_shipped, closed_abandoned or met_at_base.
 func epicFinal(source, outcome string) bool {
-	switch source {
-	case epicSourceOrreryd:
-		switch outcome {
-		case epicPhaseReleased, epicPhaseDone, store.PhaseClosedSuperseded, store.PhaseClosedShipped,
-			store.PhaseClosedAbandoned, "met_at_base":
-			return true
-		}
-	case epicSourceRecord:
-		switch leadingLetters(outcome) {
-		case epicPhaseReleased, "retired":
-			return true
-		}
+	if source != epicSourceOrreryd {
+		return false
+	}
+	switch outcome {
+	case epicPhaseReleased, epicPhaseDone, store.PhaseClosedSuperseded, store.PhaseClosedShipped,
+		store.PhaseClosedAbandoned, "met_at_base":
+		return true
 	}
 	return false
 }
@@ -125,7 +119,7 @@ func epicAged(epic *orreryv1.Epic, now time.Time) bool {
 }
 
 // markEpics sets the archived field of each epic in epics by the archive rule at now. An epic is matched to its mark
-// by its id, so a record-only epic is matched as well.
+// by its id.
 func markEpics(epics []*orreryv1.Epic, marks archiveMarks, now time.Time) {
 	for _, epic := range epics {
 		mark := marks[archiveKey{kind: archiveKindEpic, id: epic.GetId()}]

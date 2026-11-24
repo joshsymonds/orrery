@@ -50,7 +50,7 @@ func ledgerEpic() *enginev1.StoredEpic {
 func TestEpicsGetAnswersLedgerAndReviewsInOrder(t *testing.T) {
 	t.Parallel()
 	store := &epicStoreFake{stored: []*enginev1.StoredEpic{ledgerEpic()}}
-	client := epicStoreServe(t, t.TempDir(), &epicsFake{}, store)
+	client := epicStoreServe(t, &epicsFake{}, store)
 
 	got := epicsGet(t, client, "repoa/reviewed")
 
@@ -103,17 +103,13 @@ func TestEpicsGetAnswersLedgerAndReviewsInOrder(t *testing.T) {
 
 func TestEpicsGetLedgerEmptyWithoutReview(t *testing.T) {
 	t.Parallel()
-	root := t.TempDir()
-	writeHead(t, root, "repoa", "record", `{"outcome":"shipped"}`, epicsNow())
 	unreviewed := storedEpicOf("repoa/unreviewed", "accepted", epicsAgo(time.Hour))
 	store := &epicStoreFake{stored: []*enginev1.StoredEpic{unreviewed}}
-	client := epicStoreServe(t, root, &epicsFake{}, store)
+	client := epicStoreServe(t, &epicsFake{}, store)
 
-	for _, id := range []string{"repoa/unreviewed", "repoa/record"} {
-		got := epicsGet(t, client, id)
-		if len(got.GetLedger()) != 0 || len(got.GetReviews()) != 0 {
-			t.Errorf("%s ledger = %v reviews = %v, want both empty", id, got.GetLedger(), got.GetReviews())
-		}
+	got := epicsGet(t, client, "repoa/unreviewed")
+	if len(got.GetLedger()) != 0 || len(got.GetReviews()) != 0 {
+		t.Errorf("ledger = %v reviews = %v, want both empty", got.GetLedger(), got.GetReviews())
 	}
 }
 
@@ -138,7 +134,7 @@ func TestEpicsGetRedactsLedgerText(t *testing.T) {
 		}},
 	}
 	store := &epicStoreFake{stored: []*enginev1.StoredEpic{epic}}
-	client := epicStoreServe(t, t.TempDir(), &epicsFake{}, store)
+	client := epicStoreServe(t, &epicsFake{}, store)
 
 	got := epicsGet(t, client, "repoa/leaky")
 	if len(got.GetLedger()) != 1 || len(got.GetReviews()) != 1 {

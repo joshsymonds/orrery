@@ -1,17 +1,19 @@
-import { Component, createElement, Fragment, type ComponentChildren, type JSX } from "preact";
-import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "preact/hooks";
+import { Component, createContext, createElement, Fragment, type ComponentChildren, type JSX } from "preact";
+import { useCallback, useContext, useLayoutEffect, useMemo, useRef, useState } from "preact/hooks";
 
 import { agentFinishedTask, BackgroundRow, TaskLine } from "./backgroundrow";
 import { CheckBlock, EventBlock, YouBlock } from "./blocks";
 import { type EpicCalls, EpicWidget } from "./card";
 import { ContractBlock } from "./contractblock";
 import { type Conversation, shownConversation } from "./conversation";
+import type { DesignRecord } from "./designrecords";
 import type { Match } from "./find";
 import { EventRing, epicEventOf, StepCard, stepEventOf } from "./eventring";
 import type { Contract } from "./gen/orrery/v1/contracts_pb";
 import type { EpicStep } from "./gen/orrery/v1/epics_pb";
 import type { ConversationItem, EngineText } from "./gen/orrery/v1/orrery_pb";
 import { type CallReveal, EngineFold, NoticeLine, sameCalls, ThinkingLine, ToolLine, ToolRun, useReveal } from "./lines";
+import { type QuestionAnswer, QuestionThread } from "./questionthread";
 import { Reply } from "./reply";
 import { Rule } from "./rules";
 import type { Sending } from "./sending";
@@ -42,6 +44,23 @@ export interface ContractCalls {
   onOpen: (id: string) => void;
 }
 
+// DesignCalls are what a conversation's design items draw through, which App provides to the readers it draws: the record
+// each design's read holds, by the design's id, and the answer a question takes, the same answer DesignPage sends.
+export interface DesignCalls {
+  records: ReadonlyMap<string, DesignRecord>;
+  answer: (design: string, question: bigint, answer: QuestionAnswer) => Promise<void>;
+}
+
+// designCallsContext holds the design calls of the App a reader is drawn in. A reader drawn outside App holds none, so each
+// question it names draws as loading.
+const designCallsContext = createContext<DesignCalls | null>(null);
+
+// withDesignCalls draws children in the design calls given, which every reader among them reads. It is the one way App gives
+// its readers the calls, so a reader drawn elsewhere holds none.
+export function withDesignCalls(calls: DesignCalls, children: ComponentChildren): JSX.Element {
+  return <designCallsContext.Provider value={calls}>{children}</designCallsContext.Provider>;
+}
+
 // Reader draws one conversation: its items, the new rule before the first row newer than seenAt, a day rule before
 // the first row when its local day is not the day of now (unix seconds; a reader given no now draws no leading day
 // rule) and between two rows of different local days, the question's Ask after them, and the session's unfinished text
@@ -58,7 +77,10 @@ export interface ContractCalls {
 // of round 0, is an EngineFold line. An engine prompt of round 1 or more is a CheckBlock of its round's checks, which
 // are the step's when the reader has a step. A prompt of any other sender draws no row.
 // A reply is a Reply, and unfinished text a live Reply with its caret; an unfinished thinking block is a ThinkingLine.
-// An agent_finished item is a TaskLine. A kind the reader does not know draws no row.
+// An agent_finished item is a TaskLine. An asked design item draws each question it names as a QuestionThread in the
+// conversation, read from its design's record through the design calls withDesignCalls gives, with the record's log lines
+// the thread holds; a question whose record has not loaded draws a loading line, and one whose record failed draws the
+// error. Any other design item draws one line: its what, its ids and its words. A kind the reader does not know draws no row.
 // The reader is its own scroll container: a conversation that replaces a null one opens at its bottom, pinned there. A
 // reader pinned to its bottom, within nearBottomPixels of it as the owner last scrolled, stays there: after a render
 // that draws items or live text, and whenever its own box or a row's box changes size, as the composer area above or
@@ -706,9 +728,80 @@ function itemBody({
       return <Reply text={item.text} query={query} current={current} />;
     case "agent_finished":
       return <TaskLine {...agentFinishedTask(item)} query={query} current={current} />;
+    case "design": {
+      if (item.design?.what === "asked") {
+        const questions = questionIdsOf(item.design.ids);
+        return questions.length === 0 ? null : <AskedQuestions design={item.design.design} questions={questions} />;
+      }
+      const line = designLine(item);
+      return line === "" ? null : <p class="inote design-line">{line}</p>;
+    }
     default:
       return null;
   }
+}
+
+// AskedQuestions draws each question an asked design item names as its own thread, with the box and Accept the design page
+// draws, read from the design's record and given the log lines that name it. In each question's place it draws the loading
+// line while the record has not loaded, the record's error when its read failed, and the line that says so when the record
+// holds no stage or no such question. None of these is a stand-in for the question.
+function AskedQuestions({ design, questions }: { design: string; questions: bigint[] }): JSX.Element {
+  const calls = useContext(designCallsContext);
+  const record = calls?.records.get(design);
+  return (
+    <>
+      {questions.map((id) => {
+        const key = String(id);
+        if (calls === null || record === undefined) {
+          return <p key={key} class="inote">the design is loading</p>;
+        }
+        if (record.error !== "") {
+          return <p key={key} class="inote error" role="alert">{record.error}</p>;
+        }
+        if (record.get === null) {
+          return <p key={key} class="inote">the design is loading</p>;
+        }
+        const stage = record.get.stage;
+        if (stage === undefined) {
+          return <p key={key} class="inote">the stage record is unavailable</p>;
+        }
+        const question = stage.questions.find((candidate) => candidate.id === id);
+        if (question === undefined) {
+          return <p key={key} class="inote">{`Q${id} is not in the design's record`}</p>;
+        }
+        return (
+          <QuestionThread
+            key={key}
+            question={question}
+            lines={record.get.log.filter((line) => line.ids.includes(`Q${id}`))}
+            place="conversation"
+            onAnswer={(answer) => calls.answer(design, id, answer)}
+          />
+        );
+      })}
+    </>
+  );
+}
+
+// questionIdsOf returns the number each Q<n> id names, in order. An id of any other form names no question.
+function questionIdsOf(ids: string[]): bigint[] {
+  const questions: bigint[] = [];
+  for (const id of ids) {
+    const digits = /^Q(\d+)$/.exec(id)?.[1];
+    if (digits !== undefined) {
+      questions.push(BigInt(digits));
+    }
+  }
+  return questions;
+}
+
+// designLine is the one line a design item that is not asked draws: its what, each id it touched and its words, joined by
+// middots. The server writes an item's text as its what, then its words after a line break, so the words are what follows
+// the first break. It is "" when the item holds none of these.
+function designLine(item: ConversationItem): string {
+  const breakAt = item.text.indexOf("\n");
+  const words = breakAt === -1 ? "" : item.text.slice(breakAt + 1);
+  return [item.design?.what ?? "", ...(item.design?.ids ?? []), words].filter((part) => part !== "").join(" · ");
 }
 
 // revealOf is the reveal a row of item is given: the reveal when item is the tool call it names, and none for any other

@@ -22,6 +22,7 @@ public  final class HostStatusResponse extends
     host_ = "";
     stats_ = emptyProtobufList();
     pageBuild_ = "";
+    hosts_ = emptyProtobufList();
   }
   public static final int HOST_FIELD_NUMBER = 1;
   private java.lang.String host_;
@@ -298,6 +299,144 @@ public  final class HostStatusResponse extends
     checkByteStringIsUtf8(value);
     pageBuild_ = value.toStringUtf8();
 
+  }
+
+  public static final int HOSTS_FIELD_NUMBER = 4;
+  private com.google.protobuf.Internal.ProtobufList<io.github.joshsymonds.orrery.gen.orrery.v1.HostEntry> hosts_;
+  /**
+   * <pre>
+   * The status of each host: the controller first, then each hosts.toml host in file order.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.HostEntry hosts = 4 [json_name = "hosts"];</code>
+   */
+  @java.lang.Override
+  public java.util.List<io.github.joshsymonds.orrery.gen.orrery.v1.HostEntry> getHostsList() {
+    return hosts_;
+  }
+  /**
+   * <pre>
+   * The status of each host: the controller first, then each hosts.toml host in file order.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.HostEntry hosts = 4 [json_name = "hosts"];</code>
+   */
+  public java.util.List<? extends io.github.joshsymonds.orrery.gen.orrery.v1.HostEntryOrBuilder> 
+      getHostsOrBuilderList() {
+    return hosts_;
+  }
+  /**
+   * <pre>
+   * The status of each host: the controller first, then each hosts.toml host in file order.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.HostEntry hosts = 4 [json_name = "hosts"];</code>
+   */
+  @java.lang.Override
+  public int getHostsCount() {
+    return hosts_.size();
+  }
+  /**
+   * <pre>
+   * The status of each host: the controller first, then each hosts.toml host in file order.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.HostEntry hosts = 4 [json_name = "hosts"];</code>
+   */
+  @java.lang.Override
+  public io.github.joshsymonds.orrery.gen.orrery.v1.HostEntry getHosts(int index) {
+    return hosts_.get(index);
+  }
+  /**
+   * <pre>
+   * The status of each host: the controller first, then each hosts.toml host in file order.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.HostEntry hosts = 4 [json_name = "hosts"];</code>
+   */
+  public io.github.joshsymonds.orrery.gen.orrery.v1.HostEntryOrBuilder getHostsOrBuilder(
+      int index) {
+    return hosts_.get(index);
+  }
+  private void ensureHostsIsMutable() {
+    com.google.protobuf.Internal.ProtobufList<io.github.joshsymonds.orrery.gen.orrery.v1.HostEntry> tmp = hosts_;
+    if (!tmp.isModifiable()) {
+      hosts_ =
+          com.google.protobuf.GeneratedMessageLite.mutableCopy(tmp);
+     }
+  }
+
+  /**
+   * <pre>
+   * The status of each host: the controller first, then each hosts.toml host in file order.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.HostEntry hosts = 4 [json_name = "hosts"];</code>
+   */
+  private void setHosts(
+      int index, io.github.joshsymonds.orrery.gen.orrery.v1.HostEntry value) {
+    java.util.Objects.requireNonNull(value);
+    ensureHostsIsMutable();
+    hosts_.set(index, value);
+  }
+  /**
+   * <pre>
+   * The status of each host: the controller first, then each hosts.toml host in file order.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.HostEntry hosts = 4 [json_name = "hosts"];</code>
+   */
+  private void addHosts(io.github.joshsymonds.orrery.gen.orrery.v1.HostEntry value) {
+    java.util.Objects.requireNonNull(value);
+    ensureHostsIsMutable();
+    hosts_.add(value);
+  }
+  /**
+   * <pre>
+   * The status of each host: the controller first, then each hosts.toml host in file order.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.HostEntry hosts = 4 [json_name = "hosts"];</code>
+   */
+  private void addHosts(
+      int index, io.github.joshsymonds.orrery.gen.orrery.v1.HostEntry value) {
+    java.util.Objects.requireNonNull(value);
+    ensureHostsIsMutable();
+    hosts_.add(index, value);
+  }
+  /**
+   * <pre>
+   * The status of each host: the controller first, then each hosts.toml host in file order.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.HostEntry hosts = 4 [json_name = "hosts"];</code>
+   */
+  private void addAllHosts(
+      java.lang.Iterable<? extends io.github.joshsymonds.orrery.gen.orrery.v1.HostEntry> values) {
+    ensureHostsIsMutable();
+    com.google.protobuf.AbstractMessageLite.addAll(
+        values, hosts_);
+  }
+  /**
+   * <pre>
+   * The status of each host: the controller first, then each hosts.toml host in file order.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.HostEntry hosts = 4 [json_name = "hosts"];</code>
+   */
+  private void clearHosts() {
+    hosts_ = emptyProtobufList();
+  }
+  /**
+   * <pre>
+   * The status of each host: the controller first, then each hosts.toml host in file order.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.HostEntry hosts = 4 [json_name = "hosts"];</code>
+   */
+  private void removeHosts(int index) {
+    ensureHostsIsMutable();
+    hosts_.remove(index);
   }
 
   public static io.github.joshsymonds.orrery.gen.orrery.v1.HostStatusResponse parseFrom(
@@ -694,6 +833,156 @@ public  final class HostStatusResponse extends
       return this;
     }
 
+    /**
+     * <pre>
+     * The status of each host: the controller first, then each hosts.toml host in file order.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.HostEntry hosts = 4 [json_name = "hosts"];</code>
+     */
+    @java.lang.Override
+    public java.util.List<io.github.joshsymonds.orrery.gen.orrery.v1.HostEntry> getHostsList() {
+      return java.util.Collections.unmodifiableList(
+          instance.getHostsList());
+    }
+    /**
+     * <pre>
+     * The status of each host: the controller first, then each hosts.toml host in file order.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.HostEntry hosts = 4 [json_name = "hosts"];</code>
+     */
+    @java.lang.Override
+    public int getHostsCount() {
+      return instance.getHostsCount();
+    }/**
+     * <pre>
+     * The status of each host: the controller first, then each hosts.toml host in file order.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.HostEntry hosts = 4 [json_name = "hosts"];</code>
+     */
+    @java.lang.Override
+    public io.github.joshsymonds.orrery.gen.orrery.v1.HostEntry getHosts(int index) {
+      return instance.getHosts(index);
+    }
+    /**
+     * <pre>
+     * The status of each host: the controller first, then each hosts.toml host in file order.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.HostEntry hosts = 4 [json_name = "hosts"];</code>
+     */
+    public Builder setHosts(
+        int index, io.github.joshsymonds.orrery.gen.orrery.v1.HostEntry value) {
+      copyOnWrite();
+      instance.setHosts(index, value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The status of each host: the controller first, then each hosts.toml host in file order.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.HostEntry hosts = 4 [json_name = "hosts"];</code>
+     */
+    public Builder setHosts(
+        int index, io.github.joshsymonds.orrery.gen.orrery.v1.HostEntry.Builder builderForValue) {
+      copyOnWrite();
+      instance.setHosts(index,
+          builderForValue.build());
+      return this;
+    }
+    /**
+     * <pre>
+     * The status of each host: the controller first, then each hosts.toml host in file order.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.HostEntry hosts = 4 [json_name = "hosts"];</code>
+     */
+    public Builder addHosts(io.github.joshsymonds.orrery.gen.orrery.v1.HostEntry value) {
+      copyOnWrite();
+      instance.addHosts(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The status of each host: the controller first, then each hosts.toml host in file order.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.HostEntry hosts = 4 [json_name = "hosts"];</code>
+     */
+    public Builder addHosts(
+        int index, io.github.joshsymonds.orrery.gen.orrery.v1.HostEntry value) {
+      copyOnWrite();
+      instance.addHosts(index, value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The status of each host: the controller first, then each hosts.toml host in file order.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.HostEntry hosts = 4 [json_name = "hosts"];</code>
+     */
+    public Builder addHosts(
+        io.github.joshsymonds.orrery.gen.orrery.v1.HostEntry.Builder builderForValue) {
+      copyOnWrite();
+      instance.addHosts(builderForValue.build());
+      return this;
+    }
+    /**
+     * <pre>
+     * The status of each host: the controller first, then each hosts.toml host in file order.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.HostEntry hosts = 4 [json_name = "hosts"];</code>
+     */
+    public Builder addHosts(
+        int index, io.github.joshsymonds.orrery.gen.orrery.v1.HostEntry.Builder builderForValue) {
+      copyOnWrite();
+      instance.addHosts(index,
+          builderForValue.build());
+      return this;
+    }
+    /**
+     * <pre>
+     * The status of each host: the controller first, then each hosts.toml host in file order.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.HostEntry hosts = 4 [json_name = "hosts"];</code>
+     */
+    public Builder addAllHosts(
+        java.lang.Iterable<? extends io.github.joshsymonds.orrery.gen.orrery.v1.HostEntry> values) {
+      copyOnWrite();
+      instance.addAllHosts(values);
+      return this;
+    }
+    /**
+     * <pre>
+     * The status of each host: the controller first, then each hosts.toml host in file order.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.HostEntry hosts = 4 [json_name = "hosts"];</code>
+     */
+    public Builder clearHosts() {
+      copyOnWrite();
+      instance.clearHosts();
+      return this;
+    }
+    /**
+     * <pre>
+     * The status of each host: the controller first, then each hosts.toml host in file order.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.HostEntry hosts = 4 [json_name = "hosts"];</code>
+     */
+    public Builder removeHosts(int index) {
+      copyOnWrite();
+      instance.removeHosts(index);
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:orrery.v1.HostStatusResponse)
   }
   @java.lang.Override
@@ -714,10 +1003,12 @@ public  final class HostStatusResponse extends
             "stats_",
             io.github.joshsymonds.orrery.gen.orrery.v1.HostStat.class,
             "pageBuild_",
+            "hosts_",
+            io.github.joshsymonds.orrery.gen.orrery.v1.HostEntry.class,
           };
           java.lang.String info =
-              "\u0000\u0003\u0000\u0000\u0001\u0003\u0003\u0000\u0001\u0000\u0001\u0208\u0002\u001b" +
-              "\u0003\u0208";
+              "\u0000\u0004\u0000\u0000\u0001\u0004\u0004\u0000\u0002\u0000\u0001\u0208\u0002\u001b" +
+              "\u0003\u0208\u0004\u001b";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

@@ -271,3 +271,165 @@ func discard(out io.ReadCloser) {
 		return
 	}
 }
+
+// Live reports whether a holder holds the session in dir, which is whether the session's lock is held. A dir that does
+// not exist has no holder, and neither does a dir whose lock file is missing: Live reports it not held and never creates
+// the lock file.
+func Live(dir string) (bool, error) {
+	present, err := dirPresent(dir)
+	if err != nil || !present {
+		return false, err
+	}
+	return lockHeld(filepath.Join(dir, LockName))
+}
+
+// Ended waits until no holder holds the session in dir, then returns the exit record the holder wrote there, and whether
+// it wrote one. A dir with no session lock has no holder, so Ended returns ErrGone for it, and so does a lock file that is
+// removed while Ended waits. Ended never creates the lock file. It gives up when ctx ends first.
+func Ended(ctx context.Context, dir string) (Exit, bool, error) {
+	return endedOn(ctx, dir, SystemClock{})
+}
+
+// endedOn is Ended, with the clock its retry wait is timed on. A test drives that wait through a fake clock, so it can
+// see Ended waiting on a held lock before it removes the lock file.
+func endedOn(ctx context.Context, dir string, clock Clock) (Exit, bool, error) {
+	lock, err := awaitExistingLock(ctx, filepath.Join(dir, LockName), clock)
+	if err != nil {
+		return Exit{}, false, fmt.Errorf("holder: wait for %s: %w", dir, err)
+	}
+	exit, found, err := readGoneExit(dir)
+	if closeErr := lock.Close(); closeErr != nil {
+		err = errors.Join(err, fmt.Errorf("holder: release lock of %s: %w", dir, closeErr))
+	}
+	return exit, found, err
+}
+
+// AttachError returns the error for an attach to the holder in dir that failed with cause. It is ErrGone when the holder's
+// lock is free by now. Otherwise it wraps ErrUnattachable, and ErrNoAnswer as well when the attach ran out of its bound.
+func AttachError(dir string, cause error) error {
+	if errors.Is(cause, os.ErrDeadlineExceeded) {
+		cause = fmt.Errorf("%w: %w", ErrNoAnswer, cause)
+	}
+	live, err := Live(dir)
+	switch {
+	case err != nil:
+		return unattachable(errors.Join(cause, err))
+	case !live:
+		return errors.Join(ErrGone, cause)
+	default:
+		return unattachable(cause)
+	}
+}
+
+// Keeper is a controller that keeps a live holder attached while no controller is, as Keep makes it. Done closes once the
+// keeper has ended, and Err then gives why.
+type Keeper struct {
+	done chan struct{}
+	err  error
+}
+
+// Keep attaches to the live holder serving dir as a controller that reads nothing back, so the holder keeps a controller
+// and does not idle-stop. The attach is at the end of the holder's spool. The keeper reads each out frame and discards it,
+// and never acks, so the spool keeps every byte above the last ack that a controller sent. When the holder's child ends,
+// the keeper waits for the holder's lock to be free and then stops the holder's scope, as a launched Process does. Keep
+// returns ErrGone when no holder holds the session in dir, and the error AttachError gives when the attach fails. ctx ends
+// the keeper.
+func Keep(ctx context.Context, dir, scope string) (*Keeper, error) {
+	live, err := Live(dir)
+	switch {
+	case err != nil:
+		return nil, err
+	case !live:
+		return nil, ErrGone
+	}
+	end, err := spoolEnd(dir)
+	if err != nil {
+		return nil, err
+	}
+	sock, err := SocketPath(dir)
+	if err != nil {
+		return nil, err
+	}
+	stopper, err := readScopeStopper(dir, scope)
+	if err != nil {
+		return nil, err
+	}
+	conn, _, err := attachBounded(ctx, sock, end, WireVersion, AttachTimeout)
+	if err != nil {
+		return nil, AttachError(dir, err)
+	}
+	k := &Keeper{done: make(chan struct{})}
+	go k.run(ctx, conn, dir, stopper)
+	return k, nil
+}
+
+// Done closes once the keeper has ended: its ctx ended, a later attach replaced it, its holder ended, or its connection
+// failed.
+func (k *Keeper) Done() <-chan struct{} {
+	return k.done
+}
+
+// Err returns why the keeper ended, or nil when its ctx ended, a later attach replaced it, or its holder ended cleanly. It
+// is valid once Done has closed.
+func (k *Keeper) Err() error {
+	return k.err
+}
+
+// run reads the holder's frames and discards them until the connection ends. An exit frame means the child has ended, and
+// the holder ends with it, so run then stops the holder's scope. ctx ends the connection.
+func (k *Keeper) run(ctx context.Context, conn *Conn, dir string, stopper scopeStopper) {
+	defer close(k.done)
+	closed := make(chan error, 1)
+	stop := context.AfterFunc(ctx, func() { closed <- conn.Close() })
+	exited, err := drainFrames(conn)
+	if !stop() {
+		// ctx ended first, so its close of the connection is the one close, and its error is waited for here.
+		err = errors.Join(err, <-closed)
+	}
+	closeErr := conn.Close()
+	if exited {
+		k.err = errors.Join(closeErr, stopAfterExit(ctx, dir, stopper))
+		return
+	}
+	if ctx.Err() == nil {
+		k.err = errors.Join(err, closeErr)
+	}
+}
+
+// drainFrames reads frames from conn and discards each out frame, until the connection ends. It reports whether an exit
+// frame ended the reading. A clean end of the connection is no error.
+func drainFrames(conn *Conn) (bool, error) {
+	for {
+		frame, err := conn.Read()
+		switch {
+		case errors.Is(err, io.EOF):
+			return false, nil
+		case err != nil:
+			return false, err
+		case frame.Type == TypeExit:
+			return true, nil
+		case frame.Type == TypeError:
+			return false, errors.New(frame.Message)
+		}
+	}
+}
+
+// stopAfterExit runs once the holder's child has exited. It waits, past ctx, until the holder has released its lock, and
+// then stops the holder's scope, so a ctx that ends meanwhile does not leave the scope running. A holder whose directory
+// is already gone has released its lock.
+func stopAfterExit(ctx context.Context, dir string, stopper scopeStopper) error {
+	ctx = context.WithoutCancel(ctx)
+	if _, _, err := Ended(ctx, dir); err != nil && !errors.Is(err, ErrGone) {
+		return err
+	}
+	return stopper.stop(ctx)
+}
+
+// spoolEnd returns the stdout offset just past the last byte the spool in dir holds.
+func spoolEnd(dir string) (int64, error) {
+	segs, err := goneSegments(dir)
+	if err != nil {
+		return 0, err
+	}
+	return segs[len(segs)-1].end(), nil
+}

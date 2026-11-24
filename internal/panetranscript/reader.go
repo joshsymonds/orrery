@@ -1,6 +1,6 @@
 // Package panetranscript reads the turn of a pane from its Claude transcript: the prompt that opened it, the tool call
 // that runs now, the calls the newest assistant turn still waits on, its last text, whether its newest reply failed,
-// and the context usage.
+// whether it has ended, and the context usage.
 package panetranscript
 
 import (
@@ -23,6 +23,10 @@ import (
 type Turn struct {
 	// TurnStart is the unix seconds of the newest main-chain prompt.
 	TurnStart int64
+	// TurnEnd is the unix seconds of the main-chain line that ended the newest turn, and 0 while a turn runs. A turn ends
+	// at an assistant line whose stop_reason is set and is not tool_use, at an API error line, and at an interruption
+	// line. A prompt, a tool result and any other assistant line leave a turn running.
+	TurnEnd int64
 	// Tool is the newest main-chain tool call that has no result yet, or nil when every call has one.
 	Tool *Tool
 	// Pending is the main-chain tool calls of the newest assistant turn that have no result yet, oldest first.
@@ -112,9 +116,10 @@ func (r *Reader) scan(file *os.File) error {
 
 // turnState is what the complete lines of a transcript leave for its turn. openCalls are the main-chain tool calls
 // with no result yet, oldest first, and turnCalls are those of the newest assistant turn. lastText is the last text of
-// that turn, and failed, apiError and usage are taken from the newest main-chain assistant line.
+// that turn, failed, apiError and usage are taken from the newest main-chain assistant line, and turnEnd is Turn's.
 type turnState struct {
 	turnStart int64
+	turnEnd   int64
 	openCalls []call
 	turnCalls []call
 	lastText  string
@@ -164,7 +169,8 @@ func (s *turnState) apply(raw []byte) {
 	}
 }
 
-// applyUser resolves the calls that a user line answers, and starts a new turn at a prompt line.
+// applyUser resolves the calls that a user line answers, and starts a new turn at a prompt line. An interruption line
+// ends the turn, and any other user line leaves it running.
 func (s *turnState) applyUser(entry transcriptLine, ts int64) {
 	for _, b := range blocksOf(entry.Message.Content) {
 		if stringField(b, "type") == "tool_result" {
@@ -176,13 +182,21 @@ func (s *turnState) applyUser(entry transcriptLine, ts int64) {
 		s.turnCalls = nil
 		s.lastText = ""
 	}
+	s.turnEnd = 0
+	if isInterruption(entry.Message.Content) {
+		s.turnEnd = ts
+	}
 }
 
-// applyAssistant records the failure of an assistant line and its usage, and adds its text and tool calls to the
-// turn.
+// applyAssistant records the failure of an assistant line, whether it ends the turn, and its usage, and adds its text
+// and tool calls to the turn.
 func (s *turnState) applyAssistant(raw []byte, entry transcriptLine, ts int64) {
 	s.failed = entry.IsAPIErrorMessage
 	s.apiError = stringValue(entry.Error)
+	s.turnEnd = 0
+	if stop := stopReason(raw); entry.IsAPIErrorMessage || stop != "" && stop != stopToolUse {
+		s.turnEnd = ts
+	}
 	if usage, ok := conversation.AssistantContext(raw); ok {
 		s.usage = usage
 	}
@@ -208,6 +222,7 @@ func (s *turnState) resolve(id string) {
 func (s *turnState) turn() Turn {
 	result := Turn{
 		TurnStart:   s.turnStart,
+		TurnEnd:     s.turnEnd,
 		LastMessage: s.lastText,
 		Failed:      s.failed,
 		APIError:    s.apiError,
@@ -227,6 +242,37 @@ func (s *turnState) turn() Turn {
 		result.Pending = append(result.Pending, Call{ID: c.id, Name: c.name, Input: c.input})
 	}
 	return result
+}
+
+// stopToolUse is the stop_reason of an assistant message that ends to call a tool, which leaves its turn running.
+const stopToolUse = "tool_use"
+
+// stopReason returns the stop_reason of the message of the transcript line raw, or "" when it has none or it is not a
+// string.
+func stopReason(raw []byte) string {
+	var line struct {
+		Message block `json:"message"`
+	}
+	if json.Unmarshal(raw, &line) != nil {
+		return ""
+	}
+	return stringField(line.Message, "stop_reason")
+}
+
+// Interruption texts: Claude Code writes one as a user line's only text block when the person interrupts a turn.
+const (
+	interruptedText     = "[Request interrupted by user]"
+	interruptedToolText = "[Request interrupted by user for tool use]"
+)
+
+// isInterruption reports whether content is one text block that holds a whole interruption text.
+func isInterruption(content json.RawMessage) bool {
+	blocks := blocksOf(content)
+	if len(blocks) != 1 || stringField(blocks[0], "type") != "text" {
+		return false
+	}
+	text := stringField(blocks[0], "text")
+	return text == interruptedText || text == interruptedToolText
 }
 
 // isPrompt reports whether content is a prompt: a string, or an array with a block that is not a tool result.

@@ -51,12 +51,14 @@
         {
           # The web page is bundled before the Go build and replaces the committed stub in the build's own copy of
           # internal/webui/dist, so the binary embeds the built page. scripts/build-web.sh is the one bundle command.
-          default = pkgs.buildGoModule {
+          # nixpkgs' buildGoModule takes its toolchain from the `go` it was called with, so the per-call `go` alone
+          # leaves the build on the default Go; the override makes the toolchain go_1_27 as well.
+          default = (pkgs.buildGoModule.override { go = pkgs.go_1_27; }) {
             pname = "orrery";
             version = "0.0.0";
             src = ./.;
-            go = pkgs.go_1_26;
-            vendorHash = "sha256-JxHznozd7R0IsC/bTUz+5WERj1ihux3CwWtwvkdHOto=";
+            go = pkgs.go_1_27;
+            vendorHash = "sha256-PAEKIzdy9UngUUJ6OiqlmCRCsCtrpavpeyfWQqYQ5eE=";
             subPackages = [
               "cmd/orrery"
               "cmd/orreryd"

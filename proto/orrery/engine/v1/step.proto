@@ -213,6 +213,9 @@ message Step {
   // Fields 28 and 29 were red_evidence and green_evidence, which only the epic chart's slices read.
   reserved 28, 29;
   reserved "red_evidence", "green_evidence";
+
+  // The orrery name of the host the step lives on.
+  string host = 30;
 }
 
 // ReadStepResultRequest asks for part of a step's result.

@@ -45,7 +45,7 @@ func (r *Runner) execute(ctx context.Context, epic store.EpicRow, view View, act
 }
 
 // record carries out an action that is one store write of the task's build: a move, a settle of a checking version, a
-// pause, a park, a review or a finding. Any other action does nothing and reports false.
+// pause, a park, a review, a finding or the result of a test run. Any other action does nothing and reports false.
 func (r *Runner) record(ctx context.Context, epic store.EpicRow, view View, action Action) bool {
 	seq, from := view.Task.Seq, view.Task.Build
 	switch action.Kind {
@@ -70,6 +70,9 @@ func (r *Runner) record(ctx context.Context, epic store.EpicRow, view View, acti
 	case ActFinding:
 		err := r.store.SetFindingResult(ctx, epic.ID, seq, from, action.Next, action.Finding)
 		return r.written(ctx, epic.ID, seq, "store finding", err)
+	case ActTestRun:
+		err := r.store.SetTestRunResult(ctx, epic.ID, seq, from, action.Next, action.TestResult)
+		return r.written(ctx, epic.ID, seq, "store test run", err)
 	default:
 		return false
 	}
@@ -120,14 +123,16 @@ func (r *Runner) startRun(ctx context.Context, epic store.EpicRow, view View, ac
 }
 
 // startUnit starts the step action names and records its id as the build's step. An orchestrate unit records nothing,
-// since its build's step is the implementer step it decides, and its own step is found by its derived id. A role error
-// parks the task held parked. Any other start error is handled as DecideStartError decides.
+// since its build's step is the implementer step it decides, and its own step is found by its derived id. A test run
+// step records nothing either, for the same reason: its step is found by its derived id. A role error parks the task
+// held parked. A test run the engine refuses stores the refusal as its output, under its derived id, and the build goes
+// on to the next run or the verifier. Any other start error is handled as DecideStartError decides.
 func (r *Runner) startUnit(ctx context.Context, epic store.EpicRow, view View, action Action) bool {
 	seq, from := view.Task.Seq, view.Task.Build
 	id, err := r.startStep(ctx, epic, view, action)
 	var roleErr RoleError
 	switch {
-	case err == nil && action.Unit == StageOrchestrate:
+	case err == nil && (action.Unit == StageOrchestrate || action.Unit == unitTestRun):
 		return true
 	case err == nil:
 		next := from
@@ -138,6 +143,13 @@ func (r *Runner) startUnit(ctx context.Context, epic store.EpicRow, view View, a
 		next.Held = HeldParked
 		park := r.store.ParkTask(ctx, epic.ID, seq, from, next, store.ParkClassTask, err.Error(), r.now())
 		return r.written(ctx, epic.ID, seq, "park on role error", park)
+	case action.Unit == unitTestRun:
+		// The run's step id is stored as its step, since the store reads a run with no step as one still to run.
+		result := store.TaskTestRunResult{
+			Attempt: from.Attempt, Review: from.GatePos, Position: action.TestRun.Position, Step: action.ID,
+			Output: fmt.Sprintf("not run: %v", err),
+		}
+		return r.record(ctx, epic, view, storedTestRun(from, result))
 	default:
 		return r.execute(ctx, epic, view, DecideStartError(view, err))
 	}

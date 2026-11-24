@@ -74,7 +74,7 @@ func requireActionLogEntries(t *testing.T, entries []*orreryv1.EpicHistoryEntry,
 func TestEpicActionLogHistoryMergesActionsInTimeOrder(t *testing.T) {
 	t.Parallel()
 	store := &epicStoreFake{stored: []*enginev1.StoredEpic{actionLogFixture()}}
-	client := stepDataServe(t, t.TempDir(), &epicsFake{}, store, &evidenceRunsFake{})
+	client := stepDataServe(t, &epicsFake{}, store, &evidenceRunsFake{})
 
 	got := epicsHistory(t, client, "repoa/shared", "", 0)
 	requireActionLogEntries(t, got.GetEntries(), actionLogWant())
@@ -86,7 +86,7 @@ func TestEpicActionLogHistoryMergesActionsInTimeOrder(t *testing.T) {
 func TestEpicActionLogHistoryPageContinuesAfterAction(t *testing.T) {
 	t.Parallel()
 	store := &epicStoreFake{stored: []*enginev1.StoredEpic{actionLogFixture()}}
-	client := stepDataServe(t, t.TempDir(), &epicsFake{}, store, &evidenceRunsFake{})
+	client := stepDataServe(t, &epicsFake{}, store, &evidenceRunsFake{})
 	want := actionLogWant()
 
 	first := epicsHistory(t, client, "repoa/shared", "", 2)

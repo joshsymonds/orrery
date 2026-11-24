@@ -1,6 +1,7 @@
 package io.github.joshsymonds.orrery.ui
 
 import io.github.joshsymonds.orrery.api.ContractRow
+import io.github.joshsymonds.orrery.api.DesignRow
 import io.github.joshsymonds.orrery.api.EpicDetail
 import io.github.joshsymonds.orrery.api.EpicRow
 import io.github.joshsymonds.orrery.api.Pane
@@ -49,6 +50,16 @@ internal fun epicRowWords(hung: Hung, now: Long): EpicRowWords = when (hung) {
 /** The words an unbound pane's row says, with the command the owner runs to bind it again. */
 internal const val UNBOUND_COMMAND = "claude --resume"
 internal const val UNBOUND_LINE = "Not bound to a conversation. Restart it with $UNBOUND_COMMAND."
+
+/** A design's name as its tab draws it: its title, or its id when the title is blank. */
+internal fun designNameOf(design: DesignRow): String = design.title.ifBlank { design.id }
+
+/** A design's count beside its tab: "1 contract", or "N contracts" for any other number. */
+internal fun designCountOf(design: DesignRow): String =
+    if (design.contracts.size == 1) "1 contract" else "${design.contracts.size} contracts"
+
+/** A design's first line in its well: "design · " and its state as served. */
+internal fun designStateLineOf(design: DesignRow): String = "design · ${design.state}"
 
 /** A conversation's second line at [now], in unix seconds; a row with no pane has none, its own row draws its thing. */
 internal fun convoLineOf(convo: Convo, now: Long): String {
@@ -105,7 +116,7 @@ private fun stateWordOf(listed: EpicRow, detail: EpicDetail?): String {
 // The track part a phase is in: planning or building while accepted, building while built, reviewing or correcting,
 // releasing while clean, releasing or stopped, and report once released or closed. Null for any other phase.
 internal fun trackPartOf(phase: String, detail: EpicDetail): String? = when (phase) {
-    "accepted" -> if (detail.tasks.isEmpty() && detail.buildTasks.isEmpty()) "planning" else "building"
+    "accepted" -> if (detail.buildTasks.isEmpty()) "planning" else "building"
     "built", "reviewing", "correcting" -> "building"
     "clean", "releasing", "stopped" -> RELEASING
     "released", "done", "met_at_base", "ended_with_gaps", "closed_superseded", "closed_shipped", "closed_abandoned" ->
@@ -130,7 +141,7 @@ private fun blockerWordsOf(listed: EpicRow, detail: EpicDetail?, now: Long): Str
 // A gauge: a check in ok when an ended epic shipped, a dash when it ended short, a dot in attention when blocked, no
 // tone when paused, engine while releasing, and live otherwise. Its share is the done tasks out of all of them.
 private fun gaugeOf(listed: EpicRow, detail: EpicDetail?, state: String, blocker: String): GaugeShare {
-    val tasks = detail?.tasks.orEmpty()
+    val tasks = detail?.buildTasks.orEmpty()
     val done = tasks.count { it.status.lowercase() in DONE_STATUSES }
     val total = tasks.size
     return when {

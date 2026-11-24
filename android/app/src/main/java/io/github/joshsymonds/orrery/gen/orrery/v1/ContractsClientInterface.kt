@@ -36,4 +36,21 @@ public interface ContractsClientInterface {
    *  Reopen forwards the owner's reopening of the named contract to orreryd and returns the contract as it stands.
    */
   public suspend fun reopen(request: ContractsReopenRequest, headers: Headers = emptyMap()): ResponseMessage<ContractsReopenResponse>
+
+  /**
+   *  Keep forwards the owner's keeping of an addition to the named contract to orreryd and returns the contract as it
+   *  stands.
+   */
+  public suspend fun keep(request: ContractsKeepRequest, headers: Headers = emptyMap()): ResponseMessage<ContractsKeepResponse>
+
+  /**
+   *  Strike forwards the owner's striking of an addition the named contract keeps to orreryd and returns the contract as
+   *  it stands, with the rows the striking removed.
+   */
+  public suspend fun strike(request: ContractsStrikeRequest, headers: Headers = emptyMap()): ResponseMessage<ContractsStrikeResponse>
+
+  /**
+   *  Shown forwards the rows of a contract version the owner was shown to orreryd and returns the rows it marked.
+   */
+  public suspend fun shown(request: ContractsShownRequest, headers: Headers = emptyMap()): ResponseMessage<ContractsShownResponse>
 }

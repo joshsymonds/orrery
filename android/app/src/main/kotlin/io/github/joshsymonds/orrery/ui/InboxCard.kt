@@ -7,9 +7,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -39,11 +37,11 @@ import io.github.joshsymonds.orrery.ui.theme.OrreryTokens
 /**
  * A project's card: a head with the fold control, the folder, the name, the path with home as ~, and a host chip only
  * for another host. Folded, the head also says how many things wait on you (only when [waiting] is not zero) and how
- * many conversations the project holds, and nothing else is drawn. Open, its conversations hang under a line, then the
- * ended line, which shows the count of ended conversations and opens to them. Each conversation is drawn by [convo],
- * with whether its fold is open (its key is in [foldOpen]) and the press that folds it, which calls [onConvoFold] with
- * its key. A tap on the folder, the name or the path calls [onOpenProject] with the project's key; the chevron only
- * folds.
+ * many conversations the project holds, and nothing else is drawn. Open, its conversations sit on the card's ground,
+ * with no line, then the ended line, which shows the count of ended conversations and opens to them. Each conversation
+ * is drawn by [convo], with whether its fold is open (its key is in [foldOpen]) and the press that folds it, which calls
+ * [onConvoFold] with its key. A tap on the folder, the name or the path calls [onOpenProject] with the project's key; the
+ * chevron only folds.
  */
 @Composable
 internal fun ProjectCard(
@@ -174,32 +172,23 @@ private fun ProjectConversations(
     convo: @Composable (Convo, Boolean, () -> Unit) -> Unit,
     endedMoving: Boolean,
 ) {
-    Row(
+    Column(
         modifier = Modifier
             .fillMaxWidth()
-            .height(IntrinsicSize.Min)
             .padding(
-                start = OrreryTokens.Space.sixteen,
+                start = OrreryTokens.Space.four,
                 end = OrreryTokens.Space.four,
                 bottom = OrreryTokens.Space.eight,
             ),
     ) {
-        Box(
-            modifier = Modifier
-                .width(OrreryTokens.Size.hairline)
-                .fillMaxHeight()
-                .background(OrreryTokens.Line.firm),
-        )
-        Column(modifier = Modifier.weight(1f).padding(start = OrreryTokens.Space.four)) {
-            for (c in project.convos) {
-                convo(c, c.key in foldOpen) { onConvoFold(c.key) }
-            }
-            if (project.ended.isNotEmpty()) {
-                EndedLine(project, endedOpen, onEnded, endedMoving)
-                if (endedOpen) {
-                    for (c in project.ended) {
-                        convo(c, c.key in foldOpen) { onConvoFold(c.key) }
-                    }
+        for (c in project.convos) {
+            convo(c, c.key in foldOpen) { onConvoFold(c.key) }
+        }
+        if (project.ended.isNotEmpty()) {
+            EndedLine(project, endedOpen, onEnded, endedMoving)
+            if (endedOpen) {
+                for (c in project.ended) {
+                    convo(c, c.key in foldOpen) { onConvoFold(c.key) }
                 }
             }
         }

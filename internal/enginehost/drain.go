@@ -9,23 +9,28 @@ import (
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
-// drain records what the holder of row's session in dir spooled while no orreryd attached to it, then settles the row
-// through reconcileRow. The holder has ended, so holder.StopOrphan first stops a child that still runs; a failure is
-// logged and the drain goes on. The stdout from row's replay-from to its consumed offset was recorded already, so it is
-// replayed with nothing stored. Each later line is recorded as the pump records it, so each is stored once. The session
-// is not registered live. Its exit is recorded only when the holder wrote an exit record whose reason
+// drain records what the holder of row's session spooled on row's host while no orreryd attached to it, then settles
+// the row through reconcileRow. The holder has ended, so the host's StopOrphan first stops a child that still runs; a
+// failure is logged and the drain goes on. The stdout from row's replay-from to its consumed offset was recorded
+// already, so it is replayed with nothing stored. Each later line is recorded as the pump records it, so each is stored
+// once. The session is not registered live. Its exit is recorded only when the holder wrote an exit record whose reason
 // is exited, the child ending on its own. Any other exit, or none, records nothing for the session's end, since the
-// child was stopped, idled, or ended with no record of why.
-func (m *Manager) drain(ctx context.Context, row store.EngineRow, dir string) error {
+// child was stopped, idled, or ended with no record of why. A row whose host names no host this controller runs
+// sessions on is not drained, and the error says so.
+func (m *Manager) drain(ctx context.Context, row store.EngineRow) error {
+	place, err := m.hostOf(row)
+	if err != nil {
+		return err
+	}
 	stopCtx, cancel := context.WithTimeout(ctx, clearTimeout)
 	defer cancel()
-	if err := holder.StopOrphan(stopCtx, dir); err != nil {
+	if err = place.host.StopOrphan(stopCtx, row.ID); err != nil {
 		m.logger.WarnContext(ctx, "stop orphan of session", "session", row.ID, "err", err)
 	}
 	// The record path runs to the end of the spool. A canceled ctx would fail a write, and the holder would then be
 	// cleared with lines unrecorded. The spool is finite, so the drain still ends.
 	recordCtx := context.WithoutCancel(ctx)
-	gone, err := holder.OpenGone(dir, row.ReplayFrom)
+	gone, err := place.host.OpenGone(recordCtx, row.ID, row.ReplayFrom)
 	if err != nil {
 		return fmt.Errorf("open holder of session %s: %w", row.ID, err)
 	}
@@ -54,5 +59,5 @@ func (m *Manager) drain(ctx context.Context, row store.EngineRow, dir string) er
 	if err != nil {
 		return err
 	}
-	return m.reconcileRow(recordCtx, fresh)
+	return m.reconcileRow(recordCtx, place.host, fresh)
 }

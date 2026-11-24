@@ -99,7 +99,7 @@ func TestAttachStore(t *testing.T) {
 		sender := &recordSender{}
 		sinks := newPaneSinks(attachResentAt, false)
 		notices := notice.New(attachHost, sender, sinks.Now, logger, notice.WithStoreDeadline(testStoreDeadline))
-		attachStore(ctx, s, daemon.NewPendingMirror(time.Now, logger), notices, attachRouter(notices, sinks))
+		attachStore(ctx, s, daemon.NewPendingMirror("", time.Now, logger), notices, attachRouter(notices, sinks))
 		// Wait orders every send before the reads below.
 		notices.Wait()
 
@@ -128,7 +128,7 @@ func TestAttachStore(t *testing.T) {
 		sender := &recordSender{}
 		sinks := newPaneSinks(attachResentAt, false)
 		notices := notice.New(attachHost, sender, sinks.Now, logger)
-		attachStore(ctx, nil, daemon.NewPendingMirror(time.Now, logger), notices, attachRouter(notices, sinks))
+		attachStore(ctx, nil, daemon.NewPendingMirror("", time.Now, logger), notices, attachRouter(notices, sinks))
 
 		key := notice.Key{Session: attachSession}
 		notices.Notify(ctx, key, func(context.Context) (push.Notification, error) {

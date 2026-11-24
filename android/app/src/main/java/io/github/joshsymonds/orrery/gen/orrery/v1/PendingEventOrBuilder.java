@@ -234,4 +234,23 @@ public interface PendingEventOrBuilder extends
    * @return The stepFacts.
    */
   io.github.joshsymonds.orrery.gen.orrery.v1.StepFacts getStepFacts();
+
+  /**
+   * <pre>
+   * The stage record of the event, unset when the event carries none.
+   * </pre>
+   *
+   * <code>.orrery.v1.EngineDesign design = 14 [json_name = "design"];</code>
+   * @return Whether the design field is set.
+   */
+  boolean hasDesign();
+  /**
+   * <pre>
+   * The stage record of the event, unset when the event carries none.
+   * </pre>
+   *
+   * <code>.orrery.v1.EngineDesign design = 14 [json_name = "design"];</code>
+   * @return The design.
+   */
+  io.github.joshsymonds.orrery.gen.orrery.v1.EngineDesign getDesign();
 }

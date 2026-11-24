@@ -32,6 +32,9 @@ var ErrBadDependency = errors.New("bad task dependency")
 // of the empty kind is an ordinary task.
 const TaskKindDesign = "design"
 
+// TaskSplit is the status of a task a split action split into its descendants. The descendants stand in its place.
+const TaskSplit = "split"
+
 // EpicPlanState is the planning state of one epic with pending triggers. Parked is the park reason of a question park,
 // empty when the epic is not parked or its park is a planner park, which the planner answers. PlannerPark is the park
 // reason of that planner park, empty otherwise, so a decision records the park it was made under. Running is true when
@@ -76,7 +79,7 @@ type EpicTurn struct {
 // its build holds, in the order they were recorded. Refused are the paths
 // an orchestrator decision refused on the task, which no rule grant gives the task again until a decision adds them.
 // Kind is the task's kind, "" for an ordinary task or TaskKindDesign. Revises is the seq of the design task the task
-// revises, 0 for none.
+// revises, 0 for none. SplitFrom is the seq of the task this task was split from, 0 for none.
 type EpicTask struct {
 	Seq          int64
 	Turn         int64
@@ -112,6 +115,7 @@ type EpicTask struct {
 	DependsOn []int64
 	Kind      string
 	Revises   int64
+	SplitFrom int64
 }
 
 // EpicQuestion is one question a planner turn asked, with its state. Turn is the seq of the turn that asked it. Label,
@@ -263,13 +267,9 @@ func loadPlanSections(ctx context.Context, queries *sqlcgen.Queries, row *EpicRo
 	if err != nil {
 		return fmt.Errorf("list task test changes: %w", err)
 	}
-	reviews, err := queries.ListEpicTaskReviews(ctx, row.ID)
+	reviewsOf, err := storedTaskReviews(ctx, queries, row.ID)
 	if err != nil {
-		return fmt.Errorf("list task reviews: %w", err)
-	}
-	findings, err := queries.ListEpicTaskFindings(ctx, row.ID)
-	if err != nil {
-		return fmt.Errorf("list task findings: %w", err)
+		return err
 	}
 	pathsOf := groupByTask(files, func(file sqlcgen.EpicTaskFile) int64 { return file.Task },
 		func(file sqlcgen.EpicTaskFile) string { return file.Path })
@@ -281,7 +281,6 @@ func loadPlanSections(ctx context.Context, queries *sqlcgen.Queries, row *EpicRo
 	}, func(contribute sqlcgen.EpicTaskContribute) string { return contribute.Requirement })
 	testChangesOf := groupByTask(testChanges, func(change sqlcgen.EpicTaskTestChange) int64 { return change.Task },
 		func(change sqlcgen.EpicTaskTestChange) string { return change.Path })
-	reviewsOf := taskReviewsOf(reviews, findings)
 	versions, err := queries.ListEpicTaskVersions(ctx, row.ID)
 	if err != nil {
 		return fmt.Errorf("list task versions: %w", err)
@@ -306,6 +305,24 @@ func loadPlanSections(ctx context.Context, queries *sqlcgen.Queries, row *EpicRo
 	}
 
 	return loadQuestions(ctx, queries, row)
+}
+
+// storedTaskReviews returns the reviews of each task of epic, keyed by task seq, from the rows stored under epic: each
+// review with its findings and test runs, as taskReviewsOf gives them.
+func storedTaskReviews(ctx context.Context, queries *sqlcgen.Queries, epic string) (map[int64][]TaskReview, error) {
+	reviews, err := queries.ListEpicTaskReviews(ctx, epic)
+	if err != nil {
+		return nil, fmt.Errorf("list task reviews: %w", err)
+	}
+	findings, err := queries.ListEpicTaskFindings(ctx, epic)
+	if err != nil {
+		return nil, fmt.Errorf("list task findings: %w", err)
+	}
+	testRuns, err := queries.ListEpicTaskTestRuns(ctx, epic)
+	if err != nil {
+		return nil, fmt.Errorf("list task test runs: %w", err)
+	}
+	return taskReviewsOf(reviews, findings, testRuns), nil
 }
 
 // taskLadderOf returns the rungs each task of epic holds, and the files orchestrator decisions refused on each, keyed
@@ -390,7 +407,7 @@ func taskOf(
 		Status: stored.Status, Build: buildOf(stored), Reviews: reviews, Batch: stored.Batch,
 		NeedsFiles: needsFiles, GateChanges: gateChanges, Notes: notes,
 		Refused: refused, Version: 1, Versions: versions, Generation: stored.Generation, DependsOn: dependsOn,
-		Kind: stored.Kind, Revises: stored.Revises,
+		Kind: stored.Kind, Revises: stored.Revises, SplitFrom: stored.SplitFrom,
 	}
 	overlayVersions(&task)
 	if task.Build.RedRun != "" {
@@ -805,8 +822,10 @@ func resolveDependencies(
 }
 
 // resolveDependency returns the seq of the task entry names, from task i of tasks. An entry of the form T<n> names the
-// task of epic with seq n, which must be stored already. Any other entry names the one task of tasks with that exact
-// title. An entry that names no such task, a title two tasks of tasks share, or the task itself is ErrBadDependency.
+// task of epic with seq n, which must be stored already and must not be split: a split task never integrates, so a
+// task that waits for it would wait forever. Any other entry names the one task of tasks with that exact title. An
+// entry that names no such task, a split task, a title two tasks of tasks share, or the task itself is
+// ErrBadDependency.
 func resolveDependency(
 	ctx context.Context,
 	queries *sqlcgen.Queries,
@@ -824,12 +843,14 @@ func resolveDependency(
 		if seq == highest+int64(i)+1 {
 			return 0, fmt.Errorf("%w: names the task itself", ErrBadDependency)
 		}
-		_, err = queries.GetEpicTask(ctx, sqlcgen.GetEpicTaskParams{Epic: epic, Seq: seq})
-		if errors.Is(err, sql.ErrNoRows) {
+		row, err := queries.GetEpicTask(ctx, sqlcgen.GetEpicTaskParams{Epic: epic, Seq: seq})
+		switch {
+		case errors.Is(err, sql.ErrNoRows):
 			return 0, fmt.Errorf("%w: names no task of the epic", ErrBadDependency)
-		}
-		if err != nil {
+		case err != nil:
 			return 0, fmt.Errorf("read task %d of epic %s: %w", seq, epic, err)
+		case row.Status == TaskSplit:
+			return 0, fmt.Errorf("%w: names a split task", ErrBadDependency)
 		}
 		return seq, nil
 	}

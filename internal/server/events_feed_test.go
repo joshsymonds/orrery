@@ -220,7 +220,7 @@ func eventsFeedWantSeq(t *testing.T, st *eventsFeedStream, want int64) {
 func eventsFeedAddPane(t *testing.T, s *store.Store) {
 	t.Helper()
 	pane := store.Pane{ID: eventsFeedPane, Pane: "%1"}
-	if err := s.SyncServer(t.Context(), "-L a", []store.Pane{pane}, time.Unix(eventsFeedAt, 0)); err != nil {
+	if err := s.SyncServer(t.Context(), "", "-L a", []store.Pane{pane}, time.Unix(eventsFeedAt, 0)); err != nil {
 		t.Fatalf("SyncServer: %v", err)
 	}
 }
