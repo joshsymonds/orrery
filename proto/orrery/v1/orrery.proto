@@ -2,6 +2,8 @@ syntax = "proto3";
 
 package orrery.v1;
 
+import "orrery/v1/designs.proto";
+
 // Sessions reads the Claude Code sessions that orrery tracks.
 service Sessions {
   // List returns every tracked session.
@@ -200,6 +202,9 @@ message HeadlessSession {
 
   // The orrery name of the host the session runs on.
   string host = 15;
+
+  // The designs this conversation works, each with its contracts.
+  repeated Design designs = 16;
 }
 
 // SessionsWatchConversationRequest asks for the conversation of one headless session. limit follows
@@ -785,6 +790,28 @@ message EngineText {
   string text = 5;
 }
 
+// EngineDesign is the payload of an engine_design event: a stage record a design's stage stored, with the ids it
+// touched and who made it.
+message EngineDesign {
+  // The id of the design the record belongs to.
+  string design = 1;
+
+  // What was done.
+  string what = 2;
+
+  // The ids the record touched.
+  repeated string ids = 3;
+
+  // The words the record was stored with.
+  string words = 4;
+
+  // Who made the record and the evidence it rests on.
+  RecordMaker maker = 5;
+
+  // The sessions row id of the session that stored the record.
+  string session = 6;
+}
+
 // Panes reads and steers the tmux panes orrery tracks, one call for each thing the phone does with a pane.
 service Panes {
   // List returns every tracked pane.
@@ -1079,6 +1106,9 @@ message ConversationItem {
   // The X-Orrery-Client of the request that sent a prompt item's prompt, such as orrery-android; empty when none was
   // recorded.
   string client = 19;
+
+  // The stage record of the item, unset when the item carries none.
+  EngineDesign design = 20;
 }
 
 // ConversationContext is the context figure of a conversation: its tokens out of the window they are measured
@@ -1269,6 +1299,9 @@ message PendingEvent {
   // The facts of the step, for a step_end.
   StepFacts step_facts = 13;
 
+  // The stage record of the event, unset when the event carries none.
+  EngineDesign design = 14;
+
   reserved 7, 12;
   reserved "reason", "result", "summary";
 }
@@ -1323,6 +1356,9 @@ message BackgroundTask {
 
   // When the task ended, in unix seconds, or 0 while it runs.
   int64 ended = 9;
+
+  // The stage record of the task, unset when the task carries none.
+  EngineDesign design = 10;
 }
 
 // SendTextRequest asks for text to be sent to one pane.

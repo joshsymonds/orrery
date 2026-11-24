@@ -8,7 +8,7 @@ import (
 
 // TestNoticeHistoryMigration checks the migration that adds notice_history. Its Down drops the table and leaves the
 // pending notices and the pushed rows as they were, and its Up restores an empty table with those rows unchanged. The
-// seeded rows are written with SQL at version 76, before 00104_notice_host.sql adds the host column the store's own
+// seeded rows are written with SQL at version 76, before 00108_notice_host.sql adds the host column the store's own
 // writes and reads of the pending and pushed tables name, so each table is compared as rowsOf reads it.
 func TestNoticeHistoryMigration(t *testing.T) {
 	t.Parallel()

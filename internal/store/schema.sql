@@ -516,7 +516,7 @@ CREATE TABLE planner_actions (
     undo_none TEXT NOT NULL DEFAULT '[]',
     reason TEXT NOT NULL,
     state TEXT NOT NULL CHECK (state IN ('pending', 'taken', 'refused')),
-    refusal TEXT NOT NULL DEFAULT '', park INTEGER NOT NULL DEFAULT 0, requirement TEXT NOT NULL DEFAULT '', item TEXT NOT NULL DEFAULT '', deliverable TEXT NOT NULL DEFAULT '', files TEXT NOT NULL DEFAULT '[]', remove_files TEXT NOT NULL DEFAULT '[]', reviewer TEXT NOT NULL DEFAULT '',
+    refusal TEXT NOT NULL DEFAULT '', park INTEGER NOT NULL DEFAULT 0, requirement TEXT NOT NULL DEFAULT '', item TEXT NOT NULL DEFAULT '', deliverable TEXT NOT NULL DEFAULT '', files TEXT NOT NULL DEFAULT '[]', remove_files TEXT NOT NULL DEFAULT '[]', reviewer TEXT NOT NULL DEFAULT '', split_tasks TEXT NOT NULL DEFAULT '[]',
     PRIMARY KEY (epic, turn, position)
 );
 CREATE INDEX planner_actions_state ON planner_actions (state, epic, turn, position);
@@ -667,7 +667,7 @@ CREATE TABLE epic_actions (
 CREATE TABLE contracts (
     id TEXT PRIMARY KEY,
     created INTEGER NOT NULL
-);
+, staged INTEGER NOT NULL DEFAULT 0);
 CREATE TABLE contract_versions (
     contract TEXT NOT NULL REFERENCES contracts (id),
     version INTEGER NOT NULL,
@@ -691,7 +691,7 @@ CREATE TABLE contract_states (
     version INTEGER NOT NULL,
     session TEXT NOT NULL,         -- '' for the owner; no reference to sessions
     words TEXT NOT NULL,
-    at INTEGER NOT NULL, base TEXT NOT NULL DEFAULT '',
+    at INTEGER NOT NULL, base TEXT NOT NULL DEFAULT '', maker TEXT NOT NULL DEFAULT '' CHECK (maker IN ('', 'owner_serve', 'owner_conversation', 'conversation')), quote TEXT NOT NULL DEFAULT '', maker_reason TEXT NOT NULL DEFAULT '', delegation TEXT NOT NULL DEFAULT '',
     PRIMARY KEY (contract, seq)
 );
 CREATE TABLE epic_amendments (
@@ -827,7 +827,7 @@ CREATE TABLE epic_tasks (
     generation INTEGER NOT NULL DEFAULT 0,
     depends_on TEXT NOT NULL DEFAULT '',
     kind TEXT NOT NULL DEFAULT '' CHECK (kind IN ('', 'design')),
-    revises INTEGER NOT NULL DEFAULT 0,
+    revises INTEGER NOT NULL DEFAULT 0, split_from INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (epic, seq)
 );
 CREATE VIEW step_listings AS
@@ -924,6 +924,213 @@ CREATE TABLE integrate_rounds (
     created INTEGER NOT NULL,
     PRIMARY KEY (epic, path, attempt, task, round)
 );
+CREATE TABLE epic_task_test_runs (
+    epic TEXT NOT NULL,
+    task INTEGER NOT NULL,
+    generation INTEGER NOT NULL,
+    attempt INTEGER NOT NULL,
+    review INTEGER NOT NULL,
+    position INTEGER NOT NULL,
+    command TEXT NOT NULL,
+    revision TEXT NOT NULL,
+    step TEXT NOT NULL DEFAULT '',
+    output TEXT NOT NULL DEFAULT '',
+    PRIMARY KEY (epic, task, generation, attempt, review, position)
+);
+CREATE TABLE designs (
+    id TEXT PRIMARY KEY,
+    title TEXT NOT NULL,
+    conversation TEXT NOT NULL,    -- a sessions row id; no reference to sessions
+    created INTEGER NOT NULL
+);
+CREATE TABLE design_contracts (
+    contract TEXT PRIMARY KEY REFERENCES contracts (id),
+    design TEXT NOT NULL REFERENCES designs (id),
+    position INTEGER NOT NULL,
+    added INTEGER NOT NULL,
+    UNIQUE (design, position)
+);
+CREATE TABLE design_edges (
+    design TEXT NOT NULL REFERENCES designs (id),
+    contract TEXT NOT NULL,
+    after TEXT NOT NULL,
+    created INTEGER NOT NULL,
+    PRIMARY KEY (contract, after)
+);
+CREATE TABLE contract_drafts (
+    id TEXT PRIMARY KEY,
+    design TEXT NOT NULL,
+    repository TEXT NOT NULL,
+    title TEXT NOT NULL,
+    body TEXT NOT NULL,
+    decisions TEXT NOT NULL,
+    words TEXT NOT NULL,
+    writer TEXT NOT NULL,
+    created INTEGER NOT NULL,
+    updated INTEGER NOT NULL
+);
+CREATE TABLE design_steps (
+    step TEXT PRIMARY KEY,
+    design TEXT NOT NULL,
+    kind TEXT NOT NULL CHECK (kind IN ('research', 'reproduce', 'discovery', 'closure')),
+    subject TEXT NOT NULL,
+    repository TEXT NOT NULL,
+    revision TEXT NOT NULL,
+    delta TEXT NOT NULL,
+    created INTEGER NOT NULL
+);
+CREATE INDEX design_steps_design ON design_steps (design);
+CREATE TABLE design_questions (
+    design TEXT NOT NULL,
+    seq INTEGER NOT NULL,
+    contract TEXT NOT NULL,
+    text TEXT NOT NULL,
+    options TEXT NOT NULL,         -- JSON array of strings
+    recommendation TEXT NOT NULL,
+    asker TEXT NOT NULL,
+    asked INTEGER NOT NULL,
+    answer TEXT NOT NULL DEFAULT '',
+    accepted INTEGER NOT NULL DEFAULT 0,
+    maker TEXT NOT NULL DEFAULT '' CHECK (maker IN ('', 'owner_serve', 'owner_conversation', 'conversation')),
+    quote TEXT NOT NULL DEFAULT '',
+    maker_reason TEXT NOT NULL DEFAULT '',
+    delegation TEXT NOT NULL DEFAULT '',
+    answerer TEXT NOT NULL DEFAULT '',
+    answered INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (design, seq)
+);
+CREATE TABLE design_dispositions (
+    design TEXT NOT NULL,
+    seq INTEGER NOT NULL,
+    item TEXT NOT NULL,
+    disposition TEXT NOT NULL CHECK (disposition IN ('adopted', 'rejected', 'deferred', 'open', 'revised_after_closure',
+                                                     'accepted_as_risk')),
+    reason TEXT NOT NULL,
+    boundary TEXT NOT NULL,
+    maker TEXT NOT NULL CHECK (maker IN ('owner_serve', 'owner_conversation', 'conversation')),
+    quote TEXT NOT NULL,
+    maker_reason TEXT NOT NULL,
+    delegation TEXT NOT NULL,
+    session TEXT NOT NULL,         -- a sessions row id; no reference to sessions
+    at INTEGER NOT NULL,
+    PRIMARY KEY (design, seq)
+);
+CREATE TABLE design_closure_skips (
+    design TEXT PRIMARY KEY,
+    reason TEXT NOT NULL,
+    maker TEXT NOT NULL CHECK (maker IN ('owner_serve', 'owner_conversation', 'conversation')),
+    quote TEXT NOT NULL,
+    maker_reason TEXT NOT NULL,
+    delegation TEXT NOT NULL,
+    session TEXT NOT NULL,         -- a sessions row id; no reference to sessions
+    at INTEGER NOT NULL
+);
+CREATE TABLE design_approaches (
+    design TEXT NOT NULL,
+    seq INTEGER NOT NULL,
+    name TEXT NOT NULL,
+    shape TEXT NOT NULL,
+    cost TEXT NOT NULL,
+    wins TEXT NOT NULL,
+    loses TEXT NOT NULL,
+    reconsider TEXT NOT NULL,
+    research TEXT NOT NULL,        -- JSON array of step ids
+    recommended INTEGER NOT NULL CHECK (recommended IN (0, 1)),
+    reason TEXT NOT NULL,
+    session TEXT NOT NULL,         -- a sessions row id; no reference to sessions
+    at INTEGER NOT NULL,
+    PRIMARY KEY (design, seq)
+);
+CREATE TABLE design_approach_choices (
+    design TEXT NOT NULL,
+    seq INTEGER NOT NULL,
+    approach INTEGER NOT NULL,
+    words TEXT NOT NULL,
+    maker TEXT NOT NULL CHECK (maker IN ('owner_serve', 'owner_conversation', 'conversation')),
+    quote TEXT NOT NULL,
+    maker_reason TEXT NOT NULL,
+    delegation TEXT NOT NULL,
+    session TEXT NOT NULL,         -- a sessions row id; no reference to sessions
+    at INTEGER NOT NULL,
+    PRIMARY KEY (design, seq)
+);
+CREATE TABLE design_delegations (
+    design TEXT NOT NULL,
+    seq INTEGER NOT NULL,
+    kinds TEXT NOT NULL,           -- JSON array of strings
+    message TEXT NOT NULL,
+    session TEXT NOT NULL,         -- a sessions row id; no reference to sessions
+    at INTEGER NOT NULL,
+    PRIMARY KEY (design, seq)
+);
+CREATE TABLE design_conversations (
+    design TEXT NOT NULL,
+    seq INTEGER NOT NULL,
+    session TEXT NOT NULL,         -- a sessions row id; no reference to sessions
+    previous TEXT NOT NULL,        -- a sessions row id, or '' for the first; no reference to sessions
+    at INTEGER NOT NULL,
+    PRIMARY KEY (design, seq)
+);
+CREATE TABLE design_log (
+    design TEXT NOT NULL,
+    seq INTEGER NOT NULL,
+    at INTEGER NOT NULL,
+    maker TEXT NOT NULL CHECK (maker IN ('owner', 'conversation', 'orreryd')),
+    session TEXT NOT NULL,         -- a sessions row id; no reference to sessions
+    what TEXT NOT NULL,
+    ids TEXT NOT NULL,             -- JSON array of strings
+    words TEXT NOT NULL,
+    PRIMARY KEY (design, seq)
+);
+CREATE TABLE design_step_reads (
+    step TEXT NOT NULL,
+    contract TEXT NOT NULL,
+    version INTEGER NOT NULL,      -- 0 for a draft
+    PRIMARY KEY (step, contract)
+);
+CREATE INDEX design_step_reads_contract ON design_step_reads (contract);
+CREATE TABLE contract_working (
+    contract TEXT PRIMARY KEY,
+    version INTEGER NOT NULL,
+    body TEXT NOT NULL,
+    decisions TEXT NOT NULL,
+    writer TEXT NOT NULL,
+    created INTEGER NOT NULL,
+    updated INTEGER NOT NULL
+);
+CREATE TABLE contract_row_writes (
+    contract TEXT NOT NULL,
+    seq INTEGER NOT NULL,
+    version INTEGER NOT NULL,      -- 0 for a draft
+    row TEXT NOT NULL,
+    action TEXT NOT NULL CHECK (action IN ('write', 'remove', 'keep', 'strike')),
+    depends TEXT NOT NULL,
+    words TEXT NOT NULL,
+    maker TEXT NOT NULL CHECK (maker IN ('', 'owner_serve', 'owner_conversation', 'conversation')),
+    quote TEXT NOT NULL,
+    maker_reason TEXT NOT NULL,
+    delegation TEXT NOT NULL,
+    session TEXT NOT NULL,         -- a sessions row id; no reference to sessions
+    at INTEGER NOT NULL,
+    PRIMARY KEY (contract, seq)
+);
+CREATE TABLE contract_refusals (
+    contract TEXT NOT NULL,
+    seq INTEGER NOT NULL,
+    version INTEGER NOT NULL,
+    field TEXT NOT NULL,
+    text TEXT NOT NULL,
+    session TEXT NOT NULL,         -- a sessions row id; no reference to sessions
+    at INTEGER NOT NULL,
+    PRIMARY KEY (contract, seq)
+);
+CREATE TABLE contract_shown (
+    contract TEXT NOT NULL,
+    version INTEGER NOT NULL,
+    row TEXT NOT NULL,
+    at INTEGER NOT NULL,
+    PRIMARY KEY (contract, version, row)
+);
 CREATE TABLE pushed_notices (
     pane TEXT NOT NULL,
     session TEXT NOT NULL,
@@ -940,6 +1147,10 @@ INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (102,10
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (103,102,1);
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (104,103,1);
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (105,104,1);
+INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (106,105,1);
+INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (107,106,1);
+INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (108,107,1);
+INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (109,108,1);
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (11,10,1);
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (12,11,1);
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (13,12,1);

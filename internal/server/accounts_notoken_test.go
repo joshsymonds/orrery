@@ -21,9 +21,15 @@ import (
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
-// noTokenMarker is the invented token every Add in TestAccountsNoTokenAnywhere carries. No answer, error or log may
-// hold it.
-const noTokenMarker = "marker-token-7f3a9c"
+// noTokenMarker is the invented setup-token every Add in TestAccountsNoTokenAnywhere carries. No answer, error or log
+// may hold it.
+const noTokenMarker = "sk-ant-oat01-marker-7f3a9c"
+
+// noTokenAPIKey is an invented API key. serve refuses it as an API key, and the refusal may not hold it.
+const noTokenAPIKey = "sk-ant-api03-marker-7f3a9c"
+
+// noTokenAPIKeyMessage is the message serve refuses an API key with.
+const noTokenAPIKeyMessage = "That is an API key, not a setup-token. A setup-token starts sk-ant-oat."
 
 // noTokenFingerprintPattern matches an account fingerprint: 12 lowercase hex characters.
 var noTokenFingerprintPattern = regexp.MustCompile(`^[0-9a-f]{12}$`)
@@ -142,6 +148,13 @@ func noTokenServe(t *testing.T, accounts orreryv1connect.AccountsClient, routes 
 	}))
 	noTokenWantRefusal(t, "serve Add with interior whitespace in the token", err, connect.CodeInvalidArgument,
 		"token: empty or holds whitespace")
+	_, err = accounts.Add(ctx, connect.NewRequest(&orreryv1.AccountsAddRequest{
+		Name: "Marker account", Provider: "anthropic", Plan: "marker-plan", Token: noTokenAPIKey,
+	}))
+	noTokenWantRefusal(t, "serve Add of an API key", err, connect.CodeInvalidArgument, noTokenAPIKeyMessage)
+	if strings.Contains(err.Error(), noTokenAPIKey) {
+		t.Errorf("serve Add of an API key: error carries the token: %v", err)
+	}
 
 	listed, err := accounts.List(ctx, connect.NewRequest(&orreryv1.AccountsListRequest{}))
 	if err != nil {

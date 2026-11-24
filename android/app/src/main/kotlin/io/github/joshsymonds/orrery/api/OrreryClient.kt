@@ -10,6 +10,12 @@ import com.connectrpc.extensions.GoogleJavaLiteProtobufStrategy
 import com.connectrpc.impl.ProtocolClient
 import com.connectrpc.okhttp.ConnectOkHttpClient
 import com.connectrpc.protocols.NetworkProtocol
+import io.github.joshsymonds.orrery.gen.orrery.v1.Account as AccountProto
+import io.github.joshsymonds.orrery.gen.orrery.v1.AccountsAddRequest
+import io.github.joshsymonds.orrery.gen.orrery.v1.AccountsClient
+import io.github.joshsymonds.orrery.gen.orrery.v1.AccountsListRequest
+import io.github.joshsymonds.orrery.gen.orrery.v1.AccountsRemoveRequest
+import io.github.joshsymonds.orrery.gen.orrery.v1.AccountsRenameRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.AnswerRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.AskRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.BackgroundTask as BackgroundTaskProto
@@ -30,6 +36,10 @@ import io.github.joshsymonds.orrery.gen.orrery.v1.ConversationItem as Conversati
 import io.github.joshsymonds.orrery.gen.orrery.v1.ConversationRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.ConversationState as ConversationStateProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.DeclineRequest
+import io.github.joshsymonds.orrery.gen.orrery.v1.Design as DesignProto
+import io.github.joshsymonds.orrery.gen.orrery.v1.DesignContract as DesignContractProto
+import io.github.joshsymonds.orrery.gen.orrery.v1.DesignsClient
+import io.github.joshsymonds.orrery.gen.orrery.v1.DesignsListRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.EngineText as EngineTextProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.Epic as EpicProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicAddition as EpicAdditionProto
@@ -46,7 +56,6 @@ import io.github.joshsymonds.orrery.gen.orrery.v1.EpicRequirement as EpicRequire
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicStep as EpicStepProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicStepCheck as EpicStepCheckProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicStepVerdict as EpicStepVerdictProto
-import io.github.joshsymonds.orrery.gen.orrery.v1.EpicTask as EpicTaskProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicTaskFinding as EpicTaskFindingProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicTaskReview as EpicTaskReviewProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicTell as EpicTellProto
@@ -106,6 +115,12 @@ import io.github.joshsymonds.orrery.gen.orrery.v1.PushClient
 import io.github.joshsymonds.orrery.gen.orrery.v1.QueuedMessage as QueuedMessageProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.RegisterRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.ResumeRequest
+import io.github.joshsymonds.orrery.gen.orrery.v1.RouteContext as RouteContextProto
+import io.github.joshsymonds.orrery.gen.orrery.v1.RouteRegistry as RouteRegistryProto
+import io.github.joshsymonds.orrery.gen.orrery.v1.RouteSeat as RouteSeatProto
+import io.github.joshsymonds.orrery.gen.orrery.v1.RoutesClient
+import io.github.joshsymonds.orrery.gen.orrery.v1.RoutesGetRequest
+import io.github.joshsymonds.orrery.gen.orrery.v1.RoutesSetContextAccountRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.RunRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.SayRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.SeenRequest
@@ -167,6 +182,12 @@ private val CONTRACT_REFUSED = setOf(
     Code.PERMISSION_DENIED,
     Code.NOT_FOUND,
 )
+
+/** The provider every account added from the phone is with. */
+private const val LLM_PROVIDER = "anthropic"
+
+/** The answers to an account or route write that mean the server refused it, with its reason. */
+private val LLM_REFUSED = setOf(Code.INVALID_ARGUMENT, Code.NOT_FOUND, Code.FAILED_PRECONDITION)
 
 data class Pane(
     val id: String,
@@ -398,6 +419,51 @@ data class Hold(val member: String, val since: Long)
 /** The pools in use, and every owner hold, including holds on members of no pool in use. */
 data class PoolsView(val pools: List<Pool>, val holds: List<Hold>)
 
+/** One stored LLM account. [fingerprint] tells its token apart without showing it; [created] is unix seconds. */
+data class LlmAccount(
+    val id: String,
+    val name: String,
+    val provider: String,
+    val plan: String,
+    val fingerprint: String,
+    val created: Long,
+)
+
+/** One seat a request may go through: how it authenticates upstream ([authMode]) and the options that shape its requests. */
+data class LlmSeat(
+    val id: String,
+    val authMode: String,
+    val upstream: String,
+    val model: String,
+    val billing: String,
+    val speed: String,
+    val awsProfile: String,
+    val awsRegion: String,
+    val modelMapEnvFile: String,
+)
+
+/**
+ * One context that chooses seats: [defaultSeat] when no entry in [models] names the request's model, and [account],
+ * whose token the context's forward seats send. An empty [account] means the session's own login.
+ */
+data class LlmContext(val id: String, val defaultSeat: String, val models: Map<String, String>, val account: String)
+
+/** The route registry: the context a request uses when it names none, and the seats and contexts among which it chooses. */
+data class LlmRoutes(val defaultContext: String, val seats: List<LlmSeat>, val contexts: List<LlmContext>)
+
+/** The accounts the server stores, and the route registry they are used in. */
+data class LlmAccounts(val accounts: List<LlmAccount>, val routes: LlmRoutes)
+
+/**
+ * The answer to an account or route write: [Done] with what the server stored, [Refused] when the server refused it
+ * with [code] and its [reason], or [NoAnswer] when no answer came, so the write may or may not have landed.
+ */
+sealed interface LlmWrite<out T> {
+    data class Done<out T>(val answer: T) : LlmWrite<T>
+    data class Refused(val code: Code, val reason: String) : LlmWrite<Nothing>
+    data object NoAnswer : LlmWrite<Nothing>
+}
+
 /** One candidate the picker offers for the text it was asked. [prompt] is true when the row starts Claude with that text. */
 data class PickRow(
     val token: String,
@@ -460,14 +526,12 @@ data class StepRow(
 )
 
 /**
- * One epic, from the record root or orreryd's database. [runningSteps] are the epic's steps with no end yet, held ones
- * included. [waiting] is true for a live epic accepted and waiting to start. [source] is "orreryd" for an epic
- * orreryd's database holds, "record" for an epic read from records only. [phaseAt] is when the epic's phase was last set,
- * in unix seconds; 0 when unknown and for a record epic. [seen] is when the owner last saw the epic, in unix seconds, from
- * its latest seen call; 0 when the owner has not seen it. [archived] is true while the owner has archived the epic.
- * [steering] is the id of the conversation that steers the epic, empty when none; [path] is the absolute repository path,
- * empty for a record epic. [paused] and [pauseSource] say whether, and why, the epic is paused. [parked] is why the epic
- * is parked, empty when it is not. [openQuestions] counts the questions still open.
+ * One epic from orreryd. [runningSteps] are the epic's steps with no end yet, held ones included. [phaseAt] is when the
+ * epic's phase was last set, in unix seconds; 0 when unknown. [seen] is when the owner last saw the epic, in unix
+ * seconds, from its latest seen call; 0 when the owner has not seen it. [archived] is true while the owner has archived
+ * the epic. [steering] is the id of the conversation that steers the epic, empty when none; [path] is the absolute
+ * repository path. [paused] and [pauseSource] say whether, and why, the epic is paused. [parked] is why the epic is
+ * parked, empty when it is not. [openQuestions] counts the questions still open.
  */
 data class EpicRow(
     val id: String,
@@ -476,11 +540,8 @@ data class EpicRow(
     val outcome: String,
     val changed: Long,
     val live: Boolean,
-    val waiting: Boolean = false,
     val runningSteps: List<StepRow>,
     val endedSteps: Int,
-    val problem: String,
-    val source: String = "",
     val phaseAt: Long = 0L,
     val seen: Long = 0L,
     val archived: Boolean = false,
@@ -528,6 +589,37 @@ data class ContractRow(
     val conversation: String,
     val created: Long,
     val changed: Long,
+)
+
+/**
+ * One contract of a design, as Designs.List serves it: its [position] in the design's start order, counted from 1,
+ * the ids of the contracts it starts [after], and the [epic] made from it with that epic's [epicPhase], both "" when
+ * none has been made.
+ */
+data class DesignContractRow(
+    val id: String,
+    val title: String,
+    val repository: String,
+    val state: String,
+    val position: Long,
+    val after: List<String>,
+    val epic: String,
+    val epicPhase: String,
+)
+
+/**
+ * One design as Designs.List serves it: its [conversation] that works it, its [created] time in unix seconds, its
+ * [state] phrase, and its [contracts] in the order served. [ofOne] is true for a design of one: the contract that reads
+ * as it was proposed with no design.
+ */
+data class DesignRow(
+    val id: String,
+    val title: String,
+    val conversation: String,
+    val created: Long,
+    val ofOne: Boolean,
+    val state: String,
+    val contracts: List<DesignContractRow>,
 )
 
 /** One decision a contract's version asks the owner to answer. [answer] is "" while the decision is open. */
@@ -689,26 +781,10 @@ data class EvidenceArtifactRow(val path: String, val state: String, val size: Lo
 data class EvidenceArtifactFile(val data: ByteArray, val mediaType: String)
 
 /**
- * One task from an effort's state.json. [requirements] are the requirement ids the task names, in order. [place] and
- * [tone] are where the task stands in its lifecycle and how it stands there, as serve computes them: place is planned,
- * red, implement, green, review, integrate or integrated, and tone is plan, run, mine, limited, bad, acc or ok.
- */
-data class EpicTaskRow(
-    val effort: Int,
-    val slug: String,
-    val subject: String,
-    val status: String,
-    val requirements: List<String> = emptyList(),
-    val place: String = "",
-    val tone: String = "",
-)
-
-/**
  * One task of an orreryd epic's plan, with its build: [stage] is the stage the build is on, empty before its first
  * unit. [red] and [green] are the evidence runs the build names, null until it names one. [requirements] are the
  * requirement ids the task covers, in order. [reviews] are the build's reviews, in attempt then position order. [place]
- * and [tone] are where the task stands in its lifecycle and how it stands there, as serve computes them, named as
- * [EpicTaskRow] names them.
+ * and [tone] are where the task stands in its lifecycle and how it stands there, as serve computes them.
  */
 data class EpicBuildTaskRow(
     val id: String,
@@ -817,7 +893,7 @@ data class EpicContractRow(
 )
 
 /**
- * One epic with its tasks and every step labelled with it, oldest step first.
+ * One epic with its build tasks and every step labelled with it, oldest step first.
  * [requirements] are an orreryd epic's requirements in contract order, empty for a record epic. [buildTasks] are an
  * orreryd epic's planned tasks in the order they were planned, empty for a record epic. [summary] is the epic's summary
  * paragraph, empty until it is written. [contract] is the accepted contract, null for a record epic. [questions] are
@@ -834,7 +910,6 @@ data class EpicContractRow(
  */
 data class EpicDetail(
     val epic: EpicRow,
-    val tasks: List<EpicTaskRow>,
     val steps: List<StepRow>,
     val requirements: List<EpicRequirementRow> = emptyList(),
     val buildTasks: List<EpicBuildTaskRow> = emptyList(),
@@ -954,10 +1029,13 @@ class OrreryClient(
         val sessions = SessionsClient(protocol)
         val contracts = ContractsClient(protocol)
         val epics = EpicsClient(protocol)
+        val designs = DesignsClient(protocol)
         val evidence = EvidenceClient(protocol)
         val notices = NoticesClient(protocol)
         val steps = StepsClient(protocol)
         val pools = PoolsClient(protocol)
+        val accounts = AccountsClient(protocol)
+        val routes = RoutesClient(protocol)
     }
 
     /**
@@ -1020,6 +1098,16 @@ class OrreryClient(
         absentAsEmpty(CONTRACTS_ABSENT) {
             call(write = false) { standard.contracts.list(ContractsListRequest.getDefaultInstance(), CLIENT_HEADERS) }
                 .contractsList.map { it.toContractRow() }
+        }
+
+    /**
+     * Every design, with its contracts in the order the server served them. A server that answers unavailable,
+     * unimplemented or not_found has no designs to list, so it gives an empty list; any other failure throws.
+     */
+    fun designs(): List<DesignRow> =
+        absentAsEmpty {
+            call(write = false) { standard.designs.list(DesignsListRequest.getDefaultInstance(), CLIENT_HEADERS) }
+                .designsList.map { it.toDesignRow() }
         }
 
     fun conversation(paneId: String): Conversation? {
@@ -1154,7 +1242,6 @@ class OrreryClient(
             ?: return null
         return EpicDetail(
             epic = response.epic.toEpicRow(),
-            tasks = response.tasksList.map { it.toEpicTaskRow() },
             steps = response.stepsList.map { it.toStepRow() },
             requirements = response.requirementsList.map { it.toEpicRequirementRow() },
             buildTasks = response.buildTasksList.map { it.toEpicBuildTaskRow() },
@@ -1248,6 +1335,61 @@ class OrreryClient(
     fun freeMember(member: String) {
         val request = PoolsFreeRequest.newBuilder().setMember(member).build()
         call(write = true) { standard.pools.free(request, CLIENT_HEADERS) }
+    }
+
+    /** The LLM accounts the server stores, then the route registry. A failed read throws, as [pools] does. */
+    fun llmAccounts(): LlmAccounts {
+        val response = call(write = false) { standard.accounts.list(AccountsListRequest.getDefaultInstance(), CLIENT_HEADERS) }
+        return LlmAccounts(
+            accounts = response.accountsList.map { it.toLlmAccount() },
+            routes = llmRoutes(),
+        )
+    }
+
+    /** The route registry as it stands, read on its own. */
+    fun llmRoutes(): LlmRoutes {
+        val response = call(write = false) { standard.routes.get(RoutesGetRequest.getDefaultInstance(), CLIENT_HEADERS) }
+        return response.registry.toLlmRoutes()
+    }
+
+    /**
+     * Stores an account named [name] on [plan] with [token], with the anthropic provider. A write, so it is never
+     * retried. The token is sent and kept nowhere else.
+     */
+    fun addAccount(name: String, plan: String, token: String): LlmWrite<LlmAccount> {
+        val request = AccountsAddRequest.newBuilder()
+            .setName(name)
+            .setProvider(LLM_PROVIDER)
+            .setPlan(plan)
+            .setToken(token)
+            .build()
+        return llmWrite { call(write = true) { standard.accounts.add(request, CLIENT_HEADERS) }.account.toLlmAccount() }
+    }
+
+    /** Gives the account [id] the new name [name]. A write, so it is never retried. */
+    fun renameAccount(id: String, name: String): LlmWrite<LlmAccount> {
+        val request = AccountsRenameRequest.newBuilder().setId(id).setName(name).build()
+        return llmWrite { call(write = true) { standard.accounts.rename(request, CLIENT_HEADERS) }.account.toLlmAccount() }
+    }
+
+    /** Removes the account [id]. A write, so it is never retried. */
+    fun removeAccount(id: String): LlmWrite<Unit> {
+        val request = AccountsRemoveRequest.newBuilder().setId(id).build()
+        return llmWrite {
+            call(write = true) { standard.accounts.remove(request, CLIENT_HEADERS) }
+            Unit
+        }
+    }
+
+    /**
+     * Sets the account [context]'s forward seats send to [account], or to the session's own login when [account] is
+     * empty. Answers with the route registry as it stands after the change. A write, so it is never retried.
+     */
+    fun setContextAccount(context: String, account: String): LlmWrite<LlmRoutes> {
+        val request = RoutesSetContextAccountRequest.newBuilder().setContext(context).setAccount(account).build()
+        return llmWrite {
+            call(write = true) { standard.routes.setContextAccount(request, CLIENT_HEADERS) }.registry.toLlmRoutes()
+        }
     }
 
     fun sendText(paneId: String, text: String) {
@@ -1628,11 +1770,8 @@ class OrreryClient(
             outcome = outcome,
             changed = changed,
             live = live,
-            waiting = waiting,
             runningSteps = runningStepsList.map { it.toStepRow() },
             endedSteps = endedSteps,
-            problem = problem,
-            source = source,
             phaseAt = phaseAt,
             seen = seen,
             archived = archived,
@@ -1656,6 +1795,29 @@ class OrreryClient(
             conversation = conversation,
             created = created,
             changed = changed,
+        )
+
+    private fun DesignProto.toDesignRow(): DesignRow =
+        DesignRow(
+            id = id,
+            title = title,
+            conversation = conversation,
+            created = created,
+            ofOne = ofOne,
+            state = state,
+            contracts = contractsList.map { it.toDesignContractRow() },
+        )
+
+    private fun DesignContractProto.toDesignContractRow(): DesignContractRow =
+        DesignContractRow(
+            id = id,
+            title = title,
+            repository = repository,
+            state = state,
+            position = position,
+            after = afterList.toList(),
+            epic = epic,
+            epicPhase = epicPhase,
         )
 
     private fun ContractVersionProto.toContractVersionRow(): ContractVersionRow =
@@ -1843,17 +2005,6 @@ class OrreryClient(
             reason = reason,
         )
 
-    private fun EpicTaskProto.toEpicTaskRow(): EpicTaskRow =
-        EpicTaskRow(
-            effort = effort,
-            slug = slug,
-            subject = subject,
-            status = status,
-            requirements = requirementsList.toList(),
-            place = place,
-            tone = tone,
-        )
-
     private fun EpicQuestionProto.toEpicQuestionRow(): EpicQuestionRow =
         EpicQuestionRow(
             id = id,
@@ -1924,6 +2075,32 @@ class OrreryClient(
         Waiter(position = position, project = project, command = commandList.toList(), count = count, since = since)
 
     private fun PoolHoldProto.toHold(): Hold = Hold(member = member, since = since)
+
+    private fun AccountProto.toLlmAccount(): LlmAccount =
+        LlmAccount(id = id, name = name, provider = provider, plan = plan, fingerprint = fingerprint, created = created)
+
+    private fun RouteRegistryProto.toLlmRoutes(): LlmRoutes =
+        LlmRoutes(
+            defaultContext = defaultContext,
+            seats = seatsList.map { it.toLlmSeat() },
+            contexts = contextsList.map { it.toLlmContext() },
+        )
+
+    private fun RouteSeatProto.toLlmSeat(): LlmSeat =
+        LlmSeat(
+            id = id,
+            authMode = authMode,
+            upstream = upstream,
+            model = model,
+            billing = billing,
+            speed = speed,
+            awsProfile = awsProfile,
+            awsRegion = awsRegion,
+            modelMapEnvFile = modelMapEnvFile,
+        )
+
+    private fun RouteContextProto.toLlmContext(): LlmContext =
+        LlmContext(id = id, defaultSeat = defaultSeat, models = modelsMap.toMap(), account = account)
 
     private fun PaneProto.toPane(): Pane =
         Pane(
@@ -2154,6 +2331,20 @@ class OrreryClient(
             ContractCallResult.Done(rpc().toContractRow())
         } catch (e: OrreryCallException) {
             if (e.code in CONTRACT_REFUSED) ContractCallResult.Refused(e.message.orEmpty()) else throw e
+        }
+
+    /**
+     * The answer of an account or route write: [LlmWrite.Done] with the answer, [LlmWrite.Refused] when the server
+     * answered with one of [LLM_REFUSED], with its reason, and [LlmWrite.NoAnswer] when no answer came back or the
+     * server answered with any other code. A failure that never reached the server is thrown as [call] throws it.
+     */
+    private inline fun <T> llmWrite(rpc: () -> T): LlmWrite<T> =
+        try {
+            LlmWrite.Done(rpc())
+        } catch (e: OrreryCallException) {
+            if (e.code in LLM_REFUSED) LlmWrite.Refused(e.code, e.message.orEmpty()) else LlmWrite.NoAnswer
+        } catch (e: NoAnswerException) {
+            LlmWrite.NoAnswer
         }
 
     /**

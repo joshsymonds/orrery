@@ -53,8 +53,9 @@ func Listen(socketPath string) (net.Listener, error) {
 	return ln, nil
 }
 
-// ServeConfig is what ServeWith serves. Each field but PaneSends and Accounts is one of the services Serve takes, and
-// the nil rules are Serve's. PaneSends and Accounts are served by ServeWith alone. Options apply to each handler.
+// ServeConfig is what ServeWith serves. Each field but PaneSends, Accounts, Designs and Stage is one of the services
+// Serve takes, and the nil rules are Serve's. PaneSends, Accounts, Designs and Stage are served by ServeWith alone.
+// Options apply to each handler.
 type ServeConfig struct {
 	Commands  Commands
 	Steps     StepCommands
@@ -66,6 +67,8 @@ type ServeConfig struct {
 	Crons     CronCommands
 	Changes   *ChangeFeed
 	Contracts *Contracts
+	Designs   *Designs
+	Stage     enginev1connect.StageHandler
 	PaneSends PaneSendRecorder
 	Accounts  *Accounts
 	// Host is the name of the controller's host: each epic the Epics service creates is stamped with it, and its
@@ -88,8 +91,9 @@ type ServeConfig struct {
 // session in the Orrery-Session header, and refuses a call with no such header as InvalidArgument. With steps served,
 // the engine refuses Say, Answer, Interrupt, Stop and Resume on a step id, Decline on a headless step id, and NotNow
 // and BringBack on a headless step id, since a step is driven only through the Steps service. opts apply to each of the
-// ten handlers. Serve serves no pane sends, so the PaneSends service refuses every RPC as unavailable, and no accounts,
-// so the Accounts service refuses every RPC as unavailable.
+// ten handlers. Serve serves no pane sends, so the PaneSends service refuses every RPC as unavailable, no accounts, so
+// the Accounts service refuses every RPC as unavailable, and no designs, so the Designs service refuses every RPC as
+// unavailable.
 func Serve(
 	ctx context.Context,
 	ln net.Listener,
@@ -121,9 +125,11 @@ func Serve(
 }
 
 // ServeWith answers the services that cfg describes on ln until ctx ends, as Serve does, and also answers the PaneSends
-// service with cfg.PaneSends and the Accounts service with cfg.Accounts. It then shuts down within shutdownWait and
-// returns nil. A nil cfg.PaneSends refuses every PaneSends RPC as unavailable, and a nil cfg.Accounts refuses every
-// Accounts RPC as unavailable. The other fields keep Serve's nil rules, and cfg.Options apply to each handler.
+// service with cfg.PaneSends, the Accounts service with cfg.Accounts, the Designs service with cfg.Designs and the Stage
+// service with cfg.Stage. It then shuts down within shutdownWait and returns nil. A nil cfg.PaneSends refuses every
+// PaneSends RPC as unavailable, a nil cfg.Accounts refuses every Accounts RPC as unavailable, a nil cfg.Designs refuses
+// every Designs RPC as unavailable, and a nil cfg.Stage answers every Stage RPC as unimplemented. The other fields keep
+// Serve's nil rules, and cfg.Options apply to each handler.
 func ServeWith(ctx context.Context, ln net.Listener, cfg ServeConfig) error {
 	opts := cfg.Options
 	path, handler := enginev1connect.NewEngineHandler(&service{commands: cfg.Commands, steps: cfg.Steps}, opts...)
@@ -142,6 +148,13 @@ func ServeWith(ctx context.Context, ln net.Listener, cfg ServeConfig) error {
 	changesPath, changesHandler := NewChangesHandler(cfg.Changes, opts...)
 	contractsPath, contractsHandler := enginev1connect.NewContractsHandler(
 		&contractService{contracts: cfg.Contracts}, opts...)
+	designsPath, designsHandler := enginev1connect.NewDesignsHandler(
+		&designService{designs: cfg.Designs}, opts...)
+	stage := cfg.Stage
+	if stage == nil {
+		stage = enginev1connect.UnimplementedStageHandler{}
+	}
+	stagePath, stageHandler := enginev1connect.NewStageHandler(stage, opts...)
 	paneSendsPath, paneSendsHandler := enginev1connect.NewPaneSendsHandler(
 		paneSendService{sends: cfg.PaneSends, now: time.Now}, opts...)
 	accountsPath, accountsHandler := enginev1connect.NewAccountsHandler(
@@ -156,6 +169,8 @@ func ServeWith(ctx context.Context, ln net.Listener, cfg ServeConfig) error {
 	mux.Handle(cronsPath, cronsHandler)
 	mux.Handle(changesPath, changesHandler)
 	mux.Handle(contractsPath, contractsHandler)
+	mux.Handle(designsPath, designsHandler)
+	mux.Handle(stagePath, stageHandler)
 	mux.Handle(paneSendsPath, paneSendsHandler)
 	mux.Handle(accountsPath, accountsHandler)
 	srv := &http.Server{Handler: mux, ReadHeaderTimeout: readHeaderTimeout}

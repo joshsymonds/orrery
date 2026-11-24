@@ -183,6 +183,11 @@ object OrreryTokens {
         val scrim: Float = 0.6f
     }
 
+    object Ground {
+        val open: Color = Color(0xFF524568)
+        val openHover: Color = Color(0xFF65547E)
+    }
+
     object Font {
         val mono: String = "\"Orrery Mono\", ui-monospace, \"JetBrains Mono\", Menlo, monospace"
         object Weight {

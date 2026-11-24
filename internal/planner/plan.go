@@ -118,11 +118,11 @@ type Unresolvable struct {
 }
 
 // EngineAction is one action the planner asks the engine to carry out: its kind, the node, task, close, replacing epic,
-// Requirement, evidence item, deliverable, files and reviewer its kind uses, the undo-none positions it names, and the
-// planner's reason. check.go lists the fields each kind uses. The return carries the fields a kind uses as args, a JSON
-// object written as a string, so that the schema the model is held to stays one small fixed shape however many kinds
-// there are; Parse reads args into these fields. ArgsError is why args did not read, and Unknown lists the keys of args
-// that no kind uses; check.go refuses either.
+// Requirement, evidence item, deliverable, files and reviewer its kind uses, the undo-none positions it names, the
+// descendants a split names, and the planner's reason. check.go lists the fields each kind uses. The return carries the
+// fields a kind uses as args, a JSON object written as a string, so that the schema the model is held to stays one
+// small fixed shape however many kinds there are; Parse reads args into these fields. ArgsError is why args did not
+// read, and Unknown lists the keys of args that no kind uses; check.go refuses either.
 type EngineAction struct {
 	Kind        string        `json:"kind"`
 	Node        string        `json:"-"`
@@ -136,9 +136,25 @@ type EngineAction struct {
 	Remove      []string      `json:"-"`
 	Reviewer    string        `json:"-"`
 	UndoNone    []int64       `json:"-"`
+	Split       []Descendant  `json:"-"`
 	Reason      string        `json:"reason"`
 	ArgsError   string        `json:"-"`
 	Unknown     []string      `json:"-"`
+}
+
+// Descendant is one task a split action gives in place of the task it splits, as the args of the action write it: its
+// title, deliverable, files, the test files it changes, the Requirements it claims and contributes to, its gate and its
+// evidence item. TestChanges is not read by these tags: readDescendants reads it from the key test_changes, as Parse
+// reads a task's, because the package's JSON tags are camel case.
+type Descendant struct {
+	Title       string        `json:"title"`
+	Deliverable string        `json:"deliverable"`
+	Files       []string      `json:"files"`
+	TestChanges []string      `json:"-"`
+	Claims      []string      `json:"claims"`
+	Contributes []string      `json:"contributes"`
+	Gate        string        `json:"gate"`
+	Evidence    evidence.Item `json:"evidence"`
 }
 
 // The keys an action's args may hold, by the names the role text gives them.
@@ -154,11 +170,13 @@ const (
 	argRemove      = "remove"
 	argReviewer    = "reviewer"
 	argUndoNone    = "undo_none"
+	argTasks       = "tasks"
 )
 
 // readArgs fills action's fields from args, a JSON object written as a string. Blank args reads as no fields. args that is
 // not a JSON object, or holds a key whose value is not of its field's type, leaves the fields empty and sets ArgsError; an
-// item with a key an evidence item does not have is such a value. Keys outside the eleven above are listed in Unknown.
+// item with a key an evidence item does not have is such a value, and so is a descendant of tasks with one. Keys
+// outside the twelve above are listed in Unknown.
 func readArgs(action *EngineAction, args string) {
 	if strings.TrimSpace(args) == "" {
 		return
@@ -175,6 +193,15 @@ func readArgs(action *EngineAction, args string) {
 		argFiles: &read.Files, argRemove: &read.Remove, argReviewer: &read.Reviewer, argUndoNone: &read.UndoNone,
 	}
 	for key, value := range keys {
+		if key == argTasks {
+			descendants, err := readDescendants(value)
+			if err != nil {
+				action.ArgsError = key + ": " + err.Error()
+				return
+			}
+			read.Split = descendants
+			continue
+		}
 		field, known := fields[key]
 		if !known {
 			action.Unknown = append(action.Unknown, key)
@@ -192,7 +219,41 @@ func readArgs(action *EngineAction, args string) {
 		read.Node, read.Task, read.Close, read.By, read.UndoNone
 	action.Requirement, action.Item, action.Deliverable = read.Requirement, read.Item, read.Deliverable
 	action.Files, action.Remove = read.Files, read.Remove
-	action.Reviewer = read.Reviewer
+	action.Reviewer, action.Split = read.Reviewer, read.Split
+}
+
+// readDescendants returns the descendants that the tasks key of a split action holds, a JSON array of objects. Each
+// object's test_changes is read into its TestChanges, and the rest of the object is decoded by Descendant's tags, where
+// a key none of them names is an error, as readArgs decodes an item. It returns an error when value is not such an
+// array, or when an object does not read; the error names the descendant by its index.
+func readDescendants(value json.RawMessage) ([]Descendant, error) {
+	var objects []map[string]json.RawMessage
+	if err := json.Unmarshal(value, &objects); err != nil {
+		return nil, fmt.Errorf("not an array of objects: %w", err)
+	}
+	var descendants []Descendant
+	for i, object := range objects {
+		var testChanges []string
+		if raw, ok := object["test_changes"]; ok {
+			if err := json.Unmarshal(raw, &testChanges); err != nil {
+				return nil, fmt.Errorf("descendant %d: test_changes: %w", i, err)
+			}
+			delete(object, "test_changes")
+		}
+		rest, err := json.Marshal(object)
+		if err != nil {
+			return nil, fmt.Errorf("descendant %d: %w", i, err)
+		}
+		var descendant Descendant
+		decoder := json.NewDecoder(bytes.NewReader(rest))
+		decoder.DisallowUnknownFields()
+		if err = decoder.Decode(&descendant); err != nil {
+			return nil, fmt.Errorf("descendant %d: %w", i, err)
+		}
+		descendant.TestChanges = testChanges
+		descendants = append(descendants, descendant)
+	}
+	return descendants, nil
 }
 
 // Question is one question the planner asks the owner: its label, its text, the choices it declares, the choice it

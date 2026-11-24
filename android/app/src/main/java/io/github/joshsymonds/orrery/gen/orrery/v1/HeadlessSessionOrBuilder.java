@@ -249,4 +249,30 @@ public interface HeadlessSessionOrBuilder extends
    */
   com.google.protobuf.ByteString
       getHostBytes();
+
+  /**
+   * <pre>
+   * The designs this conversation works, each with its contracts.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.Design designs = 16 [json_name = "designs"];</code>
+   */
+  java.util.List<io.github.joshsymonds.orrery.gen.orrery.v1.Design> 
+      getDesignsList();
+  /**
+   * <pre>
+   * The designs this conversation works, each with its contracts.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.Design designs = 16 [json_name = "designs"];</code>
+   */
+  io.github.joshsymonds.orrery.gen.orrery.v1.Design getDesigns(int index);
+  /**
+   * <pre>
+   * The designs this conversation works, each with its contracts.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.Design designs = 16 [json_name = "designs"];</code>
+   */
+  int getDesignsCount();
 }

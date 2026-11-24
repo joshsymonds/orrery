@@ -16,7 +16,7 @@ func TestRoutesRoundTripEveryLiveField(t *testing.T) {
 	t.Parallel()
 	h := newAccountsHarness(t)
 	added, err := h.Accounts.Add(t.Context(), connect.NewRequest(&orreryv1.AccountsAddRequest{
-		Name: "Synthetic route account", Provider: "anthropic", Plan: "synthetic-plan", Token: "synthetic-token-routes",
+		Name: "Synthetic route account", Provider: "anthropic", Plan: "synthetic-plan", Token: "sk-ant-oat01-routes",
 	}))
 	if err != nil {
 		t.Fatalf("Add: %v", err)

@@ -2,8 +2,11 @@ package integration_test
 
 import (
 	"bufio"
+	"database/sql"
 	"encoding/json"
+	"math"
 	"net"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -16,6 +19,7 @@ import (
 	"github.com/joshsymonds/orrery/internal/hook"
 	"github.com/joshsymonds/orrery/internal/protocol"
 	"github.com/joshsymonds/orrery/internal/route"
+	"github.com/joshsymonds/orrery/internal/store/sqlcgen"
 )
 
 // loggedNotice is the state, route and reason one line of the notice log must carry.
@@ -72,6 +76,35 @@ func assertNoticeLog(t *testing.T, path string, since int64, pane string, want .
 func noticeLogHas(path, reason string) bool {
 	data, err := os.ReadFile(path)
 	return err == nil && strings.Contains(string(data), `"reason":"`+reason+`"`)
+}
+
+// pendingRowStored reports whether the store at dbPath holds a pending notice row for pane. The file is read through a
+// read-only handle that is closed at once, so orreryd keeps the file it writes; the handle's busy timeout is the largest
+// SQLite takes, so a read waits out any lock orreryd holds. The caller awaits the store open line first, so the file
+// exists and its schema is migrated.
+func pendingRowStored(t *testing.T, dbPath, pane string) bool {
+	t.Helper()
+	query := url.Values{}
+	query.Set("mode", "ro")
+	query.Set("_busy_timeout", strconv.Itoa(math.MaxInt32))
+	dsn := (&url.URL{Scheme: "file", Path: dbPath, RawQuery: query.Encode()}).String()
+	db, err := sql.Open("sqlite3", dsn)
+	if err != nil {
+		t.Fatalf("open store read-only: %v", err)
+	}
+	rows, readErr := sqlcgen.New(db).ListPendingNotices(t.Context())
+	if closeErr := db.Close(); closeErr != nil {
+		t.Fatalf("close store read-only: %v", closeErr)
+	}
+	if readErr != nil {
+		t.Fatalf("list pending notices: %v", readErr)
+	}
+	for _, row := range rows {
+		if row.Pane == pane {
+			return true
+		}
+	}
+	return false
 }
 
 // sendInput reports on the daemon socket that the web view had input at input, unix seconds.
@@ -205,10 +238,14 @@ func TestOrrerydRouteHoldsWatchedPane(t *testing.T) {
 	session.requestPermission(t)
 	waitForOption(t, daemon, client, pane, protocol.OptionState, string(protocol.StateWaiting))
 	// The held notice logs its watching line from its own decision, so that line is awaited before orreryd stops. The
-	// store is attached once its open line is logged, so stopping then keeps the held notice for the next start, with
-	// no shutdown line.
+	// router has no store until orreryd attaches it, a step after its open line, and a notice decided before then has
+	// no row, so stopping then ends it with a shutdown line. The test therefore awaits the held notice's row in the
+	// store, which is written only once the store is attached, and stopping then keeps the held notice for the next
+	// start, with no shutdown line.
 	waitUntil(t, func() bool { return noticeLogHas(logPath, "watching") })
 	daemon.waitForStoreOpen(t)
+	dbPath := filepath.Join(stateHome, "orrery", "orrery.db")
+	waitUntil(t, func() bool { return pendingRowStored(t, dbPath, pane) })
 	wantExit(t, daemon.stop(t), 0)
 
 	if extra := len(endpoint.requests); extra != 0 {

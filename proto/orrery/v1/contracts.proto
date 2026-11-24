@@ -2,6 +2,7 @@ syntax = "proto3";
 
 package orrery.v1;
 
+import "orrery/v1/designs.proto";
 import "orrery/v1/epics.proto";
 
 // Contracts reads the contracts orreryd keeps, from the store, and forwards the owner's accept, set aside and reopen to
@@ -21,6 +22,17 @@ service Contracts {
 
   // Reopen forwards the owner's reopening of the named contract to orreryd and returns the contract as it stands.
   rpc Reopen(ContractsReopenRequest) returns (ContractsReopenResponse);
+
+  // Keep forwards the owner's keeping of an addition to the named contract to orreryd and returns the contract as it
+  // stands.
+  rpc Keep(ContractsKeepRequest) returns (ContractsKeepResponse);
+
+  // Strike forwards the owner's striking of an addition the named contract keeps to orreryd and returns the contract as
+  // it stands, with the rows the striking removed.
+  rpc Strike(ContractsStrikeRequest) returns (ContractsStrikeResponse);
+
+  // Shown forwards the rows of a contract version the owner was shown to orreryd and returns the rows it marked.
+  rpc Shown(ContractsShownRequest) returns (ContractsShownResponse);
 }
 
 // Contract is one contract as List gives it.
@@ -108,6 +120,9 @@ message ContractVersion {
 
   // The section names whose values differ from the version before; empty for version 1.
   repeated string changed_sections = 9;
+
+  // The ids of the steps that read this version, oldest first.
+  repeated string read_by = 10;
 }
 
 // ContractStateChange is one change of a contract's state.
@@ -129,6 +144,9 @@ message ContractStateChange {
 
   // When the change was made, in unix seconds.
   int64 time = 6;
+
+  // Who made the change and the evidence it rests on.
+  RecordMaker maker = 7;
 }
 
 // ContractsListRequest asks for every contract.
@@ -156,6 +174,155 @@ message ContractsGetResponse {
 
   // The contract's state changes, oldest first.
   repeated ContractStateChange states = 3;
+
+  // The contract's working copy: the body the stage is working on, with the decisions it asks and who wrote it.
+  ContractWorking working = 4;
+
+  // The refusals the contract's stage recorded, oldest first.
+  repeated ContractRefusal refusals = 5;
+
+  // The row writes the contract's stage recorded, oldest first.
+  repeated ContractRowWrite rows = 6;
+
+  // The left items the contract's stage recorded, oldest first.
+  repeated ContractLeft left = 7;
+
+  // The requirements' work the contract's stage recorded, one per requirement the work covers.
+  repeated ContractRequirementWork work = 8;
+
+  // The rows the owner was shown, oldest first.
+  repeated ContractShown shown = 9;
+}
+
+// ContractWorking is a contract's working copy: the body its stage works on, with the decisions it asks the owner to
+// answer.
+message ContractWorking {
+  // The working copy's version number, counted from 1.
+  int64 version = 1;
+
+  // The body's sections.
+  EpicContract contract = 2;
+
+  // The body's requirements in order.
+  repeated EpicRequirement requirements = 3;
+
+  // The decisions the working copy asks the owner to answer.
+  repeated ContractDecision decisions = 4;
+
+  // The sessions row id of the session that wrote the working copy.
+  string writer = 5;
+
+  // When the working copy was last updated, in unix seconds.
+  int64 updated = 6;
+
+  // The F, R, P and decision ids whose text differs from the version before.
+  repeated string changed_rows = 7;
+}
+
+// ContractRefusal is a refusal the contract's stage recorded for a field of its body.
+message ContractRefusal {
+  // The refusal's seq, counted from 1 within its contract.
+  int64 seq = 1;
+
+  // The number of the contract version the refusal concerns.
+  int64 version = 2;
+
+  // The field the refusal concerns.
+  string field = 3;
+
+  // The refusal's text.
+  string text = 4;
+
+  // The sessions row id of the session that recorded the refusal.
+  string session = 5;
+
+  // When the refusal was recorded, in unix seconds.
+  int64 time = 6;
+}
+
+// ContractRowWrite is a write to a row of a contract's body, as its stage recorded it.
+message ContractRowWrite {
+  // The write's seq, counted from 1 within its contract.
+  int64 seq = 1;
+
+  // The number of the contract version the write made.
+  int64 version = 2;
+
+  // The F, R or P row the write concerns.
+  string row = 3;
+
+  // What the write did to the row.
+  string action = 4;
+
+  // The row the written row depends on.
+  string depends = 5;
+
+  // The owner's words the write is made with.
+  string words = 6;
+
+  // Who made the write and the evidence it rests on.
+  RecordMaker maker = 7;
+
+  // When the write was stored, in unix seconds.
+  int64 time = 8;
+}
+
+// ContractLeft is an item the contract's stage left, with the kind of item and the id it refers to.
+message ContractLeft {
+  // The kind of item left.
+  string kind = 1;
+
+  // The id of the item left.
+  string ref = 2;
+
+  // The item's text.
+  string text = 3;
+}
+
+// ContractShown is a row of a contract version the owner was shown.
+message ContractShown {
+  // The number of the contract version the owner was shown.
+  int64 version = 1;
+
+  // The F, R or P row the owner was shown.
+  string row = 2;
+
+  // When the owner was shown the row, in unix seconds.
+  int64 time = 3;
+}
+
+// ContractRequirementWork is the work done on one requirement of a contract: its tasks and the evidence run that proves
+// it.
+message ContractRequirementWork {
+  // The requirement's id, R<n>.
+  string id = 1;
+
+  // The requirement's text.
+  string text = 2;
+
+  // The requirement's state.
+  string state = 3;
+
+  // The tasks that cover the requirement.
+  repeated ContractRequirementTask tasks = 4;
+
+  // The evidence run that proves the requirement.
+  EvidenceRun proof = 5;
+}
+
+// ContractRequirementTask is a task that covers a requirement of a contract.
+message ContractRequirementTask {
+  // The task's id.
+  string id = 1;
+
+  // The task's title.
+  string title = 2;
+
+  // The task's status.
+  string status = 3;
+
+  // The task's place in the build order.
+  string place = 4;
 }
 
 // ContractsAcceptRequest names the contract the owner accepts.
@@ -201,4 +368,61 @@ message ContractsReopenRequest {
 message ContractsReopenResponse {
   // The contract.
   Contract contract = 1;
+}
+
+// ContractsKeepRequest names the contract and the addition the owner keeps.
+message ContractsKeepRequest {
+  // The contract's id, as List gave it.
+  string id = 1;
+
+  // The addition the contract keeps.
+  string addition = 2;
+
+  // The words the owner keeps the addition with; may be empty.
+  string words = 3;
+}
+
+// ContractsKeepResponse carries the contract as it stands after the addition was kept.
+message ContractsKeepResponse {
+  // The contract.
+  Contract contract = 1;
+}
+
+// ContractsStrikeRequest names the contract and the addition the owner strikes.
+message ContractsStrikeRequest {
+  // The contract's id, as List gave it.
+  string id = 1;
+
+  // The addition the contract keeps, which the owner strikes.
+  string addition = 2;
+
+  // The words the owner strikes the addition with; may be empty.
+  string words = 3;
+}
+
+// ContractsStrikeResponse carries the contract as it stands after the striking, and the rows the striking removed.
+message ContractsStrikeResponse {
+  // The contract.
+  Contract contract = 1;
+
+  // The rows the striking removed.
+  repeated string removed = 2;
+}
+
+// ContractsShownRequest names the contract version the owner was shown and the rows the owner was shown.
+message ContractsShownRequest {
+  // The contract's id, as List gave it.
+  string id = 1;
+
+  // The number of the contract version the owner was shown.
+  int64 version = 2;
+
+  // The F, R or P rows the owner was shown.
+  repeated string rows = 3;
+}
+
+// ContractsShownResponse carries the rows orreryd marked as shown.
+message ContractsShownResponse {
+  // The rows orreryd marked.
+  repeated string rows = 1;
 }

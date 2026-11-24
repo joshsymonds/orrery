@@ -254,9 +254,9 @@ function shownLabel(container: HTMLElement): string | null {
 }
 
 // onRow is whether the cursor rests on a row, not an epic: an epic's cursor shows its steering conversation in the
-// reader too, with the epic open in the panel beside it.
+// reader too, with the epic held in its card beside it.
 function onRow(container: HTMLElement): boolean {
-  return container.querySelector('aside.rpanel[aria-label="epic"]') === null;
+  return container.querySelector('article.held-card[data-kind="epic"]') === null;
 }
 
 // showRow moves the cursor down the list, then back up it, until it rests on the row with the label given and its reader

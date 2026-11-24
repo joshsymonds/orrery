@@ -11,14 +11,14 @@ import (
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
-// inboxStatesEpicsClient serves Epics over the records under root, the epics stored holds, and the marks of the store
-// at storePath, on the clock now.
+// inboxStatesEpicsClient serves Epics over the epics stored holds, and the marks of the store at storePath, on the
+// clock now.
 func inboxStatesEpicsClient(
-	t *testing.T, root, storePath string, stored EpicStoreClient, now func() time.Time,
+	t *testing.T, storePath string, stored EpicStoreClient, now func() time.Time,
 ) orreryv1connect.EpicsClient {
 	t.Helper()
 	path, handler := newEpicsHandler(
-		root, &epicsFake{}, stored, nil, nil, pooledReader(t, storePath), 0, now, newRetryClock(),
+		&epicsFake{}, stored, nil, nil, pooledReader(t, storePath), 0, now, newRetryClock(),
 	)
 	mux := http.NewServeMux()
 	mux.Handle(path, handler)
@@ -81,11 +81,8 @@ func TestInboxStatesArchiveEnded(t *testing.T) {
 	})
 }
 
-// TestInboxStatesArchiveFinal lists final epics: stored epics, each changed at the fixed clock and seen an hour after,
-// and record epics with outcomes released and retired, changed at the same clock. Each list is unarchived 23 hours
-// after its change and archived a day after it. A record has no seen time, so it is judged unseen. A retired record
-// stays live through exactly a day (liveWindow), so it archives one second past it. The two cases list only their own
-// roots and stored epics, so they share one store, which holds no rows.
+// TestInboxStatesArchiveFinal lists final stored epics, each changed at the fixed clock and seen an hour after. Each list
+// is unarchived 23 hours after its change and archived a day after it.
 func TestInboxStatesArchiveFinal(t *testing.T) {
 	t.Parallel()
 	path := archiveStorePath(t)
@@ -103,33 +100,12 @@ func TestInboxStatesArchiveFinal(t *testing.T) {
 			beforeDay[id] = false
 			aDayOn[id] = true
 		}
-		client := inboxStatesEpicsClient(t, t.TempDir(), path, &epicStoreFake{stored: stored}, clock.Now)
+		client := inboxStatesEpicsClient(t, path, &epicStoreFake{stored: stored}, clock.Now)
 
 		clock.now = changed.Add(archiveDay - time.Hour)
 		expectArchived(t, "Epics.List 23 hours after the change", archivedByID(epicsList(t, client)), beforeDay)
 
 		clock.now = changed.Add(archiveDay)
 		expectArchived(t, "Epics.List a day after the change", archivedByID(epicsList(t, client)), aDayOn)
-	})
-	t.Run("RecordFinalOutcomes", func(t *testing.T) {
-		t.Parallel()
-		root := t.TempDir()
-		changed := epicsNow()
-		clock := &closureClock{now: changed}
-		writeHead(t, root, "repoi", "released", `{"outcome":"released"}`, changed)
-		writeHead(t, root, "repoi", "retired", `{"outcome":"retired"}`, changed)
-		client := inboxStatesEpicsClient(t, root, path, nil, clock.Now)
-
-		clock.now = changed.Add(archiveDay - time.Hour)
-		expectArchived(t, "Epics.List 23 hours after the change", archivedByID(epicsList(t, client)), map[string]bool{
-			"repoi/released": false,
-			"repoi/retired":  false,
-		})
-
-		clock.now = changed.Add(archiveDay + time.Second)
-		expectArchived(t, "Epics.List past a day after the change", archivedByID(epicsList(t, client)), map[string]bool{
-			"repoi/released": true,
-			"repoi/retired":  true,
-		})
 	})
 }

@@ -122,7 +122,7 @@ type StepClient interface {
 }
 
 // EpicStoreClient is the part of orreryd's Epics service serve uses: ListEpics and GetEpic, which the Epics service
-// merges with the gambit records. It has no CreateEpic; the owner's epic commands go through Config.EpicCommands.
+// lists and gets epics from. It has no CreateEpic; the owner's epic commands go through Config.EpicCommands.
 type EpicStoreClient interface {
 	ListEpics(
 		context.Context,
@@ -214,9 +214,8 @@ type Config struct {
 	// Steps is orreryd's Steps client, which Control asks before it forwards a session command, or is nil, which
 	// forwards every session command as before.
 	Steps StepClient
-	// Records is the gambit record root the Epics service reads, or empty to list nothing.
-	Records string
-	// EpicStore is orreryd's Epics client, which List and Get merge with the records, or nil for no orreryd epics.
+	// EpicStore is orreryd's Epics client, which List and Get answer the epics of and Contracts.Get reads each accepted
+	// contract's work from, or nil for no epics.
 	EpicStore EpicStoreClient
 	// EpicCommands is orreryd's Epics client, which Pause, Resume, Stop, Retry and Answer forward the owner's commands
 	// to, or nil, which answers unavailable.
@@ -224,11 +223,14 @@ type Config struct {
 	// ContractCommands is orreryd's Contracts client, which Accept, SetAside and Reopen forward the owner's commands
 	// to, or nil, which answers unavailable.
 	ContractCommands enginev1connect.ContractsClient
+	// StageCommands is orreryd's Stage client, which Designs.Answer and Designs.Continue forward to and Contracts.Keep,
+	// Strike and Shown forward to, or nil, which answers unavailable.
+	StageCommands enginev1connect.StageClient
 	// AccountCommands is orreryd's Accounts client, which Accounts.Add, Rename and Remove and Routes.Replace and
 	// SetContextAccount forward the owner's commands to, or nil, which answers unavailable.
 	AccountCommands enginev1connect.AccountsClient
-	// Evidence is orreryd's Evidence client, which Epics.Get reads each Requirement's runs from and Evidence.Artifact
-	// reads artifacts from, or nil for no runs and no artifacts.
+	// Evidence is orreryd's Evidence client, which Epics.Get and Contracts.Get read each Requirement's runs from and
+	// Evidence.Artifact reads artifacts from, or nil for no runs and no artifacts.
 	Evidence EvidenceClient
 	// Home is the home directory a Control start must name a directory under, after symlinks resolve. An empty,
 	// relative or root Home, or one that does not exist, refuses every start.
@@ -294,7 +296,7 @@ func New(cfg Config) (http.Handler, error) {
 		cfg.Engine, cfg.ControlTimeout, cfg.Home, cfg.Steps, cfg.HandlerOptions...,
 	)
 	mux.Handle(controlPath, control)
-	epicsPath, evidencePath, contractsPath := registerEpicServices(mux, cfg, now)
+	epicsPath, evidencePath, contractsPath, designsPath := registerEpicServices(mux, cfg, now)
 	accountsPath, routesPath := registerAccountServices(mux, cfg)
 	stepsPath, stepsService := newStepsHandler(
 		cfg.Steps, cfg.ControlTimeout, rpcretry.SystemClock{}, cfg.HandlerOptions...,
@@ -327,7 +329,7 @@ func New(cfg Config) (http.Handler, error) {
 	}
 	connectPaths := []string{
 		sessionsPath, eventsPath, controlPath, epicsPath, evidencePath, stepsPath, poolsPath, noticesPath, panesPath,
-		hostPath, pushPath, pickerPath, presencePath, contractsPath, accountsPath, routesPath,
+		hostPath, pushPath, pickerPath, presencePath, contractsPath, designsPath, accountsPath, routesPath,
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if _, ok := allowed[r.Header.Get(HeaderLogin)]; !ok {
@@ -342,22 +344,29 @@ func New(cfg Config) (http.Handler, error) {
 	}), nil
 }
 
-// registerEpicServices mounts the Epics service, the Evidence service and the Contracts service on mux, all over the
-// records, steps, epic store, epic commands, evidence client, contract commands and store reader of cfg, and returns
-// their paths. The Epics service also lists the sessions of cfg's store reader, and dates its records from now.
-func registerEpicServices(mux *http.ServeMux, cfg Config, now func() time.Time) (string, string, string) {
+// registerEpicServices mounts the Epics service, the Evidence service, the Contracts service and the Designs service on
+// mux, all over the steps, epic store, epic commands, evidence client, contract commands and store reader of cfg, and
+// returns their paths. The Epics service also lists the sessions of cfg's store reader, and dates each listed epic's
+// archive rule from now. The Contracts service reads each accepted contract's work from cfg's epic store and evidence
+// client. The Contracts service and the Designs service forward their stage calls to cfg's stage commands.
+func registerEpicServices(mux *http.ServeMux, cfg Config, now func() time.Time) (string, string, string, string) {
 	epicsPath, epicsService := newEpicsHandler(
-		cfg.Records, cfg.Steps, cfg.EpicStore, cfg.EpicCommands, cfg.Evidence, cfg.Sessions, cfg.ControlTimeout, now,
+		cfg.Steps, cfg.EpicStore, cfg.EpicCommands, cfg.Evidence, cfg.Sessions, cfg.ControlTimeout, now,
 		rpcretry.SystemClock{}, cfg.HandlerOptions...,
 	)
 	mux.Handle(epicsPath, epicsService)
 	evidencePath, evidenceService := newEvidenceHandler(cfg.Evidence, cfg.ControlTimeout, cfg.HandlerOptions...)
 	mux.Handle(evidencePath, evidenceService)
 	contractsPath, contractsService := newContractsHandler(
-		cfg.Sessions, cfg.ContractCommands, cfg.ControlTimeout, rpcretry.SystemClock{}, cfg.HandlerOptions...,
+		cfg.Sessions, cfg.EpicStore, cfg.Evidence, cfg.ContractCommands, cfg.StageCommands, cfg.ControlTimeout,
+		rpcretry.SystemClock{}, cfg.HandlerOptions...,
 	)
 	mux.Handle(contractsPath, contractsService)
-	return epicsPath, evidencePath, contractsPath
+	designsPath, designsService := newDesignsHandler(
+		cfg.Sessions, cfg.StageCommands, cfg.ControlTimeout, rpcretry.SystemClock{}, cfg.HandlerOptions...,
+	)
+	mux.Handle(designsPath, designsService)
+	return epicsPath, evidencePath, contractsPath, designsPath
 }
 
 // registerAccountServices mounts the Accounts service and the Routes service on mux, reading the store reader of cfg and

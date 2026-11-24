@@ -29,6 +29,45 @@ func (q *Queries) AdoptStepHosts(ctx context.Context, host string) error {
 	return err
 }
 
+const answerDesignQuestion = `-- name: AnswerDesignQuestion :execrows
+UPDATE design_questions SET answer = ?1, accepted = ?2, maker = ?3,
+    quote = ?4, maker_reason = ?5, delegation = ?6,
+    answerer = ?7, answered = ?8
+WHERE design = ?9 AND seq = ?10 AND answered = 0
+`
+
+type AnswerDesignQuestionParams struct {
+	Answer      string
+	Accepted    int64
+	Maker       string
+	Quote       string
+	MakerReason string
+	Delegation  string
+	Answerer    string
+	Answered    int64
+	Design      string
+	Seq         int64
+}
+
+func (q *Queries) AnswerDesignQuestion(ctx context.Context, arg AnswerDesignQuestionParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, answerDesignQuestion,
+		arg.Answer,
+		arg.Accepted,
+		arg.Maker,
+		arg.Quote,
+		arg.MakerReason,
+		arg.Delegation,
+		arg.Answerer,
+		arg.Answered,
+		arg.Design,
+		arg.Seq,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const applyEpicAmendment = `-- name: ApplyEpicAmendment :execrows
 UPDATE epic_amendments SET state = 'applied', settled = CASE WHEN settled = 0 THEN ?1 ELSE settled END
 WHERE epic = ?2 AND seq = ?3 AND state IN ('checking', 'capturing')
@@ -362,6 +401,17 @@ func (q *Queries) CountContractStates(ctx context.Context, contract string) (int
 	return column_1, err
 }
 
+const countDesign = `-- name: CountDesign :one
+SELECT CAST(COUNT(*) AS INTEGER) FROM designs WHERE id = ?
+`
+
+func (q *Queries) CountDesign(ctx context.Context, id string) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countDesign, id)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const countEnginePrompts = `-- name: CountEnginePrompts :one
 SELECT COUNT(*) FROM events AS prompts
 WHERE prompts.session_id = ?1 AND prompts.kind = 'engine_prompt'
@@ -687,6 +737,24 @@ func (q *Queries) CountWorkingEvidenceNodeRuns(ctx context.Context, epic string)
 	return count, err
 }
 
+const deleteContractDraft = `-- name: DeleteContractDraft :exec
+DELETE FROM contract_drafts WHERE id = ?
+`
+
+func (q *Queries) DeleteContractDraft(ctx context.Context, id string) error {
+	_, err := q.db.ExecContext(ctx, deleteContractDraft, id)
+	return err
+}
+
+const deleteContractWorking = `-- name: DeleteContractWorking :exec
+DELETE FROM contract_working WHERE contract = ?
+`
+
+func (q *Queries) DeleteContractWorking(ctx context.Context, contract string) error {
+	_, err := q.db.ExecContext(ctx, deleteContractWorking, contract)
+	return err
+}
+
 const deleteCronJob = `-- name: DeleteCronJob :execrows
 DELETE FROM cron_jobs WHERE session = ? AND job_id = ?
 `
@@ -810,6 +878,20 @@ type DeleteEpicTaskRefusedParams struct {
 
 func (q *Queries) DeleteEpicTaskRefused(ctx context.Context, arg DeleteEpicTaskRefusedParams) error {
 	_, err := q.db.ExecContext(ctx, deleteEpicTaskRefused, arg.Epic, arg.Task, arg.Path)
+	return err
+}
+
+const deleteEpicTaskRequirements = `-- name: DeleteEpicTaskRequirements :exec
+DELETE FROM epic_task_requirements WHERE epic = ? AND task = ?
+`
+
+type DeleteEpicTaskRequirementsParams struct {
+	Epic string
+	Task int64
+}
+
+func (q *Queries) DeleteEpicTaskRequirements(ctx context.Context, arg DeleteEpicTaskRequirementsParams) error {
+	_, err := q.db.ExecContext(ctx, deleteEpicTaskRequirements, arg.Epic, arg.Task)
 	return err
 }
 
@@ -1380,6 +1462,39 @@ func (q *Queries) GetClosureEngineSession(ctx context.Context, id string) (GetCl
 	return i, err
 }
 
+const getContractDesign = `-- name: GetContractDesign :one
+SELECT design FROM design_contracts WHERE contract = ?
+`
+
+func (q *Queries) GetContractDesign(ctx context.Context, contract string) (string, error) {
+	row := q.db.QueryRowContext(ctx, getContractDesign, contract)
+	var design string
+	err := row.Scan(&design)
+	return design, err
+}
+
+const getContractDraft = `-- name: GetContractDraft :one
+SELECT id, design, repository, title, body, decisions, words, writer, created, updated FROM contract_drafts WHERE id = ?
+`
+
+func (q *Queries) GetContractDraft(ctx context.Context, id string) (ContractDraft, error) {
+	row := q.db.QueryRowContext(ctx, getContractDraft, id)
+	var i ContractDraft
+	err := row.Scan(
+		&i.ID,
+		&i.Design,
+		&i.Repository,
+		&i.Title,
+		&i.Body,
+		&i.Decisions,
+		&i.Words,
+		&i.Writer,
+		&i.Created,
+		&i.Updated,
+	)
+	return i, err
+}
+
 const getContractListing = `-- name: GetContractListing :one
 SELECT contracts.id, contracts.created,
        newest.repository, newest.title, newest.care, newest.version, newest.open_decisions,
@@ -1433,6 +1548,17 @@ func (q *Queries) GetContractListing(ctx context.Context, id string) (GetContrac
 	return i, err
 }
 
+const getContractStaged = `-- name: GetContractStaged :one
+SELECT staged FROM contracts WHERE id = ?
+`
+
+func (q *Queries) GetContractStaged(ctx context.Context, id string) (int64, error) {
+	row := q.db.QueryRowContext(ctx, getContractStaged, id)
+	var staged int64
+	err := row.Scan(&staged)
+	return staged, err
+}
+
 const getContractVersion = `-- name: GetContractVersion :one
 SELECT contract, version, repository, title, care, body, decisions, open_decisions, words, writer, at, changed_rows, changed_sections FROM contract_versions WHERE contract = ? AND version = ?
 `
@@ -1463,6 +1589,25 @@ func (q *Queries) GetContractVersion(ctx context.Context, arg GetContractVersion
 	return i, err
 }
 
+const getContractWorking = `-- name: GetContractWorking :one
+SELECT contract, version, body, decisions, writer, created, updated FROM contract_working WHERE contract = ?
+`
+
+func (q *Queries) GetContractWorking(ctx context.Context, contract string) (ContractWorking, error) {
+	row := q.db.QueryRowContext(ctx, getContractWorking, contract)
+	var i ContractWorking
+	err := row.Scan(
+		&i.Contract,
+		&i.Version,
+		&i.Body,
+		&i.Decisions,
+		&i.Writer,
+		&i.Created,
+		&i.Updated,
+	)
+	return i, err
+}
+
 const getCronJobByToolUse = `-- name: GetCronJobByToolUse :one
 SELECT job_id, session, tool_use_id, cron, prompt, recurring, created_at, last_fire_at FROM cron_jobs WHERE session = ? AND tool_use_id = ?
 `
@@ -1484,6 +1629,75 @@ func (q *Queries) GetCronJobByToolUse(ctx context.Context, arg GetCronJobByToolU
 		&i.Recurring,
 		&i.CreatedAt,
 		&i.LastFireAt,
+	)
+	return i, err
+}
+
+const getDesign = `-- name: GetDesign :one
+SELECT id, title, conversation, created FROM designs WHERE id = ?
+`
+
+func (q *Queries) GetDesign(ctx context.Context, id string) (Design, error) {
+	row := q.db.QueryRowContext(ctx, getDesign, id)
+	var i Design
+	err := row.Scan(
+		&i.ID,
+		&i.Title,
+		&i.Conversation,
+		&i.Created,
+	)
+	return i, err
+}
+
+const getDesignClosureSkip = `-- name: GetDesignClosureSkip :one
+SELECT design, reason, maker, quote, maker_reason, delegation, session, at FROM design_closure_skips WHERE design = ?
+`
+
+func (q *Queries) GetDesignClosureSkip(ctx context.Context, design string) (DesignClosureSkip, error) {
+	row := q.db.QueryRowContext(ctx, getDesignClosureSkip, design)
+	var i DesignClosureSkip
+	err := row.Scan(
+		&i.Design,
+		&i.Reason,
+		&i.Maker,
+		&i.Quote,
+		&i.MakerReason,
+		&i.Delegation,
+		&i.Session,
+		&i.At,
+	)
+	return i, err
+}
+
+const getDesignQuestion = `-- name: GetDesignQuestion :one
+SELECT design, seq, contract, text, options, recommendation, asker, asked, answer, accepted, maker, quote, maker_reason, delegation, answerer, answered FROM design_questions WHERE design = ? AND seq = ?
+`
+
+type GetDesignQuestionParams struct {
+	Design string
+	Seq    int64
+}
+
+func (q *Queries) GetDesignQuestion(ctx context.Context, arg GetDesignQuestionParams) (DesignQuestion, error) {
+	row := q.db.QueryRowContext(ctx, getDesignQuestion, arg.Design, arg.Seq)
+	var i DesignQuestion
+	err := row.Scan(
+		&i.Design,
+		&i.Seq,
+		&i.Contract,
+		&i.Text,
+		&i.Options,
+		&i.Recommendation,
+		&i.Asker,
+		&i.Asked,
+		&i.Answer,
+		&i.Accepted,
+		&i.Maker,
+		&i.Quote,
+		&i.MakerReason,
+		&i.Delegation,
+		&i.Answerer,
+		&i.Answered,
 	)
 	return i, err
 }
@@ -1915,7 +2129,7 @@ func (q *Queries) GetEpicSteerer(ctx context.Context, id string) (GetEpicSteerer
 }
 
 const getEpicTask = `-- name: GetEpicTask :one
-SELECT epic, seq, turn, title, deliverable, status, gate, evidence, stage, base, attempt, rerun, no_verdict, held, step, red_run, green_run, revision, failure, review, refs, gate_pos, finding_pos, batch, guard, needs_files, decisions, after_tasks, question, gate_changes, rebriefs, notes, generation, depends_on, kind, revises FROM epic_tasks WHERE epic = ? AND seq = ?
+SELECT epic, seq, turn, title, deliverable, status, gate, evidence, stage, base, attempt, rerun, no_verdict, held, step, red_run, green_run, revision, failure, review, refs, gate_pos, finding_pos, batch, guard, needs_files, decisions, after_tasks, question, gate_changes, rebriefs, notes, generation, depends_on, kind, revises, split_from FROM epic_tasks WHERE epic = ? AND seq = ?
 `
 
 type GetEpicTaskParams struct {
@@ -1963,6 +2177,7 @@ func (q *Queries) GetEpicTask(ctx context.Context, arg GetEpicTaskParams) (EpicT
 		&i.DependsOn,
 		&i.Kind,
 		&i.Revises,
+		&i.SplitFrom,
 	)
 	return i, err
 }
@@ -2162,6 +2377,56 @@ func (q *Queries) GetLatestEpicParkOf(ctx context.Context, arg GetLatestEpicPark
 		&i.Chain,
 		&i.Reason,
 		&i.Created,
+	)
+	return i, err
+}
+
+const getLoneContract = `-- name: GetLoneContract :one
+SELECT contracts.id, contracts.created,
+       newest.repository, newest.title,
+       CAST(COALESCE((
+           SELECT opening.writer FROM contract_versions AS opening
+           WHERE opening.contract = contracts.id AND opening.version = 1
+       ), '') AS TEXT) AS conversation,
+       CAST((
+           SELECT newest_state.state FROM contract_states AS newest_state
+           WHERE newest_state.contract = contracts.id ORDER BY newest_state.seq DESC LIMIT 1
+       ) AS TEXT) AS state,
+       CAST(COALESCE(epics.id, '') AS TEXT) AS epic,
+       CAST(COALESCE(epics.phase, '') AS TEXT) AS epic_phase
+FROM contracts
+JOIN contract_versions AS newest ON newest.contract = contracts.id
+LEFT JOIN epics ON epics.id = contracts.id
+WHERE contracts.id = ? AND NOT EXISTS (
+    SELECT 1 FROM design_contracts AS members WHERE members.contract = contracts.id
+) AND newest.version = (
+    SELECT MAX(versions.version) FROM contract_versions AS versions WHERE versions.contract = contracts.id
+)
+`
+
+type GetLoneContractRow struct {
+	ID           string
+	Created      int64
+	Repository   string
+	Title        string
+	Conversation string
+	State        string
+	Epic         string
+	EpicPhase    string
+}
+
+func (q *Queries) GetLoneContract(ctx context.Context, id string) (GetLoneContractRow, error) {
+	row := q.db.QueryRowContext(ctx, getLoneContract, id)
+	var i GetLoneContractRow
+	err := row.Scan(
+		&i.ID,
+		&i.Created,
+		&i.Repository,
+		&i.Title,
+		&i.Conversation,
+		&i.State,
+		&i.Epic,
+		&i.EpicPhase,
 	)
 	return i, err
 }
@@ -2562,7 +2827,7 @@ func (q *Queries) InsertCallerEvent(ctx context.Context, arg InsertCallerEventPa
 }
 
 const insertContract = `-- name: InsertContract :exec
-INSERT INTO contracts (id, created) VALUES (?, ?)
+INSERT INTO contracts (id, created, staged) VALUES (?, ?, 1)
 `
 
 type InsertContractParams struct {
@@ -2572,6 +2837,95 @@ type InsertContractParams struct {
 
 func (q *Queries) InsertContract(ctx context.Context, arg InsertContractParams) error {
 	_, err := q.db.ExecContext(ctx, insertContract, arg.ID, arg.Created)
+	return err
+}
+
+const insertContractRefusal = `-- name: InsertContractRefusal :exec
+INSERT INTO contract_refusals (contract, seq, version, field, text, session, at) VALUES (?, ?, ?, ?, ?, ?, ?)
+`
+
+type InsertContractRefusalParams struct {
+	Contract string
+	Seq      int64
+	Version  int64
+	Field    string
+	Text     string
+	Session  string
+	At       int64
+}
+
+func (q *Queries) InsertContractRefusal(ctx context.Context, arg InsertContractRefusalParams) error {
+	_, err := q.db.ExecContext(ctx, insertContractRefusal,
+		arg.Contract,
+		arg.Seq,
+		arg.Version,
+		arg.Field,
+		arg.Text,
+		arg.Session,
+		arg.At,
+	)
+	return err
+}
+
+const insertContractRowWrite = `-- name: InsertContractRowWrite :exec
+INSERT INTO contract_row_writes (contract, seq, version, row, action, depends, words, maker, quote, maker_reason,
+                                 delegation, session, at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+`
+
+type InsertContractRowWriteParams struct {
+	Contract    string
+	Seq         int64
+	Version     int64
+	Row         string
+	Action      string
+	Depends     string
+	Words       string
+	Maker       string
+	Quote       string
+	MakerReason string
+	Delegation  string
+	Session     string
+	At          int64
+}
+
+func (q *Queries) InsertContractRowWrite(ctx context.Context, arg InsertContractRowWriteParams) error {
+	_, err := q.db.ExecContext(ctx, insertContractRowWrite,
+		arg.Contract,
+		arg.Seq,
+		arg.Version,
+		arg.Row,
+		arg.Action,
+		arg.Depends,
+		arg.Words,
+		arg.Maker,
+		arg.Quote,
+		arg.MakerReason,
+		arg.Delegation,
+		arg.Session,
+		arg.At,
+	)
+	return err
+}
+
+const insertContractShown = `-- name: InsertContractShown :exec
+INSERT INTO contract_shown (contract, version, row, at) VALUES (?, ?, ?, ?)
+`
+
+type InsertContractShownParams struct {
+	Contract string
+	Version  int64
+	Row      string
+	At       int64
+}
+
+func (q *Queries) InsertContractShown(ctx context.Context, arg InsertContractShownParams) error {
+	_, err := q.db.ExecContext(ctx, insertContractShown,
+		arg.Contract,
+		arg.Version,
+		arg.Row,
+		arg.At,
+	)
 	return err
 }
 
@@ -2601,6 +2955,21 @@ func (q *Queries) InsertContractState(ctx context.Context, arg InsertContractSta
 		arg.At,
 		arg.Base,
 	)
+	return err
+}
+
+const insertContractStepRead = `-- name: InsertContractStepRead :exec
+INSERT INTO design_step_reads (step, contract, version) VALUES (?, ?, ?)
+`
+
+type InsertContractStepReadParams struct {
+	Step     string
+	Contract string
+	Version  int64
+}
+
+func (q *Queries) InsertContractStepRead(ctx context.Context, arg InsertContractStepReadParams) error {
+	_, err := q.db.ExecContext(ctx, insertContractStepRead, arg.Step, arg.Contract, arg.Version)
 	return err
 }
 
@@ -2677,6 +3046,350 @@ func (q *Queries) InsertCronJob(ctx context.Context, arg InsertCronJobParams) (i
 		return 0, err
 	}
 	return result.RowsAffected()
+}
+
+const insertDesign = `-- name: InsertDesign :exec
+INSERT INTO designs (id, title, conversation, created) VALUES (?, ?, ?, ?)
+`
+
+type InsertDesignParams struct {
+	ID           string
+	Title        string
+	Conversation string
+	Created      int64
+}
+
+func (q *Queries) InsertDesign(ctx context.Context, arg InsertDesignParams) error {
+	_, err := q.db.ExecContext(ctx, insertDesign,
+		arg.ID,
+		arg.Title,
+		arg.Conversation,
+		arg.Created,
+	)
+	return err
+}
+
+const insertDesignApproach = `-- name: InsertDesignApproach :exec
+INSERT INTO design_approaches (design, seq, name, shape, cost, wins, loses, reconsider, research, recommended, reason,
+                               session, at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+`
+
+type InsertDesignApproachParams struct {
+	Design      string
+	Seq         int64
+	Name        string
+	Shape       string
+	Cost        string
+	Wins        string
+	Loses       string
+	Reconsider  string
+	Research    string
+	Recommended int64
+	Reason      string
+	Session     string
+	At          int64
+}
+
+func (q *Queries) InsertDesignApproach(ctx context.Context, arg InsertDesignApproachParams) error {
+	_, err := q.db.ExecContext(ctx, insertDesignApproach,
+		arg.Design,
+		arg.Seq,
+		arg.Name,
+		arg.Shape,
+		arg.Cost,
+		arg.Wins,
+		arg.Loses,
+		arg.Reconsider,
+		arg.Research,
+		arg.Recommended,
+		arg.Reason,
+		arg.Session,
+		arg.At,
+	)
+	return err
+}
+
+const insertDesignApproachChoice = `-- name: InsertDesignApproachChoice :exec
+INSERT INTO design_approach_choices (design, seq, approach, words, maker, quote, maker_reason, delegation, session, at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+`
+
+type InsertDesignApproachChoiceParams struct {
+	Design      string
+	Seq         int64
+	Approach    int64
+	Words       string
+	Maker       string
+	Quote       string
+	MakerReason string
+	Delegation  string
+	Session     string
+	At          int64
+}
+
+func (q *Queries) InsertDesignApproachChoice(ctx context.Context, arg InsertDesignApproachChoiceParams) error {
+	_, err := q.db.ExecContext(ctx, insertDesignApproachChoice,
+		arg.Design,
+		arg.Seq,
+		arg.Approach,
+		arg.Words,
+		arg.Maker,
+		arg.Quote,
+		arg.MakerReason,
+		arg.Delegation,
+		arg.Session,
+		arg.At,
+	)
+	return err
+}
+
+const insertDesignClosureSkip = `-- name: InsertDesignClosureSkip :exec
+INSERT INTO design_closure_skips (design, reason, maker, quote, maker_reason, delegation, session, at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+`
+
+type InsertDesignClosureSkipParams struct {
+	Design      string
+	Reason      string
+	Maker       string
+	Quote       string
+	MakerReason string
+	Delegation  string
+	Session     string
+	At          int64
+}
+
+func (q *Queries) InsertDesignClosureSkip(ctx context.Context, arg InsertDesignClosureSkipParams) error {
+	_, err := q.db.ExecContext(ctx, insertDesignClosureSkip,
+		arg.Design,
+		arg.Reason,
+		arg.Maker,
+		arg.Quote,
+		arg.MakerReason,
+		arg.Delegation,
+		arg.Session,
+		arg.At,
+	)
+	return err
+}
+
+const insertDesignContract = `-- name: InsertDesignContract :exec
+INSERT INTO design_contracts (contract, design, position, added) VALUES (?, ?, ?, ?)
+`
+
+type InsertDesignContractParams struct {
+	Contract string
+	Design   string
+	Position int64
+	Added    int64
+}
+
+func (q *Queries) InsertDesignContract(ctx context.Context, arg InsertDesignContractParams) error {
+	_, err := q.db.ExecContext(ctx, insertDesignContract,
+		arg.Contract,
+		arg.Design,
+		arg.Position,
+		arg.Added,
+	)
+	return err
+}
+
+const insertDesignConversation = `-- name: InsertDesignConversation :exec
+INSERT INTO design_conversations (design, seq, session, previous, at) VALUES (?, ?, ?, ?, ?)
+`
+
+type InsertDesignConversationParams struct {
+	Design   string
+	Seq      int64
+	Session  string
+	Previous string
+	At       int64
+}
+
+func (q *Queries) InsertDesignConversation(ctx context.Context, arg InsertDesignConversationParams) error {
+	_, err := q.db.ExecContext(ctx, insertDesignConversation,
+		arg.Design,
+		arg.Seq,
+		arg.Session,
+		arg.Previous,
+		arg.At,
+	)
+	return err
+}
+
+const insertDesignDelegation = `-- name: InsertDesignDelegation :exec
+INSERT INTO design_delegations (design, seq, kinds, message, session, at) VALUES (?, ?, ?, ?, ?, ?)
+`
+
+type InsertDesignDelegationParams struct {
+	Design  string
+	Seq     int64
+	Kinds   string
+	Message string
+	Session string
+	At      int64
+}
+
+func (q *Queries) InsertDesignDelegation(ctx context.Context, arg InsertDesignDelegationParams) error {
+	_, err := q.db.ExecContext(ctx, insertDesignDelegation,
+		arg.Design,
+		arg.Seq,
+		arg.Kinds,
+		arg.Message,
+		arg.Session,
+		arg.At,
+	)
+	return err
+}
+
+const insertDesignDisposition = `-- name: InsertDesignDisposition :exec
+INSERT INTO design_dispositions (design, seq, item, disposition, reason, boundary, maker, quote, maker_reason,
+                                 delegation, session, at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+`
+
+type InsertDesignDispositionParams struct {
+	Design      string
+	Seq         int64
+	Item        string
+	Disposition string
+	Reason      string
+	Boundary    string
+	Maker       string
+	Quote       string
+	MakerReason string
+	Delegation  string
+	Session     string
+	At          int64
+}
+
+func (q *Queries) InsertDesignDisposition(ctx context.Context, arg InsertDesignDispositionParams) error {
+	_, err := q.db.ExecContext(ctx, insertDesignDisposition,
+		arg.Design,
+		arg.Seq,
+		arg.Item,
+		arg.Disposition,
+		arg.Reason,
+		arg.Boundary,
+		arg.Maker,
+		arg.Quote,
+		arg.MakerReason,
+		arg.Delegation,
+		arg.Session,
+		arg.At,
+	)
+	return err
+}
+
+const insertDesignEdge = `-- name: InsertDesignEdge :exec
+INSERT INTO design_edges (design, contract, after, created) VALUES (?, ?, ?, ?)
+`
+
+type InsertDesignEdgeParams struct {
+	Design   string
+	Contract string
+	After    string
+	Created  int64
+}
+
+func (q *Queries) InsertDesignEdge(ctx context.Context, arg InsertDesignEdgeParams) error {
+	_, err := q.db.ExecContext(ctx, insertDesignEdge,
+		arg.Design,
+		arg.Contract,
+		arg.After,
+		arg.Created,
+	)
+	return err
+}
+
+const insertDesignLogLine = `-- name: InsertDesignLogLine :exec
+INSERT INTO design_log (design, seq, at, maker, session, what, ids, words) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+`
+
+type InsertDesignLogLineParams struct {
+	Design  string
+	Seq     int64
+	At      int64
+	Maker   string
+	Session string
+	What    string
+	Ids     string
+	Words   string
+}
+
+func (q *Queries) InsertDesignLogLine(ctx context.Context, arg InsertDesignLogLineParams) error {
+	_, err := q.db.ExecContext(ctx, insertDesignLogLine,
+		arg.Design,
+		arg.Seq,
+		arg.At,
+		arg.Maker,
+		arg.Session,
+		arg.What,
+		arg.Ids,
+		arg.Words,
+	)
+	return err
+}
+
+const insertDesignQuestion = `-- name: InsertDesignQuestion :exec
+INSERT INTO design_questions (design, seq, contract, text, options, recommendation, asker, asked)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+`
+
+type InsertDesignQuestionParams struct {
+	Design         string
+	Seq            int64
+	Contract       string
+	Text           string
+	Options        string
+	Recommendation string
+	Asker          string
+	Asked          int64
+}
+
+func (q *Queries) InsertDesignQuestion(ctx context.Context, arg InsertDesignQuestionParams) error {
+	_, err := q.db.ExecContext(ctx, insertDesignQuestion,
+		arg.Design,
+		arg.Seq,
+		arg.Contract,
+		arg.Text,
+		arg.Options,
+		arg.Recommendation,
+		arg.Asker,
+		arg.Asked,
+	)
+	return err
+}
+
+const insertDesignStep = `-- name: InsertDesignStep :exec
+INSERT INTO design_steps (step, design, kind, subject, repository, revision, delta, created)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+`
+
+type InsertDesignStepParams struct {
+	Step       string
+	Design     string
+	Kind       string
+	Subject    string
+	Repository string
+	Revision   string
+	Delta      string
+	Created    int64
+}
+
+func (q *Queries) InsertDesignStep(ctx context.Context, arg InsertDesignStepParams) error {
+	_, err := q.db.ExecContext(ctx, insertDesignStep,
+		arg.Step,
+		arg.Design,
+		arg.Kind,
+		arg.Subject,
+		arg.Repository,
+		arg.Revision,
+		arg.Delta,
+		arg.Created,
+	)
+	return err
 }
 
 const insertDueResume = `-- name: InsertDueResume :exec
@@ -3952,6 +4665,38 @@ func (q *Queries) InsertEpicTaskTestChange(ctx context.Context, arg InsertEpicTa
 	return err
 }
 
+const insertEpicTaskTestRun = `-- name: InsertEpicTaskTestRun :exec
+INSERT INTO epic_task_test_runs (epic, task, generation, attempt, review, position, command, revision)
+VALUES (
+    ?1, ?2,
+    (SELECT tasks.generation FROM epic_tasks AS tasks WHERE tasks.epic = ?1 AND tasks.seq = ?2),
+    ?3, ?4, ?5, ?6, ?7
+)
+`
+
+type InsertEpicTaskTestRunParams struct {
+	Epic     string
+	Task     int64
+	Attempt  int64
+	Review   int64
+	Position int64
+	Command  string
+	Revision string
+}
+
+func (q *Queries) InsertEpicTaskTestRun(ctx context.Context, arg InsertEpicTaskTestRunParams) error {
+	_, err := q.db.ExecContext(ctx, insertEpicTaskTestRun,
+		arg.Epic,
+		arg.Task,
+		arg.Attempt,
+		arg.Review,
+		arg.Position,
+		arg.Command,
+		arg.Revision,
+	)
+	return err
+}
+
 const insertEpicTaskVersion = `-- name: InsertEpicTaskVersion :exec
 INSERT INTO epic_task_versions (
     epic, task, version, source, decision, step, reason, deliverable, files, test_changes, gate, evidence,
@@ -4406,9 +5151,9 @@ func (q *Queries) InsertPaneSend(ctx context.Context, arg InsertPaneSendParams) 
 const insertPlannerAction = `-- name: InsertPlannerAction :exec
 INSERT INTO planner_actions (
     epic, turn, position, kind, node, task, close_kind, by_epic, undo_none, reason, state, refusal, requirement, item,
-    deliverable, files, remove_files, reviewer
+    deliverable, files, remove_files, reviewer, split_tasks
 )
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', '', ?, ?, ?, ?, ?, ?)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', '', ?, ?, ?, ?, ?, ?, ?)
 `
 
 type InsertPlannerActionParams struct {
@@ -4428,6 +5173,7 @@ type InsertPlannerActionParams struct {
 	Files       string
 	RemoveFiles string
 	Reviewer    string
+	SplitTasks  string
 }
 
 func (q *Queries) InsertPlannerAction(ctx context.Context, arg InsertPlannerActionParams) error {
@@ -4448,6 +5194,7 @@ func (q *Queries) InsertPlannerAction(ctx context.Context, arg InsertPlannerActi
 		arg.Files,
 		arg.RemoveFiles,
 		arg.Reviewer,
+		arg.SplitTasks,
 	)
 	return err
 }
@@ -5298,8 +6045,147 @@ func (q *Queries) ListContractListings(ctx context.Context) ([]ListContractListi
 	return items, nil
 }
 
+const listContractPredecessors = `-- name: ListContractPredecessors :many
+SELECT CAST(COALESCE(epics.phase, '') AS TEXT) AS epic_phase
+FROM design_edges AS edges
+LEFT JOIN epics ON epics.id = edges.after
+WHERE edges.contract = ?
+ORDER BY edges.after
+`
+
+func (q *Queries) ListContractPredecessors(ctx context.Context, contract string) ([]string, error) {
+	rows, err := q.db.QueryContext(ctx, listContractPredecessors, contract)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var epic_phase string
+		if err := rows.Scan(&epic_phase); err != nil {
+			return nil, err
+		}
+		items = append(items, epic_phase)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listContractRefusals = `-- name: ListContractRefusals :many
+SELECT contract, seq, version, field, text, session, at FROM contract_refusals WHERE contract = ? ORDER BY seq
+`
+
+func (q *Queries) ListContractRefusals(ctx context.Context, contract string) ([]ContractRefusal, error) {
+	rows, err := q.db.QueryContext(ctx, listContractRefusals, contract)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ContractRefusal
+	for rows.Next() {
+		var i ContractRefusal
+		if err := rows.Scan(
+			&i.Contract,
+			&i.Seq,
+			&i.Version,
+			&i.Field,
+			&i.Text,
+			&i.Session,
+			&i.At,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listContractRowWrites = `-- name: ListContractRowWrites :many
+SELECT contract, seq, version, "row", "action", depends, words, maker, quote, maker_reason, delegation, session, at FROM contract_row_writes WHERE contract = ? ORDER BY seq
+`
+
+func (q *Queries) ListContractRowWrites(ctx context.Context, contract string) ([]ContractRowWrite, error) {
+	rows, err := q.db.QueryContext(ctx, listContractRowWrites, contract)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ContractRowWrite
+	for rows.Next() {
+		var i ContractRowWrite
+		if err := rows.Scan(
+			&i.Contract,
+			&i.Seq,
+			&i.Version,
+			&i.Row,
+			&i.Action,
+			&i.Depends,
+			&i.Words,
+			&i.Maker,
+			&i.Quote,
+			&i.MakerReason,
+			&i.Delegation,
+			&i.Session,
+			&i.At,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listContractShown = `-- name: ListContractShown :many
+SELECT contract, version, "row", at FROM contract_shown WHERE contract = ? ORDER BY version, row
+`
+
+func (q *Queries) ListContractShown(ctx context.Context, contract string) ([]ContractShown, error) {
+	rows, err := q.db.QueryContext(ctx, listContractShown, contract)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ContractShown
+	for rows.Next() {
+		var i ContractShown
+		if err := rows.Scan(
+			&i.Contract,
+			&i.Version,
+			&i.Row,
+			&i.At,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listContractStates = `-- name: ListContractStates :many
-SELECT contract, seq, state, version, session, words, at, base FROM contract_states WHERE contract = ? ORDER BY seq
+SELECT contract, seq, state, version, session, words, at, base, maker, quote, maker_reason, delegation FROM contract_states WHERE contract = ? ORDER BY seq
 `
 
 func (q *Queries) ListContractStates(ctx context.Context, contract string) ([]ContractState, error) {
@@ -5320,7 +6206,38 @@ func (q *Queries) ListContractStates(ctx context.Context, contract string) ([]Co
 			&i.Words,
 			&i.At,
 			&i.Base,
+			&i.Maker,
+			&i.Quote,
+			&i.MakerReason,
+			&i.Delegation,
 		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listContractStepReads = `-- name: ListContractStepReads :many
+SELECT step, contract, version FROM design_step_reads WHERE contract = ? ORDER BY step
+`
+
+func (q *Queries) ListContractStepReads(ctx context.Context, contract string) ([]DesignStepRead, error) {
+	rows, err := q.db.QueryContext(ctx, listContractStepReads, contract)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []DesignStepRead
+	for rows.Next() {
+		var i DesignStepRead
+		if err := rows.Scan(&i.Step, &i.Contract, &i.Version); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -5397,6 +6314,468 @@ func (q *Queries) ListCronJobs(ctx context.Context) ([]CronJob, error) {
 			&i.Recurring,
 			&i.CreatedAt,
 			&i.LastFireAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listDesignApproachChoices = `-- name: ListDesignApproachChoices :many
+SELECT design, seq, approach, words, maker, quote, maker_reason, delegation, session, at FROM design_approach_choices WHERE design = ? ORDER BY seq
+`
+
+func (q *Queries) ListDesignApproachChoices(ctx context.Context, design string) ([]DesignApproachChoice, error) {
+	rows, err := q.db.QueryContext(ctx, listDesignApproachChoices, design)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []DesignApproachChoice
+	for rows.Next() {
+		var i DesignApproachChoice
+		if err := rows.Scan(
+			&i.Design,
+			&i.Seq,
+			&i.Approach,
+			&i.Words,
+			&i.Maker,
+			&i.Quote,
+			&i.MakerReason,
+			&i.Delegation,
+			&i.Session,
+			&i.At,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listDesignApproaches = `-- name: ListDesignApproaches :many
+SELECT design, seq, name, shape, cost, wins, loses, reconsider, research, recommended, reason, session, at FROM design_approaches WHERE design = ? ORDER BY seq
+`
+
+func (q *Queries) ListDesignApproaches(ctx context.Context, design string) ([]DesignApproach, error) {
+	rows, err := q.db.QueryContext(ctx, listDesignApproaches, design)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []DesignApproach
+	for rows.Next() {
+		var i DesignApproach
+		if err := rows.Scan(
+			&i.Design,
+			&i.Seq,
+			&i.Name,
+			&i.Shape,
+			&i.Cost,
+			&i.Wins,
+			&i.Loses,
+			&i.Reconsider,
+			&i.Research,
+			&i.Recommended,
+			&i.Reason,
+			&i.Session,
+			&i.At,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listDesignContracts = `-- name: ListDesignContracts :many
+SELECT members.contract, members.position, newest.repository, newest.title,
+       CAST((
+           SELECT newest_state.state FROM contract_states AS newest_state
+           WHERE newest_state.contract = members.contract ORDER BY newest_state.seq DESC LIMIT 1
+       ) AS TEXT) AS state,
+       CAST(COALESCE(epics.id, '') AS TEXT) AS epic,
+       CAST(COALESCE(epics.phase, '') AS TEXT) AS epic_phase
+FROM design_contracts AS members
+JOIN contract_versions AS newest ON newest.contract = members.contract
+LEFT JOIN epics ON epics.id = members.contract
+WHERE members.design = ? AND newest.version = (
+    SELECT MAX(versions.version) FROM contract_versions AS versions WHERE versions.contract = members.contract
+)
+ORDER BY members.position
+`
+
+type ListDesignContractsRow struct {
+	Contract   string
+	Position   int64
+	Repository string
+	Title      string
+	State      string
+	Epic       string
+	EpicPhase  string
+}
+
+func (q *Queries) ListDesignContracts(ctx context.Context, design string) ([]ListDesignContractsRow, error) {
+	rows, err := q.db.QueryContext(ctx, listDesignContracts, design)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListDesignContractsRow
+	for rows.Next() {
+		var i ListDesignContractsRow
+		if err := rows.Scan(
+			&i.Contract,
+			&i.Position,
+			&i.Repository,
+			&i.Title,
+			&i.State,
+			&i.Epic,
+			&i.EpicPhase,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listDesignConversations = `-- name: ListDesignConversations :many
+SELECT design, seq, session, previous, at FROM design_conversations WHERE design = ? ORDER BY seq
+`
+
+func (q *Queries) ListDesignConversations(ctx context.Context, design string) ([]DesignConversation, error) {
+	rows, err := q.db.QueryContext(ctx, listDesignConversations, design)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []DesignConversation
+	for rows.Next() {
+		var i DesignConversation
+		if err := rows.Scan(
+			&i.Design,
+			&i.Seq,
+			&i.Session,
+			&i.Previous,
+			&i.At,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listDesignDelegations = `-- name: ListDesignDelegations :many
+SELECT design, seq, kinds, message, session, at FROM design_delegations WHERE design = ? ORDER BY seq
+`
+
+func (q *Queries) ListDesignDelegations(ctx context.Context, design string) ([]DesignDelegation, error) {
+	rows, err := q.db.QueryContext(ctx, listDesignDelegations, design)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []DesignDelegation
+	for rows.Next() {
+		var i DesignDelegation
+		if err := rows.Scan(
+			&i.Design,
+			&i.Seq,
+			&i.Kinds,
+			&i.Message,
+			&i.Session,
+			&i.At,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listDesignDispositions = `-- name: ListDesignDispositions :many
+SELECT design, seq, item, disposition, reason, boundary, maker, quote, maker_reason, delegation, session, at FROM design_dispositions WHERE design = ? ORDER BY seq
+`
+
+func (q *Queries) ListDesignDispositions(ctx context.Context, design string) ([]DesignDisposition, error) {
+	rows, err := q.db.QueryContext(ctx, listDesignDispositions, design)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []DesignDisposition
+	for rows.Next() {
+		var i DesignDisposition
+		if err := rows.Scan(
+			&i.Design,
+			&i.Seq,
+			&i.Item,
+			&i.Disposition,
+			&i.Reason,
+			&i.Boundary,
+			&i.Maker,
+			&i.Quote,
+			&i.MakerReason,
+			&i.Delegation,
+			&i.Session,
+			&i.At,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listDesignDrafts = `-- name: ListDesignDrafts :many
+SELECT id, design, repository, title, body, decisions, words, writer, created, updated FROM contract_drafts WHERE design = ? ORDER BY created, id
+`
+
+func (q *Queries) ListDesignDrafts(ctx context.Context, design string) ([]ContractDraft, error) {
+	rows, err := q.db.QueryContext(ctx, listDesignDrafts, design)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ContractDraft
+	for rows.Next() {
+		var i ContractDraft
+		if err := rows.Scan(
+			&i.ID,
+			&i.Design,
+			&i.Repository,
+			&i.Title,
+			&i.Body,
+			&i.Decisions,
+			&i.Words,
+			&i.Writer,
+			&i.Created,
+			&i.Updated,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listDesignEdges = `-- name: ListDesignEdges :many
+SELECT design, contract, "after", created FROM design_edges WHERE design = ? ORDER BY created, contract, after
+`
+
+func (q *Queries) ListDesignEdges(ctx context.Context, design string) ([]DesignEdge, error) {
+	rows, err := q.db.QueryContext(ctx, listDesignEdges, design)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []DesignEdge
+	for rows.Next() {
+		var i DesignEdge
+		if err := rows.Scan(
+			&i.Design,
+			&i.Contract,
+			&i.After,
+			&i.Created,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listDesignLog = `-- name: ListDesignLog :many
+SELECT design, seq, at, maker, session, what, ids, words FROM design_log WHERE design = ? ORDER BY seq
+`
+
+func (q *Queries) ListDesignLog(ctx context.Context, design string) ([]DesignLog, error) {
+	rows, err := q.db.QueryContext(ctx, listDesignLog, design)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []DesignLog
+	for rows.Next() {
+		var i DesignLog
+		if err := rows.Scan(
+			&i.Design,
+			&i.Seq,
+			&i.At,
+			&i.Maker,
+			&i.Session,
+			&i.What,
+			&i.Ids,
+			&i.Words,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listDesignQuestions = `-- name: ListDesignQuestions :many
+SELECT design, seq, contract, text, options, recommendation, asker, asked, answer, accepted, maker, quote, maker_reason, delegation, answerer, answered FROM design_questions WHERE design = ? ORDER BY seq
+`
+
+func (q *Queries) ListDesignQuestions(ctx context.Context, design string) ([]DesignQuestion, error) {
+	rows, err := q.db.QueryContext(ctx, listDesignQuestions, design)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []DesignQuestion
+	for rows.Next() {
+		var i DesignQuestion
+		if err := rows.Scan(
+			&i.Design,
+			&i.Seq,
+			&i.Contract,
+			&i.Text,
+			&i.Options,
+			&i.Recommendation,
+			&i.Asker,
+			&i.Asked,
+			&i.Answer,
+			&i.Accepted,
+			&i.Maker,
+			&i.Quote,
+			&i.MakerReason,
+			&i.Delegation,
+			&i.Answerer,
+			&i.Answered,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listDesignSteps = `-- name: ListDesignSteps :many
+SELECT step, design, kind, subject, repository, revision, delta, created FROM design_steps WHERE design = ? ORDER BY created, step
+`
+
+func (q *Queries) ListDesignSteps(ctx context.Context, design string) ([]DesignStep, error) {
+	rows, err := q.db.QueryContext(ctx, listDesignSteps, design)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []DesignStep
+	for rows.Next() {
+		var i DesignStep
+		if err := rows.Scan(
+			&i.Step,
+			&i.Design,
+			&i.Kind,
+			&i.Subject,
+			&i.Repository,
+			&i.Revision,
+			&i.Delta,
+			&i.Created,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listDesigns = `-- name: ListDesigns :many
+SELECT id, title, conversation, created FROM designs ORDER BY created, id
+`
+
+func (q *Queries) ListDesigns(ctx context.Context) ([]Design, error) {
+	rows, err := q.db.QueryContext(ctx, listDesigns)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Design
+	for rows.Next() {
+		var i Design
+		if err := rows.Scan(
+			&i.ID,
+			&i.Title,
+			&i.Conversation,
+			&i.Created,
 		); err != nil {
 			return nil, err
 		}
@@ -5691,7 +7070,7 @@ func (q *Queries) ListEpicAmendments(ctx context.Context, epic string) ([]EpicAm
 }
 
 const listEpicChainActions = `-- name: ListEpicChainActions :many
-SELECT planner_actions.epic, planner_actions.turn, planner_actions.position, planner_actions.kind, planner_actions.node, planner_actions.task, planner_actions.close_kind, planner_actions.by_epic, planner_actions.undo_none, planner_actions.reason, planner_actions.state, planner_actions.refusal, planner_actions.park, planner_actions.requirement, planner_actions.item, planner_actions.deliverable, planner_actions.files, planner_actions.remove_files, planner_actions.reviewer FROM planner_actions
+SELECT planner_actions.epic, planner_actions.turn, planner_actions.position, planner_actions.kind, planner_actions.node, planner_actions.task, planner_actions.close_kind, planner_actions.by_epic, planner_actions.undo_none, planner_actions.reason, planner_actions.state, planner_actions.refusal, planner_actions.park, planner_actions.requirement, planner_actions.item, planner_actions.deliverable, planner_actions.files, planner_actions.remove_files, planner_actions.reviewer, planner_actions.split_tasks FROM planner_actions
 JOIN epic_parks ON epic_parks.epic = planner_actions.epic AND epic_parks.seq = planner_actions.park
 WHERE planner_actions.epic = ?1 AND epic_parks.chain = ?2
   AND planner_actions.state IN ('taken', 'refused')
@@ -5732,6 +7111,7 @@ func (q *Queries) ListEpicChainActions(ctx context.Context, arg ListEpicChainAct
 			&i.Files,
 			&i.RemoveFiles,
 			&i.Reviewer,
+			&i.SplitTasks,
 		); err != nil {
 			return nil, err
 		}
@@ -7545,6 +8925,48 @@ func (q *Queries) ListEpicTaskTestChanges(ctx context.Context, epic string) ([]E
 	return items, nil
 }
 
+const listEpicTaskTestRuns = `-- name: ListEpicTaskTestRuns :many
+SELECT epic, task, generation, attempt, review, position, command, revision, step, output FROM epic_task_test_runs AS runs
+WHERE runs.epic = ? AND runs.generation = (
+    SELECT tasks.generation FROM epic_tasks AS tasks WHERE tasks.epic = runs.epic AND tasks.seq = runs.task
+)
+ORDER BY runs.task, runs.attempt, runs.review, runs.position
+`
+
+func (q *Queries) ListEpicTaskTestRuns(ctx context.Context, epic string) ([]EpicTaskTestRun, error) {
+	rows, err := q.db.QueryContext(ctx, listEpicTaskTestRuns, epic)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []EpicTaskTestRun
+	for rows.Next() {
+		var i EpicTaskTestRun
+		if err := rows.Scan(
+			&i.Epic,
+			&i.Task,
+			&i.Generation,
+			&i.Attempt,
+			&i.Review,
+			&i.Position,
+			&i.Command,
+			&i.Revision,
+			&i.Step,
+			&i.Output,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listEpicTaskVersions = `-- name: ListEpicTaskVersions :many
 SELECT epic, task, version, source, decision, step, reason, deliverable, files, test_changes, gate, evidence, state, red_run, refusal, created, settled FROM epic_task_versions WHERE epic = ? ORDER BY task, version
 `
@@ -7591,7 +9013,7 @@ func (q *Queries) ListEpicTaskVersions(ctx context.Context, epic string) ([]Epic
 }
 
 const listEpicTasks = `-- name: ListEpicTasks :many
-SELECT epic, seq, turn, title, deliverable, status, gate, evidence, stage, base, attempt, rerun, no_verdict, held, step, red_run, green_run, revision, failure, review, refs, gate_pos, finding_pos, batch, guard, needs_files, decisions, after_tasks, question, gate_changes, rebriefs, notes, generation, depends_on, kind, revises FROM epic_tasks WHERE epic = ? ORDER BY seq
+SELECT epic, seq, turn, title, deliverable, status, gate, evidence, stage, base, attempt, rerun, no_verdict, held, step, red_run, green_run, revision, failure, review, refs, gate_pos, finding_pos, batch, guard, needs_files, decisions, after_tasks, question, gate_changes, rebriefs, notes, generation, depends_on, kind, revises, split_from FROM epic_tasks WHERE epic = ? ORDER BY seq
 `
 
 func (q *Queries) ListEpicTasks(ctx context.Context, epic string) ([]EpicTask, error) {
@@ -7640,6 +9062,7 @@ func (q *Queries) ListEpicTasks(ctx context.Context, epic string) ([]EpicTask, e
 			&i.DependsOn,
 			&i.Kind,
 			&i.Revises,
+			&i.SplitFrom,
 		); err != nil {
 			return nil, err
 		}
@@ -8358,6 +9781,56 @@ func (q *Queries) ListHeadlineDueSessions(ctx context.Context) ([]ListHeadlineDu
 	return items, nil
 }
 
+const listHeldEpics = `-- name: ListHeldEpics :many
+SELECT epics.id, epics.repository, epics.host,
+       CAST(COALESCE((
+           SELECT held.seq FROM epic_questions AS held
+           WHERE held.epic = epics.id AND held.label = 'held' ORDER BY held.seq DESC LIMIT 1
+       ), 0) AS INTEGER) AS question,
+       CAST(COALESCE((
+           SELECT held.choice FROM epic_questions AS held
+           WHERE held.epic = epics.id AND held.label = 'held' ORDER BY held.seq DESC LIMIT 1
+       ), '') AS TEXT) AS answer
+FROM epics WHERE epics.phase = 'held' ORDER BY epics.created, epics.id
+`
+
+type ListHeldEpicsRow struct {
+	ID         string
+	Repository string
+	Host       string
+	Question   int64
+	Answer     string
+}
+
+func (q *Queries) ListHeldEpics(ctx context.Context) ([]ListHeldEpicsRow, error) {
+	rows, err := q.db.QueryContext(ctx, listHeldEpics)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListHeldEpicsRow
+	for rows.Next() {
+		var i ListHeldEpicsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Repository,
+			&i.Host,
+			&i.Question,
+			&i.Answer,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listHolderPrompts = `-- name: ListHolderPrompts :many
 SELECT events.write_id, CAST(json_extract(events.payload, '$.text') AS TEXT) AS text FROM events
 WHERE events.session_id = ?1 AND events.kind = 'engine_prompt' AND events.write_id <> ''
@@ -8791,6 +10264,73 @@ func (q *Queries) ListLimitedSteps(ctx context.Context) ([]Step, error) {
 			&i.LinesAdded,
 			&i.LinesRemoved,
 			&i.Host,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listLoneContracts = `-- name: ListLoneContracts :many
+SELECT contracts.id, contracts.created,
+       newest.repository, newest.title,
+       CAST(COALESCE((
+           SELECT opening.writer FROM contract_versions AS opening
+           WHERE opening.contract = contracts.id AND opening.version = 1
+       ), '') AS TEXT) AS conversation,
+       CAST((
+           SELECT newest_state.state FROM contract_states AS newest_state
+           WHERE newest_state.contract = contracts.id ORDER BY newest_state.seq DESC LIMIT 1
+       ) AS TEXT) AS state,
+       CAST(COALESCE(epics.id, '') AS TEXT) AS epic,
+       CAST(COALESCE(epics.phase, '') AS TEXT) AS epic_phase
+FROM contracts
+JOIN contract_versions AS newest ON newest.contract = contracts.id
+LEFT JOIN epics ON epics.id = contracts.id
+WHERE NOT EXISTS (
+    SELECT 1 FROM design_contracts AS members WHERE members.contract = contracts.id
+) AND newest.version = (
+    SELECT MAX(versions.version) FROM contract_versions AS versions WHERE versions.contract = contracts.id
+)
+ORDER BY contracts.created, contracts.id
+`
+
+type ListLoneContractsRow struct {
+	ID           string
+	Created      int64
+	Repository   string
+	Title        string
+	Conversation string
+	State        string
+	Epic         string
+	EpicPhase    string
+}
+
+func (q *Queries) ListLoneContracts(ctx context.Context) ([]ListLoneContractsRow, error) {
+	rows, err := q.db.QueryContext(ctx, listLoneContracts)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListLoneContractsRow
+	for rows.Next() {
+		var i ListLoneContractsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Created,
+			&i.Repository,
+			&i.Title,
+			&i.Conversation,
+			&i.State,
+			&i.Epic,
+			&i.EpicPhase,
 		); err != nil {
 			return nil, err
 		}
@@ -9535,7 +11075,7 @@ func (q *Queries) ListPendingNotices(ctx context.Context) ([]PendingNotice, erro
 }
 
 const listPendingPlannerActions = `-- name: ListPendingPlannerActions :many
-SELECT epic, turn, position, kind, node, task, close_kind, by_epic, undo_none, reason, state, refusal, park, requirement, item, deliverable, files, remove_files, reviewer FROM planner_actions WHERE state = 'pending' ORDER BY epic, turn, position
+SELECT epic, turn, position, kind, node, task, close_kind, by_epic, undo_none, reason, state, refusal, park, requirement, item, deliverable, files, remove_files, reviewer, split_tasks FROM planner_actions WHERE state = 'pending' ORDER BY epic, turn, position
 `
 
 func (q *Queries) ListPendingPlannerActions(ctx context.Context) ([]PlannerAction, error) {
@@ -9567,7 +11107,50 @@ func (q *Queries) ListPendingPlannerActions(ctx context.Context) ([]PlannerActio
 			&i.Files,
 			&i.RemoveFiles,
 			&i.Reviewer,
+			&i.SplitTasks,
 		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listPredecessorStates = `-- name: ListPredecessorStates :many
+SELECT edges.after AS contract,
+       CAST(COALESCE((
+           SELECT newest.state FROM contract_states AS newest
+           WHERE newest.contract = edges.after ORDER BY newest.seq DESC LIMIT 1
+       ), '') AS TEXT) AS state,
+       CAST(COALESCE(after_epics.phase, '') AS TEXT) AS epic_phase
+FROM design_edges AS edges
+LEFT JOIN epics AS after_epics ON after_epics.id = edges.after
+WHERE edges.contract = ?
+ORDER BY edges.after
+`
+
+type ListPredecessorStatesRow struct {
+	Contract  string
+	State     string
+	EpicPhase string
+}
+
+func (q *Queries) ListPredecessorStates(ctx context.Context, contract string) ([]ListPredecessorStatesRow, error) {
+	rows, err := q.db.QueryContext(ctx, listPredecessorStates, contract)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListPredecessorStatesRow
+	for rows.Next() {
+		var i ListPredecessorStatesRow
+		if err := rows.Scan(&i.Contract, &i.State, &i.EpicPhase); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -10176,6 +11759,52 @@ func (q *Queries) ListRunningCallerSteps(ctx context.Context, caller string) ([]
 			&i.LinesAdded,
 			&i.LinesRemoved,
 			&i.Host,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listRunningDesignSteps = `-- name: ListRunningDesignSteps :many
+SELECT design_steps.step, design_steps.design, design_steps.kind, design_steps.subject, design_steps.repository, design_steps.revision, design_steps.delta, design_steps.created FROM design_steps
+JOIN steps ON steps.id = design_steps.step
+WHERE steps.end_value = '' AND CAST(COALESCE(
+    (SELECT newest.session FROM design_conversations AS newest WHERE newest.design = design_steps.design
+     ORDER BY newest.seq DESC LIMIT 1),
+    (SELECT designs.conversation FROM designs WHERE designs.id = design_steps.design),
+    (SELECT opening.writer FROM contract_versions AS opening
+     WHERE opening.contract = design_steps.design AND opening.version = 1 AND NOT EXISTS (
+         SELECT 1 FROM design_contracts AS members WHERE members.contract = opening.contract))
+) AS TEXT) = CAST(?1 AS TEXT)
+ORDER BY design_steps.created, design_steps.step
+`
+
+func (q *Queries) ListRunningDesignSteps(ctx context.Context, session string) ([]DesignStep, error) {
+	rows, err := q.db.QueryContext(ctx, listRunningDesignSteps, session)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []DesignStep
+	for rows.Next() {
+		var i DesignStep
+		if err := rows.Scan(
+			&i.Step,
+			&i.Design,
+			&i.Kind,
+			&i.Subject,
+			&i.Repository,
+			&i.Revision,
+			&i.Delta,
+			&i.Created,
 		); err != nil {
 			return nil, err
 		}
@@ -11046,6 +12675,17 @@ func (q *Queries) MarkNoticeHistoryRead(ctx context.Context, arg MarkNoticeHisto
 	return err
 }
 
+const maxDesignPosition = `-- name: MaxDesignPosition :one
+SELECT CAST(COALESCE(MAX(position), 0) AS INTEGER) FROM design_contracts WHERE design = ?
+`
+
+func (q *Queries) MaxDesignPosition(ctx context.Context, design string) (int64, error) {
+	row := q.db.QueryRowContext(ctx, maxDesignPosition, design)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const maxEpicActionSeq = `-- name: MaxEpicActionSeq :one
 SELECT CAST(COALESCE(MAX(seq), 0) AS INTEGER) FROM epic_actions WHERE epic = ?
 `
@@ -11275,6 +12915,23 @@ func (q *Queries) NameUnhostedSessions(ctx context.Context, host string) (int64,
 	return result.RowsAffected()
 }
 
+const newestDesignConversation = `-- name: NewestDesignConversation :one
+SELECT design, seq, session, previous, at FROM design_conversations WHERE design = ? ORDER BY seq DESC LIMIT 1
+`
+
+func (q *Queries) NewestDesignConversation(ctx context.Context, design string) (DesignConversation, error) {
+	row := q.db.QueryRowContext(ctx, newestDesignConversation, design)
+	var i DesignConversation
+	err := row.Scan(
+		&i.Design,
+		&i.Seq,
+		&i.Session,
+		&i.Previous,
+		&i.At,
+	)
+	return i, err
+}
+
 const newestEventSeq = `-- name: NewestEventSeq :one
 SELECT CAST(COALESCE(MAX(seq), 0) AS INTEGER) AS seq FROM events
 `
@@ -11284,6 +12941,28 @@ func (q *Queries) NewestEventSeq(ctx context.Context) (int64, error) {
 	var seq int64
 	err := row.Scan(&seq)
 	return seq, err
+}
+
+const nextDesignDispositionSeq = `-- name: NextDesignDispositionSeq :one
+SELECT CAST(COALESCE(MAX(seq), 0) + 1 AS INTEGER) FROM design_dispositions WHERE design = ?
+`
+
+func (q *Queries) NextDesignDispositionSeq(ctx context.Context, design string) (int64, error) {
+	row := q.db.QueryRowContext(ctx, nextDesignDispositionSeq, design)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
+const nextDesignQuestionSeq = `-- name: NextDesignQuestionSeq :one
+SELECT CAST(COALESCE(MAX(seq), 0) + 1 AS INTEGER) FROM design_questions WHERE design = ?
+`
+
+func (q *Queries) NextDesignQuestionSeq(ctx context.Context, design string) (int64, error) {
+	row := q.db.QueryRowContext(ctx, nextDesignQuestionSeq, design)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
 }
 
 const nextEpicNodeRunAttempt = `-- name: NextEpicNodeRunAttempt :execrows
@@ -11907,6 +13586,33 @@ func (q *Queries) SessionEventsBefore(ctx context.Context, arg SessionEventsBefo
 	return items, nil
 }
 
+const setContractStateMaker = `-- name: SetContractStateMaker :exec
+UPDATE contract_states SET maker = ?1, quote = ?2, maker_reason = ?3,
+    delegation = ?4
+WHERE contract = ?5 AND seq = ?6
+`
+
+type SetContractStateMakerParams struct {
+	Maker       string
+	Quote       string
+	MakerReason string
+	Delegation  string
+	Contract    string
+	Seq         int64
+}
+
+func (q *Queries) SetContractStateMaker(ctx context.Context, arg SetContractStateMakerParams) error {
+	_, err := q.db.ExecContext(ctx, setContractStateMaker,
+		arg.Maker,
+		arg.Quote,
+		arg.MakerReason,
+		arg.Delegation,
+		arg.Contract,
+		arg.Seq,
+	)
+	return err
+}
+
 const setCronJobFired = `-- name: SetCronJobFired :exec
 UPDATE cron_jobs SET last_fire_at = ? WHERE job_id = ?
 `
@@ -12281,6 +13987,21 @@ func (q *Queries) SetEpicTaskBuild(ctx context.Context, arg SetEpicTaskBuildPara
 	return result.RowsAffected()
 }
 
+const setEpicTaskDependsOn = `-- name: SetEpicTaskDependsOn :exec
+UPDATE epic_tasks SET depends_on = ?1 WHERE epic = ?2 AND seq = ?3
+`
+
+type SetEpicTaskDependsOnParams struct {
+	DependsOn string
+	Epic      string
+	Seq       int64
+}
+
+func (q *Queries) SetEpicTaskDependsOn(ctx context.Context, arg SetEpicTaskDependsOnParams) error {
+	_, err := q.db.ExecContext(ctx, setEpicTaskDependsOn, arg.DependsOn, arg.Epic, arg.Seq)
+	return err
+}
+
 const setEpicTaskFindingResult = `-- name: SetEpicTaskFindingResult :execrows
 UPDATE epic_task_findings
 SET step = ?1, result = ?2, reason = ?3
@@ -12395,6 +14116,21 @@ func (q *Queries) SetEpicTaskReviewReason(ctx context.Context, arg SetEpicTaskRe
 	return err
 }
 
+const setEpicTaskSplitFrom = `-- name: SetEpicTaskSplitFrom :exec
+UPDATE epic_tasks SET split_from = ?1 WHERE epic = ?2 AND seq = ?3
+`
+
+type SetEpicTaskSplitFromParams struct {
+	SplitFrom int64
+	Epic      string
+	Seq       int64
+}
+
+func (q *Queries) SetEpicTaskSplitFrom(ctx context.Context, arg SetEpicTaskSplitFromParams) error {
+	_, err := q.db.ExecContext(ctx, setEpicTaskSplitFrom, arg.SplitFrom, arg.Epic, arg.Seq)
+	return err
+}
+
 const setEpicTaskStatus = `-- name: SetEpicTaskStatus :exec
 UPDATE epic_tasks SET status = ?1 WHERE epic = ?2 AND seq = ?3
 `
@@ -12408,6 +14144,44 @@ type SetEpicTaskStatusParams struct {
 func (q *Queries) SetEpicTaskStatus(ctx context.Context, arg SetEpicTaskStatusParams) error {
 	_, err := q.db.ExecContext(ctx, setEpicTaskStatus, arg.Status, arg.Epic, arg.Seq)
 	return err
+}
+
+const setEpicTaskTestRunResult = `-- name: SetEpicTaskTestRunResult :execrows
+UPDATE epic_task_test_runs
+SET step = ?1, output = ?2
+WHERE epic_task_test_runs.epic = ?3 AND epic_task_test_runs.task = ?4
+  AND epic_task_test_runs.attempt = ?5 AND epic_task_test_runs.review = ?6
+  AND epic_task_test_runs.position = ?7 AND epic_task_test_runs.step = ''
+  AND epic_task_test_runs.generation = (
+      SELECT tasks.generation FROM epic_tasks AS tasks
+      WHERE tasks.epic = epic_task_test_runs.epic AND tasks.seq = epic_task_test_runs.task
+  )
+`
+
+type SetEpicTaskTestRunResultParams struct {
+	Step     string
+	Output   string
+	Epic     string
+	Task     int64
+	Attempt  int64
+	Review   int64
+	Position int64
+}
+
+func (q *Queries) SetEpicTaskTestRunResult(ctx context.Context, arg SetEpicTaskTestRunResultParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, setEpicTaskTestRunResult,
+		arg.Step,
+		arg.Output,
+		arg.Epic,
+		arg.Task,
+		arg.Attempt,
+		arg.Review,
+		arg.Position,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const setEpicTurnResets = `-- name: SetEpicTurnResets :exec
@@ -12678,6 +14452,25 @@ type StartEpicReleaseParams struct {
 func (q *Queries) StartEpicRelease(ctx context.Context, arg StartEpicReleaseParams) error {
 	_, err := q.db.ExecContext(ctx, startEpicRelease, arg.PhaseAt, arg.ID)
 	return err
+}
+
+const startHeldEpic = `-- name: StartHeldEpic :execrows
+UPDATE epics SET base = ?1, stored_base = ?1, phase = 'accepted', phase_at = ?2
+WHERE id = ?3 AND phase = 'held'
+`
+
+type StartHeldEpicParams struct {
+	Base string
+	At   int64
+	ID   string
+}
+
+func (q *Queries) StartHeldEpic(ctx context.Context, arg StartHeldEpicParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, startHeldEpic, arg.Base, arg.At, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const stopEpicRelease = `-- name: StopEpicRelease :exec
@@ -13122,6 +14915,73 @@ func (q *Queries) UpsertClosureVerdict(ctx context.Context, arg UpsertClosureVer
 		arg.Closed,
 		arg.Why,
 		arg.At,
+	)
+	return err
+}
+
+const upsertContractDraft = `-- name: UpsertContractDraft :exec
+INSERT INTO contract_drafts (id, design, repository, title, body, decisions, words, writer, created, updated)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT (id) DO UPDATE SET design = excluded.design, repository = excluded.repository, title = excluded.title,
+    body = excluded.body, decisions = excluded.decisions, words = excluded.words, writer = excluded.writer,
+    updated = excluded.updated
+`
+
+type UpsertContractDraftParams struct {
+	ID         string
+	Design     string
+	Repository string
+	Title      string
+	Body       string
+	Decisions  string
+	Words      string
+	Writer     string
+	Created    int64
+	Updated    int64
+}
+
+func (q *Queries) UpsertContractDraft(ctx context.Context, arg UpsertContractDraftParams) error {
+	_, err := q.db.ExecContext(ctx, upsertContractDraft,
+		arg.ID,
+		arg.Design,
+		arg.Repository,
+		arg.Title,
+		arg.Body,
+		arg.Decisions,
+		arg.Words,
+		arg.Writer,
+		arg.Created,
+		arg.Updated,
+	)
+	return err
+}
+
+const upsertContractWorking = `-- name: UpsertContractWorking :exec
+INSERT INTO contract_working (contract, version, body, decisions, writer, created, updated)
+VALUES (?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT (contract) DO UPDATE SET version = excluded.version, body = excluded.body,
+    decisions = excluded.decisions, writer = excluded.writer, updated = excluded.updated
+`
+
+type UpsertContractWorkingParams struct {
+	Contract  string
+	Version   int64
+	Body      string
+	Decisions string
+	Writer    string
+	Created   int64
+	Updated   int64
+}
+
+func (q *Queries) UpsertContractWorking(ctx context.Context, arg UpsertContractWorkingParams) error {
+	_, err := q.db.ExecContext(ctx, upsertContractWorking,
+		arg.Contract,
+		arg.Version,
+		arg.Body,
+		arg.Decisions,
+		arg.Writer,
+		arg.Created,
+		arg.Updated,
 	)
 	return err
 }

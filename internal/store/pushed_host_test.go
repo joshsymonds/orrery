@@ -12,13 +12,13 @@ import (
 func TestPushedHostRows(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	s, provider := storeAtVersion(t, 103)
+	s, provider := storeAtVersion(t, 107)
 	if _, err := s.db.DB.ExecContext(ctx,
 		`INSERT INTO pushed_notices (pane, session, time) VALUES ('%3', '', 1700000000)`); err != nil {
 		t.Fatalf("seed a pushed row before the host column: %v", err)
 	}
 	if _, err := provider.UpByOne(ctx); err != nil {
-		t.Fatalf("Up of 00104: %v", err)
+		t.Fatalf("Up of 00108: %v", err)
 	}
 	wantRows := func(stage string, want ...PushedRow) {
 		t.Helper()

@@ -111,7 +111,7 @@ func unreachableHandler(t *testing.T, tmux *tmuxctl.Client, storePath string, cl
 		HostName:   routingController,
 		Tmux:       tmux,
 		Push:       newPushStore(t),
-		HostStatus: hoststatus.New(writeHostStatusScript(t, "[]", 0), statusNow),
+		HostStatus: hoststatus.New(writeHostStatusScript(t, "[]", 0), statusNow, time.Minute),
 		LocalLoad: func() (node.Load, error) {
 			return node.Load{LoadPercent: statusLocalLoad, MemoryPercent: statusLocalMemory}, nil
 		},

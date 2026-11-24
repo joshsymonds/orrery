@@ -38,7 +38,7 @@ An account has these fields.
 - **name**: as the owner gave it. Required. Rename changes it and nothing else.
 - **provider**: `anthropic`, and nothing else for now. Add refuses any other provider. A second provider needs a change to this section first.
 - **plan**: free text. It may be empty, and is stored as `''` when none is given.
-- **token**: the bearer a `claude setup-token` run prints, pasted by the owner. Required, and kept as given. It is stored in plain text in the `token` column of `llm_accounts` in orrery.db. Encryption is deferred. When it lands, this section changes with it.
+- **token**: the bearer a `claude setup-token` run prints, pasted by the owner. It must start `sk-ant-oat`, which is what `claude setup-token` prints. An `sk-ant-api` API key is refused as one, and any other token that does not start `sk-ant-oat` is refused as not a setup-token. Required, and kept as given. It is stored in plain text in the `token` column of `llm_accounts` in orrery.db. Encryption is deferred. When it lands, this section changes with it.
 - **fingerprint**: the first 12 lowercase hex characters of the SHA-256 of the token, computed by orreryd when the account is added. It is the only thing any list or answer shows of the token. Stored as `llm_accounts.fingerprint`.
 - **created**: the unix second orreryd stored the account, as `llm_accounts.created`.
 
@@ -51,7 +51,7 @@ The rules that keep the token where it belongs are these.
 
 The account operations are these.
 
-- **Add** checks the provider and that the name and the token are present. orreryd mints the id, computes the fingerprint, stores the row and returns the account without its token.
+- **Add** checks that the name is present, that the provider is `anthropic`, and that the token is present with no interior whitespace. Then it checks that the trimmed token starts `sk-ant-oat`: a token that starts `sk-ant-api` is refused as an API key, and any other token is refused as not a setup-token. The token check runs after the name, provider and whitespace checks. orreryd mints the id, computes the fingerprint, stores the row and returns the account without its token.
 - **List** returns every account, created ascending and then by id. Serve reads it from the store.
 - **Rename** gives the named account a new name and returns it as it stands. An id that names no account is refused.
 - **Remove** deletes the named account. It refuses an account that a context uses, which means a context whose `account` names it. The refusal names the context ids, and the account stays stored. A removal therefore never leaves a context with a dangling account.

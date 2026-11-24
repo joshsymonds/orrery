@@ -406,6 +406,7 @@ class SettingsScreenTest {
             SettingsScreen(
                 settings = ServerSettings(context, defaultUrl = defaultUrl),
                 onBack = onBack,
+                onOpenAccounts = {},
                 onSaved = onSaved,
                 startPushSetup = startPushSetup,
             )

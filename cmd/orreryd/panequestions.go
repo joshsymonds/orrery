@@ -37,6 +37,14 @@ func newPaneQuestions(server tmuxctl.Server, router enginehost.Router) *paneQues
 	return &paneQuestions{server: server, router: router}
 }
 
+// controllerPaneQuestions returns the PaneQuestions of the controller's own panes: newPaneQuestions over the server
+// questionServer names, with each pane's notice key naming opts.orrery as its host.
+func controllerPaneQuestions(opts options, router enginehost.Router) *paneQuestions {
+	questions := newPaneQuestions(questionServer(opts), router)
+	questions.orrery = opts.orrery
+	return questions
+}
+
 // PaneQuestion reads pane's waiting state, the hash of its question and its changed time from its tmux server. It
 // returns an error wrapping enginehost.ErrNoPane when the server lists no pane with that id, or when the server is not
 // running, since it lists none. Any other read failure is returned wrapped with the pane's id.

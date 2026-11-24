@@ -1,0 +1,713 @@
+syntax = "proto3";
+
+package orrery.engine.v1;
+
+// Stage runs the contract stage's tools over a design's record: research and reproduction steps, questions, the
+// steelman's passes and the ledger of its findings. Any conversation calls it. orreryd serves it on the same private
+// socket as Designs.
+service Stage {
+  // Research starts a read-only scout step on a design and stores its report on the design.
+  rpc Research(ResearchRequest) returns (ResearchResponse);
+
+  // Reproduce runs a command through a test-runner step at a committed revision and stores its output on the design.
+  rpc Reproduce(ReproduceRequest) returns (ReproduceResponse);
+
+  // Steelman starts a steelman pass on a design and returns its step, and whether the pass counted.
+  rpc Steelman(SteelmanRequest) returns (SteelmanResponse);
+
+  // Ask stores a question on a design, about one of its contracts, with its options and a recommendation.
+  rpc Ask(AskRequest) returns (AskResponse);
+
+  // Answer stores an answer to a question of a design, with the maker it came from, and returns the question.
+  rpc Answer(StageAnswerRequest) returns (StageAnswerResponse);
+
+  // Dispose stores a disposition of a ledger item of a design, with the maker it came from, and returns the item.
+  rpc Dispose(DisposeRequest) returns (DisposeResponse);
+
+  // GetStage returns the stage of one design: its steps, questions, ledger and counts.
+  rpc GetStage(GetStageRequest) returns (GetStageResponse);
+
+  // Approach stores an approach a design's stage weighs, with its cost and what it wins and loses, and returns it.
+  rpc Approach(ApproachRequest) returns (ApproachResponse);
+
+  // Choose stores the approach the owner chose for a design, with the maker it came from, and returns the choice.
+  rpc Choose(ChooseRequest) returns (ChooseResponse);
+
+  // Delegate stores the owner's delegation of a design's decisions to the conversation, and returns it.
+  rpc Delegate(DelegateRequest) returns (DelegateResponse);
+
+  // WriteRow stores a write to a row of a contract's body, with the maker it came from, and returns the write.
+  rpc WriteRow(WriteRowRequest) returns (WriteRowResponse);
+
+  // Keep stores an addition a contract keeps, with the maker it came from, and returns the write.
+  rpc Keep(KeepRequest) returns (KeepResponse);
+
+  // Strike stores the striking of an addition a contract keeps, and returns the write and the rows it removed.
+  rpc Strike(StrikeRequest) returns (StrikeResponse);
+
+  // Shown stores the rows of a contract version the owner was shown, and returns the rows it stored.
+  rpc Shown(ShownRequest) returns (ShownResponse);
+
+  // ContinueDesign returns a design and the session that continues its stage.
+  rpc ContinueDesign(ContinueDesignRequest) returns (ContinueDesignResponse);
+}
+
+// StageMaker is who made a stage decision and the evidence it rests on.
+message StageMaker {
+  // Who made the decision: owner_serve for the owner through serve's call, owner_conversation for the owner in the
+  // conversation, or conversation for the owner as the conversation decided for him.
+  string kind = 1;
+
+  // The owner's words the decision quotes; set for owner_conversation.
+  string quote = 2;
+
+  // Why the conversation decided for the owner; set for conversation.
+  string reason = 3;
+
+  // The owner's words that let the conversation decide for him; set for conversation.
+  string delegation = 4;
+}
+
+// StageStep is a research, reproduction or steelman step a design's stage started, with its report once it returns.
+message StageStep {
+  // The step's id.
+  string step = 1;
+
+  // The step's kind, which says which stage tool started it.
+  string kind = 2;
+
+  // What the step looks into: the research question, the reproduction command or the steelman's packet subject.
+  string subject = 3;
+
+  // The absolute path of the git repository the step runs in, empty when it runs in none.
+  string repository = 4;
+
+  // The committed revision the step runs at, empty when it runs at none.
+  string revision = 5;
+
+  // The delta a closure pass checks, empty for the other kinds.
+  string delta = 6;
+
+  // When the step was started, in unix seconds.
+  int64 created = 7;
+
+  // The step's status.
+  string status = 8;
+
+  // The step's report, or its output, empty until it returns.
+  string report = 9;
+
+  // The verdict of a steelman pass, empty for the other kinds and until the pass returns.
+  string verdict = 10;
+
+  // True when the step counts toward the design's budget of passes.
+  bool counted = 11;
+}
+
+// StageQuestion is a question a design's stage asks, about one of its contracts, with its answer once one is given.
+message StageQuestion {
+  // The question's id, counted from 1 within its design.
+  int64 id = 1;
+
+  // The id of the contract the question concerns, empty when it concerns none.
+  string contract = 2;
+
+  // The question's text.
+  string text = 3;
+
+  // The options the owner may choose between.
+  repeated string options = 4;
+
+  // The option the planner recommends.
+  string recommendation = 5;
+
+  // When the question was asked, in unix seconds.
+  int64 asked = 6;
+
+  // The answer's words; empty while the question is open.
+  string answer = 7;
+
+  // True when the answer is the recommendation the planner gave.
+  bool accepted = 8;
+
+  // Who answered the question and the evidence the answer rests on; empty while the question is open.
+  StageMaker maker = 9;
+
+  // When the question was answered, in unix seconds; zero while the question is open.
+  int64 answered = 10;
+}
+
+// StageLedgerItem is a finding a design's stage raised, with its disposition once one is given.
+message StageLedgerItem {
+  // The item's id, counted from 1 within its design.
+  string id = 1;
+
+  // The id of the contract the item concerns, empty when it concerns none.
+  string contract = 2;
+
+  // Where the item came from: discovery for the steelman's discovery pass, or closure for its closure pass.
+  string origin = 3;
+
+  // What the item would change if it held.
+  string impact = 4;
+
+  // The evidence the item rests on.
+  string evidence = 5;
+
+  // The change the item proposes to the contract.
+  string change = 6;
+
+  // The item's disposition: open, adopted, rejected or deferred.
+  string disposition = 7;
+
+  // Why the item was rejected or deferred; empty otherwise.
+  string reason = 8;
+
+  // The boundary the item was deferred to; empty unless it was deferred.
+  string boundary = 9;
+
+  // Who gave the disposition and the evidence it rests on; empty while the item is open.
+  StageMaker maker = 10;
+
+  // Closure's word on the item, empty until closure gives one.
+  string closure_word = 11;
+
+  // Closure's note on the item, empty until closure gives one.
+  string closure_note = 12;
+}
+
+// StageApproach is an approach a design's stage weighs, with its trade-offs and whether the planner recommends it.
+message StageApproach {
+  // The approach's seq, counted from 1 within its design.
+  int64 seq = 1;
+
+  // The approach's name.
+  string name = 2;
+
+  // The shape the approach takes.
+  string shape = 3;
+
+  // What the approach costs.
+  string cost = 4;
+
+  // What the approach wins.
+  string wins = 5;
+
+  // What the approach loses.
+  string loses = 6;
+
+  // What would make the planner reconsider the approach.
+  string reconsider = 7;
+
+  // The ids of the research steps the approach rests on.
+  repeated string research = 8;
+
+  // True when the planner recommends the approach.
+  bool recommended = 9;
+
+  // Why the planner recommends the approach or does not.
+  string reason = 10;
+
+  // The sessions row id of the session that stored the approach.
+  string session = 11;
+
+  // When the approach was stored, in unix seconds.
+  int64 at = 12;
+}
+
+// StageChoice is the approach the owner chose for a design, with the maker it came from.
+message StageChoice {
+  // The seq of the chosen approach.
+  int64 approach = 1;
+
+  // The owner's words the choice is made with.
+  string words = 2;
+
+  // Who made the choice and the evidence it rests on.
+  StageMaker maker = 3;
+
+  // The sessions row id of the session that stored the choice.
+  string session = 4;
+
+  // When the choice was stored, in unix seconds.
+  int64 at = 5;
+}
+
+// StageDelegation is the owner's delegation of a design's decisions to the conversation, with the decisions the
+// conversation made under it.
+message StageDelegation {
+  // The delegation's seq, counted from 1 within its design.
+  int64 seq = 1;
+
+  // The kinds of decision the delegation covers.
+  repeated string kinds = 2;
+
+  // The owner's words the delegation is given with.
+  string message = 3;
+
+  // The sessions row id of the session that stored the delegation.
+  string session = 4;
+
+  // When the delegation was stored, in unix seconds.
+  int64 at = 5;
+
+  // The decisions the conversation made under the delegation, oldest first.
+  repeated StageDecision decisions = 6;
+}
+
+// StageDecision is a decision the conversation made under a delegation.
+message StageDecision {
+  // The decision's kind.
+  string kind = 1;
+
+  // The id of the thing the decision concerns.
+  string ref = 2;
+
+  // The decision's text.
+  string text = 3;
+
+  // Why the conversation decided.
+  string reason = 4;
+
+  // When the decision was made, in unix seconds.
+  int64 at = 5;
+}
+
+// StageLogLine is one line of a design's stage log: what was done, by whom, and the ids it touched.
+message StageLogLine {
+  // The line's seq, counted from 1 within its design.
+  int64 seq = 1;
+
+  // When the line was logged, in unix seconds.
+  int64 at = 2;
+
+  // Who did the thing the line logs and the evidence it rests on.
+  StageMaker maker = 3;
+
+  // The sessions row id of the session that logged the line.
+  string session = 4;
+
+  // What was done.
+  string what = 5;
+
+  // The ids the line touched.
+  repeated string ids = 6;
+
+  // The words the line was logged with.
+  string words = 7;
+}
+
+// StageRowWrite is a write to a row of a contract's body, as a design's stage recorded it.
+message StageRowWrite {
+  // The write's seq, counted from 1 within its design.
+  int64 seq = 1;
+
+  // The number of the contract version the write made.
+  int64 version = 2;
+
+  // The F, R or P row the write concerns.
+  string row = 3;
+
+  // What the write did to the row.
+  string action = 4;
+
+  // The row the written row depends on.
+  string depends = 5;
+
+  // The owner's words the write is made with.
+  string words = 6;
+
+  // Who made the write and the evidence it rests on.
+  StageMaker maker = 7;
+
+  // The sessions row id of the session that stored the write.
+  string session = 8;
+
+  // When the write was stored, in unix seconds.
+  int64 at = 9;
+}
+
+// DesignStage is the stage of one design: the steps it started, the questions it asked, the ledger of its findings and
+// the counts of its passes.
+message DesignStage {
+  // The design's id.
+  string design = 1;
+
+  // The steps the design's stage started, oldest first.
+  repeated StageStep steps = 2;
+
+  // The questions the design's stage asked, oldest first.
+  repeated StageQuestion questions = 3;
+
+  // The ledger of the design's findings, oldest first.
+  repeated StageLedgerItem ledger = 4;
+
+  // True when the ledger is frozen: closure has started or was recorded skipped, and no disposition changes after.
+  bool frozen = 5;
+
+  // True when the design's closure pass was recorded as skipped.
+  bool closure_skipped = 6;
+
+  // True when the design's discovery pass has counted toward its budget.
+  bool discovery_counted = 7;
+
+  // True when the design's closure pass has counted toward its budget.
+  bool closure_counted = 8;
+
+  // The approaches the design's stage weighs, oldest first.
+  repeated StageApproach approaches = 9;
+
+  // The approach the owner chose for the design; unset until a choice is stored.
+  StageChoice choice = 10;
+
+  // The log of the design's stage, oldest first.
+  repeated StageLogLine log = 11;
+
+  // The owner's delegations of the design's decisions to the conversation, oldest first.
+  repeated StageDelegation delegations = 12;
+}
+
+// ResearchRequest asks for a scout step on a design.
+message ResearchRequest {
+  // The design the step researches for.
+  string design = 1;
+
+  // The absolute path of the git repository the scout reads.
+  string repository = 2;
+
+  // The committed revision the scout reads at.
+  string revision = 3;
+
+  // The question the scout answers.
+  string question = 4;
+}
+
+// ResearchResponse carries the step ResearchRequest started.
+message ResearchResponse {
+  // The step, with its report once it returns.
+  StageStep step = 1;
+}
+
+// ReproduceRequest asks for a test-runner step that runs a command on a design.
+message ReproduceRequest {
+  // The design the output is stored on.
+  string design = 1;
+
+  // The absolute path of the git repository the command runs in.
+  string repository = 2;
+
+  // The committed revision the command runs at.
+  string revision = 3;
+
+  // The command to run.
+  string command = 4;
+}
+
+// ReproduceResponse carries the step ReproduceRequest started.
+message ReproduceResponse {
+  // The step, with its output once it returns.
+  StageStep step = 1;
+}
+
+// SteelmanRequest asks for a steelman pass on a design.
+message SteelmanRequest {
+  // The design the pass checks.
+  string design = 1;
+
+  // The delta a closure pass checks against the frozen ledger; empty for the discovery pass.
+  string delta = 2;
+
+  // True when the closure pass is recorded as skipped rather than run.
+  bool skip_closure = 3;
+
+  // Why the closure pass is skipped; set when skip_closure is true.
+  string reason = 4;
+
+  // Who asked for the pass and the evidence it rests on.
+  StageMaker maker = 5;
+}
+
+// SteelmanResponse carries the step SteelmanRequest started and whether the pass counted.
+message SteelmanResponse {
+  // The step, with its verdict once it returns.
+  StageStep step = 1;
+
+  // True when the pass counted toward the design's budget.
+  bool pass = 2;
+}
+
+// AskRequest asks for a question to be stored on a design.
+message AskRequest {
+  // The design the question belongs to.
+  string design = 1;
+
+  // The id of the contract the question concerns, empty when it concerns none.
+  string contract = 2;
+
+  // The question's text.
+  string text = 3;
+
+  // The options the owner may choose between.
+  repeated string options = 4;
+
+  // The option the planner recommends.
+  string recommendation = 5;
+}
+
+// AskResponse carries the question stored by Ask.
+message AskResponse {
+  // The stored question.
+  StageQuestion question = 1;
+}
+
+// StageAnswerRequest asks for an answer to a question of a design to be stored.
+message StageAnswerRequest {
+  // The design the question belongs to.
+  string design = 1;
+
+  // The id of the question, as Ask gave it.
+  int64 question = 2;
+
+  // The answer's words.
+  string answer = 3;
+
+  // True when the answer is the recommendation the planner gave, in which case answer is empty.
+  bool accept = 4;
+
+  // Who answers the question and the evidence the answer rests on.
+  StageMaker maker = 5;
+}
+
+// StageAnswerResponse carries the question stored by Answer.
+message StageAnswerResponse {
+  // The stored question, with its answer.
+  StageQuestion question = 1;
+}
+
+// DisposeRequest asks for a disposition of a ledger item of a design to be stored.
+message DisposeRequest {
+  // The design the item belongs to.
+  string design = 1;
+
+  // The id of the ledger item.
+  string item = 2;
+
+  // The disposition: adopted, rejected or deferred.
+  string disposition = 3;
+
+  // Why the item is rejected or deferred.
+  string reason = 4;
+
+  // The boundary the item is deferred to; set when disposition is deferred.
+  string boundary = 5;
+
+  // Who gives the disposition and the evidence it rests on.
+  StageMaker maker = 6;
+}
+
+// DisposeResponse carries the ledger item stored by Dispose.
+message DisposeResponse {
+  // The stored ledger item, with its disposition.
+  StageLedgerItem item = 1;
+}
+
+// GetStageRequest asks for the stage of one design.
+message GetStageRequest {
+  // The design's id.
+  string design = 1;
+}
+
+// GetStageResponse carries the stage of the design GetStage named.
+message GetStageResponse {
+  // The design's stage.
+  DesignStage stage = 1;
+}
+
+// ApproachRequest asks for an approach a design's stage weighs to be stored.
+message ApproachRequest {
+  // The design the approach belongs to.
+  string design = 1;
+
+  // The approach's name.
+  string name = 2;
+
+  // The shape the approach takes.
+  string shape = 3;
+
+  // What the approach costs.
+  string cost = 4;
+
+  // What the approach wins.
+  string wins = 5;
+
+  // What the approach loses.
+  string loses = 6;
+
+  // What would make the planner reconsider the approach.
+  string reconsider = 7;
+
+  // The ids of the research steps the approach rests on.
+  repeated string research = 8;
+
+  // True when the planner recommends the approach.
+  bool recommended = 9;
+
+  // Why the planner recommends the approach or does not.
+  string reason = 10;
+}
+
+// ApproachResponse carries the approach stored by Approach.
+message ApproachResponse {
+  // The stored approach.
+  StageApproach approach = 1;
+}
+
+// ChooseRequest asks for the approach the owner chose for a design to be stored.
+message ChooseRequest {
+  // The design the choice is made for.
+  string design = 1;
+
+  // The seq of the chosen approach.
+  int64 approach = 2;
+
+  // The owner's words the choice is made with.
+  string words = 3;
+
+  // Who made the choice and the evidence it rests on.
+  StageMaker maker = 4;
+}
+
+// ChooseResponse carries the choice stored by Choose.
+message ChooseResponse {
+  // The stored choice.
+  StageChoice choice = 1;
+}
+
+// DelegateRequest asks for the owner's delegation of a design's decisions to the conversation to be stored.
+message DelegateRequest {
+  // The design the delegation covers.
+  string design = 1;
+
+  // The kinds of decision the delegation covers.
+  repeated string kinds = 2;
+
+  // The owner's words the delegation is given with.
+  string message = 3;
+}
+
+// DelegateResponse carries the delegation stored by Delegate.
+message DelegateResponse {
+  // The stored delegation.
+  StageDelegation delegation = 1;
+}
+
+// WriteRowRequest asks for a write to a row of a contract's body to be stored.
+message WriteRowRequest {
+  // The id of the contract whose row is written.
+  string contract = 1;
+
+  // The design the contract joins, empty for none.
+  string design = 2;
+
+  // The F, R or P row the write concerns.
+  string row = 3;
+
+  // The row's value the write sets.
+  string value = 4;
+
+  // True when the write removes the row rather than setting it.
+  bool remove = 5;
+
+  // The row the written row depends on.
+  string depends = 6;
+
+  // The owner's words the write is made with.
+  string words = 7;
+
+  // Who makes the write and the evidence it rests on.
+  StageMaker maker = 8;
+}
+
+// WriteRowResponse carries the write stored by WriteRow.
+message WriteRowResponse {
+  // The stored write.
+  StageRowWrite write = 1;
+}
+
+// KeepRequest asks for an addition a contract keeps to be stored.
+message KeepRequest {
+  // The id of the contract the addition belongs to.
+  string contract = 1;
+
+  // The addition the contract keeps.
+  string addition = 2;
+
+  // The owner's words the addition is kept with.
+  string words = 3;
+
+  // Who keeps the addition and the evidence it rests on.
+  StageMaker maker = 4;
+}
+
+// KeepResponse carries the write stored by Keep.
+message KeepResponse {
+  // The stored write.
+  StageRowWrite write = 1;
+}
+
+// StrikeRequest asks for the striking of an addition a contract keeps to be stored.
+message StrikeRequest {
+  // The id of the contract the addition belongs to.
+  string contract = 1;
+
+  // The addition the contract keeps, which is struck.
+  string addition = 2;
+
+  // The owner's words the addition is struck with.
+  string words = 3;
+
+  // Who strikes the addition and the evidence it rests on.
+  StageMaker maker = 4;
+}
+
+// StrikeResponse carries the write stored by Strike and the rows it removed.
+message StrikeResponse {
+  // The stored write.
+  StageRowWrite write = 1;
+
+  // The rows the striking removed.
+  repeated string removed = 2;
+}
+
+// ShownRequest asks for the rows of a contract version the owner was shown to be stored.
+message ShownRequest {
+  // The id of the contract the rows belong to.
+  string contract = 1;
+
+  // The number of the contract version the owner was shown.
+  int64 version = 2;
+
+  // The F, R or P rows the owner was shown.
+  repeated string rows = 3;
+}
+
+// ShownResponse carries the rows stored by Shown.
+message ShownResponse {
+  // The rows stored.
+  repeated string rows = 1;
+}
+
+// ContinueDesignRequest asks for the session that continues a design's stage.
+message ContinueDesignRequest {
+  // The design whose stage continues.
+  string design = 1;
+}
+
+// ContinueDesignResponse carries the design and the session that continues its stage.
+message ContinueDesignResponse {
+  // The design's id.
+  string design = 1;
+
+  // The sessions row id of the session that continues the stage.
+  string session = 2;
+}

@@ -800,6 +800,14 @@ func (s crashStore) SetFindingResult(
 	})
 }
 
+func (s crashStore) SetTestRunResult(
+	ctx context.Context, epic string, seq int64, from, to store.TaskBuild, result store.TaskTestRunResult,
+) error {
+	return s.w.act("SetTestRunResult", func() error {
+		return wrapErr("set test run", s.Store.SetTestRunResult(ctx, epic, seq, from, to, result))
+	})
+}
+
 func (s crashStore) MarkTold(ctx context.Context, epic string, seq int64) error {
 	return s.w.act("MarkTold", func() error {
 		return wrapErr("mark turn told", s.Store.MarkTold(ctx, epic, seq))

@@ -280,7 +280,7 @@ func TestHostsStatusListsEveryHost(t *testing.T) {
 	})
 	handler := statusHandler(t, server.Config{
 		HostName:   routingController,
-		HostStatus: hoststatus.New(writeHostStatusScript(t, "[]", 0), statusNow),
+		HostStatus: hoststatus.New(writeHostStatusScript(t, "[]", 0), statusNow, time.Minute),
 		LocalLoad:  statusLocal(statusLocalLoad, statusLocalMemory),
 		Hosts:      statusClients(file, quietClocks),
 	})
@@ -305,7 +305,7 @@ func TestHostsStatusUnreachableHost(t *testing.T) {
 	clock := newStatusClock()
 	handler := statusHandler(t, server.Config{
 		HostName:   routingController,
-		HostStatus: hoststatus.New(writeHostStatusScript(t, "[]", 0), statusNow),
+		HostStatus: hoststatus.New(writeHostStatusScript(t, "[]", 0), statusNow, time.Minute),
 		LocalLoad:  statusLocal(statusLocalLoad, statusLocalMemory),
 		Hosts: statusClients(file, func(host string) holder.Clock {
 			if host == statusHostC {
@@ -345,7 +345,7 @@ func TestHostsStatusLocalLoadFails(t *testing.T) {
 	t.Parallel()
 	handler := statusHandler(t, server.Config{
 		HostName:   routingController,
-		HostStatus: hoststatus.New(writeHostStatusScript(t, "[]", 0), statusNow),
+		HostStatus: hoststatus.New(writeHostStatusScript(t, "[]", 0), statusNow, time.Minute),
 		LocalLoad: func() (node.Load, error) {
 			return node.Load{}, errors.New("synthetic load failure")
 		},

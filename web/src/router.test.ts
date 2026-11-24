@@ -213,3 +213,24 @@ test("ProjectPage address: the old project first segment reads a project entry u
     entry: { kind: "project", key: "repo:orrery" },
   });
 });
+
+test("AccountsRouter: parses #/accounts to the inbox over the accounts entry", () => {
+  assert.deepEqual(parseAddress("#/accounts"), { view: "inbox", entry: { kind: "accounts" } });
+  assert.deepEqual(parseAddress("/accounts"), { view: "inbox", entry: { kind: "accounts" } });
+});
+
+test("AccountsRouter: formats the accounts entry as #/accounts whatever the view", () => {
+  for (const view of VIEWS) {
+    assert.equal(formatAddress({ view, entry: { kind: "accounts" } }), "#/accounts", view);
+  }
+});
+
+test("AccountsRouter: round-trips the accounts entry over the inbox", () => {
+  assertRoundTrip({ view: "inbox", entry: { kind: "accounts" } });
+});
+
+test("AccountsRouter: a hash with any segment after accounts parses to the inbox with no entry", () => {
+  for (const hash of ["#/accounts/x", "#/accounts/", "#/accounts/x/y"]) {
+    assert.deepEqual(parseAddress(hash), { view: "inbox", entry: null }, hash);
+  }
+});
