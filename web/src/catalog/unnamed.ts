@@ -57,6 +57,9 @@ export const unnamed: Readonly<Record<string, UnnamedEntry>> = {
   // DesignCard draws a design held at the desk: its state, then its contracts in position order, each with its state. Round 6
   // draws a design's contracts as Work cards, and no design's record.
   "design-card": { replacement: "WorkCard", epic: "F4" },
+  // ContractWork draws an accepted contract's work by requirement: the epic's door, then each requirement with its state,
+  // its tasks and its proof. Round 6 draws an accepted contract as its document, and no work by requirement.
+  "contract-work": { replacement: "contract-accepted", epic: "F4" },
 
   // ---- single stories of round-6 components, each the component in a state round 6 does not draw ----
 

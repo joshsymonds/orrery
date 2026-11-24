@@ -1990,6 +1990,18 @@ button.block:hover { --ground: var(--o-surface-raised); }
   .read.leaving:has(> .find) > .send { grid-row: 4; }
 }
 
+/* The work of an accepted contract by requirement: the epic's door, then each requirement with its state, its tasks and
+   its proof. Its tasks are a table of four columns, id, title, status and place. */
+.contract-work { display: grid; gap: var(--o-space-16); min-width: 0; max-width: var(--o-layout-read-measure-ch); }
+.work-epic { margin: 0; font: var(--o-type-small); }
+.work-req { display: grid; gap: var(--o-space-8); min-width: 0; }
+.work-req-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--o-space-4) var(--o-space-12); min-width: 0; }
+.work-req-head code { color: var(--o-ink-3); font: var(--o-type-small); }
+.work-req-head .strong { flex: 1 1 24ch; min-width: 0; color: var(--o-ink-1); overflow-wrap: anywhere; }
+.work-tasks { --cols: auto minmax(0, 1fr) auto auto; --cols-touch: auto minmax(0, 1fr) auto auto; }
+.work-tasks .strong { color: var(--o-ink-1); overflow-wrap: anywhere; }
+.work-proof { margin: 0; color: var(--o-ink-3); font: var(--o-type-small); }
+
 /* Reduced motion comes last, so it wins over the rules above: each move is one 100 ms linear step, a page drills and
    leaves by a fade, and the loops hold still. */
 @media (prefers-reduced-motion: reduce) {
