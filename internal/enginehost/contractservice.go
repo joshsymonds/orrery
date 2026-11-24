@@ -127,7 +127,8 @@ func (s *contractService) ProposeContract(
 		}
 		return nil, epicStoreError(err)
 	}
-	if err = s.logContract(ctx, id, "proposed", writer, req.Msg.GetWords()); err != nil {
+	err = s.logContract(ctx, id, "proposed", writer, req.Msg.GetWords())
+	if err != nil {
 		return nil, err
 	}
 	stored, err := s.read(ctx, id)

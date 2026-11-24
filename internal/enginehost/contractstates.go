@@ -68,7 +68,8 @@ func (s *contractService) ReviseContract(
 		return nil, reviseRefusal(id, err)
 	}
 	what := fmt.Sprintf("revised to version %d", version.Version)
-	if err = s.logContract(ctx, id, what, writer, req.Msg.GetWords()); err != nil {
+	err = s.logContract(ctx, id, what, writer, req.Msg.GetWords())
+	if err != nil {
 		return nil, err
 	}
 	stored, err := s.read(ctx, id)
@@ -133,7 +134,8 @@ func (s *contractService) AcceptContract(
 	if err != nil {
 		return nil, acceptRefusal(id, err)
 	}
-	if err = s.logContract(ctx, id, "accepted", session, req.Msg.GetWords()); err != nil {
+	err = s.logContract(ctx, id, "accepted", session, req.Msg.GetWords())
+	if err != nil {
 		return nil, err
 	}
 	stored, err := s.read(ctx, id)
@@ -189,7 +191,8 @@ func (s *contractService) SetAsideContract(
 	if err != nil {
 		return nil, setAsideRefusal(id, err)
 	}
-	if err = s.logContract(ctx, id, "set aside", session, req.Msg.GetWords()); err != nil {
+	err = s.logContract(ctx, id, "set aside", session, req.Msg.GetWords())
+	if err != nil {
 		return nil, err
 	}
 	stored, err := s.read(ctx, id)
@@ -231,7 +234,8 @@ func (s *contractService) ReopenContract(
 	if err != nil {
 		return nil, reopenRefusal(id, err)
 	}
-	if err = s.logContract(ctx, id, "reopened", session, req.Msg.GetWords()); err != nil {
+	err = s.logContract(ctx, id, "reopened", session, req.Msg.GetWords())
+	if err != nil {
 		return nil, err
 	}
 	stored, err := s.read(ctx, id)

@@ -47,7 +47,8 @@ func (s *contractService) DraftContract(
 		return nil, draftRefusal(err, id, design)
 	}
 	if design != "" {
-		if err = s.logContractIn(ctx, design, id, "drafted", writer, req.Msg.GetWords()); err != nil {
+		err = s.logContractIn(ctx, design, id, "drafted", writer, req.Msg.GetWords())
+		if err != nil {
 			return nil, err
 		}
 	}
