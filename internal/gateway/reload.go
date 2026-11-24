@@ -5,14 +5,14 @@ import (
 	"log/slog"
 )
 
-// Run re-reads the route registry every interval until ctx ends, and returns nil when it ends. A read that succeeds
+// Run re-reads the route registry every interval until ctx ends, and returns when it ends. A read that succeeds
 // replaces the snapshot requests are served from, so a changed seat or account applies to the next request. A read that
 // fails is logged at warn and leaves the snapshot the gateway served before.
-func (g *Gateway) Run(ctx context.Context) error {
+func (g *Gateway) Run(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
-			return nil
+			return
 		case <-g.clock.After(g.interval):
 		}
 		g.reload(ctx)

@@ -130,7 +130,7 @@ type reloadRun struct {
 	t      *testing.T
 	clock  *reloadClock
 	cancel context.CancelFunc
-	done   chan error
+	done   chan struct{}
 	wait   reloadWait
 }
 
@@ -141,8 +141,11 @@ func startReload(t *testing.T, gw *gateway.Gateway, clock *reloadClock) *reloadR
 
 	ctx, cancel := context.WithCancel(t.Context())
 	t.Cleanup(cancel)
-	run := &reloadRun{t: t, clock: clock, cancel: cancel, done: make(chan error, 1)}
-	go func() { run.done <- gw.Run(ctx) }()
+	run := &reloadRun{t: t, clock: clock, cancel: cancel, done: make(chan struct{})}
+	go func() {
+		gw.Run(ctx)
+		close(run.done)
+	}()
 	run.wait = run.next()
 
 	return run
@@ -155,8 +158,8 @@ func (r *reloadRun) next() reloadWait {
 	var wait reloadWait
 	select {
 	case wait = <-r.clock.waits:
-	case err := <-r.done:
-		r.t.Fatalf("Run returned %v before it waited on the clock", err)
+	case <-r.done:
+		r.t.Fatal("Run returned before it waited on the clock")
 	}
 
 	return wait
@@ -171,11 +174,11 @@ func (r *reloadRun) fire() {
 	r.wait = r.next()
 }
 
-// stop cancels Run's context and returns what Run returned.
-func (r *reloadRun) stop() error {
+// stop cancels Run's context and returns once Run has returned. A Run that does not return when its context ends hangs
+// the test until the test binary's timeout.
+func (r *reloadRun) stop() {
 	r.cancel()
-
-	return <-r.done
+	<-r.done
 }
 
 // serveReload sends one request to gw, a POST of reloadBody to path with the caller's own credential, and returns what
@@ -377,9 +380,9 @@ func TestGatewayReloadRunReturnsNilWhenContextEnds(t *testing.T) {
 	gw := newReloadGateway(t, routes, fake.url(), clock, discardLogger())
 	run := startReload(t, gw, clock)
 
-	if err := run.stop(); err != nil {
-		t.Errorf("Run returned %v after its context ended; want nil", err)
-	}
+	// stop returns only once Run has returned, so reaching the end of the test is the check that Run returns when its
+	// context is cancelled.
+	run.stop()
 }
 
 func TestGatewayReloadSwapsWhileRequestsServe(t *testing.T) {
