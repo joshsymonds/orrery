@@ -41,6 +41,8 @@ type Config struct {
 	// Ticks, when non-nil, is where Run takes the ticks that send each watcher a fresh full listing, in place of a ticker
 	// every 10 s. It is a test seam: production leaves it nil.
 	Ticks <-chan time.Time
+	// Watch, when non-nil, runs the registry watch in place of panewatch.Run. It is a test seam: production leaves it nil.
+	Watch func(ctx context.Context, cfg panewatch.Config) error
 	// Load reads the host's load. Production takes hostload.Local.
 	Load func() (node.Load, error)
 	// Claude is the path of the claude binary that runs each summary of the host's panes.
@@ -109,9 +111,9 @@ func New(cfg Config) (*Host, error) {
 }
 
 // Run runs the host until ctx ends. It runs the registry's pane watch, applies each update to tmux, publishes its event
-// and runs its observers, and sends a fresh full listing to every watcher on each tick. It returns nil once ctx ends,
-// and otherwise the error that ended the registry watch. Run is called once. It returns only once every summary run has
-// finished, and the runs end with it.
+// and runs its observers, and sends a fresh full listing to every watcher on each tick. It returns nil when ctx's end
+// is what ends it, and otherwise the error that ended the registry watch. Run is called once. It returns only once
+// every summary run has finished, and the runs end with it.
 func (h *Host) Run(ctx context.Context) error {
 	runCtx, cancelRuns := context.WithCancel(ctx)
 	defer h.waitSummaries()
@@ -120,7 +122,11 @@ func (h *Host) Run(ctx context.Context) error {
 	defer stopWatch()
 	updates := make(chan daemon.PaneUpdate)
 	registry := make(chan error, 1)
-	go func() { registry <- panewatch.Run(watchCtx, h.watchConfig(updates)) }()
+	watch := panewatch.Run
+	if h.cfg.Watch != nil {
+		watch = h.cfg.Watch
+	}
+	go func() { registry <- watch(watchCtx, h.watchConfig(updates)) }()
 	ticks := h.cfg.Ticks
 	if ticks == nil {
 		ticker := time.NewTicker(listingInterval)
@@ -133,7 +139,7 @@ func (h *Host) Run(ctx context.Context) error {
 			stopWatch()
 			return endOf(ctx, <-registry)
 		case err := <-registry:
-			return err
+			return endOf(ctx, err)
 		case update := <-updates:
 			h.applyAndPublish(runCtx, update)
 		case <-ticks:
