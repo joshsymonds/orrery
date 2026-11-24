@@ -40,9 +40,10 @@ func TestEventsWatchRecordsTranscriptPassesOverDesignLines(t *testing.T) {
 }
 
 // TestSessionWatchRecordsTranscriptDesignItemsAndPending serves a session that works design-log, whose owner answered
-// through serve and whose conversation then asked a question. The first message carries both lines as design items, each
-// with the design's id and its text: what was done, then the words on a new line. The owner's answer is also a pending
-// event of the session that carries its design, while the conversation's own question owes the session nothing.
+// through serve and whose conversation then asked a question. The first message carries both lines as design items,
+// each with the design's id, the what and ids of its line, and its text: what was done, then the words on a new line.
+// The owner's answer is also a pending event of the session that carries its design, while the conversation's own
+// question owes the session nothing.
 func TestSessionWatchRecordsTranscriptDesignItemsAndPending(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
@@ -74,11 +75,11 @@ func TestSessionWatchRecordsTranscriptDesignItemsAndPending(t *testing.T) {
 		Items: []*orreryv1.ConversationItem{
 			{
 				Kind: "design", Time: at + 1, Text: "answered\nKeep the scout",
-				Design: &orreryv1.EngineDesign{Design: "design-log"},
+				Design: &orreryv1.EngineDesign{Design: "design-log", What: "answered", Ids: []string{"Q1"}},
 			},
 			{
 				Kind: "design", Time: at + 2, Text: "asked\nShould the scout stay?",
-				Design: &orreryv1.EngineDesign{Design: "design-log"},
+				Design: &orreryv1.EngineDesign{Design: "design-log", What: "asked", Ids: []string{"Q2"}},
 			},
 		},
 		State: &orreryv1.ConversationState{

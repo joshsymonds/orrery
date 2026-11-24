@@ -91,8 +91,9 @@ func sessionItem(event store.EngineEvent) (*orreryv1.ConversationItem, bool, err
 }
 
 // designItem maps an engine_design event to the design item it shows: the record of a line of a design's log, stamped
-// with the event's time. Its design is the design's id, and its text is the line's what, then its words on a new line
-// when the line has any.
+// with the event's time. Its design is the design's id with the line's what and ids, so a client can tell what the
+// record did and which ids it names, and its text is the line's what, then its words on a new line when the line has
+// any.
 func designItem(event store.EngineEvent) (*orreryv1.ConversationItem, bool, error) {
 	body := &orreryv1.EngineDesign{}
 	if err := protojson.Unmarshal([]byte(event.Payload), body); err != nil {
@@ -106,7 +107,7 @@ func designItem(event store.EngineEvent) (*orreryv1.ConversationItem, bool, erro
 		Kind:   "design",
 		Time:   event.At,
 		Text:   text,
-		Design: &orreryv1.EngineDesign{Design: body.Design},
+		Design: &orreryv1.EngineDesign{Design: body.Design, What: body.What, Ids: body.Ids},
 	}, true, nil
 }
 
