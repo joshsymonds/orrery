@@ -40,7 +40,7 @@ func TestHostStatusParity(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Hostname: %v", err)
 	}
-	handler := newHostHandler(t, hoststatus.New(writeHostStatusScript(t, hostFixtureOutput, 0), time.Now))
+	handler := newHostHandler(t, hoststatus.New(writeHostStatusScript(t, hostFixtureOutput, 0), time.Now, time.Minute))
 
 	got, err := hostClient(t, handler).Status(t.Context(), connect.NewRequest(&orreryv1.HostStatusRequest{}))
 	if err != nil {
@@ -77,13 +77,13 @@ func TestHostStatusErrorParity(t *testing.T) {
 		},
 		{
 			name:    "host status command exits non-zero",
-			runner:  hoststatus.New(writeHostStatusScript(t, "", 3), time.Now),
+			runner:  hoststatus.New(writeHostStatusScript(t, "", 3), time.Now, time.Minute),
 			code:    connect.CodeUnavailable,
 			message: "host status unavailable",
 		},
 		{
 			name:    "host status command prints invalid stats",
-			runner:  hoststatus.New(writeHostStatusScript(t, "not json", 0), time.Now),
+			runner:  hoststatus.New(writeHostStatusScript(t, "not json", 0), time.Now, time.Minute),
 			code:    connect.CodeUnavailable,
 			message: "host status unavailable",
 		},
@@ -119,7 +119,7 @@ func TestHostStatusNamesThePageBuild(t *testing.T) {
 				Logins:     []string{allowedLogin},
 				Tmux:       newTmuxClient(t),
 				Push:       newPushStore(t),
-				HostStatus: hoststatus.New(writeHostStatusScript(t, hostFixtureOutput, 0), time.Now),
+				HostStatus: hoststatus.New(writeHostStatusScript(t, hostFixtureOutput, 0), time.Now, time.Minute),
 				Web:        tc.web,
 			})
 			if err != nil {

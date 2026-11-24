@@ -313,7 +313,7 @@ func TestServeHasNoRESTRoutes(t *testing.T) {
 		Logins:     []string{allowedLogin},
 		Tmux:       newTmuxClient(t),
 		Push:       newPushStore(t),
-		HostStatus: hoststatus.New(writeHostStatusScript(t, "", 0), time.Now),
+		HostStatus: hoststatus.New(writeHostStatusScript(t, "", 0), time.Now, time.Minute),
 		Picker: func() (open.Config, error) {
 			return open.Config{}, errors.New("synthetic picker")
 		},
