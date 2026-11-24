@@ -263,6 +263,7 @@ function FlyoutLine({ row, now, cur, onOpen }: { row: FlyoutRow; now: number; cu
 // and held inside the rail's height.
 export function InboxRail({
   tiles,
+  move = "",
   flyout,
   now,
   onMark,
@@ -279,6 +280,7 @@ export function InboxRail({
   onKeys,
 }: {
   tiles: readonly RailTileModel[];
+  move?: HeldMove;
   flyout: FlyoutModel | null;
   now: number;
   onMark: () => void;
@@ -345,7 +347,7 @@ export function InboxRail({
             <Fragment key={tile.key}>
               <ProjectTile tile={tile} open={flyout?.key === tile.key} onClick={() => onTile(tile.key)} />
               {lineage.length > 0 && (
-                <RailLineage projectKey={tile.key} convos={lineage} onPress={(key) => onLineage?.(key)} />
+                <RailLineage projectKey={tile.key} convos={lineage} move={move} onPress={(key) => onLineage?.(key)} />
               )}
             </Fragment>
           );

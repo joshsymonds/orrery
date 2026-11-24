@@ -1,4 +1,5 @@
 import { Code, ConnectError } from "@connectrpc/connect";
+import type { JSX } from "preact";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "preact/hooks";
 
 import { AccountsPage } from "./accountspage";
@@ -18,7 +19,7 @@ import { type Conversation, shownConversation } from "./conversation";
 import { ConvoRow } from "./convorow";
 import { DesignCard } from "./designcard";
 import { type EpicCommands, EpicPage, type Landing, type SessionTarget, type SteerSheet } from "./epicpage";
-import { epicGaugeOf } from "./epicrow";
+import { epicGaugeOf, type GaugeShare } from "./epicrow";
 import { type EpicItem, type EpicsView, epicsView, noEpics, type StepItem } from "./epics";
 import { findMatches } from "./find";
 import { type Followed, follow } from "./follow";
@@ -29,7 +30,7 @@ import type { InAppNotice, NoticeKey } from "./gen/orrery/v1/notice_pb";
 import type { HostStatusResponse } from "./gen/orrery/v1/orrery_pb";
 import { Icon, stateWord } from "./glyphs";
 import { type HeadStore, memoryHeadStore } from "./headfold";
-import type { HeldThing } from "./held";
+import { type HeldMove, type HeldThing, heldMove } from "./held";
 import { HeldCard, HeldSheet } from "./heldcard";
 import { KeyList } from "./helppanel";
 import { Inbox } from "./inbox";
@@ -480,6 +481,10 @@ export function App({
   // The list panel open beside a session, and the thing a panel held last, which ] reopens.
   const [listPanel, setListPanel] = useState<ListOpen | null>(null);
   const [held, setHeld] = useState<Held | null>(null);
+  // The motion of the held layout (D16), and what the last commit drew of it. The panes hold the custom properties a move reads.
+  const [motion, setMotion] = useState<HeldMotion>(noMotion);
+  const shownDesk = useRef<DeskShown | null>(null);
+  const panesRef = useRef<HTMLDivElement>(null);
   // The epic page section, and the scroll place a back restores once the page it returns to is drawn.
   const pageRef = useRef<HTMLElement>(null);
   const restorePageScroll = useRef<number | null>(null);
@@ -2530,9 +2535,10 @@ export function App({
   // has none, since Fold back and the sheet's X are its way out (D15).
   const epicRootBack = framed ? undefined : closeEpicPage;
   // epicPageSection draws the epic section over the epic's detail, or while the detail is not drawn, the title row with
-  // the line its read leaves: loading, or the could-not-read line with Try again.
-  const epicPageSection = (entry: EpicItem, detail: EpicsGetResponse | undefined) => (
-    <section class={pageClasses(epicPage.move)} aria-label="epic" ref={pageRef}>
+  // the line its read leaves: loading, or the could-not-read line with Try again. live is whether the section takes pageRef,
+  // which a copy folding away does not.
+  const epicPageSection = (entry: EpicItem, detail: EpicsGetResponse | undefined, live = true) => (
+    <section class={pageClasses(epicPage.move)} aria-label="epic" ref={live ? pageRef : undefined}>
       {detail !== undefined ? (
         pageNode(entry, detail)
       ) : (
@@ -2791,38 +2797,45 @@ export function App({
           .map((move) => move.to.project),
       );
 
-  // renderConvo draws a conversation of the tree: its row, and what hangs under it, with its fold of ended epics, which
-  // its key holds open or shut.
-  const renderConvo = (convo: Convo) => (
-    <ConvoRow
-      convo={convo}
-      now={now}
-      cursorKey={cursorKey}
-      endedOpen={convoEndedOpen.has(convo.key)}
-      onEnded={() => setConvoEndedOpen((previous) => withMember(previous, convo.key, !previous.has(convo.key)))}
-      renderRow={(row) => (
-        <InboxRow
-          key={row.key}
-          row={row}
-          now={now}
-          cursor={row.key === cursorRowKey}
-          moving={markedRows.has(row.key)}
-          more={rowMore(row)}
-          onOpen={() => {
-            selectItem(row);
-            setRowOpened(true);
-            setBoxOpened({ column: "cursor", key: row.key });
-          }}
-          onSeen={() => {
-            selectItem(row);
-            void writeSeen(row);
-          }}
-        />
-      )}
-      onSelect={selectKey}
-      held={heldThing}
-    />
-  );
+  // drawn is the motion the layout draws now. Under reduced motion none is drawn, and each change is a plain swap to the state after.
+  const drawn = reduced ? noMotion : motion;
+  // renderConvo draws a conversation of the tree: its row, and what hangs under it, with its fold of ended epics, which its key
+  // holds open or shut. The thing held now marks its conversation and carries the move; the thing being let go still marks its
+  // conversation, as leave, until its tab and necks have faded (D16).
+  const renderConvo = (convo: Convo) => {
+    const fading = drawn.tree !== null && drawn.tree.convo === convo.key;
+    return (
+      <ConvoRow
+        convo={convo}
+        now={now}
+        cursorKey={cursorKey}
+        endedOpen={convoEndedOpen.has(convo.key)}
+        onEnded={() => setConvoEndedOpen((previous) => withMember(previous, convo.key, !previous.has(convo.key)))}
+        renderRow={(row) => (
+          <InboxRow
+            key={row.key}
+            row={row}
+            now={now}
+            cursor={row.key === cursorRowKey}
+            moving={markedRows.has(row.key)}
+            more={rowMore(row)}
+            onOpen={() => {
+              selectItem(row);
+              setRowOpened(true);
+              setBoxOpened({ column: "cursor", key: row.key });
+            }}
+            onSeen={() => {
+              selectItem(row);
+              void writeSeen(row);
+            }}
+          />
+        )}
+        onSelect={selectKey}
+        held={fading ? drawn.tree : heldThing?.convo === convo.key ? heldThing : null}
+        move={fading ? "leave" : drawn.move}
+      />
+    );
+  };
 
   // notes are the error lines the list shows above its rows, in the order they were set, each led by the warning.
   const notes = [seenError, ...escapeErrors, archiveError]
@@ -2857,10 +2870,9 @@ export function App({
   const contractCalls: ContractCalls = { contracts, onOpen: navigated(openContractPanel) };
   // activityLines are what runs under the middle conversation, drawn above its composer while its reader is drawn.
   const activityLines = activityOf(readerRow === null ? null : railConversation);
-  // heldCard is the held thing's card at the desk: its title is the design's title, the epic's slug or the contract's slug, its
-  // body the page the card or panel drew, and its Fold back is closeDesign, closeContract or closePanel, which leave the
-  // conversation alone with the cursor on its row. An epic's gauge is the one its tree row draws, and a design's or a
-  // contract's mark needs none.
+  // The held card's title is the design's title, the epic's slug or the contract's slug, its body the page the card or panel
+  // drew, and its Fold back is closeDesign, closeContract or closePanel, which leave the conversation alone with the cursor on
+  // its row. An epic's gauge is the one its tree row draws, and a design's or a contract's mark needs none.
   const heldGauge =
     heldThing?.kind === "epic" && epicEntry !== null && epicDetail !== undefined
       ? epicGaugeOf(epics.listed.get(epicEntry.id) ?? epicDetail.epic, epicDetail, now)
@@ -2870,30 +2882,148 @@ export function App({
   const columnHolds = readerRow !== null || readerStep !== null;
   const heldTitle =
     design !== undefined ? design.title : contract !== undefined ? contractSlug(contract.id) : (epicEntry?.slug ?? "");
-  // heldBody is the page the card or the sheet draws: the design's card, the contract's page or the epic's section.
-  const heldBody =
+  // heldBodyOf draws the page the card or the sheet holds: the design's card, the contract's page or the epic's section. live is
+  // passed on to the epic's section, as epicPageSection takes it.
+  const heldBodyOf = (live: boolean): JSX.Element | null =>
     design !== undefined
       ? designPage
       : contract !== undefined
         ? contractPage
         : epicEntry !== null
-          ? epicPageSection(epicEntry, epicDetail)
+          ? epicPageSection(epicEntry, epicDetail, live)
           : null;
   // closeHeld is what the card's Fold back and the sheet's X do: they close the thing and leave the conversation alone.
   const closeHeld = design !== undefined ? closeDesign : contract !== undefined ? closeContract : closePanel;
+  // shownHeld is the thing the card or the sheet holds on this width: the desk's held thing, or the phone's open thing while its
+  // sheet holds it.
+  const shownHeld: HeldThing | null = wide ? heldThing : sheetHeld ? openThing : null;
+
+  // The motion of the held layout (D16). The commit that changes the held thing turns what the last commit drew into a leaving
+  // card or tab, and reads the custom properties the move runs on: the chat's distance to its new place, and the aim of the open
+  // row. That commit sets next, and the commit after it sets move, so a move that repeats the last one still starts. Each part
+  // is left as the animation of the element that carries it ends.
+  useLayoutEffect(() => {
+    const panes = panesRef.current;
+    const place = deskPlace(panes);
+    const before = shownDesk.current;
+    shownDesk.current = {
+      parts: shownHeld === null ? null : { thing: shownHeld, title: heldTitle, gauge: heldGauge, body: heldBodyOf },
+      sheet: !wide,
+      chatLeft: place.chatLeft,
+      aim: place.aim,
+    };
+    if (before === null) {
+      return;
+    }
+    const change = motionOf(before.parts?.thing ?? null, shownHeld, wide);
+    if (change === "") {
+      return;
+    }
+    if (reduced) {
+      setMotion(noMotion);
+      return;
+    }
+    if (before.chatLeft !== null && place.chatLeft !== null) {
+      panes?.style.setProperty("--held-dx", `${before.chatLeft - place.chatLeft}px`);
+    }
+    if (place.aim !== null) {
+      panes?.style.setProperty("--held-aim", `${place.aim}px`);
+    }
+    const leaves = change === "switch" || change === "other" || change === "close";
+    setMotion({
+      move: "",
+      next: change,
+      card: leaves && before.parts !== null ? { ...before.parts, aim: before.aim, sheet: before.sheet } : null,
+      tree: wide && (change === "other" || change === "close") ? (before.parts?.thing ?? null) : null,
+    });
+  });
+  useLayoutEffect(() => {
+    if (motion.next !== "") {
+      setMotion((current) => ({ ...current, move: current.next, next: "" }));
+    }
+  }, [motion]);
+  // A leaving card or tab stays only while an animation runs on it, to be taken out at its animationend. One that runs none has
+  // no animationend to wait for, so it is taken out at once, rather than staying for ever.
+  useLayoutEffect(() => {
+    const panes = panesRef.current;
+    if (motion.card !== null && !animating(panes, leavingCardSelector)) {
+      setMotion((current) => ({ ...current, card: null }));
+    }
+    if (motion.tree !== null && !animating(panes, leavingTreeSelector)) {
+      setMotion((current) => ({ ...current, tree: null }));
+    }
+  }, [motion]);
+  // A leaving card keeps the aim it folds to, its own row's, where the panes hold the aim of the open row.
+  useLayoutEffect(() => {
+    if (motion.card !== null && !motion.card.sheet && motion.card.aim !== null) {
+      panesRef.current
+        ?.querySelector<HTMLElement>('.held-card[data-move="leave"]')
+        ?.style.setProperty("--held-aim", `${motion.card.aim}px`);
+    }
+  }, [motion.card]);
+  // endMove runs on each animationend the panes hear. The element that carries a move clears its data-move when its own
+  // animation ends, and a leaving card or tab is taken out of the state once its own animation ends.
+  const endMove = (event: AnimationEvent) => {
+    const target = event.target;
+    if (!(target instanceof Element)) {
+      return;
+    }
+    // The column's chat and head crumbs animate on their own, so the animationend that bubbles up from them ends the column's move.
+    const carrier = target.matches(columnFadeSelector) ? target.closest(columnMarkSelector) : target;
+    const carried = carrier?.getAttribute("data-move") ?? null;
+    if (carrier === null || carried === null) {
+      return;
+    }
+    if (carried !== "leave") {
+      carrier.removeAttribute("data-move");
+    } else if (carrier.matches(".held-card, .held-sheet")) {
+      setMotion((current) => (current.card === null ? current : { ...current, card: null }));
+    } else {
+      setMotion((current) => (current.tree === null ? current : { ...current, tree: null }));
+    }
+  };
+  // The leaving copy of a card or sheet takes no press: it is folding away, and pointer-events are off while it is.
+  const leavingPress = () => undefined;
+  const leaving = drawn.card;
+  const leavingCard =
+    leaving !== null && !leaving.sheet ? (
+      <HeldCard thing={leaving.thing} title={leaving.title} move="leave" gauge={leaving.gauge} onFoldBack={leavingPress}>
+        {leaving.body(false)}
+      </HeldCard>
+    ) : null;
+  const leavingSheet =
+    leaving !== null && leaving.sheet ? (
+      <HeldSheet thing={leaving.thing} title={leaving.title} move="leave" gauge={leaving.gauge} onClose={leavingPress}>
+        {leaving.body(false)}
+      </HeldSheet>
+    ) : null;
+  // heldCard is the held thing's card at the desk, carrying the move. The card folding away comes before it in deskCards, so the
+  // held card keeps its place among the children of the column.
   const heldCard =
-    heldThing === null ? undefined : (
-      <HeldCard thing={heldThing} title={heldTitle} move="" gauge={heldGauge} onFoldBack={closeHeld}>
-        {heldBody}
+    heldThing === null ? null : (
+      <HeldCard thing={heldThing} title={heldTitle} move={drawn.move} gauge={heldGauge} onFoldBack={closeHeld}>
+        {heldBodyOf(true)}
       </HeldCard>
     );
   // sheet is the thing the phone's sheet holds under its conversation's head, when sheetHeld says it does. Its X is closeHeld.
-  const sheet =
+  const heldSheet =
     sheetHeld && openThing !== null ? (
-      <HeldSheet thing={openThing} title={heldTitle} move="" gauge={heldGauge} onClose={closeHeld}>
-        {heldBody}
+      <HeldSheet thing={openThing} title={heldTitle} move={drawn.move} gauge={heldGauge} onClose={closeHeld}>
+        {heldBodyOf(true)}
       </HeldSheet>
-    ) : undefined;
+    ) : null;
+  const deskCards = leavingCard === null && heldCard === null ? undefined : (
+    <>
+      {leavingCard}
+      {heldCard}
+    </>
+  );
+  const sheetCards = leavingSheet === null && heldSheet === null ? undefined : (
+    <>
+      {leavingSheet}
+      {heldSheet}
+    </>
+  );
   const middleColumn = (
     <ReaderColumn
       column="cursor"
@@ -2939,8 +3069,10 @@ export function App({
       stepInputs={stepInputs}
       ended={endedBarOf}
       activity={<ActivityLines lines={activityLines} now={now} open={listShown} onOpen={openActivity} />}
-      held={columnHolds ? heldCard : undefined}
-      sheet={sheet}
+      held={columnHolds ? deskCards : undefined}
+      holds={heldThing !== null}
+      sheet={sheetCards}
+      move={wide ? drawn.move : ""}
     />
   );
   // railed is whether the inbox draws as its rail: when the owner collapsed it at the desk, or while a card is held between 760px
@@ -2950,13 +3082,16 @@ export function App({
   return (
     <main class="app">
       <div
+        ref={panesRef}
         class={`panes${pinned !== null ? " split" : ""}${overlay ? " overlay" : ""}`}
         data-inbox={railed ? "collapsed" : "expanded"}
         data-side={heldThing !== null ? "held" : listShown !== null ? "panel" : "rail"}
+        onAnimationEnd={endMove}
       >
         {railed && (
           <InboxRail
             tiles={tiles}
+            move={drawn.move}
             flyout={flyoutModel}
             now={now}
             onMark={expandInbox}
@@ -3072,14 +3207,14 @@ export function App({
           !sessionAtDesk && (
             <section class="read" aria-label="no conversation">
               {noSteererMiddle(epicDetail)}
-              {!columnHolds && heldCard}
+              {!columnHolds && deskCards}
             </section>
           )}
         {contractShown && contractLiveRow === null && !contractPageShown && (
-          <section class="read" aria-label="no conversation">{!columnHolds && heldCard}</section>
+          <section class="read" aria-label="no conversation">{!columnHolds && deskCards}</section>
         )}
         {designShown && designLiveRow === null && (
-          <section class="read" aria-label="no conversation">{!columnHolds && heldCard}</section>
+          <section class="read" aria-label="no conversation">{!columnHolds && deskCards}</section>
         )}
         <ReaderColumn
           column="pinned"
@@ -3203,6 +3338,101 @@ function unseenEnding(epic: EpicItem, listed: Epic | undefined, written: Set<str
 function readAsSeen(row: Row, written: Map<string, number>): Row {
   const writtenAt = written.get(row.key);
   return row.unseen && writtenAt !== undefined && row.changed <= writtenAt ? { ...row, unseen: false } : row;
+}
+
+// HeldParts is what a held card or sheet draws, as a render drew it: the thing, its title and gauge, and its body.
+interface HeldParts {
+  thing: HeldThing;
+  title: string;
+  gauge: GaugeShare | null;
+  // body draws the card's page. A copy that folds away is drawn with live false, which takes no pageRef.
+  body: (live: boolean) => JSX.Element | null;
+}
+
+// LeavingCard is a card or sheet folding away: its parts as they last drew, the aim its fold runs to, and whether it is the
+// phone's sheet.
+interface LeavingCard extends HeldParts {
+  aim: number | null;
+  sheet: boolean;
+}
+
+// HeldMotion is the motion the held layout draws (D16). move is what the held thing, its tab and its necks carry. next is the
+// move the commit after the one that clears move draws, so a move that repeats the last one still starts its animations. card
+// is the card folding away and tree the held thing whose tab and necks fade away; each stays drawn until its own animationend.
+interface HeldMotion {
+  move: HeldMove;
+  next: HeldMove;
+  card: LeavingCard | null;
+  tree: HeldThing | null;
+}
+
+const noMotion: HeldMotion = { move: "", next: "", card: null, tree: null };
+
+// DeskShown is what the held layout drew at the last commit: the parts of the held card or sheet, whether it was the phone's
+// sheet, and where the cursor's column and the open row stood.
+interface DeskShown {
+  parts: HeldParts | null;
+  sheet: boolean;
+  chatLeft: number | null;
+  aim: number | null;
+}
+
+// motionOf is the move a change of the held thing draws, from before to after. At the desk every change draws its move. On the
+// phone only the sheet's opening and closing draw one: the chat does not move, and a sheet that changes to another thing is a
+// plain swap.
+function motionOf(before: HeldThing | null, after: HeldThing | null, wide: boolean): HeldMove {
+  const move = heldMove(before, after);
+  return wide || move === "open" || move === "close" ? move : "";
+}
+
+// offsetWithin is the top and left of element within root, summed over the offsets between them. offsetTop and offsetLeft leave
+// out the transforms a move is running, so a place read during a move is the one the layout gives. It is null when root is not
+// among element's offset parents.
+function offsetWithin(element: HTMLElement, root: HTMLElement): { top: number; left: number } | null {
+  let top = 0;
+  let left = 0;
+  let at: HTMLElement | null = element;
+  while (at !== null && at !== root) {
+    top += at.offsetTop;
+    left += at.offsetLeft;
+    at = (at.offsetParent as HTMLElement | null) ?? null;
+  }
+  return at === root ? { top, left } : null;
+}
+
+// deskPlace reads where the held layout stands within panes: the left edge of the cursor's chat, which is its reader, and the aim
+// of the held card, the middle of the open row from the card's top, which is --held-aim. Both come from offsetTop and offsetLeft.
+function deskPlace(panes: HTMLElement | null): { chatLeft: number | null; aim: number | null } {
+  const reader = panes?.querySelector<HTMLElement>('section[aria-label="reader"] > .reader') ?? null;
+  const card = panes?.querySelector<HTMLElement>(".held-card") ?? null;
+  const row = panes?.querySelector<HTMLElement>('[data-held="open"]') ?? null;
+  const chat = panes !== null && reader !== null ? offsetWithin(reader, panes) : null;
+  const cardAt = panes !== null && card !== null ? offsetWithin(card, panes) : null;
+  const rowAt = panes !== null && row !== null ? offsetWithin(row, panes) : null;
+  return {
+    chatLeft: chat?.left ?? null,
+    aim: cardAt !== null && rowAt !== null && row !== null ? rowAt.top + row.offsetHeight / 2 - cardAt.top : null,
+  };
+}
+
+// leavingCardSelector and leavingTreeSelector name the card or sheet folding away, and the tab and necks fading away, while
+// they carry leave.
+const leavingCardSelector = '.held-card[data-move="leave"], .held-sheet[data-move="leave"]';
+const leavingTreeSelector = '[data-held][data-move="leave"]';
+// columnMarkSelector is the column that carries a move, and columnFadeSelector the parts of it whose animations run on their own,
+// as style.css draws them: the chat's reader and send box, which move or fade, and the head's crumbs, which fade.
+const columnMarkSelector = ".read[data-move]";
+const columnFadeSelector = ".read[data-move] > .reader, .read[data-move] > .send, .read[data-move] .convo-head .crumbs";
+
+// animating says whether an element under root that matches selector runs an animation now. An element with no Web Animations
+// runs none.
+function animating(root: HTMLElement | null, selector: string): boolean {
+  if (root === null) {
+    return false;
+  }
+  return [...root.querySelectorAll<HTMLElement>(selector)].some(
+    (element) => typeof element.getAnimations === "function" && element.getAnimations().length > 0,
+  );
 }
 
 // heldOpenKey is the key of the open entry the inbox keeps drawn while a list answer archives it, or ends it while the row
