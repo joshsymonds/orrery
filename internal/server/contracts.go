@@ -73,8 +73,8 @@ func (c contractsServer) List(
 	return connect.NewResponse(&orreryv1.ContractsListResponse{Contracts: contracts}), nil
 }
 
-// Get answers the contract of the id List gave it, with every version oldest first, the state history and the work of
-// each requirement (contractWork). An id no contract holds answers not_found.
+// Get answers the contract of the id List gave it, with every version oldest first, the state history, the work of each
+// requirement (contractWork) and the refusals of its writes, oldest first. An id no contract holds answers not_found.
 func (c contractsServer) Get(
 	ctx context.Context,
 	req *connect.Request[orreryv1.ContractsGetRequest],
@@ -105,17 +105,48 @@ func (c contractsServer) Get(
 	if err != nil {
 		return nil, err
 	}
+	refusals, err := c.refusalMessages(ctx, record.ContractListing.ID)
+	if err != nil {
+		return nil, err
+	}
 	response := &orreryv1.ContractsGetResponse{
 		Contract: contractListingMessage(record.ContractListing),
 		Versions: versions,
 		States:   states,
 		Work:     work,
+		Refusals: refusals,
 	}
 	err = c.setWorking(ctx, record.ContractListing.ID, response)
 	if err != nil {
 		return nil, err
 	}
 	return connect.NewResponse(response), nil
+}
+
+// refusalMessages returns the refusals of the contract id as ContractRefusal messages, oldest first. A failed read answers
+// as contractReadError does.
+func (c contractsServer) refusalMessages(ctx context.Context, id string) ([]*orreryv1.ContractRefusal, error) {
+	refusals, err := c.reader.ContractRefusals(ctx, id)
+	if err != nil {
+		return nil, contractReadError(err, "read contract")
+	}
+	messages := make([]*orreryv1.ContractRefusal, 0, len(refusals))
+	for _, refusal := range refusals {
+		messages = append(messages, contractRefusalMessage(refusal))
+	}
+	return messages, nil
+}
+
+// contractRefusalMessage converts a refusal of a contract's write to its ContractRefusal.
+func contractRefusalMessage(refusal store.ContractRefusal) *orreryv1.ContractRefusal {
+	return &orreryv1.ContractRefusal{
+		Seq:     refusal.Seq,
+		Version: refusal.Version,
+		Field:   refusal.Field,
+		Text:    refusal.Text,
+		Session: refusal.Session,
+		Time:    refusal.At,
+	}
 }
 
 // setWorking sets the working copy of the contract id on response, which a contract with none leaves unset. A failed read
