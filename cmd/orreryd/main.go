@@ -1071,8 +1071,7 @@ func startSessions(
 		}
 		host.newWriter(opts, st, logger)
 		host.newCron(opts, st, logger)
-		opts.paneAgents = paneAgents(ctx, getenv, logger)
-		host.newWakes(st, opts, router, logger)
+		host.newWakes(ctx, st, opts, router, getenv, logger)
 		host.manager = enginehost.NewManager(enginehost.Config{
 			Shell:       opts.sessionShell,
 			Claude:      opts.claude,
@@ -1686,7 +1685,17 @@ func appendPassLine(ctx context.Context, logger *slog.Logger, path string) {
 
 // newWakes builds the caller-event delivery and the limit notices over st, the two loops the Steps engine's stored wake
 // calls (see storedWake). They are built before the Steps engine, so the wake reaches both from the first stored hold.
-func (h *sessionHost) newWakes(st *store.Store, opts options, router enginehost.Router, logger *slog.Logger) {
+// The caller-event delivery wakes a pane on a remote host through the agents of the hosts file that getenv locates (see
+// paneAgents).
+func (h *sessionHost) newWakes(
+	ctx context.Context,
+	st *store.Store,
+	opts options,
+	router enginehost.Router,
+	getenv func(string) string,
+	logger *slog.Logger,
+) {
+	opts.paneAgents = paneAgents(ctx, getenv, logger)
 	h.newCallerEvents(st, opts, logger)
 	h.newLimitNotices(st, router, logger)
 }
