@@ -286,7 +286,7 @@ func (r *Relay) checkClaim(req *http.Request, session string) error {
 // A failure to write it is logged, since the handler has no other way to answer the request.
 func (r *Relay) refuse(w http.ResponseWriter, req *http.Request, err error) {
 	if writeErr := connect.NewErrorWriter().Write(w, req, err); writeErr != nil {
-		r.logger.Warn("hostrelay: write a refusal", "path", req.URL.Path, "err", writeErr)
+		r.logger.WarnContext(req.Context(), "hostrelay: write a refusal", "path", req.URL.Path, "err", writeErr)
 	}
 }
 
