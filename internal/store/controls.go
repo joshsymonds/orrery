@@ -203,7 +203,8 @@ func retryEpicIn(ctx context.Context, queries *sqlcgen.Queries, epic string, at 
 	if err != nil {
 		return err
 	}
-	if err = endPark(ctx, queries, epic); err != nil {
+	err = endPark(ctx, queries, epic)
+	if err != nil {
 		return err
 	}
 	if ParkClass(head.ParkClass) == ParkClassStall {

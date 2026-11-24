@@ -90,10 +90,11 @@ func insertStall(
 	if parked {
 		parkedFlag = 1
 	}
-	if err = queries.InsertEpicStall(ctx, sqlcgen.InsertEpicStallParams{
+	err = queries.InsertEpicStall(ctx, sqlcgen.InsertEpicStallParams{
 		Epic: epic, Seq: seq, At: at.Unix(), Tasks: mark.Tasks, Runs: mark.Runs, Actions: mark.Actions,
 		Parked: parkedFlag,
-	}); err != nil {
+	})
+	if err != nil {
 		return 0, fmt.Errorf("insert stall %d of epic %s: %w", seq, epic, err)
 	}
 	return seq, nil
