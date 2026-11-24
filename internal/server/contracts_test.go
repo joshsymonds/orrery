@@ -479,7 +479,8 @@ func TestContractRecordCommandsRecordTheOwner(t *testing.T) {
 	assertContractStates(t, got.Msg.GetStates(), []*orreryv1.ContractStateChange{
 		{State: "proposed", Version: 1, By: "session", Session: contractWriterD, Words: "Synthetic proposal.",
 			Time: contractTimeD},
-		{State: "accepted", Version: 1, By: "owner", Words: "Synthetic accept.", Time: contractTimeEngine},
+		{State: "accepted", Version: 1, By: "owner", Words: "Synthetic accept.", Time: contractTimeEngine,
+			Maker: &orreryv1.RecordMaker{Kind: "owner_serve"}},
 		{State: "set_aside", Version: 1, By: "owner", Words: "Synthetic set aside.", Time: contractTimeEngine},
 		{State: "proposed", Version: 1, By: "owner", Words: "Synthetic reopen.", Time: contractTimeEngine},
 	})

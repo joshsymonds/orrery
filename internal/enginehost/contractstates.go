@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"connectrpc.com/connect"
@@ -96,10 +97,10 @@ func reviseRefusal(id string, err error) error {
 }
 
 // AcceptContract accepts the contract at its newest version, by the sessions row the caller resolves to or by the owner
-// when it resolves to none. Every decision of that version must have an answer. Once the contract is read, the
-// Contracts' AcceptCheck, when it is set, must pass: a refusal of it stores nothing. The accept stores the commit
-// origin's main names in the contract's repository as the contract's base. When that commit cannot be read, the accept
-// is refused and stores nothing.
+// when it resolves to none. Every decision of that version must have an answer. The accept records who made it, as
+// acceptMaker works out. Once the contract is read, the Contracts' AcceptCheck, when it is set, must pass: a refusal of
+// it stores nothing. The accept stores the commit origin's main names in the contract's repository as the contract's
+// base. When that commit cannot be read, the accept is refused and stores nothing.
 func (s *contractService) AcceptContract(
 	ctx context.Context,
 	req *connect.Request[v1.AcceptContractRequest],
@@ -109,6 +110,10 @@ func (s *contractService) AcceptContract(
 	}
 	id := req.Msg.GetId()
 	session, err := s.changeSession(ctx, req.Header())
+	if err != nil {
+		return nil, err
+	}
+	maker, err := acceptMaker(session, req.Msg.GetMaker())
 	if err != nil {
 		return nil, err
 	}
@@ -130,6 +135,7 @@ func (s *contractService) AcceptContract(
 	}
 	change := s.contractChange(session, req.Msg.GetWords())
 	change.Base = base
+	change.Maker = maker
 	err = s.contracts.Store.AcceptContract(ctx, id, change)
 	if err != nil {
 		return nil, acceptRefusal(id, err)
@@ -168,6 +174,54 @@ func acceptRefusal(id string, err error) error {
 	default:
 		return epicStoreError(err)
 	}
+}
+
+// acceptMaker returns the maker an accept stores, given the sessions row the caller resolves to, session, which is ""
+// for none, and the maker the request names, named, which is nil for none. A caller that resolves to no session is
+// serve's owner, whose accept is owner_serve when it names no maker. A caller that resolves to a session stores the
+// maker it names, and none when it names none. A named maker is checked as the stage checks one: owner_serve is the
+// owner through serve, so the caller must resolve to no session; owner_conversation is the owner in the conversation,
+// so the caller must resolve to a session and give the owner's quote; conversation is the conversation deciding for the
+// owner, so the caller must resolve to a session and give the reason and the delegation it rests on. A caller of the
+// wrong kind is refused as permission denied. A kind that is none of the three, or evidence it lacks, is refused as an
+// invalid argument that names the field.
+func acceptMaker(session string, named *v1.StageMaker) (store.StageMaker, error) {
+	if named == nil {
+		if session == "" {
+			return store.StageMaker{Kind: store.StageMakerOwnerServe}, nil
+		}
+		return store.StageMaker{}, nil
+	}
+	kind := named.GetKind()
+	switch kind {
+	case store.StageMakerOwnerServe:
+		if session != "" {
+			return store.StageMaker{}, refuseEpic(connect.CodePermissionDenied,
+				"maker: owner_serve is serve's call, which carries no session")
+		}
+		return store.StageMaker{Kind: kind}, nil
+	case store.StageMakerOwnerConversation:
+		if session == "" {
+			return store.StageMaker{}, refuseEpic(connect.CodePermissionDenied, "caller: resolves to no session")
+		}
+		if strings.TrimSpace(named.GetQuote()) == "" {
+			return store.StageMaker{}, refuseEpic(connect.CodeInvalidArgument, "quote: empty")
+		}
+		return store.StageMaker{Kind: kind, Quote: named.GetQuote()}, nil
+	case store.StageMakerConversation:
+		if session == "" {
+			return store.StageMaker{}, refuseEpic(connect.CodePermissionDenied, "caller: resolves to no session")
+		}
+		if strings.TrimSpace(named.GetReason()) == "" {
+			return store.StageMaker{}, refuseEpic(connect.CodeInvalidArgument, "reason: empty")
+		}
+		if strings.TrimSpace(named.GetDelegation()) == "" {
+			return store.StageMaker{}, refuseEpic(connect.CodeInvalidArgument, "delegation: empty")
+		}
+		return store.StageMaker{Kind: kind, Reason: named.GetReason(), Delegation: named.GetDelegation()}, nil
+	}
+	return store.StageMaker{}, refuseEpic(connect.CodeInvalidArgument,
+		fmt.Sprintf("kind: %q is not owner_serve, owner_conversation or conversation", kind))
 }
 
 // SetAsideContract sets the contract aside with words, by the sessions row the caller resolves to or by the owner when

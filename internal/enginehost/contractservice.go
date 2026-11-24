@@ -458,7 +458,8 @@ func storeDecisions(decisions []*v1.ContractDecision) []store.ContractDecision {
 	})
 }
 
-// contractStateMessage returns the ContractStateChange message of state. A change its owner made names the owner.
+// contractStateMessage returns the ContractStateChange message of state. A change its owner made names the owner, and
+// the maker the change stored is its maker, or nil when it stored none.
 func contractStateMessage(state store.ContractStateChange) *v1.ContractStateChange {
 	by := contractByOwner
 	if state.Session != "" {
@@ -471,5 +472,14 @@ func contractStateMessage(state store.ContractStateChange) *v1.ContractStateChan
 		Session: state.Session,
 		Words:   state.Words,
 		Time:    state.At,
+		Maker:   stageMakerMessage(state.Maker),
 	}
+}
+
+// stageMakerMessage returns the StageMaker message of maker, or nil when maker is the zero StageMaker.
+func stageMakerMessage(maker store.StageMaker) *v1.StageMaker {
+	if maker.Kind == "" {
+		return nil
+	}
+	return &v1.StageMaker{Kind: maker.Kind, Quote: maker.Quote, Reason: maker.Reason, Delegation: maker.Delegation}
 }
