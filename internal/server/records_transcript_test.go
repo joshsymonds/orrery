@@ -74,11 +74,11 @@ func TestSessionWatchRecordsTranscriptDesignItemsAndPending(t *testing.T) {
 		Items: []*orreryv1.ConversationItem{
 			{
 				Kind: "design", Time: at + 1, Text: "answered\nKeep the scout",
-				Design: &orreryv1.EngineDesign{Design: "design-log"},
+				Design: &orreryv1.EngineDesign{Design: "design-log", What: "answered", Ids: []string{"Q1"}},
 			},
 			{
 				Kind: "design", Time: at + 2, Text: "asked\nShould the scout stay?",
-				Design: &orreryv1.EngineDesign{Design: "design-log"},
+				Design: &orreryv1.EngineDesign{Design: "design-log", What: "asked", Ids: []string{"Q2"}},
 			},
 		},
 		State: &orreryv1.ConversationState{
