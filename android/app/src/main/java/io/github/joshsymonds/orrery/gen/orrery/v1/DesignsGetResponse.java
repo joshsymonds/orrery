@@ -7,7 +7,8 @@ package io.github.joshsymonds.orrery.gen.orrery.v1;
 
 /**
  * <pre>
- * DesignsGetResponse carries one design with its stage's approaches, choice, log and delegations.
+ * DesignsGetResponse carries one design with its stage's approaches, choice, log, delegations and steps, questions and
+ * ledger.
  * </pre>
  *
  * Protobuf type {@code orrery.v1.DesignsGetResponse}
@@ -572,6 +573,78 @@ public  final class DesignsGetResponse extends
     delegations_.remove(index);
   }
 
+  public static final int STAGE_FIELD_NUMBER = 6;
+  private io.github.joshsymonds.orrery.gen.orrery.v1.DesignStage stage_;
+  /**
+   * <pre>
+   * The design's stage: its steps, questions and ledger and the counts of its passes. Unset when serve has no stage
+   * client.
+   * </pre>
+   *
+   * <code>.orrery.v1.DesignStage stage = 6 [json_name = "stage"];</code>
+   */
+  @java.lang.Override
+  public boolean hasStage() {
+    return ((bitField0_ & 0x00000004) != 0);
+  }
+  /**
+   * <pre>
+   * The design's stage: its steps, questions and ledger and the counts of its passes. Unset when serve has no stage
+   * client.
+   * </pre>
+   *
+   * <code>.orrery.v1.DesignStage stage = 6 [json_name = "stage"];</code>
+   */
+  @java.lang.Override
+  public io.github.joshsymonds.orrery.gen.orrery.v1.DesignStage getStage() {
+    return stage_ == null ? io.github.joshsymonds.orrery.gen.orrery.v1.DesignStage.getDefaultInstance() : stage_;
+  }
+  /**
+   * <pre>
+   * The design's stage: its steps, questions and ledger and the counts of its passes. Unset when serve has no stage
+   * client.
+   * </pre>
+   *
+   * <code>.orrery.v1.DesignStage stage = 6 [json_name = "stage"];</code>
+   */
+  private void setStage(io.github.joshsymonds.orrery.gen.orrery.v1.DesignStage value) {
+    java.util.Objects.requireNonNull(value);
+    stage_ = value;
+    bitField0_ |= 0x00000004;
+  }
+  /**
+   * <pre>
+   * The design's stage: its steps, questions and ledger and the counts of its passes. Unset when serve has no stage
+   * client.
+   * </pre>
+   *
+   * <code>.orrery.v1.DesignStage stage = 6 [json_name = "stage"];</code>
+   */
+  @java.lang.SuppressWarnings("ReferenceEquality")
+  private void mergeStage(io.github.joshsymonds.orrery.gen.orrery.v1.DesignStage value) {
+    java.util.Objects.requireNonNull(value);
+    if (stage_ != null &&
+        stage_ != io.github.joshsymonds.orrery.gen.orrery.v1.DesignStage.getDefaultInstance()) {
+      stage_ =
+        io.github.joshsymonds.orrery.gen.orrery.v1.DesignStage.newBuilder(stage_).mergeFrom(value).buildPartial();
+    } else {
+      stage_ = value;
+    }
+    bitField0_ |= 0x00000004;
+  }
+  /**
+   * <pre>
+   * The design's stage: its steps, questions and ledger and the counts of its passes. Unset when serve has no stage
+   * client.
+   * </pre>
+   *
+   * <code>.orrery.v1.DesignStage stage = 6 [json_name = "stage"];</code>
+   */
+  private void clearStage() {
+    stage_ = null;
+    bitField0_ = (bitField0_ & ~0x00000004);
+  }
+
   public static io.github.joshsymonds.orrery.gen.orrery.v1.DesignsGetResponse parseFrom(
       java.nio.ByteBuffer data)
       throws com.google.protobuf.InvalidProtocolBufferException {
@@ -657,7 +730,8 @@ public  final class DesignsGetResponse extends
 
   /**
    * <pre>
-   * DesignsGetResponse carries one design with its stage's approaches, choice, log and delegations.
+   * DesignsGetResponse carries one design with its stage's approaches, choice, log, delegations and steps, questions and
+   * ledger.
    * </pre>
    *
    * Protobuf type {@code orrery.v1.DesignsGetResponse}
@@ -1265,6 +1339,83 @@ public  final class DesignsGetResponse extends
       return this;
     }
 
+    /**
+     * <pre>
+     * The design's stage: its steps, questions and ledger and the counts of its passes. Unset when serve has no stage
+     * client.
+     * </pre>
+     *
+     * <code>.orrery.v1.DesignStage stage = 6 [json_name = "stage"];</code>
+     */
+    @java.lang.Override
+    public boolean hasStage() {
+      return instance.hasStage();
+    }
+    /**
+     * <pre>
+     * The design's stage: its steps, questions and ledger and the counts of its passes. Unset when serve has no stage
+     * client.
+     * </pre>
+     *
+     * <code>.orrery.v1.DesignStage stage = 6 [json_name = "stage"];</code>
+     */
+    @java.lang.Override
+    public io.github.joshsymonds.orrery.gen.orrery.v1.DesignStage getStage() {
+      return instance.getStage();
+    }
+    /**
+     * <pre>
+     * The design's stage: its steps, questions and ledger and the counts of its passes. Unset when serve has no stage
+     * client.
+     * </pre>
+     *
+     * <code>.orrery.v1.DesignStage stage = 6 [json_name = "stage"];</code>
+     */
+    public Builder setStage(io.github.joshsymonds.orrery.gen.orrery.v1.DesignStage value) {
+      copyOnWrite();
+      instance.setStage(value);
+      return this;
+      }
+    /**
+     * <pre>
+     * The design's stage: its steps, questions and ledger and the counts of its passes. Unset when serve has no stage
+     * client.
+     * </pre>
+     *
+     * <code>.orrery.v1.DesignStage stage = 6 [json_name = "stage"];</code>
+     */
+    public Builder setStage(
+        io.github.joshsymonds.orrery.gen.orrery.v1.DesignStage.Builder builderForValue) {
+      copyOnWrite();
+      instance.setStage(builderForValue.build());
+      return this;
+    }
+    /**
+     * <pre>
+     * The design's stage: its steps, questions and ledger and the counts of its passes. Unset when serve has no stage
+     * client.
+     * </pre>
+     *
+     * <code>.orrery.v1.DesignStage stage = 6 [json_name = "stage"];</code>
+     */
+    public Builder mergeStage(io.github.joshsymonds.orrery.gen.orrery.v1.DesignStage value) {
+      copyOnWrite();
+      instance.mergeStage(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The design's stage: its steps, questions and ledger and the counts of its passes. Unset when serve has no stage
+     * client.
+     * </pre>
+     *
+     * <code>.orrery.v1.DesignStage stage = 6 [json_name = "stage"];</code>
+     */
+    public Builder clearStage() {  copyOnWrite();
+      instance.clearStage();
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:orrery.v1.DesignsGetResponse)
   }
   @java.lang.Override
@@ -1290,10 +1441,11 @@ public  final class DesignsGetResponse extends
             io.github.joshsymonds.orrery.gen.orrery.v1.DesignLogLine.class,
             "delegations_",
             io.github.joshsymonds.orrery.gen.orrery.v1.DesignDelegation.class,
+            "stage_",
           };
           java.lang.String info =
-              "\u0000\u0005\u0000\u0001\u0001\u0005\u0005\u0000\u0003\u0000\u0001\u1009\u0000\u0002" +
-              "\u001b\u0003\u1009\u0001\u0004\u001b\u0005\u001b";
+              "\u0000\u0006\u0000\u0001\u0001\u0006\u0006\u0000\u0003\u0000\u0001\u1009\u0000\u0002" +
+              "\u001b\u0003\u1009\u0001\u0004\u001b\u0005\u001b\u0006\u1009\u0002";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

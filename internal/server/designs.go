@@ -26,10 +26,12 @@ const designStoreUnavailable = "design store unavailable"
 const designStageUnavailable = "design stage service unavailable"
 
 // designsServer answers orrery.v1.Designs. List and Get read the store reader. A nil reader answers them unavailable.
-// Answer forwards to stage with no caller headers, so orreryd records the owner as the maker, and answers the answer
-// orreryd stored. Continue forwards to stage with no caller headers, and answers the design read from the reader with
-// the session orreryd names. A nil stage answers Answer and Continue unavailable. Each forwarded call runs under
-// timeout and is retried only while rpcretry.NeverConnected accepts its error, as the contract commands are.
+// Get also forwards the read of the design's stage to stage, and answers the stage orreryd reports, or leaves the stage
+// unset when stage is nil. Answer forwards to stage with no caller headers, so orreryd records the owner as the maker,
+// and answers the answer orreryd stored. Continue forwards to stage with no caller headers, and answers the design
+// read from the reader with the session orreryd names. A nil stage answers Answer and Continue unavailable. Each
+// forwarded call runs under timeout and is retried only while rpcretry.NeverConnected accepts its error, as the
+// contract commands are.
 type designsServer struct {
 	orreryv1connect.UnimplementedDesignsHandler
 	reader  *store.Reader
@@ -133,8 +135,9 @@ func (d designsServer) List(
 }
 
 // Get answers the design of the id List gave it, with the approaches the design's stage weighs, the choice of one
-// unset until one is stored, the design's log, and its delegations with the decisions made under each, each oldest
-// first. An id no design holds answers not_found.
+// unset until one is stored, the design's log, its delegations with the decisions made under each, each oldest first,
+// and its stage's steps, questions, ledger and counts, which is unset when no stage client is set. An id no design
+// holds answers not_found.
 func (d designsServer) Get(
 	ctx context.Context,
 	req *connect.Request[orreryv1.DesignsGetRequest],
@@ -169,13 +172,127 @@ func (d designsServer) Get(
 	if err != nil {
 		return nil, designReadError(err, "read design delegations")
 	}
+	var stage *orreryv1.DesignStage
+	if d.stage != nil {
+		stage, err = d.readDesignStage(ctx, req.Msg.GetId())
+		if err != nil {
+			return nil, err
+		}
+	}
 	return connect.NewResponse(&orreryv1.DesignsGetResponse{
 		Design:      designMessage(record),
 		Approaches:  designApproachMessages(approaches),
 		Choice:      choice,
 		Log:         designLogMessages(lines),
 		Delegations: designDelegationMessages(delegations),
+		Stage:       stage,
 	}), nil
+}
+
+// readDesignStage forwards the read of the stage of the design id to stage, under the rules forwardStage gives, and
+// returns the stage as the design message carries it.
+func (d designsServer) readDesignStage(ctx context.Context, id string) (*orreryv1.DesignStage, error) {
+	var reply *connect.Response[enginev1.GetStageResponse]
+	err := d.forwardStage(ctx, func(ctx context.Context, stage enginev1connect.StageClient) error {
+		var err error
+		reply, err = stage.GetStage(ctx, connect.NewRequest(&enginev1.GetStageRequest{Design: id}))
+		return wrapEngine("get stage", err)
+	})
+	if err != nil {
+		return nil, err
+	}
+	return designStageMessage(reply.Msg.GetStage()), nil
+}
+
+// designStageMessage converts the stage of a design to its DesignStage, with its steps, questions and ledger in the
+// order given and its counts copied.
+func designStageMessage(stage *enginev1.DesignStage) *orreryv1.DesignStage {
+	return &orreryv1.DesignStage{
+		Steps:            designStepMessages(stage.GetSteps()),
+		Questions:        designQuestionMessages(stage.GetQuestions()),
+		Ledger:           designLedgerItemMessages(stage.GetLedger()),
+		Frozen:           stage.GetFrozen(),
+		ClosureSkipped:   stage.GetClosureSkipped(),
+		DiscoveryCounted: stage.GetDiscoveryCounted(),
+		ClosureCounted:   stage.GetClosureCounted(),
+	}
+}
+
+// designStepMessages converts each step a design's stage started to its DesignStep, in the order given.
+func designStepMessages(steps []*enginev1.StageStep) []*orreryv1.DesignStep {
+	messages := make([]*orreryv1.DesignStep, 0, len(steps))
+	for _, step := range steps {
+		messages = append(messages, &orreryv1.DesignStep{
+			Step:       step.GetStep(),
+			Kind:       step.GetKind(),
+			Subject:    step.GetSubject(),
+			Repository: step.GetRepository(),
+			Revision:   step.GetRevision(),
+			Delta:      step.GetDelta(),
+			Created:    step.GetCreated(),
+			Status:     step.GetStatus(),
+			Report:     step.GetReport(),
+			Verdict:    step.GetVerdict(),
+			Counted:    step.GetCounted(),
+		})
+	}
+	return messages
+}
+
+// designQuestionMessages converts each question a design's stage asked to its DesignQuestion, in the order given.
+func designQuestionMessages(questions []*enginev1.StageQuestion) []*orreryv1.DesignQuestion {
+	messages := make([]*orreryv1.DesignQuestion, 0, len(questions))
+	for _, question := range questions {
+		messages = append(messages, &orreryv1.DesignQuestion{
+			Id:             question.GetId(),
+			Contract:       question.GetContract(),
+			Text:           question.GetText(),
+			Options:        question.GetOptions(),
+			Recommendation: question.GetRecommendation(),
+			Asked:          question.GetAsked(),
+			Answer:         question.GetAnswer(),
+			Accepted:       question.GetAccepted(),
+			Maker:          designRecordMaker(question.GetMaker()),
+			Answered:       question.GetAnswered(),
+		})
+	}
+	return messages
+}
+
+// designLedgerItemMessages converts each item of a design's ledger to its DesignLedgerItem, in the order given.
+func designLedgerItemMessages(items []*enginev1.StageLedgerItem) []*orreryv1.DesignLedgerItem {
+	messages := make([]*orreryv1.DesignLedgerItem, 0, len(items))
+	for _, item := range items {
+		messages = append(messages, &orreryv1.DesignLedgerItem{
+			Id:          item.GetId(),
+			Contract:    item.GetContract(),
+			Origin:      item.GetOrigin(),
+			Impact:      item.GetImpact(),
+			Evidence:    item.GetEvidence(),
+			Change:      item.GetChange(),
+			Disposition: item.GetDisposition(),
+			Reason:      item.GetReason(),
+			Boundary:    item.GetBoundary(),
+			Maker:       designRecordMaker(item.GetMaker()),
+			ClosureWord: item.GetClosureWord(),
+			ClosureNote: item.GetClosureNote(),
+		})
+	}
+	return messages
+}
+
+// designRecordMaker converts the maker of a stage record to the RecordMaker a design message carries, with the same
+// kind, quote, reason and delegation. A maker that holds none of them, or no maker, is nil.
+func designRecordMaker(maker *enginev1.StageMaker) *orreryv1.RecordMaker {
+	if maker.GetKind() == "" && maker.GetQuote() == "" && maker.GetReason() == "" && maker.GetDelegation() == "" {
+		return nil
+	}
+	return &orreryv1.RecordMaker{
+		Kind:       maker.GetKind(),
+		Quote:      maker.GetQuote(),
+		Reason:     maker.GetReason(),
+		Delegation: maker.GetDelegation(),
+	}
 }
 
 // designApproachMessages converts each approach a design's stage weighs to its DesignApproach, in the order given.
