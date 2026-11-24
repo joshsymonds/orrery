@@ -26,8 +26,9 @@ const streamChunkBytes = 32 << 10
 // Error types from Anthropic's own taxonomy. A failure the gateway originates is described in the vocabulary a client
 // already knows, so that it never has to learn a type of the gateway's invention.
 const (
-	errorTypeAPI      = "api_error"
-	errorTypeNotFound = "not_found_error"
+	errorTypeAPI            = "api_error"
+	errorTypeInvalidRequest = "invalid_request_error"
+	errorTypeNotFound       = "not_found_error"
 )
 
 // The messages a refusal's body carries. They are fixed strings, so a body never echoes what the caller or the upstream
@@ -106,10 +107,17 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Hook points for the later steps. The inject and sigv4 seats take the refusal above as their branch. The request
-	// rewrite changes body before forward reads it. The pin header is set in send, beside the credential. The
-	// ledger record is started before forward and finished after its relay, through g.ledger.
-	g.forward(w, r, res.Context.Account, snap.Tokens, body)
+	// The seat's rewrites apply to the body before it is forwarded, so that the upstream receives the rewritten request.
+	rewritten, failure := rewriteBody(body, res.Seat)
+	if failure != nil {
+		g.abort(r.Context(), w, failure.status, failure.errType, failure.message, failure.err)
+		return
+	}
+
+	// Hook points for the later steps. The inject and sigv4 seats take the refusal above as their branch. The pin header
+	// is set in send, beside the credential. The ledger record is started before forward and finished after its relay,
+	// through g.ledger.
+	g.forward(w, r, res.Seat, res.Context.Account, snap.Tokens, rewritten)
 }
 
 // forward sends the request to the upstream a forward seat reaches and relays the upstream's answer. The caller's own
@@ -117,6 +125,7 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 func (g *Gateway) forward(
 	w http.ResponseWriter,
 	r *http.Request,
+	seat llmroutes.Seat,
 	account string,
 	tokens map[string]string,
 	body []byte,
@@ -127,7 +136,7 @@ func (g *Gateway) forward(
 		return
 	}
 
-	resp, err := g.send(r, account, token, body)
+	resp, err := g.send(r, seat, account, token, body)
 	if errors.Is(err, errBuildRequest) {
 		g.abort(r.Context(), w, http.StatusInternalServerError, errorTypeAPI, msgRequestBuild, err)
 		return
@@ -157,8 +166,9 @@ func accountToken(account string, tokens map[string]string) (string, error) {
 }
 
 // send builds the request a forward seat sends upstream and sends it: the upstream's own scheme and host, the path the
-// caller named after its context, the caller's method, query and body, and the caller's headers. When account is set,
-// the caller's Authorization and x-api-key are dropped and token is sent as the bearer credential.
+// caller named after its context, the caller's method, query and body, and the caller's headers. The seat's stripped
+// betas are removed from the anthropic-beta header. When account is set, the caller's Authorization and x-api-key are
+// dropped and token is sent as the bearer credential.
 //
 // The target is a copy of the configured upstream, so no part of the caller's request can change its scheme or host.
 // The path after the context is set as both the decoded path and the escaped path, so an escaped byte reaches the
@@ -167,7 +177,12 @@ func accountToken(account string, tokens map[string]string) (string, error) {
 //
 // The request is built and sent in one function, so that the request the client sends is the one this function built.
 // It returns an error wrapping errBuildRequest when the request cannot be built, and any other error is the upstream's.
-func (g *Gateway) send(r *http.Request, account, token string, body []byte) (*http.Response, error) {
+func (g *Gateway) send(
+	r *http.Request,
+	seat llmroutes.Seat,
+	account, token string,
+	body []byte,
+) (*http.Response, error) {
 	_, rest := SplitContext(r.URL.EscapedPath())
 	path, err := url.PathUnescape(rest)
 	if err != nil {
@@ -191,6 +206,7 @@ func (g *Gateway) send(r *http.Request, account, token string, body []byte) (*ht
 		dropped = append(dropped, headerAuthorization, headerClientKey)
 	}
 	copyHeader(req.Header, r.Header, droppedHeaders(r.Header, dropped...))
+	stripBetaHeader(req.Header, seat.StripBetas)
 	if account != "" {
 		req.Header.Set(headerAuthorization, "Bearer "+token)
 	}
