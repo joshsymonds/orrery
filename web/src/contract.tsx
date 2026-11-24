@@ -26,12 +26,32 @@ export interface ContractDesign {
   onAnswer: (question: bigint, answer: QuestionAnswer) => Promise<void>;
 }
 
+// AdditionDecision is what the record holds of one addition of the version drawn: kept by someone, or struck by someone
+// with its words, and the rows the version removes with it, which the Director removes as the next version.
+export type AdditionDecision =
+  | { kind: "kept"; who: string }
+  | { kind: "struck"; who: string; words: string; removed: string[] };
+
+// AdditionKeeping is how the page keeps and strikes the additions: whether a call is sending, the refusal an addition's
+// row draws, and the calls for an addition's position, counted from 0. Absent, no addition offers Keep or Strike.
+export interface AdditionKeeping {
+  sending: boolean;
+  refusal?: { index: number; text: string };
+  onKeep: (index: number) => void;
+  onStrike: (index: number) => void;
+}
+
 interface ContractBodyProps {
   contract: EpicContract;
   requirements: EpicRequirement[];
   // decisions is the contract's decisions. Absent, the document is an Epics.Get contract's, and its Decisions section
   // reads None.
   decisions?: ContractDecision[];
+  // additionDecisions is what the record holds of each addition, by position: its decision, or undefined while it is
+  // open. Absent, every addition is open.
+  additionDecisions?: readonly (AdditionDecision | undefined)[];
+  // keeping, when given, offers Keep and Strike on each addition that is not struck.
+  keeping?: AdditionKeeping;
   // design is the design the contract belongs to, whose questions about the contract are drawn as threads after the
   // decisions. Absent, the contract carries no question.
   design?: ContractDesign;
@@ -45,7 +65,7 @@ interface ContractBodyProps {
   attending?: boolean;
   // aboutId is the id of the row the dock's About names. That row's control is drawn lit.
   aboutId?: string;
-  // onAbout, when given, gives each row a control that talks about it, and each addition Keep and Strike.
+  // onAbout, when given, gives each row a control that talks about it.
   onAbout?: (about: RowAbout) => void;
   irreversibleRef?: Ref<HTMLElement>;
 }
@@ -62,7 +82,17 @@ const noMarks: DocMarks = {
 // name with its column names, how-bad chips, id chips by kind, attention marks and changed chips. Every text is a child
 // of its element, so no markup in a field becomes an element.
 export function ContractBody(props: ContractBodyProps): JSX.Element {
-  const { contract, requirements, decisions = [], onAbout, aboutId, irreversibleRef, design } = props;
+  const {
+    contract,
+    requirements,
+    decisions = [],
+    additionDecisions = [],
+    keeping,
+    onAbout,
+    aboutId,
+    irreversibleRef,
+    design,
+  } = props;
   const attending = props.attending ?? true;
   const marks = props.marks ?? noMarks;
   const record = props.record ?? `accepted ${clock(contract.accepted)}`;
@@ -80,6 +110,8 @@ export function ContractBody(props: ContractBodyProps): JSX.Element {
   const changedIn = (...fields: string[]): number | undefined =>
     fields.some((field) => marks.changedSections.has(field)) ? marks.version : undefined;
   const attends = (id: string): boolean => attending && marks.concerned.has(id);
+  // removing are the rows a struck addition takes with it, which the document draws as being removed.
+  const removing = new Set(additionDecisions.flatMap((decision) => (decision?.kind === "struck" ? decision.removed : [])));
 
   const setter = contract.failures.find((failure) => failure.rating === contract.care);
   const careLine =
@@ -117,13 +149,19 @@ export function ContractBody(props: ContractBodyProps): JSX.Element {
       >
         <Table head={["", "if this happened", "how bad", "what we do"]}>
           {contract.failures.map((failure) => (
-            <Row key={failure.id} id={failure.id} attention={attends(failure.id)}>
+            <Row
+              key={failure.id}
+              id={failure.id}
+              attention={attends(failure.id)}
+              removing={removing.has(failure.id)}
+            >
               <span>
                 <IdChip id={failure.id} />
               </span>
               <span class="strong wide">
                 {failure.text}
                 <ChangedChip version={changedRow(failure.id)} />
+                <RemovingChip removing={removing.has(failure.id)} />
               </span>
               <span>
                 <RatingChip rating={failure.rating} />
@@ -157,34 +195,75 @@ export function ContractBody(props: ContractBodyProps): JSX.Element {
           </p>
         ) : (
           <Table head={["where", "what", "why", "cost", ""]}>
-            {contract.additions.map((addition, index) => (
-              <Row key={index}>
-                <span class="wide">{addition.location}</span>
-                <span class="strong wide">{addition.what}</span>
-                <span class="wide">{addition.why}</span>
-                <span class="wide ink-3">{addition.cost}</span>
-                <span class="end">
-                  {onAbout !== undefined && (
-                    <span class="keepdrop">
-                      <button
-                        type="button"
-                        class="btn"
-                        onClick={() => onAbout({ id: addition.location, text: `Keep: ${addition.what}` })}
-                      >
-                        Keep
-                      </button>
-                      <button
-                        type="button"
-                        class="btn quiet"
-                        onClick={() => onAbout({ id: addition.location, text: `Strike: ${addition.what}` })}
-                      >
-                        Strike
-                      </button>
-                    </span>
+            {contract.additions.map((addition, index) => {
+              const decision = additionDecisions[index];
+              const kept = decision?.kind === "kept";
+              const struck = decision?.kind === "struck";
+              const refusal = keeping?.refusal;
+              const refused = refusal !== undefined && refusal.index === index ? refusal.text : undefined;
+              return (
+                <Row key={index} id={`A${index + 1}`} struck={struck}>
+                  <span class="wide">{addition.location}</span>
+                  <span class="strong wide">{addition.what}</span>
+                  <span class="wide">{addition.why}</span>
+                  <span class="wide ink-3">{addition.cost}</span>
+                  <span class="end">
+                    {keeping !== undefined && !struck && (
+                      <span class="keepdrop">
+                        {!kept && (
+                          <button
+                            type="button"
+                            class="btn"
+                            disabled={keeping.sending}
+                            onClick={() => keeping.onKeep(index)}
+                          >
+                            Keep
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          class="btn quiet"
+                          disabled={keeping.sending}
+                          onClick={() => keeping.onStrike(index)}
+                        >
+                          Strike
+                        </button>
+                      </span>
+                    )}
+                  </span>
+                  {decision?.kind === "kept" && (
+                    <p class="decided kept">
+                      <span class="chip">kept</span>
+                      {" "}
+                      <span>{decision.who}</span>
+                    </p>
                   )}
-                </span>
-              </Row>
-            ))}
+                  {decision?.kind === "struck" && (
+                    <>
+                      <p class="decided struck">
+                        <span class="chip">struck</span>
+                        {" "}
+                        <span>{decision.who}</span>
+                        {decision.words !== "" && (
+                          <>
+                            {" "}
+                            <span class="words">{`“${decision.words}”`}</span>
+                          </>
+                        )}
+                      </p>
+                      <p class="inote removes">
+                        <span>{removedWords(decision.removed)}</span>
+                      </p>
+                    </>
+                  )}
+                  {refused !== undefined && (
+                    <p class="inote error refusal" role="alert">
+                      <span>{refused}</span>
+                    </p>
+                  )}
+                </Row>
+              );
+            })}
           </Table>
         )}
       </Section>
@@ -197,13 +276,19 @@ export function ContractBody(props: ContractBodyProps): JSX.Element {
       >
         <Table head={["", "must be true", "how we’ll know"]}>
           {requirements.map((requirement) => (
-            <Row key={requirement.id} id={requirement.id} attention={attends(requirement.id)}>
+            <Row
+              key={requirement.id}
+              id={requirement.id}
+              attention={attends(requirement.id)}
+              removing={removing.has(requirement.id)}
+            >
               <span>
                 <IdChip id={requirement.id} />
               </span>
               <span class="strong wide">
                 {requirement.text}
                 <ChangedChip version={changedRow(requirement.id)} />
+                <RemovingChip removing={removing.has(requirement.id)} />
               </span>
               <span class="wide">
                 {requirement.evidence}
@@ -228,13 +313,19 @@ export function ContractBody(props: ContractBodyProps): JSX.Element {
       >
         <Table head={["", "assumption", "if wrong"]}>
           {contract.premises.map((premise) => (
-            <Row key={premise.id} id={premise.id} attention={attends(premise.id)}>
+            <Row
+              key={premise.id}
+              id={premise.id}
+              attention={attends(premise.id)}
+              removing={removing.has(premise.id)}
+            >
               <span>
                 <IdChip id={premise.id} />
               </span>
               <span class="strong wide">
                 {premise.text}
                 <ChangedChip version={changedRow(premise.id)} />
+                <RemovingChip removing={removing.has(premise.id)} />
               </span>
               <span class="wide">
                 {premise.ifWrong}
@@ -305,13 +396,14 @@ export function ContractBody(props: ContractBodyProps): JSX.Element {
           <Table head={["", "question", "recommended", "why"]}>
             {pending.map((decision) => (
               <Fragment key={decision.id}>
-                <Row id={decision.id} attention={attending}>
+                <Row id={decision.id} attention={attending} removing={removing.has(decision.id)}>
                   <span>
                     <IdChip id={decision.id} />
                   </span>
                   <span class="strong wide">
                     {decision.question}
                     <ChangedChip version={changedRow(decision.id)} />
+                    <RemovingChip removing={removing.has(decision.id)} />
                   </span>
                   <span class="wide">
                     {decision.recommendation !== "" && !decision.options.includes(decision.recommendation) && (
@@ -445,13 +537,47 @@ function Table(props: { head: string[]; children: ComponentChildren }): JSX.Elem
   );
 }
 
-// Row draws a table row. A row with an id that an open decision concerns, or an open decision itself, is attention.
-function Row(props: { id?: string; attention?: boolean; children: ComponentChildren }): JSX.Element {
+// Row draws a table row. A row with an id that an open decision concerns, or an open decision itself, is attention. An
+// addition the record struck is drawn struck, and a row a struck addition takes with it is drawn removing.
+function Row(props: {
+  id?: string;
+  attention?: boolean;
+  struck?: boolean;
+  removing?: boolean;
+  children: ComponentChildren;
+}): JSX.Element {
+  const classes = ["tr"];
+  if (props.attention === true) {
+    classes.push("attention");
+  }
+  if (props.struck === true) {
+    classes.push("struck");
+  }
+  if (props.removing === true) {
+    classes.push("removing");
+  }
   return (
-    <div class={props.attention === true ? "tr attention" : "tr"} data-row={props.id}>
+    <div class={classes.join(" ")} data-row={props.id}>
       {props.children}
     </div>
   );
+}
+
+// RemovingChip says a row is being removed with a struck addition, and draws nothing when it is not.
+function RemovingChip({ removing }: { removing: boolean }): JSX.Element | null {
+  return removing ? <span class="chip removing">being removed</span> : null;
+}
+
+// removedWords says what a struck addition takes with it: the rows the Director removes as the next version, or that the
+// next version comes without it when no row goes with it.
+function removedWords(removed: readonly string[]): string {
+  if (removed.length === 0) {
+    return "No row goes with it. The next version is coming without it.";
+  }
+  if (removed.length === 1) {
+    return `${removed[0]} goes with it. The Director is removing it as the next version.`;
+  }
+  return `${removed.join(", ")} go with it. The Director is removing them as the next version.`;
 }
 
 // Talk is a row's control: the chat icon alone, named Talk about this row, which talks about that row. It is lit while

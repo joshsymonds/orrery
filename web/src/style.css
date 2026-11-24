@@ -1770,6 +1770,16 @@ button.subj:hover { background: var(--o-surface-raised); }
 .tr .say.on, .tr:hover .say { visibility: visible; }
 .tr .say .ctl { background: var(--o-surface-raised); color: var(--o-role-you); }
 .keepdrop { display: inline-flex; gap: var(--o-space-4); }
+/* An addition the record holds: a struck one reads struck through, its status and what goes with it run under its row, and
+   a kept one says so in the ok role. A row a struck addition takes with it reads as being removed. */
+.contract .tr.struck .strong { color: var(--o-ink-3); text-decoration: line-through; }
+.contract .tr.removing .strong { color: var(--o-ink-3); }
+.contract .chip.removing { background: var(--o-role-bad-fill); color: var(--o-role-bad); }
+.contract .tr > .decided, .contract .tr > .removes, .contract .tr > .refusal { grid-column: 1 / -1; }
+.contract .decided { display: flex; flex-wrap: wrap; align-items: center; gap: var(--o-space-8); font: var(--o-type-small); color: var(--o-ink-2); overflow-wrap: anywhere; }
+.contract .decided.kept .chip { background: var(--o-role-ok-fill); color: var(--o-role-ok); }
+.contract .decided.struck .chip { background: var(--o-role-bad-fill); color: var(--o-role-bad); }
+.contract .decided .words { color: var(--o-ink-1); }
 button.tr { width: 100%; min-height: 0; margin: 0; border: 0; border-radius: 0; background: none; color: var(--o-ink-2); font: var(--o-type-small); text-align: left; cursor: pointer; }
 button.tr:hover { background: var(--o-surface-well); }
 

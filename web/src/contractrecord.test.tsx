@@ -18,8 +18,10 @@ import {
   ContractsAcceptResponseSchema,
   type ContractsGetResponse,
   ContractsGetResponseSchema,
+  ContractsKeepResponseSchema,
   ContractsReopenResponseSchema,
   ContractsSetAsideResponseSchema,
+  ContractsStrikeResponseSchema,
 } from "./gen/orrery/v1/contracts_pb";
 import { clock } from "./reader";
 import { assertNone, installTestDom, removeTestDom } from "./testdom";
@@ -42,17 +44,20 @@ interface Script {
   reopen?: (words: string) => Promise<void> | void;
 }
 
-// Calls counts the calls the record makes, and each write's words in the order the writes came.
+// Calls counts the calls the record makes, and each write's words in the order the writes came. keep and strike hold
+// the addition each call named.
 interface Calls {
   get: number;
   accept: string[];
   setAside: string[];
   reopen: string[];
+  keep: string[];
+  strike: string[];
 }
 
 // serve is a fake server that answers the Contracts calls as the script says, and counts each call it takes.
 function serve(script: Script): { contracts: Client<typeof Contracts>; calls: Calls } {
-  const calls: Calls = { get: 0, accept: [], setAside: [], reopen: [] };
+  const calls: Calls = { get: 0, accept: [], setAside: [], reopen: [], keep: [], strike: [] };
   const transport = createRouterTransport(({ service }) => {
     service(Contracts, {
       get: async () => {
@@ -73,6 +78,14 @@ function serve(script: Script): { contracts: Client<typeof Contracts>; calls: Ca
         calls.reopen.push(request.words);
         await script.reopen?.(request.words);
         return create(ContractsReopenResponseSchema, {});
+      },
+      keep: async (request) => {
+        calls.keep.push(request.addition);
+        return create(ContractsKeepResponseSchema, {});
+      },
+      strike: async (request) => {
+        calls.strike.push(request.addition);
+        return create(ContractsStrikeResponseSchema, {});
       },
     });
   });
@@ -694,11 +707,11 @@ test("ContractMine: row controls are drawn while live on the newest proposed ver
   await withRecord(t, { script: { get: () => tideProposed }, onAbout: (about) => abouts.push(about) }, async (rig) => {
     await drawn(rig);
     await press(talkButton(rowOf(rig.container, "F2")));
+    assert.deepEqual(abouts, [{ id: "F2", text: "The office received the same alert many times." }]);
     await press(button(rig.container, "Keep"));
-    assert.deepEqual(abouts, [
-      { id: "F2", text: "The office received the same alert many times." },
-      { id: "alerts/send.go", text: "Keep: Retry a failed send three times." },
-    ]);
+    await rig.settle(() => rig.calls.keep.length === 1 && rig.calls.get === 2, "the Keep to be sent and the record drawn again");
+    assert.deepEqual(rig.calls.keep, ["A1"]);
+    assert.deepEqual(abouts, [{ id: "F2", text: "The office received the same alert many times." }]);
   });
 });
 
