@@ -21,13 +21,21 @@ const (
 // errContractEventRead is the read error the failing store of the read-error test returns for the contract events.
 var errContractEventRead = errors.New("synthetic contract event read")
 
-// failingContractEventsStore is the store of the read-error test: the real store, except that its ContractEvents fails.
+// errDesignEventRead is the read error the failing store of the read-error test returns for the design events.
+var errDesignEventRead = errors.New("synthetic design event read")
+
+// failingContractEventsStore is the store of the read-error test: the real store, except that its ContractEvents and
+// its DesignEvents fail.
 type failingContractEventsStore struct {
 	*store.Store
 }
 
 func (failingContractEventsStore) ContractEvents(context.Context) ([]store.ContractEvent, error) {
 	return nil, errContractEventRead
+}
+
+func (failingContractEventsStore) DesignEvents(context.Context) ([]store.DesignEvent, error) {
+	return nil, errDesignEventRead
 }
 
 // contractEventVersion returns a version of contractEventID, written by writer at at, with its one decision answered so
@@ -178,8 +186,8 @@ func TestContractEpicContractReadErrorKeepsPassGoing(t *testing.T) {
 	})
 
 	err := pass.Pass(ctx)
-	if !errors.Is(err, errContractEventRead) {
-		t.Fatalf("Pass = %v, want the contract event read error", err)
+	if !errors.Is(err, errContractEventRead) || !errors.Is(err, errDesignEventRead) {
+		t.Fatalf("Pass = %v, want the contract and design event read errors", err)
 	}
 	want := []enginehost.DeliverRequest{{
 		ID: contractEventConversation, PromptID: "epic:orrery-1a2b3c4/planner-runner:A1",
