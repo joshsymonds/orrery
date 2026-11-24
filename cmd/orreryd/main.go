@@ -42,6 +42,7 @@ import (
 	"github.com/joshsymonds/orrery/internal/grants"
 	"github.com/joshsymonds/orrery/internal/holder"
 	"github.com/joshsymonds/orrery/internal/hostexec"
+	"github.com/joshsymonds/orrery/internal/hostrelay"
 	"github.com/joshsymonds/orrery/internal/hosts"
 	"github.com/joshsymonds/orrery/internal/inapp"
 	"github.com/joshsymonds/orrery/internal/interpret"
@@ -104,7 +105,7 @@ const (
 
 const usageText = `usage: orreryd [-L NAME | -S PATH] [--socket PATH] [--claude PATH] [--summary-model CONTEXT=MODEL]...
                [--push-host HOST]... [--sessions] [--session-shell PATH]
-               [--holder-scope PATH] [--metrics-listen ADDR]
+               [--holder-scope PATH] [--metrics-listen ADDR] [--relay-listen ADDR]
 
 flags:
   -L NAME           tmux server by name (tmux -L)
@@ -123,6 +124,8 @@ flags:
                     (default: none, the holder starts plainly)
   --metrics-listen ADDR
                     serve /metrics on ADDR, a loopback IP literal with a port (default: none)
+  --relay-listen ADDR
+                    serve the relay that admits the hosts.toml agents on ADDR, host:port (default: none)
 `
 
 // usageError is a command line refused before any work. It exits 2 and prints the usage text.
@@ -153,6 +156,7 @@ type options struct {
 	judgeDelay      time.Duration           // the --judge-delay test seam's wait, route.JudgeDelay by default
 	storeBusy       time.Duration           // the --store-busy-timeout test seam's wait, store.BusyTimeout by default
 	metricsListen   string                  // the --metrics-listen address, "" when unset
+	relayListen     string                  // the --relay-listen address, "" when unset
 	metrics         *telemetry.Daemon       // set by startMetrics when metricsListen is set, nil otherwise
 	metricsHandlers []connect.HandlerOption // set by startMetrics when metricsListen is set, nil otherwise
 	webhook         *alerts.Webhook         // the POST /alerts intake, set by startMetrics when metricsListen is set
@@ -212,6 +216,9 @@ type options struct {
 	// caller on a remote host (see newCallerEvents). startSessions loads them from the hosts file; a test that calls
 	// newCallerEvents directly leaves them nil.
 	paneAgents map[string]enginehost.PaneWaker
+	// relayWhoIs is a test seam: the WhoIs the relay of --relay-listen admits its connections by, in place of
+	// node.Tailnet(). Production leaves it nil.
+	relayWhoIs node.WhoIs
 }
 
 // repeatFlag is a repeatable string flag. It collects the values in the order given.
@@ -443,6 +450,7 @@ func parseFlags(args []string, getenv func(string) string) (options, error) {
 	sessionShell := flags.String("session-shell", getenv("SHELL"), "login shell that starts each session")
 	holderScope := flags.String("holder-scope", "", "systemd-run binary that runs each session's holder")
 	metricsListen := flags.String("metrics-listen", "", "loopback address that serves /metrics")
+	relayListen := flags.String("relay-listen", "", "address the relay of the hosts.toml agents listens on")
 	flowTicks := flags.String("flow-ticks", "", "test seam: file each flow pass appends a line to")
 	dueAt := flags.Int64("due-at", 0, "test seam: unix seconds the due pass reads as now")
 	relayAt := flags.Int64("relay-at", 0, "test seam: unix seconds the notice relay's watching checks read as now")
@@ -499,6 +507,7 @@ func parseFlags(args []string, getenv func(string) string) (options, error) {
 		judgeDelay:    *judgeDelay,
 		storeBusy:     *storeBusy,
 		metricsListen: *metricsListen,
+		relayListen:   *relayListen,
 		flowTicks:     *flowTicks,
 		dueNow:        unixClock(*dueAt),
 		relayNow:      unixClock(*relayAt),
@@ -966,6 +975,10 @@ type sessionHost struct {
 	reportsDone   chan struct{}
 	stopServe     context.CancelFunc
 	serveDone     chan error
+	// stopRelay cancels the relay's Serve, and relayDone receives its error once it has returned. Both are nil when no
+	// relay listens (see startRelay).
+	stopRelay context.CancelFunc
+	relayDone chan error
 	// callerEvents is the caller-event delivery. Its Wake asks for a round. stopCallerEvents cancels its Run, which closes
 	// callerEventsDone when it returns.
 	callerEvents     *enginehost.CallerEvents
@@ -1044,7 +1057,9 @@ func newSessionHost(logger *slog.Logger) *sessionHost {
 // logged and serving goes on; a failed restore serves no Pools, which refuse as unavailable, and the gates fail for
 // want of pools. The Notices service on it answers from notices, and refuses as unavailable when notices is nil. With
 // st open, each call of the Epics service on it that names an epic records its session in st. The Changes service on it
-// relays the sessions each store write appends events to, from the change feed st publishes to.
+// relays the sessions each store write appends events to, from the change feed st publishes to. With opts.relayListen
+// set and a hosts file that lists a host, the relay of those agents serves the same calls on that address until stop
+// (startRelay); a relay that fails to open fails startup.
 func startSessions(
 	ctx context.Context,
 	opts options,
@@ -1141,14 +1156,71 @@ func startSessions(
 		host.shutdown()
 		return nil, fmt.Errorf("session socket: %w", err)
 	}
-	var serveCtx context.Context
-	serveCtx, host.stopServe = context.WithCancel(ctx)
 	cfg := host.serveConfig(
 		commands, stepCommands, evidence, notices, crons, hostName, opts.orrery, hosts, serveOpts(opts, st, logger))
+	if err := host.startRelay(ctx, opts, st, cfg, getenv, logger); err != nil {
+		host.shutdown()
+		return nil, errors.Join(err, ln.Close())
+	}
+	var serveCtx context.Context
+	serveCtx, host.stopServe = context.WithCancel(ctx)
 	go func() {
 		host.serveDone <- enginehost.ServeWith(serveCtx, ln, cfg)
 	}()
 	return host, nil
+}
+
+// relayUnusedMessage is the message of the log line that says --relay-listen opens nothing.
+const relayUnusedMessage = "--relay-listen is unused"
+
+// startRelay opens the relay of the hosts.toml agents on opts.relayListen and serves it in the background until the
+// session service stops, with cfg's services as its handler, and st, when it is not nil, as the store that names each
+// session's host. The relay admits connections by opts.relayWhoIs, or node.Tailnet() when that is nil. With the flag
+// unset it does nothing. With no hosts file, or one that lists no host, it opens nothing and logs that the flag is
+// unused. A hosts file that does not load is an error, and so is a relay that fails to open, which names its address.
+func (h *sessionHost) startRelay(
+	ctx context.Context,
+	opts options,
+	st *store.Store,
+	cfg enginehost.ServeConfig,
+	getenv func(string) string,
+	logger *slog.Logger,
+) error {
+	if opts.relayListen == "" {
+		return nil
+	}
+	file, err := loadHostsFile(getenv)
+	if err != nil {
+		return fmt.Errorf("relay hosts: %w", err)
+	}
+	if len(file.Hosts) == 0 {
+		logger.WarnContext(ctx, relayUnusedMessage, "addr", opts.relayListen, "reason", "hosts.toml lists no host")
+		return nil
+	}
+	whoIs := opts.relayWhoIs
+	if whoIs == nil {
+		whoIs = node.Tailnet()
+	}
+	config := hostrelay.Config{
+		Address: opts.relayListen,
+		Hosts:   file.Hosts,
+		WhoIs:   whoIs,
+		Handler: enginehost.NewHandler(cfg),
+		Logger:  logger,
+	}
+	// A nil store must stay a nil interface, since a nil *store.Store would name every session's host as none.
+	if st != nil {
+		config.Sessions = st
+	}
+	relay, err := hostrelay.Listen(ctx, config)
+	if err != nil {
+		return fmt.Errorf("relay listener: %w", err)
+	}
+	relayCtx, cancel := context.WithCancel(ctx)
+	h.stopRelay = cancel
+	h.relayDone = make(chan error, 1)
+	go func() { h.relayDone <- relay.Serve(relayCtx) }()
+	return nil
 }
 
 // adoptSessionState returns sessionState's state directory and child environ, after st adopts hostName for the rows
@@ -1362,11 +1434,21 @@ func (h *sessionHost) stopBroker() {
 	h.broker.Close()
 }
 
-// stop stops the broker, then serving the session socket, and then shuts the sessions down. Serve's shutdown closes the
-// connections of the Acquire calls still blocked, and an Acquire whose context ends would end its grant, so the broker
-// closes first. It returns the error the session service ended with, if any.
+// stop stops the broker, then the relay when one listens, then serving the session socket, and then shuts the sessions
+// down. Serve's shutdown closes the connections of the Acquire calls still blocked, and an Acquire whose context ends
+// would end its grant, so the broker closes first. The relay stops before the session socket, since its calls reach the
+// same services. It returns the errors the relay and the session service ended with, if any.
 func (h *sessionHost) stop() error {
 	h.phase("broker", h.stopBroker)
+	var relayErr error
+	if h.stopRelay != nil {
+		h.phase("relay", func() {
+			h.stopRelay()
+			if err := <-h.relayDone; err != nil {
+				relayErr = fmt.Errorf("relay: %w", err)
+			}
+		})
+	}
 	var serveErr error
 	h.phase("session socket", func() {
 		h.stopServe()
@@ -1374,9 +1456,9 @@ func (h *sessionHost) stop() error {
 	})
 	h.shutdown()
 	if serveErr != nil {
-		return fmt.Errorf("session service: %w", serveErr)
+		serveErr = fmt.Errorf("session service: %w", serveErr)
 	}
-	return nil
+	return errors.Join(relayErr, serveErr)
 }
 
 // sessionState returns the state directory getenv names and the environment of every child a holder runs: sessions,
