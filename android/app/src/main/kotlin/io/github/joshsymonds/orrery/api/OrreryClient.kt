@@ -162,6 +162,11 @@ import io.github.joshsymonds.orrery.gen.orrery.v1.StepsNudgeRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.StepsStopRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.StopRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.UnregisterRequest
+import io.github.joshsymonds.orrery.gen.orrery.v1.UsageClient
+import io.github.joshsymonds.orrery.gen.orrery.v1.UsageReading as UsageReadingProto
+import io.github.joshsymonds.orrery.gen.orrery.v1.UsageReadingsRequest
+import io.github.joshsymonds.orrery.gen.orrery.v1.UsageSeatSpend as UsageSeatSpendProto
+import io.github.joshsymonds.orrery.gen.orrery.v1.UsageSpendRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.WaitingMessage
 import io.github.joshsymonds.orrery.gen.orrery.v1.WithdrawRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.WatchConversationRequest
@@ -491,6 +496,24 @@ data class LlmRoutes(val defaultContext: String, val seats: List<LlmSeat>, val c
 
 /** The accounts the server stores, and the route registry they are used in. */
 data class LlmAccounts(val accounts: List<LlmAccount>, val routes: LlmRoutes)
+
+/**
+ * One reading of a usage limit for [account] and [claim], as the ledger keeps it. [utilization] is the share of the
+ * limit in use and [reset] when the limit resets, in unix seconds; each is null when the reading gives none.
+ * [observed] is when the reading was taken, in unix seconds, and [dropped] says whether orrery dropped it.
+ */
+data class UsageReadingRow(
+    val account: String,
+    val claim: String,
+    val utilization: Double?,
+    val reset: Long?,
+    val status: String,
+    val observed: Long,
+    val dropped: Boolean,
+)
+
+/** What [seat] spent over a span of time, in nano US dollars, and how many of its requests had no known cost. */
+data class SeatSpendRow(val seat: String, val billedNanoUsd: Long, val listNanoUsd: Long, val unknownCostRequests: Long)
 
 /**
  * The answer to an account or route write: [Done] with what the server stored, [Refused] when the server refused it
@@ -1082,6 +1105,7 @@ class OrreryClient(
         val pools = PoolsClient(protocol)
         val accounts = AccountsClient(protocol)
         val routes = RoutesClient(protocol)
+        val usage = UsageClient(protocol)
     }
 
     /**
@@ -1472,6 +1496,22 @@ class OrreryClient(
     fun llmRoutes(): LlmRoutes {
         val response = call(write = false) { standard.routes.get(RoutesGetRequest.getDefaultInstance(), CLIENT_HEADERS) }
         return response.registry.toLlmRoutes()
+    }
+
+    /** The usage limit readings, one for each account and claim. A failed read throws, as [llmRoutes] does. */
+    fun usageReadings(): List<UsageReadingRow> {
+        val response = call(write = false) { standard.usage.readings(UsageReadingsRequest.getDefaultInstance(), CLIENT_HEADERS) }
+        return response.readingsList.map { it.toUsageReadingRow() }
+    }
+
+    /**
+     * What each seat spent over the half-open span [from, to), both in unix seconds, one row for each seat. A failed
+     * read throws, as [llmRoutes] does.
+     */
+    fun usageSpend(from: Long, to: Long): List<SeatSpendRow> {
+        val request = UsageSpendRequest.newBuilder().setFrom(from).setTo(to).build()
+        val response = call(write = false) { standard.usage.spend(request, CLIENT_HEADERS) }
+        return response.seatsList.map { it.toSeatSpendRow() }
     }
 
     /**
@@ -2363,6 +2403,26 @@ class OrreryClient(
 
     private fun AccountProto.toLlmAccount(): LlmAccount =
         LlmAccount(id = id, name = name, provider = provider, plan = plan, fingerprint = fingerprint, created = created)
+
+    /** An unset utilization or reset is null, not the proto's zero. */
+    private fun UsageReadingProto.toUsageReadingRow(): UsageReadingRow =
+        UsageReadingRow(
+            account = account,
+            claim = claim,
+            utilization = if (hasUtilization()) utilization else null,
+            reset = if (hasReset()) reset else null,
+            status = status,
+            observed = observed,
+            dropped = dropped,
+        )
+
+    private fun UsageSeatSpendProto.toSeatSpendRow(): SeatSpendRow =
+        SeatSpendRow(
+            seat = seat,
+            billedNanoUsd = billedCostNanoUsd,
+            listNanoUsd = listCostNanoUsd,
+            unknownCostRequests = unknownCostRequests,
+        )
 
     private fun RouteRegistryProto.toLlmRoutes(): LlmRoutes =
         LlmRoutes(
