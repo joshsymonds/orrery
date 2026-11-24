@@ -105,7 +105,8 @@ func releaseDecision(phase string) (func(store.NodeRun, Rows) Action, bool) {
 }
 
 // replanAction sends the release of run back to planning when a replan release run of its attempt is stored, with that
-// run's reason, the report of the round of the release integrator that asked for it. Otherwise it gives none.
+// run's reason: the report of the round of the release integrator that asked for it, or of the release review that
+// refused the candidate when a retry replans that refusal. Otherwise it gives none.
 func replanAction(run store.NodeRun, rows Rows) Action {
 	replan, ok := firstMatch(rows.Releases, func(r store.ReleaseRun) bool {
 		return r.Part == store.ReleasePartReplan && r.Attempt == run.Attempt

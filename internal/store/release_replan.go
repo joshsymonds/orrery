@@ -155,17 +155,19 @@ func (s *Store) ResumeReplannedRelease(ctx context.Context, epic, path string, a
 	})
 }
 
-// retryStoppedRelease ends the stop of head's release for a retry, in the caller's write, when the release integrator
-// stopped it: the attempt of its parked release node run holds a round of the release integrator that returned blocked.
-// It stores a replan release run of that round, as the integrator's own replan stores one, turns the release node run
-// running at the same attempt, answers each open park question retry and ends the park as RetryEpic does. head stays
-// stopped until the release kind's next decision sends the release back to planning with the round's report
-// (ReplanRelease). Any other stopped release is a RefusalError, and only ReleaseEpic, or a planner's resume_release
-// action, resumes it.
+// retryStoppedRelease ends the stop of head's release for a retry, in the caller's write, when the release integrator or
+// a release reviewer stopped it: the attempt of its parked release node run holds a round of the release integrator that
+// returned blocked, or a review that refused the candidate. It stores a replan release run of that round or review, as
+// the integrator's own replan stores one, turns the release node run running at the same attempt, answers each open park
+// question retry and ends the park as RetryEpic does. head stays stopped until the release kind's next decision sends
+// the release back to planning with the round's or the review's report (ReplanRelease), so a candidate that needs a
+// change of its own is planned again instead of resumed as it was. Any other stopped release is a RefusalError, and only
+// ReleaseEpic, or a planner's resume_release action, resumes it.
 func retryStoppedRelease(ctx context.Context, queries *sqlcgen.Queries, head sqlcgen.Epic) error {
 	epic := head.ID
 	refusal := RefusalError(fmt.Sprintf(
-		"epic %s is stopped; retry ends a stopped release only when its release integrator stopped it", epic))
+		"epic %s is stopped; retry ends a stopped release only when its release integrator or reviewer stopped it",
+		epic))
 	parked, err := parkedReleaseRun(ctx, queries, epic)
 	var refused RefusalError
 	if errors.As(err, &refused) {
@@ -178,14 +180,11 @@ func retryStoppedRelease(ctx context.Context, queries *sqlcgen.Queries, head sql
 	if err != nil {
 		return err
 	}
-	blocked := slices.IndexFunc(runs, func(run ReleaseRun) bool {
-		return run.Part == ReleasePartIntegrator && run.Attempt == parked.Attempt && !run.Passed &&
-			run.End == integratorReturnedEnd
-	})
-	if blocked < 0 {
+	stop, ok := replanOfStop(runs, parked.Attempt)
+	if !ok {
 		return refusal
 	}
-	if recordErr := recordReplan(ctx, queries, epic, runs[blocked]); recordErr != nil {
+	if recordErr := recordReplan(ctx, queries, epic, stop); recordErr != nil {
 		return recordErr
 	}
 	if _, unparkErr := queries.UnparkEpicNodeRun(ctx, sqlcgen.UnparkEpicNodeRunParams{
@@ -197,4 +196,28 @@ func retryStoppedRelease(ctx context.Context, queries *sqlcgen.Queries, head sql
 		return closeErr
 	}
 	return endPark(ctx, queries, epic)
+}
+
+// replanOfStop returns the release run a retry replans the release stopped at attempt from, as runs hold it: the round of
+// the release integrator that returned blocked at attempt, else a review at attempt that refused the candidate, with the
+// candidate it refused as its start. It reports false when runs hold neither.
+func replanOfStop(runs []ReleaseRun, attempt int64) (ReleaseRun, bool) {
+	blocked := slices.IndexFunc(runs, func(run ReleaseRun) bool {
+		return run.Part == ReleasePartIntegrator && run.Attempt == attempt && !run.Passed &&
+			run.End == integratorReturnedEnd
+	})
+	if blocked >= 0 {
+		return runs[blocked], true
+	}
+	refused := slices.IndexFunc(runs, func(run ReleaseRun) bool {
+		return run.Part == ReleasePartReview && run.Attempt == attempt && !run.Passed
+	})
+	if refused < 0 {
+		return ReleaseRun{}, false
+	}
+	review := runs[refused]
+	if review.Start == "" {
+		review.Start = review.Head
+	}
+	return review, true
 }
