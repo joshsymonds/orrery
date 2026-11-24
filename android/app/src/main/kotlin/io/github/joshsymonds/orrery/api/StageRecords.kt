@@ -19,17 +19,13 @@ data class RecordMakerRow(
 /**
  * One step a design's stage started, oldest first, as the design's Research and Steelman sections list it (O.researchList
  * and O.steelman in design.js). [step] is the step's id and [kind] the stage tool that started it. [subject] is what the
- * step looks into, [repository] and [revision] where it runs, and [delta] what a closure pass checks. [created] is when it
- * started, in unix seconds. [status] and [report] are empty until it returns, [verdict] is set only for a steelman pass,
- * and [counted] is whether it counts toward the design's budget of passes.
+ * step looks into. [created] is when it started, in unix seconds. [status] and [report] are empty until it returns, [verdict]
+ * is set only for a steelman pass, and [counted] is whether it counts toward the design's budget of passes.
  */
 data class DesignStepRow(
     val step: String = "",
     val kind: String = "",
     val subject: String = "",
-    val repository: String = "",
-    val revision: String = "",
-    val delta: String = "",
     val created: Long = 0L,
     val status: String = "",
     val report: String = "",

@@ -146,9 +146,8 @@ func wantStageMessage(stage *enginev1.DesignStage) *orreryv1.DesignStage {
 	}
 	for _, step := range stage.GetSteps() {
 		want.Steps = append(want.Steps, &orreryv1.DesignStep{
-			Step: step.GetStep(), Kind: step.GetKind(), Subject: step.GetSubject(), Repository: step.GetRepository(),
-			Revision: step.GetRevision(), Delta: step.GetDelta(), Created: step.GetCreated(), Status: step.GetStatus(),
-			Report: step.GetReport(), Verdict: step.GetVerdict(), Counted: step.GetCounted(),
+			Step: step.GetStep(), Kind: step.GetKind(), Subject: step.GetSubject(), Created: step.GetCreated(),
+			Status: step.GetStatus(), Report: step.GetReport(), Verdict: step.GetVerdict(), Counted: step.GetCounted(),
 		})
 	}
 	for _, question := range stage.GetQuestions() {

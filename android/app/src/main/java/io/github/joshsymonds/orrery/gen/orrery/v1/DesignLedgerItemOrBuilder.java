@@ -192,7 +192,7 @@ public interface DesignLedgerItemOrBuilder extends
 
   /**
    * <pre>
-   * Who gave the disposition and the evidence it rests on; unset while the item is open.
+   * Who gave the disposition and the evidence it rests on; empty while the item is open.
    * </pre>
    *
    * <code>.orrery.v1.RecordMaker maker = 10 [json_name = "maker"];</code>
@@ -201,7 +201,7 @@ public interface DesignLedgerItemOrBuilder extends
   boolean hasMaker();
   /**
    * <pre>
-   * Who gave the disposition and the evidence it rests on; unset while the item is open.
+   * Who gave the disposition and the evidence it rests on; empty while the item is open.
    * </pre>
    *
    * <code>.orrery.v1.RecordMaker maker = 10 [json_name = "maker"];</code>

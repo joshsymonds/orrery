@@ -223,17 +223,14 @@ func designStepMessages(steps []*enginev1.StageStep) []*orreryv1.DesignStep {
 	messages := make([]*orreryv1.DesignStep, 0, len(steps))
 	for _, step := range steps {
 		messages = append(messages, &orreryv1.DesignStep{
-			Step:       step.GetStep(),
-			Kind:       step.GetKind(),
-			Subject:    step.GetSubject(),
-			Repository: step.GetRepository(),
-			Revision:   step.GetRevision(),
-			Delta:      step.GetDelta(),
-			Created:    step.GetCreated(),
-			Status:     step.GetStatus(),
-			Report:     step.GetReport(),
-			Verdict:    step.GetVerdict(),
-			Counted:    step.GetCounted(),
+			Step:    step.GetStep(),
+			Kind:    step.GetKind(),
+			Subject: step.GetSubject(),
+			Created: step.GetCreated(),
+			Status:  step.GetStatus(),
+			Report:  step.GetReport(),
+			Verdict: step.GetVerdict(),
+			Counted: step.GetCounted(),
 		})
 	}
 	return messages

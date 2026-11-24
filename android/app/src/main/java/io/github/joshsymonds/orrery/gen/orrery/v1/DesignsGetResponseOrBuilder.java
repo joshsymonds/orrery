@@ -128,8 +128,7 @@ public interface DesignsGetResponseOrBuilder extends
 
   /**
    * <pre>
-   * The design's stage: its steps, questions and ledger and the counts of its passes. Unset when serve has no stage
-   * client.
+   * The design's stage; unset when serve has no stage service.
    * </pre>
    *
    * <code>.orrery.v1.DesignStage stage = 6 [json_name = "stage"];</code>
@@ -138,8 +137,7 @@ public interface DesignsGetResponseOrBuilder extends
   boolean hasStage();
   /**
    * <pre>
-   * The design's stage: its steps, questions and ledger and the counts of its passes. Unset when serve has no stage
-   * client.
+   * The design's stage; unset when serve has no stage service.
    * </pre>
    *
    * <code>.orrery.v1.DesignStage stage = 6 [json_name = "stage"];</code>

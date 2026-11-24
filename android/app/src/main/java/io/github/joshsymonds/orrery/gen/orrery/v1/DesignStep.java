@@ -22,9 +22,6 @@ public  final class DesignStep extends
     step_ = "";
     kind_ = "";
     subject_ = "";
-    repository_ = "";
-    revision_ = "";
-    delta_ = "";
     status_ = "";
     report_ = "";
     verdict_ = "";
@@ -100,7 +97,7 @@ public  final class DesignStep extends
   private java.lang.String kind_;
   /**
    * <pre>
-   * The step's kind, which says which stage tool started it.
+   * The step's kind: research, reproduce, discovery or closure.
    * </pre>
    *
    * <code>string kind = 2 [json_name = "kind"];</code>
@@ -112,7 +109,7 @@ public  final class DesignStep extends
   }
   /**
    * <pre>
-   * The step's kind, which says which stage tool started it.
+   * The step's kind: research, reproduce, discovery or closure.
    * </pre>
    *
    * <code>string kind = 2 [json_name = "kind"];</code>
@@ -125,7 +122,7 @@ public  final class DesignStep extends
   }
   /**
    * <pre>
-   * The step's kind, which says which stage tool started it.
+   * The step's kind: research, reproduce, discovery or closure.
    * </pre>
    *
    * <code>string kind = 2 [json_name = "kind"];</code>
@@ -139,7 +136,7 @@ public  final class DesignStep extends
   }
   /**
    * <pre>
-   * The step's kind, which says which stage tool started it.
+   * The step's kind: research, reproduce, discovery or closure.
    * </pre>
    *
    * <code>string kind = 2 [json_name = "kind"];</code>
@@ -150,7 +147,7 @@ public  final class DesignStep extends
   }
   /**
    * <pre>
-   * The step's kind, which says which stage tool started it.
+   * The step's kind: research, reproduce, discovery or closure.
    * </pre>
    *
    * <code>string kind = 2 [json_name = "kind"];</code>
@@ -167,7 +164,7 @@ public  final class DesignStep extends
   private java.lang.String subject_;
   /**
    * <pre>
-   * What the step looks into: the research question, the reproduction command or the steelman's packet subject.
+   * What the step looks into.
    * </pre>
    *
    * <code>string subject = 3 [json_name = "subject"];</code>
@@ -179,7 +176,7 @@ public  final class DesignStep extends
   }
   /**
    * <pre>
-   * What the step looks into: the research question, the reproduction command or the steelman's packet subject.
+   * What the step looks into.
    * </pre>
    *
    * <code>string subject = 3 [json_name = "subject"];</code>
@@ -192,7 +189,7 @@ public  final class DesignStep extends
   }
   /**
    * <pre>
-   * What the step looks into: the research question, the reproduction command or the steelman's packet subject.
+   * What the step looks into.
    * </pre>
    *
    * <code>string subject = 3 [json_name = "subject"];</code>
@@ -206,7 +203,7 @@ public  final class DesignStep extends
   }
   /**
    * <pre>
-   * What the step looks into: the research question, the reproduction command or the steelman's packet subject.
+   * What the step looks into.
    * </pre>
    *
    * <code>string subject = 3 [json_name = "subject"];</code>
@@ -217,7 +214,7 @@ public  final class DesignStep extends
   }
   /**
    * <pre>
-   * What the step looks into: the research question, the reproduction command or the steelman's packet subject.
+   * What the step looks into.
    * </pre>
    *
    * <code>string subject = 3 [json_name = "subject"];</code>
@@ -230,253 +227,14 @@ public  final class DesignStep extends
 
   }
 
-  public static final int REPOSITORY_FIELD_NUMBER = 4;
-  private java.lang.String repository_;
-  /**
-   * <pre>
-   * The absolute path of the git repository the step runs in, empty when it runs in none.
-   * </pre>
-   *
-   * <code>string repository = 4 [json_name = "repository"];</code>
-   * @return The repository.
-   */
-  @java.lang.Override
-  public java.lang.String getRepository() {
-    return repository_;
-  }
-  /**
-   * <pre>
-   * The absolute path of the git repository the step runs in, empty when it runs in none.
-   * </pre>
-   *
-   * <code>string repository = 4 [json_name = "repository"];</code>
-   * @return The bytes for repository.
-   */
-  @java.lang.Override
-  public com.google.protobuf.ByteString
-      getRepositoryBytes() {
-    return com.google.protobuf.ByteString.copyFromUtf8(repository_);
-  }
-  /**
-   * <pre>
-   * The absolute path of the git repository the step runs in, empty when it runs in none.
-   * </pre>
-   *
-   * <code>string repository = 4 [json_name = "repository"];</code>
-   * @param value The repository to set.
-   */
-  private void setRepository(
-      java.lang.String value) {
-    java.util.Objects.requireNonNull(value);
-
-    repository_ = value;
-  }
-  /**
-   * <pre>
-   * The absolute path of the git repository the step runs in, empty when it runs in none.
-   * </pre>
-   *
-   * <code>string repository = 4 [json_name = "repository"];</code>
-   */
-  private void clearRepository() {
-
-    repository_ = getDefaultInstance().getRepository();
-  }
-  /**
-   * <pre>
-   * The absolute path of the git repository the step runs in, empty when it runs in none.
-   * </pre>
-   *
-   * <code>string repository = 4 [json_name = "repository"];</code>
-   * @param value The bytes for repository to set.
-   */
-  private void setRepositoryBytes(
-      com.google.protobuf.ByteString value) {
-    checkByteStringIsUtf8(value);
-    repository_ = value.toStringUtf8();
-
-  }
-
-  public static final int REVISION_FIELD_NUMBER = 5;
-  private java.lang.String revision_;
-  /**
-   * <pre>
-   * The committed revision the step runs at, empty when it runs at none.
-   * </pre>
-   *
-   * <code>string revision = 5 [json_name = "revision"];</code>
-   * @return The revision.
-   */
-  @java.lang.Override
-  public java.lang.String getRevision() {
-    return revision_;
-  }
-  /**
-   * <pre>
-   * The committed revision the step runs at, empty when it runs at none.
-   * </pre>
-   *
-   * <code>string revision = 5 [json_name = "revision"];</code>
-   * @return The bytes for revision.
-   */
-  @java.lang.Override
-  public com.google.protobuf.ByteString
-      getRevisionBytes() {
-    return com.google.protobuf.ByteString.copyFromUtf8(revision_);
-  }
-  /**
-   * <pre>
-   * The committed revision the step runs at, empty when it runs at none.
-   * </pre>
-   *
-   * <code>string revision = 5 [json_name = "revision"];</code>
-   * @param value The revision to set.
-   */
-  private void setRevision(
-      java.lang.String value) {
-    java.util.Objects.requireNonNull(value);
-
-    revision_ = value;
-  }
-  /**
-   * <pre>
-   * The committed revision the step runs at, empty when it runs at none.
-   * </pre>
-   *
-   * <code>string revision = 5 [json_name = "revision"];</code>
-   */
-  private void clearRevision() {
-
-    revision_ = getDefaultInstance().getRevision();
-  }
-  /**
-   * <pre>
-   * The committed revision the step runs at, empty when it runs at none.
-   * </pre>
-   *
-   * <code>string revision = 5 [json_name = "revision"];</code>
-   * @param value The bytes for revision to set.
-   */
-  private void setRevisionBytes(
-      com.google.protobuf.ByteString value) {
-    checkByteStringIsUtf8(value);
-    revision_ = value.toStringUtf8();
-
-  }
-
-  public static final int DELTA_FIELD_NUMBER = 6;
-  private java.lang.String delta_;
-  /**
-   * <pre>
-   * The delta a closure pass checks, empty for the other kinds.
-   * </pre>
-   *
-   * <code>string delta = 6 [json_name = "delta"];</code>
-   * @return The delta.
-   */
-  @java.lang.Override
-  public java.lang.String getDelta() {
-    return delta_;
-  }
-  /**
-   * <pre>
-   * The delta a closure pass checks, empty for the other kinds.
-   * </pre>
-   *
-   * <code>string delta = 6 [json_name = "delta"];</code>
-   * @return The bytes for delta.
-   */
-  @java.lang.Override
-  public com.google.protobuf.ByteString
-      getDeltaBytes() {
-    return com.google.protobuf.ByteString.copyFromUtf8(delta_);
-  }
-  /**
-   * <pre>
-   * The delta a closure pass checks, empty for the other kinds.
-   * </pre>
-   *
-   * <code>string delta = 6 [json_name = "delta"];</code>
-   * @param value The delta to set.
-   */
-  private void setDelta(
-      java.lang.String value) {
-    java.util.Objects.requireNonNull(value);
-
-    delta_ = value;
-  }
-  /**
-   * <pre>
-   * The delta a closure pass checks, empty for the other kinds.
-   * </pre>
-   *
-   * <code>string delta = 6 [json_name = "delta"];</code>
-   */
-  private void clearDelta() {
-
-    delta_ = getDefaultInstance().getDelta();
-  }
-  /**
-   * <pre>
-   * The delta a closure pass checks, empty for the other kinds.
-   * </pre>
-   *
-   * <code>string delta = 6 [json_name = "delta"];</code>
-   * @param value The bytes for delta to set.
-   */
-  private void setDeltaBytes(
-      com.google.protobuf.ByteString value) {
-    checkByteStringIsUtf8(value);
-    delta_ = value.toStringUtf8();
-
-  }
-
-  public static final int CREATED_FIELD_NUMBER = 7;
-  private long created_;
-  /**
-   * <pre>
-   * When the step was started, in unix seconds.
-   * </pre>
-   *
-   * <code>int64 created = 7 [json_name = "created"];</code>
-   * @return The created.
-   */
-  @java.lang.Override
-  public long getCreated() {
-    return created_;
-  }
-  /**
-   * <pre>
-   * When the step was started, in unix seconds.
-   * </pre>
-   *
-   * <code>int64 created = 7 [json_name = "created"];</code>
-   * @param value The created to set.
-   */
-  private void setCreated(long value) {
-    
-    created_ = value;
-  }
-  /**
-   * <pre>
-   * When the step was started, in unix seconds.
-   * </pre>
-   *
-   * <code>int64 created = 7 [json_name = "created"];</code>
-   */
-  private void clearCreated() {
-
-    created_ = 0L;
-  }
-
-  public static final int STATUS_FIELD_NUMBER = 8;
+  public static final int STATUS_FIELD_NUMBER = 4;
   private java.lang.String status_;
   /**
    * <pre>
-   * The step's status.
+   * The step's status: running until the step ends, then its status.
    * </pre>
    *
-   * <code>string status = 8 [json_name = "status"];</code>
+   * <code>string status = 4 [json_name = "status"];</code>
    * @return The status.
    */
   @java.lang.Override
@@ -485,10 +243,10 @@ public  final class DesignStep extends
   }
   /**
    * <pre>
-   * The step's status.
+   * The step's status: running until the step ends, then its status.
    * </pre>
    *
-   * <code>string status = 8 [json_name = "status"];</code>
+   * <code>string status = 4 [json_name = "status"];</code>
    * @return The bytes for status.
    */
   @java.lang.Override
@@ -498,10 +256,10 @@ public  final class DesignStep extends
   }
   /**
    * <pre>
-   * The step's status.
+   * The step's status: running until the step ends, then its status.
    * </pre>
    *
-   * <code>string status = 8 [json_name = "status"];</code>
+   * <code>string status = 4 [json_name = "status"];</code>
    * @param value The status to set.
    */
   private void setStatus(
@@ -512,10 +270,10 @@ public  final class DesignStep extends
   }
   /**
    * <pre>
-   * The step's status.
+   * The step's status: running until the step ends, then its status.
    * </pre>
    *
-   * <code>string status = 8 [json_name = "status"];</code>
+   * <code>string status = 4 [json_name = "status"];</code>
    */
   private void clearStatus() {
 
@@ -523,10 +281,10 @@ public  final class DesignStep extends
   }
   /**
    * <pre>
-   * The step's status.
+   * The step's status: running until the step ends, then its status.
    * </pre>
    *
-   * <code>string status = 8 [json_name = "status"];</code>
+   * <code>string status = 4 [json_name = "status"];</code>
    * @param value The bytes for status to set.
    */
   private void setStatusBytes(
@@ -536,14 +294,14 @@ public  final class DesignStep extends
 
   }
 
-  public static final int REPORT_FIELD_NUMBER = 9;
+  public static final int REPORT_FIELD_NUMBER = 5;
   private java.lang.String report_;
   /**
    * <pre>
    * The step's report, or its output, empty until it returns.
    * </pre>
    *
-   * <code>string report = 9 [json_name = "report"];</code>
+   * <code>string report = 5 [json_name = "report"];</code>
    * @return The report.
    */
   @java.lang.Override
@@ -555,7 +313,7 @@ public  final class DesignStep extends
    * The step's report, or its output, empty until it returns.
    * </pre>
    *
-   * <code>string report = 9 [json_name = "report"];</code>
+   * <code>string report = 5 [json_name = "report"];</code>
    * @return The bytes for report.
    */
   @java.lang.Override
@@ -568,7 +326,7 @@ public  final class DesignStep extends
    * The step's report, or its output, empty until it returns.
    * </pre>
    *
-   * <code>string report = 9 [json_name = "report"];</code>
+   * <code>string report = 5 [json_name = "report"];</code>
    * @param value The report to set.
    */
   private void setReport(
@@ -582,7 +340,7 @@ public  final class DesignStep extends
    * The step's report, or its output, empty until it returns.
    * </pre>
    *
-   * <code>string report = 9 [json_name = "report"];</code>
+   * <code>string report = 5 [json_name = "report"];</code>
    */
   private void clearReport() {
 
@@ -593,7 +351,7 @@ public  final class DesignStep extends
    * The step's report, or its output, empty until it returns.
    * </pre>
    *
-   * <code>string report = 9 [json_name = "report"];</code>
+   * <code>string report = 5 [json_name = "report"];</code>
    * @param value The bytes for report to set.
    */
   private void setReportBytes(
@@ -603,14 +361,14 @@ public  final class DesignStep extends
 
   }
 
-  public static final int VERDICT_FIELD_NUMBER = 10;
+  public static final int VERDICT_FIELD_NUMBER = 6;
   private java.lang.String verdict_;
   /**
    * <pre>
    * The verdict of a steelman pass, empty for the other kinds and until the pass returns.
    * </pre>
    *
-   * <code>string verdict = 10 [json_name = "verdict"];</code>
+   * <code>string verdict = 6 [json_name = "verdict"];</code>
    * @return The verdict.
    */
   @java.lang.Override
@@ -622,7 +380,7 @@ public  final class DesignStep extends
    * The verdict of a steelman pass, empty for the other kinds and until the pass returns.
    * </pre>
    *
-   * <code>string verdict = 10 [json_name = "verdict"];</code>
+   * <code>string verdict = 6 [json_name = "verdict"];</code>
    * @return The bytes for verdict.
    */
   @java.lang.Override
@@ -635,7 +393,7 @@ public  final class DesignStep extends
    * The verdict of a steelman pass, empty for the other kinds and until the pass returns.
    * </pre>
    *
-   * <code>string verdict = 10 [json_name = "verdict"];</code>
+   * <code>string verdict = 6 [json_name = "verdict"];</code>
    * @param value The verdict to set.
    */
   private void setVerdict(
@@ -649,7 +407,7 @@ public  final class DesignStep extends
    * The verdict of a steelman pass, empty for the other kinds and until the pass returns.
    * </pre>
    *
-   * <code>string verdict = 10 [json_name = "verdict"];</code>
+   * <code>string verdict = 6 [json_name = "verdict"];</code>
    */
   private void clearVerdict() {
 
@@ -660,7 +418,7 @@ public  final class DesignStep extends
    * The verdict of a steelman pass, empty for the other kinds and until the pass returns.
    * </pre>
    *
-   * <code>string verdict = 10 [json_name = "verdict"];</code>
+   * <code>string verdict = 6 [json_name = "verdict"];</code>
    * @param value The bytes for verdict to set.
    */
   private void setVerdictBytes(
@@ -670,14 +428,14 @@ public  final class DesignStep extends
 
   }
 
-  public static final int COUNTED_FIELD_NUMBER = 11;
+  public static final int COUNTED_FIELD_NUMBER = 7;
   private boolean counted_;
   /**
    * <pre>
    * True when the step counts toward the design's budget of passes.
    * </pre>
    *
-   * <code>bool counted = 11 [json_name = "counted"];</code>
+   * <code>bool counted = 7 [json_name = "counted"];</code>
    * @return The counted.
    */
   @java.lang.Override
@@ -689,7 +447,7 @@ public  final class DesignStep extends
    * True when the step counts toward the design's budget of passes.
    * </pre>
    *
-   * <code>bool counted = 11 [json_name = "counted"];</code>
+   * <code>bool counted = 7 [json_name = "counted"];</code>
    * @param value The counted to set.
    */
   private void setCounted(boolean value) {
@@ -701,11 +459,49 @@ public  final class DesignStep extends
    * True when the step counts toward the design's budget of passes.
    * </pre>
    *
-   * <code>bool counted = 11 [json_name = "counted"];</code>
+   * <code>bool counted = 7 [json_name = "counted"];</code>
    */
   private void clearCounted() {
 
     counted_ = false;
+  }
+
+  public static final int CREATED_FIELD_NUMBER = 8;
+  private long created_;
+  /**
+   * <pre>
+   * When the step was started, in unix seconds.
+   * </pre>
+   *
+   * <code>int64 created = 8 [json_name = "created"];</code>
+   * @return The created.
+   */
+  @java.lang.Override
+  public long getCreated() {
+    return created_;
+  }
+  /**
+   * <pre>
+   * When the step was started, in unix seconds.
+   * </pre>
+   *
+   * <code>int64 created = 8 [json_name = "created"];</code>
+   * @param value The created to set.
+   */
+  private void setCreated(long value) {
+    
+    created_ = value;
+  }
+  /**
+   * <pre>
+   * When the step was started, in unix seconds.
+   * </pre>
+   *
+   * <code>int64 created = 8 [json_name = "created"];</code>
+   */
+  private void clearCreated() {
+
+    created_ = 0L;
   }
 
   public static io.github.joshsymonds.orrery.gen.orrery.v1.DesignStep parseFrom(
@@ -880,7 +676,7 @@ public  final class DesignStep extends
 
     /**
      * <pre>
-     * The step's kind, which says which stage tool started it.
+     * The step's kind: research, reproduce, discovery or closure.
      * </pre>
      *
      * <code>string kind = 2 [json_name = "kind"];</code>
@@ -892,7 +688,7 @@ public  final class DesignStep extends
     }
     /**
      * <pre>
-     * The step's kind, which says which stage tool started it.
+     * The step's kind: research, reproduce, discovery or closure.
      * </pre>
      *
      * <code>string kind = 2 [json_name = "kind"];</code>
@@ -905,7 +701,7 @@ public  final class DesignStep extends
     }
     /**
      * <pre>
-     * The step's kind, which says which stage tool started it.
+     * The step's kind: research, reproduce, discovery or closure.
      * </pre>
      *
      * <code>string kind = 2 [json_name = "kind"];</code>
@@ -920,7 +716,7 @@ public  final class DesignStep extends
     }
     /**
      * <pre>
-     * The step's kind, which says which stage tool started it.
+     * The step's kind: research, reproduce, discovery or closure.
      * </pre>
      *
      * <code>string kind = 2 [json_name = "kind"];</code>
@@ -933,7 +729,7 @@ public  final class DesignStep extends
     }
     /**
      * <pre>
-     * The step's kind, which says which stage tool started it.
+     * The step's kind: research, reproduce, discovery or closure.
      * </pre>
      *
      * <code>string kind = 2 [json_name = "kind"];</code>
@@ -949,7 +745,7 @@ public  final class DesignStep extends
 
     /**
      * <pre>
-     * What the step looks into: the research question, the reproduction command or the steelman's packet subject.
+     * What the step looks into.
      * </pre>
      *
      * <code>string subject = 3 [json_name = "subject"];</code>
@@ -961,7 +757,7 @@ public  final class DesignStep extends
     }
     /**
      * <pre>
-     * What the step looks into: the research question, the reproduction command or the steelman's packet subject.
+     * What the step looks into.
      * </pre>
      *
      * <code>string subject = 3 [json_name = "subject"];</code>
@@ -974,7 +770,7 @@ public  final class DesignStep extends
     }
     /**
      * <pre>
-     * What the step looks into: the research question, the reproduction command or the steelman's packet subject.
+     * What the step looks into.
      * </pre>
      *
      * <code>string subject = 3 [json_name = "subject"];</code>
@@ -989,7 +785,7 @@ public  final class DesignStep extends
     }
     /**
      * <pre>
-     * What the step looks into: the research question, the reproduction command or the steelman's packet subject.
+     * What the step looks into.
      * </pre>
      *
      * <code>string subject = 3 [json_name = "subject"];</code>
@@ -1002,7 +798,7 @@ public  final class DesignStep extends
     }
     /**
      * <pre>
-     * What the step looks into: the research question, the reproduction command or the steelman's packet subject.
+     * What the step looks into.
      * </pre>
      *
      * <code>string subject = 3 [json_name = "subject"];</code>
@@ -1018,257 +814,10 @@ public  final class DesignStep extends
 
     /**
      * <pre>
-     * The absolute path of the git repository the step runs in, empty when it runs in none.
+     * The step's status: running until the step ends, then its status.
      * </pre>
      *
-     * <code>string repository = 4 [json_name = "repository"];</code>
-     * @return The repository.
-     */
-    @java.lang.Override
-    public java.lang.String getRepository() {
-      return instance.getRepository();
-    }
-    /**
-     * <pre>
-     * The absolute path of the git repository the step runs in, empty when it runs in none.
-     * </pre>
-     *
-     * <code>string repository = 4 [json_name = "repository"];</code>
-     * @return The bytes for repository.
-     */
-    @java.lang.Override
-    public com.google.protobuf.ByteString
-        getRepositoryBytes() {
-      return instance.getRepositoryBytes();
-    }
-    /**
-     * <pre>
-     * The absolute path of the git repository the step runs in, empty when it runs in none.
-     * </pre>
-     *
-     * <code>string repository = 4 [json_name = "repository"];</code>
-     * @param value The repository to set.
-     * @return This builder for chaining.
-     */
-    public Builder setRepository(
-        java.lang.String value) {
-      copyOnWrite();
-      instance.setRepository(value);
-      return this;
-    }
-    /**
-     * <pre>
-     * The absolute path of the git repository the step runs in, empty when it runs in none.
-     * </pre>
-     *
-     * <code>string repository = 4 [json_name = "repository"];</code>
-     * @return This builder for chaining.
-     */
-    public Builder clearRepository() {
-      copyOnWrite();
-      instance.clearRepository();
-      return this;
-    }
-    /**
-     * <pre>
-     * The absolute path of the git repository the step runs in, empty when it runs in none.
-     * </pre>
-     *
-     * <code>string repository = 4 [json_name = "repository"];</code>
-     * @param value The bytes for repository to set.
-     * @return This builder for chaining.
-     */
-    public Builder setRepositoryBytes(
-        com.google.protobuf.ByteString value) {
-      copyOnWrite();
-      instance.setRepositoryBytes(value);
-      return this;
-    }
-
-    /**
-     * <pre>
-     * The committed revision the step runs at, empty when it runs at none.
-     * </pre>
-     *
-     * <code>string revision = 5 [json_name = "revision"];</code>
-     * @return The revision.
-     */
-    @java.lang.Override
-    public java.lang.String getRevision() {
-      return instance.getRevision();
-    }
-    /**
-     * <pre>
-     * The committed revision the step runs at, empty when it runs at none.
-     * </pre>
-     *
-     * <code>string revision = 5 [json_name = "revision"];</code>
-     * @return The bytes for revision.
-     */
-    @java.lang.Override
-    public com.google.protobuf.ByteString
-        getRevisionBytes() {
-      return instance.getRevisionBytes();
-    }
-    /**
-     * <pre>
-     * The committed revision the step runs at, empty when it runs at none.
-     * </pre>
-     *
-     * <code>string revision = 5 [json_name = "revision"];</code>
-     * @param value The revision to set.
-     * @return This builder for chaining.
-     */
-    public Builder setRevision(
-        java.lang.String value) {
-      copyOnWrite();
-      instance.setRevision(value);
-      return this;
-    }
-    /**
-     * <pre>
-     * The committed revision the step runs at, empty when it runs at none.
-     * </pre>
-     *
-     * <code>string revision = 5 [json_name = "revision"];</code>
-     * @return This builder for chaining.
-     */
-    public Builder clearRevision() {
-      copyOnWrite();
-      instance.clearRevision();
-      return this;
-    }
-    /**
-     * <pre>
-     * The committed revision the step runs at, empty when it runs at none.
-     * </pre>
-     *
-     * <code>string revision = 5 [json_name = "revision"];</code>
-     * @param value The bytes for revision to set.
-     * @return This builder for chaining.
-     */
-    public Builder setRevisionBytes(
-        com.google.protobuf.ByteString value) {
-      copyOnWrite();
-      instance.setRevisionBytes(value);
-      return this;
-    }
-
-    /**
-     * <pre>
-     * The delta a closure pass checks, empty for the other kinds.
-     * </pre>
-     *
-     * <code>string delta = 6 [json_name = "delta"];</code>
-     * @return The delta.
-     */
-    @java.lang.Override
-    public java.lang.String getDelta() {
-      return instance.getDelta();
-    }
-    /**
-     * <pre>
-     * The delta a closure pass checks, empty for the other kinds.
-     * </pre>
-     *
-     * <code>string delta = 6 [json_name = "delta"];</code>
-     * @return The bytes for delta.
-     */
-    @java.lang.Override
-    public com.google.protobuf.ByteString
-        getDeltaBytes() {
-      return instance.getDeltaBytes();
-    }
-    /**
-     * <pre>
-     * The delta a closure pass checks, empty for the other kinds.
-     * </pre>
-     *
-     * <code>string delta = 6 [json_name = "delta"];</code>
-     * @param value The delta to set.
-     * @return This builder for chaining.
-     */
-    public Builder setDelta(
-        java.lang.String value) {
-      copyOnWrite();
-      instance.setDelta(value);
-      return this;
-    }
-    /**
-     * <pre>
-     * The delta a closure pass checks, empty for the other kinds.
-     * </pre>
-     *
-     * <code>string delta = 6 [json_name = "delta"];</code>
-     * @return This builder for chaining.
-     */
-    public Builder clearDelta() {
-      copyOnWrite();
-      instance.clearDelta();
-      return this;
-    }
-    /**
-     * <pre>
-     * The delta a closure pass checks, empty for the other kinds.
-     * </pre>
-     *
-     * <code>string delta = 6 [json_name = "delta"];</code>
-     * @param value The bytes for delta to set.
-     * @return This builder for chaining.
-     */
-    public Builder setDeltaBytes(
-        com.google.protobuf.ByteString value) {
-      copyOnWrite();
-      instance.setDeltaBytes(value);
-      return this;
-    }
-
-    /**
-     * <pre>
-     * When the step was started, in unix seconds.
-     * </pre>
-     *
-     * <code>int64 created = 7 [json_name = "created"];</code>
-     * @return The created.
-     */
-    @java.lang.Override
-    public long getCreated() {
-      return instance.getCreated();
-    }
-    /**
-     * <pre>
-     * When the step was started, in unix seconds.
-     * </pre>
-     *
-     * <code>int64 created = 7 [json_name = "created"];</code>
-     * @param value The created to set.
-     * @return This builder for chaining.
-     */
-    public Builder setCreated(long value) {
-      copyOnWrite();
-      instance.setCreated(value);
-      return this;
-    }
-    /**
-     * <pre>
-     * When the step was started, in unix seconds.
-     * </pre>
-     *
-     * <code>int64 created = 7 [json_name = "created"];</code>
-     * @return This builder for chaining.
-     */
-    public Builder clearCreated() {
-      copyOnWrite();
-      instance.clearCreated();
-      return this;
-    }
-
-    /**
-     * <pre>
-     * The step's status.
-     * </pre>
-     *
-     * <code>string status = 8 [json_name = "status"];</code>
+     * <code>string status = 4 [json_name = "status"];</code>
      * @return The status.
      */
     @java.lang.Override
@@ -1277,10 +826,10 @@ public  final class DesignStep extends
     }
     /**
      * <pre>
-     * The step's status.
+     * The step's status: running until the step ends, then its status.
      * </pre>
      *
-     * <code>string status = 8 [json_name = "status"];</code>
+     * <code>string status = 4 [json_name = "status"];</code>
      * @return The bytes for status.
      */
     @java.lang.Override
@@ -1290,10 +839,10 @@ public  final class DesignStep extends
     }
     /**
      * <pre>
-     * The step's status.
+     * The step's status: running until the step ends, then its status.
      * </pre>
      *
-     * <code>string status = 8 [json_name = "status"];</code>
+     * <code>string status = 4 [json_name = "status"];</code>
      * @param value The status to set.
      * @return This builder for chaining.
      */
@@ -1305,10 +854,10 @@ public  final class DesignStep extends
     }
     /**
      * <pre>
-     * The step's status.
+     * The step's status: running until the step ends, then its status.
      * </pre>
      *
-     * <code>string status = 8 [json_name = "status"];</code>
+     * <code>string status = 4 [json_name = "status"];</code>
      * @return This builder for chaining.
      */
     public Builder clearStatus() {
@@ -1318,10 +867,10 @@ public  final class DesignStep extends
     }
     /**
      * <pre>
-     * The step's status.
+     * The step's status: running until the step ends, then its status.
      * </pre>
      *
-     * <code>string status = 8 [json_name = "status"];</code>
+     * <code>string status = 4 [json_name = "status"];</code>
      * @param value The bytes for status to set.
      * @return This builder for chaining.
      */
@@ -1337,7 +886,7 @@ public  final class DesignStep extends
      * The step's report, or its output, empty until it returns.
      * </pre>
      *
-     * <code>string report = 9 [json_name = "report"];</code>
+     * <code>string report = 5 [json_name = "report"];</code>
      * @return The report.
      */
     @java.lang.Override
@@ -1349,7 +898,7 @@ public  final class DesignStep extends
      * The step's report, or its output, empty until it returns.
      * </pre>
      *
-     * <code>string report = 9 [json_name = "report"];</code>
+     * <code>string report = 5 [json_name = "report"];</code>
      * @return The bytes for report.
      */
     @java.lang.Override
@@ -1362,7 +911,7 @@ public  final class DesignStep extends
      * The step's report, or its output, empty until it returns.
      * </pre>
      *
-     * <code>string report = 9 [json_name = "report"];</code>
+     * <code>string report = 5 [json_name = "report"];</code>
      * @param value The report to set.
      * @return This builder for chaining.
      */
@@ -1377,7 +926,7 @@ public  final class DesignStep extends
      * The step's report, or its output, empty until it returns.
      * </pre>
      *
-     * <code>string report = 9 [json_name = "report"];</code>
+     * <code>string report = 5 [json_name = "report"];</code>
      * @return This builder for chaining.
      */
     public Builder clearReport() {
@@ -1390,7 +939,7 @@ public  final class DesignStep extends
      * The step's report, or its output, empty until it returns.
      * </pre>
      *
-     * <code>string report = 9 [json_name = "report"];</code>
+     * <code>string report = 5 [json_name = "report"];</code>
      * @param value The bytes for report to set.
      * @return This builder for chaining.
      */
@@ -1406,7 +955,7 @@ public  final class DesignStep extends
      * The verdict of a steelman pass, empty for the other kinds and until the pass returns.
      * </pre>
      *
-     * <code>string verdict = 10 [json_name = "verdict"];</code>
+     * <code>string verdict = 6 [json_name = "verdict"];</code>
      * @return The verdict.
      */
     @java.lang.Override
@@ -1418,7 +967,7 @@ public  final class DesignStep extends
      * The verdict of a steelman pass, empty for the other kinds and until the pass returns.
      * </pre>
      *
-     * <code>string verdict = 10 [json_name = "verdict"];</code>
+     * <code>string verdict = 6 [json_name = "verdict"];</code>
      * @return The bytes for verdict.
      */
     @java.lang.Override
@@ -1431,7 +980,7 @@ public  final class DesignStep extends
      * The verdict of a steelman pass, empty for the other kinds and until the pass returns.
      * </pre>
      *
-     * <code>string verdict = 10 [json_name = "verdict"];</code>
+     * <code>string verdict = 6 [json_name = "verdict"];</code>
      * @param value The verdict to set.
      * @return This builder for chaining.
      */
@@ -1446,7 +995,7 @@ public  final class DesignStep extends
      * The verdict of a steelman pass, empty for the other kinds and until the pass returns.
      * </pre>
      *
-     * <code>string verdict = 10 [json_name = "verdict"];</code>
+     * <code>string verdict = 6 [json_name = "verdict"];</code>
      * @return This builder for chaining.
      */
     public Builder clearVerdict() {
@@ -1459,7 +1008,7 @@ public  final class DesignStep extends
      * The verdict of a steelman pass, empty for the other kinds and until the pass returns.
      * </pre>
      *
-     * <code>string verdict = 10 [json_name = "verdict"];</code>
+     * <code>string verdict = 6 [json_name = "verdict"];</code>
      * @param value The bytes for verdict to set.
      * @return This builder for chaining.
      */
@@ -1475,7 +1024,7 @@ public  final class DesignStep extends
      * True when the step counts toward the design's budget of passes.
      * </pre>
      *
-     * <code>bool counted = 11 [json_name = "counted"];</code>
+     * <code>bool counted = 7 [json_name = "counted"];</code>
      * @return The counted.
      */
     @java.lang.Override
@@ -1487,7 +1036,7 @@ public  final class DesignStep extends
      * True when the step counts toward the design's budget of passes.
      * </pre>
      *
-     * <code>bool counted = 11 [json_name = "counted"];</code>
+     * <code>bool counted = 7 [json_name = "counted"];</code>
      * @param value The counted to set.
      * @return This builder for chaining.
      */
@@ -1501,12 +1050,52 @@ public  final class DesignStep extends
      * True when the step counts toward the design's budget of passes.
      * </pre>
      *
-     * <code>bool counted = 11 [json_name = "counted"];</code>
+     * <code>bool counted = 7 [json_name = "counted"];</code>
      * @return This builder for chaining.
      */
     public Builder clearCounted() {
       copyOnWrite();
       instance.clearCounted();
+      return this;
+    }
+
+    /**
+     * <pre>
+     * When the step was started, in unix seconds.
+     * </pre>
+     *
+     * <code>int64 created = 8 [json_name = "created"];</code>
+     * @return The created.
+     */
+    @java.lang.Override
+    public long getCreated() {
+      return instance.getCreated();
+    }
+    /**
+     * <pre>
+     * When the step was started, in unix seconds.
+     * </pre>
+     *
+     * <code>int64 created = 8 [json_name = "created"];</code>
+     * @param value The created to set.
+     * @return This builder for chaining.
+     */
+    public Builder setCreated(long value) {
+      copyOnWrite();
+      instance.setCreated(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * When the step was started, in unix seconds.
+     * </pre>
+     *
+     * <code>int64 created = 8 [json_name = "created"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearCreated() {
+      copyOnWrite();
+      instance.clearCreated();
       return this;
     }
 
@@ -1529,19 +1118,15 @@ public  final class DesignStep extends
             "step_",
             "kind_",
             "subject_",
-            "repository_",
-            "revision_",
-            "delta_",
-            "created_",
             "status_",
             "report_",
             "verdict_",
             "counted_",
+            "created_",
           };
           java.lang.String info =
-              "\u0000\u000b\u0000\u0000\u0001\u000b\u000b\u0000\u0000\u0000\u0001\u0208\u0002\u0208" +
-              "\u0003\u0208\u0004\u0208\u0005\u0208\u0006\u0208\u0007\u0002\b\u0208\t\u0208\n\u0208" +
-              "\u000b\u0007";
+              "\u0000\b\u0000\u0000\u0001\b\b\u0000\u0000\u0000\u0001\u0208\u0002\u0208\u0003\u0208" +
+              "\u0004\u0208\u0005\u0208\u0006\u0208\u0007\u0007\b\u0002";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

@@ -7,7 +7,7 @@ package io.github.joshsymonds.orrery.gen.orrery.v1;
 
 /**
  * <pre>
- * DesignStage is the stage of a design: the steps it started, the questions it asked, the ledger of its findings and
+ * DesignStage is the stage of one design: the steps it started, the questions it asked, the ledger of its findings and
  * the counts of its passes.
  * </pre>
  *
@@ -675,7 +675,7 @@ public  final class DesignStage extends
 
   /**
    * <pre>
-   * DesignStage is the stage of a design: the steps it started, the questions it asked, the ledger of its findings and
+   * DesignStage is the stage of one design: the steps it started, the questions it asked, the ledger of its findings and
    * the counts of its passes.
    * </pre>
    *
