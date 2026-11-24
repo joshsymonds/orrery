@@ -133,7 +133,8 @@ func (d designsServer) List(
 }
 
 // Get answers the design of the id List gave it, with the approaches the design's stage weighs, the choice of one
-// unset until one is stored, and the design's log, each oldest first. An id no design holds answers not_found.
+// unset until one is stored, the design's log, and its delegations with the decisions made under each, each oldest
+// first. An id no design holds answers not_found.
 func (d designsServer) Get(
 	ctx context.Context,
 	req *connect.Request[orreryv1.DesignsGetRequest],
@@ -164,11 +165,16 @@ func (d designsServer) Get(
 	if err != nil {
 		return nil, designReadError(err, "read design log")
 	}
+	delegations, err := d.reader.DesignDelegations(ctx, req.Msg.GetId())
+	if err != nil {
+		return nil, designReadError(err, "read design delegations")
+	}
 	return connect.NewResponse(&orreryv1.DesignsGetResponse{
-		Design:     designMessage(record),
-		Approaches: designApproachMessages(approaches),
-		Choice:     choice,
-		Log:        designLogMessages(lines),
+		Design:      designMessage(record),
+		Approaches:  designApproachMessages(approaches),
+		Choice:      choice,
+		Log:         designLogMessages(lines),
+		Delegations: designDelegationMessages(delegations),
 	}), nil
 }
 
@@ -222,6 +228,33 @@ func designLogMessages(lines []store.DesignLogLine) []*orreryv1.DesignLogLine {
 			What:    line.What,
 			Ids:     line.IDs,
 			Words:   line.Words,
+		})
+	}
+	return messages
+}
+
+// designDelegationMessages converts each delegation of a design to its DesignDelegation, with the decisions made under
+// it, in the order given.
+func designDelegationMessages(delegations []store.DelegationWithDecisions) []*orreryv1.DesignDelegation {
+	messages := make([]*orreryv1.DesignDelegation, 0, len(delegations))
+	for _, delegation := range delegations {
+		decisions := make([]*orreryv1.DesignDecision, 0, len(delegation.Decisions))
+		for _, decision := range delegation.Decisions {
+			decisions = append(decisions, &orreryv1.DesignDecision{
+				Kind:   decision.Kind,
+				Ref:    decision.Ref,
+				Text:   decision.Text,
+				Reason: decision.Reason,
+				Time:   decision.At,
+			})
+		}
+		messages = append(messages, &orreryv1.DesignDelegation{
+			Seq:       delegation.Seq,
+			Kinds:     delegation.Kinds,
+			Message:   delegation.Message,
+			Session:   delegation.Session,
+			Time:      delegation.At,
+			Decisions: decisions,
 		})
 	}
 	return messages
