@@ -71,9 +71,8 @@ func checkRecordsLeftAcceptStates(t *testing.T, server contractTestServer, want 
 	}
 }
 
-// TestContractRecordsLeftAcceptFromNoSessionIsOwnerServe checks that an accept whose caller resolves to no session, with
-// no maker named, is recorded as made by owner_serve, and that a read carries that maker on the accepted
-// state.
+// TestContractRecordsLeftAcceptFromNoSessionIsOwnerServe checks that an accept whose caller resolves to no session,
+// with no maker named, is recorded as made by owner_serve, and that a read carries that maker on the accepted state.
 func TestContractRecordsLeftAcceptFromNoSessionIsOwnerServe(t *testing.T) {
 	t.Parallel()
 	server := recordsLeftAcceptServer(t)
@@ -120,7 +119,9 @@ func TestContractRecordsLeftAcceptConversationReadsBackAsMadeForHim(t *testing.T
 		State: "accepted", Version: 1, By: "session", Session: contractTestPane, Words: contractTestAcceptWords,
 		Time: contractHour(0),
 		Maker: &v1.StageMaker{
-			Kind: store.StageMakerConversation, Reason: recordsLeftAcceptReason, Delegation: recordsLeftAcceptDelegation,
+			Kind:       store.StageMakerConversation,
+			Reason:     recordsLeftAcceptReason,
+			Delegation: recordsLeftAcceptDelegation,
 		},
 	})
 }
