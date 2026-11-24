@@ -10,6 +10,7 @@ import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Transition
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -23,9 +24,9 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -34,6 +35,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -51,16 +53,25 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import io.github.joshsymonds.orrery.api.ContractCallResult
+import io.github.joshsymonds.orrery.api.ContractRecordRow
+import io.github.joshsymonds.orrery.api.ContractRequirementWorkRow
 import io.github.joshsymonds.orrery.api.ContractRow
+import io.github.joshsymonds.orrery.api.DesignContractRow
+import io.github.joshsymonds.orrery.api.DesignQuestionRow
 import io.github.joshsymonds.orrery.api.DesignRow
+import io.github.joshsymonds.orrery.api.EpicDetail
 import io.github.joshsymonds.orrery.api.OrreryClient
 import io.github.joshsymonds.orrery.api.Pane
 import io.github.joshsymonds.orrery.api.StepRow
 import io.github.joshsymonds.orrery.ui.theme.Move
 import io.github.joshsymonds.orrery.ui.theme.OrreryTokens
 import io.github.joshsymonds.orrery.ui.theme.spec
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.io.IOException
 
 /**
  * What the round 8 phone sheet is open on: a [Thing], a design, contract or epic opened from a work link, or [All], the
@@ -452,7 +463,7 @@ private fun SheetCloseButton(onClose: () -> Unit) {
 /**
  * The record a phone sheet draws its subjects from, as the conversation's screen holds it at [now] in unix seconds: the
  * conversation's [conversation] id, its [work] links, its [designs], the epics it steers with their details, and the
- * [contracts] listed.
+ * [contracts] listed. The designs are read, and their questions answered, through [stages].
  */
 internal class SheetRecord(
     val client: OrreryClient,
@@ -462,6 +473,7 @@ internal class SheetRecord(
     val held: HeadEpics,
     val contracts: List<ContractRow>,
     val now: Long,
+    val stages: DesignStages,
 )
 
 /**
@@ -613,40 +625,229 @@ private fun ThingBody(link: WorkLink, record: SheetRecord, actions: SheetActions
             now = { record.now },
             titled = false,
         )
-        WorkKind.CONTRACT -> {
-            val aboutAndFold: (RowAbout) -> Unit = { about ->
-                actions.onAbout(about)
-                actions.fold()
+        WorkKind.CONTRACT -> SheetContract(link, record, actions)
+    }
+}
+
+// A design's page, drawn from its read: the record once Designs.Get has answered, else a note of the read. Its questions
+// answer through the design stages, and its contract rows open their contracts. A design no longer drawn draws nothing, as
+// its sheet is not open (see sheetViewOf).
+@Composable
+private fun DesignBody(link: WorkLink, record: SheetRecord, actions: SheetActions) {
+    val drawn = designBlocksOf(record.conversation, record.designs, record.held, record.contracts).any { it.key == link.key }
+    if (!drawn) return
+    val stages = record.stages
+    LaunchedEffect(link.id) { stages.start(link.id) }
+    when (val load = stages.loadOf(link.id)) {
+        is DesignLoad.Loaded -> DesignPage(
+            record = load.record,
+            now = record.now,
+            thread = { question -> DesignQuestionThread(stages, link.id, question) },
+            onOpenContract = { contract -> actions.show(SheetSubject.Thing(contractOpenedFrom(contract))) },
+        )
+        DesignLoad.Loading -> InlineNote(LOADING_WORDS, NoteTone.Quiet, Modifier.padding(OrreryTokens.Space.sixteen))
+        DesignLoad.Missing -> InlineNote(DESIGN_MISSING, NoteTone.Quiet, Modifier.padding(OrreryTokens.Space.sixteen))
+        DesignLoad.Failed -> InlineNote(DESIGN_UNAVAILABLE, NoteTone.Error, Modifier.padding(OrreryTokens.Space.sixteen))
+    }
+}
+
+// A design question's thread, which answers through the design stages: the owner's words, or the recommendation, sent for
+// the question of [design].
+@Composable
+private fun DesignQuestionThread(stages: DesignStages, design: String, question: DesignQuestionRow) {
+    QuestionThread(
+        question = question,
+        place = ThreadPlace.DESIGN,
+        send = stages.sendOf(design, question),
+        onAnswer = { words -> stages.answer(design, question, words, accept = false) },
+        onAccept = { stages.answer(design, question, words = "", accept = true) },
+    )
+}
+
+// The link of a contract a design page opens: the contract itself, named as the inbox names a contract, by its id past the
+// slash. An accepted contract opens on its work.
+private fun contractOpenedFrom(contract: DesignContractRow): WorkLink =
+    WorkLink("contract:${contract.id}", WorkKind.CONTRACT, contract.id, contract.id.substringAfter('/'))
+
+/** A contract's read on the sheet: nothing yet, the record with the epic it became once accepted, no contract, or a failure. */
+private sealed interface ContractRead {
+    data object Loading : ContractRead
+
+    data class Read(val record: ContractRecordRow, val epic: EpicDetail?) : ContractRead
+
+    data object Missing : ContractRead
+
+    data object Failed : ContractRead
+}
+
+// A contract's page on the sheet, as the contract opened from its link reads it: the contract as Contracts.Get serves it,
+// with the design's questions about it, its accept bar at the foot and, once accepted, its work, which the page opens on.
+// The body is tagged as the sheet's contract body has always been, and reads the contract again after each write.
+@Composable
+private fun SheetContract(link: WorkLink, record: SheetRecord, actions: SheetActions) {
+    val client = record.client
+    val stages = record.stages
+    val id = link.id
+    val scope = rememberCoroutineScope()
+    var read by remember(id) { mutableStateOf<ContractRead>(ContractRead.Loading) }
+    var bar by remember(id) { mutableStateOf<BarSend>(BarSend.Idle) }
+    var note by remember(id) { mutableStateOf("") }
+    val owner = owningDesignOf(link, record)
+    LaunchedEffect(id) { read = readContract(client, id) }
+    LaunchedEffect(owner?.id) { owner?.let { stages.start(it.id) } }
+
+    // reload reads the contract again, once a write has changed it.
+    suspend fun reload() {
+        read = readContract(client, id)
+    }
+
+    // writeRow makes one keep or strike of an addition: a landed write reads the contract again, and a refusal or a
+    // failure is the note under the page.
+    fun writeRow(call: () -> ContractCallResult) {
+        scope.launch {
+            note = try {
+                when (val result = withContext(Dispatchers.IO) { call() }) {
+                    is ContractCallResult.Refused -> failureWordsOf(result.reason)
+                    is ContractCallResult.Done -> {
+                        reload()
+                        ""
+                    }
+                }
+            } catch (error: IOException) {
+                failureWordsOf(error.message)
             }
-            ContractScreen(
-                client = record.client,
-                epicId = link.id,
-                onBack = actions.fold,
-                onHome = actions.fold,
-                live = actions.live,
-                onAbout = if (actions.live) aboutAndFold else null,
-                onTalk = if (actions.live) actions.fold else null,
-                titled = false,
-            )
+        }
+    }
+
+    // settle makes one accept, set aside or reopen, which the bar shows while it is sent: a landed one reads the contract
+    // again, and a refusal or a failure is the bar's reason.
+    fun settle(call: () -> ContractCallResult) {
+        if (bar == BarSend.Sending) return
+        bar = BarSend.Sending
+        scope.launch {
+            bar = try {
+                when (val result = withContext(Dispatchers.IO) { call() }) {
+                    is ContractCallResult.Refused -> BarSend.Failed(failureWordsOf(result.reason))
+                    is ContractCallResult.Done -> {
+                        reload()
+                        BarSend.Idle
+                    }
+                }
+            } catch (error: IOException) {
+                BarSend.Failed(failureWordsOf(error.message))
+            }
+        }
+    }
+
+    // shown tells the server the owner was shown rows of a version. A mark that landed reads the contract again, so its
+    // unread rows drop from the page.
+    fun shown(version: Long, rows: List<String>) {
+        scope.launch {
+            try {
+                if (withContext(Dispatchers.IO) { client.markShown(id, version, rows) }.isNotEmpty()) reload()
+            } catch (error: IOException) {
+                note = failureWordsOf(error.message)
+            }
+        }
+    }
+
+    val aboutAndFold: (RowAbout) -> Unit = { about ->
+        actions.onAbout(about)
+        actions.fold()
+    }
+    val openEpic: () -> Unit = {
+        val epic = (read as? ContractRead.Read)?.epic
+        actions.show(SheetSubject.Thing(WorkLink("epic:$id", WorkKind.EPIC, id, epic?.epic?.slug ?: link.name)))
+    }
+    Column(modifier = Modifier.fillMaxSize().testTag(SHEET_CONTRACT_TAG)) {
+        when (val current = read) {
+            ContractRead.Loading -> InlineNote(LOADING_WORDS, NoteTone.Quiet, Modifier.padding(OrreryTokens.Space.sixteen))
+            ContractRead.Missing -> InlineNote(CONTRACT_MISSING, NoteTone.Quiet, Modifier.padding(OrreryTokens.Space.sixteen))
+            ContractRead.Failed -> InlineNote(CONTRACT_UNAVAILABLE, NoteTone.Error, Modifier.padding(OrreryTokens.Space.sixteen))
+            is ContractRead.Read -> {
+                val contract = current.record
+                val epic = current.epic
+                val work: (@Composable () -> Unit)? = if (contract.contract.state == "accepted" && epic != null) {
+                    { SheetContractWork(contract.stage.work, epic, openEpic) }
+                } else {
+                    null
+                }
+                ContractPage(
+                    record = contract,
+                    stage = contract.stage,
+                    questions = owner?.let { questionsOf(stages.loadOf(it.id), id) }.orEmpty(),
+                    onKeep = { addition -> writeRow { client.keepAddition(id, addition) } },
+                    onStrike = { addition -> writeRow { client.strikeAddition(id, addition) } },
+                    onShown = { version, rows -> shown(version, rows) },
+                    onAbout = if (actions.live) aboutAndFold else null,
+                    thread = { question -> owner?.let { DesignQuestionThread(stages, it.id, question) } },
+                    work = work,
+                    foot = {
+                        ContractAcceptBar(
+                            contract = contract.contract,
+                            left = contract.stage.left,
+                            states = contract.states,
+                            send = bar,
+                            onAccept = { settle { client.acceptContract(id) } },
+                            onSetAside = { words -> settle { client.setAsideContract(id, words) } },
+                            onReopen = { settle { client.reopenContract(id) } },
+                            onTalk = if (actions.live) actions.fold else null,
+                            onOpenEpic = openEpic,
+                        )
+                        if (note.isNotEmpty()) InlineNote(note, NoteTone.Error, Modifier.testTag(SHEET_CONTRACT_NOTE_TAG))
+                    },
+                    modifier = Modifier.weight(1f),
+                )
+            }
         }
     }
 }
 
-// A design's block alone, scrolled when it is taller than the sheet. A design no longer drawn draws nothing, as its
-// sheet is not open (see sheetViewOf).
-@Composable
-private fun DesignBody(link: WorkLink, record: SheetRecord, actions: SheetActions) {
-    val block = designBlocksOf(record.conversation, record.designs, record.held, record.contracts)
-        .firstOrNull { it.key == link.key } ?: return
-    Column(modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState())) {
-        DesignBlockItem(
-            block,
-            record.now,
-            onOpen = { kidKey -> openedKid(block.kids, kidKey, actions.show) },
-            onLongPress = {},
-        )
+// The questions a design's stage asked about the contract [id], once the design is read: none while it is not.
+private fun questionsOf(load: DesignLoad, id: String): List<DesignQuestionRow> =
+    (load as? DesignLoad.Loaded)?.record?.stage?.questions.orEmpty().filter { it.contract == id }
+
+// readContract reads the contract [id] off the main thread: its record, and its epic once it is accepted, the epic it became.
+private suspend fun readContract(client: OrreryClient, id: String): ContractRead = try {
+    withContext(Dispatchers.IO) {
+        val record = client.contract(id) ?: return@withContext ContractRead.Missing
+        val epic = if (record.contract.state == "accepted") client.epic(id) else null
+        ContractRead.Read(record, epic)
     }
+} catch (_: IOException) {
+    ContractRead.Failed
 }
+
+// The work of an accepted contract, as its page opens on it: each requirement's state, tasks and proof, the proof read from
+// the runs of the epic the contract became. The page is first drawn at the work, so it is brought into view once.
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun SheetContractWork(work: List<ContractRequirementWorkRow>, epic: EpicDetail, onOpenEpic: () -> Unit) {
+    val requester = remember { BringIntoViewRequester() }
+    LaunchedEffect(Unit) { requester.bringIntoView() }
+    ContractWork(
+        work = work,
+        runs = epic.requirements.associate { it.id to it.runs },
+        epic = epic.epic.slug,
+        onOpenEpic = onOpenEpic,
+        modifier = Modifier.bringIntoViewRequester(requester),
+    )
+}
+
+// failureWordsOf is the words a failed contract call shows: its own message, or that the contract is unavailable without one.
+private fun failureWordsOf(message: String?): String = if (message.isNullOrEmpty()) CONTRACT_UNAVAILABLE else message
+
+/** The tag of a contract's body on the sheet, which the sheet's contract body has always carried. */
+private const val SHEET_CONTRACT_TAG = "contract-screen"
+
+/** The tag of the note under a contract's page on the sheet, which says why a keep, strike or mark did not land. */
+private const val SHEET_CONTRACT_NOTE_TAG = "contract-note"
+
+private const val LOADING_WORDS = "Loading..."
+private const val DESIGN_MISSING = "design not found"
+private const val DESIGN_UNAVAILABLE = "design unavailable"
+private const val CONTRACT_MISSING = "contract not found"
+private const val CONTRACT_UNAVAILABLE = "contract unavailable"
 
 // Switches the sheet to the kid [kidKey] among [hungs], an epic or a contract, as its link.
 private fun openedKid(hungs: List<Hung>, kidKey: String, show: (SheetSubject) -> Unit) {

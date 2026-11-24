@@ -396,7 +396,8 @@ fun SessionScreen(
     }
     // The work links of the conversation, and the phone sheet one of them opened: the link it lights is lit while it is open.
     val work = workLinksOf(sessionId, designs, steered)
-    val record = SheetRecord(client, sessionId, work, designs, headEpics, contracts, nowSeconds)
+    val stages = remember(client, sessionId) { DesignStages(client, scope) }
+    val record = SheetRecord(client, sessionId, work, designs, headEpics, contracts, nowSeconds, stages)
     val view = sheetViewOf(sheet, record)
     val workLit = workLitOf(view, work)
     val openWork: (WorkLink) -> Unit = { link -> sheet = if (workLit == link.key) null else SheetSubject.Thing(link) }

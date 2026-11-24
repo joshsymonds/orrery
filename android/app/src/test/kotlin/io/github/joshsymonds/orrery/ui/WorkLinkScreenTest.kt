@@ -23,6 +23,7 @@ import io.github.joshsymonds.orrery.gen.orrery.v1.ContractsListResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.ConversationState
 import io.github.joshsymonds.orrery.gen.orrery.v1.Design
 import io.github.joshsymonds.orrery.gen.orrery.v1.DesignContract
+import io.github.joshsymonds.orrery.gen.orrery.v1.DesignsGetResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.DesignsListResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsListResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.HeadlessSession
@@ -55,6 +56,7 @@ class WorkLinkScreenTest {
         const val PANE_WATCH_PATH = "/orrery.v1.Panes/WatchConversation"
         const val PANES_PATH = "/orrery.v1.Panes/List"
         const val DESIGNS_PATH = "/orrery.v1.Designs/List"
+        const val DESIGN_GET_PATH = "/orrery.v1.Designs/Get"
         const val EPICS_PATH = "/orrery.v1.Epics/List"
         const val CONTRACTS_PATH = "/orrery.v1.Contracts/List"
         const val DESIGN_LINK_TAG = "work-link:design:$DESIGN_ID"
@@ -152,6 +154,7 @@ class WorkLinkScreenTest {
             .addContracts(contract)
             .build()
         server.respond(DESIGNS_PATH, DesignsListResponse.newBuilder().addDesigns(design).build())
+        server.respond(DESIGN_GET_PATH, DesignsGetResponse.newBuilder().setDesign(design).build())
     }
 
     private fun backgroundTask(id: String, type: String, status: String): BackgroundTaskProto =
@@ -246,7 +249,7 @@ class WorkLinkScreenTest {
     }
 
     @Test
-    fun tappingTheDesignLinkOpensItsSheetWithItsTabAndLightsTheLink() {
+    fun tappingTheDesignLinkOpensItsSheetWithItsPageAndLightsTheLink() {
         FakeOrreryServer().use { server ->
             serveSession(server, background = emptyList())
             serveHeadLists(server, SESSION_ID)
@@ -256,7 +259,7 @@ class WorkLinkScreenTest {
             awaitNode(hasTestTag(DESIGN_LINK_TAG))
             composeRule.onNodeWithTag(DESIGN_LINK_TAG).performClick()
 
-            awaitNode(hasTestTag("design-tab:$DESIGN_ID"))
+            awaitNode(hasTestTag("design-page"))
             composeRule.onNodeWithTag(DESIGN_LINK_TAG).assertIsSelected()
         }
     }
