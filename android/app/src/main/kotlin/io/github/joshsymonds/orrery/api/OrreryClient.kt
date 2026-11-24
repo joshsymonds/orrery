@@ -22,14 +22,26 @@ import io.github.joshsymonds.orrery.gen.orrery.v1.BackgroundTask as BackgroundTa
 import io.github.joshsymonds.orrery.gen.orrery.v1.BringBackRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.Contract as ContractProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.ContractDecision as ContractDecisionProto
+import io.github.joshsymonds.orrery.gen.orrery.v1.ContractLeft as ContractLeftProto
+import io.github.joshsymonds.orrery.gen.orrery.v1.ContractLength as ContractLengthProto
+import io.github.joshsymonds.orrery.gen.orrery.v1.ContractRefusal as ContractRefusalProto
+import io.github.joshsymonds.orrery.gen.orrery.v1.ContractRequirementTask as ContractRequirementTaskProto
+import io.github.joshsymonds.orrery.gen.orrery.v1.ContractRequirementWork as ContractRequirementWorkProto
+import io.github.joshsymonds.orrery.gen.orrery.v1.ContractRowWrite as ContractRowWriteProto
+import io.github.joshsymonds.orrery.gen.orrery.v1.ContractShown as ContractShownProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.ContractStateChange as ContractStateChangeProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.ContractVersion as ContractVersionProto
+import io.github.joshsymonds.orrery.gen.orrery.v1.ContractWorking as ContractWorkingProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.ContractsAcceptRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.ContractsClient
 import io.github.joshsymonds.orrery.gen.orrery.v1.ContractsGetRequest
+import io.github.joshsymonds.orrery.gen.orrery.v1.ContractsGetResponse
+import io.github.joshsymonds.orrery.gen.orrery.v1.ContractsKeepRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.ContractsListRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.ContractsReopenRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.ContractsSetAsideRequest
+import io.github.joshsymonds.orrery.gen.orrery.v1.ContractsShownRequest
+import io.github.joshsymonds.orrery.gen.orrery.v1.ContractsStrikeRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.ControlClient
 import io.github.joshsymonds.orrery.gen.orrery.v1.ConversationContext as ConversationContextProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.ConversationItem as ConversationItemProto
@@ -37,8 +49,19 @@ import io.github.joshsymonds.orrery.gen.orrery.v1.ConversationRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.ConversationState as ConversationStateProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.DeclineRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.Design as DesignProto
+import io.github.joshsymonds.orrery.gen.orrery.v1.DesignApproach as DesignApproachProto
+import io.github.joshsymonds.orrery.gen.orrery.v1.DesignChoice as DesignChoiceProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.DesignContract as DesignContractProto
+import io.github.joshsymonds.orrery.gen.orrery.v1.DesignDecision as DesignDecisionProto
+import io.github.joshsymonds.orrery.gen.orrery.v1.DesignDelegation as DesignDelegationProto
+import io.github.joshsymonds.orrery.gen.orrery.v1.DesignLedgerItem as DesignLedgerItemProto
+import io.github.joshsymonds.orrery.gen.orrery.v1.DesignLogLine as DesignLogLineProto
+import io.github.joshsymonds.orrery.gen.orrery.v1.DesignQuestion as DesignQuestionProto
+import io.github.joshsymonds.orrery.gen.orrery.v1.DesignStage as DesignStageProto
+import io.github.joshsymonds.orrery.gen.orrery.v1.DesignStep as DesignStepProto
+import io.github.joshsymonds.orrery.gen.orrery.v1.DesignsAnswerRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.DesignsClient
+import io.github.joshsymonds.orrery.gen.orrery.v1.DesignsGetRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.DesignsListRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.EngineText as EngineTextProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.Epic as EpicProto
@@ -113,6 +136,7 @@ import io.github.joshsymonds.orrery.gen.orrery.v1.PoolsStatusRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.PullQueuedRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.PushClient
 import io.github.joshsymonds.orrery.gen.orrery.v1.QueuedMessage as QueuedMessageProto
+import io.github.joshsymonds.orrery.gen.orrery.v1.RecordMaker as RecordMakerProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.RegisterRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.ResumeRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.RouteContext as RouteContextProto
@@ -179,6 +203,14 @@ private val CONTRACT_REFUSED = setOf(
     Code.FAILED_PRECONDITION,
     Code.INVALID_ARGUMENT,
     Code.ABORTED,
+    Code.PERMISSION_DENIED,
+    Code.NOT_FOUND,
+)
+
+/** The answers to a design's answer that mean the server refused it, with its reason: the codes its stage refuses with. */
+private val DESIGN_REFUSED = setOf(
+    Code.FAILED_PRECONDITION,
+    Code.INVALID_ARGUMENT,
     Code.PERMISSION_DENIED,
     Code.NOT_FOUND,
 )
@@ -268,6 +300,12 @@ data class ConversationItem(
     val removed: Long = 0L,
     /** The X-Orrery-Client of a `prompt` item's prompt, such as orrery-android; "" on other kinds, when none was recorded, or from an older server. */
     val client: String = "",
+    /** The id of the design a `design` item's stage record belongs to; "" on other kinds or when the item carries none. */
+    val design: String = "",
+    /** What a `design` item's stage record says was done; "" on other kinds or when the item carries none. */
+    val designWhat: String = "",
+    /** The ids a `design` item's stage record touched; empty on other kinds or when the item carries none. */
+    val designIds: List<String> = emptyList(),
 )
 
 /**
@@ -650,7 +688,10 @@ data class ContractVersionRow(
     val changedSections: List<String>,
 )
 
-/** One change of a contract's state: [by] is "owner" or "session", and [session] is the writer's id when by is "session". */
+/**
+ * One change of a contract's state: [by] is "owner" or "session", and [session] is the writer's id when by is "session".
+ * [maker] is who made the change, null when none is recorded.
+ */
 data class ContractStateRow(
     val state: String,
     val version: Long,
@@ -658,13 +699,18 @@ data class ContractStateRow(
     val session: String,
     val words: String,
     val time: Long,
+    val maker: RecordMakerRow? = null,
 )
 
-/** One contract with its [versions], oldest first, and its [states], oldest first. */
+/**
+ * One contract with its [versions], oldest first, its [states], oldest first, and its [stage] as Contracts.Get serves
+ * it: the working copy and the records the stage made.
+ */
 data class ContractRecordRow(
     val contract: ContractRow,
     val versions: List<ContractVersionRow>,
     val states: List<ContractStateRow>,
+    val stage: ContractStageRow = ContractStageRow(),
 )
 
 /** The answer to an owner's accept, set aside or reopen: the contract as it stands, or the server's reason it was refused. */
@@ -1110,6 +1156,47 @@ class OrreryClient(
                 .designsList.map { it.toDesignRow() }
         }
 
+    /**
+     * One design with its approaches, choice, log, delegations and stage, or null when no design has [id]. A design
+     * whose response carries no stage has a null stage.
+     */
+    fun design(id: String): DesignRecordRow? {
+        val request = DesignsGetRequest.newBuilder().setId(id).build()
+        val response = notFoundAsNull { call(write = false) { standard.designs.get(request, CLIENT_HEADERS) } }
+            ?: return null
+        return DesignRecordRow(
+            design = response.design.toDesignRow(),
+            approaches = response.approachesList.map { it.toDesignApproachRow() },
+            choice = if (response.hasChoice()) response.choice.toDesignChoiceRow() else null,
+            log = response.logList.map { it.toDesignLogRow() },
+            delegations = response.delegationsList.map { it.toDesignDelegationRow() },
+            stage = if (response.hasStage()) response.stage.toDesignStageRow(response.design.id) else null,
+        )
+    }
+
+    /**
+     * Answers question [question] of [design] with [answer], or with the question's recommendation when [accept] is set.
+     * A refused answer answers [DesignAnswerResult.Refused] with the server's reason. A landed one answers
+     * [DesignAnswerResult.Done] with the question as the design's stage holds it after the answer, read back with [design].
+     */
+    fun answerDesignQuestion(design: String, question: Long, answer: String, accept: Boolean): DesignAnswerResult {
+        val request = DesignsAnswerRequest.newBuilder()
+            .setDesign(design)
+            .setQuestion(question)
+            .setAnswer(answer)
+            .setAccept(accept)
+            .build()
+        try {
+            call(write = true) { standard.designs.answer(request, CLIENT_HEADERS) }
+        } catch (e: OrreryCallException) {
+            if (e.code in DESIGN_REFUSED) return DesignAnswerResult.Refused(e.message.orEmpty())
+            throw e
+        }
+        val answered = this.design(design)?.stage?.questions?.firstOrNull { it.id == question }
+            ?: throw IOException("design $design holds no question $question after its answer")
+        return DesignAnswerResult.Done(answered)
+    }
+
     fun conversation(paneId: String): Conversation? {
         val request = ConversationRequest.newBuilder().setPane(paneId).setLimit(50).build()
         val response = notFoundAsNull { call(write = false) { standard.panes.conversation(request, CLIENT_HEADERS) } }
@@ -1262,7 +1349,10 @@ class OrreryClient(
         )
     }
 
-    /** One contract with its versions and state changes, or null when no contract has [id]. */
+    /**
+     * One contract with its versions and state changes, and the records its stage made, or null when no contract has
+     * [id].
+     */
     fun contract(id: String): ContractRecordRow? {
         val request = ContractsGetRequest.newBuilder().setId(id).build()
         val response = notFoundAsNull { call(write = false) { standard.contracts.get(request, CLIENT_HEADERS) } }
@@ -1271,6 +1361,7 @@ class OrreryClient(
             contract = response.contract.toContractRow(),
             versions = response.versionsList.map { it.toContractVersionRow() },
             states = response.statesList.map { it.toContractStateRow() },
+            stage = response.toContractStageRow(),
         )
     }
 
@@ -1290,6 +1381,37 @@ class OrreryClient(
     fun reopenContract(id: String): ContractCallResult {
         val request = ContractsReopenRequest.newBuilder().setId(id).build()
         return contractCall { call(write = true) { standard.contracts.reopen(request, CLIENT_HEADERS) }.contract }
+    }
+
+    /**
+     * Keeps the addition [addition] of the contract [id] with [words]. [addition] is the addition's id, A and its 1-based
+     * position among the contract's additions. A refused keep answers [ContractCallResult.Refused].
+     */
+    fun keepAddition(id: String, addition: String, words: String = ""): ContractCallResult {
+        val request = ContractsKeepRequest.newBuilder().setId(id).setAddition(addition).setWords(words).build()
+        return contractCall { call(write = true) { standard.contracts.keep(request, CLIENT_HEADERS) }.contract }
+    }
+
+    /**
+     * Strikes the addition [addition] of the contract [id] with [words], as [keepAddition] names it. The answer is the
+     * contract as it stands after the striking. A refused strike answers [ContractCallResult.Refused].
+     */
+    fun strikeAddition(id: String, addition: String, words: String = ""): ContractCallResult {
+        val request = ContractsStrikeRequest.newBuilder().setId(id).setAddition(addition).setWords(words).build()
+        return contractCall { call(write = true) { standard.contracts.strike(request, CLIENT_HEADERS) }.contract }
+    }
+
+    /**
+     * Marks the rows [rows] of version [version] of the contract [id] as shown to the owner, and answers the rows the
+     * server marked. A refused mark answers no rows.
+     */
+    fun markShown(id: String, version: Long, rows: List<String>): List<String> {
+        val request = ContractsShownRequest.newBuilder().setId(id).setVersion(version).addAllRows(rows).build()
+        return try {
+            call(write = true) { standard.contracts.shown(request, CLIENT_HEADERS) }.rowsList.toList()
+        } catch (e: OrreryCallException) {
+            if (e.code in CONTRACT_REFUSED) emptyList() else throw e
+        }
     }
 
     /**
@@ -1852,7 +1974,173 @@ class OrreryClient(
             session = session,
             words = words,
             time = time,
+            maker = if (hasMaker()) maker.toRecordMakerRow() else null,
         )
+
+    private fun RecordMakerProto.toRecordMakerRow(): RecordMakerRow =
+        RecordMakerRow(kind = kind, quote = quote, reason = reason, delegation = delegation, session = session)
+
+    private fun DesignApproachProto.toDesignApproachRow(): DesignApproachRow =
+        DesignApproachRow(
+            seq = seq,
+            name = name,
+            shape = shape,
+            cost = cost,
+            wins = wins,
+            loses = loses,
+            reconsider = reconsider,
+            research = researchList.toList(),
+            recommended = recommended,
+            reason = reason,
+            time = time,
+        )
+
+    private fun DesignChoiceProto.toDesignChoiceRow(): DesignChoiceRow =
+        DesignChoiceRow(
+            approach = approach,
+            words = words,
+            maker = if (hasMaker()) maker.toRecordMakerRow() else null,
+            time = time,
+        )
+
+    private fun DesignLogLineProto.toDesignLogRow(): DesignLogRow =
+        DesignLogRow(
+            seq = seq,
+            time = time,
+            maker = if (hasMaker()) maker.toRecordMakerRow() else null,
+            session = session,
+            what = what,
+            ids = idsList.toList(),
+            words = words,
+        )
+
+    private fun DesignDecisionProto.toDesignDecisionRow(): DesignDecisionRow =
+        DesignDecisionRow(kind = kind, ref = ref, text = text, reason = reason, time = time)
+
+    private fun DesignDelegationProto.toDesignDelegationRow(): DesignDelegationRow =
+        DesignDelegationRow(
+            seq = seq,
+            kinds = kindsList.toList(),
+            message = message,
+            session = session,
+            time = time,
+            decisions = decisionsList.map { it.toDesignDecisionRow() },
+        )
+
+    private fun DesignStageProto.toDesignStageRow(designId: String): DesignStageRow =
+        DesignStageRow(
+            steps = stepsList.map { it.toDesignStepRow() },
+            questions = questionsList.map { it.toDesignQuestionRow(designId) },
+            ledger = ledgerList.map { it.toDesignLedgerItemRow() },
+            frozen = frozen,
+            closureSkipped = closureSkipped,
+            discoveryCounted = discoveryCounted,
+            closureCounted = closureCounted,
+        )
+
+    private fun DesignStepProto.toDesignStepRow(): DesignStepRow =
+        DesignStepRow(
+            step = step,
+            kind = kind,
+            subject = subject,
+            repository = repository,
+            revision = revision,
+            delta = delta,
+            created = created,
+            status = status,
+            report = report,
+            verdict = verdict,
+            counted = counted,
+        )
+
+    private fun DesignQuestionProto.toDesignQuestionRow(designId: String): DesignQuestionRow =
+        DesignQuestionRow(
+            design = designId,
+            id = id,
+            contract = contract,
+            text = text,
+            options = optionsList.toList(),
+            recommendation = recommendation,
+            asked = asked,
+            answer = answer,
+            accepted = accepted,
+            maker = if (hasMaker()) maker.toRecordMakerRow() else null,
+            answered = answered,
+        )
+
+    private fun DesignLedgerItemProto.toDesignLedgerItemRow(): DesignLedgerItemRow =
+        DesignLedgerItemRow(
+            id = id,
+            contract = contract,
+            origin = origin,
+            impact = impact,
+            evidence = evidence,
+            change = change,
+            disposition = disposition,
+            reason = reason,
+            boundary = boundary,
+            maker = if (hasMaker()) maker.toRecordMakerRow() else null,
+            closureWord = closureWord,
+            closureNote = closureNote,
+        )
+
+    private fun ContractsGetResponse.toContractStageRow(): ContractStageRow =
+        ContractStageRow(
+            working = if (hasWorking()) working.toContractWorkingRow() else null,
+            refusals = refusalsList.map { it.toContractRefusalRow() },
+            writes = rowsList.map { it.toContractRowWriteRow() },
+            left = leftList.map { it.toContractLeftRow() },
+            work = workList.map { it.toContractRequirementWorkRow() },
+            shown = shownList.map { it.toContractShownRow() },
+            length = if (hasLength()) length.toContractLengthRow() else null,
+        )
+
+    private fun ContractWorkingProto.toContractWorkingRow(): ContractWorkingRow =
+        ContractWorkingRow(
+            version = version,
+            contract = contract.toEpicContractRow(),
+            requirements = requirementsList.map { it.toEpicRequirementRow() },
+            decisions = decisionsList.map { it.toContractDecisionRow() },
+            writer = writer,
+            updated = updated,
+            changedRows = changedRowsList.toList(),
+        )
+
+    private fun ContractRefusalProto.toContractRefusalRow(): ContractRefusalRow =
+        ContractRefusalRow(seq = seq, version = version, field = field, text = text, session = session, time = time)
+
+    private fun ContractRowWriteProto.toContractRowWriteRow(): ContractRowWriteRow =
+        ContractRowWriteRow(
+            seq = seq,
+            version = version,
+            row = row,
+            action = action,
+            depends = depends,
+            words = words,
+            maker = if (hasMaker()) maker.toRecordMakerRow() else null,
+            time = time,
+        )
+
+    private fun ContractLeftProto.toContractLeftRow(): ContractLeftRow =
+        ContractLeftRow(kind = kind, ref = ref, text = text)
+
+    private fun ContractRequirementWorkProto.toContractRequirementWorkRow(): ContractRequirementWorkRow =
+        ContractRequirementWorkRow(
+            id = id,
+            text = text,
+            state = state,
+            tasks = tasksList.map { it.toContractRequirementTaskRow() },
+            proof = if (hasProof()) proof.toEvidenceRunRow() else null,
+        )
+
+    private fun ContractRequirementTaskProto.toContractRequirementTaskRow(): ContractRequirementTaskRow =
+        ContractRequirementTaskRow(id = id, title = title, status = status, place = place)
+
+    private fun ContractShownProto.toContractShownRow(): ContractShownRow =
+        ContractShownRow(version = version, row = row, time = time)
+
+    private fun ContractLengthProto.toContractLengthRow(): ContractLengthRow =
+        ContractLengthRow(lines = lines, warn = warn, strong = strong)
 
     private fun EpicRequirementProto.toEpicRequirementRow(): EpicRequirementRow =
         EpicRequirementRow(
@@ -2170,6 +2458,9 @@ class OrreryClient(
             added = added,
             removed = removed,
             client = client,
+            design = design.design,
+            designWhat = design.what,
+            designIds = design.idsList.toList(),
         )
 
     private fun StepFactsProto.toStepFacts(): StepFacts =
