@@ -4,7 +4,6 @@ import io.github.joshsymonds.orrery.api.EpicBuildTaskRow
 import io.github.joshsymonds.orrery.api.EpicDetail
 import io.github.joshsymonds.orrery.api.EpicQuestionRow
 import io.github.joshsymonds.orrery.api.EpicRow
-import io.github.joshsymonds.orrery.api.EpicTaskRow
 import io.github.joshsymonds.orrery.api.StepRow
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -13,25 +12,20 @@ import org.junit.Test
 class EpicStatusTest {
     @Test
     fun outcomeIsTheStateAsWrittenAheadOfEveryOtherState() {
-        val d = detail(epic = epic(outcome = "released", live = true, waiting = true), paused = true, parked = "budget")
+        val d = detail(epic = epic(outcome = "released", live = true), paused = true, parked = "budget")
         assertEquals("released", epicStateOf(d))
     }
 
     @Test
-    fun pausedIsAheadOfParkedWaitingAndLive() {
-        val d = detail(epic = epic(live = true, waiting = true), paused = true, parked = "budget")
+    fun pausedIsAheadOfParkedAndLive() {
+        val d = detail(epic = epic(live = true), paused = true, parked = "budget")
         assertEquals("paused", epicStateOf(d))
     }
 
     @Test
-    fun parkedIsAheadOfWaitingAndLive() {
-        val d = detail(epic = epic(live = true, waiting = true), parked = "budget")
+    fun parkedIsAheadOfLive() {
+        val d = detail(epic = epic(live = true), parked = "budget")
         assertEquals("parked", epicStateOf(d))
-    }
-
-    @Test
-    fun waitingIsAheadOfLive() {
-        assertEquals("waiting", epicStateOf(detail(epic = epic(live = true, waiting = true))))
     }
 
     @Test
@@ -41,8 +35,6 @@ class EpicStatusTest {
 
     @Test
     fun aLiveEpicWithATaskOrAPlannedBuildTaskIsBuilding() {
-        val withTask = detail(epic = epic(live = true), tasks = listOf(EpicTaskRow(1, "t1", "", "")))
-        assertEquals("building", epicStateOf(withTask))
         val withBuildTask = detail(epic = epic(live = true), buildTasks = listOf(buildTask("b1")))
         assertEquals("building", epicStateOf(withBuildTask))
     }
@@ -172,17 +164,15 @@ class EpicStatusTest {
         assertEquals("t-b held", blockerOf(d)?.text)
     }
 
-    private fun epic(outcome: String = "", live: Boolean = false, waiting: Boolean = false) = EpicRow(
+    private fun epic(outcome: String = "", live: Boolean = false) = EpicRow(
         id = "repo-a/alpha",
         repository = "repo-a",
         slug = "alpha",
         outcome = outcome,
         changed = 0L,
         live = live,
-        waiting = waiting,
         runningSteps = emptyList(),
         endedSteps = 0,
-        problem = "",
     )
 
     private fun step(
@@ -226,7 +216,6 @@ class EpicStatusTest {
 
     private fun detail(
         epic: EpicRow = epic(),
-        tasks: List<EpicTaskRow> = emptyList(),
         buildTasks: List<EpicBuildTaskRow> = emptyList(),
         steps: List<StepRow> = emptyList(),
         questions: List<EpicQuestionRow> = emptyList(),
@@ -234,7 +223,6 @@ class EpicStatusTest {
         parked: String = "",
     ) = EpicDetail(
         epic = epic,
-        tasks = tasks,
         steps = steps,
         buildTasks = buildTasks,
         questions = questions,

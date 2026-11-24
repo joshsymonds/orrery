@@ -337,11 +337,14 @@ test("WorkLink: pressing an epic link opens its epic panel", (t) =>
       designs: [makeDesign("d1", "Round 8 links", [heldBy("rail")])],
     },
     (container) => {
-      assertNone(container.querySelector('aside.rpanel[aria-label="epic"]'), "no epic panel before the press");
+      assertNone(container.querySelector('article.held-card[data-kind="epic"]'), "no epic card before the press");
       act(() => {
         one(container, '.wlink[title="Open picker"]').click();
       });
-      assert.ok(container.querySelector('aside.rpanel[aria-label="epic"]') !== null, "pressing the epic's link opens its panel");
+      assert.ok(
+        container.querySelector('article.held-card[data-kind="epic"]') !== null,
+        "pressing the epic's link holds its card",
+      );
     },
   ));
 
@@ -360,7 +363,7 @@ test("WorkLink: pressing a design link brings its tab into the inbox", (t) =>
       act(() => {
         one(container, '.wlink[title="Open Round 8 links"]').click();
       });
-      assertSame(container.querySelector(".panes")?.getAttribute("data-inbox"), "expanded", "the press expands the inbox");
+      assert.ok(container.querySelector('article.held-card[data-kind="design"]') !== null, "the press holds the design's card");
       const tab = one(container, '.design-tab[data-key="design:d1"]');
       assert.deepEqual(scrolled, [tab], "the design's tab is scrolled into view");
     },

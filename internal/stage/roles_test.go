@@ -195,7 +195,7 @@ func TestStageRolesSchemasRequireTheirFields(t *testing.T) {
 	}
 }
 
-func TestStageRolesTextsNameNoGambitOrClaudeHome(t *testing.T) {
+func TestStageRolesTextsNameNoClaudeHome(t *testing.T) {
 	t.Parallel()
 	texts := map[string]string{
 		"scout contract":    scoutContract,
@@ -205,7 +205,7 @@ func TestStageRolesTextsNameNoGambitOrClaudeHome(t *testing.T) {
 	}
 	for name, text := range texts {
 		lower := strings.ToLower(text)
-		for _, banned := range []string{"gambit", "/.claude"} {
+		for _, banned := range []string{"/.claude"} {
 			if strings.Contains(lower, banned) {
 				t.Fatalf("%s names %q, which points at another install", name, banned)
 			}

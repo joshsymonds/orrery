@@ -143,7 +143,6 @@ class InboxTreeScreenTest {
         .setChanged(NOW - 30)
         .setLive(true)
         .setEndedSteps(0)
-        .setProblem("")
         .setSteering(steering)
         .addAllRunningSteps(steps.toList())
         .build()

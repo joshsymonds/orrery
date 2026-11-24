@@ -121,7 +121,7 @@ type StepClient interface {
 }
 
 // EpicStoreClient is the part of orreryd's Epics service serve uses: ListEpics and GetEpic, which the Epics service
-// merges with the gambit records. It has no CreateEpic; the owner's epic commands go through Config.EpicCommands.
+// lists and gets epics from. It has no CreateEpic; the owner's epic commands go through Config.EpicCommands.
 type EpicStoreClient interface {
 	ListEpics(
 		context.Context,
@@ -204,10 +204,8 @@ type Config struct {
 	// Steps is orreryd's Steps client, which Control asks before it forwards a session command, or is nil, which
 	// forwards every session command as before.
 	Steps StepClient
-	// Records is the gambit record root the Epics service reads, or empty to list nothing.
-	Records string
-	// EpicStore is orreryd's Epics client, which List and Get merge with the records and Contracts.Get reads each
-	// accepted contract's work from, or nil for no orreryd epics.
+	// EpicStore is orreryd's Epics client, which List and Get answer the epics of and Contracts.Get reads each accepted
+	// contract's work from, or nil for no epics.
 	EpicStore EpicStoreClient
 	// EpicCommands is orreryd's Epics client, which Pause, Resume, Stop, Retry and Answer forward the owner's commands
 	// to, or nil, which answers unavailable.
@@ -335,13 +333,13 @@ func New(cfg Config) (http.Handler, error) {
 }
 
 // registerEpicServices mounts the Epics service, the Evidence service, the Contracts service and the Designs service on
-// mux, all over the records, steps, epic store, epic commands, evidence client, contract commands and store reader of
-// cfg, and returns their paths. The Epics service also lists the sessions of cfg's store reader, and dates its records
-// from now. The Contracts service reads each accepted contract's work from cfg's epic store and evidence client. The
-// Contracts service and the Designs service forward their stage calls to cfg's stage commands.
+// mux, all over the steps, epic store, epic commands, evidence client, contract commands and store reader of cfg, and
+// returns their paths. The Epics service also lists the sessions of cfg's store reader, and dates each listed epic's
+// archive rule from now. The Contracts service reads each accepted contract's work from cfg's epic store and evidence
+// client. The Contracts service and the Designs service forward their stage calls to cfg's stage commands.
 func registerEpicServices(mux *http.ServeMux, cfg Config, now func() time.Time) (string, string, string, string) {
 	epicsPath, epicsService := newEpicsHandler(
-		cfg.Records, cfg.Steps, cfg.EpicStore, cfg.EpicCommands, cfg.Evidence, cfg.Sessions, cfg.ControlTimeout, now,
+		cfg.Steps, cfg.EpicStore, cfg.EpicCommands, cfg.Evidence, cfg.Sessions, cfg.ControlTimeout, now,
 		rpcretry.SystemClock{}, cfg.HandlerOptions...,
 	)
 	mux.Handle(epicsPath, epicsService)

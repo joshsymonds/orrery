@@ -41,8 +41,10 @@ import io.github.joshsymonds.orrery.api.EpicRow
 import io.github.joshsymonds.orrery.api.HostStat
 import io.github.joshsymonds.orrery.api.OrreryClient
 import io.github.joshsymonds.orrery.api.Pane
+import io.github.joshsymonds.orrery.api.StepRow
 import io.github.joshsymonds.orrery.ui.theme.Move
 import io.github.joshsymonds.orrery.ui.theme.OrreryTokens
+import io.github.joshsymonds.orrery.ui.theme.animationsOn
 import io.github.joshsymonds.orrery.ui.theme.spec
 import java.io.IOException
 import kotlinx.coroutines.Dispatchers
@@ -76,32 +78,8 @@ internal fun contractBandLines(contracts: List<ContractRow>, conversation: Strin
 /** Whether a contract the conversation shows opens live: the conversation is shown and has not stopped or failed. */
 internal fun conversationLive(pane: Pane?): Boolean = pane != null && pane.state !in ENDED_CONVERSATION_STATES
 
-/** The lit value of a work link's "+N": every design's block and the loose epics are open. */
+/** The key of the phone sheet's list that "+N" opens: the lit value of "+N" while the list is open. */
 internal const val WORK_ALL = "all"
-
-/** What a conversation's work sheet draws: the design blocks it shows, and the loose epics under them. */
-internal class WorkSheetContent(val designs: List<DesignBlock>, val loose: List<Hung>)
-
-/**
- * The work sheet a work link opened over [conversation], or null when none is open. [open] is the link's key, which draws
- * that design's block alone, or [WORK_ALL], which draws every design's block and the loose epics. A design that is no
- * longer drawn opens no sheet.
- */
-internal fun workSheetOf(
-    open: String?,
-    conversation: String,
-    designs: List<DesignRow>,
-    held: HeadEpics,
-    contracts: List<ContractRow>,
-): WorkSheetContent? {
-    if (open == null) return null
-    val blocks = designBlocksOf(conversation, designs, held, contracts)
-    return if (open == WORK_ALL) {
-        WorkSheetContent(blocks, looseEpicsOf(conversation, designs, held, contracts))
-    } else {
-        blocks.firstOrNull { it.key == open }?.let { WorkSheetContent(listOf(it), emptyList()) }
-    }
-}
 
 /**
  * The design blocks [conversation] draws in its work sheet, in the order the server lists them: each design it works that
@@ -176,8 +154,10 @@ data class StepMode(
  * conversation resumes where it stopped. A stream that ends without error reconnects the same way.
  *
  * The screen shows the session's head, whose title row names the work the session links: each design it works, and the
- * epics and contracts of its designs of one (a link of an epic calls [onOpenEpic] with its id, a link of a contract
- * [onOpenContract]), a design's link opens its block in a sheet, and "+N" opens every block with the loose epics it steers.
+ * epics and contracts of its designs of one. A link opens its design, contract or epic as the phone sheet under the head,
+ * over the chat, the activity lines and the dock; "+N" opens every design's block with the loose epics it steers. The
+ * sheet's epic and contract bodies open a step, a task's phase or a contract through [onOpenStep], [onOpenPhase] and
+ * [onOpenContract], and steer through [onSteered].
  * The conversation follows with each unfinished main-thread block after the items (a thinking block as a line, a text
  * block as a live reply), its background tasks, and each message it sent that the conversation does not hold yet as a
  * sending block, then the open request's Ask after the last item. Above the dock its running tasks are lines (a line opens
@@ -192,7 +172,7 @@ data class StepMode(
  * end is the conversation's last block. [onOpenTask] is a task crumb's or chip's tap, with the phase the task is in.
  * [reason] is the listed row's summary, which the dock shows when the session failed.
  *
- * A contract the conversation shows (its work link, its band line, its transcript line) calls [onOpenContract] with its id
+ * A contract the conversation shows (its band line, its transcript line) calls [onOpenContract] with its id
  * and whether it opens live. [about] is the row's About the dock shows; a send posts it as [aboutMessage] and then
  * calls [onClearAbout], and the dock's Not about this calls [onClearAbout] too.
  * A headless session that has stopped or failed, or a session no pane or headless session carries any more, while it
@@ -214,6 +194,10 @@ fun SessionScreen(
     onOpenContract: (id: String, live: Boolean) -> Unit = { _, _ -> },
     clock: () -> Long = { System.currentTimeMillis() / 1000 },
     onSteered: (String) -> Unit = {},
+    onOpenStep: (epic: String, step: StepRow) -> Unit = { _, _ -> },
+    onOpenPhase: (epic: String, task: String, phase: Phase) -> Unit = { _, _, _ -> },
+    listedSteerer: (steering: String) -> Pane? = { _ -> null },
+    onAbout: (RowAbout) -> Unit = {},
 ) {
     var streamed by remember(sessionId) { mutableStateOf<StreamedConversation?>(null) }
     var refreshFailed by remember(sessionId) { mutableStateOf(false) }
@@ -225,8 +209,10 @@ fun SessionScreen(
     var sentTexts by remember(sessionId) { mutableStateOf<List<SentText>>(emptyList()) }
     // The designs the conversation works, as Designs.List serves them while the screen is started: its work links name them.
     var designs by remember(sessionId) { mutableStateOf<List<DesignRow>>(emptyList()) }
-    // The work sheet a work link opened: the link's key, or WORK_ALL for every design's block and the loose epics.
-    var workOpen by remember(sessionId) { mutableStateOf<String?>(null) }
+    // The phone sheet a work link opened: the thing it is open on, or All for the list "+N" opens. Null while it is closed.
+    var sheet by remember(sessionId) { mutableStateOf<SheetSubject?>(null) }
+    // Whether the phone sheet is drawn: it stays drawn while a close folds it away, and the chat returns after that.
+    var sheetDrawn by remember(sessionId) { mutableStateOf(false) }
     // The tasks an activity line opened: its one task, or every running task behind "and N more running".
     var taskList by remember(sessionId) { mutableStateOf<List<BackgroundTask>?>(null) }
     // The find bar while it is open: its query, and the current match of the matches the transcript holds.
@@ -408,17 +394,26 @@ fun SessionScreen(
     val openTranscriptContract: (String) -> Unit = { id ->
         onOpenContract(id, live && contracts.any { it.id == id && it.conversation == sessionId })
     }
-    // The work links of the conversation, and the sheet one of them opened: it is lit while the sheet is open.
+    // The work links of the conversation, and the phone sheet one of them opened: the link it lights is lit while it is open.
     val work = workLinksOf(sessionId, designs, steered)
-    val workSheet = workSheetOf(workOpen, sessionId, designs, headEpics, contracts)
-    val workLit = if (workSheet != null) workOpen else null
-    val openWork: (WorkLink) -> Unit = { link ->
-        when (link.kind) {
-            WorkKind.DESIGN -> { workOpen = link.key }
-            WorkKind.EPIC -> onOpenEpic(link.id)
-            WorkKind.CONTRACT -> openContract(link.id)
-        }
-    }
+    val record = SheetRecord(client, sessionId, work, designs, headEpics, contracts, nowSeconds)
+    val view = sheetViewOf(sheet, record)
+    val workLit = workLitOf(view, work)
+    val openWork: (WorkLink) -> Unit = { link -> sheet = if (workLit == link.key) null else SheetSubject.Thing(link) }
+    val openAllWork: () -> Unit = { sheet = if (workLit == WORK_ALL) null else SheetSubject.All }
+    val onUp: (WorkLink) -> Unit = { up -> sheet = SheetSubject.Thing(up) }
+    val actions = SheetActions(
+        show = { sheet = it },
+        fold = { sheet = null },
+        live = live,
+        onOpenStep = onOpenStep,
+        onOpenPhase = onOpenPhase,
+        onOpenContract = onOpenContract,
+        listedSteerer = listedSteerer,
+        onSteered = onSteered,
+        onAbout = onAbout,
+    )
+    val animated = animationsOn()
 
     Column(modifier = Modifier.fillMaxSize()) {
         if (refreshFailed && pane == null) {
@@ -482,130 +477,124 @@ fun SessionScreen(
                         work = work,
                         workLit = workLit,
                         onOpenWork = openWork,
-                        onAllWork = { workOpen = WORK_ALL },
+                        onAllWork = openAllWork,
                         modifier = Modifier.fillMaxWidth().background(OrreryTokens.Surface.page),
                     )
                 }
             }
         }
-        Box(modifier = Modifier.weight(1f).fillMaxWidth().clipToBounds()) {
-            if (held != null) {
-                ConversationView(
-                    entries,
-                    listState = listState,
-                    onFollowing = { atNewest = it },
-                    footer = footer,
-                    checks = stepRow?.checks.orEmpty(),
-                    seen = seenAtOpen,
-                    contracts = contracts,
-                    onOpenContract = openTranscriptContract,
-                    onOpenEpic = onOpenEpic,
-                    epicQuestion = { epic, question ->
-                        EpicQuestion(epicDetails[epic], question, nowSeconds, client)
-                    },
-                    find = finding?.let { TranscriptFind(found, foundCurrent, it.step) },
-                    onRead = { _ ->
-                        scope.launch(Dispatchers.IO) {
-                            try {
-                                client.sessionSeen(sessionId)
-                            } catch (e: IOException) {
-                                Log.w(TAG, "could not mark $sessionId seen", e)
+        if (view != null || sheetDrawn) {
+            PhoneSheet(
+                view = view,
+                animated = animated,
+                onClose = { sheet = null },
+                onUp = onUp,
+                modifier = Modifier.weight(1f).fillMaxWidth(),
+                onDrawn = { sheetDrawn = it },
+            ) { subject -> SheetBody(subject, record, actions) }
+        } else {
+            Box(modifier = Modifier.weight(1f).fillMaxWidth().clipToBounds()) {
+                if (held != null) {
+                    ConversationView(
+                        entries,
+                        listState = listState,
+                        onFollowing = { atNewest = it },
+                        footer = footer,
+                        checks = stepRow?.checks.orEmpty(),
+                        seen = seenAtOpen,
+                        contracts = contracts,
+                        onOpenContract = openTranscriptContract,
+                        onOpenEpic = onOpenEpic,
+                        epicQuestion = { epic, question ->
+                            EpicQuestion(epicDetails[epic], question, nowSeconds, client)
+                        },
+                        find = finding?.let { TranscriptFind(found, foundCurrent, it.step) },
+                        onRead = { _ ->
+                            scope.launch(Dispatchers.IO) {
+                                try {
+                                    client.sessionSeen(sessionId)
+                                } catch (e: IOException) {
+                                    Log.w(TAG, "could not mark $sessionId seen", e)
+                                }
                             }
-                        }
-                    },
+                        },
+                    )
+                }
+                // At the foot of the body, above the dock, so it never covers the dock's input.
+                ArchiveToast(
+                    state = toast,
+                    client = client,
+                    onUndone = {},
+                    modifier = Modifier.align(Alignment.BottomCenter),
                 )
             }
-            // At the foot of the body, above the dock, so it never covers the dock's input.
-            ArchiveToast(
-                state = toast,
-                client = client,
-                onUndone = {},
-                modifier = Modifier.align(Alignment.BottomCenter),
-            )
-        }
-        finding?.let { session ->
-            FindBar(
-                query = session.query,
-                count = found.size,
-                current = foundCurrent,
-                onQuery = { finding = FindSession(query = it, step = session.step + 1) },
-                onNext = { finding = session.copy(current = stepFind(foundCurrent, found.size, 1), step = session.step + 1) },
-                onPrevious = { finding = session.copy(current = stepFind(foundCurrent, found.size, -1), step = session.step + 1) },
-                onClose = { finding = null },
-                modifier = Modifier.padding(horizontal = OrreryTokens.Space.twelve, vertical = OrreryTokens.Space.four),
-            )
-        }
-        val ended = pane?.state.orEmpty() in ENDED_STATES || (pane == null && unlisted)
-        val endedEpic = if (step == null && ended) {
-            headEpics.steered.firstOrNull(::steersLive)
-        } else {
-            null
-        }
-        if (endedEpic != null) {
-            EndedBar(
-                client = client,
-                epic = endedEpic,
-                repository = headEpics.details[endedEpic.id]?.repository.orEmpty(),
-                lead = endedLead(endedEpic.slug),
-                onSteered = onSteered,
-                // The head drops the epic once it moves, and the bar with it, so its calls run in the screen's scope.
-                scope = scope,
-            )
-        } else if (!stepEnded && (step == null || stepRead)) {
-            ActivityLines(
-                tasks = conversation?.background.orEmpty(),
-                now = nowSeconds,
-                onOpen = { task -> taskList = listOf(task) },
-                onMore = { taskList = conversation?.background.orEmpty().filter { it.status == "running" } },
-            )
-            Dock(
-                facts = dockFactsOf(
-                    kind = if (step != null) DockKind.STEP else DockKind.SESSION,
-                    name = pane?.cwd.orEmpty().trimEnd('/').substringAfterLast('/'),
-                    pane = pane,
-                    streamed = held,
-                    reason = reason,
-                    step = stepDock,
-                ),
-                nowSeconds = nowSeconds,
-                client = client,
-                draft = draft,
-                send = { text ->
-                    val sent = about?.let { aboutMessage(it.id, it.text, text) } ?: text
-                    val after = held?.conversation?.items?.lastOrNull()
-                    val promptId = if (step != null) {
-                        stepCalls.nudge(sent)
-                        ""
-                    } else {
-                        sender.send(sent)
-                    }
-                    scope.launch { sentTexts = sentTexts + SentText(sent, after, promptId) }
-                    if (about != null) onClearAbout()
-                },
-                sessionId = sessionId,
-                queued = held?.queued.orEmpty(),
-                pending = held?.pending.orEmpty(),
-                stepCalls = if (step != null) stepCalls else null,
-                about = about?.let { "${it.id} ${it.text}" },
-                onClearAbout = onClearAbout,
-            )
-        }
-        workSheet?.let { content ->
-            WorkSheet(
-                designs = content.designs,
-                loose = content.loose,
-                now = nowSeconds,
-                onOpen = { key ->
-                    workOpen = null
-                    (content.designs.flatMap { it.kids } + content.loose).firstOrNull { it.key == key }?.let { kid ->
-                        when (kid) {
-                            is EpicNode -> onOpenEpic(kid.epic.id)
-                            is ContractNode -> openContract(kid.contract.id)
+            finding?.let { session ->
+                FindBar(
+                    query = session.query,
+                    count = found.size,
+                    current = foundCurrent,
+                    onQuery = { finding = FindSession(query = it, step = session.step + 1) },
+                    onNext = { finding = session.copy(current = stepFind(foundCurrent, found.size, 1), step = session.step + 1) },
+                    onPrevious = { finding = session.copy(current = stepFind(foundCurrent, found.size, -1), step = session.step + 1) },
+                    onClose = { finding = null },
+                    modifier = Modifier.padding(horizontal = OrreryTokens.Space.twelve, vertical = OrreryTokens.Space.four),
+                )
+            }
+            val ended = pane?.state.orEmpty() in ENDED_STATES || (pane == null && unlisted)
+            val endedEpic = if (step == null && ended) {
+                headEpics.steered.firstOrNull(::steersLive)
+            } else {
+                null
+            }
+            if (endedEpic != null) {
+                EndedBar(
+                    client = client,
+                    epic = endedEpic,
+                    repository = headEpics.details[endedEpic.id]?.repository.orEmpty(),
+                    lead = endedLead(endedEpic.slug),
+                    onSteered = onSteered,
+                    // The head drops the epic once it moves, and the bar with it, so its calls run in the screen's scope.
+                    scope = scope,
+                )
+            } else if (!stepEnded && (step == null || stepRead)) {
+                ActivityLines(
+                    tasks = conversation?.background.orEmpty(),
+                    now = nowSeconds,
+                    onOpen = { task -> taskList = listOf(task) },
+                    onMore = { taskList = conversation?.background.orEmpty().filter { it.status == "running" } },
+                )
+                Dock(
+                    facts = dockFactsOf(
+                        kind = if (step != null) DockKind.STEP else DockKind.SESSION,
+                        name = pane?.cwd.orEmpty().trimEnd('/').substringAfterLast('/'),
+                        pane = pane,
+                        streamed = held,
+                        reason = reason,
+                        step = stepDock,
+                    ),
+                    nowSeconds = nowSeconds,
+                    client = client,
+                    draft = draft,
+                    send = { text ->
+                        val sent = about?.let { aboutMessage(it.id, it.text, text) } ?: text
+                        val after = held?.conversation?.items?.lastOrNull()
+                        val promptId = if (step != null) {
+                            stepCalls.nudge(sent)
+                            ""
+                        } else {
+                            sender.send(sent)
                         }
-                    }
-                },
-                onDismiss = { workOpen = null },
-            )
+                        scope.launch { sentTexts = sentTexts + SentText(sent, after, promptId) }
+                        if (about != null) onClearAbout()
+                    },
+                    sessionId = sessionId,
+                    queued = held?.queued.orEmpty(),
+                    pending = held?.pending.orEmpty(),
+                    stepCalls = if (step != null) stepCalls else null,
+                    about = about?.let { "${it.id} ${it.text}" },
+                    onClearAbout = onClearAbout,
+                )
+            }
         }
         taskList?.let { tasks ->
             WorkListSheet(

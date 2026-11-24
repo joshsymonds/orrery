@@ -59,8 +59,6 @@ data class StepLine(
     val since: Long,
 )
 
-private const val ORREYD = "orreryd"
-
 private val STAGE_NAMES = listOf("Contract", "Build", "Review", "Release", "Report")
 private const val CONTRACT = 0
 private const val BUILD = 1
@@ -94,11 +92,8 @@ fun allLimited(detail: EpicDetail): Boolean {
     return steps.isNotEmpty() && steps.all { it.limited }
 }
 
-/** The track of an orreryd epic: five stages, each done, now or ahead. Empty for a record epic. */
+/** The track of an epic: five stages, each done, now or ahead. */
 fun trackOf(detail: EpicDetail): List<Stage> {
-    if (!isOrreryd(detail)) {
-        return emptyList()
-    }
     val now = stageNowOf(detail.epic.outcome)
     return STAGE_NAMES.mapIndexed { index, name ->
         when {
@@ -130,10 +125,9 @@ fun blockerPillOf(detail: EpicDetail, now: Long): Pill? {
         ownerParked(detail) -> Pill("asks you what to do", WordTone.ATTENTION)
         held != null -> Pill("${labelOf(held)} held", WordTone.ATTENTION)
         steererParked(detail) -> Pill("its steerer holds the park", WordTone.QUIET)
-        isOrreryd(detail) -> endingPillOf(detail) ?: steererQuestionOf(detail)?.let {
+        else -> endingPillOf(detail) ?: steererQuestionOf(detail)?.let {
             Pill(stateLineOf("asks its steerer a question", it.asked, now), WordTone.QUIET)
         }
-        else -> null
     }
 }
 
@@ -143,17 +137,16 @@ fun contractDoorOf(detail: EpicDetail): String {
     return "${acceptedWordsOf(contract)} · ${contract.care} care · ${detail.requirements.size} requirements"
 }
 
-/** The sections of the record an epic reaches. A record epic reaches only its Now and its tasks. */
+/** The sections of the record an epic reaches. */
 fun reachedOf(detail: EpicDetail, history: List<EpicHistoryRow>): Reached {
-    val orreryd = isOrreryd(detail)
     val title = detail.contract?.title.orEmpty()
     return Reached(
-        summary = orreryd && detail.summary.ifEmpty { title }.isNotEmpty(),
-        track = orreryd,
+        summary = detail.summary.ifEmpty { title }.isNotEmpty(),
+        track = true,
         now = true,
-        history = orreryd && history.isNotEmpty(),
+        history = history.isNotEmpty(),
         tasks = wedgesOf(detail).isNotEmpty(),
-        requirements = orreryd && detail.requirements.isNotEmpty(),
+        requirements = detail.requirements.isNotEmpty(),
     )
 }
 
@@ -169,10 +162,10 @@ fun nowSentenceOf(detail: EpicDetail): String {
         allLimited(detail) -> limitedSentenceOf(steps)
         ownerQuestionOf(detail) != null -> questionSentenceOf(steps)
         detail.questions.isNotEmpty() -> steererQuestionSentenceOf(steps)
-        isOrreryd(detail) && detail.epic.outcome == "releasing" -> releasingSentenceOf(detail)
-        isOrreryd(detail) && detail.epic.outcome == "stopped" -> stoppedSentenceOf(detail)
-        isOrreryd(detail) && stageNowOf(detail.epic.outcome) == REPORT -> "It ended: ${stateWordOf(detail).word}."
-        isOrreryd(detail) && wedgesOf(detail).isEmpty() ->
+        detail.epic.outcome == "releasing" -> releasingSentenceOf(detail)
+        detail.epic.outcome == "stopped" -> stoppedSentenceOf(detail)
+        stageNowOf(detail.epic.outcome) == REPORT -> "It ended: ${stateWordOf(detail).word}."
+        wedgesOf(detail).isEmpty() ->
             "The planner is reading the contract and outlining tasks. No task has started."
         else -> runningSentenceOf(steps)
     }
@@ -213,8 +206,6 @@ fun stepLinesOf(detail: EpicDetail): List<StepLine> = runningOf(detail).map { st
         since = if (step.stageStarted != 0L) step.stageStarted else step.started,
     )
 }
-
-private fun isOrreryd(detail: EpicDetail): Boolean = detail.epic.source == ORREYD
 
 private fun runningOf(detail: EpicDetail): List<StepRow> = detail.steps.filter { it.end.isEmpty() }
 
@@ -285,12 +276,8 @@ private fun releaseNowOf(outcome: String): Pill = when (outcome) {
     else -> Pill("stopped", WordTone.BAD)
 }
 
-// stateWordOf is the epic's state word and tone before any duration, the title row's word for an orreryd epic, and the
-// record's own state word for a record epic.
+// stateWordOf is the epic's state word and tone before any duration, the title row's word.
 private fun stateWordOf(detail: EpicDetail): Pill {
-    if (!isOrreryd(detail)) {
-        return Pill(epicStateOf(detail), WordTone.QUIET)
-    }
     if (detail.paused) {
         return Pill("paused", WordTone.QUIET)
     }

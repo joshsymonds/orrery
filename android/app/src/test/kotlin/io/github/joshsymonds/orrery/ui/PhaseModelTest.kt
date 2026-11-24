@@ -4,7 +4,6 @@ import io.github.joshsymonds.orrery.api.EpicBuildTaskRow
 import io.github.joshsymonds.orrery.api.EpicDetail
 import io.github.joshsymonds.orrery.api.EpicRequirementRow
 import io.github.joshsymonds.orrery.api.EpicRow
-import io.github.joshsymonds.orrery.api.EpicTaskRow
 import io.github.joshsymonds.orrery.api.EvidenceRunRow
 import io.github.joshsymonds.orrery.api.StepRow
 import org.junit.Assert.assertEquals
@@ -58,7 +57,6 @@ class PhaseModelTest {
     )
 
     private fun detail(
-        tasks: List<EpicTaskRow> = emptyList(),
         buildTasks: List<EpicBuildTaskRow> = emptyList(),
         steps: List<StepRow> = emptyList(),
         requirements: List<EpicRequirementRow> = emptyList(),
@@ -72,9 +70,7 @@ class PhaseModelTest {
             live = true,
             runningSteps = emptyList(),
             endedSteps = 0,
-            problem = "",
         ),
-        tasks = tasks,
         steps = steps,
         requirements = requirements,
         buildTasks = buildTasks,
@@ -260,43 +256,11 @@ class PhaseModelTest {
 
     @Test
     fun wedgesComeFromTheBuildTasksWhenThereAreAnyAndFromTheRecordsTasksWhenThereAreNone() {
-        val planned = wedgesOf(
-            detail(
-                buildTasks = listOf(buildTask("T1", "planned", "plan", listOf("R1"))),
-                tasks = listOf(
-                    EpicTaskRow(effort = 1, slug = "old", subject = "Old", status = "done", place = "integrated", tone = "ok"),
-                ),
-            ),
-        )
+        val planned = wedgesOf(detail(buildTasks = listOf(buildTask("T1", "planned", "plan", listOf("R1")))))
         assertEquals(1, planned.size)
         assertEquals("T1", planned[0].task)
         assertEquals("Parser", planned[0].title)
         assertEquals(listOf("R1"), planned[0].requirements)
-
-        val record = wedgesOf(
-            detail(
-                tasks = listOf(
-                    EpicTaskRow(
-                        effort = 1,
-                        slug = "first",
-                        subject = "First task",
-                        status = "done",
-                        requirements = listOf("R2", "R3"),
-                        place = "integrated",
-                        tone = "ok",
-                    ),
-                    EpicTaskRow(effort = 1, slug = "second", subject = "Second", status = "pending", place = "planned", tone = "plan"),
-                ),
-            ),
-        )
-        assertEquals(2, record.size)
-        assertEquals("first", record[0].task)
-        assertEquals("First task", record[0].title)
-        assertEquals(listOf("R2", "R3"), record[0].requirements)
-        assertEquals(WedgePlace.INTEGRATED, record[0].place)
-        assertEquals(WedgeTone.OK, record[0].tone)
-        assertEquals(WedgePlace.PLANNED, record[1].place)
-        assertEquals(WedgeTone.PLAN, record[1].tone)
     }
 
     @Test

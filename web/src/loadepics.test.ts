@@ -28,7 +28,7 @@ const heldContract = create(ContractSchema, { id: "repo-a/held-contract", reposi
 const listed = [liveAlpha, foldedBeta, liveGamma];
 
 function detailOf(epic: typeof liveAlpha) {
-  return { epic, tasks: [], steps: [] };
+  return { epic, steps: [] };
 }
 
 interface Answer {

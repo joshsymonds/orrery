@@ -17,7 +17,6 @@ private fun epic(id: String, slug: String) = EpicRow(
     live = true,
     runningSteps = emptyList(),
     endedSteps = 0,
-    problem = "",
 )
 
 private fun line(epicId: String, slug: String) = AskLine(epicId, slug, "asks: Which?", AskWay.ANSWER)

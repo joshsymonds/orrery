@@ -624,7 +624,7 @@ func TestEpicMigrationKeepsExistingRows(t *testing.T) {
 	// before the contract record migration added 00082, 00080_epic_steerer.sql before the
 	// epic actions migration added 00081, 00079_gap_reconcile.sql before the steerer migration added 00080,
 	// 00078_task_review_undetermined.sql before the gap reconciliation added 00079, 00077_gambit_ladder.sql before the
-	// undetermined reviews added 00078, 00076_notice_history.sql before the gambit ladder added 00077,
+	// undetermined reviews added 00078, 00076_notice_history.sql before the ladder migration added 00077,
 	// 00075_step_facts.sql before the notice history added 00076, 00074_task_repairs.sql before the step facts added
 	// 00075, 00073_session_awaited.sql before the task repairs added 00074, 00072_epic_revisions_table.sql before the
 	// awaited flag added 00073, 00071_park_question_runs.sql before the revisions table added 00072,

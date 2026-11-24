@@ -15,25 +15,9 @@ func TestEpicsGetSupersededByServesTheStoredReplacement(t *testing.T) {
 	closed := storedEpicOf("repoa/shared", store.PhaseClosedSuperseded, epicsAgo(2*time.Hour))
 	closed.SupersededBy = "repoa/successor"
 	fake := &epicStoreFake{stored: []*enginev1.StoredEpic{closed}}
-	client := epicStoreServe(t, t.TempDir(), &epicsFake{}, fake)
+	client := epicStoreServe(t, &epicsFake{}, fake)
 
 	if got := epicsGet(t, client, "repoa/shared").GetSupersededBy(); got != "repoa/successor" {
 		t.Errorf("superseded by = %q, want %q", got, "repoa/successor")
-	}
-}
-
-// TestEpicsGetSupersededByIsEmptyForARecordOnlyEpic answers an empty superseded_by for a record-only epic, though the
-// store holds a superseded epic of another id.
-func TestEpicsGetSupersededByIsEmptyForARecordOnlyEpic(t *testing.T) {
-	t.Parallel()
-	root := t.TempDir()
-	writeHead(t, root, "repoa", "record", `{"outcome":"shipped"}`, epicsNow())
-	other := storedEpicOf("repoa/other", store.PhaseClosedSuperseded, epicsAgo(time.Hour))
-	other.SupersededBy = "repoa/successor"
-	fake := &epicStoreFake{stored: []*enginev1.StoredEpic{other}}
-	client := epicStoreServe(t, root, &epicsFake{}, fake)
-
-	if got := epicsGet(t, client, "repoa/record").GetSupersededBy(); got != "" {
-		t.Errorf("record epic superseded by = %q, want empty", got)
 	}
 }

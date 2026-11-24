@@ -39,7 +39,6 @@ class InboxTreeDesignsTest {
         live = live,
         runningSteps = emptyList(),
         endedSteps = 0,
-        problem = "",
         steering = steering,
         path = "/home/user/repo",
     )

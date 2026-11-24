@@ -139,11 +139,11 @@ function epicHandover(root: HTMLElement): boolean {
   return root.querySelector(".steer-menu") !== null;
 }
 
-// epicTalk is Page/epic-talk: under 1250px the epic panel lies over the conversation, and the conversation's reader holds
-// the planning prompt beneath it.
+// epicTalk is Page/epic-talk: under 1250px the epic's held card is drawn in the overlaid layout, and the conversation's
+// reader holds the planning prompt beside it.
 function epicTalk(root: HTMLElement): boolean {
   return (
-    root.querySelector(".panes.overlay aside.rpanel") !== null &&
+    root.querySelector(".panes.overlay .held-card") !== null &&
     root.querySelector('section[aria-label="reader"]')?.textContent.includes(rotaPrompt) === true
   );
 }
@@ -1514,7 +1514,7 @@ test("FixtureTransport: page/epic-moved draws pane %11's conversation in the mid
     (root) => {
       assertNoFailure(root);
       assert.equal(root.querySelector('section[aria-label="reader"]')?.textContent.includes(lampFragment), true, "pane %11's conversation is in the middle");
-      assert.ok(root.querySelector("aside.rpanel .epic-page") !== null, "the epic page is in the panel");
+      assert.ok(root.querySelector("article.held-card .epic-page") !== null, "the epic page is in the held card");
       assert.ok(logTexts(root).includes(movedLog), "the log holds the owner's move");
     },
   );
@@ -1947,18 +1947,6 @@ test("FixtureTransport: page/epic-command-error at 412 wide draws the same line,
   );
 });
 
-test("FixtureTransport: page/epic-problem draws the engine's problem in red above the summary", (t) => {
-  mockTimers(t, ["setTimeout"]);
-  return withStory(
-    t,
-    Page["epic-problem"],
-    (root) => root.querySelector("p.problem")?.textContent.includes("workflow.yaml line 14") === true,
-    (root) => {
-      assertNoFailure(root);
-    },
-  );
-});
-
 test("FixtureTransport: page/epic-loading draws loading the epic, with no button", (t) => {
   mockTimers(t, ["setTimeout"]);
   return withStory(
@@ -2089,7 +2077,7 @@ test("FixtureTransport: page/notices-page at 412 wide draws the Notices page, wi
   );
 });
 
-test("FixtureTransport: page's keys are exactly the 107 catalog names of its scenario states", () => {
+test("FixtureTransport: page's keys are exactly the 106 catalog names of its scenario states", () => {
   assert.deepEqual(Object.keys(Page).map((state) => storyName("Page", state)).sort(), [
     "page/ask-answered",
     "page/ask-decline",
@@ -2149,7 +2137,6 @@ test("FixtureTransport: page's keys are exactly the 107 catalog names of its sce
     "page/epic-paused",
     "page/epic-planner-parked",
     "page/epic-planning",
-    "page/epic-problem",
     "page/epic-question",
     "page/epic-question-other",
     "page/epic-release-failed",

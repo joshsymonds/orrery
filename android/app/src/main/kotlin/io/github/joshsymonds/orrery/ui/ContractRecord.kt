@@ -56,7 +56,7 @@ internal fun readRecord(client: OrreryClient, id: String): LoadedRecord? {
 private fun failureWords(message: String?): String = if (message.isNullOrEmpty()) CONTRACT_UNAVAILABLE else message
 
 /**
- * A contract's record, as Gambit's document with its versions and its command bar. [loaded] is what [readRecord] read
+ * A contract's record, as the contract document with its versions and its command bar. [loaded] is what [readRecord] read
  * for [id]; [onLoaded] is handed each record the screen should draw from now on. Accept re-reads the contract at the
  * press: it sends one Accept while the contract is still proposed at the version drawn, and otherwise sends nothing and
  * draws the newer answer with its note. Set aside and Reopen each send one call, and every call is refused or done in

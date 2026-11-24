@@ -189,7 +189,7 @@ class EpicRecordTrackTest {
         composeRule.onNodeWithTag("track-stage:$name").fetchSemanticsNode()
             .config[SemanticsProperties.Text].flatMap { text -> text.spanStyles.map { it.item.color } }
 
-    private fun epic(outcome: String = "", source: String = "orreryd", phaseAt: Long = 0L) = EpicRow(
+    private fun epic(outcome: String = "", phaseAt: Long = 0L) = EpicRow(
         id = "example-repo/example-epic",
         repository = "example-repo",
         slug = "example-epic",
@@ -198,8 +198,6 @@ class EpicRecordTrackTest {
         live = true,
         runningSteps = emptyList(),
         endedSteps = 0,
-        problem = "",
-        source = source,
         phaseAt = phaseAt,
     )
 
@@ -259,7 +257,6 @@ class EpicRecordTrackTest {
         steps: List<StepRow> = emptyList(),
     ) = EpicDetail(
         epic = epic,
-        tasks = emptyList(),
         steps = steps,
         requirements = emptyList(),
         buildTasks = buildTasks,

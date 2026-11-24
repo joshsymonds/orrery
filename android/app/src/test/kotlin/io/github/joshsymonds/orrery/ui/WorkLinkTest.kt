@@ -59,7 +59,6 @@ class WorkLinkTest {
         live = true,
         runningSteps = emptyList(),
         endedSteps = 0,
-        problem = "",
         phaseAt = NOW - 49 * 60,
         steering = CONVO,
     )
@@ -217,12 +216,11 @@ class WorkLinkTest {
     private fun setSheet(blocks: List<DesignBlock>, loose: List<Hung>) {
         composeRule.setContent {
             MaterialTheme {
-                WorkSheet(
+                WorkSheetBody(
                     designs = blocks,
                     loose = loose,
                     now = NOW,
                     onOpen = { openedKeys.add(it) },
-                    onDismiss = {},
                 )
             }
         }

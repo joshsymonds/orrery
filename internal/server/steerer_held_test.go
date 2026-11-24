@@ -73,7 +73,7 @@ func TestEpicsGetSteererHoldsEachQuestionPark(t *testing.T) {
 				if err := st.ParkEpic(ctx, syntheticEpicID, class, reason, at); err != nil {
 					t.Fatalf("ParkEpic: %v", err)
 				}
-				client := epicStoreServe(t, t.TempDir(), &epicsFake{}, serveEngineEpics(t, st))
+				client := epicStoreServe(t, &epicsFake{}, serveEngineEpics(t, st))
 
 				got := epicsGet(t, client, syntheticEpicID)
 				if !got.GetSteererParked() || got.GetPlannerParked() || got.GetParked() != reason {
@@ -122,7 +122,7 @@ func TestEpicsGetSteererHoldsEachQuestionPark(t *testing.T) {
 					if err := st.ParkEpic(t.Context(), syntheticEpicID, class, reason, at); err != nil {
 						t.Fatalf("ParkEpic: %v", err)
 					}
-					client := epicStoreServe(t, t.TempDir(), &epicsFake{}, serveEngineEpics(t, st))
+					client := epicStoreServe(t, &epicsFake{}, serveEngineEpics(t, st))
 
 					got := epicsGet(t, client, syntheticEpicID)
 					if got.GetSteererParked() || got.GetPlannerParked() || got.GetParked() != reason {

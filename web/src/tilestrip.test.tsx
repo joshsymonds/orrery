@@ -372,18 +372,23 @@ test("TileStrip: under 760px the band holds the header's hide control, with no s
     );
   }));
 
-test("TileStrip: an epic's work link pushes the epic's address and draws it as the page, without the conversation", (t) =>
+test("TileStrip: an epic's work link pushes the epic's address and holds it as the sheet under the conversation's head, with no reader", (t) =>
   withPhone(t.signal, onSession, async ({ container, server, reported }) => {
     await feed(t.signal, server, "s1", background);
     await settleLinks(t.signal, container);
     await press(workLinkOf(container, "Open alpha"));
     assert.deepEqual(lastReport(reported), { address: epicAddress("alpha"), mode: "push" }, "the epic is pushed");
-    assert.ok(epicSection(container) !== null, "the epic is drawn as the page");
-    assert.equal(conversationShown(container), null, "the conversation is not drawn");
+    assert.ok(epicSection(container) !== null, "the epic is drawn");
+    assert.ok(container.querySelector("section.held-sheet") !== null, "the epic is held as the sheet");
+    assertNone(container.querySelector(".reader"), "the conversation's reader is not drawn");
   }));
 
-// onEpic opens alpha's page with its steerer's conversation under it.
-const onEpic: Setup = { rows: [steererRow()], epics: view([alpha]), address: epicAddress("alpha") };
+// onEpic opens alpha's page, an accepted orreryd epic, with its steerer's conversation under it.
+const onEpic: Setup = {
+  rows: [steererRow()],
+  epics: view([{ ...alpha, source: "orreryd", outcome: "accepted" }]),
+  address: epicAddress("alpha"),
+};
 
 // unsteered opens beta's page, which no conversation steers.
 const unsteered: Setup = { rows: [], epics: view([epicOf("beta", "")]), address: epicAddress("beta") };

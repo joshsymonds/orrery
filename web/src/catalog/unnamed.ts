@@ -48,6 +48,15 @@ export const unnamed: Readonly<Record<string, UnnamedEntry>> = {
   // WorkLink draws what a conversation is working on as plain links in its title row, after the title, with a "+n" control
   // for the rest. Round 6 names what a conversation steers in its rail's tiles, and no link in the title row.
   "work-link": { replacement: "TitleRow", epic: "F3" },
+  // HeldCard draws the held card at the desk: the design, contract or epic held open, as a rounded card set into its
+  // conversation on the right. Round 6 draws a conversation's epics and contract as its Work cards.
+  "held-card": { replacement: "WorkCard", epic: "F4" },
+  // HeldSheet draws the held thing where the desk's card does not fit, as a sheet over the conversation. Round 6 draws a
+  // panel for a thing as a sheet.
+  "held-sheet": { replacement: "Sheet", epic: "F4" },
+  // DesignCard draws a design held at the desk: its state, then its contracts in position order, each with its state. Round 6
+  // draws a design's contracts as Work cards, and no design's record.
+  "design-card": { replacement: "WorkCard", epic: "F4" },
 
   // ---- single stories of round-6 components, each the component in a state round 6 does not draw ----
 
@@ -60,4 +69,7 @@ export const unnamed: Readonly<Record<string, UnnamedEntry>> = {
   "title-row/with-commands": { replacement: "TitleRow", epic: "F3" },
   // StateGlyph draws broken, a ring cracked through, for a failed row and an unbound pane: round 6 draws no such state.
   "state-glyph/broken": { replacement: "StateGlyph", epic: "F2" },
+  // ConvoRow draws a conversation that holds what it opened, its block the tab and its row and the open row necks: round 6
+  // draws a conversation's row and what it steers, and no held thing.
+  "convo-row/held": { replacement: "ConvoRow", epic: "F4" },
 };

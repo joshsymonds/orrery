@@ -31,7 +31,7 @@ func TestInboxTidyFinalEpicSeenHourOldUnarchived(t *testing.T) {
 		stored = append(stored, inboxTidyFinalStored(id, phase, epicsAgo(time.Hour), epicsAgo(time.Hour)))
 		want[id] = false
 	}
-	client := archiveEpicsClient(t, t.TempDir(), archiveStorePath(t), &epicStoreFake{stored: stored})
+	client := archiveEpicsClient(t, archiveStorePath(t), &epicStoreFake{stored: stored})
 	expectArchived(t, "Epics.List", archivedByID(epicsList(t, client)), want)
 }
 
@@ -47,7 +47,7 @@ func TestInboxTidyFinalEpicUnseenDayUnchangedArchives(t *testing.T) {
 		stored = append(stored, inboxTidyFinalStored(id, phase, epicsAgo(24*time.Hour), 0))
 		want[id] = true
 	}
-	client := archiveEpicsClient(t, t.TempDir(), archiveStorePath(t), &epicStoreFake{stored: stored})
+	client := archiveEpicsClient(t, archiveStorePath(t), &epicStoreFake{stored: stored})
 	expectArchived(t, "Epics.List", archivedByID(epicsList(t, client)), want)
 }
 
@@ -63,28 +63,8 @@ func TestInboxTidyFinalEpicUnseenShortOfDayUnarchived(t *testing.T) {
 		stored = append(stored, inboxTidyFinalStored(id, phase, epicsAgo(23*time.Hour), 0))
 		want[id] = false
 	}
-	client := archiveEpicsClient(t, t.TempDir(), archiveStorePath(t), &epicStoreFake{stored: stored})
+	client := archiveEpicsClient(t, archiveStorePath(t), &epicStoreFake{stored: stored})
 	expectArchived(t, "Epics.List", archivedByID(epicsList(t, client)), want)
-}
-
-// TestInboxTidyFinalEpicRecordOutcomesAge lists record epics with outcomes released and retired: each archives once
-// unseen and unchanged 24 hours, and reads unarchived at 23 hours. A retired record is still live through exactly 24
-// hours, so its case is 24 hours and one second.
-func TestInboxTidyFinalEpicRecordOutcomesAge(t *testing.T) {
-	t.Parallel()
-	root := t.TempDir()
-	now := epicsNow()
-	writeHead(t, root, "repoa", "released-day", `{"outcome":"released"}`, now.Add(-24*time.Hour))
-	writeHead(t, root, "repoa", "released-short", `{"outcome":"released"}`, now.Add(-23*time.Hour))
-	writeHead(t, root, "repoa", "retired-day", `{"outcome":"retired"}`, now.Add(-24*time.Hour-time.Second))
-	writeHead(t, root, "repoa", "retired-short", `{"outcome":"retired"}`, now.Add(-23*time.Hour))
-	client := archiveEpicsClient(t, root, archiveStorePath(t), nil)
-	expectArchived(t, "Epics.List", archivedByID(epicsList(t, client)), map[string]bool{
-		"repoa/released-day":   true,
-		"repoa/released-short": false,
-		"repoa/retired-day":    true,
-		"repoa/retired-short":  false,
-	})
 }
 
 // TestInboxTidyFinalEpicLiveStoredUnarchived lists stored ended_with_gaps and stopped epics, seen at the time they last
@@ -95,7 +75,7 @@ func TestInboxTidyFinalEpicLiveStoredUnarchived(t *testing.T) {
 		inboxTidyFinalStored("repoa/gaps", "ended_with_gaps", epicsAgo(24*time.Hour), epicsAgo(24*time.Hour)),
 		inboxTidyFinalStored("repoa/stopped", "stopped", epicsAgo(24*time.Hour), epicsAgo(24*time.Hour)),
 	}
-	client := archiveEpicsClient(t, t.TempDir(), archiveStorePath(t), &epicStoreFake{stored: stored})
+	client := archiveEpicsClient(t, archiveStorePath(t), &epicStoreFake{stored: stored})
 	expectArchived(t, "Epics.List", archivedByID(epicsList(t, client)), map[string]bool{
 		"repoa/gaps":    false,
 		"repoa/stopped": false,

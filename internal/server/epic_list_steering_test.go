@@ -59,12 +59,10 @@ func steeringOf(epic *orreryv1.Epic) steeringFields {
 }
 
 // TestEpicListSteeringListCarriesSteering answers the steering fields of each epic through List: an orreryd epic
-// carries its summary's steering session, repository path, pause, park reason and open question count, an unsteered
-// orreryd epic carries no steering, and a record-only epic carries none of the fields.
+// carries its summary's steering session, repository path, pause, park reason and open question count, and an unsteered
+// orreryd epic carries no steering.
 func TestEpicListSteeringListCarriesSteering(t *testing.T) {
 	t.Parallel()
-	root := t.TempDir()
-	writeHead(t, root, "repoa", "record", `{"outcome":"shipped"}`, epicsNow())
 	store := &steeringStoreFake{summaries: []*enginev1.EpicSummary{
 		{
 			Id: "repoa/owned", Repository: "/work/repoa", Phase: "accepted", PhaseAt: epicsAgo(time.Hour),
@@ -80,7 +78,7 @@ func TestEpicListSteeringListCarriesSteering(t *testing.T) {
 			Changed: epicsAgo(time.Hour),
 		},
 	}}
-	client := epicStoreServe(t, root, &epicsFake{}, store)
+	client := epicStoreServe(t, &epicsFake{}, store)
 
 	want := map[string]steeringFields{
 		"repoa/owned": {
@@ -89,7 +87,6 @@ func TestEpicListSteeringListCarriesSteering(t *testing.T) {
 		},
 		"repoa/limited":   {steering: "session-limited", path: "/work/repoa", paused: true, pauseSource: "limit"},
 		"repoa/unsteered": {path: "/work/repoa"},
-		"repoa/record":    {},
 	}
 	listed := epicsList(t, client)
 	if len(listed) != len(want) {
@@ -109,11 +106,9 @@ func TestEpicListSteeringListCarriesSteering(t *testing.T) {
 
 // TestEpicListSteeringGetCarriesSteering answers the steering fields of each epic through Get: an orreryd epic carries
 // its stored steerer, pause, park reason and repository path, and its open question count counts only open questions;
-// an unsteered orreryd epic carries no steering, and a record-only epic carries none of the fields.
+// an unsteered orreryd epic carries no steering.
 func TestEpicListSteeringGetCarriesSteering(t *testing.T) {
 	t.Parallel()
-	root := t.TempDir()
-	writeHead(t, root, "repoa", "record", `{"outcome":"shipped"}`, epicsNow())
 	owned := storedEpicOf("repoa/owned", "accepted", epicsAgo(time.Hour))
 	owned.Contract.Repository = "/work/repoa"
 	owned.Steerer = "session-owned"
@@ -133,7 +128,7 @@ func TestEpicListSteeringGetCarriesSteering(t *testing.T) {
 	unsteered := storedEpicOf("repoa/unsteered", "accepted", epicsAgo(time.Hour))
 	unsteered.Contract.Repository = "/work/repoa"
 	store := &steeringStoreFake{stored: []*enginev1.StoredEpic{owned, limited, unsteered}}
-	client := epicStoreServe(t, root, &epicsFake{}, store)
+	client := epicStoreServe(t, &epicsFake{}, store)
 
 	want := map[string]steeringFields{
 		"repoa/owned": {
@@ -142,7 +137,6 @@ func TestEpicListSteeringGetCarriesSteering(t *testing.T) {
 		},
 		"repoa/limited":   {steering: "session-limited", path: "/work/repoa", paused: true, pauseSource: "limit"},
 		"repoa/unsteered": {path: "/work/repoa"},
-		"repoa/record":    {},
 	}
 	for id, w := range want {
 		if got := steeringOf(epicsGet(t, client, id).GetEpic()); got != w {

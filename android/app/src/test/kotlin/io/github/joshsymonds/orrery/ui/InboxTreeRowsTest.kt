@@ -81,13 +81,11 @@ class InboxTreeRowsTest {
         live = true,
         runningSteps = steps,
         endedSteps = 0,
-        problem = "",
         phaseAt = NOW - 49 * 60,
     )
 
     private fun detail(epic: EpicRow, questions: List<EpicQuestionRow> = emptyList()) = EpicDetail(
         epic = epic,
-        tasks = emptyList(),
         steps = emptyList(),
         questions = questions,
     )
