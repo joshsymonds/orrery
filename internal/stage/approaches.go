@@ -33,6 +33,9 @@ func (s *Service) Approach(
 	if err != nil {
 		return nil, err
 	}
+	if guardErr := s.requireWorkingConversation(ctx, session, design); guardErr != nil {
+		return nil, guardErr
+	}
 	stored, err := s.cfg.Store.RecordApproach(ctx, store.DesignApproach{
 		Design: design, Name: name, Shape: req.Msg.GetShape(), Cost: req.Msg.GetCost(), Wins: req.Msg.GetWins(),
 		Loses: req.Msg.GetLoses(), Reconsider: req.Msg.GetReconsider(), Research: req.Msg.GetResearch(),
@@ -69,6 +72,9 @@ func (s *Service) Choose(
 	maker, session, err := s.checkMaker(ctx, req.Header(), req.Msg.GetMaker())
 	if err != nil {
 		return nil, err
+	}
+	if guardErr := s.requireWorkingConversation(ctx, session, design); guardErr != nil {
+		return nil, guardErr
 	}
 	stored, err := s.cfg.Store.ChooseApproach(ctx, store.ApproachChoice{
 		Design: design, Approach: seq, Words: words, Maker: maker.Kind, Quote: maker.Quote,

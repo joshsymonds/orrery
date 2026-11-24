@@ -36,6 +36,9 @@ func (s *Service) Delegate(
 	if session == "" {
 		return nil, refuse(connect.CodePermissionDenied, "caller: resolves to no session")
 	}
+	if guardErr := s.requireWorkingConversation(ctx, session, design); guardErr != nil {
+		return nil, guardErr
+	}
 	stored, err := s.cfg.Store.Delegate(ctx, store.DesignDelegation{
 		Design: design, Kinds: req.Msg.GetKinds(), Message: message, Session: session, At: s.cfg.Now().Unix(),
 	})

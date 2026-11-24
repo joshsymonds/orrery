@@ -39,7 +39,9 @@ var ErrDesignCycle = errors.New("starts-after edges form a cycle")
 // ErrNotHeld reports that an epic a held-epic call names is not held.
 var ErrNotHeld = errors.New("epic not held")
 
-// Design is one design as its record holds it: its id, its title, the sessions row that wrote it and when it was made.
+// Design is one design as its record holds it: its id, its title, its working conversation and when it was made. The
+// working conversation is the session of the design's newest design_conversations row, or else the sessions row that
+// wrote the design, as DesignConversation names it.
 type Design struct {
 	ID, Title, Conversation string
 	Created                 time.Time
@@ -352,13 +354,30 @@ func readDesign(ctx context.Context, queries *sqlcgen.Queries, id string) (Desig
 	if err != nil {
 		return DesignRecord{}, fmt.Errorf("read contract %s: %w", id, err)
 	}
+	conversation, err := workingConversation(ctx, queries, lone.ID, lone.Conversation)
+	if err != nil {
+		return DesignRecord{}, err
+	}
 	return designOfOne(
-		Design{ID: lone.ID, Title: lone.Title, Conversation: lone.Conversation, Created: time.Unix(lone.Created, 0)},
+		Design{ID: lone.ID, Title: lone.Title, Conversation: conversation, Created: time.Unix(lone.Created, 0)},
 		DesignContract{
 			ID: lone.ID, Title: lone.Title, Repository: lone.Repository, State: lone.State, Position: 1,
 			Epic: lone.Epic, EpicPhase: lone.EpicPhase,
 		},
 	), nil
+}
+
+// workingConversation returns the working conversation of design: the session of its newest design_conversations row,
+// or else own, the conversation its record holds. Read with queries.
+func workingConversation(ctx context.Context, queries *sqlcgen.Queries, design, own string) (string, error) {
+	newest, err := queries.NewestDesignConversation(ctx, design)
+	if errors.Is(err, sql.ErrNoRows) {
+		return own, nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("read newest conversation of design %s: %w", design, err)
+	}
+	return newest.Session, nil
 }
 
 // readDesigns returns every design as Store.Designs does, read with queries.
@@ -380,8 +399,12 @@ func readDesigns(ctx context.Context, queries *sqlcgen.Queries) ([]DesignRecord,
 		return nil, fmt.Errorf("list contracts in no design: %w", err)
 	}
 	for _, row := range lone {
+		conversation, convErr := workingConversation(ctx, queries, row.ID, row.Conversation)
+		if convErr != nil {
+			return nil, convErr
+		}
 		records = append(records, designOfOne(
-			Design{ID: row.ID, Title: row.Title, Conversation: row.Conversation, Created: time.Unix(row.Created, 0)},
+			Design{ID: row.ID, Title: row.Title, Conversation: conversation, Created: time.Unix(row.Created, 0)},
 			DesignContract{
 				ID: row.ID, Title: row.Title, Repository: row.Repository, State: row.State, Position: 1,
 				Epic: row.Epic, EpicPhase: row.EpicPhase,
@@ -406,9 +429,13 @@ func readDesignRows(ctx context.Context, queries *sqlcgen.Queries, row sqlcgen.D
 	for _, edge := range edges {
 		afters[edge.Contract] = append(afters[edge.Contract], edge.After)
 	}
+	conversation, err := workingConversation(ctx, queries, row.ID, row.Conversation)
+	if err != nil {
+		return DesignRecord{}, err
+	}
 	record := DesignRecord{
 		Design: Design{
-			ID: row.ID, Title: row.Title, Conversation: row.Conversation, Created: time.Unix(row.Created, 0),
+			ID: row.ID, Title: row.Title, Conversation: conversation, Created: time.Unix(row.Created, 0),
 		},
 		OfOne: len(members) == 1,
 	}
