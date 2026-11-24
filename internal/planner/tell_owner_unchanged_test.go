@@ -24,6 +24,10 @@ type ownerTellCase struct {
 	park     bool
 }
 
+// metAtBaseTellText is the text of a met-at-base tell, the one decide's metAtBaseTell writes.
+const metAtBaseTellText = "workflow node red: R1 met at the epic's base main, " +
+	"recorded as met there, and the epic goes on"
+
 // ownerTellCases returns a case for each kind of tell that routes as an owner notice. Each tell is the first tell of
 // its epic, so its seq is 1.
 func ownerTellCases() []ownerTellCase {
@@ -31,6 +35,7 @@ func ownerTellCases() []ownerTellCase {
 		{
 			name: "plain",
 			setup: func(t *testing.T, s *store.Store) {
+				t.Helper()
 				createTellEpic(t, s, "")
 				tellEpic(t, s, "check the gate")
 			},
@@ -40,15 +45,17 @@ func ownerTellCases() []ownerTellCase {
 		{
 			name: "met-at-base",
 			setup: func(t *testing.T, s *store.Store) {
+				t.Helper()
 				createTellEpic(t, s, "")
-				tellEpic(t, s, "workflow node red: R1 met at the epic's base main, recorded as met there, and the epic goes on")
+				tellEpic(t, s, metAtBaseTellText)
 			},
 			epic: tellAlpha, id: "orrery-7d8e9f0/tell-alpha:tell:1",
-			body: "workflow node red: R1 met at the epic's base main, recorded as met there, and the epic goes on",
+			body: metAtBaseTellText,
 		},
 		{
 			name: "release-resumed",
 			setup: func(t *testing.T, s *store.Store) {
+				t.Helper()
 				createTellEpic(t, s, "")
 				tellEpic(t, s, "release resumed at step 2, publish")
 			},
@@ -58,6 +65,7 @@ func ownerTellCases() []ownerTellCase {
 		{
 			name: "park-question",
 			setup: func(t *testing.T, s *store.Store) {
+				t.Helper()
 				createTellEpic(t, s, "")
 				if err := s.ParkEpic(
 					t.Context(), tellAlpha, store.ParkClassBranch, "credit ran out", tellAt(),
@@ -71,6 +79,7 @@ func ownerTellCases() []ownerTellCase {
 		{
 			name: "question-unheard",
 			setup: func(t *testing.T, s *store.Store) {
+				t.Helper()
 				createRunnerEpic(t, s)
 				endWorkTurn(t, s, claimedAt())
 				askRunnerOwner(t, s)
