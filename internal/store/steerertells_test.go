@@ -194,7 +194,7 @@ func TestTellDeliveredOnceMigrationMarksStoredTellsDelivered(t *testing.T) {
 	// The migration marks each stored tell delivered, so seq 1 (untold) and seq 2 (told with a question) both read 1.
 	for _, seq := range []int64{1, 2} {
 		if delivered := steererDeliveredOf(ctx, t, s, seededEpic, seq); delivered != 1 {
-			t.Errorf("steerer_delivered of stored tell %d after migrating from version 109 = %d, want 1", seq, delivered)
+			t.Errorf("steerer_delivered of tell %d = %d after migration, want 1", seq, delivered)
 		}
 	}
 
