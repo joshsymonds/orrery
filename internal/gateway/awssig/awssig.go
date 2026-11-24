@@ -1,6 +1,6 @@
 // Package awssig speaks the parts of AWS that the gateway's Bedrock upstream needs and nothing else: SigV4 request
-// signing, the binary event-stream framing a streamed Bedrock response arrives in, and the static credentials of a
-// named AWS profile. It is standard-library only.
+// signing, the binary event-stream framing a streamed Bedrock response arrives in, and the credentials of a named AWS
+// profile, exported by the aws CLI. It is standard-library only.
 package awssig
 
 // Credentials are one set of AWS keys.

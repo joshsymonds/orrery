@@ -6,30 +6,18 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/joshsymonds/orrery/internal/exectest"
 	"github.com/joshsymonds/orrery/internal/gateway/awssig"
 )
 
-// sharedCredentials is a credentials file with two profiles. Every key and secret in it is invented.
-const sharedCredentials = `[work]
-aws_access_key_id = AKIDTESTWORK
-aws_secret_access_key = invented-work-secret
-aws_session_token = invented-work-token
+// exportedDocument is the credential document a fake aws CLI prints for the work profile. Every key and secret in it is
+// invented.
+const exportedDocument = `{"Version":1,"AccessKeyId":"AKIDTESTWORK","SecretAccessKey":"invented-work-secret",` +
+	`"SessionToken":"invented-work-token","Expiration":"2099-01-01T00:00:00Z"}`
 
-[personal]
-aws_access_key_id = AKIDTESTPERSONAL
-aws_secret_access_key = invented-personal-secret
-`
-
-// writeCredentialsFile writes document as a file under a fresh directory and returns its path.
-func writeCredentialsFile(t *testing.T, document string) string {
-	t.Helper()
-
-	path := filepath.Join(t.TempDir(), "credentials")
-	if err := os.WriteFile(path, []byte(document), 0o600); err != nil {
-		t.Fatalf("write credentials file: %v", err)
-	}
-
-	return path
+// printDocument is a fake aws body that prints document as its output.
+func printDocument(document string) string {
+	return "printf '%s\\n' '" + document + "'\n"
 }
 
 // environment returns a getenv over vars alone, so no test reads the real environment.
@@ -39,179 +27,193 @@ func environment(vars map[string]string) func(string) string {
 	}
 }
 
-// TestGatewayRoutesSigV4SigningCredentialProfileReadsTheNamedSection reads each profile from the file the
-// AWS_SHARED_CREDENTIALS_FILE variable names: the named profile's own key pair and session token come back, never a
-// neighboring profile's, and a profile with no session token has an empty one.
-func TestGatewayRoutesSigV4SigningCredentialProfileReadsTheNamedSection(t *testing.T) {
-	t.Parallel()
+// fakeAWS installs a script named aws in a fresh directory running body, and returns that directory and the path of
+// the log every invocation appends its profile and arguments to. The directory is made the process's PATH, which is how
+// the aws CLI is looked up, and the getenv a caller passes names the same directory.
+func fakeAWS(t *testing.T, body string) (string, string) {
+	t.Helper()
 
-	getenv := environment(map[string]string{
-		"AWS_SHARED_CREDENTIALS_FILE": writeCredentialsFile(t, sharedCredentials),
-	})
+	dir := t.TempDir()
+	logPath := filepath.Join(dir, "calls.log")
 
-	tests := []struct {
-		profile     string
-		wantKey     string
-		wantSecret  string
-		wantSession string
-	}{
-		{
-			profile:     "work",
-			wantKey:     "AKIDTESTWORK",
-			wantSecret:  "invented-work-secret",
-			wantSession: "invented-work-token",
-		},
-		{profile: "personal", wantKey: "AKIDTESTPERSONAL", wantSecret: "invented-personal-secret", wantSession: ""},
-	}
+	// The profile arrives in the environment, not the command line, so the log records AWS_PROFILE beside the
+	// arguments.
+	script := "#!/bin/sh\necho \"$AWS_PROFILE $*\" >> '" + logPath + "'\n" + body
 
-	for _, tc := range tests {
-		t.Run(tc.profile, func(t *testing.T) {
-			t.Parallel()
+	exectest.WriteFile(t, filepath.Join(dir, "aws"), []byte(script), 0o700)
 
-			creds, err := awssig.LoadCredentials(tc.profile, getenv)
-			if err != nil {
-				t.Fatalf("LoadCredentials(%q) = %v; want the profile's credentials", tc.profile, err)
-			}
+	t.Setenv("PATH", dir)
 
-			if creds.AccessKeyID != tc.wantKey {
-				t.Errorf("AccessKeyID = %q; want %q", creds.AccessKeyID, tc.wantKey)
-			}
-
-			if creds.SecretAccessKey != tc.wantSecret {
-				t.Errorf("SecretAccessKey = %q; want %q", creds.SecretAccessKey, tc.wantSecret)
-			}
-
-			if creds.SessionToken != tc.wantSession {
-				t.Errorf("SessionToken = %q; want %q", creds.SessionToken, tc.wantSession)
-			}
-		})
-	}
+	return dir, logPath
 }
 
-// TestGatewayRoutesSigV4SigningCredentialProfileDefaultsUnderHome checks that with AWS_SHARED_CREDENTIALS_FILE unset,
-// the file is found at HOME's .aws/credentials.
-func TestGatewayRoutesSigV4SigningCredentialProfileDefaultsUnderHome(t *testing.T) {
-	t.Parallel()
+// callLog returns the recorded invocations, one line per exec.
+func callLog(t *testing.T, logPath string) []string {
+	t.Helper()
 
-	home := t.TempDir()
-	if err := os.Mkdir(filepath.Join(home, ".aws"), 0o700); err != nil {
-		t.Fatalf("make .aws: %v", err)
-	}
-
-	if err := os.WriteFile(filepath.Join(home, ".aws", "credentials"), []byte(sharedCredentials), 0o600); err != nil {
-		t.Fatalf("write credentials file: %v", err)
-	}
-
-	creds, err := awssig.LoadCredentials("work", environment(map[string]string{"HOME": home}))
+	data, err := os.ReadFile(logPath)
 	if err != nil {
-		t.Fatalf("LoadCredentials(\"work\") = %v; want the credentials under HOME", err)
+		if os.IsNotExist(err) {
+			return nil
+		}
+
+		t.Fatalf("read call log: %v", err)
+	}
+
+	trimmed := strings.TrimSpace(string(data))
+	if trimmed == "" {
+		return nil
+	}
+
+	return strings.Split(trimmed, "\n")
+}
+
+// TestGatewayRoutesSigV4SigningCredentialProfileReadsTheNamedProfile checks that the credentials come from running the
+// aws CLI's export with the named profile selected through AWS_PROFILE, once per call.
+func TestGatewayRoutesSigV4SigningCredentialProfileReadsTheNamedProfile(t *testing.T) {
+	dir, logPath := fakeAWS(t, printDocument(exportedDocument))
+
+	creds, err := awssig.LoadCredentials("work", environment(map[string]string{"PATH": dir}))
+	if err != nil {
+		t.Fatalf("LoadCredentials(\"work\") = %v; want the exported credentials", err)
 	}
 
 	if creds.AccessKeyID != "AKIDTESTWORK" {
 		t.Errorf("AccessKeyID = %q; want %q", creds.AccessKeyID, "AKIDTESTWORK")
 	}
-}
 
-// TestGatewayRoutesSigV4SigningCredentialProfileHonorsTheSharedFileVariable checks that AWS_SHARED_CREDENTIALS_FILE
-// wins over HOME: a credentials file under HOME that names a different key must not be the one read.
-func TestGatewayRoutesSigV4SigningCredentialProfileHonorsTheSharedFileVariable(t *testing.T) {
-	t.Parallel()
-
-	home := t.TempDir()
-	if err := os.Mkdir(filepath.Join(home, ".aws"), 0o700); err != nil {
-		t.Fatalf("make .aws: %v", err)
+	if creds.SecretAccessKey != "invented-work-secret" {
+		t.Errorf("SecretAccessKey = %q; want %q", creds.SecretAccessKey, "invented-work-secret")
 	}
 
-	homeDocument := "[work]\naws_access_key_id = AKIDHOMEWORK\naws_secret_access_key = invented-home-secret\n"
-	if err := os.WriteFile(filepath.Join(home, ".aws", "credentials"), []byte(homeDocument), 0o600); err != nil {
-		t.Fatalf("write credentials file: %v", err)
+	calls := callLog(t, logPath)
+	if len(calls) != 1 {
+		t.Fatalf("aws ran %d times; want 1", len(calls))
 	}
 
-	getenv := environment(map[string]string{
-		"HOME":                        home,
-		"AWS_SHARED_CREDENTIALS_FILE": writeCredentialsFile(t, sharedCredentials),
-	})
-
-	creds, err := awssig.LoadCredentials("work", getenv)
-	if err != nil {
-		t.Fatalf("LoadCredentials(\"work\") = %v; want the credentials the variable names", err)
-	}
-
-	if creds.AccessKeyID != "AKIDTESTWORK" {
-		t.Errorf("AccessKeyID = %q; want %q from the file the variable names", creds.AccessKeyID, "AKIDTESTWORK")
+	if want := "work configure export-credentials"; calls[0] != want {
+		t.Errorf("aws ran %q; want %q", calls[0], want)
 	}
 }
 
-// TestGatewayRoutesSigV4SigningCredentialProfileSkipsCommentsAndSpacing checks the reader's tolerance of the file as
-// people write it: comments, blank lines, CRLF line endings, spacing around the equals sign, and a key that appears
-// before any section, which belongs to no profile.
-func TestGatewayRoutesSigV4SigningCredentialProfileSkipsCommentsAndSpacing(t *testing.T) {
-	t.Parallel()
-
-	document := "aws_access_key_id = AKIDORPHAN\r\n" +
-		"# a comment about the work profile\r\n" +
-		"\r\n" +
-		"  [ work ]  \r\n" +
-		"; another comment\r\n" +
-		"aws_access_key_id   =   AKIDTESTSPACED  \r\n" +
-		"aws_secret_access_key=invented-spaced-secret\r\n"
-
-	getenv := environment(map[string]string{
-		"AWS_SHARED_CREDENTIALS_FILE": writeCredentialsFile(t, document),
-	})
-
-	creds, err := awssig.LoadCredentials("work", getenv)
-	if err != nil {
-		t.Fatalf("LoadCredentials(\"work\") = %v; want the spaced profile's credentials", err)
-	}
-
-	if creds.AccessKeyID != "AKIDTESTSPACED" {
-		t.Errorf("AccessKeyID = %q; want %q with its spacing trimmed", creds.AccessKeyID, "AKIDTESTSPACED")
-	}
-
-	if creds.SecretAccessKey != "invented-spaced-secret" {
-		t.Errorf("SecretAccessKey = %q; want %q", creds.SecretAccessKey, "invented-spaced-secret")
-	}
-}
-
-// TestGatewayRoutesSigV4SigningCredentialProfileRefusals checks that every way a profile can fail to yield a usable key
-// pair is an error, and that the error carries none of the secret material the file holds.
-func TestGatewayRoutesSigV4SigningCredentialProfileRefusals(t *testing.T) {
-	t.Parallel()
-
-	halfDocument := "[nosecret]\naws_access_key_id = AKIDTESTNOSECRET\n" +
-		"[nokey]\naws_secret_access_key = invented-nokey-secret\n"
-	shared := environment(map[string]string{"AWS_SHARED_CREDENTIALS_FILE": writeCredentialsFile(t, sharedCredentials)})
-	half := environment(map[string]string{"AWS_SHARED_CREDENTIALS_FILE": writeCredentialsFile(t, halfDocument)})
-	absent := environment(map[string]string{
-		"AWS_SHARED_CREDENTIALS_FILE": filepath.Join(t.TempDir(), "absent"),
-	})
-
+// TestGatewayRoutesSigV4SigningCredentialProfileCarriesTheSessionToken checks that temporary credentials keep the
+// session token the CLI exports, and that a static key pair, which exports none, yields an empty token.
+func TestGatewayRoutesSigV4SigningCredentialProfileCarriesTheSessionToken(t *testing.T) {
 	tests := []struct {
-		name    string
-		profile string
-		getenv  func(string) string
+		name      string
+		document  string
+		wantToken string
 	}{
-		{name: "profile section absent", profile: "missing", getenv: shared},
-		{name: "section with no secret", profile: "nosecret", getenv: half},
-		{name: "section with no access key id", profile: "nokey", getenv: half},
-		{name: "credentials file missing", profile: "work", getenv: absent},
-		{name: "no location to read from", profile: "work", getenv: environment(map[string]string{})},
-		{name: "empty profile name", profile: "", getenv: shared},
+		{
+			name:      "temporary credentials keep their session token",
+			document:  exportedDocument,
+			wantToken: "invented-work-token",
+		},
+		{
+			name:      "static key pair has no session token",
+			document:  `{"AccessKeyId":"AKIDTESTSTATIC","SecretAccessKey":"invented-static-secret"}`,
+			wantToken: "",
+		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
+			dir, _ := fakeAWS(t, printDocument(tc.document))
 
-			creds, err := awssig.LoadCredentials(tc.profile, tc.getenv)
-			if err == nil {
-				t.Fatalf("LoadCredentials(%q) = %+v; want an error", tc.profile, creds)
+			creds, err := awssig.LoadCredentials("work", environment(map[string]string{"PATH": dir}))
+			if err != nil {
+				t.Fatalf("LoadCredentials(\"work\") = %v; want the exported credentials", err)
 			}
 
-			if strings.Contains(err.Error(), "invented-") || strings.Contains(err.Error(), "AKID") {
-				t.Errorf("error = %q; want it to carry no credential material from the file", err.Error())
+			if creds.SessionToken != tc.wantToken {
+				t.Errorf("SessionToken = %q; want %q", creds.SessionToken, tc.wantToken)
 			}
 		})
+	}
+}
+
+// TestGatewayRoutesSigV4SigningCredentialProfileGetsOnlyItsEnvironment checks that the CLI runs with the profile and
+// the variables it needs, looked up through getenv, and nothing else: the gateway's own secret never reaches it, and
+// the profile arrives through AWS_PROFILE.
+func TestGatewayRoutesSigV4SigningCredentialProfileGetsOnlyItsEnvironment(t *testing.T) {
+	// The fake echoes the environment it was started with back as the secret, so the test reads what the child saw.
+	body := `printf '{"AccessKeyId":"AKIDTESTENV","SecretAccessKey":"%s|%s|%s"}\n' ` +
+		`"$AWS_PROFILE" "$HOME" "${INVENTED_GATEWAY_SECRET-unset}"` + "\n"
+	dir, _ := fakeAWS(t, body)
+
+	getenv := environment(map[string]string{
+		"PATH":                    dir,
+		"HOME":                    "/invented/home",
+		"INVENTED_GATEWAY_SECRET": "invented-gateway-secret",
+	})
+
+	creds, err := awssig.LoadCredentials("work", getenv)
+	if err != nil {
+		t.Fatalf("LoadCredentials(\"work\") = %v; want the exported credentials", err)
+	}
+
+	if want := "work|/invented/home|unset"; creds.SecretAccessKey != want {
+		t.Errorf("child environment = %q; want %q: the profile, HOME, and no gateway secret",
+			creds.SecretAccessKey, want)
+	}
+}
+
+// TestGatewayRoutesSigV4SigningCredentialProfileRefusals checks that every way the CLI can fail to yield a usable key
+// pair is an error that names the profile and carries none of the output the CLI printed.
+func TestGatewayRoutesSigV4SigningCredentialProfileRefusals(t *testing.T) {
+	tests := []struct {
+		name string
+		body string
+	}{
+		{name: "non-zero exit with output naming a secret", body: "printf 'invented-stderr-secret\\n' >&2\nexit 1\n"},
+		{name: "unparsable output", body: printDocument("not-json")},
+		{name: "document naming no key pair", body: printDocument(`{"AccessKeyId":""}`)},
+		{name: "document with no secret", body: printDocument(`{"AccessKeyId":"AKIDTESTHALF"}`)},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			dir, _ := fakeAWS(t, tc.body)
+
+			creds, err := awssig.LoadCredentials("work", environment(map[string]string{"PATH": dir}))
+			if err == nil {
+				t.Fatalf("LoadCredentials(\"work\") = %+v; want an error", creds)
+			}
+
+			for _, leaked := range []string{"invented-", "AKID", "not-json"} {
+				if strings.Contains(err.Error(), leaked) {
+					t.Errorf("error = %q; want it to carry no output from the aws CLI", err.Error())
+				}
+			}
+
+			if !strings.Contains(err.Error(), "work") {
+				t.Errorf("error = %q; want it to name the profile", err.Error())
+			}
+		})
+	}
+}
+
+// TestGatewayRoutesSigV4SigningCredentialProfileWithoutTheAWSBinary checks that a profile cannot be read when no aws
+// CLI is on PATH: the refusal is an error, not an empty key pair.
+func TestGatewayRoutesSigV4SigningCredentialProfileWithoutTheAWSBinary(t *testing.T) {
+	empty := t.TempDir()
+	t.Setenv("PATH", empty)
+
+	if _, err := awssig.LoadCredentials("work", environment(map[string]string{"PATH": empty})); err == nil {
+		t.Fatal("LoadCredentials(\"work\") = nil; want an error when aws is not on PATH")
+	}
+}
+
+// TestGatewayRoutesSigV4SigningCredentialProfileEmptyNameRunsNothing checks that an empty profile name is refused
+// before the CLI runs at all, rather than exporting whatever profile the CLI would default to.
+func TestGatewayRoutesSigV4SigningCredentialProfileEmptyNameRunsNothing(t *testing.T) {
+	dir, logPath := fakeAWS(t, printDocument(exportedDocument))
+
+	if _, err := awssig.LoadCredentials("", environment(map[string]string{"PATH": dir})); err == nil {
+		t.Fatal("LoadCredentials(\"\") = nil; want an error for an empty profile name")
+	}
+
+	if calls := callLog(t, logPath); len(calls) != 0 {
+		t.Errorf("aws ran %d times for an empty profile name; want none", len(calls))
 	}
 }
