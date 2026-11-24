@@ -322,7 +322,9 @@ func New(cfg Config) (http.Handler, error) {
 	presencePath := registerPresence(mux, cfg.ReportInput, now, cfg.HandlerOptions...)
 	pushPath, pushService := newPushHandler(cfg.Push, cfg.HandlerOptions...)
 	mux.Handle(pushPath, pushService)
-	pickerPath, pickerService := newPickerHandler(cfg.Picker, tokens, cfg.Tmux, now, cfg.HandlerOptions...)
+	pickerPath, pickerService := newPickerHandler(
+		cfg.Picker, tokens, cfg.Tmux, now, cfg.HostName, cfg.Hosts, cfg.LocalLoad, cfg.HandlerOptions...,
+	)
 	mux.Handle(pickerPath, pickerService)
 	if cfg.Web != nil {
 		mux.Handle("/", newPageHandler(cfg.Web))
