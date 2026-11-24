@@ -62,7 +62,7 @@ func paneCallerSessions(t *testing.T, path string) []string {
 	if err != nil {
 		t.Fatalf("EpicSessions: %v", err)
 	}
-	var sessions []string
+	sessions := make([]string, 0, len(rows))
 	for _, row := range rows {
 		sessions = append(sessions, row.Session)
 	}
