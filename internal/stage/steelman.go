@@ -128,7 +128,7 @@ func (s *Service) closureSkipped(ctx context.Context, design string) (bool, erro
 func (s *Service) startDiscovery(
 	ctx context.Context, req *connect.Request[v1.SteelmanRequest], record store.DesignRecord,
 ) (*connect.Response[v1.SteelmanResponse], error) {
-	packet, repository, err := s.designPacket(ctx, record)
+	packet, repository, reads, err := s.designPacket(ctx, record)
 	if err != nil {
 		return nil, err
 	}
@@ -139,7 +139,7 @@ func (s *Service) startDiscovery(
 	start.Caller = callerOf(req.Header())
 	return s.answerPass(ctx, start, store.DesignStep{
 		Design: record.ID, Kind: store.StepDiscovery, Subject: record.ID, Repository: repository,
-	})
+	}, reads)
 }
 
 // startClosure starts the closure pass on the design's packet, its frozen ledger and the delta, which is required,
@@ -151,7 +151,7 @@ func (s *Service) startClosure(
 	if err := requireField("delta", delta); err != nil {
 		return nil, err
 	}
-	packet, repository, err := s.designPacket(ctx, record)
+	packet, repository, reads, err := s.designPacket(ctx, record)
 	if err != nil {
 		return nil, err
 	}
@@ -166,7 +166,7 @@ func (s *Service) startClosure(
 	start.Caller = callerOf(req.Header())
 	return s.answerPass(ctx, start, store.DesignStep{
 		Design: record.ID, Kind: store.StepClosure, Subject: record.ID, Repository: repository, Delta: delta,
-	})
+	}, reads)
 }
 
 // skipClosure records the design's closure as skipped, with its reason and the maker it came from. It needs a counted
@@ -203,13 +203,18 @@ func (s *Service) skipClosure(
 	return connect.NewResponse(&v1.SteelmanResponse{}), nil
 }
 
-// answerPass starts the pass start describes, stores its step on the design as row, logs the start on the design and
-// answers with the step and whether the pass counts. A pass just started has not returned, so it does not count yet.
-// The start's words are the row's delta, which a discovery pass does not take.
+// answerPass starts the pass start describes, stores its step on the design as row, records the reads the pass makes
+// of its packet against the step, logs the start on the design and answers with the step and whether the pass counts.
+// A pass just started has not returned, so it does not count yet. The start's words are the row's delta, which a
+// discovery pass does not take.
 func (s *Service) answerPass(
-	ctx context.Context, start enginehost.StepStart, row store.DesignStep,
+	ctx context.Context, start enginehost.StepStart, row store.DesignStep, reads []packetRead,
 ) (*connect.Response[v1.SteelmanResponse], error) {
 	step, err := s.startStep(ctx, start, row)
+	if err != nil {
+		return nil, err
+	}
+	err = s.recordReads(ctx, step.GetStep(), reads)
 	if err != nil {
 		return nil, err
 	}
@@ -224,6 +229,19 @@ func (s *Service) answerPass(
 		return nil, err
 	}
 	return connect.NewResponse(&v1.SteelmanResponse{Step: step, Pass: step.GetCounted()}), nil
+}
+
+// recordReads stores the reads of a pass's packet as the reads of step: one for each contract and draft the packet
+// holds, at the version it holds. A read the store refuses is an internal error.
+func (s *Service) recordReads(ctx context.Context, step string, reads []packetRead) error {
+	stored := make([]store.StepRead, 0, len(reads))
+	for _, read := range reads {
+		stored = append(stored, store.StepRead{Step: step, Contract: read.contract, Version: read.version})
+	}
+	if err := s.cfg.Store.RecordStepReads(ctx, stored); err != nil {
+		return internalError(fmt.Errorf("record reads of step %s: %w", step, err))
+	}
+	return nil
 }
 
 // closurePrompt returns the prompt of a closure pass: the packet, the frozen ledger as frozenLedgerText writes it, and

@@ -13,33 +13,43 @@ import (
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
+// packetRead is a contract a steelman pass reads through its packet: the contract's id, and the version the packet
+// holds of it, which is its newest version's number, or 0 for a draft.
+type packetRead struct {
+	contract string
+	version  int64
+}
+
 // designPacket returns the packet a steelman pass checks the design record with: each contract of the design in
 // position order at its newest version, then each draft of the design in created order, each rendered by
 // contracttext.Render with only the decisions still open. It also returns the repository a pass runs in, that of the
-// design's first contract or else of its first draft. A design holding neither has no packet, and is refused as a
-// failed precondition.
-func (s *Service) designPacket(ctx context.Context, record store.DesignRecord) (string, string, error) {
+// design's first contract or else of its first draft, and the reads the packet makes: one for each contract and draft
+// it holds, at the version it holds. A design holding neither has no packet, and is refused as a failed precondition.
+func (s *Service) designPacket(ctx context.Context, record store.DesignRecord) (string, string, []packetRead, error) {
 	var blocks []string
+	var reads []packetRead
 	for _, member := range record.Contracts {
-		block, err := s.contractBlock(ctx, member.ID)
+		block, version, err := s.contractBlock(ctx, member.ID)
 		if err != nil {
-			return "", "", internalError(err)
+			return "", "", nil, internalError(err)
 		}
 		blocks = append(blocks, block)
+		reads = append(reads, packetRead{contract: member.ID, version: version})
 	}
 	drafts, err := s.cfg.Store.DesignDrafts(ctx, record.ID)
 	if err != nil {
-		return "", "", internalError(fmt.Errorf("list drafts of design %s: %w", record.ID, err))
+		return "", "", nil, internalError(fmt.Errorf("list drafts of design %s: %w", record.ID, err))
 	}
 	for _, draft := range drafts {
 		contract, decodeErr := packetContract(draft.Body)
 		if decodeErr != nil {
-			return "", "", internalError(fmt.Errorf("draft %s: %w", draft.ID, decodeErr))
+			return "", "", nil, internalError(fmt.Errorf("draft %s: %w", draft.ID, decodeErr))
 		}
 		blocks = append(blocks, contracttext.Render(contract, openDecisions(draft.Decisions)))
+		reads = append(reads, packetRead{contract: draft.ID, version: 0})
 	}
 	if len(blocks) == 0 {
-		return "", "", refuse(connect.CodeFailedPrecondition,
+		return "", "", nil, refuse(connect.CodeFailedPrecondition,
 			fmt.Sprintf("steelman: design %s holds no contract or draft to steelman", record.ID))
 	}
 	// Blocks are non-empty, so a design with no contract has a draft to take the repository from.
@@ -49,24 +59,25 @@ func (s *Service) designPacket(ctx context.Context, record store.DesignRecord) (
 	} else {
 		repository = drafts[0].Repository
 	}
-	return strings.Join(blocks, "\n"), repository, nil
+	return strings.Join(blocks, "\n"), repository, reads, nil
 }
 
-// contractBlock returns the rendering of the contract id at its newest version, with its open decisions.
-func (s *Service) contractBlock(ctx context.Context, id string) (string, error) {
+// contractBlock returns the rendering of the contract id at its newest version, with its open decisions, and the number
+// of that version.
+func (s *Service) contractBlock(ctx context.Context, id string) (string, int64, error) {
 	record, err := s.cfg.Store.Contract(ctx, id)
 	if err != nil {
-		return "", fmt.Errorf("read contract %s: %w", id, err)
+		return "", 0, fmt.Errorf("read contract %s: %w", id, err)
 	}
 	newest, ok := newestVersion(record.Versions)
 	if !ok {
-		return "", fmt.Errorf("contract %s has no version", id)
+		return "", 0, fmt.Errorf("contract %s has no version", id)
 	}
 	contract, err := packetContract(newest.Body)
 	if err != nil {
-		return "", fmt.Errorf("contract %s version %d: %w", id, newest.Version, err)
+		return "", 0, fmt.Errorf("contract %s version %d: %w", id, newest.Version, err)
 	}
-	return contracttext.Render(contract, openDecisions(newest.Decisions)), nil
+	return contracttext.Render(contract, openDecisions(newest.Decisions)), newest.Version, nil
 }
 
 // newestVersion returns the version of versions with the highest number, and false when there is none.

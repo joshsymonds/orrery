@@ -73,8 +73,9 @@ func (c contractsServer) List(
 	return connect.NewResponse(&orreryv1.ContractsListResponse{Contracts: contracts}), nil
 }
 
-// Get answers the contract of the id List gave it, with every version oldest first, the state history and the work of
-// each requirement (contractWork). An id no contract holds answers not_found.
+// Get answers the contract of the id List gave it, with every version oldest first, the steps that read each version,
+// the state history, the row writes with their makers and the work of each requirement (contractWork). An id no
+// contract holds answers not_found.
 func (c contractsServer) Get(
 	ctx context.Context,
 	req *connect.Request[orreryv1.ContractsGetRequest],
@@ -111,11 +112,58 @@ func (c contractsServer) Get(
 		States:   states,
 		Work:     work,
 	}
+	err = c.setProvenance(ctx, record.ContractListing.ID, response)
+	if err != nil {
+		return nil, err
+	}
 	err = c.setWorking(ctx, record.ContractListing.ID, response)
 	if err != nil {
 		return nil, err
 	}
 	return connect.NewResponse(response), nil
+}
+
+// setProvenance sets the steps that read each of response's versions on that version, oldest first, and the row writes
+// of the contract id on response, oldest first, each with its maker. A failed read answers as contractReadError does.
+func (c contractsServer) setProvenance(
+	ctx context.Context,
+	id string,
+	response *orreryv1.ContractsGetResponse,
+) error {
+	reads, err := c.reader.ContractStepReads(ctx, id)
+	if err != nil {
+		return contractReadError(err, "read contract")
+	}
+	writes, err := c.reader.ContractRowWrites(ctx, id)
+	if err != nil {
+		return contractReadError(err, "read contract")
+	}
+	readBy := make(map[int64][]string)
+	for _, read := range reads {
+		readBy[read.Version] = append(readBy[read.Version], read.Step)
+	}
+	for _, version := range response.GetVersions() {
+		version.ReadBy = readBy[version.GetVersion()]
+	}
+	response.Rows = make([]*orreryv1.ContractRowWrite, 0, len(writes))
+	for _, write := range writes {
+		response.Rows = append(response.Rows, contractRowWriteMessage(write))
+	}
+	return nil
+}
+
+// contractRowWriteMessage converts a row write to its ContractRowWrite. Its maker is the RecordMaker the write stored,
+// with the session that stored it; a write the writing session made on its own account has kind "".
+func contractRowWriteMessage(write store.ContractRowWrite) *orreryv1.ContractRowWrite {
+	return &orreryv1.ContractRowWrite{
+		Seq: write.Seq, Version: write.Version, Row: write.Row, Action: write.Action, Depends: write.Depends,
+		Words: write.Words,
+		Maker: &orreryv1.RecordMaker{
+			Kind: write.Maker, Quote: write.Quote, Reason: write.MakerReason, Delegation: write.Delegation,
+			Session: write.Session,
+		},
+		Time: write.At,
+	}
 }
 
 // setWorking sets the working copy of the contract id on response, which a contract with none leaves unset. A failed read
