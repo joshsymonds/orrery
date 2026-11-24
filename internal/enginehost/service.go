@@ -124,13 +124,9 @@ func Serve(
 	})
 }
 
-// ServeWith answers the services that cfg describes on ln until ctx ends, as Serve does, and also answers the PaneSends
-// service with cfg.PaneSends, the Accounts service with cfg.Accounts, the Designs service with cfg.Designs and the Stage
-// service with cfg.Stage. It then shuts down within shutdownWait and returns nil. A nil cfg.PaneSends refuses every
-// PaneSends RPC as unavailable, a nil cfg.Accounts refuses every Accounts RPC as unavailable, a nil cfg.Designs refuses
-// every Designs RPC as unavailable, and a nil cfg.Stage answers every Stage RPC as unimplemented. The other fields keep
-// Serve's nil rules, and cfg.Options apply to each handler.
-func ServeWith(ctx context.Context, ln net.Listener, cfg ServeConfig) error {
+// NewHandler returns the handler that ServeWith serves: a mux that answers each service that cfg describes, with the
+// nil rules and the options that ServeWith documents.
+func NewHandler(cfg ServeConfig) http.Handler {
 	opts := cfg.Options
 	path, handler := enginev1connect.NewEngineHandler(&service{commands: cfg.Commands, steps: cfg.Steps}, opts...)
 	stepsPath, stepsHandler := enginev1connect.NewStepsHandler(
@@ -173,7 +169,17 @@ func ServeWith(ctx context.Context, ln net.Listener, cfg ServeConfig) error {
 	mux.Handle(stagePath, stageHandler)
 	mux.Handle(paneSendsPath, paneSendsHandler)
 	mux.Handle(accountsPath, accountsHandler)
-	srv := &http.Server{Handler: mux, ReadHeaderTimeout: readHeaderTimeout}
+	return mux
+}
+
+// ServeWith answers the services that cfg describes on ln until ctx ends, as Serve does, and also answers the PaneSends
+// service with cfg.PaneSends, the Accounts service with cfg.Accounts, the Designs service with cfg.Designs and the Stage
+// service with cfg.Stage. It then shuts down within shutdownWait and returns nil. A nil cfg.PaneSends refuses every
+// PaneSends RPC as unavailable, a nil cfg.Accounts refuses every Accounts RPC as unavailable, a nil cfg.Designs refuses
+// every Designs RPC as unavailable, and a nil cfg.Stage answers every Stage RPC as unimplemented. The other fields keep
+// Serve's nil rules, and cfg.Options apply to each handler.
+func ServeWith(ctx context.Context, ln net.Listener, cfg ServeConfig) error {
+	srv := &http.Server{Handler: NewHandler(cfg), ReadHeaderTimeout: readHeaderTimeout}
 
 	done := make(chan error, 1)
 	go func() { done <- srv.Serve(ln) }()

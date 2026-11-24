@@ -160,6 +160,10 @@ const (
 	HeaderTmuxPane = "Orrery-Tmux-Pane"
 )
 
+// HeaderHost is the orrery name of the host that a session-service call comes from. The listener that serves the call
+// sets it over any value the caller sent, so the name it carries is the one the listener admitted.
+const HeaderHost = "Orrery-Host"
+
 // SocketPath resolves the daemon socket: flagValue when non-empty, else ORRERY_SOCKET,
 // else $XDG_RUNTIME_DIR/orrery/orreryd.sock. It returns an error when none of them is set.
 func SocketPath(flagValue string, getenv func(string) string) (string, error) {
