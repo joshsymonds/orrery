@@ -1,24 +1,34 @@
 package io.github.joshsymonds.orrery.ui
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.key
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.SemanticsPropertyKey
 import androidx.compose.ui.semantics.SemanticsPropertyReceiver
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -145,10 +155,13 @@ internal var SemanticsPropertyReceiver.sheetFade: Float
 private val HEAD_INSET: Dp = OrreryTokens.Space.twelve + OrreryTokens.Space.two
 
 /**
- * The phone sheet round 8 draws over the chat on touch: nothing for a null [subject], otherwise the sheet's column on
- * the side's ground, tagged [PHONE_SHEET_TAG] and carrying its pose at rest, with the [head] row (the face, the kind
- * word, the [SheetHead.up] link when [onUp] is given, and the name) over the state line when the head has one, and then
- * the [body] of the subject, which fills the rest of the sheet. The back gesture calls [onClose] while the sheet is open.
+ * The phone sheet round 8 draws over the chat on touch: nothing for a null [subject], otherwise the bracket that begins at
+ * the lit name in the title. Under the head, the band of the raised ground runs the full width, [OrreryTokens.Space.eight]
+ * tall; below it, the sheet is the column on the side's ground, rounded at its left corners and tagged [PHONE_SHEET_TAG],
+ * with the bracket's spine down its left side and its foot under it, each [OrreryTokens.Space.eight] across. The sheet
+ * carries its pose at rest, and its head row holds the face, the kind word, the [SheetHead.up] link when [onUp] is given,
+ * the name, and the close control at its right end, over the state line when the head has one. The [body] of the subject
+ * fills the rest of the sheet. The close control and the back gesture call [onClose] while the sheet is open.
  * [animated] is the motion the next task draws behind this signature.
  */
 @Composable
@@ -163,68 +176,105 @@ internal fun PhoneSheet(
 ) {
     if (subject == null) return
     BackHandler(onBack = onClose)
-    Column(
-        modifier = modifier
-            .background(OrreryTokens.Surface.side)
-            .testTag(PHONE_SHEET_TAG)
-            .semantics { sheetPose = SheetPose.REST },
-    ) {
-        Column(
+    Column(modifier = modifier) {
+        Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(start = HEAD_INSET, end = HEAD_INSET, top = OrreryTokens.Space.eight),
+                .height(OrreryTokens.Space.eight)
+                .background(OrreryTokens.Surface.raised)
+                .testTag(SHEET_BAND_TAG)
+                .semantics { sheetFade = 1f },
+        ) {}
+        Row(
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth()
+                .background(OrreryTokens.Surface.raised),
         ) {
-            Row(
-                modifier = Modifier.testTag(SHEET_HEAD_TAG),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(OrreryTokens.Space.eight),
-            ) {
-                SheetFace(head)
-                Text(
-                    SHEET_KIND_WORDS,
-                    modifier = Modifier.testTag(SHEET_KIND_TAG),
-                    style = OrreryTokens.Type.label,
-                    color = OrreryTokens.Ink.three,
-                )
-                val up = head.up
-                if (up != null && onUp != null) {
-                    Text(
-                        up,
-                        modifier = Modifier.testTag(SHEET_UP_TAG).clickable(onClick = onUp),
-                        style = OrreryTokens.Type.body,
-                        color = OrreryTokens.Ink.two,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
+            Box(
+                modifier = Modifier
+                    .fillMaxHeight()
+                    .width(OrreryTokens.Space.eight)
+                    .background(OrreryTokens.Surface.raised)
+                    .testTag(SHEET_SPINE_TAG),
+            ) {}
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxHeight()
+                    .background(
+                        OrreryTokens.Surface.side,
+                        RoundedCornerShape(topStart = OrreryTokens.Radius.three, bottomStart = OrreryTokens.Radius.three),
                     )
-                    Text("/", style = OrreryTokens.Type.body, color = OrreryTokens.Ink.three)
+                    .testTag(PHONE_SHEET_TAG)
+                    .semantics { sheetPose = SheetPose.REST },
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(start = HEAD_INSET, end = HEAD_INSET, top = OrreryTokens.Space.eight),
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().testTag(SHEET_HEAD_TAG),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(OrreryTokens.Space.eight),
+                    ) {
+                        SheetFace(head)
+                        Text(
+                            SHEET_KIND_WORDS,
+                            modifier = Modifier.testTag(SHEET_KIND_TAG),
+                            style = OrreryTokens.Type.label,
+                            color = OrreryTokens.Ink.three,
+                        )
+                        val up = head.up
+                        if (up != null && onUp != null) {
+                            Text(
+                                up,
+                                modifier = Modifier.testTag(SHEET_UP_TAG).clickable(onClick = onUp),
+                                style = OrreryTokens.Type.body,
+                                color = OrreryTokens.Ink.two,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            Text("/", style = OrreryTokens.Type.body, color = OrreryTokens.Ink.three)
+                        }
+                        Text(
+                            head.name,
+                            modifier = Modifier.testTag(SHEET_NAME_TAG).weight(1f),
+                            style = OrreryTokens.Type.body.copy(fontWeight = OrreryTokens.Font.Weight.bold),
+                            color = OrreryTokens.Ink.one,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        SheetCloseButton(onClose)
+                    }
+                    if (head.state.isNotEmpty()) {
+                        Text(
+                            head.state,
+                            modifier = Modifier.padding(top = OrreryTokens.Space.two).testTag(SHEET_STATE_TAG),
+                            style = OrreryTokens.Type.small,
+                            color = OrreryTokens.Ink.three,
+                        )
+                    }
                 }
-                Text(
-                    head.name,
-                    modifier = Modifier.testTag(SHEET_NAME_TAG).weight(1f, fill = false),
-                    style = OrreryTokens.Type.body.copy(fontWeight = OrreryTokens.Font.Weight.bold),
-                    color = OrreryTokens.Ink.one,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-            if (head.state.isNotEmpty()) {
-                Text(
-                    head.state,
-                    modifier = Modifier.padding(top = OrreryTokens.Space.two).testTag(SHEET_STATE_TAG),
-                    style = OrreryTokens.Type.small,
-                    color = OrreryTokens.Ink.three,
-                )
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                        .testTag(SHEET_BODY_TAG_PREFIX + subject.key)
+                        .semantics { sheetFade = 1f },
+                ) {
+                    body(subject)
+                }
             }
         }
         Box(
             modifier = Modifier
-                .weight(1f)
                 .fillMaxWidth()
-                .testTag(SHEET_BODY_TAG_PREFIX + subject.key)
-                .semantics { sheetFade = 1f },
-        ) {
-            body(subject)
-        }
+                .height(OrreryTokens.Space.eight)
+                .background(OrreryTokens.Surface.raised)
+                .testTag(SHEET_FOOT_TAG),
+        ) {}
     }
 }
 
@@ -234,6 +284,33 @@ private fun SheetFace(head: SheetHead) {
     when (head.face) {
         null, WorkKind.DESIGN -> GlyphIcon(Glyph.DESIGN, OrreryTokens.Ink.one)
         WorkKind.EPIC, WorkKind.CONTRACT -> ContractMark(head.faceKey)
+    }
+}
+
+// The X arms of the close control, on the sixteen grid the round 8 glyphs are drawn on: from four to twelve, one and a
+// half wide.
+private const val CLOSE_INSET = 4f / 16f
+private const val CLOSE_STROKE = 1.5f / 16f
+
+// The close control at the end of the head: a touch square with an X in the second ink, named "Close" for the reader since
+// it shows no words. It calls [onClose].
+@Composable
+private fun SheetCloseButton(onClose: () -> Unit) {
+    val ink = OrreryTokens.Ink.two
+    Box(
+        modifier = Modifier
+            .testTag(SHEET_CLOSE_TAG)
+            .size(OrreryTokens.Size.controlTouch)
+            .clickable(role = Role.Button, onClick = onClose)
+            .semantics { contentDescription = "Close" },
+        contentAlignment = Alignment.Center,
+    ) {
+        Canvas(modifier = Modifier.size(OrreryTokens.Size.icon)) {
+            val inset = size.width * CLOSE_INSET
+            val stroke = size.width * CLOSE_STROKE
+            drawLine(ink, Offset(inset, inset), Offset(size.width - inset, size.height - inset), stroke, StrokeCap.Round)
+            drawLine(ink, Offset(size.width - inset, inset), Offset(inset, size.height - inset), stroke, StrokeCap.Round)
+        }
     }
 }
 
