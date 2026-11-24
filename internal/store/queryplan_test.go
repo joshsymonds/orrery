@@ -45,11 +45,12 @@ func TestReaderQueryPlans(t *testing.T) {
 		"PendingCallerEvents": {
 			"ListPendingCallerSteps", "ListSteeredEpics", "ListOpenEpicQuestions", "CountCallerEvent",
 		},
-		"StepFacts": {"ListStepFacts"},
-		"Contract":  {"GetContractListing", "ListContractVersions", "ListContractStates"},
-		"Contracts": {"ListContractListings"},
-		"Accounts":  {"ListLLMAccounts"},
-		"Routes":    {"GetRouteRegistry", "ListRouteSeats", "ListRouteContexts", "ListRouteBindings"},
+		"StepFacts":           {"ListStepFacts"},
+		"Contract":            {"GetContractListing", "ListContractVersions", "ListContractStates"},
+		"Contracts":           {"ListContractListings"},
+		"ContractWorkingCopy": {"GetContractWorking", "ListContractRowWrites"},
+		"Accounts":            {"ListLLMAccounts"},
+		"Routes":              {"GetRouteRegistry", "ListRouteSeats", "ListRouteContexts", "ListRouteBindings"},
 		"RoutesSnapshot": {
 			"GetRouteRegistry", "ListRouteSeats", "ListRouteContexts", "ListRouteBindings", "ListRouteAccountTokens",
 		},

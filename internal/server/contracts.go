@@ -105,12 +105,60 @@ func (c contractsServer) Get(
 	if err != nil {
 		return nil, err
 	}
-	return connect.NewResponse(&orreryv1.ContractsGetResponse{
+	response := &orreryv1.ContractsGetResponse{
 		Contract: contractListingMessage(record.ContractListing),
 		Versions: versions,
 		States:   states,
 		Work:     work,
-	}), nil
+	}
+	err = c.setWorking(ctx, record.ContractListing.ID, response)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(response), nil
+}
+
+// setWorking sets the working copy of the contract id on response, which a contract with none leaves unset. A failed read
+// answers as contractReadError does.
+func (c contractsServer) setWorking(
+	ctx context.Context,
+	id string,
+	response *orreryv1.ContractsGetResponse,
+) error {
+	working, err := c.reader.ContractWorkingCopy(ctx, id)
+	if errors.Is(err, store.ErrNoWorking) {
+		return nil
+	}
+	if err != nil {
+		return contractReadError(err, "read contract")
+	}
+	response.Working, err = contractWorkingMessage(working)
+	if err != nil {
+		return contractReadError(err, "read contract")
+	}
+	return nil
+}
+
+// contractWorkingMessage converts a working copy to its ContractWorking. Its body is the EpicContract in protobuf JSON,
+// whose sections and requirements the message carries.
+func contractWorkingMessage(working store.ContractWorkingCopy) (*orreryv1.ContractWorking, error) {
+	var body enginev1.EpicContract
+	if err := protojson.Unmarshal([]byte(working.Body), &body); err != nil {
+		return nil, fmt.Errorf("decode body of working copy of %s: %w", working.Contract, err)
+	}
+	decisions := make([]*orreryv1.ContractDecision, 0, len(working.Decisions))
+	for _, decision := range working.Decisions {
+		decisions = append(decisions, contractDecisionMessage(decision))
+	}
+	return &orreryv1.ContractWorking{
+		Version:      working.Version,
+		Contract:     epicContractMessage(&body, 0),
+		Requirements: epicRequirementMessages(body.GetRequirements(), nil),
+		Decisions:    decisions,
+		Writer:       working.Writer,
+		Updated:      working.Updated,
+		ChangedRows:  working.ChangedRows,
+	}, nil
 }
 
 // Accept forwards the owner's acceptance of the named contract to orreryd, and answers the contract as orreryd stored it.
