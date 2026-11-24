@@ -808,6 +808,7 @@ func epicListingOf(listed sqlcgen.ListEpicListingsRow) EpicRow {
 	row := EpicRow{
 		ID:            listed.ID,
 		Repository:    listed.Repository,
+		Host:          listed.Host,
 		Title:         listed.Title,
 		Phase:         listed.Phase,
 		Created:       time.Unix(listed.Created, 0),

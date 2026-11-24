@@ -304,8 +304,9 @@ func stepMessage(row store.StepRow, held bool) (*v1.Step, error) {
 	return step, nil
 }
 
-// listingMessage returns the Step message of row, a step's listing, with held as its held flag and no result. Ended is
-// zero while the step runs. A check or verdict round outside uint32 is an error, since the reply cannot carry it.
+// listingMessage returns the Step message of row, a step's listing, with held as its held flag, its host and no result.
+// Ended is zero while the step runs. A check or verdict round outside uint32 is an error, since the reply cannot carry
+// it.
 func listingMessage(row store.StepListing, held bool) (*v1.Step, error) {
 	checks := make([]*v1.StepCheck, 0, len(row.Checks))
 	for _, check := range row.Checks {
@@ -358,6 +359,7 @@ func listingMessage(row store.StepListing, held bool) (*v1.Step, error) {
 		Verdicts:         verdicts,
 		Caller:           row.Caller,
 		Summary:          row.Summary,
+		Host:             row.Host,
 	}
 	if !row.Ended.IsZero() {
 		step.Ended = row.Ended.Unix()

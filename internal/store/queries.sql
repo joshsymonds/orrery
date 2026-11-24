@@ -625,7 +625,7 @@ FROM epics LEFT JOIN epic_revisions ON epic_revisions.epic = epics.id
 ORDER BY epics.id;
 
 -- name: ListEpicListings :many
-SELECT epics.id, epics.repository, epics.title, epics.phase, epics.phase_at, epics.created, epics.changed,
+SELECT epics.id, epics.repository, epics.host, epics.title, epics.phase, epics.phase_at, epics.created, epics.changed,
     epics.steerer, epics.paused, epics.pause_source, epics.parked,
     CAST(COALESCE(epic_revisions.revision, 0) AS INTEGER) AS revision, epic_seen.at AS seen_at,
     CAST((SELECT COUNT(*) FROM epic_questions WHERE epic_questions.epic = epics.id AND epic_questions.state = 'open')

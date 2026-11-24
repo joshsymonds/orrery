@@ -1255,6 +1255,7 @@ type StepListing struct {
 	LoopStageFrom   int64
 	Caller          string
 	Summary         string
+	Host            string
 }
 
 type ToldLimitStep struct {
