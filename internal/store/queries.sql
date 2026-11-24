@@ -1574,6 +1574,27 @@ JOIN sessions ON sessions.id = epic_sessions.session
 WHERE epic_sessions.epic = ?
 ORDER BY epic_sessions.at DESC, epic_sessions.session;
 
+-- name: GetSessionClaude :one
+SELECT claude_session FROM sessions WHERE id = ?;
+
+-- name: GetEpicSteererSession :one
+SELECT epics.steerer AS session, CAST(COALESCE(sessions.claude_session, '') AS TEXT) AS claude_session
+FROM epics LEFT JOIN sessions ON sessions.id = epics.steerer
+WHERE epics.id = ?;
+
+-- name: ListEpicStepSessions :many
+SELECT steps.id AS session, CAST(COALESCE(sessions.claude_session, '') AS TEXT) AS claude_session
+FROM steps LEFT JOIN sessions ON sessions.id = steps.id
+WHERE steps.epic = ?
+ORDER BY steps.id;
+
+-- name: ListEpicCallerSessions :many
+SELECT DISTINCT steps.caller AS session, CAST(COALESCE(sessions.claude_session, '') AS TEXT) AS claude_session
+FROM steps LEFT JOIN sessions ON sessions.id = steps.caller
+WHERE steps.epic = sqlc.arg(epic) AND steps.caller <> ''
+  AND NOT EXISTS (SELECT 1 FROM steps AS own WHERE own.id = steps.caller AND own.epic = sqlc.arg(epic))
+ORDER BY steps.caller;
+
 -- name: InsertCallerEvent :exec
 INSERT INTO caller_events (event, session, at)
 SELECT sqlc.arg(event), sqlc.arg(session), sqlc.arg(at)
