@@ -1158,16 +1158,33 @@ func startSessions(
 	}
 	cfg := host.serveConfig(
 		commands, stepCommands, evidence, notices, crons, hostName, opts.orrery, hosts, serveOpts(opts, st, logger))
-	if err := host.startRelay(ctx, opts, st, cfg, getenv, logger); err != nil {
-		host.shutdown()
-		return nil, errors.Join(err, ln.Close())
+	if err := host.startSessionSocket(ctx, opts, st, ln, cfg, getenv, logger); err != nil {
+		return nil, err
+	}
+	return host, nil
+}
+
+// startSessionSocket serves cfg on ln in the background until stop, and opens the relay beside it when startRelay opens
+// one. A relay that fails to open shuts the host down, closes ln, and returns the error.
+func (h *sessionHost) startSessionSocket(
+	ctx context.Context,
+	opts options,
+	st *store.Store,
+	ln net.Listener,
+	cfg enginehost.ServeConfig,
+	getenv func(string) string,
+	logger *slog.Logger,
+) error {
+	if err := h.startRelay(ctx, opts, st, cfg, getenv, logger); err != nil {
+		h.shutdown()
+		return errors.Join(err, ln.Close())
 	}
 	var serveCtx context.Context
-	serveCtx, host.stopServe = context.WithCancel(ctx)
+	serveCtx, h.stopServe = context.WithCancel(ctx)
 	go func() {
-		host.serveDone <- enginehost.ServeWith(serveCtx, ln, cfg)
+		h.serveDone <- enginehost.ServeWith(serveCtx, ln, cfg)
 	}()
-	return host, nil
+	return nil
 }
 
 // relayUnusedMessage is the message of the log line that says --relay-listen opens nothing.
