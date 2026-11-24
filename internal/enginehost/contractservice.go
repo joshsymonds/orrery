@@ -40,6 +40,7 @@ type ContractStore interface {
 	SetAsideContract(ctx context.Context, id string, c store.ContractChange) error
 	ReopenContract(ctx context.Context, id string, c store.ContractChange) error
 	Contract(ctx context.Context, id string) (store.ContractRecord, error)
+	ContractWorkingCopy(ctx context.Context, id string) (store.ContractWorkingCopy, error)
 	Contracts(ctx context.Context) ([]store.ContractListing, error)
 	Designs(ctx context.Context) ([]store.DesignRecord, error)
 	AppendDesignLog(ctx context.Context, line store.DesignLogLine) error
@@ -320,7 +321,7 @@ func contractNotFound(id string) error {
 	return refuseEpic(connect.CodeNotFound, fmt.Sprintf("contract %s not found", id))
 }
 
-// GetContract returns the contract with its versions and states.
+// GetContract returns the contract with its versions, states and working copy.
 func (s *contractService) GetContract(
 	ctx context.Context,
 	req *connect.Request[v1.GetContractRequest],
@@ -332,7 +333,41 @@ func (s *contractService) GetContract(
 	if err != nil {
 		return nil, err
 	}
+	err = s.attachWorking(ctx, req.Msg.GetId(), stored)
+	if err != nil {
+		return nil, err
+	}
 	return connect.NewResponse(&v1.GetContractResponse{Contract: stored}), nil
+}
+
+// attachWorking sets the working copy of the contract id on stored, which a contract with none leaves unset. A failed read
+// is answered as the store's other errors are.
+func (s *contractService) attachWorking(ctx context.Context, id string, stored *v1.StoredContract) error {
+	working, err := s.contracts.Store.ContractWorkingCopy(ctx, id)
+	if errors.Is(err, store.ErrNoWorking) {
+		return nil
+	}
+	if err != nil {
+		return epicStoreError(err)
+	}
+	stored.Working, err = contractWorkingMessage(working)
+	return err
+}
+
+// contractWorkingMessage returns the ContractWorking message of working, its body decoded from protobuf JSON.
+func contractWorkingMessage(working store.ContractWorkingCopy) (*v1.ContractWorking, error) {
+	var contract v1.EpicContract
+	if err := protojson.Unmarshal([]byte(working.Body), &contract); err != nil {
+		return nil, epicStoreError(fmt.Errorf("decode body of working copy of %s: %w", working.Contract, err))
+	}
+	return &v1.ContractWorking{
+		Version:     working.Version,
+		Contract:    &contract,
+		Decisions:   epicMap(working.Decisions, contractDecisionMessage),
+		Writer:      working.Writer,
+		Updated:     working.Updated,
+		ChangedRows: working.ChangedRows,
+	}, nil
 }
 
 // ListContracts returns the listing of every contract, without versions or states.
