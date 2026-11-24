@@ -192,6 +192,24 @@ message ContractsGetResponse {
 
   // The rows the owner was shown, oldest first.
   repeated ContractShown shown = 9;
+
+  // The contract's length: the lines above its checks in the body the page draws, which is the working copy's when the
+  // contract has one and the newest version's otherwise. Unset when that body is not counted, as when the settings file
+  // does not read.
+  ContractLength length = 10;
+}
+
+// ContractLength is a contract's length, counted in lines above its checks, against the thresholds the settings file
+// sets.
+message ContractLength {
+  // The lines above the checks.
+  int64 lines = 1;
+
+  // The warning threshold: lines at or past it warn.
+  int64 warn = 2;
+
+  // The strong warning threshold: lines at or past it warn strongly, to cut or split the contract.
+  int64 strong = 3;
 }
 
 // ContractWorking is a contract's working copy: the body its stage works on, with the decisions it asks the owner to

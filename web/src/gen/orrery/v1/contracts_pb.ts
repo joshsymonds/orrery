@@ -14,7 +14,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file orrery/v1/contracts.proto.
  */
 export const file_orrery_v1_contracts: GenFile = /*@__PURE__*/
-  fileDesc("ChlvcnJlcnkvdjEvY29udHJhY3RzLnByb3RvEglvcnJlcnkudjEitwEKCENvbnRyYWN0EgoKAmlkGAEgASgJEhIKCnJlcG9zaXRvcnkYAiABKAkSDQoFdGl0bGUYAyABKAkSDAoEY2FyZRgEIAEoCRINCgVzdGF0ZRgFIAEoCRIPCgd2ZXJzaW9uGAYgASgDEhYKDm9wZW5fZGVjaXNpb25zGAcgASgDEhQKDGNvbnZlcnNhdGlvbhgIIAEoCRIPCgdjcmVhdGVkGAkgASgDEg8KB2NoYW5nZWQYCiABKAMihgEKEENvbnRyYWN0RGVjaXNpb24SCgoCaWQYASABKAkSEAoIcXVlc3Rpb24YAiABKAkSDwoHb3B0aW9ucxgDIAMoCRIWCg5yZWNvbW1lbmRhdGlvbhgEIAEoCRIOCgZyZWFzb24YBSABKAkSCwoDcm93GAYgASgJEg4KBmFuc3dlchgHIAEoCSKdAgoPQ29udHJhY3RWZXJzaW9uEg8KB3ZlcnNpb24YASABKAMSKQoIY29udHJhY3QYAiABKAsyFy5vcnJlcnkudjEuRXBpY0NvbnRyYWN0EjAKDHJlcXVpcmVtZW50cxgDIAMoCzIaLm9ycmVyeS52MS5FcGljUmVxdWlyZW1lbnQSLgoJZGVjaXNpb25zGAQgAygLMhsub3JyZXJ5LnYxLkNvbnRyYWN0RGVjaXNpb24SDQoFd29yZHMYBSABKAkSDgoGd3JpdGVyGAYgASgJEgwKBHRpbWUYByABKAMSFAoMY2hhbmdlZF9yb3dzGAggAygJEhgKEGNoYW5nZWRfc2VjdGlvbnMYCSADKAkSDwoHcmVhZF9ieRgKIAMoCSKWAQoTQ29udHJhY3RTdGF0ZUNoYW5nZRINCgVzdGF0ZRgBIAEoCRIPCgd2ZXJzaW9uGAIgASgDEgoKAmJ5GAMgASgJEg8KB3Nlc3Npb24YBCABKAkSDQoFd29yZHMYBSABKAkSDAoEdGltZRgGIAEoAxIlCgVtYWtlchgHIAEoCzIWLm9ycmVyeS52MS5SZWNvcmRNYWtlciIWChRDb250cmFjdHNMaXN0UmVxdWVzdCI/ChVDb250cmFjdHNMaXN0UmVzcG9uc2USJgoJY29udHJhY3RzGAEgAygLMhMub3JyZXJ5LnYxLkNvbnRyYWN0IiEKE0NvbnRyYWN0c0dldFJlcXVlc3QSCgoCaWQYASABKAkiowMKFENvbnRyYWN0c0dldFJlc3BvbnNlEiUKCGNvbnRyYWN0GAEgASgLMhMub3JyZXJ5LnYxLkNvbnRyYWN0EiwKCHZlcnNpb25zGAIgAygLMhoub3JyZXJ5LnYxLkNvbnRyYWN0VmVyc2lvbhIuCgZzdGF0ZXMYAyADKAsyHi5vcnJlcnkudjEuQ29udHJhY3RTdGF0ZUNoYW5nZRIrCgd3b3JraW5nGAQgASgLMhoub3JyZXJ5LnYxLkNvbnRyYWN0V29ya2luZxIsCghyZWZ1c2FscxgFIAMoCzIaLm9ycmVyeS52MS5Db250cmFjdFJlZnVzYWwSKQoEcm93cxgGIAMoCzIbLm9ycmVyeS52MS5Db250cmFjdFJvd1dyaXRlEiUKBGxlZnQYByADKAsyFy5vcnJlcnkudjEuQ29udHJhY3RMZWZ0EjAKBHdvcmsYCCADKAsyIi5vcnJlcnkudjEuQ29udHJhY3RSZXF1aXJlbWVudFdvcmsSJwoFc2hvd24YCSADKAsyGC5vcnJlcnkudjEuQ29udHJhY3RTaG93biLmAQoPQ29udHJhY3RXb3JraW5nEg8KB3ZlcnNpb24YASABKAMSKQoIY29udHJhY3QYAiABKAsyFy5vcnJlcnkudjEuRXBpY0NvbnRyYWN0EjAKDHJlcXVpcmVtZW50cxgDIAMoCzIaLm9ycmVyeS52MS5FcGljUmVxdWlyZW1lbnQSLgoJZGVjaXNpb25zGAQgAygLMhsub3JyZXJ5LnYxLkNvbnRyYWN0RGVjaXNpb24SDgoGd3JpdGVyGAUgASgJEg8KB3VwZGF0ZWQYBiABKAMSFAoMY2hhbmdlZF9yb3dzGAcgAygJImsKD0NvbnRyYWN0UmVmdXNhbBILCgNzZXEYASABKAMSDwoHdmVyc2lvbhgCIAEoAxINCgVmaWVsZBgDIAEoCRIMCgR0ZXh0GAQgASgJEg8KB3Nlc3Npb24YBSABKAkSDAoEdGltZRgGIAEoAyKiAQoQQ29udHJhY3RSb3dXcml0ZRILCgNzZXEYASABKAMSDwoHdmVyc2lvbhgCIAEoAxILCgNyb3cYAyABKAkSDgoGYWN0aW9uGAQgASgJEg8KB2RlcGVuZHMYBSABKAkSDQoFd29yZHMYBiABKAkSJQoFbWFrZXIYByABKAsyFi5vcnJlcnkudjEuUmVjb3JkTWFrZXISDAoEdGltZRgIIAEoAyI3CgxDb250cmFjdExlZnQSDAoEa2luZBgBIAEoCRILCgNyZWYYAiABKAkSDAoEdGV4dBgDIAEoCSI7Cg1Db250cmFjdFNob3duEg8KB3ZlcnNpb24YASABKAMSCwoDcm93GAIgASgJEgwKBHRpbWUYAyABKAMinAEKF0NvbnRyYWN0UmVxdWlyZW1lbnRXb3JrEgoKAmlkGAEgASgJEgwKBHRleHQYAiABKAkSDQoFc3RhdGUYAyABKAkSMQoFdGFza3MYBCADKAsyIi5vcnJlcnkudjEuQ29udHJhY3RSZXF1aXJlbWVudFRhc2sSJQoFcHJvb2YYBSABKAsyFi5vcnJlcnkudjEuRXZpZGVuY2VSdW4iUwoXQ29udHJhY3RSZXF1aXJlbWVudFRhc2sSCgoCaWQYASABKAkSDQoFdGl0bGUYAiABKAkSDgoGc3RhdHVzGAMgASgJEg0KBXBsYWNlGAQgASgJIjMKFkNvbnRyYWN0c0FjY2VwdFJlcXVlc3QSCgoCaWQYASABKAkSDQoFd29yZHMYAiABKAkiQAoXQ29udHJhY3RzQWNjZXB0UmVzcG9uc2USJQoIY29udHJhY3QYASABKAsyEy5vcnJlcnkudjEuQ29udHJhY3QiNQoYQ29udHJhY3RzU2V0QXNpZGVSZXF1ZXN0EgoKAmlkGAEgASgJEg0KBXdvcmRzGAIgASgJIkIKGUNvbnRyYWN0c1NldEFzaWRlUmVzcG9uc2USJQoIY29udHJhY3QYASABKAsyEy5vcnJlcnkudjEuQ29udHJhY3QiMwoWQ29udHJhY3RzUmVvcGVuUmVxdWVzdBIKCgJpZBgBIAEoCRINCgV3b3JkcxgCIAEoCSJAChdDb250cmFjdHNSZW9wZW5SZXNwb25zZRIlCghjb250cmFjdBgBIAEoCzITLm9ycmVyeS52MS5Db250cmFjdCJDChRDb250cmFjdHNLZWVwUmVxdWVzdBIKCgJpZBgBIAEoCRIQCghhZGRpdGlvbhgCIAEoCRINCgV3b3JkcxgDIAEoCSI+ChVDb250cmFjdHNLZWVwUmVzcG9uc2USJQoIY29udHJhY3QYASABKAsyEy5vcnJlcnkudjEuQ29udHJhY3QiRQoWQ29udHJhY3RzU3RyaWtlUmVxdWVzdBIKCgJpZBgBIAEoCRIQCghhZGRpdGlvbhgCIAEoCRINCgV3b3JkcxgDIAEoCSJRChdDb250cmFjdHNTdHJpa2VSZXNwb25zZRIlCghjb250cmFjdBgBIAEoCzITLm9ycmVyeS52MS5Db250cmFjdBIPCgdyZW1vdmVkGAIgAygJIkIKFUNvbnRyYWN0c1Nob3duUmVxdWVzdBIKCgJpZBgBIAEoCRIPCgd2ZXJzaW9uGAIgASgDEgwKBHJvd3MYAyADKAkiJgoWQ29udHJhY3RzU2hvd25SZXNwb25zZRIMCgRyb3dzGAEgAygJMoEFCglDb250cmFjdHMSSQoETGlzdBIfLm9ycmVyeS52MS5Db250cmFjdHNMaXN0UmVxdWVzdBogLm9ycmVyeS52MS5Db250cmFjdHNMaXN0UmVzcG9uc2USRgoDR2V0Eh4ub3JyZXJ5LnYxLkNvbnRyYWN0c0dldFJlcXVlc3QaHy5vcnJlcnkudjEuQ29udHJhY3RzR2V0UmVzcG9uc2USTwoGQWNjZXB0EiEub3JyZXJ5LnYxLkNvbnRyYWN0c0FjY2VwdFJlcXVlc3QaIi5vcnJlcnkudjEuQ29udHJhY3RzQWNjZXB0UmVzcG9uc2USVQoIU2V0QXNpZGUSIy5vcnJlcnkudjEuQ29udHJhY3RzU2V0QXNpZGVSZXF1ZXN0GiQub3JyZXJ5LnYxLkNvbnRyYWN0c1NldEFzaWRlUmVzcG9uc2USTwoGUmVvcGVuEiEub3JyZXJ5LnYxLkNvbnRyYWN0c1Jlb3BlblJlcXVlc3QaIi5vcnJlcnkudjEuQ29udHJhY3RzUmVvcGVuUmVzcG9uc2USSQoES2VlcBIfLm9ycmVyeS52MS5Db250cmFjdHNLZWVwUmVxdWVzdBogLm9ycmVyeS52MS5Db250cmFjdHNLZWVwUmVzcG9uc2USTwoGU3RyaWtlEiEub3JyZXJ5LnYxLkNvbnRyYWN0c1N0cmlrZVJlcXVlc3QaIi5vcnJlcnkudjEuQ29udHJhY3RzU3RyaWtlUmVzcG9uc2USTAoFU2hvd24SIC5vcnJlcnkudjEuQ29udHJhY3RzU2hvd25SZXF1ZXN0GiEub3JyZXJ5LnYxLkNvbnRyYWN0c1Nob3duUmVzcG9uc2ViBnByb3RvMw", [file_orrery_v1_designs, file_orrery_v1_epics]);
+  fileDesc("ChlvcnJlcnkvdjEvY29udHJhY3RzLnByb3RvEglvcnJlcnkudjEitwEKCENvbnRyYWN0EgoKAmlkGAEgASgJEhIKCnJlcG9zaXRvcnkYAiABKAkSDQoFdGl0bGUYAyABKAkSDAoEY2FyZRgEIAEoCRINCgVzdGF0ZRgFIAEoCRIPCgd2ZXJzaW9uGAYgASgDEhYKDm9wZW5fZGVjaXNpb25zGAcgASgDEhQKDGNvbnZlcnNhdGlvbhgIIAEoCRIPCgdjcmVhdGVkGAkgASgDEg8KB2NoYW5nZWQYCiABKAMihgEKEENvbnRyYWN0RGVjaXNpb24SCgoCaWQYASABKAkSEAoIcXVlc3Rpb24YAiABKAkSDwoHb3B0aW9ucxgDIAMoCRIWCg5yZWNvbW1lbmRhdGlvbhgEIAEoCRIOCgZyZWFzb24YBSABKAkSCwoDcm93GAYgASgJEg4KBmFuc3dlchgHIAEoCSKdAgoPQ29udHJhY3RWZXJzaW9uEg8KB3ZlcnNpb24YASABKAMSKQoIY29udHJhY3QYAiABKAsyFy5vcnJlcnkudjEuRXBpY0NvbnRyYWN0EjAKDHJlcXVpcmVtZW50cxgDIAMoCzIaLm9ycmVyeS52MS5FcGljUmVxdWlyZW1lbnQSLgoJZGVjaXNpb25zGAQgAygLMhsub3JyZXJ5LnYxLkNvbnRyYWN0RGVjaXNpb24SDQoFd29yZHMYBSABKAkSDgoGd3JpdGVyGAYgASgJEgwKBHRpbWUYByABKAMSFAoMY2hhbmdlZF9yb3dzGAggAygJEhgKEGNoYW5nZWRfc2VjdGlvbnMYCSADKAkSDwoHcmVhZF9ieRgKIAMoCSKWAQoTQ29udHJhY3RTdGF0ZUNoYW5nZRINCgVzdGF0ZRgBIAEoCRIPCgd2ZXJzaW9uGAIgASgDEgoKAmJ5GAMgASgJEg8KB3Nlc3Npb24YBCABKAkSDQoFd29yZHMYBSABKAkSDAoEdGltZRgGIAEoAxIlCgVtYWtlchgHIAEoCzIWLm9ycmVyeS52MS5SZWNvcmRNYWtlciIWChRDb250cmFjdHNMaXN0UmVxdWVzdCI/ChVDb250cmFjdHNMaXN0UmVzcG9uc2USJgoJY29udHJhY3RzGAEgAygLMhMub3JyZXJ5LnYxLkNvbnRyYWN0IiEKE0NvbnRyYWN0c0dldFJlcXVlc3QSCgoCaWQYASABKAkizgMKFENvbnRyYWN0c0dldFJlc3BvbnNlEiUKCGNvbnRyYWN0GAEgASgLMhMub3JyZXJ5LnYxLkNvbnRyYWN0EiwKCHZlcnNpb25zGAIgAygLMhoub3JyZXJ5LnYxLkNvbnRyYWN0VmVyc2lvbhIuCgZzdGF0ZXMYAyADKAsyHi5vcnJlcnkudjEuQ29udHJhY3RTdGF0ZUNoYW5nZRIrCgd3b3JraW5nGAQgASgLMhoub3JyZXJ5LnYxLkNvbnRyYWN0V29ya2luZxIsCghyZWZ1c2FscxgFIAMoCzIaLm9ycmVyeS52MS5Db250cmFjdFJlZnVzYWwSKQoEcm93cxgGIAMoCzIbLm9ycmVyeS52MS5Db250cmFjdFJvd1dyaXRlEiUKBGxlZnQYByADKAsyFy5vcnJlcnkudjEuQ29udHJhY3RMZWZ0EjAKBHdvcmsYCCADKAsyIi5vcnJlcnkudjEuQ29udHJhY3RSZXF1aXJlbWVudFdvcmsSJwoFc2hvd24YCSADKAsyGC5vcnJlcnkudjEuQ29udHJhY3RTaG93bhIpCgZsZW5ndGgYCiABKAsyGS5vcnJlcnkudjEuQ29udHJhY3RMZW5ndGgiPQoOQ29udHJhY3RMZW5ndGgSDQoFbGluZXMYASABKAMSDAoEd2FybhgCIAEoAxIOCgZzdHJvbmcYAyABKAMi5gEKD0NvbnRyYWN0V29ya2luZxIPCgd2ZXJzaW9uGAEgASgDEikKCGNvbnRyYWN0GAIgASgLMhcub3JyZXJ5LnYxLkVwaWNDb250cmFjdBIwCgxyZXF1aXJlbWVudHMYAyADKAsyGi5vcnJlcnkudjEuRXBpY1JlcXVpcmVtZW50Ei4KCWRlY2lzaW9ucxgEIAMoCzIbLm9ycmVyeS52MS5Db250cmFjdERlY2lzaW9uEg4KBndyaXRlchgFIAEoCRIPCgd1cGRhdGVkGAYgASgDEhQKDGNoYW5nZWRfcm93cxgHIAMoCSJrCg9Db250cmFjdFJlZnVzYWwSCwoDc2VxGAEgASgDEg8KB3ZlcnNpb24YAiABKAMSDQoFZmllbGQYAyABKAkSDAoEdGV4dBgEIAEoCRIPCgdzZXNzaW9uGAUgASgJEgwKBHRpbWUYBiABKAMiogEKEENvbnRyYWN0Um93V3JpdGUSCwoDc2VxGAEgASgDEg8KB3ZlcnNpb24YAiABKAMSCwoDcm93GAMgASgJEg4KBmFjdGlvbhgEIAEoCRIPCgdkZXBlbmRzGAUgASgJEg0KBXdvcmRzGAYgASgJEiUKBW1ha2VyGAcgASgLMhYub3JyZXJ5LnYxLlJlY29yZE1ha2VyEgwKBHRpbWUYCCABKAMiNwoMQ29udHJhY3RMZWZ0EgwKBGtpbmQYASABKAkSCwoDcmVmGAIgASgJEgwKBHRleHQYAyABKAkiOwoNQ29udHJhY3RTaG93bhIPCgd2ZXJzaW9uGAEgASgDEgsKA3JvdxgCIAEoCRIMCgR0aW1lGAMgASgDIpwBChdDb250cmFjdFJlcXVpcmVtZW50V29yaxIKCgJpZBgBIAEoCRIMCgR0ZXh0GAIgASgJEg0KBXN0YXRlGAMgASgJEjEKBXRhc2tzGAQgAygLMiIub3JyZXJ5LnYxLkNvbnRyYWN0UmVxdWlyZW1lbnRUYXNrEiUKBXByb29mGAUgASgLMhYub3JyZXJ5LnYxLkV2aWRlbmNlUnVuIlMKF0NvbnRyYWN0UmVxdWlyZW1lbnRUYXNrEgoKAmlkGAEgASgJEg0KBXRpdGxlGAIgASgJEg4KBnN0YXR1cxgDIAEoCRINCgVwbGFjZRgEIAEoCSIzChZDb250cmFjdHNBY2NlcHRSZXF1ZXN0EgoKAmlkGAEgASgJEg0KBXdvcmRzGAIgASgJIkAKF0NvbnRyYWN0c0FjY2VwdFJlc3BvbnNlEiUKCGNvbnRyYWN0GAEgASgLMhMub3JyZXJ5LnYxLkNvbnRyYWN0IjUKGENvbnRyYWN0c1NldEFzaWRlUmVxdWVzdBIKCgJpZBgBIAEoCRINCgV3b3JkcxgCIAEoCSJCChlDb250cmFjdHNTZXRBc2lkZVJlc3BvbnNlEiUKCGNvbnRyYWN0GAEgASgLMhMub3JyZXJ5LnYxLkNvbnRyYWN0IjMKFkNvbnRyYWN0c1Jlb3BlblJlcXVlc3QSCgoCaWQYASABKAkSDQoFd29yZHMYAiABKAkiQAoXQ29udHJhY3RzUmVvcGVuUmVzcG9uc2USJQoIY29udHJhY3QYASABKAsyEy5vcnJlcnkudjEuQ29udHJhY3QiQwoUQ29udHJhY3RzS2VlcFJlcXVlc3QSCgoCaWQYASABKAkSEAoIYWRkaXRpb24YAiABKAkSDQoFd29yZHMYAyABKAkiPgoVQ29udHJhY3RzS2VlcFJlc3BvbnNlEiUKCGNvbnRyYWN0GAEgASgLMhMub3JyZXJ5LnYxLkNvbnRyYWN0IkUKFkNvbnRyYWN0c1N0cmlrZVJlcXVlc3QSCgoCaWQYASABKAkSEAoIYWRkaXRpb24YAiABKAkSDQoFd29yZHMYAyABKAkiUQoXQ29udHJhY3RzU3RyaWtlUmVzcG9uc2USJQoIY29udHJhY3QYASABKAsyEy5vcnJlcnkudjEuQ29udHJhY3QSDwoHcmVtb3ZlZBgCIAMoCSJCChVDb250cmFjdHNTaG93blJlcXVlc3QSCgoCaWQYASABKAkSDwoHdmVyc2lvbhgCIAEoAxIMCgRyb3dzGAMgAygJIiYKFkNvbnRyYWN0c1Nob3duUmVzcG9uc2USDAoEcm93cxgBIAMoCTKBBQoJQ29udHJhY3RzEkkKBExpc3QSHy5vcnJlcnkudjEuQ29udHJhY3RzTGlzdFJlcXVlc3QaIC5vcnJlcnkudjEuQ29udHJhY3RzTGlzdFJlc3BvbnNlEkYKA0dldBIeLm9ycmVyeS52MS5Db250cmFjdHNHZXRSZXF1ZXN0Gh8ub3JyZXJ5LnYxLkNvbnRyYWN0c0dldFJlc3BvbnNlEk8KBkFjY2VwdBIhLm9ycmVyeS52MS5Db250cmFjdHNBY2NlcHRSZXF1ZXN0GiIub3JyZXJ5LnYxLkNvbnRyYWN0c0FjY2VwdFJlc3BvbnNlElUKCFNldEFzaWRlEiMub3JyZXJ5LnYxLkNvbnRyYWN0c1NldEFzaWRlUmVxdWVzdBokLm9ycmVyeS52MS5Db250cmFjdHNTZXRBc2lkZVJlc3BvbnNlEk8KBlJlb3BlbhIhLm9ycmVyeS52MS5Db250cmFjdHNSZW9wZW5SZXF1ZXN0GiIub3JyZXJ5LnYxLkNvbnRyYWN0c1Jlb3BlblJlc3BvbnNlEkkKBEtlZXASHy5vcnJlcnkudjEuQ29udHJhY3RzS2VlcFJlcXVlc3QaIC5vcnJlcnkudjEuQ29udHJhY3RzS2VlcFJlc3BvbnNlEk8KBlN0cmlrZRIhLm9ycmVyeS52MS5Db250cmFjdHNTdHJpa2VSZXF1ZXN0GiIub3JyZXJ5LnYxLkNvbnRyYWN0c1N0cmlrZVJlc3BvbnNlEkwKBVNob3duEiAub3JyZXJ5LnYxLkNvbnRyYWN0c1Nob3duUmVxdWVzdBohLm9ycmVyeS52MS5Db250cmFjdHNTaG93blJlc3BvbnNlYgZwcm90bzM", [file_orrery_v1_designs, file_orrery_v1_epics]);
 
 /**
  * Contract is one contract as List gives it.
@@ -435,6 +435,15 @@ export type ContractsGetResponse = Message<"orrery.v1.ContractsGetResponse"> & {
    * @generated from field: repeated orrery.v1.ContractShown shown = 9;
    */
   shown: ContractShown[];
+
+  /**
+   * The contract's length: the lines above its checks in the body the page draws, which is the working copy's when the
+   * contract has one and the newest version's otherwise. Unset when that body is not counted, as when the settings file
+   * does not read.
+   *
+   * @generated from field: orrery.v1.ContractLength length = 10;
+   */
+  length?: ContractLength | undefined;
 };
 
 /**
@@ -443,6 +452,42 @@ export type ContractsGetResponse = Message<"orrery.v1.ContractsGetResponse"> & {
  */
 export const ContractsGetResponseSchema: GenMessage<ContractsGetResponse> = /*@__PURE__*/
   messageDesc(file_orrery_v1_contracts, 7);
+
+/**
+ * ContractLength is a contract's length, counted in lines above its checks, against the thresholds the settings file
+ * sets.
+ *
+ * @generated from message orrery.v1.ContractLength
+ */
+export type ContractLength = Message<"orrery.v1.ContractLength"> & {
+  /**
+   * The lines above the checks.
+   *
+   * @generated from field: int64 lines = 1;
+   */
+  lines: bigint;
+
+  /**
+   * The warning threshold: lines at or past it warn.
+   *
+   * @generated from field: int64 warn = 2;
+   */
+  warn: bigint;
+
+  /**
+   * The strong warning threshold: lines at or past it warn strongly, to cut or split the contract.
+   *
+   * @generated from field: int64 strong = 3;
+   */
+  strong: bigint;
+};
+
+/**
+ * Describes the message orrery.v1.ContractLength.
+ * Use `create(ContractLengthSchema)` to create a new message.
+ */
+export const ContractLengthSchema: GenMessage<ContractLength> = /*@__PURE__*/
+  messageDesc(file_orrery_v1_contracts, 8);
 
 /**
  * ContractWorking is a contract's working copy: the body its stage works on, with the decisions it asks the owner to
@@ -506,7 +551,7 @@ export type ContractWorking = Message<"orrery.v1.ContractWorking"> & {
  * Use `create(ContractWorkingSchema)` to create a new message.
  */
 export const ContractWorkingSchema: GenMessage<ContractWorking> = /*@__PURE__*/
-  messageDesc(file_orrery_v1_contracts, 8);
+  messageDesc(file_orrery_v1_contracts, 9);
 
 /**
  * ContractRefusal is a refusal the contract's stage recorded for a field of its body.
@@ -562,7 +607,7 @@ export type ContractRefusal = Message<"orrery.v1.ContractRefusal"> & {
  * Use `create(ContractRefusalSchema)` to create a new message.
  */
 export const ContractRefusalSchema: GenMessage<ContractRefusal> = /*@__PURE__*/
-  messageDesc(file_orrery_v1_contracts, 9);
+  messageDesc(file_orrery_v1_contracts, 10);
 
 /**
  * ContractRowWrite is a write to a row of a contract's body, as its stage recorded it.
@@ -632,7 +677,7 @@ export type ContractRowWrite = Message<"orrery.v1.ContractRowWrite"> & {
  * Use `create(ContractRowWriteSchema)` to create a new message.
  */
 export const ContractRowWriteSchema: GenMessage<ContractRowWrite> = /*@__PURE__*/
-  messageDesc(file_orrery_v1_contracts, 10);
+  messageDesc(file_orrery_v1_contracts, 11);
 
 /**
  * ContractLeft is an item the contract's stage left, with the kind of item and the id it refers to.
@@ -667,7 +712,7 @@ export type ContractLeft = Message<"orrery.v1.ContractLeft"> & {
  * Use `create(ContractLeftSchema)` to create a new message.
  */
 export const ContractLeftSchema: GenMessage<ContractLeft> = /*@__PURE__*/
-  messageDesc(file_orrery_v1_contracts, 11);
+  messageDesc(file_orrery_v1_contracts, 12);
 
 /**
  * ContractShown is a row of a contract version the owner was shown.
@@ -702,7 +747,7 @@ export type ContractShown = Message<"orrery.v1.ContractShown"> & {
  * Use `create(ContractShownSchema)` to create a new message.
  */
 export const ContractShownSchema: GenMessage<ContractShown> = /*@__PURE__*/
-  messageDesc(file_orrery_v1_contracts, 12);
+  messageDesc(file_orrery_v1_contracts, 13);
 
 /**
  * ContractRequirementWork is the work done on one requirement of a contract: its tasks and the evidence run that proves
@@ -752,7 +797,7 @@ export type ContractRequirementWork = Message<"orrery.v1.ContractRequirementWork
  * Use `create(ContractRequirementWorkSchema)` to create a new message.
  */
 export const ContractRequirementWorkSchema: GenMessage<ContractRequirementWork> = /*@__PURE__*/
-  messageDesc(file_orrery_v1_contracts, 13);
+  messageDesc(file_orrery_v1_contracts, 14);
 
 /**
  * ContractRequirementTask is a task that covers a requirement of a contract.
@@ -794,7 +839,7 @@ export type ContractRequirementTask = Message<"orrery.v1.ContractRequirementTask
  * Use `create(ContractRequirementTaskSchema)` to create a new message.
  */
 export const ContractRequirementTaskSchema: GenMessage<ContractRequirementTask> = /*@__PURE__*/
-  messageDesc(file_orrery_v1_contracts, 14);
+  messageDesc(file_orrery_v1_contracts, 15);
 
 /**
  * ContractsAcceptRequest names the contract the owner accepts.
@@ -822,7 +867,7 @@ export type ContractsAcceptRequest = Message<"orrery.v1.ContractsAcceptRequest">
  * Use `create(ContractsAcceptRequestSchema)` to create a new message.
  */
 export const ContractsAcceptRequestSchema: GenMessage<ContractsAcceptRequest> = /*@__PURE__*/
-  messageDesc(file_orrery_v1_contracts, 15);
+  messageDesc(file_orrery_v1_contracts, 16);
 
 /**
  * ContractsAcceptResponse carries the contract as it stands after the acceptance.
@@ -843,7 +888,7 @@ export type ContractsAcceptResponse = Message<"orrery.v1.ContractsAcceptResponse
  * Use `create(ContractsAcceptResponseSchema)` to create a new message.
  */
 export const ContractsAcceptResponseSchema: GenMessage<ContractsAcceptResponse> = /*@__PURE__*/
-  messageDesc(file_orrery_v1_contracts, 16);
+  messageDesc(file_orrery_v1_contracts, 17);
 
 /**
  * ContractsSetAsideRequest names the contract the owner sets aside.
@@ -871,7 +916,7 @@ export type ContractsSetAsideRequest = Message<"orrery.v1.ContractsSetAsideReque
  * Use `create(ContractsSetAsideRequestSchema)` to create a new message.
  */
 export const ContractsSetAsideRequestSchema: GenMessage<ContractsSetAsideRequest> = /*@__PURE__*/
-  messageDesc(file_orrery_v1_contracts, 17);
+  messageDesc(file_orrery_v1_contracts, 18);
 
 /**
  * ContractsSetAsideResponse carries the contract as it stands after it was set aside.
@@ -892,7 +937,7 @@ export type ContractsSetAsideResponse = Message<"orrery.v1.ContractsSetAsideResp
  * Use `create(ContractsSetAsideResponseSchema)` to create a new message.
  */
 export const ContractsSetAsideResponseSchema: GenMessage<ContractsSetAsideResponse> = /*@__PURE__*/
-  messageDesc(file_orrery_v1_contracts, 18);
+  messageDesc(file_orrery_v1_contracts, 19);
 
 /**
  * ContractsReopenRequest names the contract the owner reopens.
@@ -920,7 +965,7 @@ export type ContractsReopenRequest = Message<"orrery.v1.ContractsReopenRequest">
  * Use `create(ContractsReopenRequestSchema)` to create a new message.
  */
 export const ContractsReopenRequestSchema: GenMessage<ContractsReopenRequest> = /*@__PURE__*/
-  messageDesc(file_orrery_v1_contracts, 19);
+  messageDesc(file_orrery_v1_contracts, 20);
 
 /**
  * ContractsReopenResponse carries the contract as it stands after it was reopened.
@@ -941,7 +986,7 @@ export type ContractsReopenResponse = Message<"orrery.v1.ContractsReopenResponse
  * Use `create(ContractsReopenResponseSchema)` to create a new message.
  */
 export const ContractsReopenResponseSchema: GenMessage<ContractsReopenResponse> = /*@__PURE__*/
-  messageDesc(file_orrery_v1_contracts, 20);
+  messageDesc(file_orrery_v1_contracts, 21);
 
 /**
  * ContractsKeepRequest names the contract and the addition the owner keeps.
@@ -976,7 +1021,7 @@ export type ContractsKeepRequest = Message<"orrery.v1.ContractsKeepRequest"> & {
  * Use `create(ContractsKeepRequestSchema)` to create a new message.
  */
 export const ContractsKeepRequestSchema: GenMessage<ContractsKeepRequest> = /*@__PURE__*/
-  messageDesc(file_orrery_v1_contracts, 21);
+  messageDesc(file_orrery_v1_contracts, 22);
 
 /**
  * ContractsKeepResponse carries the contract as it stands after the addition was kept.
@@ -997,7 +1042,7 @@ export type ContractsKeepResponse = Message<"orrery.v1.ContractsKeepResponse"> &
  * Use `create(ContractsKeepResponseSchema)` to create a new message.
  */
 export const ContractsKeepResponseSchema: GenMessage<ContractsKeepResponse> = /*@__PURE__*/
-  messageDesc(file_orrery_v1_contracts, 22);
+  messageDesc(file_orrery_v1_contracts, 23);
 
 /**
  * ContractsStrikeRequest names the contract and the addition the owner strikes.
@@ -1032,7 +1077,7 @@ export type ContractsStrikeRequest = Message<"orrery.v1.ContractsStrikeRequest">
  * Use `create(ContractsStrikeRequestSchema)` to create a new message.
  */
 export const ContractsStrikeRequestSchema: GenMessage<ContractsStrikeRequest> = /*@__PURE__*/
-  messageDesc(file_orrery_v1_contracts, 23);
+  messageDesc(file_orrery_v1_contracts, 24);
 
 /**
  * ContractsStrikeResponse carries the contract as it stands after the striking, and the rows the striking removed.
@@ -1060,7 +1105,7 @@ export type ContractsStrikeResponse = Message<"orrery.v1.ContractsStrikeResponse
  * Use `create(ContractsStrikeResponseSchema)` to create a new message.
  */
 export const ContractsStrikeResponseSchema: GenMessage<ContractsStrikeResponse> = /*@__PURE__*/
-  messageDesc(file_orrery_v1_contracts, 24);
+  messageDesc(file_orrery_v1_contracts, 25);
 
 /**
  * ContractsShownRequest names the contract version the owner was shown and the rows the owner was shown.
@@ -1095,7 +1140,7 @@ export type ContractsShownRequest = Message<"orrery.v1.ContractsShownRequest"> &
  * Use `create(ContractsShownRequestSchema)` to create a new message.
  */
 export const ContractsShownRequestSchema: GenMessage<ContractsShownRequest> = /*@__PURE__*/
-  messageDesc(file_orrery_v1_contracts, 25);
+  messageDesc(file_orrery_v1_contracts, 26);
 
 /**
  * ContractsShownResponse carries the rows orreryd marked as shown.
@@ -1116,7 +1161,7 @@ export type ContractsShownResponse = Message<"orrery.v1.ContractsShownResponse">
  * Use `create(ContractsShownResponseSchema)` to create a new message.
  */
 export const ContractsShownResponseSchema: GenMessage<ContractsShownResponse> = /*@__PURE__*/
-  messageDesc(file_orrery_v1_contracts, 26);
+  messageDesc(file_orrery_v1_contracts, 27);
 
 /**
  * Contracts reads the contracts orreryd keeps, from the store, and forwards the owner's accept, set aside and reopen to

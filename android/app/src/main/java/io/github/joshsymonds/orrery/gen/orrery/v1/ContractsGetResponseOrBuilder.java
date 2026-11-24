@@ -229,4 +229,27 @@ public interface ContractsGetResponseOrBuilder extends
    * <code>repeated .orrery.v1.ContractShown shown = 9 [json_name = "shown"];</code>
    */
   int getShownCount();
+
+  /**
+   * <pre>
+   * The contract's length: the lines above its checks in the body the page draws, which is the working copy's when the
+   * contract has one and the newest version's otherwise. Unset when that body is not counted, as when the settings file
+   * does not read.
+   * </pre>
+   *
+   * <code>.orrery.v1.ContractLength length = 10 [json_name = "length"];</code>
+   * @return Whether the length field is set.
+   */
+  boolean hasLength();
+  /**
+   * <pre>
+   * The contract's length: the lines above its checks in the body the page draws, which is the working copy's when the
+   * contract has one and the newest version's otherwise. Unset when that body is not counted, as when the settings file
+   * does not read.
+   * </pre>
+   *
+   * <code>.orrery.v1.ContractLength length = 10 [json_name = "length"];</code>
+   * @return The length.
+   */
+  io.github.joshsymonds.orrery.gen.orrery.v1.ContractLength getLength();
 }
