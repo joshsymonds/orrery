@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"connectrpc.com/connect"
 	"tailscale.com/tailcfg"
 
 	"github.com/joshsymonds/orrery/internal/hosts"
@@ -48,7 +49,8 @@ type Config struct {
 	Hosts []hosts.Host
 	// WhoIs names each connection's peer from its remote address.
 	WhoIs node.WhoIs
-	// Sessions names the host that runs each session.
+	// Sessions names the host that runs each session. While it is nil, a request that names a session is answered
+	// unavailable, since no claim can be checked.
 	Sessions SessionHosts
 	// Handler serves the session-service calls that the relay admits.
 	Handler http.Handler
@@ -62,6 +64,7 @@ type Relay struct {
 	login    string
 	agents   []hosts.Host
 	whoIs    node.WhoIs
+	sessions SessionHosts
 	handler  http.Handler
 	logger   *slog.Logger
 }
@@ -97,6 +100,7 @@ func Listen(ctx context.Context, cfg Config) (*Relay, error) {
 		login:    login,
 		agents:   cfg.Hosts,
 		whoIs:    cfg.WhoIs,
+		sessions: cfg.Sessions,
 		handler:  cfg.Handler,
 		logger:   logger,
 	}, nil
@@ -131,13 +135,14 @@ func (r *Relay) Addr() net.Addr {
 
 // Serve serves HTTP on the relay's listener until ctx ends, then shuts down and returns nil. A connection reaches the
 // handler only after admit has named its peer an agent of hosts.toml, and each request on it carries the host's name in
-// protocol.HeaderHost. Shutdown waits for the handlers, which see ctx end and can return.
+// protocol.HeaderHost. A request that names a session in protocol.HeaderSession, which another host runs, is refused
+// before the handler sees it (see checkClaims). Shutdown waits for the handlers, which see ctx end and can return.
 func (r *Relay) Serve(ctx context.Context) error {
 	admitted := newAdmitListener(r.listener, func(conn net.Conn) (string, error) {
 		return r.admit(ctx, conn)
 	}, r.logger)
 	srv := &http.Server{
-		Handler:           hostHeader(r.handler),
+		Handler:           hostHeader(r.checkClaims(r.handler)),
 		BaseContext:       func(net.Listener) context.Context { return ctx },
 		ConnContext:       connContext,
 		ReadHeaderTimeout: headerTimeout,
@@ -234,6 +239,55 @@ func hostHeader(next http.Handler) http.Handler {
 		req.Header.Set(protocol.HeaderHost, host)
 		next.ServeHTTP(w, req)
 	})
+}
+
+// checkClaims returns the handler that refuses a request whose protocol.HeaderSession names a session that the relay's
+// Sessions reports stored on another host, and otherwise calls the relay's handler. It runs after hostHeader, so the
+// host a request carries is the one its connection was admitted as. Only the session header is a claim: session and
+// step ids in a request's body are not.
+func (r *Relay) checkClaims(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		session := req.Header.Get(protocol.HeaderSession)
+		if session == "" {
+			next.ServeHTTP(w, req)
+			return
+		}
+		if err := r.checkClaim(req, session); err != nil {
+			r.refuse(w, req, err)
+			return
+		}
+		next.ServeHTTP(w, req)
+	})
+}
+
+// checkClaim returns nil when the request on the session named session may be served: the relay's Sessions does not
+// know the session, or it stores the session on the request's host. It returns a permission_denied error when it stores
+// the session on another host, which includes a host of "", and an unavailable error when it cannot tell, whether
+// because it fails or because the relay has none.
+func (r *Relay) checkClaim(req *http.Request, session string) error {
+	if r.sessions == nil {
+		return errors.Join(connect.NewError(connect.CodeUnavailable,
+			fmt.Errorf("hostrelay: session %s cannot be checked: no session store", session)))
+	}
+	host := req.Header.Get(protocol.HeaderHost)
+	owner, known, err := r.sessions.SessionHost(req.Context(), session)
+	switch {
+	case err != nil:
+		return errors.Join(connect.NewError(connect.CodeUnavailable,
+			fmt.Errorf("hostrelay: check the claim on session %s: %w", session, err)))
+	case !known, owner == host:
+		return nil
+	}
+	return errors.Join(connect.NewError(connect.CodePermissionDenied,
+		fmt.Errorf("hostrelay: session %s is not run by %s", session, host)))
+}
+
+// refuse writes err to w in the format of the Connect protocol that req uses, so that a Connect client reads its code.
+// A failure to write it is logged, since the handler has no other way to answer the request.
+func (r *Relay) refuse(w http.ResponseWriter, req *http.Request, err error) {
+	if writeErr := connect.NewErrorWriter().Write(w, req, err); writeErr != nil {
+		r.logger.WarnContext(req.Context(), "hostrelay: write a refusal", "path", req.URL.Path, "err", writeErr)
+	}
 }
 
 // peerConn is an admitted connection, and the orrery name of the host it was admitted as.
@@ -335,21 +389,4 @@ func (l *admitListener) Close() error {
 // Addr returns the address of the inner listener.
 func (l *admitListener) Addr() net.Addr {
 	return l.inner.Addr()
-}
-
-// ForwardConfig configures Forward: the controller's relay address, the dialer that reaches it over the tailnet, and
-// the logger.
-type ForwardConfig struct {
-	// Address is the controller's relay address, as host:port.
-	Address string
-	// Dial connects to Address over the tailnet, as net.Dialer.DialContext does.
-	Dial func(ctx context.Context, network, address string) (net.Conn, error)
-	// Logger receives the forwarder's diagnostics. Nil discards them.
-	Logger *slog.Logger
-}
-
-// Forward accepts connections on ln, the listener of an agent's sessions.sock, and relays each one to the controller at
-// cfg.Address, until ctx ends.
-func Forward(_ context.Context, _ net.Listener, _ ForwardConfig) error {
-	return errors.New("hostrelay: Forward is not built yet")
 }
