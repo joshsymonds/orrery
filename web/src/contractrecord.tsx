@@ -17,6 +17,7 @@ import {
   recordLine,
   type RowAbout,
 } from "./contracts";
+import { ContractWork } from "./contractwork";
 import type { EpicContract } from "./gen/orrery/v1/epics_pb";
 import type { Contract, ContractsGetResponse, ContractVersion } from "./gen/orrery/v1/contracts_pb";
 import { clock } from "./reader";
@@ -87,6 +88,9 @@ function leftOfView(view: View, read: ReadonlySet<string>): Left {
 // ContractRecord is a contract drawn as the contract document, read from Contracts.Get. Its newest version is drawn unless
 // the viewer picks an older one, which is read-only. Accept, Set aside and Reopen each send one call, and a refusal's
 // reason is shown in place of nothing looking done. The irreversible section is marked read once it is on screen.
+//
+// An accepted contract whose Get carries work opens on the work by requirement, and the document follows it on the same
+// page.
 export function ContractRecord(props: ContractRecordProps): JSX.Element {
   const { id, clients, writer, hasEpic, read, onRead, live, onAbout, aboutId, onChanged, onTalk, onOpenEpic } = props;
   const [loaded, setLoaded] = useState<View | undefined>(undefined);
@@ -189,6 +193,9 @@ export function ContractRecord(props: ContractRecordProps): JSX.Element {
   const canSetAside = isNewest && (proposed || (contract.state === "accepted" && !hasEpic));
   const canReopen = isNewest && contract.state === "set_aside";
   const talking = live && proposed && isNewest ? onAbout : undefined;
+  // An accepted contract with work opens on the work, whose door is the epic the page can open.
+  const showWork = contract.state === "accepted" && get.work.length > 0;
+  const workEpic = hasEpic && onOpenEpic !== undefined ? { id, onOpen: () => onOpenEpic(id) } : null;
 
   // accept re-reads the contract at the press. While it is still proposed at the version drawn, it sends one Accept
   // with no words. Otherwise it sends nothing and draws the newer answer with its note.
@@ -278,6 +285,7 @@ export function ContractRecord(props: ContractRecordProps): JSX.Element {
 
   return (
     <div class="contract-record">
+      {showWork && <ContractWork work={get.work} epic={workEpic} />}
       {!isNewest && (
         <p class="inote banner">
           <span>{`v${drawn.version} of ${newest.version} · not the newest`}</span>{" "}
