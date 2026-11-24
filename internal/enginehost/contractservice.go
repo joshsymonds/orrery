@@ -45,6 +45,8 @@ type ContractStore interface {
 	ContractStepReads(ctx context.Context, id string) ([]store.StepRead, error)
 	ContractRowWrites(ctx context.Context, id string) ([]store.ContractRowWrite, error)
 	ContractRefusals(ctx context.Context, id string) ([]store.ContractRefusal, error)
+	ContractLeft(ctx context.Context, id string) ([]store.ContractLeft, error)
+	ContractShown(ctx context.Context, id string) ([]store.ContractShown, error)
 	RefuseContract(ctx context.Context, id string, refusal store.ContractRefusal) error
 	Contracts(ctx context.Context) ([]store.ContractListing, error)
 	Designs(ctx context.Context) ([]store.DesignRecord, error)
@@ -454,7 +456,7 @@ func contractNotFound(id string) error {
 }
 
 // GetContract returns the contract with its versions, states, working copy, the steps that read each version, the
-// row writes its stage recorded and its refusals.
+// row writes its stage recorded, its refusals, what is left before it is accepted and the rows the owner was shown.
 func (s *contractService) GetContract(
 	ctx context.Context,
 	req *connect.Request[v1.GetContractRequest],
@@ -478,7 +480,47 @@ func (s *contractService) GetContract(
 	if err != nil {
 		return nil, err
 	}
+	err = s.attachLeft(ctx, req.Msg.GetId(), stored)
+	if err != nil {
+		return nil, err
+	}
+	err = s.attachShown(ctx, req.Msg.GetId(), stored)
+	if err != nil {
+		return nil, err
+	}
 	return connect.NewResponse(&v1.GetContractResponse{Contract: stored}), nil
+}
+
+// attachLeft sets what is left before the contract id is accepted on stored, in the order the store gives. A failed
+// read is answered as the store's other errors are.
+func (s *contractService) attachLeft(ctx context.Context, id string, stored *v1.StoredContract) error {
+	left, err := s.contracts.Store.ContractLeft(ctx, id)
+	if err != nil {
+		return epicStoreError(err)
+	}
+	stored.Left = epicMap(left, contractLeftMessage)
+	return nil
+}
+
+// contractLeftMessage returns the ContractLeft message of left.
+func contractLeftMessage(left store.ContractLeft) *v1.ContractLeft {
+	return &v1.ContractLeft{Kind: left.Kind, Ref: left.Ref, Text: left.Text}
+}
+
+// attachShown sets the rows of the contract versions the owner was shown on stored, oldest first. A failed read is
+// answered as the store's other errors are.
+func (s *contractService) attachShown(ctx context.Context, id string, stored *v1.StoredContract) error {
+	marks, err := s.contracts.Store.ContractShown(ctx, id)
+	if err != nil {
+		return epicStoreError(err)
+	}
+	stored.Shown = epicMap(marks, contractShownMessage)
+	return nil
+}
+
+// contractShownMessage returns the ContractShown message of mark.
+func contractShownMessage(mark store.ContractShown) *v1.ContractShown {
+	return &v1.ContractShown{Version: mark.Version, Row: mark.Row, Time: mark.At}
 }
 
 // attachProvenance sets the steps that read each version of stored on that version, oldest first, and the row writes of

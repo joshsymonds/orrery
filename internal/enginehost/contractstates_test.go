@@ -260,6 +260,12 @@ func TestContractRecordReviseAppendsVersion(t *testing.T) {
 		t.Errorf("ReviseContract reply = %v, want %v", revised, want)
 	}
 
+	// The revision leaves the additions neither kept nor struck, which GetContract lists as what is left.
+	want.Left = []*v1.ContractLeft{
+		{Kind: store.LeftAddition, Ref: "A1", Text: "addition neither kept nor struck"},
+		{Kind: store.LeftAddition, Ref: "A2", Text: "addition neither kept nor struck"},
+		{Kind: store.LeftAddition, Ref: "A3", Text: "addition neither kept nor struck"},
+	}
 	got, err := server.contracts.GetContract(t.Context(), connect.NewRequest(&v1.GetContractRequest{Id: epicServiceID}))
 	if err != nil {
 		t.Fatalf("GetContract: %v", err)
