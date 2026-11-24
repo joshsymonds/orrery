@@ -42,6 +42,12 @@ One request is one row in `requests`. [`Start`](../internal/ledger/write.go) ins
 | `cache_write_tokens` | Finish | Cache-write tokens. 0 while in flight. |
 | `billed_cost_nano_usd` | Finish | The billed cost. NULL when unknown. |
 | `list_cost_nano_usd` | Finish | The cost at list price. NULL when unknown. |
+| `list_input_nano_usd` | Finish | The input tokens' cost at list price. NULL when the request has no list cost. |
+| `list_output_nano_usd` | Finish | The output tokens' cost at list price. NULL when the request has no list cost. |
+| `list_cache_read_nano_usd` | Finish | The cache-read tokens' cost at list price. NULL when the request has no list cost. |
+| `list_cache_write_nano_usd` | Finish | The cache-write tokens' cost at list price. NULL when the request has no list cost. |
+
+**List cost by kind.** The four `list_*_nano_usd` columns split `list_cost_nano_usd` by token kind. Cache writes at the 5-minute price and at the 1-hour price are priced apart and both count in `list_cache_write_nano_usd`. For a request with a list cost, the four sum to `list_cost_nano_usd`. A request with no list cost has NULL in all five columns. [`ratecard`](../internal/ratecard/ratecard.go) computes the four from the Claude rate card, and `Finish` stores them as given.
 
 `Start` also carries `CallerAccount`, which is not a column. It feeds the account when the context has none (section 4).
 
