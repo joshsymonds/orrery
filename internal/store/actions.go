@@ -332,7 +332,7 @@ func carryOutAction(
 	case ActionRetryNode:
 		return nil, rerunNodeIn(ctx, queries, action.Epic, action.Node)
 	case ActionRetryEpic:
-		return nil, retryEpicIn(ctx, queries, action.Epic)
+		return nil, retryEpicIn(ctx, queries, action.Epic, at)
 	case ActionFailTask:
 		return failPlannedTask(ctx, queries, action, at)
 	case ActionResumeRelease:
