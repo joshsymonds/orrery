@@ -167,7 +167,7 @@ func TestTellDeliveredOnceUnknownTellMatchesErrNoTell(t *testing.T) {
 	}
 }
 
-func TestTellReachesSteererTellsStoredAtVersion109ReadAsDelivered(t *testing.T) {
+func TestTellDeliveredOnceMigrationMarksStoredTellsDelivered(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "orrery.db")
@@ -191,6 +191,15 @@ func TestTellReachesSteererTellsStoredAtVersion109ReadAsDelivered(t *testing.T) 
 	}
 	defer s.Close()
 
+	// The migration marks each stored tell delivered, so seq 1 (untold) and seq 2 (told with a question) both read 1.
+	for _, seq := range []int64{1, 2} {
+		if delivered := steererDeliveredOf(ctx, t, s, seededEpic, seq); delivered != 1 {
+			t.Errorf("steerer_delivered of stored tell %d after migrating from version 109 = %d, want 1", seq, delivered)
+		}
+	}
+
+	// An empty listing means the old tells send nothing: the steerer pass (planner.EpicCallerEvents.Pass,
+	// internal/planner/callerevents.go:86) sends only what UndeliveredTells lists.
 	tells, err := s.UndeliveredTells(ctx)
 	if err != nil {
 		t.Fatalf("UndeliveredTells: %v", err)
