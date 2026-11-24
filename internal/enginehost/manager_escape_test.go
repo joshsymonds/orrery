@@ -67,7 +67,7 @@ func startQueuedBehindHang(t *testing.T, m *Manager, path, dir string) string {
 // interrupted turn's end leaves the session done, and no turn runs for a cancelled line.
 func TestEscapeQueuedInterruptReturnsOwnerTextsInSendOrder(t *testing.T) {
 	t.Parallel()
-	m, path := newTestManager(t, 1, fakeClaudePath(t))
+	m, path := newTestManager(t, fakeClaudePath(t))
 	dir := t.TempDir()
 	id := startQueuedBehindHang(t, m, path, dir)
 	waitUntil(t, engineOf(m), "the fake reads the queued lines during the turn", func() bool {
@@ -155,7 +155,7 @@ func TestEscapeQueuedReadoptedSessionOwesNothingCancelled(t *testing.T) {
 // Claude answers the interrupt with an empty list, so OwnerInterrupt returns no texts and no error.
 func TestEscapeQueuedIdleInterruptReturnsNoTexts(t *testing.T) {
 	t.Parallel()
-	m, path := newTestManager(t, 1, fakeClaudePath(t))
+	m, path := newTestManager(t, fakeClaudePath(t))
 	id, err := m.Start(t.Context(), StartRequest{Dir: t.TempDir(), Prompt: "start"})
 	if err != nil {
 		t.Fatalf("Start: %v", err)

@@ -92,11 +92,9 @@ class SteerMenuModelTest {
     }
 
     @Test
-    fun steersLiveIsTrueOnlyForALiveOrrerydEpic() {
-        assertTrue(steersLive(epic(live = true, source = "orreryd")))
-        assertFalse(steersLive(epic(live = false, source = "orreryd")))
-        assertFalse(steersLive(epic(live = true, source = "record")))
-        assertFalse(steersLive(epic(live = false, source = "record")))
+    fun steersLiveIsTrueOnlyForALiveEpic() {
+        assertTrue(steersLive(epic(live = true)))
+        assertFalse(steersLive(epic(live = false)))
     }
 
     private fun headless(id: String, cwd: String, state: String): Pane =
@@ -124,7 +122,7 @@ class SteerMenuModelTest {
         orreryId = orreryId,
     )
 
-    private fun epic(live: Boolean, source: String): EpicRow = EpicRow(
+    private fun epic(live: Boolean): EpicRow = EpicRow(
         id = "lighthouse/rota-export",
         repository = repository,
         slug = "lighthouse-rota-export",
@@ -133,7 +131,5 @@ class SteerMenuModelTest {
         live = live,
         runningSteps = emptyList(),
         endedSteps = 0,
-        problem = "",
-        source = source,
     )
 }

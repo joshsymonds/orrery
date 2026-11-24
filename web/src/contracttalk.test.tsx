@@ -187,9 +187,9 @@ function settle(signal: AbortSignal, check: () => boolean, what: string): Promis
   return until(signal, check, what, { step: () => act(turn) });
 }
 
-// panelOf is the panel labelled as given, or null when none is drawn.
+// panelOf is the held card titled as given, or null when none is drawn.
 function panelOf(container: HTMLElement, label: string): HTMLElement | null {
-  return container.querySelector<HTMLElement>(`aside.rpanel[aria-label="${label}"]`);
+  return container.querySelector<HTMLElement>(`article.held-card[aria-label="${label}"]`);
 }
 
 // recordDrawn is whether a contract record is drawn in the container, or in the panel labelled as given.
@@ -275,8 +275,8 @@ function bandContract(container: HTMLElement): HTMLElement | null {
 
 test("ContractMine: a row's control sets the dock's About, and the next send leads with it", (t) =>
   withApp(t.signal, 1600, { rows: [conversationRow()], address: contractAddress }, async ({ container, probe }) => {
-    await settle(t.signal, () => titledRecord(container, "tide-alerts contract"), "the record is drawn in the panel");
-    const control = talkControls(panelOf(container, "tide-alerts contract") ?? container)[0];
+    await settle(t.signal, () => titledRecord(container, "tide-alerts"), "the record is drawn in the panel");
+    const control = talkControls(panelOf(container, "tide-alerts") ?? container)[0];
     assert.ok(control !== undefined, "the record draws a row's control");
     await click(control);
     await settle(t.signal, () => aboutLine(container) !== null, "the dock draws its About");
@@ -293,23 +293,23 @@ test("ContractMine: opening another contract clears the About the first one set"
   const other = "tidepool/tide-other";
   const both: Contract[] = listed.flatMap((first) => [first, { ...first, id: other }]);
   return withApp(t.signal, 1600, { rows: [conversationRow()], address: contractAddress, contracts: both }, async ({ container }) => {
-    await settle(t.signal, () => titledRecord(container, "tide-alerts contract"), "the record is drawn in the panel");
-    const control = talkControls(panelOf(container, "tide-alerts contract") ?? container)[0];
+    await settle(t.signal, () => titledRecord(container, "tide-alerts"), "the record is drawn in the panel");
+    const control = talkControls(panelOf(container, "tide-alerts") ?? container)[0];
     assert.ok(control !== undefined, "the record draws a row's control");
     await click(control);
     await settle(t.signal, () => aboutLine(container) !== null, "the dock draws its About");
     const line = container.querySelector<HTMLElement>(`[data-contract="${other}"]`);
     assert.ok(line !== null, "the band draws the other contract's line");
     await click(line);
-    await settle(t.signal, () => recordDrawn(container, "tide-other contract"), "the other contract opens");
+    await settle(t.signal, () => recordDrawn(container, "tide-other"), "the other contract opens");
     assert.equal(aboutLine(container), null, "the first contract's About is cleared");
   });
 });
 
 test("ContractMine: the row the dock's About names draws its control lit, and no other row does", (t) =>
   withApp(t.signal, 1600, { rows: [conversationRow()], address: contractAddress }, async ({ container }) => {
-    await settle(t.signal, () => titledRecord(container, "tide-alerts contract"), "the record is drawn in the panel");
-    const panel = panelOf(container, "tide-alerts contract") ?? container;
+    await settle(t.signal, () => titledRecord(container, "tide-alerts"), "the record is drawn in the panel");
+    const panel = panelOf(container, "tide-alerts") ?? container;
     assert.equal(panel.querySelectorAll(".say.on").length, 0, "no row's control is lit before an About is set");
     const control = talkControls(panel)[0];
     assert.ok(control !== undefined, "the record draws a row's control");
@@ -328,8 +328,8 @@ test("ContractDoc: the contract page's title row carries the contract's state pi
   ] as const) {
     const shown: Contract[] = listed.map((entry) => ({ ...entry, state }));
     await withApp(t.signal, 1600, { rows: [conversationRow()], address: contractAddress, contracts: shown }, async ({ container }) => {
-      await settle(t.signal, () => recordDrawn(container, "tide-alerts contract"), "the record is drawn in the panel");
-      const title = panelOf(container, "tide-alerts contract")?.querySelector(".state");
+      await settle(t.signal, () => recordDrawn(container, "tide-alerts"), "the record is drawn in the panel");
+      const title = panelOf(container, "tide-alerts")?.querySelector(".state");
       assert.equal(title?.textContent, pill, `a ${state} contract's title row says its state`);
     });
   }
@@ -337,8 +337,8 @@ test("ContractDoc: the contract page's title row carries the contract's state pi
 
 test("ContractMine: Not about this clears the About, and the next send is the draft alone", (t) =>
   withApp(t.signal, 1600, { rows: [conversationRow()], address: contractAddress }, async ({ container, probe }) => {
-    await settle(t.signal, () => titledRecord(container, "tide-alerts contract"), "the record is drawn in the panel");
-    const control = talkControls(panelOf(container, "tide-alerts contract") ?? container)[0];
+    await settle(t.signal, () => titledRecord(container, "tide-alerts"), "the record is drawn in the panel");
+    const control = talkControls(panelOf(container, "tide-alerts") ?? container)[0];
     assert.ok(control !== undefined, "the record draws a row's control");
     await click(control);
     await settle(t.signal, () => aboutLine(container) !== null, "the dock draws its About");
@@ -354,8 +354,8 @@ test("ContractMine: Not about this clears the About, and the next send is the dr
 
 test("ContractMine: a send with an About on a pane conversation clears its sending row once the pane holds the prompt", (t) =>
   withApp(t.signal, 1600, { rows: [paneRow()], address: contractAddress }, async ({ container, probe }) => {
-    await settle(t.signal, () => titledRecord(container, "tide-alerts contract"), "the record is drawn in the panel");
-    const control = talkControls(panelOf(container, "tide-alerts contract") ?? container)[0];
+    await settle(t.signal, () => titledRecord(container, "tide-alerts"), "the record is drawn in the panel");
+    const control = talkControls(panelOf(container, "tide-alerts") ?? container)[0];
     assert.ok(control !== undefined, "the record draws a row's control");
     await click(control);
     await settle(t.signal, () => aboutLine(container) !== null, "the dock draws its About");
@@ -378,7 +378,7 @@ test("ContractMine: with no live conversation the record draws no row control", 
       "the record says its conversation has ended",
     );
     assert.equal(talkControls(container).length, 0, "no row control is drawn");
-    assert.equal(recordDrawn(container, "tide-alerts contract"), true, "the record is still drawn");
+    assert.equal(recordDrawn(container, "tide-alerts"), true, "the record is still drawn");
   }));
 
 test("ContractLines: the band's contract line says what is left, and a press opens the contract", (t) =>
@@ -395,7 +395,7 @@ test("ContractLines: the band's contract line says what is left, and a press ope
     );
     assert.ok(line.textContent?.includes("Read and decide"), "the line offers the way in");
     await click(line);
-    await settle(t.signal, () => recordDrawn(container, "tide-alerts contract"), "the press opens the record");
+    await settle(t.signal, () => recordDrawn(container, "tide-alerts"), "the press opens the record");
   }));
 
 test("ContractLines: the band's contract line says it is open on the right while the contract is open", (t) =>
@@ -429,7 +429,7 @@ test("ContractLines: the transcript's contract line is drawn in the middle reade
         throw new Error("the transcript draws no contract line");
       }
       await click(line);
-      await settle(t.signal, () => recordDrawn(container, "tide-alerts contract"), "the press opens the record");
+      await settle(t.signal, () => recordDrawn(container, "tide-alerts"), "the press opens the record");
     },
   ));
 

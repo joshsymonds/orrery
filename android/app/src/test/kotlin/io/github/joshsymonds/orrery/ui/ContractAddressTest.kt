@@ -18,6 +18,9 @@ import io.github.joshsymonds.orrery.gen.orrery.v1.Contract
 import io.github.joshsymonds.orrery.gen.orrery.v1.ContractsListResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.ConversationItem as ConversationItemProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.ConversationState
+import io.github.joshsymonds.orrery.gen.orrery.v1.Design
+import io.github.joshsymonds.orrery.gen.orrery.v1.DesignContract
+import io.github.joshsymonds.orrery.gen.orrery.v1.DesignsListResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsListResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.HeadlessSession
 import io.github.joshsymonds.orrery.gen.orrery.v1.SessionsWatchConversationResponse
@@ -40,7 +43,9 @@ private const val WATCH_PATH = "/orrery.v1.Sessions/WatchConversation"
 private const val EPICS_LIST_PATH = "/orrery.v1.Epics/List"
 private const val CONTRACTS_LIST_PATH = "/orrery.v1.Contracts/List"
 private const val CONTRACT_GET_PATH = "/orrery.v1.Contracts/Get"
+private const val DESIGNS_LIST_PATH = "/orrery.v1.Designs/List"
 private const val CONTRACT_TITLE = "Synthetic contract title"
+private const val DESIGN_ID = "synthetic-design"
 private const val CALL_ID = "synthetic-call"
 
 @RunWith(RobolectricTestRunner::class)
@@ -62,6 +67,7 @@ class ContractAddressTest {
         server.respond(EPICS_LIST_PATH, EpicsListResponse.getDefaultInstance())
         server.respond(CONTRACTS_LIST_PATH, ContractsListResponse.newBuilder().addContracts(listed()).build())
         server.respond(CONTRACT_GET_PATH, contractRecordProto(state = "proposed", versions = listOf(contractVersionProto(1))))
+        server.respond(DESIGNS_LIST_PATH, DesignsListResponse.newBuilder().addDesigns(ofOneDesign()).build())
     }
 
     @After
@@ -69,6 +75,27 @@ class ContractAddressTest {
         launched.forEach { it.pause().stop().destroy() }
         server.close()
     }
+
+    /**
+     * A design of one the conversation works: its one contract, [RECORD_ID], with no epic made from it, so the design's
+     * work link opens the contract.
+     */
+    private fun ofOneDesign(): Design = Design.newBuilder()
+        .setId(DESIGN_ID)
+        .setTitle("Synthetic design")
+        .setConversation(CONTRACT_SESSION)
+        .setCreated(NOW - 120)
+        .setOfOne(true)
+        .setState("proposed")
+        .addContracts(
+            DesignContract.newBuilder()
+                .setId(RECORD_ID)
+                .setTitle(CONTRACT_TITLE)
+                .setRepository("synthetic-owner")
+                .setState("proposed")
+                .setPosition(1L),
+        )
+        .build()
 
     /** The contract as the list holds it: proposed by [CONTRACT_SESSION], the conversation the tests open it from. */
     private fun listed(): Contract = Contract.newBuilder()
@@ -147,21 +174,28 @@ class ContractAddressTest {
         awaitNode(hasText(CONTRACT_TITLE))
     }
 
-    /** Waits until the conversation is drawn again, with its head, and the contract screen is gone. */
+    /** Waits until the contract's page on the phone sheet has read its record and drawn the record's title. */
+    private fun awaitContractPage() {
+        awaitNode(hasTestTag(CONTRACT_PAGE_TAG))
+        awaitNode(hasText(CONTRACT_TITLE))
+    }
+
+    /** Waits until the conversation is drawn again, with its head, and neither the contract screen nor its page is drawn. */
     private fun awaitConversationAgain() {
         awaitNode(hasTestTag("head-text"))
         awaitNone(hasTestTag("contract-record"))
+        awaitNone(hasTestTag(CONTRACT_PAGE_TAG))
     }
 
     @Test
     fun theTileOpensTheContractLiveAndBackReturnsToTheConversation() {
         serveSession(state = "waiting")
         val controller = launch()
-        awaitNode(hasTestTag("tile:contract:$RECORD_ID"))
+        awaitNode(hasTestTag("work-link:contract:$RECORD_ID"))
 
-        composeRule.onNodeWithTag("tile:contract:$RECORD_ID").performClick()
+        composeRule.onNodeWithTag("work-link:contract:$RECORD_ID").performClick()
 
-        awaitContractScreen()
+        awaitContractPage()
         awaitNode(hasTestTag("contract-talk:R1"))
         assertAbsent(hasTestTag("contract-no-live"))
 
@@ -202,16 +236,15 @@ class ContractAddressTest {
     }
 
     @Test
-    fun aStoppedConversationOpensTheContractWithTheNoLiveLineAndNoRowControls() {
+    fun aStoppedConversationOpensTheContractWithNoRowControls() {
         serveSession(state = "stopped")
         launch()
         awaitNode(hasTestTag("head-text"))
-        awaitNode(hasTestTag("tile:contract:$RECORD_ID"))
+        awaitNode(hasTestTag("work-link:contract:$RECORD_ID"))
 
-        composeRule.onNodeWithTag("tile:contract:$RECORD_ID").performClick()
+        composeRule.onNodeWithTag("work-link:contract:$RECORD_ID").performClick()
 
-        awaitContractScreen()
-        awaitNode(hasTestTag("contract-no-live"))
+        awaitContractPage()
         assertAbsent(hasTestTag("contract-talk:R1"))
     }
 }

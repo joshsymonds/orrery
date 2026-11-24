@@ -277,3 +277,93 @@ func TestTranscriptTurnMissingFile(t *testing.T) {
 		t.Fatalf("Read of a missing transcript: err = %v, want one wrapping fs.ErrNotExist", err)
 	}
 }
+
+// stoppedLine returns an assistant line at second s whose content blocks are content and whose message's stop_reason
+// is stop.
+func stoppedLine(s int, stop, content string) string {
+	return `{"type":"assistant","timestamp":"` + stamp(s) + `","message":{"role":"assistant","stop_reason":"` + stop +
+		`","content":[` + content + `]}}`
+}
+
+// interruptionLine returns a user line at second s that holds the interruption text text.
+func interruptionLine(s int, text string) string {
+	return `{"type":"user","timestamp":"` + stamp(s) + `","message":{"role":"user","content":[` + textBlock(text) +
+		`]}}`
+}
+
+func TestTranscriptTurnEndsAtStopThatIsNotToolUse(t *testing.T) {
+	path := writeTranscript(t,
+		promptLine(1, "go"),
+		stoppedLine(2, "tool_use", toolUseBlock("a1", "Agent", `{"prompt":"search","run_in_background":true}`)),
+	)
+	reader := NewReader(path)
+	if turn := readTurn(t, reader); turn.TurnEnd != 0 {
+		t.Fatalf("TurnEnd = %d at a tool_use stop, want 0", turn.TurnEnd)
+	}
+
+	appendText(t, path, resultLine(3, "a1")+"\n")
+	if turn := readTurn(t, reader); turn.TurnEnd != 0 {
+		t.Fatalf("TurnEnd = %d at a tool result, want 0", turn.TurnEnd)
+	}
+
+	appendText(t, path, stoppedLine(4, "end_turn", textBlock("The agent runs."))+"\n")
+	if turn := readTurn(t, reader); turn.TurnEnd != 4 {
+		t.Fatalf("TurnEnd = %d at an end_turn stop, want 4", turn.TurnEnd)
+	}
+
+	appendText(t, path, promptLine(9, "<task-notification><task-id>a1</task-id></task-notification>")+"\n")
+	if turn := readTurn(t, reader); turn.TurnEnd != 0 || turn.TurnStart != 9 {
+		t.Fatalf("TurnEnd, TurnStart = %d, %d at the next prompt, want 0, 9", turn.TurnEnd, turn.TurnStart)
+	}
+
+	appendText(t, path, stoppedLine(11, "stop_sequence", textBlock("Done."))+"\n")
+	if turn := readTurn(t, reader); turn.TurnEnd != 11 {
+		t.Fatalf("TurnEnd = %d at a stop_sequence stop, want 11", turn.TurnEnd)
+	}
+}
+
+func TestTranscriptTurnRunsAtAssistantLineWithNoStop(t *testing.T) {
+	path := writeTranscript(t,
+		promptLine(1, "go"),
+		stoppedLine(2, "end_turn", textBlock("first")),
+		promptLine(3, "again"),
+		assistantLine(4, textBlock("cut off")),
+	)
+	if turn := readTurn(t, NewReader(path)); turn.TurnEnd != 0 {
+		t.Fatalf("TurnEnd = %d at an assistant line with no stop_reason, want 0", turn.TurnEnd)
+	}
+}
+
+func TestTranscriptTurnEndsAtAPIErrorAndInterruption(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		line string
+	}{
+		{"api error", `{"type":"assistant","timestamp":"` + stamp(5) + `","isApiErrorMessage":true,` +
+			`"error":"rate_limit","message":{"role":"assistant","content":[` + textBlock("API Error") + `]}}`},
+		{"interruption", interruptionLine(5, "[Request interrupted by user]")},
+		{"tool interruption", interruptionLine(5, "[Request interrupted by user for tool use]")},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			path := writeTranscript(t,
+				promptLine(1, "go"),
+				stoppedLine(2, "tool_use", toolUseBlock("t1", "Bash", `{"command":"make"}`)),
+				tc.line,
+			)
+			if turn := readTurn(t, NewReader(path)); turn.TurnEnd != 5 {
+				t.Fatalf("TurnEnd = %d, want 5", turn.TurnEnd)
+			}
+		})
+	}
+}
+
+func TestTranscriptTurnEndIgnoresSidechainStops(t *testing.T) {
+	path := writeTranscript(t,
+		promptLine(1, "go"),
+		stoppedLine(2, "tool_use", toolUseBlock("t1", "Bash", `{"command":"make"}`)),
+		flagged(stoppedLine(3, "end_turn", textBlock("subagent done")), `"isSidechain":true`),
+	)
+	if turn := readTurn(t, NewReader(path)); turn.TurnEnd != 0 {
+		t.Fatalf("TurnEnd = %d after a sidechain stop, want 0", turn.TurnEnd)
+	}
+}

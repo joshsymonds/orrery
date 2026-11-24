@@ -29,6 +29,7 @@ const (
 	ActionSendBack       = "send_back"
 	ActionRerunReview    = "rerun_review"
 	ActionReopenDesign   = "reopen_design"
+	ActionSplit          = "split"
 )
 
 // The states a planner action leaves its pending state in, once: taken, or refused. The state is stored as text, so
@@ -42,8 +43,8 @@ const (
 var errActionSettled = errors.New("action is not pending")
 
 // EpicActionInput is one action of a planner return: its kind, the node, task, close kind, replacing epic, Requirement,
-// evidence item, deliverable and reviewer it names where its kind uses them, the undo-none positions it names, and the
-// planner's reason.
+// evidence item, deliverable and reviewer it names where its kind uses them, the undo-none positions it names, the
+// descendants a split names, and the planner's reason.
 type EpicActionInput struct {
 	Kind        string
 	Node        string
@@ -57,7 +58,21 @@ type EpicActionInput struct {
 	Remove      []string
 	Reviewer    string
 	UndoNone    []int64
+	Split       []SplitTask
 	Reason      string
+}
+
+// SplitTask is one task a split action gives in place of the task it splits: its title and deliverable, the files it
+// touches, the test files it changes, the Requirements it claims and contributes to, its gate and its evidence item.
+type SplitTask struct {
+	Title       string        `json:"title"`
+	Deliverable string        `json:"deliverable"`
+	Files       []string      `json:"files"`
+	TestChanges []string      `json:"testChanges"`
+	Claims      []string      `json:"claims"`
+	Contributes []string      `json:"contributes"`
+	Gate        string        `json:"gate"`
+	Evidence    evidence.Item `json:"evidence"`
 }
 
 // PlannerAction is a stored action of a planner turn: the epic and turn that returned it, its 1-based position in the
@@ -71,7 +86,7 @@ type PlannerAction struct {
 
 // PendingActions returns the pending actions of every epic, ordered by epic, then turn, then position.
 func (s *Store) PendingActions(ctx context.Context) ([]PlannerAction, error) {
-	rows, err := sqlcgen.New(s.db).ListPendingPlannerActions(ctx)
+	rows, err := sqlcgen.New(s.read).ListPendingPlannerActions(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("list pending planner actions: %w", err)
 	}
@@ -100,13 +115,18 @@ func plannerActionOf(row sqlcgen.PlannerAction) (PlannerAction, error) {
 		return PlannerAction{}, fmt.Errorf("remove files of action %d of turn %d of epic %s: %w",
 			row.Position, row.Turn, row.Epic, err)
 	}
+	split, err := decodeList[SplitTask](row.SplitTasks)
+	if err != nil {
+		return PlannerAction{}, fmt.Errorf("split tasks of action %d of turn %d of epic %s: %w",
+			row.Position, row.Turn, row.Epic, err)
+	}
 	return PlannerAction{
 		Epic: row.Epic, Turn: row.Turn, Position: row.Position,
 		EpicActionInput: EpicActionInput{
 			Kind: row.Kind, Node: row.Node, Task: row.Task, Close: row.CloseKind, By: row.ByEpic,
 			Requirement: row.Requirement, Item: item, Deliverable: row.Deliverable, Files: files, Remove: remove,
 			Reviewer: row.Reviewer,
-			UndoNone: undo, Reason: row.Reason,
+			UndoNone: undo, Split: split, Reason: row.Reason,
 		},
 	}, nil
 }
@@ -119,7 +139,8 @@ func plannerActionOf(row sqlcgen.PlannerAction) (PlannerAction, error) {
 // stores the task's change-of-approach version from the action's deliverable and evidence item, as changeApproach does,
 // send_back reopens the task at implement on rung 1 with the reason as its failure, as sendBack does, rerun_review
 // records a rerun of the epic's review for the action's reviewer, as rerunReview does, and reopen_design adds the design
-// task that revises the action's task, as reopenDesign does.
+// task that revises the action's task, as reopenDesign does, and split divides the action's task into its descendants,
+// as splitTask does.
 //
 // A close returns the step of the turn it ended and each step of the epic with no end. A fail_task and a send_back
 // return the open steps of the task they move. Every other action returns none.
@@ -219,7 +240,8 @@ func takeAction(ctx context.Context, queries *sqlcgen.Queries, action PlannerAct
 }
 
 // sendBack sends the task action names back to implement in the caller's write, as CarryOutAction describes. The task may
-// be open, done or ended as a gap, from any rung. It is refused while an integrate run that claims it or composes it has
+// be open, done or ended as a gap, from any rung. A split task is a RefusalError. It is refused while an integrate run
+// that claims it or composes it has
 // not ended, running or parked, and on an epic in an ended phase, and writes nothing then. Otherwise the task is reopened: its status is open
 // and its build is a fresh build on implement at attempt 1, built on the stored base, with the action's reason as its
 // failure (sentBackBuild). Its batch claim is cleared, so the next batch claims it once it is done again. The epic's
@@ -237,6 +259,10 @@ func sendBack(ctx context.Context, queries *sqlcgen.Queries, action PlannerActio
 	}
 	if err != nil {
 		return nil, fmt.Errorf("read task %d of epic %s: %w", action.Task, action.Epic, err)
+	}
+	if task.Status == TaskSplit {
+		return nil, RefusalError(fmt.Sprintf(
+			"task %d of epic %s was split into its descendants", action.Task, action.Epic))
 	}
 	head, err := epicHead(ctx, queries, action.Epic)
 	if err != nil {
@@ -321,6 +347,8 @@ func carryOutAction(
 		return nil, rerunReview(ctx, queries, action, at)
 	case ActionReopenDesign:
 		return nil, reopenDesign(ctx, queries, action)
+	case ActionSplit:
+		return splitTask(ctx, queries, action, at)
 	}
 	return nil, RefusalError(fmt.Sprintf("%q is not a planner action", action.Kind))
 }
@@ -333,7 +361,7 @@ const taskFailed = "failed"
 // action's turn. Its title is Revise T<n>: and the reopened task's title, its deliverable is the action's, and it copies
 // the files, gate, test changes and evidence item of the reopened task's current version. It has no depends_on. The
 // reopened task is not written, so it keeps its status and history. A task that does not exist, a task that is not a
-// design task, and a task that has failed or ended as a gap are RefusalErrors, and write nothing.
+// design task, and a task that has failed, ended as a gap or been split are RefusalErrors, and write nothing.
 func reopenDesign(ctx context.Context, queries *sqlcgen.Queries, action PlannerAction) error {
 	stored, err := queries.GetEpicTask(ctx, sqlcgen.GetEpicTaskParams{Epic: action.Epic, Seq: action.Task})
 	if errors.Is(err, sql.ErrNoRows) {
@@ -350,6 +378,8 @@ func reopenDesign(ctx context.Context, queries *sqlcgen.Queries, action PlannerA
 		return RefusalError(fmt.Sprintf("task %d of epic %s has failed", action.Task, action.Epic))
 	case TaskGap:
 		return RefusalError(fmt.Sprintf("task %d of epic %s ended as a gap", action.Task, action.Epic))
+	case TaskSplit:
+		return RefusalError(fmt.Sprintf("task %d of epic %s was split into its descendants", action.Task, action.Epic))
 	}
 	spec, err := currentSpecOf(ctx, queries, action.Epic, stored)
 	if err != nil {
@@ -677,11 +707,15 @@ func insertActions(
 		if err != nil {
 			return fmt.Errorf("remove files of action %d of turn %d of epic %s: %w", position, turn, epic, err)
 		}
+		split, err := encodeList(action.Split)
+		if err != nil {
+			return fmt.Errorf("split tasks of action %d of turn %d of epic %s: %w", position, turn, epic, err)
+		}
 		return queries.InsertPlannerAction(ctx, sqlcgen.InsertPlannerActionParams{
 			Epic: epic, Turn: turn, Position: position, Kind: action.Kind, Node: action.Node, Task: action.Task,
 			CloseKind: action.Close, ByEpic: action.By, UndoNone: string(encoded), Reason: action.Reason,
 			Requirement: action.Requirement, Item: item, Deliverable: action.Deliverable, Files: files,
-			RemoveFiles: remove, Reviewer: action.Reviewer,
+			RemoveFiles: remove, Reviewer: action.Reviewer, SplitTasks: split,
 		})
 	})
 }

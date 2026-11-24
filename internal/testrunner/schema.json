@@ -1,0 +1,12 @@
+{
+  "title": "Test runner return",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["status", "exit_code", "output", "summary"],
+  "properties": {
+    "status": {"type": "string", "enum": ["done", "blocked"]},
+    "exit_code": {"type": "integer"},
+    "output": {"type": "string"},
+    "summary": {"type": "string"}
+  }
+}

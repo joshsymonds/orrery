@@ -73,6 +73,22 @@ func (w replanWorld) block(side string) {
 	}
 }
 
+// pathlessEvidence is the evidence of a blocked return that names no path.
+const pathlessEvidence = "the worktree is not as the role text describes it"
+
+// blockWithoutPaths ends the first round of the release integrator blocked with evidence and no unresolved path, which
+// stops the release, and passes.
+func (w replanWorld) blockWithoutPaths() {
+	w.t.Helper()
+	w.endStep(w.integratorID(1), "returned", "blocked", map[string]any{
+		"status": "blocked", "commit": "", "resolutions": []map[string]any{}, "other_changes": []map[string]any{},
+		"checks": []map[string]any{}, "unresolved": []map[string]any{}, "evidence": pathlessEvidence,
+	})
+	if logged := w.pass(); logged != "" {
+		w.t.Fatalf("pass logged: %s", logged)
+	}
+}
+
 // report is the report the blocked round on side records.
 func (w replanWorld) report(side string) string {
 	return fmt.Sprintf("the release integrator stopped the merge of origin's commit %s into release tip %s:\n"+
@@ -80,16 +96,15 @@ func (w replanWorld) report(side string) string {
 		"epic's README says change; origin: main's README says origin", w.origin, w.tip, side)
 }
 
-// requireReplanned fails unless the release went back to planning with report: the epic is correcting, unparked and
-// holds no release slot, the release run still runs at its first attempt, the replan's plan runs under it with the
+// requireReplanned fails unless the release went back to planning with report: the epic is correcting and unparked, the
+// release run still runs at its first attempt, the replan's plan runs under it with the
 // epic's highest turn as its mark, a replan of the attempt names the tip and the report, the integrator's worktree is
 // gone, the owner is told, and the planner was passed for the epic.
 func (w replanWorld) requireReplanned(report string) {
 	w.t.Helper()
 	flow := w.flowOf(runEpic)
-	if flow.Epic.Phase != "correcting" || flow.Epic.Parked != "" || flow.Slot != "" {
-		w.t.Fatalf("epic phase %q parked %q slot %q, want correcting, unparked and the slot free",
-			flow.Epic.Phase, flow.Epic.Parked, flow.Slot)
+	if flow.Epic.Phase != "correcting" || flow.Epic.Parked != "" {
+		w.t.Fatalf("epic phase %q parked %q, want correcting and unparked", flow.Epic.Phase, flow.Epic.Parked)
 	}
 	if run := runAt(w.t, w.s, releaseNodePath); run.State != store.NodeRunning || run.Attempt != 0 {
 		w.t.Errorf("release run = %+v, want running at attempt 0", run)
@@ -175,11 +190,11 @@ func (w replanWorld) acceptTask(seq int64, base, revision string) {
 }
 
 // TestReleaseIntegratorCandidateSideReplansThenReleasesFromNewCandidate: a round of the release integrator that returns
-// blocked on a decision on the candidate's side does not stop the release. The epic goes back to planning: it frees the
-// release slot, its plan runs again under the release with a trigger that carries the integrator's report, which the
-// planner's next turn reads, and the owner is told. The task that turn plans is built and integrated onto the epic's
-// branch, and once the planner returns complete the release moves to its next attempt, takes the slot again and merges
-// origin's main into the new branch tip, which no longer conflicts, so no second integrator round starts.
+// blocked on a decision on the candidate's side does not stop the release. The epic goes back to planning: its plan
+// runs again under the release with a trigger that carries the integrator's report, which the planner's next turn
+// reads, and the owner is told. The task that turn plans is built and integrated onto the epic's branch, and once the
+// planner returns complete the release moves to its next attempt, begins again and merges origin's main into the new
+// branch tip, which no longer conflicts, so no second integrator round starts.
 func TestReleaseIntegratorCandidateSideReplansThenReleasesFromNewCandidate(t *testing.T) {
 	t.Parallel()
 	w := newReplanWorld(t)
@@ -223,8 +238,8 @@ func TestReleaseIntegratorCandidateSideReplansThenReleasesFromNewCandidate(t *te
 		t.Errorf("replan plan = %+v, want it ended", plan)
 	}
 	flow := w.flowOf(runEpic)
-	if flow.Epic.Phase != store.PhaseReleasing || flow.Slot != runEpic {
-		t.Fatalf("epic phase %q slot %q, want releasing and holding the slot again", flow.Epic.Phase, flow.Slot)
+	if flow.Epic.Phase != store.PhaseReleasing {
+		t.Fatalf("epic phase %q, want releasing again", flow.Epic.Phase)
 	}
 	run := runAt(t, w.s, releaseNodePath)
 	merge := decodeMerge(t, run.Result)
@@ -236,41 +251,26 @@ func TestReleaseIntegratorCandidateSideReplansThenReleasesFromNewCandidate(t *te
 	}
 }
 
-// TestReleaseIntegratorMergeSideStopsAsBefore: a round that returns blocked on a decision on the merge's side stops the
-// release with its report as it did before replans, even with a plan the release could run again: the epic parks
-// stopped with the report, keeps the release slot, and no replan or plan run is recorded.
-func TestReleaseIntegratorMergeSideStopsAsBefore(t *testing.T) {
+// TestReleaseIntegratorMergeSideReplans: a round of the release integrator that returns blocked on a decision on the
+// merge's side, such as which side's behavior holds, does not stop the release either. It goes back to planning with
+// the integrator's report, as a round blocked on the candidate's side does, so the epic's planner settles the decision
+// as tasks.
+func TestReleaseIntegratorMergeSideReplans(t *testing.T) {
 	t.Parallel()
 	w := newReplanWorld(t)
 	w.pass()
 	w.block("merge")
-
-	flow := w.flowOf(runEpic)
-	report := w.report("merge")
-	if flow.Epic.Phase != store.PhaseStopped || flow.Epic.Parked != report ||
-		flow.Epic.ParkClass != store.ParkClassReleaseStep || flow.Slot != runEpic {
-		t.Errorf("epic phase %q parked %q class %q slot %q, want stopped on the report, a release_step park and the "+
-			"slot held", flow.Epic.Phase, flow.Epic.Parked, flow.Epic.ParkClass, flow.Slot)
-	}
-	if run := runAt(t, w.s, releaseNodePath); run.State != store.NodeParked || run.Output != report {
-		t.Errorf("release run = %+v, want parked with the report", run)
-	}
-	if slices.ContainsFunc(flow.Releases, func(r store.ReleaseRun) bool { return r.Part == store.ReleasePartReplan }) {
-		t.Errorf("release runs = %+v, want no replan", flow.Releases)
-	}
-	if slices.ContainsFunc(flow.Runs, func(r store.NodeRun) bool { return strings.HasPrefix(r.Path, "release/") }) {
-		t.Errorf("runs = %+v, want none under the release", flow.Runs)
-	}
+	w.requireReplanned(w.report("merge"))
 }
 
-// TestRetryOfIntegratorStoppedReleaseReplans: a release its integrator stopped, as one stopped before the integrator
-// named a side, is moved on by the owner's retry: the next pass sends it back to planning with the stopped round's
-// report, exactly as a candidate-side block does.
+// TestRetryOfIntegratorStoppedReleaseReplans: a release its integrator stopped, as one blocked without naming a path
+// stops, is moved on by the owner's retry: the next pass sends it back to planning with the stopped round's report,
+// exactly as a blocked return that names a path does.
 func TestRetryOfIntegratorStoppedReleaseReplans(t *testing.T) {
 	t.Parallel()
 	w := newReplanWorld(t)
 	w.pass()
-	w.block("")
+	w.blockWithoutPaths()
 	if phase := w.flowOf(runEpic).Epic.Phase; phase != store.PhaseStopped {
 		t.Fatalf("epic phase = %q, want stopped", phase)
 	}
@@ -285,5 +285,8 @@ func TestRetryOfIntegratorStoppedReleaseReplans(t *testing.T) {
 	if logged := w.pass(); logged != "" {
 		t.Fatalf("pass logged: %s", logged)
 	}
-	w.requireReplanned(w.report(""))
+	w.requireReplanned(fmt.Sprintf(
+		"the release integrator stopped the merge of origin's commit %s into release tip %s: %s",
+		w.origin, w.tip, pathlessEvidence,
+	))
 }

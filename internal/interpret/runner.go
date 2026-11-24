@@ -14,6 +14,7 @@ import (
 
 	"github.com/joshsymonds/orrery/internal/enginehost"
 	"github.com/joshsymonds/orrery/internal/evidence"
+	"github.com/joshsymonds/orrery/internal/hostexec"
 	"github.com/joshsymonds/orrery/internal/kinds"
 	"github.com/joshsymonds/orrery/internal/store"
 	"github.com/joshsymonds/orrery/internal/workflow"
@@ -61,22 +62,20 @@ type Store interface {
 	) error
 	LabelledSteps(ctx context.Context, epic, task string) ([]store.StepRow, error)
 	NodeRuns(ctx context.Context, epic string) ([]store.NodeRun, error)
-	PrepareSync(
-		ctx context.Context, epic, path string, attempt int64, revision, result string, read store.OriginRead,
-	) error
-	EndSync(ctx context.Context, epic string, end store.SyncEnd, at time.Time) error
-	RecordOriginRead(ctx context.Context, epic string, read store.OriginRead) error
 	ParkEpicWaking(ctx context.Context, epic, reason string, trigger store.NodeTrigger, at time.Time) error
 	EndPlanBuilt(ctx context.Context, epic string, ends []store.NodeEnd, at time.Time) error
 	PrepareNode(ctx context.Context, epic, path string, attempt int64, revision, refs string) error
 	RecordNodeResult(ctx context.Context, epic, path string, attempt int64, result string) error
 	CheckNodeRefs(ctx context.Context, epic, path string, attempt int64, tells []string, at time.Time) error
-	TakeReleaseSlot(ctx context.Context, epic string, at time.Time) (string, error)
-	FreeReleaseSlot(ctx context.Context, epic string) error
+	StartRelease(ctx context.Context, epic string, at time.Time) error
 	StopRelease(ctx context.Context, epic, path string, attempt int64, reason string, at time.Time) error
 	ReplanRelease(
 		ctx context.Context, epic, path string, attempt int64, plan store.NodeRun, trigger store.NodeTrigger,
 		tell string, at time.Time,
+	) error
+	ReplanGate(
+		ctx context.Context, epic, path string, replan store.ReleaseRun, plan store.NodeRun,
+		trigger store.NodeTrigger, tell string, at time.Time,
 	) error
 	ResumeReplannedRelease(ctx context.Context, epic, path string, attempt int64, at time.Time) error
 	RecordRelease(ctx context.Context, epic string, run store.ReleaseRun) error
@@ -103,6 +102,9 @@ type Store interface {
 	SettleAmendment(ctx context.Context, epic string, seq int64, at time.Time) error
 	StopAmendment(ctx context.Context, epic string, seq int64, reason string, at time.Time) error
 	NodeCheck(ctx context.Context, id string) (store.NodeCheck, error)
+	HeldEpics(ctx context.Context) ([]store.HeldEpic, error)
+	StartHeldEpic(ctx context.Context, epic, base string, at time.Time) error
+	AskHeldEpic(ctx context.Context, epic, text string, at time.Time) error
 }
 
 // Checks runs the check of a gate or command node run under a holder, once per id. *enginehost.NodeChecks satisfies it.
@@ -153,13 +155,12 @@ type Reviewers interface {
 	) (enginehost.StepStart, error)
 }
 
-// Config configures a Runner. A nil Now means time.Now, a nil NewTimer means time.NewTimer and a nil Getenv means
-// os.Getenv. A nil Logger discards. Checks, Evidence and Steps carry out the work of check node runs, so a Runner that
-// runs an epic with such nodes needs each of them. Reviewers and Ending carry the end-of-epic review: with both set, its
-// review and closure kinds run, and without both an epic waits at its review node. Ending also ends the epics whose
-// release is decided, so a Runner that runs a release needs it. StateDir is the state directory release steps'
-// worktrees live under, so a Runner that runs a release step needs it. NewTimer arms the one timer a Runner keeps for
-// the origin-read deadlines, which Run waits on.
+// Config configures a Runner. A nil Now means time.Now and a nil Getenv means os.Getenv. A nil Logger discards. Checks,
+// Evidence and Steps carry out the work of check node runs, so a Runner that runs an epic with such nodes needs each of
+// them. Reviewers and Ending carry the end-of-epic review: with both set, its review and closure kinds run, and without
+// both an epic waits at its review node. Ending also ends the epics whose release is decided, so a Runner that runs a
+// release needs it. StateDir is the state directory release steps' worktrees live under, so a Runner that runs a
+// release step needs it.
 type Config struct {
 	Store     Store
 	Planner   Planner
@@ -170,25 +171,30 @@ type Config struct {
 	Reviewers Reviewers
 	Ending    Ending
 	StateDir  string
+	// Hosts resolves each epic's Host to the host its repository work runs on, which the build functions the Runner calls
+	// are given. A nil Hosts is hostexec.LocalHosts.
+	Hosts hostexec.Hosts
+	// OriginMain returns the commit origin's main names in repository, fetched on host, the host the held epic lives on.
+	// A nil OriginMain is enginehost.FetchOriginMainOn. A held epic starts from the commit it returns.
+	OriginMain func(ctx context.Context, host hostexec.Host, repository string) (string, error)
+	// HeldRetry is how long after a fetch or start of a held epic fails the Runner wakes to try that epic again. Zero means
+	// one minute.
+	HeldRetry time.Duration
 	Getenv    func(string) string
-	// Ticks is a test seam: when set, Run passes at start and then once at each value it receives, and wakes and
-	// deadlines pass nothing. Production leaves it nil.
-	Ticks    <-chan time.Time
-	Now      func() time.Time
-	NewTimer func(d time.Duration) (<-chan time.Time, func() bool)
-	Logger   *slog.Logger
+	// Ticks is a test seam: when set, Run passes at start and then once at each value it receives, and wakes pass
+	// nothing. Production leaves it nil.
+	Ticks  <-chan time.Time
+	Now    func() time.Time
+	Logger *slog.Logger
 	// Passed is a test seam: when set, Run calls it after each pass. Production leaves it nil.
 	Passed func()
 }
 
 // Runner runs each epic's workflow over its node runs: it carries out the structural actions the decisions ask for,
-// hands build runs to the builder and passes the planner for the epics whose plan run is running. readLimit bounds each
-// git ls-remote a sync runs against origin, syncReadLimit unless a test sets it, and fetchLimit a sync's fetch of
-// origin's main, syncFetchLimit unless a test sets it.
+// hands build runs to the builder and passes the planner for the epics whose plan run is running.
 //
 // The fields from signal down are the wakes Run passes on: mu guards them, and Wake, which any goroutine may call, sets
-// them under mu only. signal is a one-slot channel Wake fills, woken the epics to pass next, waiters the epics that
-// waited on each holder of a release slot, and deadlines the moment each epic's origin read goes stale.
+// them under mu only. signal is a one-slot channel Wake fills, and woken the epics to pass next.
 type Runner struct {
 	store      Store
 	planner    Planner
@@ -199,21 +205,25 @@ type Runner struct {
 	reviewers  Reviewers
 	ending     Ending
 	stateDir   string
+	hosts      hostexec.Hosts
+	originMain func(ctx context.Context, host hostexec.Host, repository string) (string, error)
+	heldRetry  time.Duration
+	afterFunc  func(time.Duration, func())
 	getenv     func(string) string
 	ticks      <-chan time.Time
 	now        func() time.Time
-	newTimer   func(d time.Duration) (<-chan time.Time, func() bool)
 	logger     *slog.Logger
 	passed     func()
 	kinds      map[string]kinds.Kind
-	readLimit  time.Duration
-	fetchLimit time.Duration
 
-	mu        sync.Mutex
-	signal    chan struct{}
-	woken     map[string]struct{}
-	waiters   map[string]map[string]struct{}
-	deadlines map[string]time.Time
+	mu     sync.Mutex
+	signal chan struct{}
+	woken  map[string]struct{}
+
+	// heldMu guards heldPending, the held epics with a retry armed (retryHeld) that has not fired yet. The timer that
+	// clears an epic's mark runs on its own goroutine.
+	heldMu      sync.Mutex
+	heldPending map[string]struct{}
 }
 
 // maxSteps is how many structural actions one pass carries out for an epic before the next pass continues from the
@@ -223,23 +233,22 @@ const maxSteps = 16
 // builtinEpic is the workflow an epic with no pinned text runs.
 const builtinEpic = "epic"
 
-// New returns a Runner for cfg, with the plan, build, check, integrate, sync and release kinds registered, and the
-// review, closure and conclude kinds too when cfg has both Reviewers and Ending.
+// New returns a Runner for cfg, with the plan, build, check, integrate and release kinds registered, and the review,
+// closure and conclude kinds too when cfg has both Reviewers and Ending.
 func New(cfg Config) *Runner {
 	runner := &Runner{
 		store: cfg.Store, planner: cfg.Planner, builder: cfg.Builder, checks: cfg.Checks, evidence: cfg.Evidence,
-		steps: cfg.Steps, reviewers: cfg.Reviewers, ending: cfg.Ending, stateDir: cfg.StateDir, getenv: cfg.Getenv,
-		now: cfg.Now, newTimer: cfg.NewTimer, logger: cfg.Logger, ticks: cfg.Ticks, passed: cfg.Passed,
-		readLimit: syncReadLimit, fetchLimit: syncFetchLimit,
+		steps: cfg.Steps, reviewers: cfg.Reviewers, ending: cfg.Ending, stateDir: cfg.StateDir, hosts: cfg.Hosts,
+		originMain: cfg.OriginMain, heldRetry: cfg.HeldRetry,
+		getenv: cfg.Getenv, now: cfg.Now, logger: cfg.Logger, ticks: cfg.Ticks, passed: cfg.Passed,
 		kinds: map[string]kinds.Kind{
 			kindPlan: kinds.Plan{}, kindBuild: kinds.Build{}, kindGate: kinds.Gate{}, kindCommand: kinds.Command{},
 			kindEvidence: kinds.Evidence{}, kindOwned: kinds.Owned{}, kindAgent: kinds.Agent{}, kindCost: kinds.Cost{},
-			kindIntegrate: kinds.Integrate{}, kindRelease: kinds.Release{}, kindSync: kinds.Sync{},
+			kindIntegrate: kinds.Integrate{}, kindRelease: kinds.Release{},
 		},
-		signal:    make(chan struct{}, 1),
-		woken:     make(map[string]struct{}),
-		waiters:   make(map[string]map[string]struct{}),
-		deadlines: make(map[string]time.Time),
+		signal:      make(chan struct{}, 1),
+		woken:       make(map[string]struct{}),
+		heldPending: make(map[string]struct{}),
 	}
 	if cfg.Reviewers != nil && cfg.Ending != nil {
 		runner.kinds[reviewNodeKind] = kinds.Review{}
@@ -249,11 +258,20 @@ func New(cfg Config) *Runner {
 	if runner.now == nil {
 		runner.now = time.Now
 	}
-	if runner.newTimer == nil {
-		runner.newTimer = stdTimer
-	}
 	if runner.getenv == nil {
 		runner.getenv = os.Getenv
+	}
+	if runner.hosts == nil {
+		runner.hosts = hostexec.LocalHosts()
+	}
+	if runner.originMain == nil {
+		runner.originMain = enginehost.FetchOriginMainOn
+	}
+	if runner.heldRetry == 0 {
+		runner.heldRetry = defaultHeldRetry
+	}
+	runner.afterFunc = func(d time.Duration, f func()) {
+		time.AfterFunc(d, f)
 	}
 	if runner.logger == nil {
 		runner.logger = slog.New(slog.DiscardHandler)
@@ -261,11 +279,20 @@ func New(cfg Config) *Runner {
 	return runner
 }
 
+// hostOf returns the Host epic lives on, which the Runner's hosts resolves by the epic's Host. A name that resolves to
+// no Host is an error that names the epic.
+func (r *Runner) hostOf(epic store.EpicRow) (hostexec.Host, error) {
+	host, err := r.hosts.Host(epic.Host)
+	if err != nil {
+		return nil, fmt.Errorf("host of epic %s: %w", epic.ID, err)
+	}
+	return host, nil
+}
+
 // Run recovers the planner's turns a previous orreryd left running, then passes every open epic at once. With
 // Config.Ticks set, it then passes every open epic once per value it receives. Without it, it passes the epics a Wake
-// named since its last pass, each once in sorted order, and the epics whose origin-read deadline has come, and nothing
-// on a clock of its own, until ctx ends. Config.Passed is called after each pass. Run then waits for the planner's turns
-// and returns.
+// named since its last pass, each once in sorted order, and nothing on a clock of its own, until ctx ends.
+// Config.Passed is called after each pass. Run then waits for the planner's turns and returns.
 func (r *Runner) Run(ctx context.Context) {
 	r.planner.Recover(ctx)
 	// The pass below reads every open epic, so a wake that came before it is covered by it.
@@ -295,30 +322,24 @@ func (r *Runner) runTicks(ctx context.Context) {
 }
 
 // runWakes passes the epics woken since its last pass, each once, until ctx ends, and then waits for the planner's turns.
-// It waits on a wake, on the deadline timer and on ctx. A wake that arrives during a pass is passed after it, since the
-// signal it leaves is taken on the next turn of the loop. A pass never starts once ctx has ended.
+// It waits on a wake and on ctx. A wake that arrives during a pass is passed after it, since the signal it leaves is
+// taken on the next turn of the loop. A pass never starts once ctx has ended.
 func (r *Runner) runWakes(ctx context.Context) {
-	timer := &deadlineTimer{}
-	r.armDeadline(timer)
 	for {
 		select {
 		case <-ctx.Done():
 		case <-r.signal:
-		case <-timer.fire:
-			timer.fired()
-			r.wakeDue(r.now())
 		}
 		if ctx.Err() != nil {
 			r.planner.WaitTurns()
 			return
 		}
 		if woken := r.takeWoken(); len(woken) > 0 {
-			if open := r.openWoken(ctx, woken); len(open) > 0 {
-				r.passEpics(ctx, open)
-				r.passDone()
-			}
+			// The held pass runs on every wake, so a wake that names only closed epics still passes: the close of a
+			// predecessor is what starts a held epic.
+			r.passEpics(ctx, r.openWoken(ctx, woken))
+			r.passDone()
 		}
-		r.armDeadline(timer)
 	}
 }
 
@@ -364,9 +385,12 @@ func (r *Runner) openWoken(ctx context.Context, woken []string) []store.EpicRow 
 	return open
 }
 
-// passEpics runs one pass over epics: their amendments, then their flows, then the planner for those given a plan turn
-// or planner-parked. Pass passes every listed epic, and a wake passes the open epics it names.
+// passEpics runs one pass over epics: the held pass first (see passHeld), then their amendments, their flows, and the
+// planner for those given a plan turn or planner-parked. Pass passes every listed epic, and a wake passes the open epics
+// it names. A closed epic and a held epic are passed over: neither has a flow decision or a planner pass, and an epic the
+// held pass starts is passed as the store holds it then.
 func (r *Runner) passEpics(ctx context.Context, epics []store.EpicRow) {
+	epics = r.passHeld(ctx, epics)
 	r.passAmendments(ctx, epics)
 	states, statesErr := r.store.OpenNodeRunStates(ctx)
 	if statesErr != nil {
@@ -374,7 +398,7 @@ func (r *Runner) passEpics(ctx context.Context, epics []store.EpicRow) {
 	}
 	planned := make(map[string]bool)
 	for _, epic := range epics {
-		if store.IsClosedPhase(epic.Phase) {
+		if store.IsClosedPhase(epic.Phase) || epic.Phase == store.PhaseHeld {
 			continue
 		}
 		flow, loadErr := loadFlow(epic)
@@ -409,8 +433,8 @@ func (r *Runner) parkUnloaded(ctx context.Context, epic store.EpicRow, cause err
 // passFlow carries out the actions flow asks for on epic, and reports whether epic's plan run was given its turn. Each
 // structural action is carried out and the rows read again, at most maxSteps times. Once a decision has no structural
 // action, its build runs go to the builder. An epic that the rows show closed is left with nothing carried out: a close
-// that lands while the pass carries out an action, such as a sync's prepare, ends the epic's running runs, and the walk
-// would read the plan run it ended as a node that ended and start the node after it.
+// that lands while the pass carries out an action, such as a batch's prepare, ends the epic's running runs, and the
+// walk would read the plan run it ended as a node that ended and start the node after it.
 func (r *Runner) passFlow(ctx context.Context, epic store.EpicRow, flow workflow.Workflow) bool {
 	for range maxSteps {
 		row, acts, err := r.decide(ctx, epic.ID, flow)
@@ -435,9 +459,8 @@ func (r *Runner) passFlow(ctx context.Context, epic store.EpicRow, flow workflow
 }
 
 // decide reads the rows of epic in one read. It returns the epic as read, which the actions are carried out for, and
-// the actions flow asks for on the rows, decided at the runner's clock. The read also records the wakes it leaves for
-// epic (noteRead). The stranded tasks of the epic are read only when one of its tasks waits on dependencies, since only
-// a build that waits on a dependency reads them (awaitsDependencies).
+// the actions flow asks for on the rows. The stranded tasks of the epic are read only when one of its tasks waits on
+// dependencies, since only a build that waits on a dependency reads them (awaitsDependencies).
 func (r *Runner) decide(ctx context.Context, epic string, flow workflow.Workflow) (store.EpicRow, []Action, error) {
 	read, err := r.store.EpicFlow(ctx, epic)
 	if err != nil {
@@ -450,35 +473,26 @@ func (r *Runner) decide(ctx context.Context, epic string, flow workflow.Workflow
 	}
 	rows.Steps = append(rows.Steps, roundSteps...)
 	if awaitsDependencies(read.Epic.Tasks) {
-		rows.Stranded, err = startStranded(ctx, read.Epic, read.Runs)
+		host, hostErr := r.hostOf(read.Epic)
+		if hostErr != nil {
+			return store.EpicRow{}, nil, fmt.Errorf("read stranded tasks of epic %s: %w", epic, hostErr)
+		}
+		rows.Stranded, err = startStranded(ctx, host, read.Epic, read.Runs)
 		if err != nil {
 			return store.EpicRow{}, nil, fmt.Errorf("read stranded tasks of epic %s: %w", epic, err)
 		}
 	}
-	rows.Now = r.now()
 	if r.reviewers != nil {
 		rows.Reviewers = r.reviewers.Epic(read.Epic)
 	}
-	r.noteRead(epic, read, rows.Now)
 	return read.Epic, Decide(flow, rows, r.kinds), nil
 }
 
-// awaitsDependencies reports whether one of tasks is open, has not started and waits on other tasks: it depends on
-// some, or it is a task that is not a design task and its turn holds a design task. A build of such a task waits on
-// them, and reads the stranded tasks of its epic (kinds.Rows.Stranded).
+// awaitsDependencies reports whether one of tasks is open, has not started and depends on other tasks. A build of such
+// a task waits on them, and reads the stranded tasks of its epic (kinds.Rows.Stranded).
 func awaitsDependencies(tasks []store.EpicTask) bool {
 	return slices.ContainsFunc(tasks, func(task store.EpicTask) bool {
-		if task.Status != taskOpen || task.Build.Stage != "" {
-			return false
-		}
-		return len(task.DependsOn) > 0 || (task.Kind != store.TaskKindDesign && turnHoldsDesign(tasks, task.Turn))
-	})
-}
-
-// turnHoldsDesign reports whether a design task was planned in turn among tasks.
-func turnHoldsDesign(tasks []store.EpicTask, turn int64) bool {
-	return slices.ContainsFunc(tasks, func(task store.EpicTask) bool {
-		return task.Turn == turn && task.Kind == store.TaskKindDesign
+		return task.Status == taskOpen && task.Build.Stage == "" && len(task.DependsOn) > 0
 	})
 }
 
@@ -486,7 +500,7 @@ func turnHoldsDesign(tasks []store.EpicTask, turn int64) bool {
 func flowRows(read store.EpicFlow) kinds.Rows {
 	return kinds.Rows{
 		Epic: read.Epic, Runs: read.Runs, Checks: read.Checks, Evidence: read.Evidence, Steps: read.Steps,
-		Pending: read.Pending, Actions: read.Actions, Releases: read.Releases, Slot: read.Slot, Review: read.Review,
+		Pending: read.Pending, Actions: read.Actions, Releases: read.Releases, Review: read.Review,
 		GapTurns: read.GapTurns, Unresolvable: read.Unresolvable, Reruns: read.Reruns, Rounds: read.Rounds,
 	}
 }
@@ -536,8 +550,6 @@ func (r *Runner) carry(ctx context.Context, epic store.EpicRow, act Action) erro
 		err = r.store.ParkEpicWaking(ctx, epic.ID, act.Reason, *act.Trigger, at)
 	case ActBatch:
 		err = r.endBatch(ctx, epic, act, at)
-	case ActSync, ActReadOrigin:
-		err = r.carrySync(ctx, epic, act, at)
 	case ActHold, ActReview, ActClosure, ActConclude, ActGapRound, ActRerun:
 		return r.carryReview(ctx, epic.ID, act, at)
 	case ActWork:
@@ -571,20 +583,6 @@ func (r *Runner) moveRun(ctx context.Context, epic string, act Action, at time.T
 	}
 	if err != nil {
 		return fmt.Errorf("move node run %s: %w", act.Path, err)
-	}
-	return nil
-}
-
-// carrySync carries out one sync action of epic at at: the end of a sync run, or the read of origin's main a sync is
-// due to start from.
-func (r *Runner) carrySync(ctx context.Context, epic store.EpicRow, act Action, at time.Time) error {
-	if act.Kind == ActReadOrigin {
-		return r.readOrigin(ctx, epic, at)
-	}
-	if err := r.store.EndSync(ctx, epic.ID, store.SyncEnd{
-		Path: act.Path, Attempt: act.Attempt, Outcome: act.Outcome, Output: act.Output, Tell: act.Reason,
-	}, at); err != nil {
-		return fmt.Errorf("end sync %s: %w", act.Path, err)
 	}
 	return nil
 }

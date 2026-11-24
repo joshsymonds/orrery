@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/joshsymonds/orrery/internal/hostexec"
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
@@ -22,12 +23,14 @@ type steeringSessions interface {
 // EpicSteeringConfig configures EpicSteering. Manager starts and stops the steering sessions. Sessions reads the row
 // of a session once it is started, so Start can tell a session whose spawn failed. Render returns the contract and log
 // lines of an epic, which Start puts in the session's first prompt. PaneDir returns the current directory of a tmux
-// pane, given the store column of its server and its id.
+// pane, given the store column of its server and its id. Hosts resolves host names to the Hosts that run an epic's git,
+// as ServeConfig's does; nil resolves every name to this machine.
 type EpicSteeringConfig struct {
 	Manager  *Manager
 	Sessions steeringSessions
 	Render   func(store.EpicRow) ([]string, error)
 	PaneDir  func(ctx context.Context, server, pane string) (string, error)
+	Hosts    hostexec.Hosts
 }
 
 // EpicSteering starts and stops the steering session of an epic: the one headless session that answers the epic's
@@ -52,8 +55,7 @@ func SteeringPrompt(id string, lines []string) string {
 
 // Start starts the steering session of the epic row in the row's repository and returns its id. The first prompt is
 // SteeringPrompt of the row's id and the lines Render returns for the row. A Render error is returned and starts
-// nothing. A start refused by the session cap returns an error that names the cap and wraps ErrCapReached. A session
-// whose spawn fails returns an error that names the session and the reason it failed, and no id. A started session
+// nothing. A session whose spawn fails returns an error that names the session and the reason it failed, and no id. A started session
 // whose row cannot be read is stopped, even when ctx has ended, since no caller gets its id to stop it, and the read
 // error is returned with no id.
 func (s *EpicSteering) Start(ctx context.Context, row store.EpicRow) (string, error) {
@@ -63,10 +65,6 @@ func (s *EpicSteering) Start(ctx context.Context, row store.EpicRow) (string, er
 	}
 	prompt := SteeringPrompt(row.ID, lines)
 	id, err := s.manager.Start(ctx, StartRequest{Dir: row.Repository, Prompt: prompt})
-	if errors.Is(err, ErrCapReached) {
-		return "", fmt.Errorf("start steering session of epic %s: the session cap of %d is full: %w",
-			row.ID, s.manager.limit, err)
-	}
 	if err != nil {
 		return "", fmt.Errorf("start steering session of epic %s: %w", row.ID, err)
 	}

@@ -37,7 +37,6 @@ type epicCommandsFake struct {
 	calls    []proto.Message
 	failures []error
 	resumed  []string
-	limited  []string
 	decision *enginev1.EpicDecision
 	warning  string
 
@@ -91,7 +90,7 @@ func (f *epicCommandsFake) ResumeEpic(
 	if err := f.record(req.Msg); err != nil {
 		return nil, err
 	}
-	return connect.NewResponse(&enginev1.ResumeEpicResponse{Resumed: f.resumed, StillLimited: f.limited}), nil
+	return connect.NewResponse(&enginev1.ResumeEpicResponse{Resumed: f.resumed}), nil
 }
 
 func (f *epicCommandsFake) StopEpic(
@@ -224,7 +223,7 @@ func (f *epicCommandsFake) recordedMoveSessions() []string {
 // epicCommandServe serves newEpicsHandler over commands with the fixed clock, and returns a generated Epics client.
 func epicCommandServe(t *testing.T, commands enginev1connect.EpicsClient) orreryv1connect.EpicsClient {
 	t.Helper()
-	path, handler := newEpicsHandler(t.TempDir(), nil, nil, commands, nil, nil, 0, epicsNow, newRetryClock())
+	path, handler := newEpicsHandler(nil, nil, commands, nil, nil, 0, epicsNow, newRetryClock())
 	mux := http.NewServeMux()
 	mux.Handle(path, handler)
 	srv := httptest.NewServer(mux)
@@ -324,11 +323,10 @@ func TestEpicCommandsForwardOneCallForNamedEpic(t *testing.T) {
 	}
 }
 
-func TestEpicsResumeAnswersResumedAndLimitedSteps(t *testing.T) {
+func TestEpicsResumeAnswersResumedSteps(t *testing.T) {
 	t.Parallel()
 	fake := &epicCommandsFake{
 		resumed: []string{"synthetic-step-1", "synthetic-step-2"},
-		limited: []string{"synthetic-step-3"},
 	}
 	client := epicCommandServe(t, fake)
 	reply, err := client.Resume(t.Context(), connect.NewRequest(&orreryv1.EpicsResumeRequest{
@@ -338,8 +336,7 @@ func TestEpicsResumeAnswersResumedAndLimitedSteps(t *testing.T) {
 		t.Fatalf("Resume: %v", err)
 	}
 	want := &orreryv1.EpicsResumeResponse{
-		Resumed:      []string{"synthetic-step-1", "synthetic-step-2"},
-		StillLimited: []string{"synthetic-step-3"},
+		Resumed: []string{"synthetic-step-1", "synthetic-step-2"},
 	}
 	if !proto.Equal(reply.Msg, want) {
 		t.Fatalf("Resume = %v, want %v", reply.Msg, want)

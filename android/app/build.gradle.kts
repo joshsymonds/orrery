@@ -110,4 +110,8 @@ tasks.withType<org.gradle.api.tasks.testing.Test>().configureEach {
     // The tests' waits fail as soon as nothing is in flight (test Quiescence), never on a wall clock; this only stops a
     // test that hangs outside them. A clean run takes about 3 minutes.
     timeout.set(Duration.ofMinutes(20))
+    // The evidence captures read these lines: each test logs one PASSED, SKIPPED or FAILED line at lifecycle level.
+    testLogging {
+        events("passed", "skipped", "failed")
+    }
 }

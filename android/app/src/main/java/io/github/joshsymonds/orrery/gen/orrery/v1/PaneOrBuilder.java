@@ -370,4 +370,36 @@ public interface PaneOrBuilder extends
    * @return The putOff.
    */
   boolean getPutOff();
+
+  /**
+   * <pre>
+   * true when the pane's running command is claude and no Claude session is bound to it.
+   * </pre>
+   *
+   * <code>bool unbound = 23 [json_name = "unbound"];</code>
+   * @return The unbound.
+   */
+  boolean getUnbound();
+
+  /**
+   * <pre>
+   * true while the pane's &#64;orrery_held option is set: its last turn ended while a background agent or workflow runs,
+   * so its state is working with no turn running, until the turn that task's end starts.
+   * </pre>
+   *
+   * <code>bool held = 24 [json_name = "held"];</code>
+   * @return The held.
+   */
+  boolean getHeld();
+
+  /**
+   * <pre>
+   * true when the pane's host did not answer within its bound, so the pane is listed from its stored row with only id,
+   * host, orrery_id and its mirrored options set.
+   * </pre>
+   *
+   * <code>bool unreachable = 25 [json_name = "unreachable"];</code>
+   * @return The unreachable.
+   */
+  boolean getUnreachable();
 }

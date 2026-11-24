@@ -144,7 +144,7 @@ func (d *recordingDesk) postCount() int {
 	return len(d.posts)
 }
 
-// newPutOffManager returns a manager with a cap of two sessions, like newTestManager, that runs the claude at claude,
+// newPutOffManager returns a manager like newTestManager that runs the claude at claude,
 // stores its put-off marks in a store, reads the panes through panes and sends its notices to notifier. It returns the
 // store too. notifier and panes may be nil.
 func newPutOffManager(
@@ -162,7 +162,6 @@ func newPutOffManager(
 		Shell:    sh,
 		Claude:   claude,
 		Environ:  []string{"PATH=" + os.Getenv("PATH"), "HOME=" + t.TempDir()},
-		Cap:      2,
 		Writer:   writer,
 		Now:      fixedClock,
 		Notifier: notifier,

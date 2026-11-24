@@ -38,10 +38,15 @@ import (
 	"github.com/joshsymonds/orrery/internal/donejudge"
 	"github.com/joshsymonds/orrery/internal/enginehost"
 	"github.com/joshsymonds/orrery/internal/gates"
+	"github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1/enginev1connect"
 	"github.com/joshsymonds/orrery/internal/grants"
 	"github.com/joshsymonds/orrery/internal/holder"
+	"github.com/joshsymonds/orrery/internal/hostexec"
+	"github.com/joshsymonds/orrery/internal/hostrelay"
+	"github.com/joshsymonds/orrery/internal/hosts"
 	"github.com/joshsymonds/orrery/internal/inapp"
 	"github.com/joshsymonds/orrery/internal/interpret"
+	"github.com/joshsymonds/orrery/internal/node"
 	"github.com/joshsymonds/orrery/internal/notice"
 	"github.com/joshsymonds/orrery/internal/paneregistry"
 	"github.com/joshsymonds/orrery/internal/panewatch"
@@ -52,6 +57,7 @@ import (
 	"github.com/joshsymonds/orrery/internal/route"
 	"github.com/joshsymonds/orrery/internal/sdnotify"
 	"github.com/joshsymonds/orrery/internal/server"
+	"github.com/joshsymonds/orrery/internal/stage"
 	"github.com/joshsymonds/orrery/internal/stamp"
 	"github.com/joshsymonds/orrery/internal/store"
 	"github.com/joshsymonds/orrery/internal/summary"
@@ -77,10 +83,6 @@ const managedDir = "/etc/claude-code"
 
 const (
 	defaultClaude = "claude"
-	// defaultSessionCap is the most live engine sessions at once when --session-cap is not given.
-	defaultSessionCap = 4
-	// defaultStepCap is the most live step sessions at once when --step-cap is not given.
-	defaultStepCap = 6
 	// notifyTimeout bounds each notification request.
 	notifyTimeout = 10 * time.Second
 	// flightThreshold is how long a start to READY or a sessions reconcile may take before the flight recorder writes
@@ -102,8 +104,8 @@ const (
 )
 
 const usageText = `usage: orreryd [-L NAME | -S PATH] [--socket PATH] [--claude PATH] [--summary-model CONTEXT=MODEL]...
-               [--push-host HOST]... [--sessions] [--session-cap N] [--session-shell PATH]
-               [--holder-scope PATH] [--holder-scope-memory SIZE] [--step-cap N] [--metrics-listen ADDR]
+               [--push-host HOST]... [--sessions] [--session-shell PATH]
+               [--holder-scope PATH] [--metrics-listen ADDR] [--relay-listen ADDR]
 
 flags:
   -L NAME           tmux server by name (tmux -L)
@@ -115,18 +117,15 @@ flags:
   --push-host HOST  push relay host a Web Push subscription may name; repeat for each host
                     (default ntfy.sh)
   --sessions        serve the engine session service on sessions.sock beside the daemon socket
-  --session-cap N   most live engine sessions at once (default 4)
   --session-shell PATH
                     absolute login shell that starts each session (default $SHELL)
   --holder-scope PATH
                     systemd-run binary that runs each session's holder in its own user scope
                     (default: none, the holder starts plainly)
-  --holder-scope-memory SIZE
-                    memory cap of each holder's scope, with no swap past it: bytes, or a whole
-                    number with K, M, G or T (powers of 1024) (default 8G)
-  --step-cap N      most live step sessions at once, counted apart from --session-cap (default 6)
   --metrics-listen ADDR
                     serve /metrics on ADDR, a loopback IP literal with a port (default: none)
+  --relay-listen ADDR
+                    serve the relay that admits the hosts.toml agents on ADDR, host:port (default: none)
 `
 
 // usageError is a command line refused before any work. It exits 2 and prints the usage text.
@@ -152,14 +151,12 @@ type options struct {
 	models          map[string]string
 	pushHosts       []string
 	sessions        bool
-	sessionCap      int
 	sessionShell    string
 	holderScope     string
-	scopeMemory     int64 // the --holder-scope-memory cap of each holder's scope, in bytes
-	stepCap         int
 	judgeDelay      time.Duration           // the --judge-delay test seam's wait, route.JudgeDelay by default
 	storeBusy       time.Duration           // the --store-busy-timeout test seam's wait, store.BusyTimeout by default
 	metricsListen   string                  // the --metrics-listen address, "" when unset
+	relayListen     string                  // the --relay-listen address, "" when unset
 	metrics         *telemetry.Daemon       // set by startMetrics when metricsListen is set, nil otherwise
 	metricsHandlers []connect.HandlerOption // set by startMetrics when metricsListen is set, nil otherwise
 	webhook         *alerts.Webhook         // the POST /alerts intake, set by startMetrics when metricsListen is set
@@ -194,13 +191,13 @@ type options struct {
 	// cronDeliver is a test seam: the delivery the cron scheduler calls in place of Manager.DeliverCron. Production
 	// leaves it nil.
 	cronDeliver func(context.Context, enginehost.DeliverRequest) error
-	// releaseSlotNow is a test seam: the clock the release slots read as now. Production leaves it nil, which is time.Now.
-	releaseSlotNow func() time.Time
-	// releaseSlotTimers is a test seam: the timers the release slots arm in place of time.NewTimer. Production leaves it nil.
-	releaseSlotTimers func(time.Duration) enginehost.CronTimer
 	// host is a test seam: the host name the desk stream, the notices and the grants broker use in place of
 	// os.Hostname. Production leaves it "".
 	host string
+	// orrery is the controller's orrery name: the top-level name of hosts.toml when it is set, else host. serve sets it,
+	// and startSessions gives it to the manager as the name of the controller's own host. A test that calls
+	// startSessions directly leaves it "", which names no host.
+	orrery string
 	// flowTicks is a test seam: the path the flow appends a line to after each pass, and each SIGUSR1 starts a pass in
 	// place of the flow's five-second ticks. Production leaves it "".
 	flowTicks string
@@ -213,8 +210,15 @@ type options struct {
 	// Production leaves it nil.
 	callerEventTimer func(time.Duration) (<-chan time.Time, func() bool)
 	// callerWakePane is a test seam: the function the caller-event delivery calls in place of cli.WakePane to send text
-	// to a pane caller. Production leaves it nil.
+	// to a pane caller on this machine. Production leaves it nil.
 	callerWakePane func(ctx context.Context, server, pane, text string) (bool, error)
+	// paneAgents are the agents of the hosts file, by host name, through which the caller-event delivery wakes a pane
+	// caller on a remote host (see newCallerEvents). startSessions loads them from the hosts file; a test that calls
+	// newCallerEvents directly leaves them nil.
+	paneAgents map[string]enginehost.PaneWaker
+	// relayWhoIs is a test seam: the WhoIs the relay of --relay-listen admits its connections by, in place of
+	// node.Tailnet(). Production leaves it nil.
+	relayWhoIs node.WhoIs
 }
 
 // repeatFlag is a repeatable string flag. It collects the values in the order given.
@@ -347,6 +351,49 @@ func hostName(seam string) (string, error) {
 	return host, nil
 }
 
+// controllerHost returns the controller's host name, which hostName gives, and its orrery name: the top-level name of the
+// hosts file that getenv locates when the file sets one, and the host name otherwise. A host name that is empty, or a
+// hosts file that does not load, is an error. With neither XDG_CONFIG_HOME nor HOME set there is no hosts file to
+// locate, so the controller is named by its host name, as it is without a hosts file.
+func controllerHost(opts options, getenv func(string) string) (string, string, error) {
+	host, err := hostName(opts.host)
+	if err != nil {
+		return "", "", fmt.Errorf("host name: %w", err)
+	}
+	if host == "" {
+		return "", "", errors.New("host name is empty")
+	}
+	var file hosts.File
+	if _, pathErr := hosts.Path(getenv); pathErr == nil {
+		loaded, err := hosts.Load(getenv)
+		if err != nil {
+			return "", "", fmt.Errorf("load hosts: %w", err)
+		}
+		file = loaded
+	}
+	if file.Name != "" {
+		return host, file.Name, nil
+	}
+	return host, host, nil
+}
+
+// nameUnhosted names the rows of st that have no host as name, once the store is open: the session rows, and the
+// notice, notice history and pushed rows of a pane. A nil st has no rows to name. The writes run on a context that
+// ctx's cancellation does not reach: they are short writes that must finish so every row reads its host, so a shutdown
+// signal that arrives during them lets them commit rather than failing startup.
+func nameUnhosted(ctx context.Context, st *store.Store, name string) error {
+	if st == nil {
+		return nil
+	}
+	if _, err := st.NameUnhostedSessions(context.WithoutCancel(ctx), name); err != nil {
+		return fmt.Errorf("name the controller's rows: %w", err)
+	}
+	if err := st.NameUnhostedPaneRows(context.WithoutCancel(ctx), name); err != nil {
+		return fmt.Errorf("name the controller's pane rows: %w", err)
+	}
+	return nil
+}
+
 // checkClockSeams refuses a negative --due-at or --relay-at as a usage error.
 func checkClockSeams(dueAt, relayAt int64) error {
 	if dueAt < 0 {
@@ -376,14 +423,8 @@ func routeJudgeDelay(d time.Duration) time.Duration {
 	return d
 }
 
-// checkLimits refuses a --session-cap or --step-cap below 1 and a negative --judge-delay, each as a usage error.
-func checkLimits(sessionCap, stepCap int, judgeDelay, storeBusy time.Duration) error {
-	if sessionCap < 1 {
-		return usagef("--session-cap must be at least 1, got %d", sessionCap)
-	}
-	if stepCap < 1 {
-		return usagef("--step-cap must be at least 1, got %d", stepCap)
-	}
+// checkLimits refuses a negative --judge-delay or --store-busy-timeout, each as a usage error.
+func checkLimits(judgeDelay, storeBusy time.Duration) error {
 	if judgeDelay < 0 {
 		return usagef("--judge-delay must not be negative, got %v", judgeDelay)
 	}
@@ -406,12 +447,10 @@ func parseFlags(args []string, getenv func(string) string) (options, error) {
 	var pushHosts repeatFlag
 	flags.Var(&pushHosts, "push-host", "push relay host, repeatable")
 	sessions := flags.Bool("sessions", false, "serve the engine session service")
-	sessionCap := flags.Int("session-cap", defaultSessionCap, "most live engine sessions")
 	sessionShell := flags.String("session-shell", getenv("SHELL"), "login shell that starts each session")
 	holderScope := flags.String("holder-scope", "", "systemd-run binary that runs each session's holder")
-	scopeMemory := scopeMemoryFlag(flags)
-	stepCap := flags.Int("step-cap", defaultStepCap, "most live step sessions")
 	metricsListen := flags.String("metrics-listen", "", "loopback address that serves /metrics")
+	relayListen := flags.String("relay-listen", "", "address the relay of the hosts.toml agents listens on")
 	flowTicks := flags.String("flow-ticks", "", "test seam: file each flow pass appends a line to")
 	dueAt := flags.Int64("due-at", 0, "test seam: unix seconds the due pass reads as now")
 	relayAt := flags.Int64("relay-at", 0, "test seam: unix seconds the notice relay's watching checks read as now")
@@ -431,7 +470,7 @@ func parseFlags(args []string, getenv func(string) string) (options, error) {
 	if *claude == "" {
 		return options{}, usagef("--claude is empty")
 	}
-	if err := checkLimits(*sessionCap, *stepCap, *judgeDelay, *storeBusy); err != nil {
+	if err := checkLimits(*judgeDelay, *storeBusy); err != nil {
 		return options{}, err
 	}
 	if err := checkClockSeams(*dueAt, *relayAt); err != nil {
@@ -463,14 +502,12 @@ func parseFlags(args []string, getenv func(string) string) (options, error) {
 		models:        models,
 		pushHosts:     pushHosts,
 		sessions:      *sessions,
-		sessionCap:    *sessionCap,
 		sessionShell:  *sessionShell,
 		holderScope:   *holderScope,
-		scopeMemory:   *scopeMemory,
-		stepCap:       *stepCap,
 		judgeDelay:    *judgeDelay,
 		storeBusy:     *storeBusy,
 		metricsListen: *metricsListen,
+		relayListen:   *relayListen,
 		flowTicks:     *flowTicks,
 		dueNow:        unixClock(*dueAt),
 		relayNow:      unixClock(*relayAt),
@@ -541,6 +578,7 @@ func serveRelay(opts options, home string, logger *slog.Logger, mirror *daemon.M
 	return &relay{
 		claude:      opts.claude,
 		models:      opts.models,
+		orrery:      opts.orrery,
 		home:        home,
 		logger:      logger,
 		judge:       newDoneJudge(opts.claude, opts.models),
@@ -559,15 +597,16 @@ func serveRelay(opts options, home string, logger *slog.Logger, mirror *daemon.M
 // serving and returns its error. Once the store is open, serve returns only after the store is closed. serve sends
 // systemd READY=1 once the sessions have started, or once the store has opened when there are no sessions. With
 // --metrics-listen, the ready time is recorded just before READY=1. With a flight recorder, a start to READY over its
-// threshold writes a start trace once READY=1 is sent.
+// threshold writes a start trace once READY=1 is sent. Once the store is open, serve names each row that reads no host
+// as the controller's orrery name, before the sessions start; a naming, notices or sessions start that fails stops
+// serving and returns its error. Once the store is open, serve also follows each hosts.toml host's panes into it
+// (startHostFollows), and stops the follows before the store closes.
 func serve(ctx context.Context, opts options, logger *slog.Logger, getenv func(string) string) error {
-	host, err := hostName(opts.host)
+	host, orrery, err := controllerHost(opts, getenv)
 	if err != nil {
-		return fmt.Errorf("host name: %w", err)
+		return err
 	}
-	if host == "" {
-		return errors.New("host name is empty")
-	}
+	opts.orrery = orrery
 	storePath, store, pushes, err := openPushes(opts, getenv)
 	if err != nil {
 		return err
@@ -595,9 +634,10 @@ func serve(ctx context.Context, opts options, logger *slog.Logger, getenv func(s
 	pages := inapp.NewHub()
 	// The viewing tracker holds the notices of the key the web view views, and is fed by each input report.
 	viewing := newViewTracker(time.Now)
+	viewing.orrery = opts.orrery
 
 	// The mirror waits for the store that the open below attaches to it.
-	mirror := daemon.NewPendingMirror(time.Now, logger)
+	mirror := daemon.NewPendingMirror(opts.orrery, time.Now, logger)
 	home := getenv("HOME")
 	hub := newRelay(routeConfig(serveRouteInputs{
 		Host:       host,
@@ -611,7 +651,6 @@ func serve(ctx context.Context, opts options, logger *slog.Logger, getenv func(s
 		Logger:     logger,
 	}, viewing), serveRelay(opts, home, logger, mirror))
 	router := hub.router
-	pageNotices := enginehost.NewPageNotices(pages, router, router, time.Now)
 	observe := func(transition daemon.Transition) { hub.observe(ctx, transition) }
 	// callerWake holds the caller-event wake once startSessions has returned the host, so the pane observer does nothing
 	// until then.
@@ -625,12 +664,12 @@ func serve(ctx context.Context, opts options, logger *slog.Logger, getenv func(s
 		Home:          home,
 		Sessions:      opts.sessions,
 		Observers: []daemon.Observer{observe, autoseen.New(time.Now, logger, func(pane string, seen int64) {
-			router.Seen(ctx, notice.Key{Pane: pane}, seen)
+			router.Seen(ctx, notice.Key{Pane: pane, Host: opts.orrery}, seen)
 		}, hub.viewer), callerWakeOnDone(&callerWake)},
-		Seen:      func(report daemon.SeenReport) { router.Seen(ctx, notice.Key{Pane: report.PaneID}, report.Seen) },
+		Seen:      hookSeen(ctx, router, opts.orrery),
 		Input:     desk.Input,
 		Viewing:   func(report daemon.ViewReport) { viewing.note(report.Input, report.View) },
-		Read:      func(report daemon.ReadReport) { hub.reads.note(report.PaneID, report.Read) },
+		Read:      hookRead(hub.reads, opts.orrery),
 		Logger:    logger,
 		Mirror:    mirror,
 		TidyStart: tidyStart,
@@ -640,11 +679,17 @@ func serve(ctx context.Context, opts options, logger *slog.Logger, getenv func(s
 	})
 
 	st := openStore(ctx, getenv, logger, opts.metrics, opts.storeBusy, opts.storeRetryAfter)
+	// The notices the Notices service answers with. A hosts file that fails to load is a start error, as it is refused.
+	pageNotices, pageErr := controllerPageNotices(pages, router, opts.orrery, time.Now, getenv)
+	// A row from before the host column has no host until this names it, so every row reads the host it runs on
+	// before the manager reconciles it.
+	startErr := errors.Join(nameUnhosted(ctx, st, opts.orrery), pageErr)
 	attachStore(ctx, st, mirror, notices, router)
 	hub.attachVerdicts(st)
+	// The host follows write each hosts.toml host's panes into the open store, and stop before the store closes.
+	stopFollows := startHostFollows(ctx, st, getenv, logger, hub)
 	var sessions *sessionHost
-	var startErr error
-	if opts.sessions {
+	if startErr == nil && opts.sessions {
 		sessions, startErr = startSessions(ctx, opts, host, st, router, pageNotices, logger, getenv)
 	}
 	publishCallerWake(&callerWake, sessions)
@@ -654,12 +699,10 @@ func serve(ctx context.Context, opts options, logger *slog.Logger, getenv func(s
 		close(tidyStart)
 		notifyReady(ctx, logger, opts)
 	}
-	serveErr := awaitServe(ctx, logger, serveDone, watch)
+	serveErr := serveError(awaitServe(ctx, logger, serveDone, watch))
 	shutdownPhase(logger, "metrics listener", opts.stopMetricsListener)
+	shutdownPhase(logger, "host follows", stopFollows)
 	sessionErr := shutdownServe(ctx, logger, pages, st, hub, sessions, router, notices)
-	if serveErr != nil {
-		serveErr = fmt.Errorf("serve: %w", serveErr)
-	}
 	return errors.Join(startErr, serveErr, sessionErr)
 }
 
@@ -694,6 +737,14 @@ func awaitServe(ctx context.Context, logger *slog.Logger, serveDone <-chan error
 	var err error
 	shutdownPhase(logger, "hook socket", func() { err = <-serveDone })
 	return err
+}
+
+// serveError wraps err, the error that awaitServe returned, as serve's error. It returns nil when err is nil.
+func serveError(err error) error {
+	if err == nil {
+		return nil
+	}
+	return fmt.Errorf("serve: %w", err)
 }
 
 // stacksDir returns the flight traces directory beside the store, which a slow shutdown writes its goroutine stacks
@@ -876,18 +927,21 @@ func shutdownServe(
 }
 
 // sessionHost is the engine session service of a --sessions orreryd. The manager runs the sessions, the writer stores
-// their events, and the listener answers the Engine, Steps, Pools, Evidence and Contracts services on sessions.sock.
-// Without a store the manager, writer and broker are nil and every RPC is refused. The broker is closed before the
-// listener stops, so a grant that a blocked Acquire holds stays stored for the next orreryd. pools is the broker when
-// its restore succeeded, and nil otherwise, so no Pools are served. evidence is the evidence runner over the store, the
-// steps and the pools, and nil without a store. checks is the node checks runner over the store and the pools, and nil
-// without a store.
+// their events, and the listener answers the Engine, Steps, Pools, Evidence, Contracts, Designs and Accounts services
+// on sessions.sock. Without a store the manager, writer and broker are nil and every RPC is refused. The broker is closed
+// before the listener stops, so a grant that a blocked Acquire holds stays stored for the next orreryd. pools is the
+// broker when its restore succeeded, and nil otherwise, so no Pools are served. evidence is the evidence runner over
+// the store, the steps and the pools, and nil without a store. checks is the node checks runner over the store and the
+// pools, and nil without a store.
 type sessionHost struct {
 	manager    *enginehost.Manager
 	steps      *enginehost.Steps
 	epics      enginehost.EpicCommands
 	steering   enginehost.SteeringSessions
 	contracts  *enginehost.Contracts
+	designs    *enginehost.Designs
+	stage      enginev1connect.StageHandler
+	accounts   *enginehost.Accounts
 	writer     *enginehost.Writer
 	broker     *grants.Broker
 	pools      enginehost.PoolCommands
@@ -921,20 +975,20 @@ type sessionHost struct {
 	reportsDone   chan struct{}
 	stopServe     context.CancelFunc
 	serveDone     chan error
+	// stopRelay cancels the relay's Serve, and relayDone receives its error once it has returned. Both are nil when no
+	// relay listens (see startRelay).
+	stopRelay context.CancelFunc
+	relayDone chan error
 	// callerEvents is the caller-event delivery. Its Wake asks for a round. stopCallerEvents cancels its Run, which closes
 	// callerEventsDone when it returns.
 	callerEvents     *enginehost.CallerEvents
 	stopCallerEvents context.CancelFunc
 	callerEventsDone chan struct{}
-	// flowWake is the relay the steps' EpicWake and the manager's StepFreed hand epics to. startFlow sets it to the
-	// interpreter's Wake.
+	// flowWake is the relay the steps' EpicWake hands epics to. startFlow sets it to the interpreter's Wake.
 	flowWake flowWakeRelay
-	// dueWake is the relay the steps' Stored, the manager's StepFreed and the epic writes wake the due pass through.
-	// startDue sets it to the due pass's Wake.
+	// dueWake is the relay the steps' Stored and the epic writes wake the due pass through. startDue sets it to the due
+	// pass's Wake.
 	dueWake dueWakeRelay
-	// outsideWake is the relay the release slots' frees wake the epics that waited on an outside holder through.
-	// startFlow sets it to the interpreter's WakeOutsideWaiters.
-	outsideWake outsideWakeRelay
 	// changes is the change feed the Changes service serves, nil without a store. wireStore sets it.
 	changes *enginehost.ChangeFeed
 	// epicWrites is the test seam options.epicWrites, which subscribeFlowWake's hook calls. Production leaves it nil.
@@ -942,11 +996,6 @@ type sessionHost struct {
 	// limits tells the usage limits. Its Wake is part of the Steps engine's stored wake (see storedWake). stopLimits
 	// cancels its Run, which closes limitsDone when it returns.
 	limits *enginehost.LimitNotices
-	// releaseSlots holds the repositories' release slots for outside releasers. stopReleaseSlots cancels its Run, which
-	// closes releaseSlotsDone when it returns.
-	releaseSlots     *enginehost.ReleaseSlots
-	stopReleaseSlots context.CancelFunc
-	releaseSlotsDone chan struct{}
 	// paneSends records the texts sent to panes, nil without a store. The PaneSends service on the session socket
 	// serves it.
 	paneSends enginehost.PaneSendRecorder
@@ -982,15 +1031,13 @@ func newSessionHost(logger *slog.Logger) *sessionHost {
 		summariesDone: make(chan struct{}),
 		reportsDone:   make(chan struct{}),
 		serveDone:     make(chan error, 1),
-
-		releaseSlotsDone: make(chan struct{}),
 	}
 }
 
 // startSessions listens on sessions.sock beside the daemon socket and serves the Engine, Steps, Pools and Evidence
-// services on it until stop. With an open store it also starts the writer, a manager capped at opts.sessionCap that
-// notifies through router, the grants broker for hostName, which restores the grants a previous run stored and then
-// runs no loop until stop, and the step engine capped at opts.stepCap whose worktrees go under step-worktrees
+// services on it until stop. With an open store it also starts the writer, a manager that notifies through router, the
+// grants broker for hostName, which restores the grants a previous run stored and then runs no loop until stop, and the
+// step engine whose worktrees go under step-worktrees
 // beside the store file. The steps re-adopt the open step rows a previous run left, the manager reconciles the session
 // rows and the steps reconcile the rest before the service serves. The evidence runner is then built over the store,
 // the steps and the pools, and takes up the open evidence runs, so no judge starts beside a step already re-adopted.
@@ -1006,13 +1053,13 @@ func newSessionHost(logger *slog.Logger) *sessionHost {
 // step's caller when the step ends, and each epic's steerer of its events, on its start, on each wake, and once more
 // after a failed round, until stop (startCallerEvents);
 // and the cron scheduler fires each cron job of a headless session when it is due, through the manager's DeliverCron,
-// from one timer for the next due fire until stop (startCron); and the release slots free each outside hold at its
-// deadline from one timer, wake their waiting holds on each epic write, and wake the flow's epics that waited on a hold
-// when it ends, until stop (startReleaseSlots). A readopt, reconcile, restore or resume failure is
+// from one timer for the next due fire until stop (startCron). A readopt, reconcile, restore or resume failure is
 // logged and serving goes on; a failed restore serves no Pools, which refuse as unavailable, and the gates fail for
 // want of pools. The Notices service on it answers from notices, and refuses as unavailable when notices is nil. With
 // st open, each call of the Epics service on it that names an epic records its session in st. The Changes service on it
-// relays the sessions each store write appends events to, from the change feed st publishes to.
+// relays the sessions each store write appends events to, from the change feed st publishes to. With opts.relayListen
+// set and a hosts file that lists a host, the relay of those agents serves the same calls on that address until stop
+// (startRelay); a relay that fails to open fails startup.
 func startSessions(
 	ctx context.Context,
 	opts options,
@@ -1029,68 +1076,73 @@ func startSessions(
 	var stepCommands enginehost.StepCommands
 	var evidence enginehost.EvidenceCommands
 	var crons enginehost.CronCommands
+	// The controller's host is the one this machine runs as hostName, and every epic and contract the controller serves
+	// resolves its host through hosts.
+	hosts := hostexec.Map{hostName: hostexec.NewLocal()}
 	if st != nil {
-		stateDir, childEnviron, err := sessionState(getenv)
+		stateDir, childEnviron, err := adoptSessionState(ctx, st, hostName, getenv)
 		if err != nil {
 			return nil, err
 		}
 		host.newWriter(opts, st, logger)
 		host.newCron(opts, st, logger)
-		host.newWakes(st, opts, router, logger)
+		host.newWakes(ctx, st, opts, router, getenv, logger)
 		host.manager = enginehost.NewManager(enginehost.Config{
-			Shell:             opts.sessionShell,
-			Claude:            opts.claude,
-			Environ:           childEnviron,
-			HolderScope:       opts.holderScope,
-			HolderScopeMemory: opts.scopeMemory,
-			StateDir:          stateDir,
-			ManagedDir:        managedDir,
-			Cap:               opts.sessionCap,
-			StepCap:           opts.stepCap,
-			Writer:            host.writer,
-			Notifier:          enginehost.NewNotifier(enginehost.NotifierConfig{Route: router}),
-			Store:             st,
-			Logger:            logger,
-			Metrics:           opts.metrics,
-			CronWake:          host.cron.Wake, PutOffs: st, Panes: newPaneQuestions(questionServer(opts), router),
-			EventWake: host.callerEvents.Wake, StepFreed: host.stepFreedWake,
+			Shell:       opts.sessionShell,
+			Claude:      opts.claude,
+			Environ:     childEnviron,
+			HolderScope: opts.holderScope,
+			HostName:    opts.orrery,
+			StateDir:    stateDir,
+			ManagedDir:  managedDir,
+			Writer:      host.writer,
+			Notifier:    enginehost.NewNotifier(enginehost.NotifierConfig{Route: router}),
+			Store:       st,
+			Logger:      logger,
+			Metrics:     opts.metrics,
+			CronWake:    host.cron.Wake, PutOffs: st, Panes: controllerPaneQuestions(opts, router),
+			EventWake: host.callerEvents.Wake,
 		})
 		host.startBroker(ctx, hostName, st, logger)
 		// host.pools is nil when the broker's restore failed, which leaves the gates no pools to run under.
-		resolve := planner.NewResolver(os.Environ(), managedDir)
 		haiku := enginehost.NewHaiku(enginehost.HaikuConfig{Claude: opts.claude, Environ: os.Environ()})
 		steps := enginehost.NewSteps(enginehost.StepsConfig{
-			Sessions:        host.manager,
-			Store:           st,
-			Writer:          host.writer,
-			Pools:           host.pools,
-			Worktrees:       filepath.Join(stateDir, "step-worktrees"),
-			Environ:         childEnviron,
-			Logger:          logger,
-			Haiku:           haiku,
-			GateStateDir:    filepath.Join(stateDir, "gates"),
-			GateScope:       opts.holderScope,
-			GateScopeMemory: opts.scopeMemory,
-			ReadoptCheck:    readoptCheck(st, resolve),
-			ReadoptGate:     readoptGate(st),
-			Stored:          host.storedWake, EpicWake: host.stepEpicWake,
+			Sessions:     host.manager,
+			Store:        st,
+			Writer:       host.writer,
+			Pools:        host.pools,
+			Worktrees:    filepath.Join(stateDir, "step-worktrees"),
+			Environ:      childEnviron,
+			Logger:       logger,
+			Haiku:        haiku,
+			GateStateDir: filepath.Join(stateDir, "gates"),
+			GateScope:    opts.holderScope,
+			ReadoptCheck: readoptCheck(st, planner.NewResolver(os.Environ(), managedDir, hosts), hosts),
+			ReadoptGate:  readoptGate(st),
+			Stored:       host.storedWake, EpicWake: host.stepEpicWake,
+			Host:  hostName,
+			Hosts: hosts,
 		})
 		host.steps = steps
+		acceptCheck := host.wireStage(st, steps, host.manager, getenv)
 		host.wireStore(st)
 		commands, stepCommands = host.manager, host.steps
-		host.epics, host.steering, host.contracts = st, epicSteering(host.manager, st), contractsOf(st)
+		host.epics, host.steering, host.contracts, host.accounts = st, epicSteering(host.manager, st, hosts),
+			contractsOf(st, hosts, hostName, acceptCheck), &enginehost.Accounts{Store: st, Now: time.Now}
+		host.designs = &enginehost.Designs{Store: st, Now: time.Now}
 		crons = enginehost.NewCronAnswers(enginehost.CronAnswersConfig{
 			Store: st, Now: opts.cronNow, Changed: host.cron.Changed})
-		host.newReleaseSlots(opts, st, logger)
 		host.startWriter(ctx)
 		host.reconcile(ctx, logger, opts.holdReconcile, opts.flight, opts.flightNow)
 		host.startCallerEvents(ctx)
 		host.startCron(ctx)
-		host.startEvidence(ctx, st, stateDir, opts, childEnviron, logger)
+		host.startEvidence(ctx, st, stateDir, opts, childEnviron, hosts, logger)
 		evidence = host.evidence
-		host.startNodeChecks(ctx, st, stateDir, opts, childEnviron, logger)
-		host.startFlow(ctx, st, router, opts.attentionTicks, opts.flowTicks, getenv, resolve, stateDir, logger)
-		host.startReleaseSlots(ctx)
+		host.startNodeChecks(ctx, st, stateDir, opts, childEnviron, hosts, logger)
+		host.startFlow(
+			ctx, st, router, opts.attentionTicks, opts.flowTicks, getenv,
+			planner.NewResolver(os.Environ(), managedDir, hosts), stateDir, hosts, logger,
+		)
 		host.startLimits(ctx)
 		host.startSummaries(ctx, st, haiku, logger)
 		host.startTitles(ctx, st, haiku, logger)
@@ -1104,57 +1156,157 @@ func startSessions(
 		host.shutdown()
 		return nil, fmt.Errorf("session socket: %w", err)
 	}
-	var serveCtx context.Context
-	serveCtx, host.stopServe = context.WithCancel(ctx)
-	// The session socket also serves the release slots, through serveConfig's ReleaseSlots.
-	cfg := host.serveConfig(commands, stepCommands, evidence, notices, crons, serveOpts(opts, st, logger))
-	go func() {
-		host.serveDone <- enginehost.ServeWith(serveCtx, ln, cfg)
-	}()
+	cfg := host.serveConfig(
+		commands, stepCommands, evidence, notices, crons, hostName, opts.orrery, hosts, serveOpts(opts, st, logger))
+	if err := host.startSessionSocket(ctx, opts, st, ln, cfg, getenv, logger); err != nil {
+		return nil, err
+	}
 	return host, nil
 }
 
+// startSessionSocket serves cfg on ln in the background until stop, and opens the relay beside it when startRelay opens
+// one. A relay that fails to open shuts the host down, closes ln, and returns the error.
+func (h *sessionHost) startSessionSocket(
+	ctx context.Context,
+	opts options,
+	st *store.Store,
+	ln net.Listener,
+	cfg enginehost.ServeConfig,
+	getenv func(string) string,
+	logger *slog.Logger,
+) error {
+	if err := h.startRelay(ctx, opts, st, cfg, getenv, logger); err != nil {
+		h.shutdown()
+		return errors.Join(err, ln.Close())
+	}
+	var serveCtx context.Context
+	serveCtx, h.stopServe = context.WithCancel(ctx)
+	go func() {
+		h.serveDone <- enginehost.ServeWith(serveCtx, ln, cfg)
+	}()
+	return nil
+}
+
+// relayUnusedMessage is the message of the log line that says --relay-listen opens nothing.
+const relayUnusedMessage = "--relay-listen is unused"
+
+// startRelay opens the relay of the hosts.toml agents on opts.relayListen and serves it in the background until the
+// session service stops, with cfg's services as its handler, and st, when it is not nil, as the store that names each
+// session's host. The relay admits connections by opts.relayWhoIs, or node.Tailnet() when that is nil. With the flag
+// unset it does nothing. With no hosts file, or one that lists no host, it opens nothing and logs that the flag is
+// unused. A hosts file that does not load is an error, and so is a relay that fails to open, which names its address.
+func (h *sessionHost) startRelay(
+	ctx context.Context,
+	opts options,
+	st *store.Store,
+	cfg enginehost.ServeConfig,
+	getenv func(string) string,
+	logger *slog.Logger,
+) error {
+	if opts.relayListen == "" {
+		return nil
+	}
+	file, err := loadHostsFile(getenv)
+	if err != nil {
+		return fmt.Errorf("relay hosts: %w", err)
+	}
+	if len(file.Hosts) == 0 {
+		logger.WarnContext(ctx, relayUnusedMessage, "addr", opts.relayListen, "reason", "hosts.toml lists no host")
+		return nil
+	}
+	whoIs := opts.relayWhoIs
+	if whoIs == nil {
+		whoIs = node.Tailnet()
+	}
+	config := hostrelay.Config{
+		Address: opts.relayListen,
+		Hosts:   file.Hosts,
+		WhoIs:   whoIs,
+		Handler: enginehost.NewHandler(cfg),
+		Logger:  logger,
+	}
+	// A nil store must stay a nil interface, since a nil *store.Store would name every session's host as none.
+	if st != nil {
+		config.Sessions = st
+	}
+	relay, err := hostrelay.Listen(ctx, config)
+	if err != nil {
+		return fmt.Errorf("relay listener: %w", err)
+	}
+	relayCtx, cancel := context.WithCancel(ctx)
+	h.stopRelay = cancel
+	h.relayDone = make(chan error, 1)
+	go func() { h.relayDone <- relay.Serve(relayCtx) }()
+	return nil
+}
+
+// adoptSessionState returns sessionState's state directory and child environ, after st adopts hostName for the rows
+// stored before hosts, so the sessions start with each epic and step naming its host. It returns the error either gives.
+func adoptSessionState(
+	ctx context.Context,
+	st *store.Store,
+	hostName string,
+	getenv func(string) string,
+) (string, []string, error) {
+	stateDir, childEnviron, err := sessionState(ctx, getenv)
+	if err != nil {
+		return "", nil, err
+	}
+	if err = st.AdoptHost(ctx, hostName); err != nil {
+		return "", nil, fmt.Errorf("adopt host: %w", err)
+	}
+	return stateDir, childEnviron, nil
+}
+
 // serveConfig returns what the session socket serves: the services the host holds, and the given commands, evidence,
-// notices and crons, with handlerOpts on each handler. ReleaseSlots is set only when the host has release slots, since a
-// nil *ReleaseSlots in the interface would not refuse as unavailable, so it stays unset without a store.
+// notices and crons, with handlerOpts on each handler, hostName as the host each epic is stamped with, and callerHost
+// as the orrery name of the host whose panes the socket's calls come from.
 func (h *sessionHost) serveConfig(
 	commands enginehost.Commands,
 	steps enginehost.StepCommands,
 	evidence enginehost.EvidenceCommands,
 	notices enginehost.NoticeSource,
 	crons enginehost.CronCommands,
+	hostName string,
+	callerHost string,
+	hosts hostexec.Hosts,
 	handlerOpts []connect.HandlerOption,
 ) enginehost.ServeConfig {
-	cfg := enginehost.ServeConfig{
-		Commands:  commands,
-		Steps:     steps,
-		Epics:     h.epics,
-		Steering:  h.steering,
-		Pools:     h.pools,
-		Evidence:  evidence,
-		Notices:   notices,
-		Crons:     crons,
-		Changes:   h.changes,
-		Contracts: h.contracts,
-		PaneSends: h.paneSends,
-		Options:   handlerOpts,
+	return enginehost.ServeConfig{
+		Commands:   commands,
+		Steps:      steps,
+		Epics:      h.epics,
+		Steering:   h.steering,
+		Pools:      h.pools,
+		Evidence:   evidence,
+		Notices:    notices,
+		Crons:      crons,
+		Changes:    h.changes,
+		Contracts:  h.contracts,
+		Designs:    h.designs,
+		Stage:      h.stage,
+		Accounts:   h.accounts,
+		PaneSends:  h.paneSends,
+		Host:       hostName,
+		CallerHost: callerHost,
+		Hosts:      hosts,
+		Options:    handlerOpts,
 	}
-	if h.releaseSlots != nil {
-		cfg.ReleaseSlots = h.releaseSlots
-	}
-	return cfg
 }
 
 // epicSteering returns the steering sessions of the epics st serves, which manager starts.
-func epicSteering(manager *enginehost.Manager, st *store.Store) *enginehost.EpicSteering {
+func epicSteering(manager *enginehost.Manager, st *store.Store, hosts hostexec.Hosts) *enginehost.EpicSteering {
 	return enginehost.NewEpicSteering(enginehost.EpicSteeringConfig{
-		Manager: manager, Sessions: st, Render: planner.SteeringLines, PaneDir: paneDir,
+		Manager: manager, Sessions: st, Render: planner.SteeringLines, PaneDir: paneDir, Hosts: hosts,
 	})
 }
 
-// contractsOf returns the contracts st serves, stamped with the process clock.
-func contractsOf(st *store.Store) *enginehost.Contracts {
-	return &enginehost.Contracts{Store: st, Now: time.Now}
+// contractsOf returns the contracts st serves, stamped with the process clock. Their origin is fetched on the
+// controller's host, which hosts resolves hostName to. An accept first asks acceptCheck of the contract.
+func contractsOf(
+	st *store.Store, hosts hostexec.Hosts, hostName string, acceptCheck func(context.Context, string) error,
+) *enginehost.Contracts {
+	return &enginehost.Contracts{Store: st, Now: time.Now, Hosts: hosts, Host: hostName, AcceptCheck: acceptCheck}
 }
 
 // paneDir returns the current directory of the tmux pane on the server whose store column is server. Its error names
@@ -1187,14 +1339,16 @@ func serveOpts(opts options, st *store.Store, logger *slog.Logger) []connect.Han
 
 // readoptCheck is the ReadoptCheck of the steps. A re-adopted row gets the planner's return check when it is the step of a
 // running planner turn, and when that check is nil, the release integrator's check when it is a release integrator
-// step, and then the build's verifier or orchestrator check. An error from any of them is returned.
+// step, and then the build's verifier or orchestrator check, which reads the epic's tasks on the host that hosts
+// resolves the epic to. An error from any of them is returned.
 func readoptCheck(
 	st *store.Store,
 	resolve planner.Resolver,
+	hosts hostexec.Hosts,
 ) func(ctx context.Context, row store.StepRow) (func(value json.RawMessage) []string, error) {
 	plan := planner.ReadoptCheck(st, resolve)
-	integrate := interpret.ReadoptCheck(st)
-	verify := build.ReadoptCheck(st)
+	integrate := interpret.ReadoptCheck(st, hosts)
+	verify := build.ReadoptCheck(st, hosts)
 	return func(ctx context.Context, row store.StepRow) (func(value json.RawMessage) []string, error) {
 		check, err := plan(ctx, row)
 		if err != nil || check != nil {
@@ -1297,11 +1451,21 @@ func (h *sessionHost) stopBroker() {
 	h.broker.Close()
 }
 
-// stop stops the broker, then serving the session socket, and then shuts the sessions down. Serve's shutdown closes the
-// connections of the Acquire calls still blocked, and an Acquire whose context ends would end its grant, so the broker
-// closes first. It returns the error the session service ended with, if any.
+// stop stops the broker, then the relay when one listens, then serving the session socket, and then shuts the sessions
+// down. Serve's shutdown closes the connections of the Acquire calls still blocked, and an Acquire whose context ends
+// would end its grant, so the broker closes first. The relay stops before the session socket, since its calls reach the
+// same services. It returns the errors the relay and the session service ended with, if any.
 func (h *sessionHost) stop() error {
 	h.phase("broker", h.stopBroker)
+	var relayErr error
+	if h.stopRelay != nil {
+		h.phase("relay", func() {
+			h.stopRelay()
+			if err := <-h.relayDone; err != nil {
+				relayErr = fmt.Errorf("relay: %w", err)
+			}
+		})
+	}
 	var serveErr error
 	h.phase("session socket", func() {
 		h.stopServe()
@@ -1309,20 +1473,21 @@ func (h *sessionHost) stop() error {
 	})
 	h.shutdown()
 	if serveErr != nil {
-		return fmt.Errorf("session service: %w", serveErr)
+		serveErr = fmt.Errorf("session service: %w", serveErr)
 	}
-	return nil
+	return errors.Join(relayErr, serveErr)
 }
 
 // sessionState returns the state directory getenv names and the environment of every child a holder runs: sessions,
 // steps and gates alike build with Gradle daemonless (enginehost.GradleEnviron), since a holder's scope is stopped when
 // the holder ends, which would end a daemon another step's build runs in.
-func sessionState(getenv func(string) string) (string, []string, error) {
+func sessionState(ctx context.Context, getenv func(string) string) (string, []string, error) {
 	stateDir, err := stateDirOf(getenv)
 	if err != nil {
 		return "", nil, fmt.Errorf("step worktrees: %w", err)
 	}
-	environ, err := enginehost.GradleEnviron(os.Environ(), stateDir, enginehost.UserGradleHome(os.Getenv))
+	environ, err := enginehost.GradleEnviron(
+		ctx, hostexec.NewLocal(), os.Environ(), stateDir, enginehost.UserGradleHome(os.Getenv))
 	if err != nil {
 		return "", nil, fmt.Errorf("session environment: %w", err)
 	}
@@ -1332,25 +1497,26 @@ func sessionState(getenv func(string) string) (string, []string, error) {
 // startEvidence builds the evidence runner over st, the steps and the pools, with its blobs and capture worktrees under
 // stateDir and its gates under stateDir/gates, and takes up the open evidence runs a previous run left. A failure to take
 // them up is logged and serving goes on. Its gates run in environ, under the holder scope and its memory cap that opts
-// name.
+// name. Its runs run on the hosts of their epics, which hosts resolves.
 func (h *sessionHost) startEvidence(
 	ctx context.Context,
 	st *store.Store,
 	stateDir string,
 	opts options,
 	environ []string,
+	hosts hostexec.Hosts,
 	logger *slog.Logger,
 ) {
 	h.evidence = enginehost.NewEvidence(enginehost.EvidenceConfig{
-		Store:           st,
-		Steps:           h.steps,
-		Pools:           h.pools,
-		Environ:         environ,
-		StateDir:        stateDir,
-		GateStateDir:    filepath.Join(stateDir, "gates"),
-		GateScope:       opts.holderScope,
-		GateScopeMemory: opts.scopeMemory,
-		Logger:          logger,
+		Store:        st,
+		Steps:        h.steps,
+		Hosts:        hosts,
+		Pools:        h.pools,
+		Environ:      environ,
+		StateDir:     stateDir,
+		GateStateDir: filepath.Join(stateDir, "gates"),
+		GateScope:    opts.holderScope,
+		Logger:       logger,
 	})
 	if err := h.evidence.Resume(ctx); err != nil {
 		logger.ErrorContext(ctx, "resume evidence runs, serving anyway", "error", err)
@@ -1359,24 +1525,26 @@ func (h *sessionHost) startEvidence(
 
 // startNodeChecks builds the node checks runner over st and the pools, with its check worktrees under stateDir and its
 // gates under stateDir/gates, and takes up the open checks a previous run left. A failure to take them up is logged and
-// serving goes on. Its gates run in environ, under the holder scope and its memory cap that opts name.
+// serving goes on. Its gates run in environ, under the holder scope and its memory cap that opts name. Its checks run on
+// the hosts of their epics, which hosts resolves.
 func (h *sessionHost) startNodeChecks(
 	ctx context.Context,
 	st *store.Store,
 	stateDir string,
 	opts options,
 	environ []string,
+	hosts hostexec.Hosts,
 	logger *slog.Logger,
 ) {
 	h.checks = enginehost.NewNodeChecks(enginehost.NodeChecksConfig{
-		Store:           st,
-		Pools:           h.pools,
-		Environ:         environ,
-		StateDir:        stateDir,
-		GateStateDir:    filepath.Join(stateDir, "gates"),
-		GateScope:       opts.holderScope,
-		GateScopeMemory: opts.scopeMemory,
-		Logger:          logger,
+		Store:        st,
+		Hosts:        hosts,
+		Pools:        h.pools,
+		Environ:      environ,
+		StateDir:     stateDir,
+		GateStateDir: filepath.Join(stateDir, "gates"),
+		GateScope:    opts.holderScope,
+		Logger:       logger,
 	})
 	if err := h.checks.Resume(ctx); err != nil {
 		logger.ErrorContext(ctx, "resume node checks, serving anyway", "error", err)
@@ -1403,14 +1571,16 @@ func (h *sessionHost) startFlow(
 	getenv func(string) string,
 	resolve planner.Resolver,
 	stateDir string,
+	hosts hostexec.Hosts,
 	logger *slog.Logger,
 ) {
 	plannerRun := planner.New(planner.Config{
-		Store:   st,
-		Steps:   h.steps,
-		Agent:   func() (string, error) { return roles.Agent(getenv, "planner") },
-		Logger:  logger,
-		Resolve: resolve,
+		Store:      st,
+		Steps:      h.steps,
+		Agent:      func() (string, error) { return roles.Agent(getenv, "planner") },
+		Logger:     logger,
+		Resolve:    resolve,
+		OriginMain: enginehost.FetchOriginMain,
 	})
 	buildRun := build.New(build.Config{
 		Store:    st,
@@ -1419,6 +1589,7 @@ func (h *sessionHost) startFlow(
 		Checks:   h.checks,
 		Getenv:   getenv,
 		StateDir: stateDir,
+		Hosts:    hosts,
 		Logger:   logger,
 	})
 	var flowCtx context.Context
@@ -1434,13 +1605,13 @@ func (h *sessionHost) startFlow(
 		Reviewers: interpret.NewEpicReviewers(),
 		Ending:    st,
 		StateDir:  stateDir,
+		Hosts:     hosts,
 		Getenv:    getenv,
 		Logger:    logger,
 		Ticks:     ticks,
 		Passed:    passed,
 	})
 	h.subscribeFlowWake(st, flow.Wake)
-	h.outsideWake.set(flow.WakeOutsideWaiters)
 	go func() {
 		flow.Run(flowCtx)
 		close(h.flowDone)
@@ -1483,31 +1654,6 @@ func (r *flowWakeRelay) Wake(epics []string) {
 	}
 }
 
-// outsideWakeRelay wakes the epics that waited on an outside hold, through the function startFlow sets it to. Until then a
-// wake does nothing: the flow's first pass, which covers every epic, makes up for it. It is safe from any goroutine, never
-// blocks, and takes only its own lock.
-type outsideWakeRelay struct {
-	mu   sync.Mutex
-	wake func()
-}
-
-// set makes wake the function that Wake calls.
-func (r *outsideWakeRelay) set(wake func()) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.wake = wake
-}
-
-// Wake calls the function set makes, or does nothing while none is set. The function is called outside the lock.
-func (r *outsideWakeRelay) Wake() {
-	r.mu.Lock()
-	wake := r.wake
-	r.mu.Unlock()
-	if wake != nil {
-		wake()
-	}
-}
-
 // dueWakeRelay wakes the due pass that startDue sets it to. Until then a wake does nothing: the due pass's first pass,
 // which covers every row, makes up for it. It is safe from any goroutine, never blocks, and takes only its own lock.
 type dueWakeRelay struct {
@@ -1532,6 +1678,19 @@ func (r *dueWakeRelay) Wake() {
 	}
 }
 
+// wireStage sets the Stage service of h to the service over st, steps and sessions, which reads getenv, and returns the
+// service's AcceptCheck, which an accept of a contract asks before it accepts the contract. sessions starts the session
+// that continues a design's conversation.
+func (h *sessionHost) wireStage(
+	st *store.Store, steps *enginehost.Steps, sessions stage.SessionStarter, getenv func(string) string,
+) func(context.Context, string) error {
+	service := stage.NewService(stage.Config{
+		Store: st, Steps: steps, Sessions: sessions, Now: time.Now, Getenv: getenv,
+	})
+	h.stage = service
+	return service.AcceptCheck
+}
+
 // wireStore points st's engine liveness at the manager, and makes h.changes the change feed that st's session-events
 // hook publishes each event write to, for the Changes service to relay.
 func (h *sessionHost) wireStore(st *store.Store) {
@@ -1543,16 +1702,12 @@ func (h *sessionHost) wireStore(st *store.Store) {
 
 // subscribeFlowWake makes wake the flow's wake: the relay the steps and the manager hand epics to, and the store's
 // epics-changed hook, which calls it on each write that moves an epic and then wakes the due pass. The due pass wakes on
-// an epic write too, since a limit's due row for an epic is stored with the epic's pause, which moves its revision. The
-// hook also wakes the release slots' HoldWaits, since an epic write may be the one that frees a slot they wait on.
+// an epic write too, since a limit's due row for an epic is stored with the epic's pause, which moves its revision.
 func (h *sessionHost) subscribeFlowWake(st *store.Store, wake func(epics []string)) {
 	h.flowWake.set(wake)
 	st.OnEpicsChanged(func(epics []string) {
 		wake(epics)
 		h.dueWake.Wake()
-		if h.releaseSlots != nil {
-			h.releaseSlots.Changed()
-		}
 		if h.epicWrites != nil {
 			h.epicWrites(epics)
 		}
@@ -1569,17 +1724,6 @@ func (h *sessionHost) stepEpicWake(epic string) {
 func (h *sessionHost) stepStored() {
 	h.callerEvents.Wake()
 	h.dueWake.Wake()
-}
-
-// stepFreedWake is the manager's StepFreed: it wakes the due pass, since a freed slot may let a row the step cap refused
-// resume, and it hands the epics a freed step slot refused to the flow, and does nothing for none. The manager calls it
-// under its lock, so it does not block.
-func (h *sessionHost) stepFreedWake(epics []string) {
-	h.dueWake.Wake()
-	if len(epics) == 0 {
-		return
-	}
-	h.flowWake.Wake(epics)
 }
 
 // clearStoreHooks clears the epics-changed and session-events hooks of st, so no write after it calls them. A nil st
@@ -1640,7 +1784,17 @@ func appendPassLine(ctx context.Context, logger *slog.Logger, path string) {
 
 // newWakes builds the caller-event delivery and the limit notices over st, the two loops the Steps engine's stored wake
 // calls (see storedWake). They are built before the Steps engine, so the wake reaches both from the first stored hold.
-func (h *sessionHost) newWakes(st *store.Store, opts options, router enginehost.Router, logger *slog.Logger) {
+// The caller-event delivery wakes a pane on a remote host through the agents of the hosts file that getenv locates (see
+// paneAgents).
+func (h *sessionHost) newWakes(
+	ctx context.Context,
+	st *store.Store,
+	opts options,
+	router enginehost.Router,
+	getenv func(string) string,
+	logger *slog.Logger,
+) {
+	opts.paneAgents = paneAgents(ctx, getenv, logger)
 	h.newCallerEvents(st, opts, logger)
 	h.newLimitNotices(st, router, logger)
 }
@@ -1680,15 +1834,16 @@ func (h *sessionHost) startLimits(ctx context.Context) {
 // newCallerEvents builds the caller-event delivery over st as h.callerEvents. Its wake is the trigger of every caller
 // event: the manager's EventWake, the steps' Stored, the store's OnCallerEvent, and the pane observer. Both passes send
 // through one CallerSender: a headless caller gets its event as a prompt through the manager, a pane caller gets it
-// through cli.WakePane, and a step caller gets the end of its step as a prompt while that step is open (see
+// through the pane of its host (see enginehost.HostPaneWake): this machine's pane through cli.WakePane, a remote host's
+// through its agent in opts.paneAgents. A step caller gets the end of its step as a prompt while that step is open (see
 // Steps.DeliverChildEnd), or is only marked when the step has ended. Neither depends on a router, since a caller event
 // goes to its caller alone. The sender's Deliver and DeliverStep read h.manager and h.steps when they send, which is after
 // startSessions has set them. When opts.callerEventPassed is not nil, it is called after each pass returns, and
 // opts.callerEventTimer and opts.callerWakePane replace the retry timer and cli.WakePane.
 func (h *sessionHost) newCallerEvents(st *store.Store, opts options, logger *slog.Logger) {
-	wakePane := opts.callerWakePane
-	if wakePane == nil {
-		wakePane = cli.WakePane
+	local := opts.callerWakePane
+	if local == nil {
+		local = cli.WakePane
 	}
 	sender := enginehost.NewCallerSender(enginehost.CallerSenderConfig{
 		Deliver: func(ctx context.Context, req enginehost.DeliverRequest) error {
@@ -1697,10 +1852,11 @@ func (h *sessionHost) newCallerEvents(st *store.Store, opts options, logger *slo
 		DeliverStep: func(ctx context.Context, req enginehost.DeliverRequest) error {
 			return h.steps.DeliverChildEnd(ctx, req)
 		},
-		WakePane: wakePane,
-		Store:    st,
-		Now:      time.Now,
-		Logger:   logger,
+		WakePane:    enginehost.HostPaneWake(opts.orrery, local, opts.paneAgents),
+		SessionHost: st.SessionHost,
+		Store:       st,
+		Now:         time.Now,
+		Logger:      logger,
 	})
 	passes := []enginehost.CallerPass{
 		enginehost.NewStepCallerEvents(enginehost.StepCallerEventsConfig{Store: st, Sender: sender}),
@@ -1715,6 +1871,26 @@ func (h *sessionHost) newCallerEvents(st *store.Store, opts options, logger *slo
 		Passes: passes, NewTimer: opts.callerEventTimer, Logger: logger,
 	})
 	st.OnCallerEvent(h.callerEvents.Wake)
+}
+
+// paneAgents returns one node.Client for each host of the hosts file that getenv locates, by the host's name.
+// HostPaneWake wakes a pane on that host through its client. Each client dials as startHostFollows dials its host. A
+// hosts file that does not load is logged, and no agent is returned, since controllerHost has already refused the same
+// file.
+func paneAgents(ctx context.Context, getenv func(string) string, logger *slog.Logger) map[string]enginehost.PaneWaker {
+	file, err := loadHostsFile(getenv)
+	if err != nil {
+		logger.ErrorContext(ctx, "caller events: waking remote panes without their agents", "error", err)
+		return nil
+	}
+	var dialer net.Dialer
+	agents := make(map[string]enginehost.PaneWaker, len(file.Hosts))
+	for _, host := range file.Hosts {
+		agents[host.Name] = node.NewClient(node.ClientConfig{
+			Name: host.Name, Address: host.Address, Dial: dialer.DialContext, Logger: logger,
+		})
+	}
+	return agents
 }
 
 // startCallerEvents runs h.callerEvents until shutdown, on one goroutine. Its Run makes one round at its start, then
@@ -1799,26 +1975,6 @@ func (h *sessionHost) startCron(ctx context.Context) {
 	go func() {
 		defer close(h.cronDone)
 		h.cron.Run(cronCtx)
-	}()
-}
-
-// newReleaseSlots builds the release slots over st, which free each outside hold at its deadline and wake the flow's
-// outside waiters when a hold ends, with the test seams of opts for the clock and the timers.
-func (h *sessionHost) newReleaseSlots(opts options, st *store.Store, logger *slog.Logger) {
-	h.releaseSlots = enginehost.NewReleaseSlots(enginehost.ReleaseSlotsConfig{
-		Store: st, Now: opts.releaseSlotNow, NewTimer: opts.releaseSlotTimers, Freed: h.outsideWake.Wake,
-		Logger: logger,
-	})
-}
-
-// startReleaseSlots runs the release slots until stop, on its own cancel, and closes releaseSlotsDone when its Run
-// returns.
-func (h *sessionHost) startReleaseSlots(ctx context.Context) {
-	var slotsCtx context.Context
-	slotsCtx, h.stopReleaseSlots = context.WithCancel(ctx)
-	go func() {
-		defer close(h.releaseSlotsDone)
-		h.releaseSlots.Run(slotsCtx)
 	}()
 }
 
@@ -2035,10 +2191,6 @@ func (h *sessionHost) shutdown() {
 			h.stopCron()
 			<-h.cronDone
 		})
-		h.phase("release slots", func() {
-			h.stopReleaseSlots()
-			<-h.releaseSlotsDone
-		})
 		h.phase("epic summaries", func() {
 			h.stopSummaries()
 			<-h.summariesDone
@@ -2208,6 +2360,7 @@ type relay struct {
 	views       *doneViews       // each done's viewing check, handed from observe to the autoseen observer
 	now         func() time.Time // the clock the viewing checks read; nil reads time.Now
 
+	orrery   string                       // the controller's orrery name, the host of each pane notice's key
 	closures *closurejudge.Judge          // decides whether a done pane's conversation is closed
 	paneKeys paneKeyReader                // reads a pane's id and change time for its closure check; nil reads tmux
 	verdicts atomic.Pointer[verdictStore] // stores the closure verdicts, once the store opens
@@ -2298,40 +2451,56 @@ func (r *relay) viewDone(ctx context.Context, transition daemon.Transition) done
 	return doneView{viewing: viewing}
 }
 
-// readTimes keeps each pane's newest read time. Read reports arrive on connection goroutines and watching checks run
-// on the router's, so it is safe for concurrent use.
+// readTimes keeps each pane's newest read time, keyed by the pane's notice key, so a read of one host's pane never reads
+// as another's. Read reports arrive on connection goroutines and watching checks run on the router's, so it is safe for
+// concurrent use.
 type readTimes struct {
 	mu    sync.Mutex
-	times map[string]int64
+	times map[notice.Key]int64
 }
 
 // newReadTimes returns an empty readTimes.
 func newReadTimes() *readTimes {
-	return &readTimes{times: make(map[string]int64)}
+	return &readTimes{times: make(map[notice.Key]int64)}
 }
 
-// note keeps read as pane's read time when it is newer than the one kept.
-func (rt *readTimes) note(pane string, read int64) {
+// note keeps read as key's read time when it is newer than the one kept.
+func (rt *readTimes) note(key notice.Key, read int64) {
 	rt.mu.Lock()
 	defer rt.mu.Unlock()
-	if read > rt.times[pane] {
-		rt.times[pane] = read
+	if read > rt.times[key] {
+		rt.times[key] = read
 	}
 }
 
-// recent reports whether pane was read within readWindow before now.
-func (rt *readTimes) recent(pane string, now time.Time) bool {
+// recent reports whether key was read within readWindow before now.
+func (rt *readTimes) recent(key notice.Key, now time.Time) bool {
 	rt.mu.Lock()
 	defer rt.mu.Unlock()
-	read, ok := rt.times[pane]
+	read, ok := rt.times[key]
 	return ok && now.Sub(time.Unix(read, 0)) <= readWindow
 }
 
-// forget drops pane's read time when its session ends.
-func (rt *readTimes) forget(pane string) {
+// forget drops key's read time when its session ends.
+func (rt *readTimes) forget(key notice.Key) {
 	rt.mu.Lock()
 	defer rt.mu.Unlock()
-	delete(rt.times, pane)
+	delete(rt.times, key)
+}
+
+// hookSeen returns the Seen callback of the hook socket. A hook frame names a pane alone, and each hook runs on this
+// controller's own tmux, so the report is keyed with orrery, the controller's host, and never with another host's pane.
+func hookSeen(ctx context.Context, router *route.Router, orrery string) func(daemon.SeenReport) {
+	return func(report daemon.SeenReport) {
+		router.Seen(ctx, notice.Key{Pane: report.PaneID, Host: orrery}, report.Seen)
+	}
+}
+
+// hookRead returns the Read callback of the hook socket, which keys each read time with orrery, as hookSeen does.
+func hookRead(reads *readTimes, orrery string) func(daemon.ReadReport) {
+	return func(report daemon.ReadReport) {
+		reads.note(notice.Key{Pane: report.PaneID, Host: orrery}, report.Read)
+	}
 }
 
 // observe requests a summary for a pane that starts working or finishes, hands the notice for a pane that waits for
@@ -2340,7 +2509,7 @@ func (rt *readTimes) forget(pane string) {
 func (r *relay) observe(ctx context.Context, transition daemon.Transition) {
 	if transition.To == "" {
 		r.forget(ctx, transition)
-		r.reads.forget(transition.PaneID)
+		r.reads.forget(notice.Key{Pane: transition.PaneID, Host: r.orrery})
 	}
 	r.checkClosure(ctx, transition)
 	var summarized <-chan struct{}
@@ -2357,7 +2526,7 @@ func (r *relay) observe(ctx context.Context, transition daemon.Transition) {
 		r.notify(ctx, transition, summarized, view)
 		return
 	}
-	r.router.Changed(notice.Key{Pane: transition.PaneID})
+	r.router.Changed(notice.Key{Pane: transition.PaneID, Host: r.orrery})
 }
 
 // forget ends the pane's session on the summarizer for its tmux server. The summarizer drops the pane's waiting
@@ -2533,7 +2702,7 @@ func (r *relay) judgeDone(transition daemon.Transition) func(context.Context) (r
 // its tmux server shows it with recent input.
 func (r *relay) watching(ctx context.Context, transition daemon.Transition) (bool, error) {
 	now := r.clock()
-	if r.reads.recent(transition.PaneID, now) {
+	if r.reads.recent(notice.Key{Pane: transition.PaneID, Host: r.orrery}, now) {
 		return true, nil
 	}
 	client, err := tmuxClient(transition.Server)

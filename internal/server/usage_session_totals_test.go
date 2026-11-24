@@ -241,7 +241,7 @@ func wantTotalsOfB() []*orreryv1.UsageSessionTotal {
 // from the ledger file at ledgerPath.
 func queryPlanOf(t *testing.T, ledgerPath, claudeSession string) []string {
 	t.Helper()
-	db, err := sql.Open("sqlite", ledgerPath)
+	db, err := sql.Open("sqlite3", ledgerPath)
 	if err != nil {
 		t.Fatalf("open ledger: %v", err)
 	}

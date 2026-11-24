@@ -37,7 +37,7 @@ func promptQueued(t *testing.T, path, id, promptID string) bool {
 // stored discarded, and the opening prompt, which claude started, keeps its started state.
 func TestQueueLifecycleStopDiscardsTheQueuedSay(t *testing.T) {
 	t.Parallel()
-	m, path := newTestManager(t, 1, fakeClaudePath(t))
+	m, path := newTestManager(t, fakeClaudePath(t))
 	id := holdWithdrawnLine(t, m, path, t.TempDir())
 	waitUntil(t, engineOf(m), "the held line queued", func() bool {
 		return promptQueued(t, path, id, "p-held")
@@ -59,7 +59,7 @@ func TestQueueLifecycleStopDiscardsTheQueuedSay(t *testing.T) {
 // holder scope. Close records the interrupted session, and the Say is stored discarded.
 func TestQueueLifecycleCloseDiscardsTheQueuedSay(t *testing.T) {
 	t.Parallel()
-	m, path := newTestManager(t, 1, fakeClaudePath(t))
+	m, path := newTestManager(t, fakeClaudePath(t))
 	id := holdWithdrawnLine(t, m, path, t.TempDir())
 	waitUntil(t, engineOf(m), "the held line queued", func() bool {
 		return promptQueued(t, path, id, "p-held")
@@ -80,7 +80,7 @@ func TestQueueLifecycleCloseDiscardsTheQueuedSay(t *testing.T) {
 // fails the session. The session's exit stores the Say discarded, and the opening prompt keeps its started state.
 func TestQueueLifecycleProcessEndingDiscardsTheQueuedSay(t *testing.T) {
 	t.Parallel()
-	m, path := newTestManager(t, 1, fakeClaudePath(t))
+	m, path := newTestManager(t, fakeClaudePath(t))
 	id, err := m.Start(t.Context(), StartRequest{Dir: t.TempDir(), Prompt: "DIEQUEUED"})
 	if err != nil {
 		t.Fatalf("Start: %v", err)
@@ -108,7 +108,7 @@ func TestQueueLifecycleProcessEndingDiscardsTheQueuedSay(t *testing.T) {
 // completes it before the session is stopped. The completed Say keeps its state, and is not discarded.
 func TestQueueLifecycleStopKeepsTheSayClaudeCompleted(t *testing.T) {
 	t.Parallel()
-	m, path := newTestManager(t, 1, fakeClaudePath(t))
+	m, path := newTestManager(t, fakeClaudePath(t))
 	id, err := m.Start(t.Context(), StartRequest{Dir: t.TempDir(), Prompt: "MIDTURN"})
 	if err != nil {
 		t.Fatalf("Start: %v", err)

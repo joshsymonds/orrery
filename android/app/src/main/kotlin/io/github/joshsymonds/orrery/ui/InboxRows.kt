@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -30,6 +31,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import io.github.joshsymonds.orrery.api.EpicRow
 import io.github.joshsymonds.orrery.api.Pane
@@ -53,9 +55,11 @@ private const val CONTRACT_WORDS = "contract"
 private const val QUESTION_LEAD = "? "
 
 /**
- * One conversation and what hangs under it, drawn as round 6 draws the inbox tree: its row, then each epic's and
- * contract's row in order. A tap on a row or a step calls [onOpen] with its key; a long press on a conversation's row or
- * an epic's row calls [onLongPress] with the row's [SheetRow]. A stand-in draws its words in place of a row.
+ * One conversation and what hangs under it, drawn as round 8 draws the inbox tree (D13): its row, then each epic's and
+ * contract's row in order. A conversation with anything of its own is a block on the side's ground, headed by its row,
+ * with its design blocks in served order and then its loose hung rows inside it. A tap on a row or a step calls [onOpen]
+ * with its key; a long press on a conversation's row or an epic's row calls [onLongPress] with the row's [SheetRow]. A
+ * stand-in draws its words in place of a row.
  */
 @Composable
 internal fun ConvoRowItem(
@@ -65,25 +69,43 @@ internal fun ConvoRowItem(
     onLongPress: (SheetRow) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val pane = convo.pane
     Column(modifier = modifier.fillMaxWidth()) {
-        if (pane == null) {
-            Text(
-                convoLineOf(convo, now),
-                modifier = Modifier.fillMaxWidth().testTag("standin:${convo.key}").padding(vertical = OrreryTokens.Space.eight),
-                style = OrreryTokens.Type.small,
-                color = OrreryTokens.Ink.three,
-            )
+        if (convo.hung.isEmpty() && convo.designs.isEmpty()) {
+            ConvoHead(convo, now, onOpen, onLongPress)
         } else {
-            ConvoLine(convo, pane, now, onOpen, onLongPress)
-        }
-        if (convo.hung.isNotEmpty()) {
-            Column(modifier = Modifier.fillMaxWidth()) {
+            Column(
+                modifier = Modifier
+                    .testTag("convo-block:${convo.key}")
+                    .fillMaxWidth()
+                    .padding(vertical = OrreryTokens.Space.four)
+                    .background(OrreryTokens.Surface.side, RoundedCornerShape(OrreryTokens.Radius.three))
+                    .padding(horizontal = OrreryTokens.Space.eight, vertical = OrreryTokens.Space.four),
+            ) {
+                ConvoHead(convo, now, onOpen, onLongPress)
+                for (design in convo.designs) {
+                    DesignBlockItem(design, now, onOpen, onLongPress)
+                }
                 for (hung in convo.hung) {
                     HungRow(hung, now, onOpen, onLongPress)
                 }
             }
         }
+    }
+}
+
+// A conversation's own row: its pane's line, or a stand-in's words in place of one.
+@Composable
+private fun ConvoHead(convo: Convo, now: Long, onOpen: (String) -> Unit, onLongPress: (SheetRow) -> Unit) {
+    val pane = convo.pane
+    if (pane == null) {
+        Text(
+            convoLineOf(convo, now),
+            modifier = Modifier.fillMaxWidth().testTag("standin:${convo.key}").padding(vertical = OrreryTokens.Space.eight),
+            style = OrreryTokens.Type.small,
+            color = OrreryTokens.Ink.three,
+        )
+    } else {
+        ConvoLine(convo, pane, now, onOpen, onLongPress)
     }
 }
 
@@ -146,9 +168,17 @@ private fun NewDot(unseen: Boolean) {
 }
 
 // A hung epic or contract: an epic's gauge or a contract's mark, its name and words, its blocker in attention, and for
-// an epic its running steps. The count of a contract sits at the row's end, its version.
+// an epic its running steps. The count of a contract sits at the row's end, its version. Under a design ([inDesign]) the
+// name and the steps are in regular weight: the design's name is the only bold one in its block.
 @Composable
-private fun HungRow(hung: Hung, now: Long, onOpen: (String) -> Unit, onLongPress: (SheetRow) -> Unit) {
+internal fun HungRow(
+    hung: Hung,
+    now: Long,
+    onOpen: (String) -> Unit,
+    onLongPress: (SheetRow) -> Unit,
+    modifier: Modifier = Modifier,
+    inDesign: Boolean = false,
+) {
     val words = epicRowWords(hung, now)
     val gauge = words.gauge
     val contract = gauge == null
@@ -156,7 +186,7 @@ private fun HungRow(hung: Hung, now: Long, onOpen: (String) -> Unit, onLongPress
     val line = if (contract) words.words else listOf(words.words, words.count).filter { it.isNotEmpty() }.joinToString(" · ")
     // Only an epic has a sheet; a contract has no archive to offer.
     val onLongClick: (() -> Unit)? = (hung as? EpicNode)?.let { node -> { onLongPress(SheetRow.Epic(node.epic)) } }
-    Column(modifier = Modifier.fillMaxWidth()) {
+    Column(modifier = modifier.fillMaxWidth()) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -175,7 +205,7 @@ private fun HungRow(hung: Hung, now: Long, onOpen: (String) -> Unit, onLongPress
                 Text(
                     words.name,
                     style = OrreryTokens.Type.body.copy(
-                        fontWeight = if (ended) OrreryTokens.Font.Weight.regular else OrreryTokens.Font.Weight.bold,
+                        fontWeight = if (ended) OrreryTokens.Font.Weight.regular else boldUnlessIn(inDesign),
                     ),
                     color = if (ended) OrreryTokens.Ink.two else OrreryTokens.Ink.one,
                     maxLines = 1,
@@ -197,30 +227,30 @@ private fun HungRow(hung: Hung, now: Long, onOpen: (String) -> Unit, onLongPress
             }
         }
         if (hung is EpicNode) {
-            EpicSteps(hung.epic, onOpen)
+            EpicSteps(hung.epic, onOpen, inDesign)
         }
     }
 }
 
 // An epic's running steps, at most MAX_STEP_ROWS, then one line for the rest.
 @Composable
-private fun EpicSteps(epic: EpicRow, onOpen: (String) -> Unit) {
+private fun EpicSteps(epic: EpicRow, onOpen: (String) -> Unit, inDesign: Boolean) {
     val shown = epic.runningSteps.take(MAX_STEP_ROWS)
     val more = epic.runningSteps.size - shown.size
     for (step in shown) {
-        StepLine(step, onOpen)
+        StepLine(step, onOpen, inDesign)
     }
     if (more > 0) {
         Text(
             "$more more",
             modifier = Modifier.padding(start = OrreryTokens.Space.twentyFour, top = OrreryTokens.Space.four, bottom = OrreryTokens.Space.four),
-            style = OrreryTokens.Type.small.copy(fontWeight = OrreryTokens.Font.Weight.bold),
+            style = OrreryTokens.Type.small.copy(fontWeight = boldUnlessIn(inDesign)),
         )
     }
 }
 
 @Composable
-private fun StepLine(step: StepRow, onOpen: (String) -> Unit) {
+private fun StepLine(step: StepRow, onOpen: (String) -> Unit, inDesign: Boolean) {
     val key = "step:${step.id}"
     Row(
         modifier = Modifier
@@ -235,7 +265,7 @@ private fun StepLine(step: StepRow, onOpen: (String) -> Unit) {
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 step.task,
-                style = OrreryTokens.Type.small.copy(fontWeight = OrreryTokens.Font.Weight.bold),
+                style = OrreryTokens.Type.small.copy(fontWeight = boldUnlessIn(inDesign)),
                 color = OrreryTokens.Ink.one,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
@@ -250,6 +280,10 @@ private fun StepLine(step: StepRow, onOpen: (String) -> Unit) {
         }
     }
 }
+
+// A name's or a step's weight: bold in the tree, regular under a design, whose own name is its block's one bold name.
+private fun boldUnlessIn(inDesign: Boolean): FontWeight =
+    if (inDesign) OrreryTokens.Font.Weight.regular else OrreryTokens.Font.Weight.bold
 
 // A state glyph in the state's colour, named by the state's words; an unknown state draws idle.
 @Composable
@@ -438,7 +472,7 @@ private fun toneColorOf(tone: GaugeTone): Color = when (tone) {
 
 // A contract's mark: a sheet of paper in attention, with three lines of text.
 @Composable
-private fun ContractMark(key: String) {
+internal fun ContractMark(key: String) {
     Canvas(
         modifier = Modifier
             .size(OrreryTokens.Size.gauge)

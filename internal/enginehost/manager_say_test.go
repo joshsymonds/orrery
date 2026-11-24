@@ -31,7 +31,7 @@ func promptIDsOf(t *testing.T, history store.EngineHistory) []string {
 
 func TestSayStoresPromptID(t *testing.T) {
 	t.Parallel()
-	m, path := newTestManager(t, 1, fakeClaudePath(t))
+	m, path := newTestManager(t, fakeClaudePath(t))
 	id, err := m.Start(t.Context(), StartRequest{Dir: t.TempDir(), Prompt: "hi"})
 	if err != nil {
 		t.Fatalf("Start: %v", err)
@@ -60,7 +60,7 @@ func TestSayStoresPromptID(t *testing.T) {
 
 func TestSayRepeatedPromptIDIsNoOp(t *testing.T) {
 	t.Parallel()
-	m, path := newTestManager(t, 1, fakeClaudePath(t))
+	m, path := newTestManager(t, fakeClaudePath(t))
 	dir := t.TempDir()
 	id, err := m.Start(t.Context(), StartRequest{Dir: dir, Prompt: "hi"})
 	if err != nil {
@@ -107,7 +107,7 @@ func TestSayRepeatedPromptIDIsNoOp(t *testing.T) {
 
 func TestSayWithAnotherPromptIDIsSent(t *testing.T) {
 	t.Parallel()
-	m, path := newTestManager(t, 1, fakeClaudePath(t))
+	m, path := newTestManager(t, fakeClaudePath(t))
 	id, err := m.Start(t.Context(), StartRequest{Dir: t.TempDir(), Prompt: "hi"})
 	if err != nil {
 		t.Fatalf("Start: %v", err)
@@ -137,7 +137,7 @@ func TestSayWithAnotherPromptIDIsSent(t *testing.T) {
 
 func TestConcurrentSaysWithOnePromptIDSendOnce(t *testing.T) {
 	t.Parallel()
-	m, path := newTestManager(t, 1, fakeClaudePath(t))
+	m, path := newTestManager(t, fakeClaudePath(t))
 	dir := t.TempDir()
 	id, err := m.Start(t.Context(), StartRequest{Dir: dir, Prompt: "hi"})
 	if err != nil {

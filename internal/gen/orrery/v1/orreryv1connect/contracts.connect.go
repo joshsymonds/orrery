@@ -43,6 +43,12 @@ const (
 	ContractsSetAsideProcedure = "/orrery.v1.Contracts/SetAside"
 	// ContractsReopenProcedure is the fully-qualified name of the Contracts's Reopen RPC.
 	ContractsReopenProcedure = "/orrery.v1.Contracts/Reopen"
+	// ContractsKeepProcedure is the fully-qualified name of the Contracts's Keep RPC.
+	ContractsKeepProcedure = "/orrery.v1.Contracts/Keep"
+	// ContractsStrikeProcedure is the fully-qualified name of the Contracts's Strike RPC.
+	ContractsStrikeProcedure = "/orrery.v1.Contracts/Strike"
+	// ContractsShownProcedure is the fully-qualified name of the Contracts's Shown RPC.
+	ContractsShownProcedure = "/orrery.v1.Contracts/Shown"
 )
 
 // ContractsClient is a client for the orrery.v1.Contracts service.
@@ -57,6 +63,14 @@ type ContractsClient interface {
 	SetAside(context.Context, *connect.Request[v1.ContractsSetAsideRequest]) (*connect.Response[v1.ContractsSetAsideResponse], error)
 	// Reopen forwards the owner's reopening of the named contract to orreryd and returns the contract as it stands.
 	Reopen(context.Context, *connect.Request[v1.ContractsReopenRequest]) (*connect.Response[v1.ContractsReopenResponse], error)
+	// Keep forwards the owner's keeping of an addition to the named contract to orreryd and returns the contract as it
+	// stands.
+	Keep(context.Context, *connect.Request[v1.ContractsKeepRequest]) (*connect.Response[v1.ContractsKeepResponse], error)
+	// Strike forwards the owner's striking of an addition the named contract keeps to orreryd and returns the contract as
+	// it stands, with the rows the striking removed.
+	Strike(context.Context, *connect.Request[v1.ContractsStrikeRequest]) (*connect.Response[v1.ContractsStrikeResponse], error)
+	// Shown forwards the rows of a contract version the owner was shown to orreryd and returns the rows it marked.
+	Shown(context.Context, *connect.Request[v1.ContractsShownRequest]) (*connect.Response[v1.ContractsShownResponse], error)
 }
 
 // NewContractsClient constructs a client for the orrery.v1.Contracts service. By default, it uses
@@ -100,6 +114,24 @@ func NewContractsClient(httpClient connect.HTTPClient, baseURL string, opts ...c
 			connect.WithSchema(contractsMethods.ByName("Reopen")),
 			connect.WithClientOptions(opts...),
 		),
+		keep: connect.NewClient[v1.ContractsKeepRequest, v1.ContractsKeepResponse](
+			httpClient,
+			baseURL+ContractsKeepProcedure,
+			connect.WithSchema(contractsMethods.ByName("Keep")),
+			connect.WithClientOptions(opts...),
+		),
+		strike: connect.NewClient[v1.ContractsStrikeRequest, v1.ContractsStrikeResponse](
+			httpClient,
+			baseURL+ContractsStrikeProcedure,
+			connect.WithSchema(contractsMethods.ByName("Strike")),
+			connect.WithClientOptions(opts...),
+		),
+		shown: connect.NewClient[v1.ContractsShownRequest, v1.ContractsShownResponse](
+			httpClient,
+			baseURL+ContractsShownProcedure,
+			connect.WithSchema(contractsMethods.ByName("Shown")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -110,6 +142,9 @@ type contractsClient struct {
 	accept   *connect.Client[v1.ContractsAcceptRequest, v1.ContractsAcceptResponse]
 	setAside *connect.Client[v1.ContractsSetAsideRequest, v1.ContractsSetAsideResponse]
 	reopen   *connect.Client[v1.ContractsReopenRequest, v1.ContractsReopenResponse]
+	keep     *connect.Client[v1.ContractsKeepRequest, v1.ContractsKeepResponse]
+	strike   *connect.Client[v1.ContractsStrikeRequest, v1.ContractsStrikeResponse]
+	shown    *connect.Client[v1.ContractsShownRequest, v1.ContractsShownResponse]
 }
 
 // List calls orrery.v1.Contracts.List.
@@ -137,6 +172,21 @@ func (c *contractsClient) Reopen(ctx context.Context, req *connect.Request[v1.Co
 	return c.reopen.CallUnary(ctx, req)
 }
 
+// Keep calls orrery.v1.Contracts.Keep.
+func (c *contractsClient) Keep(ctx context.Context, req *connect.Request[v1.ContractsKeepRequest]) (*connect.Response[v1.ContractsKeepResponse], error) {
+	return c.keep.CallUnary(ctx, req)
+}
+
+// Strike calls orrery.v1.Contracts.Strike.
+func (c *contractsClient) Strike(ctx context.Context, req *connect.Request[v1.ContractsStrikeRequest]) (*connect.Response[v1.ContractsStrikeResponse], error) {
+	return c.strike.CallUnary(ctx, req)
+}
+
+// Shown calls orrery.v1.Contracts.Shown.
+func (c *contractsClient) Shown(ctx context.Context, req *connect.Request[v1.ContractsShownRequest]) (*connect.Response[v1.ContractsShownResponse], error) {
+	return c.shown.CallUnary(ctx, req)
+}
+
 // ContractsHandler is an implementation of the orrery.v1.Contracts service.
 type ContractsHandler interface {
 	// List returns every contract, created ascending, then by id, with no versions or states.
@@ -149,6 +199,14 @@ type ContractsHandler interface {
 	SetAside(context.Context, *connect.Request[v1.ContractsSetAsideRequest]) (*connect.Response[v1.ContractsSetAsideResponse], error)
 	// Reopen forwards the owner's reopening of the named contract to orreryd and returns the contract as it stands.
 	Reopen(context.Context, *connect.Request[v1.ContractsReopenRequest]) (*connect.Response[v1.ContractsReopenResponse], error)
+	// Keep forwards the owner's keeping of an addition to the named contract to orreryd and returns the contract as it
+	// stands.
+	Keep(context.Context, *connect.Request[v1.ContractsKeepRequest]) (*connect.Response[v1.ContractsKeepResponse], error)
+	// Strike forwards the owner's striking of an addition the named contract keeps to orreryd and returns the contract as
+	// it stands, with the rows the striking removed.
+	Strike(context.Context, *connect.Request[v1.ContractsStrikeRequest]) (*connect.Response[v1.ContractsStrikeResponse], error)
+	// Shown forwards the rows of a contract version the owner was shown to orreryd and returns the rows it marked.
+	Shown(context.Context, *connect.Request[v1.ContractsShownRequest]) (*connect.Response[v1.ContractsShownResponse], error)
 }
 
 // NewContractsHandler builds an HTTP handler from the service implementation. It returns the path
@@ -188,6 +246,24 @@ func NewContractsHandler(svc ContractsHandler, opts ...connect.HandlerOption) (s
 		connect.WithSchema(contractsMethods.ByName("Reopen")),
 		connect.WithHandlerOptions(opts...),
 	)
+	contractsKeepHandler := connect.NewUnaryHandler(
+		ContractsKeepProcedure,
+		svc.Keep,
+		connect.WithSchema(contractsMethods.ByName("Keep")),
+		connect.WithHandlerOptions(opts...),
+	)
+	contractsStrikeHandler := connect.NewUnaryHandler(
+		ContractsStrikeProcedure,
+		svc.Strike,
+		connect.WithSchema(contractsMethods.ByName("Strike")),
+		connect.WithHandlerOptions(opts...),
+	)
+	contractsShownHandler := connect.NewUnaryHandler(
+		ContractsShownProcedure,
+		svc.Shown,
+		connect.WithSchema(contractsMethods.ByName("Shown")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/orrery.v1.Contracts/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case ContractsListProcedure:
@@ -200,6 +276,12 @@ func NewContractsHandler(svc ContractsHandler, opts ...connect.HandlerOption) (s
 			contractsSetAsideHandler.ServeHTTP(w, r)
 		case ContractsReopenProcedure:
 			contractsReopenHandler.ServeHTTP(w, r)
+		case ContractsKeepProcedure:
+			contractsKeepHandler.ServeHTTP(w, r)
+		case ContractsStrikeProcedure:
+			contractsStrikeHandler.ServeHTTP(w, r)
+		case ContractsShownProcedure:
+			contractsShownHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -227,4 +309,16 @@ func (UnimplementedContractsHandler) SetAside(context.Context, *connect.Request[
 
 func (UnimplementedContractsHandler) Reopen(context.Context, *connect.Request[v1.ContractsReopenRequest]) (*connect.Response[v1.ContractsReopenResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orrery.v1.Contracts.Reopen is not implemented"))
+}
+
+func (UnimplementedContractsHandler) Keep(context.Context, *connect.Request[v1.ContractsKeepRequest]) (*connect.Response[v1.ContractsKeepResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orrery.v1.Contracts.Keep is not implemented"))
+}
+
+func (UnimplementedContractsHandler) Strike(context.Context, *connect.Request[v1.ContractsStrikeRequest]) (*connect.Response[v1.ContractsStrikeResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orrery.v1.Contracts.Strike is not implemented"))
+}
+
+func (UnimplementedContractsHandler) Shown(context.Context, *connect.Request[v1.ContractsShownRequest]) (*connect.Response[v1.ContractsShownResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orrery.v1.Contracts.Shown is not implemented"))
 }

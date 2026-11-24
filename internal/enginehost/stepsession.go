@@ -28,8 +28,7 @@ type StepObserver interface {
 
 // StepSession is one step session: its id, its directory, the prompt it starts with, the claude agent it runs, the JSON
 // object of inline agent definitions claude is started with, the JSON schema its result must match, the engine ops
-// written with its row, the epic it is started for, and the observer of its hand-offs. A nil Observer receives nothing.
-// An empty Epic is never recorded as refused by the step cap (see reserveStep).
+// written with its row, and the observer of its hand-offs. A nil Observer receives nothing.
 type StepSession struct {
 	ID       string
 	Dir      string
@@ -38,7 +37,6 @@ type StepSession struct {
 	Agents   string
 	Schema   string
 	Ops      []store.EngineOp
-	Epic     string
 	Observer StepObserver
 }
 
@@ -57,33 +55,33 @@ func (r stepRefusedError) Error() string { return r.err.Error() }
 
 func (r stepRefusedError) Unwrap() error { return r.err }
 
-// StartStep starts the step session step as step describes. It checks step and that claude would resolve its agent,
-// takes a slot under StepCap, records the row as working with its Ops in one write, spawns claude with its agent, inline
-// agents and schema, then records and sends its prompt. A step is listed as a step, never as a session, and sends no
-// notice. A step refused before anything is stored, for a bad step, an agent that does not resolve, a closed manager or
-// a full step cap, returns its error and stores nothing. A failure after the row is written, a record, spawn or send failure,
-// records the row failed and returns the error. A step's slot frees when its pump ends, unless the step is drained at its
-// hand-off and keeps its slot (see retireLocked).
+// StartStep starts the step session step as step describes. It checks step, that claude would resolve its agent and
+// that the manager is open, records the row as working with its Ops in one write, spawns claude with its agent, inline
+// agents and schema, then records and sends its prompt. A step always runs on the controller, so its row stores the
+// controller's host name. A step is listed as a step, never as a session, and sends no notice. A step refused before
+// anything is stored, for a bad step, an agent that does not resolve or a closed manager, returns its error and stores
+// nothing. A failure after the row is written, a record, spawn or send failure, records the row failed and returns the
+// error.
 func (m *Manager) StartStep(ctx context.Context, step StepSession) error {
 	defer m.calls.enter()()
 	if err := checkStep(step); err != nil {
 		return stepRefusedError{err}
 	}
-	if err := m.resolveStepAgent(step); err != nil {
+	if err := m.resolveStepAgent(ctx, step); err != nil {
 		return stepRefusedError{err}
 	}
-	if err := m.reserveStep(step.ID, step.Epic); err != nil {
+	if err := m.checkOpen(); err != nil {
 		return stepRefusedError{err}
 	}
-	add := store.EngineAdd{ID: step.ID, Dir: step.Dir, State: string(protocol.StateWorking), Kind: store.KindStep}
+	add := store.EngineAdd{
+		ID: step.ID, Dir: step.Dir, State: string(protocol.StateWorking), Kind: store.KindStep, Host: m.hostName,
+	}
 	if err := m.writer.Commit(ctx, step.ID, append([]store.EngineOp{add}, step.Ops...)...); err != nil {
-		m.releaseStep()
 		return fmt.Errorf("record step %s: %w", step.ID, err)
 	}
-	live, err := m.spawnLive(ctx, step.ID, step.Dir,
-		spawnSpec{agent: step.Agent, agents: step.Agents, schema: step.Schema, step: true, observer: step.Observer})
+	live, err := m.spawnLive(ctx, step.ID, step.Dir, spawnSpec{agent: step.Agent, agents: step.Agents,
+		schema: step.Schema, step: true, observer: step.Observer, host: m.local})
 	if err != nil {
-		m.releaseStep()
 		recordErr := m.writeFailed(ctx, step.ID, err)
 		return fmt.Errorf("start step %s: %w", step.ID, errors.Join(err, recordErr))
 	}
@@ -109,10 +107,9 @@ func (m *Manager) StartStep(ctx context.Context, step StepSession) error {
 }
 
 // Release stops the live session id's process without ending it, as checkIdle stops an idle session: it records nothing,
-// its observer is told of no exit, and its row stays as it was. Release waits for the session's pump, which frees its
-// slot, so the slot is free when Release returns. A later Continue respawns the step in its claude session with --resume.
-// A drained step with no live session has its kept slot freed (see retireLocked). It returns nil for an id with no live
-// session, or a session Close has begun closing.
+// its observer is told of no exit, and its row stays as it was. Release waits for the session's pump to end. A later
+// Continue respawns the step in its claude session with --resume. A drained step with no live session leaves the drained
+// set (see retireLocked). It returns nil for an id with no live session, or a session Close has begun closing.
 func (m *Manager) Release(ctx context.Context, id string) error {
 	defer m.calls.enter()()
 	m.resumeMu.Lock()
@@ -160,7 +157,7 @@ func checkStep(step StepSession) error {
 // under the managed root. An unset CLAUDE_CONFIG_DIR is "" and takes the default, and an unset HOME is "", which Resolve
 // refuses. The error names the agent and each place checked, and an Agents that is not a JSON object of definitions is
 // refused with an error matching ErrBadAgents.
-func (m *Manager) resolveStepAgent(step StepSession) error {
+func (m *Manager) resolveStepAgent(ctx context.Context, step StepSession) error {
 	defined, err := inlineAgents(step.Agents)
 	if err != nil {
 		return fmt.Errorf("resolve agent of step %s: %w", step.ID, err)
@@ -171,7 +168,7 @@ func (m *Manager) resolveStepAgent(step StepSession) error {
 	home, _ := environValue(m.environ, "HOME")
 	configDir, _ := environValue(m.environ, "CLAUDE_CONFIG_DIR")
 	where := agents.Where{Dir: step.Dir, Home: home, ConfigDir: configDir, Managed: m.managedDir}
-	if err = agents.Resolve(step.Agent, where); err != nil {
+	if err = agents.Resolve(ctx, step.Agent, where); err != nil {
 		return fmt.Errorf("resolve agent of step %s: %w", step.ID, err)
 	}
 	return nil
@@ -197,36 +194,16 @@ func inlineAgents(agents string) (map[string]json.RawMessage, error) {
 	return defs, nil
 }
 
-// reserveStep takes one step slot for the step id under StepCap. A step drained at its hand-off keeps its slot (see
-// retireLocked), which id takes back as it is, with no cap check. It refuses when the manager is closed or the step cap is
-// full. A refusal for a full step cap records a non-empty epic, the epic the step is started for, in capRefused, so the
-// next free of a step slot hands that epic on (see stepFreedLocked). The refusal and the free share the manager's lock.
-func (m *Manager) reserveStep(id, epic string) error {
+// claimRespawn takes the step id out of the drained set for its respawn (see retireLocked). It refuses when the manager is
+// closed, and then leaves id where it was.
+func (m *Manager) claimRespawn(id string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.closed {
 		return errManagerClosed
 	}
-	if m.kept[id] != nil {
-		delete(m.kept, id)
-		return nil
-	}
-	if m.stepsRunning >= m.stepLimit {
-		if epic != "" {
-			m.capRefused[epic] = true
-		}
-		return fmt.Errorf("%w: %d live steps, step cap %d", ErrCapReached, m.stepsRunning, m.stepLimit)
-	}
-	m.stepsRunning++
+	delete(m.kept, id)
 	return nil
-}
-
-// releaseStep frees a step slot taken by reserveStep for a step that never started running.
-func (m *Manager) releaseStep() {
-	m.mu.Lock()
-	m.stepsRunning--
-	m.stepFreedLocked()
-	m.mu.Unlock()
 }
 
 // abandonStep stops the step live, whose start failed with cause, and records it failed with cause and any stop error as

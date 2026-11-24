@@ -66,14 +66,93 @@ func taskKind(taskType, subagentType string) string {
 
 // awaitedTaskType reports whether a background task of taskType runs a model: an agent, a workflow or a teammate. A
 // step waits for such a task, since its end starts a turn of claude's own whose return is the one that counts. A shell
-// task, which a Monitor's watch is too, is not waited for: a step whose turn returns while only shell tasks are listed has
-// returned, and its stop ends them.
+// task is waited for only when a Bash call started it (see awaitsCommand): a Monitor's watch, which may never end, is not,
+// so a step whose turn returns while only such tasks are listed has returned, and its stop ends them.
 func awaitedTaskType(taskType string) bool {
 	return strings.HasSuffix(taskType, "agent") || strings.HasSuffix(taskType, "workflow") ||
 		strings.HasSuffix(taskType, "teammate")
 }
 
-// awaitsTask reports whether tasks lists a task that runs a model (see awaitedTaskType).
+// noteTaskEvent tracks, for an event that reports them, the Bash calls of the running turn, the commands they start in
+// the background and the live background tasks of live, whether one of those tasks runs a model, and whether one is
+// awaited. It reports whether event was such an event. The caller holds the manager's lock.
+func (live *liveSession) noteTaskEvent(event session.Event) bool {
+	switch ev := event.(type) {
+	case session.ToolCallStarted:
+		live.noteToolCall(ev.ParentToolUseID, ev.ToolUseID, ev.Name)
+	case session.Block:
+		if ev.Kind == session.BlockToolCall {
+			live.noteToolCall(ev.ParentToolUseID, ev.ToolUseID, ev.Name)
+		}
+	case session.TaskStarted:
+		live.noteTaskStarted(ev)
+		live.awaited = live.agents || live.listsCommand(live.listed)
+	case session.BackgroundTasks:
+		live.listed = ev.Tasks
+		live.background = len(ev.Tasks) > 0
+		live.agents = awaitsTask(ev.Tasks)
+		live.awaited = live.agents || live.awaitsCommand(ev.Tasks)
+	default:
+		return false
+	}
+	return true
+}
+
+// noteToolCall records a top-level Bash tool call of the running turn by its tool use id, so a background task it starts
+// is known as a command (see noteTaskStarted). A subagent's call, or any other tool's, records nothing.
+func (live *liveSession) noteToolCall(parentToolUseID, toolUseID, name string) {
+	if parentToolUseID != "" || toolUseID == "" || name != bashToolName {
+		return
+	}
+	if live.bashCalls == nil {
+		live.bashCalls = map[string]struct{}{}
+	}
+	live.bashCalls[toolUseID] = struct{}{}
+}
+
+// noteTaskStarted records a background shell task that a top-level Bash call of the turn started: a command run with
+// run_in_background, such as a build or a check, whose end starts a turn of claude's own.
+func (live *liveSession) noteTaskStarted(started session.TaskStarted) {
+	if _, bash := live.bashCalls[started.ToolUseID]; !bash || started.TaskType != shellTaskType {
+		return
+	}
+	if live.commandTasks == nil {
+		live.commandTasks = map[string]struct{}{}
+	}
+	live.commandTasks[started.TaskID] = struct{}{}
+}
+
+// awaitsCommand reports whether tasks lists a command a Bash call started (see listsCommand), and forgets each command
+// tasks no longer lists, since it has ended. A step waits for such a task as it waits for one that runs a model.
+func (live *liveSession) awaitsCommand(tasks []session.BackgroundTask) bool {
+	kept := make(map[string]struct{}, len(live.commandTasks))
+	for _, task := range tasks {
+		if _, command := live.commandTasks[task.TaskID]; command {
+			kept[task.TaskID] = struct{}{}
+		}
+	}
+	live.commandTasks = kept
+	return live.listsCommand(tasks)
+}
+
+// listsCommand reports whether tasks lists a command a Bash call started (see noteTaskStarted). Claude lists a command's
+// task before it reports it started, so a task started is judged against the last list as well as the next one.
+func (live *liveSession) listsCommand(tasks []session.BackgroundTask) bool {
+	return slices.ContainsFunc(tasks, func(task session.BackgroundTask) bool {
+		_, command := live.commandTasks[task.TaskID]
+		return command
+	})
+}
+
+// The tool name of a Bash call and the task type of the background shell task it starts, as the wire gives them.
+const (
+	bashToolName  = "Bash"
+	shellTaskType = "local_bash"
+)
+
+// awaitsTask reports whether tasks lists a task that runs a model (see awaitedTaskType). A step waits for such a task,
+// and so does a command a Bash call started (see awaitsCommand); a session that is not a step is held working by one
+// (see liveSession.held), since its end starts a turn of claude's own whose end is the one that counts.
 func awaitsTask(tasks []session.BackgroundTask) bool {
 	return slices.ContainsFunc(tasks, func(task session.BackgroundTask) bool { return awaitedTaskType(task.TaskType) })
 }
@@ -265,17 +344,34 @@ func (r *recorder) turnOpened() []store.EngineOp {
 	return []store.EngineOp{store.EngineSet{ID: r.id, Changes: store.EngineChanges{State: &working}}}
 }
 
+// heldTurnEnd returns the store ops that record ended, a turn's end while a background task that runs a model is
+// listed: its turn end and the removal of its unfinished text, as for any turn's end, with the session left working and
+// held, since no turn runs and the task's end starts the turn that ends the session's work.
+func (r *recorder) heldTurnEnd(ended session.TurnEnded) []store.EngineOp {
+	working := string(protocol.StateWorking)
+	return r.endTurn(ended, store.EngineChanges{State: &working, Question: new(""), Held: new(true)}, false)
+}
+
 // turnEnd returns the store ops that record ended with the session left in state and its question cleared.
 // ownerInterrupted is whether the owner's interrupt caused the turn's end.
 func (r *recorder) turnEnd(ended session.TurnEnded, state protocol.State, ownerInterrupted bool) []store.EngineOp {
-	clear(r.texts)
 	after := string(state)
+	return r.endTurn(ended, store.EngineChanges{State: &after, Question: new("")}, ownerInterrupted)
+}
+
+// endTurn returns the store ops that record ended with changes applied to the session, and drops its unfinished text.
+func (r *recorder) endTurn(
+	ended session.TurnEnded,
+	changes store.EngineChanges,
+	ownerInterrupted bool,
+) []store.EngineOp {
+	clear(r.texts)
 	return []store.EngineOp{
 		store.EngineTurnEnded{ID: r.id, Subtype: ended.Subtype, IsError: ended.IsError,
 			TerminalReason: ended.TerminalReason, Result: ended.Result, Origin: ended.Origin, Answered: ended.Answered,
 			OwnerInterrupted: ownerInterrupted},
 		store.EngineTextClear{ID: r.id},
-		store.EngineSet{ID: r.id, Changes: store.EngineChanges{State: &after, Question: new("")}},
+		store.EngineSet{ID: r.id, Changes: changes},
 	}
 }
 
@@ -447,7 +543,8 @@ func mainText(event session.Event) (string, bool) {
 // consumedOf returns the EngineConsumed that stores the offset of line for session id, and whether line holds a
 // TurnEnded. The offset is the line's End. A line holding a TurnEnded also stores that End as the replay-from and the
 // turn's structured output, and a line holding BackgroundTasks stores whether its last report lists a task and whether it
-// lists one that runs a model (see awaitsTask).
+// lists one that runs a model (see awaitsTask). A line holding BackgroundTasks or TaskStarted stores an awaited flag,
+// which storeLine sets to the session's own judgment of it.
 func consumedOf(id string, line session.Line) (store.EngineConsumed, bool) {
 	consumed := store.EngineConsumed{ID: id, Consumed: line.End}
 	ended := false
@@ -462,6 +559,9 @@ func consumedOf(id string, line session.Line) (store.EngineConsumed, bool) {
 		case session.BackgroundTasks:
 			background, awaited := len(ev.Tasks) > 0, awaitsTask(ev.Tasks)
 			consumed.Background, consumed.Awaited = &background, &awaited
+		case session.TaskStarted:
+			awaited := false
+			consumed.Awaited = &awaited
 		}
 	}
 	return consumed, ended

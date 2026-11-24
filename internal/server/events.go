@@ -45,10 +45,12 @@ type eventsServer struct {
 	shutdown    <-chan struct{}
 }
 
-// Watch sends every event after the request's cursor in seq order as its typed message, then each event stored after
-// that, reading again each time the change feed reports a change to the store. After each read that is not a full
-// page, it also sends the text so far of each unfinished engine block whose text this stream has not sent yet (see
-// sendTexts). Each page is read in its own store read, so no read is held across a send or a wait.
+// Watch sends every event after the request's cursor in seq order as its typed message, except an engine_design event,
+// which the events proto has no message for: Watch passes over it, and WatchConversation carries it as a design item
+// (see sessionItem). Then it sends each event stored after that, reading again each time the change feed reports a
+// change to the store. After each read that is not a full page, it also sends the text so far of each unfinished engine
+// block whose text this stream has not sent yet (see sendTexts). Each page is read in its own store read, so no read is
+// held across a send or a wait.
 // Each send must complete within sendTimeout, set as a write deadline on the connection, so a send that stays
 // blocked ends this stream and no other. Connect writes the end of the stream after Watch returns, so that write
 // gets the same deadline, armed when Watch returns. Once the shutdown signal has closed, a blocked send and that end
@@ -106,7 +108,8 @@ func (e eventsServer) watch(
 }
 
 // sendPage sends each event of page after the cursor after in seq order as its typed message, checking the shutdown
-// signal before each send. It returns the seq of the last event read, or after when page holds none.
+// signal before each send, and passes over each engine_design event, which has no typed message. It returns the seq of
+// the last event read, or after when page holds none.
 func (e eventsServer) sendPage(
 	ctx context.Context,
 	stream *connect.ServerStream[orreryv1.WatchResponse],
@@ -116,6 +119,10 @@ func (e eventsServer) sendPage(
 	for _, event := range page.Events {
 		if stopping(e.shutdown) {
 			return after, shutdownError()
+		}
+		if event.Kind == store.EventEngineDesign {
+			after = event.Seq
+			continue
 		}
 		msg, err := watchMessage(event)
 		if err != nil {

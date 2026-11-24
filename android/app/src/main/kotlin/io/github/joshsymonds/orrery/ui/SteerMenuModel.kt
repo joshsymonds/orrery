@@ -66,4 +66,4 @@ fun conversationEnded(panes: List<Pane>, steering: String): Boolean {
 }
 
 /** Whether [epic] is a live epic orreryd runs, so a conversation can steer it. */
-fun steersLive(epic: EpicRow): Boolean = epic.live && epic.source == "orreryd"
+fun steersLive(epic: EpicRow): Boolean = epic.live

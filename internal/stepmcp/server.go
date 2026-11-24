@@ -20,14 +20,8 @@ const textContentType = "text"
 //go:embed instructions.txt
 var serverInstructions string
 
-// maxToolCalls is the number of tools/call requests one connection runs at once. A request past it is refused.
-const maxToolCalls = 8
-
 // maxFrameBytes bounds one inbound message. A message longer than it ends the connection.
 const maxFrameBytes = 1 << 20
-
-// toolCallsInFlightCode is the JSON-RPC error code of a refused tools/call request.
-const toolCallsInFlightCode = -32000
 
 // Call contains one tool invocation.
 type Call struct {
@@ -72,9 +66,6 @@ type Tool struct {
 // connections, each through its own Serve call.
 type Server struct {
 	tools []Tool
-	// slotFreed is a test seam: when set, it runs each time a tools/call frees its slot under the call ceiling.
-	// Production leaves it nil.
-	slotFreed func()
 }
 
 // Serve runs one newline-delimited JSON-RPC 2.0 MCP connection on input and output until input ends or ctx is
@@ -120,42 +111,12 @@ func (server *Server) sdk(ctx context.Context) *mcp.Server {
 		Capabilities: &mcp.ServerCapabilities{Tools: &mcp.ToolCapabilities{}},
 		Instructions: serverInstructions,
 	})
-	sdk.AddReceivingMiddleware(limitToolCalls(maxToolCalls, server.slotFreed))
 	for _, tool := range server.tools {
 		sdk.AddTool(&mcp.Tool{
 			Name: tool.Name, Description: tool.Description, InputSchema: tool.InputSchema,
 		}, toolHandler(ctx, tool.Handler, mutatingTool(tool.Name)))
 	}
 	return sdk
-}
-
-// limitToolCalls returns middleware that lets at most limit tools/call requests run at once on the connection it
-// serves. A request past the limit is refused at once with a JSON-RPC error, is not queued, and never reaches its
-// handler. The SDK runs each call in its own goroutine, so the refusal does not block the reader.
-func limitToolCalls(limit int, freed func()) mcp.Middleware {
-	slots := make(chan struct{}, limit)
-	return func(next mcp.MethodHandler) mcp.MethodHandler {
-		return func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
-			if method != "tools/call" {
-				return next(ctx, method, req)
-			}
-			select {
-			case slots <- struct{}{}:
-			default:
-				return nil, &jsonrpc.Error{
-					Code:    toolCallsInFlightCode,
-					Message: fmt.Sprintf("Server already has %d tool calls in flight", limit),
-				}
-			}
-			defer func() {
-				<-slots
-				if freed != nil {
-					freed()
-				}
-			}()
-			return next(ctx, method, req)
-		}
-	}
 }
 
 // toolHandler adapts handler to the SDK's handler for raw arguments, on a connection that ends with connCtx. A detached
@@ -189,8 +150,10 @@ func mutatingTool(name string) bool {
 	case "step_start", "step_stop", "step_resume",
 		"epic_create", "epic_answer", "epic_pause", "epic_resume", "epic_stop", "epic_retry", "epic_kick", "epic_release",
 		"epic_close", "epic_amend", "epic_escalate", "epic_steer",
-		"contract_propose", "contract_revise", "contract_accept", "contract_set_aside", "contract_reopen",
-		"evidence_run":
+		"contract_propose", "contract_draft", "contract_revise", "contract_accept", "contract_set_aside",
+		"contract_reopen",
+		"design_create", "design_order", "design_research", "design_reproduce", "design_ask", "design_answer",
+		"design_dispose", "design_steelman", "evidence_run":
 		return true
 	}
 	return false

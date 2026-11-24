@@ -71,7 +71,8 @@ fun ProjectPageScreen(
 
     val loaded = data
     val projects = remember(loaded, state.view) {
-        loaded?.let { inboxTree(it.panes, it.archived, it.epics, it.details, it.contracts, it.host, state.view) }.orEmpty()
+        loaded?.let { inboxTree(it.panes, it.archived, it.epics, it.details, it.contracts, it.host, state.view, it.designs) }
+            .orEmpty()
     }
     val project = projects.firstOrNull { it.key == projectKey }
     val paneOf = remember(projects) {
@@ -163,7 +164,7 @@ private fun ProjectHead(project: Project, now: Long) {
     val place = listOf(project.path, if (project.host.isEmpty()) "" else "on ${project.host}")
         .filter { it.isNotEmpty() }
         .joinToString(" · ")
-    val epics = project.convos.sumOf { convo -> convo.hung.count { it is EpicNode } }
+    val epics = project.convos.sumOf { convo -> convo.allHung.count { it is EpicNode } }
     val waits = projectWaiting(project)
     val newest = newestChangeOf(project)
     Column(verticalArrangement = Arrangement.spacedBy(OrreryTokens.Space.four)) {
@@ -211,7 +212,7 @@ private fun ConvoBlock(convo: Convo, now: Long, onOpen: (String) -> Unit) {
                     style = OrreryTokens.Type.small,
                     color = OrreryTokens.Ink.three,
                 )
-                val changed = convo.hung.maxOfOrNull { stampOf(it) } ?: 0L
+                val changed = convo.allHung.maxOfOrNull { stampOf(it) } ?: 0L
                 if (changed != 0L) {
                     Text(
                         ageOf((now - changed).coerceAtLeast(0L)),
@@ -300,7 +301,7 @@ private fun waitsWords(count: Int): String = if (count == 1) "1 thing waits on y
 /** The newest change among the project's conversations and what hangs under them, unix seconds; zero when none has one. */
 private fun newestChangeOf(project: Project): Long =
     (project.convos + project.ended).maxOfOrNull { convo ->
-        convo.pane?.changed ?: convo.hung.maxOfOrNull { stampOf(it) } ?: 0L
+        convo.pane?.changed ?: convo.allHung.maxOfOrNull { stampOf(it) } ?: 0L
     } ?: 0L
 
 private fun stampOf(hung: Hung): Long = when (hung) {

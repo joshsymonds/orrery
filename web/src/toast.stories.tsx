@@ -5,6 +5,6 @@ import type { Stories } from "./catalog/story";
 
 export const Toast: Stories = {
   "with-undo": () => (
-    <toast.Toast text="Archived “Tide table cache warm-up”." action="Undo" onAction={() => {}} />
+    <toast.Toast text="Archived “Tide table cache warm-up”." actions={[{ label: "Undo", onAction: () => {} }]} />
   ),
 };

@@ -50,7 +50,7 @@ func openWriteLedger(t *testing.T) (*Ledger, *sql.DB) {
 			t.Errorf("Close: %v", err)
 		}
 	})
-	db, err := sql.Open("sqlite", path)
+	db, err := sql.Open("sqlite3", path)
 	if err != nil {
 		t.Fatalf("open ledger.db for reading: %v", err)
 	}

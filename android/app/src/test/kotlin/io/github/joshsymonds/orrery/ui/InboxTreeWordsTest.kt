@@ -1,11 +1,11 @@
 package io.github.joshsymonds.orrery.ui
 
 import io.github.joshsymonds.orrery.api.ContractRow
+import io.github.joshsymonds.orrery.api.EpicBuildTaskRow
 import io.github.joshsymonds.orrery.api.EpicDetail
 import io.github.joshsymonds.orrery.api.EpicQuestionRow
 import io.github.joshsymonds.orrery.api.EpicReleaseProofRow
 import io.github.joshsymonds.orrery.api.EpicRow
-import io.github.joshsymonds.orrery.api.EpicTaskRow
 import io.github.joshsymonds.orrery.api.Pane
 import io.github.joshsymonds.orrery.api.StepRow
 import org.junit.Assert.assertEquals
@@ -32,14 +32,20 @@ class InboxTreeWordsTest {
         live = live,
         runningSteps = emptyList(),
         endedSteps = 0,
-        problem = "",
         phaseAt = phaseAt,
         paused = paused,
         pauseSource = pauseSource,
         parked = parked,
     )
 
-    private fun task(status: String) = EpicTaskRow(effort = 1, slug = "task", subject = "", status = status)
+    private fun task(status: String) = EpicBuildTaskRow(
+        id = "task",
+        title = "",
+        status = status,
+        stage = "",
+        red = null,
+        green = null,
+    )
 
     private fun question(asked: Long) = EpicQuestionRow(id = "Q1", text = "Which branch?", turn = 1L, asked = asked)
 
@@ -71,7 +77,7 @@ class InboxTreeWordsTest {
 
     private fun detail(
         epic: EpicRow = epic(),
-        tasks: List<EpicTaskRow> = emptyList(),
+        buildTasks: List<EpicBuildTaskRow> = emptyList(),
         questions: List<EpicQuestionRow> = emptyList(),
         steps: List<StepRow> = emptyList(),
         releaseProof: List<EpicReleaseProofRow> = emptyList(),
@@ -80,7 +86,7 @@ class InboxTreeWordsTest {
         steererParked: Boolean = false,
     ): EpicDetail = EpicDetail(
         epic = epic,
-        tasks = tasks,
+        buildTasks = buildTasks,
         steps = steps,
         questions = questions,
         paused = paused,
@@ -156,7 +162,7 @@ class InboxTreeWordsTest {
     @Test
     fun aBuildingEpicCountsItsDoneAndIntegratedTasksAsDone() {
         val tasks = listOf(task("done"), task("integrated"), task("pending"))
-        val words = epicWords(node(detail = detail(tasks = tasks)))
+        val words = epicWords(node(detail = detail(buildTasks = tasks)))
 
         assertEquals("2 of 3 tasks done", words.count)
         assertEquals("building · 49 min", words.words)

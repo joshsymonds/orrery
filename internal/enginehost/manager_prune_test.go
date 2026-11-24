@@ -13,7 +13,7 @@ import (
 // store that reads the manager's liveness, and that the same prune removes the row once the session has stopped.
 func TestLiveSessionSurvivesPrune(t *testing.T) {
 	t.Parallel()
-	m, path := newTestManager(t, 1, fakeClaudePath(t))
+	m, path := newTestManager(t, fakeClaudePath(t))
 	id, err := m.Start(t.Context(), StartRequest{Dir: t.TempDir(), Prompt: "ASK"})
 	if err != nil {
 		t.Fatalf("Start: %v", err)
@@ -36,7 +36,7 @@ func TestLiveSessionSurvivesPrune(t *testing.T) {
 	})
 	s.SetEngineLive(m.Live)
 
-	if err := s.SyncServer(t.Context(), "-L a", nil, now); err != nil {
+	if err := s.SyncServer(t.Context(), "", "-L a", nil, now); err != nil {
 		t.Fatalf("SyncServer while live: %v", err)
 	}
 	if _, err := s.EngineSession(t.Context(), id); err != nil {
@@ -49,7 +49,7 @@ func TestLiveSessionSurvivesPrune(t *testing.T) {
 	waitUntil(t, engineOf(m), "session "+id+" to leave the live set", func() bool {
 		return len(m.Live()) == 0
 	})
-	if err := s.SyncServer(t.Context(), "-L a", nil, now); err != nil {
+	if err := s.SyncServer(t.Context(), "", "-L a", nil, now); err != nil {
 		t.Fatalf("SyncServer after stop: %v", err)
 	}
 	if _, err := s.EngineSession(t.Context(), id); !errors.Is(err, store.ErrNoEngineSession) {

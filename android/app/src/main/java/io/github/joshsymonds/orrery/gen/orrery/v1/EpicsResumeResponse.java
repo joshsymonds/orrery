@@ -7,7 +7,7 @@ package io.github.joshsymonds.orrery.gen.orrery.v1;
 
 /**
  * <pre>
- * EpicsResumeResponse carries the limited steps a resume resumed and those a full step cap left limited.
+ * EpicsResumeResponse carries the limited steps a resume resumed.
  * </pre>
  *
  * Protobuf type {@code orrery.v1.EpicsResumeResponse}
@@ -20,7 +20,6 @@ public  final class EpicsResumeResponse extends
     EpicsResumeResponseOrBuilder {
   private EpicsResumeResponse() {
     resumed_ = emptyProtobufList();
-    stillLimited_ = emptyProtobufList();
   }
   public static final int RESUMED_FIELD_NUMBER = 1;
   private com.google.protobuf.Internal.ProtobufList<java.lang.String> resumed_;
@@ -151,135 +150,6 @@ public  final class EpicsResumeResponse extends
     resumed_.add(value.toStringUtf8());
   }
 
-  public static final int STILL_LIMITED_FIELD_NUMBER = 2;
-  private com.google.protobuf.Internal.ProtobufList<java.lang.String> stillLimited_;
-  /**
-   * <pre>
-   * The ids of the limited steps the resume left limited because the step cap was full, oldest first.
-   * </pre>
-   *
-   * <code>repeated string still_limited = 2 [json_name = "stillLimited"];</code>
-   * @return A list containing the stillLimited.
-   */
-  @java.lang.Override
-  public java.util.List<java.lang.String> getStillLimitedList() {
-    return stillLimited_;
-  }
-  /**
-   * <pre>
-   * The ids of the limited steps the resume left limited because the step cap was full, oldest first.
-   * </pre>
-   *
-   * <code>repeated string still_limited = 2 [json_name = "stillLimited"];</code>
-   * @return The count of stillLimited.
-   */
-  @java.lang.Override
-  public int getStillLimitedCount() {
-    return stillLimited_.size();
-  }
-  /**
-   * <pre>
-   * The ids of the limited steps the resume left limited because the step cap was full, oldest first.
-   * </pre>
-   *
-   * <code>repeated string still_limited = 2 [json_name = "stillLimited"];</code>
-   * @param index The index of the element to return.
-   * @return The stillLimited at the given index.
-   */
-  @java.lang.Override
-  public java.lang.String getStillLimited(int index) {
-    return stillLimited_.get(index);
-  }
-  /**
-   * <pre>
-   * The ids of the limited steps the resume left limited because the step cap was full, oldest first.
-   * </pre>
-   *
-   * <code>repeated string still_limited = 2 [json_name = "stillLimited"];</code>
-   * @param index The index of the value to return.
-   * @return The bytes of the stillLimited at the given index.
-   */
-  @java.lang.Override
-  public com.google.protobuf.ByteString
-      getStillLimitedBytes(int index) {
-    return com.google.protobuf.ByteString.copyFromUtf8(
-        stillLimited_.get(index));
-  }
-  private void ensureStillLimitedIsMutable() {
-    com.google.protobuf.Internal.ProtobufList<java.lang.String> tmp =
-        stillLimited_;  if (!tmp.isModifiable()) {
-      stillLimited_ =
-          com.google.protobuf.GeneratedMessageLite.mutableCopy(tmp);
-     }
-  }
-  /**
-   * <pre>
-   * The ids of the limited steps the resume left limited because the step cap was full, oldest first.
-   * </pre>
-   *
-   * <code>repeated string still_limited = 2 [json_name = "stillLimited"];</code>
-   * @param index The index to set the value at.
-   * @param value The stillLimited to set.
-   */
-  private void setStillLimited(
-      int index, java.lang.String value) {
-    java.util.Objects.requireNonNull(value);
-    ensureStillLimitedIsMutable();
-    stillLimited_.set(index, value);
-  }
-  /**
-   * <pre>
-   * The ids of the limited steps the resume left limited because the step cap was full, oldest first.
-   * </pre>
-   *
-   * <code>repeated string still_limited = 2 [json_name = "stillLimited"];</code>
-   * @param value The stillLimited to add.
-   */
-  private void addStillLimited(
-      java.lang.String value) {
-    java.util.Objects.requireNonNull(value);
-    ensureStillLimitedIsMutable();
-    stillLimited_.add(value);
-  }
-  /**
-   * <pre>
-   * The ids of the limited steps the resume left limited because the step cap was full, oldest first.
-   * </pre>
-   *
-   * <code>repeated string still_limited = 2 [json_name = "stillLimited"];</code>
-   * @param values The stillLimited to add.
-   */
-  private void addAllStillLimited(
-      java.lang.Iterable<java.lang.String> values) {
-    ensureStillLimitedIsMutable();
-    com.google.protobuf.AbstractMessageLite.addAll(
-        values, stillLimited_);
-  }
-  /**
-   * <pre>
-   * The ids of the limited steps the resume left limited because the step cap was full, oldest first.
-   * </pre>
-   *
-   * <code>repeated string still_limited = 2 [json_name = "stillLimited"];</code>
-   */
-  private void clearStillLimited() {
-    stillLimited_ = emptyProtobufList();
-  }
-  /**
-   * <pre>
-   * The ids of the limited steps the resume left limited because the step cap was full, oldest first.
-   * </pre>
-   *
-   * <code>repeated string still_limited = 2 [json_name = "stillLimited"];</code>
-   * @param value The bytes of the stillLimited to add.
-   */
-  private void addStillLimitedBytes(
-      com.google.protobuf.ByteString value) {
-    checkByteStringIsUtf8(value);
-    ensureStillLimitedIsMutable();
-    stillLimited_.add(value.toStringUtf8());
-  }
-
   public static io.github.joshsymonds.orrery.gen.orrery.v1.EpicsResumeResponse parseFrom(
       java.nio.ByteBuffer data)
       throws com.google.protobuf.InvalidProtocolBufferException {
@@ -365,7 +235,7 @@ public  final class EpicsResumeResponse extends
 
   /**
    * <pre>
-   * EpicsResumeResponse carries the limited steps a resume resumed and those a full step cap left limited.
+   * EpicsResumeResponse carries the limited steps a resume resumed.
    * </pre>
    *
    * Protobuf type {@code orrery.v1.EpicsResumeResponse}
@@ -509,134 +379,6 @@ public  final class EpicsResumeResponse extends
       return this;
     }
 
-    /**
-     * <pre>
-     * The ids of the limited steps the resume left limited because the step cap was full, oldest first.
-     * </pre>
-     *
-     * <code>repeated string still_limited = 2 [json_name = "stillLimited"];</code>
-     * @return A list containing the stillLimited.
-     */
-    @java.lang.Override
-    public java.util.List<java.lang.String>
-        getStillLimitedList() {
-      return java.util.Collections.unmodifiableList(
-          instance.getStillLimitedList());
-    }
-    /**
-     * <pre>
-     * The ids of the limited steps the resume left limited because the step cap was full, oldest first.
-     * </pre>
-     *
-     * <code>repeated string still_limited = 2 [json_name = "stillLimited"];</code>
-     * @return The count of stillLimited.
-     */
-    @java.lang.Override
-    public int getStillLimitedCount() {
-      return instance.getStillLimitedCount();
-    }
-    /**
-     * <pre>
-     * The ids of the limited steps the resume left limited because the step cap was full, oldest first.
-     * </pre>
-     *
-     * <code>repeated string still_limited = 2 [json_name = "stillLimited"];</code>
-     * @param index The index of the element to return.
-     * @return The stillLimited at the given index.
-     */
-    @java.lang.Override
-    public java.lang.String getStillLimited(int index) {
-      return instance.getStillLimited(index);
-    }
-    /**
-     * <pre>
-     * The ids of the limited steps the resume left limited because the step cap was full, oldest first.
-     * </pre>
-     *
-     * <code>repeated string still_limited = 2 [json_name = "stillLimited"];</code>
-     * @param index The index of the value to return.
-     * @return The bytes of the stillLimited at the given index.
-     */
-    @java.lang.Override
-    public com.google.protobuf.ByteString
-        getStillLimitedBytes(int index) {
-      return instance.getStillLimitedBytes(index);
-    }
-    /**
-     * <pre>
-     * The ids of the limited steps the resume left limited because the step cap was full, oldest first.
-     * </pre>
-     *
-     * <code>repeated string still_limited = 2 [json_name = "stillLimited"];</code>
-     * @param index The index to set the value at.
-     * @param value The stillLimited to set.
-     * @return This builder for chaining.
-     */
-    public Builder setStillLimited(
-        int index, java.lang.String value) {
-      copyOnWrite();
-      instance.setStillLimited(index, value);
-      return this;
-    }
-    /**
-     * <pre>
-     * The ids of the limited steps the resume left limited because the step cap was full, oldest first.
-     * </pre>
-     *
-     * <code>repeated string still_limited = 2 [json_name = "stillLimited"];</code>
-     * @param value The stillLimited to add.
-     * @return This builder for chaining.
-     */
-    public Builder addStillLimited(
-        java.lang.String value) {
-      copyOnWrite();
-      instance.addStillLimited(value);
-      return this;
-    }
-    /**
-     * <pre>
-     * The ids of the limited steps the resume left limited because the step cap was full, oldest first.
-     * </pre>
-     *
-     * <code>repeated string still_limited = 2 [json_name = "stillLimited"];</code>
-     * @param values The stillLimited to add.
-     * @return This builder for chaining.
-     */
-    public Builder addAllStillLimited(
-        java.lang.Iterable<java.lang.String> values) {
-      copyOnWrite();
-      instance.addAllStillLimited(values);
-      return this;
-    }
-    /**
-     * <pre>
-     * The ids of the limited steps the resume left limited because the step cap was full, oldest first.
-     * </pre>
-     *
-     * <code>repeated string still_limited = 2 [json_name = "stillLimited"];</code>
-     * @return This builder for chaining.
-     */
-    public Builder clearStillLimited() {
-      copyOnWrite();
-      instance.clearStillLimited();
-      return this;
-    }
-    /**
-     * <pre>
-     * The ids of the limited steps the resume left limited because the step cap was full, oldest first.
-     * </pre>
-     *
-     * <code>repeated string still_limited = 2 [json_name = "stillLimited"];</code>
-     * @param value The bytes of the stillLimited to add.
-     * @return This builder for chaining.
-     */
-    public Builder addStillLimitedBytes(
-        com.google.protobuf.ByteString value) {
-      copyOnWrite();
-      instance.addStillLimitedBytes(value);
-      return this;
-    }
-
     // @@protoc_insertion_point(builder_scope:orrery.v1.EpicsResumeResponse)
   }
   @java.lang.Override
@@ -654,11 +396,9 @@ public  final class EpicsResumeResponse extends
       case BUILD_MESSAGE_INFO: {
           java.lang.Object[] objects = new java.lang.Object[] {
             "resumed_",
-            "stillLimited_",
           };
           java.lang.String info =
-              "\u0000\u0002\u0000\u0000\u0001\u0002\u0002\u0000\u0002\u0000\u0001\u021a\u0002\u021a" +
-              "";
+              "\u0000\u0001\u0000\u0000\u0001\u0001\u0001\u0000\u0001\u0000\u0001\u021a";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

@@ -28,16 +28,15 @@ func isUndoNone(undo string) bool {
 
 // ReleaseEpic releases epic in one write, and returns an error matching ErrNoEpic for an id no epic has. When epic
 // ended with gaps it records the owner decision that releases it, answers its open gaps question with release, and
-// moves it to clean, so its release run takes the release slot of its repository and no tell is added; it is a
-// RefusalError when undoNone is not empty, as such an epic has no release run to name a step of. Otherwise it resumes
-// the stopped release of epic at its first unfinished release step.
-// That is a RefusalError when epic is not stopped, when epic has no parked release node run, when another epic holds the
-// release slot of its repository, when a position in undoNone is not an undo-none release step, and when the first
-// unfinished step is undo-none, has failed and is not in undoNone. Otherwise it takes the release slot when it is free,
-// stores a named release run for each distinct position in undoNone for the release node run's next attempt, records one
-// owner decision per such position, moves the release node run to that attempt and unparks epic as RetryNode does, moves
-// epic from stopped to releasing, and adds one tell that says where the release resumed. The write appends one release
-// action made by maker at at.
+// moves it to clean, so its release run starts and no tell is added; it is a RefusalError when undoNone is not empty,
+// as such an epic has no release run to name a step of. Otherwise it resumes the stopped release of epic at its first
+// unfinished release step.
+// That is a RefusalError when epic is not stopped, when epic has no parked release node run, when a position in
+// undoNone is not an undo-none release step, and when the first unfinished step is undo-none, has failed and is not in
+// undoNone. Otherwise it stores a named release run for each distinct position in undoNone for the release node run's
+// next attempt, records one owner decision per such position, moves the release node run to that attempt and unparks
+// epic as RetryNode does, moves epic from stopped to releasing, and adds one tell that says where the release resumed.
+// The write appends one release action made by maker at at.
 func (s *Store) ReleaseEpic(ctx context.Context, epic string, undoNone []int64, maker Maker, at time.Time) error {
 	return s.write(ctx, func(queries *sqlcgen.Queries) error {
 		if err := resumeRelease(ctx, queries, epic, undoNone, maker, at); err != nil {
@@ -72,8 +71,8 @@ func resumeRelease(
 }
 
 // resumeReleaseByPlanner resumes the stopped release of epic for a planner's resume_release action, in the caller's
-// write. It runs only for an epic in phase stopped that already holds its repository's release slot: it never takes a
-// free slot, so a release the owner stopped, which freed the slot, stays with the owner. It refuses any undo-none step
+// write. It runs only for an epic in phase stopped whose owner did not stop the release at the attempt of its parked
+// release node run: a release the owner stopped stays with the owner, and is refused. It refuses any undo-none step
 // named, since only the owner names one. Otherwise it resumes the release as ReleaseEpic does.
 func resumeReleaseByPlanner(
 	ctx context.Context, queries *sqlcgen.Queries, epic string, undoNone []int64, at time.Time,
@@ -89,20 +88,24 @@ func resumeReleaseByPlanner(
 		return RefusalError(
 			fmt.Sprintf("epic %s: a planner resume names no undo-none step; only the owner names one", epic))
 	}
-	holder, err := releaseSlotHolder(ctx, queries, head.Repository)
+	parked, err := parkedReleaseRun(ctx, queries, epic)
 	if err != nil {
 		return err
 	}
-	if holder != epic {
-		return RefusalError(fmt.Sprintf("epic %s does not hold the release slot of %s", epic, head.Repository))
+	runs, err := readReleaseRuns(ctx, queries, epic)
+	if err != nil {
+		return err
+	}
+	if ownerStoppedAt(runs, parked.Attempt) {
+		return RefusalError(fmt.Sprintf("epic %s: its owner stopped the release; only the owner resumes it", epic))
 	}
 	return resumeStoppedRelease(ctx, queries, head, undoNone, Maker{By: MakerOrreryd}, at)
 }
 
 // resumeStoppedRelease resumes the stopped release of head in the caller's write, as ReleaseEpic does for an epic that is
-// not ended with gaps: it takes the release slot, stores the named releases, moves the release node run to its next
-// attempt and unparks epic, and moves epic to releasing with the tell that says where it resumed. The owner
-// decisions it records are made by maker.
+// not ended with gaps: it stores the named releases, moves the release node run to its next attempt and unparks epic,
+// and moves epic to releasing with the tell that says where it resumed. The owner decisions it records are made by
+// maker.
 func resumeStoppedRelease(
 	ctx context.Context, queries *sqlcgen.Queries, head sqlcgen.Epic, undoNone []int64, maker Maker, at time.Time,
 ) error {
@@ -110,12 +113,6 @@ func resumeStoppedRelease(
 	resume, err := checkReleaseResume(ctx, queries, head, undoNone)
 	if err != nil {
 		return err
-	}
-	err = queries.InsertEpicReleaseSlot(ctx, sqlcgen.InsertEpicReleaseSlotParams{
-		Repository: head.Repository, Epic: epic,
-	})
-	if err != nil {
-		return fmt.Errorf("take release slot of epic %s: %w", epic, err)
 	}
 	err = recordNamedReleases(ctx, queries, epic, resume, maker, at)
 	if err != nil {
@@ -132,9 +129,9 @@ func resumeStoppedRelease(
 	return insertTell(ctx, queries, epic, resumedReleaseText(resume.steps, resume.unfinished), at)
 }
 
-// releaseEndedWithGaps releases epic, which ended with gaps, in the caller's write: it records maker's decision, answers
-// each open gaps question of epic with release, and moves epic to clean, so its release run takes the release slot of
-// its repository. It is a RefusalError when undoNone names any position, since epic has not started a release.
+// releaseEndedWithGaps releases epic, which ended with gaps, in the caller's write: it records maker's decision,
+// answers each open gaps question of epic with release, and moves epic to clean, so its release run starts. It is a
+// RefusalError when undoNone names any position, since epic has not started a release.
 func releaseEndedWithGaps(
 	ctx context.Context, queries *sqlcgen.Queries, epic string, undoNone []int64, maker Maker, at time.Time,
 ) error {
@@ -155,9 +152,8 @@ func releaseEndedWithGaps(
 }
 
 // checkReleaseResume returns the state the stopped release of head resumes from. It is a RefusalError when head is not
-// stopped, when it has no parked release node run, when another epic holds its repository's release slot, when a
-// position in undoNone is not an undo-none release step, and when its first unfinished step is undo-none, has failed and
-// is not in undoNone.
+// stopped, when it has no parked release node run, when a position in undoNone is not an undo-none release step, and
+// when its first unfinished step is undo-none, has failed and is not in undoNone.
 func checkReleaseResume(
 	ctx context.Context, queries *sqlcgen.Queries, head sqlcgen.Epic, undoNone []int64,
 ) (releaseResume, error) {
@@ -168,14 +164,6 @@ func checkReleaseResume(
 	parked, err := parkedReleaseRun(ctx, queries, epic)
 	if err != nil {
 		return releaseResume{}, err
-	}
-	holder, err := releaseSlotHolder(ctx, queries, head.Repository)
-	if err != nil {
-		return releaseResume{}, err
-	}
-	if holder != "" && holder != epic {
-		return releaseResume{}, RefusalError(
-			fmt.Sprintf("epic %s holds the release slot of %s", holder, head.Repository))
 	}
 	steps, err := releaseStepsOf(ctx, queries, epic)
 	if err != nil {
@@ -292,26 +280,60 @@ func resumedReleaseText(steps []EpicReleaseStep, unfinished int64) string {
 	return fmt.Sprintf("release resumed at step %d, %s", unfinished, steps[unfinished-1].Step)
 }
 
-// stopReleaseSlot is StopEpic's case for an epic with no running turn. An epic that holds its repository's release slot
-// frees it in the caller's write and returns the id of the first release step of its release node runs that has no end,
-// or "" when none does. Only the steps of each run's current attempt are read. An epic that holds no slot is a
-// RefusalError.
-func stopReleaseSlot(ctx context.Context, queries *sqlcgen.Queries, head sqlcgen.Epic) (string, error) {
-	holder, err := releaseSlotHolder(ctx, queries, head.Repository)
+// releaseOwnerStopReason is the reason of the release run an owner's stop of a release records.
+const releaseOwnerStopReason = "owner stopped the release"
+
+// stopRelease is StopEpic's case for an epic with no running turn, in the caller's write. It records the owner's stop
+// of the release as a release run of part stop at the attempt of the epic's release node run, which must be running in
+// phase releasing or parked in phase stopped, and returns the id of the first release step of its release node runs
+// that has no end, or "" when none does. Only the steps of each run's current attempt are read. An epic in phase
+// stopped also takes the park class release_owner_stop. Any other epic is a RefusalError.
+func stopRelease(ctx context.Context, queries *sqlcgen.Queries, head sqlcgen.Epic, at time.Time) (string, error) {
+	run, err := stoppableReleaseRun(ctx, queries, head)
 	if err != nil {
 		return "", err
-	}
-	if holder != head.ID {
-		return "", RefusalError(fmt.Sprintf("epic %s has no running turn", head.ID))
 	}
 	open, err := openReleaseStep(ctx, queries, head.ID)
 	if err != nil {
 		return "", err
 	}
-	if err = queries.FreeEpicReleaseSlot(ctx, head.ID); err != nil {
-		return "", fmt.Errorf("free release slot of epic %s: %w", head.ID, err)
+	err = recordRelease(ctx, queries, head.ID, ReleaseRun{
+		Part: ReleasePartStop, Attempt: run.Attempt, Reason: releaseOwnerStopReason, At: at,
+	})
+	if err != nil {
+		return "", err
+	}
+	if head.Phase == PhaseStopped {
+		err = setPark(ctx, queries, head.ID, head.Parked, ParkClassReleaseOwnerStop)
+		if err != nil {
+			return "", err
+		}
 	}
 	return open, nil
+}
+
+// stoppableReleaseRun returns the release node run the owner's stop of head applies to: the running one of an epic in
+// phase releasing, or the parked one of an epic in phase stopped. Any other epic has none, and is a RefusalError.
+func stoppableReleaseRun(ctx context.Context, queries *sqlcgen.Queries, head sqlcgen.Epic) (NodeRun, error) {
+	var state string
+	switch head.Phase {
+	case PhaseReleasing:
+		state = NodeRunning
+	case PhaseStopped:
+		state = NodeParked
+	default:
+		return NodeRun{}, RefusalError(fmt.Sprintf("epic %s has no running turn", head.ID))
+	}
+	runs, err := readNodeRuns(ctx, queries, head.ID)
+	if err != nil {
+		return NodeRun{}, err
+	}
+	for _, run := range runs {
+		if run.Kind == releaseKind && run.State == state {
+			return run, nil
+		}
+	}
+	return NodeRun{}, RefusalError(fmt.Sprintf("epic %s has no running turn", head.ID))
 }
 
 // openReleaseStep returns the id of the first step, in the order EpicFlow reads them, of epic's release node runs that has

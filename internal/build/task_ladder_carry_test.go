@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/joshsymonds/orrery/internal/hostexec"
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
@@ -20,7 +21,7 @@ func ladderCarryFixture(t *testing.T, stage string, attempt int64) (*passFixture
 	identify(t, f.repo)
 	f.setBuild(store.TaskBuild{Stage: stage, Base: f.base, Attempt: attempt, Revision: f.base})
 	worktree := ImplementWorktree(f.stateDir, passEpic, f.task())
-	if err := AddTaskWorktree(f.ctx, f.repo, passEpic, 1, worktree, f.base); err != nil {
+	if err := AddTaskWorktree(f.ctx, hostexec.NewLocal(), f.repo, passEpic, 1, worktree, f.base); err != nil {
 		f.t.Fatalf("AddTaskWorktree: %v", err)
 	}
 	return f, worktree
@@ -126,9 +127,11 @@ type ladderCarryGit struct {
 	moves []string
 }
 
-func (g *ladderCarryGit) MoveTaskWorktree(ctx context.Context, path, wip, epic string, seq int64, to string) error {
+func (g *ladderCarryGit) MoveTaskWorktree(
+	ctx context.Context, host hostexec.Host, path, wip, epic string, seq int64, to string,
+) error {
 	g.moves = append(g.moves, to)
-	return g.packageGit.MoveTaskWorktree(ctx, path, wip, epic, seq, to)
+	return g.packageGit.MoveTaskWorktree(ctx, host, path, wip, epic, seq, to)
 }
 
 // TestTaskLadderCarryKeepWork: KeepWork keeps a worktree's commit and its uncommitted file on the ref, leaves the
@@ -142,7 +145,7 @@ func TestTaskLadderCarryKeepWork(t *testing.T) {
 	head := buildHead(t, w.path)
 	ref := CarryRef(passEpic, 1, 2)
 
-	commit, err := KeepWork(ctx, w.path, moveWip, ref)
+	commit, err := KeepWork(ctx, hostexec.NewLocal(), w.path, moveWip, ref)
 	if err != nil {
 		t.Fatalf("KeepWork: %v", err)
 	}
@@ -161,7 +164,7 @@ func TestTaskLadderCarryKeepWork(t *testing.T) {
 	if got := buildRun(t, w.repo, "for-each-ref", moveWip); got != "" {
 		t.Errorf("%s = %q after KeepWork, want it deleted", moveWip, got)
 	}
-	missing, err := KeepWork(ctx, filepath.Join(t.TempDir(), "missing"), moveWip, ref)
+	missing, err := KeepWork(ctx, hostexec.NewLocal(), filepath.Join(t.TempDir(), "missing"), moveWip, ref)
 	if missing != "" || err != nil {
 		t.Errorf("KeepWork of a missing path = %q, %v, want \"\", nil", missing, err)
 	}

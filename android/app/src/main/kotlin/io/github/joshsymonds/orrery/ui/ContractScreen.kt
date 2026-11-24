@@ -77,7 +77,7 @@ private const val WIDE_COLUMN = 2f
 private const val NARROW_COLUMN = 1f
 
 /**
- * A contract as Gambit's document: its decision line, then its ten sections in order, each under its name with its
+ * A contract as the contract document: its decision line, then its ten sections in order, each under its name with its
  * column names, rating chips, id chips, attention marks and changed chips. [decisions] are the contract's decisions;
  * absent, the document is an Epics.Get contract's and its Decisions section reads None. [record] is the decision
  * line's record words, absent for the accepted clock. [marks] are the marks the newest version wears. [onAbout], when
@@ -492,7 +492,7 @@ private fun SectionHead(
  * Contracts.Get has one, or else the epic's contract from Epics.Get as [ContractBody] draws it read-only. The orrery
  * crumb calls [onHome]; back and the slug crumb call [onBack]. The contract is read off the main thread; a read that
  * fails, or a contract that does not exist, says so in the contract's place. [live], [writer], [onAbout] and [onTalk]
- * are the record's (see [ContractRecord]).
+ * are the record's (see [ContractRecord]). [titled] false leaves out the title row, as the phone sheet's body draws it.
  */
 @Composable
 fun ContractScreen(
@@ -505,6 +505,7 @@ fun ContractScreen(
     writer: (String) -> String = { it },
     onAbout: ((RowAbout) -> Unit)? = null,
     onTalk: (() -> Unit)? = null,
+    titled: Boolean = true,
 ) {
     var load by remember(client, epicId) { mutableStateOf<ContractLoad>(ContractLoad.Loading) }
     LaunchedEffect(client, epicId) {
@@ -522,14 +523,16 @@ fun ContractScreen(
         else -> null
     }
     Column(modifier = modifier.fillMaxSize().testTag("contract-screen")) {
-        TitleRow(
-            crumbs = listOfNotNull(
-                Crumb("orrery", onHome),
-                slug?.let { Crumb(it, onBack) },
-                Crumb("contract"),
-            ),
-            onBack = onBack,
-        )
+        if (titled) {
+            TitleRow(
+                crumbs = listOfNotNull(
+                    Crumb("orrery", onHome),
+                    slug?.let { Crumb(it, onBack) },
+                    Crumb("contract"),
+                ),
+                onBack = onBack,
+            )
+        }
         when (current) {
             ContractLoad.Loading -> Text("Loading...", modifier = Modifier.padding(OrreryTokens.Space.sixteen))
             ContractLoad.Failed -> Text(

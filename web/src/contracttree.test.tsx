@@ -138,7 +138,7 @@ function treeRow(container: HTMLElement): HTMLElement | null {
 
 // panelOf is the panel labelled as given, or null when none is drawn.
 function panelOf(container: HTMLElement, label: string): HTMLElement | null {
-  return container.querySelector<HTMLElement>(`aside.rpanel[aria-label="${label}"]`);
+  return container.querySelector<HTMLElement>(`article.held-card[aria-label="${label}"]`);
 }
 
 // recordDrawn is whether a contract record is drawn in the container, or in the panel labelled as given.
@@ -172,11 +172,11 @@ test("ContractAddress: a press on the inbox tree's contract row opens the contra
   withApp(t.signal, 1600, { rows: [conversationRow()], address: steererAddress }, async (mount) => {
     const { container } = mount;
     await settle(t.signal, () => treeRow(container) !== null, "the tree draws the contract's row");
-    assert.ok(panelOf(container, "tide-alerts contract") === null, "no panel before the press");
+    assert.ok(panelOf(container, "tide-alerts") === null, "no panel before the press");
     const entry = treeRow(container);
     assert.ok(entry !== null, "the tree draws the contract's row");
     await press(entry);
-    await settle(t.signal, () => recordDrawn(container, "tide-alerts contract"), "the record is drawn in the panel");
+    await settle(t.signal, () => recordDrawn(container, "tide-alerts"), "the record is drawn in the panel");
     assert.deepEqual(lastReport(mount), { address: contractAddress, mode: "push" });
   }));
 
@@ -190,9 +190,9 @@ test("ContractAddress: the keyboard open on the inbox tree's contract row opens 
       () => treeRow(container)?.getAttribute("aria-current") === "true",
       "the cursor moves onto the contract's row",
     );
-    assert.ok(panelOf(container, "tide-alerts contract") === null, "no panel before the open");
+    assert.ok(panelOf(container, "tide-alerts") === null, "no panel before the open");
     await pressKey("Enter");
-    await settle(t.signal, () => recordDrawn(container, "tide-alerts contract"), "the record is drawn in the panel");
+    await settle(t.signal, () => recordDrawn(container, "tide-alerts"), "the record is drawn in the panel");
   }));
 
 test("ContractAddress: at a phone's width a press on the inbox tree's contract row opens the contract page, with no panel", (t) =>
@@ -202,5 +202,5 @@ test("ContractAddress: at a phone's width a press on the inbox tree's contract r
     assert.ok(entry !== null, "the tree draws the contract's row");
     await press(entry);
     await settle(t.signal, () => recordDrawn(container), "the record is drawn as the page");
-    assert.ok(panelOf(container, "tide-alerts contract") === null, "no panel is drawn beside the page");
+    assert.ok(panelOf(container, "tide-alerts") === null, "no panel is drawn beside the page");
   }));

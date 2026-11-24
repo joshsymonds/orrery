@@ -18,13 +18,19 @@ func (r *Runner) repro(ctx context.Context, epic store.EpicRow, act Action) erro
 	if r.checks == nil {
 		return missingService("checks")
 	}
+	host, hostErr := r.hostOf(epic)
+	if hostErr != nil {
+		return hostErr
+	}
 	for i, id := range act.IDs {
 		requirement, err := requirementOf(epic, act.Items[i])
 		if err != nil {
 			return err
 		}
 		ref := fmt.Sprintf("refs/orrery/%s/repro/%s", build.Slug(epic.ID), id)
-		overlay, err := compose.Overlay(ctx, epic.Repository, epic.Base, act.Run.Revision, requirement.Item.Tests, ref)
+		overlay, err := compose.Overlay(
+			ctx, host, epic.Repository, epic.Base, act.Run.Revision, requirement.Item.Tests, ref,
+		)
 		if err != nil {
 			return fmt.Errorf("make reproduction of %s: %w", act.Items[i], err)
 		}

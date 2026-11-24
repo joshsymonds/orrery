@@ -3,39 +3,38 @@
 package build
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
-	"os"
-	"os/exec"
 	"strings"
+
+	"github.com/joshsymonds/orrery/internal/hostexec"
 )
 
 // notAncestor is the exit status of `git merge-base --is-ancestor` when the first commit is not an ancestor of the
 // second.
 const notAncestor = 1
 
-// isAncestor reports whether ancestor is reachable from descendant in repo. A commit is its own ancestor.
-func isAncestor(ctx context.Context, repo, ancestor, descendant string) (bool, error) {
-	_, err := runGit(ctx, repo, "merge-base", "--is-ancestor", ancestor, descendant)
+// isAncestor reports whether ancestor is reachable from descendant in repo on host. A commit is its own ancestor.
+func isAncestor(ctx context.Context, host hostexec.Host, repo, ancestor, descendant string) (bool, error) {
+	_, err := runGit(ctx, host, repo, "merge-base", "--is-ancestor", ancestor, descendant)
 	if err == nil {
 		return true, nil
 	}
-	var exit *exec.ExitError
-	if errors.As(err, &exit) && exit.ExitCode() == notAncestor {
+	var gitErr *hostexec.GitError
+	if errors.As(err, &gitErr) && gitErr.ExitCode == notAncestor {
 		return false, nil
 	}
 	return false, fmt.Errorf("compare %s with %s: %w", ancestor, descendant, err)
 }
 
-// stepCommits returns the commits of an implementer's step in repo: those reachable from head that base, the commit the
-// step started at, does not reach. It returns none when the step made no commit.
-func stepCommits(ctx context.Context, repo, base, head string) ([]string, error) {
+// stepCommits returns the commits of an implementer's step in repo on host: those reachable from head that base, the
+// commit the step started at, does not reach. It returns none when the step made no commit.
+func stepCommits(ctx context.Context, host hostexec.Host, repo, base, head string) ([]string, error) {
 	if base == "" {
 		return nil, errors.New("step has no base")
 	}
-	listing, err := runGit(ctx, repo, "rev-list", base+".."+head)
+	listing, err := runGit(ctx, host, repo, "rev-list", base+".."+head)
 	if err != nil {
 		return nil, fmt.Errorf("list step commits: %w", err)
 	}
@@ -45,25 +44,17 @@ func stepCommits(ctx context.Context, repo, base, head string) ([]string, error)
 	return strings.Split(listing, "\n"), nil
 }
 
-// runGit runs git in dir and returns its trimmed stdout. On failure the error carries git's stderr. Like stepGit, it
-// builds the argument vector itself: git runs with argv and no shell.
-func runGit(ctx context.Context, dir string, args ...string) (string, error) {
-	return runGitEnv(ctx, dir, nil, args...)
+// runGit runs git in dir on host and returns its trimmed stdout. A git that ran and failed returns a
+// *hostexec.GitError, whose text carries git's stderr. Git runs with argv and no shell.
+func runGit(ctx context.Context, host hostexec.Host, dir string, args ...string) (string, error) {
+	return runGitEnv(ctx, host, dir, nil, args...)
 }
 
-// runGitEnv runs git in dir as runGit does, with env added to the environment it inherits.
-func runGitEnv(ctx context.Context, dir string, env []string, args ...string) (string, error) {
-	cmd := exec.CommandContext(ctx, "git")
-	cmd.Args = append(cmd.Args, "-C", dir)
-	cmd.Args = append(cmd.Args, args...)
-	if env != nil {
-		cmd.Env = append(os.Environ(), env...)
-	}
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-	out, err := cmd.Output()
+// runGitEnv runs git in dir on host as runGit does, with env added to the environment it inherits.
+func runGitEnv(ctx context.Context, host hostexec.Host, dir string, env []string, args ...string) (string, error) {
+	out, err := host.Git(ctx, hostexec.GitCall{Dir: dir, Args: args, Env: env})
 	if err != nil {
-		return "", fmt.Errorf("git %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(stderr.String()))
+		return "", fmt.Errorf("run git in %s: %w", dir, err)
 	}
 	return strings.TrimSpace(string(out)), nil
 }

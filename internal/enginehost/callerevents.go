@@ -26,13 +26,16 @@ type CallerEventStore interface {
 
 // CallerSenderConfig configures a CallerSender. Deliver sends a headless caller its text as a prompt (see
 // Manager.Deliver). DeliverStep sends a step caller the end of a step it started as a prompt (see Steps.DeliverChildEnd),
-// and a nil DeliverStep leaves a step caller with nothing sent. WakePane sends a pane caller its text as keys, and reports
-// whether the pane was idle to take them. Store records the events finished. A nil Now means time.Now, and a nil Logger
+// and a nil DeliverStep leaves a step caller with nothing sent. WakePane sends a pane caller its text as keys, to the
+// pane on the host it names, and reports whether the pane was idle to take them (see HostPaneWake). SessionHost returns
+// the host of the sessions row with an id, and false when no row has it; a nil SessionHost names no host, so a pane
+// caller is woken on this machine. Store records the events finished. A nil Now means time.Now, and a nil Logger
 // discards.
 type CallerSenderConfig struct {
 	Deliver     func(context.Context, DeliverRequest) error
 	DeliverStep func(context.Context, DeliverRequest) error
-	WakePane    func(ctx context.Context, server, pane, text string) (bool, error)
+	WakePane    func(ctx context.Context, host, server, pane, text string) (bool, error)
+	SessionHost func(ctx context.Context, id string) (string, bool, error)
 	Store       CallerEventStore
 	Now         func() time.Time
 	Logger      *slog.Logger
@@ -43,7 +46,8 @@ type CallerSenderConfig struct {
 type CallerSender struct {
 	deliver     func(context.Context, DeliverRequest) error
 	deliverStep func(context.Context, DeliverRequest) error
-	wakePane    func(ctx context.Context, server, pane, text string) (bool, error)
+	wakePane    func(ctx context.Context, host, server, pane, text string) (bool, error)
+	sessionHost func(ctx context.Context, id string) (string, bool, error)
 	store       CallerEventStore
 	now         func() time.Time
 	logger      *slog.Logger
@@ -63,8 +67,8 @@ type paneEvent struct {
 // NewCallerSender returns a CallerSender for cfg.
 func NewCallerSender(cfg CallerSenderConfig) *CallerSender {
 	sender := &CallerSender{
-		deliver: cfg.Deliver, deliverStep: cfg.DeliverStep, wakePane: cfg.WakePane, store: cfg.Store, now: cfg.Now,
-		logger: cfg.Logger, unmarked: make(map[paneEvent]struct{}),
+		deliver: cfg.Deliver, deliverStep: cfg.DeliverStep, wakePane: cfg.WakePane, sessionHost: cfg.SessionHost,
+		store: cfg.Store, now: cfg.Now, logger: cfg.Logger, unmarked: make(map[paneEvent]struct{}),
 	}
 	if sender.now == nil {
 		sender.now = time.Now
@@ -126,9 +130,10 @@ func (s *CallerSender) SendStepEnd(ctx context.Context, caller store.CallerSessi
 	}
 }
 
-// wake sends text to the pane of caller and marks event once the keys are sent. A pane that is not idle holds the
-// event. An error that comes with the keys sent is logged, as the keys were sent and the event is finished. An event
-// whose keys were sent but whose mark failed only has its mark retried, so its keys are typed once.
+// wake sends text to the pane of caller, on the host of caller's session, and marks event once the keys are sent. A
+// pane that is not idle holds the event. An error that comes with the keys sent is logged, as the keys were sent and
+// the event is finished. An event whose keys were sent but whose mark failed only has its mark retried, so its keys
+// are typed once. A host that cannot be read fails the send before any keys are sent.
 func (s *CallerSender) wake(ctx context.Context, caller store.CallerSession, event, text string) (bool, error) {
 	key := paneEvent{session: caller.ID, event: event}
 	s.mu.Lock()
@@ -137,7 +142,11 @@ func (s *CallerSender) wake(ctx context.Context, caller store.CallerSession, eve
 	if pending {
 		return s.markSent(ctx, key)
 	}
-	sent, err := s.wakePane(ctx, caller.Server, caller.Pane, text)
+	host, err := s.hostOf(ctx, caller.ID)
+	if err != nil {
+		return false, err
+	}
+	sent, err := s.wakePane(ctx, host, caller.Server, caller.Pane, text)
 	if !sent {
 		if err != nil {
 			return false, fmt.Errorf("wake pane %s of server %q for %s: %w", caller.Pane, caller.Server, event, err)
@@ -150,6 +159,22 @@ func (s *CallerSender) wake(ctx context.Context, caller store.CallerSession, eve
 		)
 	}
 	return s.markSent(ctx, key)
+}
+
+// hostOf returns the host of the sessions row with id, or "" when the sender names no host or no row has the id. It
+// fails when the read fails.
+func (s *CallerSender) hostOf(ctx context.Context, id string) (string, error) {
+	if s.sessionHost == nil {
+		return "", nil
+	}
+	host, ok, err := s.sessionHost(ctx, id)
+	if err != nil {
+		return "", fmt.Errorf("read host of session %s: %w", id, err)
+	}
+	if !ok {
+		return "", nil
+	}
+	return host, nil
 }
 
 // markSent marks the event of key, whose keys were sent. A mark that fails holds key in unmarked, and a mark that lands

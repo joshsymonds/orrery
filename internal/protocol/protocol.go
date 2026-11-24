@@ -53,7 +53,18 @@ const (
 	// state changes, so a prompt sent to a pane that is already working leaves OptionChanged at the earlier turn's
 	// start. This option moves on every prompt.
 	OptionTurnStart = "@orrery_turn_start"
+	// OptionHeld holds the unix seconds of the transcript line that ended the pane's last turn while its Claude Code
+	// session registry entry still reads busy. Claude Code keeps a session busy while a background agent, workflow or
+	// teammate it started runs, so the pane stays working, not done, with no turn running: the task's end starts the
+	// turn whose end makes the pane done. Every registry update that leaves the pane otherwise unsets it.
+	OptionHeld = "@orrery_held"
 )
+
+// Idle reports whether a pane in state, with held saying whether its @orrery_held is set, runs no turn: it is done, or
+// working and held (see OptionHeld).
+func Idle(state State, held bool) bool {
+	return state == StateDone || state == StateWorking && held
+}
 
 // ShellSessionPrefix is the fixed prefix of shell session names.
 const ShellSessionPrefix = "_orrery-shell-"
@@ -81,6 +92,7 @@ type Pane struct {
 	ClaudeSession string `json:"-"`
 	Activity      int64  `json:"activity"`
 	Tool          string `json:"tool"`
+	Held          bool   `json:"held"`
 }
 
 // paneFields is Pane without its methods, so encoding and decoding it uses the field tags.
@@ -147,6 +159,10 @@ const (
 	HeaderTmux     = "Orrery-Tmux"
 	HeaderTmuxPane = "Orrery-Tmux-Pane"
 )
+
+// HeaderHost is the orrery name of the host that a session-service call comes from. The listener that serves the call
+// sets it over any value the caller sent, so the name it carries is the one the listener admitted.
+const HeaderHost = "Orrery-Host"
 
 // SocketPath resolves the daemon socket: flagValue when non-empty, else ORRERY_SOCKET,
 // else $XDG_RUNTIME_DIR/orrery/orreryd.sock. It returns an error when none of them is set.

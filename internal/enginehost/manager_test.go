@@ -18,8 +18,8 @@ import (
 	"github.com/joshsymonds/orrery/internal/store"
 	"github.com/joshsymonds/orrery/internal/waittest"
 
-	// The blank import registers the pure-Go "sqlite" driver the empty-store check opens the file with.
-	_ "modernc.org/sqlite"
+	// The blank import registers the "sqlite3" driver the empty-store check opens the file with.
+	_ "github.com/mattn/go-sqlite3"
 )
 
 // fixedClock is the clock the manager tests give the manager, so the seen timestamp is known.
@@ -43,9 +43,9 @@ func fakeClaudePath(t *testing.T) string {
 	return os.Getenv(fakeClaudeEnv)
 }
 
-// newTestManager returns a manager with the given cap that runs the claude at claude, backed by a store and a
+// newTestManager returns a manager that runs the claude at claude, backed by a store and a
 // running writer. Close runs before the writer stops and the store closes.
-func newTestManager(t *testing.T, limit int, claude string) (*Manager, string) {
+func newTestManager(t *testing.T, claude string) (*Manager, string) {
 	t.Helper()
 	sh, err := exec.LookPath("sh")
 	if err != nil {
@@ -58,7 +58,6 @@ func newTestManager(t *testing.T, limit int, claude string) (*Manager, string) {
 		Shell:   sh,
 		Claude:  claude,
 		Environ: []string{"PATH=" + os.Getenv("PATH"), "HOME=" + t.TempDir()},
-		Cap:     limit,
 		Writer:  writer,
 		Now:     fixedClock,
 		Store:   s,
@@ -184,7 +183,7 @@ func requireSessionID(t *testing.T, id string) {
 // countRows returns the number of rows of table in the store at path, read on a separate connection.
 func countRows(t *testing.T, path, table string) int {
 	t.Helper()
-	db, err := sql.Open("sqlite", path)
+	db, err := sql.Open("sqlite3", path)
 	if err != nil {
 		t.Fatalf("open store: %v", err)
 	}
@@ -202,7 +201,7 @@ func countRows(t *testing.T, path, table string) int {
 
 func TestStartRecordsRowThenRunsFirstPrompt(t *testing.T) {
 	t.Parallel()
-	m, path := newTestManager(t, 2, fakeClaudePath(t))
+	m, path := newTestManager(t, fakeClaudePath(t))
 	dir := t.TempDir()
 
 	id, err := m.Start(t.Context(), StartRequest{Dir: dir, Prompt: "hi"})
@@ -233,39 +232,9 @@ func TestStartRecordsRowThenRunsFirstPrompt(t *testing.T) {
 	}
 }
 
-func TestCapRefusesStartPastCapAndAdmitsAfterStop(t *testing.T) {
-	t.Parallel()
-	m, _ := newTestManager(t, 2, fakeClaudePath(t))
-	first, err := m.Start(t.Context(), StartRequest{Dir: t.TempDir(), Prompt: "one"})
-	if err != nil {
-		t.Fatalf("first Start: %v", err)
-	}
-	if _, err := m.Start(t.Context(), StartRequest{Dir: t.TempDir(), Prompt: "two"}); err != nil {
-		t.Fatalf("second Start: %v", err)
-	}
-
-	id, err := m.Start(t.Context(), StartRequest{Dir: t.TempDir(), Prompt: "three"})
-	if !errors.Is(err, ErrCapReached) {
-		t.Fatalf("third Start error = %v, want ErrCapReached", err)
-	}
-	if !strings.Contains(err.Error(), "cap 2") {
-		t.Fatalf("third Start error %q does not give the cap", err)
-	}
-	if id != "" {
-		t.Fatalf("refused Start returned id %q, want none", id)
-	}
-
-	if err := m.Stop(t.Context(), first); err != nil {
-		t.Fatalf("Stop first: %v", err)
-	}
-	if _, err := m.Start(t.Context(), StartRequest{Dir: t.TempDir(), Prompt: "three again"}); err != nil {
-		t.Fatalf("Start after Stop freed a slot: %v", err)
-	}
-}
-
 func TestStopRecordsStoppedAndEndsProcess(t *testing.T) {
 	t.Parallel()
-	m, path := newTestManager(t, 1, fakeClaudePath(t))
+	m, path := newTestManager(t, fakeClaudePath(t))
 	dir := t.TempDir()
 	id, err := m.Start(t.Context(), StartRequest{Dir: dir, Prompt: "hi"})
 	if err != nil {
@@ -290,7 +259,7 @@ func TestStopRecordsStoppedAndEndsProcess(t *testing.T) {
 
 func TestStopRemovesUnfinishedText(t *testing.T) {
 	t.Parallel()
-	m, path := newTestManager(t, 1, fakeClaudePath(t))
+	m, path := newTestManager(t, fakeClaudePath(t))
 	id, err := m.Start(t.Context(), StartRequest{Dir: t.TempDir(), Prompt: "STALL"})
 	if err != nil {
 		t.Fatalf("Start: %v", err)
@@ -312,7 +281,7 @@ func TestStopRemovesUnfinishedText(t *testing.T) {
 
 func TestSeenMarksStartedSession(t *testing.T) {
 	t.Parallel()
-	m, path := newTestManager(t, 1, fakeClaudePath(t))
+	m, path := newTestManager(t, fakeClaudePath(t))
 	id, err := m.Start(t.Context(), StartRequest{Dir: t.TempDir(), Prompt: "hi"})
 	if err != nil {
 		t.Fatalf("Start: %v", err)
@@ -338,7 +307,7 @@ func TestSeenMarksStartedSession(t *testing.T) {
 }
 
 func TestStartRefusesBadInputAndStoresNothing(t *testing.T) {
-	m, path := newTestManager(t, 1, fakeClaudePath(t))
+	m, path := newTestManager(t, fakeClaudePath(t))
 	cases := []struct {
 		name   string
 		dir    string
@@ -371,7 +340,7 @@ func TestStartRefusesBadInputAndStoresNothing(t *testing.T) {
 func TestUnresolvableClaudeRecordsFailedWithReason(t *testing.T) {
 	t.Parallel()
 	missing := filepath.Join(t.TempDir(), "no-claude")
-	m, path := newTestManager(t, 1, missing)
+	m, path := newTestManager(t, missing)
 	id, err := m.Start(t.Context(), StartRequest{Dir: t.TempDir(), Prompt: "hi"})
 	if err != nil {
 		t.Fatalf("Start: %v", err)
@@ -392,7 +361,7 @@ func TestUnresolvableClaudeRecordsFailedWithReason(t *testing.T) {
 
 func TestCloseInterruptsRunningTurnAndKeepsEndedTurn(t *testing.T) {
 	t.Parallel()
-	m, path := newTestManager(t, 3, fakeClaudePath(t))
+	m, path := newTestManager(t, fakeClaudePath(t))
 	stalledDir := t.TempDir()
 	stalled, err := m.Start(t.Context(), StartRequest{Dir: stalledDir, Prompt: "STALL"})
 	if err != nil {
@@ -442,7 +411,7 @@ func TestCloseInterruptsRunningTurnAndKeepsEndedTurn(t *testing.T) {
 
 func TestCloseEndsEverySessionAndRefusesStart(t *testing.T) {
 	t.Parallel()
-	m, path := newTestManager(t, 3, fakeClaudePath(t))
+	m, path := newTestManager(t, fakeClaudePath(t))
 	ids := make([]string, 0, 2)
 	pids := make([]int, 0, 2)
 	for i := range 2 {

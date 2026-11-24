@@ -44,6 +44,46 @@ func (s *Store) AddTaskReview(
 					finding.Position, review.Position, seq, epic, err)
 			}
 		}
+		for _, run := range review.TestRuns {
+			if err := queries.InsertEpicTaskTestRun(ctx, sqlcgen.InsertEpicTaskTestRunParams{
+				Epic: epic, Task: seq, Attempt: review.Attempt, Review: review.Position, Position: run.Position,
+				Command: run.Command, Revision: run.Revision,
+			}); err != nil {
+				return fmt.Errorf("insert test run %d of review %d of task %d of epic %s: %w",
+					run.Position, review.Position, seq, epic, err)
+			}
+		}
+		return nil
+	})
+}
+
+// SetTestRunResult stores result, with its step and output, on one test run of task seq of epic and stores to as the
+// task's build, in one write, when the stored build is from. A task that is not open, or whose stored build is not
+// from, is ErrTaskMoved and writes nothing. A test run that is not stored, or already has a step, is ErrTaskMoved and
+// writes nothing.
+func (s *Store) SetTestRunResult(
+	ctx context.Context,
+	epic string,
+	seq int64,
+	from, to TaskBuild,
+	result TaskTestRunResult,
+) error {
+	return s.write(ctx, func(queries *sqlcgen.Queries) error {
+		if err := moveTask(ctx, queries, epic, seq, from, to); err != nil {
+			return err
+		}
+		rows, err := queries.SetEpicTaskTestRunResult(ctx, sqlcgen.SetEpicTaskTestRunResultParams{
+			Step: result.Step, Output: result.Output,
+			Epic: epic, Task: seq, Attempt: result.Attempt, Review: result.Review, Position: result.Position,
+		})
+		if err != nil {
+			return fmt.Errorf("set result of test run %d of review %d of task %d of epic %s: %w",
+				result.Position, result.Review, seq, epic, err)
+		}
+		if rows == 0 {
+			return fmt.Errorf("test run %d of review %d of task %d of epic %s is not stored or has a result: %w",
+				result.Position, result.Review, seq, epic, ErrTaskMoved)
+		}
 		return nil
 	})
 }

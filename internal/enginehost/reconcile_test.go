@@ -67,7 +67,6 @@ func newReconcileManager(t *testing.T, s Store, writer *Writer, sink NoticeSink)
 		Shell:    sh,
 		Claude:   fakeClaudePath(t),
 		Environ:  []string{"PATH=" + os.Getenv("PATH"), "HOME=" + t.TempDir()},
-		Cap:      1,
 		Writer:   writer,
 		Now:      fixedClock,
 		Notifier: sink,
@@ -391,7 +390,7 @@ func eventCounts(t *testing.T, path string, ids []string) map[string]int {
 	if err != nil {
 		t.Fatalf("encode session ids: %v", err)
 	}
-	db, err := sql.Open("sqlite", path)
+	db, err := sql.Open("sqlite3", path)
 	if err != nil {
 		t.Fatalf("open store: %v", err)
 	}
@@ -487,7 +486,7 @@ func (r mixedRow) settled() restartRow {
 // The seeded rows have no event history, so a skipped row must still have none after Reconcile.
 func seedMixedRows(t *testing.T, path string, rows []mixedRow) {
 	t.Helper()
-	db, err := sql.Open("sqlite", path)
+	db, err := sql.Open("sqlite3", path)
 	if err != nil {
 		t.Fatalf("open store: %v", err)
 	}

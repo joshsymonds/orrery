@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/joshsymonds/orrery/internal/hostexec"
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
@@ -22,9 +23,11 @@ type ladderWaitGit struct {
 	moves []ladderWaitMove
 }
 
-func (g *ladderWaitGit) MoveTaskWorktree(ctx context.Context, path, wip, epic string, seq int64, to string) error {
+func (g *ladderWaitGit) MoveTaskWorktree(
+	ctx context.Context, host hostexec.Host, path, wip, epic string, seq int64, to string,
+) error {
 	g.moves = append(g.moves, ladderWaitMove{path: path, wip: wip, to: to})
-	return g.packageGit.MoveTaskWorktree(ctx, path, wip, epic, seq, to)
+	return g.packageGit.MoveTaskWorktree(ctx, host, path, wip, epic, seq, to)
 }
 
 // ladderWaitCase is a task whose worktree was moved onto base, with the fixture it is in, the worktree, and the Git that

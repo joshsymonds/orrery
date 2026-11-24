@@ -436,9 +436,9 @@ func TestControlAnswersOrreryErrors(t *testing.T) {
 		},
 		{
 			name:    "resource_exhausted",
-			err:     connect.NewError(connect.CodeResourceExhausted, errors.New("synthetic session cap")),
+			err:     connect.NewError(connect.CodeResourceExhausted, errors.New("synthetic body over its bound")),
 			code:    connect.CodeResourceExhausted,
-			message: "synthetic session cap",
+			message: "synthetic body over its bound",
 		},
 		{
 			name:    "unavailable",

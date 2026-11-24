@@ -188,36 +188,6 @@ func TestRunnerEngineRestartedFreesTurnAndNextPassStartsNewTurn(t *testing.T) {
 	}
 }
 
-func TestRunnerStepCapRefusalFreesTurnAndRerunsNextPass(t *testing.T) {
-	t.Parallel()
-	s := openRunnerStore(t)
-	createRunnerEpic(t, s)
-	steps := newFakeSteps()
-	steps.watchStore(s)
-	steps.startErr = fmt.Errorf("%w: 2 live steps, step cap 2", enginehost.ErrCapReached)
-	var reads atomic.Int64
-	runner := runRunner(t, runnerConfig(s, steps, agentReturning(runnerAgent, nil, &reads)))
-	waitFor(t, &steps.changeNotice, "turn 1 to be freed", func() bool {
-		turns := epicOf(t, s).Turns
-		return len(turns) >= 1 && turns[0].State == "free"
-	})
-	runner.Pass(t.Context())
-	waitFor(t, &steps.changeNotice, "turn 2 to be freed and claimed again", func() bool {
-		turns := epicOf(t, s).Turns
-		return len(turns) >= 2 && turns[1].State == "free"
-	})
-	epic := epicOf(t, s)
-	for i := range 2 {
-		if turn := epic.Turns[i]; turn.State != "free" || turn.Reason != "step cap full" {
-			t.Errorf("turn %d = state %q reason %q, want free step cap full", i+1, turn.State, turn.Reason)
-		}
-	}
-	if epic.Paused || epic.Parked != "" {
-		t.Errorf("epic Paused = %v Parked = %q, want neither: a full step cap frees without pause or park",
-			epic.Paused, epic.Parked)
-	}
-}
-
 func TestRunnerRefusedAgentStartFreesTurnAndParksEpicWithErrorText(t *testing.T) {
 	t.Parallel()
 	refusals := []struct {

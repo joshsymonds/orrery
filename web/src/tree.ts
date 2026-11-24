@@ -1,4 +1,5 @@
 import type { Contract } from "./gen/orrery/v1/contracts_pb";
+import type { Design, DesignContract } from "./gen/orrery/v1/designs_pb";
 import type { Epic, EpicsGetResponse } from "./gen/orrery/v1/epics_pb";
 import { blockOf, type EpicBlock, repositoryName } from "./epics";
 import { epicNeeds } from "./needs";
@@ -10,19 +11,20 @@ export interface EpicNode { kind: "epic"; key: string /* `epic:${id}` */; block:
 // ContractItem is a contract hung under its conversation: proposed, or accepted while no listed epic has its id.
 export interface ContractItem { kind: "contract"; key: string /* `contract:${id}` */; contract: Contract }
 export type Hung = EpicNode | ContractItem;
-
-// StandIn: "" for a conversation's own row; "unlisted" for the one row per project that holds what steers with no
-// listed conversation; "archived" for the one row per project that holds what a now-archived conversation steers.
-export type StandIn = "" | "unlisted" | "archived";
+// DesignNode is a design hung under its conversation, keyed `design:${id}`. hung is the design's children in its
+// contracts' position order, and they are the same Hung objects the conversation's hung holds.
+export interface DesignNode { kind: "design"; key: string /* `design:${id}` */; design: Design; hung: Hung[] }
 
 export interface Convo {
-  key: string;        // row.key; a stand-in's is `standin:${standIn}:${projectKey}`
-  row: Row | null;    // null only for a stand-in
-  standIn: StandIn;
-  again: boolean;     // true when this is a conversation drawn a second time, behind the ended line, as the parent of
-                      // its ended epics while it is still in the tree above
+  key: string;        // row.key; a thing with no drawn conversation is its own row, keyed by the thing's key
+  row: Row | null;    // null for a thing drawn as its own row, with no conversation drawn above it
   hung: Hung[];       // in the tree: its live epics (Epics.List order), then its contracts (Contracts.List order);
                       // behind the ended line: its ended epics
+  folded: Hung[];     // in the tree: its ended epics, newest first, drawn under its row only while its fold is open;
+                      // behind the ended line: none
+  // designs: the designs hung under this conversation. Absent reads as none. convo.hung still holds every thing: things in
+  // no design first, then each design's children in design order.
+  designs?: DesignNode[];
 }
 
 export interface Project {
@@ -41,6 +43,7 @@ export interface TreeInput {
   epics: readonly Epic[];                         // Epics.List, archived ones included
   details: ReadonlyMap<string, EpicsGetResponse>; // Epics.Get answers by id
   contracts: readonly Contract[];                 // Contracts.List
+  designs?: readonly Design[];                    // the designs; absent reads as none
   host: string;                                   // the serving host, "" when unknown
   view: View;
 }
@@ -100,14 +103,47 @@ function repoOf(name: string): string | null {
   return null;
 }
 
-// Where a thing hangs: under a conversation's row, or under the stand-in of its project.
-type Anchor = { kind: "row"; row: Row } | { kind: "standin"; standIn: "unlisted" | "archived"; place: Place };
+// A thing in the view before it is grouped: the conversation row it hangs under, or null when it is its own row; the
+// project it sits in; whether its epic has ended; and the thing itself.
+interface Item { row: Row | null; place: Place; ended: boolean; hung: Hung }
 
-// A thing in the view before it is grouped: where it hangs, what it draws as, and whether its epic has ended.
-interface Item { anchor: Anchor; ended: boolean; hung: Hung }
+// A design placed in a view: the drawn conversation it hangs under, or null when it is a conversation of its own, and the
+// items it takes, in position order.
+interface DesignPlace { design: Design; row: Row | null; children: Item[] }
 
-// placeOf is where a thing with no listed conversation hangs: the project of its absolute path at the serving host, or
-// else a card named by its repository.
+// idOf is the id of a hung thing: its epic's, or its contract's.
+function idOf(hung: Hung): string {
+  return hung.kind === "epic" ? hung.listed.id : hung.contract.id;
+}
+
+// byCreated orders designs by when they were created, then by id.
+function byCreated(left: Design, right: Design): number {
+  return Number(left.created - right.created) || left.id.localeCompare(right.id);
+}
+
+// byPosition orders a design's contracts by their place in its start order.
+function byPosition(left: DesignContract, right: DesignContract): number {
+  return Number(left.position - right.position);
+}
+
+// designChildren are the unclaimed items a design takes: each whose id is a contract's id or its non-empty epic, in the
+// order of the contracts' positions.
+function designChildren(design: Design, items: readonly Item[], claimed: ReadonlySet<Item>): Item[] {
+  const children: Item[] = [];
+  for (const contract of [...design.contracts].sort(byPosition)) {
+    for (const id of [contract.id, contract.epic]) {
+      for (const item of items) {
+        if (id !== "" && idOf(item.hung) === id && !claimed.has(item) && !children.includes(item)) {
+          children.push(item);
+        }
+      }
+    }
+  }
+  return children;
+}
+
+// placeOf is the project a thing sits in: the project of its absolute path at the serving host, or else a card named by
+// its repository.
 function placeOf(path: string, repository: string, serving: string): Place {
   if (path.startsWith("/")) {
     return projectOf(path, serving, serving);
@@ -115,8 +151,9 @@ function placeOf(path: string, repository: string, serving: string): Place {
   return { key: `repo:${repository}`, dir: "", name: repositoryName(repository), path: "", host: "" };
 }
 
-// buildTree places what the view draws: each conversation's row with the epics and contracts that hang under it, the
-// stand-ins of what has no listed conversation, and the ended lines; then it groups them into projects and ranks them.
+// buildTree places what the view draws: each drawn conversation's row with the epics and contracts that hang under it,
+// each thing with no drawn conversation as a row of its own, and the ended lines; then it groups them into projects and
+// ranks them.
 export function buildTree(input: TreeInput): Project[] {
   const inbox = input.view === "inbox";
   const serving = input.host;
@@ -130,48 +167,20 @@ export function buildTree(input: TreeInput): Project[] {
   const shown = input.contracts.filter(
     (contract) => contract.state === "proposed" || (contract.state === "accepted" && !listedIds.has(contract.id)),
   );
-
-  const inboxAnchor = (conversation: Row | undefined, place: Place): Anchor => {
-    if (conversation === undefined) {
-      return { kind: "standin", standIn: "unlisted", place };
-    }
-    if (conversation.archived) {
-      return { kind: "standin", standIn: "archived", place };
-    }
-    return { kind: "row", row: conversation };
-  };
-  // archivedAnchor places a thing in the archived view: under an archived conversation, or else, when it is an archived
-  // epic, under its live conversation drawn as the parent, or under the unlisted stand-in.
-  const archivedAnchor = (conversation: Row | undefined, archivedThing: boolean, place: Place): Anchor | null => {
-    if (conversation !== undefined && conversation.archived) {
-      return { kind: "row", row: conversation };
-    }
-    if (!archivedThing) {
-      return null;
-    }
-    return conversation === undefined ? { kind: "standin", standIn: "unlisted", place } : { kind: "row", row: conversation };
-  };
-  const anchorOfEpic = (epic: Epic): Anchor | null => {
-    const conversation = rowByConvo.get(epic.steering);
-    const place = placeOf(epic.path, epic.repository, serving);
-    if (inbox) {
-      return epic.archived ? null : inboxAnchor(conversation, place);
-    }
-    return archivedAnchor(conversation, epic.archived, place);
-  };
-  const anchorOfContract = (contract: Contract): Anchor | null => {
-    const conversation = rowByConvo.get(contract.conversation);
-    const place = placeOf(contract.repository, contract.repository, serving);
-    return inbox ? inboxAnchor(conversation, place) : archivedAnchor(conversation, false, place);
-  };
+  // drawnRow is the conversation a thing hangs under in this view: listed and not archived in the inbox, listed and
+  // archived in the Archived view. A conversation the view does not draw holds nothing.
+  const drawnRow = (conversation: Row | undefined): Row | undefined =>
+    conversation !== undefined && (inbox ? !conversation.archived : conversation.archived) ? conversation : undefined;
 
   // Each epic in Epics.List order, with the proposed contract of its id when there is one, drawn as the epic; then each
-  // contract that is not drawn that way, in Contracts.List order.
+  // contract that is not drawn that way, in Contracts.List order. The inbox draws an epic unless it is archived; the
+  // Archived view draws one that is archived, or whose conversation is. A thing with no drawn conversation is its own row.
   const items: Item[] = [];
   const attached = new Set<Contract>();
   for (const epic of input.epics) {
-    const anchor = anchorOfEpic(epic);
-    if (anchor === null) {
+    const conversation = drawnRow(rowByConvo.get(epic.steering));
+    const visible = inbox ? !epic.archived : epic.archived || conversation !== undefined;
+    if (!visible) {
       continue;
     }
     const contract = shown.find((candidate) => candidate.state === "proposed" && candidate.id === epic.id) ?? null;
@@ -179,28 +188,56 @@ export function buildTree(input: TreeInput): Project[] {
       attached.add(contract);
     }
     items.push({
-      anchor,
-      // An ended epic carrying a proposed contract stays in the tree: the contract's ask is live work.
-      ended: inbox && !epic.live && contract === null,
+      row: conversation ?? null,
+      place: placeOf(epic.path, epic.repository, serving),
+      // An epic hung under a drawn conversation that carries a proposed contract stays in the tree: the contract's ask is
+      // live work. An epic with no drawn conversation is its own row, ended once it is not live.
+      ended: inbox && !epic.live && (conversation === undefined || contract === null),
       hung: { kind: "epic", key: `epic:${epic.id}`, block: blockOf(epic, input.details.get(epic.id)), listed: epic, contract },
     });
   }
   for (const contract of shown) {
-    const anchor = attached.has(contract) ? null : anchorOfContract(contract);
-    if (anchor !== null) {
-      items.push({ anchor, ended: false, hung: { kind: "contract", key: `contract:${contract.id}`, contract } });
+    if (attached.has(contract)) {
+      continue;
     }
+    const conversation = drawnRow(rowByConvo.get(contract.conversation));
+    // The Archived view draws a contract only under an archived conversation.
+    if (conversation === undefined && !inbox) {
+      continue;
+    }
+    items.push({
+      row: conversation ?? null,
+      place: placeOf(contract.repository, contract.repository, serving),
+      ended: false,
+      hung: { kind: "contract", key: `contract:${contract.id}`, contract },
+    });
   }
 
-  const anchoredTo = (row: Row): Item[] => items.filter((item) => item.anchor.kind === "row" && item.anchor.row === row);
-  // A conversation stays in the tree while it steers a live epic or a shown contract, so an ended one is drawn behind the
-  // line only when nothing live or waiting hangs under it.
-  const keeps = (row: Row): boolean =>
-    anchoredTo(row).some((item) => !item.ended) || shown.some((contract) => rowByConvo.get(contract.conversation) === row);
-  const behindLine = (row: Row): boolean =>
-    !keeps(row) &&
-    ((row.archiveKind === "headless" && (row.state === "stopped" || (row.state === "failed" && !row.unseen))) ||
-      (row.state === "done" && anchoredTo(row).some((item) => item.ended)));
+  // A design that is not of one is placed where its conversation is drawn: under that row, or in the inbox as a conversation
+  // of its own when no drawn conversation works it but a thing it holds is drawn. Its children are the items its contracts
+  // name, by id or by epic, in position order. A thing one design takes is no other design's child. The Archived view leaves
+  // out a design with no drawn conversation, so its things stay as they are, ungrouped.
+  const claimed = new Set<Item>();
+  const placed: DesignPlace[] = [];
+  for (const design of (input.designs ?? []).filter((candidate) => !candidate.ofOne).sort(byCreated)) {
+    const conversation = drawnRow(rowByConvo.get(design.conversation));
+    const children = designChildren(design, items, claimed);
+    if (conversation === undefined && (!inbox || children.length === 0)) {
+      continue;
+    }
+    for (const child of children) {
+      claimed.add(child);
+    }
+    placed.push({ design, row: conversation ?? null, children });
+  }
+  const nodeOf = (place: DesignPlace): DesignNode => ({
+    kind: "design",
+    key: `design:${place.design.id}`,
+    design: place.design,
+    hung: place.children.map((child) => child.hung),
+  });
+
+  const anchoredTo = (row: Row): Item[] => items.filter((item) => item.row === row && !claimed.has(item));
 
   const projects = new Map<string, Project>();
   const projectAt = (place: Place): Project => {
@@ -216,48 +253,70 @@ export function buildTree(input: TreeInput): Project[] {
 
   const drawn = new Set<Row>(input.rows.filter((row) => (inbox ? !row.archived : row.archived)));
   for (const item of items) {
-    if (item.anchor.kind === "row") {
-      drawn.add(item.anchor.row);
+    if (item.row !== null) {
+      drawn.add(item.row);
     }
   }
+  // A drawn conversation is placed by serve's fields: the Archived view draws each one it holds in the tree; the inbox
+  // draws one that serve reports ended behind its project's ended line, with everything hung under it, and any other in
+  // the tree, with its ended epics folded under it, newest first, and nothing of it behind the line.
   for (const row of drawn) {
     const own = anchoredTo(row);
     const project = projectAt(placeOfRow(row));
-    const convo = (hung: Hung[], again: boolean): Convo => ({ key: row.key, row, standIn: "", again, hung });
-    const live = own.filter((item) => !item.ended).map((item) => item.hung);
-    const finished = own.filter((item) => item.ended).map((item) => item.hung);
+    const nodes = placed.filter((place) => place.row === row).map(nodeOf);
+    const designHung = nodes.flatMap((node) => node.hung);
+    // A design's children follow the row's own things, and are never folded: an ended one stays under its design.
+    const convo = (hung: Hung[], folded: Hung[]): Convo => ({
+      key: row.key,
+      row,
+      hung: [...hung, ...designHung],
+      folded,
+      designs: nodes,
+    });
     if (!inbox) {
-      project.convos.push(convo(own.map((item) => item.hung), false));
-    } else if (behindLine(row)) {
-      project.ended.push(convo(finished, false));
+      project.convos.push(convo(own.map((item) => item.hung), []));
+    } else if (row.ended === true) {
+      project.ended.push(convo(own.map((item) => item.hung), []));
     } else {
-      project.convos.push(convo(live, false));
-      if (finished.length > 0) {
-        project.ended.push(convo(finished, true));
-      }
+      const live = own.filter((item) => !item.ended).map((item) => item.hung);
+      const folded = own
+        .filter((item) => item.ended)
+        .map((item) => item.hung)
+        .sort((left, right) => changedThing(right) - changedThing(left));
+      project.convos.push(convo(live, folded));
     }
   }
 
-  // A stand-in holds the things of its kind in its project: one row in the tree, and one behind the ended line.
-  const standIns = new Map<string, Convo>();
+  // A thing with no drawn conversation is its own row, holding just that thing, in its project: in the tree, or behind
+  // the ended line once it has ended.
   for (const item of items) {
-    if (item.anchor.kind !== "standin") {
+    if (item.row !== null || claimed.has(item)) {
       continue;
     }
-    const { standIn, place } = item.anchor;
-    const slot = `${item.ended ? "ended" : "tree"}|${standIn}|${place.key}`;
-    let convo = standIns.get(slot);
-    if (convo === undefined) {
-      convo = { key: `standin:${standIn}:${place.key}`, row: null, standIn, again: false, hung: [] };
-      standIns.set(slot, convo);
-      const project = projectAt(place);
-      if (item.ended) {
-        project.ended.push(convo);
-      } else {
-        project.convos.push(convo);
-      }
+    const convo: Convo = { key: item.hung.key, row: null, hung: [item.hung], folded: [] };
+    const project = projectAt(item.place);
+    if (item.ended) {
+      project.ended.push(convo);
+    } else {
+      project.convos.push(convo);
     }
-    convo.hung.push(item.hung);
+  }
+
+  // A design with no drawn conversation is a conversation of its own, holding its children, in the project of the first of
+  // them. It is behind the ended line only when every child has ended.
+  for (const place of placed) {
+    if (place.row !== null) {
+      continue;
+    }
+    const node = nodeOf(place);
+    const convo: Convo = { key: node.key, row: null, hung: node.hung, folded: [], designs: [node] };
+    const [first] = place.children;
+    const project = projectAt(first.place);
+    if (place.children.every((child) => child.ended)) {
+      project.ended.push(convo);
+    } else {
+      project.convos.push(convo);
+    }
   }
 
   for (const project of projects.values()) {
@@ -308,12 +367,17 @@ function rankOf(convo: Convo): number {
   return rankRest;
 }
 
-// changedOf is when a conversation last changed: its row's, or for a stand-in its newest hung thing's.
+// changedOf is when a conversation last changed: its row's, or for a row-less one its hung thing's.
 export function changedOf(convo: Convo): number {
   if (convo.row !== null) {
     return convo.row.changed;
   }
-  return Math.max(...convo.hung.map((hung) => Number(hung.kind === "epic" ? hung.listed.changed : hung.contract.changed)));
+  return Math.max(...convo.hung.map((hung) => changedThing(hung)));
+}
+
+// changedThing is when a hung thing last changed: its epic's listed change, or its contract's.
+function changedThing(hung: Hung): number {
+  return Number(hung.kind === "epic" ? hung.listed.changed : hung.contract.changed);
 }
 
 // bestOf is a project's best conversation's rank, after every rank when it has none in the tree.

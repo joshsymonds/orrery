@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/joshsymonds/orrery/internal/hostexec"
 )
 
 // stepGitTestRepo makes a throwaway repository under t.TempDir() with one commit on main. The owner's git config
@@ -100,7 +102,9 @@ func TestStepGitCommitChecksAllPassOnOwnedCommit(t *testing.T) {
 		"owned/b.go": "package owned\n",
 	})
 
-	checks := commitChecks(context.Background(), dir, start, commit, []string{"owned/a.go", "owned/b.go"})
+	checks := commitChecks(
+		context.Background(), hostexec.NewLocal(), dir, start, commit, []string{"owned/a.go", "owned/b.go"},
+	)
 	stepGitTestOrder(t, checks)
 	for _, c := range checks {
 		if !c.OK {
@@ -116,7 +120,7 @@ func TestStepGitHeadFailsWhenHeadDiffersFromCommit(t *testing.T) {
 	first := stepGitTestCommit(t, dir, map[string]string{"owned/a.go": "one\n"})
 	second := stepGitTestCommit(t, dir, map[string]string{"owned/a.go": "two\n"})
 
-	checks := commitChecks(context.Background(), dir, start, first, []string{"owned/a.go"})
+	checks := commitChecks(context.Background(), hostexec.NewLocal(), dir, start, first, []string{"owned/a.go"})
 	head := stepGitTestCheck(t, checks, "head")
 	if head.OK {
 		t.Fatalf("head passed though HEAD is %s and commit is %s", second, first)
@@ -131,7 +135,9 @@ func TestStepGitHeadFailsWhenCommitDoesNotResolve(t *testing.T) {
 	dir := stepGitTestRepo(t)
 	start := stepGitTestRun(t, dir, "rev-parse", "HEAD")
 
-	checks := commitChecks(context.Background(), dir, start, "0123456789abcdef0123456789abcdef01234567", nil)
+	checks := commitChecks(
+		context.Background(), hostexec.NewLocal(), dir, start, "0123456789abcdef0123456789abcdef01234567", nil,
+	)
 	head := stepGitTestCheck(t, checks, "head")
 	if head.OK {
 		t.Fatalf("head passed for a commit that does not exist: %s", head.Detail)
@@ -149,7 +155,7 @@ func TestStepGitAncestryFailsOffBranch(t *testing.T) {
 	stepGitTestRun(t, dir, "checkout", "-q", "main")
 	commit := stepGitTestCommit(t, dir, map[string]string{"owned/a.go": "main\n"})
 
-	checks := commitChecks(context.Background(), dir, side, commit, []string{"owned/a.go"})
+	checks := commitChecks(context.Background(), hostexec.NewLocal(), dir, side, commit, []string{"owned/a.go"})
 	ancestry := stepGitTestCheck(t, checks, "ancestry")
 	if ancestry.OK {
 		t.Fatalf("ancestry passed though start %s is not an ancestor of HEAD %s", side, commit)
@@ -223,7 +229,9 @@ func TestStepGitCleanFailsAndIgnoresIgnored(t *testing.T) {
 			tc.dirty(t, dir)
 			commit := stepGitTestRun(t, dir, "rev-parse", "HEAD")
 
-			clean := stepGitTestCheck(t, commitChecks(context.Background(), dir, start, commit, nil), "clean")
+			clean := stepGitTestCheck(t, commitChecks(
+				context.Background(), hostexec.NewLocal(), dir, start, commit, nil,
+			), "clean")
 			if clean.OK != tc.wantOK {
 				t.Fatalf("clean OK = %v, want %v; detail %q", clean.OK, tc.wantOK, clean.Detail)
 			}
@@ -243,7 +251,7 @@ func TestStepGitOwnedFailsNamingPathOutsideOwned(t *testing.T) {
 		"outside/x.go": "outside\n",
 	})
 
-	checks := commitChecks(context.Background(), dir, start, commit, []string{"owned/a.go"})
+	checks := commitChecks(context.Background(), hostexec.NewLocal(), dir, start, commit, []string{"owned/a.go"})
 	owned := stepGitTestCheck(t, checks, "owned")
 	if owned.OK {
 		t.Fatalf("owned passed though outside/x.go is not owned: %s", owned.Detail)
@@ -263,12 +271,14 @@ func TestStepGitOwnedMatchesExactPaths(t *testing.T) {
 	commit := stepGitTestCommit(t, dir, map[string]string{"owned/a.go.bak": "x\n"})
 
 	// The owned entry "owned" is a directory name, not a path prefix; only exact paths are owned.
-	checks := commitChecks(context.Background(), dir, start, commit, []string{"owned/a.go"})
+	checks := commitChecks(context.Background(), hostexec.NewLocal(), dir, start, commit, []string{"owned/a.go"})
 	owned := stepGitTestCheck(t, checks, "owned")
 	if owned.OK {
 		t.Fatalf("owned passed for owned/a.go.bak against owned/a.go: %s", owned.Detail)
 	}
-	prefix := stepGitTestCheck(t, commitChecks(context.Background(), dir, start, commit, []string{"owned"}), "owned")
+	prefix := stepGitTestCheck(t, commitChecks(
+		context.Background(), hostexec.NewLocal(), dir, start, commit, []string{"owned"},
+	), "owned")
 	if prefix.OK {
 		t.Fatalf("owned passed for owned/a.go.bak against the directory entry owned: %s", prefix.Detail)
 	}
@@ -280,11 +290,15 @@ func TestStepGitOwnedDirectoryEntryOwnsPathsBelowIt(t *testing.T) {
 	start := stepGitTestRun(t, dir, "rev-parse", "HEAD")
 	commit := stepGitTestCommit(t, dir, map[string]string{"owned/deep/b.go": "x\n", "owned/a.go.bak": "x\n"})
 
-	under := stepGitTestCheck(t, commitChecks(context.Background(), dir, start, commit, []string{"owned/"}), "owned")
+	under := stepGitTestCheck(t, commitChecks(
+		context.Background(), hostexec.NewLocal(), dir, start, commit, []string{"owned/"},
+	), "owned")
 	if !under.OK {
 		t.Fatalf("owned failed for paths below the directory entry owned/: %s", under.Detail)
 	}
-	other := stepGitTestCheck(t, commitChecks(context.Background(), dir, start, commit, []string{"own/"}), "owned")
+	other := stepGitTestCheck(t, commitChecks(
+		context.Background(), hostexec.NewLocal(), dir, start, commit, []string{"own/"},
+	), "owned")
 	if other.OK {
 		t.Fatalf("owned passed for owned/... against the directory entry own/: %s", other.Detail)
 	}
@@ -304,7 +318,7 @@ func TestStepGitOwnedCountsBothSidesOfRename(t *testing.T) {
 	commit := stepGitTestRun(t, dir, "rev-parse", "HEAD")
 
 	// The new path is owned, but the old path is not: the rename must fail on the old side.
-	checks := commitChecks(context.Background(), dir, start, commit, []string{"owned/x.go"})
+	checks := commitChecks(context.Background(), hostexec.NewLocal(), dir, start, commit, []string{"owned/x.go"})
 	owned := stepGitTestCheck(t, checks, "owned")
 	if owned.OK {
 		t.Fatalf("owned passed though a rename removed outside/x.go: %s", owned.Detail)
@@ -333,7 +347,7 @@ func TestStepGitOwnedCountsNewSideOfRename(t *testing.T) {
 	// The old path is owned, but the new path is not: the rename must fail on the new side.
 	owned := stepGitTestCheck(
 		t,
-		commitChecks(context.Background(), dir, start, commit, []string{"owned/x.go"}),
+		commitChecks(context.Background(), hostexec.NewLocal(), dir, start, commit, []string{"owned/x.go"}),
 		"owned",
 	)
 	if owned.OK {
@@ -354,7 +368,9 @@ func TestStepGitOwnedDetailCapsPathsAtTwenty(t *testing.T) {
 	}
 	commit := stepGitTestCommit(t, dir, files)
 
-	owned := stepGitTestCheck(t, commitChecks(context.Background(), dir, start, commit, nil), "owned")
+	owned := stepGitTestCheck(t, commitChecks(
+		context.Background(), hostexec.NewLocal(), dir, start, commit, nil,
+	), "owned")
 	if owned.OK {
 		t.Fatal("owned passed with 25 unowned paths")
 	}
@@ -372,7 +388,7 @@ func TestStepGitReturnsTrimmedStdout(t *testing.T) {
 	dir := stepGitTestRepo(t)
 	want := stepGitTestRun(t, dir, "rev-parse", "HEAD")
 
-	got, err := stepGit(context.Background(), dir, "rev-parse", "HEAD")
+	got, err := stepGit(context.Background(), hostexec.NewLocal(), dir, "rev-parse", "HEAD")
 	if err != nil {
 		t.Fatalf("stepGit rev-parse: %v", err)
 	}
@@ -385,7 +401,9 @@ func TestStepGitErrorCarriesStderr(t *testing.T) {
 	t.Parallel()
 	dir := stepGitTestRepo(t)
 
-	_, err := stepGit(context.Background(), dir, "rev-parse", "--verify", "--end-of-options", "nope^{commit}")
+	_, err := stepGit(
+		context.Background(), hostexec.NewLocal(), dir, "rev-parse", "--verify", "--end-of-options", "nope^{commit}",
+	)
 	if err == nil {
 		t.Fatal("stepGit returned no error for an unknown revision")
 	}

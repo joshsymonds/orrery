@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/joshsymonds/orrery/internal/hostexec"
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
@@ -96,7 +97,7 @@ func TestPinWorkflowEmptyNamePinsBuiltInEpic(t *testing.T) {
 	t.Parallel()
 	dir := stepGitTestRepo(t)
 
-	got, err := pinWorkflow(t.Context(), dir, "HEAD", "")
+	got, err := pinWorkflow(t.Context(), hostexec.NewLocal(), dir, "HEAD", "")
 	if err != nil {
 		t.Fatalf("pinWorkflow: %v", err)
 	}
@@ -130,7 +131,7 @@ func TestPinWorkflowCommittedFileReplacesBuiltIn(t *testing.T) {
 	dir := stepGitTestRepo(t)
 	base := stepGitTestCommit(t, dir, map[string]string{pinTestEpicPath: pinTestOutline})
 
-	got, err := pinWorkflow(t.Context(), dir, base, "")
+	got, err := pinWorkflow(t.Context(), hostexec.NewLocal(), dir, base, "")
 	if err != nil {
 		t.Fatalf("pinWorkflow: %v", err)
 	}
@@ -157,7 +158,7 @@ func TestPinWorkflowPinsTheBaseNotLaterEdits(t *testing.T) {
 	stepGitTestWrite(t, dir, pinTestEpicPath, pinTestLoop)
 	stepGitTestWrite(t, dir, ".orrery/workflows/solo.yaml", pinTestOutline)
 
-	atFirst, err := pinWorkflow(t.Context(), dir, first, "")
+	atFirst, err := pinWorkflow(t.Context(), hostexec.NewLocal(), dir, first, "")
 	if err != nil {
 		t.Fatalf("pinWorkflow at first commit: %v", err)
 	}
@@ -165,7 +166,7 @@ func TestPinWorkflowPinsTheBaseNotLaterEdits(t *testing.T) {
 		t.Fatalf("pin at the first commit has text %q, want the text committed there %q", atFirst.Text, pinTestOutline)
 	}
 
-	atSecond, err := pinWorkflow(t.Context(), dir, second, "")
+	atSecond, err := pinWorkflow(t.Context(), hostexec.NewLocal(), dir, second, "")
 	if err != nil {
 		t.Fatalf("pinWorkflow at second commit: %v", err)
 	}
@@ -173,7 +174,7 @@ func TestPinWorkflowPinsTheBaseNotLaterEdits(t *testing.T) {
 		t.Fatalf("pin at the second commit has text %q, want %q", atSecond.Text, pinTestDrafted)
 	}
 
-	_, err = pinWorkflow(t.Context(), dir, second, "solo")
+	_, err = pinWorkflow(t.Context(), hostexec.NewLocal(), dir, second, "solo")
 	want := fmt.Sprintf(
 		`at base %s: workflow "solo": no file .orrery/workflows/solo.yaml and no built-in "solo"`, second,
 	)
@@ -188,7 +189,7 @@ func TestPinWorkflowRefusesBrokenFileAtBaseNamingFileNodeKey(t *testing.T) {
 	broken := "name: epic\nnodes:\n  - id: plan\n    kind: plan\n    body:\n      - id: build\n        kind: buildd\n"
 	base := stepGitTestCommit(t, dir, map[string]string{pinTestEpicPath: broken})
 
-	_, err := pinWorkflow(t.Context(), dir, base, "")
+	_, err := pinWorkflow(t.Context(), hostexec.NewLocal(), dir, base, "")
 	want := fmt.Sprintf(
 		`at base %s: .orrery/workflows/epic.yaml:7: node build: key kind: unknown kind "buildd"`, base,
 	)
@@ -206,7 +207,7 @@ func TestPinWorkflowExpandsIncludeOfCommittedFile(t *testing.T) {
 		".orrery/workflows/shared.yaml": pinTestShared,
 	})
 
-	got, err := pinWorkflow(t.Context(), dir, base, "")
+	got, err := pinWorkflow(t.Context(), hostexec.NewLocal(), dir, base, "")
 	if err != nil {
 		t.Fatalf("pinWorkflow: %v", err)
 	}
@@ -231,7 +232,7 @@ func TestPinWorkflowRefusesSymlinkAtPath(t *testing.T) {
 	stepGitTestRun(t, dir, "commit", "-q", "-m", "symlink")
 	base := stepGitTestRun(t, dir, "rev-parse", "HEAD")
 
-	_, err := pinWorkflow(t.Context(), dir, base, "")
+	_, err := pinWorkflow(t.Context(), hostexec.NewLocal(), dir, base, "")
 	want := fmt.Sprintf("at base %s: %s: not a regular file (mode 120000)", base, pinTestEpicPath)
 	if err == nil || err.Error() != want {
 		t.Fatalf("pinWorkflow: err = %v, want %q", err, want)
@@ -243,7 +244,7 @@ func TestPinWorkflowRefusesDirectoryAtPath(t *testing.T) {
 	dir := stepGitTestRepo(t)
 	base := stepGitTestCommit(t, dir, map[string]string{pinTestEpicPath + "/inner.yaml": pinTestOutline})
 
-	_, err := pinWorkflow(t.Context(), dir, base, "")
+	_, err := pinWorkflow(t.Context(), hostexec.NewLocal(), dir, base, "")
 	want := fmt.Sprintf("at base %s: %s: not a regular file (mode 040000)", base, pinTestEpicPath)
 	if err == nil || err.Error() != want {
 		t.Fatalf("pinWorkflow: err = %v, want %q", err, want)
@@ -254,7 +255,7 @@ func TestPinWorkflowReturnsGitFailureForBadBase(t *testing.T) {
 	t.Parallel()
 	dir := stepGitTestRepo(t)
 
-	_, err := pinWorkflow(t.Context(), dir, "no-such-commit", "")
+	_, err := pinWorkflow(t.Context(), hostexec.NewLocal(), dir, "no-such-commit", "")
 	if err == nil {
 		t.Fatal("pinWorkflow with a base that does not resolve returned no error")
 	}
@@ -268,7 +269,7 @@ func TestPinWorkflowNodeRowsArePreorderWithParents(t *testing.T) {
 	dir := stepGitTestRepo(t)
 	base := stepGitTestCommit(t, dir, map[string]string{pinTestEpicPath: pinTestLoop})
 
-	got, err := pinWorkflow(t.Context(), dir, base, "")
+	got, err := pinWorkflow(t.Context(), hostexec.NewLocal(), dir, base, "")
 	if err != nil {
 		t.Fatalf("pinWorkflow: %v", err)
 	}

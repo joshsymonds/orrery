@@ -45,7 +45,7 @@ func recordedPromptStates(t *testing.T, path, id, writeID string) []string {
 // states have started after queued.
 func TestTurnBehindSayIsQueuedAtOnceAndStartedAtTheToolResult(t *testing.T) {
 	t.Parallel()
-	m, path := newTestManager(t, 1, fakeClaudePath(t))
+	m, path := newTestManager(t, fakeClaudePath(t))
 	dir := t.TempDir()
 	id, err := m.Start(t.Context(), StartRequest{Dir: dir, Prompt: "FOLD"})
 	if err != nil {

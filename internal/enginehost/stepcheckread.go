@@ -1,6 +1,7 @@
 package enginehost
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -9,6 +10,7 @@ import (
 	"strings"
 
 	v1 "github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1"
+	"github.com/joshsymonds/orrery/internal/hostexec"
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
@@ -41,9 +43,25 @@ func (s *Steps) KeptGateLogs() (string, error) {
 	return filepath.Join(stateDir, gateLogsName), nil
 }
 
+// hostNamer is the optional interface a StepCommands implements to resolve a host name to its Host, as Steps does.
+type hostNamer interface {
+	hostNamed(name string) (hostexec.Host, error)
+}
+
+// rowHostOf returns the Host row runs on. steps resolves the name when it is a hostNamer; any other StepCommands resolves
+// every name to the local host, as a Steps built without Hosts does.
+func rowHostOf(steps StepCommands, row store.StepRow) (hostexec.Host, error) {
+	if named, ok := steps.(hostNamer); ok {
+		return named.hostNamed(row.Host)
+	}
+	return hostexec.NewLocal(), nil
+}
+
 // readStepCheck returns the check of row that req names, with the slice of its output that req bounds. logs names the kept
-// gate logs, or is nil when the steps keep none to read.
+// gate logs, or is nil when the steps keep none to read. host is the Host the kept log is read on, the host row runs on.
 func readStepCheck(
+	ctx context.Context,
+	host hostexec.Host,
 	row store.StepRow,
 	req *v1.ReadStepCheckRequest,
 	logs keptGateLogs,
@@ -52,7 +70,7 @@ func readStepCheck(
 	if err != nil {
 		return nil, err
 	}
-	text, kept, err := checkOutput(check, logs)
+	text, kept, err := checkOutput(ctx, host, check, logs)
 	if err != nil {
 		return nil, err
 	}
@@ -170,13 +188,15 @@ func distinct[T comparable](values []T) []T {
 }
 
 // checkOutput returns the output a check's slice is taken from, and whether that output is the check's kept gate log. The
-// kept log is read when the check names one and the steps keep logs and the file is there. Otherwise the output is the log
-// the check's stored stdout and stderr make.
-func checkOutput(check store.StepCheck, logs keptGateLogs) (string, bool, error) {
+// kept log is read on host when the check names one and the steps keep logs and the file is there. Otherwise the output is
+// the log the check's stored stdout and stderr make.
+func checkOutput(
+	ctx context.Context, host hostexec.Host, check store.StepCheck, logs keptGateLogs,
+) (string, bool, error) {
 	if check.Log == "" || logs == nil {
 		return storedTailsLog(check), false, nil
 	}
-	text, err := readKeptLog(check.Log, logs)
+	text, err := readKeptLog(ctx, host, check.Log, logs)
 	if errors.Is(err, os.ErrNotExist) {
 		return storedTailsLog(check), false, nil
 	}
@@ -186,10 +206,10 @@ func checkOutput(check store.StepCheck, logs keptGateLogs) (string, bool, error)
 	return text, true, nil
 }
 
-// readKeptLog returns the kept gate log at path. The log is read through an os.Root of the logs directory logs names, at
-// the path relative to that directory, so a stored path cannot read outside the directory. A missing directory or file
-// reports an error that matches os.ErrNotExist.
-func readKeptLog(path string, logs keptGateLogs) (string, error) {
+// readKeptLog returns the kept gate log at path, read on host. The log is read through the host's ReadRooted of the logs
+// directory logs names, at the path relative to that directory, so a stored path cannot read outside the directory. A
+// missing directory or file reports an error that matches os.ErrNotExist.
+func readKeptLog(ctx context.Context, host hostexec.Host, path string, logs keptGateLogs) (string, error) {
 	dir, err := logs.KeptGateLogs()
 	if err != nil {
 		return "", fmt.Errorf("find kept gate logs: %w", err)
@@ -198,14 +218,7 @@ func readKeptLog(path string, logs keptGateLogs) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("kept gate log %s is not under %s: %w", path, dir, err)
 	}
-	root, err := os.OpenRoot(dir)
-	if err != nil {
-		return "", fmt.Errorf("open kept gate logs: %w", err)
-	}
-	data, err := root.ReadFile(name)
-	if closeErr := root.Close(); closeErr != nil {
-		err = errors.Join(err, fmt.Errorf("close kept gate logs: %w", closeErr))
-	}
+	data, err := host.ReadRooted(ctx, dir, name)
 	if err != nil {
 		return "", fmt.Errorf("read kept gate log: %w", err)
 	}

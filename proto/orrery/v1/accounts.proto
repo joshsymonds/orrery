@@ -1,0 +1,238 @@
+syntax = "proto3";
+
+package orrery.v1;
+
+// Accounts keeps the LLM accounts orrery stores. An account's token is given once, when it is added, and is never
+// returned: every answer carries the account without it.
+service Accounts {
+  // Add stores a new account from the name, provider, plan and token given, and returns it.
+  rpc Add(AccountsAddRequest) returns (AccountsAddResponse);
+
+  // List returns every stored account, created ascending, then by id.
+  rpc List(AccountsListRequest) returns (AccountsListResponse);
+
+  // Rename gives the account named by id a new name and returns it.
+  rpc Rename(AccountsRenameRequest) returns (AccountsRenameResponse);
+
+  // Remove deletes the account named by id.
+  rpc Remove(AccountsRemoveRequest) returns (AccountsRemoveResponse);
+}
+
+// Routes keeps the route registry the gateway serves: the seats a request may go through and the contexts that choose
+// among them.
+service Routes {
+  // Get returns the route registry as it stands.
+  rpc Get(RoutesGetRequest) returns (RoutesGetResponse);
+
+  // Replace stores the route registry given in place of the one stored and returns it as stored.
+  rpc Replace(RoutesReplaceRequest) returns (RoutesReplaceResponse);
+
+  // SetContextAccount sets the account a context's forward seats send, and returns the route registry as it stands.
+  rpc SetContextAccount(RoutesSetContextAccountRequest) returns (RoutesSetContextAccountResponse);
+}
+
+// Account is one stored LLM account. Its token is never part of an account.
+message Account {
+  // The account's id, which Rename and Remove name it by.
+  string id = 1;
+
+  // The account's name, as its owner gave it.
+  string name = 2;
+
+  // The provider the account is with.
+  string provider = 3;
+
+  // The plan the account is on; empty when none was given.
+  string plan = 4;
+
+  // The fingerprint of the account's token, which tells the token apart without showing it.
+  string fingerprint = 5;
+
+  // When the account was added, in unix seconds.
+  int64 created = 6;
+}
+
+// AccountsAddRequest names the account to add and carries its token.
+message AccountsAddRequest {
+  // The account's name.
+  string name = 1;
+
+  // The provider the account is with.
+  string provider = 2;
+
+  // The plan the account is on; may be empty.
+  string plan = 3;
+
+  // The account's token, stored in plain text and never returned.
+  string token = 4;
+}
+
+// AccountsAddResponse carries the account as it was stored.
+message AccountsAddResponse {
+  // The account.
+  Account account = 1;
+}
+
+// AccountsListRequest asks for every stored account.
+message AccountsListRequest {}
+
+// AccountsListResponse carries every stored account.
+message AccountsListResponse {
+  // The accounts, created ascending, then by id.
+  repeated Account accounts = 1;
+}
+
+// AccountsRenameRequest names the account to rename and its new name.
+message AccountsRenameRequest {
+  // The account's id, as List gave it.
+  string id = 1;
+
+  // The account's new name.
+  string name = 2;
+}
+
+// AccountsRenameResponse carries the account as it stands after the rename.
+message AccountsRenameResponse {
+  // The account.
+  Account account = 1;
+}
+
+// AccountsRemoveRequest names the account to remove.
+message AccountsRemoveRequest {
+  // The account's id, as List gave it.
+  string id = 1;
+}
+
+// AccountsRemoveResponse acknowledges a removal. It has no fields.
+message AccountsRemoveResponse {}
+
+// RouteSeat is one seat a request may be sent through: the upstream it reaches, how it authenticates there, and the
+// options that shape its requests.
+message RouteSeat {
+  // The seat's id, which the route contexts name it by.
+  string id = 1;
+
+  // How the seat authenticates upstream: forward sends the context's account token, inject sends the API key read from
+  // api_key_env_file, and sigv4 signs requests with the AWS profile and region.
+  string auth_mode = 2;
+
+  // The URL the seat's requests go to; empty for the default upstream.
+  string upstream = 3;
+
+  // The model the seat sends requests to.
+  string model = 4;
+
+  // The file the seat reads its API key from, for inject.
+  string api_key_env_file = 5;
+
+  // The AWS profile the seat signs with, for sigv4.
+  string aws_profile = 6;
+
+  // The AWS region the seat signs with, for sigv4.
+  string aws_region = 7;
+
+  // The file the seat reads its model name mapping from; empty when none is used.
+  string model_map_env_file = 8;
+
+  // How the seat's usage is billed, as the gateway names the billing.
+  string billing = 9;
+
+  // The speed the seat asks the upstream for.
+  string speed = 10;
+
+  // The prompt cache lifetime the seat asks the upstream for.
+  string cache_ttl = 11;
+
+  // Whether the seat skips checking the upstream's TLS certificate.
+  bool insecure = 12;
+
+  // Whether the seat removes cache control markers from the requests it sends.
+  bool strip_cache_control = 13;
+
+  // Whether the seat asks for strict structured output.
+  bool strict_structured_output = 14;
+
+  // The most input tokens a request sent through the seat may carry; 0 for no limit.
+  int64 max_input_tokens = 15;
+
+  // The beta feature names the seat removes from a request's beta headers.
+  repeated string strip_betas = 16;
+}
+
+// RouteSubagents chooses the seat a context's subagents are sent through.
+message RouteSubagents {
+  // The seat id a subagent goes through when no entry below names another.
+  string default_seat = 1;
+
+  // The seat id by agent type name.
+  map<string, string> agent_types = 2;
+
+  // The seat id by model name, for subagents.
+  map<string, string> models = 3;
+}
+
+// RouteContext chooses the seats a request goes through, by the model it names and by the account it sends.
+message RouteContext {
+  // The context's id.
+  string id = 1;
+
+  // The seat id a request goes through when no entry below names another.
+  string default_seat = 2;
+
+  // The seat id by model name.
+  map<string, string> models = 3;
+
+  // How the context's subagents are sent, or unset when they follow the context's own choices.
+  RouteSubagents subagents = 4;
+
+  // The id of the account whose token the context's forward seats send; empty means the caller's own login.
+  string account = 5;
+}
+
+// RouteRegistry is the whole route registry: the seats and the contexts that choose among them.
+message RouteRegistry {
+  // The id of the context a request uses when it names none.
+  string default_context = 1;
+
+  // The seats, in the order they were given.
+  repeated RouteSeat seats = 2;
+
+  // The contexts, in the order they were given.
+  repeated RouteContext contexts = 3;
+}
+
+// RoutesGetRequest asks for the route registry.
+message RoutesGetRequest {}
+
+// RoutesGetResponse carries the route registry as it stands.
+message RoutesGetResponse {
+  // The route registry.
+  RouteRegistry registry = 1;
+}
+
+// RoutesReplaceRequest carries the route registry to store in place of the one stored.
+message RoutesReplaceRequest {
+  // The route registry to store.
+  RouteRegistry registry = 1;
+}
+
+// RoutesReplaceResponse carries the route registry as it was stored.
+message RoutesReplaceResponse {
+  // The route registry.
+  RouteRegistry registry = 1;
+}
+
+// RoutesSetContextAccountRequest names the context and the account its forward seats send.
+message RoutesSetContextAccountRequest {
+  // The context's id.
+  string context = 1;
+
+  // The id of the account whose token the context's forward seats send; empty means the caller's own login.
+  string account = 2;
+}
+
+// RoutesSetContextAccountResponse carries the route registry as it stands after the account was set.
+message RoutesSetContextAccountResponse {
+  // The route registry.
+  RouteRegistry registry = 1;
+}

@@ -31,6 +31,7 @@ const (
 	EventEngineTurnEnded        = "engine_turn_ended"
 	EventEngineInterrupt        = "engine_interrupt"
 	EventEngineTask             = "engine_task"
+	EventEngineDesign           = "engine_design"
 )
 
 // EngineTextCap is the most bytes of block text, tool input and tool content the store keeps.
@@ -47,21 +48,27 @@ type EngineOp interface {
 }
 
 // EngineAdd inserts a session row of Kind and appends engine_added. Kind is KindEngine or KindStep; empty is KindEngine.
+// Host is the orrery name of the host the session runs on, stored in the row's host column; empty stores "".
 type EngineAdd struct {
 	ID    string
 	Dir   string
 	State string
 	Kind  string
+	Host  string
 }
 
-// EngineChanges holds the fields an EngineSet may change. A nil field is left as it is, except Reason: a State with a nil
-// Reason clears a reason the row has, since the reason belongs to the state change that set it.
+// EngineChanges holds the fields an EngineSet may change. A nil field is left as it is, except Reason and Held: a State
+// with a nil Reason clears a reason the row has, since the reason belongs to the state change that set it, and a State
+// clears the row's held flag unless Held is true. Held is read only beside a State: it marks the working state that a
+// turn's end writes while a background task that runs a model is listed, so the session is working with no turn
+// running. Held is not a field of the engine_changed event.
 type EngineChanges struct {
 	State         *string
 	Seen          *string
 	Question      *string
 	ClaudeSession *string
 	Reason        *string
+	Held          *bool
 }
 
 // EngineSet updates the set fields of an engine session and appends one engine_changed naming them.
@@ -125,7 +132,7 @@ type EnginePromptFailed struct {
 // started reads as not sent and can be sent again under the same prompt id. Prompts of other senders, and prompts
 // with no sender, count whatever their state. It reads the writer's database, as EngineSession does.
 func (s *Store) EnginePromptSent(ctx context.Context, sessionID, promptID string) (bool, error) {
-	count, err := sqlcgen.New(s.db).CountEnginePrompts(ctx, sqlcgen.CountEnginePromptsParams{
+	count, err := sqlcgen.New(s.read).CountEnginePrompts(ctx, sqlcgen.CountEnginePromptsParams{
 		SessionID: sessionID, PromptID: promptID,
 	})
 	if err != nil {
@@ -137,7 +144,7 @@ func (s *Store) EnginePromptSent(ctx context.Context, sessionID, promptID string
 // EnginePromptFailure reports the reason a prompt failed to send, and whether a failure marker exists for it. It
 // reads the writer's database, as EnginePromptSent does.
 func (s *Store) EnginePromptFailure(ctx context.Context, sessionID, promptID string) (string, bool, error) {
-	reason, err := sqlcgen.New(s.db).GetEnginePromptFailure(ctx, sqlcgen.GetEnginePromptFailureParams{
+	reason, err := sqlcgen.New(s.read).GetEnginePromptFailure(ctx, sqlcgen.GetEnginePromptFailureParams{
 		SessionID: sessionID, PromptID: promptID,
 	})
 	if errors.Is(err, sql.ErrNoRows) {
@@ -349,7 +356,7 @@ func (op EngineAdd) applyEngine(ctx context.Context, queries *sqlcgen.Queries, n
 		kind = KindEngine
 	}
 	if err := queries.InsertEngineSession(ctx, sqlcgen.InsertEngineSessionParams{
-		ID: op.ID, Kind: kind, Dir: op.Dir, State: op.State, Changed: engineStamp(now),
+		ID: op.ID, Kind: kind, Dir: op.Dir, State: op.State, Changed: engineStamp(now), Host: op.Host,
 	}); err != nil {
 		return fmt.Errorf("insert engine session %s: %w", op.ID, err)
 	}
@@ -367,7 +374,7 @@ func (op EngineSet) applyEngine(ctx context.Context, queries *sqlcgen.Queries, n
 	}
 	params := sqlcgen.UpdateEngineSessionParams{
 		State: row.State, Changed: row.Changed, Seen: row.Seen, Question: row.Question,
-		ClaudeSession: row.ClaudeSession, Reason: row.Reason, ID: op.ID,
+		ClaudeSession: row.ClaudeSession, Reason: row.Reason, Held: row.Held, ID: op.ID,
 	}
 	fields := map[string]string{}
 	set := func(name string, value *string, target *string) {
@@ -379,6 +386,7 @@ func (op EngineSet) applyEngine(ctx context.Context, queries *sqlcgen.Queries, n
 	if op.Changes.State != nil {
 		params.Changed = engineStamp(now)
 		fields["changed"] = params.Changed
+		params.Held = op.Changes.Held != nil && *op.Changes.Held
 	}
 	set("state", op.Changes.State, &params.State)
 	set("seen", op.Changes.Seen, &params.Seen)
@@ -454,6 +462,13 @@ func (op EnginePrompt) applyEngine(ctx context.Context, queries *sqlcgen.Queries
 	}); err != nil {
 		return fmt.Errorf("append %s for session %s: %w", EventEnginePrompt, op.ID, err)
 	}
+	// first_prompt_text is set only while it is empty, so a later prompt leaves it, and so does the prune of the event
+	// this prompt appended. An empty first prompt leaves it empty, and the next prompt fills it.
+	if err = queries.SetSessionFirstPrompt(ctx, sqlcgen.SetSessionFirstPromptParams{
+		Text: op.Text, ID: op.ID,
+	}); err != nil {
+		return fmt.Errorf("set first prompt of session %s: %w", op.ID, err)
+	}
 	return nil
 }
 
@@ -520,18 +535,42 @@ func (op EngineBlock) applyEngine(ctx context.Context, queries *sqlcgen.Queries,
 	text, cutText := capEngineText(op.Text)
 	input, cutInput := capEngineText(op.Input)
 	content, cutContent := capEngineText(op.Content)
-	return appendEnginePayload(ctx, queries, op.ID, EventEngineBlock, engineBlockPayload{
+	if err := appendEnginePayload(ctx, queries, op.ID, EventEngineBlock, engineBlockPayload{
 		Kind: op.Kind, Role: op.Role, MessageID: op.MessageID, ParentToolUseID: op.ParentToolUseID,
 		Text: text, ToolUseID: op.ToolUseID, Name: op.Name, Input: input, Content: content,
 		IsError: op.IsError, Truncated: cutText || cutInput || cutContent, Added: op.Added, Removed: op.Removed,
-	}, now)
+	}, now); err != nil {
+		return err
+	}
+	if op.Kind != "text" || op.Role != "assistant" || op.ParentToolUseID != "" {
+		return nil
+	}
+	// latest_reply is the text of the newest main-conversation reply block. A later such block replaces it, which is
+	// the listing's ORDER BY at DESC, seq DESC whenever at does not move backwards: blocks are written in seq order.
+	if err := queries.SetSessionLatestReply(ctx, sqlcgen.SetSessionLatestReplyParams{
+		LatestReply: text, At: now.Unix(), ID: op.ID,
+	}); err != nil {
+		return fmt.Errorf("set latest reply of session %s: %w", op.ID, err)
+	}
+	return nil
 }
 
 func (op EngineRequest) applyEngine(ctx context.Context, queries *sqlcgen.Queries, now time.Time) error {
-	return appendEnginePayload(ctx, queries, op.ID, EventEngineRequest, engineRequestPayload{
+	if err := appendEnginePayload(ctx, queries, op.ID, EventEngineRequest, engineRequestPayload{
 		Kind: op.Kind, RequestID: op.RequestID, ToolUseID: op.ToolUseID, ToolName: op.ToolName,
 		Subtype: op.Subtype, Input: op.Input, Refused: op.Refused,
-	}, now)
+	}, now); err != nil {
+		return err
+	}
+	if op.Refused {
+		return nil
+	}
+	if err := queries.SetSessionLatestRequest(ctx, sqlcgen.SetSessionLatestRequestParams{
+		RequestID: op.RequestID, At: now.Unix(), ID: op.ID,
+	}); err != nil {
+		return fmt.Errorf("set latest request of session %s: %w", op.ID, err)
+	}
+	return nil
 }
 
 func (op EngineRequestCancelled) applyEngine(ctx context.Context, queries *sqlcgen.Queries, now time.Time) error {

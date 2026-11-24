@@ -124,8 +124,9 @@ subcommands:
   epic pause ID                                 pause an epic, so the planner starts no turn for it
   epic resume ID                                clear an epic's pause
   epic stop ID                                  pause an epic and stop the step of its running turn; an epic
-                                                holding its repository's release slot frees the slot and stops
-                                                its open release step instead, and is not paused
+                                                with no running turn, whose release is releasing or stopped,
+                                                records the owner's stop of the release, so no further step
+                                                starts, and is not paused
   epic steer ID                                 move an epic's steering to this conversation, which takes it over
   epic kick ID TEXT                             record TEXT as your decision on an idle epic and wake its planner
                                                 with it at the epic's next plan run; refused for a paused, parked
@@ -158,10 +159,6 @@ subcommands:
   hold [--off] MEMBER                           place an owner hold on MEMBER through orreryd, or free it with --off
   step resume ID                                resume a step a usage limit holds, through orreryd
   step status ID                                print a step as one line of JSON, through orreryd
-  release-slot hold REPO --holder LABEL --limit DURATION [--wait]
-                                                hold REPO's slot for LABEL up to DURATION, at most 2h; --wait waits
-  release-slot give REPO --holder LABEL         give back LABEL's hold on REPO's release slot
-  release-slot show REPO                        print who holds REPO's release slot, or that it is free
   evidence run EPIC ITEM REVISION PHASE         run an item's evidence at a revision for one phase, red or green
   evidence list EPIC                            list an epic's evidence runs and the artifacts each kept
   evidence get RUN [NAME]                       write an artifact's bytes to stdout, or the run's log without NAME
@@ -299,7 +296,7 @@ func dispatch(ctx context.Context, opts globals, rest []string, stdin *os.File, 
 		return contractOrCron(ctx, opts, name, args, stdout, getenv)
 	case "run", "gate", "evidence":
 		return orreryCommand(ctx, opts, name, args, stdin, stdout, stderr, getenv)
-	case "hold", "step", "release-slot":
+	case "hold", "step":
 		return runOwnerAction(ctx, opts, name, args, stdout, stderr, getenv)
 	case "holder":
 		return runHolder(ctx, args, stderr, getenv)
@@ -332,14 +329,10 @@ func contractOrCron(ctx context.Context, opts globals, name string, args []strin
 	return runContract(ctx, opts, args, stdout, getenv)
 }
 
-// runOwnerAction runs `orrery hold`, `orrery step` or `orrery release-slot`, the owner's commands that orreryd answers
-// over the session socket. hold and step retry a call orreryd answers Unavailable, and release-slot makes each call
-// once. Only step and release-slot write to stdout.
+// runOwnerAction runs `orrery hold` or `orrery step`, the owner's commands that orreryd answers over the session socket.
+// Both retry a call orreryd answers Unavailable. Only step writes to stdout.
 func runOwnerAction(ctx context.Context, opts globals, name string, args []string, stdout, stderr io.Writer,
 	getenv func(string) string) error {
-	if name == "release-slot" {
-		return runReleaseSlot(ctx, opts, args, stdout, stderr, getenv)
-	}
 	if name == "step" {
 		return runStep(ctx, opts, args, stdout, stderr, getenv)
 	}
@@ -513,8 +506,8 @@ func (l *listFlag) Set(value string) error {
 	return nil
 }
 
-// openServeStores returns the push store that registration writes and the reader of orreryd's store file that
-// List reads. Both resolve their paths from getenv.
+// openServeStores returns the push store that registration writes and the pooled reader of orreryd's store file that
+// List reads. Both resolve their paths from getenv. The caller closes the reader.
 func openServeStores(getenv func(string) string, pushHosts []string) (*push.Store, *store.Reader, error) {
 	storePath, err := push.DefaultStorePath(getenv)
 	if err != nil {
@@ -528,12 +521,12 @@ func openServeStores(getenv func(string) string, pushHosts []string) (*push.Stor
 	if err != nil {
 		return nil, nil, fmt.Errorf("store: %w", err)
 	}
-	return pushStore, store.NewReader(dbPath), nil
+	return pushStore, store.NewPooledReader(dbPath), nil
 }
 
-// runMCP runs `orrery mcp`. It serves the step, epic, contract, evidence and cron tools over MCP on stdin and stdout
-// until stdin closes. The step, epic, contract, evidence and cron services are the ones on the session socket beside
-// the daemon socket, so the command opens no listener and no store.
+// runMCP runs `orrery mcp`. It serves the step, epic, contract, evidence, cron, design and stage tools over MCP on
+// stdin and stdout until stdin closes. The step, epic, contract, evidence, cron, design and stage services are the
+// ones on the session socket beside the daemon socket, so the command opens no listener and no store.
 func runMCP(ctx context.Context, opts globals, args []string, stdin io.Reader, stdout io.Writer,
 	getenv func(string) string) error {
 	if len(args) > 0 {
@@ -553,7 +546,12 @@ func runMCP(ctx context.Context, opts globals, args []string, stdin io.Reader, s
 	evidence := enginev1connect.NewEvidenceClient(cli.SessionHTTPClient(sessionSocket), cli.SessionBaseURL)
 	crons := enginev1connect.NewCronsClient(cli.SessionHTTPClient(sessionSocket), cli.SessionBaseURL,
 		connect.WithInterceptors(stepmcp.CallerInterceptor(getenv)))
-	server, err := stepmcp.NewServer(steps, epics, contracts, evidence, stepmcp.WithCrons(crons))
+	designs := enginev1connect.NewDesignsClient(cli.SessionHTTPClient(sessionSocket), cli.SessionBaseURL,
+		connect.WithInterceptors(stepmcp.CallerInterceptor(getenv)))
+	stage := enginev1connect.NewStageClient(cli.SessionHTTPClient(sessionSocket), cli.SessionBaseURL,
+		connect.WithInterceptors(stepmcp.CallerInterceptor(getenv)))
+	server, err := stepmcp.NewServer(steps, epics, contracts, evidence,
+		stepmcp.WithCrons(crons), stepmcp.WithDesigns(designs), stepmcp.WithStage(stage))
 	if err != nil {
 		return fmt.Errorf("mcp: %w", err)
 	}
@@ -593,7 +591,8 @@ func runContract(ctx context.Context, opts globals, args []string, stdout io.Wri
 // runServe runs `orrery serve`. It serves the HTTP API for the tmux server named by opts on the loopback address
 // --listen until SIGINT or SIGTERM, then shuts down and returns nil. With --metrics-listen it also serves /metrics on
 // that loopback address.
-func runServe(ctx context.Context, opts globals, args []string, getenv func(string) string, stderr io.Writer) error {
+func runServe(ctx context.Context, opts globals, args []string, getenv func(string) string,
+	stderr io.Writer) (err error) {
 	flags := flag.NewFlagSet("orrery serve", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	listen := flags.String("listen", "", "loopback address to serve on")
@@ -607,7 +606,7 @@ func runServe(ctx context.Context, opts globals, args []string, getenv func(stri
 		if !filepath.IsAbs(value) {
 			return errors.New("host status command must be an absolute path")
 		}
-		hostStatus = hoststatus.New(value, time.Now)
+		hostStatus = hoststatus.New(value, time.Now, hoststatus.CommandLimit)
 		return nil
 	})
 	if err := flags.Parse(args); err != nil {
@@ -633,21 +632,21 @@ func runServe(ctx context.Context, opts globals, args []string, getenv func(stri
 	if err != nil {
 		return err
 	}
+	// The reader holds connections to the store until it is closed, so it closes once serve has stopped. The close runs
+	// on every return below, so a serve that fails before it listens closes it too, and its error joins the result.
+	defer func() { err = errors.Join(err, sessions.Close()) }()
 	cfg := serveSessionConfig(opts, getenv)
-	// Without a HOME the record root stays empty: os.DirFS refuses an empty root, so Epics fails its reads rather than
-	// reading the working directory's .gambit.
-	var records string
 	home := getenv("HOME")
-	if home != "" {
-		records = filepath.Join(home, ".gambit")
-	}
 	metrics, handlerOptions, err := serveMetrics(*metricsListen)
 	if err != nil {
 		return err
 	}
 	shutdown := make(chan struct{})
 	cfg.HandlerOptions, cfg.Logins, cfg.Tmux, cfg.Push, cfg.HostStatus = handlerOptions, logins, tmux, pushStore, hostStatus
-	cfg.Sessions, cfg.Shutdown, cfg.Records, cfg.Home = sessions, shutdown, records, home
+	cfg.Sessions, cfg.Shutdown, cfg.Home = sessions, shutdown, home
+	if err := setServeHosts(&cfg, getenv); err != nil {
+		return err
+	}
 	cfg.Picker = servePickerConfig(tmux, getenv)
 	cfg.ReportSeen = seenReporter(opts.daemonSocket, getenv)
 	cfg.ReportRead = readReporter(opts.daemonSocket, getenv)
@@ -664,9 +663,9 @@ func runServe(ctx context.Context, opts globals, args []string, getenv func(stri
 
 // serveSessionConfig returns a server.Config holding only the clients of orreryd's services on the session socket
 // beside the daemon socket opts names: Engine, Steps, Pools, Notices, Changes, PaneSends, the Epics client as both
-// EpicStore and EpicCommands, Evidence and ContractCommands. None carries a caller header, so a command serve forwards
-// is the owner's. A daemon socket that does not resolve leaves them all nil, and each service they back answers
-// unavailable.
+// EpicStore and EpicCommands, Evidence, ContractCommands, StageCommands and AccountCommands. None carries a caller
+// header, so a command serve forwards is the owner's. A daemon socket that does not resolve leaves them all nil, and
+// each service they back answers unavailable.
 func serveSessionConfig(opts globals, getenv func(string) string) server.Config {
 	daemonSocket, err := protocol.SocketPath(opts.daemonSocket, getenv)
 	if err != nil {
@@ -685,6 +684,8 @@ func serveSessionConfig(opts globals, getenv func(string) string) server.Config 
 		EpicCommands:     epics,
 		Evidence:         enginev1connect.NewEvidenceClient(sessionClient, cli.SessionBaseURL),
 		ContractCommands: enginev1connect.NewContractsClient(sessionClient, cli.SessionBaseURL),
+		StageCommands:    enginev1connect.NewStageClient(sessionClient, cli.SessionBaseURL),
+		AccountCommands:  enginev1connect.NewAccountsClient(sessionClient, cli.SessionBaseURL),
 	}
 }
 

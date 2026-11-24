@@ -29,6 +29,7 @@ import {
   type SessionsWatchConversationResponse,
   type WatchConversationResponse,
 } from "../gen/orrery/v1/orrery_pb";
+import { accountsServe } from "./accounts";
 import { evidenceArtifactKey } from "./epics";
 import { type Slices, shippedSlices } from "./slices";
 
@@ -206,7 +207,11 @@ export function createFixtureTransport(slices: Slices = shippedSlices): FixtureT
     await held(context.signal);
   }
 
+  // The accounts fake starts from the slices' accounts and registry, and serves Accounts and Routes from its own state.
+  const accounts = accountsServe({ accounts: slices.accounts, registry: slices.registry });
+
   const transport = createRouterTransport((router) => {
+    accounts.register(router);
     router.service(Panes, {
       list: () => panes,
       screen: refuse,

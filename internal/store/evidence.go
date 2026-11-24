@@ -195,7 +195,7 @@ func (s *Store) RecordEvidenceVerdict(ctx context.Context, id string, verdict Ev
 // EvidenceRun returns the stored run with id, its artifacts in order. It returns an error matching ErrNoEvidenceRun
 // when no run has that id.
 func (s *Store) EvidenceRun(ctx context.Context, id string) (EvidenceRun, error) {
-	queries := sqlcgen.New(s.db)
+	queries := sqlcgen.New(s.read)
 	stored, err := queries.GetEvidenceRun(ctx, id)
 	if errors.Is(err, sql.ErrNoRows) {
 		return EvidenceRun{}, fmt.Errorf("evidence run %s: %w", id, ErrNoEvidenceRun)
@@ -209,13 +209,13 @@ func (s *Store) EvidenceRun(ctx context.Context, id string) (EvidenceRun, error)
 // EvidenceRuns returns the runs of epic ordered by created, then id, each with its artifacts. It reads the runs in one
 // query and the artifacts of all of them in another, however many runs the epic has.
 func (s *Store) EvidenceRuns(ctx context.Context, epic string) ([]EvidenceRun, error) {
-	return readEvidenceRuns(ctx, sqlcgen.New(s.db), epic)
+	return readEvidenceRuns(ctx, sqlcgen.New(s.read), epic)
 }
 
 // OpenEvidenceRuns returns every run that is capturing or judging, ordered by created, then id, each with its
 // artifacts. It reads the runs in one query and the artifacts of all of them in another.
 func (s *Store) OpenEvidenceRuns(ctx context.Context) ([]EvidenceRun, error) {
-	queries := sqlcgen.New(s.db)
+	queries := sqlcgen.New(s.read)
 	stored, err := queries.ListOpenEvidenceRuns(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("list open evidence runs: %w", err)

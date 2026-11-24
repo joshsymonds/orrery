@@ -88,11 +88,11 @@ func idleChecksRun(m *Manager) int {
 	return m.idleChecks
 }
 
-// newIdleDeadlineManager returns a manager with a cap of one whose clock and idle timers are the test's. Its idle checks
+// newIdleDeadlineManager returns a manager whose clock and idle timers are the test's. Its idle checks
 // run once runIdleDeadlines starts RunIdle. Its store is at the returned path.
 func newIdleDeadlineManager(t *testing.T) (*Manager, string, *deadlineTimers) {
 	t.Helper()
-	m, path, clock := newIdleManager(t, 1)
+	m, path, clock := newIdleManager(t)
 	timers := &deadlineTimers{clock: clock}
 	m.afterFunc = timers.afterFunc
 	return m, path, timers

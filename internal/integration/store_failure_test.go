@@ -51,7 +51,7 @@ func (f *storeFixture) assertHooksStillReach(t *testing.T, daemon *orreryProcess
 // next start's tidy repairs that pane, and the locked store is what the write-locked tests are about.
 func lockedDrop(stderr string) string {
 	for line := range strings.SplitSeq(stderr, "\n") {
-		if strings.Contains(line, mirrorDroppedLog) && strings.Contains(line, "SQLITE_BUSY") {
+		if strings.Contains(line, mirrorDroppedLog) && strings.Contains(line, "database is locked") {
 			return line
 		}
 	}
@@ -143,13 +143,13 @@ func TestOrrerydServesHooksWithTooNewStore(t *testing.T) {
 	t.Parallel()
 	f := newStoreFixture(t)
 	prepareStore(t, f.dbPath)
-	db, err := sql.Open("sqlite", f.dbPath)
+	db, err := sql.Open("sqlite3", f.dbPath)
 	if err != nil {
 		t.Fatalf("open store to age it: %v", err)
 	}
 	// A store written by a newer binary records a migration this binary does not embed.
 	if _, err = db.ExecContext(t.Context(),
-		`INSERT INTO goose_db_version (version_id, is_applied) VALUES (99, 1)`); err != nil {
+		`INSERT INTO goose_db_version (version_id, is_applied) VALUES (999, 1)`); err != nil {
 		db.Close()
 		t.Fatalf("record newer migration: %v", err)
 	}

@@ -9,6 +9,7 @@ import (
 	"connectrpc.com/connect"
 
 	v1 "github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1"
+	"github.com/joshsymonds/orrery/internal/hostexec"
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
@@ -63,7 +64,15 @@ func (s *epicService) moveTo(ctx context.Context, epic store.EpicRow, session st
 	if err != nil {
 		return err
 	}
-	err = checkInRepository(ctx, epic, session, dir)
+	epicHost, err := resolveHost(s.hosts, epic.Host)
+	if err != nil {
+		return epicStoreError(fmt.Errorf("host of epic %s: %w", epic.ID, err))
+	}
+	controller, err := resolveHost(s.hosts, s.host)
+	if err != nil {
+		return epicStoreError(fmt.Errorf("controller host: %w", err))
+	}
+	err = checkInRepository(ctx, epicHost, controller, epic, session, dir)
 	if err != nil {
 		return err
 	}
@@ -108,14 +117,21 @@ func (s *epicService) moveTargetDir(ctx context.Context, session string) (string
 
 // checkInRepository refuses a move of epic to session whose directory dir is not in the epic's repository. The two must
 // share a git common directory, so a subdirectory of the repository and a linked worktree of it both pass. An empty dir
-// is refused, since git would read the server's own directory for it.
-func checkInRepository(ctx context.Context, epic store.EpicRow, session, dir string) error {
-	common, err := stepGit(ctx, epic.Repository, "rev-parse", "--path-format=absolute", "--git-common-dir")
+// is refused, since git would read the server's own directory for it. The epic's repository is read through epicHost,
+// the epic's own host, and dir through controller, since sessions run on the controller and are not routed by host.
+func checkInRepository(
+	ctx context.Context, epicHost, controller hostexec.Host, epic store.EpicRow, session, dir string,
+) error {
+	common, err := stepGit(
+		ctx, epicHost, epic.Repository, "rev-parse", "--path-format=absolute", "--git-common-dir",
+	)
 	if err != nil {
 		return epicStoreError(fmt.Errorf("resolve repository of epic %s: %w", epic.ID, err))
 	}
 	if dir != "" {
-		target, dirErr := stepGit(ctx, dir, "rev-parse", "--path-format=absolute", "--git-common-dir")
+		target, dirErr := stepGit(
+			ctx, controller, dir, "rev-parse", "--path-format=absolute", "--git-common-dir",
+		)
 		if dirErr == nil && target == common {
 			return nil
 		}
@@ -125,8 +141,7 @@ func checkInRepository(ctx context.Context, epic store.EpicRow, session, dir str
 }
 
 // ContinueEpic starts a steering session in the epic's repository and moves the epic to it as the owner, then answers
-// the stored epic and the session's id. A start that the session cap refuses, or whose session row cannot be read,
-// refuses the continue and moves nothing. A move that fails after the start refuses the continue, and the started
+// the stored epic and the session's id. A start that fails, or whose session row cannot be read, refuses the continue and moves nothing. A move that fails after the start refuses the continue, and the started
 // session is stopped, even when ctx has ended.
 func (s *epicService) ContinueEpic(
 	ctx context.Context,

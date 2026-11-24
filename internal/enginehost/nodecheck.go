@@ -11,6 +11,7 @@ import (
 
 	"github.com/joshsymonds/orrery/internal/gates"
 	"github.com/joshsymonds/orrery/internal/grants"
+	"github.com/joshsymonds/orrery/internal/hostexec"
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
@@ -26,38 +27,40 @@ type NodeCheckStore interface {
 	OpenNodeChecks(ctx context.Context) ([]store.NodeCheck, error)
 	SetNodeCheckGrant(ctx context.Context, id, grant, holder string) error
 	EndNodeCheck(ctx context.Context, id string, end store.NodeCheckEnd, at time.Time) error
+	EpicHost(ctx context.Context, epic string) (string, error)
 }
 
-// NodeChecksConfig configures a NodeChecks. Store records the checks, and Pools, Environ, GateStateDir, GateScope and
-// GateScopeMemory run each check's command as an evidence capture runs its gate. StateDir holds the check worktrees. A nil Now is time.Now, and a
-// nil Logger discards. After returns the channel a failed write of a check's end waits on before it is tried again, and
-// nil is time.After.
+// NodeChecksConfig configures a NodeChecks. Store records the checks, and Pools, Environ, GateStateDir and GateScope
+// run each check's command as an evidence capture runs its gate. StateDir holds the check worktrees. Hosts resolves the
+// host each check's epic is stored on to the Host its git and worktrees run on, and a nil Hosts is hostexec.LocalHosts. A
+// nil Now is time.Now, and a nil Logger discards. After returns the channel a failed write of a check's end waits on
+// before it is tried again, and nil is time.After.
 type NodeChecksConfig struct {
-	Store           NodeCheckStore
-	Pools           PoolCommands
-	Environ         []string
-	StateDir        string
-	GateStateDir    string
-	GateScope       string
-	GateScopeMemory int64
-	Now             func() time.Time
-	Logger          *slog.Logger
-	After           func(time.Duration) <-chan time.Time
+	Store        NodeCheckStore
+	Hosts        hostexec.Hosts
+	Pools        PoolCommands
+	Environ      []string
+	StateDir     string
+	GateStateDir string
+	GateScope    string
+	Now          func() time.Time
+	Logger       *slog.Logger
+	After        func(time.Duration) <-chan time.Time
 }
 
 // NodeChecks runs gate and command checks. Each check is stored once under its id, then driven in the background by a
 // drive that Run starts. cancels holds the cancel of each drive still under way, by check id, and Close cancels them all.
 type NodeChecks struct {
-	store           NodeCheckStore
-	pools           PoolCommands
-	environ         []string
-	worktrees       string
-	gateStateDir    string
-	gateScope       string
-	gateScopeMemory int64
-	now             func() time.Time
-	logger          *slog.Logger
-	after           func(time.Duration) <-chan time.Time
+	store        NodeCheckStore
+	pools        PoolCommands
+	environ      []string
+	worktrees    string
+	gateStateDir string
+	gateScope    string
+	now          func() time.Time
+	logger       *slog.Logger
+	after        func(time.Duration) <-chan time.Time
+	hosts        hostexec.Hosts
 
 	mu      sync.Mutex
 	closed  bool
@@ -81,18 +84,22 @@ func NewNodeChecks(cfg NodeChecksConfig) *NodeChecks {
 	if after == nil {
 		after = time.After
 	}
+	hosts := cfg.Hosts
+	if hosts == nil {
+		hosts = hostexec.LocalHosts()
+	}
 	return &NodeChecks{
-		store:           cfg.Store,
-		pools:           cfg.Pools,
-		environ:         cfg.Environ,
-		worktrees:       filepath.Join(cfg.StateDir, "node-check-worktrees"),
-		gateStateDir:    cfg.GateStateDir,
-		gateScope:       cfg.GateScope,
-		gateScopeMemory: cfg.GateScopeMemory,
-		now:             now,
-		logger:          logger,
-		after:           after,
-		cancels:         map[string]context.CancelCauseFunc{},
+		store:        cfg.Store,
+		pools:        cfg.Pools,
+		environ:      cfg.Environ,
+		worktrees:    filepath.Join(cfg.StateDir, "node-check-worktrees"),
+		gateStateDir: cfg.GateStateDir,
+		gateScope:    cfg.GateScope,
+		now:          now,
+		logger:       logger,
+		after:        after,
+		hosts:        hosts,
+		cancels:      map[string]context.CancelCauseFunc{},
 	}
 }
 
@@ -162,10 +169,16 @@ func (n *NodeChecks) finish(id string) {
 	delete(n.cancels, id)
 }
 
-// drive runs check to its end and records it (see record), even when ctx has ended. A run that detaches records nothing,
-// and neither does one cut short before its gate launched, so a restart runs the check again.
+// drive runs check to its end on the host its epic lives on, and records it (see record), even when ctx has ended. A run
+// that detaches records nothing, and neither does one cut short before its gate launched, so a restart runs the check
+// again. A check whose epic's host cannot be read is left for a restart too.
 func (n *NodeChecks) drive(ctx context.Context, repo string, check store.NodeCheck) {
-	end, err := n.run(ctx, repo, check)
+	host, err := hostOfEpic(ctx, n.store, n.hosts, check.Epic)
+	if err != nil {
+		n.logger.InfoContext(ctx, "node check left for a restart", "check", check.ID, "err", err)
+		return
+	}
+	end, err := n.run(ctx, host, repo, check)
 	if err != nil {
 		n.logger.InfoContext(ctx, "node check left for a restart", "check", check.ID, "err", err)
 		return
@@ -186,17 +199,19 @@ func (n *NodeChecks) record(ctx context.Context, id string, end store.NodeCheckE
 	}
 }
 
-// run runs check at repo's revision in a detached worktree, under a grant of its needs, and returns how it ended. The grant
-// and holder are recorded once the grant holds, before the gate launches. It returns an error when the gate detaches, and
-// when ctx ends before the gate launched.
-func (n *NodeChecks) run(ctx context.Context, repo string, check store.NodeCheck) (store.NodeCheckEnd, error) {
+// run runs check at repo's revision on host in a detached worktree, under a grant of its needs, and returns how it ended.
+// The grant and holder are recorded once the grant holds, before the gate launches. It returns an error when the gate
+// detaches, and when ctx ends before the gate launched.
+func (n *NodeChecks) run(
+	ctx context.Context, host hostexec.Host, repo string, check store.NodeCheck,
+) (store.NodeCheckEnd, error) {
 	worktree := filepath.Join(n.worktrees, check.ID)
-	if err := addStepWorktree(ctx, repo, worktree, check.Revision); err != nil {
-		return n.notStarted(ctx, repo, worktree, check.ID, err)
+	if err := addStepWorktree(ctx, host, repo, worktree, check.Revision); err != nil {
+		return n.notStarted(ctx, host, repo, worktree, check.ID, err)
 	}
 	req, err := n.request(ctx, worktree, check)
 	if err != nil {
-		return n.notStarted(ctx, repo, worktree, check.ID, err)
+		return n.notStarted(ctx, host, repo, worktree, check.ID, err)
 	}
 	// launched is set once the grant holds and is recorded. From then the gate may run, so a gate that ends with its context
 	// did not finish, where one that never launched did not start.
@@ -212,6 +227,7 @@ func (n *NodeChecks) run(ctx context.Context, repo string, check store.NodeCheck
 		launched = true
 		return nil
 	})
+	gate.Host = host
 	result, err := runGrantedGate(ctx, n.pools, req, gate)
 	if errors.Is(err, errGateDetach) {
 		// The gate keeps running under its holder in worktree, so neither is removed: a restart re-adopts the gate.
@@ -222,28 +238,31 @@ func (n *NodeChecks) run(ctx context.Context, repo string, check store.NodeCheck
 			// Nothing ran, so the worktree is removed and the check is left for a restart to run.
 			cut := fmt.Errorf("run node check %s: %w", check.ID, ctx.Err())
 			return store.NodeCheckEnd{}, errors.Join(
-				cut, removeStepWorktree(context.WithoutCancel(ctx), repo, worktree),
+				cut, removeStepWorktree(context.WithoutCancel(ctx), host, repo, worktree),
 			)
 		}
 		reason := captureNotStarted(err)
 		if launched && ctx.Err() != nil {
 			reason = captureNotFinished(err)
 		}
-		return n.end(ctx, repo, worktree, nil, reason), nil
+		return n.end(ctx, host, repo, worktree, nil, reason), nil
 	}
-	return n.end(ctx, repo, worktree, &result, ""), nil
+	return n.end(ctx, host, repo, worktree, &result, ""), nil
 }
 
-// notStarted ends the check with id as not started for err, before its gate launched. When ctx has ended, nothing ran and
-// err may be the cut itself, so the worktree is removed, nothing is recorded, and the check is left for a restart to run.
+// notStarted ends the check with id as not started for err, before its gate launched, on host. When ctx has ended, nothing
+// ran and err may be the cut itself, so the worktree is removed, nothing is recorded, and the check is left for a restart
+// to run.
 func (n *NodeChecks) notStarted(
-	ctx context.Context, repo, worktree, id string, err error,
+	ctx context.Context, host hostexec.Host, repo, worktree, id string, err error,
 ) (store.NodeCheckEnd, error) {
 	if ctx.Err() != nil {
 		cut := fmt.Errorf("run node check %s: %w", id, ctx.Err())
-		return store.NodeCheckEnd{}, errors.Join(cut, removeStepWorktree(context.WithoutCancel(ctx), repo, worktree))
+		return store.NodeCheckEnd{}, errors.Join(
+			cut, removeStepWorktree(context.WithoutCancel(ctx), host, repo, worktree),
+		)
 	}
-	return n.end(ctx, repo, worktree, nil, captureNotStarted(err)), nil
+	return n.end(ctx, host, repo, worktree, nil, captureNotStarted(err)), nil
 }
 
 // request returns the grant request check queues in worktree: the pools its needs name, or one member of the default gate
@@ -256,7 +275,9 @@ func (n *NodeChecks) request(ctx context.Context, worktree string, check store.N
 			needs = append(needs, grants.Need{Pool: need.Pool, Count: int(need.Count)})
 		}
 	}
-	return stepGrant(ctx, worktree, "node-check-"+check.ID, check.Argv, needs, stepGetenv(n.environ))
+	return stepGrant(
+		ctx, hostexec.NewLocal(), worktree, "node-check-"+check.ID, check.Argv, needs, stepGetenv(n.environ),
+	)
 }
 
 // gate returns the gate that runs check in worktree. Its limit is the check's limit in seconds, and it keeps the newest
@@ -265,24 +286,23 @@ func (n *NodeChecks) gate(
 	worktree string, check store.NodeCheck, started func(ctx context.Context, grant, holder string) error,
 ) gateRun {
 	return gateRun{
-		Argv:        check.Argv,
-		Dir:         worktree,
-		Limit:       time.Duration(check.Limit) * time.Second,
-		Environ:     n.environ,
-		Name:        "node-check-" + check.ID,
-		StateDir:    n.gateStateDir,
-		Scope:       n.gateScope,
-		ScopeMemory: n.gateScopeMemory,
-		Started:     started,
-		Tail:        store.NodeOutputMax,
+		Argv:     check.Argv,
+		Dir:      worktree,
+		Limit:    time.Duration(check.Limit) * time.Second,
+		Environ:  n.environ,
+		Name:     "node-check-" + check.ID,
+		StateDir: n.gateStateDir,
+		Scope:    n.gateScope,
+		Started:  started,
+		Tail:     store.NodeOutputMax,
 	}
 }
 
-// end removes worktree and clears holder on every path, and returns how the check ended: the outcome of result when its gate
-// ran to one, else reason as the reason it did not run. A failure to clean up is added to NotRun, so the check is never
-// passed on a clean-up that failed.
+// end removes worktree on host and clears holder on every path, and returns how the check ended: the outcome of result when
+// its gate ran to one, else reason as the reason it did not run. A failure to clean up is added to NotRun, so the check is
+// never passed on a clean-up that failed.
 func (n *NodeChecks) end(
-	ctx context.Context, repo, worktree string, result *gateResult, reason string,
+	ctx context.Context, host hostexec.Host, repo, worktree string, result *gateResult, reason string,
 ) store.NodeCheckEnd {
 	ended := store.NodeCheckEnd{NotRun: reason}
 	holder := ""
@@ -294,8 +314,8 @@ func (n *NodeChecks) end(
 		ended.Stderr = result.Stderr
 	}
 	cleanErr := errors.Join(
-		removeStepWorktree(context.WithoutCancel(ctx), repo, worktree),
-		gateClear(ctx, holder),
+		removeStepWorktree(context.WithoutCancel(ctx), host, repo, worktree),
+		gateClear(ctx, host, holder),
 	)
 	if cleanErr != nil {
 		finished := captureNotFinished(cleanErr)

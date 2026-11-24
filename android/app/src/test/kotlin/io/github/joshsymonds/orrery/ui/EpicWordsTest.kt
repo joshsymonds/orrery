@@ -8,7 +8,6 @@ import io.github.joshsymonds.orrery.api.EpicQuestionRow
 import io.github.joshsymonds.orrery.api.EpicReleaseProofRow
 import io.github.joshsymonds.orrery.api.EpicRequirementRow
 import io.github.joshsymonds.orrery.api.EpicRow
-import io.github.joshsymonds.orrery.api.EpicTaskRow
 import io.github.joshsymonds.orrery.api.StepRow
 import java.time.Instant
 import java.time.ZoneId
@@ -151,11 +150,6 @@ class EpicWordsTest {
     }
 
     @Test
-    fun aRecordEpicHasNoTrack() {
-        assertEquals(emptyList<Stage>(), trackOf(detail(epic = epic(outcome = "in progress", source = "record"))))
-    }
-
-    @Test
     fun aBuildWithAQuestionAsksAndSaysHowManyWait() {
         val d = detail(
             epic = epic(outcome = "built"),
@@ -237,21 +231,6 @@ class EpicWordsTest {
     }
 
     @Test
-    fun aRecordEpicReachesOnlyNowAndTasks() {
-        val d = detail(
-            epic = epic(outcome = "in progress", source = "record"),
-            tasks = listOf(EpicTaskRow(effort = 1, slug = "example-task", subject = "Example", status = "planned")),
-            summary = "Example summary.",
-            requirements = listOf(requirement("R1")),
-        )
-
-        assertEquals(
-            Reached(summary = false, track = false, now = true, history = false, tasks = true, requirements = false),
-            reachedOf(d, listOf(historyEntry())),
-        )
-    }
-
-    @Test
     fun theContractDoorNamesItsAcceptanceCareAndRequirements() {
         val d = detail(
             contract = contract(accepted = NOW - 3600, care = "serious"),
@@ -294,7 +273,7 @@ class EpicWordsTest {
             detail(epic = epic(outcome = "closed_shipped")) to Pill("shipped outside orrery", WordTone.OK),
             detail(epic = epic(outcome = "closed_abandoned")) to Pill("abandoned", WordTone.QUIET),
             detail(epic = epic(outcome = "proposing")) to Pill("proposing", WordTone.QUIET),
-            detail(epic = epic(outcome = "in progress", source = "record")) to Pill("in progress", WordTone.QUIET),
+            detail(epic = epic(outcome = "in progress")) to Pill("in progress", WordTone.QUIET),
         )
 
         assertEquals(cases.map { it.second }, cases.map { statePillOf(it.first, NOW) })
@@ -705,7 +684,7 @@ class EpicWordsTest {
 
     private fun ahead(name: String) = Stage(name, StageState.AHEAD, WordTone.QUIET, "not reached")
 
-    private fun epic(outcome: String = "", source: String = "orreryd", phaseAt: Long = 0L) = EpicRow(
+    private fun epic(outcome: String = "", phaseAt: Long = 0L) = EpicRow(
         id = "example-repo/example-epic",
         repository = "example-repo",
         slug = "example-epic",
@@ -714,8 +693,6 @@ class EpicWordsTest {
         live = true,
         runningSteps = emptyList(),
         endedSteps = 0,
-        problem = "",
-        source = source,
         phaseAt = phaseAt,
     )
 
@@ -793,7 +770,6 @@ class EpicWordsTest {
 
     private fun detail(
         epic: EpicRow = epic(),
-        tasks: List<EpicTaskRow> = emptyList(),
         buildTasks: List<EpicBuildTaskRow> = emptyList(),
         steps: List<StepRow> = emptyList(),
         questions: List<EpicQuestionRow> = emptyList(),
@@ -807,7 +783,6 @@ class EpicWordsTest {
         releaseProof: List<EpicReleaseProofRow> = emptyList(),
     ) = EpicDetail(
         epic = epic,
-        tasks = tasks,
         steps = steps,
         requirements = requirements,
         buildTasks = buildTasks,

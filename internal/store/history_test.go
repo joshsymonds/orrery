@@ -20,7 +20,7 @@ func engineHistoryStore(t *testing.T) string {
 	path := filepath.Join(t.TempDir(), "orrery.db")
 	s := openWriterAt(t, path)
 	now := engineNowAt()
-	if err := s.SyncServer(ctx, "-L a", []Pane{
+	if err := s.SyncServer(ctx, "", "-L a", []Pane{
 		{ID: "orrery-1", Pane: "%1", Fields: Fields{State: "idle"}},
 	}, now); err != nil {
 		t.Fatalf("SyncServer: %v", err)

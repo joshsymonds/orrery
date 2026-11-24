@@ -13,6 +13,7 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextReplacement
+import io.github.joshsymonds.orrery.api.EpicBuildTaskRow
 import io.github.joshsymonds.orrery.api.EpicDetail
 import io.github.joshsymonds.orrery.api.EpicQuestionRow
 import io.github.joshsymonds.orrery.api.EpicRow
@@ -57,6 +58,7 @@ private fun step(
 
 private fun detail(
     steps: List<StepRow> = emptyList(),
+    buildTasks: List<EpicBuildTaskRow> = emptyList(),
     questions: List<EpicQuestionRow> = emptyList(),
     parked: String = "",
     plannerParked: Boolean = false,
@@ -71,9 +73,8 @@ private fun detail(
         live = true,
         runningSteps = emptyList(),
         endedSteps = 0,
-        problem = "",
     ),
-    tasks = emptyList(),
+    buildTasks = buildTasks,
     steps = steps,
     questions = questions,
     parked = parked,
@@ -349,7 +350,19 @@ class EpicAskTest {
         composeRule.setContent {
             MaterialTheme {
                 NowAsk(
-                    detail = detail(steps = listOf(step())),
+                    detail = detail(
+                        steps = listOf(step()),
+                        buildTasks = listOf(
+                            EpicBuildTaskRow(
+                                id = "T1",
+                                title = "Example task",
+                                status = "open",
+                                stage = "",
+                                red = null,
+                                green = null,
+                            ),
+                        ),
+                    ),
                     now = BASE,
                     onAnswer = { _, _, _ -> },
                     onRetry = {},

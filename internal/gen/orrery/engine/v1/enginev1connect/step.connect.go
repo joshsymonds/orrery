@@ -84,8 +84,8 @@ type StepsClient interface {
 	// failed_precondition. OK means the nudge landed; it neither spends nor replaces the watchdog's nudge.
 	NudgeStep(context.Context, *connect.Request[v1.NudgeStepRequest]) (*connect.Response[v1.NudgeStepResponse], error)
 	// ResumeStep resumes a step a usage limit holds: the owner's prompt that the limit has reset respawns the step's
-	// process in its session. A step no limit holds refuses with failed_precondition, a step at the step cap with
-	// resource_exhausted, and an id with no row with not_found.
+	// process in its session. A step no limit holds refuses with failed_precondition, and an id with no row with
+	// not_found.
 	ResumeStep(context.Context, *connect.Request[v1.ResumeStepRequest]) (*connect.Response[v1.ResumeStepResponse], error)
 }
 
@@ -246,8 +246,8 @@ type StepsHandler interface {
 	// failed_precondition. OK means the nudge landed; it neither spends nor replaces the watchdog's nudge.
 	NudgeStep(context.Context, *connect.Request[v1.NudgeStepRequest]) (*connect.Response[v1.NudgeStepResponse], error)
 	// ResumeStep resumes a step a usage limit holds: the owner's prompt that the limit has reset respawns the step's
-	// process in its session. A step no limit holds refuses with failed_precondition, a step at the step cap with
-	// resource_exhausted, and an id with no row with not_found.
+	// process in its session. A step no limit holds refuses with failed_precondition, and an id with no row with
+	// not_found.
 	ResumeStep(context.Context, *connect.Request[v1.ResumeStepRequest]) (*connect.Response[v1.ResumeStepResponse], error)
 }
 

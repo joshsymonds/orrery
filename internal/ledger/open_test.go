@@ -84,7 +84,7 @@ func tableNames(t *testing.T, db *sql.DB) map[string]bool {
 // this binary embeds, and none of those migrations ran.
 func writeNewerLedger(t *testing.T, path string) {
 	t.Helper()
-	db, err := sql.Open("sqlite", path)
+	db, err := sql.Open("sqlite3", path)
 	if err != nil {
 		t.Fatalf("open newer ledger fixture: %v", err)
 	}
@@ -169,7 +169,7 @@ func TestLedgerOpen(t *testing.T) {
 		if !bytes.Equal(after, before) {
 			t.Fatal("refused ledger's bytes changed")
 		}
-		db, err := sql.Open("sqlite", ledgerPath)
+		db, err := sql.Open("sqlite3", ledgerPath)
 		if err != nil {
 			t.Fatalf("open refused ledger for inspection: %v", err)
 		}

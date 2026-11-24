@@ -16,10 +16,10 @@ import (
 	"github.com/joshsymonds/orrery/internal/storetest"
 )
 
-// newManagerOn returns a manager with the given cap that runs the claude at claude, keeps its engine rows in the store at
+// newManagerOn returns a manager that runs the claude at claude, keeps its engine rows in the store at
 // path through a running writer of its own, and reports notices to sink. Close runs before the writer stops and the store
 // closes.
-func newManagerOn(t *testing.T, path string, limit int, claude string, sink NoticeSink) *Manager {
+func newManagerOn(t *testing.T, path string, claude string, sink NoticeSink) *Manager {
 	t.Helper()
 	sh, err := exec.LookPath("sh")
 	if err != nil {
@@ -41,7 +41,6 @@ func newManagerOn(t *testing.T, path string, limit int, claude string, sink Noti
 		Shell:    sh,
 		Claude:   claude,
 		Environ:  []string{"PATH=" + os.Getenv("PATH"), "HOME=" + t.TempDir()},
-		Cap:      limit,
 		Writer:   writer,
 		Now:      fixedClock,
 		Notifier: sink,
@@ -63,7 +62,7 @@ func fakeArgs(t *testing.T, dir string) []string {
 
 func TestSayResumesStoppedSession(t *testing.T) {
 	t.Parallel()
-	m, path := newTestManager(t, 1, fakeClaudePath(t))
+	m, path := newTestManager(t, fakeClaudePath(t))
 	dir := t.TempDir()
 	id, err := m.Start(t.Context(), StartRequest{Dir: dir, Prompt: "hi"})
 	if err != nil {
@@ -94,7 +93,7 @@ func TestSayResumesStoppedSession(t *testing.T) {
 
 func TestSecondManagerResumesSession(t *testing.T) {
 	t.Parallel()
-	first, path := newTestManager(t, 1, fakeClaudePath(t))
+	first, path := newTestManager(t, fakeClaudePath(t))
 	dir := t.TempDir()
 	id, err := first.Start(t.Context(), StartRequest{Dir: dir, Prompt: "hi"})
 	if err != nil {
@@ -105,7 +104,7 @@ func TestSecondManagerResumesSession(t *testing.T) {
 	})
 	first.Close()
 
-	second := newManagerOn(t, path, 1, fakeClaudePath(t), &fakeSink{})
+	second := newManagerOn(t, path, fakeClaudePath(t), &fakeSink{})
 	if err := second.Say(t.Context(), SayRequest{ID: id, Text: "again"}); err != nil {
 		t.Fatalf("Say on a second manager: %v", err)
 	}
@@ -124,42 +123,6 @@ func TestSecondManagerResumesSession(t *testing.T) {
 	}
 	if !seen {
 		t.Fatalf("no engine_changed sets seen to %s on a session the first manager started", want)
-	}
-}
-
-func TestSayAtCapRefusesAndStoresNothing(t *testing.T) {
-	t.Parallel()
-	m, path := newTestManager(t, 1, fakeClaudePath(t))
-	stoppedDir := t.TempDir()
-	id, err := m.Start(t.Context(), StartRequest{Dir: stoppedDir, Prompt: "hi"})
-	if err != nil {
-		t.Fatalf("Start: %v", err)
-	}
-	waitHistory(t, engineOf(m), path, id, "the first reply block", func(h store.EngineHistory) bool {
-		return hasBlock(t, h, "fake reply 1")
-	})
-	if err := m.Stop(t.Context(), id); err != nil {
-		t.Fatalf("Stop: %v", err)
-	}
-	before := historyOf(t, path, id)
-
-	other, err := m.Start(t.Context(), StartRequest{Dir: t.TempDir(), Prompt: "hold the slot"})
-	if err != nil {
-		t.Fatalf("Start of the session that fills the cap: %v", err)
-	}
-	waitHistory(t, engineOf(m), path, other, "the cap-filling reply block", func(h store.EngineHistory) bool {
-		return hasBlock(t, h, "fake reply 1")
-	})
-
-	if err := m.Say(t.Context(), SayRequest{ID: id, Text: "again"}); !errors.Is(err, ErrCapReached) {
-		t.Fatalf("Say at the cap error = %v, want ErrCapReached", err)
-	}
-	if after := historyOf(t, path, id); len(after.Events) != len(before.Events) {
-		t.Fatalf("events of the stopped session at the cap = %d, want %d unchanged",
-			len(after.Events), len(before.Events))
-	}
-	if args := fakeArgs(t, stoppedDir); len(args) != 1 {
-		t.Fatalf("fake claude starts for the stopped session = %q, want only its first start", args)
 	}
 }
 
@@ -190,7 +153,7 @@ func TestSayToBadDirectoryRecordsFailed(t *testing.T) {
 			t.Parallel()
 			_, path := openStore(t)
 			sink := &fakeSink{}
-			m := newManagerOn(t, path, 1, fakeClaudePath(t), sink)
+			m := newManagerOn(t, path, fakeClaudePath(t), sink)
 			dir := t.TempDir()
 			id, err := m.Start(t.Context(), StartRequest{Dir: dir, Prompt: "hi"})
 			if err != nil {
@@ -235,7 +198,7 @@ func TestSayToBadDirectoryRecordsFailed(t *testing.T) {
 
 func TestConcurrentSaysStartOneProcess(t *testing.T) {
 	t.Parallel()
-	m, path := newTestManager(t, 1, fakeClaudePath(t))
+	m, path := newTestManager(t, fakeClaudePath(t))
 	dir := t.TempDir()
 	id, err := m.Start(t.Context(), StartRequest{Dir: dir, Prompt: "hi"})
 	if err != nil {

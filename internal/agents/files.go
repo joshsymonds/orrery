@@ -5,26 +5,28 @@
 package agents
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io/fs"
-	"os"
 	"path"
 	"path/filepath"
 	"strconv"
 	"strings"
+
+	"github.com/joshsymonds/orrery/internal/hostexec"
 )
 
 // quotes is the number of quote marks that wrap a quoted scalar.
 const quotes = 2
 
-// dirAgents returns the agent names that the user, project or managed agents directory dir defines. A .md file under
-// dir defines the name in its frontmatter, never its filename, when it has a description and the name is not empty,
-// has no ':' and does not start with '-'. Names come in walk order, one per defining file. A dir that does not exist
-// defines none.
-func dirAgents(dir string) ([]string, error) {
+// dirAgents returns the agent names that the user, project or managed agents directory dir defines, read through
+// files. A .md file under dir defines the name in its frontmatter, never its filename, when it has a description and
+// the name is not empty, has no ':' and does not start with '-'. Names come in walk order, one per defining file. A dir
+// that does not exist defines none.
+func dirAgents(ctx context.Context, files hostexec.Files, dir string) ([]string, error) {
 	var names []string
-	err := walkMarkdown(dir, func(_ string, data []byte) error {
+	err := walkMarkdown(ctx, files, dir, func(_ string, data []byte) error {
 		name, description := frontmatter(data)
 		if name != "" && description != "" && !strings.Contains(name, ":") && !strings.HasPrefix(name, "-") {
 			names = append(names, name)
@@ -38,30 +40,35 @@ func dirAgents(dir string) ([]string, error) {
 }
 
 // walkMarkdown calls visit with the path relative to dir and the contents of each .md file under dir, in lexical
-// order, and returns the first error that visit returns. Symlinked directories and .md files are followed, and each
-// real directory is walked once, so a symlink cycle ends. A dir that does not exist has no files and is not an error.
-// Any other entry that cannot be read is an error that names its path, except a dangling symlink that is not a .md
-// file, which has nothing to read and is skipped.
-func walkMarkdown(dir string, visit func(rel string, data []byte) error) error {
-	if _, err := os.Stat(dir); errors.Is(err, fs.ErrNotExist) {
+// order, and returns the first error that visit returns. The files are read through files. Symlinked directories and
+// .md files are followed, and each real directory is walked once, so a symlink cycle ends. A dir that does not exist
+// has no files and is not an error. Any other entry that cannot be read is an error that names its path, except a
+// dangling symlink that is not a .md file, which has nothing to read and is skipped.
+func walkMarkdown(
+	ctx context.Context,
+	files hostexec.Files,
+	dir string,
+	visit func(rel string, data []byte) error,
+) error {
+	if _, err := files.Stat(ctx, dir); errors.Is(err, fs.ErrNotExist) {
 		return nil
 	}
-	w := walk{fsys: os.DirFS(dir), seen: make(map[string]bool), visit: visit}
-	return w.folder(dir, ".")
+	w := walk{files: files, seen: make(map[string]bool), visit: visit}
+	return w.folder(ctx, dir, ".")
 }
 
-// walk is the state of one walkMarkdown. fsys is the file system rooted at the walk's root, seen holds the resolved
-// path of each real folder walked so far, and visit receives each .md file.
+// walk is the state of one walkMarkdown. files is the file system the walk reads through, seen holds the resolved path
+// of each real folder walked so far, and visit receives each .md file.
 type walk struct {
-	fsys  fs.FS
+	files hostexec.Files
 	seen  map[string]bool
 	visit func(rel string, data []byte) error
 }
 
-// folder walks the folder at dir, which is the folder rel in w.fsys. A folder whose resolved path is in w.seen has been
-// walked already and is skipped.
-func (w walk) folder(dir, rel string) error {
-	resolved, err := filepath.EvalSymlinks(dir)
+// folder walks the folder at dir, whose path relative to the walk's root is rel. A folder whose resolved path is in
+// w.seen has been walked already and is skipped.
+func (w walk) folder(ctx context.Context, dir, rel string) error {
+	resolved, err := w.files.EvalSymlinks(ctx, dir)
 	if err != nil {
 		return fmt.Errorf("agents: read %s: %w", dir, err)
 	}
@@ -69,30 +76,30 @@ func (w walk) folder(dir, rel string) error {
 		return nil
 	}
 	w.seen[resolved] = true
-	list, err := fs.ReadDir(w.fsys, rel)
+	list, err := w.files.ReadDir(ctx, dir)
 	if err != nil {
 		return fmt.Errorf("agents: read %s: %w", dir, err)
 	}
-	return w.entries(dir, rel, list)
+	return w.entries(ctx, dir, rel, list)
 }
 
-// entries walks each of list, the entries of the folder at dir, which is rel in w.fsys.
-func (w walk) entries(dir, rel string, list []fs.DirEntry) error {
+// entries walks each of list, the entries of the folder at dir, whose path relative to the walk's root is rel.
+func (w walk) entries(ctx context.Context, dir, rel string, list []fs.DirEntry) error {
 	for _, entry := range list {
-		if err := w.entry(dir, rel, entry); err != nil {
+		if err := w.entry(ctx, dir, rel, entry); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-// entry walks entry, an entry of the folder at dir, which is rel in w.fsys. A folder is walked, and a .md file is
-// visited with its path relative to the walk's root.
-func (w walk) entry(dir, rel string, entry fs.DirEntry) error {
+// entry walks entry, an entry of the folder at dir, whose path relative to the walk's root is rel. A folder is walked,
+// and a .md file is visited with its path relative to the walk's root.
+func (w walk) entry(ctx context.Context, dir, rel string, entry fs.DirEntry) error {
 	name := entry.Name()
 	childDir := filepath.Join(dir, name)
 	childRel := path.Join(rel, name)
-	info, err := fs.Stat(w.fsys, childRel)
+	info, err := w.files.Stat(ctx, childDir)
 	if err != nil {
 		if path.Ext(name) != ".md" && errors.Is(err, fs.ErrNotExist) {
 			return nil
@@ -100,12 +107,12 @@ func (w walk) entry(dir, rel string, entry fs.DirEntry) error {
 		return fmt.Errorf("agents: read %s: %w", childDir, err)
 	}
 	if info.IsDir() {
-		return w.folder(childDir, childRel)
+		return w.folder(ctx, childDir, childRel)
 	}
 	if path.Ext(name) != ".md" || !info.Mode().IsRegular() {
 		return nil
 	}
-	data, err := fs.ReadFile(w.fsys, childRel)
+	data, err := w.files.ReadFile(ctx, childDir)
 	if err != nil {
 		return fmt.Errorf("agents: read %s: %w", childDir, err)
 	}

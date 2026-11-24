@@ -184,3 +184,15 @@ func TestCheckDependsOnSharedFiles(t *testing.T) {
 		})
 	}
 }
+
+// TestCheckDependsOnRefusesSplitTask checks that a T<n> of a split task gives the split refusal, while a T<n> of an open
+// task in the same return passes.
+func TestCheckDependsOnRefusesSplitTask(t *testing.T) {
+	t.Parallel()
+	tasks := []store.EpicTask{
+		epicTask(1, taskOpen),
+		epicTask(2, store.TaskSplit),
+	}
+	ret := Return{Tasks: []Task{dependent("B", "internal/b.go", "T1", "T2")}}
+	checkLines(t, checkTasks(ret, tasks), `tasks[0] "B" depends_on[1]: names a split task; name its descendants`)
+}

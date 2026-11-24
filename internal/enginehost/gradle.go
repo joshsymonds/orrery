@@ -1,12 +1,14 @@
 package enginehost
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io/fs"
-	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/joshsymonds/orrery/internal/hostexec"
 )
 
 // gradleHomeName is the directory under the state directory that GradleEnviron makes the GRADLE_USER_HOME of every child
@@ -40,18 +42,21 @@ func gradleShared() []string {
 // runs: sessions, steps and gates. It writes that home's gradle.properties as gradleProperties gives, so no build a child
 // runs starts a daemon another child's build could reach. The home links each gradleShared entry of userHome, the user's
 // own Gradle home (UserGradleHome), when that entry exists and the home has none yet; an empty userHome links nothing.
-// Every GRADLE_USER_HOME environ held is replaced.
-func GradleEnviron(environ []string, stateDir, userHome string) ([]string, error) {
+// Every GRADLE_USER_HOME environ held is replaced. The home is made, and its files written and linked, through files,
+// the file system of the Host the home is made on.
+func GradleEnviron(
+	ctx context.Context, files hostexec.Files, environ []string, stateDir, userHome string,
+) ([]string, error) {
 	home := filepath.Join(stateDir, gradleHomeName)
-	if err := os.MkdirAll(home, gradleHomeMode); err != nil {
+	if err := files.MkdirAll(ctx, home, gradleHomeMode); err != nil {
 		return nil, fmt.Errorf("make gradle home: %w", err)
 	}
-	if err := os.WriteFile(filepath.Join(home, "gradle.properties"), []byte(gradleProperties),
+	if err := files.WriteFile(ctx, filepath.Join(home, "gradle.properties"), []byte(gradleProperties),
 		gradlePropertiesMode); err != nil {
 		return nil, fmt.Errorf("write gradle properties: %w", err)
 	}
 	if userHome != "" {
-		if err := linkGradleShared(home, userHome); err != nil {
+		if err := linkGradleShared(ctx, files, home, userHome); err != nil {
 			return nil, err
 		}
 	}
@@ -77,22 +82,23 @@ func UserGradleHome(getenv func(string) string) string {
 }
 
 // linkGradleShared links each gradleShared entry of user into home, when user has it and home has no entry by that name.
-func linkGradleShared(home, user string) error {
+// It inspects and links through files.
+func linkGradleShared(ctx context.Context, files hostexec.Files, home, user string) error {
 	for _, name := range gradleShared() {
 		target := filepath.Join(user, name)
-		if _, err := os.Stat(target); err != nil {
+		if _, err := files.Stat(ctx, target); err != nil {
 			if errors.Is(err, fs.ErrNotExist) {
 				continue
 			}
 			return fmt.Errorf("inspect gradle %s: %w", name, err)
 		}
 		link := filepath.Join(home, name)
-		if _, err := os.Lstat(link); err == nil {
+		if _, err := files.Lstat(ctx, link); err == nil {
 			continue
 		} else if !errors.Is(err, fs.ErrNotExist) {
 			return fmt.Errorf("inspect gradle home %s: %w", name, err)
 		}
-		if err := os.Symlink(target, link); err != nil {
+		if err := files.Symlink(ctx, target, link); err != nil {
 			return fmt.Errorf("link gradle %s: %w", name, err)
 		}
 	}

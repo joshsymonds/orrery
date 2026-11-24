@@ -122,7 +122,7 @@ func TestEpicsGetCarriesStoredNodesInEngineOrder(t *testing.T) {
 	engine, want := syntheticNodes()
 	runs, _ := syntheticRuns()
 	store := &epicStoreFake{stored: []*enginev1.StoredEpic{nodeStoredEpic(engine...)}}
-	client := epicEvidenceServe(t, t.TempDir(), store, &evidenceRunsFake{runs: runs})
+	client := epicEvidenceServe(t, store, &evidenceRunsFake{runs: runs})
 
 	got := epicsGet(t, client, "repoa/shared").GetNodes()
 	if len(got) != len(want) {
@@ -142,7 +142,7 @@ func TestEpicsGetEvidenceNodeLeavesOutRunsItDoesNotList(t *testing.T) {
 		Path: "evidence", Node: "evidence", Kind: "evidence", State: "ended", Outcome: "passed", Attempt: 1,
 		Runs: []string{"run-1b", "run-missing", "run-2a"},
 	})}}
-	client := epicEvidenceServe(t, t.TempDir(), store, &evidenceRunsFake{runs: runs})
+	client := epicEvidenceServe(t, store, &evidenceRunsFake{runs: runs})
 
 	got := epicsGet(t, client, "repoa/shared").GetNodes()
 	if len(got) != 1 {
@@ -156,22 +156,5 @@ func TestEpicsGetEvidenceNodeLeavesOutRunsItDoesNotList(t *testing.T) {
 		if !proto.Equal(got[0].GetRuns()[i], w) {
 			t.Errorf("run %d = %v, want %v", i, got[0].GetRuns()[i], w)
 		}
-	}
-}
-
-func TestEpicsGetRecordOnlyEpicHasNoNodes(t *testing.T) {
-	t.Parallel()
-	engine, _ := syntheticNodes()
-	root := t.TempDir()
-	writeHead(t, root, "repoa", "record", `{"outcome":"shipped"}`, epicsNow())
-	store := &epicStoreFake{stored: []*enginev1.StoredEpic{nodeStoredEpic(engine...)}}
-	client := epicEvidenceServe(t, root, store, &evidenceRunsFake{})
-
-	got := epicsGet(t, client, "repoa/record")
-	if got.GetEpic().GetSource() != "record" {
-		t.Fatalf("source = %q, want record", got.GetEpic().GetSource())
-	}
-	if len(got.GetNodes()) != 0 {
-		t.Errorf("nodes = %v, want none for a record epic", got.GetNodes())
 	}
 }

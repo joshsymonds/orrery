@@ -4,8 +4,6 @@ import (
 	"errors"
 	"strings"
 	"testing"
-
-	"github.com/joshsymonds/orrery/internal/holder"
 )
 
 // holderScopeGetenv is the environment the holder scope flag tests parse with. It sets only the runtime directory, which
@@ -65,65 +63,5 @@ func TestUsageTextListsHolderScope(t *testing.T) {
 		"                    (default: none, the holder starts plainly)\n"
 	if !strings.Contains(usageText, entry) {
 		t.Errorf("usage text does not describe --holder-scope:\n%s", usageText)
-	}
-}
-
-// TestHolderScopeMemoryFlagDefaultsTo8GiB checks that without --holder-scope-memory each scope is capped at
-// holder.DefaultScopeMemory, 8 GiB.
-func TestHolderScopeMemoryFlagDefaultsTo8GiB(t *testing.T) {
-	opts, err := parseFlags(nil, holderScopeGetenv)
-	if err != nil {
-		t.Fatalf("parseFlags: %v", err)
-	}
-	if opts.scopeMemory != holder.DefaultScopeMemory || holder.DefaultScopeMemory != 8<<30 {
-		t.Errorf("scopeMemory = %d, want 8 GiB", opts.scopeMemory)
-	}
-}
-
-// TestHolderScopeMemoryFlagParsesSizes checks the sizes --holder-scope-memory takes: bytes, or a whole number with K,
-// M, G or T, each a power of 1024.
-func TestHolderScopeMemoryFlagParsesSizes(t *testing.T) {
-	for value, want := range map[string]int64{
-		"1073741824": 1 << 30,
-		"512K":       512 << 10,
-		"768M":       768 << 20,
-		"16G":        16 << 30,
-		"1T":         1 << 40,
-	} {
-		opts, err := parseFlags([]string{"--holder-scope-memory", value}, holderScopeGetenv)
-		if err != nil {
-			t.Fatalf("parseFlags(%q): %v", value, err)
-		}
-		if opts.scopeMemory != want {
-			t.Errorf("parseFlags(%q) scopeMemory = %d, want %d", value, opts.scopeMemory, want)
-		}
-	}
-}
-
-// TestHolderScopeMemoryFlagRefusesNonSizes checks that a --holder-scope-memory that is not a positive size is a usage
-// error.
-func TestHolderScopeMemoryFlagRefusesNonSizes(t *testing.T) {
-	for _, value := range []string{"", "0", "0G", "-1", "G", "8g", "1.5G", "8GB", "infinity", "9223372036854775807K"} {
-		_, err := parseFlags([]string{"--holder-scope-memory", value}, holderScopeGetenv)
-		var usage usageError
-		if !errors.As(err, &usage) {
-			t.Fatalf("parseFlags(%q) error = %v, want a usage error", value, err)
-		}
-		if !strings.Contains(err.Error(), "holder-scope-memory") {
-			t.Errorf("parseFlags(%q) error = %q, want it to name the flag", value, err.Error())
-		}
-	}
-}
-
-// TestUsageTextListsHolderScopeMemory lists the flag in the synopsis and in its flags entry.
-func TestUsageTextListsHolderScopeMemory(t *testing.T) {
-	if !strings.Contains(usageText, "[--holder-scope-memory SIZE]") {
-		t.Errorf("usage text synopsis does not list --holder-scope-memory:\n%s", usageText)
-	}
-	entry := "\n  --holder-scope-memory SIZE\n" +
-		"                    memory cap of each holder's scope, with no swap past it: bytes, or a whole\n" +
-		"                    number with K, M, G or T (powers of 1024) (default 8G)\n"
-	if !strings.Contains(usageText, entry) {
-		t.Errorf("usage text does not describe --holder-scope-memory:\n%s", usageText)
 	}
 }

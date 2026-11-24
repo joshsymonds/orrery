@@ -36,6 +36,7 @@ func TestReaderQueryPlans(t *testing.T) {
 		"HeadlessSessions":   {"ListHeadlessSessions"},
 		"LastTurnEnds":       {"LastTurnEnds"},
 		"Dirs":               {"ListKnownDirs"},
+		"HostPanes":          {"ListHostSessions"},
 		"EpicSessions":       {"ListEpicSessions"},
 		"PromptStates":       {"ListPromptStates"},
 		"ArchivedRows":       {"ListArchivedRows"},
@@ -45,9 +46,38 @@ func TestReaderQueryPlans(t *testing.T) {
 		"PendingCallerEvents": {
 			"ListPendingCallerSteps", "ListSteeredEpics", "ListOpenEpicQuestions", "CountCallerEvent",
 		},
-		"StepFacts": {"ListStepFacts"},
-		"Contract":  {"GetContractListing", "ListContractVersions", "ListContractStates"},
-		"Contracts": {"ListContractListings"},
+		"StepFacts":           {"ListStepFacts"},
+		"Contract":            {"GetContractListing", "ListContractVersions", "ListContractStates"},
+		"Contracts":           {"ListContractListings"},
+		"ContractWorkingCopy": {"GetContractWorking", "ListContractRowWrites"},
+		"ContractRowWrites":   {"ListContractRowWrites"},
+		"ContractStepReads":   {"ListContractStepReads", "ListStepFacts"},
+		"ContractRefusals":    {"ListContractRefusals"},
+		"ContractShown":       {"ListContractShown"},
+		"Accounts":            {"ListLLMAccounts"},
+		"Routes":              {"GetRouteRegistry", "ListRouteSeats", "ListRouteContexts", "ListRouteBindings"},
+		"ContractLeft": {
+			"GetContractListing", "GetContractVersion", "GetContractDesign", "ListDesignQuestions",
+			"ListContractRowWrites", "ListContractRefusals", "GetContractWorking", "ListContractShown",
+		},
+		"RoutesSnapshot": {
+			"GetRouteRegistry", "ListRouteSeats", "ListRouteContexts", "ListRouteBindings", "ListRouteAccountTokens",
+		},
+		"Design":    {},
+		"Designs":   {},
+		"DesignLog": {"ListDesignLog"},
+		"DesignConversation": {
+			"NewestDesignConversation", "GetDesign", "ListDesignContracts", "ListDesignEdges", "GetLoneContract",
+		},
+		"RunningDesignSteps":   {"ListRunningDesignSteps"},
+		"DesignApproaches":     {"ListDesignApproaches"},
+		"DesignApproachChoice": {"ListDesignApproachChoices"},
+		"DesignDelegations": {
+			"ListDesignDelegations", "ListDesignQuestions", "ListDesignDispositions", "GetDesignClosureSkip",
+			"ListDesignApproachChoices", "GetDesign", "GetLoneContract", "ListDesignContracts", "ListDesignEdges",
+			"ListContractRowWrites", "ListContractStates",
+		},
+		"Close": {},
 	}
 	checkReaderMethodsListed(t, readerQueries)
 
@@ -295,6 +325,44 @@ func TestReaderQueryPlansAliases(t *testing.T) {
 		if got := len(rows) > 0; got != tc.flagged {
 			t.Errorf("%s: flagged = %v (plan rows flagged %q), want %v", tc.name, got, rows, tc.flagged)
 		}
+	}
+}
+
+// TestReaderQueryPlansHeadlessColumns fails when ListHeadlessSessions reads event payloads again, or when its plan
+// touches events other than by an index SEARCH. The listing reads the four columns each session row stores, so its
+// text holds no json_extract, and events is searched only for the cutoff EXISTS. A plan row that scans events, or
+// searches it without an index, would read the table's history on every listing. It logs the json_extract check and
+// each plan row.
+func TestReaderQueryPlansHeadlessColumns(t *testing.T) {
+	t.Parallel()
+	text, ok := sqlcQueryTexts(t)["ListHeadlessSessions"]
+	if !ok {
+		t.Fatalf("query ListHeadlessSessions is not defined in %s", queryPlanSource)
+	}
+	hasJSON := strings.Contains(text, "json_extract")
+	t.Logf("ListHeadlessSessions json_extract check: text holds json_extract = %v", hasJSON)
+	if hasJSON {
+		t.Errorf("query ListHeadlessSessions holds json_extract, want the four session columns read directly")
+	}
+
+	s := openWriterAt(t, filepath.Join(t.TempDir(), "orrery.db"))
+	names := eventsNames(text)
+	searches := 0
+	for _, detail := range planDetails(t, s.db.DB, "ListHeadlessSessions", text) {
+		t.Logf("ListHeadlessSessions plan row: %q", detail)
+		fields := strings.Fields(detail)
+		if len(fields) < 2 || !names[fields[1]] {
+			continue
+		}
+		if fields[0] != "SEARCH" || !strings.Contains(detail, "EXISTS") || !strings.Contains(detail, "INDEX") {
+			t.Errorf("query ListHeadlessSessions: plan row %q touches events other than by an index SEARCH "+
+				"for the cutoff EXISTS", detail)
+			continue
+		}
+		searches++
+	}
+	if searches == 0 {
+		t.Errorf("query ListHeadlessSessions: no plan row is an index SEARCH for the cutoff EXISTS")
 	}
 }
 

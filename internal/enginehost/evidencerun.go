@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/joshsymonds/orrery/internal/evidence"
+	"github.com/joshsymonds/orrery/internal/hostexec"
 	"github.com/joshsymonds/orrery/internal/redact"
 	"github.com/joshsymonds/orrery/internal/store"
 )
@@ -51,6 +52,7 @@ type EvidenceStore interface {
 	EvidenceRuns(ctx context.Context, epic string) ([]store.EvidenceRun, error)
 	OpenEvidenceRuns(ctx context.Context) ([]store.EvidenceRun, error)
 	Step(ctx context.Context, id string) (store.StepRow, error)
+	EpicHost(ctx context.Context, epic string) (string, error)
 }
 
 // EvidenceSteps starts judge steps and subscribes to their ends and holds. *Steps satisfies it.
@@ -60,24 +62,25 @@ type EvidenceSteps interface {
 }
 
 // EvidenceConfig configures an Evidence. Store records the runs, Steps runs the judges, and Pools, Environ, GateStateDir,
-// GateScope and GateScopeMemory run each captured item's gate as a capture does. StateDir holds the blobs and the capture worktrees.
-// NewTimer arms a timer that sends on its channel once, after a duration, and returns the timer's stop; a nil NewTimer wraps
-// time.NewTimer. A nil Now is time.Now, and a nil Logger discards. After returns the channel a failed store write of a run
-// waits on before it is tried again (see retryStore), and that a judge of a paused epic waits on before it reads the epic
-// again, and nil is time.After.
+// GateScope run each captured item's gate as a capture does. StateDir holds the blobs and the capture worktrees. Hosts
+// resolves the host each epic is stored on to the Host its runs' git, worktrees and artifact reads run on, and a nil Hosts
+// is hostexec.LocalHosts. NewTimer arms a timer that sends on its channel once, after a duration, and returns the timer's
+// stop; a nil NewTimer wraps time.NewTimer. A nil Now is time.Now, and a nil Logger discards. After returns the channel a
+// failed store write of a run waits on before it is tried again (see retryStore), and that a judge of a paused epic waits
+// on before it reads the epic again, and nil is time.After.
 type EvidenceConfig struct {
-	Store           EvidenceStore
-	Steps           EvidenceSteps
-	Pools           PoolCommands
-	Environ         []string
-	StateDir        string
-	GateStateDir    string
-	GateScope       string
-	GateScopeMemory int64
-	Now             func() time.Time
-	Logger          *slog.Logger
-	NewTimer        func(time.Duration) (<-chan time.Time, func() bool)
-	After           func(time.Duration) <-chan time.Time
+	Store        EvidenceStore
+	Steps        EvidenceSteps
+	Hosts        hostexec.Hosts
+	Pools        PoolCommands
+	Environ      []string
+	StateDir     string
+	GateStateDir string
+	GateScope    string
+	Now          func() time.Time
+	Logger       *slog.Logger
+	NewTimer     func(time.Duration) (<-chan time.Time, func() bool)
+	After        func(time.Duration) <-chan time.Time
 }
 
 // Evidence runs evidence items. Each run is stored, captured or read, judged, and recorded once, by a drive that Run starts
@@ -91,6 +94,7 @@ type Evidence struct {
 	newTimer func(time.Duration) (<-chan time.Time, func() bool)
 	logger   *slog.Logger
 	after    func(time.Duration) <-chan time.Time
+	hosts    hostexec.Hosts
 
 	mu      sync.Mutex
 	closed  bool
@@ -122,24 +126,28 @@ func NewEvidence(cfg EvidenceConfig) *Evidence {
 	if after == nil {
 		after = time.After
 	}
+	hosts := cfg.Hosts
+	if hosts == nil {
+		hosts = hostexec.LocalHosts()
+	}
 	blobs := evidenceBlobs{dir: filepath.Join(cfg.StateDir, "evidence", "blobs")}
 	return &Evidence{
 		store: cfg.Store,
 		steps: cfg.Steps,
 		captures: evidenceCapture{
-			pools:           cfg.Pools,
-			environ:         cfg.Environ,
-			worktrees:       filepath.Join(cfg.StateDir, "evidence-worktrees"),
-			gateStateDir:    cfg.GateStateDir,
-			gateScope:       cfg.GateScope,
-			gateScopeMemory: cfg.GateScopeMemory,
-			blobs:           blobs,
+			pools:        cfg.Pools,
+			environ:      cfg.Environ,
+			worktrees:    filepath.Join(cfg.StateDir, "evidence-worktrees"),
+			gateStateDir: cfg.GateStateDir,
+			gateScope:    cfg.GateScope,
+			blobs:        blobs,
 		},
 		blobs:    blobs,
 		now:      now,
 		newTimer: newTimer,
 		logger:   logger,
 		after:    after,
+		hosts:    hosts,
 		cancels:  map[string]context.CancelCauseFunc{},
 	}
 }
@@ -161,7 +169,11 @@ func (e *Evidence) Run(ctx context.Context, epic, item, revision, phase string) 
 	if phase != evidence.PhaseRed && phase != evidence.PhaseGreen {
 		return store.EvidenceRun{}, fmt.Errorf("%w: phase %q is not red or green", ErrEvidenceRefused, phase)
 	}
-	commit, err := stepGitResolve(ctx, row.Repository, revision)
+	host, err := hostOfEpic(ctx, e.store, e.hosts, epic)
+	if err != nil {
+		return store.EvidenceRun{}, err
+	}
+	commit, err := stepGitResolve(ctx, host, row.Repository, revision)
 	if err != nil {
 		return store.EvidenceRun{}, fmt.Errorf(
 			"%w: revision %q does not resolve: %w", ErrEvidenceRefused, revision, err,
@@ -323,6 +335,25 @@ func evidenceRunFile(run store.EvidenceRun, name string) (string, string, error)
 	return "", "", fmt.Errorf("artifact %s of evidence run %s: %w", name, run.ID, ErrNoEvidenceArtifact)
 }
 
+// epicHoster reads the name of the host a stored epic lives on. The stores of the runners satisfy it.
+type epicHoster interface {
+	EpicHost(ctx context.Context, epic string) (string, error)
+}
+
+// hostOfEpic returns the Host the stored epic lives on: the host name st gives it, resolved by hosts. An epic st does not
+// hold, and a name hosts does not resolve, are errors.
+func hostOfEpic(ctx context.Context, st epicHoster, hosts hostexec.Hosts, epic string) (hostexec.Host, error) {
+	name, err := st.EpicHost(ctx, epic)
+	if err != nil {
+		return nil, fmt.Errorf("host of epic %s: %w", epic, err)
+	}
+	host, err := hosts.Host(name)
+	if err != nil {
+		return nil, fmt.Errorf("host of epic %s: %w", epic, err)
+	}
+	return host, nil
+}
+
 // start drives run at repo in the background, under a context that Close cancels, with errGateDetach under a gate scope, and
 // that finish cancels with nil. It returns an error when the runner is closed, and the run then stays as it was stored for a
 // restart to resume.
@@ -355,9 +386,14 @@ func (e *Evidence) finish(id string) {
 // recordCapture), even when ctx has ended, and a run whose capture captured nothing ends there. A drive whose ctx has ended
 // then stops before judging, and a Resume gives the judge. Otherwise its judge gives the verdict. A capture whose gate
 // detaches records nothing, so the next restart re-adopts it, and so does one cut short before its gate launched or a
-// supplied read cut short.
+// supplied read cut short, and one whose epic's host cannot be read.
 func (e *Evidence) drive(ctx context.Context, repo string, run store.EvidenceRun) {
-	capture, err := e.capture(ctx, repo, run)
+	host, err := hostOfEpic(ctx, e.store, e.hosts, run.Epic)
+	if err != nil {
+		e.logger.InfoContext(ctx, "evidence capture left for a restart", "run", run.ID, "err", err)
+		return
+	}
+	capture, err := e.capture(ctx, host, repo, run)
 	if err != nil {
 		e.logger.InfoContext(ctx, "evidence capture left for a restart", "run", run.ID, "err", err)
 		return
@@ -395,12 +431,15 @@ func (e *Evidence) recordJudge(ctx context.Context, id, step string) error {
 	return nil
 }
 
-// capture captures run at repo's revision, or reads its supplied files. A captured run's grant and holder are recorded when
-// its grant holds, before its gate launches. It returns an error when the gate detaches, and when ctx ends before the capture
-// has ended: before its gate launched, or before its supplied files were read. Nothing ran then, so nothing is recorded.
-func (e *Evidence) capture(ctx context.Context, repo string, run store.EvidenceRun) (store.EvidenceCapture, error) {
+// capture captures run at repo's revision on host, or reads its supplied files there. A captured run's grant and holder are
+// recorded when its grant holds, before its gate launches. It returns an error when the gate detaches, and when ctx ends
+// before the capture has ended: before its gate launched, or before its supplied files were read. Nothing ran then, so
+// nothing is recorded.
+func (e *Evidence) capture(
+	ctx context.Context, host hostexec.Host, repo string, run store.EvidenceRun,
+) (store.EvidenceCapture, error) {
 	if run.Source == evidence.SourceSupplied {
-		capture := readSupplied(ctx, repo, run.Revision, run.Spec.Supplied, e.blobs)
+		capture := readSupplied(ctx, host, repo, run.Revision, run.Spec.Supplied, e.blobs)
 		// A read that ctx cut short has not ended, so a restart reads the files again rather than recording the cut.
 		if capture.NotCaptured != "" && ctx.Err() != nil {
 			return store.EvidenceCapture{}, fmt.Errorf("read evidence run %s: %w", run.ID, ctx.Err())
@@ -419,7 +458,7 @@ func (e *Evidence) capture(ctx context.Context, repo string, run store.EvidenceR
 		launched = true
 		return nil
 	}
-	capture, err := e.captures.run(ctx, repo, run.Revision, run.ID, run.Spec, started)
+	capture, err := e.captures.on(host).run(ctx, repo, run.Revision, run.ID, run.Spec, started)
 	// A capture that ctx cut short before its gate launched has not ended, so a restart runs it rather than recording the cut.
 	if err == nil && !launched && ctx.Err() != nil {
 		return store.EvidenceCapture{}, fmt.Errorf("capture evidence run %s: %w", run.ID, ctx.Err())

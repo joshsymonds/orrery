@@ -170,7 +170,7 @@ func TestUsageSpend(t *testing.T) {
 	})
 
 	t.Run("query plan", func(t *testing.T) {
-		db, err := sql.Open("sqlite", path)
+		db, err := sql.Open("sqlite3", path)
 		if err != nil {
 			t.Fatalf("open ledger for EXPLAIN QUERY PLAN: %v", err)
 		}

@@ -18,7 +18,7 @@ import (
 	"github.com/joshsymonds/orrery/internal/waittest"
 )
 
-// newDrainManager returns a manager with one slot whose controller speaks holder wire version version, over writer and s.
+// newDrainManager returns a manager whose controller speaks holder wire version version, over writer and s.
 // Its sessions run their holders under the fake systemd-run in root. Close runs at the end of the test. The caller runs
 // Reconcile.
 func newDrainManager(t *testing.T, s Store, writer *Writer, sink NoticeSink, root string, version int) *Manager {
@@ -31,7 +31,6 @@ func newDrainManager(t *testing.T, s Store, writer *Writer, sink NoticeSink, roo
 		Shell:         sh,
 		Claude:        fakeClaudePath(t),
 		Environ:       []string{"PATH=" + os.Getenv("PATH"), "HOME=" + t.TempDir()},
-		Cap:           1,
 		Writer:        writer,
 		Now:           fixedClock,
 		Notifier:      sink,
@@ -243,7 +242,7 @@ func TestReconcileStopsOneVersionOlderIdleHolderAndNextSayResumes(t *testing.T) 
 }
 
 // TestSayWhileOldHolderStopsStartsResumedHolder holds the turn end of a one-version-older holder in the store. Its session
-// is taken out of the live set at the turn end, but its pump, which holds the session's slot, cannot finish until the hold
+// is taken out of the live set at the turn end, but its pump cannot finish until the hold
 // opens. A Say that arrives then waits for that pump, and starts claude with --resume in a new holder, which answers it.
 func TestSayWhileOldHolderStopsStartsResumedHolder(t *testing.T) {
 	t.Parallel()

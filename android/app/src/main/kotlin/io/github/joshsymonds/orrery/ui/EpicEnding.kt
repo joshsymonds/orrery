@@ -75,8 +75,6 @@ data class ReportView(
 /** An epic a superseded close may name: its [id] and its [slug]. */
 data class Replacement(val id: String, val slug: String)
 
-private const val ORREYD = "orreryd"
-
 // The phases Review is drawn in. Accepted and built are never reviewed on the page.
 private val REVIEW_PHASES = setOf(
     "reviewing",
@@ -101,7 +99,7 @@ fun isUndoNone(undo: String): Boolean = undo.trim().equals("none", ignoreCase = 
 /** The Review section of an orreryd epic in a review phase, or null when the page does not reach it. */
 fun reviewOf(detail: EpicDetail): ReviewView? {
     val phase = detail.epic.outcome
-    if (!isOrreryd(detail) || phase !in REVIEW_PHASES) {
+    if (phase !in REVIEW_PHASES) {
         return null
     }
     val reviewing = phase == "reviewing" || phase == "correcting"
@@ -125,7 +123,7 @@ fun reviewOf(detail: EpicDetail): ReviewView? {
 fun releaseOf(detail: EpicDetail): ReleaseView? {
     val phase = detail.epic.outcome
     val steps = detail.releaseProof
-    if (!isOrreryd(detail) || steps.isEmpty()) {
+    if (steps.isEmpty()) {
         return null
     }
     if (phase !in RELEASE_PHASES && detail.releases.isEmpty() && steps.all { it.state == "waiting" }) {
@@ -144,7 +142,7 @@ fun releaseOf(detail: EpicDetail): ReleaseView? {
 fun reportOf(detail: EpicDetail): ReportView? {
     val phase = detail.epic.outcome
     val report = detail.report
-    if (!isOrreryd(detail) || (report == null && !phase.startsWith("closed_"))) {
+    if (report == null && !phase.startsWith("closed_")) {
         return null
     }
     val shipped = when {
@@ -172,8 +170,6 @@ fun replacementsOf(detail: EpicDetail, listed: List<EpicRow>): List<Replacement>
         .filter { it.path == self.path && it.id != self.id }
         .map { Replacement(id = it.id, slug = it.slug) }
 }
-
-private fun isOrreryd(detail: EpicDetail): Boolean = detail.epic.source == ORREYD
 
 private fun plural(count: Int, one: String, many: String): String = if (count == 1) "1 $one" else "$count $many"
 

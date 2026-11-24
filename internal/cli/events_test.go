@@ -142,7 +142,7 @@ func seedEvents(t *testing.T, s *store.Store) {
 		{ID: "orrery-1", Pane: "%1"},
 		{ID: "orrery-2", Pane: "%2"},
 	}
-	if err := s.SyncServer(t.Context(), eventsServer, panes, time.Unix(eventsAt, 0)); err != nil {
+	if err := s.SyncServer(t.Context(), "", eventsServer, panes, time.Unix(eventsAt, 0)); err != nil {
 		t.Fatalf("SyncServer: %v", err)
 	}
 	writeEventsState(t, s, "state-1")

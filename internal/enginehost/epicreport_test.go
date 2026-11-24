@@ -192,9 +192,9 @@ func TestEpicReportWritesOneReportOfAnEndedEpic(t *testing.T) {
 	}
 }
 
-// TestEpicReportFailedOrBlankCallLeavesTheReportEmptyForTheStart covers R3: a failed call or a blank why stores no
-// report, and no later wake of the same start calls for the epic again.
-func TestEpicReportFailedOrBlankCallLeavesTheReportEmptyForTheStart(t *testing.T) {
+// TestEpicReportFailedOrBlankCallLeavesTheReportEmptyUntilItsDeadline covers R3: a failed call or a blank why stores no
+// report, and a wake before the ending's deadline fires calls for the epic no more (see callRetries).
+func TestEpicReportFailedOrBlankCallLeavesTheReportEmptyUntilItsDeadline(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
 		name   string
@@ -231,8 +231,8 @@ func TestEpicReportFailedOrBlankCallLeavesTheReportEmptyForTheStart(t *testing.T
 	}
 }
 
-// TestEpicReportSecondStartRetriesAnUnreportedEpicOnce covers R3: a start retries an epic whose failed call left it
-// unreported, and a wake of that start calls for it no more.
+// TestEpicReportSecondStartRetriesAnUnreportedEpicOnce covers R3: a start calls at once for an epic whose failed call
+// left it unreported, and once that call succeeds a wake calls for it no more.
 func TestEpicReportSecondStartRetriesAnUnreportedEpicOnce(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()

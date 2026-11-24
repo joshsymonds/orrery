@@ -18,8 +18,8 @@ import (
 
 	"github.com/pressly/goose/v3"
 
-	// The blank import registers the "sqlite" driver that Open and Reader open the ledger with.
-	_ "modernc.org/sqlite"
+	// The blank import registers the "sqlite3" driver that Open and Reader open the ledger with.
+	_ "github.com/mattn/go-sqlite3"
 )
 
 // MigrationFS holds the ledger's embedded goose migrations, from migrations/.
@@ -63,7 +63,7 @@ func Open(ctx context.Context, path string) (*Ledger, error) {
 
 	query := "_busy_timeout=" + strconv.FormatInt(busyTimeout.Milliseconds(), 10)
 	dsn := (&url.URL{Scheme: "file", Path: clean, RawQuery: query}).String()
-	db, err := sql.Open("sqlite", dsn)
+	db, err := sql.Open("sqlite3", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("open ledger: %w", err)
 	}

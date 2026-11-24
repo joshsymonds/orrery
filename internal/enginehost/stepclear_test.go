@@ -13,9 +13,9 @@ import (
 
 // serveStopSpy replaces the socket of the live holder in dir, whose processes pids records, with one that answers each
 // hello as the holder would and then answers nothing, so an attach and a stop over it both go unanswered. It returns a
-// channel that is closed when a stop frame arrives while the holder's process still runs: that stop asks a live holder
-// that gave no answer. A stop that arrives once the holder's process has ended is the clear of a gone holder; its
-// connection is closed, as a gone holder's refused connection would end it.
+// channel that is closed when a stop frame arrives while the holder's process still runs and has not begun to exit
+// (holderLive): that stop asks a live holder that gave no answer. A stop that arrives once the holder's process was
+// killed is the clear of a gone holder; its connection is closed, as a gone holder's refused connection would end it.
 func serveStopSpy(t *testing.T, dir string, pids holder.Pids) <-chan struct{} {
 	t.Helper()
 	sock, err := holder.SocketPath(dir)
@@ -50,7 +50,7 @@ func serveStopSpy(t *testing.T, dir string, pids holder.Pids) <-chan struct{} {
 }
 
 // stopSpy judges each stop frame that reaches serveStopSpy's socket. lockPath is the holder's session lock, pids the
-// holder's pids record, and ask is called for a stop that reaches a holder whose process still runs.
+// holder's pids record, and ask is called for a stop that reaches a holder whose process is live (holderLive).
 type stopSpy struct {
 	lockPath string
 	pids     holder.Pids
@@ -61,7 +61,8 @@ type stopSpy struct {
 // the session lock: a fork anywhere in this test binary copies whatever lock file is open at that moment, and the copy
 // keeps the lock held until the forked child execs, after the holder has ended and the file it copied is closed. So the
 // spy holds a lock of its own across the judgment whenever the lock is free, as such a copy would, and the judgment still
-// finds the holder gone.
+// finds the holder gone. A holder killed just before the stop has freed its lock while it exits, before /proc shows it a
+// zombie, so the judgment counts an exiting holder gone as well.
 func (s stopSpy) serve(conn net.Conn) {
 	frames := holder.NewFrameReader(conn)
 	if hello, err := frames.Read(); err != nil || hello.Type != holder.TypeHello {
@@ -76,8 +77,8 @@ func (s stopSpy) serve(conn net.Conn) {
 		return
 	}
 	copied, lockErr := holder.Lock(s.lockPath)
-	running, runErr := holder.Running(s.pids.Holder, s.pids.HolderStart)
-	if runErr != nil || running {
+	live, liveErr := holderLive(s.pids)
+	if liveErr != nil || live {
 		s.ask()
 	}
 	if lockErr == nil {
@@ -121,6 +122,6 @@ func TestReadoptStepThatGaveNoAnswerIsKilledThenClearedWithoutAsking(t *testing.
 	if restarted.StepLive(stepA) {
 		t.Fatalf("step %s is live after the restart, though its holder gave no answer", stepA)
 	}
-	requireStepSlots(t, restarted, 0)
+	requireStepsHeld(t, restarted, 0)
 	requireUndrained(t, rig, sink, obs)
 }

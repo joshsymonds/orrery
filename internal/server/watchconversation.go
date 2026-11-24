@@ -386,13 +386,13 @@ func (w *conversationWatch) reset(path string) ([]conversation.Item, int64, erro
 }
 
 // transcriptState returns the goal and the waiting messages of the transcript at path. The waiting messages are idle
-// when pane is done.
+// when pane runs no turn (see protocol.Idle).
 func (w *conversationWatch) transcriptState(pane *v1.Pane, path string) (string, []conversation.Waiting, error) {
 	goal, err := w.panes.goals.Goal(path)
 	if err != nil {
 		return "", nil, transcriptError(err)
 	}
-	idle := pane.GetState() == string(protocol.StateDone)
+	idle := protocol.Idle(protocol.State(pane.GetState()), pane.GetHeld())
 	waiting, err := w.panes.queues.Waiting(path, idle)
 	if err != nil {
 		return "", nil, transcriptError(err)
@@ -403,7 +403,7 @@ func (w *conversationWatch) transcriptState(pane *v1.Pane, path string) (string,
 // livePane returns the Pane message Panes.List gives for the pane with id, and the transcript path of its live
 // session. It fails with the errors Conversation gives for the same pane.
 func (s panesServer) livePane(ctx context.Context, id string) (*v1.Pane, string, error) {
-	panes, err := listPanes(ctx, s.tmux, s.newest, s.reader)
+	panes, err := listPanes(ctx, s.tmux, s.host, s.newest, s.reader)
 	if err != nil {
 		return nil, "", err
 	}

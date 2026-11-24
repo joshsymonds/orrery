@@ -360,7 +360,7 @@
   },
   {
     "name": "epic_stop",
-    "description": "Pause an epic by id and stop the step of its running turn. Returns a short acknowledgement, not the stored epic: the epic id, its phase and one line naming what changed. An epic with no running turn is refused, and nothing is stopped, unless it holds its repository's release slot: then the slot is freed, its open release step is stopped if one runs, and the epic is not paused. epic_release resumes a stopped release.",
+    "description": "Pause an epic by id and stop the step of its running turn. Returns a short acknowledgement, not the stored epic: the epic id, its phase and one line naming what changed. An epic with no running turn is refused, and nothing is stopped, unless it is releasing or its release is stopped: then the release's open step is stopped if one runs, no further step starts, and the epic is not paused. epic_release resumes a stopped release.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -440,7 +440,7 @@
   },
   {
     "name": "epic_close",
-    "description": "Close an epic by id as superseded, shipped by hand or abandoned, which ends it. kind names the close; superseded requires by, the epic that replaces it. The close answers the epic's open questions, ends its running turn, node runs and steps, and frees its release slot. Returns a short acknowledgement, not the stored epic: the epic id, its phase and one line naming what changed. Refused for a superseded close without by.",
+    "description": "Close an epic by id as superseded, shipped by hand or abandoned, which ends it. kind names the close; superseded requires by, the epic that replaces it. The close answers the epic's open questions, ends its running turn, node runs and steps. Returns a short acknowledgement, not the stored epic: the epic id, its phase and one line naming what changed. Refused for a superseded close without by.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -465,7 +465,7 @@
   },
   {
     "name": "epic_amend",
-    "description": "Amend the evidence item of a Requirement of an epic by id: requirement names it and item is the whole item it should hold, which must pass the shape check a created epic's items pass. The amendment starts checking: orreryd runs the new item's red at the epic's base and applies the item only when that red is judged not to hold there; a red that holds refuses it and the old item stays. The owner may change the conclusion. Returns a short acknowledgement, not the stored epic: the epic id, its phase and one line naming what changed.",
+    "description": "Amend the evidence item of a Requirement of an epic by id: requirement names it and item is the whole item it should hold, which must pass the shape check a created epic's items pass. The amendment starts checking: orreryd runs the new item's red at the epic's base and applies the item only when that red is judged not to hold there; a red that holds refuses it and the old item stays. The owner and the epic's steering conversation may change the conclusion and kind. Returns a short acknowledgement, not the stored epic: the epic id, its phase and one line naming what changed.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -623,8 +623,24 @@
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
+        "delegation": {
+          "description": "the owner's words it decides on, for conversation",
+          "type": "string"
+        },
         "id": {
           "description": "the id of the stored contract to accept",
+          "type": "string"
+        },
+        "maker": {
+          "description": "owner_serve, owner_conversation or conversation",
+          "type": "string"
+        },
+        "quote": {
+          "description": "the owner's words, for owner_conversation",
+          "type": "string"
+        },
+        "reason": {
+          "description": "why the conversation decides, for conversation",
           "type": "string"
         },
         "words": {
@@ -634,6 +650,37 @@
       },
       "required": [
         "id"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "name": "contract_draft",
+    "description": "Draft a contract before it is proposed: store the contract in the file at path as a draft under id, with the words and the file's decisions, in the design named by design when it is given. The file has the shape contract_propose reads. A draft has no versions and is not a contract until contract_propose proposes it under the same id. Returns the stored draft. A file that does not read is refused, naming the path.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "design": {
+          "description": "the id of the design the draft joins, as design_create made it; empty joins no design",
+          "type": "string"
+        },
+        "id": {
+          "description": "the id the draft takes, the id the contract takes when it is proposed",
+          "type": "string"
+        },
+        "path": {
+          "description": "the contract file: one JSON object holding the contract in protobuf JSON field names, plus an optional decisions array of decisions in protobuf JSON field names",
+          "type": "string"
+        },
+        "words": {
+          "description": "the words the writer gives with the draft",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "path",
+        "words"
       ],
       "type": "object"
     }
@@ -671,6 +718,10 @@
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
+        "design": {
+          "description": "the id of the design the contract joins, as design_create made it; empty joins no design, so the contract reads as a design of one",
+          "type": "string"
+        },
         "id": {
           "description": "the id the new contract takes: the id of the contract in the file",
           "type": "string"
@@ -785,6 +836,661 @@
       },
       "required": [
         "id"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "name": "design_create",
+    "description": "Create a design under id with title. A design holds the contracts one conversation works, in the order they start, and starts with none: contract_propose adds one with its design argument. Returns the design with its contracts and state.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "description": "the id the new design takes: no contract or design may hold it",
+          "type": "string"
+        },
+        "title": {
+          "description": "the design's title, on one line",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "title"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "name": "design_get",
+    "description": "Return a design by id, with its contracts, the contracts each starts after and its state. The id of a contract returns the design of one that holds it, a contract proposed with no design.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "description": "the id of the design to read, or the id of a contract to read the design of one it is in",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "name": "design_list",
+    "description": "List every design, with its contracts, sorted by id. A contract proposed with no design is listed as a design of one.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {},
+      "required": [],
+      "type": "object"
+    }
+  },
+  {
+    "name": "design_order",
+    "description": "Record that a contract of a design starts after another contract of the same design, given as contract and after. The edge takes effect when the contract's epic is created, and no tool removes an edge. Returns the design with the edge.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "after": {
+          "description": "the id of the contract that the contract starts after",
+          "type": "string"
+        },
+        "contract": {
+          "description": "the id of the contract that starts after the other",
+          "type": "string"
+        },
+        "design": {
+          "description": "the id of the design both contracts belong to",
+          "type": "string"
+        }
+      },
+      "required": [
+        "design",
+        "contract",
+        "after"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "name": "design_research",
+    "description": "Start a read-only scout step that answers question about repository at revision, for design, and store the step on the design. Returns the step; its report is in design_stage once the step returns.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "design": {
+          "description": "the id of the design or contract the step researches for",
+          "type": "string"
+        },
+        "question": {
+          "description": "the question the scout answers",
+          "type": "string"
+        },
+        "repository": {
+          "description": "the absolute path of the git repository the scout reads",
+          "type": "string"
+        },
+        "revision": {
+          "description": "the committed revision the scout reads at, empty for HEAD",
+          "type": "string"
+        }
+      },
+      "required": [
+        "design",
+        "repository",
+        "question"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "name": "design_reproduce",
+    "description": "Run command in repository at revision through a read-only test runner step, and store the step on design. Returns the step; its output is in design_stage once the step returns.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "command": {
+          "description": "the command to run",
+          "type": "string"
+        },
+        "design": {
+          "description": "the id of the design or contract the output is stored on",
+          "type": "string"
+        },
+        "repository": {
+          "description": "the absolute path of the git repository the command runs in",
+          "type": "string"
+        },
+        "revision": {
+          "description": "the committed revision the command runs at",
+          "type": "string"
+        }
+      },
+      "required": [
+        "design",
+        "repository",
+        "revision",
+        "command"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "name": "design_stage",
+    "description": "Return the contract stage of a design: the research and reproduction steps it started, each with its status and its report once it returns.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "design": {
+          "description": "the id of the design or contract whose stage to read",
+          "type": "string"
+        }
+      },
+      "required": [
+        "design"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "name": "design_ask",
+    "description": "Store a question on design, about contract or about none, with its options and the option the planner recommends. Returns the question, unanswered; design_answer answers it.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "contract": {
+          "description": "the contract the question concerns, or empty",
+          "type": "string"
+        },
+        "design": {
+          "description": "the design or contract the question is on",
+          "type": "string"
+        },
+        "options": {
+          "description": "the options the owner may choose between",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "recommendation": {
+          "description": "the option the planner recommends",
+          "type": "string"
+        },
+        "text": {
+          "description": "the question's text",
+          "type": "string"
+        }
+      },
+      "required": [
+        "design",
+        "text",
+        "options",
+        "recommendation"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "name": "design_answer",
+    "description": "Store an answer to a question of design, with the maker it came from: owner_serve for the owner through serve, owner_conversation for the owner in the conversation with quote, or conversation for the owner with reason and delegation. accept answers with the recommendation. Returns the question with its answer.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "accept": {
+          "description": "true to answer with the recommendation",
+          "type": "boolean"
+        },
+        "answer": {
+          "description": "the answer's words; empty with accept",
+          "type": "string"
+        },
+        "delegation": {
+          "description": "the owner's words it decides on, for conversation",
+          "type": "string"
+        },
+        "design": {
+          "description": "the design or contract the question is on",
+          "type": "string"
+        },
+        "maker": {
+          "description": "owner_serve, owner_conversation or conversation",
+          "type": "string"
+        },
+        "question": {
+          "description": "the question id design_ask gave",
+          "type": "integer"
+        },
+        "quote": {
+          "description": "the owner's words, for owner_conversation",
+          "type": "string"
+        },
+        "reason": {
+          "description": "why the conversation decides, for conversation",
+          "type": "string"
+        }
+      },
+      "required": [
+        "design",
+        "question",
+        "maker"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "name": "design_dispose",
+    "description": "Store a disposition of a ledger item of design, with the maker it came from: owner_serve for the owner through serve, owner_conversation for the owner in the conversation with quote, or conversation for the owner with makerReason and delegation. Before closure an item is adopted, rejected with reason, deferred with boundary, or open; after closure an open item closes as revised_after_closure or accepted_as_risk, with reason. Returns the item with its disposition.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "boundary": {
+          "description": "the boundary the item is deferred to, for deferred",
+          "type": "string"
+        },
+        "delegation": {
+          "description": "the owner's words it decides on, for conversation",
+          "type": "string"
+        },
+        "design": {
+          "description": "the design or contract the item belongs to",
+          "type": "string"
+        },
+        "disposition": {
+          "description": "adopted, rejected, deferred or open before closure; revised_after_closure or accepted_as_risk after it",
+          "type": "string"
+        },
+        "item": {
+          "description": "the id of the ledger item, as design_stage lists it",
+          "type": "string"
+        },
+        "maker": {
+          "description": "owner_serve, owner_conversation or conversation",
+          "type": "string"
+        },
+        "makerReason": {
+          "description": "why the conversation decides, for conversation",
+          "type": "string"
+        },
+        "quote": {
+          "description": "the owner's words, for owner_conversation",
+          "type": "string"
+        },
+        "reason": {
+          "description": "why the item is rejected, or why an open item closes after closure",
+          "type": "string"
+        }
+      },
+      "required": [
+        "design",
+        "item",
+        "disposition",
+        "maker"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "name": "design_steelman",
+    "description": "Run one steelman pass on design. With no counted discovery it is the discovery pass; with one it is the closure pass on delta against the frozen ledger, or with skipClosure and reason the closure is recorded skipped. Returns the step; its verdict is in design_stage once it returns. A pass whose verdict is BLOCKED, or that returns nothing, does not count.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "delegation": {
+          "description": "the owner's words it decides on, for conversation",
+          "type": "string"
+        },
+        "delta": {
+          "description": "what the revision changed since discovery, for the closure pass",
+          "type": "string"
+        },
+        "design": {
+          "description": "the design or contract the pass checks",
+          "type": "string"
+        },
+        "maker": {
+          "description": "owner_serve, owner_conversation or conversation, for skipClosure",
+          "type": "string"
+        },
+        "makerReason": {
+          "description": "why the conversation decides, for conversation",
+          "type": "string"
+        },
+        "quote": {
+          "description": "the owner's words, for owner_conversation",
+          "type": "string"
+        },
+        "reason": {
+          "description": "why the closure is skipped, for skipClosure",
+          "type": "string"
+        },
+        "skipClosure": {
+          "description": "true to record the closure as skipped rather than run it",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "design"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "name": "design_guide",
+    "description": "Return the contract stage's rules as text: how to research, ask and answer questions, draft and propose a contract, run the steelman's passes and dispose of their items, what contract_accept refuses, the contract's sections and the Quality Bar. Read it before the stage. It takes no arguments and changes nothing.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {},
+      "required": [],
+      "type": "object"
+    }
+  },
+  {
+    "name": "design_approach",
+    "description": "Store an approach design's stage weighs: its shape, its cost, what it wins and loses, what would make the planner reconsider it, the research steps it rests on, and whether the planner recommends it. Returns the stored approach with its seq.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "cost": {
+          "description": "what the approach costs",
+          "type": "string"
+        },
+        "design": {
+          "description": "the design or contract the approach is weighed on",
+          "type": "string"
+        },
+        "loses": {
+          "description": "what the approach loses",
+          "type": "string"
+        },
+        "name": {
+          "description": "the approach's name",
+          "type": "string"
+        },
+        "reason": {
+          "description": "why the planner recommends the approach or does not",
+          "type": "string"
+        },
+        "recommended": {
+          "description": "true when the planner recommends the approach",
+          "type": "boolean"
+        },
+        "reconsider": {
+          "description": "what would make the planner reconsider the approach",
+          "type": "string"
+        },
+        "research": {
+          "description": "the ids of the research steps the approach rests on",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "shape": {
+          "description": "the shape the approach takes",
+          "type": "string"
+        },
+        "wins": {
+          "description": "what the approach wins",
+          "type": "string"
+        }
+      },
+      "required": [
+        "design",
+        "name",
+        "shape",
+        "cost",
+        "wins",
+        "loses",
+        "reconsider"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "name": "design_choose",
+    "description": "Store the approach the owner chose for design, by the seq design_approach gave it, with the maker it came from: owner_serve for the owner through serve, owner_conversation for the owner in the conversation with quote, or conversation for the owner with reason and delegation. Returns the choice.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "approach": {
+          "description": "the seq of the chosen approach, as design_approach gave it",
+          "type": "integer"
+        },
+        "delegation": {
+          "description": "the owner's words it decides on, for conversation",
+          "type": "string"
+        },
+        "design": {
+          "description": "the design or contract the choice is made for",
+          "type": "string"
+        },
+        "maker": {
+          "description": "owner_serve, owner_conversation or conversation",
+          "type": "string"
+        },
+        "quote": {
+          "description": "the owner's words, for owner_conversation",
+          "type": "string"
+        },
+        "reason": {
+          "description": "why the conversation decides, for conversation",
+          "type": "string"
+        },
+        "words": {
+          "description": "the owner's words the choice is made with",
+          "type": "string"
+        }
+      },
+      "required": [
+        "design",
+        "approach",
+        "words",
+        "maker"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "name": "design_delegate",
+    "description": "Store the owner's delegation to the conversation of the decisions of kinds on design, with the owner's message. Returns the delegation.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "design": {
+          "description": "the design or contract the delegation covers",
+          "type": "string"
+        },
+        "kinds": {
+          "description": "the kinds of decision the conversation may make for the owner",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "message": {
+          "description": "the owner's words the delegation is given with",
+          "type": "string"
+        }
+      },
+      "required": [
+        "design",
+        "kinds",
+        "message"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "name": "contract_row",
+    "description": "Store a write to a row of contract: set its F, R or P row to value, or remove it with remove, with depends, the words and the maker it came from: owner_serve for the owner through serve, owner_conversation for the owner in the conversation with quote, or conversation for the owner with reason and delegation. Returns the stored write.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "contract": {
+          "description": "the id of the contract whose row is written",
+          "type": "string"
+        },
+        "delegation": {
+          "description": "the owner's words it decides on, for conversation",
+          "type": "string"
+        },
+        "depends": {
+          "description": "the row the written row depends on",
+          "type": "string"
+        },
+        "design": {
+          "description": "the design the contract joins, empty for none",
+          "type": "string"
+        },
+        "maker": {
+          "description": "owner_serve, owner_conversation or conversation",
+          "type": "string"
+        },
+        "quote": {
+          "description": "the owner's words, for owner_conversation",
+          "type": "string"
+        },
+        "reason": {
+          "description": "why the conversation decides, for conversation",
+          "type": "string"
+        },
+        "remove": {
+          "description": "true to remove the row rather than set it",
+          "type": "boolean"
+        },
+        "row": {
+          "description": "the F, R or P row the write concerns",
+          "type": "string"
+        },
+        "value": {
+          "description": "the row's value the write sets, empty with remove",
+          "type": "string"
+        },
+        "words": {
+          "description": "the owner's words the write is made with",
+          "type": "string"
+        }
+      },
+      "required": [
+        "contract",
+        "row",
+        "words",
+        "maker"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "name": "contract_keep",
+    "description": "Store an addition contract keeps, with the words and the maker it came from: owner_serve for the owner through serve, owner_conversation for the owner in the conversation with quote, or conversation for the owner with reason and delegation. Returns the stored write.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "addition": {
+          "description": "the addition the contract keeps",
+          "type": "string"
+        },
+        "contract": {
+          "description": "the id of the contract the addition belongs to",
+          "type": "string"
+        },
+        "delegation": {
+          "description": "the owner's words it decides on, for conversation",
+          "type": "string"
+        },
+        "maker": {
+          "description": "owner_serve, owner_conversation or conversation",
+          "type": "string"
+        },
+        "quote": {
+          "description": "the owner's words, for owner_conversation",
+          "type": "string"
+        },
+        "reason": {
+          "description": "why the conversation decides, for conversation",
+          "type": "string"
+        },
+        "words": {
+          "description": "the owner's words the addition is kept with",
+          "type": "string"
+        }
+      },
+      "required": [
+        "contract",
+        "addition",
+        "words",
+        "maker"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "name": "contract_strike",
+    "description": "Strike an addition contract keeps, with the words and the maker it came from: owner_serve for the owner through serve, owner_conversation for the owner in the conversation with quote, or conversation for the owner with reason and delegation. Returns the stored write and the rows it removed.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "addition": {
+          "description": "the addition the contract keeps, which is struck",
+          "type": "string"
+        },
+        "contract": {
+          "description": "the id of the contract the addition belongs to",
+          "type": "string"
+        },
+        "delegation": {
+          "description": "the owner's words it decides on, for conversation",
+          "type": "string"
+        },
+        "maker": {
+          "description": "owner_serve, owner_conversation or conversation",
+          "type": "string"
+        },
+        "quote": {
+          "description": "the owner's words, for owner_conversation",
+          "type": "string"
+        },
+        "reason": {
+          "description": "why the conversation decides, for conversation",
+          "type": "string"
+        },
+        "words": {
+          "description": "the owner's words the addition is struck with",
+          "type": "string"
+        }
+      },
+      "required": [
+        "contract",
+        "addition",
+        "words",
+        "maker"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "name": "contract_propose_working",
+    "description": "Propose the working copy of a contract a design holds as a new contract under id, with the words. Returns the stored contract with its warnings.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "description": "the id the new contract takes",
+          "type": "string"
+        },
+        "words": {
+          "description": "the words the writer gives with the proposal",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "words"
       ],
       "type": "object"
     }

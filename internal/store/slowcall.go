@@ -19,7 +19,8 @@ const slowCallThreshold = 100 * time.Millisecond
 const maxQueryNameLen = 60
 
 // slowCalls reports each store call that takes longer than slowCallThreshold: it logs the call's query names and how
-// long the call waited for the store's one connection and then ran on it, and runs counted.
+// long the call waited for its connection and then ran on it, and runs counted. A write waits for the writer, the
+// store's one write connection, and a read waits for one of the read pool's connections.
 type slowCalls struct {
 	now     func() time.Time
 	logger  *slog.Logger
@@ -129,9 +130,10 @@ func statementName(query string) string {
 	return line
 }
 
-// pool is the store's *sql.DB with each call the store makes on it timed: an Exec, a query and a transaction each
-// from the call until the connection is free again. Conn is not timed here: write, its one caller, times its write.
-// Its errors wrap database/sql's with their text unchanged, so errors.Is and every message stay as they were.
+// pool is one of the store's *sql.DB pools, the writer or the read pool, with each call the store makes on it timed: an
+// Exec, a query and a transaction each from the call until the connection is free again. Conn is not timed here: write,
+// the writer's one caller, times its write. Its errors wrap database/sql's with their text unchanged, so errors.Is and
+// every message stay as they were.
 type pool struct {
 	*sql.DB
 	slow *slowCalls

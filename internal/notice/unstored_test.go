@@ -39,7 +39,7 @@ func (r *refusingRows) PutPushed(ctx context.Context, row store.PushedRow) error
 	return r.Store.PutPushed(ctx, row)
 }
 
-func (r *refusingRows) DeletePushed(ctx context.Context, pane, session string) error {
+func (r *refusingRows) DeletePushed(ctx context.Context, host, pane, session string) error {
 	r.mu.Lock()
 	refuse := pane == r.refuse && !r.refusedDelete
 	r.refusedDelete = r.refusedDelete || refuse
@@ -47,7 +47,7 @@ func (r *refusingRows) DeletePushed(ctx context.Context, pane, session string) e
 	if refuse {
 		return errRefused
 	}
-	return r.Store.DeletePushed(ctx, pane, session)
+	return r.Store.DeletePushed(ctx, host, pane, session)
 }
 
 // TestRefusedPushedRowIsStoredAtTheNextWrite has the store refuse the row write of one key's notice. The next row

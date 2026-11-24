@@ -1,7 +1,6 @@
 package enginehost
 
 import (
-	"errors"
 	"slices"
 	"testing"
 
@@ -9,11 +8,11 @@ import (
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
-// TestReleaseFreesStepSlotAndRecordsNothing covers R1: with the step cap full by a handed-off step, Release stops its
-// process, frees its slot so another step starts, records nothing and tells the observer of no exit.
-func TestReleaseFreesStepSlotAndRecordsNothing(t *testing.T) {
+// TestReleaseStopsStepAndRecordsNothing covers R1: Release of a handed-off step stops its process, records nothing and
+// tells the observer of no exit.
+func TestReleaseStopsStepAndRecordsNothing(t *testing.T) {
 	t.Parallel()
-	m, path := newStepManager(t, 1, fakeClaudePath(t), &fakeSink{})
+	m, path := newStepManager(t, fakeClaudePath(t), &fakeSink{})
 	dir := t.TempDir()
 	obs := &stepObserver{}
 	step := testStep(stepA, dir)
@@ -25,9 +24,6 @@ func TestReleaseFreesStepSlotAndRecordsNothing(t *testing.T) {
 		return stepDone(t, h, "fake reply 1")
 	})
 	waitUntil(t, engineOf(m), "the step's hand-off", func() bool { return obs.returned() == 1 })
-	if err := m.StartStep(t.Context(), testStep(stepB, t.TempDir())); !errors.Is(err, ErrCapReached) {
-		t.Fatalf("StartStep with the step cap full: err = %v, want ErrCapReached", err)
-	}
 	pid := fakePID(t, dir)
 
 	if err := m.Release(t.Context(), stepA); err != nil {
@@ -35,9 +31,6 @@ func TestReleaseFreesStepSlotAndRecordsNothing(t *testing.T) {
 	}
 	requireGone(t, pid)
 
-	if err := m.StartStep(t.Context(), testStep(stepB, t.TempDir())); err != nil {
-		t.Fatalf("StartStep after the release: %v", err)
-	}
 	if got := lastState(t, historyOf(t, path, stepA)); got != string(protocol.StateDone) {
 		t.Fatalf("state of the released step = %q, want %q", got, protocol.StateDone)
 	}
@@ -50,7 +43,7 @@ func TestReleaseFreesStepSlotAndRecordsNothing(t *testing.T) {
 // the same session with --resume, and the prompt's turn ends as usual.
 func TestContinueRespawnsReleasedStepInItsSession(t *testing.T) {
 	t.Parallel()
-	m, path := newStepManager(t, 1, fakeClaudePath(t), &fakeSink{})
+	m, path := newStepManager(t, fakeClaudePath(t), &fakeSink{})
 	dir := t.TempDir()
 	if err := m.StartStep(t.Context(), testStep(stepA, dir)); err != nil {
 		t.Fatalf("StartStep: %v", err)
@@ -98,7 +91,7 @@ func TestContinueRespawnsReleasedStepInItsSession(t *testing.T) {
 // id with no live session, returns nil.
 func TestReleaseOfStepNotLiveReturnsNil(t *testing.T) {
 	t.Parallel()
-	m, path := newStepManager(t, 1, fakeClaudePath(t), &fakeSink{})
+	m, path := newStepManager(t, fakeClaudePath(t), &fakeSink{})
 	dir := t.TempDir()
 	if err := m.StartStep(t.Context(), testStep(stepA, dir)); err != nil {
 		t.Fatalf("StartStep: %v", err)

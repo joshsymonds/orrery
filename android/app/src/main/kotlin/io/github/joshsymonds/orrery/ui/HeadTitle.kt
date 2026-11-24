@@ -30,10 +30,11 @@ import io.github.joshsymonds.orrery.ui.theme.OrreryTokens
  * project's name (the machine band under the row names the host), over the title in bold body type, one step down from the title type, cut short at its second
  * line, then the bare context meter when there is a figure, and More. The bare meter names the context and its tokens
  * of the window to the reader, as the web's tooltip does. It draws no Orrery icon and no count. More opens a menu
- * holding Find and Hide the header. A non-empty [note] draws under the row, in the crit colour.
+ * holding Find and Hide the header. The conversation's [work] links draw on the project's line, after the project's name.
+ * A non-empty [note] draws under the row, in the crit colour.
  */
 @Composable
-fun HeadTitleRow(
+internal fun HeadTitleRow(
     dir: String,
     title: String,
     context: ConversationContext?,
@@ -44,6 +45,10 @@ fun HeadTitleRow(
     onDismissMore: () -> Unit,
     onHideHeader: () -> Unit,
     onFind: () -> Unit = {},
+    work: List<WorkLink> = emptyList(),
+    workLit: String? = null,
+    onOpenWork: (WorkLink) -> Unit = {},
+    onAllWork: () -> Unit = {},
 ) {
     Column(
         modifier = Modifier
@@ -66,13 +71,16 @@ fun HeadTitleRow(
                 style = OrreryTokens.Type.title,
             )
             Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = buildAnnotatedString { withStyle(SpanStyle(color = OrreryTokens.Role.place)) { append(dir) } },
-                    modifier = Modifier.testTag("head-dir"),
-                    style = ProjectNameStyle,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = buildAnnotatedString { withStyle(SpanStyle(color = OrreryTokens.Role.place)) { append(dir) } },
+                        modifier = Modifier.testTag("head-dir").weight(1f, fill = false),
+                        style = ProjectNameStyle,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    WorkLinks(links = work, lit = workLit, onOpen = onOpenWork, onAll = onAllWork)
+                }
                 Text(
                     text = title,
                     modifier = Modifier.testTag("head-text"),

@@ -60,7 +60,7 @@ func isQuiet(m *Manager, id string) bool {
 // as ownerInterrupted.
 func TestInterruptMarkOwnerInterruptOfRunningTurn(t *testing.T) {
 	t.Parallel()
-	m, path := newTestManager(t, 1, fakeClaudePath(t))
+	m, path := newTestManager(t, fakeClaudePath(t))
 	id, err := m.Start(t.Context(), StartRequest{Dir: t.TempDir(), Prompt: "HANG"})
 	if err != nil {
 		t.Fatalf("Start: %v", err)
@@ -96,7 +96,7 @@ func TestInterruptMarkOwnerInterruptOfRunningTurn(t *testing.T) {
 // recorded, as not turning, and no turn's end is marked.
 func TestInterruptMarkOwnerInterruptWithNoTurnRunning(t *testing.T) {
 	t.Parallel()
-	m, path := newTestManager(t, 1, fakeClaudePath(t))
+	m, path := newTestManager(t, fakeClaudePath(t))
 	id, err := m.Start(t.Context(), StartRequest{Dir: t.TempDir(), Prompt: "start"})
 	if err != nil {
 		t.Fatalf("Start: %v", err)
@@ -122,7 +122,7 @@ func TestInterruptMarkOwnerInterruptWithNoTurnRunning(t *testing.T) {
 // is written, no engine_interrupt is recorded, and no turn's end is marked.
 func TestInterruptMarkPreemptingSayStoresNone(t *testing.T) {
 	t.Parallel()
-	m, path := newTestManager(t, 1, fakeClaudePath(t))
+	m, path := newTestManager(t, fakeClaudePath(t))
 	dir := t.TempDir()
 	id, err := m.Start(t.Context(), StartRequest{Dir: dir, Prompt: "start"})
 	if err != nil {
@@ -156,7 +156,7 @@ func TestInterruptMarkPreemptingSayStoresNone(t *testing.T) {
 // as the step loop does. The interrupt records no engine_interrupt, and the turn's end is not marked.
 func TestInterruptMarkStepLoopInterruptStoresNone(t *testing.T) {
 	t.Parallel()
-	m, path := newTestManager(t, 1, fakeClaudePath(t))
+	m, path := newTestManager(t, fakeClaudePath(t))
 	id, err := m.Start(t.Context(), StartRequest{Dir: t.TempDir(), Prompt: "HANG"})
 	if err != nil {
 		t.Fatalf("Start: %v", err)
@@ -184,7 +184,7 @@ func TestInterruptMarkStepLoopInterruptStoresNone(t *testing.T) {
 // owner's record, and the session stays quiet.
 func TestInterruptMarkFailedInterruptStoresNotTurning(t *testing.T) {
 	t.Parallel()
-	m, path := newTestManager(t, 1, fakeClaudePath(t))
+	m, path := newTestManager(t, fakeClaudePath(t))
 	id, err := m.Start(t.Context(), StartRequest{Dir: t.TempDir(), Prompt: "HANG"})
 	if err != nil {
 		t.Fatalf("Start: %v", err)

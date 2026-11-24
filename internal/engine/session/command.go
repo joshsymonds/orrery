@@ -30,26 +30,24 @@ func ShellArgs(login bool, argv0, program string, args ...string) []string {
 // inline agent definitions claude takes as its --agents argument or empty, Schema the JSON schema
 // claude must return its result in or empty, Settings the JSON settings claude takes as its one
 // --settings argument or empty, HolderScope the absolute path of systemd-run that runs the session's
-// holder in its own user scope or empty to start the holder plainly, HolderScopeMemory that scope's memory cap in
-// bytes or zero for holder.DefaultScopeMemory, StateDir the state directory that
+// holder in its own user scope or empty to start the holder plainly, StateDir the state directory that
 // holds the session's holder or empty for a private directory per session, and Environ the daemon's
 // environment.
 type Config struct {
-	Shell             string
-	Claude            string
-	Dir               string
-	PermissionMode    string
-	Resume            string
-	Model             string
-	Agent             string
-	Agents            string
-	Schema            string
-	Settings          string
-	Name              string
-	HolderScope       string
-	HolderScopeMemory int64
-	StateDir          string
-	Environ           []string
+	Shell          string
+	Claude         string
+	Dir            string
+	PermissionMode string
+	Resume         string
+	Model          string
+	Agent          string
+	Agents         string
+	Schema         string
+	Settings       string
+	Name           string
+	HolderScope    string
+	StateDir       string
+	Environ        []string
 }
 
 // Command returns the process that starts a headless session: the owner's login shell execs claude in
@@ -126,11 +124,10 @@ func Start(ctx context.Context, cfg Config) (*Session, error) {
 		return nil, err
 	}
 	process, err := holder.Launch(ctx, holder.LaunchConfig{
-		Scope:       cfg.HolderScope,
-		ScopeMemory: cfg.HolderScopeMemory,
-		StateDir:    cfg.StateDir,
-		Session:     cfg.Name,
-		Child:       command,
+		Scope:    cfg.HolderScope,
+		StateDir: cfg.StateDir,
+		Session:  cfg.Name,
+		Child:    command,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("session: start process: %w", err)

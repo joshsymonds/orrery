@@ -471,7 +471,7 @@ func TestCronFireAfterRestart(t *testing.T) {
 
 func TestCronFireResumesIdleStopped(t *testing.T) {
 	t.Parallel()
-	m, path, clock := newIdleManager(t, 1)
+	m, path, clock := newIdleManager(t)
 	dir := t.TempDir()
 	id, err := m.Start(t.Context(), StartRequest{Dir: dir, Prompt: "hi"})
 	if err != nil {

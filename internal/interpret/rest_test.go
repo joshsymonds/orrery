@@ -72,8 +72,8 @@ func (w *releaseWorld) startRelease(id string) {
 	}
 }
 
-// releasedEpic stores the epic id released, its release node run ended passed and the release slot free, as a
-// release leaves an epic once its run has freed the slot and ended.
+// releasedEpic stores the epic id released, its release node run ended passed, as a release leaves an epic once its run
+// has ended.
 func (w *releaseWorld) releasedEpic(id string) {
 	w.t.Helper()
 	w.createEpic(id, "released")
@@ -195,17 +195,13 @@ func TestPassReadsEndedWithGapsEpicAgainOnceReleased(t *testing.T) {
 	}
 }
 
-// TestPassFreesReleasedEpicsSlotThenRests: an epic the judge released still holds the release slot and its release run
-// runs, so the pass reads it, frees the slot and ends the run passed. The epic is at rest after that, and the next pass
-// does not read it.
-func TestPassFreesReleasedEpicsSlotThenRests(t *testing.T) {
+// TestPassEndsReleasedEpicThenRests: an epic the judge released still has its release run running, so the pass reads it
+// and ends the run passed. The epic is at rest after that, and the next pass does not read it.
+func TestPassEndsReleasedEpicThenRests(t *testing.T) {
 	t.Parallel()
 	w := newReleaseWorldIn(t, nil, filepath.Join(t.TempDir(), "no-repository"))
 	w.runner.ending = w.s
 	w.createEpic(runEpic, store.PhaseReleasing)
-	if _, err := w.s.TakeReleaseSlot(t.Context(), runEpic, runClock()); err != nil {
-		t.Fatalf("TakeReleaseSlot: %v", err)
-	}
 	w.startRelease(runEpic)
 	if err := w.s.EndEpic(t.Context(), runEpic, "released", "released", nil, runClock()); err != nil {
 		t.Fatalf("EndEpic: %v", err)
@@ -214,11 +210,7 @@ func TestPassFreesReleasedEpicsSlotThenRests(t *testing.T) {
 
 	w.pass()
 	if reads.flows[runEpic] == 0 {
-		t.Fatalf("pass did not read the released epic that holds the slot")
-	}
-	flow := w.flowOf(runEpic)
-	if flow.Slot != "" {
-		t.Errorf("slot = %q after the pass, want it free", flow.Slot)
+		t.Fatalf("pass did not read the released epic whose release run runs")
 	}
 	if run := runAt(t, w.s, releaseNodePath); run.State != store.NodeEnded || run.Outcome != outcomePassed {
 		t.Errorf("release run = %s %q after the pass, want ended passed", run.State, run.Outcome)

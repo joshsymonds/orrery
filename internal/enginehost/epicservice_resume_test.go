@@ -67,9 +67,6 @@ func TestEpicResumeResumesLimitedTaskStepsOfUnpausedEpic(t *testing.T) {
 	if got := resumed.Msg.GetResumed(); !slices.Equal(got, []string{"step-a", "step-b"}) {
 		t.Fatalf("resumed = %v, want [step-a step-b]", got)
 	}
-	if got := resumed.Msg.GetStillLimited(); len(got) != 0 {
-		t.Fatalf("still_limited = %v, want none", got)
-	}
 	if resumed.Msg.GetEpic().GetPaused() {
 		t.Fatalf("paused = true in the ResumeEpic reply, want false")
 	}
@@ -107,14 +104,16 @@ func TestEpicResumeClearsPauseAndResumesLimitedStep(t *testing.T) {
 	}
 }
 
-func TestEpicResumeLeavesCapRefusedStepLimited(t *testing.T) {
+// TestEpicResumeSkipsStepsResumedOrEndedAfterTheList: a step that a resume finds no longer limited, or ended, after the
+// list is neither resumed nor an error, and every listed step is tried in order.
+func TestEpicResumeSkipsStepsResumedOrEndedAfterTheList(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
 	steps := &resumeSteps{
 		rows: []store.StepRow{limitedStep("step-a", "task-a"), limitedStep("step-b", "task-b"),
 			limitedStep("step-c", "task-c")},
 		replies: map[string]error{
-			"step-a": fmt.Errorf("continue step step-a: %w", ErrCapReached),
+			"step-a": fmt.Errorf("resume step step-a: %w", ErrStepNotLimited),
 			"step-c": ErrStepNotRunning,
 		},
 	}
@@ -128,9 +127,6 @@ func TestEpicResumeLeavesCapRefusedStepLimited(t *testing.T) {
 	}
 	if got := resumed.Msg.GetResumed(); !slices.Equal(got, []string{"step-b"}) {
 		t.Fatalf("resumed = %v, want [step-b]", got)
-	}
-	if got := resumed.Msg.GetStillLimited(); !slices.Equal(got, []string{"step-a"}) {
-		t.Fatalf("still_limited = %v, want [step-a]", got)
 	}
 	if got := steps.resumed(); !slices.Equal(got, []string{"step-a", "step-b", "step-c"}) {
 		t.Fatalf("steps resumed = %v, want all three tried in order", got)

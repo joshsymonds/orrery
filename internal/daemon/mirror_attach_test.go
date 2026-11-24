@@ -42,7 +42,7 @@ func TestMirrorAttachFrameBeforeOpenLandsAfterOpen(t *testing.T) {
 	srv := startServer(t)
 	st, db := openFrameStore(t)
 	logs, logger := newAttachLogs()
-	m := daemon.NewPendingMirror(time.Now, logger)
+	m := daemon.NewPendingMirror("", time.Now, logger)
 	// Every wait for the store or the lock has already expired, so the update's sync is deferred at once.
 	expired := make(chan time.Time)
 	close(expired)
@@ -75,7 +75,7 @@ func TestMirrorAttachWaitingSyncWritesRow(t *testing.T) {
 	srv := startServer(t)
 	st, db := openFrameStore(t)
 	_, logger := newAttachLogs()
-	m := daemon.NewPendingMirror(time.Now, logger)
+	m := daemon.NewPendingMirror("", time.Now, logger)
 	// The sync's wait for the store never expires, and armed reports that the sync has reached it.
 	armed := make(chan struct{}, 1)
 	daemon.SetMirrorLockWait(m, func() <-chan time.Time {
@@ -100,7 +100,7 @@ func TestMirrorAttachWaitingSyncWritesRow(t *testing.T) {
 func TestMirrorAttachNilIsSilent(t *testing.T) {
 	srv := startServer(t)
 	logs, logger := newAttachLogs()
-	m := daemon.NewPendingMirror(time.Now, logger)
+	m := daemon.NewPendingMirror("", time.Now, logger)
 	m.Attach(nil)
 	updates := make(chan daemon.PaneUpdate)
 	serve(t, daemon.Config{Server: srv.server, Mirror: m, Updates: updates, Logger: logger})
@@ -124,7 +124,7 @@ func TestMirrorAttachTidyBeforeOpenWaitsThenLandsAfterOpen(t *testing.T) {
 	srv := startServer(t)
 	st, db := openFrameStore(t)
 	logs, logger := newAttachLogs()
-	m := daemon.NewPendingMirror(time.Now, logger)
+	m := daemon.NewPendingMirror("", time.Now, logger)
 	// The tidy's wait for the store runs on a channel the test closes, so it is deferred only once the test lets the
 	// wait expire.
 	armed, expire := expiringLockWait(m)

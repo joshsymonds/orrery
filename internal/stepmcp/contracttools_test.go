@@ -17,6 +17,7 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	"github.com/joshsymonds/orrery/internal/cli"
+	"github.com/joshsymonds/orrery/internal/contracttext"
 	"github.com/joshsymonds/orrery/internal/enginehost"
 	v1 "github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1"
 	"github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1/enginev1connect"
@@ -177,7 +178,7 @@ func contractTestBody(repo, base string) map[string]any {
 			{"step": "Synthetic release one.", "target": "Synthetic target one.", "undo": "Synthetic undo one."},
 		},
 		"releaseThen": "Synthetic release line.",
-		"checks":      "go test ./...",
+		"checks":      "go test ./...\nQuality Bar: " + contracttext.QualityBar,
 		"base":        base,
 		"gates": []map[string]any{
 			{"name": "check", "argv": []string{"scripts/check"}, "limit": 60},
@@ -256,6 +257,12 @@ func (f *fakeContracts) ProposeContract(
 	return nil, errors.New("stepmcp test: ProposeContract is not expected")
 }
 
+func (f *fakeContracts) DraftContract(
+	context.Context, *connect.Request[v1.DraftContractRequest],
+) (*connect.Response[v1.DraftContractResponse], error) {
+	return nil, errors.New("stepmcp test: DraftContract is not expected")
+}
+
 func (f *fakeContracts) ReviseContract(
 	_ context.Context,
 	req *connect.Request[v1.ReviseContractRequest],
@@ -306,6 +313,12 @@ func (f *fakeContracts) ListContracts(
 	context.Context, *connect.Request[v1.ListContractsRequest],
 ) (*connect.Response[v1.ListContractsResponse], error) {
 	return nil, errors.New("stepmcp test: ListContracts is not expected")
+}
+
+func (f *fakeContracts) ProposeWorking(
+	context.Context, *connect.Request[v1.ProposeWorkingRequest],
+) (*connect.Response[v1.ProposeWorkingResponse], error) {
+	return nil, errors.New("stepmcp test: ProposeWorking is not expected")
 }
 
 // fakeContractCalls is a copy of what the fake recorded.
@@ -377,8 +390,18 @@ func TestContractRecordProposeStoresAndReadsBack(t *testing.T) {
 	}
 	var read v1.GetContractResponse
 	decodeContractReply(t, got.text, &read)
-	if !proto.Equal(read.GetContract(), stored) {
-		t.Errorf("contract_get = %v, want the proposed contract %v", read.GetContract(), stored)
+	// The proposed contract leaves D1 open and both additions unkept, which contract_get lists as what is left.
+	want, ok := proto.Clone(stored).(*v1.StoredContract)
+	if !ok {
+		t.Fatalf("clone of the proposed contract is %T, want *v1.StoredContract", stored)
+	}
+	want.Left = []*v1.ContractLeft{
+		{Kind: store.LeftDecision, Ref: "D1", Text: "decision not yet answered"},
+		{Kind: store.LeftAddition, Ref: "A1", Text: "addition neither kept nor struck"},
+		{Kind: store.LeftAddition, Ref: "A2", Text: "addition neither kept nor struck"},
+	}
+	if !proto.Equal(read.GetContract(), want) {
+		t.Errorf("contract_get = %v, want the proposed contract %v", read.GetContract(), want)
 	}
 
 	listed := p.tool("contract_list", `{}`)

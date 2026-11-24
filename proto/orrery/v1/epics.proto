@@ -2,9 +2,11 @@ syntax = "proto3";
 
 package orrery.v1;
 
-// Epics reads the epics under the gambit record root and the epics orreryd's database holds.
+import "orrery/v1/designs.proto";
+
+// Epics reads the epics orreryd's database holds.
 service Epics {
-  // List returns every epic under the record root and in orreryd's database, one per id, live or folded.
+  // List returns every epic orreryd's database holds, one per id, live or folded.
   rpc List(EpicsListRequest) returns (EpicsListResponse);
 
   // Get returns one epic by the id List gave it.
@@ -85,6 +87,9 @@ message EpicsListRequest {}
 message EpicsListResponse {
   // The epics, sorted by id.
   repeated Epic epics = 1;
+
+  // The designs, each with its contracts.
+  repeated Design designs = 2;
 }
 
 // EpicsGetRequest names one epic.
@@ -93,13 +98,14 @@ message EpicsGetRequest {
   string id = 1;
 }
 
-// EpicsGetResponse carries one epic with its tasks and its steps.
+// EpicsGetResponse carries one epic with its steps and the parts its database holds for it.
 message EpicsGetResponse {
   // The epic.
   Epic epic = 1;
 
-  // The tasks of the epic's efforts, effort number ascending and file order within each effort.
-  repeated EpicTask tasks = 2;
+  // Field 2 was tasks, the tasks of the epic's efforts, which no epic answers now.
+  reserved 2;
+  reserved "tasks";
 
   // Every step labelled with the epic, oldest first.
   repeated EpicStep steps = 3;
@@ -108,68 +114,64 @@ message EpicsGetResponse {
   reserved 4;
   reserved "slices";
 
-  // The orreryd epic's requirements in contract order, empty for a record epic.
+  // The epic's requirements in contract order.
   repeated EpicRequirement requirements = 5;
 
-  // The orreryd epic's workflow node runs in the engine's order, empty for a record epic.
+  // The epic's workflow node runs in the engine's order.
   repeated EpicNode nodes = 6;
 
-  // The orreryd epic's planned tasks, in the order they were planned; empty for a record epic.
+  // The epic's planned tasks, in the order they were planned.
   repeated EpicBuildTask build_tasks = 7;
 
-  // The orreryd epic's open questions, in the order they were asked; empty for a record epic.
+  // The epic's open questions, in the order they were asked.
   repeated EpicQuestion questions = 8;
 
-  // The orreryd epic's accepted contract; absent for a record epic. Its Requirements are in requirements.
+  // The epic's accepted contract, absent when it has none. Its Requirements are in requirements.
   EpicContract contract = 9;
 
-  // Whether the orreryd epic is paused, so its planner starts no turn; false for a record epic.
+  // Whether the epic is paused, so its planner starts no turn.
   bool paused = 10;
 
-  // Why the orreryd epic is parked; empty when it is not parked and for a record epic.
+  // Why the epic is parked; empty when it is not parked.
   string parked = 11;
 
-  // The orreryd epic's summary paragraph, written once from its contract; empty until it is written and for a record
-  // epic.
+  // The epic's summary paragraph, written once from its contract; empty until it is written.
   string summary = 12;
 
-  // The orreryd epic's end-of-epic review ledger in ledger order; empty before its review freezes and for a record
-  // epic.
+  // The epic's end-of-epic review ledger in ledger order; empty before its review freezes.
   repeated EpicLedgerFinding ledger = 13;
 
-  // The orreryd epic's release runs in the order orreryd reads them (by attempt, then part, then position); empty
-  // before its release and for a record epic.
+  // The epic's release runs in the order orreryd reads them (by attempt, then part, then position); empty before its
+  // release.
   repeated EpicReleaseRun releases = 14;
 
-  // The verdicts of the orreryd epic's epic-stage reviewers by position; empty before its review and for a record epic.
+  // The verdicts of the epic's epic-stage reviewers by position; empty before its review.
   repeated EpicReviewVerdict reviews = 15;
 
   // The sessions that work on the epic, each with its newest epic call.
   repeated EpicSession sessions = 16;
 
-  // The absolute path of the git repository the epic belongs to: the orreryd contract's repository, else the record
-  // head's workspace. Empty when neither names one.
+  // The absolute path of the git repository the epic belongs to: its contract's repository. Empty when the contract
+  // names none.
   string repository = 17;
 
-  // The orreryd epic's release steps in contract order, each with the state its release runs give it; empty for a
-  // record epic.
+  // The epic's release steps in contract order, each with the state its release runs give it.
   repeated EpicReleaseProof release_steps = 18;
 
-  // The orreryd epic's report, unset until the epic ends and writes it, and for a record epic.
+  // The epic's report, unset until the epic ends and writes it.
   EpicReport report = 19;
 
-  // Whether the orreryd epic is parked and the planner holds the park, so the owner is not asked about it; false when it
-  // is not parked, when the owner holds its park, and for a record epic. The parked reason is still in parked.
+  // Whether the epic is parked and the planner holds the park, so the owner is not asked about it; false when it is not
+  // parked and when the owner holds its park. The parked reason is still in parked.
   bool planner_parked = 20;
 
-  // The orreryd epic a close named as its replacement; empty when its close named none, when it is not closed, and for
-  // a record epic.
+  // The epic a close named as its replacement; empty when its close named none and when it is not closed.
   string superseded_by = 21;
 
-  // Whether the orreryd epic is parked and its steerer holds the park, so the owner is not asked about it: the park
-  // opens a question, a steering session hears the epic, and the steerer has not escalated the park's question. The
-  // owner is asked once the steerer escalates it. False when it is not parked, when the planner holds its park, when
-  // the park waits on the owner, and for a record epic. The parked reason is still in parked.
+  // Whether the epic is parked and its steerer holds the park, so the owner is not asked about it: the park opens a
+  // question, a steering session hears the epic, and the steerer has not escalated the park's question. The owner is
+  // asked once the steerer escalates it. False when it is not parked, when the planner holds its park, and when the park
+  // waits on the owner. The parked reason is still in parked.
   bool steerer_parked = 22;
 }
 
@@ -576,13 +578,13 @@ message EpicsResumeRequest {
   string id = 1;
 }
 
-// EpicsResumeResponse carries the limited steps a resume resumed and those a full step cap left limited.
+// EpicsResumeResponse carries the limited steps a resume resumed.
 message EpicsResumeResponse {
+  reserved 2;
+  reserved "still_limited";
+
   // The ids of the limited steps the resume resumed, oldest first.
   repeated string resumed = 1;
-
-  // The ids of the limited steps the resume left limited because the step cap was full, oldest first.
-  repeated string still_limited = 2;
 }
 
 // EpicsStopRequest names the orreryd epic to stop.
@@ -705,22 +707,21 @@ message EpicsCloseRequest {
 // EpicsCloseResponse is the reply to a Close. It has no fields.
 message EpicsCloseResponse {}
 
-// Epic is one epic under the record root or in orreryd's database. An id in both is one epic, whose source is orreryd.
+// Epic is one epic orreryd's database holds.
 message Epic {
   // The epic's id, "<repo-id>/<epic-slug>", the same text a step's epic label carries.
   string id = 1;
 
-  // The repository the epic belongs to, the name of the record directory's parent. An orreryd epic's is the part of
-  // its id before the slash.
+  // The repository the epic belongs to, the part of its id before the slash.
   string repository = 2;
 
-  // The epic's slug, the name of its record directory. An orreryd epic's is the part of its id after the slash.
+  // The epic's slug, the part of its id after the slash.
   string slug = 3;
 
-  // The outcome the epic's head state.json records, as written. An orreryd epic carries its phase here.
+  // The epic's outcome, its phase as the database holds it.
   string outcome = 4;
 
-  // When the epic's head state.json last changed, in unix seconds. An orreryd epic's is its last write.
+  // When the epic last changed, in unix seconds: its last write.
   int64 changed = 5;
 
   // Whether the epic is live: its outcome is not released, and it has a running step or changed within a day. An
@@ -733,20 +734,15 @@ message Epic {
   // How many of the epic's labelled steps have ended.
   int32 ended_steps = 8;
 
-  // What could not be read from the epic's records, joined with "; ", empty when everything was read.
-  string problem = 9;
+  // Fields 9, 11 and 12 were problem, outcome_detail and waiting, which no epic answers now.
+  reserved 9, 11, 12;
+  reserved "problem", "outcome_detail", "waiting";
 
-  // orreryd for an epic orreryd's database holds, record for an epic read from gambit records only.
+  // orreryd for every epic: serve sets it for each epic its database holds. It is kept so apps built before the record
+  // listing was retired read every epic as orreryd's.
   string source = 10;
 
-  // The record head state.json's outcome_detail, as written. Empty for an orreryd epic.
-  string outcome_detail = 11;
-
-  // Whether the epic is accepted and waiting to start: a live record epic with no outcome, no running step and no
-  // effort task. False for an orreryd epic.
-  bool waiting = 12;
-
-  // When the orreryd epic's phase was last set, in unix seconds; 0 when unknown and for a record epic.
+  // When the epic's phase was last set, in unix seconds; 0 when unknown.
   int64 phase_at = 13;
 
   // When the owner last saw the epic, in unix seconds, from its latest Seen; 0 when the owner has not seen it.
@@ -755,16 +751,15 @@ message Epic {
   // True while the epic is archived: the owner archived it and has not unarchived it since.
   bool archived = 15;
 
-  // How many writes have changed the database epic's row or a row of its parts, its steps aside; 0 for an epic only the
-  // records hold. It only grows, so an epic whose revision moved has changed in some part Get answers that this
-  // message does not carry, such as its questions, its park, its nodes, its tasks or its ledger.
+  // How many writes have changed the epic's row or a row of its parts, its steps aside. It only grows, so an epic whose
+  // revision moved has changed in some part Get answers that this message does not carry, such as its questions, its
+  // park, its nodes, its build tasks or its ledger.
   int64 revision = 16;
 
-  // The id of the session that steers the orreryd epic; empty when it has none or for a record epic. It may name a
-  // session whose row is gone.
+  // The id of the session that steers the epic; empty when it has none. It may name a session whose row is gone.
   string steering = 17;
 
-  // The absolute path of the orreryd epic's repository; empty for a record epic.
+  // The absolute path of the epic's repository.
   string path = 18;
 
   // Whether the orreryd epic is paused. A paused epic starts no planner turn until it is resumed.
@@ -780,42 +775,11 @@ message Epic {
   int32 open_questions = 22;
 
   // Whether a steering session hears the orreryd epic: it has a steerer whose session row exists and is not stopped.
-  // While one does, the epic's open questions are the steerer's to answer until it escalates them. False for a record
-  // epic.
+  // While one does, the epic's open questions are the steerer's to answer until it escalates them.
   bool steerer_heard = 23;
-}
 
-// EpicTask is one task from an effort's state.json.
-message EpicTask {
-  // The effort number, the n of efforts/<n>/state.json.
-  int32 effort = 1;
-
-  // The task's slug, as the record wrote it.
-  string slug = 2;
-
-  // The task's subject, as the record wrote it.
-  string subject = 3;
-
-  // The task's status, free text kept as the record wrote it.
-  string status = 4;
-
-  // The requirement ids the task's requirement names, split on commas, each trimmed, empty parts dropped, in order.
-  repeated string requirements = 5;
-
-  // Where the task stands in its lifecycle of red, implement, green, review and integrate, read from its status,
-  // compared without case, and the steps its slug labels, by the first rule that holds: integrated when its status is
-  // done or integrated; for a gap, the ring of its latest step, or implement with no step; the ring of a running latest
-  // step; integrate when its status is gated or its latest step ended done; the ring of a latest step that ended
-  // otherwise; implement for a dispatched task with no step; and planned otherwise. A step's ring is review for a
-  // read-only step, green for one running its checks, gate or judge or one that ended checks_failed or goal_unmet, and
-  // implement for any other.
-  string place = 6;
-
-  // How the task stands at its place, by the same rules, in the tones EpicBuildTask.tone names: ok when integrated, bad
-  // for a gap, the running latest step's tone (mine while held, limited while a usage limit holds it, run otherwise),
-  // acc at integrate, run at the ring of a latest step that ended otherwise and for a dispatched task with no step, so
-  // an ended attempt of a task still open is no failure, and plan while planned.
-  string tone = 7;
+  // The orrery name of the host the epic lives on.
+  string host = 24;
 }
 
 // EpicBuildTask is one task of an orreryd epic's plan, with its build.
@@ -1129,6 +1093,9 @@ message EpicStep {
 
   // The step's done-judge verdicts.
   repeated EpicStepVerdict verdicts = 22;
+
+  // The orrery name of the host the step lives on.
+  string host = 23;
 }
 
 // EpicStepCheck is one check a step ran in one round.

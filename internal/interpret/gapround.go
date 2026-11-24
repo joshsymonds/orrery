@@ -60,9 +60,9 @@ func (p pass) gapRounding(run store.NodeRun) ([]Action, bool) {
 
 // gapRound returns the conclusion's action for act, a gap round. The round starts replanPlan's plan under the
 // conclusion's path, as G<n>, where n is one more than the plan runs the conclusion started for its gap rounds before.
-// The plan runs at the epic's highest turn, with a trigger for each live gap that carries the gap's cause, and each
-// live gap is given a turn of its own. A workflow with no replan plan cannot plan a gap, so the conclusion ends with
-// gaps and asks the owner.
+// The plan starts with the mark kinds.PlanMark gives, with a trigger for each live gap that carries the gap's cause,
+// and each live gap is given a turn of its own. A workflow with no replan plan cannot plan a gap, so the conclusion
+// ends with gaps and asks the owner.
 func (p pass) gapRound(run store.NodeRun, act kinds.Action) Action {
 	def, ok := replanPlan(p.flow.Nodes)
 	if !ok {
@@ -76,7 +76,7 @@ func (p pass) gapRound(run store.NodeRun, act kinds.Action) Action {
 	epic := p.rows.Epic.ID
 	out := Action{Kind: ActGapRound, Runs: []store.NodeRun{{
 		Path: path, ID: store.NodeRunID(epic, path, run.Round, "start"), Node: def.ID, Kind: kindPlan,
-		Round: run.Round, Mark: p.highestTurn(),
+		Round: run.Round, Mark: kinds.PlanMark(p.rows),
 	}}}
 	for _, gap := range act.Gaps {
 		out.Triggers = append(out.Triggers, store.NodeTrigger{

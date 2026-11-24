@@ -34,7 +34,7 @@ const (
 // func that releases it. The lock is released by the first call or when the test ends, whichever comes first.
 func holdStoreWriteLock(t *testing.T, path string) func() {
 	t.Helper()
-	db, err := sql.Open("sqlite", path)
+	db, err := sql.Open("sqlite3", path)
 	if err != nil {
 		t.Fatalf("open lock database: %v", err)
 	}

@@ -246,9 +246,9 @@ func epicControlTools(epics enginev1connect.EpicsClient, in epicInputs) []Tool {
 			Name: "epic_stop",
 			Description: "Pause an epic by id and stop the step of its running turn. Returns a short " +
 				"acknowledgement, not the stored epic: the epic id, its phase and one line naming what changed. " +
-				"An epic with no running turn is refused, and nothing is stopped, unless it holds its repository's " +
-				"release slot: then the slot is freed, its open release step is stopped if one runs, and the epic " +
-				"is not paused. epic_release resumes a stopped release.",
+				"An epic with no running turn is refused, and nothing is stopped, unless it is releasing or its " +
+				"release is stopped: then the release's open step is stopped if one runs, no further step starts, " +
+				"and the epic is not paused. epic_release resumes a stopped release.",
 			InputSchema: in.id,
 			Handler:     epicStopHandler(epics),
 		},
@@ -284,7 +284,7 @@ func epicControlTools(epics enginev1connect.EpicsClient, in epicInputs) []Tool {
 			Name: "epic_close",
 			Description: "Close an epic by id as superseded, shipped by hand or abandoned, which ends it. kind names the " +
 				"close; superseded requires by, the epic that replaces it. The close answers the epic's open questions, " +
-				"ends its running turn, node runs and steps, and frees its release slot. Returns a short " +
+				"ends its running turn, node runs and steps. Returns a short " +
 				"acknowledgement, not the stored epic: the epic id, its phase and one line naming what changed. " +
 				"Refused for a superseded close without by.",
 			InputSchema: in.close,
@@ -296,8 +296,8 @@ func epicControlTools(epics enginev1connect.EpicsClient, in epicInputs) []Tool {
 				"is the whole item it should hold, which must pass the shape check a created epic's items pass. The " +
 				"amendment starts checking: orreryd runs the new item's red at the epic's base and applies the item " +
 				"only when that red is judged not to hold there; a red that holds refuses it and the old item stays. " +
-				"The owner may change the conclusion. Returns a short acknowledgement, not the stored epic: the epic " +
-				"id, its phase and one line naming what changed.",
+				"The owner and the epic's steering conversation may change the conclusion and kind. Returns a short " +
+				"acknowledgement, not the stored epic: the epic id, its phase and one line naming what changed.",
 			InputSchema: in.amend,
 			Handler:     epicAmendHandler(epics),
 		},
@@ -469,7 +469,7 @@ func epicResumeHandler(epics enginev1connect.EpicsClient) ToolHandler {
 		if err != nil {
 			return toolFailure(err), nil
 		}
-		change := resumeChange(resumed.Msg.GetResumed(), resumed.Msg.GetStillLimited())
+		change := resumeChange(resumed.Msg.GetResumed())
 		return epicAck(resumed.Msg.GetEpic(), req.GetId(), change), nil
 	}
 }

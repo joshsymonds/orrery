@@ -47,6 +47,7 @@ const panesBody = {
       state: "waiting",
       summary: "",
       question: "",
+      claudeSession: "claude-1",
       changed: "40",
       seen: "40",
     },
@@ -59,6 +60,7 @@ const panesBody = {
       state: "waiting",
       summary: "",
       question: "",
+      claudeSession: "claude-1",
       changed: "30",
       seen: "30",
     },
@@ -557,8 +559,8 @@ const shipped = makeEpic("third", {
   phaseAt: endedAt,
   seen: endedAt,
 });
-// retired is a record epic that went quiet, so the ended earlier line holds it.
-const retired = makeEpic("fourth", { source: "record", live: false });
+// retired is an epic that went quiet with no outcome, so the ended earlier line holds it.
+const retired = makeEpic("fourth", { live: false });
 
 const landingFixtures: Fixtures = {
   epics: [asking, stuck, shipped, retired],

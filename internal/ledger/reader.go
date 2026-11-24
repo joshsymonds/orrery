@@ -30,7 +30,7 @@ func (r *Reader) open(_ context.Context) (*sql.DB, bool, error) {
 		return nil, false, fmt.Errorf("stat ledger: %w", err)
 	}
 	dsn := (&url.URL{Scheme: "file", Path: r.path, RawQuery: "mode=ro"}).String()
-	db, err := sql.Open("sqlite", dsn)
+	db, err := sql.Open("sqlite3", dsn)
 	if err != nil {
 		return nil, false, fmt.Errorf("open ledger reader: %w", err)
 	}

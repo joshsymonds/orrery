@@ -50,45 +50,4 @@ public interface EpicsResumeResponseOrBuilder extends
    */
   com.google.protobuf.ByteString
       getResumedBytes(int index);
-
-  /**
-   * <pre>
-   * The ids of the limited steps the resume left limited because the step cap was full, oldest first.
-   * </pre>
-   *
-   * <code>repeated string still_limited = 2 [json_name = "stillLimited"];</code>
-   * @return A list containing the stillLimited.
-   */
-  java.util.List<java.lang.String>
-      getStillLimitedList();
-  /**
-   * <pre>
-   * The ids of the limited steps the resume left limited because the step cap was full, oldest first.
-   * </pre>
-   *
-   * <code>repeated string still_limited = 2 [json_name = "stillLimited"];</code>
-   * @return The count of stillLimited.
-   */
-  int getStillLimitedCount();
-  /**
-   * <pre>
-   * The ids of the limited steps the resume left limited because the step cap was full, oldest first.
-   * </pre>
-   *
-   * <code>repeated string still_limited = 2 [json_name = "stillLimited"];</code>
-   * @param index The index of the element to return.
-   * @return The stillLimited at the given index.
-   */
-  java.lang.String getStillLimited(int index);
-  /**
-   * <pre>
-   * The ids of the limited steps the resume left limited because the step cap was full, oldest first.
-   * </pre>
-   *
-   * <code>repeated string still_limited = 2 [json_name = "stillLimited"];</code>
-   * @param index The index of the element to return.
-   * @return The stillLimited at the given index.
-   */
-  com.google.protobuf.ByteString
-      getStillLimitedBytes(int index);
 }

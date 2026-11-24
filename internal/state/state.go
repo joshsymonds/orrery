@@ -32,8 +32,8 @@ const toolAskUserQuestion = "AskUserQuestion"
 // EndInterruptedTurn ends a working or waiting pane's turn when the transcript shows an interruption after the turn
 // started. interrupted is the unix seconds of the newest interruption line, 0 when there is none. The turn
 // started at the later of @orrery_changed and the newest prompt's @orrery_turn_start. When the pane is working or
-// waiting and interrupted is later than that, the pane becomes done as a Stop leaves it, with its question unset, and
-// the call returns true. Otherwise nothing is written and the call returns false. Done panes are left alone. It reads
+// waiting and interrupted is later than that, the pane becomes done as a Stop leaves it, with its question and
+// @orrery_held unset, and the call returns true. Otherwise nothing is written and the call returns false. Done panes are left alone. It reads
 // the pane in one tmux invocation and writes it in one more.
 func EndInterruptedTurn(
 	ctx context.Context,
@@ -64,6 +64,7 @@ func EndInterruptedTurn(
 	writes := []tmuxctl.OptionWrite{
 		tmuxctl.Unset(protocol.OptionTool),
 		tmuxctl.Unset(protocol.OptionQuestion),
+		tmuxctl.Unset(protocol.OptionHeld),
 		tmuxctl.Set(protocol.OptionState, string(protocol.StateDone)),
 		tmuxctl.Set(protocol.OptionChanged, strconv.FormatInt(now.Unix(), 10)),
 	}
@@ -120,7 +121,7 @@ func optionSecond(name, value string) (int64, error) {
 	return seconds, nil
 }
 
-// sessionEndWrites removes all nine per-pane options of an unbound pane.
+// sessionEndWrites removes all ten per-pane options of an unbound pane.
 func sessionEndWrites() []tmuxctl.OptionWrite {
 	names := []string{
 		protocol.OptionCommand,
@@ -132,6 +133,7 @@ func sessionEndWrites() []tmuxctl.OptionWrite {
 		protocol.OptionLabel,
 		protocol.OptionTool,
 		protocol.OptionTurnStart,
+		protocol.OptionHeld,
 	}
 	writes := make([]tmuxctl.OptionWrite, 0, len(names))
 	for _, name := range names {

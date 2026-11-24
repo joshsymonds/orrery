@@ -55,7 +55,7 @@ func interruptsWritten(t *testing.T, dir string) int {
 // openStoreDB opens the store at path on a connection of its own, which the test closes when it ends.
 func openStoreDB(t *testing.T, path string) *sql.DB {
 	t.Helper()
-	db, err := sql.Open("sqlite", path)
+	db, err := sql.Open("sqlite3", path)
 	if err != nil {
 		t.Fatalf("open store: %v", err)
 	}
@@ -117,7 +117,7 @@ func answeredByTurn(t *testing.T, path, id string) [][]string {
 // answered, and the session ends done after that one turn end. No interrupt is written.
 func TestSayNowOwnerTurnTakesSayBeforeItEnds(t *testing.T) {
 	t.Parallel()
-	m, path := newTestManager(t, 1, fakeClaudePath(t))
+	m, path := newTestManager(t, fakeClaudePath(t))
 	dir := t.TempDir()
 	id, err := m.Start(t.Context(), StartRequest{Dir: dir, Prompt: "MIDTURN"})
 	if err != nil {
@@ -154,7 +154,7 @@ func TestSayNowOwnerTurnTakesSayBeforeItEnds(t *testing.T) {
 // the turn lists its uuid as answered beside the event's. No interrupt is written.
 func TestSayNowEventTurnTakesSayBeforeItEnds(t *testing.T) {
 	t.Parallel()
-	m, path := newTestManager(t, 1, fakeClaudePath(t))
+	m, path := newTestManager(t, fakeClaudePath(t))
 	dir := t.TempDir()
 	id, err := m.Start(t.Context(), StartRequest{Dir: dir, Prompt: "start"})
 	if err != nil {
@@ -201,7 +201,7 @@ func TestSayNowEventTurnTakesSayBeforeItEnds(t *testing.T) {
 // the turn ends and the turn lists its uuid as answered. No interrupt is written.
 func TestSayNowClaudeTurnTakesSayBeforeItEnds(t *testing.T) {
 	t.Parallel()
-	m, path := newTestManager(t, 1, fakeClaudePath(t))
+	m, path := newTestManager(t, fakeClaudePath(t))
 	dir := t.TempDir()
 	id, err := m.Start(t.Context(), StartRequest{Dir: dir, Prompt: "BGSELFMID"})
 	if err != nil {
@@ -242,7 +242,7 @@ func TestSayNowClaudeTurnTakesSayBeforeItEnds(t *testing.T) {
 // The Say is stored as its prompt as Say returns, and claude answers it. No interrupt is written.
 func TestSayNowWhileBackgroundTaskListedIsWrittenAtOnce(t *testing.T) {
 	t.Parallel()
-	m, path := newTestManager(t, 1, fakeClaudePath(t))
+	m, path := newTestManager(t, fakeClaudePath(t))
 	dir := t.TempDir()
 	id, err := m.Start(t.Context(), StartRequest{Dir: dir, Prompt: "BACKGROUND"})
 	if err != nil {
@@ -285,7 +285,7 @@ func TestSayNowWhileBackgroundTaskListedIsWrittenAtOnce(t *testing.T) {
 // written.
 func TestSayNowToIdleSessionIsWrittenAtOnce(t *testing.T) {
 	t.Parallel()
-	m, path := newTestManager(t, 1, fakeClaudePath(t))
+	m, path := newTestManager(t, fakeClaudePath(t))
 	dir := t.TempDir()
 	id, err := m.Start(t.Context(), StartRequest{Dir: dir, Prompt: "start"})
 	if err != nil {
@@ -328,7 +328,7 @@ func TestSayNowToIdleSessionIsWrittenAtOnce(t *testing.T) {
 // id with the owner as its sender.
 func TestSayNowStoresOwnerSenderAndPromptID(t *testing.T) {
 	t.Parallel()
-	m, path := newTestManager(t, 1, fakeClaudePath(t))
+	m, path := newTestManager(t, fakeClaudePath(t))
 	id, err := m.Start(t.Context(), StartRequest{Dir: t.TempDir(), Prompt: "start"})
 	if err != nil {
 		t.Fatalf("Start: %v", err)
@@ -376,7 +376,7 @@ func TestSayNowStoresOwnerSenderAndPromptID(t *testing.T) {
 // returns with nothing written, so the fake reads the message once: a later Say is answered as the turn after the first.
 func TestSayNowRetriedPromptIDWritesNothingMore(t *testing.T) {
 	t.Parallel()
-	m, path := newTestManager(t, 1, fakeClaudePath(t))
+	m, path := newTestManager(t, fakeClaudePath(t))
 	dir := t.TempDir()
 	id, err := m.Start(t.Context(), StartRequest{Dir: dir, Prompt: "start"})
 	if err != nil {

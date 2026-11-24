@@ -114,7 +114,7 @@ func (s *Store) EndNodeCheck(ctx context.Context, id string, end NodeCheckEnd, a
 
 // NodeCheck returns the stored check with id. It returns an error matching ErrNoNodeCheck when no check has that id.
 func (s *Store) NodeCheck(ctx context.Context, id string) (NodeCheck, error) {
-	stored, err := sqlcgen.New(s.db).GetEpicNodeCheck(ctx, id)
+	stored, err := sqlcgen.New(s.read).GetEpicNodeCheck(ctx, id)
 	if errors.Is(err, sql.ErrNoRows) {
 		return NodeCheck{}, fmt.Errorf("node check %s: %w", id, ErrNoNodeCheck)
 	}
@@ -126,12 +126,12 @@ func (s *Store) NodeCheck(ctx context.Context, id string) (NodeCheck, error) {
 
 // NodeChecks returns the checks of epic ordered by created, then id.
 func (s *Store) NodeChecks(ctx context.Context, epic string) ([]NodeCheck, error) {
-	return readNodeChecks(ctx, sqlcgen.New(s.db), epic)
+	return readNodeChecks(ctx, sqlcgen.New(s.read), epic)
 }
 
 // OpenNodeChecks returns the running checks of every epic ordered by created, then id.
 func (s *Store) OpenNodeChecks(ctx context.Context) ([]NodeCheck, error) {
-	stored, err := sqlcgen.New(s.db).ListOpenEpicNodeChecks(ctx)
+	stored, err := sqlcgen.New(s.read).ListOpenEpicNodeChecks(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("list open node checks: %w", err)
 	}

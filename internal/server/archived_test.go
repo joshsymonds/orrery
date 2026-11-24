@@ -24,7 +24,6 @@ const (
 	archiveAgedID    = "0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a"
 	archiveYoungerID = "0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b"
 	archiveWaitingID = "0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c"
-	archiveFailedID  = "0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d"
 	archiveMarkedID  = "0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e"
 )
 
@@ -72,12 +71,12 @@ func unarchiveRowAt(t *testing.T, path, kind, id string, at time.Time) {
 	closeStore(t, s)
 }
 
-// archiveEpicsClient serves Epics over the records under root, the epics stored holds, and the marks of the store at
-// storePath, at epicsNow. A nil stored has no database epics.
-func archiveEpicsClient(t *testing.T, root, storePath string, stored EpicStoreClient) orreryv1connect.EpicsClient {
+// archiveEpicsClient serves Epics over the epics stored holds, and the marks of the store at storePath, at epicsNow. A
+// nil stored has no database epics.
+func archiveEpicsClient(t *testing.T, storePath string, stored EpicStoreClient) orreryv1connect.EpicsClient {
 	t.Helper()
 	path, handler := newEpicsHandler(
-		root, &epicsFake{}, stored, nil, nil, store.NewReader(storePath), 0, epicsNow, newRetryClock(),
+		&epicsFake{}, stored, nil, nil, store.NewReader(storePath), 0, epicsNow, newRetryClock(),
 	)
 	mux := http.NewServeMux()
 	mux.Handle(path, handler)
@@ -137,22 +136,10 @@ func TestAutoArchiveLiveEpicArchivesAfterSevenDays(t *testing.T) {
 		storedEpicOf("repoa/accepted", "accepted", epicsAgo(400*archiveDay)),
 		storedEpicOf("repoa/gaps", "ended_with_gaps", epicsAgo(400*archiveDay)),
 	}}
-	client := archiveEpicsClient(t, t.TempDir(), archiveStorePath(t), stored)
+	client := archiveEpicsClient(t, archiveStorePath(t), stored)
 	expectArchived(t, "Epics.List", archivedByID(epicsList(t, client)), map[string]bool{
 		"repoa/accepted": true,
 		"repoa/gaps":     true,
-	})
-}
-
-func TestAutoArchiveNonLiveRecordEpicAfterSevenDays(t *testing.T) {
-	t.Parallel()
-	root := t.TempDir()
-	writeHead(t, root, "repoa", "aged", `{"outcome":"shipped"}`, epicsNow().Add(-7*archiveDay))
-	writeHead(t, root, "repoa", "younger", `{"outcome":"shipped"}`, epicsNow().Add(-7*archiveDay+time.Second))
-	client := archiveEpicsClient(t, root, archiveStorePath(t), nil)
-	expectArchived(t, "Epics.List", archivedByID(epicsList(t, client)), map[string]bool{
-		"repoa/aged":    true,
-		"repoa/younger": false,
 	})
 }
 
@@ -177,30 +164,6 @@ func TestAutoArchiveStoppedHeadlessAfterOneDay(t *testing.T) {
 	})
 }
 
-func TestAutoArchiveFailedHeadlessOnceSeen(t *testing.T) {
-	t.Parallel()
-	storePath := archiveStorePath(t)
-	now := epicsNow()
-	sessions := sessionsClientAt(t, store.NewReader(storePath), epicsNow)
-	applyHeadlessAt(t, storePath, now.Add(-3*archiveDay),
-		store.EngineAdd{ID: archiveFailedID, Dir: "/work/failed", State: "working"})
-	// The owner saw the session before it failed, so its seen time is older than its change time.
-	applyHeadlessAt(t, storePath, now.Add(-3*archiveDay), store.EngineSet{
-		ID: archiveFailedID, Changes: store.EngineChanges{Seen: optionalString(stamp(now.Add(-3 * archiveDay)))},
-	})
-	applyHeadlessAt(t, storePath, now.Add(-2*archiveDay), store.EngineSet{
-		ID: archiveFailedID, Changes: store.EngineChanges{State: optionalString("failed")},
-	})
-	expectArchived(t, "ListHeadless before the owner sees it", archivedByID(listHeadlessRows(t, sessions)),
-		map[string]bool{archiveFailedID: false})
-
-	applyHeadlessAt(t, storePath, now.Add(-archiveDay), store.EngineSet{
-		ID: archiveFailedID, Changes: store.EngineChanges{Seen: optionalString(stamp(now.Add(-archiveDay)))},
-	})
-	expectArchived(t, "ListHeadless after the owner sees it", archivedByID(listHeadlessRows(t, sessions)),
-		map[string]bool{archiveFailedID: true})
-}
-
 func TestAutoArchiveArchivedRowChangedPastMarkComesBack(t *testing.T) {
 	t.Parallel()
 	storePath := archiveStorePath(t)
@@ -209,7 +172,7 @@ func TestAutoArchiveArchivedRowChangedPastMarkComesBack(t *testing.T) {
 		storedEpicOf("repob/done", "released", epicsAgo(3*time.Hour)),
 	}}
 	archiveRowAt(t, storePath, archiveKindEpic, "repob/done", now.Add(-2*time.Hour))
-	client := archiveEpicsClient(t, t.TempDir(), storePath, stored)
+	client := archiveEpicsClient(t, storePath, stored)
 	expectArchived(t, "Epics.List before the change", archivedByID(epicsList(t, client)),
 		map[string]bool{"repob/done": true})
 
@@ -226,7 +189,7 @@ func TestAutoArchiveUnarchivedRowWaitsForChange(t *testing.T) {
 		storedEpicOf("repob/done", "released", epicsAgo(10*archiveDay)),
 	}}
 	unarchiveRowAt(t, storePath, archiveKindEpic, "repob/done", now.Add(-9*archiveDay))
-	client := archiveEpicsClient(t, t.TempDir(), storePath, stored)
+	client := archiveEpicsClient(t, storePath, stored)
 	expectArchived(t, "Epics.List after the unarchive", archivedByID(epicsList(t, client)),
 		map[string]bool{"repob/done": false})
 
@@ -245,7 +208,7 @@ func TestArchiveRowsMarkedRowsStayListedAndReadArchived(t *testing.T) {
 	stored := &epicStoreFake{stored: []*enginev1.StoredEpic{
 		storedEpicOf("repoa/marked", "accepted", epicsAgo(2*time.Hour)),
 	}}
-	epics := archiveEpicsClient(t, t.TempDir(), storePath, stored)
+	epics := archiveEpicsClient(t, storePath, stored)
 	sessions := sessionsClientAt(t, store.NewReader(storePath), epicsNow)
 
 	archiveRowAt(t, storePath, archiveKindSession, "orrery-1", now)
@@ -271,24 +234,10 @@ func TestArchiveRowsMarkedRowsStayListedAndReadArchived(t *testing.T) {
 		map[string]bool{archiveMarkedID: false})
 }
 
-func TestArchiveRowsRecordOnlyEpicArchivedByID(t *testing.T) {
-	t.Parallel()
-	root := t.TempDir()
-	writeHead(t, root, "repoa", "record", `{"outcome":"shipped"}`, epicsNow().Add(-time.Hour))
-	writeHead(t, root, "repoa", "other", `{"outcome":"shipped"}`, epicsNow().Add(-time.Hour))
-	storePath := archiveStorePath(t)
-	archiveRowAt(t, storePath, archiveKindEpic, "repoa/record", epicsNow())
-	client := archiveEpicsClient(t, root, storePath, nil)
-	expectArchived(t, "Epics.List", archivedByID(epicsList(t, client)), map[string]bool{
-		"repoa/record": true,
-		"repoa/other":  false,
-	})
-}
-
 func TestArchiveRowsMissingStoreAnswersUnavailable(t *testing.T) {
 	t.Parallel()
 	missing := filepath.Join(t.TempDir(), "absent.db")
-	client := archiveEpicsClient(t, t.TempDir(), missing, nil)
+	client := archiveEpicsClient(t, missing, nil)
 	_, err := client.List(t.Context(), connect.NewRequest(&orreryv1.EpicsListRequest{}))
 	if code := connect.CodeOf(err); code != connect.CodeUnavailable {
 		t.Fatalf("Epics.List code = %v (%v), want %v", code, err, connect.CodeUnavailable)

@@ -5,7 +5,6 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"reflect"
 	"testing"
 	"time"
@@ -73,11 +72,11 @@ func storedEpicOf(id, phase string, changed int64, requirements ...*enginev1.Epi
 	}
 }
 
-// epicStoreServe serves newEpicsHandler over root, steps and store with the fixed clock, and returns a generated
-// Epics client.
-func epicStoreServe(t *testing.T, root string, steps StepClient, store EpicStoreClient) orreryv1connect.EpicsClient {
+// epicStoreServe serves newEpicsHandler over steps and store with the fixed clock, and returns a generated Epics
+// client.
+func epicStoreServe(t *testing.T, steps StepClient, store EpicStoreClient) orreryv1connect.EpicsClient {
 	t.Helper()
-	path, handler := newEpicsHandler(root, steps, store, nil, nil, nil, 0, epicsNow, newRetryClock())
+	path, handler := newEpicsHandler(steps, store, nil, nil, nil, 0, epicsNow, newRetryClock())
 	mux := http.NewServeMux()
 	mux.Handle(path, handler)
 	srv := httptest.NewServer(mux)
@@ -96,18 +95,15 @@ func epicIDs(epics []*orreryv1.Epic) []string {
 
 func TestEpicsListMergesDatabaseEpics(t *testing.T) {
 	t.Parallel()
-	root := t.TempDir()
-	writeHead(t, root, "repoa", "shared", `{"outcome":"shipped"}`, epicsNow().Add(-48*time.Hour))
-	writeHead(t, root, "repoa", "record", `{"outcome":"shipped"}`, epicsNow().Add(-time.Hour))
 	store := &epicStoreFake{stored: []*enginev1.StoredEpic{
 		storedEpicOf("repoa/dbonly", "accepted", epicsAgo(30*24*time.Hour)),
 		storedEpicOf("repoa/shared", "accepted", epicsAgo(2*time.Hour)),
 		storedEpicOf("repob/done", "released", epicsAgo(time.Minute)),
 	}}
-	client := epicStoreServe(t, root, &epicsFake{}, store)
+	client := epicStoreServe(t, &epicsFake{}, store)
 
 	got := epicsList(t, client)
-	wantIDs := []string{"repoa/dbonly", "repoa/record", "repoa/shared", "repob/done"}
+	wantIDs := []string{"repoa/dbonly", "repoa/shared", "repob/done"}
 	if ids := epicIDs(got); !reflect.DeepEqual(ids, wantIDs) {
 		t.Fatalf("ids = %v, want %v", ids, wantIDs)
 	}
@@ -121,10 +117,6 @@ func TestEpicsListMergesDatabaseEpics(t *testing.T) {
 			repository: "repoa", slug: "dbonly", source: "orreryd", outcome: "accepted",
 			changed: epicsAgo(30 * 24 * time.Hour), live: true,
 		},
-		"repoa/record": {
-			repository: "repoa", slug: "record", source: "record", outcome: "shipped",
-			changed: epicsAgo(time.Hour), live: true,
-		},
 		"repoa/shared": {
 			repository: "repoa", slug: "shared", source: "orreryd", outcome: "accepted",
 			changed: epicsAgo(2 * time.Hour), live: true,
@@ -137,49 +129,18 @@ func TestEpicsListMergesDatabaseEpics(t *testing.T) {
 	for _, epic := range got {
 		w := want[epic.GetId()]
 		if epic.GetRepository() != w.repository || epic.GetSlug() != w.slug || epic.GetSource() != w.source ||
-			epic.GetOutcome() != w.outcome || epic.GetChanged() != w.changed || epic.GetLive() != w.live ||
-			epic.GetProblem() != "" {
-			t.Errorf("%s = repository %q slug %q source %q outcome %q changed %d live %v problem %q, "+
-				"want repository %q slug %q source %q outcome %q changed %d live %v problem empty",
+			epic.GetOutcome() != w.outcome || epic.GetChanged() != w.changed || epic.GetLive() != w.live {
+			t.Errorf("%s = repository %q slug %q source %q outcome %q changed %d live %v, "+
+				"want repository %q slug %q source %q outcome %q changed %d live %v",
 				epic.GetId(), epic.GetRepository(), epic.GetSlug(), epic.GetSource(), epic.GetOutcome(),
-				epic.GetChanged(), epic.GetLive(), epic.GetProblem(),
+				epic.GetChanged(), epic.GetLive(),
 				w.repository, w.slug, w.source, w.outcome, w.changed, w.live)
 		}
 	}
 }
 
-func TestEpicsSharedIDTakesProblemFromRecord(t *testing.T) {
-	t.Parallel()
-	root := t.TempDir()
-	writeHead(t, root, "repoa", "shared", `{not json`, epicsNow())
-	store := &epicStoreFake{stored: []*enginev1.StoredEpic{
-		storedEpicOf("repoa/shared", "accepted", epicsAgo(time.Hour)),
-	}}
-	client := epicStoreServe(t, root, &epicsFake{}, store)
-	const wantProblem = "repoa/shared/state.json: does not parse"
-
-	got := epicsList(t, client)
-	if ids := epicIDs(got); !reflect.DeepEqual(ids, []string{"repoa/shared"}) {
-		t.Fatalf("ids = %v, want repoa/shared once", ids)
-	}
-	if got[0].GetOutcome() != "accepted" || got[0].GetSource() != "orreryd" || got[0].GetProblem() != wantProblem {
-		t.Errorf("List shared = outcome %q source %q problem %q, want accepted, orreryd, %q",
-			got[0].GetOutcome(), got[0].GetSource(), got[0].GetProblem(), wantProblem)
-	}
-
-	answer := epicsGet(t, client, "repoa/shared").GetEpic()
-	if answer.GetOutcome() != "accepted" || answer.GetSource() != "orreryd" || answer.GetProblem() != wantProblem {
-		t.Errorf("Get shared = outcome %q source %q problem %q, want accepted, orreryd, %q",
-			answer.GetOutcome(), answer.GetSource(), answer.GetProblem(), wantProblem)
-	}
-}
-
 func TestEpicsGetSharedEpicCarriesRequirementsAndRecordTasks(t *testing.T) {
 	t.Parallel()
-	root := t.TempDir()
-	dir := filepath.Join(root, "repoa", "shared")
-	writeHead(t, root, "repoa", "shared", `{"outcome":"shipped"}`, epicsNow().Add(-48*time.Hour))
-	writeEffortState(t, dir, "1", `{"tasks":[{"slug":"one-a","subject":"One A","status":"gated"}]}`)
 	store := &epicStoreFake{stored: []*enginev1.StoredEpic{
 		storedEpicOf("repoa/shared", "accepted", epicsAgo(2*time.Hour),
 			&enginev1.EpicRequirement{
@@ -193,7 +154,7 @@ func TestEpicsGetSharedEpicCarriesRequirementsAndRecordTasks(t *testing.T) {
 	steps := &epicsFake{steps: []*enginev1.Step{
 		{Id: "run", Epic: "repoa/shared", Started: epicsAgo(time.Hour)},
 	}}
-	client := epicStoreServe(t, root, steps, store)
+	client := epicStoreServe(t, steps, store)
 
 	got := epicsGet(t, client, "repoa/shared")
 	epic := got.GetEpic()
@@ -221,36 +182,10 @@ func TestEpicsGetSharedEpicCarriesRequirementsAndRecordTasks(t *testing.T) {
 				i, r, w.id, w.text, w.evidence, w.kind)
 		}
 	}
-
-	tasks := got.GetTasks()
-	if len(tasks) != 1 || tasks[0].GetSlug() != "one-a" || tasks[0].GetEffort() != 1 {
-		t.Errorf("tasks = %v, want the record's one-a", tasks)
-	}
-}
-
-func TestEpicsGetRecordOnlyEpicHasNoRequirements(t *testing.T) {
-	t.Parallel()
-	root := t.TempDir()
-	writeHead(t, root, "repoa", "record", `{"outcome":"shipped"}`, epicsNow())
-	store := &epicStoreFake{stored: []*enginev1.StoredEpic{
-		storedEpicOf("repoa/other", "accepted", epicsAgo(time.Hour)),
-	}}
-	client := epicStoreServe(t, root, &epicsFake{}, store)
-
-	got := epicsGet(t, client, "repoa/record")
-	if got.GetEpic().GetSource() != "record" || got.GetEpic().GetOutcome() != "shipped" {
-		t.Errorf("epic = source %q outcome %q, want record, shipped",
-			got.GetEpic().GetSource(), got.GetEpic().GetOutcome())
-	}
-	if len(got.GetRequirements()) != 0 {
-		t.Errorf("requirements = %v, want none for a record epic", got.GetRequirements())
-	}
 }
 
 func TestEpicsStoreMissingOrOlderListsRecordsAsToday(t *testing.T) {
 	t.Parallel()
-	root := t.TempDir()
-	writeHead(t, root, "repo", "epic", `{"outcome":"shipped"}`, epicsNow())
 	// A server with no Epics service answers every call with 404, which the generated client reports as unimplemented:
 	// the answer of an orreryd older than the Epics service.
 	older := httptest.NewServer(http.NewServeMux())
@@ -265,37 +200,30 @@ func TestEpicsStoreMissingOrOlderListsRecordsAsToday(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			client := epicStoreServe(t, root, &epicsFake{}, tc.store)
+			client := epicStoreServe(t, &epicsFake{}, tc.store)
 
-			got := epicsList(t, client)
-			if len(got) != 1 || got[0].GetId() != "repo/epic" || got[0].GetSource() != "record" ||
-				got[0].GetOutcome() != "shipped" {
-				t.Errorf("List = %v, want the one record epic repo/epic, source record, outcome shipped", got)
+			if got := epicsList(t, client); len(got) != 0 {
+				t.Errorf("List = %v, want no epics", got)
 			}
-			answer := epicsGet(t, client, "repo/epic")
-			if answer.GetEpic().GetSource() != "record" || len(answer.GetRequirements()) != 0 {
-				t.Errorf("Get = source %q requirements %v, want record and none",
-					answer.GetEpic().GetSource(), answer.GetRequirements())
-			}
+			_, err := client.Get(context.Background(), connect.NewRequest(&orreryv1.EpicsGetRequest{Id: "repo/epic"}))
+			requireConnectError(t, err, connect.CodeNotFound, "epic not found")
 		})
 	}
 }
 
 func TestEpicsStoreFailureAnswersUnavailable(t *testing.T) {
 	t.Parallel()
-	root := t.TempDir()
-	writeHead(t, root, "repo", "epic", `{"outcome":"shipped"}`, epicsNow())
 	failure := connect.NewError(connect.CodeInternal, errors.New("synthetic store failure"))
 
 	t.Run("ListEpics", func(t *testing.T) {
 		t.Parallel()
-		client := epicStoreServe(t, root, &epicsFake{}, &epicStoreFake{listErr: failure})
+		client := epicStoreServe(t, &epicsFake{}, &epicStoreFake{listErr: failure})
 		_, err := client.List(context.Background(), connect.NewRequest(&orreryv1.EpicsListRequest{}))
 		requireConnectError(t, err, connect.CodeUnavailable, "epic store unavailable")
 	})
 	t.Run("GetEpic", func(t *testing.T) {
 		t.Parallel()
-		client := epicStoreServe(t, root, &epicsFake{}, &epicStoreFake{getErr: failure})
+		client := epicStoreServe(t, &epicsFake{}, &epicStoreFake{getErr: failure})
 		_, err := client.Get(context.Background(), connect.NewRequest(&orreryv1.EpicsGetRequest{Id: "repo/epic"}))
 		requireConnectError(t, err, connect.CodeUnavailable, "epic store unavailable")
 	})
@@ -318,7 +246,7 @@ func TestEpicsStoredEpicLiveByPhase(t *testing.T) {
 	for _, c := range cases {
 		stored = append(stored, storedEpicOf("repoa/"+c.phase, c.phase, epicsAgo(time.Hour)))
 	}
-	client := epicStoreServe(t, t.TempDir(), &epicsFake{}, &epicStoreFake{stored: stored})
+	client := epicStoreServe(t, &epicsFake{}, &epicStoreFake{stored: stored})
 
 	listed := make(map[string]*orreryv1.Epic, len(cases))
 	for _, epic := range epicsList(t, client) {
@@ -341,22 +269,18 @@ func TestEpicsStoredEpicLiveByPhase(t *testing.T) {
 }
 
 // TestEpicsPhaseAtIsStoredPhaseTime answers the phase time of each epic through List and Get: an orreryd epic carries
-// the phase time its store holds, distinct from its changed time, and a record-only epic carries none.
+// the phase time its store holds, distinct from its changed time.
 func TestEpicsPhaseAtIsStoredPhaseTime(t *testing.T) {
 	t.Parallel()
-	root := t.TempDir()
-	writeHead(t, root, "repoa", "shared", `{"outcome":"shipped"}`, epicsNow())
-	writeHead(t, root, "repoa", "record", `{"outcome":"shipped"}`, epicsNow())
 	dbOnly := storedEpicOf("repoa/dbonly", "accepted", epicsAgo(time.Hour))
 	dbOnly.PhaseAt = epicsAgo(3 * time.Hour)
 	shared := storedEpicOf("repoa/shared", "accepted", epicsAgo(time.Hour))
 	shared.PhaseAt = epicsAgo(4 * time.Hour)
-	client := epicStoreServe(t, root, &epicsFake{}, &epicStoreFake{stored: []*enginev1.StoredEpic{dbOnly, shared}})
+	client := epicStoreServe(t, &epicsFake{}, &epicStoreFake{stored: []*enginev1.StoredEpic{dbOnly, shared}})
 
 	want := map[string]int64{
 		"repoa/dbonly": epicsAgo(3 * time.Hour),
 		"repoa/shared": epicsAgo(4 * time.Hour),
-		"repoa/record": 0,
 	}
 	listed := make(map[string]*orreryv1.Epic, len(want))
 	for _, epic := range epicsList(t, client) {
@@ -378,23 +302,19 @@ func TestEpicsPhaseAtIsStoredPhaseTime(t *testing.T) {
 }
 
 // TestEpicsSeenIsStoredSeenTime answers the seen mark of each epic through List and Get: an orreryd epic carries the
-// seen mark its store holds, from both its summary and its stored epic, and a record-only epic carries none.
+// seen mark its store holds, from both its summary and its stored epic.
 func TestEpicsSeenIsStoredSeenTime(t *testing.T) {
 	t.Parallel()
-	root := t.TempDir()
-	writeHead(t, root, "repoa", "shared", `{"outcome":"shipped"}`, epicsNow())
-	writeHead(t, root, "repoa", "record", `{"outcome":"shipped"}`, epicsNow())
 	const seenAt = int64(1_700_000_500)
 	dbOnly := storedEpicOf("repoa/dbonly", "accepted", epicsAgo(time.Hour))
 	dbOnly.Seen = seenAt
 	shared := storedEpicOf("repoa/shared", "accepted", epicsAgo(time.Hour))
 	shared.Seen = seenAt
-	client := epicStoreServe(t, root, &epicsFake{}, &epicStoreFake{stored: []*enginev1.StoredEpic{dbOnly, shared}})
+	client := epicStoreServe(t, &epicsFake{}, &epicStoreFake{stored: []*enginev1.StoredEpic{dbOnly, shared}})
 
 	want := map[string]int64{
 		"repoa/dbonly": seenAt,
 		"repoa/shared": seenAt,
-		"repoa/record": 0,
 	}
 	listed := make(map[string]*orreryv1.Epic, len(want))
 	for _, epic := range epicsList(t, client) {
