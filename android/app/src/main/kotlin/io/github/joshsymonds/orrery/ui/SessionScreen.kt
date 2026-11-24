@@ -33,8 +33,11 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import io.github.joshsymonds.orrery.api.BackgroundTask
 import io.github.joshsymonds.orrery.api.ContractRow
+import io.github.joshsymonds.orrery.api.DesignRow
 import io.github.joshsymonds.orrery.api.EpicDetail
+import io.github.joshsymonds.orrery.api.EpicRow
 import io.github.joshsymonds.orrery.api.HostStat
 import io.github.joshsymonds.orrery.api.OrreryClient
 import io.github.joshsymonds.orrery.api.Pane
@@ -73,6 +76,85 @@ internal fun contractBandLines(contracts: List<ContractRow>, conversation: Strin
 /** Whether a contract the conversation shows opens live: the conversation is shown and has not stopped or failed. */
 internal fun conversationLive(pane: Pane?): Boolean = pane != null && pane.state !in ENDED_CONVERSATION_STATES
 
+/** The lit value of a work link's "+N": every design's block and the loose epics are open. */
+internal const val WORK_ALL = "all"
+
+/** What a conversation's work sheet draws: the design blocks it shows, and the loose epics under them. */
+internal class WorkSheetContent(val designs: List<DesignBlock>, val loose: List<Hung>)
+
+/**
+ * The work sheet a work link opened over [conversation], or null when none is open. [open] is the link's key, which draws
+ * that design's block alone, or [WORK_ALL], which draws every design's block and the loose epics. A design that is no
+ * longer drawn opens no sheet.
+ */
+internal fun workSheetOf(
+    open: String?,
+    conversation: String,
+    designs: List<DesignRow>,
+    held: HeadEpics,
+    contracts: List<ContractRow>,
+): WorkSheetContent? {
+    if (open == null) return null
+    val blocks = designBlocksOf(conversation, designs, held, contracts)
+    return if (open == WORK_ALL) {
+        WorkSheetContent(blocks, looseEpicsOf(conversation, designs, held, contracts))
+    } else {
+        blocks.firstOrNull { it.key == open }?.let { WorkSheetContent(listOf(it), emptyList()) }
+    }
+}
+
+/**
+ * The design blocks [conversation] draws in its work sheet, in the order the server lists them: each design it works that
+ * is not a design of one, with its kids in the order of their positions. A kid is the held epic its contract names, as the
+ * inbox tree draws it, else the contract when Contracts.List holds it proposed, or accepted with no held epic of its id.
+ * A contract that is neither is left out.
+ */
+internal fun designBlocksOf(
+    conversation: String,
+    designs: List<DesignRow>,
+    held: HeadEpics,
+    contracts: List<ContractRow>,
+): List<DesignBlock> {
+    if (conversation.isEmpty()) return emptyList()
+    val heldIds = held.steered.map { it.id }.toSet()
+    return designs.filter { it.conversation == conversation && !it.ofOne }.map { design ->
+        val kids: List<Hung> = design.contracts.sortedBy { it.position }.mapNotNull { contract ->
+            val epic = held.steered.firstOrNull { it.id == contract.epic }
+            if (epic != null) {
+                epicNodeOf(epic, held, contracts)
+            } else {
+                contracts.firstOrNull { it.id == contract.id && isShownContract(it, heldIds) }?.let { ContractNode(it) }
+            }
+        }
+        DesignBlock(design, kids)
+    }
+}
+
+/**
+ * The loose epics [conversation] draws in its work sheet: the epics it steers that no design of it carries in a contract,
+ * a design of one's included, as the work links name them.
+ */
+internal fun looseEpicsOf(
+    conversation: String,
+    designs: List<DesignRow>,
+    held: HeadEpics,
+    contracts: List<ContractRow>,
+): List<Hung> {
+    if (conversation.isEmpty()) return emptyList()
+    val carried = designs.filter { it.conversation == conversation }
+        .flatMap { design -> design.contracts.map { it.epic } }
+        .toSet()
+    return held.steered.filter { it.id !in carried }.map { epicNodeOf(it, held, contracts) }
+}
+
+// The node of a held epic, with its detail when it is held and the proposed contract of its id, as the inbox tree draws it.
+private fun epicNodeOf(epic: EpicRow, held: HeadEpics, contracts: List<ContractRow>): EpicNode =
+    EpicNode(epic, held.details[epic.id], contracts.firstOrNull { it.id == epic.id }?.takeIf { it.state == "proposed" })
+
+// Whether a listed contract is shown in the tree: proposed, or accepted with no held epic of its id.
+private fun isShownContract(contract: ContractRow, heldIds: Set<String>): Boolean =
+    contract.state == "proposed" || (contract.state == "accepted" && contract.id !in heldIds)
+
 /**
  * A labelled step's session on the step screen: its owner's calls are Hold and Stop, and a message to it
  * is a nudge. [held] is the step's held state, so a held step shows no Hold. [label] names the step in the dock,
@@ -93,11 +175,14 @@ data class StepMode(
  * folded into what the screen holds, and a failed stream reconnects after the seq it holds, so the
  * conversation resumes where it stopped. A stream that ends without error reconnects the same way.
  *
- * The screen shows the session's head, under it while it is open the rail strip of the epics the session steers and
- * its running tasks (a tile of an epic calls [onOpenEpic] with its id), its conversation with each unfinished main-thread
- * block after the items (a thinking block as a line, a text block as a live reply), its background tasks, and each message
- * it sent that the conversation does not hold yet as a sending block, then the open request's Ask after the last item. The head's epics and
- * host are read while the screen is started, and the head folds as the pane screen's does. The dock under the
+ * The screen shows the session's head, whose title row names the work the session links: each design it works, and the
+ * epics and contracts of its designs of one (a link of an epic calls [onOpenEpic] with its id, a link of a contract
+ * [onOpenContract]), a design's link opens its block in a sheet, and "+N" opens every block with the loose epics it steers.
+ * The conversation follows with each unfinished main-thread block after the items (a thinking block as a line, a text
+ * block as a live reply), its background tasks, and each message it sent that the conversation does not hold yet as a
+ * sending block, then the open request's Ask after the last item. Above the dock its running tasks are lines (a line opens
+ * its task's list, "and N more running" every running task's). The head's epics, designs and host are read while the
+ * screen is started, and the head folds as the pane screen's does. The dock under the
  * conversation says the session's state from the stream, with its controls and its queue; Send posts the
  * draft as a prompt through [SessionSender]. Reading the conversation marks the session seen.
  *
@@ -107,7 +192,7 @@ data class StepMode(
  * end is the conversation's last block. [onOpenTask] is a task crumb's or chip's tap, with the phase the task is in.
  * [reason] is the listed row's summary, which the dock shows when the session failed.
  *
- * A contract the conversation shows (its tile, its band line, its transcript line) calls [onOpenContract] with its id
+ * A contract the conversation shows (its work link, its band line, its transcript line) calls [onOpenContract] with its id
  * and whether it opens live. [about] is the row's About the dock shows; a send posts it as [aboutMessage] and then
  * calls [onClearAbout], and the dock's Not about this calls [onClearAbout] too.
  * A headless session that has stopped or failed, or a session no pane or headless session carries any more, while it
@@ -138,8 +223,12 @@ fun SessionScreen(
     var seenAtOpen by remember(sessionId) { mutableStateOf<Long?>(null) }
     // The messages the screen sent, until the conversation holds each one.
     var sentTexts by remember(sessionId) { mutableStateOf<List<SentText>>(emptyList()) }
-    // Whether the strip under the band has tiles: then it, not the band, carries the control that hides the header.
-    var stripTiles by remember(sessionId) { mutableStateOf(false) }
+    // The designs the conversation works, as Designs.List serves them while the screen is started: its work links name them.
+    var designs by remember(sessionId) { mutableStateOf<List<DesignRow>>(emptyList()) }
+    // The work sheet a work link opened: the link's key, or WORK_ALL for every design's block and the loose epics.
+    var workOpen by remember(sessionId) { mutableStateOf<String?>(null) }
+    // The tasks an activity line opened: its one task, or every running task behind "and N more running".
+    var taskList by remember(sessionId) { mutableStateOf<List<BackgroundTask>?>(null) }
     // The find bar while it is open: its query, and the current match of the matches the transcript holds.
     var finding by remember(sessionId) { mutableStateOf<FindSession?>(null) }
     val searchCache = remember { MarkdownCache() }
@@ -198,11 +287,13 @@ fun SessionScreen(
                     }
                     headPoll = scope.launch {
                         while (true) {
-                            // The epics and contracts reads are before the host read, as the pane screen's poll reads them.
+                            // The epics, designs and contracts reads are before the host read, as the pane screen's poll reads them.
                             val epics = fetchHeadEpics(client, sessionId)
+                            val designList = fetchHeadDesigns(client)
                             val listed = fetchHeadContracts(client)
                             val host = fetchHost(client)
                             epics?.let { headEpics = it }
+                            designList?.let { designs = it }
                             listed?.let { contracts = it }
                             host?.let {
                                 servingHost = it.host
@@ -310,12 +401,23 @@ fun SessionScreen(
     val asking = askingWords(ownName = pane?.takeIf { ownAsks(it) }?.let { lastPathElement(it.cwd) }, lines = lines)
     val otherHost = pane?.let { otherHostOf(it.host, servingHost) }
     val bandLines = contractBandLines(contracts, sessionId)
-    // The tile, the band line and the transcript line of a contract the conversation proposed open live while it runs.
+    // The work link, the band line and the transcript line of a contract the conversation proposed open live while it runs.
     // A transcript line also needs the contract listed as this conversation's, so a line of another's stays read-only.
     val live = conversationLive(pane)
     val openContract: (String) -> Unit = { id -> onOpenContract(id, live) }
     val openTranscriptContract: (String) -> Unit = { id ->
         onOpenContract(id, live && contracts.any { it.id == id && it.conversation == sessionId })
+    }
+    // The work links of the conversation, and the sheet one of them opened: it is lit while the sheet is open.
+    val work = workLinksOf(sessionId, designs, steered)
+    val workSheet = workSheetOf(workOpen, sessionId, designs, headEpics, contracts)
+    val workLit = if (workSheet != null) workOpen else null
+    val openWork: (WorkLink) -> Unit = { link ->
+        when (link.kind) {
+            WorkKind.DESIGN -> { workOpen = link.key }
+            WorkKind.EPIC -> onOpenEpic(link.id)
+            WorkKind.CONTRACT -> openContract(link.id)
+        }
     }
 
     Column(modifier = Modifier.fillMaxSize()) {
@@ -355,7 +457,6 @@ fun SessionScreen(
             ) {
                 Column(modifier = Modifier.fillMaxWidth()) {
                     Head(
-                        bandHides = !stripTiles,
                         dir = lastPathElement(shown.cwd),
                         host = shown.host.ifEmpty { servingHost },
                         title = shown.label.ifEmpty { shown.command },
@@ -378,21 +479,12 @@ fun SessionScreen(
                             tapped = true
                         },
                         onFind = { finding = FindSession(query = "") },
+                        work = work,
+                        workLit = workLit,
+                        onOpenWork = openWork,
+                        onAllWork = { workOpen = WORK_ALL },
                         modifier = Modifier.fillMaxWidth().background(OrreryTokens.Surface.page),
                     )
-                    if (fold == HeadFold.OPEN) {
-                        ConversationStrip(
-                            conversation = sessionId,
-                            pane = false,
-                            background = conversation?.background.orEmpty(),
-                            now = nowSeconds,
-                            client = client,
-                            onOpenEpic = onOpenEpic,
-                            onOpenContract = openContract,
-                            onTiles = { stripTiles = it },
-                            end = { HideHeader { headHidden.value = true } },
-                        )
-                    }
                 }
             }
         }
@@ -460,6 +552,12 @@ fun SessionScreen(
                 scope = scope,
             )
         } else if (!stepEnded && (step == null || stepRead)) {
+            ActivityLines(
+                tasks = conversation?.background.orEmpty(),
+                now = nowSeconds,
+                onOpen = { task -> taskList = listOf(task) },
+                onMore = { taskList = conversation?.background.orEmpty().filter { it.status == "running" } },
+            )
             Dock(
                 facts = dockFactsOf(
                     kind = if (step != null) DockKind.STEP else DockKind.SESSION,
@@ -490,6 +588,31 @@ fun SessionScreen(
                 stepCalls = if (step != null) stepCalls else null,
                 about = about?.let { "${it.id} ${it.text}" },
                 onClearAbout = onClearAbout,
+            )
+        }
+        workSheet?.let { content ->
+            WorkSheet(
+                designs = content.designs,
+                loose = content.loose,
+                now = nowSeconds,
+                onOpen = { key ->
+                    workOpen = null
+                    (content.designs.flatMap { it.kids } + content.loose).firstOrNull { it.key == key }?.let { kid ->
+                        when (kid) {
+                            is EpicNode -> onOpenEpic(kid.epic.id)
+                            is ContractNode -> openContract(kid.contract.id)
+                        }
+                    }
+                },
+                onDismiss = { workOpen = null },
+            )
+        }
+        taskList?.let { tasks ->
+            WorkListSheet(
+                agents = tasks.all { it.type == "agent" },
+                tasks = tasks,
+                now = nowSeconds,
+                onDismiss = { taskList = null },
             )
         }
     }

@@ -38,6 +38,7 @@ import (
 	"github.com/joshsymonds/orrery/internal/donejudge"
 	"github.com/joshsymonds/orrery/internal/enginehost"
 	"github.com/joshsymonds/orrery/internal/gates"
+	"github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1/enginev1connect"
 	"github.com/joshsymonds/orrery/internal/grants"
 	"github.com/joshsymonds/orrery/internal/holder"
 	"github.com/joshsymonds/orrery/internal/hostexec"
@@ -54,6 +55,7 @@ import (
 	"github.com/joshsymonds/orrery/internal/route"
 	"github.com/joshsymonds/orrery/internal/sdnotify"
 	"github.com/joshsymonds/orrery/internal/server"
+	"github.com/joshsymonds/orrery/internal/stage"
 	"github.com/joshsymonds/orrery/internal/stamp"
 	"github.com/joshsymonds/orrery/internal/store"
 	"github.com/joshsymonds/orrery/internal/summary"
@@ -908,6 +910,7 @@ type sessionHost struct {
 	steering   enginehost.SteeringSessions
 	contracts  *enginehost.Contracts
 	designs    *enginehost.Designs
+	stage      enginev1connect.StageHandler
 	accounts   *enginehost.Accounts
 	writer     *enginehost.Writer
 	broker     *grants.Broker
@@ -1085,10 +1088,11 @@ func startSessions(
 			Hosts: hosts,
 		})
 		host.steps = steps
+		acceptCheck := host.wireStage(st, steps, getenv)
 		host.wireStore(st)
 		commands, stepCommands = host.manager, host.steps
 		host.epics, host.steering, host.contracts, host.accounts = st, epicSteering(host.manager, st, hosts),
-			contractsOf(st, hosts, hostName), &enginehost.Accounts{Store: st, Now: time.Now}
+			contractsOf(st, hosts, hostName, acceptCheck), &enginehost.Accounts{Store: st, Now: time.Now}
 		host.designs = &enginehost.Designs{Store: st, Now: time.Now}
 		crons = enginehost.NewCronAnswers(enginehost.CronAnswersConfig{
 			Store: st, Now: opts.cronNow, Changed: host.cron.Changed})
@@ -1168,6 +1172,7 @@ func (h *sessionHost) serveConfig(
 		Changes:   h.changes,
 		Contracts: h.contracts,
 		Designs:   h.designs,
+		Stage:     h.stage,
 		Accounts:  h.accounts,
 		PaneSends: h.paneSends,
 		Host:      hostName,
@@ -1184,9 +1189,11 @@ func epicSteering(manager *enginehost.Manager, st *store.Store, hosts hostexec.H
 }
 
 // contractsOf returns the contracts st serves, stamped with the process clock. Their origin is fetched on the
-// controller's host, which hosts resolves hostName to.
-func contractsOf(st *store.Store, hosts hostexec.Hosts, hostName string) *enginehost.Contracts {
-	return &enginehost.Contracts{Store: st, Now: time.Now, Hosts: hosts, Host: hostName}
+// controller's host, which hosts resolves hostName to. An accept first asks acceptCheck of the contract.
+func contractsOf(
+	st *store.Store, hosts hostexec.Hosts, hostName string, acceptCheck func(context.Context, string) error,
+) *enginehost.Contracts {
+	return &enginehost.Contracts{Store: st, Now: time.Now, Hosts: hosts, Host: hostName, AcceptCheck: acceptCheck}
 }
 
 // paneDir returns the current directory of the tmux pane on the server whose store column is server. Its error names
@@ -1546,6 +1553,16 @@ func (r *dueWakeRelay) Wake() {
 	if wake != nil {
 		wake()
 	}
+}
+
+// wireStage sets the Stage service of h to the service over st and steps, which reads getenv, and returns the service's
+// AcceptCheck, which an accept of a contract asks before it accepts the contract.
+func (h *sessionHost) wireStage(
+	st *store.Store, steps *enginehost.Steps, getenv func(string) string,
+) func(context.Context, string) error {
+	service := stage.NewService(stage.Config{Store: st, Steps: steps, Now: time.Now, Getenv: getenv})
+	h.stage = service
+	return service.AcceptCheck
 }
 
 // wireStore points st's engine liveness at the manager, and makes h.changes the change feed that st's session-events

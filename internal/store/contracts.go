@@ -73,8 +73,8 @@ type ContractRecord struct {
 
 // ProposeContract stores id as a new contract. proposal is stored as version 1, whatever its Version says, with no
 // changed rows or sections, and the contract enters state proposed at version 1 by proposal.Writer with
-// proposal.Words at proposal.At. It returns an error that matches ErrContractExists, and stores nothing, when a
-// contract, an epic or a design already has id.
+// proposal.Words at proposal.At. A draft stored under id is deleted in the same write. It returns an error that matches
+// ErrContractExists, and stores nothing, when a contract, an epic or a design already has id.
 func (s *Store) ProposeContract(ctx context.Context, id string, proposal ContractVersion) error {
 	return s.write(ctx, func(queries *sqlcgen.Queries) error {
 		return proposeContract(ctx, queries, id, proposal)
@@ -84,23 +84,18 @@ func (s *Store) ProposeContract(ctx context.Context, id string, proposal Contrac
 // proposeContract stores id as a new contract as ProposeContract does, with queries. It returns an error that matches
 // ErrContractExists when a contract, an epic or a design already has id.
 func proposeContract(ctx context.Context, queries *sqlcgen.Queries, id string, proposal ContractVersion) error {
-	held, err := queries.CountContract(ctx, id)
+	held, err := contractIDHeld(ctx, queries, id)
 	if err != nil {
-		return fmt.Errorf("count contract %s: %w", id, err)
+		return err
 	}
-	epics, err := queries.CountEpic(ctx, id)
-	if err != nil {
-		return fmt.Errorf("count epic %s: %w", id, err)
-	}
-	designs, err := queries.CountDesign(ctx, id)
-	if err != nil {
-		return fmt.Errorf("count design %s: %w", id, err)
-	}
-	if held > 0 || epics > 0 || designs > 0 {
+	if held {
 		return fmt.Errorf("contract %s: %w", id, ErrContractExists)
 	}
 	if err = queries.InsertContract(ctx, sqlcgen.InsertContractParams{ID: id, Created: proposal.At}); err != nil {
 		return fmt.Errorf("insert contract %s: %w", id, err)
+	}
+	if err = queries.DeleteContractDraft(ctx, id); err != nil {
+		return fmt.Errorf("delete draft of contract %s: %w", id, err)
 	}
 	proposal.Version, proposal.ChangedRows, proposal.ChangedSections = 1, nil, nil
 	if versionErr := insertContractVersion(ctx, queries, id, proposal); versionErr != nil {
@@ -108,6 +103,23 @@ func proposeContract(ctx context.Context, queries *sqlcgen.Queries, id string, p
 	}
 	change := ContractChange{Session: proposal.Writer, Words: proposal.Words, At: proposal.At}
 	return appendContractState(ctx, queries, id, ContractProposed, 1, change)
+}
+
+// contractIDHeld reports whether a contract, an epic or a design already holds id, read with queries.
+func contractIDHeld(ctx context.Context, queries *sqlcgen.Queries, id string) (bool, error) {
+	contracts, err := queries.CountContract(ctx, id)
+	if err != nil {
+		return false, fmt.Errorf("count contract %s: %w", id, err)
+	}
+	epics, err := queries.CountEpic(ctx, id)
+	if err != nil {
+		return false, fmt.Errorf("count epic %s: %w", id, err)
+	}
+	designs, err := queries.CountDesign(ctx, id)
+	if err != nil {
+		return false, fmt.Errorf("count design %s: %w", id, err)
+	}
+	return contracts > 0 || epics > 0 || designs > 0, nil
 }
 
 // Contract returns the contract with id, its listing with its versions and states. Both are read in one read
@@ -141,6 +153,20 @@ func (s *Store) Contracts(ctx context.Context) ([]ContractListing, error) {
 		return nil, fmt.Errorf("end contracts read: %w", err)
 	}
 	return listings, nil
+}
+
+// ContractStaged reports whether the contract with id is staged, which is whether the contract stage proposed it. Each
+// contract the migration that added the staged column found reads false. It returns an error that matches ErrNoContract
+// when no contract has id.
+func (s *Store) ContractStaged(ctx context.Context, id string) (bool, error) {
+	staged, err := sqlcgen.New(s.read).GetContractStaged(ctx, id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, fmt.Errorf("contract %s: %w", id, ErrNoContract)
+	}
+	if err != nil {
+		return false, fmt.Errorf("read staged of contract %s: %w", id, err)
+	}
+	return staged != 0, nil
 }
 
 // Contract returns the contract with id as Store.Contract does, read without writing the store.

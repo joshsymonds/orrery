@@ -1,0 +1,101 @@
+{
+  "title": "Steelman return",
+  "description": "The steelman's one return per pass. Set status to blocked when verdict is BLOCKED, otherwise done.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["status", "pass", "verdict", "evidence_and_coverage"],
+  "properties": {
+    "status": {
+      "type": "string",
+      "enum": ["done", "blocked"]
+    },
+    "pass": {
+      "type": "string",
+      "enum": ["discovery", "closure"]
+    },
+    "verdict": {
+      "type": "string",
+      "enum": [
+        "READY",
+        "REVISE",
+        "NEEDS_DECISION",
+        "BLOCKED",
+        "STILL_OPEN",
+        "CHANGE_INDUCED_CONCERN"
+      ]
+    },
+    "strongest_case": {
+      "type": "string"
+    },
+    "strongest_alternative": {
+      "type": "string"
+    },
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "contract", "impact", "evidence", "change"],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "contract": {
+            "type": "string"
+          },
+          "impact": {
+            "type": "string"
+          },
+          "evidence": {
+            "type": "string"
+          },
+          "change": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "ledger": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "word", "note"],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "word": {
+            "type": "string",
+            "enum": ["satisfied", "not_satisfied"]
+          },
+          "note": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "concerns": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "contract", "text"],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "contract": {
+            "type": "string"
+          },
+          "text": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "evidence_and_coverage": {
+      "type": "string"
+    }
+  }
+}

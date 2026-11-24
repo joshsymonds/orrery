@@ -214,6 +214,9 @@ type Config struct {
 	// ContractCommands is orreryd's Contracts client, which Accept, SetAside and Reopen forward the owner's commands
 	// to, or nil, which answers unavailable.
 	ContractCommands enginev1connect.ContractsClient
+	// StageCommands is orreryd's Stage client, which Designs.Answer forwards the owner's answers to, or nil, which
+	// answers unavailable.
+	StageCommands enginev1connect.StageClient
 	// AccountCommands is orreryd's Accounts client, which Accounts.Add, Rename and Remove and Routes.Replace and
 	// SetContextAccount forward the owner's commands to, or nil, which answers unavailable.
 	AccountCommands enginev1connect.AccountsClient
@@ -333,7 +336,7 @@ func New(cfg Config) (http.Handler, error) {
 // registerEpicServices mounts the Epics service, the Evidence service, the Contracts service and the Designs service on
 // mux, all over the records, steps, epic store, epic commands, evidence client, contract commands and store reader of
 // cfg, and returns their paths. The Epics service also lists the sessions of cfg's store reader, and dates its records
-// from now.
+// from now. The Designs service forwards its answers to cfg's stage commands.
 func registerEpicServices(mux *http.ServeMux, cfg Config, now func() time.Time) (string, string, string, string) {
 	epicsPath, epicsService := newEpicsHandler(
 		cfg.Records, cfg.Steps, cfg.EpicStore, cfg.EpicCommands, cfg.Evidence, cfg.Sessions, cfg.ControlTimeout, now,
@@ -346,7 +349,9 @@ func registerEpicServices(mux *http.ServeMux, cfg Config, now func() time.Time) 
 		cfg.Sessions, cfg.ContractCommands, cfg.ControlTimeout, rpcretry.SystemClock{}, cfg.HandlerOptions...,
 	)
 	mux.Handle(contractsPath, contractsService)
-	designsPath, designsService := newDesignsHandler(cfg.Sessions, cfg.HandlerOptions...)
+	designsPath, designsService := newDesignsHandler(
+		cfg.Sessions, cfg.StageCommands, cfg.ControlTimeout, rpcretry.SystemClock{}, cfg.HandlerOptions...,
+	)
 	mux.Handle(designsPath, designsService)
 	return epicsPath, evidencePath, contractsPath, designsPath
 }
