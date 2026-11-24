@@ -35,6 +35,7 @@ import (
 	"github.com/joshsymonds/orrery/internal/help"
 	"github.com/joshsymonds/orrery/internal/hook"
 	"github.com/joshsymonds/orrery/internal/hoststatus"
+	"github.com/joshsymonds/orrery/internal/ledger"
 	"github.com/joshsymonds/orrery/internal/open"
 	"github.com/joshsymonds/orrery/internal/picker"
 	"github.com/joshsymonds/orrery/internal/protocol"
@@ -651,6 +652,7 @@ func runServe(ctx context.Context, opts globals, args []string, getenv func(stri
 	cfg.ReportRead = readReporter(opts.daemonSocket, getenv)
 	cfg.ReportInput = inputReporter(opts.daemonSocket, getenv)
 	cfg.Web = webui.FS()
+	cfg.Ledger = serveUsageLedger(getenv)
 	handler, err := server.New(cfg)
 	if err != nil {
 		return fmt.Errorf("serve: %w", err)
@@ -685,6 +687,19 @@ func serveSessionConfig(opts globals, getenv func(string) string) server.Config 
 		StageCommands:    enginev1connect.NewStageClient(sessionClient, cli.SessionBaseURL),
 		AccountCommands:  enginev1connect.NewAccountsClient(sessionClient, cli.SessionBaseURL),
 	}
+}
+
+// serveUsageLedger returns the reader of the LLM ledger file beside orreryd's store, which the Usage API answers
+// from. A store path that does not resolve leaves it nil, so every Usage read answers unavailable, as
+// server.Config.Ledger documents. That is safe because openServeStores has already refused an unresolved store path
+// before serve reads this, and serveSessionConfig leaves its clients nil the same way when the daemon socket does not
+// resolve.
+func serveUsageLedger(getenv func(string) string) *ledger.Reader {
+	storePath, err := store.Path(getenv)
+	if err != nil {
+		return nil
+	}
+	return ledger.NewReader(ledger.Path(storePath))
 }
 
 // serveMetrics returns the metrics provider and the handler options that record to it when metricsListen is set.

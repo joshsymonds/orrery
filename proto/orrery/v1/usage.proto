@@ -1,0 +1,121 @@
+syntax = "proto3";
+
+package orrery.v1;
+
+// Usage answers from the LLM ledger orrery keeps, one record per request: the readings of the usage limits, the
+// totals of one session's requests and the spend of each seat over a span of time.
+service Usage {
+  // Readings returns the usage limit readings, one for each account and claim.
+  rpc Readings(UsageReadingsRequest) returns (UsageReadingsResponse);
+
+  // SessionTotals returns the requests and tokens one session made, totalled for each model and agent type.
+  rpc SessionTotals(UsageSessionTotalsRequest) returns (UsageSessionTotalsResponse);
+
+  // Spend returns what each seat spent over the half-open span [from, to), one entry for each seat.
+  rpc Spend(UsageSpendRequest) returns (UsageSpendResponse);
+}
+
+// UsageReadingsRequest asks for every usage limit reading.
+message UsageReadingsRequest {}
+
+// UsageReading is one reading of a usage limit for an account and claim.
+message UsageReading {
+  // The account the limit belongs to.
+  string account = 1;
+
+  // The claim the limit is for.
+  string claim = 2;
+
+  // The share of the limit in use, when the reading gives one.
+  optional double utilization = 3;
+
+  // When the limit resets, in unix seconds; unset when the reading gives no reset.
+  optional int64 reset = 4;
+
+  // The status the reading reports.
+  string status = 5;
+
+  // When the reading was observed, in unix seconds.
+  int64 observed = 6;
+
+  // Whether orrery dropped the reading.
+  bool dropped = 7;
+}
+
+// UsageReadingsResponse carries every usage limit reading.
+message UsageReadingsResponse {
+  // The readings.
+  repeated UsageReading readings = 1;
+}
+
+// UsageSessionTotalsRequest names the session whose requests are totalled.
+message UsageSessionTotalsRequest {
+  // The orrery session id.
+  string session = 1;
+}
+
+// UsageSessionTotal is the requests and tokens one session made for one model and agent type.
+message UsageSessionTotal {
+  // The model the requests were sent to.
+  string model = 1;
+
+  // The agent type that made the requests.
+  string agent_type = 2;
+
+  // The number of requests.
+  int64 requests = 3;
+
+  // The input tokens the requests used.
+  int64 input_tokens = 4;
+
+  // The output tokens the requests produced.
+  int64 output_tokens = 5;
+
+  // The tokens the requests read from the prompt cache.
+  int64 cache_read_tokens = 6;
+
+  // The tokens the requests wrote to the prompt cache.
+  int64 cache_write_tokens = 7;
+
+  // The cost billed for the requests, in nano US dollars.
+  int64 billed_cost_nano_usd = 8;
+
+  // The cost of the requests at list price, in nano US dollars.
+  int64 list_cost_nano_usd = 9;
+}
+
+// UsageSessionTotalsResponse carries the totals of one session.
+message UsageSessionTotalsResponse {
+  // The totals, one for each model and agent type the session made requests with.
+  repeated UsageSessionTotal totals = 1;
+}
+
+// UsageSpendRequest names the span whose spend is totalled.
+message UsageSpendRequest {
+  // The span's start, in unix seconds, inclusive.
+  int64 from = 1;
+
+  // The span's end, in unix seconds, exclusive.
+  int64 to = 2;
+}
+
+// UsageSeatSpend is what one seat spent over the requested span.
+message UsageSeatSpend {
+  // The seat the spend belongs to.
+  string seat = 1;
+
+  // The cost billed for the seat's requests, in nano US dollars.
+  int64 billed_cost_nano_usd = 2;
+
+  // The cost of the seat's requests at list price, in nano US dollars.
+  int64 list_cost_nano_usd = 3;
+
+  // The number of the seat's requests whose cost is unknown.
+  int64 unknown_cost_requests = 4;
+}
+
+// UsageSpendResponse carries the spend of each seat over the requested span.
+message UsageSpendResponse {
+  // The spend, one entry for each seat.
+  repeated UsageSeatSpend seats = 1;
+}

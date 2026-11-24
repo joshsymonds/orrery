@@ -28,6 +28,7 @@ import (
 	enginev1 "github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1"
 	enginev1connect "github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1/enginev1connect"
 	"github.com/joshsymonds/orrery/internal/hoststatus"
+	"github.com/joshsymonds/orrery/internal/ledger"
 	"github.com/joshsymonds/orrery/internal/node"
 	"github.com/joshsymonds/orrery/internal/open"
 	"github.com/joshsymonds/orrery/internal/protocol"
@@ -229,6 +230,9 @@ type Config struct {
 	// AccountCommands is orreryd's Accounts client, which Accounts.Add, Rename and Remove and Routes.Replace and
 	// SetContextAccount forward the owner's commands to, or nil, which answers unavailable.
 	AccountCommands enginev1connect.AccountsClient
+	// Ledger is the reader of the LLM ledger the Usage API answers from, or nil, which answers every Usage read
+	// unavailable.
+	Ledger *ledger.Reader
 	// Evidence is orreryd's Evidence client, which Epics.Get and Contracts.Get read each Requirement's runs from and
 	// Evidence.Artifact reads artifacts from, or nil for no runs and no artifacts.
 	Evidence EvidenceClient
@@ -297,7 +301,7 @@ func New(cfg Config) (http.Handler, error) {
 	)
 	mux.Handle(controlPath, control)
 	epicsPath, evidencePath, contractsPath, designsPath := registerEpicServices(mux, cfg, now)
-	accountsPath, routesPath := registerAccountServices(mux, cfg)
+	accountsPath, routesPath, usagePath := registerAccountServices(mux, cfg)
 	stepsPath, stepsService := newStepsHandler(
 		cfg.Steps, cfg.ControlTimeout, rpcretry.SystemClock{}, cfg.HandlerOptions...,
 	)
@@ -331,7 +335,7 @@ func New(cfg Config) (http.Handler, error) {
 	}
 	connectPaths := []string{
 		sessionsPath, eventsPath, controlPath, epicsPath, evidencePath, stepsPath, poolsPath, noticesPath, panesPath,
-		hostPath, pushPath, pickerPath, presencePath, contractsPath, designsPath, accountsPath, routesPath,
+		hostPath, pushPath, pickerPath, presencePath, contractsPath, usagePath, designsPath, accountsPath, routesPath,
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if _, ok := allowed[r.Header.Get(HeaderLogin)]; !ok {
@@ -372,8 +376,9 @@ func registerEpicServices(mux *http.ServeMux, cfg Config, now func() time.Time) 
 }
 
 // registerAccountServices mounts the Accounts service and the Routes service on mux, reading the store reader of cfg and
-// forwarding their commands to cfg.AccountCommands, and returns their paths. Both time their retries on the system clock.
-func registerAccountServices(mux *http.ServeMux, cfg Config) (string, string) {
+// forwarding their commands to cfg.AccountCommands, and the Usage service, reading cfg.Ledger and the store reader of
+// cfg, and returns their paths. Accounts and Routes time their retries on the system clock.
+func registerAccountServices(mux *http.ServeMux, cfg Config) (string, string, string) {
 	accountsPath, accountsService := newAccountsHandler(
 		cfg.Sessions, cfg.AccountCommands, cfg.ControlTimeout, rpcretry.SystemClock{}, cfg.HandlerOptions...,
 	)
@@ -382,7 +387,9 @@ func registerAccountServices(mux *http.ServeMux, cfg Config) (string, string) {
 		cfg.Sessions, cfg.AccountCommands, cfg.ControlTimeout, rpcretry.SystemClock{}, cfg.HandlerOptions...,
 	)
 	mux.Handle(routesPath, routesService)
-	return accountsPath, routesPath
+	usagePath, usageService := newUsageHandler(cfg.Ledger, cfg.Sessions, cfg.HandlerOptions...)
+	mux.Handle(usagePath, usageService)
+	return accountsPath, routesPath, usagePath
 }
 
 // registerNotices mounts the Notices service on mux, forwarding to cfg.Notices with each Watch send bounded by
