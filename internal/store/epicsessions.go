@@ -11,8 +11,9 @@ import (
 )
 
 // EpicCaller names the session that made a call of an epic. A non-empty Session names the sessions row with that id.
-// Otherwise the caller is a tmux pane, and Server and Pane name its row.
-type EpicCaller struct{ Session, Server, Pane string }
+// Otherwise the caller is a tmux pane, and Server and Pane name its row under Host, the orrery name of the host the
+// pane is on. A pane caller with an empty Host names only rows stored with an empty host.
+type EpicCaller struct{ Session, Server, Pane, Host string }
 
 // epicCreateCall is the call that creates an epic. The session that makes it is the epic's creator.
 const epicCreateCall = "epic_create"
@@ -61,7 +62,9 @@ func resolveEpicCaller(ctx context.Context, queries *sqlcgen.Queries, caller Epi
 		}
 		return row.ID, nil
 	}
-	id, err := queries.GetPaneSession(ctx, sqlcgen.GetPaneSessionParams{Server: caller.Server, Pane: caller.Pane})
+	id, err := queries.GetPaneSession(ctx, sqlcgen.GetPaneSessionParams{
+		Server: caller.Server, Pane: caller.Pane, Host: caller.Host,
+	})
 	if errors.Is(err, sql.ErrNoRows) {
 		return "", nil
 	}
@@ -120,7 +123,9 @@ func (s *Store) CallerMaker(ctx context.Context, caller EpicCaller) (Maker, erro
 	queries := sqlcgen.New(s.read)
 	id := caller.Session
 	if id == "" {
-		pane, err := queries.GetPaneSession(ctx, sqlcgen.GetPaneSessionParams{Server: caller.Server, Pane: caller.Pane})
+		pane, err := queries.GetPaneSession(ctx, sqlcgen.GetPaneSessionParams{
+			Server: caller.Server, Pane: caller.Pane, Host: caller.Host,
+		})
 		if errors.Is(err, sql.ErrNoRows) {
 			return owner, nil
 		}

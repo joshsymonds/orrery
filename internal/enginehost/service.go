@@ -15,6 +15,7 @@ import (
 	v1 "github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1"
 	"github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1/enginev1connect"
 	"github.com/joshsymonds/orrery/internal/hostexec"
+	"github.com/joshsymonds/orrery/internal/protocol"
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
@@ -74,6 +75,9 @@ type ServeConfig struct {
 	// Host is the name of the controller's host: each epic the Epics service creates is stamped with it, and its
 	// create checks run on the Host that Hosts resolves it to.
 	Host string
+	// CallerHost is the orrery name of the host whose panes a call on this listener comes from. ServeWith sets it as the
+	// Orrery-Host of each request, over any Orrery-Host the request sent, and sends no Orrery-Host when it is empty.
+	CallerHost string
 	// Hosts resolves host names to the Hosts that run epic git. Nil resolves every name to this machine.
 	Hosts   hostexec.Hosts
 	Options []connect.HandlerOption
@@ -177,9 +181,13 @@ func NewHandler(cfg ServeConfig) http.Handler {
 // service with cfg.Stage. It then shuts down within shutdownWait and returns nil. A nil cfg.PaneSends refuses every
 // PaneSends RPC as unavailable, a nil cfg.Accounts refuses every Accounts RPC as unavailable, a nil cfg.Designs refuses
 // every Designs RPC as unavailable, and a nil cfg.Stage answers every Stage RPC as unimplemented. The other fields keep
-// Serve's nil rules, and cfg.Options apply to each handler.
+// Serve's nil rules, and cfg.Options apply to each handler. Each request is served with its Orrery-Host set as
+// cfg.CallerHost sets it, so no caller names another host.
 func ServeWith(ctx context.Context, ln net.Listener, cfg ServeConfig) error {
-	srv := &http.Server{Handler: NewHandler(cfg), ReadHeaderTimeout: readHeaderTimeout}
+	srv := &http.Server{
+		Handler:           stampCallerHost(cfg.CallerHost, NewHandler(cfg)),
+		ReadHeaderTimeout: readHeaderTimeout,
+	}
 
 	done := make(chan error, 1)
 	go func() { done <- srv.Serve(ln) }()
@@ -201,6 +209,19 @@ func ServeWith(ctx context.Context, ln net.Listener, cfg ServeConfig) error {
 		return fmt.Errorf("serve engine: %w", err)
 	}
 	return nil
+}
+
+// stampCallerHost returns the handler that serves each request of next with its Orrery-Host set to host. It deletes
+// any Orrery-Host the request sent first, so the name next sees is the one the listener admitted, and sets none when
+// host is empty.
+func stampCallerHost(host string, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		req.Header.Del(protocol.HeaderHost)
+		if host != "" {
+			req.Header.Set(protocol.HeaderHost, host)
+		}
+		next.ServeHTTP(w, req)
+	})
 }
 
 // service implements the Engine RPCs over commands. steps, when set, names the step ids the engine refuses.
