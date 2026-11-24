@@ -162,7 +162,9 @@ type DesignsGetResponse struct {
 	// The log of the design's stage, oldest first.
 	Log []*DesignLogLine `protobuf:"bytes,4,rep,name=log,proto3" json:"log,omitempty"`
 	// The owner's delegations of the design's decisions to the conversation, oldest first.
-	Delegations   []*DesignDelegation `protobuf:"bytes,5,rep,name=delegations,proto3" json:"delegations,omitempty"`
+	Delegations []*DesignDelegation `protobuf:"bytes,5,rep,name=delegations,proto3" json:"delegations,omitempty"`
+	// The design's stage; unset when serve has no stage service.
+	Stage         *DesignStage `protobuf:"bytes,6,opt,name=stage,proto3" json:"stage,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -228,6 +230,13 @@ func (x *DesignsGetResponse) GetLog() []*DesignLogLine {
 func (x *DesignsGetResponse) GetDelegations() []*DesignDelegation {
 	if x != nil {
 		return x.Delegations
+	}
+	return nil
+}
+
+func (x *DesignsGetResponse) GetStage() *DesignStage {
+	if x != nil {
+		return x.Stage
 	}
 	return nil
 }
@@ -798,6 +807,488 @@ func (x *DesignDecision) GetTime() int64 {
 	return 0
 }
 
+// DesignStep is a research, reproduction or steelman step a design's stage started, with its report once it returns.
+type DesignStep struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The step's id.
+	Step string `protobuf:"bytes,1,opt,name=step,proto3" json:"step,omitempty"`
+	// The step's kind: research, reproduce, discovery or closure.
+	Kind string `protobuf:"bytes,2,opt,name=kind,proto3" json:"kind,omitempty"`
+	// What the step looks into.
+	Subject string `protobuf:"bytes,3,opt,name=subject,proto3" json:"subject,omitempty"`
+	// The step's status: running until the step ends, then its status.
+	Status string `protobuf:"bytes,4,opt,name=status,proto3" json:"status,omitempty"`
+	// The step's report, or its output, empty until it returns.
+	Report string `protobuf:"bytes,5,opt,name=report,proto3" json:"report,omitempty"`
+	// The verdict of a steelman pass, empty for the other kinds and until the pass returns.
+	Verdict string `protobuf:"bytes,6,opt,name=verdict,proto3" json:"verdict,omitempty"`
+	// True when the step counts toward the design's budget of passes.
+	Counted bool `protobuf:"varint,7,opt,name=counted,proto3" json:"counted,omitempty"`
+	// When the step was started, in unix seconds.
+	Created       int64 `protobuf:"varint,8,opt,name=created,proto3" json:"created,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DesignStep) Reset() {
+	*x = DesignStep{}
+	mi := &file_orrery_v1_designs_proto_msgTypes[10]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DesignStep) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DesignStep) ProtoMessage() {}
+
+func (x *DesignStep) ProtoReflect() protoreflect.Message {
+	mi := &file_orrery_v1_designs_proto_msgTypes[10]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DesignStep.ProtoReflect.Descriptor instead.
+func (*DesignStep) Descriptor() ([]byte, []int) {
+	return file_orrery_v1_designs_proto_rawDescGZIP(), []int{10}
+}
+
+func (x *DesignStep) GetStep() string {
+	if x != nil {
+		return x.Step
+	}
+	return ""
+}
+
+func (x *DesignStep) GetKind() string {
+	if x != nil {
+		return x.Kind
+	}
+	return ""
+}
+
+func (x *DesignStep) GetSubject() string {
+	if x != nil {
+		return x.Subject
+	}
+	return ""
+}
+
+func (x *DesignStep) GetStatus() string {
+	if x != nil {
+		return x.Status
+	}
+	return ""
+}
+
+func (x *DesignStep) GetReport() string {
+	if x != nil {
+		return x.Report
+	}
+	return ""
+}
+
+func (x *DesignStep) GetVerdict() string {
+	if x != nil {
+		return x.Verdict
+	}
+	return ""
+}
+
+func (x *DesignStep) GetCounted() bool {
+	if x != nil {
+		return x.Counted
+	}
+	return false
+}
+
+func (x *DesignStep) GetCreated() int64 {
+	if x != nil {
+		return x.Created
+	}
+	return 0
+}
+
+// DesignQuestion is a question a design's stage asks, about one of its contracts, with its answer once one is given.
+type DesignQuestion struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The question's id, counted from 1 within its design.
+	Id int64 `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`
+	// The id of the contract the question concerns, empty when it concerns none.
+	Contract string `protobuf:"bytes,2,opt,name=contract,proto3" json:"contract,omitempty"`
+	// The question's text.
+	Text string `protobuf:"bytes,3,opt,name=text,proto3" json:"text,omitempty"`
+	// The options the owner may choose between.
+	Options []string `protobuf:"bytes,4,rep,name=options,proto3" json:"options,omitempty"`
+	// The option the planner recommends.
+	Recommendation string `protobuf:"bytes,5,opt,name=recommendation,proto3" json:"recommendation,omitempty"`
+	// When the question was asked, in unix seconds.
+	Asked int64 `protobuf:"varint,6,opt,name=asked,proto3" json:"asked,omitempty"`
+	// The answer's words; empty while the question is open.
+	Answer string `protobuf:"bytes,7,opt,name=answer,proto3" json:"answer,omitempty"`
+	// True when the answer is the recommendation the planner gave.
+	Accepted bool `protobuf:"varint,8,opt,name=accepted,proto3" json:"accepted,omitempty"`
+	// Who answered the question and the evidence the answer rests on; empty while the question is open.
+	Maker *RecordMaker `protobuf:"bytes,9,opt,name=maker,proto3" json:"maker,omitempty"`
+	// When the question was answered, in unix seconds; zero while the question is open.
+	Answered      int64 `protobuf:"varint,10,opt,name=answered,proto3" json:"answered,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DesignQuestion) Reset() {
+	*x = DesignQuestion{}
+	mi := &file_orrery_v1_designs_proto_msgTypes[11]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DesignQuestion) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DesignQuestion) ProtoMessage() {}
+
+func (x *DesignQuestion) ProtoReflect() protoreflect.Message {
+	mi := &file_orrery_v1_designs_proto_msgTypes[11]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DesignQuestion.ProtoReflect.Descriptor instead.
+func (*DesignQuestion) Descriptor() ([]byte, []int) {
+	return file_orrery_v1_designs_proto_rawDescGZIP(), []int{11}
+}
+
+func (x *DesignQuestion) GetId() int64 {
+	if x != nil {
+		return x.Id
+	}
+	return 0
+}
+
+func (x *DesignQuestion) GetContract() string {
+	if x != nil {
+		return x.Contract
+	}
+	return ""
+}
+
+func (x *DesignQuestion) GetText() string {
+	if x != nil {
+		return x.Text
+	}
+	return ""
+}
+
+func (x *DesignQuestion) GetOptions() []string {
+	if x != nil {
+		return x.Options
+	}
+	return nil
+}
+
+func (x *DesignQuestion) GetRecommendation() string {
+	if x != nil {
+		return x.Recommendation
+	}
+	return ""
+}
+
+func (x *DesignQuestion) GetAsked() int64 {
+	if x != nil {
+		return x.Asked
+	}
+	return 0
+}
+
+func (x *DesignQuestion) GetAnswer() string {
+	if x != nil {
+		return x.Answer
+	}
+	return ""
+}
+
+func (x *DesignQuestion) GetAccepted() bool {
+	if x != nil {
+		return x.Accepted
+	}
+	return false
+}
+
+func (x *DesignQuestion) GetMaker() *RecordMaker {
+	if x != nil {
+		return x.Maker
+	}
+	return nil
+}
+
+func (x *DesignQuestion) GetAnswered() int64 {
+	if x != nil {
+		return x.Answered
+	}
+	return 0
+}
+
+// DesignLedgerItem is a finding a design's stage raised, with its disposition once one is given.
+type DesignLedgerItem struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The item's id, counted from 1 within its design.
+	Id string `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	// The id of the contract the item concerns, empty when it concerns none.
+	Contract string `protobuf:"bytes,2,opt,name=contract,proto3" json:"contract,omitempty"`
+	// Where the item came from: discovery for the steelman's discovery pass, or closure for its closure pass.
+	Origin string `protobuf:"bytes,3,opt,name=origin,proto3" json:"origin,omitempty"`
+	// What the item would change if it held.
+	Impact string `protobuf:"bytes,4,opt,name=impact,proto3" json:"impact,omitempty"`
+	// The evidence the item rests on.
+	Evidence string `protobuf:"bytes,5,opt,name=evidence,proto3" json:"evidence,omitempty"`
+	// The change the item proposes to the contract.
+	Change string `protobuf:"bytes,6,opt,name=change,proto3" json:"change,omitempty"`
+	// The item's disposition: open, adopted, rejected or deferred.
+	Disposition string `protobuf:"bytes,7,opt,name=disposition,proto3" json:"disposition,omitempty"`
+	// Why the item was rejected or deferred; empty otherwise.
+	Reason string `protobuf:"bytes,8,opt,name=reason,proto3" json:"reason,omitempty"`
+	// The boundary the item was deferred to; empty unless it was deferred.
+	Boundary string `protobuf:"bytes,9,opt,name=boundary,proto3" json:"boundary,omitempty"`
+	// Who gave the disposition and the evidence it rests on; empty while the item is open.
+	Maker *RecordMaker `protobuf:"bytes,10,opt,name=maker,proto3" json:"maker,omitempty"`
+	// Closure's word on the item, empty until closure gives one.
+	ClosureWord string `protobuf:"bytes,11,opt,name=closure_word,json=closureWord,proto3" json:"closure_word,omitempty"`
+	// Closure's note on the item, empty until closure gives one.
+	ClosureNote   string `protobuf:"bytes,12,opt,name=closure_note,json=closureNote,proto3" json:"closure_note,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DesignLedgerItem) Reset() {
+	*x = DesignLedgerItem{}
+	mi := &file_orrery_v1_designs_proto_msgTypes[12]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DesignLedgerItem) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DesignLedgerItem) ProtoMessage() {}
+
+func (x *DesignLedgerItem) ProtoReflect() protoreflect.Message {
+	mi := &file_orrery_v1_designs_proto_msgTypes[12]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DesignLedgerItem.ProtoReflect.Descriptor instead.
+func (*DesignLedgerItem) Descriptor() ([]byte, []int) {
+	return file_orrery_v1_designs_proto_rawDescGZIP(), []int{12}
+}
+
+func (x *DesignLedgerItem) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *DesignLedgerItem) GetContract() string {
+	if x != nil {
+		return x.Contract
+	}
+	return ""
+}
+
+func (x *DesignLedgerItem) GetOrigin() string {
+	if x != nil {
+		return x.Origin
+	}
+	return ""
+}
+
+func (x *DesignLedgerItem) GetImpact() string {
+	if x != nil {
+		return x.Impact
+	}
+	return ""
+}
+
+func (x *DesignLedgerItem) GetEvidence() string {
+	if x != nil {
+		return x.Evidence
+	}
+	return ""
+}
+
+func (x *DesignLedgerItem) GetChange() string {
+	if x != nil {
+		return x.Change
+	}
+	return ""
+}
+
+func (x *DesignLedgerItem) GetDisposition() string {
+	if x != nil {
+		return x.Disposition
+	}
+	return ""
+}
+
+func (x *DesignLedgerItem) GetReason() string {
+	if x != nil {
+		return x.Reason
+	}
+	return ""
+}
+
+func (x *DesignLedgerItem) GetBoundary() string {
+	if x != nil {
+		return x.Boundary
+	}
+	return ""
+}
+
+func (x *DesignLedgerItem) GetMaker() *RecordMaker {
+	if x != nil {
+		return x.Maker
+	}
+	return nil
+}
+
+func (x *DesignLedgerItem) GetClosureWord() string {
+	if x != nil {
+		return x.ClosureWord
+	}
+	return ""
+}
+
+func (x *DesignLedgerItem) GetClosureNote() string {
+	if x != nil {
+		return x.ClosureNote
+	}
+	return ""
+}
+
+// DesignStage is the stage of one design: the steps it started, the questions it asked, the ledger of its findings and
+// the counts of its passes.
+type DesignStage struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The steps the design's stage started, oldest first.
+	Steps []*DesignStep `protobuf:"bytes,1,rep,name=steps,proto3" json:"steps,omitempty"`
+	// The questions the design's stage asked, oldest first.
+	Questions []*DesignQuestion `protobuf:"bytes,2,rep,name=questions,proto3" json:"questions,omitempty"`
+	// The ledger of the design's findings, oldest first.
+	Ledger []*DesignLedgerItem `protobuf:"bytes,3,rep,name=ledger,proto3" json:"ledger,omitempty"`
+	// True when the ledger is frozen: closure has started or was recorded skipped, and no disposition changes after.
+	Frozen bool `protobuf:"varint,4,opt,name=frozen,proto3" json:"frozen,omitempty"`
+	// True when the design's closure pass was recorded as skipped.
+	ClosureSkipped bool `protobuf:"varint,5,opt,name=closure_skipped,json=closureSkipped,proto3" json:"closure_skipped,omitempty"`
+	// True when the design's discovery pass has counted toward its budget.
+	DiscoveryCounted bool `protobuf:"varint,6,opt,name=discovery_counted,json=discoveryCounted,proto3" json:"discovery_counted,omitempty"`
+	// True when the design's closure pass has counted toward its budget.
+	ClosureCounted bool `protobuf:"varint,7,opt,name=closure_counted,json=closureCounted,proto3" json:"closure_counted,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *DesignStage) Reset() {
+	*x = DesignStage{}
+	mi := &file_orrery_v1_designs_proto_msgTypes[13]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DesignStage) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DesignStage) ProtoMessage() {}
+
+func (x *DesignStage) ProtoReflect() protoreflect.Message {
+	mi := &file_orrery_v1_designs_proto_msgTypes[13]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DesignStage.ProtoReflect.Descriptor instead.
+func (*DesignStage) Descriptor() ([]byte, []int) {
+	return file_orrery_v1_designs_proto_rawDescGZIP(), []int{13}
+}
+
+func (x *DesignStage) GetSteps() []*DesignStep {
+	if x != nil {
+		return x.Steps
+	}
+	return nil
+}
+
+func (x *DesignStage) GetQuestions() []*DesignQuestion {
+	if x != nil {
+		return x.Questions
+	}
+	return nil
+}
+
+func (x *DesignStage) GetLedger() []*DesignLedgerItem {
+	if x != nil {
+		return x.Ledger
+	}
+	return nil
+}
+
+func (x *DesignStage) GetFrozen() bool {
+	if x != nil {
+		return x.Frozen
+	}
+	return false
+}
+
+func (x *DesignStage) GetClosureSkipped() bool {
+	if x != nil {
+		return x.ClosureSkipped
+	}
+	return false
+}
+
+func (x *DesignStage) GetDiscoveryCounted() bool {
+	if x != nil {
+		return x.DiscoveryCounted
+	}
+	return false
+}
+
+func (x *DesignStage) GetClosureCounted() bool {
+	if x != nil {
+		return x.ClosureCounted
+	}
+	return false
+}
+
 // Design is a design as the clients read it: its contracts and the order they start in.
 type Design struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -821,7 +1312,7 @@ type Design struct {
 
 func (x *Design) Reset() {
 	*x = Design{}
-	mi := &file_orrery_v1_designs_proto_msgTypes[10]
+	mi := &file_orrery_v1_designs_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -833,7 +1324,7 @@ func (x *Design) String() string {
 func (*Design) ProtoMessage() {}
 
 func (x *Design) ProtoReflect() protoreflect.Message {
-	mi := &file_orrery_v1_designs_proto_msgTypes[10]
+	mi := &file_orrery_v1_designs_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -846,7 +1337,7 @@ func (x *Design) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Design.ProtoReflect.Descriptor instead.
 func (*Design) Descriptor() ([]byte, []int) {
-	return file_orrery_v1_designs_proto_rawDescGZIP(), []int{10}
+	return file_orrery_v1_designs_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *Design) GetId() string {
@@ -923,7 +1414,7 @@ type DesignContract struct {
 
 func (x *DesignContract) Reset() {
 	*x = DesignContract{}
-	mi := &file_orrery_v1_designs_proto_msgTypes[11]
+	mi := &file_orrery_v1_designs_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -935,7 +1426,7 @@ func (x *DesignContract) String() string {
 func (*DesignContract) ProtoMessage() {}
 
 func (x *DesignContract) ProtoReflect() protoreflect.Message {
-	mi := &file_orrery_v1_designs_proto_msgTypes[11]
+	mi := &file_orrery_v1_designs_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -948,7 +1439,7 @@ func (x *DesignContract) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DesignContract.ProtoReflect.Descriptor instead.
 func (*DesignContract) Descriptor() ([]byte, []int) {
-	return file_orrery_v1_designs_proto_rawDescGZIP(), []int{11}
+	return file_orrery_v1_designs_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *DesignContract) GetId() string {
@@ -1024,7 +1515,7 @@ type DesignsAnswerRequest struct {
 
 func (x *DesignsAnswerRequest) Reset() {
 	*x = DesignsAnswerRequest{}
-	mi := &file_orrery_v1_designs_proto_msgTypes[12]
+	mi := &file_orrery_v1_designs_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1036,7 +1527,7 @@ func (x *DesignsAnswerRequest) String() string {
 func (*DesignsAnswerRequest) ProtoMessage() {}
 
 func (x *DesignsAnswerRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_orrery_v1_designs_proto_msgTypes[12]
+	mi := &file_orrery_v1_designs_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1049,7 +1540,7 @@ func (x *DesignsAnswerRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DesignsAnswerRequest.ProtoReflect.Descriptor instead.
 func (*DesignsAnswerRequest) Descriptor() ([]byte, []int) {
-	return file_orrery_v1_designs_proto_rawDescGZIP(), []int{12}
+	return file_orrery_v1_designs_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *DesignsAnswerRequest) GetDesign() string {
@@ -1091,7 +1582,7 @@ type DesignsAnswerResponse struct {
 
 func (x *DesignsAnswerResponse) Reset() {
 	*x = DesignsAnswerResponse{}
-	mi := &file_orrery_v1_designs_proto_msgTypes[13]
+	mi := &file_orrery_v1_designs_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1103,7 +1594,7 @@ func (x *DesignsAnswerResponse) String() string {
 func (*DesignsAnswerResponse) ProtoMessage() {}
 
 func (x *DesignsAnswerResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_orrery_v1_designs_proto_msgTypes[13]
+	mi := &file_orrery_v1_designs_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1116,7 +1607,7 @@ func (x *DesignsAnswerResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DesignsAnswerResponse.ProtoReflect.Descriptor instead.
 func (*DesignsAnswerResponse) Descriptor() ([]byte, []int) {
-	return file_orrery_v1_designs_proto_rawDescGZIP(), []int{13}
+	return file_orrery_v1_designs_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *DesignsAnswerResponse) GetAnswer() string {
@@ -1137,7 +1628,7 @@ type DesignsContinueRequest struct {
 
 func (x *DesignsContinueRequest) Reset() {
 	*x = DesignsContinueRequest{}
-	mi := &file_orrery_v1_designs_proto_msgTypes[14]
+	mi := &file_orrery_v1_designs_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1149,7 +1640,7 @@ func (x *DesignsContinueRequest) String() string {
 func (*DesignsContinueRequest) ProtoMessage() {}
 
 func (x *DesignsContinueRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_orrery_v1_designs_proto_msgTypes[14]
+	mi := &file_orrery_v1_designs_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1162,7 +1653,7 @@ func (x *DesignsContinueRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DesignsContinueRequest.ProtoReflect.Descriptor instead.
 func (*DesignsContinueRequest) Descriptor() ([]byte, []int) {
-	return file_orrery_v1_designs_proto_rawDescGZIP(), []int{14}
+	return file_orrery_v1_designs_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *DesignsContinueRequest) GetId() string {
@@ -1185,7 +1676,7 @@ type DesignsContinueResponse struct {
 
 func (x *DesignsContinueResponse) Reset() {
 	*x = DesignsContinueResponse{}
-	mi := &file_orrery_v1_designs_proto_msgTypes[15]
+	mi := &file_orrery_v1_designs_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1197,7 +1688,7 @@ func (x *DesignsContinueResponse) String() string {
 func (*DesignsContinueResponse) ProtoMessage() {}
 
 func (x *DesignsContinueResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_orrery_v1_designs_proto_msgTypes[15]
+	mi := &file_orrery_v1_designs_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1210,7 +1701,7 @@ func (x *DesignsContinueResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DesignsContinueResponse.ProtoReflect.Descriptor instead.
 func (*DesignsContinueResponse) Descriptor() ([]byte, []int) {
-	return file_orrery_v1_designs_proto_rawDescGZIP(), []int{15}
+	return file_orrery_v1_designs_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *DesignsContinueResponse) GetDesign() *Design {
@@ -1236,7 +1727,7 @@ const file_orrery_v1_designs_proto_rawDesc = "" +
 	"\x13DesignsListResponse\x12+\n" +
 	"\adesigns\x18\x01 \x03(\v2\x11.orrery.v1.DesignR\adesigns\"#\n" +
 	"\x11DesignsGetRequest\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\tR\x02id\"\x96\x02\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\"\xc4\x02\n" +
 	"\x12DesignsGetResponse\x12)\n" +
 	"\x06design\x18\x01 \x01(\v2\x11.orrery.v1.DesignR\x06design\x129\n" +
 	"\n" +
@@ -1244,7 +1735,8 @@ const file_orrery_v1_designs_proto_rawDesc = "" +
 	"approaches\x12/\n" +
 	"\x06choice\x18\x03 \x01(\v2\x17.orrery.v1.DesignChoiceR\x06choice\x12*\n" +
 	"\x03log\x18\x04 \x03(\v2\x18.orrery.v1.DesignLogLineR\x03log\x12=\n" +
-	"\vdelegations\x18\x05 \x03(\v2\x1b.orrery.v1.DesignDelegationR\vdelegations\"\x89\x01\n" +
+	"\vdelegations\x18\x05 \x03(\v2\x1b.orrery.v1.DesignDelegationR\vdelegations\x12,\n" +
+	"\x05stage\x18\x06 \x01(\v2\x16.orrery.v1.DesignStageR\x05stage\"\x89\x01\n" +
 	"\vRecordMaker\x12\x12\n" +
 	"\x04kind\x18\x01 \x01(\tR\x04kind\x12\x14\n" +
 	"\x05quote\x18\x02 \x01(\tR\x05quote\x12\x16\n" +
@@ -1293,7 +1785,51 @@ const file_orrery_v1_designs_proto_rawDesc = "" +
 	"\x03ref\x18\x02 \x01(\tR\x03ref\x12\x12\n" +
 	"\x04text\x18\x03 \x01(\tR\x04text\x12\x16\n" +
 	"\x06reason\x18\x04 \x01(\tR\x06reason\x12\x12\n" +
-	"\x04time\x18\x05 \x01(\x03R\x04time\"\xd2\x01\n" +
+	"\x04time\x18\x05 \x01(\x03R\x04time\"\xcc\x01\n" +
+	"\n" +
+	"DesignStep\x12\x12\n" +
+	"\x04step\x18\x01 \x01(\tR\x04step\x12\x12\n" +
+	"\x04kind\x18\x02 \x01(\tR\x04kind\x12\x18\n" +
+	"\asubject\x18\x03 \x01(\tR\asubject\x12\x16\n" +
+	"\x06status\x18\x04 \x01(\tR\x06status\x12\x16\n" +
+	"\x06report\x18\x05 \x01(\tR\x06report\x12\x18\n" +
+	"\averdict\x18\x06 \x01(\tR\averdict\x12\x18\n" +
+	"\acounted\x18\a \x01(\bR\acounted\x12\x18\n" +
+	"\acreated\x18\b \x01(\x03R\acreated\"\xa6\x02\n" +
+	"\x0eDesignQuestion\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\x03R\x02id\x12\x1a\n" +
+	"\bcontract\x18\x02 \x01(\tR\bcontract\x12\x12\n" +
+	"\x04text\x18\x03 \x01(\tR\x04text\x12\x18\n" +
+	"\aoptions\x18\x04 \x03(\tR\aoptions\x12&\n" +
+	"\x0erecommendation\x18\x05 \x01(\tR\x0erecommendation\x12\x14\n" +
+	"\x05asked\x18\x06 \x01(\x03R\x05asked\x12\x16\n" +
+	"\x06answer\x18\a \x01(\tR\x06answer\x12\x1a\n" +
+	"\baccepted\x18\b \x01(\bR\baccepted\x12,\n" +
+	"\x05maker\x18\t \x01(\v2\x16.orrery.v1.RecordMakerR\x05maker\x12\x1a\n" +
+	"\banswered\x18\n" +
+	" \x01(\x03R\banswered\"\xec\x02\n" +
+	"\x10DesignLedgerItem\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1a\n" +
+	"\bcontract\x18\x02 \x01(\tR\bcontract\x12\x16\n" +
+	"\x06origin\x18\x03 \x01(\tR\x06origin\x12\x16\n" +
+	"\x06impact\x18\x04 \x01(\tR\x06impact\x12\x1a\n" +
+	"\bevidence\x18\x05 \x01(\tR\bevidence\x12\x16\n" +
+	"\x06change\x18\x06 \x01(\tR\x06change\x12 \n" +
+	"\vdisposition\x18\a \x01(\tR\vdisposition\x12\x16\n" +
+	"\x06reason\x18\b \x01(\tR\x06reason\x12\x1a\n" +
+	"\bboundary\x18\t \x01(\tR\bboundary\x12,\n" +
+	"\x05maker\x18\n" +
+	" \x01(\v2\x16.orrery.v1.RecordMakerR\x05maker\x12!\n" +
+	"\fclosure_word\x18\v \x01(\tR\vclosureWord\x12!\n" +
+	"\fclosure_note\x18\f \x01(\tR\vclosureNote\"\xbf\x02\n" +
+	"\vDesignStage\x12+\n" +
+	"\x05steps\x18\x01 \x03(\v2\x15.orrery.v1.DesignStepR\x05steps\x127\n" +
+	"\tquestions\x18\x02 \x03(\v2\x19.orrery.v1.DesignQuestionR\tquestions\x123\n" +
+	"\x06ledger\x18\x03 \x03(\v2\x1b.orrery.v1.DesignLedgerItemR\x06ledger\x12\x16\n" +
+	"\x06frozen\x18\x04 \x01(\bR\x06frozen\x12'\n" +
+	"\x0fclosure_skipped\x18\x05 \x01(\bR\x0eclosureSkipped\x12+\n" +
+	"\x11discovery_counted\x18\x06 \x01(\bR\x10discoveryCounted\x12'\n" +
+	"\x0fclosure_counted\x18\a \x01(\bR\x0eclosureCounted\"\xd2\x01\n" +
 	"\x06Design\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x14\n" +
 	"\x05title\x18\x02 \x01(\tR\x05title\x12\"\n" +
@@ -1346,7 +1882,7 @@ func file_orrery_v1_designs_proto_rawDescGZIP() []byte {
 	return file_orrery_v1_designs_proto_rawDescData
 }
 
-var file_orrery_v1_designs_proto_msgTypes = make([]protoimpl.MessageInfo, 16)
+var file_orrery_v1_designs_proto_msgTypes = make([]protoimpl.MessageInfo, 20)
 var file_orrery_v1_designs_proto_goTypes = []any{
 	(*DesignsListRequest)(nil),      // 0: orrery.v1.DesignsListRequest
 	(*DesignsListResponse)(nil),     // 1: orrery.v1.DesignsListResponse
@@ -1358,38 +1894,48 @@ var file_orrery_v1_designs_proto_goTypes = []any{
 	(*DesignLogLine)(nil),           // 7: orrery.v1.DesignLogLine
 	(*DesignDelegation)(nil),        // 8: orrery.v1.DesignDelegation
 	(*DesignDecision)(nil),          // 9: orrery.v1.DesignDecision
-	(*Design)(nil),                  // 10: orrery.v1.Design
-	(*DesignContract)(nil),          // 11: orrery.v1.DesignContract
-	(*DesignsAnswerRequest)(nil),    // 12: orrery.v1.DesignsAnswerRequest
-	(*DesignsAnswerResponse)(nil),   // 13: orrery.v1.DesignsAnswerResponse
-	(*DesignsContinueRequest)(nil),  // 14: orrery.v1.DesignsContinueRequest
-	(*DesignsContinueResponse)(nil), // 15: orrery.v1.DesignsContinueResponse
+	(*DesignStep)(nil),              // 10: orrery.v1.DesignStep
+	(*DesignQuestion)(nil),          // 11: orrery.v1.DesignQuestion
+	(*DesignLedgerItem)(nil),        // 12: orrery.v1.DesignLedgerItem
+	(*DesignStage)(nil),             // 13: orrery.v1.DesignStage
+	(*Design)(nil),                  // 14: orrery.v1.Design
+	(*DesignContract)(nil),          // 15: orrery.v1.DesignContract
+	(*DesignsAnswerRequest)(nil),    // 16: orrery.v1.DesignsAnswerRequest
+	(*DesignsAnswerResponse)(nil),   // 17: orrery.v1.DesignsAnswerResponse
+	(*DesignsContinueRequest)(nil),  // 18: orrery.v1.DesignsContinueRequest
+	(*DesignsContinueResponse)(nil), // 19: orrery.v1.DesignsContinueResponse
 }
 var file_orrery_v1_designs_proto_depIdxs = []int32{
-	10, // 0: orrery.v1.DesignsListResponse.designs:type_name -> orrery.v1.Design
-	10, // 1: orrery.v1.DesignsGetResponse.design:type_name -> orrery.v1.Design
+	14, // 0: orrery.v1.DesignsListResponse.designs:type_name -> orrery.v1.Design
+	14, // 1: orrery.v1.DesignsGetResponse.design:type_name -> orrery.v1.Design
 	5,  // 2: orrery.v1.DesignsGetResponse.approaches:type_name -> orrery.v1.DesignApproach
 	6,  // 3: orrery.v1.DesignsGetResponse.choice:type_name -> orrery.v1.DesignChoice
 	7,  // 4: orrery.v1.DesignsGetResponse.log:type_name -> orrery.v1.DesignLogLine
 	8,  // 5: orrery.v1.DesignsGetResponse.delegations:type_name -> orrery.v1.DesignDelegation
-	4,  // 6: orrery.v1.DesignChoice.maker:type_name -> orrery.v1.RecordMaker
-	4,  // 7: orrery.v1.DesignLogLine.maker:type_name -> orrery.v1.RecordMaker
-	9,  // 8: orrery.v1.DesignDelegation.decisions:type_name -> orrery.v1.DesignDecision
-	11, // 9: orrery.v1.Design.contracts:type_name -> orrery.v1.DesignContract
-	10, // 10: orrery.v1.DesignsContinueResponse.design:type_name -> orrery.v1.Design
-	0,  // 11: orrery.v1.Designs.List:input_type -> orrery.v1.DesignsListRequest
-	2,  // 12: orrery.v1.Designs.Get:input_type -> orrery.v1.DesignsGetRequest
-	12, // 13: orrery.v1.Designs.Answer:input_type -> orrery.v1.DesignsAnswerRequest
-	14, // 14: orrery.v1.Designs.Continue:input_type -> orrery.v1.DesignsContinueRequest
-	1,  // 15: orrery.v1.Designs.List:output_type -> orrery.v1.DesignsListResponse
-	3,  // 16: orrery.v1.Designs.Get:output_type -> orrery.v1.DesignsGetResponse
-	13, // 17: orrery.v1.Designs.Answer:output_type -> orrery.v1.DesignsAnswerResponse
-	15, // 18: orrery.v1.Designs.Continue:output_type -> orrery.v1.DesignsContinueResponse
-	15, // [15:19] is the sub-list for method output_type
-	11, // [11:15] is the sub-list for method input_type
-	11, // [11:11] is the sub-list for extension type_name
-	11, // [11:11] is the sub-list for extension extendee
-	0,  // [0:11] is the sub-list for field type_name
+	13, // 6: orrery.v1.DesignsGetResponse.stage:type_name -> orrery.v1.DesignStage
+	4,  // 7: orrery.v1.DesignChoice.maker:type_name -> orrery.v1.RecordMaker
+	4,  // 8: orrery.v1.DesignLogLine.maker:type_name -> orrery.v1.RecordMaker
+	9,  // 9: orrery.v1.DesignDelegation.decisions:type_name -> orrery.v1.DesignDecision
+	4,  // 10: orrery.v1.DesignQuestion.maker:type_name -> orrery.v1.RecordMaker
+	4,  // 11: orrery.v1.DesignLedgerItem.maker:type_name -> orrery.v1.RecordMaker
+	10, // 12: orrery.v1.DesignStage.steps:type_name -> orrery.v1.DesignStep
+	11, // 13: orrery.v1.DesignStage.questions:type_name -> orrery.v1.DesignQuestion
+	12, // 14: orrery.v1.DesignStage.ledger:type_name -> orrery.v1.DesignLedgerItem
+	15, // 15: orrery.v1.Design.contracts:type_name -> orrery.v1.DesignContract
+	14, // 16: orrery.v1.DesignsContinueResponse.design:type_name -> orrery.v1.Design
+	0,  // 17: orrery.v1.Designs.List:input_type -> orrery.v1.DesignsListRequest
+	2,  // 18: orrery.v1.Designs.Get:input_type -> orrery.v1.DesignsGetRequest
+	16, // 19: orrery.v1.Designs.Answer:input_type -> orrery.v1.DesignsAnswerRequest
+	18, // 20: orrery.v1.Designs.Continue:input_type -> orrery.v1.DesignsContinueRequest
+	1,  // 21: orrery.v1.Designs.List:output_type -> orrery.v1.DesignsListResponse
+	3,  // 22: orrery.v1.Designs.Get:output_type -> orrery.v1.DesignsGetResponse
+	17, // 23: orrery.v1.Designs.Answer:output_type -> orrery.v1.DesignsAnswerResponse
+	19, // 24: orrery.v1.Designs.Continue:output_type -> orrery.v1.DesignsContinueResponse
+	21, // [21:25] is the sub-list for method output_type
+	17, // [17:21] is the sub-list for method input_type
+	17, // [17:17] is the sub-list for extension type_name
+	17, // [17:17] is the sub-list for extension extendee
+	0,  // [0:17] is the sub-list for field type_name
 }
 
 func init() { file_orrery_v1_designs_proto_init() }
@@ -1403,7 +1949,7 @@ func file_orrery_v1_designs_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_orrery_v1_designs_proto_rawDesc), len(file_orrery_v1_designs_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   16,
+			NumMessages:   20,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
