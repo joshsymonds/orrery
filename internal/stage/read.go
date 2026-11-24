@@ -20,8 +20,9 @@ const runningStatus = "running"
 // it has one. A steelman step carries its pass's verdict and whether the pass counts. It also returns the design's
 // ledger, read as readLedger reads it, whether the ledger is frozen, and whether the discovery and closure passes
 // counted and whether the closure was skipped. It also returns the design's log, oldest first, and its approaches,
-// oldest first, with its choice of an approach, which is unset until one is stored. A design no step names has no
-// steps, one no question names has no questions, and one no line names has no log.
+// oldest first, with its choice of an approach, which is unset until one is stored. It also returns the design's
+// delegations, oldest first, each with the decisions the conversation made under it. A design no step names has no
+// steps, one no question names has no questions, one no line names has no log, and one no delegation names has none.
 func (s *Service) GetStage(
 	ctx context.Context,
 	req *connect.Request[v1.GetStageRequest],
@@ -72,11 +73,19 @@ func (s *Service) GetStage(
 	if err != nil {
 		return nil, err
 	}
+	delegations, err := s.cfg.Store.DesignDelegations(ctx, design)
+	if err != nil {
+		return nil, internalError(err)
+	}
+	var delegated []*v1.StageDelegation
+	for _, delegation := range delegations {
+		delegated = append(delegated, stageDelegationOf(delegation))
+	}
 	return connect.NewResponse(&v1.GetStageResponse{
 		Stage: &v1.DesignStage{
 			Design: design, Steps: steps, Questions: asked, Ledger: items, Frozen: frozen,
 			ClosureSkipped: skipped, DiscoveryCounted: discoveryCounted, ClosureCounted: closureCounted,
-			Log: logged, Approaches: approaches, Choice: choice,
+			Log: logged, Approaches: approaches, Choice: choice, Delegations: delegated,
 		},
 	}), nil
 }
