@@ -17,6 +17,7 @@ import {
   EpicsListResponseSchema,
 } from "../gen/orrery/v1/epics_pb";
 import type { InAppNotice, ListedNotice } from "../gen/orrery/v1/notice_pb";
+import type { UsageReading, UsageSeatSpend } from "../gen/orrery/v1/usage_pb";
 import {
   type HostStatusResponse,
   type ListHeadlessResponse,
@@ -64,6 +65,7 @@ import { noticeHistory, noticeStack } from "./notices";
 import { panes, paneStreams } from "./panes";
 import { headless, sessions, sessionStreams } from "./sessions";
 import { taskRecordStories } from "./taskrecord";
+import { usageReadings, usageSpend } from "./usage";
 
 // PickerRowInit is one row of a Picker.Ask answer, as a plain object.
 export type PickerRowInit = MessageInitShape<typeof PickerRowSchema>;
@@ -123,6 +125,10 @@ export interface Slices {
   // fixture's accounts service changes its own copy, so these are never changed.
   readonly accounts: readonly Account[];
   readonly registry: RouteRegistry;
+  // readings and spend are the Usage.Readings and Usage.Spend answers at the start. The fixture's usage service seeds its
+  // own copy from them, so these are never changed.
+  readonly readings: readonly UsageReading[];
+  readonly spend: readonly UsageSeatSpend[];
 }
 
 // shippedSlices is the data the fixture transport serves when it is given no slices.
@@ -147,6 +153,8 @@ export const shippedSlices: Slices = {
   failingEpicCommands: new Map<"pause" | "resume" | "stop" | "retry", string>(),
   accounts,
   registry,
+  readings: usageReadings,
+  spend: usageSpend,
 };
 
 // noticeStackSlices are the shipped slices with the five notices the stack draws showing, so Notices.Watch sends
