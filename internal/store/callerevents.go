@@ -19,6 +19,7 @@ const (
 	CallerKindRelease  = "release"
 	CallerKindEnd      = "end"
 	CallerKindDesign   = "design"
+	CallerKindTell     = "tell"
 )
 
 // stepEventPrefix heads the id of a step's end event: the prefix and the step id. ListCallerSteps and
@@ -96,6 +97,11 @@ func callerEventMarkedIn(ctx context.Context, queries *sqlcgen.Queries, event, s
 // EpicQuestionEvent returns the id of the event of question seq of epic, which is a park or a question.
 func EpicQuestionEvent(epic string, seq int64) string {
 	return fmt.Sprintf("epic:%s:Q%d", epic, seq)
+}
+
+// EpicTellEvent returns the id of the event of tell seq of epic, which is a tell its steerer is sent.
+func EpicTellEvent(epic string, seq int64) string {
+	return fmt.Sprintf("epic:%s:tell:%d", epic, seq)
 }
 
 // EpicPhaseEvent returns the id of the event of epic's phase, which is its release or its end.

@@ -42,7 +42,8 @@ const (
 // gap of question on its own line, that offers release, correct and close, and that recommends question.Recommended
 // with question.Why. The write marks an open gaps question of epic replaced by it. An epic already in ended_with_gaps
 // gets no new tell, phase or question, and its runs in ends still end. A question with no gap, or that recommends
-// neither release nor correct, is a RefusalError and writes nothing.
+// neither release nor correct, is a RefusalError and writes nothing. The tell is delivered already, since
+// ended_with_gaps sends the steerer its phase event.
 func (s *Store) EndEpicWithGaps(
 	ctx context.Context, epic, body string, question GapsQuestion, ends []NodeEnd, at time.Time,
 ) error {
@@ -60,7 +61,7 @@ func (s *Store) EndEpicWithGaps(
 		if head.Phase == phaseEndedWithGaps {
 			return nil
 		}
-		if err = insertTell(ctx, queries, epic, body, at); err != nil {
+		if err = insertPhaseTell(ctx, queries, epic, phaseEndedWithGaps, body, at); err != nil {
 			return fmt.Errorf("end epic %s: %w", epic, err)
 		}
 		return endWithGaps(ctx, queries, epic, question, at)

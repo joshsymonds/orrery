@@ -26,6 +26,8 @@ const (
 	// ParkClassRetryBound is a planner park that came back after two planner actions on its chain. The planner is not
 	// woken again for it: the owner answers it.
 	ParkClassRetryBound ParkClass = "retry_bound"
+	// ParkClassStall is an epic the stall check found idle twice with nothing changed, or idle with no plan run to wake.
+	ParkClassStall ParkClass = "stall"
 )
 
 // The planner classes. Each is answered by the planner's next turn.
@@ -48,7 +50,7 @@ const (
 func (c ParkClass) OpensQuestion() bool {
 	switch c {
 	case "", ParkClassReleaseUndoNone, ParkClassReleaseOwnerStop, ParkClassBranch, ParkClassRefMove,
-		ParkClassMetAtBase, ParkClassOrchestrator, ParkClassRetryBound:
+		ParkClassMetAtBase, ParkClassOrchestrator, ParkClassRetryBound, ParkClassStall:
 		return true
 	case ParkClassNode, ParkClassTask, ParkClassLoop, ParkClassNotBuilt, ParkClassReleaseStep:
 		return false

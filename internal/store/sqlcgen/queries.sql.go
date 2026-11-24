@@ -464,6 +464,28 @@ func (q *Queries) CountEpicQuestionsOfTurn(ctx context.Context, arg CountEpicQue
 	return column_1, err
 }
 
+const countEpicStallMark = `-- name: CountEpicStallMark :one
+SELECT
+    CAST((SELECT COUNT(*) FROM epic_tasks WHERE epic_tasks.epic = ?1) AS INTEGER) AS tasks,
+    CAST((SELECT COUNT(*) + COALESCE(SUM(epic_node_runs.attempt), 0) FROM epic_node_runs
+        WHERE epic_node_runs.epic = ?1) AS INTEGER) AS runs,
+    CAST((SELECT COUNT(*) FROM planner_actions WHERE planner_actions.epic = ?1)
+        + (SELECT COUNT(*) FROM epic_actions WHERE epic_actions.epic = ?1) AS INTEGER) AS actions
+`
+
+type CountEpicStallMarkRow struct {
+	Tasks   int64
+	Runs    int64
+	Actions int64
+}
+
+func (q *Queries) CountEpicStallMark(ctx context.Context, epic string) (CountEpicStallMarkRow, error) {
+	row := q.db.QueryRowContext(ctx, countEpicStallMark, epic)
+	var i CountEpicStallMarkRow
+	err := row.Scan(&i.Tasks, &i.Runs, &i.Actions)
+	return i, err
+}
+
 const countEpicTrigger = `-- name: CountEpicTrigger :one
 SELECT CAST(COUNT(*) AS INTEGER) FROM epic_triggers WHERE epic = ? AND id = ?
 `
@@ -3049,6 +3071,27 @@ func (q *Queries) InsertCronJob(ctx context.Context, arg InsertCronJobParams) (i
 	return result.RowsAffected()
 }
 
+const insertDeliveredEpicTell = `-- name: InsertDeliveredEpicTell :exec
+INSERT INTO epic_tells (epic, seq, text, at, told, steerer_delivered) VALUES (?, ?, ?, ?, 0, 1)
+`
+
+type InsertDeliveredEpicTellParams struct {
+	Epic string
+	Seq  int64
+	Text string
+	At   int64
+}
+
+func (q *Queries) InsertDeliveredEpicTell(ctx context.Context, arg InsertDeliveredEpicTellParams) error {
+	_, err := q.db.ExecContext(ctx, insertDeliveredEpicTell,
+		arg.Epic,
+		arg.Seq,
+		arg.Text,
+		arg.At,
+	)
+	return err
+}
+
 const insertDesign = `-- name: InsertDesign :exec
 INSERT INTO designs (id, title, conversation, created) VALUES (?, ?, ?, ?)
 `
@@ -4364,6 +4407,33 @@ func (q *Queries) InsertEpicReviewer(ctx context.Context, arg InsertEpicReviewer
 	return err
 }
 
+const insertEpicStall = `-- name: InsertEpicStall :exec
+INSERT INTO epic_stalls (epic, seq, at, tasks, runs, actions, parked) VALUES (?, ?, ?, ?, ?, ?, ?)
+`
+
+type InsertEpicStallParams struct {
+	Epic    string
+	Seq     int64
+	At      int64
+	Tasks   int64
+	Runs    int64
+	Actions int64
+	Parked  int64
+}
+
+func (q *Queries) InsertEpicStall(ctx context.Context, arg InsertEpicStallParams) error {
+	_, err := q.db.ExecContext(ctx, insertEpicStall,
+		arg.Epic,
+		arg.Seq,
+		arg.At,
+		arg.Tasks,
+		arg.Runs,
+		arg.Actions,
+		arg.Parked,
+	)
+	return err
+}
+
 const insertEpicTask = `-- name: InsertEpicTask :exec
 INSERT INTO epic_tasks (epic, seq, turn, title, deliverable, gate, evidence, status, depends_on, kind, revises)
 VALUES (?, ?, ?, ?, ?, ?, ?, 'open', ?, ?, ?)
@@ -5490,6 +5560,25 @@ func (q *Queries) LastTurnEnds(ctx context.Context) ([]LastTurnEndsRow, error) {
 		return nil, err
 	}
 	return items, nil
+}
+
+const latestEpicStall = `-- name: LatestEpicStall :one
+SELECT epic, seq, at, tasks, runs, actions, parked FROM epic_stalls WHERE epic = ? ORDER BY seq DESC LIMIT 1
+`
+
+func (q *Queries) LatestEpicStall(ctx context.Context, epic string) (EpicStall, error) {
+	row := q.db.QueryRowContext(ctx, latestEpicStall, epic)
+	var i EpicStall
+	err := row.Scan(
+		&i.Epic,
+		&i.Seq,
+		&i.At,
+		&i.Tasks,
+		&i.Runs,
+		&i.Actions,
+		&i.Parked,
+	)
+	return i, err
 }
 
 const linkPlannerActionPark = `-- name: LinkPlannerActionPark :exec
@@ -9084,7 +9173,7 @@ func (q *Queries) ListEpicTasks(ctx context.Context, epic string) ([]EpicTask, e
 }
 
 const listEpicTells = `-- name: ListEpicTells :many
-SELECT epic, seq, text, at, told, question FROM epic_tells WHERE epic = ? ORDER BY seq
+SELECT epic, seq, text, at, told, question, steerer_delivered FROM epic_tells WHERE epic = ? ORDER BY seq
 `
 
 func (q *Queries) ListEpicTells(ctx context.Context, epic string) ([]EpicTell, error) {
@@ -9103,6 +9192,7 @@ func (q *Queries) ListEpicTells(ctx context.Context, epic string) ([]EpicTell, e
 			&i.At,
 			&i.Told,
 			&i.Question,
+			&i.SteererDelivered,
 		); err != nil {
 			return nil, err
 		}
@@ -12324,6 +12414,52 @@ func (q *Queries) ListToldLimitSteps(ctx context.Context) ([]ToldLimitStep, erro
 	return items, nil
 }
 
+const listUndeliveredEpicTells = `-- name: ListUndeliveredEpicTells :many
+SELECT epic_tells.epic, epics.title, epic_tells.seq, epic_tells.text, epic_tells.at, epic_tells.question
+FROM epic_tells JOIN epics ON epics.id = epic_tells.epic
+WHERE epic_tells.steerer_delivered = 0
+ORDER BY epic_tells.epic, epic_tells.seq
+`
+
+type ListUndeliveredEpicTellsRow struct {
+	Epic     string
+	Title    string
+	Seq      int64
+	Text     string
+	At       int64
+	Question int64
+}
+
+func (q *Queries) ListUndeliveredEpicTells(ctx context.Context) ([]ListUndeliveredEpicTellsRow, error) {
+	rows, err := q.db.QueryContext(ctx, listUndeliveredEpicTells)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListUndeliveredEpicTellsRow
+	for rows.Next() {
+		var i ListUndeliveredEpicTellsRow
+		if err := rows.Scan(
+			&i.Epic,
+			&i.Title,
+			&i.Seq,
+			&i.Text,
+			&i.At,
+			&i.Question,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listUnfinishedEngineText = `-- name: ListUnfinishedEngineText :many
 SELECT session_id, message_id, block_index, parent_tool_use_id, kind, text FROM engine_text
 ORDER BY session_id, message_id, parent_tool_use_id, block_index
@@ -12619,6 +12755,23 @@ UPDATE notice_history SET read = 1
 func (q *Queries) MarkAllNoticeHistoryRead(ctx context.Context) error {
 	_, err := q.db.ExecContext(ctx, markAllNoticeHistoryRead)
 	return err
+}
+
+const markEpicTellSteererDelivered = `-- name: MarkEpicTellSteererDelivered :execrows
+UPDATE epic_tells SET steerer_delivered = 1 WHERE epic = ? AND seq = ?
+`
+
+type MarkEpicTellSteererDeliveredParams struct {
+	Epic string
+	Seq  int64
+}
+
+func (q *Queries) MarkEpicTellSteererDelivered(ctx context.Context, arg MarkEpicTellSteererDeliveredParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, markEpicTellSteererDelivered, arg.Epic, arg.Seq)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const markEpicTellTold = `-- name: MarkEpicTellTold :execrows

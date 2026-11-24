@@ -675,6 +675,16 @@ type EpicSession struct {
 	Creator int64
 }
 
+type EpicStall struct {
+	Epic    string
+	Seq     int64
+	At      int64
+	Tasks   int64
+	Runs    int64
+	Actions int64
+	Parked  int64
+}
+
 type EpicTask struct {
 	Epic        string
 	Seq         int64
@@ -840,12 +850,13 @@ type EpicTaskVersion struct {
 }
 
 type EpicTell struct {
-	Epic     string
-	Seq      int64
-	Text     string
-	At       int64
-	Told     int64
-	Question int64
+	Epic             string
+	Seq              int64
+	Text             string
+	At               int64
+	Told             int64
+	Question         int64
+	SteererDelivered int64
 }
 
 type EpicTrigger struct {

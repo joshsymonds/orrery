@@ -568,8 +568,10 @@ func TestBuiltInEpicReachesBuiltThenWaitsAtReview(t *testing.T) {
 	if run := runAt(t, s, "review"); run.State != store.NodeRunning {
 		t.Errorf("review = %+v after further passes, want still running", run)
 	}
-	if parked := epicOf(t, s).Parked; parked != "" {
-		t.Errorf("epic parked = %q, want not parked", parked)
+	// No reviewer is registered here, so the review never ends, and the idle epic with no plan run is parked by a stall.
+	epic := epicOf(t, s)
+	if epic.ParkClass != store.ParkClassStall || !strings.HasSuffix(epic.Parked, "; no plan run was running") {
+		t.Errorf("epic park = %q of class %q, want a stall park with no plan run running", epic.Parked, epic.ParkClass)
 	}
 	for _, run := range runsOf(t, s) {
 		for _, later := range []string{"correct", "conclude", "release"} {

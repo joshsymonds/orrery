@@ -105,6 +105,10 @@ type Store interface {
 	HeldEpics(ctx context.Context) ([]store.HeldEpic, error)
 	StartHeldEpic(ctx context.Context, epic, base string, at time.Time) error
 	AskHeldEpic(ctx context.Context, epic, text string, at time.Time) error
+	StallMark(ctx context.Context, epic string) (store.StallMark, error)
+	LatestStall(ctx context.Context, epic string) (store.EpicStall, bool, error)
+	WakeStall(ctx context.Context, epic, cause string, mark store.StallMark, at time.Time) error
+	ParkStall(ctx context.Context, epic, reason string, mark store.StallMark, at time.Time) error
 }
 
 // Checks runs the check of a gate or command node run under a holder, once per id. *enginehost.NodeChecks satisfies it.
@@ -388,7 +392,8 @@ func (r *Runner) openWoken(ctx context.Context, woken []string) []store.EpicRow 
 // passEpics runs one pass over epics: the held pass first (see passHeld), then their amendments, their flows, and the
 // planner for those given a plan turn or planner-parked. Pass passes every listed epic, and a wake passes the open epics
 // it names. A closed epic and a held epic are passed over: neither has a flow decision or a planner pass, and an epic the
-// held pass starts is passed as the store holds it then.
+// held pass starts is passed as the store holds it then. Once the planner has been passed, each epic that started
+// nothing and may stall is checked for a stall (see passStalls).
 func (r *Runner) passEpics(ctx context.Context, epics []store.EpicRow) {
 	epics = r.passHeld(ctx, epics)
 	r.passAmendments(ctx, epics)
@@ -397,6 +402,7 @@ func (r *Runner) passEpics(ctx context.Context, epics []store.EpicRow) {
 		r.logger.ErrorContext(ctx, "list node run states", "err", statesErr)
 	}
 	planned := make(map[string]bool)
+	var stallable []string
 	for _, epic := range epics {
 		if store.IsClosedPhase(epic.Phase) || epic.Phase == store.PhaseHeld {
 			continue
@@ -409,11 +415,21 @@ func (r *Runner) passEpics(ctx context.Context, epics []store.EpicRow) {
 		// A planner park wakes the planner even when no plan run was given its turn, since no node runs on a parked epic.
 		plannerParked := epic.Parked != "" && !epic.ParkClass.OpensQuestion()
 		resting := statesErr == nil && Rests(flow, kinds.Rows{Epic: epic, Runs: states[epic.ID]}, r.kinds)
-		if (!resting && r.passFlow(ctx, epic, flow)) || plannerParked {
+		var planTurn, started bool
+		if !resting {
+			planTurn, started = r.walkFlow(ctx, epic, flow)
+		}
+		if planTurn || plannerParked {
 			planned[epic.ID] = true
+		}
+		// An epic that started nothing and may stall is checked for one: an idle one is parked or woken (see stallCheck),
+		// whether or not a plan run is running. Any other epic is not read for a stall.
+		if !started && mayStall(epic) {
+			stallable = append(stallable, epic.ID)
 		}
 	}
 	r.planner.PassOnly(ctx, func(epic string) bool { return planned[epic] })
+	r.passStalls(ctx, stallable)
 }
 
 // parkUnloaded parks epic as an orchestrator park with the reason its flow did not load, unless it is parked already, so
@@ -430,32 +446,43 @@ func (r *Runner) parkUnloaded(ctx context.Context, epic store.EpicRow, cause err
 	r.logger.WarnContext(ctx, "epic parked: its workflow did not load", "epic", epic.ID, "reason", reason)
 }
 
-// passFlow carries out the actions flow asks for on epic, and reports whether epic's plan run was given its turn. Each
-// structural action is carried out and the rows read again, at most maxSteps times. Once a decision has no structural
-// action, its build runs go to the builder. An epic that the rows show closed is left with nothing carried out: a close
-// that lands while the pass carries out an action, such as a batch's prepare, ends the epic's running runs, and the
-// walk would read the plan run it ended as a node that ended and start the node after it.
+// passFlow reports whether the flow walk of epic gave its plan run its turn (see walkFlow).
 func (r *Runner) passFlow(ctx context.Context, epic store.EpicRow, flow workflow.Workflow) bool {
+	planTurn, _ := r.walkFlow(ctx, epic, flow)
+	return planTurn
+}
+
+// walkFlow carries out the actions flow asks for on epic. It reports whether epic's plan run was given its turn, and
+// whether the pass started anything for epic: a structural action carried out, or a build run handed to the builder
+// (see deliver). Each structural action is carried out and the rows read again, at most maxSteps times. Once a decision
+// has no structural action, its build runs go to the builder. An epic that the rows show closed is left with nothing
+// carried out: a close that lands while the pass carries out an action, such as a batch's prepare, ends the epic's
+// running runs, and the walk would read the plan run it ended as a node that ended and start the node after it. A walk
+// that fails has not decided the epic, so it counts as started, and the stall check leaves the epic to a later pass.
+func (r *Runner) walkFlow(ctx context.Context, epic store.EpicRow, flow workflow.Workflow) (planTurn, started bool) {
 	for range maxSteps {
 		row, acts, err := r.decide(ctx, epic.ID, flow)
 		if err != nil {
 			r.logger.ErrorContext(ctx, "decide epic", "epic", epic.ID, "err", err)
-			return false
+			return false, true
 		}
 		if store.IsClosedPhase(row.Phase) {
-			return false
+			return false, started
 		}
 		act, structural := firstStructural(acts)
 		if !structural {
-			return r.deliver(ctx, epic.ID, acts)
+			var handed bool
+			planTurn, handed = r.deliver(ctx, epic.ID, acts)
+			return planTurn, started || handed
 		}
 		if err = r.carry(ctx, row, act); err != nil {
 			r.logger.ErrorContext(ctx, "carry out node action", "epic", epic.ID, "action", act.Kind, "err", err)
-			return false
+			return false, true
 		}
+		started = true
 	}
 	r.logger.WarnContext(ctx, "interpret pass reached its step limit", "epic", epic.ID, "steps", maxSteps)
-	return false
+	return false, true
 }
 
 // decide reads the rows of epic in one read. It returns the epic as read, which the actions are carried out for, and
@@ -638,17 +665,19 @@ func (r *Runner) conclude(ctx context.Context, epic string, act Action, at time.
 	return nil
 }
 
-// deliver hands the build runs of acts to the builder, and reports whether acts gives a plan run its turn.
-func (r *Runner) deliver(ctx context.Context, epic string, acts []Action) bool {
+// deliver hands the build runs of acts to the builder. It reports whether acts gives a plan run its turn, and whether
+// it handed a build run over, which starts the pass's work for the epic. A plan run's turn is not counted as a start: a
+// running plan run is given its turn on every pass, and the planner claims one only for a pending trigger, which the
+// stall check reads as a reason the epic is not idle (see stallIdle).
+func (r *Runner) deliver(ctx context.Context, epic string, acts []Action) (planTurn, handed bool) {
 	var seqs []int64
-	planned := false
 	for _, act := range acts {
 		if act.Kind != ActRun {
 			continue
 		}
 		switch act.NodeKind {
 		case kindPlan:
-			planned = true
+			planTurn = true
 		case kindBuild:
 			seqs = append(seqs, act.Task)
 		}
@@ -656,7 +685,7 @@ func (r *Runner) deliver(ctx context.Context, epic string, acts []Action) bool {
 	if len(seqs) > 0 {
 		r.builder.PassTasks(ctx, epic, seqs)
 	}
-	return planned
+	return planTurn, len(seqs) > 0
 }
 
 // loadFlow returns the flow epic runs. An epic with no pinned text runs the built-in epic. Any other epic runs its
