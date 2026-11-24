@@ -247,8 +247,8 @@ func (p pass) frontier(nodes []workflow.Node, at scope) (workflow.Node, store.No
 }
 
 // start returns the action that starts def, which has no run at its path in its scope. A loop starts at its first
-// round. A plan starts with Mark 0 and no trigger when the epic has no plan run yet, and otherwise with the highest
-// turn seq and the trigger that asks the planner for a turn.
+// round. A plan starts with Mark 0 and no trigger when the epic has no plan run yet, and otherwise with the mark
+// kinds.PlanMark gives, below every open task no plan has built, and the trigger that asks the planner for a turn.
 func (p pass) start(def workflow.Node, at scope) Action {
 	path := at.prefix + def.ID
 	run := store.NodeRun{
@@ -260,7 +260,7 @@ func (p pass) start(def workflow.Node, at scope) Action {
 	case def.Loop != nil:
 		run.LoopRound = 1
 	case def.Kind == kindPlan && p.hasPlanRun():
-		run.Mark = p.highestTurn()
+		run.Mark = kinds.PlanMark(p.rows)
 		act.Trigger = p.planTrigger(path, at.round)
 	}
 	act.Runs = []store.NodeRun{run}
@@ -771,12 +771,13 @@ func firstBuild(body []workflow.Node) (workflow.Node, bool) {
 }
 
 // startTasks returns a start, with its child run, for each open task of a turn above the plan run's mark that has no
-// child run under prefix, and a rebuild for each such task whose child run ended. A send_back that reopens a done task
-// leaves its child run ended, and the run's path is stored, so the task builds again only once its run is rebuilt. An
-// open task of a turn at or below the mark that a send_back reopened is started too: the plan run that built it first
-// has ended, since no plan ends while a task is open, so the running plan builds it, under its own prefix, and the
-// ended child of the earlier plan is kept as it ended. Any other task of those turns was the earlier plan's, and is
-// never started again.
+// child run under prefix, and a rebuild for each such task whose child run ended. A task a turn planned while no plan
+// ran, so with no child run anywhere, is of a turn above the mark, since the plan started below it (kinds.PlanMark).
+// A send_back that reopens a done task leaves its child run ended, and the run's path is stored, so the task builds
+// again only once its run is rebuilt. An open task of a turn at or below the mark that a send_back reopened is started
+// too: the plan run that built it first has ended, since no plan ends while a task is open, so the running plan builds
+// it, under its own prefix, and the ended child of the earlier plan is kept as it ended. Any other task of those turns
+// was the earlier plan's, and is never started again.
 func (p pass) startTasks(run store.NodeRun, build workflow.Node, prefix string) []Action {
 	var acts []Action
 	for _, task := range p.rows.Epic.Tasks {
