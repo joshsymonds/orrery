@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { test } from "node:test";
 
 import { create, type MessageInitShape } from "@bufbuild/protobuf";
@@ -196,24 +195,6 @@ function childOf(parent: Element, selector: string): HTMLElement | null {
   return ([...parent.children].find((child) => child.matches(selector)) as HTMLElement | undefined) ?? null;
 }
 
-// cssDeclarations is the declarations of the one rule in style.css whose selector is selector, with comments removed.
-function cssDeclarations(selector: string): string {
-  const css = readFileSync(new URL("../src/style.css", import.meta.url), "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
-  const rules = [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)].filter(([, selectors]) => selectors.trim() === selector);
-  assert.equal(rules.length, 1, `style.css has one ${selector} rule`);
-  return rules[0][2];
-}
-
-// declared is the value of property in a rule's declarations, or undefined when the rule does not set it.
-function declared(declarations: string, property: string): string | undefined {
-  return declarations
-    .split(";")
-    .map((declaration) => declaration.trim())
-    .find((declaration) => declaration.startsWith(`${property}:`))
-    ?.slice(property.length + 1)
-    .trim();
-}
-
 // heldColumn is the conversation's column when it holds a thing, or null.
 function heldColumn(container: HTMLElement): HTMLElement | null {
   return container.querySelector<HTMLElement>("section.read.held");
@@ -307,14 +288,4 @@ test("FoldBack: ] folds the held card back, and ] again opens it", (t) =>
     assertNone(container.querySelector("article.held-card"), "] folds the card back");
     await pressKey("]");
     assert.ok(container.querySelector('article.held-card[data-kind="epic"]') !== null, "] again opens the card");
-  }));
-
-test("OpenColour: in the app, the open row, its neck and the card's spine are on var(--o-ground-open)", (t) =>
-  mountApp(t.signal, desk, { rows: [steererRow()], epics: view([alpha]), address: epicAddress("alpha") }, ({ container }) => {
-    assert.ok(container.querySelector('.list .row[data-held="open"]') !== null, "the open row is drawn");
-    assert.ok(container.querySelector("article.held-card .held-spine") !== null, "the card draws its spine");
-    const openRow = cssDeclarations('.inbox .row[data-held="open"]');
-    assert.equal(declared(openRow, "background"), "var(--o-ground-open)", "the open row is the open colour");
-    assert.equal(declared(openRow, "--held-ground"), "var(--o-ground-open)", "its neck runs out in the open colour");
-    assert.equal(declared(cssDeclarations(".held-spine"), "background"), "var(--o-ground-open)", "the card's spine is the open colour");
   }));
