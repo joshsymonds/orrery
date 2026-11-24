@@ -66,6 +66,10 @@ export const unnamed: Readonly<Record<string, UnnamedEntry>> = {
   // DesignSteelman draws a design's steelman: its budget's two cells in words, each discovery and closure pass, and the ledger
   // of its findings with who decided each. Round 6 draws no design's steelman; its stage track stands nearest, for the budget.
   "design-steelman": { replacement: "Track", epic: "F4" },
+  // DesignPage draws a design's page: its stage strip, what the Director decided for you, its contracts, its steelman, its
+  // approach, its questions, its research and its log. Round 6 draws no design's page, and its stage track stands nearest,
+  // for the strip.
+  "design-page": { replacement: "Track", epic: "F4" },
 
   // ---- single stories of round-6 components, each the component in a state round 6 does not draw ----
 

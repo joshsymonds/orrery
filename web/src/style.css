@@ -2041,6 +2041,59 @@ button.block:hover { --ground: var(--o-surface-raised); }
 .ss-fields dd { min-width: 0; margin: 0; overflow-wrap: anywhere; }
 .ss-fields code { font: var(--o-type-small); }
 
+/* The design's page, in round 8's order: its stage strip, what the Director decided for you, its contracts, its steelman,
+   its approach, its questions, its research and its log. Each part is a section with its head, and a part the record does
+   not hold is not drawn. */
+.design-page { display: grid; gap: var(--o-space-16); min-width: 0; max-width: var(--o-layout-read-measure-ch); }
+.design-decided, .design-contracts, .design-approaches, .design-questions, .design-research, .design-log {
+  display: grid; gap: var(--o-space-8); min-width: 0;
+}
+.design-approach-list, .design-research ol, .design-log ol, .design-decided ol { display: grid; gap: var(--o-space-8); margin: 0; padding: 0; list-style: none; }
+/* The strip: six stages, each a rail in its state's colour, its name in the label face and its words under it. */
+.design-track { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: var(--o-space-4); min-width: 0; margin: 0; padding: 0; list-style: none; }
+.design-track .stage {
+  display: grid; align-content: start; gap: var(--o-space-2); min-width: 0; padding: var(--o-space-8) var(--o-space-8) 0 0;
+  border-top: var(--o-size-rail) solid var(--o-line-soft); color: var(--o-ink-4); font: var(--o-type-small);
+}
+.design-track .stage .nm { display: flex; align-items: center; gap: var(--o-space-4); min-width: 0; overflow: hidden; font: var(--o-type-label); letter-spacing: var(--o-type-label-tracking); text-transform: uppercase; }
+.design-track .stage .ds { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.design-track .stage.done { border-top-color: var(--o-role-ok); color: var(--o-ink-3); }
+.design-track .stage.done .nm { color: var(--o-ink-2); }
+.design-track .stage.now { border-top-color: var(--o-role-live); color: var(--o-ink-2); }
+.design-track .stage.now .nm { color: var(--o-role-live); }
+/* What the Director decided for you: each delegation's message quoted, then its decisions, each marked the Director. */
+.design-delegation { display: grid; gap: var(--o-space-8); min-width: 0; }
+.design-delegation-message { margin: 0; color: var(--o-ink-1); font: var(--o-type-body); overflow-wrap: anywhere; white-space: pre-wrap; }
+.design-decision { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--o-space-4) var(--o-space-8); min-width: 0; color: var(--o-ink-2); font: var(--o-type-small); }
+.design-decision-kind { color: var(--o-ink-3); }
+.design-decision-text { min-width: 0; color: var(--o-ink-1); overflow-wrap: anywhere; }
+.design-decision-reason { flex-basis: 100%; min-width: 0; color: var(--o-ink-3); overflow-wrap: anywhere; }
+/* The approaches the Director compared: the recommended one and the chosen one marked, each with its facts. */
+.design-approach { display: grid; gap: var(--o-space-4); min-width: 0; padding: var(--o-space-8) var(--o-space-12); border-left: var(--o-size-rail) solid var(--o-line-soft); }
+.design-approach.recommended { border-left-color: var(--o-role-ok); }
+.design-approach.chosen { border-left-color: var(--o-role-engine); }
+.design-approach-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--o-space-4) var(--o-space-8); min-width: 0; }
+.design-approach-head .nm { flex: 1 1 24ch; min-width: 0; color: var(--o-ink-1); font: var(--o-type-body); font-weight: var(--o-font-weight-bold); overflow-wrap: anywhere; }
+.design-approach-facts, .design-report { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: var(--o-space-4) var(--o-space-12); margin: 0; font: var(--o-type-small); color: var(--o-ink-2); }
+.design-approach-facts dt, .design-report dt { color: var(--o-ink-3); }
+.design-approach-facts dd, .design-report dd { min-width: 0; margin: 0; overflow-wrap: anywhere; }
+.design-approach-facts code, .design-report code { font: var(--o-type-small); }
+.design-choice { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--o-space-8); margin: 0; color: var(--o-ink-2); font: var(--o-type-small); }
+.design-choice-words { min-width: 0; color: var(--o-ink-3); overflow-wrap: anywhere; }
+/* Research: each step's subject and status, then its scout's report, or its text in pre when it is not the scout's return. */
+.design-research-step { display: grid; gap: var(--o-space-8); min-width: 0; }
+.design-research-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--o-space-4) var(--o-space-8); min-width: 0; }
+.design-research-subject { flex: 1 1 24ch; min-width: 0; color: var(--o-ink-1); overflow-wrap: anywhere; }
+.design-evidence { display: grid; gap: var(--o-space-4); margin: 0; padding: 0; list-style: none; }
+.design-report-text { margin: 0; padding: var(--o-space-4) var(--o-space-8); border-radius: var(--o-radius-1); background: var(--o-surface-well); color: var(--o-ink-2); font: var(--o-type-small); white-space: pre-wrap; overflow-wrap: anywhere; }
+/* The log: each line's time in code, who did it, what was done, and under it its words. */
+.design-log-line { display: grid; gap: var(--o-space-4); min-width: 0; color: var(--o-ink-2); font: var(--o-type-small); }
+.design-log-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--o-space-4) var(--o-space-12); min-width: 0; }
+.design-log-head code { color: var(--o-ink-3); font: var(--o-type-small); }
+.design-log-who { color: var(--o-ink-1); font-weight: var(--o-font-weight-bold); }
+.design-log-what { min-width: 0; overflow-wrap: anywhere; }
+.design-log-words { margin: 0; padding-left: var(--o-space-12); border-left: var(--o-size-hairline) solid var(--o-line-firm); color: var(--o-ink-1); white-space: pre-wrap; overflow-wrap: anywhere; }
+
 /* Reduced motion comes last, so it wins over the rules above: each move is one 100 ms linear step, a page drills and
    leaves by a fade, and the loops hold still. */
 @media (prefers-reduced-motion: reduce) {
