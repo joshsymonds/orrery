@@ -15,6 +15,8 @@
 //     ops. Load, PaneSnapshot, PaneTransition and PaneEvent are the values it reports.
 //   - Client's Name, HTTPClient, Panes, WatchPanes and Load reach a remote host's HostPanes through those ops, and
 //     PaneWatch is the stream of PaneEvents that WatchPanes opens.
+//   - AgentConfig's Root and WakePane serve the folders, folder and wake-pane ops. Client's Folders, Folder and WakePane
+//     reach them, and an agent's refusal comes back as an error that wraps ErrRefused.
 //
 // A session is never relaunched on another host, and internal/node never imports internal/enginehost.
 package node
