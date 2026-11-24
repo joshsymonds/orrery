@@ -40,14 +40,36 @@ const tide = { key: "design:tide", name: "Tide alerts" };
 const alerts = { key: "epic:tide/alerts", kind: "epic" as const, name: "alerts" };
 const table = { key: "contract:tide/table", kind: "contract" as const, name: "table" };
 const oneDesign: LineageConvo[] = [
-  { key: "sess-tide", designs: [{ ...tide, open: false, marks: [{ ...alerts, open: false }, { ...table, open: false }] }] },
+  {
+    key: "sess-tide",
+    held: false,
+    own: [],
+    designs: [{ ...tide, open: false, marks: [{ ...alerts, open: false }, { ...table, open: false }] }],
+  },
 ];
 const openEpic: LineageConvo[] = [
-  { key: "sess-tide", designs: [{ ...tide, open: false, marks: [{ ...alerts, open: true }, { ...table, open: false }] }] },
+  {
+    key: "sess-tide",
+    held: true,
+    own: [],
+    designs: [{ ...tide, open: false, marks: [{ ...alerts, open: true }, { ...table, open: false }] }],
+  },
+];
+// heldConvo is the session the open epic alerts holds: it steers the epic alerts in no design, which is open, so the epic
+// is its own mark, drawn before the design Tide alerts with its table.
+const heldConvo: LineageConvo[] = [
+  {
+    key: "sess-tide",
+    held: true,
+    own: [{ ...alerts, open: true }],
+    designs: [{ ...tide, open: false, marks: [{ ...table, open: false }] }],
+  },
 ];
 const twoDesigns: LineageConvo[] = [
   {
     key: "sess-tide",
+    held: false,
+    own: [],
     designs: [
       { ...tide, open: false, marks: [{ ...table, open: false }] },
       {
@@ -69,4 +91,5 @@ export const RailLineage: Stories = {
   design: () => <Lineage projectKey={tidepool} convos={oneDesign} onPress={noop} />,
   "two-designs": () => <Lineage projectKey={tidepool} convos={twoDesigns} onPress={noop} />,
   open: () => <Lineage projectKey={tidepool} convos={openEpic} onPress={noop} />,
+  held: () => <Lineage projectKey={tidepool} convos={heldConvo} onPress={noop} />,
 };

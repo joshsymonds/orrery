@@ -382,7 +382,7 @@ test("HashRoute: a worker session address whose step the epic lacks stays in the
     },
     async (container) => {
       assert.equal(container.querySelector('section[aria-label="session"]'), null, "no session is drawn in the middle");
-      assert.equal(container.querySelector(".rpanel .side-note")?.textContent, "session unavailable");
+      assert.equal(container.querySelector("article.held-card .side-note")?.textContent, "session unavailable");
     },
   ));
 

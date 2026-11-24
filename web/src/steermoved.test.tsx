@@ -208,9 +208,9 @@ function cursorKey(container: HTMLElement): string | null {
   return container.querySelector(".row.cur")?.getAttribute("data-key") ?? null;
 }
 
-// panelHolds is whether the epic panel is drawn and names the slug in its title row.
+// panelHolds is whether the epic's held card is drawn and names the slug in its title.
 function panelHolds(container: HTMLElement, slug: string): boolean {
-  const panel = container.querySelector<HTMLElement>('aside.rpanel[aria-label="epic"]');
+  const panel = container.querySelector<HTMLElement>('article.held-card[data-kind="epic"]');
   return panel?.textContent?.includes(slug) === true;
 }
 

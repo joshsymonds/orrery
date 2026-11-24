@@ -212,7 +212,7 @@ test("EpicCommands: a confirm sheet's Stop is drawn in the bad role, apart from 
 
 test("EpicRecord: in the desk's panel the epic page's title row stays pinned at the card's top edge, under the panel's controls", () => {
   const desk = rulesUnder(css, "(min-width: 760px)");
-  const row = ".rcard > section.page > .epic-page > .title-row";
+  const row = ".held-card > .held-body > section.page > .epic-page > .title-row";
   assert.equal(declaredValue(desk, row, "position"), "sticky");
   assert.equal(declaredValue(desk, row, "top"), "calc(-1 * var(--o-space-16))");
   assert.equal(declaredValue(desk, row, "padding-top"), "var(--o-space-16)");

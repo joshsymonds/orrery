@@ -105,6 +105,8 @@ function tileOf(lineage: LineageConvo[]): RailTileModel {
 const oneDesign: LineageConvo[] = [
   {
     key: "sess-tide",
+    held: false,
+    own: [],
     designs: [
       {
         key: "design:tide",
@@ -123,6 +125,8 @@ const oneDesign: LineageConvo[] = [
 const twoDesigns: LineageConvo[] = [
   {
     key: "sess-tide",
+    held: false,
+    own: [],
     designs: [
       {
         key: "design:tide",
@@ -170,6 +174,8 @@ test("RailLineage: the open epic's mark has class open, and the open class's gro
   const openEpic: LineageConvo[] = [
     {
       key: "sess-tide",
+      held: true,
+      own: [],
       designs: [
         {
           ...oneDesign[0].designs[0],
@@ -299,10 +305,10 @@ test("RailLineage: pressing a child mark on the collapsed rail opens its panel, 
     });
     assert.equal(one(container, ".panes").getAttribute("data-inbox"), "collapsed", "the inbox is collapsed");
     const mark = one(container, '.rail-lineage button[aria-label="contract: beta"]');
-    assertNone(container.querySelector('aside[aria-label="beta contract"]'), "no panel before the press");
+    assertNone(container.querySelector('article.held-card[aria-label="beta"]'), "no card before the press");
     await act(() => {
       mark.click();
     });
-    assert.ok(container.querySelector('aside[aria-label="beta contract"]') !== null, "the contract's panel is drawn");
+    assert.ok(container.querySelector('article.held-card[data-kind="contract"][aria-label="beta"]') !== null, "the contract's card is held");
     assert.ok(one(container, '.rail-lineage button[aria-label="contract: beta"]').classList.contains("open"), "the mark is open");
   }));

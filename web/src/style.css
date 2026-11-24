@@ -187,7 +187,7 @@ button.link.notices-more { justify-self: end; padding: 0 var(--o-space-12); colo
 .inbox-head .end { display: inline-flex; align-items: center; gap: var(--o-space-4); margin-left: auto; }
 .inbox-attn { display: flex; flex-wrap: wrap; gap: var(--o-space-8); flex: none; padding: 0 var(--o-space-12) var(--o-space-8) var(--o-space-16); }
 .inbox-search { flex: none; padding: 0 var(--o-space-12) var(--o-space-8); }
-.inbox-rows { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 0 var(--o-space-8) var(--o-space-16); }
+.inbox-rows { flex: 1 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden; padding: 0 var(--o-space-8) var(--o-space-16); }
 .inbox-foot { display: flex; align-items: center; gap: var(--o-space-4); flex: none; padding: var(--o-space-4) var(--o-space-8); border-top: var(--o-size-hairline) solid var(--o-line-soft); }
 .inbox-foot > :first-child { margin-right: auto; }
 .inbox .inote { padding: var(--o-space-4) var(--o-space-16); }
@@ -377,6 +377,22 @@ button.link.notices-more { justify-self: end; padding: 0 var(--o-space-12); colo
 .inbox .row.step.held .doing { color: var(--o-role-attention); }
 .inbox .dir-kids .steers .row.step { grid-template-columns: var(--o-size-glyph) minmax(0, max-content) auto minmax(0, 1fr); margin-left: var(--o-space-16); }
 .inbox .steers .row.step .label { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+
+/* The held layout (round 8, D12 to D14). A conversation that holds what it opened is its block, the tab, on the bracket's
+   ground, running to the inbox's right edge past the list's padding. Two rows are necks: the conversation's row, on the
+   page's ground, and the open thing's row, in the open colour, each running right out of its row to the edge, which the
+   scrolling list clips. A neck takes its row's ground as --held-ground, and a small curve above and below it opens it into
+   the row. The open thing's row is the open colour, and its words are ink-1; under the pointer it is the hover colour. */
+.inbox .convo-block[data-held="tab"] { margin-right: calc(-1 * var(--o-space-8)); border-radius: var(--o-radius-3) 0 0 var(--o-radius-3); background: var(--o-surface-raised); }
+.inbox .row[data-held="convo"] { background: var(--o-surface-page); --held-ground: var(--o-surface-page); }
+.inbox .row[data-held="open"] { background: var(--o-ground-open); --held-ground: var(--o-ground-open); color: var(--o-ink-1); }
+.inbox .row[data-held="open"]:hover { background: var(--o-ground-open-hover); --held-ground: var(--o-ground-open-hover); }
+.inbox .row[data-held="open"] .l2, .inbox .row[data-held="open"] .age { color: var(--o-ink-1); }
+.inbox .row[data-held]::before { content: ""; position: absolute; top: calc(-1 * var(--o-space-8)); bottom: calc(-1 * var(--o-space-8)); left: 100%; width: 100vw; pointer-events: none; background: radial-gradient(circle at 100% 0, transparent var(--o-space-8), var(--held-ground) var(--o-space-8)) 0 0 / var(--o-space-8) var(--o-space-8) no-repeat, radial-gradient(circle at 100% 100%, transparent var(--o-space-8), var(--held-ground) var(--o-space-8)) 0 100% / var(--o-space-8) var(--o-space-8) no-repeat, var(--held-ground) 0 var(--o-space-8) / 100% calc(100% - 2 * var(--o-space-8)) no-repeat; }
+/* A design's tab is the open row when the design is held: its neck runs out of the tab the same way. */
+.inbox .design-tab[data-held="open"] { background: var(--o-ground-open); --held-ground: var(--o-ground-open); }
+.inbox .design-tab[data-held="open"]:hover { background: var(--o-ground-open-hover); --held-ground: var(--o-ground-open-hover); }
+.inbox .design-tab[data-held]::before { content: ""; position: absolute; top: calc(-1 * var(--o-space-8)); bottom: calc(-1 * var(--o-space-8)); left: 100%; width: 100vw; pointer-events: none; background: radial-gradient(circle at 100% 0, transparent var(--o-space-8), var(--held-ground) var(--o-space-8)) 0 0 / var(--o-space-8) var(--o-space-8) no-repeat, radial-gradient(circle at 100% 100%, transparent var(--o-space-8), var(--held-ground) var(--o-space-8)) 0 100% / var(--o-space-8) var(--o-space-8) no-repeat, var(--held-ground) 0 var(--o-space-8) / 100% calc(100% - 2 * var(--o-space-8)) no-repeat; }
 
 @media (min-width: 760px) {
   .inbox .row .row-menu .more { display: none; }
@@ -1230,10 +1246,10 @@ button.act:active, .back:active, .crumb:active { transform: scale(.97); backgrou
 .epic-page .happen.just li { transition: opacity var(--o-move-layout), transform var(--o-move-layout); }
 @starting-style { .epic-page .happen.just li { opacity: 0; transform: translateY(calc(-1 * var(--o-space-4))); } }
 /* At the desk a line's clock sits in a right-aligned gutter, a gap before its words, as the happenings draw it. In the
-   panel the title row stays pinned at the card's top edge, across the scroller's padding and under the panel's own
-   controls, while the record under it scrolls. */
+   held card the title row stays pinned at the card's top edge, across the body's padding, while the record under it
+   scrolls. */
 @media (min-width: 760px) {
-  .rcard > section.page > .epic-page > .title-row {
+  .held-card > .held-body > section.page > .epic-page > .title-row {
     position: sticky; top: calc(-1 * var(--o-space-16)); z-index: var(--o-z-sticky);
     margin-top: calc(-1 * var(--o-space-16)); padding-top: var(--o-space-16); background: var(--o-surface-side);
   }
@@ -1433,6 +1449,17 @@ button.act:active, .back:active, .crumb:active { transform: scale(.97); backgrou
 .ldesign > .lmark { width: 100%; border-radius: var(--o-radius-2) var(--o-radius-2) 0 0; background: var(--o-surface-side); color: var(--o-ink-1); }
 .lmark.open { background: var(--open); color: var(--o-ink-1); }
 .lmark.open:hover { background: var(--open-hover); }
+
+/* Held under 1250 (D12, D14, flows 10a): the rail is the inbox's tree in small, and two of its marks are necks. The held
+   conversation's mark is on the page's ground and the open mark a lozenge in the open ground; each runs from its mark out
+   to the rail's edge, the rail's tiles clipping it there, with a rounded end at the mark. */
+.lconv[data-held="convo"] { position: relative; border-radius: var(--o-radius-round) 0 0 var(--o-radius-round); background: var(--o-surface-page); color: var(--o-ink-1); }
+.lconv[data-held="convo"]:hover { background: var(--o-surface-page); }
+.lconv[data-held="convo"]::after { content: ""; position: absolute; top: 0; bottom: 0; left: 100%; width: var(--o-layout-rail-width); background: var(--o-surface-page); }
+.lmark.open[data-held="open"] { position: relative; border-radius: var(--o-radius-round) 0 0 var(--o-radius-round); background: var(--o-ground-open); color: var(--o-ink-1); }
+.lmark.open[data-held="open"]:hover { background: var(--o-ground-open-hover); }
+.lmark.open[data-held="open"]::after { content: ""; position: absolute; top: 0; bottom: 0; left: 100%; width: var(--o-layout-rail-width); background: var(--o-ground-open); }
+.lmark.open[data-held="open"]:hover::after { background: var(--o-ground-open-hover); }
 
 /* A project's flyout, beside the rail over the page: its head with the project's name, counts and path, its rows that wait
    and then its new rows, which scroll when they are long, the line that counts the rest, and its foot. App sets its top
@@ -1868,6 +1895,100 @@ button.block:hover { --ground: var(--o-surface-raised); }
 .sheet .phopt { justify-content: flex-start; width: 100%; }
 .sheet .phopt[aria-current="true"] { color: var(--o-ink-1); font-weight: var(--o-font-weight-bold); }
 .read.accounts-read { overflow-y: auto; }
+
+/* The held card (D12, D14, D15): a card on the side's ground, set into the conversation, with a spine of the open colour down
+   its left edge. Fold back sits at the card's left on that spine, in the same colour, and its head reads the mark, the kind
+   and the title of the thing it holds. The body scrolls on its own. The phone's sheet (D5, D6, D15) is on the side's ground,
+   with a spine and a foot of the bracket's ground. */
+.held-card { position: relative; display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; border-radius: var(--o-radius-3); background: var(--o-surface-side); }
+.held-spine { position: absolute; top: 0; bottom: 0; left: 0; width: var(--o-space-8); background: var(--o-ground-open); }
+.held-head { display: flex; align-items: center; gap: var(--o-space-8); flex: none; min-width: 0; padding: var(--o-space-8) var(--o-space-12) var(--o-space-8) var(--o-space-8); }
+.held-head .held-mark { display: grid; flex: none; color: var(--o-ink-2); }
+.held-kind { flex: none; color: var(--o-ink-2); font: var(--o-type-small); }
+.held-title { min-width: 0; overflow: hidden; color: var(--o-ink-1); font: var(--o-type-body); font-weight: var(--o-font-weight-bold); text-overflow: ellipsis; white-space: nowrap; }
+.fold-back { display: inline-flex; align-items: center; gap: var(--o-space-8); flex: none; height: var(--o-size-control-desk); margin-left: calc(-1 * var(--o-space-8)); padding: 0 var(--o-space-12) 0 var(--o-space-8); border: 0; border-radius: 0 var(--o-radius-2) var(--o-radius-2) 0; background: var(--o-ground-open); color: var(--o-ink-1); font: var(--o-type-small); white-space: nowrap; }
+.fold-back:hover { background: var(--o-ground-open-hover); }
+.held-close { display: grid; flex: none; place-items: center; width: var(--o-size-control-desk); height: var(--o-size-control-desk); margin-left: auto; padding: 0; }
+.held-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
+/* A held design's card body: its state, then its contracts in position order, each a row with its title and its state. */
+.design-card { display: flex; flex-direction: column; gap: var(--o-space-4); padding: var(--o-space-4) var(--o-space-12) var(--o-space-12) var(--o-space-8); }
+.design-card-state { margin: 0; color: var(--o-ink-3); font: var(--o-type-small); }
+.design-card-contracts { display: flex; flex-direction: column; gap: var(--o-space-4); margin: 0; padding: 0; list-style: none; }
+.design-card-contract { display: flex; align-items: baseline; gap: var(--o-space-8); width: 100%; padding: var(--o-space-4) var(--o-space-8); border-radius: var(--o-radius-2); background: var(--o-surface-well); color: var(--o-ink-1); font: var(--o-type-body); text-align: left; }
+.design-card-contract:hover { background: var(--o-surface-raised); }
+.design-card-title { min-width: 0; overflow: hidden; font-weight: var(--o-font-weight-bold); text-overflow: ellipsis; white-space: nowrap; }
+.design-card-contract-state { flex: none; margin-left: auto; color: var(--o-ink-3); font: var(--o-type-small); }
+.held-sheet { position: relative; display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; border-radius: var(--o-radius-3); background: var(--o-surface-side); }
+.held-sheet-spine { position: absolute; top: 0; bottom: 0; left: 0; width: var(--o-space-8); background: var(--o-surface-raised); }
+.held-sheet-foot { flex: none; height: var(--o-space-8); background: var(--o-surface-raised); }
+/* Under 760px the sheet fills the page under the conversation's head (D5), and the band of its bracket (D9) runs under the head,
+   where the work link of the thing the sheet holds is lit on the same ground. The column's gap is taken back, so the band is
+   directly above the sheet. */
+.read > .held-sheet { flex: 1 1 auto; margin-top: calc(-1 * var(--o-space-8)); }
+.convo-head > .head-band { height: var(--o-space-8); background: var(--o-surface-raised); }
+.wlink[aria-current="true"] { border-radius: var(--o-radius-2); background: var(--o-surface-raised); }
+
+/* The held move (D16, flows 10a). A card rises out of its neck, scaled about its left edge at its row's height, and folds back
+   into it; a neck grows from its row and draws back; a tab's ground fades; the chat moves between the middle and the right;
+   a move to another conversation fades the head's title and the chat in where they stand; the phone's sheet unfolds from its
+   top and folds back. Every move is inside the no-preference condition, so with reduced motion each is a plain swap. */
+@media (prefers-reduced-motion: no-preference) {
+  @keyframes held-rise { from { opacity: 0; transform: translateX(calc(-1 * var(--o-distance-drill))) scale(0.86, 0.5); } to { opacity: 1; transform: none; } }
+  @keyframes held-fold { from { opacity: 1; transform: none; } to { opacity: 0; transform: translateX(calc(-1 * var(--o-distance-drill))) scale(0.86, 0.5); } }
+  @keyframes neck-grow { from { transform: scaleX(0); } to { transform: none; } }
+  @keyframes neck-draw { from { transform: none; } to { transform: scaleX(0); } }
+  @keyframes ground-in { from { background-color: transparent; } }
+  @keyframes ground-out { to { background-color: transparent; } }
+  @keyframes chat-move { from { transform: translateX(var(--held-dx, 0)); } to { transform: none; } }
+  @keyframes sheet-unfold { from { opacity: 0; transform: translateY(calc(-1 * var(--o-distance-drill))) scaleY(0.5); } to { opacity: 1; transform: none; } }
+  @keyframes sheet-fold { from { opacity: 1; transform: none; } to { opacity: 0; transform: translateY(calc(-1 * var(--o-distance-drill))) scaleY(0.5); } }
+
+  .held-card:is([data-move="open"], [data-move="switch"], [data-move="other"]) { transform-origin: 0 var(--held-aim, 0); animation: held-rise var(--o-move-drill); }
+  .held-card:is([data-move="close"], [data-move="leave"]) { transform-origin: 0 var(--held-aim, 0); animation: held-fold var(--o-move-leave) both; }
+  .held-sheet[data-move="open"] { transform-origin: top; animation: sheet-unfold var(--o-move-drill); }
+  .held-sheet:is([data-move="close"], [data-move="leave"]) { transform-origin: top; animation: sheet-fold var(--o-move-leave) both; }
+
+  .inbox :is(.row, .design-tab)[data-held]:is([data-move="open"], [data-move="switch"], [data-move="other"])::before,
+  .rail-lineage .lmark[data-held]:is([data-move="open"], [data-move="switch"], [data-move="other"])::after { transform-origin: left; animation: neck-grow var(--o-move-state); }
+  .inbox :is(.row, .design-tab)[data-held]:is([data-move="close"], [data-move="leave"])::before,
+  .rail-lineage .lmark[data-held]:is([data-move="close"], [data-move="leave"])::after { transform-origin: left; animation: neck-draw var(--o-move-leave) both; }
+
+  .inbox .convo-block[data-held="tab"]:is([data-move="open"], [data-move="other"]) { animation: ground-in var(--o-move-state); }
+  .inbox .convo-block[data-held="tab"]:is([data-move="close"], [data-move="leave"]) { animation: ground-out var(--o-move-leave) both; }
+
+  /* The chat moves, its reader and send box; the column's card stays where it is, and the column's mark clears on the chat's end. */
+  .read.held[data-move="open"] > :is(.reader, .send), .read[data-move="close"] > :is(.reader, .send) { animation: chat-move var(--o-move-layout); }
+  .read[data-move="other"] > .reader, .read[data-move="other"] .convo-head .crumbs { animation: move-fade var(--o-move-state); }
+}
+
+/* A card or sheet folding away takes no press: its controls belong to the thing it was, and it is gone at its animationend. */
+.held-card[data-move="leave"], .held-sheet[data-move="leave"] { pointer-events: none; }
+/* The held layout at the desk (D11, D12): the conversation is the ground, and what it holds is set into it. Its head runs across
+   the top; the card sits under the head on the left, three parts of the room to the chat's two; the reader and the send box
+   are the chat on the right. The chat lays out as the phone does: no gutter of times, and the machine's band in one row. A
+   card with no conversation fills its middle alone. */
+@media (min-width: 760px) {
+  .read > .held-card { grid-column: 1 / -1; grid-row: 2 / -1; }
+  .read.held { grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); background: var(--o-surface-page); }
+  .read.held > .convo-head { grid-column: 1 / -1; grid-row: 1; }
+  .read.held > .held-card { grid-column: 1; grid-row: 2 / -1; margin: 0 var(--o-space-8) var(--o-space-8) var(--o-layout-page-pad-desk); }
+  .read.held > .find, .read.held > .reader, .read.held > .send { grid-column: 2; }
+  .read.held .reader .t { grid-template-columns: minmax(0, 1fr); }
+  .read.held .reader .t > .gut { display: none; }
+  .read.held .reader [data-shape="block"] > .head .at { display: inline; }
+  .read.held .convo-head .pane-strip { flex-wrap: nowrap; overflow: hidden; }
+  /* A card folding away from a column no thing holds (D16, motion-close): the card keeps its place on the left while the chat
+     moves from the right to the middle, so the chat spans the column below the head. Its rows are placed by hand, since the
+     card holds the left column. */
+  .read.leaving { grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); }
+  .read.leaving > .convo-head { grid-column: 1 / -1; grid-row: 1; }
+  .read.leaving > .held-card { grid-column: 1; grid-row: 2 / -1; margin: 0 var(--o-space-8) var(--o-space-8) var(--o-layout-page-pad-desk); }
+  .read.leaving > .find { grid-column: 1 / -1; grid-row: 2; }
+  .read.leaving > .reader { grid-column: 1 / -1; grid-row: 2; }
+  .read.leaving > .send { grid-column: 1 / -1; grid-row: 3; }
+  .read.leaving:has(> .find) > .reader { grid-row: 3; }
+  .read.leaving:has(> .find) > .send { grid-row: 4; }
+}
 
 /* Reduced motion comes last, so it wins over the rules above: each move is one 100 ms linear step, a page drills and
    leaves by a fade, and the loops hold still. */

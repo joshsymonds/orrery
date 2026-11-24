@@ -446,8 +446,8 @@ export const Page: Stories = {
           section.scrollIntoView(),
         );
         await whenDrawn(root, ".cmdbar", "Nothing is left to settle.", () => {});
-        // The panel's page is what scrolls, so the title row is brought back into view there.
-        await whenDrawn(root, ".rcard .title-row", "", (title) => {
+        // The held card's body (.held-body) is what scrolls, so the title row is brought back into view there.
+        await whenDrawn(root, ".held-card .title-row", "", (title) => {
           title.scrollIntoView({ block: "nearest" });
         });
       }}
