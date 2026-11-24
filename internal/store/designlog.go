@@ -5,13 +5,20 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"time"
 
+	"google.golang.org/protobuf/encoding/protojson"
+
+	orreryv1 "github.com/joshsymonds/orrery/internal/gen/orrery/v1"
 	"github.com/joshsymonds/orrery/internal/store/sqlcgen"
 )
 
 // AppendDesignLog appends line to its design's log, numbered as the design's next line: counted from 1 within the
 // design, one more than the highest number the design already holds. line.Seq is ignored. Rows only append, so a line
-// once stored is never changed or removed. Its IDs are stored as a JSON array.
+// once stored is never changed or removed. Its IDs are stored as a JSON array. In the same write it appends an
+// engine_design event of the line to the design's working conversation, when that conversation has a sessions row (see
+// appendDesignEvent). A line the owner made through serve is owed to that conversation, so its insert marks the write
+// for the caller events (see withEpicEvent).
 func (s *Store) AppendDesignLog(ctx context.Context, line DesignLogLine) error {
 	ids, encodeErr := encodeList(line.IDs)
 	if encodeErr != nil {
@@ -28,14 +35,52 @@ func (s *Store) AppendDesignLog(ctx context.Context, line DesignLogLine) error {
 				next = row.Seq + 1
 			}
 		}
-		if err = queries.InsertDesignLogLine(ctx, sqlcgen.InsertDesignLogLineParams{
+		insertCtx := ctx
+		if designLineOwed(line) {
+			insertCtx = withEpicEvent(ctx)
+		}
+		if err = queries.InsertDesignLogLine(insertCtx, sqlcgen.InsertDesignLogLineParams{
 			Design: line.Design, Seq: next, At: line.At, Maker: line.Maker, Session: line.Session, What: line.What,
 			Ids: ids, Words: line.Words,
 		}); err != nil {
 			return fmt.Errorf("insert log line %d of design %s: %w", next, line.Design, err)
 		}
-		return nil
+		return appendDesignEvent(ctx, queries, line)
 	})
+}
+
+// appendDesignEvent appends the engine_design event of line to the working conversation of its design, stamped with the
+// line's time, and its payload is the line as an EngineDesign. It appends nothing when the design has no working
+// conversation with a sessions row: a design with no row and no contract in it names no conversation at all.
+func appendDesignEvent(ctx context.Context, queries *sqlcgen.Queries, line DesignLogLine) error {
+	conversation, err := readDesignConversation(ctx, queries, line.Design)
+	if errors.Is(err, ErrNoDesign) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("read working conversation of design %s: %w", line.Design, err)
+	}
+	_, err = queries.GetSession(ctx, conversation)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("read session %s: %w", conversation, err)
+	}
+	payload, err := protojson.Marshal(designRecordOf(line))
+	if err != nil {
+		return fmt.Errorf("encode %s payload: %w", EventEngineDesign, err)
+	}
+	return appendEvent(ctx, queries, conversation, EventEngineDesign, string(payload), time.Unix(line.At, 0))
+}
+
+// designRecordOf returns line as the EngineDesign a design event carries: its design, what, ids and words, its maker's
+// kind, and its session.
+func designRecordOf(line DesignLogLine) *orreryv1.EngineDesign {
+	return &orreryv1.EngineDesign{
+		Design: line.Design, What: line.What, Ids: line.IDs, Words: line.Words,
+		Maker: &orreryv1.RecordMaker{Kind: line.Maker}, Session: line.Session,
+	}
 }
 
 // DesignLog returns the lines of the design's log, oldest first, which is by seq. A design with no lines has none.

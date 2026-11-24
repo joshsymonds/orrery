@@ -31,6 +31,7 @@ const (
 	EventEngineTurnEnded        = "engine_turn_ended"
 	EventEngineInterrupt        = "engine_interrupt"
 	EventEngineTask             = "engine_task"
+	EventEngineDesign           = "engine_design"
 )
 
 // EngineTextCap is the most bytes of block text, tool input and tool content the store keeps.
