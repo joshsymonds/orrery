@@ -375,7 +375,7 @@ fun PaneScreen(
     val workLit = workLitOf(view, work)
     val openWork: (WorkLink) -> Unit = { link -> sheet = if (workLit == link.key) null else SheetSubject.Thing(link) }
     val openAllWork: () -> Unit = { sheet = if (workLit == WORK_ALL) null else SheetSubject.All }
-    val onUp: (() -> Unit)? = view?.up?.let { up -> { sheet = SheetSubject.Thing(up) } }
+    val onUp: (WorkLink) -> Unit = { up -> sheet = SheetSubject.Thing(up) }
     val actions = SheetActions(
         show = { sheet = it },
         fold = { sheet = null },
@@ -458,19 +458,16 @@ fun PaneScreen(
                 }
             }
             // The sheet sits under the head, from the head's bottom down over the chat, and the head draws over it.
-            view?.let { shown ->
-                PhoneSheet(
-                    subject = shown.subject,
-                    head = shown.head,
-                    animated = animated,
-                    onClose = { sheet = null },
-                    onUp = onUp,
-                    modifier = Modifier
-                        .align(Alignment.TopCenter)
-                        .fillMaxSize()
-                        .padding(top = with(density) { headHeightPx.toDp() }),
-                ) { subject -> SheetBody(subject, record, actions) }
-            }
+            PhoneSheet(
+                view = view,
+                animated = animated,
+                onClose = { sheet = null },
+                onUp = onUp,
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .fillMaxSize()
+                    .padding(top = with(density) { headHeightPx.toDp() }),
+            ) { subject -> SheetBody(subject, record, actions) }
             current?.let { shown ->
                 Column(
                     modifier = Modifier

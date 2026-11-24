@@ -1,6 +1,14 @@
 package io.github.joshsymonds.orrery.ui
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.EnterExitState
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.togetherWith
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.Transition
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -9,6 +17,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -19,11 +28,20 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.SemanticsPropertyKey
@@ -38,7 +56,11 @@ import io.github.joshsymonds.orrery.api.DesignRow
 import io.github.joshsymonds.orrery.api.OrreryClient
 import io.github.joshsymonds.orrery.api.Pane
 import io.github.joshsymonds.orrery.api.StepRow
+import io.github.joshsymonds.orrery.ui.theme.Move
 import io.github.joshsymonds.orrery.ui.theme.OrreryTokens
+import io.github.joshsymonds.orrery.ui.theme.spec
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
 
 /**
  * What the round 8 phone sheet is open on: a [Thing], a design, contract or epic opened from a work link, or [All], the
@@ -155,116 +177,177 @@ internal var SemanticsPropertyReceiver.sheetFade: Float
 private val HEAD_INSET: Dp = OrreryTokens.Space.twelve + OrreryTokens.Space.two
 
 /**
- * The phone sheet round 8 draws over the chat on touch: nothing for a null [subject], otherwise the bracket that begins at
- * the lit name in the title. Under the head, the band of the raised ground runs the full width, [OrreryTokens.Space.eight]
+ * The phone sheet round 8 draws over the chat on touch: nothing while no sheet has been open, otherwise the bracket that
+ * begins at the lit name in the title. Under the head, the band of the raised ground runs the full width, [OrreryTokens.Space.eight]
  * tall; below it, the sheet is the column on the side's ground, rounded at its left corners and tagged [PHONE_SHEET_TAG],
  * with the bracket's spine down its left side and its foot under it, each [OrreryTokens.Space.eight] across. The sheet
- * carries its pose at rest, and its head row holds the face, the kind word, the [SheetHead.up] link when [onUp] is given,
+ * carries its pose, and its head row holds the face, the kind word, the [SheetHead.up] link (which [onUp] opens) when the
+ * thing has one,
  * the name, and the close control at its right end, over the state line when the head has one. The [body] of the subject
  * fills the rest of the sheet. The close control and the back gesture call [onClose] while the sheet is open.
- * [animated] is the motion the next task draws behind this signature.
+ *
+ * [view] is what the sheet is open on, null while it is closed. Opening unfolds the sheet down from the band, from
+ * [SheetPose.FOLDED] to [SheetPose.REST] over [Move.DRILL], and fades the band and the bracket in over [Move.STATE].
+ * Closing folds it back into the band over [Move.LEAVE] and fades them out, and the sheet leaves the composition only once
+ * that is done. A switch of subject keeps the sheet and its band at rest: the old body fades out over [Move.LEAVE] and the
+ * new one in over [Move.STATE], where it stands. With [animated] false, which is the system's animator duration scale at
+ * 0, each of these is a plain swap to the state after. [onDrawn] is told whether the sheet is drawn, which stays true while a
+ * close folds it away, so a host can keep what the sheet covers out of the composition until it has gone.
  */
 @Composable
 internal fun PhoneSheet(
-    subject: SheetSubject?,
-    head: SheetHead,
+    view: SheetView?,
     animated: Boolean,
     onClose: () -> Unit,
-    onUp: (() -> Unit)?,
+    onUp: (WorkLink) -> Unit,
     modifier: Modifier = Modifier,
+    onDrawn: (Boolean) -> Unit = {},
     body: @Composable (SheetSubject) -> Unit,
 ) {
-    if (subject == null) return
-    BackHandler(onBack = onClose)
+    val open = view != null
+    // The view the sheet was last open on, which it draws while a close folds it away.
+    val hold = remember { SheetHold() }
+    if (view != null) hold.view = view
+    // The unfold runs from folded (0) to rest (1), and the fade of the band and the bracket with it. Both start folded,
+    // so the first open unfolds.
+    val unfoldAnim = remember { Animatable(0f) }
+    val fadeAnim = remember { Animatable(0f) }
+    // Whether the sheet is drawn: a close keeps it until it has folded away.
+    var present by remember { mutableStateOf(open) }
+    BackHandler(enabled = open, onBack = onClose)
+    LaunchedEffect(open, animated) {
+        if (!animated) return@LaunchedEffect
+        if (open) {
+            present = true
+            launch { fadeAnim.animateTo(1f, Move.STATE.spec(animated)) }
+            unfoldAnim.animateTo(1f, Move.DRILL.spec(animated))
+        } else if (present) {
+            coroutineScope {
+                launch { fadeAnim.animateTo(0f, Move.LEAVE.spec(animated)) }
+                unfoldAnim.animateTo(0f, Move.LEAVE.spec(animated))
+            }
+            present = false
+        }
+    }
+    // Drawn while it is open, and while a close with animations on has not yet folded it away.
+    val drawn = hold.view != null && (open || (animated && present))
+    SideEffect { onDrawn(drawn) }
+    val shown = hold.view ?: return
+    // With animations off a close removes the sheet at once; with them on it stays until it has folded away.
+    if (!drawn) return
+    // Read here, so each frame of the motion draws the values the sheet is at; with animations off, the target itself.
+    val progress = if (animated) unfoldAnim.value else if (open) 1f else 0f
+    val fading = if (animated) fadeAnim.value else if (open) 1f else 0f
+    val pose = poseAt(progress)
+    val head = shown.head
+    val upClick: (() -> Unit)? = shown.up?.let { link -> { onUp(link) } }
     Column(modifier = modifier) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(OrreryTokens.Space.eight)
+                .graphicsLayer { alpha = fading }
                 .background(OrreryTokens.Surface.raised)
                 .testTag(SHEET_BAND_TAG)
-                .semantics { sheetFade = 1f },
+                .semantics { sheetFade = fading },
         ) {}
         Row(
             modifier = Modifier
                 .weight(1f)
                 .fillMaxWidth()
-                .background(OrreryTokens.Surface.raised),
+                // The bracket's ground, which shows at the sheet's rounded corners, fades with the band.
+                .drawBehind { drawRect(OrreryTokens.Surface.raised, alpha = fading) },
         ) {
             Box(
                 modifier = Modifier
                     .fillMaxHeight()
                     .width(OrreryTokens.Space.eight)
-                    .background(OrreryTokens.Surface.raised)
                     .testTag(SHEET_SPINE_TAG),
             ) {}
-            Column(
+            // The node the sheet's semantics read is laid out where the sheet rests; the column in it is drawn at the pose.
+            Box(
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxHeight()
-                    .background(
-                        OrreryTokens.Surface.side,
-                        RoundedCornerShape(topStart = OrreryTokens.Radius.three, bottomStart = OrreryTokens.Radius.three),
-                    )
                     .testTag(PHONE_SHEET_TAG)
-                    .semantics { sheetPose = SheetPose.REST },
+                    .semantics { sheetPose = pose },
             ) {
                 Column(
                     modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(start = HEAD_INSET, end = HEAD_INSET, top = OrreryTokens.Space.eight),
+                        .fillMaxSize()
+                        .graphicsLayer {
+                            scaleY = pose.scaleY
+                            translationY = pose.offsetY.toPx()
+                            alpha = pose.alpha
+                            transformOrigin = TransformOrigin(0.5f, 0f)
+                        }
+                        .background(
+                            OrreryTokens.Surface.side,
+                            RoundedCornerShape(topStart = OrreryTokens.Radius.three, bottomStart = OrreryTokens.Radius.three),
+                        ),
                 ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth().testTag(SHEET_HEAD_TAG),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(OrreryTokens.Space.eight),
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(start = HEAD_INSET, end = HEAD_INSET, top = OrreryTokens.Space.eight),
                     ) {
-                        SheetFace(head)
-                        Text(
-                            SHEET_KIND_WORDS,
-                            modifier = Modifier.testTag(SHEET_KIND_TAG),
-                            style = OrreryTokens.Type.label,
-                            color = OrreryTokens.Ink.three,
-                        )
-                        val up = head.up
-                        if (up != null && onUp != null) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().testTag(SHEET_HEAD_TAG),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(OrreryTokens.Space.eight),
+                        ) {
+                            SheetFace(head)
                             Text(
-                                up,
-                                modifier = Modifier.testTag(SHEET_UP_TAG).clickable(onClick = onUp),
-                                style = OrreryTokens.Type.body,
-                                color = OrreryTokens.Ink.two,
+                                SHEET_KIND_WORDS,
+                                modifier = Modifier.testTag(SHEET_KIND_TAG),
+                                style = OrreryTokens.Type.label,
+                                color = OrreryTokens.Ink.three,
+                            )
+                            val up = head.up
+                            if (up != null && upClick != null) {
+                                Text(
+                                    up,
+                                    modifier = Modifier.testTag(SHEET_UP_TAG).clickable(onClick = upClick),
+                                    style = OrreryTokens.Type.body,
+                                    color = OrreryTokens.Ink.two,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                                Text("/", style = OrreryTokens.Type.body, color = OrreryTokens.Ink.three)
+                            }
+                            Text(
+                                head.name,
+                                modifier = Modifier.testTag(SHEET_NAME_TAG).weight(1f),
+                                style = OrreryTokens.Type.body.copy(fontWeight = OrreryTokens.Font.Weight.bold),
+                                color = OrreryTokens.Ink.one,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                             )
-                            Text("/", style = OrreryTokens.Type.body, color = OrreryTokens.Ink.three)
+                            SheetCloseButton(onClose)
                         }
-                        Text(
-                            head.name,
-                            modifier = Modifier.testTag(SHEET_NAME_TAG).weight(1f),
-                            style = OrreryTokens.Type.body.copy(fontWeight = OrreryTokens.Font.Weight.bold),
-                            color = OrreryTokens.Ink.one,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                        SheetCloseButton(onClose)
+                        if (head.state.isNotEmpty()) {
+                            Text(
+                                head.state,
+                                modifier = Modifier.padding(top = OrreryTokens.Space.two).testTag(SHEET_STATE_TAG),
+                                style = OrreryTokens.Type.small,
+                                color = OrreryTokens.Ink.three,
+                            )
+                        }
                     }
-                    if (head.state.isNotEmpty()) {
-                        Text(
-                            head.state,
-                            modifier = Modifier.padding(top = OrreryTokens.Space.two).testTag(SHEET_STATE_TAG),
-                            style = OrreryTokens.Type.small,
-                            color = OrreryTokens.Ink.three,
-                        )
+                    if (animated) {
+                        AnimatedContent(
+                            targetState = shown.subject,
+                            modifier = Modifier.weight(1f).fillMaxWidth(),
+                            contentKey = { it.key },
+                            transitionSpec = { EnterTransition.None togetherWith ExitTransition.None },
+                            label = "sheet-body",
+                        ) { current ->
+                            val bodyFade = sheetBodyFade(transition)
+                            SheetBodyBox(current, bodyFade, Modifier.fillMaxSize(), body)
+                        }
+                    } else {
+                        SheetBodyBox(shown.subject, 1f, Modifier.weight(1f).fillMaxWidth(), body)
                     }
-                }
-                Box(
-                    modifier = Modifier
-                        .weight(1f)
-                        .fillMaxWidth()
-                        .testTag(SHEET_BODY_TAG_PREFIX + subject.key)
-                        .semantics { sheetFade = 1f },
-                ) {
-                    body(subject)
                 }
             }
         }
@@ -272,9 +355,61 @@ internal fun PhoneSheet(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(OrreryTokens.Space.eight)
+                .graphicsLayer { alpha = fading }
                 .background(OrreryTokens.Surface.raised)
                 .testTag(SHEET_FOOT_TAG),
         ) {}
+    }
+}
+
+/** The view a phone sheet was last open on, which it keeps drawing while a close folds it away. */
+private class SheetHold {
+    var view: SheetView? = null
+}
+
+// The pose the sheet is at [progress] along its unfold: folded at 0, at rest at 1, and between the two as it moves.
+private fun poseAt(progress: Float): SheetPose {
+    val folded = SheetPose.FOLDED
+    val rest = SheetPose.REST
+    return SheetPose(
+        scaleY = folded.scaleY + (rest.scaleY - folded.scaleY) * progress,
+        offsetY = folded.offsetY + (rest.offsetY - folded.offsetY) * progress,
+        alpha = folded.alpha + (rest.alpha - folded.alpha) * progress,
+    )
+}
+
+// The alpha of a body within its content's own [transition]: it fades in over Move.STATE as it enters, and out over
+// Move.LEAVE as it leaves. AnimatedContent keeps a leaving body until this fade has finished.
+@Composable
+private fun sheetBodyFade(transition: Transition<EnterExitState>): Float {
+    val fade by transition.animateFloat(
+        transitionSpec = {
+            if (EnterExitState.PreEnter isTransitioningTo EnterExitState.Visible) {
+                Move.STATE.spec(animated = true)
+            } else {
+                Move.LEAVE.spec(animated = true)
+            }
+        },
+        label = "sheet-body-fade",
+    ) { state -> if (state == EnterExitState.Visible) 1f else 0f }
+    return fade
+}
+
+// A phone sheet body's box, drawn at [fade] and tagged with its subject's key, which it carries as its sheetFade.
+@Composable
+private fun SheetBodyBox(
+    subject: SheetSubject,
+    fade: Float,
+    modifier: Modifier,
+    body: @Composable (SheetSubject) -> Unit,
+) {
+    Box(
+        modifier = modifier
+            .graphicsLayer { alpha = fade }
+            .testTag(SHEET_BODY_TAG_PREFIX + subject.key)
+            .semantics { sheetFade = fade },
+    ) {
+        body(subject)
     }
 }
 

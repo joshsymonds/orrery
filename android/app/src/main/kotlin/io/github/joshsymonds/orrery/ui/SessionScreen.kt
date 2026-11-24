@@ -211,6 +211,8 @@ fun SessionScreen(
     var designs by remember(sessionId) { mutableStateOf<List<DesignRow>>(emptyList()) }
     // The phone sheet a work link opened: the thing it is open on, or All for the list "+N" opens. Null while it is closed.
     var sheet by remember(sessionId) { mutableStateOf<SheetSubject?>(null) }
+    // Whether the phone sheet is drawn: it stays drawn while a close folds it away, and the chat returns after that.
+    var sheetDrawn by remember(sessionId) { mutableStateOf(false) }
     // The tasks an activity line opened: its one task, or every running task behind "and N more running".
     var taskList by remember(sessionId) { mutableStateOf<List<BackgroundTask>?>(null) }
     // The find bar while it is open: its query, and the current match of the matches the transcript holds.
@@ -399,7 +401,7 @@ fun SessionScreen(
     val workLit = workLitOf(view, work)
     val openWork: (WorkLink) -> Unit = { link -> sheet = if (workLit == link.key) null else SheetSubject.Thing(link) }
     val openAllWork: () -> Unit = { sheet = if (workLit == WORK_ALL) null else SheetSubject.All }
-    val onUp: (() -> Unit)? = view?.up?.let { up -> { sheet = SheetSubject.Thing(up) } }
+    val onUp: (WorkLink) -> Unit = { up -> sheet = SheetSubject.Thing(up) }
     val actions = SheetActions(
         show = { sheet = it },
         fold = { sheet = null },
@@ -481,14 +483,14 @@ fun SessionScreen(
                 }
             }
         }
-        if (view != null) {
+        if (view != null || sheetDrawn) {
             PhoneSheet(
-                subject = view.subject,
-                head = view.head,
+                view = view,
                 animated = animated,
                 onClose = { sheet = null },
                 onUp = onUp,
                 modifier = Modifier.weight(1f).fillMaxWidth(),
+                onDrawn = { sheetDrawn = it },
             ) { subject -> SheetBody(subject, record, actions) }
         } else {
             Box(modifier = Modifier.weight(1f).fillMaxWidth().clipToBounds()) {
