@@ -3,7 +3,7 @@ import type { JSX } from "preact";
 import { useEffect, useRef, useState } from "preact/hooks";
 
 import type { createClients } from "./client";
-import { ContractBody, type DocMarks } from "./contract";
+import { ContractBody, type ContractDesign, type DocMarks } from "./contract";
 import {
   acceptable,
   acceptStep,
@@ -39,6 +39,9 @@ export interface ContractRecordProps {
   onTalk?: () => void;
   // onOpenEpic opens the contract's epic, which the record links once the contract is accepted and has one.
   onOpenEpic?: (id: string) => void;
+  // design is the design the contract belongs to, from its record. The questions of it that concern this contract draw
+  // under its decisions.
+  design?: ContractDesign;
 }
 
 // Version is a version the record draws: one that holds its contract, which the record's body is drawn from.
@@ -52,6 +55,12 @@ interface View {
   versions: Version[];
   drawn: Version;
   newest: Version;
+}
+
+// concerning is the design with only the questions that concern the contract id: the ones the record draws under the
+// contract's decisions.
+function concerning(design: ContractDesign, id: string): ContractDesign {
+  return { ...design, questions: design.questions.filter((question) => question.contract === id) };
 }
 
 // newerNote is what the record says when Accept finds a newer version than the one drawn.
@@ -92,7 +101,21 @@ function leftOfView(view: View, read: ReadonlySet<string>): Left {
 // An accepted contract whose Get carries work opens on the work by requirement, and the document follows it on the same
 // page.
 export function ContractRecord(props: ContractRecordProps): JSX.Element {
-  const { id, clients, writer, hasEpic, read, onRead, live, onAbout, aboutId, onChanged, onTalk, onOpenEpic } = props;
+  const {
+    id,
+    clients,
+    writer,
+    hasEpic,
+    read,
+    onRead,
+    live,
+    onAbout,
+    aboutId,
+    onChanged,
+    onTalk,
+    onOpenEpic,
+    design,
+  } = props;
   const [loaded, setLoaded] = useState<View | undefined>(undefined);
   const [loadError, setLoadError] = useState("");
   const [sending, setSending] = useState(false);
@@ -298,6 +321,7 @@ export function ContractRecord(props: ContractRecordProps): JSX.Element {
         contract={drawn.contract}
         requirements={drawn.requirements}
         decisions={drawn.decisions}
+        design={design === undefined ? undefined : concerning(design, id)}
         record={recordLine(get)}
         facts={facts}
         marks={marks}

@@ -1,9 +1,11 @@
-import type { ComponentChildren, JSX, Ref } from "preact";
+import { Fragment, type ComponentChildren, type JSX, type Ref } from "preact";
 
 import { CommitMark } from "./commitmark";
-import { type RowAbout, ratingTone } from "./contracts";
+import { lengthOf, type RowAbout, ratingTone } from "./contracts";
 import type { ContractDecision } from "./gen/orrery/v1/contracts_pb";
+import type { DesignLogLine, DesignQuestion } from "./gen/orrery/v1/designs_pb";
 import type { EpicContract, EpicRequirement } from "./gen/orrery/v1/epics_pb";
+import { type QuestionAnswer, QuestionThread } from "./questionthread";
 import { clock } from "./reader";
 
 // DocMarks are the marks a version of a contract wears on its document: the rows that open decisions concern, whether
@@ -16,12 +18,23 @@ export interface DocMarks {
   version: number;
 }
 
+// ContractDesign is the design a contract belongs to, as its record holds it: the questions of the design that concern
+// the contract, the log its questions' threads hold, and the answer a question takes, the design page's own.
+export interface ContractDesign {
+  questions: DesignQuestion[];
+  log: DesignLogLine[];
+  onAnswer: (question: bigint, answer: QuestionAnswer) => Promise<void>;
+}
+
 interface ContractBodyProps {
   contract: EpicContract;
   requirements: EpicRequirement[];
   // decisions is the contract's decisions. Absent, the document is an Epics.Get contract's, and its Decisions section
   // reads None.
   decisions?: ContractDecision[];
+  // design is the design the contract belongs to, whose questions about the contract are drawn as threads after the
+  // decisions. Absent, the contract carries no question.
+  design?: ContractDesign;
   // record is the decision line's record words. Absent, it is the accepted clock of the contract.
   record?: string;
   // facts is drawn last in the decision line.
@@ -49,7 +62,7 @@ const noMarks: DocMarks = {
 // name with its column names, how-bad chips, id chips by kind, attention marks and changed chips. Every text is a child
 // of its element, so no markup in a field becomes an element.
 export function ContractBody(props: ContractBodyProps): JSX.Element {
-  const { contract, requirements, decisions = [], onAbout, aboutId, irreversibleRef } = props;
+  const { contract, requirements, decisions = [], onAbout, aboutId, irreversibleRef, design } = props;
   const attending = props.attending ?? true;
   const marks = props.marks ?? noMarks;
   const record = props.record ?? `accepted ${clock(contract.accepted)}`;
@@ -58,6 +71,10 @@ export function ContractBody(props: ContractBodyProps): JSX.Element {
   // counted are the open decisions the record counts, and they count only while the version is attending.
   const counted = attending ? pending : [];
   const unread = attending && marks.unread;
+  // carried are the questions the design gives this contract, and openCarried are those with no answer yet.
+  const carried = design === undefined ? [] : design.questions;
+  const openCarried = carried.filter((question) => question.answered === 0n);
+  const length = lengthOf(contract, requirements, decisions);
 
   const changedRow = (id: string): number | undefined => (marks.changedRows.has(id) ? marks.version : undefined);
   const changedIn = (...fields: string[]): number | undefined =>
@@ -81,6 +98,9 @@ export function ContractBody(props: ContractBodyProps): JSX.Element {
             Decisions needed: <b class={counted.length > 0 ? "is-attention" : "ink-1"}>{counted.length > 0 ? counted.length : "none"}</b>
           </span>
           <span class="ink-3">{record}</span>
+          <p class="length" title="Its length is a signal, never a refusal: Accept is not blocked by it.">
+            {lengthWords(length)}
+          </p>
           {contract.base !== "" && <CommitMark hash={contract.base} />}
           {props.facts}
         </div>
@@ -276,7 +296,7 @@ export function ContractBody(props: ContractBodyProps): JSX.Element {
         n={counted.length > 0 ? counted.length : undefined}
         changed={changedIn("decisions")}
       >
-        {decisions.length === 0 && (
+        {decisions.length === 0 && carried.length === 0 && (
           <p class="inote">
             <span>None.</span>
           </p>
@@ -284,36 +304,63 @@ export function ContractBody(props: ContractBodyProps): JSX.Element {
         {pending.length > 0 && (
           <Table head={["", "question", "recommended", "why"]}>
             {pending.map((decision) => (
-              <Row key={decision.id} id={decision.id} attention={attending}>
-                <span>
-                  <IdChip id={decision.id} />
-                </span>
-                <span class="wide">
-                  <span class="strong">{decision.question}</span> <span class="ink-2">{decision.options.join(" · ")}</span>
-                  <ChangedChip version={changedRow(decision.id)} />
-                </span>
-                <span class="wide">{decision.recommendation}</span>
-                <span class="wide ink-3">
-                  {decision.reason}
-                  {onAbout !== undefined && (
-                    <Talk
-                      about={{ id: decision.id, text: decision.question }}
-                      lit={aboutId === decision.id}
-                      onAbout={onAbout}
-                    />
-                  )}
-                </span>
-              </Row>
+              <Fragment key={decision.id}>
+                <Row id={decision.id} attention={attending}>
+                  <span>
+                    <IdChip id={decision.id} />
+                  </span>
+                  <span class="strong wide">
+                    {decision.question}
+                    <ChangedChip version={changedRow(decision.id)} />
+                  </span>
+                  <span class="wide">
+                    {decision.recommendation !== "" && !decision.options.includes(decision.recommendation) && (
+                      <>
+                        <span class="chip">recommended</span> {decision.recommendation}
+                      </>
+                    )}
+                  </span>
+                  <span class="wide ink-3">
+                    {decision.reason}
+                    {onAbout !== undefined && (
+                      <Talk
+                        about={{ id: decision.id, text: decision.question }}
+                        lit={aboutId === decision.id}
+                        onAbout={onAbout}
+                      />
+                    )}
+                  </span>
+                </Row>
+                {decision.options.map((option, index) => (
+                  <div key={index} class="tr option">
+                    <span />
+                    <span class="wide">{option}</span>
+                    <span>{option === decision.recommendation && <span class="chip">recommended</span>}</span>
+                    <span />
+                  </div>
+                ))}
+              </Fragment>
             ))}
           </Table>
         )}
         {settled.map((decision) => (
           <p class="inote ok">
             <span>
-              {pending.length === 0 ? "None. " : ""}Settled: {decision.id} {decision.answer}
+              {pending.length === 0 && openCarried.length === 0 ? "None. " : ""}Settled: {decision.id}{" "}
+              {decision.answer}
             </span>
           </p>
         ))}
+        {design !== undefined &&
+          carried.map((question) => (
+            <QuestionThread
+              key={String(question.id)}
+              question={question}
+              lines={design.log.filter((line) => line.ids.includes(`Q${question.id}`))}
+              place="design"
+              onAnswer={(answer) => design.onAnswer(question.id, answer)}
+            />
+          ))}
       </Section>
 
       <Section name="Checks the machines run" changed={changedIn("checks")}>
@@ -321,6 +368,20 @@ export function ContractBody(props: ContractBodyProps): JSX.Element {
       </Section>
     </article>
   );
+}
+
+// longFrom and veryLongFrom are the line counts at which the length meter says long and very long.
+const longFrom = 41;
+const veryLongFrom = 61;
+
+// lengthWords are the meter's words for a contract of the lines given: its count, then long from 41 lines and very long
+// from 61.
+function lengthWords(lines: number): string {
+  const count = `${lines} lines`;
+  if (lines >= veryLongFrom) {
+    return `${count} · very long`;
+  }
+  return lines >= longFrom ? `${count} · long` : count;
 }
 
 // RatingChip draws a rating as a chip in its tone.
