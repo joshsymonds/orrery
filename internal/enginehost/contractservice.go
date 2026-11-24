@@ -41,6 +41,8 @@ type ContractStore interface {
 	ReopenContract(ctx context.Context, id string, c store.ContractChange) error
 	Contract(ctx context.Context, id string) (store.ContractRecord, error)
 	ContractWorkingCopy(ctx context.Context, id string) (store.ContractWorkingCopy, error)
+	ContractStepReads(ctx context.Context, id string) ([]store.StepRead, error)
+	ContractRowWrites(ctx context.Context, id string) ([]store.ContractRowWrite, error)
 	Contracts(ctx context.Context) ([]store.ContractListing, error)
 	Designs(ctx context.Context) ([]store.DesignRecord, error)
 	AppendDesignLog(ctx context.Context, line store.DesignLogLine) error
@@ -321,7 +323,8 @@ func contractNotFound(id string) error {
 	return refuseEpic(connect.CodeNotFound, fmt.Sprintf("contract %s not found", id))
 }
 
-// GetContract returns the contract with its versions, states and working copy.
+// GetContract returns the contract with its versions, states, working copy, the steps that read each version and the
+// row writes its stage recorded.
 func (s *contractService) GetContract(
 	ctx context.Context,
 	req *connect.Request[v1.GetContractRequest],
@@ -337,7 +340,46 @@ func (s *contractService) GetContract(
 	if err != nil {
 		return nil, err
 	}
+	err = s.attachProvenance(ctx, req.Msg.GetId(), stored)
+	if err != nil {
+		return nil, err
+	}
 	return connect.NewResponse(&v1.GetContractResponse{Contract: stored}), nil
+}
+
+// attachProvenance sets the steps that read each version of stored on that version, oldest first, and the row writes of
+// the contract id on stored, oldest first, each with its maker. A failed read is answered as the store's other errors
+// are.
+func (s *contractService) attachProvenance(ctx context.Context, id string, stored *v1.StoredContract) error {
+	reads, err := s.contracts.Store.ContractStepReads(ctx, id)
+	if err != nil {
+		return epicStoreError(err)
+	}
+	writes, err := s.contracts.Store.ContractRowWrites(ctx, id)
+	if err != nil {
+		return epicStoreError(err)
+	}
+	readBy := make(map[int64][]string)
+	for _, read := range reads {
+		readBy[read.Version] = append(readBy[read.Version], read.Step)
+	}
+	for _, version := range stored.GetVersions() {
+		version.ReadBy = readBy[version.GetVersion()]
+	}
+	stored.Rows = epicMap(writes, stageRowWriteMessage)
+	return nil
+}
+
+// stageRowWriteMessage returns the StageRowWrite message of write, with the maker and the session the write stored.
+func stageRowWriteMessage(write store.ContractRowWrite) *v1.StageRowWrite {
+	return &v1.StageRowWrite{
+		Seq: write.Seq, Version: write.Version, Row: write.Row, Action: write.Action, Depends: write.Depends,
+		Words: write.Words,
+		Maker: &v1.StageMaker{
+			Kind: write.Maker, Quote: write.Quote, Reason: write.MakerReason, Delegation: write.Delegation,
+		},
+		Session: write.Session, At: write.At,
+	}
 }
 
 // attachWorking sets the working copy of the contract id on stored, which a contract with none leaves unset. A failed read
