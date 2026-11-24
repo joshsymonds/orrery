@@ -41,6 +41,8 @@ type ContractStore interface {
 	ReopenContract(ctx context.Context, id string, c store.ContractChange) error
 	Contract(ctx context.Context, id string) (store.ContractRecord, error)
 	Contracts(ctx context.Context) ([]store.ContractListing, error)
+	Designs(ctx context.Context) ([]store.DesignRecord, error)
+	AppendDesignLog(ctx context.Context, line store.DesignLogLine) error
 }
 
 // Contracts is what orreryd's Contracts service answers with. Now is the clock every stored time is read from. Getenv
@@ -124,6 +126,10 @@ func (s *contractService) ProposeContract(
 			return nil, refuseEpic(connect.CodeNotFound, fmt.Sprintf("design: %s not found", design))
 		}
 		return nil, epicStoreError(err)
+	}
+	err = s.logContract(ctx, id, "proposed", writer, req.Msg.GetWords())
+	if err != nil {
+		return nil, err
 	}
 	stored, err := s.read(ctx, id)
 	if err != nil {
@@ -235,6 +241,53 @@ func (s *contractService) contractWriter(ctx context.Context, header http.Header
 func (s *contractService) changeSession(ctx context.Context, header http.Header) (string, error) {
 	session, _, err := s.callerSession(ctx, header)
 	return session, err
+}
+
+// logContract appends the line of the design log that records what change to the contract id made, once the change is
+// stored. The design is the one the contract is in now, which is its own id for a contract in no design. The line is
+// made by session, or by the owner when session is "", with words. A failed read or append is answered as the store's
+// other errors are.
+func (s *contractService) logContract(ctx context.Context, id, what, session, words string) error {
+	design, err := s.designOfContract(ctx, id)
+	if err != nil {
+		return err
+	}
+	return s.logContractIn(ctx, design, id, what, session, words)
+}
+
+// logContractIn appends the line of design's log that records what change to the contract id made, made by session or
+// by the owner when session is "", with words. A failed append is answered as the store's other errors are.
+func (s *contractService) logContractIn(ctx context.Context, design, id, what, session, words string) error {
+	maker := store.LogMakerConversation
+	if session == "" {
+		maker = store.LogMakerOwner
+	}
+	line := store.DesignLogLine{
+		Design: design, At: s.contracts.Now().Unix(), Maker: maker, Session: session, What: what,
+		IDs: []string{id}, Words: words,
+	}
+	if err := s.contracts.Store.AppendDesignLog(ctx, line); err != nil {
+		return epicStoreError(err)
+	}
+	return nil
+}
+
+// designOfContract returns the id of the design that holds the contract id: the design whose contracts include it. A
+// contract in no design is a design of one, which Designs lists under the contract's own id, so that is the id returned
+// when no listed design holds it.
+func (s *contractService) designOfContract(ctx context.Context, id string) (string, error) {
+	records, err := s.contracts.Store.Designs(ctx)
+	if err != nil {
+		return "", epicStoreError(err)
+	}
+	for _, record := range records {
+		for _, contract := range record.Contracts {
+			if contract.ID == id {
+				return record.ID, nil
+			}
+		}
+	}
+	return id, nil
 }
 
 // contractVersionOf returns the store version of the body of contract with its decisions, words, writer and time. Its
