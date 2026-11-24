@@ -1139,7 +1139,7 @@ func startSessions(
 	var serveCtx context.Context
 	serveCtx, host.stopServe = context.WithCancel(ctx)
 	cfg := host.serveConfig(
-		commands, stepCommands, evidence, notices, crons, hostName, hosts, serveOpts(opts, st, logger))
+		commands, stepCommands, evidence, notices, crons, hostName, opts.orrery, hosts, serveOpts(opts, st, logger))
 	go func() {
 		host.serveDone <- enginehost.ServeWith(serveCtx, ln, cfg)
 	}()
@@ -1165,7 +1165,8 @@ func adoptSessionState(
 }
 
 // serveConfig returns what the session socket serves: the services the host holds, and the given commands, evidence,
-// notices and crons, with handlerOpts on each handler and hostName as the host each epic is stamped with.
+// notices and crons, with handlerOpts on each handler, hostName as the host each epic is stamped with, and callerHost
+// as the orrery name of the host whose panes the socket's calls come from.
 func (h *sessionHost) serveConfig(
 	commands enginehost.Commands,
 	steps enginehost.StepCommands,
@@ -1173,27 +1174,29 @@ func (h *sessionHost) serveConfig(
 	notices enginehost.NoticeSource,
 	crons enginehost.CronCommands,
 	hostName string,
+	callerHost string,
 	hosts hostexec.Hosts,
 	handlerOpts []connect.HandlerOption,
 ) enginehost.ServeConfig {
 	return enginehost.ServeConfig{
-		Commands:  commands,
-		Steps:     steps,
-		Epics:     h.epics,
-		Steering:  h.steering,
-		Pools:     h.pools,
-		Evidence:  evidence,
-		Notices:   notices,
-		Crons:     crons,
-		Changes:   h.changes,
-		Contracts: h.contracts,
-		Designs:   h.designs,
-		Stage:     h.stage,
-		Accounts:  h.accounts,
-		PaneSends: h.paneSends,
-		Host:      hostName,
-		Hosts:     hosts,
-		Options:   handlerOpts,
+		Commands:   commands,
+		Steps:      steps,
+		Epics:      h.epics,
+		Steering:   h.steering,
+		Pools:      h.pools,
+		Evidence:   evidence,
+		Notices:    notices,
+		Crons:      crons,
+		Changes:    h.changes,
+		Contracts:  h.contracts,
+		Designs:    h.designs,
+		Stage:      h.stage,
+		Accounts:   h.accounts,
+		PaneSends:  h.paneSends,
+		Host:       hostName,
+		CallerHost: callerHost,
+		Hosts:      hosts,
+		Options:    handlerOpts,
 	}
 }
 

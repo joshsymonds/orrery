@@ -1522,7 +1522,7 @@ UPDATE epic_node_runs SET revision = ?
 WHERE epic = ? AND path = ? AND attempt = ? AND state = 'running' AND revision = '';
 
 -- name: GetPaneSession :one
-SELECT id FROM sessions WHERE kind = '' AND server = ? AND pane = ? ORDER BY id LIMIT 1;
+SELECT id FROM sessions WHERE kind = '' AND server = ? AND pane = ? AND host = ? ORDER BY id LIMIT 1;
 
 -- name: UpsertEpicSession :exec
 INSERT INTO epic_sessions (epic, session, call, at, creator) VALUES (?, ?, ?, ?, ?)

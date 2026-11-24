@@ -117,7 +117,8 @@ func CallerOf(header http.Header) (store.EpicCaller, bool) {
 }
 
 // epicCallerOf returns the caller header holds, and false when it holds none. A session names itself. A pane names the
-// tmux socket, the part of TMUX before its first comma, and its TMUX_PANE, as the server column of a pane row does.
+// tmux socket, the part of TMUX before its first comma, and its TMUX_PANE, as the server column of a pane row does, and
+// the host that Orrery-Host names, as the host column of that row does.
 func epicCallerOf(header http.Header) (store.EpicCaller, bool) {
 	if session := header.Get(protocol.HeaderSession); session != "" {
 		return store.EpicCaller{Session: session}, true
@@ -127,7 +128,7 @@ func epicCallerOf(header http.Header) (store.EpicCaller, bool) {
 		return store.EpicCaller{}, false
 	}
 	socket, _, _ := strings.Cut(tmux, ",")
-	return store.EpicCaller{Server: "-S " + socket, Pane: pane}, true
+	return store.EpicCaller{Server: "-S " + socket, Pane: pane, Host: header.Get(protocol.HeaderHost)}, true
 }
 
 // epicCallName returns the name a call of procedure records: "epic_" and the lowercased verb of its method, the verb

@@ -2443,16 +2443,17 @@ func (q *Queries) GetNoticeIDFloor(ctx context.Context) (int64, error) {
 }
 
 const getPaneSession = `-- name: GetPaneSession :one
-SELECT id FROM sessions WHERE kind = '' AND server = ? AND pane = ? ORDER BY id LIMIT 1
+SELECT id FROM sessions WHERE kind = '' AND server = ? AND pane = ? AND host = ? ORDER BY id LIMIT 1
 `
 
 type GetPaneSessionParams struct {
 	Server string
 	Pane   string
+	Host   string
 }
 
 func (q *Queries) GetPaneSession(ctx context.Context, arg GetPaneSessionParams) (string, error) {
-	row := q.db.QueryRowContext(ctx, getPaneSession, arg.Server, arg.Pane)
+	row := q.db.QueryRowContext(ctx, getPaneSession, arg.Server, arg.Pane, arg.Host)
 	var id string
 	err := row.Scan(&id)
 	return id, err
