@@ -30,5 +30,5 @@ func (g *Gateway) releaseAdmission() {
 
 // refuseOverload answers a request refused at the admission bound. It routes nothing and contacts no upstream.
 func (g *Gateway) refuseOverload(w http.ResponseWriter, r *http.Request) {
-	g.abort(r.Context(), w, http.StatusServiceUnavailable, errorTypeAPI, errOverloaded)
+	g.abort(r.Context(), w, http.StatusServiceUnavailable, errorTypeAPI, msgCapacityExhausted, errOverloaded)
 }

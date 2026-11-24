@@ -35,7 +35,7 @@ const probePath = "/v1/models"
 func TestGatewayRoutesForwardPassesPathQueryBodyAndCredential(t *testing.T) {
 	t.Parallel()
 
-	fake := newFakeAnthropic(t, replyWith(t, http.StatusCreated, upstreamReply))
+	fake := newFakeAnthropic(t, replyWith(t, http.StatusCreated))
 	gw := newGateway(t, routesWithTokens(nil), fake.url(), discardLogger())
 
 	req := newProxyRequest(t, http.MethodPost, "/v1/messages?beta=true", forwardBody)
@@ -65,7 +65,7 @@ func TestGatewayRoutesForwardPassesPathQueryBodyAndCredential(t *testing.T) {
 func TestGatewayRoutesForwardNamedContextStripsPrefix(t *testing.T) {
 	t.Parallel()
 
-	fake := newFakeAnthropic(t, replyWith(t, http.StatusOK, upstreamReply))
+	fake := newFakeAnthropic(t, replyWith(t, http.StatusOK))
 	routes := routesWithTokens(map[string]string{"example-account": accountGrant})
 	gw := newGateway(t, routes, fake.url(), discardLogger())
 
@@ -121,7 +121,7 @@ func TestGatewayRoutesForwardDropsHopByHopHeaders(t *testing.T) {
 func TestGatewayRoutesForwardUnknownContextIs404(t *testing.T) {
 	t.Parallel()
 
-	fake := newFakeAnthropic(t, replyWith(t, http.StatusOK, upstreamReply))
+	fake := newFakeAnthropic(t, replyWith(t, http.StatusOK))
 	gw := newGateway(t, routesWithTokens(nil), fake.url(), discardLogger())
 
 	rec := httptest.NewRecorder()
@@ -139,7 +139,7 @@ func TestGatewayRoutesForwardUnknownContextIs404(t *testing.T) {
 func TestGatewayRoutesForwardLoadFailureAnswers503(t *testing.T) {
 	t.Parallel()
 
-	fake := newFakeAnthropic(t, replyWith(t, http.StatusOK, upstreamReply))
+	fake := newFakeAnthropic(t, replyWith(t, http.StatusOK))
 	routes := fakeRoutes{err: errors.New("example registry unreadable")}
 	gw := newUnloadedGateway(t, routes, fake.url(), discardLogger())
 
@@ -181,7 +181,7 @@ func TestGatewayRoutesForwardRefusesSeatWithoutForward(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			fake := newFakeAnthropic(t, replyWith(t, http.StatusOK, upstreamReply))
+			fake := newFakeAnthropic(t, replyWith(t, http.StatusOK))
 			gw := newGateway(t, routesWithTokens(nil), fake.url(), discardLogger())
 
 			req := newProxyRequest(t, http.MethodPost, "/v1/messages", tc.body)
@@ -288,7 +288,7 @@ func checkAdmissionRefusal(t *testing.T, probe *httptest.ResponseRecorder, fake 
 func TestGatewayAccountForwardSendsContextAccountToken(t *testing.T) {
 	t.Parallel()
 
-	fake := newFakeAnthropic(t, replyWith(t, http.StatusOK, upstreamReply))
+	fake := newFakeAnthropic(t, replyWith(t, http.StatusOK))
 	routes := routesWithTokens(map[string]string{"example-account": accountGrant})
 	gw := newGateway(t, routes, fake.url(), discardLogger())
 
@@ -310,7 +310,7 @@ func TestGatewayAccountForwardSendsContextAccountToken(t *testing.T) {
 func TestGatewayAccountForwardUnsetAccountPassesCallerCredential(t *testing.T) {
 	t.Parallel()
 
-	fake := newFakeAnthropic(t, replyWith(t, http.StatusOK, upstreamReply))
+	fake := newFakeAnthropic(t, replyWith(t, http.StatusOK))
 	routes := routesWithTokens(map[string]string{"example-account": accountGrant})
 	gw := newGateway(t, routes, fake.url(), discardLogger())
 
@@ -333,7 +333,7 @@ func TestGatewayAccountForwardUnsetAccountPassesCallerCredential(t *testing.T) {
 func TestGatewayAccountForwardMissingTokenRefused(t *testing.T) {
 	t.Parallel()
 
-	fake := newFakeAnthropic(t, replyWith(t, http.StatusOK, upstreamReply))
+	fake := newFakeAnthropic(t, replyWith(t, http.StatusOK))
 	gw := newGateway(t, routesWithTokens(nil), fake.url(), discardLogger())
 
 	req := newProxyRequest(t, http.MethodPost, "/ctx/work/v1/messages", forwardBody)

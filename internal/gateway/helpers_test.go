@@ -27,7 +27,10 @@ func proxyRegistry() llmroutes.Registry {
 		DefaultContext: "main",
 		Seats: []llmroutes.Seat{
 			{ID: "alpha", AuthMode: llmroutes.AuthForward, Upstream: llmroutes.AnthropicUpstream},
-			{ID: "bravo", AuthMode: llmroutes.AuthInject, Upstream: "https://bravo.example.test", Model: "example-model"},
+			{
+				ID: "bravo", AuthMode: llmroutes.AuthInject, Upstream: "https://bravo.example.test",
+				Model: "example-model",
+			},
 		},
 		Contexts: []llmroutes.Context{
 			{
@@ -130,12 +133,14 @@ func (f *fakeAnthropic) requests() []seenRequest {
 	return slices.Clone(f.seen)
 }
 
-// replyWith returns a fake Anthropic handler that answers with status and body.
-func replyWith(t *testing.T, status int, body string) http.HandlerFunc {
+// replyWith returns a fake Anthropic handler that answers with status and upstreamReply.
+func replyWith(t *testing.T, status int) http.HandlerFunc {
+	t.Helper()
+
 	return func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(status)
-		if _, err := io.WriteString(w, body); err != nil {
+		if _, err := io.WriteString(w, upstreamReply); err != nil {
 			t.Errorf("write the fake Anthropic's reply: %v", err)
 		}
 	}

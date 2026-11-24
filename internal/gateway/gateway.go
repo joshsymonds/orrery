@@ -10,7 +10,6 @@ import (
 	"net"
 	"net/http"
 	"net/url"
-	"strings"
 	"sync/atomic"
 	"time"
 
@@ -121,7 +120,7 @@ type Gateway struct {
 	ledger   Recorder
 	logger   *slog.Logger
 	client   *http.Client
-	upstream string
+	upstream *url.URL
 
 	// snapshot is the route registry requests are served from. Load sets it. It stays nil, and every request is refused
 	// with 503, until a read has succeeded.
@@ -181,22 +180,23 @@ func (*Gateway) Run(_ context.Context) error {
 	return errNotImplemented
 }
 
-// anthropicUpstream returns the base URL forward seats send to: configured, or Anthropic's own URL when configured is
-// empty, with any trailing slash removed. It refuses a URL that is not an absolute http or https URL with a host, and
-// one that carries a query or fragment, since a request path is appended to it.
-func anthropicUpstream(configured string) (string, error) {
+// anthropicUpstream parses the base URL forward seats send to: configured, or Anthropic's own URL when configured is
+// empty. It refuses a URL that is not an absolute http or https URL with a host, and one that carries a query or
+// fragment, since a request path is appended to it.
+func anthropicUpstream(configured string) (*url.URL, error) {
 	if configured == "" {
 		configured = llmroutes.AnthropicUpstream
 	}
-	u, err := url.Parse(configured)
+	upstream, err := url.Parse(configured)
 	if err != nil {
-		return "", fmt.Errorf("gateway: parse Config.AnthropicUpstream: %w", err)
+		return nil, fmt.Errorf("gateway: parse Config.AnthropicUpstream: %w", err)
 	}
-	if (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.RawQuery != "" || u.Fragment != "" {
-		return "", fmt.Errorf("gateway: Config.AnthropicUpstream %q is not an absolute http or https URL", configured)
+	if (upstream.Scheme != "http" && upstream.Scheme != "https") || upstream.Host == "" ||
+		upstream.RawQuery != "" || upstream.Fragment != "" {
+		return nil, fmt.Errorf("gateway: Config.AnthropicUpstream %q is not an absolute http or https URL", configured)
 	}
 
-	return strings.TrimSuffix(configured, "/"), nil
+	return upstream, nil
 }
 
 // defaultClient is the upstream client used when Config names none. It bounds connection setup and the wait for
