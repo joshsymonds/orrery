@@ -102,8 +102,8 @@ func Listen(ctx context.Context, cfg Config) (*Relay, error) {
 	}, nil
 }
 
-// ownLogin asks WhoIs about addr, the relay's own address, and returns the login that its node is signed in as. It fails
-// when the answer names no node, no user profile, a tagged node or no login, as node.Agent does.
+// ownLogin asks WhoIs about addr, the relay's own address, and returns the login that its node is signed in as. It
+// fails when the answer names no node, no user profile, a tagged node or no login, as node.Agent does.
 func ownLogin(ctx context.Context, whoIs node.WhoIs, addr string) (string, error) {
 	wctx, cancel := context.WithTimeout(ctx, whoIsTimeout)
 	defer cancel()
