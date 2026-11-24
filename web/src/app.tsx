@@ -12,7 +12,7 @@ import { askingWords, askLines, headBadges, ownAsks, steeredEpics } from "./asks
 import { type AskState, askKey, observe, press, settle } from "./askstate";
 import { epicCallsOf } from "./card";
 import type { DockHandle } from "./dock";
-import { ContractBody } from "./contract";
+import { ContractBody, type ContractDesign } from "./contract";
 import { ContractRecord } from "./contractrecord";
 import { bandText, contractSlug, leftOf, type RowAbout, readKey, statePill } from "./contracts";
 import { endedLead, EndedBar, unsteeredLead } from "./endedbar";
@@ -2614,6 +2614,34 @@ export function App({
     () => ({ records: designRecords, answer: answerDesign }),
     [designRecords, answerDesign],
   );
+  // contractDesignOf is the design whose contracts include the contract id, as its record holds it: its questions and log,
+  // and the answer its questions take, which is the design page's own. It is absent when no design holds the contract, or
+  // the design's record has no stage yet.
+  const contractDesignOf = (contractId: string): ContractDesign | undefined => {
+    const holder = designs.find((candidate) => candidate.contracts.some((listed) => listed.id === contractId));
+    const record = holder === undefined ? undefined : designRecords.get(holder.id)?.get;
+    if (holder === undefined || record?.stage === undefined) {
+      return undefined;
+    }
+    return {
+      questions: record.stage.questions,
+      log: record.log,
+      onAnswer: (question, answer) => answerDesign(holder.id, question, answer),
+    };
+  };
+  // The design of the open contract is read when the contract opens, so the questions it carries can draw, and again when
+  // its listed entry changes, as the held design's is.
+  const contractDesign =
+    contract === undefined
+      ? undefined
+      : designs.find((candidate) => candidate.contracts.some((listed) => listed.id === contract.id));
+  const contractDesignId = contractDesign?.id ?? "";
+  const contractDesignListing = contractDesign === undefined ? "" : toJsonString(DesignSchema, contractDesign);
+  useEffect(() => {
+    if (contractDesignId !== "") {
+      void refetchDesign(contractDesignId);
+    }
+  }, [contractDesignId, contractDesignListing, refetchDesign]);
   // designPage draws the design the card holds: its record's stage strip, steelman, questions, research and log, and its
   // contracts in position order. A press on a contract holds that contract instead, when the contracts the list holds
   // include it.
@@ -2655,6 +2683,7 @@ export function App({
             wide || contractLiveRow === null || contract.state !== "proposed" ? undefined : () => setTalking(true)
           }
           onOpenEpic={navigated(openEpic)}
+          design={contractDesignOf(contract.id)}
         />
       </div>
     );
@@ -2727,6 +2756,7 @@ export function App({
               read={contractRead}
               onRead={readContract}
               live={false}
+              design={contractDesignOf(listed.id)}
             />
           </div>
         );
