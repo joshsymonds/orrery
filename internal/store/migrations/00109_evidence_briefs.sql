@@ -1,7 +1,7 @@
 -- +goose Up
 -- The capturing state goes. A run stored capturing holds no capture, so each one moves to waiting, with no capture,
 -- no gatherer and no gatherers: a captured run becomes an open brief for its epic's gatherer, and a supplied run waits
--- until the engine records its capture. evidence_runs is rebuilt without capturing in its state check, as 00096 rebuilt
+-- until the engine records its capture. evidence_runs is rebuilt without capturing in its state check, as 00108 rebuilt
 -- it: the old table is renamed out of the way, the table is created under its name, the rows are copied across, and the
 -- old table is dropped. No trigger or view names evidence_runs, so the rename rewrites nothing.
 ALTER TABLE evidence_runs RENAME TO evidence_runs_old;
@@ -56,8 +56,8 @@ DROP TABLE evidence_runs_old;
 CREATE INDEX evidence_runs_epic_created ON evidence_runs (epic, created);
 
 -- +goose Down
--- evidence_runs is rebuilt as 00096 left it, with capturing in its state check. Every row keeps its state: waiting and
--- gathering are states 00096 already allows, and the capture and gatherer columns stay as they are.
+-- evidence_runs is rebuilt as 00108 left it, with capturing in its state check. Every row keeps its state: waiting and
+-- gathering are states 00108 already allows, and the capture and gatherer columns stay as they are.
 ALTER TABLE evidence_runs RENAME TO evidence_runs_old;
 
 CREATE TABLE evidence_runs (

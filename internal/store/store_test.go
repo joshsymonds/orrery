@@ -188,7 +188,7 @@ func TestOpenRejectsNewerSchemaWithoutMigrating(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "orrery.db")
 
-	// A store written by a newer binary: its goose version is 99 and none of this binary's migrations ran.
+	// A store written by a newer binary: its goose version is 999 and none of this binary's migrations ran.
 	db, err := sql.Open("sqlite", path)
 	if err != nil {
 		t.Fatalf("open fixture: %v", err)
@@ -196,7 +196,7 @@ func TestOpenRejectsNewerSchemaWithoutMigrating(t *testing.T) {
 	for _, stmt := range []string{
 		`CREATE TABLE goose_db_version (id INTEGER PRIMARY KEY AUTOINCREMENT, version_id INTEGER NOT NULL,
 			is_applied INTEGER NOT NULL, tstamp TIMESTAMP DEFAULT (datetime('now')))`,
-		`INSERT INTO goose_db_version (version_id, is_applied) VALUES (0, 1), (99, 1)`,
+		`INSERT INTO goose_db_version (version_id, is_applied) VALUES (0, 1), (999, 1)`,
 	} {
 		if _, err = db.ExecContext(ctx, stmt); err != nil {
 			db.Close()

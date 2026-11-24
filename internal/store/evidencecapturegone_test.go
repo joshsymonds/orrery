@@ -38,13 +38,13 @@ func captureGoneRunRow(t *testing.T, s *Store, id string) map[string]any {
 	return row
 }
 
-// TestCaptureGoneMigratesCapturingRunToWaitingBrief seeds a store at version 96 with a capturing run, a judging run and an
-// ended run, then migrates it up with 00097. The capturing run becomes an open brief: it is waiting, holds no capture,
+// TestCaptureGoneMigratesCapturingRunToWaitingBrief seeds a store at version 108 with a capturing run, a judging run and an
+// ended run, then migrates it up with 00109. The capturing run becomes an open brief: it is waiting, holds no capture,
 // gatherer or gatherer count, and keeps every other field. The judging and ended runs are unchanged.
 func TestCaptureGoneMigratesCapturingRunToWaitingBrief(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	s, provider := storeAtVersion(t, 96)
+	s, provider := storeAtVersion(t, 108)
 	spec, err := encodeItem(runItem())
 	if err != nil {
 		t.Fatalf("encode item: %v", err)
@@ -75,7 +75,7 @@ func TestCaptureGoneMigratesCapturingRunToWaitingBrief(t *testing.T) {
 	ended := captureGoneRunRow(t, s, "run-ended")
 
 	if _, err = provider.UpByOne(ctx); err != nil {
-		t.Fatalf("Up of 00097: %v", err)
+		t.Fatalf("Up of 00109: %v", err)
 	}
 
 	want := make(map[string]any, len(capturing))
