@@ -1,3 +1,4 @@
+import { toJsonString } from "@bufbuild/protobuf";
 import { Code, ConnectError } from "@connectrpc/connect";
 import type { JSX } from "preact";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "preact/hooks";
@@ -17,14 +18,15 @@ import { bandText, contractSlug, leftOf, type RowAbout, readKey, statePill } fro
 import { endedLead, EndedBar, unsteeredLead } from "./endedbar";
 import { type Conversation, shownConversation } from "./conversation";
 import { ConvoRow } from "./convorow";
-import { DesignCard } from "./designcard";
+import { DesignPage } from "./designpage";
+import { type DesignRecord, designRefetch } from "./designrecords";
 import { type EpicCommands, EpicPage, type Landing, type SessionTarget, type SteerSheet } from "./epicpage";
 import { epicGaugeOf, type GaugeShare } from "./epicrow";
 import { type EpicItem, type EpicsView, epicsView, noEpics, type StepItem } from "./epics";
 import { findMatches } from "./find";
 import { type Followed, follow } from "./follow";
 import type { Contract } from "./gen/orrery/v1/contracts_pb";
-import type { Design } from "./gen/orrery/v1/designs_pb";
+import { type Design, DesignSchema } from "./gen/orrery/v1/designs_pb";
 import type { Epic, EpicHistoryEntry, EpicsGetResponse } from "./gen/orrery/v1/epics_pb";
 import type { InAppNotice, NoticeKey } from "./gen/orrery/v1/notice_pb";
 import type { HostStatusResponse } from "./gen/orrery/v1/orrery_pb";
@@ -56,6 +58,7 @@ import type { Phase } from "./phases";
 import { NewPanel } from "./picker";
 import { type Viewing, viewingOf } from "./presence";
 import { ProjectPage } from "./projectpage";
+import type { QuestionAnswer } from "./questionthread";
 import { type ContractCalls, newestItemKey, type ReaderHandle } from "./reader";
 import { flyoutOf, type FlyoutRow, railTiles } from "./railtiles";
 import { type Address, type Entry, formatAddress, type ListPanelKind, type PageView, type View } from "./router";
@@ -454,6 +457,13 @@ export function App({
   const askedEpics = useRef(new Set<string>());
   // The epics whose read failed. An epic in neither the poll's detail nor the answers is still loading.
   const [failedEpicReads, setFailedEpicReads] = useState<Set<string>>(() => new Set());
+  // The design records, by design id: each the newest Designs.Get answer or error of its design, which the held design's page
+  // draws. A read keeps its record through setDesignRecords only when no later read of the same design has begun.
+  const [designRecords, setDesignRecords] = useState<ReadonlyMap<string, DesignRecord>>(() => new Map());
+  const refetchDesign = useMemo(
+    () => designRefetch(clients, (id, record) => setDesignRecords((previous) => new Map(previous).set(id, record))),
+    [clients],
+  );
   // The epic page's own command line: the last page command that did not land, under its title row.
   const [epicCommandLine, setEpicCommandLine] = useState("");
   const [epicHistory, setEpicHistory] = useState<EpicHistory>({ id: "", entries: [] });
@@ -2575,17 +2585,42 @@ export function App({
       setTalking(true);
     }
   };
-  // designPage draws the design the card holds: its state and its contracts in position order. A press on a contract holds
-  // that contract instead, when the contracts the list holds include it.
+  // The held design's record is read when its card is held, and again when its listed entry changes. Until a read answers,
+  // the page draws the record the design held before, or the loading line.
+  const heldDesignId = design?.id ?? "";
+  const heldDesignListing = design === undefined ? "" : toJsonString(DesignSchema, design);
+  useEffect(() => {
+    if (heldDesignId !== "") {
+      void refetchDesign(heldDesignId);
+    }
+  }, [heldDesignId, heldDesignListing, refetchDesign]);
+  // answerDesignQuestion sends the owner's answer to a question of a design: Accept sends accept, and the question's box its
+  // words. A refused answer rejects, so the question's thread shows the refusal. An answer that lands reads the design again.
+  const answerDesignQuestion =
+    (designId: string) =>
+    async (question: bigint, answer: QuestionAnswer): Promise<void> => {
+      await clients.designs.answer(
+        "words" in answer
+          ? { design: designId, question, answer: answer.words }
+          : { design: designId, question, accept: true },
+      );
+      await refetchDesign(designId);
+    };
+  // designPage draws the design the card holds: its record's stage strip, steelman, questions, research and log, and its
+  // contracts in position order. A press on a contract holds that contract instead, when the contracts the list holds
+  // include it.
   const designPage =
     design === undefined ? null : (
-      <DesignCard
+      <DesignPage
         design={design}
+        get={designRecords.get(design.id)?.get ?? null}
+        error={designRecords.get(design.id)?.error ?? ""}
         onOpenContract={(id) => {
           if (contracts.some((candidate) => candidate.id === id)) {
             navigated(openContractPanel)(id);
           }
         }}
+        onAnswer={answerDesignQuestion(design.id)}
       />
     );
   const contractPage =
