@@ -237,6 +237,12 @@ func (a *Agent) answer(ctx context.Context, req Request) Response {
 		return a.act(ctx, req.Op, req.Session)
 	case OpLoad:
 		return a.load(ctx)
+	case OpFolders:
+		return a.folders()
+	case OpFolder:
+		return a.folder(req)
+	case OpWakePane:
+		return a.wakePane(ctx, req)
 	default:
 		return Response{Code: CodeFailed, Message: fmt.Sprintf("node: agent does not serve op %s", req.Op)}
 	}
@@ -257,6 +263,45 @@ func (a *Agent) load(ctx context.Context) Response {
 		return failed(err)
 	}
 	return Response{Load: &load}
+}
+
+// noRoot returns the Response that a folders or folder op gets from an agent with no Root.
+func noRoot() Response {
+	return Response{Code: CodeFailed, Message: "agent has no root"}
+}
+
+// folders answers with the directories that rootFolders lists under the agent's Root.
+func (a *Agent) folders() Response {
+	if a.cfg.Root == "" {
+		return noRoot()
+	}
+	return Response{Folders: rootFolders(a.cfg.Root)}
+}
+
+// folder answers with the resolved path of req.Dir, when checkFolder admits it under the agent's Root. A dir that it
+// refuses is answered with CodeFailed and the reason.
+func (a *Agent) folder(req Request) Response {
+	if a.cfg.Root == "" {
+		return noRoot()
+	}
+	resolved, err := checkFolder(a.cfg.Root, req.Dir)
+	if err != nil {
+		return Response{Code: CodeFailed, Message: err.Error()}
+	}
+	return Response{Folder: resolved}
+}
+
+// wakePane types req.Text into pane req.Pane of the tmux server req.Server, through the agent's WakePane, and answers
+// whether it typed the text. An agent with no WakePane answers CodeFailed, as does a WakePane that fails.
+func (a *Agent) wakePane(ctx context.Context, req Request) Response {
+	if a.cfg.WakePane == nil {
+		return Response{Code: CodeFailed, Message: "agent wakes no panes"}
+	}
+	woke, err := a.cfg.WakePane(ctx, req.Server, req.Pane, req.Text)
+	if err != nil {
+		return Response{Code: CodeFailed, Message: err.Error()}
+	}
+	return Response{Woke: woke}
 }
 
 // servePanes answers an OpPanes Request with no Code, then serves conn as HTTP/1.1 over the agent's Panes handler until
