@@ -74,8 +74,9 @@ func (c contractsServer) List(
 }
 
 // Get answers the contract of the id List gave it, with every version oldest first, the steps that read each version,
-// the state history, the row writes with their makers, the work of each requirement (contractWork) and the refusals of
-// its writes, oldest first. An id no contract holds answers not_found.
+// the state history, the row writes with their makers, the work of each requirement (contractWork), the refusals of its
+// writes, oldest first, what is left before it is accepted and the rows the owner was shown. An id no contract holds
+// answers not_found.
 func (c contractsServer) Get(
 	ctx context.Context,
 	req *connect.Request[orreryv1.ContractsGetRequest],
@@ -125,7 +126,45 @@ func (c contractsServer) Get(
 	if err != nil {
 		return nil, err
 	}
+	err = c.setLeft(ctx, record.ContractListing.ID, response)
+	if err != nil {
+		return nil, err
+	}
+	err = c.setShown(ctx, record.ContractListing.ID, response)
+	if err != nil {
+		return nil, err
+	}
 	return connect.NewResponse(response), nil
+}
+
+// setLeft sets what is left before the contract id is accepted on response, in the order the reader gives. A failed
+// read answers as contractReadError does.
+func (c contractsServer) setLeft(ctx context.Context, id string, response *orreryv1.ContractsGetResponse) error {
+	left, err := c.reader.ContractLeft(ctx, id)
+	if err != nil {
+		return contractReadError(err, "read contract")
+	}
+	response.Left = make([]*orreryv1.ContractLeft, 0, len(left))
+	for _, item := range left {
+		response.Left = append(response.Left, &orreryv1.ContractLeft{Kind: item.Kind, Ref: item.Ref, Text: item.Text})
+	}
+	return nil
+}
+
+// setShown sets the rows of the contract versions the owner was shown on response, oldest first. A failed read answers
+// as contractReadError does.
+func (c contractsServer) setShown(ctx context.Context, id string, response *orreryv1.ContractsGetResponse) error {
+	marks, err := c.reader.ContractShown(ctx, id)
+	if err != nil {
+		return contractReadError(err, "read contract")
+	}
+	response.Shown = make([]*orreryv1.ContractShown, 0, len(marks))
+	for _, mark := range marks {
+		response.Shown = append(response.Shown, &orreryv1.ContractShown{
+			Version: mark.Version, Row: mark.Row, Time: mark.At,
+		})
+	}
+	return nil
 }
 
 // setProvenance sets the steps that read each of response's versions on that version, oldest first, and the row writes

@@ -270,13 +270,24 @@ func TestContractRecordGetAndListReadTheContractBack(t *testing.T) {
 		t.Fatalf("ProposeContract: %v", err)
 	}
 
+	// The proposed contract has a decision and additions left open, which GetContract lists as what is left.
+	want, ok := proto.Clone(proposed).(*v1.StoredContract)
+	if !ok {
+		t.Fatalf("clone of the proposed contract is %T, want *v1.StoredContract", proposed)
+	}
+	want.Left = []*v1.ContractLeft{
+		{Kind: store.LeftDecision, Ref: "D1", Text: "decision not yet answered"},
+		{Kind: store.LeftAddition, Ref: "A1", Text: "addition neither kept nor struck"},
+		{Kind: store.LeftAddition, Ref: "A2", Text: "addition neither kept nor struck"},
+		{Kind: store.LeftAddition, Ref: "A3", Text: "addition neither kept nor struck"},
+	}
 	got, err := server.contracts.GetContract(
 		t.Context(), connect.NewRequest(&v1.GetContractRequest{Id: epicServiceID}))
 	if err != nil {
 		t.Fatalf("GetContract: %v", err)
 	}
-	if !proto.Equal(got.Msg.GetContract(), proposed) {
-		t.Errorf("GetContract = %v, want %v", got.Msg.GetContract(), proposed)
+	if !proto.Equal(got.Msg.GetContract(), want) {
+		t.Errorf("GetContract = %v, want %v", got.Msg.GetContract(), want)
 	}
 
 	listed, err := server.contracts.ListContracts(t.Context(), connect.NewRequest(&v1.ListContractsRequest{}))
