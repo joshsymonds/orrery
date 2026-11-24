@@ -1293,6 +1293,32 @@ SELECT * FROM epic_tells WHERE epic = ? ORDER BY seq;
 -- name: MarkEpicTellTold :execrows
 UPDATE epic_tells SET told = 1 WHERE epic = ? AND seq = ?;
 
+-- name: ListUndeliveredEpicTells :many
+SELECT epic_tells.epic, epics.title, epic_tells.seq, epic_tells.text, epic_tells.at, epic_tells.question
+FROM epic_tells JOIN epics ON epics.id = epic_tells.epic
+WHERE epic_tells.steerer_delivered = 0
+ORDER BY epic_tells.epic, epic_tells.seq;
+
+-- name: MarkEpicTellSteererDelivered :execrows
+UPDATE epic_tells SET steerer_delivered = 1 WHERE epic = ? AND seq = ?;
+
+-- name: InsertDeliveredEpicTell :exec
+INSERT INTO epic_tells (epic, seq, text, at, told, steerer_delivered) VALUES (?, ?, ?, ?, 0, 1);
+
+-- name: LatestEpicStall :one
+SELECT * FROM epic_stalls WHERE epic = ? ORDER BY seq DESC LIMIT 1;
+
+-- name: InsertEpicStall :exec
+INSERT INTO epic_stalls (epic, seq, at, tasks, runs, actions, parked) VALUES (?, ?, ?, ?, ?, ?, ?);
+
+-- name: CountEpicStallMark :one
+SELECT
+    CAST((SELECT COUNT(*) FROM epic_tasks WHERE epic_tasks.epic = sqlc.arg(epic)) AS INTEGER) AS tasks,
+    CAST((SELECT COUNT(*) + COALESCE(SUM(epic_node_runs.attempt), 0) FROM epic_node_runs
+        WHERE epic_node_runs.epic = sqlc.arg(epic)) AS INTEGER) AS runs,
+    CAST((SELECT COUNT(*) FROM planner_actions WHERE planner_actions.epic = sqlc.arg(epic))
+        + (SELECT COUNT(*) FROM epic_actions WHERE epic_actions.epic = sqlc.arg(epic)) AS INTEGER) AS actions;
+
 -- name: ListEpicQuestions :many
 SELECT * FROM epic_questions WHERE epic = ? ORDER BY seq;
 

@@ -315,7 +315,7 @@ CREATE TABLE epic_tells (
     seq INTEGER NOT NULL,
     text TEXT NOT NULL,
     at INTEGER NOT NULL,
-    told INTEGER NOT NULL DEFAULT 0, question INTEGER NOT NULL DEFAULT 0,
+    told INTEGER NOT NULL DEFAULT 0, question INTEGER NOT NULL DEFAULT 0, steerer_delivered INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (epic, seq)
 );
 CREATE TABLE epic_workflow_nodes (
@@ -1140,6 +1140,16 @@ SELECT
     ), '') ELSE '' END AS TEXT) AS summary,
     steps.host
 FROM steps;
+CREATE TABLE epic_stalls (
+    epic TEXT NOT NULL,
+    seq INTEGER NOT NULL,
+    at INTEGER NOT NULL,
+    tasks INTEGER NOT NULL,
+    runs INTEGER NOT NULL,
+    actions INTEGER NOT NULL,
+    parked INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (epic, seq)
+);
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (1,0,1);
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (10,9,1);
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (100,99,1);
@@ -1154,6 +1164,7 @@ INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (108,10
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (109,108,1);
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (11,10,1);
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (110,109,1);
+INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (111,110,1);
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (12,11,1);
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (13,12,1);
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (14,13,1);
