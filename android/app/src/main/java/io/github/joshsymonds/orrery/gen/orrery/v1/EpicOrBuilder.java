@@ -321,4 +321,24 @@ public interface EpicOrBuilder extends
    * @return The steererHeard.
    */
   boolean getSteererHeard();
+
+  /**
+   * <pre>
+   * The orrery name of the host the epic lives on.
+   * </pre>
+   *
+   * <code>string host = 24 [json_name = "host"];</code>
+   * @return The host.
+   */
+  java.lang.String getHost();
+  /**
+   * <pre>
+   * The orrery name of the host the epic lives on.
+   * </pre>
+   *
+   * <code>string host = 24 [json_name = "host"];</code>
+   * @return The bytes for host.
+   */
+  com.google.protobuf.ByteString
+      getHostBytes();
 }

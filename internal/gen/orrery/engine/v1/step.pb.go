@@ -474,7 +474,9 @@ type Step struct {
 	Caller string `protobuf:"bytes,26,opt,name=caller,proto3" json:"caller,omitempty"`
 	// The string summary of the step's latest result. Empty when the result is not a JSON object, has no summary, or has
 	// one that is not a string. A key the result holds more than once is read at its last value.
-	Summary       string `protobuf:"bytes,27,opt,name=summary,proto3" json:"summary,omitempty"`
+	Summary string `protobuf:"bytes,27,opt,name=summary,proto3" json:"summary,omitempty"`
+	// The orrery name of the host the step lives on.
+	Host          string `protobuf:"bytes,30,opt,name=host,proto3" json:"host,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -694,6 +696,13 @@ func (x *Step) GetCaller() string {
 func (x *Step) GetSummary() string {
 	if x != nil {
 		return x.Summary
+	}
+	return ""
+}
+
+func (x *Step) GetHost() string {
+	if x != nil {
+		return x.Host
 	}
 	return ""
 }
@@ -1748,7 +1757,7 @@ const file_orrery_engine_v1_step_proto_rawDesc = "" +
 	"\x11StepStatusRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\"@\n" +
 	"\x12StepStatusResponse\x12*\n" +
-	"\x04step\x18\x01 \x01(\v2\x16.orrery.engine.v1.StepR\x04step\"\xa9\x06\n" +
+	"\x04step\x18\x01 \x01(\v2\x16.orrery.engine.v1.StepR\x04step\"\xbd\x06\n" +
 	"\x04Step\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x14\n" +
 	"\x05agent\x18\x02 \x01(\tR\x05agent\x12\x1c\n" +
@@ -1778,7 +1787,8 @@ const file_orrery_engine_v1_step_proto_rawDesc = "" +
 	"\x12gate_limit_seconds\x18\x18 \x01(\x03R\x10gateLimitSeconds\x129\n" +
 	"\bverdicts\x18\x19 \x03(\v2\x1d.orrery.engine.v1.StepVerdictR\bverdicts\x12\x16\n" +
 	"\x06caller\x18\x1a \x01(\tR\x06caller\x12\x18\n" +
-	"\asummary\x18\x1b \x01(\tR\asummaryJ\x04\b\x1c\x10\x1dJ\x04\b\x1d\x10\x1eR\fred_evidenceR\x0egreen_evidence\"\x7f\n" +
+	"\asummary\x18\x1b \x01(\tR\asummary\x12\x12\n" +
+	"\x04host\x18\x1e \x01(\tR\x04hostJ\x04\b\x1c\x10\x1dJ\x04\b\x1d\x10\x1eR\fred_evidenceR\x0egreen_evidence\"\x7f\n" +
 	"\x15ReadStepResultRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x14\n" +
 	"\x05field\x18\x02 \x01(\tR\x05field\x12\x12\n" +

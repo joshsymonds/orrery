@@ -29,6 +29,7 @@ public  final class Epic extends
     path_ = "";
     pauseSource_ = "";
     parked_ = "";
+    host_ = "";
   }
   public static final int ID_FIELD_NUMBER = 1;
   private java.lang.String id_;
@@ -1166,6 +1167,73 @@ public  final class Epic extends
   private void clearSteererHeard() {
 
     steererHeard_ = false;
+  }
+
+  public static final int HOST_FIELD_NUMBER = 24;
+  private java.lang.String host_;
+  /**
+   * <pre>
+   * The orrery name of the host the epic lives on.
+   * </pre>
+   *
+   * <code>string host = 24 [json_name = "host"];</code>
+   * @return The host.
+   */
+  @java.lang.Override
+  public java.lang.String getHost() {
+    return host_;
+  }
+  /**
+   * <pre>
+   * The orrery name of the host the epic lives on.
+   * </pre>
+   *
+   * <code>string host = 24 [json_name = "host"];</code>
+   * @return The bytes for host.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString
+      getHostBytes() {
+    return com.google.protobuf.ByteString.copyFromUtf8(host_);
+  }
+  /**
+   * <pre>
+   * The orrery name of the host the epic lives on.
+   * </pre>
+   *
+   * <code>string host = 24 [json_name = "host"];</code>
+   * @param value The host to set.
+   */
+  private void setHost(
+      java.lang.String value) {
+    java.util.Objects.requireNonNull(value);
+
+    host_ = value;
+  }
+  /**
+   * <pre>
+   * The orrery name of the host the epic lives on.
+   * </pre>
+   *
+   * <code>string host = 24 [json_name = "host"];</code>
+   */
+  private void clearHost() {
+
+    host_ = getDefaultInstance().getHost();
+  }
+  /**
+   * <pre>
+   * The orrery name of the host the epic lives on.
+   * </pre>
+   *
+   * <code>string host = 24 [json_name = "host"];</code>
+   * @param value The bytes for host to set.
+   */
+  private void setHostBytes(
+      com.google.protobuf.ByteString value) {
+    checkByteStringIsUtf8(value);
+    host_ = value.toStringUtf8();
+
   }
 
   public static io.github.joshsymonds.orrery.gen.orrery.v1.Epic parseFrom(
@@ -2457,6 +2525,75 @@ public  final class Epic extends
       return this;
     }
 
+    /**
+     * <pre>
+     * The orrery name of the host the epic lives on.
+     * </pre>
+     *
+     * <code>string host = 24 [json_name = "host"];</code>
+     * @return The host.
+     */
+    @java.lang.Override
+    public java.lang.String getHost() {
+      return instance.getHost();
+    }
+    /**
+     * <pre>
+     * The orrery name of the host the epic lives on.
+     * </pre>
+     *
+     * <code>string host = 24 [json_name = "host"];</code>
+     * @return The bytes for host.
+     */
+    @java.lang.Override
+    public com.google.protobuf.ByteString
+        getHostBytes() {
+      return instance.getHostBytes();
+    }
+    /**
+     * <pre>
+     * The orrery name of the host the epic lives on.
+     * </pre>
+     *
+     * <code>string host = 24 [json_name = "host"];</code>
+     * @param value The host to set.
+     * @return This builder for chaining.
+     */
+    public Builder setHost(
+        java.lang.String value) {
+      copyOnWrite();
+      instance.setHost(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The orrery name of the host the epic lives on.
+     * </pre>
+     *
+     * <code>string host = 24 [json_name = "host"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearHost() {
+      copyOnWrite();
+      instance.clearHost();
+      return this;
+    }
+    /**
+     * <pre>
+     * The orrery name of the host the epic lives on.
+     * </pre>
+     *
+     * <code>string host = 24 [json_name = "host"];</code>
+     * @param value The bytes for host to set.
+     * @return This builder for chaining.
+     */
+    public Builder setHostBytes(
+        com.google.protobuf.ByteString value) {
+      copyOnWrite();
+      instance.setHostBytes(value);
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:orrery.v1.Epic)
   }
   @java.lang.Override
@@ -2494,12 +2631,13 @@ public  final class Epic extends
             "parked_",
             "openQuestions_",
             "steererHeard_",
+            "host_",
           };
           java.lang.String info =
-              "\u0000\u0014\u0000\u0000\u0001\u0017\u0014\u0000\u0001\u0000\u0001\u0208\u0002\u0208" +
+              "\u0000\u0015\u0000\u0000\u0001\u0018\u0015\u0000\u0001\u0000\u0001\u0208\u0002\u0208" +
               "\u0003\u0208\u0004\u0208\u0005\u0002\u0006\u0007\u0007\u001b\b\u0004\n\u0208\r\u0002" +
               "\u000e\u0002\u000f\u0007\u0010\u0002\u0011\u0208\u0012\u0208\u0013\u0007\u0014\u0208" +
-              "\u0015\u0208\u0016\u0004\u0017\u0007";
+              "\u0015\u0208\u0016\u0004\u0017\u0007\u0018\u0208";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {
