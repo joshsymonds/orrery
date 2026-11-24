@@ -663,15 +663,15 @@ func serve(ctx context.Context, opts options, logger *slog.Logger, getenv func(s
 	})
 
 	st := openStore(ctx, getenv, logger, opts.metrics, opts.storeBusy, opts.storeRetryAfter)
+	// The notices the Notices service answers with. A hosts file that fails to load is a start error, as it is refused.
+	pageNotices, pageErr := controllerPageNotices(pages, router, opts.orrery, time.Now, getenv)
 	// A row from before the host column has no host until this names it, so every row reads the host it runs on
 	// before the manager reconciles it.
-	startErr := nameUnhosted(ctx, st, opts.orrery)
+	startErr := errors.Join(nameUnhosted(ctx, st, opts.orrery), pageErr)
 	attachStore(ctx, st, mirror, notices, router)
 	hub.attachVerdicts(st)
 	// The host follows write each hosts.toml host's panes into the open store, and stop before the store closes.
 	stopFollows := startHostFollows(ctx, st, getenv, logger, hub)
-	pageNotices, pageErr := controllerPageNotices(pages, router, opts.orrery, time.Now, getenv)
-	startErr = errors.Join(startErr, pageErr)
 	var sessions *sessionHost
 	if startErr == nil && opts.sessions {
 		sessions, startErr = startSessions(ctx, opts, host, st, router, pageNotices, logger, getenv)
