@@ -42,6 +42,9 @@ export const unnamed: Readonly<Record<string, UnnamedEntry>> = {
   // AccountsNarrow draws the accounts and routes page under 760px, which round 6 does not draw. The inbox page stands for it,
   // as it does for AccountsPage.
   "accounts-narrow": { replacement: "inbox-home", epic: "F2" },
+  // UsageBand draws the usage band under the inbox head: each account's 5h, 7d and Fable windows and its reset, which round 6
+  // does not draw. The inbox page stands for it.
+  "usage-band": { replacement: "inbox-home", epic: "F2" },
   // ActivityLines draws what runs under a conversation as lines above its composer, with a count past three. Round 6
   // draws each running thing as a task line in the transcript, and no line above the composer.
   "activity-lines": { replacement: "TaskLine", epic: "F3" },

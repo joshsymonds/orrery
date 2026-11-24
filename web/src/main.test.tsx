@@ -860,6 +860,7 @@ test("the page calls only the list, get and watch paths it reads", (t) =>
       assert.deepEqual(
         [...server.paths].sort(),
         [
+          "/orrery.v1.Accounts/List",
           "/orrery.v1.Contracts/List",
           epicsGetPath,
           epicsListPath,
@@ -870,6 +871,9 @@ test("the page calls only the list, get and watch paths it reads", (t) =>
           panesPath,
           sessionsPath,
           headlessPath,
+          "/orrery.v1.Routes/Get",
+          "/orrery.v1.Usage/Readings",
+          "/orrery.v1.Usage/Spend",
           watchPath,
         ].sort(),
       );
