@@ -50,6 +50,11 @@ type AgentConfig struct {
 	// Panes is this machine's panes, which the pane ops serve. Nil means the agent serves no panes, and each pane op
 	// answers CodeFailed.
 	Panes HostPanes
+	// Root is the absolute directory whose folders the agent reports and checks. Empty serves none.
+	Root string
+	// WakePane types text into pane of the tmux server column server when the pane is idle, and reports whether it did.
+	// Nil wakes no pane.
+	WakePane func(ctx context.Context, server, pane, text string) (bool, error)
 	// Logger receives the agent's diagnostics. Nil discards them.
 	Logger *slog.Logger
 }

@@ -45,6 +45,14 @@ const (
 	OpWatchPanes Op = "watch-panes"
 	// OpLoad answers with the host's Load, which the Response's Load carries.
 	OpLoad Op = "load"
+	// OpFolders answers with the agent's known folders, which the Response's Folders carries.
+	OpFolders Op = "folders"
+	// OpFolder checks that the request's Dir is an existing directory under the agent's Root, and answers its resolved
+	// path in the Response's Folder.
+	OpFolder Op = "folder"
+	// OpWakePane types the request's Text into pane Pane of the tmux server Server when the pane is idle, and answers in
+	// the Response's Woke whether it did.
+	OpWakePane Op = "wake-pane"
 )
 
 // Request is the one line a controller sends first on a connection. Version names the protocol and Op the operation.
@@ -58,6 +66,13 @@ type Request struct {
 	Launch *LaunchSpec `json:"launch,omitempty"`
 	// Offset is the stdout offset that a gone op streams from.
 	Offset int64 `json:"offset,omitempty"`
+	// Dir is the directory that a folder op checks.
+	Dir string `json:"dir,omitempty"`
+	// Server is the tmux server column, and Pane the pane id, that a wake-pane op types into.
+	Server string `json:"server,omitempty"`
+	Pane   string `json:"pane,omitempty"`
+	// Text is what a wake-pane op types into the pane.
+	Text string `json:"text,omitempty"`
 }
 
 // LaunchSpec is the launch that a launch op starts: a holderhost.Spec without its session, which the Request names.
@@ -82,6 +97,12 @@ type Response struct {
 	Exit *holder.Exit `json:"exit,omitempty"`
 	// Load is the host's Load, which a load op answers with.
 	Load *Load `json:"load,omitempty"`
+	// Folders are the folders that a folders op found.
+	Folders []string `json:"folders,omitempty"`
+	// Folder is the resolved path that a folder op checked.
+	Folder string `json:"folder,omitempty"`
+	// Woke reports whether a wake-pane op typed its text into the pane.
+	Woke bool `json:"woke,omitempty"`
 }
 
 // Code classifies a failed op, so that the controller returns the error the holder package returns for it.
