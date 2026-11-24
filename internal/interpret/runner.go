@@ -393,7 +393,7 @@ func (r *Runner) openWoken(ctx context.Context, woken []string) []store.EpicRow 
 // planner for those given a plan turn or planner-parked. Pass passes every listed epic, and a wake passes the open epics
 // it names. A closed epic and a held epic are passed over: neither has a flow decision or a planner pass, and an epic the
 // held pass starts is passed as the store holds it then. Once the planner has been passed, each epic that started
-// nothing and has a running plan run is checked for a stall (see passStalls).
+// nothing and may stall is checked for a stall (see passStalls).
 func (r *Runner) passEpics(ctx context.Context, epics []store.EpicRow) {
 	epics = r.passHeld(ctx, epics)
 	r.passAmendments(ctx, epics)
@@ -422,9 +422,9 @@ func (r *Runner) passEpics(ctx context.Context, epics []store.EpicRow) {
 		if planTurn || plannerParked {
 			planned[epic.ID] = true
 		}
-		// Only an epic with a running plan run can stall. Any other epic that started nothing is not read again, as
-		// Rests spares an epic at rest.
-		if !started && hasRunningPlan(states[epic.ID]) {
+		// An epic that started nothing and may stall is checked for one: an idle one is parked or woken (see stallCheck),
+		// whether or not a plan run is running. Any other epic is not read for a stall.
+		if !started && mayStall(epic) {
 			stallable = append(stallable, epic.ID)
 		}
 	}
