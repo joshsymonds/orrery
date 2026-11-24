@@ -1958,7 +1958,8 @@ button.block:hover { --ground: var(--o-surface-raised); }
   .inbox .convo-block[data-held="tab"]:is([data-move="open"], [data-move="other"]) { animation: ground-in var(--o-move-state); }
   .inbox .convo-block[data-held="tab"]:is([data-move="close"], [data-move="leave"]) { animation: ground-out var(--o-move-leave) both; }
 
-  .read.held[data-move="open"], .read[data-move="close"] { animation: chat-move var(--o-move-layout); }
+  /* The chat moves, its reader and send box; the column's card stays where it is, and the column's mark clears on the chat's end. */
+  .read.held[data-move="open"] > :is(.reader, .send), .read[data-move="close"] > :is(.reader, .send) { animation: chat-move var(--o-move-layout); }
   .read[data-move="other"] > .reader, .read[data-move="other"] .convo-head .crumbs { animation: move-fade var(--o-move-state); }
 }
 
@@ -1978,6 +1979,17 @@ button.block:hover { --ground: var(--o-surface-raised); }
   .read.held .reader .t > .gut { display: none; }
   .read.held .reader [data-shape="block"] > .head .at { display: inline; }
   .read.held .convo-head .pane-strip { flex-wrap: nowrap; overflow: hidden; }
+  /* A card folding away from a column no thing holds (D16, motion-close): the card keeps its place on the left while the chat
+     moves from the right to the middle, so the chat spans the column below the head. Its rows are placed by hand, since the
+     card holds the left column. */
+  .read.leaving { grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); }
+  .read.leaving > .convo-head { grid-column: 1 / -1; grid-row: 1; }
+  .read.leaving > .held-card { grid-column: 1; grid-row: 2 / -1; margin: 0 var(--o-space-8) var(--o-space-8) var(--o-layout-page-pad-desk); }
+  .read.leaving > .find { grid-column: 1 / -1; grid-row: 2; }
+  .read.leaving > .reader { grid-column: 1 / -1; grid-row: 2; }
+  .read.leaving > .send { grid-column: 1 / -1; grid-row: 3; }
+  .read.leaving:has(> .find) > .reader { grid-row: 3; }
+  .read.leaving:has(> .find) > .send { grid-row: 4; }
 }
 
 /* Reduced motion comes last, so it wins over the rules above: each move is one 100 ms linear step, a page drills and

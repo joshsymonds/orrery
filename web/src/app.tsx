@@ -2968,7 +2968,7 @@ export function App({
     if (!(target instanceof Element)) {
       return;
     }
-    // The column's fades run on its reader and head crumbs, so the animationend that bubbles up from them ends the column's move.
+    // The column's chat and head crumbs animate on their own, so the animationend that bubbles up from them ends the column's move.
     const carrier = target.matches(columnFadeSelector) ? target.closest(columnMarkSelector) : target;
     const carried = carrier?.getAttribute("data-move") ?? null;
     if (carrier === null || carried === null) {
@@ -3070,6 +3070,7 @@ export function App({
       ended={endedBarOf}
       activity={<ActivityLines lines={activityLines} now={now} open={listShown} onOpen={openActivity} />}
       held={columnHolds ? deskCards : undefined}
+      holds={heldThing !== null}
       sheet={sheetCards}
       move={wide ? drawn.move : ""}
     />
@@ -3399,13 +3400,13 @@ function offsetWithin(element: HTMLElement, root: HTMLElement): { top: number; l
   return at === root ? { top, left } : null;
 }
 
-// deskPlace reads where the held layout stands within panes: the left edge of the cursor's column, and the aim of the held card,
-// the middle of the open row from the card's top, which is --held-aim. Both come from offsetTop and offsetLeft.
+// deskPlace reads where the held layout stands within panes: the left edge of the cursor's chat, which is its reader, and the aim
+// of the held card, the middle of the open row from the card's top, which is --held-aim. Both come from offsetTop and offsetLeft.
 function deskPlace(panes: HTMLElement | null): { chatLeft: number | null; aim: number | null } {
-  const column = panes?.querySelector<HTMLElement>('section[aria-label="reader"]') ?? null;
+  const reader = panes?.querySelector<HTMLElement>('section[aria-label="reader"] > .reader') ?? null;
   const card = panes?.querySelector<HTMLElement>(".held-card") ?? null;
   const row = panes?.querySelector<HTMLElement>('[data-held="open"]') ?? null;
-  const chat = panes !== null && column !== null ? offsetWithin(column, panes) : null;
+  const chat = panes !== null && reader !== null ? offsetWithin(reader, panes) : null;
   const cardAt = panes !== null && card !== null ? offsetWithin(card, panes) : null;
   const rowAt = panes !== null && row !== null ? offsetWithin(row, panes) : null;
   return {
@@ -3418,10 +3419,10 @@ function deskPlace(panes: HTMLElement | null): { chatLeft: number | null; aim: n
 // they carry leave.
 const leavingCardSelector = '.held-card[data-move="leave"], .held-sheet[data-move="leave"]';
 const leavingTreeSelector = '[data-held][data-move="leave"]';
-// columnMarkSelector is the column that carries an "other" move, and columnFadeSelector the parts of it whose fades run on their
-// own, as style.css draws them.
-const columnMarkSelector = '.read[data-move="other"]';
-const columnFadeSelector = '.read[data-move="other"] > .reader, .read[data-move="other"] .convo-head .crumbs';
+// columnMarkSelector is the column that carries a move, and columnFadeSelector the parts of it whose animations run on their own,
+// as style.css draws them: the chat's reader and send box, which move or fade, and the head's crumbs, which fade.
+const columnMarkSelector = ".read[data-move]";
+const columnFadeSelector = ".read[data-move] > .reader, .read[data-move] > .send, .read[data-move] .convo-head .crumbs";
 
 // animating says whether an element under root that matches selector runs an animation now. An element with no Web Animations
 // runs none.

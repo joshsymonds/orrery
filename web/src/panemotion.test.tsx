@@ -232,6 +232,14 @@ test("PaneMotion open: opening an epic from its conversation alone marks the car
     assert.equal(one(container, "section.read.held").getAttribute("data-move"), "open", "the chat column moves to the right");
   }));
 
+test("PaneMotion open: the chat moves from the middle on its own, and its animationend clears the column's open mark while the card keeps its own", (t) =>
+  mountApp(t.signal, desk, { rows: [steererRow()], epics: view([alpha]), address: steererAddress }, async ({ container, rerender }) => {
+    await rerender({ rows: [steererRow()], epics: view([alpha]), address: epicAddress("alpha") });
+    await animationEnd(one(container, 'section.read[data-move="open"] > .reader'));
+    assertNone(container.querySelector("section.read[data-move]"), "the column's mark clears on the chat's animationend");
+    assert.equal(one(container, "article.held-card").getAttribute("data-move"), "open", "the card is not moved by the chat's move");
+  }));
+
 test("PaneMotion switch: switching to another epic of the same conversation keeps the old card with data-move=leave beside the new card with data-move=switch, until the old one's animationend removes it", (t) =>
   mountApp(t.signal, desk, { rows: [steererRow()], epics: view([alpha, beta]), address: epicAddress("alpha") }, async ({ container, rerender }) => {
     await rerender({ rows: [steererRow()], epics: view([alpha, beta]), address: epicAddress("beta") });
@@ -281,6 +289,14 @@ test("PaneMotion close: Fold back keeps the card with data-move=leave until its 
     assertNone(container.querySelector("article.held-card"), "the card is removed on its animationend");
     assertNone(container.querySelector("section.read.held"), "the conversation is alone");
     assert.ok(container.querySelector(".reader") !== null, "the conversation's reader is drawn");
+  }));
+
+test("PaneMotion close: while the card folds the chat carries data-move=close and leaves the held layout, so it moves to the middle", (t) =>
+  mountApp(t.signal, desk, { rows: [steererRow()], epics: view([alpha]), address: epicAddress("alpha") }, async ({ container }) => {
+    await press(foldBack(container));
+    assert.ok(container.querySelector('article.held-card[data-move="leave"]') !== null, "the card stays mounted while it folds");
+    assert.equal(one(container, "section.read").getAttribute("data-move"), "close", "the chat carries the close move");
+    assertNone(container.querySelector("section.read.held"), "the chat is no longer in the held layout while the card folds");
   }));
 
 test("PaneMotion rail: between 760px and 1250px the rail's conversation neck and open mark carry the opening's move", (t) =>

@@ -106,6 +106,9 @@ export interface ReaderColumnProps {
   pageStrip: (row: Row | null, conversation: Conversation | null) => ComponentChildren;
   // held is what the column draws under its head and beside the chat: the thing held open at the desk, as App gives it.
   held?: ComponentChildren;
+  // holds is whether the held layout holds the column, with the chat beside what it holds. It is false while a card folds away
+  // from a column whose thing is let go: the chat has moved to the middle, and the card keeps its place on the left (D16).
+  holds?: boolean;
   // sheet is what the column draws under its head in place of its reader and find bar, on the phone: the open thing held as
   // the sheet, which takes the conversation's place under its head. Its send box is hidden, not unmounted, so a draft holds.
   sheet?: ComponentChildren;
@@ -215,6 +218,7 @@ export function ReaderColumn({
   ended,
   activity,
   held,
+  holds = true,
   sheet,
   move = "",
 }: ReaderColumnProps): JSX.Element {
@@ -261,7 +265,7 @@ export function ReaderColumn({
   return (
     <section
       ref={section}
-      class={held === undefined ? names.section : `${names.section} held`}
+      class={held === undefined ? names.section : `${names.section}${holds ? " held" : " leaving"}`}
       data-move={move === "" ? undefined : move}
       aria-label={names.label}
       hidden={row === null && step === null}
