@@ -105,6 +105,10 @@ type Store interface {
 	HeldEpics(ctx context.Context) ([]store.HeldEpic, error)
 	StartHeldEpic(ctx context.Context, epic, base string, at time.Time) error
 	AskHeldEpic(ctx context.Context, epic, text string, at time.Time) error
+	StallMark(ctx context.Context, epic string) (store.StallMark, error)
+	LatestStall(ctx context.Context, epic string) (store.EpicStall, bool, error)
+	WakeStall(ctx context.Context, epic, cause string, mark store.StallMark, at time.Time) error
+	ParkStall(ctx context.Context, epic, reason string, mark store.StallMark, at time.Time) error
 }
 
 // Checks runs the check of a gate or command node run under a holder, once per id. *enginehost.NodeChecks satisfies it.

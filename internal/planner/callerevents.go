@@ -20,6 +20,8 @@ type EpicCallerStore interface {
 	Epic(ctx context.Context, id string) (store.EpicRow, error)
 	EpicSteerer(ctx context.Context, epic string) (store.CallerSession, bool, error)
 	CallerEventMarked(ctx context.Context, event, session string) (bool, error)
+	UndeliveredTells(ctx context.Context) ([]store.SteererTell, error)
+	MarkTellDelivered(ctx context.Context, epic string, seq int64) error
 }
 
 // EpicCallerEventsConfig configures an EpicCallerEvents. Store lists the epics, their actions and their marks, and Sender
