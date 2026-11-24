@@ -754,6 +754,17 @@ button.link.notices-more { justify-self: end; padding: 0 var(--o-space-12); colo
 .ask.folded .ink-3 { color: var(--o-ink-3); }
 .ask.folded.settled { border-left-color: var(--o-ink-3); }
 .ask.folded.settled .lbl { color: var(--o-ink-3); }
+/* A question's thread: its messages under the options, and folded behind a disclosure once the question is settled. */
+.ask .field.area textarea { width: 100%; min-height: calc(var(--o-type-body-line) * 3 + var(--o-space-16)); padding: 0; border: 0; border-radius: 0; background: none; color: var(--o-ink-1); font: var(--o-type-body); outline: 0; resize: vertical; }
+.ask .qt-thread { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--o-space-8); min-width: 0; padding-left: var(--o-space-12); border-left: var(--o-size-hairline) solid var(--o-line-firm); }
+.ask .qt-msg { display: grid; grid-template-columns: auto auto minmax(0, 1fr); column-gap: var(--o-space-8); align-items: baseline; min-width: 0; font: var(--o-type-small); color: var(--o-ink-2); }
+.ask .qt-msg code { color: var(--o-ink-3); font: var(--o-type-small); }
+.ask .qt-msg .qt-what { min-width: 0; color: var(--o-ink-3); overflow-wrap: anywhere; }
+.ask .qt-msg .qt-words { grid-column: 1 / -1; min-width: 0; color: var(--o-ink-1); white-space: pre-wrap; overflow-wrap: anywhere; }
+.ask.folded.settled { flex-wrap: wrap; }
+.ask.folded > details { flex-basis: 100%; min-width: 0; color: var(--o-ink-2); }
+.ask.folded > details > summary { color: var(--o-ink-3); cursor: pointer; }
+.ask.folded > details > .qt-thread { margin-top: var(--o-space-8); }
 /* The More menu's decline: a danger item, its sub-text at the end. */
 .menu-item.danger, .menu-item.danger .icon { color: var(--o-role-bad); }
 .menu-item .sub { margin-left: auto; color: var(--o-ink-3); }
