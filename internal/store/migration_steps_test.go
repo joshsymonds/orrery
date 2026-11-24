@@ -156,14 +156,22 @@ func TestEachMigrationDownAndUp(t *testing.T) {
 			t.Fatalf("a migration check is keyed to version %d, which no migration has", version)
 		}
 	}
-	for version := int64(1); version <= int64(len(images)); version++ {
+	// The versions are the migrations that exist, in ascending order: a version the branch skips has no migration to walk.
+	versions := make([]int64, 0, len(names))
+	for version := range names {
+		versions = append(versions, version)
+	}
+	slices.Sort(versions)
+	for i, version := range versions {
 		t.Run(names[version], func(t *testing.T) {
 			t.Parallel()
+			var before int64
 			var previous []string
-			if version > 1 {
-				before := openStoreAtVersion(t, filepath.Join(t.TempDir(), "before.db"), version-1)
-				previous = schemaLines(t, before)
-				closeDB(t, before)
+			if i > 0 {
+				before = versions[i-1]
+				prior := openStoreAtVersion(t, filepath.Join(t.TempDir(), "before.db"), before)
+				previous = schemaLines(t, prior)
+				closeDB(t, prior)
 			}
 			s, provider := storeAtVersion(t, version)
 			at := schemaLines(t, s.db.DB)
@@ -177,7 +185,7 @@ func TestEachMigrationDownAndUp(t *testing.T) {
 				t.Fatalf("Down of %s: %v", names[version], err)
 			}
 			if got := schemaLines(t, s.db.DB); !slices.Equal(got, previous) {
-				t.Fatalf("schema after the Down of %s differs from version %d:\n%s", names[version], version-1,
+				t.Fatalf("schema after the Down of %s differs from version %d:\n%s", names[version], before,
 					lineDiff(got, previous))
 			}
 			if check.down != nil {
