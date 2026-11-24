@@ -50,8 +50,8 @@ func (s *Service) WriteRow(
 	if err != nil {
 		return nil, err
 	}
-	if err = s.requireContractConversation(ctx, session, contract, design); err != nil {
-		return nil, err
+	if guardErr := s.requireContractConversation(ctx, session, contract, design); guardErr != nil {
+		return nil, guardErr
 	}
 	value, remove, words := req.Msg.GetValue(), req.Msg.GetRemove(), req.Msg.GetWords()
 	change := store.ContractRowChange{

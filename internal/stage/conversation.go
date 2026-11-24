@@ -140,14 +140,14 @@ func (s *Service) stopStarted(ctx context.Context, started string, refusal error
 // continuePrompt returns the prompt a continued session starts with: the design's id and title, the conversation it
 // continues, and each line of the design's log, oldest first.
 func continuePrompt(record store.DesignRecord, lines []store.DesignLogLine) string {
-	var b strings.Builder
-	fmt.Fprintf(&b,
+	var builder strings.Builder
+	fmt.Fprintf(&builder,
 		"You continue the contract stage of design %s, titled %q. The conversation it continues is session %s.\n",
 		record.ID, record.Title, record.Conversation)
-	b.WriteString("The design's log so far, oldest first:\n")
+	builder.WriteString("The design's log so far, oldest first:\n")
 	for _, line := range lines {
-		fmt.Fprintf(&b, "%d. %s %s %s [%s] %s\n", line.Seq, time.Unix(line.At, 0).UTC().Format(time.RFC3339),
+		fmt.Fprintf(&builder, "%d. %s %s %s [%s] %s\n", line.Seq, time.Unix(line.At, 0).UTC().Format(time.RFC3339),
 			line.Maker, line.What, strings.Join(line.IDs, ", "), line.Words)
 	}
-	return b.String()
+	return builder.String()
 }

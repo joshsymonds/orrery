@@ -98,7 +98,6 @@ func continueFrom(t *testing.T, fx stageResearchFixture) (*v1.ContinueDesignResp
 // not the design's working conversation is refused as permission denied, naming the working conversation, and stores
 // nothing.
 func TestRecordsConversationRefusesOtherSession(t *testing.T) {
-	t.Parallel()
 	ctx := t.Context()
 	fx, _ := newConversationFixture(t)
 	seedConversationSession(t, fx, conversationOther)
