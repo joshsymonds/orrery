@@ -119,4 +119,80 @@ public interface UsageSessionTotalOrBuilder extends
    * @return The listCostNanoUsd.
    */
   long getListCostNanoUsd();
+
+  /**
+   * <pre>
+   * The list cost of the input tokens, in nano US dollars; unset when that cost is unknown.
+   * </pre>
+   *
+   * <code>optional int64 list_input_nano_usd = 10 [json_name = "listInputNanoUsd"];</code>
+   * @return Whether the listInputNanoUsd field is set.
+   */
+  boolean hasListInputNanoUsd();
+  /**
+   * <pre>
+   * The list cost of the input tokens, in nano US dollars; unset when that cost is unknown.
+   * </pre>
+   *
+   * <code>optional int64 list_input_nano_usd = 10 [json_name = "listInputNanoUsd"];</code>
+   * @return The listInputNanoUsd.
+   */
+  long getListInputNanoUsd();
+
+  /**
+   * <pre>
+   * The list cost of the output tokens, in nano US dollars; unset when that cost is unknown.
+   * </pre>
+   *
+   * <code>optional int64 list_output_nano_usd = 11 [json_name = "listOutputNanoUsd"];</code>
+   * @return Whether the listOutputNanoUsd field is set.
+   */
+  boolean hasListOutputNanoUsd();
+  /**
+   * <pre>
+   * The list cost of the output tokens, in nano US dollars; unset when that cost is unknown.
+   * </pre>
+   *
+   * <code>optional int64 list_output_nano_usd = 11 [json_name = "listOutputNanoUsd"];</code>
+   * @return The listOutputNanoUsd.
+   */
+  long getListOutputNanoUsd();
+
+  /**
+   * <pre>
+   * The list cost of the tokens read from the prompt cache, in nano US dollars; unset when that cost is unknown.
+   * </pre>
+   *
+   * <code>optional int64 list_cache_read_nano_usd = 12 [json_name = "listCacheReadNanoUsd"];</code>
+   * @return Whether the listCacheReadNanoUsd field is set.
+   */
+  boolean hasListCacheReadNanoUsd();
+  /**
+   * <pre>
+   * The list cost of the tokens read from the prompt cache, in nano US dollars; unset when that cost is unknown.
+   * </pre>
+   *
+   * <code>optional int64 list_cache_read_nano_usd = 12 [json_name = "listCacheReadNanoUsd"];</code>
+   * @return The listCacheReadNanoUsd.
+   */
+  long getListCacheReadNanoUsd();
+
+  /**
+   * <pre>
+   * The list cost of the tokens written to the prompt cache, in nano US dollars; unset when that cost is unknown.
+   * </pre>
+   *
+   * <code>optional int64 list_cache_write_nano_usd = 13 [json_name = "listCacheWriteNanoUsd"];</code>
+   * @return Whether the listCacheWriteNanoUsd field is set.
+   */
+  boolean hasListCacheWriteNanoUsd();
+  /**
+   * <pre>
+   * The list cost of the tokens written to the prompt cache, in nano US dollars; unset when that cost is unknown.
+   * </pre>
+   *
+   * <code>optional int64 list_cache_write_nano_usd = 13 [json_name = "listCacheWriteNanoUsd"];</code>
+   * @return The listCacheWriteNanoUsd.
+   */
+  long getListCacheWriteNanoUsd();
 }

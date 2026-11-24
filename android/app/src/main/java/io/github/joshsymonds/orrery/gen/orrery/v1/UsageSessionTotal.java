@@ -22,6 +22,7 @@ public  final class UsageSessionTotal extends
     model_ = "";
     agentType_ = "";
   }
+  private int bitField0_;
   public static final int MODEL_FIELD_NUMBER = 1;
   private java.lang.String model_;
   /**
@@ -420,6 +421,206 @@ public  final class UsageSessionTotal extends
   private void clearListCostNanoUsd() {
 
     listCostNanoUsd_ = 0L;
+  }
+
+  public static final int LIST_INPUT_NANO_USD_FIELD_NUMBER = 10;
+  private long listInputNanoUsd_;
+  /**
+   * <pre>
+   * The list cost of the input tokens, in nano US dollars; unset when that cost is unknown.
+   * </pre>
+   *
+   * <code>optional int64 list_input_nano_usd = 10 [json_name = "listInputNanoUsd"];</code>
+   * @return Whether the listInputNanoUsd field is set.
+   */
+  @java.lang.Override
+  public boolean hasListInputNanoUsd() {
+    return ((bitField0_ & 0x00000001) != 0);
+  }
+  /**
+   * <pre>
+   * The list cost of the input tokens, in nano US dollars; unset when that cost is unknown.
+   * </pre>
+   *
+   * <code>optional int64 list_input_nano_usd = 10 [json_name = "listInputNanoUsd"];</code>
+   * @return The listInputNanoUsd.
+   */
+  @java.lang.Override
+  public long getListInputNanoUsd() {
+    return listInputNanoUsd_;
+  }
+  /**
+   * <pre>
+   * The list cost of the input tokens, in nano US dollars; unset when that cost is unknown.
+   * </pre>
+   *
+   * <code>optional int64 list_input_nano_usd = 10 [json_name = "listInputNanoUsd"];</code>
+   * @param value The listInputNanoUsd to set.
+   */
+  private void setListInputNanoUsd(long value) {
+    bitField0_ |= 0x00000001;
+    listInputNanoUsd_ = value;
+  }
+  /**
+   * <pre>
+   * The list cost of the input tokens, in nano US dollars; unset when that cost is unknown.
+   * </pre>
+   *
+   * <code>optional int64 list_input_nano_usd = 10 [json_name = "listInputNanoUsd"];</code>
+   */
+  private void clearListInputNanoUsd() {
+    bitField0_ = (bitField0_ & ~0x00000001);
+    listInputNanoUsd_ = 0L;
+  }
+
+  public static final int LIST_OUTPUT_NANO_USD_FIELD_NUMBER = 11;
+  private long listOutputNanoUsd_;
+  /**
+   * <pre>
+   * The list cost of the output tokens, in nano US dollars; unset when that cost is unknown.
+   * </pre>
+   *
+   * <code>optional int64 list_output_nano_usd = 11 [json_name = "listOutputNanoUsd"];</code>
+   * @return Whether the listOutputNanoUsd field is set.
+   */
+  @java.lang.Override
+  public boolean hasListOutputNanoUsd() {
+    return ((bitField0_ & 0x00000002) != 0);
+  }
+  /**
+   * <pre>
+   * The list cost of the output tokens, in nano US dollars; unset when that cost is unknown.
+   * </pre>
+   *
+   * <code>optional int64 list_output_nano_usd = 11 [json_name = "listOutputNanoUsd"];</code>
+   * @return The listOutputNanoUsd.
+   */
+  @java.lang.Override
+  public long getListOutputNanoUsd() {
+    return listOutputNanoUsd_;
+  }
+  /**
+   * <pre>
+   * The list cost of the output tokens, in nano US dollars; unset when that cost is unknown.
+   * </pre>
+   *
+   * <code>optional int64 list_output_nano_usd = 11 [json_name = "listOutputNanoUsd"];</code>
+   * @param value The listOutputNanoUsd to set.
+   */
+  private void setListOutputNanoUsd(long value) {
+    bitField0_ |= 0x00000002;
+    listOutputNanoUsd_ = value;
+  }
+  /**
+   * <pre>
+   * The list cost of the output tokens, in nano US dollars; unset when that cost is unknown.
+   * </pre>
+   *
+   * <code>optional int64 list_output_nano_usd = 11 [json_name = "listOutputNanoUsd"];</code>
+   */
+  private void clearListOutputNanoUsd() {
+    bitField0_ = (bitField0_ & ~0x00000002);
+    listOutputNanoUsd_ = 0L;
+  }
+
+  public static final int LIST_CACHE_READ_NANO_USD_FIELD_NUMBER = 12;
+  private long listCacheReadNanoUsd_;
+  /**
+   * <pre>
+   * The list cost of the tokens read from the prompt cache, in nano US dollars; unset when that cost is unknown.
+   * </pre>
+   *
+   * <code>optional int64 list_cache_read_nano_usd = 12 [json_name = "listCacheReadNanoUsd"];</code>
+   * @return Whether the listCacheReadNanoUsd field is set.
+   */
+  @java.lang.Override
+  public boolean hasListCacheReadNanoUsd() {
+    return ((bitField0_ & 0x00000004) != 0);
+  }
+  /**
+   * <pre>
+   * The list cost of the tokens read from the prompt cache, in nano US dollars; unset when that cost is unknown.
+   * </pre>
+   *
+   * <code>optional int64 list_cache_read_nano_usd = 12 [json_name = "listCacheReadNanoUsd"];</code>
+   * @return The listCacheReadNanoUsd.
+   */
+  @java.lang.Override
+  public long getListCacheReadNanoUsd() {
+    return listCacheReadNanoUsd_;
+  }
+  /**
+   * <pre>
+   * The list cost of the tokens read from the prompt cache, in nano US dollars; unset when that cost is unknown.
+   * </pre>
+   *
+   * <code>optional int64 list_cache_read_nano_usd = 12 [json_name = "listCacheReadNanoUsd"];</code>
+   * @param value The listCacheReadNanoUsd to set.
+   */
+  private void setListCacheReadNanoUsd(long value) {
+    bitField0_ |= 0x00000004;
+    listCacheReadNanoUsd_ = value;
+  }
+  /**
+   * <pre>
+   * The list cost of the tokens read from the prompt cache, in nano US dollars; unset when that cost is unknown.
+   * </pre>
+   *
+   * <code>optional int64 list_cache_read_nano_usd = 12 [json_name = "listCacheReadNanoUsd"];</code>
+   */
+  private void clearListCacheReadNanoUsd() {
+    bitField0_ = (bitField0_ & ~0x00000004);
+    listCacheReadNanoUsd_ = 0L;
+  }
+
+  public static final int LIST_CACHE_WRITE_NANO_USD_FIELD_NUMBER = 13;
+  private long listCacheWriteNanoUsd_;
+  /**
+   * <pre>
+   * The list cost of the tokens written to the prompt cache, in nano US dollars; unset when that cost is unknown.
+   * </pre>
+   *
+   * <code>optional int64 list_cache_write_nano_usd = 13 [json_name = "listCacheWriteNanoUsd"];</code>
+   * @return Whether the listCacheWriteNanoUsd field is set.
+   */
+  @java.lang.Override
+  public boolean hasListCacheWriteNanoUsd() {
+    return ((bitField0_ & 0x00000008) != 0);
+  }
+  /**
+   * <pre>
+   * The list cost of the tokens written to the prompt cache, in nano US dollars; unset when that cost is unknown.
+   * </pre>
+   *
+   * <code>optional int64 list_cache_write_nano_usd = 13 [json_name = "listCacheWriteNanoUsd"];</code>
+   * @return The listCacheWriteNanoUsd.
+   */
+  @java.lang.Override
+  public long getListCacheWriteNanoUsd() {
+    return listCacheWriteNanoUsd_;
+  }
+  /**
+   * <pre>
+   * The list cost of the tokens written to the prompt cache, in nano US dollars; unset when that cost is unknown.
+   * </pre>
+   *
+   * <code>optional int64 list_cache_write_nano_usd = 13 [json_name = "listCacheWriteNanoUsd"];</code>
+   * @param value The listCacheWriteNanoUsd to set.
+   */
+  private void setListCacheWriteNanoUsd(long value) {
+    bitField0_ |= 0x00000008;
+    listCacheWriteNanoUsd_ = value;
+  }
+  /**
+   * <pre>
+   * The list cost of the tokens written to the prompt cache, in nano US dollars; unset when that cost is unknown.
+   * </pre>
+   *
+   * <code>optional int64 list_cache_write_nano_usd = 13 [json_name = "listCacheWriteNanoUsd"];</code>
+   */
+  private void clearListCacheWriteNanoUsd() {
+    bitField0_ = (bitField0_ & ~0x00000008);
+    listCacheWriteNanoUsd_ = 0L;
   }
 
   public static io.github.joshsymonds.orrery.gen.orrery.v1.UsageSessionTotal parseFrom(
@@ -941,6 +1142,214 @@ public  final class UsageSessionTotal extends
       return this;
     }
 
+    /**
+     * <pre>
+     * The list cost of the input tokens, in nano US dollars; unset when that cost is unknown.
+     * </pre>
+     *
+     * <code>optional int64 list_input_nano_usd = 10 [json_name = "listInputNanoUsd"];</code>
+     * @return Whether the listInputNanoUsd field is set.
+     */
+    @java.lang.Override
+    public boolean hasListInputNanoUsd() {
+      return instance.hasListInputNanoUsd();
+    }
+    /**
+     * <pre>
+     * The list cost of the input tokens, in nano US dollars; unset when that cost is unknown.
+     * </pre>
+     *
+     * <code>optional int64 list_input_nano_usd = 10 [json_name = "listInputNanoUsd"];</code>
+     * @return The listInputNanoUsd.
+     */
+    @java.lang.Override
+    public long getListInputNanoUsd() {
+      return instance.getListInputNanoUsd();
+    }
+    /**
+     * <pre>
+     * The list cost of the input tokens, in nano US dollars; unset when that cost is unknown.
+     * </pre>
+     *
+     * <code>optional int64 list_input_nano_usd = 10 [json_name = "listInputNanoUsd"];</code>
+     * @param value The listInputNanoUsd to set.
+     * @return This builder for chaining.
+     */
+    public Builder setListInputNanoUsd(long value) {
+      copyOnWrite();
+      instance.setListInputNanoUsd(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The list cost of the input tokens, in nano US dollars; unset when that cost is unknown.
+     * </pre>
+     *
+     * <code>optional int64 list_input_nano_usd = 10 [json_name = "listInputNanoUsd"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearListInputNanoUsd() {
+      copyOnWrite();
+      instance.clearListInputNanoUsd();
+      return this;
+    }
+
+    /**
+     * <pre>
+     * The list cost of the output tokens, in nano US dollars; unset when that cost is unknown.
+     * </pre>
+     *
+     * <code>optional int64 list_output_nano_usd = 11 [json_name = "listOutputNanoUsd"];</code>
+     * @return Whether the listOutputNanoUsd field is set.
+     */
+    @java.lang.Override
+    public boolean hasListOutputNanoUsd() {
+      return instance.hasListOutputNanoUsd();
+    }
+    /**
+     * <pre>
+     * The list cost of the output tokens, in nano US dollars; unset when that cost is unknown.
+     * </pre>
+     *
+     * <code>optional int64 list_output_nano_usd = 11 [json_name = "listOutputNanoUsd"];</code>
+     * @return The listOutputNanoUsd.
+     */
+    @java.lang.Override
+    public long getListOutputNanoUsd() {
+      return instance.getListOutputNanoUsd();
+    }
+    /**
+     * <pre>
+     * The list cost of the output tokens, in nano US dollars; unset when that cost is unknown.
+     * </pre>
+     *
+     * <code>optional int64 list_output_nano_usd = 11 [json_name = "listOutputNanoUsd"];</code>
+     * @param value The listOutputNanoUsd to set.
+     * @return This builder for chaining.
+     */
+    public Builder setListOutputNanoUsd(long value) {
+      copyOnWrite();
+      instance.setListOutputNanoUsd(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The list cost of the output tokens, in nano US dollars; unset when that cost is unknown.
+     * </pre>
+     *
+     * <code>optional int64 list_output_nano_usd = 11 [json_name = "listOutputNanoUsd"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearListOutputNanoUsd() {
+      copyOnWrite();
+      instance.clearListOutputNanoUsd();
+      return this;
+    }
+
+    /**
+     * <pre>
+     * The list cost of the tokens read from the prompt cache, in nano US dollars; unset when that cost is unknown.
+     * </pre>
+     *
+     * <code>optional int64 list_cache_read_nano_usd = 12 [json_name = "listCacheReadNanoUsd"];</code>
+     * @return Whether the listCacheReadNanoUsd field is set.
+     */
+    @java.lang.Override
+    public boolean hasListCacheReadNanoUsd() {
+      return instance.hasListCacheReadNanoUsd();
+    }
+    /**
+     * <pre>
+     * The list cost of the tokens read from the prompt cache, in nano US dollars; unset when that cost is unknown.
+     * </pre>
+     *
+     * <code>optional int64 list_cache_read_nano_usd = 12 [json_name = "listCacheReadNanoUsd"];</code>
+     * @return The listCacheReadNanoUsd.
+     */
+    @java.lang.Override
+    public long getListCacheReadNanoUsd() {
+      return instance.getListCacheReadNanoUsd();
+    }
+    /**
+     * <pre>
+     * The list cost of the tokens read from the prompt cache, in nano US dollars; unset when that cost is unknown.
+     * </pre>
+     *
+     * <code>optional int64 list_cache_read_nano_usd = 12 [json_name = "listCacheReadNanoUsd"];</code>
+     * @param value The listCacheReadNanoUsd to set.
+     * @return This builder for chaining.
+     */
+    public Builder setListCacheReadNanoUsd(long value) {
+      copyOnWrite();
+      instance.setListCacheReadNanoUsd(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The list cost of the tokens read from the prompt cache, in nano US dollars; unset when that cost is unknown.
+     * </pre>
+     *
+     * <code>optional int64 list_cache_read_nano_usd = 12 [json_name = "listCacheReadNanoUsd"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearListCacheReadNanoUsd() {
+      copyOnWrite();
+      instance.clearListCacheReadNanoUsd();
+      return this;
+    }
+
+    /**
+     * <pre>
+     * The list cost of the tokens written to the prompt cache, in nano US dollars; unset when that cost is unknown.
+     * </pre>
+     *
+     * <code>optional int64 list_cache_write_nano_usd = 13 [json_name = "listCacheWriteNanoUsd"];</code>
+     * @return Whether the listCacheWriteNanoUsd field is set.
+     */
+    @java.lang.Override
+    public boolean hasListCacheWriteNanoUsd() {
+      return instance.hasListCacheWriteNanoUsd();
+    }
+    /**
+     * <pre>
+     * The list cost of the tokens written to the prompt cache, in nano US dollars; unset when that cost is unknown.
+     * </pre>
+     *
+     * <code>optional int64 list_cache_write_nano_usd = 13 [json_name = "listCacheWriteNanoUsd"];</code>
+     * @return The listCacheWriteNanoUsd.
+     */
+    @java.lang.Override
+    public long getListCacheWriteNanoUsd() {
+      return instance.getListCacheWriteNanoUsd();
+    }
+    /**
+     * <pre>
+     * The list cost of the tokens written to the prompt cache, in nano US dollars; unset when that cost is unknown.
+     * </pre>
+     *
+     * <code>optional int64 list_cache_write_nano_usd = 13 [json_name = "listCacheWriteNanoUsd"];</code>
+     * @param value The listCacheWriteNanoUsd to set.
+     * @return This builder for chaining.
+     */
+    public Builder setListCacheWriteNanoUsd(long value) {
+      copyOnWrite();
+      instance.setListCacheWriteNanoUsd(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The list cost of the tokens written to the prompt cache, in nano US dollars; unset when that cost is unknown.
+     * </pre>
+     *
+     * <code>optional int64 list_cache_write_nano_usd = 13 [json_name = "listCacheWriteNanoUsd"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearListCacheWriteNanoUsd() {
+      copyOnWrite();
+      instance.clearListCacheWriteNanoUsd();
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:orrery.v1.UsageSessionTotal)
   }
   @java.lang.Override
@@ -957,6 +1366,7 @@ public  final class UsageSessionTotal extends
       }
       case BUILD_MESSAGE_INFO: {
           java.lang.Object[] objects = new java.lang.Object[] {
+            "bitField0_",
             "model_",
             "agentType_",
             "requests_",
@@ -966,10 +1376,15 @@ public  final class UsageSessionTotal extends
             "cacheWriteTokens_",
             "billedCostNanoUsd_",
             "listCostNanoUsd_",
+            "listInputNanoUsd_",
+            "listOutputNanoUsd_",
+            "listCacheReadNanoUsd_",
+            "listCacheWriteNanoUsd_",
           };
           java.lang.String info =
-              "\u0000\t\u0000\u0000\u0001\t\t\u0000\u0000\u0000\u0001\u0208\u0002\u0208\u0003\u0002" +
-              "\u0004\u0002\u0005\u0002\u0006\u0002\u0007\u0002\b\u0002\t\u0002";
+              "\u0000\r\u0000\u0001\u0001\r\r\u0000\u0000\u0000\u0001\u0208\u0002\u0208\u0003\u0002" +
+              "\u0004\u0002\u0005\u0002\u0006\u0002\u0007\u0002\b\u0002\t\u0002\n\u1002\u0000\u000b" +
+              "\u1002\u0001\f\u1002\u0002\r\u1002\u0003";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

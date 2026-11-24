@@ -21,6 +21,162 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+// UsageEpicTotalsRequest names the epic whose sessions are totalled.
+type UsageEpicTotalsRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The epic id, <repo-id>/<slug>.
+	Epic          string `protobuf:"bytes,1,opt,name=epic,proto3" json:"epic,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *UsageEpicTotalsRequest) Reset() {
+	*x = UsageEpicTotalsRequest{}
+	mi := &file_orrery_v1_usage_proto_msgTypes[0]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UsageEpicTotalsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UsageEpicTotalsRequest) ProtoMessage() {}
+
+func (x *UsageEpicTotalsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_orrery_v1_usage_proto_msgTypes[0]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UsageEpicTotalsRequest.ProtoReflect.Descriptor instead.
+func (*UsageEpicTotalsRequest) Descriptor() ([]byte, []int) {
+	return file_orrery_v1_usage_proto_rawDescGZIP(), []int{0}
+}
+
+func (x *UsageEpicTotalsRequest) GetEpic() string {
+	if x != nil {
+		return x.Epic
+	}
+	return ""
+}
+
+// UsageEpicSession is the totals of one session of an epic.
+type UsageEpicSession struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The orrery session id.
+	Session string `protobuf:"bytes,1,opt,name=session,proto3" json:"session,omitempty"`
+	// Whether the session is the epic's steerer, whose spend is not in the epic's total.
+	Shared bool `protobuf:"varint,2,opt,name=shared,proto3" json:"shared,omitempty"`
+	// The totals of the session, the same rows SessionTotals answers for it.
+	Totals        []*UsageSessionTotal `protobuf:"bytes,3,rep,name=totals,proto3" json:"totals,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *UsageEpicSession) Reset() {
+	*x = UsageEpicSession{}
+	mi := &file_orrery_v1_usage_proto_msgTypes[1]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UsageEpicSession) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UsageEpicSession) ProtoMessage() {}
+
+func (x *UsageEpicSession) ProtoReflect() protoreflect.Message {
+	mi := &file_orrery_v1_usage_proto_msgTypes[1]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UsageEpicSession.ProtoReflect.Descriptor instead.
+func (*UsageEpicSession) Descriptor() ([]byte, []int) {
+	return file_orrery_v1_usage_proto_rawDescGZIP(), []int{1}
+}
+
+func (x *UsageEpicSession) GetSession() string {
+	if x != nil {
+		return x.Session
+	}
+	return ""
+}
+
+func (x *UsageEpicSession) GetShared() bool {
+	if x != nil {
+		return x.Shared
+	}
+	return false
+}
+
+func (x *UsageEpicSession) GetTotals() []*UsageSessionTotal {
+	if x != nil {
+		return x.Totals
+	}
+	return nil
+}
+
+// UsageEpicTotalsResponse carries the totals of each session of an epic.
+type UsageEpicTotalsResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The sessions of the epic: its step sessions and its steerer.
+	Sessions      []*UsageEpicSession `protobuf:"bytes,1,rep,name=sessions,proto3" json:"sessions,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *UsageEpicTotalsResponse) Reset() {
+	*x = UsageEpicTotalsResponse{}
+	mi := &file_orrery_v1_usage_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UsageEpicTotalsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UsageEpicTotalsResponse) ProtoMessage() {}
+
+func (x *UsageEpicTotalsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_orrery_v1_usage_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UsageEpicTotalsResponse.ProtoReflect.Descriptor instead.
+func (*UsageEpicTotalsResponse) Descriptor() ([]byte, []int) {
+	return file_orrery_v1_usage_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *UsageEpicTotalsResponse) GetSessions() []*UsageEpicSession {
+	if x != nil {
+		return x.Sessions
+	}
+	return nil
+}
+
 // UsageReadingsRequest asks for every usage limit reading.
 type UsageReadingsRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -30,7 +186,7 @@ type UsageReadingsRequest struct {
 
 func (x *UsageReadingsRequest) Reset() {
 	*x = UsageReadingsRequest{}
-	mi := &file_orrery_v1_usage_proto_msgTypes[0]
+	mi := &file_orrery_v1_usage_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -42,7 +198,7 @@ func (x *UsageReadingsRequest) String() string {
 func (*UsageReadingsRequest) ProtoMessage() {}
 
 func (x *UsageReadingsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_orrery_v1_usage_proto_msgTypes[0]
+	mi := &file_orrery_v1_usage_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -55,7 +211,7 @@ func (x *UsageReadingsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UsageReadingsRequest.ProtoReflect.Descriptor instead.
 func (*UsageReadingsRequest) Descriptor() ([]byte, []int) {
-	return file_orrery_v1_usage_proto_rawDescGZIP(), []int{0}
+	return file_orrery_v1_usage_proto_rawDescGZIP(), []int{3}
 }
 
 // UsageReading is one reading of a usage limit for an account and claim.
@@ -81,7 +237,7 @@ type UsageReading struct {
 
 func (x *UsageReading) Reset() {
 	*x = UsageReading{}
-	mi := &file_orrery_v1_usage_proto_msgTypes[1]
+	mi := &file_orrery_v1_usage_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -93,7 +249,7 @@ func (x *UsageReading) String() string {
 func (*UsageReading) ProtoMessage() {}
 
 func (x *UsageReading) ProtoReflect() protoreflect.Message {
-	mi := &file_orrery_v1_usage_proto_msgTypes[1]
+	mi := &file_orrery_v1_usage_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -106,7 +262,7 @@ func (x *UsageReading) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UsageReading.ProtoReflect.Descriptor instead.
 func (*UsageReading) Descriptor() ([]byte, []int) {
-	return file_orrery_v1_usage_proto_rawDescGZIP(), []int{1}
+	return file_orrery_v1_usage_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *UsageReading) GetAccount() string {
@@ -169,7 +325,7 @@ type UsageReadingsResponse struct {
 
 func (x *UsageReadingsResponse) Reset() {
 	*x = UsageReadingsResponse{}
-	mi := &file_orrery_v1_usage_proto_msgTypes[2]
+	mi := &file_orrery_v1_usage_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -181,7 +337,7 @@ func (x *UsageReadingsResponse) String() string {
 func (*UsageReadingsResponse) ProtoMessage() {}
 
 func (x *UsageReadingsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_orrery_v1_usage_proto_msgTypes[2]
+	mi := &file_orrery_v1_usage_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -194,7 +350,7 @@ func (x *UsageReadingsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UsageReadingsResponse.ProtoReflect.Descriptor instead.
 func (*UsageReadingsResponse) Descriptor() ([]byte, []int) {
-	return file_orrery_v1_usage_proto_rawDescGZIP(), []int{2}
+	return file_orrery_v1_usage_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *UsageReadingsResponse) GetReadings() []*UsageReading {
@@ -215,7 +371,7 @@ type UsageSessionTotalsRequest struct {
 
 func (x *UsageSessionTotalsRequest) Reset() {
 	*x = UsageSessionTotalsRequest{}
-	mi := &file_orrery_v1_usage_proto_msgTypes[3]
+	mi := &file_orrery_v1_usage_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -227,7 +383,7 @@ func (x *UsageSessionTotalsRequest) String() string {
 func (*UsageSessionTotalsRequest) ProtoMessage() {}
 
 func (x *UsageSessionTotalsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_orrery_v1_usage_proto_msgTypes[3]
+	mi := &file_orrery_v1_usage_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -240,7 +396,7 @@ func (x *UsageSessionTotalsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UsageSessionTotalsRequest.ProtoReflect.Descriptor instead.
 func (*UsageSessionTotalsRequest) Descriptor() ([]byte, []int) {
-	return file_orrery_v1_usage_proto_rawDescGZIP(), []int{3}
+	return file_orrery_v1_usage_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *UsageSessionTotalsRequest) GetSession() string {
@@ -271,13 +427,21 @@ type UsageSessionTotal struct {
 	BilledCostNanoUsd int64 `protobuf:"varint,8,opt,name=billed_cost_nano_usd,json=billedCostNanoUsd,proto3" json:"billed_cost_nano_usd,omitempty"`
 	// The cost of the requests at list price, in nano US dollars.
 	ListCostNanoUsd int64 `protobuf:"varint,9,opt,name=list_cost_nano_usd,json=listCostNanoUsd,proto3" json:"list_cost_nano_usd,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	// The list cost of the input tokens, in nano US dollars; unset when that cost is unknown.
+	ListInputNanoUsd *int64 `protobuf:"varint,10,opt,name=list_input_nano_usd,json=listInputNanoUsd,proto3,oneof" json:"list_input_nano_usd,omitempty"`
+	// The list cost of the output tokens, in nano US dollars; unset when that cost is unknown.
+	ListOutputNanoUsd *int64 `protobuf:"varint,11,opt,name=list_output_nano_usd,json=listOutputNanoUsd,proto3,oneof" json:"list_output_nano_usd,omitempty"`
+	// The list cost of the tokens read from the prompt cache, in nano US dollars; unset when that cost is unknown.
+	ListCacheReadNanoUsd *int64 `protobuf:"varint,12,opt,name=list_cache_read_nano_usd,json=listCacheReadNanoUsd,proto3,oneof" json:"list_cache_read_nano_usd,omitempty"`
+	// The list cost of the tokens written to the prompt cache, in nano US dollars; unset when that cost is unknown.
+	ListCacheWriteNanoUsd *int64 `protobuf:"varint,13,opt,name=list_cache_write_nano_usd,json=listCacheWriteNanoUsd,proto3,oneof" json:"list_cache_write_nano_usd,omitempty"`
+	unknownFields         protoimpl.UnknownFields
+	sizeCache             protoimpl.SizeCache
 }
 
 func (x *UsageSessionTotal) Reset() {
 	*x = UsageSessionTotal{}
-	mi := &file_orrery_v1_usage_proto_msgTypes[4]
+	mi := &file_orrery_v1_usage_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -289,7 +453,7 @@ func (x *UsageSessionTotal) String() string {
 func (*UsageSessionTotal) ProtoMessage() {}
 
 func (x *UsageSessionTotal) ProtoReflect() protoreflect.Message {
-	mi := &file_orrery_v1_usage_proto_msgTypes[4]
+	mi := &file_orrery_v1_usage_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -302,7 +466,7 @@ func (x *UsageSessionTotal) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UsageSessionTotal.ProtoReflect.Descriptor instead.
 func (*UsageSessionTotal) Descriptor() ([]byte, []int) {
-	return file_orrery_v1_usage_proto_rawDescGZIP(), []int{4}
+	return file_orrery_v1_usage_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *UsageSessionTotal) GetModel() string {
@@ -368,6 +532,34 @@ func (x *UsageSessionTotal) GetListCostNanoUsd() int64 {
 	return 0
 }
 
+func (x *UsageSessionTotal) GetListInputNanoUsd() int64 {
+	if x != nil && x.ListInputNanoUsd != nil {
+		return *x.ListInputNanoUsd
+	}
+	return 0
+}
+
+func (x *UsageSessionTotal) GetListOutputNanoUsd() int64 {
+	if x != nil && x.ListOutputNanoUsd != nil {
+		return *x.ListOutputNanoUsd
+	}
+	return 0
+}
+
+func (x *UsageSessionTotal) GetListCacheReadNanoUsd() int64 {
+	if x != nil && x.ListCacheReadNanoUsd != nil {
+		return *x.ListCacheReadNanoUsd
+	}
+	return 0
+}
+
+func (x *UsageSessionTotal) GetListCacheWriteNanoUsd() int64 {
+	if x != nil && x.ListCacheWriteNanoUsd != nil {
+		return *x.ListCacheWriteNanoUsd
+	}
+	return 0
+}
+
 // UsageSessionTotalsResponse carries the totals of one session.
 type UsageSessionTotalsResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -379,7 +571,7 @@ type UsageSessionTotalsResponse struct {
 
 func (x *UsageSessionTotalsResponse) Reset() {
 	*x = UsageSessionTotalsResponse{}
-	mi := &file_orrery_v1_usage_proto_msgTypes[5]
+	mi := &file_orrery_v1_usage_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -391,7 +583,7 @@ func (x *UsageSessionTotalsResponse) String() string {
 func (*UsageSessionTotalsResponse) ProtoMessage() {}
 
 func (x *UsageSessionTotalsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_orrery_v1_usage_proto_msgTypes[5]
+	mi := &file_orrery_v1_usage_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -404,7 +596,7 @@ func (x *UsageSessionTotalsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UsageSessionTotalsResponse.ProtoReflect.Descriptor instead.
 func (*UsageSessionTotalsResponse) Descriptor() ([]byte, []int) {
-	return file_orrery_v1_usage_proto_rawDescGZIP(), []int{5}
+	return file_orrery_v1_usage_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *UsageSessionTotalsResponse) GetTotals() []*UsageSessionTotal {
@@ -427,7 +619,7 @@ type UsageSpendRequest struct {
 
 func (x *UsageSpendRequest) Reset() {
 	*x = UsageSpendRequest{}
-	mi := &file_orrery_v1_usage_proto_msgTypes[6]
+	mi := &file_orrery_v1_usage_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -439,7 +631,7 @@ func (x *UsageSpendRequest) String() string {
 func (*UsageSpendRequest) ProtoMessage() {}
 
 func (x *UsageSpendRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_orrery_v1_usage_proto_msgTypes[6]
+	mi := &file_orrery_v1_usage_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -452,7 +644,7 @@ func (x *UsageSpendRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UsageSpendRequest.ProtoReflect.Descriptor instead.
 func (*UsageSpendRequest) Descriptor() ([]byte, []int) {
-	return file_orrery_v1_usage_proto_rawDescGZIP(), []int{6}
+	return file_orrery_v1_usage_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *UsageSpendRequest) GetFrom() int64 {
@@ -486,7 +678,7 @@ type UsageSeatSpend struct {
 
 func (x *UsageSeatSpend) Reset() {
 	*x = UsageSeatSpend{}
-	mi := &file_orrery_v1_usage_proto_msgTypes[7]
+	mi := &file_orrery_v1_usage_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -498,7 +690,7 @@ func (x *UsageSeatSpend) String() string {
 func (*UsageSeatSpend) ProtoMessage() {}
 
 func (x *UsageSeatSpend) ProtoReflect() protoreflect.Message {
-	mi := &file_orrery_v1_usage_proto_msgTypes[7]
+	mi := &file_orrery_v1_usage_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -511,7 +703,7 @@ func (x *UsageSeatSpend) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UsageSeatSpend.ProtoReflect.Descriptor instead.
 func (*UsageSeatSpend) Descriptor() ([]byte, []int) {
-	return file_orrery_v1_usage_proto_rawDescGZIP(), []int{7}
+	return file_orrery_v1_usage_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *UsageSeatSpend) GetSeat() string {
@@ -553,7 +745,7 @@ type UsageSpendResponse struct {
 
 func (x *UsageSpendResponse) Reset() {
 	*x = UsageSpendResponse{}
-	mi := &file_orrery_v1_usage_proto_msgTypes[8]
+	mi := &file_orrery_v1_usage_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -565,7 +757,7 @@ func (x *UsageSpendResponse) String() string {
 func (*UsageSpendResponse) ProtoMessage() {}
 
 func (x *UsageSpendResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_orrery_v1_usage_proto_msgTypes[8]
+	mi := &file_orrery_v1_usage_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -578,7 +770,7 @@ func (x *UsageSpendResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UsageSpendResponse.ProtoReflect.Descriptor instead.
 func (*UsageSpendResponse) Descriptor() ([]byte, []int) {
-	return file_orrery_v1_usage_proto_rawDescGZIP(), []int{8}
+	return file_orrery_v1_usage_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *UsageSpendResponse) GetSeats() []*UsageSeatSpend {
@@ -592,7 +784,15 @@ var File_orrery_v1_usage_proto protoreflect.FileDescriptor
 
 const file_orrery_v1_usage_proto_rawDesc = "" +
 	"\n" +
-	"\x15orrery/v1/usage.proto\x12\torrery.v1\"\x16\n" +
+	"\x15orrery/v1/usage.proto\x12\torrery.v1\",\n" +
+	"\x16UsageEpicTotalsRequest\x12\x12\n" +
+	"\x04epic\x18\x01 \x01(\tR\x04epic\"z\n" +
+	"\x10UsageEpicSession\x12\x18\n" +
+	"\asession\x18\x01 \x01(\tR\asession\x12\x16\n" +
+	"\x06shared\x18\x02 \x01(\bR\x06shared\x124\n" +
+	"\x06totals\x18\x03 \x03(\v2\x1c.orrery.v1.UsageSessionTotalR\x06totals\"R\n" +
+	"\x17UsageEpicTotalsResponse\x127\n" +
+	"\bsessions\x18\x01 \x03(\v2\x1b.orrery.v1.UsageEpicSessionR\bsessions\"\x16\n" +
 	"\x14UsageReadingsRequest\"\xe8\x01\n" +
 	"\fUsageReading\x12\x18\n" +
 	"\aaccount\x18\x01 \x01(\tR\aaccount\x12\x14\n" +
@@ -607,7 +807,7 @@ const file_orrery_v1_usage_proto_rawDesc = "" +
 	"\x15UsageReadingsResponse\x123\n" +
 	"\breadings\x18\x01 \x03(\v2\x17.orrery.v1.UsageReadingR\breadings\"5\n" +
 	"\x19UsageSessionTotalsRequest\x12\x18\n" +
-	"\asession\x18\x01 \x01(\tR\asession\"\xe4\x02\n" +
+	"\asession\x18\x01 \x01(\tR\asession\"\xb6\x05\n" +
 	"\x11UsageSessionTotal\x12\x14\n" +
 	"\x05model\x18\x01 \x01(\tR\x05model\x12\x1d\n" +
 	"\n" +
@@ -618,7 +818,16 @@ const file_orrery_v1_usage_proto_rawDesc = "" +
 	"\x11cache_read_tokens\x18\x06 \x01(\x03R\x0fcacheReadTokens\x12,\n" +
 	"\x12cache_write_tokens\x18\a \x01(\x03R\x10cacheWriteTokens\x12/\n" +
 	"\x14billed_cost_nano_usd\x18\b \x01(\x03R\x11billedCostNanoUsd\x12+\n" +
-	"\x12list_cost_nano_usd\x18\t \x01(\x03R\x0flistCostNanoUsd\"R\n" +
+	"\x12list_cost_nano_usd\x18\t \x01(\x03R\x0flistCostNanoUsd\x122\n" +
+	"\x13list_input_nano_usd\x18\n" +
+	" \x01(\x03H\x00R\x10listInputNanoUsd\x88\x01\x01\x124\n" +
+	"\x14list_output_nano_usd\x18\v \x01(\x03H\x01R\x11listOutputNanoUsd\x88\x01\x01\x12;\n" +
+	"\x18list_cache_read_nano_usd\x18\f \x01(\x03H\x02R\x14listCacheReadNanoUsd\x88\x01\x01\x12=\n" +
+	"\x19list_cache_write_nano_usd\x18\r \x01(\x03H\x03R\x15listCacheWriteNanoUsd\x88\x01\x01B\x16\n" +
+	"\x14_list_input_nano_usdB\x17\n" +
+	"\x15_list_output_nano_usdB\x1b\n" +
+	"\x19_list_cache_read_nano_usdB\x1c\n" +
+	"\x1a_list_cache_write_nano_usd\"R\n" +
 	"\x1aUsageSessionTotalsResponse\x124\n" +
 	"\x06totals\x18\x01 \x03(\v2\x1c.orrery.v1.UsageSessionTotalR\x06totals\"7\n" +
 	"\x11UsageSpendRequest\x12\x12\n" +
@@ -630,8 +839,10 @@ const file_orrery_v1_usage_proto_rawDesc = "" +
 	"\x12list_cost_nano_usd\x18\x03 \x01(\x03R\x0flistCostNanoUsd\x122\n" +
 	"\x15unknown_cost_requests\x18\x04 \x01(\x03R\x13unknownCostRequests\"E\n" +
 	"\x12UsageSpendResponse\x12/\n" +
-	"\x05seats\x18\x01 \x03(\v2\x19.orrery.v1.UsageSeatSpendR\x05seats2\xfa\x01\n" +
-	"\x05Usage\x12M\n" +
+	"\x05seats\x18\x01 \x03(\v2\x19.orrery.v1.UsageSeatSpendR\x05seats2\xcf\x02\n" +
+	"\x05Usage\x12S\n" +
+	"\n" +
+	"EpicTotals\x12!.orrery.v1.UsageEpicTotalsRequest\x1a\".orrery.v1.UsageEpicTotalsResponse\x12M\n" +
 	"\bReadings\x12\x1f.orrery.v1.UsageReadingsRequest\x1a .orrery.v1.UsageReadingsResponse\x12\\\n" +
 	"\rSessionTotals\x12$.orrery.v1.UsageSessionTotalsRequest\x1a%.orrery.v1.UsageSessionTotalsResponse\x12D\n" +
 	"\x05Spend\x12\x1c.orrery.v1.UsageSpendRequest\x1a\x1d.orrery.v1.UsageSpendResponseB\x9f\x01\n" +
@@ -651,33 +862,40 @@ func file_orrery_v1_usage_proto_rawDescGZIP() []byte {
 	return file_orrery_v1_usage_proto_rawDescData
 }
 
-var file_orrery_v1_usage_proto_msgTypes = make([]protoimpl.MessageInfo, 9)
+var file_orrery_v1_usage_proto_msgTypes = make([]protoimpl.MessageInfo, 12)
 var file_orrery_v1_usage_proto_goTypes = []any{
-	(*UsageReadingsRequest)(nil),       // 0: orrery.v1.UsageReadingsRequest
-	(*UsageReading)(nil),               // 1: orrery.v1.UsageReading
-	(*UsageReadingsResponse)(nil),      // 2: orrery.v1.UsageReadingsResponse
-	(*UsageSessionTotalsRequest)(nil),  // 3: orrery.v1.UsageSessionTotalsRequest
-	(*UsageSessionTotal)(nil),          // 4: orrery.v1.UsageSessionTotal
-	(*UsageSessionTotalsResponse)(nil), // 5: orrery.v1.UsageSessionTotalsResponse
-	(*UsageSpendRequest)(nil),          // 6: orrery.v1.UsageSpendRequest
-	(*UsageSeatSpend)(nil),             // 7: orrery.v1.UsageSeatSpend
-	(*UsageSpendResponse)(nil),         // 8: orrery.v1.UsageSpendResponse
+	(*UsageEpicTotalsRequest)(nil),     // 0: orrery.v1.UsageEpicTotalsRequest
+	(*UsageEpicSession)(nil),           // 1: orrery.v1.UsageEpicSession
+	(*UsageEpicTotalsResponse)(nil),    // 2: orrery.v1.UsageEpicTotalsResponse
+	(*UsageReadingsRequest)(nil),       // 3: orrery.v1.UsageReadingsRequest
+	(*UsageReading)(nil),               // 4: orrery.v1.UsageReading
+	(*UsageReadingsResponse)(nil),      // 5: orrery.v1.UsageReadingsResponse
+	(*UsageSessionTotalsRequest)(nil),  // 6: orrery.v1.UsageSessionTotalsRequest
+	(*UsageSessionTotal)(nil),          // 7: orrery.v1.UsageSessionTotal
+	(*UsageSessionTotalsResponse)(nil), // 8: orrery.v1.UsageSessionTotalsResponse
+	(*UsageSpendRequest)(nil),          // 9: orrery.v1.UsageSpendRequest
+	(*UsageSeatSpend)(nil),             // 10: orrery.v1.UsageSeatSpend
+	(*UsageSpendResponse)(nil),         // 11: orrery.v1.UsageSpendResponse
 }
 var file_orrery_v1_usage_proto_depIdxs = []int32{
-	1, // 0: orrery.v1.UsageReadingsResponse.readings:type_name -> orrery.v1.UsageReading
-	4, // 1: orrery.v1.UsageSessionTotalsResponse.totals:type_name -> orrery.v1.UsageSessionTotal
-	7, // 2: orrery.v1.UsageSpendResponse.seats:type_name -> orrery.v1.UsageSeatSpend
-	0, // 3: orrery.v1.Usage.Readings:input_type -> orrery.v1.UsageReadingsRequest
-	3, // 4: orrery.v1.Usage.SessionTotals:input_type -> orrery.v1.UsageSessionTotalsRequest
-	6, // 5: orrery.v1.Usage.Spend:input_type -> orrery.v1.UsageSpendRequest
-	2, // 6: orrery.v1.Usage.Readings:output_type -> orrery.v1.UsageReadingsResponse
-	5, // 7: orrery.v1.Usage.SessionTotals:output_type -> orrery.v1.UsageSessionTotalsResponse
-	8, // 8: orrery.v1.Usage.Spend:output_type -> orrery.v1.UsageSpendResponse
-	6, // [6:9] is the sub-list for method output_type
-	3, // [3:6] is the sub-list for method input_type
-	3, // [3:3] is the sub-list for extension type_name
-	3, // [3:3] is the sub-list for extension extendee
-	0, // [0:3] is the sub-list for field type_name
+	7,  // 0: orrery.v1.UsageEpicSession.totals:type_name -> orrery.v1.UsageSessionTotal
+	1,  // 1: orrery.v1.UsageEpicTotalsResponse.sessions:type_name -> orrery.v1.UsageEpicSession
+	4,  // 2: orrery.v1.UsageReadingsResponse.readings:type_name -> orrery.v1.UsageReading
+	7,  // 3: orrery.v1.UsageSessionTotalsResponse.totals:type_name -> orrery.v1.UsageSessionTotal
+	10, // 4: orrery.v1.UsageSpendResponse.seats:type_name -> orrery.v1.UsageSeatSpend
+	0,  // 5: orrery.v1.Usage.EpicTotals:input_type -> orrery.v1.UsageEpicTotalsRequest
+	3,  // 6: orrery.v1.Usage.Readings:input_type -> orrery.v1.UsageReadingsRequest
+	6,  // 7: orrery.v1.Usage.SessionTotals:input_type -> orrery.v1.UsageSessionTotalsRequest
+	9,  // 8: orrery.v1.Usage.Spend:input_type -> orrery.v1.UsageSpendRequest
+	2,  // 9: orrery.v1.Usage.EpicTotals:output_type -> orrery.v1.UsageEpicTotalsResponse
+	5,  // 10: orrery.v1.Usage.Readings:output_type -> orrery.v1.UsageReadingsResponse
+	8,  // 11: orrery.v1.Usage.SessionTotals:output_type -> orrery.v1.UsageSessionTotalsResponse
+	11, // 12: orrery.v1.Usage.Spend:output_type -> orrery.v1.UsageSpendResponse
+	9,  // [9:13] is the sub-list for method output_type
+	5,  // [5:9] is the sub-list for method input_type
+	5,  // [5:5] is the sub-list for extension type_name
+	5,  // [5:5] is the sub-list for extension extendee
+	0,  // [0:5] is the sub-list for field type_name
 }
 
 func init() { file_orrery_v1_usage_proto_init() }
@@ -685,14 +903,15 @@ func file_orrery_v1_usage_proto_init() {
 	if File_orrery_v1_usage_proto != nil {
 		return
 	}
-	file_orrery_v1_usage_proto_msgTypes[1].OneofWrappers = []any{}
+	file_orrery_v1_usage_proto_msgTypes[4].OneofWrappers = []any{}
+	file_orrery_v1_usage_proto_msgTypes[7].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_orrery_v1_usage_proto_rawDesc), len(file_orrery_v1_usage_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   9,
+			NumMessages:   12,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
