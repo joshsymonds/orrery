@@ -327,9 +327,9 @@ func runWrite(
 type epicEventKey struct{}
 
 // withEpicEvent returns ctx marked for a statement that creates an epic or contract caller event: an epic question, an
-// epic phase, a stopped release, or a contract state an accept, a set aside or a reopen records. The write's writeConn
-// records the mark when such a statement runs and succeeds, so the write calls the hook once it commits. A helper passes
-// the marked context to its own statement only.
+// epic tell, an epic phase, a stopped release, or a contract state an accept, a set aside or a reopen records. The
+// write's writeConn records the mark when such a statement runs and succeeds, so the write calls the hook once it
+// commits. A helper passes the marked context to its own statement only.
 func withEpicEvent(ctx context.Context) context.Context {
 	return context.WithValue(ctx, epicEventKey{}, true)
 }

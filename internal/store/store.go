@@ -90,9 +90,9 @@ func (s *Store) engineLiveIDs() []string {
 }
 
 // OnCallerEvent sets fn as the hook that a store write creating an epic or contract caller event calls. Such a write
-// inserts an epic question, sets an epic's phase, stops a release, or records an accept, a set aside or a reopen of a
-// contract, and it calls the hook once, synchronously, right after it commits. A write that rolls back or fails to
-// commit calls nothing. A nil fn clears the hook. It is safe to call while writes run.
+// inserts an epic question, adds a tell, sets an epic's phase, stops a release, or records an accept, a set aside or a
+// reopen of a contract, and it calls the hook once, synchronously, right after it commits. A write that rolls back or
+// fails to commit calls nothing. A nil fn clears the hook. It is safe to call while writes run.
 func (s *Store) OnCallerEvent(fn func()) {
 	if fn == nil {
 		s.callerEvent.Store(nil)
