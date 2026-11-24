@@ -13,6 +13,12 @@ import com.connectrpc.ResponseMessage
  */
 public interface UsageClientInterface {
   /**
+   *  EpicTotals returns, in one ledger read, the totals of each session of an epic: its step sessions, and its steerer
+   *  marked shared.
+   */
+  public suspend fun epicTotals(request: UsageEpicTotalsRequest, headers: Headers = emptyMap()): ResponseMessage<UsageEpicTotalsResponse>
+
+  /**
    *  Readings returns the usage limit readings, one for each account and claim.
    */
   public suspend fun readings(request: UsageReadingsRequest, headers: Headers = emptyMap()): ResponseMessage<UsageReadingsResponse>

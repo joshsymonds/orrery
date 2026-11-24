@@ -18,6 +18,22 @@ public class UsageClient(
   private val client: ProtocolClientInterface,
 ) : UsageClientInterface {
   /**
+   *  EpicTotals returns, in one ledger read, the totals of each session of an epic: its step sessions, and its steerer
+   *  marked shared.
+   */
+  override suspend fun epicTotals(request: UsageEpicTotalsRequest, headers: Headers): ResponseMessage<UsageEpicTotalsResponse> = client.unary(
+    request,
+    headers,
+    MethodSpec(
+    "orrery.v1.Usage/EpicTotals",
+      io.github.joshsymonds.orrery.gen.orrery.v1.UsageEpicTotalsRequest::class,
+      io.github.joshsymonds.orrery.gen.orrery.v1.UsageEpicTotalsResponse::class,
+      StreamType.UNARY,
+    ),
+  )
+
+
+  /**
    *  Readings returns the usage limit readings, one for each account and claim.
    */
   override suspend fun readings(request: UsageReadingsRequest, headers: Headers): ResponseMessage<UsageReadingsResponse> = client.unary(

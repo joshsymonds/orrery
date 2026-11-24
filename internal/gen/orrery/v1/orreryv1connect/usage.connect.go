@@ -33,6 +33,8 @@ const (
 // reflection-formatted method names, remove the leading slash and convert the remaining slash to a
 // period.
 const (
+	// UsageEpicTotalsProcedure is the fully-qualified name of the Usage's EpicTotals RPC.
+	UsageEpicTotalsProcedure = "/orrery.v1.Usage/EpicTotals"
 	// UsageReadingsProcedure is the fully-qualified name of the Usage's Readings RPC.
 	UsageReadingsProcedure = "/orrery.v1.Usage/Readings"
 	// UsageSessionTotalsProcedure is the fully-qualified name of the Usage's SessionTotals RPC.
@@ -43,6 +45,9 @@ const (
 
 // UsageClient is a client for the orrery.v1.Usage service.
 type UsageClient interface {
+	// EpicTotals returns, in one ledger read, the totals of each session of an epic: its step sessions, and its steerer
+	// marked shared.
+	EpicTotals(context.Context, *connect.Request[v1.UsageEpicTotalsRequest]) (*connect.Response[v1.UsageEpicTotalsResponse], error)
 	// Readings returns the usage limit readings, one for each account and claim.
 	Readings(context.Context, *connect.Request[v1.UsageReadingsRequest]) (*connect.Response[v1.UsageReadingsResponse], error)
 	// SessionTotals returns the requests and tokens one session made, totalled for each model and agent type.
@@ -62,6 +67,12 @@ func NewUsageClient(httpClient connect.HTTPClient, baseURL string, opts ...conne
 	baseURL = strings.TrimRight(baseURL, "/")
 	usageMethods := v1.File_orrery_v1_usage_proto.Services().ByName("Usage").Methods()
 	return &usageClient{
+		epicTotals: connect.NewClient[v1.UsageEpicTotalsRequest, v1.UsageEpicTotalsResponse](
+			httpClient,
+			baseURL+UsageEpicTotalsProcedure,
+			connect.WithSchema(usageMethods.ByName("EpicTotals")),
+			connect.WithClientOptions(opts...),
+		),
 		readings: connect.NewClient[v1.UsageReadingsRequest, v1.UsageReadingsResponse](
 			httpClient,
 			baseURL+UsageReadingsProcedure,
@@ -85,9 +96,15 @@ func NewUsageClient(httpClient connect.HTTPClient, baseURL string, opts ...conne
 
 // usageClient implements UsageClient.
 type usageClient struct {
+	epicTotals    *connect.Client[v1.UsageEpicTotalsRequest, v1.UsageEpicTotalsResponse]
 	readings      *connect.Client[v1.UsageReadingsRequest, v1.UsageReadingsResponse]
 	sessionTotals *connect.Client[v1.UsageSessionTotalsRequest, v1.UsageSessionTotalsResponse]
 	spend         *connect.Client[v1.UsageSpendRequest, v1.UsageSpendResponse]
+}
+
+// EpicTotals calls orrery.v1.Usage.EpicTotals.
+func (c *usageClient) EpicTotals(ctx context.Context, req *connect.Request[v1.UsageEpicTotalsRequest]) (*connect.Response[v1.UsageEpicTotalsResponse], error) {
+	return c.epicTotals.CallUnary(ctx, req)
 }
 
 // Readings calls orrery.v1.Usage.Readings.
@@ -107,6 +124,9 @@ func (c *usageClient) Spend(ctx context.Context, req *connect.Request[v1.UsageSp
 
 // UsageHandler is an implementation of the orrery.v1.Usage service.
 type UsageHandler interface {
+	// EpicTotals returns, in one ledger read, the totals of each session of an epic: its step sessions, and its steerer
+	// marked shared.
+	EpicTotals(context.Context, *connect.Request[v1.UsageEpicTotalsRequest]) (*connect.Response[v1.UsageEpicTotalsResponse], error)
 	// Readings returns the usage limit readings, one for each account and claim.
 	Readings(context.Context, *connect.Request[v1.UsageReadingsRequest]) (*connect.Response[v1.UsageReadingsResponse], error)
 	// SessionTotals returns the requests and tokens one session made, totalled for each model and agent type.
@@ -122,6 +142,12 @@ type UsageHandler interface {
 // and JSON codecs. They also support gzip compression.
 func NewUsageHandler(svc UsageHandler, opts ...connect.HandlerOption) (string, http.Handler) {
 	usageMethods := v1.File_orrery_v1_usage_proto.Services().ByName("Usage").Methods()
+	usageEpicTotalsHandler := connect.NewUnaryHandler(
+		UsageEpicTotalsProcedure,
+		svc.EpicTotals,
+		connect.WithSchema(usageMethods.ByName("EpicTotals")),
+		connect.WithHandlerOptions(opts...),
+	)
 	usageReadingsHandler := connect.NewUnaryHandler(
 		UsageReadingsProcedure,
 		svc.Readings,
@@ -142,6 +168,8 @@ func NewUsageHandler(svc UsageHandler, opts ...connect.HandlerOption) (string, h
 	)
 	return "/orrery.v1.Usage/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
+		case UsageEpicTotalsProcedure:
+			usageEpicTotalsHandler.ServeHTTP(w, r)
 		case UsageReadingsProcedure:
 			usageReadingsHandler.ServeHTTP(w, r)
 		case UsageSessionTotalsProcedure:
@@ -156,6 +184,10 @@ func NewUsageHandler(svc UsageHandler, opts ...connect.HandlerOption) (string, h
 
 // UnimplementedUsageHandler returns CodeUnimplemented from all methods.
 type UnimplementedUsageHandler struct{}
+
+func (UnimplementedUsageHandler) EpicTotals(context.Context, *connect.Request[v1.UsageEpicTotalsRequest]) (*connect.Response[v1.UsageEpicTotalsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orrery.v1.Usage.EpicTotals is not implemented"))
+}
 
 func (UnimplementedUsageHandler) Readings(context.Context, *connect.Request[v1.UsageReadingsRequest]) (*connect.Response[v1.UsageReadingsResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orrery.v1.Usage.Readings is not implemented"))
