@@ -1128,6 +1128,83 @@ public  final class ContractsGetResponse extends
     shown_.remove(index);
   }
 
+  public static final int LENGTH_FIELD_NUMBER = 10;
+  private io.github.joshsymonds.orrery.gen.orrery.v1.ContractLength length_;
+  /**
+   * <pre>
+   * The contract's length: the lines above its checks in the body the page draws, which is the working copy's when the
+   * contract has one and the newest version's otherwise. Unset when that body is not counted, as when the settings file
+   * does not read.
+   * </pre>
+   *
+   * <code>.orrery.v1.ContractLength length = 10 [json_name = "length"];</code>
+   */
+  @java.lang.Override
+  public boolean hasLength() {
+    return ((bitField0_ & 0x00000004) != 0);
+  }
+  /**
+   * <pre>
+   * The contract's length: the lines above its checks in the body the page draws, which is the working copy's when the
+   * contract has one and the newest version's otherwise. Unset when that body is not counted, as when the settings file
+   * does not read.
+   * </pre>
+   *
+   * <code>.orrery.v1.ContractLength length = 10 [json_name = "length"];</code>
+   */
+  @java.lang.Override
+  public io.github.joshsymonds.orrery.gen.orrery.v1.ContractLength getLength() {
+    return length_ == null ? io.github.joshsymonds.orrery.gen.orrery.v1.ContractLength.getDefaultInstance() : length_;
+  }
+  /**
+   * <pre>
+   * The contract's length: the lines above its checks in the body the page draws, which is the working copy's when the
+   * contract has one and the newest version's otherwise. Unset when that body is not counted, as when the settings file
+   * does not read.
+   * </pre>
+   *
+   * <code>.orrery.v1.ContractLength length = 10 [json_name = "length"];</code>
+   */
+  private void setLength(io.github.joshsymonds.orrery.gen.orrery.v1.ContractLength value) {
+    java.util.Objects.requireNonNull(value);
+    length_ = value;
+    bitField0_ |= 0x00000004;
+  }
+  /**
+   * <pre>
+   * The contract's length: the lines above its checks in the body the page draws, which is the working copy's when the
+   * contract has one and the newest version's otherwise. Unset when that body is not counted, as when the settings file
+   * does not read.
+   * </pre>
+   *
+   * <code>.orrery.v1.ContractLength length = 10 [json_name = "length"];</code>
+   */
+  @java.lang.SuppressWarnings("ReferenceEquality")
+  private void mergeLength(io.github.joshsymonds.orrery.gen.orrery.v1.ContractLength value) {
+    java.util.Objects.requireNonNull(value);
+    if (length_ != null &&
+        length_ != io.github.joshsymonds.orrery.gen.orrery.v1.ContractLength.getDefaultInstance()) {
+      length_ =
+        io.github.joshsymonds.orrery.gen.orrery.v1.ContractLength.newBuilder(length_).mergeFrom(value).buildPartial();
+    } else {
+      length_ = value;
+    }
+    bitField0_ |= 0x00000004;
+  }
+  /**
+   * <pre>
+   * The contract's length: the lines above its checks in the body the page draws, which is the working copy's when the
+   * contract has one and the newest version's otherwise. Unset when that body is not counted, as when the settings file
+   * does not read.
+   * </pre>
+   *
+   * <code>.orrery.v1.ContractLength length = 10 [json_name = "length"];</code>
+   */
+  private void clearLength() {
+    length_ = null;
+    bitField0_ = (bitField0_ & ~0x00000004);
+  }
+
   public static io.github.joshsymonds.orrery.gen.orrery.v1.ContractsGetResponse parseFrom(
       java.nio.ByteBuffer data)
       throws com.google.protobuf.InvalidProtocolBufferException {
@@ -2421,6 +2498,89 @@ public  final class ContractsGetResponse extends
       return this;
     }
 
+    /**
+     * <pre>
+     * The contract's length: the lines above its checks in the body the page draws, which is the working copy's when the
+     * contract has one and the newest version's otherwise. Unset when that body is not counted, as when the settings file
+     * does not read.
+     * </pre>
+     *
+     * <code>.orrery.v1.ContractLength length = 10 [json_name = "length"];</code>
+     */
+    @java.lang.Override
+    public boolean hasLength() {
+      return instance.hasLength();
+    }
+    /**
+     * <pre>
+     * The contract's length: the lines above its checks in the body the page draws, which is the working copy's when the
+     * contract has one and the newest version's otherwise. Unset when that body is not counted, as when the settings file
+     * does not read.
+     * </pre>
+     *
+     * <code>.orrery.v1.ContractLength length = 10 [json_name = "length"];</code>
+     */
+    @java.lang.Override
+    public io.github.joshsymonds.orrery.gen.orrery.v1.ContractLength getLength() {
+      return instance.getLength();
+    }
+    /**
+     * <pre>
+     * The contract's length: the lines above its checks in the body the page draws, which is the working copy's when the
+     * contract has one and the newest version's otherwise. Unset when that body is not counted, as when the settings file
+     * does not read.
+     * </pre>
+     *
+     * <code>.orrery.v1.ContractLength length = 10 [json_name = "length"];</code>
+     */
+    public Builder setLength(io.github.joshsymonds.orrery.gen.orrery.v1.ContractLength value) {
+      copyOnWrite();
+      instance.setLength(value);
+      return this;
+      }
+    /**
+     * <pre>
+     * The contract's length: the lines above its checks in the body the page draws, which is the working copy's when the
+     * contract has one and the newest version's otherwise. Unset when that body is not counted, as when the settings file
+     * does not read.
+     * </pre>
+     *
+     * <code>.orrery.v1.ContractLength length = 10 [json_name = "length"];</code>
+     */
+    public Builder setLength(
+        io.github.joshsymonds.orrery.gen.orrery.v1.ContractLength.Builder builderForValue) {
+      copyOnWrite();
+      instance.setLength(builderForValue.build());
+      return this;
+    }
+    /**
+     * <pre>
+     * The contract's length: the lines above its checks in the body the page draws, which is the working copy's when the
+     * contract has one and the newest version's otherwise. Unset when that body is not counted, as when the settings file
+     * does not read.
+     * </pre>
+     *
+     * <code>.orrery.v1.ContractLength length = 10 [json_name = "length"];</code>
+     */
+    public Builder mergeLength(io.github.joshsymonds.orrery.gen.orrery.v1.ContractLength value) {
+      copyOnWrite();
+      instance.mergeLength(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The contract's length: the lines above its checks in the body the page draws, which is the working copy's when the
+     * contract has one and the newest version's otherwise. Unset when that body is not counted, as when the settings file
+     * does not read.
+     * </pre>
+     *
+     * <code>.orrery.v1.ContractLength length = 10 [json_name = "length"];</code>
+     */
+    public Builder clearLength() {  copyOnWrite();
+      instance.clearLength();
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:orrery.v1.ContractsGetResponse)
   }
   @java.lang.Override
@@ -2454,10 +2614,12 @@ public  final class ContractsGetResponse extends
             io.github.joshsymonds.orrery.gen.orrery.v1.ContractRequirementWork.class,
             "shown_",
             io.github.joshsymonds.orrery.gen.orrery.v1.ContractShown.class,
+            "length_",
           };
           java.lang.String info =
-              "\u0000\t\u0000\u0001\u0001\t\t\u0000\u0007\u0000\u0001\u1009\u0000\u0002\u001b\u0003" +
-              "\u001b\u0004\u1009\u0001\u0005\u001b\u0006\u001b\u0007\u001b\b\u001b\t\u001b";
+              "\u0000\n\u0000\u0001\u0001\n\n\u0000\u0007\u0000\u0001\u1009\u0000\u0002\u001b\u0003" +
+              "\u001b\u0004\u1009\u0001\u0005\u001b\u0006\u001b\u0007\u001b\b\u001b\t\u001b\n\u1009" +
+              "\u0002";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

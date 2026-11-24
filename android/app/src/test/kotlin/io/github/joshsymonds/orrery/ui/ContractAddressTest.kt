@@ -174,10 +174,17 @@ class ContractAddressTest {
         awaitNode(hasText(CONTRACT_TITLE))
     }
 
-    /** Waits until the conversation is drawn again, with its head, and the contract screen is gone. */
+    /** Waits until the contract's page on the phone sheet has read its record and drawn the record's title. */
+    private fun awaitContractPage() {
+        awaitNode(hasTestTag(CONTRACT_PAGE_TAG))
+        awaitNode(hasText(CONTRACT_TITLE))
+    }
+
+    /** Waits until the conversation is drawn again, with its head, and neither the contract screen nor its page is drawn. */
     private fun awaitConversationAgain() {
         awaitNode(hasTestTag("head-text"))
         awaitNone(hasTestTag("contract-record"))
+        awaitNone(hasTestTag(CONTRACT_PAGE_TAG))
     }
 
     @Test
@@ -188,7 +195,7 @@ class ContractAddressTest {
 
         composeRule.onNodeWithTag("work-link:contract:$RECORD_ID").performClick()
 
-        awaitContractScreen()
+        awaitContractPage()
         awaitNode(hasTestTag("contract-talk:R1"))
         assertAbsent(hasTestTag("contract-no-live"))
 
@@ -229,7 +236,7 @@ class ContractAddressTest {
     }
 
     @Test
-    fun aStoppedConversationOpensTheContractWithTheNoLiveLineAndNoRowControls() {
+    fun aStoppedConversationOpensTheContractWithNoRowControls() {
         serveSession(state = "stopped")
         launch()
         awaitNode(hasTestTag("head-text"))
@@ -237,8 +244,7 @@ class ContractAddressTest {
 
         composeRule.onNodeWithTag("work-link:contract:$RECORD_ID").performClick()
 
-        awaitContractScreen()
-        awaitNode(hasTestTag("contract-no-live"))
+        awaitContractPage()
         assertAbsent(hasTestTag("contract-talk:R1"))
     }
 }

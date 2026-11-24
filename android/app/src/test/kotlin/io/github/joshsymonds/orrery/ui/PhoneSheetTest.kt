@@ -21,6 +21,8 @@ import io.github.joshsymonds.orrery.gen.orrery.v1.ContractsListResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.ConversationState
 import io.github.joshsymonds.orrery.gen.orrery.v1.Design
 import io.github.joshsymonds.orrery.gen.orrery.v1.DesignContract
+import io.github.joshsymonds.orrery.gen.orrery.v1.DesignsGetRequest
+import io.github.joshsymonds.orrery.gen.orrery.v1.DesignsGetResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.DesignsListResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.Epic
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsGetResponse
@@ -71,6 +73,7 @@ class PhoneSheetTest {
         const val PANE_WATCH_PATH = "/orrery.v1.Panes/WatchConversation"
         const val PANES_PATH = "/orrery.v1.Panes/List"
         const val DESIGNS_PATH = "/orrery.v1.Designs/List"
+        const val DESIGN_GET_PATH = "/orrery.v1.Designs/Get"
         const val EPICS_LIST_PATH = "/orrery.v1.Epics/List"
         const val EPICS_GET_PATH = "/orrery.v1.Epics/Get"
         const val EPICS_HISTORY_PATH = "/orrery.v1.Epics/History"
@@ -135,9 +138,21 @@ class PhoneSheetTest {
         server.respond(PANES_PATH, PanesListResponse.newBuilder().addPanes(pane).build())
     }
 
-    /** The designs, epics and contracts the conversation's head reads: [designs] and [epics] as the server lists them. */
+    /**
+     * The designs, epics and contracts the conversation's head reads: [designs] and [epics] as the server lists them. Each
+     * of [designs] is also what Designs.Get answers for its id, and an id none of them has is not found.
+     */
     private fun serveWork(server: FakeOrreryServer, designs: List<Design>, epics: List<Epic>) {
         server.respond(DESIGNS_PATH, DesignsListResponse.newBuilder().addAllDesigns(designs).build())
+        server.route(DESIGN_GET_PATH) { request ->
+            val id = DesignsGetRequest.parseFrom(request.body).id
+            val design = designs.firstOrNull { it.id == id }
+            if (design == null) {
+                Reply.Failure(Code.NOT_FOUND, "", 0L)
+            } else {
+                Reply.Message(DesignsGetResponse.newBuilder().setDesign(design).build(), 0L)
+            }
+        }
         server.respond(EPICS_LIST_PATH, EpicsListResponse.newBuilder().addAllEpics(epics).build())
         server.respond(CONTRACTS_PATH, ContractsListResponse.getDefaultInstance())
     }
@@ -214,7 +229,8 @@ class PhoneSheetTest {
         composeRule.onNodeWithTag(SHEET_NAME_TAG, useUnmergedTree = true).assertTextEquals(DESIGN_TITLE)
         composeRule.onNodeWithTag(SHEET_KIND_TAG, useUnmergedTree = true).assertTextEquals("working on")
         composeRule.onNodeWithTag(SHEET_STATE_TAG, useUnmergedTree = true).assertTextEquals("design · $DESIGN_STATE")
-        assertBodyHolds("sheet-body:design:$DESIGN_ID", "design-tab:$DESIGN_ID")
+        awaitTag("design-page")
+        assertBodyHolds("sheet-body:design:$DESIGN_ID", "design-page")
     }
 
     @Test
@@ -330,7 +346,7 @@ class PhoneSheetTest {
     }
 
     @Test
-    fun phoneSheetKidSwitchesTheSheetToItsEpicAndUpReturnsToTheDesign() {
+    fun phoneSheetDesignPageContractRowSwitchesTheSheetToItsContractAndUpReturnsToTheDesign() {
         FakeOrreryServer().use { server ->
             serveSession(server)
             val epicRow = epic(EPIC_ID, EPIC_SLUG, steering = SESSION_ID)
@@ -345,12 +361,12 @@ class PhoneSheetTest {
             setSession(server)
             awaitTag(DESIGN_LINK_TAG)
             composeRule.onNodeWithTag(DESIGN_LINK_TAG).performClick()
-            awaitTag("hung:epic:$EPIC_ID")
+            awaitTag("design-contract:$CONTRACT_ID")
 
-            composeRule.onNodeWithTag("hung:epic:$EPIC_ID", useUnmergedTree = true).performScrollTo().performClick()
+            composeRule.onNodeWithTag("design-contract:$CONTRACT_ID", useUnmergedTree = true).performScrollTo().performClick()
 
-            awaitTag("sheet-body:epic:$EPIC_ID")
-            composeRule.onNodeWithTag(SHEET_NAME_TAG, useUnmergedTree = true).assertTextEquals(EPIC_SLUG)
+            awaitTag("sheet-body:contract:$CONTRACT_ID")
+            composeRule.onNodeWithTag(SHEET_NAME_TAG, useUnmergedTree = true).assertTextEquals(CONTRACT_NAME)
             composeRule.onNodeWithTag(SHEET_UP_TAG, useUnmergedTree = true).assertTextEquals(DESIGN_TITLE)
             composeRule.onNodeWithTag(DESIGN_LINK_TAG).assertIsSelected()
 

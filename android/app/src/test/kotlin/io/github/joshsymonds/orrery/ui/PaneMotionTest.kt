@@ -19,10 +19,10 @@ import io.github.joshsymonds.orrery.awaitUntil
 import io.github.joshsymonds.orrery.gen.orrery.v1.ContractsListResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.Design
 import io.github.joshsymonds.orrery.gen.orrery.v1.DesignContract
+import io.github.joshsymonds.orrery.gen.orrery.v1.DesignsGetRequest
+import io.github.joshsymonds.orrery.gen.orrery.v1.DesignsGetResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.DesignsListResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.Epic
-import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsGetResponse
-import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsHistoryResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsListResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.Pane as PaneProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.PanesListResponse
@@ -57,14 +57,13 @@ class PaneMotionTest {
         const val EPIC_SLUG = "synthetic-epic"
         const val DESIGN_LINK_TAG = "work-link:design:$DESIGN_ID"
         const val DESIGN_BODY_TAG = "sheet-body:design:$DESIGN_ID"
-        const val EPIC_BODY_TAG = "sheet-body:epic:$EPIC_ID"
-        const val KID_TAG = "hung:epic:$EPIC_ID"
+        const val CONTRACT_BODY_TAG = "sheet-body:contract:$CONTRACT_ID"
+        const val CONTRACT_ROW_TAG = "design-contract:$CONTRACT_ID"
         const val PANE_WATCH_PATH = "/orrery.v1.Panes/WatchConversation"
         const val PANES_PATH = "/orrery.v1.Panes/List"
         const val DESIGNS_PATH = "/orrery.v1.Designs/List"
+        const val DESIGN_GET_PATH = "/orrery.v1.Designs/Get"
         const val EPICS_LIST_PATH = "/orrery.v1.Epics/List"
-        const val EPICS_GET_PATH = "/orrery.v1.Epics/Get"
-        const val EPICS_HISTORY_PATH = "/orrery.v1.Epics/History"
         const val CONTRACTS_PATH = "/orrery.v1.Contracts/List"
     }
 
@@ -104,17 +103,23 @@ class PaneMotionTest {
         server.respond(PANES_PATH, PanesListResponse.newBuilder().addPanes(pane).build())
     }
 
-    /** The designs, epics and contracts the pane's head reads: [designs] and [epics] as the server lists them. */
+    /**
+     * The designs, epics and contracts the pane's head reads: [designs] and [epics] as the server lists them. Each of
+     * [designs] is also what Designs.Get answers for its id, and an id none of them has is not found.
+     */
     private fun serveWork(server: FakeOrreryServer, designs: List<Design>, epics: List<Epic>) {
         server.respond(DESIGNS_PATH, DesignsListResponse.newBuilder().addAllDesigns(designs).build())
+        server.route(DESIGN_GET_PATH) { request ->
+            val id = DesignsGetRequest.parseFrom(request.body).id
+            val design = designs.firstOrNull { it.id == id }
+            if (design == null) {
+                Reply.Failure(Code.NOT_FOUND, "", 0L)
+            } else {
+                Reply.Message(DesignsGetResponse.newBuilder().setDesign(design).build(), 0L)
+            }
+        }
         server.respond(EPICS_LIST_PATH, EpicsListResponse.newBuilder().addAllEpics(epics).build())
         server.respond(CONTRACTS_PATH, ContractsListResponse.getDefaultInstance())
-    }
-
-    /** Serves [epic] as its detail reads it, with no history, so its screen draws the epic's summary. */
-    private fun serveEpicDetail(server: FakeOrreryServer, epic: Epic) {
-        server.respond(EPICS_GET_PATH, EpicsGetResponse.newBuilder().setEpic(epic).setRepository(REPOSITORY).build())
-        server.respond(EPICS_HISTORY_PATH, EpicsHistoryResponse.getDefaultInstance())
     }
 
     private fun design(
@@ -252,28 +257,27 @@ class PaneMotionTest {
             )
             servePane(server)
             serveWork(server, designs = listOf(tide), epics = listOf(epicRow))
-            serveEpicDetail(server, epicRow)
             setPane(server)
             awaitTag(DESIGN_LINK_TAG)
             composeRule.onNodeWithTag(DESIGN_LINK_TAG).performClick()
-            awaitTag(KID_TAG)
+            awaitTag(CONTRACT_ROW_TAG)
             composeRule.mainClock.autoAdvance = false
             settleSheet()
 
-            composeRule.onNodeWithTag(KID_TAG, useUnmergedTree = true).performScrollTo().performClick()
+            composeRule.onNodeWithTag(CONTRACT_ROW_TAG, useUnmergedTree = true).performScrollTo().performClick()
             composeRule.mainClock.advanceTimeBy(Move.LEAVE.millis.toLong() / 2)
 
             composeRule.onNodeWithTag(DESIGN_BODY_TAG, useUnmergedTree = true).assertExists()
-            composeRule.onNodeWithTag(EPIC_BODY_TAG, useUnmergedTree = true).assertExists()
+            composeRule.onNodeWithTag(CONTRACT_BODY_TAG, useUnmergedTree = true).assertExists()
             assertTrue("the design's body is fading out", sheetFade(DESIGN_BODY_TAG) < 1f)
-            assertTrue("the epic's body is fading in", sheetFade(EPIC_BODY_TAG) > 0f)
+            assertTrue("the contract's body is fading in", sheetFade(CONTRACT_BODY_TAG) > 0f)
             assertEquals("the sheet stays at rest through the switch", SheetPose.REST, sheetPose())
 
             composeRule.mainClock.advanceTimeBy(Move.LEAVE.millis.toLong())
 
             composeRule.onAllNodesWithTag(DESIGN_BODY_TAG, useUnmergedTree = true).assertCountEquals(0)
-            composeRule.onNodeWithTag(EPIC_BODY_TAG, useUnmergedTree = true).assertExists()
-            assertEquals("the epic's body is opaque after the fade", 1f, sheetFade(EPIC_BODY_TAG), 0f)
+            composeRule.onNodeWithTag(CONTRACT_BODY_TAG, useUnmergedTree = true).assertExists()
+            assertEquals("the contract's body is opaque after the fade", 1f, sheetFade(CONTRACT_BODY_TAG), 0f)
         }
     }
 

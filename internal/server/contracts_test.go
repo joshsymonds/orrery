@@ -368,6 +368,8 @@ func TestContractRecordGetGivesVersionsAndStates(t *testing.T) {
 		Work: []*orreryv1.ContractRequirementWork{
 			{Id: "R1", Text: "Synthetic requirement.", State: "not started"},
 		},
+		// The newest version's body is 44 lines above its checks, at the default thresholds.
+		Length: &orreryv1.ContractLength{Lines: 44, Warn: 41, Strong: 61},
 	}
 	if !proto.Equal(reply.Msg, want) {
 		t.Fatalf("Get = %v, want %v", reply.Msg, want)

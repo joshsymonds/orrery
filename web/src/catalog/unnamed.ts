@@ -57,6 +57,19 @@ export const unnamed: Readonly<Record<string, UnnamedEntry>> = {
   // DesignCard draws a design held at the desk: its state, then its contracts in position order, each with its state. Round 6
   // draws a design's contracts as Work cards, and no design's record.
   "design-card": { replacement: "WorkCard", epic: "F4" },
+  // ContractWork draws an accepted contract's work by requirement: the epic's door, then each requirement with its state,
+  // its tasks and its proof. Round 6 draws an accepted contract as its document, and no work by requirement.
+  "contract-work": { replacement: "contract-accepted", epic: "F4" },
+  // QuestionThread draws one design question with its own thread, its own answer box and Accept, in the conversation and in the
+  // design. Round 6 draws the Ask alone, with no thread and no box of its own.
+  "question-thread": { replacement: "Ask", epic: "F3" },
+  // DesignSteelman draws a design's steelman: its budget's two cells in words, each discovery and closure pass, and the ledger
+  // of its findings with who decided each. Round 6 draws no design's steelman; its stage track stands nearest, for the budget.
+  "design-steelman": { replacement: "Track", epic: "F4" },
+  // DesignPage draws a design's page: its stage strip, what the Director decided for you, its contracts, its steelman, its
+  // approach, its questions, its research and its log. Round 6 draws no design's page, and its stage track stands nearest,
+  // for the strip.
+  "design-page": { replacement: "Track", epic: "F4" },
 
   // ---- single stories of round-6 components, each the component in a state round 6 does not draw ----
 
