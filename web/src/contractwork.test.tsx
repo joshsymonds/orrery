@@ -16,7 +16,7 @@ import {
   type ContractsGetResponse,
 } from "./gen/orrery/v1/contracts_pb";
 import { EvidenceRunSchema } from "./gen/orrery/v1/epics_pb";
-import { installTestDom, removeTestDom } from "./testdom";
+import { assertNone, installTestDom, removeTestDom } from "./testdom";
 import { turn, until } from "./testwait";
 
 // withWork renders the element into a fresh test DOM, runs the check on its container, and removes the DOM.
@@ -132,7 +132,7 @@ test("ContractWork: each requirement's tasks draw their id, title, status and pl
       [["T4", "port-from-table", "gap", "green"]],
     );
     const bare = requirementOf(container, "R3");
-    assert.equal(bare.querySelector(".work-tasks"), null);
+    assertNone(bare.querySelector(".work-tasks"), "a requirement with no task draws no task list");
     assert.equal(textOf(bare, ".inote"), "no task yet");
   });
 });
@@ -161,8 +161,8 @@ test("ContractWork: the epic's door comes first and names the epic, and a press 
 
 test("ContractWork: with no epic no door is drawn, and the requirements still are", async () => {
   await withWork(<ContractWork work={requirements} epic={null} />, (container) => {
-    assert.equal(container.querySelector(".work-epic"), null);
-    assert.equal(container.querySelector("button"), null);
+    assertNone(container.querySelector(".work-epic"), "no epic, no door");
+    assertNone(container.querySelector("button"), "no epic, no button");
     assert.equal(all(container, "[data-requirement]").length, 4);
   });
 });
@@ -246,14 +246,14 @@ test("ContractWork: the work's door on the record opens the contract's epic by i
 test("ContractWork: with no epic on the page the work draws no door, and its requirements still are drawn", async (t) => {
   await drawRecord(t, withWorkGet(tideAccepted), { hasEpic: false, onOpenEpic: undefined }, (container) => {
     assert.ok(container.querySelector(".contract-work") !== null, "the work is drawn");
-    assert.equal(container.querySelector(".contract-work .work-epic"), null);
+    assertNone(container.querySelector(".contract-work .work-epic"), "no epic, no door");
     assert.equal(all(container, "[data-requirement]").length, 4);
   });
 });
 
 test("ContractWork: an accepted contract whose Get carries no work draws no work section, and opens on its document", async (t) => {
   await drawRecord(t, tideAccepted, { hasEpic: true, onOpenEpic: () => undefined }, (container) => {
-    assert.equal(container.querySelector(".contract-work"), null);
+    assertNone(container.querySelector(".contract-work"), "the record draws no work section");
     const [first] = Array.from(container.querySelector(".contract-record")?.children ?? []);
     assert.ok(first !== undefined && first.classList.contains("contract"), "the document is drawn first");
   });
@@ -261,7 +261,7 @@ test("ContractWork: an accepted contract whose Get carries no work draws no work
 
 test("ContractWork: a proposed contract draws no work section, even when its Get carries work", async (t) => {
   await drawRecord(t, withWorkGet(tideProposed), { hasEpic: true, onOpenEpic: () => undefined }, (container) => {
-    assert.equal(container.querySelector(".contract-work"), null);
+    assertNone(container.querySelector(".contract-work"), "the record draws no work section");
     const [first] = Array.from(container.querySelector(".contract-record")?.children ?? []);
     assert.ok(first !== undefined && first.classList.contains("contract"), "the document is drawn first");
   });
