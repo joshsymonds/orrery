@@ -11,10 +11,10 @@ import (
 // rootFolders returns the directories of root at levels 1 and 2 below root, sorted by path. A name beginning with "." is
 // left out with everything under it, as is a symlink and any directory os.ReadDir cannot read.
 func rootFolders(root string) []string {
-	var folders []string
-	for _, level1 := range childFolders(root) {
-		folders = append(folders, level1)
-		folders = append(folders, childFolders(level1)...)
+	level1 := childFolders(root)
+	folders := slices.Clone(level1)
+	for _, dir := range level1 {
+		folders = append(folders, childFolders(dir)...)
 	}
 	slices.Sort(folders)
 	return folders
