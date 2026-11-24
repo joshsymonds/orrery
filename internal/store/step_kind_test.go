@@ -83,7 +83,7 @@ func TestStepKindReaderSnapshotListsNoStepRow(t *testing.T) {
 	s := openWriterAt(t, path)
 	now := time.Unix(1_700_000_000, 0)
 
-	if err := s.SyncServer(ctx, "-L a", []Pane{{ID: "orrery-1", Pane: "%1"}}, now); err != nil {
+	if err := s.SyncServer(ctx, "", "-L a", []Pane{{ID: "orrery-1", Pane: "%1"}}, now); err != nil {
 		t.Fatalf("SyncServer: %v", err)
 	}
 	if err := s.ApplyEngine(ctx, []EngineOp{
@@ -109,7 +109,7 @@ func TestStepKindRowSurvivesPruneWhileStaleEngineRowIsRemoved(t *testing.T) {
 	t0 := time.Unix(1_700_000_000, 0)
 	panes := []Pane{{ID: "orrery-1", Pane: "%1"}}
 
-	if err := s.SyncServer(ctx, "-L a", panes, t0); err != nil {
+	if err := s.SyncServer(ctx, "", "-L a", panes, t0); err != nil {
 		t.Fatalf("SyncServer at T: %v", err)
 	}
 	if err := s.ApplyEngine(ctx, []EngineOp{
@@ -120,7 +120,7 @@ func TestStepKindRowSurvivesPruneWhileStaleEngineRowIsRemoved(t *testing.T) {
 	}
 
 	now := t0.Add(EventRetention + time.Hour)
-	if err := s.SyncServer(ctx, "-L a", panes, now); err != nil {
+	if err := s.SyncServer(ctx, "", "-L a", panes, now); err != nil {
 		t.Fatalf("SyncServer at T plus 14 days and one hour: %v", err)
 	}
 

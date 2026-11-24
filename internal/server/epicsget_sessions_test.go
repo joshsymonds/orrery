@@ -133,7 +133,7 @@ func TestEpicsGetSessionsLeavesOutRemovedSession(t *testing.T) {
 	recordSessionsCall(t, s, store.EpicCaller{Session: "engine-session"}, "epic_get", first)
 	recordSessionsCall(t, s, store.EpicCaller{Server: "-L orrery", Pane: "%1"}, "epic_step", first.Add(time.Minute))
 	// The server now lists no panes, so orreryd removes the pane row orrery-1 and its call stays in the table.
-	if err := s.SyncServer(t.Context(), "-L orrery", nil, first.Add(2*time.Minute)); err != nil {
+	if err := s.SyncServer(t.Context(), "", "-L orrery", nil, first.Add(2*time.Minute)); err != nil {
 		t.Fatalf("SyncServer: %v", err)
 	}
 

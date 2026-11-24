@@ -111,8 +111,10 @@ type Observer func(Transition)
 type Transition struct {
 	PaneID string
 	Server tmuxctl.Server
-	From   protocol.State
-	To     protocol.State
+	// Host is the orrery name of the pane's host, and is empty for a pane of the controller's own tmux.
+	Host string
+	From protocol.State
+	To   protocol.State
 	// Cwd and BaseURL are the update's working directory and API base URL.
 	Cwd     string
 	BaseURL string

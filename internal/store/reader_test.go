@@ -62,7 +62,7 @@ func TestSnapshotReturnsWrittenRowsAndNewestSeq(t *testing.T) {
 	now := time.Unix(1_700_000_000, 0)
 
 	// Two rows share the pane pair ("-L a", "%1"), as they can for ten seconds after a tmux restart.
-	if err := s.SyncServer(ctx, "-L a", []Pane{
+	if err := s.SyncServer(ctx, "", "-L a", []Pane{
 		{ID: "orrery-1", Pane: "%1", Fields: Fields{State: "working", Label: "one"}},
 		{ID: "orrery-2", Pane: "%1", Fields: Fields{State: "idle", Transcript: "t2"}},
 	}, now); err != nil {
@@ -285,7 +285,7 @@ func TestSnapshotReopensReplacedStore(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open replacement: %v", err)
 	}
-	if err = replacement.SyncServer(ctx, "-L b", []Pane{{ID: "orrery-new", Pane: "%9"}}, now); err != nil {
+	if err = replacement.SyncServer(ctx, "", "-L b", []Pane{{ID: "orrery-new", Pane: "%9"}}, now); err != nil {
 		t.Fatalf("SyncServer replacement: %v", err)
 	}
 	newest := eventsOf(t, replacement)
@@ -327,7 +327,7 @@ func TestSnapshotReplacedWhileReaderHasReadAndWriterOpen(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open replacement: %v", err)
 	}
-	if err = replacement.SyncServer(ctx, "-L b", []Pane{{ID: "orrery-new", Pane: "%9"}}, now); err != nil {
+	if err = replacement.SyncServer(ctx, "", "-L b", []Pane{{ID: "orrery-new", Pane: "%9"}}, now); err != nil {
 		t.Fatalf("SyncServer replacement: %v", err)
 	}
 	newest := eventsOf(t, replacement)
@@ -402,7 +402,7 @@ func TestSnapshotLeavesRowsAndEventsUnchanged(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "orrery.db")
 	s := openWriterAt(t, path)
 	now := time.Unix(1_700_000_000, 0)
-	if err := s.SyncServer(ctx, "-L a", []Pane{
+	if err := s.SyncServer(ctx, "", "-L a", []Pane{
 		{ID: "orrery-1", Pane: "%1", Fields: Fields{State: "working"}},
 		{ID: "orrery-2", Pane: "%2", Fields: Fields{State: "idle"}},
 	}, now); err != nil {

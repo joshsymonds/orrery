@@ -26,6 +26,7 @@ type storeFixture struct {
 	socket     string
 	project    string
 	home       string
+	host       string
 	session    *claudeSession
 	fakeClaude string
 	stateHome  string
@@ -49,6 +50,7 @@ func newStoreFixture(t *testing.T) *storeFixture {
 		socket:     filepath.Join(dir, "orreryd.sock"),
 		project:    filepath.Join(dir, exampleProjectName),
 		home:       dir,
+		host:       "fixture-host",
 		fakeClaude: filepath.Join(dir, "fake-claude.sh"),
 		stateHome:  stateHome,
 		dbPath:     filepath.Join(stateHome, "orrery", "orrery.db"),
@@ -67,7 +69,7 @@ func newStoreFixture(t *testing.T) *storeFixture {
 func (f *storeFixture) startOrreryd(t *testing.T, extra ...string) *orreryProcess {
 	t.Helper()
 	args := append([]string{
-		"-L", f.server, "--socket", f.socket,
+		"-L", f.server, "--socket", f.socket, "--host", f.host,
 		"--claude", f.fakeClaude, "--summary-model", exampleContextName + "=" + exampleModel,
 	}, extra...)
 	daemon := startBinary(t, "orreryd", scrubbedEnv("XDG_STATE_HOME="+f.stateHome, "HOME="+f.home), args...)
@@ -93,6 +95,7 @@ func (f *storeFixture) paneRow(t *testing.T, db *sql.DB, pane string) (got, want
 	}
 	want = sqlcgen.Session{
 		ID:            id,
+		Host:          f.host,
 		Server:        "-L " + f.server,
 		Pane:          pane,
 		State:         readOption(t, f.client, pane, protocol.OptionState),
@@ -267,6 +270,11 @@ func TestStoreMirrorsHooksIntoRowsAndEvents(t *testing.T) {
 		t.Fatalf("replayed %d sessions, store has %d; events %+v", len(rebuilt), len(sessions), events)
 	}
 	for _, row := range sessions {
+		if row.Host != f.host {
+			t.Fatalf("store row %s has host %q, want %q", row.ID, row.Host, f.host)
+		}
+		// Events name no host, so a replayed row has none: the rest of the row must still replay exactly.
+		row.Host = ""
 		if got, ok := rebuilt[row.ID]; !ok || got != row {
 			t.Fatalf("replayed session %+v (found %t), store row %+v", got, ok, row)
 		}

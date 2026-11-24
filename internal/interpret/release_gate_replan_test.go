@@ -8,15 +8,17 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/joshsymonds/orrery/internal/reviewers"
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
 // newGateReplanWorld returns a replan world whose epic's branch and origin's main change different files, so the
 // release's merge of origin's commit is clean. The epic runs replanFlow, its plan has ended, and its release has not
-// started, as an epic that ended clean leaves it.
-func newGateReplanWorld(t *testing.T) replanWorld {
+// started, as an epic that ended clean leaves it. Its epic's merged reviewers are reviewerList.
+func newGateReplanWorld(t *testing.T, reviewerList ...reviewers.Reviewer) replanWorld {
 	t.Helper()
 	w := newReleaseWorld(t, &recordingEnding{})
+	w.reviewerList = reviewerList
 	plans := &fakePlanner{known: []string{runEpic}}
 	w.runner.planner = plans
 	base := nodeGit(t, w.repo, "rev-parse", "main")
@@ -62,11 +64,17 @@ func gateTriggerIDs(t *testing.T, s *store.Store, epic string) []string {
 	return ids
 }
 
-// requireGateReplanned fails unless the release went back to planning for the gate's report: the epic is correcting and
-// unparked, the release run still runs at its first attempt, the replan's plan runs under it, a replan of that attempt
-// holds origin's commit as its head and the report as its reason, a release trigger is stored, the integrator's worktree
-// is gone and the owner is told.
+// requireGateReplanned fails unless the release went back to planning for the gate's report, with origin's commit as
+// the replan's head (requireReplannedAt).
 func (w replanWorld) requireGateReplanned(report string) {
+	w.t.Helper()
+	w.requireReplannedAt(w.origin, report)
+}
+
+// requireReplannedAt fails unless the release went back to planning for report: the epic is correcting and unparked, the
+// release run still runs at its first attempt, the replan's plan runs under it, a replan of that attempt holds head and
+// the report as its reason, a release trigger is stored, the integrator's worktree is gone and the owner is told.
+func (w replanWorld) requireReplannedAt(head, report string) {
 	w.t.Helper()
 	flow := w.flowOf(runEpic)
 	if flow.Epic.Phase != "correcting" || flow.Epic.Parked != "" {
@@ -79,10 +87,9 @@ func (w replanWorld) requireGateReplanned(report string) {
 		w.t.Errorf("replan plan = %+v, want the plan running under the release", plan)
 	}
 	if !slices.ContainsFunc(flow.Releases, func(r store.ReleaseRun) bool {
-		return r.Part == store.ReleasePartReplan && r.Attempt == 0 && r.Head == w.origin && r.Reason == report
+		return r.Part == store.ReleasePartReplan && r.Attempt == 0 && r.Head == head && r.Reason == report
 	}) {
-		w.t.Errorf("release runs = %+v, want a replan of attempt 0 holding origin %s and the report",
-			flow.Releases, w.origin)
+		w.t.Errorf("release runs = %+v, want a replan of attempt 0 holding %s and the report", flow.Releases, head)
 	}
 	if !slices.ContainsFunc(gateTriggerIDs(w.t, w.s, runEpic), func(id string) bool {
 		return strings.HasPrefix(id, replanTriggerPrefix)

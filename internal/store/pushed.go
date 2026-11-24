@@ -12,8 +12,10 @@ import (
 // PushedRow is the last push of one pane, one session, one epic, one usage limit or one alert. Exactly one of Pane,
 // Session, Epic, Limit and Alert is set: a pane row has an empty Session, Epic, Limit and Alert, a session row an empty
 // Pane, Epic, Limit and Alert, an epic row an empty Pane, Session, Limit and Alert, a limit row an empty Pane, Session,
-// Epic and Alert, and an alert row an empty Pane, Session, Epic and Limit. Time is the unix second of the push.
+// Epic and Alert, and an alert row an empty Pane, Session, Epic and Limit. Host is the orrery name of the pane's host,
+// set with Pane and only with Pane. Time is the unix second of the push.
 type PushedRow struct {
+	Host    string
 	Pane    string
 	Session string
 	Epic    string
@@ -23,7 +25,7 @@ type PushedRow struct {
 }
 
 // PutPushed inserts the row for row's pane, session, epic, limit or alert, or replaces the time of the row already
-// stored under that key.
+// stored under that key. A pane's key includes its host.
 func (s *Store) PutPushed(ctx context.Context, row PushedRow) error {
 	return s.write(ctx, func(queries *sqlcgen.Queries) error {
 		if row.Epic != "" {
@@ -51,7 +53,7 @@ func (s *Store) PutPushed(ctx context.Context, row PushedRow) error {
 			return nil
 		}
 		if err := queries.UpsertPushedNotice(ctx, sqlcgen.UpsertPushedNoticeParams{
-			Pane: row.Pane, Session: row.Session, Time: row.Time,
+			Host: row.Host, Pane: row.Pane, Session: row.Session, Time: row.Time,
 		}); err != nil {
 			return fmt.Errorf("put pushed notice %q/%q: %w", row.Pane, row.Session, err)
 		}
@@ -59,13 +61,13 @@ func (s *Store) PutPushed(ctx context.Context, row PushedRow) error {
 	})
 }
 
-// DeletePushed removes the row for pane and session. A key that is not stored is not an error.
-func (s *Store) DeletePushed(ctx context.Context, pane, session string) error {
+// DeletePushed removes the row for host, pane and session. A key that is not stored is not an error.
+func (s *Store) DeletePushed(ctx context.Context, host, pane, session string) error {
 	return s.write(ctx, func(queries *sqlcgen.Queries) error {
 		if err := queries.DeletePushedNotice(ctx, sqlcgen.DeletePushedNoticeParams{
-			Pane: pane, Session: session,
+			Host: host, Pane: pane, Session: session,
 		}); err != nil {
-			return fmt.Errorf("delete pushed notice %q/%q: %w", pane, session, err)
+			return fmt.Errorf("delete pushed notice %q/%q/%q: %w", host, pane, session, err)
 		}
 		return nil
 	})
@@ -101,9 +103,9 @@ func (s *Store) DeletePushedAlert(ctx context.Context, alert string) error {
 	})
 }
 
-// Pushed returns every stored push: the pane and session rows ordered by pane, then session, then the epic rows
-// ordered by epic, then the limit rows ordered by limit, then the alert rows ordered by alert. The four tables are
-// read in one read transaction, so they come from one snapshot.
+// Pushed returns every stored push: the pane and session rows ordered by host, then pane, then session, then the
+// epic rows ordered by epic, then the limit rows ordered by limit, then the alert rows ordered by alert. The four
+// tables are read in one read transaction, so they come from one snapshot.
 func (s *Store) Pushed(ctx context.Context) ([]PushedRow, error) {
 	tx, err := s.read.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
 	if err != nil {
@@ -131,7 +133,7 @@ func (s *Store) Pushed(ctx context.Context) ([]PushedRow, error) {
 	}
 	out := make([]PushedRow, 0, len(rows)+len(epics)+len(limits)+len(alerts))
 	for _, row := range rows {
-		out = append(out, PushedRow{Pane: row.Pane, Session: row.Session, Time: row.Time})
+		out = append(out, PushedRow{Host: row.Host, Pane: row.Pane, Session: row.Session, Time: row.Time})
 	}
 	for _, row := range epics {
 		out = append(out, PushedRow{Epic: row.Epic, Time: row.Time})

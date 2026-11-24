@@ -19,6 +19,7 @@ import (
 type paneQuestions struct {
 	server tmuxctl.Server
 	router enginehost.Router
+	orrery string // the controller's orrery name, the host of each pane's notice key
 }
 
 // questionServer returns the tmux server the pane questions read: the server opts names, or the default socket the
@@ -34,6 +35,14 @@ func questionServer(opts options) tmuxctl.Server {
 // makes PaneSeen do nothing.
 func newPaneQuestions(server tmuxctl.Server, router enginehost.Router) *paneQuestions {
 	return &paneQuestions{server: server, router: router}
+}
+
+// controllerPaneQuestions returns the PaneQuestions of the controller's own panes: newPaneQuestions over the server
+// questionServer names, with each pane's notice key naming opts.orrery as its host.
+func controllerPaneQuestions(opts options, router enginehost.Router) *paneQuestions {
+	questions := newPaneQuestions(questionServer(opts), router)
+	questions.orrery = opts.orrery
+	return questions
 }
 
 // PaneQuestion reads pane's waiting state, the hash of its question and its changed time from its tmux server. It
@@ -91,5 +100,5 @@ func (p *paneQuestions) PaneSeen(ctx context.Context, pane string, seen time.Tim
 	if p.router == nil {
 		return
 	}
-	p.router.Seen(ctx, notice.Key{Pane: pane}, seen.Unix())
+	p.router.Seen(ctx, notice.Key{Pane: pane, Host: p.orrery}, seen.Unix())
 }

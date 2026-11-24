@@ -101,6 +101,7 @@ class AccountsDroidAddTest {
         .setPane(0)
         .setCwd("/home/user/alpha")
         .setCommand("claude")
+        .setClaudeSession("synthetic-claude")
         .setState("working")
         .setSummary("Synthetic summary.")
         .setLabel("alpha-build")

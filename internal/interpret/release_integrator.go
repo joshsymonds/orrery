@@ -160,16 +160,10 @@ type integratorUnresolved struct {
 	Side      string `json:"side"`
 }
 
-// sideCandidate is the side of an unresolved path whose decision is a change to the epic's own candidate.
-const sideCandidate = "candidate"
-
-// candidateSide reports whether ret, a blocked return, stopped only on decisions that are changes to the epic's own
-// candidate: it names at least one unresolved path, and every one is on the candidate's side. Such a return sends the
-// release back to planning; any other blocked return stops it.
-func candidateSide(ret integratorReturn) bool {
-	return len(ret.Unresolved) > 0 && !slices.ContainsFunc(ret.Unresolved, func(path integratorUnresolved) bool {
-		return path.Side != sideCandidate
-	})
+// namesDecisions reports whether ret, a blocked return, names at least one unresolved path, on either side. Such a
+// return sends the release back to planning with its decisions; a blocked return that names none stops it.
+func namesDecisions(ret integratorReturn) bool {
+	return len(ret.Unresolved) > 0
 }
 
 // integratorMerge is the merge a release integrator finishes: the repository, the worktree the merge is in, the release
@@ -373,8 +367,8 @@ func (r *Runner) pinIntegrator(ctx context.Context, epic store.EpicRow, run stor
 // passes only when the step ended done and its commit passes the engine's checks again (integratorFailures); the commit
 // is then pinned under the run's release ref and recorded as the round's head. A round that does not pass is recorded
 // failed: a blocked return with its report (blockedReason), and any other end with the conflict and how the step ended.
-// A blocked return whose every unresolved path is on the candidate's side (candidateSide) asks for a replan, which the
-// store records with the round (store.Store.RecordIntegratorRound).
+// A blocked return that names at least one unresolved path, on either side (namesDecisions), asks for a replan, which
+// the store records with the round (store.Store.RecordIntegratorRound).
 func (r *Runner) recordIntegrator(ctx context.Context, epic store.EpicRow, act Action, at time.Time) error {
 	position, err := strconv.ParseInt(act.Items[1], 10, 64)
 	if err != nil {
@@ -419,7 +413,7 @@ func (r *Runner) recordIntegrator(ctx context.Context, epic store.EpicRow, act A
 		run.Head, run.Commits, run.Passed = head, []string{head}, true
 	case row.End == stepReturned && ret.Status == releaseBlocked && decodeReason == "":
 		run.Reason = blockedReason(merge, ret)
-		replan = candidateSide(ret)
+		replan = namesDecisions(ret)
 	case row.End == releaseDone:
 		run.Reason = conflictMessage(merge.tip, merge.origin, merge.conflicts) + "; " + decodeReason
 	default:

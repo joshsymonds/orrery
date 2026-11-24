@@ -559,7 +559,7 @@ func TestMissingEngineSessionDropsItsOpAndStoresTheRest(t *testing.T) {
 	if err := s.ApplyEngine(ctx, []store.EngineOp{addB}, now); err != nil {
 		t.Fatalf("add session b: %v", err)
 	}
-	if err := s.SyncServer(ctx, "orrery-test", nil, now); err != nil {
+	if err := s.SyncServer(ctx, "", "orrery-test", nil, now); err != nil {
 		t.Fatalf("SyncServer: %v", err)
 	}
 	if _, err := store.NewReader(path).EngineHistory(ctx, "a", 0, 1); !errors.Is(err, store.ErrNoEngineSession) {

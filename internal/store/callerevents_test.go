@@ -142,7 +142,7 @@ func TestCallerEventStoreEpicSteererReturnsPaneRowUntilItIsGone(t *testing.T) {
 	}
 
 	// The pane leaves the server, so its sessions row is removed and the steerer is gone with it.
-	if err := s.SyncServer(ctx, "-L orrery", nil, callerLater()); err != nil {
+	if err := s.SyncServer(ctx, "", "-L orrery", nil, callerLater()); err != nil {
 		t.Fatalf("SyncServer: %v", err)
 	}
 	if steerer, ok, err := s.EpicSteerer(ctx, callerEpic); err != nil || ok {

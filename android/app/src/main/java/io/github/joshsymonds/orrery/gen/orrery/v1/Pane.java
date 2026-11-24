@@ -1359,6 +1359,47 @@ public  final class Pane extends
     held_ = false;
   }
 
+  public static final int UNREACHABLE_FIELD_NUMBER = 25;
+  private boolean unreachable_;
+  /**
+   * <pre>
+   * true when the pane's host did not answer within its bound, so the pane is listed from its stored row with only id,
+   * host, orrery_id and its mirrored options set.
+   * </pre>
+   *
+   * <code>bool unreachable = 25 [json_name = "unreachable"];</code>
+   * @return The unreachable.
+   */
+  @java.lang.Override
+  public boolean getUnreachable() {
+    return unreachable_;
+  }
+  /**
+   * <pre>
+   * true when the pane's host did not answer within its bound, so the pane is listed from its stored row with only id,
+   * host, orrery_id and its mirrored options set.
+   * </pre>
+   *
+   * <code>bool unreachable = 25 [json_name = "unreachable"];</code>
+   * @param value The unreachable to set.
+   */
+  private void setUnreachable(boolean value) {
+    
+    unreachable_ = value;
+  }
+  /**
+   * <pre>
+   * true when the pane's host did not answer within its bound, so the pane is listed from its stored row with only id,
+   * host, orrery_id and its mirrored options set.
+   * </pre>
+   *
+   * <code>bool unreachable = 25 [json_name = "unreachable"];</code>
+   */
+  private void clearUnreachable() {
+
+    unreachable_ = false;
+  }
+
   public static io.github.joshsymonds.orrery.gen.orrery.v1.Pane parseFrom(
       java.nio.ByteBuffer data)
       throws com.google.protobuf.InvalidProtocolBufferException {
@@ -2833,6 +2874,49 @@ public  final class Pane extends
       return this;
     }
 
+    /**
+     * <pre>
+     * true when the pane's host did not answer within its bound, so the pane is listed from its stored row with only id,
+     * host, orrery_id and its mirrored options set.
+     * </pre>
+     *
+     * <code>bool unreachable = 25 [json_name = "unreachable"];</code>
+     * @return The unreachable.
+     */
+    @java.lang.Override
+    public boolean getUnreachable() {
+      return instance.getUnreachable();
+    }
+    /**
+     * <pre>
+     * true when the pane's host did not answer within its bound, so the pane is listed from its stored row with only id,
+     * host, orrery_id and its mirrored options set.
+     * </pre>
+     *
+     * <code>bool unreachable = 25 [json_name = "unreachable"];</code>
+     * @param value The unreachable to set.
+     * @return This builder for chaining.
+     */
+    public Builder setUnreachable(boolean value) {
+      copyOnWrite();
+      instance.setUnreachable(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * true when the pane's host did not answer within its bound, so the pane is listed from its stored row with only id,
+     * host, orrery_id and its mirrored options set.
+     * </pre>
+     *
+     * <code>bool unreachable = 25 [json_name = "unreachable"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearUnreachable() {
+      copyOnWrite();
+      instance.clearUnreachable();
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:orrery.v1.Pane)
   }
   @java.lang.Override
@@ -2873,12 +2957,14 @@ public  final class Pane extends
             "putOff_",
             "unbound_",
             "held_",
+            "unreachable_",
           };
           java.lang.String info =
-              "\u0000\u0018\u0000\u0000\u0001\u0018\u0018\u0000\u0000\u0000\u0001\u0208\u0002\u0208" +
+              "\u0000\u0019\u0000\u0000\u0001\u0019\u0019\u0000\u0000\u0000\u0001\u0208\u0002\u0208" +
               "\u0003\u0208\u0004\u0004\u0005\u0004\u0006\u0208\u0007\u0208\b\u0208\t\u0208\n\u0208" +
               "\u000b\u0002\f\u0002\r\u0208\u000e\u0208\u000f\u0002\u0010\u0208\u0011\u0208\u0012" +
-              "\u0208\u0013\u0002\u0014\u0002\u0015\u0208\u0016\u0007\u0017\u0007\u0018\u0007";
+              "\u0208\u0013\u0002\u0014\u0002\u0015\u0208\u0016\u0007\u0017\u0007\u0018\u0007\u0019" +
+              "\u0007";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

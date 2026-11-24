@@ -255,7 +255,7 @@ func TestEpicSessionsLeaveOutRemovedSessions(t *testing.T) {
 
 	// orrery-1's pane is gone from the server, so its sessions row is removed and its call must not be listed.
 	gone := time.Unix(start.Unix()+120, 0)
-	if err := s.SyncServer(ctx, "-L orrery", []store.Pane{{ID: "orrery-2", Pane: "%2"}}, gone); err != nil {
+	if err := s.SyncServer(ctx, "", "-L orrery", []store.Pane{{ID: "orrery-2", Pane: "%2"}}, gone); err != nil {
 		t.Fatalf("SyncServer: %v", err)
 	}
 
