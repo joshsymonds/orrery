@@ -113,6 +113,7 @@ import io.github.joshsymonds.orrery.gen.orrery.v1.PoolsStatusRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.PullQueuedRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.PushClient
 import io.github.joshsymonds.orrery.gen.orrery.v1.QueuedMessage as QueuedMessageProto
+import io.github.joshsymonds.orrery.gen.orrery.v1.RecordMaker as RecordMakerProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.RegisterRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.ResumeRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.RouteContext as RouteContextProto
@@ -650,7 +651,10 @@ data class ContractVersionRow(
     val changedSections: List<String>,
 )
 
-/** One change of a contract's state: [by] is "owner" or "session", and [session] is the writer's id when by is "session". */
+/**
+ * One change of a contract's state: [by] is "owner" or "session", and [session] is the writer's id when by is "session".
+ * [maker] is who made the change and the evidence it rests on, null when the server sends none.
+ */
 data class ContractStateRow(
     val state: String,
     val version: Long,
@@ -658,6 +662,7 @@ data class ContractStateRow(
     val session: String,
     val words: String,
     val time: Long,
+    val maker: RecordMakerRow? = null,
 )
 
 /** One contract with its [versions], oldest first, and its [states], oldest first. */
@@ -1852,6 +1857,16 @@ class OrreryClient(
             session = session,
             words = words,
             time = time,
+            maker = if (hasMaker()) maker.toRecordMakerRow() else null,
+        )
+
+    private fun RecordMakerProto.toRecordMakerRow(): RecordMakerRow =
+        RecordMakerRow(
+            kind = kind,
+            quote = quote,
+            reason = reason,
+            delegation = delegation,
+            session = session,
         )
 
     private fun EpicRequirementProto.toEpicRequirementRow(): EpicRequirementRow =
