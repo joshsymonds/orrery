@@ -51,6 +51,13 @@ enum class Glyph(val path: String, val filled: Boolean = false) {
             "M12.5 6.9a1.1 1.1 0 1 0 0 2.2 1.1 1.1 0 0 0 0-2.2z",
         filled = true,
     ),
+    /** Round 8's chevronRight, as icons.js:13 and web/src/glyphs.tsx:21 draw it: the end of a line that opens its thing. */
+    CHEVRON_RIGHT("M6 3l5 5-5 5"),
+    /** Round 8's design icon, as web/visual/wireframe/round8/js/icons.js draws it. */
+    DESIGN(
+        "M3.5 2.5a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3zM3.5 10.5a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3z" +
+            "M12.5 6.5a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3zM5 4h1.5c2 0 2 4 4.5 4M5 12h1.5c2 0 2-4 4.5-4",
+    ),
 }
 
 /** [glyph] at the icon size, in [color]. Decorative: whatever holds it names it. */

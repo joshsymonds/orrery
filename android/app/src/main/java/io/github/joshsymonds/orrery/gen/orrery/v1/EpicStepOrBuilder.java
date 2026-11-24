@@ -386,4 +386,24 @@ public interface EpicStepOrBuilder extends
    * <code>repeated .orrery.v1.EpicStepVerdict verdicts = 22 [json_name = "verdicts"];</code>
    */
   int getVerdictsCount();
+
+  /**
+   * <pre>
+   * The orrery name of the host the step lives on.
+   * </pre>
+   *
+   * <code>string host = 23 [json_name = "host"];</code>
+   * @return The host.
+   */
+  java.lang.String getHost();
+  /**
+   * <pre>
+   * The orrery name of the host the step lives on.
+   * </pre>
+   *
+   * <code>string host = 23 [json_name = "host"];</code>
+   * @return The bytes for host.
+   */
+  com.google.protobuf.ByteString
+      getHostBytes();
 }

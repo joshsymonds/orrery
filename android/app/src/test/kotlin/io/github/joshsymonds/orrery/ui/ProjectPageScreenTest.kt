@@ -132,7 +132,6 @@ class ProjectPageScreenTest {
         .setChanged(NOW - 30)
         .setLive(true)
         .setEndedSteps(0)
-        .setProblem("")
         .setSteering(steering)
         .build()
 

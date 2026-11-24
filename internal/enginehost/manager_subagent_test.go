@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
-	"reflect"
 	"slices"
 	"testing"
 
@@ -45,11 +44,12 @@ func subagentBlocksStored(t *testing.T, m *Manager, path, dir, id string) store.
 	})
 }
 
-// TestSubagentBlocksAfterTurnEndLeaveSessionIdleAndSayIsSent runs SUBAGENT: its turn launches a subagent in the
+// TestSubagentBlocksAfterTurnEndLeaveSessionHeldAndSayIsSent runs SUBAGENT: its turn launches a subagent in the
 // background and ends, and the subagent then streams a text block and a tool call under the Agent call's id with no turn
-// of the main conversation open. The session stays done, and a Say is written as the
-// next prompt at once, with nothing held, and is answered.
-func TestSubagentBlocksAfterTurnEndLeaveSessionIdleAndSayIsSent(t *testing.T) {
+// of the main conversation open. The turn's end leaves the session working and held, with no notice, and the
+// subagent's blocks keep it so. A Say is written as the next prompt at once, with nothing held, and is answered; the
+// subagent is still listed when that turn ends, so it is held too.
+func TestSubagentBlocksAfterTurnEndLeaveSessionHeldAndSayIsSent(t *testing.T) {
 	t.Parallel()
 	sink := &fakeSink{}
 	_, path := openStore(t)
@@ -59,14 +59,19 @@ func TestSubagentBlocksAfterTurnEndLeaveSessionIdleAndSayIsSent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
-	first := Notice{Session: id, Dir: dir, State: "done", Body: "fake launched 1"}
-	if got := waitNotices(t, engineOf(m), sink); len(got) != 1 || !reflect.DeepEqual(got[0], first) {
-		t.Fatalf("notices after the first turn = %+v, want exactly [%+v]", got, first)
-	}
+	waitHeld(t, m, path, id)
 
+	// The pump records the subagent's blocks after it has told the owner of the turn's end, so the notices are final.
 	history := subagentBlocksStored(t, m, path, dir, id)
-	if history.State != "done" {
-		t.Fatalf("state after the subagent's blocks = %q, want done", history.State)
+	if history.State != "working" || !heldRow(t, m, id) {
+		t.Fatalf(
+			"state after the subagent's blocks = %q, held %t, want working and held",
+			history.State,
+			heldRow(t, m, id),
+		)
+	}
+	if got := sink.got(); len(got) != 0 {
+		t.Fatalf("notices while the subagent runs = %+v, want none", got)
 	}
 
 	if err = m.Say(t.Context(), SayRequest{ID: id, Text: "hello", PromptID: "p-hello"}); err != nil {
@@ -74,16 +79,19 @@ func TestSubagentBlocksAfterTurnEndLeaveSessionIdleAndSayIsSent(t *testing.T) {
 	}
 	assertWritten(t, m, id, "p-hello")
 	waitHistory(t, engineOf(m), path, id, "the Say's answer", func(h store.EngineHistory) bool {
-		return hasBlock(t, h, "fake reply 2") && turnEndCount(h) == 2 && h.State == "done"
+		return hasBlock(t, h, "fake reply 2") && turnEndCount(h) == 2 && h.State == "working"
 	})
+	if !heldRow(t, m, id) {
+		t.Fatal("row after the Say's turn ended with the subagent listed is not held")
+	}
 	if got := promptTexts(t, path, id); !slices.Equal(got, []string{"SUBAGENT", "hello"}) {
 		t.Fatalf("prompts = %q, want [SUBAGENT hello]", got)
 	}
 }
 
-// TestTurnClaudeStartsAfterSubagentBlocksStillOpens runs SUBAGENTSELF: the subagent's blocks leave the session done,
-// and once the task ends, the turn claude starts by itself on its main-conversation text block records the session
-// working. That turn is claude's own, so the owner's Say made then is not held and interrupts nothing: the Say is written as
+// TestTurnClaudeStartsAfterSubagentBlocksStillOpens runs SUBAGENTSELF: the subagent's blocks leave the session held,
+// and once the task ends, the turn claude starts by itself on its main-conversation text block opens a turn, which
+// clears the hold. That turn is claude's own, so the owner's Say made then is not held and interrupts nothing: the Say is written as
 // the next prompt at once, and the turn reads it from stdin, which ends only at an interrupt.
 func TestTurnClaudeStartsAfterSubagentBlocksStillOpens(t *testing.T) {
 	t.Parallel()
@@ -95,9 +103,9 @@ func TestTurnClaudeStartsAfterSubagentBlocksStillOpens(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
-	waitNotices(t, engineOf(m), sink)
-	if history := subagentBlocksStored(t, m, path, dir, id); history.State != "done" {
-		t.Fatalf("state after the subagent's blocks = %q, want done", history.State)
+	waitHeld(t, m, path, id)
+	if history := subagentBlocksStored(t, m, path, dir, id); history.State != "working" {
+		t.Fatalf("state after the subagent's blocks = %q, want working", history.State)
 	}
 
 	if err = os.WriteFile(filepath.Join(dir, "fakeclaude.open"), nil, 0o600); err != nil {
@@ -109,6 +117,7 @@ func TestTurnClaudeStartsAfterSubagentBlocksStillOpens(t *testing.T) {
 	if history.State != "working" {
 		t.Fatalf("state while the turn claude started by itself runs = %q, want working", history.State)
 	}
+	waitUntil(t, engineOf(m), "the self-started turn to clear the hold", func() bool { return !heldRow(t, m, id) })
 
 	if err = m.Say(t.Context(), SayRequest{ID: id, Text: "hello", PromptID: "p-hello"}); err != nil {
 		t.Fatalf("Say: %v", err)

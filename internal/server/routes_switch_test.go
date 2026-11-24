@@ -129,8 +129,8 @@ func routesSwitchAssertOnlyTarget(t *testing.T, label string, before, got *orrer
 func TestRoutesSwitchChangesOneContext(t *testing.T) {
 	t.Parallel()
 	h := newAccountsHarness(t)
-	first := routesSwitchAddAccount(t, h, "Synthetic first", "synthetic-token-first")
-	second := routesSwitchAddAccount(t, h, "Synthetic second", "synthetic-token-second")
+	first := routesSwitchAddAccount(t, h, "Synthetic first", "sk-ant-oat01-first")
+	second := routesSwitchAddAccount(t, h, "Synthetic second", "sk-ant-oat01-second")
 
 	sent := llmroutes.ToProto(routesSwitchRegistry(first.GetId()))
 	if _, err := h.Routes.Replace(t.Context(), connect.NewRequest(&orreryv1.RoutesReplaceRequest{

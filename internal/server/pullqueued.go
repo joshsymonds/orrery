@@ -43,7 +43,7 @@ func (s panesServer) pullQueued(ctx context.Context, pane *v1.Pane, path string)
 	mu := s.textLocks.lock(id)
 	mu.Lock()
 	defer mu.Unlock()
-	waiting, err := s.queues.Waiting(path, pane.GetState() == string(protocol.StateDone))
+	waiting, err := s.queues.Waiting(path, protocol.Idle(protocol.State(pane.GetState()), pane.GetHeld()))
 	if err != nil {
 		return "", transcriptError(err)
 	}

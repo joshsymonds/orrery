@@ -99,7 +99,6 @@ class InboxDroidNoStandInTest {
         .setLive(true)
         .setArchived(archived)
         .setEndedSteps(0)
-        .setProblem("")
         .setSteering(steering)
         .build()
 

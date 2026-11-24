@@ -1,7 +1,7 @@
 import { epicRowWords, hungName } from "./epicrow";
 import type { Row } from "./rows";
 import { changedOf, countsOf, freshConvos, projectWaiting, waitOrder } from "./treefilter";
-import type { Convo, Project } from "./tree";
+import type { Convo, Hung, Project } from "./tree";
 
 // RailTileModel is one project's tile on the collapsed inbox's rail: its key, its whole name, its waiting count, its
 // dots, whether it is quiet, whether it holds the open page, and its title.
@@ -14,10 +14,12 @@ export interface RailTileModel {
   quiet: boolean;  // nothing waits on you and nothing is new: n is 0 and fresh is false
   cur: boolean;    // the project holds the open page
   title: string;   // "<name>" or "<name>: <n> wait on you" ("waits" when n is 1)
+  lineage?: LineageConvo[]; // railLineage of the project; absent reads as none
 }
 
 // railTiles is a tile per project, in the tree's order. open is the open page's item key or project key, "" for none.
-export function railTiles(projects: readonly Project[], open: string): RailTileModel[] {
+// thing is the open epic or contract's tree key, "" for none, which the lineage marks as open.
+export function railTiles(projects: readonly Project[], open: string, thing = ""): RailTileModel[] {
   return projects.map((project) => {
     const n = projectWaiting(project);
     const fresh = countsOf([project]).fresh > 0;
@@ -30,8 +32,75 @@ export function railTiles(projects: readonly Project[], open: string): RailTileM
       quiet: n === 0 && !fresh,
       cur: holds(project, open),
       title: n === 0 ? project.name : `${project.name}: ${n} ${n === 1 ? "waits" : "wait"} on you`,
+      lineage: railLineage(project, thing),
     };
   });
+}
+
+// LineageMark is one thing the rail's lineage marks under a design: an epic or a contract, keyed by its tree key, with its
+// name and whether it is the open thing.
+export interface LineageMark {
+  key: string;    // the thing's tree key, epic:<id> or contract:<id>
+  kind: "epic" | "contract";
+  name: string;
+  open: boolean;  // the thing is the open thing
+}
+
+// LineageDesign is one design on the rail's lineage: its tree key, its name, whether it is the open thing, and the things
+// it marks.
+export interface LineageDesign {
+  key: string;    // design:<id>
+  name: string;
+  open: boolean;  // the design is the open thing
+  marks: LineageMark[];
+}
+
+// LineageConvo is one conversation on the rail's lineage: its key, whether it holds the open thing, the marks of the open
+// epic or contract it steers in no design (own, empty otherwise), and the designs it works, each with its marks.
+export interface LineageConvo {
+  key: string;    // the Convo's key
+  held: boolean;  // the conversation whose design or mark is open, or which steers the open designless epic or contract
+  own: LineageMark[];
+  designs: LineageDesign[];
+}
+
+// railLineage is the rail's lineage of a project: its conversations in the tree's order that work a design or hold the
+// open designless thing, each with the designs it works and the marks of each design, with open the open thing's tree key
+// ("" for none). An epic or contract steered in no design is on the lineage only as the open thing, as its conversation's
+// own mark.
+export function railLineage(project: Project, open: string): LineageConvo[] {
+  return project.convos
+    .map((convo) => lineageConvo(convo, open))
+    .filter((convo): convo is LineageConvo => convo !== null);
+}
+
+// lineageConvo is a conversation's lineage at open, or null when it works no design and steers no open designless thing.
+function lineageConvo(convo: Convo, open: string): LineageConvo | null {
+  const designs = convo.designs ?? [];
+  const designed = new Set(designs.flatMap((node) => node.hung.map((hung) => hung.key)));
+  const own = [...convo.hung, ...convo.folded]
+    .filter((hung) => hung.key === open && !designed.has(hung.key))
+    .map((hung) => lineageMark(hung, open));
+  if (designs.length === 0 && own.length === 0) {
+    return null;
+  }
+  const holdsDesign = designs.some((node) => node.key === open || node.hung.some((hung) => hung.key === open));
+  return {
+    key: convo.key,
+    held: own.length > 0 || holdsDesign,
+    own,
+    designs: designs.map((node) => ({
+      key: node.key,
+      name: node.design.title,
+      open: node.key === open,
+      marks: node.hung.map((hung) => lineageMark(hung, open)),
+    })),
+  };
+}
+
+// lineageMark is the rail's mark of an epic or contract, open when it is the open thing.
+function lineageMark(hung: Hung, open: string): LineageMark {
+  return { key: hung.key, kind: hung.kind, name: hungName(hung), open: hung.key === open };
 }
 
 // FlyoutRow is one row of a tile's flyout: a conversation's row, which waits on you or is new, or a hung epic or contract

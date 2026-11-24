@@ -173,7 +173,7 @@ func TestHeadlessColumnsListingKeepsColumnsAfterEventPrune(t *testing.T) {
 	if n := eventsAt(t, s, id, t0.Unix()); n == 0 {
 		t.Fatalf("session %s has no event at t0 before the prune, so the prune removes nothing", id)
 	}
-	if err := s.SyncServer(context.Background(), "-L a", nil, now); err != nil {
+	if err := s.SyncServer(context.Background(), "", "-L a", nil, now); err != nil {
 		t.Fatalf("SyncServer: %v", err)
 	}
 	if n := eventsAt(t, s, id, t0.Unix()); n != 0 {

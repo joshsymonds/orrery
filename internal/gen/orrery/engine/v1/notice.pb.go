@@ -21,7 +21,8 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
-// NoticeKey names what a notice is about. Exactly one field is set.
+// NoticeKey names what a notice is about. Exactly one of pane, session, epic, limit and alert is set. host is set with
+// pane and only with pane.
 type NoticeKey struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// The tmux pane id, % followed by digits.
@@ -33,7 +34,9 @@ type NoticeKey struct {
 	// The usage limit, its kind and reset as kind@unix-seconds.
 	Limit string `protobuf:"bytes,4,opt,name=limit,proto3" json:"limit,omitempty"`
 	// The alert's name.
-	Alert         string `protobuf:"bytes,5,opt,name=alert,proto3" json:"alert,omitempty"`
+	Alert string `protobuf:"bytes,5,opt,name=alert,proto3" json:"alert,omitempty"`
+	// The orrery name of the pane's host. It is set with pane and only with pane.
+	Host          string `protobuf:"bytes,6,opt,name=host,proto3" json:"host,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -99,6 +102,13 @@ func (x *NoticeKey) GetLimit() string {
 func (x *NoticeKey) GetAlert() string {
 	if x != nil {
 		return x.Alert
+	}
+	return ""
+}
+
+func (x *NoticeKey) GetHost() string {
+	if x != nil {
+		return x.Host
 	}
 	return ""
 }
@@ -707,13 +717,14 @@ var File_orrery_engine_v1_notice_proto protoreflect.FileDescriptor
 
 const file_orrery_engine_v1_notice_proto_rawDesc = "" +
 	"\n" +
-	"\x1dorrery/engine/v1/notice.proto\x12\x10orrery.engine.v1\"y\n" +
+	"\x1dorrery/engine/v1/notice.proto\x12\x10orrery.engine.v1\"\x8d\x01\n" +
 	"\tNoticeKey\x12\x12\n" +
 	"\x04pane\x18\x01 \x01(\tR\x04pane\x12\x18\n" +
 	"\asession\x18\x02 \x01(\tR\asession\x12\x12\n" +
 	"\x04epic\x18\x03 \x01(\tR\x04epic\x12\x14\n" +
 	"\x05limit\x18\x04 \x01(\tR\x05limit\x12\x14\n" +
-	"\x05alert\x18\x05 \x01(\tR\x05alert\"3\n" +
+	"\x05alert\x18\x05 \x01(\tR\x05alert\x12\x12\n" +
+	"\x04host\x18\x06 \x01(\tR\x04host\"3\n" +
 	"\vNoticeBlock\x12\x12\n" +
 	"\x04kind\x18\x01 \x01(\tR\x04kind\x12\x10\n" +
 	"\x03ref\x18\x02 \x01(\tR\x03ref\"\xb1\x01\n" +

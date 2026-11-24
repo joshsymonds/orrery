@@ -88,7 +88,6 @@ class InboxTreeFilterTest {
         live = live,
         runningSteps = emptyList(),
         endedSteps = 0,
-        problem = "",
         archived = archived,
         steering = steering,
         path = "/home/user/repo",
@@ -119,7 +118,6 @@ class InboxTreeFilterTest {
         questions: List<EpicQuestionRow> = emptyList(),
     ) = EpicDetail(
         epic = epic,
-        tasks = emptyList(),
         steps = emptyList(),
         questions = questions,
         parked = parked,

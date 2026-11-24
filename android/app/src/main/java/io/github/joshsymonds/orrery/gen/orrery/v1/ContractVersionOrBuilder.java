@@ -222,4 +222,45 @@ public interface ContractVersionOrBuilder extends
    */
   com.google.protobuf.ByteString
       getChangedSectionsBytes(int index);
+
+  /**
+   * <pre>
+   * The ids of the steps that read this version, oldest first.
+   * </pre>
+   *
+   * <code>repeated string read_by = 10 [json_name = "readBy"];</code>
+   * @return A list containing the readBy.
+   */
+  java.util.List<java.lang.String>
+      getReadByList();
+  /**
+   * <pre>
+   * The ids of the steps that read this version, oldest first.
+   * </pre>
+   *
+   * <code>repeated string read_by = 10 [json_name = "readBy"];</code>
+   * @return The count of readBy.
+   */
+  int getReadByCount();
+  /**
+   * <pre>
+   * The ids of the steps that read this version, oldest first.
+   * </pre>
+   *
+   * <code>repeated string read_by = 10 [json_name = "readBy"];</code>
+   * @param index The index of the element to return.
+   * @return The readBy at the given index.
+   */
+  java.lang.String getReadBy(int index);
+  /**
+   * <pre>
+   * The ids of the steps that read this version, oldest first.
+   * </pre>
+   *
+   * <code>repeated string read_by = 10 [json_name = "readBy"];</code>
+   * @param index The index of the element to return.
+   * @return The readBy at the given index.
+   */
+  com.google.protobuf.ByteString
+      getReadByBytes(int index);
 }

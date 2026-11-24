@@ -72,7 +72,8 @@ fun ProjectPageScreen(
 
     val loaded = data
     val projects = remember(loaded, state.view) {
-        loaded?.let { inboxTree(it.panes, it.archived, it.epics, it.details, it.contracts, it.host, state.view) }.orEmpty()
+        loaded?.let { inboxTree(it.panes, it.archived, it.epics, it.details, it.contracts, it.host, state.view, it.designs) }
+            .orEmpty()
     }
     val project = projects.firstOrNull { it.key == projectKey }
     val paneOf = remember(projects) {
@@ -80,7 +81,7 @@ fun ProjectPageScreen(
     }
     val conversationOfContract = remember(projects) {
         projects.flatMap { it.convos + it.ended }.flatMap { convo ->
-            convo.hung.filterIsInstance<ContractNode>().map { it.key to convo.pane }
+            convo.allHung.filterIsInstance<ContractNode>().map { it.key to convo.pane }
         }.toMap()
     }
     val onOpen: (String) -> Unit = { key ->
@@ -164,7 +165,7 @@ private fun ProjectHead(project: Project, now: Long) {
     val place = listOf(project.path, if (project.host.isEmpty()) "" else "on ${project.host}")
         .filter { it.isNotEmpty() }
         .joinToString(" · ")
-    val epics = project.convos.sumOf { convo -> convo.hung.count { it is EpicNode } }
+    val epics = project.convos.sumOf { convo -> convo.allHung.count { it is EpicNode } }
     val waits = projectWaiting(project)
     val newest = newestChangeOf(project)
     Column(verticalArrangement = Arrangement.spacedBy(OrreryTokens.Space.four)) {
@@ -247,14 +248,14 @@ private fun ConvoBlock(
                 }
             }
         }
-        if (convo.hung.isNotEmpty() || convo.folded.isNotEmpty()) {
+        if (convo.allHung.isNotEmpty() || convo.folded.isNotEmpty()) {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(start = OrreryTokens.Space.sixteen),
                 verticalArrangement = Arrangement.spacedBy(OrreryTokens.Space.eight),
             ) {
-                for (hung in convo.hung) {
+                for (hung in convo.allHung) {
                     WorkCard(card = workCardOf(hung, now), onOpen = onOpen)
                 }
                 if (convo.folded.isNotEmpty()) {
@@ -302,7 +303,7 @@ private fun waitsWords(count: Int): String = if (count == 1) "1 thing waits on y
 /** The newest change among the project's conversations and what hangs under them, unix seconds; zero when none has one. */
 private fun newestChangeOf(project: Project): Long =
     (project.convos + project.ended).maxOfOrNull { convo ->
-        convo.pane?.changed ?: convo.hung.maxOfOrNull { stampOf(it) } ?: 0L
+        convo.pane?.changed ?: convo.allHung.maxOfOrNull { stampOf(it) } ?: 0L
     } ?: 0L
 
 private fun stampOf(hung: Hung): Long = when (hung) {

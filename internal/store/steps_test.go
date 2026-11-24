@@ -442,7 +442,7 @@ func TestStepRowSurvivesEventRetentionPrune(t *testing.T) {
 	if err := s.ApplyEngine(ctx, []EngineOp{EngineAdd{ID: "eng-b", Dir: "/b", State: "idle"}}, later); err != nil {
 		t.Fatalf("ApplyEngine eng-b: %v", err)
 	}
-	if err := s.SyncServer(ctx, "-L a", nil, later); err != nil {
+	if err := s.SyncServer(ctx, "", "-L a", nil, later); err != nil {
 		t.Fatalf("SyncServer past retention: %v", err)
 	}
 	if events := eventsOf(t, s); len(events) != 1 {

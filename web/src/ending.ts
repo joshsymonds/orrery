@@ -76,10 +76,6 @@ export function isUndoNone(undo: string): boolean {
   return undo.trim().toLowerCase() === "none";
 }
 
-function isOrreryd(detail: EpicsGetResponse): boolean {
-  return detail.epic?.source === "orreryd";
-}
-
 function phaseOf(detail: EpicsGetResponse): string {
   return detail.epic?.outcome ?? "";
 }
@@ -146,7 +142,7 @@ function findingLine(finding: EpicLedgerFinding): ReviewView["findings"][number]
 // The Review section of an orreryd epic in a review phase, or null when the page does not reach it.
 export function reviewOf(detail: EpicsGetResponse): ReviewView | null {
   const phase = phaseOf(detail);
-  if (!isOrreryd(detail) || !reviewPhases.has(phase)) {
+  if (!reviewPhases.has(phase)) {
     return null;
   }
   const reviewing = phase === "reviewing" || phase === "correcting";
@@ -235,7 +231,7 @@ function offerOf(phase: string, steps: EpicReleaseProof[]): number {
 export function releaseOf(detail: EpicsGetResponse): ReleaseView | null {
   const phase = phaseOf(detail);
   const steps = detail.releaseSteps;
-  if (!isOrreryd(detail) || steps.length === 0) {
+  if (steps.length === 0) {
     return null;
   }
   if (!releasePhases.has(phase) && detail.releases.length === 0 && steps.every((step) => step.state === "waiting")) {
@@ -281,7 +277,7 @@ function slugOf(id: string): string {
 export function reportOf(detail: EpicsGetResponse): ReportView | null {
   const phase = phaseOf(detail);
   const report = detail.report;
-  if (!isOrreryd(detail) || (report === undefined && !phase.startsWith("closed_"))) {
+  if (report === undefined && !phase.startsWith("closed_")) {
     return null;
   }
   return {

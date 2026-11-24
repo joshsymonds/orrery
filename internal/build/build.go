@@ -33,6 +33,10 @@ const (
 // the unit.
 const unitRepro = "repro"
 
+// unitTestRun is the unit a verify unit runs for each test run its review stored: one test runner step at the run's
+// revision, under the derived id of the run, before the first finding's verifier.
+const unitTestRun = "testrun"
+
 // HeldStopped is a build the owner stopped, and HeldParked one that parked for the owner to answer. HeldWaiting is a
 // build an orchestrator's decision holds until an integrate batch has taken each task it waits for, and HeldAsked one
 // that waits on the owner's answer to the orchestrator's question.
@@ -61,7 +65,8 @@ const noVerdictLimit = 2
 // Returned is the implementer step whose end an orchestrate unit decides. Peers are the epic's tasks as a request reads
 // them, read for an orchestrate unit whose step ended and for a waiting build. NewBase is the commit the next integrate
 // batch composes on, which a waiting build moves onto, and Answered is whether the question a build asked is no longer
-// open.
+// open. TestRunStep is the step of the test run a verify unit's review waits on, the first run of the review with no
+// step, when that step has started.
 type View struct {
 	Epic              string
 	Paused            bool
@@ -81,6 +86,7 @@ type View struct {
 	Peers             []Peer
 	NewBase           string
 	Answered          bool
+	TestRunStep       *store.StepRow
 }
 
 // ActionKind is what a pass does for a task.
@@ -95,7 +101,8 @@ type ActionKind string
 // files it asked for. ActDecide carries out an
 // orchestrator's rerun or grant, and ActAsk its question to the owner. ActResume moves a waiting build's worktree onto
 // Revision, the new base, before Next is stored. ActSettleVersion applies the checking version a red run judged, with
-// Settle, and moves the build to implement as Next.
+// Settle, and moves the build to implement as Next. ActTestRun stores TestResult as the result of a test run of the
+// build's review.
 const (
 	ActNone          ActionKind = "none"
 	ActMove          ActionKind = "move"
@@ -111,6 +118,7 @@ const (
 	ActPark          ActionKind = "park"
 	ActReview        ActionKind = "review"
 	ActFinding       ActionKind = "finding"
+	ActTestRun       ActionKind = "test_run"
 	ActGrant         ActionKind = "grant"
 	ActDecide        ActionKind = "decide"
 	ActAsk           ActionKind = "ask"
@@ -131,7 +139,8 @@ const (
 // refuses its question. Settle is how an ActSettleVersion settles the task's checking version, applied, with the red
 // run that judged it. GateChanges is the whole list of gate-needed changes an ActGuard stores with its build when the guard
 // passes the commit, nil when the return declares nothing new. Notes is the whole list of notes the task holds after a
-// move that records one, nil when the move records none; Tells is the text of each note the move adds.
+// move that records one, nil when the move records none; Tells is the text of each note the move adds. TestRun is the
+// test run an ActStartStep of the testrun unit starts, and TestResult is the result an ActTestRun stores.
 type Action struct {
 	Kind        ActionKind
 	Next        store.TaskBuild
@@ -152,6 +161,8 @@ type Action struct {
 	Move        store.RungMove
 	GateChanges []store.GateChange
 	Notes       []string
+	TestRun     store.TaskTestRun
+	TestResult  store.TaskTestRunResult
 }
 
 // spend returns the action for a unit of the build that failed with failure. On every rung the failure climbs the task
@@ -254,6 +265,9 @@ type Store interface {
 	AddTaskReview(ctx context.Context, epic string, seq int64, from, to store.TaskBuild, review store.TaskReview) error
 	SetFindingResult(
 		ctx context.Context, epic string, seq int64, from, to store.TaskBuild, result store.TaskFindingResult,
+	) error
+	SetTestRunResult(
+		ctx context.Context, epic string, seq int64, from, to store.TaskBuild, result store.TaskTestRunResult,
 	) error
 }
 

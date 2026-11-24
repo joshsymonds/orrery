@@ -18,6 +18,7 @@ function defineIcons<const T extends Record<string, IconPath>>(icons: T): T {
 // ICONS is every icon by name, with its path data.
 const ICONS = defineIcons({
   back: { d: "M10 3 5 8l5 5" },
+  foldBack: { d: "M13.5 8H6M9 5 6 8l3 3M2.75 3v10" },
   chevronRight: { d: "M6 3l5 5-5 5" },
   chevronDown: { d: "M3 6l5 5 5-5" },
   chevronUp: { d: "M3 10l5-5 5 5" },

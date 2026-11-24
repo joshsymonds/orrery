@@ -51,7 +51,6 @@ class NoticesWordsTest {
         live = live,
         runningSteps = emptyList(),
         endedSteps = 0,
-        problem = "",
     )
 
     private fun pane(

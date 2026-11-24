@@ -7,6 +7,7 @@ import type {
   ContractsGetResponse,
   ContractVersion,
 } from "./gen/orrery/v1/contracts_pb";
+import type { EpicContract, EpicRequirement } from "./gen/orrery/v1/epics_pb";
 import { clock } from "./reader";
 
 // RowAbout is the row a dock About concerns: its id and the text it shows.
@@ -171,6 +172,33 @@ export function ratingTone(rating: string): "" | "live" | "bad" {
     return "live";
   }
   return "";
+}
+
+// nonEmptyLines counts the lines of text that hold a character other than whitespace.
+function nonEmptyLines(text: string): number {
+  return text.split("\n").filter((line) => line.trim() !== "").length;
+}
+
+// lengthOf is a contract's length in lines, the count the decision line's meter draws: the non-empty lines of its intent
+// and of its approach, and one line for each failure, addition, requirement, premise, exclusion, alternative, release step
+// and decision. Its title, care, release-then line, checks and base are not counted.
+export function lengthOf(
+  contract: EpicContract,
+  requirements: readonly EpicRequirement[],
+  decisions: readonly ContractDecision[],
+): number {
+  return (
+    nonEmptyLines(contract.intent) +
+    nonEmptyLines(contract.approach) +
+    contract.failures.length +
+    contract.additions.length +
+    requirements.length +
+    contract.premises.length +
+    contract.exclusions.length +
+    contract.alternatives.length +
+    contract.releaseSteps.length +
+    decisions.length
+  );
 }
 
 // aboutMessage is the message sent with a row's About: the row's id and text, then the draft.

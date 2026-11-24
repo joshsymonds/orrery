@@ -24,6 +24,7 @@ public  final class ContractStateChange extends
     session_ = "";
     words_ = "";
   }
+  private int bitField0_;
   public static final int STATE_FIELD_NUMBER = 1;
   private java.lang.String state_;
   /**
@@ -366,6 +367,73 @@ public  final class ContractStateChange extends
   private void clearTime() {
 
     time_ = 0L;
+  }
+
+  public static final int MAKER_FIELD_NUMBER = 7;
+  private io.github.joshsymonds.orrery.gen.orrery.v1.RecordMaker maker_;
+  /**
+   * <pre>
+   * Who made the change and the evidence it rests on.
+   * </pre>
+   *
+   * <code>.orrery.v1.RecordMaker maker = 7 [json_name = "maker"];</code>
+   */
+  @java.lang.Override
+  public boolean hasMaker() {
+    return ((bitField0_ & 0x00000001) != 0);
+  }
+  /**
+   * <pre>
+   * Who made the change and the evidence it rests on.
+   * </pre>
+   *
+   * <code>.orrery.v1.RecordMaker maker = 7 [json_name = "maker"];</code>
+   */
+  @java.lang.Override
+  public io.github.joshsymonds.orrery.gen.orrery.v1.RecordMaker getMaker() {
+    return maker_ == null ? io.github.joshsymonds.orrery.gen.orrery.v1.RecordMaker.getDefaultInstance() : maker_;
+  }
+  /**
+   * <pre>
+   * Who made the change and the evidence it rests on.
+   * </pre>
+   *
+   * <code>.orrery.v1.RecordMaker maker = 7 [json_name = "maker"];</code>
+   */
+  private void setMaker(io.github.joshsymonds.orrery.gen.orrery.v1.RecordMaker value) {
+    java.util.Objects.requireNonNull(value);
+    maker_ = value;
+    bitField0_ |= 0x00000001;
+  }
+  /**
+   * <pre>
+   * Who made the change and the evidence it rests on.
+   * </pre>
+   *
+   * <code>.orrery.v1.RecordMaker maker = 7 [json_name = "maker"];</code>
+   */
+  @java.lang.SuppressWarnings("ReferenceEquality")
+  private void mergeMaker(io.github.joshsymonds.orrery.gen.orrery.v1.RecordMaker value) {
+    java.util.Objects.requireNonNull(value);
+    if (maker_ != null &&
+        maker_ != io.github.joshsymonds.orrery.gen.orrery.v1.RecordMaker.getDefaultInstance()) {
+      maker_ =
+        io.github.joshsymonds.orrery.gen.orrery.v1.RecordMaker.newBuilder(maker_).mergeFrom(value).buildPartial();
+    } else {
+      maker_ = value;
+    }
+    bitField0_ |= 0x00000001;
+  }
+  /**
+   * <pre>
+   * Who made the change and the evidence it rests on.
+   * </pre>
+   *
+   * <code>.orrery.v1.RecordMaker maker = 7 [json_name = "maker"];</code>
+   */
+  private void clearMaker() {
+    maker_ = null;
+    bitField0_ = (bitField0_ & ~0x00000001);
   }
 
   public static io.github.joshsymonds.orrery.gen.orrery.v1.ContractStateChange parseFrom(
@@ -825,6 +893,77 @@ public  final class ContractStateChange extends
       return this;
     }
 
+    /**
+     * <pre>
+     * Who made the change and the evidence it rests on.
+     * </pre>
+     *
+     * <code>.orrery.v1.RecordMaker maker = 7 [json_name = "maker"];</code>
+     */
+    @java.lang.Override
+    public boolean hasMaker() {
+      return instance.hasMaker();
+    }
+    /**
+     * <pre>
+     * Who made the change and the evidence it rests on.
+     * </pre>
+     *
+     * <code>.orrery.v1.RecordMaker maker = 7 [json_name = "maker"];</code>
+     */
+    @java.lang.Override
+    public io.github.joshsymonds.orrery.gen.orrery.v1.RecordMaker getMaker() {
+      return instance.getMaker();
+    }
+    /**
+     * <pre>
+     * Who made the change and the evidence it rests on.
+     * </pre>
+     *
+     * <code>.orrery.v1.RecordMaker maker = 7 [json_name = "maker"];</code>
+     */
+    public Builder setMaker(io.github.joshsymonds.orrery.gen.orrery.v1.RecordMaker value) {
+      copyOnWrite();
+      instance.setMaker(value);
+      return this;
+      }
+    /**
+     * <pre>
+     * Who made the change and the evidence it rests on.
+     * </pre>
+     *
+     * <code>.orrery.v1.RecordMaker maker = 7 [json_name = "maker"];</code>
+     */
+    public Builder setMaker(
+        io.github.joshsymonds.orrery.gen.orrery.v1.RecordMaker.Builder builderForValue) {
+      copyOnWrite();
+      instance.setMaker(builderForValue.build());
+      return this;
+    }
+    /**
+     * <pre>
+     * Who made the change and the evidence it rests on.
+     * </pre>
+     *
+     * <code>.orrery.v1.RecordMaker maker = 7 [json_name = "maker"];</code>
+     */
+    public Builder mergeMaker(io.github.joshsymonds.orrery.gen.orrery.v1.RecordMaker value) {
+      copyOnWrite();
+      instance.mergeMaker(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * Who made the change and the evidence it rests on.
+     * </pre>
+     *
+     * <code>.orrery.v1.RecordMaker maker = 7 [json_name = "maker"];</code>
+     */
+    public Builder clearMaker() {  copyOnWrite();
+      instance.clearMaker();
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:orrery.v1.ContractStateChange)
   }
   @java.lang.Override
@@ -841,16 +980,18 @@ public  final class ContractStateChange extends
       }
       case BUILD_MESSAGE_INFO: {
           java.lang.Object[] objects = new java.lang.Object[] {
+            "bitField0_",
             "state_",
             "version_",
             "by_",
             "session_",
             "words_",
             "time_",
+            "maker_",
           };
           java.lang.String info =
-              "\u0000\u0006\u0000\u0000\u0001\u0006\u0006\u0000\u0000\u0000\u0001\u0208\u0002\u0002" +
-              "\u0003\u0208\u0004\u0208\u0005\u0208\u0006\u0002";
+              "\u0000\u0007\u0000\u0001\u0001\u0007\u0007\u0000\u0000\u0000\u0001\u0208\u0002\u0002" +
+              "\u0003\u0208\u0004\u0208\u0005\u0208\u0006\u0002\u0007\u1009\u0000";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

@@ -523,9 +523,9 @@ func openServeStores(getenv func(string) string, pushHosts []string) (*push.Stor
 	return pushStore, store.NewPooledReader(dbPath), nil
 }
 
-// runMCP runs `orrery mcp`. It serves the step, epic, contract, evidence and cron tools over MCP on stdin and stdout
-// until stdin closes. The step, epic, contract, evidence and cron services are the ones on the session socket beside
-// the daemon socket, so the command opens no listener and no store.
+// runMCP runs `orrery mcp`. It serves the step, epic, contract, evidence, cron, design and stage tools over MCP on
+// stdin and stdout until stdin closes. The step, epic, contract, evidence, cron, design and stage services are the
+// ones on the session socket beside the daemon socket, so the command opens no listener and no store.
 func runMCP(ctx context.Context, opts globals, args []string, stdin io.Reader, stdout io.Writer,
 	getenv func(string) string) error {
 	if len(args) > 0 {
@@ -545,7 +545,12 @@ func runMCP(ctx context.Context, opts globals, args []string, stdin io.Reader, s
 	evidence := enginev1connect.NewEvidenceClient(cli.SessionHTTPClient(sessionSocket), cli.SessionBaseURL)
 	crons := enginev1connect.NewCronsClient(cli.SessionHTTPClient(sessionSocket), cli.SessionBaseURL,
 		connect.WithInterceptors(stepmcp.CallerInterceptor(getenv)))
-	server, err := stepmcp.NewServer(steps, epics, contracts, evidence, stepmcp.WithCrons(crons))
+	designs := enginev1connect.NewDesignsClient(cli.SessionHTTPClient(sessionSocket), cli.SessionBaseURL,
+		connect.WithInterceptors(stepmcp.CallerInterceptor(getenv)))
+	stage := enginev1connect.NewStageClient(cli.SessionHTTPClient(sessionSocket), cli.SessionBaseURL,
+		connect.WithInterceptors(stepmcp.CallerInterceptor(getenv)))
+	server, err := stepmcp.NewServer(steps, epics, contracts, evidence,
+		stepmcp.WithCrons(crons), stepmcp.WithDesigns(designs), stepmcp.WithStage(stage))
 	if err != nil {
 		return fmt.Errorf("mcp: %w", err)
 	}
@@ -600,7 +605,7 @@ func runServe(ctx context.Context, opts globals, args []string, getenv func(stri
 		if !filepath.IsAbs(value) {
 			return errors.New("host status command must be an absolute path")
 		}
-		hostStatus = hoststatus.New(value, time.Now)
+		hostStatus = hoststatus.New(value, time.Now, hoststatus.CommandLimit)
 		return nil
 	})
 	if err := flags.Parse(args); err != nil {
@@ -630,20 +635,17 @@ func runServe(ctx context.Context, opts globals, args []string, getenv func(stri
 	// on every return below, so a serve that fails before it listens closes it too, and its error joins the result.
 	defer func() { err = errors.Join(err, sessions.Close()) }()
 	cfg := serveSessionConfig(opts, getenv)
-	// Without a HOME the record root stays empty: os.DirFS refuses an empty root, so Epics fails its reads rather than
-	// reading the working directory's .gambit.
-	var records string
 	home := getenv("HOME")
-	if home != "" {
-		records = filepath.Join(home, ".gambit")
-	}
 	metrics, handlerOptions, err := serveMetrics(*metricsListen)
 	if err != nil {
 		return err
 	}
 	shutdown := make(chan struct{})
 	cfg.HandlerOptions, cfg.Logins, cfg.Tmux, cfg.Push, cfg.HostStatus = handlerOptions, logins, tmux, pushStore, hostStatus
-	cfg.Sessions, cfg.Shutdown, cfg.Records, cfg.Home = sessions, shutdown, records, home
+	cfg.Sessions, cfg.Shutdown, cfg.Home = sessions, shutdown, home
+	if err := setServeHosts(&cfg, getenv); err != nil {
+		return err
+	}
 	cfg.Picker = servePickerConfig(tmux, getenv)
 	cfg.ReportSeen = seenReporter(opts.daemonSocket, getenv)
 	cfg.ReportRead = readReporter(opts.daemonSocket, getenv)
@@ -659,9 +661,9 @@ func runServe(ctx context.Context, opts globals, args []string, getenv func(stri
 
 // serveSessionConfig returns a server.Config holding only the clients of orreryd's services on the session socket
 // beside the daemon socket opts names: Engine, Steps, Pools, Notices, Changes, PaneSends, the Epics client as both
-// EpicStore and EpicCommands, Evidence, ContractCommands and AccountCommands. None carries a caller header, so a command
-// serve forwards is the owner's. A daemon socket that does not resolve leaves them all nil, and each service they back
-// answers unavailable.
+// EpicStore and EpicCommands, Evidence, ContractCommands, StageCommands and AccountCommands. None carries a caller
+// header, so a command serve forwards is the owner's. A daemon socket that does not resolve leaves them all nil, and
+// each service they back answers unavailable.
 func serveSessionConfig(opts globals, getenv func(string) string) server.Config {
 	daemonSocket, err := protocol.SocketPath(opts.daemonSocket, getenv)
 	if err != nil {
@@ -680,6 +682,7 @@ func serveSessionConfig(opts globals, getenv func(string) string) server.Config 
 		EpicCommands:     epics,
 		Evidence:         enginev1connect.NewEvidenceClient(sessionClient, cli.SessionBaseURL),
 		ContractCommands: enginev1connect.NewContractsClient(sessionClient, cli.SessionBaseURL),
+		StageCommands:    enginev1connect.NewStageClient(sessionClient, cli.SessionBaseURL),
 		AccountCommands:  enginev1connect.NewAccountsClient(sessionClient, cli.SessionBaseURL),
 	}
 }

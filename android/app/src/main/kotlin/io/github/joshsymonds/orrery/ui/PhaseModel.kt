@@ -45,8 +45,8 @@ data class Wedge(
 /** A part of a requirement's arc around the orrery, from [start] to [end] in wedge units, [proven] when it is. */
 data class RequirementArc(val id: String, val start: Double, val end: Double, val proven: Boolean)
 
-// A task as a wedge reads it: a build task, or a record task, with the place and tone serve computed for it and the step
-// labels that belong to it.
+// A task as a wedge reads it: a build task, with the place and tone serve computed for it and the step labels that
+// belong to it.
 internal data class WedgeTask(
     val task: String,
     val title: String,
@@ -56,13 +56,9 @@ internal data class WedgeTask(
     val tone: String,
 )
 
-// The build tasks when the epic has any, else the record's tasks.
-internal fun tasksOf(detail: EpicDetail): List<WedgeTask> {
-    if (detail.buildTasks.isNotEmpty()) {
-        return detail.buildTasks.map { WedgeTask(it.id, it.title, it.requirements, labelsOf(it), it.place, it.tone) }
-    }
-    return detail.tasks.map { WedgeTask(it.slug, it.subject, it.requirements, setOf(it.slug), it.place, it.tone) }
-}
+// The epic's build tasks.
+internal fun tasksOf(detail: EpicDetail): List<WedgeTask> =
+    detail.buildTasks.map { WedgeTask(it.id, it.title, it.requirements, labelsOf(it), it.place, it.tone) }
 
 // The prefix of the label an evidence judge step carries, before its run's id.
 private const val EVIDENCE_LABEL = "evidence-"

@@ -450,9 +450,10 @@ func TestReleaseIntegratorReturnCheckRefusesBadCommits(t *testing.T) {
 	}
 }
 
-// TestReleaseIntegratorBlockedParksWithUnresolved: a blocked return on a merge-side decision stops the release, and the
-// epic's park carries the integrator's report: each path it stopped on with its side, the decision that would settle it
-// and what each side meant. The integrator's worktree is removed with the stop, and no replan is recorded.
+// TestReleaseIntegratorBlockedParksWithUnresolved: a blocked return on a merge-side decision asks for a replan, and in
+// a workflow with no plan that can carry it the release stops: the epic's park carries the integrator's report, each
+// path it stopped on with its side, the decision that would settle it and what each side meant, then the note that the
+// change cannot be planned. The integrator's worktree is removed with the stop.
 func TestReleaseIntegratorBlockedParksWithUnresolved(t *testing.T) {
 	t.Parallel()
 	w := newConflictWorld(t)
@@ -474,7 +475,8 @@ func TestReleaseIntegratorBlockedParksWithUnresolved(t *testing.T) {
 	}
 	want := fmt.Sprintf("the release integrator stopped the merge of origin's commit %s into release tip %s:\n"+
 		"- README: side: merge; decision: which greeting the product ships; candidate: the epic greets in English; "+
-		"origin: main greets in French", w.origin, w.tip)
+		"origin: main greets in French; the workflow has no plan whose body holds an integrate node, so the release "+
+		"cannot plan the change to the candidate", w.origin, w.tip)
 	if flow.Epic.Parked != want {
 		t.Errorf("parked = %q, want %q", flow.Epic.Parked, want)
 	}
@@ -484,8 +486,8 @@ func TestReleaseIntegratorBlockedParksWithUnresolved(t *testing.T) {
 	if _, err := os.Stat(w.integratorDir()); !os.IsNotExist(err) {
 		t.Errorf("integrator directory stat = %v, want it removed with the stop", err)
 	}
-	if slices.ContainsFunc(flow.Releases, func(r store.ReleaseRun) bool { return r.Part == store.ReleasePartReplan }) {
-		t.Errorf("release runs = %+v, want no replan for a merge-side decision", flow.Releases)
+	if !slices.ContainsFunc(flow.Releases, func(r store.ReleaseRun) bool { return r.Part == store.ReleasePartReplan }) {
+		t.Errorf("release runs = %+v, want the replan a merge-side decision asks for", flow.Releases)
 	}
 }
 

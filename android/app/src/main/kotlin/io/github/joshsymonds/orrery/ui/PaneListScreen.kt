@@ -36,6 +36,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.repeatOnLifecycle
 import io.github.joshsymonds.orrery.api.ContractRow
+import io.github.joshsymonds.orrery.api.DesignRow
 import io.github.joshsymonds.orrery.api.EpicDetail
 import io.github.joshsymonds.orrery.api.EpicRow
 import io.github.joshsymonds.orrery.api.OrreryClient
@@ -126,7 +127,7 @@ class PaneListState {
 @Composable
 internal fun rememberPaneListState(): PaneListState = remember { PaneListState() }
 
-/** What one read of the lists, the epics and their details, the contracts and the host answered with. */
+/** What one read of the lists, the epics and their details, the contracts, the host and the designs answered with. */
 internal class TreeData(
     val panes: List<Pane>,
     val archived: Set<String>,
@@ -134,6 +135,7 @@ internal class TreeData(
     val details: Map<String, EpicDetail>,
     val contracts: List<ContractRow>,
     val host: String,
+    val designs: List<DesignRow> = emptyList(),
 )
 
 /**
@@ -320,8 +322,9 @@ fun PaneListScreen(
 }
 
 /**
- * Reads the lists, every live epic's detail, the contracts and the host. Null when a list or an epic did not answer. A
- * contracts read that fails keeps the contracts of [held], and a host read that fails keeps its host.
+ * Reads the lists, every live epic's detail, the contracts, the host and the designs. Null when a list or an epic did not
+ * answer. A contracts read that fails keeps the contracts of [held], a host read that fails keeps its host, and a designs
+ * read that fails keeps the designs of [held].
  */
 internal suspend fun readTree(client: OrreryClient, held: TreeData?): TreeData? = withContext(Dispatchers.IO) {
     try {
@@ -338,7 +341,12 @@ internal suspend fun readTree(client: OrreryClient, held: TreeData?): TreeData? 
         } catch (error: IOException) {
             held?.host ?: ""
         }
-        TreeData(rows.panes, rows.archived, epics, details, contracts, host)
+        val designs = try {
+            client.designs()
+        } catch (error: IOException) {
+            held?.designs ?: emptyList()
+        }
+        TreeData(rows.panes, rows.archived, epics, details, contracts, host, designs)
     } catch (error: IOException) {
         null
     }
@@ -351,7 +359,7 @@ internal suspend fun readTree(client: OrreryClient, held: TreeData?): TreeData? 
 private suspend fun readRows(client: OrreryClient, held: TreeData): TreeData? = withContext(Dispatchers.IO) {
     try {
         val rows = readRowLists(client)
-        TreeData(rows.panes, rows.archived, held.epics, held.details, held.contracts, held.host)
+        TreeData(rows.panes, rows.archived, held.epics, held.details, held.contracts, held.host, held.designs)
     } catch (error: IOException) {
         null
     }
@@ -375,8 +383,8 @@ private fun readRowLists(client: OrreryClient): RowLists {
 
 /** Where a read draws each conversation, in the inbox and in the archived view, without the open entry's hold. */
 private fun spotsOfRead(data: TreeData): Map<String, Placed> = spotsOf(
-    inboxTree(data.panes, data.archived, data.epics, data.details, data.contracts, data.host, TreeView.INBOX),
-    inboxTree(data.panes, data.archived, data.epics, data.details, data.contracts, data.host, TreeView.ARCHIVED),
+    inboxTree(data.panes, data.archived, data.epics, data.details, data.contracts, data.host, TreeView.INBOX, data.designs),
+    inboxTree(data.panes, data.archived, data.epics, data.details, data.contracts, data.host, TreeView.ARCHIVED, data.designs),
 )
 
 /**
@@ -392,6 +400,7 @@ private fun TreeData.holding(held: String?): TreeData {
         details = details,
         contracts = contracts,
         host = host,
+        designs = designs,
     )
 }
 
@@ -432,7 +441,16 @@ private fun InboxBody(
 ) {
     val projects = remember(data, state.view, state.heldKey) {
         val drawn = if (state.view == TreeView.INBOX) data.holding(state.heldKey) else data
-        inboxTree(drawn.panes, drawn.archived, drawn.epics, drawn.details, drawn.contracts, drawn.host, state.view)
+        inboxTree(
+            drawn.panes,
+            drawn.archived,
+            drawn.epics,
+            drawn.details,
+            drawn.contracts,
+            drawn.host,
+            state.view,
+            drawn.designs,
+        )
     }
     // The rows and ended lines drawn with a mark: a move lands in a place drawn here, or behind a shut ended line.
     val markedRows = marking.values.filter { drawnAt(it.to, state) }.mapTo(HashSet()) { it.key }
@@ -460,7 +478,7 @@ private fun InboxBody(
     // Each contract row's key, with the conversation it hangs under: null for a contract on its own row, which no conversation holds.
     val conversationOfContract = remember(projects) {
         projects.flatMap { it.convos + it.ended }.flatMap { convo ->
-            convo.hung.filterIsInstance<ContractNode>().map { it.key to convo.pane }
+            convo.allHung.filterIsInstance<ContractNode>().map { it.key to convo.pane }
         }.toMap()
     }
     val onOpen: (String) -> Unit = { key ->

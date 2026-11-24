@@ -176,7 +176,6 @@ class MainActivityProjectPageTest {
             .setSource("orreryd")
             .setSteering(CONVO_ORRERY_ID)
             .setEndedSteps(0)
-            .setProblem("")
             .build()
         server.respond(EPICS_LIST_PATH, EpicsListResponse.newBuilder().addEpics(epic).build())
         server.respond(EPICS_GET_PATH, EpicsGetResponse.newBuilder().setEpic(epic).build())

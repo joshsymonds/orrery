@@ -364,6 +364,12 @@ func TestContractRecordGetGivesVersionsAndStates(t *testing.T) {
 				Time: contractTimeB},
 			{State: "accepted", Version: 2, By: "owner", Words: "Synthetic accept.", Time: contractTimeBAcc},
 		},
+		// The contract is accepted and orreryd holds no epic for it, so its one requirement is not started.
+		Work: []*orreryv1.ContractRequirementWork{
+			{Id: "R1", Text: "Synthetic requirement.", State: "not started"},
+		},
+		// The newest version's body is 44 lines above its checks, at the default thresholds.
+		Length: &orreryv1.ContractLength{Lines: 44, Warn: 41, Strong: 61},
 	}
 	if !proto.Equal(reply.Msg, want) {
 		t.Fatalf("Get = %v, want %v", reply.Msg, want)
@@ -475,7 +481,8 @@ func TestContractRecordCommandsRecordTheOwner(t *testing.T) {
 	assertContractStates(t, got.Msg.GetStates(), []*orreryv1.ContractStateChange{
 		{State: "proposed", Version: 1, By: "session", Session: contractWriterD, Words: "Synthetic proposal.",
 			Time: contractTimeD},
-		{State: "accepted", Version: 1, By: "owner", Words: "Synthetic accept.", Time: contractTimeEngine},
+		{State: "accepted", Version: 1, By: "owner", Words: "Synthetic accept.", Time: contractTimeEngine,
+			Maker: &orreryv1.RecordMaker{Kind: "owner_serve"}},
 		{State: "set_aside", Version: 1, By: "owner", Words: "Synthetic set aside.", Time: contractTimeEngine},
 		{State: "proposed", Version: 1, By: "owner", Words: "Synthetic reopen.", Time: contractTimeEngine},
 	})

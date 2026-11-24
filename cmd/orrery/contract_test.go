@@ -92,11 +92,25 @@ func (f *recordingContracts) GetContract(
 	return contractRespond(f, req.Msg, &v1.GetContractResponse{Contract: contractStored()})
 }
 
+func (f *recordingContracts) DraftContract(
+	_ context.Context,
+	req *connect.Request[v1.DraftContractRequest],
+) (*connect.Response[v1.DraftContractResponse], error) {
+	return contractRespond(f, req.Msg, &v1.DraftContractResponse{Draft: &v1.ContractDraft{Id: contractTestID}})
+}
+
 func (f *recordingContracts) ListContracts(
 	_ context.Context,
 	req *connect.Request[v1.ListContractsRequest],
 ) (*connect.Response[v1.ListContractsResponse], error) {
 	return contractRespond(f, req.Msg, &v1.ListContractsResponse{Contracts: []*v1.StoredContract{contractStored()}})
+}
+
+func (f *recordingContracts) ProposeWorking(
+	_ context.Context,
+	req *connect.Request[v1.ProposeWorkingRequest],
+) (*connect.Response[v1.ProposeWorkingResponse], error) {
+	return contractRespond(f, req.Msg, &v1.ProposeWorkingResponse{Contract: contractStored()})
 }
 
 // recorded returns the requests the fake received, under its lock.

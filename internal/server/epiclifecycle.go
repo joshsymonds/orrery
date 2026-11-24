@@ -2,7 +2,6 @@ package server
 
 import (
 	"slices"
-	"strings"
 
 	enginev1 "github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1"
 	orreryv1 "github.com/joshsymonds/orrery/internal/gen/orrery/v1"
@@ -32,15 +31,11 @@ const (
 	toneOk      = "ok"
 )
 
-// The statuses a task's lifecycle reads: a build task is open until it is done or a gap, and a record task's status is
-// free text, of which these words, compared without case, place it.
+// The statuses a build task's lifecycle reads: a build task is open until it is done or a gap.
 const (
-	statusOpen       = "open"
-	statusDone       = "done"
-	statusIntegrated = "integrated"
-	statusGap        = "gap"
-	statusGated      = "gated"
-	statusDispatched = "dispatched"
+	statusOpen = "open"
+	statusDone = "done"
+	statusGap  = "gap"
 )
 
 // evidenceLabelPrefix starts the task label of an evidence run's judge step, which names the run's id after it.
@@ -51,11 +46,9 @@ type lifecycle struct {
 	place, tone string
 }
 
-// epicLifecycles sets the place and tone of each task of resp from labeled, the epic's labeled steps oldest first: its
-// record tasks from their steps, and its build tasks from stored, the stored epic they were read from, which is nil for
-// a record epic.
+// epicLifecycles sets the place and tone of each build task of resp from stored, the stored epic they were read from,
+// and from labeled, the epic's labeled steps oldest first.
 func epicLifecycles(resp *orreryv1.EpicsGetResponse, stored *enginev1.StoredEpic, labeled []*enginev1.Step) {
-	epicRecordLifecycles(resp.GetTasks(), labeled)
 	epicBuildLifecycles(resp.GetBuildTasks(), stored.GetTasks(), labeled, store.EndedPhase(stored.GetPhase()),
 		stored.GetPaused() || stored.GetParked() != "")
 }
@@ -186,68 +179,5 @@ func runningTone(step *enginev1.Step) string {
 		return toneLimited
 	default:
 		return toneRun
-	}
-}
-
-// epicRecordLifecycles sets the place and tone of each record task in tasks from steps, the epic's labeled steps
-// oldest first, of which a task's are those its slug labels.
-func epicRecordLifecycles(tasks []*orreryv1.EpicTask, steps []*enginev1.Step) {
-	for _, task := range tasks {
-		life := recordLifecycle(task.GetStatus(), taskSteps(steps, []string{task.GetSlug()}))
-		task.Place, task.Tone = life.place, life.tone
-	}
-}
-
-// recordLifecycle returns where a record task with status stands, from its steps, by the first rule that holds: a done
-// or integrated task is integrated; a gap is bad at its latest step's ring, or at implement with no step; a running
-// latest step places it at its ring in its tone; a gated task, or one whose latest step ended done, is accepted at
-// integrate; a latest step that ended otherwise leaves it running at its ring, since the task stays open for the next
-// attempt; a dispatched task with no step runs at implement; and any other is planned.
-func recordLifecycle(status string, steps []*enginev1.Step) lifecycle {
-	word := strings.ToLower(status)
-	latest := lastStep(steps)
-	switch {
-	case word == statusDone || word == statusIntegrated:
-		return lifecycle{placeIntegrated, toneOk}
-	case word == statusGap && latest == nil:
-		return lifecycle{placeImplement, toneBad}
-	case word == statusGap:
-		return lifecycle{recordStepPlace(latest), toneBad}
-	case latest != nil && latest.GetEnd() == "":
-		return lifecycle{recordStepPlace(latest), runningTone(latest)}
-	case word == statusGated || (latest != nil && latest.GetEnd() == epicEndDone):
-		return lifecycle{placeIntegrate, toneAcc}
-	case latest != nil:
-		return lifecycle{recordStepPlace(latest), toneRun}
-	case word == statusDispatched:
-		return lifecycle{placeImplement, toneRun}
-	default:
-		return lifecycle{placePlanned, tonePlan}
-	}
-}
-
-// recordStepPlace is the ring a record task's step places it in, as a record has no build stage: review for a read-only
-// step; green for a step running its checks, gate or judge, or one that ended checks_failed or goal_unmet; implement
-// for any other.
-func recordStepPlace(step *enginev1.Step) string {
-	end := step.GetEnd()
-	switch {
-	case step.GetReadOnly():
-		return placeReview
-	case end == "" && recordCheckStage(step.GetStage()), end == epicEndChecksFailed, end == epicEndGoalUnmet:
-		return placeGreen
-	default:
-		return placeImplement
-	}
-}
-
-// recordCheckStage reports whether stage is a loop stage in which a running step checks its work: checks, gate or
-// judge.
-func recordCheckStage(stage string) bool {
-	switch stage {
-	case "checks", "gate", "judge":
-		return true
-	default:
-		return false
 	}
 }

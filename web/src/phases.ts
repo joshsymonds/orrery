@@ -1,4 +1,4 @@
-import type { EpicRequirement, EpicsGetResponse, EpicTask, EvidenceRun } from "./gen/orrery/v1/epics_pb";
+import type { EpicRequirement, EpicsGetResponse, EvidenceRun } from "./gen/orrery/v1/epics_pb";
 
 export const PHASES = ["implementing", "checking", "reviewing", "integrating"] as const;
 export type Phase = (typeof PHASES)[number];
@@ -12,8 +12,8 @@ export type TaskPlace = RingPlace | "planned" | "integrated";
 export type Cell = Tone | "none";
 export type SliceState = "passed" | "now" | "ahead";
 
-// A task as the record reads it: a planned build task, or a record task, which has no stage. place and tone are where
-// the server stands it in its lifecycle, and labels are the task labels of its steps.
+// A task as the record reads it: a planned build task. place and tone are where the server stands it in its lifecycle,
+// and labels are the task labels of its steps.
 export interface Task {
   task: string;
   title: string;
@@ -46,36 +46,19 @@ function evidenceLabel(run: EvidenceRun | undefined): string[] {
   return run === undefined || run.id === "" ? [] : [`evidence-${run.id}`];
 }
 
-// The build tasks when the epic has any, else the record's tasks. A build task's steps are labelled with its id, and
-// the judge steps of its red and green runs with their evidence labels.
+// The build tasks of the epic, in task order. A build task's steps are labelled with its id, and the judge steps of its
+// red and green runs with their evidence labels.
 export function tasksOf(detail: EpicsGetResponse): Task[] {
-  if (detail.buildTasks.length > 0) {
-    return detail.buildTasks.map((build) => ({
-      task: build.id,
-      title: build.title,
-      status: build.status,
-      stage: build.stage,
-      requirements: build.requirements,
-      place: placeOf(build.place),
-      tone: toneOf(build.tone),
-      labels: [build.id, ...evidenceLabel(build.red), ...evidenceLabel(build.green)],
-    }));
-  }
-  return detail.tasks.map(recordTaskOf);
-}
-
-// A record task as the record reads it: its slug names it and labels its steps, and it has no stage.
-export function recordTaskOf(record: EpicTask): Task {
-  return {
-    task: record.slug,
-    title: record.subject,
-    status: record.status,
-    stage: "",
-    requirements: record.requirements,
-    place: placeOf(record.place),
-    tone: toneOf(record.tone),
-    labels: [record.slug],
-  };
+  return detail.buildTasks.map((build) => ({
+    task: build.id,
+    title: build.title,
+    status: build.status,
+    stage: build.stage,
+    requirements: build.requirements,
+    place: placeOf(build.place),
+    tone: toneOf(build.tone),
+    labels: [build.id, ...evidenceLabel(build.red), ...evidenceLabel(build.green)],
+  }));
 }
 
 // The task of an epic whose steps a step's label names, if any.

@@ -81,6 +81,8 @@ func epicTableColumns() map[string][]string {
 			// The task's kind and the seq of the design task it revises, from 00091_task_kind.sql.
 			"kind",
 			"revises",
+			// The seq of the task this task was split from, from 00104_task_split_test_runs.sql.
+			"split_from",
 		},
 		"epic_task_files":        {"epic", "task", "position", "path"},
 		"epic_task_requirements": {"epic", "task", "position", "requirement"},
@@ -99,6 +101,10 @@ func epicTableColumns() map[string][]string {
 		"epic_task_findings": {
 			"epic", "task", "generation", "attempt", "review", "position", "id", "claim", "citation", "location",
 			"evidence", "verify_by", "step", "result", "reason", "unverified",
+		},
+		// The test runs of a task's attempts and reviews, from 00104_task_split_test_runs.sql.
+		"epic_task_test_runs": {
+			"epic", "task", "generation", "attempt", "review", "position", "command", "revision", "step", "output",
 		},
 		// The task ladder's rungs and their outcomes, from 00070_task_ladder.sql.
 		"epic_task_rungs": {
@@ -154,6 +160,8 @@ func epicTableColumns() map[string][]string {
 		"planner_actions": {
 			"epic", "turn", "position", "kind", "node", "task", "close_kind", "by_epic", "undo_none", "reason", "state",
 			"refusal", "park", "requirement", "item", "deliverable", "files", "remove_files", "reviewer",
+			// The tasks a split action's descendants are, from 00104_task_split_test_runs.sql.
+			"split_tasks",
 		},
 		// The gaps a planner turn declared it cannot resolve without the owner, from 00079_gap_reconcile.sql.
 		"planner_unresolvable": {"epic", "turn", "position", "gap", "reason", "recommended"},
@@ -200,6 +208,17 @@ func columnsOf(t *testing.T, s *Store, table string) []string {
 		t.Fatalf("iterate columns of %s: %v", table, err)
 	}
 	return names
+}
+
+// addSessionBeforeHost inserts an engine session row the way EngineAdd did before 00103_session_host.sql added the host
+// column, for a store migrated to a version before it. It appends no engine_added event.
+func addSessionBeforeHost(t *testing.T, s *Store, id, dir, state string, at time.Time) {
+	t.Helper()
+	if _, err := s.db.ExecContext(context.Background(),
+		`INSERT INTO sessions (id, server, pane, kind, dir, state, changed) VALUES (?, '', '', 'engine', ?, ?, ?)`,
+		id, dir, state, engineStamp(at)); err != nil {
+		t.Fatalf("insert session %s: %v", id, err)
+	}
 }
 
 // rowsOf reads every row of table in rowid order, each as the values of its columns in declaration order.
@@ -577,8 +596,16 @@ func TestEpicMigrationKeepsExistingRows(t *testing.T) {
 		`SELECT COALESCE(MAX(version_id), 0) FROM goose_db_version WHERE is_applied = 1`).Scan(&version); err != nil {
 		t.Fatalf("read store version: %v", err)
 	}
-	// Open applies 00014_epics.sql and every migration after it: 00101_drop_sync_columns.sql is the newest.
-	// The newest was 00100_epic_base_legacy_sync.sql before the sync columns' drop added 00101_drop_sync_columns.sql,
+	// Open applies 00014_epics.sql and every migration after it: 00109_step_listings_host.sql is the newest.
+	// The newest was 00108_notice_host.sql before the step listings host migration added 00109_step_listings_host.sql,
+	// 00107_stage_records.sql before the notice host migration added 00108_notice_host.sql,
+	// 00106_contract_stage.sql before the stage records migration added 00107_stage_records.sql,
+	// 00105_designs.sql before the contract stage migration added 00106_contract_stage.sql,
+	// 00104_task_split_test_runs.sql before the designs migration added 00105_designs.sql,
+	// 00103_session_host.sql before the task split migration added 00104_task_split_test_runs.sql,
+	// 00102_session_held.sql before the session host column added 00103_session_host.sql,
+	// 00101_drop_sync_columns.sql before the held sessions migration added 00102_session_held.sql,
+	// 00100_epic_base_legacy_sync.sql before the sync columns' drop added 00101_drop_sync_columns.sql,
 	// 00099_sync_integrate_rounds.sql before the epic base migration added 00100_epic_base_legacy_sync.sql,
 	// 00098_drop_release_slots.sql before the sync integrate rounds migration added 00099,
 	// 00097_engine_hosts.sql before the release slots' drop added 00098,
@@ -599,7 +626,7 @@ func TestEpicMigrationKeepsExistingRows(t *testing.T) {
 	// before the contract record migration added 00082, 00080_epic_steerer.sql before the
 	// epic actions migration added 00081, 00079_gap_reconcile.sql before the steerer migration added 00080,
 	// 00078_task_review_undetermined.sql before the gap reconciliation added 00079, 00077_gambit_ladder.sql before the
-	// undetermined reviews added 00078, 00076_notice_history.sql before the gambit ladder added 00077,
+	// undetermined reviews added 00078, 00076_notice_history.sql before the ladder migration added 00077,
 	// 00075_step_facts.sql before the notice history added 00076, 00074_task_repairs.sql before the step facts added
 	// 00075, 00073_session_awaited.sql before the task repairs added 00074, 00072_epic_revisions_table.sql before the
 	// awaited flag added 00073, 00071_park_question_runs.sql before the revisions table added 00072,
@@ -610,8 +637,8 @@ func TestEpicMigrationKeepsExistingRows(t *testing.T) {
 	// added 00065, 00063_task_versions.sql before the step indexes added 00064, 00062_drop_engine_held.sql before the
 	// task versions added 00063, 00061_prompt_states.sql before the drop of engine_held added 00062, and
 	// 00060_cron_jobs.sql before the prompt states added 00061.
-	if version != 101 {
-		t.Fatalf("store version after Open = %d, want 101", version)
+	if version != 109 {
+		t.Fatalf("store version after Open = %d, want 109", version)
 	}
 
 	// A later migration may add columns at the end of an existing table, as 00015_step_readopt.sql adds to steps and
@@ -1251,7 +1278,7 @@ func TestPlannerControlsDefaultOnRowsStoredAtVersion16(t *testing.T) {
 		},
 		"epic_turns":      {int64(0), int64(0), int64(0)},
 		"epic_decisions":  {int64(0), "", "", ""},
-		"pending_notices": {"", ""},
+		"pending_notices": {"", "", ""},
 	}
 	for _, table := range tables {
 		want := make([][]any, len(before[table]))

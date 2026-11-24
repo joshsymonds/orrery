@@ -104,7 +104,6 @@ class InboxDroidOnceTest {
         .setChanged(changed)
         .setLive(false)
         .setEndedSteps(0)
-        .setProblem("")
         .setSteering(steering)
         .build()
 

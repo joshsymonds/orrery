@@ -115,7 +115,6 @@ class InboxTreeSheetTest {
         live = true,
         runningSteps = emptyList(),
         endedSteps = 0,
-        problem = "",
         archived = archived,
     )
 
@@ -165,7 +164,6 @@ class InboxTreeSheetTest {
         .setChanged(NOW - 30)
         .setLive(true)
         .setEndedSteps(0)
-        .setProblem("")
         .setSteering(steering)
         .build()
 

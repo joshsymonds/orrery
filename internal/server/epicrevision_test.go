@@ -43,7 +43,7 @@ func TestEpicsListRevisionMovesWithAPlannerQuestionAndAPark(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
 	st := openEpicAnswerStore(t)
-	client := epicStoreServe(t, t.TempDir(), &epicsFake{}, serveEngineEpics(t, st))
+	client := epicStoreServe(t, &epicsFake{}, serveEngineEpics(t, st))
 
 	turn, err := st.ClaimTurn(ctx, syntheticEpicID, time.Unix(1_700_000_100, 0))
 	if err != nil {

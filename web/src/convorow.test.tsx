@@ -114,8 +114,8 @@ test("InboxTree ConvoRow draws the caller's row first, then each epic it steers 
   ];
   assert.deepEqual(keysOf(convo.hung), expected, "the fixture steers the four epics in this order");
   return withConvo(convo, (container) => {
-    const first = container.firstElementChild;
-    assert.equal(first?.getAttribute("data-key"), "pane:halyard:%22", "the caller's row is drawn first");
+    const first = container.querySelector(".convo-block")?.firstElementChild;
+    assert.equal(first?.getAttribute("data-key"), "pane:halyard:%22", "the caller's row heads the conversation's block");
     const steers = container.querySelector(".steers");
     assert.ok(steers, "the steered things hang in .steers");
     assert.equal(steers.previousElementSibling, first, "the .steers follows the caller's row");

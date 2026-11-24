@@ -1,7 +1,9 @@
 import { createClient, type Interceptor, type Transport } from "@connectrpc/connect";
 import { createConnectTransport } from "@connectrpc/connect-web";
 
+import { Accounts, Routes } from "./gen/orrery/v1/accounts_pb";
 import { Contracts } from "./gen/orrery/v1/contracts_pb";
+import { Designs } from "./gen/orrery/v1/designs_pb";
 import { Epics, Evidence, Steps } from "./gen/orrery/v1/epics_pb";
 import { Notices } from "./gen/orrery/v1/notice_pb";
 import { Control, Events, Host, Panes, Picker, Presence, Sessions } from "./gen/orrery/v1/orrery_pb";
@@ -40,10 +42,13 @@ export function createClients(transport: Transport) {
     picker: createClient(Picker, transport),
     epics: createClient(Epics, transport),
     contracts: createClient(Contracts, transport),
+    designs: createClient(Designs, transport),
     evidence: createClient(Evidence, transport),
     steps: createClient(Steps, transport),
     presence: createClient(Presence, transport),
     notices: createClient(Notices, transport),
     host: createClient(Host, transport),
+    accounts: createClient(Accounts, transport),
+    routes: createClient(Routes, transport),
   };
 }

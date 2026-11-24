@@ -167,7 +167,7 @@ func (s stubRows) PutPushed(ctx context.Context, _ store.PushedRow) error {
 	return s.call(ctx)
 }
 
-func (s stubRows) DeletePushed(ctx context.Context, _, _ string) error {
+func (s stubRows) DeletePushed(ctx context.Context, _, _, _ string) error {
 	return s.call(ctx)
 }
 

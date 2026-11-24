@@ -121,32 +121,15 @@ test("EpicOrrery: a task's running step is the latest of its steps that has not 
   assert.equal(task.words, "green · judging the green run");
 });
 
-test("EpicOrrery: the record's tasks are the build tasks when there are any, and the record's tasks when there are none", () => {
+test("EpicOrrery: the record's tasks are the build tasks", () => {
   const build = recordTasksOf(
     create(EpicsGetResponseSchema, {
       buildTasks: [{ id: "T1", title: "Parser", status: "open", stage: "", requirements: ["R1"], place: "planned", tone: "plan" }],
-      tasks: [{ effort: 1, slug: "old", subject: "Old", status: "done", requirements: [], place: "integrated", tone: "ok" }],
     }),
   );
   assert.deepEqual(
     build.map((task) => [task.task, task.title, task.requirements.join(",")]),
     [["T1", "Parser", "R1"]],
-  );
-
-  const record = recordTasksOf(
-    create(EpicsGetResponseSchema, {
-      tasks: [
-        { effort: 1, slug: "first", subject: "First task", status: "done", requirements: ["R2", "R3"], place: "integrated", tone: "ok" },
-        { effort: 1, slug: "second", subject: "Second", status: "pending", requirements: [], place: "planned", tone: "plan" },
-      ],
-    }),
-  );
-  assert.deepEqual(
-    record.map((task) => [task.task, task.title, task.requirements.join(","), task.place]),
-    [
-      ["first", "First task", "R2,R3", "integrated"],
-      ["second", "Second", "", "planned"],
-    ],
   );
 });
 

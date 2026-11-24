@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/joshsymonds/orrery/internal/childproc"
+	"github.com/joshsymonds/orrery/internal/holderhost"
 	"github.com/joshsymonds/orrery/internal/protocol"
 	"github.com/joshsymonds/orrery/internal/stamp"
 )
@@ -92,7 +93,7 @@ func (h *Haiku) CallVia(
 // settings returns the --settings value of a run with env: hooks disabled, env, and the user CLAUDE.md excluded, the
 // one h's environ names. It fails when that path cannot be resolved.
 func (h *Haiku) settings(env map[string]string) (string, error) {
-	memory, err := userMemoryOf(h.environ)
+	memory, err := holderhost.UserMemoryOf(h.environ)
 	if err != nil {
 		return "", fmt.Errorf("haiku: %w", err)
 	}

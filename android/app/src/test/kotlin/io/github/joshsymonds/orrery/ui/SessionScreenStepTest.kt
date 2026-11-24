@@ -110,8 +110,7 @@ class SessionScreenStepTest {
                 .setChanged(NOW)
                 .setLive(true)
                 .setSource("orreryd")
-                .setEndedSteps(0)
-                .setProblem(""),
+                .setEndedSteps(0),
         )
         .addSteps(
             EpicStep.newBuilder()

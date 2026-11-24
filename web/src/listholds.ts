@@ -5,12 +5,7 @@ import type { Row } from "./rows";
 
 // listsEpic reports whether the view holds the epic under id in any of its lines, open or shut.
 export function listsEpic(view: EpicsView, id: string): boolean {
-  const held = [
-    ...view.blocks.map((block) => block.epic),
-    ...view.waiting,
-    ...view.justEnded,
-    ...view.endedEarlier,
-  ];
+  const held = [...view.blocks.map((block) => block.epic), ...view.justEnded, ...view.endedEarlier];
   return held.some((item) => item.id === id);
 }
 
@@ -18,7 +13,7 @@ export function listsEpic(view: EpicsView, id: string): boolean {
 // An address with no entry always holds. The archived view holds archived rows and archived epics, and no step. The
 // inbox holds the rows that are not archived, the epics listsEpic finds, and the steps of the epic blocks. A contract
 // holds under every view while the loaded contracts hold its id. A project entry always holds: the project page says when
-// the tree holds nothing of its project.
+// the tree holds nothing of its project. The accounts entry always holds too: it is drawn from no list.
 export function listHolds(
   address: Address,
   rows: Row[],
@@ -43,6 +38,7 @@ export function listHolds(
     case "epic":
       return archived ? epics.archived.some((item) => item.id === entry.id) : listsEpic(epics, entry.id);
     case "project":
+    case "accounts":
       return true;
     case "contract":
       return contracts.some((contract) => contract.id === entry.id);

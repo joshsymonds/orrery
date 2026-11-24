@@ -28,7 +28,7 @@ const heldContract = create(ContractSchema, { id: "repo-a/held-contract", reposi
 const listed = [liveAlpha, foldedBeta, liveGamma];
 
 function detailOf(epic: typeof liveAlpha) {
-  return { epic, tasks: [], steps: [] };
+  return { epic, steps: [] };
 }
 
 interface Answer {
@@ -372,4 +372,23 @@ test("ChangedEpicsOnly: a failed Get keeps the previous detail", async () => {
   );
   assert.deepEqual(idsOf(calls, getPath), [liveAlpha.id]);
   assert.equal(retried.details.get(liveAlpha.id)?.epic?.runningSteps[0]?.task, "review");
+});
+
+// A synthetic design of two contracts, as Epics.List carries it.
+const designOne = { id: "repo-a/design-one", title: "Design one", conversation: "sess-a", created: "10", contracts: [] };
+
+test("DesignTree loadEpics returns Epics.List's designs, and none when the list fails", async () => {
+  const calls: Call[] = [];
+  const clients = clientsFor(fakeEpics({ status: 200, body: { epics: [], designs: [designOne] } }, {}, calls));
+
+  const returned = await loadEpics(clients, new Map(), changedOnly);
+
+  assert.deepEqual(
+    returned.designs.map((design) => design.id),
+    [designOne.id],
+  );
+
+  const failed = await loadEpics(clientsFor(fakeEpics(serverError, {}, [])), new Map(), changedOnly);
+
+  assert.deepEqual(failed.designs, []);
 });

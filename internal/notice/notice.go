@@ -21,8 +21,8 @@ import (
 const storeDeadline = 200 * time.Millisecond
 
 // Key names the pane, session, epic, usage limit or alert a notice belongs to. Exactly one of Pane, Session, Epic,
-// Limit and Alert is set.
-type Key struct{ Pane, Session, Epic, Limit, Alert string }
+// Limit and Alert is set. Host is the orrery name of the pane's host, set with Pane and only with Pane.
+type Key struct{ Pane, Session, Epic, Limit, Alert, Host string }
 
 // Sender posts notices and clears. *push.Publisher satisfies it.
 type Sender interface {
@@ -33,7 +33,7 @@ type Sender interface {
 // Rows is the store a Notices keeps each key's last push in. *store.Store satisfies it.
 type Rows interface {
 	PutPushed(context.Context, store.PushedRow) error
-	DeletePushed(ctx context.Context, pane, session string) error
+	DeletePushed(ctx context.Context, host, pane, session string) error
 	DeletePushedEpic(ctx context.Context, epic string) error
 	DeletePushedLimit(ctx context.Context, limit string) error
 	DeletePushedAlert(ctx context.Context, alert string) error
@@ -136,7 +136,7 @@ func (n *Notices) Notify(
 			return
 		}
 		note.Time = at
-		note.Host = n.host
+		note.Host = n.hostOf(key)
 		note.Pane = key.Pane
 		note.Session = key.Session
 		note.Epic = key.Epic
@@ -221,7 +221,14 @@ func (n *Notices) mergeLocked(ctx context.Context, rows Rows, stored []store.Pus
 		}
 	}
 	for _, row := range stored {
-		key := Key{Pane: row.Pane, Session: row.Session, Epic: row.Epic, Limit: row.Limit, Alert: row.Alert}
+		key := Key{
+			Host:    row.Host,
+			Pane:    row.Pane,
+			Session: row.Session,
+			Epic:    row.Epic,
+			Limit:   row.Limit,
+			Alert:   row.Alert,
+		}
 		if pushed[key] {
 			continue
 		}
@@ -273,11 +280,21 @@ func (n *Notices) bounded(parent context.Context, call func(context.Context) err
 	return nil
 }
 
+// hostOf returns the host a push or clear of key names: the key's host when key is a pane's and names one, else the
+// Notices' own host.
+func (n *Notices) hostOf(key Key) string {
+	if key.Pane != "" && key.Host != "" {
+		return key.Host
+	}
+	return n.host
+}
+
 // clearSend returns the send that clears key at seen, then deletes key's row when rows is set.
 func (n *Notices) clearSend(key Key, seen int64, rows Rows) func(context.Context) {
+	host := n.hostOf(key)
 	return func(ctx context.Context) {
 		c := push.Clear{
-			Host: n.host, Pane: key.Pane, Session: key.Session, Epic: key.Epic, Limit: key.Limit, Alert: key.Alert,
+			Host: host, Pane: key.Pane, Session: key.Session, Epic: key.Epic, Limit: key.Limit, Alert: key.Alert,
 			Seen: seen,
 		}
 		if err := n.sender.PublishClear(ctx, c); err != nil {
@@ -293,7 +310,13 @@ func (n *Notices) clearSend(key Key, seen int64, rows Rows) func(context.Context
 // stored, Retry and Close).
 func (n *Notices) putRow(ctx context.Context, rows Rows, key Key, at int64) {
 	row := store.PushedRow{
-		Pane: key.Pane, Session: key.Session, Epic: key.Epic, Limit: key.Limit, Alert: key.Alert, Time: at,
+		Host:    key.Host,
+		Pane:    key.Pane,
+		Session: key.Session,
+		Epic:    key.Epic,
+		Limit:   key.Limit,
+		Alert:   key.Alert,
+		Time:    at,
 	}
 	if err := n.bounded(ctx, func(ctx context.Context) error { return rows.PutPushed(ctx, row) }); err != nil {
 		n.logger.ErrorContext(ctx, "put pushed notice", "key", key, "error", err)
@@ -351,8 +374,8 @@ func (n *Notices) retryRow(ctx context.Context, rows Rows, key Key) {
 // compareKeys orders keys by their fields, so retries are queued in one order.
 func compareKeys(a, b Key) int {
 	return strings.Compare(
-		strings.Join([]string{a.Pane, a.Session, a.Epic, a.Limit, a.Alert}, "\x00"),
-		strings.Join([]string{b.Pane, b.Session, b.Epic, b.Limit, b.Alert}, "\x00"),
+		strings.Join([]string{a.Host, a.Pane, a.Session, a.Epic, a.Limit, a.Alert}, "\x00"),
+		strings.Join([]string{b.Host, b.Pane, b.Session, b.Epic, b.Limit, b.Alert}, "\x00"),
 	)
 }
 
@@ -370,7 +393,7 @@ func (n *Notices) deleteRow(ctx context.Context, rows Rows, key Key) {
 		if key.Alert != "" {
 			return rows.DeletePushedAlert(ctx, key.Alert)
 		}
-		return rows.DeletePushed(ctx, key.Pane, key.Session)
+		return rows.DeletePushed(ctx, key.Host, key.Pane, key.Session)
 	}); err != nil {
 		n.logger.ErrorContext(ctx, "delete pushed notice", "key", key, "error", err)
 		n.unstoredWrite(key, rowWrite{})

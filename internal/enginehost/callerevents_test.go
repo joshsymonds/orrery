@@ -91,7 +91,7 @@ func stepEndTextOfEndToPane(t *testing.T, s *store.Store, add store.StepAdd, res
 			t.Error("a pane caller received a headless delivery")
 			return nil
 		},
-		WakePane: func(_ context.Context, _, _, text string) (bool, error) {
+		WakePane: func(_ context.Context, _, _, _, text string) (bool, error) {
 			woken = append(woken, text)
 			return true, nil
 		},
@@ -121,7 +121,7 @@ func newStepEndSender(t *testing.T, m *Manager, marks CallerEventStore) *CallerS
 	t.Helper()
 	return NewCallerSender(CallerSenderConfig{
 		Deliver: m.Deliver,
-		WakePane: func(context.Context, string, string, string) (bool, error) {
+		WakePane: func(context.Context, string, string, string, string) (bool, error) {
 			t.Error("a pane caller was woken in a headless test")
 			return false, nil
 		},
@@ -375,7 +375,7 @@ func TestPaneWakeStepHeldUntilKeysSentThenMarked(t *testing.T) {
 			t.Error("a pane caller received a headless delivery")
 			return nil
 		},
-		WakePane: func(_ context.Context, gotServer, gotPane, text string) (bool, error) {
+		WakePane: func(_ context.Context, _, gotServer, gotPane, text string) (bool, error) {
 			if gotServer != server || gotPane != pane {
 				t.Errorf("WakePane to %q %q, want %q %q", gotServer, gotPane, server, pane)
 			}

@@ -29,12 +29,12 @@ internal fun narrow(projects: List<Project>, by: Narrow): List<Project> = when (
     Narrow.NONE -> projects
     Narrow.WAITING -> projects.mapNotNull { project ->
         val convos = project.convos.filter { convoWaits(it) }.map { convo ->
-            convo.copy(hung = convo.hung.filter { waits(it) }, folded = emptyList())
+            convo.copy(hung = convo.hung.filter { waits(it) }, designs = waitingDesigns(convo.designs), folded = emptyList())
         }
         if (convos.isEmpty()) null else project.copy(convos = convos, ended = emptyList())
     }
     Narrow.NEW -> projects.mapNotNull { project ->
-        val rows = unseenRows(project).map { it.copy(hung = emptyList(), folded = emptyList()) }
+        val rows = unseenRows(project).map { it.copy(hung = emptyList(), folded = emptyList(), designs = emptyList()) }
         if (rows.isEmpty()) null else project.copy(convos = rows, ended = emptyList())
     }
 }
@@ -53,13 +53,19 @@ internal fun search(projects: List<Project>, query: String): List<Project> {
 }
 
 /**
- * What waits on you in one conversation: its own row when the row is waiting, and each hung thing that counts. An
- * archived conversation counts nothing.
+ * What waits on you in one conversation: its own row when the row is waiting, and each thing under it or under its
+ * designs that counts. An archived conversation counts nothing.
  */
 private fun waitingThings(convo: Convo): Int {
     if (convo.pane?.archived == true) return 0
     val ownWaiting = convo.pane?.let { waitsOnYou(it) } == true
-    return (if (ownWaiting) 1 else 0) + convo.hung.count { countsHung(it, ownWaiting) }
+    return (if (ownWaiting) 1 else 0) + convo.allHung.count { countsHung(it, ownWaiting) }
+}
+
+/** The design blocks with the kids that wait under them; a block with none waiting is dropped. */
+private fun waitingDesigns(designs: List<DesignBlock>): List<DesignBlock> = designs.mapNotNull { block ->
+    val kids = block.kids.filter { waits(it) }
+    if (kids.isEmpty()) null else block.copy(kids = kids)
 }
 
 /**
@@ -80,7 +86,20 @@ private fun matchingConvos(project: Project, convos: List<Convo>, words: List<St
         val own = matches(words, rowFields(project, convo))
         val hung = if (own) convo.hung else convo.hung.filter { matches(words, hungFields(project, it)) }
         val folded = if (own) convo.folded else convo.folded.filter { matches(words, hungFields(project, it)) }
-        if (own || hung.isNotEmpty() || folded.isNotEmpty()) convo.copy(hung = hung, folded = folded) else null
+        val designs = if (own) convo.designs else matchingDesigns(project, convo.designs, words)
+        if (own || hung.isNotEmpty() || folded.isNotEmpty() || designs.isNotEmpty()) {
+            convo.copy(hung = hung, folded = folded, designs = designs)
+        } else {
+            null
+        }
+    }
+
+/** The design blocks that match: a block whose own text matches keeps every kid, otherwise only the matching kids stay. */
+private fun matchingDesigns(project: Project, designs: List<DesignBlock>, words: List<String>): List<DesignBlock> =
+    designs.mapNotNull { block ->
+        val own = matches(words, designFields(project, block))
+        val kids = if (own) block.kids else block.kids.filter { matches(words, hungFields(project, it)) }
+        if (own || kids.isNotEmpty()) block.copy(kids = kids) else null
     }
 
 /** Whether every word appears in the fields' text, ignoring case. */
@@ -100,5 +119,8 @@ private fun hungFields(project: Project, hung: Hung): List<String> = when (hung)
         projectFields(project)
     is ContractNode -> listOf(hung.contract.id, hung.contract.title) + projectFields(project)
 }
+
+private fun designFields(project: Project, block: DesignBlock): List<String> =
+    listOf(block.design.title, block.design.id) + projectFields(project)
 
 private fun projectFields(project: Project): List<String> = listOf(project.name, project.path)

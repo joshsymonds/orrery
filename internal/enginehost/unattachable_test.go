@@ -13,7 +13,7 @@ import (
 )
 
 // runningAtStore is an Applier that stores through inner. For each batch that stores text, it records whether the holder
-// that pids names was still running, as /proc shows it, when the batch was stored.
+// that pids names was still live, running and not exiting as /proc shows it (holderLive), when the batch was stored.
 type runningAtStore struct {
 	t     *testing.T
 	inner Applier
@@ -29,7 +29,7 @@ func (s *runningAtStore) ApplyEngine(ctx context.Context, ops []store.EngineOp, 
 		_, ok := op.(store.EngineText)
 		return ok
 	}) {
-		running, err := holder.Running(s.pids.Holder, s.pids.HolderStart)
+		running, err := holderLive(s.pids)
 		if err != nil {
 			s.t.Errorf("read holder %d while storing text: %v", s.pids.Holder, err)
 		}

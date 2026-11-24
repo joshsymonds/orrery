@@ -22,10 +22,10 @@ type heldProcess interface {
 }
 
 // Process is a session's child as a controller sees it through its holder. Its stdout is read only from the holder's
-// out frames, and its stdin is written only by write frames, each under a fresh id that the holder answers.
+// out frames, and its stdin is written only by write frames, each under a fresh id that the holder answers. A Process
+// over a link re-attaches its holder when its connection fails before the holder has ended.
 type Process struct {
 	held   heldProcess
-	conn   *Conn
 	socket string
 	remove string
 	// scope stops the holder's user scope once the holder has ended; the zero stopper stops nothing.
@@ -34,44 +34,78 @@ type Process struct {
 	// which a test may shorten before it calls Stop.
 	stopTimeout time.Duration
 
+	// link is the link a Process reaches its holder over, nil for a Process on the holder's socket.
+	link Link
+	// relinkTo attaches the holder again at an offset over link when the connection fails. relinkDone closes once the
+	// Process has stopped re-attaching, and cancelRelink ends the re-attaching. All three are nil for a socket Process.
+	relinkTo     func(replayFrom int64) (*Conn, Frame, error)
+	relinkDone   <-chan struct{}
+	cancelRelink context.CancelFunc
+
 	// readMu serializes Reads, so the acks they send reach the holder in the order of their consumed offsets.
 	readMu sync.Mutex
-	// returned is the stdout offset just past the bytes Read has returned. It starts at the offset the stream starts at.
-	// Only Read touches it, under readMu.
-	returned int64
-	// attachedConsumed and attachedReplayFrom are the consumed and replay-from offsets the holder's attached frame carried.
-	// The holder never moves them back, so an ack carries no lower offsets. They are set before the stream starts.
-	attachedConsumed   int64
-	attachedReplayFrom int64
+	// writeMu serializes the write frames a Process sends, so the writes a re-attach resends reach the holder before any
+	// later write does.
+	writeMu sync.Mutex
+
+	// streamDone closes once the stream has ended and its connection is closed.
+	streamDone chan struct{}
+	// closeErr is the error of closing the connection at the stream's end, with the errors of closing lost connections.
+	// run sets it before streamDone closes.
+	closeErr error
+	// ended closes once the holder's process has ended and its directory is handled, and endErr is set before it closes.
+	ended  chan struct{}
+	endErr error
 
 	stopOnce sync.Once
 	stopErr  error
 
-	// streamDone closes once the stream has ended and its exit record, if any, is set. ended closes once the holder's
-	// process has ended and its directory is handled, and endErr is set before it closes.
-	streamDone chan struct{}
-	// closeErr is the error of closing the connection at the stream's end. run sets it before streamDone closes.
-	closeErr error
-	ended    chan struct{}
-	endErr   error
-
 	mu sync.Mutex
 	// changed closes, and is replaced, whenever a field below that a waiter checks changes.
 	changed chan struct{}
+	// conn is the connection the stream runs on. It is nil while a linked Process has none, between a loss and its next
+	// attach.
+	conn *Conn
+	// holderVersion is the wire version the holder speaks, which is the version its hello carried.
+	holderVersion int
 	// buf holds stdout the holder has sent and Read has not returned. next is the offset the next out frame starts at.
 	buf  []byte
 	next int64
+	// returned is the stdout offset just past the bytes Read has returned. It starts at the offset the stream starts at.
+	returned int64
 	// replayFrom is the offset SetReplayFrom last allowed, 0 until it is called.
 	replayFrom int64
+	// attachedConsumed and attachedReplayFrom are the consumed and replay-from offsets the holder's attached frame of the
+	// current connection carried. The holder never moves them back, so an ack carries no lower offsets.
+	attachedConsumed   int64
+	attachedReplayFrom int64
 	// streamEnd is the error that ended the stream, io.EOF for a clean end. It is nil while the stream runs.
 	streamEnd error
 	// exit is the exit record, once the exit frame has arrived.
 	exit *Exit
-	// pending holds, by write id, the channel that answers each write waiting on the holder.
-	pending      map[string]chan error
+	// pending holds, by write id, each write waiting on the holder's answer.
+	pending map[string]*pendingWrite
+	// nextSeq numbers the writes in the order they are registered.
+	nextSeq uint64
+	// relinkErr is the error the last attempt to re-attach failed with, and nil while none has failed since the loss.
+	relinkErr error
+	// lostErr holds the errors of closing lost connections, which the stream's end reports.
+	lostErr      error
 	stdinClosed  bool
 	stdoutClosed bool
 	detached     bool
+	// stopping is set once Stop has sent stop, so a connection that attaches after it sends stop again.
+	stopping bool
+}
+
+// pendingWrite is a stdin write waiting on the holder's answer. seq orders the writes a re-attach resends. sent reports
+// whether the write has gone out on a connection since the last attach, and answer receives the outcome.
+type pendingWrite struct {
+	id     string
+	data   []byte
+	seq    uint64
+	sent   bool
+	answer chan error
 }
 
 // newProcess returns the Process for held, the holder's own process. conn is attached at offset 0 to the holder that
@@ -94,13 +128,21 @@ func newAttachedProcess(
 	attached Frame,
 	scope scopeStopper,
 ) *Process {
-	process := &Process{
-		held:               held,
-		conn:               conn,
-		socket:             socket,
-		remove:             remove,
-		scope:              scope,
+	process := newStreamProcess(conn, replayFrom, attached)
+	process.held = held
+	process.socket = socket
+	process.remove = remove
+	process.scope = scope
+	process.start(ctx, conn)
+	return process
+}
+
+// newStreamProcess returns a Process whose stream runs on conn, attached at replayFrom, with no holder set yet.
+func newStreamProcess(conn *Conn, replayFrom int64, attached Frame) *Process {
+	return &Process{
 		stopTimeout:        holderStopTimeout,
+		conn:               conn,
+		holderVersion:      conn.Version(),
 		returned:           replayFrom,
 		next:               replayFrom,
 		attachedConsumed:   attached.Consumed,
@@ -108,11 +150,8 @@ func newAttachedProcess(
 		streamDone:         make(chan struct{}),
 		ended:              make(chan struct{}),
 		changed:            make(chan struct{}),
-		pending:            make(map[string]chan error),
+		pending:            make(map[string]*pendingWrite),
 	}
-	go process.run()
-	go process.awaitHolder(ctx)
-	return process
 }
 
 // SetReplayFrom allows the holder to trim its spool below off. It never lowers the offset, so a call with a smaller off
@@ -135,7 +174,7 @@ func (p *Process) Stdout() io.ReadCloser {
 
 // Version returns the wire version the holder speaks, which is the version its hello carried.
 func (p *Process) Version() int {
-	return p.conn.Version()
+	return p.holderVersion
 }
 
 // Exit returns the exit record once the exit frame has arrived, and false before.
@@ -197,15 +236,21 @@ func (p *Process) exitReceived() bool {
 	return p.exit != nil
 }
 
-// stopHolder asks the holder to stop its child over its socket. When that fails, it stops the holder's own process, and
-// it returns an error only when that fails too.
+// stopHolder asks the holder to stop its child: over its socket for a socket Process, and over the connection the stream
+// runs on for a linked one. When that fails, it stops the holder's own process, which for a linked Process is the link's
+// stop. It returns an error only when that fails too.
 func (p *Process) stopHolder() error {
-	socketErr := stopOverSocket(p.socket, p.stopTimeout)
-	if socketErr == nil {
+	var sendErr error
+	if p.link == nil {
+		sendErr = stopOverSocket(p.socket, p.stopTimeout)
+	} else {
+		sendErr = p.sendStop()
+	}
+	if sendErr == nil {
 		return nil
 	}
 	if heldErr := p.held.Stop(); heldErr != nil {
-		return errors.Join(socketErr, heldErr)
+		return errors.Join(sendErr, heldErr)
 	}
 	return nil
 }
@@ -232,7 +277,7 @@ func (p *Process) Wait() error {
 }
 
 // Detach closes the connection without stopping the holder. The holder, its child and its directory stay in place, and
-// Reads end. Detach is idempotent.
+// Reads end. A linked Process stops re-attaching too. Detach is idempotent.
 func (p *Process) Detach() error {
 	p.mu.Lock()
 	if p.detached {
@@ -240,16 +285,55 @@ func (p *Process) Detach() error {
 		return nil
 	}
 	p.detached = true
+	conn := p.conn
 	p.mu.Unlock()
-	return p.conn.Close()
+	if p.cancelRelink != nil {
+		p.cancelRelink()
+	}
+	if conn == nil {
+		return nil
+	}
+	return conn.Close()
 }
 
-// run receives the stream until it ends, then records the end, closes the connection and closes streamDone. Nothing
+// start runs the stream on conn, the connection the Process was attached on, and waits for the holder's end, under ctx,
+// which must outlast the holder. conn is passed in, since a send may lose the Process's current connection before the
+// stream starts.
+func (p *Process) start(ctx context.Context, conn *Conn) {
+	go p.run(conn)
+	go p.awaitHolder(ctx)
+}
+
+// run serves the stream on conn until it ends, then records the end, closes the connection and closes streamDone. Nothing
 // is sent once the stream has ended, so the connection is not needed after it.
-func (p *Process) run() {
-	p.finish(p.receive())
-	p.closeErr = p.conn.Close()
+func (p *Process) run(conn *Conn) {
+	p.finish(p.serve(conn))
+	p.mu.Lock()
+	lostErr := p.lostErr
+	p.mu.Unlock()
+	p.closeErr = errors.Join(lostErr, p.closeCurrent())
+	if p.cancelRelink != nil {
+		p.cancelRelink()
+	}
 	close(p.streamDone)
+}
+
+// serve receives the stream on conn and returns the error that ends it. A linked Process whose connection fails before
+// the holder's end is known re-attaches over its link, and receives on the new connection. Any other failure ends the
+// stream, as a socket Process's does.
+func (p *Process) serve(conn *Conn) error {
+	for {
+		lost, err := p.receive(conn)
+		if !lost || p.link == nil {
+			return err
+		}
+		p.lose(conn)
+		next, ok := p.relink()
+		if !ok {
+			return io.EOF
+		}
+		conn = next
+	}
 }
 
 // awaitHolder waits for the holder's process to end and the stream to finish, so the exit record is read first. Unless
@@ -271,31 +355,33 @@ func (p *Process) awaitHolder(ctx context.Context) {
 	close(p.ended)
 }
 
-// receive reads frames until the stream ends, and returns the error that ends it. A clean end is io.EOF: an exit frame
-// ends the stream, and so does the end of the connection.
-func (p *Process) receive() error {
+// receive reads conn's frames until the stream ends, and returns the error that ends it. lost reports whether conn itself
+// failed, as opposed to the stream's own end or a frame the stream may not carry. A connection cut in the middle of a
+// frame reads as a bad frame, so only a frame past the size limit, which a re-attach would send again, is not a loss. A
+// clean end is io.EOF: an exit frame ends the stream, and so does the end of the connection.
+func (p *Process) receive(conn *Conn) (bool, error) {
 	for {
-		frame, err := p.conn.Read()
+		frame, err := conn.Read()
 		if err != nil {
-			return err
+			return !errors.Is(err, ErrFrameTooLong), err
 		}
 		switch frame.Type {
 		case TypeOut:
 			if appendErr := p.appendOut(frame); appendErr != nil {
-				return appendErr
+				return false, appendErr
 			}
 		case TypeWritten:
 			p.answer(frame.ID, nil)
 		case TypeError:
 			if frame.ID == "" {
-				return errors.New(frame.Message)
+				return false, errors.New(frame.Message)
 			}
 			p.answer(frame.ID, errors.New(frame.Message))
 		case TypeExit:
 			p.setExit(frame.Exit)
-			return io.EOF
+			return false, io.EOF
 		default:
-			return fmt.Errorf("holder: unexpected %q frame", frame.Type)
+			return false, fmt.Errorf("holder: unexpected %q frame", frame.Type)
 		}
 	}
 }
@@ -324,12 +410,12 @@ func (p *Process) setExit(exit *Exit) {
 func (p *Process) answer(id string, err error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	answer, ok := p.pending[id]
+	write, ok := p.pending[id]
 	if !ok {
 		return
 	}
 	delete(p.pending, id)
-	answer <- err
+	write.answer <- err
 }
 
 // finish ends the stream with err. A detached process ends cleanly, since its controller asked for the end. Each write
@@ -341,8 +427,8 @@ func (p *Process) finish(err error) {
 		err = io.EOF
 	}
 	p.streamEnd = err
-	for id, answer := range p.pending {
-		answer <- err
+	for id, write := range p.pending {
+		write.answer <- err
 		delete(p.pending, id)
 	}
 	p.notifyLocked()
@@ -361,12 +447,31 @@ func (p *Process) isDetached() bool {
 	return p.detached
 }
 
+// currentConn returns the connection the stream runs on, or nil while a linked Process has none.
+func (p *Process) currentConn() *Conn {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.conn
+}
+
+// closeCurrent closes the connection the stream runs on, when one is current.
+func (p *Process) closeCurrent() error {
+	conn := p.currentConn()
+	if conn == nil {
+		return nil
+	}
+	return conn.Close()
+}
+
+// relinking reports whether a linked Process has no connection and no end yet, so it is re-attaching. The caller holds
+// p.mu.
+func (p *Process) relinking() bool {
+	return p.link != nil && p.conn == nil && p.streamEnd == nil
+}
+
 // readStdout copies buffered stdout into b, waiting while there is none. After a Read returns bytes while the stream has
 // not ended, it acks the consumed offset and the replay-from, so the holder may trim its spool. Once the stream has
-// ended, the connection is closed, so there is nothing to ack. The stream can end while an ack is in flight (the holder
-// closes its connection just after its exit frame, and the stream's end closes ours), so a failed ack waits for the
-// stream's end and returns the bytes with no error: the next Read reports how the stream ended, which is also why the ack
-// failed.
+// ended, the connection is closed, so there is nothing to ack.
 func (p *Process) readStdout(b []byte) (int, error) {
 	p.readMu.Lock()
 	defer p.readMu.Unlock()
@@ -374,28 +479,40 @@ func (p *Process) readStdout(b []byte) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	p.returned += int64(n)
-	if !open {
-		return n, nil
-	}
-	consumed := max(p.returned, p.attachedConsumed)
-	if ackErr := p.conn.Ack(consumed, p.ackReplayFrom(consumed)); ackErr != nil {
-		<-p.streamDone
+	if open {
+		p.ack()
 	}
 	return n, nil
 }
 
-// ackReplayFrom returns the replay-from an ack of consumed carries: the offset SetReplayFrom last allowed, but no higher
-// than consumed, and no lower than the attached frame's replay-from, which the holder would refuse.
-func (p *Process) ackReplayFrom(consumed int64) int64 {
+// ack tells the holder what the reader has consumed, on the connection the stream runs on. The consumed offset is raised
+// to the attached frame's. The replay-from is the one SetReplayFrom last allowed, raised to the attached frame's floor and
+// lowered to consumed. A failed ack on a socket Process waits for the stream to end, so the next Read reports why. A
+// failed ack on a linked Process loses that connection, so its stream re-attaches, and the next ack goes on the new one.
+func (p *Process) ack() {
 	p.mu.Lock()
-	defer p.mu.Unlock()
-	return max(min(p.replayFrom, consumed), p.attachedReplayFrom)
+	consumed := max(p.returned, p.attachedConsumed)
+	replayFrom := max(min(p.replayFrom, consumed), p.attachedReplayFrom)
+	conn := p.conn
+	p.mu.Unlock()
+	if conn == nil {
+		return
+	}
+	err := conn.Ack(consumed, replayFrom)
+	if err == nil {
+		return
+	}
+	if p.link == nil {
+		<-p.streamDone
+		return
+	}
+	p.lose(conn)
 }
 
-// takeBytes copies buffered stdout into buf, waiting until there is some, the stream ends, or stdout is closed. Buffered
-// bytes come before the stream's end. open reports whether the stream had not ended when the bytes were taken, which is
-// decided under the same lock as the copy, so an exit frame or Detach that follows is never acked.
+// takeBytes copies buffered stdout into buf, waiting until there is some, the stream ends, or stdout is closed. A linked
+// Process that is re-attaching has no stream to read, so the read waits for it too. Buffered bytes come before the
+// stream's end. open reports whether the stream had not ended when the bytes were taken, which is decided under the same
+// lock as the copy, so an exit frame or Detach that follows is never acked.
 func (p *Process) takeBytes(buf []byte) (int, bool, error) {
 	for {
 		p.mu.Lock()
@@ -403,9 +520,12 @@ func (p *Process) takeBytes(buf []byte) (int, bool, error) {
 		case p.stdoutClosed:
 			p.mu.Unlock()
 			return 0, false, os.ErrClosed
+		case p.relinking():
+			// Wait for the re-attach below, which wakes this read whichever way it ends.
 		case len(p.buf) > 0:
 			n := copy(buf, p.buf)
 			p.buf = p.buf[n:]
+			p.returned += int64(n)
 			open := p.exit == nil && p.streamEnd == nil && !p.detached
 			p.mu.Unlock()
 			return n, open, nil
@@ -423,12 +543,12 @@ func (p *Process) takeBytes(buf []byte) (int, bool, error) {
 // writeStdin sends data to the child's stdin as a write frame under id, and waits for the holder's answer. It returns
 // len(data) once the holder has written it or answered id as a duplicate, and otherwise the error the holder or the end
 // of the stream gives. An id the holder would refuse is not sent, since the holder closes its connection on one, and an id
-// still waiting is refused too, since its answer would reach the new write and not the old one.
+// still waiting is refused too, since its answer would reach the new write and not the old one. A linked Process with no
+// connection fails a write made after an attempt to re-attach failed with that attempt's error.
 func (p *Process) writeStdin(id string, data []byte) (int, error) {
 	if n := len(id); n == 0 || n > maxWriteIDBytes {
 		return 0, fmt.Errorf("holder: write id is %d bytes, want 1 to %d", n, maxWriteIDBytes)
 	}
-	answer := make(chan error, 1)
 	p.mu.Lock()
 	switch {
 	case p.stdinClosed:
@@ -443,18 +563,50 @@ func (p *Process) writeStdin(id string, data []byte) (int, error) {
 		p.mu.Unlock()
 		return 0, fmt.Errorf("holder: write id %s is already waiting", id)
 	}
-	p.pending[id] = answer
+	if p.conn == nil && p.relinkErr != nil {
+		relinkErr := p.relinkErr
+		p.mu.Unlock()
+		return 0, fmt.Errorf("holder: link is down: %w", relinkErr)
+	}
+	write := &pendingWrite{id: id, data: data, seq: p.nextSeq, answer: make(chan error, 1)}
+	p.nextSeq++
+	p.pending[id] = write
 	p.mu.Unlock()
-	if sendErr := p.conn.Write(id, data); sendErr != nil {
+	p.writeMu.Lock()
+	sendErr := p.sendWriteHeld(write)
+	p.writeMu.Unlock()
+	// A linked Process's failed send has already lost its connection, and the write stays pending for the next attach to
+	// resend, so only a socket Process fails the write here.
+	if sendErr != nil && p.link == nil {
 		p.mu.Lock()
 		delete(p.pending, id)
 		p.mu.Unlock()
 		return 0, sendErr
 	}
-	if writeErr := <-answer; writeErr != nil {
+	if writeErr := <-write.answer; writeErr != nil {
 		return 0, writeErr
 	}
 	return len(data), nil
+}
+
+// sendWriteHeld sends write on the connection the stream runs on. It sends nothing when write has gone out since the last
+// attach, when no connection is current, or when the write is no longer pending, as it is not once the stream has ended.
+// It marks write sent before the send. A linked Process whose send fails loses that connection, so its stream re-attaches
+// and resends write. The caller holds writeMu.
+func (p *Process) sendWriteHeld(write *pendingWrite) error {
+	p.mu.Lock()
+	conn := p.conn
+	if conn == nil || write.sent || p.pending[write.id] != write {
+		p.mu.Unlock()
+		return nil
+	}
+	write.sent = true
+	p.mu.Unlock()
+	err := conn.Write(write.id, write.data)
+	if err != nil && p.link != nil {
+		p.lose(conn)
+	}
+	return err
 }
 
 // newWriteID returns a fresh write id: 16 random bytes in hex.
