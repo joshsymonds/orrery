@@ -41,10 +41,10 @@ type ContractChange struct {
 	At                   int64
 }
 
-// ReviseContract appends revision as the next version of the contract id. It returns an error that matches ErrNoContract
-// when no contract has id, ErrContractState unless the contract is proposed, ErrNotContractConversation unless
-// revision.Writer is the writer of version 1, and ErrContractVersion unless revision.Version is one after the newest
-// version. It appends no state.
+// ReviseContract appends revision as the next version of the contract id, and deletes the contract's working copy in the
+// same write. It returns an error that matches ErrNoContract when no contract has id, ErrContractState unless the
+// contract is proposed, ErrNotContractConversation unless revision.Writer is the writer of version 1, and
+// ErrContractVersion unless revision.Version is one after the newest version. It appends no state.
 func (s *Store) ReviseContract(ctx context.Context, id string, revision ContractVersion) error {
 	return s.write(ctx, func(queries *sqlcgen.Queries) error {
 		listing, err := readContractListing(ctx, queries, id)
@@ -66,7 +66,15 @@ func (s *Store) ReviseContract(ctx context.Context, id string, revision Contract
 				ErrContractVersion,
 			)
 		}
-		return insertContractVersion(ctx, queries, id, revision)
+		err = insertContractVersion(ctx, queries, id, revision)
+		if err != nil {
+			return err
+		}
+		err = queries.DeleteContractWorking(ctx, id)
+		if err != nil {
+			return fmt.Errorf("delete working copy of contract %s: %w", id, err)
+		}
+		return nil
 	})
 }
 

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"connectrpc.com/connect"
@@ -43,6 +44,8 @@ type ContractStore interface {
 	ContractWorkingCopy(ctx context.Context, id string) (store.ContractWorkingCopy, error)
 	ContractStepReads(ctx context.Context, id string) ([]store.StepRead, error)
 	ContractRowWrites(ctx context.Context, id string) ([]store.ContractRowWrite, error)
+	ContractRefusals(ctx context.Context, id string) ([]store.ContractRefusal, error)
+	RefuseContract(ctx context.Context, id string, refusal store.ContractRefusal) error
 	Contracts(ctx context.Context) ([]store.ContractListing, error)
 	Designs(ctx context.Context) ([]store.DesignRecord, error)
 	AppendDesignLog(ctx context.Context, line store.DesignLogLine) error
@@ -94,7 +97,7 @@ func (s *contractService) ProposeContract(
 	id := req.Msg.GetId()
 	contract := req.Msg.GetContract()
 	if err := s.checkContract(ctx, id, contract, req.Msg.GetDecisions()); err != nil {
-		return nil, err
+		return nil, s.refuseProposal(ctx, req.Header(), id, req.Msg.GetDesign(), err)
 	}
 	warnings, err := s.contractLengthWarnings(contract, req.Msg.GetDecisions())
 	if err != nil {
@@ -113,22 +116,9 @@ func (s *contractService) ProposeContract(
 	if err != nil {
 		return nil, err
 	}
-	if design == "" {
-		err = s.contracts.Store.ProposeContract(ctx, id, version)
-	} else {
-		err = s.contracts.Store.ProposeContractInDesign(ctx, design, id, version)
-	}
+	err = s.storeProposal(ctx, id, design, version)
 	if err != nil {
-		if errors.Is(err, store.ErrContractExists) {
-			return nil, refuseEpic(
-				connect.CodeAlreadyExists,
-				fmt.Sprintf("id: %s is already held by a contract or an epic", id),
-			)
-		}
-		if errors.Is(err, store.ErrNoDesign) {
-			return nil, refuseEpic(connect.CodeNotFound, fmt.Sprintf("design: %s not found", design))
-		}
-		return nil, epicStoreError(err)
+		return nil, err
 	}
 	err = s.logContract(ctx, id, "proposed", writer, req.Msg.GetWords())
 	if err != nil {
@@ -139,6 +129,146 @@ func (s *contractService) ProposeContract(
 		return nil, err
 	}
 	return connect.NewResponse(&v1.ProposeContractResponse{Contract: stored, Warnings: warnings}), nil
+}
+
+// storeProposal stores version as the new contract id, in design when design is not "", and answers a refusal of the
+// store as a propose of the contract is answered: a held id is already held, a design no one holds is not found, and any
+// other error is internal.
+func (s *contractService) storeProposal(ctx context.Context, id, design string, version store.ContractVersion) error {
+	var err error
+	if design == "" {
+		err = s.contracts.Store.ProposeContract(ctx, id, version)
+	} else {
+		err = s.contracts.Store.ProposeContractInDesign(ctx, design, id, version)
+	}
+	switch {
+	case err == nil:
+		return nil
+	case errors.Is(err, store.ErrContractExists):
+		return refuseEpic(connect.CodeAlreadyExists, fmt.Sprintf("id: %s is already held by a contract or an epic", id))
+	case errors.Is(err, store.ErrNoDesign):
+		return refuseEpic(connect.CodeNotFound, fmt.Sprintf("design: %s not found", design))
+	default:
+		return epicStoreError(err)
+	}
+}
+
+// refuseProposal answers the check refusal err of a propose of the contract id that names design, and keeps the refusal
+// as refuseWrite does, for version 1, the version a propose makes. A propose that names no design joins the design of the
+// draft of id, when a draft holds it.
+func (s *contractService) refuseProposal(ctx context.Context, header http.Header, id, design string, err error) error {
+	if !isCheckRefusal(err) {
+		return err
+	}
+	if design == "" {
+		draft, draftErr := s.contracts.Store.ContractDraft(ctx, id)
+		if draftErr != nil && !errors.Is(draftErr, store.ErrNoDraft) {
+			return epicStoreError(draftErr)
+		}
+		design = draft.Design
+	}
+	return s.refuseWrite(ctx, header, id, 1, design, err)
+}
+
+// refuseRevision answers the check refusal err of a revise of the contract id, and keeps the refusal as refuseWrite does,
+// for the version after the newest. A contract no one holds has no version to keep the refusal under, so its refusal is
+// answered unstored.
+func (s *contractService) refuseRevision(ctx context.Context, header http.Header, id string, err error) error {
+	if !isCheckRefusal(err) {
+		return err
+	}
+	record, readErr := s.contracts.Store.Contract(ctx, id)
+	if errors.Is(readErr, store.ErrNoContract) {
+		return err
+	}
+	if readErr != nil {
+		return epicStoreError(readErr)
+	}
+	return s.refuseWrite(ctx, header, id, record.Version+1, "", err)
+}
+
+// refuseWrite keeps the check refusal err of a write to the contract id that would make version, and answers err. It
+// stores the refusal, with the caller's session, and then logs it as 'refused' in the design the contract is in, when
+// refusalDesign finds one. An error that is not a check refusal is answered unchanged and stores nothing.
+func (s *contractService) refuseWrite(
+	ctx context.Context,
+	header http.Header,
+	id string,
+	version int64,
+	design string,
+	err error,
+) error {
+	if !isCheckRefusal(err) {
+		return err
+	}
+	session, _, sessionErr := s.callerSession(ctx, header)
+	if sessionErr != nil {
+		return sessionErr
+	}
+	text := refusalText(err)
+	if storeErr := s.contracts.Store.RefuseContract(ctx, id, store.ContractRefusal{
+		Version: version, Field: refusalField(text), Text: text, Session: session, At: s.contracts.Now().Unix(),
+	}); storeErr != nil {
+		return epicStoreError(storeErr)
+	}
+	logDesign, designErr := s.refusalDesign(ctx, id, design)
+	if designErr != nil {
+		return designErr
+	}
+	if logDesign == "" {
+		return err
+	}
+	if logErr := s.logContractIn(ctx, logDesign, id, "refused", session, text); logErr != nil {
+		return logErr
+	}
+	return err
+}
+
+// refusalDesign returns the design a refusal of a write to the contract id is logged in, or "" when it is logged in none.
+// The design a design holds the contract in is that one. A contract no design holds is in the design named, when a design
+// holds that id, and in none otherwise.
+func (s *contractService) refusalDesign(ctx context.Context, id, named string) (string, error) {
+	records, err := s.contracts.Store.Designs(ctx)
+	if err != nil {
+		return "", epicStoreError(err)
+	}
+	for _, record := range records {
+		for _, contract := range record.Contracts {
+			if contract.ID == id {
+				return record.ID, nil
+			}
+		}
+	}
+	for _, record := range records {
+		if named != "" && record.ID == named {
+			return named, nil
+		}
+	}
+	return "", nil
+}
+
+// isCheckRefusal reports whether err is a refusal the checks of a contract gave. Those are Connect errors with code
+// InvalidArgument, and every other error the checks return is internal.
+func isCheckRefusal(err error) bool {
+	return connect.CodeOf(err) == connect.CodeInvalidArgument
+}
+
+// refusalText returns the whole message of the check refusal err.
+func refusalText(err error) string {
+	var coded *connect.Error
+	if errors.As(err, &coded) {
+		return coded.Message()
+	}
+	return err.Error()
+}
+
+// refusalField returns the field a refusal's text names: the text before its first ': ', or "" when the text has none.
+func refusalField(text string) string {
+	field, _, found := strings.Cut(text, ": ")
+	if !found {
+		return ""
+	}
+	return field
 }
 
 // controllerHost returns the Host that runs a contract's git before its epic exists: the controller's, which Hosts
@@ -323,8 +453,8 @@ func contractNotFound(id string) error {
 	return refuseEpic(connect.CodeNotFound, fmt.Sprintf("contract %s not found", id))
 }
 
-// GetContract returns the contract with its versions, states, working copy, the steps that read each version and the
-// row writes its stage recorded.
+// GetContract returns the contract with its versions, states, working copy, the steps that read each version, the
+// row writes its stage recorded and its refusals.
 func (s *contractService) GetContract(
 	ctx context.Context,
 	req *connect.Request[v1.GetContractRequest],
@@ -341,6 +471,10 @@ func (s *contractService) GetContract(
 		return nil, err
 	}
 	err = s.attachProvenance(ctx, req.Msg.GetId(), stored)
+	if err != nil {
+		return nil, err
+	}
+	err = s.attachRefusals(ctx, req.Msg.GetId(), stored)
 	if err != nil {
 		return nil, err
 	}
@@ -379,6 +513,29 @@ func stageRowWriteMessage(write store.ContractRowWrite) *v1.StageRowWrite {
 			Kind: write.Maker, Quote: write.Quote, Reason: write.MakerReason, Delegation: write.Delegation,
 		},
 		Session: write.Session, At: write.At,
+	}
+}
+
+// attachRefusals sets the refusals of the contract id on stored, oldest first. A failed read is answered as the store's
+// other errors are.
+func (s *contractService) attachRefusals(ctx context.Context, id string, stored *v1.StoredContract) error {
+	refusals, err := s.contracts.Store.ContractRefusals(ctx, id)
+	if err != nil {
+		return epicStoreError(err)
+	}
+	stored.Refusals = epicMap(refusals, contractRefusalMessage)
+	return nil
+}
+
+// contractRefusalMessage returns the ContractRefusal message of refusal.
+func contractRefusalMessage(refusal store.ContractRefusal) *v1.ContractRefusal {
+	return &v1.ContractRefusal{
+		Seq:     refusal.Seq,
+		Version: refusal.Version,
+		Field:   refusal.Field,
+		Text:    refusal.Text,
+		Session: refusal.Session,
+		Time:    refusal.At,
 	}
 }
 

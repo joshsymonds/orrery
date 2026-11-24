@@ -51,6 +51,7 @@ func TestReaderQueryPlans(t *testing.T) {
 		"ContractWorkingCopy": {"GetContractWorking", "ListContractRowWrites"},
 		"ContractRowWrites":   {"ListContractRowWrites"},
 		"ContractStepReads":   {"ListContractStepReads", "ListStepFacts"},
+		"ContractRefusals":    {"ListContractRefusals"},
 		"Accounts":            {"ListLLMAccounts"},
 		"Routes":              {"GetRouteRegistry", "ListRouteSeats", "ListRouteContexts", "ListRouteBindings"},
 		"RoutesSnapshot": {

@@ -31,7 +31,7 @@ func (s *contractService) ReviseContract(
 	contract := req.Msg.GetContract()
 	decisions := req.Msg.GetDecisions()
 	if err := s.checkContract(ctx, id, contract, decisions); err != nil {
-		return nil, err
+		return nil, s.refuseRevision(ctx, req.Header(), id, err)
 	}
 	warnings, err := s.contractLengthWarnings(contract, decisions)
 	if err != nil {
