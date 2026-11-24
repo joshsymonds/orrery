@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"os"
 	"sync/atomic"
 	"time"
 
@@ -99,11 +100,13 @@ type Config struct {
 	// that forward seats and account tokens are ever sent to.
 	AnthropicUpstream string
 
-	// CallerKeyFile is the path that the PATCHBAY_CALLER_KEY_FILE variable names.
+	// CallerKeyFile is the path that the PATCHBAY_CALLER_KEY_FILE variable names. New reads the caller key from it once.
+	// An empty path, or a file that is unreadable or empty, leaves no caller key, and then every inject and sigv4 seat is
+	// refused.
 	CallerKeyFile string
 
 	// Getenv looks up an environment variable by name. The gateway uses it to resolve the variable names that a
-	// seat's api_key_env_file and model_map_env_file hold.
+	// seat's api_key_env_file and model_map_env_file hold. Nil means os.Getenv.
 	Getenv func(string) string
 
 	// AWSCredentials exports the credentials of the named AWS profile, for sigv4 seats.
@@ -121,6 +124,11 @@ type Gateway struct {
 	logger   *slog.Logger
 	client   *http.Client
 	upstream *url.URL
+	getenv   func(string) string
+
+	// callerKey is the key a request to an inject or sigv4 seat must present. New reads it once. Empty means no key was
+	// loaded, and every such request is refused.
+	callerKey string
 
 	// snapshot is the route registry requests are served from. Load sets it. It stays nil, and every request is refused
 	// with 503, until a read has succeeded.
@@ -152,6 +160,14 @@ func New(cfg Config) (*Gateway, error) {
 	if logger == nil {
 		logger = slog.Default()
 	}
+	getenv := cfg.Getenv
+	if getenv == nil {
+		getenv = os.Getenv
+	}
+	callerKey, err := CallerKey(cfg.CallerKeyFile)
+	if err != nil {
+		logger.Warn("gateway: no caller key is loaded; inject and sigv4 seats will be refused", slog.Any("error", err))
+	}
 
 	return &Gateway{
 		routes:    cfg.Routes,
@@ -159,6 +175,8 @@ func New(cfg Config) (*Gateway, error) {
 		logger:    logger,
 		client:    client,
 		upstream:  upstream,
+		getenv:    getenv,
+		callerKey: callerKey,
 		admission: make(chan struct{}, requestAdmissionCapacity),
 	}, nil
 }

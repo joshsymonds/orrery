@@ -26,8 +26,9 @@ const streamChunkBytes = 32 << 10
 // Error types from Anthropic's own taxonomy. A failure the gateway originates is described in the vocabulary a client
 // already knows, so that it never has to learn a type of the gateway's invention.
 const (
-	errorTypeAPI      = "api_error"
-	errorTypeNotFound = "not_found_error"
+	errorTypeAPI            = "api_error"
+	errorTypeAuthentication = "authentication_error"
+	errorTypeNotFound       = "not_found_error"
 )
 
 // The messages a refusal's body carries. They are fixed strings, so a body never echoes what the caller or the upstream
@@ -39,6 +40,9 @@ const (
 	msgContextUnknown    = "gateway: the request names a context the route registry does not define"
 	msgRegistryInvalid   = "gateway: the route registry names a seat it does not define"
 	msgSeatNotForwarded  = "gateway: the seat the request resolved to is not served yet"
+	msgCallerKeyRefused  = "gateway: the request does not present the caller key the seat requires"
+	msgSeatUpstreamBad   = "gateway: the seat's upstream is not an absolute http or https URL"
+	msgAPIKeyUnavailable = "gateway: the seat's API key could not be read"
 	msgAccountNoToken    = "gateway: the account the context names has no token"
 	msgRequestBuild      = "gateway: the upstream request could not be built"
 	msgUpstreamFailed    = "gateway: the upstream request failed"
@@ -97,19 +101,27 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Only forward seats are served so far. Any other seat is refused rather than sent on, so the caller's credential
-	// never reaches an upstream its seat does not name. The inject and sigv4 seats replace this refusal with their own
-	// paths.
+	// An inject or sigv4 seat spends the household key, so a request to one must present the caller key before anything
+	// is read or sent upstream. A forward seat spends the caller's own credential and needs no key.
 	if res.Seat.AuthMode != llmroutes.AuthForward {
-		g.abort(r.Context(), w, http.StatusNotImplemented, errorTypeAPI, msgSeatNotForwarded,
-			fmt.Errorf("%w: seat %q authenticates with %s", errNotImplemented, res.SeatID, res.Seat.AuthMode))
-		return
+		if keyErr := g.checkCallerKey(r); keyErr != nil {
+			g.abort(r.Context(), w, http.StatusUnauthorized, errorTypeAuthentication, msgCallerKeyRefused, keyErr)
+			return
+		}
 	}
 
-	// Hook points for the later steps. The inject and sigv4 seats take the refusal above as their branch. The request
-	// rewrite changes body before forward reads it. The pin header is set in send, beside the credential. The
-	// ledger record is started before forward and finished after its relay, through g.ledger.
-	g.forward(w, r, res.Context.Account, snap.Tokens, body)
+	// Hook points for the later steps. The request rewrite changes body before forward reads it. The pin header is set
+	// in send, beside the credential. The ledger record is started before the seat is served and finished after its
+	// relay, through g.ledger. The sigv4 seat is refused below until its own path replaces that refusal.
+	switch res.Seat.AuthMode {
+	case llmroutes.AuthForward:
+		g.forward(w, r, res.Context.Account, snap.Tokens, body)
+	case llmroutes.AuthInject:
+		g.inject(w, r, res.Seat, body)
+	default:
+		g.abort(r.Context(), w, http.StatusNotImplemented, errorTypeAPI, msgSeatNotForwarded,
+			fmt.Errorf("%w: seat %q authenticates with %s", errNotImplemented, res.SeatID, res.Seat.AuthMode))
+	}
 }
 
 // forward sends the request to the upstream a forward seat reaches and relays the upstream's answer. The caller's own
@@ -127,7 +139,32 @@ func (g *Gateway) forward(
 		return
 	}
 
-	resp, err := g.send(r, account, token, body)
+	g.exchange(w, r, g.upstream, token, body)
+}
+
+// inject sends the request to the upstream the inject seat names, with the API key the seat's key file holds in place
+// of the caller's credential. The key file is read for this request, so that a rotated key takes effect at once.
+func (g *Gateway) inject(w http.ResponseWriter, r *http.Request, seat llmroutes.Seat, body []byte) {
+	key, err := readAPIKey(g.getenv, seat.APIKeyEnvFile)
+	if err != nil {
+		g.abort(r.Context(), w, http.StatusInternalServerError, errorTypeAPI, msgAPIKeyUnavailable, err)
+		return
+	}
+
+	upstream, err := url.Parse(seat.Upstream)
+	if err != nil || (upstream.Scheme != "http" && upstream.Scheme != "https") || upstream.Host == "" {
+		g.abort(r.Context(), w, http.StatusInternalServerError, errorTypeAPI, msgSeatUpstreamBad,
+			fmt.Errorf("gateway: seat %q upstream %q is not an absolute http or https URL", seat.ID, seat.Upstream))
+		return
+	}
+
+	g.exchange(w, r, upstream, key, body)
+}
+
+// exchange sends the request to base with bearer as the credential the seat pays with, then relays the upstream's
+// answer. A failure to build the request is the gateway's own fault; any other failure is the upstream's.
+func (g *Gateway) exchange(w http.ResponseWriter, r *http.Request, base *url.URL, bearer string, body []byte) {
+	resp, err := g.send(r, base, bearer, body)
 	if errors.Is(err, errBuildRequest) {
 		g.abort(r.Context(), w, http.StatusInternalServerError, errorTypeAPI, msgRequestBuild, err)
 		return
@@ -156,43 +193,39 @@ func accountToken(account string, tokens map[string]string) (string, error) {
 	return token, nil
 }
 
-// send builds the request a forward seat sends upstream and sends it: the upstream's own scheme and host, the path the
-// caller named after its context, the caller's method, query and body, and the caller's headers. When account is set,
-// the caller's Authorization and x-api-key are dropped and token is sent as the bearer credential.
+// send builds the request a seat sends upstream and sends it: the base URL's scheme and host, the path the caller named
+// after its context, the caller's method, query and body, and the caller's headers without the caller key. When bearer
+// is set, the caller's Authorization and x-api-key are replaced by it.
 //
-// The target is a copy of the configured upstream, so no part of the caller's request can change its scheme or host.
-// The path after the context is set as both the decoded path and the escaped path, so an escaped byte reaches the
-// upstream as it arrived. The request is built on the upstream's own URL and a fixed method, and the caller's method
-// and the target are assigned to it, so the caller's method is never handed to the constructor.
+// The target is a copy of base, so no part of the caller's request can change its scheme or host. The path after the
+// context is set as both the decoded path and the escaped path, so an escaped byte reaches the upstream as it arrived.
+// The request is built on base's own URL and a fixed method, and the caller's method and the target are assigned to it,
+// so the caller's method is never handed to the constructor.
 //
 // The request is built and sent in one function, so that the request the client sends is the one this function built.
 // It returns an error wrapping errBuildRequest when the request cannot be built, and any other error is the upstream's.
-func (g *Gateway) send(r *http.Request, account, token string, body []byte) (*http.Response, error) {
+func (g *Gateway) send(r *http.Request, base *url.URL, bearer string, body []byte) (*http.Response, error) {
 	_, rest := SplitContext(r.URL.EscapedPath())
 	path, err := url.PathUnescape(rest)
 	if err != nil {
 		return nil, fmt.Errorf("%w: unescape the request path: %w", errBuildRequest, err)
 	}
 
-	target := *g.upstream
-	target.Path = strings.TrimSuffix(g.upstream.Path, "/") + path
-	target.RawPath = strings.TrimSuffix(g.upstream.EscapedPath(), "/") + rest
+	target := *base
+	target.Path = strings.TrimSuffix(base.Path, "/") + path
+	target.RawPath = strings.TrimSuffix(base.EscapedPath(), "/") + rest
 	target.RawQuery = r.URL.RawQuery
 
-	req, err := http.NewRequestWithContext(r.Context(), http.MethodGet, g.upstream.String(), bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(r.Context(), http.MethodGet, base.String(), bytes.NewReader(body))
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", errBuildRequest, err)
 	}
 	req.Method = r.Method
 	req.URL = &target
 
-	dropped := []string{headerContentLength}
-	if account != "" {
-		dropped = append(dropped, headerAuthorization, headerClientKey)
-	}
-	copyHeader(req.Header, r.Header, droppedHeaders(r.Header, dropped...))
-	if account != "" {
-		req.Header.Set(headerAuthorization, "Bearer "+token)
+	copyHeader(req.Header, r.Header, droppedHeaders(r.Header, headerContentLength, patchbayKeyHeader))
+	if bearer != "" {
+		applyAuth(req.Header, bearer)
 	}
 
 	resp, err := g.client.Do(req)
