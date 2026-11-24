@@ -24,12 +24,16 @@ import (
 // proposeUnreachable is the orrery name of the host whose address nothing listens on.
 const proposeUnreachable = "c"
 
-var (
-	// proposeControllerLoad and proposeHostLoad are the loads of the controller and of host b, which differ, so a stdin
-	// that carries the other host's load fails the tests.
-	proposeControllerLoad = node.Load{LoadPercent: 25.5, MemoryPercent: 61.25}
-	proposeHostLoad       = node.Load{LoadPercent: 150.5, MemoryPercent: 40.75}
-)
+// proposeControllerLoad returns the load of the controller, and proposeHostLoad the load of host b. They differ, so a
+// stdin that carries the other host's load fails the tests.
+func proposeControllerLoad() node.Load {
+	return node.Load{LoadPercent: 25.5, MemoryPercent: 61.25}
+}
+
+// proposeHostLoad returns the load of host b.
+func proposeHostLoad() node.Load {
+	return node.Load{LoadPercent: 150.5, MemoryPercent: 40.75}
+}
 
 // instantClock is a clock whose every timer has already fired, so a client on it gives up each wait at once.
 type instantClock struct{}
@@ -122,9 +126,9 @@ func startProposeServer(t *testing.T, root, bRoot, reply string) (http.Handler, 
 		Push:      newPushStore(t),
 		Picker:    func() (open.Config, error) { return cfg, nil },
 		HostName:  routingController,
-		LocalLoad: func() (node.Load, error) { return proposeControllerLoad, nil },
+		LocalLoad: func() (node.Load, error) { return proposeControllerLoad(), nil },
 		Hosts: []*node.Client{
-			startProposeAgent(t, routingHost, bRoot, proposeHostLoad),
+			startProposeAgent(t, routingHost, bRoot, proposeHostLoad()),
 			unreachableClient(t),
 		},
 	})
@@ -137,7 +141,8 @@ func startProposeServer(t *testing.T, root, bRoot, reply string) (http.Handler, 
 // propose asks handler for the proposals of text through Picker.Propose, and returns them or the error it answered.
 func propose(t *testing.T, handler http.Handler, text string) ([]*orreryv1.StartProposal, error) {
 	t.Helper()
-	answer, err := pickerClient(t, handler).Propose(t.Context(), connect.NewRequest(&orreryv1.ProposeRequest{Text: text}))
+	request := connect.NewRequest(&orreryv1.ProposeRequest{Text: text})
+	answer, err := pickerClient(t, handler).Propose(t.Context(), request)
 	if err != nil {
 		return nil, err
 	}
@@ -235,7 +240,7 @@ func TestStartProposalsTypedFolderOnChosenHost(t *testing.T) {
 	makeHostFolder(t, deep)
 	fake := &fakeEngine{}
 	control := controlClient(t, hostStartHandler(
-		t, t.TempDir(), newFakeOrreryd(t, fake), startProposeAgent(t, routingHost, bRoot, proposeHostLoad),
+		t, t.TempDir(), newFakeOrreryd(t, fake), startProposeAgent(t, routingHost, bRoot, proposeHostLoad()),
 	))
 
 	resp, err := startOnHost(t, control, routingHost, deep)

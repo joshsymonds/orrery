@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 	"sync"
@@ -16,6 +17,13 @@ import (
 	"github.com/joshsymonds/orrery/internal/node"
 	"github.com/joshsymonds/orrery/internal/open"
 	"github.com/joshsymonds/orrery/internal/tmuxctl"
+)
+
+// proposeNotFoundMessage and proposeBadRequestMessage are the messages Picker.Propose answers a nil picker and blank
+// text with, the messages Picker.Ask answers them with too.
+const (
+	proposeNotFoundMessage   = "404 page not found"
+	proposeBadRequestMessage = "bad request"
 )
 
 // pickerServer answers orrery.v1.Picker with the configuration, token store, tmux client and clock. Propose ranks its
@@ -108,10 +116,10 @@ func (s pickerServer) Propose(
 // blank text a 400, and a failure of the configuration, the choices or the model a 502 with its reason.
 func (s pickerServer) propose(ctx context.Context, text string) ([]open.Proposal, error) {
 	if s.picker == nil {
-		return nil, routeError{status: http.StatusNotFound, message: "404 page not found"}
+		return nil, routeError{status: http.StatusNotFound, message: proposeNotFoundMessage}
 	}
 	if strings.TrimSpace(text) == "" {
-		return nil, routeError{status: http.StatusBadRequest, message: "bad request"}
+		return nil, routeError{status: http.StatusBadRequest, message: proposeBadRequestMessage}
 	}
 	cfg, err := s.picker()
 	if err != nil {
@@ -134,7 +142,7 @@ func (s pickerServer) propose(ctx context.Context, text string) ([]open.Proposal
 func (s pickerServer) choices(ctx context.Context, cfg open.Config) ([]open.HostChoice, error) {
 	folders, err := open.KnownFolders(ctx, cfg)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("server: known folders: %w", err)
 	}
 	load, err := s.localLoad()
 	if err != nil {
@@ -171,11 +179,12 @@ func reachedChoice(ctx context.Context, client *node.Client) *open.HostChoice {
 		dirErr  error
 	)
 	var wg sync.WaitGroup
-	wg.Add(2)
+	wg.Add(1)
 	go func() {
 		defer wg.Done()
 		load, loadErr = client.Load(ctx)
 	}()
+	wg.Add(1)
 	go func() {
 		defer wg.Done()
 		folders, dirErr = client.Folders(ctx)
