@@ -15,6 +15,7 @@ import (
 type EpicCallerStore interface {
 	ActionEvents(ctx context.Context) ([]store.ActionEvent, error)
 	ContractEvents(ctx context.Context) ([]store.ContractEvent, error)
+	DesignEvents(ctx context.Context) ([]store.DesignEvent, error)
 	Attention(ctx context.Context) ([]store.EpicAttention, error)
 	Epic(ctx context.Context, id string) (store.EpicRow, error)
 	EpicSteerer(ctx context.Context, epic string) (store.CallerSession, bool, error)
@@ -30,7 +31,8 @@ type EpicCallerEventsConfig struct {
 
 // EpicCallerEvents tells the session that steers each epic, once, of each move and owner action on it, and when the epic
 // parks, asks a question, releases or ends. It tells the conversation that made each contract, once, of each change
-// another made to the contract's state: an accept, a set aside or a reopen.
+// another made to the contract's state: an accept, a set aside or a reopen. It tells the working conversation of each
+// design, once, of each line of the design's log that the owner made through serve.
 type EpicCallerEvents struct {
 	store  EpicCallerStore
 	sender *enginehost.CallerSender
@@ -42,9 +44,10 @@ func NewEpicCallerEvents(cfg EpicCallerEventsConfig) *EpicCallerEvents {
 }
 
 // Pass sends the action events that Store.ActionEvents lists, each to its recipient, then the contract events that
-// Store.ContractEvents lists, each to the conversation that made its contract, then the events of each epic that
-// Store.Attention lists to its steerer. An epic with no steerer sends nothing. It returns the errors of the reads and
-// sends that failed, joined. A failure does not stop the pass: it goes on to the next event.
+// Store.ContractEvents lists, each to the conversation that made its contract, then the design events that
+// Store.DesignEvents lists, each to its design's working conversation, then the events of each epic that Store.Attention
+// lists to its steerer. An epic with no steerer sends nothing. It returns the errors of the reads and sends that failed,
+// joined. A failure does not stop the pass: it goes on to the next event.
 func (e *EpicCallerEvents) Pass(ctx context.Context) error {
 	var errs []error
 	actions, err := e.store.ActionEvents(ctx)
@@ -60,6 +63,13 @@ func (e *EpicCallerEvents) Pass(ctx context.Context) error {
 	}
 	for _, event := range contracts {
 		errs = append(errs, e.sendContract(ctx, event))
+	}
+	designs, err := e.store.DesignEvents(ctx)
+	if err != nil {
+		errs = append(errs, fmt.Errorf("read design events for caller events: %w", err))
+	}
+	for _, event := range designs {
+		errs = append(errs, e.sendDesign(ctx, event))
 	}
 	entries, err := e.store.Attention(ctx)
 	if err != nil {
@@ -96,6 +106,33 @@ func (e *EpicCallerEvents) sendContract(ctx context.Context, event store.Contrac
 			event.ID, event.Contract, event.Recipient.ID, err)
 	}
 	return nil
+}
+
+// sendDesign sends one design event to its recipient, the design's working conversation. DesignEvents lists only the
+// events no mark holds under their recipient, and the CallerSender marks each one it finishes, so a sent event is not
+// sent again. The block's design attribute names the design.
+func (e *EpicCallerEvents) sendDesign(ctx context.Context, event store.DesignEvent) error {
+	attrs := []store.EventAttr{{Name: "design", Value: event.Line.Design}}
+	text := store.CallerEventBlock(store.CallerKindDesign, event.ID, attrs, designBody(event.Line))
+	if _, err := e.sender.Send(ctx, event.Recipient, event.ID, text); err != nil {
+		return fmt.Errorf("send design event %s of design %s to session %s: %w",
+			event.ID, event.Line.Design, event.Recipient.ID, err)
+	}
+	return nil
+}
+
+// designBody returns the body of a design event. Its first line names the design, what the owner did, and the ids the
+// line touched when it touched any. Its words follow, cut to decisionTextRunes, when the line gave any.
+func designBody(line store.DesignLogLine) string {
+	first := fmt.Sprintf("Design %s: the owner %s", line.Design, line.What)
+	if len(line.IDs) > 0 {
+		first += ", ids " + strings.Join(line.IDs, ", ")
+	}
+	lines := []string{first + "."}
+	if line.Words != "" {
+		lines = append(lines, "words: "+cutRunes(line.Words, decisionTextRunes))
+	}
+	return strings.Join(lines, "\n")
 }
 
 // contractBody returns the body of a contract event. Its first line names the contract, its title, who made the change

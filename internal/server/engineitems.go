@@ -21,7 +21,8 @@ const (
 // sessionItem maps one engine event of a headless session's main thread to the conversation item it shows, stamped
 // with the event's time. It returns false when the event makes no item: a sub-agent block, a thinking block, a text
 // block that is not the assistant's, a turn end that the owner's interrupt did not end, an engine_task that does not
-// end an agent task (see finishedTaskStatus), and every event kind that is not a prompt, a block, a turn end or a task.
+// end an agent task (see finishedTaskStatus), and every event kind that is not a prompt, a block, a turn end, a task or a
+// design record.
 func sessionItem(event store.EngineEvent) (*orreryv1.ConversationItem, bool, error) {
 	switch event.Kind {
 	case store.EventEnginePrompt:
@@ -82,9 +83,31 @@ func sessionItem(event store.EngineEvent) (*orreryv1.ConversationItem, bool, err
 		}
 	case store.EventEngineTask:
 		return taskItem(event)
+	case store.EventEngineDesign:
+		return designItem(event)
 	default:
 		return nil, false, nil
 	}
+}
+
+// designItem maps an engine_design event to the design item it shows: the record of a line of a design's log, stamped
+// with the event's time. Its design is the design's id, and its text is the line's what, then its words on a new line
+// when the line has any.
+func designItem(event store.EngineEvent) (*orreryv1.ConversationItem, bool, error) {
+	body := &orreryv1.EngineDesign{}
+	if err := protojson.Unmarshal([]byte(event.Payload), body); err != nil {
+		return nil, false, fmt.Errorf("decode %s event %d: %w", event.Kind, event.Seq, err)
+	}
+	text := body.What
+	if body.Words != "" {
+		text += "\n" + body.Words
+	}
+	return &orreryv1.ConversationItem{
+		Kind:   "design",
+		Time:   event.At,
+		Text:   text,
+		Design: &orreryv1.EngineDesign{Design: body.Design},
+	}, true, nil
 }
 
 // taskItem maps an engine_task event to the agent_finished item it shows: the end of an agent task, stamped with the

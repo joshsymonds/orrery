@@ -421,9 +421,9 @@ const (
 )
 
 // pendingEvents returns the caller events the session is owed, as store.Reader.PendingCallerEvents reads them. It sets
-// the waits label of each event (see waitsLabel) and the StepFacts of each step end (see stepFactsProto). A step
-// session is owed none, since caller events go to the sessions that start steps or create epics. A failed read is
-// answered as a failed session read is.
+// the waits label of each event (see waitsLabel), the StepFacts of each step end (see stepFactsProto), and the design
+// record of each design event (see designRecordProto). A step session is owed none, since caller events go to the
+// sessions that start steps or create epics. A failed read is answered as a failed session read is.
 func (w *sessionWatch) pendingEvents(
 	ctx context.Context,
 	history store.EngineHistory,
@@ -453,9 +453,21 @@ func (w *sessionWatch) pendingEvents(
 		if event.Kind == store.CallerKindStepEnd {
 			card.StepFacts = stepFactsProto(event.Facts)
 		}
+		if event.Kind == store.CallerKindDesign {
+			card.Design = designRecordProto(event.Design)
+		}
 		pending = append(pending, card)
 	}
 	return pending, nil
+}
+
+// designRecordProto returns the stage record of a design's log line as the proto carries it: its design, what was done,
+// the ids it touched, its words, its maker's kind and its session.
+func designRecordProto(line store.DesignLogLine) *orreryv1.EngineDesign {
+	return &orreryv1.EngineDesign{
+		Design: line.Design, What: line.What, Ids: line.IDs, Words: line.Words,
+		Maker: &orreryv1.RecordMaker{Kind: line.Maker}, Session: line.Session,
+	}
 }
 
 // waitsLabel returns the waits label of the session's caller events, the first of these that holds: speak when its
