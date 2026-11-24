@@ -7,6 +7,7 @@ import { Designs } from "./gen/orrery/v1/designs_pb";
 import { Epics, Evidence, Steps } from "./gen/orrery/v1/epics_pb";
 import { Notices } from "./gen/orrery/v1/notice_pb";
 import { Control, Events, Host, Panes, Picker, Presence, Sessions } from "./gen/orrery/v1/orrery_pb";
+import { Usage } from "./gen/orrery/v1/usage_pb";
 
 // The header internal/server/server.go requires on every request, so the serve guard admits it. Its value only has
 // to be non-empty.
@@ -50,5 +51,6 @@ export function createClients(transport: Transport) {
     host: createClient(Host, transport),
     accounts: createClient(Accounts, transport),
     routes: createClient(Routes, transport),
+    usage: createClient(Usage, transport),
   };
 }
