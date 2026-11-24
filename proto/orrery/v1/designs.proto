@@ -32,8 +32,7 @@ message DesignsGetRequest {
   string id = 1;
 }
 
-// DesignsGetResponse carries one design with its stage's approaches, choice, log, delegations and steps, questions and
-// ledger.
+// DesignsGetResponse carries one design with its stage's approaches, choice, log and delegations.
 message DesignsGetResponse {
   // The design.
   Design design = 1;
@@ -50,8 +49,7 @@ message DesignsGetResponse {
   // The owner's delegations of the design's decisions to the conversation, oldest first.
   repeated DesignDelegation delegations = 5;
 
-  // The design's stage: its steps, questions and ledger and the counts of its passes. Unset when serve has no stage
-  // client.
+  // The design's stage; unset when serve has no stage service.
   DesignStage stage = 6;
 }
 
@@ -189,65 +187,31 @@ message DesignDecision {
   int64 time = 5;
 }
 
-// DesignStage is the stage of a design: the steps it started, the questions it asked, the ledger of its findings and
-// the counts of its passes.
-message DesignStage {
-  // The steps the design's stage started, oldest first.
-  repeated DesignStep steps = 1;
-
-  // The questions the design's stage asked, oldest first.
-  repeated DesignQuestion questions = 2;
-
-  // The ledger of the design's findings, oldest first.
-  repeated DesignLedgerItem ledger = 3;
-
-  // True when the ledger is frozen: closure has started or was recorded skipped, and no disposition changes after.
-  bool frozen = 4;
-
-  // True when the design's closure pass was recorded as skipped.
-  bool closure_skipped = 5;
-
-  // True when the design's discovery pass has counted toward its budget.
-  bool discovery_counted = 6;
-
-  // True when the design's closure pass has counted toward its budget.
-  bool closure_counted = 7;
-}
-
 // DesignStep is a research, reproduction or steelman step a design's stage started, with its report once it returns.
 message DesignStep {
   // The step's id.
   string step = 1;
 
-  // The step's kind, which says which stage tool started it.
+  // The step's kind: research, reproduce, discovery or closure.
   string kind = 2;
 
-  // What the step looks into: the research question, the reproduction command or the steelman's packet subject.
+  // What the step looks into.
   string subject = 3;
 
-  // The absolute path of the git repository the step runs in, empty when it runs in none.
-  string repository = 4;
-
-  // The committed revision the step runs at, empty when it runs at none.
-  string revision = 5;
-
-  // The delta a closure pass checks, empty for the other kinds.
-  string delta = 6;
-
-  // When the step was started, in unix seconds.
-  int64 created = 7;
-
-  // The step's status.
-  string status = 8;
+  // The step's status: running until the step ends, then its status.
+  string status = 4;
 
   // The step's report, or its output, empty until it returns.
-  string report = 9;
+  string report = 5;
 
   // The verdict of a steelman pass, empty for the other kinds and until the pass returns.
-  string verdict = 10;
+  string verdict = 6;
 
   // True when the step counts toward the design's budget of passes.
-  bool counted = 11;
+  bool counted = 7;
+
+  // When the step was started, in unix seconds.
+  int64 created = 8;
 }
 
 // DesignQuestion is a question a design's stage asks, about one of its contracts, with its answer once one is given.
@@ -276,7 +240,7 @@ message DesignQuestion {
   // True when the answer is the recommendation the planner gave.
   bool accepted = 8;
 
-  // Who answered the question and the evidence the answer rests on; unset while the question is open.
+  // Who answered the question and the evidence the answer rests on; empty while the question is open.
   RecordMaker maker = 9;
 
   // When the question was answered, in unix seconds; zero while the question is open.
@@ -312,7 +276,7 @@ message DesignLedgerItem {
   // The boundary the item was deferred to; empty unless it was deferred.
   string boundary = 9;
 
-  // Who gave the disposition and the evidence it rests on; unset while the item is open.
+  // Who gave the disposition and the evidence it rests on; empty while the item is open.
   RecordMaker maker = 10;
 
   // Closure's word on the item, empty until closure gives one.
@@ -320,6 +284,31 @@ message DesignLedgerItem {
 
   // Closure's note on the item, empty until closure gives one.
   string closure_note = 12;
+}
+
+// DesignStage is the stage of one design: the steps it started, the questions it asked, the ledger of its findings and
+// the counts of its passes.
+message DesignStage {
+  // The steps the design's stage started, oldest first.
+  repeated DesignStep steps = 1;
+
+  // The questions the design's stage asked, oldest first.
+  repeated DesignQuestion questions = 2;
+
+  // The ledger of the design's findings, oldest first.
+  repeated DesignLedgerItem ledger = 3;
+
+  // True when the ledger is frozen: closure has started or was recorded skipped, and no disposition changes after.
+  bool frozen = 4;
+
+  // True when the design's closure pass was recorded as skipped.
+  bool closure_skipped = 5;
+
+  // True when the design's discovery pass has counted toward its budget.
+  bool discovery_counted = 6;
+
+  // True when the design's closure pass has counted toward its budget.
+  bool closure_counted = 7;
 }
 
 // Design is a design as the clients read it: its contracts and the order they start in.

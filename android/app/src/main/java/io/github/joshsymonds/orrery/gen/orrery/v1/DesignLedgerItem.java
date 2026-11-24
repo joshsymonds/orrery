@@ -639,7 +639,7 @@ public  final class DesignLedgerItem extends
   private io.github.joshsymonds.orrery.gen.orrery.v1.RecordMaker maker_;
   /**
    * <pre>
-   * Who gave the disposition and the evidence it rests on; unset while the item is open.
+   * Who gave the disposition and the evidence it rests on; empty while the item is open.
    * </pre>
    *
    * <code>.orrery.v1.RecordMaker maker = 10 [json_name = "maker"];</code>
@@ -650,7 +650,7 @@ public  final class DesignLedgerItem extends
   }
   /**
    * <pre>
-   * Who gave the disposition and the evidence it rests on; unset while the item is open.
+   * Who gave the disposition and the evidence it rests on; empty while the item is open.
    * </pre>
    *
    * <code>.orrery.v1.RecordMaker maker = 10 [json_name = "maker"];</code>
@@ -661,7 +661,7 @@ public  final class DesignLedgerItem extends
   }
   /**
    * <pre>
-   * Who gave the disposition and the evidence it rests on; unset while the item is open.
+   * Who gave the disposition and the evidence it rests on; empty while the item is open.
    * </pre>
    *
    * <code>.orrery.v1.RecordMaker maker = 10 [json_name = "maker"];</code>
@@ -673,7 +673,7 @@ public  final class DesignLedgerItem extends
   }
   /**
    * <pre>
-   * Who gave the disposition and the evidence it rests on; unset while the item is open.
+   * Who gave the disposition and the evidence it rests on; empty while the item is open.
    * </pre>
    *
    * <code>.orrery.v1.RecordMaker maker = 10 [json_name = "maker"];</code>
@@ -692,7 +692,7 @@ public  final class DesignLedgerItem extends
   }
   /**
    * <pre>
-   * Who gave the disposition and the evidence it rests on; unset while the item is open.
+   * Who gave the disposition and the evidence it rests on; empty while the item is open.
    * </pre>
    *
    * <code>.orrery.v1.RecordMaker maker = 10 [json_name = "maker"];</code>
@@ -1560,7 +1560,7 @@ public  final class DesignLedgerItem extends
 
     /**
      * <pre>
-     * Who gave the disposition and the evidence it rests on; unset while the item is open.
+     * Who gave the disposition and the evidence it rests on; empty while the item is open.
      * </pre>
      *
      * <code>.orrery.v1.RecordMaker maker = 10 [json_name = "maker"];</code>
@@ -1571,7 +1571,7 @@ public  final class DesignLedgerItem extends
     }
     /**
      * <pre>
-     * Who gave the disposition and the evidence it rests on; unset while the item is open.
+     * Who gave the disposition and the evidence it rests on; empty while the item is open.
      * </pre>
      *
      * <code>.orrery.v1.RecordMaker maker = 10 [json_name = "maker"];</code>
@@ -1582,7 +1582,7 @@ public  final class DesignLedgerItem extends
     }
     /**
      * <pre>
-     * Who gave the disposition and the evidence it rests on; unset while the item is open.
+     * Who gave the disposition and the evidence it rests on; empty while the item is open.
      * </pre>
      *
      * <code>.orrery.v1.RecordMaker maker = 10 [json_name = "maker"];</code>
@@ -1594,7 +1594,7 @@ public  final class DesignLedgerItem extends
       }
     /**
      * <pre>
-     * Who gave the disposition and the evidence it rests on; unset while the item is open.
+     * Who gave the disposition and the evidence it rests on; empty while the item is open.
      * </pre>
      *
      * <code>.orrery.v1.RecordMaker maker = 10 [json_name = "maker"];</code>
@@ -1607,7 +1607,7 @@ public  final class DesignLedgerItem extends
     }
     /**
      * <pre>
-     * Who gave the disposition and the evidence it rests on; unset while the item is open.
+     * Who gave the disposition and the evidence it rests on; empty while the item is open.
      * </pre>
      *
      * <code>.orrery.v1.RecordMaker maker = 10 [json_name = "maker"];</code>
@@ -1619,7 +1619,7 @@ public  final class DesignLedgerItem extends
     }
     /**
      * <pre>
-     * Who gave the disposition and the evidence it rests on; unset while the item is open.
+     * Who gave the disposition and the evidence it rests on; empty while the item is open.
      * </pre>
      *
      * <code>.orrery.v1.RecordMaker maker = 10 [json_name = "maker"];</code>

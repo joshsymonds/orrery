@@ -177,8 +177,6 @@ class OrreryClientStageTest {
         .setStep("example-step-1")
         .setKind("research")
         .setSubject("Example research question?")
-        .setRepository("/example/repo")
-        .setRevision("0123456789abcdef0123456789abcdef01234567")
         .setCreated(4102444080L)
         .setStatus("done")
         .setReport("Example report.")
@@ -189,7 +187,6 @@ class OrreryClientStageTest {
         .setStep("example-step-2")
         .setKind("steelman")
         .setSubject("Example packet subject.")
-        .setDelta("Example delta.")
         .setCreated(4102444090L)
         .setStatus("done")
         .setVerdict("holds")
@@ -366,9 +363,6 @@ class OrreryClientStageTest {
                     step = "example-step-1",
                     kind = "research",
                     subject = "Example research question?",
-                    repository = "/example/repo",
-                    revision = "0123456789abcdef0123456789abcdef01234567",
-                    delta = "",
                     created = 4102444080L,
                     status = "done",
                     report = "Example report.",
@@ -379,9 +373,6 @@ class OrreryClientStageTest {
                     step = "example-step-2",
                     kind = "steelman",
                     subject = "Example packet subject.",
-                    repository = "",
-                    revision = "",
-                    delta = "Example delta.",
                     created = 4102444090L,
                     status = "done",
                     report = "",

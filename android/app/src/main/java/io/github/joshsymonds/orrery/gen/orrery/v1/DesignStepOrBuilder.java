@@ -32,7 +32,7 @@ public interface DesignStepOrBuilder extends
 
   /**
    * <pre>
-   * The step's kind, which says which stage tool started it.
+   * The step's kind: research, reproduce, discovery or closure.
    * </pre>
    *
    * <code>string kind = 2 [json_name = "kind"];</code>
@@ -41,7 +41,7 @@ public interface DesignStepOrBuilder extends
   java.lang.String getKind();
   /**
    * <pre>
-   * The step's kind, which says which stage tool started it.
+   * The step's kind: research, reproduce, discovery or closure.
    * </pre>
    *
    * <code>string kind = 2 [json_name = "kind"];</code>
@@ -52,7 +52,7 @@ public interface DesignStepOrBuilder extends
 
   /**
    * <pre>
-   * What the step looks into: the research question, the reproduction command or the steelman's packet subject.
+   * What the step looks into.
    * </pre>
    *
    * <code>string subject = 3 [json_name = "subject"];</code>
@@ -61,7 +61,7 @@ public interface DesignStepOrBuilder extends
   java.lang.String getSubject();
   /**
    * <pre>
-   * What the step looks into: the research question, the reproduction command or the steelman's packet subject.
+   * What the step looks into.
    * </pre>
    *
    * <code>string subject = 3 [json_name = "subject"];</code>
@@ -72,89 +72,19 @@ public interface DesignStepOrBuilder extends
 
   /**
    * <pre>
-   * The absolute path of the git repository the step runs in, empty when it runs in none.
+   * The step's status: running until the step ends, then its status.
    * </pre>
    *
-   * <code>string repository = 4 [json_name = "repository"];</code>
-   * @return The repository.
-   */
-  java.lang.String getRepository();
-  /**
-   * <pre>
-   * The absolute path of the git repository the step runs in, empty when it runs in none.
-   * </pre>
-   *
-   * <code>string repository = 4 [json_name = "repository"];</code>
-   * @return The bytes for repository.
-   */
-  com.google.protobuf.ByteString
-      getRepositoryBytes();
-
-  /**
-   * <pre>
-   * The committed revision the step runs at, empty when it runs at none.
-   * </pre>
-   *
-   * <code>string revision = 5 [json_name = "revision"];</code>
-   * @return The revision.
-   */
-  java.lang.String getRevision();
-  /**
-   * <pre>
-   * The committed revision the step runs at, empty when it runs at none.
-   * </pre>
-   *
-   * <code>string revision = 5 [json_name = "revision"];</code>
-   * @return The bytes for revision.
-   */
-  com.google.protobuf.ByteString
-      getRevisionBytes();
-
-  /**
-   * <pre>
-   * The delta a closure pass checks, empty for the other kinds.
-   * </pre>
-   *
-   * <code>string delta = 6 [json_name = "delta"];</code>
-   * @return The delta.
-   */
-  java.lang.String getDelta();
-  /**
-   * <pre>
-   * The delta a closure pass checks, empty for the other kinds.
-   * </pre>
-   *
-   * <code>string delta = 6 [json_name = "delta"];</code>
-   * @return The bytes for delta.
-   */
-  com.google.protobuf.ByteString
-      getDeltaBytes();
-
-  /**
-   * <pre>
-   * When the step was started, in unix seconds.
-   * </pre>
-   *
-   * <code>int64 created = 7 [json_name = "created"];</code>
-   * @return The created.
-   */
-  long getCreated();
-
-  /**
-   * <pre>
-   * The step's status.
-   * </pre>
-   *
-   * <code>string status = 8 [json_name = "status"];</code>
+   * <code>string status = 4 [json_name = "status"];</code>
    * @return The status.
    */
   java.lang.String getStatus();
   /**
    * <pre>
-   * The step's status.
+   * The step's status: running until the step ends, then its status.
    * </pre>
    *
-   * <code>string status = 8 [json_name = "status"];</code>
+   * <code>string status = 4 [json_name = "status"];</code>
    * @return The bytes for status.
    */
   com.google.protobuf.ByteString
@@ -165,7 +95,7 @@ public interface DesignStepOrBuilder extends
    * The step's report, or its output, empty until it returns.
    * </pre>
    *
-   * <code>string report = 9 [json_name = "report"];</code>
+   * <code>string report = 5 [json_name = "report"];</code>
    * @return The report.
    */
   java.lang.String getReport();
@@ -174,7 +104,7 @@ public interface DesignStepOrBuilder extends
    * The step's report, or its output, empty until it returns.
    * </pre>
    *
-   * <code>string report = 9 [json_name = "report"];</code>
+   * <code>string report = 5 [json_name = "report"];</code>
    * @return The bytes for report.
    */
   com.google.protobuf.ByteString
@@ -185,7 +115,7 @@ public interface DesignStepOrBuilder extends
    * The verdict of a steelman pass, empty for the other kinds and until the pass returns.
    * </pre>
    *
-   * <code>string verdict = 10 [json_name = "verdict"];</code>
+   * <code>string verdict = 6 [json_name = "verdict"];</code>
    * @return The verdict.
    */
   java.lang.String getVerdict();
@@ -194,7 +124,7 @@ public interface DesignStepOrBuilder extends
    * The verdict of a steelman pass, empty for the other kinds and until the pass returns.
    * </pre>
    *
-   * <code>string verdict = 10 [json_name = "verdict"];</code>
+   * <code>string verdict = 6 [json_name = "verdict"];</code>
    * @return The bytes for verdict.
    */
   com.google.protobuf.ByteString
@@ -205,8 +135,18 @@ public interface DesignStepOrBuilder extends
    * True when the step counts toward the design's budget of passes.
    * </pre>
    *
-   * <code>bool counted = 11 [json_name = "counted"];</code>
+   * <code>bool counted = 7 [json_name = "counted"];</code>
    * @return The counted.
    */
   boolean getCounted();
+
+  /**
+   * <pre>
+   * When the step was started, in unix seconds.
+   * </pre>
+   *
+   * <code>int64 created = 8 [json_name = "created"];</code>
+   * @return The created.
+   */
+  long getCreated();
 }

@@ -10,7 +10,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file orrery/v1/designs.proto.
  */
 export const file_orrery_v1_designs: GenFile = /*@__PURE__*/
-  fileDesc("ChdvcnJlcnkvdjEvZGVzaWducy5wcm90bxIJb3JyZXJ5LnYxIhQKEkRlc2lnbnNMaXN0UmVxdWVzdCI5ChNEZXNpZ25zTGlzdFJlc3BvbnNlEiIKB2Rlc2lnbnMYASADKAsyES5vcnJlcnkudjEuRGVzaWduIh8KEURlc2lnbnNHZXRSZXF1ZXN0EgoKAmlkGAEgASgJIo8CChJEZXNpZ25zR2V0UmVzcG9uc2USIQoGZGVzaWduGAEgASgLMhEub3JyZXJ5LnYxLkRlc2lnbhItCgphcHByb2FjaGVzGAIgAygLMhkub3JyZXJ5LnYxLkRlc2lnbkFwcHJvYWNoEicKBmNob2ljZRgDIAEoCzIXLm9ycmVyeS52MS5EZXNpZ25DaG9pY2USJQoDbG9nGAQgAygLMhgub3JyZXJ5LnYxLkRlc2lnbkxvZ0xpbmUSMAoLZGVsZWdhdGlvbnMYBSADKAsyGy5vcnJlcnkudjEuRGVzaWduRGVsZWdhdGlvbhIlCgVzdGFnZRgGIAEoCzIWLm9ycmVyeS52MS5EZXNpZ25TdGFnZSJfCgtSZWNvcmRNYWtlchIMCgRraW5kGAEgASgJEg0KBXF1b3RlGAIgASgJEg4KBnJlYXNvbhgDIAEoCRISCgpkZWxlZ2F0aW9uGAQgASgJEg8KB3Nlc3Npb24YBSABKAkivgEKDkRlc2lnbkFwcHJvYWNoEgsKA3NlcRgBIAEoAxIMCgRuYW1lGAIgASgJEg0KBXNoYXBlGAMgASgJEgwKBGNvc3QYBCABKAkSDAoEd2lucxgFIAEoCRINCgVsb3NlcxgGIAEoCRISCgpyZWNvbnNpZGVyGAcgASgJEhAKCHJlc2VhcmNoGAggAygJEhMKC3JlY29tbWVuZGVkGAkgASgIEg4KBnJlYXNvbhgKIAEoCRIMCgR0aW1lGAsgASgDImQKDERlc2lnbkNob2ljZRIQCghhcHByb2FjaBgBIAEoAxINCgV3b3JkcxgCIAEoCRIlCgVtYWtlchgDIAEoCzIWLm9ycmVyeS52MS5SZWNvcmRNYWtlchIMCgR0aW1lGAQgASgDIowBCg1EZXNpZ25Mb2dMaW5lEgsKA3NlcRgBIAEoAxIMCgR0aW1lGAIgASgDEiUKBW1ha2VyGAMgASgLMhYub3JyZXJ5LnYxLlJlY29yZE1ha2VyEg8KB3Nlc3Npb24YBCABKAkSDAoEd2hhdBgFIAEoCRILCgNpZHMYBiADKAkSDQoFd29yZHMYByABKAkijAEKEERlc2lnbkRlbGVnYXRpb24SCwoDc2VxGAEgASgDEg0KBWtpbmRzGAIgAygJEg8KB21lc3NhZ2UYAyABKAkSDwoHc2Vzc2lvbhgEIAEoCRIMCgR0aW1lGAUgASgDEiwKCWRlY2lzaW9ucxgGIAMoCzIZLm9ycmVyeS52MS5EZXNpZ25EZWNpc2lvbiJXCg5EZXNpZ25EZWNpc2lvbhIMCgRraW5kGAEgASgJEgsKA3JlZhgCIAEoCRIMCgR0ZXh0GAMgASgJEg4KBnJlYXNvbhgEIAEoCRIMCgR0aW1lGAUgASgDIusBCgtEZXNpZ25TdGFnZRIkCgVzdGVwcxgBIAMoCzIVLm9ycmVyeS52MS5EZXNpZ25TdGVwEiwKCXF1ZXN0aW9ucxgCIAMoCzIZLm9ycmVyeS52MS5EZXNpZ25RdWVzdGlvbhIrCgZsZWRnZXIYAyADKAsyGy5vcnJlcnkudjEuRGVzaWduTGVkZ2VySXRlbRIOCgZmcm96ZW4YBCABKAgSFwoPY2xvc3VyZV9za2lwcGVkGAUgASgIEhkKEWRpc2NvdmVyeV9jb3VudGVkGAYgASgIEhcKD2Nsb3N1cmVfY291bnRlZBgHIAEoCCLBAQoKRGVzaWduU3RlcBIMCgRzdGVwGAEgASgJEgwKBGtpbmQYAiABKAkSDwoHc3ViamVjdBgDIAEoCRISCgpyZXBvc2l0b3J5GAQgASgJEhAKCHJldmlzaW9uGAUgASgJEg0KBWRlbHRhGAYgASgJEg8KB2NyZWF0ZWQYByABKAMSDgoGc3RhdHVzGAggASgJEg4KBnJlcG9ydBgJIAEoCRIPCgd2ZXJkaWN0GAogASgJEg8KB2NvdW50ZWQYCyABKAgizwEKDkRlc2lnblF1ZXN0aW9uEgoKAmlkGAEgASgDEhAKCGNvbnRyYWN0GAIgASgJEgwKBHRleHQYAyABKAkSDwoHb3B0aW9ucxgEIAMoCRIWCg5yZWNvbW1lbmRhdGlvbhgFIAEoCRINCgVhc2tlZBgGIAEoAxIOCgZhbnN3ZXIYByABKAkSEAoIYWNjZXB0ZWQYCCABKAgSJQoFbWFrZXIYCSABKAsyFi5vcnJlcnkudjEuUmVjb3JkTWFrZXISEAoIYW5zd2VyZWQYCiABKAMi/AEKEERlc2lnbkxlZGdlckl0ZW0SCgoCaWQYASABKAkSEAoIY29udHJhY3QYAiABKAkSDgoGb3JpZ2luGAMgASgJEg4KBmltcGFjdBgEIAEoCRIQCghldmlkZW5jZRgFIAEoCRIOCgZjaGFuZ2UYBiABKAkSEwoLZGlzcG9zaXRpb24YByABKAkSDgoGcmVhc29uGAggASgJEhAKCGJvdW5kYXJ5GAkgASgJEiUKBW1ha2VyGAogASgLMhYub3JyZXJ5LnYxLlJlY29yZE1ha2VyEhQKDGNsb3N1cmVfd29yZBgLIAEoCRIUCgxjbG9zdXJlX25vdGUYDCABKAkilwEKBkRlc2lnbhIKCgJpZBgBIAEoCRINCgV0aXRsZRgCIAEoCRIUCgxjb252ZXJzYXRpb24YAyABKAkSDwoHY3JlYXRlZBgEIAEoAxIOCgZvZl9vbmUYBSABKAgSDQoFc3RhdGUYBiABKAkSLAoJY29udHJhY3RzGAcgAygLMhkub3JyZXJ5LnYxLkRlc2lnbkNvbnRyYWN0IpEBCg5EZXNpZ25Db250cmFjdBIKCgJpZBgBIAEoCRINCgV0aXRsZRgCIAEoCRISCgpyZXBvc2l0b3J5GAMgASgJEg0KBXN0YXRlGAQgASgJEhAKCHBvc2l0aW9uGAUgASgDEg0KBWFmdGVyGAYgAygJEgwKBGVwaWMYByABKAkSEgoKZXBpY19waGFzZRgIIAEoCSJYChREZXNpZ25zQW5zd2VyUmVxdWVzdBIOCgZkZXNpZ24YASABKAkSEAoIcXVlc3Rpb24YAiABKAMSDgoGYW5zd2VyGAMgASgJEg4KBmFjY2VwdBgEIAEoCCInChVEZXNpZ25zQW5zd2VyUmVzcG9uc2USDgoGYW5zd2VyGAEgASgJIiQKFkRlc2lnbnNDb250aW51ZVJlcXVlc3QSCgoCaWQYASABKAkiTQoXRGVzaWduc0NvbnRpbnVlUmVzcG9uc2USIQoGZGVzaWduGAEgASgLMhEub3JyZXJ5LnYxLkRlc2lnbhIPCgdzZXNzaW9uGAIgASgJMrQCCgdEZXNpZ25zEkUKBExpc3QSHS5vcnJlcnkudjEuRGVzaWduc0xpc3RSZXF1ZXN0Gh4ub3JyZXJ5LnYxLkRlc2lnbnNMaXN0UmVzcG9uc2USQgoDR2V0Ehwub3JyZXJ5LnYxLkRlc2lnbnNHZXRSZXF1ZXN0Gh0ub3JyZXJ5LnYxLkRlc2lnbnNHZXRSZXNwb25zZRJLCgZBbnN3ZXISHy5vcnJlcnkudjEuRGVzaWduc0Fuc3dlclJlcXVlc3QaIC5vcnJlcnkudjEuRGVzaWduc0Fuc3dlclJlc3BvbnNlElEKCENvbnRpbnVlEiEub3JyZXJ5LnYxLkRlc2lnbnNDb250aW51ZVJlcXVlc3QaIi5vcnJlcnkudjEuRGVzaWduc0NvbnRpbnVlUmVzcG9uc2ViBnByb3RvMw");
+  fileDesc("ChdvcnJlcnkvdjEvZGVzaWducy5wcm90bxIJb3JyZXJ5LnYxIhQKEkRlc2lnbnNMaXN0UmVxdWVzdCI5ChNEZXNpZ25zTGlzdFJlc3BvbnNlEiIKB2Rlc2lnbnMYASADKAsyES5vcnJlcnkudjEuRGVzaWduIh8KEURlc2lnbnNHZXRSZXF1ZXN0EgoKAmlkGAEgASgJIo8CChJEZXNpZ25zR2V0UmVzcG9uc2USIQoGZGVzaWduGAEgASgLMhEub3JyZXJ5LnYxLkRlc2lnbhItCgphcHByb2FjaGVzGAIgAygLMhkub3JyZXJ5LnYxLkRlc2lnbkFwcHJvYWNoEicKBmNob2ljZRgDIAEoCzIXLm9ycmVyeS52MS5EZXNpZ25DaG9pY2USJQoDbG9nGAQgAygLMhgub3JyZXJ5LnYxLkRlc2lnbkxvZ0xpbmUSMAoLZGVsZWdhdGlvbnMYBSADKAsyGy5vcnJlcnkudjEuRGVzaWduRGVsZWdhdGlvbhIlCgVzdGFnZRgGIAEoCzIWLm9ycmVyeS52MS5EZXNpZ25TdGFnZSJfCgtSZWNvcmRNYWtlchIMCgRraW5kGAEgASgJEg0KBXF1b3RlGAIgASgJEg4KBnJlYXNvbhgDIAEoCRISCgpkZWxlZ2F0aW9uGAQgASgJEg8KB3Nlc3Npb24YBSABKAkivgEKDkRlc2lnbkFwcHJvYWNoEgsKA3NlcRgBIAEoAxIMCgRuYW1lGAIgASgJEg0KBXNoYXBlGAMgASgJEgwKBGNvc3QYBCABKAkSDAoEd2lucxgFIAEoCRINCgVsb3NlcxgGIAEoCRISCgpyZWNvbnNpZGVyGAcgASgJEhAKCHJlc2VhcmNoGAggAygJEhMKC3JlY29tbWVuZGVkGAkgASgIEg4KBnJlYXNvbhgKIAEoCRIMCgR0aW1lGAsgASgDImQKDERlc2lnbkNob2ljZRIQCghhcHByb2FjaBgBIAEoAxINCgV3b3JkcxgCIAEoCRIlCgVtYWtlchgDIAEoCzIWLm9ycmVyeS52MS5SZWNvcmRNYWtlchIMCgR0aW1lGAQgASgDIowBCg1EZXNpZ25Mb2dMaW5lEgsKA3NlcRgBIAEoAxIMCgR0aW1lGAIgASgDEiUKBW1ha2VyGAMgASgLMhYub3JyZXJ5LnYxLlJlY29yZE1ha2VyEg8KB3Nlc3Npb24YBCABKAkSDAoEd2hhdBgFIAEoCRILCgNpZHMYBiADKAkSDQoFd29yZHMYByABKAkijAEKEERlc2lnbkRlbGVnYXRpb24SCwoDc2VxGAEgASgDEg0KBWtpbmRzGAIgAygJEg8KB21lc3NhZ2UYAyABKAkSDwoHc2Vzc2lvbhgEIAEoCRIMCgR0aW1lGAUgASgDEiwKCWRlY2lzaW9ucxgGIAMoCzIZLm9ycmVyeS52MS5EZXNpZ25EZWNpc2lvbiJXCg5EZXNpZ25EZWNpc2lvbhIMCgRraW5kGAEgASgJEgsKA3JlZhgCIAEoCRIMCgR0ZXh0GAMgASgJEg4KBnJlYXNvbhgEIAEoCRIMCgR0aW1lGAUgASgDIowBCgpEZXNpZ25TdGVwEgwKBHN0ZXAYASABKAkSDAoEa2luZBgCIAEoCRIPCgdzdWJqZWN0GAMgASgJEg4KBnN0YXR1cxgEIAEoCRIOCgZyZXBvcnQYBSABKAkSDwoHdmVyZGljdBgGIAEoCRIPCgdjb3VudGVkGAcgASgIEg8KB2NyZWF0ZWQYCCABKAMizwEKDkRlc2lnblF1ZXN0aW9uEgoKAmlkGAEgASgDEhAKCGNvbnRyYWN0GAIgASgJEgwKBHRleHQYAyABKAkSDwoHb3B0aW9ucxgEIAMoCRIWCg5yZWNvbW1lbmRhdGlvbhgFIAEoCRINCgVhc2tlZBgGIAEoAxIOCgZhbnN3ZXIYByABKAkSEAoIYWNjZXB0ZWQYCCABKAgSJQoFbWFrZXIYCSABKAsyFi5vcnJlcnkudjEuUmVjb3JkTWFrZXISEAoIYW5zd2VyZWQYCiABKAMi/AEKEERlc2lnbkxlZGdlckl0ZW0SCgoCaWQYASABKAkSEAoIY29udHJhY3QYAiABKAkSDgoGb3JpZ2luGAMgASgJEg4KBmltcGFjdBgEIAEoCRIQCghldmlkZW5jZRgFIAEoCRIOCgZjaGFuZ2UYBiABKAkSEwoLZGlzcG9zaXRpb24YByABKAkSDgoGcmVhc29uGAggASgJEhAKCGJvdW5kYXJ5GAkgASgJEiUKBW1ha2VyGAogASgLMhYub3JyZXJ5LnYxLlJlY29yZE1ha2VyEhQKDGNsb3N1cmVfd29yZBgLIAEoCRIUCgxjbG9zdXJlX25vdGUYDCABKAki6wEKC0Rlc2lnblN0YWdlEiQKBXN0ZXBzGAEgAygLMhUub3JyZXJ5LnYxLkRlc2lnblN0ZXASLAoJcXVlc3Rpb25zGAIgAygLMhkub3JyZXJ5LnYxLkRlc2lnblF1ZXN0aW9uEisKBmxlZGdlchgDIAMoCzIbLm9ycmVyeS52MS5EZXNpZ25MZWRnZXJJdGVtEg4KBmZyb3plbhgEIAEoCBIXCg9jbG9zdXJlX3NraXBwZWQYBSABKAgSGQoRZGlzY292ZXJ5X2NvdW50ZWQYBiABKAgSFwoPY2xvc3VyZV9jb3VudGVkGAcgASgIIpcBCgZEZXNpZ24SCgoCaWQYASABKAkSDQoFdGl0bGUYAiABKAkSFAoMY29udmVyc2F0aW9uGAMgASgJEg8KB2NyZWF0ZWQYBCABKAMSDgoGb2Zfb25lGAUgASgIEg0KBXN0YXRlGAYgASgJEiwKCWNvbnRyYWN0cxgHIAMoCzIZLm9ycmVyeS52MS5EZXNpZ25Db250cmFjdCKRAQoORGVzaWduQ29udHJhY3QSCgoCaWQYASABKAkSDQoFdGl0bGUYAiABKAkSEgoKcmVwb3NpdG9yeRgDIAEoCRINCgVzdGF0ZRgEIAEoCRIQCghwb3NpdGlvbhgFIAEoAxINCgVhZnRlchgGIAMoCRIMCgRlcGljGAcgASgJEhIKCmVwaWNfcGhhc2UYCCABKAkiWAoURGVzaWduc0Fuc3dlclJlcXVlc3QSDgoGZGVzaWduGAEgASgJEhAKCHF1ZXN0aW9uGAIgASgDEg4KBmFuc3dlchgDIAEoCRIOCgZhY2NlcHQYBCABKAgiJwoVRGVzaWduc0Fuc3dlclJlc3BvbnNlEg4KBmFuc3dlchgBIAEoCSIkChZEZXNpZ25zQ29udGludWVSZXF1ZXN0EgoKAmlkGAEgASgJIk0KF0Rlc2lnbnNDb250aW51ZVJlc3BvbnNlEiEKBmRlc2lnbhgBIAEoCzIRLm9ycmVyeS52MS5EZXNpZ24SDwoHc2Vzc2lvbhgCIAEoCTK0AgoHRGVzaWducxJFCgRMaXN0Eh0ub3JyZXJ5LnYxLkRlc2lnbnNMaXN0UmVxdWVzdBoeLm9ycmVyeS52MS5EZXNpZ25zTGlzdFJlc3BvbnNlEkIKA0dldBIcLm9ycmVyeS52MS5EZXNpZ25zR2V0UmVxdWVzdBodLm9ycmVyeS52MS5EZXNpZ25zR2V0UmVzcG9uc2USSwoGQW5zd2VyEh8ub3JyZXJ5LnYxLkRlc2lnbnNBbnN3ZXJSZXF1ZXN0GiAub3JyZXJ5LnYxLkRlc2lnbnNBbnN3ZXJSZXNwb25zZRJRCghDb250aW51ZRIhLm9ycmVyeS52MS5EZXNpZ25zQ29udGludWVSZXF1ZXN0GiIub3JyZXJ5LnYxLkRlc2lnbnNDb250aW51ZVJlc3BvbnNlYgZwcm90bzM");
 
 /**
  * DesignsListRequest asks for every design.
@@ -70,8 +70,7 @@ export const DesignsGetRequestSchema: GenMessage<DesignsGetRequest> = /*@__PURE_
   messageDesc(file_orrery_v1_designs, 2);
 
 /**
- * DesignsGetResponse carries one design with its stage's approaches, choice, log, delegations and steps, questions and
- * ledger.
+ * DesignsGetResponse carries one design with its stage's approaches, choice, log and delegations.
  *
  * @generated from message orrery.v1.DesignsGetResponse
  */
@@ -112,8 +111,7 @@ export type DesignsGetResponse = Message<"orrery.v1.DesignsGetResponse"> & {
   delegations: DesignDelegation[];
 
   /**
-   * The design's stage: its steps, questions and ledger and the counts of its passes. Unset when serve has no stage
-   * client.
+   * The design's stage; unset when serve has no stage service.
    *
    * @generated from field: orrery.v1.DesignStage stage = 6;
    */
@@ -480,70 +478,6 @@ export const DesignDecisionSchema: GenMessage<DesignDecision> = /*@__PURE__*/
   messageDesc(file_orrery_v1_designs, 9);
 
 /**
- * DesignStage is the stage of a design: the steps it started, the questions it asked, the ledger of its findings and
- * the counts of its passes.
- *
- * @generated from message orrery.v1.DesignStage
- */
-export type DesignStage = Message<"orrery.v1.DesignStage"> & {
-  /**
-   * The steps the design's stage started, oldest first.
-   *
-   * @generated from field: repeated orrery.v1.DesignStep steps = 1;
-   */
-  steps: DesignStep[];
-
-  /**
-   * The questions the design's stage asked, oldest first.
-   *
-   * @generated from field: repeated orrery.v1.DesignQuestion questions = 2;
-   */
-  questions: DesignQuestion[];
-
-  /**
-   * The ledger of the design's findings, oldest first.
-   *
-   * @generated from field: repeated orrery.v1.DesignLedgerItem ledger = 3;
-   */
-  ledger: DesignLedgerItem[];
-
-  /**
-   * True when the ledger is frozen: closure has started or was recorded skipped, and no disposition changes after.
-   *
-   * @generated from field: bool frozen = 4;
-   */
-  frozen: boolean;
-
-  /**
-   * True when the design's closure pass was recorded as skipped.
-   *
-   * @generated from field: bool closure_skipped = 5;
-   */
-  closureSkipped: boolean;
-
-  /**
-   * True when the design's discovery pass has counted toward its budget.
-   *
-   * @generated from field: bool discovery_counted = 6;
-   */
-  discoveryCounted: boolean;
-
-  /**
-   * True when the design's closure pass has counted toward its budget.
-   *
-   * @generated from field: bool closure_counted = 7;
-   */
-  closureCounted: boolean;
-};
-
-/**
- * Describes the message orrery.v1.DesignStage.
- * Use `create(DesignStageSchema)` to create a new message.
- */
-export const DesignStageSchema: GenMessage<DesignStage> = /*@__PURE__*/
-  messageDesc(file_orrery_v1_designs, 10);
-
-/**
  * DesignStep is a research, reproduction or steelman step a design's stage started, with its report once it returns.
  *
  * @generated from message orrery.v1.DesignStep
@@ -557,74 +491,53 @@ export type DesignStep = Message<"orrery.v1.DesignStep"> & {
   step: string;
 
   /**
-   * The step's kind, which says which stage tool started it.
+   * The step's kind: research, reproduce, discovery or closure.
    *
    * @generated from field: string kind = 2;
    */
   kind: string;
 
   /**
-   * What the step looks into: the research question, the reproduction command or the steelman's packet subject.
+   * What the step looks into.
    *
    * @generated from field: string subject = 3;
    */
   subject: string;
 
   /**
-   * The absolute path of the git repository the step runs in, empty when it runs in none.
+   * The step's status: running until the step ends, then its status.
    *
-   * @generated from field: string repository = 4;
-   */
-  repository: string;
-
-  /**
-   * The committed revision the step runs at, empty when it runs at none.
-   *
-   * @generated from field: string revision = 5;
-   */
-  revision: string;
-
-  /**
-   * The delta a closure pass checks, empty for the other kinds.
-   *
-   * @generated from field: string delta = 6;
-   */
-  delta: string;
-
-  /**
-   * When the step was started, in unix seconds.
-   *
-   * @generated from field: int64 created = 7;
-   */
-  created: bigint;
-
-  /**
-   * The step's status.
-   *
-   * @generated from field: string status = 8;
+   * @generated from field: string status = 4;
    */
   status: string;
 
   /**
    * The step's report, or its output, empty until it returns.
    *
-   * @generated from field: string report = 9;
+   * @generated from field: string report = 5;
    */
   report: string;
 
   /**
    * The verdict of a steelman pass, empty for the other kinds and until the pass returns.
    *
-   * @generated from field: string verdict = 10;
+   * @generated from field: string verdict = 6;
    */
   verdict: string;
 
   /**
    * True when the step counts toward the design's budget of passes.
    *
-   * @generated from field: bool counted = 11;
+   * @generated from field: bool counted = 7;
    */
   counted: boolean;
+
+  /**
+   * When the step was started, in unix seconds.
+   *
+   * @generated from field: int64 created = 8;
+   */
+  created: bigint;
 };
 
 /**
@@ -632,7 +545,7 @@ export type DesignStep = Message<"orrery.v1.DesignStep"> & {
  * Use `create(DesignStepSchema)` to create a new message.
  */
 export const DesignStepSchema: GenMessage<DesignStep> = /*@__PURE__*/
-  messageDesc(file_orrery_v1_designs, 11);
+  messageDesc(file_orrery_v1_designs, 10);
 
 /**
  * DesignQuestion is a question a design's stage asks, about one of its contracts, with its answer once one is given.
@@ -697,7 +610,7 @@ export type DesignQuestion = Message<"orrery.v1.DesignQuestion"> & {
   accepted: boolean;
 
   /**
-   * Who answered the question and the evidence the answer rests on; unset while the question is open.
+   * Who answered the question and the evidence the answer rests on; empty while the question is open.
    *
    * @generated from field: orrery.v1.RecordMaker maker = 9;
    */
@@ -716,7 +629,7 @@ export type DesignQuestion = Message<"orrery.v1.DesignQuestion"> & {
  * Use `create(DesignQuestionSchema)` to create a new message.
  */
 export const DesignQuestionSchema: GenMessage<DesignQuestion> = /*@__PURE__*/
-  messageDesc(file_orrery_v1_designs, 12);
+  messageDesc(file_orrery_v1_designs, 11);
 
 /**
  * DesignLedgerItem is a finding a design's stage raised, with its disposition once one is given.
@@ -788,7 +701,7 @@ export type DesignLedgerItem = Message<"orrery.v1.DesignLedgerItem"> & {
   boundary: string;
 
   /**
-   * Who gave the disposition and the evidence it rests on; unset while the item is open.
+   * Who gave the disposition and the evidence it rests on; empty while the item is open.
    *
    * @generated from field: orrery.v1.RecordMaker maker = 10;
    */
@@ -814,6 +727,70 @@ export type DesignLedgerItem = Message<"orrery.v1.DesignLedgerItem"> & {
  * Use `create(DesignLedgerItemSchema)` to create a new message.
  */
 export const DesignLedgerItemSchema: GenMessage<DesignLedgerItem> = /*@__PURE__*/
+  messageDesc(file_orrery_v1_designs, 12);
+
+/**
+ * DesignStage is the stage of one design: the steps it started, the questions it asked, the ledger of its findings and
+ * the counts of its passes.
+ *
+ * @generated from message orrery.v1.DesignStage
+ */
+export type DesignStage = Message<"orrery.v1.DesignStage"> & {
+  /**
+   * The steps the design's stage started, oldest first.
+   *
+   * @generated from field: repeated orrery.v1.DesignStep steps = 1;
+   */
+  steps: DesignStep[];
+
+  /**
+   * The questions the design's stage asked, oldest first.
+   *
+   * @generated from field: repeated orrery.v1.DesignQuestion questions = 2;
+   */
+  questions: DesignQuestion[];
+
+  /**
+   * The ledger of the design's findings, oldest first.
+   *
+   * @generated from field: repeated orrery.v1.DesignLedgerItem ledger = 3;
+   */
+  ledger: DesignLedgerItem[];
+
+  /**
+   * True when the ledger is frozen: closure has started or was recorded skipped, and no disposition changes after.
+   *
+   * @generated from field: bool frozen = 4;
+   */
+  frozen: boolean;
+
+  /**
+   * True when the design's closure pass was recorded as skipped.
+   *
+   * @generated from field: bool closure_skipped = 5;
+   */
+  closureSkipped: boolean;
+
+  /**
+   * True when the design's discovery pass has counted toward its budget.
+   *
+   * @generated from field: bool discovery_counted = 6;
+   */
+  discoveryCounted: boolean;
+
+  /**
+   * True when the design's closure pass has counted toward its budget.
+   *
+   * @generated from field: bool closure_counted = 7;
+   */
+  closureCounted: boolean;
+};
+
+/**
+ * Describes the message orrery.v1.DesignStage.
+ * Use `create(DesignStageSchema)` to create a new message.
+ */
+export const DesignStageSchema: GenMessage<DesignStage> = /*@__PURE__*/
   messageDesc(file_orrery_v1_designs, 13);
 
 /**

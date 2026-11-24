@@ -541,7 +541,7 @@ public  final class DesignQuestion extends
   private io.github.joshsymonds.orrery.gen.orrery.v1.RecordMaker maker_;
   /**
    * <pre>
-   * Who answered the question and the evidence the answer rests on; unset while the question is open.
+   * Who answered the question and the evidence the answer rests on; empty while the question is open.
    * </pre>
    *
    * <code>.orrery.v1.RecordMaker maker = 9 [json_name = "maker"];</code>
@@ -552,7 +552,7 @@ public  final class DesignQuestion extends
   }
   /**
    * <pre>
-   * Who answered the question and the evidence the answer rests on; unset while the question is open.
+   * Who answered the question and the evidence the answer rests on; empty while the question is open.
    * </pre>
    *
    * <code>.orrery.v1.RecordMaker maker = 9 [json_name = "maker"];</code>
@@ -563,7 +563,7 @@ public  final class DesignQuestion extends
   }
   /**
    * <pre>
-   * Who answered the question and the evidence the answer rests on; unset while the question is open.
+   * Who answered the question and the evidence the answer rests on; empty while the question is open.
    * </pre>
    *
    * <code>.orrery.v1.RecordMaker maker = 9 [json_name = "maker"];</code>
@@ -575,7 +575,7 @@ public  final class DesignQuestion extends
   }
   /**
    * <pre>
-   * Who answered the question and the evidence the answer rests on; unset while the question is open.
+   * Who answered the question and the evidence the answer rests on; empty while the question is open.
    * </pre>
    *
    * <code>.orrery.v1.RecordMaker maker = 9 [json_name = "maker"];</code>
@@ -594,7 +594,7 @@ public  final class DesignQuestion extends
   }
   /**
    * <pre>
-   * Who answered the question and the evidence the answer rests on; unset while the question is open.
+   * Who answered the question and the evidence the answer rests on; empty while the question is open.
    * </pre>
    *
    * <code>.orrery.v1.RecordMaker maker = 9 [json_name = "maker"];</code>
@@ -1269,7 +1269,7 @@ public  final class DesignQuestion extends
 
     /**
      * <pre>
-     * Who answered the question and the evidence the answer rests on; unset while the question is open.
+     * Who answered the question and the evidence the answer rests on; empty while the question is open.
      * </pre>
      *
      * <code>.orrery.v1.RecordMaker maker = 9 [json_name = "maker"];</code>
@@ -1280,7 +1280,7 @@ public  final class DesignQuestion extends
     }
     /**
      * <pre>
-     * Who answered the question and the evidence the answer rests on; unset while the question is open.
+     * Who answered the question and the evidence the answer rests on; empty while the question is open.
      * </pre>
      *
      * <code>.orrery.v1.RecordMaker maker = 9 [json_name = "maker"];</code>
@@ -1291,7 +1291,7 @@ public  final class DesignQuestion extends
     }
     /**
      * <pre>
-     * Who answered the question and the evidence the answer rests on; unset while the question is open.
+     * Who answered the question and the evidence the answer rests on; empty while the question is open.
      * </pre>
      *
      * <code>.orrery.v1.RecordMaker maker = 9 [json_name = "maker"];</code>
@@ -1303,7 +1303,7 @@ public  final class DesignQuestion extends
       }
     /**
      * <pre>
-     * Who answered the question and the evidence the answer rests on; unset while the question is open.
+     * Who answered the question and the evidence the answer rests on; empty while the question is open.
      * </pre>
      *
      * <code>.orrery.v1.RecordMaker maker = 9 [json_name = "maker"];</code>
@@ -1316,7 +1316,7 @@ public  final class DesignQuestion extends
     }
     /**
      * <pre>
-     * Who answered the question and the evidence the answer rests on; unset while the question is open.
+     * Who answered the question and the evidence the answer rests on; empty while the question is open.
      * </pre>
      *
      * <code>.orrery.v1.RecordMaker maker = 9 [json_name = "maker"];</code>
@@ -1328,7 +1328,7 @@ public  final class DesignQuestion extends
     }
     /**
      * <pre>
-     * Who answered the question and the evidence the answer rests on; unset while the question is open.
+     * Who answered the question and the evidence the answer rests on; empty while the question is open.
      * </pre>
      *
      * <code>.orrery.v1.RecordMaker maker = 9 [json_name = "maker"];</code>

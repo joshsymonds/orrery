@@ -7,8 +7,7 @@ package io.github.joshsymonds.orrery.gen.orrery.v1;
 
 /**
  * <pre>
- * DesignsGetResponse carries one design with its stage's approaches, choice, log, delegations and steps, questions and
- * ledger.
+ * DesignsGetResponse carries one design with its stage's approaches, choice, log and delegations.
  * </pre>
  *
  * Protobuf type {@code orrery.v1.DesignsGetResponse}
@@ -577,8 +576,7 @@ public  final class DesignsGetResponse extends
   private io.github.joshsymonds.orrery.gen.orrery.v1.DesignStage stage_;
   /**
    * <pre>
-   * The design's stage: its steps, questions and ledger and the counts of its passes. Unset when serve has no stage
-   * client.
+   * The design's stage; unset when serve has no stage service.
    * </pre>
    *
    * <code>.orrery.v1.DesignStage stage = 6 [json_name = "stage"];</code>
@@ -589,8 +587,7 @@ public  final class DesignsGetResponse extends
   }
   /**
    * <pre>
-   * The design's stage: its steps, questions and ledger and the counts of its passes. Unset when serve has no stage
-   * client.
+   * The design's stage; unset when serve has no stage service.
    * </pre>
    *
    * <code>.orrery.v1.DesignStage stage = 6 [json_name = "stage"];</code>
@@ -601,8 +598,7 @@ public  final class DesignsGetResponse extends
   }
   /**
    * <pre>
-   * The design's stage: its steps, questions and ledger and the counts of its passes. Unset when serve has no stage
-   * client.
+   * The design's stage; unset when serve has no stage service.
    * </pre>
    *
    * <code>.orrery.v1.DesignStage stage = 6 [json_name = "stage"];</code>
@@ -614,8 +610,7 @@ public  final class DesignsGetResponse extends
   }
   /**
    * <pre>
-   * The design's stage: its steps, questions and ledger and the counts of its passes. Unset when serve has no stage
-   * client.
+   * The design's stage; unset when serve has no stage service.
    * </pre>
    *
    * <code>.orrery.v1.DesignStage stage = 6 [json_name = "stage"];</code>
@@ -634,8 +629,7 @@ public  final class DesignsGetResponse extends
   }
   /**
    * <pre>
-   * The design's stage: its steps, questions and ledger and the counts of its passes. Unset when serve has no stage
-   * client.
+   * The design's stage; unset when serve has no stage service.
    * </pre>
    *
    * <code>.orrery.v1.DesignStage stage = 6 [json_name = "stage"];</code>
@@ -730,8 +724,7 @@ public  final class DesignsGetResponse extends
 
   /**
    * <pre>
-   * DesignsGetResponse carries one design with its stage's approaches, choice, log, delegations and steps, questions and
-   * ledger.
+   * DesignsGetResponse carries one design with its stage's approaches, choice, log and delegations.
    * </pre>
    *
    * Protobuf type {@code orrery.v1.DesignsGetResponse}
@@ -1341,8 +1334,7 @@ public  final class DesignsGetResponse extends
 
     /**
      * <pre>
-     * The design's stage: its steps, questions and ledger and the counts of its passes. Unset when serve has no stage
-     * client.
+     * The design's stage; unset when serve has no stage service.
      * </pre>
      *
      * <code>.orrery.v1.DesignStage stage = 6 [json_name = "stage"];</code>
@@ -1353,8 +1345,7 @@ public  final class DesignsGetResponse extends
     }
     /**
      * <pre>
-     * The design's stage: its steps, questions and ledger and the counts of its passes. Unset when serve has no stage
-     * client.
+     * The design's stage; unset when serve has no stage service.
      * </pre>
      *
      * <code>.orrery.v1.DesignStage stage = 6 [json_name = "stage"];</code>
@@ -1365,8 +1356,7 @@ public  final class DesignsGetResponse extends
     }
     /**
      * <pre>
-     * The design's stage: its steps, questions and ledger and the counts of its passes. Unset when serve has no stage
-     * client.
+     * The design's stage; unset when serve has no stage service.
      * </pre>
      *
      * <code>.orrery.v1.DesignStage stage = 6 [json_name = "stage"];</code>
@@ -1378,8 +1368,7 @@ public  final class DesignsGetResponse extends
       }
     /**
      * <pre>
-     * The design's stage: its steps, questions and ledger and the counts of its passes. Unset when serve has no stage
-     * client.
+     * The design's stage; unset when serve has no stage service.
      * </pre>
      *
      * <code>.orrery.v1.DesignStage stage = 6 [json_name = "stage"];</code>
@@ -1392,8 +1381,7 @@ public  final class DesignsGetResponse extends
     }
     /**
      * <pre>
-     * The design's stage: its steps, questions and ledger and the counts of its passes. Unset when serve has no stage
-     * client.
+     * The design's stage; unset when serve has no stage service.
      * </pre>
      *
      * <code>.orrery.v1.DesignStage stage = 6 [json_name = "stage"];</code>
@@ -1405,8 +1393,7 @@ public  final class DesignsGetResponse extends
     }
     /**
      * <pre>
-     * The design's stage: its steps, questions and ledger and the counts of its passes. Unset when serve has no stage
-     * client.
+     * The design's stage; unset when serve has no stage service.
      * </pre>
      *
      * <code>.orrery.v1.DesignStage stage = 6 [json_name = "stage"];</code>
