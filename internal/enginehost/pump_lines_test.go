@@ -346,6 +346,45 @@ func TestPumpLinesBackgroundBashCommandStoresAwaitedOn(t *testing.T) {
 	}
 }
 
+// TestPumpLinesBackgroundBashListedBeforeStartedStoresAwaitedOn plays the order claude gives: the line that lists a
+// command's background task comes before the line that reports it started. The started line judges the task against the
+// last list, so a command a Bash call started is awaited, and stored so, though the list came first; a Monitor's is not.
+func TestPumpLinesBackgroundBashListedBeforeStartedStoresAwaitedOn(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		tool    string
+		awaited bool
+	}{
+		{tool: "Bash", awaited: true},
+		{tool: "Monitor", awaited: false},
+	} {
+		t.Run(tc.tool, func(t *testing.T) {
+			t.Parallel()
+			rig := newRecordingRig(t)
+			launchSession(t, rig)
+			live := readoptLive(t, &fakeProcess{})
+			listed := session.Line{Start: 0, End: 20, Events: []session.Event{
+				session.Block{Kind: session.BlockToolCall, Role: "assistant", ToolUseID: "toolu_check", Name: tc.tool},
+				session.BackgroundTasks{Tasks: []session.BackgroundTask{
+					{TaskID: "task_check", TaskType: "local_bash"},
+				}},
+			}}
+			started := session.Line{Start: 20, End: 42, Events: []session.Event{
+				session.TaskStarted{TaskID: "task_check", ToolUseID: "toolu_check", TaskType: "local_bash"},
+			}}
+
+			rig.manager.recordLine(t.Context(), live, newRecorder(chosenID), listed, "")
+			rig.manager.recordLine(t.Context(), live, newRecorder(chosenID), started, "")
+
+			row := waitConsumed(t, rig, started.End)
+			if !row.Background || row.Awaited != tc.awaited {
+				t.Fatalf("background %v awaited %v, want background on and awaited %v for a %s task listed first",
+					row.Background, row.Awaited, tc.awaited, tc.tool)
+			}
+		})
+	}
+}
+
 func TestPumpLinesTurnEndedStoresReplayFromOutputAndReachesTheSession(t *testing.T) {
 	t.Parallel()
 	rig := newRecordingRig(t)

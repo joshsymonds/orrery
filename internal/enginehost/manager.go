@@ -244,8 +244,10 @@ type liveSession struct {
 	agents bool
 	// bashCalls holds the top-level Bash tool calls of the running turn, by tool use id, and commandTasks the background
 	// tasks such a call started, by task id: a command run with run_in_background, which a step waits for (see awaitsCommand).
+	// listed is the last report of the background tasks, which claude gives before it reports a command's task started.
 	bashCalls    map[string]struct{}
 	commandTasks map[string]struct{}
+	listed       []session.BackgroundTask
 	held         bool
 	returned     bool
 	idleSince    time.Time
@@ -2461,8 +2463,8 @@ func (m *Manager) lineOps(
 }
 
 // storeLine stores the ops of one line of live in one write, with the line's consumed offset when it holds one, and reports
-// whether the write succeeded. A line that lists the background tasks stores whether live awaits one as noteEvent judged
-// it, which knows the commands a Bash call started (see awaitsCommand). A line that holds a turn's end waits until the
+// whether the write succeeded. A line that lists the background tasks, or reports one started, stores whether live awaits
+// one as noteEvent judged it, which knows the commands a Bash call started (see awaitsCommand). A line that holds a turn's end waits until the
 // store has the ops, and the session's replay-from is then set to the line's end.
 func (m *Manager) storeLine(ctx context.Context, live *liveSession, line session.Line, ops []store.EngineOp) bool {
 	ended := false
@@ -2680,6 +2682,7 @@ func (m *Manager) noteEvent(live *liveSession, event session.Event, pumping bool
 		clear(live.requests)
 		clear(live.bashCalls)
 		clear(live.commandTasks)
+		live.listed = nil
 		live.background = false
 		live.awaited = false
 		live.agents = false

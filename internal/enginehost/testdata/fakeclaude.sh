@@ -492,14 +492,15 @@ bgself() {
 }
 
 # bgtool TOOL starts a background shell task through a TOOL tool call, Bash with run_in_background or Monitor, as
-# claude does: the tool_use, the task_started line that names its tool_use_id, the task listed, and the call's result.
+# claude does: the tool_use, the task listed, then the task_started line that names its tool_use_id, and the call's
+# result. Claude lists the task before it reports the task started.
 # It ends the turn with a not-done return while the task runs. Once fakeclaude.release exists in its directory, the task
 # completes and claude starts a turn by itself, as the task's notification does, which ends with a done return.
 bgtool() {
 	turn_open
 	assistant_line '{"type":"tool_use","id":"toolu_bgtool_'"$n"'","name":"'"$1"'","input":{"command":"fake long check","run_in_background":true}}'
-	printf '%s\n' '{"type":"system","subtype":"task_started","task_id":"task_fake_bgtool","tool_use_id":"toolu_bgtool_'"$n"'","description":"fake long check","task_type":"local_bash","session_id":"session_1","uuid":"uuid_t1"}'
 	printf '%s\n' '{"type":"system","subtype":"background_tasks_changed","tasks":[{"task_id":"task_fake_bgtool","task_type":"local_bash","description":"fake long check"}],"session_id":"session_1","uuid":"uuid_t2"}'
+	printf '%s\n' '{"type":"system","subtype":"task_started","task_id":"task_fake_bgtool","tool_use_id":"toolu_bgtool_'"$n"'","description":"fake long check","task_type":"local_bash","session_id":"session_1","uuid":"uuid_t1"}'
 	printf '%s\n' '{"type":"user","message":{"role":"user","content":[{"type":"tool_result","content":"running in the background","tool_use_id":"toolu_bgtool_'"$n"'"}]},"parent_tool_use_id":null,"session_id":"session_1","uuid":"uuid_27","timestamp":"redacted"}'
 	text_block 0 "fake bgtool $n" "fake bgtool $n"
 	structured='{"status":"blocked","summary":"fake check still running"}'

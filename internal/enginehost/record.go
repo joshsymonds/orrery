@@ -86,7 +86,9 @@ func (live *liveSession) noteTaskEvent(event session.Event) bool {
 		}
 	case session.TaskStarted:
 		live.noteTaskStarted(ev)
+		live.awaited = live.agents || live.listsCommand(live.listed)
 	case session.BackgroundTasks:
+		live.listed = ev.Tasks
 		live.background = len(ev.Tasks) > 0
 		live.agents = awaitsTask(ev.Tasks)
 		live.awaited = live.agents || live.awaitsCommand(ev.Tasks)
@@ -120,19 +122,26 @@ func (live *liveSession) noteTaskStarted(started session.TaskStarted) {
 	live.commandTasks[started.TaskID] = struct{}{}
 }
 
-// awaitsCommand reports whether tasks lists a command a Bash call started (see noteTaskStarted), and forgets each
-// command tasks no longer lists, since it has ended. A step waits for such a task as it waits for one that runs a model.
+// awaitsCommand reports whether tasks lists a command a Bash call started (see listsCommand), and forgets each command
+// tasks no longer lists, since it has ended. A step waits for such a task as it waits for one that runs a model.
 func (live *liveSession) awaitsCommand(tasks []session.BackgroundTask) bool {
-	listed := false
 	kept := make(map[string]struct{}, len(live.commandTasks))
 	for _, task := range tasks {
 		if _, command := live.commandTasks[task.TaskID]; command {
 			kept[task.TaskID] = struct{}{}
-			listed = true
 		}
 	}
 	live.commandTasks = kept
-	return listed
+	return live.listsCommand(tasks)
+}
+
+// listsCommand reports whether tasks lists a command a Bash call started (see noteTaskStarted). Claude lists a command's
+// task before it reports it started, so a task started is judged against the last list as well as the next one.
+func (live *liveSession) listsCommand(tasks []session.BackgroundTask) bool {
+	return slices.ContainsFunc(tasks, func(task session.BackgroundTask) bool {
+		_, command := live.commandTasks[task.TaskID]
+		return command
+	})
 }
 
 // The tool name of a Bash call and the task type of the background shell task it starts, as the wire gives them.
@@ -534,7 +543,8 @@ func mainText(event session.Event) (string, bool) {
 // consumedOf returns the EngineConsumed that stores the offset of line for session id, and whether line holds a
 // TurnEnded. The offset is the line's End. A line holding a TurnEnded also stores that End as the replay-from and the
 // turn's structured output, and a line holding BackgroundTasks stores whether its last report lists a task and whether it
-// lists one that runs a model (see awaitsTask).
+// lists one that runs a model (see awaitsTask). A line holding BackgroundTasks or TaskStarted stores an awaited flag,
+// which storeLine sets to the session's own judgment of it.
 func consumedOf(id string, line session.Line) (store.EngineConsumed, bool) {
 	consumed := store.EngineConsumed{ID: id, Consumed: line.End}
 	ended := false
@@ -549,6 +559,9 @@ func consumedOf(id string, line session.Line) (store.EngineConsumed, bool) {
 		case session.BackgroundTasks:
 			background, awaited := len(ev.Tasks) > 0, awaitsTask(ev.Tasks)
 			consumed.Background, consumed.Awaited = &background, &awaited
+		case session.TaskStarted:
+			awaited := false
+			consumed.Awaited = &awaited
 		}
 	}
 	return consumed, ended
