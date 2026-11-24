@@ -32,6 +32,10 @@ func (s *contractService) ReviseContract(
 	if err := s.checkContract(ctx, id, contract, decisions); err != nil {
 		return nil, err
 	}
+	warnings, err := s.contractLengthWarnings(contract, decisions)
+	if err != nil {
+		return nil, err
+	}
 	if req.Msg.GetWords() == "" {
 		return nil, refuseEpic(connect.CodeInvalidArgument, "words: empty")
 	}
@@ -67,7 +71,7 @@ func (s *contractService) ReviseContract(
 	if err != nil {
 		return nil, err
 	}
-	return connect.NewResponse(&v1.ReviseContractResponse{Contract: stored}), nil
+	return connect.NewResponse(&v1.ReviseContractResponse{Contract: stored, Warnings: warnings}), nil
 }
 
 // reviseRefusal returns the refusal a store revise of the contract id gets.
@@ -87,9 +91,10 @@ func reviseRefusal(id string, err error) error {
 }
 
 // AcceptContract accepts the contract at its newest version, by the sessions row the caller resolves to or by the owner
-// when it resolves to none. Every decision of that version must have an answer. The accept stores the commit origin's
-// main names in the contract's repository as the contract's base. When that commit cannot be read, the accept is refused
-// and stores nothing.
+// when it resolves to none. Every decision of that version must have an answer. Once the contract is read, the
+// Contracts' AcceptCheck, when it is set, must pass: a refusal of it stores nothing. The accept stores the commit
+// origin's main names in the contract's repository as the contract's base. When that commit cannot be read, the accept
+// is refused and stores nothing.
 func (s *contractService) AcceptContract(
 	ctx context.Context,
 	req *connect.Request[v1.AcceptContractRequest],
@@ -109,6 +114,11 @@ func (s *contractService) AcceptContract(
 	if err != nil {
 		return nil, epicStoreError(err)
 	}
+	if s.contracts.AcceptCheck != nil {
+		if err = s.contracts.AcceptCheck(ctx, id); err != nil {
+			return nil, acceptCheckError(err)
+		}
+	}
 	base, err := s.originMain(ctx, record.Repository)
 	if err != nil {
 		return nil, refuseEpic(connect.CodeFailedPrecondition, "base: fetch origin main: "+err.Error())
@@ -124,6 +134,17 @@ func (s *contractService) AcceptContract(
 		return nil, err
 	}
 	return connect.NewResponse(&v1.AcceptContractResponse{Contract: stored}), nil
+}
+
+// acceptCheckError returns the error an accept answers with when its check refuses it. A Connect error the check returns
+// keeps its code, so a failed read stays internal. Any other error is a refusal, answered as a failed precondition with
+// the check's message.
+func acceptCheckError(err error) error {
+	var coded *connect.Error
+	if errors.As(err, &coded) {
+		return err
+	}
+	return refuseEpic(connect.CodeFailedPrecondition, err.Error())
 }
 
 // acceptRefusal returns the refusal a store accept of the contract id gets.

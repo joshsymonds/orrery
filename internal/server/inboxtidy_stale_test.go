@@ -104,22 +104,7 @@ func TestInboxTidyStaleLiveEpicArchivesAtSevenDays(t *testing.T) {
 		storedEpicOf("repoa/seven", "accepted", epicsAgo(7*archiveDay)),
 		storedEpicOf("repoa/short", "accepted", epicsAgo(staleShortAge)),
 	}}
-	client := archiveEpicsClient(t, t.TempDir(), archiveStorePath(t), stored)
-	expectArchived(t, "Epics.List", archivedByID(epicsList(t, client)), map[string]bool{
-		"repoa/seven": true,
-		"repoa/short": false,
-	})
-}
-
-// TestInboxTidyStaleNotLiveEpicArchivesAtSevenDays lists a record epic whose outcome is not final, and is not live once
-// a day has passed, as archived at seven days unchanged and as unarchived at 6 days 23 hours.
-func TestInboxTidyStaleNotLiveEpicArchivesAtSevenDays(t *testing.T) {
-	t.Parallel()
-	root := t.TempDir()
-	now := epicsNow()
-	writeHead(t, root, "repoa", "seven", `{"outcome":"ended_with_gaps"}`, now.Add(-7*archiveDay))
-	writeHead(t, root, "repoa", "short", `{"outcome":"ended_with_gaps"}`, now.Add(-staleShortAge))
-	client := archiveEpicsClient(t, root, archiveStorePath(t), nil)
+	client := archiveEpicsClient(t, archiveStorePath(t), stored)
 	expectArchived(t, "Epics.List", archivedByID(epicsList(t, client)), map[string]bool{
 		"repoa/seven": true,
 		"repoa/short": false,

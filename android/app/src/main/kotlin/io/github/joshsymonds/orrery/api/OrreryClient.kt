@@ -56,7 +56,6 @@ import io.github.joshsymonds.orrery.gen.orrery.v1.EpicRequirement as EpicRequire
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicStep as EpicStepProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicStepCheck as EpicStepCheckProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicStepVerdict as EpicStepVerdictProto
-import io.github.joshsymonds.orrery.gen.orrery.v1.EpicTask as EpicTaskProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicTaskFinding as EpicTaskFindingProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicTaskReview as EpicTaskReviewProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicTell as EpicTellProto
@@ -527,14 +526,12 @@ data class StepRow(
 )
 
 /**
- * One epic, from the record root or orreryd's database. [runningSteps] are the epic's steps with no end yet, held ones
- * included. [waiting] is true for a live epic accepted and waiting to start. [source] is "orreryd" for an epic
- * orreryd's database holds, "record" for an epic read from records only. [phaseAt] is when the epic's phase was last set,
- * in unix seconds; 0 when unknown and for a record epic. [seen] is when the owner last saw the epic, in unix seconds, from
- * its latest seen call; 0 when the owner has not seen it. [archived] is true while the owner has archived the epic.
- * [steering] is the id of the conversation that steers the epic, empty when none; [path] is the absolute repository path,
- * empty for a record epic. [paused] and [pauseSource] say whether, and why, the epic is paused. [parked] is why the epic
- * is parked, empty when it is not. [openQuestions] counts the questions still open.
+ * One epic from orreryd. [runningSteps] are the epic's steps with no end yet, held ones included. [phaseAt] is when the
+ * epic's phase was last set, in unix seconds; 0 when unknown. [seen] is when the owner last saw the epic, in unix
+ * seconds, from its latest seen call; 0 when the owner has not seen it. [archived] is true while the owner has archived
+ * the epic. [steering] is the id of the conversation that steers the epic, empty when none; [path] is the absolute
+ * repository path. [paused] and [pauseSource] say whether, and why, the epic is paused. [parked] is why the epic is
+ * parked, empty when it is not. [openQuestions] counts the questions still open.
  */
 data class EpicRow(
     val id: String,
@@ -543,11 +540,8 @@ data class EpicRow(
     val outcome: String,
     val changed: Long,
     val live: Boolean,
-    val waiting: Boolean = false,
     val runningSteps: List<StepRow>,
     val endedSteps: Int,
-    val problem: String,
-    val source: String = "",
     val phaseAt: Long = 0L,
     val seen: Long = 0L,
     val archived: Boolean = false,
@@ -787,26 +781,10 @@ data class EvidenceArtifactRow(val path: String, val state: String, val size: Lo
 data class EvidenceArtifactFile(val data: ByteArray, val mediaType: String)
 
 /**
- * One task from an effort's state.json. [requirements] are the requirement ids the task names, in order. [place] and
- * [tone] are where the task stands in its lifecycle and how it stands there, as serve computes them: place is planned,
- * red, implement, green, review, integrate or integrated, and tone is plan, run, mine, limited, bad, acc or ok.
- */
-data class EpicTaskRow(
-    val effort: Int,
-    val slug: String,
-    val subject: String,
-    val status: String,
-    val requirements: List<String> = emptyList(),
-    val place: String = "",
-    val tone: String = "",
-)
-
-/**
  * One task of an orreryd epic's plan, with its build: [stage] is the stage the build is on, empty before its first
  * unit. [red] and [green] are the evidence runs the build names, null until it names one. [requirements] are the
  * requirement ids the task covers, in order. [reviews] are the build's reviews, in attempt then position order. [place]
- * and [tone] are where the task stands in its lifecycle and how it stands there, as serve computes them, named as
- * [EpicTaskRow] names them.
+ * and [tone] are where the task stands in its lifecycle and how it stands there, as serve computes them.
  */
 data class EpicBuildTaskRow(
     val id: String,
@@ -915,7 +893,7 @@ data class EpicContractRow(
 )
 
 /**
- * One epic with its tasks and every step labelled with it, oldest step first.
+ * One epic with its build tasks and every step labelled with it, oldest step first.
  * [requirements] are an orreryd epic's requirements in contract order, empty for a record epic. [buildTasks] are an
  * orreryd epic's planned tasks in the order they were planned, empty for a record epic. [summary] is the epic's summary
  * paragraph, empty until it is written. [contract] is the accepted contract, null for a record epic. [questions] are
@@ -932,7 +910,6 @@ data class EpicContractRow(
  */
 data class EpicDetail(
     val epic: EpicRow,
-    val tasks: List<EpicTaskRow>,
     val steps: List<StepRow>,
     val requirements: List<EpicRequirementRow> = emptyList(),
     val buildTasks: List<EpicBuildTaskRow> = emptyList(),
@@ -1265,7 +1242,6 @@ class OrreryClient(
             ?: return null
         return EpicDetail(
             epic = response.epic.toEpicRow(),
-            tasks = response.tasksList.map { it.toEpicTaskRow() },
             steps = response.stepsList.map { it.toStepRow() },
             requirements = response.requirementsList.map { it.toEpicRequirementRow() },
             buildTasks = response.buildTasksList.map { it.toEpicBuildTaskRow() },
@@ -1794,11 +1770,8 @@ class OrreryClient(
             outcome = outcome,
             changed = changed,
             live = live,
-            waiting = waiting,
             runningSteps = runningStepsList.map { it.toStepRow() },
             endedSteps = endedSteps,
-            problem = problem,
-            source = source,
             phaseAt = phaseAt,
             seen = seen,
             archived = archived,
@@ -2030,17 +2003,6 @@ class OrreryClient(
             step = step,
             result = result,
             reason = reason,
-        )
-
-    private fun EpicTaskProto.toEpicTaskRow(): EpicTaskRow =
-        EpicTaskRow(
-            effort = effort,
-            slug = slug,
-            subject = subject,
-            status = status,
-            requirements = requirementsList.toList(),
-            place = place,
-            tone = tone,
         )
 
     private fun EpicQuestionProto.toEpicQuestionRow(): EpicQuestionRow =

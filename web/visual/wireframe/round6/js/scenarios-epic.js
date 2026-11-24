@@ -60,8 +60,6 @@
 
   epic('epic-command-error', 'An epic command that failed', 'The error is on the epic\'s page, under its title row. Today it is a line in the inbox\'s head, which is hidden here.', { ...E.building, cmdError: 'Pause did not land: the server did not answer. The epic is still running.' }, { group: 'Empty, loading, error' });
 
-  epic('epic-problem', 'An epic the engine cannot read cleanly', 'The engine\'s own problem with the epic is one line at the top, in red.', { ...E.building, problem: 'The epic’s workflow file did not load: workflow.yaml line 14, unknown node kind “gatee”.' }, { group: 'Empty, loading, error' });
-
   epic('epic-loading', 'An epic before its first answer', 'Loading and failed are different states with different words; today both read "epic unavailable".', { ...E.building, unavailable: 'loading the epic…', loading: true }, { group: 'Empty, loading, error' });
 
   epic('epic-unavailable', 'An epic that could not be read', 'With the way to try again.', { ...E.building, unavailable: 'The server could not read this epic.' }, { group: 'Empty, loading, error' });

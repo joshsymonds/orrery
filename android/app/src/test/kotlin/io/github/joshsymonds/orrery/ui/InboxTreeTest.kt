@@ -86,7 +86,6 @@ class InboxTreeTest {
         live = live,
         runningSteps = emptyList(),
         endedSteps = 0,
-        problem = "",
         archived = archived,
         steering = steering,
         path = path,
@@ -114,7 +113,6 @@ class InboxTreeTest {
     /** A detail whose epic is parked, which raises a park need while the epic is live. */
     private fun parkedDetail(epic: EpicRow) = EpicDetail(
         epic = epic,
-        tasks = emptyList(),
         steps = emptyList(),
         parked = "synthetic park",
     )

@@ -85,7 +85,6 @@ class PhoneNoRailTest {
         .setChanged(NOW - 30)
         .setLive(true)
         .setEndedSteps(0)
-        .setProblem("")
         .setSteering(SESSION_B)
         .build()
 

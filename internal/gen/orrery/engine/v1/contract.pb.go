@@ -552,7 +552,9 @@ func (x *ProposeContractRequest) GetDesign() string {
 type ProposeContractResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// The stored contract.
-	Contract      *StoredContract `protobuf:"bytes,1,opt,name=contract,proto3" json:"contract,omitempty"`
+	Contract *StoredContract `protobuf:"bytes,1,opt,name=contract,proto3" json:"contract,omitempty"`
+	// The warnings the contract's checks gave the version; empty when none.
+	Warnings      []string `protobuf:"bytes,2,rep,name=warnings,proto3" json:"warnings,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -590,6 +592,13 @@ func (*ProposeContractResponse) Descriptor() ([]byte, []int) {
 func (x *ProposeContractResponse) GetContract() *StoredContract {
 	if x != nil {
 		return x.Contract
+	}
+	return nil
+}
+
+func (x *ProposeContractResponse) GetWarnings() []string {
+	if x != nil {
+		return x.Warnings
 	}
 	return nil
 }
@@ -671,7 +680,9 @@ func (x *ReviseContractRequest) GetWords() string {
 type ReviseContractResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// The stored contract.
-	Contract      *StoredContract `protobuf:"bytes,1,opt,name=contract,proto3" json:"contract,omitempty"`
+	Contract *StoredContract `protobuf:"bytes,1,opt,name=contract,proto3" json:"contract,omitempty"`
+	// The warnings the contract's checks gave the version; empty when none.
+	Warnings      []string `protobuf:"bytes,2,rep,name=warnings,proto3" json:"warnings,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -709,6 +720,13 @@ func (*ReviseContractResponse) Descriptor() ([]byte, []int) {
 func (x *ReviseContractResponse) GetContract() *StoredContract {
 	if x != nil {
 		return x.Contract
+	}
+	return nil
+}
+
+func (x *ReviseContractResponse) GetWarnings() []string {
+	if x != nil {
+		return x.Warnings
 	}
 	return nil
 }
@@ -1191,6 +1209,244 @@ func (x *ListContractsResponse) GetContracts() []*StoredContract {
 	return nil
 }
 
+// ContractDraft is a contract stored as a draft: its body and decisions as its last write gave them. A draft has no
+// versions and no state changes.
+type ContractDraft struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The draft's id, the id the contract takes when it is proposed.
+	Id string `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	// The design the draft joins, empty for none.
+	Design string `protobuf:"bytes,2,opt,name=design,proto3" json:"design,omitempty"`
+	// The contract body of the draft.
+	Contract *EpicContract `protobuf:"bytes,3,opt,name=contract,proto3" json:"contract,omitempty"`
+	// The decisions of the draft.
+	Decisions []*ContractDecision `protobuf:"bytes,4,rep,name=decisions,proto3" json:"decisions,omitempty"`
+	// The words the writer gave with the draft's last write.
+	Words string `protobuf:"bytes,5,opt,name=words,proto3" json:"words,omitempty"`
+	// The sessions row id of the writer of the draft's last write.
+	Writer string `protobuf:"bytes,6,opt,name=writer,proto3" json:"writer,omitempty"`
+	// When the draft was first stored, in unix seconds.
+	Created int64 `protobuf:"varint,7,opt,name=created,proto3" json:"created,omitempty"`
+	// When the draft was last written, in unix seconds.
+	Updated       int64 `protobuf:"varint,8,opt,name=updated,proto3" json:"updated,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ContractDraft) Reset() {
+	*x = ContractDraft{}
+	mi := &file_orrery_engine_v1_contract_proto_msgTypes[18]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ContractDraft) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ContractDraft) ProtoMessage() {}
+
+func (x *ContractDraft) ProtoReflect() protoreflect.Message {
+	mi := &file_orrery_engine_v1_contract_proto_msgTypes[18]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ContractDraft.ProtoReflect.Descriptor instead.
+func (*ContractDraft) Descriptor() ([]byte, []int) {
+	return file_orrery_engine_v1_contract_proto_rawDescGZIP(), []int{18}
+}
+
+func (x *ContractDraft) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *ContractDraft) GetDesign() string {
+	if x != nil {
+		return x.Design
+	}
+	return ""
+}
+
+func (x *ContractDraft) GetContract() *EpicContract {
+	if x != nil {
+		return x.Contract
+	}
+	return nil
+}
+
+func (x *ContractDraft) GetDecisions() []*ContractDecision {
+	if x != nil {
+		return x.Decisions
+	}
+	return nil
+}
+
+func (x *ContractDraft) GetWords() string {
+	if x != nil {
+		return x.Words
+	}
+	return ""
+}
+
+func (x *ContractDraft) GetWriter() string {
+	if x != nil {
+		return x.Writer
+	}
+	return ""
+}
+
+func (x *ContractDraft) GetCreated() int64 {
+	if x != nil {
+		return x.Created
+	}
+	return 0
+}
+
+func (x *ContractDraft) GetUpdated() int64 {
+	if x != nil {
+		return x.Updated
+	}
+	return 0
+}
+
+// DraftContractRequest asks for a contract's draft to be stored, or the draft stored under its id to be replaced.
+type DraftContractRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The id the draft takes, the id the contract takes when it is proposed.
+	Id string `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	// The contract body of the draft.
+	Contract *EpicContract `protobuf:"bytes,2,opt,name=contract,proto3" json:"contract,omitempty"`
+	// The decisions of the draft.
+	Decisions []*ContractDecision `protobuf:"bytes,3,rep,name=decisions,proto3" json:"decisions,omitempty"`
+	// The words the writer gives with the draft.
+	Words string `protobuf:"bytes,4,opt,name=words,proto3" json:"words,omitempty"`
+	// The design the draft joins, empty for none.
+	Design        string `protobuf:"bytes,5,opt,name=design,proto3" json:"design,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DraftContractRequest) Reset() {
+	*x = DraftContractRequest{}
+	mi := &file_orrery_engine_v1_contract_proto_msgTypes[19]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DraftContractRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DraftContractRequest) ProtoMessage() {}
+
+func (x *DraftContractRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_orrery_engine_v1_contract_proto_msgTypes[19]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DraftContractRequest.ProtoReflect.Descriptor instead.
+func (*DraftContractRequest) Descriptor() ([]byte, []int) {
+	return file_orrery_engine_v1_contract_proto_rawDescGZIP(), []int{19}
+}
+
+func (x *DraftContractRequest) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *DraftContractRequest) GetContract() *EpicContract {
+	if x != nil {
+		return x.Contract
+	}
+	return nil
+}
+
+func (x *DraftContractRequest) GetDecisions() []*ContractDecision {
+	if x != nil {
+		return x.Decisions
+	}
+	return nil
+}
+
+func (x *DraftContractRequest) GetWords() string {
+	if x != nil {
+		return x.Words
+	}
+	return ""
+}
+
+func (x *DraftContractRequest) GetDesign() string {
+	if x != nil {
+		return x.Design
+	}
+	return ""
+}
+
+// DraftContractResponse carries the draft stored by DraftContract.
+type DraftContractResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The stored draft.
+	Draft         *ContractDraft `protobuf:"bytes,1,opt,name=draft,proto3" json:"draft,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DraftContractResponse) Reset() {
+	*x = DraftContractResponse{}
+	mi := &file_orrery_engine_v1_contract_proto_msgTypes[20]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DraftContractResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DraftContractResponse) ProtoMessage() {}
+
+func (x *DraftContractResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_orrery_engine_v1_contract_proto_msgTypes[20]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DraftContractResponse.ProtoReflect.Descriptor instead.
+func (*DraftContractResponse) Descriptor() ([]byte, []int) {
+	return file_orrery_engine_v1_contract_proto_rawDescGZIP(), []int{20}
+}
+
+func (x *DraftContractResponse) GetDraft() *ContractDraft {
+	if x != nil {
+		return x.Draft
+	}
+	return nil
+}
+
 var File_orrery_engine_v1_contract_proto protoreflect.FileDescriptor
 
 const file_orrery_engine_v1_contract_proto_rawDesc = "" +
@@ -1241,16 +1497,18 @@ const file_orrery_engine_v1_contract_proto_rawDesc = "" +
 	"\bcontract\x18\x02 \x01(\v2\x1e.orrery.engine.v1.EpicContractR\bcontract\x12@\n" +
 	"\tdecisions\x18\x03 \x03(\v2\".orrery.engine.v1.ContractDecisionR\tdecisions\x12\x14\n" +
 	"\x05words\x18\x04 \x01(\tR\x05words\x12\x16\n" +
-	"\x06design\x18\x05 \x01(\tR\x06design\"W\n" +
+	"\x06design\x18\x05 \x01(\tR\x06design\"s\n" +
 	"\x17ProposeContractResponse\x12<\n" +
-	"\bcontract\x18\x01 \x01(\v2 .orrery.engine.v1.StoredContractR\bcontract\"\xbb\x01\n" +
+	"\bcontract\x18\x01 \x01(\v2 .orrery.engine.v1.StoredContractR\bcontract\x12\x1a\n" +
+	"\bwarnings\x18\x02 \x03(\tR\bwarnings\"\xbb\x01\n" +
 	"\x15ReviseContractRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12:\n" +
 	"\bcontract\x18\x02 \x01(\v2\x1e.orrery.engine.v1.EpicContractR\bcontract\x12@\n" +
 	"\tdecisions\x18\x03 \x03(\v2\".orrery.engine.v1.ContractDecisionR\tdecisions\x12\x14\n" +
-	"\x05words\x18\x04 \x01(\tR\x05words\"V\n" +
+	"\x05words\x18\x04 \x01(\tR\x05words\"r\n" +
 	"\x16ReviseContractResponse\x12<\n" +
-	"\bcontract\x18\x01 \x01(\v2 .orrery.engine.v1.StoredContractR\bcontract\"=\n" +
+	"\bcontract\x18\x01 \x01(\v2 .orrery.engine.v1.StoredContractR\bcontract\x12\x1a\n" +
+	"\bwarnings\x18\x02 \x03(\tR\bwarnings\"=\n" +
 	"\x15AcceptContractRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x14\n" +
 	"\x05words\x18\x02 \x01(\tR\x05words\"V\n" +
@@ -1272,7 +1530,24 @@ const file_orrery_engine_v1_contract_proto_rawDesc = "" +
 	"\bcontract\x18\x01 \x01(\v2 .orrery.engine.v1.StoredContractR\bcontract\"\x16\n" +
 	"\x14ListContractsRequest\"W\n" +
 	"\x15ListContractsResponse\x12>\n" +
-	"\tcontracts\x18\x01 \x03(\v2 .orrery.engine.v1.StoredContractR\tcontracts2\xcb\x05\n" +
+	"\tcontracts\x18\x01 \x03(\v2 .orrery.engine.v1.StoredContractR\tcontracts\"\x97\x02\n" +
+	"\rContractDraft\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12\x16\n" +
+	"\x06design\x18\x02 \x01(\tR\x06design\x12:\n" +
+	"\bcontract\x18\x03 \x01(\v2\x1e.orrery.engine.v1.EpicContractR\bcontract\x12@\n" +
+	"\tdecisions\x18\x04 \x03(\v2\".orrery.engine.v1.ContractDecisionR\tdecisions\x12\x14\n" +
+	"\x05words\x18\x05 \x01(\tR\x05words\x12\x16\n" +
+	"\x06writer\x18\x06 \x01(\tR\x06writer\x12\x18\n" +
+	"\acreated\x18\a \x01(\x03R\acreated\x12\x18\n" +
+	"\aupdated\x18\b \x01(\x03R\aupdated\"\xd2\x01\n" +
+	"\x14DraftContractRequest\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12:\n" +
+	"\bcontract\x18\x02 \x01(\v2\x1e.orrery.engine.v1.EpicContractR\bcontract\x12@\n" +
+	"\tdecisions\x18\x03 \x03(\v2\".orrery.engine.v1.ContractDecisionR\tdecisions\x12\x14\n" +
+	"\x05words\x18\x04 \x01(\tR\x05words\x12\x16\n" +
+	"\x06design\x18\x05 \x01(\tR\x06design\"N\n" +
+	"\x15DraftContractResponse\x125\n" +
+	"\x05draft\x18\x01 \x01(\v2\x1f.orrery.engine.v1.ContractDraftR\x05draft2\xad\x06\n" +
 	"\tContracts\x12f\n" +
 	"\x0fProposeContract\x12(.orrery.engine.v1.ProposeContractRequest\x1a).orrery.engine.v1.ProposeContractResponse\x12c\n" +
 	"\x0eReviseContract\x12'.orrery.engine.v1.ReviseContractRequest\x1a(.orrery.engine.v1.ReviseContractResponse\x12c\n" +
@@ -1280,7 +1555,8 @@ const file_orrery_engine_v1_contract_proto_rawDesc = "" +
 	"\x10SetAsideContract\x12).orrery.engine.v1.SetAsideContractRequest\x1a*.orrery.engine.v1.SetAsideContractResponse\x12c\n" +
 	"\x0eReopenContract\x12'.orrery.engine.v1.ReopenContractRequest\x1a(.orrery.engine.v1.ReopenContractResponse\x12Z\n" +
 	"\vGetContract\x12$.orrery.engine.v1.GetContractRequest\x1a%.orrery.engine.v1.GetContractResponse\x12`\n" +
-	"\rListContracts\x12&.orrery.engine.v1.ListContractsRequest\x1a'.orrery.engine.v1.ListContractsResponseB\xcd\x01\n" +
+	"\rListContracts\x12&.orrery.engine.v1.ListContractsRequest\x1a'.orrery.engine.v1.ListContractsResponse\x12`\n" +
+	"\rDraftContract\x12&.orrery.engine.v1.DraftContractRequest\x1a'.orrery.engine.v1.DraftContractResponseB\xcd\x01\n" +
 	"\x14com.orrery.engine.v1B\rContractProtoP\x01ZDgithub.com/joshsymonds/orrery/internal/gen/orrery/engine/v1;enginev1\xa2\x02\x03OEX\xaa\x02\x10Orrery.Engine.V1\xca\x02\x10Orrery\\Engine\\V1\xe2\x02\x1cOrrery\\Engine\\V1\\GPBMetadata\xea\x02\x12Orrery::Engine::V1b\x06proto3"
 
 var (
@@ -1295,7 +1571,7 @@ func file_orrery_engine_v1_contract_proto_rawDescGZIP() []byte {
 	return file_orrery_engine_v1_contract_proto_rawDescData
 }
 
-var file_orrery_engine_v1_contract_proto_msgTypes = make([]protoimpl.MessageInfo, 18)
+var file_orrery_engine_v1_contract_proto_msgTypes = make([]protoimpl.MessageInfo, 21)
 var file_orrery_engine_v1_contract_proto_goTypes = []any{
 	(*ContractDecision)(nil),         // 0: orrery.engine.v1.ContractDecision
 	(*ContractVersion)(nil),          // 1: orrery.engine.v1.ContractVersion
@@ -1315,17 +1591,20 @@ var file_orrery_engine_v1_contract_proto_goTypes = []any{
 	(*GetContractResponse)(nil),      // 15: orrery.engine.v1.GetContractResponse
 	(*ListContractsRequest)(nil),     // 16: orrery.engine.v1.ListContractsRequest
 	(*ListContractsResponse)(nil),    // 17: orrery.engine.v1.ListContractsResponse
-	(*EpicContract)(nil),             // 18: orrery.engine.v1.EpicContract
+	(*ContractDraft)(nil),            // 18: orrery.engine.v1.ContractDraft
+	(*DraftContractRequest)(nil),     // 19: orrery.engine.v1.DraftContractRequest
+	(*DraftContractResponse)(nil),    // 20: orrery.engine.v1.DraftContractResponse
+	(*EpicContract)(nil),             // 21: orrery.engine.v1.EpicContract
 }
 var file_orrery_engine_v1_contract_proto_depIdxs = []int32{
-	18, // 0: orrery.engine.v1.ContractVersion.contract:type_name -> orrery.engine.v1.EpicContract
+	21, // 0: orrery.engine.v1.ContractVersion.contract:type_name -> orrery.engine.v1.EpicContract
 	0,  // 1: orrery.engine.v1.ContractVersion.decisions:type_name -> orrery.engine.v1.ContractDecision
 	1,  // 2: orrery.engine.v1.StoredContract.versions:type_name -> orrery.engine.v1.ContractVersion
 	2,  // 3: orrery.engine.v1.StoredContract.states:type_name -> orrery.engine.v1.ContractStateChange
-	18, // 4: orrery.engine.v1.ProposeContractRequest.contract:type_name -> orrery.engine.v1.EpicContract
+	21, // 4: orrery.engine.v1.ProposeContractRequest.contract:type_name -> orrery.engine.v1.EpicContract
 	0,  // 5: orrery.engine.v1.ProposeContractRequest.decisions:type_name -> orrery.engine.v1.ContractDecision
 	3,  // 6: orrery.engine.v1.ProposeContractResponse.contract:type_name -> orrery.engine.v1.StoredContract
-	18, // 7: orrery.engine.v1.ReviseContractRequest.contract:type_name -> orrery.engine.v1.EpicContract
+	21, // 7: orrery.engine.v1.ReviseContractRequest.contract:type_name -> orrery.engine.v1.EpicContract
 	0,  // 8: orrery.engine.v1.ReviseContractRequest.decisions:type_name -> orrery.engine.v1.ContractDecision
 	3,  // 9: orrery.engine.v1.ReviseContractResponse.contract:type_name -> orrery.engine.v1.StoredContract
 	3,  // 10: orrery.engine.v1.AcceptContractResponse.contract:type_name -> orrery.engine.v1.StoredContract
@@ -1333,25 +1612,32 @@ var file_orrery_engine_v1_contract_proto_depIdxs = []int32{
 	3,  // 12: orrery.engine.v1.ReopenContractResponse.contract:type_name -> orrery.engine.v1.StoredContract
 	3,  // 13: orrery.engine.v1.GetContractResponse.contract:type_name -> orrery.engine.v1.StoredContract
 	3,  // 14: orrery.engine.v1.ListContractsResponse.contracts:type_name -> orrery.engine.v1.StoredContract
-	4,  // 15: orrery.engine.v1.Contracts.ProposeContract:input_type -> orrery.engine.v1.ProposeContractRequest
-	6,  // 16: orrery.engine.v1.Contracts.ReviseContract:input_type -> orrery.engine.v1.ReviseContractRequest
-	8,  // 17: orrery.engine.v1.Contracts.AcceptContract:input_type -> orrery.engine.v1.AcceptContractRequest
-	10, // 18: orrery.engine.v1.Contracts.SetAsideContract:input_type -> orrery.engine.v1.SetAsideContractRequest
-	12, // 19: orrery.engine.v1.Contracts.ReopenContract:input_type -> orrery.engine.v1.ReopenContractRequest
-	14, // 20: orrery.engine.v1.Contracts.GetContract:input_type -> orrery.engine.v1.GetContractRequest
-	16, // 21: orrery.engine.v1.Contracts.ListContracts:input_type -> orrery.engine.v1.ListContractsRequest
-	5,  // 22: orrery.engine.v1.Contracts.ProposeContract:output_type -> orrery.engine.v1.ProposeContractResponse
-	7,  // 23: orrery.engine.v1.Contracts.ReviseContract:output_type -> orrery.engine.v1.ReviseContractResponse
-	9,  // 24: orrery.engine.v1.Contracts.AcceptContract:output_type -> orrery.engine.v1.AcceptContractResponse
-	11, // 25: orrery.engine.v1.Contracts.SetAsideContract:output_type -> orrery.engine.v1.SetAsideContractResponse
-	13, // 26: orrery.engine.v1.Contracts.ReopenContract:output_type -> orrery.engine.v1.ReopenContractResponse
-	15, // 27: orrery.engine.v1.Contracts.GetContract:output_type -> orrery.engine.v1.GetContractResponse
-	17, // 28: orrery.engine.v1.Contracts.ListContracts:output_type -> orrery.engine.v1.ListContractsResponse
-	22, // [22:29] is the sub-list for method output_type
-	15, // [15:22] is the sub-list for method input_type
-	15, // [15:15] is the sub-list for extension type_name
-	15, // [15:15] is the sub-list for extension extendee
-	0,  // [0:15] is the sub-list for field type_name
+	21, // 15: orrery.engine.v1.ContractDraft.contract:type_name -> orrery.engine.v1.EpicContract
+	0,  // 16: orrery.engine.v1.ContractDraft.decisions:type_name -> orrery.engine.v1.ContractDecision
+	21, // 17: orrery.engine.v1.DraftContractRequest.contract:type_name -> orrery.engine.v1.EpicContract
+	0,  // 18: orrery.engine.v1.DraftContractRequest.decisions:type_name -> orrery.engine.v1.ContractDecision
+	18, // 19: orrery.engine.v1.DraftContractResponse.draft:type_name -> orrery.engine.v1.ContractDraft
+	4,  // 20: orrery.engine.v1.Contracts.ProposeContract:input_type -> orrery.engine.v1.ProposeContractRequest
+	6,  // 21: orrery.engine.v1.Contracts.ReviseContract:input_type -> orrery.engine.v1.ReviseContractRequest
+	8,  // 22: orrery.engine.v1.Contracts.AcceptContract:input_type -> orrery.engine.v1.AcceptContractRequest
+	10, // 23: orrery.engine.v1.Contracts.SetAsideContract:input_type -> orrery.engine.v1.SetAsideContractRequest
+	12, // 24: orrery.engine.v1.Contracts.ReopenContract:input_type -> orrery.engine.v1.ReopenContractRequest
+	14, // 25: orrery.engine.v1.Contracts.GetContract:input_type -> orrery.engine.v1.GetContractRequest
+	16, // 26: orrery.engine.v1.Contracts.ListContracts:input_type -> orrery.engine.v1.ListContractsRequest
+	19, // 27: orrery.engine.v1.Contracts.DraftContract:input_type -> orrery.engine.v1.DraftContractRequest
+	5,  // 28: orrery.engine.v1.Contracts.ProposeContract:output_type -> orrery.engine.v1.ProposeContractResponse
+	7,  // 29: orrery.engine.v1.Contracts.ReviseContract:output_type -> orrery.engine.v1.ReviseContractResponse
+	9,  // 30: orrery.engine.v1.Contracts.AcceptContract:output_type -> orrery.engine.v1.AcceptContractResponse
+	11, // 31: orrery.engine.v1.Contracts.SetAsideContract:output_type -> orrery.engine.v1.SetAsideContractResponse
+	13, // 32: orrery.engine.v1.Contracts.ReopenContract:output_type -> orrery.engine.v1.ReopenContractResponse
+	15, // 33: orrery.engine.v1.Contracts.GetContract:output_type -> orrery.engine.v1.GetContractResponse
+	17, // 34: orrery.engine.v1.Contracts.ListContracts:output_type -> orrery.engine.v1.ListContractsResponse
+	20, // 35: orrery.engine.v1.Contracts.DraftContract:output_type -> orrery.engine.v1.DraftContractResponse
+	28, // [28:36] is the sub-list for method output_type
+	20, // [20:28] is the sub-list for method input_type
+	20, // [20:20] is the sub-list for extension type_name
+	20, // [20:20] is the sub-list for extension extendee
+	0,  // [0:20] is the sub-list for field type_name
 }
 
 func init() { file_orrery_engine_v1_contract_proto_init() }
@@ -1366,7 +1652,7 @@ func file_orrery_engine_v1_contract_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_orrery_engine_v1_contract_proto_rawDesc), len(file_orrery_engine_v1_contract_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   18,
+			NumMessages:   21,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

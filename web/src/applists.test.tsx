@@ -36,7 +36,6 @@ const now = Date.parse(liveEpoch) / 1000;
 const repository = "widgets-5d0c1a7";
 const watchPath = "/orrery.v1.Sessions/WatchConversation";
 const promptText = "a message the stream holds";
-const tones = ["attention", "live", "quiet"];
 
 type Clients = ReturnType<typeof createClients>;
 
@@ -320,9 +319,9 @@ function listPanelOf(container: HTMLElement, label: string): HTMLElement | null 
   return container.querySelector<HTMLElement>(`aside.rpanel[aria-label="${label}"]`);
 }
 
-// epicPanelOf is the epic panel, or null when it is not drawn.
+// epicPanelOf is the epic's held card, or null when it is not drawn.
 function epicPanelOf(container: HTMLElement): HTMLElement | null {
-  return container.querySelector<HTMLElement>('aside.rpanel[aria-label="epic"]');
+  return container.querySelector<HTMLElement>('article.held-card[data-kind="epic"]');
 }
 
 // panelRows are the titles of the rows the one drawn panel lists.
@@ -330,14 +329,6 @@ function panelRows(container: HTMLElement): string[] {
   return [...container.querySelectorAll<HTMLElement>("aside.rpanel .plist .row .title")].map(
     (title) => title.textContent ?? "",
   );
-}
-
-// frameClasses are the classes of a panel's frame and of its card, without the card's tone, so two panels compare as
-// the same frame.
-function frameClasses(panel: HTMLElement): string {
-  const card = panel.querySelector(".rcard");
-  const cardFrame = card === null ? "" : [...card.classList].filter((name) => !tones.includes(name)).join(" ");
-  return `${panel.className} | ${cardFrame}`;
 }
 
 // lastReport is the address App reported last, with the mode it named.
@@ -390,12 +381,11 @@ test("SidePanel: a list's panel draws in the epic panel's frame, and its card ta
   withLists(t.signal, 1600, { rows: [steererRow()], epics: view([alpha]), address: epicAddress("alpha") }, async ({ container, server }) => {
     await feed(t.signal, server, "s1", background);
     await settleLines(t.signal, container);
-    const epicPanel = epicPanelOf(container);
-    assert.ok(epicPanel !== null, "the epic panel is drawn");
+    assert.ok(epicPanelOf(container) !== null, "the epic card is drawn");
     await press(listLine(container, "agents"));
     const listPanel = listPanelOf(container, "Sub-agents");
     assert.ok(listPanel !== null, "the agents panel is drawn");
-    assert.equal(frameClasses(listPanel), frameClasses(epicPanel), "the two panels draw in the same frame");
+    assert.equal(listPanel.classList.contains("rpanel"), true, "the list panel draws in the side panel's frame");
     assert.equal(listPanel.querySelector(".rcard")?.classList.contains("live"), true, "agents take the live tone");
   }));
 
@@ -489,10 +479,10 @@ test("SidePanel: ] reopens an epic shut by Close when no conversation steers it"
   const unsteered = epicOf("beta", "");
   return withLists(t.signal, 1600, { rows: [], epics: view([unsteered]), address: epicAddress("beta") }, async ({ container }) => {
     assert.ok(epicPanelOf(container) !== null, "the epic opens beside the no-conversation middle");
-    const close = container.querySelector<HTMLElement>('aside.rpanel button[aria-label="Close the panel"]');
-    assert.ok(close !== null, "the panel has its Close");
+    const close = container.querySelector<HTMLElement>('article.held-card button[aria-label="Fold back"]');
+    assert.ok(close !== null, "the card has its Fold back");
     await press(close);
-    assert.ok(epicPanelOf(container) === null, "Close shuts the panel");
+    assert.ok(epicPanelOf(container) === null, "Fold back shuts the card");
     await pressKey("]");
     assert.ok(epicPanelOf(container) !== null, "] reopens the epic it held");
   });

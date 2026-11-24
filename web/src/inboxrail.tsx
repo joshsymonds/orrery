@@ -6,9 +6,10 @@ import { Fragment, type JSX, type RefObject } from "preact";
 import { useLayoutEffect, useRef } from "preact/hooks";
 
 import { Icon, type IconName, StateGlyph } from "./glyphs";
+import type { HeldMove } from "./held";
 import { ageText, quietRow, SecondLine } from "./inboxrow";
 import { Mark } from "./mark";
-import type { FlyoutModel, FlyoutRow, LineageConvo, RailTileModel } from "./railtiles";
+import type { FlyoutModel, FlyoutRow, LineageConvo, LineageMark, RailTileModel } from "./railtiles";
 import { ReplyText } from "./text";
 
 // noticesTip is the tip of the Notices control: its unread count when there is one, else the name alone.
@@ -79,30 +80,48 @@ export function ProjectTile({
 }
 
 // RailLineage draws a project's lineage on the rail, the tree's nesting in small: a pill for each conversation that works a
-// design, holding the conversation's mark; inside it a pill for each design, its mark on a head with a rounded top, touching
-// a smaller pill under it that holds a mark for each contract or epic in order. A design's mark and a child's mark each call
-// onPress with its key. projectKey is the project whose tile the block lies under, which the block carries for the pointer.
+// design or holds an open epic or contract of its own, holding the conversation's mark; the conversation's own marks, then
+// a pill for each design, its mark on a head with a rounded top, touching a smaller pill under it that holds a mark for each
+// contract or epic in order. A design's mark and a child's mark each call onPress with its key. The held conversation's
+// mark is a neck, and the open mark a lozenge, each drawn out to the rail's edge (D12, D14). move is the motion of the change
+// that holds the open thing, which each held conversation mark and open mark carries as data-move. projectKey is the project
+// whose tile the block lies under, which the block carries for the pointer.
 export function RailLineage({
   projectKey,
   convos,
+  move = "",
   onPress,
 }: {
   projectKey: string;
   convos: readonly LineageConvo[];
+  move?: HeldMove;
   onPress: (key: string) => void;
 }): JSX.Element {
+  const motion = move === "" ? undefined : move;
   return (
     <div class="rail-lineage" data-project={projectKey}>
       {convos.map((convo) => (
         <div class="lconvo" key={convo.key}>
-          <span class="lmark lconv" role="img" aria-label="conversation" title="conversation">
+          <span
+            class="lmark lconv"
+            role="img"
+            aria-label="conversation"
+            title="conversation"
+            data-held={convo.held ? "convo" : undefined}
+            data-move={convo.held ? motion : undefined}
+          >
             <Icon name="chat" />
           </span>
+          {convo.own.map((mark) => (
+            <LineageButton key={mark.key} mark={mark} move={motion} onPress={onPress} />
+          ))}
           {convo.designs.map((design) => (
             <div class="ldesign" key={design.key}>
               <button
                 type="button"
                 class={design.open ? "lmark open" : "lmark"}
+                data-held={design.open ? "open" : undefined}
+                data-move={design.open ? motion : undefined}
                 aria-label={`design: ${design.name}`}
                 title={`design: ${design.name}`}
                 onClick={() => onPress(design.key)}
@@ -111,16 +130,7 @@ export function RailLineage({
               </button>
               <div class="lwell">
                 {design.marks.map((mark) => (
-                  <button
-                    type="button"
-                    key={mark.key}
-                    class={mark.open ? "lmark open" : "lmark"}
-                    aria-label={`${mark.kind}: ${mark.name}`}
-                    title={`${mark.kind}: ${mark.name}`}
-                    onClick={() => onPress(mark.key)}
-                  >
-                    <Icon name={mark.kind === "contract" ? "doc" : "pools"} />
-                  </button>
+                  <LineageButton key={mark.key} mark={mark} move={motion} onPress={onPress} />
                 ))}
               </div>
             </div>
@@ -128,6 +138,32 @@ export function RailLineage({
         </div>
       ))}
     </div>
+  );
+}
+
+// LineageButton draws an epic's or contract's mark on the lineage, which calls onPress with its key. The open one is held,
+// and carries move as data-move.
+function LineageButton({
+  mark,
+  move,
+  onPress,
+}: {
+  mark: LineageMark;
+  move: HeldMove | undefined;
+  onPress: (key: string) => void;
+}): JSX.Element {
+  return (
+    <button
+      type="button"
+      class={mark.open ? "lmark open" : "lmark"}
+      data-held={mark.open ? "open" : undefined}
+      data-move={mark.open ? move : undefined}
+      aria-label={`${mark.kind}: ${mark.name}`}
+      title={`${mark.kind}: ${mark.name}`}
+      onClick={() => onPress(mark.key)}
+    >
+      <Icon name={mark.kind === "contract" ? "doc" : "pools"} />
+    </button>
   );
 }
 
@@ -227,6 +263,7 @@ function FlyoutLine({ row, now, cur, onOpen }: { row: FlyoutRow; now: number; cu
 // and held inside the rail's height.
 export function InboxRail({
   tiles,
+  move = "",
   flyout,
   now,
   onMark,
@@ -243,6 +280,7 @@ export function InboxRail({
   onKeys,
 }: {
   tiles: readonly RailTileModel[];
+  move?: HeldMove;
   flyout: FlyoutModel | null;
   now: number;
   onMark: () => void;
@@ -309,7 +347,7 @@ export function InboxRail({
             <Fragment key={tile.key}>
               <ProjectTile tile={tile} open={flyout?.key === tile.key} onClick={() => onTile(tile.key)} />
               {lineage.length > 0 && (
-                <RailLineage projectKey={tile.key} convos={lineage} onPress={(key) => onLineage?.(key)} />
+                <RailLineage projectKey={tile.key} convos={lineage} move={move} onPress={(key) => onLineage?.(key)} />
               )}
             </Fragment>
           );

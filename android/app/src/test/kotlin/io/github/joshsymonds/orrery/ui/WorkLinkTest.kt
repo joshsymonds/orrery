@@ -59,7 +59,6 @@ class WorkLinkTest {
         live = true,
         runningSteps = emptyList(),
         endedSteps = 0,
-        problem = "",
         phaseAt = NOW - 49 * 60,
         steering = CONVO,
     )

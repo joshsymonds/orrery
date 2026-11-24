@@ -20,7 +20,7 @@ func TestCloseEpicStoredEpicIsNotLiveAndShowsItsKind(t *testing.T) {
 	for id, phase := range phases {
 		stored = append(stored, storedEpicOf(id, phase, epicsAgo(time.Hour)))
 	}
-	client := epicStoreServe(t, t.TempDir(), &epicsFake{}, &epicStoreFake{stored: stored})
+	client := epicStoreServe(t, &epicsFake{}, &epicStoreFake{stored: stored})
 
 	listed := 0
 	for _, epic := range epicsList(t, client) {

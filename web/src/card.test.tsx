@@ -246,7 +246,7 @@ test("EpicWidget: a card whose epic the poll holds draws the poll's detail, read
   await withRedraws(fake.calls(polledView(orreryd("accepted"))), async (container, redraw) => {
     await drawn(t, container);
     assert.equal(gaugeLabel(container), "no tasks yet");
-    await redraw(fake.calls(polledView(orreryd("accepted", { tasks: [{ slug: "t1", status: "" }] }))));
+    await redraw(fake.calls(polledView(orreryd("accepted", { buildTasks: [{ id: "t1", status: "" }] }))));
     await settle(t, () => gaugeLabel(container) === "0 of 1 tasks done", "the poll's next detail draws");
     await act(turn);
     assert.deepEqual(fake.reads, [], "a card over a polled epic read it");

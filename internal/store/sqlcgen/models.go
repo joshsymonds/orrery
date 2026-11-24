@@ -32,6 +32,20 @@ type ClosureVerdict struct {
 type Contract struct {
 	ID      string
 	Created int64
+	Staged  int64
+}
+
+type ContractDraft struct {
+	ID         string
+	Design     string
+	Repository string
+	Title      string
+	Body       string
+	Decisions  string
+	Words      string
+	Writer     string
+	Created    int64
+	Updated    int64
 }
 
 type ContractState struct {
@@ -79,6 +93,17 @@ type Design struct {
 	Created      int64
 }
 
+type DesignClosureSkip struct {
+	Design      string
+	Reason      string
+	Maker       string
+	Quote       string
+	MakerReason string
+	Delegation  string
+	Session     string
+	At          int64
+}
+
 type DesignContract struct {
 	Contract string
 	Design   string
@@ -86,11 +111,56 @@ type DesignContract struct {
 	Added    int64
 }
 
+type DesignDisposition struct {
+	Design      string
+	Seq         int64
+	Item        string
+	Disposition string
+	Reason      string
+	Boundary    string
+	Maker       string
+	Quote       string
+	MakerReason string
+	Delegation  string
+	Session     string
+	At          int64
+}
+
 type DesignEdge struct {
 	Design   string
 	Contract string
 	After    string
 	Created  int64
+}
+
+type DesignQuestion struct {
+	Design         string
+	Seq            int64
+	Contract       string
+	Text           string
+	Options        string
+	Recommendation string
+	Asker          string
+	Asked          int64
+	Answer         string
+	Accepted       int64
+	Maker          string
+	Quote          string
+	MakerReason    string
+	Delegation     string
+	Answerer       string
+	Answered       int64
+}
+
+type DesignStep struct {
+	Step       string
+	Design     string
+	Kind       string
+	Subject    string
+	Repository string
+	Revision   string
+	Delta      string
+	Created    int64
 }
 
 type DueResume struct {

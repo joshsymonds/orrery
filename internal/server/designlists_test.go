@@ -144,7 +144,7 @@ func TestDesignListsHeadlessCarriesDesigns(t *testing.T) {
 // epicsDesignListClient serves the Epics handler over reader, with the fixed clock, and returns a generated client.
 func epicsDesignListClient(t *testing.T, reader *store.Reader) orreryv1connect.EpicsClient {
 	t.Helper()
-	path, handler := newEpicsHandler(t.TempDir(), &epicsFake{}, nil, nil, nil, reader, 0, epicsNow, newRetryClock())
+	path, handler := newEpicsHandler(&epicsFake{}, nil, nil, nil, reader, 0, epicsNow, newRetryClock())
 	mux := http.NewServeMux()
 	mux.Handle(path, handler)
 	srv := httptest.NewServer(mux)

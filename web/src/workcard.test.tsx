@@ -120,7 +120,7 @@ test("ProjectPage WorkCard words for an epic that asks: its question, Answer, no
   assert.deepEqual(workCardOf(epicNode(listedEpic("lighthouse/rota-export")), now), {
     key: "epic:lighthouse/rota-export",
     slug: "rota-export",
-    gauge: { done: 0, total: 0, tone: "attention", inner: "dot" },
+    gauge: { done: 3, total: 7, tone: "attention", inner: "dot" },
     tone: "attention",
     state: "building · 49 min",
     track: ["done", "done", "now", "ahead", "ahead"],
@@ -145,7 +145,7 @@ test("ProjectPage WorkCard words for an epic building: live, with no asks", () =
   assert.deepEqual(workCardOf(epicNode(listedEpic("orrery/orrery-followups")), now), {
     key: "epic:orrery/orrery-followups",
     slug: "orrery-followups",
-    gauge: { done: 0, total: 0, tone: "live" },
+    gauge: { done: 0, total: 3, tone: "live" },
     tone: "live",
     state: "building · 20 min",
     track: ["done", "done", "now", "ahead", "ahead"],

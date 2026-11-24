@@ -176,10 +176,7 @@ class TaskBandTest {
             live = true,
             runningSteps = emptyList(),
             endedSteps = 0,
-            problem = "",
-            source = "orreryd",
         ),
-        tasks = emptyList(),
         steps = emptyList(),
         buildTasks = listOf(
             buildTask(DONE_TASK, place = "integrated", tone = "ok"),

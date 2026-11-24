@@ -1,7 +1,6 @@
 package server
 
 import (
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -50,9 +49,8 @@ func buildTasksEpic() *enginev1.StoredEpic {
 }
 
 func TestEpicsGetAnswersBuildTasksInOrder(t *testing.T) {
-	root := t.TempDir()
 	store := &epicStoreFake{stored: []*enginev1.StoredEpic{buildTasksEpic()}}
-	client := epicStoreServe(t, root, &epicsFake{}, store)
+	client := epicStoreServe(t, &epicsFake{}, store)
 
 	got := epicsGet(t, client, "repoa/built").GetBuildTasks()
 	wantRed := &orreryv1.EvidenceRun{
@@ -106,7 +104,6 @@ func TestEpicsGetAnswersBuildTasksInOrder(t *testing.T) {
 }
 
 func TestEpicsGetRedactsBuildTaskText(t *testing.T) {
-	root := t.TempDir()
 	epic := storedEpicOf("repoa/leaky", "building", epicsAgo(time.Hour))
 	epic.Tasks = []*enginev1.EpicTask{{
 		Id: "T1", Title: "ghp_EXAMPLE0123456789abcdefABCDEF0123", Status: "open", Stage: "red",
@@ -129,7 +126,7 @@ func TestEpicsGetRedactsBuildTaskText(t *testing.T) {
 		}},
 	}}
 	store := &epicStoreFake{stored: []*enginev1.StoredEpic{epic}}
-	client := epicStoreServe(t, root, &epicsFake{}, store)
+	client := epicStoreServe(t, &epicsFake{}, store)
 
 	got := epicsGet(t, client, "repoa/leaky").GetBuildTasks()
 	if len(got) != 1 {
@@ -152,26 +149,4 @@ func TestEpicsGetRedactsBuildTaskText(t *testing.T) {
 	check("finding reason", finding.GetReason(), "token [redacted] ok")
 	check("finding step", finding.GetStep(), "step-verify-1")
 	check("finding result", finding.GetResult(), "dropped")
-}
-
-func TestEpicsGetRecordOnlyEpicHasNoBuildTasks(t *testing.T) {
-	root := t.TempDir()
-	dir := filepath.Join(root, "repoa", "record")
-	writeHead(t, root, "repoa", "record", `{"outcome":"shipped"}`, epicsNow())
-	writeEffortState(t, dir, "1", `{"tasks":[{"slug":"one-a","subject":"One A","status":"gated"}]}`)
-	store := &epicStoreFake{stored: []*enginev1.StoredEpic{
-		storedEpicOf("repoa/other", "accepted", epicsAgo(time.Hour)),
-	}}
-	client := epicStoreServe(t, root, &epicsFake{}, store)
-
-	got := epicsGet(t, client, "repoa/record")
-	if got.GetEpic().GetSource() != "record" {
-		t.Fatalf("epic source = %q, want record", got.GetEpic().GetSource())
-	}
-	if len(got.GetTasks()) != 1 {
-		t.Fatalf("tasks = %v, want the record's one-a", got.GetTasks())
-	}
-	if n := len(got.GetBuildTasks()); n != 0 {
-		t.Errorf("build_tasks = %d, want none for a record epic", n)
-	}
 }

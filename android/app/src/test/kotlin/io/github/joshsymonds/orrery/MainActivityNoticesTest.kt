@@ -162,7 +162,6 @@ class MainActivityNoticesTest {
         .setSource("orreryd")
         .addRunningSteps(epicStep())
         .setEndedSteps(0)
-        .setProblem("")
         .build()
 
     private fun endedEpic(): Epic = Epic.newBuilder(liveEpic()).setLive(false).setOutcome("released").build()

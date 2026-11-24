@@ -446,8 +446,8 @@ export const Page: Stories = {
           section.scrollIntoView(),
         );
         await whenDrawn(root, ".cmdbar", "Nothing is left to settle.", () => {});
-        // The panel's page is what scrolls, so the title row is brought back into view there.
-        await whenDrawn(root, ".rcard .title-row", "", (title) => {
+        // The held card's body (.held-body) is what scrolls, so the title row is brought back into view there.
+        await whenDrawn(root, ".held-card .title-row", "", (title) => {
           title.scrollIntoView({ block: "nearest" });
         });
       }}
@@ -608,7 +608,6 @@ export const Page: Stories = {
       }}
     />
   ),
-  "epic-problem": () => epicScenario(epicAt(rota, { kind: "epic" }), "problem"),
   "epic-loading": () => epicScenario(epicAt(tideCache, { kind: "epic" }), "loading"),
   "epic-unavailable": () => epicScenario(epicAt(rota, { kind: "epic" }), "unavailable"),
   "convo-working": () => <PageStory address={convoWorkingAt} fixture={createFixtureTransport(convoWorkingSlices)} />,

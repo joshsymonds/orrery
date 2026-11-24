@@ -9,6 +9,9 @@ service Designs {
 
   // Get returns one design by the id List gave it.
   rpc Get(DesignsGetRequest) returns (DesignsGetResponse);
+
+  // Answer gives the owner's answer to a question of a design's stage. serve forwards each call to orreryd.
+  rpc Answer(DesignsAnswerRequest) returns (DesignsAnswerResponse);
 }
 
 // DesignsListRequest asks for every design.
@@ -81,4 +84,25 @@ message DesignContract {
 
   // The phase of that epic, or empty when none has been made.
   string epic_phase = 8;
+}
+
+// DesignsAnswerRequest asks for the owner's answer to a question of a design's stage to be stored.
+message DesignsAnswerRequest {
+  // The design the question belongs to.
+  string design = 1;
+
+  // The id of the question, as the stage gave it.
+  int64 question = 2;
+
+  // The owner's answer's words.
+  string answer = 3;
+
+  // True when the owner accepts the question's recommendation as the answer.
+  bool accept = 4;
+}
+
+// DesignsAnswerResponse carries the answer orreryd stored.
+message DesignsAnswerResponse {
+  // The answer's words, as orreryd stored them.
+  string answer = 1;
 }

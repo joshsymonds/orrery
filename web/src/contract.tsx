@@ -45,7 +45,7 @@ const noMarks: DocMarks = {
   version: 0,
 };
 
-// ContractBody draws a contract as Gambit's document: its decision line, then its ten sections in order, each under its
+// ContractBody draws a contract as the contract document: its decision line, then its ten sections in order, each under its
 // name with its column names, how-bad chips, id chips by kind, attention marks and changed chips. Every text is a child
 // of its element, so no markup in a field becomes an element.
 export function ContractBody(props: ContractBodyProps): JSX.Element {

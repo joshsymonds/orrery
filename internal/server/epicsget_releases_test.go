@@ -42,7 +42,7 @@ func releaseEpic() *enginev1.StoredEpic {
 func TestEpicsGetAnswersReleaseRunsInOrder(t *testing.T) {
 	t.Parallel()
 	store := &epicStoreFake{stored: []*enginev1.StoredEpic{releaseEpic()}}
-	client := epicStoreServe(t, t.TempDir(), &epicsFake{}, store)
+	client := epicStoreServe(t, &epicsFake{}, store)
 
 	got := epicsGet(t, client, "repoa/released")
 
@@ -81,17 +81,13 @@ func TestEpicsGetAnswersReleaseRunsInOrder(t *testing.T) {
 
 func TestEpicsGetReleasesEmptyWithoutRun(t *testing.T) {
 	t.Parallel()
-	root := t.TempDir()
-	writeHead(t, root, "repoa", "record", `{"outcome":"shipped"}`, epicsNow())
 	unreleased := storedEpicOf("repoa/unreleased", "accepted", epicsAgo(time.Hour))
 	store := &epicStoreFake{stored: []*enginev1.StoredEpic{unreleased}}
-	client := epicStoreServe(t, root, &epicsFake{}, store)
+	client := epicStoreServe(t, &epicsFake{}, store)
 
-	for _, id := range []string{"repoa/unreleased", "repoa/record"} {
-		got := epicsGet(t, client, id)
-		if len(got.GetReleases()) != 0 {
-			t.Errorf("%s releases = %v, want empty", id, got.GetReleases())
-		}
+	got := epicsGet(t, client, "repoa/unreleased")
+	if len(got.GetReleases()) != 0 {
+		t.Errorf("releases = %v, want empty", got.GetReleases())
 	}
 }
 
@@ -104,7 +100,7 @@ func TestEpicsGetRedactsReleaseText(t *testing.T) {
 		Reason:   "token ghp_EXAMPLE0123456789abcdefABCDEF0123 ok",
 	}}
 	store := &epicStoreFake{stored: []*enginev1.StoredEpic{epic}}
-	client := epicStoreServe(t, t.TempDir(), &epicsFake{}, store)
+	client := epicStoreServe(t, &epicsFake{}, store)
 
 	got := epicsGet(t, client, "repoa/leaky-release")
 	if len(got.GetReleases()) != 1 {
@@ -155,7 +151,7 @@ func proofEpic() *enginev1.StoredEpic {
 func TestEpicsGetAnswersReleaseStepsInOrder(t *testing.T) {
 	t.Parallel()
 	store := &epicStoreFake{stored: []*enginev1.StoredEpic{proofEpic()}}
-	client := epicStoreServe(t, t.TempDir(), &epicsFake{}, store)
+	client := epicStoreServe(t, &epicsFake{}, store)
 
 	got := epicsGet(t, client, "repoa/proved").GetReleaseSteps()
 
@@ -192,7 +188,7 @@ func TestEpicsGetAnswersReleaseStepsInOrder(t *testing.T) {
 func TestEpicsGetAnswersStoredReport(t *testing.T) {
 	t.Parallel()
 	store := &epicStoreFake{stored: []*enginev1.StoredEpic{proofEpic()}}
-	client := epicStoreServe(t, t.TempDir(), &epicsFake{}, store)
+	client := epicStoreServe(t, &epicsFake{}, store)
 
 	got := epicsGet(t, client, "repoa/proved").GetReport()
 
@@ -205,23 +201,19 @@ func TestEpicsGetAnswersStoredReport(t *testing.T) {
 }
 
 // TestEpicsGetWithoutProofOrReportAnswersNone answers no release steps and no report for a stored epic that has
-// neither, and for a record-only epic.
+// neither.
 func TestEpicsGetWithoutProofOrReportAnswersNone(t *testing.T) {
 	t.Parallel()
-	root := t.TempDir()
-	writeHead(t, root, "repoa", "record", `{"outcome":"shipped"}`, epicsNow())
 	unproved := storedEpicOf("repoa/unproved", "accepted", epicsAgo(time.Hour))
 	store := &epicStoreFake{stored: []*enginev1.StoredEpic{unproved}}
-	client := epicStoreServe(t, root, &epicsFake{}, store)
+	client := epicStoreServe(t, &epicsFake{}, store)
 
-	for _, id := range []string{"repoa/unproved", "repoa/record"} {
-		got := epicsGet(t, client, id)
-		if len(got.GetReleaseSteps()) != 0 {
-			t.Errorf("%s release_steps = %v, want none", id, got.GetReleaseSteps())
-		}
-		if got.GetReport() != nil {
-			t.Errorf("%s report = %v, want none", id, got.GetReport())
-		}
+	got := epicsGet(t, client, "repoa/unproved")
+	if len(got.GetReleaseSteps()) != 0 {
+		t.Errorf("release_steps = %v, want none", got.GetReleaseSteps())
+	}
+	if got.GetReport() != nil {
+		t.Errorf("report = %v, want none", got.GetReport())
 	}
 }
 
@@ -238,7 +230,7 @@ func TestEpicsGetRedactsReleaseProofAndReportWhy(t *testing.T) {
 		Why: "token ghp_EXAMPLE0123456789abcdefABCDEF0123 ok",
 	}
 	store := &epicStoreFake{stored: []*enginev1.StoredEpic{epic}}
-	client := epicStoreServe(t, t.TempDir(), &epicsFake{}, store)
+	client := epicStoreServe(t, &epicsFake{}, store)
 
 	got := epicsGet(t, client, "repoa/leaky-proof")
 	if len(got.GetReleaseSteps()) != 1 {

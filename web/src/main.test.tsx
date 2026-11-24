@@ -107,13 +107,13 @@ function liveEpic(task: string) {
   };
 }
 
-// Epics.Get's answer for an epic: one done task and one pending, so the count reads 1 of 2.
+// Epics.Get's answer for an epic: one done build task and one pending, so the count reads 1 of 2.
 function epicDetail(epic: ReturnType<typeof liveEpic>) {
   return {
     epic,
-    tasks: [
-      { effort: 1, slug: "a", subject: "first", status: "done" },
-      { effort: 1, slug: "b", subject: "second", status: "pending" },
+    buildTasks: [
+      { id: "a", title: "first", status: "done" },
+      { id: "b", title: "second", status: "pending" },
     ],
     steps: [],
   };

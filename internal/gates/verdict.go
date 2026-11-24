@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-// VerdictSchema is the schema an agent gate's return must match: the gate-reviewer return of gambit be628ef, copied
+// VerdictSchema is the schema an agent gate's return must match: the gate-reviewer return of an earlier tool, copied
 // byte for byte into verdict.json.
 //
 //go:embed verdict.json

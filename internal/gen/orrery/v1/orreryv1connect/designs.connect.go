@@ -37,6 +37,8 @@ const (
 	DesignsListProcedure = "/orrery.v1.Designs/List"
 	// DesignsGetProcedure is the fully-qualified name of the Designs's Get RPC.
 	DesignsGetProcedure = "/orrery.v1.Designs/Get"
+	// DesignsAnswerProcedure is the fully-qualified name of the Designs's Answer RPC.
+	DesignsAnswerProcedure = "/orrery.v1.Designs/Answer"
 )
 
 // DesignsClient is a client for the orrery.v1.Designs service.
@@ -45,6 +47,8 @@ type DesignsClient interface {
 	List(context.Context, *connect.Request[v1.DesignsListRequest]) (*connect.Response[v1.DesignsListResponse], error)
 	// Get returns one design by the id List gave it.
 	Get(context.Context, *connect.Request[v1.DesignsGetRequest]) (*connect.Response[v1.DesignsGetResponse], error)
+	// Answer gives the owner's answer to a question of a design's stage. serve forwards each call to orreryd.
+	Answer(context.Context, *connect.Request[v1.DesignsAnswerRequest]) (*connect.Response[v1.DesignsAnswerResponse], error)
 }
 
 // NewDesignsClient constructs a client for the orrery.v1.Designs service. By default, it uses the
@@ -70,13 +74,20 @@ func NewDesignsClient(httpClient connect.HTTPClient, baseURL string, opts ...con
 			connect.WithSchema(designsMethods.ByName("Get")),
 			connect.WithClientOptions(opts...),
 		),
+		answer: connect.NewClient[v1.DesignsAnswerRequest, v1.DesignsAnswerResponse](
+			httpClient,
+			baseURL+DesignsAnswerProcedure,
+			connect.WithSchema(designsMethods.ByName("Answer")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
 // designsClient implements DesignsClient.
 type designsClient struct {
-	list *connect.Client[v1.DesignsListRequest, v1.DesignsListResponse]
-	get  *connect.Client[v1.DesignsGetRequest, v1.DesignsGetResponse]
+	list   *connect.Client[v1.DesignsListRequest, v1.DesignsListResponse]
+	get    *connect.Client[v1.DesignsGetRequest, v1.DesignsGetResponse]
+	answer *connect.Client[v1.DesignsAnswerRequest, v1.DesignsAnswerResponse]
 }
 
 // List calls orrery.v1.Designs.List.
@@ -89,12 +100,19 @@ func (c *designsClient) Get(ctx context.Context, req *connect.Request[v1.Designs
 	return c.get.CallUnary(ctx, req)
 }
 
+// Answer calls orrery.v1.Designs.Answer.
+func (c *designsClient) Answer(ctx context.Context, req *connect.Request[v1.DesignsAnswerRequest]) (*connect.Response[v1.DesignsAnswerResponse], error) {
+	return c.answer.CallUnary(ctx, req)
+}
+
 // DesignsHandler is an implementation of the orrery.v1.Designs service.
 type DesignsHandler interface {
 	// List returns every design, with its contracts.
 	List(context.Context, *connect.Request[v1.DesignsListRequest]) (*connect.Response[v1.DesignsListResponse], error)
 	// Get returns one design by the id List gave it.
 	Get(context.Context, *connect.Request[v1.DesignsGetRequest]) (*connect.Response[v1.DesignsGetResponse], error)
+	// Answer gives the owner's answer to a question of a design's stage. serve forwards each call to orreryd.
+	Answer(context.Context, *connect.Request[v1.DesignsAnswerRequest]) (*connect.Response[v1.DesignsAnswerResponse], error)
 }
 
 // NewDesignsHandler builds an HTTP handler from the service implementation. It returns the path on
@@ -116,12 +134,20 @@ func NewDesignsHandler(svc DesignsHandler, opts ...connect.HandlerOption) (strin
 		connect.WithSchema(designsMethods.ByName("Get")),
 		connect.WithHandlerOptions(opts...),
 	)
+	designsAnswerHandler := connect.NewUnaryHandler(
+		DesignsAnswerProcedure,
+		svc.Answer,
+		connect.WithSchema(designsMethods.ByName("Answer")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/orrery.v1.Designs/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case DesignsListProcedure:
 			designsListHandler.ServeHTTP(w, r)
 		case DesignsGetProcedure:
 			designsGetHandler.ServeHTTP(w, r)
+		case DesignsAnswerProcedure:
+			designsAnswerHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -137,4 +163,8 @@ func (UnimplementedDesignsHandler) List(context.Context, *connect.Request[v1.Des
 
 func (UnimplementedDesignsHandler) Get(context.Context, *connect.Request[v1.DesignsGetRequest]) (*connect.Response[v1.DesignsGetResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orrery.v1.Designs.Get is not implemented"))
+}
+
+func (UnimplementedDesignsHandler) Answer(context.Context, *connect.Request[v1.DesignsAnswerRequest]) (*connect.Response[v1.DesignsAnswerResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orrery.v1.Designs.Answer is not implemented"))
 }

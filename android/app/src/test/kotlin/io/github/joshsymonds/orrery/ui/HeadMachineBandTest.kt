@@ -60,7 +60,7 @@ class HeadMachineBandTest {
                     note = "",
                     stats = if (otherHost == null) stats else null,
                     otherHost = otherHost,
-                    goal = "Accomplish all epics using the gambit workflow.",
+                    goal = "Accomplish all epics using the epic workflow.",
                     lines = emptyList(),
                     asking = "",
                     badges = emptyList(),
