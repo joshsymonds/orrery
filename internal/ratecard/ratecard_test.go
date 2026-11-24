@@ -186,3 +186,24 @@ func TestGatewayListPriceUnknownModel(t *testing.T) {
 		}
 	}
 }
+
+// TestGatewayListPriceCardLoads checks the embedded card loads and names each card model once. It also checks that
+// loadCard refuses a card that does not parse and a card that names a model twice, with invented models.
+func TestGatewayListPriceCardLoads(t *testing.T) {
+	rates, err := loadCard(claudeCard)
+	if err != nil {
+		t.Fatalf("loadCard(claude.json): %v", err)
+	}
+	for _, model := range []string{"claude-opus-5-5", "claude-sonnet-5-5", "claude-fable-5-1", "claude-fable-5-2"} {
+		if _, ok := rates[model]; !ok {
+			t.Errorf("claude.json does not name %s", model)
+		}
+	}
+	if _, err := loadCard([]byte(`[{"model":"claude-invented-1-1"},`)); err == nil {
+		t.Error("loadCard of malformed JSON: want an error, got nil")
+	}
+	twice := []byte(`[{"model":"claude-invented-1-1"},{"model":"claude-invented-1-1"}]`)
+	if _, err := loadCard(twice); err == nil {
+		t.Error("loadCard of a card naming one model twice: want an error, got nil")
+	}
+}

@@ -35,11 +35,11 @@ func (c Cost) Total() int64 {
 type entry struct {
 	Model            string `json:"model"`
 	Source           string `json:"source"`
-	InputRate        int64  `json:"input_nano_usd_per_mtok"`
-	OutputRate       int64  `json:"output_nano_usd_per_mtok"`
-	CacheReadRate    int64  `json:"cache_read_nano_usd_per_mtok"`
-	CacheWrite5mRate int64  `json:"cache_write_5m_nano_usd_per_mtok"`
-	CacheWrite1hRate int64  `json:"cache_write_1h_nano_usd_per_mtok"`
+	InputRate        int64  `json:"inputNanoUsdPerMtok"`
+	OutputRate       int64  `json:"outputNanoUsdPerMtok"`
+	CacheReadRate    int64  `json:"cacheReadNanoUsdPerMtok"`
+	CacheWrite5mRate int64  `json:"cacheWrite5mNanoUsdPerMtok"`
+	CacheWrite1hRate int64  `json:"cacheWrite1hNanoUsdPerMtok"`
 }
 
 // rate is one model's price for each token kind, in nano-USD per million tokens.
@@ -47,44 +47,47 @@ type rate struct {
 	input, output, cacheRead, cacheWrite5m, cacheWrite1h int64
 }
 
-// cards holds the rate card by model. The card is embedded in the binary, so a card that does not parse, or that
-// names a model twice, is a build error: the package panics at start rather than price from a broken card.
-var cards = loadCard(claudeCard)
-
-// loadCard parses a rate card and returns its rates by model.
-func loadCard(data []byte) map[string]rate {
-	var entries []entry
-	if err := json.Unmarshal(data, &entries); err != nil {
-		panic(fmt.Sprintf("ratecard: parse claude.json: %v", err))
+// loadCard parses a rate card and returns its rates by model. It fails for a card that does not parse, or that names
+// a model twice.
+func loadCard(data []byte) (map[string]rate, error) {
+	var items []entry
+	if err := json.Unmarshal(data, &items); err != nil {
+		return nil, fmt.Errorf("parse rate card: %w", err)
 	}
-	rates := make(map[string]rate, len(entries))
-	for _, e := range entries {
-		if _, dup := rates[e.Model]; dup {
-			panic(fmt.Sprintf("ratecard: claude.json names model %q twice", e.Model))
+	rates := make(map[string]rate, len(items))
+	for _, item := range items {
+		if _, dup := rates[item.Model]; dup {
+			return nil, fmt.Errorf("rate card names model %q twice", item.Model)
 		}
-		rates[e.Model] = rate{
-			input:        e.InputRate,
-			output:       e.OutputRate,
-			cacheRead:    e.CacheReadRate,
-			cacheWrite5m: e.CacheWrite5mRate,
-			cacheWrite1h: e.CacheWrite1hRate,
+		rates[item.Model] = rate{
+			input:        item.InputRate,
+			output:       item.OutputRate,
+			cacheRead:    item.CacheReadRate,
+			cacheWrite5m: item.CacheWrite5mRate,
+			cacheWrite1h: item.CacheWrite1hRate,
 		}
 	}
-	return rates
+	return rates, nil
 }
 
-// Price returns the list cost of u at model's list price. It returns false, and a zero Cost, for a model the card does
-// not name, so an unknown model has no list cost rather than a zero one.
-func Price(model string, u Usage) (Cost, bool) {
-	r, ok := cards[model]
+// Price returns the list cost of usage at model's list price. It returns false, and a zero Cost, for a model the card
+// does not name, so an unknown model has no list cost rather than a zero one. The embedded card is parsed on each call;
+// it is small, and TestGatewayListPriceCardLoads fails the build's tests if it does not load, so a broken card never
+// prices a request as unknown without a failing test.
+func Price(model string, usage Usage) (Cost, bool) {
+	rates, err := loadCard(claudeCard)
+	if err != nil {
+		return Cost{}, false
+	}
+	card, ok := rates[model]
 	if !ok {
 		return Cost{}, false
 	}
 	return Cost{
-		Input:      perMTok(u.Input, r.input),
-		Output:     perMTok(u.Output, r.output),
-		CacheRead:  perMTok(u.CacheRead, r.cacheRead),
-		CacheWrite: perMTok(u.CacheWrite5m, r.cacheWrite5m) + perMTok(u.CacheWrite1h, r.cacheWrite1h),
+		Input:      perMTok(usage.Input, card.input),
+		Output:     perMTok(usage.Output, card.output),
+		CacheRead:  perMTok(usage.CacheRead, card.cacheRead),
+		CacheWrite: perMTok(usage.CacheWrite5m, card.cacheWrite5m) + perMTok(usage.CacheWrite1h, card.cacheWrite1h),
 	}, true
 }
 
