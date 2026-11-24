@@ -5,16 +5,19 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"os"
 	"time"
 
 	"connectrpc.com/connect"
 	"google.golang.org/protobuf/encoding/protojson"
 
+	"github.com/joshsymonds/orrery/internal/contracttext"
 	enginev1 "github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1"
 	enginev1connect "github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1/enginev1connect"
 	orreryv1 "github.com/joshsymonds/orrery/internal/gen/orrery/v1"
 	orreryv1connect "github.com/joshsymonds/orrery/internal/gen/orrery/v1/orreryv1connect"
 	"github.com/joshsymonds/orrery/internal/rpcretry"
+	"github.com/joshsymonds/orrery/internal/settings"
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
@@ -75,8 +78,8 @@ func (c contractsServer) List(
 
 // Get answers the contract of the id List gave it, with every version oldest first, the steps that read each version,
 // the state history, the row writes with their makers, the work of each requirement (contractWork), the refusals of its
-// writes, oldest first, what is left before it is accepted and the rows the owner was shown. An id no contract holds
-// answers not_found.
+// writes, oldest first, what is left before it is accepted, the rows the owner was shown and the length of the body the
+// page draws (setLength). An id no contract holds answers not_found.
 func (c contractsServer) Get(
 	ctx context.Context,
 	req *connect.Request[orreryv1.ContractsGetRequest],
@@ -122,7 +125,16 @@ func (c contractsServer) Get(
 	if err != nil {
 		return nil, err
 	}
-	err = c.setWorking(ctx, record.ContractListing.ID, response)
+	working, hasWorking, err := c.setWorking(ctx, record.ContractListing.ID, response)
+	if err != nil {
+		return nil, err
+	}
+	// A settings file that does not read leaves the length unset, and the rest of the contract is answered as it is.
+	var lengths *settings.Lengths
+	if read, settingsErr := settings.ContractLengths(os.Getenv); settingsErr == nil {
+		lengths = &read
+	}
+	err = setLength(record, working, hasWorking, lengths, response)
 	if err != nil {
 		return nil, err
 	}
@@ -236,25 +248,87 @@ func contractRefusalMessage(refusal store.ContractRefusal) *orreryv1.ContractRef
 	}
 }
 
-// setWorking sets the working copy of the contract id on response, which a contract with none leaves unset. A failed read
-// answers as contractReadError does.
+// setWorking sets the working copy of the contract id on response, which a contract with none leaves unset. It returns
+// the stored working copy, and whether the contract has one. A failed read answers as contractReadError does.
 func (c contractsServer) setWorking(
 	ctx context.Context,
 	id string,
 	response *orreryv1.ContractsGetResponse,
-) error {
+) (store.ContractWorkingCopy, bool, error) {
 	working, err := c.reader.ContractWorkingCopy(ctx, id)
 	if errors.Is(err, store.ErrNoWorking) {
-		return nil
+		return store.ContractWorkingCopy{}, false, nil
 	}
 	if err != nil {
-		return contractReadError(err, "read contract")
+		return store.ContractWorkingCopy{}, false, contractReadError(err, "read contract")
 	}
 	response.Working, err = contractWorkingMessage(working)
 	if err != nil {
-		return contractReadError(err, "read contract")
+		return store.ContractWorkingCopy{}, false, contractReadError(err, "read contract")
+	}
+	return working, true, nil
+}
+
+// setLength sets the length of the body the page draws on response: the working copy's when the contract has one, and
+// else the newest version's. A contract with neither draws no body, and its length is unset. The length is the lines
+// above the checks of that body, against lengths, the thresholds the settings file sets. A nil lengths, for a settings
+// file that does not read, leaves the length unset: length never refuses a read. A body that does not decode answers as
+// contractReadError does.
+func setLength(
+	record store.ContractRecord,
+	working store.ContractWorkingCopy,
+	hasWorking bool,
+	lengths *settings.Lengths,
+	response *orreryv1.ContractsGetResponse,
+) error {
+	body, decisions, ok := drawnBody(record, working, hasWorking)
+	if !ok || lengths == nil {
+		return nil
+	}
+	var contract enginev1.EpicContract
+	if err := protojson.Unmarshal([]byte(body), &contract); err != nil {
+		return contractReadError(fmt.Errorf("decode body: %w", err), "read contract")
+	}
+	engineDecisions := make([]*enginev1.ContractDecision, 0, len(decisions))
+	for _, decision := range decisions {
+		engineDecisions = append(engineDecisions, engineDecisionMessage(decision))
+	}
+	response.Length = &orreryv1.ContractLength{
+		Lines:  int64(contracttext.LinesAboveChecks(&contract, engineDecisions)),
+		Warn:   int64(lengths.WarnLines),
+		Strong: int64(lengths.StrongWarnLines),
 	}
 	return nil
+}
+
+// drawnBody returns the stored body and decisions the page draws for a contract: the working copy's when hasWorking,
+// and else the newest version's. It returns false when the contract has neither.
+func drawnBody(
+	record store.ContractRecord,
+	working store.ContractWorkingCopy,
+	hasWorking bool,
+) (string, []store.ContractDecision, bool) {
+	if hasWorking {
+		return working.Body, working.Decisions, true
+	}
+	if len(record.Versions) == 0 {
+		return "", nil, false
+	}
+	newest := record.Versions[len(record.Versions)-1]
+	return newest.Body, newest.Decisions, true
+}
+
+// engineDecisionMessage converts a decision of a stored body to the engine's ContractDecision, which the length counts.
+func engineDecisionMessage(decision store.ContractDecision) *enginev1.ContractDecision {
+	return &enginev1.ContractDecision{
+		Id:             decision.ID,
+		Question:       decision.Question,
+		Options:        decision.Options,
+		Recommendation: decision.Recommendation,
+		Reason:         decision.Reason,
+		Row:            decision.Row,
+		Answer:         decision.Answer,
+	}
 }
 
 // contractWorkingMessage converts a working copy to its ContractWorking. Its body is the EpicContract in protobuf JSON,
