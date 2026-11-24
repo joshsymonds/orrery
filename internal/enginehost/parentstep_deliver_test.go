@@ -61,7 +61,7 @@ func newDeliverRig(t *testing.T) deliverRig {
 	sender := NewCallerSender(CallerSenderConfig{
 		Deliver:     rig.manager.Deliver,
 		DeliverStep: rig.steps.DeliverChildEnd,
-		WakePane: func(context.Context, string, string, string) (bool, error) {
+		WakePane: func(context.Context, string, string, string, string) (bool, error) {
 			t.Error("a pane caller was woken in a step test")
 			return false, nil
 		},
