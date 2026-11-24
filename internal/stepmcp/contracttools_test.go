@@ -390,8 +390,18 @@ func TestContractRecordProposeStoresAndReadsBack(t *testing.T) {
 	}
 	var read v1.GetContractResponse
 	decodeContractReply(t, got.text, &read)
-	if !proto.Equal(read.GetContract(), stored) {
-		t.Errorf("contract_get = %v, want the proposed contract %v", read.GetContract(), stored)
+	// The proposed contract leaves D1 open and both additions unkept, which contract_get lists as what is left.
+	want, ok := proto.Clone(stored).(*v1.StoredContract)
+	if !ok {
+		t.Fatalf("clone of the proposed contract is %T, want *v1.StoredContract", stored)
+	}
+	want.Left = []*v1.ContractLeft{
+		{Kind: store.LeftDecision, Ref: "D1", Text: "decision not yet answered"},
+		{Kind: store.LeftAddition, Ref: "A1", Text: "addition neither kept nor struck"},
+		{Kind: store.LeftAddition, Ref: "A2", Text: "addition neither kept nor struck"},
+	}
+	if !proto.Equal(read.GetContract(), want) {
+		t.Errorf("contract_get = %v, want the proposed contract %v", read.GetContract(), want)
 	}
 
 	listed := p.tool("contract_list", `{}`)
