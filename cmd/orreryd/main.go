@@ -45,6 +45,7 @@ import (
 	"github.com/joshsymonds/orrery/internal/hosts"
 	"github.com/joshsymonds/orrery/internal/inapp"
 	"github.com/joshsymonds/orrery/internal/interpret"
+	"github.com/joshsymonds/orrery/internal/node"
 	"github.com/joshsymonds/orrery/internal/notice"
 	"github.com/joshsymonds/orrery/internal/paneregistry"
 	"github.com/joshsymonds/orrery/internal/panewatch"
@@ -205,8 +206,12 @@ type options struct {
 	// Production leaves it nil.
 	callerEventTimer func(time.Duration) (<-chan time.Time, func() bool)
 	// callerWakePane is a test seam: the function the caller-event delivery calls in place of cli.WakePane to send text
-	// to a pane caller. Production leaves it nil.
+	// to a pane caller on this machine. Production leaves it nil.
 	callerWakePane func(ctx context.Context, server, pane, text string) (bool, error)
+	// paneAgents are the agents of the hosts file, by host name, through which the caller-event delivery wakes a pane
+	// caller on a remote host (see newCallerEvents). startSessions loads them from the hosts file; a test that calls
+	// newCallerEvents directly leaves them nil.
+	paneAgents map[string]enginehost.PaneWaker
 }
 
 // repeatFlag is a repeatable string flag. It collects the values in the order given.
@@ -1066,6 +1071,7 @@ func startSessions(
 		}
 		host.newWriter(opts, st, logger)
 		host.newCron(opts, st, logger)
+		opts.paneAgents = paneAgents(ctx, getenv, logger)
 		host.newWakes(st, opts, router, logger)
 		host.manager = enginehost.NewManager(enginehost.Config{
 			Shell:       opts.sessionShell,
@@ -1720,15 +1726,16 @@ func (h *sessionHost) startLimits(ctx context.Context) {
 // newCallerEvents builds the caller-event delivery over st as h.callerEvents. Its wake is the trigger of every caller
 // event: the manager's EventWake, the steps' Stored, the store's OnCallerEvent, and the pane observer. Both passes send
 // through one CallerSender: a headless caller gets its event as a prompt through the manager, a pane caller gets it
-// through cli.WakePane, and a step caller gets the end of its step as a prompt while that step is open (see
+// through the pane of its host (see enginehost.HostPaneWake): this machine's pane through cli.WakePane, a remote host's
+// through its agent in opts.paneAgents. A step caller gets the end of its step as a prompt while that step is open (see
 // Steps.DeliverChildEnd), or is only marked when the step has ended. Neither depends on a router, since a caller event
 // goes to its caller alone. The sender's Deliver and DeliverStep read h.manager and h.steps when they send, which is after
 // startSessions has set them. When opts.callerEventPassed is not nil, it is called after each pass returns, and
 // opts.callerEventTimer and opts.callerWakePane replace the retry timer and cli.WakePane.
 func (h *sessionHost) newCallerEvents(st *store.Store, opts options, logger *slog.Logger) {
-	wakePane := opts.callerWakePane
-	if wakePane == nil {
-		wakePane = cli.WakePane
+	local := opts.callerWakePane
+	if local == nil {
+		local = cli.WakePane
 	}
 	sender := enginehost.NewCallerSender(enginehost.CallerSenderConfig{
 		Deliver: func(ctx context.Context, req enginehost.DeliverRequest) error {
@@ -1737,10 +1744,11 @@ func (h *sessionHost) newCallerEvents(st *store.Store, opts options, logger *slo
 		DeliverStep: func(ctx context.Context, req enginehost.DeliverRequest) error {
 			return h.steps.DeliverChildEnd(ctx, req)
 		},
-		WakePane: wakePane,
-		Store:    st,
-		Now:      time.Now,
-		Logger:   logger,
+		WakePane:    enginehost.HostPaneWake(opts.orrery, local, opts.paneAgents),
+		SessionHost: st.SessionHost,
+		Store:       st,
+		Now:         time.Now,
+		Logger:      logger,
 	})
 	passes := []enginehost.CallerPass{
 		enginehost.NewStepCallerEvents(enginehost.StepCallerEventsConfig{Store: st, Sender: sender}),
@@ -1755,6 +1763,26 @@ func (h *sessionHost) newCallerEvents(st *store.Store, opts options, logger *slo
 		Passes: passes, NewTimer: opts.callerEventTimer, Logger: logger,
 	})
 	st.OnCallerEvent(h.callerEvents.Wake)
+}
+
+// paneAgents returns one node.Client for each host of the hosts file that getenv locates, by the host's name.
+// HostPaneWake wakes a pane on that host through its client. Each client dials as startHostFollows dials its host. A
+// hosts file that does not load is logged, and no agent is returned, since controllerHost has already refused the same
+// file.
+func paneAgents(ctx context.Context, getenv func(string) string, logger *slog.Logger) map[string]enginehost.PaneWaker {
+	file, err := loadHostsFile(getenv)
+	if err != nil {
+		logger.ErrorContext(ctx, "caller events: waking remote panes without their agents", "error", err)
+		return nil
+	}
+	var dialer net.Dialer
+	agents := make(map[string]enginehost.PaneWaker, len(file.Hosts))
+	for _, host := range file.Hosts {
+		agents[host.Name] = node.NewClient(node.ClientConfig{
+			Name: host.Name, Address: host.Address, Dial: dialer.DialContext, Logger: logger,
+		})
+	}
+	return agents
 }
 
 // startCallerEvents runs h.callerEvents until shutdown, on one goroutine. Its Run makes one round at its start, then

@@ -38,7 +38,7 @@ func TestEndComesBackStepStatusReadStillSendsStepEnd(t *testing.T) {
 			delivered = append(delivered, req)
 			return nil
 		},
-		WakePane: func(context.Context, string, string, string) (bool, error) {
+		WakePane: func(context.Context, string, string, string, string) (bool, error) {
 			t.Error("a pane caller was woken in a headless test")
 			return false, nil
 		},
