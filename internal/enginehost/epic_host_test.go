@@ -78,6 +78,7 @@ func TestPublicHostsEngineEpicAndStep(t *testing.T) {
 	}
 	answered := listedSteps.Msg.GetSteps()[0]
 	if answered.GetId() != stepID || answered.GetHost() != "b" {
-		t.Errorf("ListSteps answered step %s on host %q, want %s on host b", answered.GetId(), answered.GetHost(), stepID)
+		t.Errorf("ListSteps answered step %s on host %q, want %s on host b",
+			answered.GetId(), answered.GetHost(), stepID)
 	}
 }
