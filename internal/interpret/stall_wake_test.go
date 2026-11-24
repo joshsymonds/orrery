@@ -114,13 +114,13 @@ func stallOpenTask(flow *store.EpicFlow) {
 	}}
 }
 
-// stallCausesOf returns the cause of each stall trigger of epic, in the order the store lists the triggers. A stall
-// trigger's id starts with stall:, and the epic's other triggers are not stalls.
-func stallCausesOf(t *testing.T, s *store.Store, epic string) []string {
+// stallCausesOf returns the cause of each stall trigger of the test epic, in the order the store lists the triggers. A
+// stall trigger's id starts with stall:, and the epic's other triggers are not stalls.
+func stallCausesOf(t *testing.T, s *store.Store) []string {
 	t.Helper()
-	history, err := s.EpicHistory(context.Background(), epic)
+	history, err := s.EpicHistory(context.Background(), runEpic)
 	if err != nil {
-		t.Fatalf("EpicHistory of %s: %v", epic, err)
+		t.Fatalf("EpicHistory of %s: %v", runEpic, err)
 	}
 	causes := make([]string, 0, len(history.Triggers))
 	for _, trigger := range history.Triggers {
@@ -138,14 +138,14 @@ func TestEpicStallWakesIdleEpicGetsOneStallTriggerThePlannerClaims(t *testing.T)
 	t.Parallel()
 	ctx := context.Background()
 	rig := newStallRig(t)
-	if got := stallCausesOf(t, rig.store, runEpic); len(got) != 0 {
+	if got := stallCausesOf(t, rig.store); len(got) != 0 {
 		t.Fatalf("stall causes before the idle pass = %q, want none", got)
 	}
 
 	rig.wake.edit = stallOpenTask
 	rig.runner.Pass(ctx)
-	if want := []string{stallWakeCause}; !reflect.DeepEqual(stallCausesOf(t, rig.store, runEpic), want) {
-		t.Errorf("stall causes = %q, want %q", stallCausesOf(t, rig.store, runEpic), want)
+	if want := []string{stallWakeCause}; !reflect.DeepEqual(stallCausesOf(t, rig.store), want) {
+		t.Errorf("stall causes = %q, want %q", stallCausesOf(t, rig.store), want)
 	}
 	latest, ok, err := rig.store.LatestStall(ctx, runEpic)
 	if err != nil || !ok {
@@ -171,7 +171,7 @@ func TestEpicStallWakesIdleEpicGetsOneStallTriggerThePlannerClaims(t *testing.T)
 		t.Errorf("triggers claimed by turn 2 = %q, want stall:1: the planner claims the stall on the following pass",
 			claimed)
 	}
-	if got := stallCausesOf(t, rig.store, runEpic); len(got) != 1 {
+	if got := stallCausesOf(t, rig.store); len(got) != 1 {
 		t.Errorf("stall causes after the claim = %q, want the one stall", got)
 	}
 }
@@ -231,7 +231,7 @@ func TestEpicStallWakesBusyStatesKeepAnIdleEpicFromStalling(t *testing.T) {
 			rig.wake.edit = tc.edit
 			rig.wake.amending = tc.amending
 			rig.runner.Pass(context.Background())
-			if got := stallCausesOf(t, rig.store, runEpic); len(got) != 0 {
+			if got := stallCausesOf(t, rig.store); len(got) != 0 {
 				t.Errorf("stall causes = %q, want none: the epic is not idle", got)
 			}
 		})
@@ -254,8 +254,8 @@ func TestEpicStallWakesNoSecondStallWhileTheFirstIsPending(t *testing.T) {
 	rig.runner.Pass(ctx)
 	rig.runner.Pass(ctx)
 
-	if want := []string{stallWakeCause}; !reflect.DeepEqual(stallCausesOf(t, rig.store, runEpic), want) {
-		t.Errorf("stall causes after three passes = %q, want %q", stallCausesOf(t, rig.store, runEpic), want)
+	if want := []string{stallWakeCause}; !reflect.DeepEqual(stallCausesOf(t, rig.store), want) {
+		t.Errorf("stall causes after three passes = %q, want %q", stallCausesOf(t, rig.store), want)
 	}
 	latest, _, err := rig.store.LatestStall(ctx, runEpic)
 	if err != nil {
@@ -283,7 +283,7 @@ func TestEpicStallWakesBuildHandedToTheBuilderIsNotStalled(t *testing.T) {
 	rig.wake.edit = stallBuildTask
 	for range 2 {
 		rig.runner.Pass(ctx)
-		if got := stallCausesOf(t, rig.store, runEpic); len(got) != 0 {
+		if got := stallCausesOf(t, rig.store); len(got) != 0 {
 			t.Errorf("stall causes = %q, want none while the builder works on the task", got)
 		}
 	}
