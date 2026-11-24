@@ -16,7 +16,7 @@ import { UsageReadingSchema } from "./gen/orrery/v1/usage_pb";
 import { InboxRail } from "./inboxrail";
 import type { SeenClock } from "./seen";
 import { mockTimers } from "./testclock";
-import { installTestDom, removeTestDom, teardownOnce } from "./testdom";
+import { assertNone, assertSame, installTestDom, removeTestDom, teardownOnce } from "./testdom";
 import { turn, until } from "./testwait";
 import type { UsageData } from "./usagedata";
 import { type BandRow, bandRows, firstInUse } from "./usagemodel";
@@ -242,7 +242,7 @@ test("UsageRail: no tile is drawn when no account is in use", async () => {
   await withDom((container) => {
     const row = rowOf(unused);
     draw(container, <Rail usage={row === null ? undefined : { row, onOpen: noop }} />);
-    assert.equal(container.querySelector(".utile"), null, "a tile is drawn with no account in use");
+    assertNone(container.querySelector(".utile"), "a tile is drawn with no account in use");
     assert.ok(container.querySelector('button[aria-label="New session"]') !== null, "the rail does not draw New");
   });
 });
@@ -259,13 +259,13 @@ test("UsageRail: a click on the usage tile calls onOpen", async () => {
 test("UsageRail: a click opens the popover beside the rail", async () => {
   await withDom((container) => {
     draw(container, <Harness row={rowInUse(two)} />);
-    assert.equal(container.querySelector(".upop"), null, "the popover is open before the tile is pressed");
+    assertNone(container.querySelector(".upop"), "the popover is open before the tile is pressed");
     act(() => {
       one(container, ".utile").click();
     });
     const nav = one(container, 'nav[aria-label="inbox, collapsed"]');
     const popover = one(nav, ".upop");
-    assert.equal(popover.closest("nav"), nav, "the popover is not beside the rail");
+    assertSame(popover.closest("nav"), nav, "the popover is not beside the rail");
     assert.equal(one(popover, ".up-nm").textContent, "max-1", "the popover does not name the account");
     assert.equal(one(popover, ".up-win.level-warn .up-v").textContent, "66%", "the popover does not show the 5h value");
   });
