@@ -24,10 +24,9 @@ const turnRunning = "running"
 // evidenceEnded is the state of an evidence run that has ended. Its other states, capturing and judging, are running.
 const evidenceEnded = "ended"
 
-// passStalls checks each of the stallable epics a pass covered: one that started nothing and has a running plan run.
-// It wakes the planner of each idle one once with a stall trigger (see stallCheck). The open amendments are read once
-// for the pass, and a read that fails is logged, so no epic is judged this pass. An epic whose check fails is logged,
-// and a later pass judges it again.
+// passStalls checks each of the stallable epics a pass covered: one that started nothing. It parks or wakes the planner
+// of each idle one (see stallCheck). The open amendments are read once for the pass, and a read that fails is logged,
+// so no epic is judged this pass. An epic whose check fails is logged, and a later pass judges it again.
 func (r *Runner) passStalls(ctx context.Context, stallable []string) {
 	if len(stallable) == 0 {
 		return
@@ -51,24 +50,47 @@ func (r *Runner) passStalls(ctx context.Context, stallable []string) {
 	}
 }
 
-// stallCheck reads epic's flow again. When the epic is idle (stallIdle) under a running plan run, it writes the
-// epic's stall: a pending stall trigger whose cause names the epic's phase, open tasks and running node runs, so the
-// next pass gives the plan run its turn. An idle epic with no running plan run is left to a later pass. amending
-// reports whether one of the epic's amendments is checking or capturing.
+// stallCheck reads epic's flow again. When the epic is idle (stallIdle), it is judged as follows. An epic with no
+// running plan run is parked at once with a stall park (see parkStall). Otherwise, when its latest stall has the mark
+// the epic has now, so no task, node run or action came since that stall, it is parked too. Any other idle epic gets
+// its stall: a pending stall trigger whose cause names the epic's phase, open tasks and running node runs, so the next
+// pass gives the plan run its turn. amending reports whether one of the epic's amendments is checking or capturing.
 func (r *Runner) stallCheck(ctx context.Context, epic string, amending bool) error {
 	flow, err := r.store.EpicFlow(ctx, epic)
 	if err != nil {
 		return fmt.Errorf("read epic %s: %w", epic, err)
 	}
-	if !stallIdle(flow, amending) || !hasRunningPlan(flow.Runs) {
+	if !stallIdle(flow, amending) {
 		return nil
 	}
 	mark, err := r.store.StallMark(ctx, epic)
 	if err != nil {
 		return fmt.Errorf("read stall mark of epic %s: %w", epic, err)
 	}
+	if !hasRunningPlan(flow.Runs) {
+		return r.parkStall(ctx, epic, flow, mark, "no plan run was running")
+	}
+	latest, stalled, err := r.store.LatestStall(ctx, epic)
+	if err != nil {
+		return fmt.Errorf("read latest stall of epic %s: %w", epic, err)
+	}
+	if stalled && latest.Mark == mark {
+		return r.parkStall(ctx, epic, flow, mark, "the last stall changed nothing")
+	}
 	if err = r.store.WakeStall(ctx, epic, stallCause(flow), mark, r.now()); err != nil {
 		return fmt.Errorf("wake epic %s with a stall: %w", epic, err)
+	}
+	return nil
+}
+
+// parkStall parks epic with a stall park whose reason is the stall cause of flow followed by why, the reason the epic
+// is parked. The park question the steerer is sent carries that reason.
+func (r *Runner) parkStall(
+	ctx context.Context, epic string, flow store.EpicFlow, mark store.StallMark, why string,
+) error {
+	reason := stallCause(flow) + "; " + why
+	if err := r.store.ParkStall(ctx, epic, reason, mark, r.now()); err != nil {
+		return fmt.Errorf("park epic %s with a stall: %w", epic, err)
 	}
 	return nil
 }
@@ -80,7 +102,7 @@ func (r *Runner) stallCheck(ctx context.Context, epic string, amending bool) err
 // so the stage is not read.
 func stallIdle(flow store.EpicFlow, amending bool) bool {
 	epic := flow.Epic
-	if !livePhase(epic.Phase) || epic.Paused || epic.Parked != "" || amending {
+	if !mayStall(epic) || amending {
 		return false
 	}
 	if flow.Actions != 0 || epic.OpenQuestions != 0 || slices.ContainsFunc(epic.Turns, turnIsRunning) {
@@ -91,6 +113,12 @@ func stallIdle(flow store.EpicFlow, amending bool) bool {
 		return false
 	}
 	return flow.Pending == 0 || !hasRunningPlan(flow.Runs)
+}
+
+// mayStall reports whether epic can be idle at all: its phase is live, and it is neither paused nor parked. A pass
+// reads an epic for a stall only when mayStall holds, so no epic in a phase that ends or stops is read for one.
+func mayStall(epic store.EpicRow) bool {
+	return livePhase(epic.Phase) && !epic.Paused && epic.Parked == ""
 }
 
 // livePhase reports whether an epic in phase is live: it is neither closed, held, nor one of the phases it ends in or
