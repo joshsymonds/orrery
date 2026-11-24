@@ -16,7 +16,7 @@ import {
 } from "./gen/orrery/v1/designs_pb";
 import { noticeClock } from "./noticewords";
 import { QuestionThread, type QuestionAnswer } from "./questionthread";
-import { installTestDom, removeTestDom } from "./testdom";
+import { assertNone, installTestDom, removeTestDom } from "./testdom";
 import { turn } from "./testwait";
 
 type ThreadProps = Parameters<typeof QuestionThread>[0];
@@ -285,8 +285,8 @@ test("QuestionThread: a settled question draws one line with its answer and who 
     },
     async (container) => {
       const section = block(container);
-      assert.equal(section.querySelector("textarea"), null, "a box is drawn after the question settled");
-      assert.equal(section.querySelector(".opts"), null, "an option is drawn after the question settled");
+      assertNone(section.querySelector("textarea"), "a box is drawn after the question settled");
+      assertNone(section.querySelector(".opts"), "an option is drawn after the question settled");
       assert.equal(
         [...section.querySelectorAll("button")].length,
         0,
