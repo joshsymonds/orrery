@@ -21,17 +21,22 @@ type Start struct {
 	StartedAt                                                                                int64
 }
 
-// Finish is a request as it completes. A nil BilledCostNanoUSD or ListCostNanoUSD is an unknown cost.
+// Finish is a request as it completes. A nil BilledCostNanoUSD or ListCostNanoUSD is an unknown cost. The four
+// ListXCostNanoUSD fields are the list cost by token kind, which sum to ListCostNanoUSD; a nil one is an unknown kind.
 type Finish struct {
-	CompletedAt       int64
-	ResolvedModel     string
-	InputTokens       int64
-	OutputTokens      int64
-	CacheReadTokens   int64
-	CacheWriteTokens  int64
-	BilledCostNanoUSD *int64
-	ListCostNanoUSD   *int64
-	Claims            []Claim
+	CompletedAt               int64
+	ResolvedModel             string
+	InputTokens               int64
+	OutputTokens              int64
+	CacheReadTokens           int64
+	CacheWriteTokens          int64
+	BilledCostNanoUSD         *int64
+	ListCostNanoUSD           *int64
+	ListInputCostNanoUSD      *int64
+	ListOutputCostNanoUSD     *int64
+	ListCacheReadCostNanoUSD  *int64
+	ListCacheWriteCostNanoUSD *int64
+	Claims                    []Claim
 }
 
 // insertRequestSQL stores a request as it starts. Its completion, tokens and costs keep the column defaults until
@@ -44,7 +49,8 @@ const insertRequestSQL = `INSERT INTO requests
 // id with no row and an id already finalized both match nothing.
 const finishRequestSQL = `UPDATE requests SET
 	completed_at = ?, resolved_model = ?, input_tokens = ?, output_tokens = ?, cache_read_tokens = ?,
-	cache_write_tokens = ?, billed_cost_nano_usd = ?, list_cost_nano_usd = ?
+	cache_write_tokens = ?, billed_cost_nano_usd = ?, list_cost_nano_usd = ?, list_input_nano_usd = ?,
+	list_output_nano_usd = ?, list_cache_read_nano_usd = ?, list_cache_write_nano_usd = ?
 	WHERE id = ? AND completed_at IS NULL`
 
 // insertClaimSQL stores one usage limit claim a request reported.
@@ -96,7 +102,9 @@ func (l *Ledger) Finish(ctx context.Context, id int64, finish Finish) error {
 func finishIn(ctx context.Context, tx *sql.Tx, id int64, finish Finish) error {
 	result, err := tx.ExecContext(ctx, finishRequestSQL,
 		finish.CompletedAt, finish.ResolvedModel, finish.InputTokens, finish.OutputTokens,
-		finish.CacheReadTokens, finish.CacheWriteTokens, finish.BilledCostNanoUSD, finish.ListCostNanoUSD, id)
+		finish.CacheReadTokens, finish.CacheWriteTokens, finish.BilledCostNanoUSD, finish.ListCostNanoUSD,
+		finish.ListInputCostNanoUSD, finish.ListOutputCostNanoUSD, finish.ListCacheReadCostNanoUSD,
+		finish.ListCacheWriteCostNanoUSD, id)
 	if err != nil {
 		return fmt.Errorf("update request %d: %w", id, err)
 	}
