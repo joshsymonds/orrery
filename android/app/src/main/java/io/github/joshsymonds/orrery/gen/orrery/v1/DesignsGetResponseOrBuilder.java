@@ -125,4 +125,23 @@ public interface DesignsGetResponseOrBuilder extends
    * <code>repeated .orrery.v1.DesignDelegation delegations = 5 [json_name = "delegations"];</code>
    */
   int getDelegationsCount();
+
+  /**
+   * <pre>
+   * The design's stage; unset when serve has no stage service.
+   * </pre>
+   *
+   * <code>.orrery.v1.DesignStage stage = 6 [json_name = "stage"];</code>
+   * @return Whether the stage field is set.
+   */
+  boolean hasStage();
+  /**
+   * <pre>
+   * The design's stage; unset when serve has no stage service.
+   * </pre>
+   *
+   * <code>.orrery.v1.DesignStage stage = 6 [json_name = "stage"];</code>
+   * @return The stage.
+   */
+  io.github.joshsymonds.orrery.gen.orrery.v1.DesignStage getStage();
 }
