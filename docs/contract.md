@@ -2368,7 +2368,7 @@ admit_limit = 30
 
 A gate is a named `[gates.NAME]` table in one of two TOML files. `orrery gate` runs an argv gate it resolves, and a step runs the gate it names (see [orrery](#orrery) and [Step lifecycle](#step-lifecycle)). An agent gate is run only by a read-only step (see [Agent gates](#agent-gates)).
 
-- The epic's gates file is named by the caller: `gates_file` in `StartStep` (see [Steps](#steps)), or `--gates FILE` in `orrery gate`. By convention it is `gates.toml` in the epic's record directory, `~/.gambit/<repo-id>/<slug>/`. It holds a `[gates]` table, which may hold no gates, and no other top-level key.
+- The epic's gates file is named by the caller: `gates_file` in `StartStep` (see [Steps](#steps)), or `--gates FILE` in `orrery gate`. By convention it is `gates.toml` in the epic's own directory, which the caller names; orrery reads no directory of its own for it. It holds a `[gates]` table, which may hold no gates, and no other top-level key.
 - The project file is `.orrery/project.toml`, the file of [Pool files](#pool-files). Its `[gates]` table is optional.
 - The machine file, `pools.toml`, holds no gates. Its `[gates]` table, if it has one, is not read for gates.
 

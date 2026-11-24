@@ -295,7 +295,7 @@ Every pane, session, epic and step draws its host, also when there is only one h
 | ReleaseTable | Running, Failed |
 | HappeningList | Default, WithTail |
 | PhaseRow | one of a task's five stages: Passed, Now, NowOpen, Ahead |
-| Contract | Gambit's document: DecisionLine, then its ten sections in its order; Accepted, ToAccept, Ready |
+| Contract | The contract document: DecisionLine, then its ten sections in its order; Accepted, ToAccept, Ready |
 | CommandBar | touch: an epic's or a step's state and commands at the foot |
 
 ## 9. From today's clients to these components

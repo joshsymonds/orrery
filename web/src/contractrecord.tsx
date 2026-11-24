@@ -84,7 +84,7 @@ function leftOfView(view: View, read: ReadonlySet<string>): Left {
   return leftOf(openDecisions(view.drawn.decisions), view.contract.care, shown);
 }
 
-// ContractRecord is a contract drawn as Gambit's document, read from Contracts.Get. Its newest version is drawn unless
+// ContractRecord is a contract drawn as the contract document, read from Contracts.Get. Its newest version is drawn unless
 // the viewer picks an older one, which is read-only. Accept, Set aside and Reopen each send one call, and a refusal's
 // reason is shown in place of nothing looking done. The irreversible section is marked read once it is on screen.
 export function ContractRecord(props: ContractRecordProps): JSX.Element {
