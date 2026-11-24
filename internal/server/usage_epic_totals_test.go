@@ -296,7 +296,8 @@ func epicQueryPlanOf(t *testing.T, ledgerPath string, claudeSessions []string) [
 	for i, id := range claudeSessions {
 		args[i] = id
 	}
-	rows, err := db.QueryContext(t.Context(), "EXPLAIN QUERY PLAN "+ledger.EpicTotalsQuery(len(claudeSessions)), args...)
+	explain := "EXPLAIN QUERY PLAN " + ledger.EpicTotalsQuery(len(claudeSessions))
+	rows, err := db.QueryContext(t.Context(), explain, args...)
 	if err != nil {
 		t.Fatalf("EXPLAIN QUERY PLAN: %v", err)
 	}
@@ -329,7 +330,7 @@ func TestUsageEpicTotals(t *testing.T) {
 		requireTotals(t, sessionTotals(t, client, usageHeadless), wantUsageEpicSingle(usageAgentTwo, 20))
 		requireTotals(t, sessionTotals(t, client, usageStepA), wantUsageEpicStepA())
 	})
-	t.Run("EpicTotals answers each step session once with its own rows, leaving out a step with no Claude session", func(t *testing.T) {
+	t.Run("EpicTotals answers each step once with its own rows, no step without Claude", func(t *testing.T) {
 		requireEpicSessions(t, epicTotals(t, client, usageEpicSteered), wantUsageEpicSessions(usageEpicSteered))
 	})
 	t.Run("the steerer is its own row marked shared in both epics it steers", func(t *testing.T) {
@@ -362,6 +363,7 @@ func TestUsageEpicTotals(t *testing.T) {
 		expectEpicTotalsCode(t, noSessions, usageEpicSteered, connect.CodeUnavailable)
 	})
 	t.Run("query plan searches requests through the session index", func(t *testing.T) {
-		requireIndexedPlan(t, epicQueryPlanOf(t, ledgerPath, []string{usageClaudeSteerer, usageClaudeStepA, usageClaudeStepB}))
+		plan := epicQueryPlanOf(t, ledgerPath, []string{usageClaudeSteerer, usageClaudeStepA, usageClaudeStepB})
+		requireIndexedPlan(t, plan)
 	})
 }

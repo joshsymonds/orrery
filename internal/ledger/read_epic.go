@@ -34,13 +34,13 @@ func EpicTotalsQuery(n int) string {
 // An empty id is skipped, and a duplicate is queried once. It returns nil, and no error, when no id is left or when the
 // ledger file is absent, and in those cases it runs no query.
 func (r *Reader) EpicTotals(ctx context.Context, claudeSessions []string) (map[string][]SessionTotal, error) {
-	ids := distinctClaudeSessions(claudeSessions)
-	if len(ids) == 0 {
-		return nil, nil
-	}
 	db, ok, err := r.open(ctx)
 	if err != nil || !ok {
 		return nil, err
+	}
+	ids := distinctClaudeSessions(claudeSessions)
+	if len(ids) == 0 {
+		return nil, errors.Join(db.Close())
 	}
 	totals, err := queryEpicTotals(ctx, db, ids)
 	return totals, errors.Join(err, db.Close())
@@ -61,7 +61,11 @@ func distinctClaudeSessions(claudeSessions []string) []string {
 }
 
 // queryEpicTotals runs EpicTotalsQuery on db for claudeSessions, and scans each total it returns.
-func queryEpicTotals(ctx context.Context, db *sql.DB, claudeSessions []string) (totals map[string][]SessionTotal, err error) {
+func queryEpicTotals(
+	ctx context.Context,
+	db *sql.DB,
+	claudeSessions []string,
+) (totals map[string][]SessionTotal, err error) {
 	args := make([]any, len(claudeSessions))
 	for i, id := range claudeSessions {
 		args[i] = id
