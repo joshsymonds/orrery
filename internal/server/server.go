@@ -293,7 +293,7 @@ func New(cfg Config) (http.Handler, error) {
 	eventsPath, events := newEventsHandler(cfg.Sessions, changes, sendTimeout, cfg.Shutdown, cfg.HandlerOptions...)
 	mux.Handle(eventsPath, events)
 	controlPath, control := newControlHandler(
-		cfg.Engine, cfg.ControlTimeout, cfg.Home, cfg.Steps, cfg.HandlerOptions...,
+		cfg.Engine, cfg.ControlTimeout, cfg.Home, cfg.Steps, cfg.HostName, cfg.Hosts, cfg.HandlerOptions...,
 	)
 	mux.Handle(controlPath, control)
 	epicsPath, evidencePath, contractsPath, designsPath := registerEpicServices(mux, cfg, now)
