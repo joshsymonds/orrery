@@ -423,6 +423,9 @@ fun PaneScreen(
                     epicQuestion = { epic, question ->
                         EpicQuestion(epicDetails[epic], question, nowSeconds, client)
                     },
+                    designQuestion = { design, question ->
+                        ConversationDesignQuestion(stages, design, question)
+                    },
                     find = finding?.let { TranscriptFind(found, foundCurrent, it.step) },
                     onRead = { readUpTo ->
                         scope.launch(Dispatchers.IO) {
