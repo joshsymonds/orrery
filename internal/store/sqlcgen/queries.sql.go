@@ -2150,6 +2150,24 @@ func (q *Queries) GetEpicSteerer(ctx context.Context, id string) (GetEpicSteerer
 	return i, err
 }
 
+const getEpicSteererSession = `-- name: GetEpicSteererSession :one
+SELECT epics.steerer AS session, CAST(COALESCE(sessions.claude_session, '') AS TEXT) AS claude_session
+FROM epics LEFT JOIN sessions ON sessions.id = epics.steerer
+WHERE epics.id = ?
+`
+
+type GetEpicSteererSessionRow struct {
+	Session       string
+	ClaudeSession string
+}
+
+func (q *Queries) GetEpicSteererSession(ctx context.Context, id string) (GetEpicSteererSessionRow, error) {
+	row := q.db.QueryRowContext(ctx, getEpicSteererSession, id)
+	var i GetEpicSteererSessionRow
+	err := row.Scan(&i.Session, &i.ClaudeSession)
+	return i, err
+}
+
 const getEpicTask = `-- name: GetEpicTask :one
 SELECT epic, seq, turn, title, deliverable, status, gate, evidence, stage, base, attempt, rerun, no_verdict, held, step, red_run, green_run, revision, failure, review, refs, gate_pos, finding_pos, batch, guard, needs_files, decisions, after_tasks, question, gate_changes, rebriefs, notes, generation, depends_on, kind, revises, split_from FROM epic_tasks WHERE epic = ? AND seq = ?
 `
@@ -2603,6 +2621,17 @@ func (q *Queries) GetSession(ctx context.Context, id string) (Session, error) {
 		&i.Host,
 	)
 	return i, err
+}
+
+const getSessionClaude = `-- name: GetSessionClaude :one
+SELECT claude_session FROM sessions WHERE id = ?
+`
+
+func (q *Queries) GetSessionClaude(ctx context.Context, id string) (string, error) {
+	row := q.db.QueryRowContext(ctx, getSessionClaude, id)
+	var claude_session string
+	err := row.Scan(&claude_session)
+	return claude_session, err
 }
 
 const getStep = `-- name: GetStep :one
@@ -7160,6 +7189,42 @@ func (q *Queries) ListEpicAmendments(ctx context.Context, epic string) ([]EpicAm
 	return items, nil
 }
 
+const listEpicCallerSessions = `-- name: ListEpicCallerSessions :many
+SELECT DISTINCT steps.caller AS session, CAST(COALESCE(sessions.claude_session, '') AS TEXT) AS claude_session
+FROM steps LEFT JOIN sessions ON sessions.id = steps.caller
+WHERE steps.epic = ?1 AND steps.caller <> ''
+  AND NOT EXISTS (SELECT 1 FROM steps AS own WHERE own.id = steps.caller AND own.epic = ?1)
+ORDER BY steps.caller
+`
+
+type ListEpicCallerSessionsRow struct {
+	Session       string
+	ClaudeSession string
+}
+
+func (q *Queries) ListEpicCallerSessions(ctx context.Context, epic string) ([]ListEpicCallerSessionsRow, error) {
+	rows, err := q.db.QueryContext(ctx, listEpicCallerSessions, epic)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListEpicCallerSessionsRow
+	for rows.Next() {
+		var i ListEpicCallerSessionsRow
+		if err := rows.Scan(&i.Session, &i.ClaudeSession); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listEpicChainActions = `-- name: ListEpicChainActions :many
 SELECT planner_actions.epic, planner_actions.turn, planner_actions.position, planner_actions.kind, planner_actions.node, planner_actions.task, planner_actions.close_kind, planner_actions.by_epic, planner_actions.undo_none, planner_actions.reason, planner_actions.state, planner_actions.refusal, planner_actions.park, planner_actions.requirement, planner_actions.item, planner_actions.deliverable, planner_actions.files, planner_actions.remove_files, planner_actions.reviewer, planner_actions.split_tasks FROM planner_actions
 JOIN epic_parks ON epic_parks.epic = planner_actions.epic AND epic_parks.seq = planner_actions.park
@@ -8452,6 +8517,41 @@ func (q *Queries) ListEpicStepListings(ctx context.Context, epic string) ([]Step
 			&i.Summary,
 			&i.Host,
 		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listEpicStepSessions = `-- name: ListEpicStepSessions :many
+SELECT steps.id AS session, CAST(COALESCE(sessions.claude_session, '') AS TEXT) AS claude_session
+FROM steps LEFT JOIN sessions ON sessions.id = steps.id
+WHERE steps.epic = ?
+ORDER BY steps.id
+`
+
+type ListEpicStepSessionsRow struct {
+	Session       string
+	ClaudeSession string
+}
+
+func (q *Queries) ListEpicStepSessions(ctx context.Context, epic string) ([]ListEpicStepSessionsRow, error) {
+	rows, err := q.db.QueryContext(ctx, listEpicStepSessions, epic)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListEpicStepSessionsRow
+	for rows.Next() {
+		var i ListEpicStepSessionsRow
+		if err := rows.Scan(&i.Session, &i.ClaudeSession); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
