@@ -4,34 +4,52 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"strings"
+	"sync"
 	"time"
 
 	"connectrpc.com/connect"
 
 	v1 "github.com/joshsymonds/orrery/internal/gen/orrery/v1"
 	orreryv1connect "github.com/joshsymonds/orrery/internal/gen/orrery/v1/orreryv1connect"
+	"github.com/joshsymonds/orrery/internal/hostload"
+	"github.com/joshsymonds/orrery/internal/node"
 	"github.com/joshsymonds/orrery/internal/open"
 	"github.com/joshsymonds/orrery/internal/tmuxctl"
 )
 
-// pickerServer answers orrery.v1.Picker with the configuration, token store, tmux client and clock.
+// pickerServer answers orrery.v1.Picker with the configuration, token store, tmux client and clock. Propose ranks its
+// proposals over the controller, named name and read through localLoad, and each of hosts that answers.
 type pickerServer struct {
-	picker func() (open.Config, error)
-	tokens *pickerTokens
-	tmux   *tmuxctl.Client
-	now    func() time.Time
+	picker    func() (open.Config, error)
+	tokens    *pickerTokens
+	tmux      *tmuxctl.Client
+	now       func() time.Time
+	name      string
+	hosts     []*node.Client
+	localLoad func() (node.Load, error)
 }
 
 // newPickerHandler returns the path and handler that serve Picker over the configuration, token store, tmux client
-// and clock it is given.
+// and clock it is given. The controller is named name and its load is read through localLoad (hostload.Local when
+// nil), and hosts are the agents of the other hosts a proposal may place a session on.
 func newPickerHandler(
 	picker func() (open.Config, error),
 	tokens *pickerTokens,
 	tmux *tmuxctl.Client,
 	now func() time.Time,
+	name string,
+	hosts []*node.Client,
+	localLoad func() (node.Load, error),
 	opts ...connect.HandlerOption,
 ) (string, http.Handler) {
-	return orreryv1connect.NewPickerHandler(pickerServer{picker: picker, tokens: tokens, tmux: tmux, now: now}, opts...)
+	if localLoad == nil {
+		localLoad = hostload.Local
+	}
+	answers := pickerServer{
+		picker: picker, tokens: tokens, tmux: tmux, now: now, name: name, hosts: hosts, localLoad: localLoad,
+	}
+	return orreryv1connect.NewPickerHandler(answers, opts...)
 }
 
 // Ask answers Picker.Ask with the rows askPicker returns.
@@ -70,18 +88,105 @@ func (s pickerServer) Run(
 	return connect.NewResponse(&v1.RunResponse{Pane: pane}), nil
 }
 
-// Propose answers Picker.Propose with proposeError, since the proposals are not built yet.
+// Propose answers Picker.Propose with the proposals propose returns, best first, each with its host and directory.
 func (s pickerServer) Propose(
-	_ context.Context,
-	_ *connect.Request[v1.ProposeRequest],
+	ctx context.Context,
+	req *connect.Request[v1.ProposeRequest],
 ) (*connect.Response[v1.ProposeResponse], error) {
-	return nil, proposeError()
+	proposals, err := s.propose(ctx, req.Msg.GetText())
+	if err != nil {
+		return nil, connectError(err)
+	}
+	answer := make([]*v1.StartProposal, 0, len(proposals))
+	for _, proposal := range proposals {
+		answer = append(answer, &v1.StartProposal{Host: proposal.Host, Dir: proposal.Dir})
+	}
+	return connect.NewResponse(&v1.ProposeResponse{Proposals: answer}), nil
 }
 
-// proposeError returns the Connect error of a Picker.Propose call. It is unimplemented until the proposals are built,
-// so a caller gets the Connect unimplemented code rather than an empty answer.
-func proposeError() *connect.Error {
-	return connect.NewError(connect.CodeUnimplemented, errors.New("picker propose is not implemented"))
+// propose returns the proposals open.Propose ranks for text over the hosts that choices reads. A nil picker is a 404,
+// blank text a 400, and a failure of the configuration, the choices or the model a 502 with its reason.
+func (s pickerServer) propose(ctx context.Context, text string) ([]open.Proposal, error) {
+	if s.picker == nil {
+		return nil, routeError{status: http.StatusNotFound, message: "404 page not found"}
+	}
+	if strings.TrimSpace(text) == "" {
+		return nil, routeError{status: http.StatusBadRequest, message: "bad request"}
+	}
+	cfg, err := s.picker()
+	if err != nil {
+		return nil, routeError{status: http.StatusBadGateway, message: err.Error()}
+	}
+	choices, err := s.choices(ctx, cfg)
+	if err != nil {
+		return nil, routeError{status: http.StatusBadGateway, message: err.Error()}
+	}
+	proposals, err := open.Propose(ctx, cfg.Claude, text, choices)
+	if err != nil {
+		return nil, routeError{status: http.StatusBadGateway, message: err.Error()}
+	}
+	return proposals, nil
+}
+
+// choices returns the hosts a proposal may place a session on: the controller first, with its folders from cfg and its
+// load, then each of s.hosts that answers both its load and its folders, in order. The controller always counts, so a
+// folder or load of the controller that cannot be read fails the call, while a host where either fails is left out.
+func (s pickerServer) choices(ctx context.Context, cfg open.Config) ([]open.HostChoice, error) {
+	folders, err := open.KnownFolders(ctx, cfg)
+	if err != nil {
+		return nil, err
+	}
+	load, err := s.localLoad()
+	if err != nil {
+		return nil, err
+	}
+	reached := make([]*open.HostChoice, len(s.hosts))
+	var wg sync.WaitGroup
+	for index, client := range s.hosts {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			reached[index] = reachedChoice(ctx, client)
+		}()
+	}
+	wg.Wait()
+	choices := []open.HostChoice{{
+		Name: s.name, LoadPercent: load.LoadPercent, MemoryPercent: load.MemoryPercent, Folders: folders,
+	}}
+	for _, choice := range reached {
+		if choice != nil {
+			choices = append(choices, *choice)
+		}
+	}
+	return choices, nil
+}
+
+// reachedChoice returns the choice of client's host, from the Load and the Folders its agent answers, which are asked at
+// once within the client's bound. It returns nil when either fails, so the host is unreachable.
+func reachedChoice(ctx context.Context, client *node.Client) *open.HostChoice {
+	var (
+		load    node.Load
+		loadErr error
+		folders []string
+		dirErr  error
+	)
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		load, loadErr = client.Load(ctx)
+	}()
+	go func() {
+		defer wg.Done()
+		folders, dirErr = client.Folders(ctx)
+	}()
+	wg.Wait()
+	if loadErr != nil || dirErr != nil {
+		return nil
+	}
+	return &open.HostChoice{
+		Name: client.Name(), LoadPercent: load.LoadPercent, MemoryPercent: load.MemoryPercent, Folders: folders,
+	}
 }
 
 // pickerRunError returns the Connect error of a Picker.Run failure. Its 409, no tmux server, is failed_precondition
