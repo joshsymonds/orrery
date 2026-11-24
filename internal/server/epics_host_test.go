@@ -47,12 +47,15 @@ func (f *publicHostsStore) GetEpic(
 	return nil, connect.NewError(connect.CodeNotFound, errors.New("synthetic not found"))
 }
 
-// publicHostsEpicHosts is the host each epic the public host tests serve carries in its engine message, and
-// publicHostsStepHosts is the host each step carries. An epic and its step are on the same host.
-var (
-	publicHostsEpicHosts = map[string]string{"repoa/on-b": "b", "repoa/on-ctl": "ctl"}
-	publicHostsStepHosts = map[string]string{"step-b": "b", "step-ctl": "ctl"}
-)
+// publicHostsEpicHosts returns the host each epic the public host tests serve carries in its engine message, and
+// publicHostsStepHosts returns the host each step carries. An epic and its step are on the same host.
+func publicHostsEpicHosts() map[string]string {
+	return map[string]string{"repoa/on-b": "b", "repoa/on-ctl": "ctl"}
+}
+
+func publicHostsStepHosts() map[string]string {
+	return map[string]string{"step-b": "b", "step-ctl": "ctl"}
+}
 
 // publicHostsFixture returns the store and the steps of the public host tests: an epic stored on host b with a running
 // step on b, and an epic stored on host ctl with a running step on ctl.
@@ -74,7 +77,7 @@ func TestPublicHostsEpicsGet(t *testing.T) {
 	t.Parallel()
 	epicStore, steps := publicHostsFixture()
 	client := epicStoreServe(t, steps, epicStore)
-	for id, wantHost := range publicHostsEpicHosts {
+	for id, wantHost := range publicHostsEpicHosts() {
 		got := epicsGet(t, client, id)
 		if host := got.GetEpic().GetHost(); host != wantHost {
 			t.Errorf("Get %s epic host = %q, want %q", id, host, wantHost)
@@ -83,7 +86,7 @@ func TestPublicHostsEpicsGet(t *testing.T) {
 			t.Fatalf("Get %s answered %d steps, want 1", id, n)
 		}
 		step := got.GetSteps()[0]
-		if host, want := step.GetHost(), publicHostsStepHosts[step.GetId()]; host != want {
+		if host, want := step.GetHost(), publicHostsStepHosts()[step.GetId()]; host != want {
 			t.Errorf("Get %s step %s host = %q, want %q", id, step.GetId(), host, want)
 		}
 	}
@@ -96,12 +99,12 @@ func TestPublicHostsEpicsList(t *testing.T) {
 	epicStore, steps := publicHostsFixture()
 	client := epicStoreServe(t, steps, epicStore)
 	epics := epicsList(t, client)
-	if n := len(epics); n != len(publicHostsEpicHosts) {
-		t.Fatalf("List answered %d epics, want %d", n, len(publicHostsEpicHosts))
+	if n := len(epics); n != len(publicHostsEpicHosts()) {
+		t.Fatalf("List answered %d epics, want %d", n, len(publicHostsEpicHosts()))
 	}
 	for _, epic := range epics {
 		id := epic.GetId()
-		wantHost, ok := publicHostsEpicHosts[id]
+		wantHost, ok := publicHostsEpicHosts()[id]
 		if !ok {
 			t.Errorf("List answered epic %s, want none", id)
 			continue
@@ -113,7 +116,7 @@ func TestPublicHostsEpicsList(t *testing.T) {
 			t.Fatalf("List epic %s answered %d running steps, want 1", id, n)
 		}
 		step := epic.GetRunningSteps()[0]
-		if host, want := step.GetHost(), publicHostsStepHosts[step.GetId()]; host != want {
+		if host, want := step.GetHost(), publicHostsStepHosts()[step.GetId()]; host != want {
 			t.Errorf("List epic %s step %s host = %q, want %q", id, step.GetId(), host, want)
 		}
 	}

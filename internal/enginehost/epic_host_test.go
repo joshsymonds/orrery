@@ -35,7 +35,9 @@ func TestPublicHostsEngineEpicAndStep(t *testing.T) {
 	}
 	const stepID = "public-hosts-step"
 	// The step names no host, so it takes its epic's stored host.
-	add := store.StepAdd{ID: stepID, Agent: "implementer", Prompt: "do it", Epic: epicServiceID, Task: "public-hosts-task"}
+	add := store.StepAdd{
+		ID: stepID, Agent: "implementer", Prompt: "do it", Epic: epicServiceID, Task: "public-hosts-task",
+	}
 	if err := st.ApplyEngine(t.Context(), []store.EngineOp{add}, fixedClock()); err != nil {
 		t.Fatalf("ApplyEngine step %s: %v", stepID, err)
 	}
