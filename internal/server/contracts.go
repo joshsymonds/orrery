@@ -384,7 +384,8 @@ func contractDecisionMessage(decision store.ContractDecision) *orreryv1.Contract
 }
 
 // contractStateMessage converts a state change to its ContractStateChange. A change a session made is by that session,
-// and a change the owner made is by the owner, with no session.
+// and a change the owner made is by the owner, with no session. Its maker is the one the change stored, or nil when it
+// stored none.
 func contractStateMessage(state store.ContractStateChange) *orreryv1.ContractStateChange {
 	by := contractByOwner
 	if state.Session != "" {
@@ -397,6 +398,22 @@ func contractStateMessage(state store.ContractStateChange) *orreryv1.ContractSta
 		Session: state.Session,
 		Words:   state.Words,
 		Time:    state.At,
+		Maker:   recordMakerMessage(state),
+	}
+}
+
+// recordMakerMessage converts the maker a state change stored to its RecordMaker, which names the session that made the
+// change. It returns nil when the change stored no maker.
+func recordMakerMessage(state store.ContractStateChange) *orreryv1.RecordMaker {
+	if state.Maker.Kind == "" {
+		return nil
+	}
+	return &orreryv1.RecordMaker{
+		Kind:       state.Maker.Kind,
+		Quote:      state.Maker.Quote,
+		Reason:     state.Maker.Reason,
+		Delegation: state.Maker.Delegation,
+		Session:    state.Session,
 	}
 }
 

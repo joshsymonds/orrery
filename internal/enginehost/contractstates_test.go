@@ -348,7 +348,10 @@ func TestContractRecordStateChangesReadBackInOrder(t *testing.T) {
 			wantStateChange("proposed", 1, "session", contractTestHeadless, contractTestWords, 0),
 			wantStateChange("set_aside", 1, "session", contractTestHeadless, contractTestSetAsideWords, 1),
 			wantStateChange("proposed", 1, "session", contractTestPane, contractTestReopenWords, 2),
-			wantStateChange("accepted", 2, "owner", "", contractTestAcceptWords, 4),
+			{
+				State: "accepted", Version: 2, By: "owner", Words: contractTestAcceptWords, Time: contractHour(4),
+				Maker: &v1.StageMaker{Kind: "owner_serve"},
+			},
 			wantStateChange("set_aside", 2, "session", contractTestHeadless, contractTestSetAsideWords, 5),
 			wantStateChange("proposed", 2, "session", contractTestPane, contractTestReopenWords, 6),
 			wantStateChange("accepted", 2, "session", contractTestPane, contractTestAcceptWords, 7),
