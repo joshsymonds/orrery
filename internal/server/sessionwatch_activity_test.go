@@ -35,12 +35,12 @@ func addActivityStep(t *testing.T, s *store.Store, at int64, step store.DesignSt
 	}
 }
 
-// activityStepRow is the background row of the running design step id, with the words and design it shows and the
-// unix second it started at.
-func activityStepRow(id, words, design string, started int64) *orreryv1.BackgroundTask {
+// activityStepRow is the background row of the running design step id of design-activity, with the words it shows and
+// the unix second it started at.
+func activityStepRow(id, words string, started int64) *orreryv1.BackgroundTask {
 	return &orreryv1.BackgroundTask{
 		Id: id, Description: words, Type: "step", Status: "running", Started: started,
-		Design: &orreryv1.EngineDesign{Design: design},
+		Design: &orreryv1.EngineDesign{Design: "design-activity"},
 	}
 }
 
@@ -92,10 +92,10 @@ func TestSessionWatchRecordsActivityStepRowsServeThenLeave(t *testing.T) {
 		State: &orreryv1.ConversationState{
 			Session: engineSession("idle"),
 			Background: []*orreryv1.BackgroundTask{
-				activityStepRow("step-research", "Does the cache hold entries?", "design-activity", at),
+				activityStepRow("step-research", "Does the cache hold entries?", at),
 				bgAgentRow("running", "", at+1, 0),
-				activityStepRow("step-discovery", "discovery · Find the gaps", "design-activity", at+2),
-				activityStepRow("step-reproduce", "go test ./internal/cache", "design-activity", at+3),
+				activityStepRow("step-discovery", "discovery · Find the gaps", at+2),
+				activityStepRow("step-reproduce", "go test ./internal/cache", at+3),
 			},
 		},
 	})
@@ -109,9 +109,9 @@ func TestSessionWatchRecordsActivityStepRowsServeThenLeave(t *testing.T) {
 		State: &orreryv1.ConversationState{
 			Session: engineSession("idle"),
 			Background: []*orreryv1.BackgroundTask{
-				activityStepRow("step-research", "Does the cache hold entries?", "design-activity", at),
+				activityStepRow("step-research", "Does the cache hold entries?", at),
 				bgAgentRow("running", "Grep", at+1, 0),
-				activityStepRow("step-discovery", "discovery · Find the gaps", "design-activity", at+2),
+				activityStepRow("step-discovery", "discovery · Find the gaps", at+2),
 			},
 		},
 	})
