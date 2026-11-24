@@ -77,7 +77,7 @@ private const val WIDE_COLUMN = 2f
 private const val NARROW_COLUMN = 1f
 
 /**
- * A contract as Gambit's document: its decision line, then its ten sections in order, each under its name with its
+ * A contract as the contract document: its decision line, then its ten sections in order, each under its name with its
  * column names, rating chips, id chips, attention marks and changed chips. [decisions] are the contract's decisions;
  * absent, the document is an Epics.Get contract's and its Decisions section reads None. [record] is the decision
  * line's record words, absent for the accepted clock. [marks] are the marks the newest version wears. [onAbout], when

@@ -37,7 +37,7 @@ func sampleContract() *v1.EpicContract {
 			},
 		}},
 		Premises: []*v1.EpicPremise{
-			{Id: "P1", Text: "gambit's contract describes the stage", IfWrong: "the rules are rewritten"},
+			{Id: "P1", Text: "the contract describes the stage", IfWrong: "the rules are rewritten"},
 		},
 		Exclusions: []string{"No new kind of session"},
 		Approach:   "The tools act on the design record.",

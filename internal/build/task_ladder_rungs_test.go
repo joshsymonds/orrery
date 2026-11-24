@@ -9,19 +9,19 @@ import (
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
-// The invented values the gambit tests use: the deliverable and reason of a change of approach, the file a recarve or a
+// The invented values the ladder tests use: the deliverable and reason of a change of approach, the file a recarve or a
 // re-brief adds, the file a recarve removes, and the first line of each failure a re-brief answers.
 const (
-	ladderGambitDeliverable = "The thing holds through b.go."
-	ladderGambitReason      = "the approach needs the second file"
-	ladderGambitFile        = "b.go"
-	ladderGambitRemoved     = "thing.go"
-	ladderGambitFirst       = "the spec does not say which field"
-	ladderGambitSecond      = "the spec names a field twice"
+	ladderRungDeliverable = "The thing holds through b.go."
+	ladderRungReason      = "the approach needs the second file"
+	ladderRungFile        = "b.go"
+	ladderRungRemoved     = "thing.go"
+	ladderRungFirst       = "the spec does not say which field"
+	ladderRungSecond      = "the spec names a field twice"
 )
 
-// ladderGambitTasks returns a second task of the epic that owns file, as a planner's turn plans it.
-func ladderGambitTasks(file string) []store.EpicTaskInput {
+// ladderRungTasks returns a second task of the epic that owns file, as a planner's turn plans it.
+func ladderRungTasks(file string) []store.EpicTaskInput {
 	return []store.EpicTaskInput{{
 		Title: "Build the other thing", Deliverable: "The other thing holds", Files: []string{file},
 		Requirements: []string{"R1"}, Gate: "check",
@@ -31,8 +31,8 @@ func ladderGambitTasks(file string) []store.EpicTaskInput {
 	}}
 }
 
-// ladderGambitTurn claims a planner turn on the epic of f, and completes it with plan.
-func ladderGambitTurn(t *testing.T, f *passFixture, plan store.EpicPlan) {
+// ladderRungTurn claims a planner turn on the epic of f, and completes it with plan.
+func ladderRungTurn(t *testing.T, f *passFixture, plan store.EpicPlan) {
 	t.Helper()
 	turn, err := f.store.ClaimTurn(f.ctx, passEpic, passClock())
 	if err != nil {
@@ -43,11 +43,11 @@ func ladderGambitTurn(t *testing.T, f *passFixture, plan store.EpicPlan) {
 	}
 }
 
-// ladderGambitToRecarve climbs task 1 of f from its first attempt through its second and the orchestrator's own attempt
+// ladderRungToRecarve climbs task 1 of f from its first attempt through its second and the orchestrator's own attempt
 // on rung 3, and fails that attempt onto rung 4, the change of approach. The orchestrator's attempt runs the
 // implementer's agent, as the role file names no attempt. Rung 4 starts no step until the planner's change of approach
 // is stored.
-func ladderGambitToRecarve(t *testing.T, f *passFixture) {
+func ladderRungToRecarve(t *testing.T, f *passFixture) {
 	t.Helper()
 	redRun := passRunID(StageRed, 1)
 	f.addRun(redRun, evidence.PhaseRed, f.base, 1, evidence.VerdictFails)
@@ -79,18 +79,18 @@ func ladderGambitToRecarve(t *testing.T, f *passFixture) {
 	}
 }
 
-// ladderGambitApproach returns the change_approach action of task 1 that sets the deliverable, adds files and removes
+// ladderRungApproach returns the change_approach action of task 1 that sets the deliverable, adds files and removes
 // remove.
-func ladderGambitApproach(files, remove []string) store.EpicActionInput {
+func ladderRungApproach(files, remove []string) store.EpicActionInput {
 	return store.EpicActionInput{
-		Kind: store.ActionChangeApproach, Task: 1, Deliverable: ladderGambitDeliverable,
-		Files: files, Remove: remove, Reason: ladderGambitReason,
+		Kind: store.ActionChangeApproach, Task: 1, Deliverable: ladderRungDeliverable,
+		Files: files, Remove: remove, Reason: ladderRungReason,
 	}
 }
 
-// ladderGambitCarryApproach carries out the pending change_approach action of f's epic, as the engine does after the
+// ladderRungCarryApproach carries out the pending change_approach action of f's epic, as the engine does after the
 // planner's turn that returned it.
-func ladderGambitCarryApproach(t *testing.T, f *passFixture) {
+func ladderRungCarryApproach(t *testing.T, f *passFixture) {
 	t.Helper()
 	pending, err := f.store.PendingActions(f.ctx)
 	if err != nil {
@@ -110,19 +110,19 @@ func ladderGambitCarryApproach(t *testing.T, f *passFixture) {
 	}
 }
 
-// ladderGambitRecarve has the planner return one change_approach for task 1 of f that sets the deliverable, adds files
+// ladderRungRecarve has the planner return one change_approach for task 1 of f that sets the deliverable, adds files
 // and removes remove, and carries that action out. The turn plans no task.
-func ladderGambitRecarve(t *testing.T, f *passFixture, files, remove []string) {
+func ladderRungRecarve(t *testing.T, f *passFixture, files, remove []string) {
 	t.Helper()
-	ladderGambitTurn(t, f, store.EpicPlan{
+	ladderRungTurn(t, f, store.EpicPlan{
 		Outline: "The change of approach", Outcome: "work",
-		Actions: []store.EpicActionInput{ladderGambitApproach(files, remove)},
+		Actions: []store.EpicActionInput{ladderRungApproach(files, remove)},
 	})
-	ladderGambitCarryApproach(t, f)
+	ladderRungCarryApproach(t, f)
 }
 
-// ladderGambitReBrief returns the orchestrator's return of a re-brief that adds file and removes nothing.
-func ladderGambitReBrief(t *testing.T, file string) string {
+// ladderRungReBrief returns the orchestrator's return of a re-brief that adds file and removes nothing.
+func ladderRungReBrief(t *testing.T, file string) string {
 	t.Helper()
 	return orchReturn(t, map[string]any{
 		"decision": "re_brief", "version": versionWith(map[string]any{
@@ -131,20 +131,20 @@ func ladderGambitReBrief(t *testing.T, file string) string {
 	})
 }
 
-// TestLadderGambitClimbsThroughRecarveToGap: a task fails its two attempts, its orchestrator's own attempt on rung 3, then
+// TestLadderRungClimbsThroughRecarveToGap: a task fails its two attempts, its orchestrator's own attempt on rung 3, then
 // waits for the planner's recarve on rung 4. The recarve adds a file and removes one, and the task runs two attempts under
 // it, on rungs 4 and 5, before a failure on rung 5 ends it as a gap.
-func TestLadderGambitClimbsThroughRecarveToGap(t *testing.T) {
+func TestLadderRungClimbsThroughRecarveToGap(t *testing.T) {
 	t.Parallel()
 	f := newPassFixture(t)
-	ladderGambitToRecarve(t, f)
-	ladderGambitRecarve(t, f, []string{ladderGambitFile}, []string{ladderGambitRemoved})
+	ladderRungToRecarve(t, f)
+	ladderRungRecarve(t, f, []string{ladderRungFile}, []string{ladderRungRemoved})
 
 	f.pass()
 	if got := f.lastStart().ID; got != passStep(StageImplement, store.ApproachRung, 0) {
 		t.Fatalf("last start %s, want the implementer on rung %d under the recarve", got, store.ApproachRung)
 	}
-	if files := f.task().Files; !slices.Equal(files, []string{ladderGambitFile}) {
+	if files := f.task().Files; !slices.Equal(files, []string{ladderRungFile}) {
 		t.Errorf("task files = %q, want the recarve's file alone", files)
 	}
 
@@ -173,12 +173,12 @@ func TestLadderGambitClimbsThroughRecarveToGap(t *testing.T) {
 	}
 }
 
-// TestLadderGambitReBriefReruns: an orchestrator's re-brief on a request reruns the implementer on the task's rung with
+// TestLadderRungReBriefReruns: an orchestrator's re-brief on a request reruns the implementer on the task's rung with
 // no attempt spent, and its files join the task's files.
-func TestLadderGambitReBriefReruns(t *testing.T) {
+func TestLadderRungReBriefReruns(t *testing.T) {
 	t.Parallel()
 	f := newRequestFixture(t)
-	f.endOrchestrator(orchID(0, 0), ladderGambitReBrief(t, "c.go"))
+	f.endOrchestrator(orchID(0, 0), ladderRungReBrief(t, "c.go"))
 	f.pass()
 	if build := f.task().Build; build.Stage != StageImplement || build.Rerun != 1 || build.Attempt != 1 {
 		t.Fatalf("build = %+v, want implement at attempt 1 and rerun 1, with no attempt spent", build)
@@ -191,19 +191,19 @@ func TestLadderGambitReBriefReruns(t *testing.T) {
 	}
 }
 
-// TestLadderGambitReBriefRefusedForASignatureAlreadyAnswered: a re-brief on a failure whose first line an earlier re-brief
+// TestLadderRungReBriefRefusedForASignatureAlreadyAnswered: a re-brief on a failure whose first line an earlier re-brief
 // answered is refused, and the request climbs the task off that failure as an ordinary failure. A re-brief on another
 // first line is allowed.
-func TestLadderGambitReBriefRefusedForASignatureAlreadyAnswered(t *testing.T) {
+func TestLadderRungReBriefRefusedForASignatureAlreadyAnswered(t *testing.T) {
 	t.Parallel()
 	t.Run("the same first line is refused", func(t *testing.T) {
 		t.Parallel()
 		f := newRequestFixture(t)
-		f.endOrchestrator(orchID(0, 0), ladderGambitReBrief(t, "c.go"))
+		f.endOrchestrator(orchID(0, 0), ladderRungReBrief(t, "c.go"))
 		f.pass()
-		f.returnRequest(1, "blocked", ladderGambitFirst)
+		f.returnRequest(1, "blocked", ladderRungFirst)
 		f.pass()
-		f.endOrchestrator(orchID(1, 1), ladderGambitReBrief(t, "d.go"))
+		f.endOrchestrator(orchID(1, 1), ladderRungReBrief(t, "d.go"))
 		f.pass()
 		build := f.task().Build
 		if build.Attempt != 2 || build.Stage != StageImplement {
@@ -216,11 +216,11 @@ func TestLadderGambitReBriefRefusedForASignatureAlreadyAnswered(t *testing.T) {
 	t.Run("another first line is allowed", func(t *testing.T) {
 		t.Parallel()
 		f := newRequestFixture(t)
-		f.endOrchestrator(orchID(0, 0), ladderGambitReBrief(t, "c.go"))
+		f.endOrchestrator(orchID(0, 0), ladderRungReBrief(t, "c.go"))
 		f.pass()
-		f.returnRequest(1, "blocked", ladderGambitSecond)
+		f.returnRequest(1, "blocked", ladderRungSecond)
 		f.pass()
-		f.endOrchestrator(orchID(1, 1), ladderGambitReBrief(t, "d.go"))
+		f.endOrchestrator(orchID(1, 1), ladderRungReBrief(t, "d.go"))
 		f.pass()
 		if build := f.task().Build; build.Attempt != 1 || build.Rerun != 2 {
 			t.Fatalf("build = %+v, want the second re-brief allowed at attempt 1, rerun 2", build)
@@ -228,9 +228,9 @@ func TestLadderGambitReBriefRefusedForASignatureAlreadyAnswered(t *testing.T) {
 	})
 }
 
-// TestLadderGambitCannotMeetGoesToRecarve: an orchestrator's cannot_meet on rung 1 climbs the task straight to rung 4, the
+// TestLadderRungCannotMeetGoesToRecarve: an orchestrator's cannot_meet on rung 1 climbs the task straight to rung 4, the
 // recarve, moved by cannot_meet, and starts no step there until the planner's change of approach is stored.
-func TestLadderGambitCannotMeetGoesToRecarve(t *testing.T) {
+func TestLadderRungCannotMeetGoesToRecarve(t *testing.T) {
 	t.Parallel()
 	f := newRequestFixture(t)
 	f.endOrchestrator(orchID(0, 0), orchReturn(t, map[string]any{
@@ -251,10 +251,10 @@ func TestLadderGambitCannotMeetGoesToRecarve(t *testing.T) {
 	}
 }
 
-// TestLadderGambitRecarveGrantsAHeldFile: a recarve that adds a file an open task owns, or an accepted task has not
+// TestLadderRungRecarveGrantsAHeldFile: a recarve that adds a file an open task owns, or an accepted task has not
 // integrated, is granted: the file joins the task's files, no refusal is recorded, and the task stays on its rung. The
 // planner's turn plans the holder and the recarve together, so the holder exists when the recarve is carried out.
-func TestLadderGambitRecarveGrantsAHeldFile(t *testing.T) {
+func TestLadderRungRecarveGrantsAHeldFile(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {
 		name   string
@@ -266,10 +266,10 @@ func TestLadderGambitRecarveGrantsAHeldFile(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			f := newPassFixture(t)
-			ladderGambitToRecarve(t, f)
-			ladderGambitTurn(t, f, store.EpicPlan{
-				Tasks: ladderGambitTasks(ladderGambitFile), Outcome: "work",
-				Actions: []store.EpicActionInput{ladderGambitApproach([]string{ladderGambitFile}, nil)},
+			ladderRungToRecarve(t, f)
+			ladderRungTurn(t, f, store.EpicPlan{
+				Tasks: ladderRungTasks(ladderRungFile), Outcome: "work",
+				Actions: []store.EpicActionInput{ladderRungApproach([]string{ladderRungFile}, nil)},
 			})
 			if tc.accept {
 				other := f.epic().Tasks[1]
@@ -277,8 +277,8 @@ func TestLadderGambitRecarveGrantsAHeldFile(t *testing.T) {
 					t.Fatalf("AcceptTask: %v", err)
 				}
 			}
-			ladderGambitCarryApproach(t, f)
-			if files := f.task().Files; !slices.Contains(files, ladderGambitFile) {
+			ladderRungCarryApproach(t, f)
+			if files := f.task().Files; !slices.Contains(files, ladderRungFile) {
 				t.Errorf("task files = %q, want the held file granted", files)
 			}
 			for _, decision := range f.epic().Decisions {
@@ -293,8 +293,8 @@ func TestLadderGambitRecarveGrantsAHeldFile(t *testing.T) {
 	}
 }
 
-// ladderGambitReBriefFiles returns the orchestrator's return of a re-brief whose version adds add and removes remove.
-func ladderGambitReBriefFiles(t *testing.T, add, remove []string) string {
+// ladderRungReBriefFiles returns the orchestrator's return of a re-brief whose version adds add and removes remove.
+func ladderRungReBriefFiles(t *testing.T, add, remove []string) string {
 	t.Helper()
 	return orchReturn(t, map[string]any{
 		"decision": "re_brief", "version": versionWith(map[string]any{
@@ -303,12 +303,12 @@ func ladderGambitReBriefFiles(t *testing.T, add, remove []string) string {
 	})
 }
 
-// TestLadderGambitReBriefRemovesFiles: a re-brief drops a file the task owns and adds another, and reruns the implementer
+// TestLadderRungReBriefRemovesFiles: a re-brief drops a file the task owns and adds another, and reruns the implementer
 // on the same rung with no attempt spent, the task then holding the files its version leaves it.
-func TestLadderGambitReBriefRemovesFiles(t *testing.T) {
+func TestLadderRungReBriefRemovesFiles(t *testing.T) {
 	t.Parallel()
 	f := newRequestFixture(t)
-	f.endOrchestrator(orchID(0, 0), ladderGambitReBriefFiles(t, []string{"c.go"}, []string{"thing.go"}))
+	f.endOrchestrator(orchID(0, 0), ladderRungReBriefFiles(t, []string{"c.go"}, []string{"thing.go"}))
 	f.pass()
 	if build := f.task().Build; build.Stage != StageImplement || build.Rerun != 1 || build.Attempt != 1 {
 		t.Fatalf("build = %+v, want implement at attempt 1 and rerun 1, with no attempt spent", build)
@@ -318,10 +318,10 @@ func TestLadderGambitReBriefRemovesFiles(t *testing.T) {
 	}
 }
 
-// TestLadderGambitReBriefRefusesAnUnownedOrLastFileRemoval: a re-brief that removes a file the task does not own, or
+// TestLadderRungReBriefRefusesAnUnownedOrLastFileRemoval: a re-brief that removes a file the task does not own, or
 // that would leave the task no files, is refused, and the request climbs the task as an ordinary failure with the
 // refusal in its failure. The task's files do not change.
-func TestLadderGambitReBriefRefusesAnUnownedOrLastFileRemoval(t *testing.T) {
+func TestLadderRungReBriefRefusesAnUnownedOrLastFileRemoval(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {
 		name   string
@@ -335,7 +335,7 @@ func TestLadderGambitReBriefRefusesAnUnownedOrLastFileRemoval(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			f := newRequestFixture(t)
-			f.endOrchestrator(orchID(0, 0), ladderGambitReBriefFiles(t, tc.add, tc.remove))
+			f.endOrchestrator(orchID(0, 0), ladderRungReBriefFiles(t, tc.add, tc.remove))
 			f.pass()
 			build := f.task().Build
 			if build.Attempt != 2 || build.Stage != StageImplement {
@@ -351,9 +351,9 @@ func TestLadderGambitReBriefRefusesAnUnownedOrLastFileRemoval(t *testing.T) {
 	}
 }
 
-// TestLadderGambitReBriefChangingTheEvidenceRunsRed: a re-brief that changes the evidence stores its version checking and
+// TestLadderRungReBriefChangingTheEvidenceRunsRed: a re-brief that changes the evidence stores its version checking and
 // moves the build to red, as a rerun that changes the evidence does, keeping its attempt.
-func TestLadderGambitReBriefChangingTheEvidenceRunsRed(t *testing.T) {
+func TestLadderRungReBriefChangingTheEvidenceRunsRed(t *testing.T) {
 	t.Parallel()
 	f := newRequestFixture(t)
 	f.endOrchestrator(orchID(0, 0), orchReturn(t, map[string]any{
