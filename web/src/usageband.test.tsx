@@ -14,7 +14,7 @@ import { type UsageReading, UsageReadingSchema } from "./gen/orrery/v1/usage_pb"
 import { formatAddress } from "./router";
 import type { SeenClock } from "./seen";
 import { mockTimers } from "./testclock";
-import { installTestDom, removeTestDom, teardownOnce } from "./testdom";
+import { assertNone, installTestDom, removeTestDom, teardownOnce } from "./testdom";
 import { turn, until } from "./testwait";
 import { noUsage, type UsageData } from "./usagedata";
 
@@ -200,7 +200,7 @@ test("UsageBand: drawing the 5h, 7d and Fable columns, with an empty window wher
       ],
     );
     for (const cell of windows.flat().filter((cell) => valueOf(cell) === "")) {
-      assert.equal(cell.querySelector(".bar"), null, "an empty window draws a bar");
+      assertNone(cell.querySelector(".bar"), "an empty window draws a bar");
     }
   }));
 
@@ -248,9 +248,9 @@ test("UsageBand: the gear opens #/accounts", (t) =>
 
 test("UsageBand: not drawn until usage has answered with an account", (t) =>
   withApp(t, noUsage, async ({ container, draw }) => {
-    assert.equal(container.querySelector(".uband"), null, "the band is drawn before usage has answered");
+    assertNone(container.querySelector(".uband"), "the band is drawn before usage has answered");
     await draw({ ...noUsage, answered: true });
-    assert.equal(container.querySelector(".uband"), null, "the band is drawn with no account");
+    assertNone(container.querySelector(".uband"), "the band is drawn with no account");
     await draw(usage);
     assert.ok(container.querySelector(".uband") !== null, "the band is not drawn once usage has an account");
   }));
