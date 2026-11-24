@@ -50,6 +50,9 @@ func (s *Service) WriteRow(
 	if err != nil {
 		return nil, err
 	}
+	if err = s.requireContractConversation(ctx, session, contract, design); err != nil {
+		return nil, err
+	}
 	value, remove, words := req.Msg.GetValue(), req.Msg.GetRemove(), req.Msg.GetWords()
 	change := store.ContractRowChange{
 		Contract: contract, Design: design, Row: row, Action: store.RowActionWrite, Depends: req.Msg.GetDepends(),

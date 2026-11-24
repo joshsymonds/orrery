@@ -33,6 +33,9 @@ func (s *Service) Keep(
 	if err != nil {
 		return nil, err
 	}
+	if err = s.requireContractConversation(ctx, session, contract, ""); err != nil {
+		return nil, err
+	}
 	words := req.Msg.GetWords()
 	stored, design, err := s.cfg.Store.KeepContractAddition(ctx, store.ContractRowChange{
 		Contract: contract, Row: addition, Action: store.RowActionKeep, Words: words, Maker: maker, Session: session,
@@ -66,6 +69,9 @@ func (s *Service) Strike(
 	}
 	maker, session, err := s.checkMaker(ctx, req.Header(), req.Msg.GetMaker())
 	if err != nil {
+		return nil, err
+	}
+	if err = s.requireContractConversation(ctx, session, contract, ""); err != nil {
 		return nil, err
 	}
 	words := req.Msg.GetWords()
