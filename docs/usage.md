@@ -2,7 +2,7 @@
 
 This document specifies orrery's LLM ledger: the record of each LLM request that orrery carries, with the usage limit claims each answer reported. It also says how the reads that answer usage come from it. Four later epics use it. The gateway writes the ledger. The limits epic's probes write limit readings through the gateway. The inbox band reads readings. The session views read session totals.
 
-The schema is the embedded migration [`00001_ledger.sql`](../internal/ledger/migrations/00001_ledger.sql). The Go types are in [`internal/ledger`](../internal/ledger/ledger.go): the writer's `Start` and `Finish` in [`write.go`](../internal/ledger/write.go), and the reader's `Readings`, `SessionTotals` and `Spend` in [`reader.go`](../internal/ledger/reader.go) and the files beside it.
+The schema is the embedded migration [`00001_ledger.sql`](../internal/ledger/migrations/00001_ledger.sql). The Go types are in [`internal/ledger`](../internal/ledger/ledger.go): the writer's `Start` and `Finish` in [`write.go`](../internal/ledger/write.go), and the reader's `Readings`, `SessionTotals`, `EpicTotals` and `Spend` in [`reader.go`](../internal/ledger/reader.go) and the files beside it.
 
 Conventions used throughout:
 
@@ -96,13 +96,19 @@ Three claims show how the rules apply:
 
 ## 5. The session join
 
-Orrery sessions are the only sessions that the ledger joins. Each pane and headless session that orrery runs has a row in the `sessions` table of `orrery.db`, and that row's `claude_session` holds its Claude Code session id. A request joins to an orrery session when `requests.claude_session` equals a `sessions.claude_session`.
+Orrery sessions are the only sessions that the ledger joins. Each pane, headless and step session that orrery runs has a row in the `sessions` table of `orrery.db`, and that row's `claude_session` holds its Claude Code session id. A request joins to an orrery session when `requests.claude_session` equals a `sessions.claude_session`.
 
 - **Orrery sessions only.** A Claude session that no `sessions` row carries has no session. No session view is built for it, and no read gives its requests per session. The ledger holds no per-session view of traffic that orrery did not start.
 - **Empty ids join nothing.** A `sessions` row whose `claude_session` is empty joins no request. A session view must skip that row.
 - **No SQL across files.** A session view reads the `sessions` row from `orrery.db`. It then calls [`SessionTotals`](../internal/ledger/read_session.go) on `ledger.db` with that `claude_session`. The join is the equality of the two strings.
 
 `SessionTotals` returns one [`SessionTotal`](../internal/ledger/read_session.go) for each `(resolved_model, agent_type)` of the session's requests. A total holds the number of requests, the four token sums, and the billed and list cost sums. The cost sums skip rows whose cost is NULL. An in-flight request counts as a request with model `''` and zero tokens.
+
+**Epic totals.** `EpicTotals` answers the same totals for many sessions in one read. Its input is a list of Claude sessions, and its result is a map keyed by Claude session, holding for each one the totals `SessionTotals` gives. A Claude session with no finalized request has no entry. Empty ids are skipped and a duplicate id is read once. An empty list, or an absent ledger, reads nothing and returns nil. The read is one query, [`EpicTotalsQuery`](../internal/ledger/read_epic.go), with one `?` for each id in its `IN` list. It finds the rows through the same `requests_claude_session` index as `SessionTotals`. Its rows are grouped by Claude session, resolved model and agent type.
+
+The Usage API's `EpicTotals` answers an epic's sessions with it. [`EpicUsageSessions`](../internal/store/epicusage.go) in `orrery.db` lists the epic's sessions: its step sessions, and its steerer marked shared. A record epic has no steerer row, so its shared sessions are the distinct callers of its steps. Each listed session's Claude session then gets one `EpicTotals` read. Each session with at least one total is answered once, ordered by session id, with its `Shared` flag. A session with no Claude session, and a session no request names, is left out. The listing never reads `epic_sessions`, so a session linked to the epic only by an `epic_sessions` row, such as one whose only link is an `epic_get` read, is left out too.
+
+The Usage API's `SessionTotals` resolves its session with `SessionClaude`, which reads any kind of session. The kinds are pane, headless and step sessions, so a step session has its totals by id, the same as the others.
 
 ## 6. Spend per seat
 
@@ -120,7 +126,7 @@ A seat's totals are complete only when `UnknownCostRequests` is 0. Otherwise the
 
 | Part | Written by | Read by |
 |---|---|---|
-| The request row, from `Start` and `Finish` (section 2) | gateway | session views, through `SessionTotals`; the Usage API, through `Spend` |
+| The request row, from `Start` and `Finish` (section 2) | gateway | session views, through `SessionTotals` and `EpicTotals`; the Usage API, through `Spend` |
 | `request_claims` (section 2) | gateway, in `Finish` | none outside the ledger, which reads it to write readings |
 | `limit_readings` (section 3) | gateway, in `Finish`. The limits epic's probes write their readings through the same path, so section 3 applies to a probe's answer too. | inbox band, through `Readings` |
 | `limit_claim_models` (section 3) | gateway, in `Finish` | gateway, for the drop in step 3 |
