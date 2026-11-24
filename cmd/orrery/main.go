@@ -2,7 +2,7 @@
 // and the dispatch of each subcommand. It handles serve, desk, mcp, epic, contract, run, gate, evidence, hold, step,
 // holder, help and tmux-conf itself, and the tmux commands open, debug, shell and tree, which act on the tmux server
 // the global flags name. hook runs internal/hook, and events, notices, session, list, seen and send run their handlers
-// in internal/cli.
+// in internal/cli. routes imports a routes file through orreryd.
 package main
 
 import (
@@ -150,6 +150,8 @@ subcommands:
   contract accept ID [WORDS]                    accept a proposed contract, with WORDS
   contract set-aside ID WORDS                   set a contract aside, with WORDS
   contract reopen ID [WORDS]                    reopen a set-aside contract, with WORDS
+  routes import FILE                            store the routes file FILE as the route registry, replacing
+                                                every stored route; print the seat and context counts it stores
   cron list                                     print this session's orrery cron jobs
   cron delete ID                                cancel the orrery cron job ID of this session
   run --needs POOL=N [--needs POOL=N]... -- CMD [ARGS]
@@ -294,7 +296,7 @@ func dispatch(ctx context.Context, opts globals, rest []string, stdin *os.File, 
 		return runEpic(ctx, opts, args, stdin, stdout, stderr, getenv)
 	case "contract", cronVerb:
 		return contractOrCron(ctx, opts, name, args, stdout, getenv)
-	case "run", "gate", "evidence":
+	case "run", "gate", "evidence", "routes":
 		return orreryCommand(ctx, opts, name, args, stdin, stdout, stderr, getenv)
 	case "hold", "step":
 		return runOwnerAction(ctx, opts, name, args, stdout, stderr, getenv)
@@ -387,8 +389,8 @@ func (c unreachableCrons) CronCall(
 	return nil, c.err
 }
 
-// orreryCommand runs a subcommand that calls one of orreryd's services: run and gate take a grant of pool members, and
-// evidence runs an item's evidence or reads it back.
+// orreryCommand runs a subcommand that calls one of orreryd's services: run and gate take a grant of pool members,
+// routes imports a routes file, and evidence runs an item's evidence or reads it back.
 func orreryCommand(
 	ctx context.Context,
 	opts globals,
@@ -403,6 +405,8 @@ func orreryCommand(
 		return runCommand(ctx, opts, args, stdin, stdout, stderr, getenv)
 	case "gate":
 		return runGate(ctx, opts, args, stdin, stdout, stderr, getenv)
+	case "routes":
+		return runRoutes(ctx, opts, args, stdout, getenv)
 	default:
 		return runEvidence(ctx, opts, args, stdout, stderr, getenv)
 	}
