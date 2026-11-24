@@ -2013,6 +2013,34 @@ button.block:hover { --ground: var(--o-surface-raised); }
 .work-tasks .strong { color: var(--o-ink-1); overflow-wrap: anywhere; }
 .work-proof { margin: 0; color: var(--o-ink-3); font: var(--o-type-small); }
 
+/* The steelman of a design: its budget's two cells in words, each discovery and closure pass, and the ledger of findings with
+   who decided each. */
+.design-steelman { display: grid; gap: var(--o-space-16); min-width: 0; max-width: var(--o-layout-read-measure-ch); }
+.design-steelman .budget { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--o-space-8); }
+.design-steelman .budget .stage { display: grid; gap: var(--o-space-4); min-width: 0; padding: var(--o-space-8) var(--o-space-12); border-top: var(--o-size-rail) solid var(--o-line-soft); color: var(--o-ink-3); }
+.design-steelman .budget .stage.now.live { border-top-color: var(--o-role-live); }
+.design-steelman .budget .stage.now.live .nm { color: var(--o-role-live); }
+.design-steelman .budget .stage.done .nm { color: var(--o-ink-2); }
+.design-steelman .budget .nm { color: var(--o-ink-2); font: var(--o-type-label); letter-spacing: var(--o-type-label-tracking); text-transform: uppercase; }
+.design-steelman .budget .ds { min-width: 0; color: var(--o-ink-2); font: var(--o-type-small); overflow-wrap: anywhere; }
+.design-steelman ol { display: grid; gap: var(--o-space-4); margin: 0; padding: 0; list-style: none; }
+.ss-passes { display: grid; gap: var(--o-space-8); min-width: 0; }
+.ss-pass { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--o-space-8); font: var(--o-type-small); color: var(--o-ink-2); }
+.ss-kind { color: var(--o-ink-1); font-weight: var(--o-font-weight-bold); }
+.ss-status { color: var(--o-ink-3); }
+.ss-ledger { display: grid; gap: var(--o-space-8); min-width: 0; }
+.ss-ledger .rest { color: var(--o-ink-3); font: var(--o-type-small); }
+.ss-item { display: grid; gap: var(--o-space-4); min-width: 0; padding: var(--o-space-8) var(--o-space-12); border-left: var(--o-size-rail) solid var(--o-line-soft); }
+.ss-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--o-space-4) var(--o-space-12); min-width: 0; }
+.ss-head code { color: var(--o-ink-3); font: var(--o-type-small); }
+.ss-impact { flex: 1 1 24ch; min-width: 0; color: var(--o-ink-1); overflow-wrap: anywhere; }
+.ss-who, .ss-why { margin: 0; color: var(--o-ink-2); font: var(--o-type-small); overflow-wrap: anywhere; }
+.ss-who { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--o-space-8); }
+.ss-fields { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: var(--o-space-4) var(--o-space-12); margin: 0; font: var(--o-type-small); color: var(--o-ink-2); }
+.ss-fields dt { color: var(--o-ink-3); }
+.ss-fields dd { min-width: 0; margin: 0; overflow-wrap: anywhere; }
+.ss-fields code { font: var(--o-type-small); }
+
 /* Reduced motion comes last, so it wins over the rules above: each move is one 100 ms linear step, a page drills and
    leaves by a fade, and the loops hold still. */
 @media (prefers-reduced-motion: reduce) {
