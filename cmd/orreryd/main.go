@@ -582,9 +582,9 @@ func serveRelay(opts options, home string, logger *slog.Logger, mirror *daemon.M
 // systemd READY=1 once the sessions have started, or once the store has opened when there are no sessions. With
 // --metrics-listen, the ready time is recorded just before READY=1. With a flight recorder, a start to READY over its
 // threshold writes a start trace once READY=1 is sent. Once the store is open, serve names each row that reads no host
-// as the controller's orrery name, before the sessions start; a naming or sessions start that fails stops serving and
-// returns its error. Once the store is open, serve also follows each hosts.toml host's panes into it (startHostFollows),
-// and stops the follows before the store closes.
+// as the controller's orrery name, before the sessions start; a naming, notices or sessions start that fails stops
+// serving and returns its error. Once the store is open, serve also follows each hosts.toml host's panes into it
+// (startHostFollows), and stops the follows before the store closes.
 func serve(ctx context.Context, opts options, logger *slog.Logger, getenv func(string) string) error {
 	host, orrery, err := controllerHost(opts, getenv)
 	if err != nil {
@@ -635,7 +635,6 @@ func serve(ctx context.Context, opts options, logger *slog.Logger, getenv func(s
 		Logger:     logger,
 	}, viewing), serveRelay(opts, home, logger, mirror))
 	router := hub.router
-	pageNotices := enginehost.NewPageNotices(pages, router, router, time.Now)
 	observe := func(transition daemon.Transition) { hub.observe(ctx, transition) }
 	// callerWake holds the caller-event wake once startSessions has returned the host, so the pane observer does nothing
 	// until then.
@@ -671,6 +670,8 @@ func serve(ctx context.Context, opts options, logger *slog.Logger, getenv func(s
 	hub.attachVerdicts(st)
 	// The host follows write each hosts.toml host's panes into the open store, and stop before the store closes.
 	stopFollows := startHostFollows(ctx, st, getenv, logger, hub)
+	pageNotices, pageErr := controllerPageNotices(pages, router, opts.orrery, time.Now, getenv)
+	startErr = errors.Join(startErr, pageErr)
 	var sessions *sessionHost
 	if startErr == nil && opts.sessions {
 		sessions, startErr = startSessions(ctx, opts, host, st, router, pageNotices, logger, getenv)
