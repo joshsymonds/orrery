@@ -132,8 +132,8 @@ func (d designsServer) List(
 	return connect.NewResponse(&orreryv1.DesignsListResponse{Designs: designs}), nil
 }
 
-// Get answers the design of the id List gave it, with the design's log oldest first. An id no design holds answers
-// not_found.
+// Get answers the design of the id List gave it, with the approaches the design's stage weighs, the choice of one
+// unset until one is stored, and the design's log, each oldest first. An id no design holds answers not_found.
 func (d designsServer) Get(
 	ctx context.Context,
 	req *connect.Request[orreryv1.DesignsGetRequest],
@@ -148,14 +148,66 @@ func (d designsServer) Get(
 	if err != nil {
 		return nil, designReadError(err, "read design")
 	}
+	approaches, err := d.reader.DesignApproaches(ctx, req.Msg.GetId())
+	if err != nil {
+		return nil, designReadError(err, "read design approaches")
+	}
+	var choice *orreryv1.DesignChoice
+	stored, err := d.reader.DesignApproachChoice(ctx, req.Msg.GetId())
+	switch {
+	case err == nil:
+		choice = designChoiceMessage(stored)
+	case !errors.Is(err, store.ErrNoApproachChoice):
+		return nil, designReadError(err, "read design choice")
+	}
 	lines, err := d.reader.DesignLog(ctx, req.Msg.GetId())
 	if err != nil {
 		return nil, designReadError(err, "read design log")
 	}
 	return connect.NewResponse(&orreryv1.DesignsGetResponse{
-		Design: designMessage(record),
-		Log:    designLogMessages(lines),
+		Design:     designMessage(record),
+		Approaches: designApproachMessages(approaches),
+		Choice:     choice,
+		Log:        designLogMessages(lines),
 	}), nil
+}
+
+// designApproachMessages converts each approach a design's stage weighs to its DesignApproach, in the order given.
+func designApproachMessages(approaches []store.DesignApproach) []*orreryv1.DesignApproach {
+	messages := make([]*orreryv1.DesignApproach, 0, len(approaches))
+	for _, approach := range approaches {
+		messages = append(messages, &orreryv1.DesignApproach{
+			Seq:         approach.Seq,
+			Name:        approach.Name,
+			Shape:       approach.Shape,
+			Cost:        approach.Cost,
+			Wins:        approach.Wins,
+			Loses:       approach.Loses,
+			Reconsider:  approach.Reconsider,
+			Research:    approach.Research,
+			Recommended: approach.Recommended,
+			Reason:      approach.Reason,
+			Time:        approach.At,
+		})
+	}
+	return messages
+}
+
+// designChoiceMessage converts the choice of an approach a design holds to its DesignChoice, with its maker as a
+// RecordMaker.
+func designChoiceMessage(choice store.ApproachChoice) *orreryv1.DesignChoice {
+	return &orreryv1.DesignChoice{
+		Approach: choice.Approach,
+		Words:    choice.Words,
+		Maker: &orreryv1.RecordMaker{
+			Kind:       choice.Maker,
+			Quote:      choice.Quote,
+			Reason:     choice.MakerReason,
+			Delegation: choice.Delegation,
+			Session:    choice.Session,
+		},
+		Time: choice.At,
+	}
 }
 
 // designLogMessages converts each line of a design's log to its DesignLogLine, in the order given.
