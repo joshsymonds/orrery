@@ -62,7 +62,12 @@ func TestReaderQueryPlans(t *testing.T) {
 		"RunningDesignSteps":   {"ListRunningDesignSteps"},
 		"DesignApproaches":     {"ListDesignApproaches"},
 		"DesignApproachChoice": {"ListDesignApproachChoices"},
-		"Close":                {},
+		"DesignDelegations": {
+			"ListDesignDelegations", "ListDesignQuestions", "ListDesignDispositions", "GetDesignClosureSkip",
+			"ListDesignApproachChoices", "GetDesign", "GetLoneContract", "ListDesignContracts", "ListDesignEdges",
+			"ListContractRowWrites", "ListContractStates",
+		},
+		"Close": {},
 	}
 	checkReaderMethodsListed(t, readerQueries)
 
