@@ -406,34 +406,67 @@ func stepAction(run store.NodeRun, rows Rows, position int64, step store.EpicRel
 
 // releaseReviewGate decides whether the release reviewers have held candidate, the candidate the first release step
 // starts from. Each enabled reviewer of the release stage, in merged order, reviews candidate once at this attempt, as its
-// step is started and recorded: a review that failed stops the release with its reason, and the next reviewer waits for
-// the one before it. A reviewer with no review starts (ActStep), waits while its step runs, or is recorded once its step
-// has ended. It holds when no release reviewer is enabled.
+// step is started and recorded: a review that failed is decided by reviewRefused, and the next reviewer waits for the one
+// before it. A reviewer with no review starts (ActStep), waits while its step runs, or is recorded once its step has
+// ended. It holds when no release reviewer is enabled.
 func releaseReviewGate(run store.NodeRun, rows Rows, candidate string) (Action, bool) {
 	generation := replacedCount(run.Attempt, rows.Releases)
 	gated := gatedRun(run, generation)
 	enabled := reviewers.ForStage(rows.Epic.Reviewers, reviewers.StageRelease)
 	for i, reviewer := range enabled {
 		position := releaseReviewPosition(generation, int64(len(enabled)), int64(i+1))
+		id := store.NodeWorkID(gated.ID, run.Attempt, "review "+reviewer.Name)
+		row, found := firstMatch(rows.Steps, func(s store.StepRow) bool { return s.ID == id })
 		review, ok := firstMatch(rows.Releases, func(r store.ReleaseRun) bool {
 			return r.Part == store.ReleasePartReview && r.Attempt == run.Attempt && r.Position == position
 		})
 		if ok {
 			if !review.Passed {
-				return Action{Kind: ActStop, Output: review.Reason}, false
+				return reviewRefused(rows, row, review, candidate), false
 			}
 			continue
 		}
-		id := store.NodeWorkID(gated.ID, run.Attempt, "review "+reviewer.Name)
 		items := []string{
 			store.ReleasePartReview, candidate, reviewer.Name, strconv.FormatInt(position, 10),
 		}
-		if row, found := firstMatch(rows.Steps, func(s store.StepRow) bool { return s.ID == id }); found {
+		if found {
 			return recordAction(row, items), false
 		}
 		return Action{Kind: ActStep, IDs: []string{id}, Items: items}, false
 	}
 	return Action{}, true
+}
+
+// reviewRefused decides the release whose reviewer, whose step is row, recorded review failed for candidate. A reviewer
+// that refused the candidate with findings (ReleaseRefusalClaims) sends the release back to planning as ActReplan: its
+// output and reason are the review's reason, and its items name the epic's branch tip the candidate was made from as the
+// replan's head. Once per tip: when an earlier replan already recorded that tip, the planner left the branch where it was,
+// and the release stops with the review's reason and a note saying so. Any other failed review stops it with its reason.
+func reviewRefused(rows Rows, row store.StepRow, review store.ReleaseRun, candidate string) Action {
+	tip, ok := candidateTip(rows.Releases, candidate)
+	if !ok || len(ReleaseRefusalClaims(row)) == 0 {
+		return Action{Kind: ActStop, Output: review.Reason}
+	}
+	if _, replanned := firstMatch(rows.Releases, func(r store.ReleaseRun) bool {
+		return r.Part == store.ReleasePartReplan && r.Head == tip
+	}); replanned {
+		return Action{Kind: ActStop, Output: review.Reason + "; the epic's branch has not moved since the last replan"}
+	}
+	return Action{
+		Kind: ActReplan, Output: review.Reason, Reason: review.Reason,
+		Items: []string{store.ReleasePartReplan, tip},
+	}
+}
+
+// candidateTip returns the epic's branch tip that the latest passed candidate run whose head is candidate was made
+// from, and false when no such run records one.
+func candidateTip(runs []store.ReleaseRun, candidate string) (string, bool) {
+	for _, run := range slices.Backward(runs) {
+		if run.Part == store.ReleasePartCandidate && run.Passed && run.Head == candidate {
+			return run.Start, run.Start != ""
+		}
+	}
+	return "", false
 }
 
 // releaseReviewPosition returns the position of the review run of the release reviewer at index, counted from 1 among the
