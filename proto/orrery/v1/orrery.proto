@@ -435,6 +435,10 @@ message StartRequest {
 
   // A client-chosen session id, 32 lowercase hex digits. A start that names an existing session's id returns it and starts nothing.
   string id = 4;
+
+  // The orrery name of the host the session starts on, a host hosts.toml names or the controller's own. Empty is the
+  // controller's.
+  string host = 5;
 }
 
 // StartResponse carries the id of the started session.
@@ -874,6 +878,9 @@ service Picker {
 
   // Run runs the action a token names, once.
   rpc Run(RunRequest) returns (RunResponse);
+
+  // Propose returns ranked host and folder proposals for a prompt over the reachable hosts.
+  rpc Propose(ProposeRequest) returns (ProposeResponse);
 }
 
 // Pools shows the pools orreryd runs, holds a member so no grant takes it, and frees a held member. serve forwards each
@@ -1553,6 +1560,27 @@ message RunRequest {
 message RunResponse {
   // The pane the run answered.
   string pane = 1;
+}
+
+// ProposeRequest asks for the host and folder proposals a prompt fits.
+message ProposeRequest {
+  // The prompt text the proposals are ranked against.
+  string text = 1;
+}
+
+// ProposeResponse carries the host and folder proposals for the prompt.
+message ProposeResponse {
+  // The proposals, best first.
+  repeated StartProposal proposals = 1;
+}
+
+// StartProposal is one host and folder a session could start in.
+message StartProposal {
+  // The orrery name of the host the session would start on.
+  string host = 1;
+
+  // The directory the session would run in, on that host.
+  string dir = 2;
 }
 
 // PoolsStatusRequest asks for the pools in use and the owner holds. It has no fields.

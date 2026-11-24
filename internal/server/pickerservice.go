@@ -70,6 +70,15 @@ func (s pickerServer) Run(
 	return connect.NewResponse(&v1.RunResponse{Pane: pane}), nil
 }
 
+// Propose answers Picker.Propose. It is unimplemented until the proposals are built, so a caller gets the Connect
+// unimplemented code rather than an empty answer.
+func (s pickerServer) Propose(
+	_ context.Context,
+	_ *connect.Request[v1.ProposeRequest],
+) (*connect.Response[v1.ProposeResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("picker propose is not implemented"))
+}
+
 // pickerRunError returns the Connect error of a Picker.Run failure. Its 409, no tmux server, is failed_precondition
 // as the table of docs/contract.md gives it; connectError answers every 409 as aborted, which is SendKeys' code.
 func pickerRunError(err error) *connect.Error {

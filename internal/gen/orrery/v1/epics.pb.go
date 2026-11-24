@@ -3303,7 +3303,9 @@ type Epic struct {
 	OpenQuestions int32 `protobuf:"varint,22,opt,name=open_questions,json=openQuestions,proto3" json:"open_questions,omitempty"`
 	// Whether a steering session hears the orreryd epic: it has a steerer whose session row exists and is not stopped.
 	// While one does, the epic's open questions are the steerer's to answer until it escalates them.
-	SteererHeard  bool `protobuf:"varint,23,opt,name=steerer_heard,json=steererHeard,proto3" json:"steerer_heard,omitempty"`
+	SteererHeard bool `protobuf:"varint,23,opt,name=steerer_heard,json=steererHeard,proto3" json:"steerer_heard,omitempty"`
+	// The orrery name of the host the epic lives on.
+	Host          string `protobuf:"bytes,24,opt,name=host,proto3" json:"host,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -3476,6 +3478,13 @@ func (x *Epic) GetSteererHeard() bool {
 		return x.SteererHeard
 	}
 	return false
+}
+
+func (x *Epic) GetHost() string {
+	if x != nil {
+		return x.Host
+	}
+	return ""
 }
 
 // EpicBuildTask is one task of an orreryd epic's plan, with its build.
@@ -4482,7 +4491,9 @@ type EpicStep struct {
 	// The step's summary, redacted.
 	Summary string `protobuf:"bytes,21,opt,name=summary,proto3" json:"summary,omitempty"`
 	// The step's done-judge verdicts.
-	Verdicts      []*EpicStepVerdict `protobuf:"bytes,22,rep,name=verdicts,proto3" json:"verdicts,omitempty"`
+	Verdicts []*EpicStepVerdict `protobuf:"bytes,22,rep,name=verdicts,proto3" json:"verdicts,omitempty"`
+	// The orrery name of the host the step lives on.
+	Host          string `protobuf:"bytes,23,opt,name=host,proto3" json:"host,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -4669,6 +4680,13 @@ func (x *EpicStep) GetVerdicts() []*EpicStepVerdict {
 		return x.Verdicts
 	}
 	return nil
+}
+
+func (x *EpicStep) GetHost() string {
+	if x != nil {
+		return x.Host
+	}
+	return ""
 }
 
 // EpicStepCheck is one check a step ran in one round.
@@ -6152,7 +6170,7 @@ const file_orrery_v1_epics_proto_rawDesc = "" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04kind\x18\x02 \x01(\tR\x04kind\x12\x0e\n" +
 	"\x02by\x18\x03 \x01(\tR\x02by\"\x14\n" +
-	"\x12EpicsCloseResponse\"\xef\x04\n" +
+	"\x12EpicsCloseResponse\"\x83\x05\n" +
 	"\x04Epic\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1e\n" +
 	"\n" +
@@ -6177,7 +6195,8 @@ const file_orrery_v1_epics_proto_rawDesc = "" +
 	"\fpause_source\x18\x14 \x01(\tR\vpauseSource\x12\x16\n" +
 	"\x06parked\x18\x15 \x01(\tR\x06parked\x12%\n" +
 	"\x0eopen_questions\x18\x16 \x01(\x05R\ropenQuestions\x12#\n" +
-	"\rsteerer_heard\x18\x17 \x01(\bR\fsteererHeardJ\x04\b\t\x10\n" +
+	"\rsteerer_heard\x18\x17 \x01(\bR\fsteererHeard\x12\x12\n" +
+	"\x04host\x18\x18 \x01(\tR\x04hostJ\x04\b\t\x10\n" +
 	"J\x04\b\v\x10\fJ\x04\b\f\x10\rR\aproblemR\x0eoutcome_detailR\awaiting\"\xbe\x02\n" +
 	"\rEpicBuildTask\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x14\n" +
@@ -6262,7 +6281,7 @@ const file_orrery_v1_epics_proto_rawDesc = "" +
 	"\ashipped\x18\x02 \x03(\tR\ashipped\x12\x1f\n" +
 	"\vnot_shipped\x18\x03 \x03(\tR\n" +
 	"notShipped\x12\x10\n" +
-	"\x03why\x18\x04 \x01(\tR\x03why\"\xe8\x04\n" +
+	"\x03why\x18\x04 \x01(\tR\x03why\"\xfc\x04\n" +
 	"\bEpicStep\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04task\x18\x02 \x01(\tR\x04task\x12\x14\n" +
@@ -6288,7 +6307,8 @@ const file_orrery_v1_epics_proto_rawDesc = "" +
 	"\tread_only\x18\x13 \x01(\bR\breadOnly\x12\x12\n" +
 	"\x04role\x18\x14 \x01(\tR\x04role\x12\x18\n" +
 	"\asummary\x18\x15 \x01(\tR\asummary\x126\n" +
-	"\bverdicts\x18\x16 \x03(\v2\x1a.orrery.v1.EpicStepVerdictR\bverdicts\"\xd3\x01\n" +
+	"\bverdicts\x18\x16 \x03(\v2\x1a.orrery.v1.EpicStepVerdictR\bverdicts\x12\x12\n" +
+	"\x04host\x18\x17 \x01(\tR\x04host\"\xd3\x01\n" +
 	"\rEpicStepCheck\x12\x14\n" +
 	"\x05round\x18\x01 \x01(\rR\x05round\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x0e\n" +

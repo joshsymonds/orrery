@@ -777,6 +777,9 @@ message Epic {
   // Whether a steering session hears the orreryd epic: it has a steerer whose session row exists and is not stopped.
   // While one does, the epic's open questions are the steerer's to answer until it escalates them.
   bool steerer_heard = 23;
+
+  // The orrery name of the host the epic lives on.
+  string host = 24;
 }
 
 // EpicBuildTask is one task of an orreryd epic's plan, with its build.
@@ -1090,6 +1093,9 @@ message EpicStep {
 
   // The step's done-judge verdicts.
   repeated EpicStepVerdict verdicts = 22;
+
+  // The orrery name of the host the step lives on.
+  string host = 23;
 }
 
 // EpicStepCheck is one check a step ran in one round.
