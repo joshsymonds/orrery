@@ -41,7 +41,7 @@ func environment(vars map[string]string) func(string) string {
 
 // TestGatewayRoutesSigV4SigningCredentialProfileReadsTheNamedSection reads each profile from the file the
 // AWS_SHARED_CREDENTIALS_FILE variable names: the named profile's own key pair and session token come back, never a
-// neighbouring profile's, and a profile with no session token has an empty one.
+// neighboring profile's, and a profile with no session token has an empty one.
 func TestGatewayRoutesSigV4SigningCredentialProfileReadsTheNamedSection(t *testing.T) {
 	t.Parallel()
 

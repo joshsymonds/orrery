@@ -35,7 +35,7 @@ func LoadCredentials(profile string, getenv func(string) string) (Credentials, e
 		return Credentials{}, err
 	}
 
-	document, err := os.ReadFile(path)
+	document, err := os.ReadFile(path) //nolint:gosec // operator-configured path, not request input
 	if err != nil {
 		return Credentials{}, fmt.Errorf("read aws credentials for profile %q: %w", profile, err)
 	}
