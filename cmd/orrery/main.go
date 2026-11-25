@@ -2,7 +2,8 @@
 // and the dispatch of each subcommand. It handles serve, desk, mcp, epic, contract, run, gate, evidence, hold, step,
 // holder, help and tmux-conf itself, and the tmux commands open, debug, shell and tree, which act on the tmux server
 // the global flags name. hook runs internal/hook, and events, notices, session, list, seen and send run their handlers
-// in internal/cli. routes imports a routes file through orreryd.
+// in internal/cli. routes imports a routes file through orreryd. release-step is orreryd's, not the owner's: it runs
+// internal/releasestep, which carries out a built-in release step under a holder.
 package main
 
 import (
@@ -40,6 +41,7 @@ import (
 	"github.com/joshsymonds/orrery/internal/picker"
 	"github.com/joshsymonds/orrery/internal/protocol"
 	"github.com/joshsymonds/orrery/internal/push"
+	"github.com/joshsymonds/orrery/internal/releasestep"
 	"github.com/joshsymonds/orrery/internal/server"
 	"github.com/joshsymonds/orrery/internal/shell"
 	"github.com/joshsymonds/orrery/internal/stepmcp"
@@ -178,6 +180,10 @@ subcommands:
                                                 serve the HTTP API on a loopback address until SIGINT or SIGTERM
                                                 with --metrics-listen, also /metrics on a second loopback address
   gateway [--listen ADDR]                       serve the Claude gateway on loopback ADDR until SIGINT or SIGTERM
+  release-step KIND -candidate SHA [FLAGS] [-- RUN...]
+                                                orreryd's: carry out the built-in release step KIND (push-main,
+                                                tag, pin-flake or update) at SHA in this worktree; exits 0 only
+                                                when its postcondition holds, with the facts that show it on stdout
 `
 
 // usageError is a command line refused before any work. It exits 2 and prints the usage text.
@@ -305,13 +311,27 @@ func dispatch(ctx context.Context, opts globals, rest []string, stdin *os.File, 
 		return orreryCommand(ctx, opts, name, args, stdin, stdout, stderr, getenv)
 	case "hold", "step":
 		return runOwnerAction(ctx, opts, name, args, stdout, stderr, getenv)
-	case "holder":
-		return runHolder(ctx, args, stderr, getenv)
+	case "holder", releasestep.Command:
+		return orrerydCommand(ctx, name, args, stdout, stderr, getenv)
 	case "session":
 		return runSession(ctx, opts, args, stdout, getenv)
 	default:
 		return dispatchTmux(ctx, opts, name, args, stdin, stdout, getenv)
 	}
+}
+
+// orrerydCommand runs a subcommand orreryd runs, not the owner: holder runs a session's held child and serves its
+// holder socket, and release-step carries out a built-in release step and exits by its postcondition with the status
+// releasestep.Main returns.
+func orrerydCommand(ctx context.Context, name string, args []string, stdout, stderr io.Writer,
+	getenv func(string) string) error {
+	if name == "holder" {
+		return runHolder(ctx, args, stderr, getenv)
+	}
+	if code := releasestep.Main(ctx, args, stdout, stderr); code != exitOK {
+		return statusError{code: code}
+	}
+	return nil
 }
 
 // dispatchTmux runs the subcommand named name when it works on the tmux server named by opts, and refuses any other

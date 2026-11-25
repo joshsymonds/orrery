@@ -597,6 +597,13 @@ linters:
           - gosec
         text: 'G204'
 
+      # A built-in release step's machine runs nix, systemctl and the update step's configured run argv with argv and
+      # no shell, so the G204 finding is the intended design, as for hoststatus.
+      - path: 'internal/releasestep/machine\.go'
+        linters:
+          - gosec
+        text: 'G204'
+
 run:
   timeout: 5m
   concurrency: 0
