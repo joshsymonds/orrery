@@ -28,10 +28,13 @@ import io.github.joshsymonds.orrery.ui.theme.OrreryTokens
 /**
  * A conversation's title row, after round 6's touch title row: back, then the project's name as the inbox draws a
  * project's name (the machine band under the row names the host), over the title in bold body type, one step down from the title type, cut short at its second
- * line, then the bare context meter when there is a figure, and More. The bare meter names the context and its tokens
+ * line, then the bare context meter when there is a figure, then the usage readout when there is one, and More. The bare meter names the context and its tokens
  * of the window to the reader, as the web's tooltip does. It draws no Orrery icon and no count. More opens a menu
  * holding Find and Hide the header. The conversation's [work] links draw on the project's line, after the project's name.
  * A non-empty [note] draws under the row, in the crit colour.
+ *
+ * [usage] is the conversation's list cost in nano US dollars, which the readout draws as "usage $x.xx"; null draws no
+ * readout. A tap on the readout calls [onUsage]. The row draws the readout open or folded alike.
  */
 @Composable
 internal fun HeadTitleRow(
@@ -49,6 +52,8 @@ internal fun HeadTitleRow(
     workLit: String? = null,
     onOpenWork: (WorkLink) -> Unit = {},
     onAllWork: () -> Unit = {},
+    usage: Long? = null,
+    onUsage: () -> Unit = {},
 ) {
     Column(
         modifier = Modifier
@@ -94,6 +99,15 @@ internal fun HeadTitleRow(
                 Text(
                     text = buildAnnotatedString { withStyle(SpanStyle(color = meter.color)) { append(meter.text) } },
                     modifier = Modifier.testTag("head-context").semantics { contentDescription = meter.words },
+                    style = OrreryTokens.Type.small,
+                    maxLines = 1,
+                )
+            }
+            usage?.let { list ->
+                Text(
+                    text = "usage ${dollars(list)}",
+                    modifier = Modifier.testTag("head-usage").clickable(onClick = onUsage),
+                    color = OrreryTokens.Ink.two,
                     style = OrreryTokens.Type.small,
                     maxLines = 1,
                 )

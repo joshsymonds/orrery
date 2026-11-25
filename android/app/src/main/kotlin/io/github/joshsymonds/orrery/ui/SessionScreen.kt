@@ -309,6 +309,8 @@ fun SessionScreen(
     val held = streamed
     val conversation = held?.conversation
     val pane = held?.pane
+    // The session's usage: read as the screen opens and again when its turn ends, and drawn by the head's title row.
+    val usage = rememberSessionUsage(client, sessionId, pane?.state.orEmpty())
     val stepEpic = step?.epic.orEmpty()
     LaunchedEffect(stepEpic, pane?.state) {
         if (stepEpic.isNotEmpty()) {
@@ -479,6 +481,8 @@ fun SessionScreen(
                         workLit = workLit,
                         onOpenWork = openWork,
                         onAllWork = openAllWork,
+                        usage = usage.readout,
+                        onUsage = { usage.open = true },
                         modifier = Modifier.fillMaxWidth().background(OrreryTokens.Surface.page),
                     )
                 }
@@ -608,5 +612,6 @@ fun SessionScreen(
                 onDismiss = { taskList = null },
             )
         }
+        usage.SheetIfOpen()
     }
 }
