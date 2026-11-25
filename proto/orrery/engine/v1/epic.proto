@@ -1209,18 +1209,27 @@ message EpicAction {
   string to = 7;
 }
 
-// EpicReleaseRun is one release run of an epic: the candidate it starts from, a release step, a named step, or the judge.
+// EpicReleaseRun is one release run of an epic: one record of its candidate, a release step, the judge, a named step,
+// a stale candidate, a round of the release integrator, a replan, a release review or rereview, or the owner's stop.
 message EpicReleaseRun {
-  // The run's part: candidate, release, judge or named.
+  // The run's part: candidate, the candidate the release starts from; release, a release step; judge, the judge's
+  // verdict; named, a release step the owner named to run again; verify, a candidate origin's main was found not in;
+  // integrator, a round of the release integrator; replan, a send back to planning for a change to the candidate;
+  // review, whether a release reviewer held the candidate; rereview, a release reviewer that reviews a candidate
+  // prepared again with the change since the one it last read; or stop, the owner's stop of the release.
   string part = 1;
 
-  // The run's position within its part, from 1.
+  // The run's position within its part and attempt: the release step's position, from 1, for release and named; 0 for
+  // the judge, a replan and a stop; the number of the attempt's earlier runs of the part for candidate and verify;
+  // 3 * generation + 1 for a round of the release integrator; and generation * n + index for a review or a rereview by
+  // reviewer index, from 1, of the n enabled release reviewers.
   int64 position = 2;
 
-  // The attempt of the release node run the run was recorded under.
+  // The attempt of the release node run the run was recorded under, counted from 0.
   int64 attempt = 3;
 
-  // The release step the run is for.
+  // The release step the run is for, the release reviewer of a review or a rereview, or the step that recorded a round
+  // of the release integrator or a replan.
   string step = 4;
 
   // The revision the run started at.
@@ -1229,7 +1238,8 @@ message EpicReleaseRun {
   // The revision the run recorded as its head.
   string head = 6;
 
-  // The end of the run's step, such as done or failed: a release step's or the judge's.
+  // The end of the run's step, such as done or failed; carried for a review the release integrator carried from the
+  // candidate the reviewer last read; empty when it has none.
   string end = 7;
 
   // The commits the run made, in order.

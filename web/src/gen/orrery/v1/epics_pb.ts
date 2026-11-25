@@ -2388,28 +2388,36 @@ export const EpicClosureSchema: GenMessage<EpicClosure> = /*@__PURE__*/
  */
 export type EpicReleaseRun = Message<"orrery.v1.EpicReleaseRun"> & {
   /**
-   * The part the run belongs to: candidate, release, judge or named.
+   * The part the run belongs to: candidate, the candidate the release starts from; release, a release step; judge, the
+   * judge's verdict; named, a release step the owner named to run again; verify, a candidate origin's main was found
+   * not in; integrator, a round of the release integrator; replan, a send back to planning for a change to the
+   * candidate; review, whether a release reviewer held the candidate; rereview, a release reviewer that reviews a
+   * candidate prepared again with the change since the one it last read; or stop, the owner's stop of the release.
    *
    * @generated from field: string part = 1;
    */
   part: string;
 
   /**
-   * The run's position within its part and attempt, counted from 1.
+   * The run's position within its part and attempt: the release step's position, from 1, for release and named; 0 for
+   * the judge, a replan and a stop; the number of the attempt's earlier runs of the part for candidate and verify;
+   * 3 * generation + 1 for a round of the release integrator; and generation * n + index for a review or a rereview by
+   * reviewer index, from 1, of the n enabled release reviewers.
    *
    * @generated from field: int64 position = 2;
    */
   position: bigint;
 
   /**
-   * The attempt the run belongs to, counted from 1.
+   * The attempt the run belongs to, counted from 0.
    *
    * @generated from field: int64 attempt = 3;
    */
   attempt: bigint;
 
   /**
-   * The release step the run is for.
+   * The release step the run is for, the release reviewer of a review or a rereview, or the step that recorded a round
+   * of the release integrator or a replan.
    *
    * @generated from field: string step = 4;
    */
@@ -2430,7 +2438,8 @@ export type EpicReleaseRun = Message<"orrery.v1.EpicReleaseRun"> & {
   head: string;
 
   /**
-   * The end of the run's step, such as done or failed; empty when it has none.
+   * The end of the run's step, such as done or failed; carried for a review the release integrator carried from the
+   * candidate the reviewer last read; empty when it has none.
    *
    * @generated from field: string end = 7;
    */

@@ -12,7 +12,11 @@ public interface EpicReleaseRunOrBuilder extends
 
   /**
    * <pre>
-   * The part the run belongs to: candidate, release, judge or named.
+   * The part the run belongs to: candidate, the candidate the release starts from; release, a release step; judge, the
+   * judge's verdict; named, a release step the owner named to run again; verify, a candidate origin's main was found
+   * not in; integrator, a round of the release integrator; replan, a send back to planning for a change to the
+   * candidate; review, whether a release reviewer held the candidate; rereview, a release reviewer that reviews a
+   * candidate prepared again with the change since the one it last read; or stop, the owner's stop of the release.
    * </pre>
    *
    * <code>string part = 1 [json_name = "part"];</code>
@@ -21,7 +25,11 @@ public interface EpicReleaseRunOrBuilder extends
   java.lang.String getPart();
   /**
    * <pre>
-   * The part the run belongs to: candidate, release, judge or named.
+   * The part the run belongs to: candidate, the candidate the release starts from; release, a release step; judge, the
+   * judge's verdict; named, a release step the owner named to run again; verify, a candidate origin's main was found
+   * not in; integrator, a round of the release integrator; replan, a send back to planning for a change to the
+   * candidate; review, whether a release reviewer held the candidate; rereview, a release reviewer that reviews a
+   * candidate prepared again with the change since the one it last read; or stop, the owner's stop of the release.
    * </pre>
    *
    * <code>string part = 1 [json_name = "part"];</code>
@@ -32,7 +40,10 @@ public interface EpicReleaseRunOrBuilder extends
 
   /**
    * <pre>
-   * The run's position within its part and attempt, counted from 1.
+   * The run's position within its part and attempt: the release step's position, from 1, for release and named; 0 for
+   * the judge, a replan and a stop; the number of the attempt's earlier runs of the part for candidate and verify;
+   * 3 * generation + 1 for a round of the release integrator; and generation * n + index for a review or a rereview by
+   * reviewer index, from 1, of the n enabled release reviewers.
    * </pre>
    *
    * <code>int64 position = 2 [json_name = "position"];</code>
@@ -42,7 +53,7 @@ public interface EpicReleaseRunOrBuilder extends
 
   /**
    * <pre>
-   * The attempt the run belongs to, counted from 1.
+   * The attempt the run belongs to, counted from 0.
    * </pre>
    *
    * <code>int64 attempt = 3 [json_name = "attempt"];</code>
@@ -52,7 +63,8 @@ public interface EpicReleaseRunOrBuilder extends
 
   /**
    * <pre>
-   * The release step the run is for.
+   * The release step the run is for, the release reviewer of a review or a rereview, or the step that recorded a round
+   * of the release integrator or a replan.
    * </pre>
    *
    * <code>string step = 4 [json_name = "step"];</code>
@@ -61,7 +73,8 @@ public interface EpicReleaseRunOrBuilder extends
   java.lang.String getStep();
   /**
    * <pre>
-   * The release step the run is for.
+   * The release step the run is for, the release reviewer of a review or a rereview, or the step that recorded a round
+   * of the release integrator or a replan.
    * </pre>
    *
    * <code>string step = 4 [json_name = "step"];</code>
@@ -112,7 +125,8 @@ public interface EpicReleaseRunOrBuilder extends
 
   /**
    * <pre>
-   * The end of the run's step, such as done or failed; empty when it has none.
+   * The end of the run's step, such as done or failed; carried for a review the release integrator carried from the
+   * candidate the reviewer last read; empty when it has none.
    * </pre>
    *
    * <code>string end = 7 [json_name = "end"];</code>
@@ -121,7 +135,8 @@ public interface EpicReleaseRunOrBuilder extends
   java.lang.String getEnd();
   /**
    * <pre>
-   * The end of the run's step, such as done or failed; empty when it has none.
+   * The end of the run's step, such as done or failed; carried for a review the release integrator carried from the
+   * candidate the reviewer last read; empty when it has none.
    * </pre>
    *
    * <code>string end = 7 [json_name = "end"];</code>
