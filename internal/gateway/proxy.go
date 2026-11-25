@@ -104,10 +104,20 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// An account pin is judged before the seat is served, so that a pin no loopback peer makes, or one that names no
-	// stored account or a seat other than forward, is refused before anything is sent upstream.
+	// stored account or a seat other than forward, is refused before anything is sent upstream. A refused pin is empty,
+	// so the request is recorded under its context's account.
 	pin, pinRefused := pinnedToken(r, res.Seat, snap.AccountTokens)
+
+	// A request that resolved to its seat is recorded in the ledger, including one the gateway refuses below: its row is
+	// started before anything is sent upstream, and finished once the answer is served. The answer goes through capture,
+	// which keeps it so that its usage can be read.
+	ledgerCtx := context.WithoutCancel(r.Context())
+	rec := g.startRecord(ledgerCtx, r.Header, body, res, pin)
+	capture := &answerCapture{ResponseWriter: w}
+	defer g.finishRecord(ledgerCtx, rec, capture)
+
 	if pinRefused != nil {
-		g.abort(r.Context(), w, pinRefused.status, pinRefused.errType, pinRefused.message, pinRefused.err)
+		g.abort(r.Context(), capture, pinRefused.status, pinRefused.errType, pinRefused.message, pinRefused.err)
 		return
 	}
 
@@ -115,18 +125,10 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// is read or sent upstream. A forward seat spends the caller's own credential and needs no key.
 	if res.Seat.AuthMode != llmroutes.AuthForward {
 		if keyErr := g.checkCallerKey(r); keyErr != nil {
-			g.abort(r.Context(), w, http.StatusUnauthorized, errorTypeAuthentication, msgCallerKeyRefused, keyErr)
+			g.abort(r.Context(), capture, http.StatusUnauthorized, errorTypeAuthentication, msgCallerKeyRefused, keyErr)
 			return
 		}
 	}
-
-	// A request that reaches its seat is recorded in the ledger: its row is started before the seat serves it, and
-	// finished once the answer is served, whether that answer came from upstream or is the gateway's own refusal. The
-	// seat answers through capture, which keeps the answer so that its usage can be read.
-	ledgerCtx := context.WithoutCancel(r.Context())
-	rec := g.startRecord(ledgerCtx, r.Header, body, res, pin)
-	capture := &answerCapture{ResponseWriter: w}
-	defer g.finishRecord(ledgerCtx, rec, capture)
 
 	switch res.Seat.AuthMode {
 	case llmroutes.AuthForward:

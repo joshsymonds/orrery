@@ -666,35 +666,61 @@ func TestGatewayLedgerUnreachableUpstreamIsFinished(t *testing.T) {
 	}
 }
 
-func TestGatewayLedgerRefusedBeforeDispatchWritesNoRow(t *testing.T) {
+func TestGatewayLedgerRefusedBeforeResolutionWritesNoRow(t *testing.T) {
+	t.Parallel()
+
+	recorder := &recordingLedger{}
+	fake := newFakeAnthropic(t, ledgerAnswer(t, http.StatusOK, nil, upstreamReply))
+	gw := newLedgerGateway(t, ledgerRoutes(nil), fake.url(), recorder, newLedgerClock(), discardLogger())
+
+	rec := httptest.NewRecorder()
+	gw.ServeHTTP(rec, newProxyRequest(t, http.MethodPost, "/ctx/missing/v1/messages",
+		ledgerBody(t, ledgerUnboundModel, "")))
+
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("status = %d; want 404 for a context the registry does not define", rec.Code)
+	}
+	if starts := recorder.startsSeen(); len(starts) != 0 {
+		t.Errorf("the ledger was given %d Starts; want none for a request refused before resolution", len(starts))
+	}
+	if finishes := recorder.finishesSeen(); len(finishes) != 0 {
+		t.Errorf("the ledger was given %d Finishes; want none for a request refused before resolution", len(finishes))
+	}
+	requireNoUpstream(t, fake)
+}
+
+func TestGatewayLedgerRefusedAfterResolutionIsFinished(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
-		path       string
-		body       string
-		headers    map[string]string
-		wantStatus int
+		name        string
+		path        string
+		model       string
+		headers     map[string]string
+		wantStatus  int
+		wantAccount string
+		wantSeat    string
+		wantContext string
 	}{
 		{
-			name:       "context the registry does not define",
-			path:       "/ctx/missing/v1/messages",
-			body:       ledgerBody(t, ledgerUnboundModel, ""),
-			wantStatus: http.StatusNotFound,
+			// httptest's default peer is not a loopback address, so the pin is refused, and the request is recorded under
+			// its context's account, since the pin did not apply.
+			name:        "account pin from off the machine",
+			path:        "/ctx/work/v1/messages",
+			model:       ledgerUnboundModel,
+			headers:     map[string]string{ledgerPinHeader: ledgerPinnedAccount},
+			wantStatus:  http.StatusForbidden,
+			wantAccount: ledgerContextAccount,
+			wantSeat:    "alpha",
+			wantContext: "work",
 		},
 		{
-			// httptest's default peer is not a loopback address, so the pin is refused.
-			name:       "account pin from off the machine",
-			path:       "/ctx/work/v1/messages",
-			body:       ledgerBody(t, ledgerUnboundModel, ""),
-			headers:    map[string]string{ledgerPinHeader: ledgerPinnedAccount},
-			wantStatus: http.StatusForbidden,
-		},
-		{
-			name:       "inject seat without the caller key",
-			path:       "/v1/messages",
-			body:       ledgerBody(t, ledgerInjectModel, ""),
-			wantStatus: http.StatusUnauthorized,
+			name:        "inject seat without the caller key",
+			path:        "/v1/messages",
+			model:       ledgerInjectModel,
+			wantStatus:  http.StatusUnauthorized,
+			wantSeat:    "delta",
+			wantContext: "main",
 		},
 	}
 	for _, tc := range tests {
@@ -706,7 +732,7 @@ func TestGatewayLedgerRefusedBeforeDispatchWritesNoRow(t *testing.T) {
 			routes := ledgerRoutes(map[string]string{ledgerPinnedAccount: ledgerPinnedGrant})
 			gw := newLedgerGateway(t, routes, fake.url(), recorder, newLedgerClock(), discardLogger())
 
-			req := newProxyRequest(t, http.MethodPost, tc.path, tc.body)
+			req := newProxyRequest(t, http.MethodPost, tc.path, ledgerBody(t, tc.model, ""))
 			for name, value := range tc.headers {
 				req.Header.Set(name, value)
 			}
@@ -716,14 +742,16 @@ func TestGatewayLedgerRefusedBeforeDispatchWritesNoRow(t *testing.T) {
 			if rec.Code != tc.wantStatus {
 				t.Errorf("status = %d; want %d", rec.Code, tc.wantStatus)
 			}
-			if starts := recorder.startsSeen(); len(starts) != 0 {
-				t.Errorf("the ledger was given %d Starts; want none for a request refused before its seat", len(starts))
+			start, finished := requireOneStartAndFinish(t, recorder)
+			if start.Account != tc.wantAccount {
+				t.Errorf("Start.Account = %q; want %q", start.Account, tc.wantAccount)
 			}
-			if finishes := recorder.finishesSeen(); len(finishes) != 0 {
-				t.Errorf(
-					"the ledger was given %d Finishes; want none for a request refused before its seat",
-					len(finishes),
-				)
+			if start.Seat != tc.wantSeat || start.Context != tc.wantContext {
+				t.Errorf("Start seat %q context %q; want %q %q", start.Seat, start.Context, tc.wantSeat, tc.wantContext)
+			}
+			if finished.finish.InputTokens != 0 || finished.finish.OutputTokens != 0 {
+				t.Errorf("tokens input=%d output=%d; want none, as the gateway answered without an upstream",
+					finished.finish.InputTokens, finished.finish.OutputTokens)
 			}
 			requireNoUpstream(t, fake)
 		})
