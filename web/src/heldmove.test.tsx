@@ -321,16 +321,6 @@ test("PaneMotion motion: every rule that animates a [data-move] selector is insi
   }
 });
 
-test("PaneMotion motion: the card's rising keyframes start at scale(0.5, 0.2) and var(--o-distance-rise)", () => {
-  const rise = dataMoveRules.find((rule) => rule.selector.startsWith(".held-card") && rule.body.includes("animation: held-rise"));
-  assert.ok(rise !== undefined, "the card rises by its held-rise keyframes");
-  const name = rise.body.match(/animation: ([\w-]+)/)?.[1];
-  const from = rules.find((candidate) => candidate.within[candidate.within.length - 1] === `@keyframes ${name}` && candidate.selector === "from");
-  assert.ok(from !== undefined, `style.css has the from frame of ${name}`);
-  assert.ok(from.body.includes("scale(0.5, 0.2)"), "the card starts at scale(0.5, 0.2)");
-  assert.ok(from.body.includes("var(--o-distance-rise)"), "the card starts var(--o-distance-rise) toward its row");
-});
-
 // normalized is a selector with each run of whitespace made one space, since the sheet breaks its selector lines.
 function normalized(selector: string): string {
   return selector.replace(/\s+/g, " ");
@@ -376,7 +366,7 @@ const cardFolding = '.held-card:is([data-move="close"], [data-move="leave"])';
 const sheetUnfolding = '.held-sheet[data-move="open"]';
 const sheetFolding = '.held-sheet:is([data-move="close"], [data-move="leave"])';
 
-test("RiseBolder motion: the card rises from scale(0.5, 0.2) and var(--o-distance-rise) toward its row, and is solid 30% of the way in", () => {
+test("PaneMotion RiseBolder motion: the card rises from scale(0.5, 0.2) and var(--o-distance-rise) toward its row, and is solid 30% of the way in", () => {
   const rise = ruleOf(cardRising);
   assert.equal(keyframesOf(rise), "held-rise", "the card rises by the held-rise keyframes");
   const from = frameOf("held-rise", "from");
