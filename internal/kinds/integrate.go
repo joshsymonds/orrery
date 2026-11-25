@@ -216,8 +216,7 @@ func roundStep(run store.NodeRun, rows Rows, seq, round int64, previous string) 
 // id of the round's own. A failure ends the round as TaskFail, its detail as the Output the next round reads. Once they
 // all pass, the round composes its task (TaskCompose).
 func roundChecks(run store.NodeRun, rows Rows, seq, round int64, record store.IntegrateRound) (Action, bool) {
-	checked := run
-	checked.ID = fmt.Sprintf("%s-task-%d-%d", run.ID, seq, round)
+	checked := roundRun(run, seq, round)
 	checked.Revision = record.Head
 	failure, previous, act, settled := mergedChecks(checked, rows)
 	switch {
@@ -232,6 +231,14 @@ func roundChecks(run store.NodeRun, rows Rows, seq, round int64, record store.In
 	return Action{
 		Kind: ActTaskIntegrator, Items: []string{TaskCompose, roundItem(round), record.Head}, Tasks: []int64{seq},
 	}, false
+}
+
+// roundRun returns the run that round of the task integrator of the conflicting task seq checks its merged commit
+// under: run with an id of the round's own, so the round's Done gates and captures have ids of their own.
+func roundRun(run store.NodeRun, seq, round int64) store.NodeRun {
+	checked := run
+	checked.ID = fmt.Sprintf("%s-task-%d-%d", run.ID, seq, round)
+	return checked
 }
 
 // mergedChecks walks the epic's Done gates and then the captures of every Requirement that names an evidence item at the
@@ -412,8 +419,7 @@ func doneGates(run store.NodeRun, rows Rows) (failedGate, Action, bool) {
 func gateCheck(
 	run store.NodeRun, i int, gate string, rows Rows,
 ) (store.NodeCheck, chainEnd, Action, bool) {
-	part := fmt.Sprintf("done %d", i+1)
-	check, end := checkChain(run, rows, part, true, true)
+	check, end := checkChain(run, rows, donePart(i), true, true)
 	switch end.outcome {
 	case chainNone:
 		return store.NodeCheck{}, end, Action{Kind: ActStart, IDs: []string{end.id}, Items: []string{gate}}, false
@@ -435,6 +441,12 @@ func gateCheck(
 		return check, end, Action{}, true
 	}
 	return check, end, Action{}, true
+}
+
+// donePart returns the part of a node run's work the check of the Done gate at index i runs under: done and the gate's
+// place among the epic's Done gates, counted from 1.
+func donePart(i int) string {
+	return fmt.Sprintf("done %d", i+1)
 }
 
 // checkPassed reports whether a check ran, exited 0 and did not time out.

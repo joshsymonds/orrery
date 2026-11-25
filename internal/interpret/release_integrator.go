@@ -804,11 +804,13 @@ func cutText(text string, limit int) string {
 	return text[:cut] + ellipsis
 }
 
-// ReadoptCheck returns the return check a re-adopted release integrator step row is restored with: the check its start
-// gave it, rebuilt from the running release run the row's Task label names and the Result that run recorded, whether
-// that merge conflicts or not. Any other row gets a nil check. A release run that is not running, or whose Result
-// merges no origin commit into the row's revision, is an error, so the row is not re-adopted. The check's git runs on
-// the host the row's epic names in hosts.
+// ReadoptCheck returns the return check a re-adopted step row of the interpreter is restored with: the check its start
+// gave it. A release integrator step's is rebuilt from the running release run the row's Task label names and the
+// Result that run recorded, whether that merge conflicts or not, and its git runs on the host the row's epic names in
+// hosts. A gate triage step's is kinds.TriageFailures against the check it triages, read from the store as its start
+// read it (readoptTriageCheck). Any other row gets a nil check. A release run that is not running, a Result that merges
+// no origin commit into the row's revision, and a triage step whose check is not stored are errors, so the row is not
+// re-adopted.
 func ReadoptCheck(
 	epics interface {
 		EpicFlow(ctx context.Context, id string) (store.EpicFlow, error)
@@ -816,6 +818,9 @@ func ReadoptCheck(
 	hosts hostexec.Hosts,
 ) func(ctx context.Context, row store.StepRow) (func(json.RawMessage) []string, error) {
 	return func(ctx context.Context, row store.StepRow) (func(json.RawMessage) []string, error) {
+		if row.Schema == TriageSchema {
+			return readoptTriageCheck(ctx, epics, row)
+		}
 		if row.Schema != IntegratorSchema {
 			return nil, nil
 		}

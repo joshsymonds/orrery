@@ -97,6 +97,32 @@ func (r *Runner) startTriage(ctx context.Context, epic store.EpicRow, act Action
 	return nil
 }
 
+// readoptTriageCheck returns the return check of row, a gate triage step re-adopted after a restart: kinds.TriageFailures
+// against the check it triages, as startTriage gave it, so a quote that the check's tails and key lines do not hold is
+// sent back as it is for a step that never restarted. The check is the one of the node run the row's Task label names
+// whose triage step has the row's id (kinds.TriagedCheck), read from the row's epic. A check that cannot be found is an
+// error.
+func readoptTriageCheck(
+	ctx context.Context,
+	epics interface {
+		EpicFlow(ctx context.Context, id string) (store.EpicFlow, error)
+	},
+	row store.StepRow,
+) (func(json.RawMessage) []string, error) {
+	flow, err := epics.EpicFlow(ctx, row.Epic)
+	if err != nil {
+		return nil, fmt.Errorf("read epic %s: %w", row.Epic, err)
+	}
+	id, found := kinds.TriagedCheck(flowRows(flow), row.Task, row.ID)
+	if !found {
+		return nil, fmt.Errorf("triage step %s of epic %s triages no check of node run %s", row.ID, row.Epic, row.Task)
+	}
+	check, _ := checkOf(flow.Checks, id)
+	return func(value json.RawMessage) []string {
+		return kinds.TriageFailures(check, value)
+	}, nil
+}
+
 // recordTriage records the triage act names once its step has ended, as kinds.JudgeTriage judges the step's row against
 // the triaged check, within the verdicts a rerun may still follow, the action's items after its mode and gate.
 func (r *Runner) recordTriage(ctx context.Context, epic store.EpicRow, act Action, at time.Time) error {

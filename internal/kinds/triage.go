@@ -43,6 +43,60 @@ func triageWork(work string) string {
 	return "triage " + work
 }
 
+// TriagedCheck returns the id of the check that the triage step with id step judges, among the checks of the node run
+// at path in rows, and whether there is one: the check of a gate or command run, a Done gate of an integrate run, or a
+// Done gate of one of its task integrator rounds, at its first run or any stored rerun of it, at the run's attempt. A
+// triage step's id is NodeWorkID of the work triageWork names for its check's work, so the check is found by the ids
+// of the stored checks those works name. A step that triages no stored check of the run names none.
+func TriagedCheck(rows Rows, path, step string) (string, bool) {
+	parts := make([]string, 0, 1+len(rows.Epic.DoneGates))
+	parts = append(parts, checkPart)
+	for i := range rows.Epic.DoneGates {
+		parts = append(parts, donePart(i))
+	}
+	for _, run := range rows.Runs {
+		if run.Path != path {
+			continue
+		}
+		for _, checked := range triagedRuns(run, rows.Rounds) {
+			if id, found := triagedPart(checked, parts, rows.Checks, step); found {
+				return id, true
+			}
+		}
+	}
+	return "", false
+}
+
+// triagedRuns returns the runs whose checks a triage of the node run run may judge: run itself, and the run each of its
+// recorded task integrator rounds at its attempt checks its merged commit under (roundRun).
+func triagedRuns(run store.NodeRun, rounds []store.IntegrateRound) []store.NodeRun {
+	runs := []store.NodeRun{run}
+	for _, record := range rounds {
+		if record.Path == run.Path && record.Attempt == run.Attempt {
+			runs = append(runs, roundRun(run, record.Task, record.Round))
+		}
+	}
+	return runs
+}
+
+// triagedPart returns the id of the check of one of parts of run, at its first run or a rerun of it stored among checks,
+// whose triage step has the id step, and whether there is one.
+func triagedPart(run store.NodeRun, parts []string, checks []store.NodeCheck, step string) (string, bool) {
+	for _, part := range parts {
+		for k := 0; ; k++ {
+			work := runWork(part, k)
+			id := store.NodeWorkID(run.ID, run.Attempt, work)
+			if _, stored := checkByID(checks, id); !stored {
+				break
+			}
+			if store.NodeWorkID(run.ID, run.Attempt, triageWork(work)) == step {
+				return id, true
+			}
+		}
+	}
+	return "", false
+}
+
 // triageSpent counts the reruns a walk over the runs of a part passed over on a triage's verdict: those an environment
 // verdict started and those a flake verdict started.
 type triageSpent struct {

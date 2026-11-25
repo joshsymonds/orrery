@@ -1390,9 +1390,9 @@ func serveOpts(opts options, st *store.Store, logger *slog.Logger) []connect.Han
 }
 
 // readoptCheck is the ReadoptCheck of the steps. A re-adopted row gets the planner's return check when it is the step of a
-// running planner turn, and when that check is nil, the release integrator's check when it is a release integrator
-// step, and then the build's verifier or orchestrator check, which reads the epic's tasks on the host that hosts
-// resolves the epic to. An error from any of them is returned.
+// running planner turn, and when that check is nil, the interpreter's check when it is a release integrator step or a
+// gate triage step, and then the build's verifier or orchestrator check, which reads the epic's tasks on the host that
+// hosts resolves the epic to. An error from any of them is returned.
 func readoptCheck(
 	st *store.Store,
 	resolve planner.Resolver,
